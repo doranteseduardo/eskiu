@@ -61,7 +61,7 @@ void TypeChecker::visit(FunctionDecl* node) {
 
     // Define parameters
     for (const auto& param : node->params) {
-        defineSymbol(param.first, param.second);
+        defineSymbol(param.second, param.first);  // param.second = name, param.first = type
     }
 
     // Type check body
