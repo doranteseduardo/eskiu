@@ -22,6 +22,7 @@ set(SOURCES
     parser/parser.cpp
     ast/ast.cpp
     ast/ast_printer.cpp
+    sema/type_checker.cpp
     codegen/codegen.cpp
 )
 

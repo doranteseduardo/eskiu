@@ -7,6 +7,7 @@
 #include "lexer/lexer.h"
 #include "parser/parser.h"
 #include "ast/ast_printer.h"
+#include "sema/type_checker.h"
 #include "codegen/codegen.h"
 
 // Command line options
@@ -25,6 +26,9 @@ static llvm::cl::opt<bool> TestParser("test-parser",
 
 static llvm::cl::opt<bool> TestCodegen("test-codegen",
                                        llvm::cl::desc("Generate LLVM IR and print it"));
+
+static llvm::cl::opt<bool> TestTypeChecker("test-typechecker",
+                                           llvm::cl::desc("Type check input and report errors"));
 
 const char* VERSION = "0.0.1";
 
@@ -63,6 +67,49 @@ static void testLexer(const std::string& filename) {
 
     std::cout << "========================================================" << std::endl;
     std::cout << "Total tokens: " << tokenCount << std::endl;
+}
+
+// Test type checker: tokenize, parse, type check, and report errors
+static void testTypeChecker(const std::string& filename) {
+    std::string source = readFile(filename);
+    Lexer lexer(source);
+
+    // Tokenize
+    std::vector<Token> tokens;
+    Token tok = lexer.next_token();
+    while (tok.type != TokenType::EOF_TOKEN) {
+        tokens.push_back(tok);
+        tok = lexer.next_token();
+    }
+    tokens.push_back(tok);
+
+    std::cout << "Type checking: " << filename << std::endl;
+    std::cout << "========================================================" << std::endl;
+
+    try {
+        // Parse
+        Parser parser(tokens);
+        auto program = parser.parse();
+
+        if (!program) {
+            std::cerr << "Parse failed!" << std::endl;
+            return;
+        }
+
+        // Type check
+        TypeChecker typeChecker;
+        bool success = typeChecker.check(program);
+
+        std::cout << "========================================================" << std::endl;
+        if (success) {
+            std::cout << "Type checking succeeded!" << std::endl;
+        } else {
+            std::cout << "Type checking failed!" << std::endl;
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
+        return;
+    }
 }
 
 // Test codegen: tokenize, parse, generate LLVM IR, and print it
@@ -180,6 +227,12 @@ int main(int argc, char** argv) {
     // Handle --test-parser
     if (TestParser) {
         testParser(InputFilename);
+        return 0;
+    }
+
+    // Handle --test-typechecker
+    if (TestTypeChecker) {
+        testTypeChecker(InputFilename);
         return 0;
     }
 
