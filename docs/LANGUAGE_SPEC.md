@@ -1,7 +1,7 @@
 # Eskiu Language Specification
 
 **Version:** 0.2  
-**Status:** v0.0.1-alpha (Phases 0–3 complete)
+**Status:** v0.0.1-alpha (Phases 0–4 complete)
 
 ---
 

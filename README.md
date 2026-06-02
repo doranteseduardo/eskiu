@@ -2,7 +2,7 @@
 
 > A performance-first systems language with C-style syntax, compiled to LLVM IR. No garbage collector, no borrow checker—just honest memory management.
 
-**Current Status:** v0.0.1-alpha · Phases 0–3 complete · Lexer, Parser, Codegen working
+**Current Status:** v0.0.1-alpha · Phases 0–4 complete · Lexer, Parser, Type Checker, Codegen working
 
 ---
 
@@ -109,7 +109,25 @@ Program
               IdentExpr: b
 ```
 
-### 3. LLVM Code Generation (`--test-codegen`)
+### 3. Type Checking (`--test-typechecker`)
+
+Validate types and report semantic errors:
+
+```bash
+./eskiuc examples/hello.esk --test-typechecker
+```
+
+Output:
+```
+Type checking: examples/hello.esk
+========================================================
+========================================================
+Type checking succeeded!
+```
+
+Detects: undefined variables, type mismatches, invalid function calls, return type errors.
+
+### 4. LLVM Code Generation (`--test-codegen`)
 
 See the generated LLVM IR:
 
@@ -267,7 +285,7 @@ void renderAll([]Drawable objects) {
                      ▼
         ┌────────────────────────┐
         │ TYPE CHECKER (Phase 4) │
-        │  Validates types       │
+        │    Validates types ✅  │
         └────────────┬───────────┘
                      │
                      ▼
@@ -298,8 +316,8 @@ void renderAll([]Drawable objects) {
 | **1** | Complete | Lexer | Tokenizer for all Eskiu syntax |
 | **2** | Complete | Parser | AST construction, error recovery |
 | **3** | Complete | Codegen | LLVM IR generation, basic types |
-| **4** | Next | Type Checker | Type inference, validation |
-| **5** | Planned | Composites | Structs, interfaces, templates |
+| **4** | Complete | Type Checker | Type inference, validation, scope management |
+| **5** | Next | Composites | Structs, interfaces, templates |
 | **6** | Planned | Memory | `alloc`/`free`, String type |
 | **7** | Planned | Stdlib | `Result<T,E>`, collections |
 | **8** | Planned | Lambdas | Closures, first-class functions |
@@ -415,7 +433,7 @@ MIT
 
 ---
 
-**Status:** v0.0.1-alpha (Phases 0–3 complete)  
+**Status:** v0.0.1-alpha (Phases 0–4 complete)  
 **Last Updated:** June 2026  
 **Compiler:** LLVM 22+  
 **Language:** C++17

@@ -383,6 +383,60 @@ ASTPrinter::print(program.get());  // Pretty-print the entire program
 
 ---
 
+## Type Checker API
+
+**Header:** `sema/type_checker.h`
+
+### TypeChecker Class
+
+```cpp
+class TypeChecker : public ASTVisitor {
+public:
+    TypeChecker();
+    
+    // Main entry point: validate types in program
+    bool check(Program* program);
+    
+    // Get inferred type of an expression
+    std::string getExpressionType(Expr* expr);
+};
+```
+
+**Example:**
+
+```cpp
+#include "sema/type_checker.h"
+
+TypeChecker typeChecker;
+bool success = typeChecker.check(program.get());
+
+if (!success) {
+    std::cerr << "Type checking failed\n";
+    return 1;
+}
+
+// Optionally query expression types
+std::string exprType = typeChecker.getExpressionType(someExpr);
+```
+
+**Features:**
+
+- Type inference for all expressions (binary, unary, literals, casts)
+- Function signature registration and validation
+- Parameter and variable scope management
+- Return type checking
+- Function call argument validation
+- Type promotion rules (int → float → double)
+- Error reporting with file:line:col format
+
+**Type System:**
+
+- Primitive types: `int`, `int8`, `int16`, `int32`, `int64`, `uint`, `uint8`, `uint16`, `uint32`, `uint64`, `float`, `double`, `bool`, `char`, `string`, `void`
+- Pointer types: `*int`, `*string`, etc.
+- Struct types: `struct:StructName`
+
+---
+
 ## Code Generator API
 
 **Header:** `codegen/codegen.h`
@@ -447,13 +501,19 @@ static llvm::Type* getTypeFromString(llvm::LLVMContext* context, const std::stri
 
 ## Error Handling
 
-Currently, errors are reported to stderr with the following format:
+Errors are reported to stderr with the following format:
 
+**Lexer/Parser errors:**
 ```
 error: file.esk:line:col: message
 ```
 
-In Phase 4 (Type Checker), a dedicated error reporting system will be implemented.
+**Type checking errors:**
+```
+error: file.esk:0:0: message
+```
+
+(Note: Type checker line/column info will be populated in a future update)
 
 ---
 
@@ -463,6 +523,7 @@ In Phase 4 (Type Checker), a dedicated error reporting system will be implemente
 #include "lexer/lexer.h"
 #include "parser/parser.h"
 #include "ast/ast.h"
+#include "sema/type_checker.h"
 #include "codegen/codegen.h"
 #include <iostream>
 #include <fstream>
@@ -501,7 +562,14 @@ int main(int argc, char* argv[]) {
     // Step 3: Pretty-print AST
     ASTPrinter::print(program.get());
     
-    // Step 4: Generate LLVM IR
+    // Step 4: Type check
+    TypeChecker typeChecker;
+    if (!typeChecker.check(program.get())) {
+        std::cerr << "Type checking failed\n";
+        return 1;
+    }
+    
+    // Step 5: Generate LLVM IR
     CodeGen codegen;
     auto module = codegen.generateCode(program.get());
     if (!module) {
@@ -509,7 +577,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     
-    // Step 5: Print LLVM IR
+    // Step 6: Print LLVM IR
     llvm::raw_os_ostream out(std::cout);
     module->print(out, nullptr);
     
@@ -544,12 +612,12 @@ To embed Eskiu in your C++ project:
 
 ## Known Limitations (v0.0.1)
 
-- No type checking (Phase 4)
 - No struct/interface support (Phase 5)
 - No heap allocation (Phase 6)
 - No standard library (Phase 7)
-- No error recovery details in public API
+- Limited error recovery (no recovery in parser)
 - Module ownership transfers (use std::move)
+- Line/column info in type errors not yet populated from AST
 
 See [PHASES.md](./PHASES.md) for the roadmap.
 
