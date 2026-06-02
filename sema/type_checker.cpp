@@ -50,6 +50,11 @@ std::string TypeChecker::getExpressionType(Expr* expr) {
 }
 
 // Declaration visitors
+void TypeChecker::visit(Program* node) {
+    // Program node is handled by check() method
+    // This is called if someone visits it directly
+}
+
 void TypeChecker::visit(FunctionDecl* node) {
     currentFunctionReturnType = node->returnType;
     pushScope();
@@ -145,9 +150,9 @@ void TypeChecker::visit(ForStmt* node) {
         }
     }
 
-    // Type check increment
-    if (node->increment) {
-        node->increment->accept(this);
+    // Type check step
+    if (node->step) {
+        node->step->accept(this);
     }
 
     // Type check body
@@ -177,8 +182,8 @@ void TypeChecker::visit(BreakStmt* node) {
 }
 
 void TypeChecker::visit(ExprStmt* node) {
-    if (node->expression) {
-        node->expression->accept(this);
+    if (node->expr) {
+        node->expr->accept(this);
     }
 }
 
@@ -227,7 +232,7 @@ void TypeChecker::visit(UnaryExpr* node) {
 void TypeChecker::visit(CallExpr* node) {
     // Get function name
     std::string funcName;
-    if (auto identExpr = dynamic_cast<IdentExpr*>(node->function.get())) {
+    if (auto identExpr = dynamic_cast<IdentExpr*>(node->callee.get())) {
         funcName = identExpr->name;
     } else {
         expressionTypes[node] = "unknown";
@@ -246,18 +251,18 @@ void TypeChecker::visit(CallExpr* node) {
     const auto& expectedParamTypes = sig.second;
 
     // Check argument count
-    if (node->arguments.size() != expectedParamTypes.size()) {
+    if (node->args.size() != expectedParamTypes.size()) {
         error(0, 0, "function '" + funcName + "' expects " +
                     std::to_string(expectedParamTypes.size()) + " arguments, got " +
-                    std::to_string(node->arguments.size()));
+                    std::to_string(node->args.size()));
         expressionTypes[node] = sig.first;
         return;
     }
 
     // Type check arguments
-    for (size_t i = 0; i < node->arguments.size(); ++i) {
-        node->arguments[i]->accept(this);
-        std::string argType = getExpressionType(node->arguments[i].get());
+    for (size_t i = 0; i < node->args.size(); ++i) {
+        node->args[i]->accept(this);
+        std::string argType = getExpressionType(node->args[i].get());
         if (argType != "unknown" && !isValidAssignment(expectedParamTypes[i], argType)) {
             error(0, 0, "argument " + std::to_string(i + 1) + " type mismatch: expected " +
                         expectedParamTypes[i] + ", got " + argType);
@@ -268,10 +273,10 @@ void TypeChecker::visit(CallExpr* node) {
 }
 
 void TypeChecker::visit(IndexExpr* node) {
-    node->object->accept(this);
+    node->base->accept(this);
     node->index->accept(this);
 
-    std::string objectType = getExpressionType(node->object.get());
+    std::string baseType = getExpressionType(node->base.get());
     std::string indexType = getExpressionType(node->index.get());
 
     if (indexType != "unknown" && !isIntType(indexType)) {
@@ -279,44 +284,43 @@ void TypeChecker::visit(IndexExpr* node) {
     }
 
     // For arrays, return element type (simplified)
-    if (isPointerType(objectType)) {
-        expressionTypes[node] = getPointeeType(objectType);
+    if (isPointerType(baseType)) {
+        expressionTypes[node] = getPointeeType(baseType);
     } else {
         expressionTypes[node] = "unknown";
     }
 }
 
 void TypeChecker::visit(MemberExpr* node) {
-    node->object->accept(this);
+    node->base->accept(this);
     // Full struct member checking deferred to Phase 5
     expressionTypes[node] = "unknown";
 }
 
 void TypeChecker::visit(CastExpr* node) {
-    node->value->accept(this);
+    node->expr->accept(this);
     // Explicit casts are always allowed
     expressionTypes[node] = node->targetType;
 }
 
 void TypeChecker::visit(LiteralExpr* node) {
     switch (node->kind) {
-        case TokenType::INT_LIT:
+        case LiteralExpr::Kind::INT:
             expressionTypes[node] = "int";
             break;
-        case TokenType::FLOAT_LIT:
+        case LiteralExpr::Kind::FLOAT:
             expressionTypes[node] = "float";
             break;
-        case TokenType::STRING_LIT:
+        case LiteralExpr::Kind::STRING:
             expressionTypes[node] = "string";
             break;
-        case TokenType::CHAR_LIT:
+        case LiteralExpr::Kind::CHAR:
             expressionTypes[node] = "char";
             break;
-        case TokenType::TRUE:
-        case TokenType::FALSE:
+        case LiteralExpr::Kind::BOOL:
             expressionTypes[node] = "bool";
             break;
-        case TokenType::NULL_KW:
+        case LiteralExpr::Kind::NULL_VAL:
             expressionTypes[node] = "null";
             break;
         default:
@@ -368,22 +372,14 @@ void TypeChecker::defineFunction(const std::string& name, const std::string& ret
 }
 
 // Type inference
-std::string TypeChecker::inferBinaryExprType(const std::string& leftType, TokenType op,
+std::string TypeChecker::inferBinaryExprType(const std::string& leftType, const std::string& op,
                                              const std::string& rightType) {
     // Comparison operators return bool
-    switch (op) {
-        case TokenType::EQ:
-        case TokenType::NE:
-        case TokenType::LT:
-        case TokenType::GT:
-        case TokenType::LE:
-        case TokenType::GE:
-            return "bool";
-        case TokenType::AND:
-        case TokenType::OR:
-            return "bool";
-        default:
-            break;
+    if (op == "==" || op == "!=" || op == "<" || op == ">" || op == "<=" || op == ">=") {
+        return "bool";
+    }
+    if (op == "&&" || op == "||") {
+        return "bool";
     }
 
     // Arithmetic operators
@@ -395,26 +391,26 @@ std::string TypeChecker::inferBinaryExprType(const std::string& leftType, TokenT
     return promoteType(leftType, rightType);
 }
 
-std::string TypeChecker::inferUnaryExprType(TokenType op, const std::string& operandType) {
-    switch (op) {
-        case TokenType::NOT:
-            return "bool";
-        case TokenType::MINUS:
-        case TokenType::PLUS:
-            if (isNumericType(operandType)) {
-                return operandType;
-            }
-            return "error";
-        case TokenType::AMPERSAND:
-            return "*" + operandType;
-        case TokenType::STAR:
-            if (isPointerType(operandType)) {
-                return getPointeeType(operandType);
-            }
-            return "error";
-        default:
-            return "error";
+std::string TypeChecker::inferUnaryExprType(const std::string& op, const std::string& operandType) {
+    if (op == "!") {
+        return "bool";
     }
+    if (op == "-" || op == "+") {
+        if (isNumericType(operandType)) {
+            return operandType;
+        }
+        return "error";
+    }
+    if (op == "&") {
+        return "*" + operandType;
+    }
+    if (op == "*") {
+        if (isPointerType(operandType)) {
+            return getPointeeType(operandType);
+        }
+        return "error";
+    }
+    return "error";
 }
 
 // Type checking utilities

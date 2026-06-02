@@ -98,7 +98,7 @@ static void testTypeChecker(const std::string& filename) {
 
         // Type check
         TypeChecker typeChecker;
-        bool success = typeChecker.check(program);
+        bool success = typeChecker.check(program.get());
 
         std::cout << "========================================================" << std::endl;
         if (success) {

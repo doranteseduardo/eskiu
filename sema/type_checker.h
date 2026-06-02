@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../ast/ast.h"
+#include "../lexer/lexer.h"
 #include <map>
 #include <vector>
 #include <string>
@@ -17,6 +18,7 @@ public:
     std::string getExpressionType(Expr* expr);
 
     // Visitor methods
+    void visit(Program* node) override;
     void visit(FunctionDecl* node) override;
     void visit(VarDecl* node) override;
     void visit(StructDecl* node) override;
@@ -68,9 +70,9 @@ private:
                        const std::vector<std::string>& paramTypes);
 
     // Type inference
-    std::string inferBinaryExprType(const std::string& leftType, TokenType op,
+    std::string inferBinaryExprType(const std::string& leftType, const std::string& op,
                                     const std::string& rightType);
-    std::string inferUnaryExprType(TokenType op, const std::string& operandType);
+    std::string inferUnaryExprType(const std::string& op, const std::string& operandType);
 
     // Type checking utilities
     bool isValidAssignment(const std::string& lhsType, const std::string& rhsType);
