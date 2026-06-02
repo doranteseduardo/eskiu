@@ -1,0 +1,29 @@
+#include "ast.h"
+
+// Declarations
+void FunctionDecl::accept(ASTVisitor* visitor) { visitor->visit(this); }
+void VarDecl::accept(ASTVisitor* visitor) { visitor->visit(this); }
+void StructDecl::accept(ASTVisitor* visitor) { visitor->visit(this); }
+void ExternDecl::accept(ASTVisitor* visitor) { visitor->visit(this); }
+
+// Statements
+void BlockStmt::accept(ASTVisitor* visitor) { visitor->visit(this); }
+void IfStmt::accept(ASTVisitor* visitor) { visitor->visit(this); }
+void ForStmt::accept(ASTVisitor* visitor) { visitor->visit(this); }
+void WhileStmt::accept(ASTVisitor* visitor) { visitor->visit(this); }
+void ReturnStmt::accept(ASTVisitor* visitor) { visitor->visit(this); }
+void BreakStmt::accept(ASTVisitor* visitor) { visitor->visit(this); }
+void ExprStmt::accept(ASTVisitor* visitor) { visitor->visit(this); }
+
+// Expressions
+void BinaryExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
+void UnaryExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
+void CallExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
+void IndexExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
+void MemberExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
+void CastExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
+void LiteralExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
+void IdentExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
+
+// Program
+void Program::accept(ASTVisitor* visitor) { visitor->visit(this); }

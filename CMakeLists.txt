@@ -19,6 +19,9 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 set(SOURCES
     main.cpp
     lexer/lexer.cpp
+    parser/parser.cpp
+    ast/ast.cpp
+    ast/ast_printer.cpp
 )
 
 # Create executable
