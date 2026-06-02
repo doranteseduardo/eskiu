@@ -3,9 +3,11 @@
 #include <sstream>
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/InitLLVM.h"
+#include "llvm/Support/raw_os_ostream.h"
 #include "lexer/lexer.h"
 #include "parser/parser.h"
 #include "ast/ast_printer.h"
+#include "codegen/codegen.h"
 
 // Command line options
 static llvm::cl::opt<std::string> InputFilename(llvm::cl::Positional,
@@ -20,6 +22,9 @@ static llvm::cl::opt<bool> TestLexer("test-lexer",
 
 static llvm::cl::opt<bool> TestParser("test-parser",
                                       llvm::cl::desc("Parse input and print AST"));
+
+static llvm::cl::opt<bool> TestCodegen("test-codegen",
+                                       llvm::cl::desc("Generate LLVM IR and print it"));
 
 const char* VERSION = "0.0.1";
 
@@ -58,6 +63,50 @@ static void testLexer(const std::string& filename) {
 
     std::cout << "========================================================" << std::endl;
     std::cout << "Total tokens: " << tokenCount << std::endl;
+}
+
+// Test codegen: tokenize, parse, generate LLVM IR, and print it
+static void testCodegen(const std::string& filename) {
+    std::string source = readFile(filename);
+    Lexer lexer(source);
+
+    // Tokenize
+    std::vector<Token> tokens;
+    Token tok = lexer.next_token();
+    while (tok.type != TokenType::EOF_TOKEN) {
+        tokens.push_back(tok);
+        tok = lexer.next_token();
+    }
+    tokens.push_back(tok);
+
+    std::cout << "Generating LLVM IR: " << filename << std::endl;
+    std::cout << "========================================================" << std::endl;
+
+    try {
+        // Parse
+        Parser parser(tokens);
+        auto program = parser.parse();
+
+        // Codegen
+        CodeGen codegen;
+        auto module = codegen.generateCode(program);
+
+        if (!module) {
+            std::cerr << "Code generation failed!" << std::endl;
+            return;
+        }
+
+        // Print LLVM IR before module is destroyed
+        llvm::raw_os_ostream out(std::cout);
+        module->print(out, nullptr);
+        out.flush();
+
+        std::cout << "========================================================" << std::endl;
+        std::cout << "Code generation succeeded!" << std::endl;
+    } catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
+        return;
+    }
 }
 
 // Test parser: tokenize, parse, and print AST
@@ -131,6 +180,12 @@ int main(int argc, char** argv) {
     // Handle --test-parser
     if (TestParser) {
         testParser(InputFilename);
+        return 0;
+    }
+
+    // Handle --test-codegen
+    if (TestCodegen) {
+        testCodegen(InputFilename);
         return 0;
     }
 
