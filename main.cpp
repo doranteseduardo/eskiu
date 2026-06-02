@@ -36,20 +36,22 @@ static void testLexer(const std::string& filename) {
     Lexer lexer(source);
 
     std::cout << "Tokenizing: " << filename << std::endl;
-    std::cout << "============================================" << std::endl;
+    std::cout << "========================================================" << std::endl;
 
     Token tok = lexer.next_token();
     int tokenCount = 0;
 
     while (tok.type != TokenType::EOF_TOKEN) {
-        std::cout << "Line " << tok.line << ", Col " << tok.column << ": "
-                  << "Token(" << static_cast<int>(tok.type) << ") = '" << tok.value << "'"
-                  << std::endl;
+        std::string typeStr = tokenTypeToString(tok.type);
+        std::cout << "  Line " << std::string(3 - std::to_string(tok.line).length(), ' ') << tok.line
+                  << ", Col " << std::string(3 - std::to_string(tok.column).length(), ' ') << tok.column
+                  << "  " << std::string(15 - typeStr.length(), ' ') << typeStr
+                  << "  '" << tok.value << "'" << std::endl;
         tok = lexer.next_token();
         tokenCount++;
     }
 
-    std::cout << "============================================" << std::endl;
+    std::cout << "========================================================" << std::endl;
     std::cout << "Total tokens: " << tokenCount << std::endl;
 }
 
@@ -68,6 +70,12 @@ int main(int argc, char** argv) {
     if (InputFilename.empty()) {
         std::cerr << "error: no input file specified" << std::endl;
         return 1;
+    }
+
+    // Handle --test-lexer
+    if (TestLexer) {
+        testLexer(InputFilename);
+        return 0;
     }
 
     // TODO: implement actual compilation pipeline

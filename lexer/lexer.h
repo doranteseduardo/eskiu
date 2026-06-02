@@ -102,6 +102,9 @@ struct Token {
         : type(type), value(value), line(line), column(column) {}
 };
 
+// Helper function to convert TokenType to string
+std::string tokenTypeToString(TokenType type);
+
 class Lexer {
 public:
     explicit Lexer(const std::string& source);

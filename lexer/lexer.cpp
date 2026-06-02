@@ -2,6 +2,92 @@
 #include <iostream>
 #include <cctype>
 
+std::string tokenTypeToString(TokenType type) {
+    switch (type) {
+        // Keywords
+        case TokenType::LET: return "LET";
+        case TokenType::INT: return "INT";
+        case TokenType::FLOAT: return "FLOAT";
+        case TokenType::DOUBLE: return "DOUBLE";
+        case TokenType::BOOL: return "BOOL";
+        case TokenType::CHAR: return "CHAR";
+        case TokenType::STRING: return "STRING";
+        case TokenType::VOID: return "VOID";
+        case TokenType::STRUCT: return "STRUCT";
+        case TokenType::INTERFACE: return "INTERFACE";
+        case TokenType::ENUM: return "ENUM";
+        case TokenType::FN: return "FN";
+        case TokenType::FOR: return "FOR";
+        case TokenType::IN: return "IN";
+        case TokenType::WHILE: return "WHILE";
+        case TokenType::IF: return "IF";
+        case TokenType::ELSE: return "ELSE";
+        case TokenType::SWITCH: return "SWITCH";
+        case TokenType::CASE: return "CASE";
+        case TokenType::DEFAULT: return "DEFAULT";
+        case TokenType::BREAK: return "BREAK";
+        case TokenType::RETURN: return "RETURN";
+        case TokenType::IMPORT: return "IMPORT";
+        case TokenType::EXTERN: return "EXTERN";
+        case TokenType::ALLOC: return "ALLOC";
+        case TokenType::FREE: return "FREE";
+        case TokenType::NULL_KW: return "NULL";
+        case TokenType::TRUE: return "TRUE";
+        case TokenType::FALSE: return "FALSE";
+        case TokenType::THREAD: return "THREAD";
+        case TokenType::SPAWN: return "SPAWN";
+        case TokenType::MUTEX: return "MUTEX";
+        case TokenType::TRY: return "TRY";
+        case TokenType::CATCH: return "CATCH";
+        case TokenType::FINALLY: return "FINALLY";
+        case TokenType::THROW: return "THROW";
+        // Operators
+        case TokenType::PLUS: return "PLUS";
+        case TokenType::MINUS: return "MINUS";
+        case TokenType::STAR: return "STAR";
+        case TokenType::SLASH: return "SLASH";
+        case TokenType::PERCENT: return "PERCENT";
+        case TokenType::EQ: return "EQ";
+        case TokenType::EQEQ: return "EQEQ";
+        case TokenType::NE: return "NE";
+        case TokenType::LT: return "LT";
+        case TokenType::GT: return "GT";
+        case TokenType::LE: return "LE";
+        case TokenType::GE: return "GE";
+        case TokenType::AND: return "AND";
+        case TokenType::OR: return "OR";
+        case TokenType::NOT: return "NOT";
+        case TokenType::AMPERSAND: return "AMPERSAND";
+        case TokenType::PIPE: return "PIPE";
+        case TokenType::CARET: return "CARET";
+        case TokenType::TILDE: return "TILDE";
+        case TokenType::LSHIFT: return "LSHIFT";
+        case TokenType::RSHIFT: return "RSHIFT";
+        // Delimiters
+        case TokenType::LBRACE: return "LBRACE";
+        case TokenType::RBRACE: return "RBRACE";
+        case TokenType::LPAREN: return "LPAREN";
+        case TokenType::RPAREN: return "RPAREN";
+        case TokenType::LBRACKET: return "LBRACKET";
+        case TokenType::RBRACKET: return "RBRACKET";
+        case TokenType::SEMICOLON: return "SEMICOLON";
+        case TokenType::COMMA: return "COMMA";
+        case TokenType::DOT: return "DOT";
+        case TokenType::ARROW: return "ARROW";
+        case TokenType::ELLIPSIS: return "ELLIPSIS";
+        // Literals
+        case TokenType::INT_LIT: return "INT_LIT";
+        case TokenType::FLOAT_LIT: return "FLOAT_LIT";
+        case TokenType::STRING_LIT: return "STRING_LIT";
+        case TokenType::CHAR_LIT: return "CHAR_LIT";
+        case TokenType::IDENT: return "IDENT";
+        // Special
+        case TokenType::EOF_TOKEN: return "EOF";
+        case TokenType::UNKNOWN: return "UNKNOWN";
+        default: return "???";
+    }
+}
+
 std::unordered_map<std::string, TokenType> Lexer::keywords = {
     {"let", TokenType::LET},
     {"int", TokenType::INT},
