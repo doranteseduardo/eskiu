@@ -27,239 +27,54 @@ This is not theoretical. It's a shipping product with measurable requirements.
 
 ## Quick Start
 
-### Installation
+Get Eskiu compiling in **5 minutes**. See [QUICKSTART.md](QUICKSTART.md) for the complete guide.
+
+**Install LLVM**, build Eskiu, then compile your first program:
 
 ```bash
-# macOS
-brew install llvm@17 cmake
-
-# Linux (Ubuntu/Debian)
-sudo apt-get install llvm-17-dev clang-17 cmake
-
-# Verify
-llvm-config-17 --version  # → 17.x.x
-cmake --version            # → 3.20+
-```
-
-### Build Eskiu
-
-```bash
-cd ~/Documents/Github/eskiu
-mkdir -p build && cd build
+mkdir build && cd build
 cmake ..
-cmake --build .
+make -j4
 
-# Test
-./eskiuc --version
-# → Eskiu 0.0.1 (LLVM 22.1.5)
+# Compile and run
+./eskiu compile ../examples/hello.esk -o hello
+./hello
 ```
+
+For detailed setup instructions, see [BUILD.md](docs/BUILD.md).
 
 ---
 
-## Testing the Compiler
+## Documentation
 
-Eskiu exposes three testing modes to inspect the compilation pipeline:
-
-### 1. Tokenization (`--test-lexer`)
-
-See how the lexer breaks your code into tokens:
-
-```bash
-./eskiuc examples/hello.esk --test-lexer
-```
-
-Output:
-```
-Tokenizing: examples/hello.esk
-========================================================
-  Line   1, Col   1           EXTERN  'extern'
-  Line   1, Col   8              INT  'int'
-  Line   1, Col  12            IDENT  'printf'
-  ...
-========================================================
-Total tokens: 58
-```
-
-### 2. AST Parsing (`--test-parser`)
-
-Inspect the Abstract Syntax Tree:
-
-```bash
-./eskiuc examples/hello.esk --test-parser
-```
-
-Output:
-```
-Program
-  ExternDecl: printf -> int
-    Parameters:
-      string fmt
-      ... ...
-  FunctionDecl: add -> int
-    Parameters:
-      int a
-      int b
-    Body:
-      BlockStmt
-        ReturnStmt
-          BinaryExpr: +
-            Left:
-              IdentExpr: a
-            Right:
-              IdentExpr: b
-```
-
-### 3. Type Checking (`--test-typechecker`)
-
-Validate types and report semantic errors:
-
-```bash
-./eskiuc examples/hello.esk --test-typechecker
-```
-
-Output:
-```
-Type checking: examples/hello.esk
-========================================================
-========================================================
-Type checking succeeded!
-```
-
-Detects: undefined variables, type mismatches, invalid function calls, return type errors.
-
-### 4. LLVM Code Generation (`--test-codegen`)
-
-See the generated LLVM IR:
-
-```bash
-./eskiuc examples/hello.esk --test-codegen
-```
-
-Output:
-```llvm
-; ModuleID = 'eskiu'
-source_filename = "eskiu"
-
-declare i32 @printf(ptr, ...)
-
-define i32 @add(i32 %a, i32 %b) {
-entry:
-  %0 = add i32 %a, %b
-  ret i32 %0
-}
-```
+| Guide | Purpose |
+|-------|---------|
+| **[QUICKSTART.md](QUICKSTART.md)** | Get your first program running in 5 minutes |
+| **[GETTING_STARTED.md](docs/GETTING_STARTED.md)** | Complete walkthrough: syntax, types, memory management, debugging |
+| **[LANGUAGE_SPEC.md](docs/LANGUAGE_SPEC.md)** | Full language specification, operators, all features |
+| **[BUILD.md](docs/BUILD.md)** | Installation, build configuration, troubleshooting |
+| **[DEBUGGING.md](docs/DEBUGGING.md)** | Understanding error messages, using test modes, compiler internals |
+| **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** | How the compiler works (Lexer → Parser → Typechecker → Codegen) |
+| **[PHASES.md](docs/PHASES.md)** | Development roadmap and implementation status |
+| **[examples/](examples/)** | Real programs demonstrating language features |
 
 ---
 
-## Language Tour
+## Language Basics
 
-### Variables and Types
+Variables with explicit types, C-style syntax, honest memory management:
 
-```eskiu
-let x: int = 42;
-let name: string = "Eskiu";
-let pi: float = 3.14;
-let ptr: *int = null;
-
-// Stack-allocated structs
-let point: Point = Point { x: 1.0, y: 2.0 };
-```
-
-### Functions and Extern
-
-```eskiu
-// Function declaration
-int multiply(int a, int b) {
-    return a * b;
-}
-
-// Extern (C interop)
-extern int printf(string fmt, ...);
-
-// Calling both
-int main() {
-    int result = multiply(5, 3);
-    printf("Result: %d\n", result);
+```esk
+fn main() -> i32 {
+    let x: i32 = 42;
+    let ptr: *i32 = &x;
+    printf("x = %d\n", x);
     return 0;
 }
 ```
 
-### Control Flow
-
-```eskiu
-// If/else
-if (x > 0) {
-    printf("positive\n");
-} else {
-    printf("non-positive\n");
-}
-
-// While
-while (count < 10) {
-    count = count + 1;
-}
-
-// For
-for (int i = 0; i < 10; i++) {
-    printf("%d\n", i);
-}
-
-// Switch
-switch (status) {
-    case 0: printf("ok\n"); break;
-    case 1: printf("error\n"); break;
-    default: printf("unknown\n"); break;
-}
-```
-
-### Structs (No Inheritance)
-
-```eskiu
-struct Person {
-    string name;
-    int age;
-
-    void greet() {
-        printf("Hello, %s!\n", name);
-    }
-}
-
-struct Employee {
-    Person person;
-    string role;
-}
-```
-
-### Interfaces (Go-style Implicit)
-
-```eskiu
-interface Drawable {
-    void draw();
-}
-
-struct Circle {
-    float radius;
-
-    void draw() {
-        printf("Drawing circle with radius %f\n", radius);
-    }
-}
-
-struct Square {
-    float side;
-
-    void draw() {
-        printf("Drawing square with side %f\n", side);
-    }
-}
-
-// Circle and Square implicitly satisfy Drawable
-void renderAll([]Drawable objects) {
-    for obj in objects {
-        obj.draw();
-    }
-}
-```
+**Full feature tour:** See [LANGUAGE_SPEC.md](docs/LANGUAGE_SPEC.md)  
+**Learn by example:** See [examples/](examples/) and [GETTING_STARTED.md](docs/GETTING_STARTED.md)
 
 ---
 
@@ -386,44 +201,39 @@ Use `Result<T, E>` for error handling. Exceptions come later (v1.0).
 
 ---
 
-## Building Your First Program
+## Compiler Testing Modes
 
-Create `hello.esk`:
-
-```eskiu
-extern int printf(string fmt, ...);
-
-int main() {
-    printf("Hello, Eskiu!\n");
-    return 0;
-}
-```
-
-Test the pipeline:
+Inspect the compilation pipeline with these flags:
 
 ```bash
-# Tokenize
-./eskiuc hello.esk --test-lexer
+# Tokenization: see how code breaks into tokens
+./eskiu compile program.esk --test-lexer
 
-# Parse
-./eskiuc hello.esk --test-parser
+# Parsing: see the Abstract Syntax Tree
+./eskiu compile program.esk --test-parser
 
-# Generate IR
-./eskiuc hello.esk --test-codegen
+# Type Checking: validate types and scopes
+./eskiu compile program.esk --test-typechecker
+
+# Code Generation: see generated LLVM IR
+./eskiu compile program.esk --test-codegen
 ```
+
+These modes are invaluable for debugging. See [DEBUGGING.md](docs/DEBUGGING.md) for detailed examples.
 
 ---
 
 ## Contributing
 
-Contributions welcome! See [CONTRIBUTING.md](./CONTRIBUTING.md) (coming soon).
+Contributions welcome! See [CONTRIBUTING.md](docs/CONTRIBUTING.md).
 
-**Development workflow:**
-1. Pick a phase from the roadmap
-2. Write a test case first
-3. Implement the feature
-4. Ensure tests pass
-5. Commit with clear message
+**How to add a feature:**
+1. Pick a phase from [PHASES.md](docs/PHASES.md)
+2. Read the relevant architecture section in [ARCHITECTURE.md](docs/ARCHITECTURE.md)
+3. Write a test case first
+4. Implement the feature
+5. Test with `--test-*` modes
+6. Commit with clear message
 
 ---
 

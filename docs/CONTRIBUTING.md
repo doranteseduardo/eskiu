@@ -5,11 +5,19 @@ Thank you for your interest in contributing to Eskiu! This document outlines the
 ## Getting Started
 
 1. **Fork and clone** the repository
-2. **Set up** the environment (see [SETUP.md](../SETUP.md))
+2. **Set up** the environment (see [BUILD.md](BUILD.md))
 3. **Create a feature branch**: `git checkout -b feature/your-feature`
 4. **Make your changes** following the guidelines below
 5. **Test thoroughly** using the testing modes
-6. **Submit a pull request**
+6. **Commit with clear message** (see [Commit Guidelines](#commit-guidelines))
+7. **Submit a pull request**
+
+### Before You Start
+
+Familiarize yourself with:
+- [ARCHITECTURE.md](ARCHITECTURE.md) — How the compiler is organized
+- [PHASES.md](PHASES.md) — What each phase requires
+- [GETTING_STARTED.md](GETTING_STARTED.md) — How to use the language
 
 ## Development Workflow
 
@@ -25,18 +33,20 @@ Source → Lexer → Parser → Type Checker → Codegen → LLVM
 
 ### Phases Overview
 
-- **Phase 0** ✅ Setup (done)
-- **Phase 1** ✅ Lexer (done) — tokenizes `.esk` files
-- **Phase 2** ✅ Parser (done) — builds abstract syntax tree
-- **Phase 3** ✅ Codegen (done) — emits LLVM IR
-- **Phase 4** ⏳ Type Checker — validates types before codegen
-- **Phase 5** 🔮 Structs & Interfaces — composite types
-- **Phase 6** 🔮 Memory Management — `alloc`/`free`, String
-- **Phase 7** 🔮 Standard Library — collections, Result<T,E>
-- **Phase 8** 🔮 Lambdas & Closures — first-class functions
-- **Phase 9** 🔮 Threads (v0.2) — pthreads integration
-- **Phase 10** 🔮 Exceptions (v1.0) — try/catch/finally
-- **Phase 11** 🔮 Async/Await (v2.0) — coroutines
+| Phase | Status | Focus |
+|-------|--------|-------|
+| **0** | ✅ Complete | LLVM integration, CMake build |
+| **1** | ✅ Complete | Lexer, tokenization |
+| **2** | ✅ Complete | Parser, AST construction |
+| **3** | ✅ Complete | Code generation to LLVM IR |
+| **4** | ✅ Complete | Type checker, semantic analysis |
+| **5** | 🔄 In Progress | Structs, interfaces, templates |
+| **6** | ⏳ Planned | Memory: `alloc`/`free`, String |
+| **7** | ⏳ Planned | Stdlib: collections, Result<T,E> |
+| **8** | ⏳ Planned | Lambdas, closures, first-class functions |
+| **9** | ⏳ Planned (v0.2) | Threads: pthreads integration |
+| **10** | ⏳ Planned (v1.0) | Exceptions: try/catch/finally |
+| **11** | ⏳ Planned (v2.0) | Async/await: coroutines |
 
 See [PHASES.md](./PHASES.md) for detailed requirements for each phase.
 
@@ -73,51 +83,76 @@ private:
 
 ## Testing Your Changes
 
-Use the three test modes to validate your work:
+Use the four test modes to validate your work (from the `build/` directory):
 
 ### Test Lexer
 ```bash
-./eskiuc examples/hello.esk --test-lexer
+./eskiu compile ../examples/hello.esk --test-lexer
 ```
-Check that tokens are correctly identified.
+Check that tokens are correctly identified. See [DEBUGGING.md](DEBUGGING.md) for output examples.
 
 ### Test Parser
 ```bash
-./eskiuc examples/hello.esk --test-parser
+./eskiu compile ../examples/hello.esk --test-parser
 ```
-Check that the AST is correctly structured.
+Check that the AST is correctly structured and well-nested.
+
+### Test Type Checker
+```bash
+./eskiu compile ../examples/hello.esk --test-typechecker
+```
+Check that type checking passes without errors.
 
 ### Test Codegen
 ```bash
-./eskiuc examples/hello.esk --test-codegen
+./eskiu compile ../examples/hello.esk --test-codegen
 ```
 Check that valid LLVM IR is generated.
 
+### Full Compilation Test
+```bash
+./eskiu compile ../examples/hello.esk -o hello
+./hello
+```
+
+For detailed guidance, see [DEBUGGING.md](DEBUGGING.md).
+
 ## Commit Guidelines
 
-Write clear, descriptive commit messages:
+Write clear, descriptive commit messages. Use this format:
 
 ```
-Phase 1: Add lexer support for string literals
+Phase X: Brief description of feature
 
-- Implement read_string() method in Lexer class
-- Handle escape sequences (\n, \t, \\, \")
-- Add STRING_LIT token type
-- Test with examples/hello.esk
+- Detailed bullet point explaining what changed
+- Each bullet is one logical change
+- Reference any related issues
+- Verify all test modes pass before committing
 
-Fixes #42
+Fixes #ISSUE_NUMBER
 ```
 
-**Format:**
-```
-[Phase X]: Brief description
+### Example
 
-- Bullet points with details
-- One feature per bullet
-- Reference issues if applicable
-
-Fixes/Closes #issue_number
 ```
+Phase 5: Add struct member access validation
+
+- Implement type normalization for struct references
+- Add member lookup in type checker
+- Report error if struct lacks requested member
+- Update AST visitor for member expressions
+- All test modes pass (lexer, parser, typechecker, codegen)
+
+Fixes #15
+```
+
+### Best Practices
+
+- **One feature per commit** — Easier to review and revert if needed
+- **Test before committing** — Run `--test-*` modes to verify all stages pass
+- **Reference issues** — Link to GitHub issues with `Fixes #N` or `Addresses #N`
+- **Use imperative mood** — "Add support" not "Added support"
+- **Keep messages focused** — Don't mix Phase 5 work with bug fixes in one commit
 
 ## Pull Request Process
 
@@ -169,11 +204,17 @@ Discuss design decisions in PR comments if unsure.
 ## Documentation
 
 When adding features, update:
-- **Code comments** for complex logic
-- **PHASES.md** for phase-specific details
-- **LANGUAGE_SPEC.md** for new syntax
-- **API.md** for public interfaces
-- **README.md** if the feature is user-facing
+
+- **Code comments** — Explain non-obvious logic in the compiler
+- **LANGUAGE_SPEC.md** — Document new language syntax and semantics
+- **PHASES.md** — Update phase status and requirements
+- **API.md** — Document public C++ interfaces if you add them
+- **ARCHITECTURE.md** — Update if you change compiler structure
+- **DEBUGGING.md** — Add examples if you add new test modes
+- **README.md** — Only if the feature is user-facing and changes how Eskiu is used
+- **CONTRIBUTING.md** — Only if you change development workflow
+
+After significant changes, update the architecture diagram in README.md.
 
 ## Questions?
 
