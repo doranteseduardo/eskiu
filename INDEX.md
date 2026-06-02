@@ -51,6 +51,7 @@ For systems programmers and architects:
 | Document | Audience | Purpose | Time |
 |----------|----------|---------|------|
 | **[QUICKSTART.md](QUICKSTART.md)** | Everyone | First program | 5 min |
+| **[RELEASES.md](RELEASES.md)** | Everyone | Version history | Reference |
 | **[docs/GETTING_STARTED.md](docs/GETTING_STARTED.md)** | New users | Learn the language | 30 min |
 | **[examples/README.md](examples/README.md)** | Learners | Real code | varies |
 | **[README.md](README.md)** | Everyone | Project overview | 5 min |
@@ -167,6 +168,12 @@ For systems programmers and architects:
 ├── INDEX.md                         ← You are here
 ├── README.md                        ← Project overview
 ├── QUICKSTART.md                    ← 5-min first program
+├── RELEASES.md                      ← Version history & roadmap
+│
+├── .github/
+│   └── ISSUE_TEMPLATE/
+│       ├── bug_report.md            ← Bug report template
+│       └── feature_request.md       ← Feature request template
 │
 ├── docs/
 │   ├── GETTING_STARTED.md          ← Full tutorial

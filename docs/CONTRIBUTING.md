@@ -216,13 +216,48 @@ When adding features, update:
 
 After significant changes, update the architecture diagram in README.md.
 
-## Questions?
+## Reporting Issues
 
-Open an issue with:
+### Bug Reports
+
+Found a bug? File a [GitHub Issue](https://github.com/yourusername/eskiu/issues/new?template=bug_report.md) with:
+
+1. **Minimal test case** — 5–20 lines reproducing the bug
+2. **Exact compiler output** — Run `--test-lexer`, `--test-parser`, `--test-typechecker`
+3. **System info** — OS, LLVM version, build type
+4. **Expected vs actual** — What should happen? What happened?
+
+The issue template guides you through this.
+
+### Feature Requests
+
+Want a new feature? File a [Feature Request](https://github.com/yourusername/eskiu/issues/new?template=feature_request.md) with:
+
+1. **Use case** — Real scenario where this helps
+2. **Proposed syntax** — What would the code look like?
+3. **Phase impact** — Which compiler phase(s) affected?
+4. **Alternatives** — Other approaches you considered
+
+Check [PHASES.md](PHASES.md) and [DESIGN_DECISIONS.md](DESIGN_DECISIONS.md) first—your feature might already be planned.
+
+### Discussions and Questions
+
+Have a question or want to discuss design? Open an issue with:
 - Clear question title
 - Context (what you're working on)
 - What you've already tried
 - What documentation you checked
+
+Or reach out in community channels (when available).
+
+---
+
+## Recognition
+
+Contributors are recognized in:
+- Release notes (RELEASES.md)
+- Commit history (git log)
+- This file (future: CONTRIBUTORS.md)
 
 ---
 
