@@ -89,9 +89,25 @@ void ASTPrinter::visit(ExternDecl* node) {
 void ASTPrinter::visit(BlockStmt* node) {
     println("BlockStmt");
     indentLevel++;
-    for (auto& stmt : node->statements) {
-        stmt->accept(this);
+
+    if (!node->declarations.empty()) {
+        println("Declarations:");
+        indentLevel++;
+        for (auto& decl : node->declarations) {
+            decl->accept(this);
+        }
+        indentLevel--;
     }
+
+    if (!node->statements.empty()) {
+        println("Statements:");
+        indentLevel++;
+        for (auto& stmt : node->statements) {
+            stmt->accept(this);
+        }
+        indentLevel--;
+    }
+
     indentLevel--;
 }
 

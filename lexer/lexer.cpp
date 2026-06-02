@@ -73,6 +73,7 @@ std::string tokenTypeToString(TokenType type) {
         case TokenType::SEMICOLON: return "SEMICOLON";
         case TokenType::COMMA: return "COMMA";
         case TokenType::DOT: return "DOT";
+        case TokenType::COLON: return "COLON";
         case TokenType::ARROW: return "ARROW";
         case TokenType::ELLIPSIS: return "ELLIPSIS";
         // Literals
@@ -395,6 +396,7 @@ Token Lexer::next_token() {
         case ']': return Token(TokenType::RBRACKET, "]", start_line, start_col);
         case ';': return Token(TokenType::SEMICOLON, ";", start_line, start_col);
         case ',': return Token(TokenType::COMMA, ",", start_line, start_col);
+        case ':': return Token(TokenType::COLON, ":", start_line, start_col);
         case '.':
             if (!is_at_end() && peek() == '.' && peek_next() == '.') {
                 advance();

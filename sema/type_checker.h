@@ -48,8 +48,17 @@ private:
         bool isDeclared;
     };
 
+    // Struct information: name -> fields
+    struct StructInfo {
+        std::string name;
+        std::vector<StructDecl::Field> fields;
+    };
+
     // Scope management
     std::vector<std::map<std::string, Symbol>> scopes;
+
+    // Struct registry: name -> StructInfo
+    std::map<std::string, StructInfo> structs;
 
     // Function signatures: name -> (return type, parameter types)
     std::map<std::string, std::pair<std::string, std::vector<std::string>>> functionSignatures;
@@ -85,6 +94,9 @@ private:
 
     // Type promotion
     std::string promoteType(const std::string& type1, const std::string& type2);
+
+    // Type normalization
+    std::string normalizeType(const std::string& type);
 
     // Error reporting
     void error(int line, int col, const std::string& message);

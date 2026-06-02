@@ -246,6 +246,12 @@ void CodeGen::visit(ExternDecl* node) {
 }
 
 void CodeGen::visit(BlockStmt* node) {
+    // Generate code for declarations first
+    for (auto& decl : node->declarations) {
+        decl->accept(this);
+    }
+
+    // Generate code for statements
     for (auto& stmt : node->statements) {
         stmt->accept(this);
     }

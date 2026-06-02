@@ -100,9 +100,12 @@ public:
 
 class BlockStmt : public Stmt {
 public:
+    std::vector<DeclPtr> declarations;
     std::vector<StmtPtr> statements;
 
-    explicit BlockStmt(const std::vector<StmtPtr>& stmts = {}) : statements(stmts) {}
+    BlockStmt(const std::vector<DeclPtr>& decls = {},
+              const std::vector<StmtPtr>& stmts = {})
+        : declarations(decls), statements(stmts) {}
 
     void accept(class ASTVisitor* visitor) override;
 };

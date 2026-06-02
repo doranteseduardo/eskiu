@@ -76,6 +76,7 @@ enum class TokenType {
     SEMICOLON,
     COMMA,
     DOT,
+    COLON,
     ARROW,
     ELLIPSIS,
 

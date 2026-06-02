@@ -11,9 +11,15 @@ bool TypeChecker::check(Program* program) {
     hasErrors = false;
     errors.clear();
 
-    // First pass: register all function declarations
+    // First pass: register all struct declarations and function signatures
     for (const auto& decl : program->declarations) {
-        if (auto funcDecl = dynamic_cast<FunctionDecl*>(decl.get())) {
+        if (auto structDecl = dynamic_cast<StructDecl*>(decl.get())) {
+            // Register struct with all its fields
+            StructInfo info;
+            info.name = structDecl->name;
+            info.fields = structDecl->fields;
+            structs[structDecl->name] = info;
+        } else if (auto funcDecl = dynamic_cast<FunctionDecl*>(decl.get())) {
             std::vector<std::string> paramTypes;
             for (const auto& param : funcDecl->params) {
                 paramTypes.push_back(param.second);
@@ -81,12 +87,14 @@ void TypeChecker::visit(VarDecl* node) {
             warning(0, 0, "implicit conversion from " + initType + " to " + node->type);
         }
     }
-    defineSymbol(node->name, node->type);
+    // Normalize the type (e.g., "Point" -> "struct:Point")
+    std::string normalizedType = normalizeType(node->type);
+    defineSymbol(node->name, normalizedType);
 }
 
 void TypeChecker::visit(StructDecl* node) {
-    // Basic struct support - just track the struct name
-    // Full struct type checking deferred to Phase 5
+    // Struct is already registered in first pass of check()
+    // Just define the struct type symbol in the global scope
     defineSymbol(node->name, "struct:" + node->name);
 }
 
@@ -98,9 +106,17 @@ void TypeChecker::visit(ExternDecl* node) {
 // Statement visitors
 void TypeChecker::visit(BlockStmt* node) {
     pushScope();
+
+    // Type check declarations first (so symbols are available for statements)
+    for (const auto& decl : node->declarations) {
+        decl->accept(this);
+    }
+
+    // Type check statements
     for (const auto& stmt : node->statements) {
         stmt->accept(this);
     }
+
     popScope();
 }
 
@@ -293,8 +309,43 @@ void TypeChecker::visit(IndexExpr* node) {
 
 void TypeChecker::visit(MemberExpr* node) {
     node->base->accept(this);
-    // Full struct member checking deferred to Phase 5
-    expressionTypes[node] = "unknown";
+
+    std::string baseType = getExpressionType(node->base.get());
+
+    // Check if base is a struct type
+    if (baseType.find("struct:") == 0) {
+        // Extract struct name (remove "struct:" prefix)
+        std::string structName = baseType.substr(7);  // strlen("struct:") = 7
+
+        // Look up struct in registry
+        auto it = structs.find(structName);
+        if (it == structs.end()) {
+            error(0, 0, "undefined struct '" + structName + "'");
+            expressionTypes[node] = "unknown";
+            return;
+        }
+
+        // Look for the member in struct's fields
+        const auto& structInfo = it->second;
+        for (const auto& field : structInfo.fields) {
+            if (field.name == node->member) {
+                // Found the member, return its type
+                expressionTypes[node] = field.type;
+                return;
+            }
+        }
+
+        // Member not found in struct
+        error(0, 0, "struct '" + structName + "' has no member '" + node->member + "'");
+        expressionTypes[node] = "unknown";
+    } else if (baseType == "unknown") {
+        // Base type is unknown, can't validate member access
+        expressionTypes[node] = "unknown";
+    } else {
+        // Base is not a struct
+        error(0, 0, "cannot access member '" + node->member + "' on non-struct type '" + baseType + "'");
+        expressionTypes[node] = "unknown";
+    }
 }
 
 void TypeChecker::visit(CastExpr* node) {
@@ -460,6 +511,22 @@ std::string TypeChecker::getPointeeType(const std::string& pointerType) {
         return pointerType.substr(1);
     }
     return "";
+}
+
+// Type normalization
+std::string TypeChecker::normalizeType(const std::string& type) {
+    // If it's already a normalized type (starts with * for pointers, struct:, etc), return as-is
+    if (type[0] == '*' || type.find("struct:") == 0 || type.find("interface:") == 0) {
+        return type;
+    }
+
+    // Check if it's a known struct name
+    if (structs.find(type) != structs.end()) {
+        return "struct:" + type;
+    }
+
+    // Otherwise, return as-is (primitive type)
+    return type;
 }
 
 // Type promotion

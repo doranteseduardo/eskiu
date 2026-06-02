@@ -182,10 +182,24 @@ DeclPtr Parser::parseDeclaration() {
             return parseStructDecl();
         }
 
+        // Handle 'let' variable declarations
+        if (match(TokenType::LET)) {
+            std::string name = consume(TokenType::IDENT, "Expected identifier after 'let'").value;
+            consume(TokenType::COLON, "Expected ':' after variable name");
+            std::string type = parseType();
+
+            ExprPtr init = nullptr;
+            if (match(TokenType::EQ)) {
+                init = parseExpression();
+            }
+            consume(TokenType::SEMICOLON, "Expected ';' after variable declaration");
+            return std::make_shared<VarDecl>(name, type, init);
+        }
+
         // Try to parse as type declaration (function or variable)
         if (check(TokenType::INT) || check(TokenType::FLOAT) || check(TokenType::DOUBLE) ||
             check(TokenType::BOOL) || check(TokenType::CHAR) || check(TokenType::STRING) ||
-            check(TokenType::VOID) || check(TokenType::STAR)) {
+            check(TokenType::VOID) || check(TokenType::STAR) || check(TokenType::IDENT)) {
 
             size_t savePos = current;
             try {
@@ -290,14 +304,36 @@ StmtPtr Parser::parseStatement() {
 
 StmtPtr Parser::parseBlockStatement() {
     consume(TokenType::LBRACE, "Expected '{'");
+    std::vector<DeclPtr> declarations;
     std::vector<StmtPtr> statements;
 
     while (!check(TokenType::RBRACE) && !is_at_end()) {
+        // Try to parse as declaration first
+        if (check(TokenType::LET) ||
+            check(TokenType::INT) || check(TokenType::FLOAT) ||
+            check(TokenType::DOUBLE) || check(TokenType::BOOL) ||
+            check(TokenType::CHAR) || check(TokenType::STRING) ||
+            check(TokenType::VOID) || check(TokenType::STAR) ||
+            check(TokenType::IDENT)) {
+
+            size_t savePos = current;
+            try {
+                DeclPtr decl = parseDeclaration();
+                if (decl) {
+                    declarations.push_back(decl);
+                    continue;
+                }
+            } catch (...) {
+                current = savePos;
+            }
+        }
+
+        // Otherwise parse as statement
         statements.push_back(parseStatement());
     }
 
     consume(TokenType::RBRACE, "Expected '}'");
-    return std::make_shared<BlockStmt>(statements);
+    return std::make_shared<BlockStmt>(declarations, statements);
 }
 
 StmtPtr Parser::parseIfStatement() {
