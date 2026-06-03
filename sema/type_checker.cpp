@@ -317,6 +317,12 @@ void TypeChecker::visit(MemberExpr* node) {
 
     std::string baseType = getExpressionType(node->base.get());
 
+    // If base is a pointer to a struct, dereference it first
+    // e.g., "struct:Point*" -> "struct:Point"
+    if (hasPointerSuffix(baseType)) {
+        baseType = extractBaseType(baseType);
+    }
+
     // Check if base is a struct type
     if (baseType.find("struct:") == 0) {
         // Extract struct name (remove "struct:" prefix)
@@ -520,8 +526,16 @@ std::string TypeChecker::getPointeeType(const std::string& pointerType) {
 
 // Type normalization
 std::string TypeChecker::normalizeType(const std::string& type) {
-    // If it's already a normalized type (starts with * for pointers, struct:, etc), return as-is
-    if (type[0] == '*' || type.find("struct:") == 0 || type.find("interface:") == 0) {
+    // Check if type ends with "*" (pointer syntax)
+    if (hasPointerSuffix(type)) {
+        // Extract base type and normalize it
+        std::string baseType = extractBaseType(type);
+        std::string normalizedBase = normalizeType(baseType);
+        return addPointerSuffix(normalizedBase);
+    }
+
+    // If it's already a normalized type (struct:, interface:), return as-is
+    if (type.find("struct:") == 0 || type.find("interface:") == 0) {
         return type;
     }
 
@@ -555,6 +569,23 @@ std::string TypeChecker::promoteType(const std::string& type1, const std::string
     }
 
     return type1;
+}
+
+// Pointer type utilities
+bool TypeChecker::hasPointerSuffix(const std::string& type) const {
+    return !type.empty() && type.back() == '*';
+}
+
+std::string TypeChecker::extractBaseType(const std::string& pointerType) const {
+    if (hasPointerSuffix(pointerType)) {
+        // Remove the trailing '*'
+        return pointerType.substr(0, pointerType.length() - 1);
+    }
+    return pointerType;
+}
+
+std::string TypeChecker::addPointerSuffix(const std::string& baseType) const {
+    return baseType + "*";
 }
 
 // Error reporting

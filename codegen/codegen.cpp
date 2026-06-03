@@ -46,6 +46,13 @@ void CodeGen::printIR() const {
 // ============================================================================
 
 llvm::Type* CodeGen::getTypeFromString(const std::string& typeStr) {
+    // Handle pointer types: extract base type and wrap in PointerType
+    if (!typeStr.empty() && typeStr.back() == '*') {
+        std::string baseTypeStr = typeStr.substr(0, typeStr.length() - 1);
+        llvm::Type* baseType = getTypeFromString(baseTypeStr);
+        return llvm::PointerType::get(*context, 0);
+    }
+
     if (typeStr == "int") {
         return llvm::Type::getInt32Ty(*context);
     }
@@ -73,12 +80,19 @@ llvm::Type* CodeGen::getTypeFromString(const std::string& typeStr) {
     if (typeStr == "void") {
         return llvm::Type::getVoidTy(*context);
     }
-    if (typeStr == "string" || typeStr.find("*") != std::string::npos) {
-        // string is char*, pointers are i8*
+    if (typeStr == "string") {
+        // string is char*
         return llvm::PointerType::get(*context, 0);
     }
     if (typeStr == "char") {
         return llvm::Type::getInt8Ty(*context);
+    }
+
+    // Check for struct types: "struct:StructName"
+    if (typeStr.find("struct:") == 0) {
+        // TODO: Implement proper struct type lookup
+        // For now, return i8* as placeholder
+        return llvm::PointerType::get(*context, 0);
     }
 
     // Default to i32
@@ -87,15 +101,26 @@ llvm::Type* CodeGen::getTypeFromString(const std::string& typeStr) {
 }
 
 bool CodeGen::isPointerType(const std::string& typeStr) const {
-    return typeStr.find("*") != std::string::npos || typeStr == "string";
+    // Check if type ends with "*" (pointer suffix) or is "string"
+    return (!typeStr.empty() && typeStr.back() == '*') || typeStr == "string";
 }
 
 bool CodeGen::isIntType(const std::string& typeStr) const {
-    return typeStr.find("int") != std::string::npos || typeStr == "bool" || typeStr == "char";
+    // Remove pointer suffix before checking
+    std::string baseType = typeStr;
+    if (!baseType.empty() && baseType.back() == '*') {
+        baseType = baseType.substr(0, baseType.length() - 1);
+    }
+    return baseType.find("int") != std::string::npos || baseType == "bool" || baseType == "char";
 }
 
 bool CodeGen::isFloatType(const std::string& typeStr) const {
-    return typeStr == "float" || typeStr == "double";
+    // Remove pointer suffix before checking
+    std::string baseType = typeStr;
+    if (!baseType.empty() && baseType.back() == '*') {
+        baseType = baseType.substr(0, baseType.length() - 1);
+    }
+    return baseType == "float" || baseType == "double";
 }
 
 // ============================================================================

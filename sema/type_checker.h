@@ -98,6 +98,11 @@ private:
     // Type normalization
     std::string normalizeType(const std::string& type);
 
+    // Pointer type handling
+    bool hasPointerSuffix(const std::string& type) const;
+    std::string extractBaseType(const std::string& pointerType) const;
+    std::string addPointerSuffix(const std::string& baseType) const;
+
     // Error reporting
     void error(int line, int col, const std::string& message);
     void warning(int line, int col, const std::string& message);
