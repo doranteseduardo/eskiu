@@ -16,16 +16,16 @@ public:
     CodeGen();
     ~CodeGen();
 
-    // Generate code from AST and return LLVM module
-    std::unique_ptr<llvm::Module> generateCode(std::shared_ptr<Program> program);
+    // Generate code — fills internal module, returns raw pointer (null on failure)
+    llvm::Module* generateCode(std::shared_ptr<Program> program);
 
-    // Get the generated LLVM module
+    // Get the generated LLVM module (non-owning)
     llvm::Module* getModule() const { return module.get(); }
 
     // Print LLVM IR to stdout
     void printIR() const;
 
-    // Emit object file
+    // Emit native object file
     bool emitObjectFile(const std::string& filename);
 
 private:
@@ -40,11 +40,26 @@ private:
     // Current function being compiled
     llvm::Function* currentFunction = nullptr;
 
+    // Struct type registry
+    std::map<std::string, llvm::StructType*> structTypes;
+    std::map<std::string, std::vector<StructDecl::Field>> structFields;
+
+    // Variable type tracking for MemberExpr/IndexExpr resolution
+    std::vector<std::map<std::string, std::string>> varTypeStack;
+    void defineVarType(const std::string& name, const std::string& type);
+    std::string lookupVarType(const std::string& name) const;
+
+    // Break/continue target for the innermost loop
+    llvm::BasicBlock* breakTarget = nullptr;
+
     // Type system: map Eskiu types to LLVM types
     llvm::Type* getTypeFromString(const std::string& typeStr);
     bool isPointerType(const std::string& typeStr) const;
     bool isIntType(const std::string& typeStr) const;
     bool isFloatType(const std::string& typeStr) const;
+
+    // Resolve the Eskiu type string of an expression (for struct/array access)
+    std::string getExprEskiuType(ExprPtr expr) const;
 
     // Helper methods
     void pushScope();

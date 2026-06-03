@@ -163,12 +163,14 @@ None.
 - `ReturnStmt`
 - `ExternDecl` — `llvm::Function::ExternalLinkage` with correct variadic flag
 
-### Known Gaps (stubs emit warnings, do not abort)
-- `StructDecl` — no `llvm::StructType` created; emits warning
-- `MemberExpr` — no GEP emitted; returns null value
-- `IndexExpr` — no GEP emitted; returns null value
-- `BreakStmt` — no branch to exit block emitted; emits warning
-- `emitObjectFile` — not implemented; IR-only output
+**Object file emission**
+- `emitObjectFile(filename)` — initializes native target, creates `TargetMachine`, emits via `legacy::PassManager`; produces a linkable `.o` file
+- Full pipeline: `eskiuc file.esk -o file.o` → `clang file.o -o file` → runnable binary
+
+### Known Gaps
+- Float literal assigned to `float` field emits `double` constant — store width mismatch (no impact on integer/uint types used by INE decoder target)
+- `BreakStmt` inside `switch`/`case` (switch not yet parsed)
+- `emitObjectFile` on Windows not tested
 
 ### Key Files
 - `codegen/codegen.h`
@@ -225,54 +227,68 @@ None.
 
 ## Phase 5 — Structs, Interfaces, Templates
 
-**Status: NEXT**
+**Status: IN PROGRESS**
 
 **Goal:** First-class composite types with method dispatch and generic instantiation, sufficient to compile the INE QR decoder target types.
 
-**Deliverable:** `QRPair`, `IneResult`, and `NoSoKeys` structs from the INE target compile and produce correct LLVM IR, including field access, fixed-size array fields, and method calls.
+**Deliverable:** `QRPair`, `IneResult`, and `NoSoKeys` structs from the INE target compile and run end-to-end.
 
-### What Exists
-- `StructDecl` AST node with field list and method list (parser complete)
-- Struct registry in type checker — struct types resolved, field access type-checked
-- Method parsing — methods stored under struct in registry
-- `*T` / `T*` pointer type parsing and type-checker representation
-
-### What Needs to Be Built
+### Implemented
 
 **Struct codegen**
-- `llvm::StructType::create` for each `StructDecl`
-- `alloca` of struct type for local variables
-- GEP (GetElementPtr) for field access in `MemberExpr`
-- Fixed-size array fields: `uint8[858] left;` → `[858 x i8]` member type
-- Struct initialization syntax — either C99-style designated initializers or positional
+- `visit(StructDecl*)` — `llvm::StructType::create` with correct field types; registered in `structTypes` and `structFields` maps
+- `visit(MemberExpr*)` — `getelementptr inbounds` for field read; field index resolved by name at compile time
+- `evaluateLValue(MemberExpr*)` — GEP for field write; enables `p.x = val` assignments
+- `visit(VarDecl*)` — `alloca %StructType` for struct-typed locals; `varTypeStack` tracks Eskiu type alongside LLVM value
+
+**Fixed-size array fields**
+- Parser captures array size: `uint8[858]` → type string `"uint8[858]"` (previously discarded)
+- `getTypeFromString("uint8[858]")` → `llvm::ArrayType::get(i8, 858)` → `[858 x i8]`
+- `visit(IndexExpr*)` — GEP with `[0, i]` for `T[N]` arrays; pointer-offset GEP for `*T` pointers
+- `evaluateLValue(IndexExpr*)` — GEP for array element assignment: `arr[i] = val`
+
+**Control flow**
+- `visit(BreakStmt*)` — `CreateBr(breakTarget)`; `breakTarget` saved/restored around `WhileStmt` and `ForStmt` bodies
+
+**Object file emission**
+- `emitObjectFile(filename)` complete; `eskiuc file.esk -o file.o` produces a linkable native object
+
+**Type checker fixes**
+- Parameter types now correctly registered as types (not names) in function signature registry
+- Variadic functions (`printf`, `scanf`, etc.) correctly accept ≥N fixed arguments without false arity errors
+
+### Verified
+```
+%QRPair = type { [858 x i8], [858 x i8], i32 }
+%p = alloca %QRPair
+getelementptr inbounds nuw %QRPair, ptr %p, i32 0, i32 2  ; q.ok
+```
+`eskiuc examples/hello.esk -o hello.o && clang hello.o -o hello && ./hello` → runs correctly.
+
+### Remaining
+
+**Struct initialization syntax**
+- `Point { x: 1.0, y: 2.0 }` or `Point { 1.0, 2.0 }` — parser not yet wired; workaround is field-by-field assignment
 
 **Method calls**
-- Method call syntax already parsed as `MemberExpr` + `CallExpr`
-- Codegen must pass implicit `self` pointer as first argument
+- Method syntax parsed as `MemberExpr + CallExpr`
+- Codegen must pass implicit `self` pointer as first argument to the generated function
 
 **Interface dispatch**
-- Go-style implicit satisfaction: if a struct implements all method signatures of an interface, it satisfies it
-- Dispatch via fat pointer: `(data_ptr, vtable_ptr)` pair
-- `vtable` as a constant `llvm::StructType` of function pointers, one per interface method
+- Go-style implicit satisfaction
+- Fat pointer: `(data_ptr, vtable_ptr)` pair; vtable as `llvm::StructType` of function pointers
 
 **Templates**
-- Monomorphic instantiation — each unique `T` argument generates a distinct `llvm::StructType` and set of functions
-- Name-mangled to `StructName_T` in IR
-- No partial specialization
+- Monomorphic instantiation: `List<int>` → `List_int` distinct struct + functions
+- Name mangling, no partial specialization
 
-**Parser additions**
-- Struct literal initialization: `Point { x: 1, y: 2 }` or `Point { 1.0, 2.0 }`
-- `switch`/`case` statement (deferred from Phase 2)
+**Parser**
+- `switch`/`case` statement
 
-### Known Gaps to Address
-- `BreakStmt` in codegen (needed for `switch`/`case`)
-- `IndexExpr` codegen (needed for fixed-size array field access)
-
-### Key Files (current + new)
-- `ast/ast.h` — `StructDecl`, `MemberExpr`, `IndexExpr` already defined
-- `sema/type_checker.cpp` — struct registry already present
-- `codegen/codegen.cpp` — `visitStructDecl`, `visitMemberExpr`, `visitIndexExpr` need implementation
-- `parser/parser.cpp` — struct literal syntax to add
+### Key Files
+- `codegen/codegen.cpp` — `visit(StructDecl*)`, `visit(MemberExpr*)`, `visit(IndexExpr*)`, `visit(BreakStmt*)`, `emitObjectFile()`
+- `codegen/codegen.h` — `structTypes`, `structFields`, `varTypeStack`, `breakTarget`, `getExprEskiuType()`
+- `parser/parser.cpp` — array size capture in `parseType()`
 
 ---
 

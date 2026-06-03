@@ -136,14 +136,13 @@ static void testCodegen(const std::string& filename) {
 
         // Codegen
         CodeGen codegen;
-        auto module = codegen.generateCode(program);
+        llvm::Module* module = codegen.generateCode(program);
 
         if (!module) {
             std::cerr << "Code generation failed!" << std::endl;
             return;
         }
 
-        // Print LLVM IR before module is destroyed
         llvm::raw_os_ostream out(std::cout);
         module->print(out, nullptr);
         out.flush();
@@ -242,7 +241,49 @@ int main(int argc, char** argv) {
         return 0;
     }
 
-    // TODO: implement actual compilation pipeline
-    std::cerr << "error: compilation not yet implemented" << std::endl;
-    return 1;
+    // Full compilation pipeline
+    std::string source = readFile(InputFilename);
+    Lexer lexer(source);
+
+    std::vector<Token> tokens;
+    Token tok = lexer.next_token();
+    while (tok.type != TokenType::EOF_TOKEN) {
+        tokens.push_back(tok);
+        tok = lexer.next_token();
+    }
+    tokens.push_back(tok);
+
+    try {
+        Parser parser(tokens);
+        auto program = parser.parse();
+        if (!program) {
+            std::cerr << "error: parse failed" << std::endl;
+            return 1;
+        }
+
+        TypeChecker typeChecker;
+        if (!typeChecker.check(program.get())) {
+            return 1;
+        }
+
+        CodeGen codegen;
+        if (!codegen.generateCode(program)) {
+            std::cerr << "error: code generation failed" << std::endl;
+            return 1;
+        }
+
+        std::string outFile = OutputFilename.empty()
+            ? std::string(InputFilename) + ".o"
+            : std::string(OutputFilename);
+
+        if (!codegen.emitObjectFile(outFile)) {
+            return 1;
+        }
+
+        std::cout << outFile << std::endl;
+        return 0;
+    } catch (const std::exception& e) {
+        std::cerr << "error: " << e.what() << std::endl;
+        return 1;
+    }
 }

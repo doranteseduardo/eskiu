@@ -115,21 +115,17 @@ std::string Parser::parseType() {
         type = "*" + type;
     }
 
-    // Handle array syntax [N]
+    // Handle array syntax [N] — capture the size literal
     while (match(TokenType::LBRACKET)) {
-        if (!check(TokenType::RBRACKET)) {
-            // Skip array size expression (we don't need it for now)
-            int depth = 1;
-            while (!is_at_end() && depth > 0) {
-                if (check(TokenType::LBRACKET)) depth++;
-                else if (check(TokenType::RBRACKET)) depth--;
-                if (depth > 0) advance();
-            }
+        std::string sizeStr;
+        while (!is_at_end() && !check(TokenType::RBRACKET)) {
+            sizeStr += peek().value;
+            advance();
         }
         if (!match(TokenType::RBRACKET)) {
             throw std::runtime_error("Expected ']'");
         }
-        type += "[]";
+        type += "[" + sizeStr + "]";
     }
 
     return type;

@@ -1,8 +1,9 @@
 <p align="center">
-  <img src="assets/logo.jpg" alt="Eskiu" width="640">
+  <img src="assets/logo.png" alt="Eskiu" width="180">
 </p>
 
-A systems language with C-style syntax, Go-style interfaces, and explicit memory — compiled to native via LLVM.
+<h1 align="center">Eskiu</h1>
+<p align="center">A systems language with C-style syntax, Go-style interfaces, and explicit memory — compiled to native via LLVM.</p>
 
 ## Quick Start
 
@@ -32,17 +33,18 @@ int main() {
 ## Architecture
 
 ```
-Stage            Component                Status
------            ---------                ------
-Source           .esk file                --
-Lexer            lexer/lexer.cpp          complete
-Parser           parser/parser.cpp        complete
-Type Checker     sema/type_checker.cpp    complete
-Code Generator   codegen/codegen.cpp      complete
-LLVM Backend     LLVM IRBuilder           complete
-Structs/Templates Phase 5                 in progress
-Heap/Alloc       Phase 6                  planned
-stdlib/Result<T> Phase 7                  planned
+Stage              Component                  Status
+-----              ---------                  ------
+Source             .esk file                  --
+Lexer              lexer/lexer.cpp            complete
+Parser             parser/parser.cpp          complete
+Type Checker       sema/type_checker.cpp      complete
+Code Generator     codegen/codegen.cpp        complete
+Object File        emitObjectFile()           complete
+Structs / Arrays   Phase 5 (partial)          struct fields + fixed arrays done
+Interfaces         Phase 5                    planned
+Heap / alloc/free  Phase 6                    planned
+stdlib/Result<T>   Phase 7                    planned
 ```
 
 ## CLI Flags

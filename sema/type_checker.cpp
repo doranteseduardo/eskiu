@@ -22,13 +22,13 @@ bool TypeChecker::check(Program* program) {
         } else if (auto funcDecl = dynamic_cast<FunctionDecl*>(decl.get())) {
             std::vector<std::string> paramTypes;
             for (const auto& param : funcDecl->params) {
-                paramTypes.push_back(param.second);
+                paramTypes.push_back(param.first);  // first = type, second = name
             }
             defineFunction(funcDecl->name, funcDecl->returnType, paramTypes);
         } else if (auto externDecl = dynamic_cast<ExternDecl*>(decl.get())) {
             std::vector<std::string> paramTypes;
             for (const auto& param : externDecl->params) {
-                paramTypes.push_back(param.second);
+                paramTypes.push_back(param.first);  // first = type, second = name
             }
             defineFunction(externDecl->name, externDecl->returnType, paramTypes);
         }
@@ -275,22 +275,35 @@ void TypeChecker::visit(CallExpr* node) {
     const auto& sig = it->second;
     const auto& expectedParamTypes = sig.second;
 
+    bool isVariadic = !expectedParamTypes.empty() && expectedParamTypes.back() == "...";
+    size_t fixedCount = isVariadic ? expectedParamTypes.size() - 1 : expectedParamTypes.size();
+
     // Check argument count
-    if (node->args.size() != expectedParamTypes.size()) {
+    if (isVariadic) {
+        if (node->args.size() < fixedCount) {
+            error(0, 0, "function '" + funcName + "' expects at least " +
+                        std::to_string(fixedCount) + " arguments, got " +
+                        std::to_string(node->args.size()));
+            expressionTypes[node] = sig.first;
+            return;
+        }
+    } else if (node->args.size() != fixedCount) {
         error(0, 0, "function '" + funcName + "' expects " +
-                    std::to_string(expectedParamTypes.size()) + " arguments, got " +
+                    std::to_string(fixedCount) + " arguments, got " +
                     std::to_string(node->args.size()));
         expressionTypes[node] = sig.first;
         return;
     }
 
-    // Type check arguments
+    // Type check fixed arguments; visit (but do not type-check) variadic extras
     for (size_t i = 0; i < node->args.size(); ++i) {
         node->args[i]->accept(this);
-        std::string argType = getExpressionType(node->args[i].get());
-        if (argType != "unknown" && !isValidAssignment(expectedParamTypes[i], argType)) {
-            error(0, 0, "argument " + std::to_string(i + 1) + " type mismatch: expected " +
-                        expectedParamTypes[i] + ", got " + argType);
+        if (i < fixedCount) {
+            std::string argType = getExpressionType(node->args[i].get());
+            if (argType != "unknown" && !isValidAssignment(expectedParamTypes[i], argType)) {
+                error(0, 0, "argument " + std::to_string(i + 1) + " type mismatch: expected " +
+                            expectedParamTypes[i] + ", got " + argType);
+            }
         }
     }
 

@@ -80,13 +80,25 @@ Use files in `examples/` and `test/` as inputs. Add a new `.esk` file for any fe
 
 ## Current phase boundary
 
-Phases 0–4 are complete. Phase 5 (structs + interfaces) is next. The AST (`StructDecl`, `MemberExpr`) and type checker (`StructInfo` registry, field validation) already have groundwork. What is missing:
+Phases 0–5 (partial) are implemented. The full compilation pipeline is working:
+`eskiuc file.esk -o file.o` → `clang file.o -o file` → runs.
 
-- `CodeGen::visit(StructDecl*)` — emit `llvm::StructType`
-- `CodeGen::visit(MemberExpr*)` — emit `getelementptr`
-- Struct literal initialization syntax in the parser
+**Phase 5 — what's done:**
+- `visit(StructDecl*)` — `llvm::StructType::create`, registered in `structTypes` + `structFields`
+- `visit(MemberExpr*)` + `evaluateLValue(MemberExpr*)` — `getelementptr` for read and write
+- `visit(IndexExpr*)` + `evaluateLValue(IndexExpr*)` — GEP for `T[N]` and `*T`
+- `visit(BreakStmt*)` — branch to `breakTarget` (saved/restored around loops)
+- `emitObjectFile()` — native object file via LLVM target machine
+- Array sizes captured in type strings: `"uint8[858]"` → `[858 x i8]`
+- Type checker: param types fixed (was storing names); variadic arity check fixed
 
-Do not touch memory management (Phase 6) or stdlib (Phase 7) until struct codegen is working end-to-end and validated with `--test-codegen`.
+**Phase 5 — what remains:**
+- Struct literal initialization: `Point { x: 1.0, y: 2.0 }`
+- Method calls with implicit `self` pointer
+- Interface dispatch (vtable)
+- Monomorphic templates
+
+Do not start Phase 6 (alloc/free) until struct initialization syntax and method calls are working.
 
 ## Error format
 

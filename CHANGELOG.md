@@ -2,8 +2,21 @@
 
 ## [Unreleased]
 
-### Planned
-- Phase 5: struct codegen (method dispatch, fixed-size array fields), Go-style implicit interfaces, monomorphic template instantiation
+### In Progress — Phase 5 (partial)
+- Struct codegen: `llvm::StructType` creation, `MemberExpr` via GEP, field read/write
+- Fixed-size array fields: `uint8[858]` → `[858 x i8]`; array index via GEP
+- `BreakStmt` codegen: branch to loop exit block
+- `emitObjectFile()`: native object file emission via LLVM target machine
+- Full compilation pipeline: `eskiuc file.esk -o file.o` → linkable Mach-O / ELF
+- Type checker bug fixes: param types were registered as names; variadic functions now accept ≥N fixed args
+- `evaluateLValue` extended for `MemberExpr` and `IndexExpr` (enables `p.x = val`, `arr[i] = val`)
+- Variable type tracking (`varTypeStack`) for struct/array expression resolution
+
+### Remaining for Phase 5
+- Struct literal initialization syntax: `Point { x: 1.0, y: 2.0 }`
+- Method calls with implicit `self` pointer
+- Go-style interface dispatch (vtable)
+- Monomorphic template instantiation
 
 ---
 

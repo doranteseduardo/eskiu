@@ -2,9 +2,13 @@
 #include "llvm/IR/Verifier.h"
 #include "llvm/IR/Type.h"
 #include "llvm/IR/Constants.h"
+#include "llvm/IR/LegacyPassManager.h"
 #include "llvm/Support/TargetSelect.h"
+#include "llvm/Support/FileSystem.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/MC/TargetRegistry.h"
+#include "llvm/TargetParser/Host.h"
+#include "llvm/TargetParser/Triple.h"
 #include "llvm/Support/raw_os_ostream.h"
 #include <iostream>
 
@@ -15,10 +19,9 @@ CodeGen::CodeGen()
 
 CodeGen::~CodeGen() = default;
 
-std::unique_ptr<llvm::Module> CodeGen::generateCode(std::shared_ptr<Program> program) {
+llvm::Module* CodeGen::generateCode(std::shared_ptr<Program> program) {
     program->accept(this);
 
-    // Verify the module
     std::string errorStr;
     llvm::raw_string_ostream errorStream(errorStr);
     if (llvm::verifyModule(*module, &errorStream)) {
@@ -26,8 +29,7 @@ std::unique_ptr<llvm::Module> CodeGen::generateCode(std::shared_ptr<Program> pro
         return nullptr;
     }
 
-    // Return the module (ownership is transferred)
-    return std::move(module);
+    return module.get();
 }
 
 void CodeGen::printIR() const {
@@ -70,9 +72,33 @@ llvm::Type* CodeGen::getTypeFromString(const std::string& typeStr) {
     if (typeStr == "char")                         return llvm::Type::getInt8Ty(*context);
     if (typeStr == "string")                       return llvm::PointerType::get(*context, 0);
 
+    // Struct type with "struct:" prefix (from type checker normalization)
     if (typeStr.find("struct:") == 0) {
-        // TODO: resolve to llvm::StructType in Phase 5
-        return llvm::PointerType::get(*context, 0);
+        std::string name = typeStr.substr(7);
+        auto it = structTypes.find(name);
+        if (it != structTypes.end()) return it->second;
+        return llvm::PointerType::get(*context, 0); // forward ref placeholder
+    }
+
+    // Bare struct name (from parser, before normalization)
+    {
+        auto it = structTypes.find(typeStr);
+        if (it != structTypes.end()) return it->second;
+    }
+
+    // Fixed-size array: T[N]  (e.g. "uint8[858]")
+    {
+        size_t lb = typeStr.rfind('[');
+        if (lb != std::string::npos && typeStr.back() == ']') {
+            std::string elemStr = typeStr.substr(0, lb);
+            std::string sizeStr = typeStr.substr(lb + 1, typeStr.size() - lb - 2);
+            llvm::Type* elem = getTypeFromString(elemStr);
+            if (!sizeStr.empty()) {
+                uint64_t n = std::stoull(sizeStr);
+                return llvm::ArrayType::get(elem, n);
+            }
+            return llvm::PointerType::get(*context, 0); // unsized → pointer
+        }
     }
 
     std::cerr << "Warning: unknown type '" << typeStr << "', defaulting to i32" << std::endl;
@@ -108,6 +134,7 @@ bool CodeGen::isFloatType(const std::string& typeStr) const {
 
 void CodeGen::pushScope() {
     scopeStack.push_back(symbolTable);
+    varTypeStack.push_back({});
 }
 
 void CodeGen::popScope() {
@@ -115,6 +142,47 @@ void CodeGen::popScope() {
         symbolTable = scopeStack.back();
         scopeStack.pop_back();
     }
+    if (!varTypeStack.empty()) {
+        varTypeStack.pop_back();
+    }
+}
+
+void CodeGen::defineVarType(const std::string& name, const std::string& type) {
+    if (!varTypeStack.empty()) {
+        varTypeStack.back()[name] = type;
+    }
+}
+
+std::string CodeGen::lookupVarType(const std::string& name) const {
+    for (auto it = varTypeStack.rbegin(); it != varTypeStack.rend(); ++it) {
+        auto f = it->find(name);
+        if (f != it->end()) return f->second;
+    }
+    return "";
+}
+
+std::string CodeGen::getExprEskiuType(ExprPtr expr) const {
+    if (auto ident = dynamic_cast<IdentExpr*>(expr.get())) {
+        return lookupVarType(ident->name);
+    }
+    if (auto member = dynamic_cast<MemberExpr*>(expr.get())) {
+        std::string base = getExprEskiuType(member->base);
+        if (base.size() > 7 && base.substr(0, 7) == "struct:") base = base.substr(7);
+        auto it = structFields.find(base);
+        if (it != structFields.end()) {
+            for (const auto& f : it->second) {
+                if (f.name == member->member) return f.type;
+            }
+        }
+    }
+    if (auto index = dynamic_cast<IndexExpr*>(expr.get())) {
+        std::string base = getExprEskiuType(index->base);
+        size_t lb = base.rfind('[');
+        if (lb != std::string::npos) return base.substr(0, lb);
+        if (!base.empty() && base.front() == '*') return base.substr(1);
+        if (!base.empty() && base.back()  == '*') return base.substr(0, base.size() - 1);
+    }
+    return "";
 }
 
 llvm::Value* CodeGen::lookupSymbol(const std::string& name) {
@@ -178,11 +246,12 @@ void CodeGen::visit(FunctionDecl* node) {
     // Push scope for function parameters
     pushScope();
 
-    // Define parameters in symbol table
+    // Define parameters in symbol table + type map
     paramIdx = 0;
     for (auto& arg : func->args()) {
         if (paramIdx < node->params.size() && node->params[paramIdx].first != "...") {
             defineSymbol(node->params[paramIdx].second, &arg);
+            defineVarType(node->params[paramIdx].second, node->params[paramIdx].first);
             paramIdx++;
         }
     }
@@ -212,6 +281,7 @@ void CodeGen::visit(VarDecl* node) {
     llvm::Type* declType = getTypeFromString(node->type);
     llvm::AllocaInst* alloca = builder->CreateAlloca(declType, nullptr, node->name);
     defineSymbol(node->name, alloca);
+    defineVarType(node->name, node->type);
 
     if (node->initializer) {
         llvm::Value* val = evaluateExpr(node->initializer);
@@ -234,8 +304,13 @@ void CodeGen::visit(VarDecl* node) {
 }
 
 void CodeGen::visit(StructDecl* node) {
-    // TODO: Implement struct types
-    std::cerr << "Warning: struct definitions not yet implemented" << std::endl;
+    std::vector<llvm::Type*> fieldTypes;
+    for (const auto& field : node->fields) {
+        fieldTypes.push_back(getTypeFromString(field.type));
+    }
+    llvm::StructType* st = llvm::StructType::create(*context, fieldTypes, node->name);
+    structTypes[node->name] = st;
+    structFields[node->name] = node->fields;
 }
 
 void CodeGen::visit(ExternDecl* node) {
@@ -326,7 +401,6 @@ void CodeGen::visit(WhileStmt* node) {
 
     builder->CreateBr(loopBlock);
 
-    // Loop condition
     builder->SetInsertPoint(loopBlock);
     llvm::Value* cond = evaluateExpr(node->condition);
     if (!cond->getType()->isIntegerTy(1)) {
@@ -334,14 +408,15 @@ void CodeGen::visit(WhileStmt* node) {
     }
     builder->CreateCondBr(cond, bodyBlock, exitBlock);
 
-    // Loop body
     builder->SetInsertPoint(bodyBlock);
+    llvm::BasicBlock* prevBreak = breakTarget;
+    breakTarget = exitBlock;
     node->body->accept(this);
+    breakTarget = prevBreak;
     if (!builder->GetInsertBlock()->getTerminator()) {
         builder->CreateBr(loopBlock);
     }
 
-    // Exit
     builder->SetInsertPoint(exitBlock);
 }
 
@@ -371,7 +446,10 @@ void CodeGen::visit(ForStmt* node) {
 
     // Body
     builder->SetInsertPoint(bodyBlock);
+    llvm::BasicBlock* prevBreak = breakTarget;
+    breakTarget = exitBlock;
     node->body->accept(this);
+    breakTarget = prevBreak;
     if (!builder->GetInsertBlock()->getTerminator()) {
         builder->CreateBr(stepBlock);
     }
@@ -397,8 +475,9 @@ void CodeGen::visit(ReturnStmt* node) {
 }
 
 void CodeGen::visit(BreakStmt* node) {
-    // TODO: Implement break
-    std::cerr << "Warning: break not yet implemented" << std::endl;
+    if (!breakTarget)
+        throw std::runtime_error("break used outside of a loop");
+    builder->CreateBr(breakTarget);
 }
 
 void CodeGen::visit(ExprStmt* node) {
@@ -533,13 +612,57 @@ void CodeGen::visit(CallExpr* node) {
 }
 
 void CodeGen::visit(IndexExpr* node) {
-    // TODO: Array indexing
-    std::cerr << "Warning: array indexing not yet implemented" << std::endl;
+    llvm::Value* idx = evaluateExpr(node->index);
+    std::string baseType = getExprEskiuType(node->base);
+
+    // Fixed-size array: T[N]
+    size_t lb = baseType.rfind('[');
+    if (lb != std::string::npos && baseType.back() == ']') {
+        std::string elemStr = baseType.substr(0, lb);
+        llvm::Type* arrType  = getTypeFromString(baseType);
+        llvm::Type* elemType = getTypeFromString(elemStr);
+        llvm::Value* basePtr = evaluateLValue(node->base);
+        llvm::Value* zero    = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0);
+        llvm::Value* gep     = builder->CreateGEP(arrType, basePtr, {zero, idx});
+        exprValueStack.push(builder->CreateLoad(elemType, gep));
+        return;
+    }
+
+    // Pointer: *T or T*
+    if (isPointerType(baseType)) {
+        std::string elemStr = (!baseType.empty() && baseType.front() == '*')
+            ? baseType.substr(1)
+            : baseType.substr(0, baseType.size() - 1);
+        llvm::Type* elemType = getTypeFromString(elemStr);
+        llvm::Value* ptr     = evaluateExpr(node->base);
+        llvm::Value* gep     = builder->CreateGEP(elemType, ptr, idx);
+        exprValueStack.push(builder->CreateLoad(elemType, gep));
+        return;
+    }
+
+    throw std::runtime_error("Cannot index into type: " + baseType);
 }
 
 void CodeGen::visit(MemberExpr* node) {
-    // TODO: Member access
-    std::cerr << "Warning: member access not yet implemented" << std::endl;
+    std::string baseType = getExprEskiuType(node->base);
+    if (baseType.size() > 7 && baseType.substr(0, 7) == "struct:") baseType = baseType.substr(7);
+
+    auto fit = structFields.find(baseType);
+    if (fit == structFields.end())
+        throw std::runtime_error("Unknown struct type in member access: '" + baseType + "'");
+
+    const auto& fields = fit->second;
+    for (size_t i = 0; i < fields.size(); ++i) {
+        if (fields[i].name == node->member) {
+            llvm::Value* basePtr = evaluateLValue(node->base);
+            llvm::StructType* st = structTypes[baseType];
+            llvm::Value* gep     = builder->CreateStructGEP(st, basePtr, i, node->member);
+            llvm::Value* loaded  = builder->CreateLoad(getTypeFromString(fields[i].type), gep);
+            exprValueStack.push(loaded);
+            return;
+        }
+    }
+    throw std::runtime_error("Struct '" + baseType + "' has no field '" + node->member + "'");
 }
 
 void CodeGen::visit(CastExpr* node) {
@@ -646,13 +769,82 @@ llvm::Value* CodeGen::evaluateLValue(ExprPtr expr) {
     if (auto ident = dynamic_cast<IdentExpr*>(expr.get())) {
         llvm::Value* val = lookupSymbol(ident->name);
         if (!val) throw std::runtime_error("Undefined variable: " + ident->name);
-        return val; // return the alloca, not the loaded value
+        return val;
     }
+
+    if (auto member = dynamic_cast<MemberExpr*>(expr.get())) {
+        std::string baseType = getExprEskiuType(member->base);
+        if (baseType.size() > 7 && baseType.substr(0, 7) == "struct:") baseType = baseType.substr(7);
+        auto fit = structFields.find(baseType);
+        if (fit == structFields.end())
+            throw std::runtime_error("Unknown struct type: " + baseType);
+        const auto& fields = fit->second;
+        for (size_t i = 0; i < fields.size(); ++i) {
+            if (fields[i].name == member->member) {
+                llvm::Value* basePtr = evaluateLValue(member->base);
+                return builder->CreateStructGEP(structTypes[baseType], basePtr, i);
+            }
+        }
+        throw std::runtime_error("Struct '" + baseType + "' has no field '" + member->member + "'");
+    }
+
+    if (auto index = dynamic_cast<IndexExpr*>(expr.get())) {
+        llvm::Value* idx      = evaluateExpr(index->index);
+        std::string baseType  = getExprEskiuType(index->base);
+        size_t lb = baseType.rfind('[');
+        if (lb != std::string::npos && baseType.back() == ']') {
+            llvm::Type* arrType = getTypeFromString(baseType);
+            llvm::Value* base   = evaluateLValue(index->base);
+            llvm::Value* zero   = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0);
+            return builder->CreateGEP(arrType, base, {zero, idx});
+        }
+        if (isPointerType(baseType)) {
+            std::string elemStr = (baseType.front() == '*')
+                ? baseType.substr(1) : baseType.substr(0, baseType.size() - 1);
+            llvm::Value* ptr = evaluateExpr(index->base);
+            return builder->CreateGEP(getTypeFromString(elemStr), ptr, idx);
+        }
+        throw std::runtime_error("Cannot take lvalue index of type: " + baseType);
+    }
+
     throw std::runtime_error("Left-hand side of assignment is not an lvalue");
 }
 
 bool CodeGen::emitObjectFile(const std::string& filename) {
-    // TODO: Implement object file emission
-    std::cerr << "Warning: object file emission not yet implemented" << std::endl;
-    return false;
+    llvm::InitializeNativeTarget();
+    llvm::InitializeNativeTargetAsmPrinter();
+
+    std::string tripleStr = llvm::sys::getDefaultTargetTriple();
+    llvm::Triple triple(tripleStr);
+    module->setTargetTriple(triple);
+
+    std::string err;
+    const llvm::Target* target = llvm::TargetRegistry::lookupTarget(triple, err);
+    if (!target) {
+        std::cerr << "error: " << err << std::endl;
+        return false;
+    }
+
+    auto cpu = llvm::sys::getHostCPUName();
+    llvm::TargetOptions opt;
+    auto* tm = target->createTargetMachine(triple, cpu, "", opt, llvm::Reloc::PIC_);
+    module->setDataLayout(tm->createDataLayout());
+
+    std::error_code ec;
+    llvm::raw_fd_ostream dest(filename, ec, llvm::sys::fs::OF_None);
+    if (ec) {
+        std::cerr << "error: cannot open '" << filename << "': " << ec.message() << std::endl;
+        return false;
+    }
+
+    llvm::legacy::PassManager pm;
+    if (tm->addPassesToEmitFile(pm, dest, nullptr, llvm::CodeGenFileType::ObjectFile)) {
+        std::cerr << "error: target cannot emit object file" << std::endl;
+        return false;
+    }
+
+    pm.run(*module);
+    dest.flush();
+    delete tm;
+    return true;
 }
