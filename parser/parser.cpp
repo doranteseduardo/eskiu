@@ -2,6 +2,8 @@
 #include "../lexer/lexer.h"
 #include <stdexcept>
 #include <iostream>
+#include <fstream>
+#include <sstream>
 
 // Stamp any AST node with position from tok
 template<typename T>
@@ -181,20 +183,63 @@ std::shared_ptr<Program> Parser::parse() {
 std::vector<DeclPtr> Parser::parseProgram() {
     std::vector<DeclPtr> declarations;
 
+    // Owned import set if caller didn't provide one
+    std::set<std::string> ownedSet;
+    if (!importedFiles) importedFiles = &ownedSet;
+
     while (!is_at_end()) {
+        // Handle import "path/to/file.esk";
+        if (match(TokenType::IMPORT)) {
+            try {
+                std::string path = consume(TokenType::STRING_LIT,
+                    "Expected filename string after import").value;
+                consume(TokenType::SEMICOLON, "Expected ';' after import");
+
+                // Resolve path relative to basedir
+                std::string fullPath = (!basedir.empty() && path[0] != '/')
+                    ? basedir + "/" + path
+                    : path;
+
+                if (!importedFiles->count(fullPath)) {
+                    importedFiles->insert(fullPath);
+
+                    std::ifstream file(fullPath);
+                    if (!file.is_open())
+                        throw std::runtime_error("Cannot open import: '" + fullPath + "'");
+                    std::ostringstream ss;
+                    ss << file.rdbuf();
+                    std::string src = ss.str();
+
+                    Lexer lexer(src);
+                    std::vector<Token> itoks;
+                    Token t = lexer.next_token();
+                    while (t.type != TokenType::EOF_TOKEN) { itoks.push_back(t); t = lexer.next_token(); }
+                    itoks.push_back(t);
+
+                    Parser sub(itoks);
+                    // Resolve basedir for the sub-file
+                    size_t slash = fullPath.rfind('/');
+                    sub.basedir = (slash != std::string::npos) ? fullPath.substr(0, slash) : ".";
+                    sub.importedFiles = importedFiles;
+
+                    auto subProg = sub.parse();
+                    declarations.insert(declarations.end(),
+                        subProg->declarations.begin(), subProg->declarations.end());
+                }
+            } catch (const std::exception& e) {
+                std::cerr << "error: " << e.what() << std::endl;
+                while (!is_at_end() && !check(TokenType::SEMICOLON)) advance();
+                if (check(TokenType::SEMICOLON)) advance();
+            }
+            continue;
+        }
+
         try {
             DeclPtr decl = parseDeclaration();
-            if (decl) {
-                declarations.push_back(decl);
-            }
+            if (decl) declarations.push_back(decl);
         } catch (const std::exception& e) {
-            // Skip to next semicolon
-            while (!is_at_end() && !check(TokenType::SEMICOLON)) {
-                advance();
-            }
-            if (check(TokenType::SEMICOLON)) {
-                advance();
-            }
+            while (!is_at_end() && !check(TokenType::SEMICOLON)) advance();
+            if (check(TokenType::SEMICOLON)) advance();
         }
     }
 

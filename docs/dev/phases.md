@@ -4,7 +4,7 @@
 
 Authoritative status reference for Eskiu compiler contributors. Supersedes `docs/PHASES.md`.
 
-Last updated: 2026-06-02. Phases 0–7 are COMPLETE. Language is v0.1 ready. Next: INE decoder port.
+Last updated: 2026-06-02. All phases 0–7 and Phase 5.5 are COMPLETE. Language is v0.1 ready. Next: INE decoder port.
 
 ---
 
@@ -326,8 +326,13 @@ store i32 42, ptr %1
 - **`InterfaceDecl`** parsed and stored; vtable generation deferred (not needed for v0.1)
 - **Stdlib base**: `stdlib/result.esk`, `stdlib/math.esk`, `stdlib/io.esk`, `stdlib/mem.esk`
 
-#### Remaining (Phase 5.5)
-- **Interface dispatch** — vtable as `llvm::StructType` of function pointers; fat pointer `(data_ptr, vtable_ptr)`; structural satisfaction check
+#### Phase 5.5 — COMPLETE
+
+Interface vtable dispatch implemented:
+- `%I_vtable = type { ptr, ... }` per interface, `%I_fat = type { ptr, ptr }` fat pointer
+- Structural satisfaction check in type checker; auto-boxing at call sites in codegen
+- Indirect dispatch: load vtable ptr → load fn ptr → call with data ptr as self
+- `import "file.esk"` — multi-file support with relative path resolution and dedup
 
 ### Key Files
 - `ast/ast.h` — `StructDecl.typeParams`, `StructInitExpr`, `AllocExpr`

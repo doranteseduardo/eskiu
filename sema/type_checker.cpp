@@ -408,7 +408,22 @@ void TypeChecker::visit(CallExpr* node) {
             expressionTypes[node] = sig.first;
             return;
         }
-        // Method not found — fall through to regular error
+        // Check if baseType is an interface — resolve via interface method list
+        {
+            auto ifaceIt = interfaceDecls.find(baseType);
+            if (ifaceIt != interfaceDecls.end()) {
+                for (const auto& sig : ifaceIt->second->methods) {
+                    if (sig.name == member->member) {
+                        for (auto& arg : node->args) arg->accept(this);
+                        expressionTypes[node] = normalizeType(sig.returnType);
+                        return;
+                    }
+                }
+                errorAt(node, "interface '" + baseType + "' has no method '" + member->member + "'");
+                expressionTypes[node] = "unknown";
+                return;
+            }
+        }
         errorAt(node,"undefined method '" + member->member + "' on type '" + baseType + "'");
         expressionTypes[node] = "unknown";
         return;
@@ -813,9 +828,11 @@ bool TypeChecker::isValidAssignment(const std::string& lhsType, const std::strin
     // Interface satisfaction: assigning a struct to an interface type
     auto ifaceIt = interfaceDecls.find(lhs);
     if (ifaceIt != interfaceDecls.end()) {
-        // rhs should be a struct name (possibly with "struct:" prefix)
         std::string structName = rhs;
-        if (structName.substr(0, 7) == "struct:") structName = structName.substr(7);
+        // Strip leading * and struct: prefix to get bare struct name
+        if (!structName.empty() && structName.front() == '*') structName = structName.substr(1);
+        if (structName.size() > 7 && structName.substr(0, 7) == "struct:") structName = structName.substr(7);
+        while (!structName.empty() && structName.back() == '*') structName.pop_back();
         if (structSatisfiesInterface(functionSignatures, structName, ifaceIt->second))
             return true;
     }

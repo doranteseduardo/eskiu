@@ -46,6 +46,20 @@ private:
 
     // Template struct registry
     std::map<std::string, StructDecl*> templateDecls;
+
+    // Interface registry: name → vtable type + method order
+    std::map<std::string, llvm::StructType*> ifaceVtableTypes;
+    std::map<std::string, std::vector<std::string>> ifaceMethodOrder;
+    // Fat pointer type per interface: %I = type { ptr, ptr }
+    std::map<std::string, llvm::StructType*> ifaceFatPtrTypes;
+
+    // Eskiu param types per function — for interface boxing at call sites
+    std::map<std::string, std::vector<std::string>> funcEskiuParamTypes;
+
+    // Helpers
+    llvm::Value* boxAsInterface(const std::string& ifaceName,
+                                const std::string& structName,
+                                llvm::Value* structPtr);
     void ensureTemplateInstantiated(const std::string& mangledName,
                                     const std::string& templateName,
                                     const std::vector<std::string>& args);

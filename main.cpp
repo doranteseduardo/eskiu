@@ -89,6 +89,7 @@ static void testTypeChecker(const std::string& filename) {
     try {
         // Parse
         Parser parser(tokens);
+        parser.basedir = std::string(InputFilename).rfind("/") != std::string::npos ? std::string(InputFilename).substr(0, std::string(InputFilename).rfind("/")) : ".";
         auto program = parser.parse();
 
         if (!program) {
@@ -133,6 +134,7 @@ static void testCodegen(const std::string& filename) {
     try {
         // Parse
         Parser parser(tokens);
+        parser.basedir = std::string(InputFilename).rfind("/") != std::string::npos ? std::string(InputFilename).substr(0, std::string(InputFilename).rfind("/")) : ".";
         auto program = parser.parse();
 
         // Codegen
@@ -182,6 +184,7 @@ static void testParser(const std::string& filename) {
         // Parse
         std::cout << "Creating parser..." << std::endl;
         Parser parser(tokens);
+        parser.basedir = std::string(InputFilename).rfind("/") != std::string::npos ? std::string(InputFilename).substr(0, std::string(InputFilename).rfind("/")) : ".";
 
         std::cout << "Calling parser.parse()..." << std::endl;
         auto program = parser.parse();
@@ -256,6 +259,7 @@ int main(int argc, char** argv) {
 
     try {
         Parser parser(tokens);
+        parser.basedir = std::string(InputFilename).rfind("/") != std::string::npos ? std::string(InputFilename).substr(0, std::string(InputFilename).rfind("/")) : ".";
         auto program = parser.parse();
         if (!program) {
             std::cerr << "error: parse failed" << std::endl;

@@ -38,3 +38,22 @@ void String_free(String* self) {
     self.len = 0;
     self.cap = 0;
 }
+
+void String_append(String* self, string s) {
+    int slen   = strlen(s);
+    int newlen = self.len + slen;
+    if (newlen >= self.cap) {
+        int newcap = newlen * 2 + 1;
+        let newbuf: *char = alloc(char, newcap);
+        memcpy(newbuf, self.data, self.len);
+        free(self.data);
+        self.data = newbuf;
+        self.cap  = newcap;
+    }
+    memcpy(self.data + self.len, s, slen + 1);
+    self.len = newlen;
+}
+
+void String_concat(String* self, String* other) {
+    String_append(self, other.data);
+}

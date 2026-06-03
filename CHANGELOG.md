@@ -3,9 +3,31 @@
 ## [Unreleased]
 
 ### Planned
-- Interface dispatch via vtable (Go-style structural typing)
-- `String.append()` with dynamic realloc
 - INE QR decoder port (v0.1 milestone)
+
+---
+
+## [0.0.8-alpha] — 2026-06-02
+
+### Added
+
+**`import "file.esk"`**
+- Multi-file support: `import "path/to/lib.esk";` at the top level resolves relative to the importing file's directory
+- Recursive imports with deduplication — a file imported multiple times is only parsed once
+- `Parser.basedir` + `importedFiles` set propagated to sub-parsers
+
+**Interface vtable dispatch**
+- `interface I { void method(); }` — `visit(InterfaceDecl*)` creates `%I_vtable = type { ptr, ... }` and `%I_fat = type { ptr data, ptr vtable }` types
+- Structural satisfaction already checked by type checker; codegen auto-boxes structs at call sites using `funcEskiuParamTypes` map
+- `boxAsInterface()` creates a fat pointer alloca filled with `{data_ptr, vtable_constant_ptr}` and passes it as `ptr`
+- Interface method dispatch: load vtable ptr from fat pointer, load fn ptr at method index, call indirectly
+- `getExprEskiuType` extended to handle `UnaryExpr("&", ...)` and `UnaryExpr("*", ...)` — needed for boxing detection
+
+**`String.append()` and `String.concat()`** — added to `stdlib/string.esk` using `memcpy` + pointer arithmetic
+
+### Fixed
+- Pointer comparison (`p == null`, `ptr1 == ptr2`) used `FCmpOEQ` (float) — now uses `ICmpEQ`; all six comparison operators updated to check `isFloatingPointTy()` first
+- `i1 → i32` widening used `SExt` (sign-extends `true` → `-1`) — now uses `ZExt` for `i1` operands so comparisons correctly store `0` or `1`
 
 ---
 

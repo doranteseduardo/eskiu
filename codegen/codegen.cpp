@@ -171,6 +171,11 @@ llvm::Type* CodeGen::getTypeFromString(const std::string& typeStr) {
         if (it != structTypes.end()) return it->second;
     }
 
+    // Interface type → opaque pointer (interfaces passed by pointer to fat struct)
+    if (ifaceFatPtrTypes.count(typeStr)) {
+        return llvm::PointerType::get(*context, 0);
+    }
+
     // Template instantiation: "Result<int,string>" → %Result_int_string
     if (typeStr.find('<') != std::string::npos) {
         auto [tname, args] = splitTemplateType(typeStr);
@@ -272,6 +277,13 @@ std::string CodeGen::getExprEskiuType(ExprPtr expr) const {
             }
         }
     }
+    if (auto unary = dynamic_cast<UnaryExpr*>(expr.get())) {
+        if (unary->op == "&") return "*" + getExprEskiuType(unary->operand);
+        if (unary->op == "*") {
+            std::string t = getExprEskiuType(unary->operand);
+            return (!t.empty() && t.front() == '*') ? t.substr(1) : "";
+        }
+    }
     if (auto index = dynamic_cast<IndexExpr*>(expr.get())) {
         std::string base = getExprEskiuType(index->base);
         size_t lb = base.rfind('[');
@@ -348,6 +360,14 @@ void CodeGen::visit(FunctionDecl* node) {
     // Push scope for function parameters
     pushScope();
 
+    // Store Eskiu param types for interface boxing at call sites
+    {
+        std::vector<std::string> pts;
+        for (const auto& p : node->params)
+            if (p.first != "...") pts.push_back(p.first);
+        funcEskiuParamTypes[node->name] = pts;
+    }
+
     // Define parameters in symbol table + type map
     paramIdx = 0;
     for (auto& arg : func->args()) {
@@ -416,8 +436,12 @@ void CodeGen::visit(VarDecl* node) {
                 if (val->getType()->isIntegerTy() && declType->isIntegerTy()) {
                     unsigned src = llvm::cast<llvm::IntegerType>(val->getType())->getBitWidth();
                     unsigned dst = llvm::cast<llvm::IntegerType>(declType)->getBitWidth();
-                    val = src > dst ? builder->CreateTrunc(val, declType)
-                                    : builder->CreateSExt(val, declType);
+                    if (src > dst)
+                        val = builder->CreateTrunc(val, declType);
+                    else if (src < dst)
+                        // ZExt for i1 (bool comparisons) to avoid sign-extending 1 → -1
+                        val = (src == 1) ? builder->CreateZExt(val, declType)
+                                         : builder->CreateSExt(val, declType);
                 } else if (val->getType()->isIntegerTy() && declType->isFloatingPointTy()) {
                     val = builder->CreateSIToFP(val, declType);
                 } else if (val->getType()->isFloatingPointTy() && declType->isIntegerTy()) {
@@ -707,41 +731,35 @@ void CodeGen::visit(BinaryExpr* node) {
     } else if (node->op == "%") {
         result = builder->CreateSRem(left, right);
     } else if (node->op == "==") {
-        if (left->getType()->isIntegerTy()) {
-            result = builder->CreateICmpEQ(left, right);
-        } else {
+        if (left->getType()->isFloatingPointTy())
             result = builder->CreateFCmpOEQ(left, right);
-        }
+        else
+            result = builder->CreateICmpEQ(left, right);   // int, bool, ptr
     } else if (node->op == "!=") {
-        if (left->getType()->isIntegerTy()) {
-            result = builder->CreateICmpNE(left, right);
-        } else {
+        if (left->getType()->isFloatingPointTy())
             result = builder->CreateFCmpONE(left, right);
-        }
+        else
+            result = builder->CreateICmpNE(left, right);
     } else if (node->op == "<") {
-        if (left->getType()->isIntegerTy()) {
-            result = builder->CreateICmpSLT(left, right);
-        } else {
+        if (left->getType()->isFloatingPointTy())
             result = builder->CreateFCmpOLT(left, right);
-        }
+        else
+            result = builder->CreateICmpSLT(left, right);
     } else if (node->op == ">") {
-        if (left->getType()->isIntegerTy()) {
-            result = builder->CreateICmpSGT(left, right);
-        } else {
+        if (left->getType()->isFloatingPointTy())
             result = builder->CreateFCmpOGT(left, right);
-        }
+        else
+            result = builder->CreateICmpSGT(left, right);
     } else if (node->op == "<=") {
-        if (left->getType()->isIntegerTy()) {
-            result = builder->CreateICmpSLE(left, right);
-        } else {
+        if (left->getType()->isFloatingPointTy())
             result = builder->CreateFCmpOLE(left, right);
-        }
+        else
+            result = builder->CreateICmpSLE(left, right);
     } else if (node->op == ">=") {
-        if (left->getType()->isIntegerTy()) {
-            result = builder->CreateICmpSGE(left, right);
-        } else {
+        if (left->getType()->isFloatingPointTy())
             result = builder->CreateFCmpOGE(left, right);
-        }
+        else
+            result = builder->CreateICmpSGE(left, right);
     } else if (node->op == "&&") {
         result = builder->CreateLogicalAnd(left, right);
     } else if (node->op == "||") {
@@ -799,25 +817,50 @@ void CodeGen::visit(UnaryExpr* node) {
 }
 
 void CodeGen::visit(CallExpr* node) {
-    // Method call: callee is MemberExpr (e.g. p.distance(q))
+    // Unified method/interface call: callee is MemberExpr
     if (auto member = dynamic_cast<MemberExpr*>(node->callee.get())) {
         std::string baseType = getExprEskiuType(member->base);
         if (baseType.size() > 7 && baseType.substr(0, 7) == "struct:") baseType = baseType.substr(7);
-    if (!baseType.empty() && baseType.front() == '*') baseType = baseType.substr(1);
-    while (!baseType.empty() && baseType.back()  == '*') baseType.pop_back();
-    if (baseType.find('<') != std::string::npos) {
-        auto [tn, args] = splitTemplateType(baseType);
-        ensureTemplateInstantiated(mangleTemplate(baseType), tn, args);
-        baseType = mangleTemplate(baseType);
-    }
+        if (!baseType.empty() && baseType.front() == '*') baseType = baseType.substr(1);
+        while (!baseType.empty() && baseType.back() == '*') baseType.pop_back();
+        if (baseType.find('<') != std::string::npos) {
+            auto [tn2, a2] = splitTemplateType(baseType);
+            ensureTemplateInstantiated(mangleTemplate(baseType), tn2, a2);
+            baseType = mangleTemplate(baseType);
+        }
 
+        // Interface vtable dispatch
+        auto ifIt = ifaceMethodOrder.find(baseType);
+        if (ifIt != ifaceMethodOrder.end()) {
+            llvm::Value* fatPtr = evaluateLValue(member->base);
+            llvm::StructType* fatType = ifaceFatPtrTypes[baseType];
+            llvm::Value* dataGEP = builder->CreateStructGEP(fatType, fatPtr, 0);
+            llvm::Value* dataPtr = builder->CreateLoad(llvm::PointerType::get(*context, 0), dataGEP);
+            llvm::Value* vtGEP   = builder->CreateStructGEP(fatType, fatPtr, 1);
+            llvm::Value* vtPtr   = builder->CreateLoad(llvm::PointerType::get(*context, 0), vtGEP);
+            const auto& order = ifIt->second;
+            size_t idx = 0;
+            for (; idx < order.size(); ++idx) if (order[idx] == member->member) break;
+            if (idx == order.size())
+                throw std::runtime_error("Interface '" + baseType + "' has no method '" + member->member + "'");
+            llvm::StructType* vtType = ifaceVtableTypes[baseType];
+            llvm::Value* fnGEP = builder->CreateStructGEP(vtType, vtPtr, idx);
+            llvm::Value* fnPtr = builder->CreateLoad(llvm::PointerType::get(*context, 0), fnGEP);
+            std::vector<llvm::Value*> iargs = {dataPtr};
+            for (auto& arg : node->args) iargs.push_back(evaluateExpr(arg));
+            auto* ftype = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
+                std::vector<llvm::Type*>(iargs.size(), llvm::PointerType::get(*context, 0)), false);
+            exprValueStack.push(builder->CreateCall(ftype, fnPtr, iargs));
+            return;
+        }
+
+        // Struct method call
         std::string mangled = baseType + "_" + member->member;
-        llvm::Function* func = module->getFunction(mangled);
-        if (func) {
-            std::vector<llvm::Value*> args;
-            args.push_back(evaluateLValue(member->base)); // implicit self pointer
-            for (auto& arg : node->args) args.push_back(evaluateExpr(arg));
-            exprValueStack.push(builder->CreateCall(func, args));
+        llvm::Function* mfunc = module->getFunction(mangled);
+        if (mfunc) {
+            std::vector<llvm::Value*> margs = {evaluateLValue(member->base)};
+            for (auto& arg : node->args) margs.push_back(evaluateExpr(arg));
+            exprValueStack.push(builder->CreateCall(mfunc, margs));
             return;
         }
         throw std::runtime_error("Undefined method: " + baseType + "::" + member->member);
@@ -837,8 +880,26 @@ void CodeGen::visit(CallExpr* node) {
     }
     llvm::Function* func = llvm::cast<llvm::Function>(calleeVal);
 
+    // Evaluate args, boxing structs as interfaces where the param type demands it
     std::vector<llvm::Value*> args;
-    for (auto& arg : node->args) args.push_back(evaluateExpr(arg));
+    auto ptIt = funcEskiuParamTypes.find(func->getName().str());
+    for (size_t i = 0; i < node->args.size(); ++i) {
+        bool boxed = false;
+        if (ptIt != funcEskiuParamTypes.end() && i < ptIt->second.size()) {
+            const std::string& ep = ptIt->second[i];
+            if (ifaceFatPtrTypes.count(ep)) {
+                // Param expects an interface — evaluate arg as pointer and box it
+                std::string argType = getExprEskiuType(node->args[i]);
+                if (!argType.empty() && argType.front() == '*') argType = argType.substr(1);
+                if (argType.size() > 7 && argType.substr(0, 7) == "struct:") argType = argType.substr(7);
+                while (!argType.empty() && argType.back() == '*') argType.pop_back();
+                llvm::Value* sPtr = evaluateExpr(node->args[i]); // &struct → ptr
+                args.push_back(boxAsInterface(ep, argType, sPtr));
+                boxed = true;
+            }
+        }
+        if (!boxed) args.push_back(evaluateExpr(node->args[i]));
+    }
 
     exprValueStack.push(builder->CreateCall(func, args));
 }
@@ -1083,7 +1144,64 @@ void CodeGen::visit(StructInitExpr* node) {
 }
 
 void CodeGen::visit(InterfaceDecl* node) {
-    // Vtable dispatch deferred — structural check happens in type checker
+    // Build vtable struct type: %I_vtable = type { ptr, ptr, ... }
+    std::vector<llvm::Type*> fnPtrs(node->methods.size(),
+                                     llvm::PointerType::get(*context, 0));
+    std::string vtName = node->name + "_vtable";
+    llvm::StructType* vtType = llvm::StructType::create(*context, fnPtrs, vtName);
+    ifaceVtableTypes[node->name] = vtType;
+
+    // Method order for index lookup
+    std::vector<std::string> order;
+    for (const auto& m : node->methods) order.push_back(m.name);
+    ifaceMethodOrder[node->name] = order;
+
+    // Fat pointer type: %I_fat = type { ptr, ptr }
+    llvm::StructType* fatPtr = llvm::StructType::create(*context,
+        {llvm::PointerType::get(*context, 0), llvm::PointerType::get(*context, 0)},
+        node->name + "_fat");
+    ifaceFatPtrTypes[node->name] = fatPtr;
+    // Interface values are always passed as ptr (pointer to fat struct)
+    // getTypeFromString("I") → ptr  (handled in getTypeFromString below)
+}
+
+// Create a fat pointer {data_ptr, vtable_ptr} for struct S implementing interface I
+llvm::Value* CodeGen::boxAsInterface(const std::string& ifaceName,
+                                      const std::string& structName,
+                                      llvm::Value* structPtr) {
+    auto vtIt = ifaceVtableTypes.find(ifaceName);
+    if (vtIt == ifaceVtableTypes.end())
+        throw std::runtime_error("Unknown interface: " + ifaceName);
+
+    const auto& methods = ifaceMethodOrder[ifaceName];
+    llvm::StructType* vtType = vtIt->second;
+    llvm::StructType* fatType = ifaceFatPtrTypes[ifaceName];
+
+    // Build vtable constant: { &S_method1, &S_method2, ... }
+    std::string vtGlobName = ifaceName + "_vtable_" + structName;
+    llvm::GlobalVariable* vtGlob = module->getGlobalVariable(vtGlobName);
+    if (!vtGlob) {
+        std::vector<llvm::Constant*> entries;
+        for (const auto& mname : methods) {
+            std::string mangled = structName + "_" + mname;
+            llvm::Function* fn = module->getFunction(mangled);
+            if (!fn) throw std::runtime_error("Method not found: " + mangled);
+            entries.push_back(fn);
+        }
+        llvm::Constant* vtInit = llvm::ConstantStruct::get(vtType, entries);
+        vtGlob = new llvm::GlobalVariable(*module, vtType, true,
+            llvm::GlobalValue::PrivateLinkage, vtInit, vtGlobName);
+    }
+
+    // Alloca for the fat pointer
+    llvm::Value* fat = builder->CreateAlloca(fatType, nullptr, ifaceName + ".box");
+    // fat[0] = data ptr
+    llvm::Value* d = builder->CreateStructGEP(fatType, fat, 0);
+    builder->CreateStore(structPtr, d);
+    // fat[1] = vtable ptr
+    llvm::Value* v = builder->CreateStructGEP(fatType, fat, 1);
+    builder->CreateStore(vtGlob, v);
+    return fat;  // pointer to fat pointer (alloca)
 }
 
 void CodeGen::visit(ContinueStmt* node) {

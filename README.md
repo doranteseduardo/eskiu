@@ -42,7 +42,7 @@ Type Checker       sema/type_checker.cpp      complete
 Code Generator     codegen/codegen.cpp        complete
 Object File        emitObjectFile()           complete
 Structs / Methods  Phase 5 (core)             complete — fields, init, methods
-Interfaces         Phase 5.5                  vtable deferred (not needed for v0.1)
+Interfaces         Phase 5.5                  complete — vtable dispatch + structural typing
 Templates          Phase 5.5                  complete — struct + function templates
 Heap / alloc/free  Phase 6                    complete
 stdlib/Result<T>   Phase 7                    complete — Result, List, String, math/io/mem

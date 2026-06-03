@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 #include "../lexer/lexer.h"
@@ -11,6 +12,11 @@ public:
     explicit Parser(const std::vector<Token>& tokens);
 
     std::shared_ptr<Program> parse();
+
+    // Directory of the current source file — used to resolve relative imports
+    std::string basedir;
+    // Shared set of already-imported canonical paths (prevents re-importing)
+    std::set<std::string>* importedFiles = nullptr;
 
 private:
     std::vector<Token> tokens;

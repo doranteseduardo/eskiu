@@ -137,7 +137,14 @@ Phases 0–5 (partial) are implemented. The full compilation pipeline is working
 - `&` address-of fixed (was returning loaded value)
 - `-` unary for floats fixed (`CreateFNeg`), `!` on integers fixed (`ICmpEQ`)
 
-**Next: INE decoder port** — all language features for v0.1 are in place.
+**Remaining gaps — COMPLETE:**
+- `import "file.esk"` — multi-file, relative paths, dedup
+- Interface vtable dispatch — `%I_fat = {ptr data, ptr vtable}`; auto-boxing; indirect call
+- `String.append()` / `String.concat()` — in stdlib/string.esk
+- Pointer `==`/`!=` fixed (was FCmpOEQ → now ICmpEQ)
+- `i1 → i32` widening fixed (ZExt not SExt)
+
+**Language status: v0.1 COMPLETE. Next: INE decoder port.**
 
 ## Error format
 
