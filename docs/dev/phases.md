@@ -29,25 +29,33 @@ The crypto pipeline matches hand-written C within 0.1 ms.
 
 Ordered by value to the compiler and its users.
 
-1. **argv / argc support** — programs cannot yet accept CLI arguments natively; the decoder and any CLI tool built with Eskiu must hard-code inputs. This is the highest-leverage unblock for real-world use.
+### Tooling
 
-2. **String.append with realloc** — `stdlib/string.esk` append is a stub. Any program that builds strings dynamically silently truncates. Needs a `realloc`-backed grow loop.
+1. **VS Code LSP extension** — language server backed by `eskiuc --test-typechecker`. Delivers real-time error squiggles, hover types, and go-to-definition without requiring a full LSP implementation: a thin wrapper that pipes the file through the compiler and parses `file:line:col: message` output is sufficient for v0.1 tooling. The TextMate grammar (`editor/vscode/`) is already in the repo and provides syntax highlighting.
 
-3. **List<T> auto-resize** — `List_push` silently overwrites when at capacity. Auto-resize (double capacity, realloc) prevents subtle bugs in programs that push more than the initial allocation.
+### Language
 
-4. **Interface dispatch with typed return values** — the current vtable always stores function pointers as `void` returning. Methods that return non-void values via interface dispatch produce garbage. Fixing this unblocks polymorphic APIs.
+2. **argv / argc support** — programs cannot yet accept CLI arguments natively; the decoder and any CLI tool built with Eskiu must hard-code inputs. This is the highest-leverage language unblock for real-world use.
 
-5. **switch/case in type checker** — codegen works correctly, but the type checker does not validate that case values are compatible with the switch expression type. Mismatched types silently fall through to codegen.
+3. **String.append with realloc** — `stdlib/string.esk` append is a stub. Any program that builds strings dynamically silently truncates. Needs a `realloc`-backed grow loop.
 
-6. **Negative number literals in declarations** — `int x = -1` works via unary minus, but `-1` cannot be parsed as a primary literal directly. Minor parser gap but trips up newcomers writing constant tables.
+4. **List<T> auto-resize** — `List_push` silently overwrites when at capacity. Auto-resize (double capacity, realloc) prevents subtle bugs in programs that push more than the initial allocation.
 
-7. **Self-hosting** — long-term v1.0 goal. Requires argv/argc, String.append, List auto-resize, and interface dispatch. No other fundamental blockers remain after those land.
+5. **Interface dispatch with typed return values** — the current vtable always stores function pointers as `void` returning. Methods that return non-void values via interface dispatch produce garbage. Fixing this unblocks polymorphic APIs.
 
-8. **Lambdas and closures** — v0.2. Required for higher-order stdlib functions (`map`, `filter`, `fold` on `List<T>`).
+6. **switch/case in type checker** — codegen works correctly, but the type checker does not validate that case values are compatible with the switch expression type.
 
-9. **Thread primitives** — v0.2. POSIX `pthread_create`/`pthread_join` + `Mutex` stdlib type.
+7. **Negative number literals** — `int x = -1` works via unary minus, but `-1` cannot be parsed as a primary literal directly. Minor parser gap but trips up newcomers.
 
-10. **Exception handling** — v1.0. `try`/`catch`/`finally`/`throw` via LLVM `invoke`/`landingpad`.
+### Long-term
+
+8. **Self-hosting** — v1.0 goal. Requires argv/argc, String.append, List auto-resize, and interface dispatch.
+
+9. **Lambdas and closures** — v0.2. Required for higher-order stdlib (`map`, `filter`, `fold` on `List<T>`).
+
+10. **Thread primitives** — v0.2. POSIX `pthread_create`/`pthread_join` + `Mutex` stdlib type.
+
+11. **Exception handling** — v1.0. `try`/`catch`/`finally`/`throw` via LLVM `invoke`/`landingpad`.
 
 ---
 

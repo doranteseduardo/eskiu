@@ -168,7 +168,14 @@ These are known gaps that were deferred out of v0.1 scope. Pick them up when sta
 
 ### Phase boundary note
 
-There is no active development needed on the Eskiu compiler to support the current decoder workload. The compiler is feature-complete for v0.1. New work should begin on a fresh branch targeting v0.2, starting with `argv`/`argc` and `String.append` realloc as the lowest-risk, highest-value items.
+The compiler is feature-complete for v0.1. The decoder is fully ported to Eskiu and running at 80 ms.
+
+**Editor tooling (v0.0.11):**
+- `editor/vscode/` — TextMate grammar for `.esk` syntax highlighting
+- Install: `ln -s $(pwd)/editor/vscode ~/.vscode/extensions/eskiu-language`
+- Next tooling goal: VS Code LSP extension using `eskiuc --test-typechecker` for real-time errors
+
+**Next language work (v0.2 branch):** `argv`/`argc` → `String.append` realloc → `List<T>` auto-resize → interface typed returns.
 
 ## Error format
 

@@ -9,6 +9,17 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ## [Unreleased]
 
+### Added
+- VS Code extension: syntax highlighting for `.esk` files (`editor/vscode/`)
+  — TextMate grammar covers keywords, types, literals, operators, function names, type names, template params
+  — Install via symlink: `ln -s $(pwd)/editor/vscode ~/.vscode/extensions/eskiu-language`
+
+### Planned
+- **VS Code LSP extension** — language server using `eskiuc --test-typechecker` as backend; real-time error squiggles, hover types, go-to-definition
+- `argv`/`argc` — `int main(int argc, string* argv)` signature
+- `String.append` with dynamic realloc
+- Interface dispatch with typed return values
+
 ---
 
 ## [0.0.11-alpha] — 2026-06-03
