@@ -32,17 +32,17 @@ int main() {
 
 ## Real-World Benchmark
 
-Eskiu was built to port a cryptographic image processing pipeline from a 3–5 second reference implementation to under 1 second. The v0.1 decoder runs the full pipeline — image decoding, multi-round AES-256-CBC + RSA-8192 cryptography, and structured data extraction — entirely in Eskiu orchestrating native C libraries via `extern`.
+Eskiu was built to port a cryptographic image processing pipeline from a 3–5 second reference implementation to under 1 second. The v0.1 decoder implements the full pipeline in Eskiu — image decoding via CoreGraphics + zxing-cpp (extern), multi-round AES-256-CBC + RSA-8192 cryptography (OpenSSL externs), and structured data extraction — with no C pipeline code.
 
 | Stage | Eskiu | Reference C |
 |---|---|---|
-| Image / QR extraction | 71.7 ms | 185.5 ms |
-| Crypto pipeline | 2.8 ms | 2.9 ms |
-| Output decode | < 1 ms | 0.5 ms |
-| **Total** | **74.4 ms** | **188.9 ms** |
+| Image / QR extraction | 78 ms | 185 ms |
+| Crypto pipeline | 2 ms | 3 ms |
+| Output decode | < 1 ms | 1 ms |
+| **Total** | **80 ms** | **188 ms** |
 
-**2.5× faster** than the reference, **40–70× faster** than the original target.  
-The crypto pipeline is within 0.1 ms of hand-written C.
+**2.4× faster** than the reference, **37–75× faster** than the original target.  
+The crypto pipeline matches hand-written C within 1 ms.
 
 ## Architecture
 
