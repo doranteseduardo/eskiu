@@ -7,6 +7,11 @@
 
 import "pipeline.esk";
 
+// Image path — replace with argv[1] once Eskiu supports argc/argv.
+string IMAGE_PATH = "/Users/dorantes/Documents/Eduardo/ine-qr-analysis/IMG_8372.HEIC";
+string OUT_JSON   = "/tmp/qr_decoded.json";
+string OUT_WEBP   = "/tmp/qr_decoded.webp";
+
 int write_file(string path, *uint8 data, int len) {
     *void fp = fopen(path, "wb");
     if (fp == null) return 0;
@@ -24,10 +29,6 @@ void print_timing(PipelineTiming* t) {
 }
 
 int main() {
-    string image_path = "/Users/dorantes/Documents/Eduardo/ine-qr-analysis/IMG_8372.HEIC";
-    string out_json   = "/tmp/qr_decoded.json";
-    string out_webp   = "/tmp/qr_decoded.webp";
-
     printf("qr-decoder v0.1  (Eskiu)\n");
     printf("========================\n\n");
 
@@ -37,7 +38,7 @@ int main() {
 
     // ── Stage 1: QR extraction ────────────────────────────────────────────
     let qr: QRPair;
-    let r1: Result<int, string> = stage_extract(image_path, &qr);
+    let r1: Result<int, string> = stage_extract(IMAGE_PATH, &qr);
     timing.qr_ms = ticks_to_ms(clock() - t0);
 
     if (r1.ok == 0) {
@@ -49,7 +50,7 @@ int main() {
     // ── Stage 2: crypto pipeline ──────────────────────────────────────────
     t0 = clock();
     let plain: *uint8 = null;
-    int plain_len     = 0;
+    int64 plain_len   = 0;
     let r2: Result<int, string> = stage_crypto(&qr, &plain, &plain_len);
     timing.crypto_ms = ticks_to_ms(clock() - t0);
 
@@ -63,9 +64,9 @@ int main() {
     // ── Stage 3: output decode  (stage_decode takes ownership of plain) ───
     t0 = clock();
     let json: *char   = null;
-    int json_len      = 0;
+    int64 json_len    = 0;
     let webp: *uint8  = null;
-    int webp_len      = 0;
+    int64 webp_len    = 0;
     let r3: Result<int, string> = stage_decode(plain, plain_len,
                                                 &json, &json_len,
                                                 &webp, &webp_len);
@@ -75,7 +76,8 @@ int main() {
         printf("error: stage 3: %s\n", r3.error);
         return 1;
     }
-    printf("[3/3] Decoded              (%3.0f ms)\n", timing.decode_ms);
+    printf("[3/3] Decoded              (%3.0f ms, json=%lld webp=%lld)\n",
+           timing.decode_ms, json_len, webp_len);
 
     timing.total_ms = ticks_to_ms(clock() - t_start);
     printf("\nTiming breakdown:");
@@ -84,12 +86,12 @@ int main() {
     // ── Output ────────────────────────────────────────────────────────────
     if (json != null) {
         printf("\n%s\n", json);
-        write_file(out_json, json, json_len);
-        printf("\nJSON  → %s\n", out_json);
+        write_file(OUT_JSON, json, json_len);
+        printf("\nJSON  → %s\n", OUT_JSON);
     }
     if (webp != null) {
-        write_file(out_webp, webp, webp_len);
-        printf("WebP  → %s  (%d bytes)\n", out_webp, webp_len);
+        write_file(OUT_WEBP, webp, (int)webp_len);
+        printf("WebP  → %s  (%lld bytes)\n", OUT_WEBP, webp_len);
     }
 
     if (json != null) free(json);

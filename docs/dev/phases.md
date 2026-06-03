@@ -4,7 +4,7 @@
 
 Authoritative status reference for Eskiu compiler contributors. Supersedes `docs/PHASES.md`.
 
-Last updated: 2026-06-03. All phases 0–7 and Phase 5.5 are COMPLETE. v0.1 milestone achieved — INE decoder running at 74.4 ms (2.5x faster than reference C).
+Last updated: 2026-06-03. All phases 0–7 and Phase 5.5 are COMPLETE. v0.1 milestone achieved. Additional fixes: global variables, sret for large struct returns, integer argument widening.
 
 ---
 

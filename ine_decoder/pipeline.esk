@@ -34,12 +34,13 @@ Result<int, string> stage_extract(string image_path, *QRPair qr_out) {
 // On success: *plain_out receives a heap-allocated buffer; caller must free().
 //             *plain_len receives its length.
 
-Result<int, string> stage_crypto(*QRPair qr, **uint8 plain_out, *int plain_len) {
+Result<int, string> stage_crypto(*QRPair qr, **uint8 plain_out, *int64 plain_len) {
     let combined: *uint8 = alloc(uint8, 1712);
     memcpy(combined,       &qr.left[2],  856);
     memcpy(combined + 856, &qr.right[2], 856);
 
     int rc = run_no_so_pipeline(combined, 1712, plain_out, plain_len);
+    // plain_len is int64 matching C's size_t
     free(combined);
 
     if (rc != 0 || plain_out[0] == null) {
@@ -56,9 +57,9 @@ Result<int, string> stage_crypto(*QRPair qr, **uint8 plain_out, *int plain_len) 
 //             caller must free() each non-null pointer.
 // Frees *plain before returning (transfers ownership).
 
-Result<int, string> stage_decode(*uint8 plain, int plain_len,
-                                  **char json_out, *int json_len,
-                                  **uint8 webp_out, *int webp_len) {
+Result<int, string> stage_decode(*uint8 plain, int64 plain_len,
+                                  **char json_out, *int64 json_len,
+                                  **uint8 webp_out, *int64 webp_len) {
     int rc = decode_to_buffers(plain, plain_len,
                                 json_out, json_len,
                                 webp_out, webp_len);

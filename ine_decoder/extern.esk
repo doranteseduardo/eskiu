@@ -26,13 +26,15 @@ extern int ine_qr_extract(string image_path, *QRPair out);
 // All AES keys and RSA keys are hardcoded constants extracted from the original
 // binary — no key file needed. Returns 0 on success, -1 on failure.
 // *out_data is heap-allocated; caller must free().
-extern int run_no_so_pipeline(*uint8 combined, int combined_len,
-                               **uint8 out_data, *int out_len);
+// Note: combined_len and out_len use int64 to match C's size_t (64-bit on arm64).
+extern int run_no_so_pipeline(*uint8 combined, int64 combined_len,
+                               **uint8 out_data, *int64 out_len);
 
 // ── Stage 3 — Output decode (output_decode.c) ────────────────────────────────
 // Parses the binary payload (pipe-delimited text + WebP blob) into typed buffers.
 // All out-pointers are heap-allocated; caller must free() each non-null pointer.
 // Returns 0 on success, -1 on failure.
-extern int decode_to_buffers(*uint8 plain, int plain_len,
-                              **char json_out, *int json_len,
-                              **uint8 webp_out, *int webp_len);
+// Note: *_len parameters are int64 to match C's size_t.
+extern int decode_to_buffers(*uint8 plain, int64 plain_len,
+                              **char json_out, *int64 json_len,
+                              **uint8 webp_out, *int64 webp_len);

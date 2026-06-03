@@ -9,6 +9,36 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ## [Unreleased]
 
+---
+
+## [0.0.10-alpha] — 2026-06-03
+
+### Added
+
+**Global variables**
+- `VarDecl` at module scope now emits `llvm::GlobalVariable` instead of `alloca`
+- Constant initializers folded at compile time: `int`, `float`, `double`, `bool`, `char`, `string`, `null`
+- Non-constant initializers zero-initialize the global (assign in `main()` for complex expressions)
+- `globalVarTypes` map tracks Eskiu type strings for globals (complement to function-scoped `varTypeStack`)
+- `evaluateConstantExpr()` — folds literal expressions to `llvm::Constant*`
+- `visit(IdentExpr*)` now loads from `llvm::GlobalVariable` as well as `AllocaInst`
+- `IMAGE_PATH`, `OUT_JSON`, `OUT_WEBP` in `ine_decoder/main.esk` moved to module scope
+
+**sret (large struct return)**
+- `needsSret(type)` — returns true for aggregates > 16 bytes (arm64 register limit)
+- `visit(FunctionDecl*)` rewrites large-return functions: prepends hidden `ptr sret.ptr` parameter, changes return type to `void`, tracks struct type in `funcSretTypes`
+- `visit(ReturnStmt*)` stores result to `currentSretParam` and emits `ret void` for sret functions
+- Call sites (regular + template): alloca sret buffer, prepend as arg 0, call, load result
+- `currentSretParam` saved/restored across template instantiation
+
+**Integer argument widening at call sites**
+- Automatically `SExt`/`Trunc` integer arguments to match function parameter widths
+- Fixes `i32 1712` passed to `int64 param` (was LLVM verification error)
+
+### Fixed
+- `*int` vs `size_t *` in `extern.esk`: `run_no_so_pipeline` and `decode_to_buffers` now use `int64` for length params to match C's `size_t` (was writing 8 bytes to a 4-byte stack slot → heap corruption)
+- ine_decoder `pipeline.esk`: stage signatures updated to `int64` for all size parameters
+
 ### Planned
 - `argv`/`argc` support — programs can accept CLI arguments natively
 - `String.append()` with dynamic `realloc` — current stdlib stub replaced with a growing implementation

@@ -180,9 +180,15 @@ error: <file>:<line>:<col>: <message>
 
 Use the `error(line, col, message)` helper in `TypeChecker`. Codegen errors should `llvm::errs()` with the same format.
 
+## Compiler additions (v0.0.10)
+
+- **Global variables**: `VarDecl` at module scope → `llvm::GlobalVariable`; constant initializers via `evaluateConstantExpr()`; `globalVarTypes` for module-scope type tracking
+- **sret**: structs > 16 bytes use hidden sret pointer param; `funcSretTypes` registry; `currentSretParam` saved across template instantiation
+- **Integer argument widening**: `SExt`/`Trunc` at call sites to match declared param width
+- **`size_t` externs**: use `int64` for C `size_t *` parameters (was silent stack corruption)
+
 ## What agents should not do
 
-- Do not add heap allocation (`new`/`malloc`) to the language until Phase 6.
 - Do not introduce third-party libraries or new CMake targets.
 - Do not rewrite the visitor dispatch to use `std::variant` visiting — the current virtual-dispatch pattern is intentional.
 - Do not amend published commits; always create new ones.

@@ -204,6 +204,14 @@ llvm::Type* CodeGen::getTypeFromString(const std::string& typeStr) {
     return llvm::Type::getInt32Ty(*context);
 }
 
+bool CodeGen::needsSret(llvm::Type* retType) const {
+    if (!retType || retType->isVoidTy() || !retType->isSized()) return false;
+    if (!retType->isAggregateType()) return false;
+    // arm64: structs > 16 bytes use sret; x86-64: structs > 8 bytes that don't fit
+    // in two registers.  Using 16 as a conservative threshold covers both.
+    return module->getDataLayout().getTypeAllocSize(retType) > 16;
+}
+
 bool CodeGen::isPointerType(const std::string& typeStr) const {
     if (typeStr.empty()) return false;
     return typeStr.front() == '*' || typeStr.back() == '*' || typeStr == "string";
@@ -247,9 +255,10 @@ void CodeGen::popScope() {
 }
 
 void CodeGen::defineVarType(const std::string& name, const std::string& type) {
-    if (!varTypeStack.empty()) {
+    if (!varTypeStack.empty())
         varTypeStack.back()[name] = type;
-    }
+    else
+        globalVarTypes[name] = type;   // top-level / global scope
 }
 
 std::string CodeGen::lookupVarType(const std::string& name) const {
@@ -257,7 +266,51 @@ std::string CodeGen::lookupVarType(const std::string& name) const {
         auto f = it->find(name);
         if (f != it->end()) return f->second;
     }
-    return "";
+    auto g = globalVarTypes.find(name);
+    return g != globalVarTypes.end() ? g->second : "";
+}
+
+llvm::Constant* CodeGen::evaluateConstantExpr(ExprPtr expr) {
+    auto* lit = dynamic_cast<LiteralExpr*>(expr.get());
+    if (!lit) return nullptr;
+
+    switch (lit->kind) {
+        case LiteralExpr::Kind::INT: {
+            long long v = std::stoll(lit->value, nullptr, 0);
+            return llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), v);
+        }
+        case LiteralExpr::Kind::FLOAT: {
+            return llvm::ConstantFP::get(llvm::Type::getDoubleTy(*context),
+                                          std::stod(lit->value));
+        }
+        case LiteralExpr::Kind::BOOL: {
+            return llvm::ConstantInt::get(llvm::Type::getInt1Ty(*context),
+                                           lit->value == "true" ? 1 : 0);
+        }
+        case LiteralExpr::Kind::CHAR: {
+            char c = lit->value.empty() ? 0 : lit->value[0];
+            return llvm::ConstantInt::get(llvm::Type::getInt8Ty(*context), c);
+        }
+        case LiteralExpr::Kind::STRING: {
+            // Build a private string constant and return a pointer to it
+            auto* arrType = llvm::ArrayType::get(llvm::Type::getInt8Ty(*context),
+                                                   lit->value.size() + 1);
+            std::vector<llvm::Constant*> chars;
+            for (unsigned char c : lit->value)
+                chars.push_back(llvm::ConstantInt::get(llvm::Type::getInt8Ty(*context), c));
+            chars.push_back(llvm::ConstantInt::get(llvm::Type::getInt8Ty(*context), 0));
+            auto* strData = new llvm::GlobalVariable(
+                *module, arrType, true,
+                llvm::GlobalValue::PrivateLinkage,
+                llvm::ConstantArray::get(arrType, chars), ".gstr");
+            // Return pointer to first element (ptr in opaque-pointer IR)
+            return strData;
+        }
+        case LiteralExpr::Kind::NULL_VAL:
+            return llvm::ConstantPointerNull::get(llvm::PointerType::get(*context, 0));
+        default:
+            return nullptr;
+    }
 }
 
 std::string CodeGen::getExprEskiuType(ExprPtr expr) const {
@@ -332,30 +385,49 @@ void CodeGen::visit(FunctionDecl* node) {
         paramTypes.push_back(getTypeFromString(param.first));
     }
 
-    // Create function type
+    // Create function type — use sret for large struct returns
     llvm::Type* returnType = getTypeFromString(node->returnType);
-    llvm::FunctionType* funcType = llvm::FunctionType::get(returnType, paramTypes, false);
+    bool sret = needsSret(returnType);
+    llvm::StructType* sretStructType = nullptr;
+    if (sret) {
+        sretStructType = llvm::cast<llvm::StructType>(returnType);
+        funcSretTypes[node->name] = sretStructType;
+        // Prepend hidden sret pointer as first parameter
+        paramTypes.insert(paramTypes.begin(), llvm::PointerType::get(*context, 0));
+    }
+    llvm::FunctionType* funcType = llvm::FunctionType::get(
+        sret ? llvm::Type::getVoidTy(*context) : returnType,
+        paramTypes, false);
 
     // Create function
     llvm::Function* func = llvm::Function::Create(
         funcType, llvm::Function::ExternalLinkage, node->name, module.get());
 
-    // Set parameter names
+    // Set parameter names (skip index 0 for sret functions — that's the hidden ret ptr)
     size_t paramIdx = 0;
+    size_t argIdx   = 0;
     for (auto& arg : func->args()) {
+        if (sret && argIdx == 0) {
+            arg.setName("sret.ptr");
+            argIdx++;
+            continue;
+        }
         if (paramIdx < node->params.size() && node->params[paramIdx].first != "...") {
             arg.setName(node->params[paramIdx].second);
             paramIdx++;
         }
+        argIdx++;
     }
 
     // Create entry block
     llvm::BasicBlock* entryBlock = llvm::BasicBlock::Create(*context, "entry", func);
     builder->SetInsertPoint(entryBlock);
 
-    // Save current function
-    llvm::Function* prevFunc = currentFunction;
+    // Save current function + sret context
+    llvm::Function* prevFunc       = currentFunction;
+    llvm::Value*    prevSretParam  = currentSretParam;
     currentFunction = func;
+    currentSretParam = sret ? &*func->arg_begin() : nullptr;
 
     // Push scope for function parameters
     pushScope();
@@ -368,9 +440,11 @@ void CodeGen::visit(FunctionDecl* node) {
         funcEskiuParamTypes[node->name] = pts;
     }
 
-    // Define parameters in symbol table + type map
+    // Define parameters in symbol table + type map (skip sret hidden param at index 0)
     paramIdx = 0;
+    argIdx   = 0;
     for (auto& arg : func->args()) {
+        if (sret && argIdx == 0) { argIdx++; continue; }  // skip sret ptr
         if (paramIdx < node->params.size() && node->params[paramIdx].first != "...") {
             defineSymbol(node->params[paramIdx].second, &arg);
             std::string ptype = !typeParamOverride.empty()
@@ -384,6 +458,7 @@ void CodeGen::visit(FunctionDecl* node) {
             defineVarType(node->params[paramIdx].second, ptype);
             paramIdx++;
         }
+        argIdx++;
     }
 
     // Generate function body
@@ -391,9 +466,9 @@ void CodeGen::visit(FunctionDecl* node) {
         node->body->accept(this);
     }
 
-    // If no explicit return, add default return
+    // Default return if no explicit return emitted
     if (!builder->GetInsertBlock()->getTerminator()) {
-        if (returnType->isVoidTy()) {
+        if (sret || returnType->isVoidTy()) {
             builder->CreateRetVoid();
         } else if (returnType->isIntegerTy()) {
             builder->CreateRet(llvm::ConstantInt::get(returnType, 0));
@@ -402,13 +477,30 @@ void CodeGen::visit(FunctionDecl* node) {
         }
     }
 
-    // Pop scope
+    // Restore context
     popScope();
-    currentFunction = prevFunc;
+    currentFunction  = prevFunc;
+    currentSretParam = prevSretParam;
 }
 
 void CodeGen::visit(VarDecl* node) {
     llvm::Type* declType = getTypeFromString(node->type);
+
+    // Global scope (no active function) → emit as llvm::GlobalVariable
+    if (currentFunction == nullptr) {
+        llvm::Constant* init = node->initializer
+            ? evaluateConstantExpr(node->initializer)
+            : nullptr;
+        if (!init) init = llvm::Constant::getNullValue(declType);
+
+        auto* gv = new llvm::GlobalVariable(
+            *module, declType, /*isConstant=*/false,
+            llvm::GlobalValue::PrivateLinkage, init, node->name);
+
+        defineSymbol(node->name, gv);
+        defineVarType(node->name, node->type);
+        return;
+    }
     llvm::AllocaInst* alloca = builder->CreateAlloca(declType, nullptr, node->name);
     defineSymbol(node->name, alloca);
     // Resolve type params and mangle template names for varTypeStack,
@@ -665,7 +757,14 @@ void CodeGen::visit(ForStmt* node) {
 }
 
 void CodeGen::visit(ReturnStmt* node) {
-    if (node->value) {
+    if (currentSretParam != nullptr) {
+        // sret function: store result to hidden pointer, return void
+        if (node->value) {
+            llvm::Value* retValue = evaluateExpr(node->value);
+            builder->CreateStore(retValue, currentSretParam);
+        }
+        builder->CreateRetVoid();
+    } else if (node->value) {
         llvm::Value* retValue = evaluateExpr(node->value);
         builder->CreateRet(retValue);
     } else {
@@ -927,7 +1026,31 @@ void CodeGen::visit(CallExpr* node) {
         if (!boxed) args.push_back(evaluateExpr(node->args[i]));
     }
 
-    exprValueStack.push(builder->CreateCall(func, args));
+    // Widen/truncate integer arguments to match function parameter types
+    {
+        auto fparams = func->getFunctionType()->params();
+        for (size_t i = 0; i < args.size() && i < fparams.size(); ++i) {
+            if (args[i]->getType()->isIntegerTy() && fparams[i]->isIntegerTy()
+                    && args[i]->getType() != fparams[i]) {
+                unsigned aw = llvm::cast<llvm::IntegerType>(args[i]->getType())->getBitWidth();
+                unsigned pw = llvm::cast<llvm::IntegerType>(fparams[i])->getBitWidth();
+                args[i] = aw < pw
+                    ? builder->CreateSExt(args[i], fparams[i])
+                    : builder->CreateTrunc(args[i], fparams[i]);
+            }
+        }
+    }
+
+    // sret: alloca for large struct return, pass as hidden arg 0, load result
+    auto sretIt = funcSretTypes.find(func->getName().str());
+    if (sretIt != funcSretTypes.end()) {
+        llvm::Value* sretAlloca = builder->CreateAlloca(sretIt->second, nullptr, "sret.tmp");
+        args.insert(args.begin(), sretAlloca);
+        builder->CreateCall(func, args);
+        exprValueStack.push(builder->CreateLoad(sretIt->second, sretAlloca));
+    } else {
+        exprValueStack.push(builder->CreateCall(func, args));
+    }
 }
 
 void CodeGen::visit(IndexExpr* node) {
@@ -1073,11 +1196,16 @@ void CodeGen::visit(IdentExpr* node) {
 
     llvm::Value* result = nullptr;
 
-    // If it's a local variable (alloca), load it
     if (llvm::isa<llvm::AllocaInst>(val)) {
+        // Local variable — load from alloca
         result = builder->CreateLoad(
             llvm::cast<llvm::AllocaInst>(val)->getAllocatedType(), val);
+    } else if (llvm::isa<llvm::GlobalVariable>(val)) {
+        // Global variable — load from global
+        auto* gv = llvm::cast<llvm::GlobalVariable>(val);
+        result = builder->CreateLoad(gv->getValueType(), gv);
     } else {
+        // Function argument or function pointer
         result = val;
     }
 
@@ -1306,9 +1434,10 @@ void CodeGen::visit(TemplateCallExpr* node) {
     // Instantiate if not already in module.
     // Save/restore the insert point — we may be inside another function's body.
     if (!module->getFunction(mangledName)) {
-        llvm::BasicBlock*          savedBB    = builder->GetInsertBlock();
-        llvm::BasicBlock::iterator savedPoint = builder->GetInsertPoint();
-        llvm::Function*            savedFunc  = currentFunction;
+        llvm::BasicBlock*          savedBB         = builder->GetInsertBlock();
+        llvm::BasicBlock::iterator savedPoint      = builder->GetInsertPoint();
+        llvm::Function*            savedFunc       = currentFunction;
+        llvm::Value*               savedSretParam  = currentSretParam;
 
         typeParamOverride = subs;
         auto inst = std::make_shared<FunctionDecl>(mangledName, fd->returnType, fd->params, fd->body);
@@ -1316,7 +1445,8 @@ void CodeGen::visit(TemplateCallExpr* node) {
         typeParamOverride.clear();
 
         // Restore caller's context
-        currentFunction = savedFunc;
+        currentFunction  = savedFunc;
+        currentSretParam = savedSretParam;
         if (savedBB) builder->SetInsertPoint(savedBB, savedPoint);
     }
 
@@ -1325,7 +1455,16 @@ void CodeGen::visit(TemplateCallExpr* node) {
 
     std::vector<llvm::Value*> args;
     for (auto& arg : node->args) args.push_back(evaluateExpr(arg));
-    exprValueStack.push(builder->CreateCall(func, args));
+
+    auto sretIt = funcSretTypes.find(mangledName);
+    if (sretIt != funcSretTypes.end()) {
+        llvm::Value* sretAlloca = builder->CreateAlloca(sretIt->second, nullptr, "sret.tmp");
+        args.insert(args.begin(), sretAlloca);
+        builder->CreateCall(func, args);
+        exprValueStack.push(builder->CreateLoad(sretIt->second, sretAlloca));
+    } else {
+        exprValueStack.push(builder->CreateCall(func, args));
+    }
 }
 
 llvm::Value* CodeGen::evaluateLValue(ExprPtr expr) {

@@ -56,6 +56,13 @@ private:
     // Eskiu param types per function — for interface boxing at call sites
     std::map<std::string, std::vector<std::string>> funcEskiuParamTypes;
 
+    // Global-scope variable type tracking (complement to varTypeStack which is function-scoped)
+    std::map<std::string, std::string> globalVarTypes;
+
+    // Evaluate an expression as an LLVM Constant (for global variable initializers).
+    // Returns nullptr for expressions that cannot be folded to a constant.
+    llvm::Constant* evaluateConstantExpr(ExprPtr expr);
+
     // Helpers
     llvm::Value* boxAsInterface(const std::string& ifaceName,
                                 const std::string& structName,
@@ -76,6 +83,15 @@ private:
     // Break/continue targets for the innermost loop
     llvm::BasicBlock* breakTarget    = nullptr;
     llvm::BasicBlock* continueTarget = nullptr;
+
+    // sret (structure return) support for large struct returns
+    // Maps function name → actual return struct type (the LLVM function itself returns void)
+    std::map<std::string, llvm::StructType*> funcSretTypes;
+    // Active sret pointer for the current function (null if not sret)
+    llvm::Value* currentSretParam = nullptr;
+
+    // Returns true if retType is an aggregate that must use sret on this target
+    bool needsSret(llvm::Type* retType) const;
 
     // Type system: map Eskiu types to LLVM types
     llvm::Type* getTypeFromString(const std::string& typeStr);
