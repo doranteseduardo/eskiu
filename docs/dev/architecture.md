@@ -10,32 +10,34 @@ Internal reference for compiler contributors. Assumes familiarity with C++17 and
 Source (.esk)
     │
     ▼
-┌─────────┐   Token stream (vector<Token>)
-│  Lexer  │──────────────────────────────────►
-└─────────┘                                  │
-                                             ▼
-                                       ┌──────────┐   shared_ptr<Program>
-                                       │  Parser  │──────────────────────►
-                                       └──────────┘                       │
-                                                                          ▼
-                                                                  ┌──────────────┐
-                                                                  │ Type Checker │── errors → stderr
-                                                                  └──────────────┘
-                                                                          │ validated AST
-                                                                          ▼
-                                                                  ┌─────────┐   llvm::Module
-                                                                  │ Codegen │──────────────► LLVM IR
-                                                                  └─────────┘
+┌─────────┐   vector<Token>
+│  Lexer  │──────────────────────────────────────────►
+└─────────┘                                           │
+  lexer/lexer.cpp                                     ▼
+                                               ┌──────────┐   shared_ptr<Program>
+                                               │  Parser  │──────────────────────►
+                                               └──────────┘                       │
+                                              parser/parser.cpp                   ▼
+                                                                          ┌──────────────┐
+                                                                          │ Type Checker │── errors → stderr
+                                                                          └──────────────┘
+                                                                         sema/type_checker.cpp
+                                                                                  │ validated AST
+                                                                                  ▼
+                                                                          ┌─────────┐   llvm::Module*
+                                                                          │ Codegen │────────────────► .o file → Binary
+                                                                          └─────────┘
+                                                                        codegen/codegen.cpp
 ```
 
-| Stage | File(s) | Responsibility |
-|---|---|---|
-| Lexer | `lexer/lexer.cpp` | Converts raw source bytes into a flat `Token` stream with line/column positions |
-| Parser | `parser/parser.cpp` | Recursive-descent; produces a `shared_ptr<Program>` AST from the token stream |
-| Type Checker | `sema/type_checker.cpp` | Two-pass visitor; registers structs and function signatures, then validates types and scopes |
-| Codegen | `codegen/codegen.cpp` | Visitor over the validated AST; emits LLVM IR via `IRBuilder<>` |
+| Stage | File(s) | Responsibility | Status |
+|---|---|---|---|
+| Lexer | `lexer/lexer.cpp`, `lexer/lexer.h` | Converts raw source bytes into a flat `vector<Token>` stream with line/column positions | Complete |
+| Parser | `parser/parser.cpp`, `parser/parser.h` | Recursive-descent; produces a `shared_ptr<Program>` AST; resolves `import` inline | Complete |
+| Type Checker | `sema/type_checker.cpp`, `sema/type_checker.h` | Two-pass visitor; registers structs/interfaces/functions then validates types and scopes | Complete |
+| Codegen | `codegen/codegen.cpp`, `codegen/codegen.h` | Visitor over the validated AST; emits LLVM IR via `IRBuilder<>`; emits native `.o` | Complete |
 
-**How they compose.** `main.cpp` runs each stage in sequence. The lexer is invoked to exhaustion before parsing begins — the full token stream is materialized into `std::vector<Token>` and handed to `Parser`. The parser returns `shared_ptr<Program>`. The type checker and codegen each take a raw `Program*` or `shared_ptr<Program>` and walk the tree through the visitor interface. No stage modifies the AST; they only read it and produce output (errors or LLVM values).
+**How they compose.** `main.cpp` runs each stage in sequence. The lexer is driven to exhaustion first — the full token stream is materialized into `std::vector<Token>` and handed to `Parser`. The parser returns `shared_ptr<Program>`. The type checker takes `Program*` and walks the tree through the visitor interface. Codegen takes `shared_ptr<Program>`, generates IR, verifies it with `llvm::verifyModule`, and calls `emitObjectFile()` which uses `llvm::TargetMachine` + `legacy::PassManager` to produce the `.o`. None of the stages modify the AST; they only read it and produce output.
 
 ---
 
@@ -43,42 +45,28 @@ Source (.esk)
 
 ### Why all passes implement ASTVisitor
 
-Every analysis or code generation pass that must touch the entire tree implements `ASTVisitor`. This keeps traversal logic out of the AST nodes themselves and allows passes (type checker, codegen, printer) to be added without modifying `ast/ast.h`.
+Every analysis or code generation pass implements `ASTVisitor`. This keeps traversal logic out of the AST nodes themselves and allows passes (type checker, codegen, AST printer) to be added without modifying `ast/ast.h`. The base class declares 26 pure-virtual `visit()` overloads — one per concrete node type.
 
 ### How accept()/visit() dispatch works
 
-Each concrete AST node overrides `accept(ASTVisitor* v)` and calls `v->visit(this)`. This is the classic double-dispatch: the node's static type selects `visit()` overload at compile time via the node's own `accept` implementation.
+Each concrete AST node overrides `accept(ASTVisitor* v)` and calls `v->visit(this)`. This is classic double-dispatch: the node's static type selects the `visit()` overload at compile time via the node's own `accept` implementation.
 
 ```cpp
-// In ast.cpp — every node follows this pattern:
+// Every node follows this pattern in ast/ast.cpp:
 void BinaryExpr::accept(ASTVisitor* visitor) {
     visitor->visit(this);
 }
 ```
 
-The visitor declares a pure-virtual `visit()` overload for every concrete node type (20 overloads in `ASTVisitor`). Any new concrete node must add an overload to `ASTVisitor` and all existing implementors.
+The visitor declares a pure-virtual `visit()` overload for every concrete node type. Any new concrete node must add an overload to `ASTVisitor` and stub it in all existing implementors.
 
 ### How to add a new node (5-step checklist)
 
-1. Declare the class in `ast/ast.h`, inheriting from `Expr`, `Stmt`, or `Decl`. Add the `accept` override declaration.
+1. Declare the class in `ast/ast.h`, inheriting from `Expr`, `Stmt`, or `Decl`. Add the `accept` override declaration and `int line = 0; int col = 0;` (inherited from `ASTNode`).
 2. Implement `accept` in `ast/ast.cpp`: `visitor->visit(this);`.
 3. Add `virtual void visit(MyNewNode* node) = 0;` to `ASTVisitor` in `ast/ast.h`.
-4. Add a stub implementation to every `ASTVisitor` subclass: `ASTPrinter`, `TypeChecker`, `CodeGen`.
-5. Wire the parse rule in `parser/parser.cpp` to construct and return the new node.
-
-### Minimal visitor implementation
-
-```cpp
-class MyPass : public ASTVisitor {
-public:
-    void visit(Program* node) override {
-        for (auto& decl : node->declarations) decl->accept(this);
-    }
-    void visit(FunctionDecl* node) override { /* ... */ }
-    void visit(VarDecl* node) override      { /* ... */ }
-    // ... one override per concrete node type
-};
-```
+4. Add an implementation to every `ASTVisitor` subclass: `ASTPrinter`, `TypeChecker`, `CodeGen`.
+5. Wire the parse rule in `parser/parser.cpp` to construct and return the new node. Stamp the position with `withPos(node, tok)` so `node->line` and `node->col` are populated.
 
 ---
 
@@ -91,92 +79,129 @@ A single `Token` struct with four fields:
 ```cpp
 struct Token {
     TokenType type;    // enum class value
-    std::string value; // raw text ("42", "hello", "+", ...)
+    std::string value; // raw text ("42", "0xFF", "hello", "+", ...)
     int line;          // 1-based
     int column;        // 1-based
 };
 ```
 
-The caller drives the lexer by calling `next_token()` in a loop until `TokenType::EOF_TOKEN` is returned. There is no internal lookahead buffer; each call consumes exactly one token from the source.
+The caller drives the lexer by calling `next_token()` in a loop until `TokenType::EOF_TOKEN` is returned. There is no internal lookahead buffer; each call consumes exactly one token. Comments (`//` and `/* */`) are skipped transparently inside `next_token()`.
 
 ### TokenType enum categories
 
-| Category | Examples |
+| Category | Tokens |
 |---|---|
-| Keywords | `LET`, `INT`, `FLOAT`, `STRUCT`, `EXTERN`, `FOR`, `WHILE`, `IF`, `RETURN`, `BREAK`, `INT8`…`UINT64` |
-| Operators | `PLUS`, `MINUS`, `STAR`, `SLASH`, `EQ`, `EQEQ`, `NE`, `LT`, `LE`, `AND`, `OR`, `LSHIFT`, `RSHIFT` |
+| Type keywords | `INT`, `INT8`, `INT16`, `INT32`, `INT64`, `UINT`, `UINT8`, `UINT16`, `UINT32`, `UINT64`, `FLOAT`, `DOUBLE`, `BOOL`, `CHAR`, `STRING`, `VOID` |
+| Control keywords | `FOR`, `WHILE`, `IF`, `ELSE`, `SWITCH`, `CASE`, `DEFAULT`, `BREAK`, `CONTINUE`, `RETURN` |
+| Declaration keywords | `LET`, `STRUCT`, `INTERFACE`, `EXTERN`, `FN`, `IMPORT`, `ENUM` |
+| Memory keywords | `ALLOC`, `FREE` |
+| Literal keywords | `TRUE`, `FALSE`, `NULL_KW` |
+| Reserved (future) | `THREAD`, `SPAWN`, `MUTEX`, `TRY`, `CATCH`, `FINALLY`, `THROW`, `IN` |
+| Arithmetic operators | `PLUS`, `MINUS`, `STAR`, `SLASH`, `PERCENT` |
+| Compound assignments | `PLUS_EQ`, `MINUS_EQ`, `STAR_EQ`, `SLASH_EQ`, `PERCENT_EQ` |
+| Comparison | `EQEQ`, `NE`, `LT`, `GT`, `LE`, `GE` |
+| Assignment | `EQ` |
+| Logical | `AND` (`&&`), `OR` (`\|\|`), `NOT` (`!`) |
+| Bitwise binary | `AMPERSAND` (`&`), `PIPE` (`\|`), `CARET` (`^`), `LSHIFT` (`<<`), `RSHIFT` (`>>`) |
+| Bitwise unary | `TILDE` (`~`) |
 | Delimiters | `LBRACE`, `RBRACE`, `LPAREN`, `RPAREN`, `LBRACKET`, `RBRACKET`, `SEMICOLON`, `COMMA`, `DOT`, `COLON`, `ARROW`, `ELLIPSIS` |
 | Literals | `INT_LIT`, `FLOAT_LIT`, `STRING_LIT`, `CHAR_LIT` |
-| Identifiers | `IDENT` |
+| Names | `IDENT` |
 | Special | `EOF_TOKEN`, `UNKNOWN` |
 
-### How keywords are resolved
+The keywords map is a `static std::unordered_map<std::string, TokenType>` with 45 entries initialized at program start. After `read_identifier()` accumulates an alphanumeric/underscore run, it does a single map lookup; any identifier not in the map becomes `IDENT`.
 
-`Lexer::keywords` is a `static std::unordered_map<std::string, TokenType>` initialized at program start with 44 entries. After `read_identifier()` accumulates an alphanumeric/underscore run, it does a single map lookup:
+### Hex literal tokenization
 
-```cpp
-auto it = keywords.find(ident);
-if (it != keywords.end()) return Token(it->second, ident, ...);
-return Token(TokenType::IDENT, ident, ...);
-```
-
-Any identifier not in the map becomes `IDENT`. This means user-defined type names are always `IDENT` at the lexer level; the parser and type checker give them meaning.
+`read_number()` detects the `0x`/`0X` prefix after consuming the leading `0` digit. It then accumulates `std::isxdigit()` characters and returns `TokenType::INT_LIT` with the full raw string (e.g. `"0xFF"`). `visit(LiteralExpr*)` in codegen calls `std::stoll(value, nullptr, 0)` (base 0 = auto-detect) to parse both decimal and hex correctly.
 
 ### Line/column tracking
 
-`advance()` increments `column` on every character consumed. On `\n` it resets `column = 1` and increments `line`. Both are initialized to `1`. Each token captures the `line`/`column` at the point `next_token()` entered — specifically the value of `line`/`column` before any characters in that token were consumed.
+`advance()` increments `column` on every character consumed. On `\n` it resets `column = 1` and increments `line`. Both are initialized to `1`. Each token captures `line`/`column` before any characters of that token are consumed.
 
 ---
 
 ## Parser (`parser/`)
 
-### Recursive descent, no backtracking (except controlled savePos/catch)
+### Recursive descent with controlled backtracking via savePos/catch
 
-The parser is purely recursive descent. There is no grammar table and no PEG memoization. The only lookahead used is `peek()` (current token) and `peek_ahead(1)` (one token ahead). Backtracking is used in exactly two places, both marked with `size_t savePos = current`:
+The parser is purely recursive descent with no grammar table and no PEG memoization. Lookahead is limited to `peek()` (current token) and `peek_ahead(1)` (one token ahead). Backtracking occurs in three controlled places, each marked `size_t savePos = current`:
 
-- `parseDeclaration()` — distinguishes function vs variable by speculatively parsing the type and checking for `LPAREN` after the name, then resetting `current = savePos` and re-parsing as a function.
-- `parseBlockStatement()` — tries `parseDeclaration()` in a `try/catch`; if it throws, resets `current` and falls through to `parseStatement()`.
-- `parseUnary()` — attempts a cast expression `(TYPE) expr` speculatively; resets on failure.
+- `parseDeclaration()` — speculatively parses the type and checks for `LPAREN` or `LT` after the name to distinguish function declaration from variable declaration; resets `current = savePos` and re-parses if it is a function.
+- `parseBlockStatement()` — tries `parseDeclaration()` in a `try/catch(...)`; resets `current = savePos` on throw and falls through to `parseStatement()`.
+- `parseUnary()` — attempts a cast `(TYPE) expr` speculatively; resets on failure (only triggered when the token inside the parenthesis is an unambiguous type keyword).
+- `parsePostfix()` — speculatively parses template call `ident<T,...>(args)` by trying to consume `<`, type args, `>`, `(`; resets on failure to avoid misinterpreting `<` as less-than.
 
-### `parseType()`: handles leading `*T`, trailing `T*`, array `T[N]`
+### `parseType()`: leading `*T`, trailing `T*`, array `T[N]`, template `Name<T,...>`
 
 ```
 parseType()
-  → consume any leading STAR tokens, count them
-  → consume type keyword or IDENT
-  → consume any trailing STAR tokens, append "*" to type string
-  → prepend leading "*" for each leading star
-  → consume "[" ... "]" sequences, append "[]" to type string
+  1. consume any leading STAR tokens, count them (leading_pointers)
+  2. consume one type keyword or IDENT
+  3. if IDENT and next is '<': recursively parse comma-separated type args until '>'
+     → type += "<arg1,arg2,...>"
+  4. consume any trailing STAR tokens, append "*" for each
+  5. prepend "*" for each leading star
+  6. consume "[" size_tokens "]" sequences, append "[N]" to type string
+     → array size is captured (not discarded) e.g. "uint8[858]"
 ```
 
-Array sizes inside `[N]` are skipped entirely (bracket-depth counter, no value captured). The resulting type string for `uint8[858]` is `"uint8[]"`. For `*Point` it is `"*Point"`. For `int**` it is `"int**"`.
+The resulting type string examples: `"*Point"`, `"int**"`, `"uint8[858]"`, `"Result<int,string>"`, `"List<int>*"`.
 
-### `parseDeclaration()` disambiguation: function vs variable by lookahead
+### Template parsing
 
-At the top level, after ruling out `extern`, `struct`, and `let`:
+**Template struct:** `struct Result<T, E> { ... }` — `parseStructDecl()` checks for `LT` after the struct name and accumulates `typeParams` as a `vector<string>` of identifier names. Stored in `StructDecl::typeParams`.
+
+**Template function:** `int max<T>(T a, T b) { ... }` — `parseFunctionDecl()` checks for `LT` after the function name and accumulates `typeParams`. Stored in `FunctionDecl::typeParams`.
+
+**Template call:** `max<int>(3, 5)` — parsed in `parsePostfix()`: when the current expression is an `IdentExpr` and the next token is `LT`, the parser speculatively tries to consume `<TypeArgs...>(args)` and builds a `TemplateCallExpr`. Falls back on failure.
+
+**Template type in `parseType()`:** `Result<int, string>` in type position is handled directly by `parseType()` which recurses for each type argument.
+
+### Struct init syntax: `IDENT { [field: expr | expr] }`
+
+`parsePrimary()` detects `IDENT` followed by `LBRACE` and calls `parseStructInit(name)`. Inside:
+- Named: `IDENT COLON expr` → field_name is non-empty
+- Positional: `expr` → field_name is `""`
+
+Both forms produce `StructInitExpr` with `vector<pair<string, ExprPtr>>`.
+
+### Operator precedence chain
+
+From lowest to highest:
 
 ```
-savePos = current
-type = parseType()            // consumes type tokens
-if peek() == IDENT:
-    name = advance()
-    if peek() == LPAREN:      // function: int foo(
-        current = savePos     // full reset
-        return parseFunctionDecl()
-    elif peek() == SEMICOLON or EQ:  // variable: int x; or int x =
-        parse initializer if EQ
-        return VarDecl(name, type, init)
+parseAssignment      =  +=  -=  *=  /=  %=     (right-associative; compound ops desugar)
+  parseLogicalOr     ||
+    parseLogicalAnd  &&
+      parseBitwiseOr     |
+        parseBitwiseXor  ^
+          parseBitwiseAnd    &
+            parseEquality    ==  !=
+              parseComparison    <  >  <=  >=
+                parseShift       <<  >>
+                  parseAddition  +  -
+                    parseMultiplication  *  /  %
+                      parseUnary         -  ~  !  &  *  (TYPE)
+                        parsePostfix     ()  []  .  <T>(args)
+                          parsePrimary
 ```
 
-`let` declarations follow a different path: `let name : type [= expr] ;`.
+Compound assignment operators (`+=`, `-=`, `*=`, `/=`, `%=`) are desugared in `parseAssignment()` into `BinaryExpr(lhs, "=", BinaryExpr(lhs, op, rhs))`.
 
-### `parseBlockStatement()`: `BlockItem = variant<DeclPtr, StmtPtr>`
+### `import` handling: inline parsing in `parseProgram()`
 
-Inside a block body, each item is attempted as a declaration first (same lookahead heuristic), and if that throws, retried as a statement. The result is a `vector<BlockItem>` where each element is a `std::variant<DeclPtr, StmtPtr>`. This allows declarations and statements to be freely interleaved — `int x = 5; x = x + 1; int y = x;` is valid.
+When `parseProgram()` encounters `IMPORT STRING_LIT SEMICOLON`, it:
+1. Resolves the path relative to `basedir` (the directory of the importing file).
+2. Checks `importedFiles` (`set<string>`) for deduplication; skips if already imported.
+3. Reads and lexes the imported file, creates a sub-`Parser` with the sub-file's `basedir` and the shared `importedFiles` set.
+4. Calls `sub.parse()` and splices the resulting declarations directly into the current `declarations` vector.
 
-### Error recovery: skip to next semicolon
+This means import is purely textual flattening — all declarations from imported files land in the same `Program` node as if they were written inline.
 
-`parseProgram()` wraps each `parseDeclaration()` call in a `try/catch`. On error it advances past tokens until it finds a `SEMICOLON`, then continues. This allows the parser to report multiple errors in a single run rather than aborting at the first problem.
+### For-loop declaration init
+
+`parseForStatement()` tries `parseDeclaration()` for the init clause. On success it wraps the `DeclPtr` in a `BlockStmt` containing a single `BlockItem`. On failure it resets `current` and tries `parseExpressionStatement()`. In the type checker, `visit(ForStmt*)` detects this `BlockStmt` wrapper and iterates its items directly in the for-loop's scope so the init variable is visible in the condition, step, and body.
 
 ---
 
@@ -185,53 +210,52 @@ Inside a block body, each item is attempted as a declaration first (same lookahe
 ### Node hierarchy
 
 ```
-ASTNode
-├── Decl
-│   ├── FunctionDecl   (name, returnType, params[(type,name)], body:StmtPtr)
-│   ├── VarDecl        (name, type, initializer:ExprPtr?)
-│   ├── StructDecl     (name, fields[{type,name}], methods[DeclPtr])
-│   └── ExternDecl     (name, returnType, params[(type,name)])
+ASTNode                    (line:int, col:int)
+├── Decl                   (name:string)
+│   ├── FunctionDecl       (returnType, params[(type,name)], body:StmtPtr, typeParams[])
+│   ├── VarDecl            (type:string, initializer:ExprPtr?)
+│   ├── StructDecl         (fields[{type,name}], methods[DeclPtr], typeParams[])
+│   ├── ExternDecl         (returnType, params[(type,name)])
+│   └── InterfaceDecl      (methods[{returnType,name,params}])
 ├── Stmt
-│   ├── BlockStmt      (items: vector<BlockItem>)
-│   ├── IfStmt         (condition, thenBranch, elseBranch?)
-│   ├── ForStmt        (init:StmtPtr?, condition:ExprPtr?, step:ExprPtr?, body)
-│   ├── WhileStmt      (condition, body)
-│   ├── ReturnStmt     (value:ExprPtr?)
+│   ├── BlockStmt          (items: vector<BlockItem>)
+│   ├── IfStmt             (condition, thenBranch, elseBranch?)
+│   ├── ForStmt            (init:StmtPtr?, condition:ExprPtr?, step:ExprPtr?, body)
+│   ├── WhileStmt          (condition, body)
+│   ├── ReturnStmt         (value:ExprPtr?)
 │   ├── BreakStmt
-│   └── ExprStmt       (expr)
+│   ├── ContinueStmt
+│   ├── SwitchStmt         (subject:ExprPtr, cases[{value:ExprPtr?,stmts[StmtPtr]}])
+│   └── ExprStmt           (expr)
 └── Expr
-    ├── BinaryExpr     (left, op:string, right)
-    ├── UnaryExpr      (op:string, operand)
-    ├── CallExpr       (callee:ExprPtr, args[ExprPtr])
-    ├── IndexExpr      (base, index)
-    ├── MemberExpr     (base, member:string)
-    ├── CastExpr       (targetType:string, expr)
-    ├── LiteralExpr    (kind:{INT,FLOAT,STRING,CHAR,BOOL,NULL_VAL}, value:string)
-    └── IdentExpr      (name:string)
+    ├── BinaryExpr         (left, op:string, right)
+    ├── UnaryExpr          (op:string, operand)
+    ├── CallExpr           (callee:ExprPtr, args[ExprPtr])
+    ├── IndexExpr          (base, index)
+    ├── MemberExpr         (base, member:string)
+    ├── CastExpr           (targetType:string, expr)
+    ├── LiteralExpr        (kind:{INT,FLOAT,STRING,CHAR,BOOL,NULL_VAL}, value:string)
+    ├── IdentExpr          (name:string)
+    ├── AllocExpr          (elemType:string, count:ExprPtr)
+    ├── TemplateCallExpr   (templateName, typeArgs[], args[])
+    └── StructInitExpr     (structName, fieldInits[(name,ExprPtr)])
 
-Program                (declarations: vector<DeclPtr>)   — root, also ASTNode
+Program                    (declarations: vector<DeclPtr>)  — root node
 ```
+
+`ASTVisitor` declares 26 pure-virtual `visit()` overloads (one per concrete class: `Program`, 5 `Decl` subtypes, 9 `Stmt` subtypes, 11 `Expr` subtypes).
 
 ### `BlockItem = std::variant<DeclPtr, StmtPtr>` — why unified
 
-C allows variables to be declared at any point in a block, not just at the top. Rather than forcing all declarations to precede statements (Pascal-style) or treating `VarDecl` as a statement subtype, `BlockStmt` uses `std::variant<DeclPtr, StmtPtr>`. Visitors iterate over items and dispatch with `std::holds_alternative` / `std::get`. This preserves the semantic distinction between declarations and statements throughout all passes.
+C allows variables to be declared at any point in a block, not just at the top. Rather than forcing declarations to precede statements (Pascal-style) or treating `VarDecl` as a `Stmt` subtype, `BlockStmt` uses `std::variant<DeclPtr, StmtPtr>`. Visitors iterate over items and dispatch with `std::holds_alternative` / `std::get`. This preserves the semantic distinction between declarations and statements throughout all passes.
+
+### Source location on AST nodes
+
+`ASTNode` carries `int line = 0; int col = 0;`. The parser populates these via the `withPos(node, tok)` helper, which assigns `node->line = tok.line; node->col = tok.column`. Positions are stamped on expressions at operator/delimiter tokens. Nodes constructed internally (e.g. the desugared `BinaryExpr` inside a compound assignment) are stamped with the compound-operator token. Nodes without an explicit `withPos` call retain `0/0`.
 
 ### Smart pointer conventions
 
-All AST nodes are heap-allocated and managed through `shared_ptr`. Type aliases:
-
-```cpp
-using ASTNodePtr = std::shared_ptr<ASTNode>;
-using ExprPtr    = std::shared_ptr<Expr>;
-using StmtPtr    = std::shared_ptr<Stmt>;
-using DeclPtr    = std::shared_ptr<Decl>;
-```
-
-`shared_ptr` is used throughout rather than `unique_ptr` because AST nodes can be referenced from multiple places (e.g., `expressionTypes` cache in the type checker holds raw `Expr*` keys pointing into shared-owned subtrees).
-
-### ASTPrinter for `--test-parser` output
-
-`ASTPrinter` in `ast/ast_printer.h` implements `ASTVisitor` and prints a depth-indented tree to stdout. It is the output of `--test-parser`. Its `print(shared_ptr<Program>)` method calls `program->accept(this)` to start traversal.
+All AST nodes are heap-allocated and managed through `shared_ptr`. Type aliases: `ASTNodePtr`, `ExprPtr`, `StmtPtr`, `DeclPtr`. `shared_ptr` is used (rather than `unique_ptr`) because AST nodes can be referenced from multiple places — e.g. `expressionTypes` in the type checker holds raw `Expr*` keys that point into shared-owned subtrees.
 
 ---
 
@@ -241,15 +265,18 @@ using DeclPtr    = std::shared_ptr<Decl>;
 
 `TypeChecker::check(Program*)` runs two sequential passes over `program->declarations`:
 
-**Pass 1** — registration only, no type checking:
-- `StructDecl` → insert into `structs` map (`map<string, StructInfo>`)
-- `FunctionDecl` → insert into `functionSignatures` (`map<string, pair<string, vector<string>>>`)
-- `ExternDecl` → same as `FunctionDecl`
+**Pass 1 — registration only, no type checking:**
+- `InterfaceDecl` → insert into `interfaceDecls` map
+- `StructDecl` (template) → insert into `templateDecls` map
+- `StructDecl` (concrete) → insert into `structs` map (`map<string, StructInfo>`); register methods as mangled functions `StructName_methodName` with implicit `*StructName` self parameter
+- `FunctionDecl` (template) → insert into `funcTemplateDecls`; skip normal registration
+- `FunctionDecl` (concrete) → insert into `functionSignatures`
+- `ExternDecl` → insert into `functionSignatures`
 
-**Pass 2** — full visitor traversal:
-- Each declaration calls `decl->accept(this)` which dispatches to the appropriate `visit()` method.
+**Pass 2 — full visitor traversal:**
+Each declaration calls `decl->accept(this)` which dispatches to the appropriate `visit()`. Template function bodies are skipped at declaration time (`visit(FunctionDecl*)` returns immediately if `typeParams` is non-empty); they are type-checked lazily when instantiated via `visit(TemplateCallExpr*)`.
 
-This two-pass design ensures that forward references work: a function can call another function declared later in the file, and struct fields can reference structs declared in any order.
+This two-pass design ensures forward references work: functions can call functions declared later, and struct fields can reference structs declared in any order.
 
 ### Scope stack: `vector<map<string,Symbol>>`
 
@@ -258,46 +285,46 @@ struct Symbol { std::string type; bool isDeclared; };
 std::vector<std::map<std::string, Symbol>> scopes;
 ```
 
-`pushScope()` appends an empty map. `popScope()` removes the last map. `defineSymbol(name, type)` inserts into `scopes.back()`. `lookupSymbol(name)` iterates `scopes.rbegin()` to `scopes.rend()` — innermost first. Returns `""` on miss.
+`pushScope()` appends an empty map. `popScope()` removes the last. `defineSymbol(name, type)` inserts into `scopes.back()`. `lookupSymbol(name)` iterates `scopes.rbegin()` to `scopes.rend()` — innermost scope first. Returns `""` on miss.
 
-Scope boundaries:
-- Global scope: created in `TypeChecker()` constructor
-- Function body: pushed/popped in `visit(FunctionDecl*)`
-- Block: pushed/popped in `visit(BlockStmt*)`
-- For loop: pushed/popped in `visit(ForStmt*)` (covers init variable)
+Scope boundaries: global scope in constructor; function body pushed/popped in `visit(FunctionDecl*)`; block pushed/popped in `visit(BlockStmt*)`; for-loop init scope pushed/popped in `visit(ForStmt*)`.
 
-### Struct registry: `map<string,StructInfo>` — validated before use
+### Template instantiation via `normalizeType()`
 
-`StructInfo` holds the struct name and its `vector<StructDecl::Field>`. Before any variable or cast uses a struct type, `validateStructType()` is called on the normalized type. It strips pointer suffixes, checks for the `struct:` prefix, then verifies the struct name is in the registry.
+`normalizeType(type)` is the entry point for lazy template struct instantiation:
 
-`visit(MemberExpr*)` looks up the base expression's type, strips the `struct:` prefix to get the struct name, finds the `StructInfo`, and searches `fields` linearly for the member name. It sets `expressionTypes[node]` to the field's declared type on success.
+1. If `type` has a trailing `*`: strip, normalize base recursively, re-append `*`.
+2. If `type` starts with `struct:` or `interface:`: return as-is.
+3. If `type` contains `<`: split into template name + args via `splitTemplateType()`. Look up `templateDecls`. If found and not already in `structs`, create a substituted `StructInfo` (applying `substType()`) and insert it as `structs[mangled]`. Return `"struct:" + mangled` where `mangled` = `"Result_int_string"` for `"Result<int,string>"`.
+4. If `type` is a known concrete struct name: return `"struct:" + type`.
+5. Otherwise return as-is (primitive).
 
-### Type normalization: `"Point"` → `"struct:Point"`, `"*Point"` → `"struct:Point*"`
+Template function instantiation happens in `visit(TemplateCallExpr*)`: type args are bound to type params via `substType()`, and the return type is computed. Bodies are not re-type-checked; only argument types are validated.
 
-`normalizeType(type)` applies these rules in order:
+### Interface structural satisfaction check
 
-1. If `type` ends with `*`: strip suffix, normalize base recursively, re-append `*` via `addPointerSuffix`.
-2. If `type` already starts with `struct:` or `interface:`: return as-is.
-3. If `type` is a known struct name in the registry: return `"struct:" + type`.
-4. Otherwise return as-is (primitive).
+`isValidAssignment(lhs, rhs)` includes an interface check: if `lhs` is a registered interface name, it calls `structSatisfiesInterface(functionSignatures, structName, iface)` which verifies that for every method in the interface, a function named `structName_methodName` exists in `functionSignatures`. No `implements` keyword is required. This is purely structural.
 
-The internal representation uses `struct:Name` as the canonical form. Pointer-to-struct is `"struct:Name*"` (trailing `*`). The type checker's `isPointerType` detects leading `*` (from unary `&` operator result or leading-`*` annotation): `type[0] == '*'`. The sema layer thus uses both conventions simultaneously — leading `*` for inference results, trailing `*` for normalized struct pointer types.
-
-### Pointer style: leading `*T` internally (`type[0]=='*'`)
-
-`isPointerType(type)` in the type checker returns `type[0] == '*'`. `getPointeeType` returns `type.substr(1)`. Unary `&` produces `"*" + operandType`. However, `hasPointerSuffix` / `extractBaseType` / `addPointerSuffix` operate on the trailing-`*` form for struct normalization. Contributors must be aware that both forms coexist in `expressionTypes`.
-
-### Error format: `file.esk:line:col: message`
+### Error format: `sourceFile:line:col: message`
 
 ```cpp
 void TypeChecker::error(int line, int col, const std::string& message) {
+    hasErrors = true;
     std::stringstream ss;
-    ss << "file.esk:" << line << ":" << col << ": " << message;
+    ss << sourceFile << ":" << line << ":" << col << ": " << message;
     errors.push_back(ss.str());
 }
 ```
 
-All calls currently pass `0, 0` for line and column — token positions are not threaded through the AST nodes. This is a known gap; see Phase 5 TODO below.
+`sourceFile` is set by the caller (`main.cpp`) to the actual input filename before calling `check()`. Errors are accumulated and printed after the full second pass completes. When an error is reported via `errorAt(node, msg)`, it uses `node->line` and `node->col` — populated by the parser's `withPos()` stamp. Nodes without position stamps report `0:0`.
+
+### Pointer type conventions in the type checker
+
+Two pointer notations coexist in `expressionTypes`:
+- **Leading `*T`**: used by inference results from unary `&` (`"*" + operandType`) and `isPointerType()` (`type[0] == '*'`).
+- **Trailing `T*`**: used by `normalizeType()` for struct pointer forms (`"struct:Point*"`) via `hasPointerSuffix` / `extractBaseType` / `addPointerSuffix`.
+
+`MemberExpr` auto-dereferences both forms: it strips trailing `*` via `hasPointerSuffix`, then strips a leading `*` via `type.substr(1)`, then calls `normalizeType()` to get the canonical `struct:Name` form.
 
 ---
 
@@ -313,100 +340,133 @@ std::unique_ptr<llvm::Module>      module;   // named "eskiu"
 std::unique_ptr<llvm::IRBuilder<>> builder;
 ```
 
-All IR emission goes through `builder`. The insert point is managed explicitly: `visit(FunctionDecl*)` creates a `BasicBlock` named `"entry"` and calls `builder->SetInsertPoint(entryBlock)`. Control-flow visitors (`IfStmt`, `WhileStmt`, `ForStmt`) create named basic blocks and call `SetInsertPoint` to switch between them.
+`generateCode()` sets the target triple and data layout early (needed for `sizeof` in `AllocExpr`), then visits the program. `visit(FunctionDecl*)` creates an `"entry"` `BasicBlock` and calls `builder->SetInsertPoint(entryBlock)`. Control-flow visitors create named basic blocks (`"then"`, `"merge"`, `"while"`, `"for_body"`, `"for_step"`, `"for_exit"`, `"switch.end"`, etc.) and move the insert point with `SetInsertPoint`. After all declarations are visited, `generateCode()` calls `llvm::verifyModule`; on failure it returns `nullptr`.
 
-After all declarations are visited, `generateCode()` calls `llvm::verifyModule`. If verification fails the method returns `nullptr`.
+### `evaluateExpr` / `evaluateLValue` — the lvalue/rvalue split
 
-### Symbol table: `map<string, llvm::Value*>` + scope stack
+**`evaluateExpr(ExprPtr)`**: calls `expr->accept(this)`, which pushes an `llvm::Value*` onto `exprValueStack`. Pops and returns it. For `IdentExpr`, if the symbol is an `AllocaInst`, it loads from it and returns the loaded value. For function values it returns the `llvm::Function*` directly.
 
+**`evaluateLValue(ExprPtr)`**: returns the storage pointer without loading. Handles `IdentExpr` (returns the `AllocaInst*` directly), `MemberExpr` (resolves field index, returns `CreateStructGEP` result), and `IndexExpr` (returns `CreateGEP` into array or pointer). Used for the left side of `=`, for `&expr`, and for method call dispatch (`self` pointer).
+
+### `varTypeStack` for struct/array/interface expression type resolution
+
+`varTypeStack` is a `vector<map<string,string>>` that parallels `scopeStack`, storing the Eskiu type string for each named variable. It is managed by `pushScope()`/`popScope()` alongside the LLVM value table.
+
+`getExprEskiuType(ExprPtr)` resolves the Eskiu type of an expression at codegen time (without re-running the type checker):
+- `IdentExpr` → `lookupVarType(name)`
+- `MemberExpr` → resolves base type from `varTypeStack`, looks up the field in `structFields`
+- `UnaryExpr` with `&` → prepends `"*"` to the operand's type
+- `UnaryExpr` with `*` → strips leading `"*"` from the operand's type
+- `IndexExpr` → strips `[N]` or leading/trailing `*` from the base type
+
+This is used by `visit(MemberExpr*)`, `visit(IndexExpr*)`, and `visit(CallExpr*)` for method and interface dispatch.
+
+### Template struct instantiation: `ensureTemplateInstantiated()`
+
+Called whenever a template type appears in codegen (in `getTypeFromString`, `visit(MemberExpr*)`, `visit(CallExpr*)`). If `structTypes[mangled]` does not yet exist:
+1. Looks up `templateDecls[tname]` (the original `StructDecl*`).
+2. Builds a `map<string,string>` substitution from `typeParams` to concrete args.
+3. Calls `substType(field.type, subs)` for each field.
+4. Creates `llvm::StructType::create(*context, fieldTypes, mangled)`.
+5. Stores in `structTypes[mangled]` and `structFields[mangled]`.
+
+### Template function instantiation: `typeParamOverride` map
+
+`visit(TemplateCallExpr*)` mangles the instantiated name as `templateName_arg1_arg2`, saves/restores the current insert point and `currentFunction`, sets `typeParamOverride = subs`, and re-visits the `FunctionDecl` AST node with the mangled name. `getTypeFromString()` consults `typeParamOverride` via `substType()` at the start of every type resolution, so all parameter and local variable types are correctly substituted. After the body is emitted, `typeParamOverride` is cleared.
+
+### Interface vtable layout
+
+`visit(InterfaceDecl* node)` builds:
+- `ifaceVtableTypes[name]` — `llvm::StructType` with one `ptr` per method: `%I_vtable = type { ptr, ptr, ... }`
+- `ifaceMethodOrder[name]` — `vector<string>` of method names in declaration order (for index lookup)
+- `ifaceFatPtrTypes[name]` — `%I_fat = type { ptr, ptr }` (data pointer + vtable pointer)
+
+`boxAsInterface(ifaceName, structName, structPtr)` creates a fat pointer on the stack:
+1. Looks up or creates a `private` global constant `%I_vtable_S` holding `{ &S_method1, &S_method2, ... }`.
+2. Allocates `%I_fat` on the stack.
+3. Stores `structPtr` in field 0 (data) and the vtable global in field 1.
+4. Returns the alloca pointer (pointer to the fat struct).
+
+Interface vtable dispatch in `visit(CallExpr*)`: loads `data_ptr` and `vtable_ptr` from the fat struct, computes the method index from `ifaceMethodOrder`, `CreateStructGEP` into the vtable, loads the function pointer, and calls it with a `FunctionType` of all-`ptr` parameters returning `void`. This correctly dispatches `void` methods. Methods with non-void return types share the same dispatch mechanism — the return value is pushed to `exprValueStack`.
+
+`funcEskiuParamTypes` stores the Eskiu parameter type strings per function name. At a call site, if a parameter's type matches an interface registered in `ifaceFatPtrTypes`, the argument is automatically boxed via `boxAsInterface()`.
+
+### Pointer arithmetic
+
+`ptr + n` and `ptr - n` in `visit(BinaryExpr*)`:
 ```cpp
-std::map<std::string, llvm::Value*> symbolTable;   // current flat view
-std::vector<std::map<std::string, llvm::Value*>> scopeStack;  // saved outer scopes
+// ptr + n
+result = builder->CreateGEP(llvm::Type::getInt8Ty(*context), left, right, "ptr.add");
+// ptr - n: negate offset then GEP
+llvm::Value* neg = builder->CreateNeg(right, "neg");
+result = builder->CreateGEP(llvm::Type::getInt8Ty(*context), left, neg, "ptr.sub");
 ```
+`GEP(i8, ptr, ±n)` advances by `n` bytes, matching C pointer arithmetic on `char*`.
 
-`pushScope()` copies `symbolTable` onto `scopeStack`. `popScope()` restores `symbolTable = scopeStack.back(); scopeStack.pop_back()`. This means every scope entry/exit copies the full flat map — it is not a chained lookup structure. `lookupSymbol(name)` is a single `symbolTable.find(name)` call.
+### Bitwise operations
 
-Functions are stored in `symbolTable` as `llvm::Function*` values. Parameters are stored as `llvm::Argument*` values (direct values, not allocas). Local variables are stored as `llvm::AllocaInst*`.
-
-### `evaluateExpr()` vs `evaluateLValue()` — the lvalue/rvalue split
-
-**`evaluateExpr(ExprPtr)`**: calls `expr->accept(this)`, which pushes an `llvm::Value*` onto `exprValueStack`. The method then pops and returns it. For `IdentExpr`, `visit(IdentExpr*)` loads from the `AllocaInst` if the symbol is a local variable (`llvm::isa<llvm::AllocaInst>(val)`), returning the loaded value. For function values it returns the `llvm::Function*` directly.
-
-**`evaluateLValue(ExprPtr)`**: used only for the left-hand side of assignment (`op == "="`). Currently handles only `IdentExpr` — returns the `AllocaInst*` directly without loading. Any other expression node throws `std::runtime_error`.
-
-This separation is necessary because `x = 5` must `store` into the alloca, not load from it.
-
-### VarDecl type coercion: truncate/extend initializer to declared type
-
-`visit(VarDecl*)` allocates an `AllocaInst` for the declared type, evaluates the initializer, then coerces:
-
-```
-src_type → dst_type    instruction emitted
-int32    → int8        CreateTrunc
-int8     → int32       CreateSExt
-int      → float       CreateSIToFP
-float    → int         CreateFPToSI
-float    → double      CreateFPCast
-```
-
-If types already match, no coercion instruction is emitted.
-
-### Pointer types: both `*T` (front) and `T*` (back) handled in `getTypeFromString`
-
-```cpp
-if (!typeStr.empty() && typeStr.front() == '*') return llvm::PointerType::get(*context, 0);
-if (!typeStr.empty() && typeStr.back()  == '*') return llvm::PointerType::get(*context, 0);
-```
-
-All pointer types — regardless of syntax — map to the LLVM opaque pointer type (`ptr` in LLVM 15+, addrspace 0). No pointee type information is retained in the LLVM type system. The `string` type also maps to opaque pointer.
-
-### Stubs / Phase 5 warnings
-
-| Node | Current behavior |
+| Eskiu op | LLVM instruction |
 |---|---|
-| `StructDecl` | `std::cerr << "Warning: struct definitions not yet implemented"` |
-| `MemberExpr` | `std::cerr << "Warning: member access not yet implemented"` |
-| `IndexExpr`  | `std::cerr << "Warning: array indexing not yet implemented"` |
-| `BreakStmt`  | `std::cerr << "Warning: break not yet implemented"` |
-| `emitObjectFile` | Returns `false` with a warning |
+| `&` | `CreateAnd` |
+| `\|` | `CreateOr` |
+| `^` | `CreateXor` |
+| `<<` | `CreateShl` |
+| `>>` | `CreateAShr` (arithmetic shift right) |
+| `~` (unary) | `CreateNot` |
 
-### `emitObjectFile()`: not yet implemented
+### Comparison operations
 
-The method signature exists in `codegen.h` and the stub returns `false`. Object file emission will require `llvm::TargetMachine` setup (`InitializeAllTargets`, `getDefaultTargetTriple`, `createTargetMachine`) and `llvm::raw_fd_ostream` output.
+`visit(BinaryExpr*)` checks `isFloatingPointTy()` first; if true, uses ordered float comparisons (`FCmpOEQ`, `FCmpONE`, `FCmpOLT`, etc.). Otherwise uses signed integer comparisons (`ICmpEQ`, `ICmpNE`, `ICmpSLT`, `ICmpSGT`, `ICmpSLE`, `ICmpSGE`). Pointer comparisons fall through the integer path since LLVM opaque pointers satisfy `!isFloatingPointTy()`.
+
+### `emitObjectFile()`: LLVM TargetMachine + legacy PassManager
+
+```cpp
+bool CodeGen::emitObjectFile(const std::string& filename) {
+    // InitializeNativeTarget + InitializeNativeTargetAsmPrinter
+    // getDefaultTargetTriple → lookupTarget → createTargetMachine (PIC relocation)
+    // setDataLayout from TargetMachine
+    // raw_fd_ostream to filename
+    // legacy::PassManager pm; tm->addPassesToEmitFile(pm, dest, nullptr, ObjectFile)
+    // pm.run(*module); dest.flush();
+}
+```
+
+The data layout is set twice: once in `generateCode()` (for `sizeof` queries during codegen) and once in `emitObjectFile()` (for the final emission pass). Both use `getHostCPUName()` and `Reloc::PIC_`. The function returns `true` on success, `false` on any error (unknown target, cannot open file, target cannot emit object file).
+
+### VarDecl type coercion
+
+`visit(VarDecl*)` allocates an `AllocaInst` for the declared type, evaluates the initializer, then coerces if types differ:
+
+| Source → Destination | Instruction |
+|---|---|
+| `i32` → `i8` (wider → narrower integer) | `CreateTrunc` |
+| `i8` → `i32` (narrower → wider integer) | `CreateSExt` |
+| `i1` → `i32` (bool → wider integer) | `CreateZExt` (zero-extend, not sign-extend) |
+| integer → float/double | `CreateSIToFP` |
+| float/double → integer | `CreateFPToSI` |
+| float → double or vice versa | `CreateFPCast` |
+
+The same coercion logic appears in `emitStructInitInto()` for struct field initialization.
 
 ---
 
-## Symbol Table Design
+## Symbol Table
 
-### Global scope vs local scopes
+### Scope management in TypeChecker vs CodeGen
 
-On construction, `TypeChecker` calls `pushScope()` once — this is the global scope. `visit(FunctionDecl*)` calls `pushScope()` before entering the body and `popScope()` after. `visit(BlockStmt*)` does the same. `visit(ForStmt*)` adds a scope for the init variable.
+**TypeChecker**: `scopes` is a `vector<map<string,Symbol>>`. `pushScope()` appends an empty map; `popScope()` removes the last. `lookupSymbol()` searches from innermost to outermost. Symbols visible in inner scopes shadow outer ones. Functions are stored separately in `functionSignatures`, not in `scopes`.
 
-Functions and externs are stored in `functionSignatures` (a separate map, not in the scope stack). Struct names receive a symbol of type `"struct:Name"` in the global scope via `visit(StructDecl*)`.
+**CodeGen**: `symbolTable` is a flat `map<string,llvm::Value*>`. `scopeStack` is a `vector<map<string,llvm::Value*>>` used for snapshots. `pushScope()` copies the current `symbolTable` onto `scopeStack` and pushes a new layer onto `varTypeStack`. `popScope()` restores `symbolTable` from the snapshot and pops `varTypeStack`. This means inner-scope symbols are automatically invisible after `popScope()`, and inner-scope modifications to outer variables survive only within the scope (inner scope gets a copy, not a reference).
 
-In `CodeGen`, there is no equivalent of the function signatures map — function `llvm::Value*` pointers are stored directly in `symbolTable`. `visit(IdentExpr*)` falls back to `module->getFunction(node->name)` when `lookupSymbol` returns null, which handles cross-function calls without requiring the function to be in the local symbol table.
+`lookupSymbol()` in CodeGen is a single flat `symbolTable.find(name)`. When the lookup returns `nullptr`, `visit(IdentExpr*)` falls back to `module->getFunction(name)` to find functions declared in other scopes.
 
-### `pushScope`/`popScope` semantics
+### `break` and `continue` targets
 
-**TypeChecker**: `pushScope` appends an empty `map<string,Symbol>` to `scopes`. `popScope` removes the last. Symbol lookup scans from back to front.
+`breakTarget` and `continueTarget` are `llvm::BasicBlock*` members of `CodeGen`, initialized to `nullptr`. `visit(WhileStmt*)` and `visit(ForStmt*)` save/restore these around the body:
+- `breakTarget = exitBlock`
+- `continueTarget = loopBlock` (while) or `stepBlock` (for, so `continue` jumps to the step expression)
 
-**CodeGen**: `pushScope` snapshots the entire `symbolTable` map. `popScope` restores it. This means symbols defined in an inner scope are automatically invisible after `popScope` — but also that any symbols added to `symbolTable` while in an inner scope are discarded. There is no way for inner scope mutations to propagate outward (this is correct behavior for local variable lifetime).
-
-### `lookupSymbol`: innermost-first search
-
-**TypeChecker**:
-```cpp
-for (auto it = scopes.rbegin(); it != scopes.rend(); ++it) {
-    auto sym = it->find(name);
-    if (sym != it->end()) return sym->second.type;
-}
-return "";
-```
-
-**CodeGen**:
-```cpp
-auto it = symbolTable.find(name);  // flat map — scope isolation via snapshots
-```
+`visit(BreakStmt*)` calls `builder->CreateBr(breakTarget)` or throws if `breakTarget` is null. `visit(ContinueStmt*)` calls `builder->CreateBr(continueTarget)` or throws if null. `visit(SwitchStmt*)` also sets `breakTarget = endBlock` around its cases.
 
 ---
 
@@ -414,11 +474,11 @@ auto it = symbolTable.find(name);  // flat map — scope isolation via snapshots
 
 | Eskiu type | LLVM type | Notes |
 |---|---|---|
-| `int`, `int32` | `i32` | Default integer |
+| `int`, `int32` | `i32` | |
 | `int8` | `i8` | |
 | `int16` | `i16` | |
 | `int64` | `i64` | |
-| `uint`, `uint32` | `i32` | LLVM has no signedness in types; sign is in the instruction (`sdiv` vs `udiv`) |
+| `uint`, `uint32` | `i32` | Signedness is in the instruction (`sdiv` vs `udiv`), not the LLVM type |
 | `uint8` | `i8` | |
 | `uint16` | `i16` | |
 | `uint64` | `i64` | |
@@ -426,40 +486,22 @@ auto it = symbolTable.find(name);  // flat map — scope isolation via snapshots
 | `double` | `double` (f64) | |
 | `bool` | `i1` | |
 | `char` | `i8` | |
-| `string` | `ptr` (opaque pointer, addrspace 0) | |
+| `string` | `ptr` (opaque, addrspace 0) | |
 | `void` | `void` | Return type only |
-| `*T` or `T*` | `ptr` (opaque pointer, addrspace 0) | All pointer types are opaque |
-| `struct:Name` | `ptr` (opaque pointer, addrspace 0) | Temporary; Phase 5 will emit `llvm::StructType` |
+| `*T` or `T*` | `ptr` (opaque, addrspace 0) | All pointer types are opaque in LLVM 15+ |
+| `struct:Name` (concrete) | `%Name` (`llvm::StructType`) | Created by `visit(StructDecl*)` |
+| `struct:Result_int_string` (template instance) | `%Result_int_string` | Created lazily by `ensureTemplateInstantiated()` |
+| Interface name (e.g. `Greeter`) | `ptr` (opaque) | Interface values are `ptr` to `%Greeter_fat` |
+| `T[N]` (fixed-size array) | `[N x T]` (`llvm::ArrayType`) | e.g. `uint8[858]` → `[858 x i8]` |
 
-Integer literals are emitted as `i32` by `visit(LiteralExpr*)`. Float literals are emitted as `double`. This means a literal `5` assigned to an `int8` variable will be truncated by the coercion logic in `visit(VarDecl*)`.
-
-Unsigned arithmetic is not yet distinguished from signed at the codegen layer — all integer arithmetic uses signed instructions (`CreateAdd`, `CreateSDiv`, `CreateICmpSLT`). Phase 5 work includes plumbing signedness through the type representation to select `udiv`/`urem`/`ICmpULT` where appropriate.
+Integer literals are emitted as `i32`. Float literals are emitted as `double` (`f64`). A float literal assigned to a `float` (`f32`) variable is coerced down via `CreateFPCast`. Unsigned arithmetic uses the same signed LLVM instructions — `CreateSDiv`, `CreateICmpSLT`, etc. — because signedness is not tracked through the IR.
 
 ---
 
-## Known Gaps / Phase 5 TODO
+## Known Limitations
 
-### Struct codegen (`llvm::StructType`, GEP for field access)
-
-`visit(StructDecl*)` emits only a warning. To implement:
-1. Create `llvm::StructType::create(*context, name)` with a field list from `node->fields`.
-2. Store the `llvm::StructType*` in a `map<string, llvm::StructType*>` inside `CodeGen`.
-3. `getTypeFromString("struct:Name")` should look up and return the `llvm::StructType*` instead of an opaque pointer.
-4. `visit(MemberExpr*)` must resolve the field index and emit `builder->CreateStructGEP(structType, ptr, fieldIdx)`.
-5. `evaluateLValue(MemberExpr*)` must also be implemented for member assignment.
-
-### Array type sizes (parsed but discarded)
-
-`parseType()` appends `"[]"` for array syntax but discards the size expression. The size is needed for `llvm::ArrayType::get(elemType, size)`. This requires either: (a) storing the size in the type string (e.g., `"uint8[858]"`), or (b) adding an `ArrayType` AST node separate from the string representation.
-
-### `alloc`/`free` plumbing
-
-The lexer recognizes `ALLOC` and `FREE` tokens, but the parser has no rule for them yet. `alloc(T, N)` should emit `llvm::CallInst` to `malloc` (or a custom allocator) and cast the result to `T*`. `free(ptr)` should emit a call to `free`. This belongs in `visit(CallExpr*)` with special-casing on the callee name, or as dedicated AST nodes.
-
-### Source location wiring through error reporting
-
-`Token` carries `line` and `column`. AST nodes do not. All error calls in `type_checker.cpp` pass `0, 0`. To fix: add `int line; int column;` to `ASTNode` (or at minimum to `Expr` and `Decl`), populate them in the parser from the token at the start of each construct, and thread them through to `error(line, col, ...)`.
-
-### `break` statement in codegen
-
-`visit(BreakStmt*)` emits a warning and no IR. Implementing it requires tracking the "exit block" of the enclosing loop. The standard approach is a `std::stack<llvm::BasicBlock*> breakTargetStack` in `CodeGen`, pushed by `visit(WhileStmt*)` and `visit(ForStmt*)` before generating the body, popped after. `visit(BreakStmt*)` then emits `builder->CreateBr(breakTargetStack.top())`.
+- **Float literal width mismatch**: float literals always emit as `double` (`f64`). When assigned to a `float` (`f32`) field via `emitStructInitInto()`, the `CreateFPCast` coercion fires correctly, but a `float` local variable initialized with a float literal goes through `CreateFPCast` from `double` → `float` in `visit(VarDecl*)`. This is correct but may emit a wider intermediate value than expected.
+- **Interface dispatch return type**: vtable function pointers are called with `FunctionType::get(void, [ptr, ptr, ...], false)`. For `void` methods this is exact. For methods that return values, the call result is still pushed to `exprValueStack` and the caller uses it — but the `FunctionType` used for the indirect call declares void return, which means LLVM IR emits a `call void` and the result is `void`. This works for `void` interface methods only. Non-void interface methods require storing the return type in `ifaceMethodReturnTypes` and using it in the `FunctionType`.
+- **Source line numbers at `0:0`**: nodes not stamped by `withPos()` in the parser (including internally synthesized nodes like desugared compound assignments' outer `BinaryExpr`, some `BlockStmt` wrappers) report `line=0, col=0` in error messages. All primary expressions, operators, and control-flow statements are stamped correctly.
+- **Unsigned arithmetic uses signed instructions**: `uint`/`uint8`/etc. types map to the same LLVM integer types as `int`/`int8`/etc. Division (`CreateSDiv`), modulo (`CreateSRem`), and ordered comparisons (`ICmpSLT` etc.) are signed. Unsigned types that cross division, modulo, or comparison boundaries will produce incorrect results for values where signed and unsigned interpretation differ.
+- **Dereference loads as `i8`**: `visit(UnaryExpr*)` for `op == "*"` emits `CreateLoad(i8, val)` because the pointee type is not tracked in the LLVM opaque pointer system. Code that dereferences `*T` where T is not `i8`/`char` will load only one byte. Using array indexing (`ptr[i]`) or member access (`.field`) on pointed-to structs is the correct path — both use `getExprEskiuType()` and `structFields` to emit the right type.
