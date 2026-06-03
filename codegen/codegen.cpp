@@ -580,13 +580,15 @@ void CodeGen::visit(WhileStmt* node) {
     builder->CreateCondBr(cond, bodyBlock, exitBlock);
 
     builder->SetInsertPoint(bodyBlock);
-    llvm::BasicBlock* prevBreak = breakTarget;
-    breakTarget = exitBlock;
+    llvm::BasicBlock* prevBreak    = breakTarget;
+    llvm::BasicBlock* prevContinue = continueTarget;
+    breakTarget    = exitBlock;
+    continueTarget = loopBlock;
     node->body->accept(this);
-    breakTarget = prevBreak;
-    if (!builder->GetInsertBlock()->getTerminator()) {
+    breakTarget    = prevBreak;
+    continueTarget = prevContinue;
+    if (!builder->GetInsertBlock()->getTerminator())
         builder->CreateBr(loopBlock);
-    }
 
     builder->SetInsertPoint(exitBlock);
 }
@@ -617,13 +619,15 @@ void CodeGen::visit(ForStmt* node) {
 
     // Body
     builder->SetInsertPoint(bodyBlock);
-    llvm::BasicBlock* prevBreak = breakTarget;
-    breakTarget = exitBlock;
+    llvm::BasicBlock* prevBreak    = breakTarget;
+    llvm::BasicBlock* prevContinue = continueTarget;
+    breakTarget    = exitBlock;
+    continueTarget = stepBlock;   // continue jumps to the step
     node->body->accept(this);
-    breakTarget = prevBreak;
-    if (!builder->GetInsertBlock()->getTerminator()) {
+    breakTarget    = prevBreak;
+    continueTarget = prevContinue;
+    if (!builder->GetInsertBlock()->getTerminator())
         builder->CreateBr(stepBlock);
-    }
 
     // Step
     builder->SetInsertPoint(stepBlock);
@@ -675,13 +679,21 @@ void CodeGen::visit(BinaryExpr* node) {
     llvm::Value* result = nullptr;
 
     if (node->op == "+") {
-        result = left->getType()->isFloatingPointTy()
-            ? builder->CreateFAdd(left, right)
-            : builder->CreateAdd(left, right);
+        if (left->getType()->isPointerTy())
+            result = builder->CreateGEP(llvm::Type::getInt8Ty(*context), left, right, "ptr.add");
+        else if (left->getType()->isFloatingPointTy())
+            result = builder->CreateFAdd(left, right);
+        else
+            result = builder->CreateAdd(left, right);
     } else if (node->op == "-") {
-        result = left->getType()->isFloatingPointTy()
-            ? builder->CreateFSub(left, right)
-            : builder->CreateSub(left, right);
+        if (left->getType()->isPointerTy()) {
+            // ptr - int: negate offset then GEP
+            llvm::Value* neg = builder->CreateNeg(right, "neg");
+            result = builder->CreateGEP(llvm::Type::getInt8Ty(*context), left, neg, "ptr.sub");
+        } else if (left->getType()->isFloatingPointTy())
+            result = builder->CreateFSub(left, right);
+        else
+            result = builder->CreateSub(left, right);
     } else if (node->op == "*") {
         result = left->getType()->isFloatingPointTy()
             ? builder->CreateFMul(left, right)
@@ -734,6 +746,17 @@ void CodeGen::visit(BinaryExpr* node) {
         result = builder->CreateLogicalAnd(left, right);
     } else if (node->op == "||") {
         result = builder->CreateLogicalOr(left, right);
+    // Bitwise operators
+    } else if (node->op == "&") {
+        result = builder->CreateAnd(left, right);
+    } else if (node->op == "|") {
+        result = builder->CreateOr(left, right);
+    } else if (node->op == "^") {
+        result = builder->CreateXor(left, right);
+    } else if (node->op == "<<") {
+        result = builder->CreateShl(left, right);
+    } else if (node->op == ">>") {
+        result = builder->CreateAShr(left, right);
     } else {
         throw std::runtime_error("Unknown binary operator: " + node->op);
     }
@@ -751,9 +774,17 @@ void CodeGen::visit(UnaryExpr* node) {
     llvm::Value* result = nullptr;
 
     if (node->op == "-") {
-        result = builder->CreateNeg(val);
+        result = val->getType()->isFloatingPointTy()
+            ? builder->CreateFNeg(val)
+            : builder->CreateNeg(val);
+    } else if (node->op == "~") {
+        result = builder->CreateNot(val); // bitwise NOT
     } else if (node->op == "!") {
-        result = builder->CreateNot(val);
+        // Logical NOT: convert to bool
+        if (val->getType()->isIntegerTy(1))
+            result = builder->CreateNot(val);
+        else
+            result = builder->CreateICmpEQ(val, llvm::ConstantInt::get(val->getType(), 0));
     } else if (node->op == "&") {
         // Address-of: return the lvalue (alloca/GEP pointer), not the loaded value
         result = evaluateLValue(node->operand);
@@ -907,7 +938,7 @@ void CodeGen::visit(LiteralExpr* node) {
 
     switch (node->kind) {
         case LiteralExpr::Kind::INT: {
-            long long val = std::stoll(node->value);
+            long long val = std::stoll(node->value, nullptr, 0); // base 0 = auto (dec/hex/oct)
             result = llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), val);
             break;
         }
@@ -1052,8 +1083,13 @@ void CodeGen::visit(StructInitExpr* node) {
 }
 
 void CodeGen::visit(InterfaceDecl* node) {
-    // Interface dispatch deferred — structural typing check at call sites
-    // For now interfaces are parsed but generate no code
+    // Vtable dispatch deferred — structural check happens in type checker
+}
+
+void CodeGen::visit(ContinueStmt* node) {
+    if (!continueTarget)
+        throw std::runtime_error("continue used outside of a loop");
+    builder->CreateBr(continueTarget);
 }
 
 void CodeGen::visit(SwitchStmt* node) {

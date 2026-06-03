@@ -4,7 +4,7 @@
 
 Authoritative status reference for Eskiu compiler contributors. Supersedes `docs/PHASES.md`.
 
-Last updated: 2026-06-02. Phases 0–7 are COMPLETE. Interface vtable dispatch remains (not needed for v0.1). Next: INE decoder port.
+Last updated: 2026-06-02. Phases 0–7 are COMPLETE. Language is v0.1 ready. Next: INE decoder port.
 
 ---
 

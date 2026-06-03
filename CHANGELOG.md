@@ -4,8 +4,43 @@
 
 ### Planned
 - Interface dispatch via vtable (Go-style structural typing)
-- `String.append()` / `String.concat()` methods
+- `String.append()` with dynamic realloc
 - INE QR decoder port (v0.1 milestone)
+
+---
+
+## [0.0.7-alpha] — 2026-06-02
+
+### Added — Language completeness for v0.1
+
+**Bitwise operators**
+- Binary: `&`, `|`, `^`, `<<`, `>>` — new precedence levels in parser (bitwiseOr → bitwiseXor → bitwiseAnd → equality, shift → comparison → additive)
+- Unary: `~` (bitwise NOT) — added to unary operator list in parser + `inferUnaryExprType`
+- Codegen: `CreateAnd`, `CreateOr`, `CreateXor`, `CreateShl`, `CreateAShr`
+
+**Hex literals**
+- `0xFF`, `0x0F` — lexer now reads hex digits after `0x`/`0X` prefix; `stoll(..., 0)` for auto base detection in codegen
+
+**Compound assignments**
+- `+=`, `-=`, `*=`, `/=`, `%=` — new tokens in lexer; desugared in `parseAssignment()` to `x = x op y`
+
+**`continue` statement**
+- `ContinueStmt` AST node; full visitor chain; `continueTarget` saved/restored around `WhileStmt` and `ForStmt` bodies (points to loop condition and step respectively)
+
+**For-loop with declaration init**
+- `for (int i = 0; i < n; i += 1)` — parser wraps declaration in `BlockStmt`; type checker processes init items directly in ForStmt scope (avoids inner-scope pop that made `i` undefined in condition/step/body)
+
+**Pointer arithmetic**
+- `ptr + n` → `GEP(i8, ptr, n)`, `ptr - n` → `GEP(i8, ptr, -n)` in `visit(BinaryExpr*)`
+
+### Fixed
+- `&` address-of returned a loaded value instead of the alloca pointer — breaks all pointer-argument call patterns
+- Unary `-` for floats used integer `CreateNeg` — now uses `CreateFNeg` for floating-point operands
+- `!` logical NOT on integers used bitwise `CreateNot` (wrong for `i32`) — now uses `CreateICmpEQ(x, 0)` for non-`i1` types
+- `~` unary not in parser unary operator list — caused parse failure for `~0` and similar
+- `inferUnaryExprType` did not handle `~` — reported "invalid operand" for bitwise NOT on integers
+- `inferBinaryExprType` did not handle bitwise/shift operators — reported "invalid operands" for `a & b`, `a << n`
+- For-loop init declarations were scoped to an inner BlockStmt, making the variable undefined in the loop condition and body
 
 ---
 

@@ -181,6 +181,11 @@ public:
     void accept(class ASTVisitor* visitor) override;
 };
 
+class ContinueStmt : public Stmt {
+public:
+    void accept(class ASTVisitor* visitor) override;
+};
+
 class SwitchStmt : public Stmt {
 public:
     struct Case {
@@ -373,6 +378,7 @@ public:
     virtual void visit(WhileStmt* node) = 0;
     virtual void visit(ReturnStmt* node) = 0;
     virtual void visit(BreakStmt* node) = 0;
+    virtual void visit(ContinueStmt* node) = 0;
     virtual void visit(SwitchStmt* node) = 0;
     virtual void visit(ExprStmt* node) = 0;
     virtual void visit(BinaryExpr* node) = 0;

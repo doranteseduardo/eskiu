@@ -384,6 +384,9 @@ StmtPtr Parser::parseStatement() {
     if (match(TokenType::BREAK)) {
         return parseBreakStatement();
     }
+    if (match(TokenType::CONTINUE)) {
+        return parseContinueStatement();
+    }
     return parseExpressionStatement();
 }
 
@@ -446,7 +449,15 @@ StmtPtr Parser::parseForStatement() {
 
     StmtPtr init = nullptr;
     if (!check(TokenType::SEMICOLON)) {
-        init = parseExpressionStatement();
+        // Try declaration (e.g. int i = 0;) then fall back to expression
+        size_t savePos = current;
+        try {
+            DeclPtr decl = parseDeclaration();
+            init = std::make_shared<BlockStmt>(std::vector<BlockItem>{decl});
+        } catch (...) {
+            current = savePos;
+            init = parseExpressionStatement();
+        }
     } else {
         advance();
     }
@@ -494,6 +505,14 @@ StmtPtr Parser::parseReturnStatement() {
 StmtPtr Parser::parseBreakStatement() {
     consume(TokenType::SEMICOLON, "Expected ';'");
     return std::make_shared<BreakStmt>();
+}
+
+StmtPtr Parser::parseContinueStatement() {
+    Token tok = tokens[current - 1]; // the 'continue' token
+    consume(TokenType::SEMICOLON, "Expected ';'");
+    auto stmt = std::make_shared<ContinueStmt>();
+    stmt->line = tok.line; stmt->col = tok.column;
+    return stmt;
 }
 
 StmtPtr Parser::parseExpressionStatement() {
@@ -565,6 +584,21 @@ ExprPtr Parser::parseExpression() {
 ExprPtr Parser::parseAssignment() {
     ExprPtr expr = parseLogicalOr();
 
+    // Compound assignments: desugar x += y  →  x = x + y
+    static const std::unordered_map<TokenType, std::string> compound = {
+        {TokenType::PLUS_EQ,    "+"}, {TokenType::MINUS_EQ,   "-"},
+        {TokenType::STAR_EQ,    "*"}, {TokenType::SLASH_EQ,   "/"},
+        {TokenType::PERCENT_EQ, "%"},
+    };
+    for (auto& [tt, op] : compound) {
+        if (match(tt)) {
+            Token opTok = tokens[current - 1];
+            ExprPtr rhs  = parseAssignment();
+            auto binOp   = withPos(std::make_shared<BinaryExpr>(expr, op,  rhs),  opTok);
+            return withPos(std::make_shared<BinaryExpr>(expr, "=", binOp), opTok);
+        }
+    }
+
     if (match(TokenType::EQ)) {
         Token opTok = tokens[current - 1];
         ExprPtr value = parseAssignment();
@@ -587,14 +621,41 @@ ExprPtr Parser::parseLogicalOr() {
 }
 
 ExprPtr Parser::parseLogicalAnd() {
-    ExprPtr expr = parseEquality();
+    ExprPtr expr = parseBitwiseOr();
 
     while (match(TokenType::AND)) {
         Token opTok = tokens[current - 1];
-        ExprPtr right = parseEquality();
+        ExprPtr right = parseBitwiseOr();
         expr = withPos(std::make_shared<BinaryExpr>(expr, opTok.value, right), opTok);
     }
 
+    return expr;
+}
+
+ExprPtr Parser::parseBitwiseOr() {
+    ExprPtr expr = parseBitwiseXor();
+    while (match(TokenType::PIPE)) {
+        Token opTok = tokens[current - 1];
+        expr = withPos(std::make_shared<BinaryExpr>(expr, "|", parseBitwiseXor()), opTok);
+    }
+    return expr;
+}
+
+ExprPtr Parser::parseBitwiseXor() {
+    ExprPtr expr = parseBitwiseAnd();
+    while (match(TokenType::CARET)) {
+        Token opTok = tokens[current - 1];
+        expr = withPos(std::make_shared<BinaryExpr>(expr, "^", parseBitwiseAnd()), opTok);
+    }
+    return expr;
+}
+
+ExprPtr Parser::parseBitwiseAnd() {
+    ExprPtr expr = parseEquality();
+    while (match(TokenType::AMPERSAND)) {
+        Token opTok = tokens[current - 1];
+        expr = withPos(std::make_shared<BinaryExpr>(expr, "&", parseEquality()), opTok);
+    }
     return expr;
 }
 
@@ -610,12 +671,21 @@ ExprPtr Parser::parseEquality() {
     return expr;
 }
 
-ExprPtr Parser::parseComparison() {
+ExprPtr Parser::parseShift() {
     ExprPtr expr = parseAddition();
+    while (match({TokenType::LSHIFT, TokenType::RSHIFT})) {
+        Token opTok = tokens[current - 1];
+        expr = withPos(std::make_shared<BinaryExpr>(expr, opTok.value, parseAddition()), opTok);
+    }
+    return expr;
+}
+
+ExprPtr Parser::parseComparison() {
+    ExprPtr expr = parseShift();
 
     while (match({TokenType::LT, TokenType::GT, TokenType::LE, TokenType::GE})) {
         Token opTok = tokens[current - 1];
-        ExprPtr right = parseAddition();
+        ExprPtr right = parseShift();
         expr = withPos(std::make_shared<BinaryExpr>(expr, opTok.value, right), opTok);
     }
 
@@ -647,7 +717,7 @@ ExprPtr Parser::parseMultiplication() {
 }
 
 ExprPtr Parser::parseUnary() {
-    if (match({TokenType::NOT, TokenType::MINUS, TokenType::PLUS, TokenType::AMPERSAND, TokenType::STAR})) {
+    if (match({TokenType::NOT, TokenType::MINUS, TokenType::PLUS, TokenType::AMPERSAND, TokenType::STAR, TokenType::TILDE})) {
         Token opToken = tokens[current - 1];
         ExprPtr expr = parseUnary();
         return std::make_shared<UnaryExpr>(opToken.value, expr);

@@ -24,6 +24,7 @@ public:
     void visit(StructDecl* node) override;
     void visit(ExternDecl* node) override;
     void visit(InterfaceDecl* node) override;
+    void visit(ContinueStmt* node) override;
     void visit(SwitchStmt* node) override;
     void visit(TemplateCallExpr* node) override;
 

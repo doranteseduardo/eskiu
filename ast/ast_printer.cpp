@@ -294,6 +294,8 @@ void ASTPrinter::visit(InterfaceDecl* node) {
     indentLevel--;
 }
 
+void ASTPrinter::visit(ContinueStmt* node) { println("ContinueStmt"); }
+
 void ASTPrinter::visit(SwitchStmt* node) {
     println("SwitchStmt");
     indentLevel++;

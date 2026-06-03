@@ -129,6 +129,14 @@ Phases 0–5 (partial) are implemented. The full compilation pipeline is working
 - `stdlib/string.esk` — `String` with init/from/cstr/len/free
 - Interface structural satisfaction check in type checker
 
+**v0.1 language completeness — COMPLETE:**
+- Hex literals `0xFF`, compound assignments `+=/-=/*=/`, `continue` statement
+- Bitwise ops `& | ^ ~ << >>` — new parser precedence levels + codegen
+- For-loop with declaration init: `for (int i = 0; ...)` — type checker scope fix
+- Pointer arithmetic: `ptr + n` → `GEP(i8, ptr, n)`
+- `&` address-of fixed (was returning loaded value)
+- `-` unary for floats fixed (`CreateFNeg`), `!` on integers fixed (`ICmpEQ`)
+
 **Next: INE decoder port** — all language features for v0.1 are in place.
 
 ## Error format

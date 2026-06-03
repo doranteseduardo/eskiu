@@ -41,6 +41,7 @@ std::string tokenTypeToString(TokenType type) {
         case TokenType::CATCH: return "CATCH";
         case TokenType::FINALLY: return "FINALLY";
         case TokenType::THROW: return "THROW";
+        case TokenType::CONTINUE: return "CONTINUE";
         case TokenType::INT8: return "INT8";
         case TokenType::INT16: return "INT16";
         case TokenType::INT32: return "INT32";
@@ -56,6 +57,11 @@ std::string tokenTypeToString(TokenType type) {
         case TokenType::STAR: return "STAR";
         case TokenType::SLASH: return "SLASH";
         case TokenType::PERCENT: return "PERCENT";
+        case TokenType::PLUS_EQ: return "PLUS_EQ";
+        case TokenType::MINUS_EQ: return "MINUS_EQ";
+        case TokenType::STAR_EQ: return "STAR_EQ";
+        case TokenType::SLASH_EQ: return "SLASH_EQ";
+        case TokenType::PERCENT_EQ: return "PERCENT_EQ";
         case TokenType::EQ: return "EQ";
         case TokenType::EQEQ: return "EQEQ";
         case TokenType::NE: return "NE";
@@ -134,7 +140,8 @@ std::unordered_map<std::string, TokenType> Lexer::keywords = {
     {"try", TokenType::TRY},
     {"catch", TokenType::CATCH},
     {"finally", TokenType::FINALLY},
-    {"throw", TokenType::THROW},
+    {"throw",    TokenType::THROW},
+    {"continue", TokenType::CONTINUE},
     {"int8",   TokenType::INT8},
     {"int16",  TokenType::INT16},
     {"int32",  TokenType::INT32},
@@ -219,6 +226,15 @@ Token Lexer::read_number() {
     // Integer part
     while (!is_at_end() && std::isdigit(peek())) {
         num += advance();
+    }
+
+    // Hex literal: 0x... (e.g. 0xFF)
+    if (num == "0" && !is_at_end() && (peek() == 'x' || peek() == 'X')) {
+        num += advance(); // consume 'x'
+        while (!is_at_end() && std::isxdigit(peek())) {
+            num += advance();
+        }
+        return Token(TokenType::INT_LIT, num, start_line, start_col);
     }
 
     // Check for decimal point or exponent
@@ -350,16 +366,22 @@ Token Lexer::next_token() {
     advance();
 
     switch (c) {
-        case '+': return Token(TokenType::PLUS, "+", start_line, start_col);
+        case '+':
+            if (!is_at_end() && peek() == '=') { advance(); return Token(TokenType::PLUS_EQ,    "+=", start_line, start_col); }
+            return Token(TokenType::PLUS, "+", start_line, start_col);
         case '-':
-            if (!is_at_end() && peek() == '>') {
-                advance();
-                return Token(TokenType::ARROW, "->", start_line, start_col);
-            }
+            if (!is_at_end() && peek() == '=') { advance(); return Token(TokenType::MINUS_EQ,   "-=", start_line, start_col); }
+            if (!is_at_end() && peek() == '>') { advance(); return Token(TokenType::ARROW,       "->", start_line, start_col); }
             return Token(TokenType::MINUS, "-", start_line, start_col);
-        case '*': return Token(TokenType::STAR, "*", start_line, start_col);
-        case '/': return Token(TokenType::SLASH, "/", start_line, start_col);
-        case '%': return Token(TokenType::PERCENT, "%", start_line, start_col);
+        case '*':
+            if (!is_at_end() && peek() == '=') { advance(); return Token(TokenType::STAR_EQ,    "*=", start_line, start_col); }
+            return Token(TokenType::STAR, "*", start_line, start_col);
+        case '/':
+            if (!is_at_end() && peek() == '=') { advance(); return Token(TokenType::SLASH_EQ,   "/=", start_line, start_col); }
+            return Token(TokenType::SLASH, "/", start_line, start_col);
+        case '%':
+            if (!is_at_end() && peek() == '=') { advance(); return Token(TokenType::PERCENT_EQ, "%=", start_line, start_col); }
+            return Token(TokenType::PERCENT, "%", start_line, start_col);
         case '=':
             if (!is_at_end() && peek() == '=') {
                 advance();

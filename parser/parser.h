@@ -42,11 +42,16 @@ private:
     StmtPtr parseWhileStatement();
     StmtPtr parseReturnStatement();
     StmtPtr parseBreakStatement();
+    StmtPtr parseContinueStatement();
     StmtPtr parseSwitchStatement();
     StmtPtr parseExpressionStatement();
 
     ExprPtr parseStructInit(const std::string& structName);
     ExprPtr parseExpression();
+    ExprPtr parseBitwiseOr();
+    ExprPtr parseBitwiseXor();
+    ExprPtr parseBitwiseAnd();
+    ExprPtr parseShift();
     ExprPtr parseAssignment();
     ExprPtr parseLogicalOr();
     ExprPtr parseLogicalAnd();

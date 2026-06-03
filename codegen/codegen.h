@@ -59,8 +59,9 @@ private:
     void defineVarType(const std::string& name, const std::string& type);
     std::string lookupVarType(const std::string& name) const;
 
-    // Break/continue target for the innermost loop
-    llvm::BasicBlock* breakTarget = nullptr;
+    // Break/continue targets for the innermost loop
+    llvm::BasicBlock* breakTarget    = nullptr;
+    llvm::BasicBlock* continueTarget = nullptr;
 
     // Type system: map Eskiu types to LLVM types
     llvm::Type* getTypeFromString(const std::string& typeStr);
@@ -99,6 +100,7 @@ private:
     void visit(LiteralExpr* node) override;
     void visit(IdentExpr* node) override;
     void visit(InterfaceDecl* node) override;
+    void visit(ContinueStmt* node) override;
     void visit(SwitchStmt* node) override;
     void visit(StructInitExpr* node) override;
     void visit(AllocExpr* node) override;

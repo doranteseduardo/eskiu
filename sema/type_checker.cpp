@@ -269,9 +269,20 @@ void TypeChecker::visit(WhileStmt* node) {
 void TypeChecker::visit(ForStmt* node) {
     pushScope();
 
-    // Type check init
+    // Type check init — if it's a BlockStmt wrapping a declaration (for-loop init
+    // pattern from the parser), process items directly in the ForStmt scope so
+    // the declared variable is accessible in the condition/step/body.
     if (node->init) {
-        node->init->accept(this);
+        if (auto block = dynamic_cast<BlockStmt*>(node->init.get())) {
+            for (const auto& item : block->items) {
+                if (std::holds_alternative<DeclPtr>(item))
+                    std::get<DeclPtr>(item)->accept(this);
+                else
+                    std::get<StmtPtr>(item)->accept(this);
+            }
+        } else {
+            node->init->accept(this);
+        }
     }
 
     // Type check condition
@@ -573,6 +584,10 @@ void TypeChecker::visit(InterfaceDecl* node) {
     // Interface registered in first pass; no body to type-check
 }
 
+void TypeChecker::visit(ContinueStmt* node) {
+    // Valid inside loops — no type checking needed
+}
+
 void TypeChecker::visit(SwitchStmt* node) {
     node->subject->accept(this);
     std::string subjType = getExpressionType(node->subject.get());
@@ -702,6 +717,15 @@ std::string TypeChecker::inferBinaryExprType(const std::string& leftType, const 
     if (op == "&&" || op == "||") {
         return "bool";
     }
+    // Bitwise and shift operators work on integers
+    if (op == "&" || op == "|" || op == "^" || op == "<<" || op == ">>") {
+        if (isIntType(leftType) && isIntType(rightType)) return promoteType(leftType, rightType);
+        return "error";
+    }
+    // Pointer arithmetic: ptr + int / ptr - int
+    if ((op == "+" || op == "-") && isPointerType(leftType) && isIntType(rightType)) {
+        return leftType;
+    }
     if (!isNumericType(leftType) || !isNumericType(rightType)) {
         return "error";
     }
@@ -716,6 +740,10 @@ std::string TypeChecker::inferUnaryExprType(const std::string& op, const std::st
         if (isNumericType(operandType)) {
             return operandType;
         }
+        return "error";
+    }
+    if (op == "~") {
+        if (isIntType(operandType)) return operandType;
         return "error";
     }
     if (op == "&") {

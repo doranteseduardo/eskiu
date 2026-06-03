@@ -37,6 +37,7 @@ private:
     void visit(LiteralExpr* node) override;
     void visit(IdentExpr* node) override;
     void visit(InterfaceDecl* node) override;
+    void visit(ContinueStmt* node) override;
     void visit(SwitchStmt* node) override;
     void visit(StructInitExpr* node) override;
     void visit(AllocExpr* node) override;
