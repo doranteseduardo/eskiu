@@ -2,9 +2,36 @@
 
 # Compiler Development Phases
 
-Authoritative status reference for Eskiu compiler contributors. Supersedes `docs/PHASES.md`.
+Authoritative status reference for Eskiu compiler contributors.
 
-Last updated: 2026-06-03. All phases 0–7, Phase 5.5, Phase 8 (lambdas), and editor tooling are COMPLETE. Decoder fully ported to Eskiu (crypto.esk + output.esk, 727 lines). Running at 80 ms on arm64. See `ine_decoder/` for the reference implementation.
+Last updated: 2026-06-03. All phases 0–8 and editor tooling are COMPLETE. Decoder fully ported to Eskiu (727 lines), running at 74ms on arm64.
+
+---
+
+## Estado actual del lenguaje
+
+| Categoría | Estado |
+|-----------|--------|
+| Tipos primitivos (int/8/16/32/64, uint, float, double, bool, char, string, void) | ✅ |
+| Punteros y aritmética de punteros | ✅ |
+| Structs + métodos (`Struct_method`) | ✅ |
+| Interfaces con vtable dispatch (fat pointer) | ✅ |
+| Templates (structs y funciones, instanciación monomorfa) | ✅ |
+| Control de flujo: if/else, while, for, switch/case (con type checking) | ✅ |
+| Lambdas (`int(int x) { return x*2; }`) + tipo `fn(T)->R` + HOF | ✅ |
+| FFI C (extern, variadic, sret arm64) | ✅ |
+| alloc/free, String con concat y append | ✅ |
+| List\<T\> con auto-resize | ✅ |
+| argv/argc (`int main(int argc, string* argv)`) | ✅ |
+| VS Code: errores inline, hover types, go-to-definition | ✅ |
+| Closures (captura de variables del scope externo) | ❌ |
+| Negative literals (`-1` como primario) | ❌ |
+| Inline assembly (`asm(...)`) | ❌ |
+| Freestanding mode (sin libc) | ❌ |
+| volatile (para MMIO) | ❌ |
+| Threads (pthread) | ❌ |
+| Exceptions (try/catch) | ❌ |
+| Self-hosting | ❌ |
 
 ---
 
@@ -21,26 +48,31 @@ Last updated: 2026-06-03. All phases 0–7, Phase 5.5, Phase 8 (lambdas), and ed
 | Output decode | <1 ms | 0.5 ms |
 | **TOTAL** | **74.4 ms** | **188.9 ms** |
 
-The crypto pipeline matches hand-written C within 0.1 ms.
+---
+
+## Roadmap
+
+### Corto plazo — v0.2
+
+1. **Closures** — captura de variables del scope externo en lambdas. Requiere `env*` implícito y ajuste en codegen. Desbloquea self-hosting.
+2. **Negative literals** — `-1` como literal primario (hoy funciona vía unary minus pero falla en inicializadores). Fix de parser de un día.
+3. **Inline assembly** — `asm("cli")`, `asm("mov %rax, %rbx")`. Imprescindible para desarrollo de kernel.
+
+### Medio plazo — v0.3
+
+4. **Freestanding mode** — compilar sin libc. Requiere: allocator propio en stdlib, eliminar dependencia de `malloc/printf` del codegen. Requisito para kernel y para self-hosting.
+5. **`volatile`** — semántica de acceso no optimizable para MMIO. Un qualifier en el type system.
+6. **Thread primitives** — `pthread_create/join` + `Mutex` en stdlib.
+
+### Largo plazo — v1.0
+
+7. **Exception handling** — `try/catch/finally/throw` via LLVM `invoke/landingpad`.
+8. **Self-hosting** — compilar `eskiuc` con Eskiu. Requiere closures + freestanding + allocator propio.
+
+### Milestone alternativo — Kernel mínimo en QEMU
+
+Boot + print en VGA/serial sin libc. Requiere únicamente: **inline assembly** (3) + **freestanding mode** (4) + **volatile** (5). Es la prueba de fuego clásica para un lenguaje de sistemas.
 
 ---
 
-## Recommended Next Steps (v0.2+)
-
-Ordered by value to the compiler and its users.
-
-### Language
-
-1. **Negative number literals** — `int x = -1` works via unary minus, but `-1` cannot be parsed as a primary literal directly. Minor parser gap but trips up newcomers.
-
-### Long-term
-
-4. **Self-hosting** — v1.0 goal. Requires argv/argc, interface dispatch with typed returns, and lambda closures.
-
-5. **Thread primitives** — v0.2. POSIX `pthread_create`/`pthread_join` + `Mutex` stdlib type.
-
-6. **Exception handling** — v1.0. `try`/`catch`/`finally`/`throw` via LLVM `invoke`/`landingpad`.
-
----
-
-Phase sections follow (0–11 + v0.1 readiness table), all statuses updated to match milestone completion. The v0.1 readiness table at the end marks every row DONE.
+Phase sections follow (0–8), all statuses updated to match milestone completion.

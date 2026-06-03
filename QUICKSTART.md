@@ -10,7 +10,7 @@ cmake --build build
 ./build/eskiuc --version
 ```
 
-Expected output: `Eskiu 0.0.11-alpha (LLVM ...)`
+Expected output: `Eskiu 0.0.12-alpha (LLVM ...)`
 
 ## Hello, Eskiu
 
@@ -116,6 +116,29 @@ Output:
 ```
 sum = 100
 ```
+
+## Lambda (anonymous function)
+
+Functions are first-class values. Write a lambda with the same syntax as a regular function, minus the name:
+
+```eskiu
+extern int printf(string fmt, ...);
+
+int apply(fn(int)->int f, int x) {
+    return f(x);
+}
+
+int main() {
+    let double_it: fn(int)->int = int(int x) { return x * 2; };
+    printf("%d\n", double_it(5));           // 10
+    printf("%d\n", apply(double_it, 4));    // 8
+    return 0;
+}
+```
+
+`fn(int)->int` is the function pointer type. The lambda `int(int x) { ... }` produces a value of that type.
+
+---
 
 ## What's next
 

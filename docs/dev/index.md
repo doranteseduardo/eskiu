@@ -32,7 +32,7 @@ Each test mode exits 0 on success and prints a human-readable dump to stdout. A 
 | Document            | What it covers                                                                                 |
 | ------------------- | ---------------------------------------------------------------------------------------------- |
 | `architecture.md`   | Pipeline stages, AST node hierarchy, visitor pattern, type mappings (Eskiu → LLVM)             |
-| `phases.md`         | Phase status (0–7 and Phase 5.5), per-phase requirements, acceptance criteria                  |
+| `phases.md`         | Phase status (0–8), current feature table, roadmap (v0.2 → v1.0)                              |
 | `contributing.md`   | Branch workflow, code style, commit conventions, testing checklist                             |
 | `design.md`         | Rationale for key decisions: C-style syntax, no GC, implicit interfaces, monomorphic templates |
 | `debugging.md`      | How each `--test-*` mode works, error message format, common failure patterns                  |
@@ -40,13 +40,13 @@ Each test mode exits 0 on success and prints a human-readable dump to stdout. A 
 
 ---
 
-## Current State (v0.0.11-alpha)
+## Current State (v0.0.12-alpha)
 
-All compiler phases (0–7) and Phase 5.5 are complete and tested end-to-end. The language feature set is v0.1 ready: every type, operator, control flow construct, struct feature, template, interface, and multi-file mechanism described in the language spec compiles to correct native arm64 and x86-64 object files.
+All compiler phases (0–8) and editor tooling are complete and tested end-to-end. The v0.1 milestone is done: the INE credential decoder (727 lines of Eskiu) runs at 74 ms on arm64 — 2.5× faster than the reference C implementation.
 
-The immediate next milestone is porting the INE QR decoder as a real-world integration test of the full pipeline — particularly fixed-size array fields, pointer arithmetic, and multi-file imports.
+Phase 8 added lambdas and anonymous functions (`int(int x) { return x * 2; }`), function pointer types (`fn(T,...)->R`), and higher-order functions. The VS Code extension provides real-time error squiggles, hover type info, and go-to-definition via two new CLI flags (`--hover-at`, `--definition-at`).
 
-There are no components currently in active development. The compiler is stable.
+There are no components currently in active development. The compiler is stable. The next planned work is closures, inline assembly, and freestanding mode — see `phases.md` for the full roadmap.
 
 ---
 

@@ -2,7 +2,7 @@
 
 Eskiu is a statically typed systems programming language that compiles to native machine code via LLVM. It targets developers who need C-level performance and direct memory control without a garbage collector or borrow checker. The syntax is deliberately C-style; the language adds monomorphic templates, structural interfaces, and an explicit heap model via `alloc`/`free`.
 
-**Current version: v0.0.11-alpha** — all language features for v0.1 are implemented and tested end-to-end.
+**Current version: v0.0.12-alpha** — all language features for v0.1 are implemented and tested end-to-end.
 
 ---
 
@@ -26,6 +26,7 @@ Eskiu is a statically typed systems programming language that compiles to native
 | **Operators** | Arithmetic `+ - * / %`, bitwise `& \| ^ ~ << >>`, comparison, logical, compound `+= -=` etc., pointer arith `ptr+n` |
 | **Control flow** | `if`/`else`, `for` (with decl init), `while`, `switch`/`case`, `break`, `continue`, `return` |
 | **Functions** | C-style, `extern` C ABI, variadic, template `fn<T>(T x)` |
+| **Lambdas** | `int(int x) { return x * 2; }` — anonymous functions; `fn(T,...)->R` function pointer types; higher-order functions |
 | **Structs** | Fields, methods with `self`, struct literal init `Point { x: 1, y: 2 }` |
 | **Templates** | `struct Result<T,E>`, `fn Ok<T,E>(T v)` — monomorphic instantiation |
 | **Interfaces** | `interface Drawable { void draw(); }` — structural typing, vtable dispatch |
@@ -69,9 +70,11 @@ postfix     f() a[i] a.b
 
 | Flag | Action |
 |---|---|
-| `-o file.o` | Compile to native object file |
-| `--test-lexer` | Print token stream |
-| `--test-parser` | Print AST |
-| `--test-typechecker` | Type check and report errors |
-| `--test-codegen` | Print LLVM IR |
-| `--version` | Print version |
+| `-o file.o`                 | Compile to native object file                   |
+| `--test-lexer`              | Print token stream                              |
+| `--test-parser`             | Print AST                                       |
+| `--test-typechecker`        | Type check and report errors                    |
+| `--test-codegen`            | Print LLVM IR                                   |
+| `--hover-at LINE:COL`       | Print inferred type of expression at position   |
+| `--definition-at LINE:COL`  | Print definition location of symbol at position |
+| `--version`                 | Print version                                   |
