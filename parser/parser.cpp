@@ -644,6 +644,25 @@ ExprPtr Parser::parsePrimary() {
     if (match(TokenType::CHAR_LIT)) {
         return std::make_shared<LiteralExpr>(LiteralExpr::Kind::CHAR, tok.value);
     }
+    // alloc(T, N) — type keyword as first argument requires special parsing
+    if (match(TokenType::ALLOC)) {
+        consume(TokenType::LPAREN, "Expected '(' after alloc");
+        std::string elemType = parseType();
+        consume(TokenType::COMMA, "Expected ',' after type in alloc");
+        ExprPtr count = parseExpression();
+        consume(TokenType::RPAREN, "Expected ')'");
+        return std::make_shared<AllocExpr>(elemType, count);
+    }
+
+    // free(ptr) — keyword call, maps to the C free function
+    if (match(TokenType::FREE)) {
+        consume(TokenType::LPAREN, "Expected '(' after free");
+        ExprPtr arg = parseExpression();
+        consume(TokenType::RPAREN, "Expected ')'");
+        auto callee = std::make_shared<IdentExpr>("free");
+        return std::make_shared<CallExpr>(callee, std::vector<ExprPtr>{arg});
+    }
+
     if (match(TokenType::IDENT)) {
         // Struct init: StructName { [field: expr, ...] }
         if (check(TokenType::LBRACE)) {

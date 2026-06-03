@@ -269,6 +269,17 @@ public:
     void accept(class ASTVisitor* visitor) override;
 };
 
+class AllocExpr : public Expr {
+public:
+    std::string elemType;  // T in alloc(T, N)
+    ExprPtr count;         // N
+
+    AllocExpr(const std::string& type, ExprPtr count)
+        : elemType(type), count(count) {}
+
+    void accept(class ASTVisitor* visitor) override;
+};
+
 class StructInitExpr : public Expr {
 public:
     std::string structName;
@@ -325,4 +336,5 @@ public:
     virtual void visit(LiteralExpr* node) = 0;
     virtual void visit(IdentExpr* node) = 0;
     virtual void visit(StructInitExpr* node) = 0;
+    virtual void visit(AllocExpr* node) = 0;
 };

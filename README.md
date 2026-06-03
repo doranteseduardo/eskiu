@@ -44,7 +44,7 @@ Object File        emitObjectFile()           complete
 Structs / Methods  Phase 5 (core)             complete — fields, init, methods
 Interfaces         Phase 5.5                  planned
 Templates          Phase 5.5                  planned
-Heap / alloc/free  Phase 6                    planned
+Heap / alloc/free  Phase 6                    complete
 stdlib/Result<T>   Phase 7                    planned
 ```
 

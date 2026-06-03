@@ -4,7 +4,7 @@
 
 Authoritative status reference for Eskiu compiler contributors. Supersedes `docs/PHASES.md`.
 
-Last updated: 2026-06-02. Phases 0–5 (core) are COMPLETE. Phase 5.5 (interfaces, templates) and Phase 6 (heap) are next.
+Last updated: 2026-06-02. Phases 0–6 (core) are COMPLETE. Phase 5.5 (interfaces, templates) and Phase 7 (Result\<T,E\> + stdlib) are next.
 
 ---
 
@@ -305,21 +305,46 @@ define float @Point_sum(ptr %self) {
 
 ## Phase 6 — Heap Memory + Strings
 
-**Status: PLANNED**
+**Status: COMPLETE (alloc/free) — mutable String deferred to Phase 7**
 
-**Goal:** Manual heap allocation and a mutable `String` type.
+**Goal:** Manual heap allocation via `alloc`/`free`; pointer types usable for dynamic buffers.
 
-**Deliverable:** `alloc(T, N)` / `free(ptr)` lower to `malloc` / `free` calls; pointer arithmetic works; `String` provides `append`, `len`, `cstr`.
+**Deliverable:** `alloc(T, N)` / `free(ptr)` compile and run correctly; pointer fields on structs can hold heap-allocated data.
 
-### Planned
-- `alloc(T, N)` → `call i8* @malloc(i64 N * sizeof(T))` + bitcast to `T*`
-- `free(ptr)` → `call void @free(i8* bitcast ptr)`
-- Pointer arithmetic: `ptr + i` emits GEP, `ptr[i]` dereferences
-- `String` as a stdlib struct: `{ i8* buf, i64 len, i64 cap }`
+### Implemented
 
-### Key Files (to create)
-- `stdlib/string.esk`
-- `codegen/codegen.cpp` — `alloc`/`free` builtin handling
+- **`alloc(T, N)`** — `AllocExpr` AST node; emits `call ptr @malloc(i64 N * sizeof(T))` where `sizeof(T)` is resolved from `DataLayout` at compile time; `malloc` auto-declared in module
+- **`free(ptr)`** — parsed as regular `CallExpr`; `free` pre-registered in type checker (variadic, no strict arg checking) and auto-declared in module on first use
+- **`getOrDeclareFunc()`** — codegen helper for lazy C runtime function declaration; eliminates need for explicit `extern malloc`/`extern free`
+- **DataLayout early init** — `generateCode()` sets target triple + data layout before visiting the AST so `sizeof` queries are correct even in `--test-codegen` mode
+
+### Verified
+
+```eskiu
+let buf: *uint8 = alloc(uint8, 1024);
+buf[0] = 42;
+free(buf);
+```
+
+```eskiu
+struct IneResult { int ok; *uint8 json; int json_len; }
+let r: IneResult;
+r.json = alloc(uint8, 256);
+r.json[0] = 123;
+free(r.json);
+```
+
+Both compile, link, and produce correct output.
+
+### Remaining (Phase 6.5 / Phase 7)
+- `String` mutable struct (`{ *char data; int len; int cap }`) with `append`, `len`, `cstr` methods — deferred; depends on Phase 5.5 templates or a fixed non-generic implementation
+- Pointer arithmetic: `ptr + i` as an expression (currently `ptr[i]` indexing works via GEP)
+
+### Key Files
+- `ast/ast.h` — `AllocExpr`
+- `parser/parser.cpp` — `ALLOC`/`FREE` in `parsePrimary()`
+- `sema/type_checker.cpp` — `visit(AllocExpr*)`, `free` pre-registration, pointer-ptr compat
+- `codegen/codegen.cpp` — `visit(AllocExpr*)`, `getOrDeclareFunc()`, early DataLayout init
 
 ---
 

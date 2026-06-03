@@ -98,7 +98,13 @@ Phases 0–5 (partial) are implemented. The full compilation pipeline is working
 - Monomorphic templates (`List<T>` → `List_int`)
 - `switch`/`case`
 
-**Next: Phase 6** — `alloc(T, N)` / `free(ptr)` heap allocation. The struct + method foundation is in place.
+**Phase 6 — COMPLETE:**
+- `alloc(T, N)` → `call @malloc(i64 N * sizeof(T))`; `AllocExpr` AST node
+- `free(ptr)` → `call @free(ptr)`; auto-declared, no explicit `extern` needed
+- `getOrDeclareFunc()` for lazy C runtime declarations
+- DataLayout initialized early in `generateCode()` for correct `sizeof`
+
+**Next: Phase 7** — `Result<T,E>` + stdlib base. Requires either Phase 5.5 templates or a fixed non-generic implementation of `Result`.
 
 ## Error format
 

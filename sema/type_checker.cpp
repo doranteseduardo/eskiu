@@ -5,6 +5,8 @@
 
 TypeChecker::TypeChecker() {
     pushScope();  // Global scope
+    // Pre-register C runtime builtins available without explicit extern
+    defineFunction("free", "void", {"..."});  // accepts any pointer
 }
 
 bool TypeChecker::check(Program* program) {
@@ -482,6 +484,14 @@ void TypeChecker::visit(IdentExpr* node) {
     }
 }
 
+void TypeChecker::visit(AllocExpr* node) {
+    node->count->accept(this);
+    std::string countType = getExpressionType(node->count.get());
+    if (countType != "unknown" && !isIntType(countType))
+        error(0, 0, "alloc count must be integer, got " + countType);
+    expressionTypes[node] = "*" + node->elemType;
+}
+
 void TypeChecker::visit(StructInitExpr* node) {
     auto it = structs.find(node->structName);
     if (it == structs.end()) {
@@ -555,20 +565,18 @@ void TypeChecker::defineFunction(const std::string& name, const std::string& ret
 // Type inference
 std::string TypeChecker::inferBinaryExprType(const std::string& leftType, const std::string& op,
                                              const std::string& rightType) {
-    // Comparison operators return bool
+    if (op == "=") {
+        return isValidAssignment(leftType, rightType) ? leftType : "error";
+    }
     if (op == "==" || op == "!=" || op == "<" || op == ">" || op == "<=" || op == ">=") {
         return "bool";
     }
     if (op == "&&" || op == "||") {
         return "bool";
     }
-
-    // Arithmetic operators
     if (!isNumericType(leftType) || !isNumericType(rightType)) {
         return "error";
     }
-
-    // Promote to wider type
     return promoteType(leftType, rightType);
 }
 
@@ -596,10 +604,12 @@ std::string TypeChecker::inferUnaryExprType(const std::string& op, const std::st
 
 // Type validation
 void TypeChecker::validateStructType(const std::string& type) {
-    // Handle pointer types: extract base type first
     std::string baseType = type;
+    // Strip pointer modifiers — both trailing T* and leading *T
     if (hasPointerSuffix(baseType)) {
         baseType = extractBaseType(baseType);
+    } else if (!baseType.empty() && baseType.front() == '*') {
+        baseType = baseType.substr(1);
     }
 
     // Check if it's an explicit struct type (struct: prefix)
@@ -630,6 +640,8 @@ bool TypeChecker::isValidAssignment(const std::string& lhsType, const std::strin
     if (lhs == rhs) return true;
     if (isNumericType(lhs) && isNumericType(rhs)) return true;
     if (lhs == "null" || rhs == "null") return isPointerType(lhs) || isPointerType(rhs);
+    // Any pointer is assignable to any pointer (C interop)
+    if (isPointerType(lhs) && isPointerType(rhs)) return true;
 
     return false;
 }

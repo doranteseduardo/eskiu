@@ -89,8 +89,11 @@ private:
     void visit(LiteralExpr* node) override;
     void visit(IdentExpr* node) override;
     void visit(StructInitExpr* node) override;
+    void visit(AllocExpr* node) override;
 
     void emitStructInitInto(llvm::Value* dest, StructInitExpr* init);
+    llvm::Function* getOrDeclareFunc(const std::string& name, llvm::Type* retType,
+                                     std::vector<llvm::Type*> paramTypes, bool isVarArg = false);
 
     // Expression evaluation (returns LLVM Value)
     std::stack<llvm::Value*> exprValueStack;

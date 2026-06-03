@@ -20,6 +20,21 @@ CodeGen::CodeGen()
 CodeGen::~CodeGen() = default;
 
 llvm::Module* CodeGen::generateCode(std::shared_ptr<Program> program) {
+    // Set target triple + data layout early so sizeof queries work in alloc()
+    llvm::InitializeNativeTarget();
+    std::string tripleStr = llvm::sys::getDefaultTargetTriple();
+    llvm::Triple triple(tripleStr);
+    module->setTargetTriple(triple);
+    std::string terr;
+    const llvm::Target* target = llvm::TargetRegistry::lookupTarget(triple, terr);
+    if (target) {
+        llvm::TargetOptions opt;
+        auto* tm = target->createTargetMachine(triple, llvm::sys::getHostCPUName(),
+                                                "", opt, llvm::Reloc::PIC_);
+        module->setDataLayout(tm->createDataLayout());
+        delete tm;
+    }
+
     program->accept(this);
 
     std::string errorStr;
@@ -635,7 +650,14 @@ void CodeGen::visit(CallExpr* node) {
         throw std::runtime_error("Undefined method: " + baseType + "::" + member->member);
     }
 
-    // Regular function call
+    // Regular function call — auto-declare free/malloc if not yet visible
+    if (auto ident = dynamic_cast<IdentExpr*>(node->callee.get())) {
+        if (ident->name == "free") {
+            getOrDeclareFunc("free", llvm::Type::getVoidTy(*context),
+                             {llvm::PointerType::get(*context, 0)});
+        }
+    }
+
     llvm::Value* calleeVal = evaluateExpr(node->callee);
     if (!calleeVal || !llvm::isa<llvm::Function>(calleeVal)) {
         throw std::runtime_error("Call target is not a function");
@@ -801,6 +823,31 @@ llvm::Value* CodeGen::evaluateExpr(ExprPtr expr) {
     llvm::Value* result = exprValueStack.top();
     exprValueStack.pop();
     return result;
+}
+
+llvm::Function* CodeGen::getOrDeclareFunc(const std::string& name, llvm::Type* retType,
+                                           std::vector<llvm::Type*> paramTypes, bool isVarArg) {
+    llvm::Function* f = module->getFunction(name);
+    if (!f) {
+        auto* ft = llvm::FunctionType::get(retType, paramTypes, isVarArg);
+        f = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, name, module.get());
+    }
+    return f;
+}
+
+void CodeGen::visit(AllocExpr* node) {
+    llvm::Type* elemType = getTypeFromString(node->elemType);
+    llvm::Value* count   = evaluateExpr(node->count);
+
+    // sizeof(T) from DataLayout
+    uint64_t elemSize = module->getDataLayout().getTypeAllocSize(elemType);
+    llvm::Value* size64 = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), elemSize);
+    llvm::Value* n64    = builder->CreateIntCast(count, llvm::Type::getInt64Ty(*context), false);
+    llvm::Value* total  = builder->CreateMul(n64, size64, "alloc.size");
+
+    llvm::Function* mallocFn = getOrDeclareFunc("malloc",
+        llvm::PointerType::get(*context, 0), {llvm::Type::getInt64Ty(*context)});
+    exprValueStack.push(builder->CreateCall(mallocFn, {total}, "alloc.ptr"));
 }
 
 void CodeGen::emitStructInitInto(llvm::Value* dest, StructInitExpr* init) {

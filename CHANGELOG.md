@@ -3,8 +3,23 @@
 ## [Unreleased]
 
 ### Planned
-- Phase 6: `alloc(T, N)` / `free(ptr)` heap allocation
-- Phase 5 remainder: Go-style interface dispatch, monomorphic templates, `switch`/`case`
+- Phase 5.5: Go-style interface dispatch, monomorphic templates, `switch`/`case`
+- Phase 7: `Result<T,E>` + stdlib base
+
+---
+
+## [0.0.3-alpha] — 2026-06-02
+
+### Added — Phase 6 (heap memory)
+
+- **`alloc(T, N)`**: new `AllocExpr` AST node; emits `call @malloc(i64 N * sizeof(T))`; `sizeof(T)` resolved via `DataLayout` initialized at the start of `generateCode()`
+- **`free(ptr)`**: parsed as a regular call; `free` pre-registered in the type checker as variadic and auto-declared in the LLVM module on first use
+- **`getOrDeclareFunc()`**: codegen helper that lazily declares C runtime functions (`malloc`, `free`) into the module without requiring explicit `extern` declarations
+
+### Fixed
+- `validateStructType` did not strip leading `*T` pointer prefix — caused false "undefined struct" errors on `*uint8`, `*Point`, etc.
+- `inferBinaryExprType` did not handle the `=` operator for non-numeric types — assignment to pointer fields (`p.field = alloc(...)`) and struct fields now type-checks correctly
+- `isValidAssignment` now allows any-pointer to any-pointer assignment for C interop
 
 ---
 
