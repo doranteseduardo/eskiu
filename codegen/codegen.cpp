@@ -212,9 +212,9 @@ void CodeGen::visit(VarDecl* node) {
 
     // Initialize if there's an initializer
     if (node->initializer) {
-        evaluateExpr(node->initializer);
-        if (lastExprValue) {
-            builder->CreateStore(lastExprValue, alloca);
+        llvm::Value* initValue = evaluateExpr(node->initializer);
+        if (initValue) {
+            builder->CreateStore(initValue, alloca);
         }
     }
 }
@@ -262,8 +262,7 @@ void CodeGen::visit(BlockStmt* node) {
 
 void CodeGen::visit(IfStmt* node) {
     // Evaluate condition
-    evaluateExpr(node->condition);
-    llvm::Value* cond = lastExprValue;
+    llvm::Value* cond = evaluateExpr(node->condition);
 
     if (!cond) {
         throw std::runtime_error("If condition evaluation failed");
@@ -315,8 +314,7 @@ void CodeGen::visit(WhileStmt* node) {
 
     // Loop condition
     builder->SetInsertPoint(loopBlock);
-    evaluateExpr(node->condition);
-    llvm::Value* cond = lastExprValue;
+    llvm::Value* cond = evaluateExpr(node->condition);
     if (!cond->getType()->isIntegerTy(1)) {
         cond = builder->CreateICmpNE(cond, llvm::ConstantInt::get(cond->getType(), 0));
     }
@@ -348,8 +346,7 @@ void CodeGen::visit(ForStmt* node) {
     // Condition
     builder->SetInsertPoint(loopBlock);
     if (node->condition) {
-        evaluateExpr(node->condition);
-        llvm::Value* cond = lastExprValue;
+        llvm::Value* cond = evaluateExpr(node->condition);
         if (!cond->getType()->isIntegerTy(1)) {
             cond = builder->CreateICmpNE(cond, llvm::ConstantInt::get(cond->getType(), 0));
         }
@@ -378,8 +375,8 @@ void CodeGen::visit(ForStmt* node) {
 
 void CodeGen::visit(ReturnStmt* node) {
     if (node->value) {
-        evaluateExpr(node->value);
-        builder->CreateRet(lastExprValue);
+        llvm::Value* retValue = evaluateExpr(node->value);
+        builder->CreateRet(retValue);
     } else {
         builder->CreateRetVoid();
     }
@@ -395,106 +392,109 @@ void CodeGen::visit(ExprStmt* node) {
 }
 
 void CodeGen::visit(BinaryExpr* node) {
-    evaluateExpr(node->left);
-    llvm::Value* left = lastExprValue;
-
-    evaluateExpr(node->right);
-    llvm::Value* right = lastExprValue;
+    llvm::Value* left = evaluateExpr(node->left);
+    llvm::Value* right = evaluateExpr(node->right);
 
     if (!left || !right) {
         throw std::runtime_error("Binary expression operand evaluation failed");
     }
 
+    llvm::Value* result = nullptr;
+
     if (node->op == "+") {
-        lastExprValue = builder->CreateAdd(left, right);
+        result = builder->CreateAdd(left, right);
     } else if (node->op == "-") {
-        lastExprValue = builder->CreateSub(left, right);
+        result = builder->CreateSub(left, right);
     } else if (node->op == "*") {
-        lastExprValue = builder->CreateMul(left, right);
+        result = builder->CreateMul(left, right);
     } else if (node->op == "/") {
         if (left->getType()->isIntegerTy()) {
-            lastExprValue = builder->CreateSDiv(left, right);
+            result = builder->CreateSDiv(left, right);
         } else {
-            lastExprValue = builder->CreateFDiv(left, right);
+            result = builder->CreateFDiv(left, right);
         }
     } else if (node->op == "%") {
-        lastExprValue = builder->CreateSRem(left, right);
+        result = builder->CreateSRem(left, right);
     } else if (node->op == "==") {
         if (left->getType()->isIntegerTy()) {
-            lastExprValue = builder->CreateICmpEQ(left, right);
+            result = builder->CreateICmpEQ(left, right);
         } else {
-            lastExprValue = builder->CreateFCmpOEQ(left, right);
+            result = builder->CreateFCmpOEQ(left, right);
         }
     } else if (node->op == "!=") {
         if (left->getType()->isIntegerTy()) {
-            lastExprValue = builder->CreateICmpNE(left, right);
+            result = builder->CreateICmpNE(left, right);
         } else {
-            lastExprValue = builder->CreateFCmpONE(left, right);
+            result = builder->CreateFCmpONE(left, right);
         }
     } else if (node->op == "<") {
         if (left->getType()->isIntegerTy()) {
-            lastExprValue = builder->CreateICmpSLT(left, right);
+            result = builder->CreateICmpSLT(left, right);
         } else {
-            lastExprValue = builder->CreateFCmpOLT(left, right);
+            result = builder->CreateFCmpOLT(left, right);
         }
     } else if (node->op == ">") {
         if (left->getType()->isIntegerTy()) {
-            lastExprValue = builder->CreateICmpSGT(left, right);
+            result = builder->CreateICmpSGT(left, right);
         } else {
-            lastExprValue = builder->CreateFCmpOGT(left, right);
+            result = builder->CreateFCmpOGT(left, right);
         }
     } else if (node->op == "<=") {
         if (left->getType()->isIntegerTy()) {
-            lastExprValue = builder->CreateICmpSLE(left, right);
+            result = builder->CreateICmpSLE(left, right);
         } else {
-            lastExprValue = builder->CreateFCmpOLE(left, right);
+            result = builder->CreateFCmpOLE(left, right);
         }
     } else if (node->op == ">=") {
         if (left->getType()->isIntegerTy()) {
-            lastExprValue = builder->CreateICmpSGE(left, right);
+            result = builder->CreateICmpSGE(left, right);
         } else {
-            lastExprValue = builder->CreateFCmpOGE(left, right);
+            result = builder->CreateFCmpOGE(left, right);
         }
     } else if (node->op == "&&") {
-        lastExprValue = builder->CreateLogicalAnd(left, right);
+        result = builder->CreateLogicalAnd(left, right);
     } else if (node->op == "||") {
-        lastExprValue = builder->CreateLogicalOr(left, right);
+        result = builder->CreateLogicalOr(left, right);
     } else if (node->op == "=") {
         // Assignment - left should be a pointer (from variable)
         builder->CreateStore(right, left);
-        lastExprValue = right;
+        result = right;
     } else {
         throw std::runtime_error("Unknown binary operator: " + node->op);
     }
+
+    exprValueStack.push(result);
 }
 
 void CodeGen::visit(UnaryExpr* node) {
-    evaluateExpr(node->operand);
-    llvm::Value* val = lastExprValue;
+    llvm::Value* val = evaluateExpr(node->operand);
 
     if (!val) {
         throw std::runtime_error("Unary operand evaluation failed");
     }
 
+    llvm::Value* result = nullptr;
+
     if (node->op == "-") {
-        lastExprValue = builder->CreateNeg(val);
+        result = builder->CreateNeg(val);
     } else if (node->op == "!") {
-        lastExprValue = builder->CreateNot(val);
+        result = builder->CreateNot(val);
     } else if (node->op == "&") {
         // Address-of: return the pointer itself
-        lastExprValue = val;
+        result = val;
     } else if (node->op == "*") {
         // Dereference - assume i8 type for now (LLVM 22 has opaque pointers)
-        lastExprValue = builder->CreateLoad(llvm::Type::getInt8Ty(*context), val);
+        result = builder->CreateLoad(llvm::Type::getInt8Ty(*context), val);
     } else {
         throw std::runtime_error("Unknown unary operator: " + node->op);
     }
+
+    exprValueStack.push(result);
 }
 
 void CodeGen::visit(CallExpr* node) {
     // Evaluate callee
-    evaluateExpr(node->callee);
-    llvm::Value* calleeVal = lastExprValue;
+    llvm::Value* calleeVal = evaluateExpr(node->callee);
 
     if (!calleeVal || !llvm::isa<llvm::Function>(calleeVal)) {
         throw std::runtime_error("Call target is not a function");
@@ -505,12 +505,12 @@ void CodeGen::visit(CallExpr* node) {
     // Evaluate arguments
     std::vector<llvm::Value*> args;
     for (auto& arg : node->args) {
-        evaluateExpr(arg);
-        args.push_back(lastExprValue);
+        args.push_back(evaluateExpr(arg));
     }
 
     // Create call
-    lastExprValue = builder->CreateCall(func, args);
+    llvm::Value* result = builder->CreateCall(func, args);
+    exprValueStack.push(result);
 }
 
 void CodeGen::visit(IndexExpr* node) {
@@ -524,63 +524,70 @@ void CodeGen::visit(MemberExpr* node) {
 }
 
 void CodeGen::visit(CastExpr* node) {
-    evaluateExpr(node->expr);
-    llvm::Value* val = lastExprValue;
+    llvm::Value* val = evaluateExpr(node->expr);
 
     llvm::Type* targetType = getTypeFromString(node->targetType);
 
+    llvm::Value* result = nullptr;
+
     if (val->getType() == targetType) {
-        lastExprValue = val;
+        result = val;
     } else if (val->getType()->isIntegerTy() && targetType->isIntegerTy()) {
         // Integer to integer
         unsigned srcWidth = llvm::cast<llvm::IntegerType>(val->getType())->getBitWidth();
         unsigned dstWidth = llvm::cast<llvm::IntegerType>(targetType)->getBitWidth();
         if (srcWidth < dstWidth) {
-            lastExprValue = builder->CreateSExt(val, targetType);
+            result = builder->CreateSExt(val, targetType);
         } else {
-            lastExprValue = builder->CreateTrunc(val, targetType);
+            result = builder->CreateTrunc(val, targetType);
         }
     } else if (val->getType()->isIntegerTy() && targetType->isFloatingPointTy()) {
-        lastExprValue = builder->CreateSIToFP(val, targetType);
+        result = builder->CreateSIToFP(val, targetType);
     } else if (val->getType()->isFloatingPointTy() && targetType->isIntegerTy()) {
-        lastExprValue = builder->CreateFPToSI(val, targetType);
+        result = builder->CreateFPToSI(val, targetType);
     } else {
         throw std::runtime_error("Cannot cast between these types");
     }
+
+    exprValueStack.push(result);
 }
 
 void CodeGen::visit(LiteralExpr* node) {
+    llvm::Value* result = nullptr;
+
     switch (node->kind) {
         case LiteralExpr::Kind::INT: {
             long long val = std::stoll(node->value);
-            lastExprValue = llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), val);
+            result = llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), val);
             break;
         }
         case LiteralExpr::Kind::FLOAT: {
             double val = std::stod(node->value);
-            lastExprValue = llvm::ConstantFP::get(llvm::Type::getDoubleTy(*context), val);
+            result = llvm::ConstantFP::get(llvm::Type::getDoubleTy(*context), val);
             break;
         }
         case LiteralExpr::Kind::STRING: {
-            lastExprValue = builder->CreateGlobalString(node->value);
+            result = builder->CreateGlobalString(node->value);
             break;
         }
         case LiteralExpr::Kind::BOOL: {
             bool val = node->value == "true";
-            lastExprValue = llvm::ConstantInt::get(llvm::Type::getInt1Ty(*context), val);
+            result = llvm::ConstantInt::get(llvm::Type::getInt1Ty(*context), val);
             break;
         }
         case LiteralExpr::Kind::NULL_VAL: {
             auto ptrType = llvm::PointerType::get(*context, 0);
-            lastExprValue = llvm::ConstantPointerNull::get(ptrType);
+            result = llvm::ConstantPointerNull::get(ptrType);
             break;
         }
         case LiteralExpr::Kind::CHAR: {
             char val = node->value.empty() ? 0 : node->value[0];
-            lastExprValue = llvm::ConstantInt::get(llvm::Type::getInt8Ty(*context), val);
+            result = llvm::ConstantInt::get(llvm::Type::getInt8Ty(*context), val);
             break;
         }
     }
+
+    exprValueStack.push(result);
 }
 
 void CodeGen::visit(IdentExpr* node) {
@@ -596,17 +603,24 @@ void CodeGen::visit(IdentExpr* node) {
         throw std::runtime_error("Undefined variable or function: " + node->name);
     }
 
+    llvm::Value* result = nullptr;
+
     // If it's a local variable (alloca), load it
     if (llvm::isa<llvm::AllocaInst>(val)) {
-        lastExprValue = builder->CreateLoad(
+        result = builder->CreateLoad(
             llvm::cast<llvm::AllocaInst>(val)->getAllocatedType(), val);
     } else {
-        lastExprValue = val;
+        result = val;
     }
+
+    exprValueStack.push(result);
 }
 
-void CodeGen::evaluateExpr(ExprPtr expr) {
+llvm::Value* CodeGen::evaluateExpr(ExprPtr expr) {
     expr->accept(this);
+    llvm::Value* result = exprValueStack.top();
+    exprValueStack.pop();
+    return result;
 }
 
 bool CodeGen::emitObjectFile(const std::string& filename) {

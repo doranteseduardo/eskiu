@@ -4,6 +4,7 @@
 #include <string>
 #include <map>
 #include <vector>
+#include <stack>
 #include "../ast/ast.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/IRBuilder.h"
@@ -74,6 +75,6 @@ private:
     void visit(IdentExpr* node) override;
 
     // Expression evaluation (returns LLVM Value)
-    llvm::Value* lastExprValue = nullptr;
-    void evaluateExpr(ExprPtr expr);
+    std::stack<llvm::Value*> exprValueStack;
+    llvm::Value* evaluateExpr(ExprPtr expr);
 };
