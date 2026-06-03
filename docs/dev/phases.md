@@ -31,11 +31,7 @@ Ordered by value to the compiler and its users.
 
 ### Language
 
-1. **argv / argc support** — programs cannot yet accept CLI arguments natively; the decoder and any CLI tool built with Eskiu must hard-code inputs. This is the highest-leverage language unblock for real-world use.
-
-2. **Interface dispatch with typed return values** — the current vtable always stores function pointers as `void` returning. Methods that return non-void values via interface dispatch produce garbage. Fixing this unblocks polymorphic APIs.
-
-3. **Negative number literals** — `int x = -1` works via unary minus, but `-1` cannot be parsed as a primary literal directly. Minor parser gap but trips up newcomers.
+1. **Negative number literals** — `int x = -1` works via unary minus, but `-1` cannot be parsed as a primary literal directly. Minor parser gap but trips up newcomers.
 
 ### Long-term
 

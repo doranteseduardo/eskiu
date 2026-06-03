@@ -10,8 +10,6 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 ## [Unreleased]
 
 ### Planned
-- `argv`/`argc` — `int main(int argc, string* argv)` signature
-- Interface dispatch with typed return values
 - Self-hosting
 
 ---

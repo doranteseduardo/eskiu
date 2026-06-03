@@ -2,12 +2,9 @@
 //
 // Orchestrates the three pipeline stages, collects timing, and writes output.
 // All pipeline logic lives in pipeline.esk; this file handles I/O only.
-//
-// TODO: replace hardcoded IMAGE_PATH with argv[1] once Eskiu supports argc/argv.
 
 import "pipeline.esk";
 
-// Image path — replace with argv[1] once Eskiu supports argc/argv.
 string IMAGE_PATH = "/Users/dorantes/Documents/Eduardo/ine-qr-analysis/IMG_8372.HEIC";
 string OUT_JSON   = "/tmp/qr_decoded.json";
 string OUT_WEBP   = "/tmp/qr_decoded.webp";
