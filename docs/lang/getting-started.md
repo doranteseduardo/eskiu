@@ -4,7 +4,7 @@
 A hands-on introduction to the Eskiu language. You will go from zero to writing
 and inspecting real compiled programs in about 30 minutes.
 
-All code blocks in this document compile and run with **Eskiu v0.0.8-alpha**.
+All code blocks in this document compile and run with **Eskiu v0.0.11-alpha**.
 ---
 
 ## Installation

@@ -148,7 +148,7 @@ cmake --build build -- -j$(nproc)
 Expected output:
 
 ```
-Eskiu 0.0.1 (LLVM 17.x.x)
+Eskiu 0.0.11-alpha (LLVM 17.x.x)
 ```
 
 The LLVM version will reflect whichever version is installed on the host.

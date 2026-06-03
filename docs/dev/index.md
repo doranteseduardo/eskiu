@@ -40,7 +40,7 @@ Each test mode exits 0 on success and prints a human-readable dump to stdout. A 
 
 ---
 
-## Current State (v0.0.8-alpha)
+## Current State (v0.0.11-alpha)
 
 All compiler phases (0–7) and Phase 5.5 are complete and tested end-to-end. The language feature set is v0.1 ready: every type, operator, control flow construct, struct feature, template, interface, and multi-file mechanism described in the language spec compiles to correct native arm64 and x86-64 object files.
 

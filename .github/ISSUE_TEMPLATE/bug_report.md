@@ -13,16 +13,18 @@ Clear description of the bug. What did you expect to happen? What happened inste
 ## Minimal Test Case
 Smallest Eskiu program that reproduces the issue:
 
-```esk
-// Your code here
-fn main() -> i32 {
+```eskiu
+extern int printf(string fmt, ...);
+
+int main() {
+    // Your code here
     return 0;
 }
 ```
 
 ## Steps to Reproduce
 1. Save the test case to `test.esk`
-2. Run: `./eskiu compile test.esk -o test`
+2. Run: `./build/eskiuc test.esk -o test.o && clang test.o -o test && ./test`
 3. What happens? (error message, crash, wrong output)
 
 ## Expected Behavior
@@ -32,29 +34,29 @@ What should happen instead?
 Run with test modes and paste the output:
 
 ```bash
-./eskiu compile test.esk --test-lexer
+./build/eskiuc test.esk --test-lexer
 # Output:
 ```
 
 ```bash
-./eskiu compile test.esk --test-parser
+./build/eskiuc test.esk --test-parser
 # Output:
 ```
 
 ```bash
-./eskiu compile test.esk --test-typechecker
+./build/eskiuc test.esk --test-typechecker
 # Output:
 ```
 
 ```bash
-./eskiu compile test.esk --test-codegen
+./build/eskiuc test.esk --test-codegen
 # Output:
 ```
 
 ## System Information
-- **OS:** macOS / Linux / Windows WSL2
+- **OS:** macOS / Linux
 - **LLVM version:** (run: `llvm-config --version`)
-- **Compiler version:** (run: `./eskiu --version`)
+- **Compiler version:** (run: `./build/eskiuc --version`)
 - **Build type:** Debug / Release
 
 ## Related Issues

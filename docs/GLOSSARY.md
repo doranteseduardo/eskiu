@@ -168,7 +168,7 @@ Object-oriented design pattern in which an external object (the visitor) defines
 
 ---
 
-- [ARCHITECTURE.md](ARCHITECTURE.md) — Compiler architecture and pass pipeline
-- [LANGUAGE_SPEC.md](LANGUAGE_SPEC.md) — Full language specification
+- [architecture.md](dev/architecture.md) — Compiler architecture and pass pipeline
+- [spec.md](lang/spec.md) — Full language specification
 - [DESIGN_DECISIONS.md](DESIGN_DECISIONS.md) — Rationale for key design choices
-- [PHASES.md](PHASES.md) — Compiler development roadmap
+- [phases.md](dev/phases.md) — Compiler development roadmap

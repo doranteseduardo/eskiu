@@ -1,6 +1,6 @@
 # Contributing to Eskiu
 
-Read [architecture.md](../ARCHITECTURE.md) before diving in. Understanding the pipeline — lexer → parser → type checker → codegen — is the prerequisite for any meaningful contribution.
+Read [architecture.md](architecture.md) before diving in. Understanding the pipeline — lexer → parser → type checker → codegen — is the prerequisite for any meaningful contribution.
 
 ## Getting Started
 
@@ -49,7 +49,7 @@ Codegen checks: single alloca per var, every branch terminated, no undef, correc
 - [ ] Docs updated if behavior changed
 
 ## Current Focus
-v0.0.8-alpha, all core features complete.
+v0.0.11-alpha, all core features complete.
 Active milestone: INE QR decoder port (v0.1) — application port, no new language work needed.
 Near-term: String.append realloc strategy, interface return type dispatch.
 Phases 5.5/6/7 complete; no active language development. New feature proposals require an issue referencing the v0.1 context.

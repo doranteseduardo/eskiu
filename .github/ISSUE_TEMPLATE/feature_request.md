@@ -13,9 +13,9 @@ Clear description of the feature. What problem does it solve?
 ## Use Case
 Real-world scenario where this feature would be useful. Example:
 
-```esk
+```eskiu
 // What you'd like to write:
-let x = 5;  // Instead of: let x: i32 = 5;
+let x: int = 5;
 ```
 
 ## Proposed Solution
@@ -35,12 +35,12 @@ Link to related discussions or issues
 ---
 
 **Note:** Before opening a feature request, check:
-1. [LANGUAGE_SPEC.md](../../docs/LANGUAGE_SPEC.md) — Is this already documented?
-2. [FAQ.md](../../docs/FAQ.md) — Has this been answered?
-3. [PHASES.md](../../docs/PHASES.md) — Is this planned?
+1. [Language specification](../../docs/lang/spec.md) — Is this already documented?
+2. [Design decisions](../../docs/dev/design.md) — Does it align with the language's goals?
+3. [Phase roadmap](../../docs/dev/phases.md) — Is this already planned?
 4. Existing issues — Has someone suggested this?
 
 Feature requests are prioritized based on:
-- Alignment with [DESIGN_DECISIONS.md](../../docs/DESIGN_DECISIONS.md)
-- Impact on the QR decoder use case
+- Alignment with the design decisions in `docs/dev/design.md`
+- Impact on the decoder use case
 - Phase roadmap

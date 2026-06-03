@@ -1,18 +1,77 @@
 # Eskiu Language Reference
 
-Eskiu is a statically typed, systems programming language that compiles to native machine code via LLVM. It targets developers who need C-level performance and direct memory control without a garbage collector or borrow checker. The syntax is deliberately C-style so code reads like existing systems code, while gaining a cleaner module model, monomorphic templates, structural interfaces, and an explicit heap model via `alloc`/`free`. Current version is **v0.0.8-alpha**. All language features planned for the v0.1 milestone are fully implemented and tested end-to-end.
+Eskiu is a statically typed systems programming language that compiles to native machine code via LLVM. It targets developers who need C-level performance and direct memory control without a garbage collector or borrow checker. The syntax is deliberately C-style; the language adds monomorphic templates, structural interfaces, and an explicit heap model via `alloc`/`free`.
+
+**Current version: v0.0.11-alpha** — all language features for v0.1 are implemented and tested end-to-end.
 
 ---
 
 ## Documentation Map
 
-| Document | Description | Start here? |
-...
+| Document | What it covers | Start here if… |
+|---|---|---|
+| [getting-started.md](getting-started.md) | Hands-on tutorial — build, hello world, all features | You're new to Eskiu |
+| [spec.md](spec.md) | Complete language reference | You need exact syntax or semantics |
+| [build.md](build.md) | Install the compiler on macOS / Linux | You need to set up a dev environment |
+| [../../docs/GLOSSARY.md](../GLOSSARY.md) | Terminology definitions | You encounter an unfamiliar term |
+
+---
 
 ## Feature Summary
 
-(Types | Operators | Control Flow | Structs | Templates | Interfaces | Memory | Multi-file | Stdlib)
+| Category | Features |
+|---|---|
+| **Types** | `int`, `int8`–`int64`, `uint`–`uint64`, `float`, `double`, `bool`, `char`, `string`, `void`, `*T` pointers, `T[N]` fixed arrays |
+| **Literals** | Decimal, hex `0xFF`, float, string (with adjacent concat), char, bool, null |
+| **Operators** | Arithmetic `+ - * / %`, bitwise `& \| ^ ~ << >>`, comparison, logical, compound `+= -=` etc., pointer arith `ptr+n` |
+| **Control flow** | `if`/`else`, `for` (with decl init), `while`, `switch`/`case`, `break`, `continue`, `return` |
+| **Functions** | C-style, `extern` C ABI, variadic, template `fn<T>(T x)` |
+| **Structs** | Fields, methods with `self`, struct literal init `Point { x: 1, y: 2 }` |
+| **Templates** | `struct Result<T,E>`, `fn Ok<T,E>(T v)` — monomorphic instantiation |
+| **Interfaces** | `interface Drawable { void draw(); }` — structural typing, vtable dispatch |
+| **Memory** | Stack default, `alloc(T,N)` / `free(ptr)`, pointer arithmetic |
+| **Multi-file** | `import "path/to/file.esk"` — relative to importing file |
+| **Errors** | `file.esk:8:22: message` — real line/col from parser |
+| **Stdlib** | `result.esk`, `list.esk`, `string.esk`, `math.esk`, `io.esk`, `mem.esk` |
+
+---
 
 ## Quick Reference
 
-(Type table | Operator precedence | CLI flags)
+### Type → LLVM
+
+| Eskiu | LLVM | Eskiu | LLVM |
+|---|---|---|---|
+| `int` / `int32` | `i32` | `uint` / `uint32` | `i32` |
+| `int8` | `i8` | `uint8` | `i8` |
+| `int16` | `i16` | `uint16` | `i16` |
+| `int64` | `i64` | `uint64` | `i64` |
+| `float` | `float` | `double` | `double` |
+| `bool` | `i1` | `char` | `i8` |
+| `string` | `i8*` | `*T` / `T*` | `ptr` |
+
+### Operator precedence (lowest → highest)
+
+```
+assignment  = += -= *= /= %=
+logical     || &&
+bitwise     | ^ &
+equality    == !=
+relational  < > <= >=
+shift       << >>
+additive    + -
+multiplicative * / %
+unary       ! - ~ & * (TYPE)
+postfix     f() a[i] a.b
+```
+
+### CLI flags
+
+| Flag | Action |
+|---|---|
+| `-o file.o` | Compile to native object file |
+| `--test-lexer` | Print token stream |
+| `--test-parser` | Print AST |
+| `--test-typechecker` | Type check and report errors |
+| `--test-codegen` | Print LLVM IR |
+| `--version` | Print version |
