@@ -42,6 +42,15 @@ enum class TokenType {
     CATCH,
     FINALLY,
     THROW,
+    INT8,
+    INT16,
+    INT32,
+    INT64,
+    UINT,
+    UINT8,
+    UINT16,
+    UINT32,
+    UINT64,
 
     // Operators
     PLUS,

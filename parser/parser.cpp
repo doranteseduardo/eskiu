@@ -94,7 +94,10 @@ std::string Parser::parseType() {
 
     Token typeToken = peek();
     if (match({TokenType::INT, TokenType::FLOAT, TokenType::DOUBLE,
-               TokenType::BOOL, TokenType::CHAR, TokenType::STRING, TokenType::VOID})) {
+               TokenType::BOOL, TokenType::CHAR, TokenType::STRING, TokenType::VOID,
+               TokenType::INT8, TokenType::INT16, TokenType::INT32, TokenType::INT64,
+               TokenType::UINT, TokenType::UINT8, TokenType::UINT16,
+               TokenType::UINT32, TokenType::UINT64})) {
         type = typeToken.value;
     } else if (check(TokenType::IDENT)) {
         type = advance().value;
@@ -210,7 +213,10 @@ DeclPtr Parser::parseDeclaration() {
         // Try to parse as type declaration (function or variable)
         if (check(TokenType::INT) || check(TokenType::FLOAT) || check(TokenType::DOUBLE) ||
             check(TokenType::BOOL) || check(TokenType::CHAR) || check(TokenType::STRING) ||
-            check(TokenType::VOID) || check(TokenType::STAR) || check(TokenType::IDENT)) {
+            check(TokenType::VOID) || check(TokenType::STAR) || check(TokenType::IDENT) ||
+            check(TokenType::INT8) || check(TokenType::INT16) || check(TokenType::INT32) ||
+            check(TokenType::INT64) || check(TokenType::UINT) || check(TokenType::UINT8) ||
+            check(TokenType::UINT16) || check(TokenType::UINT32) || check(TokenType::UINT64)) {
 
             size_t savePos = current;
             std::string type = parseType();
@@ -270,16 +276,32 @@ DeclPtr Parser::parseStructDecl() {
     consume(TokenType::LBRACE, "Expected '{'");
 
     std::vector<StructDecl::Field> fields;
+    std::vector<DeclPtr> methods;
+
     while (!check(TokenType::RBRACE) && !is_at_end()) {
-        std::string type = parseType();
-        std::string fieldName = consume(TokenType::IDENT, "Expected field name").value;
-        consume(TokenType::SEMICOLON, "Expected ';'");
-        fields.push_back({type, fieldName});
+        size_t savePos = current;
+        try {
+            std::string memberType = parseType();
+            std::string memberName = consume(TokenType::IDENT, "Expected member name").value;
+
+            if (check(TokenType::LPAREN)) {
+                // Method — backtrack and parse as a full function declaration
+                current = savePos;
+                methods.push_back(parseFunctionDecl());
+            } else {
+                consume(TokenType::SEMICOLON, "Expected ';' after field");
+                fields.push_back({memberType, memberName});
+            }
+        } catch (const std::exception& e) {
+            throw std::runtime_error(std::string("In struct '") + name + "': " + e.what());
+        }
     }
 
     consume(TokenType::RBRACE, "Expected '}'");
 
-    return std::make_shared<StructDecl>(name, fields);
+    auto decl = std::make_shared<StructDecl>(name, fields);
+    decl->methods = methods;
+    return decl;
 }
 
 // ============================================================================
@@ -320,7 +342,10 @@ StmtPtr Parser::parseBlockStatement() {
             check(TokenType::DOUBLE) || check(TokenType::BOOL) ||
             check(TokenType::CHAR) || check(TokenType::STRING) ||
             check(TokenType::VOID) || check(TokenType::STAR) ||
-            check(TokenType::IDENT)) {
+            check(TokenType::IDENT) ||
+            check(TokenType::INT8) || check(TokenType::INT16) || check(TokenType::INT32) ||
+            check(TokenType::INT64) || check(TokenType::UINT) || check(TokenType::UINT8) ||
+            check(TokenType::UINT16) || check(TokenType::UINT32) || check(TokenType::UINT64)) {
 
             size_t savePos = current;
             try {
@@ -516,8 +541,32 @@ ExprPtr Parser::parseUnary() {
         return std::make_shared<UnaryExpr>(opToken.value, expr);
     }
 
-    // Skip cast handling for now to avoid crashes
-    // TODO: Implement casts later with better lookahead strategy
+    // Cast expression: (TYPE) expr
+    // Only trigger on unambiguous type keywords to avoid conflict with (expr).
+    if (check(TokenType::LPAREN)) {
+        TokenType inner = peek_ahead(1).type;
+        bool isTypeKeyword = (inner == TokenType::INT    || inner == TokenType::FLOAT  ||
+                              inner == TokenType::DOUBLE  || inner == TokenType::BOOL   ||
+                              inner == TokenType::CHAR    || inner == TokenType::STRING  ||
+                              inner == TokenType::VOID    || inner == TokenType::STAR    ||
+                              inner == TokenType::INT8    || inner == TokenType::INT16   ||
+                              inner == TokenType::INT32   || inner == TokenType::INT64   ||
+                              inner == TokenType::UINT    || inner == TokenType::UINT8   ||
+                              inner == TokenType::UINT16  || inner == TokenType::UINT32  ||
+                              inner == TokenType::UINT64);
+        if (isTypeKeyword) {
+            size_t savePos = current;
+            try {
+                advance(); // consume (
+                std::string castType = parseType();
+                if (match(TokenType::RPAREN)) {
+                    ExprPtr expr = parseUnary();
+                    return std::make_shared<CastExpr>(castType, expr);
+                }
+            } catch (...) {}
+            current = savePos;
+        }
+    }
 
     return parsePostfix();
 }

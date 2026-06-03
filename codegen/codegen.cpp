@@ -46,63 +46,42 @@ void CodeGen::printIR() const {
 // ============================================================================
 
 llvm::Type* CodeGen::getTypeFromString(const std::string& typeStr) {
-    // Handle pointer types: extract base type and wrap in PointerType
+    // Leading pointer: *T (spec style)
+    if (!typeStr.empty() && typeStr.front() == '*') {
+        return llvm::PointerType::get(*context, 0);
+    }
+    // Trailing pointer: T* (C style)
     if (!typeStr.empty() && typeStr.back() == '*') {
-        std::string baseTypeStr = typeStr.substr(0, typeStr.length() - 1);
-        llvm::Type* baseType = getTypeFromString(baseTypeStr);
         return llvm::PointerType::get(*context, 0);
     }
 
-    if (typeStr == "int") {
-        return llvm::Type::getInt32Ty(*context);
-    }
-    if (typeStr == "int8") {
-        return llvm::Type::getInt8Ty(*context);
-    }
-    if (typeStr == "int16") {
-        return llvm::Type::getInt16Ty(*context);
-    }
-    if (typeStr == "int32") {
-        return llvm::Type::getInt32Ty(*context);
-    }
-    if (typeStr == "int64") {
-        return llvm::Type::getInt64Ty(*context);
-    }
-    if (typeStr == "float") {
-        return llvm::Type::getFloatTy(*context);
-    }
-    if (typeStr == "double") {
-        return llvm::Type::getDoubleTy(*context);
-    }
-    if (typeStr == "bool") {
-        return llvm::Type::getInt1Ty(*context);
-    }
-    if (typeStr == "void") {
-        return llvm::Type::getVoidTy(*context);
-    }
-    if (typeStr == "string") {
-        // string is char*
-        return llvm::PointerType::get(*context, 0);
-    }
-    if (typeStr == "char") {
-        return llvm::Type::getInt8Ty(*context);
-    }
+    if (typeStr == "int"  || typeStr == "int32")  return llvm::Type::getInt32Ty(*context);
+    if (typeStr == "int8")                         return llvm::Type::getInt8Ty(*context);
+    if (typeStr == "int16")                        return llvm::Type::getInt16Ty(*context);
+    if (typeStr == "int64")                        return llvm::Type::getInt64Ty(*context);
+    if (typeStr == "uint" || typeStr == "uint32")  return llvm::Type::getInt32Ty(*context);
+    if (typeStr == "uint8")                        return llvm::Type::getInt8Ty(*context);
+    if (typeStr == "uint16")                       return llvm::Type::getInt16Ty(*context);
+    if (typeStr == "uint64")                       return llvm::Type::getInt64Ty(*context);
+    if (typeStr == "float")                        return llvm::Type::getFloatTy(*context);
+    if (typeStr == "double")                       return llvm::Type::getDoubleTy(*context);
+    if (typeStr == "bool")                         return llvm::Type::getInt1Ty(*context);
+    if (typeStr == "void")                         return llvm::Type::getVoidTy(*context);
+    if (typeStr == "char")                         return llvm::Type::getInt8Ty(*context);
+    if (typeStr == "string")                       return llvm::PointerType::get(*context, 0);
 
-    // Check for struct types: "struct:StructName"
     if (typeStr.find("struct:") == 0) {
-        // TODO: Implement proper struct type lookup
-        // For now, return i8* as placeholder
+        // TODO: resolve to llvm::StructType in Phase 5
         return llvm::PointerType::get(*context, 0);
     }
 
-    // Default to i32
     std::cerr << "Warning: unknown type '" << typeStr << "', defaulting to i32" << std::endl;
     return llvm::Type::getInt32Ty(*context);
 }
 
 bool CodeGen::isPointerType(const std::string& typeStr) const {
-    // Check if type ends with "*" (pointer suffix) or is "string"
-    return (!typeStr.empty() && typeStr.back() == '*') || typeStr == "string";
+    if (typeStr.empty()) return false;
+    return typeStr.front() == '*' || typeStr.back() == '*' || typeStr == "string";
 }
 
 bool CodeGen::isIntType(const std::string& typeStr) const {
@@ -230,17 +209,27 @@ void CodeGen::visit(FunctionDecl* node) {
 }
 
 void CodeGen::visit(VarDecl* node) {
-    // For now, just allocate on stack
-    llvm::Type* type = getTypeFromString(node->type);
-    llvm::AllocaInst* alloca = builder->CreateAlloca(type, nullptr, node->name);
+    llvm::Type* declType = getTypeFromString(node->type);
+    llvm::AllocaInst* alloca = builder->CreateAlloca(declType, nullptr, node->name);
     defineSymbol(node->name, alloca);
 
-    // Initialize if there's an initializer
     if (node->initializer) {
-        llvm::Value* initValue = evaluateExpr(node->initializer);
-        if (initValue) {
-            builder->CreateStore(initValue, alloca);
+        llvm::Value* val = evaluateExpr(node->initializer);
+        if (val && val->getType() != declType) {
+            if (val->getType()->isIntegerTy() && declType->isIntegerTy()) {
+                unsigned src = llvm::cast<llvm::IntegerType>(val->getType())->getBitWidth();
+                unsigned dst = llvm::cast<llvm::IntegerType>(declType)->getBitWidth();
+                val = src > dst ? builder->CreateTrunc(val, declType)
+                                : builder->CreateSExt(val, declType);
+            } else if (val->getType()->isIntegerTy() && declType->isFloatingPointTy()) {
+                val = builder->CreateSIToFP(val, declType);
+            } else if (val->getType()->isFloatingPointTy() && declType->isIntegerTy()) {
+                val = builder->CreateFPToSI(val, declType);
+            } else if (val->getType()->isFloatingPointTy() && declType->isFloatingPointTy()) {
+                val = builder->CreateFPCast(val, declType);
+            }
         }
+        if (val) builder->CreateStore(val, alloca);
     }
 }
 
@@ -417,6 +406,15 @@ void CodeGen::visit(ExprStmt* node) {
 }
 
 void CodeGen::visit(BinaryExpr* node) {
+    // Assignment: evaluate left as lvalue (pointer), not rvalue
+    if (node->op == "=") {
+        llvm::Value* lhs = evaluateLValue(node->left);
+        llvm::Value* rhs = evaluateExpr(node->right);
+        builder->CreateStore(rhs, lhs);
+        exprValueStack.push(rhs);
+        return;
+    }
+
     llvm::Value* left = evaluateExpr(node->left);
     llvm::Value* right = evaluateExpr(node->right);
 
@@ -480,10 +478,6 @@ void CodeGen::visit(BinaryExpr* node) {
         result = builder->CreateLogicalAnd(left, right);
     } else if (node->op == "||") {
         result = builder->CreateLogicalOr(left, right);
-    } else if (node->op == "=") {
-        // Assignment - left should be a pointer (from variable)
-        builder->CreateStore(right, left);
-        result = right;
     } else {
         throw std::runtime_error("Unknown binary operator: " + node->op);
     }
@@ -646,6 +640,15 @@ llvm::Value* CodeGen::evaluateExpr(ExprPtr expr) {
     llvm::Value* result = exprValueStack.top();
     exprValueStack.pop();
     return result;
+}
+
+llvm::Value* CodeGen::evaluateLValue(ExprPtr expr) {
+    if (auto ident = dynamic_cast<IdentExpr*>(expr.get())) {
+        llvm::Value* val = lookupSymbol(ident->name);
+        if (!val) throw std::runtime_error("Undefined variable: " + ident->name);
+        return val; // return the alloca, not the loaded value
+    }
+    throw std::runtime_error("Left-hand side of assignment is not an lvalue");
 }
 
 bool CodeGen::emitObjectFile(const std::string& filename) {

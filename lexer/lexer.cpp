@@ -41,6 +41,15 @@ std::string tokenTypeToString(TokenType type) {
         case TokenType::CATCH: return "CATCH";
         case TokenType::FINALLY: return "FINALLY";
         case TokenType::THROW: return "THROW";
+        case TokenType::INT8: return "INT8";
+        case TokenType::INT16: return "INT16";
+        case TokenType::INT32: return "INT32";
+        case TokenType::INT64: return "INT64";
+        case TokenType::UINT: return "UINT";
+        case TokenType::UINT8: return "UINT8";
+        case TokenType::UINT16: return "UINT16";
+        case TokenType::UINT32: return "UINT32";
+        case TokenType::UINT64: return "UINT64";
         // Operators
         case TokenType::PLUS: return "PLUS";
         case TokenType::MINUS: return "MINUS";
@@ -126,6 +135,15 @@ std::unordered_map<std::string, TokenType> Lexer::keywords = {
     {"catch", TokenType::CATCH},
     {"finally", TokenType::FINALLY},
     {"throw", TokenType::THROW},
+    {"int8",   TokenType::INT8},
+    {"int16",  TokenType::INT16},
+    {"int32",  TokenType::INT32},
+    {"int64",  TokenType::INT64},
+    {"uint",   TokenType::UINT},
+    {"uint8",  TokenType::UINT8},
+    {"uint16", TokenType::UINT16},
+    {"uint32", TokenType::UINT32},
+    {"uint64", TokenType::UINT64},
 };
 
 Lexer::Lexer(const std::string& source)

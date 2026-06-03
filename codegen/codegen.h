@@ -77,4 +77,5 @@ private:
     // Expression evaluation (returns LLVM Value)
     std::stack<llvm::Value*> exprValueStack;
     llvm::Value* evaluateExpr(ExprPtr expr);
+    llvm::Value* evaluateLValue(ExprPtr expr);
 };

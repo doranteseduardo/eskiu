@@ -1,96 +1,93 @@
-# Eskiu Lang
+<p align="center">
+  <img src="assets/logo.jpg" alt="Eskiu" width="640">
+</p>
 
-> Systems programming language with **C-style syntax**, compiled to LLVM. No GC, no borrow checker—just performance and honesty.
+A systems programming language compiled to LLVM IR. C-style syntax, no garbage collector, no borrow checker. Built to port a real INE QR decoder from 3-5 seconds to under 1 second.
 
-**Status:** v0.0.1-alpha · Phases 0–4 complete · Phase 4 refactored · [RELEASES.md](RELEASES.md)
-
----
-
-## 5-Minute Start
+## Quick Start
 
 ```bash
-# Build
-mkdir build && cd build
-cmake .. && make -j4
-
-# Compile & run
-./build/eskiuc examples/hello.esk -emit-llvm
+git clone https://github.com/yourusername/eskiu && cd eskiu
+cmake -S . -B build && cmake --build build -j$(nproc)
+./build/eskiuc examples/hello.esk --test-codegen
 ```
 
-See [QUICKSTART.md](QUICKSTART.md) for full guide.
+## Example
 
----
+```eskiu
+extern int printf(string fmt, ...);
 
-## Why Eskiu?
-
-- **Familiar:** C-style syntax (`int x = 5;` not `let x: i32 =`)
-- **Fast:** Compiles to LLVM IR. Zero hidden costs.
-- **Explicit:** Stack by default. You control memory.
-- **Practical:** Go-style interfaces. No inheritance.
-
-**Goal:** Port INE QR decoder from 3–5 seconds to <1 second. Real use case. Real constraints.
-
----
-
-## Documentation
-
-**New here?** → [QUICKSTART.md](QUICKSTART.md) (5 min)  
-**Learn the language?** → [GETTING_STARTED.md](docs/GETTING_STARTED.md) (30 min)  
-**Set it up?** → [BUILD.md](docs/BUILD.md) (macOS, Linux, Alpine)  
-**Debugging?** → [DEBUGGING.md](docs/DEBUGGING.md) (test modes, errors)
-
-**Full docs:** [INDEX.md](INDEX.md) — Navigation hub for all guides.
-
----
-
-## C-Style Syntax Example
-
-```esk
-extern i32 printf(i8* fmt, ...);
-
-i32 add(i32 a, i32 b) {
+int add(int a, int b) {
     return a + b;
 }
 
-i32 main() {
-    i32 result = add(5, 3);
+int main() {
+    int result = add(5, 3);
+    printf("Hello from Eskiu!\n");
     printf("Result: %d\n", result);
     return 0;
 }
 ```
 
----
-
 ## Architecture
 
 ```
-Source → Lexer → Parser → Type Checker → Codegen → LLVM → Binary
-         ✅      ✅       ✅             ✅        ✅
+Stage            Component                Status
+-----            ---------                ------
+Source           .esk file                --
+Lexer            lexer/lexer.cpp          complete
+Parser           parser/parser.cpp        complete
+Type Checker     sema/type_checker.cpp    complete
+Code Generator   codegen/codegen.cpp      complete
+LLVM Backend     LLVM IRBuilder           complete
+Structs/Templates Phase 5                 in progress
+Heap/Alloc       Phase 6                  planned
+stdlib/Result<T> Phase 7                  planned
 ```
 
-**How it works:** [ARCHITECTURE.md](docs/ARCHITECTURE.md)  
-**Why these choices:** [DESIGN_DECISIONS.md](docs/DESIGN_DECISIONS.md)
+## CLI Flags
 
----
+| Flag                   | Action                          |
+|------------------------|---------------------------------|
+| `--test-lexer`         | Print token stream              |
+| `--test-parser`        | Print AST                       |
+| `--test-typechecker`   | Type check and report errors    |
+| `--test-codegen`       | Print LLVM IR                   |
+| `--version`            | Print version                   |
 
 ## Roadmap
 
-| Phase | Status | Focus |
-|-------|--------|-------|
-| 0–4 | ✅ Complete (refactored) | Lexer, Parser, Type Checker, Codegen |
-| 5 | 🔄 Next | Structs, interfaces, templates |
-| 6–7 | ⏳ Planned | Memory mgmt, stdlib |
-| 8+ | ⏳ Future | Lambdas, exceptions, async |
+| Version | Focus                                                        |
+|---------|--------------------------------------------------------------|
+| v0.1    | Structs with array fields, `alloc`/`free`, extern C ABI, `Result<T,E>` |
+| v0.2    | Templates (monomorphic), Go-style interfaces, full stdlib foundation |
+| v1.0    | Exceptions, complete stdlib, self-hosting bootstrap target   |
+| v2.0    | Lambdas, async/await, threads, package manager               |
 
-Full: [PHASES.md](docs/PHASES.md)
+## Type System
 
----
+| Eskiu type               | LLVM type |
+|--------------------------|-----------|
+| `int`, `int32`           | `i32`     |
+| `int8`, `int16`, `int64` | `i8` `i16` `i64` |
+| `uint`, `uint8` … `uint64` | unsigned equivalents |
+| `float`                  | `float`   |
+| `double`                 | `double`  |
+| `bool`                   | `i1`      |
+| `char`                   | `i8`      |
+| `string`                 | `i8*`     |
+| `*T` or `T*`             | pointer   |
 
-## Contributing
+## Requirements
 
-File a bug: [GitHub Issues](https://github.com/yourusername/eskiu/issues)  
-Want to contribute? See [CONTRIBUTING.md](docs/CONTRIBUTING.md).
+- LLVM 17+ (tested with LLVM 22)
+- C++17 compiler (clang++ or g++)
+- CMake 3.20+
 
----
+## Documentation
 
-**v0.0.1-alpha · LLVM 22+ · C++17 · MIT License**
+- Language reference and syntax: [docs/lang/](docs/lang/)
+- Contributor and internals guide: [docs/dev/](docs/dev/)
+- Architecture walkthrough: [docs/dev/architecture.md](docs/dev/architecture.md)
+- Build instructions (macOS, Linux, Alpine): [docs/lang/build.md](docs/lang/build.md)
+- Phase roadmap detail: [docs/dev/phases.md](docs/dev/phases.md)

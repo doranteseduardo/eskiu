@@ -1,83 +1,111 @@
-# Quickstart: Your First Eskiu Program (5 minutes)
+# Quickstart
 
-## Prerequisites
-
-- macOS with Xcode Command Line Tools or Linux with GCC/Clang
-- LLVM installed (`brew install llvm` on macOS)
-- CMake 3.10+
-
-## 1. Install and Build Eskiu (2 minutes)
+## Build
 
 ```bash
-cd ~/projects
-git clone https://github.com/yourusername/eskiu.git
-cd eskiu
-mkdir build && cd build
-cmake ..
-make -j4
+cmake -S . -B build
+cmake --build build
+./build/eskiuc --version
 ```
 
-Your compiler is ready at `./eskiu` (relative to build directory).
+## Hello, Eskiu
 
-## 2. Write Your First Program (1 minute)
+Create `hello.esk`:
 
-Create a file `hello.esk`:
+```eskiu
+extern int printf(string fmt, ...);
 
-```esk
-fn main() -> i32 {
+int add(int a, int b) {
+    return a + b;
+}
+
+int main() {
+    int result = add(5, 3);
+    printf("Hello from Eskiu!\n");
+    printf("Result: %d\n", result);
     return 0;
 }
 ```
 
-## 3. Compile It (1 minute)
+Emit LLVM IR:
 
 ```bash
-./eskiu compile ../hello.esk -o hello
-./hello
+./build/eskiuc hello.esk --test-codegen
 ```
 
-Success! No output because we haven't added anything yet.
+Output:
 
-## 4. Make It Do Something (1 minute)
+```llvm
+; ModuleID = 'eskiu'
+source_filename = "eskiu"
 
-Update `hello.esk` to call a C function:
+@0 = private unnamed_addr constant [19 x i8] c"Hello from Eskiu!\0A\00", align 1
+@1 = private unnamed_addr constant [12 x i8] c"Result: %d\0A\00", align 1
 
-```esk
-extern fn printf(format: *i8, ...) -> i32;
+declare i32 @printf(ptr, ...)
 
-fn main() -> i32 {
-    printf("Hello, Eskiu!\n");
+define i32 @add(i32 %a, i32 %b) {
+entry:
+  %0 = add i32 %a, %b
+  ret i32 %0
+}
+
+define i32 @main() {
+entry:
+  %result = alloca i32, align 4
+  %0 = call i32 @add(i32 5, i32 3)
+  store i32 %0, ptr %result, align 4
+  %1 = call i32 (ptr, ...) @printf(ptr @0)
+  %2 = load i32, ptr %result, align 4
+  %3 = call i32 (ptr, ...) @printf(ptr @1, i32 %2)
+  ret i32 0
+}
+```
+
+## Count to 5
+
+```eskiu
+extern int printf(string fmt, ...);
+
+int main() {
+    int i = 1;
+    while (i <= 5) {
+        printf("%d\n", i);
+        i = i + 1;
+    }
     return 0;
 }
 ```
 
-Recompile and run:
+```llvm
+@0 = private unnamed_addr constant [4 x i8] c"%d\0A\00", align 1
 
-```bash
-./eskiu compile ../hello.esk -o hello
-./hello
+declare i32 @printf(ptr, ...)
+
+define i32 @main() {
+entry:
+  %i = alloca i32, align 4
+  store i32 1, ptr %i, align 4
+  br label %while
+
+while:
+  %0 = load i32, ptr %i, align 4
+  %1 = icmp sle i32 %0, 5
+  br i1 %1, label %while_body, label %while_exit
+
+while_body:
+  %2 = load i32, ptr %i, align 4
+  %3 = call i32 (ptr, ...) @printf(ptr @0, i32 %2)
+  %4 = load i32, ptr %i, align 4
+  %5 = add i32 %4, 1
+  store i32 %5, ptr %i, align 4
+  br label %while
+
+while_exit:
+  ret i32 0
+}
 ```
 
-Output: `Hello, Eskiu!`
+## What's next
 
-## What's Next?
-
-- Read the **[Getting Started Guide](docs/GETTING_STARTED.md)** for a deeper walkthrough
-- Check **[examples/](examples/)** for more real programs
-- Learn the language in **[Language Spec](docs/LANGUAGE_SPEC.md)**
-- Understand the compiler in **[Architecture](docs/ARCHITECTURE.md)**
-
-## Troubleshooting
-
-**Error: "LLVM not found"**  
-Install LLVM: `brew install llvm` (macOS) or `apt-get install llvm-14-dev` (Ubuntu)
-
-**Error: "unknown identifier 'printf'"**  
-Use `extern` to declare C functions. See examples/fibonacci.esk for more.
-
-**Compiler crashes?**  
-File a bug at GitHub. Run with `--test-lexer` to see if lexing works, `--test-parser` to test parsing.
-
----
-
-That's it! You've compiled your first Eskiu program. Head to [Getting Started](docs/GETTING_STARTED.md) for the full tour.
+[Language guide →](docs/lang/getting-started.md)

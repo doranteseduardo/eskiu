@@ -533,20 +533,19 @@ bool TypeChecker::isNumericType(const std::string& type) {
 }
 
 bool TypeChecker::isIntType(const std::string& type) {
-    // Eskiu uses i8, i16, i32, i64, u8, u16, u32, u64
-    return type == "i8" || type == "i16" || type == "i32" || type == "i64" ||
-           type == "u8" || type == "u16" || type == "u32" || type == "u64" ||
-           type == "int" || type == "bool";  // Support legacy names
+    return type == "int"   || type == "int8"  || type == "int16"  ||
+           type == "int32" || type == "int64" ||
+           type == "uint"  || type == "uint8" || type == "uint16" ||
+           type == "uint32"|| type == "uint64"||
+           type == "char"  || type == "bool";
 }
 
 bool TypeChecker::isFloatType(const std::string& type) {
-    // Eskiu uses f32, f64
-    return type == "f32" || type == "f64" ||
-           type == "float" || type == "double";  // Support legacy names
+    return type == "float" || type == "double";
 }
 
 bool TypeChecker::isPrimitiveType(const std::string& type) {
-    return isNumericType(type) || type == "bool" || type == "void" || type == "string";
+    return isNumericType(type) || type == "void" || type == "string";
 }
 
 bool TypeChecker::isPointerType(const std::string& type) {
@@ -586,24 +585,15 @@ std::string TypeChecker::normalizeType(const std::string& type) {
 
 // Type promotion
 std::string TypeChecker::promoteType(const std::string& type1, const std::string& type2) {
-    if (type1 == type2) {
-        return type1;
-    }
-
-    // Prefer wider types
-    if (type1 == "double" || type2 == "double") {
-        return "double";
-    }
-    if (type1 == "float" || type2 == "float") {
-        return "float";
-    }
-    if (type1 == "int64" || type2 == "int64") {
-        return "int64";
-    }
-    if (type1 == "int32" || type2 == "int32") {
-        return "int32";
-    }
-
+    if (type1 == type2) return type1;
+    if (type1 == "double"  || type2 == "double")  return "double";
+    if (type1 == "float"   || type2 == "float")   return "float";
+    if (type1 == "int64"   || type2 == "int64")   return "int64";
+    if (type1 == "uint64"  || type2 == "uint64")  return "uint64";
+    if (type1 == "int32"   || type2 == "int32")   return "int32";
+    if (type1 == "uint32"  || type2 == "uint32")  return "uint32";
+    if (type1 == "int16"   || type2 == "int16")   return "int16";
+    if (type1 == "uint16"  || type2 == "uint16")  return "uint16";
     return type1;
 }
 
