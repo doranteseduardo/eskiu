@@ -36,6 +36,18 @@ Last updated: 2026-06-03. All phases 0–8 and editor tooling are complete. A re
 
 ---
 
+## Vision
+
+Eskiu addresses a specific problem: compute-intensive services currently require multiple languages — C for performance-critical work, Go for concurrency, C++ for libraries, Python for glue. Each adds toolchain complexity and interop friction.
+
+The project follows two phases:
+
+**Phase 1 — Systems foundation.** A language that covers everything C does: native performance, explicit memory, direct C library access. Validated against real production code before claiming it works. This phase is complete.
+
+**Phase 2 — Domain specialisation.** Once the systems foundation is stable, make the domain types that high-throughput services actually work with first-class in the language — without giving up general systems capability.
+
+---
+
 ## v0.1 Milestone — COMPLETE
 
 **Goal:** Port a cryptographic image-processing pipeline from 3–5 seconds to under 1 second.

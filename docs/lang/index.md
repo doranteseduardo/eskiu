@@ -1,6 +1,8 @@
 # Eskiu Language Reference
 
-Eskiu is a statically typed systems programming language that compiles to native machine code via LLVM. It targets developers who need C-level performance and direct memory control without a garbage collector or borrow checker. The syntax is deliberately C-style; the language adds monomorphic templates, structural interfaces, and an explicit heap model via `alloc`/`free`.
+Eskiu is a statically typed systems language built to address a specific problem: compute-intensive services typically pull in C for performance-critical work, Go for concurrency, C++ for libraries, and Python for glue — each with its own toolchain and interop cost.
+
+The goal is a single language that replaces that stack. Phase one establishes a solid systems foundation: native performance, explicit memory, direct access to any C library. Phase two, once that foundation is stable, will introduce first-class support for the domain types that high-throughput services actually work with. The syntax is deliberately C-style; the language adds monomorphic templates, structural interfaces, lambdas, and an explicit heap model via `alloc`/`free`.
 
 **Current version: v0.0.12-alpha** — all language features for v0.1 are implemented and tested end-to-end.
 

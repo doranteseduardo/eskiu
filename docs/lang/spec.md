@@ -1,19 +1,22 @@
 # Eskiu Language Specification
 
-**Version:** v0.0.11-alpha
+**Version:** v0.0.12-alpha
 
 ---
 
 ## 1. Overview
 
-Eskiu is a systems programming language with C-style syntax, manual memory management, and an LLVM backend. It targets native machine code (arm64 and x86-64) via LLVM and is designed for direct interoperability with C libraries through standard C ABI calling conventions.
+Eskiu is a systems programming language built to address the fragmentation of compute-intensive services. Services in this space commonly reach for C when performance matters, Go for concurrency, C++ for libraries, and Python for glue — each with its own toolchain and interop cost.
 
-Key properties:
+Eskiu's goal is to replace that stack with a single language. Phase one establishes a solid systems foundation: native performance, explicit memory, direct C interop. Phase two, once the foundation is stable, will introduce first-class support for the domain types that high-throughput services actually work with, without giving up general systems capability.
+
+Core properties:
 
 - Statically typed with explicit type annotations
 - Manual memory management — no garbage collector
-- Compiles to native object files via LLVM
-- Structs with methods, templates, and structural interfaces
+- Compiles to native object files via LLVM (arm64 and x86-64)
+- Structs with methods, monomorphic templates, and structural interfaces
+- Lambdas and `fn(T)->R` function pointer types
 - Multi-file programs via `import`
 - Error locations reported as `file.esk:line:col: message`
 

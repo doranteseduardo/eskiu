@@ -1,6 +1,8 @@
 ## Eskiu Compiler — Developer Documentation
 
-This section covers the internals of the Eskiu compiler: its full compilation pipeline, AST design, type system, semantic analysis, and LLVM-based code generation layer. It is written for contributors who want to understand how the compiler works, add a new language feature, fix a bug, or extend the test suite. Familiarity with C++17 and a basic understanding of LLVM IR are assumed; no prior compiler experience is required.
+Eskiu is a systems language built to address the fragmentation of compute-intensive services — C for performance-critical work, Go for concurrency, C++ for libraries, Python for glue. The goal is a single language that replaces that stack, starting with a solid systems foundation and eventually adding first-class support for the domain types that high-throughput services actually work with.
+
+This section covers the internals of the compiler: its full compilation pipeline, AST design, type system, semantic analysis, and LLVM-based code generation layer. It is written for contributors who want to understand how the compiler works, add a new language feature, fix a bug, or extend the test suite. Familiarity with C++17 and a basic understanding of LLVM IR are assumed; no prior compiler experience is required.
 
 ---
 

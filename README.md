@@ -3,7 +3,8 @@
 </p>
 
 <h2 align="center">eskiu</h2>
-<p align="center">A systems language with C-style syntax, structural interfaces, and explicit memory — compiled to native via LLVM.</p>
+<p align="center">C performance. Go concurrency. Explicit memory.</p>
+<p align="center"><i>One language for the work that currently needs four.</i></p>
 
 <p align="center">
   <a href="https://eskiu-lang.org">eskiu-lang.org</a> &nbsp;&middot;&nbsp;

@@ -1,23 +1,31 @@
 # Eskiu Design Decisions
 
-This document records the reasoning behind the architectural and language choices in Eskiu. Each section states the decision, lists the alternatives considered, and explains why they were rejected. The decisions are not independent — the real-world motivation described in the final section shaped every one of them.
+This document records the reasoning behind the architectural and language choices in Eskiu. Each section states the decision, lists the alternatives considered, and explains why they were rejected.
 
 ---
 
-## Real-World Motivation: The INE Decoder Benchmark
+## Origin and vision
 
-Every trade-off in Eskiu was evaluated against a concrete target: porting a cryptographic image-processing pipeline from a 3–5 second Python/scripting implementation to under 1 second. The pipeline reads a credential image, extracts a QR code, runs multi-round AES-256-CBC and RSA-8192 decryption, and decodes structured output. The final benchmark against the reference C implementation:
+Eskiu was built in response to a concrete problem: compute-intensive services require too many languages at once. A typical pipeline involves C for performance-critical work, Go for concurrent services, C++ for libraries, and Python for glue — each with its own toolchain, idioms, and interop cost.
+
+The goal is to replace that stack with a single language. Not a compromise between them, but a language built from solid systems foundations and then extended upwards into the domain.
+
+**Phase 1 — Systems language.** Establish a language that can do everything C can do: native performance, explicit memory, direct access to any C library. Validate it against real production code before claiming it works.
+
+**Phase 2 — Domain specialisation.** Once the foundation is stable, make the domain types that high-throughput services actually work with first-class in the language — without losing general systems capability.
+
+The v0.1 benchmark was a cryptographic image-processing pipeline that had to match hand-written C. It does.
 
 | Stage | Eskiu | Reference C |
 |---|---|---|
 | QR extraction | 71.7 ms | 185.5 ms |
 | Crypto (AES+RSA) | 2.8 ms | 2.9 ms |
 | Output decode | < 1 ms | 0.5 ms |
-| Total | 74.4 ms | 188.9 ms |
+| Total | **74.4 ms** | 188.9 ms |
 
-Result: 2.5× faster than the reference C, 40–70× faster than the original target. The crypto pipeline is within 0.1 ms of hand-written C.
+2.5× faster than the reference C. The crypto stage matches hand-written C within 0.1 ms.
 
-This benchmark framing meant that abstract language-design preferences were always secondary to two questions: does it compile the decoder correctly, and does it run fast? Every decision below has an answer to at least one of those questions.
+Every design decision below was evaluated against two questions: does it get the decoder working correctly, and does it serve the long-term domain specialisation goal?
 
 ---
 
