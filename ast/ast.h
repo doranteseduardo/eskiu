@@ -269,6 +269,19 @@ public:
     void accept(class ASTVisitor* visitor) override;
 };
 
+class StructInitExpr : public Expr {
+public:
+    std::string structName;
+    // pair: (field_name, value) — field_name is empty string for positional init
+    std::vector<std::pair<std::string, ExprPtr>> fieldInits;
+
+    StructInitExpr(const std::string& name,
+                   std::vector<std::pair<std::string, ExprPtr>> inits)
+        : structName(name), fieldInits(std::move(inits)) {}
+
+    void accept(class ASTVisitor* visitor) override;
+};
+
 // ============================================================================
 // Program (root node)
 // ============================================================================
@@ -311,4 +324,5 @@ public:
     virtual void visit(CastExpr* node) = 0;
     virtual void visit(LiteralExpr* node) = 0;
     virtual void visit(IdentExpr* node) = 0;
+    virtual void visit(StructInitExpr* node) = 0;
 };

@@ -4,7 +4,7 @@
 
 Authoritative status reference for Eskiu compiler contributors. Supersedes `docs/PHASES.md`.
 
-Last updated: 2026-06-02. Phase 4 is COMPLETE. Phase 5 is the active work item.
+Last updated: 2026-06-02. Phases 0–5 (core) are COMPLETE. Phase 5.5 (interfaces, templates) and Phase 6 (heap) are next.
 
 ---
 
@@ -103,8 +103,7 @@ None.
 - Error recovery: on parse error, skip tokens to the next `;` and continue
 
 ### Known Gaps
-- `switch`/`case` not implemented (deferred to Phase 5)
-- No struct literal initialization syntax (`Point { x: 1, y: 2 }`) — parser groundwork exists but syntax not finalized
+- `switch`/`case` not implemented (deferred to Phase 5.5)
 
 ### Key Files
 - `parser/parser.h`
@@ -227,68 +226,80 @@ None.
 
 ## Phase 5 — Structs, Interfaces, Templates
 
-**Status: IN PROGRESS**
+**Status: COMPLETE (core) — interfaces and templates deferred to Phase 5.5**
 
-**Goal:** First-class composite types with method dispatch and generic instantiation, sufficient to compile the INE QR decoder target types.
+**Goal:** First-class composite types with method dispatch and initialization, sufficient to compile the INE QR decoder target types.
 
-**Deliverable:** `QRPair`, `IneResult`, and `NoSoKeys` structs from the INE target compile and run end-to-end.
+**Deliverable:** Structs with field access, fixed-size array fields, named/positional initialization, and method calls compile and produce correct native code.
 
 ### Implemented
 
 **Struct codegen**
-- `visit(StructDecl*)` — `llvm::StructType::create` with correct field types; registered in `structTypes` and `structFields` maps
-- `visit(MemberExpr*)` — `getelementptr inbounds` for field read; field index resolved by name at compile time
-- `evaluateLValue(MemberExpr*)` — GEP for field write; enables `p.x = val` assignments
-- `visit(VarDecl*)` — `alloca %StructType` for struct-typed locals; `varTypeStack` tracks Eskiu type alongside LLVM value
+- `visit(StructDecl*)` — `llvm::StructType::create`; registered in `structTypes` and `structFields`
+- `visit(MemberExpr*)` — `getelementptr inbounds` for field read; field index resolved by name
+- `evaluateLValue(MemberExpr*)` — GEP for field write; enables `p.x = val`
+- `visit(VarDecl*)` — `alloca %StructType`; `varTypeStack` scoped alongside symbol table
 
-**Fixed-size array fields**
-- Parser captures array size: `uint8[858]` → type string `"uint8[858]"` (previously discarded)
-- `getTypeFromString("uint8[858]")` → `llvm::ArrayType::get(i8, 858)` → `[858 x i8]`
-- `visit(IndexExpr*)` — GEP with `[0, i]` for `T[N]` arrays; pointer-offset GEP for `*T` pointers
-- `evaluateLValue(IndexExpr*)` — GEP for array element assignment: `arr[i] = val`
-
-**Control flow**
-- `visit(BreakStmt*)` — `CreateBr(breakTarget)`; `breakTarget` saved/restored around `WhileStmt` and `ForStmt` bodies
-
-**Object file emission**
-- `emitObjectFile(filename)` complete; `eskiuc file.esk -o file.o` produces a linkable native object
-
-**Type checker fixes**
-- Parameter types now correctly registered as types (not names) in function signature registry
-- Variadic functions (`printf`, `scanf`, etc.) correctly accept ≥N fixed arguments without false arity errors
-
-### Verified
-```
-%QRPair = type { [858 x i8], [858 x i8], i32 }
-%p = alloca %QRPair
-getelementptr inbounds nuw %QRPair, ptr %p, i32 0, i32 2  ; q.ok
-```
-`eskiuc examples/hello.esk -o hello.o && clang hello.o -o hello && ./hello` → runs correctly.
-
-### Remaining
-
-**Struct initialization syntax**
-- `Point { x: 1.0, y: 2.0 }` or `Point { 1.0, 2.0 }` — parser not yet wired; workaround is field-by-field assignment
+**Struct initialization**
+- Named: `Point { x: 1.5, y: 2.5 }` — fills fields by name in any order
+- Positional: `Point { 1.5, 2.5 }` — fills fields in declaration order
+- `emitStructInitInto` fills dest alloca directly (no temporary for `VarDecl` init)
+- Per-field type coercion (float↔double, int width truncation/extension)
+- `StructInitExpr` AST node with full visitor chain: parser → type checker → codegen → printer
 
 **Method calls**
-- Method syntax parsed as `MemberExpr + CallExpr`
-- Codegen must pass implicit `self` pointer as first argument to the generated function
+- Methods emitted as `StructName_methodName(ptr self, ...)` mangled functions
+- `p.method(args)` → `call @Point_method(ptr %p, args)` — implicit self pointer
+- Type checker: methods registered in first pass; call sites validated including arg types
+- `self` in method body is the pointer to the receiver struct
 
-**Interface dispatch**
-- Go-style implicit satisfaction
-- Fat pointer: `(data_ptr, vtable_ptr)` pair; vtable as `llvm::StructType` of function pointers
+**Fixed-size array fields**
+- `uint8[858]` → `[858 x i8]`; parser captures size (was discarded)
+- `visit(IndexExpr*)` — GEP `[0, i]` for `T[N]`; offset GEP for `*T`
+- `evaluateLValue(IndexExpr*)` — enables `arr[i] = val`
 
-**Templates**
-- Monomorphic instantiation: `List<int>` → `List_int` distinct struct + functions
-- Name mangling, no partial specialization
+**Control flow**
+- `visit(BreakStmt*)` — `CreateBr(breakTarget)`; target saved/restored around loops
 
-**Parser**
-- `switch`/`case` statement
+**Object file emission**
+- `emitObjectFile(filename)` — LLVM `TargetMachine` + `legacy::PassManager`
+- `eskiuc file.esk -o file.o && clang file.o -o file` produces a running binary
+
+**Bug fixes**
+- `+`/`-`/`*` now emit `fadd`/`fsub`/`fmul` for floating-point (was always integer)
+- `*T` leading pointer auto-derefed on member access
+- `isValidAssignment` normalizes `"Point" == "struct:Point"`
+- Param types stored as types, not names, in function signature registry
+- Variadic functions accept ≥N fixed args
+
+### Verified
+
+```
+%Point = type { float, float }
+
+define float @Point_sum(ptr %self) {
+  %x = getelementptr inbounds nuw %Point, ptr %self, i32 0, i32 0
+  %0 = load float, ptr %x
+  %y = getelementptr inbounds nuw %Point, ptr %self, i32 0, i32 1
+  %1 = load float, ptr %y
+  %2 = fadd float %0, %1
+  ret float %2
+}
+```
+
+`eskiuc file.esk -o file.o && clang file.o -o file && ./file` → correct output.
+
+### Remaining (Phase 5.5)
+
+- **Interface dispatch** — Go-style implicit satisfaction; fat pointer `(data_ptr, vtable_ptr)`; vtable as `llvm::StructType` of function pointers
+- **Monomorphic templates** — `List<int>` → `List_int`; instantiation at first use; name mangling
+- **`switch`/`case`** — deferred from Phase 2
 
 ### Key Files
-- `codegen/codegen.cpp` — `visit(StructDecl*)`, `visit(MemberExpr*)`, `visit(IndexExpr*)`, `visit(BreakStmt*)`, `emitObjectFile()`
-- `codegen/codegen.h` — `structTypes`, `structFields`, `varTypeStack`, `breakTarget`, `getExprEskiuType()`
-- `parser/parser.cpp` — array size capture in `parseType()`
+- `ast/ast.h` — `StructInitExpr`
+- `parser/parser.cpp` — `parseStructInit()`, array size capture
+- `sema/type_checker.cpp` — method registration, `visit(StructInitExpr*)`
+- `codegen/codegen.cpp` — `visit(StructDecl*)`, `visit(MemberExpr*)`, `visit(IndexExpr*)`, `visit(StructInitExpr*)`, `emitStructInitInto()`, `emitObjectFile()`
 
 ---
 

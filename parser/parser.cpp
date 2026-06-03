@@ -443,6 +443,28 @@ StmtPtr Parser::parseExpressionStatement() {
 // Expressions (Precedence Climbing)
 // ============================================================================
 
+ExprPtr Parser::parseStructInit(const std::string& structName) {
+    consume(TokenType::LBRACE, "Expected '{'");
+    std::vector<std::pair<std::string, ExprPtr>> inits;
+
+    if (!check(TokenType::RBRACE)) {
+        do {
+            // Named: fieldName: expr
+            if (check(TokenType::IDENT) && peek_ahead(1).type == TokenType::COLON) {
+                std::string fieldName = advance().value;
+                advance(); // consume ':'
+                inits.push_back({fieldName, parseExpression()});
+            } else {
+                // Positional
+                inits.push_back({"", parseExpression()});
+            }
+        } while (match(TokenType::COMMA));
+    }
+
+    consume(TokenType::RBRACE, "Expected '}'");
+    return std::make_shared<StructInitExpr>(structName, std::move(inits));
+}
+
 ExprPtr Parser::parseExpression() {
     return parseAssignment();
 }
@@ -623,6 +645,10 @@ ExprPtr Parser::parsePrimary() {
         return std::make_shared<LiteralExpr>(LiteralExpr::Kind::CHAR, tok.value);
     }
     if (match(TokenType::IDENT)) {
+        // Struct init: StructName { [field: expr, ...] }
+        if (check(TokenType::LBRACE)) {
+            return parseStructInit(tok.value);
+        }
         return std::make_shared<IdentExpr>(tok.value);
     }
     if (match(TokenType::LPAREN)) {

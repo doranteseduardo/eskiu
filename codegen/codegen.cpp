@@ -168,6 +168,7 @@ std::string CodeGen::getExprEskiuType(ExprPtr expr) const {
     if (auto member = dynamic_cast<MemberExpr*>(expr.get())) {
         std::string base = getExprEskiuType(member->base);
         if (base.size() > 7 && base.substr(0, 7) == "struct:") base = base.substr(7);
+        if (!base.empty() && base.front() == '*') base = base.substr(1);
         auto it = structFields.find(base);
         if (it != structFields.end()) {
             for (const auto& f : it->second) {
@@ -284,22 +285,27 @@ void CodeGen::visit(VarDecl* node) {
     defineVarType(node->name, node->type);
 
     if (node->initializer) {
-        llvm::Value* val = evaluateExpr(node->initializer);
-        if (val && val->getType() != declType) {
-            if (val->getType()->isIntegerTy() && declType->isIntegerTy()) {
-                unsigned src = llvm::cast<llvm::IntegerType>(val->getType())->getBitWidth();
-                unsigned dst = llvm::cast<llvm::IntegerType>(declType)->getBitWidth();
-                val = src > dst ? builder->CreateTrunc(val, declType)
-                                : builder->CreateSExt(val, declType);
-            } else if (val->getType()->isIntegerTy() && declType->isFloatingPointTy()) {
-                val = builder->CreateSIToFP(val, declType);
-            } else if (val->getType()->isFloatingPointTy() && declType->isIntegerTy()) {
-                val = builder->CreateFPToSI(val, declType);
-            } else if (val->getType()->isFloatingPointTy() && declType->isFloatingPointTy()) {
-                val = builder->CreateFPCast(val, declType);
+        if (auto structInit = dynamic_cast<StructInitExpr*>(node->initializer.get())) {
+            // Fill the alloca directly — no temporary needed
+            emitStructInitInto(alloca, structInit);
+        } else {
+            llvm::Value* val = evaluateExpr(node->initializer);
+            if (val && val->getType() != declType) {
+                if (val->getType()->isIntegerTy() && declType->isIntegerTy()) {
+                    unsigned src = llvm::cast<llvm::IntegerType>(val->getType())->getBitWidth();
+                    unsigned dst = llvm::cast<llvm::IntegerType>(declType)->getBitWidth();
+                    val = src > dst ? builder->CreateTrunc(val, declType)
+                                    : builder->CreateSExt(val, declType);
+                } else if (val->getType()->isIntegerTy() && declType->isFloatingPointTy()) {
+                    val = builder->CreateSIToFP(val, declType);
+                } else if (val->getType()->isFloatingPointTy() && declType->isIntegerTy()) {
+                    val = builder->CreateFPToSI(val, declType);
+                } else if (val->getType()->isFloatingPointTy() && declType->isFloatingPointTy()) {
+                    val = builder->CreateFPCast(val, declType);
+                }
             }
+            if (val) builder->CreateStore(val, alloca);
         }
-        if (val) builder->CreateStore(val, alloca);
     }
 }
 
@@ -311,6 +317,20 @@ void CodeGen::visit(StructDecl* node) {
     llvm::StructType* st = llvm::StructType::create(*context, fieldTypes, node->name);
     structTypes[node->name] = st;
     structFields[node->name] = node->fields;
+
+    // Emit methods as mangled functions: StructName_methodName(self: *Struct, ...)
+    for (const auto& method : node->methods) {
+        if (auto func = dynamic_cast<FunctionDecl*>(method.get())) {
+            std::vector<std::pair<std::string, std::string>> params;
+            params.push_back({"*" + node->name, "self"});
+            for (const auto& p : func->params) params.push_back(p);
+
+            auto mangled = std::make_shared<FunctionDecl>(
+                node->name + "_" + func->name,
+                func->returnType, params, func->body);
+            mangled->accept(this);
+        }
+    }
 }
 
 void CodeGen::visit(ExternDecl* node) {
@@ -504,11 +524,17 @@ void CodeGen::visit(BinaryExpr* node) {
     llvm::Value* result = nullptr;
 
     if (node->op == "+") {
-        result = builder->CreateAdd(left, right);
+        result = left->getType()->isFloatingPointTy()
+            ? builder->CreateFAdd(left, right)
+            : builder->CreateAdd(left, right);
     } else if (node->op == "-") {
-        result = builder->CreateSub(left, right);
+        result = left->getType()->isFloatingPointTy()
+            ? builder->CreateFSub(left, right)
+            : builder->CreateSub(left, right);
     } else if (node->op == "*") {
-        result = builder->CreateMul(left, right);
+        result = left->getType()->isFloatingPointTy()
+            ? builder->CreateFMul(left, right)
+            : builder->CreateMul(left, right);
     } else if (node->op == "/") {
         if (left->getType()->isIntegerTy()) {
             result = builder->CreateSDiv(left, right);
@@ -591,24 +617,35 @@ void CodeGen::visit(UnaryExpr* node) {
 }
 
 void CodeGen::visit(CallExpr* node) {
-    // Evaluate callee
-    llvm::Value* calleeVal = evaluateExpr(node->callee);
+    // Method call: callee is MemberExpr (e.g. p.distance(q))
+    if (auto member = dynamic_cast<MemberExpr*>(node->callee.get())) {
+        std::string baseType = getExprEskiuType(member->base);
+        if (baseType.size() > 7 && baseType.substr(0, 7) == "struct:") baseType = baseType.substr(7);
+    if (!baseType.empty() && baseType.front() == '*') baseType = baseType.substr(1);
 
+        std::string mangled = baseType + "_" + member->member;
+        llvm::Function* func = module->getFunction(mangled);
+        if (func) {
+            std::vector<llvm::Value*> args;
+            args.push_back(evaluateLValue(member->base)); // implicit self pointer
+            for (auto& arg : node->args) args.push_back(evaluateExpr(arg));
+            exprValueStack.push(builder->CreateCall(func, args));
+            return;
+        }
+        throw std::runtime_error("Undefined method: " + baseType + "::" + member->member);
+    }
+
+    // Regular function call
+    llvm::Value* calleeVal = evaluateExpr(node->callee);
     if (!calleeVal || !llvm::isa<llvm::Function>(calleeVal)) {
         throw std::runtime_error("Call target is not a function");
     }
-
     llvm::Function* func = llvm::cast<llvm::Function>(calleeVal);
 
-    // Evaluate arguments
     std::vector<llvm::Value*> args;
-    for (auto& arg : node->args) {
-        args.push_back(evaluateExpr(arg));
-    }
+    for (auto& arg : node->args) args.push_back(evaluateExpr(arg));
 
-    // Create call
-    llvm::Value* result = builder->CreateCall(func, args);
-    exprValueStack.push(result);
+    exprValueStack.push(builder->CreateCall(func, args));
 }
 
 void CodeGen::visit(IndexExpr* node) {
@@ -646,6 +683,7 @@ void CodeGen::visit(IndexExpr* node) {
 void CodeGen::visit(MemberExpr* node) {
     std::string baseType = getExprEskiuType(node->base);
     if (baseType.size() > 7 && baseType.substr(0, 7) == "struct:") baseType = baseType.substr(7);
+    if (!baseType.empty() && baseType.front() == '*') baseType = baseType.substr(1);
 
     auto fit = structFields.find(baseType);
     if (fit == structFields.end())
@@ -765,6 +803,59 @@ llvm::Value* CodeGen::evaluateExpr(ExprPtr expr) {
     return result;
 }
 
+void CodeGen::emitStructInitInto(llvm::Value* dest, StructInitExpr* init) {
+    auto fit = structFields.find(init->structName);
+    if (fit == structFields.end()) return;
+    const auto& fields = fit->second;
+    llvm::StructType* st = structTypes[init->structName];
+
+    bool named = !init->fieldInits.empty() && !init->fieldInits[0].first.empty();
+
+    auto storeField = [&](size_t idx, ExprPtr expr) {
+        llvm::Type* fieldType = getTypeFromString(fields[idx].type);
+        llvm::Value* val = evaluateExpr(expr);
+        if (val && val->getType() != fieldType) {
+            if (val->getType()->isIntegerTy() && fieldType->isIntegerTy()) {
+                unsigned s = llvm::cast<llvm::IntegerType>(val->getType())->getBitWidth();
+                unsigned d = llvm::cast<llvm::IntegerType>(fieldType)->getBitWidth();
+                val = s > d ? builder->CreateTrunc(val, fieldType)
+                            : builder->CreateSExt(val, fieldType);
+            } else if (val->getType()->isIntegerTy() && fieldType->isFloatingPointTy()) {
+                val = builder->CreateSIToFP(val, fieldType);
+            } else if (val->getType()->isFloatingPointTy() && fieldType->isIntegerTy()) {
+                val = builder->CreateFPToSI(val, fieldType);
+            } else if (val->getType()->isFloatingPointTy() && fieldType->isFloatingPointTy()) {
+                val = builder->CreateFPCast(val, fieldType);
+            }
+        }
+        llvm::Value* gep = builder->CreateStructGEP(st, dest, idx);
+        if (val) builder->CreateStore(val, gep);
+    };
+
+    if (named) {
+        for (const auto& [fname, expr] : init->fieldInits) {
+            for (size_t i = 0; i < fields.size(); ++i) {
+                if (fields[i].name == fname) { storeField(i, expr); break; }
+            }
+        }
+    } else {
+        for (size_t i = 0; i < init->fieldInits.size() && i < fields.size(); ++i) {
+            storeField(i, init->fieldInits[i].second);
+        }
+    }
+}
+
+void CodeGen::visit(StructInitExpr* node) {
+    auto fit = structFields.find(node->structName);
+    if (fit == structFields.end())
+        throw std::runtime_error("Unknown struct: " + node->structName);
+    llvm::StructType* st = structTypes[node->structName];
+    // Temporary alloca — filled then loaded so caller can store it anywhere
+    llvm::Value* tmp = builder->CreateAlloca(st, nullptr, node->structName + ".init");
+    emitStructInitInto(tmp, node);
+    exprValueStack.push(builder->CreateLoad(st, tmp));
+}
+
 llvm::Value* CodeGen::evaluateLValue(ExprPtr expr) {
     if (auto ident = dynamic_cast<IdentExpr*>(expr.get())) {
         llvm::Value* val = lookupSymbol(ident->name);
@@ -775,6 +866,7 @@ llvm::Value* CodeGen::evaluateLValue(ExprPtr expr) {
     if (auto member = dynamic_cast<MemberExpr*>(expr.get())) {
         std::string baseType = getExprEskiuType(member->base);
         if (baseType.size() > 7 && baseType.substr(0, 7) == "struct:") baseType = baseType.substr(7);
+    if (!baseType.empty() && baseType.front() == '*') baseType = baseType.substr(1);
         auto fit = structFields.find(baseType);
         if (fit == structFields.end())
             throw std::runtime_error("Unknown struct type: " + baseType);

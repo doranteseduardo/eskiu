@@ -83,22 +83,22 @@ Use files in `examples/` and `test/` as inputs. Add a new `.esk` file for any fe
 Phases 0–5 (partial) are implemented. The full compilation pipeline is working:
 `eskiuc file.esk -o file.o` → `clang file.o -o file` → runs.
 
-**Phase 5 — what's done:**
-- `visit(StructDecl*)` — `llvm::StructType::create`, registered in `structTypes` + `structFields`
-- `visit(MemberExpr*)` + `evaluateLValue(MemberExpr*)` — `getelementptr` for read and write
+**Phase 5 — COMPLETE (core):**
+- `visit(StructDecl*)` — `llvm::StructType::create`; methods emitted as `Name_method(ptr self, ...)`
+- `visit(MemberExpr*)` + `evaluateLValue(MemberExpr*)` — GEP for read and write; auto-deref `*T`
 - `visit(IndexExpr*)` + `evaluateLValue(IndexExpr*)` — GEP for `T[N]` and `*T`
-- `visit(BreakStmt*)` — branch to `breakTarget` (saved/restored around loops)
-- `emitObjectFile()` — native object file via LLVM target machine
-- Array sizes captured in type strings: `"uint8[858]"` → `[858 x i8]`
-- Type checker: param types fixed (was storing names); variadic arity check fixed
+- `visit(BreakStmt*)` — `breakTarget` saved/restored around loops
+- `visit(StructInitExpr*)` + `emitStructInitInto()` — named and positional struct literals
+- Method calls: `p.method(args)` → `call @Type_method(ptr %p, args)`
+- `emitObjectFile()` — native object via LLVM `TargetMachine`
+- Float `+`/`-`/`*` now emit `fadd`/`fsub`/`fmul`
 
-**Phase 5 — what remains:**
-- Struct literal initialization: `Point { x: 1.0, y: 2.0 }`
-- Method calls with implicit `self` pointer
-- Interface dispatch (vtable)
-- Monomorphic templates
+**Phase 5.5 — what remains:**
+- Interface dispatch (vtable as struct of function pointers)
+- Monomorphic templates (`List<T>` → `List_int`)
+- `switch`/`case`
 
-Do not start Phase 6 (alloc/free) until struct initialization syntax and method calls are working.
+**Next: Phase 6** — `alloc(T, N)` / `free(ptr)` heap allocation. The struct + method foundation is in place.
 
 ## Error format
 

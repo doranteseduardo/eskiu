@@ -44,6 +44,7 @@ private:
     StmtPtr parseBreakStatement();
     StmtPtr parseExpressionStatement();
 
+    ExprPtr parseStructInit(const std::string& structName);
     ExprPtr parseExpression();
     ExprPtr parseAssignment();
     ExprPtr parseLogicalOr();

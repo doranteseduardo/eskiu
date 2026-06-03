@@ -24,6 +24,7 @@ void MemberExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void CastExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void LiteralExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void IdentExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
+void StructInitExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
 
 // Program
 void Program::accept(ASTVisitor* visitor) { visitor->visit(this); }

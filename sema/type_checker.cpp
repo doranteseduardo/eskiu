@@ -14,11 +14,21 @@ bool TypeChecker::check(Program* program) {
     // First pass: register all struct declarations and function signatures
     for (const auto& decl : program->declarations) {
         if (auto structDecl = dynamic_cast<StructDecl*>(decl.get())) {
-            // Register struct with all its fields
             StructInfo info;
             info.name = structDecl->name;
             info.fields = structDecl->fields;
             structs[structDecl->name] = info;
+
+            // Register methods as mangled functions: StructName_methodName(self, ...)
+            for (const auto& method : structDecl->methods) {
+                if (auto func = dynamic_cast<FunctionDecl*>(method.get())) {
+                    std::string mangled = structDecl->name + "_" + func->name;
+                    std::vector<std::string> paramTypes;
+                    paramTypes.push_back("*" + structDecl->name); // implicit self
+                    for (const auto& p : func->params) paramTypes.push_back(p.first);
+                    defineFunction(mangled, func->returnType, paramTypes);
+                }
+            }
         } else if (auto funcDecl = dynamic_cast<FunctionDecl*>(decl.get())) {
             std::vector<std::string> paramTypes;
             for (const auto& param : funcDecl->params) {
@@ -97,9 +107,20 @@ void TypeChecker::visit(VarDecl* node) {
 }
 
 void TypeChecker::visit(StructDecl* node) {
-    // Struct is already registered in first pass of check()
-    // Just define the struct type symbol in the global scope
     defineSymbol(node->name, "struct:" + node->name);
+    // Type-check method bodies
+    for (const auto& method : node->methods) {
+        if (auto func = dynamic_cast<FunctionDecl*>(method.get())) {
+            std::string savedReturn = currentFunctionReturnType;
+            currentFunctionReturnType = func->returnType;
+            pushScope();
+            defineSymbol("self", "*" + node->name);
+            for (const auto& p : func->params) defineSymbol(p.second, p.first);
+            if (func->body) func->body->accept(this);
+            popScope();
+            currentFunctionReturnType = savedReturn;
+        }
+    }
 }
 
 void TypeChecker::visit(ExternDecl* node) {
@@ -255,7 +276,47 @@ void TypeChecker::visit(UnaryExpr* node) {
 }
 
 void TypeChecker::visit(CallExpr* node) {
-    // Get function name
+    // Method call: callee is MemberExpr (e.g. p.distance(q))
+    if (auto member = dynamic_cast<MemberExpr*>(node->callee.get())) {
+        member->base->accept(this);
+        std::string baseType = getExpressionType(member->base.get());
+        if (baseType.size() > 7 && baseType.substr(0, 7) == "struct:") baseType = baseType.substr(7);
+
+        std::string mangled = baseType + "_" + member->member;
+        auto mit = functionSignatures.find(mangled);
+        if (mit != functionSignatures.end()) {
+            const auto& sig = mit->second;
+            const auto& paramTypes = sig.second; // first param is "self"
+            size_t selfSkip = 1;
+            bool isVariadic = paramTypes.size() > selfSkip && paramTypes.back() == "...";
+            size_t fixedCount = isVariadic ? paramTypes.size() - selfSkip - 1
+                                           : paramTypes.size() - selfSkip;
+
+            if (!isVariadic && node->args.size() != fixedCount) {
+                error(0, 0, "method '" + member->member + "' expects " +
+                            std::to_string(fixedCount) + " argument(s), got " +
+                            std::to_string(node->args.size()));
+            }
+            for (size_t i = 0; i < node->args.size(); ++i) {
+                node->args[i]->accept(this);
+                if (i < fixedCount) {
+                    std::string argType = getExpressionType(node->args[i].get());
+                    size_t pi = i + selfSkip;
+                    if (argType != "unknown" && !isValidAssignment(paramTypes[pi], argType)) {
+                        error(0, 0, "argument " + std::to_string(i + 1) + " type mismatch");
+                    }
+                }
+            }
+            expressionTypes[node] = sig.first;
+            return;
+        }
+        // Method not found — fall through to regular error
+        error(0, 0, "undefined method '" + member->member + "' on type '" + baseType + "'");
+        expressionTypes[node] = "unknown";
+        return;
+    }
+
+    // Regular function call
     std::string funcName;
     if (auto identExpr = dynamic_cast<IdentExpr*>(node->callee.get())) {
         funcName = identExpr->name;
@@ -334,11 +395,13 @@ void TypeChecker::visit(MemberExpr* node) {
 
     std::string baseType = getExpressionType(node->base.get());
 
-    // If base is a pointer to a struct, dereference it first
-    // e.g., "struct:Point*" -> "struct:Point"
+    // Auto-deref pointer-to-struct: *Point, struct:Point*, Point* → struct:Point
     if (hasPointerSuffix(baseType)) {
         baseType = extractBaseType(baseType);
+    } else if (!baseType.empty() && baseType.front() == '*') {
+        baseType = baseType.substr(1); // strip leading *
     }
+    baseType = normalizeType(baseType); // "Point" → "struct:Point" if registered
 
     // Check if base is a struct type
     if (baseType.find("struct:") == 0) {
@@ -417,6 +480,43 @@ void TypeChecker::visit(IdentExpr* node) {
     } else {
         expressionTypes[node] = type;
     }
+}
+
+void TypeChecker::visit(StructInitExpr* node) {
+    auto it = structs.find(node->structName);
+    if (it == structs.end()) {
+        error(0, 0, "undefined struct '" + node->structName + "'");
+        expressionTypes[node] = "unknown";
+        return;
+    }
+
+    const auto& fields = it->second.fields;
+    bool named = !node->fieldInits.empty() && !node->fieldInits[0].first.empty();
+
+    for (size_t i = 0; i < node->fieldInits.size(); ++i) {
+        const auto& [fname, expr] = node->fieldInits[i];
+        expr->accept(this);
+
+        std::string fieldType;
+        if (named) {
+            for (const auto& f : fields) {
+                if (f.name == fname) { fieldType = f.type; break; }
+            }
+            if (fieldType.empty())
+                error(0, 0, "struct '" + node->structName + "' has no field '" + fname + "'");
+        } else if (i < fields.size()) {
+            fieldType = fields[i].type;
+        }
+
+        if (!fieldType.empty()) {
+            std::string valType = getExpressionType(expr.get());
+            if (valType != "unknown" && !isValidAssignment(fieldType, valType))
+                warning(0, 0, "field '" + (named ? fname : fields[i].name) +
+                              "': implicit conversion from " + valType + " to " + fieldType);
+        }
+    }
+
+    expressionTypes[node] = "struct:" + node->structName;
 }
 
 // Scope management
@@ -523,20 +623,13 @@ void TypeChecker::validateStructType(const std::string& type) {
 
 // Type checking utilities
 bool TypeChecker::isValidAssignment(const std::string& lhsType, const std::string& rhsType) {
-    if (lhsType == rhsType) {
-        return true;
-    }
+    // Normalize both sides so "Point" == "struct:Point"
+    std::string lhs = normalizeType(lhsType);
+    std::string rhs = normalizeType(rhsType);
 
-    // Numeric type promotion
-    if (isNumericType(lhsType) && isNumericType(rhsType)) {
-        // Allow any numeric to numeric conversion
-        return true;
-    }
-
-    // Pointer compatibility
-    if (lhsType == "null" || rhsType == "null") {
-        return isPointerType(lhsType) || isPointerType(rhsType);
-    }
+    if (lhs == rhs) return true;
+    if (isNumericType(lhs) && isNumericType(rhs)) return true;
+    if (lhs == "null" || rhs == "null") return isPointerType(lhs) || isPointerType(rhs);
 
     return false;
 }

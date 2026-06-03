@@ -2,21 +2,32 @@
 
 ## [Unreleased]
 
-### In Progress — Phase 5 (partial)
-- Struct codegen: `llvm::StructType` creation, `MemberExpr` via GEP, field read/write
-- Fixed-size array fields: `uint8[858]` → `[858 x i8]`; array index via GEP
-- `BreakStmt` codegen: branch to loop exit block
-- `emitObjectFile()`: native object file emission via LLVM target machine
-- Full compilation pipeline: `eskiuc file.esk -o file.o` → linkable Mach-O / ELF
-- Type checker bug fixes: param types were registered as names; variadic functions now accept ≥N fixed args
-- `evaluateLValue` extended for `MemberExpr` and `IndexExpr` (enables `p.x = val`, `arr[i] = val`)
-- Variable type tracking (`varTypeStack`) for struct/array expression resolution
+### Planned
+- Phase 6: `alloc(T, N)` / `free(ptr)` heap allocation
+- Phase 5 remainder: Go-style interface dispatch, monomorphic templates, `switch`/`case`
 
-### Remaining for Phase 5
-- Struct literal initialization syntax: `Point { x: 1.0, y: 2.0 }`
-- Method calls with implicit `self` pointer
-- Go-style interface dispatch (vtable)
-- Monomorphic template instantiation
+---
+
+## [0.0.2-alpha] — 2026-06-02
+
+### Added — Phase 5 (structs, methods, initialization)
+
+- **Struct codegen**: `llvm::StructType::create` per `StructDecl`; `alloca %StructType` for locals; field read/write via `getelementptr`
+- **Fixed-size array fields**: `uint8[858]` → `[858 x i8]`; parser now captures size (was discarded); `IndexExpr` codegen via GEP for both `T[N]` and `*T`
+- **Struct literal initialization**: named (`Point { x: 1.5, y: 2.5 }`) and positional (`Point { 1.5, 2.5 }`) — fills alloca directly with per-field type coercion
+- **Method calls**: methods emitted as `StructName_methodName(ptr self, ...)` mangled functions; `p.method(args)` detects and prepends implicit `self` pointer
+- **`StructInitExpr` AST node**: full visitor chain — parser, type checker, codegen, AST printer
+- **`BreakStmt` codegen**: `CreateBr(breakTarget)`; target saved/restored around loop bodies
+- **`emitObjectFile()`**: native object file via LLVM `TargetMachine` + `legacy::PassManager`; full pipeline `eskiuc file.esk -o file.o` → linkable object
+- **Float arithmetic**: `+`, `-`, `*` now emit `fadd`/`fsub`/`fmul` for floating-point operands (was always emitting integer instructions)
+
+### Fixed
+- Type checker: method bodies registered and type-checked in first pass
+- Type checker: `*T` (leading-pointer) not auto-derefed on member access — now strips leading `*` before struct lookup
+- Type checker: `isValidAssignment` normalizes both sides so `"Point" == "struct:Point"`
+- Type checker: function parameter types were stored as parameter names (e.g. `"a"`) instead of types (e.g. `"int"`)
+- Type checker: variadic functions rejected call sites with more arguments than fixed params
+- Codegen: `varTypeStack` scoped alongside symbol table for correct struct type resolution across nested scopes
 
 ---
 

@@ -40,6 +40,7 @@ public:
     void visit(CastExpr* node) override;
     void visit(LiteralExpr* node) override;
     void visit(IdentExpr* node) override;
+    void visit(StructInitExpr* node) override;
 
 private:
     // Symbol table: maps name -> type

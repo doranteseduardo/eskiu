@@ -41,8 +41,9 @@ Parser             parser/parser.cpp          complete
 Type Checker       sema/type_checker.cpp      complete
 Code Generator     codegen/codegen.cpp        complete
 Object File        emitObjectFile()           complete
-Structs / Arrays   Phase 5 (partial)          struct fields + fixed arrays done
-Interfaces         Phase 5                    planned
+Structs / Methods  Phase 5 (core)             complete — fields, init, methods
+Interfaces         Phase 5.5                  planned
+Templates          Phase 5.5                  planned
 Heap / alloc/free  Phase 6                    planned
 stdlib/Result<T>   Phase 7                    planned
 ```

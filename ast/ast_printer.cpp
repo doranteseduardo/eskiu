@@ -285,3 +285,15 @@ void ASTPrinter::visit(LiteralExpr* node) {
 void ASTPrinter::visit(IdentExpr* node) {
     println("IdentExpr: " + node->name);
 }
+
+void ASTPrinter::visit(StructInitExpr* node) {
+    println("StructInitExpr: " + node->structName);
+    indentLevel++;
+    for (const auto& [name, expr] : node->fieldInits) {
+        if (!name.empty()) println("." + name + ":");
+        indentLevel++;
+        expr->accept(this);
+        indentLevel--;
+    }
+    indentLevel--;
+}
