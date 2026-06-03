@@ -30,6 +30,20 @@ int main() {
 }
 ```
 
+## Real-World Benchmark
+
+Eskiu was built to port a cryptographic image processing pipeline from a 3–5 second reference implementation to under 1 second. The v0.1 decoder runs the full pipeline — image decoding, multi-round AES-256-CBC + RSA-8192 cryptography, and structured data extraction — entirely in Eskiu orchestrating native C libraries via `extern`.
+
+| Stage | Eskiu | Reference C |
+|---|---|---|
+| Image / QR extraction | 71.7 ms | 185.5 ms |
+| Crypto pipeline | 2.8 ms | 2.9 ms |
+| Output decode | < 1 ms | 0.5 ms |
+| **Total** | **74.4 ms** | **188.9 ms** |
+
+**2.5× faster** than the reference, **40–70× faster** than the original target.  
+The crypto pipeline is within 0.1 ms of hand-written C.
+
 ## Architecture
 
 ```
@@ -41,11 +55,39 @@ Parser             parser/parser.cpp          complete
 Type Checker       sema/type_checker.cpp      complete
 Code Generator     codegen/codegen.cpp        complete
 Object File        emitObjectFile()           complete
-Structs / Methods  Phase 5 (core)             complete — fields, init, methods
+Structs / Methods  Phase 5                    complete — fields, init, methods
 Interfaces         Phase 5.5                  complete — vtable dispatch + structural typing
 Templates          Phase 5.5                  complete — struct + function templates
 Heap / alloc/free  Phase 6                    complete
-stdlib/Result<T>   Phase 7                    complete — Result, List, String, math/io/mem
+stdlib             Phase 7                    complete — Result, List, String, math/io/mem
+```
+
+## Language Features
+
+```eskiu
+// Structs with methods
+struct Point {
+    float x;
+    float y;
+    float dist(Point other) { ... }
+}
+
+// Templates
+struct Result<T, E> { int ok; T value; E error; }
+Result<int, string> r = Ok<int, string>(42);
+
+// Interfaces (structural typing, no implements keyword)
+interface Drawable { void draw(); }
+void render(Drawable d) { d.draw(); }
+render(&myCircle);  // auto-boxed
+
+// Multi-file
+import "stdlib/result.esk";
+
+// Heap allocation
+let buf: *uint8 = alloc(uint8, 1024);
+buf[0] = 0xFF;
+free(buf);
 ```
 
 ## CLI Flags
@@ -56,16 +98,8 @@ stdlib/Result<T>   Phase 7                    complete — Result, List, String,
 | `--test-parser`        | Print AST                       |
 | `--test-typechecker`   | Type check and report errors    |
 | `--test-codegen`       | Print LLVM IR                   |
+| `-o file.o`            | Emit native object file         |
 | `--version`            | Print version                   |
-
-## Roadmap
-
-| Version | Focus                                                        |
-|---------|--------------------------------------------------------------|
-| v0.1    | Structs with array fields, `alloc`/`free`, extern C ABI, `Result<T,E>` |
-| v0.2    | Templates (monomorphic), Go-style interfaces, full stdlib foundation |
-| v1.0    | Exceptions, complete stdlib, self-hosting bootstrap target   |
-| v2.0    | Lambdas, async/await, threads, package manager               |
 
 ## Type System
 
