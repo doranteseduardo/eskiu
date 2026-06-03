@@ -90,22 +90,12 @@ void ASTPrinter::visit(BlockStmt* node) {
     println("BlockStmt");
     indentLevel++;
 
-    if (!node->declarations.empty()) {
-        println("Declarations:");
-        indentLevel++;
-        for (auto& decl : node->declarations) {
-            decl->accept(this);
+    for (auto& item : node->items) {
+        if (std::holds_alternative<DeclPtr>(item)) {
+            std::get<DeclPtr>(item)->accept(this);
+        } else if (std::holds_alternative<StmtPtr>(item)) {
+            std::get<StmtPtr>(item)->accept(this);
         }
-        indentLevel--;
-    }
-
-    if (!node->statements.empty()) {
-        println("Statements:");
-        indentLevel++;
-        for (auto& stmt : node->statements) {
-            stmt->accept(this);
-        }
-        indentLevel--;
     }
 
     indentLevel--;

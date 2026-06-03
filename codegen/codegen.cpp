@@ -246,14 +246,17 @@ void CodeGen::visit(ExternDecl* node) {
 }
 
 void CodeGen::visit(BlockStmt* node) {
-    // Generate code for declarations first
-    for (auto& decl : node->declarations) {
-        decl->accept(this);
-    }
-
-    // Generate code for statements
-    for (auto& stmt : node->statements) {
-        stmt->accept(this);
+    // Generate code for items in the order they appear in the block
+    for (auto& item : node->items) {
+        if (std::holds_alternative<DeclPtr>(item)) {
+            // Extract declaration and visit it
+            auto decl = std::get<DeclPtr>(item);
+            decl->accept(this);
+        } else if (std::holds_alternative<StmtPtr>(item)) {
+            // Extract statement and visit it
+            auto stmt = std::get<StmtPtr>(item);
+            stmt->accept(this);
+        }
     }
 }
 

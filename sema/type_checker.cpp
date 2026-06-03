@@ -107,14 +107,19 @@ void TypeChecker::visit(ExternDecl* node) {
 void TypeChecker::visit(BlockStmt* node) {
     pushScope();
 
-    // Type check declarations first (so symbols are available for statements)
-    for (const auto& decl : node->declarations) {
-        decl->accept(this);
-    }
-
-    // Type check statements
-    for (const auto& stmt : node->statements) {
-        stmt->accept(this);
+    // Type check items in order, maintaining exact parse order
+    // Declarations can be interleaved with statements
+    for (const auto& item : node->items) {
+        // Check if this item is a declaration or a statement
+        if (std::holds_alternative<DeclPtr>(item)) {
+            // It's a declaration
+            const auto& decl = std::get<DeclPtr>(item);
+            decl->accept(this);
+        } else {
+            // It's a statement
+            const auto& stmt = std::get<StmtPtr>(item);
+            stmt->accept(this);
+        }
     }
 
     popScope();

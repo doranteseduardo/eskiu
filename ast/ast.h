@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <variant>
 
 // Forward declarations
 class ASTNode;
@@ -15,6 +16,9 @@ using ASTNodePtr = std::shared_ptr<ASTNode>;
 using ExprPtr = std::shared_ptr<Expr>;
 using StmtPtr = std::shared_ptr<Stmt>;
 using DeclPtr = std::shared_ptr<Decl>;
+
+// BlockItem: can be either a declaration or a statement (allows interleaving)
+using BlockItem = std::variant<DeclPtr, StmtPtr>;
 
 // ============================================================================
 // Base Classes
@@ -100,12 +104,10 @@ public:
 
 class BlockStmt : public Stmt {
 public:
-    std::vector<DeclPtr> declarations;
-    std::vector<StmtPtr> statements;
+    std::vector<BlockItem> items;  // Unified list of declarations and statements
 
-    BlockStmt(const std::vector<DeclPtr>& decls = {},
-              const std::vector<StmtPtr>& stmts = {})
-        : declarations(decls), statements(stmts) {}
+    explicit BlockStmt(const std::vector<BlockItem>& blk_items = {})
+        : items(blk_items) {}
 
     void accept(class ASTVisitor* visitor) override;
 };

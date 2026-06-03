@@ -304,11 +304,10 @@ StmtPtr Parser::parseStatement() {
 
 StmtPtr Parser::parseBlockStatement() {
     consume(TokenType::LBRACE, "Expected '{'");
-    std::vector<DeclPtr> declarations;
-    std::vector<StmtPtr> statements;
+    std::vector<BlockItem> items;
 
     while (!check(TokenType::RBRACE) && !is_at_end()) {
-        // Try to parse as declaration first
+        // Check if this looks like a declaration
         if (check(TokenType::LET) ||
             check(TokenType::INT) || check(TokenType::FLOAT) ||
             check(TokenType::DOUBLE) || check(TokenType::BOOL) ||
@@ -320,7 +319,7 @@ StmtPtr Parser::parseBlockStatement() {
             try {
                 DeclPtr decl = parseDeclaration();
                 if (decl) {
-                    declarations.push_back(decl);
+                    items.push_back(decl);
                     continue;
                 }
             } catch (...) {
@@ -329,11 +328,12 @@ StmtPtr Parser::parseBlockStatement() {
         }
 
         // Otherwise parse as statement
-        statements.push_back(parseStatement());
+        StmtPtr stmt = parseStatement();
+        items.push_back(stmt);
     }
 
     consume(TokenType::RBRACE, "Expected '}'");
-    return std::make_shared<BlockStmt>(declarations, statements);
+    return std::make_shared<BlockStmt>(items);
 }
 
 StmtPtr Parser::parseIfStatement() {
