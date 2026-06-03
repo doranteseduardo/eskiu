@@ -11,6 +11,32 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
+## [0.0.11-alpha] — 2026-06-03
+
+### Added
+
+**Decoder rewritten in Eskiu (no C pipeline code)**
+- `ine_decoder/crypto.esk` (541 lines) — AES-256-CBC + RSA-8192 pipeline, hex/base64 decoders, PKCS#1 stripper, 6-bit decoder, WebP reconstruction, `run_no_so_pipeline()` — all in Eskiu calling OpenSSL via `extern`
+- `ine_decoder/output.esk` (186 lines) — Spanish character table, field splitter, growable JSON buffer, `decode_to_buffers()` — pure Eskiu
+- `ine_decoder/crypto.c` and `output_decode.c` removed — replaced entirely by Eskiu
+- Only C remaining: `qr_extract.c` shim (12 lines) + `qr_extract_impl.cpp` (CoreGraphics + zxing-cpp)
+- Runtime: **80ms** on arm64, identical output to reference
+
+**String literal adjacent concatenation**
+- `"abc" "def"` on consecutive lines (or the same line) are now concatenated into a single string at parse time — enables readable multi-line constant definitions
+
+### Fixed (compiler bugs found during Eskiu crypto port)
+
+- **`ptr - ptr` → `int64`**: pointer subtraction for computing byte offsets in buffers
+- **Integer widening in arithmetic** (`+ - * /`): `i8 - i32` now ZExts the narrower operand before emitting the instruction
+- **`string[i]` → `char`**: indexing a `string` typed value now returns the correct `char` (i8) element instead of computing type `"strin"`
+- **Assignment store coercion**: `arr[i] = val` where the array element type is wider than `val` now ZExts/truncates to match (e.g. `int64[0] = 0` was storing i32 into an i64 slot)
+- **Return value coercion**: functions that return `int64` but the expression evaluates to `i32` now automatically extend the return value
+- **GlobalVariable initializer coercion**: `uint8 X = 0x52` was creating a global with mismatched i32/i8 initializer — now casts to the declared type
+- **`validateStructType` multi-level pointers**: `**char` was triggering "undefined struct '*char'" — now strips all pointer levels before checking the base type
+
+---
+
 ## [0.0.10-alpha] — 2026-06-03
 
 ### Added

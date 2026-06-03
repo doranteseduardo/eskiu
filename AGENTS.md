@@ -180,6 +180,17 @@ error: <file>:<line>:<col>: <message>
 
 Use the `error(line, col, message)` helper in `TypeChecker`. Codegen errors should `llvm::errs()` with the same format.
 
+## Compiler additions (v0.0.11) — found during decoder port
+
+- **Adjacent string concat**: `"abc" "def"` → `"abcdef"` at parse time
+- **`ptr - ptr` → `int64`**: pointer subtraction via ptrtoint-subtract
+- **Integer widening in arithmetic** `+ - * /`: ZExt narrower operand
+- **`string[i]` → `char`**: correct element type for string indexing
+- **Assignment store coercion**: store type matches GEP element type
+- **Return value coercion**: auto-extend to declared return type
+- **GlobalVariable init cast**: `uint8 X = 0x52` no longer mismatches
+- **`validateStructType`**: strips all `*` levels, supports `**char`
+
 ## Compiler additions (v0.0.10)
 
 - **Global variables**: `VarDecl` at module scope → `llvm::GlobalVariable`; constant initializers via `evaluateConstantExpr()`; `globalVarTypes` for module-scope type tracking

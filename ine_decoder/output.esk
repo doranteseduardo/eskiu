@@ -1,0 +1,186 @@
+// output.esk — Structured output decoder in Eskiu.
+// Parses the binary payload from run_no_so_pipeline into JSON + WebP.
+//
+// Input format:
+//   [text_len:u16 BE][text_bytes:text_len][img_len:u16 BE][img_bytes:img_len]
+// text_bytes are 6-bit coded values indexing into the Spanish character table.
+
+import "types.esk";
+import "extern.esk";
+
+// ── Character table: maps 6-bit code (1-indexed) to UTF-8 string ─────────────
+//
+// 1-14  → A-N  |  15 → Ñ (two UTF-8 bytes)  |  16-27 → O-Z
+// 28-37 → 0-9  |  40 → /  |  57 → | (field separator)
+
+string char_lookup(uint8 code) {
+    switch ((int)code) {
+        case 1:  return "A";  case 2:  return "B";  case 3:  return "C";
+        case 4:  return "D";  case 5:  return "E";  case 6:  return "F";
+        case 7:  return "G";  case 8:  return "H";  case 9:  return "I";
+        case 10: return "J";  case 11: return "K";  case 12: return "L";
+        case 13: return "M";  case 14: return "N";
+        case 15: return "\xC3\x91";    // Ñ  (UTF-8)
+        case 16: return "O";  case 17: return "P";  case 18: return "Q";
+        case 19: return "R";  case 20: return "S";  case 21: return "T";
+        case 22: return "U";  case 23: return "V";  case 24: return "W";
+        case 25: return "X";  case 26: return "Y";  case 27: return "Z";
+        case 28: return "0";  case 29: return "1";  case 30: return "2";
+        case 31: return "3";  case 32: return "4";  case 33: return "5";
+        case 34: return "6";  case 35: return "7";  case 36: return "8";
+        case 37: return "9";
+        case 40: return "/";
+        case 57: return "|";   // field separator
+        default: return "";
+    }
+}
+
+// Field labels for the 18 biographical fields (in order).
+string field_label(int idx) {
+    switch (idx) {
+        case 0:  return "tipo";             case 1:  return "cic";
+        case 2:  return "ocr";              case 3:  return "curp";
+        case 4:  return "nombre";           case 5:  return "apellido1";
+        case 6:  return "apellido2";        case 7:  return "entidad";
+        case 8:  return "municipio";        case 9:  return "seccion";
+        case 10: return "etnia";            case 11: return "vigencia";
+        case 12: return "sexo";             case 13: return "indiceHuella1";
+        case 14: return "indiceHuella2";    case 15: return "version";
+        case 16: return "fechaGeneracion";  case 17: return "firmaVerificadora";
+        default: return "campo";
+    }
+}
+
+// ── Simple growable JSON buffer ───────────────────────────────────────────────
+
+// Append n bytes to *buf_ptr; grows the buffer when needed.
+void buf_push(**char buf_ptr, *int64 pos_ptr, *int64 cap_ptr,
+              string data, int64 n) {
+    int64 pos = pos_ptr[0];
+    int64 cap = cap_ptr[0];
+    if (pos + n + 1 > cap) {
+        int64 nc = (cap + n + 1) * 2;
+        let nb: *char = alloc(char, nc);
+        memcpy(nb, buf_ptr[0], (int)pos);
+        free(buf_ptr[0]);
+        buf_ptr[0] = nb;
+        cap_ptr[0] = nc;
+    }
+    memcpy(buf_ptr[0] + pos, data, (int)n);
+    pos_ptr[0] = pos + n;
+    buf_ptr[0][pos + n] = 0;
+}
+
+// ── Public API ────────────────────────────────────────────────────────────────
+
+int decode_to_buffers(*uint8 payload, int64 pay_len,
+                      **char json_out, *int64 json_len,
+                      **uint8 webp_out, *int64 webp_len) {
+    json_out[0] = null;   json_len[0] = 0;
+    webp_out[0] = null;   webp_len[0] = 0;
+
+    if (pay_len < 4) {
+        printf("[!] payload too short (%d)\n", (int)pay_len);
+        return -1;
+    }
+
+    // Parse header
+    int64 tlen = ((int64)payload[0] << 8) | payload[1];
+    if (2 + tlen + 2 > pay_len) {
+        printf("[!] text_len %d exceeds buffer\n", (int)tlen);
+        return -1;
+    }
+    let tdata: *uint8 = payload + 2;
+    int64 ioff = 2 + tlen;
+    int64 ilen = ((int64)payload[ioff] << 8) | payload[ioff + 1];
+    if (ioff + 2 + ilen > pay_len) if (pay_len > ioff + 2) { ilen = pay_len - ioff - 2; } else { ilen = 0; }
+    let idata: *uint8 = payload + ioff + 2;
+
+    // Decode text bytes through character table → raw UTF-8 text
+    let text: *char = alloc(char, tlen * 3 + 1);
+    int64 tp = 0;
+    int64 i = 0;
+    while (i < tlen) {
+        uint8 bv = tdata[i];
+        if (bv != 0) {
+            string ch = char_lookup(bv);
+            int64 cl = strlen(ch);
+            if (cl > 0) {
+                memcpy(text + tp, ch, (int)cl);
+                tp += cl;
+            }
+        }
+        i += 1;
+    }
+    text[tp] = 0;
+
+    // Split on '|' into field values
+    let fv: *char = alloc(char, tp + 1);
+    memcpy(fv, text, (int)tp + 1);
+    free(text);
+
+    // Count and locate fields (in-place: replace '|' with '\0')
+    int nf = 0;
+    let starts: *int64 = alloc(int64, 24);
+    starts[0] = 0;
+    nf = 1;
+    int64 fi = 0;
+    while (fi < tp && nf < 22) {
+        if (fv[fi] == 124) {   // '|' = 124
+            fv[fi] = 0;
+            starts[nf] = fi + 1;
+            nf += 1;
+        }
+        fi += 1;
+    }
+
+    // Build JSON
+    let jbuf: *char = alloc(char, 4096);
+    int64 jpos = 0;
+    int64 jcap = 4096;
+    let jbuf_ptr: **char = &jbuf;
+
+    buf_push(jbuf_ptr, &jpos, &jcap, "{\n", 2);
+    int f = 0;
+    while (f < nf) {
+        string lbl = field_label(f);
+        let val: *char = fv + starts[f];
+        buf_push(jbuf_ptr, &jpos, &jcap, "  \"", 3);
+        buf_push(jbuf_ptr, &jpos, &jcap, lbl, strlen(lbl));
+        buf_push(jbuf_ptr, &jpos, &jcap, "\": \"", 4);
+        int64 vi = 0;
+        int64 vl = strlen(val);
+        while (vi < vl) {
+            if (val[vi] == 34) {
+                buf_push(jbuf_ptr, &jpos, &jcap, "\\\"", 2);
+            } else if (val[vi] == 92) {
+                buf_push(jbuf_ptr, &jpos, &jcap, "\\\\", 2);
+            } else {
+                buf_push(jbuf_ptr, &jpos, &jcap, val + vi, 1);
+            }
+            vi += 1;
+        }
+        if (f < nf - 1) {
+            buf_push(jbuf_ptr, &jpos, &jcap, "\",\n", 3);
+        } else {
+            buf_push(jbuf_ptr, &jpos, &jcap, "\"\n", 2);
+        }
+        f += 1;
+    }
+    buf_push(jbuf_ptr, &jpos, &jcap, "}\n", 2);
+    free(fv); free(starts);
+
+    // Copy WebP
+    let webp: *uint8 = null;
+    if (ilen > 0) {
+        webp = alloc(uint8, ilen);
+        memcpy(webp, idata, (int)ilen);
+    }
+
+    printf("[*] datos_biograficos.json (%d campos)\n", nf);
+    printf("[*] foto_ine.webp (%d bytes)\n", (int)ilen);
+
+    json_out[0] = jbuf;   json_len[0] = jpos;
+    webp_out[0] = webp;   webp_len[0] = ilen;
+    return 0;
+}

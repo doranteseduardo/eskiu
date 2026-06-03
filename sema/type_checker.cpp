@@ -495,7 +495,17 @@ void TypeChecker::visit(IndexExpr* node) {
         errorAt(node,"array index must be integer, got " + indexType);
     }
 
-    // For arrays, return element type (simplified)
+    // string[i] → char
+    if (baseType == "string") { expressionTypes[node] = "char"; return; }
+
+    // Array type T[N]: element is T
+    size_t lb = baseType.rfind('[');
+    if (lb != std::string::npos && baseType.back() == ']') {
+        expressionTypes[node] = baseType.substr(0, lb);
+        return;
+    }
+
+    // Pointer: *T → T
     if (isPointerType(baseType)) {
         expressionTypes[node] = getPointeeType(baseType);
     } else {
@@ -737,9 +747,15 @@ std::string TypeChecker::inferBinaryExprType(const std::string& leftType, const 
         if (isIntType(leftType) && isIntType(rightType)) return promoteType(leftType, rightType);
         return "error";
     }
-    // Pointer arithmetic: ptr + int / ptr - int
+    // Pointer arithmetic: ptr + int / ptr - int → ptr; ptr - ptr → int64
+    if (op == "-" && isPointerType(leftType) && isPointerType(rightType)) return "int64";
     if ((op == "+" || op == "-") && isPointerType(leftType) && isIntType(rightType)) {
         return leftType;
+    }
+    // Bitwise/shift ops work on integers of any width
+    if (op == "&" || op == "|" || op == "^" || op == "<<" || op == ">>") {
+        if (isIntType(leftType) && isIntType(rightType)) return promoteType(leftType, rightType);
+        return "error";
     }
     if (!isNumericType(leftType) || !isNumericType(rightType)) {
         return "error";
@@ -776,11 +792,12 @@ std::string TypeChecker::inferUnaryExprType(const std::string& op, const std::st
 // Type validation
 void TypeChecker::validateStructType(const std::string& type) {
     std::string baseType = type;
-    // Strip pointer modifiers — both trailing T* and leading *T
-    if (hasPointerSuffix(baseType)) {
-        baseType = extractBaseType(baseType);
-    } else if (!baseType.empty() && baseType.front() == '*') {
-        baseType = baseType.substr(1);
+    // Strip ALL pointer decorators (*T, T*, **T, etc.)
+    bool stripped = true;
+    while (stripped && !baseType.empty()) {
+        stripped = false;
+        if (hasPointerSuffix(baseType)) { baseType = extractBaseType(baseType); stripped = true; }
+        else if (baseType.front() == '*') { baseType = baseType.substr(1); stripped = true; }
     }
 
     // Check if it's an explicit struct type (struct: prefix)

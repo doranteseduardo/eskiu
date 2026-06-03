@@ -4,114 +4,117 @@ Eskiu port of a real-world cryptographic image-processing pipeline. Decrypts
 multi-round AES-256-CBC + RSA-8192 encoded data extracted from QR codes in an
 image and produces structured output.
 
+**No dependency on any external C project.** The only C code is a 12-line shim
+for calling a C++ QR detection library. All pipeline logic is in Eskiu.
+
 ## Overview
 
-The pipeline performs three sequential stages:
+Three sequential stages:
 
-1. **QR extraction** — load an image (HEIC/JPEG), detect and decode two QR
-   codes using zxing-cpp via CoreGraphics, yielding two raw byte buffers.
-2. **Crypto** — 3-round AES-256-CBC + RSA-8192 decryption of the QR payloads,
-   producing plaintext.
-3. **Structured output** — parse the plaintext (pipe-delimited fields + embedded
-   WebP blob) into usable data.
+1. **QR extraction** — load an image (HEIC/JPEG/PNG) via CoreGraphics, detect
+   two QR codes using zxing-cpp, yield two raw 858-byte buffers.
+2. **Crypto** — 3-round AES-256-CBC + RSA-8192 decryption; all cryptographic
+   constants extracted from the original binary (no key file needed). Implemented
+   in Eskiu calling OpenSSL via `extern`.
+3. **Structured output** — parse pipe-delimited biographical text + WebP image
+   blob, generate JSON. Implemented entirely in Eskiu.
 
-Status: **COMPLETE and running.**
+Status: **COMPLETE.** Runs at 80 ms on Apple Silicon.
 
-## Benchmark Results
+## Benchmark
 
-Measured against a real credential image on Apple Silicon (macOS).
+Measured on Apple Silicon (macOS arm64) against a real credential image.
 
-| Stage         | Eskiu    | Reference C |
-|---------------|----------|-------------|
-| QR extraction | 71.7 ms  | 185.5 ms    |
-| Crypto        |  2.8 ms  |   2.9 ms    |
-| Output decode |  <1 ms   |   0.5 ms    |
-| **Total**     | **74.4 ms** | **188.9 ms** |
+| Stage         | Eskiu   | Reference C |
+|---------------|---------|-------------|
+| QR extraction | 78 ms   | 185 ms      |
+| Crypto        |  2 ms   |   3 ms      |
+| Output decode |  <1 ms  |   1 ms      |
+| **Total**     | **80 ms** | **188 ms** |
 
-2.5x faster than reference C overall. The crypto pipeline matches hand-written
-C within 0.1 ms.
+2.4× faster overall. Crypto pipeline within 1 ms of hand-written C.
 
 ## Files
 
-| File | Description |
-|------|-------------|
-| `types.esk` | Core data structures (QRPair, NoSoKeys, IneResult, IneFields) |
-| `extern.esk` | C library declarations — libc + no_so_crypto API |
-| `stage1_qr.esk` | QR extraction wrapper (calls `ine_qr_extract` from C shim) |
-| `stage2_crypto.esk` | Crypto pipeline — delegates AES/RSA work to C |
-| `stage3_output.esk` | Output decode wrapper — delegates parsing to C |
-| `main.esk` | Orchestration: QR extraction -> C crypto -> C decode -> output |
-| `qr_extract.c` | C shim — `ine_qr_extract` wraps `qr_extract` from C library |
-| `qr_extract_impl.cpp` | CoreGraphics + zxing-cpp 3.x image detection |
-| `Makefile` | Build instructions |
-| `README.md` | This file |
+| File | Language | Description |
+|---|---|---|
+| `types.esk` | Eskiu | `QRPair`, `BNPair`, `DecodePayload`, `DecodeOutput`, `PipelineTiming` |
+| `extern.esk` | Eskiu | C function declarations (libc, OpenSSL EVP + BN, QR shim) |
+| `crypto.esk` | **Eskiu** | AES + RSA pipeline — hex decode, base64, PKCS#1, 6-bit decode, `run_no_so_pipeline` |
+| `output.esk` | **Eskiu** | Character table, field splitter, JSON builder, `decode_to_buffers` |
+| `pipeline.esk` | Eskiu | `stage_extract`, `stage_crypto`, `stage_decode` — each returns `Result<int,string>` |
+| `main.esk` | Eskiu | Entry point: orchestration, timing, file I/O |
+| `qr_extract.c` | C | 12-line shim: `ine_qr_extract(path, *QRPair)` → `ine_qr_extract_impl()` |
+| `qr_extract_impl.cpp` | C++ | CoreGraphics image loading + zxing-cpp 3.x QR detection |
+| `Makefile` | — | Build instructions |
 
 ## Architecture
 
-Eskiu owns the top-level orchestration; C owns the compute-heavy stages.
-
 ```
 [Image file]
-     |
-     v
-stage1_qr.esk  -->  qr_extract.c  -->  qr_extract_impl.cpp
-     |                                 (CoreGraphics + zxing-cpp)
-     v
-stage2_crypto.esk  -->  no_so_crypto.o
-     |                  (3-round AES-256-CBC + RSA-8192)
-     v
-stage3_output.esk  -->  output_decode.o
-     |                  (pipe-delimited parse + WebP extraction)
-     v
-  structured output
+     │
+     ▼
+qr_extract_impl.cpp   ← C++: CoreGraphics + zxing-cpp (QR detection)
+     │  858 bytes × 2
+     ▼
+crypto.esk            ← Eskiu: hex decode, AES-CBC, RSA, 6-bit decode
+     │  1385 bytes plaintext
+     ▼
+output.esk            ← Eskiu: character table decode, JSON build
+     │
+     ▼
+JSON + WebP
 ```
 
-**Eskiu handles:** timing, buffer management, file I/O, orchestration.
-
-**C handles:** image loading, QR detection, AES/RSA crypto, output parsing.
+**External dependencies (system libraries only):**
+- OpenSSL `libcrypto` — AES-256-CBC and BigNum for RSA
+- zxing-cpp — QR code detection
+- CoreFoundation / CoreGraphics / ImageIO — HEIC/JPEG image loading (macOS)
 
 ## Build
 
-### Prerequisites (macOS)
-
 ```bash
+# Prerequisites (macOS)
 brew install llvm zxing-cpp openssl
+
+# Build the Eskiu compiler
+cd /path/to/eskiu
+cmake -B build && cmake --build build -j4
+
+# Build the decoder
+cd ine_decoder
+make
+
+# Run
+./qr_decoder
 ```
 
-### Dependencies
+Set `IMAGE_PATH` in `main.esk` to point at your image.
+Output: `/tmp/qr_decoded.json` and `/tmp/qr_decoded.webp`.
 
-This project links against a companion C library that provides:
+## Compiler features exercised by this decoder
 
-- `no_so_crypto.o` — AES-256-CBC + RSA-8192 decryption
-- `output_decode.o` — structured output parsing
-- `qr_extract.o` — QR detection entry point
-- `base64.o` — base64 helpers
+Writing this decoder in Eskiu required and validated several language features:
 
-### Compile and link
+| Feature used | Where |
+|---|---|
+| Global string constants (`string CT_R1_KEY = "..."`) | `crypto.esk` |
+| Multi-line string literals (`"abc"\n"def"`) | `crypto.esk` constants |
+| Pointer subtraction `ptr - ptr → int64` | XML tag search in `crypto.esk` |
+| `string[i]` → `char` indexing | Character lookups in `output.esk` |
+| `**void` for OpenSSL BIGNUM out-params | `parse_pubkey_xml`, `run_round` |
+| `BNPair` struct wrapping multi-value RSA key output | `run_round` |
+| `Result<int,string>` error propagation | `pipeline.esk` stages |
+| `int64` arithmetic with `uint8` arrays | Throughout |
 
-```bash
-# Compile the Eskiu source
-eskiuc main.esk -o main.o
+## Compiler fixes found during development
 
-# Link
-clang main.o no_so_crypto.o output_decode.o qr_extract.o base64.o \
-  qr_extract_impl.cpp.o \
-  -lcrypto -lZXing \
-  -framework CoreFoundation -framework CoreGraphics -framework ImageIO \
-  -o ine_decoder_eskiu
-```
-
-See the `Makefile` for the exact flags used in CI.
-
-## Key Lessons
-
-Issues encountered and fixed while building this pipeline:
-
-- **Integer width coercion** — comparing a `uint8` field against a literal integer constant caused an ICmp width mismatch at runtime. Fixed by emitting a `ZExt` in the LLVM IR codegen for ICmp operands.
-- **Mixed int/float arithmetic** — multiplying an `int64` value by a `double` constant required an explicit `SIToFP` promotion. The compiler now inserts this automatically when operand types differ.
-- **extern function parameter naming** — using a reserved keyword (`in`) as a parameter name in an `extern` declaration broke the parser. Renamed to avoid the conflict.
-- **import path resolution** — import paths in Eskiu are resolved relative to the importing file, not the compiler working directory. All imports in this project use paths relative to `main.esk`.
-
----
-
-Written to `/Users/dorantes/Documents/Github/eskiu/ine_decoder/README.md`.
+| Bug | Symptom | Fix |
+|---|---|---|
+| `ptr - ptr` not implemented | Couldn't compute XML tag offsets | Added ptrtoint-subtract in codegen |
+| `i8 - i32` codegen crash | `hex_digit()` arithmetic | ZExt widening for arithmetic ops |
+| `string[i]` wrong type | Would compute type `"strin"` | Special-cased `string` in IndexExpr |
+| `arr[i] = 0` stores wrong width | `starts[0] = 0` stored i32 into i64 slot | Store coercion via GEP element type |
+| `uint8 X = 0x52` global mismatch | Global initializer type mismatch | ConstantInt cast in global VarDecl |
+| `**char` "undefined struct '*char'" | Type checker rejected double-pointer | Strip all `*` levels in validateStructType |
+| `"abc"\n"def"` not concatenated | Multi-line constants required single line | Adjacent string literal concatenation in parser |

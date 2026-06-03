@@ -11,6 +11,8 @@
 
 import "types.esk";
 import "extern.esk";
+import "crypto.esk";
+import "output.esk";
 
 // ── Stage 1 ───────────────────────────────────────────────────────────────────
 //

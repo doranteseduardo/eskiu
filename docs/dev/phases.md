@@ -4,7 +4,7 @@
 
 Authoritative status reference for Eskiu compiler contributors. Supersedes `docs/PHASES.md`.
 
-Last updated: 2026-06-03. All phases 0–7 and Phase 5.5 are COMPLETE. v0.1 milestone achieved. Additional fixes: global variables, sret for large struct returns, integer argument widening.
+Last updated: 2026-06-03. All phases 0–7 and Phase 5.5 are COMPLETE. Decoder fully ported to Eskiu (crypto.esk + output.esk, 727 lines). Running at 80 ms on arm64. See `ine_decoder/` for the reference implementation.
 
 ---
 

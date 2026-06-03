@@ -1,17 +1,17 @@
 /*
- * qr_extract.c — thin C shim bridging Eskiu's extern to ine-qr-c's qr_extract()
+ * qr_extract.c — C shim: Eskiu extern → CoreGraphics + zxing-cpp implementation
  *
- * ine-qr-c exposes:  QRPair qr_extract(const char *path)  (returns by value)
- * Eskiu needs:       int ine_qr_extract(string path, *QRPair out)
+ * Eskiu declares:  extern int ine_qr_extract(string path, *QRPair out)
+ * This shim calls: ine_qr_extract_impl() from qr_extract_impl.cpp
  *
- * This file just wraps the value-return into a pointer-out convention that
- * Eskiu's C ABI can call cleanly.
+ * Using our own CoreGraphics implementation instead of ine-qr-c's qr_extract()
+ * because CoreGraphics decodes HEIC natively in-process (~70 ms) vs ine-qr-c's
+ * sips shell-out approach (~185 ms).
  */
 
 #include <stdint.h>
 #include <string.h>
 
-/* Forward declaration matching ine-qr-c/include/qr_extract.h */
 typedef struct {
     uint8_t left[858];
     uint8_t right[858];
@@ -23,13 +23,13 @@ typedef struct {
 extern "C" {
 #endif
 
-QRPair qr_extract(const char *path);  /* defined in ine-qr-c/src/qr_extract.o */
+/* Defined in qr_extract_impl.cpp (CoreGraphics + zxing-cpp) */
+int ine_qr_extract_impl(const char* image_path, QRPair* out);
 
-/* Called by Eskiu: fills *out, returns 1 on success / 0 on failure */
 int ine_qr_extract(const char* path, QRPair* out) {
     if (!path || !out) return 0;
-    *out = qr_extract(path);
-    return out->ok;
+    memset(out, 0, sizeof(*out));
+    return ine_qr_extract_impl(path, out);
 }
 
 #ifdef __cplusplus

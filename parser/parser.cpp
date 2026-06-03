@@ -867,7 +867,13 @@ ExprPtr Parser::parsePrimary() {
         return withPos(std::make_shared<LiteralExpr>(LiteralExpr::Kind::FLOAT, tok.value), tok);
     }
     if (match(TokenType::STRING_LIT)) {
-        return withPos(std::make_shared<LiteralExpr>(LiteralExpr::Kind::STRING, tok.value), tok);
+        // Adjacent string literal concatenation: "abc" "def" → "abcdef"
+        std::string combined = tok.value;
+        while (check(TokenType::STRING_LIT)) {
+            combined += peek().value;
+            advance();
+        }
+        return withPos(std::make_shared<LiteralExpr>(LiteralExpr::Kind::STRING, combined), tok);
     }
     if (match(TokenType::CHAR_LIT)) {
         return withPos(std::make_shared<LiteralExpr>(LiteralExpr::Kind::CHAR, tok.value), tok);

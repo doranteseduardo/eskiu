@@ -491,6 +491,17 @@ void CodeGen::visit(VarDecl* node) {
         llvm::Constant* init = node->initializer
             ? evaluateConstantExpr(node->initializer)
             : nullptr;
+        // Coerce initializer to match declared type
+        if (init && init->getType() != declType) {
+            if (init->getType()->isIntegerTy() && declType->isIntegerTy()) {
+                // Use ConstantInt directly
+                uint64_t v = llvm::cast<llvm::ConstantInt>(init)->getZExtValue();
+                init = llvm::ConstantInt::get(declType, v);
+            } else if (init->getType()->isFloatingPointTy() && declType->isFloatingPointTy()) {
+                double v = llvm::cast<llvm::ConstantFP>(init)->getValueAPF().convertToDouble();
+                init = llvm::ConstantFP::get(declType, v);
+            }
+        }
         if (!init) init = llvm::Constant::getNullValue(declType);
 
         auto* gv = new llvm::GlobalVariable(
@@ -757,6 +768,23 @@ void CodeGen::visit(ForStmt* node) {
 }
 
 void CodeGen::visit(ReturnStmt* node) {
+    // Coerce return value to the declared function return type
+    auto coerceRetVal = [&](llvm::Value* v) -> llvm::Value* {
+        if (!currentFunction) return v;
+        llvm::Type* ft = currentFunction->getReturnType();
+        if (v->getType() == ft) return v;
+        if (v->getType()->isIntegerTy() && ft->isIntegerTy()) {
+            unsigned vw = llvm::cast<llvm::IntegerType>(v->getType())->getBitWidth();
+            unsigned fw = llvm::cast<llvm::IntegerType>(ft)->getBitWidth();
+            return vw < fw ? builder->CreateSExt(v, ft) : builder->CreateTrunc(v, ft);
+        }
+        if (v->getType()->isIntegerTy() && ft->isFloatingPointTy())
+            return builder->CreateSIToFP(v, ft);
+        if (v->getType()->isFloatingPointTy() && ft->isIntegerTy())
+            return builder->CreateFPToSI(v, ft);
+        return v;
+    };
+
     if (currentSretParam != nullptr) {
         // sret function: store result to hidden pointer, return void
         if (node->value) {
@@ -765,7 +793,7 @@ void CodeGen::visit(ReturnStmt* node) {
         }
         builder->CreateRetVoid();
     } else if (node->value) {
-        llvm::Value* retValue = evaluateExpr(node->value);
+        llvm::Value* retValue = coerceRetVal(evaluateExpr(node->value));
         builder->CreateRet(retValue);
     } else {
         builder->CreateRetVoid();
@@ -787,6 +815,24 @@ void CodeGen::visit(BinaryExpr* node) {
     if (node->op == "=") {
         llvm::Value* lhs = evaluateLValue(node->left);
         llvm::Value* rhs = evaluateExpr(node->right);
+        // Coerce RHS to match the lvalue's expected element type
+        llvm::Type* elemType = nullptr;
+        if (auto* alloca = llvm::dyn_cast<llvm::AllocaInst>(lhs))
+            elemType = alloca->getAllocatedType();
+        else if (auto* gep = llvm::dyn_cast<llvm::GetElementPtrInst>(lhs))
+            elemType = gep->getResultElementType();
+        if (elemType && rhs->getType() != elemType) {
+            if (rhs->getType()->isIntegerTy() && elemType->isIntegerTy()) {
+                unsigned rw = llvm::cast<llvm::IntegerType>(rhs->getType())->getBitWidth();
+                unsigned ew = llvm::cast<llvm::IntegerType>(elemType)->getBitWidth();
+                rhs = rw < ew ? builder->CreateZExt(rhs, elemType)
+                               : builder->CreateTrunc(rhs, elemType);
+            } else if (rhs->getType()->isIntegerTy() && elemType->isFloatingPointTy()) {
+                rhs = builder->CreateSIToFP(rhs, elemType);
+            } else if (rhs->getType()->isFloatingPointTy() && elemType->isIntegerTy()) {
+                rhs = builder->CreateFPToSI(rhs, elemType);
+            }
+        }
         builder->CreateStore(rhs, lhs);
         exprValueStack.push(rhs);
         return;
@@ -809,32 +855,60 @@ void CodeGen::visit(BinaryExpr* node) {
             left = builder->CreateSIToFP(left, right->getType());
     };
 
+    // Widen narrower integer to match wider for bitwise/shift ops
+    auto widenForBitwise = [&]() {
+        if (left->getType()->isIntegerTy() && right->getType()->isIntegerTy()
+                && left->getType() != right->getType()) {
+            unsigned lw = llvm::cast<llvm::IntegerType>(left->getType())->getBitWidth();
+            unsigned rw = llvm::cast<llvm::IntegerType>(right->getType())->getBitWidth();
+            if (lw < rw) left  = builder->CreateZExt(left,  right->getType());
+            else          right = builder->CreateZExt(right, left->getType());
+        }
+    };
+
+    // Widen narrower integer to match wider for arithmetic (e.g. i8 - i32)
+    auto widenForArith = [&]() {
+        if (left->getType()->isIntegerTy() && right->getType()->isIntegerTy()
+                && left->getType() != right->getType()) {
+            unsigned lw = llvm::cast<llvm::IntegerType>(left->getType())->getBitWidth();
+            unsigned rw = llvm::cast<llvm::IntegerType>(right->getType())->getBitWidth();
+            if (lw < rw) left  = builder->CreateZExt(left,  right->getType());
+            else          right = builder->CreateZExt(right, left->getType());
+        }
+    };
+
     if (node->op == "+") {
         if (left->getType()->isPointerTy())
             result = builder->CreateGEP(llvm::Type::getInt8Ty(*context), left, right, "ptr.add");
         else {
             promoteToFloat();
+            widenForArith();
             result = left->getType()->isFloatingPointTy()
                 ? builder->CreateFAdd(left, right)
                 : builder->CreateAdd(left, right);
         }
     } else if (node->op == "-") {
-        if (left->getType()->isPointerTy()) {
+        if (left->getType()->isPointerTy() && right->getType()->isPointerTy()) {
+            // ptr - ptr: byte-level difference → i64
+            llvm::Value* l64 = builder->CreatePtrToInt(left,  llvm::Type::getInt64Ty(*context));
+            llvm::Value* r64 = builder->CreatePtrToInt(right, llvm::Type::getInt64Ty(*context));
+            result = builder->CreateSub(l64, r64, "ptrdiff");
+        } else if (left->getType()->isPointerTy()) {
             llvm::Value* neg = builder->CreateNeg(right, "neg");
             result = builder->CreateGEP(llvm::Type::getInt8Ty(*context), left, neg, "ptr.sub");
         } else {
-            promoteToFloat();
+            promoteToFloat(); widenForArith();
             result = left->getType()->isFloatingPointTy()
                 ? builder->CreateFSub(left, right)
                 : builder->CreateSub(left, right);
         }
     } else if (node->op == "*") {
-        promoteToFloat();
+        promoteToFloat(); widenForArith();
         result = left->getType()->isFloatingPointTy()
             ? builder->CreateFMul(left, right)
             : builder->CreateMul(left, right);
     } else if (node->op == "/") {
-        promoteToFloat();
+        promoteToFloat(); widenForArith();
         result = left->getType()->isFloatingPointTy()
             ? builder->CreateFDiv(left, right)
             : builder->CreateSDiv(left, right);
@@ -889,17 +963,17 @@ void CodeGen::visit(BinaryExpr* node) {
         result = builder->CreateLogicalAnd(left, right);
     } else if (node->op == "||") {
         result = builder->CreateLogicalOr(left, right);
-    // Bitwise operators
+    // Bitwise operators (widen narrower integer before operating)
     } else if (node->op == "&") {
-        result = builder->CreateAnd(left, right);
+        widenForBitwise(); result = builder->CreateAnd(left, right);
     } else if (node->op == "|") {
-        result = builder->CreateOr(left, right);
+        widenForBitwise(); result = builder->CreateOr(left, right);
     } else if (node->op == "^") {
-        result = builder->CreateXor(left, right);
+        widenForBitwise(); result = builder->CreateXor(left, right);
     } else if (node->op == "<<") {
-        result = builder->CreateShl(left, right);
+        widenForBitwise(); result = builder->CreateShl(left, right);
     } else if (node->op == ">>") {
-        result = builder->CreateAShr(left, right);
+        widenForBitwise(); result = builder->CreateAShr(left, right);
     } else {
         throw std::runtime_error("Unknown binary operator: " + node->op);
     }
@@ -1056,6 +1130,14 @@ void CodeGen::visit(CallExpr* node) {
 void CodeGen::visit(IndexExpr* node) {
     llvm::Value* idx = evaluateExpr(node->index);
     std::string baseType = getExprEskiuType(node->base);
+
+    // String indexing: string[i] → char element
+    if (baseType == "string") {
+        llvm::Value* ptr = evaluateExpr(node->base);
+        llvm::Value* gep = builder->CreateGEP(llvm::Type::getInt8Ty(*context), ptr, idx);
+        exprValueStack.push(builder->CreateLoad(llvm::Type::getInt8Ty(*context), gep));
+        return;
+    }
 
     // Fixed-size array: T[N]
     size_t lb = baseType.rfind('[');
