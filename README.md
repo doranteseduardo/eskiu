@@ -7,7 +7,7 @@ A systems language with C-style syntax, Go-style interfaces, and explicit memory
 ## Quick Start
 
 ```bash
-git clone https://github.com/yourusername/eskiu && cd eskiu
+git clone https://github.com/doranteseduardo/eskiu && cd eskiu
 cmake -S . -B build && cmake --build build -j$(nproc)
 ./build/eskiuc examples/hello.esk --test-codegen
 ```
