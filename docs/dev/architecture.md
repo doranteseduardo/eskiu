@@ -39,6 +39,8 @@ Source (.esk)
 
 **How they compose.** `main.cpp` runs each stage in sequence. The lexer is driven to exhaustion first — the full token stream is materialized into `std::vector<Token>` and handed to `Parser`. The parser returns `shared_ptr<Program>`. The type checker takes `Program*` and walks the tree through the visitor interface. Codegen takes `shared_ptr<Program>`, generates IR, verifies it with `llvm::verifyModule`, and calls `emitObjectFile()` which uses `llvm::TargetMachine` + `legacy::PassManager` to produce the `.o`. None of the stages modify the AST; they only read it and produce output.
 
+**Tooling CLI flags.** `--hover-at LINE:COL` runs the full pipeline through the type checker, then walks `program->declarations` to find the innermost AST node whose source range contains the given position and prints its inferred Eskiu type (from `expressionTypes`). `--definition-at LINE:COL` similarly finds the symbol at the given position and prints the `file:line:col` where that symbol was declared (from `functionSignatures`, `structs`, or the scope where the `VarDecl` was registered). Both flags are consumed by the VS Code extension for hover tooltips and go-to-definition navigation.
+
 ---
 
 ## Visitor Pattern
@@ -238,12 +240,15 @@ ASTNode                    (line:int, col:int)
     ├── IdentExpr          (name:string)
     ├── AllocExpr          (elemType:string, count:ExprPtr)
     ├── TemplateCallExpr   (templateName, typeArgs[], args[])
-    └── StructInitExpr     (structName, fieldInits[(name,ExprPtr)])
+    ├── StructInitExpr     (structName, fieldInits[(name,ExprPtr)])
+    └── LambdaExpr         (returnType:string, params[(type,name)], body:StmtPtr)
 
 Program                    (declarations: vector<DeclPtr>)  — root node
 ```
 
-`ASTVisitor` declares 26 pure-virtual `visit()` overloads (one per concrete class: `Program`, 5 `Decl` subtypes, 9 `Stmt` subtypes, 11 `Expr` subtypes).
+`ASTVisitor` declares 27 pure-virtual `visit()` overloads (one per concrete class: `Program`, 5 `Decl` subtypes, 9 `Stmt` subtypes, 12 `Expr` subtypes).
+
+`LambdaExpr` carries the full function signature and body inline. During codegen, `visit(LambdaExpr*)` saves the current insert point, emits a new private `llvm::Function` with a synthesized unique name (e.g. `__lambda_0`, `__lambda_1`), restores the insert point, and pushes the `llvm::Function*` onto `exprValueStack` as the expression value. The `fn(T,...)->R` type is stored in `expressionTypes` for that node so the type checker can validate assignments and call sites.
 
 ### `BlockItem = std::variant<DeclPtr, StmtPtr>` — why unified
 

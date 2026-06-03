@@ -790,17 +790,104 @@ clang file.o -lm -o file
 
 ---
 
+## Lambdas
+
+Eskiu supports anonymous functions (lambdas) as first-class values. The syntax
+mirrors a regular function declaration without a name.
+
+### Function pointer types
+
+Use the `fn(T,...)->R` syntax to declare a function pointer type:
+
+```eskiu
+let f: fn(int)->int;
+let g: fn(int, int)->bool;
+```
+
+### Writing a lambda
+
+```eskiu
+extern int printf(string fmt, ...);
+
+int main() {
+    let double_it: fn(int)->int = int(int x) { return x * 2; };
+    printf("%d\n", double_it(5));   // 10
+    return 0;
+}
+```
+
+### Passing lambdas as arguments
+
+```eskiu
+extern int printf(string fmt, ...);
+
+int apply(fn(int)->int f, int x) {
+    return f(x);
+}
+
+int main() {
+    let square: fn(int)->int = int(int n) { return n * n; };
+    printf("%d\n", apply(square, 6));        // 36
+    printf("%d\n", apply(int(int n) { return n + 1; }, 9));  // 10
+    return 0;
+}
+```
+
+Lambdas are not closures — they cannot capture variables from the surrounding
+scope. All inputs must be passed as explicit parameters.
+
+---
+
+## IDE Tooling (VS Code)
+
+The `editor/vscode/` directory contains a VS Code extension for Eskiu.
+
+### Install
+
+```bash
+ln -s $(pwd)/editor/vscode ~/.vscode/extensions/eskiu-language
+```
+
+Restart VS Code. `.esk` files will have syntax highlighting immediately.
+
+### Features
+
+| Feature | How it works |
+|---------|-------------|
+| Syntax highlighting | TextMate grammar (`eskiu.tmLanguage.json`) |
+| Real-time error squiggles | Extension runs `eskiuc --test-typechecker` on save and parses `file:line:col: message` output |
+| Hover type info | Extension calls `eskiuc --hover-at LINE:COL` and shows the result in a tooltip |
+| Go-to-definition | Extension calls `eskiuc --definition-at LINE:COL` and jumps to the returned location |
+
+### CLI flags used by the extension
+
+```bash
+# Print the inferred type of the expression at line 10, column 5
+eskiuc file.esk --hover-at 10:5
+
+# Print the definition location of the symbol at line 10, column 5
+eskiuc file.esk --definition-at 10:5
+```
+
+Both flags accept `LINE:COL` with 1-based line and column numbers and print a
+single line of output. They can also be used directly on the command line for
+scripting.
+
+---
+
 ## Using the Test Modes
 
-The compiler exposes four diagnostic flags that stop compilation after a specific
+The compiler exposes diagnostic flags that stop compilation after a specific
 phase and print what was produced. None of them produce an object file.
 
-| Flag                 | Phase        | Output                      | When to use                                   |
-| -------------------- | ------------ | --------------------------- | --------------------------------------------- |
-| `--test-lexer`       | Lexer        | Token stream with line/col  | Debugging unexpected parse errors             |
-| `--test-parser`      | Parser       | Indented AST                | Checking whether syntax is parsed correctly   |
-| `--test-typechecker` | Type checker | Errors or "type check OK"   | Catching type mismatches before codegen       |
-| `--test-codegen`     | Code gen     | LLVM IR                     | Inspecting what IR the compiler produces      |
+| Flag                      | Phase        | Output                       | When to use                                   |
+| ------------------------- | ------------ | ---------------------------- | --------------------------------------------- |
+| `--test-lexer`            | Lexer        | Token stream with line/col   | Debugging unexpected parse errors             |
+| `--test-parser`           | Parser       | Indented AST                 | Checking whether syntax is parsed correctly   |
+| `--test-typechecker`      | Type checker | Errors or "type check OK"    | Catching type mismatches before codegen       |
+| `--test-codegen`          | Code gen     | LLVM IR                      | Inspecting what IR the compiler produces      |
+| `--hover-at LINE:COL`     | Type checker | Type at position             | Hover type info (used by VS Code extension)   |
+| `--definition-at LINE:COL`| Type checker | Definition location          | Go-to-definition (used by VS Code extension)  |
 
 ### --test-lexer
 

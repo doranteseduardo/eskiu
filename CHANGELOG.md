@@ -9,18 +9,33 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ## [Unreleased]
 
-### Added
-- VS Code extension: syntax highlighting for `.esk` files (`editor/vscode/`)
-  — TextMate grammar covers keywords, types, literals, operators, function names, type names, template params
-  — Install via symlink: `ln -s $(pwd)/editor/vscode ~/.vscode/extensions/eskiu-language`
-
 ### Planned
-- **VS Code LSP extension** — language server using `eskiuc --test-typechecker` as backend; real-time error squiggles, hover types, go-to-definition
 - `argv`/`argc` — `int main(int argc, string* argv)` signature
-- `String.append` with dynamic realloc
 - Interface dispatch with typed return values
+- Self-hosting
 
 ---
+
+## [0.0.12-alpha] — 2026-06-03
+
+### Added
+
+**Lambdas and function pointer types**
+- `fn(T,...)->R` function pointer type syntax — first-class function types usable in variable declarations, struct fields, and parameter lists
+- Anonymous function expressions: `int(int x) { return x * 2; }` — C-like syntax producing a function pointer value
+- Lambda variables: `let double_it: fn(int)->int = int(int x) { return x * 2; };`
+- Higher-order functions: lambdas can be passed as arguments to functions expecting `fn(...)` parameters
+- `LambdaExpr` AST node; full visitor chain (parser, type checker, codegen, AST printer)
+- Codegen: each lambda expression is lowered to a uniquely-named private `llvm::Function`; the expression value is the function pointer
+
+**VS Code extension — real-time diagnostics, hover, and go-to-definition**
+- `--hover-at LINE:COL` CLI flag — prints the inferred Eskiu type of the expression at the given source position; consumed by the VS Code extension for hover tooltips
+- `--definition-at LINE:COL` CLI flag — prints the `file:line:col` of the definition of the symbol at the given position; consumed for go-to-definition
+- VS Code extension (`editor/vscode/`) upgraded from syntax-only to a full language client: spawns `eskiuc --test-typechecker` on save for real-time error squiggles; hover provider calls `--hover-at`; definition provider calls `--definition-at`
+- TextMate grammar already present from v0.0.11 provides syntax highlighting
+
+**switch/case type checking**
+- The type checker now validates that each `case` value is compatible with the `switch` subject expression type; mismatched case types are reported as errors at the `case` token position
 
 ## [0.0.11-alpha] — 2026-06-03
 
@@ -78,8 +93,6 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ### Planned
 - `argv`/`argc` support — programs can accept CLI arguments natively
-- `String.append()` with dynamic `realloc` — current stdlib stub replaced with a growing implementation
-- `List<T>` auto-resize — `List_push` reallocs when at capacity
 
 ---
 

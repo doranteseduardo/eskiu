@@ -60,6 +60,8 @@ Interfaces         Phase 5.5                  complete — vtable dispatch + str
 Templates          Phase 5.5                  complete — struct + function templates
 Heap / alloc/free  Phase 6                    complete
 stdlib             Phase 7                    complete — Result, List, String, math/io/mem
+Lambdas            Phase 8                    complete — fn(T,...)->R type, anonymous functions
+VS Code extension  tooling                    complete — syntax highlighting, errors, hover, goto-def
 ```
 
 ## Language Features
@@ -81,6 +83,13 @@ interface Drawable { void draw(); }
 void render(Drawable d) { d.draw(); }
 render(&myCircle);  // auto-boxed
 
+// Lambdas and function pointers
+let double_it: fn(int)->int = int(int x) { return x * 2; };
+int result = double_it(5);  // 10
+
+int apply(fn(int)->int f, int x) { return f(x); }
+apply(double_it, 4);  // 8
+
 // Multi-file
 import "stdlib/result.esk";
 
@@ -92,14 +101,16 @@ free(buf);
 
 ## CLI Flags
 
-| Flag                   | Action                          |
-|------------------------|---------------------------------|
-| `--test-lexer`         | Print token stream              |
-| `--test-parser`        | Print AST                       |
-| `--test-typechecker`   | Type check and report errors    |
-| `--test-codegen`       | Print LLVM IR                   |
-| `-o file.o`            | Emit native object file         |
-| `--version`            | Print version                   |
+| Flag                      | Action                                    |
+|---------------------------|-------------------------------------------|
+| `--test-lexer`            | Print token stream                        |
+| `--test-parser`           | Print AST                                 |
+| `--test-typechecker`      | Type check and report errors              |
+| `--test-codegen`          | Print LLVM IR                             |
+| `-o name`                 | Compile and link to executable            |
+| `--hover-at LINE:COL`     | Print type of expression at position      |
+| `--definition-at LINE:COL`| Print definition location of symbol       |
+| `--version`               | Print version                             |
 
 ## Type System
 

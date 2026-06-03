@@ -26,10 +26,12 @@ Requires LLVM 17+. The binary is `build/eskiuc`.
 Always validate with the relevant test flag before moving to the next phase:
 
 ```bash
-./build/eskiuc <file.esk> --test-lexer        # print token stream
-./build/eskiuc <file.esk> --test-parser       # print AST
-./build/eskiuc <file.esk> --test-typechecker  # run sema, report errors
-./build/eskiuc <file.esk> --test-codegen      # print LLVM IR
+./build/eskiuc <file.esk> --test-lexer           # print token stream
+./build/eskiuc <file.esk> --test-parser          # print AST
+./build/eskiuc <file.esk> --test-typechecker     # run sema, report errors
+./build/eskiuc <file.esk> --test-codegen         # print LLVM IR
+./build/eskiuc <file.esk> --hover-at LINE:COL    # print type at position
+./build/eskiuc <file.esk> --definition-at LINE:COL  # print definition location
 ```
 
 Use files in `examples/` and `test/` as inputs. Add a new `.esk` file for any feature you implement.
@@ -153,29 +155,36 @@ The INE decoder (`ine_decoder/`) runs end-to-end at **74.4 ms** on arm64. All la
 
 ### Recommended next steps (future versions)
 
-These are known gaps that were deferred out of v0.1 scope. Pick them up when starting v0.2 or v1.0 work.
+These are known gaps deferred beyond v0.0.12. Pick them up when starting v0.2 or v1.0 work.
 
 **Near-term (v0.2):**
 - `argv`/`argc` — expose `main(int argc, string* argv)` signature; thread through CLI entry point
-- `String.append` realloc — current implementation does not grow the buffer; needs `realloc` call when `len + added > capacity`
-- `List<T>` auto-resize — `List_push` should double capacity on overflow via `realloc`, matching the stdlib contract
 - Interface typed return values — functions returning an interface type currently lose static type info; needs fat-pointer propagation through the return path
-- Lambdas — `fn(x) => expr` syntax; closures captured by reference via an env struct pointer
 
 **Long-term (v1.0):**
 - Threads — `thread` keyword or stdlib `spawn`; requires a threading model decision (pthreads wrapper vs. green threads)
 - Exceptions — `try`/`catch`/`throw`; likely LLVM `landingpad` + Itanium ABI unwind
+- Self-hosting — requires argv/argc, interface typed returns
 
 ### Phase boundary note
 
-The compiler is feature-complete for v0.1. The decoder is fully ported to Eskiu and running at 80 ms.
+The compiler is feature-complete through v0.0.12. The decoder is fully ported to Eskiu and running at 80 ms.
 
-**Editor tooling (v0.0.11):**
-- `editor/vscode/` — TextMate grammar for `.esk` syntax highlighting
+**Lambdas (v0.0.12):**
+- `fn(T,...)->R` function pointer type; anonymous function expressions `T(T x) { ... }`
+- `LambdaExpr` AST node; full visitor chain (parser, type checker, codegen, printer)
+- Lambdas lower to private named functions in LLVM IR; not closures (no capture)
+
+**Editor tooling (v0.0.12):**
+- `--hover-at LINE:COL` — print inferred Eskiu type at position (used by VS Code hover provider)
+- `--definition-at LINE:COL` — print `file:line:col` of symbol definition (used by VS Code goto-def)
+- `editor/vscode/` extension upgraded: real-time error squiggles (via `--test-typechecker`), hover types, go-to-definition
 - Install: `ln -s $(pwd)/editor/vscode ~/.vscode/extensions/eskiu-language`
-- Next tooling goal: VS Code LSP extension using `eskiuc --test-typechecker` for real-time errors
 
-**Next language work (v0.2 branch):** `argv`/`argc` → `String.append` realloc → `List<T>` auto-resize → interface typed returns.
+**switch/case type checking (v0.0.12):**
+- Type checker now validates that `case` values are compatible with the `switch` subject type
+
+**Next language work (v0.2 branch):** `argv`/`argc` → interface typed returns → self-hosting prerequisites.
 
 ## Error format
 

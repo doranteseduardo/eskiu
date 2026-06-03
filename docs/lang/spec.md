@@ -197,7 +197,24 @@ interface Drawable { void draw(); }
 // any struct with a draw() method satisfies Drawable
 ```
 
-### 3.7 Type Casting
+### 3.7 Function Pointer Types
+
+A function pointer type is written using the `fn` keyword:
+
+```eskiu
+fn(int)->int          // function taking one int, returning int
+fn(int, int)->bool    // function taking two ints, returning bool
+fn()->void            // function taking no arguments, returning void
+```
+
+Function pointer types can be used anywhere a type annotation is expected: variable declarations, struct fields, and function parameters.
+
+```eskiu
+let callback: fn(int)->int = int(int x) { return x * 2; };
+int apply(fn(int)->int f, int x) { return f(x); }
+```
+
+### 3.8 Type Casting
 
 An explicit cast is written as `(TYPE)expr`. The expression is converted to the named type at the point of the cast.
 
@@ -405,7 +422,34 @@ User-defined variadic functions are not supported. `...` is only valid in `exter
 
 `extern` declares a C function available to Eskiu code. See §13 for details.
 
-### 6.5 Template Functions
+### 6.5 Lambdas
+
+An anonymous function (lambda) is written with a C-style function body and no name. The syntax is identical to a named function declaration without the name:
+
+```eskiu
+int(int x) { return x * 2; }
+```
+
+The type of a lambda is the corresponding function pointer type `fn(T,...)->R`. Lambdas are assigned to variables, passed as arguments, or used anywhere a function pointer value is expected.
+
+```eskiu
+// Assign to a variable
+let double_it: fn(int)->int = int(int x) { return x * 2; };
+int result = double_it(5);   // result == 10
+
+// Pass as an argument
+int apply(fn(int)->int f, int x) {
+    return f(x);
+}
+int out = apply(double_it, 4);   // out == 8
+
+// Inline (pass directly)
+int out2 = apply(int(int x) { return x + 1; }, 9);  // out2 == 10
+```
+
+Each lambda expression is lowered to a private named function in LLVM IR. Lambdas are not closures — they cannot capture variables from the enclosing scope. All inputs must be passed as explicit parameters.
+
+### 6.6 Template Functions
 
 Template functions are parameterized by one or more type variables declared in angle brackets after the function name:
 
@@ -492,7 +536,7 @@ switch (x) {
 }
 ```
 
-`switch` dispatches on an integer value. `break` exits the enclosing switch. If `break` is omitted, control falls through to the next case.
+`switch` dispatches on an integer value. `break` exits the enclosing switch. If `break` is omitted, control falls through to the next case. The type checker validates that each `case` value is compatible with the type of the `switch` subject expression.
 
 ### 7.5 return
 
@@ -939,7 +983,24 @@ int main() {
 
 ---
 
-## 15. Error Reporting
+## 15. CLI Flags
+
+| Flag | Action |
+|------|--------|
+| `eskiuc file.esk` | Compile to `.o` object file |
+| `eskiuc file.esk -o name` | Compile and link to executable |
+| `eskiuc file.esk --test-lexer` | Dump token stream |
+| `eskiuc file.esk --test-parser` | Dump AST |
+| `eskiuc file.esk --test-typechecker` | Type check only; print errors |
+| `eskiuc file.esk --test-codegen` | Dump LLVM IR |
+| `eskiuc file.esk --hover-at LINE:COL` | Print inferred type at position |
+| `eskiuc file.esk --definition-at LINE:COL` | Print definition location of symbol |
+
+`--hover-at` and `--definition-at` accept the format `LINE:COL` with 1-based line and column numbers. They are used by the VS Code extension to provide hover type information and go-to-definition navigation.
+
+---
+
+## 16. Error Reporting
 
 The compiler emits diagnostics with full source location information:
 
