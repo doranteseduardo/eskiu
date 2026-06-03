@@ -55,8 +55,15 @@ Version history and release notes for Eskiu Lang.
 - CONTRIBUTING.md (contributor guide)
 - INDEX.md (navigation hub)
 
-### Known Limitations
+### Known Limitations & Gaps
 
+**Architectural issues (being refactored before Phase 5):**
+- BlockStmt uses two separate lists (declarations + statements) instead of unified list → breaks interleaved decls/stmts
+- Codegen uses lastExprValue global state → breaks with nested expressions
+- Pointer types not tracked properly (*int, *Point treated identically) → needed for struct methods
+- Struct existence not fully validated → incomplete Phase 4
+
+**Missing features:**
 - **No templates/generics** (Phase 5)
 - **No custom allocators** (Phase 6)
 - **No standard library** (Phase 7)
