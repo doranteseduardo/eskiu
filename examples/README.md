@@ -2,141 +2,92 @@
 
 This directory contains real Eskiu programs demonstrating language features.
 
-## Table of Examples
+## How to Run
+
+Compile any example with `eskiuc`, link with `clang`, then run:
+
+```bash
+eskiuc examples/hello.esk -o hello.o && clang hello.o -o hello && ./hello
+```
+
+Substitute the filename and output names as needed. The compiler binary is `eskiuc` — there is no `eskiu compile` subcommand.
+
+---
+
+## Examples
 
 ### [hello.esk](hello.esk)
 
-**What it demonstrates:** Basic program structure, `extern` C functions, `main` entry point
-
-**Difficulty:** Beginner
+Demonstrates `extern` C function declarations, top-level functions, integer types, and basic arithmetic.
 
 ```bash
-cd ../build
-./eskiu compile ../examples/hello.esk -o hello
-./hello
-# Output: Hello, Eskiu!
+eskiuc examples/hello.esk -o hello.o && clang hello.o -o hello && ./hello
+# Hello from Eskiu!
+# Result: 8
 ```
 
-**Key concepts:**
-- `extern fn` for declaring C functions
-- `printf` for output
-- `main` returns exit code
+Key concepts:
+- `extern int printf(string fmt, ...)` — declare a C function for use in Eskiu
+- Defining and calling a plain function (`add`)
+- `int main()` as the program entry point
 
 ---
 
-### [fibonacci.esk](fibonacci.esk)
+### [test_struct.esk](test_struct.esk)
 
-**What it demonstrates:** Loops, recursion, function definitions
-
-**Difficulty:** Beginner
+Demonstrates struct definitions with float fields and `let`-style variable declarations with member access.
 
 ```bash
-./eskiu compile ../examples/fibonacci.esk -o fib
-./fib
+eskiuc examples/test_struct.esk -o test_struct.o && clang test_struct.o -o test_struct && ./test_struct
 ```
 
-**Key concepts:**
-- `for` loops with explicit counters
-- Recursive functions
-- Local variables
-- Return values
+Key concepts:
+- `struct` with named float fields
+- `let p: Point` — typed variable declaration using a struct type
+- `.` operator for reading struct members
 
 ---
 
-### [struct_usage.esk](struct_usage.esk)
+### [test_struct_error.esk](test_struct_error.esk)
 
-**What it demonstrates:** Struct definitions, member access, struct initialization
-
-**Difficulty:** Intermediate
+Demonstrates the type checker catching an access to a field that does not exist on a struct. This example is intentionally invalid — it does **not** compile successfully.
 
 ```bash
-./eskiu compile ../examples/struct_usage.esk -o structs
-./structs
+eskiuc examples/test_struct_error.esk --test-typechecker
+# error: file.esk:8: unknown field 'z' on struct 'Point'
 ```
 
-**Key concepts:**
-- `struct` definition with fields
-- Memory layout (fields stored contiguously)
-- Accessing members with `.` operator
-- Passing structs to functions
+Key concepts:
+- Struct field validation at compile time
+- Reading type checker error output
 
 ---
 
-## How to Run Any Example
+## Inspection Modes
 
-From the `build/` directory:
+Pass one of these flags instead of `-o` to inspect a compilation stage without producing an object file:
+
+| Flag | What it shows |
+|------|---------------|
+| `--test-lexer` | Token stream produced by the lexer |
+| `--test-parser` | Parsed AST printed to stdout |
+| `--test-typechecker` | Type checker output and any errors |
+| `--test-codegen` | Generated LLVM IR |
+
+Example:
 
 ```bash
-# Compile to executable
-./eskiu compile ../examples/FILENAME.esk -o OUTPUT_NAME
-
-# Run it
-./OUTPUT_NAME
-```
-
-Or compile and run in one command:
-
-```bash
-./eskiu compile ../examples/FILENAME.esk -o /tmp/out && /tmp/out
+eskiuc examples/hello.esk --test-codegen
 ```
 
 ---
 
-## How to Understand an Example
+## What to Try Next
 
-1. **Read the code:** Follow comments
-2. **Predict output:** Before running, think about what it should print
-3. **Run it:** `./OUTPUT_NAME`
-4. **Compare:** Did the output match your prediction?
-5. **Modify:** Change the code and recompile—experiment!
+Once the basics work, try writing:
 
----
+- A struct with methods — define a function that takes a `Point` and computes its distance from the origin
+- A generic container — use a template type parameter: `struct Box<T> { T value; }`
+- An interface — declare an interface and implement it on a struct to see structural typing in action
 
-## Debugging Examples
-
-If an example doesn't compile:
-
-```bash
-# See tokens
-./eskiu compile ../examples/FILENAME.esk --test-lexer
-
-# See parsed AST
-./eskiu compile ../examples/FILENAME.esk --test-parser
-
-# See type checking errors
-./eskiu compile ../examples/FILENAME.esk --test-typechecker
-
-# See generated LLVM
-./eskiu compile ../examples/FILENAME.esk --test-codegen
-```
-
----
-
-## Progress by Phase
-
-- **Phase 1 (Lexer):** All examples work
-- **Phase 2 (Parser):** All examples work
-- **Phase 3 (Codegen):** All examples work
-- **Phase 4 (Type Checker):** All examples work
-
----
-
-## Next Steps
-
-1. **Learn the basics:** Run [hello.esk](#helloesk) and modify it
-2. **See loops:** Run [fibonacci.esk](#fibonacciesk)
-3. **Understand structs:** Run [struct_usage.esk](#struct_usageesk)
-4. **Read the spec:** See [LANGUAGE_SPEC.md](../docs/LANGUAGE_SPEC.md)
-5. **Get started:** See [GETTING_STARTED.md](../docs/GETTING_STARTED.md)
-
----
-
-## Contributing Examples
-
-Have a good example? Submit a pull request! Examples should:
-
-- Fit in ~30 lines
-- Demonstrate one or two features clearly
-- Have comments explaining key concepts
-- Actually compile and run without errors
-- Follow the naming convention `feature_name.esk`
+Language reference: [docs/lang/spec.md](../docs/lang/spec.md)

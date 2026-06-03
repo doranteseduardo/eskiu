@@ -1,25 +1,50 @@
-# Eskiu Test Files
+# Eskiu Test Directory
 
-Test files and utilities for verifying the Eskiu compiler.
+Test files and utilities for verifying the Eskiu compiler. Testing is manual: there is no automated test runner. Each `.esk` file exercises specific language features, and you verify them by passing compiler flags.
 
 ## Test Files
 
-### Parser Tests
+- **test_hello.esk** — Simple hello world program using `int` types and variadic extern. Good smoke-test for a full compile run.
+- **test_correct_syntax.esk** — Core syntax test covering extern declarations with pointer parameters (`i8*`), function definitions, variable declarations inside a block, and nested function calls. The canonical file to run through all compiler phases.
+- **test_extern_only.esk** — Minimal single-line test for extern declaration parsing. Useful for isolating the lexer/parser on extern alone.
+- **test_parser_only** — Standalone parser verification tool (binary or source, see below).
 
-- **test_hello.esk** — Simple hello world program (copy of examples/hello.esk)
-- **test_correct_syntax.esk** — Demonstrates correct C-style syntax
-  - Extern declaration with pointer parameters
-  - Function definitions
-  - Variable declarations inside function body
-  - Nested function calls
-  
-- **test_extern_only.esk** — Minimal test for extern declaration parsing
+## Running Tests
 
-## Parser Test Tool
+Build the compiler first:
 
-**test_parser_only** — Standalone parser verification tool
+```bash
+cmake -B build && cmake --build build
+```
 
-Build it locally:
+Then run a test file through any phase with the corresponding flag:
+
+```bash
+# Lexer only
+./build/eskiuc test/test_correct_syntax.esk --test-lexer
+
+# Parser only
+./build/eskiuc test/test_correct_syntax.esk --test-parser
+
+# Type checker
+./build/eskiuc test/test_correct_syntax.esk --test-typechecker
+
+# Code generation (emits LLVM IR)
+./build/eskiuc test/test_correct_syntax.esk --test-codegen
+```
+
+Run all phases in sequence to confirm nothing regressed:
+
+```bash
+for phase in --test-lexer --test-parser --test-typechecker --test-codegen; do
+    echo "=== $phase ===" && ./build/eskiuc test/test_correct_syntax.esk $phase
+done
+```
+
+## Standalone Parser Tool
+
+`test_parser_only` is a standalone binary that exercises the lexer + parser + AST printer without pulling in sema or codegen. Build it from source:
+
 ```bash
 g++ -std=c++17 -I.. -o test_parser_only \
   test_parser_main.cpp \
@@ -29,97 +54,96 @@ g++ -std=c++17 -I.. -o test_parser_only \
   ../ast/ast_printer.cpp
 ```
 
-Usage:
+Run it:
+
 ```bash
 ./test_parser_only test_correct_syntax.esk
 ```
 
-Expected output:
-```
-Program
-  ExternDecl: printf → i32
-  FunctionDecl: add → i32
-    BlockStmt
-      ...
-  FunctionDecl: main → i32
-    BlockStmt
-      VarDecl: x = 5
-      VarDecl: y = 10
-      ...
-```
+## Syntax Reminder
 
-## Test Categories
+Both declaration styles are valid in Eskiu:
 
-### Syntax Tests
-
-Files that verify specific language features:
-
-- **Extern declarations:** test_extern_only.esk
-- **Functions:** test_correct_syntax.esk
-- **Variables in blocks:** test_correct_syntax.esk
-- **C-style pointers:** test_correct_syntax.esk
-
-### Compiler Phases
-
-Run tests with the main compiler:
-
-```bash
-# Test lexer
-./build/eskiuc test/test_correct_syntax.esk --test-lexer
-
-# Test parser
-./build/eskiuc test/test_correct_syntax.esk --test-parser
-
-# Test type checker
-./build/eskiuc test/test_correct_syntax.esk --test-typechecker
-
-# Test codegen
-./build/eskiuc test/test_correct_syntax.esk --test-codegen
-```
-
-## Adding New Tests
-
-When adding new test files:
-
-1. Name them clearly: `test_<feature>.esk`
-2. Include comments explaining what's being tested
-3. Ensure they use **C-style syntax** (not Rust-style)
-4. Add a description in this README
-
-Example:
 ```esk
-// Test: Variable declaration with initialization
-i32 x = 42;
+// C-style (original)
+int x = 5;
+
+// Let-style (also supported)
+let x: int = 5;
 ```
 
-## Syntax Reminder: C-Style (Not Rust)
+Both forms pass the type checker.
 
-### ❌ Wrong (Rust-style)
+### Function declaration
 ```esk
-fn main() -> i32 {
-    let x: i32 = 5;
+int add(int a, int b) {
+    return a + b;
+}
+```
+
+### Extern declaration
+```esk
+extern i32 printf(i8* fmt);
+```
+
+### Struct with method
+```esk
+struct Point {
+    int x;
+    int y;
+}
+
+int Point.distance(Point other) {
     return 0;
 }
 ```
 
-### ✅ Correct (C-style)
+### Template
 ```esk
-i32 main() {
-    i32 x = 5;
-    return 0;
+fn identity<T>(T value) -> T {
+    return value;
 }
 ```
 
-## Known Issues
+### Interface (structural typing)
+```esk
+interface Printable {
+    fn print() -> void;
+}
+```
 
-None currently. All test files pass parser validation.
+## Adding Tests for New Features
 
-## Maintenance
+1. Create `test/test_<feature>.esk`.
+2. Open with a comment block describing what is being tested and the expected outcome.
+3. Use the simplest code that exercises the feature — do not combine multiple unrelated features in one file.
+4. Run through all four phases (`--test-lexer` through `--test-codegen`) and note which phases are expected to pass.
+5. Add an entry in the coverage table below.
 
-When you update the compiler:
-- Re-run all tests to ensure parsing still works
-- Add new tests for new language features
-- Update this README with new test files
+## Recommended Test Flow for a New Feature
+
+1. Write the grammar change (parser).
+2. Add a minimal `.esk` file in `test/` that uses the new syntax.
+3. Confirm `--test-parser` prints the correct AST node.
+4. Add type-checker handling. Confirm `--test-typechecker` passes.
+5. Add codegen. Confirm `--test-codegen` emits correct LLVM IR.
+6. Optionally link and run the resulting binary end-to-end.
+7. Update the coverage table below and commit both the `.esk` file and the README change together.
+
+## Test Coverage Index
+
+| File | Lexer | Parser | TypeChecker | Codegen | Notes |
+|------|-------|--------|-------------|---------|-------|
+| test_hello.esk | OK | OK | OK | OK | Uses `int` and variadic extern |
+| test_correct_syntax.esk | OK | OK | OK | OK | Primary regression file |
+| test_extern_only.esk | OK | OK | OK | OK | Single extern line |
+
+Add a row here whenever you add a new test file.
+
+## Known Gaps
+
+- `switch/case` passes codegen but the type checker does not validate case expression types.
+- Interface dispatch vtable uses `void` return type — typed return values not yet wired.
 
 ---
 

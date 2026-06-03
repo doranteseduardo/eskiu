@@ -80,8 +80,11 @@ Use files in `examples/` and `test/` as inputs. Add a new `.esk` file for any fe
 
 ## Current phase boundary
 
-Phases 0–5 (partial) are implemented. The full compilation pipeline is working:
-`eskiuc file.esk -o file.o` → `clang file.o -o file` → runs.
+**v0.1 — COMPLETE. The decoder is the reference implementation.**
+
+The INE decoder (`ine_decoder/`) runs end-to-end at **74.4 ms** on arm64. All language features targeted for v0.1 are implemented and validated against this real-world workload. No active development is needed on the compiler to support the decoder.
+
+### What was delivered
 
 **Phase 5 — COMPLETE (core):**
 - `visit(StructDecl*)` — `llvm::StructType::create`; methods emitted as `Name_method(ptr self, ...)`
@@ -92,11 +95,6 @@ Phases 0–5 (partial) are implemented. The full compilation pipeline is working
 - Method calls: `p.method(args)` → `call @Type_method(ptr %p, args)`
 - `emitObjectFile()` — native object via LLVM `TargetMachine`
 - Float `+`/`-`/`*` now emit `fadd`/`fsub`/`fmul`
-
-**Phase 5.5 — what remains:**
-- Interface dispatch (vtable as struct of function pointers)
-- Monomorphic templates (`List<T>` → `List_int`)
-- `switch`/`case`
 
 **Phase 6 — COMPLETE:**
 - `alloc(T, N)` → `call @malloc(i64 N * sizeof(T))`; `AllocExpr` AST node
@@ -137,7 +135,7 @@ Phases 0–5 (partial) are implemented. The full compilation pipeline is working
 - `&` address-of fixed (was returning loaded value)
 - `-` unary for floats fixed (`CreateFNeg`), `!` on integers fixed (`ICmpEQ`)
 
-**Remaining gaps — COMPLETE:**
+**Remaining gaps (all closed) — COMPLETE:**
 - `import "file.esk"` — multi-file, relative paths, dedup
 - Interface vtable dispatch — `%I_fat = {ptr data, ptr vtable}`; auto-boxing; indirect call
 - `String.append()` / `String.concat()` — in stdlib/string.esk
@@ -148,11 +146,29 @@ Phases 0–5 (partial) are implemented. The full compilation pipeline is working
 - Integer width mismatch in ICmp: ZExt narrower operand before all comparison ops
 - Mixed int/float arithmetic: SIToFP promotion in +, -, *, / when types differ
 
-**INE decoder skeleton: `ine_decoder/`**
+**INE decoder — COMPLETE:**
 - All five .esk files compile to .o (46KB arm64)
-- Pending: zxing-cpp image loading in `qr_extract_impl.cpp`
+- Decoder runs at **74.4 ms** on arm64
+- `ine_decoder/` is the canonical reference implementation for v0.1
 
-**Language status: v0.1 COMPLETE.**
+### Recommended next steps (future versions)
+
+These are known gaps that were deferred out of v0.1 scope. Pick them up when starting v0.2 or v1.0 work.
+
+**Near-term (v0.2):**
+- `argv`/`argc` — expose `main(int argc, string* argv)` signature; thread through CLI entry point
+- `String.append` realloc — current implementation does not grow the buffer; needs `realloc` call when `len + added > capacity`
+- `List<T>` auto-resize — `List_push` should double capacity on overflow via `realloc`, matching the stdlib contract
+- Interface typed return values — functions returning an interface type currently lose static type info; needs fat-pointer propagation through the return path
+- Lambdas — `fn(x) => expr` syntax; closures captured by reference via an env struct pointer
+
+**Long-term (v1.0):**
+- Threads — `thread` keyword or stdlib `spawn`; requires a threading model decision (pthreads wrapper vs. green threads)
+- Exceptions — `try`/`catch`/`throw`; likely LLVM `landingpad` + Itanium ABI unwind
+
+### Phase boundary note
+
+There is no active development needed on the Eskiu compiler to support the current decoder workload. The compiler is feature-complete for v0.1. New work should begin on a fresh branch targeting v0.2, starting with `argv`/`argc` and `String.append` realloc as the lowest-risk, highest-value items.
 
 ## Error format
 

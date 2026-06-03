@@ -1,5 +1,7 @@
 # Quickstart
 
+You have LLVM installed. You will have a native binary running in under 5 minutes.
+
 ## Build
 
 ```bash
@@ -7,6 +9,8 @@ cmake -S . -B build
 cmake --build build
 ./build/eskiuc --version
 ```
+
+Expected output: `Eskiu 0.0.1 (LLVM ...)`
 
 ## Hello, Eskiu
 
@@ -27,83 +31,90 @@ int main() {
 }
 ```
 
-Emit LLVM IR:
+Compile to a native binary and run it:
+
+```bash
+./build/eskiuc hello.esk -o hello.o && clang hello.o -o hello && ./hello
+```
+
+Output:
+
+```
+Hello from Eskiu!
+Result: 8
+```
+
+To inspect the generated LLVM IR instead of producing an object file:
 
 ```bash
 ./build/eskiuc hello.esk --test-codegen
 ```
 
-Output:
+## Struct with a method
 
-```llvm
-; ModuleID = 'eskiu'
-source_filename = "eskiu"
-
-@0 = private unnamed_addr constant [19 x i8] c"Hello from Eskiu!\0A\00", align 1
-@1 = private unnamed_addr constant [12 x i8] c"Result: %d\0A\00", align 1
-
-declare i32 @printf(ptr, ...)
-
-define i32 @add(i32 %a, i32 %b) {
-entry:
-  %0 = add i32 %a, %b
-  ret i32 %0
-}
-
-define i32 @main() {
-entry:
-  %result = alloca i32, align 4
-  %0 = call i32 @add(i32 5, i32 3)
-  store i32 %0, ptr %result, align 4
-  %1 = call i32 (ptr, ...) @printf(ptr @0)
-  %2 = load i32, ptr %result, align 4
-  %3 = call i32 (ptr, ...) @printf(ptr @1, i32 %2)
-  ret i32 0
-}
-```
-
-## Count to 5
+Eskiu structs hold data. Methods are plain functions that take a pointer to the struct as their first argument.
 
 ```eskiu
 extern int printf(string fmt, ...);
 
+struct Point {
+    int x;
+    int y;
+}
+
+int Point_sum(Point* self) {
+    return self.x + self.y;
+}
+
 int main() {
-    int i = 1;
-    while (i <= 5) {
-        printf("%d\n", i);
-        i = i + 1;
-    }
+    let p: Point;
+    p.x = 3;
+    p.y = 7;
+    int s = Point_sum(&p);
+    printf("sum = %d\n", s);
     return 0;
 }
 ```
 
-```llvm
-@0 = private unnamed_addr constant [4 x i8] c"%d\0A\00", align 1
+```bash
+./build/eskiuc point.esk -o point.o && clang point.o -o point && ./point
+```
 
-declare i32 @printf(ptr, ...)
+Output:
 
-define i32 @main() {
-entry:
-  %i = alloca i32, align 4
-  store i32 1, ptr %i, align 4
-  br label %while
+```
+sum = 10
+```
 
-while:
-  %0 = load i32, ptr %i, align 4
-  %1 = icmp sle i32 %0, 5
-  br i1 %1, label %while_body, label %while_exit
+## alloc / free with pointer arithmetic
 
-while_body:
-  %2 = load i32, ptr %i, align 4
-  %3 = call i32 (ptr, ...) @printf(ptr @0, i32 %2)
-  %4 = load i32, ptr %i, align 4
-  %5 = add i32 %4, 1
-  store i32 %5, ptr %i, align 4
-  br label %while
+`alloc(T, n)` allocates `n` elements of type `T` and returns a typed pointer. Index with `[]`. Call `free` when done.
 
-while_exit:
-  ret i32 0
+```eskiu
+extern int printf(string fmt, ...);
+extern void free(*void ptr);
+
+int main() {
+    *int buf = alloc(int, 4);
+    buf[0] = 10;
+    buf[1] = 20;
+    buf[2] = 30;
+    buf[3] = 40;
+    int sum = buf[0] + buf[1] + buf[2] + buf[3];
+    printf("sum = %d\n", sum);
+    free(buf);
+    return 0;
 }
+```
+
+```bash
+./build/eskiuc mem.esk -o mem.o && clang mem.o -o mem && ./mem
+```
+
+Output:
+
+```
+sum = 100
 ```
 
 ## What's next
