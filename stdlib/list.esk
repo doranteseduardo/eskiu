@@ -1,0 +1,33 @@
+// List<T> — growable dynamic array
+// Link: clang file.o -o file  (uses alloc/free from language builtins)
+
+struct List<T> {
+    *T  data;
+    int size;
+    int cap;
+}
+
+void List_init<T>(List<T>* self, int initial_cap) {
+    self.data = alloc(T, initial_cap);
+    self.size = 0;
+    self.cap  = initial_cap;
+}
+
+void List_push<T>(List<T>* self, T item) {
+    self.data[self.size] = item;
+    self.size = self.size + 1;
+}
+
+T List_get<T>(List<T>* self, int i) {
+    return self.data[i];
+}
+
+int List_len<T>(List<T>* self) {
+    return self.size;
+}
+
+void List_free<T>(List<T>* self) {
+    free(self.data);
+    self.size = 0;
+    self.cap  = 0;
+}

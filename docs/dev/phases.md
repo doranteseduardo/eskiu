@@ -4,7 +4,7 @@
 
 Authoritative status reference for Eskiu compiler contributors. Supersedes `docs/PHASES.md`.
 
-Last updated: 2026-06-02. Phases 0–7 (core) are COMPLETE. Interface dispatch (Phase 5.5) and List\<T\>/String (Phase 7) remain. INE decoder port is the next milestone.
+Last updated: 2026-06-02. Phases 0–7 are COMPLETE. Interface vtable dispatch remains (not needed for v0.1). Next: INE decoder port.
 
 ---
 
@@ -214,7 +214,7 @@ None.
 - Parameters inserted into function-body scope before checking body
 
 ### Known Gaps
-- Source line/column numbers in error messages always report `0:0` — AST nodes do not carry position info yet
+- ~~Source line/column always `0:0`~~ — fixed: `ASTNode` carries `line`/`col`, parser stamps all expression/statement nodes
 - Filename is hardcoded rather than taken from the CLI argument
 - No implicit numeric promotion warnings (e.g. `int64` assigned to `int32` without cast)
 
@@ -384,26 +384,26 @@ Both compile, link, and produce correct output.
 
 ## Phase 7 — Result\<T,E\> + Stdlib
 
-**Status: PARTIAL — core stdlib files created; List\<T\> and String pending**
+**Status: COMPLETE (core)**
 
 **Goal:** Error propagation without exceptions; core standard library modules.
 
 ### Implemented
 
-- **`stdlib/result.esk`** — `struct Result<T,E>` + `Ok<T,E>` / `Err<T,E>` template constructors; `Result<int,string>` compiles and runs end-to-end
-- **`stdlib/math.esk`** — `sqrt`, `fabs`, `pow`, `floor`, `ceil`, `abs` as `extern` declarations (link with `-lm`)
+- **`stdlib/result.esk`** — `struct Result<T,E>` + `Ok<T,E>` / `Err<T,E>` template constructors
+- **`stdlib/list.esk`** — `List<T>` with `List_init`, `List_push`, `List_get`, `List_len`, `List_free`; tested end-to-end
+- **`stdlib/string.esk`** — `String` with `String_init`, `String_from`, `String_cstr`, `String_len`, `String_free`
+- **`stdlib/math.esk`** — `sqrt`, `fabs`, `pow`, `floor`, `ceil`, `abs` (extern to libm)
 - **`stdlib/io.esk`** — `printf`, `fprintf`, `sprintf`, `scanf`, `puts`, `getchar`, `putchar`
 - **`stdlib/mem.esk`** — `memcpy`, `memset`, `memmove`, `memcmp`, `strlen`, `memchr`
 
 ### Remaining
-- `List<T>` — growable array backed by `alloc`/`free`; requires method templates
-- `String` mutable type — `{ *char data; int len; int cap }` with `append`, `len`, `cstr`
+- `String.append()` — needs dynamic realloc
+- Higher-order collection functions — Phase 8
 
 ### Key Files
-- `stdlib/result.esk`
-- `stdlib/math.esk`
-- `stdlib/io.esk`
-- `stdlib/mem.esk`
+- `stdlib/result.esk`, `stdlib/list.esk`, `stdlib/string.esk`
+- `stdlib/math.esk`, `stdlib/io.esk`, `stdlib/mem.esk`
 
 ---
 

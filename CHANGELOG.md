@@ -3,9 +3,28 @@
 ## [Unreleased]
 
 ### Planned
-- Phase 5.5 remainder: Go-style interface dispatch (vtable)
-- `String` mutable type (Phase 7)
-- `List<T>` dynamic array (Phase 7)
+- Interface dispatch via vtable (Go-style structural typing)
+- `String.append()` / `String.concat()` methods
+- INE QR decoder port (v0.1 milestone)
+
+---
+
+## [0.0.6-alpha] — 2026-06-02
+
+### Added
+
+- **Source locations in errors**: `ASTNode` now carries `line`/`col`; parser stamps all expression and statement nodes; errors now report `file.esk:line:col:` instead of `file.esk:0:0:`. Filename taken from CLI input path.
+- **`&` address-of operator**: fixed — now correctly returns the lvalue pointer (alloca) instead of a loaded value, enabling `fn(&localVar)` patterns and template method calls via `self` pointer
+- **Template member access on pointer types**: trailing `*` stripped before struct field lookup; `self: List<int>*` now correctly resolves to `structFields["List_int"]` in both `visit(MemberExpr*)` and `getExprEskiuType()`
+- **`stdlib/list.esk`**: `List<T>` with `List_init`, `List_push`, `List_get`, `List_len`, `List_free` as template functions; tested end-to-end
+- **`stdlib/string.esk`**: `String` struct with `String_init`, `String_from`, `String_cstr`, `String_len`, `String_free`
+- **Interface structural check**: `isValidAssignment` now verifies that a struct satisfies an interface's method signatures (vtable codegen deferred)
+- **`isPointerType` unified**: now detects both leading `*T` and trailing `T*` conventions
+
+### Fixed
+- `&` operator returned a loaded value instead of the address — broke all pointer-argument patterns
+- Template method parameter types with pointer suffix (e.g. `List<T>*`) were incorrectly mangled to `List_int_*` instead of `List_int*`
+- `getExprEskiuType` for member chains through pointer-to-template-struct now resolves correctly
 
 ---
 

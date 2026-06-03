@@ -98,6 +98,7 @@ static void testTypeChecker(const std::string& filename) {
 
         // Type check
         TypeChecker typeChecker;
+        typeChecker.sourceFile = filename;
         bool success = typeChecker.check(program.get());
 
         std::cout << "========================================================" << std::endl;
@@ -262,6 +263,7 @@ int main(int argc, char** argv) {
         }
 
         TypeChecker typeChecker;
+        typeChecker.sourceFile = std::string(InputFilename);
         if (!typeChecker.check(program.get())) {
             return 1;
         }

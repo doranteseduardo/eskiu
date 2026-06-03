@@ -242,7 +242,7 @@ void TypeChecker::visit(IfStmt* node) {
         node->condition->accept(this);
         std::string condType = getExpressionType(node->condition.get());
         if (condType != "unknown" && condType != "bool" && !isNumericType(condType)) {
-            error(0, 0, "condition must be boolean or numeric, got " + condType);
+            errorAt(node,"condition must be boolean or numeric, got " + condType);
         }
     }
     if (node->thenBranch) {
@@ -258,7 +258,7 @@ void TypeChecker::visit(WhileStmt* node) {
         node->condition->accept(this);
         std::string condType = getExpressionType(node->condition.get());
         if (condType != "unknown" && condType != "bool" && !isNumericType(condType)) {
-            error(0, 0, "condition must be boolean or numeric, got " + condType);
+            errorAt(node,"condition must be boolean or numeric, got " + condType);
         }
     }
     if (node->body) {
@@ -279,7 +279,7 @@ void TypeChecker::visit(ForStmt* node) {
         node->condition->accept(this);
         std::string condType = getExpressionType(node->condition.get());
         if (condType != "unknown" && condType != "bool" && !isNumericType(condType)) {
-            error(0, 0, "condition must be boolean or numeric, got " + condType);
+            errorAt(node,"condition must be boolean or numeric, got " + condType);
         }
     }
 
@@ -301,11 +301,11 @@ void TypeChecker::visit(ReturnStmt* node) {
         node->value->accept(this);
         std::string valueType = getExpressionType(node->value.get());
         if (valueType != "unknown" && !isValidAssignment(currentFunctionReturnType, valueType)) {
-            error(0, 0, "return type mismatch: expected " + currentFunctionReturnType +
+            errorAt(node,"return type mismatch: expected " + currentFunctionReturnType +
                         ", got " + valueType);
         }
     } else if (currentFunctionReturnType != "void") {
-        error(0, 0, "return type mismatch: expected " + currentFunctionReturnType +
+        errorAt(node,"return type mismatch: expected " + currentFunctionReturnType +
                     ", got void");
     }
 }
@@ -336,7 +336,7 @@ void TypeChecker::visit(BinaryExpr* node) {
     std::string resultType = inferBinaryExprType(leftType, node->op, rightType);
 
     if (resultType == "error") {
-        error(0, 0, "invalid operands for operator: " + leftType + " and " + rightType);
+        errorAt(node,"invalid operands for operator: " + leftType + " and " + rightType);
         expressionTypes[node] = "unknown";
     } else {
         expressionTypes[node] = resultType;
@@ -355,7 +355,7 @@ void TypeChecker::visit(UnaryExpr* node) {
     std::string resultType = inferUnaryExprType(node->op, operandType);
 
     if (resultType == "error") {
-        error(0, 0, "invalid operand for unary operator: " + operandType);
+        errorAt(node,"invalid operand for unary operator: " + operandType);
         expressionTypes[node] = "unknown";
     } else {
         expressionTypes[node] = resultType;
@@ -380,7 +380,7 @@ void TypeChecker::visit(CallExpr* node) {
                                            : paramTypes.size() - selfSkip;
 
             if (!isVariadic && node->args.size() != fixedCount) {
-                error(0, 0, "method '" + member->member + "' expects " +
+                errorAt(node,"method '" + member->member + "' expects " +
                             std::to_string(fixedCount) + " argument(s), got " +
                             std::to_string(node->args.size()));
             }
@@ -390,7 +390,7 @@ void TypeChecker::visit(CallExpr* node) {
                     std::string argType = getExpressionType(node->args[i].get());
                     size_t pi = i + selfSkip;
                     if (argType != "unknown" && !isValidAssignment(paramTypes[pi], argType)) {
-                        error(0, 0, "argument " + std::to_string(i + 1) + " type mismatch");
+                        errorAt(node,"argument " + std::to_string(i + 1) + " type mismatch");
                     }
                 }
             }
@@ -398,7 +398,7 @@ void TypeChecker::visit(CallExpr* node) {
             return;
         }
         // Method not found — fall through to regular error
-        error(0, 0, "undefined method '" + member->member + "' on type '" + baseType + "'");
+        errorAt(node,"undefined method '" + member->member + "' on type '" + baseType + "'");
         expressionTypes[node] = "unknown";
         return;
     }
@@ -415,7 +415,7 @@ void TypeChecker::visit(CallExpr* node) {
     // Look up function signature
     auto it = functionSignatures.find(funcName);
     if (it == functionSignatures.end()) {
-        error(0, 0, "undefined function '" + funcName + "'");
+        errorAt(node,"undefined function '" + funcName + "'");
         expressionTypes[node] = "unknown";
         return;
     }
@@ -429,14 +429,14 @@ void TypeChecker::visit(CallExpr* node) {
     // Check argument count
     if (isVariadic) {
         if (node->args.size() < fixedCount) {
-            error(0, 0, "function '" + funcName + "' expects at least " +
+            errorAt(node,"function '" + funcName + "' expects at least " +
                         std::to_string(fixedCount) + " arguments, got " +
                         std::to_string(node->args.size()));
             expressionTypes[node] = sig.first;
             return;
         }
     } else if (node->args.size() != fixedCount) {
-        error(0, 0, "function '" + funcName + "' expects " +
+        errorAt(node,"function '" + funcName + "' expects " +
                     std::to_string(fixedCount) + " arguments, got " +
                     std::to_string(node->args.size()));
         expressionTypes[node] = sig.first;
@@ -449,7 +449,7 @@ void TypeChecker::visit(CallExpr* node) {
         if (i < fixedCount) {
             std::string argType = getExpressionType(node->args[i].get());
             if (argType != "unknown" && !isValidAssignment(expectedParamTypes[i], argType)) {
-                error(0, 0, "argument " + std::to_string(i + 1) + " type mismatch: expected " +
+                errorAt(node,"argument " + std::to_string(i + 1) + " type mismatch: expected " +
                             expectedParamTypes[i] + ", got " + argType);
             }
         }
@@ -466,7 +466,7 @@ void TypeChecker::visit(IndexExpr* node) {
     std::string indexType = getExpressionType(node->index.get());
 
     if (indexType != "unknown" && !isIntType(indexType)) {
-        error(0, 0, "array index must be integer, got " + indexType);
+        errorAt(node,"array index must be integer, got " + indexType);
     }
 
     // For arrays, return element type (simplified)
@@ -514,14 +514,14 @@ void TypeChecker::visit(MemberExpr* node) {
         }
 
         // Member not found in struct
-        error(0, 0, "struct '" + structName + "' has no member '" + node->member + "'");
+        errorAt(node,"struct '" + structName + "' has no member '" + node->member + "'");
         expressionTypes[node] = "unknown";
     } else if (baseType == "unknown") {
         // Base type is unknown, can't validate member access
         expressionTypes[node] = "unknown";
     } else {
         // Base is not a struct
-        error(0, 0, "cannot access member '" + node->member + "' on non-struct type '" + baseType + "'");
+        errorAt(node,"cannot access member '" + node->member + "' on non-struct type '" + baseType + "'");
         expressionTypes[node] = "unknown";
     }
 }
@@ -562,7 +562,7 @@ void TypeChecker::visit(LiteralExpr* node) {
 void TypeChecker::visit(IdentExpr* node) {
     std::string type = lookupSymbol(node->name);
     if (type.empty()) {
-        error(0, 0, "undefined variable '" + node->name + "'");
+        errorAt(node,"undefined variable '" + node->name + "'");
         expressionTypes[node] = "unknown";
     } else {
         expressionTypes[node] = type;
@@ -577,7 +577,7 @@ void TypeChecker::visit(SwitchStmt* node) {
     node->subject->accept(this);
     std::string subjType = getExpressionType(node->subject.get());
     if (subjType != "unknown" && !isIntType(subjType))
-        error(0, 0, "switch subject must be integer type, got " + subjType);
+        errorAt(node,"switch subject must be integer type, got " + subjType);
     for (auto& c : node->cases) {
         if (c.value) {
             c.value->accept(this);
@@ -589,7 +589,7 @@ void TypeChecker::visit(SwitchStmt* node) {
 void TypeChecker::visit(TemplateCallExpr* node) {
     auto templ = funcTemplateDecls.find(node->templateName);
     if (templ == funcTemplateDecls.end()) {
-        error(0, 0, "undefined template function '" + node->templateName + "'");
+        errorAt(node,"undefined template function '" + node->templateName + "'");
         expressionTypes[node] = "unknown";
         return;
     }
@@ -605,7 +605,7 @@ void TypeChecker::visit(TemplateCallExpr* node) {
         std::string expected = substType(fd->params[i].first, subs);
         std::string got      = getExpressionType(node->args[i].get());
         if (got != "unknown" && !isValidAssignment(expected, got))
-            error(0, 0, "argument " + std::to_string(i+1) + ": expected " + expected + ", got " + got);
+            errorAt(node,"argument " + std::to_string(i+1) + ": expected " + expected + ", got " + got);
     }
 
     std::string retType = normalizeType(substType(fd->returnType, subs));
@@ -616,14 +616,14 @@ void TypeChecker::visit(AllocExpr* node) {
     node->count->accept(this);
     std::string countType = getExpressionType(node->count.get());
     if (countType != "unknown" && !isIntType(countType))
-        error(0, 0, "alloc count must be integer, got " + countType);
+        errorAt(node,"alloc count must be integer, got " + countType);
     expressionTypes[node] = "*" + node->elemType;
 }
 
 void TypeChecker::visit(StructInitExpr* node) {
     auto it = structs.find(node->structName);
     if (it == structs.end()) {
-        error(0, 0, "undefined struct '" + node->structName + "'");
+        errorAt(node,"undefined struct '" + node->structName + "'");
         expressionTypes[node] = "unknown";
         return;
     }
@@ -641,7 +641,7 @@ void TypeChecker::visit(StructInitExpr* node) {
                 if (f.name == fname) { fieldType = f.type; break; }
             }
             if (fieldType.empty())
-                error(0, 0, "struct '" + node->structName + "' has no field '" + fname + "'");
+                errorAt(node,"struct '" + node->structName + "' has no field '" + fname + "'");
         } else if (i < fields.size()) {
             fieldType = fields[i].type;
         }
@@ -760,6 +760,18 @@ void TypeChecker::validateStructType(const std::string& type) {
 }
 
 // Type checking utilities
+// Check if a struct satisfies an interface (structural typing)
+static bool structSatisfiesInterface(
+        const std::map<std::string, std::pair<std::string, std::vector<std::string>>>& funcs,
+        const std::string& structName,
+        InterfaceDecl* iface) {
+    for (const auto& method : iface->methods) {
+        std::string mangled = structName + "_" + method.name;
+        if (funcs.find(mangled) == funcs.end()) return false;
+    }
+    return true;
+}
+
 bool TypeChecker::isValidAssignment(const std::string& lhsType, const std::string& rhsType) {
     // Normalize both sides so "Point" == "struct:Point"
     std::string lhs = normalizeType(lhsType);
@@ -768,8 +780,17 @@ bool TypeChecker::isValidAssignment(const std::string& lhsType, const std::strin
     if (lhs == rhs) return true;
     if (isNumericType(lhs) && isNumericType(rhs)) return true;
     if (lhs == "null" || rhs == "null") return isPointerType(lhs) || isPointerType(rhs);
-    // Any pointer is assignable to any pointer (C interop)
     if (isPointerType(lhs) && isPointerType(rhs)) return true;
+
+    // Interface satisfaction: assigning a struct to an interface type
+    auto ifaceIt = interfaceDecls.find(lhs);
+    if (ifaceIt != interfaceDecls.end()) {
+        // rhs should be a struct name (possibly with "struct:" prefix)
+        std::string structName = rhs;
+        if (structName.substr(0, 7) == "struct:") structName = structName.substr(7);
+        if (structSatisfiesInterface(functionSignatures, structName, ifaceIt->second))
+            return true;
+    }
 
     return false;
 }
@@ -795,7 +816,7 @@ bool TypeChecker::isPrimitiveType(const std::string& type) {
 }
 
 bool TypeChecker::isPointerType(const std::string& type) {
-    return !type.empty() && type[0] == '*';
+    return !type.empty() && (type[0] == '*' || type.back() == '*' || type == "string");
 }
 
 std::string TypeChecker::getPointeeType(const std::string& pointerType) {
@@ -876,12 +897,12 @@ std::string TypeChecker::addPointerSuffix(const std::string& baseType) const {
 void TypeChecker::error(int line, int col, const std::string& message) {
     hasErrors = true;
     std::stringstream ss;
-    ss << "file.esk:" << line << ":" << col << ": " << message;
+    ss << sourceFile << ":" << line << ":" << col << ": " << message;
     errors.push_back(ss.str());
 }
 
 void TypeChecker::warning(int line, int col, const std::string& message) {
     std::stringstream ss;
-    ss << "file.esk:" << line << ":" << col << ": warning: " << message;
+    ss << sourceFile << ":" << line << ":" << col << ": warning: " << message;
     std::cerr << ss.str() << "\n";
 }

@@ -263,6 +263,8 @@ std::string CodeGen::getExprEskiuType(ExprPtr expr) const {
         std::string base = getExprEskiuType(member->base);
         if (base.size() > 7 && base.substr(0, 7) == "struct:") base = base.substr(7);
         if (!base.empty() && base.front() == '*') base = base.substr(1);
+        while (!base.empty() && base.back()  == '*') base.pop_back();
+        if (base.find('<') != std::string::npos) base = mangleTemplate(base);
         auto it = structFields.find(base);
         if (it != structFields.end()) {
             for (const auto& f : it->second) {
@@ -351,7 +353,15 @@ void CodeGen::visit(FunctionDecl* node) {
     for (auto& arg : func->args()) {
         if (paramIdx < node->params.size() && node->params[paramIdx].first != "...") {
             defineSymbol(node->params[paramIdx].second, &arg);
-            defineVarType(node->params[paramIdx].second, node->params[paramIdx].first);
+            std::string ptype = !typeParamOverride.empty()
+                ? substType(node->params[paramIdx].first, typeParamOverride)
+                : node->params[paramIdx].first;
+            if (ptype.find('<') != std::string::npos) {
+                std::string sfx;
+                while (!ptype.empty() && ptype.back() == '*') { sfx += '*'; ptype.pop_back(); }
+                ptype = mangleTemplate(ptype) + sfx;
+            }
+            defineVarType(node->params[paramIdx].second, ptype);
             paramIdx++;
         }
     }
@@ -381,11 +391,19 @@ void CodeGen::visit(VarDecl* node) {
     llvm::Type* declType = getTypeFromString(node->type);
     llvm::AllocaInst* alloca = builder->CreateAlloca(declType, nullptr, node->name);
     defineSymbol(node->name, alloca);
-    // Resolve type params and mangle template names for varTypeStack
+    // Resolve type params and mangle template names for varTypeStack,
+    // preserving pointer suffixes (e.g. "List<int>*" → "List_int*")
     std::string varType = !typeParamOverride.empty()
                           ? substType(node->type, typeParamOverride)
                           : node->type;
-    if (varType.find('<') != std::string::npos) varType = mangleTemplate(varType);
+    if (varType.find('<') != std::string::npos) {
+        // Strip trailing pointer stars, mangle the base, then re-append stars
+        std::string suffix;
+        while (!varType.empty() && varType.back() == '*') {
+            suffix += '*'; varType.pop_back();
+        }
+        varType = mangleTemplate(varType) + suffix;
+    }
     defineVarType(node->name, varType);
 
     if (node->initializer) {
@@ -737,8 +755,8 @@ void CodeGen::visit(UnaryExpr* node) {
     } else if (node->op == "!") {
         result = builder->CreateNot(val);
     } else if (node->op == "&") {
-        // Address-of: return the pointer itself
-        result = val;
+        // Address-of: return the lvalue (alloca/GEP pointer), not the loaded value
+        result = evaluateLValue(node->operand);
     } else if (node->op == "*") {
         // Dereference - assume i8 type for now (LLVM 22 has opaque pointers)
         result = builder->CreateLoad(llvm::Type::getInt8Ty(*context), val);
@@ -755,6 +773,12 @@ void CodeGen::visit(CallExpr* node) {
         std::string baseType = getExprEskiuType(member->base);
         if (baseType.size() > 7 && baseType.substr(0, 7) == "struct:") baseType = baseType.substr(7);
     if (!baseType.empty() && baseType.front() == '*') baseType = baseType.substr(1);
+    while (!baseType.empty() && baseType.back()  == '*') baseType.pop_back();
+    if (baseType.find('<') != std::string::npos) {
+        auto [tn, args] = splitTemplateType(baseType);
+        ensureTemplateInstantiated(mangleTemplate(baseType), tn, args);
+        baseType = mangleTemplate(baseType);
+    }
 
         std::string mangled = baseType + "_" + member->member;
         llvm::Function* func = module->getFunction(mangled);
@@ -824,6 +848,12 @@ void CodeGen::visit(MemberExpr* node) {
     std::string baseType = getExprEskiuType(node->base);
     if (baseType.size() > 7 && baseType.substr(0, 7) == "struct:") baseType = baseType.substr(7);
     if (!baseType.empty() && baseType.front() == '*') baseType = baseType.substr(1);
+    while (!baseType.empty() && baseType.back()  == '*') baseType.pop_back();
+    if (baseType.find('<') != std::string::npos) {
+        auto [tn, args] = splitTemplateType(baseType);
+        ensureTemplateInstantiated(mangleTemplate(baseType), tn, args);
+        baseType = mangleTemplate(baseType);
+    }
 
     auto fit = structFields.find(baseType);
     if (fit == structFields.end())
@@ -1129,6 +1159,12 @@ llvm::Value* CodeGen::evaluateLValue(ExprPtr expr) {
         std::string baseType = getExprEskiuType(member->base);
         if (baseType.size() > 7 && baseType.substr(0, 7) == "struct:") baseType = baseType.substr(7);
     if (!baseType.empty() && baseType.front() == '*') baseType = baseType.substr(1);
+    while (!baseType.empty() && baseType.back()  == '*') baseType.pop_back();
+    if (baseType.find('<') != std::string::npos) {
+        auto [tn, args] = splitTemplateType(baseType);
+        ensureTemplateInstantiated(mangleTemplate(baseType), tn, args);
+        baseType = mangleTemplate(baseType);
+    }
         auto fit = structFields.find(baseType);
         if (fit == structFields.end())
             throw std::runtime_error("Unknown struct type: " + baseType);

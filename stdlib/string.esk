@@ -1,0 +1,40 @@
+// String — mutable string with owned buffer
+// Requires: stdlib/mem.esk for memcpy/strlen
+
+extern int strlen(string s);
+extern *void memcpy(*void dst, *void src, int n);
+
+struct String {
+    *char data;
+    int   len;
+    int   cap;
+}
+
+void String_init(String* self, int initial_cap) {
+    self.data = alloc(char, initial_cap);
+    self.len  = 0;
+    self.cap  = initial_cap;
+    self.data[0] = 0;
+}
+
+void String_from(String* self, string s) {
+    int n = strlen(s);
+    self.data = alloc(char, n + 1);
+    memcpy(self.data, s, n + 1);
+    self.len = n;
+    self.cap = n + 1;
+}
+
+*char String_cstr(String* self) {
+    return self.data;
+}
+
+int String_len(String* self) {
+    return self.len;
+}
+
+void String_free(String* self) {
+    free(self.data);
+    self.len = 0;
+    self.cap = 0;
+}

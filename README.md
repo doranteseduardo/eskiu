@@ -45,7 +45,7 @@ Structs / Methods  Phase 5 (core)             complete — fields, init, methods
 Interfaces         Phase 5.5                  vtable deferred (not needed for v0.1)
 Templates          Phase 5.5                  complete — struct + function templates
 Heap / alloc/free  Phase 6                    complete
-stdlib/Result<T>   Phase 7 (core)             complete — Ok/Err + math/io/mem
+stdlib/Result<T>   Phase 7                    complete — Result, List, String, math/io/mem
 ```
 
 ## CLI Flags

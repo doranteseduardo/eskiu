@@ -118,9 +118,19 @@ private:
     std::string extractBaseType(const std::string& pointerType) const;
     std::string addPointerSuffix(const std::string& baseType) const;
 
+public:
+    // Source file name (for error messages)
+    std::string sourceFile = "unknown";
+
+private:
+
     // Error reporting
     void error(int line, int col, const std::string& message);
     void warning(int line, int col, const std::string& message);
+    // Convenience: report error at an AST node's position
+    void errorAt(ASTNode* node, const std::string& message) {
+        error(node->line, node->col, message);
+    }
 
     // Cache for expression types
     std::map<Expr*, std::string> expressionTypes;

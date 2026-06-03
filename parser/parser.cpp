@@ -3,6 +3,12 @@
 #include <stdexcept>
 #include <iostream>
 
+// Stamp any AST node with position from tok
+template<typename T>
+static std::shared_ptr<T> withPos(std::shared_ptr<T> node, const Token& tok) {
+    node->line = tok.line; node->col = tok.column; return node;
+}
+
 Parser::Parser(const std::vector<Token>& tok)
     : tokens(tok), current(0) {}
 
@@ -474,12 +480,15 @@ StmtPtr Parser::parseWhileStatement() {
 }
 
 StmtPtr Parser::parseReturnStatement() {
+    Token retTok = tokens[current - 1]; // the 'return' token
     ExprPtr value = nullptr;
     if (!check(TokenType::SEMICOLON)) {
         value = parseExpression();
     }
     consume(TokenType::SEMICOLON, "Expected ';'");
-    return std::make_shared<ReturnStmt>(value);
+    auto stmt = std::make_shared<ReturnStmt>(value);
+    stmt->line = retTok.line; stmt->col = retTok.column;
+    return stmt;
 }
 
 StmtPtr Parser::parseBreakStatement() {
@@ -557,8 +566,9 @@ ExprPtr Parser::parseAssignment() {
     ExprPtr expr = parseLogicalOr();
 
     if (match(TokenType::EQ)) {
+        Token opTok = tokens[current - 1];
         ExprPtr value = parseAssignment();
-        return std::make_shared<BinaryExpr>(expr, "=", value);
+        return withPos(std::make_shared<BinaryExpr>(expr, "=", value), opTok);
     }
 
     return expr;
@@ -568,9 +578,9 @@ ExprPtr Parser::parseLogicalOr() {
     ExprPtr expr = parseLogicalAnd();
 
     while (match(TokenType::OR)) {
-        std::string op = tokens[current - 1].value;
+        Token opTok = tokens[current - 1];
         ExprPtr right = parseLogicalAnd();
-        expr = std::make_shared<BinaryExpr>(expr, op, right);
+        expr = withPos(std::make_shared<BinaryExpr>(expr, opTok.value, right), opTok);
     }
 
     return expr;
@@ -580,9 +590,9 @@ ExprPtr Parser::parseLogicalAnd() {
     ExprPtr expr = parseEquality();
 
     while (match(TokenType::AND)) {
-        std::string op = tokens[current - 1].value;
+        Token opTok = tokens[current - 1];
         ExprPtr right = parseEquality();
-        expr = std::make_shared<BinaryExpr>(expr, op, right);
+        expr = withPos(std::make_shared<BinaryExpr>(expr, opTok.value, right), opTok);
     }
 
     return expr;
@@ -592,9 +602,9 @@ ExprPtr Parser::parseEquality() {
     ExprPtr expr = parseComparison();
 
     while (match({TokenType::EQEQ, TokenType::NE})) {
-        std::string op = tokens[current - 1].value;
+        Token opTok = tokens[current - 1];
         ExprPtr right = parseComparison();
-        expr = std::make_shared<BinaryExpr>(expr, op, right);
+        expr = withPos(std::make_shared<BinaryExpr>(expr, opTok.value, right), opTok);
     }
 
     return expr;
@@ -604,9 +614,9 @@ ExprPtr Parser::parseComparison() {
     ExprPtr expr = parseAddition();
 
     while (match({TokenType::LT, TokenType::GT, TokenType::LE, TokenType::GE})) {
-        std::string op = tokens[current - 1].value;
+        Token opTok = tokens[current - 1];
         ExprPtr right = parseAddition();
-        expr = std::make_shared<BinaryExpr>(expr, op, right);
+        expr = withPos(std::make_shared<BinaryExpr>(expr, opTok.value, right), opTok);
     }
 
     return expr;
@@ -616,9 +626,9 @@ ExprPtr Parser::parseAddition() {
     ExprPtr expr = parseMultiplication();
 
     while (match({TokenType::PLUS, TokenType::MINUS})) {
-        std::string op = tokens[current - 1].value;
+        Token opTok = tokens[current - 1];
         ExprPtr right = parseMultiplication();
-        expr = std::make_shared<BinaryExpr>(expr, op, right);
+        expr = withPos(std::make_shared<BinaryExpr>(expr, opTok.value, right), opTok);
     }
 
     return expr;
@@ -628,9 +638,9 @@ ExprPtr Parser::parseMultiplication() {
     ExprPtr expr = parseUnary();
 
     while (match({TokenType::STAR, TokenType::SLASH, TokenType::PERCENT})) {
-        std::string op = tokens[current - 1].value;
+        Token opTok = tokens[current - 1];
         ExprPtr right = parseUnary();
-        expr = std::make_shared<BinaryExpr>(expr, op, right);
+        expr = withPos(std::make_shared<BinaryExpr>(expr, opTok.value, right), opTok);
     }
 
     return expr;
@@ -699,24 +709,22 @@ ExprPtr Parser::parsePostfix() {
             }
         }
         if (match(TokenType::LPAREN)) {
-            // Function call
+            Token callTok = tokens[current - 1];
             std::vector<ExprPtr> args;
             if (!check(TokenType::RPAREN)) {
-                do {
-                    args.push_back(parseExpression());
-                } while (match(TokenType::COMMA));
+                do { args.push_back(parseExpression()); } while (match(TokenType::COMMA));
             }
             consume(TokenType::RPAREN, "Expected ')'");
-            expr = std::make_shared<CallExpr>(expr, args);
+            expr = withPos(std::make_shared<CallExpr>(expr, args), callTok);
         } else if (match(TokenType::LBRACKET)) {
-            // Array indexing
+            Token idxTok = tokens[current - 1];
             ExprPtr index = parseExpression();
             consume(TokenType::RBRACKET, "Expected ']'");
-            expr = std::make_shared<IndexExpr>(expr, index);
+            expr = withPos(std::make_shared<IndexExpr>(expr, index), idxTok);
         } else if (match(TokenType::DOT)) {
-            // Member access
+            Token dotTok = tokens[current - 1];
             std::string member = consume(TokenType::IDENT, "Expected member name").value;
-            expr = std::make_shared<MemberExpr>(expr, member);
+            expr = withPos(std::make_shared<MemberExpr>(expr, member), dotTok);
         } else {
             break;
         }
@@ -729,25 +737,25 @@ ExprPtr Parser::parsePrimary() {
     Token tok = peek();
 
     if (match(TokenType::TRUE)) {
-        return std::make_shared<LiteralExpr>(LiteralExpr::Kind::BOOL, "true");
+        return withPos(std::make_shared<LiteralExpr>(LiteralExpr::Kind::BOOL, "true"), tok);
     }
     if (match(TokenType::FALSE)) {
-        return std::make_shared<LiteralExpr>(LiteralExpr::Kind::BOOL, "false");
+        return withPos(std::make_shared<LiteralExpr>(LiteralExpr::Kind::BOOL, "false"), tok);
     }
     if (match(TokenType::NULL_KW)) {
-        return std::make_shared<LiteralExpr>(LiteralExpr::Kind::NULL_VAL, "null");
+        return withPos(std::make_shared<LiteralExpr>(LiteralExpr::Kind::NULL_VAL, "null"), tok);
     }
     if (match(TokenType::INT_LIT)) {
-        return std::make_shared<LiteralExpr>(LiteralExpr::Kind::INT, tok.value);
+        return withPos(std::make_shared<LiteralExpr>(LiteralExpr::Kind::INT, tok.value), tok);
     }
     if (match(TokenType::FLOAT_LIT)) {
-        return std::make_shared<LiteralExpr>(LiteralExpr::Kind::FLOAT, tok.value);
+        return withPos(std::make_shared<LiteralExpr>(LiteralExpr::Kind::FLOAT, tok.value), tok);
     }
     if (match(TokenType::STRING_LIT)) {
-        return std::make_shared<LiteralExpr>(LiteralExpr::Kind::STRING, tok.value);
+        return withPos(std::make_shared<LiteralExpr>(LiteralExpr::Kind::STRING, tok.value), tok);
     }
     if (match(TokenType::CHAR_LIT)) {
-        return std::make_shared<LiteralExpr>(LiteralExpr::Kind::CHAR, tok.value);
+        return withPos(std::make_shared<LiteralExpr>(LiteralExpr::Kind::CHAR, tok.value), tok);
     }
     // alloc(T, N) — type keyword as first argument requires special parsing
     if (match(TokenType::ALLOC)) {
@@ -769,11 +777,10 @@ ExprPtr Parser::parsePrimary() {
     }
 
     if (match(TokenType::IDENT)) {
-        // Struct init: StructName { [field: expr, ...] }
         if (check(TokenType::LBRACE)) {
-            return parseStructInit(tok.value);
+            return withPos(parseStructInit(tok.value), tok);
         }
-        return std::make_shared<IdentExpr>(tok.value);
+        return withPos(std::make_shared<IdentExpr>(tok.value), tok);
     }
     if (match(TokenType::LPAREN)) {
         ExprPtr expr = parseExpression();

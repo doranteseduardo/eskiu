@@ -121,6 +121,14 @@ Phases 0–5 (partial) are implemented. The full compilation pipeline is working
 - `stdlib/result.esk` — `struct Result<T,E>` + `Ok<T,E>` / `Err<T,E>`
 - `stdlib/math.esk`, `stdlib/io.esk`, `stdlib/mem.esk`
 
+**Source locations + stdlib completion — COMPLETE:**
+- `ASTNode.line/col`; parser stamps all expression/statement nodes; errors show `file.esk:8:22:`
+- `&` address-of fixed — returns lvalue pointer (alloca), not loaded value
+- Template pointer types (`List<T>*`) correctly resolved in member access
+- `stdlib/list.esk` — `List<T>` tested end-to-end with `List_init/push/get/free`
+- `stdlib/string.esk` — `String` with init/from/cstr/len/free
+- Interface structural satisfaction check in type checker
+
 **Next: INE decoder port** — all language features for v0.1 are in place.
 
 ## Error format

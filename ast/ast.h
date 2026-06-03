@@ -26,6 +26,8 @@ using BlockItem = std::variant<DeclPtr, StmtPtr>;
 
 class ASTNode {
 public:
+    int line = 0;
+    int col  = 0;
     virtual ~ASTNode() = default;
     virtual void accept(class ASTVisitor* visitor) = 0;
 };
