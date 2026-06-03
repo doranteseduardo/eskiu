@@ -42,6 +42,7 @@ private:
     StmtPtr parseWhileStatement();
     StmtPtr parseReturnStatement();
     StmtPtr parseBreakStatement();
+    StmtPtr parseSwitchStatement();
     StmtPtr parseExpressionStatement();
 
     ExprPtr parseStructInit(const std::string& structName);

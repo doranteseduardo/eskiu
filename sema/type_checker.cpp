@@ -45,6 +45,23 @@ static std::string substType(const std::string& t,
     size_t lb = t.rfind('[');
     if (lb != std::string::npos && t.back() == ']')
         return substType(t.substr(0, lb), subs) + t.substr(lb);
+    size_t lt = t.find('<');
+    if (lt != std::string::npos && t.back() == '>') {
+        std::string name  = t.substr(0, lt);
+        std::string inner = t.substr(lt + 1, t.size() - lt - 2);
+        std::vector<std::string> args;
+        int depth = 0; std::string cur;
+        for (char c : inner) {
+            if      (c == '<') { depth++; cur += c; }
+            else if (c == '>') { depth--; cur += c; }
+            else if (c == ',' && depth == 0) { args.push_back(substType(cur, subs)); cur.clear(); }
+            else cur += c;
+        }
+        if (!cur.empty()) args.push_back(substType(cur, subs));
+        std::string result = name + "<";
+        for (size_t i = 0; i < args.size(); ++i) { if (i) result += ","; result += args[i]; }
+        return result + ">";
+    }
     return t;
 }
 
@@ -62,9 +79,22 @@ bool TypeChecker::check(Program* program) {
 
     // First pass: register all struct declarations and function signatures
     for (const auto& decl : program->declarations) {
+        if (auto ifaceDecl = dynamic_cast<InterfaceDecl*>(decl.get())) {
+            interfaceDecls[ifaceDecl->name] = ifaceDecl;
+            continue;
+        }
+        if (auto funcDecl = dynamic_cast<FunctionDecl*>(decl.get())) {
+            if (!funcDecl->typeParams.empty()) {
+                funcTemplateDecls[funcDecl->name] = funcDecl;
+                // skip normal registration — will be registered on instantiation
+                std::vector<std::string> paramTypes;
+                for (const auto& p : funcDecl->params) paramTypes.push_back(p.first);
+                // Don't register yet — template params are not real types
+                continue;
+            }
+        }
         if (auto structDecl = dynamic_cast<StructDecl*>(decl.get())) {
             if (!structDecl->typeParams.empty()) {
-                // Template — store for lazy instantiation, not in structs map
                 templateDecls[structDecl->name] = structDecl;
                 continue;
             }
@@ -127,6 +157,8 @@ void TypeChecker::visit(Program* node) {
 }
 
 void TypeChecker::visit(FunctionDecl* node) {
+    if (!node->typeParams.empty()) return; // Template body checked on instantiation
+
     currentFunctionReturnType = node->returnType;
     pushScope();
 
@@ -535,6 +567,49 @@ void TypeChecker::visit(IdentExpr* node) {
     } else {
         expressionTypes[node] = type;
     }
+}
+
+void TypeChecker::visit(InterfaceDecl* node) {
+    // Interface registered in first pass; no body to type-check
+}
+
+void TypeChecker::visit(SwitchStmt* node) {
+    node->subject->accept(this);
+    std::string subjType = getExpressionType(node->subject.get());
+    if (subjType != "unknown" && !isIntType(subjType))
+        error(0, 0, "switch subject must be integer type, got " + subjType);
+    for (auto& c : node->cases) {
+        if (c.value) {
+            c.value->accept(this);
+        }
+        for (auto& s : c.stmts) s->accept(this);
+    }
+}
+
+void TypeChecker::visit(TemplateCallExpr* node) {
+    auto templ = funcTemplateDecls.find(node->templateName);
+    if (templ == funcTemplateDecls.end()) {
+        error(0, 0, "undefined template function '" + node->templateName + "'");
+        expressionTypes[node] = "unknown";
+        return;
+    }
+    FunctionDecl* fd = templ->second;
+    auto& tp = fd->typeParams;
+    std::map<std::string, std::string> subs;
+    for (size_t i = 0; i < tp.size() && i < node->typeArgs.size(); ++i)
+        subs[tp[i]] = node->typeArgs[i];
+
+    // Type-check arguments
+    for (size_t i = 0; i < node->args.size() && i < fd->params.size(); ++i) {
+        node->args[i]->accept(this);
+        std::string expected = substType(fd->params[i].first, subs);
+        std::string got      = getExpressionType(node->args[i].get());
+        if (got != "unknown" && !isValidAssignment(expected, got))
+            error(0, 0, "argument " + std::to_string(i+1) + ": expected " + expected + ", got " + got);
+    }
+
+    std::string retType = normalizeType(substType(fd->returnType, subs));
+    expressionTypes[node] = retType;
 }
 
 void TypeChecker::visit(AllocExpr* node) {

@@ -2,12 +2,12 @@
 
 ## Requirements
 
-| Dependency | Minimum | Tested |
-|---|---|---|
-| LLVM | 17 | 22.x |
-| CMake | 3.20 | 3.x |
+| Dependency   | Minimum                                | Tested      |
+| ------------ | -------------------------------------- | ----------- |
+| LLVM         | 17                                     | 22.x        |
+| CMake        | 3.20                                   | 3.x         |
 | C++ compiler | C++17 (clang++ recommended, g++ works) | clang++ 17+ |
-| git | any | — |
+| git          | any                                    | —           |
 
 LLVM is the only non-trivial dependency. The compiler uses the `support`, `core`, and `irreader` component libraries.
 
@@ -33,7 +33,7 @@ Add these to your shell profile (`~/.zshrc` or `~/.bash_profile`) to make them p
 ### Build
 
 ```bash
-git clone https://github.com/reactvision/eskiu.git
+git clone https://github.com/doranteseduardo/eskiu.git
 cd eskiu
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -- -j$(sysctl -n hw.logicalcpu)
@@ -72,7 +72,7 @@ sudo apt-get install -y llvm-17-dev
 ### Build
 
 ```bash
-git clone https://github.com/reactvision/eskiu.git
+git clone https://github.com/doranteseduardo/eskiu.git
 cd eskiu
 cmake -S . -B build \
   -DCMAKE_BUILD_TYPE=Release \
@@ -94,7 +94,7 @@ apk add llvm17-dev cmake clang17 git make
 ### Build
 
 ```bash
-git clone https://github.com/reactvision/eskiu.git
+git clone https://github.com/doranteseduardo/eskiu.git
 cd eskiu
 cmake -S . -B build \
   -DCMAKE_BUILD_TYPE=Release \
@@ -201,12 +201,12 @@ cmake -S . -B build -DLLVM_DIR=/path/to/llvm/lib/cmake/llvm
 
 Common paths:
 
-| Platform | Path |
-|---|---|
+| Platform               | Path                                    |
+| ---------------------- | --------------------------------------- |
 | macOS (Homebrew arm64) | `/opt/homebrew/opt/llvm/lib/cmake/llvm` |
-| macOS (Homebrew x86) | `/usr/local/opt/llvm/lib/cmake/llvm` |
-| Ubuntu apt llvm-17 | `/usr/lib/llvm-17/lib/cmake/llvm` |
-| Alpine apk llvm17 | `/usr/lib/llvm17/lib/cmake/llvm` |
+| macOS (Homebrew x86)   | `/usr/local/opt/llvm/lib/cmake/llvm`    |
+| Ubuntu apt llvm-17     | `/usr/lib/llvm-17/lib/cmake/llvm`       |
+| Alpine apk llvm17      | `/usr/lib/llvm17/lib/cmake/llvm`        |
 
 You can also run `llvm-config --cmakedir` (substituting the versioned binary name if needed) to get the correct path:
 

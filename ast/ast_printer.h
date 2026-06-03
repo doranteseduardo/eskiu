@@ -36,6 +36,9 @@ private:
     void visit(CastExpr* node) override;
     void visit(LiteralExpr* node) override;
     void visit(IdentExpr* node) override;
+    void visit(InterfaceDecl* node) override;
+    void visit(SwitchStmt* node) override;
     void visit(StructInitExpr* node) override;
     void visit(AllocExpr* node) override;
+    void visit(TemplateCallExpr* node) override;
 };

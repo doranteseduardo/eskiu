@@ -111,7 +111,17 @@ Phases 0–5 (partial) are implemented. The full compilation pipeline is working
 - `mangleTemplate("Result<int,string>")` → `"Result_int_string"`
 - `varTypeStack` stores mangled name for correct `MemberExpr` resolution
 
-**Next: Phase 7** — `Result<T,E>` stdlib constructors (`Ok`/`Err` as functions), then INE decoder port.
+**Phase 5.5 + Phase 7 (core) — COMPLETE:**
+- `switch`/`case` — `SwitchStmt`, LLVM `switch`, fallthrough, `break` via `breakTarget`
+- Function templates — `fn Name<T>(T x)`, `TemplateCallExpr`, `typeParamOverride`, context save/restore during nested instantiation
+- `InterfaceDecl` parsed (vtable dispatch deferred — not needed for v0.1)
+- `substType` now handles `Name<T,E>` nested substitution
+- Parser fix: `int fn<T>(...)` at top level now detected (was silently dropped)
+- Type checker fix: template bodies guarded against premature type checking
+- `stdlib/result.esk` — `struct Result<T,E>` + `Ok<T,E>` / `Err<T,E>`
+- `stdlib/math.esk`, `stdlib/io.esk`, `stdlib/mem.esk`
+
+**Next: INE decoder port** — all language features for v0.1 are in place.
 
 ## Error format
 

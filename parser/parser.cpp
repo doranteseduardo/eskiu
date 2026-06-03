@@ -203,6 +203,23 @@ DeclPtr Parser::parseDeclaration() {
         if (match(TokenType::STRUCT)) {
             return parseStructDecl();
         }
+        if (match(TokenType::INTERFACE)) {
+            std::string name = consume(TokenType::IDENT, "Expected interface name").value;
+            consume(TokenType::LBRACE, "Expected '{'");
+            auto decl = std::make_shared<InterfaceDecl>(name);
+            while (!check(TokenType::RBRACE) && !is_at_end()) {
+                InterfaceDecl::MethodSig sig;
+                sig.returnType = parseType();
+                sig.name = consume(TokenType::IDENT, "Expected method name").value;
+                consume(TokenType::LPAREN, "Expected '('");
+                sig.params = parseParameterList();
+                consume(TokenType::RPAREN, "Expected ')'");
+                consume(TokenType::SEMICOLON, "Expected ';'");
+                decl->methods.push_back(sig);
+            }
+            consume(TokenType::RBRACE, "Expected '}'");
+            return decl;
+        }
 
         // Handle 'let' variable declarations
         if (match(TokenType::LET)) {
@@ -232,8 +249,8 @@ DeclPtr Parser::parseDeclaration() {
             if (check(TokenType::IDENT)) {
                 std::string name = advance().value;
 
-                if (match(TokenType::LPAREN)) {
-                    // Function declaration - reset and parse full function
+                if (match(TokenType::LPAREN) || check(TokenType::LT)) {
+                    // Function declaration (possibly template: name<T,E>(...))
                     current = savePos;
                     return parseFunctionDecl();
                 } else if (match(TokenType::SEMICOLON) || match(TokenType::EQ)) {
@@ -258,13 +275,24 @@ DeclPtr Parser::parseFunctionDecl() {
     std::string returnType = parseType();
     std::string name = consume(TokenType::IDENT, "Expected function name").value;
 
+    // Optional type parameters: int max<T>(T a, T b) { ... }
+    std::vector<std::string> typeParams;
+    if (match(TokenType::LT)) {
+        do {
+            typeParams.push_back(consume(TokenType::IDENT, "Expected type parameter").value);
+        } while (match(TokenType::COMMA));
+        consume(TokenType::GT, "Expected '>'");
+    }
+
     consume(TokenType::LPAREN, "Expected '('");
     auto params = parseParameterList();
     consume(TokenType::RPAREN, "Expected ')'");
 
     StmtPtr body = parseBlockStatement();
 
-    return std::make_shared<FunctionDecl>(name, returnType, params, body);
+    auto decl = std::make_shared<FunctionDecl>(name, returnType, params, body);
+    decl->typeParams = typeParams;
+    return decl;
 }
 
 DeclPtr Parser::parseExternDecl() {
@@ -340,6 +368,9 @@ StmtPtr Parser::parseStatement() {
     }
     if (check(TokenType::WHILE)) {
         return parseWhileStatement();
+    }
+    if (check(TokenType::SWITCH)) {
+        return parseSwitchStatement();
     }
     if (match(TokenType::RETURN)) {
         return parseReturnStatement();
@@ -465,6 +496,36 @@ StmtPtr Parser::parseExpressionStatement() {
 // ============================================================================
 // Expressions (Precedence Climbing)
 // ============================================================================
+
+StmtPtr Parser::parseSwitchStatement() {
+    consume(TokenType::SWITCH, "Expected 'switch'");
+    consume(TokenType::LPAREN, "Expected '('");
+    ExprPtr subject = parseExpression();
+    consume(TokenType::RPAREN, "Expected ')'");
+    consume(TokenType::LBRACE, "Expected '{'");
+
+    std::vector<SwitchStmt::Case> cases;
+    while (!check(TokenType::RBRACE) && !is_at_end()) {
+        SwitchStmt::Case c;
+        if (match(TokenType::CASE)) {
+            c.value = parseExpression();
+            consume(TokenType::COLON, "Expected ':' after case value");
+        } else if (match(TokenType::DEFAULT)) {
+            consume(TokenType::COLON, "Expected ':' after default");
+            c.value = nullptr;
+        } else {
+            break;
+        }
+        // Collect statements until the next case/default/}
+        while (!check(TokenType::CASE) && !check(TokenType::DEFAULT) &&
+               !check(TokenType::RBRACE) && !is_at_end()) {
+            c.stmts.push_back(parseStatement());
+        }
+        cases.push_back(std::move(c));
+    }
+    consume(TokenType::RBRACE, "Expected '}'");
+    return std::make_shared<SwitchStmt>(subject, std::move(cases));
+}
 
 ExprPtr Parser::parseStructInit(const std::string& structName) {
     consume(TokenType::LBRACE, "Expected '{'");
@@ -616,6 +677,27 @@ ExprPtr Parser::parsePostfix() {
     ExprPtr expr = parsePrimary();
 
     while (true) {
+        // Template function call: ident<TypeArg, ...>(args)
+        if (auto* ident = dynamic_cast<IdentExpr*>(expr.get())) {
+            if (check(TokenType::LT)) {
+                size_t savePos = current;
+                try {
+                    advance(); // consume <
+                    std::vector<std::string> typeArgs;
+                    do { typeArgs.push_back(parseType()); } while (match(TokenType::COMMA));
+                    if (match(TokenType::GT) && match(TokenType::LPAREN)) {
+                        std::vector<ExprPtr> args;
+                        if (!check(TokenType::RPAREN)) {
+                            do { args.push_back(parseExpression()); } while (match(TokenType::COMMA));
+                        }
+                        consume(TokenType::RPAREN, "Expected ')'");
+                        expr = std::make_shared<TemplateCallExpr>(ident->name, typeArgs, std::move(args));
+                        continue;
+                    }
+                } catch (...) {}
+                current = savePos;
+            }
+        }
         if (match(TokenType::LPAREN)) {
             // Function call
             std::vector<ExprPtr> args;

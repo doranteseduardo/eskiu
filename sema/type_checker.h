@@ -23,6 +23,9 @@ public:
     void visit(VarDecl* node) override;
     void visit(StructDecl* node) override;
     void visit(ExternDecl* node) override;
+    void visit(InterfaceDecl* node) override;
+    void visit(SwitchStmt* node) override;
+    void visit(TemplateCallExpr* node) override;
 
     void visit(BlockStmt* node) override;
     void visit(IfStmt* node) override;
@@ -64,6 +67,10 @@ private:
 
     // Template registry: template name -> StructDecl (not yet instantiated)
     std::map<std::string, StructDecl*> templateDecls;
+    // Template function registry
+    std::map<std::string, FunctionDecl*> funcTemplateDecls;
+    // Interface registry
+    std::map<std::string, InterfaceDecl*> interfaceDecls;
 
     // Function signatures: name -> (return type, parameter types)
     std::map<std::string, std::pair<std::string, std::vector<std::string>>> functionSignatures;

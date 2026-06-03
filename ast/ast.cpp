@@ -25,6 +25,9 @@ void CastExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void LiteralExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void IdentExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void AllocExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
+void InterfaceDecl::accept(ASTVisitor* visitor) { visitor->visit(this); }
+void SwitchStmt::accept(ASTVisitor* visitor) { visitor->visit(this); }
+void TemplateCallExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void StructInitExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
 
 // Program

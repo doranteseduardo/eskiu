@@ -286,6 +286,49 @@ void ASTPrinter::visit(IdentExpr* node) {
     println("IdentExpr: " + node->name);
 }
 
+void ASTPrinter::visit(InterfaceDecl* node) {
+    println("InterfaceDecl: " + node->name);
+    indentLevel++;
+    for (const auto& m : node->methods)
+        println(m.returnType + " " + m.name + "(...)");
+    indentLevel--;
+}
+
+void ASTPrinter::visit(SwitchStmt* node) {
+    println("SwitchStmt");
+    indentLevel++;
+    println("Subject:");
+    indentLevel++;
+    node->subject->accept(this);
+    indentLevel--;
+    for (auto& c : node->cases) {
+        if (c.value) {
+            println("Case:");
+            indentLevel++;
+            c.value->accept(this);
+        } else {
+            println("Default:");
+            indentLevel++;
+        }
+        for (auto& s : c.stmts) s->accept(this);
+        indentLevel--;
+    }
+    indentLevel--;
+}
+
+void ASTPrinter::visit(TemplateCallExpr* node) {
+    std::string sig = node->templateName + "<";
+    for (size_t i = 0; i < node->typeArgs.size(); ++i) {
+        if (i) sig += ",";
+        sig += node->typeArgs[i];
+    }
+    sig += ">";
+    println("TemplateCallExpr: " + sig);
+    indentLevel++;
+    for (auto& a : node->args) a->accept(this);
+    indentLevel--;
+}
+
 void ASTPrinter::visit(AllocExpr* node) {
     println("AllocExpr: alloc(" + node->elemType + ", ...)");
     indentLevel++;

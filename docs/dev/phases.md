@@ -4,7 +4,7 @@
 
 Authoritative status reference for Eskiu compiler contributors. Supersedes `docs/PHASES.md`.
 
-Last updated: 2026-06-02. Phases 0–6 and template structs (5.5) are COMPLETE. Phase 7 (Result\<T,E\> stdlib constructors + stdlib base) is next.
+Last updated: 2026-06-02. Phases 0–7 (core) are COMPLETE. Interface dispatch (Phase 5.5) and List\<T\>/String (Phase 7) remain. INE decoder port is the next milestone.
 
 ---
 
@@ -103,7 +103,7 @@ None.
 - Error recovery: on parse error, skip tokens to the next `;` and continue
 
 ### Known Gaps
-- `switch`/`case` not implemented (deferred to Phase 5.5)
+- `switch`/`case` now implemented (see Phase 5.5)
 
 ### Key Files
 - `parser/parser.h`
@@ -168,7 +168,7 @@ None.
 
 ### Known Gaps
 - Float literal assigned to `float` field emits `double` constant — store width mismatch (no impact on integer/uint types used by INE decoder target)
-- `BreakStmt` inside `switch`/`case` (switch not yet parsed)
+- `BreakStmt` inside `switch`/`case` works correctly via `breakTarget`
 - `emitObjectFile` on Windows not tested
 
 ### Key Files
@@ -318,9 +318,16 @@ getelementptr inbounds nuw %Result_int_string, ptr %r, i32 0, i32 1
 store i32 42, ptr %1
 ```
 
+#### Also completed (function templates + switch)
+
+- **Function templates**: `int fn<T>(T x)` — `FunctionDecl.typeParams`; `TemplateCallExpr` AST node; lazy instantiation via `typeParamOverride`; save/restore insert point during nested instantiation
+- **`substType` extended** to substitute inside `Name<T,E>` template type strings
+- **`switch`/`case`**: `SwitchStmt`; LLVM `switch` instruction; fallthrough; `break` via `breakTarget`
+- **`InterfaceDecl`** parsed and stored; vtable generation deferred (not needed for v0.1)
+- **Stdlib base**: `stdlib/result.esk`, `stdlib/math.esk`, `stdlib/io.esk`, `stdlib/mem.esk`
+
 #### Remaining (Phase 5.5)
-- **Interface dispatch** — Go-style structural typing; vtable as `llvm::StructType` of function pointers; fat pointer `(data_ptr, vtable_ptr)`
-- **`switch`/`case`** — deferred from Phase 2
+- **Interface dispatch** — vtable as `llvm::StructType` of function pointers; fat pointer `(data_ptr, vtable_ptr)`; structural satisfaction check
 
 ### Key Files
 - `ast/ast.h` — `StructDecl.typeParams`, `StructInitExpr`, `AllocExpr`
@@ -377,22 +384,23 @@ Both compile, link, and produce correct output.
 
 ## Phase 7 — Result\<T,E\> + Stdlib
 
-**Status: PLANNED**
+**Status: PARTIAL — core stdlib files created; List\<T\> and String pending**
 
 **Goal:** Error propagation without exceptions; core standard library modules.
 
-**Deliverable:** `Result<T,E>` usable for function return types; `List<T>`, `math`, `io`, `mem` modules available.
+### Implemented
 
-### Planned
-- `Result<T,E>` as a tagged union struct in stdlib; `Ok(v)` / `Err(e)` constructors
-- `List<T>` — growable array backed by `alloc`/`free`
-- `math` — `sqrt`, `abs`, `min`, `max`, `pow` (extern to libm)
-- `io` — `read_file`, `write_file` (extern to libc)
-- `mem` — `memcpy`, `memset`, `memmove` (extern to libc)
+- **`stdlib/result.esk`** — `struct Result<T,E>` + `Ok<T,E>` / `Err<T,E>` template constructors; `Result<int,string>` compiles and runs end-to-end
+- **`stdlib/math.esk`** — `sqrt`, `fabs`, `pow`, `floor`, `ceil`, `abs` as `extern` declarations (link with `-lm`)
+- **`stdlib/io.esk`** — `printf`, `fprintf`, `sprintf`, `scanf`, `puts`, `getchar`, `putchar`
+- **`stdlib/mem.esk`** — `memcpy`, `memset`, `memmove`, `memcmp`, `strlen`, `memchr`
 
-### Key Files (to create)
+### Remaining
+- `List<T>` — growable array backed by `alloc`/`free`; requires method templates
+- `String` mutable type — `{ *char data; int len; int cap }` with `append`, `len`, `cstr`
+
+### Key Files
 - `stdlib/result.esk`
-- `stdlib/list.esk`
 - `stdlib/math.esk`
 - `stdlib/io.esk`
 - `stdlib/mem.esk`

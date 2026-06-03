@@ -53,6 +53,24 @@ static std::string substType(const std::string& t,
     size_t lb = t.rfind('[');
     if (lb != std::string::npos && t.back() == ']')
         return substType(t.substr(0, lb), subs) + t.substr(lb);
+    // Template type: Name<T, E> → substitute type args
+    size_t lt = t.find('<');
+    if (lt != std::string::npos && t.back() == '>') {
+        std::string name  = t.substr(0, lt);
+        std::string inner = t.substr(lt + 1, t.size() - lt - 2);
+        std::vector<std::string> args;
+        int depth = 0; std::string cur;
+        for (char c : inner) {
+            if      (c == '<') { depth++; cur += c; }
+            else if (c == '>') { depth--; cur += c; }
+            else if (c == ',' && depth == 0) { args.push_back(substType(cur, subs)); cur.clear(); }
+            else cur += c;
+        }
+        if (!cur.empty()) args.push_back(substType(cur, subs));
+        std::string result = name + "<";
+        for (size_t i = 0; i < args.size(); ++i) { if (i) result += ","; result += args[i]; }
+        return result + ">";
+    }
     return t;
 }
 
@@ -109,6 +127,12 @@ void CodeGen::printIR() const {
 // ============================================================================
 
 llvm::Type* CodeGen::getTypeFromString(const std::string& typeStr) {
+    // Apply type parameter override during template function instantiation
+    if (!typeParamOverride.empty()) {
+        std::string resolved = substType(typeStr, typeParamOverride);
+        if (resolved != typeStr) return getTypeFromString(resolved);
+    }
+
     // Leading pointer: *T (spec style)
     if (!typeStr.empty() && typeStr.front() == '*') {
         return llvm::PointerType::get(*context, 0);
@@ -279,6 +303,11 @@ void CodeGen::visit(Program* node) {
 }
 
 void CodeGen::visit(FunctionDecl* node) {
+    if (!node->typeParams.empty()) {
+        funcTemplateDecls[node->name] = node;
+        return;
+    }
+
     // Get parameter types
     std::vector<llvm::Type*> paramTypes;
     for (auto& param : node->params) {
@@ -352,10 +381,11 @@ void CodeGen::visit(VarDecl* node) {
     llvm::Type* declType = getTypeFromString(node->type);
     llvm::AllocaInst* alloca = builder->CreateAlloca(declType, nullptr, node->name);
     defineSymbol(node->name, alloca);
-    // Store mangled name so MemberExpr resolution finds template instances
-    std::string varType = (node->type.find('<') != std::string::npos)
-                          ? mangleTemplate(node->type)
+    // Resolve type params and mangle template names for varTypeStack
+    std::string varType = !typeParamOverride.empty()
+                          ? substType(node->type, typeParamOverride)
                           : node->type;
+    if (varType.find('<') != std::string::npos) varType = mangleTemplate(varType);
     defineVarType(node->name, varType);
 
     if (node->initializer) {
@@ -409,7 +439,6 @@ void CodeGen::ensureTemplateInstantiated(const std::string& mangled,
 
 void CodeGen::visit(StructDecl* node) {
     if (!node->typeParams.empty()) {
-        // Template — store for lazy instantiation, do not emit yet
         templateDecls[node->name] = node;
         return;
     }
@@ -990,6 +1019,103 @@ void CodeGen::visit(StructInitExpr* node) {
     llvm::Value* tmp = builder->CreateAlloca(st, nullptr, node->structName + ".init");
     emitStructInitInto(tmp, node);
     exprValueStack.push(builder->CreateLoad(st, tmp));
+}
+
+void CodeGen::visit(InterfaceDecl* node) {
+    // Interface dispatch deferred — structural typing check at call sites
+    // For now interfaces are parsed but generate no code
+}
+
+void CodeGen::visit(SwitchStmt* node) {
+    // Pre-evaluate case values (must be ConstantInt) before creating the switch
+    std::vector<llvm::ConstantInt*> caseVals;
+    for (auto& c : node->cases) {
+        if (!c.value) { caseVals.push_back(nullptr); continue; }
+        llvm::Value* v = evaluateExpr(c.value);
+        auto* ci = llvm::dyn_cast<llvm::ConstantInt>(v);
+        if (!ci) throw std::runtime_error("switch case value must be a constant integer");
+        caseVals.push_back(ci);
+    }
+
+    llvm::Value* subj = evaluateExpr(node->subject);
+    if (!subj->getType()->isIntegerTy())
+        throw std::runtime_error("switch subject must be integer");
+
+    llvm::BasicBlock* endBlock = llvm::BasicBlock::Create(*context, "switch.end", currentFunction);
+
+    std::vector<llvm::BasicBlock*> caseBlocks(node->cases.size());
+    for (size_t i = 0; i < node->cases.size(); ++i) {
+        std::string lbl = node->cases[i].value ? "case" + std::to_string(i) : "default";
+        caseBlocks[i] = llvm::BasicBlock::Create(*context, lbl, currentFunction);
+    }
+
+    llvm::BasicBlock* defaultBlock = endBlock;
+    for (size_t i = 0; i < node->cases.size(); ++i) {
+        if (!node->cases[i].value) { defaultBlock = caseBlocks[i]; break; }
+    }
+
+    llvm::SwitchInst* sw = builder->CreateSwitch(subj, defaultBlock);
+    for (size_t i = 0; i < node->cases.size(); ++i) {
+        if (caseVals[i]) sw->addCase(caseVals[i], caseBlocks[i]);
+    }
+
+    llvm::BasicBlock* prevBreak = breakTarget;
+    breakTarget = endBlock;
+
+    for (size_t i = 0; i < node->cases.size(); ++i) {
+        builder->SetInsertPoint(caseBlocks[i]);
+        for (auto& stmt : node->cases[i].stmts) {
+            stmt->accept(this);
+            if (builder->GetInsertBlock()->getTerminator()) break;
+        }
+        if (!builder->GetInsertBlock()->getTerminator()) {
+            llvm::BasicBlock* next = (i + 1 < caseBlocks.size()) ? caseBlocks[i+1] : endBlock;
+            builder->CreateBr(next);
+        }
+    }
+
+    breakTarget = prevBreak;
+    builder->SetInsertPoint(endBlock);
+}
+
+void CodeGen::visit(TemplateCallExpr* node) {
+    auto templ = funcTemplateDecls.find(node->templateName);
+    if (templ == funcTemplateDecls.end())
+        throw std::runtime_error("Unknown template function: " + node->templateName);
+
+    FunctionDecl* fd = templ->second;
+    auto& tp = fd->typeParams;
+    std::map<std::string, std::string> subs;
+    for (size_t i = 0; i < tp.size() && i < node->typeArgs.size(); ++i)
+        subs[tp[i]] = node->typeArgs[i];
+
+    // Mangle the instantiated function name
+    std::string mangledName = node->templateName;
+    for (const auto& t : node->typeArgs) mangledName += "_" + mangleTemplate(t);
+
+    // Instantiate if not already in module.
+    // Save/restore the insert point — we may be inside another function's body.
+    if (!module->getFunction(mangledName)) {
+        llvm::BasicBlock*          savedBB    = builder->GetInsertBlock();
+        llvm::BasicBlock::iterator savedPoint = builder->GetInsertPoint();
+        llvm::Function*            savedFunc  = currentFunction;
+
+        typeParamOverride = subs;
+        auto inst = std::make_shared<FunctionDecl>(mangledName, fd->returnType, fd->params, fd->body);
+        inst->accept(this);
+        typeParamOverride.clear();
+
+        // Restore caller's context
+        currentFunction = savedFunc;
+        if (savedBB) builder->SetInsertPoint(savedBB, savedPoint);
+    }
+
+    llvm::Function* func = module->getFunction(mangledName);
+    if (!func) throw std::runtime_error("Template instantiation failed: " + mangledName);
+
+    std::vector<llvm::Value*> args;
+    for (auto& arg : node->args) args.push_back(evaluateExpr(arg));
+    exprValueStack.push(builder->CreateCall(func, args));
 }
 
 llvm::Value* CodeGen::evaluateLValue(ExprPtr expr) {

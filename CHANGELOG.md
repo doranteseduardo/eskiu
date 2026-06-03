@@ -3,8 +3,42 @@
 ## [Unreleased]
 
 ### Planned
-- Phase 5.5 remainder: Go-style interface dispatch, `switch`/`case`
-- Phase 7: `Result<T,E>` stdlib constructors (`Ok`/`Err`), stdlib base
+- Phase 5.5 remainder: Go-style interface dispatch (vtable)
+- `String` mutable type (Phase 7)
+- `List<T>` dynamic array (Phase 7)
+
+---
+
+## [0.0.5-alpha] — 2026-06-02
+
+### Added — Phase 5.5 completion + Phase 7 stdlib base
+
+**`switch`/`case`**
+- `SwitchStmt` AST node with `Case { value, stmts }` list; full visitor chain
+- Parser: `switch (expr) { case val: stmts break; default: stmts }` with fallthrough support
+- Codegen: LLVM `switch` instruction with `ConstantInt` case values; `break` branches to `switch.end` via existing `breakTarget` mechanism
+
+**Function templates**
+- `int fn<T, E>(T x) -> RetType<T,E> { ... }` — `FunctionDecl.typeParams` field
+- `TemplateCallExpr` AST node: `name<TypeArg,...>(args)` parsed in `parsePostfix()`
+- Codegen: lazy instantiation with `typeParamOverride` map — intercepts all type lookups in `getTypeFromString`, `visit(VarDecl*)`, etc. during template body emission
+- Context save/restore: insert point and `currentFunction` preserved when instantiating inside another function's body
+- `substType` extended to substitute inside `Name<T,E>` template type strings recursively
+
+**`InterfaceDecl`**
+- `interface Speakable { void speak(); }` fully parsed; stored in `interfaceDecls`
+- Codegen generates no IR for interfaces (vtable dispatch deferred — not required for v0.1)
+
+**Stdlib base** (`stdlib/`)
+- `result.esk` — `struct Result<T,E>` + `Ok<T,E>` / `Err<T,E>` template constructors
+- `math.esk` — `sqrt`, `fabs`, `pow`, `floor`, `ceil`, `abs` (extern to libm)
+- `io.esk` — `printf`, `fprintf`, `sprintf`, `scanf`, `puts`, `getchar`, `putchar`
+- `mem.esk` — `memcpy`, `memset`, `memmove`, `memcmp`, `strlen`, `memchr`
+
+### Fixed
+- Parser: `int fn<T>(T x)` at top level was silently dropped — `parseDeclaration()` now detects `<` after a name as a function template
+- Type checker: template function bodies were visited with unresolved type params — now guarded with `typeParams.empty()` check
+- `substType`: did not substitute type params inside `Name<T,E>` template strings — now handles nested template types recursively
 
 ---
 

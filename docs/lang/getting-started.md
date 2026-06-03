@@ -1,21 +1,19 @@
 ---
-
 # Getting Started with Eskiu
 
 A hands-on introduction to the Eskiu language. You will go from zero to writing and
 inspecting real compiled programs in about 30 minutes.
-
 ---
 
 ## Installation
 
 ### Prerequisites
 
-| Tool | Minimum version | Notes |
-|------|----------------|-------|
-| LLVM | 17+ | Headers and libraries required |
-| CMake | 3.20+ | Build system |
-| C++ compiler | C++17 | GCC 7+, Clang 5+, or Apple Clang |
+| Tool         | Minimum version | Notes                            |
+| ------------ | --------------- | -------------------------------- |
+| LLVM         | 17+             | Headers and libraries required   |
+| CMake        | 3.20+           | Build system                     |
+| C++ compiler | C++17           | GCC 7+, Clang 5+, or Apple Clang |
 
 ### macOS
 
@@ -27,7 +25,7 @@ export LLVM_DIR=$(brew --prefix llvm)/lib/cmake/llvm
 Add the `export` to `~/.zshrc` to make it permanent. Then clone and build:
 
 ```bash
-git clone https://github.com/reactvision/eskiu.git
+git clone https://github.com/doranteseduardo/eskiu.git
 cd eskiu
 mkdir build && cd build
 cmake ..
@@ -87,12 +85,12 @@ Fully parsed and type-checked. `--test-parser` shows the full AST including `Mem
 
 ## Using the Test Modes
 
-| Flag | Phase | Output | When to use |
-|------|-------|--------|-------------|
-| `--test-lexer` | Lexer | Token stream with line/col | Debugging tokenization |
-| `--test-parser` | Parser | Indented AST | Checking syntax structure |
-| `--test-typechecker` | Type checker | Errors or success | Validating types and struct fields |
-| `--test-codegen` | Code generator | LLVM IR | Seeing final output |
+| Flag                 | Phase          | Output                     | When to use                        |
+| -------------------- | -------------- | -------------------------- | ---------------------------------- |
+| `--test-lexer`       | Lexer          | Token stream with line/col | Debugging tokenization             |
+| `--test-parser`      | Parser         | Indented AST               | Checking syntax structure          |
+| `--test-typechecker` | Type checker   | Errors or success          | Validating types and struct fields |
+| `--test-codegen`     | Code generator | LLVM IR                    | Seeing final output                |
 
 `--test-lexer` on `int x = 5 + 3;` produces 7 tokens with exact line/column positions. `--test-typechecker` on a struct with a bad field access produces a named error before any IR is generated.
 

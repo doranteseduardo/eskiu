@@ -44,11 +44,15 @@ private:
     std::map<std::string, llvm::StructType*> structTypes;
     std::map<std::string, std::vector<StructDecl::Field>> structFields;
 
-    // Template struct registry (raw pointer — lifetime owned by Program)
+    // Template struct registry
     std::map<std::string, StructDecl*> templateDecls;
     void ensureTemplateInstantiated(const std::string& mangledName,
                                     const std::string& templateName,
                                     const std::vector<std::string>& args);
+    // Template function registry
+    std::map<std::string, FunctionDecl*> funcTemplateDecls;
+    // Active type param substitutions during template function instantiation
+    std::map<std::string, std::string> typeParamOverride;
 
     // Variable type tracking for MemberExpr/IndexExpr resolution
     std::vector<std::map<std::string, std::string>> varTypeStack;
@@ -94,8 +98,11 @@ private:
     void visit(CastExpr* node) override;
     void visit(LiteralExpr* node) override;
     void visit(IdentExpr* node) override;
+    void visit(InterfaceDecl* node) override;
+    void visit(SwitchStmt* node) override;
     void visit(StructInitExpr* node) override;
     void visit(AllocExpr* node) override;
+    void visit(TemplateCallExpr* node) override;
 
     void emitStructInitInto(llvm::Value* dest, StructInitExpr* init);
     llvm::Function* getOrDeclareFunc(const std::string& name, llvm::Type* retType,

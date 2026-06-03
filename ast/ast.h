@@ -46,6 +46,7 @@ public:
     std::string returnType;
     std::vector<std::pair<std::string, std::string>> params; // (type, name)
     StmtPtr body;
+    std::vector<std::string> typeParams; // non-empty → template function
 
     FunctionDecl(const std::string& name, const std::string& returnType,
                  const std::vector<std::pair<std::string, std::string>>& params,
@@ -62,6 +63,21 @@ public:
 
     VarDecl(const std::string& name, const std::string& type, ExprPtr init = nullptr)
         : Decl(name), type(type), initializer(init) {}
+
+    void accept(class ASTVisitor* visitor) override;
+};
+
+class InterfaceDecl : public Decl {
+public:
+    // Each method signature: (return_type, name, param_types)
+    struct MethodSig {
+        std::string returnType;
+        std::string name;
+        std::vector<std::pair<std::string, std::string>> params;
+    };
+    std::vector<MethodSig> methods;
+
+    explicit InterfaceDecl(const std::string& name) : Decl(name) {}
 
     void accept(class ASTVisitor* visitor) override;
 };
@@ -160,6 +176,21 @@ public:
 
 class BreakStmt : public Stmt {
 public:
+    void accept(class ASTVisitor* visitor) override;
+};
+
+class SwitchStmt : public Stmt {
+public:
+    struct Case {
+        ExprPtr value;               // nullptr = default
+        std::vector<StmtPtr> stmts;
+    };
+    ExprPtr subject;
+    std::vector<Case> cases;
+
+    SwitchStmt(ExprPtr subj, std::vector<Case> cases)
+        : subject(subj), cases(std::move(cases)) {}
+
     void accept(class ASTVisitor* visitor) override;
 };
 
@@ -281,6 +312,18 @@ public:
     void accept(class ASTVisitor* visitor) override;
 };
 
+class TemplateCallExpr : public Expr {
+public:
+    std::string templateName;
+    std::vector<std::string> typeArgs;
+    std::vector<ExprPtr> args;
+
+    TemplateCallExpr(std::string name, std::vector<std::string> typeArgs, std::vector<ExprPtr> args)
+        : templateName(std::move(name)), typeArgs(std::move(typeArgs)), args(std::move(args)) {}
+
+    void accept(class ASTVisitor* visitor) override;
+};
+
 class StructInitExpr : public Expr {
 public:
     std::string structName;
@@ -321,12 +364,14 @@ public:
     virtual void visit(VarDecl* node) = 0;
     virtual void visit(StructDecl* node) = 0;
     virtual void visit(ExternDecl* node) = 0;
+    virtual void visit(InterfaceDecl* node) = 0;
     virtual void visit(BlockStmt* node) = 0;
     virtual void visit(IfStmt* node) = 0;
     virtual void visit(ForStmt* node) = 0;
     virtual void visit(WhileStmt* node) = 0;
     virtual void visit(ReturnStmt* node) = 0;
     virtual void visit(BreakStmt* node) = 0;
+    virtual void visit(SwitchStmt* node) = 0;
     virtual void visit(ExprStmt* node) = 0;
     virtual void visit(BinaryExpr* node) = 0;
     virtual void visit(UnaryExpr* node) = 0;
@@ -338,4 +383,5 @@ public:
     virtual void visit(IdentExpr* node) = 0;
     virtual void visit(StructInitExpr* node) = 0;
     virtual void visit(AllocExpr* node) = 0;
+    virtual void visit(TemplateCallExpr* node) = 0;
 };
