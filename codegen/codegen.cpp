@@ -156,6 +156,9 @@ llvm::Type* CodeGen::getTypeFromString(const std::string& typeStr) {
     if (typeStr == "void")                         return llvm::Type::getVoidTy(*context);
     if (typeStr == "char")                         return llvm::Type::getInt8Ty(*context);
     if (typeStr == "string")                       return llvm::PointerType::get(*context, 0);
+    // Function pointer type: fn(T,...)->R — represented as opaque ptr
+    if (typeStr.size() > 3 && typeStr.substr(0, 3) == "fn(")
+        return llvm::PointerType::get(*context, 0);
 
     // Struct type with "struct:" prefix (from type checker normalization)
     if (typeStr.find("struct:") == 0) {
@@ -1127,7 +1130,35 @@ void CodeGen::visit(CallExpr* node) {
     }
 
     llvm::Value* calleeVal = evaluateExpr(node->callee);
-    if (!calleeVal || !llvm::isa<llvm::Function>(calleeVal)) {
+    if (!calleeVal) throw std::runtime_error("Call target is null");
+
+    // Indirect call through a function pointer (e.g. a lambda stored in a variable)
+    if (!llvm::isa<llvm::Function>(calleeVal)) {
+        std::string eskiuType = getExprEskiuType(node->callee);
+        // Parse fn(T1,T2,...)->R
+        if (eskiuType.size() > 3 && eskiuType.substr(0, 3) == "fn(") {
+            // extract params and return type from "fn(T,...)->R"
+            size_t rp = eskiuType.find(")->");
+            std::string paramStr = eskiuType.substr(3, rp - 3);
+            std::string retStr   = eskiuType.substr(rp + 3);
+            std::vector<llvm::Type*> pts;
+            // Split paramStr on ','
+            if (!paramStr.empty()) {
+                size_t pos = 0;
+                while (pos < paramStr.size()) {
+                    size_t comma = paramStr.find(',', pos);
+                    if (comma == std::string::npos) comma = paramStr.size();
+                    pts.push_back(getTypeFromString(paramStr.substr(pos, comma - pos)));
+                    pos = comma + 1;
+                }
+            }
+            llvm::Type* retTy = getTypeFromString(retStr);
+            llvm::FunctionType* fty = llvm::FunctionType::get(retTy, pts, false);
+            std::vector<llvm::Value*> iargs;
+            for (auto& a : node->args) iargs.push_back(evaluateExpr(a));
+            exprValueStack.push(builder->CreateCall(fty, calleeVal, iargs, "fn.call"));
+            return;
+        }
         throw std::runtime_error("Call target is not a function");
     }
     llvm::Function* func = llvm::cast<llvm::Function>(calleeVal);
@@ -1385,6 +1416,58 @@ void CodeGen::visit(AllocExpr* node) {
     llvm::Function* mallocFn = getOrDeclareFunc("malloc",
         llvm::PointerType::get(*context, 0), {llvm::Type::getInt64Ty(*context)});
     exprValueStack.push(builder->CreateCall(mallocFn, {total}, "alloc.ptr"));
+}
+
+void CodeGen::visit(LambdaExpr* node) {
+    // Emit an anonymous LLVM function and push its pointer as the expression value.
+    static int lambdaSeq = 0;
+    std::string lambdaName = "__lambda" + std::to_string(lambdaSeq++);
+
+    // Build LLVM param types
+    std::vector<llvm::Type*> paramTypes;
+    for (const auto& p : node->params)
+        paramTypes.push_back(getTypeFromString(p.first));
+
+    llvm::Type* retTy = getTypeFromString(node->returnType);
+    llvm::FunctionType* fty = llvm::FunctionType::get(retTy, paramTypes, false);
+    llvm::Function* func = llvm::Function::Create(
+        fty, llvm::Function::InternalLinkage, lambdaName, module.get());
+
+    size_t i = 0;
+    for (auto& arg : func->args())
+        arg.setName(node->params[i++].second);
+
+    // Save builder state, compile body, restore
+    llvm::Function* prevFunc      = currentFunction;
+    llvm::Value*    prevSret      = currentSretParam;
+    llvm::BasicBlock* prevInsert  = builder->GetInsertBlock();
+
+    llvm::BasicBlock* entry = llvm::BasicBlock::Create(*context, "entry", func);
+    builder->SetInsertPoint(entry);
+    currentFunction  = func;
+    currentSretParam = nullptr;
+    pushScope();
+
+    i = 0;
+    for (auto& arg : func->args()) {
+        defineSymbol(node->params[i].second, &arg);
+        defineVarType(node->params[i].second, node->params[i].first);
+        i++;
+    }
+
+    if (node->body) node->body->accept(this);
+
+    if (!builder->GetInsertBlock()->getTerminator()) {
+        if (retTy->isVoidTy()) builder->CreateRetVoid();
+        else builder->CreateRet(llvm::Constant::getNullValue(retTy));
+    }
+
+    popScope();
+    currentFunction  = prevFunc;
+    currentSretParam = prevSret;
+    if (prevInsert) builder->SetInsertPoint(prevInsert);
+
+    exprValueStack.push(func);
 }
 
 void CodeGen::emitStructInitInto(llvm::Value* dest, StructInitExpr* init) {

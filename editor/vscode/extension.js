@@ -59,6 +59,15 @@ function validate(document) {
     );
 }
 
+function runEskiuc(filePath, args) {
+    return new Promise((resolve) => {
+        const eskiuc = findEskiuc();
+        execFile(eskiuc, [filePath, ...args], { timeout: 5000 }, (err, stdout, stderr) => {
+            resolve((stdout || '').trim());
+        });
+    });
+}
+
 function activate(context) {
     diagnosticCollection = vscode.languages.createDiagnosticCollection('eskiu');
     context.subscriptions.push(diagnosticCollection);
@@ -76,6 +85,44 @@ function activate(context) {
     context.subscriptions.push(
         vscode.workspace.onDidCloseTextDocument((doc) => {
             diagnosticCollection.delete(doc.uri);
+        })
+    );
+
+    // Hover: show inferred type under cursor
+    context.subscriptions.push(
+        vscode.languages.registerHoverProvider('eskiu', {
+            async provideHover(document, position) {
+                const line = position.line + 1;
+                const col  = position.character + 1;
+                const type = await runEskiuc(document.uri.fsPath,
+                    [`--hover-at`, `${line}:${col}`]);
+                if (!type || type.startsWith('(')) return null;
+                return new vscode.Hover(
+                    new vscode.MarkdownString(`\`\`\`eskiu\n${type}\n\`\`\``)
+                );
+            }
+        })
+    );
+
+    // Go-to-definition
+    context.subscriptions.push(
+        vscode.languages.registerDefinitionProvider('eskiu', {
+            async provideDefinition(document, position) {
+                const line = position.line + 1;
+                const col  = position.character + 1;
+                const loc = await runEskiuc(document.uri.fsPath,
+                    [`--definition-at`, `${line}:${col}`]);
+                // Format: file:line:col
+                const m = loc.match(/^(.+):(\d+):(\d+)$/);
+                if (!m) return null;
+                const [, file, defLine, defCol] = m;
+                const uri = vscode.Uri.file(file);
+                const pos = new vscode.Position(
+                    Math.max(0, parseInt(defLine, 10) - 1),
+                    Math.max(0, parseInt(defCol,  10) - 1)
+                );
+                return new vscode.Location(uri, pos);
+            }
         })
     );
 }

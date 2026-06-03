@@ -140,6 +140,7 @@ private:
     void visit(StructInitExpr* node) override;
     void visit(AllocExpr* node) override;
     void visit(TemplateCallExpr* node) override;
+    void visit(LambdaExpr* node) override;
 
     void emitStructInitInto(llvm::Value* dest, StructInitExpr* init);
     llvm::Function* getOrDeclareFunc(const std::string& name, llvm::Type* retType,

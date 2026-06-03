@@ -42,4 +42,5 @@ private:
     void visit(StructInitExpr* node) override;
     void visit(AllocExpr* node) override;
     void visit(TemplateCallExpr* node) override;
+    void visit(LambdaExpr* node) override;
 };

@@ -344,6 +344,21 @@ public:
     void accept(class ASTVisitor* visitor) override;
 };
 
+// Lambda / anonymous function: fn(int x) -> int { return x * 2; }
+class LambdaExpr : public Expr {
+public:
+    std::vector<std::pair<std::string, std::string>> params; // (type, name)
+    std::string returnType;
+    StmtPtr body;
+
+    LambdaExpr(std::vector<std::pair<std::string, std::string>> params,
+               std::string returnType, StmtPtr body)
+        : params(std::move(params)), returnType(std::move(returnType)),
+          body(std::move(body)) {}
+
+    void accept(class ASTVisitor* visitor) override;
+};
+
 // ============================================================================
 // Program (root node)
 // ============================================================================
@@ -392,4 +407,5 @@ public:
     virtual void visit(StructInitExpr* node) = 0;
     virtual void visit(AllocExpr* node) = 0;
     virtual void visit(TemplateCallExpr* node) = 0;
+    virtual void visit(LambdaExpr* node) = 0;
 };

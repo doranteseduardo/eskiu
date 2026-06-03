@@ -349,3 +349,14 @@ void ASTPrinter::visit(StructInitExpr* node) {
     }
     indentLevel--;
 }
+
+void ASTPrinter::visit(LambdaExpr* node) {
+    std::string sig = node->returnType + "(";
+    for (size_t i = 0; i < node->params.size(); ++i) {
+        if (i) sig += ", ";
+        sig += node->params[i].first + " " + node->params[i].second;
+    }
+    sig += ")";
+    println("LambdaExpr: " + sig);
+    if (node->body) { indentLevel++; node->body->accept(this); indentLevel--; }
+}

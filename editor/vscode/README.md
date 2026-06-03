@@ -64,6 +64,5 @@ that support LSP natively (Neovim, Helix, etc.).
 
 ## Future work
 
-- Hover: show inferred type on mouse-over
-- Go-to-definition for struct fields and functions
 - Snippets: `struct`, `Result<T,E>`, `extern`, `interface`
+- Go-to-definition for struct fields (currently works for functions and variables)

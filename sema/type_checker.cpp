@@ -156,8 +156,56 @@ void TypeChecker::visit(Program* node) {
     // This is called if someone visits it directly
 }
 
+std::string TypeChecker::getTypeAtPosition(int line, int col) const {
+    Expr* best = nullptr;
+    int   bestDist = INT_MAX;
+    for (const auto& [node, type] : expressionTypes) {
+        if (type == "unknown" || type.empty()) continue;
+        if (node->line != line) continue;
+        int dist = std::abs(node->col - col);
+        if (dist < bestDist) { bestDist = dist; best = node; }
+    }
+    return best ? expressionTypes.at(best) : "";
+}
+
+std::string TypeChecker::getDefinitionAt(int line, int col) const {
+    // 1. Cursor is on a use-site: look up the symbol name from use location
+    auto useit = useLocations.find({line, col});
+    if (useit != useLocations.end()) {
+        auto defit = definitionLocations.find(useit->second);
+        if (defit != definitionLocations.end()) {
+            const auto& loc = defit->second;
+            return loc.file + ":" + std::to_string(loc.line) + ":" +
+                   std::to_string(loc.col);
+        }
+    }
+    // 2. Cursor may be slightly off — check nearby columns for a use on same line
+    for (int dc = -8; dc <= 8; ++dc) {
+        auto it2 = useLocations.find({line, col + dc});
+        if (it2 != useLocations.end()) {
+            auto defit = definitionLocations.find(it2->second);
+            if (defit != definitionLocations.end()) {
+                const auto& loc = defit->second;
+                return loc.file + ":" + std::to_string(loc.line) + ":" +
+                       std::to_string(loc.col);
+            }
+        }
+    }
+    // 3. Cursor is directly on the declaration itself
+    for (const auto& [name, loc] : definitionLocations) {
+        if (loc.line == line &&
+            col >= loc.col && col < loc.col + (int)name.size())
+            return loc.file + ":" + std::to_string(loc.line) + ":" +
+                   std::to_string(loc.col);
+    }
+    return "";
+}
+
 void TypeChecker::visit(FunctionDecl* node) {
     if (!node->typeParams.empty()) return; // Template body checked on instantiation
+
+    // Record definition location
+    definitionLocations[node->name] = {node->line, node->col, sourceFile};
 
     currentFunctionReturnType = node->returnType;
     pushScope();
@@ -177,6 +225,9 @@ void TypeChecker::visit(FunctionDecl* node) {
 }
 
 void TypeChecker::visit(VarDecl* node) {
+    // Record definition location
+    if (node->line > 0)
+        definitionLocations[node->name] = {node->line, node->col, sourceFile};
     if (node->initializer) {
         node->initializer->accept(this);
         std::string initType = getExpressionType(node->initializer.get());
@@ -433,9 +484,24 @@ void TypeChecker::visit(CallExpr* node) {
     std::string funcName;
     if (auto identExpr = dynamic_cast<IdentExpr*>(node->callee.get())) {
         funcName = identExpr->name;
+        // Record use-site for go-to-definition
+        useLocations[{identExpr->line, identExpr->col}] = funcName;
     } else {
         expressionTypes[node] = "unknown";
         return;
+    }
+
+    // Check if funcName is a variable holding a function pointer (fn(T,...)->R)
+    {
+        std::string varType = lookupSymbol(funcName);
+        if (!varType.empty() && varType.size() > 3 && varType.substr(0, 3) == "fn(") {
+            // Extract return type from fn(T,...)->R
+            size_t rp = varType.find(")->");
+            std::string retType = (rp != std::string::npos) ? varType.substr(rp + 3) : "unknown";
+            for (auto& a : node->args) a->accept(this);
+            expressionTypes[node] = retType;
+            return;
+        }
     }
 
     // Look up function signature
@@ -603,6 +669,29 @@ void TypeChecker::visit(IdentExpr* node) {
     } else {
         expressionTypes[node] = type;
     }
+    // Record use-site so go-to-definition can map cursor → definition
+    useLocations[{node->line, node->col}] = node->name;
+}
+
+void TypeChecker::visit(LambdaExpr* node) {
+    // Build fn(T,U)->R type string
+    std::string sig = "fn(";
+    for (size_t i = 0; i < node->params.size(); ++i) {
+        if (i > 0) sig += ",";
+        sig += node->params[i].first;
+    }
+    sig += ")->" + node->returnType;
+
+    pushScope();
+    std::string savedReturn = currentFunctionReturnType;
+    currentFunctionReturnType = node->returnType;
+    for (const auto& p : node->params)
+        defineSymbol(p.second, p.first);
+    if (node->body) node->body->accept(this);
+    currentFunctionReturnType = savedReturn;
+    popScope();
+
+    expressionTypes[node] = sig;
 }
 
 void TypeChecker::visit(InterfaceDecl* node) {
@@ -621,6 +710,15 @@ void TypeChecker::visit(SwitchStmt* node) {
     for (auto& c : node->cases) {
         if (c.value) {
             c.value->accept(this);
+            std::string caseType = getExpressionType(c.value.get());
+            if (caseType != "unknown" && subjType != "unknown") {
+                if (!isValidAssignment(subjType, caseType) &&
+                    !(isIntType(subjType) && isIntType(caseType))) {
+                    errorAt(c.value.get(),
+                        "case value type '" + caseType +
+                        "' is incompatible with switch subject type '" + subjType + "'");
+                }
+            }
         }
         for (auto& s : c.stmts) s->accept(this);
     }
@@ -791,6 +889,8 @@ std::string TypeChecker::inferUnaryExprType(const std::string& op, const std::st
 
 // Type validation
 void TypeChecker::validateStructType(const std::string& type) {
+    // Function pointer types are always valid
+    if (type.size() > 3 && type.substr(0, 3) == "fn(") return;
     std::string baseType = type;
     // Strip ALL pointer decorators (*T, T*, **T, etc.)
     bool stripped = true;
@@ -874,6 +974,7 @@ bool TypeChecker::isFloatType(const std::string& type) {
 }
 
 bool TypeChecker::isPrimitiveType(const std::string& type) {
+    if (type.size() > 3 && type.substr(0, 3) == "fn(") return true;
     return isNumericType(type) || type == "void" || type == "string";
 }
 

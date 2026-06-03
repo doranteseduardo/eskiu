@@ -101,6 +101,24 @@ std::string Parser::parseType() {
     }
 
     Token typeToken = peek();
+    // Function pointer type: fn(T,U,...)->R
+    if (match(TokenType::FN)) {
+        type = "fn(";
+        consume(TokenType::LPAREN, "Expected '(' in fn type");
+        bool first = true;
+        while (!check(TokenType::RPAREN) && !is_at_end()) {
+            if (!first) type += ",";
+            first = false;
+            type += parseType();
+        }
+        consume(TokenType::RPAREN, "Expected ')' in fn type");
+        type += ")->";
+        consume(TokenType::ARROW, "Expected '->' in fn type");
+        type += parseType();
+        // No trailing pointer handling needed for fn types — return early
+        for (int lp = 0; lp < leading_pointers; ++lp) type = "*" + type;
+        return type;
+    }
     if (match({TokenType::INT, TokenType::FLOAT, TokenType::DOUBLE,
                TokenType::BOOL, TokenType::CHAR, TokenType::STRING, TokenType::VOID,
                TokenType::INT8, TokenType::INT16, TokenType::INT32, TokenType::INT64,
@@ -274,6 +292,7 @@ DeclPtr Parser::parseDeclaration() {
 
         // Handle 'let' variable declarations
         if (match(TokenType::LET)) {
+            Token letNameTok = peek();
             std::string name = consume(TokenType::IDENT, "Expected identifier after 'let'").value;
             consume(TokenType::COLON, "Expected ':' after variable name");
             std::string type = parseType();
@@ -283,7 +302,9 @@ DeclPtr Parser::parseDeclaration() {
                 init = parseExpression();
             }
             consume(TokenType::SEMICOLON, "Expected ';' after variable declaration");
-            return std::make_shared<VarDecl>(name, type, init);
+            auto vd = std::make_shared<VarDecl>(name, type, init);
+            vd->line = letNameTok.line; vd->col = letNameTok.column;
+            return vd;
         }
 
         // Try to parse as type declaration (function or variable)
@@ -298,6 +319,7 @@ DeclPtr Parser::parseDeclaration() {
             std::string type = parseType();
 
             if (check(TokenType::IDENT)) {
+                Token nameTok2 = peek();
                 std::string name = advance().value;
 
                 if (match(TokenType::LPAREN) || check(TokenType::LT)) {
@@ -311,7 +333,9 @@ DeclPtr Parser::parseDeclaration() {
                         init = parseExpression();
                         consume(TokenType::SEMICOLON, "Expected ';'");
                     }
-                    return std::make_shared<VarDecl>(name, type, init);
+                    auto vd = std::make_shared<VarDecl>(name, type, init);
+                    vd->line = nameTok2.line; vd->col = nameTok2.column;
+                    return vd;
                 }
             }
         }
@@ -323,7 +347,9 @@ DeclPtr Parser::parseDeclaration() {
 }
 
 DeclPtr Parser::parseFunctionDecl() {
+    Token startTok = peek(); // capture position before parsing return type
     std::string returnType = parseType();
+    Token nameTok = peek();
     std::string name = consume(TokenType::IDENT, "Expected function name").value;
 
     // Optional type parameters: int max<T>(T a, T b) { ... }
@@ -343,6 +369,7 @@ DeclPtr Parser::parseFunctionDecl() {
 
     auto decl = std::make_shared<FunctionDecl>(name, returnType, params, body);
     decl->typeParams = typeParams;
+    decl->line = nameTok.line; decl->col = nameTok.column;
     return decl;
 }
 
@@ -895,6 +922,36 @@ ExprPtr Parser::parsePrimary() {
         consume(TokenType::RPAREN, "Expected ')'");
         auto callee = std::make_shared<IdentExpr>("free");
         return std::make_shared<CallExpr>(callee, std::vector<ExprPtr>{arg});
+    }
+
+    // Lambda: int(int a, int b) { return a + b; }
+    // Detected when a type keyword is followed by '(' and the content looks like params + '{'
+    {
+        bool isTypeKw = (tok.type == TokenType::INT    || tok.type == TokenType::FLOAT  ||
+                         tok.type == TokenType::DOUBLE  || tok.type == TokenType::BOOL   ||
+                         tok.type == TokenType::CHAR    || tok.type == TokenType::STRING  ||
+                         tok.type == TokenType::VOID    || tok.type == TokenType::UINT   ||
+                         tok.type == TokenType::INT8    || tok.type == TokenType::INT16  ||
+                         tok.type == TokenType::INT32   || tok.type == TokenType::INT64  ||
+                         tok.type == TokenType::UINT8   || tok.type == TokenType::UINT16 ||
+                         tok.type == TokenType::UINT32  || tok.type == TokenType::UINT64);
+        if (isTypeKw && peek_ahead(1).type == TokenType::LPAREN) {
+            // Disambiguate from a cast-like usage: try to parse as lambda, backtrack on failure
+            size_t savePos = current;
+            try {
+                std::string retType = parseType();           // consume return type
+                consume(TokenType::LPAREN, "");
+                auto params = parseParameterList();
+                consume(TokenType::RPAREN, "");
+                if (check(TokenType::LBRACE)) {              // confirmed: it's a lambda
+                    StmtPtr body = parseBlockStatement();
+                    auto lambda = std::make_shared<LambdaExpr>(params, retType, body);
+                    lambda->line = tok.line; lambda->col = tok.column;
+                    return lambda;
+                }
+            } catch (...) {}
+            current = savePos; // not a lambda, fall through
+        }
     }
 
     if (match(TokenType::IDENT)) {

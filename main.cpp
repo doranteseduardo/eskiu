@@ -30,7 +30,15 @@ static llvm::cl::opt<bool> TestCodegen("test-codegen",
 static llvm::cl::opt<bool> TestTypeChecker("test-typechecker",
                                            llvm::cl::desc("Type check input and report errors"));
 
-const char* VERSION = "0.0.1";
+static llvm::cl::opt<std::string> HoverAt("hover-at",
+    llvm::cl::desc("Print the Eskiu type at LINE:COL (e.g. --hover-at 8:12)"),
+    llvm::cl::value_desc("LINE:COL"));
+
+static llvm::cl::opt<std::string> DefinitionAt("definition-at",
+    llvm::cl::desc("Print the definition location of the symbol at LINE:COL"),
+    llvm::cl::value_desc("LINE:COL"));
+
+const char* VERSION = "0.0.11";
 
 // Read file contents into string
 static std::string readFile(const std::string& filename) {
@@ -236,6 +244,60 @@ int main(int argc, char** argv) {
     // Handle --test-typechecker
     if (TestTypeChecker) {
         testTypeChecker(InputFilename);
+        return 0;
+    }
+
+    // Handle --hover-at LINE:COL
+    if (!HoverAt.empty()) {
+        int line = 0, col = 0;
+        if (sscanf(HoverAt.c_str(), "%d:%d", &line, &col) != 2) {
+            std::cerr << "error: --hover-at expects LINE:COL format\n"; return 1;
+        }
+        std::string src = readFile(InputFilename);
+        Lexer lexer(src);
+        std::vector<Token> tokens;
+        Token t = lexer.next_token();
+        while (t.type != TokenType::EOF_TOKEN) { tokens.push_back(t); t = lexer.next_token(); }
+        tokens.push_back(t);
+        try {
+            Parser parser(tokens);
+            parser.basedir = std::string(InputFilename).rfind("/") != std::string::npos
+                ? std::string(InputFilename).substr(0, std::string(InputFilename).rfind("/")) : ".";
+            auto program = parser.parse();
+            TypeChecker tc;
+            tc.sourceFile = std::string(InputFilename);
+            tc.check(program.get());
+            std::string type = tc.getTypeAtPosition(line, col);
+            if (type.empty()) std::cout << "(no type at " << line << ":" << col << ")\n";
+            else              std::cout << type << "\n";
+        } catch (...) { std::cout << "(error)\n"; }
+        return 0;
+    }
+
+    // Handle --definition-at LINE:COL
+    if (!DefinitionAt.empty()) {
+        int line = 0, col = 0;
+        if (sscanf(DefinitionAt.c_str(), "%d:%d", &line, &col) != 2) {
+            std::cerr << "error: --definition-at expects LINE:COL format\n"; return 1;
+        }
+        std::string src = readFile(InputFilename);
+        Lexer lexer(src);
+        std::vector<Token> tokens;
+        Token t = lexer.next_token();
+        while (t.type != TokenType::EOF_TOKEN) { tokens.push_back(t); t = lexer.next_token(); }
+        tokens.push_back(t);
+        try {
+            Parser parser(tokens);
+            parser.basedir = std::string(InputFilename).rfind("/") != std::string::npos
+                ? std::string(InputFilename).substr(0, std::string(InputFilename).rfind("/")) : ".";
+            auto program = parser.parse();
+            TypeChecker tc;
+            tc.sourceFile = std::string(InputFilename);
+            tc.check(program.get());
+            std::string loc = tc.getDefinitionAt(line, col);
+            if (loc.empty()) std::cout << "(no definition at " << line << ":" << col << ")\n";
+            else             std::cout << loc << "\n";
+        } catch (...) { std::cout << "(error)\n"; }
         return 0;
     }
 

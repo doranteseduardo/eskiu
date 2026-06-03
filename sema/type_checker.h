@@ -46,6 +46,7 @@ public:
     void visit(IdentExpr* node) override;
     void visit(StructInitExpr* node) override;
     void visit(AllocExpr* node) override;
+    void visit(LambdaExpr* node) override;
 
 private:
     // Symbol table: maps name -> type
@@ -122,6 +123,16 @@ private:
 public:
     // Source file name (for error messages)
     std::string sourceFile = "unknown";
+
+    // Find the Eskiu type of the expression nearest to (line, col)
+    std::string getTypeAtPosition(int line, int col) const;
+
+    // Definition location: (line, col, file)
+    struct DefLocation { int line; int col; std::string file; };
+    std::map<std::string, DefLocation> definitionLocations;
+    // Use-site map: (line,col) → symbol name (populated from IdentExpr visits)
+    std::map<std::pair<int,int>, std::string> useLocations;
+    std::string getDefinitionAt(int line, int col) const;
 
 private:
 
