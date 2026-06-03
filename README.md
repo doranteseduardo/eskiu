@@ -1,38 +1,64 @@
 <p align="center">
-  <img src="assets/logo.png" alt="Eskiu" width="180">
+  <img src="assets/logo.png" alt="Eskiu" width="140">
 </p>
 
-<h1 align="center">Eskiu</h1>
-<p align="center">A systems language with C-style syntax, Go-style interfaces, and explicit memory — compiled to native via LLVM.</p>
+<h2 align="center">eskiu</h2>
+<p align="center">A systems language with C-style syntax, structural interfaces, and explicit memory — compiled to native via LLVM.</p>
 
-## Quick Start
+<p align="center">
+  <a href="https://eskiu-lang.org">eskiu-lang.org</a> &nbsp;&middot;&nbsp;
+  <a href="docs/lang/getting-started.md">Documentation</a> &nbsp;&middot;&nbsp;
+  <a href="QUICKSTART.md">Quickstart</a> &nbsp;&middot;&nbsp;
+  <a href="CHANGELOG.md">Changelog</a>
+</p>
 
-```bash
-git clone https://github.com/doranteseduardo/eskiu && cd eskiu
-cmake -S . -B build && cmake --build build -j$(nproc)
-./build/eskiuc examples/hello.esk --test-codegen
-```
+---
 
-## Example
+## What it looks like
 
 ```eskiu
 extern int printf(string fmt, ...);
 
-int add(int a, int b) {
-    return a + b;
+interface Drawable { void draw(); }
+
+struct Circle {
+    float radius;
+    void draw() { printf("Circle(r=%f)\n", self.radius); }
 }
 
+int apply(fn(int)->int f, int x) { return f(x); }
+
 int main() {
-    int result = add(5, 3);
-    printf("Hello from Eskiu!\n");
-    printf("Result: %d\n", result);
+    // Structural interface dispatch — no implements keyword
+    let c: Circle = Circle { radius: 5.0 };
+    render(&c);
+
+    // Lambda — anonymous function, C-like syntax
+    let square: fn(int)->int = int(int n) { return n * n; };
+    printf("%d\n", apply(square, 6));  // 36
+
+    // Heap allocation
+    let buf: *uint8 = alloc(uint8, 1024);
+    buf[0] = 0xFF;
+    free(buf);
+
     return 0;
 }
 ```
 
-## Real-World Benchmark
+## Get started
 
-Eskiu was built to port a cryptographic image processing pipeline from a 3–5 second reference implementation to under 1 second. The v0.1 decoder implements the full pipeline in Eskiu — image decoding via CoreGraphics + zxing-cpp (extern), multi-round AES-256-CBC + RSA-8192 cryptography (OpenSSL externs), and structured data extraction — with no C pipeline code.
+```bash
+git clone https://github.com/doranteseduardo/eskiu && cd eskiu
+cmake -S . -B build && cmake --build build -j$(nproc)
+./build/eskiuc examples/hello.esk -o hello.o && clang hello.o -o hello && ./hello
+```
+
+Full installation guide: [QUICKSTART.md](QUICKSTART.md)
+
+## Performance
+
+A real-world cryptographic pipeline — AES-256-CBC + RSA-8192 decryption, image processing, structured output — running entirely in Eskiu via `extern` C interop.
 
 | Stage | Eskiu | Reference C |
 |---|---|---|
@@ -41,90 +67,54 @@ Eskiu was built to port a cryptographic image processing pipeline from a 3–5 s
 | Output decode | < 1 ms | 0.5 ms |
 | **Total** | **74.4 ms** | **188.9 ms** |
 
-**2.5× faster** than the reference, **40–70× faster** than the original target.  
-The crypto pipeline matches hand-written C within 0.1 ms.
+**2.5× faster** than reference C. The crypto stage matches hand-written C within 0.1 ms.
 
-## Architecture
+## Language features
 
-```
-Stage              Component                  Status
------              ---------                  ------
-Source             .esk file                  --
-Lexer              lexer/lexer.cpp            complete
-Parser             parser/parser.cpp          complete
-Type Checker       sema/type_checker.cpp      complete
-Code Generator     codegen/codegen.cpp        complete
-Object File        emitObjectFile()           complete
-Structs / Methods  Phase 5                    complete — fields, init, methods
-Interfaces         Phase 5.5                  complete — vtable dispatch + structural typing
-Templates          Phase 5.5                  complete — struct + function templates
-Heap / alloc/free  Phase 6                    complete
-stdlib             Phase 7                    complete — Result, List, String, math/io/mem
-Lambdas            Phase 8                    complete — fn(T,...)->R type, anonymous functions
-VS Code extension  tooling                    complete — syntax highlighting, errors, hover, goto-def
-```
+| Category | What's included |
+|---|---|
+| **Types** | `int/8/16/32/64`, `uint`, `float`, `double`, `bool`, `char`, `string`, `void`, `*T` pointers |
+| **Functions** | C-style, `extern` C ABI, variadic, template `fn<T>(T x)` |
+| **Lambdas** | `int(int x) { return x * 2; }` · `fn(T)->R` function pointer types · higher-order functions |
+| **Structs** | Fields, methods with implicit `self`, named/positional initialisers |
+| **Interfaces** | Structural typing, vtable dispatch, no `implements` keyword |
+| **Templates** | `Result<T,E>`, `List<T>` — monomorphic instantiation, zero overhead |
+| **Memory** | `alloc(T, N)` / `free(ptr)` · pointer arithmetic · no GC |
+| **Control flow** | `if/else`, `for`, `while`, `switch/case` (with type checking), `break`, `continue` |
+| **Multi-file** | `import "path/to/file.esk"` — relative, parsed once |
+| **stdlib** | `Result`, `List<T>`, `String`, `math`, `io`, `mem` |
+| **argv/argc** | `int main(int argc, string* argv)` works out of the box |
 
-## Language Features
+## CLI
 
-```eskiu
-// Structs with methods
-struct Point {
-    float x;
-    float y;
-    float dist(Point other) { ... }
-}
-
-// Templates
-struct Result<T, E> { int ok; T value; E error; }
-Result<int, string> r = Ok<int, string>(42);
-
-// Interfaces (structural typing, no implements keyword)
-interface Drawable { void draw(); }
-void render(Drawable d) { d.draw(); }
-render(&myCircle);  // auto-boxed
-
-// Lambdas and function pointers
-let double_it: fn(int)->int = int(int x) { return x * 2; };
-int result = double_it(5);  // 10
-
-int apply(fn(int)->int f, int x) { return f(x); }
-apply(double_it, 4);  // 8
-
-// Multi-file
-import "stdlib/result.esk";
-
-// Heap allocation
-let buf: *uint8 = alloc(uint8, 1024);
-buf[0] = 0xFF;
-free(buf);
+```bash
+eskiuc hello.esk -o hello.o            # compile to object file
+eskiuc hello.esk --test-lexer          # dump token stream
+eskiuc hello.esk --test-parser         # dump AST
+eskiuc hello.esk --test-typechecker    # type check only
+eskiuc hello.esk --test-codegen        # dump LLVM IR
+eskiuc hello.esk --hover-at 8:12       # type at cursor (VS Code)
+eskiuc hello.esk --definition-at 8:12  # go-to-definition (VS Code)
 ```
 
-## CLI Flags
+## Compiler pipeline
 
-| Flag                      | Action                                    |
-|---------------------------|-------------------------------------------|
-| `--test-lexer`            | Print token stream                        |
-| `--test-parser`           | Print AST                                 |
-| `--test-typechecker`      | Type check and report errors              |
-| `--test-codegen`          | Print LLVM IR                             |
-| `-o name`                 | Compile and link to executable            |
-| `--hover-at LINE:COL`     | Print type of expression at position      |
-| `--definition-at LINE:COL`| Print definition location of symbol       |
-| `--version`               | Print version                             |
+```
+.esk source  →  Lexer  →  Parser  →  TypeChecker  →  CodeGen  →  .o
+                                           ↑
+                                    sema/type_checker.cpp
+                                    codegen/codegen.cpp
+```
 
-## Type System
+All phases complete. Targets arm64 and x86-64 via LLVM.
 
-| Eskiu type               | LLVM type |
-|--------------------------|-----------|
-| `int`, `int32`           | `i32`     |
-| `int8`, `int16`, `int64` | `i8` `i16` `i64` |
-| `uint`, `uint8` … `uint64` | unsigned equivalents |
-| `float`                  | `float`   |
-| `double`                 | `double`  |
-| `bool`                   | `i1`      |
-| `char`                   | `i8`      |
-| `string`                 | `i8*`     |
-| `*T` or `T*`             | pointer   |
+## VS Code extension
+
+```bash
+ln -s $(pwd)/editor/vscode ~/.vscode/extensions/eskiu-language
+```
+
+Provides syntax highlighting, real-time error squiggles, hover type info, and go-to-definition — powered by the compiler, no separate language server.
 
 ## Requirements
 
@@ -134,8 +124,14 @@ free(buf);
 
 ## Documentation
 
-- Language reference and syntax: [docs/lang/](docs/lang/)
-- Contributor and internals guide: [docs/dev/](docs/dev/)
-- Architecture walkthrough: [docs/dev/architecture.md](docs/dev/architecture.md)
-- Build instructions (macOS, Linux, Alpine): [docs/lang/build.md](docs/lang/build.md)
-- Phase roadmap detail: [docs/dev/phases.md](docs/dev/phases.md)
+| Guide | Contents |
+|---|---|
+| [QUICKSTART.md](QUICKSTART.md) | Build the compiler and run your first program in 5 minutes |
+| [docs/lang/getting-started.md](docs/lang/getting-started.md) | Hands-on tutorial covering all language features |
+| [docs/lang/spec.md](docs/lang/spec.md) | Complete language reference |
+| [docs/dev/architecture.md](docs/dev/architecture.md) | Compiler internals walkthrough |
+| [docs/dev/phases.md](docs/dev/phases.md) | Feature status and roadmap |
+
+## Licence
+
+MIT — see [LICENSE](LICENSE)
