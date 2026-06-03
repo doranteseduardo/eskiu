@@ -1,0 +1,38 @@
+// extern.esk — C library declarations used by the pipeline.
+//
+// Link flags (see Makefile):
+//   -lcrypto  -lZXing
+//   -framework CoreFoundation -framework CoreGraphics -framework ImageIO  (macOS)
+
+import "types.esk";
+
+// ── libc ──────────────────────────────────────────────────────────────────────
+extern int   printf(string fmt, ...);
+extern int   strlen(string s);
+extern *void memcpy(*void dst, *void src, int n);
+extern *void fopen(string path, string mode);
+extern int   fclose(*void fp);
+extern int   fwrite(*void buf, int size, int count, *void fp);
+extern void  free(*void ptr);
+extern int64 clock();
+
+// ── Stage 1 — QR extraction (qr_extract.c + qr_extract_impl.cpp) ─────────────
+// Detects two QR codes in the image, extracts 858-byte payloads, sorts left/right
+// by bounding-box X position. Returns 1 on success, 0 on failure.
+extern int ine_qr_extract(string image_path, *QRPair out);
+
+// ── Stage 2 — Crypto pipeline (no_so_crypto.c) ───────────────────────────────
+// Input: combined = qr.left[2:] + qr.right[2:]  (856 + 856 = 1712 bytes).
+// All AES keys and RSA keys are hardcoded constants extracted from the original
+// binary — no key file needed. Returns 0 on success, -1 on failure.
+// *out_data is heap-allocated; caller must free().
+extern int run_no_so_pipeline(*uint8 combined, int combined_len,
+                               **uint8 out_data, *int out_len);
+
+// ── Stage 3 — Output decode (output_decode.c) ────────────────────────────────
+// Parses the binary payload (pipe-delimited text + WebP blob) into typed buffers.
+// All out-pointers are heap-allocated; caller must free() each non-null pointer.
+// Returns 0 on success, -1 on failure.
+extern int decode_to_buffers(*uint8 plain, int plain_len,
+                              **char json_out, *int json_len,
+                              **uint8 webp_out, *int webp_len);
