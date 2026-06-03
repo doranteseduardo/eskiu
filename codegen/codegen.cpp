@@ -702,64 +702,90 @@ void CodeGen::visit(BinaryExpr* node) {
 
     llvm::Value* result = nullptr;
 
+    // If one operand is float and the other is int, promote int to float
+    auto promoteToFloat = [&]() {
+        if (left->getType()->isFloatingPointTy() && right->getType()->isIntegerTy())
+            right = builder->CreateSIToFP(right, left->getType());
+        else if (right->getType()->isFloatingPointTy() && left->getType()->isIntegerTy())
+            left = builder->CreateSIToFP(left, right->getType());
+    };
+
     if (node->op == "+") {
         if (left->getType()->isPointerTy())
             result = builder->CreateGEP(llvm::Type::getInt8Ty(*context), left, right, "ptr.add");
-        else if (left->getType()->isFloatingPointTy())
-            result = builder->CreateFAdd(left, right);
-        else
-            result = builder->CreateAdd(left, right);
+        else {
+            promoteToFloat();
+            result = left->getType()->isFloatingPointTy()
+                ? builder->CreateFAdd(left, right)
+                : builder->CreateAdd(left, right);
+        }
     } else if (node->op == "-") {
         if (left->getType()->isPointerTy()) {
-            // ptr - int: negate offset then GEP
             llvm::Value* neg = builder->CreateNeg(right, "neg");
             result = builder->CreateGEP(llvm::Type::getInt8Ty(*context), left, neg, "ptr.sub");
-        } else if (left->getType()->isFloatingPointTy())
-            result = builder->CreateFSub(left, right);
-        else
-            result = builder->CreateSub(left, right);
+        } else {
+            promoteToFloat();
+            result = left->getType()->isFloatingPointTy()
+                ? builder->CreateFSub(left, right)
+                : builder->CreateSub(left, right);
+        }
     } else if (node->op == "*") {
+        promoteToFloat();
         result = left->getType()->isFloatingPointTy()
             ? builder->CreateFMul(left, right)
             : builder->CreateMul(left, right);
     } else if (node->op == "/") {
-        if (left->getType()->isIntegerTy()) {
-            result = builder->CreateSDiv(left, right);
-        } else {
-            result = builder->CreateFDiv(left, right);
-        }
+        promoteToFloat();
+        result = left->getType()->isFloatingPointTy()
+            ? builder->CreateFDiv(left, right)
+            : builder->CreateSDiv(left, right);
     } else if (node->op == "%") {
         result = builder->CreateSRem(left, right);
     } else if (node->op == "==") {
         if (left->getType()->isFloatingPointTy())
             result = builder->CreateFCmpOEQ(left, right);
-        else
-            result = builder->CreateICmpEQ(left, right);   // int, bool, ptr
-    } else if (node->op == "!=") {
-        if (left->getType()->isFloatingPointTy())
-            result = builder->CreateFCmpONE(left, right);
-        else
-            result = builder->CreateICmpNE(left, right);
-    } else if (node->op == "<") {
-        if (left->getType()->isFloatingPointTy())
-            result = builder->CreateFCmpOLT(left, right);
-        else
-            result = builder->CreateICmpSLT(left, right);
-    } else if (node->op == ">") {
-        if (left->getType()->isFloatingPointTy())
-            result = builder->CreateFCmpOGT(left, right);
-        else
-            result = builder->CreateICmpSGT(left, right);
-    } else if (node->op == "<=") {
-        if (left->getType()->isFloatingPointTy())
-            result = builder->CreateFCmpOLE(left, right);
-        else
-            result = builder->CreateICmpSLE(left, right);
-    } else if (node->op == ">=") {
-        if (left->getType()->isFloatingPointTy())
-            result = builder->CreateFCmpOGE(left, right);
-        else
-            result = builder->CreateICmpSGE(left, right);
+        else {
+            // Widen narrower integer to match wider (e.g. i8 == i32)
+            if (left->getType()->isIntegerTy() && right->getType()->isIntegerTy()
+                    && left->getType() != right->getType()) {
+                unsigned lw = llvm::cast<llvm::IntegerType>(left->getType())->getBitWidth();
+                unsigned rw = llvm::cast<llvm::IntegerType>(right->getType())->getBitWidth();
+                if (lw < rw) left  = builder->CreateZExt(left,  right->getType());
+                else          right = builder->CreateZExt(right, left->getType());
+            }
+            result = builder->CreateICmpEQ(left, right);
+        }
+    } else if (node->op == "!=" || node->op == "<" || node->op == ">" ||
+               node->op == "<=" || node->op == ">=") {
+        // Widen narrower integer to match wider for all comparisons
+        if (left->getType()->isIntegerTy() && right->getType()->isIntegerTy()
+                && left->getType() != right->getType()) {
+            unsigned lw = llvm::cast<llvm::IntegerType>(left->getType())->getBitWidth();
+            unsigned rw = llvm::cast<llvm::IntegerType>(right->getType())->getBitWidth();
+            if (lw < rw) left  = builder->CreateZExt(left,  right->getType());
+            else          right = builder->CreateZExt(right, left->getType());
+        }
+        if (node->op == "!=") {
+            result = left->getType()->isFloatingPointTy()
+                ? builder->CreateFCmpONE(left, right)
+                : builder->CreateICmpNE(left, right);
+        } else if (node->op == "<") {
+            result = left->getType()->isFloatingPointTy()
+                ? builder->CreateFCmpOLT(left, right)
+                : builder->CreateICmpSLT(left, right);
+        } else if (node->op == ">") {
+            result = left->getType()->isFloatingPointTy()
+                ? builder->CreateFCmpOGT(left, right)
+                : builder->CreateICmpSGT(left, right);
+        } else if (node->op == "<=") {
+            result = left->getType()->isFloatingPointTy()
+                ? builder->CreateFCmpOLE(left, right)
+                : builder->CreateICmpSLE(left, right);
+        } else {
+            result = left->getType()->isFloatingPointTy()
+                ? builder->CreateFCmpOGE(left, right)
+                : builder->CreateICmpSGE(left, right);
+        }
     } else if (node->op == "&&") {
         result = builder->CreateLogicalAnd(left, right);
     } else if (node->op == "||") {

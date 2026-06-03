@@ -28,3 +28,4 @@ eskiuc.exe
 # Temporary files
 *.tmp
 *.log
+/ine_decoder

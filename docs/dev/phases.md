@@ -4,7 +4,7 @@
 
 Authoritative status reference for Eskiu compiler contributors. Supersedes `docs/PHASES.md`.
 
-Last updated: 2026-06-02. All phases 0–7 and Phase 5.5 are COMPLETE. Language is v0.1 ready. Next: INE decoder port.
+Last updated: 2026-06-02. All phases 0–7 and Phase 5.5 are COMPLETE. INE decoder skeleton in `ine_decoder/` — pending zxing-cpp image loading.
 
 ---
 

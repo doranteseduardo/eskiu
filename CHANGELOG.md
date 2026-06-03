@@ -2,8 +2,27 @@
 
 ## [Unreleased]
 
-### Planned
-- INE QR decoder port (v0.1 milestone)
+### In Progress
+- INE QR decoder port — `ine_decoder/` skeleton complete; pending zxing-cpp image loading
+
+---
+
+## [0.0.9-alpha] — 2026-06-02
+
+### Added
+- **`ine_decoder/`** — INE QR decoder port skeleton
+  - `types.esk` — `QRPair`, `NoSoKeys`, `IneResult`, `IneFields` structs
+  - `extern.esk` — libc + OpenSSL EVP (AES/RSA) + `ine_qr_extract()` declarations
+  - `stage1_qr.esk` — QR extraction wrapper
+  - `stage2_crypto.esk` — 3-round AES-256-CBC + RSA-8192 via OpenSSL
+  - `stage3_output.esk` — pipe-delimited plaintext → JSON + WebP extraction
+  - `main.esk` — orchestration, timing, output
+  - `qr_extract.c` / `qr_extract_impl.cpp` — C/C++ shim for zxing-cpp
+  - `Makefile`, `README.md`
+
+### Fixed (compiler bugs found during decoder port)
+- **Integer width mismatch in comparisons**: `uint8 == int` (e.g. `plaintext[i] == 124`) crashed LLVM with "Both operands to ICmp instruction are not of the same type" — now `ZExt`s the narrower operand to match the wider before emitting `ICmpEQ`/`NE`/`SLT` etc.; applies to all six comparison operators
+- **Mixed int/float arithmetic**: `i64 * double` (e.g. timing calculation `(t1 - t0) * 1000.0`) generated invalid IR — now detects int/float mismatch in `+`, `-`, `*`, `/` and promotes the integer operand with `SIToFP` before emitting the floating-point instruction
 
 ---
 

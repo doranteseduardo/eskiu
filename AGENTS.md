@@ -144,7 +144,15 @@ Phases 0–5 (partial) are implemented. The full compilation pipeline is working
 - Pointer `==`/`!=` fixed (was FCmpOEQ → now ICmpEQ)
 - `i1 → i32` widening fixed (ZExt not SExt)
 
-**Language status: v0.1 COMPLETE. Next: INE decoder port.**
+**Compiler bugs fixed during decoder port:**
+- Integer width mismatch in ICmp: ZExt narrower operand before all comparison ops
+- Mixed int/float arithmetic: SIToFP promotion in +, -, *, / when types differ
+
+**INE decoder skeleton: `ine_decoder/`**
+- All five .esk files compile to .o (46KB arm64)
+- Pending: zxing-cpp image loading in `qr_extract_impl.cpp`
+
+**Language status: v0.1 COMPLETE.**
 
 ## Error format
 
