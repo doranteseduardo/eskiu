@@ -1006,8 +1006,19 @@ void CodeGen::visit(UnaryExpr* node) {
         // Address-of: return the lvalue (alloca/GEP pointer), not the loaded value
         result = evaluateLValue(node->operand);
     } else if (node->op == "*") {
-        // Dereference - assume i8 type for now (LLVM 22 has opaque pointers)
-        result = builder->CreateLoad(llvm::Type::getInt8Ty(*context), val);
+        // Dereference: use Eskiu type info to load the correct element type
+        std::string ptrEskiuType = getExprEskiuType(node->operand);
+        llvm::Type* elemType = llvm::Type::getInt8Ty(*context); // fallback
+        if (!ptrEskiuType.empty()) {
+            std::string elemStr;
+            if (ptrEskiuType.front() == '*')
+                elemStr = ptrEskiuType.substr(1);
+            else if (ptrEskiuType.back() == '*')
+                elemStr = ptrEskiuType.substr(0, ptrEskiuType.size() - 1);
+            if (!elemStr.empty() && elemStr != "void")
+                elemType = getTypeFromString(elemStr);
+        }
+        result = builder->CreateLoad(elemType, val);
     } else {
         throw std::runtime_error("Unknown unary operator: " + node->op);
     }
@@ -1218,6 +1229,14 @@ void CodeGen::visit(CastExpr* node) {
         result = builder->CreateSIToFP(val, targetType);
     } else if (val->getType()->isFloatingPointTy() && targetType->isIntegerTy()) {
         result = builder->CreateFPToSI(val, targetType);
+    } else if (val->getType()->isFloatingPointTy() && targetType->isFloatingPointTy()) {
+        result = builder->CreateFPCast(val, targetType);
+    } else if (val->getType()->isPointerTy() && targetType->isIntegerTy()) {
+        result = builder->CreatePtrToInt(val, targetType);
+    } else if (val->getType()->isIntegerTy() && targetType->isPointerTy()) {
+        result = builder->CreateIntToPtr(val, targetType);
+    } else if (val->getType()->isPointerTy() && targetType->isPointerTy()) {
+        result = val; // opaque pointers: ptr == ptr, no bitcast needed
     } else {
         throw std::runtime_error("Cannot cast between these types");
     }
