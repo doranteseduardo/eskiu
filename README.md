@@ -43,7 +43,7 @@ Code Generator     codegen/codegen.cpp        complete
 Object File        emitObjectFile()           complete
 Structs / Methods  Phase 5 (core)             complete — fields, init, methods
 Interfaces         Phase 5.5                  planned
-Templates          Phase 5.5                  planned
+Templates          Phase 5.5 (core)           complete — struct templates + mangling
 Heap / alloc/free  Phase 6                    complete
 stdlib/Result<T>   Phase 7                    planned
 ```

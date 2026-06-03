@@ -12,6 +12,52 @@
 #include "llvm/Support/raw_os_ostream.h"
 #include <iostream>
 
+// ============================================================================
+// Template utilities (file-local)
+// ============================================================================
+
+static std::string mangleTemplate(const std::string& type) {
+    std::string out;
+    for (char c : type) {
+        if (c == '<' || c == '>' || c == ',') out += '_';
+        else if (c != ' ')                   out += c;
+    }
+    while (!out.empty() && out.back() == '_') out.pop_back();
+    return out;
+}
+
+static std::pair<std::string, std::vector<std::string>>
+splitTemplateType(const std::string& type) {
+    size_t lt = type.find('<');
+    if (lt == std::string::npos) return {type, {}};
+    std::string name = type.substr(0, lt);
+    std::string inner = type.substr(lt + 1, type.size() - lt - 2);
+    std::vector<std::string> args;
+    int depth = 0; std::string cur;
+    for (char c : inner) {
+        if (c == '<') { depth++; cur += c; }
+        else if (c == '>') { depth--; cur += c; }
+        else if (c == ',' && depth == 0) { args.push_back(cur); cur.clear(); }
+        else cur += c;
+    }
+    if (!cur.empty()) args.push_back(cur);
+    return {name, args};
+}
+
+static std::string substType(const std::string& t,
+                             const std::map<std::string, std::string>& subs) {
+    auto it = subs.find(t);
+    if (it != subs.end()) return it->second;
+    if (!t.empty() && t.front() == '*') return "*" + substType(t.substr(1), subs);
+    if (!t.empty() && t.back()  == '*') return substType(t.substr(0, t.size()-1), subs) + "*";
+    size_t lb = t.rfind('[');
+    if (lb != std::string::npos && t.back() == ']')
+        return substType(t.substr(0, lb), subs) + t.substr(lb);
+    return t;
+}
+
+// ============================================================================
+
 CodeGen::CodeGen()
     : context(std::make_unique<llvm::LLVMContext>()),
       module(std::make_unique<llvm::Module>("eskiu", *context)),
@@ -98,6 +144,15 @@ llvm::Type* CodeGen::getTypeFromString(const std::string& typeStr) {
     // Bare struct name (from parser, before normalization)
     {
         auto it = structTypes.find(typeStr);
+        if (it != structTypes.end()) return it->second;
+    }
+
+    // Template instantiation: "Result<int,string>" → %Result_int_string
+    if (typeStr.find('<') != std::string::npos) {
+        auto [tname, args] = splitTemplateType(typeStr);
+        std::string mangled = mangleTemplate(typeStr);
+        ensureTemplateInstantiated(mangled, tname, args);
+        auto it = structTypes.find(mangled);
         if (it != structTypes.end()) return it->second;
     }
 
@@ -297,7 +352,11 @@ void CodeGen::visit(VarDecl* node) {
     llvm::Type* declType = getTypeFromString(node->type);
     llvm::AllocaInst* alloca = builder->CreateAlloca(declType, nullptr, node->name);
     defineSymbol(node->name, alloca);
-    defineVarType(node->name, node->type);
+    // Store mangled name so MemberExpr resolution finds template instances
+    std::string varType = (node->type.find('<') != std::string::npos)
+                          ? mangleTemplate(node->type)
+                          : node->type;
+    defineVarType(node->name, varType);
 
     if (node->initializer) {
         if (auto structInit = dynamic_cast<StructInitExpr*>(node->initializer.get())) {
@@ -324,7 +383,37 @@ void CodeGen::visit(VarDecl* node) {
     }
 }
 
+void CodeGen::ensureTemplateInstantiated(const std::string& mangled,
+                                          const std::string& tname,
+                                          const std::vector<std::string>& args) {
+    if (structTypes.count(mangled)) return;
+    auto it = templateDecls.find(tname);
+    if (it == templateDecls.end()) return;
+    StructDecl* tmpl = it->second;
+
+    auto& tp = tmpl->typeParams;
+    std::map<std::string, std::string> subs;
+    for (size_t i = 0; i < tp.size() && i < args.size(); ++i) subs[tp[i]] = args[i];
+
+    std::vector<llvm::Type*> fieldTypes;
+    std::vector<StructDecl::Field> fields;
+    for (const auto& f : tmpl->fields) {
+        std::string concrete = substType(f.type, subs);
+        fieldTypes.push_back(getTypeFromString(concrete));
+        fields.push_back({concrete, f.name});
+    }
+    llvm::StructType* st = llvm::StructType::create(*context, fieldTypes, mangled);
+    structTypes[mangled] = st;
+    structFields[mangled] = fields;
+}
+
 void CodeGen::visit(StructDecl* node) {
+    if (!node->typeParams.empty()) {
+        // Template — store for lazy instantiation, do not emit yet
+        templateDecls[node->name] = node;
+        return;
+    }
+
     std::vector<llvm::Type*> fieldTypes;
     for (const auto& field : node->fields) {
         fieldTypes.push_back(getTypeFromString(field.type));

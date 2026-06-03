@@ -4,7 +4,7 @@
 
 Authoritative status reference for Eskiu compiler contributors. Supersedes `docs/PHASES.md`.
 
-Last updated: 2026-06-02. Phases 0–6 (core) are COMPLETE. Phase 5.5 (interfaces, templates) and Phase 7 (Result\<T,E\> + stdlib) are next.
+Last updated: 2026-06-02. Phases 0–6 and template structs (5.5) are COMPLETE. Phase 7 (Result\<T,E\> stdlib constructors + stdlib base) is next.
 
 ---
 
@@ -289,17 +289,44 @@ define float @Point_sum(ptr %self) {
 
 `eskiuc file.esk -o file.o && clang file.o -o file && ./file` → correct output.
 
-### Remaining (Phase 5.5)
+### Phase 5.5 — Monomorphic Templates
 
-- **Interface dispatch** — Go-style implicit satisfaction; fat pointer `(data_ptr, vtable_ptr)`; vtable as `llvm::StructType` of function pointers
-- **Monomorphic templates** — `List<int>` → `List_int`; instantiation at first use; name mangling
+**Status: COMPLETE (struct templates) — interface dispatch and switch/case remain**
+
+#### Implemented
+
+- **Template declaration**: `struct Name<T, E>` — `StructDecl.typeParams` holds param names; stored in `templateDecls` registry, not emitted until first use
+- **Template type parsing**: `Result<int, string>` in `parseType()` via `IDENT <` lookahead; stored as `"Result<int,string>"` in AST
+- **Lazy instantiation — type checker**: `normalizeType` detects `<`, substitutes type params, registers concrete `StructInfo` under mangled name (e.g. `"Result_int_string"`)
+- **Lazy instantiation — codegen**: `ensureTemplateInstantiated` creates `llvm::StructType` on first use; `getTypeFromString` triggers it
+- **Name mangling**: `Result<int,string>` → `Result_int_string`; no angle brackets in LLVM IR
+- **`substType`**: recursive substitution handles `*T`, `T*`, `T[N]`, nested templates
+
+#### Verified
+
+```eskiu
+struct Result<T, E> { int ok; T value; E error; }
+
+let r: Result<int, string>;
+r.ok = 1; r.value = 42;
+```
+
+```llvm
+%Result_int_string = type { i32, i32, ptr }
+%r = alloca %Result_int_string
+getelementptr inbounds nuw %Result_int_string, ptr %r, i32 0, i32 1
+store i32 42, ptr %1
+```
+
+#### Remaining (Phase 5.5)
+- **Interface dispatch** — Go-style structural typing; vtable as `llvm::StructType` of function pointers; fat pointer `(data_ptr, vtable_ptr)`
 - **`switch`/`case`** — deferred from Phase 2
 
 ### Key Files
-- `ast/ast.h` — `StructInitExpr`
-- `parser/parser.cpp` — `parseStructInit()`, array size capture
-- `sema/type_checker.cpp` — method registration, `visit(StructInitExpr*)`
-- `codegen/codegen.cpp` — `visit(StructDecl*)`, `visit(MemberExpr*)`, `visit(IndexExpr*)`, `visit(StructInitExpr*)`, `emitStructInitInto()`, `emitObjectFile()`
+- `ast/ast.h` — `StructDecl.typeParams`, `StructInitExpr`, `AllocExpr`
+- `parser/parser.cpp` — `parseStructInit()`, `parseStructDecl()` with `<T>`, `parseType()` with template refs, array size capture
+- `sema/type_checker.cpp` — method registration, `visit(StructInitExpr*)`, `visit(AllocExpr*)`, template lazy instantiation in `normalizeType`
+- `codegen/codegen.cpp` — `visit(StructDecl*)`, `visit(MemberExpr*)`, `visit(IndexExpr*)`, `visit(StructInitExpr*)`, `visit(AllocExpr*)`, `ensureTemplateInstantiated()`, `emitObjectFile()`
 
 ---
 

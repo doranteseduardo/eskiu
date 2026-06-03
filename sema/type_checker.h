@@ -59,8 +59,11 @@ private:
     // Scope management
     std::vector<std::map<std::string, Symbol>> scopes;
 
-    // Struct registry: name -> StructInfo
+    // Struct registry: name -> StructInfo  (concrete structs only)
     std::map<std::string, StructInfo> structs;
+
+    // Template registry: template name -> StructDecl (not yet instantiated)
+    std::map<std::string, StructDecl*> templateDecls;
 
     // Function signatures: name -> (return type, parameter types)
     std::map<std::string, std::pair<std::string, std::vector<std::string>>> functionSignatures;

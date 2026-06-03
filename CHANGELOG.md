@@ -3,8 +3,22 @@
 ## [Unreleased]
 
 ### Planned
-- Phase 5.5: Go-style interface dispatch, monomorphic templates, `switch`/`case`
-- Phase 7: `Result<T,E>` + stdlib base
+- Phase 5.5 remainder: Go-style interface dispatch, `switch`/`case`
+- Phase 7: `Result<T,E>` stdlib constructors (`Ok`/`Err`), stdlib base
+
+---
+
+## [0.0.4-alpha] — 2026-06-02
+
+### Added — Phase 5.5 (monomorphic template structs)
+
+- **Template struct declaration**: `struct Result<T, E> { ... }` — `StructDecl` gains `typeParams` field; template declarations are stored in a separate registry and not emitted to LLVM until first use
+- **Template type references**: `Result<int, string>` parsed in `parseType()` via `IDENT < TYPE, ... >` lookahead; stored as `"Result<int,string>"` in the AST
+- **Lazy instantiation in type checker**: `normalizeType("Result<int,string>")` detects `<`, looks up the template, substitutes `T→int`, `E→string` in all field types, registers `"Result_int_string"` as a concrete struct
+- **Lazy instantiation in codegen**: `getTypeFromString("Result<int,string>")` calls `ensureTemplateInstantiated()` which creates `%Result_int_string = type { i32, i32, ptr }` on first use
+- **Name mangling**: `Result<int,string>` → `Result_int_string` in LLVM IR
+- **Type substitution**: `substType` handles `*T` → `*int`, `T*` → `int*`, `T[N]` → `int[N]`, and nested template types recursively
+- **`varTypeStack` normalization**: `VarDecl` stores the mangled name so `MemberExpr` resolution finds instantiated struct fields correctly
 
 ---
 

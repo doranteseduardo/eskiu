@@ -101,6 +101,18 @@ std::string Parser::parseType() {
         type = typeToken.value;
     } else if (check(TokenType::IDENT)) {
         type = advance().value;
+        // Template instantiation: Name<TypeArg, ...>  e.g. Result<int, string>
+        if (match(TokenType::LT)) {
+            type += "<";
+            bool first = true;
+            do {
+                if (!first) type += ",";
+                first = false;
+                type += parseType();
+            } while (match(TokenType::COMMA));
+            consume(TokenType::GT, "Expected '>' after template arguments");
+            type += ">";
+        }
     } else {
         throw std::runtime_error("Expected type, got " + tokenTypeToString(peek().type));
     }
@@ -269,6 +281,16 @@ DeclPtr Parser::parseExternDecl() {
 
 DeclPtr Parser::parseStructDecl() {
     std::string name = consume(TokenType::IDENT, "Expected struct name").value;
+
+    // Optional type parameters: struct List<T>  or  struct Result<T, E>
+    std::vector<std::string> typeParams;
+    if (match(TokenType::LT)) {
+        do {
+            typeParams.push_back(consume(TokenType::IDENT, "Expected type parameter name").value);
+        } while (match(TokenType::COMMA));
+        consume(TokenType::GT, "Expected '>'");
+    }
+
     consume(TokenType::LBRACE, "Expected '{'");
 
     std::vector<StructDecl::Field> fields;
@@ -296,7 +318,8 @@ DeclPtr Parser::parseStructDecl() {
     consume(TokenType::RBRACE, "Expected '}'");
 
     auto decl = std::make_shared<StructDecl>(name, fields);
-    decl->methods = methods;
+    decl->methods  = methods;
+    decl->typeParams = typeParams;
     return decl;
 }
 

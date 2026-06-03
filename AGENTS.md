@@ -104,7 +104,14 @@ Phases 0–5 (partial) are implemented. The full compilation pipeline is working
 - `getOrDeclareFunc()` for lazy C runtime declarations
 - DataLayout initialized early in `generateCode()` for correct `sizeof`
 
-**Next: Phase 7** — `Result<T,E>` + stdlib base. Requires either Phase 5.5 templates or a fixed non-generic implementation of `Result`.
+**Phase 5.5 templates — COMPLETE:**
+- `struct Name<T, E>` declaration; `templateDecls` registry in both type checker and codegen
+- `Result<int,string>` in type references → lazy instantiation → `%Result_int_string`
+- `substType` for `*T`, `T[N]`, nested substitution
+- `mangleTemplate("Result<int,string>")` → `"Result_int_string"`
+- `varTypeStack` stores mangled name for correct `MemberExpr` resolution
+
+**Next: Phase 7** — `Result<T,E>` stdlib constructors (`Ok`/`Err` as functions), then INE decoder port.
 
 ## Error format
 

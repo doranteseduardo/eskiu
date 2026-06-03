@@ -40,9 +40,15 @@ private:
     // Current function being compiled
     llvm::Function* currentFunction = nullptr;
 
-    // Struct type registry
+    // Concrete struct registry
     std::map<std::string, llvm::StructType*> structTypes;
     std::map<std::string, std::vector<StructDecl::Field>> structFields;
+
+    // Template struct registry (raw pointer — lifetime owned by Program)
+    std::map<std::string, StructDecl*> templateDecls;
+    void ensureTemplateInstantiated(const std::string& mangledName,
+                                    const std::string& templateName,
+                                    const std::vector<std::string>& args);
 
     // Variable type tracking for MemberExpr/IndexExpr resolution
     std::vector<std::map<std::string, std::string>> varTypeStack;

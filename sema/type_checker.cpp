@@ -3,6 +3,53 @@
 #include <sstream>
 #include <algorithm>
 
+// ============================================================================
+// Template utilities (file-local helpers)
+// ============================================================================
+
+static std::string mangleTemplate(const std::string& type) {
+    // "Result<int,string>" → "Result_int_string"
+    std::string out;
+    for (char c : type) {
+        if (c == '<' || c == '>' || c == ',') out += '_';
+        else if (c != ' ')                   out += c;
+    }
+    while (!out.empty() && out.back() == '_') out.pop_back();
+    return out;
+}
+
+static std::pair<std::string, std::vector<std::string>>
+splitTemplateType(const std::string& type) {
+    size_t lt = type.find('<');
+    if (lt == std::string::npos) return {type, {}};
+    std::string name = type.substr(0, lt);
+    std::string inner = type.substr(lt + 1, type.size() - lt - 2);
+    std::vector<std::string> args;
+    int depth = 0; std::string cur;
+    for (char c : inner) {
+        if (c == '<') { depth++; cur += c; }
+        else if (c == '>') { depth--; cur += c; }
+        else if (c == ',' && depth == 0) { args.push_back(cur); cur.clear(); }
+        else cur += c;
+    }
+    if (!cur.empty()) args.push_back(cur);
+    return {name, args};
+}
+
+static std::string substType(const std::string& t,
+                             const std::map<std::string, std::string>& subs) {
+    auto it = subs.find(t);
+    if (it != subs.end()) return it->second;
+    if (!t.empty() && t.front() == '*') return "*" + substType(t.substr(1), subs);
+    if (!t.empty() && t.back()  == '*') return substType(t.substr(0, t.size()-1), subs) + "*";
+    size_t lb = t.rfind('[');
+    if (lb != std::string::npos && t.back() == ']')
+        return substType(t.substr(0, lb), subs) + t.substr(lb);
+    return t;
+}
+
+// ============================================================================
+
 TypeChecker::TypeChecker() {
     pushScope();  // Global scope
     // Pre-register C runtime builtins available without explicit extern
@@ -16,6 +63,12 @@ bool TypeChecker::check(Program* program) {
     // First pass: register all struct declarations and function signatures
     for (const auto& decl : program->declarations) {
         if (auto structDecl = dynamic_cast<StructDecl*>(decl.get())) {
+            if (!structDecl->typeParams.empty()) {
+                // Template — store for lazy instantiation, not in structs map
+                templateDecls[structDecl->name] = structDecl;
+                continue;
+            }
+
             StructInfo info;
             info.name = structDecl->name;
             info.fields = structDecl->fields;
@@ -679,25 +732,37 @@ std::string TypeChecker::getPointeeType(const std::string& pointerType) {
 
 // Type normalization
 std::string TypeChecker::normalizeType(const std::string& type) {
-    // Check if type ends with "*" (pointer syntax)
     if (hasPointerSuffix(type)) {
-        // Extract base type and normalize it
-        std::string baseType = extractBaseType(type);
-        std::string normalizedBase = normalizeType(baseType);
-        return addPointerSuffix(normalizedBase);
+        return addPointerSuffix(normalizeType(extractBaseType(type)));
     }
-
-    // If it's already a normalized type (struct:, interface:), return as-is
     if (type.find("struct:") == 0 || type.find("interface:") == 0) {
         return type;
     }
-
-    // Check if it's a known struct name
+    // Template instantiation: Result<int,string> → struct:Result_int_string
+    if (type.find('<') != std::string::npos) {
+        auto [tname, args] = splitTemplateType(type);
+        auto templ = templateDecls.find(tname);
+        if (templ != templateDecls.end()) {
+            std::string mangled = mangleTemplate(type);
+            // Instantiate if not already done
+            if (structs.find(mangled) == structs.end()) {
+                auto& tp = templ->second->typeParams;
+                std::map<std::string, std::string> subs;
+                for (size_t i = 0; i < tp.size() && i < args.size(); ++i)
+                    subs[tp[i]] = args[i];
+                StructInfo info;
+                info.name = mangled;
+                for (const auto& f : templ->second->fields)
+                    info.fields.push_back({substType(f.type, subs), f.name});
+                structs[mangled] = info;
+            }
+            return "struct:" + mangled;
+        }
+        return type; // unknown template — will error elsewhere
+    }
     if (structs.find(type) != structs.end()) {
         return "struct:" + type;
     }
-
-    // Otherwise, return as-is (primitive type)
     return type;
 }
 

@@ -74,6 +74,7 @@ public:
     };
     std::vector<Field> fields;
     std::vector<DeclPtr> methods;
+    std::vector<std::string> typeParams; // non-empty → this is a template
 
     StructDecl(const std::string& name, const std::vector<Field>& fields)
         : Decl(name), fields(fields) {}
