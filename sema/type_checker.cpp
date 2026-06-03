@@ -489,7 +489,7 @@ void TypeChecker::validateStructType(const std::string& type) {
         baseType = extractBaseType(baseType);
     }
 
-    // Check if it's a struct type
+    // Check if it's an explicit struct type (struct: prefix)
     if (baseType.find("struct:") == 0) {
         // Extract struct name (remove "struct:" prefix)
         std::string structName = baseType.substr(7);  // strlen("struct:") = 7
@@ -497,6 +497,13 @@ void TypeChecker::validateStructType(const std::string& type) {
         // Look up struct in registry
         if (structs.find(structName) == structs.end()) {
             error(0, 0, "undefined struct '" + structName + "'");
+        }
+    } else if (!isPrimitiveType(baseType)) {
+        // Check if it's an unknown type that might be a struct
+        // Primitive types: i8, i16, i32, i64, u8, u16, u32, u64, f32, f64, bool
+        if (structs.find(baseType) == structs.end()) {
+            // Not a primitive, not a known struct -> might be undefined struct
+            error(0, 0, "undefined struct '" + baseType + "'");
         }
     }
 }
@@ -526,13 +533,16 @@ bool TypeChecker::isNumericType(const std::string& type) {
 }
 
 bool TypeChecker::isIntType(const std::string& type) {
-    return type == "int" || type == "int8" || type == "int16" || type == "int32" ||
-           type == "int64" || type == "uint" || type == "uint8" || type == "uint16" ||
-           type == "uint32" || type == "uint64" || type == "char" || type == "bool";
+    // Eskiu uses i8, i16, i32, i64, u8, u16, u32, u64
+    return type == "i8" || type == "i16" || type == "i32" || type == "i64" ||
+           type == "u8" || type == "u16" || type == "u32" || type == "u64" ||
+           type == "int" || type == "bool";  // Support legacy names
 }
 
 bool TypeChecker::isFloatType(const std::string& type) {
-    return type == "float" || type == "double";
+    // Eskiu uses f32, f64
+    return type == "f32" || type == "f64" ||
+           type == "float" || type == "double";  // Support legacy names
 }
 
 bool TypeChecker::isPrimitiveType(const std::string& type) {

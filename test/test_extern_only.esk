@@ -1,0 +1,1 @@
+extern i32 printf(i8* fmt);

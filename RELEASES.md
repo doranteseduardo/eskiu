@@ -9,7 +9,8 @@ Version history and release notes for Eskiu Lang.
 - Phases 0–4 complete (Lexer, Parser, Type Checker, Codegen)
 - Struct types with member access validation working
 - LLVM IR backend fully functional
-- Comprehensive documentation added
+- Documentation complete
+- **C-style syntax** fully supported
 
 ---
 
@@ -27,13 +28,13 @@ Version history and release notes for Eskiu Lang.
 - ✅ Phase 4: Type checker, semantic analysis
 
 **Language Features:**
-- Variables with explicit types (`let x: i32 = 5`)
+- Variables with explicit types (C-style: `i32 x = 5;` not `let x: i32 =`)
 - Functions with parameters and return types
 - Control flow (`if`/`else`, `for`, `while`, `break`, `return`)
 - Primitive types (`i8`-`i64`, `u8`-`u64`, `f32`, `f64`, `bool`)
-- Pointers and references (`*T`, `&`)
+- Pointers with proper type tracking (`*i32`, `i32*`, `*Point`)
 - Struct types with member access (`.field` syntax)
-- C interoperability (`extern fn`)
+- C interoperability (`extern type function(...)`)
 
 **Development Tools:**
 - Compiler test modes: `--test-lexer`, `--test-parser`, `--test-typechecker`, `--test-codegen`
@@ -53,15 +54,8 @@ Version history and release notes for Eskiu Lang.
 - GLOSSARY.md (60+ technical terms)
 - PHASES.md (development roadmap)
 - CONTRIBUTING.md (contributor guide)
+- REFACTORING.md (Phase 4 architectural refactors)
 - INDEX.md (navigation hub)
-
-### Known Limitations & Gaps
-
-**Architectural issues (being refactored before Phase 5):**
-- BlockStmt uses two separate lists (declarations + statements) instead of unified list → breaks interleaved decls/stmts
-- Codegen uses lastExprValue global state → breaks with nested expressions
-- Pointer types not tracked properly (*int, *Point treated identically) → needed for struct methods
-- Struct existence not fully validated → incomplete Phase 4
 
 **Missing features:**
 - **No templates/generics** (Phase 5)

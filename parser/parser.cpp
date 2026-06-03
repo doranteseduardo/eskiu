@@ -82,9 +82,10 @@ bool Parser::is_at_end() const {
 std::string Parser::parseType() {
     std::string type;
 
-    // Handle pointers
+    // Handle leading pointers (Rust-style: *i32)
+    int leading_pointers = 0;
     while (match(TokenType::STAR)) {
-        type += "*";
+        leading_pointers++;
     }
 
     if (is_at_end()) {
@@ -94,11 +95,21 @@ std::string Parser::parseType() {
     Token typeToken = peek();
     if (match({TokenType::INT, TokenType::FLOAT, TokenType::DOUBLE,
                TokenType::BOOL, TokenType::CHAR, TokenType::STRING, TokenType::VOID})) {
-        type = typeToken.value + type;
+        type = typeToken.value;
     } else if (check(TokenType::IDENT)) {
-        type = advance().value + type;
+        type = advance().value;
     } else {
         throw std::runtime_error("Expected type, got " + tokenTypeToString(peek().type));
+    }
+
+    // Handle trailing pointers (C-style: i32*)
+    while (match(TokenType::STAR)) {
+        type += "*";
+    }
+
+    // Add leading pointers at the beginning
+    for (int i = 0; i < leading_pointers; i++) {
+        type = "*" + type;
     }
 
     // Handle array syntax [N]
@@ -202,28 +213,24 @@ DeclPtr Parser::parseDeclaration() {
             check(TokenType::VOID) || check(TokenType::STAR) || check(TokenType::IDENT)) {
 
             size_t savePos = current;
-            try {
-                std::string type = parseType();
+            std::string type = parseType();
 
-                if (check(TokenType::IDENT)) {
-                    std::string name = advance().value;
+            if (check(TokenType::IDENT)) {
+                std::string name = advance().value;
 
-                    if (match(TokenType::LPAREN)) {
-                        // Function declaration
-                        current = savePos;
-                        return parseFunctionDecl();
-                    } else if (match(TokenType::SEMICOLON) || match(TokenType::EQ)) {
-                        // Variable declaration
-                        ExprPtr init = nullptr;
-                        if (tokens[current - 1].type == TokenType::EQ) {
-                            init = parseExpression();
-                            consume(TokenType::SEMICOLON, "Expected ';'");
-                        }
-                        return std::make_shared<VarDecl>(name, type, init);
+                if (match(TokenType::LPAREN)) {
+                    // Function declaration - reset and parse full function
+                    current = savePos;
+                    return parseFunctionDecl();
+                } else if (match(TokenType::SEMICOLON) || match(TokenType::EQ)) {
+                    // Variable declaration
+                    ExprPtr init = nullptr;
+                    if (tokens[current - 1].type == TokenType::EQ) {
+                        init = parseExpression();
+                        consume(TokenType::SEMICOLON, "Expected ';'");
                     }
+                    return std::make_shared<VarDecl>(name, type, init);
                 }
-            } catch (...) {
-                current = savePos;
             }
         }
     } catch (const std::exception& e) {
