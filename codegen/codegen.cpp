@@ -782,6 +782,8 @@ void CodeGen::visit(ReturnStmt* node) {
             return builder->CreateSIToFP(v, ft);
         if (v->getType()->isFloatingPointTy() && ft->isIntegerTy())
             return builder->CreateFPToSI(v, ft);
+        if (v->getType()->isFloatingPointTy() && ft->isFloatingPointTy())
+            return builder->CreateFPCast(v, ft);  // double→float or float→double
         return v;
     };
 
@@ -831,6 +833,8 @@ void CodeGen::visit(BinaryExpr* node) {
                 rhs = builder->CreateSIToFP(rhs, elemType);
             } else if (rhs->getType()->isFloatingPointTy() && elemType->isIntegerTy()) {
                 rhs = builder->CreateFPToSI(rhs, elemType);
+            } else if (rhs->getType()->isFloatingPointTy() && elemType->isFloatingPointTy()) {
+                rhs = builder->CreateFPCast(rhs, elemType);  // e.g. double→float
             }
         }
         builder->CreateStore(rhs, lhs);
@@ -847,12 +851,21 @@ void CodeGen::visit(BinaryExpr* node) {
 
     llvm::Value* result = nullptr;
 
-    // If one operand is float and the other is int, promote int to float
+    // Promote to common type: int→float, float→double
     auto promoteToFloat = [&]() {
         if (left->getType()->isFloatingPointTy() && right->getType()->isIntegerTy())
             right = builder->CreateSIToFP(right, left->getType());
         else if (right->getType()->isFloatingPointTy() && left->getType()->isIntegerTy())
             left = builder->CreateSIToFP(left, right->getType());
+        // float × double: widen float → double
+        else if (left->getType()->isFloatingPointTy() && right->getType()->isFloatingPointTy()
+                 && left->getType() != right->getType()) {
+            if (left->getType()->getPrimitiveSizeInBits() <
+                right->getType()->getPrimitiveSizeInBits())
+                left  = builder->CreateFPCast(left,  right->getType());
+            else
+                right = builder->CreateFPCast(right, left->getType());
+        }
     };
 
     // Widen narrower integer to match wider for bitwise/shift ops
@@ -1058,9 +1071,38 @@ void CodeGen::visit(CallExpr* node) {
             llvm::Value* fnPtr = builder->CreateLoad(llvm::PointerType::get(*context, 0), fnGEP);
             std::vector<llvm::Value*> iargs = {dataPtr};
             for (auto& arg : node->args) iargs.push_back(evaluateExpr(arg));
-            auto* ftype = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
-                std::vector<llvm::Type*>(iargs.size(), llvm::PointerType::get(*context, 0)), false);
-            exprValueStack.push(builder->CreateCall(ftype, fnPtr, iargs));
+
+            // Build the correct function type from stored method signature
+            llvm::Type* retType = llvm::Type::getVoidTy(*context);
+            auto& retTypes  = ifaceMethodReturnTypes[baseType];
+            auto& paramLists = ifaceMethodParamEskiuTypes[baseType];
+            if (idx < retTypes.size()) retType = getTypeFromString(retTypes[idx]);
+
+            std::vector<llvm::Type*> paramLLVM = {llvm::PointerType::get(*context, 0)}; // self
+            if (idx < paramLists.size())
+                for (const auto& pt : paramLists[idx])
+                    paramLLVM.push_back(getTypeFromString(pt));
+            // Pad remaining args as ptr if count doesn't match (variadic safety)
+            while (paramLLVM.size() < iargs.size())
+                paramLLVM.push_back(llvm::PointerType::get(*context, 0));
+
+            // Use sret if return type is a large aggregate
+            bool iSret = needsSret(retType);
+            llvm::Value* sretBuf = nullptr;
+            if (iSret) {
+                sretBuf = builder->CreateAlloca(retType, nullptr, "iface.sret");
+                iargs.insert(iargs.begin() + 0, sretBuf); // sret after self? actually: sret first
+                paramLLVM.insert(paramLLVM.begin(), llvm::PointerType::get(*context, 0));
+                retType = llvm::Type::getVoidTy(*context);
+            }
+
+            auto* ftype = llvm::FunctionType::get(retType, paramLLVM, false);
+            llvm::Value* call = builder->CreateCall(ftype, fnPtr, iargs);
+            if (iSret)
+                exprValueStack.push(builder->CreateLoad(
+                    llvm::cast<llvm::StructType>(getTypeFromString(retTypes[idx])), sretBuf));
+            else
+                exprValueStack.push(call);
             return;
         }
 
@@ -1406,10 +1448,20 @@ void CodeGen::visit(InterfaceDecl* node) {
     llvm::StructType* vtType = llvm::StructType::create(*context, fnPtrs, vtName);
     ifaceVtableTypes[node->name] = vtType;
 
-    // Method order for index lookup
+    // Method order + return/param type info for typed dispatch
     std::vector<std::string> order;
-    for (const auto& m : node->methods) order.push_back(m.name);
-    ifaceMethodOrder[node->name] = order;
+    std::vector<std::string> retTypes;
+    std::vector<std::vector<std::string>> paramTypesList;
+    for (const auto& m : node->methods) {
+        order.push_back(m.name);
+        retTypes.push_back(m.returnType);
+        std::vector<std::string> pts;
+        for (const auto& p : m.params) pts.push_back(p.first);
+        paramTypesList.push_back(pts);
+    }
+    ifaceMethodOrder[node->name]           = order;
+    ifaceMethodReturnTypes[node->name]      = retTypes;
+    ifaceMethodParamEskiuTypes[node->name]  = paramTypesList;
 
     // Fat pointer type: %I_fat = type { ptr, ptr }
     llvm::StructType* fatPtr = llvm::StructType::create(*context,

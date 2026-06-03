@@ -56,6 +56,11 @@ private:
     // Eskiu param types per function — for interface boxing at call sites
     std::map<std::string, std::vector<std::string>> funcEskiuParamTypes;
 
+    // Interface method return types — indexed by [ifaceName][methodIndex]
+    std::map<std::string, std::vector<std::string>> ifaceMethodReturnTypes;
+    // Interface method param Eskiu types (excluding self) — [ifaceName][methodIndex]
+    std::map<std::string, std::vector<std::vector<std::string>>> ifaceMethodParamEskiuTypes;
+
     // Global-scope variable type tracking (complement to varTypeStack which is function-scoped)
     std::map<std::string, std::string> globalVarTypes;
 

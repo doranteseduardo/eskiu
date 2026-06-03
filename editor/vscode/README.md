@@ -1,6 +1,8 @@
 # Eskiu Language — VS Code Extension
 
-Syntax highlighting for `.esk` files in Visual Studio Code.
+Syntax highlighting **and real-time error checking** for `.esk` files in Visual Studio Code.
+
+Errors from `eskiuc --test-typechecker` appear as red underlines as you save.
 
 ## Install
 
@@ -48,8 +50,20 @@ To associate manually, add to VS Code `settings.json`:
 }
 ```
 
+## How error checking works
+
+On every file open and save, `extension.js` runs:
+```
+eskiuc <file.esk> --test-typechecker
+```
+and parses `file:line:col: message` output into VS Code diagnostics.
+No npm packages required — pure VS Code extension API.
+
+`server.js` is an alternative standalone JSON-RPC LSP server for editors
+that support LSP natively (Neovim, Helix, etc.).
+
 ## Future work
 
-- Semantic highlighting via LSP (go-to-definition, hover types)
-- Error squiggles from `eskiuc --test-typechecker`
-- Snippets for common patterns (`struct`, `Result<T,E>`, `extern`)
+- Hover: show inferred type on mouse-over
+- Go-to-definition for struct fields and functions
+- Snippets: `struct`, `Result<T,E>`, `extern`, `interface`
