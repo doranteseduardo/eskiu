@@ -83,6 +83,9 @@ private:
                                     const std::string& rightType);
     std::string inferUnaryExprType(const std::string& op, const std::string& operandType);
 
+    // Type validation
+    void validateStructType(const std::string& type);
+
     // Type checking utilities
     bool isValidAssignment(const std::string& lhsType, const std::string& rhsType);
     bool isNumericType(const std::string& type);

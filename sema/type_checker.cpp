@@ -89,6 +89,10 @@ void TypeChecker::visit(VarDecl* node) {
     }
     // Normalize the type (e.g., "Point" -> "struct:Point")
     std::string normalizedType = normalizeType(node->type);
+
+    // Validate that struct types exist before use
+    validateStructType(normalizedType);
+
     defineSymbol(node->name, normalizedType);
 }
 
@@ -361,8 +365,10 @@ void TypeChecker::visit(MemberExpr* node) {
 
 void TypeChecker::visit(CastExpr* node) {
     node->expr->accept(this);
-    // Explicit casts are always allowed
-    expressionTypes[node] = node->targetType;
+    // Validate that struct types exist in casts
+    std::string normalizedType = normalizeType(node->targetType);
+    validateStructType(normalizedType);
+    expressionTypes[node] = normalizedType;
 }
 
 void TypeChecker::visit(LiteralExpr* node) {
@@ -473,6 +479,26 @@ std::string TypeChecker::inferUnaryExprType(const std::string& op, const std::st
         return "error";
     }
     return "error";
+}
+
+// Type validation
+void TypeChecker::validateStructType(const std::string& type) {
+    // Handle pointer types: extract base type first
+    std::string baseType = type;
+    if (hasPointerSuffix(baseType)) {
+        baseType = extractBaseType(baseType);
+    }
+
+    // Check if it's a struct type
+    if (baseType.find("struct:") == 0) {
+        // Extract struct name (remove "struct:" prefix)
+        std::string structName = baseType.substr(7);  // strlen("struct:") = 7
+
+        // Look up struct in registry
+        if (structs.find(structName) == structs.end()) {
+            error(0, 0, "undefined struct '" + structName + "'");
+        }
+    }
 }
 
 // Type checking utilities
