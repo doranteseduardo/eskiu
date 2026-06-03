@@ -2,7 +2,7 @@
   <img src="assets/logo.jpg" alt="Eskiu" width="640">
 </p>
 
-A systems programming language compiled to LLVM IR. C-style syntax, no garbage collector, no borrow checker. Built for real programs — not benchmarks.
+A systems language with C-style syntax, Go-style interfaces, and explicit memory — compiled to native via LLVM.
 
 ## Quick Start
 
