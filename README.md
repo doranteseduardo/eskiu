@@ -2,7 +2,7 @@
   <img src="assets/logo.jpg" alt="Eskiu" width="640">
 </p>
 
-A systems programming language compiled to LLVM IR. C-style syntax, no garbage collector, no borrow checker. Built to port a real INE QR decoder from 3-5 seconds to under 1 second.
+A systems programming language compiled to LLVM IR. C-style syntax, no garbage collector, no borrow checker. Built for real programs — not benchmarks.
 
 ## Quick Start
 
