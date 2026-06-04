@@ -65,36 +65,31 @@ Compiler foundation proved on a real production workload: a cryptographic pipeli
 
 ## Roadmap
 
-### v0.1 — Kernel on QEMU — COMPLETE
+### Systems milestone — COMPLETE
 
 A bare-metal ARM64 kernel written in Eskiu boots in QEMU (`-M virt`) and prints to the PL011 serial UART — without libc, without a C runtime.
 
-**Result:**
 - Cross-compiled with `--target aarch64-unknown-none-elf`
-- UART writes via inline asm (`strb ${0:w}, [$1]`) and `volatile` MMIO pointers
-- Bump allocator (`esk_alloc`/`esk_free`) implemented in freestanding mode
-- Output: ASCII art banner, version string, heap allocation test
-- Boots and prints correctly under QEMU
+- UART via inline asm, bump allocator via `--freestanding`, `volatile` MMIO
+- Proves the systems foundation is solid
 
-| Compiler prerequisite | Status |
-|-----------------------|--------|
-| Inline assembly — `asm(...)` with constraints and clobbers | ✅ |
-| Freestanding mode — `--freestanding`, `esk_alloc`/`esk_free` | ✅ |
-| `volatile` — MMIO loads and stores | ✅ |
-| Cross-compilation — `--target TRIPLE`, both AArch64 and X86 backends | ✅ |
+### v0.1 — First productive release
+
+The first version people can use to build real things. Closures and threads are the blockers for any meaningful backend or application work.
+
+1. **Closures** — variable capture from the enclosing scope. Requires an implicit `env*` and codegen adjustments. Unblocks callbacks, request handlers, and self-hosting.
+2. **Thread primitives** — `pthread_create`/`pthread_join` + `Mutex` in stdlib. Unblocks concurrent services and replaces the need for a separate threading language.
 
 ### v0.2 — Backend services
 
-The primary blocker for backend service development is the absence of closures and native thread primitives. A concurrent HTTP server requires both.
+With closures and threads in place, the missing piece is stdlib support for network services.
 
-1. **Closures** — variable capture from the enclosing scope. Requires an implicit `env*` and codegen adjustments. Unblocks callbacks, request handlers, and self-hosting.
-2. **Thread primitives** — `pthread_create`/`pthread_join` + `Mutex` in stdlib. Unblocks concurrent servers and any work that currently needs Go or C threads.
-3. **HTTP stdlib module** — minimal `http.esk` wrapping POSIX sockets: listen, accept, parse request, send response. Enough to write a real backend service in Eskiu without reaching for libcurl or libmicrohttpd.
+3. **HTTP stdlib module** — minimal `http.esk` wrapping POSIX sockets: listen, accept, parse request, send response.
 
 ### v1.0 — Production-ready
 
 4. **Exception handling** — `try`/`catch`/`finally`/`throw` via LLVM `invoke`/`landingpad`.
-5. **Package manager** — dependency resolution, package registry, build system integration. Unblocks external adoption.
+5. **Package manager** — dependency resolution, package registry, build system integration.
 6. **Self-hosting** — compile `eskiuc` with Eskiu. Requires closures, freestanding mode, and a stdlib allocator.
 
 ---
