@@ -25,7 +25,7 @@ Last updated: 2026-06-03. All phases 0–8 and editor tooling are complete. A re
 | argv/argc — `int main(int argc, string* argv)` | ✅ |
 | VS Code — inline errors, hover types, go-to-definition | ✅ |
 | Closures — capturing variables from the enclosing scope | ❌ |
-| Negative literals — `-1` as a primary expression | ❌ |
+| Negative literals — `-1` as a primary expression | ✅ |
 | Inline assembly — `asm(...)` | ❌ |
 | Freestanding mode — compile without libc | ❌ |
 | volatile — for memory-mapped I/O | ❌ |
@@ -68,7 +68,7 @@ The project follows two phases:
 ### Near-term — v0.2
 
 1. **Closures** — variable capture from the enclosing scope. Requires an implicit `env*` and codegen adjustments. Unblocks self-hosting.
-2. **Negative literals** — `-1` as a primary expression. Works today via unary minus but fails in some initialisers. One-day parser fix.
+2. ~~**Negative literals**~~ — done in v0.1.
 3. **Inline assembly** — `asm("cli")`, `asm("mov %rax, %rbx")`. Required for kernel development.
 
 ### Medium-term — v0.3

@@ -12,6 +12,11 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 ### Planned
 - Self-hosting
 
+## [0.0.13-alpha] — 2026-06-03
+
+### Fixed
+- **Negative literals** — `-1`, `-3.14` etc. now parse as negative literal values directly, not as unary minus applied to a positive literal. Global variable initialisers with negative values (e.g. `int x = -1;`) previously compiled to 0; this is now correct. `evaluateConstantExpr` folds unary minus on numeric constants as a fallback.
+
 ---
 
 ## [0.0.12-alpha] — 2026-06-03

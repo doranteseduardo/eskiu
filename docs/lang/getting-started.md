@@ -173,6 +173,8 @@ int a = 255;
 int b = 0xFF;    // same value — hex prefix supported
 uint8 mask = 0x0F;
 int64 big = 1000000;
+int neg = -42;   // negative literals work anywhere, including global scope
+float f = -3.14;
 ```
 
 ### Pointer types

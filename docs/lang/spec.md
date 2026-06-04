@@ -82,6 +82,15 @@ alloc  free
 0xFF    0x0F    0xDEAD    0xBEEF
 ```
 
+**Negative numeric literals** are written with a leading `-`:
+
+```eskiu
+-1    -42    -100
+-3.14    -0.5
+```
+
+Negative literals are first-class values and can be used in any expression context, including global variable initialisers and struct field initialisers.
+
 **Float literals** contain a decimal point:
 
 ```eskiu

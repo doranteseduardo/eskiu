@@ -274,6 +274,21 @@ std::string CodeGen::lookupVarType(const std::string& name) const {
 }
 
 llvm::Constant* CodeGen::evaluateConstantExpr(ExprPtr expr) {
+    // Fold unary minus on a numeric literal: -(N) → negative constant
+    if (auto* unary = dynamic_cast<UnaryExpr*>(expr.get())) {
+        if (unary->op == "-") {
+            llvm::Constant* inner = evaluateConstantExpr(unary->operand);
+            if (!inner) return nullptr;
+            if (auto* ci = llvm::dyn_cast<llvm::ConstantInt>(inner))
+                return llvm::ConstantInt::get(ci->getType(),
+                    static_cast<uint64_t>(-(int64_t)ci->getZExtValue()), true);
+            if (auto* cf = llvm::dyn_cast<llvm::ConstantFP>(inner))
+                return llvm::ConstantFP::get(cf->getType(),
+                    -cf->getValueAPF().convertToDouble());
+        }
+        return nullptr;
+    }
+
     auto* lit = dynamic_cast<LiteralExpr*>(expr.get());
     if (!lit) return nullptr;
 

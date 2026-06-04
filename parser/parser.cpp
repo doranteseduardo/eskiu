@@ -789,6 +789,21 @@ ExprPtr Parser::parseMultiplication() {
 }
 
 ExprPtr Parser::parseUnary() {
+    // Fold -N and -N.N into a negative literal directly (avoids UnaryExpr for constants)
+    if (check(TokenType::MINUS)) {
+        TokenType next = peek_ahead(1).type;
+        if (next == TokenType::INT_LIT || next == TokenType::FLOAT_LIT) {
+            Token minusTok = advance(); // consume '-'
+            Token numTok   = advance(); // consume number
+            if (numTok.type == TokenType::INT_LIT)
+                return withPos(std::make_shared<LiteralExpr>(
+                    LiteralExpr::Kind::INT, "-" + numTok.value), minusTok);
+            else
+                return withPos(std::make_shared<LiteralExpr>(
+                    LiteralExpr::Kind::FLOAT, "-" + numTok.value), minusTok);
+        }
+    }
+
     if (match({TokenType::NOT, TokenType::MINUS, TokenType::PLUS, TokenType::AMPERSAND, TokenType::STAR, TokenType::TILDE})) {
         Token opToken = tokens[current - 1];
         ExprPtr expr = parseUnary();
