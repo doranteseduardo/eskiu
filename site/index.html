@@ -277,7 +277,12 @@
       border-bottom: 2px solid var(--border);
       margin-bottom: 0;
       gap: 0;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
     }
+
+    .tabs::-webkit-scrollbar { display: none; }
 
     .tab-btn {
       padding: 0.6rem 1.1rem;
@@ -290,6 +295,7 @@
       border-bottom: 2px solid transparent;
       margin-bottom: -2px;
       font-family: var(--font-mono);
+      white-space: nowrap;
       transition: color 0.15s;
     }
 
