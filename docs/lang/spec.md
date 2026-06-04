@@ -1,6 +1,6 @@
 # Eskiu Language Specification
 
-**Version:** v0.0.12-alpha
+**Version:** v0.0.14-alpha
 
 ---
 
@@ -66,6 +66,7 @@ if  else  for  while  switch  case  default
 return  break  continue
 true  false  null
 alloc  free
+volatile  asm
 ```
 
 ### 2.4 Literals
@@ -278,6 +279,17 @@ let pt: Point;
 pt.x = 1.5;
 pt.y = 2.5;
 ```
+
+### 4.5 Volatile Variables
+
+The `volatile` qualifier prevents the compiler (via LLVM) from optimising away loads and stores to a variable. It is required for memory-mapped I/O (MMIO) registers whose value may change or have side effects outside the program's control.
+
+```eskiu
+volatile let uart: *uint8 = (uint8*) 0x3F8;
+*uart = 'A';   // store is always emitted — not eliminated by optimiser
+```
+
+`volatile` applies to all LLVM loads and stores that touch the declared pointer. It has no effect on variables that are never accessed through a pointer, but the canonical use is MMIO pointer variables as shown above.
 
 ---
 
@@ -816,9 +828,9 @@ int main() {
 
 ### 11.2 Heap Allocation
 
-`alloc(T, N)` allocates space for `N` elements of type `T` and returns a `*T`. Internally this calls `malloc(N * sizeof(T))`.
+`alloc(T, N)` allocates space for `N` elements of type `T` and returns a `*T`. In hosted mode (the default) this calls `malloc(N * sizeof(T))`. In freestanding mode (see §11.5) it calls `esk_alloc` instead.
 
-`free(ptr)` deallocates a heap-allocated pointer. Internally this calls `free(ptr)`.
+`free(ptr)` deallocates a heap-allocated pointer. In hosted mode this calls `free(ptr)`. In freestanding mode it calls `esk_free`.
 
 ```eskiu
 *uint8 buf = alloc(uint8, 1024);
@@ -826,7 +838,7 @@ int main() {
 free(buf);
 ```
 
-Every allocation must be paired with exactly one `free`. Double-free and use-after-free are undefined behavior.
+Every allocation must be paired with exactly one `free`. Double-free and use-after-free are undefined behaviour.
 
 ### 11.3 Pointer Arithmetic
 
@@ -847,7 +859,42 @@ if (p != null) {
 }
 ```
 
-Dereferencing `null` is undefined behavior. The compiler does not insert null checks.
+Dereferencing `null` is undefined behaviour. The compiler does not insert null checks.
+
+### 11.5 Freestanding Mode
+
+Passing `--freestanding` to the compiler switches the allocator ABI:
+
+| Built-in | Hosted (default) | Freestanding (`--freestanding`) |
+|----------|------------------|---------------------------------|
+| `alloc`  | calls `malloc`   | calls `esk_alloc`               |
+| `free`   | calls `free`     | calls `esk_free`                |
+
+In freestanding mode the user must provide `esk_alloc` and `esk_free` in their own code (typically in a kernel or bare-metal runtime). The compiler emits `declare` stubs for both symbols; the linker resolves them from the user-supplied object file.
+
+```eskiu
+// user-provided in kernel.esk or a C shim
+*void esk_alloc(int size) { return buddy_alloc(size); }
+void  esk_free(*void ptr)  { buddy_free(ptr); }
+```
+
+Freestanding mode does not remove any other language features. The standard library modules (`stdlib/result.esk`, etc.) remain available but must not import libc functions that are absent from the target.
+
+### 11.6 MMIO and volatile
+
+See §4.5 for the `volatile` qualifier. In freestanding/kernel contexts, hardware registers are accessed through `volatile` pointer variables:
+
+```eskiu
+volatile let uart_dr: *uint8 = (uint8*) 0x3F8;   // UART data register
+volatile let uart_sr: *uint8 = (uint8*) 0x3FD;   // UART status register
+
+void uart_putc(uint8 c) {
+    while ((*uart_sr & 0x20) == 0) {}   // spin until TX ready
+    *uart_dr = c;
+}
+```
+
+Every load and store through a `volatile` pointer is emitted as a `volatile load` / `volatile store` in LLVM IR, preventing the optimiser from caching, reordering, or eliminating the access.
 
 ---
 
@@ -995,12 +1042,55 @@ int main() {
 
 ---
 
-## 15. CLI Flags
+## 15. Inline Assembly
+
+Eskiu supports inline assembly via the `asm(...)` statement, which lowers directly to an LLVM inline asm node.
+
+### 15.1 Simple Form
+
+```eskiu
+asm("cli");         // disable interrupts (x86)
+asm("sti");         // enable interrupts (x86)
+asm("nop");
+```
+
+The string is passed verbatim to the assembler. No inputs, outputs, or clobbers are specified.
+
+### 15.2 Extended Form
+
+The extended form follows GCC-compatible inline assembly syntax:
+
+```
+asm("template" : outputs : inputs : clobbers);
+```
+
+```eskiu
+asm("outb %0, %1" :: "a"(val), "Nd"(port) : "memory");
+```
+
+- **Template** — the assembly instruction string; `%0`, `%1`, … reference operands by index.
+- **Outputs** — list of `"constraint"(lvalue)` pairs; empty in the example above (omitted with `:`).
+- **Inputs** — list of `"constraint"(expr)` pairs. Common constraints: `"a"` (eax/rax), `"Nd"` (8-bit immediate or dx), `"r"` (any register), `"m"` (memory).
+- **Clobbers** — comma-separated list of clobbered resources. `"memory"` tells the compiler that the asm may read or write arbitrary memory (acts as a compiler barrier).
+
+All four sections are separated by `:`. Trailing sections may be omitted if empty.
+
+### 15.3 Notes
+
+- Inline assembly is only meaningful when targeting a platform whose assembler understands the instructions. Use `--target` to select the appropriate triple (see §16).
+- `asm` is a statement, not an expression. It does not produce a value.
+- The compiler performs no validation of the assembly template or constraints beyond forwarding them to LLVM.
+
+---
+
+## 16. CLI Flags
 
 | Flag | Action |
 |------|--------|
 | `eskiuc file.esk` | Compile to `.o` object file |
 | `eskiuc file.esk -o name` | Compile and link to executable |
+| `eskiuc file.esk --target TRIPLE` | Cross-compile for the given target triple |
+| `eskiuc file.esk --freestanding` | Use `esk_alloc`/`esk_free` instead of `malloc`/`free` |
 | `eskiuc file.esk --test-lexer` | Dump token stream |
 | `eskiuc file.esk --test-parser` | Dump AST |
 | `eskiuc file.esk --test-typechecker` | Type check only; print errors |
@@ -1010,9 +1100,29 @@ int main() {
 
 `--hover-at` and `--definition-at` accept the format `LINE:COL` with 1-based line and column numbers. They are used by the VS Code extension to provide hover type information and go-to-definition navigation.
 
+### Cross-compilation
+
+`--target TRIPLE` sets the LLVM target triple for the output object file. Both the AArch64 and X86 LLVM backends are included in the Eskiu build.
+
+```bash
+eskiuc kernel.esk --target x86_64-pc-linux-gnu --freestanding -o kernel.o
+eskiuc kernel.esk --target aarch64-unknown-none --freestanding -o kernel.o
+```
+
+Common triples:
+
+| Triple | Description |
+|--------|-------------|
+| `x86_64-pc-linux-gnu` | ELF x86-64 (Linux) |
+| `aarch64-unknown-linux-gnu` | ELF AArch64 (Linux) |
+| `aarch64-unknown-none` | Bare-metal AArch64 |
+| `x86_64-unknown-none` | Bare-metal x86-64 |
+
+When `--target` is omitted the compiler defaults to the host machine's triple.
+
 ---
 
-## 16. Error Reporting
+## 17. Error Reporting
 
 The compiler emits diagnostics with full source location information:
 

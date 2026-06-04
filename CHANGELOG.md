@@ -10,9 +10,31 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 ## [Unreleased]
 
 ### Planned — v0.1 (kernel on QEMU)
-- Inline assembly — `asm(...)` for CPU primitives and bare-metal entry point
-- Freestanding mode — compile without libc, user-defined allocator
-- `volatile` — non-optimisable memory access for MMIO
+- Kernel boot entry point on QEMU
+
+## [0.0.14-alpha] — 2026-06-03
+
+### Added
+
+**Inline assembly**
+- `asm("cli");` — simple form; passes the string verbatim to the assembler with no inputs, outputs, or clobbers
+- `asm("outb %0, %1" :: "a"(val), "Nd"(port) : "memory");` — extended form with GCC-compatible constraint syntax; supports input operands, output operands, and clobber lists
+- Lowers to LLVM inline asm nodes; `"memory"` clobber emits a compiler barrier
+
+**Freestanding mode**
+- `--freestanding` CLI flag — redirects `alloc` to call `esk_alloc` and `free` to call `esk_free` instead of the libc `malloc`/`free`
+- User provides both symbols in their kernel or bare-metal runtime; the compiler emits `declare` stubs and the linker resolves them
+
+**`volatile` qualifier**
+- `volatile let reg: *uint8 = (uint8*) ADDR;` — marks all LLVM loads and stores through the pointer as `volatile`, preventing the optimiser from caching, reordering, or eliminating MMIO accesses
+
+**Cross-compilation**
+- `--target TRIPLE` CLI flag — sets the LLVM target triple for the output object file
+- Both AArch64 and X86 LLVM backends are included in the Eskiu build
+- `eskiuc file.esk --target x86_64-pc-linux-gnu` produces an ELF x86-64 object file
+
+**v0.1 prerequisites complete**
+- All compiler prerequisites for the kernel-on-QEMU milestone are implemented and tested
 
 ## [0.0.13-alpha] — 2026-06-03
 

@@ -4,7 +4,7 @@
 A hands-on introduction to the Eskiu language. You will go from zero to writing
 and inspecting real compiled programs in about 30 minutes.
 
-All code blocks in this document compile and run with **Eskiu v0.0.12-alpha**.
+All code blocks in this document compile and run with **Eskiu v0.0.14-alpha**.
 ---
 
 ## Installation
@@ -46,7 +46,7 @@ cmake --build build -j$(nproc)
 
 ```bash
 ./build/eskiuc --version
-# Eskiu 0.0.12-alpha (LLVM 17+)
+# Eskiu 0.0.14-alpha (LLVM 17+)
 ```
 
 Add `./build` to your `PATH` so you can type `eskiuc` from any directory.
@@ -932,6 +932,69 @@ eskiuc hello.esk --test-codegen
 
 Prints the full LLVM IR to stdout. Useful for verifying that a cast, bitwise
 operation, or pointer dereference lowered the way you intended.
+
+---
+
+## Inline Assembly and volatile
+
+These features are primarily useful for bare-metal and kernel programming. Both are available in any Eskiu program.
+
+### volatile
+
+Mark a pointer variable `volatile` to prevent the compiler from optimising away loads and stores through it. This is essential for memory-mapped I/O (MMIO) registers:
+
+```eskiu
+volatile let uart: *uint8 = (uint8*) 0x3F8;
+
+// Both the read and the write are always emitted — never cached or removed
+uint8 status = *uart;
+*uart = 'A';
+```
+
+Without `volatile`, the compiler may eliminate or reorder accesses to addresses it considers side-effect-free.
+
+### Inline assembly — simple form
+
+```eskiu
+asm("cli");   // disable interrupts
+asm("sti");   // enable interrupts
+asm("nop");
+```
+
+The string is passed verbatim to the assembler. Use this form for instructions that take no operands.
+
+### Inline assembly — extended form
+
+The extended form passes values in and out of the asm template using GCC-compatible constraints:
+
+```eskiu
+// Write a byte to an x86 I/O port
+void outb(uint8 val, uint16 port) {
+    asm("outb %0, %1" :: "a"(val), "Nd"(port) : "memory");
+}
+```
+
+Syntax: `asm("template" : outputs : inputs : clobbers);`
+
+- Inputs and outputs are `"constraint"(expression)` pairs.
+- `"memory"` in the clobber list acts as a compiler barrier.
+- Common constraints: `"a"` → rax/eax, `"Nd"` → 8-bit immediate or dx, `"r"` → any register.
+
+### Freestanding mode
+
+When targeting bare metal or a kernel, pass `--freestanding` to the compiler. This redirects the built-in `alloc` and `free` to user-provided `esk_alloc` / `esk_free` symbols instead of the libc `malloc` / `free`:
+
+```bash
+eskiuc kernel.esk --target x86_64-pc-linux-gnu --freestanding -o kernel.o
+```
+
+You must provide `esk_alloc` and `esk_free` in your own source or a C shim:
+
+```eskiu
+// kernel_alloc.esk — linked together with kernel.esk
+*void esk_alloc(int size) { return bump_alloc(size); }
+void  esk_free(*void ptr)  { bump_free(ptr); }
+```
 
 ---
 

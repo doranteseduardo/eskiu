@@ -4,7 +4,7 @@ Eskiu is a statically typed systems language built to address a specific problem
 
 The goal is a single language that replaces that stack. Phase one establishes a solid systems foundation: native performance, explicit memory, direct access to any C library. Phase two, once that foundation is stable, will introduce first-class support for the domain types that high-throughput services actually work with. The syntax is deliberately C-style; the language adds monomorphic templates, structural interfaces, lambdas, and an explicit heap model via `alloc`/`free`.
 
-**Current version: v0.0.12-alpha** — all language features for v0.1 are implemented and tested end-to-end.
+**Current version: v0.0.14-alpha** — all compiler prerequisites for the v0.1 kernel-on-QEMU milestone are complete.
 
 ---
 
@@ -33,6 +33,10 @@ The goal is a single language that replaces that stack. Phase one establishes a 
 | **Templates** | `struct Result<T,E>`, `fn Ok<T,E>(T v)` — monomorphic instantiation |
 | **Interfaces** | `interface Drawable { void draw(); }` — structural typing, vtable dispatch |
 | **Memory** | Stack default, `alloc(T,N)` / `free(ptr)`, pointer arithmetic |
+| **volatile** | `volatile let reg: *uint8 = (uint8*) 0x3F8;` — MMIO-safe loads/stores |
+| **Inline asm** | `asm("cli");` simple form; `asm("outb %0, %1" :: "a"(v), "Nd"(p) : "memory");` extended form |
+| **Freestanding** | `--freestanding` flag — `alloc`/`free` call `esk_alloc`/`esk_free`; user-supplied in kernel |
+| **Cross-compile** | `--target TRIPLE` — AArch64 and X86 backends included |
 | **Multi-file** | `import "path/to/file.esk"` — relative to importing file |
 | **Errors** | `file.esk:8:22: message` — real line/col from parser |
 | **Stdlib** | `result.esk`, `list.esk`, `string.esk`, `math.esk`, `io.esk`, `mem.esk` |
@@ -73,6 +77,8 @@ postfix     f() a[i] a.b
 | Flag | Action |
 |---|---|
 | `-o file.o`                 | Compile to native object file                   |
+| `--target TRIPLE`           | Cross-compile for the given target triple        |
+| `--freestanding`            | Use `esk_alloc`/`esk_free` instead of libc      |
 | `--test-lexer`              | Print token stream                              |
 | `--test-parser`             | Print AST                                       |
 | `--test-typechecker`        | Type check and report errors                    |
