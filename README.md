@@ -18,7 +18,7 @@ Eskiu is a statically typed systems language that compiles to native code via LL
 **v0.1:** a bare-metal ARM64 kernel written in Eskiu boots in QEMU without libc.
 
 <p align="center">
-  <img src="assets/kernel.png" alt="Eskiu v0.1 kernel running in QEMU" width="480">
+  <img src="assets/kernel.png" alt="Eskiu v0.1 kernel running in QEMU" width="320">
 </p>
 
 ## Get started
