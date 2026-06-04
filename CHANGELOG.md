@@ -9,41 +9,9 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ## [Unreleased]
 
-## [0.1.1] — 2026-06-04
+## [0.1.0]
 
-### Added
-
-**`<fs>` stdlib module**
-- `import <fs>;` — file system I/O module: `fs_open(path, mode)` / `fs_close(fp)` / `fs_flush(fp)`
-- `fs_read(fp, buf, n)` / `fs_readline(fp, buf, n)` — buffered reads
-- `fs_write(fp, buf, n)` / `fs_puts(fp, s)` — writes
-- `fs_seek(fp, offset, whence)` / `fs_tell(fp)` — position control
-- `fs_size(fp)` — returns file size; seek position is restored afterwards
-- `fs_read_all(path, *int64 out_len)` — reads entire file into a heap buffer (caller must `free`)
-- `fs_write_all(path, buf, n)` — writes entire buffer to a file
-- `fs_eof(fp)` / `fs_error(fp)` — status predicates
-
-**`import <name>` stdlib syntax**
-- Angle-bracket imports (`import <result>`, `import <fs>`, etc.) resolve modules from the Eskiu installation's stdlib directory
-- Compiler locates stdlib via `ESKIU_ROOT` environment variable or auto-detection from the binary location
-- `import "path"` continues to work for local files relative to the importing file
-
-**Release infrastructure**
-- `.github/workflows/release.yml` — builds static binaries for macOS arm64 and Linux x86_64 on every `v*` tag push
-- Tarball layout: `bin/eskiuc` + `lib/eskiu/stdlib/`
-- `CMakeLists.txt` gains `-DESKIU_STATIC=ON` for static LLVM linking; project version set to 0.1.0
-
-### Fixed
-
-**Pointer dereference as lvalue**
-- `*ptr = value` now works correctly when `ptr` is a function parameter
-- Previously failed with "not an lvalue"; `evaluateLValue` now handles dereference expressions on pointer parameters
-
----
-
-## [0.1.0] — 2026-06-04
-
-First productive release. The language covers everything needed to build real backend services and bare-metal systems code.
+First release. The language covers everything needed to build real backend services and bare-metal systems code.
 
 ### Closures and threads
 
@@ -81,10 +49,21 @@ try {
 - `sizeof(T)` — compile-time `int64` constant for any type including structs
 - `union` — all fields share offset 0; size = sizeof(largest field)
 - Typed pointer arithmetic — `p: *int; p + 1` advances 4 bytes, not 1
+- `*ptr = value` through pointer parameters works correctly
+
+### Standard library
+
+- `import <name>` — angle-bracket imports resolve stdlib modules from the installation; `import "path"` for local files
+- `<fs>` — file I/O: `fs_open`, `fs_close`, `fs_read`, `fs_write`, `fs_seek`, `fs_tell`, `fs_size`, `fs_read_all`, `fs_write_all`, `fs_eof`, `fs_error`
+
+### Release
+
+- GitHub Actions workflow builds static binaries for macOS arm64 and Linux x86-64 on every `v*` tag
+- Tarball: `bin/eskiuc` + `lib/eskiu/stdlib/`
 
 ---
 
-## Systems milestone — 2026-06-03
+## Systems milestone
 
 Bare-metal ARM64 kernel written in Eskiu boots in QEMU (`-M virt`) and prints to serial without libc or a C runtime.
 
@@ -92,7 +71,7 @@ Bare-metal ARM64 kernel written in Eskiu boots in QEMU (`-M virt`) and prints to
 - Cross-compiled with `--target aarch64-unknown-none-elf`
 - `volatile` MMIO, `asm(...)` with GCC-compatible constraints
 
-## [0.0.14-alpha] — 2026-06-03
+## [0.0.14-alpha]
 
 ### Added
 
@@ -116,14 +95,14 @@ Bare-metal ARM64 kernel written in Eskiu boots in QEMU (`-M virt`) and prints to
 **v0.1 prerequisites complete**
 - All compiler prerequisites for the kernel-on-QEMU milestone are implemented and tested
 
-## [0.0.13-alpha] — 2026-06-03
+## [0.0.13-alpha]
 
 ### Fixed
 - **Negative literals** — `-1`, `-3.14` etc. now parse as negative literal values directly, not as unary minus applied to a positive literal. Global variable initialisers with negative values (e.g. `int x = -1;`) previously compiled to 0; this is now correct. `evaluateConstantExpr` folds unary minus on numeric constants as a fallback.
 
 ---
 
-## [0.0.12-alpha] — 2026-06-03
+## [0.0.12-alpha]
 
 ### Added
 
@@ -144,7 +123,7 @@ Bare-metal ARM64 kernel written in Eskiu boots in QEMU (`-M virt`) and prints to
 **switch/case type checking**
 - The type checker now validates that each `case` value is compatible with the `switch` subject expression type; mismatched case types are reported as errors at the `case` token position
 
-## [0.0.11-alpha] — 2026-06-03
+## [0.0.11-alpha]
 
 ### Added
 
@@ -170,7 +149,7 @@ Bare-metal ARM64 kernel written in Eskiu boots in QEMU (`-M virt`) and prints to
 
 ---
 
-## [0.0.10-alpha] — 2026-06-03
+## [0.0.10-alpha]
 
 ### Added
 
@@ -203,7 +182,7 @@ Bare-metal ARM64 kernel written in Eskiu boots in QEMU (`-M virt`) and prints to
 
 ---
 
-## [0.0.9-alpha] — 2026-06-03
+## [0.0.9-alpha]
 
 ### Added
 - **`ine_decoder/` — INE QR decoder port** — full pipeline running at **74.4 ms** total
@@ -223,7 +202,7 @@ Bare-metal ARM64 kernel written in Eskiu boots in QEMU (`-M virt`) and prints to
 
 ---
 
-## [0.0.8-alpha] — 2026-06-02
+## [0.0.8-alpha]
 
 ### Added
 - **`import "file.esk"`** — multi-file support with paths resolved relative to the importing file's directory; recursive imports with deduplication (a file imported more than once is parsed only once); `Parser.basedir` + `importedFiles` set propagated to sub-parsers
@@ -236,7 +215,7 @@ Bare-metal ARM64 kernel written in Eskiu boots in QEMU (`-M virt`) and prints to
 
 ---
 
-## [0.0.7-alpha] — 2026-06-02
+## [0.0.7-alpha]
 
 ### Added
 - **Bitwise operators**
@@ -260,7 +239,7 @@ Bare-metal ARM64 kernel written in Eskiu boots in QEMU (`-M virt`) and prints to
 
 ---
 
-## [0.0.6-alpha] — 2026-06-02
+## [0.0.6-alpha]
 
 ### Added
 - **Source locations in errors** — `ASTNode` now carries `line`/`col`; parser stamps all expression and statement nodes; errors now report `file.esk:line:col:` instead of `file.esk:0:0:`; filename taken from the CLI input path
@@ -278,7 +257,7 @@ Bare-metal ARM64 kernel written in Eskiu boots in QEMU (`-M virt`) and prints to
 
 ---
 
-## [0.0.5-alpha] — 2026-06-02
+## [0.0.5-alpha]
 
 ### Added
 - **`switch`/`case`** — `SwitchStmt` AST node with `Case { value, stmts }` list; full visitor chain; parser handles `switch (expr) { case val: stmts break; default: stmts }` with fallthrough support; codegen emits LLVM `switch` instruction with `ConstantInt` case values; `break` branches to `switch.end` via existing `breakTarget` mechanism
@@ -297,7 +276,7 @@ Bare-metal ARM64 kernel written in Eskiu boots in QEMU (`-M virt`) and prints to
 
 ---
 
-## [0.0.4-alpha] — 2026-06-02
+## [0.0.4-alpha]
 
 ### Added
 - **Template struct declaration** — `struct Result<T, E> { ... }`; `StructDecl` gains `typeParams` field; template declarations are stored in a separate registry and not emitted to LLVM until first use
@@ -314,7 +293,7 @@ Bare-metal ARM64 kernel written in Eskiu boots in QEMU (`-M virt`) and prints to
 
 ---
 
-## [0.0.3-alpha] — 2026-06-02
+## [0.0.3-alpha]
 
 ### Added
 - **`alloc(T, N)`** — new `AllocExpr` AST node; emits `call @malloc(i64 N * sizeof(T))`; `sizeof(T)` resolved via `DataLayout` initialized at the start of `generateCode()`
@@ -328,7 +307,7 @@ Bare-metal ARM64 kernel written in Eskiu boots in QEMU (`-M virt`) and prints to
 
 ---
 
-## [0.0.2-alpha] — 2026-06-02
+## [0.0.2-alpha]
 
 ### Added
 - **Struct codegen** — `llvm::StructType::create` per `StructDecl`; `alloca %StructType` for locals; field read/write via `getelementptr`
@@ -350,7 +329,7 @@ Bare-metal ARM64 kernel written in Eskiu boots in QEMU (`-M virt`) and prints to
 
 ---
 
-## [0.0.1-alpha] — 2026-06-02
+## [0.0.1-alpha]
 
 ### Added
 - **Phase 0 — Build system and CLI** — CMake build with LLVM 17+ integration; `--version` flag; `--test-lexer`, `--test-parser`, `--test-typechecker`, `--test-codegen` modes; `file:line:col` error reporting

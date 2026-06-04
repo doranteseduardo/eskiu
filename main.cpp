@@ -52,7 +52,7 @@ static llvm::cl::opt<std::string> DefinitionAt("definition-at",
     llvm::cl::desc("Print the definition location of the symbol at LINE:COL"),
     llvm::cl::value_desc("LINE:COL"));
 
-const char* VERSION = "0.1.1";
+const char* VERSION = "0.1.0";
 static std::string stdlibRoot; // set once at startup via resolveStdlibPath()
 
 // Resolve stdlib root: $ESKIU_ROOT env var, or dirname(argv[0])/../lib/eskiu
