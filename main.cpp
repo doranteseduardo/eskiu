@@ -45,7 +45,7 @@ static llvm::cl::opt<std::string> DefinitionAt("definition-at",
     llvm::cl::desc("Print the definition location of the symbol at LINE:COL"),
     llvm::cl::value_desc("LINE:COL"));
 
-const char* VERSION = "0.1.3-alpha";
+const char* VERSION = "0.1.0";
 
 // Read file contents into string
 static std::string readFile(const std::string& filename) {

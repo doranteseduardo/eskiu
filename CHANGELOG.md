@@ -9,129 +9,56 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ## [Unreleased]
 
-## [0.1.3-alpha] — 2026-06-04
+## [0.1.0] — 2026-06-04
 
-### Added
+First productive release. The language covers everything needed to build real backend services and bare-metal systems code.
 
-**Typed pointer arithmetic**
-- `p + n` on a `*T` pointer now advances by `n * sizeof(T)` bytes rather than `n` bytes
-- `*void` and `*char` pointers remain byte-level (stride 1) to preserve C interop semantics
-- Examples: `p: *int; p + 1` advances 4 bytes; `p: *Grid; p + 1` advances by `sizeof(Grid)`
+### Closures and threads
 
-**`sizeof(T)` — compile-time size expression**
-- `sizeof(T)` evaluates to an `int64` constant at compile time; works for any Eskiu type including structs
-- `sizeof(int)` → `4`, `sizeof(int64)` → `8`, `sizeof(Grid)` → `12` (three `float` fields)
+- `fn(T)->R` is a fat pointer `{fn_ptr, env_ptr}`; variables from the enclosing scope are captured by value automatically
+- `thread_create(fn()->void)` and `thread_join(*void)` are language keywords; the fat pointer maps directly to pthread's `(start_routine, arg)` — no trampoline
+- Link with `-lpthread` on Linux
 
 ```eskiu
-int64 s = sizeof(int);     // 4
-int64 b = sizeof(int64);   // 8
-int64 g = sizeof(Grid);    // 12  (3 floats)
+int base = 10;
+let add: fn(int)->int = int(int x) { return x + base; };  // captures base
+
+*void t = thread_create(fn() { printf("hello\n"); });
+thread_join(t);
 ```
 
-**`union` — overlapping fields**
-- `union` declaration; all fields share offset 0; size equals `sizeof` of the largest field
-- Field access uses the correct type for each field; the bytes are reinterpreted without a cast
+### Exception handling
+
+- `try { } catch (T name) { } finally { }` with multiple catch clauses
+- `throw expr` — any Eskiu value
+- LLVM `invoke`/`landingpad` with `__gxx_personality_v0`; unhandled exceptions re-thrown via `resume`
+- Link with `-lc++` (macOS) or `-lstdc++` (Linux)
 
 ```eskiu
-union Value {
-    int    i;
-    float  f;
-    *uint8 p;
-}
-let v: Value;
-v.i = 42;
-printf("%f\n", v.f);  // reinterprets the same bytes as float
-```
-
-## [0.1.2-alpha] — 2026-06-04
-
-### Added
-
-**Exception handling — `try`/`catch`/`finally`/`throw`**
-- `try { } catch (T name) { } finally { }` — standard exception handling syntax; multiple `catch` clauses are supported
-- `throw expr` — throws any Eskiu value (`string`, `int`, pointer, etc.) as an exception
-- Implemented via LLVM `invoke`/`landingpad` with the Itanium ABI (`__gxx_personality_v0`); every function call inside a `try` body is emitted as `invoke` so exceptions propagate correctly
-- Unhandled exceptions (no matching `catch` clause) are re-thrown via `resume`
-- The `finally` block is always executed, whether or not an exception was raised
-- Link the final binary with `-lc++` on macOS or `-lstdc++` on Linux
-
-```eskiu
-// Basic try/catch
 try {
-    int r = divide(10, 0);
-} catch (string e) {
-    printf("caught: %s\n", e);
-}
-
-// With finally
-try {
-    throw "error";
+    throw "division by zero";
 } catch (string e) {
     printf("caught: %s\n", e);
 } finally {
     printf("cleanup\n");
 }
-
-// Throwing from a function
-int divide(int a, int b) {
-    if (b == 0) {
-        throw "division by zero";
-    }
-    return a / b;
-}
 ```
 
-## [0.1.1-alpha] — 2026-06-04
+### Language completeness
 
-### Added
+- `sizeof(T)` — compile-time `int64` constant for any type including structs
+- `union` — all fields share offset 0; size = sizeof(largest field)
+- Typed pointer arithmetic — `p: *int; p + 1` advances 4 bytes, not 1
 
-**Closures — capture by value**
-- `fn(T)->R` is now a fat pointer `{fn_ptr, env_ptr}` — the same two-word layout already used for interface dispatch
-- Variables from the enclosing scope are automatically captured by value at lambda creation time; no annotation is required
-- Non-capturing lambdas set `env_ptr = null` and compile identically to the previous behaviour
-- The `fn(T)->R` type annotation is unchanged — the fat-pointer representation is fully transparent to user code
-- Higher-order functions work without change: a closure can be passed anywhere a `fn(T)->R` is expected
+---
 
-```eskiu
-int base = 10;
-let add: fn(int)->int = int(int x) { return x + base; };
-add(5);  // 15 — captures 'base' from outer scope
+## Systems milestone — 2026-06-03
 
-int apply(fn(int)->int f, int x) { return f(x); }
-apply(add, 7);  // 17
-```
+Bare-metal ARM64 kernel written in Eskiu boots in QEMU (`-M virt`) and prints to serial without libc or a C runtime.
 
-**Thread primitives — `thread_create` / `thread_join`**
-- `thread_create` and `thread_join` are language keywords; no `extern` declaration is needed
-- The closure fat-pointer maps directly to pthread's `(start_routine, arg)` calling convention — no trampoline function is emitted
-- `thread_create(fn()->void)` spawns a new thread and returns a `*void` handle
-- `thread_join(*void)` blocks until the thread completes
-- On Linux, link with `-lpthread`
-
-```eskiu
-*void t = thread_create(fn() { printf("hello from thread\n"); });
-thread_join(t);
-
-// With closure capturing outer state
-int id = 1;
-let worker: fn()->void = void() { printf("thread %d\n", id); };
-*void t2 = thread_create(worker);
-thread_join(t2);
-```
-
-## [0.1.0] — 2026-06-03
-
-### Milestone — Kernel on QEMU
-
-A bare-metal ARM64 kernel written in Eskiu boots in QEMU (`-M virt`) and prints to the PL011 serial UART without libc or a C runtime.
-
-- `kernel/` directory: entry point, UART driver, bump allocator, linker script
+- Inline asm UART driver, bump allocator in `--freestanding` mode
 - Cross-compiled with `--target aarch64-unknown-none-elf`
-- UART writes via inline asm (`strb ${0:w}, [$1]`) with `volatile` MMIO pointers
-- `esk_alloc`/`esk_free` bump allocator in `--freestanding` mode
-- Output: ASCII art banner, version string, heap allocation test
-
-v0.1 milestone is complete.
+- `volatile` MMIO, `asm(...)` with GCC-compatible constraints
 
 ## [0.0.14-alpha] — 2026-06-03
 

@@ -4,7 +4,7 @@ Eskiu is a statically typed systems language built to address a specific problem
 
 The goal is a single language that replaces that stack. Phase one establishes a solid systems foundation: native performance, explicit memory, direct access to any C library. Phase two, once that foundation is stable, will introduce first-class support for the domain types that high-throughput services actually work with. The syntax is deliberately C-style; the language adds monomorphic templates, structural interfaces, lambdas, and an explicit heap model via `alloc`/`free`.
 
-**Current version: v0.1.3-alpha** — typed pointer arithmetic (`p + 1` advances by `sizeof(*p)`), `sizeof(T)` compile-time size expression, and `union` declarations. Exception handling added in v0.1.2-alpha; closures and thread primitives in v0.1.1-alpha.
+**Current version: v0.1.0** — typed pointer arithmetic (`p + 1` advances by `sizeof(*p)`), `sizeof(T)` compile-time size expression, and `union` declarations. Exception handling added in v0.1.0; closures and thread primitives in v0.1.0.
 
 ---
 
