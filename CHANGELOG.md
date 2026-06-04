@@ -9,6 +9,38 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ## [Unreleased]
 
+## [0.1.1] — 2026-06-04
+
+### Added
+
+**`<fs>` stdlib module**
+- `import <fs>;` — file system I/O module: `fs_open(path, mode)` / `fs_close(fp)` / `fs_flush(fp)`
+- `fs_read(fp, buf, n)` / `fs_readline(fp, buf, n)` — buffered reads
+- `fs_write(fp, buf, n)` / `fs_puts(fp, s)` — writes
+- `fs_seek(fp, offset, whence)` / `fs_tell(fp)` — position control
+- `fs_size(fp)` — returns file size; seek position is restored afterwards
+- `fs_read_all(path, *int64 out_len)` — reads entire file into a heap buffer (caller must `free`)
+- `fs_write_all(path, buf, n)` — writes entire buffer to a file
+- `fs_eof(fp)` / `fs_error(fp)` — status predicates
+
+**`import <name>` stdlib syntax**
+- Angle-bracket imports (`import <result>`, `import <fs>`, etc.) resolve modules from the Eskiu installation's stdlib directory
+- Compiler locates stdlib via `ESKIU_ROOT` environment variable or auto-detection from the binary location
+- `import "path"` continues to work for local files relative to the importing file
+
+**Release infrastructure**
+- `.github/workflows/release.yml` — builds static binaries for macOS arm64 and Linux x86_64 on every `v*` tag push
+- Tarball layout: `bin/eskiuc` + `lib/eskiu/stdlib/`
+- `CMakeLists.txt` gains `-DESKIU_STATIC=ON` for static LLVM linking; project version set to 0.1.0
+
+### Fixed
+
+**Pointer dereference as lvalue**
+- `*ptr = value` now works correctly when `ptr` is a function parameter
+- Previously failed with "not an lvalue"; `evaluateLValue` now handles dereference expressions on pointer parameters
+
+---
+
 ## [0.1.0] — 2026-06-04
 
 First productive release. The language covers everything needed to build real backend services and bare-metal systems code.

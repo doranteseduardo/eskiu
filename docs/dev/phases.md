@@ -46,6 +46,9 @@ The project follows two phases:
 | sizeof(T) — compile-time size expression | ✅ |
 | Typed pointer arithmetic — p + n advances by sizeof(*p) | ✅ |
 | union — overlapping fields, size = largest member | ✅ |
+| `import <name>` stdlib syntax — angle-bracket imports resolved from installation | ✅ |
+| `<fs>` stdlib — file I/O (`fs_open`, `fs_read_all`, `fs_write_all`, etc.) | ✅ |
+| Pointer dereference as lvalue — `*ptr = value` through pointer parameters | ✅ |
 | Package manager | ❌ |
 | Self-hosting | ❌ |
 
