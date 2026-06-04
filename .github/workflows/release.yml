@@ -93,13 +93,6 @@ jobs:
         with:
           merge-multiple: true
 
-      - name: Extract release notes from CHANGELOG
-        run: |
-          # Extract the first release section from CHANGELOG.md
-          awk '/^## \[/{if(found) exit; found=1; next} found && /^## /{exit} found{print}' \
-            CHANGELOG.md > RELEASE_NOTES.md
-          cat RELEASE_NOTES.md
-
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
