@@ -101,6 +101,19 @@ public:
     void accept(class ASTVisitor* visitor) override;
 };
 
+// union MyUnion { int i; float f; *uint8 b; }
+// All fields share offset 0. Size = sizeof(largest field).
+// Field access uses a cast to the field type.
+class UnionDecl : public Decl {
+public:
+    std::vector<StructDecl::Field> fields;
+
+    UnionDecl(const std::string& name, const std::vector<StructDecl::Field>& fields)
+        : Decl(name), fields(fields) {}
+
+    void accept(class ASTVisitor* visitor) override;
+};
+
 class ExternDecl : public Decl {
 public:
     std::string returnType;
@@ -416,6 +429,14 @@ public:
     void accept(class ASTVisitor* visitor) override;
 };
 
+// sizeof(T) -> int64
+class SizeofExpr : public Expr {
+public:
+    std::string typeName;
+    explicit SizeofExpr(std::string t) : typeName(std::move(t)) {}
+    void accept(class ASTVisitor* visitor) override;
+};
+
 // thread_create(fn()->void) -> *void  (returns thread handle)
 class ThreadCreateExpr : public Expr {
 public:
@@ -474,6 +495,8 @@ public:
     virtual void visit(TemplateCallExpr* node) = 0;
     virtual void visit(LambdaExpr* node) = 0;
     virtual void visit(AsmStmt* node) = 0;
+    virtual void visit(UnionDecl* node) = 0;
+    virtual void visit(SizeofExpr* node) = 0;
     virtual void visit(ThreadCreateExpr* node) = 0;
     virtual void visit(ThreadJoinStmt* node) = 0;
     virtual void visit(ThrowStmt* node) = 0;

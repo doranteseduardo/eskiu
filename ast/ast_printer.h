@@ -44,6 +44,8 @@ private:
     void visit(TemplateCallExpr* node) override;
     void visit(LambdaExpr* node) override;
     void visit(AsmStmt* node) override;
+    void visit(UnionDecl* node) override;
+    void visit(SizeofExpr* node) override;
     void visit(ThreadCreateExpr* node) override;
     void visit(ThreadJoinStmt* node) override;
     void visit(ThrowStmt* node) override;

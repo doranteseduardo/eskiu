@@ -939,10 +939,26 @@ void CodeGen::visit(BinaryExpr* node) {
         }
     };
 
+    // Resolve the element type for typed pointer arithmetic.
+    // *int → i32, *uint8 → i8, *void/*char/unknown → i8 (byte arithmetic)
+    auto ptrElemType = [&]() -> llvm::Type* {
+        std::string eskTy = getExprEskiuType(node->left);
+        if (eskTy.empty()) return llvm::Type::getInt8Ty(*context);
+        // Strip leading *
+        if (!eskTy.empty() && eskTy.front() == '*') eskTy = eskTy.substr(1);
+        // Strip trailing *
+        if (!eskTy.empty() && eskTy.back()  == '*') eskTy.pop_back();
+        if (eskTy == "void" || eskTy == "char" || eskTy.empty())
+            return llvm::Type::getInt8Ty(*context);
+        return getTypeFromString(eskTy);
+    };
+
     if (node->op == "+") {
-        if (left->getType()->isPointerTy())
-            result = builder->CreateGEP(llvm::Type::getInt8Ty(*context), left, right, "ptr.add");
-        else {
+        if (left->getType()->isPointerTy()) {
+            llvm::Value* idx = builder->CreateSExtOrTrunc(
+                right, llvm::Type::getInt64Ty(*context), "ptr.idx");
+            result = builder->CreateGEP(ptrElemType(), left, idx, "ptr.add");
+        } else {
             promoteToFloat();
             widenForArith();
             result = left->getType()->isFloatingPointTy()
@@ -956,8 +972,9 @@ void CodeGen::visit(BinaryExpr* node) {
             llvm::Value* r64 = builder->CreatePtrToInt(right, llvm::Type::getInt64Ty(*context));
             result = builder->CreateSub(l64, r64, "ptrdiff");
         } else if (left->getType()->isPointerTy()) {
-            llvm::Value* neg = builder->CreateNeg(right, "neg");
-            result = builder->CreateGEP(llvm::Type::getInt8Ty(*context), left, neg, "ptr.sub");
+            llvm::Value* neg = builder->CreateNeg(
+                builder->CreateSExtOrTrunc(right, llvm::Type::getInt64Ty(*context)), "neg");
+            result = builder->CreateGEP(ptrElemType(), left, neg, "ptr.sub");
         } else {
             promoteToFloat(); widenForArith();
             result = left->getType()->isFloatingPointTy()
@@ -1330,17 +1347,23 @@ void CodeGen::visit(MemberExpr* node) {
         throw std::runtime_error("Unknown struct type in member access: '" + baseType + "'");
 
     const auto& fields = fit->second;
+    bool isUnion = unionFields.count(baseType) > 0;
     for (size_t i = 0; i < fields.size(); ++i) {
         if (fields[i].name == node->member) {
             llvm::Value* basePtr = evaluateLValue(node->base);
-            llvm::StructType* st = structTypes[baseType];
-            llvm::Value* gep     = builder->CreateStructGEP(st, basePtr, i, node->member);
-            llvm::Value* loaded  = builder->CreateLoad(getTypeFromString(fields[i].type), gep);
-            exprValueStack.push(loaded);
+            llvm::Type*  fieldTy = getTypeFromString(fields[i].type);
+            llvm::Value* ptr;
+            if (isUnion) {
+                // Union: all fields at offset 0 — base ptr is the field ptr
+                ptr = basePtr;
+            } else {
+                ptr = builder->CreateStructGEP(structTypes[baseType], basePtr, i, node->member);
+            }
+            exprValueStack.push(builder->CreateLoad(fieldTy, ptr, node->member));
             return;
         }
     }
-    throw std::runtime_error("Struct '" + baseType + "' has no field '" + node->member + "'");
+    throw std::runtime_error("Struct/union '" + baseType + "' has no field '" + node->member + "'");
 }
 
 void CodeGen::visit(CastExpr* node) {
@@ -1791,6 +1814,41 @@ void CodeGen::visit(TryStmt* node) {
     builder->SetInsertPoint(doneBB);
 }
 
+void CodeGen::visit(UnionDecl* node) {
+    // Compute size = max(sizeof(field)) across all fields
+    uint64_t maxSize = 0;
+    for (const auto& f : node->fields) {
+        llvm::Type* ft = getTypeFromString(f.type);
+        uint64_t sz = module->getDataLayout().getTypeAllocSize(ft);
+        if (sz > maxSize) maxSize = sz;
+    }
+    if (maxSize == 0) maxSize = 1;
+
+    // Store as opaque byte array — same as struct in LLVM type registry
+    llvm::Type* unionTy = llvm::ArrayType::get(
+        llvm::Type::getInt8Ty(*context), maxSize);
+    std::string mangledName = node->name;
+    structTypes[mangledName] = llvm::cast<llvm::StructType>(
+        llvm::StructType::get(*context, {unionTy}, /*isPacked=*/false));
+    // Actually use a named struct wrapping the byte array for cleaner IR
+    auto* namedTy = llvm::StructType::create(*context, {unionTy}, mangledName + ".union");
+    structTypes[mangledName] = namedTy;
+
+    // Register fields so MemberExpr can resolve them (all at offset 0, typed via cast)
+    unionFields[mangledName] = node->fields;
+    // Also register in structFields for MemberExpr type lookup
+    std::vector<StructDecl::Field> sf;
+    for (const auto& f : node->fields) sf.push_back({f.type, f.name});
+    structFields[mangledName] = sf;
+}
+
+void CodeGen::visit(SizeofExpr* node) {
+    llvm::Type* ty   = getTypeFromString(node->typeName);
+    uint64_t    size = module->getDataLayout().getTypeAllocSize(ty);
+    exprValueStack.push(
+        llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), size));
+}
+
 void CodeGen::visit(ThreadCreateExpr* node) {
     // Evaluate the closure — a fat pointer {fn_ptr, env_ptr}
     llvm::Value* fatPtr = evaluateExpr(node->worker);
@@ -2114,13 +2172,17 @@ llvm::Value* CodeGen::evaluateLValue(ExprPtr expr) {
         if (fit == structFields.end())
             throw std::runtime_error("Unknown struct type: " + baseType);
         const auto& fields = fit->second;
+        // Union field access: all fields are at offset 0 — just return the base ptr
+        // (the load/store will use the field's type via the caller)
+        bool isUnion = unionFields.count(baseType) > 0;
         for (size_t i = 0; i < fields.size(); ++i) {
             if (fields[i].name == member->member) {
                 llvm::Value* basePtr = evaluateLValue(member->base);
+                if (isUnion) return basePtr; // offset 0 for all union fields
                 return builder->CreateStructGEP(structTypes[baseType], basePtr, i);
             }
         }
-        throw std::runtime_error("Struct '" + baseType + "' has no field '" + member->member + "'");
+        throw std::runtime_error("Struct/union '" + baseType + "' has no field '" + member->member + "'");
     }
 
     if (auto index = dynamic_cast<IndexExpr*>(expr.get())) {

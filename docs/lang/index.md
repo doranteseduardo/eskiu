@@ -4,7 +4,7 @@ Eskiu is a statically typed systems language built to address a specific problem
 
 The goal is a single language that replaces that stack. Phase one establishes a solid systems foundation: native performance, explicit memory, direct access to any C library. Phase two, once that foundation is stable, will introduce first-class support for the domain types that high-throughput services actually work with. The syntax is deliberately C-style; the language adds monomorphic templates, structural interfaces, lambdas, and an explicit heap model via `alloc`/`free`.
 
-**Current version: v0.1.2-alpha** — exception handling via `try`/`catch`/`finally`/`throw` (LLVM `invoke`/`landingpad`, Itanium ABI). Closures and thread primitives added in v0.1.1-alpha.
+**Current version: v0.1.3-alpha** — typed pointer arithmetic (`p + 1` advances by `sizeof(*p)`), `sizeof(T)` compile-time size expression, and `union` declarations. Exception handling added in v0.1.2-alpha; closures and thread primitives in v0.1.1-alpha.
 
 ---
 
@@ -23,9 +23,9 @@ The goal is a single language that replaces that stack. Phase one establishes a 
 
 | Category | Features |
 |---|---|
-| **Types** | `int`, `int8`–`int64`, `uint`–`uint64`, `float`, `double`, `bool`, `char`, `string`, `void`, `*T` pointers, `T[N]` fixed arrays |
+| **Types** | `int`, `int8`–`int64`, `uint`–`uint64`, `float`, `double`, `bool`, `char`, `string`, `void`, `*T` pointers, `T[N]` fixed arrays, `union` |
 | **Literals** | Decimal, hex `0xFF`, float, string (with adjacent concat), char, bool, null |
-| **Operators** | Arithmetic `+ - * / %`, bitwise `& \| ^ ~ << >>`, comparison, logical, compound `+= -=` etc., pointer arith `ptr+n` |
+| **Operators** | Arithmetic `+ - * / %`, bitwise `& \| ^ ~ << >>`, comparison, logical, compound `+= -=` etc., typed pointer arith `ptr+n` (advances by `sizeof(*ptr)`), `sizeof(T)` |
 | **Control flow** | `if`/`else`, `for` (with decl init), `while`, `switch`/`case`, `break`, `continue`, `return` |
 | **Functions** | C-style, `extern` C ABI, variadic, template `fn<T>(T x)` |
 | **Lambdas / Closures** | `int(int x) { return x * 2; }` — anonymous functions; `fn(T,...)->R` fat-pointer types; closure capture by value; higher-order functions |

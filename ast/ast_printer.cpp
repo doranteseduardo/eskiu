@@ -401,3 +401,15 @@ void ASTPrinter::visit(TryStmt* node) {
     if (node->finally) { println("Finally"); indentLevel++; node->finally->accept(this); indentLevel--; }
     indentLevel--;
 }
+
+void ASTPrinter::visit(SizeofExpr* node) {
+    println("SizeofExpr: sizeof(" + node->typeName + ")");
+}
+
+void ASTPrinter::visit(UnionDecl* node) {
+    println("UnionDecl: " + node->name);
+    indentLevel++;
+    for (const auto& f : node->fields)
+        println(f.type + " " + f.name);
+    indentLevel--;
+}

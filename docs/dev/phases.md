@@ -43,6 +43,9 @@ The project follows two phases:
 | Closures — capturing variables from the enclosing scope | ✅ |
 | Threads — `thread_create`/`thread_join` primitives | ✅ |
 | Exceptions — try/catch/finally/throw | ✅ |
+| sizeof(T) — compile-time size expression | ✅ |
+| Typed pointer arithmetic — p + n advances by sizeof(*p) | ✅ |
+| union — overlapping fields, size = largest member | ✅ |
 | Package manager | ❌ |
 | Self-hosting | ❌ |
 

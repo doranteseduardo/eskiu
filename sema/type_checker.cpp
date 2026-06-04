@@ -744,6 +744,20 @@ void TypeChecker::visit(AsmStmt* node) {
         if (expr) expr->accept(this);
 }
 
+void TypeChecker::visit(UnionDecl* node) {
+    // Register the union as a struct in the type system so field access works.
+    // All fields are registered; the codegen handles the shared-offset layout.
+    StructInfo info;
+    info.name = node->name;
+    for (const auto& f : node->fields)
+        info.fields.push_back({f.type, f.name});
+    structs[node->name] = info;
+}
+
+void TypeChecker::visit(SizeofExpr* node) {
+    expressionTypes[node] = "int64";
+}
+
 void TypeChecker::visit(ThreadCreateExpr* node) {
     node->worker->accept(this);
     expressionTypes[node] = "*void";

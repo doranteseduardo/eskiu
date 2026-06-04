@@ -1,0 +1,44 @@
+extern int printf(string fmt, ...);
+
+union Value {
+    int   i;
+    float f;
+    *uint8 p;
+}
+
+struct Grid {
+    float x;
+    float y;
+    float z;
+}
+
+int main() {
+    // sizeof
+    printf("sizeof(int)    = %lld\n", sizeof(int));
+    printf("sizeof(int64)  = %lld\n", sizeof(int64));
+    printf("sizeof(float)  = %lld\n", sizeof(float));
+    printf("sizeof(double) = %lld\n", sizeof(double));
+    printf("sizeof(Grid)   = %lld\n", sizeof(Grid));
+
+    // union
+    let v: Value;
+    v.i = 42;
+    printf("v.i = %d\n", v.i);
+    v.f = 3.14;
+    printf("v.f = %f\n", v.f);
+
+    // typed pointer arithmetic
+    let arr: *int = alloc(int, 4);
+    arr[0] = 10;
+    arr[1] = 20;
+    arr[2] = 30;
+    arr[3] = 40;
+
+    // arr + 2 should point to arr[2] (advance by 2 * sizeof(int) = 8 bytes)
+    let p: *int = arr + 2;
+    printf("*(arr+2) = %d\n", *p);    // 30
+    printf("*(arr+1) = %d\n", *(arr + 1));  // 20
+
+    free(arr);
+    return 0;
+}

@@ -272,6 +272,21 @@ DeclPtr Parser::parseDeclaration() {
         if (match(TokenType::STRUCT)) {
             return parseStructDecl();
         }
+
+        if (match(TokenType::UNION)) {
+            std::string name = consume(TokenType::IDENT, "Expected union name").value;
+            consume(TokenType::LBRACE, "Expected '{'");
+            std::vector<StructDecl::Field> fields;
+            while (!check(TokenType::RBRACE) && !is_at_end()) {
+                std::string fieldType = parseType();
+                std::string fieldName = consume(TokenType::IDENT,
+                    "Expected field name").value;
+                consume(TokenType::SEMICOLON, "Expected ';'");
+                fields.push_back({fieldType, fieldName});
+            }
+            consume(TokenType::RBRACE, "Expected '}'");
+            return std::make_shared<UnionDecl>(name, fields);
+        }
         if (match(TokenType::INTERFACE)) {
             std::string name = consume(TokenType::IDENT, "Expected interface name").value;
             consume(TokenType::LBRACE, "Expected '{'");
@@ -1028,6 +1043,14 @@ ExprPtr Parser::parsePrimary() {
         consume(TokenType::RPAREN, "Expected ')'");
         auto callee = std::make_shared<IdentExpr>("free");
         return std::make_shared<CallExpr>(callee, std::vector<ExprPtr>{arg});
+    }
+
+    // sizeof(T) -> int64
+    if (match(TokenType::SIZEOF)) {
+        consume(TokenType::LPAREN, "Expected '(' after sizeof");
+        std::string typeName = parseType();
+        consume(TokenType::RPAREN, "Expected ')'");
+        return withPos(std::make_shared<SizeofExpr>(typeName), tok);
     }
 
     // thread_create(fn()->void worker) -> *void

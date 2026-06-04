@@ -69,6 +69,7 @@ alloc  free
 volatile  asm
 thread_create  thread_join
 try  catch  finally  throw
+sizeof  union
 ```
 
 ### 2.4 Literals
@@ -375,7 +376,14 @@ int val = 42;
 
 ### 5.7 Pointer Arithmetic
 
-Adding or subtracting an integer from a pointer produces a new pointer offset by that many bytes (byte-level GEP):
+Adding or subtracting an integer `n` from a pointer of type `*T` advances the pointer by `n * sizeof(T)` bytes (typed GEP). This matches C semantics: `p + 1` moves to the next element, not the next byte.
+
+```eskiu
+*int  pi = alloc(int, 8);
+*int  p2 = pi + 1;   // 4 bytes forward — points to element 1
+```
+
+The exceptions are `*void` and `*char`, which always use byte-level stride (1 byte per step) to preserve C interop semantics:
 
 ```eskiu
 *uint8 buf = alloc(uint8, 1024);
@@ -383,7 +391,21 @@ Adding or subtracting an integer from a pointer produces a new pointer offset by
 *uint8 back = mid - 512;   // back to start
 ```
 
-### 5.8 Operator Precedence
+### 5.8 sizeof Expression
+
+`sizeof(T)` is a compile-time constant expression that evaluates to the size of type `T` in bytes as an `int64`. It works for all Eskiu types, including structs and unions.
+
+```eskiu
+sizeof(int)    // 4
+sizeof(int64)  // 8
+sizeof(float)  // 4
+sizeof(double) // 8
+sizeof(Grid)   // 12  (3 float fields)
+```
+
+`sizeof` is resolved entirely at compile time and produces no runtime code.
+
+### 5.9 Operator Precedence
 
 Listed from lowest precedence (loosest binding) to highest (tightest binding):
 
@@ -798,6 +820,32 @@ struct QRFrame {
 
 `uint8[858]` lowers to `[858 x i8]` in LLVM IR.
 
+### 8.6 Union Types
+
+A `union` declaration is identical in syntax to `struct`, but all fields share offset 0. The size of the union equals the size of its largest field. Accessing a field reinterprets the underlying bytes as the field's type — no explicit cast is needed.
+
+```eskiu
+union Value {
+    int    i;
+    float  f;
+    *uint8 p;
+}
+
+let v: Value;
+v.i = 42;
+printf("%f\n", v.f);  // reinterprets the 4 bytes of v.i as a float
+```
+
+A `union` variable is declared exactly like a struct variable:
+
+```eskiu
+let u: Value;
+u.i = 0x3F800000;   // bit pattern for 1.0f
+printf("%f\n", u.f); // prints 1.0
+```
+
+`sizeof(Value)` returns the size of the largest field — `sizeof(*uint8)` = 8 on a 64-bit target in this example.
+
 ---
 
 ## 9. Interfaces
@@ -959,12 +1007,15 @@ Every allocation must be paired with exactly one `free`. Double-free and use-aft
 
 ### 11.3 Pointer Arithmetic
 
-Pointer arithmetic operates at the byte level (GEP on `i8`):
+Pointer arithmetic is typed: `p + n` on a `*T` pointer advances by `n * sizeof(T)` bytes. `*void` and `*char` are byte-level (stride 1).
 
 ```eskiu
 *uint8 buf = alloc(uint8, 256);
 *uint8 ptr = buf + 64;    // 64 bytes from start
 *uint8 back = ptr - 32;   // 32 bytes back
+
+*int pi = alloc(int, 8);
+*int  p2 = pi + 1;        // 4 bytes forward — next int element
 ```
 
 ### 11.4 Null Checks

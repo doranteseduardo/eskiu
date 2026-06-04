@@ -14,6 +14,7 @@ std::string tokenTypeToString(TokenType type) {
         case TokenType::STRING: return "STRING";
         case TokenType::VOID: return "VOID";
         case TokenType::STRUCT: return "STRUCT";
+        case TokenType::UNION:  return "UNION";
         case TokenType::INTERFACE: return "INTERFACE";
         case TokenType::ENUM: return "ENUM";
         case TokenType::FN: return "FN";
@@ -118,11 +119,13 @@ std::unordered_map<std::string, TokenType> Lexer::keywords = {
     {"string", TokenType::STRING},
     {"void", TokenType::VOID},
     {"struct", TokenType::STRUCT},
+    {"union",  TokenType::UNION},
     {"interface", TokenType::INTERFACE},
     {"enum", TokenType::ENUM},
     {"fn", TokenType::FN},
     {"asm", TokenType::ASM},
     {"volatile",       TokenType::VOLATILE},
+    {"sizeof",         TokenType::SIZEOF},
     {"thread_create",  TokenType::THREAD_CREATE},
     {"thread_join",    TokenType::THREAD_JOIN},
     {"for", TokenType::FOR},

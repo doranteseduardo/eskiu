@@ -9,6 +9,40 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ## [Unreleased]
 
+## [0.1.3-alpha] — 2026-06-04
+
+### Added
+
+**Typed pointer arithmetic**
+- `p + n` on a `*T` pointer now advances by `n * sizeof(T)` bytes rather than `n` bytes
+- `*void` and `*char` pointers remain byte-level (stride 1) to preserve C interop semantics
+- Examples: `p: *int; p + 1` advances 4 bytes; `p: *Grid; p + 1` advances by `sizeof(Grid)`
+
+**`sizeof(T)` — compile-time size expression**
+- `sizeof(T)` evaluates to an `int64` constant at compile time; works for any Eskiu type including structs
+- `sizeof(int)` → `4`, `sizeof(int64)` → `8`, `sizeof(Grid)` → `12` (three `float` fields)
+
+```eskiu
+int64 s = sizeof(int);     // 4
+int64 b = sizeof(int64);   // 8
+int64 g = sizeof(Grid);    // 12  (3 floats)
+```
+
+**`union` — overlapping fields**
+- `union` declaration; all fields share offset 0; size equals `sizeof` of the largest field
+- Field access uses the correct type for each field; the bytes are reinterpreted without a cast
+
+```eskiu
+union Value {
+    int    i;
+    float  f;
+    *uint8 p;
+}
+let v: Value;
+v.i = 42;
+printf("%f\n", v.f);  // reinterprets the same bytes as float
+```
+
 ## [0.1.2-alpha] — 2026-06-04
 
 ### Added

@@ -161,7 +161,12 @@ private:
     void visit(TemplateCallExpr* node) override;
     void visit(LambdaExpr* node) override;
     void visit(AsmStmt* node) override;
+    void visit(UnionDecl* node) override;
+    void visit(SizeofExpr* node) override;
     void visit(ThreadCreateExpr* node) override;
+
+    // Union registry: name → fields (all share offset 0; stored as [N x i8])
+    std::map<std::string, std::vector<StructDecl::Field>> unionFields;
     void visit(ThreadJoinStmt* node) override;
     void visit(ThrowStmt* node) override;
     void visit(TryStmt* node) override;

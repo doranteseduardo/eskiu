@@ -4,7 +4,7 @@
 A hands-on introduction to the Eskiu language. You will go from zero to writing
 and inspecting real compiled programs in about 30 minutes.
 
-All code blocks in this document compile and run with **Eskiu v0.1.2-alpha**.
+All code blocks in this document compile and run with **Eskiu v0.1.3-alpha**.
 ---
 
 ## Installation
@@ -46,7 +46,7 @@ cmake --build build -j$(nproc)
 
 ```bash
 ./build/eskiuc --version
-# Eskiu v0.1.2-alpha (LLVM 17+)
+# Eskiu v0.1.3-alpha (LLVM 17+)
 ```
 
 Add `./build` to your `PATH` so you can type `eskiuc` from any directory.
@@ -275,8 +275,7 @@ int main() {
 }
 ```
 
-`ptr + n` computes `GEP(i8, ptr, n)` — byte-level arithmetic, consistent with
-how `alloc` returns a typed pointer.
+`ptr + n` advances by `n * sizeof(*ptr)` bytes — typed arithmetic. Adding `1` to a `*uint8` moves one byte; adding `1` to a `*int` moves four bytes. `*void` and `*char` are the exceptions: they always use byte-level stride.
 
 ### Cast
 
@@ -1133,6 +1132,80 @@ You must provide `esk_alloc` and `esk_free` in your own source or a C shim:
 *void esk_alloc(int size) { return bump_alloc(size); }
 void  esk_free(*void ptr)  { bump_free(ptr); }
 ```
+
+---
+
+## sizeof
+
+`sizeof(T)` is a compile-time constant expression that returns the size of a type in bytes as an `int64`. It works for any Eskiu type, including structs.
+
+```eskiu
+extern int printf(string fmt, ...);
+
+struct Grid {
+    float x;
+    float y;
+    float z;
+}
+
+int main() {
+    printf("sizeof(int)    = %lld\n", sizeof(int));    // 4
+    printf("sizeof(int64)  = %lld\n", sizeof(int64));  // 8
+    printf("sizeof(Grid)   = %lld\n", sizeof(Grid));   // 12
+    return 0;
+}
+```
+
+`sizeof` is resolved entirely at compile time and produces no runtime code.
+
+---
+
+## Unions
+
+A `union` is declared like a `struct`, but all fields share offset 0. The size of the union equals the size of its largest field. Reading a field reinterprets the stored bytes as that field's type.
+
+```eskiu
+extern int printf(string fmt, ...);
+
+union Value {
+    int   i;
+    float f;
+}
+
+int main() {
+    let v: Value;
+    v.i = 0x3F800000;            // IEEE 754 bit pattern for 1.0
+    printf("%f\n", v.f);         // 1.000000 — same bytes, read as float
+    v.f = 3.14;
+    printf("%d\n", v.i);         // raw integer bits of 3.14
+    return 0;
+}
+```
+
+---
+
+## Typed Pointer Arithmetic
+
+Pointer arithmetic scales by the pointed-to type's size, matching C behaviour. Adding `1` to a `*int` advances 4 bytes; adding `1` to a `*Grid` advances `sizeof(Grid)` bytes.
+
+```eskiu
+extern int printf(string fmt, ...);
+
+int main() {
+    let buf: *int = alloc(int, 4);
+    *buf = 10;
+    *(buf + 1) = 20;   // +4 bytes (one int)
+    *(buf + 2) = 30;   // +8 bytes
+    *(buf + 3) = 40;   // +12 bytes
+    for (int i = 0; i < 4; i += 1) {
+        printf("%d\n", *(buf + i));
+    }
+    free(buf);
+    return 0;
+}
+```
+
+`*void` and `*char` are exceptions: they always step one byte at a time.
 
 ---
 

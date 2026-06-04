@@ -33,6 +33,8 @@ void StructInitExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
 
 void LambdaExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void AsmStmt::accept(ASTVisitor* visitor)        { visitor->visit(this); }
+void UnionDecl::accept(ASTVisitor* v)            { v->visit(this); }
+void SizeofExpr::accept(ASTVisitor* v)           { v->visit(this); }
 void ThreadCreateExpr::accept(ASTVisitor* v)     { v->visit(this); }
 void ThreadJoinStmt::accept(ASTVisitor* v)       { v->visit(this); }
 void ThrowStmt::accept(ASTVisitor* v)            { v->visit(this); }
