@@ -7,11 +7,11 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
-## [Unreleased]
-
 ## [0.1.0]
 
-First release. The language covers everything needed to build real backend services and bare-metal systems code.
+Eskiu is a systems language built to replace the C + Go + C++ + Python stack that compute-intensive backend services typically require. C-style syntax, structural interfaces, monomorphic templates, and explicit memory — compiled to native via LLVM with no garbage collector and no runtime.
+
+This is the first release. It includes everything needed to write real backend services and bare-metal systems code, validated against a cryptographic pipeline running at 74 ms on arm64 — 2.5× faster than the reference C implementation — and a bare-metal ARM64 kernel booting in QEMU without libc.
 
 ### Closures and threads
 
