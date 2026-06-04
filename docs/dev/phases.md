@@ -65,20 +65,23 @@ Compiler foundation proved on a real production workload: a cryptographic pipeli
 
 ## Roadmap
 
-### v0.1 — Kernel on QEMU
+### v0.1 — Kernel on QEMU — COMPLETE
 
-**Goal:** Boot Eskiu code on bare metal in QEMU and print to VGA or serial — without libc, without a C runtime.
+A bare-metal ARM64 kernel written in Eskiu boots in QEMU (`-M virt`) and prints to the PL011 serial UART — without libc, without a C runtime.
 
-This is the classic proof-of-concept for a systems language. It requires:
+**Result:**
+- Cross-compiled with `--target aarch64-unknown-none-elf`
+- UART writes via inline asm (`strb ${0:w}, [$1]`) and `volatile` MMIO pointers
+- Bump allocator (`esk_alloc`/`esk_free`) implemented in freestanding mode
+- Output: ASCII art banner, version string, heap allocation test
+- Boots and prints correctly under QEMU
 
-1. ~~**Inline assembly**~~ — done. `asm("cli")`, extended asm with constraints and clobbers. ✅
-2. ~~**Freestanding mode**~~ — done. `--freestanding` flag: `alloc`/`free` use `esk_alloc`/`esk_free`. ✅
-3. ~~**`volatile`**~~ — done. `volatile let x: *T` marks all loads/stores as volatile in LLVM IR. ✅
-4. ~~**Cross-compilation**~~ — done. `--target TRIPLE` (e.g. `x86_64-pc-linux-gnu`, `aarch64-unknown-none`). Both AArch64 and X86 backends included. ✅
-
-**All compiler prerequisites are complete.** The next step is writing the kernel itself.
-
-Total estimated effort: **3–5 days.**
+| Compiler prerequisite | Status |
+|-----------------------|--------|
+| Inline assembly — `asm(...)` with constraints and clobbers | ✅ |
+| Freestanding mode — `--freestanding`, `esk_alloc`/`esk_free` | ✅ |
+| `volatile` — MMIO loads and stores | ✅ |
+| Cross-compilation — `--target TRIPLE`, both AArch64 and X86 backends | ✅ |
 
 ### v0.2 — Language completeness
 

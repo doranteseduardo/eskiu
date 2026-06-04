@@ -10,7 +10,7 @@ cmake --build build
 ./build/eskiuc --version
 ```
 
-Expected output: `Eskiu 0.0.14-alpha (LLVM ...)`
+Expected output: `Eskiu v0.1.0 (LLVM ...)`
 
 ## Hello, Eskiu
 

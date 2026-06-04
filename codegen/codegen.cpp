@@ -478,7 +478,15 @@ void CodeGen::visit(FunctionDecl* node) {
     for (auto& arg : func->args()) {
         if (sret && argIdx == 0) { argIdx++; continue; }  // skip sret ptr
         if (paramIdx < node->params.size() && node->params[paramIdx].first != "...") {
-            defineSymbol(node->params[paramIdx].second, &arg);
+            // Struct-by-value params need an alloca so MemberExpr GEP has a pointer
+            llvm::Value* paramSlot = &arg;
+            if (arg.getType()->isStructTy()) {
+                auto* a = builder->CreateAlloca(arg.getType(), nullptr,
+                                                node->params[paramIdx].second + ".byval");
+                builder->CreateStore(&arg, a);
+                paramSlot = a;
+            }
+            defineSymbol(node->params[paramIdx].second, paramSlot);
             std::string ptype = !typeParamOverride.empty()
                 ? substType(node->params[paramIdx].first, typeParamOverride)
                 : node->params[paramIdx].first;
@@ -1499,7 +1507,14 @@ void CodeGen::visit(LambdaExpr* node) {
 
     i = 0;
     for (auto& arg : func->args()) {
-        defineSymbol(node->params[i].second, &arg);
+        llvm::Value* slot = &arg;
+        if (arg.getType()->isStructTy()) {
+            auto* a = builder->CreateAlloca(arg.getType(), nullptr,
+                                            node->params[i].second + ".byval");
+            builder->CreateStore(&arg, a);
+            slot = a;
+        }
+        defineSymbol(node->params[i].second, slot);
         defineVarType(node->params[i].second, node->params[i].first);
         i++;
     }

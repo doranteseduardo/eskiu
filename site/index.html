@@ -189,7 +189,7 @@
 
     .hero-mascot {
       align-self: end;
-      width: 260px;
+      width: 340px;
       flex-shrink: 0;
       display: flex;
       align-items: flex-end;
@@ -541,7 +541,8 @@
     /* ── Responsive ───────────────────────────────────────────────── */
     @media (max-width: 768px) {
       .hero-inner { grid-template-columns: 1fr; }
-      .hero-mascot { display: none; }
+      .hero-text   { order: 2; }
+      .hero-mascot { order: 1; width: 100%; max-width: 320px; margin: 0 auto 2rem; }
       .stats-inner { flex-wrap: wrap; }
       .stat-item { min-width: 50%; }
       .nav-links li:not(:last-child) { display: none; }
@@ -572,7 +573,7 @@
   <div class="hero-inner">
 
     <div class="hero-text">
-      <span class="hero-tag">v0.0.14-alpha &nbsp;&middot;&nbsp; LLVM backend &nbsp;&middot;&nbsp; arm64 + x86-64</span>
+      <span class="hero-tag">v0.1.0 &nbsp;&middot;&nbsp; LLVM backend &nbsp;&middot;&nbsp; arm64 + x86-64</span>
       <h1>C performance.<br>Go concurrency.<br><em>Explicit memory.</em></h1>
       <p class="hero-sub">
         Systems programming with C-style syntax, monomorphic templates, and structural interfaces.
@@ -585,7 +586,21 @@
     </div>
 
     <div class="hero-mascot">
-      <img src="../assets/logo.png" alt="Eskiu" />
+      <div style="position:relative;margin-top:110px">
+        <!-- cat mascot overlapping the terminal from above -->
+        <img src="../assets/logo.png" alt="Eskiu"
+             style="position:absolute;top:-110px;left:50%;transform:translateX(-50%);width:130px;z-index:2;pointer-events:none">
+        <!-- terminal window -->
+        <div style="position:relative;background:#1e1b2e;border:1px solid #2d2a3e;border-radius:10px;overflow:hidden;width:100%">
+          <div style="background:#16132a;border-bottom:1px solid #2d2a3e;padding:0.5rem 0.85rem;display:flex;align-items:center;gap:0.4rem">
+            <span style="width:10px;height:10px;border-radius:50%;background:#ff5f57;flex-shrink:0"></span>
+            <span style="width:10px;height:10px;border-radius:50%;background:#febc2e;flex-shrink:0"></span>
+            <span style="width:10px;height:10px;border-radius:50%;background:#28c840;flex-shrink:0"></span>
+            <span style="margin-left:auto;font-family:var(--font-mono);font-size:0.68rem;color:#4a4870">qemu-system-aarch64 -M virt</span>
+          </div>
+          <img src="../assets/kernel.png" alt="Eskiu v0.1 kernel running on bare metal" style="width:100%;display:block">
+        </div>
+      </div>
     </div>
 
   </div>
@@ -627,9 +642,10 @@
       <p style="font-size:1.05rem;color:var(--ink2);line-height:1.8;margin-top:1rem;margin-bottom:0">
         Eskiu is a direct response to that. The foundation phase establishes a systems
         language solid enough to handle the work that currently requires C or C++.
-        The v0.1 milestone is a kernel booting on bare metal in QEMU — the classic
-        proof-of-concept for a systems language. Beyond that: first-class support for
-        the domain types that high-throughput services actually work with.
+        The v0.1 milestone — a kernel booting on bare metal in QEMU — is complete:
+        an ARM64 kernel written in Eskiu boots under QEMU and prints to serial without
+        libc or a C runtime. Beyond that: first-class support for the domain types
+        that high-throughput services actually work with.
       </p>
     </div>
   </div>
@@ -805,6 +821,7 @@
   </div>
 </div>
 
+
 <!-- ── News ───────────────────────────────────────────────────────────── -->
 <div class="bg-alt" id="news">
   <div class="wrap">
@@ -818,28 +835,20 @@
 
       <ul class="news-list">
         <li class="news-item">
-          <div class="news-title">Eskiu 0.0.14-alpha<span class="tag tag-feat">feat</span></div>
-          <div class="news-body">Inline assembly (<code>asm("cli");</code> and extended form), <code>volatile</code> for MMIO, freestanding mode (<code>--freestanding</code>), and cross-compilation (<code>--target TRIPLE</code>). All v0.1 kernel prerequisites complete.</div>
+          <div class="news-title">Eskiu v0.1.0<span class="tag tag-feat">milestone</span></div>
+          <div class="news-body">ARM64 kernel boots in QEMU without libc or a C runtime. Inline asm UART driver, bump allocator in freestanding mode, cross-compiled with <code>--target aarch64-unknown-none-elf</code>.</div>
         </li>
         <li class="news-item">
-          <div class="news-title">Eskiu 0.0.13-alpha<span class="tag tag-fix">fix</span></div>
-          <div class="news-body">Negative literals as first-class values. <code>int x = -1</code> now correct in all contexts including global scope.</div>
+          <div class="news-title">Eskiu 0.0.14-alpha<span class="tag tag-feat">feat</span></div>
+          <div class="news-body">Inline assembly with GCC-compatible constraints. <code>volatile</code> for MMIO. Freestanding mode. Cross-compilation with <code>--target TRIPLE</code>.</div>
         </li>
         <li class="news-item">
           <div class="news-title">Eskiu 0.0.12-alpha<span class="tag tag-feat">feat</span><span class="tag tag-tool">tooling</span></div>
-          <div class="news-body">Lambdas and <code>fn(T)-&gt;R</code> function pointer types. VS Code hover types and go-to-definition. switch/case type checking.</div>
+          <div class="news-body">Lambdas and <code>fn(T)-&gt;R</code> function pointer types. VS Code hover types and go-to-definition.</div>
         </li>
         <li class="news-item">
           <div class="news-title">Foundation complete<span class="tag tag-feat">milestone</span></div>
-          <div class="news-body">727-line cryptographic pipeline running entirely in Eskiu at 74 ms — 2.5× faster than reference C. Compiler foundation proved on real production code.</div>
-        </li>
-        <li class="news-item">
-          <div class="news-title">Eskiu 0.0.10-alpha<span class="tag tag-fix">fix</span></div>
-          <div class="news-body">8 compiler bugs fixed: pointer subtraction, integer widening, string indexing, store coercion, interface dispatch typed returns.</div>
-        </li>
-        <li class="news-item">
-          <div class="news-title">Eskiu 0.0.9-alpha<span class="tag tag-feat">feat</span></div>
-          <div class="news-body">Global variables, sret convention for large struct returns on arm64, integer argument widening.</div>
+          <div class="news-body">727-line cryptographic pipeline running entirely in Eskiu at 74 ms — 2.5× faster than reference C.</div>
         </li>
       </ul>
     </div>

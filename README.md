@@ -4,8 +4,6 @@
 
 <h2 align="center">eskiu</h2>
 <p align="center">C performance. Go concurrency. Explicit memory.</p>
-<p align="center"><i>One language for the work that currently needs four.</i></p>
-
 <p align="center">
   <a href="https://eskiu-lang.org">eskiu-lang.org</a> &nbsp;&middot;&nbsp;
   <a href="docs/lang/getting-started.md">Documentation</a> &nbsp;&middot;&nbsp;
@@ -15,7 +13,23 @@
 
 ---
 
-## What it looks like
+Eskiu is a statically typed systems language that compiles to native code via LLVM. C-style syntax, structural interfaces, monomorphic templates, and explicit memory — no garbage collector, no runtime.
+
+**v0.1:** a bare-metal ARM64 kernel written in Eskiu boots in QEMU without libc.
+
+<p align="center">
+  <img src="assets/kernel.png" alt="Eskiu v0.1 kernel running in QEMU" width="480">
+</p>
+
+## Get started
+
+```bash
+git clone https://github.com/doranteseduardo/eskiu && cd eskiu
+cmake -S . -B build && cmake --build build
+./build/eskiuc examples/hello.esk -o hello.o && clang hello.o -o hello && ./hello
+```
+
+## Example
 
 ```eskiu
 extern int printf(string fmt, ...);
@@ -27,110 +41,34 @@ struct Circle {
     void draw() { printf("Circle(r=%f)\n", self.radius); }
 }
 
+void render(Drawable d) { d.draw(); }
+
 int apply(fn(int)->int f, int x) { return f(x); }
 
 int main() {
-    // Structural interface dispatch — no implements keyword
     let c: Circle = Circle { radius: 5.0 };
-    render(&c);
+    render(&c);                                     // Circle(r=5.000000)
 
-    // Lambda — anonymous function, C-like syntax
     let square: fn(int)->int = int(int n) { return n * n; };
-    printf("%d\n", apply(square, 6));  // 36
-
-    // Heap allocation
-    let buf: *uint8 = alloc(uint8, 1024);
-    buf[0] = 0xFF;
-    free(buf);
+    printf("%d\n", apply(square, 6));               // 36
 
     return 0;
 }
 ```
 
-## Get started
-
-```bash
-git clone https://github.com/doranteseduardo/eskiu && cd eskiu
-cmake -S . -B build && cmake --build build -j$(nproc)
-./build/eskiuc examples/hello.esk -o hello.o && clang hello.o -o hello && ./hello
-```
-
-Full installation guide: [QUICKSTART.md](QUICKSTART.md)
-
-## Performance
-
-A real-world cryptographic pipeline — AES-256-CBC + RSA-8192 decryption, image processing, structured output — running entirely in Eskiu via `extern` C interop.
-
-| Stage | Eskiu | Reference C |
-|---|---|---|
-| Image / QR extraction | 71.7 ms | 185.5 ms |
-| Crypto pipeline | 2.8 ms | 2.9 ms |
-| Output decode | < 1 ms | 0.5 ms |
-| **Total** | **74.4 ms** | **188.9 ms** |
-
-**2.5× faster** than reference C. The crypto stage matches hand-written C within 0.1 ms.
-
-## Language features
-
-| Category | What's included |
-|---|---|
-| **Types** | `int/8/16/32/64`, `uint`, `float`, `double`, `bool`, `char`, `string`, `void`, `*T` pointers |
-| **Functions** | C-style, `extern` C ABI, variadic, template `fn<T>(T x)` |
-| **Lambdas** | `int(int x) { return x * 2; }` · `fn(T)->R` function pointer types · higher-order functions |
-| **Structs** | Fields, methods with implicit `self`, named/positional initialisers |
-| **Interfaces** | Structural typing, vtable dispatch, no `implements` keyword |
-| **Templates** | `Result<T,E>`, `List<T>` — monomorphic instantiation, zero overhead |
-| **Memory** | `alloc(T, N)` / `free(ptr)` · pointer arithmetic · no GC |
-| **Control flow** | `if/else`, `for`, `while`, `switch/case` (with type checking), `break`, `continue` |
-| **Multi-file** | `import "path/to/file.esk"` — relative, parsed once |
-| **stdlib** | `Result`, `List<T>`, `String`, `math`, `io`, `mem` |
-| **argv/argc** | `int main(int argc, string* argv)` works out of the box |
-
-## CLI
-
-```bash
-eskiuc hello.esk -o hello.o            # compile to object file
-eskiuc hello.esk --test-lexer          # dump token stream
-eskiuc hello.esk --test-parser         # dump AST
-eskiuc hello.esk --test-typechecker    # type check only
-eskiuc hello.esk --test-codegen        # dump LLVM IR
-eskiuc hello.esk --hover-at 8:12       # type at cursor (VS Code)
-eskiuc hello.esk --definition-at 8:12  # go-to-definition (VS Code)
-```
-
-## Compiler pipeline
-
-```
-.esk source  →  Lexer  →  Parser  →  TypeChecker  →  CodeGen  →  .o
-                                           ↑
-                                    sema/type_checker.cpp
-                                    codegen/codegen.cpp
-```
-
-All phases complete. Targets arm64 and x86-64 via LLVM.
-
-## VS Code extension
-
-```bash
-ln -s $(pwd)/editor/vscode ~/.vscode/extensions/eskiu-language
-```
-
-Provides syntax highlighting, real-time error squiggles, hover type info, and go-to-definition — powered by the compiler, no separate language server.
-
 ## Requirements
 
 - LLVM 17+ (tested with LLVM 22)
-- C++17 compiler (clang++ or g++)
+- C++17 compiler
 - CMake 3.20+
 
 ## Documentation
 
-| Guide | Contents |
+| | |
 |---|---|
-| [QUICKSTART.md](QUICKSTART.md) | Build the compiler and run your first program in 5 minutes |
-| [docs/lang/getting-started.md](docs/lang/getting-started.md) | Hands-on tutorial covering all language features |
-| [docs/lang/spec.md](docs/lang/spec.md) | Complete language reference |
-| [docs/dev/architecture.md](docs/dev/architecture.md) | Compiler internals walkthrough |
+| [QUICKSTART.md](QUICKSTART.md) | Build and run your first program in 5 minutes |
+| [docs/lang/getting-started.md](docs/lang/getting-started.md) | Language tutorial |
+| [docs/lang/spec.md](docs/lang/spec.md) | Full language reference |
 | [docs/dev/phases.md](docs/dev/phases.md) | Feature status and roadmap |
 
 ## Licence

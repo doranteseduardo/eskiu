@@ -9,8 +9,19 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ## [Unreleased]
 
-### Planned — v0.1 (kernel on QEMU)
-- Kernel boot entry point on QEMU
+## [0.1.0] — 2026-06-03
+
+### Milestone — Kernel on QEMU
+
+A bare-metal ARM64 kernel written in Eskiu boots in QEMU (`-M virt`) and prints to the PL011 serial UART without libc or a C runtime.
+
+- `kernel/` directory: entry point, UART driver, bump allocator, linker script
+- Cross-compiled with `--target aarch64-unknown-none-elf`
+- UART writes via inline asm (`strb ${0:w}, [$1]`) with `volatile` MMIO pointers
+- `esk_alloc`/`esk_free` bump allocator in `--freestanding` mode
+- Output: ASCII art banner, version string, heap allocation test
+
+v0.1 milestone is complete.
 
 ## [0.0.14-alpha] — 2026-06-03
 

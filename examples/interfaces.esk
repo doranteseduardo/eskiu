@@ -1,0 +1,54 @@
+extern int printf(string fmt, ...);
+
+// Structural interfaces — no 'implements' keyword needed.
+// Any struct with matching methods satisfies the interface.
+
+interface Shape {
+    float area();
+    void  describe();
+}
+
+struct Circle {
+    float radius;
+
+    float area() {
+        return self.radius * self.radius * 3.14159;
+    }
+
+    void describe() {
+        printf("Circle  radius=%.2f  area=%.2f\n", self.radius, self.area());
+    }
+}
+
+struct Rectangle {
+    float w;
+    float h;
+
+    float area() {
+        return self.w * self.h;
+    }
+
+    void describe() {
+        printf("Rect    %gx%g  area=%.2f\n", self.w, self.h, self.area());
+    }
+}
+
+void printShape(Shape s) {
+    s.describe();
+}
+
+float totalArea(Shape a, Shape b) {
+    return a.area() + b.area();
+}
+
+int main() {
+    let c: Circle    = Circle    { radius: 5.0 };
+    let r: Rectangle = Rectangle { w: 4.0, h: 6.0 };
+
+    printShape(&c);
+    printShape(&r);
+
+    printf("total area = %.2f\n", totalArea(&c, &r));
+
+    return 0;
+}

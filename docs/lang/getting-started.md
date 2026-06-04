@@ -4,7 +4,7 @@
 A hands-on introduction to the Eskiu language. You will go from zero to writing
 and inspecting real compiled programs in about 30 minutes.
 
-All code blocks in this document compile and run with **Eskiu v0.0.14-alpha**.
+All code blocks in this document compile and run with **Eskiu v0.1.0**.
 ---
 
 ## Installation
@@ -46,7 +46,7 @@ cmake --build build -j$(nproc)
 
 ```bash
 ./build/eskiuc --version
-# Eskiu 0.0.14-alpha (LLVM 17+)
+# Eskiu v0.1.0 (LLVM 17+)
 ```
 
 Add `./build` to your `PATH` so you can type `eskiuc` from any directory.
