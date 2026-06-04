@@ -9,8 +9,10 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ## [Unreleased]
 
-### Planned
-- Self-hosting
+### Planned — v0.1 (kernel on QEMU)
+- Inline assembly — `asm(...)` for CPU primitives and bare-metal entry point
+- Freestanding mode — compile without libc, user-defined allocator
+- `volatile` — non-optimisable memory access for MMIO
 
 ## [0.0.13-alpha] — 2026-06-03
 

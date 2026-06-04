@@ -10,11 +10,11 @@ Eskiu was built in response to a concrete problem: compute-intensive services re
 
 The goal is to replace that stack with a single language. Not a compromise between them, but a language built from solid systems foundations and then extended upwards into the domain.
 
-**Phase 1 — Systems language.** Establish a language that can do everything C can do: native performance, explicit memory, direct access to any C library. Validate it against real production code before claiming it works.
+**Foundation phase.** Establish a language that can do everything C can do: native performance, explicit memory, direct access to any C library. Validate it against real production code before claiming it works. This phase is complete — a cryptographic pipeline running entirely in Eskiu, 2.5× faster than the reference C.
 
-**Phase 2 — Domain specialisation.** Once the foundation is stable, make the domain types that high-throughput services actually work with first-class in the language — without losing general systems capability.
+**v0.1 milestone.** Boot Eskiu code on bare metal in QEMU without libc. The classic proof-of-concept for a systems language. Requires inline assembly, freestanding mode, and `volatile`.
 
-The v0.1 benchmark was a cryptographic image-processing pipeline that had to match hand-written C. It does.
+**Domain specialisation phase.** Once the systems foundation is stable, make the domain types that high-throughput services actually work with first-class in the language — without losing general systems capability.
 
 | Stage | Eskiu | Reference C |
 |---|---|---|

@@ -48,7 +48,7 @@ All compiler phases (0–8) and editor tooling are complete and tested end-to-en
 
 Phase 8 added lambdas and anonymous functions (`int(int x) { return x * 2; }`), function pointer types (`fn(T,...)->R`), and higher-order functions. The VS Code extension provides real-time error squiggles, hover type info, and go-to-definition via two new CLI flags (`--hover-at`, `--definition-at`).
 
-There are no components currently in active development. The compiler is stable. The next planned work is closures, inline assembly, and freestanding mode — see `phases.md` for the full roadmap.
+The next milestone is **v0.1**: booting Eskiu code on bare metal in QEMU without libc. It requires three additions — inline assembly, freestanding mode, and `volatile`. See `phases.md` for the full roadmap.
 
 ---
 

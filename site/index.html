@@ -625,10 +625,11 @@
         Each adds a separate toolchain, a different set of idioms, and friction at every boundary.
       </p>
       <p style="font-size:1.05rem;color:var(--ink2);line-height:1.8;margin-top:1rem;margin-bottom:0">
-        Eskiu is a direct response to that. Phase one: a systems foundation solid enough
-        to handle the work that currently requires C or C++. Phase two: first-class support
-        for the domain types that high-throughput services actually work with —
-        without giving up general systems capability.
+        Eskiu is a direct response to that. The foundation phase establishes a systems
+        language solid enough to handle the work that currently requires C or C++.
+        The v0.1 milestone is a kernel booting on bare metal in QEMU — the classic
+        proof-of-concept for a systems language. Beyond that: first-class support for
+        the domain types that high-throughput services actually work with.
       </p>
     </div>
   </div>
@@ -821,8 +822,12 @@
           <div class="news-body">Lambdas and <code>fn(T)-&gt;R</code> function pointer types. VS Code hover types and go-to-definition. switch/case type checking.</div>
         </li>
         <li class="news-item">
-          <div class="news-title">Eskiu 0.0.11-alpha<span class="tag tag-feat">feat</span></div>
-          <div class="news-body">727-line real-world port completed. Adjacent string literal concatenation. List&lt;T&gt; auto-resize.</div>
+          <div class="news-title">Eskiu 0.0.13-alpha<span class="tag tag-fix">fix</span></div>
+          <div class="news-body">Negative literals as first-class values. <code>int x = -1</code> now correct in all contexts including global scope.</div>
+        </li>
+        <li class="news-item">
+          <div class="news-title">Foundation complete<span class="tag tag-feat">milestone</span></div>
+          <div class="news-body">727-line cryptographic pipeline running entirely in Eskiu at 74 ms — 2.5× faster than reference C. Compiler foundation proved on real production code.</div>
         </li>
         <li class="news-item">
           <div class="news-title">Eskiu 0.0.10-alpha<span class="tag tag-fix">fix</span></div>

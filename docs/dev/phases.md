@@ -4,7 +4,19 @@
 
 Authoritative status reference for Eskiu compiler contributors.
 
-Last updated: 2026-06-03. All phases 0–8 and editor tooling are complete. A real-world cryptographic pipeline (727 lines of Eskiu) runs at 74 ms on arm64.
+Last updated: 2026-06-03.
+
+---
+
+## Vision
+
+Eskiu addresses a specific problem: compute-intensive services currently require multiple languages — C for performance-critical work, Go for concurrency, C++ for libraries, Python for glue. Each adds toolchain complexity and interop friction.
+
+The project follows two phases:
+
+**Phase 1 — Systems foundation.** A language that covers everything C does: native performance, explicit memory, direct C library access. Validated against real production code. Complete.
+
+**Phase 2 — Domain specialisation.** Once the systems foundation is stable, make the domain types that high-throughput services actually work with first-class in the language — without giving up general systems capability.
 
 ---
 
@@ -19,16 +31,16 @@ Last updated: 2026-06-03. All phases 0–8 and editor tooling are complete. A re
 | Templates — structs and functions, monomorphic instantiation | ✅ |
 | Control flow — if/else, while, for, switch/case (with type checking) | ✅ |
 | Lambdas (`int(int x) { return x*2; }`) and `fn(T)->R` function pointer types | ✅ |
+| Negative literals — `-1`, `-3.14` as first-class values | ✅ |
 | C FFI — extern, variadic, sret on arm64 | ✅ |
 | alloc/free, String with concat and append | ✅ |
 | List\<T\> with auto-resize | ✅ |
 | argv/argc — `int main(int argc, string* argv)` | ✅ |
 | VS Code — inline errors, hover types, go-to-definition | ✅ |
-| Closures — capturing variables from the enclosing scope | ❌ |
-| Negative literals — `-1` as a primary expression | ✅ |
 | Inline assembly — `asm(...)` | ❌ |
 | Freestanding mode — compile without libc | ❌ |
 | volatile — for memory-mapped I/O | ❌ |
+| Closures — capturing variables from the enclosing scope | ❌ |
 | Threads — pthread primitives | ❌ |
 | Exceptions — try/catch | ❌ |
 | Package manager | ❌ |
@@ -36,23 +48,9 @@ Last updated: 2026-06-03. All phases 0–8 and editor tooling are complete. A re
 
 ---
 
-## Vision
+## Foundation milestone — COMPLETE
 
-Eskiu addresses a specific problem: compute-intensive services currently require multiple languages — C for performance-critical work, Go for concurrency, C++ for libraries, Python for glue. Each adds toolchain complexity and interop friction.
-
-The project follows two phases:
-
-**Phase 1 — Systems foundation.** A language that covers everything C does: native performance, explicit memory, direct C library access. Validated against real production code before claiming it works. This phase is complete.
-
-**Phase 2 — Domain specialisation.** Once the systems foundation is stable, make the domain types that high-throughput services actually work with first-class in the language — without giving up general systems capability.
-
----
-
-## v0.1 Milestone — COMPLETE
-
-**Goal:** Port a cryptographic image-processing pipeline from 3–5 seconds to under 1 second.
-
-**Result:** 74.4 ms total — 2.5× faster than the reference C implementation.
+Compiler foundation proved on a real production workload: a cryptographic pipeline (AES-256-CBC + RSA-8192 decryption, QR extraction, structured output) running entirely in Eskiu.
 
 | Stage | Eskiu | Reference C |
 |-------|-------|-------------|
@@ -61,32 +59,35 @@ The project follows two phases:
 | Output decode | < 1 ms | 0.5 ms |
 | **Total** | **74.4 ms** | **188.9 ms** |
 
+2.5× faster than the reference C implementation.
+
 ---
 
 ## Roadmap
 
-### Near-term — v0.2
+### v0.1 — Kernel on QEMU
 
-1. **Closures** — variable capture from the enclosing scope. Requires an implicit `env*` and codegen adjustments. Unblocks self-hosting.
-2. ~~**Negative literals**~~ — done in v0.1.
-3. **Inline assembly** — `asm("cli")`, `asm("mov %rax, %rbx")`. Required for kernel development.
+**Goal:** Boot Eskiu code on bare metal in QEMU and print to VGA or serial — without libc, without a C runtime.
 
-### Medium-term — v0.3
+This is the classic proof-of-concept for a systems language. It requires:
 
-4. **Freestanding mode** — compile without libc. Requires a stdlib allocator and removing the implicit dependency on `malloc`/`printf` in codegen. Prerequisite for kernel work and self-hosting.
-5. **`volatile`** — non-optimisable memory access semantics for MMIO. A type qualifier in the type system.
-6. **Thread primitives** — `pthread_create`/`pthread_join` + `Mutex` in stdlib.
+1. **Inline assembly** — `asm("cli")`, `asm("mov %rax, %rbx")`. Required for CPU primitives, interrupt setup, and the `_start` entry point. Estimated: 2–3 days.
+2. **Freestanding mode** — compile without libc. `alloc` calls a user-defined allocator instead of `malloc`; `-nostdlib` passed to the linker. Estimated: 1 day.
+3. **`volatile`** — non-optimisable memory access for MMIO (VGA framebuffer, serial port). A type qualifier in the type system. Estimated: 4 hours.
 
-### Long-term — v1.0
+Total estimated effort: **3–5 days.**
 
-7. **Exception handling** — `try`/`catch`/`finally`/`throw` via LLVM `invoke`/`landingpad`.
-8. **Package manager** — dependency resolution, package registry, build system integration. Unblocks external adoption.
-9. **Self-hosting** — compile `eskiuc` with Eskiu. Requires closures, freestanding mode, and a stdlib allocator.
+### v0.2 — Language completeness
 
-### Alternative milestone — Minimal kernel on QEMU
+4. **Closures** — variable capture from the enclosing scope. Requires an implicit `env*` and codegen adjustments. Unblocks self-hosting.
+5. **Thread primitives** — `pthread_create`/`pthread_join` + `Mutex` in stdlib.
 
-Boot and print to VGA/serial without libc. Requires exactly three items: **inline assembly** (3), **freestanding mode** (4), and **volatile** (5). The classic proof-of-concept for a systems language.
+### v1.0 — Production-ready
+
+6. **Exception handling** — `try`/`catch`/`finally`/`throw` via LLVM `invoke`/`landingpad`.
+7. **Package manager** — dependency resolution, package registry, build system integration.
+8. **Self-hosting** — compile `eskiuc` with Eskiu. Requires closures, freestanding mode, and a stdlib allocator.
 
 ---
 
-Phase sections follow (0–8), all statuses updated to match milestone completion.
+Phase detail sections follow (0–8), all statuses updated to match foundation milestone completion.
