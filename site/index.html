@@ -6,6 +6,8 @@
   <title>Eskiu — A Systems Programming Language</title>
   <meta name="description" content="Eskiu is a statically typed systems language with C-style syntax, structural interfaces, and explicit memory — compiled to native via LLVM." />
   <link rel="canonical" href="https://eskiu-lang.org" />
+  <link rel="icon" type="image/png" href="../assets/logo.png" />
+  <link rel="apple-touch-icon" href="../assets/logo.png" />
   <meta property="og:title" content="Eskiu — A Systems Programming Language" />
   <meta property="og:description" content="C-style syntax. Structural interfaces. Explicit memory. Compiled to native via LLVM." />
   <meta property="og:url" content="https://eskiu-lang.org" />
@@ -640,15 +642,12 @@
         Each adds a separate toolchain, a different set of idioms, and friction at every boundary.
       </p>
       <p style="font-size:1.05rem;color:var(--ink2);line-height:1.8;margin-top:1rem;margin-bottom:0">
-        Eskiu is a direct response to that. The foundation phase establishes a systems
-        language solid enough to handle the work that currently requires C or C++.
-        The v0.1 milestone — a kernel booting on bare metal in QEMU — is complete.
-        v0.2 adds closures and threads: <code>fn(T)-&gt;R</code> is now a fat pointer
-        that captures state from the enclosing scope, and <code>thread_create</code> /
-        <code>thread_join</code> are language keywords that map directly to the
-        pthread ABI. Concurrent, callback-driven programmes need no C glue.
-        Beyond that: first-class support for the domain types that high-throughput
-        services actually work with.
+        Eskiu addresses that directly. The foundation is a systems language that handles
+        the work currently split across C and C++ — v0.1 proved it by booting a kernel
+        on bare metal. v0.2 targets backend services: closures with capture, native
+        threads, exceptions, and an HTTP stdlib module. Beyond that: self-hosting, a
+        package manager, and first-class support for the types that compute-intensive
+        services actually deal with.
       </p>
     </div>
   </div>
@@ -751,7 +750,7 @@
   <div class="wrap">
     <div class="eyebrow">Why Eskiu</div>
     <h2>Six decisions that shape how Eskiu works.</h2>
-    <p class="lead">Each one was validated against real production code before it shipped.</p>
+    <p class="lead">Tested against a real cryptographic pipeline running at 74 ms.</p>
 
     <div class="reasons">
       <div class="reason">
@@ -825,6 +824,60 @@
 </div>
 
 
+<!-- ── Roadmap ───────────────────────────────────────────────────────────── -->
+<div class="bg-alt">
+  <div class="wrap">
+    <div class="eyebrow">Roadmap</div>
+    <h2>From systems language to production tool.</h2>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:0;border:1px solid var(--border);border-radius:10px;overflow:hidden">
+
+      <div style="padding:1.75rem 1.5rem;border-right:1px solid var(--border);background:var(--bg)">
+        <div style="font-size:0.72rem;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--purple);margin-bottom:0.5rem">Complete</div>
+        <div style="font-size:1rem;font-weight:700;margin-bottom:0.75rem">Systems foundation</div>
+        <ul style="list-style:none;font-size:0.83rem;color:var(--ink2);line-height:2">
+          <li>Kernel boots on QEMU (ARM64)</li>
+          <li>Closures and threads</li>
+          <li>try / catch / throw</li>
+          <li>sizeof, union, typed pointers</li>
+          <li>inline asm, volatile, freestanding</li>
+        </ul>
+      </div>
+
+      <div style="padding:1.75rem 1.5rem;border-right:1px solid var(--border);background:var(--bg)">
+        <div style="font-size:0.72rem;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--muted);margin-bottom:0.5rem">v0.2</div>
+        <div style="font-size:1rem;font-weight:700;margin-bottom:0.75rem">Backend services</div>
+        <ul style="list-style:none;font-size:0.83rem;color:var(--ink2);line-height:2">
+          <li>HashMap stdlib module</li>
+          <li>HTTP stdlib — sockets, request, response</li>
+          <li>A concurrent HTTP server in Eskiu</li>
+        </ul>
+      </div>
+
+      <div style="padding:1.75rem 1.5rem;border-right:1px solid var(--border);background:var(--bg)">
+        <div style="font-size:0.72rem;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--muted);margin-bottom:0.5rem">v0.3</div>
+        <div style="font-size:1rem;font-weight:700;margin-bottom:0.75rem">Self-hosting prerequisites</div>
+        <ul style="list-style:none;font-size:0.83rem;color:var(--ink2);line-height:2">
+          <li>LLVM C API bindings via extern</li>
+          <li>Lexer rewritten in Eskiu</li>
+          <li>Parser rewritten in Eskiu</li>
+        </ul>
+      </div>
+
+      <div style="padding:1.75rem 1.5rem;background:var(--bg)">
+        <div style="font-size:0.72rem;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--muted);margin-bottom:0.5rem">v1.0</div>
+        <div style="font-size:1rem;font-weight:700;margin-bottom:0.75rem">Production-ready</div>
+        <ul style="list-style:none;font-size:0.83rem;color:var(--ink2);line-height:2">
+          <li>eskiuc compiles itself</li>
+          <li>Package manager</li>
+          <li>First-class types for high-throughput services</li>
+        </ul>
+      </div>
+
+    </div>
+  </div>
+</div>
+
 <!-- ── News ───────────────────────────────────────────────────────────── -->
 <div class="bg-alt" id="news">
   <div class="wrap">
@@ -832,34 +885,22 @@
       <div>
         <div class="eyebrow">News</div>
         <h2>Latest releases</h2>
-        <p class="lead">Eskiu ships frequently. Each release adds language features, fixes compiler bugs, or improves tooling.</p>
+        <p class="lead">Active development. Full history in the changelog.</p>
         <a class="btn btn-primary" href="https://github.com/doranteseduardo/eskiu/blob/master/CHANGELOG.md">Full changelog</a>
       </div>
 
       <ul class="news-list">
         <li class="news-item">
           <div class="news-title">Eskiu v0.1.3-alpha<span class="tag tag-feat">feat</span></div>
-          <div class="news-body">Typed pointer arithmetic — <code>p + 1</code> on a <code>*int</code> now advances 4 bytes, not 1. <code>sizeof(T)</code> compile-time constant expression for any type including structs. <code>union</code> declarations with overlapping fields and correct field-type access.</div>
+          <div class="news-body">Typed pointer arithmetic, <code>sizeof(T)</code>, and <code>union</code>.</div>
         </li>
         <li class="news-item">
           <div class="news-title">Eskiu v0.1.2-alpha<span class="tag tag-feat">feat</span></div>
-          <div class="news-body">Exception handling — <code>try</code>/<code>catch</code>/<code>finally</code>/<code>throw</code> via LLVM <code>invoke</code>/<code>landingpad</code> (Itanium ABI). Multiple <code>catch</code> clauses supported; unhandled exceptions re-thrown via <code>resume</code>. Link with <code>-lc++</code> (macOS) or <code>-lstdc++</code> (Linux).</div>
-        </li>
-        <li class="news-item">
-          <div class="news-title">Eskiu v0.1.1-alpha<span class="tag tag-feat">feat</span></div>
-          <div class="news-body">Closures — <code>fn(T)-&gt;R</code> is now a fat pointer <code>{fn_ptr, env_ptr}</code>; variables from the enclosing scope are captured by value automatically. Thread primitives — <code>thread_create</code> and <code>thread_join</code> as language keywords; the fat pointer maps directly to pthread's ABI, no trampoline needed.</div>
+          <div class="news-body"><code>try</code> / <code>catch</code> / <code>finally</code> / <code>throw</code> via LLVM invoke/landingpad.</div>
         </li>
         <li class="news-item">
           <div class="news-title">Eskiu v0.1.0<span class="tag tag-feat">milestone</span></div>
-          <div class="news-body">ARM64 kernel boots in QEMU without libc or a C runtime. Inline asm UART driver, bump allocator in freestanding mode, cross-compiled with <code>--target aarch64-unknown-none-elf</code>.</div>
-        </li>
-        <li class="news-item">
-          <div class="news-title">Eskiu 0.0.14-alpha<span class="tag tag-feat">feat</span></div>
-          <div class="news-body">Inline assembly with GCC-compatible constraints. <code>volatile</code> for MMIO. Freestanding mode. Cross-compilation with <code>--target TRIPLE</code>.</div>
-        </li>
-        <li class="news-item">
-          <div class="news-title">Eskiu 0.0.12-alpha<span class="tag tag-feat">feat</span><span class="tag tag-tool">tooling</span></div>
-          <div class="news-body">Lambdas and <code>fn(T)-&gt;R</code> function pointer types. VS Code hover types and go-to-definition.</div>
+          <div class="news-body">ARM64 kernel boots in QEMU without libc. Closures, threads, inline asm, freestanding mode.</div>
         </li>
       </ul>
     </div>
