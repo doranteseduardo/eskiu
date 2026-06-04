@@ -1,8 +1,36 @@
 # Quickstart
 
-You have LLVM installed. You will have a native binary running in under 5 minutes.
+Two ways to get `eskiuc` running. Pick the one that suits you.
 
-## Build
+---
+
+## Option A — Pre-built binary (recommended)
+
+Download the latest release from [github.com/doranteseduardo/eskiu/releases](https://github.com/doranteseduardo/eskiu/releases).
+
+```bash
+# macOS (Apple Silicon)
+tar -xzf eskiuc-macos-arm64.tar.gz -C /usr/local
+
+# Linux (x86_64)
+tar -xzf eskiuc-linux-x86_64.tar.gz -C /usr/local
+
+eskiuc --version
+```
+
+Expected output: `Eskiu 0.1.0 (LLVM ...)`
+
+The tarball installs:
+- `bin/eskiuc` — the compiler
+- `lib/eskiu/stdlib/` — the standard library
+
+`import <result>` and other stdlib imports work immediately after installation.
+
+---
+
+## Option B — Build from source
+
+Requires LLVM 17+, CMake 3.20+, and a C++17 compiler.
 
 ```bash
 cmake -S . -B build
@@ -10,7 +38,7 @@ cmake --build build
 ./build/eskiuc --version
 ```
 
-Expected output: `Eskiu v0.1.0 (LLVM ...)`
+Expected output: `Eskiu 0.1.0 (LLVM ...)`
 
 ## Hello, Eskiu
 

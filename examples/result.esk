@@ -1,4 +1,4 @@
-import "../stdlib/result.esk";
+import <result>;
 
 extern int printf(string fmt, ...);
 

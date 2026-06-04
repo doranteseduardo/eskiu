@@ -1,6 +1,13 @@
 #include <iostream>
 #include <fstream>
 #include <sstream>
+#include <cstdlib>
+#include <climits>
+#ifdef __APPLE__
+  #include <mach-o/dyld.h>
+#elif defined(__linux__)
+  #include <unistd.h>
+#endif
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/raw_os_ostream.h"
@@ -46,6 +53,43 @@ static llvm::cl::opt<std::string> DefinitionAt("definition-at",
     llvm::cl::value_desc("LINE:COL"));
 
 const char* VERSION = "0.1.0";
+static std::string stdlibRoot; // set once at startup via resolveStdlibPath()
+
+// Resolve stdlib root: $ESKIU_ROOT env var, or dirname(argv[0])/../lib/eskiu
+static std::string resolveStdlibPath() {
+    const char* env = std::getenv("ESKIU_ROOT");
+    if (env && *env) return std::string(env);
+
+    // Deduce from binary location
+    char buf[4096] = {};
+#ifdef __APPLE__
+    uint32_t size = sizeof(buf);
+    if (_NSGetExecutablePath(buf, &size) == 0) {
+#elif defined(__linux__)
+    if (readlink("/proc/self/exe", buf, sizeof(buf) - 1) > 0) {
+#else
+    if (false) {
+#endif
+        std::string binPath(buf);
+        size_t slash = binPath.rfind('/');
+        if (slash != std::string::npos) {
+            // binary is at <prefix>/bin/eskiuc → look for <prefix>/lib/eskiu
+            std::string binDir = binPath.substr(0, slash);
+            size_t parentSlash = binDir.rfind('/');
+            if (parentSlash != std::string::npos) {
+                std::string prefix = binDir.substr(0, parentSlash);
+                std::string candidate = prefix + "/lib/eskiu";
+                std::ifstream probe(candidate + "/stdlib/result.esk");
+                if (probe.good()) return candidate;
+            }
+            // Also try sibling directory (dev: build/ next to stdlib/)
+            std::string devCandidate = binDir + "/..";
+            std::ifstream probe2(devCandidate + "/stdlib/result.esk");
+            if (probe2.good()) return devCandidate;
+        }
+    }
+    return "";
+}
 
 // Read file contents into string
 static std::string readFile(const std::string& filename) {
@@ -104,7 +148,7 @@ static void testTypeChecker(const std::string& filename) {
     try {
         // Parse
         Parser parser(tokens);
-        parser.basedir = std::string(InputFilename).rfind("/") != std::string::npos ? std::string(InputFilename).substr(0, std::string(InputFilename).rfind("/")) : ".";
+        parser.stdlibPath = stdlibRoot; parser.basedir = std::string(InputFilename).rfind("/") != std::string::npos ? std::string(InputFilename).substr(0, std::string(InputFilename).rfind("/")) : ".";
         auto program = parser.parse();
 
         if (!program) {
@@ -149,7 +193,7 @@ static void testCodegen(const std::string& filename) {
     try {
         // Parse
         Parser parser(tokens);
-        parser.basedir = std::string(InputFilename).rfind("/") != std::string::npos ? std::string(InputFilename).substr(0, std::string(InputFilename).rfind("/")) : ".";
+        parser.stdlibPath = stdlibRoot; parser.basedir = std::string(InputFilename).rfind("/") != std::string::npos ? std::string(InputFilename).substr(0, std::string(InputFilename).rfind("/")) : ".";
         auto program = parser.parse();
 
         // Codegen
@@ -201,7 +245,7 @@ static void testParser(const std::string& filename) {
         // Parse
         std::cout << "Creating parser..." << std::endl;
         Parser parser(tokens);
-        parser.basedir = std::string(InputFilename).rfind("/") != std::string::npos ? std::string(InputFilename).substr(0, std::string(InputFilename).rfind("/")) : ".";
+        parser.stdlibPath = stdlibRoot; parser.basedir = std::string(InputFilename).rfind("/") != std::string::npos ? std::string(InputFilename).substr(0, std::string(InputFilename).rfind("/")) : ".";
 
         std::cout << "Calling parser.parse()..." << std::endl;
         auto program = parser.parse();
@@ -231,6 +275,9 @@ int main(int argc, char** argv) {
     });
 
     llvm::cl::ParseCommandLineOptions(argc, argv, "Eskiu Language Compiler\n");
+
+    // Resolve stdlib root once — used by all parsers for import <name>
+    stdlibRoot = resolveStdlibPath();
 
     // Check input file provided
     if (InputFilename.empty()) {
@@ -270,7 +317,7 @@ int main(int argc, char** argv) {
         tokens.push_back(t);
         try {
             Parser parser(tokens);
-            parser.basedir = std::string(InputFilename).rfind("/") != std::string::npos
+            parser.stdlibPath = stdlibRoot; parser.basedir = std::string(InputFilename).rfind("/") != std::string::npos
                 ? std::string(InputFilename).substr(0, std::string(InputFilename).rfind("/")) : ".";
             auto program = parser.parse();
             TypeChecker tc;
@@ -297,7 +344,7 @@ int main(int argc, char** argv) {
         tokens.push_back(t);
         try {
             Parser parser(tokens);
-            parser.basedir = std::string(InputFilename).rfind("/") != std::string::npos
+            parser.stdlibPath = stdlibRoot; parser.basedir = std::string(InputFilename).rfind("/") != std::string::npos
                 ? std::string(InputFilename).substr(0, std::string(InputFilename).rfind("/")) : ".";
             auto program = parser.parse();
             TypeChecker tc;
@@ -330,7 +377,7 @@ int main(int argc, char** argv) {
 
     try {
         Parser parser(tokens);
-        parser.basedir = std::string(InputFilename).rfind("/") != std::string::npos ? std::string(InputFilename).substr(0, std::string(InputFilename).rfind("/")) : ".";
+        parser.stdlibPath = stdlibRoot; parser.basedir = std::string(InputFilename).rfind("/") != std::string::npos ? std::string(InputFilename).substr(0, std::string(InputFilename).rfind("/")) : ".";
         auto program = parser.parse();
         if (!program) {
             std::cerr << "error: parse failed" << std::endl;

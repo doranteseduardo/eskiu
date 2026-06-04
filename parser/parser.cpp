@@ -206,17 +206,42 @@ std::vector<DeclPtr> Parser::parseProgram() {
     if (!importedFiles) importedFiles = &ownedSet;
 
     while (!is_at_end()) {
-        // Handle import "path/to/file.esk";
+        // Handle import "path/to/file.esk"  or  import <stdlib_name>
         if (match(TokenType::IMPORT)) {
             try {
-                std::string path = consume(TokenType::STRING_LIT,
-                    "Expected filename string after import").value;
+                std::string path;
+                bool isStdlib = false;
+
+                if (check(TokenType::STRING_LIT)) {
+                    // import "relative/path.esk"
+                    path = advance().value;
+                } else if (check(TokenType::LT)) {
+                    // import <name>  →  resolved against stdlibPath
+                    advance(); // consume <
+                    std::string name;
+                    while (!check(TokenType::GT) && !is_at_end())
+                        name += advance().value;
+                    consume(TokenType::GT, "Expected '>' after stdlib name");
+                    // Allow bare name or name with path separator
+                    if (name.find('/') == std::string::npos)
+                        name = "stdlib/" + name + ".esk";
+                    path = name;
+                    isStdlib = true;
+                } else {
+                    throw std::runtime_error("Expected filename or <name> after import");
+                }
                 consume(TokenType::SEMICOLON, "Expected ';' after import");
 
-                // Resolve path relative to basedir
-                std::string fullPath = (!basedir.empty() && path[0] != '/')
-                    ? basedir + "/" + path
-                    : path;
+                // Resolve full path
+                std::string fullPath;
+                if (isStdlib && !stdlibPath.empty()) {
+                    // stdlib path: ESKIU_ROOT/stdlib/name.esk
+                    fullPath = stdlibPath + "/" + path;
+                } else if (!basedir.empty() && path[0] != '/') {
+                    fullPath = basedir + "/" + path;
+                } else {
+                    fullPath = path;
+                }
 
                 if (!importedFiles->count(fullPath)) {
                     importedFiles->insert(fullPath);
@@ -235,9 +260,9 @@ std::vector<DeclPtr> Parser::parseProgram() {
                     itoks.push_back(t);
 
                     Parser sub(itoks);
-                    // Resolve basedir for the sub-file
                     size_t slash = fullPath.rfind('/');
-                    sub.basedir = (slash != std::string::npos) ? fullPath.substr(0, slash) : ".";
+                    sub.basedir       = (slash != std::string::npos) ? fullPath.substr(0, slash) : ".";
+                    sub.stdlibPath    = stdlibPath;
                     sub.importedFiles = importedFiles;
 
                     auto subProg = sub.parse();

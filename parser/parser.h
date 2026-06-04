@@ -15,6 +15,9 @@ public:
 
     // Directory of the current source file — used to resolve relative imports
     std::string basedir;
+    // Root of the Eskiu installation — used to resolve <stdlib> imports
+    // Set from $ESKIU_ROOT env var or dirname(argv[0])/../lib/eskiu
+    std::string stdlibPath;
     // Shared set of already-imported canonical paths (prevents re-importing)
     std::set<std::string>* importedFiles = nullptr;
 

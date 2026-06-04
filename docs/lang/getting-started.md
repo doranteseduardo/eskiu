@@ -552,10 +552,10 @@ Call syntax: `max<int>(3, 5)` — the type argument is explicit.
 
 ### Result<T, E> from stdlib
 
-`stdlib/result.esk` provides an error-as-value type ready to use:
+`<result>` provides an error-as-value type ready to use:
 
 ```eskiu
-import "stdlib/result.esk";
+import <result>;
 
 extern int printf(string fmt, ...);
 
@@ -714,9 +714,16 @@ int val = *ptr;   // read through pointer — val == 200
 
 ## Multi-file Projects
 
-Use `import` to split code across files. Paths are relative to the importing
-file's directory. Each file is parsed only once regardless of how many times it
-is imported.
+Eskiu has two import forms:
+
+```eskiu
+import <result>       // stdlib module — resolved by the compiler
+import "utils.esk"    // local file — relative to the current file
+```
+
+`import <name>` looks up the module in the Eskiu installation's stdlib directory. No path required. `import "path"` is relative to the importing file, as before.
+
+Each file is parsed only once regardless of how many times it is imported.
 
 ### Example layout
 
@@ -764,26 +771,27 @@ clang main.o -o main
 
 ### Using stdlib modules
 
-The standard library lives in `stdlib/` at the project root. Import by path:
+Import stdlib modules with angle brackets — no path needed:
 
 ```eskiu
-import "stdlib/result.esk";
-import "stdlib/io.esk";
-import "stdlib/math.esk";
+import <result>;
+import <io>;
+import <math>;
 ```
 
 Available modules:
 
 | Module              | Contents                                              |
 | ------------------- | ----------------------------------------------------- |
-| `stdlib/result.esk` | `Result<T,E>`, `Ok<T,E>()`, `Err<T,E>()`             |
-| `stdlib/list.esk`   | `List<T>` — `List_init`, `push`, `get`, `len`, `free` |
-| `stdlib/string.esk` | `String` — `init`, `from`, `append`, `concat`, `cstr`, `len`, `free` |
-| `stdlib/math.esk`   | `sqrt`, `fabs`, `pow`, `floor`, `ceil`, `abs`         |
-| `stdlib/io.esk`     | `printf`, `fprintf`, `sprintf`, `scanf`, `puts`       |
-| `stdlib/mem.esk`    | `memcpy`, `memset`, `memmove`, `memcmp`, `strlen`     |
+| `<result>` | `Result<T,E>`, `Ok<T,E>()`, `Err<T,E>()`             |
+| `<list>`   | `List<T>` — `List_init`, `push`, `get`, `len`, `free` |
+| `<string>` | `String` — `init`, `from`, `append`, `concat`, `cstr`, `len`, `free` |
+| `<math>`   | `sqrt`, `fabs`, `pow`, `floor`, `ceil`, `abs`         |
+| `<io>`     | `printf`, `fprintf`, `sprintf`, `scanf`, `puts`       |
+| `<mem>`    | `memcpy`, `memset`, `memmove`, `memcmp`, `strlen`     |
+| `<fs>`     | `fs_open`, `fs_close`, `fs_read`, `fs_write`, `fs_puts`, `fs_seek`, `fs_tell`, `fs_size`, `fs_read_all`, `fs_write_all`, `fs_eof`, `fs_error` |
 
-Note: when using `stdlib/math.esk` link with `-lm`:
+Note: when using `<math>` link with `-lm`:
 
 ```bash
 clang file.o -lm -o file

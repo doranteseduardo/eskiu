@@ -2158,6 +2158,14 @@ llvm::Value* CodeGen::evaluateLValue(ExprPtr expr) {
         return val;
     }
 
+    // Dereference as lvalue: *ptr = val — load the pointer value, use as the store target
+    if (auto unary = dynamic_cast<UnaryExpr*>(expr.get())) {
+        if (unary->op == "*") {
+            // evaluateExpr gives us the pointer value; that IS the lvalue address
+            return evaluateExpr(unary->operand);
+        }
+    }
+
     if (auto member = dynamic_cast<MemberExpr*>(expr.get())) {
         std::string baseType = getExprEskiuType(member->base);
         if (baseType.size() > 7 && baseType.substr(0, 7) == "struct:") baseType = baseType.substr(7);

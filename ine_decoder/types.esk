@@ -6,7 +6,7 @@
 //   QRPair      → stage_crypto   → DecodePayload
 //   DecodePayload → stage_decode → DecodeOutput
 
-import "../stdlib/result.esk";
+import <result>;
 
 // Two 858-byte QR payloads extracted from the credential image.
 // Produced by stage_extract().

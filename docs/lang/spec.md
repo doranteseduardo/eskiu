@@ -357,7 +357,7 @@ Short-circuit evaluation applies: in `a && b`, `b` is not evaluated if `a` is fa
 | `x /= e`  | Divide and assign            |
 | `x %= e`  | Modulo and assign            |
 
-The left-hand side must be an lvalue (a named variable, a pointer dereference, or a field access).
+The left-hand side must be an lvalue: a named variable, a pointer dereference (`*ptr = value`), or a field access. Assigning through a dereferenced pointer parameter works correctly — `*ptr = value` stores through the pointer as expected.
 
 ### 5.6 Address-of and Dereference
 
@@ -1070,13 +1070,17 @@ Every load and store through a `volatile` pointer is emitted as a `volatile load
 
 ### 12.1 import Statement
 
-The `import` statement includes another Eskiu source file. The path is relative to the directory of the importing file.
+The `import` statement has two forms:
 
 ```eskiu
-import "stdlib/result.esk";
-import "stdlib/list.esk";
+import <result>;              // stdlib module — resolved by the compiler
+import "stdlib/result.esk";   // local file — path relative to the importing file
 import "../shared/types.esk";
 ```
+
+`import <name>` resolves the module from the Eskiu installation's stdlib directory. The compiler locates the stdlib either via the `ESKIU_ROOT` environment variable (if set) or by auto-detecting it from the compiler binary's location. No path prefix is required.
+
+`import "path"` resolves the path relative to the directory of the importing file, as before.
 
 All declarations in the imported file (functions, structs, templates, externs) become available in the importing file.
 
@@ -1153,6 +1157,7 @@ Eskiu ships a set of standard library files in the `stdlib/` directory. Import t
 | `stdlib/math.esk`     | `extern` declarations for `sqrt`, `fabs`, `pow`, `floor`, `ceil`, `abs` |
 | `stdlib/io.esk`       | `extern` declarations for `printf`, `fprintf`, `sprintf`, `scanf`, `puts` |
 | `stdlib/mem.esk`      | `extern` declarations for `memcpy`, `memset`, `memmove`, `memcmp`, `strlen` |
+| `stdlib/fs.esk`       | File I/O: `fs_open`, `fs_close`, `fs_flush`, `fs_read`, `fs_readline`, `fs_write`, `fs_puts`, `fs_seek`, `fs_tell`, `fs_size`, `fs_read_all`, `fs_write_all`, `fs_eof`, `fs_error` |
 
 ### Result<T,E>
 

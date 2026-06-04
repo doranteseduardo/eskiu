@@ -39,9 +39,9 @@ The goal is a single language that replaces that stack. Phase one establishes a 
 | **Inline asm** | `asm("cli");` simple form; `asm("outb %0, %1" :: "a"(v), "Nd"(p) : "memory");` extended form |
 | **Freestanding** | `--freestanding` flag — `alloc`/`free` call `esk_alloc`/`esk_free`; user-supplied in kernel |
 | **Cross-compile** | `--target TRIPLE` — AArch64 and X86 backends included |
-| **Multi-file** | `import "path/to/file.esk"` — relative to importing file |
+| **Multi-file** | `import <result>` stdlib modules · `import "file.esk"` relative local files |
 | **Errors** | `file.esk:8:22: message` — real line/col from parser |
-| **Stdlib** | `result.esk`, `list.esk`, `string.esk`, `math.esk`, `io.esk`, `mem.esk` |
+| **Stdlib** | `<result>`, `<list>`, `<string>`, `<math>`, `<io>`, `<mem>`, `<fs>` |
 
 ---
 

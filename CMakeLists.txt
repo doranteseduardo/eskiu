@@ -1,21 +1,18 @@
 cmake_minimum_required(VERSION 3.20)
-project(eskiuc VERSION 0.0.1 LANGUAGES C CXX)
+project(eskiuc VERSION 0.1.0 LANGUAGES C CXX)
 
-# C++ standard
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Find LLVM (flexible version: 17+)
+# -DESKIU_STATIC=ON links LLVM statically (used for release binaries)
+option(ESKIU_STATIC "Link LLVM libraries statically" OFF)
+
 find_package(LLVM REQUIRED CONFIG)
 
-# Include LLVM headers
 include_directories(${LLVM_INCLUDE_DIRS})
 add_definitions(${LLVM_DEFINITIONS})
-
-# Add include directories for our project
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
-# Source files
 set(SOURCES
     main.cpp
     lexer/lexer.cpp
@@ -26,20 +23,38 @@ set(SOURCES
     codegen/codegen.cpp
 )
 
-# Create executable
 add_executable(eskiuc ${SOURCES})
 
-# Link LLVM
-llvm_map_components_to_libnames(llvm_libs
-    support core irreader
-    nativecodegen
-    aarch64codegen aarch64asmparser aarch64desc aarch64info
-    x86codegen x86asmparser x86desc x86info)
-target_link_libraries(eskiuc ${llvm_libs})
-
-# Compiler flags
-if(MSVC)
-  target_compile_options(eskiuc PRIVATE /W4)
+if(ESKIU_STATIC)
+    # Static LLVM — used for distributable release binaries
+    execute_process(
+        COMMAND ${LLVM_TOOLS_BINARY_DIR}/llvm-config --link-static --libs
+                support core irreader nativecodegen
+                aarch64codegen aarch64asmparser aarch64desc aarch64info
+                x86codegen x86asmparser x86desc x86info
+        OUTPUT_VARIABLE LLVM_STATIC_LIBS
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+    execute_process(
+        COMMAND ${LLVM_TOOLS_BINARY_DIR}/llvm-config --system-libs
+        OUTPUT_VARIABLE LLVM_SYSTEM_LIBS
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+    separate_arguments(LLVM_STATIC_LIBS UNIX_COMMAND "${LLVM_STATIC_LIBS}")
+    separate_arguments(LLVM_SYSTEM_LIBS UNIX_COMMAND "${LLVM_SYSTEM_LIBS}")
+    target_link_libraries(eskiuc ${LLVM_STATIC_LIBS} ${LLVM_SYSTEM_LIBS})
 else()
-  target_compile_options(eskiuc PRIVATE -Wall -Wextra -Wpedantic)
+    # Dynamic LLVM — default for development
+    llvm_map_components_to_libnames(llvm_libs
+        support core irreader
+        nativecodegen
+        aarch64codegen aarch64asmparser aarch64desc aarch64info
+        x86codegen x86asmparser x86desc x86info)
+    target_link_libraries(eskiuc ${llvm_libs})
+endif()
+
+if(MSVC)
+    target_compile_options(eskiuc PRIVATE /W4)
+else()
+    target_compile_options(eskiuc PRIVATE -Wall -Wextra -Wpedantic)
 endif()
