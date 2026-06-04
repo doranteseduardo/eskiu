@@ -38,8 +38,8 @@ The project follows two phases:
 | argv/argc — `int main(int argc, string* argv)` | ✅ |
 | VS Code — inline errors, hover types, go-to-definition | ✅ |
 | Inline assembly — `asm(...)` | ✅ |
-| Freestanding mode — compile without libc | ❌ |
-| volatile — for memory-mapped I/O | ❌ |
+| Freestanding mode — compile without libc | ✅ |
+| volatile — for memory-mapped I/O | ✅ |
 | Closures — capturing variables from the enclosing scope | ❌ |
 | Threads — pthread primitives | ❌ |
 | Exceptions — try/catch | ❌ |
@@ -71,9 +71,12 @@ Compiler foundation proved on a real production workload: a cryptographic pipeli
 
 This is the classic proof-of-concept for a systems language. It requires:
 
-1. **Inline assembly** — `asm("cli")`, `asm("mov %rax, %rbx")`. Required for CPU primitives, interrupt setup, and the `_start` entry point. Estimated: 2–3 days.
-2. **Freestanding mode** — compile without libc. `alloc` calls a user-defined allocator instead of `malloc`; `-nostdlib` passed to the linker. Estimated: 1 day.
-3. **`volatile`** — non-optimisable memory access for MMIO (VGA framebuffer, serial port). A type qualifier in the type system. Estimated: 4 hours.
+1. ~~**Inline assembly**~~ — done. `asm("cli")`, extended asm with constraints and clobbers. ✅
+2. ~~**Freestanding mode**~~ — done. `--freestanding` flag: `alloc`/`free` use `esk_alloc`/`esk_free`. ✅
+3. ~~**`volatile`**~~ — done. `volatile let x: *T` marks all loads/stores as volatile in LLVM IR. ✅
+4. ~~**Cross-compilation**~~ — done. `--target TRIPLE` (e.g. `x86_64-pc-linux-gnu`, `aarch64-unknown-none`). Both AArch64 and X86 backends included. ✅
+
+**All compiler prerequisites are complete.** The next step is writing the kernel itself.
 
 Total estimated effort: **3–5 days.**
 

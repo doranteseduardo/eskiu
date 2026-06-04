@@ -62,6 +62,7 @@ class VarDecl : public Decl {
 public:
     std::string type;
     ExprPtr initializer;
+    bool isVolatile = false;
 
     VarDecl(const std::string& name, const std::string& type, ExprPtr init = nullptr)
         : Decl(name), type(type), initializer(init) {}

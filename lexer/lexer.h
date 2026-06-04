@@ -19,6 +19,7 @@ enum class TokenType {
     ENUM,
     FN,
     ASM,
+    VOLATILE,
     FOR,
     IN,
     WHILE,

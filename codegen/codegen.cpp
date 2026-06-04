@@ -86,16 +86,29 @@ CodeGen::~CodeGen() = default;
 
 llvm::Module* CodeGen::generateCode(std::shared_ptr<Program> program) {
     // Set target triple + data layout early so sizeof queries work in alloc()
-    llvm::InitializeNativeTarget();
-    std::string tripleStr = llvm::sys::getDefaultTargetTriple();
+    // Initialise only the two targets we ship: AArch64 and X86
+    LLVMInitializeAArch64Target();
+    LLVMInitializeAArch64TargetInfo();
+    LLVMInitializeAArch64TargetMC();
+    LLVMInitializeAArch64AsmPrinter();
+    LLVMInitializeAArch64AsmParser();
+    LLVMInitializeX86Target();
+    LLVMInitializeX86TargetInfo();
+    LLVMInitializeX86TargetMC();
+    LLVMInitializeX86AsmPrinter();
+    LLVMInitializeX86AsmParser();
+    std::string tripleStr = targetTriple.empty()
+        ? llvm::sys::getDefaultTargetTriple() : targetTriple;
     llvm::Triple triple(tripleStr);
     module->setTargetTriple(triple);
     std::string terr;
     const llvm::Target* target = llvm::TargetRegistry::lookupTarget(triple, terr);
     if (target) {
+        bool isCross = !targetTriple.empty() &&
+            targetTriple != llvm::sys::getDefaultTargetTriple();
+        auto cpu = isCross ? llvm::StringRef("generic") : llvm::sys::getHostCPUName();
         llvm::TargetOptions opt;
-        auto* tm = target->createTargetMachine(triple, llvm::sys::getHostCPUName(),
-                                                "", opt, llvm::Reloc::PIC_);
+        auto* tm = target->createTargetMachine(triple, cpu, "", opt, llvm::Reloc::PIC_);
         module->setDataLayout(tm->createDataLayout());
         delete tm;
     }
@@ -532,6 +545,7 @@ void CodeGen::visit(VarDecl* node) {
         return;
     }
     llvm::AllocaInst* alloca = builder->CreateAlloca(declType, nullptr, node->name);
+    if (node->isVolatile) volatileVars.insert(node->name);
     defineSymbol(node->name, alloca);
     // Resolve type params and mangle template names for varTypeStack,
     // preserving pointer suffixes (e.g. "List<int>*" → "List_int*")
@@ -856,7 +870,12 @@ void CodeGen::visit(BinaryExpr* node) {
                 rhs = builder->CreateFPCast(rhs, elemType);  // e.g. double→float
             }
         }
-        builder->CreateStore(rhs, lhs);
+        bool storeVol = false;
+        if (auto* ident = llvm::dyn_cast<llvm::AllocaInst>(lhs)) {
+            storeVol = volatileVars.count(ident->getName().str()) > 0;
+        }
+        auto* si = builder->CreateStore(rhs, lhs);
+        si->setVolatile(storeVol);
         exprValueStack.push(rhs);
         return;
     }
@@ -1140,8 +1159,18 @@ void CodeGen::visit(CallExpr* node) {
     // Regular function call — auto-declare free/malloc if not yet visible
     if (auto ident = dynamic_cast<IdentExpr*>(node->callee.get())) {
         if (ident->name == "free") {
-            getOrDeclareFunc("free", llvm::Type::getVoidTy(*context),
+            std::string freeSym = freestanding ? "esk_free" : "free";
+            getOrDeclareFunc(freeSym, llvm::Type::getVoidTy(*context),
                              {llvm::PointerType::get(*context, 0)});
+            // Redirect the call symbol if in freestanding mode
+            if (freestanding) {
+                auto* fn = module->getFunction("esk_free");
+                std::vector<llvm::Value*> fargs = {evaluateExpr(node->args[0])};
+                builder->CreateCall(fn, fargs);
+                exprValueStack.push(llvm::Constant::getNullValue(
+                    llvm::Type::getInt32Ty(*context)));
+                return;
+            }
         }
     }
 
@@ -1386,14 +1415,17 @@ void CodeGen::visit(IdentExpr* node) {
 
     llvm::Value* result = nullptr;
 
+    bool vol = volatileVars.count(node->name) > 0;
     if (llvm::isa<llvm::AllocaInst>(val)) {
-        // Local variable — load from alloca
-        result = builder->CreateLoad(
+        auto* inst = builder->CreateLoad(
             llvm::cast<llvm::AllocaInst>(val)->getAllocatedType(), val);
+        inst->setVolatile(vol);
+        result = inst;
     } else if (llvm::isa<llvm::GlobalVariable>(val)) {
-        // Global variable — load from global
         auto* gv = llvm::cast<llvm::GlobalVariable>(val);
-        result = builder->CreateLoad(gv->getValueType(), gv);
+        auto* inst = builder->CreateLoad(gv->getValueType(), gv);
+        inst->setVolatile(vol);
+        result = inst;
     } else {
         // Function argument or function pointer
         result = val;
@@ -1429,7 +1461,8 @@ void CodeGen::visit(AllocExpr* node) {
     llvm::Value* n64    = builder->CreateIntCast(count, llvm::Type::getInt64Ty(*context), false);
     llvm::Value* total  = builder->CreateMul(n64, size64, "alloc.size");
 
-    llvm::Function* mallocFn = getOrDeclareFunc("malloc",
+    std::string allocSym = freestanding ? "esk_alloc" : "malloc";
+    llvm::Function* mallocFn = getOrDeclareFunc(allocSym,
         llvm::PointerType::get(*context, 0), {llvm::Type::getInt64Ty(*context)});
     exprValueStack.push(builder->CreateCall(mallocFn, {total}, "alloc.ptr"));
 }
@@ -1802,11 +1835,19 @@ llvm::Value* CodeGen::evaluateLValue(ExprPtr expr) {
 }
 
 bool CodeGen::emitObjectFile(const std::string& filename) {
-    llvm::InitializeNativeTarget();
-    llvm::InitializeNativeTargetAsmPrinter();
-    llvm::InitializeNativeTargetAsmParser();
+    LLVMInitializeAArch64Target();
+    LLVMInitializeAArch64TargetInfo();
+    LLVMInitializeAArch64TargetMC();
+    LLVMInitializeAArch64AsmPrinter();
+    LLVMInitializeAArch64AsmParser();
+    LLVMInitializeX86Target();
+    LLVMInitializeX86TargetInfo();
+    LLVMInitializeX86TargetMC();
+    LLVMInitializeX86AsmPrinter();
+    LLVMInitializeX86AsmParser();
 
-    std::string tripleStr = llvm::sys::getDefaultTargetTriple();
+    std::string tripleStr = targetTriple.empty()
+        ? llvm::sys::getDefaultTargetTriple() : targetTriple;
     llvm::Triple triple(tripleStr);
     module->setTargetTriple(triple);
 
@@ -1817,7 +1858,10 @@ bool CodeGen::emitObjectFile(const std::string& filename) {
         return false;
     }
 
-    auto cpu = llvm::sys::getHostCPUName();
+    // Use native CPU for native compilation; generic CPU when cross-compiling
+    bool isCross = !targetTriple.empty() &&
+        targetTriple != llvm::sys::getDefaultTargetTriple();
+    auto cpu = isCross ? llvm::StringRef("generic") : llvm::sys::getHostCPUName();
     llvm::TargetOptions opt;
     auto* tm = target->createTargetMachine(triple, cpu, "", opt, llvm::Reloc::PIC_);
     module->setDataLayout(tm->createDataLayout());

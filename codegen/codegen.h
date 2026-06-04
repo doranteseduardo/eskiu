@@ -3,6 +3,7 @@
 #include <memory>
 #include <string>
 #include <map>
+#include <set>
 #include <vector>
 #include <stack>
 #include "../ast/ast.h"
@@ -21,6 +22,11 @@ public:
 
     // Get the generated LLVM module (non-owning)
     llvm::Module* getModule() const { return module.get(); }
+
+    // Optional target triple override (empty = native)
+    std::string targetTriple;
+    // Freestanding mode: alloc/free use esk_alloc/esk_free instead of malloc/free
+    bool freestanding = false;
 
     // Print LLVM IR to stdout
     void printIR() const;
@@ -79,6 +85,9 @@ private:
     std::map<std::string, FunctionDecl*> funcTemplateDecls;
     // Active type param substitutions during template function instantiation
     std::map<std::string, std::string> typeParamOverride;
+
+    // Volatile variable tracking — names of variables declared volatile
+    std::set<std::string> volatileVars;
 
     // Variable type tracking for MemberExpr/IndexExpr resolution
     std::vector<std::map<std::string, std::string>> varTypeStack;

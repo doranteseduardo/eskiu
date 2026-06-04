@@ -30,6 +30,13 @@ static llvm::cl::opt<bool> TestCodegen("test-codegen",
 static llvm::cl::opt<bool> TestTypeChecker("test-typechecker",
                                            llvm::cl::desc("Type check input and report errors"));
 
+static llvm::cl::opt<std::string> TargetTriple("target",
+    llvm::cl::desc("Override target triple (e.g. x86_64-pc-none, aarch64-unknown-none)"),
+    llvm::cl::value_desc("triple"));
+
+static llvm::cl::opt<bool> Freestanding("freestanding",
+    llvm::cl::desc("Compile without libc — alloc/free use esk_alloc/esk_free"));
+
 static llvm::cl::opt<std::string> HoverAt("hover-at",
     llvm::cl::desc("Print the Eskiu type at LINE:COL (e.g. --hover-at 8:12)"),
     llvm::cl::value_desc("LINE:COL"));
@@ -147,6 +154,8 @@ static void testCodegen(const std::string& filename) {
 
         // Codegen
         CodeGen codegen;
+        if (!TargetTriple.empty()) codegen.targetTriple = std::string(TargetTriple);
+        codegen.freestanding = Freestanding;
         llvm::Module* module = codegen.generateCode(program);
 
         if (!module) {
@@ -335,6 +344,8 @@ int main(int argc, char** argv) {
         }
 
         CodeGen codegen;
+        if (!TargetTriple.empty()) codegen.targetTriple = std::string(TargetTriple);
+        codegen.freestanding = Freestanding;
         if (!codegen.generateCode(program)) {
             std::cerr << "error: code generation failed" << std::endl;
             return 1;

@@ -290,8 +290,9 @@ DeclPtr Parser::parseDeclaration() {
             return decl;
         }
 
-        // Handle 'let' variable declarations
+        // Handle 'let' variable declarations (optionally volatile)
         if (match(TokenType::LET)) {
+            bool isVol = match(TokenType::VOLATILE);
             Token letNameTok = peek();
             std::string name = consume(TokenType::IDENT, "Expected identifier after 'let'").value;
             consume(TokenType::COLON, "Expected ':' after variable name");
@@ -304,10 +305,15 @@ DeclPtr Parser::parseDeclaration() {
             consume(TokenType::SEMICOLON, "Expected ';' after variable declaration");
             auto vd = std::make_shared<VarDecl>(name, type, init);
             vd->line = letNameTok.line; vd->col = letNameTok.column;
+            vd->isVolatile = isVol;
             return vd;
         }
 
         // Try to parse as type declaration (function or variable)
+        // Optionally prefixed with 'volatile'
+        bool declIsVolatile = false;
+        if (check(TokenType::VOLATILE)) { declIsVolatile = true; advance(); }
+
         if (check(TokenType::INT) || check(TokenType::FLOAT) || check(TokenType::DOUBLE) ||
             check(TokenType::BOOL) || check(TokenType::CHAR) || check(TokenType::STRING) ||
             check(TokenType::VOID) || check(TokenType::STAR) || check(TokenType::IDENT) ||
@@ -335,6 +341,7 @@ DeclPtr Parser::parseDeclaration() {
                     }
                     auto vd = std::make_shared<VarDecl>(name, type, init);
                     vd->line = nameTok2.line; vd->col = nameTok2.column;
+                    vd->isVolatile = declIsVolatile;
                     return vd;
                 }
             }

@@ -30,7 +30,11 @@ set(SOURCES
 add_executable(eskiuc ${SOURCES})
 
 # Link LLVM
-llvm_map_components_to_libnames(llvm_libs support core irreader nativecodegen aarch64asmparser x86asmparser)
+llvm_map_components_to_libnames(llvm_libs
+    support core irreader
+    nativecodegen
+    aarch64codegen aarch64asmparser aarch64desc aarch64info
+    x86codegen x86asmparser x86desc x86info)
 target_link_libraries(eskiuc ${llvm_libs})
 
 # Compiler flags
