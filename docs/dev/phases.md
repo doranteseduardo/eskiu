@@ -83,16 +83,19 @@ A bare-metal ARM64 kernel written in Eskiu boots in QEMU (`-M virt`) and prints 
 | `volatile` — MMIO loads and stores | ✅ |
 | Cross-compilation — `--target TRIPLE`, both AArch64 and X86 backends | ✅ |
 
-### v0.2 — Language completeness
+### v0.2 — Backend services
 
-4. **Closures** — variable capture from the enclosing scope. Requires an implicit `env*` and codegen adjustments. Unblocks self-hosting.
-5. **Thread primitives** — `pthread_create`/`pthread_join` + `Mutex` in stdlib.
+The primary blocker for backend service development is the absence of closures and native thread primitives. A concurrent HTTP server requires both.
+
+1. **Closures** — variable capture from the enclosing scope. Requires an implicit `env*` and codegen adjustments. Unblocks callbacks, request handlers, and self-hosting.
+2. **Thread primitives** — `pthread_create`/`pthread_join` + `Mutex` in stdlib. Unblocks concurrent servers and any work that currently needs Go or C threads.
+3. **HTTP stdlib module** — minimal `http.esk` wrapping POSIX sockets: listen, accept, parse request, send response. Enough to write a real backend service in Eskiu without reaching for libcurl or libmicrohttpd.
 
 ### v1.0 — Production-ready
 
-6. **Exception handling** — `try`/`catch`/`finally`/`throw` via LLVM `invoke`/`landingpad`.
-7. **Package manager** — dependency resolution, package registry, build system integration.
-8. **Self-hosting** — compile `eskiuc` with Eskiu. Requires closures, freestanding mode, and a stdlib allocator.
+4. **Exception handling** — `try`/`catch`/`finally`/`throw` via LLVM `invoke`/`landingpad`.
+5. **Package manager** — dependency resolution, package registry, build system integration. Unblocks external adoption.
+6. **Self-hosting** — compile `eskiuc` with Eskiu. Requires closures, freestanding mode, and a stdlib allocator.
 
 ---
 
