@@ -201,6 +201,24 @@ public:
     void accept(class ASTVisitor* visitor) override;
 };
 
+// Inline assembly: asm("cli") or asm("op" : : "r"(x) : "rax")
+class AsmStmt : public Stmt {
+public:
+    std::string asmString;
+    // Extended asm: each entry is (constraint, expression)
+    std::vector<std::pair<std::string, ExprPtr>> inputs;
+    std::vector<std::string> clobbers;
+
+    AsmStmt(std::string asmStr,
+            std::vector<std::pair<std::string, ExprPtr>> inputs = {},
+            std::vector<std::string> clobbers = {})
+        : asmString(std::move(asmStr)),
+          inputs(std::move(inputs)),
+          clobbers(std::move(clobbers)) {}
+
+    void accept(class ASTVisitor* visitor) override;
+};
+
 class ExprStmt : public Stmt {
 public:
     ExprPtr expr;
@@ -408,4 +426,5 @@ public:
     virtual void visit(AllocExpr* node) = 0;
     virtual void visit(TemplateCallExpr* node) = 0;
     virtual void visit(LambdaExpr* node) = 0;
+    virtual void visit(AsmStmt* node) = 0;
 };

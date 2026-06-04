@@ -1,4 +1,5 @@
 #include "codegen.h"
+#include "llvm/IR/InlineAsm.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/IR/Type.h"
 #include "llvm/IR/Constants.h"
@@ -1485,6 +1486,36 @@ void CodeGen::visit(LambdaExpr* node) {
     exprValueStack.push(func);
 }
 
+void CodeGen::visit(AsmStmt* node) {
+    // Build LLVM inline asm from GCC-style extended asm syntax
+    std::vector<llvm::Value*> argVals;
+    std::string constraints;
+
+    for (auto& [constraint, expr] : node->inputs) {
+        argVals.push_back(evaluateExpr(expr));
+        if (!constraints.empty()) constraints += ",";
+        constraints += constraint;
+    }
+    for (const auto& clob : node->clobbers) {
+        if (!constraints.empty()) constraints += ",";
+        constraints += "~{" + clob + "}";
+    }
+    // sideeffect + alignstack are standard for kernel inline asm
+    if (!constraints.empty()) constraints += ",~{dirflag},~{fpsr},~{flags}";
+
+    std::vector<llvm::Type*> argTypes;
+    for (auto* v : argVals) argTypes.push_back(v->getType());
+
+    auto* fty = llvm::FunctionType::get(
+        llvm::Type::getVoidTy(*context), argTypes, false);
+    auto* iasm = llvm::InlineAsm::get(
+        fty, node->asmString, constraints,
+        /*hasSideEffects=*/true, /*isAlignStack=*/false,
+        llvm::InlineAsm::AD_ATT);
+
+    builder->CreateCall(iasm, argVals);
+}
+
 void CodeGen::emitStructInitInto(llvm::Value* dest, StructInitExpr* init) {
     auto fit = structFields.find(init->structName);
     if (fit == structFields.end()) return;
@@ -1773,6 +1804,7 @@ llvm::Value* CodeGen::evaluateLValue(ExprPtr expr) {
 bool CodeGen::emitObjectFile(const std::string& filename) {
     llvm::InitializeNativeTarget();
     llvm::InitializeNativeTargetAsmPrinter();
+    llvm::InitializeNativeTargetAsmParser();
 
     std::string tripleStr = llvm::sys::getDefaultTargetTriple();
     llvm::Triple triple(tripleStr);

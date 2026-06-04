@@ -702,6 +702,12 @@ void TypeChecker::visit(ContinueStmt* node) {
     // Valid inside loops — no type checking needed
 }
 
+void TypeChecker::visit(AsmStmt* node) {
+    // Type-check input expressions
+    for (auto& [constraint, expr] : node->inputs)
+        if (expr) expr->accept(this);
+}
+
 void TypeChecker::visit(SwitchStmt* node) {
     node->subject->accept(this);
     std::string subjType = getExpressionType(node->subject.get());

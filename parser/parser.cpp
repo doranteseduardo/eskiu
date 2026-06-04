@@ -459,6 +459,42 @@ StmtPtr Parser::parseStatement() {
     if (match(TokenType::CONTINUE)) {
         return parseContinueStatement();
     }
+    // asm("string") or asm("string" : : "constraint"(expr), ... : "clobber", ...)
+    if (check(TokenType::ASM)) {
+        Token asmTok = advance();
+        consume(TokenType::LPAREN, "Expected '(' after asm");
+        std::string asmStr = consume(TokenType::STRING_LIT, "Expected asm string").value;
+
+        std::vector<std::pair<std::string, ExprPtr>> inputs;
+        std::vector<std::string> clobbers;
+
+        if (match(TokenType::COLON)) {        // outputs (we skip — not yet supported)
+            if (match(TokenType::COLON)) {    // inputs
+                while (!check(TokenType::RPAREN) && !check(TokenType::COLON) && !is_at_end()) {
+                    std::string constraint = consume(TokenType::STRING_LIT,
+                        "Expected constraint string").value;
+                    consume(TokenType::LPAREN, "Expected '(' after constraint");
+                    ExprPtr expr = parseExpression();
+                    consume(TokenType::RPAREN, "Expected ')'");
+                    inputs.push_back({constraint, expr});
+                    if (!match(TokenType::COMMA)) break;
+                }
+                if (match(TokenType::COLON)) { // clobbers
+                    while (!check(TokenType::RPAREN) && !is_at_end()) {
+                        clobbers.push_back(consume(TokenType::STRING_LIT,
+                            "Expected clobber string").value);
+                        if (!match(TokenType::COMMA)) break;
+                    }
+                }
+            }
+        }
+
+        consume(TokenType::RPAREN, "Expected ')'");
+        consume(TokenType::SEMICOLON, "Expected ';' after asm");
+        auto stmt = std::make_shared<AsmStmt>(asmStr, inputs, clobbers);
+        stmt->line = asmTok.line; stmt->col = asmTok.column;
+        return stmt;
+    }
     return parseExpressionStatement();
 }
 

@@ -43,4 +43,5 @@ private:
     void visit(AllocExpr* node) override;
     void visit(TemplateCallExpr* node) override;
     void visit(LambdaExpr* node) override;
+    void visit(AsmStmt* node) override;
 };

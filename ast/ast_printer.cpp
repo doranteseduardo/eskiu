@@ -360,3 +360,15 @@ void ASTPrinter::visit(LambdaExpr* node) {
     println("LambdaExpr: " + sig);
     if (node->body) { indentLevel++; node->body->accept(this); indentLevel--; }
 }
+
+void ASTPrinter::visit(AsmStmt* node) {
+    println("AsmStmt: asm(\"" + node->asmString + "\")");
+    if (!node->inputs.empty()) {
+        indentLevel++;
+        for (const auto& [c, e] : node->inputs) {
+            println("input: \"" + c + "\"");
+            indentLevel++; e->accept(this); indentLevel--;
+        }
+        indentLevel--;
+    }
+}

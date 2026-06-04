@@ -37,7 +37,7 @@ The project follows two phases:
 | List\<T\> with auto-resize | ✅ |
 | argv/argc — `int main(int argc, string* argv)` | ✅ |
 | VS Code — inline errors, hover types, go-to-definition | ✅ |
-| Inline assembly — `asm(...)` | ❌ |
+| Inline assembly — `asm(...)` | ✅ |
 | Freestanding mode — compile without libc | ❌ |
 | volatile — for memory-mapped I/O | ❌ |
 | Closures — capturing variables from the enclosing scope | ❌ |

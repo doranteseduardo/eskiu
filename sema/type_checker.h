@@ -47,6 +47,7 @@ public:
     void visit(StructInitExpr* node) override;
     void visit(AllocExpr* node) override;
     void visit(LambdaExpr* node) override;
+    void visit(AsmStmt* node) override;
 
 private:
     // Symbol table: maps name -> type

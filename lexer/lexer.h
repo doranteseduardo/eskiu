@@ -18,6 +18,7 @@ enum class TokenType {
     INTERFACE,
     ENUM,
     FN,
+    ASM,
     FOR,
     IN,
     WHILE,

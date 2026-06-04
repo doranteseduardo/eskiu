@@ -17,6 +17,7 @@ std::string tokenTypeToString(TokenType type) {
         case TokenType::INTERFACE: return "INTERFACE";
         case TokenType::ENUM: return "ENUM";
         case TokenType::FN: return "FN";
+        case TokenType::ASM: return "ASM";
         case TokenType::FOR: return "FOR";
         case TokenType::IN: return "IN";
         case TokenType::WHILE: return "WHILE";
@@ -117,6 +118,7 @@ std::unordered_map<std::string, TokenType> Lexer::keywords = {
     {"interface", TokenType::INTERFACE},
     {"enum", TokenType::ENUM},
     {"fn", TokenType::FN},
+    {"asm", TokenType::ASM},
     {"for", TokenType::FOR},
     {"in", TokenType::IN},
     {"while", TokenType::WHILE},
