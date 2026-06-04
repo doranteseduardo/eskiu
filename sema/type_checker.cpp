@@ -753,6 +753,24 @@ void TypeChecker::visit(ThreadJoinStmt* node) {
     node->tid->accept(this);
 }
 
+void TypeChecker::visit(ThrowStmt* node) {
+    if (node->value) {
+        node->value->accept(this);
+        node->valueType = getExpressionType(node->value.get());
+    }
+}
+
+void TypeChecker::visit(TryStmt* node) {
+    if (node->body) node->body->accept(this);
+    for (auto& c : node->catches) {
+        pushScope();
+        defineSymbol(c.name, c.type);
+        if (c.body) c.body->accept(this);
+        popScope();
+    }
+    if (node->finally) node->finally->accept(this);
+}
+
 void TypeChecker::visit(SwitchStmt* node) {
     node->subject->accept(this);
     std::string subjType = getExpressionType(node->subject.get());

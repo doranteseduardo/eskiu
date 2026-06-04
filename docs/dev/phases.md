@@ -42,7 +42,7 @@ The project follows two phases:
 | volatile — for memory-mapped I/O | ✅ |
 | Closures — capturing variables from the enclosing scope | ✅ |
 | Threads — `thread_create`/`thread_join` primitives | ✅ |
-| Exceptions — try/catch | ❌ |
+| Exceptions — try/catch/finally/throw | ✅ |
 | Package manager | ❌ |
 | Self-hosting | ❌ |
 
@@ -80,17 +80,14 @@ Closures and threads are now implemented, completing the v0.1 milestone. Eskiu c
 1. **Closures** — `fn(T)->R` is a fat pointer `{fn_ptr, env_ptr}`. Variables from the enclosing scope are captured by value at lambda creation time. Non-capturing lambdas get `env_ptr = null`. The type annotation is unchanged — the representation is transparent to the user.
 2. **Thread primitives** — `thread_create` and `thread_join` are language keywords. The fat-pointer representation maps directly to pthread's `(start_routine, arg)` pattern; no trampoline is needed. Link with `-lpthread` on Linux.
 
-### v0.2 — Backend services
+### v0.2 — Exception handling — COMPLETE
 
-With closures and threads in place, the missing piece is stdlib support for network services.
-
-3. **HTTP stdlib module** — minimal `http.esk` wrapping POSIX sockets: listen, accept, parse request, send response.
+3. **Exception handling** — `try`/`catch`/`finally`/`throw` implemented via LLVM `invoke`/`landingpad` with Itanium ABI (`__gxx_personality_v0`). Multiple `catch` clauses supported; unhandled exceptions are re-thrown via `resume`. The `finally` block always executes. Link with `-lc++` on macOS or `-lstdc++` on Linux.
 
 ### v1.0 — Production-ready
 
-4. **Exception handling** — `try`/`catch`/`finally`/`throw` via LLVM `invoke`/`landingpad`.
-5. **Package manager** — dependency resolution, package registry, build system integration.
-6. **Self-hosting** — compile `eskiuc` with Eskiu. Requires closures, freestanding mode, and a stdlib allocator.
+4. **Package manager** — dependency resolution, package registry, build system integration.
+5. **Self-hosting** — compile `eskiuc` with Eskiu. Requires closures, freestanding mode, and a stdlib allocator.
 
 ---
 

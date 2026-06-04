@@ -2,220 +2,149 @@
 
 Guidelines for AI agents working on the Eskiu compiler.
 
+---
+
 ## What this project is
 
-Eskiu is a systems programming language compiler written in C++17 that emits LLVM IR. The pipeline is:
+Eskiu is a systems programming language compiler written in C++17 that emits LLVM IR and links against LLVM 17+. The pipeline is:
 
 ```
-Source → Lexer → Parser → Type Checker → Codegen → LLVM IR
+Source → Lexer → Parser → TypeChecker → CodeGen → LLVM IR → .o
 ```
 
-Every pass implements the `ASTVisitor` interface defined in `ast/ast.h`. When adding a new AST node you must update every visitor (type checker, codegen, AST printer).
+Every pass implements the `ASTVisitor` interface in `ast/ast.h`. When adding a new AST node you must update every visitor: `ASTPrinter`, `TypeChecker`, `CodeGen`.
 
 ## Build
 
 ```bash
-mkdir -p build && cd build
-cmake .. && make -j4
+cmake -S . -B build
+cmake --build build -j$(nproc)
+./build/eskiuc --version
 ```
 
-Requires LLVM 17+. The binary is `build/eskiuc`.
+On macOS, set `LLVM_DIR=$(brew --prefix llvm)/lib/cmake/llvm` if cmake cannot find LLVM.
 
 ## Test modes
 
-Always validate with the relevant test flag before moving to the next phase:
-
 ```bash
-./build/eskiuc <file.esk> --test-lexer           # print token stream
-./build/eskiuc <file.esk> --test-parser          # print AST
-./build/eskiuc <file.esk> --test-typechecker     # run sema, report errors
-./build/eskiuc <file.esk> --test-codegen         # print LLVM IR
-./build/eskiuc <file.esk> --hover-at LINE:COL    # print type at position
-./build/eskiuc <file.esk> --definition-at LINE:COL  # print definition location
+./build/eskiuc file.esk --test-lexer            # print token stream
+./build/eskiuc file.esk --test-parser           # print AST
+./build/eskiuc file.esk --test-typechecker      # type check, report errors
+./build/eskiuc file.esk --test-codegen          # print LLVM IR
+./build/eskiuc file.esk --hover-at LINE:COL     # type at cursor position
+./build/eskiuc file.esk --definition-at LINE:COL  # definition location
+./build/eskiuc file.esk --target TRIPLE         # cross-compile
+./build/eskiuc file.esk --freestanding          # no libc (esk_alloc/esk_free)
 ```
 
-Use files in `examples/` and `test/` as inputs. Add a new `.esk` file for any feature you implement.
+Use `examples/` and `tests/` as inputs. Add a `.esk` file for any feature you implement.
 
 ## Source layout
 
 | Path | Responsibility |
 |---|---|
-| `lexer/` | Tokenizer. `Lexer::next_token()` is the only public API. |
-| `parser/` | Recursive-descent parser. Produces a `std::shared_ptr<Program>`. |
+| `lexer/` | Tokeniser. `Lexer::next_token()` only. |
+| `parser/` | Recursive-descent. Returns `shared_ptr<Program>`. |
 | `ast/ast.h` | All AST node types + `ASTVisitor` interface. |
-| `ast/ast_printer.cpp` | Pretty-printer (used by `--test-parser`). |
-| `sema/type_checker.cpp` | Type inference, scope management, struct registry. |
-| `codegen/codegen.cpp` | LLVM IR emission via `IRBuilder`. |
-| `main.cpp` | CLI entry point. Wires the pipeline and test modes. |
+| `ast/ast.cpp` | `accept()` definitions. |
+| `ast/ast_printer.cpp` | Pretty-printer (`--test-parser`). |
+| `sema/type_checker.cpp` | Type inference, scope, struct/interface/template registry. |
+| `codegen/codegen.cpp` | LLVM IR via `IRBuilder`. |
+| `main.cpp` | CLI entry point. |
+| `stdlib/` | Eskiu stdlib modules (`result.esk`, `list.esk`, etc.). |
+| `tests/` | Regression tests (`.esk` files). |
+| `examples/` | Working demos. |
+| `kernel/` | Bare-metal ARM64 kernel for QEMU (v0.1 milestone). |
+
+## Current language status (v0.1.2-alpha)
+
+All items below are implemented and tested end-to-end.
+
+| Feature | Notes |
+|---|---|
+| Primitive types | int/8/16/32/64, uint, float, double, bool, char, string, void, `*T` |
+| Structs + methods | `Struct_method(self, ...)`, named/positional initialisers |
+| Interfaces | Structural typing, vtable fat-pointer dispatch |
+| Templates | Monomorphic instantiation: `Result<int,string>` → `%Result_int_string` |
+| Lambdas | `int(int x) { return x * 2; }` — anonymous functions |
+| Closures | `fn(T)->R` is a fat pointer `{fn_ptr, env_ptr}`; captures by value |
+| `thread_create` / `thread_join` | Language keywords; fat-pointer maps to `pthread_create(fn, env)` |
+| `try` / `catch` / `finally` / `throw` | LLVM `invoke`/`landingpad` + `__gxx_personality_v0`; link `-lc++` |
+| Inline assembly | `asm("cli")` simple; `asm("op" :: "r"(x) : "mem")` extended |
+| `volatile` | `volatile let reg: *uint8 = addr;` — MMIO-safe |
+| Cross-compilation | `--target TRIPLE` (AArch64 and X86 backends included) |
+| Freestanding | `--freestanding` — `alloc`/`free` call `esk_alloc`/`esk_free` |
+| Negative literals | `-1`, `-3.14` as first-class primary expressions |
+| argv / argc | `int main(int argc, string* argv)` |
+| VS Code | Real-time errors, hover types, go-to-definition |
+| stdlib | `result.esk`, `list.esk`, `string.esk`, `math.esk`, `io.esk`, `mem.esk` |
+
+## Roadmap (as of v0.1.2-alpha)
+
+| Milestone | Items | Status |
+|---|---|---|
+| Systems milestone | Bare-metal kernel on QEMU | ✅ |
+| v0.1 | Closures, threads, exceptions | ✅ |
+| v0.2 | HTTP stdlib (`http.esk`) | ❌ |
+| v1.0 | Package manager, self-hosting | ❌ |
+
+## Adding a new AST node
+
+1. Define the class in `ast/ast.h` — extend `Expr`, `Stmt`, or `Decl`.
+2. Add `virtual void visit(YourNode*) = 0` to `ASTVisitor`.
+3. Add `void YourNode::accept(ASTVisitor* v) { v->visit(this); }` in `ast/ast.cpp`.
+4. Add `void visit(YourNode*) override` in: `ASTPrinter`, `TypeChecker`, `CodeGen`.
+5. Add parse site in `parser/parser.cpp` (statement → `parseStatement`, expression → `parsePrimary` or `parseUnary`).
+6. Write a test in `tests/` and verify with `--test-typechecker` and `--test-codegen`.
 
 ## Coding rules
 
-- **C++17 only.** No C++20 features.
-- **No new dependencies.** Only LLVM and the standard library.
-- **Match the existing style:** `camelCase` methods, `snake_case` local variables, no trailing comments.
-- **No comments** unless the code would genuinely confuse a reader without them.
-- AST nodes use `std::shared_ptr` throughout (`ExprPtr`, `StmtPtr`, `DeclPtr`). Keep this consistent.
-- Pointer types are represented as strings ending with `*` (e.g. `"i8*"`, `"*Point"`). The helpers `isPointerType()` and `getPointeeType()` in both `TypeChecker` and `CodeGen` handle these.
-- Block bodies use `std::vector<BlockItem>` where `BlockItem = std::variant<DeclPtr, StmtPtr>`. Never split these back into two lists.
+- **C++17 only.** No C++20.
+- **No new dependencies** beyond LLVM and the standard library.
+- `camelCase` methods, `snake_case` locals. No trailing comments.
+- AST nodes use `shared_ptr` throughout (`ExprPtr`, `StmtPtr`, `DeclPtr`).
+- Pointer types are strings ending or beginning with `*` (e.g. `"*uint8"`, `"int*"`). Use `isPointerType()` and `getPointeeType()` in both `TypeChecker` and `CodeGen`.
+- Block bodies are `vector<BlockItem>` where `BlockItem = variant<DeclPtr, StmtPtr>`. Never split into two lists.
 
 ## Type mappings
 
 | Eskiu | LLVM |
 |---|---|
-| `int` | `i32` |
-| `int64` | `i64` |
+| `int` / `int32` | `i32` |
+| `int8` / `uint8` | `i8` |
+| `int16` / `uint16` | `i16` |
+| `int64` / `uint64` | `i64` |
 | `float` | `float` |
 | `double` | `double` |
 | `bool` | `i1` |
 | `char` | `i8` |
-| `string` | `i8*` |
-| `*T` | pointer to T |
+| `string` | `ptr` (i8*) |
+| `*T` / `T*` | opaque `ptr` |
+| `fn(T)->R` | `{ ptr fn_ptr, ptr env_ptr }` struct |
 
-## Adding a new AST node
+## Key codegen patterns
 
-1. Define the class in `ast/ast.h` (follow existing patterns).
-2. Add `virtual void visit(YourNode*)` to `ASTVisitor`.
-3. Implement `accept()` in `ast/ast.cpp`.
-4. Add `visit(YourNode*)` in: `ASTPrinter`, `TypeChecker`, `CodeGen`.
-5. Add a parse site in `parser/parser.cpp`.
-6. Write a `.esk` test file under `test/` or `examples/`.
+**Closures:** `fn(T)->R` is `{ptr, ptr}`. Lambda functions always receive `ptr env` as the first parameter. Non-capturing lambdas get `env = null`. Call sites extract `fn_ptr` and `env_ptr` from the struct and invoke `fn_ptr(env_ptr, args...)`.
 
-## Current phase boundary
+**Exceptions:** `throw` calls `__cxa_throw` via `invoke` when inside a try body (so the local landingpad fires). `try` bodies use `invoke` for all calls. `catch` uses `landingpad { ptr, i32 } catch ptr null` (catch-all) with manual type comparison via the embedded type name in the exception object.
 
-**v0.1 — COMPLETE. The decoder is the reference implementation.**
+**Threads:** `thread_create(fn()->void)` extracts `fn_ptr` and `env_ptr` from the fat pointer and calls `pthread_create(tid, null, fn_ptr, env_ptr)` directly.
 
-The INE decoder (`ine_decoder/`) runs end-to-end at **74.4 ms** on arm64. All language features targeted for v0.1 are implemented and validated against this real-world workload. No active development is needed on the compiler to support the decoder.
+**Inline assembly:** Uses `llvm::InlineAsm::get` with `AD_ATT` dialect. Operand references use `$0`, `$1` (LLVM IR syntax, not `%0` GCC syntax). Inside try bodies, asm statements are not converted to `invoke` — asm is assumed not to throw.
 
-### What was delivered
-
-**Phase 5 — COMPLETE (core):**
-- `visit(StructDecl*)` — `llvm::StructType::create`; methods emitted as `Name_method(ptr self, ...)`
-- `visit(MemberExpr*)` + `evaluateLValue(MemberExpr*)` — GEP for read and write; auto-deref `*T`
-- `visit(IndexExpr*)` + `evaluateLValue(IndexExpr*)` — GEP for `T[N]` and `*T`
-- `visit(BreakStmt*)` — `breakTarget` saved/restored around loops
-- `visit(StructInitExpr*)` + `emitStructInitInto()` — named and positional struct literals
-- Method calls: `p.method(args)` → `call @Type_method(ptr %p, args)`
-- `emitObjectFile()` — native object via LLVM `TargetMachine`
-- Float `+`/`-`/`*` now emit `fadd`/`fsub`/`fmul`
-
-**Phase 6 — COMPLETE:**
-- `alloc(T, N)` → `call @malloc(i64 N * sizeof(T))`; `AllocExpr` AST node
-- `free(ptr)` → `call @free(ptr)`; auto-declared, no explicit `extern` needed
-- `getOrDeclareFunc()` for lazy C runtime declarations
-- DataLayout initialized early in `generateCode()` for correct `sizeof`
-
-**Phase 5.5 templates — COMPLETE:**
-- `struct Name<T, E>` declaration; `templateDecls` registry in both type checker and codegen
-- `Result<int,string>` in type references → lazy instantiation → `%Result_int_string`
-- `substType` for `*T`, `T[N]`, nested substitution
-- `mangleTemplate("Result<int,string>")` → `"Result_int_string"`
-- `varTypeStack` stores mangled name for correct `MemberExpr` resolution
-
-**Phase 5.5 + Phase 7 (core) — COMPLETE:**
-- `switch`/`case` — `SwitchStmt`, LLVM `switch`, fallthrough, `break` via `breakTarget`
-- Function templates — `fn Name<T>(T x)`, `TemplateCallExpr`, `typeParamOverride`, context save/restore during nested instantiation
-- `InterfaceDecl` parsed (vtable dispatch deferred — not needed for v0.1)
-- `substType` now handles `Name<T,E>` nested substitution
-- Parser fix: `int fn<T>(...)` at top level now detected (was silently dropped)
-- Type checker fix: template bodies guarded against premature type checking
-- `stdlib/result.esk` — `struct Result<T,E>` + `Ok<T,E>` / `Err<T,E>`
-- `stdlib/math.esk`, `stdlib/io.esk`, `stdlib/mem.esk`
-
-**Source locations + stdlib completion — COMPLETE:**
-- `ASTNode.line/col`; parser stamps all expression/statement nodes; errors show `file.esk:8:22:`
-- `&` address-of fixed — returns lvalue pointer (alloca), not loaded value
-- Template pointer types (`List<T>*`) correctly resolved in member access
-- `stdlib/list.esk` — `List<T>` tested end-to-end with `List_init/push/get/free`
-- `stdlib/string.esk` — `String` with init/from/cstr/len/free
-- Interface structural satisfaction check in type checker
-
-**v0.1 language completeness — COMPLETE:**
-- Hex literals `0xFF`, compound assignments `+=/-=/*=/`, `continue` statement
-- Bitwise ops `& | ^ ~ << >>` — new parser precedence levels + codegen
-- For-loop with declaration init: `for (int i = 0; ...)` — type checker scope fix
-- Pointer arithmetic: `ptr + n` → `GEP(i8, ptr, n)`
-- `&` address-of fixed (was returning loaded value)
-- `-` unary for floats fixed (`CreateFNeg`), `!` on integers fixed (`ICmpEQ`)
-
-**Remaining gaps (all closed) — COMPLETE:**
-- `import "file.esk"` — multi-file, relative paths, dedup
-- Interface vtable dispatch — `%I_fat = {ptr data, ptr vtable}`; auto-boxing; indirect call
-- `String.append()` / `String.concat()` — in stdlib/string.esk
-- Pointer `==`/`!=` fixed (was FCmpOEQ → now ICmpEQ)
-- `i1 → i32` widening fixed (ZExt not SExt)
-
-**Compiler bugs fixed during decoder port:**
-- Integer width mismatch in ICmp: ZExt narrower operand before all comparison ops
-- Mixed int/float arithmetic: SIToFP promotion in +, -, *, / when types differ
-
-**INE decoder — COMPLETE:**
-- All five .esk files compile to .o (46KB arm64)
-- Decoder runs at **74.4 ms** on arm64
-- `ine_decoder/` is the canonical reference implementation for v0.1
-
-### Recommended next steps (future versions)
-
-These are known gaps deferred beyond v0.0.12. Pick them up when starting v0.2 or v1.0 work.
-
-**Near-term (v0.2):**
-- `argv`/`argc` — expose `main(int argc, string* argv)` signature; thread through CLI entry point
-- Interface typed return values — functions returning an interface type currently lose static type info; needs fat-pointer propagation through the return path
-
-**Long-term (v1.0):**
-- Threads — `thread` keyword or stdlib `spawn`; requires a threading model decision (pthreads wrapper vs. green threads)
-- Exceptions — `try`/`catch`/`throw`; likely LLVM `landingpad` + Itanium ABI unwind
-- Self-hosting — requires argv/argc, interface typed returns
-
-### Phase boundary note
-
-The compiler is feature-complete through v0.0.12. The decoder is fully ported to Eskiu and running at 80 ms.
-
-**Lambdas (v0.0.12):**
-- `fn(T,...)->R` function pointer type; anonymous function expressions `T(T x) { ... }`
-- `LambdaExpr` AST node; full visitor chain (parser, type checker, codegen, printer)
-- Lambdas lower to private named functions in LLVM IR; not closures (no capture)
-
-**Editor tooling (v0.0.12):**
-- `--hover-at LINE:COL` — print inferred Eskiu type at position (used by VS Code hover provider)
-- `--definition-at LINE:COL` — print `file:line:col` of symbol definition (used by VS Code goto-def)
-- `editor/vscode/` extension upgraded: real-time error squiggles (via `--test-typechecker`), hover types, go-to-definition
-- Install: `ln -s $(pwd)/editor/vscode ~/.vscode/extensions/eskiu-language`
-
-**switch/case type checking (v0.0.12):**
-- Type checker now validates that `case` values are compatible with the `switch` subject type
-
-**Next language work (v0.2 branch):** `argv`/`argc` → interface typed returns → self-hosting prerequisites.
+**Cross-compilation:** When `targetTriple != ""` and differs from native, the CPU is set to `"generic"` to avoid host CPU features leaking into the cross-compiled object.
 
 ## Error format
-
-All compiler errors must follow:
 
 ```
 error: <file>:<line>:<col>: <message>
 ```
 
-Use the `error(line, col, message)` helper in `TypeChecker`. Codegen errors should `llvm::errs()` with the same format.
-
-## Compiler additions (v0.0.11) — found during decoder port
-
-- **Adjacent string concat**: `"abc" "def"` → `"abcdef"` at parse time
-- **`ptr - ptr` → `int64`**: pointer subtraction via ptrtoint-subtract
-- **Integer widening in arithmetic** `+ - * /`: ZExt narrower operand
-- **`string[i]` → `char`**: correct element type for string indexing
-- **Assignment store coercion**: store type matches GEP element type
-- **Return value coercion**: auto-extend to declared return type
-- **GlobalVariable init cast**: `uint8 X = 0x52` no longer mismatches
-- **`validateStructType`**: strips all `*` levels, supports `**char`
-
-## Compiler additions (v0.0.10)
-
-- **Global variables**: `VarDecl` at module scope → `llvm::GlobalVariable`; constant initializers via `evaluateConstantExpr()`; `globalVarTypes` for module-scope type tracking
-- **sret**: structs > 16 bytes use hidden sret pointer param; `funcSretTypes` registry; `currentSretParam` saved across template instantiation
-- **Integer argument widening**: `SExt`/`Trunc` at call sites to match declared param width
-- **`size_t` externs**: use `int64` for C `size_t *` parameters (was silent stack corruption)
+Use `errorAt(node, message)` in `TypeChecker`. Codegen errors use `throw std::runtime_error(...)`.
 
 ## What agents should not do
 
 - Do not introduce third-party libraries or new CMake targets.
-- Do not rewrite the visitor dispatch to use `std::variant` visiting — the current virtual-dispatch pattern is intentional.
+- Do not rewrite visitor dispatch to use `std::variant` — virtual dispatch is intentional.
 - Do not amend published commits; always create new ones.
+- Do not skip `--test-typechecker` and `--test-codegen` validation before declaring a feature complete.

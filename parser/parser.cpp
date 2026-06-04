@@ -466,6 +466,42 @@ StmtPtr Parser::parseStatement() {
     if (match(TokenType::CONTINUE)) {
         return parseContinueStatement();
     }
+    // throw expr;
+    if (match(TokenType::THROW)) {
+        ExprPtr val = parseExpression();
+        consume(TokenType::SEMICOLON, "Expected ';' after throw");
+        auto s = std::make_shared<ThrowStmt>(val);
+        s->line = tokens[current-1].line; s->col = tokens[current-1].column;
+        return s;
+    }
+
+    // try { } catch (Type name) { } finally { }
+    if (check(TokenType::TRY)) {
+        Token tryTok = advance();
+        StmtPtr body = parseBlockStatement();
+
+        std::vector<TryStmt::CatchClause> catches;
+        while (check(TokenType::CATCH)) {
+            advance(); // consume 'catch'
+            consume(TokenType::LPAREN, "Expected '(' after catch");
+            std::string ctype = parseType();
+            std::string cname = consume(TokenType::IDENT, "Expected variable name in catch").value;
+            consume(TokenType::RPAREN, "Expected ')'");
+            StmtPtr cbody = parseBlockStatement();
+            catches.push_back({ctype, cname, cbody});
+        }
+
+        StmtPtr fin = nullptr;
+        if (check(TokenType::FINALLY)) {
+            advance();
+            fin = parseBlockStatement();
+        }
+
+        auto s = std::make_shared<TryStmt>(body, catches, fin);
+        s->line = tryTok.line; s->col = tryTok.column;
+        return s;
+    }
+
     // thread_join(tid);
     if (check(TokenType::THREAD_JOIN)) {
         Token jTok = advance();

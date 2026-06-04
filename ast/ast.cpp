@@ -35,6 +35,8 @@ void LambdaExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void AsmStmt::accept(ASTVisitor* visitor)        { visitor->visit(this); }
 void ThreadCreateExpr::accept(ASTVisitor* v)     { v->visit(this); }
 void ThreadJoinStmt::accept(ASTVisitor* v)       { v->visit(this); }
+void ThrowStmt::accept(ASTVisitor* v)            { v->visit(this); }
+void TryStmt::accept(ASTVisitor* v)              { v->visit(this); }
 
 // Program
 void Program::accept(ASTVisitor* visitor) { visitor->visit(this); }

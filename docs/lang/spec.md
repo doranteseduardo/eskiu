@@ -68,6 +68,7 @@ true  false  null
 alloc  free
 volatile  asm
 thread_create  thread_join
+try  catch  finally  throw
 ```
 
 ### 2.4 Literals
@@ -538,6 +539,81 @@ thread_join(t);
 ```
 
 **Implementation detail.** The closure fat pointer `{fn_ptr, env_ptr}` maps directly to the `(start_routine, arg)` pair expected by `pthread_create` — no trampoline function is generated. On Linux, link the final binary with `-lpthread`.
+
+### 6.8 Exception Handling
+
+Eskiu supports structured exception handling via `try`, `catch`, `finally`, and `throw`.
+
+#### Syntax
+
+```eskiu
+try {
+    // body — any function calls here are emitted as LLVM invoke
+} catch (TYPE name) {
+    // handler — receives the thrown value as 'name'
+} finally {
+    // cleanup — always executes
+}
+```
+
+Multiple `catch` clauses may be chained. The `finally` clause is optional. Either `catch` or `finally` (or both) must follow `try`.
+
+#### throw
+
+`throw expr` throws the value of `expr` as an exception. Any Eskiu value type may be thrown — `string`, `int`, a pointer, etc.
+
+```eskiu
+int divide(int a, int b) {
+    if (b == 0) {
+        throw "division by zero";
+    }
+    return a / b;
+}
+```
+
+#### Catching exceptions
+
+Each `catch` clause names a type and a variable. If the thrown value matches the declared type, control transfers to that clause and the variable holds the thrown value.
+
+```eskiu
+try {
+    int r = divide(10, 0);
+} catch (string e) {
+    printf("caught: %s\n", e);
+}
+```
+
+#### finally
+
+The `finally` block executes unconditionally after the `try` body and any `catch` clause, regardless of whether an exception was raised.
+
+```eskiu
+try {
+    throw "error";
+} catch (string e) {
+    printf("caught: %s\n", e);
+} finally {
+    printf("cleanup\n");
+}
+```
+
+#### Unhandled exceptions
+
+If no `catch` clause matches the thrown value, the exception is re-thrown via LLVM `resume` and propagates up the call stack. If no handler is found, the programme terminates.
+
+#### Implementation detail
+
+Exception handling is implemented using LLVM `invoke`/`landingpad` with the Itanium C++ ABI (`__gxx_personality_v0`). Every function call inside a `try` body is emitted as `invoke` rather than `call` so that exceptions propagate through the landing pad correctly.
+
+**Linking.** The personality function is provided by the C++ runtime. Link the final binary with `-lc++` on macOS or `-lstdc++` on Linux:
+
+```bash
+# macOS
+clang file.o -lc++ -o file
+
+# Linux
+clang file.o -lstdc++ -o file
+```
 
 ---
 

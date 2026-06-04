@@ -9,6 +9,44 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ## [Unreleased]
 
+## [0.1.2-alpha] — 2026-06-04
+
+### Added
+
+**Exception handling — `try`/`catch`/`finally`/`throw`**
+- `try { } catch (T name) { } finally { }` — standard exception handling syntax; multiple `catch` clauses are supported
+- `throw expr` — throws any Eskiu value (`string`, `int`, pointer, etc.) as an exception
+- Implemented via LLVM `invoke`/`landingpad` with the Itanium ABI (`__gxx_personality_v0`); every function call inside a `try` body is emitted as `invoke` so exceptions propagate correctly
+- Unhandled exceptions (no matching `catch` clause) are re-thrown via `resume`
+- The `finally` block is always executed, whether or not an exception was raised
+- Link the final binary with `-lc++` on macOS or `-lstdc++` on Linux
+
+```eskiu
+// Basic try/catch
+try {
+    int r = divide(10, 0);
+} catch (string e) {
+    printf("caught: %s\n", e);
+}
+
+// With finally
+try {
+    throw "error";
+} catch (string e) {
+    printf("caught: %s\n", e);
+} finally {
+    printf("cleanup\n");
+}
+
+// Throwing from a function
+int divide(int a, int b) {
+    if (b == 0) {
+        throw "division by zero";
+    }
+    return a / b;
+}
+```
+
 ## [0.1.1-alpha] — 2026-06-04
 
 ### Added

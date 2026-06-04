@@ -46,4 +46,6 @@ private:
     void visit(AsmStmt* node) override;
     void visit(ThreadCreateExpr* node) override;
     void visit(ThreadJoinStmt* node) override;
+    void visit(ThrowStmt* node) override;
+    void visit(TryStmt* node) override;
 };

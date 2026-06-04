@@ -98,6 +98,16 @@ private:
     llvm::BasicBlock* breakTarget    = nullptr;
     llvm::BasicBlock* continueTarget = nullptr;
 
+    // Exception handling: set when inside a try body
+    llvm::BasicBlock* unwindTarget = nullptr;
+
+    // Helper: creates call or invoke depending on whether we are in a try body.
+    // When in a try body, returns the invoke result and advances the insert point
+    // to a fresh "normal continuation" block.
+    llvm::Value* createMaybeInvoke(llvm::FunctionType* fty, llvm::Value* callee,
+                                    llvm::ArrayRef<llvm::Value*> args,
+                                    const llvm::Twine& name = "");
+
     // sret (structure return) support for large struct returns
     // Maps function name → actual return struct type (the LLVM function itself returns void)
     std::map<std::string, llvm::StructType*> funcSretTypes;
@@ -153,6 +163,8 @@ private:
     void visit(AsmStmt* node) override;
     void visit(ThreadCreateExpr* node) override;
     void visit(ThreadJoinStmt* node) override;
+    void visit(ThrowStmt* node) override;
+    void visit(TryStmt* node) override;
 
     void emitStructInitInto(llvm::Value* dest, StructInitExpr* init);
     llvm::Function* getOrDeclareFunc(const std::string& name, llvm::Type* retType,

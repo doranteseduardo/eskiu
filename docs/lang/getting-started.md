@@ -4,7 +4,7 @@
 A hands-on introduction to the Eskiu language. You will go from zero to writing
 and inspecting real compiled programs in about 30 minutes.
 
-All code blocks in this document compile and run with **Eskiu v0.1.0**.
+All code blocks in this document compile and run with **Eskiu v0.1.2-alpha**.
 ---
 
 ## Installation
@@ -46,7 +46,7 @@ cmake --build build -j$(nproc)
 
 ```bash
 ./build/eskiuc --version
-# Eskiu v0.1.0 (LLVM 17+)
+# Eskiu v0.1.2-alpha (LLVM 17+)
 ```
 
 Add `./build` to your `PATH` so you can type `eskiuc` from any directory.
@@ -904,6 +904,76 @@ The closure fat pointer maps directly to pthread's `(start_routine, arg)` pair â
 eskiuc threads.esk -o threads.o
 clang threads.o -lpthread -o threads
 ./threads
+```
+
+---
+
+## Exception Handling
+
+Use `try`, `catch`, `finally`, and `throw` for structured exception handling.
+
+### Basic try/catch
+
+```eskiu
+extern int printf(string fmt, ...);
+
+int divide(int a, int b) {
+    if (b == 0) {
+        throw "division by zero";
+    }
+    return a / b;
+}
+
+int main() {
+    try {
+        int r = divide(10, 0);
+        printf("result: %d\n", r);
+    } catch (string e) {
+        printf("caught: %s\n", e);
+    }
+    return 0;
+}
+```
+
+Output: `caught: division by zero`
+
+### With finally
+
+The `finally` block always executes, whether or not an exception was raised:
+
+```eskiu
+extern int printf(string fmt, ...);
+
+int main() {
+    try {
+        throw "error";
+    } catch (string e) {
+        printf("caught: %s\n", e);
+    } finally {
+        printf("cleanup\n");
+    }
+    return 0;
+}
+```
+
+Output:
+```
+caught: error
+cleanup
+```
+
+### Linking
+
+Exception handling uses the Itanium C++ ABI personality function. Link with `-lc++` on macOS or `-lstdc++` on Linux:
+
+```bash
+# macOS
+eskiuc file.esk -o file.o
+clang file.o -lc++ -o file
+
+# Linux
+eskiuc file.esk -o file.o
+clang file.o -lstdc++ -o file
 ```
 
 ---

@@ -382,3 +382,22 @@ void ASTPrinter::visit(ThreadJoinStmt* node) {
     println("ThreadJoinStmt");
     indentLevel++; node->tid->accept(this); indentLevel--;
 }
+
+void ASTPrinter::visit(ThrowStmt* node) {
+    println("ThrowStmt");
+    if (node->value) { indentLevel++; node->value->accept(this); indentLevel--; }
+}
+
+void ASTPrinter::visit(TryStmt* node) {
+    println("TryStmt");
+    indentLevel++;
+    if (node->body) node->body->accept(this);
+    for (const auto& c : node->catches) {
+        println("CatchClause: " + c.type + " " + c.name);
+        indentLevel++;
+        if (c.body) c.body->accept(this);
+        indentLevel--;
+    }
+    if (node->finally) { println("Finally"); indentLevel++; node->finally->accept(this); indentLevel--; }
+    indentLevel--;
+}

@@ -573,7 +573,7 @@
   <div class="hero-inner">
 
     <div class="hero-text">
-      <span class="hero-tag">v0.1.1-alpha &nbsp;&middot;&nbsp; LLVM backend &nbsp;&middot;&nbsp; arm64 + x86-64</span>
+      <span class="hero-tag">v0.1.2-alpha &nbsp;&middot;&nbsp; LLVM backend &nbsp;&middot;&nbsp; arm64 + x86-64</span>
       <h1>C performance.<br>Go concurrency.<br><em>Explicit memory.</em></h1>
       <p class="hero-sub">
         Systems programming with C-style syntax, monomorphic templates, and structural interfaces.
@@ -837,6 +837,10 @@
       </div>
 
       <ul class="news-list">
+        <li class="news-item">
+          <div class="news-title">Eskiu v0.1.2-alpha<span class="tag tag-feat">feat</span></div>
+          <div class="news-body">Exception handling — <code>try</code>/<code>catch</code>/<code>finally</code>/<code>throw</code> via LLVM <code>invoke</code>/<code>landingpad</code> (Itanium ABI). Multiple <code>catch</code> clauses supported; unhandled exceptions re-thrown via <code>resume</code>. Link with <code>-lc++</code> (macOS) or <code>-lstdc++</code> (Linux).</div>
+        </li>
         <li class="news-item">
           <div class="news-title">Eskiu v0.1.1-alpha<span class="tag tag-feat">feat</span></div>
           <div class="news-body">Closures — <code>fn(T)-&gt;R</code> is now a fat pointer <code>{fn_ptr, env_ptr}</code>; variables from the enclosing scope are captured by value automatically. Thread primitives — <code>thread_create</code> and <code>thread_join</code> as language keywords; the fat pointer maps directly to pthread's ABI, no trampoline needed.</div>

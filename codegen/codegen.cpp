@@ -1266,10 +1266,11 @@ void CodeGen::visit(CallExpr* node) {
     if (sretIt != funcSretTypes.end()) {
         llvm::Value* sretAlloca = builder->CreateAlloca(sretIt->second, nullptr, "sret.tmp");
         args.insert(args.begin(), sretAlloca);
-        builder->CreateCall(func, args);
+        createMaybeInvoke(func->getFunctionType(), func, args);
         exprValueStack.push(builder->CreateLoad(sretIt->second, sretAlloca));
     } else {
-        exprValueStack.push(builder->CreateCall(func, args));
+        exprValueStack.push(
+            createMaybeInvoke(func->getFunctionType(), func, args));
     }
 }
 
@@ -1603,6 +1604,191 @@ void CodeGen::visit(LambdaExpr* node) {
                     : llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(ptrTy)),
         envSlot);
     exprValueStack.push(builder->CreateLoad(fatTy, fatAlloca, lambdaName + ".fat.val"));
+}
+
+// ── Exception helpers (invoke/landingpad) ─────────────────────────────────
+
+// Ensure personality function and _ZTIPv type_info are declared in the module.
+static void ensureEHDecls(llvm::Module* mod, llvm::LLVMContext& ctx) {
+    if (mod->getFunction("__gxx_personality_v0")) return;
+    llvm::Type* i32  = llvm::Type::getInt32Ty(ctx);
+    llvm::Type* ptrTy = llvm::PointerType::get(ctx, 0);
+    // Personality function
+    llvm::FunctionType* persType = llvm::FunctionType::get(i32, true);
+    llvm::Function::Create(persType, llvm::Function::ExternalLinkage,
+        "__gxx_personality_v0", mod);
+    // _ZTIPv — void* type_info (from libc++)
+    if (!mod->getNamedGlobal("_ZTIPv"))
+        new llvm::GlobalVariable(*mod, ptrTy, true,
+            llvm::GlobalValue::ExternalLinkage, nullptr, "_ZTIPv");
+}
+
+llvm::Value* CodeGen::createMaybeInvoke(
+    llvm::FunctionType* fty, llvm::Value* callee,
+    llvm::ArrayRef<llvm::Value*> args, const llvm::Twine& name) {
+
+    if (!unwindTarget)
+        return builder->CreateCall(fty, callee, args, name);
+
+    // Create a "normal" continuation block
+    llvm::Function* fn = builder->GetInsertBlock()->getParent();
+    auto* contBB = llvm::BasicBlock::Create(*context, "invoke.cont", fn);
+    auto* inv = builder->CreateInvoke(fty, callee, contBB, unwindTarget, args, name);
+    builder->SetInsertPoint(contBB);
+    return inv;
+}
+
+void CodeGen::visit(ThrowStmt* node) {
+    ensureEHDecls(module.get(), *context);
+    llvm::Type* ptrTy = llvm::PointerType::get(*context, 0);
+    llvm::Type* i64   = llvm::Type::getInt64Ty(*context);
+
+    // EskiuEx: { i64 value, ptr type_name } — 16 bytes
+    llvm::Function* allocEx = getOrDeclareFunc("__cxa_allocate_exception",
+        ptrTy, {i64});
+    llvm::Value* exPtr = builder->CreateCall(allocEx,
+        {llvm::ConstantInt::get(i64, 16)}, "ex.alloc");
+
+    // Store value as i64
+    llvm::Value* val = evaluateExpr(node->value);
+    llvm::Value* ival;
+    if (val->getType()->isPointerTy())
+        ival = builder->CreatePtrToInt(val, i64);
+    else
+        ival = builder->CreateSExtOrTrunc(val, i64);
+    builder->CreateStore(ival, exPtr);
+
+    // Store type name at offset 8
+    std::string thrownType = node->valueType.empty() ? "unknown" : node->valueType;
+    auto* typeStr = builder->CreateGlobalString(thrownType, ".ex.tname");
+    auto* typeSlot = builder->CreateConstGEP1_64(
+        llvm::Type::getInt8Ty(*context), exPtr, 8, "ex.type.slot");
+    auto* typeSlotPtr = builder->CreateBitCast(typeSlot, ptrTy, "ex.type.ptr");
+    builder->CreateStore(typeStr, typeSlotPtr);
+
+    // __cxa_throw(ex, _ZTIPv, null)
+    // Must be an invoke when inside a try body so the local landingpad fires.
+    llvm::Function* cxaThrow = getOrDeclareFunc("__cxa_throw",
+        llvm::Type::getVoidTy(*context), {ptrTy, ptrTy, ptrTy});
+    // Do NOT mark noreturn — it prevents invoke from propagating the exception
+    llvm::Value* typeInfo = module->getNamedGlobal("_ZTIPv");
+    llvm::Value* nullPtr = llvm::ConstantPointerNull::get(
+        llvm::cast<llvm::PointerType>(ptrTy));
+    std::vector<llvm::Value*> throwArgs = {exPtr, typeInfo, nullPtr};
+
+    if (unwindTarget) {
+        // Inside a try — use invoke so the landingpad catches it
+        llvm::Function* fn = builder->GetInsertBlock()->getParent();
+        auto* unreachBB = llvm::BasicBlock::Create(*context, "throw.unreach", fn);
+        builder->CreateInvoke(cxaThrow->getFunctionType(), cxaThrow,
+            unreachBB, unwindTarget, throwArgs);
+        builder->SetInsertPoint(unreachBB);
+    } else {
+        builder->CreateCall(cxaThrow, throwArgs);
+    }
+    builder->CreateUnreachable();
+}
+
+void CodeGen::visit(TryStmt* node) {
+    ensureEHDecls(module.get(), *context);
+    llvm::Type* ptrTy = llvm::PointerType::get(*context, 0);
+    llvm::Type* i64   = llvm::Type::getInt64Ty(*context);
+    llvm::Type* i32   = llvm::Type::getInt32Ty(*context);
+
+    llvm::Function* fn = builder->GetInsertBlock()->getParent();
+
+    // Set personality on the enclosing function if not already set
+    if (!fn->hasPersonalityFn()) {
+        auto* pers = module->getFunction("__gxx_personality_v0");
+        fn->setPersonalityFn(pers);
+    }
+
+    llvm::BasicBlock* lpadBB    = llvm::BasicBlock::Create(*context, "try.lpad",    fn);
+    llvm::BasicBlock* finallyBB = llvm::BasicBlock::Create(*context, "try.finally", fn);
+    llvm::BasicBlock* doneBB    = llvm::BasicBlock::Create(*context, "try.done",    fn);
+
+    // ── try body — all calls become invokes ───────────────────────────────
+    llvm::BasicBlock* savedUnwind = unwindTarget;
+    unwindTarget = lpadBB;
+    if (node->body) node->body->accept(this);
+    unwindTarget = savedUnwind;
+    if (!builder->GetInsertBlock()->getTerminator())
+        builder->CreateBr(finallyBB);
+
+    // ── landingpad ────────────────────────────────────────────────────────
+    builder->SetInsertPoint(lpadBB);
+    auto* lp = builder->CreateLandingPad(
+        llvm::StructType::get(*context, {ptrTy, i32}), 1, "lpad");
+    // catch i8* null = catch-all
+    lp->addClause(llvm::ConstantPointerNull::get(
+        llvm::cast<llvm::PointerType>(ptrTy)));
+
+    llvm::Value* exObjPtr = builder->CreateExtractValue(lp, {0}, "ex.ptr");
+
+    // __cxa_begin_catch(ex) → pointer to our EskiuEx
+    llvm::Function* beginCatch = getOrDeclareFunc("__cxa_begin_catch",
+        ptrTy, {ptrTy});
+    llvm::Value* exData = builder->CreateCall(beginCatch, {exObjPtr}, "ex.data");
+
+    // Read the type name (offset 8)
+    auto* typeSlot = builder->CreateConstGEP1_64(
+        llvm::Type::getInt8Ty(*context), exData, 8, "ex.tslot");
+    llvm::Value* exType = builder->CreateLoad(ptrTy,
+        builder->CreateBitCast(typeSlot, ptrTy), "ex.type");
+
+    // ── catch clauses ─────────────────────────────────────────────────────
+    llvm::Function* endCatch  = getOrDeclareFunc("__cxa_end_catch",
+        llvm::Type::getVoidTy(*context), {});
+    llvm::Function* strcmpFn  = getOrDeclareFunc("strcmp", i32, {ptrTy, ptrTy});
+
+    for (auto& c : node->catches) {
+        auto* cTypeStr  = builder->CreateGlobalString(c.type, ".catch.t");
+        llvm::Value* cmp   = builder->CreateCall(strcmpFn, {exType, cTypeStr}, "tcmp");
+        llvm::Value* match = builder->CreateICmpEQ(cmp,
+            llvm::ConstantInt::get(i32, 0), "tmatch");
+
+        auto* handlerBB = llvm::BasicBlock::Create(*context, "catch." + c.type, fn);
+        auto* nextBB    = llvm::BasicBlock::Create(*context, "catch.next",       fn);
+        builder->CreateCondBr(match, handlerBB, nextBB);
+
+        builder->SetInsertPoint(handlerBB);
+        pushScope();
+
+        // Load value (offset 0)
+        llvm::Value* ival = builder->CreateLoad(i64, exData, "ex.ival");
+        llvm::Type*  catchTy = getTypeFromString(c.type);
+        llvm::Value* catchVal = catchTy->isPointerTy()
+            ? builder->CreateIntToPtr(ival, catchTy)
+            : builder->CreateTrunc(ival, catchTy);
+        auto* catchAlloca = builder->CreateAlloca(catchTy, nullptr, c.name);
+        builder->CreateStore(catchVal, catchAlloca);
+        defineSymbol(c.name, catchAlloca);
+        defineVarType(c.name, c.type);
+
+        if (c.body) c.body->accept(this);
+        popScope();
+
+        if (!builder->GetInsertBlock()->getTerminator()) {
+            builder->CreateCall(endCatch, {});
+            builder->CreateBr(finallyBB);
+        }
+
+        builder->SetInsertPoint(nextBB);
+    }
+
+    // Unhandled: end catch + resume (rethrow)
+    if (!builder->GetInsertBlock()->getTerminator()) {
+        builder->CreateCall(endCatch, {});
+        builder->CreateResume(lp);
+    }
+
+    // ── finally ───────────────────────────────────────────────────────────
+    builder->SetInsertPoint(finallyBB);
+    if (node->finally) node->finally->accept(this);
+    if (!builder->GetInsertBlock()->getTerminator())
+        builder->CreateBr(doneBB);
+
+    builder->SetInsertPoint(doneBB);
 }
 
 void CodeGen::visit(ThreadCreateExpr* node) {

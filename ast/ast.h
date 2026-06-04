@@ -202,6 +202,34 @@ public:
     void accept(class ASTVisitor* visitor) override;
 };
 
+// throw expr;
+class ThrowStmt : public Stmt {
+public:
+    ExprPtr     value;
+    std::string valueType; // filled in by TypeChecker
+    explicit ThrowStmt(ExprPtr v) : value(std::move(v)) {}
+    void accept(class ASTVisitor* visitor) override;
+};
+
+// try { body } catch (Type name) { handler } finally { cleanup }
+class TryStmt : public Stmt {
+public:
+    struct CatchClause {
+        std::string type;
+        std::string name;
+        StmtPtr     body;
+    };
+    StmtPtr               body;
+    std::vector<CatchClause> catches;
+    StmtPtr               finally; // may be nullptr
+
+    TryStmt(StmtPtr body, std::vector<CatchClause> catches, StmtPtr finally)
+        : body(std::move(body)), catches(std::move(catches)),
+          finally(std::move(finally)) {}
+
+    void accept(class ASTVisitor* visitor) override;
+};
+
 // thread_join(*void tid)
 class ThreadJoinStmt : public Stmt {
 public:
@@ -448,4 +476,6 @@ public:
     virtual void visit(AsmStmt* node) = 0;
     virtual void visit(ThreadCreateExpr* node) = 0;
     virtual void visit(ThreadJoinStmt* node) = 0;
+    virtual void visit(ThrowStmt* node) = 0;
+    virtual void visit(TryStmt* node) = 0;
 };
