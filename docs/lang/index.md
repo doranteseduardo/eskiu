@@ -4,7 +4,7 @@ Eskiu is a statically typed systems language built to address a specific problem
 
 The goal is a single language that replaces that stack. Phase one establishes a solid systems foundation: native performance, explicit memory, direct access to any C library. Phase two, once that foundation is stable, will introduce first-class support for the domain types that high-throughput services actually work with. The syntax is deliberately C-style; the language adds monomorphic templates, structural interfaces, lambdas, and an explicit heap model via `alloc`/`free`.
 
-**Current version: v0.1.0-alpha** — bare-metal ARM64 kernel boots in QEMU without libc. v0.1 milestone complete.
+**Current version: v0.1.1-alpha** — closures with capture-by-value semantics and `thread_create`/`thread_join` thread primitives. v0.1 milestone complete.
 
 ---
 
@@ -28,7 +28,8 @@ The goal is a single language that replaces that stack. Phase one establishes a 
 | **Operators** | Arithmetic `+ - * / %`, bitwise `& \| ^ ~ << >>`, comparison, logical, compound `+= -=` etc., pointer arith `ptr+n` |
 | **Control flow** | `if`/`else`, `for` (with decl init), `while`, `switch`/`case`, `break`, `continue`, `return` |
 | **Functions** | C-style, `extern` C ABI, variadic, template `fn<T>(T x)` |
-| **Lambdas** | `int(int x) { return x * 2; }` — anonymous functions; `fn(T,...)->R` function pointer types; higher-order functions |
+| **Lambdas / Closures** | `int(int x) { return x * 2; }` — anonymous functions; `fn(T,...)->R` fat-pointer types; closure capture by value; higher-order functions |
+| **Threads** | `thread_create(fn()->void)` / `thread_join(*void)` — OS thread keywords; closure fat pointer maps directly to pthread ABI |
 | **Structs** | Fields, methods with `self`, struct literal init `Point { x: 1, y: 2 }` |
 | **Templates** | `struct Result<T,E>`, `fn Ok<T,E>(T v)` — monomorphic instantiation |
 | **Interfaces** | `interface Drawable { void draw(); }` — structural typing, vtable dispatch |

@@ -202,6 +202,14 @@ public:
     void accept(class ASTVisitor* visitor) override;
 };
 
+// thread_join(*void tid)
+class ThreadJoinStmt : public Stmt {
+public:
+    ExprPtr tid;
+    explicit ThreadJoinStmt(ExprPtr t) : tid(std::move(t)) {}
+    void accept(class ASTVisitor* visitor) override;
+};
+
 // Inline assembly: asm("cli") or asm("op" : : "r"(x) : "rax")
 class AsmStmt : public Stmt {
 public:
@@ -369,12 +377,22 @@ public:
     std::vector<std::pair<std::string, std::string>> params; // (type, name)
     std::string returnType;
     StmtPtr body;
+    // Populated by TypeChecker: variables captured from enclosing scope
+    std::vector<std::pair<std::string, std::string>> captures; // (name, type)
 
     LambdaExpr(std::vector<std::pair<std::string, std::string>> params,
                std::string returnType, StmtPtr body)
         : params(std::move(params)), returnType(std::move(returnType)),
           body(std::move(body)) {}
 
+    void accept(class ASTVisitor* visitor) override;
+};
+
+// thread_create(fn()->void) -> *void  (returns thread handle)
+class ThreadCreateExpr : public Expr {
+public:
+    ExprPtr worker;
+    explicit ThreadCreateExpr(ExprPtr w) : worker(std::move(w)) {}
     void accept(class ASTVisitor* visitor) override;
 };
 
@@ -428,4 +446,6 @@ public:
     virtual void visit(TemplateCallExpr* node) = 0;
     virtual void visit(LambdaExpr* node) = 0;
     virtual void visit(AsmStmt* node) = 0;
+    virtual void visit(ThreadCreateExpr* node) = 0;
+    virtual void visit(ThreadJoinStmt* node) = 0;
 };

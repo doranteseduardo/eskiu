@@ -18,7 +18,9 @@ std::string tokenTypeToString(TokenType type) {
         case TokenType::ENUM: return "ENUM";
         case TokenType::FN: return "FN";
         case TokenType::ASM: return "ASM";
-        case TokenType::VOLATILE: return "VOLATILE";
+        case TokenType::VOLATILE:      return "VOLATILE";
+        case TokenType::THREAD_CREATE: return "THREAD_CREATE";
+        case TokenType::THREAD_JOIN:   return "THREAD_JOIN";
         case TokenType::FOR: return "FOR";
         case TokenType::IN: return "IN";
         case TokenType::WHILE: return "WHILE";
@@ -120,7 +122,9 @@ std::unordered_map<std::string, TokenType> Lexer::keywords = {
     {"enum", TokenType::ENUM},
     {"fn", TokenType::FN},
     {"asm", TokenType::ASM},
-    {"volatile", TokenType::VOLATILE},
+    {"volatile",       TokenType::VOLATILE},
+    {"thread_create",  TokenType::THREAD_CREATE},
+    {"thread_join",    TokenType::THREAD_JOIN},
     {"for", TokenType::FOR},
     {"in", TokenType::IN},
     {"while", TokenType::WHILE},

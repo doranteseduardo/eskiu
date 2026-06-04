@@ -4,7 +4,7 @@
 
 Authoritative status reference for Eskiu compiler contributors.
 
-Last updated: 2026-06-03.
+Last updated: 2026-06-04.
 
 ---
 
@@ -40,8 +40,8 @@ The project follows two phases:
 | Inline assembly — `asm(...)` | ✅ |
 | Freestanding mode — compile without libc | ✅ |
 | volatile — for memory-mapped I/O | ✅ |
-| Closures — capturing variables from the enclosing scope | ❌ |
-| Threads — pthread primitives | ❌ |
+| Closures — capturing variables from the enclosing scope | ✅ |
+| Threads — `thread_create`/`thread_join` primitives | ✅ |
 | Exceptions — try/catch | ❌ |
 | Package manager | ❌ |
 | Self-hosting | ❌ |
@@ -73,12 +73,12 @@ A bare-metal ARM64 kernel written in Eskiu boots in QEMU (`-M virt`) and prints 
 - UART via inline asm, bump allocator via `--freestanding`, `volatile` MMIO
 - Proves the systems foundation is solid
 
-### v0.1 — First productive release
+### v0.1 — First productive release — COMPLETE
 
-The first version people can use to build real things. Closures and threads are the blockers for any meaningful backend or application work.
+Closures and threads are now implemented, completing the v0.1 milestone. Eskiu can now express concurrent, callback-driven, and higher-order programmes with no C glue required.
 
-1. **Closures** — variable capture from the enclosing scope. Requires an implicit `env*` and codegen adjustments. Unblocks callbacks, request handlers, and self-hosting.
-2. **Thread primitives** — `pthread_create`/`pthread_join` + `Mutex` in stdlib. Unblocks concurrent services and replaces the need for a separate threading language.
+1. **Closures** — `fn(T)->R` is a fat pointer `{fn_ptr, env_ptr}`. Variables from the enclosing scope are captured by value at lambda creation time. Non-capturing lambdas get `env_ptr = null`. The type annotation is unchanged — the representation is transparent to the user.
+2. **Thread primitives** — `thread_create` and `thread_join` are language keywords. The fat-pointer representation maps directly to pthread's `(start_routine, arg)` pattern; no trampoline is needed. Link with `-lpthread` on Linux.
 
 ### v0.2 — Backend services
 

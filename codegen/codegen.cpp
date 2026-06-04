@@ -170,9 +170,12 @@ llvm::Type* CodeGen::getTypeFromString(const std::string& typeStr) {
     if (typeStr == "void")                         return llvm::Type::getVoidTy(*context);
     if (typeStr == "char")                         return llvm::Type::getInt8Ty(*context);
     if (typeStr == "string")                       return llvm::PointerType::get(*context, 0);
-    // Function pointer type: fn(T,...)->R — represented as opaque ptr
+    // Function pointer type: fn(T,...)->R — fat pointer {fn_ptr, env_ptr}
     if (typeStr.size() > 3 && typeStr.substr(0, 3) == "fn(")
-        return llvm::PointerType::get(*context, 0);
+        return llvm::StructType::get(*context, {
+            llvm::PointerType::get(*context, 0),  // fn pointer
+            llvm::PointerType::get(*context, 0),  // env pointer (null if no capture)
+        });
 
     // Struct type with "struct:" prefix (from type checker normalization)
     if (typeStr.find("struct:") == 0) {
@@ -1185,17 +1188,17 @@ void CodeGen::visit(CallExpr* node) {
     llvm::Value* calleeVal = evaluateExpr(node->callee);
     if (!calleeVal) throw std::runtime_error("Call target is null");
 
-    // Indirect call through a function pointer (e.g. a lambda stored in a variable)
+    // Indirect call through a fat-pointer closure {fn_ptr, env_ptr}
     if (!llvm::isa<llvm::Function>(calleeVal)) {
         std::string eskiuType = getExprEskiuType(node->callee);
-        // Parse fn(T1,T2,...)->R
         if (eskiuType.size() > 3 && eskiuType.substr(0, 3) == "fn(") {
-            // extract params and return type from "fn(T,...)->R"
+            // Extract params and return type from "fn(T,...)->R"
             size_t rp = eskiuType.find(")->");
             std::string paramStr = eskiuType.substr(3, rp - 3);
             std::string retStr   = eskiuType.substr(rp + 3);
             std::vector<llvm::Type*> pts;
-            // Split paramStr on ','
+            llvm::Type* ptrTy = llvm::PointerType::get(*context, 0);
+            pts.push_back(ptrTy); // env* always first
             if (!paramStr.empty()) {
                 size_t pos = 0;
                 while (pos < paramStr.size()) {
@@ -1207,9 +1210,15 @@ void CodeGen::visit(CallExpr* node) {
             }
             llvm::Type* retTy = getTypeFromString(retStr);
             llvm::FunctionType* fty = llvm::FunctionType::get(retTy, pts, false);
-            std::vector<llvm::Value*> iargs;
+
+            // Extract fn_ptr and env_ptr from the fat pointer struct
+            llvm::StructType* fatTy = llvm::cast<llvm::StructType>(calleeVal->getType());
+            llvm::Value* fnPtr  = builder->CreateExtractValue(calleeVal, {0}, "fn.ptr");
+            llvm::Value* envPtr = builder->CreateExtractValue(calleeVal, {1}, "env.ptr");
+
+            std::vector<llvm::Value*> iargs = {envPtr};
             for (auto& a : node->args) iargs.push_back(evaluateExpr(a));
-            exprValueStack.push(builder->CreateCall(fty, calleeVal, iargs, "fn.call"));
+            exprValueStack.push(builder->CreateCall(fty, fnPtr, iargs, "fn.call"));
             return;
         }
         throw std::runtime_error("Call target is not a function");
@@ -1476,12 +1485,45 @@ void CodeGen::visit(AllocExpr* node) {
 }
 
 void CodeGen::visit(LambdaExpr* node) {
-    // Emit an anonymous LLVM function and push its pointer as the expression value.
     static int lambdaSeq = 0;
     std::string lambdaName = "__lambda" + std::to_string(lambdaSeq++);
+    bool hasCaptures = !node->captures.empty();
 
-    // Build LLVM param types
-    std::vector<llvm::Type*> paramTypes;
+    llvm::Type* ptrTy = llvm::PointerType::get(*context, 0);
+
+    // ── Build env struct type (one field per captured variable) ──────────
+    llvm::StructType* envTy = nullptr;
+    llvm::Value*      envAlloca = nullptr;
+    if (hasCaptures) {
+        std::vector<llvm::Type*> envFields;
+        for (const auto& [name, type] : node->captures)
+            envFields.push_back(getTypeFromString(type));
+        envTy = llvm::StructType::create(*context, envFields,
+                                         lambdaName + ".env");
+        // Allocate and populate env in the *current* (outer) function
+        envAlloca = builder->CreateAlloca(envTy, nullptr, lambdaName + ".env.alloc");
+        for (size_t ci = 0; ci < node->captures.size(); ++ci) {
+            llvm::Value* capturedVal = nullptr;
+            llvm::Value* sym = lookupSymbol(node->captures[ci].first);
+            if (sym) {
+                // Load the current value from the outer alloca/variable
+                if (llvm::isa<llvm::AllocaInst>(sym)) {
+                    auto* alloca = llvm::cast<llvm::AllocaInst>(sym);
+                    capturedVal = builder->CreateLoad(
+                        alloca->getAllocatedType(), sym, node->captures[ci].first);
+                } else {
+                    capturedVal = sym;
+                }
+            }
+            if (capturedVal) {
+                auto* gep = builder->CreateStructGEP(envTy, envAlloca, ci);
+                builder->CreateStore(capturedVal, gep);
+            }
+        }
+    }
+
+    // ── Build lambda function: env* always first param ───────────────────
+    std::vector<llvm::Type*> paramTypes = {ptrTy}; // env* (null if no captures)
     for (const auto& p : node->params)
         paramTypes.push_back(getTypeFromString(p.first));
 
@@ -1490,14 +1532,17 @@ void CodeGen::visit(LambdaExpr* node) {
     llvm::Function* func = llvm::Function::Create(
         fty, llvm::Function::InternalLinkage, lambdaName, module.get());
 
+    auto argIt = func->arg_begin();
+    argIt->setName("env");
+    llvm::Argument* envArg = &*argIt++;
     size_t i = 0;
-    for (auto& arg : func->args())
-        arg.setName(node->params[i++].second);
+    for (; argIt != func->arg_end(); ++argIt, ++i)
+        argIt->setName(node->params[i].second);
 
-    // Save builder state, compile body, restore
-    llvm::Function* prevFunc      = currentFunction;
-    llvm::Value*    prevSret      = currentSretParam;
-    llvm::BasicBlock* prevInsert  = builder->GetInsertBlock();
+    // ── Compile lambda body ───────────────────────────────────────────────
+    llvm::Function* prevFunc     = currentFunction;
+    llvm::Value*    prevSret     = currentSretParam;
+    llvm::BasicBlock* prevInsert = builder->GetInsertBlock();
 
     llvm::BasicBlock* entry = llvm::BasicBlock::Create(*context, "entry", func);
     builder->SetInsertPoint(entry);
@@ -1505,22 +1550,37 @@ void CodeGen::visit(LambdaExpr* node) {
     currentSretParam = nullptr;
     pushScope();
 
+    // Expose captured variables by loading from env
+    if (hasCaptures) {
+        for (size_t ci = 0; ci < node->captures.size(); ++ci) {
+            const auto& [capName, capType] = node->captures[ci];
+            llvm::Type* capLLVMTy = getTypeFromString(capType);
+            auto* capAlloca = builder->CreateAlloca(capLLVMTy, nullptr, capName);
+            auto* gep = builder->CreateStructGEP(envTy, envArg, ci, capName + ".gep");
+            auto* val = builder->CreateLoad(capLLVMTy, gep, capName + ".val");
+            builder->CreateStore(val, capAlloca);
+            defineSymbol(capName, capAlloca);
+            defineVarType(capName, capType);
+        }
+    }
+
+    // Define parameters
     i = 0;
-    for (auto& arg : func->args()) {
-        llvm::Value* slot = &arg;
-        if (arg.getType()->isStructTy()) {
-            auto* a = builder->CreateAlloca(arg.getType(), nullptr,
+    argIt = func->arg_begin();
+    ++argIt; // skip env
+    for (; argIt != func->arg_end(); ++argIt, ++i) {
+        llvm::Value* slot = &*argIt;
+        if (argIt->getType()->isStructTy()) {
+            auto* a = builder->CreateAlloca(argIt->getType(), nullptr,
                                             node->params[i].second + ".byval");
-            builder->CreateStore(&arg, a);
+            builder->CreateStore(&*argIt, a);
             slot = a;
         }
         defineSymbol(node->params[i].second, slot);
         defineVarType(node->params[i].second, node->params[i].first);
-        i++;
     }
 
     if (node->body) node->body->accept(this);
-
     if (!builder->GetInsertBlock()->getTerminator()) {
         if (retTy->isVoidTy()) builder->CreateRetVoid();
         else builder->CreateRet(llvm::Constant::getNullValue(retTy));
@@ -1531,7 +1591,57 @@ void CodeGen::visit(LambdaExpr* node) {
     currentSretParam = prevSret;
     if (prevInsert) builder->SetInsertPoint(prevInsert);
 
-    exprValueStack.push(func);
+    // ── Build fat pointer {fn_ptr, env_ptr} ──────────────────────────────
+    llvm::StructType* fatTy = llvm::cast<llvm::StructType>(
+        getTypeFromString("fn()->void")); // any fn type gives {ptr,ptr}
+    llvm::Value* fatAlloca = builder->CreateAlloca(fatTy, nullptr, lambdaName + ".fat");
+    auto* fnSlot  = builder->CreateStructGEP(fatTy, fatAlloca, 0);
+    auto* envSlot = builder->CreateStructGEP(fatTy, fatAlloca, 1);
+    builder->CreateStore(func, fnSlot);
+    builder->CreateStore(
+        hasCaptures ? (llvm::Value*)envAlloca
+                    : llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(ptrTy)),
+        envSlot);
+    exprValueStack.push(builder->CreateLoad(fatTy, fatAlloca, lambdaName + ".fat.val"));
+}
+
+void CodeGen::visit(ThreadCreateExpr* node) {
+    // Evaluate the closure — a fat pointer {fn_ptr, env_ptr}
+    llvm::Value* fatPtr = evaluateExpr(node->worker);
+
+    // Extract fn_ptr and env_ptr
+    llvm::Value* fnPtr  = builder->CreateExtractValue(fatPtr, {0}, "thr.fn");
+    llvm::Value* envPtr = builder->CreateExtractValue(fatPtr, {1}, "thr.env");
+
+    // pthread_t is typically *void; alloca space for the tid
+    llvm::Type* ptrTy = llvm::PointerType::get(*context, 0);
+    llvm::Value* tidAlloca = builder->CreateAlloca(ptrTy, nullptr, "thr.tid");
+
+    // pthread_create(pthread_t* tid, null, fn_ptr, env_ptr)
+    llvm::Function* pthreadCreate = getOrDeclareFunc("pthread_create",
+        llvm::Type::getInt32Ty(*context),
+        {ptrTy, ptrTy, ptrTy, ptrTy});
+
+    builder->CreateCall(pthreadCreate, {
+        tidAlloca,
+        llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(ptrTy)),
+        fnPtr,
+        envPtr
+    });
+
+    // Return the thread handle (tid value)
+    exprValueStack.push(builder->CreateLoad(ptrTy, tidAlloca, "thr.handle"));
+}
+
+void CodeGen::visit(ThreadJoinStmt* node) {
+    llvm::Value* tid = evaluateExpr(node->tid);
+    llvm::Type*  ptrTy = llvm::PointerType::get(*context, 0);
+    llvm::Function* pthreadJoin = getOrDeclareFunc("pthread_join",
+        llvm::Type::getInt32Ty(*context), {ptrTy, ptrTy});
+    builder->CreateCall(pthreadJoin, {
+        tid,
+        llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(ptrTy))
+    });
 }
 
 void CodeGen::visit(AsmStmt* node) {

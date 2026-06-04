@@ -573,7 +573,7 @@
   <div class="hero-inner">
 
     <div class="hero-text">
-      <span class="hero-tag">v0.1.0-alpha &nbsp;&middot;&nbsp; LLVM backend &nbsp;&middot;&nbsp; arm64 + x86-64</span>
+      <span class="hero-tag">v0.1.1-alpha &nbsp;&middot;&nbsp; LLVM backend &nbsp;&middot;&nbsp; arm64 + x86-64</span>
       <h1>C performance.<br>Go concurrency.<br><em>Explicit memory.</em></h1>
       <p class="hero-sub">
         Systems programming with C-style syntax, monomorphic templates, and structural interfaces.
@@ -642,10 +642,13 @@
       <p style="font-size:1.05rem;color:var(--ink2);line-height:1.8;margin-top:1rem;margin-bottom:0">
         Eskiu is a direct response to that. The foundation phase establishes a systems
         language solid enough to handle the work that currently requires C or C++.
-        The v0.1 milestone — a kernel booting on bare metal in QEMU — is complete:
-        an ARM64 kernel written in Eskiu boots under QEMU and prints to serial without
-        libc or a C runtime. Beyond that: first-class support for the domain types
-        that high-throughput services actually work with.
+        The v0.1 milestone — a kernel booting on bare metal in QEMU — is complete.
+        v0.2 adds closures and threads: <code>fn(T)-&gt;R</code> is now a fat pointer
+        that captures state from the enclosing scope, and <code>thread_create</code> /
+        <code>thread_join</code> are language keywords that map directly to the
+        pthread ABI. Concurrent, callback-driven programmes need no C glue.
+        Beyond that: first-class support for the domain types that high-throughput
+        services actually work with.
       </p>
     </div>
   </div>
@@ -835,6 +838,10 @@
 
       <ul class="news-list">
         <li class="news-item">
+          <div class="news-title">Eskiu v0.1.1-alpha<span class="tag tag-feat">feat</span></div>
+          <div class="news-body">Closures — <code>fn(T)-&gt;R</code> is now a fat pointer <code>{fn_ptr, env_ptr}</code>; variables from the enclosing scope are captured by value automatically. Thread primitives — <code>thread_create</code> and <code>thread_join</code> as language keywords; the fat pointer maps directly to pthread's ABI, no trampoline needed.</div>
+        </li>
+        <li class="news-item">
           <div class="news-title">Eskiu v0.1.0<span class="tag tag-feat">milestone</span></div>
           <div class="news-body">ARM64 kernel boots in QEMU without libc or a C runtime. Inline asm UART driver, bump allocator in freestanding mode, cross-compiled with <code>--target aarch64-unknown-none-elf</code>.</div>
         </li>
@@ -845,10 +852,6 @@
         <li class="news-item">
           <div class="news-title">Eskiu 0.0.12-alpha<span class="tag tag-feat">feat</span><span class="tag tag-tool">tooling</span></div>
           <div class="news-body">Lambdas and <code>fn(T)-&gt;R</code> function pointer types. VS Code hover types and go-to-definition.</div>
-        </li>
-        <li class="news-item">
-          <div class="news-title">Foundation complete<span class="tag tag-feat">milestone</span></div>
-          <div class="news-body">727-line cryptographic pipeline running entirely in Eskiu at 74 ms — 2.5× faster than reference C.</div>
         </li>
       </ul>
     </div>

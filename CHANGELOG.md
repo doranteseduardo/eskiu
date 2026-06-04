@@ -9,6 +9,44 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ## [Unreleased]
 
+## [0.1.1-alpha] — 2026-06-04
+
+### Added
+
+**Closures — capture by value**
+- `fn(T)->R` is now a fat pointer `{fn_ptr, env_ptr}` — the same two-word layout already used for interface dispatch
+- Variables from the enclosing scope are automatically captured by value at lambda creation time; no annotation is required
+- Non-capturing lambdas set `env_ptr = null` and compile identically to the previous behaviour
+- The `fn(T)->R` type annotation is unchanged — the fat-pointer representation is fully transparent to user code
+- Higher-order functions work without change: a closure can be passed anywhere a `fn(T)->R` is expected
+
+```eskiu
+int base = 10;
+let add: fn(int)->int = int(int x) { return x + base; };
+add(5);  // 15 — captures 'base' from outer scope
+
+int apply(fn(int)->int f, int x) { return f(x); }
+apply(add, 7);  // 17
+```
+
+**Thread primitives — `thread_create` / `thread_join`**
+- `thread_create` and `thread_join` are language keywords; no `extern` declaration is needed
+- The closure fat-pointer maps directly to pthread's `(start_routine, arg)` calling convention — no trampoline function is emitted
+- `thread_create(fn()->void)` spawns a new thread and returns a `*void` handle
+- `thread_join(*void)` blocks until the thread completes
+- On Linux, link with `-lpthread`
+
+```eskiu
+*void t = thread_create(fn() { printf("hello from thread\n"); });
+thread_join(t);
+
+// With closure capturing outer state
+int id = 1;
+let worker: fn()->void = void() { printf("thread %d\n", id); };
+*void t2 = thread_create(worker);
+thread_join(t2);
+```
+
 ## [0.1.0] — 2026-06-03
 
 ### Milestone — Kernel on QEMU

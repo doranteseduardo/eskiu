@@ -67,6 +67,7 @@ return  break  continue
 true  false  null
 alloc  free
 volatile  asm
+thread_create  thread_join
 ```
 
 ### 2.4 Literals
@@ -446,7 +447,7 @@ User-defined variadic functions are not supported. `...` is only valid in `exter
 
 `extern` declares a C function available to Eskiu code. See §13 for details.
 
-### 6.5 Lambdas
+### 6.5 Lambdas and Closures
 
 An anonymous function (lambda) is written with a C-style function body and no name. The syntax is identical to a named function declaration without the name:
 
@@ -471,7 +472,15 @@ int out = apply(double_it, 4);   // out == 8
 int out2 = apply(int(int x) { return x + 1; }, 9);  // out2 == 10
 ```
 
-Each lambda expression is lowered to a private named function in LLVM IR. Lambdas are not closures — they cannot capture variables from the enclosing scope. All inputs must be passed as explicit parameters.
+**Closure capture.** A lambda may reference variables from its enclosing scope. Such variables are captured by value at the point the lambda expression is evaluated.
+
+```eskiu
+int base = 10;
+let add: fn(int)->int = int(int x) { return x + base; };
+add(5);   // 15 — 'base' was captured by value
+```
+
+Under the hood, `fn(T)->R` is a two-word fat pointer `{fn_ptr, env_ptr}`. When a lambda captures one or more variables, the compiler packages them into a heap-allocated environment struct and stores its address in `env_ptr`. Lambdas that capture nothing have `env_ptr = null` and compile identically to plain function pointers. The representation is fully transparent to user code — the type annotation remains `fn(T)->R` in both cases.
 
 ### 6.6 Template Functions
 
@@ -497,6 +506,38 @@ int same = identity<int>(42);
 ```
 
 Each unique set of type arguments generates a separate monomorphic instantiation.
+
+### 6.7 Thread Primitives
+
+`thread_create` and `thread_join` are language keywords that spawn and await OS threads.
+
+```eskiu
+thread_create(fn()->void worker) -> *void
+thread_join(*void handle) -> void
+```
+
+`thread_create` accepts any `fn()->void` value — including a closure — and returns an opaque `*void` thread handle. `thread_join` blocks the calling thread until the spawned thread completes.
+
+```eskiu
+extern int printf(string fmt, ...);
+
+int main() {
+    *void t = thread_create(fn() { printf("hello from thread\n"); });
+    thread_join(t);
+    return 0;
+}
+```
+
+**With a capturing closure:**
+
+```eskiu
+int id = 1;
+let worker: fn()->void = void() { printf("thread %d\n", id); };
+*void t = thread_create(worker);
+thread_join(t);
+```
+
+**Implementation detail.** The closure fat pointer `{fn_ptr, env_ptr}` maps directly to the `(start_routine, arg)` pair expected by `pthread_create` — no trampoline function is generated. On Linux, link the final binary with `-lpthread`.
 
 ---
 

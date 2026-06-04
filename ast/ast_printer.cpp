@@ -372,3 +372,13 @@ void ASTPrinter::visit(AsmStmt* node) {
         indentLevel--;
     }
 }
+
+void ASTPrinter::visit(ThreadCreateExpr* node) {
+    println("ThreadCreateExpr");
+    indentLevel++; node->worker->accept(this); indentLevel--;
+}
+
+void ASTPrinter::visit(ThreadJoinStmt* node) {
+    println("ThreadJoinStmt");
+    indentLevel++; node->tid->accept(this); indentLevel--;
+}

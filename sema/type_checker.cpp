@@ -2,6 +2,7 @@
 #include <iostream>
 #include <sstream>
 #include <algorithm>
+#include <set>
 
 // ============================================================================
 // Template utilities (file-local helpers)
@@ -674,6 +675,20 @@ void TypeChecker::visit(IdentExpr* node) {
     }
     // Record use-site so go-to-definition can map cursor → definition
     useLocations[{node->line, node->col}] = node->name;
+
+    // Capture detection: if we are inside a lambda body, check whether this
+    // identifier is defined in an outer scope (not the lambda's own scope).
+    if (!captureStack.empty() && !type.empty()) {
+        // The lambda pushed one scope then defined its params. A variable is
+        // "outer" if it exists in scopes below the lambda's own top scope.
+        // The lambda's scope is scopes.back(). Look deeper.
+        if (scopes.size() >= 2) {
+            bool inLambdaScope = scopes.back().count(node->name) > 0;
+            if (!inLambdaScope && !functionSignatures.count(node->name)) {
+                captureStack.back()[node->name] = type;
+            }
+        }
+    }
 }
 
 void TypeChecker::visit(LambdaExpr* node) {
@@ -685,14 +700,33 @@ void TypeChecker::visit(LambdaExpr* node) {
     }
     sig += ")->" + node->returnType;
 
+    // Push a capture collector before entering the lambda scope.
+    // visit(IdentExpr) will add outer-scope vars to captureStack.back().
+    captureStack.push_back({});
+    int outerScopeCount = (int)scopes.size();
+
     pushScope();
     std::string savedReturn = currentFunctionReturnType;
     currentFunctionReturnType = node->returnType;
     for (const auto& p : node->params)
         defineSymbol(p.second, p.first);
+    // Mark param names so IdentExpr doesn't treat them as captures
+    std::set<std::string> paramNames;
+    for (const auto& p : node->params) paramNames.insert(p.second);
+
+    // Store param set temporarily so IdentExpr can consult it
+    // We use a simple approach: after defining params, record the scope depth
     if (node->body) node->body->accept(this);
     currentFunctionReturnType = savedReturn;
     popScope();
+
+    // Harvest captures: only outer-scope vars, not params
+    node->captures.clear();
+    for (const auto& [name, type] : captureStack.back()) {
+        if (!paramNames.count(name))
+            node->captures.push_back({name, type});
+    }
+    captureStack.pop_back();
 
     expressionTypes[node] = sig;
 }
@@ -706,9 +740,17 @@ void TypeChecker::visit(ContinueStmt* node) {
 }
 
 void TypeChecker::visit(AsmStmt* node) {
-    // Type-check input expressions
     for (auto& [constraint, expr] : node->inputs)
         if (expr) expr->accept(this);
+}
+
+void TypeChecker::visit(ThreadCreateExpr* node) {
+    node->worker->accept(this);
+    expressionTypes[node] = "*void";
+}
+
+void TypeChecker::visit(ThreadJoinStmt* node) {
+    node->tid->accept(this);
 }
 
 void TypeChecker::visit(SwitchStmt* node) {

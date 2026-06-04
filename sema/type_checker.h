@@ -48,6 +48,8 @@ public:
     void visit(AllocExpr* node) override;
     void visit(LambdaExpr* node) override;
     void visit(AsmStmt* node) override;
+    void visit(ThreadCreateExpr* node) override;
+    void visit(ThreadJoinStmt* node) override;
 
 private:
     // Symbol table: maps name -> type
@@ -147,4 +149,10 @@ private:
 
     // Cache for expression types
     std::map<Expr*, std::string> expressionTypes;
+
+    // Capture detection: when non-empty, we are inside a lambda body.
+    // Each entry is the set of (name, type) pairs captured so far.
+    // IdentExpr visitor adds to the top entry when it finds an outer-scope var.
+    std::vector<std::map<std::string, std::string>> captureStack;
+    int lambdaScopeDepth = 0; // how many scopes the lambda itself pushed
 };

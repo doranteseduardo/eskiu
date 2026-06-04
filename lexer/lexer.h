@@ -20,6 +20,8 @@ enum class TokenType {
     FN,
     ASM,
     VOLATILE,
+    THREAD_CREATE,
+    THREAD_JOIN,
     FOR,
     IN,
     WHILE,

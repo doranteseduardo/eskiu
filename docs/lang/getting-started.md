@@ -835,8 +835,76 @@ int main() {
 }
 ```
 
-Lambdas are not closures — they cannot capture variables from the surrounding
-scope. All inputs must be passed as explicit parameters.
+### Closures — capturing from the enclosing scope
+
+A lambda can reference variables declared in the surrounding scope. Those variables are captured by value at the point the lambda is created.
+
+```eskiu
+extern int printf(string fmt, ...);
+
+int main() {
+    int base = 10;
+    let add: fn(int)->int = int(int x) { return x + base; };
+    printf("%d\n", add(5));   // 15
+    printf("%d\n", add(7));   // 17
+    return 0;
+}
+```
+
+Closures can be passed to higher-order functions exactly like plain lambdas — the `fn(T)->R` type is the same in both cases.
+
+```eskiu
+int apply(fn(int)->int f, int x) { return f(x); }
+
+int main() {
+    int offset = 100;
+    let shift: fn(int)->int = int(int x) { return x + offset; };
+    printf("%d\n", apply(shift, 5));   // 105
+    return 0;
+}
+```
+
+Under the hood, `fn(T)->R` is a fat pointer `{fn_ptr, env_ptr}`. Non-capturing lambdas have `env_ptr = null` and behave identically to before.
+
+---
+
+## Threads
+
+`thread_create` and `thread_join` are language keywords. Pass any `fn()->void` value — including a closure — to spawn a thread.
+
+### Basic usage
+
+```eskiu
+extern int printf(string fmt, ...);
+
+int main() {
+    *void t = thread_create(fn() { printf("hello from thread\n"); });
+    thread_join(t);
+    return 0;
+}
+```
+
+### Capturing outer state
+
+```eskiu
+extern int printf(string fmt, ...);
+
+int main() {
+    int id = 42;
+    let worker: fn()->void = void() { printf("thread id = %d\n", id); };
+    *void t = thread_create(worker);
+    thread_join(t);
+    return 0;
+}
+```
+
+The closure fat pointer maps directly to pthread's `(start_routine, arg)` pair — no trampoline is generated. On Linux, link with `-lpthread`:
+
+```bash
+eskiuc threads.esk -o threads.o
+clang threads.o -lpthread -o threads
+./threads
+```
 
 ---
 

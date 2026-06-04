@@ -466,6 +466,18 @@ StmtPtr Parser::parseStatement() {
     if (match(TokenType::CONTINUE)) {
         return parseContinueStatement();
     }
+    // thread_join(tid);
+    if (check(TokenType::THREAD_JOIN)) {
+        Token jTok = advance();
+        consume(TokenType::LPAREN, "Expected '(' after thread_join");
+        ExprPtr tid = parseExpression();
+        consume(TokenType::RPAREN, "Expected ')'");
+        consume(TokenType::SEMICOLON, "Expected ';'");
+        auto stmt = std::make_shared<ThreadJoinStmt>(tid);
+        stmt->line = jTok.line; stmt->col = jTok.column;
+        return stmt;
+    }
+
     // asm("string") or asm("string" : : "constraint"(expr), ... : "clobber", ...)
     if (check(TokenType::ASM)) {
         Token asmTok = advance();
@@ -980,6 +992,14 @@ ExprPtr Parser::parsePrimary() {
         consume(TokenType::RPAREN, "Expected ')'");
         auto callee = std::make_shared<IdentExpr>("free");
         return std::make_shared<CallExpr>(callee, std::vector<ExprPtr>{arg});
+    }
+
+    // thread_create(fn()->void worker) -> *void
+    if (match(TokenType::THREAD_CREATE)) {
+        consume(TokenType::LPAREN, "Expected '(' after thread_create");
+        ExprPtr worker = parseExpression();
+        consume(TokenType::RPAREN, "Expected ')'");
+        return withPos(std::make_shared<ThreadCreateExpr>(worker), tok);
     }
 
     // Lambda: int(int a, int b) { return a + b; }
