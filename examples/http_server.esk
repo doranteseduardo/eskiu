@@ -1,0 +1,40 @@
+// http_server.esk — a minimal HTTP/1.1 server written entirely in Eskiu.
+//
+//   eskiuc examples/http_server.esk -o http_server && ./http_server
+//   # then: curl http://127.0.0.1:8080/
+//
+// It accepts connections, ignores the request, and replies with a fixed
+// plain-text body. Single-threaded and intentionally tiny — a starting point.
+
+import <net>;
+
+extern int printf(string fmt, ...);
+
+int main() {
+    int fd = net_tcp_listen(8080);
+    if (fd < 0) {
+        printf("failed to bind port 8080\n");
+        return 1;
+    }
+    printf("Eskiu HTTP server listening on http://127.0.0.1:8080\n");
+
+    *uint8 req = alloc(uint8, 4096);
+    string response =
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: text/plain\r\n"
+        "Connection: close\r\n"
+        "\r\n"
+        "Hello from an HTTP server written in Eskiu.\n";
+
+    while (1) {
+        int c = net_accept(fd);
+        if (c < 0) { continue; }
+        net_recv(c, (*void)req, 4096);     // consume the request line/headers
+        net_send_str(c, response);
+        net_close(c);
+    }
+
+    free(req);
+    net_close(fd);
+    return 0;
+}

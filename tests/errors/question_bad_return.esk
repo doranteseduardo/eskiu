@@ -1,0 +1,13 @@
+// EXPECT-ERROR: same
+import <result>;
+
+Result<int, string> divide(int a, int b) {
+    if (b == 0) { return Err<int, string>("zero"); }
+    return Ok<int, string>(a / b);
+}
+
+// `?` used in a function that does NOT return a matching Result — must be rejected.
+int main() {
+    let x: int = divide(10, 2)?;
+    return x;
+}

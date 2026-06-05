@@ -1,0 +1,31 @@
+extern int printf(string fmt, ...);
+
+int main() {
+    // Basic pointer: take address, deref, write through
+    int x = 41;
+    let p: *int = &x;
+    *p = *p + 1;
+    printf("x=%d\n", x);                 // x=42
+
+    // Heap allocation + indexing
+    let arr: *int = alloc(int, 5);
+    for (int i = 0; i < 5; i = i + 1) {
+        arr[i] = i * i;
+    }
+    printf("arr[3]=%d\n", arr[3]);       // arr[3]=9
+
+    // Typed pointer arithmetic (advances by sizeof element)
+    let q: *int = arr + 2;
+    printf("*(arr+2)=%d\n", *q);         // *(arr+2)=4
+    printf("arr[4]=%d\n", *(arr + 4));   // arr[4]=16
+
+    // Sum via pointer walk
+    int total = 0;
+    for (int j = 0; j < 5; j = j + 1) {
+        total = total + arr[j];
+    }
+    printf("total=%d\n", total);         // total=30
+
+    free(arr);
+    return 0;
+}

@@ -1,0 +1,9 @@
+sizeof(int)    = 4
+sizeof(int64)  = 8
+sizeof(float)  = 4
+sizeof(double) = 8
+sizeof(Grid)   = 12
+v.i = 42
+v.f = 3.140000
+*(arr+2) = 30
+*(arr+1) = 20

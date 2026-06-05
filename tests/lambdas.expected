@@ -1,0 +1,3 @@
+double_it(5) = 10
+add_ten(7)   = 17
+apply(double_it, 4) = 8

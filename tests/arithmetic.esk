@@ -1,0 +1,30 @@
+extern int printf(string fmt, ...);
+
+int main() {
+    // Integer arithmetic and precedence
+    printf("%d\n", 2 + 3 * 4);        // 14
+    printf("%d\n", (2 + 3) * 4);      // 20
+    printf("%d\n", 17 / 5);           // 3
+    printf("%d\n", 17 % 5);           // 2
+    printf("%d\n", -8 + 3);           // -5
+
+    // Comparisons (printed as 1/0)
+    printf("%d\n", 5 > 3);            // 1
+    printf("%d\n", 5 < 3);            // 0
+    printf("%d\n", 4 == 4);           // 1
+    printf("%d\n", 4 != 4);           // 0
+
+    // Boolean logic
+    printf("%d\n", (1 == 1) && (2 == 2));  // 1
+    printf("%d\n", (1 == 0) || (2 == 2));  // 1
+
+    // Float arithmetic
+    printf("%.2f\n", 3.5 + 1.25);     // 4.75
+    printf("%.2f\n", 10.0 / 4.0);     // 2.50
+
+    // int64
+    let big: int64 = 1000000;
+    printf("%lld\n", big * big);      // 1000000000000
+
+    return 0;
+}

@@ -1,0 +1,41 @@
+extern int printf(string fmt, ...);
+
+#define MAX 100
+#define GREETING "hello"
+#define DEBUG
+#define SQ(x) ((x) * (x))
+#define DOUBLE(n) ((n) + (n))
+#define LIMIT (MAX + 1)
+
+int main() {
+    // Object-like macro substitution
+    printf("%d\n", MAX);            // 100
+    printf("%s\n", GREETING);       // hello
+    printf("%d\n", MAX * 2);        // 200
+
+    // Function-like macros and recursive expansion
+    printf("%d\n", SQ(5));          // 25
+    printf("%d\n", DOUBLE(SQ(3)));  // 18
+    printf("%d\n", LIMIT);          // 101  (macro expands another macro)
+
+    // Conditional compilation
+#ifdef DEBUG
+    printf("debug\n");              // printed
+#else
+    printf("no debug\n");
+#endif
+
+#ifndef RELEASE
+    printf("not release\n");        // printed
+#endif
+
+    // #undef removes a definition
+#undef DEBUG
+#ifdef DEBUG
+    printf("still debug\n");
+#else
+    printf("debug off\n");          // printed
+#endif
+
+    return 0;
+}

@@ -1,0 +1,36 @@
+import <result>;
+
+extern int printf(string fmt, ...);
+
+Result<int, string> divide(int a, int b) {
+    if (b == 0) {
+        return Err<int, string>("division by zero");
+    }
+    return Ok<int, string>(a / b);
+}
+
+// Uses `?` to propagate errors: any failing divide returns early.
+Result<int, string> compute(int a, int b, int c) {
+    let x: int = divide(a, b)?;   // unwraps or returns the Err
+    let y: int = divide(x, c)?;
+    return Ok<int, string>(y + 1);
+}
+
+int main() {
+    let good: Result<int, string> = compute(100, 5, 2);  // 100/5=20, 20/2=10, +1=11
+    if (good.ok == 1) {
+        printf("ok=%d\n", good.value);   // ok=11
+    }
+
+    let bad: Result<int, string> = compute(100, 0, 2);   // first divide fails
+    if (bad.ok == 0) {
+        printf("err=%s\n", bad.error);   // err=division by zero
+    }
+
+    let bad2: Result<int, string> = compute(100, 5, 0);  // second divide fails
+    if (bad2.ok == 0) {
+        printf("err2=%s\n", bad2.error); // err2=division by zero
+    }
+
+    return 0;
+}

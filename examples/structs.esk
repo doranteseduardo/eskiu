@@ -1,0 +1,47 @@
+extern int printf(string fmt, ...);
+
+struct Rect {
+    float w;
+    float h;
+
+    float area() {
+        return self.w * self.h;
+    }
+
+    float perimeter() {
+        return (self.w + self.h) * 2.0;
+    }
+
+    void print() {
+        printf("Rect(%f x %f)  area=%f  perimeter=%f\n",
+               self.w, self.h, self.area(), self.perimeter());
+    }
+}
+
+struct Point {
+    float x;
+    float y;
+
+    void print() {
+        printf("Point(%f, %f)\n", self.x, self.y);
+    }
+
+    float distanceTo(Point other) {
+        float dx = self.x - other.x;
+        float dy = self.y - other.y;
+        return dx * dx + dy * dy;
+    }
+}
+
+int main() {
+    let r: Rect = Rect { w: 4.0, h: 3.0 };
+    r.print();
+
+    let a: Point = Point { x: 0.0, y: 0.0 };
+    let b: Point = Point { x: 3.0, y: 4.0 };
+    a.print();
+    b.print();
+    printf("distance squared = %f\n", a.distanceTo(b));
+
+    return 0;
+}

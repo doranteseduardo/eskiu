@@ -1,0 +1,7 @@
+// EXPECT-ERROR: undefined
+extern int printf(string fmt, ...);
+
+int main() {
+    printf("%d\n", missing);
+    return 0;
+}

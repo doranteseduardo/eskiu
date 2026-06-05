@@ -1,0 +1,26 @@
+extern int printf(string fmt, ...);
+
+struct Pair<A, B> {
+    A first;
+    B second;
+}
+
+struct Box<T> {
+    T value;
+}
+
+int main() {
+    // Named template struct literal
+    let p: Pair<int, float> = Pair<int, float> { first: 7, second: 3.14 };
+    printf("first=%d second=%.2f\n", p.first, p.second);
+
+    // Positional template struct literal
+    let q: Pair<int, int> = Pair<int, int> { 10, 20 };
+    printf("q=%d,%d\n", q.first, q.second);
+
+    // Single type parameter
+    let b: Box<int> = Box<int> { value: 99 };
+    printf("box=%d\n", b.value);
+
+    return 0;
+}

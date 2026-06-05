@@ -1,0 +1,4 @@
+useHelper(4)=41
+isEven(8)=1
+isOdd(8)=0
+isEven(7)=0

@@ -1,0 +1,20 @@
+extern int printf(string fmt, ...);
+
+int main() {
+    // Compound bitwise assignment operators
+    int x = 240;
+    x >>= 2; printf("%d\n", x);   // 60
+    x <<= 1; printf("%d\n", x);   // 120
+    x &= 15; printf("%d\n", x);   // 8
+    x |= 1;  printf("%d\n", x);   // 9
+    x ^= 3;  printf("%d\n", x);   // 10
+
+    // Plain bitwise operators still work
+    printf("%d\n", 12 & 10);      // 8
+    printf("%d\n", 12 | 10);      // 14
+    printf("%d\n", 12 ^ 10);      // 6
+    printf("%d\n", 1 << 4);       // 16
+    printf("%d\n", 256 >> 3);     // 32
+
+    return 0;
+}

@@ -1,0 +1,26 @@
+extern int printf(string fmt, ...);
+
+enum Color { Red, Green, Blue }            // 0, 1, 2
+enum Status { Ok = 0, Err = 2, Pending }   // 0, 2, 3 (continues after explicit)
+
+int classify(Color c) {
+    if (c == Red) { return 100; }
+    return 200;
+}
+
+int main() {
+    printf("%d %d %d\n", Red, Green, Blue);    // 0 1 2
+    printf("%d %d %d\n", Ok, Err, Pending);    // 0 2 3
+
+    Color c = Green;
+    printf("c=%d\n", c);                        // c=1
+    printf("classify(Red)=%d\n", classify(Red));   // 100
+    printf("classify(Blue)=%d\n", classify(Blue)); // 200
+
+    switch (c) {
+        case Red:   printf("red\n");   break;
+        case Green: printf("green\n"); break;
+        default:    printf("other\n"); break;
+    }
+    return 0;
+}

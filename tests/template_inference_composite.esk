@@ -1,0 +1,23 @@
+extern int printf(string fmt, ...);
+
+import <list>;
+
+// Type parameter T inferred from a *composite* parameter type (List<T>*),
+// not just a bare T. List_get/List_push/List_len need no explicit <int>.
+int main() {
+    let nums: List<int>;
+    List_init(&nums, 4);        // T=int inferred from List<int>*
+
+    let i: int = 0;
+    while (i < 5) {
+        List_push(&nums, i * i); // T=int (from List<int>* self and bare item)
+        i += 1;
+    }
+
+    printf("%d\n", List_len(&nums));   // 5
+    printf("%d\n", List_get(&nums, 0)); // 0
+    printf("%d\n", List_get(&nums, 4)); // 16
+
+    List_free(&nums);
+    return 0;
+}

@@ -1,0 +1,34 @@
+extern int printf(string fmt, ...);
+
+// Explicit forward declaration: defined further down.
+int helper(int n);
+
+// Calls a function defined BELOW it (call-before-define).
+int useHelper(int x) {
+    return helper(x) + 1;
+}
+
+int helper(int n) {
+    return n * 10;
+}
+
+// Mutual recursion — neither can be ordered "above" the other.
+int isOdd(int n);
+
+int isEven(int n) {
+    if (n == 0) { return 1; }
+    return isOdd(n - 1);
+}
+
+int isOdd(int n) {
+    if (n == 0) { return 0; }
+    return isEven(n - 1);
+}
+
+int main() {
+    printf("useHelper(4)=%d\n", useHelper(4));   // useHelper(4)=41
+    printf("isEven(8)=%d\n", isEven(8));          // isEven(8)=1
+    printf("isOdd(8)=%d\n", isOdd(8));            // isOdd(8)=0
+    printf("isEven(7)=%d\n", isEven(7));          // isEven(7)=0
+    return 0;
+}
