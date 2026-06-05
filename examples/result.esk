@@ -1,0 +1,44 @@
+import <result>;
+
+extern int printf(string fmt, ...);
+
+Result<int, string> divide(int a, int b) {
+    if (b == 0) {
+        return Err<int, string>("division by zero");
+    }
+    return Ok<int, string>(a / b);
+}
+
+Result<int, string> safeSqrt(int n) {
+    if (n < 0) {
+        return Err<int, string>("negative input");
+    }
+    // integer approximation
+    int i = 0;
+    while (i * i <= n) { i = i + 1; }
+    return Ok<int, string>(i - 1);
+}
+
+int main() {
+    let r1: Result<int, string> = divide(10, 2);
+    if (r1.ok == 1) {
+        printf("10 / 2 = %d\n", r1.value);
+    }
+
+    let r2: Result<int, string> = divide(7, 0);
+    if (r2.ok == 0) {
+        printf("error: %s\n", r2.error);
+    }
+
+    let r3: Result<int, string> = safeSqrt(25);
+    if (r3.ok == 1) {
+        printf("sqrt(25) ~ %d\n", r3.value);
+    }
+
+    let r4: Result<int, string> = safeSqrt(-4);
+    if (r4.ok == 0) {
+        printf("error: %s\n", r4.error);
+    }
+
+    return 0;
+}

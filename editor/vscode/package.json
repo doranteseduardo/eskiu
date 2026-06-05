@@ -1,0 +1,32 @@
+{
+  "name": "eskiu-language",
+  "displayName": "Eskiu Language",
+  "description": "Syntax highlighting and real-time error checking for .esk files",
+  "version": "0.0.11",
+  "publisher": "doranteseduardo",
+  "engines": { "vscode": "^1.60.0" },
+  "categories": ["Programming Languages"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/doranteseduardo/eskiu"
+  },
+  "activationEvents": ["onLanguage:eskiu"],
+  "main": "./extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "eskiu",
+        "aliases": ["Eskiu", "eskiu"],
+        "extensions": [".esk"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "eskiu",
+        "scopeName": "source.eskiu",
+        "path": "./syntaxes/eskiu.tmLanguage.json"
+      }
+    ]
+  }
+}

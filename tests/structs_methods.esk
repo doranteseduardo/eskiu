@@ -1,0 +1,38 @@
+extern int printf(string fmt, ...);
+
+struct Counter {
+    int count;
+
+    void inc() {
+        self.count = self.count + 1;
+    }
+
+    int get() {
+        return self.count;
+    }
+}
+
+struct Point {
+    int x;
+    int y;
+
+    int sumCoords() {
+        return self.x + self.y;
+    }
+}
+
+int main() {
+    // Named initializer + method mutation
+    let c: Counter = Counter { count: 0 };
+    c.inc();
+    c.inc();
+    c.inc();
+    printf("count=%d\n", c.get());       // count=3
+
+    // Field access and method
+    let p: Point = Point { x: 3, y: 4 };
+    printf("x=%d y=%d\n", p.x, p.y);     // x=3 y=4
+    printf("sum=%d\n", p.sumCoords());   // sum=7
+
+    return 0;
+}

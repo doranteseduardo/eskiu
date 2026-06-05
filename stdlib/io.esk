@@ -1,0 +1,8 @@
+// io stdlib — wraps libc stdio
+extern int printf(string fmt, ...);
+extern int fprintf(string stream, string fmt, ...);
+extern int sprintf(string buf, string fmt, ...);
+extern int scanf(string fmt, ...);
+extern int puts(string s);
+extern int getchar();
+extern int putchar(int c);

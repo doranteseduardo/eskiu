@@ -1,0 +1,27 @@
+extern int printf(string fmt, ...);
+
+// Type parameter T appears directly as a parameter type, so it can be inferred
+// from the argument types at the call site (no explicit <T> needed).
+T max<T>(T a, T b) {
+    if (a > b) { return a; }
+    return b;
+}
+
+T identity<T>(T x) {
+    return x;
+}
+
+int main() {
+    // Inferred type arguments
+    printf("%d\n", max(3, 5));          // 5   (T=int)
+    printf("%.1f\n", max(1.5, 2.5));    // 2.5 (T=double)
+    printf("%d\n", identity(42));        // 42
+
+    // Explicit type arguments still work
+    printf("%d\n", max<int>(7, 2));      // 7
+
+    // Mixed-width literal coerced to the substituted parameter type
+    printf("%.2f\n", max<float>(1.2, 0.8)); // 1.20
+
+    return 0;
+}

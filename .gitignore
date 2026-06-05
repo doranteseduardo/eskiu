@@ -1,0 +1,31 @@
+# Build directories
+build/
+dist/
+cmake-build-debug/
+cmake-build-release/
+
+# Compiled objects
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+
+# Executables
+eskiuc
+eskiuc.exe
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+
+# Temporary files
+*.tmp
+*.log
+

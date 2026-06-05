@@ -1,0 +1,61 @@
+import <string>;
+
+extern int printf(string fmt, ...);
+
+int main() {
+    let s: String;
+    String_from(&s, "hello");
+
+    // push + char_at + len
+    String_push(&s, '!');
+    printf("%s\n", String_cstr(&s));          // hello!
+    printf("%d\n", String_len(&s));           // 6
+    printf("%c\n", String_char_at(&s, 0));    // h
+
+    // set
+    String_set(&s, 0, 'H');
+    printf("%s\n", String_cstr(&s));          // Hello!
+
+    // index_of
+    printf("%d\n", String_index_of(&s, 'l')); // 2
+    printf("%d\n", String_index_of(&s, 'z')); // -1
+
+    // equality
+    let t: String;
+    String_from(&t, "Hello!");
+    printf("%d\n", String_eq(&s, &t));        // 1
+    printf("%d\n", String_eq_cstr(&s, "Hello!")); // 1
+    printf("%d\n", String_eq_cstr(&s, "nope"));    // 0
+
+    // substring
+    let sub: String;
+    String_init(&sub, 8);
+    String_substring(&s, &sub, 1, 4);
+    printf("%s\n", String_cstr(&sub));        // ello
+
+    // reverse
+    String_reverse(&sub);
+    printf("%s\n", String_cstr(&sub));        // olle
+
+    // from_int / to_int
+    let num: String;
+    String_init(&num, 8);
+    String_from_int(&num, -2026);
+    printf("%s\n", String_cstr(&num));        // -2026
+    printf("%d\n", String_to_int(&num));      // -2026
+
+    let pos: String;
+    String_from(&pos, "42abc");
+    printf("%d\n", String_to_int(&pos));      // 42
+
+    // clear
+    String_clear(&s);
+    printf("%d\n", String_len(&s));           // 0
+
+    String_free(&s);
+    String_free(&t);
+    String_free(&sub);
+    String_free(&num);
+    String_free(&pos);
+    return 0;
+}

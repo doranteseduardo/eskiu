@@ -1,0 +1,7 @@
+// EXPECT-ERROR: Expected
+// A malformed function body must be reported as an error and cause a non-zero
+// exit — NOT silently dropped (regression guard for the parser swallowing bug).
+int main() {
+    int x = ;
+    return 0;
+}

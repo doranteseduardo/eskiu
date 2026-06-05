@@ -1,0 +1,16 @@
+extern int printf(string fmt, ...);
+
+int apply(fn(int)->int f, int x) {
+    return f(x);
+}
+
+int main() {
+    let double_it: fn(int)->int = int(int x) { return x * 2; };
+    let add_ten: fn(int)->int   = int(int x) { return x + 10; };
+
+    printf("double_it(5) = %d\n", double_it(5));
+    printf("add_ten(7)   = %d\n", add_ten(7));
+    printf("apply(double_it, 4) = %d\n", apply(double_it, 4));
+
+    return 0;
+}

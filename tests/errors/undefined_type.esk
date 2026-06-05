@@ -1,0 +1,5 @@
+// EXPECT-ERROR: undefined
+int main() {
+    let w: Widget = Widget { size: 3 };
+    return 0;
+}

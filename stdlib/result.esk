@@ -1,0 +1,26 @@
+// Result<T, E> — error-as-value type
+// Usage: let r: Result<int, string> = Ok<int, string>(value);
+
+struct Result<T, E> {
+    int ok;     // 1 = success, 0 = error
+    T   value;
+    E   error;
+}
+
+// Constructor helpers — instantiate for concrete types as needed:
+//   Result<int, string> Ok<T, E>(T value) { ... }
+//   Result<int, string> Err<T, E>(E msg)  { ... }
+
+Result<T, E> Ok<T, E>(T value) {
+    let r: Result<T, E>;
+    r.ok    = 1;
+    r.value = value;
+    return r;
+}
+
+Result<T, E> Err<T, E>(E msg) {
+    let r: Result<T, E>;
+    r.ok    = 0;
+    r.error = msg;
+    return r;
+}

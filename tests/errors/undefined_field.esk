@@ -1,0 +1,11 @@
+// EXPECT-ERROR: struct 'Point' has no member 'z'
+struct Point {
+    float x;
+    float y;
+}
+
+int main() {
+    let p: Point;
+    float invalid = p.z;
+    return 0;
+}

@@ -1,0 +1,25 @@
+extern int printf(string fmt, ...);
+
+int main() {
+    let s: string = "Eskiu";
+
+    // %s printing
+    printf("%s\n", s);                   // Eskiu
+
+    // Character indexing -> char
+    printf("%c\n", s[0]);                // E
+    printf("%c\n", s[4]);                // u
+
+    // char arithmetic (compare against literal codes)
+    let c: char = s[0];
+    printf("%d\n", c);                   // 69  (ASCII 'E')
+
+    // Count characters up to NUL
+    int len = 0;
+    while (s[len] != 0) {
+        len = len + 1;
+    }
+    printf("len=%d\n", len);             // len=5
+
+    return 0;
+}

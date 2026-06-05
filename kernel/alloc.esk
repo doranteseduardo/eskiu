@@ -1,0 +1,24 @@
+// alloc.esk — Bump allocator for --freestanding mode
+//
+// Satisfies the esk_alloc/esk_free symbols that eskiuc --freestanding
+// emits when alloc(T, N) or free(ptr) are used.
+//
+// Layout (see linker.ld):
+//   heap: 0x40300000 – 0x40400000  (1 MB)
+
+int64 _heap_ptr = 0x40300000;
+int64 _heap_end = 0x40400000;
+
+*uint8 esk_alloc(int64 size) {
+    if (_heap_ptr + size > _heap_end) {
+        return null;
+    }
+    int64 ptr = _heap_ptr;
+    _heap_ptr = _heap_ptr + size;
+    return (*uint8) ptr;
+}
+
+void esk_free(*uint8 ptr) {
+    // Bump allocator — free is a no-op.
+    // A real kernel would use a slab or buddy allocator here.
+}

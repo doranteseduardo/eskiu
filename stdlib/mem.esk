@@ -1,0 +1,7 @@
+// mem stdlib — wraps libc memory functions
+extern *void memcpy(*void dst, *void src, int n);
+extern *void memset(*void dst, int c, int n);
+extern *void memmove(*void dst, *void src, int n);
+extern int   memcmp(*void a, *void b, int n);
+extern int   strlen(string s);
+extern *void memchr(*void s, int c, int n);

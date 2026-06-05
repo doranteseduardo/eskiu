@@ -1,0 +1,25 @@
+import <result>;
+
+extern int printf(string fmt, ...);
+
+// Monomorphic template instantiation: Result<int, string>
+Result<int, string> divide(int a, int b) {
+    if (b == 0) {
+        return Err<int, string>("division by zero");
+    }
+    return Ok<int, string>(a / b);
+}
+
+int main() {
+    let ok: Result<int, string> = divide(20, 4);
+    if (ok.ok == 1) {
+        printf("ok=%d\n", ok.value);     // ok=5
+    }
+
+    let bad: Result<int, string> = divide(1, 0);
+    if (bad.ok == 0) {
+        printf("err=%s\n", bad.error);   // err=division by zero
+    }
+
+    return 0;
+}

@@ -1,0 +1,6 @@
+10 / 2 = 5
+caught: division by zero
+caught: test error
+finally ran
+caught: negative value
+done

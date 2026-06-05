@@ -1,0 +1,32 @@
+extern int printf(string fmt, ...);
+
+int apply(fn(int)->int f, int x) {
+    return f(x);
+}
+
+int main() {
+    // Non-capturing lambda — baseline
+    let square: fn(int)->int = int(int n) { return n * n; };
+    printf("square(6) = %d\n", square(6));           // 36
+
+    // Closure: captures 'base' from outer scope
+    int base = 10;
+    let add_base: fn(int)->int = int(int x) { return x + base; };
+    printf("add_base(5) = %d\n", add_base(5));       // 15
+
+    // Closure passed to higher-order function
+    printf("apply(add_base, 7) = %d\n", apply(add_base, 7)); // 17
+
+    // Multiple captures
+    int a = 3;
+    int b = 4;
+    let sum_ab: fn(int)->int = int(int x) { return x + a + b; };
+    printf("sum_ab(10) = %d\n", sum_ab(10));         // 17
+
+    // Closure that captures a float
+    float factor = 2.5;
+    let scale: fn(int)->float = int(int x) { return (float)x * factor; };
+    printf("scale(4) = %f\n", scale(4));             // 10.0
+
+    return 0;
+}

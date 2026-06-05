@@ -1,0 +1,108 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  # ── macOS arm64 (Apple Silicon) ────────────────────────────────────────
+  build-macos-arm64:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install LLVM
+        run: |
+          brew install llvm cmake
+          echo "LLVM_DIR=$(brew --prefix llvm)/lib/cmake/llvm" >> $GITHUB_ENV
+
+      - name: Configure
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DLLVM_DIR=$LLVM_DIR
+
+      - name: Build
+        run: cmake --build build --target eskiuc -j$(sysctl -n hw.ncpu)
+
+      - name: Package
+        run: |
+          mkdir -p dist/bin dist/lib/eskiu
+          cp build/eskiuc dist/bin/eskiuc
+          strip dist/bin/eskiuc
+          cp -r stdlib dist/lib/eskiu/stdlib
+          tar -czf eskiuc-macos-arm64.tar.gz -C dist bin lib
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: eskiuc-macos-arm64
+          path: eskiuc-macos-arm64.tar.gz
+
+  # ── Linux x86_64 ───────────────────────────────────────────────────────
+  build-linux-x86_64:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install LLVM 22
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake build-essential
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 22
+          sudo apt-get install -y llvm-22-dev
+          echo "LLVM_DIR=/usr/lib/llvm-22/lib/cmake/llvm" >> $GITHUB_ENV
+
+      - name: Configure
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DLLVM_DIR=$LLVM_DIR \
+            -DCMAKE_CXX_COMPILER=clang++-22
+
+      - name: Build
+        run: cmake --build build --target eskiuc -j$(nproc)
+
+      - name: Package
+        run: |
+          mkdir -p dist/bin dist/lib/eskiu
+          cp build/eskiuc dist/bin/eskiuc
+          strip dist/bin/eskiuc
+          cp -r stdlib dist/lib/eskiu/stdlib
+          tar -czf eskiuc-linux-x86_64.tar.gz -C dist bin lib
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: eskiuc-linux-x86_64
+          path: eskiuc-linux-x86_64.tar.gz
+
+  # ── GitHub Release ─────────────────────────────────────────────────────
+  release:
+    needs: [build-macos-arm64, build-linux-x86_64]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Eskiu ${{ github.ref_name }}
+          body_path: RELEASE_NOTES.md
+          overwrite: true
+          files: |
+            eskiuc-macos-arm64.tar.gz
+            eskiuc-linux-x86_64.tar.gz
+          draft: false
+          prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') }}

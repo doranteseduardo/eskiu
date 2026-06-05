@@ -1,0 +1,5 @@
+square(6) = 36
+add_base(5) = 15
+apply(add_base, 7) = 17
+sum_ab(10) = 17
+scale(4) = 10.000000

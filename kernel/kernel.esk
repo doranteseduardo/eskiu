@@ -1,0 +1,45 @@
+// kernel.esk — Eskiu v0.1 bare-metal kernel
+//
+// Entry point: kernel_main (called from boot.s after stack setup)
+// Target: QEMU -M virt, ARM64, no libc
+
+import "uart.esk";
+import "alloc.esk";
+
+void kernel_main() {
+    uart_puts("\r\n");
+    uart_puts("  ___     _    _\r\n");
+    uart_puts(" | __|___| | _(_)_  _\r\n");
+    uart_puts(" | _|(_-< || / / || |\r\n");
+    uart_puts(" |___/__/_|\\_/_/ \\_,_|\r\n");
+    uart_puts("\r\n");
+    uart_puts("Eskiu v0.1 kernel\r\n");
+    uart_puts("Running on QEMU -M virt (ARM64)\r\n");
+    uart_puts("boot.s set up the stack; the rest is Eskiu.\r\n");
+    uart_puts("\r\n");
+
+    uart_puts("UART base:  ");
+    uart_puthex(0x09000000);
+    uart_puts("\r\n");
+
+    uart_puts("Heap start: ");
+    uart_puthex(0x40300000);
+    uart_puts("\r\n");
+
+    // Test the allocator
+    *uint8 buf = alloc(uint8, 64);
+    if (buf == null) {
+        uart_puts("alloc failed\r\n");
+    } else {
+        uart_puts("alloc(64):  ");
+        uart_puthex((int64) buf);
+        uart_puts(" ok\r\n");
+        free(buf);
+    }
+
+    uart_puts("\r\nKernel halted.\r\n");
+
+    while (1) {
+        asm("wfi");
+    }
+}

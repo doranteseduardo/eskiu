@@ -1,0 +1,32 @@
+// tcp_echo_server.esk — a TCP echo server in Eskiu.
+//
+//   eskiuc examples/tcp_echo_server.esk -o echo && ./echo
+//   # then: nc 127.0.0.1 7000   (type a line, it echoes back)
+//
+// Each accepted connection is read once and the bytes are sent straight back.
+
+import <net>;
+
+extern int printf(string fmt, ...);
+
+int main() {
+    int fd = net_tcp_listen(7000);
+    if (fd < 0) {
+        printf("failed to bind port 7000\n");
+        return 1;
+    }
+    printf("echo server listening on 127.0.0.1:7000\n");
+
+    *uint8 buf = alloc(uint8, 1024);
+    while (1) {
+        int c = net_accept(fd);
+        if (c < 0) { continue; }
+        int64 n = net_recv(c, (*void)buf, 1024);
+        if (n > 0) { net_send(c, (*void)buf, n); }
+        net_close(c);
+    }
+
+    free(buf);
+    net_close(fd);
+    return 0;
+}
