@@ -4,7 +4,7 @@
 
 Authoritative status reference for Eskiu compiler contributors.
 
-Last updated: 2026-06-05.
+Last updated: 2026-06-06.
 
 ---
 
@@ -90,11 +90,53 @@ Compiler foundation proved on a real production workload: a cryptographic pipeli
 
 Everything in the feature table above ships in v0.1.0: the full systems language plus closures, threads, exceptions (`try`/`catch`/`finally`/`throw`), enums, unions, bitfields, type aliases, the preprocessor, one-step linking, multi-file builds, and `-Wall`. Ergonomics round it out: structural template-argument inference (including composite parameters like `List<T>*`), `for`-`in` iteration over arrays and lists, the `?` error-propagation operator for `Result<T,E>`, a rich mutable `String` type, packed structs, function-as-value decay, and a `<net>` TCP sockets module (with an HTTP server example). A bare-metal ARM64 kernel written in Eskiu boots in QEMU (`-M virt`) on the PL011 UART — without libc or a C runtime — and the cryptographic pipeline above runs 2.5× faster than the reference C. This is the first release.
 
-### v0.2 — Backend services
+### v0.2.0 — Backend services (planned)
 
-- HashMap stdlib module
-- Higher-level HTTP on top of `<net>` — request/response parsing, routing
-- A concurrent HTTP server (per-connection worker threads) built into the stdlib
+The theme is making Eskiu a practical language for concurrent backend services:
+real async I/O, an HTTP stack, and the everyday stdlib + tooling that adoption
+needs. v0.1.0 is frozen at its tag; v0.2.0 is developed as incremental commits.
+
+Nothing below is started yet. Tracking checklist:
+
+**Language**
+- [ ] `const` — typed, scoped constants, usable as array sizes
+- [ ] `async` / `await` — keywords + state-machine codegen
+- [ ] `Future<T>` in the stdlib
+- [ ] `for (i in 0..10)` — native ranges (builds on the existing `for`-`in`)
+- [ ] User-defined variadic functions
+- [ ] `__FILE__` and `__LINE__` in the preprocessor
+- [ ] `#error` directive
+- [ ] `#pragma pack(N)` with N > 1 (v0.1.0 honours `pack(1)` only)
+- [ ] `-Wextra` — signed/unsigned mismatches, implicit conversions
+- [ ] Shebang support — `#!/usr/bin/env eskiuc run`
+
+**Standard library**
+- [ ] `<eventloop>` — reactor over epoll (Linux) / kqueue (macOS)
+- [ ] `<threading>` — mutex, condvar, semaphore over pthread
+- [ ] `<http>` — HTTP/1.1 parser + response builder + worker pool
+- [ ] `<http_async>` — non-blocking HTTP/1.1 over the event loop
+- [ ] `<base64>` — encode / decode
+- [ ] `<json>` — minimal builder
+- [ ] `<string>` — `split`, `trim`, `starts_with`, `ends_with`
+- [ ] `<path>` — path manipulation
+- [ ] `<time>` — timestamp, sleep, monotonic clock
+- [ ] `<env>` — environment variables and CLI arguments
+
+**Tooling**
+- [ ] Package manager — dependency resolution, registry, build integration
+- [ ] `eskiuc run file.esk` — compile and execute without leaving a binary
+- [ ] `eskiuc fmt` — formatter
+- [ ] `--asan` / `--ubsan` as first-class flags
+
+**Documentation**
+- [ ] Formal, complete BNF grammar
+- [ ] Documented ABI
+- [ ] `__FILE__` / `__LINE__` reference (once implemented)
+
+**Dependency ordering.** `async`/`await` → `<eventloop>` → `<http_async>`; the
+synchronous `<http>` only needs `<net>` (done) + `<threading>` + `<string>`
+helpers. The pure-stdlib modules (`<string>`, `<base64>`, `<env>`, `<time>`,
+`<path>`, `<json>`) need no compiler changes and can land first.
 
 ### v0.3 — Self-hosting prerequisites
 
@@ -105,5 +147,4 @@ Everything in the feature table above ships in v0.1.0: the full systems language
 ### v1.0 — Production-ready
 
 - `eskiuc` compiles itself (self-hosting)
-- Package manager — dependency resolution, registry, build integration
 - First-class types for high-throughput services
