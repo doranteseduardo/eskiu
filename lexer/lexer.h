@@ -156,11 +156,18 @@ public:
     Token next_token();
     void print_all_tokens();
 
+    // Set when a lexical error (unterminated literal/comment, malformed char)
+    // was reported. The driver checks this and aborts before parsing.
+    bool hadError = false;
+
 private:
     std::string source;
     size_t current;
     int line;
     int column;
+
+    // Report a lexical error at the given position and set hadError.
+    void lexError(int errLine, int errCol, const std::string& msg);
 
     char peek() const;
     char peek_next() const;
