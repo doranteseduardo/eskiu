@@ -297,7 +297,7 @@
 <span class="ty">int</span> <span class="fn">main</span>() {
     <span class="kw">let</span> nums: <span class="ty">List</span>&lt;<span class="ty">int</span>&gt;;
     <span class="fn">List_init</span>(&amp;nums, <span class="nu">4</span>);
-    <span class="kw">for</span> (i <span class="kw">in</span> <span class="nu">0</span>..<span class="nu">5</span>) { <span class="fn">List_push</span>(&amp;nums, i * i); }
+    <span class="kw">for</span> (<span class="ty">int</span> i = <span class="nu">0</span>; i &lt; <span class="nu">5</span>; i += <span class="nu">1</span>) { <span class="fn">List_push</span>(&amp;nums, i * i); }
 
     <span class="kw">for</span> (n <span class="kw">in</span> nums) { <span class="fn">printf</span>(<span class="st">"%d\n"</span>, n); }   <span class="cm">// 0 1 4 9 16</span>
     <span class="kw">return</span> <span class="nu">0</span>;
@@ -328,7 +328,9 @@
   <div id="tab-shapes" class="tab-panel">
     <div class="code">
       <div class="code-bar"><span class="d" style="background:#ff5f57"></span><span class="d" style="background:#febc2e"></span><span class="d" style="background:#28c840"></span><span class="nm">shapes.esk</span></div>
-<pre><span class="kw">interface</span> <span class="ty">Shape</span> { <span class="ty">float</span> <span class="fn">area</span>(); }
+<pre><span class="kw">extern</span> <span class="ty">int</span> <span class="fn">printf</span>(<span class="ty">string</span> fmt, ...);
+
+<span class="kw">interface</span> <span class="ty">Shape</span> { <span class="ty">float</span> <span class="fn">area</span>(); }
 
 <span class="kw">struct</span> <span class="ty">Circle</span> {
     <span class="ty">float</span> radius;
@@ -336,17 +338,24 @@
 }
 
 <span class="cm">// Structural: a struct satisfies Shape just by having area().</span>
-<span class="ty">void</span> <span class="fn">render</span>(<span class="ty">Shape</span> s) { <span class="fn">printf</span>(<span class="st">"area = %f\n"</span>, s.<span class="fn">area</span>()); }</pre>
+<span class="ty">void</span> <span class="fn">render</span>(<span class="ty">Shape</span> s) { <span class="fn">printf</span>(<span class="st">"area = %f\n"</span>, s.<span class="fn">area</span>()); }
+
+<span class="ty">int</span> <span class="fn">main</span>() {
+    <span class="kw">let</span> c: <span class="ty">Circle</span> = <span class="ty">Circle</span> { radius: <span class="nu">5.0</span> };
+    <span class="fn">render</span>(&amp;c);              <span class="cm">// area = 78.54</span>
+    <span class="kw">return</span> <span class="nu">0</span>;
+}</pre>
     </div>
   </div>
 
   <div id="tab-result" class="tab-panel">
     <div class="code">
       <div class="code-bar"><span class="d" style="background:#ff5f57"></span><span class="d" style="background:#febc2e"></span><span class="d" style="background:#28c840"></span><span class="nm">result.esk</span></div>
-<pre><span class="kw">import</span> &lt;<span class="fn">result</span>&gt;;
+<pre><span class="kw">extern</span> <span class="ty">int</span> <span class="fn">printf</span>(<span class="ty">string</span> fmt, ...);
+<span class="kw">import</span> &lt;<span class="fn">result</span>&gt;;
 
 <span class="ty">Result</span>&lt;<span class="ty">int</span>, <span class="ty">string</span>&gt; <span class="fn">divide</span>(<span class="ty">int</span> a, <span class="ty">int</span> b) {
-    <span class="kw">if</span> (b == <span class="nu">0</span>) <span class="kw">return</span> <span class="fn">Err</span>&lt;<span class="ty">int</span>, <span class="ty">string</span>&gt;(<span class="st">"divide by zero"</span>);
+    <span class="kw">if</span> (b == <span class="nu">0</span>) { <span class="kw">return</span> <span class="fn">Err</span>&lt;<span class="ty">int</span>, <span class="ty">string</span>&gt;(<span class="st">"divide by zero"</span>); }
     <span class="kw">return</span> <span class="fn">Ok</span>&lt;<span class="ty">int</span>, <span class="ty">string</span>&gt;(a / b);
 }
 
@@ -354,6 +363,12 @@
 <span class="ty">Result</span>&lt;<span class="ty">int</span>, <span class="ty">string</span>&gt; <span class="fn">ratio</span>(<span class="ty">int</span> a, <span class="ty">int</span> b, <span class="ty">int</span> c) {
     <span class="kw">let</span> x: <span class="ty">int</span> = <span class="fn">divide</span>(a, b)?;
     <span class="kw">return</span> <span class="fn">Ok</span>&lt;<span class="ty">int</span>, <span class="ty">string</span>&gt;(x + c);
+}
+
+<span class="ty">int</span> <span class="fn">main</span>() {
+    <span class="kw">let</span> r: <span class="ty">Result</span>&lt;<span class="ty">int</span>, <span class="ty">string</span>&gt; = <span class="fn">ratio</span>(<span class="nu">10</span>, <span class="nu">2</span>, <span class="nu">1</span>);
+    <span class="kw">if</span> (r.ok == <span class="nu">1</span>) { <span class="fn">printf</span>(<span class="st">"result = %d\n"</span>, r.value); }  <span class="cm">// result = 6</span>
+    <span class="kw">return</span> <span class="nu">0</span>;
 }</pre>
     </div>
   </div>
