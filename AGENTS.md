@@ -87,6 +87,7 @@ All items below are implemented and tested end-to-end.
 | `try` / `catch` / `finally` / `throw` | LLVM `invoke`/`landingpad` + `__gxx_personality_v0`; link `-lc++` |
 | Inline assembly | `asm("cli")` simple; `asm("op" :: "r"(x) : "mem")` extended |
 | `volatile` | `volatile let reg: *uint8 = addr;` — MMIO-safe |
+| `const` | `const T x` / `const let x: T` — immutable; sema requires an initializer and rejects reassignment (`Symbol::isConst`/`isConstSymbol`). const ints resolve as array dimensions via `constInts` + `resolveArrayDim` (also accepts literals and enum members) |
 | Cross-compilation | `--target TRIPLE` (AArch64 and X86 backends included) |
 | Freestanding | `--freestanding` — `alloc`/`free` call `esk_alloc`/`esk_free` |
 | Negative literals | `-1`, `-3.14` as first-class primary expressions |

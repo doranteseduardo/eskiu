@@ -75,7 +75,7 @@ if  else  for  while  in  switch  case  default
 return  break  continue
 true  false  null
 alloc  free
-volatile  asm
+const  volatile  asm
 thread_create  thread_join
 try  catch  finally  throw
 sizeof  union  enum
@@ -181,13 +181,18 @@ let buf: *uint8 = null;
 
 ### 3.3 Array Types
 
-Fixed-size arrays use the form `T[N]` where `N` is a compile-time integer constant. Array types are supported as struct fields:
+Fixed-size arrays use the form `T[N]` where `N` is a compile-time integer constant — a decimal literal, an `enum` member, or a `const int` (see §4.6). Array types are supported both as struct fields and as local variables:
 
 ```eskiu
 struct QRBuffer {
     uint8[858] left;
     uint8[858] right;
     int length;
+}
+
+int main() {
+    int[16] scratch;   // local fixed-size array
+    return 0;
 }
 ```
 
@@ -302,6 +307,33 @@ volatile let uart: *uint8 = (uint8*) 0x3F8;
 ```
 
 `volatile` applies to all LLVM loads and stores that touch the declared pointer. It has no effect on variables that are never accessed through a pointer, but the canonical use is MMIO pointer variables as shown above.
+
+### 4.6 Constants (`const`)
+
+The `const` qualifier declares an immutable, typed binding. It prefixes either declaration form, must be initialised, and may not be reassigned:
+
+```eskiu
+const int MAX = 100;
+const let step: int = 5;
+
+MAX = 200;   // error: cannot assign to constant 'MAX'
+```
+
+A `const` integer can also be used as a **fixed-size array dimension**, in struct fields and in local variables:
+
+```eskiu
+const int CAP = 4;
+
+struct Ring { int[CAP] slots; }   // CAP resolves at compile time
+
+int main() {
+    int[CAP] xs;                  // local array sized by a constant
+    xs[0] = 1;
+    return sizeof(Ring);          // 16
+}
+```
+
+Array dimensions accept a decimal literal, an `enum` member, or a `const int`. `const` bindings are block-scoped like any other variable.
 
 ---
 
