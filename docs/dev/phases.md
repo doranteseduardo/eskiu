@@ -111,6 +111,7 @@ Nothing below is started yet. Tracking checklist:
 - [ ] Shebang support — `#!/usr/bin/env eskiuc run`
 
 **Standard library**
+- [ ] `<alloc>` — allocators built on a shared `alloc_with` primitive: a first-fit general-purpose allocator (after Ken Thompson's original allocator), plus Arena, Pool, and Bump. A libc-free foundation for `--freestanding` (no dependency on libc `malloc`)
 - [ ] `<eventloop>` — general-purpose reactor over epoll (Linux) / kqueue (macOS). A shared foundation for async/await, HTTP, and the future UI framework, designed from the start to dispatch any kind of event (sockets, frames, input), not just network I/O
 - [ ] `<threading>` — mutex, condvar, semaphore over pthread
 - [ ] `<http>` — HTTP/1.1 parser + response builder + worker pool
