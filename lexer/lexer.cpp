@@ -218,6 +218,7 @@ std::string tokenTypeToString(TokenType type) {
         case TokenType::FN: return "FN";
         case TokenType::ASM: return "ASM";
         case TokenType::VOLATILE:      return "VOLATILE";
+        case TokenType::CONST:         return "CONST";
         case TokenType::THREAD_CREATE: return "THREAD_CREATE";
         case TokenType::THREAD_JOIN:   return "THREAD_JOIN";
         case TokenType::FOR: return "FOR";
@@ -333,6 +334,7 @@ std::unordered_map<std::string, TokenType> Lexer::keywords = {
     {"fn", TokenType::FN},
     {"asm", TokenType::ASM},
     {"volatile",       TokenType::VOLATILE},
+    {"const",          TokenType::CONST},
     {"sizeof",         TokenType::SIZEOF},
     {"thread_create",  TokenType::THREAD_CREATE},
     {"thread_join",    TokenType::THREAD_JOIN},

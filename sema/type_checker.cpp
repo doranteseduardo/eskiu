@@ -199,6 +199,11 @@ void TypeChecker::visit(VarDecl* node) {
             warning(0, 0, "implicit conversion from " + initType + " to " + node->type);
         }
     }
+    // A const must be initialized — there is no later point to assign it.
+    if (node->isConst && !node->initializer) {
+        errorAt(node, "const '" + node->name + "' must be initialized");
+    }
+
     // Normalize the type (e.g., "Point" -> "struct:Point")
     std::string normalizedType = normalizeType(node->type);
 
@@ -206,6 +211,7 @@ void TypeChecker::visit(VarDecl* node) {
     validateStructType(normalizedType);
 
     defineSymbol(node->name, normalizedType, node->line, node->col, /*isParam=*/false);
+    if (node->isConst && !scopes.empty()) scopes.back()[node->name].isConst = true;
 }
 
 void TypeChecker::visit(StructDecl* node) {
@@ -403,6 +409,14 @@ void TypeChecker::visit(ExprStmt* node) {
 void TypeChecker::visit(BinaryExpr* node) {
     node->left->accept(this);
     node->right->accept(this);
+
+    // Reassigning a `const` binding is an error.
+    if (node->op == "=") {
+        if (auto* id = dynamic_cast<IdentExpr*>(node->left.get())) {
+            if (isConstSymbol(id->name))
+                errorAt(node, "cannot assign to constant '" + id->name + "'");
+        }
+    }
 
     std::string leftType = getExpressionType(node->left.get());
     std::string rightType = getExpressionType(node->right.get());
@@ -998,6 +1012,14 @@ void TypeChecker::popScope() {
     scopes.pop_back();
 }
 
+bool TypeChecker::isConstSymbol(const std::string& name) const {
+    for (auto it = scopes.rbegin(); it != scopes.rend(); ++it) {
+        auto f = it->find(name);
+        if (f != it->end()) return f->second.isConst;
+    }
+    return false;
+}
+
 void TypeChecker::defineSymbol(const std::string& name, const std::string& type) {
     defineSymbol(name, type, 0, 0, false);
 }
@@ -1093,6 +1115,12 @@ void TypeChecker::validateStructType(const std::string& type) {
     // Function pointer types are always valid
     if (type.size() > 3 && type.substr(0, 3) == "fn(") return;
     std::string baseType = type;
+    // Strip a fixed-size array suffix (T[N]) — the element type is what matters
+    // here; the dimension (a literal, enum, or const) is resolved in codegen.
+    if (!baseType.empty() && baseType.back() == ']') {
+        size_t lb = baseType.rfind('[');
+        if (lb != std::string::npos) baseType = baseType.substr(0, lb);
+    }
     // Strip ALL pointer decorators (*T, T*, **T, etc.)
     bool stripped = true;
     while (stripped && !baseType.empty()) {

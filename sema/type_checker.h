@@ -80,7 +80,11 @@ private:
         bool used = false;     // -Wall: referenced at least once
         int  line = 0, col = 0;
         bool isParam = false;
+        bool isConst = false;  // declared with `const` — reassignment is an error
     };
+
+    // True if `name` resolves to a symbol declared `const` (searches scopes).
+    bool isConstSymbol(const std::string& name) const;
 
     // Struct information: name -> fields
     struct StructInfo {

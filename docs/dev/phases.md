@@ -103,7 +103,7 @@ unblocks real projects, Phase 2 builds the async/HTTP stack on top of it, and
 Phase 3 rounds out ergonomics and tooling.
 
 **Phase 1 — Unblock real projects**
-- [ ] `const` — typed, scoped constants, usable as array sizes
+- [x] `const` — typed, scoped constants, usable as array sizes
 - [ ] `alloc_with(&allocator, T, n)` — explicit-allocator form alongside the built-in `alloc`
 - [ ] `<alloc>` — first-fit general-purpose allocator (after Ken Thompson's original), plus Arena, Pool, and Bump, all over `alloc_with`. A libc-free foundation for `--freestanding` (no dependency on libc `malloc`)
 - [ ] `<threading>` — mutex, condvar, semaphore over pthread

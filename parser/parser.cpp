@@ -391,6 +391,9 @@ DeclPtr Parser::parseDeclaration() {
             return std::make_shared<TypeAliasDecl>(name, underlying);
         }
 
+        // Optional leading 'const' (applies to either declaration form below).
+        bool isConst = match(TokenType::CONST);
+
         // Handle 'let' variable declarations (optionally volatile)
         if (match(TokenType::LET)) {
             bool isVol = match(TokenType::VOLATILE);
@@ -407,6 +410,7 @@ DeclPtr Parser::parseDeclaration() {
             auto vd = std::make_shared<VarDecl>(name, type, init);
             vd->line = letNameTok.line; vd->col = letNameTok.column;
             vd->isVolatile = isVol;
+            vd->isConst = isConst;
             return vd;
         }
 
@@ -443,6 +447,7 @@ DeclPtr Parser::parseDeclaration() {
                     auto vd = std::make_shared<VarDecl>(name, type, init);
                     vd->line = nameTok2.line; vd->col = nameTok2.column;
                     vd->isVolatile = declIsVolatile;
+                    vd->isConst = isConst;
                     return vd;
                 }
             }
@@ -718,7 +723,8 @@ StmtPtr Parser::parseBlockStatement() {
 
     while (!check(TokenType::RBRACE) && !is_at_end()) {
         // Check if this looks like a declaration
-        if (check(TokenType::LET) ||
+        if (check(TokenType::CONST) ||
+            check(TokenType::LET) ||
             check(TokenType::INT) || check(TokenType::FLOAT) ||
             check(TokenType::DOUBLE) || check(TokenType::BOOL) ||
             check(TokenType::CHAR) || check(TokenType::STRING) ||

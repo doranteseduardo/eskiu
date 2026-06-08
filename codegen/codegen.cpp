@@ -83,6 +83,18 @@ void CodeGen::printIR() const {
 // Type System
 // ============================================================================
 
+bool CodeGen::resolveArrayDim(const std::string& dim, uint64_t& out) const {
+    if (dim.empty()) return false;
+    bool digits = true;
+    for (char c : dim) if (!std::isdigit((unsigned char)c)) { digits = false; break; }
+    if (digits) { out = std::stoull(dim); return true; }
+    auto e = enumConstants.find(dim);
+    if (e != enumConstants.end()) { out = (uint64_t)e->second; return true; }
+    auto c = constInts.find(dim);
+    if (c != constInts.end())     { out = (uint64_t)c->second; return true; }
+    return false;
+}
+
 llvm::Type* CodeGen::getTypeFromString(const std::string& typeStr) {
     // Apply type parameter override during template function instantiation
     if (!typeParamOverride.empty()) {
@@ -161,8 +173,8 @@ llvm::Type* CodeGen::getTypeFromString(const std::string& typeStr) {
             std::string elemStr = typeStr.substr(0, lb);
             std::string sizeStr = typeStr.substr(lb + 1, typeStr.size() - lb - 2);
             llvm::Type* elem = getTypeFromString(elemStr);
-            if (!sizeStr.empty()) {
-                uint64_t n = std::stoull(sizeStr);
+            uint64_t n = 0;
+            if (resolveArrayDim(sizeStr, n)) {
                 return llvm::ArrayType::get(elem, n);
             }
             return llvm::PointerType::get(*context, 0); // unsized → pointer
@@ -413,6 +425,17 @@ void CodeGen::visit(Program* node) {
     //   1. type shells (structs/unions) + extern declarations
     //   2. function prototypes (free functions and struct methods)
     //   3. bodies / globals
+    // Pre-pass: fold top-level `const` ints so they can be used as array sizes
+    // in struct fields / globals declared anywhere (resolved during phase 1).
+    for (auto& decl : node->declarations) {
+        if (auto* v = dynamic_cast<VarDecl*>(decl.get())) {
+            if (v->isConst && v->initializer) {
+                if (auto* c = evaluateConstantExpr(v->initializer))
+                    if (auto* ci = llvm::dyn_cast<llvm::ConstantInt>(c))
+                        constInts[v->name] = ci->getSExtValue();
+            }
+        }
+    }
     for (auto& decl : node->declarations) {
         if (auto* s = dynamic_cast<StructDecl*>(decl.get())) {
             declareStructType(s); // registers template structs and creates concrete types
@@ -588,6 +611,13 @@ void CodeGen::visit(FunctionDecl* node) {
 }
 
 void CodeGen::visit(VarDecl* node) {
+    // Register `const` ints so a later (local) array dimension can use them.
+    if (node->isConst && node->initializer && !constInts.count(node->name)) {
+        if (auto* c = evaluateConstantExpr(node->initializer))
+            if (auto* ci = llvm::dyn_cast<llvm::ConstantInt>(c))
+                constInts[node->name] = ci->getSExtValue();
+    }
+
     llvm::Type* declType = getTypeFromString(node->type);
 
     // Global scope (no active function) → emit as llvm::GlobalVariable
@@ -939,9 +969,11 @@ void CodeGen::visit(ForInStmt* node) {
 
     size_t lb = itType.rfind('[');
     if (lb != std::string::npos && !itType.empty() && itType.back() == ']') {
-        // Fixed-size array T[N]
+        // Fixed-size array T[N] — resolve N (literal, enum, or const int).
         elemType   = itType.substr(0, lb);
-        lengthExpr = intLit(itType.substr(lb + 1, itType.size() - lb - 2));
+        uint64_t len = 0;
+        resolveArrayDim(itType.substr(lb + 1, itType.size() - lb - 2), len);
+        lengthExpr = intLit(std::to_string(len));
         elemExpr   = std::make_shared<IndexExpr>(node->iterable, idx());
     } else {
         // List-like struct: needs `data` (pointer) and `size` (int) fields.
