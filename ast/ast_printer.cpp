@@ -352,13 +352,6 @@ void ASTPrinter::visit(TemplateCallExpr* node) {
     indentLevel--;
 }
 
-void ASTPrinter::visit(AllocExpr* node) {
-    println("AllocExpr: alloc(" + node->elemType + ", ...)");
-    indentLevel++;
-    node->count->accept(this);
-    indentLevel--;
-}
-
 void ASTPrinter::visit(AllocWithExpr* node) {
     println("AllocWithExpr: alloc_with(<allocator>, " + node->elemType + ", ...)");
     indentLevel++;

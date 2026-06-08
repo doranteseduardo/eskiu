@@ -2,6 +2,8 @@
 // All crypto constants extracted from the original binary .rodata.
 // OpenSSL provides AES and BigNum primitives via extern.
 
+import <mem>;
+
 import "types.esk";
 import "extern.esk";
 
@@ -279,7 +281,7 @@ int hex_digit(uint8 c) {
 *uint8 hex_decode(string hex, *int64 out_len) {
     int64 n = strlen(hex) / 2;
     out_len[0] = n;
-    let buf: *uint8 = alloc(uint8, n);
+    let buf: *uint8 = alloc<uint8>(n);
     int64 i = 0;
     while (i < n) {
         int hi = hex_digit(hex[i * 2]);
@@ -375,7 +377,7 @@ int strip_pkcs1(*uint8 raw, int64 ks, **uint8 out, *int64 out_len) {
     }
     if (sep < 10) return 0;
     int64 mlen = ks - sep - 1;
-    let m: *uint8 = alloc(uint8, mlen);
+    let m: *uint8 = alloc<uint8>(mlen);
     memcpy(m, raw + sep + 1, (int)mlen);
     out[0]     = m;
     out_len[0] = mlen;
@@ -388,7 +390,7 @@ int aes_decrypt(*uint8 key, *uint8 iv, *uint8 ct, int64 ct_len,
                 **uint8 out, *int64 out_len) {
     *void ctx = EVP_CIPHER_CTX_new();
     if (ctx == null) return 0;
-    let buf: *uint8 = alloc(uint8, ct_len + 32);
+    let buf: *uint8 = alloc<uint8>(ct_len + 32);
     int l1 = 0;
     int l2 = 0;
     int ok = EVP_DecryptInit_ex(ctx, EVP_aes_256_cbc(), null, key, iv);
@@ -420,20 +422,20 @@ int parse_pubkey_xml(*uint8 xml, int64 xml_len, *BNPair key_out) {
     // base64 decode modulus
     let mod_b64_raw: *uint8 = xml + ms;
     int64 mod_b64_len = me;
-    let mod_buf: *uint8 = alloc(uint8, mod_b64_len + 4);
+    let mod_buf: *uint8 = alloc<uint8>(mod_b64_len + 4);
     memcpy(mod_buf, mod_b64_raw, (int)mod_b64_len);
     mod_buf[mod_b64_len] = 0;
-    let mod_bin: *uint8 = alloc(uint8, mod_b64_len);
+    let mod_bin: *uint8 = alloc<uint8>(mod_b64_len);
     int mod_n = base64_decode(mod_buf, mod_bin, (int)mod_b64_len);
     free(mod_buf);
 
     // base64 decode exponent
     let exp_b64_raw: *uint8 = xml + es;
     int64 exp_b64_len = ee;
-    let exp_buf: *uint8 = alloc(uint8, exp_b64_len + 4);
+    let exp_buf: *uint8 = alloc<uint8>(exp_b64_len + 4);
     memcpy(exp_buf, exp_b64_raw, (int)exp_b64_len);
     exp_buf[exp_b64_len] = 0;
-    let exp_bin: *uint8 = alloc(uint8, exp_b64_len);
+    let exp_bin: *uint8 = alloc<uint8>(exp_b64_len);
     int exp_n = base64_decode(exp_buf, exp_bin, (int)exp_b64_len);
     free(exp_buf);
 
@@ -453,8 +455,8 @@ int rsa_multiblock(*void n, *void e, int ks, *uint8 ct, int64 ct_len,
                    *void bnc, **uint8 out, *int64 out_len) {
     int nb = (int)(ct_len / ks);
     if (nb == 0) return 0;
-    let result: *uint8 = alloc(uint8, (int64)nb * ks);
-    let raw:    *uint8 = alloc(uint8, ks);
+    let result: *uint8 = alloc<uint8>((int64)nb * ks);
+    let raw:    *uint8 = alloc<uint8>(ks);
     let c_bn: *void = BN_new();
     let m_bn: *void = BN_new();
     int64 total = 0;
@@ -614,14 +616,14 @@ int run_round(string ct1, string ct2, *uint8 key, *uint8 iv,
 
     // Trim to base64 charset
     int64 b64_len = b64_trim_len(plain2, p2_len);
-    let b64_str: *uint8 = alloc(uint8, b64_len + 1);
+    let b64_str: *uint8 = alloc<uint8>(b64_len + 1);
     memcpy(b64_str, plain2, (int)b64_len);
     b64_str[b64_len] = 0;
     free(plain2);
 
     // base64 decode → blob
     int64 blob_sz = b64_len * 3 / 4 + 4;
-    let blob: *uint8 = alloc(uint8, blob_sz);
+    let blob: *uint8 = alloc<uint8>(blob_sz);
     int blob_n = base64_decode(b64_str, blob, (int)blob_sz);
     free(b64_str);
     if (blob_n <= 0) { free(blob); BN_free(outer.n); BN_free(outer.e); return 0; }
@@ -656,10 +658,10 @@ int run_no_so_pipeline(*uint8 combined, int64 combined_len,
     let buf2: *uint8 = combined + 688;
 
     // Parse AES keys from hex constants
-    let k1: *uint8 = alloc(uint8, 32);  hex_key(NS_AES_KEY1, k1, 32);
-    let v1: *uint8 = alloc(uint8, 16);  hex_key(NS_AES_IV1,  v1, 16);
-    let k2: *uint8 = alloc(uint8, 32);  hex_key(NS_AES_KEY2, k2, 32);
-    let v2: *uint8 = alloc(uint8, 16);  hex_key(NS_AES_IV2,  v2, 16);
+    let k1: *uint8 = alloc<uint8>(32);  hex_key(NS_AES_KEY1, k1, 32);
+    let v1: *uint8 = alloc<uint8>(16);  hex_key(NS_AES_IV1,  v1, 16);
+    let k2: *uint8 = alloc<uint8>(32);  hex_key(NS_AES_KEY2, k2, 32);
+    let v2: *uint8 = alloc<uint8>(16);  hex_key(NS_AES_IV2,  v2, 16);
 
     *void bnc = BN_CTX_new();
     if (bnc == null) { free(k1); free(v1); free(k2); free(v2); return -1; }
@@ -681,7 +683,7 @@ int run_no_so_pipeline(*uint8 combined, int64 combined_len,
     free(k1); free(v1); free(k2); free(v2);
 
     // Stage A: RSA-decrypt buf2[0:1024] with key2
-    let raw_a: *uint8 = alloc(uint8, (int64)key2.ks);
+    let raw_a: *uint8 = alloc<uint8>((int64)key2.ks);
     rsa_single(buf2, 1024, key2.n, key2.e, key2.ks, raw_a, bnc);
     BN_free(key2.n); BN_free(key2.e);
 
@@ -698,11 +700,11 @@ int run_no_so_pipeline(*uint8 combined, int64 combined_len,
         printf("[!] Stage B: not enough bytes\n");
         free(dbuf); BN_free(key4.n); BN_free(key4.e); BN_CTX_free(bnc); return -1;
     }
-    let stk: *uint8 = alloc(uint8, 1024);
+    let stk: *uint8 = alloc<uint8>(1024);
     memcpy(stk,       buf1, 688);
     memcpy(stk + 688, dbuf, 1024 - 688);
 
-    let raw_b: *uint8 = alloc(uint8, (int64)key4.ks);
+    let raw_b: *uint8 = alloc<uint8>((int64)key4.ks);
     rsa_single(stk, 1024, key4.n, key4.e, key4.ks, raw_b, bnc);
     BN_free(key4.n); BN_free(key4.e); BN_CTX_free(bnc);
     free(stk);
@@ -719,7 +721,7 @@ int run_no_so_pipeline(*uint8 combined, int64 combined_len,
     int64 tail_off = 1024 - 688;
     if (dbuf_len < tail_off) { free(inner); free(dbuf); return -1; }
     int64 work_len = inner_len + (dbuf_len - tail_off);
-    let work: *uint8 = alloc(uint8, work_len);
+    let work: *uint8 = alloc<uint8>(work_len);
     memcpy(work,             inner, (int)inner_len);
     memcpy(work + inner_len, dbuf + tail_off, (int)(dbuf_len - tail_off));
     free(inner); free(dbuf);
@@ -732,7 +734,7 @@ int run_no_so_pipeline(*uint8 combined, int64 combined_len,
     int64 ds      = b0 + 0x44;
     if (ds + text_in + 8 > work_len) { free(work); return -1; }
 
-    let text_bytes: *uint8 = alloc(uint8, text_in * 8 / 6 + 2);
+    let text_bytes: *uint8 = alloc<uint8>(text_in * 8 / 6 + 2);
     int64 text_len = decode_6bit(work + ds, text_in, text_bytes);
 
     int64 post = ds + text_in;
@@ -746,13 +748,13 @@ int run_no_so_pipeline(*uint8 combined, int64 combined_len,
         if (work_len > img_off) { img_count = work_len - img_off; } else { img_count = 0; }
 
     int64 img_len = img_count + 23;
-    let img: *uint8 = alloc(uint8, img_len);
+    let img: *uint8 = alloc<uint8>(img_len);
     reconstruct_webp(work + img_off, img_count, img);
     free(work);
 
     // Assemble: [text_len:u16 BE][text][img_len:u16 BE][img]
     int64 total = 2 + text_len + 2 + img_len;
-    let result: *uint8 = alloc(uint8, total);
+    let result: *uint8 = alloc<uint8>(total);
     result[0] = (uint8)((text_len >> 8) & 0xFF);
     result[1] = (uint8)(text_len & 0xFF);
     memcpy(result + 2, text_bytes, (int)text_len);

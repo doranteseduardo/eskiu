@@ -33,7 +33,7 @@ The project follows two phases:
 | Lambdas (`int(int x) { return x*2; }`) and `fn(T)->R` function pointer types | ✅ |
 | Negative literals — `-1`, `-3.14` as first-class values | ✅ |
 | C FFI — extern, variadic, sret on arm64 | ✅ |
-| alloc/free, rich mutable `String` (push, char access, eq, index_of, substring, reverse, int conversion) | ✅ |
+| `alloc<T>(n)` / `free` via `import <mem>` (stdlib, not keywords as of v0.2.0), rich mutable `String` (push, char access, eq, index_of, substring, reverse, int conversion) | ✅ |
 | List\<T\> with auto-resize | ✅ |
 | for-in / for-each — `for (x in arr)` and `for (x in list)` | ✅ |
 | `?` error-propagation operator for `Result<T,E>` | ✅ |
@@ -44,6 +44,7 @@ The project follows two phases:
 | volatile — for memory-mapped I/O | ✅ |
 | const — immutable typed bindings, usable as array sizes (v0.2.0) | ✅ |
 | `alloc_with(&a, T, n)` + `<alloc>` (Bump/Arena/Pool/FirstFit) — caller-buffer allocators, libc-free (v0.2.0) | ✅ |
+| Nested template instantiation — a template calling another with the type param forwarded (`alloc<T>(n)` inside `List_push<T>`) (v0.2.0) | ✅ |
 | Closures — capturing variables from the enclosing scope | ✅ |
 | Threads — `thread_create`/`thread_join` primitives | ✅ |
 | Exceptions — try/catch/finally/throw | ✅ |

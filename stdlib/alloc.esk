@@ -4,7 +4,7 @@
 // straight into `alloc_with(&a, T, count)`. Because they manage memory the
 // caller hands them, they work under `--freestanding` with no libc malloc.
 //
-//   *uint8 backing = alloc(uint8, 4096);
+//   *uint8 backing = alloc<uint8>(4096);
 //   let a: Bump;  Bump_init(&a, backing, 4096);
 //   *int xs = alloc_with(&a, int, 16);
 

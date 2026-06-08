@@ -1,3 +1,5 @@
+import <mem>;
+
 extern int printf(string fmt, ...);
 
 // Minimal bump allocator over a caller-provided buffer.
@@ -14,7 +16,7 @@ struct Bump {
 }
 
 int main() {
-    *uint8 backing = alloc(uint8, 1024);
+    *uint8 backing = alloc<uint8>(1024);
     let a: Bump;
     a.buf = backing; a.cap = 1024; a.off = 0;
 

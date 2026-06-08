@@ -74,7 +74,7 @@ struct  packed  interface  fn  extern  import
 if  else  for  while  in  switch  case  default
 return  break  continue
 true  false  null
-alloc  free
+alloc_with
 const  volatile  asm
 thread_create  thread_join
 try  catch  finally  throw
@@ -438,14 +438,14 @@ int val = 42;
 Adding or subtracting an integer `n` from a pointer of type `*T` advances the pointer by `n * sizeof(T)` bytes (typed GEP). This matches C semantics: `p + 1` moves to the next element, not the next byte.
 
 ```eskiu
-*int  pi = alloc(int, 8);
+*int  pi = alloc<int>(8);
 *int  p2 = pi + 1;   // 4 bytes forward — points to element 1
 ```
 
 The exceptions are `*void` and `*char`, which always use byte-level stride (1 byte per step) to preserve C interop semantics:
 
 ```eskiu
-*uint8 buf = alloc(uint8, 1024);
+*uint8 buf = alloc<uint8>(1024);
 *uint8 mid = buf + 512;    // 512 bytes into the buffer
 *uint8 back = mid - 512;   // back to start
 ```
@@ -1016,7 +1016,7 @@ type u8      = uint8;
 type Bytes   = *uint8;
 type IntList = List<int>;
 
-let buf: Bytes = alloc(u8, 16);
+let buf: Bytes = alloc<u8>(16);
 ```
 
 `type` is contextual — it is only a keyword in the form `type Name = ...;`, so it remains usable as an ordinary identifier elsewhere.
@@ -1230,35 +1230,39 @@ int main() {
 
 ### 11.2 Heap Allocation
 
-`alloc(T, N)` allocates space for `N` elements of type `T` and returns a `*T`. In hosted mode (the default) this calls `malloc(N * sizeof(T))`. In freestanding mode (see §11.5) it calls `esk_alloc` instead.
+Heap allocation lives in the standard library, not the language core: `import <mem>` brings in `alloc<T>` and `free`.
 
-`free(ptr)` deallocates a heap-allocated pointer. In hosted mode this calls `free(ptr)`. In freestanding mode it calls `esk_free`.
+`alloc<T>(N)` allocates space for `N` elements of type `T` and returns a `*T`. In hosted mode (the default) it calls `malloc(N * sizeof(T))`. Under `--freestanding` (see §11.5) it calls the user-provided `esk_alloc` instead — the same source, selected at compile time via the `__ESKIU_FREESTANDING__` macro.
+
+`free(ptr)` releases a heap-allocated pointer (libc `free` hosted, `esk_free` freestanding). It takes a `*void`; any pointer type coerces.
 
 ```eskiu
-*uint8 buf = alloc(uint8, 1024);
+import <mem>;
+
+*uint8 buf = alloc<uint8>(1024);
 // ... use buf ...
 free(buf);
 ```
 
-Every allocation must be paired with exactly one `free`. Double-free and use-after-free are undefined behaviour.
+`alloc<T>`/`free` are ordinary generic stdlib functions — there is no `alloc` keyword. (`alloc_with`, the explicit-allocator primitive, *is* a built-in; see §11.5.) Every allocation must be paired with exactly one `free`. Double-free and use-after-free are undefined behaviour.
 
 ### 11.3 Pointer Arithmetic
 
 Pointer arithmetic is typed: `p + n` on a `*T` pointer advances by `n * sizeof(T)` bytes. `*void` and `*char` are byte-level (stride 1).
 
 ```eskiu
-*uint8 buf = alloc(uint8, 256);
+*uint8 buf = alloc<uint8>(256);
 *uint8 ptr = buf + 64;    // 64 bytes from start
 *uint8 back = ptr - 32;   // 32 bytes back
 
-*int pi = alloc(int, 8);
+*int pi = alloc<int>(8);
 *int  p2 = pi + 1;        // 4 bytes forward — next int element
 ```
 
 The subscript operator `ptr[i]` reads or writes the `i`-th element and is exactly equivalent to `*(ptr + i)` (typed by the pointee). It is the idiomatic way to index allocated buffers and array fields:
 
 ```eskiu
-*int xs = alloc(int, 4);
+*int xs = alloc<int>(4);
 xs[0] = 10;
 xs[3] = xs[0] * 2;        // same as *(xs + 3) = *(xs + 0) * 2
 ```
@@ -1276,14 +1280,14 @@ Dereferencing `null` is undefined behaviour. The compiler does not insert null c
 
 ### 11.5 Freestanding Mode
 
-Passing `--freestanding` to the compiler switches the allocator ABI:
+Passing `--freestanding` predefines the macro `__ESKIU_FREESTANDING__`, which `<mem>` uses to switch the allocation backend:
 
-| Built-in | Hosted (default) | Freestanding (`--freestanding`) |
-|----------|------------------|---------------------------------|
-| `alloc`  | calls `malloc`   | calls `esk_alloc`               |
-| `free`   | calls `free`     | calls `esk_free`                |
+| `<mem>` function | Hosted (default) | Freestanding (`--freestanding`) |
+|------------------|------------------|---------------------------------|
+| `alloc<T>(n)`    | `malloc`         | `esk_alloc`                     |
+| `free(p)`        | `free`           | `esk_free`                      |
 
-In freestanding mode the user must provide `esk_alloc` and `esk_free` in their own code (typically in a kernel or bare-metal runtime). The compiler emits `declare` stubs for both symbols; the linker resolves them from the user-supplied object file.
+In freestanding mode the user must provide `esk_alloc` and `esk_free` in their own code (typically in a kernel or bare-metal runtime); `<mem>` declares them `extern` and the linker resolves them from the user-supplied object file. Code that needs heap allocation still just writes `import <mem>` and calls `alloc<T>`/`free` — the same source compiles for both modes.
 
 ```eskiu
 // user-provided in kernel.esk or a C shim
@@ -1298,7 +1302,7 @@ Freestanding mode does not remove any other language features. The standard libr
 ```eskiu
 import <alloc>;
 
-*uint8 backing = alloc(uint8, 4096);   // one slab from the host (or a static buffer in freestanding)
+*uint8 backing = alloc<uint8>(4096);   // one slab from the host (or a static buffer in freestanding)
 let a: Bump;  Bump_init(&a, backing, 4096);
 *int xs = alloc_with(&a, int, 16);     // 16 ints carved from the slab — no per-object malloc
 ```
@@ -1409,7 +1413,7 @@ extern *void memcpy(*void dst, *void src, int n);
 extern *void memset(*void ptr, int value, int n);
 ```
 
-(`alloc` and `free` are built-in keywords — see §11 — so there is no need, and it is not permitted, to declare `free` as an `extern`.)
+(For heap allocation, prefer `import <mem>` and `alloc<T>`/`free` over declaring `malloc`/`free` as `extern` yourself — see §11.2.)
 
 ---
 
@@ -1424,7 +1428,7 @@ Eskiu ships a set of standard library files in the `stdlib/` directory. Import t
 | `stdlib/string.esk`   | `String` struct; `String_init`, `String_from`, `String_append`, `String_concat`, `String_push`, `String_char_at`, `String_set`, `String_clear`, `String_index_of`, `String_eq`, `String_eq_cstr`, `String_reverse`, `String_substring`, `String_from_int`, `String_to_int`, `String_cstr`, `String_len`, `String_free` |
 | `stdlib/math.esk`     | `extern` declarations for `sqrt`, `fabs`, `pow`, `floor`, `ceil`, `abs` |
 | `stdlib/io.esk`       | `extern` declarations for `printf`, `fprintf`, `sprintf`, `scanf`, `puts` |
-| `stdlib/mem.esk`      | `extern` declarations for `memcpy`, `memset`, `memmove`, `memcmp`, `strlen` |
+| `stdlib/mem.esk`      | Heap allocation `alloc<T>(n)` / `free(p)` (libc, or `esk_alloc`/`esk_free` under `--freestanding`); plus `extern` `memcpy`, `memset`, `memmove`, `memcmp`, `strlen` |
 | `stdlib/fs.esk`       | File I/O: `fs_open`, `fs_close`, `fs_flush`, `fs_read`, `fs_readline`, `fs_write`, `fs_puts`, `fs_seek`, `fs_tell`, `fs_size`, `fs_read_all`, `fs_write_all`, `fs_eof`, `fs_error` |
 | `stdlib/net.esk`      | TCP sockets: `net_tcp_listen`, `net_accept`, `net_tcp_connect`, `net_send`, `net_recv`, `net_send_str`, `net_close` (plus the raw POSIX `extern`s and a portable `sockaddr_in`) |
 | `stdlib/alloc.esk`    | Allocators over caller-provided memory for `alloc_with` (see §11.5): `Bump`, `Arena`, `Pool`, `FirstFit` — each with `_init`/`_alloc` (and `_free`/`_reset`/`_save`/`_restore` as applicable) |
@@ -1514,7 +1518,7 @@ int main() {
     if (fd < 0) { return 1; }
     printf("listening on :8080\n");
 
-    *uint8 req = alloc(uint8, 4096);
+    *uint8 req = alloc<uint8>(4096);
     while (1) {
         int c = net_accept(fd);               // blocking accept
         if (c < 0) { continue; }

@@ -3,6 +3,8 @@
 // Orchestrates the three pipeline stages, collects timing, and writes output.
 // All pipeline logic lives in pipeline.esk; this file handles I/O only.
 
+import <mem>;
+
 import "pipeline.esk";
 
 string IMAGE_PATH = "/Users/dorantes/Documents/Eduardo/ine-qr-analysis/IMG_8372.HEIC";

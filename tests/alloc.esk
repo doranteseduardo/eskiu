@@ -1,8 +1,10 @@
+import <mem>;
+
 import <alloc>;
 extern int printf(string fmt, ...);
 
 int main() {
-    *uint8 backing = alloc(uint8, 4096);
+    *uint8 backing = alloc<uint8>(4096);
 
     // Bump
     let b: Bump; Bump_init(&b, backing, 4096);

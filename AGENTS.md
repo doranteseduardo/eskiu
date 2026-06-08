@@ -39,7 +39,7 @@ On macOS, set `LLVM_DIR=$(brew --prefix llvm)/lib/cmake/llvm` if cmake cannot fi
 ./build/eskiuc file.esk --hover-at LINE:COL     # type at cursor position
 ./build/eskiuc file.esk --definition-at LINE:COL  # definition location
 ./build/eskiuc file.esk --target TRIPLE         # cross-compile
-./build/eskiuc file.esk --freestanding          # no libc (esk_alloc/esk_free)
+./build/eskiuc file.esk --freestanding          # no libc; predefines __ESKIU_FREESTANDING__ (<mem> targets esk_alloc/esk_free)
 ```
 
 Use `examples/` and `tests/` as inputs. Add a `.esk` file for any feature you implement.
@@ -88,9 +88,10 @@ All items below are implemented and tested end-to-end.
 | Inline assembly | `asm("cli")` simple; `asm("op" :: "r"(x) : "mem")` extended |
 | `volatile` | `volatile let reg: *uint8 = addr;` — MMIO-safe |
 | `const` | `const T x` / `const let x: T` — immutable; sema requires an initializer and rejects reassignment (`Symbol::isConst`/`isConstSymbol`). const ints resolve as array dimensions via `constInts` + `resolveArrayDim` (also accepts literals and enum members) |
-| `alloc_with` / `<alloc>` | `alloc_with(&a, T, n)` (`AllocWithExpr`) lowers to `(*T)<Type>_alloc(&a, n*sizeof(T))`. `stdlib/alloc.esk` ships `Bump`/`Arena`/`Pool`/`FirstFit` over caller-provided buffers (libc-free, freestanding-friendly) |
+| `alloc<T>` / `free` | **Stdlib, not keywords** — `import <mem>`. `alloc<T>(n)` is a generic fn wrapping `malloc`/`esk_alloc`; `free(*void)` wraps `free`/`esk_free`. `<mem>` picks the backend via `#ifdef __ESKIU_FREESTANDING__`. `<mem>` is the **only** stdlib file that names the libc symbol; everything else uses `alloc<T>`/`free` |
+| `alloc_with` / `<alloc>` | `alloc_with(&a, T, n)` (`AllocWithExpr`) is still a built-in keyword — it needs the compiler to resolve `<Type>_alloc` from the allocator's static type. Lowers to `(*T)<Type>_alloc(&a, n*sizeof(T))`. `stdlib/alloc.esk` ships `Bump`/`Arena`/`Pool`/`FirstFit` over caller-provided buffers (libc-free) |
 | Cross-compilation | `--target TRIPLE` (AArch64 and X86 backends included) |
-| Freestanding | `--freestanding` — `alloc`/`free` call `esk_alloc`/`esk_free` |
+| Freestanding | `--freestanding` predefines `__ESKIU_FREESTANDING__`; `<mem>`'s `alloc<T>`/`free` then target `esk_alloc`/`esk_free` |
 | Negative literals | `-1`, `-3.14` as first-class primary expressions |
 | argv / argc | `int main(int argc, string* argv)` |
 | Multi-file compile | `eskiuc a.esk b.esk -o prog` — declarations from all inputs are merged into one program |
@@ -152,6 +153,8 @@ All items below are implemented and tested end-to-end.
 **Inline assembly:** Uses `llvm::InlineAsm::get` with `AD_ATT` dialect. Operand references use `$0`, `$1` (LLVM IR syntax, not `%0` GCC syntax). Inside try bodies, asm statements are not converted to `invoke` — asm is assumed not to throw.
 
 **Cross-compilation:** When `targetTriple != ""` and differs from native, the CPU is set to `"generic"` to avoid host CPU features leaking into the cross-compiled object.
+
+**Nested template instantiation (a template calling another with the param forwarded, e.g. `alloc<T>(n)` inside `List_push<T>`):** in `visit(TemplateCallExpr)`, resolve each explicit type arg through the active `typeParamOverride` before mangling/instantiating (`alloc<T>` inside `List_push<int>` must become `alloc_int`, not `alloc_T` → i32). And **save/restore** `typeParamOverride` around the inner instantiation rather than `clear()`ing it — clearing wipes the enclosing template's substitutions, so the outer body's `sizeof(T)`/param types silently revert to i32 after the inner call returns.
 
 **Member access through a pointer base (`p.x` where `p: *T`):** the struct base is the *pointer value*, not the variable's storage. In both `evaluateLValue` and `visit(MemberExpr)`, compute it as `baseIsPtr ? evaluateExpr(base) : evaluateLValue(base)`, where `baseIsPtr` is detected from a leading/trailing `*` in `getExprEskiuType(base)`. Using `evaluateLValue` unconditionally GEPs from the local's `alloca` (the pointer's address) instead of the pointee, silently corrupting the variable — pointer *parameters* (e.g. `self`) happen to work because params are raw values, not allocas, which is why this only bit local `*T` vars. `getExprEskiuType` must also handle `CastExpr` (returns the cast's target type) so `(*T)x.field` and pointer-arith stride resolve correctly.
 

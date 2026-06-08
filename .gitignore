@@ -29,3 +29,4 @@ eskiuc.exe
 *.tmp
 *.log
 
+ine_decoder/qr_decoder

@@ -5,6 +5,8 @@
 //   [text_len:u16 BE][text_bytes:text_len][img_len:u16 BE][img_bytes:img_len]
 // text_bytes are 6-bit coded values indexing into the Spanish character table.
 
+import <mem>;
+
 import "types.esk";
 import "extern.esk";
 
@@ -60,7 +62,7 @@ void buf_push(**char buf_ptr, *int64 pos_ptr, *int64 cap_ptr,
     int64 cap = cap_ptr[0];
     if (pos + n + 1 > cap) {
         int64 nc = (cap + n + 1) * 2;
-        let nb: *char = alloc(char, nc);
+        let nb: *char = alloc<char>(nc);
         memcpy(nb, buf_ptr[0], (int)pos);
         free(buf_ptr[0]);
         buf_ptr[0] = nb;
@@ -97,7 +99,7 @@ int decode_to_buffers(*uint8 payload, int64 pay_len,
     let idata: *uint8 = payload + ioff + 2;
 
     // Decode text bytes through character table → raw UTF-8 text
-    let text: *char = alloc(char, tlen * 3 + 1);
+    let text: *char = alloc<char>(tlen * 3 + 1);
     int64 tp = 0;
     int64 i = 0;
     while (i < tlen) {
@@ -115,13 +117,13 @@ int decode_to_buffers(*uint8 payload, int64 pay_len,
     text[tp] = 0;
 
     // Split on '|' into field values
-    let fv: *char = alloc(char, tp + 1);
+    let fv: *char = alloc<char>(tp + 1);
     memcpy(fv, text, (int)tp + 1);
     free(text);
 
     // Count and locate fields (in-place: replace '|' with '\0')
     int nf = 0;
-    let starts: *int64 = alloc(int64, 24);
+    let starts: *int64 = alloc<int64>(24);
     starts[0] = 0;
     nf = 1;
     int64 fi = 0;
@@ -135,7 +137,7 @@ int decode_to_buffers(*uint8 payload, int64 pay_len,
     }
 
     // Build JSON
-    let jbuf: *char = alloc(char, 4096);
+    let jbuf: *char = alloc<char>(4096);
     int64 jpos = 0;
     int64 jcap = 4096;
     let jbuf_ptr: **char = &jbuf;
@@ -173,7 +175,7 @@ int decode_to_buffers(*uint8 payload, int64 pay_len,
     // Copy WebP
     let webp: *uint8 = null;
     if (ilen > 0) {
-        webp = alloc(uint8, ilen);
+        webp = alloc<uint8>(ilen);
         memcpy(webp, idata, (int)ilen);
     }
 

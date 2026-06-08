@@ -22,7 +22,7 @@ extern int   EVP_DecryptUpdate(*void ctx, *uint8 out, *int outl, *uint8 inp, int
 extern int   EVP_DecryptFinal_ex(*void ctx, *uint8 out, *int outl);
 extern int   fclose(*void fp);
 extern int   fwrite(*void buf, int size, int count, *void fp);
-// `free` is a built-in Eskiu keyword (free(ptr)); no extern declaration needed.
+// `free` comes from <mem> (imported by the modules that use it); not a keyword.
 extern int64 clock();
 
 // ── String utilities ─────────────────────────────────────────────────────────

@@ -26,7 +26,6 @@ void MemberExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void CastExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void LiteralExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void IdentExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
-void AllocExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void AllocWithExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void InterfaceDecl::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void ContinueStmt::accept(ASTVisitor* visitor) { visitor->visit(this); }
