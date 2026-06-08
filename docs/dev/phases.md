@@ -98,10 +98,30 @@ needs. v0.1.0 is frozen at its tag; v0.2.0 is developed as incremental commits.
 
 Nothing below is started yet. Tracking checklist:
 
-**Language**
+The checklist is grouped into execution phases (not just categories): Phase 1
+unblocks real projects, Phase 2 builds the async/HTTP stack on top of it, and
+Phase 3 rounds out ergonomics and tooling.
+
+**Phase 1 — Unblock real projects**
 - [ ] `const` — typed, scoped constants, usable as array sizes
+- [ ] `alloc_with(&allocator, T, n)` — explicit-allocator form alongside the built-in `alloc`
+- [ ] `<alloc>` — first-fit general-purpose allocator (after Ken Thompson's original), plus Arena, Pool, and Bump, all over `alloc_with`. A libc-free foundation for `--freestanding` (no dependency on libc `malloc`)
+- [ ] `<threading>` — mutex, condvar, semaphore over pthread
+- [ ] `<http>` — HTTP/1.1 parser + response builder + worker pool
+- [ ] `<base64>` — encode / decode
+- [ ] `<json>` — minimal builder
+- [ ] `<time>` — timestamp, sleep, monotonic clock
+- [ ] `<env>` — environment variables and CLI arguments
+
+**Phase 2 — Build on Phase 1**
 - [ ] `async` / `await` — keywords + state-machine codegen
 - [ ] `Future<T>` in the stdlib
+- [ ] `<eventloop>` — general-purpose reactor over epoll (Linux) / kqueue (macOS). A shared foundation for async/await, HTTP, and the future UI framework, designed from the start to dispatch any kind of event (sockets, frames, input), not just network I/O
+- [ ] `<http_async>` — non-blocking HTTP/1.1 over the event loop
+- [ ] `<string>` — `split`, `trim`, `starts_with`, `ends_with`
+- [ ] `<path>` — path manipulation
+
+**Phase 3 — Ergonomics and tooling**
 - [ ] `for (i in 0..10)` — native ranges (builds on the existing `for`-`in`)
 - [ ] User-defined variadic functions
 - [ ] `__FILE__` and `__LINE__` in the preprocessor
@@ -109,21 +129,6 @@ Nothing below is started yet. Tracking checklist:
 - [ ] `#pragma pack(N)` with N > 1 (v0.1.0 honours `pack(1)` only)
 - [ ] `-Wextra` — signed/unsigned mismatches, implicit conversions
 - [ ] Shebang support — `#!/usr/bin/env eskiuc run`
-
-**Standard library**
-- [ ] `<alloc>` — allocators built on a shared `alloc_with` primitive: a first-fit general-purpose allocator (after Ken Thompson's original allocator), plus Arena, Pool, and Bump. A libc-free foundation for `--freestanding` (no dependency on libc `malloc`)
-- [ ] `<eventloop>` — general-purpose reactor over epoll (Linux) / kqueue (macOS). A shared foundation for async/await, HTTP, and the future UI framework, designed from the start to dispatch any kind of event (sockets, frames, input), not just network I/O
-- [ ] `<threading>` — mutex, condvar, semaphore over pthread
-- [ ] `<http>` — HTTP/1.1 parser + response builder + worker pool
-- [ ] `<http_async>` — non-blocking HTTP/1.1 over the event loop
-- [ ] `<base64>` — encode / decode
-- [ ] `<json>` — minimal builder
-- [ ] `<string>` — `split`, `trim`, `starts_with`, `ends_with`
-- [ ] `<path>` — path manipulation
-- [ ] `<time>` — timestamp, sleep, monotonic clock
-- [ ] `<env>` — environment variables and CLI arguments
-
-**Tooling**
 - [ ] Package manager — dependency resolution, registry, build integration
 - [ ] `eskiuc run file.esk` — compile and execute without leaving a binary
 - [ ] `eskiuc fmt` — formatter
@@ -133,11 +138,6 @@ Nothing below is started yet. Tracking checklist:
 - [ ] Formal, complete BNF grammar
 - [ ] Documented ABI
 - [ ] `__FILE__` / `__LINE__` reference (once implemented)
-
-**Dependency ordering.** `async`/`await` → `<eventloop>` → `<http_async>`; the
-synchronous `<http>` only needs `<net>` (done) + `<threading>` + `<string>`
-helpers. The pure-stdlib modules (`<string>`, `<base64>`, `<env>`, `<time>`,
-`<path>`, `<json>`) need no compiler changes and can land first.
 
 ### v0.3 — Self-hosting prerequisites
 
