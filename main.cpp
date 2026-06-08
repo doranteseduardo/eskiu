@@ -127,6 +127,12 @@ static std::string readFile(const std::string& filename) {
     return buffer.str();
 }
 
+// Directory portion of a path, or "." if there is no slash.
+static std::string dirOf(const std::string& path) {
+    size_t slash = path.rfind('/');
+    return slash == std::string::npos ? "." : path.substr(0, slash);
+}
+
 static bool endsWith(const std::string& s, const std::string& suffix) {
     return s.size() >= suffix.size() &&
            s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0;
@@ -222,7 +228,7 @@ static int testTypeChecker(const std::string& filename) {
     try {
         // Parse
         Parser parser(tokens);
-        parser.stdlibPath = stdlibRoot; parser.basedir = std::string(InputFilename).rfind("/") != std::string::npos ? std::string(InputFilename).substr(0, std::string(InputFilename).rfind("/")) : ".";
+        parser.stdlibPath = stdlibRoot; parser.basedir = dirOf(std::string(InputFilename));
         auto program = parser.parse();
 
         if (!program) {
@@ -270,7 +276,7 @@ static void testCodegen(const std::string& filename) {
     try {
         // Parse
         Parser parser(tokens);
-        parser.stdlibPath = stdlibRoot; parser.basedir = std::string(InputFilename).rfind("/") != std::string::npos ? std::string(InputFilename).substr(0, std::string(InputFilename).rfind("/")) : ".";
+        parser.stdlibPath = stdlibRoot; parser.basedir = dirOf(std::string(InputFilename));
         auto program = parser.parse();
         if (!program) {
             std::cerr << "Parse failed!" << std::endl;
@@ -326,7 +332,7 @@ static void testParser(const std::string& filename) {
         // Parse
         std::cout << "Creating parser..." << std::endl;
         Parser parser(tokens);
-        parser.stdlibPath = stdlibRoot; parser.basedir = std::string(InputFilename).rfind("/") != std::string::npos ? std::string(InputFilename).substr(0, std::string(InputFilename).rfind("/")) : ".";
+        parser.stdlibPath = stdlibRoot; parser.basedir = dirOf(std::string(InputFilename));
 
         std::cout << "Calling parser.parse()..." << std::endl;
         auto program = parser.parse();
@@ -401,8 +407,7 @@ int main(int argc, char** argv) {
         tokens.push_back(t);
         try {
             Parser parser(tokens);
-            parser.stdlibPath = stdlibRoot; parser.basedir = std::string(InputFilename).rfind("/") != std::string::npos
-                ? std::string(InputFilename).substr(0, std::string(InputFilename).rfind("/")) : ".";
+            parser.stdlibPath = stdlibRoot; parser.basedir = dirOf(std::string(InputFilename));
             auto program = parser.parse();
             if (!program) { std::cout << "(parse error)\n"; return 0; }
             TypeChecker tc;
@@ -429,8 +434,7 @@ int main(int argc, char** argv) {
         tokens.push_back(t);
         try {
             Parser parser(tokens);
-            parser.stdlibPath = stdlibRoot; parser.basedir = std::string(InputFilename).rfind("/") != std::string::npos
-                ? std::string(InputFilename).substr(0, std::string(InputFilename).rfind("/")) : ".";
+            parser.stdlibPath = stdlibRoot; parser.basedir = dirOf(std::string(InputFilename));
             auto program = parser.parse();
             if (!program) { std::cout << "(parse error)\n"; return 0; }
             TypeChecker tc;
@@ -484,8 +488,7 @@ int main(int argc, char** argv) {
 
             Parser parser(tokens);
             parser.stdlibPath = stdlibRoot;
-            size_t slash = fname.rfind("/");
-            parser.basedir = slash != std::string::npos ? fname.substr(0, slash) : ".";
+            parser.basedir = dirOf(fname);
             parser.importedFiles = &importedFiles;
             parser.macros = &macros;
             auto prog = parser.parse();
