@@ -60,9 +60,17 @@ public:
     void visit(EnumDecl* node) override;
     void visit(TypeAliasDecl* node) override;
 
-public:
     // -Wall: emit lint-style warnings (unused vars/params/functions, etc.)
     bool warnAll = false;
+
+    // --- LSP / tooling interface (consumed by --hover-at / --definition-at) ---
+    std::string sourceFile = "unknown";   // source file name (for error messages)
+    std::string getTypeAtPosition(int line, int col) const;
+    struct DefLocation { int line; int col; std::string file; };
+    std::map<std::string, DefLocation> definitionLocations;
+    // Use-site map: (line,col) → symbol name (populated from IdentExpr visits)
+    std::map<std::pair<int,int>, std::string> useLocations;
+    std::string getDefinitionAt(int line, int col) const;
 
 private:
     // Symbol table: maps name -> type
@@ -157,22 +165,6 @@ private:
     bool hasPointerSuffix(const std::string& type) const;
     std::string extractBaseType(const std::string& pointerType) const;
     std::string addPointerSuffix(const std::string& baseType) const;
-
-public:
-    // Source file name (for error messages)
-    std::string sourceFile = "unknown";
-
-    // Find the Eskiu type of the expression nearest to (line, col)
-    std::string getTypeAtPosition(int line, int col) const;
-
-    // Definition location: (line, col, file)
-    struct DefLocation { int line; int col; std::string file; };
-    std::map<std::string, DefLocation> definitionLocations;
-    // Use-site map: (line,col) → symbol name (populated from IdentExpr visits)
-    std::map<std::pair<int,int>, std::string> useLocations;
-    std::string getDefinitionAt(int line, int col) const;
-
-private:
 
     // Error reporting
     void error(int line, int col, const std::string& message);
