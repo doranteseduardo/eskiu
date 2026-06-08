@@ -266,6 +266,7 @@ std::vector<DeclPtr> Parser::parseProgram() {
                     Token t = lexer.next_token();
                     while (t.type != TokenType::EOF_TOKEN) { itoks.push_back(t); t = lexer.next_token(); }
                     itoks.push_back(t);
+                    if (lexer.hadError) hadError = true;  // propagate lexical errors from the import
 
                     Parser sub(itoks);
                     size_t slash = fullPath.rfind('/');

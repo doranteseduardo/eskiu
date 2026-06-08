@@ -214,6 +214,7 @@ static int testTypeChecker(const std::string& filename) {
         tok = lexer.next_token();
     }
     tokens.push_back(tok);
+    if (lexer.hadError) return 1;
 
     std::cout << "Type checking: " << filename << std::endl;
     std::cout << "========================================================" << std::endl;
@@ -479,6 +480,7 @@ int main(int argc, char** argv) {
                 tok = lexer.next_token();
             }
             tokens.push_back(tok);
+            if (lexer.hadError) return 1;
 
             Parser parser(tokens);
             parser.stdlibPath = stdlibRoot;

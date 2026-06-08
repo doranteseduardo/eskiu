@@ -416,16 +416,20 @@ void Lexer::skip_comment() {
         }
     } else if (peek() == '/' && peek_next() == '*') {
         // Multi-line comment
+        int start_line = line, start_col = column;
         advance(); // /
         advance(); // *
+        bool closed = false;
         while (!is_at_end()) {
             if (peek() == '*' && peek_next() == '/') {
                 advance(); // *
                 advance(); // /
+                closed = true;
                 break;
             }
             advance();
         }
+        if (!closed) lexError(start_line, start_col, "unterminated block comment");
     }
 }
 
@@ -469,6 +473,11 @@ Token Lexer::read_number() {
     return Token(TokenType::INT_LIT, num, start_line, start_col);
 }
 
+void Lexer::lexError(int errLine, int errCol, const std::string& msg) {
+    std::cerr << "error: " << errLine << ":" << errCol << ": " << msg << std::endl;
+    hadError = true;
+}
+
 Token Lexer::read_string() {
     int start_line = line;
     int start_col = column;
@@ -494,7 +503,9 @@ Token Lexer::read_string() {
         }
     }
 
-    if (!is_at_end()) {
+    if (is_at_end()) {
+        lexError(start_line, start_col, "unterminated string literal");
+    } else {
         advance(); // consume closing "
     }
 
@@ -507,6 +518,15 @@ Token Lexer::read_char() {
     advance(); // consume opening '
 
     std::string ch;
+    if (is_at_end()) {
+        lexError(start_line, start_col, "unterminated character literal");
+        return Token(TokenType::CHAR_LIT, ch, start_line, start_col);
+    }
+    if (peek() == '\'') {
+        lexError(start_line, start_col, "empty character literal");
+        advance(); // consume closing '
+        return Token(TokenType::CHAR_LIT, ch, start_line, start_col);
+    }
     if (peek() == '\\') {
         advance();
         char escaped = advance();
@@ -522,6 +542,16 @@ Token Lexer::read_char() {
 
     if (!is_at_end() && peek() == '\'') {
         advance(); // consume closing '
+    } else {
+        // Unterminated, or more than one character before the closing quote.
+        bool unterminated = is_at_end() || peek() == '\n';
+        lexError(start_line, start_col,
+                 unterminated ? "unterminated character literal"
+                              : "character literal must contain a single character");
+        // Recover: skip to the closing ' (or end of line) so the rest of the
+        // malformed literal does not mis-lex into stray tokens.
+        while (!is_at_end() && peek() != '\'' && peek() != '\n') advance();
+        if (!is_at_end() && peek() == '\'') advance();
     }
 
     return Token(TokenType::CHAR_LIT, ch, start_line, start_col);
