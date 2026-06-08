@@ -133,6 +133,28 @@ static std::string dirOf(const std::string& path) {
     return slash == std::string::npos ? "." : path.substr(0, slash);
 }
 
+// Load → lex → parse a single source file. Returns the parsed Program, or
+// nullptr on a lexical or parse error (a diagnostic is printed by the lexer or
+// parser). Shared by every single-file pipeline mode (parse/typecheck/codegen,
+// --hover-at, --definition-at).
+static std::shared_ptr<Program> loadProgram(const std::string& filename) {
+    std::string source = readFile(filename);
+    Lexer lexer(source);
+    std::vector<Token> tokens;
+    Token tok = lexer.next_token();
+    while (tok.type != TokenType::EOF_TOKEN) {
+        tokens.push_back(tok);
+        tok = lexer.next_token();
+    }
+    tokens.push_back(tok);
+    if (lexer.hadError) return nullptr;
+
+    Parser parser(tokens);
+    parser.stdlibPath = stdlibRoot;
+    parser.basedir = dirOf(filename);
+    return parser.parse();
+}
+
 static bool endsWith(const std::string& s, const std::string& suffix) {
     return s.size() >= suffix.size() &&
            s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0;
@@ -209,33 +231,16 @@ static void testLexer(const std::string& filename) {
 
 // Test type checker: tokenize, parse, type check, and report errors
 static int testTypeChecker(const std::string& filename) {
-    std::string source = readFile(filename);
-    Lexer lexer(source);
-
-    // Tokenize
-    std::vector<Token> tokens;
-    Token tok = lexer.next_token();
-    while (tok.type != TokenType::EOF_TOKEN) {
-        tokens.push_back(tok);
-        tok = lexer.next_token();
+    auto program = loadProgram(filename);
+    if (!program) {
+        std::cerr << "Parse failed!" << std::endl;
+        return 1;
     }
-    tokens.push_back(tok);
-    if (lexer.hadError) return 1;
 
     std::cout << "Type checking: " << filename << std::endl;
     std::cout << "========================================================" << std::endl;
 
     try {
-        // Parse
-        Parser parser(tokens);
-        parser.stdlibPath = stdlibRoot; parser.basedir = dirOf(std::string(InputFilename));
-        auto program = parser.parse();
-
-        if (!program) {
-            std::cerr << "Parse failed!" << std::endl;
-            return 1;
-        }
-
         // Type check
         TypeChecker typeChecker;
         typeChecker.sourceFile = filename;
@@ -258,31 +263,16 @@ static int testTypeChecker(const std::string& filename) {
 
 // Test codegen: tokenize, parse, generate LLVM IR, and print it
 static void testCodegen(const std::string& filename) {
-    std::string source = readFile(filename);
-    Lexer lexer(source);
-
-    // Tokenize
-    std::vector<Token> tokens;
-    Token tok = lexer.next_token();
-    while (tok.type != TokenType::EOF_TOKEN) {
-        tokens.push_back(tok);
-        tok = lexer.next_token();
+    auto program = loadProgram(filename);
+    if (!program) {
+        std::cerr << "Parse failed!" << std::endl;
+        return;
     }
-    tokens.push_back(tok);
 
     std::cout << "Generating LLVM IR: " << filename << std::endl;
     std::cout << "========================================================" << std::endl;
 
     try {
-        // Parse
-        Parser parser(tokens);
-        parser.stdlibPath = stdlibRoot; parser.basedir = dirOf(std::string(InputFilename));
-        auto program = parser.parse();
-        if (!program) {
-            std::cerr << "Parse failed!" << std::endl;
-            return;
-        }
-
         // Codegen
         CodeGen codegen;
         if (!TargetTriple.empty()) codegen.targetTriple = std::string(TargetTriple);
@@ -308,52 +298,20 @@ static void testCodegen(const std::string& filename) {
 
 // Test parser: tokenize, parse, and print AST
 static void testParser(const std::string& filename) {
-    std::string source = readFile(filename);
-    std::cout << "Source loaded: " << source.length() << " bytes" << std::endl;
-
-    Lexer lexer(source);
-
-    // Tokenize
-    std::vector<Token> tokens;
-    std::cout << "Starting tokenization..." << std::endl;
-    Token tok = lexer.next_token();
-    while (tok.type != TokenType::EOF_TOKEN) {
-        tokens.push_back(tok);
-        tok = lexer.next_token();
+    auto program = loadProgram(filename);
+    if (!program) {
+        std::cerr << "Parse failed!" << std::endl;
+        return;
     }
-    tokens.push_back(tok); // Add EOF token
-
-    std::cout << "Tokenization complete: " << tokens.size() << " tokens" << std::endl;
 
     std::cout << "Parsing: " << filename << std::endl;
     std::cout << "========================================================" << std::endl;
 
-    try {
-        // Parse
-        std::cout << "Creating parser..." << std::endl;
-        Parser parser(tokens);
-        parser.stdlibPath = stdlibRoot; parser.basedir = dirOf(std::string(InputFilename));
+    ASTPrinter printer;
+    printer.print(program);
 
-        std::cout << "Calling parser.parse()..." << std::endl;
-        auto program = parser.parse();
-        if (!program) {
-            std::cerr << "Parse failed!" << std::endl;
-            return;
-        }
-
-        std::cout << "Parse completed, creating AST printer..." << std::endl;
-
-        // Print AST
-        ASTPrinter printer;
-        std::cout << "Printing AST..." << std::endl;
-        printer.print(program);
-
-        std::cout << "========================================================" << std::endl;
-        std::cout << "Parse succeeded!" << std::endl;
-    } catch (const std::exception& e) {
-        std::cerr << "Parse error: " << e.what() << std::endl;
-        return;
-    }
+    std::cout << "========================================================" << std::endl;
+    std::cout << "Parse succeeded!" << std::endl;
 }
 
 int main(int argc, char** argv) {
@@ -399,17 +357,9 @@ int main(int argc, char** argv) {
         if (sscanf(HoverAt.c_str(), "%d:%d", &line, &col) != 2) {
             std::cerr << "error: --hover-at expects LINE:COL format\n"; return 1;
         }
-        std::string src = readFile(InputFilename);
-        Lexer lexer(src);
-        std::vector<Token> tokens;
-        Token t = lexer.next_token();
-        while (t.type != TokenType::EOF_TOKEN) { tokens.push_back(t); t = lexer.next_token(); }
-        tokens.push_back(t);
+        auto program = loadProgram(std::string(InputFilename));
+        if (!program) { std::cout << "(parse error)\n"; return 0; }
         try {
-            Parser parser(tokens);
-            parser.stdlibPath = stdlibRoot; parser.basedir = dirOf(std::string(InputFilename));
-            auto program = parser.parse();
-            if (!program) { std::cout << "(parse error)\n"; return 0; }
             TypeChecker tc;
             tc.sourceFile = std::string(InputFilename);
             tc.check(program.get());
@@ -426,17 +376,9 @@ int main(int argc, char** argv) {
         if (sscanf(DefinitionAt.c_str(), "%d:%d", &line, &col) != 2) {
             std::cerr << "error: --definition-at expects LINE:COL format\n"; return 1;
         }
-        std::string src = readFile(InputFilename);
-        Lexer lexer(src);
-        std::vector<Token> tokens;
-        Token t = lexer.next_token();
-        while (t.type != TokenType::EOF_TOKEN) { tokens.push_back(t); t = lexer.next_token(); }
-        tokens.push_back(t);
+        auto program = loadProgram(std::string(InputFilename));
+        if (!program) { std::cout << "(parse error)\n"; return 0; }
         try {
-            Parser parser(tokens);
-            parser.stdlibPath = stdlibRoot; parser.basedir = dirOf(std::string(InputFilename));
-            auto program = parser.parse();
-            if (!program) { std::cout << "(parse error)\n"; return 0; }
             TypeChecker tc;
             tc.sourceFile = std::string(InputFilename);
             tc.check(program.get());

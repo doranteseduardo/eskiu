@@ -240,6 +240,7 @@ std::string tokenTypeToString(TokenType type) {
         case TokenType::THREAD: return "THREAD";
         case TokenType::SPAWN: return "SPAWN";
         case TokenType::MUTEX: return "MUTEX";
+        case TokenType::SIZEOF: return "SIZEOF";
         case TokenType::TRY: return "TRY";
         case TokenType::CATCH: return "CATCH";
         case TokenType::FINALLY: return "FINALLY";
@@ -310,8 +311,9 @@ std::string tokenTypeToString(TokenType type) {
         case TokenType::EOF_TOKEN: return "EOF";
         case TokenType::PRAGMA: return "PRAGMA";
         case TokenType::UNKNOWN: return "UNKNOWN";
-        default: return "???";
+        // No default: -Wswitch flags any TokenType that is missing a case here.
     }
+    return "???";
 }
 
 std::unordered_map<std::string, TokenType> Lexer::keywords = {
