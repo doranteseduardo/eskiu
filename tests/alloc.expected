@@ -1,0 +1,4 @@
+bump: 6 12
+arena: off=24 reused=1
+pool: reused=1
+ff: w==u=1 v=7

@@ -43,6 +43,7 @@ The project follows two phases:
 | Freestanding mode — compile without libc | ✅ |
 | volatile — for memory-mapped I/O | ✅ |
 | const — immutable typed bindings, usable as array sizes (v0.2.0) | ✅ |
+| `alloc_with(&a, T, n)` + `<alloc>` (Bump/Arena/Pool/FirstFit) — caller-buffer allocators, libc-free (v0.2.0) | ✅ |
 | Closures — capturing variables from the enclosing scope | ✅ |
 | Threads — `thread_create`/`thread_join` primitives | ✅ |
 | Exceptions — try/catch/finally/throw | ✅ |
@@ -97,7 +98,7 @@ The theme is making Eskiu a practical language for concurrent backend services:
 real async I/O, an HTTP stack, and the everyday stdlib + tooling that adoption
 needs. v0.1.0 is frozen at its tag; v0.2.0 is developed as incremental commits.
 
-Nothing below is started yet. Tracking checklist:
+Tracking checklist (checked = landed on `develop`).
 
 The checklist is grouped into execution phases (not just categories): Phase 1
 unblocks real projects, Phase 2 builds the async/HTTP stack on top of it, and
@@ -105,8 +106,8 @@ Phase 3 rounds out ergonomics and tooling.
 
 **Phase 1 — Unblock real projects**
 - [x] `const` — typed, scoped constants, usable as array sizes
-- [ ] `alloc_with(&allocator, T, n)` — explicit-allocator form alongside the built-in `alloc`
-- [ ] `<alloc>` — first-fit general-purpose allocator (after Ken Thompson's original), plus Arena, Pool, and Bump, all over `alloc_with`. A libc-free foundation for `--freestanding` (no dependency on libc `malloc`)
+- [x] `alloc_with(&allocator, T, n)` — explicit-allocator form alongside the built-in `alloc`
+- [x] `<alloc>` — first-fit general-purpose allocator (after Ken Thompson's original), plus Arena, Pool, and Bump, all over `alloc_with`. A libc-free foundation for `--freestanding` (no dependency on libc `malloc`)
 - [ ] `<threading>` — mutex, condvar, semaphore over pthread
 - [ ] `<http>` — HTTP/1.1 parser + response builder + worker pool
 - [ ] `<base64>` — encode / decode

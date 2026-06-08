@@ -1293,6 +1293,25 @@ void  esk_free(*void ptr)  { buddy_free(ptr); }
 
 Freestanding mode does not remove any other language features. The standard library modules (`stdlib/result.esk`, etc.) remain available but must not import libc functions that are absent from the target.
 
+**Custom allocators (`alloc_with`).** `alloc_with(&allocator, T, n)` is the explicit-allocator form of `alloc`: instead of going to `malloc`/`esk_alloc`, it calls `<Type>_alloc(&allocator, n * sizeof(T))` and returns a `*T`. Any struct that exposes a method `*void <Type>_alloc(<Type>* self, int64 nbytes)` is a valid allocator — so allocation strategy is a plain value, not a global.
+
+```eskiu
+import <alloc>;
+
+*uint8 backing = alloc(uint8, 4096);   // one slab from the host (or a static buffer in freestanding)
+let a: Bump;  Bump_init(&a, backing, 4096);
+*int xs = alloc_with(&a, int, 16);     // 16 ints carved from the slab — no per-object malloc
+```
+
+The `<alloc>` module ships four allocators, all built on caller-provided memory (so they work under `--freestanding` with no libc `malloc`):
+
+| Allocator | Strategy | Reclaim |
+|-----------|----------|---------|
+| `Bump`    | monotonic offset into the buffer | `Bump_reset` frees everything at once; individual frees are no-ops |
+| `Arena`   | bump with checkpoints | `Arena_save`/`Arena_restore` free back to a marker; `Arena_reset` frees all |
+| `Pool`    | fixed-size blocks, free list threaded through freed blocks | `Pool_free` returns a block for reuse |
+| `FirstFit`| general-purpose, first-fit search with region splitting (after Thompson's original) | `FirstFit_free` returns a region (adjacent-region coalescing is a planned refinement) |
+
 ### 11.6 MMIO and volatile
 
 See §4.5 for the `volatile` qualifier. In freestanding/kernel contexts, hardware registers are accessed through `volatile` pointer variables:
@@ -1408,6 +1427,7 @@ Eskiu ships a set of standard library files in the `stdlib/` directory. Import t
 | `stdlib/mem.esk`      | `extern` declarations for `memcpy`, `memset`, `memmove`, `memcmp`, `strlen` |
 | `stdlib/fs.esk`       | File I/O: `fs_open`, `fs_close`, `fs_flush`, `fs_read`, `fs_readline`, `fs_write`, `fs_puts`, `fs_seek`, `fs_tell`, `fs_size`, `fs_read_all`, `fs_write_all`, `fs_eof`, `fs_error` |
 | `stdlib/net.esk`      | TCP sockets: `net_tcp_listen`, `net_accept`, `net_tcp_connect`, `net_send`, `net_recv`, `net_send_str`, `net_close` (plus the raw POSIX `extern`s and a portable `sockaddr_in`) |
+| `stdlib/alloc.esk`    | Allocators over caller-provided memory for `alloc_with` (see §11.5): `Bump`, `Arena`, `Pool`, `FirstFit` — each with `_init`/`_alloc` (and `_free`/`_reset`/`_save`/`_restore` as applicable) |
 
 ### Result<T,E>
 

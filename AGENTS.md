@@ -88,6 +88,7 @@ All items below are implemented and tested end-to-end.
 | Inline assembly | `asm("cli")` simple; `asm("op" :: "r"(x) : "mem")` extended |
 | `volatile` | `volatile let reg: *uint8 = addr;` — MMIO-safe |
 | `const` | `const T x` / `const let x: T` — immutable; sema requires an initializer and rejects reassignment (`Symbol::isConst`/`isConstSymbol`). const ints resolve as array dimensions via `constInts` + `resolveArrayDim` (also accepts literals and enum members) |
+| `alloc_with` / `<alloc>` | `alloc_with(&a, T, n)` (`AllocWithExpr`) lowers to `(*T)<Type>_alloc(&a, n*sizeof(T))`. `stdlib/alloc.esk` ships `Bump`/`Arena`/`Pool`/`FirstFit` over caller-provided buffers (libc-free, freestanding-friendly) |
 | Cross-compilation | `--target TRIPLE` (AArch64 and X86 backends included) |
 | Freestanding | `--freestanding` — `alloc`/`free` call `esk_alloc`/`esk_free` |
 | Negative literals | `-1`, `-3.14` as first-class primary expressions |
@@ -95,7 +96,7 @@ All items below are implemented and tested end-to-end.
 | Multi-file compile | `eskiuc a.esk b.esk -o prog` — declarations from all inputs are merged into one program |
 | Warnings (`-Wall`) | Unused variables/parameters/functions, assignment-in-condition; off by default |
 | VS Code | Real-time errors, hover types, go-to-definition |
-| stdlib | `result.esk`, `list.esk`, `string.esk`, `math.esk`, `io.esk`, `mem.esk` |
+| stdlib | `result.esk`, `list.esk`, `string.esk`, `math.esk`, `io.esk`, `mem.esk`, `fs.esk`, `net.esk`, `alloc.esk` |
 
 ## Roadmap (as of v0.1.0)
 
@@ -151,6 +152,8 @@ All items below are implemented and tested end-to-end.
 **Inline assembly:** Uses `llvm::InlineAsm::get` with `AD_ATT` dialect. Operand references use `$0`, `$1` (LLVM IR syntax, not `%0` GCC syntax). Inside try bodies, asm statements are not converted to `invoke` — asm is assumed not to throw.
 
 **Cross-compilation:** When `targetTriple != ""` and differs from native, the CPU is set to `"generic"` to avoid host CPU features leaking into the cross-compiled object.
+
+**Member access through a pointer base (`p.x` where `p: *T`):** the struct base is the *pointer value*, not the variable's storage. In both `evaluateLValue` and `visit(MemberExpr)`, compute it as `baseIsPtr ? evaluateExpr(base) : evaluateLValue(base)`, where `baseIsPtr` is detected from a leading/trailing `*` in `getExprEskiuType(base)`. Using `evaluateLValue` unconditionally GEPs from the local's `alloca` (the pointer's address) instead of the pointee, silently corrupting the variable — pointer *parameters* (e.g. `self`) happen to work because params are raw values, not allocas, which is why this only bit local `*T` vars. `getExprEskiuType` must also handle `CastExpr` (returns the cast's target type) so `(*T)x.field` and pointer-arith stride resolve correctly.
 
 ## Error format
 
