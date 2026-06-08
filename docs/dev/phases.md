@@ -111,7 +111,7 @@ Nothing below is started yet. Tracking checklist:
 - [ ] Shebang support — `#!/usr/bin/env eskiuc run`
 
 **Standard library**
-- [ ] `<eventloop>` — reactor over epoll (Linux) / kqueue (macOS)
+- [ ] `<eventloop>` — general-purpose reactor over epoll (Linux) / kqueue (macOS). A shared foundation for async/await, HTTP, and the future UI framework, designed from the start to dispatch any kind of event (sockets, frames, input), not just network I/O
 - [ ] `<threading>` — mutex, condvar, semaphore over pthread
 - [ ] `<http>` — HTTP/1.1 parser + response builder + worker pool
 - [ ] `<http_async>` — non-blocking HTTP/1.1 over the event loop
