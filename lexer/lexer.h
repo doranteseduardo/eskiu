@@ -33,6 +33,7 @@ enum class TokenType {
     FN,
     ASM,
     VOLATILE,
+    CONST,
     THREAD_CREATE,
     THREAD_JOIN,
     FOR,

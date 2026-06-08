@@ -208,6 +208,12 @@ private:
     void visit(EnumDecl* node) override;
     void visit(TypeAliasDecl* node) override;
 
+    // `const` integer values, by name — so a const can be used as an array size.
+    std::map<std::string, long long> constInts;
+    // Resolve an array-dimension string (a decimal literal, an enum constant, or
+    // a const int) to its value. Returns false if it cannot be resolved.
+    bool resolveArrayDim(const std::string& dim, uint64_t& out) const;
+
     // Enum members -> integer value; the set of enum type names (each maps to i32)
     std::map<std::string, long long> enumConstants;
     std::set<std::string> enumTypes;
