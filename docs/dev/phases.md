@@ -42,6 +42,7 @@ The project follows two phases:
 | Inline assembly — `asm(...)` | ✅ |
 | Freestanding mode — compile without libc | ✅ |
 | volatile — for memory-mapped I/O | ✅ |
+| const — immutable typed bindings, usable as array sizes (v0.2.0) | ✅ |
 | Closures — capturing variables from the enclosing scope | ✅ |
 | Threads — `thread_create`/`thread_join` primitives | ✅ |
 | Exceptions — try/catch/finally/throw | ✅ |
