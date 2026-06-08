@@ -335,6 +335,24 @@ int main() {
 
 Array dimensions accept a decimal literal, an `enum` member, or a `const int`. `const` bindings are block-scoped like any other variable.
 
+**`const` works on any type** (string, struct, pointer, scalar). Immutability covers both rebinding the variable and mutating a field or element of a `const` value:
+
+```eskiu
+const string name = "Eskiu";   // any type may be const
+const let p: Point = Point { x: 1.0, y: 2.0 };
+p.x = 5.0;                      // error: cannot assign to constant 'p'
+```
+
+The one case it does **not** cover is writing *through* a `const` pointer: `const` makes the pointer binding non-reassignable, but the pointee is still writable.
+
+```eskiu
+const let q: *int = &v;
+q = &w;     // error: cannot assign to constant 'q'  (rebinding the pointer)
+*q = 10;    // allowed — writes the pointee, not the binding
+```
+
+Eskiu does not distinguish a pointer-to-const from a const-pointer (there is no `const int*` vs `int* const`); `const` always qualifies the binding.
+
 ---
 
 ## 5. Operators

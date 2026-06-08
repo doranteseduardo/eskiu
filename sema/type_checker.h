@@ -85,6 +85,11 @@ private:
 
     // True if `name` resolves to a symbol declared `const` (searches scopes).
     bool isConstSymbol(const std::string& name) const;
+    // If assigning to `lhs` would mutate a `const` value in place (the binding
+    // itself, or a field/element of a const aggregate), returns true and sets
+    // `nameOut` to the constant's name. Stops at pointer dereferences: writing
+    // *through* a const pointer mutates the pointee, not the binding.
+    bool assignsToConst(Expr* lhs, std::string& nameOut);
 
     // Struct information: name -> fields
     struct StructInfo {

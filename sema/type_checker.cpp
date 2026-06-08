@@ -410,12 +410,12 @@ void TypeChecker::visit(BinaryExpr* node) {
     node->left->accept(this);
     node->right->accept(this);
 
-    // Reassigning a `const` binding is an error.
+    // Assigning to a `const` binding — or a field/element of a const value — is
+    // an error (writing through a const pointer is allowed; see assignsToConst).
     if (node->op == "=") {
-        if (auto* id = dynamic_cast<IdentExpr*>(node->left.get())) {
-            if (isConstSymbol(id->name))
-                errorAt(node, "cannot assign to constant '" + id->name + "'");
-        }
+        std::string cname;
+        if (assignsToConst(node->left.get(), cname))
+            errorAt(node, "cannot assign to constant '" + cname + "'");
     }
 
     std::string leftType = getExpressionType(node->left.get());
@@ -1016,6 +1016,30 @@ bool TypeChecker::isConstSymbol(const std::string& name) const {
     for (auto it = scopes.rbegin(); it != scopes.rend(); ++it) {
         auto f = it->find(name);
         if (f != it->end()) return f->second.isConst;
+    }
+    return false;
+}
+
+bool TypeChecker::assignsToConst(Expr* lhs, std::string& nameOut) {
+    Expr* cur = lhs;
+    while (cur) {
+        if (auto* id = dynamic_cast<IdentExpr*>(cur)) {
+            if (isConstSymbol(id->name)) { nameOut = id->name; return true; }
+            return false;
+        }
+        // Field/element of a *value* aggregate keeps the same const root; but a
+        // member/index through a pointer writes the pointee, so stop there.
+        if (auto* m = dynamic_cast<MemberExpr*>(cur)) {
+            std::string bt = getExpressionType(m->base.get());
+            if ((!bt.empty() && bt.front() == '*') || hasPointerSuffix(bt)) return false;
+            cur = m->base.get(); continue;
+        }
+        if (auto* ix = dynamic_cast<IndexExpr*>(cur)) {
+            std::string bt = getExpressionType(ix->base.get());
+            if ((!bt.empty() && bt.front() == '*') || hasPointerSuffix(bt)) return false;
+            cur = ix->base.get(); continue;
+        }
+        return false;  // *p, calls, etc. — not an in-place const mutation
     }
     return false;
 }

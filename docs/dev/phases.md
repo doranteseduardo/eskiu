@@ -125,6 +125,7 @@ Phase 3 rounds out ergonomics and tooling.
 **Phase 3 — Ergonomics and tooling**
 - [ ] `for (i in 0..10)` — native ranges (builds on the existing `for`-`in`)
 - [ ] User-defined variadic functions
+- [ ] Pointer constness — distinguish a const pointer from a pointer-to-const (`const int*` vs `int* const`); `const` currently only qualifies the binding
 - [ ] `__FILE__` and `__LINE__` in the preprocessor
 - [ ] `#error` directive
 - [ ] `#pragma pack(N)` with N > 1 (v0.1.0 honours `pack(1)` only)
