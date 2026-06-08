@@ -4,7 +4,7 @@
 
 Authoritative status reference for Eskiu compiler contributors.
 
-Last updated: 2026-06-06.
+Last updated: 2026-06-07.
 
 ---
 
@@ -148,3 +148,41 @@ helpers. The pure-stdlib modules (`<string>`, `<base64>`, `<env>`, `<time>`,
 
 - `eskiuc` compiles itself (self-hosting)
 - First-class types for high-throughput services
+
+---
+
+## Platform support (future track, not scheduled)
+
+Eskiu targets **macOS arm64** and **Linux x86-64** today. Broadening to Windows,
+Android, and iOS is a separate long-horizon track, independent of the version
+milestones above and not scheduled into v0.2.0. The LLVM backends already cover
+these targets, so the real work is linking, per-platform stdlib branches, and
+toolchain/distribution integration, not codegen.
+
+**Cross-cutting (shared by all platforms)**
+- [ ] COFF object emission for Windows targets (Mach-O and ELF already work)
+- [ ] Per-target linking: emit `.o`/`.a`/`.so` and hand off to the platform's native linker/SDK (the Unix `cc`/`clang` auto-link does not cross platforms)
+- [ ] Predefined OS macros (`_WIN32`, `__ANDROID__`, iOS), extending the existing `__APPLE__`/`__linux__`
+- [ ] stdlib platform branches where the API differs (sockets, threads)
+- [ ] CI runners: Windows, plus NDK and Xcode for mobile
+
+**Windows (host + target)**
+- [ ] Build `eskiuc` on Windows (LLVM + CMake, MSVC or MinGW)
+- [ ] Windows linker integration (`link.exe` / `lld-link`)
+- [ ] `<net>` over Winsock2 (`WSAStartup`, `closesocket`, link `ws2_32`)
+- [ ] `thread_create`/`thread_join` over Win32 threads (no native pthreads)
+
+**Android (native library via JNI)**
+- [ ] Cross-compile to `aarch64-linux-android` against the NDK (bionic libc)
+- [ ] Build as a `.so` with JNI entry points, callable from Kotlin/Java
+- [ ] APK packaging via Gradle/NDK (`<net>` and threads work as on Linux)
+
+**iOS (static library via C ABI)**
+- [ ] Cross-compile to `arm64-apple-ios` against the iOS SDK (Xcode, macOS only)
+- [ ] Ship a static `.a` linked into an Xcode project, called from Swift/Obj-C by the C ABI
+- [ ] Code signing and App Store constraints (AOT only, no JIT)
+
+**Distribution model.** On mobile, Eskiu ships as the native compute core
+(`.a`/`.so`) called from Swift/Kotlin over the C ABI, not as a standalone app. A
+standalone Eskiu app with its own UI depends on the future UI framework (see the
+`<eventloop>` note) and is out of scope for this track.
