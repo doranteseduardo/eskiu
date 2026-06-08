@@ -43,6 +43,7 @@ private:
     void visit(SwitchStmt* node) override;
     void visit(StructInitExpr* node) override;
     void visit(AllocExpr* node) override;
+    void visit(AllocWithExpr* node) override;
     void visit(TemplateCallExpr* node) override;
     void visit(LambdaExpr* node) override;
     void visit(AsmStmt* node) override;

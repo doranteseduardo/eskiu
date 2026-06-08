@@ -440,6 +440,20 @@ public:
     void accept(class ASTVisitor* visitor) override;
 };
 
+// alloc_with(&allocator, T, N) — allocate N*sizeof(T) bytes from an explicit
+// allocator (a struct providing `*void alloc(...)`), returning *T.
+class AllocWithExpr : public Expr {
+public:
+    ExprPtr allocator;     // the allocator (typically &someAllocator)
+    std::string elemType;  // T
+    ExprPtr count;         // N
+
+    AllocWithExpr(ExprPtr allocator, const std::string& type, ExprPtr count)
+        : allocator(std::move(allocator)), elemType(type), count(std::move(count)) {}
+
+    void accept(class ASTVisitor* visitor) override;
+};
+
 class TemplateCallExpr : public Expr {
 public:
     std::string templateName;
@@ -549,6 +563,7 @@ public:
     virtual void visit(IdentExpr* node) = 0;
     virtual void visit(StructInitExpr* node) = 0;
     virtual void visit(AllocExpr* node) = 0;
+    virtual void visit(AllocWithExpr* node) = 0;
     virtual void visit(TemplateCallExpr* node) = 0;
     virtual void visit(LambdaExpr* node) = 0;
     virtual void visit(AsmStmt* node) = 0;

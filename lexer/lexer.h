@@ -49,6 +49,7 @@ enum class TokenType {
     IMPORT,
     EXTERN,
     ALLOC,
+    ALLOC_WITH,
     FREE,
     NULL_KW,
     TRUE,

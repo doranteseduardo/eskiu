@@ -1893,6 +1893,38 @@ void CodeGen::visit(AllocExpr* node) {
     exprValueStack.push(builder->CreateCall(mallocFn, {total}, "alloc.ptr"));
 }
 
+void CodeGen::visit(AllocWithExpr* node) {
+    // Lower to: (*T) <AllocType>_alloc(allocator, count * sizeof(T))
+    // The allocator is a struct providing `*void alloc(... size)`.
+    llvm::Value* allocPtr = evaluateExpr(node->allocator);
+
+    std::string at = getExprEskiuType(node->allocator);
+    while (!at.empty() && at.front() == '*') at = at.substr(1);
+    while (!at.empty() && at.back()  == '*') at.pop_back();
+    if (at.rfind("struct:", 0) == 0) at = at.substr(7);
+
+    std::string fnName = at + "_alloc";
+    llvm::Function* af = module->getFunction(fnName);
+    if (!af)
+        throw std::runtime_error("alloc_with: allocator type '" + at +
+                                 "' has no alloc method (" + fnName + ")");
+
+    llvm::Type* elemTy = getTypeFromString(node->elemType);
+    uint64_t esz = module->getDataLayout().getTypeAllocSize(elemTy);
+    llvm::Value* n64 = builder->CreateIntCast(evaluateExpr(node->count),
+                            llvm::Type::getInt64Ty(*context), false);
+    llvm::Value* total = builder->CreateMul(
+        n64, llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), esz), "allocw.size");
+
+    // Coerce the size to the alloc method's second parameter type.
+    llvm::FunctionType* fty = af->getFunctionType();
+    if (fty->getNumParams() >= 2 && fty->getParamType(1) != total->getType())
+        total = builder->CreateIntCast(total, fty->getParamType(1), false);
+
+    // Returns *void; the cast to *T is a no-op under opaque pointers.
+    exprValueStack.push(builder->CreateCall(af, {allocPtr, total}, "allocw.ptr"));
+}
+
 llvm::Value* CodeGen::makeFunctionPointer(llvm::Function* target) {
     llvm::Type* ptrTy = llvm::PointerType::get(*context, 0);
     std::string wname = "__fnptr_" + target->getName().str();

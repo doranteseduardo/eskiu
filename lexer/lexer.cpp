@@ -234,6 +234,7 @@ std::string tokenTypeToString(TokenType type) {
         case TokenType::IMPORT: return "IMPORT";
         case TokenType::EXTERN: return "EXTERN";
         case TokenType::ALLOC: return "ALLOC";
+        case TokenType::ALLOC_WITH: return "ALLOC_WITH";
         case TokenType::FREE: return "FREE";
         case TokenType::NULL_KW: return "NULL";
         case TokenType::TRUE: return "TRUE";
@@ -351,6 +352,7 @@ std::unordered_map<std::string, TokenType> Lexer::keywords = {
     {"import", TokenType::IMPORT},
     {"extern", TokenType::EXTERN},
     {"alloc", TokenType::ALLOC},
+    {"alloc_with", TokenType::ALLOC_WITH},
     {"free", TokenType::FREE},
     {"null", TokenType::NULL_KW},
     {"true", TokenType::TRUE},

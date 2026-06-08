@@ -948,6 +948,15 @@ void TypeChecker::visit(AllocExpr* node) {
     expressionTypes[node] = "*" + node->elemType;
 }
 
+void TypeChecker::visit(AllocWithExpr* node) {
+    node->allocator->accept(this);
+    node->count->accept(this);
+    std::string countType = getExpressionType(node->count.get());
+    if (countType != "unknown" && !isIntType(countType))
+        errorAt(node,"alloc_with count must be integer, got " + countType);
+    expressionTypes[node] = "*" + node->elemType;
+}
+
 void TypeChecker::visit(StructInitExpr* node) {
     // A template literal (Pair<int,float> { ... }) names an instantiation; run it
     // through normalizeType so the concrete struct gets registered, then resolve.
