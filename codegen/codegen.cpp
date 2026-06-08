@@ -363,6 +363,11 @@ std::string CodeGen::getExprEskiuType(const ExprPtr& expr) const {
     if (auto ident = dynamic_cast<IdentExpr*>(expr.get())) {
         return expandAlias(lookupVarType(ident->name));
     }
+    // A cast's static type IS the cast target — important so that pointer
+    // arithmetic on e.g. (*uint8)structPtr uses a byte stride, not the struct's.
+    if (auto cast = dynamic_cast<CastExpr*>(expr.get())) {
+        return expandAlias(cast->targetType);
+    }
     if (auto lit = dynamic_cast<LiteralExpr*>(expr.get())) {
         switch (lit->kind) {
             case LiteralExpr::Kind::INT:    return "int";
@@ -1657,6 +1662,14 @@ std::string CodeGen::structBaseTypeOf(const ExprPtr& base) {
 void CodeGen::visit(MemberExpr* node) {
     std::string baseType = structBaseTypeOf(node->base);
 
+    // A pointer-to-struct base is dereferenced via its value; a value-struct
+    // base via its address (see the matching logic in evaluateLValue).
+    std::string rawBaseTy = getExprEskiuType(node->base);
+    bool baseIsPtr = (!rawBaseTy.empty() && (rawBaseTy.front() == '*' || rawBaseTy.back() == '*'));
+    auto baseAddr = [&]() -> llvm::Value* {
+        return baseIsPtr ? evaluateExpr(node->base) : evaluateLValue(node->base);
+    };
+
     // Bitfield-layout struct: physical slot map (handles bitfields and the
     // non-bitfield fields whose physical index differs from the logical one).
     auto lit = structLayout.find(baseType);
@@ -1665,7 +1678,7 @@ void CodeGen::visit(MemberExpr* node) {
         if (sit == lit->second.end())
             throw std::runtime_error("Struct '" + baseType + "' has no field '" + node->member + "'");
         const BitfieldSlot& slot = sit->second;
-        llvm::Value* basePtr = evaluateLValue(node->base);
+        llvm::Value* basePtr = baseAddr();
         llvm::Value* gep = builder->CreateStructGEP(structTypes[baseType], basePtr,
                                                     slot.physIndex, node->member);
         if (!slot.isBitfield) {
@@ -1694,7 +1707,7 @@ void CodeGen::visit(MemberExpr* node) {
     bool isUnion = unionFields.count(baseType) > 0;
     for (size_t i = 0; i < fields.size(); ++i) {
         if (fields[i].name == node->member) {
-            llvm::Value* basePtr = evaluateLValue(node->base);
+            llvm::Value* basePtr = baseAddr();
             llvm::Type*  fieldTy = getTypeFromString(fields[i].type);
             llvm::Value* ptr;
             if (isUnion) {
@@ -2675,6 +2688,13 @@ llvm::Value* CodeGen::evaluateLValue(const ExprPtr& expr) {
 
     if (auto member = dynamic_cast<MemberExpr*>(expr.get())) {
         std::string baseType = getExprEskiuType(member->base);
+        // A pointer-to-struct base must be dereferenced: the struct pointer is the
+        // base's *value* (evaluateExpr loads a local pointer var or yields a param),
+        // whereas a value-struct base uses its *address* (evaluateLValue).
+        bool baseIsPtr = (!baseType.empty() && (baseType.front() == '*' || baseType.back() == '*'));
+        auto baseAddr = [&]() -> llvm::Value* {
+            return baseIsPtr ? evaluateExpr(member->base) : evaluateLValue(member->base);
+        };
         if (baseType.size() > 7 && baseType.substr(0, 7) == "struct:") baseType = baseType.substr(7);
     if (!baseType.empty() && baseType.front() == '*') baseType = baseType.substr(1);
     while (!baseType.empty() && baseType.back()  == '*') baseType.pop_back();
@@ -2697,14 +2717,14 @@ llvm::Value* CodeGen::evaluateLValue(const ExprPtr& expr) {
                 if (sit->second.isBitfield)
                     throw std::runtime_error("cannot take the address of bitfield '"
                                              + member->member + "'");
-                llvm::Value* basePtr = evaluateLValue(member->base);
+                llvm::Value* basePtr = baseAddr();
                 return builder->CreateStructGEP(structTypes[baseType], basePtr,
                                                 sit->second.physIndex);
             }
         }
         for (size_t i = 0; i < fields.size(); ++i) {
             if (fields[i].name == member->member) {
-                llvm::Value* basePtr = evaluateLValue(member->base);
+                llvm::Value* basePtr = baseAddr();
                 if (isUnion) return basePtr; // offset 0 for all union fields
                 return builder->CreateStructGEP(structTypes[baseType], basePtr, i);
             }
