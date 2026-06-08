@@ -415,6 +415,12 @@ int main(int argc, char** argv) {
             macros["__linux__"] = os;
 #endif
         }
+        // Predefine __ESKIU_FREESTANDING__ under --freestanding so stdlib (e.g.
+        // <mem>'s alloc/free) can target esk_alloc/esk_free instead of libc.
+        if (Freestanding) {
+            Macro fs; fs.body = "1";
+            macros["__ESKIU_FREESTANDING__"] = fs;
+        }
 
         for (const auto& fname : inputs) {
             std::string source = readFile(fname);

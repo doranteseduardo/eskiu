@@ -48,7 +48,6 @@ public:
     void visit(LiteralExpr* node) override;
     void visit(IdentExpr* node) override;
     void visit(StructInitExpr* node) override;
-    void visit(AllocExpr* node) override;
     void visit(AllocWithExpr* node) override;
     void visit(LambdaExpr* node) override;
     void visit(AsmStmt* node) override;

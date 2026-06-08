@@ -13,8 +13,6 @@
 
 TypeChecker::TypeChecker() {
     pushScope();  // Global scope
-    // Pre-register C runtime builtins available without explicit extern
-    defineFunction("free", "void", {"..."});  // accepts any pointer
 }
 
 bool TypeChecker::check(Program* program) {
@@ -938,14 +936,6 @@ void TypeChecker::visit(TemplateCallExpr* node) {
 
     std::string retType = normalizeType(substType(fd->returnType, subs));
     expressionTypes[node] = retType;
-}
-
-void TypeChecker::visit(AllocExpr* node) {
-    node->count->accept(this);
-    std::string countType = getExpressionType(node->count.get());
-    if (countType != "unknown" && !isIntType(countType))
-        errorAt(node,"alloc count must be integer, got " + countType);
-    expressionTypes[node] = "*" + node->elemType;
 }
 
 void TypeChecker::visit(AllocWithExpr* node) {

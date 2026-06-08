@@ -3,6 +3,8 @@
 // Entry point: kernel_main (called from boot.s after stack setup)
 // Target: QEMU -M virt, ARM64, no libc
 
+import <mem>;
+
 import "uart.esk";
 import "alloc.esk";
 
@@ -27,7 +29,7 @@ void kernel_main() {
     uart_puts("\r\n");
 
     // Test the allocator
-    *uint8 buf = alloc(uint8, 64);
+    *uint8 buf = alloc<uint8>(64);
     if (buf == null) {
         uart_puts("alloc failed\r\n");
     } else {

@@ -1208,16 +1208,6 @@ ExprPtr Parser::parsePrimary() {
     if (match(TokenType::CHAR_LIT)) {
         return withPos(std::make_shared<LiteralExpr>(LiteralExpr::Kind::CHAR, tok.value), tok);
     }
-    // alloc(T, N) — type keyword as first argument requires special parsing
-    if (match(TokenType::ALLOC)) {
-        consume(TokenType::LPAREN, "Expected '(' after alloc");
-        std::string elemType = parseType();
-        consume(TokenType::COMMA, "Expected ',' after type in alloc");
-        ExprPtr count = parseExpression();
-        consume(TokenType::RPAREN, "Expected ')'");
-        return std::make_shared<AllocExpr>(elemType, count);
-    }
-
     // alloc_with(&allocator, T, N) — like alloc, but from an explicit allocator
     if (match(TokenType::ALLOC_WITH)) {
         consume(TokenType::LPAREN, "Expected '(' after alloc_with");
@@ -1230,14 +1220,6 @@ ExprPtr Parser::parsePrimary() {
         return std::make_shared<AllocWithExpr>(allocator, elemType, count);
     }
 
-    // free(ptr) — keyword call, maps to the C free function
-    if (match(TokenType::FREE)) {
-        consume(TokenType::LPAREN, "Expected '(' after free");
-        ExprPtr arg = parseExpression();
-        consume(TokenType::RPAREN, "Expected ')'");
-        auto callee = std::make_shared<IdentExpr>("free");
-        return std::make_shared<CallExpr>(callee, std::vector<ExprPtr>{arg});
-    }
 
     // sizeof(T) -> int64
     if (match(TokenType::SIZEOF)) {

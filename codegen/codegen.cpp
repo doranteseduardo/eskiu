@@ -1491,24 +1491,6 @@ void CodeGen::visit(CallExpr* node) {
         throw std::runtime_error("Undefined method: " + baseType + "::" + member->member);
     }
 
-    // Regular function call — auto-declare free/malloc if not yet visible
-    if (auto ident = dynamic_cast<IdentExpr*>(node->callee.get())) {
-        if (ident->name == "free") {
-            std::string freeSym = freestanding ? "esk_free" : "free";
-            getOrDeclareFunc(freeSym, llvm::Type::getVoidTy(*context),
-                             {llvm::PointerType::get(*context, 0)});
-            // Redirect the call symbol if in freestanding mode
-            if (freestanding) {
-                auto* fn = module->getFunction("esk_free");
-                std::vector<llvm::Value*> fargs = {evaluateExpr(node->args[0])};
-                builder->CreateCall(fn, fargs);
-                exprValueStack.push(llvm::Constant::getNullValue(
-                    llvm::Type::getInt32Ty(*context)));
-                return;
-            }
-        }
-    }
-
     // A bare name that resolves to a function (and is not shadowed by a local
     // fn-pointer variable) is a direct call — use the function itself, not the
     // decayed closure fat pointer that evaluating it as a value would produce.
@@ -1888,22 +1870,6 @@ llvm::Function* CodeGen::getOrDeclareFunc(const std::string& name, llvm::Type* r
         f = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, name, module.get());
     }
     return f;
-}
-
-void CodeGen::visit(AllocExpr* node) {
-    llvm::Type* elemType = getTypeFromString(node->elemType);
-    llvm::Value* count   = evaluateExpr(node->count);
-
-    // sizeof(T) from DataLayout
-    uint64_t elemSize = module->getDataLayout().getTypeAllocSize(elemType);
-    llvm::Value* size64 = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), elemSize);
-    llvm::Value* n64    = builder->CreateIntCast(count, llvm::Type::getInt64Ty(*context), false);
-    llvm::Value* total  = builder->CreateMul(n64, size64, "alloc.size");
-
-    std::string allocSym = freestanding ? "esk_alloc" : "malloc";
-    llvm::Function* mallocFn = getOrDeclareFunc(allocSym,
-        llvm::PointerType::get(*context, 0), {llvm::Type::getInt64Ty(*context)});
-    exprValueStack.push(builder->CreateCall(mallocFn, {total}, "alloc.ptr"));
 }
 
 void CodeGen::visit(AllocWithExpr* node) {
@@ -2606,13 +2572,21 @@ void CodeGen::visit(TemplateCallExpr* node) {
 
     FunctionDecl* fd = templ->second;
     auto& tp = fd->typeParams;
+    // Resolve each explicit type argument through the enclosing template's active
+    // substitutions. When this call appears inside another template body (e.g.
+    // `mk<T>(n)` inside `esz<T>`), node->typeArgs holds the literal param name
+    // "T"; without this it would instantiate `mk_T` (T unresolved → i32). We must
+    // not mutate node->typeArgs — the same node is re-visited per instantiation.
+    auto resolveArg = [&](const std::string& t) {
+        return typeParamOverride.empty() ? t : substType(t, typeParamOverride);
+    };
     std::map<std::string, std::string> subs;
     for (size_t i = 0; i < tp.size() && i < node->typeArgs.size(); ++i)
-        subs[tp[i]] = node->typeArgs[i];
+        subs[tp[i]] = resolveArg(node->typeArgs[i]);
 
     // Mangle the instantiated function name
     std::string mangledName = node->templateName;
-    for (const auto& t : node->typeArgs) mangledName += "_" + mangleTemplate(t);
+    for (const auto& t : node->typeArgs) mangledName += "_" + mangleTemplate(resolveArg(t));
 
     // Instantiate if not already in module.
     // Save/restore the insert point — we may be inside another function's body.
@@ -2621,11 +2595,14 @@ void CodeGen::visit(TemplateCallExpr* node) {
         llvm::BasicBlock::iterator savedPoint      = builder->GetInsertPoint();
         llvm::Function*            savedFunc       = currentFunction;
         llvm::Value*               savedSretParam  = currentSretParam;
+        // Restore (not clear) the override: this call may be nested inside another
+        // template body whose substitutions must survive the inner instantiation.
+        auto                       savedOverride   = typeParamOverride;
 
         typeParamOverride = subs;
         auto inst = std::make_shared<FunctionDecl>(mangledName, fd->returnType, fd->params, fd->body);
         inst->accept(this);
-        typeParamOverride.clear();
+        typeParamOverride = savedOverride;
 
         // Restore caller's context
         currentFunction  = savedFunc;

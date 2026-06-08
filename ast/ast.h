@@ -429,17 +429,6 @@ public:
     void accept(class ASTVisitor* visitor) override;
 };
 
-class AllocExpr : public Expr {
-public:
-    std::string elemType;  // T in alloc(T, N)
-    ExprPtr count;         // N
-
-    AllocExpr(const std::string& type, ExprPtr count)
-        : elemType(type), count(std::move(count)) {}
-
-    void accept(class ASTVisitor* visitor) override;
-};
-
 // alloc_with(&allocator, T, N) — allocate N*sizeof(T) bytes from an explicit
 // allocator (a struct providing `*void alloc(...)`), returning *T.
 class AllocWithExpr : public Expr {
@@ -562,7 +551,6 @@ public:
     virtual void visit(LiteralExpr* node) = 0;
     virtual void visit(IdentExpr* node) = 0;
     virtual void visit(StructInitExpr* node) = 0;
-    virtual void visit(AllocExpr* node) = 0;
     virtual void visit(AllocWithExpr* node) = 0;
     virtual void visit(TemplateCallExpr* node) = 0;
     virtual void visit(LambdaExpr* node) = 0;

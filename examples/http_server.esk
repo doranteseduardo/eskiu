@@ -6,6 +6,8 @@
 // It accepts connections, ignores the request, and replies with a fixed
 // plain-text body. Single-threaded and intentionally tiny — a starting point.
 
+import <mem>;
+
 import <net>;
 
 extern int printf(string fmt, ...);
@@ -18,7 +20,7 @@ int main() {
     }
     printf("Eskiu HTTP server listening on http://127.0.0.1:8080\n");
 
-    *uint8 req = alloc(uint8, 4096);
+    *uint8 req = alloc<uint8>(4096);
     string response =
         "HTTP/1.1 200 OK\r\n"
         "Content-Type: text/plain\r\n"

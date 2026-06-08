@@ -1,8 +1,7 @@
 // String — mutable string with owned buffer
-// Requires: stdlib/mem.esk for memcpy/strlen
+// Requires: stdlib/mem.esk for alloc/free/memcpy/strlen
 
-extern int strlen(string s);
-extern *void memcpy(*void dst, *void src, int n);
+import <mem>;
 
 struct String {
     *char data;
@@ -11,7 +10,7 @@ struct String {
 }
 
 void String_init(String* self, int initial_cap) {
-    self.data = alloc(char, initial_cap);
+    self.data = alloc<char>(initial_cap);
     self.len  = 0;
     self.cap  = initial_cap;
     self.data[0] = 0;
@@ -19,7 +18,7 @@ void String_init(String* self, int initial_cap) {
 
 void String_from(String* self, string s) {
     int n = strlen(s);
-    self.data = alloc(char, n + 1);
+    self.data = alloc<char>(n + 1);
     memcpy(self.data, s, n + 1);
     self.len = n;
     self.cap = n + 1;
@@ -44,7 +43,7 @@ void String_append(String* self, string s) {
     int newlen = self.len + slen;
     if (newlen >= self.cap) {
         int newcap = newlen * 2 + 1;
-        let newbuf: *char = alloc(char, newcap);
+        let newbuf: *char = alloc<char>(newcap);
         memcpy(newbuf, self.data, self.len);
         free(self.data);
         self.data = newbuf;
@@ -63,7 +62,7 @@ void String_concat(String* self, String* other) {
 void String_push(String* self, char c) {
     if (self.len + 1 >= self.cap) {
         int newcap = self.cap * 2 + 2;
-        let newbuf: *char = alloc(char, newcap);
+        let newbuf: *char = alloc<char>(newcap);
         memcpy(newbuf, self.data, self.len);
         free(self.data);
         self.data = newbuf;
