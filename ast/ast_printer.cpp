@@ -359,6 +359,14 @@ void ASTPrinter::visit(AllocExpr* node) {
     indentLevel--;
 }
 
+void ASTPrinter::visit(AllocWithExpr* node) {
+    println("AllocWithExpr: alloc_with(<allocator>, " + node->elemType + ", ...)");
+    indentLevel++;
+    node->allocator->accept(this);
+    node->count->accept(this);
+    indentLevel--;
+}
+
 void ASTPrinter::visit(StructInitExpr* node) {
     println("StructInitExpr: " + node->structName);
     indentLevel++;

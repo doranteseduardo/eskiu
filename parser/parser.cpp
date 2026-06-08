@@ -1218,6 +1218,18 @@ ExprPtr Parser::parsePrimary() {
         return std::make_shared<AllocExpr>(elemType, count);
     }
 
+    // alloc_with(&allocator, T, N) — like alloc, but from an explicit allocator
+    if (match(TokenType::ALLOC_WITH)) {
+        consume(TokenType::LPAREN, "Expected '(' after alloc_with");
+        ExprPtr allocator = parseExpression();
+        consume(TokenType::COMMA, "Expected ',' after allocator in alloc_with");
+        std::string elemType = parseType();
+        consume(TokenType::COMMA, "Expected ',' after type in alloc_with");
+        ExprPtr count = parseExpression();
+        consume(TokenType::RPAREN, "Expected ')'");
+        return std::make_shared<AllocWithExpr>(allocator, elemType, count);
+    }
+
     // free(ptr) — keyword call, maps to the C free function
     if (match(TokenType::FREE)) {
         consume(TokenType::LPAREN, "Expected '(' after free");
