@@ -1,0 +1,226 @@
+// http.esk — a small HTTP/1.1 stack: request parser, response builder, and a
+// threaded worker pool, built on <net> + <threading>.
+//
+//   import <http>;
+//   void hello(HttpRequest* req, HttpResponse* res) {
+//       HttpResponse_header(res, "Content-Type", "text/plain");
+//       HttpResponse_set_body(res, "Hello from Eskiu\n");
+//   }
+//   int main() { http_serve(8080, 4, hello); return 0; }   // 4 worker threads
+
+import <mem>;
+import <string>;
+import <net>;
+import <threading>;
+
+// ── Request (parsed) ─────────────────────────────────────────────────────────
+
+struct HttpRequest {
+    String method;    // "GET"
+    String path;      // "/index.html"
+    String version;   // "HTTP/1.1"
+    String headers;   // raw block, one "Key: Value" per line (\n-separated)
+    String body;
+}
+
+void HttpRequest_init(HttpRequest* self) {
+    String_init(&self.method, 8);
+    String_init(&self.path, 32);
+    String_init(&self.version, 16);
+    String_init(&self.headers, 128);
+    String_init(&self.body, 64);
+}
+
+void HttpRequest_free(HttpRequest* self) {
+    String_free(&self.method);
+    String_free(&self.path);
+    String_free(&self.version);
+    String_free(&self.headers);
+    String_free(&self.body);
+}
+
+// Parse a raw request from `buf` (len bytes). Returns 1 on success, 0 if the
+// request line is malformed.
+int HttpRequest_parse(HttpRequest* self, *uint8 buf, int len) {
+    int pos = 0;
+    while (pos < len && buf[pos] != 32 && buf[pos] != 13) {
+        String_push(&self.method, (char)buf[pos]); pos = pos + 1;
+    }
+    if (pos >= len || buf[pos] != 32) { return 0; }
+    pos = pos + 1;
+    while (pos < len && buf[pos] != 32) {
+        String_push(&self.path, (char)buf[pos]); pos = pos + 1;
+    }
+    if (pos >= len) { return 0; }
+    pos = pos + 1;
+    while (pos < len && buf[pos] != 13) {
+        String_push(&self.version, (char)buf[pos]); pos = pos + 1;
+    }
+    if (pos + 1 < len && buf[pos] == 13 && buf[pos + 1] == 10) { pos = pos + 2; }
+    else { return 0; }
+
+    // Header lines until the blank line; store as "Key: Value\n".
+    while (pos < len) {
+        if (pos + 1 < len && buf[pos] == 13 && buf[pos + 1] == 10) { pos = pos + 2; break; }
+        while (pos < len && buf[pos] != 13) {
+            String_push(&self.headers, (char)buf[pos]); pos = pos + 1;
+        }
+        String_push(&self.headers, '\n');
+        if (pos + 1 < len && buf[pos] == 13 && buf[pos + 1] == 10) { pos = pos + 2; }
+        else { break; }
+    }
+    // Remaining bytes are the body.
+    while (pos < len) { String_push(&self.body, (char)buf[pos]); pos = pos + 1; }
+    return 1;
+}
+
+// Look up a header by name (case-insensitive). On success copies the value into
+// `out` (cleared first) and returns 1; otherwise returns 0.
+int HttpRequest_header(HttpRequest* self, string name, String* out) {
+    String_clear(out);
+    int n = self.headers.len;
+    int i = 0;
+    while (i < n) {
+        int j = 0;
+        int matched = 1;
+        while (name[j] != 0) {
+            if (i + j >= n) { matched = 0; }
+            if (matched == 1) {
+                char a = self.headers.data[i + j];
+                char b = name[j];
+                if (a >= 65 && a <= 90) { a = (char)((int)a + 32); }
+                if (b >= 65 && b <= 90) { b = (char)((int)b + 32); }
+                if (a != b) { matched = 0; }
+            }
+            j = j + 1;
+        }
+        if (matched == 1 && i + j < n && self.headers.data[i + j] == 58) {  // ':'
+            int k = i + j + 1;
+            while (k < n && self.headers.data[k] == 32) { k = k + 1; }       // skip spaces
+            while (k < n && self.headers.data[k] != 10) {
+                String_push(out, self.headers.data[k]); k = k + 1;
+            }
+            return 1;
+        }
+        while (i < n && self.headers.data[i] != 10) { i = i + 1; }
+        i = i + 1;
+    }
+    return 0;
+}
+
+// ── Response (builder) ───────────────────────────────────────────────────────
+
+struct HttpResponse {
+    int    status;
+    String headers;   // accumulated "Key: Value\r\n"
+    String body;
+}
+
+void HttpResponse_init(HttpResponse* self, int status) {
+    self.status = status;
+    String_init(&self.headers, 128);
+    String_init(&self.body, 128);
+}
+
+void HttpResponse_free(HttpResponse* self) {
+    String_free(&self.headers);
+    String_free(&self.body);
+}
+
+void HttpResponse_header(HttpResponse* self, string key, string val) {
+    String_append(&self.headers, key);
+    String_append(&self.headers, ": ");
+    String_append(&self.headers, val);
+    String_append(&self.headers, "\r\n");
+}
+
+void HttpResponse_set_body(HttpResponse* self, string s) {
+    String_clear(&self.body);
+    String_append(&self.body, s);
+}
+
+void HttpResponse_body_append(HttpResponse* self, string s) {
+    String_append(&self.body, s);
+}
+
+// Reason phrase for the common status codes.
+string http_reason(int s) {
+    if (s == 200) { return "OK"; }
+    if (s == 201) { return "Created"; }
+    if (s == 204) { return "No Content"; }
+    if (s == 301) { return "Moved Permanently"; }
+    if (s == 302) { return "Found"; }
+    if (s == 400) { return "Bad Request"; }
+    if (s == 401) { return "Unauthorized"; }
+    if (s == 403) { return "Forbidden"; }
+    if (s == 404) { return "Not Found"; }
+    if (s == 405) { return "Method Not Allowed"; }
+    if (s == 500) { return "Internal Server Error"; }
+    return "OK";
+}
+
+// Serialize the full HTTP/1.1 response (status line, headers, auto
+// Content-Length, blank line, body) into `out`.
+void HttpResponse_render(HttpResponse* self, String* out) {
+    String_append(out, "HTTP/1.1 ");
+    let st: String;  String_init(&st, 8);
+    String_from_int(&st, self.status);
+    String_append(out, String_cstr(&st));
+    String_free(&st);
+    String_push(out, ' ');
+    String_append(out, http_reason(self.status));
+    String_append(out, "\r\n");
+    String_append(out, String_cstr(&self.headers));
+    String_append(out, "Content-Length: ");
+    let cl: String;  String_init(&cl, 16);
+    String_from_int(&cl, self.body.len);
+    String_append(out, String_cstr(&cl));
+    String_free(&cl);
+    String_append(out, "\r\n\r\n");
+    String_append(out, String_cstr(&self.body));
+}
+
+// ── Worker pool ──────────────────────────────────────────────────────────────
+
+// A handler reads the request and fills the response.
+//
+// Accept-and-serve loop for one worker. Each connection is read, parsed, handed
+// to `handler`, and answered. Runs forever.
+void http_worker_loop(int fd, fn(HttpRequest*, HttpResponse*)->void handler) {
+    *uint8 buf = alloc<uint8>(8192);
+    while (1) {
+        int c = net_accept(fd);
+        if (c < 0) { continue; }
+        int64 n = net_recv(c, (*void)buf, 8192);
+        if (n <= 0) { net_close(c); continue; }
+
+        let req: HttpRequest;  HttpRequest_init(&req);
+        HttpRequest_parse(&req, buf, (int)n);
+        let res: HttpResponse;  HttpResponse_init(&res, 200);
+        handler(&req, &res);
+
+        let out: String;  String_init(&out, 256);
+        HttpResponse_render(&res, &out);
+        net_send(c, (*void)String_cstr(&out), out.len);
+        net_close(c);
+
+        String_free(&out);
+        HttpResponse_free(&res);
+        HttpRequest_free(&req);
+    }
+    free(buf);
+}
+
+// Listen on `port` and serve with `nworkers` threads (the calling thread is one
+// of them, so it blocks here). Returns immediately only if the bind fails.
+void http_serve(int port, int nworkers, fn(HttpRequest*, HttpResponse*)->void handler) {
+    int fd = net_tcp_listen((uint16)port);
+    if (fd < 0) { return; }
+    int spawned = 1;
+    while (spawned < nworkers) {
+        let w: fn()->void = void() { http_worker_loop(fd, handler); };
+        thread_create(w);
+        spawned = spawned + 1;
+    }
+    http_worker_loop(fd, handler);
+}
