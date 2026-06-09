@@ -109,7 +109,7 @@ std::string Parser::parseType() {
         consume(TokenType::LPAREN, "Expected '(' in fn type");
         bool first = true;
         while (!check(TokenType::RPAREN) && !is_at_end()) {
-            if (!first) type += ",";
+            if (!first) { consume(TokenType::COMMA, "Expected ',' between fn parameter types"); type += ","; }
             first = false;
             type += parseType();
         }

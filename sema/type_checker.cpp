@@ -561,6 +561,11 @@ void TypeChecker::visit(CallExpr* node) {
     {
         std::string varType = lookupSymbol(funcName);
         if (!varType.empty() && varType.size() > 3 && varType.substr(0, 3) == "fn(") {
+            // The callee is a fn-pointer *variable*. Visit it so that, inside a
+            // lambda, an outer-scope fn pointer used in callee position is
+            // registered as a capture (visit(CallExpr) otherwise resolves the
+            // name directly and never reaches visit(IdentExpr)).
+            node->callee->accept(this);
             // Extract return type from fn(T,...)->R
             size_t rp = varType.find(")->");
             std::string retType = (rp != std::string::npos) ? varType.substr(rp + 3) : "unknown";
@@ -781,17 +786,18 @@ void TypeChecker::visit(IdentExpr* node) {
     // Record use-site so go-to-definition can map cursor → definition
     useLocations[{node->line, node->col}] = node->name;
 
-    // Capture detection: if we are inside a lambda body, check whether this
-    // identifier is defined in an outer scope (not the lambda's own scope).
+    // Capture detection: inside a lambda, a name is captured when it resolves to
+    // a variable in an enclosing scope (below the lambda's own scopes). We key off
+    // the variable's defining scope index, NOT functionSignatures — a param or
+    // local that shadows a same-named top-level function must still be captured.
     if (!captureStack.empty() && !type.empty()) {
-        // The lambda pushed one scope then defined its params. A variable is
-        // "outer" if it exists in scopes below the lambda's own top scope.
-        // The lambda's scope is scopes.back(). Look deeper.
-        if (scopes.size() >= 2) {
-            bool inLambdaScope = scopes.back().count(node->name) > 0;
-            if (!inLambdaScope && !functionSignatures.count(node->name)) {
-                captureStack.back()[node->name] = type;
-            }
+        int boundary = captureBoundary.back();
+        int defIdx = -1;
+        for (int si = (int)scopes.size() - 1; si >= 0; --si) {
+            if (scopes[si].count(node->name)) { defIdx = si; break; }
+        }
+        if (defIdx >= 0 && defIdx < boundary) {
+            captureStack.back()[node->name] = type;
         }
     }
 }
@@ -808,7 +814,7 @@ void TypeChecker::visit(LambdaExpr* node) {
     // Push a capture collector before entering the lambda scope.
     // visit(IdentExpr) will add outer-scope vars to captureStack.back().
     captureStack.push_back({});
-    int outerScopeCount = (int)scopes.size();
+    captureBoundary.push_back((int)scopes.size());   // scopes below this are "outer"
 
     pushScope();
     std::string savedReturn = currentFunctionReturnType;
@@ -832,6 +838,7 @@ void TypeChecker::visit(LambdaExpr* node) {
             node->captures.push_back({name, type});
     }
     captureStack.pop_back();
+    captureBoundary.pop_back();
 
     expressionTypes[node] = sig;
 }

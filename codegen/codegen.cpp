@@ -1535,7 +1535,9 @@ void CodeGen::visit(CallExpr* node) {
 
             std::vector<llvm::Value*> iargs = {envPtr};
             for (auto& a : node->args) iargs.push_back(evaluateExpr(a));
-            exprValueStack.push(builder->CreateCall(fty, fnPtr, iargs, "fn.call"));
+            // A void-returning call must not be given a name (LLVM forbids it).
+            exprValueStack.push(builder->CreateCall(
+                fty, fnPtr, iargs, retTy->isVoidTy() ? "" : "fn.call"));
             return;
         }
         throw std::runtime_error("Call target is not a function");

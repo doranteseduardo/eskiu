@@ -191,5 +191,9 @@ private:
     // Each entry is the set of (name, type) pairs captured so far.
     // IdentExpr visitor adds to the top entry when it finds an outer-scope var.
     std::vector<std::map<std::string, std::string>> captureStack;
+    // Parallel to captureStack: the scope count at each lambda's entry. A name
+    // is captured when it resolves to a scope index below this boundary (i.e. an
+    // enclosing function's param/local), regardless of any same-named global.
+    std::vector<int> captureBoundary;
     int lambdaScopeDepth = 0; // how many scopes the lambda itself pushed
 };

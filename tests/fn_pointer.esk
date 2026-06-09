@@ -1,0 +1,27 @@
+// Regression for function-pointer-as-value support:
+//   1. multi-argument fn types: fn(int,int)->int
+//   2. a void-returning fn pointer called through a closure
+//   3. a param that SHADOWS a same-named top-level function is still captured
+extern int printf(string fmt, ...);
+
+int apply2(fn(int,int)->int op, int a, int b) { return op(a, b); }   // (1)
+int add(int a, int b) { return a + b; }
+
+void handler(int x) { printf("global %d\n", x); }                    // global fn
+
+// `handler` here is a parameter shadowing the global function above; it is
+// captured by the closure and invoked (void return) — (2) and (3).
+void dispatch(int v, fn(int)->void handler) {
+    int vv = v;
+    *int pv = &vv;
+    let w: fn()->void = void() { handler(*pv); };
+    w();
+}
+
+void say(int x) { printf("dispatched %d\n", x); }
+
+int main() {
+    printf("sum=%d\n", apply2(add, 20, 22));   // 42
+    dispatch(7, say);                          // "dispatched 7" (NOT "global 7")
+    return 0;
+}
