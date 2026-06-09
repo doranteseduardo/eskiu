@@ -97,7 +97,7 @@ All items below are implemented and tested end-to-end.
 | Multi-file compile | `eskiuc a.esk b.esk -o prog` — declarations from all inputs are merged into one program |
 | Warnings (`-Wall`) | Unused variables/parameters/functions, assignment-in-condition; off by default |
 | VS Code | Real-time errors, hover types, go-to-definition |
-| stdlib | `result.esk`, `list.esk`, `string.esk`, `math.esk`, `io.esk`, `mem.esk`, `fs.esk`, `net.esk`, `alloc.esk` |
+| stdlib | `result.esk`, `list.esk`, `string.esk`, `math.esk`, `io.esk`, `mem.esk`, `fs.esk`, `net.esk`, `alloc.esk`, `time.esk`, `env.esk`, `base64.esk`, `json.esk` |
 
 ## Roadmap (as of v0.1.0)
 

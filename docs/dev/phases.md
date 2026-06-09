@@ -4,7 +4,7 @@
 
 Authoritative status reference for Eskiu compiler contributors.
 
-Last updated: 2026-06-07.
+Last updated: 2026-06-08.
 
 ---
 
@@ -54,6 +54,7 @@ The project follows two phases:
 | `import <name>` stdlib syntax — angle-bracket imports resolved from installation | ✅ |
 | `<fs>` stdlib — file I/O (`fs_open`, `fs_read_all`, `fs_write_all`, etc.) | ✅ |
 | `<net>` stdlib — TCP sockets (`net_tcp_listen`/`accept`/`connect`/`send`/`recv`), portable `sockaddr_in` | ✅ |
+| `<time>` / `<env>` / `<base64>` / `<json>` stdlib — clock+sleep, env vars, Base64 codec, JSON builder (v0.2.0) | ✅ |
 | Function-as-value — a named function decays to a `fn(...)->R` (no lambda wrapper) | ✅ |
 | Predefined OS macros — `__APPLE__` / `__linux__` for `#ifdef` portability | ✅ |
 | Pointer dereference as lvalue — `*ptr = value` through pointer parameters | ✅ |
@@ -107,14 +108,14 @@ Phase 3 rounds out ergonomics and tooling.
 
 **Phase 1 — Unblock real projects**
 - [x] `const` — typed, scoped constants, usable as array sizes
-- [x] `alloc_with(&allocator, T, n)` — explicit-allocator form alongside the built-in `alloc`
+- [x] `alloc_with(&allocator, T, n)` — explicit-allocator form alongside the default `alloc<T>` (built-in; `alloc`/`free` themselves moved to `<mem>`)
 - [x] `<alloc>` — first-fit general-purpose allocator (after Ken Thompson's original), plus Arena, Pool, and Bump, all over `alloc_with`. A libc-free foundation for `--freestanding` (no dependency on libc `malloc`)
 - [ ] `<threading>` — mutex, condvar, semaphore over pthread
 - [ ] `<http>` — HTTP/1.1 parser + response builder + worker pool
-- [ ] `<base64>` — encode / decode
-- [ ] `<json>` — minimal builder
-- [ ] `<time>` — timestamp, sleep, monotonic clock
-- [ ] `<env>` — environment variables and CLI arguments
+- [x] `<base64>` — encode / decode
+- [x] `<json>` — minimal builder
+- [x] `<time>` — timestamp, sleep, monotonic clock
+- [x] `<env>` — environment variables and CLI arguments
 
 **Phase 2 — Build on Phase 1**
 - [ ] `async` / `await` — keywords + state-machine codegen

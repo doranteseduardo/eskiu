@@ -1,0 +1,21 @@
+import <json>;
+
+extern int printf(string fmt, ...);
+
+int main() {
+    let j: Json;  json_init(&j);
+    json_obj_begin(&j);
+        json_key(&j, "name");  json_str(&j, "Eskiu");
+        json_key(&j, "year");  json_int(&j, 2026);
+        json_key(&j, "ok");    json_bool(&j, 1);
+        json_key(&j, "tags");
+        json_arr_begin(&j);
+            json_str(&j, "systems");
+            json_str(&j, "llvm");
+        json_arr_end(&j);
+        json_key(&j, "note");  json_null(&j);
+    json_obj_end(&j);
+    printf("%s\n", json_cstr(&j));
+    json_free(&j);
+    return 0;
+}

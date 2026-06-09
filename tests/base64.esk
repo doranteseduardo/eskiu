@@ -1,0 +1,29 @@
+import <mem>;
+import <base64>;
+
+extern int printf(string fmt, ...);
+
+// Copy a C string's bytes into a buffer, returning the length.
+int load(string s, *uint8 dst) {
+    int i = 0;
+    while (s[i] != 0) { dst[i] = (uint8)s[i]; i = i + 1; }
+    return i;
+}
+
+int main() {
+    *uint8 src = alloc<uint8>(64);
+    int n = load("Hello", src);
+
+    *uint8 enc = alloc<uint8>(base64_encoded_len(n) + 1);
+    base64_encode(src, n, enc);
+    printf("%s\n", (string)enc);              // SGVsbG8=
+
+    *uint8 dec = alloc<uint8>(base64_decoded_len(64));
+    int m = base64_decode(enc, base64_encoded_len(n), dec);
+    dec[m] = 0;
+    printf("%s\n", (string)dec);              // Hello
+    printf("len=%d\n", m);                    // 5
+
+    free(src); free(enc); free(dec);
+    return 0;
+}
