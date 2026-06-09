@@ -1,0 +1,10 @@
+// Regression: an int literal mixed with an int64 operand must widen to int64
+// for every arithmetic operator. `%` used to skip the widening and emit
+// `srem i64, i32`, failing LLVM verification.
+extern int printf(string fmt, ...);
+
+int main() {
+    int64 x = 5300;
+    printf("%lld %lld %lld %lld %lld\n", x + 1000, x - 1000, x * 2, x / 1000, x % 1000);
+    return 0;
+}
