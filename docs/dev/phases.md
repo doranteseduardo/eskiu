@@ -125,6 +125,7 @@ Phase 3 rounds out ergonomics and tooling.
 - [ ] `Future<T>` in the stdlib
 - [ ] `<eventloop>` — general-purpose reactor over epoll (Linux) / kqueue (macOS). A shared foundation for async/await, HTTP, and the future UI framework, designed from the start to dispatch any kind of event (sockets, frames, input), not just network I/O
 - [ ] `<http_async>` — non-blocking HTTP/1.1 over the event loop
+- [ ] `<http2>` — HTTP/2 over the event loop: binary framing, HPACK header compression, and stream multiplexing. Needs TLS (negotiated via ALPN `h2`); planned through OpenSSL by FFI (already proven viable — the crypto pipeline links OpenSSL via `extern`). Depends on `<eventloop>`, since multiplexing wants non-blocking I/O
 - [ ] `<string>` — `split`, `trim`, `starts_with`, `ends_with`
 - [ ] `<path>` — path manipulation
 
@@ -195,3 +196,19 @@ toolchain/distribution integration, not codegen.
 (`.a`/`.so`) called from Swift/Kotlin over the C ABI, not as a standalone app. A
 standalone Eskiu app with its own UI depends on the future UI framework (see the
 `<eventloop>` note) and is out of scope for this track.
+
+---
+
+## HTTP/3 (future track, not scheduled)
+
+HTTP/3 runs over **QUIC**, a UDP-based transport that bundles its own congestion
+control, loss recovery, stream multiplexing, and mandatory TLS 1.3 — plus QPACK
+header compression. Implementing QUIC from scratch is a project on the scale of
+the rest of the stdlib combined; no serious stack does it by hand.
+
+- [ ] `<http3>` — bind an existing QUIC library (quiche / ngtcp2 / msquic) over the C ABI via `extern`, then layer HTTP/3 framing on top
+
+Not scheduled, and gated on `<http2>` landing first. In practice it is rarely
+needed at the application layer: a reverse proxy (nginx, Caddy, Cloudflare)
+terminates HTTP/2 and HTTP/3 at the edge and speaks HTTP/1.1 (or HTTP/2) to an
+Eskiu backend, so the `<http>` we have already benefits from h2/h3 on the wire.
