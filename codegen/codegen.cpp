@@ -1223,7 +1223,10 @@ void CodeGen::visit(BinaryExpr* node) {
             ? builder->CreateFDiv(left, right)
             : builder->CreateSDiv(left, right);
     } else if (node->op == "%") {
-        result = builder->CreateSRem(left, right);
+        promoteToFloat(); widenForArith();
+        result = left->getType()->isFloatingPointTy()
+            ? builder->CreateFRem(left, right)
+            : builder->CreateSRem(left, right);
     } else if (node->op == "==") {
         if (left->getType()->isFloatingPointTy())
             result = builder->CreateFCmpOEQ(left, right);
