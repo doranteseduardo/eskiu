@@ -3,751 +3,364 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Eskiu — A Systems Programming Language</title>
-  <meta name="description" content="Eskiu is a statically typed systems language with C-style syntax, structural interfaces, and explicit memory — compiled to native via LLVM." />
+  <title>Eskiu: One language from bare metal to backend</title>
+  <meta name="description" content="Eskiu is a systems language with C-style syntax that compiles straight to native code via LLVM, with no GC and no runtime. From a bare-metal kernel to an HTTP server, in one toolchain." />
   <link rel="canonical" href="https://eskiu-lang.org" />
   <link rel="icon" type="image/png" href="../assets/logo.png" />
   <link rel="apple-touch-icon" href="../assets/logo.png" />
-  <meta property="og:title" content="Eskiu — A Systems Programming Language" />
-  <meta property="og:description" content="C-style syntax. Structural interfaces. Explicit memory. Compiled to native via LLVM." />
+  <meta property="og:title" content="Eskiu: One language from bare metal to backend" />
+  <meta property="og:description" content="C-style syntax. Native via LLVM. No GC, no runtime. A kernel and an HTTP server in the same language." />
   <meta property="og:url" content="https://eskiu-lang.org" />
   <meta property="og:image" content="https://eskiu-lang.org/assets/logo.png" />
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
     :root {
-      /* brand palette — from the Eskiu identity guide */
-      --cream:      #f5f0e8;
-      --cream-dk:   #ede5d8;
-      --ink:        #2c2a28;
-      --ink2:       #5a5652;
-      --muted:      #9b9590;
-      --border:     #e2dbd0;
-      --purple:     #8b6bae;   /* primary accent — dusty lavender */
-      --purple-lt:  #d4c0dc;
-      --purple-dk:  #7558a0;
-      --blue-gray:  #6e8fa8;
-      --bg:         #fdfcf8;   /* warm white */
-      --bg2:        #f7f2ea;
-      --font-sans:  -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-      --font-mono:  "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      --bg:     #fffdf9;
+      --tint:   #fbf2ea;   /* warm sand */
+      --tint2:  #f3eafc;   /* soft lavender wash */
+      --tint3:  #e7f3ee;   /* soft mint */
+      --tint4:  #fdeee8;   /* soft peach */
+      --ink:    #2b2926;
+      --ink2:   #615c56;
+      --muted:  #a39c93;
+      --lav:    #8b6bae;
+      --lav-dk: #7558a0;
+      --peach:  #ef9f86;
+      --mint:   #6fb79b;
+      --bd:     #ece3d6;
+      --term:   #251f33;   /* dark code surface */
+      --term-bd:#3a3450;
+      --sans: ui-rounded, "SF Pro Rounded", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      --mono: "SFMono-Regular", "JetBrains Mono", Consolas, Menlo, monospace;
     }
-
-    html { scroll-behavior: smooth; }
-
-    body {
-      background: var(--bg);
-      color: var(--ink);
-      font-family: var(--font-sans);
-      font-size: 16px;
-      line-height: 1.6;
-      -webkit-font-smoothing: antialiased;
-    }
-
-    a { color: var(--purple); text-decoration: none; }
+    html { scroll-behavior: smooth; overflow-x: clip; }
+    body { background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 16px; line-height: 1.65; -webkit-font-smoothing: antialiased; }
+    a { color: var(--lav-dk); text-decoration: none; }
     a:hover { text-decoration: underline; }
+    code { font-family: var(--mono); font-size: 0.86em; background: var(--tint2); padding: 0.1em 0.4em; border-radius: 5px; color: var(--lav-dk); }
+    .wrap { max-width: 1060px; margin: 0 auto; padding: 0 1.6rem; }
+    .section { padding-top: 5rem; padding-bottom: 5rem; }
+    .eyebrow { color: var(--lav); font-weight: 800; letter-spacing: 0.09em; text-transform: uppercase; font-size: 0.74rem; }
+    h2 { font-size: clamp(1.85rem, 3.2vw, 2.55rem); font-weight: 900; letter-spacing: -0.03em; line-height: 1.12; margin: 0.45rem 0 0.7rem; }
+    .lead { color: var(--ink2); max-width: 580px; font-size: 1.05rem; line-height: 1.7; }
 
-    code {
-      font-family: var(--font-mono);
-      font-size: 0.85em;
-      background: var(--cream-dk);
-      padding: 0.1em 0.35em;
-      border-radius: 3px;
-      color: var(--ink);
-    }
+    /* Buttons */
+    .btn { display: inline-flex; align-items: center; gap: 0.45rem; padding: 0.8rem 1.6rem; border-radius: 999px; font-weight: 700; font-size: 0.98rem; cursor: pointer; transition: transform 0.12s, box-shadow 0.15s; }
+    .btn:hover { transform: translateY(-2px); text-decoration: none; }
+    .btn-primary { background: var(--lav); color: #fff; box-shadow: 0 8px 22px rgba(139,107,174,0.34); }
+    .btn-primary:hover { box-shadow: 0 12px 26px rgba(139,107,174,0.42); }
+    .btn-ghost { background: #fff; color: var(--ink); border: 2px solid var(--bd); }
+    .btn-light { background: #fff; color: var(--lav-dk); }
 
-    /* ── Nav ──────────────────────────────────────────────────────── */
-    nav {
-      background: var(--bg);
-      border-bottom: 1px solid var(--border);
-      position: sticky;
-      top: 0;
-      z-index: 100;
-    }
+    /* Nav */
+    nav { padding: 0.9rem 0; position: sticky; top: 0; background: rgba(255,253,249,0.82); backdrop-filter: blur(10px); z-index: 30; }
+    .nav-in { max-width: 1060px; margin: 0 auto; padding: 0 1.6rem; display: flex; align-items: center; gap: 1rem; }
+    .brand { display: flex; align-items: center; gap: 0.5rem; font-weight: 800; font-size: 1.25rem; letter-spacing: -0.02em; color: var(--ink); }
+    .brand img { width: 38px; height: 38px; }
+    .nav-links { margin-left: auto; display: flex; align-items: center; gap: 1.6rem; }
+    .nav-links a { color: var(--ink2); font-weight: 600; font-size: 0.92rem; }
+    .nav-links a:hover { color: var(--lav-dk); text-decoration: none; }
+    .pill-btn { background: var(--lav); color: #fff !important; padding: 0.5rem 1.15rem; border-radius: 999px; font-weight: 700; }
+    .pill-btn:hover { background: var(--lav-dk); }
+    @media (max-width: 680px) { .nav-links a:not(.pill-btn) { display: none; } }
 
-    .nav-inner {
-      max-width: 1100px;
-      margin: 0 auto;
-      padding: 0 2rem;
-      height: 58px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
+    /* Hero */
+    .hero { padding: 3rem 0 1.5rem; overflow: hidden; }
+    .hero-grid { display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 2rem; align-items: center; }
+    @media (max-width: 820px) { .hero-grid { grid-template-columns: 1fr; text-align: center; } .hero-art { order: -1; } }
+    .hero h1 { font-size: clamp(2.7rem, 5.5vw, 4.3rem); font-weight: 900; line-height: 1.02; letter-spacing: -0.035em; }
+    .hero h1 .lav { color: var(--lav); }
+    .hero h1 .peach { color: var(--peach); }
+    .hero-sub { font-size: 1.15rem; color: var(--ink2); line-height: 1.65; max-width: 470px; margin: 1.25rem 0 1.9rem; }
+    @media (max-width: 820px) { .hero-sub { margin-left: auto; margin-right: auto; } }
+    .hero-actions { display: flex; gap: 0.8rem; flex-wrap: wrap; }
+    @media (max-width: 820px) { .hero-actions { justify-content: center; } }
+    .hero-art { position: relative; display: flex; justify-content: center; align-items: center; min-height: 340px; }
+    .blob { position: absolute; width: 370px; height: 370px; border-radius: 50%; background: radial-gradient(circle at 42% 36%, var(--tint2), var(--tint) 72%); filter: blur(4px); z-index: 0; }
+    .hero-cat { position: relative; z-index: 1; width: 268px; filter: drop-shadow(0 18px 32px rgba(139,107,174,0.28)); }
+    .float-card { position: absolute; z-index: 2; background: var(--term); border-radius: 12px; padding: 0.7rem 0.95rem; font-family: var(--mono); font-size: 0.72rem; color: #d7dcf0; box-shadow: 0 14px 30px rgba(44,42,40,0.24); }
+    .float-card .g { color: #c3e88d; }
+    .fc-1 { right: -8px; top: 26px; }
+    .fc-2 { left: -14px; bottom: 30px; font-weight: 700; color: #fff; }
+    .fc-2 b { color: var(--peach); }
+    @media (max-width: 820px) { .float-card { display: none; } }
+    @media (max-width: 460px) { .blob { width: 280px; height: 280px; } .hero-cat { width: 216px; } .hero-art { min-height: 280px; } }
 
-    .nav-logo {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      font-weight: 800;
-      font-size: 1.2rem;
-      color: var(--ink);
-      letter-spacing: -0.03em;
-    }
+    /* Wave dividers */
+    .wave { display: block; width: 100%; height: 64px; }
+    .band-tint { background: var(--tint); }
+    .band-lav  { background: var(--lav); }
 
-    .nav-logo img {
-      width: 34px;
-      height: 34px;
-      object-fit: contain;
-    }
+    /* Stats */
+    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; }
+    @media (max-width: 600px) { .stats { grid-template-columns: repeat(2,1fr); } }
+    .stat { background: #fff; border: 1px solid var(--bd); border-radius: 16px; padding: 1.3rem; text-align: center; }
+    .stat b { display: block; font-size: 1.9rem; font-weight: 900; color: var(--lav-dk); letter-spacing: -0.03em; }
+    .stat span { font-size: 0.78rem; color: var(--ink2); }
 
-    .nav-links {
-      display: flex;
-      align-items: center;
-      gap: 1.75rem;
-      list-style: none;
-    }
+    /* Pillars / cards */
+    .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1.2rem; margin-top: 2.6rem; }
+    @media (max-width: 860px) { .cards { grid-template-columns: repeat(2,1fr); } }
+    @media (max-width: 480px) { .cards { grid-template-columns: 1fr; } }
+    .card { background: #fff; border: 1px solid var(--bd); border-radius: 18px; padding: 1.4rem; box-shadow: 0 6px 16px rgba(44,42,40,0.04); }
+    .ic { width: 44px; height: 44px; border-radius: 13px; display: grid; place-items: center; margin-bottom: 0.85rem; }
+    .ic svg { width: 22px; height: 22px; }
+    .card h3 { font-size: 1.02rem; font-weight: 800; margin-bottom: 0.35rem; }
+    .card p { font-size: 0.88rem; color: var(--ink2); line-height: 1.6; }
 
-    .nav-links a {
-      color: var(--ink2);
-      font-size: 0.875rem;
-      font-weight: 500;
-      transition: color 0.15s;
-    }
-
-    .nav-links a:hover { color: var(--ink); text-decoration: none; }
-
-    .nav-dl {
-      background: var(--purple) !important;
-      color: #fff !important;
-      padding: 0.4rem 1rem;
-      border-radius: 6px;
-      font-weight: 600 !important;
-      transition: background 0.15s !important;
-    }
-
-    .nav-dl:hover { background: var(--purple-dk) !important; }
-
-    /* ── Hero ─────────────────────────────────────────────────────── */
-    .hero {
-      background: var(--cream);
-      border-bottom: 1px solid var(--border);
-      overflow: hidden;
-    }
-
-    .hero-inner {
-      max-width: 1100px;
-      margin: 0 auto;
-      padding: 5rem 2rem 0;
-      display: grid;
-      grid-template-columns: 1fr auto;
-      gap: 2rem;
-      align-items: end;
-    }
-
-    .hero-text { padding-bottom: 5rem; }
-
-    .hero-tag {
-      font-size: 0.78rem;
-      font-weight: 600;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: var(--purple);
-      display: block;
-      margin-bottom: 1.25rem;
-    }
-
-    h1 {
-      font-size: clamp(2.6rem, 5vw, 4rem);
-      font-weight: 900;
-      line-height: 1.06;
-      letter-spacing: -0.04em;
-      color: var(--ink);
-      margin-bottom: 1.25rem;
-    }
-
-    h1 em { font-style: normal; color: var(--purple); }
-
-    .hero-sub {
-      font-size: 1.1rem;
-      color: var(--ink2);
-      line-height: 1.75;
-      margin-bottom: 2.25rem;
-      max-width: 480px;
-    }
-
-    .hero-actions {
-      display: flex;
-      gap: 0.75rem;
-      flex-wrap: wrap;
-    }
-
-    .btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.35rem;
-      padding: 0.65rem 1.35rem;
-      border-radius: 7px;
-      font-size: 0.9rem;
-      font-weight: 600;
-      transition: opacity 0.15s, transform 0.1s;
-      cursor: pointer;
-    }
-
-    .btn:hover { opacity: 0.88; transform: translateY(-1px); text-decoration: none; }
-
-    .btn-primary  { background: var(--purple); color: #fff; }
-    .btn-secondary { background: var(--bg); color: var(--ink); border: 1.5px solid var(--border); }
-
-    .hero-mascot {
-      align-self: end;
-      width: 340px;
-      flex-shrink: 0;
-      display: flex;
-      align-items: flex-end;
-    }
-
-    .hero-mascot img {
-      width: 100%;
-      display: block;
-      filter: drop-shadow(0 8px 24px rgba(139,107,174,0.18));
-    }
-
-    /* ── Stats ────────────────────────────────────────────────────── */
-    .stats-strip {
-      background: var(--purple);
-    }
-
-    .stats-inner {
-      max-width: 1100px;
-      margin: 0 auto;
-      display: flex;
-    }
-
-    .stat-item {
-      flex: 1;
-      padding: 1.5rem 1.5rem;
-      text-align: center;
-      border-right: 1px solid rgba(255,255,255,0.2);
-    }
-
-    .stat-item:last-child { border-right: none; }
-
-    .stat-num {
-      display: block;
-      font-size: 2.1rem;
-      font-weight: 900;
-      color: #fff;
-      letter-spacing: -0.04em;
-      line-height: 1;
-    }
-
-    .stat-lbl {
-      font-size: 0.78rem;
-      color: rgba(255,255,255,0.72);
-      margin-top: 0.3rem;
-      font-weight: 500;
-    }
-
-    /* ── Sections ─────────────────────────────────────────────────── */
-    .wrap {
-      max-width: 1100px;
-      margin: 0 auto;
-      padding: 5rem 2rem;
-    }
-
-    .bg-alt { background: var(--bg2); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
-
-    .eyebrow {
-      font-size: 0.72rem;
-      font-weight: 700;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      color: var(--purple);
-      margin-bottom: 0.5rem;
-    }
-
-    h2 {
-      font-size: clamp(1.75rem, 3vw, 2.4rem);
-      font-weight: 800;
-      letter-spacing: -0.03em;
-      line-height: 1.15;
-      margin-bottom: 0.75rem;
-    }
-
-    .lead {
-      font-size: 1rem;
-      color: var(--ink2);
-      max-width: 560px;
-      line-height: 1.75;
-      margin-bottom: 3rem;
-    }
-
-    /* ── Tabs + code ──────────────────────────────────────────────── */
-    .tabs {
-      display: flex;
-      border-bottom: 2px solid var(--border);
-      margin-bottom: 0;
-      gap: 0;
-      overflow-x: auto;
-      -webkit-overflow-scrolling: touch;
-      scrollbar-width: none;
-    }
-
-    .tabs::-webkit-scrollbar { display: none; }
-
-    .tab-btn {
-      padding: 0.6rem 1.1rem;
-      font-size: 0.82rem;
-      font-weight: 600;
-      color: var(--muted);
-      cursor: pointer;
-      border: none;
-      background: none;
-      border-bottom: 2px solid transparent;
-      margin-bottom: -2px;
-      font-family: var(--font-mono);
-      white-space: nowrap;
-      transition: color 0.15s;
-    }
-
-    .tab-btn:hover { color: var(--ink); }
-    .tab-btn.active { color: var(--purple); border-bottom-color: var(--purple); }
-
+    /* Tabs + code */
+    .tabs { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 1rem; }
+    .tab-btn { padding: 0.5rem 1rem; font-size: 0.82rem; font-weight: 700; color: var(--ink2); cursor: pointer; border: 1px solid var(--bd); background: #fff; border-radius: 999px; font-family: var(--mono); transition: all 0.15s; }
+    .tab-btn:hover { border-color: var(--lav-lt); color: var(--lav-dk); }
+    .tab-btn.active { background: var(--lav); color: #fff; border-color: var(--lav); }
     .tab-panel { display: none; }
     .tab-panel.active { display: block; }
+    .code { background: var(--term); border-radius: 16px; overflow: hidden; box-shadow: 0 14px 34px rgba(44,42,40,0.12); }
+    .code-bar { padding: 0.6rem 1rem; border-bottom: 1px solid var(--term-bd); display: flex; align-items: center; gap: 0.4rem; }
+    .code-bar .d { width: 10px; height: 10px; border-radius: 50%; }
+    .code-bar .nm { margin-left: auto; font-family: var(--mono); font-size: 0.7rem; color: #807aa0; }
+    .code pre { padding: 1.4rem 1.6rem; font-family: var(--mono); font-size: 0.82rem; line-height: 1.75; overflow-x: auto; color: #d7dcf0; }
+    .kw{color:#c792ea;font-weight:600}.ty{color:#82aaff}.fn{color:#a3d6c4}.st{color:#c3e88d}.cm{color:#8983ad;font-style:italic}.nu{color:#f78c6c}
 
-    .code-block {
-      background: #1e1b2e;
-      border: 1px solid #2d2a3e;
-      border-top: none;
-      border-radius: 0 0 10px 10px;
-      overflow: hidden;
-    }
-
-    .code-block pre {
-      padding: 1.5rem;
-      font-family: var(--font-mono);
-      font-size: 0.82rem;
-      line-height: 1.75;
-      overflow-x: auto;
-      color: #cdd6f4;   /* default text — light on dark */
-    }
-
-    /* syntax — tuned for #1e1b2e background */
-    .kw  { color: #c792ea; font-weight: 600; }  /* purple  — keywords */
-    .ty  { color: #82aaff; }                     /* blue    — types    */
-    .fn  { color: #a3d6c4; }                     /* teal    — functions */
-    .st  { color: #c3e88d; }                     /* green   — strings  */
-    .cm  { color: #7b7898; font-style: italic; } /* muted   — comments (was too dark) */
-    .nu  { color: #f78c6c; }                     /* orange  — numbers  */
-
-    /* ── Reasons ──────────────────────────────────────────────────── */
-    .reasons {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 2.5rem;
-    }
-
-    @media (max-width: 768px) { .reasons { grid-template-columns: 1fr; } }
-
-    .reason {
-      border-top: 3px solid var(--purple-lt);
-      padding-top: 1.25rem;
-    }
-
-    .reason h3 {
-      font-size: 1rem;
-      font-weight: 700;
-      margin-bottom: 0.5rem;
-      color: var(--ink);
-    }
-
-    .reason p { font-size: 0.875rem; color: var(--ink2); line-height: 1.65; }
-
-    /* ── Benchmark ────────────────────────────────────────────────── */
-    .bench-layout {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 2.5rem;
-      align-items: start;
-    }
-
-    @media (max-width: 768px) { .bench-layout { grid-template-columns: 1fr; } }
-
-    .bench-big {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 1rem;
-      margin-bottom: 1.25rem;
-    }
-
-    .big-num-card {
-      background: var(--bg);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 1.75rem 1.5rem;
-    }
-
-    .big-val {
-      display: block;
-      font-size: 3rem;
-      font-weight: 900;
-      letter-spacing: -0.05em;
-      line-height: 1;
-      color: var(--purple);
-    }
-
+    /* Proof */
+    .bench { display: grid; grid-template-columns: 1fr 1fr; gap: 2.5rem; align-items: start; }
+    @media (max-width: 760px) { .bench { grid-template-columns: 1fr; } }
+    .big-cards { display: flex; gap: 1rem; margin-bottom: 1rem; }
+    .big-card { flex: 1; background: #fff; border: 1px solid var(--bd); border-radius: 16px; padding: 1.3rem; }
+    .big-val { font-size: 2.1rem; font-weight: 900; letter-spacing: -0.03em; color: var(--lav-dk); display: block; line-height: 1; }
     .big-val.ref { color: var(--muted); }
-    .big-lbl { font-size: 0.8rem; color: var(--muted); margin-top: 0.35rem; }
+    .big-lbl { font-size: 0.78rem; color: var(--ink2); margin-top: 0.45rem; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+    th, td { text-align: left; padding: 0.6rem 0.4rem; border-bottom: 1px solid var(--bd); }
+    th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+    td.esk { color: var(--lav-dk); font-weight: 700; font-family: var(--mono); }
+    td.ref { color: var(--muted); font-family: var(--mono); }
+    .kernel { margin-top: 3rem; display: grid; grid-template-columns: 1fr 1.25fr; gap: 2.5rem; align-items: center; }
+    @media (max-width: 760px) { .kernel { grid-template-columns: 1fr; } }
+    .kernel h3 { font-size: 1.15rem; font-weight: 800; margin-bottom: 0.55rem; }
+    .kernel p { font-size: 0.9rem; color: var(--ink2); line-height: 1.65; }
+    .kframe { background: var(--term); border-radius: 16px; overflow: hidden; box-shadow: 0 14px 34px rgba(44,42,40,0.14); }
+    .kframe img { width: 100%; display: block; }
 
-    .bench-tbl {
-      background: var(--bg);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      overflow: hidden;
-    }
-
-    .bench-tbl table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
-
-    .bench-tbl th {
-      background: var(--cream);
-      padding: 0.7rem 1.1rem;
-      text-align: left;
-      font-size: 0.72rem;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: var(--muted);
-      border-bottom: 1px solid var(--border);
-    }
-
-    .bench-tbl td { padding: 0.8rem 1.1rem; border-bottom: 1px solid var(--border); font-size: 0.88rem; }
-    .bench-tbl tr:last-child td { border-bottom: none; font-weight: 700; }
-    .bench-tbl .esk { font-family: var(--font-mono); color: var(--purple); font-weight: 700; font-size: 0.83rem; }
-    .bench-tbl .ref { font-family: var(--font-mono); color: var(--muted); font-size: 0.83rem; }
-
-    /* ── News ─────────────────────────────────────────────────────── */
-    .news-layout {
-      display: grid;
-      grid-template-columns: 280px 1fr;
-      gap: 4rem;
-      align-items: start;
-    }
-
-    @media (max-width: 768px) { .news-layout { grid-template-columns: 1fr; } }
-
-    .news-list { list-style: none; }
-
-    .news-item {
-      padding: 1.1rem 0;
-      border-bottom: 1px solid var(--border);
-    }
-
-    .news-item:first-child { border-top: 1px solid var(--border); }
-
-    .news-title { font-size: 0.9rem; font-weight: 600; color: var(--ink); }
-    .news-body  { font-size: 0.82rem; color: var(--ink2); line-height: 1.55; margin-top: 0.2rem; }
-
-    .tag {
-      display: inline-block;
-      font-size: 0.67rem;
-      font-weight: 700;
-      padding: 0.1rem 0.4rem;
-      border-radius: 3px;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      margin-left: 0.35rem;
-      vertical-align: middle;
-    }
-
-    .tag-feat { background: var(--purple-lt); color: var(--purple-dk); }
-    .tag-fix  { background: #d1fae5; color: #065f46; }
-    .tag-tool { background: #fef3c7; color: #92400e; }
-
-    /* ── Feature chips + roadmap stepper ──────────────────────────────── */
-    .chip {
-      display: inline-block;
-      font-family: var(--font-mono);
-      font-size: 0.78rem;
-      color: var(--ink2);
-      background: var(--bg);
-      border: 1px solid var(--border);
-      border-radius: 999px;
-      padding: 0.3rem 0.75rem;
-    }
-    .steps { display: flex; flex-wrap: wrap; gap: 0; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
-    .step  { flex: 1; min-width: 170px; padding: 1.5rem 1.4rem; background: var(--bg); border-right: 1px solid var(--border); }
-    .step:last-child { border-right: none; }
-    .step-tag { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
-    .step-dot { width: 11px; height: 11px; border-radius: 50%; display: inline-block; vertical-align: middle; margin-right: 0.45rem; }
-    .step-title { font-size: 0.95rem; font-weight: 700; margin: 0.45rem 0 0.2rem; color: var(--ink); }
+    /* Roadmap */
+    .steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1.1rem; margin-top: 2rem; }
+    @media (max-width: 760px) { .steps { grid-template-columns: repeat(2,1fr); } }
+    .step { background: #fff; border: 1px solid var(--bd); border-radius: 16px; padding: 1.2rem; }
+    .step.done { border-color: var(--lav); box-shadow: 0 6px 16px rgba(139,107,174,0.12); }
+    .step-tag { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.72rem; font-weight: 800; letter-spacing: 0.03em; margin-bottom: 0.45rem; }
+    .step-dot { width: 9px; height: 9px; border-radius: 50%; }
+    .step-title { font-weight: 800; font-size: 0.98rem; margin-bottom: 0.2rem; }
     .step-sub { font-size: 0.82rem; color: var(--ink2); line-height: 1.55; }
+    .chips { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-top: 0.9rem; }
+    .chip { font-size: 0.78rem; font-weight: 700; color: var(--ink2); background: #fff; border: 1px solid var(--bd); border-radius: 999px; padding: 0.32rem 0.85rem; }
 
-    /* ── CLI ──────────────────────────────────────────────────────── */
-    .cli-card {
-      background: #1e1b2e;
-      border-radius: 10px;
-      overflow: hidden;
-    }
+    /* News */
+    .news { display: grid; grid-template-columns: 1fr 1.4fr; gap: 3rem; align-items: start; }
+    @media (max-width: 760px) { .news { grid-template-columns: 1fr; } }
+    .news-item { padding: 1.1rem 0; border-bottom: 1px solid var(--bd); }
+    .news-item:first-child { padding-top: 0; }
+    .news-title { font-weight: 800; display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.3rem; }
+    .news-body { font-size: 0.88rem; color: var(--ink2); line-height: 1.6; }
+    .tag { font-size: 0.64rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: var(--lav-dk); background: var(--tint2); border-radius: 6px; padding: 0.14rem 0.5rem; }
 
-    .cli-bar {
-      background: #16132a;
-      border-bottom: 1px solid #2d2a3e;
-      padding: 0.6rem 1rem;
-      display: flex;
-      align-items: center;
-      gap: 0.45rem;
-    }
+    /* Terminal card */
+    .cli { background: var(--term); border-radius: 16px; overflow: hidden; box-shadow: 0 14px 34px rgba(44,42,40,0.12); max-width: 740px; }
+    .cli pre { margin: 0; padding: 1.4rem 1.5rem; font-family: var(--mono); font-size: 0.82rem; line-height: 1.95; color: #d7dcf0; overflow-x: auto; }
+    .cli .p { color: #a3d6c4; }
+    .cli .c { color: #807aa0; }
 
-    .cli-dot { width: 10px; height: 10px; border-radius: 50%; }
-    .cd1 { background: #ff5f57; }
-    .cd2 { background: #febc2e; }
-    .cd3 { background: #28c840; }
-
-    .cli-body {
-      padding: 1.25rem 1.5rem;
-      font-family: var(--font-mono);
-      font-size: 0.82rem;
-      line-height: 2.1;
-    }
-
-    .cli-p  { color: #7b7898; }   /* prompt $ */
-    .cli-fl { color: #82aaff; }   /* flags    */
-    .cli-c  { color: #6b6888; }   /* comments */
-    .cli-tx { color: #cdd6f4; }   /* commands */
-
-    /* ── CTA ──────────────────────────────────────────────────────── */
-    .cta-band {
-      background: var(--purple);
-      text-align: center;
-      padding: 4.5rem 2rem;
-    }
-
-    .cta-band h2 { color: #fff; margin-bottom: 0.75rem; }
-    .cta-band p  { color: rgba(255,255,255,0.75); margin-bottom: 2rem; font-size: 1rem; }
-    .cta-band .btn-light { background: #fff; color: var(--purple); font-size: 1rem; padding: 0.75rem 1.75rem; }
-    .cta-band .btn-light:hover { background: var(--cream); }
-
-    /* ── Footer ───────────────────────────────────────────────────── */
-    footer {
-      background: var(--ink);
-    }
-
-    .footer-inner {
-      max-width: 1100px;
-      margin: 0 auto;
-      padding: 2rem;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      flex-wrap: wrap;
-      gap: 1rem;
-    }
-
-    .footer-logo {
-      display: flex;
-      align-items: center;
-      gap: 0.45rem;
-      font-weight: 800;
-      font-size: 0.95rem;
-      color: #fff;
-      letter-spacing: -0.02em;
-    }
-
-    .footer-logo img {
-      width: 24px;
-      height: 24px;
-      object-fit: contain;
-      background: var(--bg);
-      border-radius: 4px;
-      padding: 1px;
-    }
-
-    .footer-links { display: flex; gap: 1.5rem; flex-wrap: wrap; }
-    .footer-links a { color: #9ca3af; font-size: 0.82rem; }
-    .footer-links a:hover { color: #fff; }
-    .footer-copy { font-size: 0.78rem; color: #6b7280; }
-
-    /* ── Responsive ───────────────────────────────────────────────── */
-    @media (max-width: 768px) {
-      .hero-inner { grid-template-columns: 1fr; }
-      .hero-text   { order: 2; }
-      .hero-mascot { order: 1; width: 100%; max-width: 320px; margin: 0 auto 2rem; }
-      .stats-inner { flex-wrap: wrap; }
-      .stat-item { min-width: 50%; }
-      .nav-links li:not(:last-child) { display: none; }
-    }
+    /* CTA + footer */
+    .cta { text-align: center; color: #fff; padding: 4.5rem 1.6rem; }
+    .cta h2 { color: #fff; }
+    .cta p { color: rgba(255,255,255,0.9); margin: 0.5rem 0 1.8rem; }
+    footer { border-top: 1px solid var(--bd); background: var(--tint); }
+    .footer-in { max-width: 1060px; margin: 0 auto; padding: 2.5rem 1.6rem; display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap; }
+    .footer-logo { display: flex; align-items: center; gap: 0.5rem; font-weight: 800; color: var(--ink); }
+    .footer-logo img { width: 32px; height: 32px; }
+    .footer-links { display: flex; gap: 1.4rem; flex-wrap: wrap; }
+    .footer-links a { color: var(--ink2); font-size: 0.85rem; }
+    .footer-copy { margin-left: auto; font-size: 0.8rem; color: var(--muted); }
   </style>
 </head>
 <body>
 
-<!-- ── Nav ───────────────────────────────────────────────────────────── -->
+<!-- Nav -->
 <nav>
-  <div class="nav-inner">
-    <a class="nav-logo" href="#">
-      <img src="../assets/logo.png" alt="Eskiu cat mascot" />
-      eskiu
-    </a>
-    <ul class="nav-links">
-      <li><a href="#examples">Examples</a></li>
-      <li><a href="#benchmark">Benchmark</a></li>
-      <li><a href="#news">News</a></li>
-      <li><a href="https://github.com/doranteseduardo/eskiu/tree/main/docs/lang">Docs</a></li>
-      <li><a class="nav-dl" href="https://github.com/doranteseduardo/eskiu">Download</a></li>
-    </ul>
+  <div class="nav-in">
+    <a class="brand" href="#"><img src="../assets/logo.png" alt="Eskiu cat mascot" />eskiu</a>
+    <div class="nav-links">
+      <a href="#examples">Examples</a>
+      <a href="#proof">Proof</a>
+      <a href="https://eskiu-lang.org/assets/the-book-of-eskiu.pdf">Book</a>
+      <a href="https://github.com/doranteseduardo/eskiu/tree/main/docs/lang">Docs</a>
+      <a class="pill-btn" href="https://github.com/doranteseduardo/eskiu">Download</a>
+    </div>
   </div>
 </nav>
 
-<!-- ── Hero ──────────────────────────────────────────────────────────── -->
+<!-- Hero -->
 <div class="hero">
-  <div class="hero-inner">
-
-    <div class="hero-text">
-      <span class="hero-tag">v0.1.0 &nbsp;&middot;&nbsp; LLVM backend &nbsp;&middot;&nbsp; arm64 + x86-64</span>
-      <h1>C performance.<br>Go concurrency.<br><em>Explicit memory.</em></h1>
-      <p class="hero-sub">
-        Systems programming with C-style syntax, monomorphic templates, and structural interfaces.
-        Compiles to native code via LLVM. You manage memory; the compiler manages nothing else.
-      </p>
-      <div class="hero-actions">
-        <a class="btn btn-primary" href="https://github.com/doranteseduardo/eskiu/blob/main/QUICKSTART.md">Get Started</a>
-        <a class="btn btn-secondary" href="https://github.com/doranteseduardo/eskiu">View on GitHub</a>
-      </div>
-    </div>
-
-    <div class="hero-mascot">
-      <div style="position:relative;margin-top:110px">
-        <!-- cat mascot overlapping the terminal from above -->
-        <img src="../assets/logo.png" alt="Eskiu"
-             style="position:absolute;top:-110px;left:50%;transform:translateX(-50%);width:130px;z-index:2;pointer-events:none">
-        <!-- terminal window -->
-        <div style="position:relative;background:#1e1b2e;border:1px solid #2d2a3e;border-radius:10px;overflow:hidden;width:100%">
-          <div style="background:#16132a;border-bottom:1px solid #2d2a3e;padding:0.5rem 0.85rem;display:flex;align-items:center;gap:0.4rem">
-            <span style="width:10px;height:10px;border-radius:50%;background:#ff5f57;flex-shrink:0"></span>
-            <span style="width:10px;height:10px;border-radius:50%;background:#febc2e;flex-shrink:0"></span>
-            <span style="width:10px;height:10px;border-radius:50%;background:#28c840;flex-shrink:0"></span>
-            <span style="margin-left:auto;font-family:var(--font-mono);font-size:0.68rem;color:#4a4870">qemu-system-aarch64 -M virt</span>
-          </div>
-          <img src="../assets/kernel.png" alt="Eskiu v0.1 kernel running on bare metal" style="width:100%;display:block">
+  <div class="wrap">
+    <div class="hero-grid">
+      <div>
+        <h1>From <span class="lav">bare&nbsp;metal</span><br>to <span class="peach">backend</span>.</h1>
+        <p class="hero-sub">A systems language with C-style syntax that compiles to native code through LLVM, with no garbage collector and no runtime. The same language boots a kernel and serves HTTP.</p>
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="https://github.com/doranteseduardo/eskiu/blob/main/QUICKSTART.md">Get started →</a>
+          <a class="btn btn-ghost" href="https://github.com/doranteseduardo/eskiu">View on GitHub</a>
         </div>
       </div>
-    </div>
-
-  </div>
-</div>
-
-<!-- ── Stats ─────────────────────────────────────────────────────────── -->
-<div class="stats-strip">
-  <div class="stats-inner">
-    <div class="stat-item">
-      <span class="stat-num">74 ms</span>
-      <span class="stat-lbl">real-world benchmark</span>
-    </div>
-    <div class="stat-item">
-      <span class="stat-num">2.5&times;</span>
-      <span class="stat-lbl">faster than reference C</span>
-    </div>
-    <div class="stat-item">
-      <span class="stat-num">No GC</span>
-      <span class="stat-lbl">no garbage collector</span>
-    </div>
-    <div class="stat-item">
-      <span class="stat-num">LLVM</span>
-      <span class="stat-lbl">native code backend</span>
+      <div class="hero-art">
+        <div class="blob"></div>
+        <img class="hero-cat" src="../assets/logo.png" alt="Eskiu cat mascot" />
+        <div class="float-card fc-1"><span class="g">$</span> ./server &amp; curl :8080<br><span class="g">Hello from Eskiu.</span></div>
+        <div class="float-card fc-2"><b>2.5×</b> faster than C</div>
+      </div>
     </div>
   </div>
 </div>
 
-<!-- ── Origin ───────────────────────────────────────────────────────── -->
-<div class="bg-alt">
-  <div class="wrap" style="padding-top:4rem;padding-bottom:4rem">
-    <div style="max-width:680px;margin:0 auto;text-align:center">
-      <div class="eyebrow">Why Eskiu exists</div>
-      <h2 style="margin-bottom:1.25rem">One language instead of four.</h2>
-      <p style="font-size:1.05rem;color:var(--ink2);line-height:1.8;margin-bottom:0">
-        Compute-intensive services juggle C for speed, Go for concurrency, C++ for libraries,
-        and another for glue — four toolchains, four sets of idioms, friction at every seam.
-        Eskiu replaces that stack with one language: C-level performance, explicit memory,
-        and direct C interop, compiled to native with no runtime.
-      </p>
+<!-- Stats -->
+<div class="wrap" style="padding-bottom:1rem">
+  <div class="stats">
+    <div class="stat"><b>74 ms</b><span>real-world benchmark</span></div>
+    <div class="stat"><b>2.5&times;</b><span>faster than reference C</span></div>
+    <div class="stat"><b>No GC</b><span>no garbage collector</span></div>
+    <div class="stat"><b>LLVM</b><span>native code backend</span></div>
+  </div>
+</div>
+
+<!-- wave into tinted Why band -->
+<svg class="wave" viewBox="0 0 1440 64" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg" style="margin-top:3rem">
+  <path d="M0,38 C240,70 480,6 720,30 C960,52 1200,14 1440,36 L1440,64 L0,64 Z" fill="#fbf2ea"></path>
+</svg>
+
+<div class="band-tint">
+  <div class="wrap section" style="padding-top:1.5rem">
+    <div style="max-width:680px">
+      <div class="eyebrow">Why Eskiu</div>
+      <h2>One language instead of four.</h2>
+      <p class="lead">Compute-intensive services lean on C for speed, Go for concurrency, C++ for libraries, and something else for glue. That's four toolchains to keep in sync, and Eskiu does the whole job in one.</p>
+    </div>
+    <div class="cards">
+      <div class="card">
+        <div class="ic" style="background:var(--tint2);color:var(--lav-dk)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 L5 13 h6 l-2 9 9-12 h-6 z"/></svg>
+        </div>
+        <h3>Native speed</h3>
+        <p>Compiled to machine code by LLVM. With no garbage collector and no runtime, throughput stays predictable under load.</p>
+      </div>
+      <div class="card">
+        <div class="ic" style="background:var(--tint4);color:#c47a5e">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4 H6.5 A2.5 2.5 0 0 0 4 6.5 V9 a2 2 0 0 1-2 2 a2 2 0 0 1 2 2 v2.5 A2.5 2.5 0 0 0 6.5 20 H8"/><path d="M16 4 h1.5 A2.5 2.5 0 0 1 20 6.5 V9 a2 2 0 0 0 2 2 a2 2 0 0 0-2 2 v2.5 A2.5 2.5 0 0 1 17.5 20 H16"/></svg>
+        </div>
+        <h3>Explicit memory</h3>
+        <p><code>alloc&lt;T&gt;(N)</code> and <code>free(ptr)</code> from <code>&lt;mem&gt;</code>. Allocation is visible in the code, never hidden.</p>
+      </div>
+      <div class="card">
+        <div class="ic" style="background:var(--tint3);color:#3f8a6f">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13 a5 5 0 0 0 7 0 l2-2 a5 5 0 0 0-7-7 l-1 1"/><path d="M14 11 a5 5 0 0 0-7 0 l-2 2 a5 5 0 0 0 7 7 l1-1"/></svg>
+        </div>
+        <h3>Direct C interop</h3>
+        <p><code>extern</code> any C library (OpenSSL, POSIX, sockets) with no binding layer.</p>
+      </div>
+      <div class="card">
+        <div class="ic" style="background:var(--tint2);color:var(--lav-dk)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 L2 7 l10 5 10-5 z"/><path d="M2 12 l10 5 10-5"/><path d="M2 17 l10 5 10-5"/></svg>
+        </div>
+        <h3>Metal to backend</h3>
+        <p>Boots a kernel in QEMU without libc, and runs a TCP/HTTP server, with the same toolchain at both ends.</p>
+      </div>
     </div>
   </div>
 </div>
 
-<!-- ── Examples ──────────────────────────────────────────────────────── -->
-<div id="examples">
-  <div class="wrap">
-    <div class="eyebrow">Examples</div>
-    <h2>Looks familiar. Works fast.</h2>
-    <p class="lead">If you can read C, you can read Eskiu. Pick a tab and see for yourself.</p>
+<!-- Examples -->
+<div id="examples" class="wrap section">
+  <div class="eyebrow">Examples</div>
+  <h2>It reads like C.</h2>
+  <p class="lead" style="margin-bottom:2.2rem">Each tab below is a complete program that compiles and runs.</p>
 
-    <div class="tabs">
-      <button class="tab-btn active" onclick="switchTab(event,'hello')">hello.esk</button>
-      <button class="tab-btn" onclick="switchTab(event,'shapes')">shapes.esk</button>
-      <button class="tab-btn" onclick="switchTab(event,'lambdas')">lambdas.esk</button>
-      <button class="tab-btn" onclick="switchTab(event,'result')">result.esk</button>
-      <button class="tab-btn" onclick="switchTab(event,'server')">server.esk</button>
-    </div>
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab(event,'hello')">hello.esk</button>
+    <button class="tab-btn" onclick="switchTab(event,'server')">server.esk</button>
+    <button class="tab-btn" onclick="switchTab(event,'shapes')">shapes.esk</button>
+    <button class="tab-btn" onclick="switchTab(event,'result')">result.esk</button>
+  </div>
 
-    <div id="tab-hello" class="tab-panel active">
-      <div class="code-block"><pre><span class="kw">extern</span> <span class="ty">int</span> <span class="fn">printf</span>(<span class="ty">string</span> fmt, ...);
-
-<span class="ty">int</span> <span class="fn">add</span>(<span class="ty">int</span> a, <span class="ty">int</span> b) {
-    <span class="kw">return</span> a + b;
-}
+  <div id="tab-hello" class="tab-panel active">
+    <div class="code">
+      <div class="code-bar"><span class="d" style="background:#ff5f57"></span><span class="d" style="background:#febc2e"></span><span class="d" style="background:#28c840"></span><span class="nm">hello.esk</span></div>
+<pre><span class="kw">extern</span> <span class="ty">int</span> <span class="fn">printf</span>(<span class="ty">string</span> fmt, ...);
+<span class="kw">import</span> &lt;<span class="fn">list</span>&gt;;
 
 <span class="ty">int</span> <span class="fn">main</span>() {
-    <span class="ty">int</span> result = <span class="fn">add</span>(<span class="nu">5</span>, <span class="nu">3</span>);
-    <span class="fn">printf</span>(<span class="st">"Hello from Eskiu!\n"</span>);
-    <span class="fn">printf</span>(<span class="st">"Result: %d\n"</span>, result);
-    <span class="kw">return</span> <span class="nu">0</span>;
-}</pre></div>
-    </div>
+    <span class="kw">let</span> nums: <span class="ty">List</span>&lt;<span class="ty">int</span>&gt;;
+    <span class="fn">List_init</span>(&amp;nums, <span class="nu">4</span>);
+    <span class="kw">for</span> (<span class="ty">int</span> i = <span class="nu">0</span>; i &lt; <span class="nu">5</span>; i += <span class="nu">1</span>) { <span class="fn">List_push</span>(&amp;nums, i * i); }
 
-    <div id="tab-shapes" class="tab-panel">
-      <div class="code-block"><pre><span class="kw">interface</span> <span class="ty">Drawable</span> { <span class="ty">void</span> <span class="fn">draw</span>(); }
+    <span class="kw">for</span> (n <span class="kw">in</span> nums) { <span class="fn">printf</span>(<span class="st">"%d\n"</span>, n); }   <span class="cm">// 0 1 4 9 16</span>
+    <span class="kw">return</span> <span class="nu">0</span>;
+}</pre>
+    </div>
+  </div>
+
+  <div id="tab-server" class="tab-panel">
+    <div class="code">
+      <div class="code-bar"><span class="d" style="background:#ff5f57"></span><span class="d" style="background:#febc2e"></span><span class="d" style="background:#28c840"></span><span class="nm">server.esk</span></div>
+<pre><span class="kw">import</span> &lt;<span class="fn">net</span>&gt;;
+<span class="kw">import</span> &lt;<span class="fn">mem</span>&gt;;
+
+<span class="cm">// A web server using sockets from the stdlib.</span>
+<span class="ty">int</span> <span class="fn">main</span>() {
+    <span class="ty">int</span> fd = <span class="fn">net_tcp_listen</span>(<span class="nu">8080</span>);
+    *<span class="ty">uint8</span> req = <span class="fn">alloc</span>&lt;<span class="ty">uint8</span>&gt;(<span class="nu">4096</span>);
+    <span class="kw">while</span> (<span class="nu">1</span>) {
+        <span class="ty">int</span> c = <span class="fn">net_accept</span>(fd);
+        <span class="fn">net_recv</span>(c, (*<span class="ty">void</span>)req, <span class="nu">4096</span>);
+        <span class="fn">net_send_str</span>(c, <span class="st">"HTTP/1.1 200 OK\r\n\r\nHello from Eskiu.\n"</span>);
+        <span class="fn">net_close</span>(c);
+    }
+    <span class="kw">return</span> <span class="nu">0</span>;
+}</pre>
+    </div>
+  </div>
+
+  <div id="tab-shapes" class="tab-panel">
+    <div class="code">
+      <div class="code-bar"><span class="d" style="background:#ff5f57"></span><span class="d" style="background:#febc2e"></span><span class="d" style="background:#28c840"></span><span class="nm">shapes.esk</span></div>
+<pre><span class="kw">extern</span> <span class="ty">int</span> <span class="fn">printf</span>(<span class="ty">string</span> fmt, ...);
+
+<span class="kw">interface</span> <span class="ty">Shape</span> { <span class="ty">float</span> <span class="fn">area</span>(); }
 
 <span class="kw">struct</span> <span class="ty">Circle</span> {
     <span class="ty">float</span> radius;
-    <span class="ty">void</span> <span class="fn">draw</span>() {
-        <span class="fn">printf</span>(<span class="st">"Circle(r=%f)\n"</span>, self.radius);
-    }
+    <span class="ty">float</span> <span class="fn">area</span>() { <span class="kw">return</span> self.radius * self.radius * <span class="nu">3.14159</span>; }
 }
 
-<span class="kw">struct</span> <span class="ty">Square</span> {
-    <span class="ty">float</span> side;
-    <span class="ty">void</span> <span class="fn">draw</span>() {
-        <span class="fn">printf</span>(<span class="st">"Square(s=%f)\n"</span>, self.side);
-    }
-}
-
-<span class="ty">void</span> <span class="fn">render</span>(<span class="ty">Drawable</span> d) { d.<span class="fn">draw</span>(); }
+<span class="cm">// Structural: a struct satisfies Shape just by having area().</span>
+<span class="ty">void</span> <span class="fn">render</span>(<span class="ty">Shape</span> s) { <span class="fn">printf</span>(<span class="st">"area = %f\n"</span>, s.<span class="fn">area</span>()); }
 
 <span class="ty">int</span> <span class="fn">main</span>() {
     <span class="kw">let</span> c: <span class="ty">Circle</span> = <span class="ty">Circle</span> { radius: <span class="nu">5.0</span> };
-    <span class="fn">render</span>(&amp;c); <span class="cm">// auto-boxed to Drawable</span>
+    <span class="fn">render</span>(&amp;c);              <span class="cm">// area = 78.54</span>
     <span class="kw">return</span> <span class="nu">0</span>;
-}</pre></div>
+}</pre>
     </div>
+  </div>
 
-    <div id="tab-lambdas" class="tab-panel">
-      <div class="code-block"><pre><span class="ty">int</span> <span class="fn">apply</span>(<span class="ty">fn</span>(<span class="ty">int</span>)-&gt;<span class="ty">int</span> f, <span class="ty">int</span> x) {
-    <span class="kw">return</span> <span class="fn">f</span>(x);
-}
-
-<span class="ty">int</span> <span class="fn">main</span>() {
-    <span class="cm">// closure — captures 'base' from the enclosing scope</span>
-    <span class="ty">int</span> base = <span class="nu">10</span>;
-    <span class="kw">let</span> add_base: <span class="ty">fn</span>(<span class="ty">int</span>)-&gt;<span class="ty">int</span> =
-        <span class="ty">int</span>(<span class="ty">int</span> x) { <span class="kw">return</span> x + base; };
-
-    <span class="fn">printf</span>(<span class="st">"%d\n"</span>, add_base(<span class="nu">5</span>));           <span class="cm">// 15</span>
-    <span class="fn">printf</span>(<span class="st">"%d\n"</span>, <span class="fn">apply</span>(add_base, <span class="nu">7</span>));   <span class="cm">// 17</span>
-    <span class="kw">return</span> <span class="nu">0</span>;
-}</pre></div>
-    </div>
-
-    <div id="tab-result" class="tab-panel">
-      <div class="code-block"><pre><span class="kw">import</span> &lt;<span class="fn">result</span>&gt;;
+  <div id="tab-result" class="tab-panel">
+    <div class="code">
+      <div class="code-bar"><span class="d" style="background:#ff5f57"></span><span class="d" style="background:#febc2e"></span><span class="d" style="background:#28c840"></span><span class="nm">result.esk</span></div>
+<pre><span class="kw">extern</span> <span class="ty">int</span> <span class="fn">printf</span>(<span class="ty">string</span> fmt, ...);
+<span class="kw">import</span> &lt;<span class="fn">result</span>&gt;;
 
 <span class="ty">Result</span>&lt;<span class="ty">int</span>, <span class="ty">string</span>&gt; <span class="fn">divide</span>(<span class="ty">int</span> a, <span class="ty">int</span> b) {
-    <span class="kw">if</span> (b == <span class="nu">0</span>)
-        <span class="kw">return</span> <span class="fn">Err</span>&lt;<span class="ty">int</span>, <span class="ty">string</span>&gt;(<span class="st">"division by zero"</span>);
+    <span class="kw">if</span> (b == <span class="nu">0</span>) { <span class="kw">return</span> <span class="fn">Err</span>&lt;<span class="ty">int</span>, <span class="ty">string</span>&gt;(<span class="st">"divide by zero"</span>); }
     <span class="kw">return</span> <span class="fn">Ok</span>&lt;<span class="ty">int</span>, <span class="ty">string</span>&gt;(a / b);
 }
 
-<span class="cm">// `?` returns the Err early, or unwraps the value</span>
+<span class="cm">// `?` returns the Err early, or unwraps the value.</span>
 <span class="ty">Result</span>&lt;<span class="ty">int</span>, <span class="ty">string</span>&gt; <span class="fn">ratio</span>(<span class="ty">int</span> a, <span class="ty">int</span> b, <span class="ty">int</span> c) {
     <span class="kw">let</span> x: <span class="ty">int</span> = <span class="fn">divide</span>(a, b)?;
     <span class="kw">return</span> <span class="fn">Ok</span>&lt;<span class="ty">int</span>, <span class="ty">string</span>&gt;(x + c);
@@ -755,248 +368,156 @@
 
 <span class="ty">int</span> <span class="fn">main</span>() {
     <span class="kw">let</span> r: <span class="ty">Result</span>&lt;<span class="ty">int</span>, <span class="ty">string</span>&gt; = <span class="fn">ratio</span>(<span class="nu">10</span>, <span class="nu">2</span>, <span class="nu">1</span>);
-    <span class="kw">if</span> (r.ok == <span class="nu">1</span>)
-        <span class="fn">printf</span>(<span class="st">"result = %d\n"</span>, r.value);
-    <span class="kw">else</span>
-        <span class="fn">printf</span>(<span class="st">"error: %s\n"</span>, r.error);
+    <span class="kw">if</span> (r.ok == <span class="nu">1</span>) { <span class="fn">printf</span>(<span class="st">"result = %d\n"</span>, r.value); }  <span class="cm">// result = 6</span>
     <span class="kw">return</span> <span class="nu">0</span>;
-}</pre></div>
-    </div>
-
-    <div id="tab-server" class="tab-panel">
-      <div class="code-block"><pre><span class="kw">import</span> &lt;<span class="fn">net</span>&gt;;
-
-<span class="cm">// A working HTTP server — TCP sockets straight from the stdlib.</span>
-<span class="ty">int</span> <span class="fn">main</span>() {
-    <span class="ty">int</span> fd = <span class="fn">net_tcp_listen</span>(<span class="nu">8080</span>);
-    <span class="kw">if</span> (fd &lt; <span class="nu">0</span>) { <span class="kw">return</span> <span class="nu">1</span>; }
-
-    *<span class="ty">uint8</span> req = <span class="kw">alloc</span>(<span class="ty">uint8</span>, <span class="nu">4096</span>);
-    <span class="kw">while</span> (<span class="nu">1</span>) {
-        <span class="ty">int</span> c = <span class="fn">net_accept</span>(fd);          <span class="cm">// blocking accept</span>
-        <span class="kw">if</span> (c &lt; <span class="nu">0</span>) { <span class="kw">continue</span>; }
-        <span class="fn">net_recv</span>(c, (*<span class="ty">void</span>)req, <span class="nu">4096</span>);
-        <span class="fn">net_send_str</span>(c,
-            <span class="st">"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nHello from Eskiu.\n"</span>);
-        <span class="fn">net_close</span>(c);
-    }
-    <span class="kw">return</span> <span class="nu">0</span>;
-}</pre></div>
+}</pre>
     </div>
   </div>
 </div>
 
-<!-- ── Why Eskiu ───────────────────────────────────────────────────────── -->
-<div class="bg-alt">
-  <div class="wrap">
-    <div class="eyebrow">Why Eskiu</div>
-    <h2>Six decisions that shape how Eskiu works.</h2>
-    <p class="lead">Tested against a real cryptographic pipeline running at 74 ms.</p>
+<!-- wave into Proof band -->
+<svg class="wave" viewBox="0 0 1440 64" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+  <path d="M0,30 C240,4 480,60 720,36 C960,12 1200,56 1440,28 L1440,64 L0,64 Z" fill="#fbf2ea"></path>
+</svg>
 
-    <div class="reasons">
-      <div class="reason">
-        <h3>Native performance</h3>
-        <p>Compiled to machine code via LLVM. Predictable throughput with no runtime surprises.</p>
-      </div>
-      <div class="reason">
-        <h3>Familiar syntax</h3>
-        <p>C-style declarations, braces, semicolons. Pick it up in an afternoon if you already know C.</p>
-      </div>
-      <div class="reason">
-        <h3>Explicit memory</h3>
-        <p><code>alloc&lt;T&gt;(N)</code> and <code>free(ptr)</code> from <code>&lt;mem&gt;</code>. Heap allocation is visible in the code, not hidden behind a runtime.</p>
-      </div>
-      <div class="reason">
-        <h3>Structural interfaces</h3>
-        <p>A struct satisfies an interface by having the right methods. No declarations, no inheritance chain.</p>
-      </div>
-      <div class="reason">
-        <h3>C interop</h3>
-        <p><code>extern</code> declarations give direct access to any C library &mdash; OpenSSL, POSIX, CoreGraphics &mdash; with no wrapper layer.</p>
-      </div>
-      <div class="reason">
-        <h3>IDE tooling</h3>
-        <p>VS Code extension with error squiggles, hover types, and go-to-definition, driven by the compiler directly.</p>
-      </div>
-    </div>
-  </div>
-</div>
+<!-- Proof -->
+<div id="proof" class="band-tint">
+  <div class="wrap section" style="padding-top:1.5rem">
+    <div class="eyebrow">Proof</div>
+    <h2>Faster than the reference C, and it boots on bare metal.</h2>
+    <p class="lead" style="margin-bottom:2.4rem">A real cryptographic pipeline (AES-256-CBC + RSA-8192 decryption, image processing, and structured output) running entirely in Eskiu via <code>extern</code> C interop.</p>
 
-<!-- ── Benchmark ──────────────────────────────────────────────────────── -->
-<div id="benchmark">
-  <div class="wrap">
-    <div class="eyebrow">Benchmark</div>
-    <h2>Faster than hand-written C.</h2>
-    <p class="lead">A real-world cryptographic pipeline — AES-256-CBC + RSA-8192 decryption, image processing, and structured output — running entirely in Eskiu via <code>extern</code> C interop.</p>
-
-    <div class="bench-layout">
+    <div class="bench">
       <div>
-        <div class="bench-big">
-          <div class="big-num-card">
-            <span class="big-val">74 ms</span>
-            <div class="big-lbl">Eskiu &mdash; end-to-end</div>
-          </div>
-          <div class="big-num-card">
-            <span class="big-val ref">189 ms</span>
-            <div class="big-lbl">Reference C &mdash; end-to-end</div>
-          </div>
+        <div class="big-cards">
+          <div class="big-card"><span class="big-val">74 ms</span><div class="big-lbl">Eskiu, end-to-end</div></div>
+          <div class="big-card"><span class="big-val ref">189 ms</span><div class="big-lbl">Reference C, end-to-end</div></div>
         </div>
-        <p style="font-size:0.85rem;color:var(--muted);line-height:1.6">
-          Measured on Apple Silicon (arm64). <strong style="color:var(--ink2)">2.5&times; faster</strong> than the reference C.
-          The crypto stage matches hand-written C within 0.1&nbsp;ms.
-        </p>
+        <p style="font-size:0.85rem;color:var(--muted);line-height:1.6">Measured on Apple Silicon (arm64). <strong style="color:var(--ink2)">2.5&times; faster</strong> than reference C; the crypto stage matches hand-written C within 0.1&nbsp;ms.</p>
       </div>
-
-      <div class="bench-tbl">
+      <div>
         <table>
-          <thead>
-            <tr><th>Stage</th><th>Eskiu</th><th>Reference C</th></tr>
-          </thead>
+          <thead><tr><th>Stage</th><th>Eskiu</th><th>Reference C</th></tr></thead>
           <tbody>
             <tr><td>QR / image extraction</td><td class="esk">71.7 ms</td><td class="ref">185.5 ms</td></tr>
-            <tr><td>Crypto (AES-256-CBC + RSA-8192)</td><td class="esk">2.8 ms</td><td class="ref">2.9 ms</td></tr>
+            <tr><td>Crypto (AES + RSA-8192)</td><td class="esk">2.8 ms</td><td class="ref">2.9 ms</td></tr>
             <tr><td>Output decode</td><td class="esk">&lt; 1 ms</td><td class="ref">0.5 ms</td></tr>
             <tr><td>Total</td><td class="esk">74.4 ms</td><td class="ref">188.9 ms</td></tr>
           </tbody>
         </table>
       </div>
     </div>
-  </div>
-</div>
 
-
-<!-- ── Roadmap ───────────────────────────────────────────────────────────── -->
-<div class="bg-alt">
-  <div class="wrap">
-    <div class="eyebrow">Roadmap</div>
-    <h2>From systems language to production tool.</h2>
-
-    <div class="steps">
-      <div class="step">
-        <span class="step-tag" style="color:var(--purple)"><span class="step-dot" style="background:var(--purple)"></span>v0.1.0 · shipped</span>
-        <div class="step-title">Systems foundation</div>
-        <div class="step-sub">The full language and a bare-metal kernel, 2.5× faster than reference C.</div>
+    <div class="kernel">
+      <div>
+        <h3>A kernel, in Eskiu, on bare metal.</h3>
+        <p>An ARM64 kernel written in Eskiu boots in QEMU on the PL011 UART, with <strong style="color:var(--ink2)">no libc and no C runtime</strong>. Freestanding mode, inline assembly, and <code>volatile</code> MMIO are part of the language.</p>
       </div>
-      <div class="step">
-        <span class="step-tag" style="color:var(--muted)"><span class="step-dot" style="border:2px solid var(--muted)"></span>v0.2</span>
-        <div class="step-title">Backend services</div>
-        <div class="step-sub">HTTP and HashMap stdlib; a concurrent HTTP server in Eskiu.</div>
-      </div>
-      <div class="step">
-        <span class="step-tag" style="color:var(--muted)"><span class="step-dot" style="border:2px solid var(--muted)"></span>v0.3</span>
-        <div class="step-title">Self-hosting</div>
-        <div class="step-sub">LLVM bindings; the lexer and parser rewritten in Eskiu.</div>
-      </div>
-      <div class="step">
-        <span class="step-tag" style="color:var(--muted)"><span class="step-dot" style="border:2px solid var(--muted)"></span>v1.0</span>
-        <div class="step-title">Production-ready</div>
-        <div class="step-sub">Self-hosting compiler, package manager, domain types.</div>
-      </div>
-    </div>
-
-    <div style="margin-top:2.75rem">
-      <div class="eyebrow">In v0.1.0</div>
-      <div style="display:flex;flex-wrap:wrap;gap:0.5rem;margin-top:0.85rem">
-        <span class="chip">structs + methods</span>
-        <span class="chip">interfaces</span>
-        <span class="chip">templates</span>
-        <span class="chip">type inference</span>
-        <span class="chip">for-in loops</span>
-        <span class="chip">closures</span>
-        <span class="chip">threads</span>
-        <span class="chip">TCP sockets</span>
-        <span class="chip">exceptions</span>
-        <span class="chip">? error propagation</span>
-        <span class="chip">enums</span>
-        <span class="chip">unions</span>
-        <span class="chip">bitfields</span>
-        <span class="chip">packed structs</span>
-        <span class="chip">type aliases</span>
-        <span class="chip">sizeof</span>
-        <span class="chip">typed pointers</span>
-        <span class="chip">inline asm</span>
-        <span class="chip">volatile</span>
-        <span class="chip">preprocessor</span>
-        <span class="chip">multi-file</span>
-        <span class="chip">one-step linking</span>
-        <span class="chip">-Wall</span>
-        <span class="chip">freestanding</span>
-        <span class="chip">cross-compilation</span>
+      <div class="kframe">
+        <div class="code-bar"><span class="d" style="background:#ff5f57"></span><span class="d" style="background:#febc2e"></span><span class="d" style="background:#28c840"></span><span class="nm">qemu-system-aarch64 -M virt</span></div>
+        <img src="../assets/kernel.png" alt="Eskiu v0.1 kernel booting in QEMU" />
       </div>
     </div>
   </div>
 </div>
 
-<!-- ── News ───────────────────────────────────────────────────────────── -->
-<div class="bg-alt" id="news">
-  <div class="wrap">
-    <div class="news-layout">
+<!-- Roadmap -->
+<div class="wrap section">
+  <div class="eyebrow">Roadmap</div>
+  <h2>From systems language to production tool.</h2>
+  <div class="steps">
+    <div class="step done">
+      <span class="step-tag" style="color:var(--lav-dk)"><span class="step-dot" style="background:var(--lav)"></span>v0.1.0 · shipped</span>
+      <div class="step-title">Systems foundation</div>
+      <div class="step-sub">The full language, TCP sockets, and a bare-metal kernel. Benchmarked 2.5× faster than reference C.</div>
+    </div>
+    <div class="step">
+      <span class="step-tag" style="color:var(--muted)"><span class="step-dot" style="border:2px solid var(--muted)"></span>v0.2</span>
+      <div class="step-title">Backend services</div>
+      <div class="step-sub">async/await, an event loop, and an HTTP stack, plus a package manager and a broader stdlib.</div>
+    </div>
+    <div class="step">
+      <span class="step-tag" style="color:var(--muted)"><span class="step-dot" style="border:2px solid var(--muted)"></span>v0.3</span>
+      <div class="step-title">Self-hosting groundwork</div>
+      <div class="step-sub">LLVM bindings; the lexer and parser rewritten in Eskiu.</div>
+    </div>
+    <div class="step">
+      <span class="step-tag" style="color:var(--muted)"><span class="step-dot" style="border:2px solid var(--muted)"></span>v1.0</span>
+      <div class="step-title">Production-ready</div>
+      <div class="step-sub">A self-hosting compiler and first-class types for high-throughput services.</div>
+    </div>
+  </div>
+  <div style="margin-top:2.4rem">
+    <div class="eyebrow">In v0.1.0 today</div>
+    <div class="chips">
+      <span class="chip">templates</span><span class="chip">interfaces</span><span class="chip">closures</span>
+      <span class="chip">threads</span><span class="chip">TCP sockets</span><span class="chip">exceptions</span>
+      <span class="chip">packed structs</span><span class="chip">C FFI</span><span class="chip">freestanding</span>
+      <a href="https://github.com/doranteseduardo/eskiu/blob/main/docs/lang/spec.md" style="font-size:0.82rem;font-weight:700;margin-left:0.35rem">full feature list →</a>
+    </div>
+  </div>
+</div>
+
+<!-- wave into News band -->
+<svg class="wave" viewBox="0 0 1440 64" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+  <path d="M0,38 C240,70 480,6 720,30 C960,52 1200,14 1440,36 L1440,64 L0,64 Z" fill="#fbf2ea"></path>
+</svg>
+
+<!-- News -->
+<div class="band-tint">
+  <div class="wrap section" style="padding-top:1.5rem">
+    <div class="news">
       <div>
         <div class="eyebrow">News</div>
         <h2>Latest releases</h2>
-        <p class="lead">Active development. Full history in the changelog.</p>
+        <p class="lead" style="margin:0.5rem 0 1.5rem">New releases land regularly; the full history is in the changelog.</p>
         <a class="btn btn-primary" href="https://github.com/doranteseduardo/eskiu/blob/main/CHANGELOG.md">Full changelog</a>
       </div>
-
-      <ul class="news-list">
-        <li class="news-item">
-          <div class="news-title">Eskiu v0.1.0<span class="tag tag-feat">release</span></div>
-          <div class="news-body">First release. Closures, threads, exceptions, enums, unions, bitfields, type aliases, templates, <code>sizeof</code>, typed pointers, and an object-like preprocessor. One-step linking (<code>eskiuc -o prog</code>), multi-file builds, and <code>-Wall</code>. ARM64 kernel boots in QEMU without libc. Binaries for macOS arm64 and Linux x86-64.</div>
-        </li>
-        <li class="news-item">
-          <div class="news-title">Foundation complete<span class="tag tag-feat">milestone</span></div>
-          <div class="news-body">727-line cryptographic pipeline running entirely in Eskiu at 74 ms — 2.5× faster than reference C.</div>
-        </li>
-      </ul>
+      <div>
+        <div class="news-item">
+          <div class="news-title">Eskiu v0.1.0 <span class="tag">release</span></div>
+          <div class="news-body">The first release: the full systems language, TCP sockets, and a bare-metal kernel. Binaries for macOS arm64 and Linux x86-64.</div>
+        </div>
+        <div class="news-item">
+          <div class="news-title">Foundation complete <span class="tag">milestone</span></div>
+          <div class="news-body">A cryptographic pipeline running entirely in Eskiu at 74 ms, 2.5× faster than reference C.</div>
+        </div>
+      </div>
     </div>
   </div>
 </div>
 
-<!-- ── CLI ────────────────────────────────────────────────────────────── -->
-<div class="wrap">
-  <div class="eyebrow">CLI</div>
-  <h2>One compiler. Four diagnostic modes.</h2>
-  <p class="lead">Each flag stops after a specific phase and prints what was produced. No separate toolchain needed.</p>
-
-  <div class="cli-card">
-    <div class="cli-bar">
-      <div class="cli-dot cd1"></div>
-      <div class="cli-dot cd2"></div>
-      <div class="cli-dot cd3"></div>
-    </div>
-    <div class="cli-body">
-      <div><span class="cli-p">$ </span><span class="cli-tx">eskiuc hello.esk </span><span class="cli-fl">-o</span><span class="cli-tx"> hello &amp;&amp; ./hello</span>  <span class="cli-c"># compile, link &amp; run</span></div>
-      <div><span class="cli-p">$ </span><span class="cli-tx">eskiuc hello.esk </span><span class="cli-fl">--test-lexer      </span>  <span class="cli-c"># dump token stream</span></div>
-      <div><span class="cli-p">$ </span><span class="cli-tx">eskiuc hello.esk </span><span class="cli-fl">--test-parser     </span>  <span class="cli-c"># dump AST</span></div>
-      <div><span class="cli-p">$ </span><span class="cli-tx">eskiuc hello.esk </span><span class="cli-fl">--test-typechecker</span>  <span class="cli-c"># type check only</span></div>
-      <div><span class="cli-p">$ </span><span class="cli-tx">eskiuc hello.esk </span><span class="cli-fl">--test-codegen    </span>  <span class="cli-c"># dump LLVM IR</span></div>
-      <div><span class="cli-p">$ </span><span class="cli-tx">eskiuc hello.esk </span><span class="cli-fl">--hover-at</span><span class="cli-tx"> 8:12   </span>  <span class="cli-c"># type at cursor (VS Code)</span></div>
-    </div>
+<!-- Get started -->
+<div class="wrap section">
+  <div class="eyebrow">Get started</div>
+  <h2>Compile and run in one step.</h2>
+  <p class="lead" style="margin-bottom:2rem">Build from source in under a minute. LLVM and a C toolchain are the only dependencies, and <code>eskiuc</code> links the executable for you.</p>
+  <div class="cli">
+<pre><span class="p">$</span> git clone https://github.com/doranteseduardo/eskiu
+<span class="p">$</span> cmake -S eskiu -B build &amp;&amp; cmake --build build   <span class="c"># build eskiuc</span>
+<span class="p">$</span> eskiuc hello.esk -o hello &amp;&amp; ./hello             <span class="c"># compile, link &amp; run</span></pre>
   </div>
 </div>
 
-<!-- ── CTA ────────────────────────────────────────────────────────────── -->
-<div class="cta-band">
+<!-- CTA -->
+<div class="band-lav cta">
   <h2>Get the compiler.</h2>
   <p>Builds on macOS and Linux in under a minute. Targets arm64 and x86-64.</p>
-  <a class="btn btn-light" href="https://github.com/doranteseduardo/eskiu/blob/main/QUICKSTART.md">Get Started</a>
+  <a class="btn btn-light" href="https://github.com/doranteseduardo/eskiu/blob/main/QUICKSTART.md">Get started →</a>
 </div>
 
-<!-- ── Footer ─────────────────────────────────────────────────────────── -->
+<!-- Footer -->
 <footer>
-  <div class="footer-inner">
-    <div class="footer-logo">
-      <img src="../assets/logo.png" alt="Eskiu" />
-      eskiu
-    </div>
+  <div class="footer-in">
+    <div class="footer-logo"><img src="../assets/logo.png" alt="Eskiu" />eskiu</div>
     <div class="footer-links">
+      <a href="https://eskiu-lang.org/assets/the-book-of-eskiu.pdf">The Book (PDF)</a>
       <a href="https://github.com/doranteseduardo/eskiu/blob/main/docs/lang/getting-started.md">Documentation</a>
       <a href="https://github.com/doranteseduardo/eskiu/blob/main/docs/dev/architecture.md">Internals</a>
       <a href="https://github.com/doranteseduardo/eskiu/blob/main/CHANGELOG.md">Changelog</a>
       <a href="https://github.com/doranteseduardo/eskiu">GitHub</a>
-      <a href="https://github.com/doranteseduardo/eskiu/issues">Issues</a>
     </div>
-    <span class="footer-copy">MIT Licence &nbsp;&middot;&nbsp; Eduardo Dorantes</span>
+    <span class="footer-copy">MIT Licence · Eduardo Dorantes</span>
   </div>
 </footer>
 
