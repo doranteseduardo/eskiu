@@ -56,6 +56,8 @@ The project follows two phases:
 | `<net>` stdlib — TCP sockets (`net_tcp_listen`/`accept`/`connect`/`send`/`recv`), portable `sockaddr_in` | ✅ |
 | `<time>` / `<env>` / `<base64>` / `<json>` stdlib — clock+sleep, env vars, Base64 codec, JSON builder + parser (v0.2.0) | ✅ |
 | `<threading>` stdlib — `Mutex` / `Cond` / `Sem` over pthread (v0.2.0) | ✅ |
+| `<http>` stdlib — HTTP/1.1 request parser, response builder, threaded worker pool (v0.2.0) | ✅ |
+| Multi-argument `fn` types — `fn(A,B)->R`; fn pointers callable and capturable in closures (v0.2.0) | ✅ |
 | Function-as-value — a named function decays to a `fn(...)->R` (no lambda wrapper) | ✅ |
 | Predefined OS macros — `__APPLE__` / `__linux__` for `#ifdef` portability | ✅ |
 | Pointer dereference as lvalue — `*ptr = value` through pointer parameters | ✅ |
@@ -112,7 +114,7 @@ Phase 3 rounds out ergonomics and tooling.
 - [x] `alloc_with(&allocator, T, n)` — explicit-allocator form alongside the default `alloc<T>` (built-in; `alloc`/`free` themselves moved to `<mem>`)
 - [x] `<alloc>` — first-fit general-purpose allocator (after Ken Thompson's original), plus Arena, Pool, and Bump, all over `alloc_with`. A libc-free foundation for `--freestanding` (no dependency on libc `malloc`)
 - [x] `<threading>` — mutex, condvar, semaphore over pthread
-- [ ] `<http>` — HTTP/1.1 parser + response builder + worker pool
+- [x] `<http>` — HTTP/1.1 parser + response builder + worker pool
 - [x] `<base64>` — encode / decode
 - [x] `<json>` — builder + parser
 - [x] `<time>` — timestamp, sleep, monotonic clock

@@ -97,7 +97,7 @@ All items below are implemented and tested end-to-end.
 | Multi-file compile | `eskiuc a.esk b.esk -o prog` — declarations from all inputs are merged into one program |
 | Warnings (`-Wall`) | Unused variables/parameters/functions, assignment-in-condition; off by default |
 | VS Code | Real-time errors, hover types, go-to-definition |
-| stdlib | `result.esk`, `list.esk`, `string.esk`, `math.esk`, `io.esk`, `mem.esk`, `fs.esk`, `net.esk`, `alloc.esk`, `time.esk`, `env.esk`, `base64.esk`, `json.esk`, `threading.esk` |
+| stdlib | `result.esk`, `list.esk`, `string.esk`, `math.esk`, `io.esk`, `mem.esk`, `fs.esk`, `net.esk`, `alloc.esk`, `time.esk`, `env.esk`, `base64.esk`, `json.esk`, `threading.esk`, `http.esk` |
 
 ## Roadmap (as of v0.1.0)
 
@@ -153,7 +153,9 @@ If a module has a `Foo` struct, its operations are `Foo_*`, not `foo_*`. (`<json
 
 ## Key codegen patterns
 
-**Closures:** `fn(T)->R` is `{ptr, ptr}`. Lambda functions always receive `ptr env` as the first parameter. Non-capturing lambdas get `env = null`. Call sites extract `fn_ptr` and `env_ptr` from the struct and invoke `fn_ptr(env_ptr, args...)`.
+**Closures:** `fn(T)->R` is `{ptr, ptr}`. Lambda functions always receive `ptr env` as the first parameter. Non-capturing lambdas get `env = null`. Call sites extract `fn_ptr` and `env_ptr` from the struct and invoke `fn_ptr(env_ptr, args...)`. A `void`-returning indirect call must not be given a result name (LLVM forbids naming void values).
+
+**Capture analysis (`TypeChecker`):** a name referenced in a lambda is captured when it resolves to a variable in a scope **below the lambda's own** — keyed off the scope index (`captureBoundary`), NOT off `functionSignatures`. Keying off the function table breaks when a param/local **shadows a same-named top-level function** (e.g. a `handler` param vs a global `handler` fn): the shadowing variable must still be captured. Also: a fn-pointer used in *callee* position (`h(x)`) is resolved by name in `visit(CallExpr)` and won't reach `visit(IdentExpr)` on its own — that branch calls `node->callee->accept(this)` so the capture still registers.
 
 **Exceptions:** `throw` calls `__cxa_throw` via `invoke` when inside a try body (so the local landingpad fires). `try` bodies use `invoke` for all calls. `catch` uses `landingpad { ptr, i32 } catch ptr null` (catch-all) with manual type comparison via the embedded type name in the exception object.
 

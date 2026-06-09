@@ -1,0 +1,69 @@
+// Smoke test (no .expected → exit 0 = pass): start the worker-pool server in a
+// thread, then hit it with a client over loopback and verify the reply.
+import <mem>;
+import <http>;
+import <time>;
+
+extern int printf(string fmt, ...);
+
+void handler(HttpRequest* req, HttpResponse* res) {
+    HttpResponse_header(res, "Content-Type", "text/plain");
+    if (String_eq_cstr(&req.path, "/ping") == 1) {
+        HttpResponse_set_body(res, "pong");
+    } else {
+        HttpResponse_set_body(res, "hi");
+    }
+}
+
+void run_server() {
+    http_serve(18080, 2, handler);   // never returns
+}
+
+// Does the n-byte buffer contain the C string `needle`?
+int contains(*uint8 buf, int n, string needle) {
+    int i = 0;
+    while (i < n) {
+        int j = 0;
+        int ok = 1;
+        while (needle[j] != 0) {
+            if (i + j >= n || buf[i + j] != (uint8)needle[j]) { ok = 0; }
+            j = j + 1;
+        }
+        if (ok == 1) { return 1; }
+        i = i + 1;
+    }
+    return 0;
+}
+
+int main() {
+    let srv: fn()->void = void() { run_server(); };
+    thread_create(srv);
+
+    // Connect, retrying while the server binds.
+    int c = -1;
+    int tries = 0;
+    while (c < 0 && tries < 40) {
+        sleep_ms(25);
+        c = net_tcp_connect("127.0.0.1", 18080);
+        tries = tries + 1;
+    }
+    if (c < 0) { printf("connect failed\n"); return 1; }
+
+    net_send_str(c, "GET /ping HTTP/1.1\r\nHost: localhost\r\n\r\n");
+
+    *uint8 buf = alloc<uint8>(4096);
+    int64 n = net_recv(c, (*void)buf, 4096);
+    net_close(c);
+    if (n <= 0) { printf("no response\n"); return 1; }
+
+    int got_status = contains(buf, (int)n, "200 OK");
+    int got_body   = contains(buf, (int)n, "pong");
+    free(buf);
+
+    if (got_status == 1 && got_body == 1) {
+        printf("roundtrip ok\n");
+        return 0;
+    }
+    printf("bad response (status=%d body=%d)\n", got_status, got_body);
+    return 1;
+}
