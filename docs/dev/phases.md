@@ -54,7 +54,7 @@ The project follows two phases:
 | `import <name>` stdlib syntax — angle-bracket imports resolved from installation | ✅ |
 | `<fs>` stdlib — file I/O (`fs_open`, `fs_read_all`, `fs_write_all`, etc.) | ✅ |
 | `<net>` stdlib — TCP sockets (`net_tcp_listen`/`accept`/`connect`/`send`/`recv`), portable `sockaddr_in` | ✅ |
-| `<time>` / `<env>` / `<base64>` / `<json>` stdlib — clock+sleep, env vars, Base64 codec, JSON builder (v0.2.0) | ✅ |
+| `<time>` / `<env>` / `<base64>` / `<json>` stdlib — clock+sleep, env vars, Base64 codec, JSON builder + parser (v0.2.0) | ✅ |
 | Function-as-value — a named function decays to a `fn(...)->R` (no lambda wrapper) | ✅ |
 | Predefined OS macros — `__APPLE__` / `__linux__` for `#ifdef` portability | ✅ |
 | Pointer dereference as lvalue — `*ptr = value` through pointer parameters | ✅ |
@@ -113,7 +113,7 @@ Phase 3 rounds out ergonomics and tooling.
 - [ ] `<threading>` — mutex, condvar, semaphore over pthread
 - [ ] `<http>` — HTTP/1.1 parser + response builder + worker pool
 - [x] `<base64>` — encode / decode
-- [x] `<json>` — minimal builder
+- [x] `<json>` — builder + parser
 - [x] `<time>` — timestamp, sleep, monotonic clock
 - [x] `<env>` — environment variables and CLI arguments
 

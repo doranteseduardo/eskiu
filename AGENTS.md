@@ -126,6 +126,15 @@ All items below are implemented and tested end-to-end.
 - Pointer types are strings ending or beginning with `*` (e.g. `"*uint8"`, `"int*"`). Use `isPointerType()` and `getPointeeType()` in both `TypeChecker` and `CodeGen`.
 - Block bodies are `vector<BlockItem>` where `BlockItem = variant<DeclPtr, StmtPtr>`. Never split into two lists.
 
+## Stdlib naming convention
+
+Two deliberate forms — pick by **whether there is a type you operate on**:
+
+- **`Type_method`** (PascalCase type prefix) — for a module built around a struct you instantiate and act on. The function takes the value as its first parameter (`self`) and is callable with dot syntax (`x.method()` mangles to `Type_method`). Examples: `String_append`, `List_push`, `Bump_alloc`, `Arena_save`, `Json_obj_begin`, `JsonValue_get`.
+- **`module_func`** (lowercase module prefix) — for a flat namespace of free functions over primitives, buffers, or OS handles, with no central type. Examples: `base64_decode`, `fs_open`, `net_accept`, `time_now_ms`, `alloc`/`free` (in `<mem>`). A factory/entry function that *produces* a value but isn't a method also uses this form (e.g. `json_parse`, like `Ok`/`Err` in `result.esk`).
+
+If a module has a `Foo` struct, its operations are `Foo_*`, not `foo_*`. (`<json>` originally shipped `json_*` for the `Json` builder — wrong; it is `Json_*`.) Types are always PascalCase; locals are `snake_case`.
+
 ## Type mappings
 
 | Eskiu | LLVM |
