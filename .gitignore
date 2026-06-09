@@ -30,3 +30,6 @@ eskiuc.exe
 *.log
 
 ine_decoder/qr_decoder
+
+# Local-only branch tracking notes (never committed)
+STATUS.md
