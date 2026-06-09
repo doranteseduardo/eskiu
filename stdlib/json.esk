@@ -1,0 +1,75 @@
+// json.esk — a minimal JSON builder (writer, not a parser).
+//
+//   import <json>;
+//   let j: Json;  json_init(&j);
+//   json_obj_begin(&j);
+//     json_key(&j, "name"); json_str(&j, "Eskiu");
+//     json_key(&j, "year"); json_int(&j, 2026);
+//   json_obj_end(&j);
+//   printf("%s\n", json_cstr(&j));   // {"name":"Eskiu","year":2026}
+//   json_free(&j);
+//
+// Separators are inserted automatically: a value or key is preceded by ',' only
+// when it does not directly follow an opener ('{' '[') or a key's ':'.
+
+import <string>;
+
+struct Json {
+    String buf;
+}
+
+void json_init(Json* self)  { String_init(&self.buf, 64); }
+void json_free(Json* self)  { String_free(&self.buf); }
+*char json_cstr(Json* self) { return String_cstr(&self.buf); }
+
+// Insert a separating comma unless the last byte is an opener or a key colon.
+void json_sep(Json* self) {
+    int n = self.buf.len;
+    if (n == 0) { return; }
+    char last = self.buf.data[n - 1];
+    if (last == 123 || last == 91 || last == 58 || last == 44) { return; } // { [ : ,
+    String_push(&self.buf, ',');
+}
+
+// Append a JSON string literal with the minimal required escaping.
+void json_raw_str(Json* self, string s) {
+    String_push(&self.buf, '"');
+    let i: int = 0;
+    while (s[i] != 0) {
+        char c = s[i];
+        if (c == 34 || c == 92) { String_push(&self.buf, '\\'); }  // " or backslash
+        String_push(&self.buf, c);
+        i = i + 1;
+    }
+    String_push(&self.buf, '"');
+}
+
+void json_obj_begin(Json* self) { json_sep(self); String_push(&self.buf, '{'); }
+void json_obj_end(Json* self)   { String_push(&self.buf, '}'); }
+void json_arr_begin(Json* self) { json_sep(self); String_push(&self.buf, '['); }
+void json_arr_end(Json* self)   { String_push(&self.buf, ']'); }
+
+// Object key: emits "key": — the following value attaches without a comma.
+void json_key(Json* self, string k) {
+    json_sep(self);
+    json_raw_str(self, k);
+    String_push(&self.buf, ':');
+}
+
+void json_str(Json* self, string v) { json_sep(self); json_raw_str(self, v); }
+
+void json_int(Json* self, int64 v) {
+    json_sep(self);
+    let tmp: String;  String_init(&tmp, 24);
+    String_from_int(&tmp, (int)v);
+    String_append(&self.buf, String_cstr(&tmp));
+    String_free(&tmp);
+}
+
+void json_bool(Json* self, int b) {
+    json_sep(self);
+    if (b != 0) { String_append(&self.buf, "true"); }
+    else        { String_append(&self.buf, "false"); }
+}
+
+void json_null(Json* self) { json_sep(self); String_append(&self.buf, "null"); }

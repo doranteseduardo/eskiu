@@ -1,0 +1,52 @@
+// time.esk — wall-clock and monotonic time, plus sleep.
+//
+//   import <time>;
+//   int64 t0 = time_monotonic_ms();
+//   sleep_ms(50);
+//   int64 dt = time_monotonic_ms() - t0;   // ~50
+
+// POSIX timespec. On 64-bit macOS and Linux both fields are 64-bit.
+struct timespec {
+    int64 tv_sec;
+    int64 tv_nsec;
+}
+
+extern int clock_gettime(int clk_id, timespec* tp);
+extern int nanosleep(timespec* req, timespec* rem);
+
+// CLOCK_REALTIME is 0 on both platforms; CLOCK_MONOTONIC differs.
+#ifdef __APPLE__
+#define CLOCK_MONO 6
+#else
+#define CLOCK_MONO 1
+#endif
+
+// Milliseconds since the Unix epoch (wall clock; can jump if the clock is set).
+int64 time_now_ms() {
+    let ts: timespec;
+    clock_gettime(0, &ts);
+    return ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
+// Seconds since the Unix epoch.
+int64 time_now_s() {
+    let ts: timespec;
+    clock_gettime(0, &ts);
+    return ts.tv_sec;
+}
+
+// Milliseconds from an arbitrary monotonic origin — never goes backwards.
+// Use this for measuring durations, not time_now_ms.
+int64 time_monotonic_ms() {
+    let ts: timespec;
+    clock_gettime(CLOCK_MONO, &ts);
+    return ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
+// Sleep for the given number of milliseconds.
+void sleep_ms(int64 ms) {
+    let req: timespec;
+    req.tv_sec  = ms / 1000;
+    req.tv_nsec = (ms % 1000) * 1000000;
+    nanosleep(&req, (*timespec)0);
+}
