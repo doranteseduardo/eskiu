@@ -48,7 +48,7 @@ Source (.esk)
 
 ### Why all passes implement ASTVisitor
 
-Every analysis or code generation pass implements `ASTVisitor`. This keeps traversal logic out of the AST nodes themselves and allows passes (type checker, codegen, AST printer) to be added without modifying `ast/ast.h`. The base class declares one pure-virtual `visit()` overload per concrete node type (38 today), so a new node type forces every pass to handle it or fail to compile.
+Every analysis or code generation pass implements `ASTVisitor`. This keeps traversal logic out of the AST nodes themselves and allows passes (type checker, codegen, AST printer) to be added without modifying `ast/ast.h`. The base class declares one pure-virtual `visit()` overload per concrete node type (40 today), so a new node type forces every pass to handle it or fail to compile.
 
 ### How accept()/visit() dispatch works
 
