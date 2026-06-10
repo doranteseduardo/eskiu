@@ -55,15 +55,17 @@ int future_poll<T>(Future<T>* f, escaping fn()->void resume) {
     return 1;                            // already READY: take value inline
 }
 
-// Producer side. Publish the value, then swap to READY. If an awaiter had already
-// parked (state was WAITING), call its waker exactly once. `value` is written
-// before the swap (release) so a reader that observes READY sees the value.
+// Producer side. Publish the value, then win the right to complete by moving
+// PENDING/WAITING -> READY. `value` is written before the publishing CAS
+// (release) so a reader observing READY sees it. If the future is already
+// terminal (READY or CANCELLED — e.g. a `select` loser was dropped, or a
+// concurrent cancel won), completing is a no-op. Wake the awaiter iff it had
+// parked (state was WAITING).
 void future_complete<T>(Future<T>* f, T v) {
     f.value = v;
-    int old = atomic_swap(&f.state, 2);  // -> READY
-    if (old == 1) {                      // WAITING: awaiter parked -> wake it
-        f.waker();
-    }
+    if (atomic_cas(&f.state, 0, 2)) { return; }   // PENDING -> READY (awaiter not parked yet)
+    if (atomic_cas(&f.state, 1, 2)) { f.waker(); } // WAITING -> READY: wake the awaiter
+    // else: already terminal -> ignore (drop/cancel won the race)
 }
 
 // Free a future's memory. The single owner (the awaiter, after reading value, or

@@ -1,0 +1,51 @@
+// http_async.esk — a non-blocking HTTP/1.1 server over <eventloop>.
+//
+// Unlike <http>'s threaded http_serve, this handles connections on a single
+// thread by suspending on accept/read instead of blocking. It is one async
+// function: an accept loop that, for each connection, awaits the request, runs
+// the handler, and writes the response. Connections are served sequentially
+// (concurrent handling awaits a `spawn` primitive — a later addition).
+//
+//   void hello(HttpRequest* req, HttpResponse* res) {
+//       HttpResponse_set_body(res, "hi\n");
+//   }
+//   int fd = net_tcp_listen(8080);
+//   EventLoop* lp = el_new(256);
+//   Future<uint8>* f = http_serve_async(lp, fd, hello);
+//   future_poll<uint8>(f, void(){ });   // drive: el_run(lp) until you stop it
+
+import <mem>;
+import <future>;
+import <net_async>;
+import <eventloop>;
+import <net>;
+import <http>;
+import <string>;
+
+// Serve until `max_conns` connections have been handled (so it terminates for
+// tests/shutdown). Pass a large count for a long-running server.
+async void http_serve_async(EventLoop* lp, int listen_fd,
+                            escaping fn(HttpRequest*, HttpResponse*)->void handler,
+                            int max_conns) {
+    *uint8 buf = alloc<uint8>(8192);
+    int served = 0;
+    while (served < max_conns) {
+        int c = await net_accept_async(lp, listen_fd);
+        int n = await net_read_async(lp, c, buf, (int64)8192);
+        if (n > 0) {
+            let req: HttpRequest;  HttpRequest_init(&req);
+            HttpRequest_parse(&req, buf, n);
+            let res: HttpResponse;  HttpResponse_init(&res, 200);
+            handler(&req, &res);
+            let out: String;  String_init(&out, 256);
+            HttpResponse_render(&res, &out);
+            net_send(c, (*void)String_cstr(&out), out.len);
+            String_free(&out);
+            HttpResponse_free(&res);
+            HttpRequest_free(&req);
+        }
+        net_close(c);
+        served = served + 1;
+    }
+    free((*void)buf);
+}

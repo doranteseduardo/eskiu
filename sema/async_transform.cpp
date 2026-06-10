@@ -228,7 +228,7 @@ void AsyncTransform::run(Program* program) {
                         if (vd->initializer)
                             if (auto* aw = dynamic_cast<AwaitExpr*>(vd->initializer.get())) {
                                 awIdx[aw] = (int)awaits.size();
-                                fields.push_back({"*Future<" + vd->type + ">", "__aw" + std::to_string(awaits.size())});
+                                fields.push_back({"*Future<" + aw->resolvedType + ">", "__aw" + std::to_string(awaits.size())});
                                 awaits.push_back({vd, aw});
                             }
                     } else scanS(std::get<StmtPtr>(it));
@@ -327,11 +327,12 @@ void AsyncTransform::run(Program* program) {
                 if (!vd || !vd->initializer) return cur;
                 if (auto* aw = dynamic_cast<AwaitExpr*>(vd->initializer.get())) {
                     int i = awIdx[aw]; std::string awf = "__aw" + std::to_string(i);
+                    const std::string Tp = aw->resolvedType;   // the future's inner type T'
                     ExprPtr callE = aw->operand; rewrite(callE, vars);
                     states[cur].push_back(assign(fr(awf), callE));
                     int next = newState();
                     ExprPtr poll = std::make_shared<TemplateCallExpr>("future_poll",
-                        std::vector<std::string>{vd->type},
+                        std::vector<std::string>{Tp},
                         std::vector<ExprPtr>{ fr(awf), resumeWaker(resumeN, next, "*" + frameT) });
                     std::vector<BlockItem> pk;
                     pk.push_back(assign(fr("awaiting"), std::make_shared<CastExpr>("*FutureHdr", fr(awf))));
@@ -345,7 +346,7 @@ void AsyncTransform::run(Program* program) {
                     states[next].push_back(exprStmt(std::make_shared<FreeClosureExpr>(
                         std::make_shared<MemberExpr>(fr(awf), "waker"))));
                     states[next].push_back(exprStmt(std::make_shared<TemplateCallExpr>("free_future",
-                        std::vector<std::string>{vd->type}, std::vector<ExprPtr>{ fr(awf) })));
+                        std::vector<std::string>{Tp}, std::vector<ExprPtr>{ fr(awf) })));
                     return next;
                 }
                 if (hasAwait(vd->initializer))

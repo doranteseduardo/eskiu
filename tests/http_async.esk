@@ -1,0 +1,47 @@
+// Smoke test (no .expected -> exit 0 = pass): a non-blocking HTTP server built
+// on the async core. http_serve_async is one async fn (accept loop, awaiting
+// accept + read, suspending the loop instead of blocking). A client thread sends
+// a GET and verifies the response body; main exits non-zero if the round-trip failed.
+import <http_async>;
+import <future>;
+import <eventloop>;
+import <net>;
+extern int    printf(string fmt, ...);
+extern int    usleep(uint32 usec);
+extern int64  recv(int fd, *void buf, int64 n, int flags);
+extern *char  strstr(*char haystack, *char needle);
+
+EventLoop* g_lp;
+int g_ok = 0;
+
+void hello(HttpRequest* req, HttpResponse* res) {
+    HttpResponse_header(res, "Content-Type", "text/plain");
+    HttpResponse_set_body(res, "hello-async\n");
+}
+
+void client() {
+    usleep(100000);
+    int c = net_tcp_connect("127.0.0.1", (uint16)18091);
+    net_send_str(c, "GET / HTTP/1.1\r\nHost: x\r\n\r\n");
+    uint8[1024] resp;
+    int64 n = recv(c, (*void)&resp[0], (int64)1023, 0);
+    if (n > 0) {
+        resp[(int)n] = (uint8)0;
+        if (strstr((*char)&resp[0], (*char)"hello-async") != (*char)0) { g_ok = 1; }
+    }
+    net_close(c);
+}
+
+int main() {
+    int fd = net_tcp_listen((uint16)18091);
+    g_lp = el_new(256);
+    Future<uint8>* f = http_serve_async(g_lp, fd, hello, 1);
+    let t: *void = thread_create(client);
+    if (future_poll<uint8>(f, void() { el_stop(g_lp); }) == 0) { el_run(g_lp); }
+    thread_join(t);
+    free_future<uint8>(f);
+    el_free(g_lp);
+    net_close(fd);
+    if (g_ok == 0) { return 1; }
+    return 0;
+}
