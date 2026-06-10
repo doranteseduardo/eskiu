@@ -1,0 +1,10 @@
+base=bin
+base2=bin
+dir=/usr/local
+dir2=.
+dir3=/
+ext=gz
+ext2=[]
+join=/usr/local/bin
+join2=a/b
+abs(/x)=1 abs(x)=0
