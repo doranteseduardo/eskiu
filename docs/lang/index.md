@@ -2,9 +2,9 @@
 
 Eskiu is a statically typed systems language built to address a specific problem: compute-intensive services typically pull in C for performance-critical work, Go for concurrency, C++ for libraries, and Python for glue — each with its own toolchain and interop cost.
 
-The goal is a single language that replaces that stack. Phase one establishes a solid systems foundation: native performance, explicit memory, direct access to any C library. Phase two, once that foundation is stable, will introduce first-class support for the domain types that high-throughput services actually work with. The syntax is deliberately C-style; the language adds monomorphic templates, structural interfaces, lambdas, and an explicit heap model via `alloc`/`free`.
+The goal is a single language that replaces that stack. Phase one establishes a solid systems foundation: native performance, explicit memory, direct access to any C library. Phase two, once that foundation is stable, will introduce first-class support for the domain types that high-throughput services actually work with. The syntax is deliberately C-style; the language adds monomorphic templates, structural interfaces, lambdas, and an explicit heap model via `alloc<T>`/`free`.
 
-**Current version: v0.1.0** — typed pointer arithmetic (`p + 1` advances by `sizeof(*p)`), `sizeof(T)` compile-time size expression, and `union` declarations. Exception handling added in v0.1.0; closures and thread primitives in v0.1.0.
+**Current version: v0.2.0 (in development)** — heap allocation moved to the `<mem>` stdlib (`alloc<T>(n)` / `free`, no longer keywords); `const` bindings; an `<alloc>` allocator suite (Bump/Arena/Pool/FirstFit) over `alloc_with`; and new stdlib modules `<time>`, `<env>`, `<base64>`, `<json>` (builder + parser), `<threading>`, `<http>`, `<string>`, `<path>`. v0.1.0 (frozen at its tag) added typed pointer arithmetic, `sizeof(T)`, `union`, exceptions, closures, and thread primitives.
 
 ---
 

@@ -18,7 +18,7 @@ tar -xzf eskiuc-linux-x86_64.tar.gz -C /usr/local
 eskiuc --version
 ```
 
-Expected output: `Eskiu 0.1.0 (LLVM ...)`
+Expected output: `Eskiu 0.2.0-dev (LLVM ...)`
 
 The tarball installs:
 - `bin/eskiuc` — the compiler
@@ -38,7 +38,7 @@ cmake --build build
 ./build/eskiuc --version
 ```
 
-Expected output: `Eskiu 0.1.0 (LLVM ...)`
+Expected output: `Eskiu 0.2.0-dev (LLVM ...)`
 
 ## Hello, Eskiu
 
@@ -124,13 +124,14 @@ sum = 10
 
 ## alloc / free with pointer arithmetic
 
-`alloc(T, n)` allocates `n` elements of type `T` and returns a typed pointer. Index with `[]`. Call `free` when done.
+`alloc<T>(n)` (from the `<mem>` stdlib) allocates `n` elements of type `T` and returns a typed pointer. Index with `[]`. Call `free` when done.
 
 ```eskiu
+import <mem>;
 extern int printf(string fmt, ...);
 
 int main() {
-    *int buf = alloc(int, 4);
+    *int buf = alloc<int>(4);
     buf[0] = 10;
     buf[1] = 20;
     buf[2] = 30;

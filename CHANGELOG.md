@@ -7,6 +7,34 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
+## [0.2.0] — Unreleased (in development on `develop`)
+
+Backend-services phase. v0.1.0 is frozen at its tag; this is the in-progress next release.
+
+### Language
+- **`alloc`/`free` are no longer keywords** — heap allocation moved to the `<mem>` stdlib as the generic functions `alloc<T>(n)` and `free(p)`. Under `--freestanding` they target `esk_alloc`/`esk_free` via the predefined `__ESKIU_FREESTANDING__` macro.
+- **`const`** — immutable typed bindings, usable as array sizes; field/element mutation of a `const` value is rejected.
+- **`alloc_with(&allocator, T, n)`** — explicit-allocator built-in.
+- **`volatile let`** — qualifier-first form (like `const int`), in local and top-level declarations.
+- Multi-argument `fn` types (`fn(A,B)->R`); function pointers usable as values, parameters, return types, and struct fields, and capturable in closures.
+
+### Standard library
+- **`<alloc>`** — `Bump`, `Arena`, `Pool`, `FirstFit` allocators over caller-provided buffers (libc-free; work under `--freestanding`).
+- **`<time>`** — `time_now_ms`, `time_now_s`, `time_monotonic_ms`, `sleep_ms`.
+- **`<env>`** — `env_get`, `env_has`, `env_get_or`, `env_get_int`.
+- **`<base64>`** — RFC 4648 `base64_encode` / `base64_decode` over buffers.
+- **`<json>`** — JSON builder (`Json`) plus a recursive-descent parser (`json_parse` → `JsonValue`).
+- **`<threading>`** — `Mutex`, `Cond`, `Sem` over pthread.
+- **`<http>`** — HTTP/1.1 request parser, response builder, and a threaded worker pool (`http_serve`).
+- **`<string>`** — `starts_with`, `ends_with`, `trim`, `split` (List + streaming token iterator).
+- **`<path>`** — `path_join`, `path_basename`, `path_dirname`, `path_extension`, `path_is_absolute`.
+
+### Compiler correctness (consistency audit)
+- Unsigned integer types use unsigned div/rem/shift/compare; 64-bit integer literals no longer truncate; mixed-width ops sign/zero-extend by signedness; variadic call args get the C default-argument promotions.
+- Member access on a struct-valued temporary; `(Type)`/`(Type*)`/alias/enum casts; type alias as a local pointer/array; `List<StructType>` through helper functions; `T*` (trailing-star) pointer deref; nested template close `>>`; closures no longer capture module globals by value.
+
+---
+
 ## [0.1.0]
 
 Eskiu is a systems language built to replace the C + Go + C++ + Python stack that compute-intensive backend services typically require. C-style syntax, structural interfaces, monomorphic templates, and explicit memory — compiled to native via LLVM with no garbage collector and no runtime.

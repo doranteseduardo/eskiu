@@ -4,7 +4,7 @@
 A hands-on introduction to the Eskiu language. You will go from zero to writing
 and inspecting real compiled programs in about 30 minutes.
 
-All code blocks in this document compile and run with **Eskiu v0.1.0**.
+All code blocks in this document compile and run with **Eskiu v0.2.0**.
 ---
 
 ## Installation
@@ -46,7 +46,7 @@ cmake --build build -j$(nproc)
 
 ```bash
 ./build/eskiuc --version
-# Eskiu 0.1.0 (LLVM 22.1.6)   — exact LLVM version depends on your install
+# Eskiu 0.2.0-dev (LLVM 22.1.6)   — exact LLVM version depends on your install
 ```
 
 Add `./build` to your `PATH` so you can type `eskiuc` from any directory.
@@ -272,10 +272,11 @@ int copy = *ptr;      // dereference → 42
 ### Pointer arithmetic
 
 ```eskiu
+import <mem>;     // alloc<T> / free
 extern int printf(string fmt, ...);
 
 int main() {
-    let buf: *uint8 = alloc(uint8, 4);
+    let buf: *uint8 = alloc<uint8>(4);
     *buf = 10;
     *(buf + 1) = 20;
     *(buf + 2) = 30;
@@ -692,14 +693,16 @@ let p: Point = Point { x: 1.0, y: 2.0 };
 
 ### Heap allocation with alloc / free
 
-`alloc(T, N)` allocates `N` items of type `T` on the heap and returns `*T`.
-`free(ptr)` releases the memory:
+`alloc<T>(n)` allocates `n` items of type `T` on the heap and returns `*T`;
+`free(ptr)` releases it. Both come from the `<mem>` stdlib (they are ordinary
+generic functions, not keywords):
 
 ```eskiu
+import <mem>;
 extern int printf(string fmt, ...);
 
 int main() {
-    let buf: *int = alloc(int, 8);
+    let buf: *int = alloc<int>(8);
     for (int i = 0; i < 8; i += 1) {
         *(buf + i) = i * i;
     }
@@ -811,19 +814,88 @@ Available modules:
 
 | Module              | Contents                                              |
 | ------------------- | ----------------------------------------------------- |
-| `<result>` | `Result<T,E>`, `Ok<T,E>()`, `Err<T,E>()`             |
-| `<list>`   | `List<T>` — `List_init`, `push`, `get`, `len`, `free` |
-| `<string>` | `String` — `init`, `from`, `append`, `concat`, `cstr`, `len`, `free` |
-| `<math>`   | `sqrt`, `fabs`, `pow`, `floor`, `ceil`, `abs`         |
-| `<io>`     | `printf`, `fprintf`, `sprintf`, `scanf`, `puts`       |
-| `<mem>`    | `memcpy`, `memset`, `memmove`, `memcmp`, `strlen`     |
-| `<fs>`     | `fs_open`, `fs_close`, `fs_read`, `fs_write`, `fs_puts`, `fs_seek`, `fs_tell`, `fs_size`, `fs_read_all`, `fs_write_all`, `fs_eof`, `fs_error` |
+| `<result>`   | `Result<T,E>`, `Ok<T,E>()`, `Err<T,E>()`             |
+| `<list>`     | `List<T>` — `List_init`, `push`, `get`, `len`, `free` |
+| `<string>`   | `String` — `init`, `from`, `append`, `concat`, `cstr`, `len`, `free`, `starts_with`, `ends_with`, `trim`, `split`, `next_token` |
+| `<math>`     | `sqrt`, `fabs`, `pow`, `floor`, `ceil`, `abs`         |
+| `<io>`       | `printf`, `fprintf`, `sprintf`, `scanf`, `puts`       |
+| `<mem>`      | `alloc<T>(n)`, `free(p)`, `memcpy`, `memset`, `memmove`, `memcmp`, `strlen` |
+| `<alloc>`    | `Bump`, `Arena`, `Pool`, `FirstFit` allocators over `alloc_with` (libc-free) |
+| `<fs>`       | `fs_open`, `fs_close`, `fs_read`, `fs_write`, `fs_puts`, `fs_seek`, `fs_tell`, `fs_size`, `fs_read_all`, `fs_write_all`, `fs_eof`, `fs_error` |
+| `<net>`      | TCP sockets — `net_tcp_listen`, `net_accept`, `net_tcp_connect`, `net_send`, `net_recv`, `net_close` |
+| `<http>`     | HTTP/1.1 — `HttpRequest`/`HttpResponse`, threaded `http_serve(port, workers, handler)` |
+| `<json>`     | `Json` builder + `json_parse` → `JsonValue` tree |
+| `<base64>`   | `base64_encode` / `base64_decode` over byte buffers |
+| `<time>`     | `time_now_ms`, `time_now_s`, `time_monotonic_ms`, `sleep_ms` |
+| `<env>`      | `env_get`, `env_has`, `env_get_or`, `env_get_int` |
+| `<path>`     | `path_join`, `path_basename`, `path_dirname`, `path_extension`, `path_is_absolute` |
+| `<threading>`| `Mutex`, `Cond`, `Sem` over pthread (pairs with `thread_create`/`thread_join`) |
 
 Note: when using `<math>` link with `-lm`. Library flags are passed straight
 through to the linker, so the one-command form works too:
 
 ```bash
 eskiuc file.esk -o file -lm
+```
+
+### Standard library highlights (v0.2.0)
+
+A few of the newer modules. See the language spec §14 for the full reference.
+
+**`<alloc>` — allocators over a caller buffer.** `alloc_with(&a, T, n)` carves a
+typed `*T` out of any struct that exposes a `_alloc` method. Bump is the
+simplest: individual frees are no-ops; one `free` of the backing buffer releases
+everything.
+
+```eskiu
+import <mem>;
+import <alloc>;
+extern int printf(string fmt, ...);
+
+int main() {
+    *uint8 backing = alloc<uint8>(4096);
+    let a: Bump;  Bump_init(&a, backing, 4096);
+    *int xs = alloc_with(&a, int, 16);     // 16 ints from the slab — no per-object malloc
+    xs[0] = 7;  xs[15] = 9;
+    printf("%d %d\n", xs[0], xs[15]);
+    free(backing);                          // frees xs too
+    return 0;
+}
+```
+
+**`<json>` — build and parse.** The builder inserts separators automatically;
+`json_parse` returns a `*JsonValue` tree.
+
+```eskiu
+import <json>;
+extern int printf(string fmt, ...);
+
+int main() {
+    let j: Json;  Json_init(&j);
+    Json_obj_begin(&j);
+        Json_key(&j, "year");  Json_int(&j, 2026);
+    Json_obj_end(&j);
+    printf("%s\n", Json_cstr(&j));                 // {"year":2026}
+
+    *JsonValue v = json_parse(Json_cstr(&j));
+    printf("year=%lld\n", JsonValue_as_int(JsonValue_get(v, "year")));
+    JsonValue_free(v);  Json_free(&j);
+    return 0;
+}
+```
+
+**`<http>` — a concurrent server in a few lines.** The handler fills the
+response; `http_serve` runs a pool of worker threads over `<net>` + `<threading>`.
+
+```eskiu
+import <http>;
+
+void handle(HttpRequest* req, HttpResponse* res) {
+    HttpResponse_header(res, "Content-Type", "text/plain");
+    HttpResponse_set_body(res, "Hello from Eskiu\n");
+}
+
+int main() { http_serve(8080, 4, handle); return 0; }   // 4 worker threads
 ```
 
 ---
@@ -1221,10 +1293,11 @@ int main() {
 Pointer arithmetic scales by the pointed-to type's size, matching C behaviour. Adding `1` to a `*int` advances 4 bytes; adding `1` to a `*Grid` advances `sizeof(Grid)` bytes.
 
 ```eskiu
+import <mem>;
 extern int printf(string fmt, ...);
 
 int main() {
-    let buf: *int = alloc(int, 4);
+    let buf: *int = alloc<int>(4);
     *buf = 10;
     *(buf + 1) = 20;   // +4 bytes (one int)
     *(buf + 2) = 30;   // +8 bytes

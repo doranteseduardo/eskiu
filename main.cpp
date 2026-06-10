@@ -76,7 +76,7 @@ static llvm::cl::list<std::string> LinkArgs("link-arg",
     llvm::cl::desc("Pass an extra argument to the linker (repeatable)"),
     llvm::cl::value_desc("arg"));
 
-const char* VERSION = "0.1.0";
+const char* VERSION = "0.2.0-dev";
 static std::string stdlibRoot; // set once at startup via resolveStdlibPath()
 
 // Resolve stdlib root: $ESKIU_ROOT env var, or dirname(argv[0])/../lib/eskiu
