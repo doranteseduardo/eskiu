@@ -4,12 +4,14 @@
 // All pipeline logic lives in pipeline.esk; this file handles I/O only.
 
 import <mem>;
+import <env>;     // image path from the environment
+import <path>;    // basename / output-path construction
+import <time>;    // monotonic wall-clock timing
+import <string>;
 
 import "pipeline.esk";
 
-string IMAGE_PATH = "/Users/dorantes/Documents/Eduardo/ine-qr-analysis/IMG_8372.HEIC";
-string OUT_JSON   = "/tmp/qr_decoded.json";
-string OUT_WEBP   = "/tmp/qr_decoded.webp";
+string DEFAULT_IMAGE = "/Users/dorantes/Documents/Eduardo/ine-qr-analysis/IMG_8372.HEIC";
 
 int write_file(string path, *uint8 data, int len) {
     *void fp = fopen(path, "wb");
@@ -28,17 +30,26 @@ void print_timing(PipelineTiming* t) {
 }
 
 int main() {
-    printf("qr-decoder v0.1  (Eskiu)\n");
+    printf("qr-decoder v0.2  (Eskiu)\n");
     printf("========================\n\n");
 
+    // Input path from $INE_IMAGE (falling back to the bundled sample).
+    string image = env_get_or("INE_IMAGE", DEFAULT_IMAGE);
+    let base: String;  String_init(&base, 32);  path_basename(&base, image);
+    printf("image: %s\n", String_cstr(&base));
+
+    // Output paths built with <path>.
+    let out_json: String;  String_init(&out_json, 32);  path_join(&out_json, "/tmp", "qr_decoded.json");
+    let out_webp: String;  String_init(&out_webp, 32);  path_join(&out_webp, "/tmp", "qr_decoded.webp");
+
     let timing: PipelineTiming;
-    int64 t_start = clock();
-    int64 t0      = clock();
+    int64 t_start = time_monotonic_ms();
+    int64 t0      = time_monotonic_ms();
 
     // ── Stage 1: QR extraction ────────────────────────────────────────────
     let qr: QRPair;
-    let r1: Result<int, string> = stage_extract(IMAGE_PATH, &qr);
-    timing.qr_ms = ticks_to_ms(clock() - t0);
+    let r1: Result<int, string> = stage_extract(image, &qr);
+    timing.qr_ms = (double)(time_monotonic_ms() - t0);
 
     if (r1.ok == 0) {
         printf("error: stage 1: %s\n", r1.error);
@@ -47,11 +58,11 @@ int main() {
     printf("[1/3] QR extracted        (%3.0f ms)\n", timing.qr_ms);
 
     // ── Stage 2: crypto pipeline ──────────────────────────────────────────
-    t0 = clock();
+    t0 = time_monotonic_ms();
     let plain: *uint8 = null;
     int64 plain_len   = 0;
     let r2: Result<int, string> = stage_crypto(&qr, &plain, &plain_len);
-    timing.crypto_ms = ticks_to_ms(clock() - t0);
+    timing.crypto_ms = (double)(time_monotonic_ms() - t0);
 
     if (r2.ok == 0) {
         printf("error: stage 2: %s\n", r2.error);
@@ -61,7 +72,7 @@ int main() {
            timing.crypto_ms, plain_len);
 
     // ── Stage 3: output decode  (stage_decode takes ownership of plain) ───
-    t0 = clock();
+    t0 = time_monotonic_ms();
     let json: *char   = null;
     int64 json_len    = 0;
     let webp: *uint8  = null;
@@ -69,7 +80,7 @@ int main() {
     let r3: Result<int, string> = stage_decode(plain, plain_len,
                                                 &json, &json_len,
                                                 &webp, &webp_len);
-    timing.decode_ms = ticks_to_ms(clock() - t0);
+    timing.decode_ms = (double)(time_monotonic_ms() - t0);
 
     if (r3.ok == 0) {
         printf("error: stage 3: %s\n", r3.error);
@@ -78,23 +89,23 @@ int main() {
     printf("[3/3] Decoded              (%3.0f ms, json=%lld webp=%lld)\n",
            timing.decode_ms, json_len, webp_len);
 
-    timing.total_ms = ticks_to_ms(clock() - t_start);
+    timing.total_ms = (double)(time_monotonic_ms() - t_start);
     printf("\nTiming breakdown:");
     print_timing(&timing);
 
     // ── Output ────────────────────────────────────────────────────────────
     if (json != null) {
         printf("\n%s\n", json);
-        write_file(OUT_JSON, json, json_len);
-        printf("\nJSON  → %s\n", OUT_JSON);
+        write_file(String_cstr(&out_json), json, json_len);
+        printf("\nJSON  → %s\n", String_cstr(&out_json));
     }
     if (webp != null) {
-        write_file(OUT_WEBP, webp, (int)webp_len);
-        printf("WebP  → %s  (%lld bytes)\n", OUT_WEBP, webp_len);
+        write_file(String_cstr(&out_webp), webp, (int)webp_len);
+        printf("WebP  → %s  (%lld bytes)\n", String_cstr(&out_webp), webp_len);
     }
 
     if (json != null) free(json);
     if (webp != null) free(webp);
-
+    String_free(&base);  String_free(&out_json);  String_free(&out_webp);
     return 0;
 }

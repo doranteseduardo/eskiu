@@ -6,6 +6,8 @@
 // text_bytes are 6-bit coded values indexing into the Spanish character table.
 
 import <mem>;
+import <string>;   // String + String_next_token (field split)
+import <json>;     // Json builder
 
 import "types.esk";
 import "extern.esk";
@@ -53,26 +55,6 @@ string field_label(int idx) {
     }
 }
 
-// ── Simple growable JSON buffer ───────────────────────────────────────────────
-
-// Append n bytes to *buf_ptr; grows the buffer when needed.
-void buf_push(**char buf_ptr, *int64 pos_ptr, *int64 cap_ptr,
-              string data, int64 n) {
-    int64 pos = pos_ptr[0];
-    int64 cap = cap_ptr[0];
-    if (pos + n + 1 > cap) {
-        int64 nc = (cap + n + 1) * 2;
-        let nb: *char = alloc<char>(nc);
-        memcpy(nb, buf_ptr[0], (int)pos);
-        free(buf_ptr[0]);
-        buf_ptr[0] = nb;
-        cap_ptr[0] = nc;
-    }
-    memcpy(buf_ptr[0] + pos, data, (int)n);
-    pos_ptr[0] = pos + n;
-    buf_ptr[0][pos + n] = 0;
-}
-
 // ── Public API ────────────────────────────────────────────────────────────────
 
 int decode_to_buffers(*uint8 payload, int64 pay_len,
@@ -98,79 +80,36 @@ int decode_to_buffers(*uint8 payload, int64 pay_len,
     if (ioff + 2 + ilen > pay_len) if (pay_len > ioff + 2) { ilen = pay_len - ioff - 2; } else { ilen = 0; }
     let idata: *uint8 = payload + ioff + 2;
 
-    // Decode text bytes through character table → raw UTF-8 text
-    let text: *char = alloc<char>(tlen * 3 + 1);
-    int64 tp = 0;
+    // Decode text bytes through the character table → a UTF-8 String.
+    let text: String;  String_init(&text, (int)(tlen * 3 + 1));
     int64 i = 0;
     while (i < tlen) {
         uint8 bv = tdata[i];
         if (bv != 0) {
             string ch = char_lookup(bv);
-            int64 cl = strlen(ch);
-            if (cl > 0) {
-                memcpy(text + tp, ch, (int)cl);
-                tp += cl;
-            }
+            if (ch[0] != 0) { String_append(&text, ch); }
         }
         i += 1;
     }
-    text[tp] = 0;
 
-    // Split on '|' into field values
-    let fv: *char = alloc<char>(tp + 1);
-    memcpy(fv, text, (int)tp + 1);
-    free(text);
-
-    // Count and locate fields (in-place: replace '|' with '\0')
+    // Split on '|' (streaming) and build the JSON object with <json>.
+    let j: Json;  Json_init(&j);
+    Json_obj_begin(&j);
+    let fld: String;  String_init(&fld, 16);
+    int pos = 0;
     int nf = 0;
-    let starts: *int64 = alloc<int64>(24);
-    starts[0] = 0;
-    nf = 1;
-    int64 fi = 0;
-    while (fi < tp && nf < 22) {
-        if (fv[fi] == 124) {   // '|' = 124
-            fv[fi] = 0;
-            starts[nf] = fi + 1;
-            nf += 1;
-        }
-        fi += 1;
+    while (String_next_token(&text, '|', &pos, &fld) == 1 && nf < 22) {
+        Json_key(&j, field_label(nf));
+        Json_str(&j, String_cstr(&fld));   // escapes " and \ automatically
+        nf = nf + 1;
     }
+    Json_obj_end(&j);
 
-    // Build JSON
-    let jbuf: *char = alloc<char>(4096);
-    int64 jpos = 0;
-    int64 jcap = 4096;
-    let jbuf_ptr: **char = &jbuf;
-
-    buf_push(jbuf_ptr, &jpos, &jcap, "{\n", 2);
-    int f = 0;
-    while (f < nf) {
-        string lbl = field_label(f);
-        let val: *char = fv + starts[f];
-        buf_push(jbuf_ptr, &jpos, &jcap, "  \"", 3);
-        buf_push(jbuf_ptr, &jpos, &jcap, lbl, strlen(lbl));
-        buf_push(jbuf_ptr, &jpos, &jcap, "\": \"", 4);
-        int64 vi = 0;
-        int64 vl = strlen(val);
-        while (vi < vl) {
-            if (val[vi] == 34) {
-                buf_push(jbuf_ptr, &jpos, &jcap, "\\\"", 2);
-            } else if (val[vi] == 92) {
-                buf_push(jbuf_ptr, &jpos, &jcap, "\\\\", 2);
-            } else {
-                buf_push(jbuf_ptr, &jpos, &jcap, val + vi, 1);
-            }
-            vi += 1;
-        }
-        if (f < nf - 1) {
-            buf_push(jbuf_ptr, &jpos, &jcap, "\",\n", 3);
-        } else {
-            buf_push(jbuf_ptr, &jpos, &jcap, "\"\n", 2);
-        }
-        f += 1;
-    }
-    buf_push(jbuf_ptr, &jpos, &jcap, "}\n", 2);
-    free(fv); free(starts);
+    // Hand the rendered JSON to the caller (own copy; the Json builder is freed).
+    int64 jpos = j.buf.len;
+    let jbuf: *char = alloc<char>(jpos + 1);
+    memcpy(jbuf, Json_cstr(&j), (int)(jpos + 1));
+    String_free(&fld);  String_free(&text);  Json_free(&j);
 
     // Copy WebP
     let webp: *uint8 = null;
