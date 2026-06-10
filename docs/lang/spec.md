@@ -78,6 +78,7 @@ alloc_with
 const  volatile  escaping  asm
 thread_create  thread_join
 try  catch  finally  throw
+async  await
 sizeof  free_closure  union  enum
 ```
 

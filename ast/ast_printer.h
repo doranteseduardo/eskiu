@@ -50,6 +50,7 @@ private:
     void visit(UnionDecl* node) override;
     void visit(SizeofExpr* node) override;
     void visit(FreeClosureExpr* node) override;
+    void visit(AwaitExpr* node) override;
     void visit(ThreadCreateExpr* node) override;
     void visit(ThreadJoinStmt* node) override;
     void visit(ThrowStmt* node) override;

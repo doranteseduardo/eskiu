@@ -449,6 +449,13 @@ void ASTPrinter::visit(FreeClosureExpr* node) {
     indentLevel--;
 }
 
+void ASTPrinter::visit(AwaitExpr* node) {
+    println("AwaitExpr:");
+    indentLevel++;
+    if (node->operand) node->operand->accept(this);
+    indentLevel--;
+}
+
 void ASTPrinter::visit(UnionDecl* node) {
     println("UnionDecl: " + node->name);
     indentLevel++;

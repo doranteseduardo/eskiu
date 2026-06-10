@@ -344,6 +344,12 @@ DeclPtr Parser::parseDeclaration() {
         if (match(TokenType::INTRINSIC)) {
             return parseIntrinsicDecl();
         }
+        // `async T f(...) { ... }` — function modifier before the return type.
+        if (match(TokenType::ASYNC)) {
+            auto decl = parseFunctionDecl();
+            if (auto* fd = dynamic_cast<FunctionDecl*>(decl.get())) fd->isAsync = true;
+            return decl;
+        }
         if (match(TokenType::STRUCT)) {
             return parseStructDecl();
         }
@@ -1125,6 +1131,12 @@ ExprPtr Parser::parseMultiplication() {
 }
 
 ExprPtr Parser::parseUnary() {
+    // await E — prefix operator; binds like a unary operator.
+    if (check(TokenType::AWAIT)) {
+        Token awaitTok = advance();
+        ExprPtr operand = parseUnary();
+        return withPos(std::make_shared<AwaitExpr>(operand), awaitTok);
+    }
     // Fold -N and -N.N into a negative literal directly (avoids UnaryExpr for constants)
     if (check(TokenType::MINUS)) {
         TokenType next = peek_ahead(1).type;
