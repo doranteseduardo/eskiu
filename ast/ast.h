@@ -537,6 +537,7 @@ public:
 class AwaitExpr : public Expr {
 public:
     ExprPtr operand;
+    std::string resolvedType;   // set by the type checker: the awaited value type T'
     explicit AwaitExpr(ExprPtr o) : operand(std::move(o)) {}
     void accept(class ASTVisitor* visitor) override;
 };

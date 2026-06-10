@@ -1,0 +1,23 @@
+// `return await E;` (desugared to a bound await + return) and `async void`
+// (uses a uint8 unit; the body may fall off the end with no return).
+import <future>;
+extern int printf(string fmt, ...);
+Future<int>* produce(int v) {
+    Future<int>* f = future_new<int>();
+    future_complete<int>(f, v);
+    return f;
+}
+async int direct() {
+    return await produce(7);
+}
+int g_side = 0;
+async void task() {
+    int a = await produce(5);
+    g_side = a + 1;
+}
+int main() {
+    Future<int>* r = direct();
+    Future<uint8>* t = task();
+    printf("%d %d %d\n", r.value, g_side, t.state);   // 7 6 2
+    return 0;
+}
