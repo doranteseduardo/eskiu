@@ -130,6 +130,23 @@ public:
     void accept(class ASTVisitor* visitor) override;
 };
 
+// intrinsic int atomic_cas(*int cell, int expected, int desired);
+// Syntactically an extern prototype, but a call lowers to inline IR (e.g. an
+// LLVM atomic), NOT to a call to an external C symbol. Codegen recognises the
+// name via its intrinsic registry and emits the operation directly; no `declare`
+// is produced. Distinct from ExternDecl so the two intents never blur.
+class IntrinsicDecl : public Decl {
+public:
+    std::string returnType;
+    std::vector<std::pair<std::string, std::string>> params;
+
+    IntrinsicDecl(const std::string& name, const std::string& returnType,
+                  const std::vector<std::pair<std::string, std::string>>& params)
+        : Decl(name), returnType(returnType), params(params) {}
+
+    void accept(class ASTVisitor* visitor) override;
+};
+
 // enum Color { Red, Green, Blue }  or  enum Status { Ok = 0, Err = 2 }
 // Members are int constants. An enum type maps to i32.
 class EnumDecl : public Decl {
@@ -528,6 +545,7 @@ public:
     virtual void visit(VarDecl* node) = 0;
     virtual void visit(StructDecl* node) = 0;
     virtual void visit(ExternDecl* node) = 0;
+    virtual void visit(IntrinsicDecl* node) = 0;
     virtual void visit(InterfaceDecl* node) = 0;
     virtual void visit(EnumDecl* node) = 0;
     virtual void visit(TypeAliasDecl* node) = 0;

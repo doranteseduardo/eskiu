@@ -479,7 +479,8 @@ void CodeGen::visit(Program* node) {
                    dynamic_cast<InterfaceDecl*>(decl.get()) ||
                    dynamic_cast<EnumDecl*>(decl.get()) ||
                    dynamic_cast<TypeAliasDecl*>(decl.get()) ||
-                   dynamic_cast<ExternDecl*>(decl.get())) {
+                   dynamic_cast<ExternDecl*>(decl.get()) ||
+                   dynamic_cast<IntrinsicDecl*>(decl.get())) {
             decl->accept(this);
         }
     }
@@ -502,6 +503,7 @@ void CodeGen::visit(Program* node) {
     for (auto& decl : node->declarations) {
         // Externs, unions, interfaces, enums, and aliases were handled in phase 1.
         if (dynamic_cast<ExternDecl*>(decl.get()) ||
+            dynamic_cast<IntrinsicDecl*>(decl.get()) ||
             dynamic_cast<UnionDecl*>(decl.get()) ||
             dynamic_cast<InterfaceDecl*>(decl.get()) ||
             dynamic_cast<EnumDecl*>(decl.get()) ||
@@ -858,6 +860,13 @@ void CodeGen::visit(ExternDecl* node) {
 
     // Create external function declaration
     llvm::Function::Create(funcType, llvm::Function::ExternalLinkage, node->name, module.get());
+}
+
+void CodeGen::visit(IntrinsicDecl* node) {
+    // No declaration is emitted: a call to an intrinsic lowers to inline IR
+    // (see the intrinsic dispatch at the top of visit(CallExpr)). We only record
+    // the name so that callsites can be recognised regardless of source order.
+    intrinsicNames.insert(node->name);
 }
 
 void CodeGen::visit(BlockStmt* node) {
@@ -1422,7 +1431,58 @@ void CodeGen::visit(UnaryExpr* node) {
     exprValueStack.push(result);
 }
 
+// Lower a call to an `intrinsic`-declared function to inline IR. The registry of
+// supported intrinsics lives here; their signatures are declared in stdlib (e.g.
+// stdlib/atomic.esk) and the orderings/semantics are fixed (docs/dev/async-design.md §3).
+llvm::Value* CodeGen::lowerIntrinsicCall(const std::string& fn, CallExpr* node) {
+    // Atomics operate on a *int (i32) cell.
+    if (fn == "atomic_load") {
+        llvm::Value* cell = evaluateExpr(node->args[0]);
+        auto* ld = builder->CreateLoad(llvm::Type::getInt32Ty(*context), cell, "atm.load");
+        ld->setAtomic(llvm::AtomicOrdering::Acquire);
+        ld->setAlignment(llvm::Align(4));
+        return ld;
+    }
+    if (fn == "atomic_store") {
+        llvm::Value* cell = evaluateExpr(node->args[0]);
+        llvm::Value* v    = evaluateExpr(node->args[1]);
+        auto* st = builder->CreateStore(v, cell);
+        st->setAtomic(llvm::AtomicOrdering::Release);
+        st->setAlignment(llvm::Align(4));
+        return llvm::UndefValue::get(llvm::Type::getVoidTy(*context));
+    }
+    if (fn == "atomic_swap") {
+        llvm::Value* cell = evaluateExpr(node->args[0]);
+        llvm::Value* v    = evaluateExpr(node->args[1]);
+        return builder->CreateAtomicRMW(
+            llvm::AtomicRMWInst::Xchg, cell, v, llvm::MaybeAlign(4),
+            llvm::AtomicOrdering::AcquireRelease);
+    }
+    if (fn == "atomic_cas") {
+        llvm::Value* cell     = evaluateExpr(node->args[0]);
+        llvm::Value* expected = evaluateExpr(node->args[1]);
+        llvm::Value* desired  = evaluateExpr(node->args[2]);
+        llvm::Value* cx = builder->CreateAtomicCmpXchg(
+            cell, expected, desired, llvm::MaybeAlign(4),
+            llvm::AtomicOrdering::AcquireRelease, llvm::AtomicOrdering::Acquire);
+        return builder->CreateExtractValue(cx, 1, "atm.cas.ok"); // success bit (i1)
+    }
+    throw std::runtime_error("intrinsic '" + fn + "' is declared but has no codegen lowering");
+}
+
 void CodeGen::visit(CallExpr* node) {
+    // Intrinsics: a call to an `intrinsic`-declared name lowers to inline IR
+    // instead of a call. Gated on intrinsicNames (only populated when the
+    // declaring module is imported), so a user function of the same name that
+    // was *not* imported as an intrinsic is unaffected.
+    if (auto* aid = dynamic_cast<IdentExpr*>(node->callee.get())) {
+        const std::string& fn = aid->name;
+        if (intrinsicNames.count(fn) && !lookupSymbol(fn)) {
+            exprValueStack.push(lowerIntrinsicCall(fn, node));
+            return;
+        }
+    }
+
     // Template function called without explicit type arguments: infer each type
     // parameter by structurally unifying every parameter type against the concrete
     // argument type. Covers bare params (T max<T>(T a, T b) → max(3,5)) and

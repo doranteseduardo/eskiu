@@ -58,6 +58,7 @@ private:
     DeclPtr parseVarDecl();
     DeclPtr parseStructDecl();
     DeclPtr parseExternDecl();
+    DeclPtr parseIntrinsicDecl();
 
     // #pragma pack state: structs declared while currentPack==1 are packed.
     int currentPack = 0;

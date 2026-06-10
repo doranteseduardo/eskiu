@@ -1,0 +1,29 @@
+// atomic.esk — lock-free atomic operations on a 32-bit (`int`) cell.
+//
+// These are compiler intrinsics (declared with the `intrinsic` qualifier): the
+// calls below lower directly to LLVM atomic instructions, not to external
+// function calls, and emit no `declare`. Memory orderings are fixed to
+// the safe acquire/release defaults — a published value (written before an
+// atomic_store / atomic_swap / a winning atomic_cas) is visible to any thread
+// that observes the new cell value via atomic_load / atomic_swap / atomic_cas.
+//
+// The async runtime (stdlib/future.esk) uses these for the Future state
+// handshake; see docs/dev/async-design.md §3.
+//
+//   int flag = 0;
+//   if (atomic_cas(&flag, 0, 1)) { /* we won the transition 0 -> 1 */ }
+//   int old = atomic_swap(&flag, 2);   // store 2, return previous value
+//   int now = atomic_load(&flag);
+
+// Atomically read the cell (acquire ordering).
+intrinsic int atomic_load(*int cell);
+
+// Atomically write `v` into the cell (release ordering).
+intrinsic void atomic_store(*int cell, int v);
+
+// Atomically store `v`, returning the previous value (acq_rel ordering).
+intrinsic int atomic_swap(*int cell, int v);
+
+// If the cell equals `expected`, set it to `desired` and return true; otherwise
+// leave it unchanged and return false (acq_rel on success, acquire on failure).
+intrinsic bool atomic_cas(*int cell, int expected, int desired);

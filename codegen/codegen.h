@@ -174,6 +174,8 @@ private:
     void visit(VarDecl* node) override;
     void visit(StructDecl* node) override;
     void visit(ExternDecl* node) override;
+    void visit(IntrinsicDecl* node) override;
+    llvm::Value* lowerIntrinsicCall(const std::string& fn, class CallExpr* node);
     void visit(BlockStmt* node) override;
     void visit(IfStmt* node) override;
     void visit(ForStmt* node) override;
@@ -220,6 +222,8 @@ private:
     // Enum members -> integer value; the set of enum type names (each maps to i32)
     std::map<std::string, long long> enumConstants;
     std::set<std::string> enumTypes;
+    // Names declared `intrinsic` — calls to these lower to inline IR, not a call.
+    std::set<std::string> intrinsicNames;
     // Type aliases: alias name -> underlying type string
     std::map<std::string, std::string> typeAliases;
 

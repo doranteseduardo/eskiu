@@ -5,6 +5,7 @@ void FunctionDecl::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void VarDecl::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void StructDecl::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void ExternDecl::accept(ASTVisitor* visitor) { visitor->visit(this); }
+void IntrinsicDecl::accept(ASTVisitor* visitor) { visitor->visit(this); }
 
 // Statements
 void BlockStmt::accept(ASTVisitor* visitor) { visitor->visit(this); }

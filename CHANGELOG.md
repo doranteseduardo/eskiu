@@ -17,6 +17,7 @@ Backend-services phase. v0.1.0 is frozen at its tag; this is the in-progress nex
 - **`alloc_with(&allocator, T, n)`** — explicit-allocator built-in.
 - **`volatile let`** — qualifier-first form (like `const int`), in local and top-level declarations.
 - Multi-argument `fn` types (`fn(A,B)->R`); function pointers usable as values, parameters, return types, and struct fields, and capturable in closures.
+- **`intrinsic`** — function qualifier for compiler-lowered prototypes (distinct from `extern`): a call lowers to inline IR, not a call to a C symbol, and emits no `declare`. Gated on import, so the names stay un-reserved otherwise.
 
 ### Standard library
 - **`<alloc>`** — `Bump`, `Arena`, `Pool`, `FirstFit` allocators over caller-provided buffers (libc-free; work under `--freestanding`).
@@ -29,6 +30,7 @@ Backend-services phase. v0.1.0 is frozen at its tag; this is the in-progress nex
 - **`<string>`** — `starts_with`, `ends_with`, `trim`, `split` (List + streaming token iterator).
 - **`<path>`** — `path_join`, `path_basename`, `path_dirname`, `path_extension`, `path_is_absolute`.
 - **`<eventloop>`** — readiness reactor over kqueue (macOS) / epoll (Linux): `el_new`, `el_add_read`, `el_del`, `el_run`, `el_stop`, `el_free`. Callbacks are `fn(EventLoop*, int)->void`. Foundation for async I/O and the HTTP stack.
+- **`<atomic>`** — `atomic_load`, `atomic_store`, `atomic_swap`, `atomic_cas` over an `int` cell, lowering to LLVM atomics (acquire / release / acq_rel). Foundation for the async runtime's lock-free `Future` state handshake.
 
 ### Compiler correctness (consistency audit)
 - Unsigned integer types use unsigned div/rem/shift/compare; 64-bit integer literals no longer truncate; mixed-width ops sign/zero-extend by signedness; variadic call args get the C default-argument promotions.

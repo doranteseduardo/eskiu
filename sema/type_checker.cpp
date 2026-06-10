@@ -77,6 +77,14 @@ bool TypeChecker::check(Program* program) {
                 paramTypes.push_back(param.first);  // first = type, second = name
             }
             defineFunction(externDecl->name, externDecl->returnType, paramTypes);
+        } else if (auto intrinDecl = dynamic_cast<IntrinsicDecl*>(decl.get())) {
+            // Intrinsics carry an ordinary signature; only codegen treats them
+            // specially (inline lowering instead of a call).
+            std::vector<std::string> paramTypes;
+            for (const auto& param : intrinDecl->params) {
+                paramTypes.push_back(param.first);
+            }
+            defineFunction(intrinDecl->name, intrinDecl->returnType, paramTypes);
         }
     }
 
@@ -232,6 +240,11 @@ void TypeChecker::visit(StructDecl* node) {
 void TypeChecker::visit(ExternDecl* node) {
     // Extern functions are already registered in first pass
     // Just verify they have valid signatures
+}
+
+void TypeChecker::visit(IntrinsicDecl* node) {
+    // Intrinsics are registered in the first pass like externs; nothing to check.
+    (void)node;
 }
 
 void TypeChecker::visit(EnumDecl* node) {
