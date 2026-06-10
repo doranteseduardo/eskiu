@@ -1,0 +1,35 @@
+// json.esk — build a JSON document and parse it back with the <json> stdlib.
+//
+//   eskiuc examples/json.esk -o json && ./json
+
+import <json>;
+
+extern int printf(string fmt, ...);
+
+int main() {
+    // Build (separators are inserted automatically).
+    let j: Json;  Json_init(&j);
+    Json_obj_begin(&j);
+        Json_key(&j, "lang");  Json_str(&j, "Eskiu");
+        Json_key(&j, "year");  Json_int(&j, 2026);
+        Json_key(&j, "tags");
+        Json_arr_begin(&j);
+            Json_str(&j, "systems");
+            Json_str(&j, "llvm");
+        Json_arr_end(&j);
+    Json_obj_end(&j);
+    printf("built:  %s\n", Json_cstr(&j));
+
+    // Parse it back into a value tree and read fields.
+    *JsonValue v = json_parse(Json_cstr(&j));
+    *JsonValue tags = JsonValue_get(v, "tags");
+    printf("parsed: lang=%s year=%lld tags.len=%d tags[1]=%s\n",
+           JsonValue_as_cstr(JsonValue_get(v, "lang")),
+           JsonValue_as_int(JsonValue_get(v, "year")),
+           JsonValue_len(tags),
+           JsonValue_as_cstr(JsonValue_at(tags, 1)));
+
+    JsonValue_free(v);
+    Json_free(&j);
+    return 0;
+}
