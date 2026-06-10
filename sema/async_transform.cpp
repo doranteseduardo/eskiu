@@ -294,6 +294,12 @@ void AsyncTransform::run(Program* program) {
         ctor.push_back(assign(fr("st"), intlit(0)));
         ctor.push_back(assign(fr("awaiting"), std::make_shared<CastExpr>("*FutureHdr", intlit(0))));
         ctor.push_back(assign(std::make_shared<MemberExpr>(fr("ret"), "state"), intlit(0)));
+        // ret is raw-allocated (not via future_new); init waker to a no-op so
+        // free_future/future_drop can free_closure it safely.
+        ctor.push_back(assign(std::make_shared<MemberExpr>(fr("ret"), "waker"),
+            std::make_shared<LambdaExpr>(
+                std::vector<std::pair<std::string,std::string>>{}, "void",
+                std::make_shared<BlockStmt>(std::vector<BlockItem>{}))));
         // ret.on_drop: if cancelled while suspended, cascade-drop the awaited
         // future, then free the frame (== free &ret, the embedded first field).
         {
@@ -304,8 +310,8 @@ void AsyncTransform::run(Program* program) {
             dropBody.push_back(std::make_shared<IfStmt>(
                 binop(fr("awaiting"), "!=", std::make_shared<CastExpr>("*FutureHdr", intlit(0))),
                 std::make_shared<BlockStmt>(cascade)));
-            dropBody.push_back(exprStmt(std::make_shared<CallExpr>(
-                ident("free"), std::vector<ExprPtr>{ std::make_shared<CastExpr>("*void", ident("fr")) })));
+            // NOTE: do not free the frame here — future_drop frees it (== free &ret)
+            // after this on_drop returns, and frees this closure's env too.
             auto dropLam = std::make_shared<LambdaExpr>(
                 std::vector<std::pair<std::string,std::string>>{}, "void",
                 std::make_shared<BlockStmt>(dropBody));

@@ -17,5 +17,6 @@ async int one() {
 int main() {
     Future<int>* r = one();
     printf("%d %d\n", r.value, r.state);   // 42 2
+    free_future<int>(r);
     return 0;
 }

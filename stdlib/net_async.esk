@@ -21,10 +21,12 @@ extern int64 read(int fd, *void buf, int64 n);
 // is readable. One-shot: the fd is deregistered when it fires.
 Future<int>* net_read_async(EventLoop* lp, int fd, *uint8 buf, int64 cap) {
     Future<int>* f = future_new<int>();
-    f.on_drop = void() { el_del(lp, fd); free_future<int>(f); };
+    // on_drop (cancel path, callback never fired): release the loop registration
+    // and its callback env. future_drop frees the future struct itself.
+    f.on_drop = void() { el_del_free(lp, fd); };
     el_add_read(lp, fd, void(EventLoop* l, int rfd) {
         int64 n = read(rfd, (*void)buf, cap);
-        el_del(l, rfd);                          // one-shot
+        el_del(l, rfd);                          // one-shot; el_run frees this env on return
         future_complete<int>(f, (int)n);         // resumes the awaiter (loop thread)
     });
     return f;
@@ -33,7 +35,7 @@ Future<int>* net_read_async(EventLoop* lp, int fd, *uint8 buf, int64 cap) {
 // Complete with an accepted client fd once `listen_fd` has a pending connection.
 Future<int>* net_accept_async(EventLoop* lp, int listen_fd) {
     Future<int>* f = future_new<int>();
-    f.on_drop = void() { el_del(lp, listen_fd); free_future<int>(f); };
+    f.on_drop = void() { el_del_free(lp, listen_fd); };
     el_add_read(lp, listen_fd, void(EventLoop* l, int sfd) {
         int c = net_accept(sfd);
         el_del(l, sfd);

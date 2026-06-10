@@ -19,5 +19,7 @@ int main() {
     Future<int>* r = direct();
     Future<uint8>* t = task();
     printf("%d %d %d\n", r.value, g_side, t.state);   // 7 6 2
+    free_future<int>(r);
+    free_future<uint8>(t);
     return 0;
 }
