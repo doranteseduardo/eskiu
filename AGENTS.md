@@ -97,7 +97,7 @@ All items below are implemented and tested end-to-end.
 | Multi-file compile | `eskiuc a.esk b.esk -o prog` — declarations from all inputs are merged into one program |
 | Warnings (`-Wall`) | Unused variables/parameters/functions, assignment-in-condition; off by default |
 | VS Code | Real-time errors, hover types, go-to-definition |
-| stdlib | `result.esk`, `list.esk`, `string.esk`, `math.esk`, `io.esk`, `mem.esk`, `fs.esk`, `net.esk`, `alloc.esk`, `time.esk`, `env.esk`, `base64.esk`, `json.esk`, `threading.esk`, `http.esk` |
+| stdlib | `result.esk`, `list.esk`, `string.esk`, `math.esk`, `io.esk`, `mem.esk`, `fs.esk`, `net.esk`, `alloc.esk`, `time.esk`, `env.esk`, `base64.esk`, `json.esk`, `threading.esk`, `http.esk`, `path.esk` |
 
 ## Roadmap (as of v0.1.0)
 
@@ -166,6 +166,10 @@ If a module has a `Foo` struct, its operations are `Foo_*`, not `foo_*`. (`<json
 **Cross-compilation:** When `targetTriple != ""` and differs from native, the CPU is set to `"generic"` to avoid host CPU features leaking into the cross-compiled object.
 
 **Nested template instantiation (a template calling another with the param forwarded, e.g. `alloc<T>(n)` inside `List_push<T>`):** in `visit(TemplateCallExpr)`, resolve each explicit type arg through the active `typeParamOverride` before mangling/instantiating (`alloc<T>` inside `List_push<int>` must become `alloc_int`, not `alloc_T` → i32). And **save/restore** `typeParamOverride` around the inner instantiation rather than `clear()`ing it — clearing wipes the enclosing template's substitutions, so the outer body's `sizeof(T)`/param types silently revert to i32 after the inner call returns.
+
+**Template-struct instantiation for params (`List<Point>* self`):** when `visit(FunctionDecl)` records a template-instance param type, it must `ensureTemplateInstantiated` the struct (e.g. `List_Point`) — not just mangle the name. Otherwise a `List<Point>` used only via helper functions (never a direct `let x: List<Point>` that would resolve the type) leaves the struct unregistered, and member access on `self` fails with "Unknown struct type". The struct type carries no `<`, so the on-demand path in `structBaseTypeOf` (which keys off `<`) won't catch it later.
+
+**Pointer spellings:** both `*T` (canonical) and `T*` (trailing-star) are valid. Any pointee-stripping must handle both — `getPointeeType` used `substr(1)` (leading-star only), so `int*` deref produced the bogus pointee `nt*`. Strip a leading `*` OR a trailing `*`.
 
 **Member access through a pointer base (`p.x` where `p: *T`):** the struct base is the *pointer value*, not the variable's storage. In both `evaluateLValue` and `visit(MemberExpr)`, compute it as `baseIsPtr ? evaluateExpr(base) : evaluateLValue(base)`, where `baseIsPtr` is detected from a leading/trailing `*` in `getExprEskiuType(base)`. Using `evaluateLValue` unconditionally GEPs from the local's `alloca` (the pointer's address) instead of the pointee, silently corrupting the variable — pointer *parameters* (e.g. `self`) happen to work because params are raw values, not allocas, which is why this only bit local `*T` vars. `getExprEskiuType` must also handle `CastExpr` (returns the cast's target type) so `(*T)x.field` and pointer-arith stride resolve correctly.
 

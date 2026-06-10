@@ -58,6 +58,8 @@ The project follows two phases:
 | `<threading>` stdlib — `Mutex` / `Cond` / `Sem` over pthread (v0.2.0) | ✅ |
 | `<http>` stdlib — HTTP/1.1 request parser, response builder, threaded worker pool (v0.2.0) | ✅ |
 | Multi-argument `fn` types — `fn(A,B)->R`; fn pointers callable and capturable in closures (v0.2.0) | ✅ |
+| `<string>` extras (`split`/`trim`/`starts_with`/`ends_with`) and `<path>` stdlib (v0.2.0) | ✅ |
+| `List<StructType>` through helper functions; `T*` (trailing-star) pointer deref — codegen/sema fixes (v0.2.0) | ✅ |
 | Function-as-value — a named function decays to a `fn(...)->R` (no lambda wrapper) | ✅ |
 | Predefined OS macros — `__APPLE__` / `__linux__` for `#ifdef` portability | ✅ |
 | Pointer dereference as lvalue — `*ptr = value` through pointer parameters | ✅ |
@@ -126,8 +128,8 @@ Phase 3 rounds out ergonomics and tooling.
 - [ ] `<eventloop>` — general-purpose reactor over epoll (Linux) / kqueue (macOS). A shared foundation for async/await, HTTP, and the future UI framework, designed from the start to dispatch any kind of event (sockets, frames, input), not just network I/O
 - [ ] `<http_async>` — non-blocking HTTP/1.1 over the event loop
 - [ ] `<http2>` — HTTP/2 over the event loop: binary framing, HPACK header compression, and stream multiplexing. Needs TLS (negotiated via ALPN `h2`); planned through OpenSSL by FFI (already proven viable — the crypto pipeline links OpenSSL via `extern`). Depends on `<eventloop>`, since multiplexing wants non-blocking I/O
-- [ ] `<string>` — `split`, `trim`, `starts_with`, `ends_with`
-- [ ] `<path>` — path manipulation
+- [x] `<string>` — `split` (List + streaming token iterator), `trim`, `starts_with`, `ends_with`
+- [x] `<path>` — path manipulation (join, basename, dirname, extension, is_absolute)
 
 **Phase 3 — Ergonomics and tooling**
 - [ ] `for (i in 0..10)` — native ranges (builds on the existing `for`-`in`)
