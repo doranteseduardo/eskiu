@@ -4,14 +4,18 @@
 transform is written, because the parts it fixes are expensive to change once
 async functions exist in the wild (see "What is locked, what is free" at the end).
 
-**Progress (gate, §9):** Step 0 (atomic intrinsics) ✅. `stdlib/future.esk` exists
-with the locked `Future<T>`/`FutureHdr` contract and the §3 handshake; a
-hand-written coroutine validates reactor-driven read over `<eventloop>` and the
-type-erased drop path ✅. The gate surfaced a blocking prerequisite — **escaping
-closures** (a waker/callback outlives its creating function) read a dangling stack
-env — now solved language-wide via escape analysis + the `escaping` qualifier +
-`free_closure` (see spec §6.5). **Remaining:** cross-thread resume, then the
-AST→state-machine transform (steps 5–7).
+**Progress (gate, §9): COMPLETE ✅.** Step 0 (atomic intrinsics) ✅.
+`stdlib/future.esk` holds the locked `Future<T>`/`FutureHdr` contract and the §3
+handshake. A hand-written coroutine validated all three gate requirements:
+reactor-driven read over `<eventloop>` ✅, type-erased drop/cancel ✅, and
+**cross-thread resume** (worker thread completes; atomic CAS catches the parked
+loop; waker marshals via a self-pipe; continuation runs on the loop thread) ✅.
+The gate surfaced and we solved a blocking prerequisite — **escaping closures**
+(a waker/callback outlives its creating function) read a dangling stack env — now
+fixed language-wide via escape analysis + the `escaping` qualifier + `free_closure`
+(spec §6.5). The runtime model is proven sound; next is the implementation:
+the Executor + leaf futures (steps 2–3), the `async`/`await` frontend (steps 4–5),
+and the AST→state-machine transform (steps 6–7).
 
 **Audience:** compiler maintainers. Assumes familiarity with the existing closure
 model (`fn(T)->R` is a fat pointer `{fn_ptr, env_ptr}` that captures by value),
