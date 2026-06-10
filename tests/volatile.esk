@@ -1,0 +1,10 @@
+// volatile pointer load/store (codegen marks them volatile; value semantics same).
+// Canonical qualifier-first form, like `const int`.
+extern int printf(string fmt, ...);
+int main() {
+    int storage = 0;
+    volatile let p: *int = &storage;
+    *p = 42;
+    printf("vol=%d\n", *p);
+    return 0;
+}

@@ -411,12 +411,15 @@ DeclPtr Parser::parseDeclaration() {
             return std::make_shared<TypeAliasDecl>(name, underlying);
         }
 
-        // Optional leading 'const' (applies to either declaration form below).
+        // Optional leading qualifiers, in either order: `volatile let`,
+        // `let volatile`, `volatile T x`, `const let`, etc.
+        bool leadingVol = match(TokenType::VOLATILE);
         bool isConst = match(TokenType::CONST);
 
-        // Handle 'let' variable declarations (optionally volatile)
+        // Handle 'let' variable declarations. The qualifier comes first
+        // (`volatile let x`, like `const int`), captured by leadingVol above.
         if (match(TokenType::LET)) {
-            bool isVol = match(TokenType::VOLATILE);
+            bool isVol = leadingVol;
             Token letNameTok = peek();
             std::string name = consume(TokenType::IDENT, "Expected identifier after 'let'").value;
             consume(TokenType::COLON, "Expected ':' after variable name");
@@ -435,8 +438,8 @@ DeclPtr Parser::parseDeclaration() {
         }
 
         // Try to parse as type declaration (function or variable)
-        // Optionally prefixed with 'volatile'
-        bool declIsVolatile = false;
+        // Optionally prefixed with 'volatile' (also accepted as a leading qualifier above)
+        bool declIsVolatile = leadingVol;
         if (check(TokenType::VOLATILE)) { declIsVolatile = true; advance(); }
 
         if (check(TokenType::INT) || check(TokenType::FLOAT) || check(TokenType::DOUBLE) ||
@@ -746,6 +749,7 @@ StmtPtr Parser::parseBlockStatement() {
     while (!check(TokenType::RBRACE) && !is_at_end()) {
         // Check if this looks like a declaration
         if (check(TokenType::CONST) ||
+            check(TokenType::VOLATILE) ||
             check(TokenType::LET) ||
             check(TokenType::INT) || check(TokenType::FLOAT) ||
             check(TokenType::DOUBLE) || check(TokenType::BOOL) ||
