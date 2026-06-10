@@ -298,6 +298,12 @@ std::vector<DeclPtr> Parser::parseProgram() {
                     } else {
                         declarations.insert(declarations.end(),
                             subProg->declarations.begin(), subProg->declarations.end());
+                        // Imported type names must be visible here so that a cast
+                        // to an imported type — e.g. `(FutureHdr*)p` — is parsed as
+                        // a cast, not as `FutureHdr * p`. (sub already merged its
+                        // own imports' names, so this is transitive.)
+                        for (const auto& tn : sub.declaredTypeNames)
+                            declaredTypeNames.insert(tn);
                     }
                 }
             } catch (const std::exception& e) {

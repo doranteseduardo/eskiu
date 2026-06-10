@@ -1,0 +1,81 @@
+// future.esk — the async runtime's Future<T> (see docs/dev/async-design.md).
+//
+// This is the locked compiler↔generated-code contract. A coroutine compiles to a
+// state machine that talks to a Future<T> through the protocols below; for now
+// (the de-risk gate) the state machines are written by hand.
+//
+// Future<T> layout is FIXED: `value` is LAST so the first three fields sit at the
+// same offsets for every T, which lets cancellation and the executor view any
+// future through the type-erased FutureHdr.
+//
+//   state: 0 PENDING, 1 WAITING, 2 READY, 3 CANCELLED   (atomic; §3 handshake)
+//   waker:   completion path — resume the awaiter (set by the awaiter)
+//   on_drop: cancel path — release own resources + cascade (set by the producer)
+
+import <mem>;
+import <atomic>;
+
+// Type-erased view of the first three fields — same offsets for any Future<T>.
+struct FutureHdr {
+    int        state;
+    fn()->void waker;
+    fn()->void on_drop;
+}
+
+struct Future<T> {
+    int        state;
+    fn()->void waker;
+    fn()->void on_drop;
+    T          value;
+}
+
+// State constants (Eskiu has no const-in-expression yet; these are the contract).
+//   PENDING=0  WAITING=1  READY=2  CANCELLED=3
+
+// A freshly allocated, pending future. waker/on_drop are set later by the
+// awaiter / producer. state starts PENDING (a plain store — not yet shared).
+Future<T>* future_new<T>() {
+    Future<T>* f = alloc<Future<T>>(1);
+    f.state = 0;
+    return f;
+}
+
+// Awaiter side. Register `resume` and try to park (PENDING -> WAITING).
+// Returns 0 if parked (the producer will call `resume` on completion), or 1 if
+// the future was already READY — the caller should read `value` and not suspend.
+int future_poll<T>(Future<T>* f, fn()->void resume) {
+    f.waker = resume;
+    if (atomic_cas(&f.state, 0, 1)) {   // PENDING -> WAITING: parked
+        return 0;
+    }
+    return 1;                            // already READY: take value inline
+}
+
+// Producer side. Publish the value, then swap to READY. If an awaiter had already
+// parked (state was WAITING), call its waker exactly once. `value` is written
+// before the swap (release) so a reader that observes READY sees the value.
+void future_complete<T>(Future<T>* f, T v) {
+    f.value = v;
+    int old = atomic_swap(&f.state, 2);  // -> READY
+    if (old == 1) {                      // WAITING: awaiter parked -> wake it
+        f.waker();
+    }
+}
+
+// Free a future's memory. The single owner (the awaiter, after reading value, or
+// future_drop on cancel) calls this exactly once.
+void free_future<T>(Future<T>* f) {
+    free((*void)f);
+}
+
+// Cancel/drop, type-erased. Swap to CANCELLED; if it was already READY the
+// producer is done and we only free, otherwise on_drop releases external
+// resources (loop registration), cascades, and frees.
+void future_drop(FutureHdr* f) {
+    int old = atomic_swap(&f.state, 3);  // -> CANCELLED
+    if (old == 2) {                      // already READY: just free
+        free((*void)f);
+    } else {
+        f.on_drop();                     // release + cascade + free
+    }
+}
