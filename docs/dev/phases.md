@@ -60,6 +60,7 @@ The project follows two phases:
 | Multi-argument `fn` types — `fn(A,B)->R`; fn pointers callable and capturable in closures (v0.2.0) | ✅ |
 | `<string>` extras (`split`/`trim`/`starts_with`/`ends_with`) and `<path>` stdlib (v0.2.0) | ✅ |
 | `List<StructType>` through helper functions; `T*` (trailing-star) pointer deref — codegen/sema fixes (v0.2.0) | ✅ |
+| Consistency audit hardening (v0.2.0): unsigned div/rem/shift/compare; 64-bit int literals; sign/zero-extend by signedness; variadic arg promotion; closures don't capture globals; member access on a temporary; `(Type)`/`(Type*)`/alias/enum casts; alias as local pointer/array; `fn` return types; fn-pointer field calls; `>>` closing nested templates | ✅ |
 | Function-as-value — a named function decays to a `fn(...)->R` (no lambda wrapper) | ✅ |
 | Predefined OS macros — `__APPLE__` / `__linux__` for `#ifdef` portability | ✅ |
 | Pointer dereference as lvalue — `*ptr = value` through pointer parameters | ✅ |
@@ -144,6 +145,9 @@ Phase 3 rounds out ergonomics and tooling.
 - [ ] `eskiuc run file.esk` — compile and execute without leaving a binary
 - [ ] `eskiuc fmt` — formatter
 - [ ] `--asan` / `--ubsan` as first-class flags
+
+**Known issues**
+- [ ] Nested generic instantiated inside a template *body*: `List<List<int>>` works as a value/param, but a stdlib template whose body instantiates over it (e.g. `List_init<List<int>>` → `alloc<List<int>>`) fails to type-check ("undefined template function"). Surfaced during the consistency audit; the `>>` parse and `List<List<int>>` declarations themselves are fixed.
 
 **Documentation**
 - [ ] Formal, complete BNF grammar
