@@ -45,15 +45,15 @@ Every design decision below was evaluated against two questions: does it get the
 
 ## 2. No Garbage Collector
 
-**Decision:** Eskiu has no garbage collector. Memory is managed with `alloc(T, N)` (which emits `malloc`) and `free(ptr)`. There is no reference counting, no tracing GC, no arena allocator built into the language runtime.
+**Decision:** Eskiu has no garbage collector. Memory is managed explicitly with `alloc<T>(n)` (which emits `malloc`) and `free(ptr)` from the `<mem>` stdlib. There is no reference counting and no tracing GC. (As of v0.2.0 the stdlib does ship arena/bump/pool allocators in `<alloc>` over the `alloc_with` primitive — see below — but they are opt-in library types, not built into the language runtime.)
 
 **Alternatives considered:**
 
 - *Tracing GC (Boehm GC or custom)* — A conservative tracing GC can be linked as a library and used transparently. Rejected because GC pauses — even short ones — are unacceptable when the target is a 74 ms pipeline where total runtime matters. A GC collection triggered mid-pipeline would ruin the benchmark.
 - *Reference counting (like Swift ARC)* — Automatic reference counting eliminates pause times but adds retain/release overhead on every pointer assignment. For a pipeline that allocates a handful of fixed buffers at startup and frees them at the end, ARC overhead is pure waste.
-- *Arena/bump allocator built into the language* — Would require the compiler to reason about object lifetimes, which is a significant semantic addition. Deferred; the stdlib could provide an `Arena` struct in a later phase.
+- *Arena/bump allocator built into the language* — Would require the compiler to reason about object lifetimes, which is a significant semantic addition. Kept out of the language; instead v0.2.0 ships `<alloc>` (Bump/Arena/Pool/FirstFit) as ordinary stdlib types over the `alloc_with(&a, T, n)` primitive — the strategy is a plain value, not a language feature.
 
-**Why no GC:** The pipeline allocates known-size buffers (`alloc(uint8, 858)`, `alloc(uint8, 4096)`), uses them, and frees them in a deterministic sequence. Explicit `alloc`/`free` matches the mental model exactly and produces the same object code as hand-written C.
+**Why no GC:** The pipeline allocates known-size buffers (`alloc<uint8>(858)`, `alloc<uint8>(4096)`), uses them, and frees them in a deterministic sequence. Explicit `alloc<T>`/`free` matches the mental model exactly and produces the same object code as hand-written C.
 
 ---
 
