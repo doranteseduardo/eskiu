@@ -146,9 +146,6 @@ Phase 3 rounds out ergonomics and tooling.
 - [ ] `eskiuc fmt` — formatter
 - [ ] `--asan` / `--ubsan` as first-class flags
 
-**Known issues**
-- [ ] Nested generic instantiated inside a template *body*: `List<List<int>>` works as a value/param, but a stdlib template whose body instantiates over it (e.g. `List_init<List<int>>` → `alloc<List<int>>`) fails to type-check ("undefined template function"). Surfaced during the consistency audit; the `>>` parse and `List<List<int>>` declarations themselves are fixed.
-
 **Documentation**
 - [ ] Formal, complete BNF grammar
 - [ ] Documented ABI

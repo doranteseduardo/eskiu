@@ -91,11 +91,16 @@ bool Parser::is_at_end() const {
 
 void Parser::consumeTemplateClose(const char* ctx) {
     if (check(TokenType::GT)) { advance(); return; }
-    // A lexed ">>" (right-shift) closes two template levels at once: consume one
-    // ">" here and rewrite the token to a single ">" for the enclosing close.
+    // A lexed ">>" (right-shift) closes two template levels at once. Split it
+    // permanently into "> >" by rewriting this token to ">" and inserting a
+    // second ">" after it, then consume the first. Insertion (vs. a destructive
+    // rewrite) keeps the stream correct across the parser's backtracking — a
+    // saved position is always before `current`, so it is unaffected.
     if (check(TokenType::RSHIFT)) {
         tokens[current].type  = TokenType::GT;
         tokens[current].value = ">";
+        tokens.insert(tokens.begin() + current + 1, tokens[current]);
+        advance();
         return;
     }
     consume(TokenType::GT, ctx);   // not a close — emit the standard error
