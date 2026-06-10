@@ -72,9 +72,12 @@ bool TypeChecker::check(Program* program) {
                 paramTypes.push_back(param.first);  // first = type, second = name
             }
             // An async fn's call expression yields *Future<T>; the declared T is
-            // the inner type the body returns (the transform wraps it).
-            std::string sigRet = funcDecl->isAsync
-                ? "*Future<" + funcDecl->returnType + ">" : funcDecl->returnType;
+            // the inner type the body returns (the transform wraps it). `async
+            // void` uses a 1-byte unit (uint8) as the future's value type.
+            std::string sigRet = funcDecl->returnType;
+            if (funcDecl->isAsync)
+                sigRet = "*Future<" + (funcDecl->returnType == "void" ? std::string("uint8")
+                                                                      : funcDecl->returnType) + ">";
             defineFunction(funcDecl->name, sigRet, paramTypes);
             functionParamEscaping[funcDecl->name] = funcDecl->paramEscaping;
         } else if (auto externDecl = dynamic_cast<ExternDecl*>(decl.get())) {
@@ -999,7 +1002,9 @@ void TypeChecker::visit(AwaitExpr* node) {
 
     if (inner.size() > 7 && inner.substr(0, 7) == "Future<") {
         auto [nm, args] = splitTemplateType(inner);
-        expressionTypes[node] = (args.size() == 1) ? normalizeType(args[0]) : "unknown";
+        std::string res = (args.size() == 1) ? normalizeType(args[0]) : "unknown";
+        expressionTypes[node] = res;
+        node->resolvedType = res;          // consumed by the async transform
     } else {
         if (t != "unknown")
             errorAt(node, "await expects a *Future<T>, got " + t);
