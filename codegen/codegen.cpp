@@ -1136,6 +1136,20 @@ void CodeGen::visit(BinaryExpr* node) {
 
     llvm::Value* result = nullptr;
 
+    // Integer signedness of each operand, from its Eskiu type. Drives sign- vs
+    // zero-extension when widening, and signed vs unsigned div/rem/shr/compare.
+    auto isUnsignedEsk = [&](const ExprPtr& e) -> bool {
+        std::string t = expandAlias(getExprEskiuType(e));
+        return t == "uint" || t == "uint8" || t == "uint16" || t == "uint32" ||
+               t == "uint64" || t == "char" || t == "bool";
+    };
+    bool lUns = isUnsignedEsk(node->left);
+    bool rUns = isUnsignedEsk(node->right);
+    bool opUnsigned = lUns || rUns;   // C-style: unsigned wins in a mixed op
+    auto extTo = [&](llvm::Value* v, llvm::Type* ty, bool uns) {
+        return uns ? builder->CreateZExt(v, ty) : builder->CreateSExt(v, ty);
+    };
+
     // Promote to common type: int→float, float→double
     auto promoteToFloat = [&]() {
         if (left->getType()->isFloatingPointTy() && right->getType()->isIntegerTy())
@@ -1153,27 +1167,19 @@ void CodeGen::visit(BinaryExpr* node) {
         }
     };
 
-    // Widen narrower integer to match wider for bitwise/shift ops
-    auto widenForBitwise = [&]() {
+    // Widen the narrower integer to match the wider one, extending each operand
+    // according to ITS OWN signedness (sign-extend signed, zero-extend unsigned).
+    auto widenInts = [&]() {
         if (left->getType()->isIntegerTy() && right->getType()->isIntegerTy()
                 && left->getType() != right->getType()) {
             unsigned lw = llvm::cast<llvm::IntegerType>(left->getType())->getBitWidth();
             unsigned rw = llvm::cast<llvm::IntegerType>(right->getType())->getBitWidth();
-            if (lw < rw) left  = builder->CreateZExt(left,  right->getType());
-            else          right = builder->CreateZExt(right, left->getType());
+            if (lw < rw) left  = extTo(left,  right->getType(), lUns);
+            else          right = extTo(right, left->getType(),  rUns);
         }
     };
-
-    // Widen narrower integer to match wider for arithmetic (e.g. i8 - i32)
-    auto widenForArith = [&]() {
-        if (left->getType()->isIntegerTy() && right->getType()->isIntegerTy()
-                && left->getType() != right->getType()) {
-            unsigned lw = llvm::cast<llvm::IntegerType>(left->getType())->getBitWidth();
-            unsigned rw = llvm::cast<llvm::IntegerType>(right->getType())->getBitWidth();
-            if (lw < rw) left  = builder->CreateZExt(left,  right->getType());
-            else          right = builder->CreateZExt(right, left->getType());
-        }
-    };
+    auto widenForBitwise = widenInts;
+    auto widenForArith   = widenInts;
 
     // Resolve the element type for typed pointer arithmetic.
     // *int → i32, *uint8 → i8, *void/*char/unknown → i8 (byte arithmetic)
@@ -1226,56 +1232,44 @@ void CodeGen::visit(BinaryExpr* node) {
         promoteToFloat(); widenForArith();
         result = left->getType()->isFloatingPointTy()
             ? builder->CreateFDiv(left, right)
-            : builder->CreateSDiv(left, right);
+            : (opUnsigned ? builder->CreateUDiv(left, right)
+                          : builder->CreateSDiv(left, right));
     } else if (node->op == "%") {
         promoteToFloat(); widenForArith();
         result = left->getType()->isFloatingPointTy()
             ? builder->CreateFRem(left, right)
-            : builder->CreateSRem(left, right);
+            : (opUnsigned ? builder->CreateURem(left, right)
+                          : builder->CreateSRem(left, right));
     } else if (node->op == "==") {
         if (left->getType()->isFloatingPointTy())
             result = builder->CreateFCmpOEQ(left, right);
         else {
-            // Widen narrower integer to match wider (e.g. i8 == i32)
-            if (left->getType()->isIntegerTy() && right->getType()->isIntegerTy()
-                    && left->getType() != right->getType()) {
-                unsigned lw = llvm::cast<llvm::IntegerType>(left->getType())->getBitWidth();
-                unsigned rw = llvm::cast<llvm::IntegerType>(right->getType())->getBitWidth();
-                if (lw < rw) left  = builder->CreateZExt(left,  right->getType());
-                else          right = builder->CreateZExt(right, left->getType());
-            }
+            widenInts();   // equality is bit-equal; widening just needs the right extend
             result = builder->CreateICmpEQ(left, right);
         }
     } else if (node->op == "!=" || node->op == "<" || node->op == ">" ||
                node->op == "<=" || node->op == ">=") {
-        // Widen narrower integer to match wider for all comparisons
-        if (left->getType()->isIntegerTy() && right->getType()->isIntegerTy()
-                && left->getType() != right->getType()) {
-            unsigned lw = llvm::cast<llvm::IntegerType>(left->getType())->getBitWidth();
-            unsigned rw = llvm::cast<llvm::IntegerType>(right->getType())->getBitWidth();
-            if (lw < rw) left  = builder->CreateZExt(left,  right->getType());
-            else          right = builder->CreateZExt(right, left->getType());
-        }
+        bool isFloat = left->getType()->isFloatingPointTy();
+        if (!isFloat) widenInts();
         if (node->op == "!=") {
-            result = left->getType()->isFloatingPointTy()
-                ? builder->CreateFCmpONE(left, right)
-                : builder->CreateICmpNE(left, right);
+            result = isFloat ? builder->CreateFCmpONE(left, right)
+                             : builder->CreateICmpNE(left, right);
         } else if (node->op == "<") {
-            result = left->getType()->isFloatingPointTy()
-                ? builder->CreateFCmpOLT(left, right)
-                : builder->CreateICmpSLT(left, right);
+            result = isFloat ? builder->CreateFCmpOLT(left, right)
+                   : (opUnsigned ? builder->CreateICmpULT(left, right)
+                                 : builder->CreateICmpSLT(left, right));
         } else if (node->op == ">") {
-            result = left->getType()->isFloatingPointTy()
-                ? builder->CreateFCmpOGT(left, right)
-                : builder->CreateICmpSGT(left, right);
+            result = isFloat ? builder->CreateFCmpOGT(left, right)
+                   : (opUnsigned ? builder->CreateICmpUGT(left, right)
+                                 : builder->CreateICmpSGT(left, right));
         } else if (node->op == "<=") {
-            result = left->getType()->isFloatingPointTy()
-                ? builder->CreateFCmpOLE(left, right)
-                : builder->CreateICmpSLE(left, right);
+            result = isFloat ? builder->CreateFCmpOLE(left, right)
+                   : (opUnsigned ? builder->CreateICmpULE(left, right)
+                                 : builder->CreateICmpSLE(left, right));
         } else {
-            result = left->getType()->isFloatingPointTy()
-                ? builder->CreateFCmpOGE(left, right)
-                : builder->CreateICmpSGE(left, right);
+            result = isFloat ? builder->CreateFCmpOGE(left, right)
+                   : (opUnsigned ? builder->CreateICmpUGE(left, right)
+                                 : builder->CreateICmpSGE(left, right));
         }
     } else if (node->op == "&&") {
         result = builder->CreateLogicalAnd(left, right);
@@ -1291,7 +1285,9 @@ void CodeGen::visit(BinaryExpr* node) {
     } else if (node->op == "<<") {
         widenForBitwise(); result = builder->CreateShl(left, right);
     } else if (node->op == ">>") {
-        widenForBitwise(); result = builder->CreateAShr(left, right);
+        widenForBitwise();
+        result = opUnsigned ? builder->CreateLShr(left, right)
+                            : builder->CreateAShr(left, right);
     } else {
         throw std::runtime_error("Unknown binary operator: " + node->op);
     }
@@ -1585,6 +1581,32 @@ void CodeGen::visit(CallExpr* node) {
         }
     }
 
+    // C default argument promotions for the variadic ("...") arguments: an
+    // integer narrower than int widens to i32 (sign/zero per its signedness),
+    // and a float widens to double. Without this, printf("%d", anInt8) reads a
+    // full int from a byte-sized argument slot.
+    if (func->getFunctionType()->isVarArg()) {
+        auto argUnsigned = [&](size_t i) -> bool {
+            if (i >= node->args.size()) return false;
+            std::string t = expandAlias(getExprEskiuType(node->args[i]));
+            return t == "uint" || t == "uint8" || t == "uint16" || t == "uint32" ||
+                   t == "uint64" || t == "char" || t == "bool";
+        };
+        unsigned fixed = func->getFunctionType()->getNumParams();
+        llvm::Type* i32 = llvm::Type::getInt32Ty(*context);
+        for (size_t i = fixed; i < args.size(); ++i) {
+            llvm::Type* at = args[i]->getType();
+            if (at->isIntegerTy() && at->getIntegerBitWidth() < 32) {
+                // i1 (a bool / comparison result) is 0/1 — always zero-extend.
+                bool uns = argUnsigned(i) || at->getIntegerBitWidth() == 1;
+                args[i] = uns ? builder->CreateZExt(args[i], i32)
+                              : builder->CreateSExt(args[i], i32);
+            } else if (at->isFloatTy()) {
+                args[i] = builder->CreateFPExt(args[i], llvm::Type::getDoubleTy(*context));
+            }
+        }
+    }
+
     // sret: alloca for large struct return, pass as hidden arg 0, load result
     auto sretIt = funcSretTypes.find(func->getName().str());
     if (sretIt != funcSretTypes.end()) {
@@ -1785,8 +1807,21 @@ void CodeGen::visit(LiteralExpr* node) {
 
     switch (node->kind) {
         case LiteralExpr::Kind::INT: {
-            long long val = std::stoll(node->value, nullptr, 0); // base 0 = auto (dec/hex/oct)
-            result = llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), val);
+            // base 0 = auto (dec/hex/oct). Materialize as i64 when the value
+            // doesn't fit in 32 bits, so large literals aren't truncated.
+            unsigned long long uval;
+            bool wide;
+            try {
+                long long sval = std::stoll(node->value, nullptr, 0);
+                uval = (unsigned long long)sval;
+                wide = (sval < -2147483648LL || sval > 4294967295LL);
+            } catch (const std::out_of_range&) {
+                uval = std::stoull(node->value, nullptr, 0); // e.g. large uint64 literal
+                wide = true;
+            }
+            llvm::Type* ity = wide ? llvm::Type::getInt64Ty(*context)
+                                   : llvm::Type::getInt32Ty(*context);
+            result = llvm::ConstantInt::get(ity, uval, false);
             break;
         }
         case LiteralExpr::Kind::FLOAT: {
