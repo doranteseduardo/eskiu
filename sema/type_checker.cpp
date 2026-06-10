@@ -1242,9 +1242,11 @@ bool TypeChecker::isPointerType(const std::string& type) {
 }
 
 std::string TypeChecker::getPointeeType(const std::string& pointerType) {
-    if (isPointerType(pointerType)) {
+    // Accept both pointer spellings: *T (canonical) and T* (trailing-star).
+    if (!pointerType.empty() && pointerType.front() == '*')
         return pointerType.substr(1);
-    }
+    if (!pointerType.empty() && pointerType.back() == '*')
+        return pointerType.substr(0, pointerType.size() - 1);
     return "";
 }
 

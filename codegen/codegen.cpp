@@ -585,6 +585,11 @@ void CodeGen::visit(FunctionDecl* node) {
             if (ptype.find('<') != std::string::npos) {
                 std::string sfx;
                 while (!ptype.empty() && ptype.back() == '*') { sfx += '*'; ptype.pop_back(); }
+                // Instantiate the template instance's struct now, so member
+                // access on this param (e.g. List<String>* self -> self.data)
+                // finds its fields even if no earlier code referenced the type.
+                auto [tn, targs] = splitTemplateType(ptype);
+                ensureTemplateInstantiated(mangleTemplate(ptype), tn, targs);
                 ptype = mangleTemplate(ptype) + sfx;
             }
             defineVarType(node->params[paramIdx].second, ptype);
