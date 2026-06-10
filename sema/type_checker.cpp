@@ -8,6 +8,7 @@
 // Template type-name utilities (mangleTemplate / splitTemplateType / substType)
 // are shared with codegen; see template_utils.h.
 #include "../template_utils.h"
+#include "../intrinsics.h"
 
 // ============================================================================
 
@@ -243,8 +244,13 @@ void TypeChecker::visit(ExternDecl* node) {
 }
 
 void TypeChecker::visit(IntrinsicDecl* node) {
-    // Intrinsics are registered in the first pass like externs; nothing to check.
-    (void)node;
+    // `intrinsic` is a compiler-provided mechanism, not a user extension point:
+    // a name with no codegen lowering must be rejected here, not blow up later.
+    if (!isSupportedIntrinsic(node->name)) {
+        errorAt(node, "unknown intrinsic '" + node->name +
+            "': the compiler provides no lowering for it. `intrinsic` cannot "
+            "declare new operations — use `extern` for an external C symbol.");
+    }
 }
 
 void TypeChecker::visit(EnumDecl* node) {
