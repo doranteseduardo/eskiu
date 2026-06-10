@@ -72,6 +72,10 @@ public:
     // Use-site map: (line,col) → symbol name (populated from IdentExpr visits)
     std::map<std::pair<int,int>, std::string> useLocations;
     std::string getDefinitionAt(int line, int col) const;
+    // Declared-name hover spans (variables, parameters): cursor on the declared
+    // name → its type, even though the name is not an expression node.
+    struct HoverSym { int line; int col; int width; std::string type; };
+    std::vector<HoverSym> hoverSyms;
 
 private:
     // Symbol table: maps name -> type
