@@ -2458,6 +2458,14 @@ void CodeGen::visit(SizeofExpr* node) {
         llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), size));
 }
 
+void CodeGen::visit(AwaitExpr* node) {
+    // The async transform rewrites `async fn`/`await` into a state machine before
+    // codegen; reaching here means the transform has not run on this code.
+    (void)node;
+    throw std::runtime_error("async/await codegen requires the state-machine "
+                             "transform (not yet implemented)");
+}
+
 void CodeGen::visit(FreeClosureExpr* node) {
     // A closure is a fat pointer {fn_ptr, env_ptr}. Free its heap env (slot 1).
     // A non-capturing closure has a null env; free(null) is a safe no-op.

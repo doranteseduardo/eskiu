@@ -204,6 +204,7 @@ private:
     void visit(UnionDecl* node) override;
     void visit(SizeofExpr* node) override;
     void visit(FreeClosureExpr* node) override;
+    void visit(AwaitExpr* node) override;
     void visit(ThreadCreateExpr* node) override;
 
     // Union registry: name → fields (all share offset 0; stored as [N x i8])

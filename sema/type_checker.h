@@ -55,6 +55,7 @@ public:
     void visit(UnionDecl* node) override;
     void visit(SizeofExpr* node) override;
     void visit(FreeClosureExpr* node) override;
+    void visit(AwaitExpr* node) override;
     void visit(ThreadCreateExpr* node) override;
     void visit(ThreadJoinStmt* node) override;
     void visit(ThrowStmt* node) override;
@@ -139,6 +140,8 @@ private:
     std::set<std::string> nonEscapingFnParams;
     std::set<std::string> escapedFnParams;
     std::string calleeContext;
+    // True while checking the body of an `async fn` — gates `await`.
+    bool inAsyncFn = false;
 
     // -Wall function-usage tracking: top-level functions defined vs. referenced
     std::map<std::string, std::pair<int,int>> definedFns; // name -> (line,col)

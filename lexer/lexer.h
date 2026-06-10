@@ -34,6 +34,8 @@ enum class TokenType {
     ASM,
     VOLATILE,
     ESCAPING,
+    ASYNC,
+    AWAIT,
     CONST,
     THREAD_CREATE,
     THREAD_JOIN,

@@ -71,7 +71,11 @@ bool TypeChecker::check(Program* program) {
             for (const auto& param : funcDecl->params) {
                 paramTypes.push_back(param.first);  // first = type, second = name
             }
-            defineFunction(funcDecl->name, funcDecl->returnType, paramTypes);
+            // An async fn's call expression yields *Future<T>; the declared T is
+            // the inner type the body returns (the transform wraps it).
+            std::string sigRet = funcDecl->isAsync
+                ? "*Future<" + funcDecl->returnType + ">" : funcDecl->returnType;
+            defineFunction(funcDecl->name, sigRet, paramTypes);
             functionParamEscaping[funcDecl->name] = funcDecl->paramEscaping;
         } else if (auto externDecl = dynamic_cast<ExternDecl*>(decl.get())) {
             std::vector<std::string> paramTypes;
@@ -209,7 +213,9 @@ void TypeChecker::visit(FunctionDecl* node) {
     // -Wall: track top-level functions for unused-function reporting (skip main).
     if (node->name != "main") definedFns[node->name] = {node->line, node->col};
 
-    currentFunctionReturnType = node->returnType;
+    currentFunctionReturnType = node->returnType;   // inner T (async body returns T)
+    bool prevInAsync = inAsyncFn;
+    inAsyncFn = node->isAsync;
     pushScope();
 
     // Define parameters
@@ -249,6 +255,7 @@ void TypeChecker::visit(FunctionDecl* node) {
 
     popScope();
     currentFunctionReturnType = "";
+    inAsyncFn = prevInAsync;
 }
 
 void TypeChecker::visit(VarDecl* node) {
@@ -977,6 +984,27 @@ void TypeChecker::visit(UnionDecl* node) {
 
 void TypeChecker::visit(SizeofExpr* node) {
     expressionTypes[node] = "int64";
+}
+
+void TypeChecker::visit(AwaitExpr* node) {
+    if (!inAsyncFn)
+        errorAt(node, "await is only allowed inside an async function");
+    node->operand->accept(this);
+    std::string t = getExpressionType(node->operand.get());
+
+    // Strip pointer decorators: the operand should be *Future<T> (or Future<T>*).
+    std::string inner = t;
+    while (!inner.empty() && inner.front() == '*') inner = inner.substr(1);
+    while (!inner.empty() && inner.back()  == '*') inner.pop_back();
+
+    if (inner.size() > 7 && inner.substr(0, 7) == "Future<") {
+        auto [nm, args] = splitTemplateType(inner);
+        expressionTypes[node] = (args.size() == 1) ? normalizeType(args[0]) : "unknown";
+    } else {
+        if (t != "unknown")
+            errorAt(node, "await expects a *Future<T>, got " + t);
+        expressionTypes[node] = "unknown";
+    }
 }
 
 void TypeChecker::visit(FreeClosureExpr* node) {

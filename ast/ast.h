@@ -53,6 +53,10 @@ public:
     // Per-param `escaping` flag (parallel to params): the param retains the
     // closure beyond the call, so closures passed there get a heap env.
     std::vector<bool> paramEscaping;
+    // `async fn`: the call yields `*Future<returnType>`; the body is lowered to a
+    // resumable state machine by the async transform. Declared return type stays
+    // in `returnType` (the inner T).
+    bool isAsync = false;
 
     FunctionDecl(const std::string& name, const std::string& returnType,
                  const std::vector<std::pair<std::string, std::string>>& params,
@@ -527,6 +531,16 @@ public:
     void accept(class ASTVisitor* visitor) override;
 };
 
+// await E — suspend the enclosing async fn until the Future E completes, then
+// yield its value. E must have type `*Future<T>`; the result type is T. Legal
+// only inside an `async fn`. Lowered by the async transform.
+class AwaitExpr : public Expr {
+public:
+    ExprPtr operand;
+    explicit AwaitExpr(ExprPtr o) : operand(std::move(o)) {}
+    void accept(class ASTVisitor* visitor) override;
+};
+
 // free_closure(f) -> void — release the heap environment of an escaping closure.
 // The argument is any closure value (fn(...)->R fat pointer); this frees its env
 // (slot 1 of the fat pointer). A no-op for non-capturing closures (null env).
@@ -596,6 +610,7 @@ public:
     virtual void visit(SizeofExpr* node) = 0;
     virtual void visit(ThreadCreateExpr* node) = 0;
     virtual void visit(FreeClosureExpr* node) = 0;
+    virtual void visit(AwaitExpr* node) = 0;
     virtual void visit(ThreadJoinStmt* node) = 0;
     virtual void visit(ThrowStmt* node) = 0;
     virtual void visit(TryStmt* node) = 0;
