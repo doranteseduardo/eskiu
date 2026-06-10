@@ -1,0 +1,36 @@
+// Regression: List<StructType> used through HELPER functions (not just main).
+// The element struct (e.g. List_Point) must be instantiated when a template
+// function with a List<Point>* param is codegen'd, even if no earlier code
+// referenced the type — otherwise member access on `self` inside List_push
+// fails with "Unknown struct type".
+import <list>;
+
+extern int printf(string fmt, ...);
+
+struct Point { int x; int y; }
+
+void add_point(List<Point>* pts, int x, int y) {
+    let p: Point;  p.x = x;  p.y = y;
+    List_push<Point>(pts, p);
+}
+
+int sum_x(List<Point>* pts) {
+    int total = 0;
+    int i = 0;
+    while (i < List_len<Point>(pts)) {
+        let p: Point = List_get<Point>(pts, i);
+        total = total + p.x;
+        i = i + 1;
+    }
+    return total;
+}
+
+int main() {
+    let pts: List<Point>;  List_init<Point>(&pts, 2);
+    add_point(&pts, 10, 1);
+    add_point(&pts, 20, 2);
+    add_point(&pts, 30, 3);     // forces a grow
+    printf("len=%d sum_x=%d\n", List_len<Point>(&pts), sum_x(&pts));
+    List_free<Point>(&pts);
+    return 0;
+}
