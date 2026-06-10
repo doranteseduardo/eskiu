@@ -126,7 +126,7 @@ Phase 3 rounds out ergonomics and tooling.
 **Phase 2 — Build on Phase 1**
 - [ ] `async` / `await` — keywords + state-machine codegen
 - [ ] `Future<T>` in the stdlib
-- [ ] `<eventloop>` — general-purpose reactor over epoll (Linux) / kqueue (macOS). A shared foundation for async/await, HTTP, and the future UI framework, designed from the start to dispatch any kind of event (sockets, frames, input), not just network I/O
+- [x] `<eventloop>` — general-purpose reactor over epoll (Linux) / kqueue (macOS). A shared foundation for async/await, HTTP, and the future UI framework, designed from the start to dispatch any kind of event (sockets, frames, input), not just network I/O
 - [ ] `<http_async>` — non-blocking HTTP/1.1 over the event loop
 - [ ] `<http2>` — HTTP/2 over the event loop: binary framing, HPACK header compression, and stream multiplexing. Needs TLS (negotiated via ALPN `h2`); planned through OpenSSL by FFI (already proven viable — the crypto pipeline links OpenSSL via `extern`). Depends on `<eventloop>`, since multiplexing wants non-blocking I/O
 - [x] `<string>` — `split` (List + streaming token iterator), `trim`, `starts_with`, `ends_with`

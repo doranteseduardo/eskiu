@@ -1,0 +1,160 @@
+// eventloop.esk — a general-purpose readiness reactor.
+//
+// A single thread watches many file descriptors and dispatches a callback when
+// one becomes readable, via kqueue (macOS) or epoll (Linux). This is the shared
+// foundation for async I/O, the HTTP stack, and (later) the UI framework — it
+// dispatches readiness, not just sockets.
+//
+//   void on_accept(EventLoop* lp, int fd) {
+//       int c = net_accept(fd);
+//       el_add_read(lp, c, on_data);     // register the new connection
+//   }
+//   int main() {
+//       EventLoop* lp = el_new(256);
+//       el_add_read(lp, listen_fd, on_accept);
+//       el_run(lp);                       // blocks, dispatching callbacks
+//   }
+
+import <mem>;
+
+// A read-ready callback receives the loop (so it can register/remove fds or
+// stop) and the fd that became readable.
+struct EvHandler {
+    fn(EventLoop*, int)->void on_read;
+    int active;
+}
+
+struct EventLoop {
+    int        backend;   // kqueue / epoll descriptor
+    int        running;
+    *EvHandler slots;     // indexed by fd
+    int        cap;
+}
+
+// ── Platform backend ─────────────────────────────────────────────────────────
+#ifdef __APPLE__
+
+extern int kqueue();
+extern int kevent(int kq, *void changelist, int nchanges,
+                  *void eventlist, int nevents, *void timeout);
+
+// struct kevent (macOS, 64-bit): natural layout, 32 bytes.
+struct EvNative {
+    uint64 ident;
+    int16  filter;
+    uint16 flags;
+    uint32 fflags;
+    int64  data;
+    *void  udata;
+}
+
+int _el_backend_new() { return kqueue(); }
+
+void _el_ctl(int kq, int fd, int add) {
+    let ev: EvNative;
+    ev.ident  = (uint64)fd;
+    ev.filter = -1;                       // EVFILT_READ
+    uint16 fl = 2;                        // EV_DELETE
+    if (add != 0) { fl = 1; }             // EV_ADD
+    ev.flags  = fl;
+    ev.fflags = 0;  ev.data = 0;  ev.udata = (*void)0;
+    kevent(kq, (*void)&ev, 1, (*void)0, 0, (*void)0);
+}
+
+// Wait for readiness; fill fds[0..) with ready descriptors, return the count.
+int _el_wait(int kq, *EvNative evs, *int fds, int max) {
+    int n = kevent(kq, (*void)0, 0, (*void)evs, max, (*void)0);
+    int i = 0;
+    while (i < n) { fds[i] = (int)evs[i].ident; i = i + 1; }
+    return n;
+}
+
+#else  // Linux: epoll
+
+extern int epoll_create1(int flags);
+extern int epoll_ctl(int epfd, int op, int fd, *void ev);
+extern int epoll_wait(int epfd, *void events, int maxevents, int timeout);
+
+// struct epoll_event is packed on x86-64: { u32 events; u64 data; } = 12 bytes.
+packed struct EvNative {
+    uint32 events;
+    uint64 data;
+}
+
+int _el_backend_new() { return epoll_create1(0); }
+
+void _el_ctl(int ep, int fd, int add) {
+    let ev: EvNative;
+    ev.events = 1;            // EPOLLIN
+    ev.data   = (uint64)fd;
+    int op = 2;               // EPOLL_CTL_DEL
+    if (add != 0) { op = 1; } // EPOLL_CTL_ADD
+    epoll_ctl(ep, op, fd, (*void)&ev);
+}
+
+int _el_wait(int ep, *EvNative evs, *int fds, int max) {
+    int n = epoll_wait(ep, (*void)evs, max, -1);
+    int i = 0;
+    while (i < n) { fds[i] = (int)evs[i].data; i = i + 1; }
+    return n;
+}
+
+#endif
+
+// ── Public API ───────────────────────────────────────────────────────────────
+
+// Create a loop that can track fds in [0, max_fds).
+EventLoop* el_new(int max_fds) {
+    EventLoop* lp = alloc<EventLoop>(1);
+    lp.backend = _el_backend_new();
+    lp.running = 0;
+    lp.cap     = max_fds;
+    lp.slots   = alloc<EvHandler>(max_fds);
+    int i = 0;
+    while (i < max_fds) { lp.slots[i].active = 0; i = i + 1; }
+    return lp;
+}
+
+// Register `fd` for read-readiness; `cb` fires each time it is readable.
+void el_add_read(EventLoop* lp, int fd, fn(EventLoop*, int)->void cb) {
+    if (fd < 0 || fd >= lp.cap) { return; }
+    lp.slots[fd].on_read = cb;
+    lp.slots[fd].active  = 1;
+    _el_ctl(lp.backend, fd, 1);
+}
+
+// Stop watching `fd`.
+void el_del(EventLoop* lp, int fd) {
+    if (fd < 0 || fd >= lp.cap) { return; }
+    lp.slots[fd].active = 0;
+    _el_ctl(lp.backend, fd, 0);
+}
+
+// Ask the loop to return from el_run after the current batch.
+void el_stop(EventLoop* lp) { lp.running = 0; }
+
+// Run until el_stop is called: wait for readiness and dispatch callbacks.
+void el_run(EventLoop* lp) {
+    int max = 64;
+    *EvNative evs = alloc<EvNative>(max);
+    *int      fds = alloc<int>(max);
+    lp.running = 1;
+    while (lp.running != 0) {
+        int n = _el_wait(lp.backend, evs, fds, max);
+        int i = 0;
+        while (i < n) {
+            int fd = fds[i];
+            if (fd >= 0 && fd < lp.cap && lp.slots[fd].active != 0) {
+                let cb: fn(EventLoop*, int)->void = lp.slots[fd].on_read;
+                cb(lp, fd);
+            }
+            i = i + 1;
+        }
+    }
+    free((*void)evs);  free((*void)fds);
+}
+
+void el_free(EventLoop* lp) {
+    free((*void)lp.slots);
+    free((*void)lp);
+}

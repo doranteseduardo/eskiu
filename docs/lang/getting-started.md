@@ -830,6 +830,7 @@ Available modules:
 | `<env>`      | `env_get`, `env_has`, `env_get_or`, `env_get_int` |
 | `<path>`     | `path_join`, `path_basename`, `path_dirname`, `path_extension`, `path_is_absolute` |
 | `<threading>`| `Mutex`, `Cond`, `Sem` over pthread (pairs with `thread_create`/`thread_join`) |
+| `<eventloop>`| readiness reactor over kqueue/epoll — `el_new`/`el_add_read`/`el_run`/`el_stop` |
 
 Note: when using `<math>` link with `-lm`. Library flags are passed straight
 through to the linker, so the one-command form works too:
