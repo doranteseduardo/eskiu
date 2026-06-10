@@ -1,0 +1,97 @@
+// executor.esk — the async runtime's executor (see docs/dev/async-design.md §6).
+//
+// An Executor is a thread that owns an <eventloop> plus a ready-queue of wakers.
+// Completion may happen on any thread; `executor_schedule` enqueues a waker and
+// wakes the loop through a self-pipe, so the waker (a coroutine resume) always
+// runs on the executor's own thread — the thread-affinity guarantee the future
+// UI framework needs (background work completes elsewhere, the continuation runs
+// on the home thread).
+//
+//   Executor* ex = executor_new(el_new(256));
+//   ... leaf futures complete and call executor_schedule(ex, resume) ...
+//   executor_run(ex);     // blocks, dispatching I/O readiness and scheduled wakers
+
+import <mem>;
+import <eventloop>;
+import <threading>;
+
+extern int   pipe(*int fds);
+extern int64 read(int fd, *void buf, int64 n);
+extern int64 write(int fd, *void buf, int64 n);
+
+// A queued waker. Wakers are escaping closures (they outlive the call that
+// scheduled them), owned by the node until run, then released.
+struct RQNode {
+    fn()->void waker;
+    *RQNode    next;
+}
+
+struct Executor {
+    EventLoop* lp;
+    int        wake_r;     // self-pipe read end (registered on lp)
+    int        wake_w;     // self-pipe write end (written by schedulers)
+    *RQNode    head;
+    *RQNode    tail;
+    Mutex      lock;       // guards head/tail against cross-thread schedule
+}
+
+// Drain the ready-queue and run each waker on the loop thread. Wakers run with
+// the lock released, so a waker may schedule more work without deadlocking.
+void _ex_drain(Executor* ex, int fd) {
+    uint8[64] sink;
+    read(fd, (*void)&sink[0], (int64)64);     // best-effort drain of wake bytes
+
+    Mutex_lock(&ex.lock);
+    *RQNode n = ex.head;
+    ex.head = (*RQNode)0;
+    ex.tail = (*RQNode)0;
+    Mutex_unlock(&ex.lock);
+
+    while (n != (*RQNode)0) {
+        *RQNode next = n.next;
+        n.waker();                 // resume the coroutine — on THIS (loop) thread
+        free_closure(n.waker);     // the waker runs once; release its env
+        free((*void)n);
+        n = next;
+    }
+}
+
+// Create an executor over an existing event loop.
+Executor* executor_new(EventLoop* lp) {
+    Executor* ex = alloc<Executor>(1);
+    ex.lp   = lp;
+    ex.head = (*RQNode)0;
+    ex.tail = (*RQNode)0;
+    Mutex_init(&ex.lock);
+
+    int[2] fds; pipe(&fds[0]);
+    ex.wake_r = fds[0];
+    ex.wake_w = fds[1];
+    el_add_read(lp, ex.wake_r, void(EventLoop* l, int fd) { _ex_drain(ex, fd); });
+    return ex;
+}
+
+// Enqueue `w` to run on the executor's thread, and wake the loop. Thread-safe:
+// callable from any thread (e.g. a worker that just completed a future).
+void executor_schedule(Executor* ex, escaping fn()->void w) {
+    *RQNode n = alloc<RQNode>(1);
+    n.waker = w;
+    n.next  = (*RQNode)0;
+
+    Mutex_lock(&ex.lock);
+    if (ex.tail == (*RQNode)0) { ex.head = n; ex.tail = n; }
+    else                       { ex.tail.next = n; ex.tail = n; }
+    Mutex_unlock(&ex.lock);
+
+    uint8 one = 1;
+    write(ex.wake_w, (*void)&one, (int64)1);   // wake the loop thread
+}
+
+// Run until executor_stop: dispatch I/O readiness and scheduled wakers.
+void executor_run(Executor* ex)  { el_run(ex.lp); }
+void executor_stop(Executor* ex) { el_stop(ex.lp); }
+
+void executor_free(Executor* ex) {
+    el_del(ex.lp, ex.wake_r);
+    free((*void)ex);
+}

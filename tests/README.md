@@ -92,6 +92,8 @@ when you add a test.
 | `string_ops` | `<string>` `split` (e.g. `"a,b,,c"` on `','`) |
 | `threading` | `<threading>` `Mutex`/`Cond`/`Sem`; shared state captured by pointer |
 | `time` | `<time>` wall clock / monotonic / `sleep_ms` |
+| `executor` | async `Executor` — scheduled wakers run on the loop thread in FIFO order |
+| `net_async` | leaf future: a coroutine awaits `net_read_async` over the reactor |
 
 ### `smoke` tests (compile + link + exit 0)
 

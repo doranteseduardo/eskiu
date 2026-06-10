@@ -1,0 +1,43 @@
+// net_async.esk — leaf futures for non-blocking network I/O over <eventloop>.
+//
+// These are the `await`-able primitives an async function bottoms out on. Each
+// registers an fd on the event loop and completes its Future when the fd is
+// ready; the completion runs on the loop thread, so the awaiter's resume runs
+// there too (no cross-thread marshaling needed for I/O — see <executor> for the
+// cross-thread case). Each future's on_drop deregisters the fd, so cancelling a
+// pending read/accept cleanly releases its loop registration.
+//
+//   Future<int>* f = net_read_async(lp, fd, buf, 4096);
+//   // await f  ->  number of bytes read (0 = EOF, <0 = error)
+
+import <mem>;
+import <future>;
+import <eventloop>;
+import <net>;
+
+extern int64 read(int fd, *void buf, int64 n);
+
+// Complete with the number of bytes read into `buf` (capacity `cap`) once `fd`
+// is readable. One-shot: the fd is deregistered when it fires.
+Future<int>* net_read_async(EventLoop* lp, int fd, *uint8 buf, int64 cap) {
+    Future<int>* f = future_new<int>();
+    f.on_drop = void() { el_del(lp, fd); free_future<int>(f); };
+    el_add_read(lp, fd, void(EventLoop* l, int rfd) {
+        int64 n = read(rfd, (*void)buf, cap);
+        el_del(l, rfd);                          // one-shot
+        future_complete<int>(f, (int)n);         // resumes the awaiter (loop thread)
+    });
+    return f;
+}
+
+// Complete with an accepted client fd once `listen_fd` has a pending connection.
+Future<int>* net_accept_async(EventLoop* lp, int listen_fd) {
+    Future<int>* f = future_new<int>();
+    f.on_drop = void() { el_del(lp, listen_fd); free_future<int>(f); };
+    el_add_read(lp, listen_fd, void(EventLoop* l, int sfd) {
+        int c = net_accept(sfd);
+        el_del(l, sfd);
+        future_complete<int>(f, c);
+    });
+    return f;
+}
