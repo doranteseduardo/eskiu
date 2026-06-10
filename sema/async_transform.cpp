@@ -188,11 +188,17 @@ void AsyncTransform::run(Program* program) {
                 std::make_shared<BlockStmt>(parkBody)));
             st.push_back(assign(fr("st"), intlit(nextState)));
         };
-        // Extract await i's value into its frame var, then free the awaited future.
+        // Resume past await i: no longer parked; extract the value; release the
+        // waker's heap env and the awaited future. (free_closure must precede
+        // free_future, which frees the struct that holds the waker field.)
         auto emitExtract = [&](std::vector<BlockItem>& st, int i) {
             const std::string awf = "__aw" + std::to_string(i);
             const std::string Tp  = awaits[i].var->type;
+            st.push_back(assign(fr("awaiting"),
+                std::make_shared<CastExpr>("*FutureHdr", intlit(0))));
             st.push_back(assign(fr(awaits[i].var->name), std::make_shared<MemberExpr>(fr(awf), "value")));
+            st.push_back(exprStmt(std::make_shared<FreeClosureExpr>(
+                std::make_shared<MemberExpr>(fr(awf), "waker"))));
             st.push_back(exprStmt(std::make_shared<TemplateCallExpr>("free_future",
                 std::vector<std::string>{Tp}, std::vector<ExprPtr>{ fr(awf) })));
         };
@@ -286,7 +292,26 @@ void AsyncTransform::run(Program* program) {
             std::make_shared<TemplateCallExpr>("alloc", std::vector<std::string>{frameT},
                 std::vector<ExprPtr>{ intlit(1) })));
         ctor.push_back(assign(fr("st"), intlit(0)));
+        ctor.push_back(assign(fr("awaiting"), std::make_shared<CastExpr>("*FutureHdr", intlit(0))));
         ctor.push_back(assign(std::make_shared<MemberExpr>(fr("ret"), "state"), intlit(0)));
+        // ret.on_drop: if cancelled while suspended, cascade-drop the awaited
+        // future, then free the frame (== free &ret, the embedded first field).
+        {
+            std::vector<BlockItem> cascade;
+            cascade.push_back(exprStmt(std::make_shared<CallExpr>(
+                ident("future_drop"), std::vector<ExprPtr>{ fr("awaiting") })));
+            std::vector<BlockItem> dropBody;
+            dropBody.push_back(std::make_shared<IfStmt>(
+                binop(fr("awaiting"), "!=", std::make_shared<CastExpr>("*FutureHdr", intlit(0))),
+                std::make_shared<BlockStmt>(cascade)));
+            dropBody.push_back(exprStmt(std::make_shared<CallExpr>(
+                ident("free"), std::vector<ExprPtr>{ std::make_shared<CastExpr>("*void", ident("fr")) })));
+            auto dropLam = std::make_shared<LambdaExpr>(
+                std::vector<std::pair<std::string,std::string>>{}, "void",
+                std::make_shared<BlockStmt>(dropBody));
+            dropLam->captures.push_back({"fr", "*" + frameT});
+            ctor.push_back(assign(std::make_shared<MemberExpr>(fr("ret"), "on_drop"), dropLam));
+        }
         for (const auto& p : fn->params)
             ctor.push_back(assign(fr(p.second), ident(p.second)));
         ctor.push_back(exprStmt(std::make_shared<CallExpr>(
