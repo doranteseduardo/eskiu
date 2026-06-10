@@ -532,6 +532,7 @@ DeclPtr Parser::parseExternDecl() {
 DeclPtr Parser::parseIntrinsicDecl() {
     // Same prototype syntax as extern, but a distinct node: the call lowers to
     // inline IR rather than a call to an external C symbol.
+    Token startTok = peek();   // return-type token — stamps the decl's position
     std::string returnType = parseType();
     std::string name = consume(TokenType::IDENT, "Expected intrinsic name").value;
 
@@ -540,7 +541,7 @@ DeclPtr Parser::parseIntrinsicDecl() {
     consume(TokenType::RPAREN, "Expected ')'");
     consume(TokenType::SEMICOLON, "Expected ';'");
 
-    return std::make_shared<IntrinsicDecl>(name, returnType, params);
+    return withPos(std::make_shared<IntrinsicDecl>(name, returnType, params), startTok);
 }
 
 DeclPtr Parser::parseStructDecl() {
