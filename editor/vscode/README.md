@@ -31,8 +31,12 @@ Restart VS Code after installing.
 | `'a'` char literals | string |
 | `0xFF`, `3.14`, `42` numbers | constant.numeric |
 | `true`, `false`, `null` | constant.language |
-| `if else for while switch case break continue return` | keyword.control |
-| `let struct interface fn extern import alloc free` | keyword.declaration |
+| `if else for while switch case break continue return in` | keyword.control |
+| `try catch finally throw` | keyword.control.exception |
+| `let struct packed union interface enum fn extern intrinsic import` | keyword.declaration |
+| `const volatile` | storage.modifier |
+| `sizeof asm alloc_with thread_create thread_join thread spawn mutex` | keyword.other |
+| `import <mem>;` stdlib imports and `type Alias = …` | namespace / declaration |
 | `int uint8 float double bool char string void` … | support.type |
 | Function names at declaration and call sites | entity.name.function |
 | Type names (uppercase-starting) | entity.name.type |
