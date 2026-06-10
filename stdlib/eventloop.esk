@@ -123,11 +123,21 @@ void el_add_read(EventLoop* lp, int fd, escaping fn(EventLoop*, int)->void cb) {
     _el_ctl(lp.backend, fd, 1);
 }
 
-// Stop watching `fd`.
+// Stop watching `fd`. (Does not free the callback env — on the normal path the
+// callback is still running when it calls this; el_run frees the env on return.)
 void el_del(EventLoop* lp, int fd) {
     if (fd < 0 || fd >= lp.cap) { return; }
     lp.slots[fd].active = 0;
     _el_ctl(lp.backend, fd, 0);
+}
+
+// Deregister `fd` and free its callback's heap env. For deregistering from
+// OUTSIDE the callback (e.g. cancelling a pending one-shot whose callback never
+// fired) — never call this from within `fd`'s own callback (use el_del there).
+void el_del_free(EventLoop* lp, int fd) {
+    if (fd < 0 || fd >= lp.cap) { return; }
+    if (lp.slots[fd].active != 0) { free_closure(lp.slots[fd].on_read); }
+    el_del(lp, fd);
 }
 
 // Ask the loop to return from el_run after the current batch.
@@ -147,6 +157,9 @@ void el_run(EventLoop* lp) {
             if (fd >= 0 && fd < lp.cap && lp.slots[fd].active != 0) {
                 let cb: fn(EventLoop*, int)->void = lp.slots[fd].on_read;
                 cb(lp, fd);
+                // A one-shot callback deregisters itself (active -> 0). Free its
+                // heap env now that it has returned (safe: no longer running).
+                if (lp.slots[fd].active == 0) { free_closure(cb); }
             }
             i = i + 1;
         }

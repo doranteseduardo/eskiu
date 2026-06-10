@@ -16,5 +16,6 @@ async int sum3() {
 int main() {
     Future<int>* r = sum3();
     printf("%d %d\n", r.value, r.state);   // 6 2
+    free_future<int>(r);
     return 0;
 }

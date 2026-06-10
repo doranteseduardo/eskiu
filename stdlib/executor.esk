@@ -92,6 +92,7 @@ void executor_run(Executor* ex)  { el_run(ex.lp); }
 void executor_stop(Executor* ex) { el_stop(ex.lp); }
 
 void executor_free(Executor* ex) {
-    el_del(ex.lp, ex.wake_r);
+    el_del_free(ex.lp, ex.wake_r);   // free the drain-callback env too
+    el_free(ex.lp);                  // the executor owns its event loop
     free((*void)ex);
 }

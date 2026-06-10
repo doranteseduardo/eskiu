@@ -37,6 +37,10 @@ struct Future<T> {
 Future<T>* future_new<T>() {
     Future<T>* f = alloc<Future<T>>(1);
     f.state = 0;
+    // waker/on_drop default to no-ops (null env) so free_future/future_drop can
+    // always free_closure them safely, even if no one sets them.
+    f.waker   = void() {};
+    f.on_drop = void() {};
     return f;
 }
 
@@ -65,7 +69,8 @@ void future_complete<T>(Future<T>* f, T v) {
 // Free a future's memory. The single owner (the awaiter, after reading value, or
 // future_drop on cancel) calls this exactly once.
 void free_future<T>(Future<T>* f) {
-    free((*void)f);
+    free_closure(f.on_drop);   // release the producer's on_drop env
+    free((*void)f);            // (== free the embedded frame for a coroutine future)
 }
 
 // Cancel/drop, type-erased. Swap to CANCELLED; if it was already READY the
@@ -73,9 +78,10 @@ void free_future<T>(Future<T>* f) {
 // resources (loop registration), cascades, and frees.
 void future_drop(FutureHdr* f) {
     int old = atomic_swap(&f.state, 3);  // -> CANCELLED
-    if (old == 2) {                      // already READY: just free
-        free((*void)f);
-    } else {
-        f.on_drop();                     // release + cascade + free
+    if (old != 2) {                      // not already READY: release resources + cascade
+        f.on_drop();                     // (must NOT free f — future_drop owns the free)
     }
+    free_closure(f.waker);               // a parked awaiter's resume will never fire now
+    free_closure(f.on_drop);             // free the on_drop env (it has returned)
+    free((*void)f);
 }
