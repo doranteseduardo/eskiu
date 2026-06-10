@@ -1,0 +1,26 @@
+// Executor: scheduled wakers run on the loop thread, in FIFO order. A waker may
+// schedule more work (here the 2nd waker stops the loop). Deterministic — no
+// cross-thread timing: we prime the queue, then run the loop once.
+import <executor>;
+extern int printf(string fmt, ...);
+
+Executor* g_ex;
+int g_order = 0;
+int g_a = 0;
+int g_b = 0;
+
+int main() {
+    g_ex = executor_new(el_new(64));
+
+    // schedule two wakers before running; they run on the loop thread in order
+    executor_schedule(g_ex, void() { g_order = g_order * 10 + 1; g_a = g_order; });
+    executor_schedule(g_ex, void() {
+        g_order = g_order * 10 + 2; g_b = g_order;
+        executor_stop(g_ex);                 // a waker scheduling control flow
+    });
+
+    executor_run(g_ex);                      // drains the queue, runs both, stops
+    printf("a=%d b=%d order=%d\n", g_a, g_b, g_order);   // a=1 b=12 order=12
+    executor_free(g_ex);
+    return 0;
+}
