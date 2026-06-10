@@ -1,0 +1,20 @@
+// Escape analysis: a non-escaping closure stays on the stack; an escaping one
+// (returned) gets a heap env and is released with free_closure.
+extern int printf(string fmt, ...);
+
+int apply(fn(int)->int f, int x) { return f(x); }   // f is only called -> non-escaping
+
+fn()->int make(int base) {
+    int b = base;
+    return int() { return b + 1; };                  // escapes -> heap env
+}
+
+int main() {
+    int factor = 10;
+    int r1 = apply(int(int n) { return n * factor; }, 5);   // 50, stack env
+    let g: fn()->int = make(41);
+    int r2 = g();                                            // 42, heap env survived
+    free_closure(g);
+    printf("%d %d\n", r1, r2);
+    return 0;
+}

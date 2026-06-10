@@ -188,7 +188,8 @@ std::string Parser::parseType() {
     return type;
 }
 
-std::vector<std::pair<std::string, std::string>> Parser::parseParameterList() {
+std::vector<std::pair<std::string, std::string>> Parser::parseParameterList(
+        std::vector<bool>* escaping) {
     std::vector<std::pair<std::string, std::string>> params;
 
     if (!check(TokenType::RPAREN)) {
@@ -196,12 +197,18 @@ std::vector<std::pair<std::string, std::string>> Parser::parseParameterList() {
             // Handle variadic parameters (...)
             if (match(TokenType::ELLIPSIS)) {
                 params.push_back({"...", "..."});
+                if (escaping) escaping->push_back(false);
                 break;
             }
 
+            // Optional `escaping` qualifier: the parameter retains the closure
+            // beyond the call (e.g. stores it), so closures passed here need a
+            // heap environment.
+            bool isEscaping = match(TokenType::ESCAPING);
             std::string type = parseType();
             std::string name = consume(TokenType::IDENT, "Expected parameter name").value;
             params.push_back({type, name});
+            if (escaping) escaping->push_back(isEscaping);
         } while (match(TokenType::COMMA));
     }
 
@@ -508,7 +515,8 @@ DeclPtr Parser::parseFunctionDecl() {
     }
 
     consume(TokenType::LPAREN, "Expected '('");
-    auto params = parseParameterList();
+    std::vector<bool> esc;
+    auto params = parseParameterList(&esc);
     consume(TokenType::RPAREN, "Expected ')'");
 
     // A bare ';' marks a forward declaration (prototype only, no body).
@@ -519,6 +527,7 @@ DeclPtr Parser::parseFunctionDecl() {
 
     auto decl = std::make_shared<FunctionDecl>(name, returnType, params, body);
     decl->typeParams = typeParams;
+    decl->paramEscaping = esc;
     decl->line = nameTok.line; decl->col = nameTok.column;
     return decl;
 }
@@ -528,11 +537,14 @@ DeclPtr Parser::parseExternDecl() {
     std::string name = consume(TokenType::IDENT, "Expected function name").value;
 
     consume(TokenType::LPAREN, "Expected '('");
-    auto params = parseParameterList();
+    std::vector<bool> esc;
+    auto params = parseParameterList(&esc);
     consume(TokenType::RPAREN, "Expected ')'");
     consume(TokenType::SEMICOLON, "Expected ';'");
 
-    return std::make_shared<ExternDecl>(name, returnType, params);
+    auto d = std::make_shared<ExternDecl>(name, returnType, params);
+    d->paramEscaping = esc;
+    return d;
 }
 
 DeclPtr Parser::parseIntrinsicDecl() {
@@ -543,11 +555,14 @@ DeclPtr Parser::parseIntrinsicDecl() {
     std::string name = consume(TokenType::IDENT, "Expected intrinsic name").value;
 
     consume(TokenType::LPAREN, "Expected '('");
-    auto params = parseParameterList();
+    std::vector<bool> esc;
+    auto params = parseParameterList(&esc);
     consume(TokenType::RPAREN, "Expected ')'");
     consume(TokenType::SEMICOLON, "Expected ';'");
 
-    return withPos(std::make_shared<IntrinsicDecl>(name, returnType, params), startTok);
+    auto d = std::make_shared<IntrinsicDecl>(name, returnType, params);
+    d->paramEscaping = esc;
+    return withPos(d, startTok);
 }
 
 DeclPtr Parser::parseStructDecl() {
@@ -1286,6 +1301,14 @@ ExprPtr Parser::parsePrimary() {
         return withPos(std::make_shared<SizeofExpr>(typeName), tok);
     }
 
+    // free_closure(closureExpr) -> void — release an escaping closure's env.
+    if (match(TokenType::FREE_CLOSURE)) {
+        consume(TokenType::LPAREN, "Expected '(' after free_closure");
+        ExprPtr c = parseExpression();
+        consume(TokenType::RPAREN, "Expected ')'");
+        return withPos(std::make_shared<FreeClosureExpr>(c), tok);
+    }
+
     // thread_create(fn()->void worker) -> *void
     if (match(TokenType::THREAD_CREATE)) {
         consume(TokenType::LPAREN, "Expected '(' after thread_create");
@@ -1311,12 +1334,14 @@ ExprPtr Parser::parsePrimary() {
             try {
                 std::string retType = parseType();           // consume return type
                 consume(TokenType::LPAREN, "");
-                auto params = parseParameterList();
+                std::vector<bool> esc;
+                auto params = parseParameterList(&esc);
                 consume(TokenType::RPAREN, "");
                 if (check(TokenType::LBRACE)) {              // confirmed: it's a lambda
                     StmtPtr body = parseBlockStatement();
                     auto lambda = std::make_shared<LambdaExpr>(params, retType, body);
                     lambda->line = tok.line; lambda->col = tok.column;
+                    lambda->paramEscaping = esc;
                     return lambda;
                 }
             } catch (...) {}

@@ -218,6 +218,7 @@ std::string tokenTypeToString(TokenType type) {
         case TokenType::FN: return "FN";
         case TokenType::ASM: return "ASM";
         case TokenType::VOLATILE:      return "VOLATILE";
+        case TokenType::ESCAPING:      return "ESCAPING";
         case TokenType::CONST:         return "CONST";
         case TokenType::THREAD_CREATE: return "THREAD_CREATE";
         case TokenType::THREAD_JOIN:   return "THREAD_JOIN";
@@ -242,6 +243,7 @@ std::string tokenTypeToString(TokenType type) {
         case TokenType::SPAWN: return "SPAWN";
         case TokenType::MUTEX: return "MUTEX";
         case TokenType::SIZEOF: return "SIZEOF";
+        case TokenType::FREE_CLOSURE: return "FREE_CLOSURE";
         case TokenType::TRY: return "TRY";
         case TokenType::CATCH: return "CATCH";
         case TokenType::FINALLY: return "FINALLY";
@@ -334,8 +336,10 @@ std::unordered_map<std::string, TokenType> Lexer::keywords = {
     {"fn", TokenType::FN},
     {"asm", TokenType::ASM},
     {"volatile",       TokenType::VOLATILE},
+    {"escaping",       TokenType::ESCAPING},
     {"const",          TokenType::CONST},
     {"sizeof",         TokenType::SIZEOF},
+    {"free_closure",   TokenType::FREE_CLOSURE},
     {"thread_create",  TokenType::THREAD_CREATE},
     {"thread_join",    TokenType::THREAD_JOIN},
     {"for", TokenType::FOR},

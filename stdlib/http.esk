@@ -213,7 +213,7 @@ void http_worker_loop(int fd, fn(HttpRequest*, HttpResponse*)->void handler) {
 
 // Listen on `port` and serve with `nworkers` threads (the calling thread is one
 // of them, so it blocks here). Returns immediately only if the bind fails.
-void http_serve(int port, int nworkers, fn(HttpRequest*, HttpResponse*)->void handler) {
+void http_serve(int port, int nworkers, escaping fn(HttpRequest*, HttpResponse*)->void handler) {
     int fd = net_tcp_listen((uint16)port);
     if (fd < 0) { return; }
     int spawned = 1;

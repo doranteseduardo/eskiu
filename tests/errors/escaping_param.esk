@@ -1,0 +1,6 @@
+// EXPECT-ERROR: escapes
+// Storing a non-escaping closure param beyond the call is rejected; the fix is
+// to mark the parameter `escaping`.
+fn()->void slot;
+void store(fn()->void cb) { slot = cb; }
+int main() { return 0; }

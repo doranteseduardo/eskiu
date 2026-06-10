@@ -71,6 +71,8 @@ when you add a test.
 | `cast_alias` | casts to struct-pointer / alias / enum; alias used as a type |
 | `lambdas` | anonymous functions, `fn(T)->R`, higher-order functions |
 | `closures` | capturing & non-capturing lambdas through higher-order functions |
+| `closure_escape` | escape analysis: non-escaping closure on the stack, escaping one heap + `free_closure` |
+| `import_cast` | a cast to a type imported from another file (`(FutureHdr*)p`) parses as a cast |
 | `closure_global` | a module global read inside a closure reads the global (not a stale copy) |
 | `fn_pointer` | function pointers as values and parameters |
 | `fn_more` | fn-pointer as a return type; calling a fn-pointer struct field |
@@ -112,6 +114,7 @@ when you add a test.
 | `errors/const_field` | assigning to a field of a `const` value |
 | `errors/question_bad_return` | `?` used in a function not returning `Result` |
 | `errors/unknown_intrinsic` | an `intrinsic` declared with a name the compiler can't lower |
+| `errors/escaping_param` | a non-`escaping` closure parameter used beyond a direct call |
 | `errors/parse_error` | malformed syntax |
 | `errors/unterminated_string` | unterminated string literal |
 | `errors/unterminated_char` | malformed/unterminated char literal |

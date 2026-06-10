@@ -2110,8 +2110,22 @@ void CodeGen::visit(LambdaExpr* node) {
             envFields.push_back(getTypeFromString(type));
         envTy = llvm::StructType::create(*context, envFields,
                                          lambdaName + ".env");
-        // Allocate and populate env in the *current* (outer) function
-        envAlloca = builder->CreateAlloca(envTy, nullptr, lambdaName + ".env.alloc");
+        if (node->escapes) {
+            // Escaping closure (returned, stored, or passed to an `escaping`
+            // parameter): heap-allocate the env so it outlives this function.
+            // Freed via free_closure (the async transform emits it at the owner
+            // boundary; otherwise the owner frees it explicitly).
+            uint64_t envSize = module->getDataLayout().getTypeAllocSize(envTy);
+            llvm::Function* mallocFn = getOrDeclareFunc(
+                "malloc", ptrTy, {llvm::Type::getInt64Ty(*context)}, false);
+            envAlloca = builder->CreateCall(mallocFn,
+                {llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), envSize)},
+                lambdaName + ".env.heap");
+        } else {
+            // Non-escaping closure: the env dies with this frame — stack-allocate
+            // it. Zero cost, no leak. (The common map/filter/apply case.)
+            envAlloca = builder->CreateAlloca(envTy, nullptr, lambdaName + ".env");
+        }
         for (size_t ci = 0; ci < node->captures.size(); ++ci) {
             llvm::Value* capturedVal = nullptr;
             llvm::Value* sym = lookupSymbol(node->captures[ci].first);
@@ -2442,6 +2456,18 @@ void CodeGen::visit(SizeofExpr* node) {
     uint64_t    size = module->getDataLayout().getTypeAllocSize(ty);
     exprValueStack.push(
         llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), size));
+}
+
+void CodeGen::visit(FreeClosureExpr* node) {
+    // A closure is a fat pointer {fn_ptr, env_ptr}. Free its heap env (slot 1).
+    // A non-capturing closure has a null env; free(null) is a safe no-op.
+    llvm::Value* fat = evaluateExpr(node->closure);
+    llvm::Value* env = builder->CreateExtractValue(fat, 1, "clos.env");
+    llvm::Function* freeFn = getOrDeclareFunc(
+        "free", llvm::Type::getVoidTy(*context),
+        {llvm::PointerType::get(*context, 0)}, false);
+    builder->CreateCall(freeFn, {env});
+    exprValueStack.push(llvm::UndefValue::get(llvm::Type::getVoidTy(*context)));
 }
 
 void CodeGen::visit(ThreadCreateExpr* node) {
