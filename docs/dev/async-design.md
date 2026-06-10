@@ -16,10 +16,12 @@ fixed language-wide via escape analysis + the `escaping` qualifier + `free_closu
 (spec §6.5). The runtime model is proven sound. Implementation since: the Executor + leaf
 futures (`<executor>`/`<net_async>`, steps 2–3) ✅; the `async`/`await` frontend
 (steps 4–5) ✅; and the AST→state-machine transform (`sema/async_transform.cpp`,
-steps 6–7) — **single `await` working end-to-end** (fast path + suspend over a
-real reactor read). Remaining transform work: multiple awaits, await in
-expression position, `async void`, tighter locals-across-await liveness, implicit
-`future_drop` on scope exit, and `free_closure` of waker envs at owner boundaries.
+steps 6–7) — **single and multiple `await` working end-to-end** (fast path +
+single/multi suspend over real reactor reads; values thread through frame fields
+across N+1 states). Remaining transform work: await in expression position /
+`return await`, `async void`, control flow around await, tighter
+locals-across-await liveness, implicit `future_drop` on scope exit, and
+`free_closure` of waker envs at owner boundaries.
 
 **Audience:** compiler maintainers. Assumes familiarity with the existing closure
 model (`fn(T)->R` is a fat pointer `{fn_ptr, env_ptr}` that captures by value),
