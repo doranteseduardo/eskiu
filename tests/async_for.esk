@@ -1,0 +1,23 @@
+// C-style for loop containing an await; plus a no-await for-in alongside it.
+// init/cond/step run as plain code; the loop body's await parks each iteration.
+import <future>;
+extern int printf(string fmt, ...);
+Future<int>* produce(int v) {
+    Future<int>* f = future_new<int>();
+    future_complete<int>(f, v);
+    return f;
+}
+async int sumN(int n) {
+    int total = 0;
+    for (int i = 0; i < n; i = i + 1) {
+        int x = await produce(i);
+        total = total + x;
+    }
+    return total;
+}
+int main() {
+    Future<int>* r = sumN(5);              // 0+1+2+3+4
+    printf("%d\n", r.value);
+    free_future<int>(r);
+    return 0;
+}

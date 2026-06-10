@@ -98,6 +98,13 @@ bool stmtHasAwait(const StmtPtr& s) {
         return hasAwait(w->condition) || stmtHasAwait(w->body);
     if (auto* f = dynamic_cast<ForStmt*>(s.get()))
         return stmtHasAwait(f->init) || hasAwait(f->condition) || hasAwait(f->step) || stmtHasAwait(f->body);
+    if (auto* fi = dynamic_cast<ForInStmt*>(s.get()))
+        return hasAwait(fi->iterable) || stmtHasAwait(fi->body);
+    if (auto* sw = dynamic_cast<SwitchStmt*>(s.get())) {
+        if (hasAwait(sw->subject)) return true;
+        for (auto& c : sw->cases) for (auto& st : c.stmts) if (stmtHasAwait(st)) return true;
+        return false;
+    }
     if (auto* rs = dynamic_cast<ReturnStmt*>(s.get())) return hasAwait(rs->value);
     if (auto* es = dynamic_cast<ExprStmt*>(s.get()))  return hasAwait(es->expr);
     return false;
@@ -233,6 +240,9 @@ void AsyncTransform::run(Program* program) {
             else if (auto* i = dynamic_cast<IfStmt*>(s.get())) { scanS(i->thenBranch); scanS(i->elseBranch); }
             else if (auto* w = dynamic_cast<WhileStmt*>(s.get())) scanS(w->body);
             else if (auto* f = dynamic_cast<ForStmt*>(s.get())) { scanS(f->init); scanS(f->body); }
+            else if (auto* fi = dynamic_cast<ForInStmt*>(s.get())) scanS(fi->body);
+            else if (auto* sw = dynamic_cast<SwitchStmt*>(s.get()))
+                for (auto& c : sw->cases) for (auto& st : c.stmts) scanS(st);
         };
         scanB(items);
         if (awaits.empty())
@@ -284,6 +294,25 @@ void AsyncTransform::run(Program* program) {
             if (auto* w = dynamic_cast<WhileStmt*>(s.get())) {
                 rewrite(w->condition, vars);
                 return std::make_shared<WhileStmt>(w->condition, rewritePlain(w->body));
+            }
+            if (auto* f = dynamic_cast<ForStmt*>(s.get())) {
+                StmtPtr in2 = f->init ? rewritePlain(f->init) : nullptr;
+                rewrite(f->condition, vars); rewrite(f->step, vars);
+                return std::make_shared<ForStmt>(in2, f->condition, f->step, rewritePlain(f->body));
+            }
+            if (auto* fi = dynamic_cast<ForInStmt*>(s.get())) {
+                rewrite(fi->iterable, vars);
+                return std::make_shared<ForInStmt>(fi->varName, fi->iterable, rewritePlain(fi->body));
+            }
+            if (auto* sw = dynamic_cast<SwitchStmt*>(s.get())) {
+                rewrite(sw->subject, vars);
+                auto out2 = std::make_shared<SwitchStmt>(sw->subject, std::vector<SwitchStmt::Case>{});
+                for (auto& c : sw->cases) {
+                    SwitchStmt::Case nc; nc.value = c.value;
+                    for (auto& st : c.stmts) nc.stmts.push_back(rewritePlain(st));
+                    out2->cases.push_back(nc);
+                }
+                return out2;
             }
             return s;   // break/continue/etc.
         };
@@ -375,9 +404,31 @@ void AsyncTransform::run(Program* program) {
                 if (be != -1) goTo(be, header);    // back-edge
                 return after;                       // the loop may not execute -> reachable
             }
+            if (auto* f = dynamic_cast<ForStmt*>(s.get())) {
+                // for (init; cond; step) body  — init/step run as plain code; the
+                // loop is header(cond) -> body -> step -> back-edge -> header.
+                if (f->init) states[cur].push_back(rewritePlain(f->init));
+                int header = newState(), bodyE = newState(), after = newState();
+                goTo(cur, header);
+                if (f->condition) {
+                    rewrite(f->condition, vars);
+                    std::vector<BlockItem> tb; tb.push_back(assign(fr("st"), intlit(bodyE)));
+                    std::vector<BlockItem> eb; eb.push_back(assign(fr("st"), intlit(after)));
+                    states[header].push_back(std::make_shared<IfStmt>(f->condition,
+                        std::make_shared<BlockStmt>(tb), std::make_shared<BlockStmt>(eb)));
+                } else {
+                    goTo(header, bodyE);            // no condition -> infinite loop
+                }
+                int be = lowerStmt(f->body, bodyE);
+                if (be != -1) {
+                    if (f->step) { ExprPtr stp = f->step; rewrite(stp, vars); states[be].push_back(exprStmt(stp)); }
+                    goTo(be, header);              // back-edge
+                }
+                return after;
+            }
             if (auto* b = dynamic_cast<BlockStmt*>(s.get())) return lowerSeq(b->items, cur);
             throw std::runtime_error("async function '" + name + "': await inside this statement "
-                "is not lowered yet (supported: if/while; not for/switch)");
+                "is not lowered yet (supported: if / while / C-style for; not for-in / switch)");
         };
 
         int entry = newState();                 // state 0
