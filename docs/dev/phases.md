@@ -129,8 +129,7 @@ Phase 3 rounds out ergonomics and tooling.
 - [x] **Escaping closures** — escape analysis (non-escaping → stack, escaping → heap), the `escaping` parameter qualifier (compiler-enforced soundness), and `free_closure`. Prerequisite the de-risk gate surfaced: async wakers/callbacks are escaping closures. See `docs/dev/async-design.md`.
 - [x] Async runtime foundation — `Future<T>` (`<future>`), `Executor` (`<executor>`), leaf futures (`<net_async>`). De-risk gate COMPLETE: reactor read, cancel, and cross-thread resume all validated.
 - [~] `async` / `await` — **frontend done**; **transform: single + multiple awaits working** (`sema/async_transform.cpp` lowers an async fn to a frame + N+1-state resume if-chain + constructor; validated fast-path and single/multi suspend-over-reactor end-to-end). Single + multiple awaits, `return await`, bare `await`, `async void`, cancellation, **control flow around await** (`if`/`while`/C-style `for`), and full closure-env ownership — all done and **leak-free** (verified with `leaks`). Remaining: for-in/switch around await (error clearly today). Design locked in `docs/dev/async-design.md`.
-- [ ] `<http_async>` — non-blocking HTTP/1.1 over the event loop
-- [ ] `<http_async>` — non-blocking HTTP/1.1 over the event loop
+- [x] `<http_async>` — non-blocking HTTP/1.1 over the event loop: a single async accept-loop function, awaiting accept + read (sequential connections; concurrent handling awaits a future `spawn`)
 - [ ] `<http2>` — HTTP/2 over the event loop: binary framing, HPACK header compression, and stream multiplexing. Needs TLS (negotiated via ALPN `h2`); planned through OpenSSL by FFI (already proven viable — the crypto pipeline links OpenSSL via `extern`). Depends on `<eventloop>`, since multiplexing wants non-blocking I/O
 - [x] `<string>` — `split` (List + streaming token iterator), `trim`, `starts_with`, `ends_with`
 - [x] `<path>` — path manipulation (join, basename, dirname, extension, is_absolute)
