@@ -1,0 +1,25 @@
+// if/else where each branch contains an await. The branches become separate
+// states that converge at a join state.
+import <future>;
+extern int printf(string fmt, ...);
+Future<int>* produce(int v) {
+    Future<int>* f = future_new<int>();
+    future_complete<int>(f, v);
+    return f;
+}
+async int pick(int which) {
+    if (which > 0) {
+        int a = await produce(100);
+        return a + which;
+    } else {
+        int b = await produce(200);
+        return b + which;
+    }
+}
+int main() {
+    Future<int>* r = pick(1);
+    Future<int>* s = pick(0);
+    printf("%d %d\n", r.value, s.value);
+    free_future<int>(r); free_future<int>(s);
+    return 0;
+}
