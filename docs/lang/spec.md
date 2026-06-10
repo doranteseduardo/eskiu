@@ -75,10 +75,10 @@ if  else  for  while  in  switch  case  default
 return  break  continue
 true  false  null
 alloc_with
-const  volatile  asm
+const  volatile  escaping  asm
 thread_create  thread_join
 try  catch  finally  throw
-sizeof  union  enum
+sizeof  free_closure  union  enum
 ```
 
 ### 2.4 Literals

@@ -116,7 +116,7 @@ EventLoop* el_new(int max_fds) {
 }
 
 // Register `fd` for read-readiness; `cb` fires each time it is readable.
-void el_add_read(EventLoop* lp, int fd, fn(EventLoop*, int)->void cb) {
+void el_add_read(EventLoop* lp, int fd, escaping fn(EventLoop*, int)->void cb) {
     if (fd < 0 || fd >= lp.cap) { return; }
     lp.slots[fd].on_read = cb;
     lp.slots[fd].active  = 1;

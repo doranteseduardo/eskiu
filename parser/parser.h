@@ -94,5 +94,6 @@ private:
     ExprPtr parsePrimary();
 
     std::string parseType();
-    std::vector<std::pair<std::string, std::string>> parseParameterList();
+    std::vector<std::pair<std::string, std::string>> parseParameterList(
+        std::vector<bool>* escaping = nullptr);
 };

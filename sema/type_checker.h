@@ -54,6 +54,7 @@ public:
     void visit(AsmStmt* node) override;
     void visit(UnionDecl* node) override;
     void visit(SizeofExpr* node) override;
+    void visit(FreeClosureExpr* node) override;
     void visit(ThreadCreateExpr* node) override;
     void visit(ThreadJoinStmt* node) override;
     void visit(ThrowStmt* node) override;
@@ -130,6 +131,14 @@ private:
 
     // Function signatures: name -> (return type, parameter types)
     std::map<std::string, std::pair<std::string, std::vector<std::string>>> functionSignatures;
+    // Per-function `escaping` flags for each parameter (closure-retention).
+    std::map<std::string, std::vector<bool>> functionParamEscaping;
+    // Escape-soundness state for the function currently being checked: the names
+    // of its non-escaping fn-typed params, those found to escape, and the name
+    // currently in callee position (a call of the param does NOT make it escape).
+    std::set<std::string> nonEscapingFnParams;
+    std::set<std::string> escapedFnParams;
+    std::string calleeContext;
 
     // -Wall function-usage tracking: top-level functions defined vs. referenced
     std::map<std::string, std::pair<int,int>> definedFns; // name -> (line,col)

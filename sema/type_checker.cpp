@@ -72,12 +72,14 @@ bool TypeChecker::check(Program* program) {
                 paramTypes.push_back(param.first);  // first = type, second = name
             }
             defineFunction(funcDecl->name, funcDecl->returnType, paramTypes);
+            functionParamEscaping[funcDecl->name] = funcDecl->paramEscaping;
         } else if (auto externDecl = dynamic_cast<ExternDecl*>(decl.get())) {
             std::vector<std::string> paramTypes;
             for (const auto& param : externDecl->params) {
                 paramTypes.push_back(param.first);  // first = type, second = name
             }
             defineFunction(externDecl->name, externDecl->returnType, paramTypes);
+            functionParamEscaping[externDecl->name] = externDecl->paramEscaping;
         } else if (auto intrinDecl = dynamic_cast<IntrinsicDecl*>(decl.get())) {
             // Intrinsics carry an ordinary signature; only codegen treats them
             // specially (inline lowering instead of a call).
@@ -86,6 +88,7 @@ bool TypeChecker::check(Program* program) {
                 paramTypes.push_back(param.first);
             }
             defineFunction(intrinDecl->name, intrinDecl->returnType, paramTypes);
+            functionParamEscaping[intrinDecl->name] = intrinDecl->paramEscaping;
         }
     }
 
@@ -215,10 +218,34 @@ void TypeChecker::visit(FunctionDecl* node) {
                      node->line, node->col, /*isParam=*/true);  // resolve aliases/enums
     }
 
+    // Escape-soundness: a non-`escaping` closure parameter may only be *called*.
+    // Any other use (returned, stored, passed as an argument, captured) lets the
+    // closure outlive the call, which is unsound unless its env is heap-allocated
+    // — so it must be marked `escaping`. Track such params and verify after the body.
+    std::set<std::string> prevWatch = nonEscapingFnParams;
+    std::set<std::string> prevEscaped = escapedFnParams;
+    nonEscapingFnParams.clear();
+    escapedFnParams.clear();
+    for (size_t i = 0; i < node->params.size(); ++i) {
+        const std::string& pty = node->params[i].first;
+        bool isFn = pty.size() > 3 && pty.substr(0, 3) == "fn(";
+        bool marked = i < node->paramEscaping.size() && node->paramEscaping[i];
+        if (isFn && !marked) nonEscapingFnParams.insert(node->params[i].second);
+    }
+
     // Type check body
     if (node->body) {
         node->body->accept(this);
     }
+
+    for (size_t i = 0; i < node->params.size(); ++i) {
+        if (escapedFnParams.count(node->params[i].second)) {
+            errorAt(node, "closure parameter '" + node->params[i].second +
+                "' escapes (used beyond a direct call); mark it `escaping`");
+        }
+    }
+    nonEscapingFnParams = prevWatch;
+    escapedFnParams = prevEscaped;
 
     popScope();
     currentFunctionReturnType = "";
@@ -623,7 +650,10 @@ void TypeChecker::visit(CallExpr* node) {
             // lambda, an outer-scope fn pointer used in callee position is
             // registered as a capture (visit(CallExpr) otherwise resolves the
             // name directly and never reaches visit(IdentExpr)).
-            node->callee->accept(this);
+            // calleeContext marks this occurrence as a *call* of the var, so a
+            // watched closure param used here is not counted as escaping.
+            { std::string prev = calleeContext; calleeContext = funcName;
+              node->callee->accept(this); calleeContext = prev; }
             // Extract return type from fn(T,...)->R
             size_t rp = varType.find(")->");
             std::string retType = (rp != std::string::npos) ? varType.substr(rp + 3) : "unknown";
@@ -685,9 +715,22 @@ void TypeChecker::visit(CallExpr* node) {
         return;
     }
 
+    // Per-param escaping flags for this callee (empty if none declared).
+    auto escIt = functionParamEscaping.find(funcName);
+    const std::vector<bool>* escVec =
+        (escIt != functionParamEscaping.end() && !escIt->second.empty())
+            ? &escIt->second : nullptr;
+
     // Type check fixed arguments; visit (but do not type-check) variadic extras
     for (size_t i = 0; i < node->args.size(); ++i) {
         node->args[i]->accept(this);
+        // Escape optimization: a lambda passed directly to a NON-escaping
+        // parameter does not outlive the call (the callee may only call it —
+        // enforced by the soundness check), so its env can stay on the stack.
+        if (auto* lam = dynamic_cast<LambdaExpr*>(node->args[i].get())) {
+            bool paramEscapes = escVec && i < escVec->size() && (*escVec)[i];
+            if (!paramEscapes) lam->escapes = false;
+        }
         if (i < fixedCount) {
             std::string argType = getExpressionType(node->args[i].get());
             if (argType != "unknown" && !isValidAssignment(expectedParamTypes[i], argType)) {
@@ -815,6 +858,11 @@ void TypeChecker::visit(IdentExpr* node) {
     // -Wall: a function referenced as a value counts as used.
     if (functionSignatures.count(node->name)) calledFns.insert(node->name);
 
+    // Escape soundness: a watched closure param referenced anywhere other than
+    // as the immediate callee of a call escapes (see visit(FunctionDecl)).
+    if (nonEscapingFnParams.count(node->name) && node->name != calleeContext)
+        escapedFnParams.insert(node->name);
+
     std::string type = lookupSymbol(node->name);
     if (type.empty() && enumConstants.count(node->name)) {
         // Bare enum member, e.g. `Red` — an int constant.
@@ -929,6 +977,14 @@ void TypeChecker::visit(UnionDecl* node) {
 
 void TypeChecker::visit(SizeofExpr* node) {
     expressionTypes[node] = "int64";
+}
+
+void TypeChecker::visit(FreeClosureExpr* node) {
+    node->closure->accept(this);
+    std::string t = getExpressionType(node->closure.get());
+    if (t != "unknown" && !(t.size() > 3 && t.substr(0, 3) == "fn("))
+        errorAt(node, "free_closure expects a closure (fn(...)->R), got " + t);
+    expressionTypes[node] = "void";
 }
 
 void TypeChecker::visit(ThreadCreateExpr* node) {

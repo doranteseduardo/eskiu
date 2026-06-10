@@ -79,7 +79,8 @@ All items below are implemented and tested end-to-end.
 | Forward declarations | Body-less `int f(int n);`; call-before-define and mutual recursion (codegen declares all prototypes before emitting bodies) |
 | Compound assignment | `+= -= *= /= %=` and bitwise `&= \|= ^= <<= >>=` |
 | Lambdas | `int(int x) { return x * 2; }` — anonymous functions |
-| Closures | `fn(T)->R` is a fat pointer `{fn_ptr, env_ptr}`; captures by value |
+| Closures | `fn(T)->R` is a fat pointer `{fn_ptr, env_ptr}`; captures by value. **Escape analysis**: a non-escaping closure (only called / passed to a non-`escaping` param) keeps its env on the stack; an escaping one (returned, stored, or passed to an `escaping` param) gets a heap env. `LambdaExpr::escapes` (set in sema, default true) drives stack-vs-heap in codegen |
+| `escaping` / `free_closure` | `escaping` is a parameter qualifier (Swift-style): it marks a param that *retains* the closure beyond the call. Sema enforces soundness — a non-`escaping` closure param used beyond a direct call is a compile error (`functionParamEscaping` + the `nonEscapingFnParams`/`escapedFnParams` walk in the type checker). `free_closure(f)` (a builtin, `FreeClosureExpr`) frees an escaping closure's heap env (slot 1 of the fat pointer); `free(null)` is a safe no-op for non-capturing closures |
 | Function-as-value | A bare function name used as a value decays to a `fn(...)->R` via `makeFunctionPointer` (synthesizes a `__fnptr_<name>` env-ignoring thunk). `visit(CallExpr)` resolves direct named calls before `evaluateExpr` so calls don't decay |
 | Predefined macros | `main.cpp` seeds the shared macro table with `__APPLE__`/`__linux__` (host OS) for `#ifdef` portability |
 | `<net>` sockets | `stdlib/net.esk` — POSIX socket `extern`s + portable `packed sockaddr_in` (`#ifdef __APPLE__`) + `net_*` helpers. No compiler support needed beyond FFI |

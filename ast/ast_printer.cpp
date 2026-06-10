@@ -442,6 +442,13 @@ void ASTPrinter::visit(SizeofExpr* node) {
     println("SizeofExpr: sizeof(" + node->typeName + ")");
 }
 
+void ASTPrinter::visit(FreeClosureExpr* node) {
+    println("FreeClosureExpr:");
+    indentLevel++;
+    if (node->closure) node->closure->accept(this);
+    indentLevel--;
+}
+
 void ASTPrinter::visit(UnionDecl* node) {
     println("UnionDecl: " + node->name);
     indentLevel++;

@@ -18,6 +18,8 @@ Backend-services phase. v0.1.0 is frozen at its tag; this is the in-progress nex
 - **`volatile let`** — qualifier-first form (like `const int`), in local and top-level declarations.
 - Multi-argument `fn` types (`fn(A,B)->R`); function pointers usable as values, parameters, return types, and struct fields, and capturable in closures.
 - **`intrinsic`** — function qualifier for compiler-lowered prototypes (distinct from `extern`): a call lowers to inline IR, not a call to a C symbol, and emits no `declare`. Gated on import, so the names stay un-reserved otherwise.
+- **`escaping` + `free_closure`** — closures now escape correctly. A non-escaping closure (only called / passed to a non-`escaping` parameter) keeps its environment on the stack (zero cost); an escaping one (returned, stored, or passed to an `escaping` parameter) gets a heap environment that survives. The `escaping` parameter qualifier marks closure-retaining functions; using a non-`escaping` closure parameter beyond a direct call is a compile error. `free_closure(f)` releases an escaping closure's heap environment. (Previously, a closure that outlived its creating function read a dangling stack environment.)
+- Fixed: a cast to a type imported from another file (e.g. `(FutureHdr*)p`) was misparsed; imported type names are now visible for cast detection.
 
 ### Standard library
 - **`<alloc>`** — `Bump`, `Arena`, `Pool`, `FirstFit` allocators over caller-provided buffers (libc-free; work under `--freestanding`).

@@ -50,6 +50,9 @@ public:
     std::vector<std::pair<std::string, std::string>> params; // (type, name)
     StmtPtr body;
     std::vector<std::string> typeParams; // non-empty → template function
+    // Per-param `escaping` flag (parallel to params): the param retains the
+    // closure beyond the call, so closures passed there get a heap env.
+    std::vector<bool> paramEscaping;
 
     FunctionDecl(const std::string& name, const std::string& returnType,
                  const std::vector<std::pair<std::string, std::string>>& params,
@@ -122,6 +125,7 @@ class ExternDecl : public Decl {
 public:
     std::string returnType;
     std::vector<std::pair<std::string, std::string>> params;
+    std::vector<bool> paramEscaping;   // per-param `escaping` flag
 
     ExternDecl(const std::string& name, const std::string& returnType,
                const std::vector<std::pair<std::string, std::string>>& params)
@@ -139,6 +143,7 @@ class IntrinsicDecl : public Decl {
 public:
     std::string returnType;
     std::vector<std::pair<std::string, std::string>> params;
+    std::vector<bool> paramEscaping;   // per-param `escaping` flag
 
     IntrinsicDecl(const std::string& name, const std::string& returnType,
                   const std::vector<std::pair<std::string, std::string>>& params)
@@ -493,6 +498,10 @@ public:
     StmtPtr body;
     // Populated by TypeChecker: variables captured from enclosing scope
     std::vector<std::pair<std::string, std::string>> captures; // (name, type)
+    std::vector<bool> paramEscaping;   // per-param `escaping` flag
+    // Set by analysis: true if this closure may outlive its creating function
+    // (escapes) and therefore needs a heap-allocated environment.
+    bool escapes = true;   // sound default: heap unless proven non-escaping
 
     LambdaExpr(std::vector<std::pair<std::string, std::string>> params,
                std::string returnType, StmtPtr body)
@@ -515,6 +524,16 @@ class ThreadCreateExpr : public Expr {
 public:
     ExprPtr worker;
     explicit ThreadCreateExpr(ExprPtr w) : worker(std::move(w)) {}
+    void accept(class ASTVisitor* visitor) override;
+};
+
+// free_closure(f) -> void — release the heap environment of an escaping closure.
+// The argument is any closure value (fn(...)->R fat pointer); this frees its env
+// (slot 1 of the fat pointer). A no-op for non-capturing closures (null env).
+class FreeClosureExpr : public Expr {
+public:
+    ExprPtr closure;
+    explicit FreeClosureExpr(ExprPtr c) : closure(std::move(c)) {}
     void accept(class ASTVisitor* visitor) override;
 };
 
@@ -576,6 +595,7 @@ public:
     virtual void visit(UnionDecl* node) = 0;
     virtual void visit(SizeofExpr* node) = 0;
     virtual void visit(ThreadCreateExpr* node) = 0;
+    virtual void visit(FreeClosureExpr* node) = 0;
     virtual void visit(ThreadJoinStmt* node) = 0;
     virtual void visit(ThrowStmt* node) = 0;
     virtual void visit(TryStmt* node) = 0;

@@ -111,11 +111,11 @@
         },
         {
           "name": "storage.modifier.eskiu",
-          "match": "\\b(const|volatile)\\b"
+          "match": "\\b(const|volatile|escaping)\\b"
         },
         {
           "name": "keyword.other.eskiu",
-          "match": "\\b(sizeof|asm|alloc_with|thread_create|thread_join|thread|spawn|mutex)\\b"
+          "match": "\\b(sizeof|free_closure|asm|alloc_with|thread_create|thread_join|thread|spawn|mutex)\\b"
         }
       ]
     },

@@ -43,7 +43,7 @@ Future<T>* future_new<T>() {
 // Awaiter side. Register `resume` and try to park (PENDING -> WAITING).
 // Returns 0 if parked (the producer will call `resume` on completion), or 1 if
 // the future was already READY — the caller should read `value` and not suspend.
-int future_poll<T>(Future<T>* f, fn()->void resume) {
+int future_poll<T>(Future<T>* f, escaping fn()->void resume) {
     f.waker = resume;
     if (atomic_cas(&f.state, 0, 1)) {   // PENDING -> WAITING: parked
         return 0;
