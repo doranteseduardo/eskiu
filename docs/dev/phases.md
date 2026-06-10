@@ -128,7 +128,7 @@ Phase 3 rounds out ergonomics and tooling.
 - [x] **Atomics** (`<atomic>`) — `atomic_load`/`store`/`swap`/`cas` lowering to LLVM atomics; async step 0 (the lock-free `Future` state handshake). See the `intrinsic` qualifier.
 - [x] **Escaping closures** — escape analysis (non-escaping → stack, escaping → heap), the `escaping` parameter qualifier (compiler-enforced soundness), and `free_closure`. Prerequisite the de-risk gate surfaced: async wakers/callbacks are escaping closures. See `docs/dev/async-design.md`.
 - [x] Async runtime foundation — `Future<T>` (`<future>`), `Executor` (`<executor>`), leaf futures (`<net_async>`). De-risk gate COMPLETE: reactor read, cancel, and cross-thread resume all validated.
-- [~] `async` / `await` — the AST→state-machine transform (frontend: `async` modifier + `await`; then sema typing; then the lowering). Design locked in `docs/dev/async-design.md`.
+- [~] `async` / `await` — **frontend done** (`async` modifier + `await` expression: lexer/parser/sema; call types as `*Future<T>`, `await` yields `T`, gated to async fns). **Remaining:** the AST→state-machine transform (frame + `switch` resume + park/complete + implicit `future_drop`). Design locked in `docs/dev/async-design.md`.
 - [ ] `<http_async>` — non-blocking HTTP/1.1 over the event loop
 - [ ] `<http_async>` — non-blocking HTTP/1.1 over the event loop
 - [ ] `<http2>` — HTTP/2 over the event loop: binary framing, HPACK header compression, and stream multiplexing. Needs TLS (negotiated via ALPN `h2`); planned through OpenSSL by FFI (already proven viable — the crypto pipeline links OpenSSL via `extern`). Depends on `<eventloop>`, since multiplexing wants non-blocking I/O
