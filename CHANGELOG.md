@@ -28,6 +28,7 @@ Backend-services phase. v0.1.0 is frozen at its tag; this is the in-progress nex
 - **`<http>`** — HTTP/1.1 request parser, response builder, and a threaded worker pool (`http_serve`).
 - **`<string>`** — `starts_with`, `ends_with`, `trim`, `split` (List + streaming token iterator).
 - **`<path>`** — `path_join`, `path_basename`, `path_dirname`, `path_extension`, `path_is_absolute`.
+- **`<eventloop>`** — readiness reactor over kqueue (macOS) / epoll (Linux): `el_new`, `el_add_read`, `el_del`, `el_run`, `el_stop`, `el_free`. Callbacks are `fn(EventLoop*, int)->void`. Foundation for async I/O and the HTTP stack.
 
 ### Compiler correctness (consistency audit)
 - Unsigned integer types use unsigned div/rem/shift/compare; 64-bit integer literals no longer truncate; mixed-width ops sign/zero-extend by signedness; variadic call args get the C default-argument promotions.
