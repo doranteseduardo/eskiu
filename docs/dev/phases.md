@@ -124,9 +124,11 @@ Phase 3 rounds out ergonomics and tooling.
 - [x] `<env>` — environment variables and CLI arguments
 
 **Phase 2 — Build on Phase 1**
-- [ ] `async` / `await` — keywords + state-machine codegen
-- [ ] `Future<T>` in the stdlib
 - [x] `<eventloop>` — general-purpose reactor over epoll (Linux) / kqueue (macOS). A shared foundation for async/await, HTTP, and the future UI framework, designed from the start to dispatch any kind of event (sockets, frames, input), not just network I/O
+- [x] **Atomics** (`<atomic>`) — `atomic_load`/`store`/`swap`/`cas` lowering to LLVM atomics; async step 0 (the lock-free `Future` state handshake). See the `intrinsic` qualifier.
+- [x] **Escaping closures** — escape analysis (non-escaping → stack, escaping → heap), the `escaping` parameter qualifier (compiler-enforced soundness), and `free_closure`. Prerequisite the de-risk gate surfaced: async wakers/callbacks are escaping closures. See `docs/dev/async-design.md`.
+- [~] `async` / `await` + `Future<T>` — design locked in `docs/dev/async-design.md`; de-risk gate in progress (`stdlib/future.esk` hand-validated for reactor read + drop; cross-thread resume next). Then the AST→state-machine transform.
+- [ ] `<http_async>` — non-blocking HTTP/1.1 over the event loop
 - [ ] `<http_async>` — non-blocking HTTP/1.1 over the event loop
 - [ ] `<http2>` — HTTP/2 over the event loop: binary framing, HPACK header compression, and stream multiplexing. Needs TLS (negotiated via ALPN `h2`); planned through OpenSSL by FFI (already proven viable — the crypto pipeline links OpenSSL via `extern`). Depends on `<eventloop>`, since multiplexing wants non-blocking I/O
 - [x] `<string>` — `split` (List + streaming token iterator), `trim`, `starts_with`, `ends_with`

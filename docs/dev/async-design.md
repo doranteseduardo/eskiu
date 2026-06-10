@@ -1,8 +1,17 @@
 # Async / Await — Design Note
 
-**Status:** proposed (pre-implementation). This note pins the contract *before* any
-code is written, because the parts it fixes are expensive to change once async
-functions exist in the wild (see "What is locked, what is free" at the end).
+**Status:** de-risk gate in progress. This note pins the contract *before* the
+transform is written, because the parts it fixes are expensive to change once
+async functions exist in the wild (see "What is locked, what is free" at the end).
+
+**Progress (gate, §9):** Step 0 (atomic intrinsics) ✅. `stdlib/future.esk` exists
+with the locked `Future<T>`/`FutureHdr` contract and the §3 handshake; a
+hand-written coroutine validates reactor-driven read over `<eventloop>` and the
+type-erased drop path ✅. The gate surfaced a blocking prerequisite — **escaping
+closures** (a waker/callback outlives its creating function) read a dangling stack
+env — now solved language-wide via escape analysis + the `escaping` qualifier +
+`free_closure` (see spec §6.5). **Remaining:** cross-thread resume, then the
+AST→state-machine transform (steps 5–7).
 
 **Audience:** compiler maintainers. Assumes familiarity with the existing closure
 model (`fn(T)->R` is a fat pointer `{fn_ptr, env_ptr}` that captures by value),

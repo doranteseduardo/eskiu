@@ -578,7 +578,24 @@ let add: fn(int)->int = int(int x) { return x + base; };
 add(5);   // 15 — 'base' was captured by value
 ```
 
-Under the hood, `fn(T)->R` is a two-word fat pointer `{fn_ptr, env_ptr}`. When a lambda captures one or more variables, the compiler packages them into a heap-allocated environment struct and stores its address in `env_ptr`. Lambdas that capture nothing have `env_ptr = null` and compile identically to plain function pointers. The representation is fully transparent to user code — the type annotation remains `fn(T)->R` in both cases.
+Under the hood, `fn(T)->R` is a two-word fat pointer `{fn_ptr, env_ptr}`. When a lambda captures one or more variables, the compiler packages them into an environment struct and stores its address in `env_ptr`. Lambdas that capture nothing have `env_ptr = null` and compile identically to plain function pointers. The representation is fully transparent to user code — the type annotation remains `fn(T)->R` in both cases.
+
+**Escape analysis and closure lifetime.** Where the environment lives depends on whether the closure *escapes* its creating function:
+
+- A **non-escaping** closure — one that is only called, or passed to a parameter that is not marked `escaping` — has its environment allocated on the **stack**. This costs nothing and needs no cleanup (the common `map`/`filter`/callback-invoked-in-place case).
+- An **escaping** closure — one that is returned, stored into a struct field / global / through a pointer, or passed to an `escaping` parameter — has its environment allocated on the **heap**, so it remains valid after the creating function returns. Release it with `free_closure(f)` (a no-op for non-capturing closures, whose env is null).
+
+A parameter that retains the closure beyond the call (stores it, returns it, hands it to another `escaping` parameter) must be declared `escaping`:
+
+```eskiu
+// stores cb beyond the call -> the parameter is `escaping`
+void on_ready(int fd, escaping fn(int)->void cb) { handlers[fd] = cb; }
+
+// only calls f -> no annotation; closures passed here stay on the stack
+int apply(fn(int)->int f, int x) { return f(x); }
+```
+
+This is checked: using a non-`escaping` closure parameter beyond a direct call is a compile error pointing you at `escaping`, so a closure can never silently outlive its stack environment. `escaping` and `free_closure` are reserved words (§2.3).
 
 **Named functions as values.** A top-level function used as a value (rather than called) decays to a `fn(T,...)->R`, so it can be assigned or passed directly — no lambda wrapper needed:
 
