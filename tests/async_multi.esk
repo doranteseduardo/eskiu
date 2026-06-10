@@ -1,0 +1,20 @@
+// Multiple awaits in one async fn (fast path: ready futures). Values thread
+// through the frame across each state.
+import <future>;
+extern int printf(string fmt, ...);
+Future<int>* produce(int v) {
+    Future<int>* f = future_new<int>();
+    future_complete<int>(f, v);
+    return f;
+}
+async int sum3() {
+    int a = await produce(1);
+    int b = await produce(2);
+    int c = await produce(3);
+    return a + b + c;
+}
+int main() {
+    Future<int>* r = sum3();
+    printf("%d %d\n", r.value, r.state);   // 6 2
+    return 0;
+}
