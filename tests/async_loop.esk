@@ -1,0 +1,33 @@
+// while-loop containing an await: read a pipe until EOF, summing bytes. The loop
+// header + body become states with a back-edge; awaits inside the body park and
+// resume each iteration. Deterministic (pipe pre-filled then closed).
+import <future>;
+import <net_async>;
+import <eventloop>;
+extern int  printf(string fmt, ...);
+extern int  pipe(*int fds);
+extern int64 write(int fd, *void buf, int64 n);
+extern int  close(int fd);
+uint8[64] b;
+EventLoop* g_lp;
+async int drain(EventLoop* lp, int fd) {
+    int total = 0;
+    int n = await net_read_async(lp, fd, &b[0], (int64)64);
+    while (n > 0) {
+        total = total + n;
+        n = await net_read_async(lp, fd, &b[0], (int64)64);
+    }
+    return total;
+}
+int main() {
+    int[2] fds; pipe(&fds[0]);
+    write(fds[1], (*void)"hello world", (int64)11);
+    close(fds[1]);
+    g_lp = el_new(64);
+    Future<int>* f = drain(g_lp, fds[0]);
+    if (future_poll<int>(f, void() { el_stop(g_lp); }) == 0) { el_run(g_lp); }
+    printf("%d\n", f.value);
+    free_future<int>(f);
+    el_free(g_lp);
+    return 0;
+}

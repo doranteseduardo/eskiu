@@ -1,7 +1,9 @@
 #include "async_transform.h"
 #include <stdexcept>
 #include <set>
+#include <map>
 #include <memory>
+#include <functional>
 
 // ── Small AST builders ───────────────────────────────────────────────────────
 namespace {
@@ -78,6 +80,29 @@ bool hasAwait(const ExprPtr& e) {
     return false;
 }
 
+// True if a statement contains an `await` anywhere (decides plain vs state-split).
+bool stmtHasAwait(const StmtPtr& s) {
+    if (!s) return false;
+    if (auto* b = dynamic_cast<BlockStmt*>(s.get())) {
+        for (auto& it : b->items) {
+            if (std::holds_alternative<DeclPtr>(it)) {
+                if (auto* vd = dynamic_cast<VarDecl*>(std::get<DeclPtr>(it).get()))
+                    if (vd->initializer && hasAwait(vd->initializer)) return true;
+            } else if (stmtHasAwait(std::get<StmtPtr>(it))) return true;
+        }
+        return false;
+    }
+    if (auto* i = dynamic_cast<IfStmt*>(s.get()))
+        return hasAwait(i->condition) || stmtHasAwait(i->thenBranch) || stmtHasAwait(i->elseBranch);
+    if (auto* w = dynamic_cast<WhileStmt*>(s.get()))
+        return hasAwait(w->condition) || stmtHasAwait(w->body);
+    if (auto* f = dynamic_cast<ForStmt*>(s.get()))
+        return stmtHasAwait(f->init) || hasAwait(f->condition) || hasAwait(f->step) || stmtHasAwait(f->body);
+    if (auto* rs = dynamic_cast<ReturnStmt*>(s.get())) return hasAwait(rs->value);
+    if (auto* es = dynamic_cast<ExprStmt*>(s.get()))  return hasAwait(es->expr);
+    return false;
+}
+
 // The closure  void() { fr.st = <state>; __<name>_resume(fr); }  used as a waker.
 // Captures the frame pointer `fr` by value. Because this AST is synthesized after
 // the type checker runs, we populate `captures` ourselves (sema would otherwise).
@@ -114,158 +139,113 @@ void AsyncTransform::run(Program* program) {
         if (!block)
             throw std::runtime_error("async function '" + name + "': missing body");
 
-        // ── Desugar awaits not already bound in a `let` ──────────────────────
-        // `return await E;`  ->  `let __awret<N> = await E; return __awret<N>;`
-        // `await E;`         ->  `let __awtmp<N> = await E;`  (result discarded)
-        // After this, every await is the direct initializer of a `let`.
-        std::vector<BlockItem> items;
+        // ── Desugar awaits not already bound in a `let`, recursing into control
+        //    flow, so afterwards every await is the direct initializer of a let:
+        //    `return await E;`   -> `let __awN = await E; return __awN;`
+        //    `await E;`          -> `let __awN = await E;`            (discarded)
+        //    `x = await E;`      -> `let __awN = await E; x = __awN;`
         int tmpN = 0;
-        for (auto& it : block->items) {
-            if (std::holds_alternative<StmtPtr>(it)) {
-                auto stmt = std::get<StmtPtr>(it);
-                if (auto* rs = dynamic_cast<ReturnStmt*>(stmt.get())) {
-                    if (auto* aw = dynamic_cast<AwaitExpr*>(rs->value.get())) {
-                        std::string tn = "__awret" + std::to_string(tmpN++);
-                        items.push_back(DeclPtr(std::make_shared<VarDecl>(tn, aw->resolvedType, rs->value)));
-                        items.push_back(StmtPtr(std::make_shared<ReturnStmt>(ident(tn))));
-                        continue;
-                    }
-                } else if (auto* es = dynamic_cast<ExprStmt*>(stmt.get())) {
-                    if (auto* aw = dynamic_cast<AwaitExpr*>(es->expr.get())) {
-                        std::string tn = "__awtmp" + std::to_string(tmpN++);
-                        items.push_back(DeclPtr(std::make_shared<VarDecl>(tn, aw->resolvedType, es->expr)));
-                        continue;
+        std::function<StmtPtr(const StmtPtr&)> desugarStmt;
+        std::function<std::vector<BlockItem>(const std::vector<BlockItem>&)> desugarItems =
+            [&](const std::vector<BlockItem>& its) {
+                std::vector<BlockItem> out2;
+                for (auto& it : its) {
+                    if (std::holds_alternative<StmtPtr>(it)) {
+                        auto stmt = std::get<StmtPtr>(it);
+                        if (auto* rs = dynamic_cast<ReturnStmt*>(stmt.get())) {
+                            if (auto* aw = dynamic_cast<AwaitExpr*>(rs->value.get())) {
+                                std::string tn = "__aw_t" + std::to_string(tmpN++);
+                                out2.push_back(DeclPtr(std::make_shared<VarDecl>(tn, aw->resolvedType, rs->value)));
+                                out2.push_back(StmtPtr(std::make_shared<ReturnStmt>(ident(tn))));
+                                continue;
+                            }
+                        } else if (auto* es = dynamic_cast<ExprStmt*>(stmt.get())) {
+                            if (auto* aw = dynamic_cast<AwaitExpr*>(es->expr.get())) {
+                                std::string tn = "__aw_t" + std::to_string(tmpN++);
+                                out2.push_back(DeclPtr(std::make_shared<VarDecl>(tn, aw->resolvedType, es->expr)));
+                                continue;          // discard
+                            }
+                            // x = await E;  ->  let __awN = await E; x = __awN;
+                            if (auto* b = dynamic_cast<BinaryExpr*>(es->expr.get()))
+                                if (b->op == "=")
+                                    if (auto* aw = dynamic_cast<AwaitExpr*>(b->right.get())) {
+                                        std::string tn = "__aw_t" + std::to_string(tmpN++);
+                                        out2.push_back(DeclPtr(std::make_shared<VarDecl>(tn, aw->resolvedType, b->right)));
+                                        out2.push_back(StmtPtr(std::make_shared<ExprStmt>(
+                                            binop(b->left, "=", ident(tn)))));
+                                        continue;
+                                    }
+                        }
+                        out2.push_back(StmtPtr(desugarStmt(stmt)));
+                    } else {
+                        out2.push_back(it);        // a plain decl (incl. `let x = await E`)
                     }
                 }
-            }
-            items.push_back(it);
-        }
+                return out2;
+            };
+        desugarStmt = [&](const StmtPtr& s) -> StmtPtr {
+            if (auto* b = dynamic_cast<BlockStmt*>(s.get()))
+                return std::make_shared<BlockStmt>(desugarItems(b->items));
+            if (auto* i = dynamic_cast<IfStmt*>(s.get()))
+                return std::make_shared<IfStmt>(i->condition,
+                    i->thenBranch ? desugarStmt(i->thenBranch) : nullptr,
+                    i->elseBranch ? desugarStmt(i->elseBranch) : nullptr);
+            if (auto* w = dynamic_cast<WhileStmt*>(s.get()))
+                return std::make_shared<WhileStmt>(w->condition, desugarStmt(w->body));
+            if (auto* f = dynamic_cast<ForStmt*>(s.get()))
+                return std::make_shared<ForStmt>(f->init, f->condition, f->step, desugarStmt(f->body));
+            return s;
+        };
+        std::vector<BlockItem> items = desugarItems(block->items);
 
-        // Collect await sites in order: each is `let x = await CALL(...)`.
-        struct AwaitSite { VarDecl* var; AwaitExpr* expr; size_t idx; };
+        // ── Collect awaits (source order, recursing into control flow) and all
+        //    locals (hoisted to frame fields). Each await gets an __aw<i>. ─────
+        struct AwaitSite { VarDecl* var; AwaitExpr* expr; };
         std::vector<AwaitSite> awaits;
-        for (size_t i = 0; i < items.size(); ++i) {
-            if (!std::holds_alternative<DeclPtr>(items[i])) continue;
-            auto* vd = dynamic_cast<VarDecl*>(std::get<DeclPtr>(items[i]).get());
-            if (vd && vd->initializer)
-                if (auto* aw = dynamic_cast<AwaitExpr*>(vd->initializer.get()))
-                    awaits.push_back({vd, aw, i});
-        }
-        if (awaits.empty())
-            throw std::runtime_error("async function '" + name +
-                "': expected at least one `await`");
-        const int k = (int)awaits.size();   // number of awaits -> states 0..k
-
-        // ── Frame variables: params + every body local + one __aw<i> per await ─
+        std::map<AwaitExpr*, int> awIdx;
         std::set<std::string> vars;
         std::vector<StructDecl::Field> fields;
         fields.push_back({"Future<" + Tret + ">", "ret"});
         fields.push_back({"int", "st"});
         fields.push_back({"FutureHdr*", "awaiting"});
-        for (int i = 0; i < k; ++i)
-            fields.push_back({"*Future<" + awaits[i].var->type + ">", "__aw" + std::to_string(i)});
         for (const auto& p : fn->params) { vars.insert(p.second); fields.push_back({p.first, p.second}); }
-        for (auto& item : items)
-            if (std::holds_alternative<DeclPtr>(item))
-                if (auto* vd = dynamic_cast<VarDecl*>(std::get<DeclPtr>(item).get())) {
-                    vars.insert(vd->name); fields.push_back({vd->type, vd->name});
+
+        std::function<void(const StmtPtr&)> scanS;
+        std::function<void(const std::vector<BlockItem>&)> scanB =
+            [&](const std::vector<BlockItem>& its) {
+                for (auto& it : its) {
+                    if (std::holds_alternative<DeclPtr>(it)) {
+                        auto* vd = dynamic_cast<VarDecl*>(std::get<DeclPtr>(it).get());
+                        if (!vd) continue;
+                        if (!vars.count(vd->name)) { vars.insert(vd->name); fields.push_back({vd->type, vd->name}); }
+                        if (vd->initializer)
+                            if (auto* aw = dynamic_cast<AwaitExpr*>(vd->initializer.get())) {
+                                awIdx[aw] = (int)awaits.size();
+                                fields.push_back({"*Future<" + vd->type + ">", "__aw" + std::to_string(awaits.size())});
+                                awaits.push_back({vd, aw});
+                            }
+                    } else scanS(std::get<StmtPtr>(it));
                 }
-
-        // ── Helpers that emit into a state's statement list ──────────────────
-        // Park on await i; on suspend return, on the fast path advance to nextState.
-        auto emitPark = [&](std::vector<BlockItem>& st, int i, int nextState) {
-            const std::string awf = "__aw" + std::to_string(i);
-            const std::string Tp  = awaits[i].var->type;
-            ExprPtr callE = awaits[i].expr->operand; rewrite(callE, vars);
-            st.push_back(assign(fr(awf), callE));
-            ExprPtr poll = std::make_shared<TemplateCallExpr>("future_poll",
-                std::vector<std::string>{Tp},
-                std::vector<ExprPtr>{ fr(awf), resumeWaker(resumeN, nextState, "*" + frameT) });
-            std::vector<BlockItem> parkBody;
-            parkBody.push_back(assign(fr("awaiting"), std::make_shared<CastExpr>("*FutureHdr", fr(awf))));
-            parkBody.push_back(ret(nullptr));
-            st.push_back(std::make_shared<IfStmt>(binop(poll, "==", intlit(0)),
-                std::make_shared<BlockStmt>(parkBody)));
-            st.push_back(assign(fr("st"), intlit(nextState)));
+            };
+        scanS = [&](const StmtPtr& s) {
+            if (!s) return;
+            if (auto* b = dynamic_cast<BlockStmt*>(s.get())) scanB(b->items);
+            else if (auto* i = dynamic_cast<IfStmt*>(s.get())) { scanS(i->thenBranch); scanS(i->elseBranch); }
+            else if (auto* w = dynamic_cast<WhileStmt*>(s.get())) scanS(w->body);
+            else if (auto* f = dynamic_cast<ForStmt*>(s.get())) { scanS(f->init); scanS(f->body); }
         };
-        // Resume past await i: no longer parked; extract the value; release the
-        // waker's heap env and the awaited future. (free_closure must precede
-        // free_future, which frees the struct that holds the waker field.)
-        auto emitExtract = [&](std::vector<BlockItem>& st, int i) {
-            const std::string awf = "__aw" + std::to_string(i);
-            const std::string Tp  = awaits[i].var->type;
-            st.push_back(assign(fr("awaiting"),
-                std::make_shared<CastExpr>("*FutureHdr", intlit(0))));
-            st.push_back(assign(fr(awaits[i].var->name), std::make_shared<MemberExpr>(fr(awf), "value")));
-            st.push_back(exprStmt(std::make_shared<FreeClosureExpr>(
-                std::make_shared<MemberExpr>(fr(awf), "waker"))));
-            st.push_back(exprStmt(std::make_shared<TemplateCallExpr>("free_future",
-                std::vector<std::string>{Tp}, std::vector<ExprPtr>{ fr(awf) })));
-        };
-        // A plain (non-await) statement: rewrite refs; let->assign; return->complete.
-        auto emitPlain = [&](std::vector<BlockItem>& st, BlockItem& item) {
-            if (std::holds_alternative<DeclPtr>(item)) {
-                auto* vd = dynamic_cast<VarDecl*>(std::get<DeclPtr>(item).get());
-                if (vd && vd->initializer) {
-                    if (hasAwait(vd->initializer))
-                        throw std::runtime_error("async function '" + name + "': await must be "
-                            "the whole initializer (`let x = await ...;`), not part of an expression");
-                    rewrite(vd->initializer, vars);
-                    st.push_back(assign(fr(vd->name), vd->initializer));
-                }
-                return;
-            }
-            auto stmt = std::get<StmtPtr>(item);
-            if (auto* rs = dynamic_cast<ReturnStmt*>(stmt.get())) {
-                if (hasAwait(rs->value))
-                    throw std::runtime_error("async function '" + name + "': `return await ...` "
-                        "is not supported yet — bind it first (`let r = await ...; return r;`)");
-                // void `return;` completes the future with the 1-byte unit (0).
-                ExprPtr v = rs->value ? rs->value : intlit(0);
-                rewrite(v, vars);
-                st.push_back(assign(std::make_shared<MemberExpr>(fr("ret"), "value"), v));
-                ExprPtr swap = std::make_shared<CallExpr>(ident("atomic_swap"),
-                    std::vector<ExprPtr>{ std::make_shared<UnaryExpr>("&",
-                        std::make_shared<MemberExpr>(fr("ret"), "state")), intlit(2) });
-                std::vector<BlockItem> wk;
-                wk.push_back(exprStmt(std::make_shared<CallExpr>(
-                    std::make_shared<MemberExpr>(fr("ret"), "waker"), std::vector<ExprPtr>{})));
-                st.push_back(std::make_shared<IfStmt>(binop(swap, "==", intlit(1)),
-                    std::make_shared<BlockStmt>(wk)));
-                st.push_back(ret(nullptr));
-            } else if (auto* es = dynamic_cast<ExprStmt*>(stmt.get())) {
-                if (hasAwait(es->expr))
-                    throw std::runtime_error("async function '" + name +
-                        "': await must be bound in a `let` (v1)");
-                rewrite(es->expr, vars); st.push_back(stmt);
-            } else {
-                throw std::runtime_error("async function '" + name + "': v1 supports linear "
-                    "bodies only (let/expr/return); control flow around await is not lowered yet");
-            }
-        };
+        scanB(items);
+        if (awaits.empty())
+            throw std::runtime_error("async function '" + name + "': expected at least one `await`");
 
-        // ── Build states 0..k by walking the body, splitting at each await ────
-        std::vector<std::vector<BlockItem>> states(k + 1);
-        int cur = 0, ai = 0;
-        for (size_t idx = 0; idx < items.size(); ++idx) {
-            if (ai < k && idx == awaits[ai].idx) {
-                emitPark(states[cur], ai, cur + 1);      // park on await ai in current state
-                ++cur;
-                emitExtract(states[cur], ai);            // next state begins by extracting it
-                ++ai;
-            } else {
-                emitPlain(states[cur], items[idx]);
-            }
-        }
+        // ── State graph ──────────────────────────────────────────────────────
+        std::vector<std::vector<BlockItem>> states;
+        auto newState = [&]() -> int { states.push_back({}); return (int)states.size() - 1; };
+        auto goTo = [&](int s, int target) { states[s].push_back(assign(fr("st"), intlit(target))); };
 
-        // An `async void` body may fall off the end with no `return`; complete
-        // the future (unit 0) in the final state so the awaiter is resumed.
-        bool endsInReturn = !items.empty() &&
-            std::holds_alternative<StmtPtr>(items.back()) &&
-            dynamic_cast<ReturnStmt*>(std::get<StmtPtr>(items.back()).get());
-        if (isVoid && !endsInReturn) {
-            auto& st = states[k];
-            st.push_back(assign(std::make_shared<MemberExpr>(fr("ret"), "value"), intlit(0)));
+        // Complete the future with `v` (already rewritten), then return.
+        auto completeInto = [&](std::vector<BlockItem>& st, ExprPtr v) {
+            st.push_back(assign(std::make_shared<MemberExpr>(fr("ret"), "value"), v));
             ExprPtr swap = std::make_shared<CallExpr>(ident("atomic_swap"),
                 std::vector<ExprPtr>{ std::make_shared<UnaryExpr>("&",
                     std::make_shared<MemberExpr>(fr("ret"), "state")), intlit(2) });
@@ -274,13 +254,151 @@ void AsyncTransform::run(Program* program) {
                 std::make_shared<MemberExpr>(fr("ret"), "waker"), std::vector<ExprPtr>{})));
             st.push_back(std::make_shared<IfStmt>(binop(swap, "==", intlit(1)),
                 std::make_shared<BlockStmt>(wk)));
+            st.push_back(ret(nullptr));
+        };
+
+        // Recursively rewrite a NO-await statement for inclusion in a state:
+        // let -> fr.x = E; return -> completion; recurse into control-flow bodies.
+        std::function<StmtPtr(const StmtPtr&)> rewritePlain = [&](const StmtPtr& s) -> StmtPtr {
+            if (auto* b = dynamic_cast<BlockStmt*>(s.get())) {
+                std::vector<BlockItem> out2;
+                for (auto& it : b->items) {
+                    if (std::holds_alternative<DeclPtr>(it)) {
+                        auto* vd = dynamic_cast<VarDecl*>(std::get<DeclPtr>(it).get());
+                        if (vd && vd->initializer) { rewrite(vd->initializer, vars); out2.push_back(assign(fr(vd->name), vd->initializer)); }
+                    } else out2.push_back(rewritePlain(std::get<StmtPtr>(it)));
+                }
+                return std::make_shared<BlockStmt>(out2);
+            }
+            if (auto* rs = dynamic_cast<ReturnStmt*>(s.get())) {
+                ExprPtr v = rs->value ? rs->value : intlit(0); rewrite(v, vars);
+                std::vector<BlockItem> cb; completeInto(cb, v);
+                return std::make_shared<BlockStmt>(cb);
+            }
+            if (auto* es = dynamic_cast<ExprStmt*>(s.get())) { rewrite(es->expr, vars); return s; }
+            if (auto* i = dynamic_cast<IfStmt*>(s.get())) {
+                rewrite(i->condition, vars);
+                return std::make_shared<IfStmt>(i->condition, rewritePlain(i->thenBranch),
+                    i->elseBranch ? rewritePlain(i->elseBranch) : nullptr);
+            }
+            if (auto* w = dynamic_cast<WhileStmt*>(s.get())) {
+                rewrite(w->condition, vars);
+                return std::make_shared<WhileStmt>(w->condition, rewritePlain(w->body));
+            }
+            return s;   // break/continue/etc.
+        };
+
+        // Lower a statement that CONTAINS an await into the state graph; lowerSeq
+        // threads a list. Each returns the state where control continues.
+        std::function<int(const std::vector<BlockItem>&, int)> lowerSeq;
+        std::function<int(const StmtPtr&, int)> lowerStmt;
+        auto lowerItem = [&](BlockItem& it, int cur) -> int {
+            if (std::holds_alternative<DeclPtr>(it)) {
+                auto* vd = dynamic_cast<VarDecl*>(std::get<DeclPtr>(it).get());
+                if (!vd || !vd->initializer) return cur;
+                if (auto* aw = dynamic_cast<AwaitExpr*>(vd->initializer.get())) {
+                    int i = awIdx[aw]; std::string awf = "__aw" + std::to_string(i);
+                    ExprPtr callE = aw->operand; rewrite(callE, vars);
+                    states[cur].push_back(assign(fr(awf), callE));
+                    int next = newState();
+                    ExprPtr poll = std::make_shared<TemplateCallExpr>("future_poll",
+                        std::vector<std::string>{vd->type},
+                        std::vector<ExprPtr>{ fr(awf), resumeWaker(resumeN, next, "*" + frameT) });
+                    std::vector<BlockItem> pk;
+                    pk.push_back(assign(fr("awaiting"), std::make_shared<CastExpr>("*FutureHdr", fr(awf))));
+                    pk.push_back(ret(nullptr));
+                    states[cur].push_back(std::make_shared<IfStmt>(binop(poll, "==", intlit(0)),
+                        std::make_shared<BlockStmt>(pk)));
+                    goTo(cur, next);
+                    // extract into `next`
+                    states[next].push_back(assign(fr("awaiting"), std::make_shared<CastExpr>("*FutureHdr", intlit(0))));
+                    states[next].push_back(assign(fr(vd->name), std::make_shared<MemberExpr>(fr(awf), "value")));
+                    states[next].push_back(exprStmt(std::make_shared<FreeClosureExpr>(
+                        std::make_shared<MemberExpr>(fr(awf), "waker"))));
+                    states[next].push_back(exprStmt(std::make_shared<TemplateCallExpr>("free_future",
+                        std::vector<std::string>{vd->type}, std::vector<ExprPtr>{ fr(awf) })));
+                    return next;
+                }
+                if (hasAwait(vd->initializer))
+                    throw std::runtime_error("async function '" + name + "': await must be the whole "
+                        "initializer of a `let`, not part of a larger expression");
+                rewrite(vd->initializer, vars);
+                states[cur].push_back(assign(fr(vd->name), vd->initializer));
+                return cur;
+            }
+            return lowerStmt(std::get<StmtPtr>(it), cur);
+        };
+        // lowerSeq/lowerStmt return -1 when control definitely terminates (a
+        // `return` was emitted on every path) — so callers don't append a
+        // terminator or a transition to an unreachable state.
+        lowerSeq = [&](const std::vector<BlockItem>& its, int entry) -> int {
+            int cur = entry;
+            for (auto& it : its) {
+                if (cur == -1) break;            // rest is unreachable
+                BlockItem copy = it; cur = lowerItem(copy, cur);
+            }
+            return cur;
+        };
+        lowerStmt = [&](const StmtPtr& s, int cur) -> int {
+            // return E  -> complete the future and terminate this path.
+            if (auto* rs = dynamic_cast<ReturnStmt*>(s.get())) {
+                if (hasAwait(rs->value))
+                    throw std::runtime_error("async function '" + name + "': `return await ...` "
+                        "must be bound first (`let r = await ...; return r;`)");
+                ExprPtr v = rs->value ? rs->value : intlit(0); rewrite(v, vars);
+                completeInto(states[cur], v);
+                return -1;
+            }
+            if (!stmtHasAwait(s)) { states[cur].push_back(rewritePlain(s)); return cur; }
+            if (auto* i = dynamic_cast<IfStmt*>(s.get())) {
+                rewrite(i->condition, vars);
+                int thenE = newState(), elseE = newState(), join = newState();
+                std::vector<BlockItem> tb; tb.push_back(assign(fr("st"), intlit(thenE)));
+                std::vector<BlockItem> eb; eb.push_back(assign(fr("st"), intlit(elseE)));
+                states[cur].push_back(std::make_shared<IfStmt>(i->condition,
+                    std::make_shared<BlockStmt>(tb), std::make_shared<BlockStmt>(eb)));
+                int te = lowerStmt(i->thenBranch, thenE);
+                int ee = i->elseBranch ? lowerStmt(i->elseBranch, elseE) : elseE;
+                if (te != -1) goTo(te, join);
+                if (ee != -1) goTo(ee, join);
+                return (te == -1 && ee == -1) ? -1 : join;
+            }
+            if (auto* w = dynamic_cast<WhileStmt*>(s.get())) {
+                rewrite(w->condition, vars);
+                int header = newState(), bodyE = newState(), after = newState();
+                goTo(cur, header);
+                std::vector<BlockItem> tb; tb.push_back(assign(fr("st"), intlit(bodyE)));
+                std::vector<BlockItem> eb; eb.push_back(assign(fr("st"), intlit(after)));
+                states[header].push_back(std::make_shared<IfStmt>(w->condition,
+                    std::make_shared<BlockStmt>(tb), std::make_shared<BlockStmt>(eb)));
+                int be = lowerStmt(w->body, bodyE);
+                if (be != -1) goTo(be, header);    // back-edge
+                return after;                       // the loop may not execute -> reachable
+            }
+            if (auto* b = dynamic_cast<BlockStmt*>(s.get())) return lowerSeq(b->items, cur);
+            throw std::runtime_error("async function '" + name + "': await inside this statement "
+                "is not lowered yet (supported: if/while; not for/switch)");
+        };
+
+        int entry = newState();                 // state 0
+        int exit  = lowerSeq(items, entry);
+        // Fall off the end of a reachable exit state: void completes with unit 0;
+        // a non-void fn that falls off is a user error, but emit a bare return.
+        if (exit != -1) {
+            if (isVoid) completeInto(states[exit], intlit(0));
+            else        states[exit].push_back(ret(nullptr));
         }
 
-        // ── Assemble resume:  if (fr.st==0){..} if(fr.st==1){..} ... ─────────
+        // ── Resume:  while (true) { if(st==0){..} else if(st==1){..} ... else return; }
+        StmtPtr chain = ret(nullptr);           // terminal: unknown state -> return
+        for (int s = (int)states.size() - 1; s >= 0; --s)
+            chain = std::make_shared<IfStmt>(binop(fr("st"), "==", intlit(s)),
+                std::make_shared<BlockStmt>(states[s]), chain);
+        std::vector<BlockItem> loopBody; loopBody.push_back(chain);
         std::vector<BlockItem> resumeBody;
-        for (int s = 0; s <= k; ++s)
-            resumeBody.push_back(std::make_shared<IfStmt>(
-                binop(fr("st"), "==", intlit(s)), std::make_shared<BlockStmt>(states[s])));
+        resumeBody.push_back(std::make_shared<WhileStmt>(
+            std::make_shared<LiteralExpr>(LiteralExpr::Kind::BOOL, "true"),
+            std::make_shared<BlockStmt>(loopBody)));
         auto resumeFn = std::make_shared<FunctionDecl>(
             resumeN, "void",
             std::vector<std::pair<std::string,std::string>>{ {"*" + frameT, "fr"} },
