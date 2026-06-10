@@ -683,7 +683,38 @@ thread_join(t);
 
 **Implementation detail.** The closure fat pointer `{fn_ptr, env_ptr}` maps directly to the `(start_routine, arg)` pair expected by `pthread_create` — no trampoline function is generated. On Linux, link the final binary with `-lpthread`.
 
-### 6.8 Exception Handling
+### 6.8 Async Functions and `await`
+
+> **Status:** the surface syntax and type rules below are implemented (parsing and
+> type-checking). The state-machine lowering that makes them run is in progress;
+> until it lands, compiling an `async` function or `await` is rejected at codegen.
+
+An `async` function is declared with the `async` modifier before the return type. Its
+*declared* return type is the value it ultimately produces, but a **call** to it
+yields a `*Future<T>` — a handle to the eventual result — rather than `T` directly:
+
+```eskiu
+import <future>;
+import <net_async>;
+
+async int read_len(EventLoop* lp, int fd, *uint8 buf) {
+    int n = await net_read_async(lp, fd, buf, 4096);   // suspend until readable
+    return n;
+}
+// read_len(lp, fd, buf) has type *Future<int>
+```
+
+`await E` suspends the enclosing async function until the future `E` completes, then
+evaluates to its result. `E` must have type `*Future<T>`, and `await E` has type `T`.
+`await` is legal **only inside an `async` function**; at the top level you drive a
+future explicitly (there is no top-level `await`). The future being awaited may come
+from a leaf primitive (`<net_async>`) or from calling another async function.
+
+`Future<T>`, the executor, and the leaf futures live in the standard library
+(`<future>`, `<executor>`, `<net_async>`); see `docs/dev/async-design.md` for the
+runtime contract and the lowering design.
+
+### 6.9 Exception Handling
 
 Eskiu supports structured exception handling via `try`, `catch`, `finally`, and `throw`.
 
