@@ -540,6 +540,16 @@ void TypeChecker::visit(CallExpr* node) {
                 return;
             }
         }
+        // Not a method — maybe a struct field holding a fn pointer: o.op(args).
+        member->accept(this);
+        std::string fieldTy = getExpressionType(member);
+        if (fieldTy.size() > 3 && fieldTy.substr(0, 3) == "fn(") {
+            for (auto& arg : node->args) arg->accept(this);
+            size_t rp = fieldTy.find(")->");
+            expressionTypes[node] = (rp != std::string::npos)
+                ? normalizeType(fieldTy.substr(rp + 3)) : "unknown";
+            return;
+        }
         errorAt(node,"undefined method '" + member->member + "' on type '" + baseType + "'");
         expressionTypes[node] = "unknown";
         return;
@@ -1172,10 +1182,11 @@ void TypeChecker::validateStructType(const std::string& type) {
             error(0, 0, "undefined struct '" + structName + "'");
         }
     } else if (!isPrimitiveType(baseType)) {
-        // Check if it's an unknown type that might be a struct
-        // Primitive types: i8, i16, i32, i64, u8, u16, u32, u64, f32, f64, bool
-        if (structs.find(baseType) == structs.end()) {
-            // Not a primitive, not a known struct -> might be undefined struct
+        // Valid if it's a known struct, type alias, or enum type — anything else
+        // is an undefined type. (Aliases/enums are resolved later in codegen.)
+        if (structs.find(baseType) == structs.end() &&
+            typeAliases.find(baseType) == typeAliases.end() &&
+            enumTypes.find(baseType) == enumTypes.end()) {
             error(0, 0, "undefined struct '" + baseType + "'");
         }
     }

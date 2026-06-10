@@ -405,6 +405,37 @@ std::string CodeGen::getExprEskiuType(const ExprPtr& expr) const {
         if (!base.empty() && base.front() == '*') return base.substr(1);
         if (!base.empty() && base.back()  == '*') return base.substr(0, base.size() - 1);
     }
+    // A call's static type is its function's return type — needed so member
+    // access on a temporary (e.g. make().x) can resolve the struct.
+    if (auto call = dynamic_cast<CallExpr*>(expr.get())) {
+        if (auto id = dynamic_cast<IdentExpr*>(call->callee.get())) {
+            auto it = funcEskiuReturnType.find(id->name);
+            if (it != funcEskiuReturnType.end()) return expandAlias(it->second);
+        } else if (auto m = dynamic_cast<MemberExpr*>(call->callee.get())) {
+            std::string bt = getExprEskiuType(m->base);
+            if (bt.size() > 7 && bt.substr(0, 7) == "struct:") bt = bt.substr(7);
+            if (!bt.empty() && bt.front() == '*') bt = bt.substr(1);
+            while (!bt.empty() && bt.back() == '*') bt.pop_back();
+            if (bt.find('<') != std::string::npos) bt = mangleTemplate(bt);
+            auto it = funcEskiuReturnType.find(bt + "_" + m->member);
+            if (it != funcEskiuReturnType.end()) return expandAlias(it->second);
+        }
+        return "";
+    }
+    if (auto tc = dynamic_cast<TemplateCallExpr*>(expr.get())) {
+        auto td = funcTemplateDecls.find(tc->templateName);
+        if (td != funcTemplateDecls.end()) {
+            auto& tp = td->second->typeParams;
+            std::map<std::string, std::string> subs;
+            for (size_t i = 0; i < tp.size() && i < tc->typeArgs.size(); ++i)
+                subs[tp[i]] = tc->typeArgs[i];
+            return expandAlias(substType(td->second->returnType, subs));
+        }
+        return "";
+    }
+    if (auto si = dynamic_cast<StructInitExpr*>(expr.get())) {
+        return si->structName;
+    }
     return "";
 }
 
@@ -506,6 +537,7 @@ llvm::Function* CodeGen::declareFunction(
             if (p.first != "...") pts.push_back(p.first);
         funcEskiuParamTypes[name] = pts;
     }
+    funcEskiuReturnType[name] = returnTypeStr;
 
     // Idempotent: reuse a prototype declared by the pre-pass.
     if (llvm::Function* existing = module->getFunction(name)) return existing;
@@ -1492,7 +1524,11 @@ void CodeGen::visit(CallExpr* node) {
             exprValueStack.push(builder->CreateCall(mfunc, margs));
             return;
         }
-        throw std::runtime_error("Undefined method: " + baseType + "::" + member->member);
+        // Not a method: if o.member is a fn-pointer field, fall through to the
+        // general indirect-call path (evaluateExpr(callee) yields the fat ptr).
+        std::string ft = getExprEskiuType(node->callee);
+        if (!(ft.size() > 3 && ft.substr(0, 3) == "fn("))
+            throw std::runtime_error("Undefined method: " + baseType + "::" + member->member);
     }
 
     // A bare name that resolves to a function (and is not shadowed by a local
@@ -1680,8 +1716,21 @@ void CodeGen::visit(MemberExpr* node) {
     // base via its address (see the matching logic in evaluateLValue).
     std::string rawBaseTy = getExprEskiuType(node->base);
     bool baseIsPtr = (!rawBaseTy.empty() && (rawBaseTy.front() == '*' || rawBaseTy.back() == '*'));
+    // A struct-valued temporary (call result, template call, struct literal) is
+    // an rvalue with no address — materialize it into an alloca so we can GEP.
+    Expr* b = node->base.get();
+    bool baseIsTemp = !baseIsPtr &&
+        (dynamic_cast<CallExpr*>(b) || dynamic_cast<TemplateCallExpr*>(b) ||
+         dynamic_cast<StructInitExpr*>(b));
     auto baseAddr = [&]() -> llvm::Value* {
-        return baseIsPtr ? evaluateExpr(node->base) : evaluateLValue(node->base);
+        if (baseIsPtr) return evaluateExpr(node->base);
+        if (baseIsTemp) {
+            llvm::Value* v = evaluateExpr(node->base);
+            llvm::Value* tmp = builder->CreateAlloca(v->getType(), nullptr, "mem.tmp");
+            builder->CreateStore(v, tmp);
+            return tmp;
+        }
+        return evaluateLValue(node->base);
     };
 
     // Bitfield-layout struct: physical slot map (handles bitfields and the

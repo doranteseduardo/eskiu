@@ -1,0 +1,13 @@
+// Regression: fn-pointer as a function RETURN type, and calling a fn-pointer
+// struct field directly (o.op(args)).
+extern int printf(string fmt, ...);
+int add(int a, int b) { return a + b; }
+fn(int)->int adder() { return int(int x){ return x + 100; }; }   // fn return type
+struct Ops { fn(int,int)->int op; }
+int main() {
+    let f: fn(int)->int = adder();
+    printf("ret=%d\n", f(5));            // 105
+    let o: Ops;  o.op = add;
+    printf("field=%d\n", o.op(3, 4));    // 7
+    return 0;
+}

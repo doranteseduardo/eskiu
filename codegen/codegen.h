@@ -86,6 +86,9 @@ private:
 
     // Eskiu param types per function — for interface boxing at call sites
     std::map<std::string, std::vector<std::string>> funcEskiuParamTypes;
+    // Eskiu return type per function — lets getExprEskiuType resolve the static
+    // type of a call result (so member access on a temporary works).
+    std::map<std::string, std::string> funcEskiuReturnType;
 
     // Interface method return types — indexed by [ifaceName][methodIndex]
     std::map<std::string, std::vector<std::string>> ifaceMethodReturnTypes;
