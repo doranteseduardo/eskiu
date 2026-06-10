@@ -6,15 +6,21 @@
 // Layout (see linker.ld):
 //   heap: 0x40300000 – 0x40400000  (1 MB)
 
+import <alloc>;   // reuse the stdlib's alignment helper
+
+// These live in .data (initialized), not .bss — boot.s does not zero .bss, so a
+// global Bump struct can't be used directly here; we keep the bump state in
+// plain initialized globals and borrow alloc_align8 from <alloc>.
 int64 _heap_ptr = 0x40300000;
 int64 _heap_end = 0x40400000;
 
 *uint8 esk_alloc(int64 size) {
-    if (_heap_ptr + size > _heap_end) {
+    int64 n = alloc_align8(size);   // 8-byte align each allocation
+    if (_heap_ptr + n > _heap_end) {
         return null;
     }
     int64 ptr = _heap_ptr;
-    _heap_ptr = _heap_ptr + size;
+    _heap_ptr = _heap_ptr + n;
     return (*uint8) ptr;
 }
 
