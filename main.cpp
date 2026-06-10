@@ -18,6 +18,7 @@
 #include "parser/parser.h"
 #include "ast/ast_printer.h"
 #include "sema/type_checker.h"
+#include "sema/async_transform.h"
 #include "codegen/codegen.h"
 
 // Command line options
@@ -273,6 +274,7 @@ static void testCodegen(const std::string& filename) {
     std::cout << "========================================================" << std::endl;
 
     try {
+        AsyncTransform().run(program.get());
         // Codegen
         CodeGen codegen;
         if (!TargetTriple.empty()) codegen.targetTriple = std::string(TargetTriple);
@@ -456,6 +458,7 @@ int main(int argc, char** argv) {
             return 1;
         }
 
+        AsyncTransform().run(program.get());
         CodeGen codegen;
         if (!TargetTriple.empty()) codegen.targetTriple = std::string(TargetTriple);
         codegen.freestanding = Freestanding;

@@ -1,0 +1,21 @@
+// async/await transform: a single await of an already-ready future. The state
+// machine runs synchronously to completion; the returned future is READY (2).
+import <future>;
+extern int printf(string fmt, ...);
+
+Future<int>* produce() {
+    Future<int>* f = future_new<int>();
+    future_complete<int>(f, 41);
+    return f;
+}
+
+async int one() {
+    int n = await produce();
+    return n + 1;
+}
+
+int main() {
+    Future<int>* r = one();
+    printf("%d %d\n", r.value, r.state);   // 42 2
+    return 0;
+}
