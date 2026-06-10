@@ -328,6 +328,9 @@ DeclPtr Parser::parseDeclaration() {
         if (match(TokenType::EXTERN)) {
             return parseExternDecl();
         }
+        if (match(TokenType::INTRINSIC)) {
+            return parseIntrinsicDecl();
+        }
         if (match(TokenType::STRUCT)) {
             return parseStructDecl();
         }
@@ -524,6 +527,20 @@ DeclPtr Parser::parseExternDecl() {
     consume(TokenType::SEMICOLON, "Expected ';'");
 
     return std::make_shared<ExternDecl>(name, returnType, params);
+}
+
+DeclPtr Parser::parseIntrinsicDecl() {
+    // Same prototype syntax as extern, but a distinct node: the call lowers to
+    // inline IR rather than a call to an external C symbol.
+    std::string returnType = parseType();
+    std::string name = consume(TokenType::IDENT, "Expected intrinsic name").value;
+
+    consume(TokenType::LPAREN, "Expected '('");
+    auto params = parseParameterList();
+    consume(TokenType::RPAREN, "Expected ')'");
+    consume(TokenType::SEMICOLON, "Expected ';'");
+
+    return std::make_shared<IntrinsicDecl>(name, returnType, params);
 }
 
 DeclPtr Parser::parseStructDecl() {

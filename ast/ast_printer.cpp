@@ -86,6 +86,20 @@ void ASTPrinter::visit(ExternDecl* node) {
     indentLevel--;
 }
 
+void ASTPrinter::visit(IntrinsicDecl* node) {
+    println("IntrinsicDecl: " + node->name + " -> " + node->returnType);
+    indentLevel++;
+
+    println("Parameters:");
+    indentLevel++;
+    for (auto& param : node->params) {
+        println(param.first + " " + param.second);
+    }
+    indentLevel--;
+
+    indentLevel--;
+}
+
 void ASTPrinter::visit(BlockStmt* node) {
     println("BlockStmt");
     indentLevel++;

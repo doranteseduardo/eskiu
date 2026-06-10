@@ -90,6 +90,7 @@ All items below are implemented and tested end-to-end.
 | `const` | `const T x` / `const let x: T` — immutable; sema requires an initializer and rejects reassignment (`Symbol::isConst`/`isConstSymbol`). const ints resolve as array dimensions via `constInts` + `resolveArrayDim` (also accepts literals and enum members) |
 | `alloc<T>` / `free` | **Stdlib, not keywords** — `import <mem>`. `alloc<T>(n)` is a generic fn wrapping `malloc`/`esk_alloc`; `free(*void)` wraps `free`/`esk_free`. `<mem>` picks the backend via `#ifdef __ESKIU_FREESTANDING__`. `<mem>` is the **only** stdlib file that names the libc symbol; everything else uses `alloc<T>`/`free` |
 | `alloc_with` / `<alloc>` | `alloc_with(&a, T, n)` (`AllocWithExpr`) is still a built-in keyword — it needs the compiler to resolve `<Type>_alloc` from the allocator's static type. Lowers to `(*T)<Type>_alloc(&a, n*sizeof(T))`. `stdlib/alloc.esk` ships `Bump`/`Arena`/`Pool`/`FirstFit` over caller-provided buffers (libc-free) |
+| `intrinsic` / `<atomic>` | `intrinsic` is a function qualifier (own `IntrinsicDecl` node, parallel to `extern`): a prototype whose calls lower to **inline IR**, not a call to a C symbol — codegen recognises the name via a small registry (`lowerIntrinsicCall`) and emits no `declare`. Gated on `intrinsicNames` (populated only when the declaring module is imported), so an un-imported user function of the same name is unaffected. `stdlib/atomic.esk` declares `atomic_load`/`atomic_store`/`atomic_swap`/`atomic_cas` → LLVM atomics (acquire/release/acq_rel) |
 | Cross-compilation | `--target TRIPLE` (AArch64 and X86 backends included) |
 | Freestanding | `--freestanding` predefines `__ESKIU_FREESTANDING__`; `<mem>`'s `alloc<T>`/`free` then target `esk_alloc`/`esk_free` |
 | Negative literals | `-1`, `-3.14` as first-class primary expressions |
@@ -97,7 +98,7 @@ All items below are implemented and tested end-to-end.
 | Multi-file compile | `eskiuc a.esk b.esk -o prog` — declarations from all inputs are merged into one program |
 | Warnings (`-Wall`) | Unused variables/parameters/functions, assignment-in-condition; off by default |
 | VS Code | Real-time errors, hover types, go-to-definition |
-| stdlib | `result.esk`, `list.esk`, `string.esk`, `math.esk`, `io.esk`, `mem.esk`, `fs.esk`, `net.esk`, `alloc.esk`, `time.esk`, `env.esk`, `base64.esk`, `json.esk`, `threading.esk`, `http.esk`, `path.esk`, `eventloop.esk` |
+| stdlib | `result.esk`, `list.esk`, `string.esk`, `math.esk`, `io.esk`, `mem.esk`, `fs.esk`, `net.esk`, `alloc.esk`, `time.esk`, `env.esk`, `base64.esk`, `json.esk`, `threading.esk`, `http.esk`, `path.esk`, `eventloop.esk`, `atomic.esk` |
 
 ## Roadmap (as of v0.1.0)
 

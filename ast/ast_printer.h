@@ -21,6 +21,7 @@ private:
     void visit(VarDecl* node) override;
     void visit(StructDecl* node) override;
     void visit(ExternDecl* node) override;
+    void visit(IntrinsicDecl* node) override;
     void visit(BlockStmt* node) override;
     void visit(IfStmt* node) override;
     void visit(ForStmt* node) override;

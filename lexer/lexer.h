@@ -48,6 +48,7 @@ enum class TokenType {
     RETURN,
     IMPORT,
     EXTERN,
+    INTRINSIC,
     ALLOC_WITH,
     NULL_KW,
     TRUE,
