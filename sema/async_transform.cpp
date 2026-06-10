@@ -55,6 +55,29 @@ void rewrite(ExprPtr& e, const std::set<std::string>& vars) {
     // Literals and other leaf/unsupported nodes: nothing to rewrite.
 }
 
+// True if an expression contains an AwaitExpr anywhere (used to reject `await`
+// in positions the v1 transform does not handle, e.g. inside a larger expression).
+bool hasAwait(const ExprPtr& e) {
+    if (!e) return false;
+    if (dynamic_cast<AwaitExpr*>(e.get())) return true;
+    if (auto* b = dynamic_cast<BinaryExpr*>(e.get())) return hasAwait(b->left) || hasAwait(b->right);
+    if (auto* u = dynamic_cast<UnaryExpr*>(e.get()))  return hasAwait(u->operand);
+    if (auto* m = dynamic_cast<MemberExpr*>(e.get())) return hasAwait(m->base);
+    if (auto* ix = dynamic_cast<IndexExpr*>(e.get())) return hasAwait(ix->base) || hasAwait(ix->index);
+    if (auto* c = dynamic_cast<CastExpr*>(e.get()))   return hasAwait(c->expr);
+    if (auto* q = dynamic_cast<QuestionExpr*>(e.get())) return hasAwait(q->operand);
+    if (auto* call = dynamic_cast<CallExpr*>(e.get())) {
+        if (hasAwait(call->callee)) return true;
+        for (auto& a : call->args) if (hasAwait(a)) return true;
+        return false;
+    }
+    if (auto* tc = dynamic_cast<TemplateCallExpr*>(e.get())) {
+        for (auto& a : tc->args) if (hasAwait(a)) return true;
+        return false;
+    }
+    return false;
+}
+
 // The closure  void() { fr.st = <state>; __<name>_resume(fr); }  used as a waker.
 // Captures the frame pointer `fr` by value. Because this AST is synthesized after
 // the type checker runs, we populate `captures` ourselves (sema would otherwise).
@@ -92,124 +115,120 @@ void AsyncTransform::run(Program* program) {
         if (!block)
             throw std::runtime_error("async function '" + name + "': missing body");
 
-        // Find the single await, bound in a `let x = await CALL(...)`.
-        int awaitIdx = -1;
-        VarDecl*  awaitVar = nullptr;
-        AwaitExpr* awaitExpr = nullptr;
+        // Collect await sites in order: each is `let x = await CALL(...)`.
+        struct AwaitSite { VarDecl* var; AwaitExpr* expr; size_t idx; };
+        std::vector<AwaitSite> awaits;
         for (size_t i = 0; i < block->items.size(); ++i) {
             if (!std::holds_alternative<DeclPtr>(block->items[i])) continue;
             auto* vd = dynamic_cast<VarDecl*>(std::get<DeclPtr>(block->items[i]).get());
-            if (vd && vd->initializer) {
-                if (auto* aw = dynamic_cast<AwaitExpr*>(vd->initializer.get())) {
-                    if (awaitIdx != -1)
-                        throw std::runtime_error("async function '" + name +
-                            "': only one await is supported in this version");
-                    awaitIdx = (int)i; awaitVar = vd; awaitExpr = aw;
-                }
-            }
+            if (vd && vd->initializer)
+                if (auto* aw = dynamic_cast<AwaitExpr*>(vd->initializer.get()))
+                    awaits.push_back({vd, aw, i});
         }
-        if (awaitIdx == -1)
+        if (awaits.empty())
             throw std::runtime_error("async function '" + name +
-                "': expected exactly one `let x = await ...;`");
+                "': expected at least one `let x = await ...;`");
+        const int k = (int)awaits.size();   // number of awaits -> states 0..k
 
-        const std::string Tp = awaitVar->type;               // awaited inner type T'
-        const std::string awCallType = "*Future<" + Tp + ">";
-
-        // ── Frame variables: params + every body-declared local ──────────────
+        // ── Frame variables: params + every body local + one __aw<i> per await ─
         std::set<std::string> vars;
         std::vector<StructDecl::Field> fields;
         fields.push_back({"Future<" + T + ">", "ret"});
         fields.push_back({"int", "st"});
         fields.push_back({"FutureHdr*", "awaiting"});
-        fields.push_back({awCallType, "__aw0"});
-        for (const auto& p : fn->params) {
-            vars.insert(p.second);
-            fields.push_back({p.first, p.second});
-        }
-        for (auto& item : block->items) {
-            if (!std::holds_alternative<DeclPtr>(item)) continue;
-            if (auto* vd = dynamic_cast<VarDecl*>(std::get<DeclPtr>(item).get())) {
-                vars.insert(vd->name);
-                fields.push_back({vd->type, vd->name});
-            }
-        }
+        for (int i = 0; i < k; ++i)
+            fields.push_back({"*Future<" + awaits[i].var->type + ">", "__aw" + std::to_string(i)});
+        for (const auto& p : fn->params) { vars.insert(p.second); fields.push_back({p.first, p.second}); }
+        for (auto& item : block->items)
+            if (std::holds_alternative<DeclPtr>(item))
+                if (auto* vd = dynamic_cast<VarDecl*>(std::get<DeclPtr>(item).get())) {
+                    vars.insert(vd->name); fields.push_back({vd->type, vd->name});
+                }
 
-        // ── State 0: prefix statements + the await park ──────────────────────
-        std::vector<BlockItem> s0;
-        for (int i = 0; i < awaitIdx; ++i) {
-            // (v1: prefix statements must be plain `let local = E;` or expr stmts)
-            auto& item = block->items[i];
+        // ── Helpers that emit into a state's statement list ──────────────────
+        // Park on await i; on suspend return, on the fast path advance to nextState.
+        auto emitPark = [&](std::vector<BlockItem>& st, int i, int nextState) {
+            const std::string awf = "__aw" + std::to_string(i);
+            const std::string Tp  = awaits[i].var->type;
+            ExprPtr callE = awaits[i].expr->operand; rewrite(callE, vars);
+            st.push_back(assign(fr(awf), callE));
+            ExprPtr poll = std::make_shared<TemplateCallExpr>("future_poll",
+                std::vector<std::string>{Tp},
+                std::vector<ExprPtr>{ fr(awf), resumeWaker(resumeN, nextState, "*" + frameT) });
+            std::vector<BlockItem> parkBody;
+            parkBody.push_back(assign(fr("awaiting"), std::make_shared<CastExpr>("*FutureHdr", fr(awf))));
+            parkBody.push_back(ret(nullptr));
+            st.push_back(std::make_shared<IfStmt>(binop(poll, "==", intlit(0)),
+                std::make_shared<BlockStmt>(parkBody)));
+            st.push_back(assign(fr("st"), intlit(nextState)));
+        };
+        // Extract await i's value into its frame var, then free the awaited future.
+        auto emitExtract = [&](std::vector<BlockItem>& st, int i) {
+            const std::string awf = "__aw" + std::to_string(i);
+            const std::string Tp  = awaits[i].var->type;
+            st.push_back(assign(fr(awaits[i].var->name), std::make_shared<MemberExpr>(fr(awf), "value")));
+            st.push_back(exprStmt(std::make_shared<TemplateCallExpr>("free_future",
+                std::vector<std::string>{Tp}, std::vector<ExprPtr>{ fr(awf) })));
+        };
+        // A plain (non-await) statement: rewrite refs; let->assign; return->complete.
+        auto emitPlain = [&](std::vector<BlockItem>& st, BlockItem& item) {
             if (std::holds_alternative<DeclPtr>(item)) {
                 auto* vd = dynamic_cast<VarDecl*>(std::get<DeclPtr>(item).get());
                 if (vd && vd->initializer) {
+                    if (hasAwait(vd->initializer))
+                        throw std::runtime_error("async function '" + name + "': await must be "
+                            "the whole initializer (`let x = await ...;`), not part of an expression");
                     rewrite(vd->initializer, vars);
-                    s0.push_back(assign(fr(vd->name), vd->initializer));
+                    st.push_back(assign(fr(vd->name), vd->initializer));
                 }
-            } else {
-                auto stmt = std::get<StmtPtr>(item);
-                if (auto* es = dynamic_cast<ExprStmt*>(stmt.get())) { rewrite(es->expr, vars); s0.push_back(stmt); }
+                return;
             }
-        }
-        // fr.__aw0 = <await call>;
-        ExprPtr callE = awaitExpr->operand;
-        rewrite(callE, vars);
-        s0.push_back(assign(fr("__aw0"), callE));
-        // if (future_poll<T'>(fr.__aw0, waker) == 0) { fr.awaiting = (FutureHdr*)fr.__aw0; return; }
-        ExprPtr pollCall = std::make_shared<TemplateCallExpr>(
-            "future_poll", std::vector<std::string>{Tp},
-            std::vector<ExprPtr>{ fr("__aw0"), resumeWaker(resumeN, 1, "*" + frameT) });
-        std::vector<BlockItem> parkBody;
-        parkBody.push_back(assign(fr("awaiting"),
-            std::make_shared<CastExpr>("*FutureHdr", fr("__aw0"))));
-        parkBody.push_back(ret(nullptr));
-        StmtPtr parkIf = std::make_shared<IfStmt>(
-            binop(pollCall, "==", intlit(0)), std::make_shared<BlockStmt>(parkBody));
-        s0.push_back(parkIf);
-        s0.push_back(assign(fr("st"), intlit(1)));           // ready: advance to state 1
-
-        // ── State 1: extract value, suffix statements, complete ──────────────
-        std::vector<BlockItem> s1;
-        // fr.<x> = fr.__aw0.value;  free_future<T'>(fr.__aw0);
-        s1.push_back(assign(fr(awaitVar->name),
-            std::make_shared<MemberExpr>(fr("__aw0"), "value")));
-        s1.push_back(exprStmt(std::make_shared<TemplateCallExpr>(
-            "free_future", std::vector<std::string>{Tp}, std::vector<ExprPtr>{ fr("__aw0") })));
-        for (size_t i = awaitIdx + 1; i < block->items.size(); ++i) {
-            auto& item = block->items[i];
-            if (std::holds_alternative<DeclPtr>(item)) {
-                auto* vd = dynamic_cast<VarDecl*>(std::get<DeclPtr>(item).get());
-                if (vd && vd->initializer) { rewrite(vd->initializer, vars); s1.push_back(assign(fr(vd->name), vd->initializer)); }
+            auto stmt = std::get<StmtPtr>(item);
+            if (auto* rs = dynamic_cast<ReturnStmt*>(stmt.get())) {
+                if (hasAwait(rs->value))
+                    throw std::runtime_error("async function '" + name + "': `return await ...` "
+                        "is not supported yet — bind it first (`let r = await ...; return r;`)");
+                ExprPtr v = rs->value; rewrite(v, vars);
+                st.push_back(assign(std::make_shared<MemberExpr>(fr("ret"), "value"), v));
+                ExprPtr swap = std::make_shared<CallExpr>(ident("atomic_swap"),
+                    std::vector<ExprPtr>{ std::make_shared<UnaryExpr>("&",
+                        std::make_shared<MemberExpr>(fr("ret"), "state")), intlit(2) });
+                std::vector<BlockItem> wk;
+                wk.push_back(exprStmt(std::make_shared<CallExpr>(
+                    std::make_shared<MemberExpr>(fr("ret"), "waker"), std::vector<ExprPtr>{})));
+                st.push_back(std::make_shared<IfStmt>(binop(swap, "==", intlit(1)),
+                    std::make_shared<BlockStmt>(wk)));
+                st.push_back(ret(nullptr));
+            } else if (auto* es = dynamic_cast<ExprStmt*>(stmt.get())) {
+                if (hasAwait(es->expr))
+                    throw std::runtime_error("async function '" + name +
+                        "': await must be bound in a `let` (v1)");
+                rewrite(es->expr, vars); st.push_back(stmt);
             } else {
-                auto stmt = std::get<StmtPtr>(item);
-                if (auto* rs = dynamic_cast<ReturnStmt*>(stmt.get())) {
-                    // return E;  ==>  complete the future, then return.
-                    ExprPtr v = rs->value;
-                    rewrite(v, vars);
-                    s1.push_back(assign(std::make_shared<MemberExpr>(fr("ret"), "value"), v));
-                    // if (atomic_swap(&fr.ret.state, 2) == 1) { fr.ret.waker(); }
-                    ExprPtr swapCall = std::make_shared<CallExpr>(ident("atomic_swap"),
-                        std::vector<ExprPtr>{
-                            std::make_shared<UnaryExpr>("&",
-                                std::make_shared<MemberExpr>(fr("ret"), "state")),
-                            intlit(2) });
-                    std::vector<BlockItem> wk;
-                    wk.push_back(exprStmt(std::make_shared<CallExpr>(
-                        std::make_shared<MemberExpr>(fr("ret"), "waker"), std::vector<ExprPtr>{})));
-                    s1.push_back(std::make_shared<IfStmt>(
-                        binop(swapCall, "==", intlit(1)), std::make_shared<BlockStmt>(wk)));
-                    s1.push_back(ret(nullptr));
-                } else if (auto* es = dynamic_cast<ExprStmt*>(stmt.get())) {
-                    rewrite(es->expr, vars); s1.push_back(stmt);
-                }
+                throw std::runtime_error("async function '" + name + "': v1 supports linear "
+                    "bodies only (let/expr/return); control flow around await is not lowered yet");
+            }
+        };
+
+        // ── Build states 0..k by walking the body, splitting at each await ────
+        std::vector<std::vector<BlockItem>> states(k + 1);
+        int cur = 0, ai = 0;
+        for (size_t idx = 0; idx < block->items.size(); ++idx) {
+            if (ai < k && idx == awaits[ai].idx) {
+                emitPark(states[cur], ai, cur + 1);      // park on await ai in current state
+                ++cur;
+                emitExtract(states[cur], ai);            // next state begins by extracting it
+                ++ai;
+            } else {
+                emitPlain(states[cur], block->items[idx]);
             }
         }
 
-        // ── Assemble resume:  if (fr.st == 0) { s0 }  if (fr.st == 1) { s1 } ──
+        // ── Assemble resume:  if (fr.st==0){..} if(fr.st==1){..} ... ─────────
         std::vector<BlockItem> resumeBody;
-        resumeBody.push_back(std::make_shared<IfStmt>(
-            binop(fr("st"), "==", intlit(0)), std::make_shared<BlockStmt>(s0)));
-        resumeBody.push_back(std::make_shared<IfStmt>(
-            binop(fr("st"), "==", intlit(1)), std::make_shared<BlockStmt>(s1)));
+        for (int s = 0; s <= k; ++s)
+            resumeBody.push_back(std::make_shared<IfStmt>(
+                binop(fr("st"), "==", intlit(s)), std::make_shared<BlockStmt>(states[s])));
         auto resumeFn = std::make_shared<FunctionDecl>(
             resumeN, "void",
             std::vector<std::pair<std::string,std::string>>{ {"*" + frameT, "fr"} },
