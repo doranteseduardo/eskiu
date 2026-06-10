@@ -1,93 +1,91 @@
 # Examples
 
-This directory contains real Eskiu programs demonstrating language features.
+Real Eskiu programs demonstrating language features and the standard library.
 
 ## How to Run
 
-Compile any example with `eskiuc`, link with `clang`, then run:
+Compile and run any example in one step — when the `-o` name has no `.o`
+extension, `eskiuc` links the executable for you (via your system C toolchain):
+
+```bash
+eskiuc examples/hello.esk -o hello && ./hello
+# Hello from Eskiu!
+# Result: 8
+```
+
+Prefer to keep the object file? Give the output a `.o` name (or pass `-c`) and
+link it yourself:
 
 ```bash
 eskiuc examples/hello.esk -o hello.o && clang hello.o -o hello && ./hello
 ```
 
-Substitute the filename and output names as needed. The compiler binary is `eskiuc` — there is no `eskiu compile` subcommand.
+The compiler binary is `eskiuc` — there is no `eskiu compile` subcommand. Examples
+that `import <...>` a stdlib module need the compiler to find the stdlib; running
+from the repo root works out of the box (or set `ESKIU_ROOT=.`).
 
 ---
 
-## Examples
+## What's here
 
-### [hello.esk](hello.esk)
+| Example | Demonstrates | stdlib |
+|---------|--------------|--------|
+| [hello.esk](hello.esk) | `extern` C declarations, plain functions, `int main()`, arithmetic | — |
+| [argv.esk](argv.esk) | command-line arguments: `int main(int argc, string* argv)`, `argv[i]` | — |
+| [structs.esk](structs.esk) | structs with methods, `self`, field access | — |
+| [interfaces.esk](interfaces.esk) | structural interfaces (no `implements` keyword) — any struct with the methods satisfies them | — |
+| [generics.esk](generics.esk) | templates: the generic `List<T>`, template functions and structs | — |
+| [result.esk](result.esk) | `Result<T, E>` error-as-value with `Ok`/`Err` | `<result>` |
+| [json.esk](json.esk) | build a JSON document and parse it back | `<json>` |
+| [tcp_echo_server.esk](tcp_echo_server.esk) | a TCP echo server over the POSIX socket API | `<net>` |
+| [http_server.esk](http_server.esk) | a concurrent HTTP/1.1 server with a worker pool | `<http>` |
 
-Demonstrates `extern` C function declarations, top-level functions, integer types, and basic arithmetic.
+The network examples bind a local port — run them in one terminal and connect
+from another (e.g. `curl localhost:PORT` or `nc localhost PORT`).
+
+---
+
+## A first walkthrough: `hello.esk`
 
 ```bash
-eskiuc examples/hello.esk -o hello.o && clang hello.o -o hello && ./hello
+eskiuc examples/hello.esk -o hello && ./hello
 # Hello from Eskiu!
 # Result: 8
 ```
 
 Key concepts:
 - `extern int printf(string fmt, ...)` — declare a C function for use in Eskiu
-- Defining and calling a plain function (`add`)
+- defining and calling a plain function (`add`)
 - `int main()` as the program entry point
-
----
-
-### [test_struct.esk](test_struct.esk)
-
-Demonstrates struct definitions with float fields and `let`-style variable declarations with member access.
-
-```bash
-eskiuc examples/test_struct.esk -o test_struct.o && clang test_struct.o -o test_struct && ./test_struct
-```
-
-Key concepts:
-- `struct` with named float fields
-- `let p: Point` — typed variable declaration using a struct type
-- `.` operator for reading struct members
-
----
-
-### [test_struct_error.esk](test_struct_error.esk)
-
-Demonstrates the type checker catching an access to a field that does not exist on a struct. This example is intentionally invalid — it does **not** compile successfully.
-
-```bash
-eskiuc examples/test_struct_error.esk --test-typechecker
-# error: file.esk:8: unknown field 'z' on struct 'Point'
-```
-
-Key concepts:
-- Struct field validation at compile time
-- Reading type checker error output
 
 ---
 
 ## Inspection Modes
 
-Pass one of these flags instead of `-o` to inspect a compilation stage without producing an object file:
+Pass one of these flags instead of `-o` to inspect a compilation stage without
+producing an object file:
 
 | Flag | What it shows |
 |------|---------------|
 | `--test-lexer` | Token stream produced by the lexer |
-| `--test-parser` | Parsed AST printed to stdout |
-| `--test-typechecker` | Type checker output and any errors |
+| `--test-parser` | Parsed AST |
+| `--test-typechecker` | Type-checker output and any errors (`file.esk:line:col: message`) |
 | `--test-codegen` | Generated LLVM IR |
-
-Example:
 
 ```bash
 eskiuc examples/hello.esk --test-codegen
 ```
 
+For examples of code the compiler should **reject** (and the diagnostics it
+emits), see [`tests/errors/`](../tests/errors).
+
 ---
 
-## What to Try Next
+## What to try next
 
-Once the basics work, try writing:
+- Add a method to a struct that takes another struct and returns a computed value.
+- Write a generic container: `struct Box<T> { T value; }` and a `Box_get<T>`.
+- Declare an `interface` and satisfy it from two unrelated structs.
 
-- A struct with methods — define a function that takes a `Point` and computes its distance from the origin
-- A generic container — use a template type parameter: `struct Box<T> { T value; }`
-- An interface — declare an interface and implement it on a struct to see structural typing in action
-
-Language reference: [docs/lang/spec.md](../docs/lang/spec.md)
+Language reference: [docs/lang/spec.md](../docs/lang/spec.md) ·
+Getting started: [docs/lang/getting-started.md](../docs/lang/getting-started.md)
