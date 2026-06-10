@@ -111,6 +111,7 @@ when you add a test.
 | `errors/const_reassign` | reassigning a `const` |
 | `errors/const_field` | assigning to a field of a `const` value |
 | `errors/question_bad_return` | `?` used in a function not returning `Result` |
+| `errors/unknown_intrinsic` | an `intrinsic` declared with a name the compiler can't lower |
 | `errors/parse_error` | malformed syntax |
 | `errors/unterminated_string` | unterminated string literal |
 | `errors/unterminated_char` | malformed/unterminated char literal |
