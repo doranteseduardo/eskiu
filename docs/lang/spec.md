@@ -685,9 +685,12 @@ thread_join(t);
 
 ### 6.8 Async Functions and `await`
 
-> **Status:** the surface syntax and type rules below are implemented (parsing and
-> type-checking). The state-machine lowering that makes them run is in progress;
-> until it lands, compiling an `async` function or `await` is rejected at codegen.
+> **Status:** implemented and runs. An async function lowers to a resumable state
+> machine and executes over the `<eventloop>`/`<executor>` runtime. Supported:
+> single and multiple awaits, `return await`, `x = await E`, `async void`, and
+> `if`/`while` containing awaits; cancellation via `future_drop`; verified
+> leak-free. `for`/`switch` containing an await are not lowered yet (rejected with
+> a clear error).
 
 An `async` function is declared with the `async` modifier before the return type. Its
 *declared* return type is the value it ultimately produces, but a **call** to it

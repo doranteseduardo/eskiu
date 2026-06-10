@@ -1,8 +1,8 @@
 # Async / Await — Design Note
 
-**Status:** de-risk gate in progress. This note pins the contract *before* the
-transform is written, because the parts it fixes are expensive to change once
-async functions exist in the wild (see "What is locked, what is free" at the end).
+**Status:** implemented (async core complete). This note pinned the contract
+*before* the transform was written, because the parts it fixes are expensive to
+change once async functions exist in the wild (see "What is locked, what is free").
 
 **Progress (gate, §9): COMPLETE ✅.** Step 0 (atomic intrinsics) ✅.
 `stdlib/future.esk` holds the locked `Future<T>`/`FutureHdr` contract and the §3
