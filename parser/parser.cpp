@@ -89,6 +89,18 @@ bool Parser::is_at_end() const {
 // Type Parsing
 // ============================================================================
 
+void Parser::consumeTemplateClose(const char* ctx) {
+    if (check(TokenType::GT)) { advance(); return; }
+    // A lexed ">>" (right-shift) closes two template levels at once: consume one
+    // ">" here and rewrite the token to a single ">" for the enclosing close.
+    if (check(TokenType::RSHIFT)) {
+        tokens[current].type  = TokenType::GT;
+        tokens[current].value = ">";
+        return;
+    }
+    consume(TokenType::GT, ctx);   // not a close — emit the standard error
+}
+
 std::string Parser::parseType() {
     std::string type;
 
@@ -138,7 +150,7 @@ std::string Parser::parseType() {
                 first = false;
                 type += parseType();
             } while (match(TokenType::COMMA));
-            consume(TokenType::GT, "Expected '>' after template arguments");
+            consumeTemplateClose("Expected '>' after template arguments");
             type += ">";
         }
     } else {
@@ -334,6 +346,7 @@ DeclPtr Parser::parseDeclaration() {
                 fields.push_back({fieldType, fieldName});
             }
             consume(TokenType::RBRACE, "Expected '}'");
+            declaredTypeNames.insert(name);
             return std::make_shared<UnionDecl>(name, fields);
         }
         if (match(TokenType::INTERFACE)) {
@@ -376,6 +389,7 @@ DeclPtr Parser::parseDeclaration() {
                 if (!match(TokenType::COMMA)) break;
             }
             consume(TokenType::RBRACE, "Expected '}'");
+            declaredTypeNames.insert(name);
             return std::make_shared<EnumDecl>(name, members);
         }
 
@@ -388,6 +402,7 @@ DeclPtr Parser::parseDeclaration() {
             advance();                                  // '='
             std::string underlying = parseType();
             consume(TokenType::SEMICOLON, "Expected ';' after type alias");
+            declaredTypeNames.insert(name);
             return std::make_shared<TypeAliasDecl>(name, underlying);
         }
 
@@ -422,6 +437,7 @@ DeclPtr Parser::parseDeclaration() {
         if (check(TokenType::INT) || check(TokenType::FLOAT) || check(TokenType::DOUBLE) ||
             check(TokenType::BOOL) || check(TokenType::CHAR) || check(TokenType::STRING) ||
             check(TokenType::VOID) || check(TokenType::STAR) || check(TokenType::IDENT) ||
+            check(TokenType::FN) ||
             check(TokenType::INT8) || check(TokenType::INT16) || check(TokenType::INT32) ||
             check(TokenType::INT64) || check(TokenType::UINT) || check(TokenType::UINT8) ||
             check(TokenType::UINT16) || check(TokenType::UINT32) || check(TokenType::UINT64)) {
@@ -547,6 +563,7 @@ DeclPtr Parser::parseStructDecl() {
 
     consume(TokenType::RBRACE, "Expected '}'");
 
+    declaredTypeNames.insert(name);
     auto decl = std::make_shared<StructDecl>(name, fields);
     decl->methods  = methods;
     decl->typeParams = typeParams;
@@ -1094,6 +1111,12 @@ ExprPtr Parser::parseUnary() {
                               inner == TokenType::UINT    || inner == TokenType::UINT8   ||
                               inner == TokenType::UINT16  || inner == TokenType::UINT32  ||
                               inner == TokenType::UINT64);
+        // Also a cast when the inner token names a declared type — a struct,
+        // enum, union, or alias — as `(Name)x`, `(Name*)x`, or `(Name<...>)x`.
+        if (!isTypeKeyword && inner == TokenType::IDENT &&
+            declaredTypeNames.count(peek_ahead(1).value)) {
+            isTypeKeyword = true;
+        }
         if (isTypeKeyword) {
             size_t savePos = current;
             try {
@@ -1123,7 +1146,8 @@ ExprPtr Parser::parsePostfix() {
                     advance(); // consume <
                     std::vector<std::string> typeArgs;
                     do { typeArgs.push_back(parseType()); } while (match(TokenType::COMMA));
-                    if (match(TokenType::GT)) {
+                    if (check(TokenType::GT) || check(TokenType::RSHIFT)) {
+                        consumeTemplateClose("Expected '>'");
                         if (match(TokenType::LPAREN)) {
                             // Template function call: Name<T,...>(args)
                             std::vector<ExprPtr> args;

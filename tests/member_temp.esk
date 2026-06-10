@@ -1,0 +1,14 @@
+// Regression: member access on a struct-valued temporary (call result, struct
+// literal, template-call result) — previously "Unknown struct type".
+import <list>;
+extern int printf(string fmt, ...);
+struct P { int x; int y; }
+P make(int a, int b) { let p: P; p.x = a; p.y = b; return p; }
+int main() {
+    printf("call=%d\n", make(5, 6).x);
+    printf("lit=%d\n", (P { x: 9, y: 1 }).y);
+    let xs: List<P>; List_init<P>(&xs, 2);
+    let q: P = make(7, 8); List_push<P>(&xs, q);
+    printf("tmpl=%d\n", List_get<P>(&xs, 0).y);
+    return 0;
+}

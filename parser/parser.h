@@ -30,6 +30,13 @@ public:
     std::map<std::string, Macro>* macros = nullptr;
 
 private:
+    // Names of declared types (structs, enums, unions, aliases) seen so far.
+    // Lets the cast parser recognize (TypeName)expr / (TypeName*)expr.
+    std::set<std::string> declaredTypeNames;
+    // Consume a template-closing '>'. Handles a lexed '>>' (right-shift) at the
+    // close of nested templates (List<List<int>>) by splitting it: the inner
+    // close turns '>>' into a single '>' left for the outer close.
+    void consumeTemplateClose(const char* ctx);
     std::vector<Token> tokens;
     size_t current;
 

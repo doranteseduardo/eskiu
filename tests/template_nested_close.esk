@@ -1,0 +1,12 @@
+// Regression: a lexed ">>" must close nested template brackets, in both a type
+// position (Box<Box<int>>) and a template call (pick<Box<int>>()). A space
+// (List<int> >) was previously required.
+extern int printf(string fmt, ...);
+struct Box<T> { T v; }
+int pick<T>(int x) { return x; }
+int main() {
+    let b: Box<Box<int>>;          // nested type declaration, no space
+    b.v.v = 42;
+    printf("%d %d %d\n", b.v.v, pick<Box<int>>(7), 256 >> 2);   // 42 7 64
+    return 0;
+}
