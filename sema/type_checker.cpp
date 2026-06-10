@@ -796,7 +796,10 @@ void TypeChecker::visit(IdentExpr* node) {
         for (int si = (int)scopes.size() - 1; si >= 0; --si) {
             if (scopes[si].count(node->name)) { defIdx = si; break; }
         }
-        if (defIdx >= 0 && defIdx < boundary) {
+        // Capture only enclosing-function scopes: index >= 1 (the global scope
+        // at 0 is module-level and accessed directly, not captured by value)
+        // and below the lambda's own boundary.
+        if (defIdx >= 1 && defIdx < boundary) {
             captureStack.back()[node->name] = type;
         }
     }
