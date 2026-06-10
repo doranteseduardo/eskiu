@@ -124,16 +124,45 @@ void TypeChecker::visit(Program* node) {
     // This is called if someone visits it directly
 }
 
+// Approximate the on-screen width of an expression's leading token, so hover can
+// require the cursor to actually fall ON the expression rather than merely share
+// its line. Identifiers and literals have a clear single-token footprint; for
+// composite expressions we use width 1 (match only at their exact start column),
+// which lets a more specific child identifier/literal win.
+static int hoverSpanWidth(const Expr* e) {
+    if (auto* id = dynamic_cast<const IdentExpr*>(e))
+        return std::max(1, (int)id->name.size());
+    if (auto* lit = dynamic_cast<const LiteralExpr*>(e)) {
+        int n = (int)lit->value.size();
+        if (lit->kind == LiteralExpr::Kind::STRING ||
+            lit->kind == LiteralExpr::Kind::CHAR)
+            n += 2;  // surrounding quotes, which the cursor sits within
+        return std::max(1, n);
+    }
+    return 1;
+}
+
 std::string TypeChecker::getTypeAtPosition(int line, int col) const {
-    Expr* best = nullptr;
-    int   bestDist = INT_MAX;
+    // Return a type only when the cursor is within an expression's token span —
+    // never for keywords, type annotations, operators, or whitespace. Among the
+    // expressions that contain the cursor, prefer the narrowest (most specific).
+    int         bestWidth = INT_MAX;
+    std::string bestType;
     for (const auto& [node, type] : expressionTypes) {
         if (type == "unknown" || type.empty()) continue;
-        if (node->line != line) continue;
-        int dist = std::abs(node->col - col);
-        if (dist < bestDist) { bestDist = dist; best = node; }
+        if (node->line != line || node->col <= 0) continue;
+        int width = hoverSpanWidth(node);
+        if (col < node->col || col >= node->col + width) continue;
+        if (width < bestWidth) { bestWidth = width; bestType = type; }
     }
-    return best ? expressionTypes.at(best) : "";
+    // Declared names (variables, parameters) at their declaration site.
+    for (const auto& s : hoverSyms) {
+        if (s.type.empty() || s.line != line || s.col <= 0) continue;
+        int width = std::max(1, s.width);
+        if (col < s.col || col >= s.col + width) continue;
+        if (width < bestWidth) { bestWidth = width; bestType = s.type; }
+    }
+    return bestType;
 }
 
 std::string TypeChecker::getDefinitionAt(int line, int col) const {
@@ -1093,6 +1122,15 @@ void TypeChecker::defineSymbol(const std::string& name, const std::string& type,
         s.type = type; s.isDeclared = true;
         s.used = false; s.line = line; s.col = col; s.isParam = isParam;
         scopes.back()[name] = s;
+    }
+    // Record a hover span for the declared name (col points at the name token).
+    // Parameters are excluded: the parser stamps them at the *function's*
+    // position, not the parameter's, so a span there would be wrong. Parameter
+    // uses inside the body still hover correctly via expression types.
+    if (line > 0 && !isParam) {
+        std::string disp = type;
+        if (disp.rfind("struct:", 0) == 0) disp = disp.substr(7);  // display "Point", not "struct:Point"
+        hoverSyms.push_back({line, col, (int)name.size(), disp});
     }
 }
 
