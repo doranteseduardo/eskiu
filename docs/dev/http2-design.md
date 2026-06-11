@@ -74,11 +74,15 @@ tested and useful on its own.
   fills an `HttpResponse`, and the response is encoded back as a HEADERS frame
   (`:status` + `content-length` + the handler's headers, lowercased) followed by
   the body split into `SETTINGS_MAX_FRAME_SIZE`-bounded (16384) DATA frames, the
-  last carrying END_STREAM; SETTINGS/PING are answered, GOAWAY/EOF ends the loop.
-  Tested end-to-end over a socketpair (`http2_server`), with large-body DATA
-  chunking checked directly (`http2_chunking`) and over real TLS via curl. v1
-  handles streams sequentially (correct request/response, not yet concurrent
-  multiplexing) and is cleartext h2c (TLS is stage 5).
+  last carrying END_STREAM; SETTINGS/PING/WINDOW_UPDATE are handled, GOAWAY/EOF
+  ends the loop. The async server is **fully non-blocking** (responses via
+  `net_write_async`) and **flow-controlled**: `h2_respond_async` spends the stream
+  and connection send windows per DATA frame and parks for WINDOW_UPDATE when a
+  window is exhausted — verified delivering 1 MB bodies over `curl` past the
+  65535-byte default window. Tested end-to-end over a socketpair (`http2_server`),
+  with DATA chunking checked directly (`http2_chunking`). v1 handles streams
+  sequentially (correct request/response, not yet concurrent multiplexing) and is
+  cleartext h2c (TLS is stage 5).
 
 ## Frame header (RFC 7540 §4.1)
 
