@@ -1,362 +1,940 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Eskiu — Systems language, async-native.</title>
-  <meta name="description" content="Eskiu is a compiled systems language with async/await, sum types, HTTP/2, and atomics. LLVM backend, manual memory, compiles to a standalone binary. v0.2.0 releasing soon." />
-  <link rel="canonical" href="https://eskiu-lang.org" />
-  <link rel="icon" type="image/png" href="../assets/logo.png" />
-  <link rel="apple-touch-icon" href="../assets/logo.png" />
-  <meta property="og:title" content="Eskiu — Systems language, async-native." />
-  <meta property="og:description" content="Compiled via LLVM. Async/await, sum types, HTTP/2. Manual memory, standalone binaries." />
-  <meta property="og:url" content="https://eskiu-lang.org" />
-  <meta property="og:image" content="https://eskiu-lang.org/assets/logo.png" />
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Eskiu — Systems language, async-native.</title>
+    <meta
+      name="description"
+      content="Eskiu is a compiled systems language with async/await, sum types, HTTP/2, and atomics. LLVM backend, manual memory, compiles to a standalone binary. v0.2.0 releasing soon."
+    />
+    <link rel="canonical" href="https://eskiu-lang.org" />
+    <link rel="icon" type="image/png" href="../assets/logo.png" />
+    <link rel="apple-touch-icon" href="../assets/logo.png" />
+    <meta
+      property="og:title"
+      content="Eskiu — Systems language, async-native."
+    />
+    <meta
+      property="og:description"
+      content="Compiled via LLVM. Async/await, sum types, HTTP/2. Manual memory, standalone binaries."
+    />
+    <meta property="og:url" content="https://eskiu-lang.org" />
+    <meta
+      property="og:image"
+      content="https://eskiu-lang.org/assets/logo.png"
+    />
 
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:ital,wght@0,400;0,600;1,400&display=swap"
+      rel="stylesheet"
+    />
 
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    :root {
-      --bg:        #f9f7f3;
-      --white:     #ffffff;
-      --surface:   #f2efe8;
-      --border:    #ddd8ce;
-      --ink:       #1b1915;
-      --ink2:      #6b6560;
-      --muted:     #ada59b;
-      --purple:    #4c31bb;
-      --purple-lt: #6448d4;
-      --purple-dk: #3a27a0;
-      --purple-bg: #edeaff;
-      --code:      #1b1728;
-      --code-bd:   #2c2444;
-      --sans: 'Space Grotesk', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-      --mono: 'JetBrains Mono', 'SFMono-Regular', Consolas, Menlo, monospace;
-    }
+    <style>
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      :root {
+        --bg: #f9f7f3;
+        --white: #ffffff;
+        --surface: #f2efe8;
+        --border: #ddd8ce;
+        --ink: #1b1915;
+        --ink2: #6b6560;
+        --muted: #ada59b;
+        --purple: #4c31bb;
+        --purple-lt: #6448d4;
+        --purple-dk: #3a27a0;
+        --purple-bg: #edeaff;
+        --code: #1b1728;
+        --code-bd: #2c2444;
+        --sans:
+          "Space Grotesk", system-ui, -apple-system, BlinkMacSystemFont,
+          sans-serif;
+        --mono: "JetBrains Mono", "SFMono-Regular", Consolas, Menlo, monospace;
+      }
 
-    html { scroll-behavior: smooth; overflow-x: clip; }
-    body  { background: var(--bg); color: var(--ink); font-family: var(--sans);
-            font-size: 16px; line-height: 1.65; -webkit-font-smoothing: antialiased; }
-    a { color: var(--purple); text-decoration: none; }
-    a:hover { text-decoration: underline; }
-    code { font-family: var(--mono); font-size: 0.84em; background: var(--surface);
-           padding: 0.12em 0.42em; border-radius: 4px; border: 1px solid var(--border); }
-    .wrap { max-width: 1100px; margin: 0 auto; padding: 0 1.25rem; }
-    hr { border: none; border-top: 1px solid var(--border); }
-    @media (min-width: 600px) { .wrap { padding: 0 2rem; } }
+      html {
+        scroll-behavior: smooth;
+        overflow-x: clip;
+      }
+      body {
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--sans);
+        font-size: 16px;
+        line-height: 1.65;
+        -webkit-font-smoothing: antialiased;
+      }
+      a {
+        color: var(--purple);
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+      code {
+        font-family: var(--mono);
+        font-size: 0.84em;
+        background: var(--surface);
+        padding: 0.12em 0.42em;
+        border-radius: 4px;
+        border: 1px solid var(--border);
+      }
+      .wrap {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 0 1.25rem;
+      }
+      hr {
+        border: none;
+        border-top: 1px solid var(--border);
+      }
+      @media (min-width: 600px) {
+        .wrap {
+          padding: 0 2rem;
+        }
+      }
 
-    /* Prevent grid children from blowing out their containers */
-    .hero-grid > *, .examples-wrap > * { min-width: 0; }
+      /* Prevent grid children from blowing out their containers */
+      .hero-grid > *,
+      .examples-wrap > * {
+        min-width: 0;
+      }
 
-    /* ── Nav ──────────────────────────────────────────────────────── */
-    nav { background: rgba(249,247,243,0.97); backdrop-filter: blur(12px);
-          border-bottom: 1px solid var(--border); padding: 0;
-          position: sticky; top: 0; z-index: 40; }
-    .nav-in { max-width: 1100px; margin: 0 auto; padding: 0 1.25rem;
-              height: 56px; display: flex; align-items: center; gap: 0.5rem; }
-    @media (min-width: 600px) { .nav-in { padding: 0 2rem; } }
-    .brand { display: flex; align-items: center; gap: 0.5rem; font-weight: 700;
-             font-size: 1.1rem; letter-spacing: -0.01em; color: var(--ink); }
-    .brand img { width: 28px; height: 28px; border-radius: 5px; }
-    .brand-ver { font-size: 0.65rem; font-weight: 600; background: var(--surface);
-                 color: var(--ink2); padding: 0.1rem 0.42rem; border-radius: 4px;
-                 letter-spacing: 0.05em; }
-    .nav-links { margin-left: auto; display: flex; align-items: center; gap: 1.6rem; }
-    .nav-links a:not(.nav-gh) { display: none; }
-    @media (min-width: 680px) { .nav-links a:not(.nav-gh) { display: inline-flex; } }
-    .nav-links a { color: var(--ink2); font-weight: 500; font-size: 0.88rem; transition: color 0.12s; }
-    .nav-links a:hover { color: var(--ink); text-decoration: none; }
-    .nav-gh { display: inline-flex; align-items: center; gap: 0.4rem;
-              background: var(--white); border: 1px solid var(--border);
-              padding: 0.38rem 0.9rem; border-radius: 6px; color: var(--ink) !important;
-              font-weight: 600; font-size: 0.84rem; transition: border-color 0.12s; }
-    .nav-gh:hover { border-color: var(--purple); text-decoration: none; }
+      /* ── Nav ──────────────────────────────────────────────────────── */
+      nav {
+        background: rgba(249, 247, 243, 0.97);
+        backdrop-filter: blur(12px);
+        border-bottom: 1px solid var(--border);
+        padding: 0;
+        position: sticky;
+        top: 0;
+        z-index: 40;
+      }
+      .nav-in {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 0 1.25rem;
+        height: 56px;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+      @media (min-width: 600px) {
+        .nav-in {
+          padding: 0 2rem;
+        }
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-weight: 700;
+        font-size: 1.1rem;
+        letter-spacing: -0.01em;
+        color: var(--ink);
+      }
+      .brand img {
+        width: 28px;
+        height: 28px;
+        border-radius: 5px;
+      }
+      .brand-ver {
+        font-size: 0.65rem;
+        font-weight: 600;
+        background: var(--surface);
+        color: var(--ink2);
+        padding: 0.1rem 0.42rem;
+        border-radius: 4px;
+        letter-spacing: 0.05em;
+      }
+      .nav-links {
+        margin-left: auto;
+        display: flex;
+        align-items: center;
+        gap: 1.6rem;
+      }
+      .nav-links a:not(.nav-gh) {
+        display: none;
+      }
+      @media (min-width: 680px) {
+        .nav-links a:not(.nav-gh) {
+          display: inline-flex;
+        }
+      }
+      .nav-links a {
+        color: var(--ink2);
+        font-weight: 500;
+        font-size: 0.88rem;
+        transition: color 0.12s;
+      }
+      .nav-links a:hover {
+        color: var(--ink);
+        text-decoration: none;
+      }
+      .nav-gh {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        background: var(--white);
+        border: 1px solid var(--border);
+        padding: 0.38rem 0.9rem;
+        border-radius: 6px;
+        color: var(--ink) !important;
+        font-weight: 600;
+        font-size: 0.84rem;
+        transition: border-color 0.12s;
+      }
+      .nav-gh:hover {
+        border-color: var(--purple);
+        text-decoration: none;
+      }
 
-    /* ── Hero ─────────────────────────────────────────────────────── */
-    .hero { background: var(--bg); padding: 3rem 0 0; }
-    @media (min-width: 860px) { .hero { padding: 4.5rem 0 0; } }
+      /* ── Hero ─────────────────────────────────────────────────────── */
+      .hero {
+        background: var(--bg);
+        padding: 3rem 0 0;
+      }
+      @media (min-width: 860px) {
+        .hero {
+          padding: 4.5rem 0 0;
+        }
+      }
 
-    .hero-grid { display: grid; grid-template-columns: 1fr; gap: 2rem; align-items: start; }
-    @media (min-width: 860px) { .hero-grid { grid-template-columns: 1fr 1.05fr; gap: 3rem; } }
+      .hero-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 2rem;
+        align-items: start;
+      }
+      @media (min-width: 860px) {
+        .hero-grid {
+          grid-template-columns: 1fr 1.05fr;
+          gap: 3rem;
+        }
+      }
 
-    .hero-ver { display: inline-block; font-size: 0.73rem; font-weight: 600;
-                letter-spacing: 0.06em; text-transform: uppercase;
-                color: var(--purple); margin-bottom: 1rem; }
-    h1 { font-size: clamp(2.4rem, 8vw, 4.4rem); font-weight: 700; color: var(--ink);
-         letter-spacing: -0.04em; line-height: 1.0; margin-bottom: 1.1rem; }
-    .hero-sub { font-size: 1rem; color: var(--ink2); line-height: 1.7;
-                max-width: 430px; margin-bottom: 1.8rem; }
-    @media (min-width: 860px) { .hero-sub { font-size: 1.05rem; } }
-    .hero-btns { display: flex; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 2.2rem; }
-    .btn-w { display: inline-flex; align-items: center; gap: 0.4rem;
-             background: var(--purple); color: #fff; font-weight: 700;
-             padding: 0.7rem 1.4rem; border-radius: 7px; font-size: 0.9rem;
-             transition: background 0.12s; }
-    .btn-w:hover { background: var(--purple-lt); text-decoration: none; }
-    .btn-o { display: inline-flex; align-items: center; gap: 0.4rem;
-             background: var(--white); color: var(--ink);
-             border: 1px solid var(--border); font-weight: 600;
-             padding: 0.7rem 1.4rem; border-radius: 7px; font-size: 0.9rem;
-             transition: border-color 0.12s; }
-    .btn-o:hover { border-color: var(--purple); text-decoration: none; }
+      .hero-ver {
+        display: inline-block;
+        font-size: 0.73rem;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--purple);
+        margin-bottom: 1rem;
+      }
+      h1 {
+        font-size: clamp(2.4rem, 8vw, 4.4rem);
+        font-weight: 700;
+        color: var(--ink);
+        letter-spacing: -0.04em;
+        line-height: 1;
+        margin-bottom: 1.1rem;
+      }
+      .hero-sub {
+        font-size: 1rem;
+        color: var(--ink2);
+        line-height: 1.7;
+        max-width: 430px;
+        margin-bottom: 1.8rem;
+      }
+      @media (min-width: 860px) {
+        .hero-sub {
+          font-size: 1.05rem;
+        }
+      }
+      .hero-btns {
+        display: flex;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+        margin-bottom: 2.2rem;
+      }
+      .btn-w {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        background: var(--purple);
+        color: #fff;
+        font-weight: 700;
+        padding: 0.7rem 1.4rem;
+        border-radius: 7px;
+        font-size: 0.9rem;
+        transition: background 0.12s;
+      }
+      .btn-w:hover {
+        background: var(--purple-lt);
+        text-decoration: none;
+      }
+      .btn-o {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        background: var(--white);
+        color: var(--ink);
+        border: 1px solid var(--border);
+        font-weight: 600;
+        padding: 0.7rem 1.4rem;
+        border-radius: 7px;
+        font-size: 0.9rem;
+        transition: border-color 0.12s;
+      }
+      .btn-o:hover {
+        border-color: var(--purple);
+        text-decoration: none;
+      }
 
-    /* Hero terminal */
-    .hero-term { position: relative; padding-top: 8rem; order: -1; }
-    @media (min-width: 860px) { .hero-term { order: 0; margin-top: 0.5rem; } }
-    .hero-mascot { position: absolute; top: 0; left: 50%; transform: translateX(-50%);
-                   width: 150px; height: 150px; display: block; z-index: 2; }
-    .terminal { background: var(--code); border: 1px solid var(--code-bd);
-                border-radius: 10px; overflow: hidden; width: 100%;
-                box-shadow: 0 32px 80px rgba(0,0,0,0.18); }
-    .tbar { background: #252035; border-bottom: 1px solid var(--code-bd);
-            padding: 0.55rem 1rem; display: flex; align-items: center; gap: 0.45rem; }
-    .tdot { width: 10px; height: 10px; border-radius: 50%; }
-    .tname { margin-left: auto; font-family: var(--mono); font-size: 0.66rem; color: #6b6480; }
-    .tbody { padding: 1rem 1.25rem; font-family: var(--mono); font-size: 0.68rem;
-             line-height: 1.9; color: #b4bccc; overflow-x: auto; white-space: pre;
-             display: block; max-width: 100%; }
-    @media (min-width: 600px) { .tbody { padding: 1.3rem 1.5rem; font-size: 0.78rem; } }
+      /* Hero terminal */
+      .hero-term {
+        position: relative;
+        padding-top: 8rem;
+        order: -1;
+      }
+      @media (min-width: 860px) {
+        .hero-term {
+          order: 0;
+          margin-top: 0.5rem;
+        }
+      }
+      .hero-mascot {
+        position: absolute;
+        top: 0;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 150px;
+        height: 150px;
+        display: block;
+        z-index: 2;
+      }
+      .terminal {
+        background: var(--code);
+        border: 1px solid var(--code-bd);
+        border-radius: 10px;
+        overflow: hidden;
+        width: 100%;
+        box-shadow: 0 32px 80px rgba(0, 0, 0, 0.18);
+      }
+      .tbar {
+        background: #252035;
+        border-bottom: 1px solid var(--code-bd);
+        padding: 0.55rem 1rem;
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+      }
+      .tdot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+      }
+      .tname {
+        margin-left: auto;
+        font-family: var(--mono);
+        font-size: 0.66rem;
+        color: #6b6480;
+      }
+      .tbody {
+        padding: 1rem 1.25rem;
+        font-family: var(--mono);
+        font-size: 0.68rem;
+        line-height: 1.9;
+        color: #b4bccc;
+        overflow-x: auto;
+        white-space: pre;
+        display: block;
+        max-width: 100%;
+      }
+      @media (min-width: 600px) {
+        .tbody {
+          padding: 1.3rem 1.5rem;
+          font-size: 0.78rem;
+        }
+      }
 
-    /* Hero props strip */
-    .hero-props { margin-top: 2rem; border-top: 1px solid var(--border);
-                  padding: 1rem 0; display: flex; gap: 0; flex-wrap: wrap; }
-    @media (min-width: 860px) { .hero-props { margin-top: 2.8rem; } }
-    .hprop { font-size: 0.75rem; font-weight: 500; color: var(--muted);
-             padding: 0.3rem 1.2rem 0.3rem 0; letter-spacing: 0.01em; }
-    .hprop.new { color: var(--purple); font-weight: 600; }
+      /* Hero props strip */
+      .hero-props {
+        margin-top: 2rem;
+        border-top: 1px solid var(--border);
+        padding: 1rem 0;
+        display: flex;
+        gap: 0;
+        flex-wrap: wrap;
+      }
+      @media (min-width: 860px) {
+        .hero-props {
+          margin-top: 2.8rem;
+        }
+      }
+      .hprop {
+        font-size: 0.75rem;
+        font-weight: 500;
+        color: var(--muted);
+        padding: 0.3rem 1.2rem 0.3rem 0;
+        letter-spacing: 0.01em;
+      }
+      .hprop.new {
+        color: var(--purple);
+        font-weight: 600;
+      }
 
-    /* ── Syntax colours ───────────────────────────────────────────── */
-    .kw { color: #c792ea; font-weight: 600; }
-    .ty { color: #82aaff; }
-    .fn { color: #82d9c5; }
-    .st { color: #c3e88d; }
-    .cm { color: #4a4460; font-style: italic; }
-    .nu { color: #f78c6c; }
-    .aw { color: #ffcb6b; font-weight: 600; }
-    .op { color: #89ddff; }
+      /* ── Syntax colours ───────────────────────────────────────────── */
+      .kw {
+        color: #c792ea;
+        font-weight: 600;
+      }
+      .ty {
+        color: #82aaff;
+      }
+      .fn {
+        color: #82d9c5;
+      }
+      .st {
+        color: #c3e88d;
+      }
+      .cm {
+        color: #4a4460;
+        font-style: italic;
+      }
+      .nu {
+        color: #f78c6c;
+      }
+      .aw {
+        color: #ffcb6b;
+        font-weight: 600;
+      }
+      .op {
+        color: #89ddff;
+      }
 
-    /* ── Sections ─────────────────────────────────────────────────── */
-    .section { padding: 3.5rem 0; }
-    @media (min-width: 600px) { .section { padding: 5rem 0; } }
-    .label { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.12em;
-             text-transform: uppercase; color: var(--muted); margin-bottom: 0.7rem; display: block; }
-    h2 { font-size: clamp(1.65rem, 4vw, 2.4rem); font-weight: 700;
-         letter-spacing: -0.03em; line-height: 1.1; margin-bottom: 0.75rem; }
-    h2 .dim { color: var(--muted); }
-    .lead { color: var(--ink2); max-width: 560px; font-size: 1rem; line-height: 1.72; }
+      /* ── Sections ─────────────────────────────────────────────────── */
+      .section {
+        padding: 3.5rem 0;
+      }
+      @media (min-width: 600px) {
+        .section {
+          padding: 5rem 0;
+        }
+      }
+      .label {
+        font-size: 0.68rem;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin-bottom: 0.7rem;
+        display: block;
+      }
+      h2 {
+        font-size: clamp(1.65rem, 4vw, 2.4rem);
+        font-weight: 700;
+        letter-spacing: -0.03em;
+        line-height: 1.1;
+        margin-bottom: 0.75rem;
+      }
+      h2 .dim {
+        color: var(--muted);
+      }
+      .lead {
+        color: var(--ink2);
+        max-width: 560px;
+        font-size: 1rem;
+        line-height: 1.72;
+      }
 
-    /* ── Why Eskiu ────────────────────────────────────────────────── */
-    .glance { display: grid; grid-template-columns: 1fr; gap: 0;
-              border: 1px solid var(--border); border-radius: 10px;
-              overflow: hidden; margin-top: 2.5rem; }
-    @media (min-width: 700px) { .glance { grid-template-columns: repeat(3, 1fr); } }
-    .glance-item { padding: 1.6rem 1.5rem; background: var(--white);
-                   border-bottom: 1px solid var(--border); }
-    .glance-item:last-child { border-bottom: none; }
-    @media (min-width: 700px) {
-      .glance-item { border-bottom: none; border-right: 1px solid var(--border); }
-      .glance-item:last-child { border-right: none; }
-    }
-    .glance-item::before { content: ''; display: block; width: 24px; height: 3px;
-                            background: var(--purple); border-radius: 2px; margin-bottom: 1rem; }
-    .glance-item h3 { font-size: 0.97rem; font-weight: 700; margin-bottom: 0.5rem; }
-    .glance-item p  { font-size: 0.84rem; color: var(--ink2); line-height: 1.65; }
+      /* ── Why Eskiu ────────────────────────────────────────────────── */
+      .glance {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 0;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        overflow: hidden;
+        margin-top: 2.5rem;
+      }
+      @media (min-width: 700px) {
+        .glance {
+          grid-template-columns: repeat(3, 1fr);
+        }
+      }
+      .glance-item {
+        padding: 1.6rem 1.5rem;
+        background: var(--white);
+        border-bottom: 1px solid var(--border);
+      }
+      .glance-item:last-child {
+        border-bottom: none;
+      }
+      @media (min-width: 700px) {
+        .glance-item {
+          border-bottom: none;
+          border-right: 1px solid var(--border);
+        }
+        .glance-item:last-child {
+          border-right: none;
+        }
+      }
+      .glance-item::before {
+        content: "";
+        display: block;
+        width: 24px;
+        height: 3px;
+        background: var(--purple);
+        border-radius: 2px;
+        margin-bottom: 1rem;
+      }
+      .glance-item h3 {
+        font-size: 0.97rem;
+        font-weight: 700;
+        margin-bottom: 0.5rem;
+      }
+      .glance-item p {
+        font-size: 0.84rem;
+        color: var(--ink2);
+        line-height: 1.65;
+      }
 
-    /* ── Code examples ─────────────────────────────────────────────── */
-    .examples-wrap { display: grid; grid-template-columns: 1fr; gap: 1.5rem; align-items: start; }
-    @media (min-width: 740px) { .examples-wrap { grid-template-columns: auto 1fr; gap: 2.5rem; } }
-    .tab-list { display: flex; flex-direction: row; flex-wrap: wrap; gap: 2px; }
-    @media (min-width: 740px) { .tab-list { flex-direction: column; min-width: 140px; } }
-    .tab-btn { background: none; border: none; font-family: var(--mono); font-size: 0.78rem;
-               font-weight: 600; color: var(--ink2); padding: 0.5rem 0.75rem; border-radius: 6px;
-               cursor: pointer; transition: all 0.12s;
-               border-bottom: 2px solid transparent; }
-    .tab-btn:hover { background: var(--surface); color: var(--ink); }
-    .tab-btn.active { background: var(--white); color: var(--purple);
-                      border-bottom-color: var(--purple);
-                      box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
-    @media (min-width: 740px) {
-      .tab-btn { display: block; width: 100%; text-align: left;
-                 border-bottom: none; border-left: 2px solid transparent; }
-      .tab-btn.active { border-bottom-color: transparent; border-left-color: var(--purple); }
-    }
-    .tab-panel { display: none; }
-    .tab-panel.active { display: block; }
-    .code-block { background: var(--code); border: 1px solid var(--code-bd);
-                  border-radius: 10px; overflow: hidden; width: 100%;
-                  box-shadow: 0 8px 24px rgba(0,0,0,0.12); }
-    .cbar { background: #252035; border-bottom: 1px solid var(--code-bd);
-            padding: 0.5rem 1rem; display: flex; align-items: center; gap: 0.4rem; }
-    .cbar .d { width: 10px; height: 10px; border-radius: 50%; }
-    .cbar .nm { margin-left: auto; font-family: var(--mono); font-size: 0.65rem; color: #6b6480; }
-    .code-block pre { padding: 1rem 1.25rem; font-family: var(--mono); font-size: 0.72rem;
-                      line-height: 1.9; overflow-x: auto; color: #b4bccc; }
-    @media (min-width: 600px) { .code-block pre { padding: 1.35rem 1.5rem; font-size: 0.78rem; } }
+      /* ── Code examples ─────────────────────────────────────────────── */
+      .examples-wrap {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 1.5rem;
+        align-items: start;
+      }
+      @media (min-width: 740px) {
+        .examples-wrap {
+          grid-template-columns: auto 1fr;
+          gap: 2.5rem;
+        }
+      }
+      .tab-list {
+        display: flex;
+        flex-direction: row;
+        flex-wrap: wrap;
+        gap: 2px;
+      }
+      @media (min-width: 740px) {
+        .tab-list {
+          flex-direction: column;
+          min-width: 140px;
+        }
+      }
+      .tab-btn {
+        background: none;
+        border: none;
+        font-family: var(--mono);
+        font-size: 0.78rem;
+        font-weight: 600;
+        color: var(--ink2);
+        padding: 0.5rem 0.75rem;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: all 0.12s;
+        border-bottom: 2px solid transparent;
+      }
+      .tab-btn:hover {
+        background: var(--surface);
+        color: var(--ink);
+      }
+      .tab-btn.active {
+        background: var(--white);
+        color: var(--purple);
+        border-bottom-color: var(--purple);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+      }
+      @media (min-width: 740px) {
+        .tab-btn {
+          display: block;
+          width: 100%;
+          text-align: left;
+          border-bottom: none;
+          border-left: 2px solid transparent;
+        }
+        .tab-btn.active {
+          border-bottom-color: transparent;
+          border-left-color: var(--purple);
+        }
+      }
+      .tab-panel {
+        display: none;
+      }
+      .tab-panel.active {
+        display: block;
+      }
+      .code-block {
+        background: var(--code);
+        border: 1px solid var(--code-bd);
+        border-radius: 10px;
+        overflow: hidden;
+        width: 100%;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+      }
+      .cbar {
+        background: #252035;
+        border-bottom: 1px solid var(--code-bd);
+        padding: 0.5rem 1rem;
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+      }
+      .cbar .d {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+      }
+      .cbar .nm {
+        margin-left: auto;
+        font-family: var(--mono);
+        font-size: 0.65rem;
+        color: #6b6480;
+      }
+      .code-block pre {
+        padding: 1rem 1.25rem;
+        font-family: var(--mono);
+        font-size: 0.72rem;
+        line-height: 1.9;
+        overflow-x: auto;
+        color: #b4bccc;
+      }
+      @media (min-width: 600px) {
+        .code-block pre {
+          padding: 1.35rem 1.5rem;
+          font-size: 0.78rem;
+        }
+      }
 
-    /* ── Sponsors ─────────────────────────────────────────────────── */
-    .sponsors { padding: 3rem 0; background: var(--code);
-                border-top: 1px solid var(--code-bd); border-bottom: 1px solid var(--code-bd); }
-    .sp-label { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.12em;
-                text-transform: uppercase; color: rgba(255,255,255,0.3);
-                text-align: center; margin-bottom: 2rem; }
-    .sp-logos { display: flex; align-items: center; justify-content: center;
-                gap: 3rem; flex-wrap: wrap; }
-    @media (min-width: 600px) { .sp-logos { gap: 4rem; } }
-    .sp-item { display: flex; flex-direction: column; align-items: center; gap: 0.5rem;
-               opacity: 0.6; transition: opacity 0.2s; }
-    .sp-item:hover { opacity: 1; }
-    .sp-item img { height: 28px; width: auto; }
-    .sp-role { font-size: 0.67rem; color: rgba(255,255,255,0.3); text-transform: uppercase;
-               letter-spacing: 0.07em; font-weight: 600; }
+      /* ── Sponsors ─────────────────────────────────────────────────── */
+      .sponsors {
+        padding: 3rem 0;
+        background: var(--code);
+        border-top: 1px solid var(--code-bd);
+        border-bottom: 1px solid var(--code-bd);
+      }
+      .sp-label {
+        font-size: 0.68rem;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: rgba(255, 255, 255, 0.3);
+        text-align: center;
+        margin-bottom: 2rem;
+      }
+      .sp-logos {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 3rem;
+        flex-wrap: wrap;
+      }
+      @media (min-width: 600px) {
+        .sp-logos {
+          gap: 4rem;
+        }
+      }
+      .sp-item {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.5rem;
+        opacity: 0.6;
+        transition: opacity 0.2s;
+      }
+      .sp-item:hover {
+        opacity: 1;
+      }
+      .sp-item img {
+        height: 28px;
+        width: auto;
+      }
+      .sp-role {
+        font-size: 0.67rem;
+        color: rgba(255, 255, 255, 0.3);
+        text-transform: uppercase;
+        letter-spacing: 0.07em;
+        font-weight: 600;
+      }
 
-    /* ── Get started ──────────────────────────────────────────────── */
-    .start { background: var(--white); border-top: 1px solid var(--border);
-             border-bottom: 1px solid var(--border); padding: 3.5rem 0; }
-    @media (min-width: 600px) { .start { padding: 5rem 0; } }
-    .cli { background: var(--code); border: 1px solid var(--code-bd); border-radius: 10px;
-           overflow: hidden; max-width: 680px; margin-top: 2rem; }
-    .cli pre { padding: 1rem 1.25rem; font-family: var(--mono); font-size: 0.72rem;
-               line-height: 2; color: #b4bccc; overflow-x: auto; }
-    @media (min-width: 600px) { .cli pre { padding: 1.3rem 1.5rem; font-size: 0.78rem; } }
-    .cp { color: #82d9c5; }
-    .cc { color: #4a4460; }
+      /* ── Get started ──────────────────────────────────────────────── */
+      .start {
+        background: var(--white);
+        border-top: 1px solid var(--border);
+        border-bottom: 1px solid var(--border);
+        padding: 3.5rem 0;
+      }
+      @media (min-width: 600px) {
+        .start {
+          padding: 5rem 0;
+        }
+      }
+      .cli {
+        background: var(--code);
+        border: 1px solid var(--code-bd);
+        border-radius: 10px;
+        overflow: hidden;
+        max-width: 680px;
+        margin-top: 2rem;
+      }
+      .cli pre {
+        padding: 1rem 1.25rem;
+        font-family: var(--mono);
+        font-size: 0.72rem;
+        line-height: 2;
+        color: #b4bccc;
+        overflow-x: auto;
+      }
+      @media (min-width: 600px) {
+        .cli pre {
+          padding: 1.3rem 1.5rem;
+          font-size: 0.78rem;
+        }
+      }
+      .cp {
+        color: #82d9c5;
+      }
+      .cc {
+        color: #4a4460;
+      }
 
-    /* ── Footer ───────────────────────────────────────────────────── */
-    footer { background: var(--bg); border-top: 1px solid var(--border); }
-    .footer-in { max-width: 1100px; margin: 0 auto; padding: 1.5rem 1.25rem;
-                 display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap; }
-    @media (min-width: 600px) { .footer-in { padding: 2rem; } }
-    .footer-brand { display: flex; align-items: center; gap: 0.5rem;
-                    font-weight: 700; font-size: 0.92rem; color: var(--ink); }
-    .footer-brand img { width: 24px; height: 24px; border-radius: 4px; }
-    .footer-links { display: flex; gap: 1.4rem; flex-wrap: wrap; }
-    .footer-links a { color: var(--ink2); font-size: 0.82rem; }
-    .footer-links a:hover { color: var(--ink); text-decoration: none; }
-    .footer-copy { margin-left: auto; font-size: 0.77rem; color: var(--muted); }
-  </style>
-</head>
-<body>
-
-<!-- Nav -->
-<nav>
-  <div class="nav-in">
-    <a class="brand" href="#">
-      <img src="../assets/logo.png" alt="Eskiu" />
-      eskiu
-      <span class="brand-ver">v0.2</span>
-    </a>
-    <div class="nav-links">
-      <a href="#examples">Examples</a>
-      <a href="https://eskiu-lang.org/assets/the-book-of-eskiu.pdf">Book</a>
-      <a href="https://github.com/doranteseduardo/eskiu/tree/main/docs/lang">Docs</a>
-      <a class="nav-gh" href="https://github.com/doranteseduardo/eskiu">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0 1 12 6.844a9.59 9.59 0 0 1 2.504.337c1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.02 10.02 0 0 0 22 12.017C22 6.484 17.522 2 12 2z"/></svg>
-        GitHub
-      </a>
-    </div>
-  </div>
-</nav>
-
-<!-- Hero -->
-<section class="hero">
-  <div class="wrap">
-    <div class="hero-grid">
-      <div>
-        <span class="hero-ver">v0.2.0</span>
-        <h1>Systems<br>speed.<br>Async-<br>native.</h1>
-        <p class="hero-sub">Compiles to native code via LLVM. You allocate, you free, there's nothing underneath. It can boot a bare-metal ARM64 kernel or run an HTTP/2 server. Async/await and sum types are built in.</p>
-        <div class="hero-btns">
-          <a class="btn-w" href="https://github.com/doranteseduardo/eskiu/blob/main/QUICKSTART.md">Get started →</a>
-          <a class="btn-o" href="https://github.com/doranteseduardo/eskiu">View on GitHub</a>
+      /* ── Footer ───────────────────────────────────────────────────── */
+      footer {
+        background: var(--bg);
+        border-top: 1px solid var(--border);
+      }
+      .footer-in {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 1.5rem 1.25rem;
+        display: flex;
+        align-items: center;
+        gap: 1.5rem;
+        flex-wrap: wrap;
+      }
+      @media (min-width: 600px) {
+        .footer-in {
+          padding: 2rem;
+        }
+      }
+      .footer-brand {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-weight: 700;
+        font-size: 0.92rem;
+        color: var(--ink);
+      }
+      .footer-brand img {
+        width: 24px;
+        height: 24px;
+        border-radius: 4px;
+      }
+      .footer-links {
+        display: flex;
+        gap: 1.4rem;
+        flex-wrap: wrap;
+      }
+      .footer-links a {
+        color: var(--ink2);
+        font-size: 0.82rem;
+      }
+      .footer-links a:hover {
+        color: var(--ink);
+        text-decoration: none;
+      }
+      .footer-copy {
+        margin-left: auto;
+        font-size: 0.77rem;
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Nav -->
+    <nav>
+      <div class="nav-in">
+        <a class="brand" href="#">
+          <img src="../assets/logo.png" alt="Eskiu" />
+          eskiu
+          <span class="brand-ver">v0.2</span>
+        </a>
+        <div class="nav-links">
+          <a href="#examples">Examples</a>
+          <a href="https://eskiu-lang.org/assets/the-book-of-eskiu.pdf">Book</a>
+          <a href="https://github.com/doranteseduardo/eskiu/tree/main/docs/lang"
+            >Docs</a
+          >
+          <a class="nav-gh" href="https://github.com/doranteseduardo/eskiu">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              aria-hidden="true"
+            >
+              <path
+                d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0 1 12 6.844a9.59 9.59 0 0 1 2.504.337c1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.02 10.02 0 0 0 22 12.017C22 6.484 17.522 2 12 2z"
+              />
+            </svg>
+            GitHub
+          </a>
         </div>
       </div>
-      <div class="hero-term">
-        <img class="hero-mascot" src="../assets/logo.png" alt="Eskiu mascot" />
-        <div class="terminal">
-          <div class="tbar">
-            <span class="tdot" style="background:#ff5f57"></span>
-            <span class="tdot" style="background:#febc2e"></span>
-            <span class="tdot" style="background:#28c840"></span>
-            <span class="tname">bash</span>
+    </nav>
+
+    <!-- Hero -->
+    <section class="hero">
+      <div class="wrap">
+        <div class="hero-grid">
+          <div>
+            <span class="hero-ver">v0.2.0</span>
+            <h1>Systems<br />speed.<br />Async-<br />native.</h1>
+            <p class="hero-sub">
+              Compiles to native code via LLVM. You allocate, you free, there's
+              nothing underneath. It can boot a bare-metal ARM64 kernel or run
+              an HTTP/2 server. Async/await and sum types are built in.
+            </p>
+            <div class="hero-btns">
+              <a
+                class="btn-w"
+                href="https://github.com/doranteseduardo/eskiu/blob/main/QUICKSTART.md"
+                >Get started →</a
+              >
+              <a class="btn-o" href="https://github.com/doranteseduardo/eskiu"
+                >View on GitHub</a
+              >
+            </div>
           </div>
-          <div class="tbody"><span class="cp">$</span> git clone https://github.com/doranteseduardo/eskiu
-<span class="cm">Cloning into 'eskiu'...</span>
+          <div class="hero-term">
+            <img
+              class="hero-mascot"
+              src="../assets/logo.png"
+              alt="Eskiu mascot"
+            />
+            <div class="terminal">
+              <div class="tbar">
+                <span class="tdot" style="background: #ff5f57"></span>
+                <span class="tdot" style="background: #febc2e"></span>
+                <span class="tdot" style="background: #28c840"></span>
+                <span class="tname">bash</span>
+              </div>
+              <div class="tbody">
+                <span class="cp">$</span> git clone
+                https://github.com/doranteseduardo/eskiu
+                <span class="cm">Cloning into 'eskiu'...</span>
 
-<span class="cp">$</span> cmake -S eskiu -B build &amp;&amp; cmake --build build
-<span class="cm">[100%] Built target eskiuc</span>
+                <span class="cp">$</span> cmake -S eskiu -B build &amp;&amp;
+                cmake --build build
+                <span class="cm">[100%] Built target eskiuc</span>
 
-<span class="cp">$</span> cat hello.esk
-<span class="kw">extern</span> <span class="ty">int</span> <span class="fn">printf</span>(<span class="ty">string</span> fmt, ...);
-<span class="ty">int</span> <span class="fn">main</span>() {
-    <span class="fn">printf</span>(<span class="st">"Hello from Eskiu.\n"</span>);
-    <span class="kw">return</span> <span class="nu">0</span>;
-}
+                <span class="cp">$</span> cat hello.esk
+                <span class="kw">extern</span> <span class="ty">int</span>
+                <span class="fn">printf</span>(<span class="ty">string</span>
+                fmt, ...); <span class="ty">int</span>
+                <span class="fn">main</span>() {
+                <span class="fn">printf</span>(<span class="st"
+                  >"Hello from Eskiu.\n"</span
+                >); <span class="kw">return</span> <span class="nu">0</span>; }
 
-<span class="cp">$</span> eskiuc run hello.esk
-<span class="st">Hello from Eskiu.</span></div>
+                <span class="cp">$</span> eskiuc run hello.esk
+                <span class="st">Hello from Eskiu.</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="hero-props">
+          <span class="hprop">Compiled via LLVM</span>
+          <span class="hprop">Manual memory</span>
+          <span class="hprop">Standalone binary</span>
+          <span class="hprop new">async/await</span>
+          <span class="hprop new">sum types</span>
+          <span class="hprop new">HTTP/2 + TLS</span>
+          <span class="hprop new">atomics</span>
+          <span class="hprop">C FFI</span>
+          <span class="hprop">freestanding</span>
+          <span class="hprop">arm64 · x86-64</span>
         </div>
       </div>
-    </div>
-    <div class="hero-props">
-      <span class="hprop">Compiled via LLVM</span>
-      <span class="hprop">Manual memory</span>
-      <span class="hprop">Standalone binary</span>
-      <span class="hprop new">async/await</span>
-      <span class="hprop new">sum types</span>
-      <span class="hprop new">HTTP/2 + TLS</span>
-      <span class="hprop new">atomics</span>
-      <span class="hprop">C FFI</span>
-      <span class="hprop">freestanding</span>
-      <span class="hprop">arm64 · x86-64</span>
-    </div>
-  </div>
-</section>
+    </section>
 
-<!-- Why Eskiu -->
-<section class="section">
-  <div class="wrap">
-    <span class="label">Why Eskiu</span>
-    <h2>One toolchain instead of four.</h2>
-    <p class="lead">Compute-intensive services lean on C for speed, Go for concurrency, C++ for libraries, and something else for glue. Eskiu does all of it in one compiled language, with async built in.</p>
-    <div class="glance">
-      <div class="glance-item">
-        <h3>Machine code, explicit allocation</h3>
-        <p>LLVM backend. You manage memory yourself with <code>alloc&lt;T&gt;(N)</code> and <code>free(ptr)</code>, right there in the source. 2.5× faster than reference C on our crypto pipeline benchmark.</p>
+    <!-- Why Eskiu -->
+    <section class="section">
+      <div class="wrap">
+        <span class="label">Why Eskiu</span>
+        <h2>One toolchain instead of four.</h2>
+        <p class="lead">
+          Compute-intensive services lean on C for speed, Go for concurrency,
+          C++ for libraries, and something else for glue. Eskiu does all of it
+          in one compiled language, with async built in.
+        </p>
+        <div class="glance">
+          <div class="glance-item">
+            <h3>Machine code, explicit allocation</h3>
+            <p>
+              LLVM backend. You manage memory yourself with
+              <code>alloc&lt;T&gt;(N)</code> and <code>free(ptr)</code>, right
+              there in the source. 2.5× faster than reference C on our crypto
+              pipeline benchmark.
+            </p>
+          </div>
+          <div class="glance-item">
+            <h3>Async without a framework</h3>
+            <p>
+              <code>async fn</code> and <code>await</code> compile to coroutine
+              state machines. Pair with the built-in executor and channels, or
+              write your own scheduler. It all links into your binary.
+            </p>
+          </div>
+          <div class="glance-item">
+            <h3>Kernel to server, one language</h3>
+            <p>
+              Freestanding mode boots a bare-metal ARM64 kernel in QEMU. The
+              same syntax and stdlib handle HTTP/2 on a server. One language for
+              both ends.
+            </p>
+          </div>
+        </div>
       </div>
-      <div class="glance-item">
-        <h3>Async without a framework</h3>
-        <p><code>async fn</code> and <code>await</code> compile to coroutine state machines. Pair with the built-in executor and channels, or write your own scheduler. It all links into your binary.</p>
-      </div>
-      <div class="glance-item">
-        <h3>Kernel to server, one language</h3>
-        <p>Freestanding mode boots a bare-metal ARM64 kernel in QEMU. The same syntax and stdlib handle HTTP/2 on a server. One language for both ends.</p>
-      </div>
-    </div>
-  </div>
-</section>
+    </section>
 
-<!-- Code examples -->
-<hr />
-<section id="examples" class="section">
-  <div class="wrap">
-    <span class="label">Examples</span>
-    <h2>Looks like C.</h2>
-    <p class="lead" style="margin-bottom:2.5rem">Each file below is a complete program. Compile and run with <code style="white-space:nowrap">eskiuc run file.esk</code>.</p>
-    <div class="examples-wrap">
-      <div class="tab-list" role="tablist">
-        <button class="tab-btn active" onclick="switchTab(event,'async')">async.esk</button>
-        <button class="tab-btn" onclick="switchTab(event,'match')">match.esk</button>
-        <button class="tab-btn" onclick="switchTab(event,'hello')">hello.esk</button>
-        <button class="tab-btn" onclick="switchTab(event,'server')">server.esk</button>
-      </div>
-      <div>
-        <div id="tab-async" class="tab-panel active">
-          <div class="code-block">
-            <div class="cbar"><span class="d" style="background:#ff5f57"></span><span class="d" style="background:#febc2e"></span><span class="d" style="background:#28c840"></span><span class="nm">async.esk</span></div>
-<pre><span class="kw">extern</span> <span class="ty">int</span> <span class="fn">printf</span>(<span class="ty">string</span> fmt, ...);
+    <!-- Code examples -->
+    <hr />
+    <section id="examples" class="section">
+      <div class="wrap">
+        <span class="label">Examples</span>
+        <h2>Looks like C.</h2>
+        <p class="lead" style="margin-bottom: 2.5rem">
+          Each file below is a complete program. Compile and run with
+          <code style="white-space: nowrap">eskiuc run file.esk</code>.
+        </p>
+        <div class="examples-wrap">
+          <div class="tab-list" role="tablist">
+            <button class="tab-btn active" onclick="switchTab(event, 'async')">
+              async.esk
+            </button>
+            <button class="tab-btn" onclick="switchTab(event, 'match')">
+              match.esk
+            </button>
+            <button class="tab-btn" onclick="switchTab(event, 'hello')">
+              hello.esk
+            </button>
+            <button class="tab-btn" onclick="switchTab(event, 'server')">
+              server.esk
+            </button>
+          </div>
+          <div>
+            <div id="tab-async" class="tab-panel active">
+              <div class="code-block">
+                <div class="cbar">
+                  <span class="d" style="background: #ff5f57"></span
+                  ><span class="d" style="background: #febc2e"></span
+                  ><span class="d" style="background: #28c840"></span
+                  ><span class="nm">async.esk</span>
+                </div>
+                <pre><span class="kw">extern</span> <span class="ty">int</span> <span class="fn">printf</span>(<span class="ty">string</span> fmt, ...);
 <span class="kw">import</span> &lt;<span class="fn">future</span>&gt;;
 <span class="kw">import</span> &lt;<span class="fn">channel</span>&gt;;
 
@@ -378,13 +956,18 @@
     <span class="kw">return</span> <span class="nu">0</span>;
 }
 <span class="cm">// Output: sum of squares = 14</span></pre>
-          </div>
-        </div>
+              </div>
+            </div>
 
-        <div id="tab-match" class="tab-panel">
-          <div class="code-block">
-            <div class="cbar"><span class="d" style="background:#ff5f57"></span><span class="d" style="background:#febc2e"></span><span class="d" style="background:#28c840"></span><span class="nm">match.esk</span></div>
-<pre><span class="kw">extern</span> <span class="ty">int</span> <span class="fn">printf</span>(<span class="ty">string</span> fmt, ...);
+            <div id="tab-match" class="tab-panel">
+              <div class="code-block">
+                <div class="cbar">
+                  <span class="d" style="background: #ff5f57"></span
+                  ><span class="d" style="background: #febc2e"></span
+                  ><span class="d" style="background: #28c840"></span
+                  ><span class="nm">match.esk</span>
+                </div>
+                <pre><span class="kw">extern</span> <span class="ty">int</span> <span class="fn">printf</span>(<span class="ty">string</span> fmt, ...);
 <span class="kw">extern</span> <span class="ty">int</span> <span class="fn">atoi</span>(<span class="ty">string</span> s);
 
 <span class="cm">// Algebraic enum with payload variants.</span>
@@ -410,13 +993,18 @@
     <span class="kw">return</span> <span class="nu">0</span>;
 }
 <span class="cm">// Output: Listening on :8080</span></pre>
-          </div>
-        </div>
+              </div>
+            </div>
 
-        <div id="tab-hello" class="tab-panel">
-          <div class="code-block">
-            <div class="cbar"><span class="d" style="background:#ff5f57"></span><span class="d" style="background:#febc2e"></span><span class="d" style="background:#28c840"></span><span class="nm">hello.esk</span></div>
-<pre><span class="kw">extern</span> <span class="ty">int</span> <span class="fn">printf</span>(<span class="ty">string</span> fmt, ...);
+            <div id="tab-hello" class="tab-panel">
+              <div class="code-block">
+                <div class="cbar">
+                  <span class="d" style="background: #ff5f57"></span
+                  ><span class="d" style="background: #febc2e"></span
+                  ><span class="d" style="background: #28c840"></span
+                  ><span class="nm">hello.esk</span>
+                </div>
+                <pre><span class="kw">extern</span> <span class="ty">int</span> <span class="fn">printf</span>(<span class="ty">string</span> fmt, ...);
 <span class="kw">import</span> &lt;<span class="fn">list</span>&gt;;
 
 <span class="ty">int</span> <span class="fn">main</span>() {
@@ -427,13 +1015,18 @@
     <span class="kw">for</span> (n <span class="kw">in</span> nums) { <span class="fn">printf</span>(<span class="st">"%d\n"</span>, n); }   <span class="cm">// 0 1 4 9 16</span>
     <span class="kw">return</span> <span class="nu">0</span>;
 }</pre>
-          </div>
-        </div>
+              </div>
+            </div>
 
-        <div id="tab-server" class="tab-panel">
-          <div class="code-block">
-            <div class="cbar"><span class="d" style="background:#ff5f57"></span><span class="d" style="background:#febc2e"></span><span class="d" style="background:#28c840"></span><span class="nm">server.esk</span></div>
-<pre><span class="kw">import</span> &lt;<span class="fn">net</span>&gt;;
+            <div id="tab-server" class="tab-panel">
+              <div class="code-block">
+                <div class="cbar">
+                  <span class="d" style="background: #ff5f57"></span
+                  ><span class="d" style="background: #febc2e"></span
+                  ><span class="d" style="background: #28c840"></span
+                  ><span class="nm">server.esk</span>
+                </div>
+                <pre><span class="kw">import</span> &lt;<span class="fn">net</span>&gt;;
 <span class="kw">import</span> &lt;<span class="fn">mem</span>&gt;;
 
 <span class="ty">int</span> <span class="fn">main</span>() {
@@ -447,62 +1040,100 @@
     }
     <span class="kw">return</span> <span class="nu">0</span>;
 }</pre>
+              </div>
+            </div>
           </div>
         </div>
       </div>
-    </div>
-  </div>
-</section>
+    </section>
 
-<!-- Sponsors -->
-<div class="sponsors">
-  <div class="wrap">
-    <p class="sp-label">Early adopters &amp; sponsors</p>
-    <div class="sp-logos">
-      <a class="sp-item" href="https://reactvision.xyz" target="_blank" rel="noopener">
-        <img src="../assets/reactvision.png" alt="ReactVision" style="height:44px" />
-      </a>
-      <a class="sp-item" href="#" target="_blank" rel="noopener">
-        <img src="../assets/morrow.png" alt="The Morrow Digital" />
-      </a>
+    <!-- Sponsors -->
+    <div class="sponsors">
+      <div class="wrap">
+        <p class="sp-label">Early adopters &amp; sponsors</p>
+        <div class="sp-logos">
+          <a
+            class="sp-item"
+            href="https://reactvision.xyz"
+            target="_blank"
+            rel="noopener"
+          >
+            <img
+              src="../assets/reactvision.png"
+              alt="ReactVision"
+              style="height: 44px"
+            />
+          </a>
+          <a
+            class="sp-item"
+            href="https://themorrow.digital"
+            target="_blank"
+            rel="noopener"
+          >
+            <img src="../assets/morrow.png" alt="The Morrow Digital" />
+          </a>
+        </div>
+      </div>
     </div>
-  </div>
-</div>
 
-<!-- Get started -->
-<div class="start" id="start">
-  <div class="wrap">
-    <span class="label">Get started</span>
-    <h2>Read the quickstart.</h2>
-    <p class="lead">LLVM and a C toolchain are the only dependencies. The quickstart walks you through building the compiler and running your first program.</p>
-    <div style="margin-top:1.75rem">
-      <a class="btn-w" href="https://github.com/doranteseduardo/eskiu/blob/main/QUICKSTART.md">Read the quickstart →</a>
+    <!-- Get started -->
+    <div class="start" id="start">
+      <div class="wrap">
+        <span class="label">Get started</span>
+        <h2>Read the quickstart.</h2>
+        <p class="lead">
+          LLVM and a C toolchain are the only dependencies. The quickstart walks
+          you through building the compiler and running your first program.
+        </p>
+        <div style="margin-top: 1.75rem">
+          <a
+            class="btn-w"
+            href="https://github.com/doranteseduardo/eskiu/blob/main/QUICKSTART.md"
+            >Read the quickstart →</a
+          >
+        </div>
+      </div>
     </div>
-  </div>
-</div>
 
-<!-- Footer -->
-<footer>
-  <div class="footer-in">
-    <div class="footer-brand"><img src="../assets/logo.png" alt="Eskiu" />eskiu</div>
-    <div class="footer-links">
-      <a href="https://eskiu-lang.org/assets/the-book-of-eskiu.pdf">The Book (PDF)</a>
-      <a href="https://github.com/doranteseduardo/eskiu/blob/main/docs/lang/getting-started.md">Docs</a>
-      <a href="https://github.com/doranteseduardo/eskiu/blob/main/docs/dev/architecture.md">Internals</a>
-      <a href="https://github.com/doranteseduardo/eskiu/blob/main/CHANGELOG.md">Changelog</a>
-      <a href="https://github.com/doranteseduardo/eskiu">GitHub</a>
-    </div>
-    <span class="footer-copy">MIT Licence · Eduardo Dorantes</span>
-  </div>
-</footer>
+    <!-- Footer -->
+    <footer>
+      <div class="footer-in">
+        <div class="footer-brand">
+          <img src="../assets/logo.png" alt="Eskiu" />eskiu
+        </div>
+        <div class="footer-links">
+          <a href="https://eskiu-lang.org/assets/the-book-of-eskiu.pdf"
+            >The Book (PDF)</a
+          >
+          <a
+            href="https://github.com/doranteseduardo/eskiu/blob/main/docs/lang/getting-started.md"
+            >Docs</a
+          >
+          <a
+            href="https://github.com/doranteseduardo/eskiu/blob/main/docs/dev/architecture.md"
+            >Internals</a
+          >
+          <a
+            href="https://github.com/doranteseduardo/eskiu/blob/main/CHANGELOG.md"
+            >Changelog</a
+          >
+          <a href="https://github.com/doranteseduardo/eskiu">GitHub</a>
+        </div>
+        <span class="footer-copy">MIT Licence · Eduardo Dorantes</span>
+      </div>
+    </footer>
 
-<script>
-  function switchTab(e, name) {
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-    e.currentTarget.classList.add('active');
-    document.getElementById('tab-' + name).classList.add('active');
-  }
-</script>
-</body>
+    <script>
+      function switchTab(e, name) {
+        document
+          .querySelectorAll(".tab-btn")
+          .forEach((b) => b.classList.remove("active"));
+        document
+          .querySelectorAll(".tab-panel")
+          .forEach((p) => p.classList.remove("active"));
+        e.currentTarget.classList.add("active");
+        document.getElementById("tab-" + name).classList.add("active");
+      }
+    </script>
+  </body>
 </html>
