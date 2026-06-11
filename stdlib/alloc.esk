@@ -1,11 +1,23 @@
-// alloc.esk — allocators over a caller-provided buffer.
+// alloc.esk — a toolkit of explicit allocators over memory YOU own.
 //
-// Every allocator exposes `*void <T>_alloc(<T>* self, int64 n)`, so it plugs
-// straight into `alloc_with(&a, T, count)`. Because they manage memory the
-// caller hands them, they work under `--freestanding` with no libc malloc.
+// This is the Zig model, not a global `malloc` replacement: each allocator
+// sub-allocates from a buffer you hand it (pure pointer arithmetic — this file
+// has no externs and calls nothing), plugging into `alloc_with(&a, T, count)` via
+// `*void <T>_alloc(<T>* self, int64 n)`. They give you arena / pool / first-fit
+// strategies and are the building blocks for a freestanding heap.
 //
-//   *uint8 backing = alloc<uint8>(4096);
-//   let a: Bump;  Bump_init(&a, backing, 4096);
+// Where the backing buffer comes from is YOUR choice, and that decides the libc
+// story — the allocators are libc-agnostic either way:
+//   * a static array     — zero libc, zero syscalls, fixed size
+//   * `<sysheap>` (mmap)  — OS pages, no libc `malloc` (Zig page_allocator style)
+//   * `alloc<uint8>(n)`   — one upfront libc `malloc` (fine for hosted code)
+//   * a fixed region      — under `--freestanding` (see `kernel/alloc.esk`)
+//
+// Note: the default `alloc<T>` in `<mem>` is still libc `malloc` in hosted mode;
+// these allocators don't change that — they're for when you manage a region.
+//
+//   uint8[4096] backing;                 // a static buffer — no malloc at all
+//   let a: Bump;  Bump_init(&a, &backing[0], 4096);
 //   *int xs = alloc_with(&a, int, 16);
 
 // Round n up to the next multiple of 8 (alignment for any scalar/pointer).

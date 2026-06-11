@@ -25,7 +25,8 @@ Backend-services phase. v0.1.0 is frozen at its tag; this is the in-progress nex
 - **`spawn<T>` / `select2<A,B>` / `join2<A,B>`** — generic future combinators with a typed, cast-free call API (`spawn(task)`, `await select2(a, b)`, `await join2(a, b)` — type args inferred). `spawn` detaches a fire-and-forget task; `select2` completes with the index of whichever of two futures finishes first (loser dropped); `join2` completes once both finish. Thin wrappers over one shared type-erased core (`*_hdr`), so no per-instantiation bloat; leak-free (verified with `leaks`).
 
 ### Standard library
-- **`<alloc>`** — `Bump`, `Arena`, `Pool`, `FirstFit` allocators over caller-provided buffers (libc-free; work under `--freestanding`).
+- **`<alloc>`** — a toolkit of explicit allocators (`Bump`, `Arena`, `Pool`, `FirstFit`) over a buffer you own, via `alloc_with` (the Zig allocator model). Pure pointer arithmetic, no externs. Not a global `malloc` replacement — the default `alloc<T>` stays libc `malloc` in hosted mode; these manage a region and are the building blocks for a `--freestanding` heap.
+- **`<sysheap>`** — a general-purpose heap that sources OS pages via `mmap` and allocates with `FirstFit`, so the allocation path never calls libc `malloc` (the Zig `page_allocator` / jemalloc / Go-runtime approach). `heap_init`/`heap_alloc`/`heap_free`/`heap_destroy`; opt-in (the default `alloc<T>` is unchanged).
 - **`<time>`** — `time_now_ms`, `time_now_s`, `time_monotonic_ms`, `sleep_ms`.
 - **`<env>`** — `env_get`, `env_has`, `env_get_or`, `env_get_int`.
 - **`<base64>`** — RFC 4648 `base64_encode` / `base64_decode` over buffers.

@@ -81,6 +81,7 @@ when you add a test.
 | `sret` | a struct larger than 16 bytes is returned via sret (arm64) |
 | `alloc` | `<mem>` `alloc<T>(n)`/`free`; `<alloc>` Bump/Arena/Pool/FirstFit |
 | `alloc_with` | `alloc_with(&a, T, n)` over a caller-provided buffer |
+| `sysheap` | `<sysheap>` mmap-backed `FirstFit` heap — allocate/free/reuse with no libc `malloc` |
 | `atomic` | `<atomic>` `atomic_load`/`store`/`swap`/`cas` → LLVM atomics |
 | `base64` | `<base64>` encode/decode over buffers |
 | `env` | `<env>` `env_get`/`has`/`get_or`/`get_int` |
