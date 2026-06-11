@@ -63,9 +63,13 @@ tested and useful on its own.
   + a TLS client, outside the suite's fixed, dependency-free setup; the ALPN
   selector logic is pure and exercised by that end-to-end run.) Fixed along the
   way: a server must not advertise `SETTINGS_ENABLE_PUSH=1` (§6.5.2) — both
-  servers now send `0`. The server is blocking (thread-per-connection, like
-  `<http>`'s `http_serve`); async TLS over the reactor (`SSL_read` WANT_READ/
-  WANT_WRITE) is a later refinement.
+  servers now send `0`. Two server flavours: a blocking thread-per-connection one
+  (`http2_tls_serve_conn`) and an **async** one (`http2_tls_serve_async`) that
+  runs many TLS connections on one event-loop thread — a non-blocking SSL pump
+  (`tls_accept_async`/`tls_read_async`/`tls_write_all_async`) retries `SSL_*` on
+  `WANT_READ`/`WANT_WRITE` and parks on the matching readiness via the reactor's
+  `el_add_read`/`el_add_write`. Verified with 3 concurrent `curl --http2`
+  connections (all HTTP/2 200 on one thread).
 - [x] **Stage 6 — Server API** (`stdlib/http2_server.esk`). `http2_serve_async(lp,
   fd, handler, max_conns)` (and per-connection `http2_serve_conn_async`) mirroring
   the concurrent `<http_async>` server and reusing `<http>`'s `HttpRequest`/
