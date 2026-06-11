@@ -299,6 +299,7 @@ std::string tokenTypeToString(TokenType type) {
         case TokenType::SEMICOLON: return "SEMICOLON";
         case TokenType::COMMA: return "COMMA";
         case TokenType::DOT: return "DOT";
+        case TokenType::RANGE: return "RANGE";
         case TokenType::COLON: return "COLON";
         case TokenType::QUESTION: return "QUESTION";
         case TokenType::ARROW: return "ARROW";
@@ -729,6 +730,10 @@ Token Lexer::next_token() {
                 advance();
                 advance();
                 return Token(TokenType::ELLIPSIS, "...", start_line, start_col);
+            }
+            if (!is_at_end() && peek() == '.') {          // `..` half-open range
+                advance();
+                return Token(TokenType::RANGE, "..", start_line, start_col);
             }
             return Token(TokenType::DOT, ".", start_line, start_col);
         default:

@@ -41,6 +41,7 @@ when you add a test.
 | `bitwise_assign` | compound bitwise assignment `&= \|= ^= <<= >>=` |
 | `control_flow` | `if`/`else if`/`else`, `while`, `for`, `break`, `continue` |
 | `for_in` | `for x in …` over a fixed-size array |
+| `range_for` | `for (i in A..B)` half-open integer ranges (nested, variable bounds, empty) |
 | `recursion` | self-recursion: factorial, fibonacci, Ackermann |
 | `forward_decl` | forward declarations, call-before-define, mutual recursion |
 | `pointers` | `&`/`*`, deref, write-through, indexing, typed pointer arithmetic |
