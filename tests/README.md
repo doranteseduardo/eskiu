@@ -72,6 +72,7 @@ when you add a test.
 | `lambdas` | anonymous functions, `fn(T)->R`, higher-order functions |
 | `closures` | capturing & non-capturing lambdas through higher-order functions |
 | `closure_escape` | escape analysis: non-escaping closure on the stack, escaping one heap + `free_closure` |
+| `generic_closure` | a capturing closure inside a **generic** function body; the `T`-typed capture's env field is substituted per instantiation (`box<int>` / `box<int64>`) |
 | `import_cast` | a cast to a type imported from another file (`(FutureHdr*)p`) parses as a cast |
 | `closure_global` | a module global read inside a closure reads the global (not a stale copy) |
 | `fn_pointer` | function pointers as values and parameters |
@@ -103,9 +104,9 @@ when you add a test.
 | `async_loop` | `while` loop containing an await (read-until-EOF; loop back-edge) |
 | `async_if` | `if`/`else` with an await in each branch (branch-join states) |
 | `async_for` | C-style `for` loop containing an await |
-| `async_spawn` | detached `spawn` of async tasks (ready + suspending), leak-free |
-| `async_select` | `select2` — await the first of two futures; loser dropped (A-wins + B-wins) |
-| `async_join` | `join2` — await both futures, then read both values |
+| `async_spawn` | detached generic `spawn<T>` of async tasks (ready + suspending), leak-free |
+| `async_select` | generic `select2<A,B>` — await the first of two futures; loser dropped (A-wins + B-wins) |
+| `async_join` | generic `join2<A,B>` — await both futures, then read both values |
 
 ### `smoke` tests (compile + link + exit 0)
 

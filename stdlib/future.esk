@@ -73,10 +73,11 @@ void future_complete<T>(Future<T>* f, T v) {
 // event loop so the task's leaf futures can complete. Leak-free: the completion
 // waker frees the future *and* its own heap env (it saves its own fat pointer,
 // frees the future, then free_closures the saved copy as its last act).
-// Type-erased: call as spawn((FutureHdr*)f). Non-template so the reap
-// closure's capture of `f` is analyzed (template bodies skip capture analysis).
-// All operations are type-agnostic (header fields + free), so no T is needed.
-void spawn(FutureHdr* f) {
+//
+// `spawn_hdr` is the type-erased core (all work is header-only: fields + free).
+// Prefer the generic `spawn<T>` wrapper below — it takes a typed `Future<T>*`
+// with no cast at the call site and forwards here.
+void spawn_hdr(FutureHdr* f) {
     let reap: fn()->void = void() {
         let self: fn()->void = f.waker;       // this closure (f.waker == this)
         free_closure(f.on_drop);  free((*void)f);   // == free_future, type-agnostic
@@ -89,17 +90,13 @@ void spawn(FutureHdr* f) {
     free_closure(f.on_drop);  free((*void)f);
 }
 
-// select2: complete with the index (0 or 1) of whichever of `a`/`b` finishes
-// first; the loser is dropped (deregistered + freed). Type-erased, so it works
-// for futures of any value type — the awaiter reads the winner's typed value and
-// frees the winner (the loser is already gone). Ownership: select2 takes neither
-// future; on resolution the loser is freed here, and the CALLER frees the winner
-// after reading it. Leak-free via the self-free waker technique.
-//
-//   int w = await select2((FutureHdr*)rd, (FutureHdr*)timer);
-//   if (w == 0) { use rd.value;  free_future<int>(rd); }
-//   else        {                free_future<int>(timer); /* read timer if needed */ }
-Future<int>* select2(FutureHdr* a, FutureHdr* b) {
+// select2_hdr: complete with the index (0 or 1) of whichever of `a`/`b` finishes
+// first; the loser is dropped (deregistered + freed). Type-erased by necessity —
+// the loser's value type is not known here, so it can only be dropped through the
+// FutureHdr view. Ownership: takes neither future; on resolution the loser is
+// freed here, and the CALLER frees the winner after reading it. Leak-free via the
+// self-free waker technique. Prefer the generic `select2<A,B>` wrapper below.
+Future<int>* select2_hdr(FutureHdr* a, FutureHdr* b) {
     Future<int>* sel = future_new<int>();
     let onA: fn()->void = void() {
         let self: fn()->void = a.waker;
@@ -131,14 +128,11 @@ Future<int>* select2(FutureHdr* a, FutureHdr* b) {
     return sel;                                  // both parked: first to complete wins
 }
 
-// join2: complete (with 2) once BOTH `a` and `b` have finished. Type-erased; the
-// awaiter then reads both futures' typed values and frees both. Leak-free: a
+// join2_hdr: complete (with 2) once BOTH `a` and `b` have finished. Type-erased;
+// the awaiter then reads both futures' typed values and frees both. Leak-free: a
 // shared heap counter tracks completions (freed by the second completer), and
-// each waker self-frees its env.
-//
-//   await join2((FutureHdr*)x, (FutureHdr*)y);
-//   int sum = x.value + y.value;  free_future<int>(x);  free_future<int>(y);
-Future<int>* join2(FutureHdr* a, FutureHdr* b) {
+// each waker self-frees its env. Prefer the generic `join2<A,B>` wrapper below.
+Future<int>* join2_hdr(FutureHdr* a, FutureHdr* b) {
     Future<int>* j = future_new<int>();
     *int cnt = alloc<int>(1);
     *cnt = 0;
@@ -180,4 +174,34 @@ void future_drop(FutureHdr* f) {
     free_closure(f.waker);               // a parked awaiter's resume will never fire now
     free_closure(f.on_drop);             // free the on_drop env (it has returned)
     free((*void)f);
+}
+
+// ── Generic combinators: typed, cast-free public API ────────────────────────
+// Thin wrappers over the type-erased *_hdr cores above. The cores must be
+// type-erased (they manipulate a future whose value type is statically unknown —
+// e.g. dropping a select loser), so these wrappers only recover the ergonomics:
+// the caller passes typed `Future<A>*`/`Future<B>*` and the type args are
+// inferred, with no `(FutureHdr*)` casts at the call site. One shared core, so no
+// per-instantiation code bloat.
+
+// spawn<T>: detach a typed future as a fire-and-forget task.
+//   spawn(task);            // T inferred
+void spawn<T>(Future<T>* f) { spawn_hdr((FutureHdr*)f); }
+
+// select2<A,B>: await the first of two futures; the loser is dropped. Completes
+// with the winner's index (0 or 1). The awaiter reads the winner's typed value
+// and frees it (the loser is already gone):
+//   int w = await select2(rd, timer);            // A,B inferred
+//   if (w == 0) { use rd.value;  free_future<int>(rd); }
+//   else        {                free_future<int>(timer); }
+Future<int>* select2<A, B>(Future<A>* a, Future<B>* b) {
+    return select2_hdr((FutureHdr*)a, (FutureHdr*)b);
+}
+
+// join2<A,B>: await BOTH futures. The awaiter then reads both typed values and
+// frees both:
+//   await join2(x, y);                           // A,B inferred
+//   int sum = x.value + y.value;  free_future<int>(x);  free_future<int>(y);
+Future<int>* join2<A, B>(Future<A>* a, Future<B>* b) {
+    return join2_hdr((FutureHdr*)a, (FutureHdr*)b);
 }
