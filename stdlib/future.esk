@@ -89,6 +89,48 @@ void spawn(FutureHdr* f) {
     free_closure(f.on_drop);  free((*void)f);
 }
 
+// select2: complete with the index (0 or 1) of whichever of `a`/`b` finishes
+// first; the loser is dropped (deregistered + freed). Type-erased, so it works
+// for futures of any value type — the awaiter reads the winner's typed value and
+// frees the winner (the loser is already gone). Ownership: select2 takes neither
+// future; on resolution the loser is freed here, and the CALLER frees the winner
+// after reading it. Leak-free via the self-free waker technique.
+//
+//   int w = await select2((FutureHdr*)rd, (FutureHdr*)timer);
+//   if (w == 0) { use rd.value;  free_future<int>(rd); }
+//   else        {                free_future<int>(timer); /* read timer if needed */ }
+Future<int>* select2(FutureHdr* a, FutureHdr* b) {
+    Future<int>* sel = future_new<int>();
+    let onA: fn()->void = void() {
+        let self: fn()->void = a.waker;
+        future_drop(b);                  // loser: deregister + free (frees onB env too)
+        future_complete<int>(sel, 0);    // resumes the awaiter (reads a.value, frees a)
+        free_closure(self);              // free onA env (last act)
+    };
+    let onB: fn()->void = void() {
+        let self: fn()->void = b.waker;
+        future_drop(a);
+        future_complete<int>(sel, 1);
+        free_closure(self);
+    };
+    a.waker = onA;
+    if (atomic_cas(&a.state, 0, 1) == false) {   // a already READY -> a wins
+        free_closure(onA);                       // onA never fires (a won't be future_drop'd)
+        free_closure(onB);                       // onB was created but never armed
+        future_drop(b);                          // drop the loser (frees b's waker/on_drop/struct)
+        future_complete<int>(sel, 0);
+        return sel;
+    }
+    b.waker = onB;
+    if (atomic_cas(&b.state, 0, 1) == false) {   // b already READY -> b wins
+        free_closure(onB);                       // onB never fires
+        future_drop(a);                          // a was armed (WAITING) -> future_drop frees onA
+        future_complete<int>(sel, 1);
+        return sel;
+    }
+    return sel;                                  // both parked: first to complete wins
+}
+
 // Free a future's memory. The single owner (the awaiter, after reading value, or
 // future_drop on cancel) calls this exactly once.
 void free_future<T>(Future<T>* f) {
