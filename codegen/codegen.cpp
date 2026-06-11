@@ -1546,16 +1546,19 @@ llvm::Value* CodeGen::lowerIntrinsicCall(const std::string& fn, CallExpr* node) 
     if (fn == "atomic_swap") {
         llvm::Value* cell = evaluateExpr(node->args[0]);
         llvm::Value* v    = evaluateExpr(node->args[1]);
+        // Alignment from the operand width, so a 64-bit cell isn't under-aligned.
+        llvm::MaybeAlign al = module->getDataLayout().getABITypeAlign(v->getType());
         return builder->CreateAtomicRMW(
-            llvm::AtomicRMWInst::Xchg, cell, v, llvm::MaybeAlign(4),
+            llvm::AtomicRMWInst::Xchg, cell, v, al,
             llvm::AtomicOrdering::AcquireRelease);
     }
     if (fn == "atomic_cas") {
         llvm::Value* cell     = evaluateExpr(node->args[0]);
         llvm::Value* expected = evaluateExpr(node->args[1]);
         llvm::Value* desired  = evaluateExpr(node->args[2]);
+        llvm::MaybeAlign al = module->getDataLayout().getABITypeAlign(desired->getType());
         llvm::Value* cx = builder->CreateAtomicCmpXchg(
-            cell, expected, desired, llvm::MaybeAlign(4),
+            cell, expected, desired, al,
             llvm::AtomicOrdering::AcquireRelease, llvm::AtomicOrdering::Acquire);
         return builder->CreateExtractValue(cx, 1, "atm.cas.ok"); // success bit (i1)
     }
@@ -3013,6 +3016,9 @@ void CodeGen::visit(MatchStmt* node) {
         for (size_t i = 0; i < ed->typeParams.size() && i < inst.second.size(); ++i)
             subs[ed->typeParams[i]] = inst.second[i];
     }
+    if (!ed)
+        throw std::runtime_error("match: could not resolve the algebraic enum for subject "
+                                 "type '" + enumName + "' (the subject must be an enum value)");
     auto variantIndex = [&](const std::string& v) -> int {
         for (size_t i = 0; i < ed->members.size(); ++i)
             if (ed->members[i].first == v) return (int)i;

@@ -47,7 +47,9 @@ inline bool valueConst(const std::string& t) {
     return baseConst(t) && t.find('*') == std::string::npos;
 }
 
-// True if `t` is a pointer type (either spelling) ignoring const.
+// True if `t` is a pointer type, ignoring const. Both spellings occur: the
+// leading-star form `*T` (the stdlib's usual `*uint8`, `*void`, `*Future<T>`)
+// and the trailing-star form `T*` — so both ends must be checked.
 inline bool isPtr(const std::string& s) {
     std::string t = strip(s);
     return !t.empty() && (t.front() == '*' || t.back() == '*');
