@@ -61,6 +61,7 @@ when you add a test.
 | `preprocessor` | object-like and function-like `#define`, `#ifdef` |
 | `pp_pack` | backslash-continued function-like macro; `#pragma pack` |
 | `pp_loc` | `__LINE__` / `__FILE__` preprocessor expansion |
+| `shebang` | a leading `#!` line is ignored by the preprocessor (line numbers preserved) |
 | `structs_methods` | named initializers, field access, method calls, `self` mutation |
 | `interfaces` | structural interfaces, vtable fat-pointer dispatch |
 | `enums` | enum members as int constants, usable in `switch`/comparisons |

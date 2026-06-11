@@ -63,6 +63,11 @@ else()
     target_link_libraries(eskiuc ${llvm_libs})
 endif()
 
+# The sanitizer instrumentation (ASan) is emitted by this exact LLVM, so its
+# runtime must match — bake in the LLVM toolchain's clang for sanitized links.
+target_compile_definitions(eskiuc PRIVATE
+    ESKIU_LLVM_BINDIR="${LLVM_TOOLS_BINARY_DIR}")
+
 if(MSVC)
     target_compile_options(eskiuc PRIVATE /W4)
 else()
