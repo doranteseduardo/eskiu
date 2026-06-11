@@ -152,6 +152,7 @@ void AsyncTransform::run(Program* program) {
         //    `await E;`          -> `let __awN = await E;`            (discarded)
         //    `x = await E;`      -> `let __awN = await E; x = __awN;`
         int tmpN = 0;
+        int forinSeq = 0;
         std::function<StmtPtr(const StmtPtr&)> desugarStmt;
         std::function<std::vector<BlockItem>(const std::vector<BlockItem>&)> desugarItems =
             [&](const std::vector<BlockItem>& its) {
@@ -201,6 +202,36 @@ void AsyncTransform::run(Program* program) {
                 return std::make_shared<WhileStmt>(w->condition, desugarStmt(w->body));
             if (auto* f = dynamic_cast<ForStmt*>(s.get()))
                 return std::make_shared<ForStmt>(f->init, f->condition, f->step, desugarStmt(f->body));
+            if (auto* fi = dynamic_cast<ForInStmt*>(s.get())) {
+                // Desugar `for (x in it)` into a counted C-style for, mirroring codegen
+                // but using the type checker's stamp (this pass has no types). Then the
+                // ordinary for lowering handles the await + break/continue. The index
+                // and element vars are hoisted to frame fields like any other local.
+                if (fi->resolvedElemType.empty())
+                    return std::make_shared<ForInStmt>(fi->varName, fi->iterable, desugarStmt(fi->body));
+                std::string idxName = "__forin_i_" + std::to_string(forinSeq++);
+                auto idx = [&]() { return ident(idxName); };
+                ExprPtr lengthExpr, elemExpr;
+                if (fi->isArrayIter) {
+                    bool numeric = !fi->arrayDim.empty();
+                    for (char c : fi->arrayDim) if (c < '0' || c > '9') numeric = false;
+                    lengthExpr = numeric ? intlit(std::stoll(fi->arrayDim)) : ident(fi->arrayDim);
+                    elemExpr   = std::make_shared<IndexExpr>(fi->iterable, idx());
+                } else {
+                    lengthExpr = std::make_shared<MemberExpr>(fi->iterable, "size");
+                    elemExpr   = std::make_shared<IndexExpr>(
+                        std::make_shared<MemberExpr>(fi->iterable, "data"), idx());
+                }
+                StmtPtr init = std::make_shared<BlockStmt>(std::vector<BlockItem>{
+                    DeclPtr(std::make_shared<VarDecl>(idxName, "int", intlit(0))) });
+                ExprPtr cond = binop(idx(), "<", lengthExpr);
+                ExprPtr step = binop(idx(), "=", binop(idx(), "+", intlit(1)));
+                std::vector<BlockItem> bodyItems;
+                bodyItems.push_back(DeclPtr(std::make_shared<VarDecl>(fi->varName, fi->resolvedElemType, elemExpr)));
+                bodyItems.push_back(StmtPtr(desugarStmt(fi->body)));
+                return std::make_shared<ForStmt>(init, cond, step,
+                    std::make_shared<BlockStmt>(bodyItems));
+            }
             if (auto* sw = dynamic_cast<SwitchStmt*>(s.get())) {
                 // Normalize awaits inside each case. Wrap the case body in a block so
                 // its statements run through desugarItems (which let-binds awaits and

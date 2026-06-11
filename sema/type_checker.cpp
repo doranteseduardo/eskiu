@@ -503,6 +503,8 @@ void TypeChecker::visit(ForInStmt* node) {
     auto lb = itType.find('[');
     if (lb != std::string::npos && !itType.empty() && itType.back() == ']') {
         elemType = normalizeType(itType.substr(0, lb));      // fixed-size array
+        node->isArrayIter = true;
+        node->arrayDim = itType.substr(lb + 1, itType.size() - lb - 2);
     } else {
         std::string s = itType;
         if (s.rfind("struct:", 0) == 0) s = s.substr(7);
@@ -523,6 +525,7 @@ void TypeChecker::visit(ForInStmt* node) {
         }
     }
 
+    node->resolvedElemType = elemType;
     pushScope();
     if (elemType.empty()) {
         errorAt(node, "for-in expects a fixed-size array or a List-like value "
