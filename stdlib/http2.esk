@@ -236,6 +236,8 @@ struct H2Conn {
     H2Settings remote;      // peer's settings (defaults until their SETTINGS arrives)
     int last_stream_id;     // highest stream id seen (for GOAWAY)
     int goaway_sent;        // 1 once we've sent GOAWAY
+    int send_window;        // connection-level flow-control window we may send into
+    int recv_window;        // connection-level window the peer may send into
 }
 
 // Initialize a connection's state with default settings on both sides.
@@ -245,6 +247,132 @@ void h2_conn_init(H2Conn* c, int fd) {
     h2_settings_defaults(&c.remote);
     c.last_stream_id = 0;
     c.goaway_sent = 0;
+    c.send_window = 65535;
+    c.recv_window = 65535;
+}
+
+// ── Stage 4: streams & flow control ──────────────────────────────────────────
+//
+// One HTTP/2 connection multiplexes many request/response *streams*, each with
+// its own state machine (§5.1) and flow-control window (§6.9). A server stream
+// goes idle → open (HEADERS) → half-closed-remote (the request's END_STREAM) →
+// closed (the response's END_STREAM); RST_STREAM closes it abruptly. Flow
+// control is credit-based: DATA spends both the stream and connection send
+// windows, and WINDOW_UPDATE replenishes them.
+
+// Stream states (§5.1). The RESERVED states are omitted — server push is not
+// implemented (we advertise SETTINGS_ENABLE_PUSH = 0).
+const int H2_STREAM_IDLE               = 0;
+const int H2_STREAM_OPEN               = 1;
+const int H2_STREAM_HALF_CLOSED_LOCAL  = 2;
+const int H2_STREAM_HALF_CLOSED_REMOTE = 3;
+const int H2_STREAM_CLOSED             = 4;
+
+struct H2Stream {
+    int id;
+    int state;
+    int send_window;    // bytes we may still send on this stream
+    int recv_window;    // bytes the peer may still send us on this stream
+}
+
+void h2_stream_init(H2Stream* s, int id, int init_send, int init_recv) {
+    s.id = id;
+    s.state = H2_STREAM_IDLE;
+    s.send_window = init_send;
+    s.recv_window = init_recv;
+}
+
+// Advance the stream state on *receiving* a frame (server perspective).
+void h2_stream_on_recv(H2Stream* s, int type, int flags) {
+    if (type == H2_RST_STREAM) { s.state = H2_STREAM_CLOSED; return; }
+    int end = (flags & H2_FLAG_END_STREAM) != 0;
+    if (type == H2_HEADERS) {
+        if (s.state == H2_STREAM_IDLE) {
+            if (end != 0) { s.state = H2_STREAM_HALF_CLOSED_REMOTE; } else { s.state = H2_STREAM_OPEN; }
+        } else if (end != 0 && s.state == H2_STREAM_OPEN) {
+            s.state = H2_STREAM_HALF_CLOSED_REMOTE;
+        }
+        return;
+    }
+    if (type == H2_DATA && end != 0) {
+        if (s.state == H2_STREAM_OPEN) { s.state = H2_STREAM_HALF_CLOSED_REMOTE; }
+        else if (s.state == H2_STREAM_HALF_CLOSED_LOCAL) { s.state = H2_STREAM_CLOSED; }
+    }
+}
+
+// Advance the stream state on *sending* a frame.
+void h2_stream_on_send(H2Stream* s, int type, int flags) {
+    if (type == H2_RST_STREAM) { s.state = H2_STREAM_CLOSED; return; }
+    int end = (flags & H2_FLAG_END_STREAM) != 0;
+    if (type == H2_HEADERS) {
+        if (s.state == H2_STREAM_IDLE) {
+            if (end != 0) { s.state = H2_STREAM_HALF_CLOSED_LOCAL; } else { s.state = H2_STREAM_OPEN; }
+        } else if (end != 0 && s.state == H2_STREAM_OPEN) {
+            s.state = H2_STREAM_HALF_CLOSED_LOCAL;
+        } else if (end != 0 && s.state == H2_STREAM_HALF_CLOSED_REMOTE) {
+            s.state = H2_STREAM_CLOSED;
+        }
+        return;
+    }
+    if (type == H2_DATA && end != 0) {
+        if (s.state == H2_STREAM_OPEN) { s.state = H2_STREAM_HALF_CLOSED_LOCAL; }
+        else if (s.state == H2_STREAM_HALF_CLOSED_REMOTE) { s.state = H2_STREAM_CLOSED; }
+    }
+}
+
+// Flow control (§6.9). DATA spends both windows; WINDOW_UPDATE replenishes.
+int  h2_can_send(H2Conn* c, H2Stream* s, int len) {
+    return (s.send_window >= len) && (c.send_window >= len);
+}
+void h2_account_sent(H2Conn* c, H2Stream* s, int len) {
+    s.send_window = s.send_window - len;
+    c.send_window = c.send_window - len;
+}
+void h2_account_recv(H2Conn* c, H2Stream* s, int len) {
+    s.recv_window = s.recv_window - len;
+    c.recv_window = c.recv_window - len;
+}
+// Apply a received WINDOW_UPDATE: stream-level if `s` is non-null, else connection.
+void h2_grant_window(H2Conn* c, H2Stream* s, int increment) {
+    if (s != (H2Stream*)0) { s.send_window = s.send_window + increment; }
+    else { c.send_window = c.send_window + increment; }
+}
+
+// ── Stream frame codecs ──────────────────────────────────────────────────────
+
+// WINDOW_UPDATE (§6.9): a 31-bit increment. stream_id 0 = connection-level.
+int h2_write_window_update(*uint8 buf, int stream_id, int increment) {
+    h2_put_u32(buf, H2_FRAME_HEADER_LEN, (int64)(increment & 2147483647));
+    return h2_frame_finish(buf, H2_WINDOW_UPDATE, 0, stream_id, 4);
+}
+int h2_read_window_update(*uint8 payload) {
+    return (int)(h2_get_u32(payload, 0) & (int64)2147483647);
+}
+
+// RST_STREAM (§6.4): abruptly close a stream with an error code.
+int h2_write_rst_stream(*uint8 buf, int stream_id, int error_code) {
+    h2_put_u32(buf, H2_FRAME_HEADER_LEN, (int64)error_code);
+    return h2_frame_finish(buf, H2_RST_STREAM, 0, stream_id, 4);
+}
+
+// HEADERS (§6.2): an (already HPACK-encoded) header block. No padding/priority.
+int h2_write_headers(*uint8 buf, int stream_id, *uint8 block, int len,
+                     int end_stream, int end_headers) {
+    int i = 0;
+    while (i < len) { buf[H2_FRAME_HEADER_LEN + i] = block[i]; i = i + 1; }
+    int flags = 0;
+    if (end_stream != 0)  { flags = flags | H2_FLAG_END_STREAM; }
+    if (end_headers != 0) { flags = flags | H2_FLAG_END_HEADERS; }
+    return h2_frame_finish(buf, H2_HEADERS, flags, stream_id, len);
+}
+
+// DATA (§6.1): a body chunk. No padding.
+int h2_write_data(*uint8 buf, int stream_id, *uint8 data, int len, int end_stream) {
+    int i = 0;
+    while (i < len) { buf[H2_FRAME_HEADER_LEN + i] = data[i]; i = i + 1; }
+    int flags = 0;
+    if (end_stream != 0) { flags = H2_FLAG_END_STREAM; }
+    return h2_frame_finish(buf, H2_DATA, flags, stream_id, len);
 }
 
 // ── Async connection I/O over <eventloop> ────────────────────────────────────
@@ -276,6 +404,38 @@ async int h2_read_frame_async(EventLoop* lp, int fd, *uint8 buf, int bufcap, H2F
         if (p < hdr.length) { return -1; }
     }
     return hdr.length;
+}
+
+// Read a complete header block — a HEADERS frame plus any CONTINUATION frames
+// up to END_HEADERS (§6.10) — into `buf`, with the payloads concatenated. On
+// return `hdr` is the HEADERS frame header and `*stream_id` its stream; the
+// assembled block is `*blen` bytes at `buf + H2_FRAME_HEADER_LEN`. Returns 0 on
+// success, negative on EOF / a non-HEADERS or non-CONTINUATION frame / overflow.
+async int h2_read_header_block_async(EventLoop* lp, int fd, *uint8 buf, int bufcap,
+                                     H2Frame* hdr, int* stream_id, int* blen) {
+    int plen = await h2_read_frame_async(lp, fd, buf, bufcap, hdr);
+    if (plen < 0 || hdr.type != H2_HEADERS) { return -1; }
+    *stream_id = hdr.stream_id;
+    int total = plen;
+    int flags = hdr.flags;
+    // Append each CONTINUATION's payload right after the block so far. We read a
+    // 9-byte header into the slot just past the block, then overwrite it with the
+    // payload — leaving the assembled block contiguous from buf+9.
+    while ((flags & H2_FLAG_END_HEADERS) == 0) {
+        int hpos = H2_FRAME_HEADER_LEN + total;
+        if (hpos + H2_FRAME_HEADER_LEN > bufcap) { return -2; }
+        int h = await h2_read_full_async(lp, fd, buf + hpos, H2_FRAME_HEADER_LEN);
+        if (h < H2_FRAME_HEADER_LEN) { return -1; }
+        let cf: H2Frame;  h2_read_header(buf + hpos, &cf);
+        if (cf.type != H2_CONTINUATION) { return -1; }
+        if (hpos + cf.length > bufcap) { return -2; }
+        int p = await h2_read_full_async(lp, fd, buf + hpos, cf.length);   // overwrite the header
+        if (p < cf.length) { return -1; }
+        total = total + cf.length;
+        flags = cf.flags;
+    }
+    *blen = total;
+    return 0;
 }
 
 // True if the 24 bytes at `buf` are the HTTP/2 client connection preface.
