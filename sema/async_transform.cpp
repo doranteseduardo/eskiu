@@ -253,6 +253,29 @@ void AsyncTransform::run(Program* program) {
         auto newState = [&]() -> int { states.push_back({}); return (int)states.size() - 1; };
         auto goTo = [&](int s, int target) { states[s].push_back(assign(fr("st"), intlit(target))); };
 
+        // break/continue inside an await-split loop can't stay literal — they would
+        // break/continue the resume function's own `while(true)` dispatch loop. So
+        // when a loop is lowered into states we push its exit/continue target states
+        // here, and a `break`/`continue` becomes a transition to them.
+        std::vector<int> brkTargets, contTargets;
+        // Does `s` contain a `break`/`continue` that binds to an *enclosing* loop —
+        // i.e. one not shadowed by a nested loop/switch? Such a statement can't be
+        // emitted verbatim by rewritePlain inside a split loop; it must be lowered
+        // structurally so the break/continue reach the transitions above. (Descends
+        // if/block; stops at nested while/for/for-in/switch, which capture their own.)
+        std::function<bool(const StmtPtr&)> loopEscapes = [&](const StmtPtr& s) -> bool {
+            if (!s) return false;
+            if (dynamic_cast<BreakStmt*>(s.get()) || dynamic_cast<ContinueStmt*>(s.get())) return true;
+            if (auto* b = dynamic_cast<BlockStmt*>(s.get())) {
+                for (auto& it : b->items)
+                    if (std::holds_alternative<StmtPtr>(it) && loopEscapes(std::get<StmtPtr>(it))) return true;
+                return false;
+            }
+            if (auto* i = dynamic_cast<IfStmt*>(s.get()))
+                return loopEscapes(i->thenBranch) || loopEscapes(i->elseBranch);
+            return false;
+        };
+
         // Complete the future with `v` (already rewritten), then return.
         auto completeInto = [&](std::vector<BlockItem>& st, ExprPtr v) {
             st.push_back(assign(std::make_shared<MemberExpr>(fr("ret"), "value"), v));
@@ -379,7 +402,20 @@ void AsyncTransform::run(Program* program) {
                 completeInto(states[cur], v);
                 return -1;
             }
-            if (!stmtHasAwait(s)) { states[cur].push_back(rewritePlain(s)); return cur; }
+            // break/continue bind to the enclosing split loop -> state transition.
+            if (dynamic_cast<BreakStmt*>(s.get())) {
+                if (brkTargets.empty())
+                    throw std::runtime_error("async function '" + name + "': `break` outside a loop");
+                goTo(cur, brkTargets.back()); return -1;
+            }
+            if (dynamic_cast<ContinueStmt*>(s.get())) {
+                if (contTargets.empty())
+                    throw std::runtime_error("async function '" + name + "': `continue` outside a loop");
+                goTo(cur, contTargets.back()); return -1;
+            }
+            // Emit verbatim only if there's no await AND no break/continue that would
+            // escape into the resume loop; otherwise fall through to structural lowering.
+            if (!stmtHasAwait(s) && !loopEscapes(s)) { states[cur].push_back(rewritePlain(s)); return cur; }
             if (auto* i = dynamic_cast<IfStmt*>(s.get())) {
                 rewrite(i->condition, vars);
                 int thenE = newState(), elseE = newState(), join = newState();
@@ -401,7 +437,10 @@ void AsyncTransform::run(Program* program) {
                 std::vector<BlockItem> eb; eb.push_back(assign(fr("st"), intlit(after)));
                 states[header].push_back(std::make_shared<IfStmt>(w->condition,
                     std::make_shared<BlockStmt>(tb), std::make_shared<BlockStmt>(eb)));
+                brkTargets.push_back(after);        // break -> after; continue -> re-test
+                contTargets.push_back(header);
                 int be = lowerStmt(w->body, bodyE);
+                brkTargets.pop_back(); contTargets.pop_back();
                 if (be != -1) goTo(be, header);    // back-edge
                 return after;                       // the loop may not execute -> reachable
             }
@@ -409,7 +448,9 @@ void AsyncTransform::run(Program* program) {
                 // for (init; cond; step) body  — init/step run as plain code; the
                 // loop is header(cond) -> body -> step -> back-edge -> header.
                 if (f->init) states[cur].push_back(rewritePlain(f->init));
-                int header = newState(), bodyE = newState(), after = newState();
+                // header(cond) -> body -> step -> back-edge -> header. The step gets
+                // its own state so `continue` runs it before re-testing (C semantics).
+                int header = newState(), bodyE = newState(), step = newState(), after = newState();
                 goTo(cur, header);
                 if (f->condition) {
                     rewrite(f->condition, vars);
@@ -420,11 +461,13 @@ void AsyncTransform::run(Program* program) {
                 } else {
                     goTo(header, bodyE);            // no condition -> infinite loop
                 }
+                if (f->step) { ExprPtr stp = f->step; rewrite(stp, vars); states[step].push_back(exprStmt(stp)); }
+                goTo(step, header);                // step -> back-edge
+                brkTargets.push_back(after);       // break -> after; continue -> step
+                contTargets.push_back(step);
                 int be = lowerStmt(f->body, bodyE);
-                if (be != -1) {
-                    if (f->step) { ExprPtr stp = f->step; rewrite(stp, vars); states[be].push_back(exprStmt(stp)); }
-                    goTo(be, header);              // back-edge
-                }
+                brkTargets.pop_back(); contTargets.pop_back();
+                if (be != -1) goTo(be, step);      // body exit -> step
                 return after;
             }
             if (auto* b = dynamic_cast<BlockStmt*>(s.get())) return lowerSeq(b->items, cur);
