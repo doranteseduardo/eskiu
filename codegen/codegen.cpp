@@ -2674,8 +2674,12 @@ void CodeGen::visit(AsmStmt* node) {
 
 std::string CodeGen::resolveStructInitName(const std::string& name) {
     if (name.find('<') == std::string::npos) return name;
-    auto [tn, args] = splitTemplateType(name);
-    std::string mangled = mangleTemplate(name);
+    // Resolve type args through the enclosing template's substitutions, so a
+    // `Pair<A,B>{...}` literal inside a template body instantiates Pair<int,int>,
+    // not a bogus Pair_A_B.
+    std::string resolved = typeParamOverride.empty() ? name : substType(name, typeParamOverride);
+    auto [tn, args] = splitTemplateType(resolved);
+    std::string mangled = mangleTemplate(resolved);
     ensureTemplateInstantiated(mangled, tn, args);
     return mangled;
 }

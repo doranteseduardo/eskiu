@@ -1,0 +1,42 @@
+// Value-returning select: select2v races two futures and resolves with the
+// winner's value wrapped in Either<A,B> (Left = a, Right = b); the loser is
+// dropped. Two suspending races over the reactor: a read with no data loses to a
+// timer (Right), and a ready read beats a long timer (Left). Deterministic;
+// leak-free (the combinator consumes both futures; the caller frees the result).
+import <future>;
+import <either>;
+import <futureval>;
+import <timer>;
+import <net_async>;
+import <eventloop>;
+extern int   printf(string fmt, ...);
+extern int   pipe(*int fds);
+extern int64 write(int fd, *void buf, int64 n);
+uint8[8] rb;
+EventLoop* g;
+
+int run(Future<Either<int, int>>* f) {
+    if (future_poll<Either<int, int>>(f, void() { el_stop(g); }) == 0) { el_run(g); }
+    int r = 0;
+    match f.value {
+        Left(a)  -> r = a;            // read won: byte count
+        Right(b) -> r = 100 + b;      // timer won
+    }
+    free_future<Either<int, int>>(f);
+    return r;
+}
+
+int main() {
+    g = el_new(64);
+
+    int[2] empty;  pipe(&empty[0]);                          // never written -> timer wins
+    printf("%d\n", run(select2v<int, int>(
+        net_read_async(g, empty[0], &rb[0], (int64)8), timer_after(g, (int64)20))));   // 100
+
+    int[2] ready;  pipe(&ready[0]);  write(ready[1], (*void)"hey", (int64)3);
+    printf("%d\n", run(select2v<int, int>(
+        net_read_async(g, ready[0], &rb[0], (int64)8), timer_after(g, (int64)1000))));  // 3
+
+    el_free(g);
+    return 0;
+}
