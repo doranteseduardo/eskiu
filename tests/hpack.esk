@@ -46,6 +46,31 @@ int main() {
     printf("rt=%d %.*s=%.*s\n", m, hs[0].nlen, hs[0].name, hs[0].vlen, hs[0].value);
     hpack_decoder_free(&d2);
 
-    free((*void)hs);  free((*void)blk);  free((*void)buf);
+    // --- §C.4.1: the same request, Huffman-coded. The :authority value
+    //   "www.example.com" is "8c f1 e3 c2 e5 f2 3a 6b a0 ab 90 f4 ff" (H=1, 12 B).
+    *uint8 hb = alloc<uint8>(32);
+    hb[0]=(uint8)130; hb[1]=(uint8)134; hb[2]=(uint8)132; hb[3]=(uint8)65; hb[4]=(uint8)140;
+    hb[5]=(uint8)241; hb[6]=(uint8)227; hb[7]=(uint8)194; hb[8]=(uint8)229; hb[9]=(uint8)242;
+    hb[10]=(uint8)58; hb[11]=(uint8)107; hb[12]=(uint8)160; hb[13]=(uint8)171; hb[14]=(uint8)144;
+    hb[15]=(uint8)244; hb[16]=(uint8)255;
+    let d3: HpackDecoder;  hpack_decoder_init(&d3, (int64)4096);
+    int hn = hpack_decode(&d3, hb, 17, hs, 16);
+    printf("huff_count=%d\n", hn);                                       // 4
+    printf("huff_authority=%.*s\n", hs[3].nlen, hs[3].name);            // :authority
+    printf("huff_value=%.*s\n", hs[3].vlen, hs[3].value);              // www.example.com
+    hpack_decoder_free(&d3);
+
+    // --- Huffman encode then decode back (exercises many symbols).
+    string sample = "Mozilla/5.0 (custom-agent) text/html; q=0.9";
+    int slen = strlen(sample);
+    int he = hpack_huff_encode(buf, 0, (*uint8)sample, slen);
+    *uint8 dout = alloc<uint8>(128);
+    let huff: HpackHuff;  hpack_huff_build(&huff);
+    int dn = hpack_huff_decode(&huff, buf, he, dout, 128);
+    printf("huff_rt enc=%d dec=%d match=%d\n", he, dn,
+           (dn == slen) && (memcmp((*void)dout, (*void)sample, slen) == 0));
+    hpack_huff_free(&huff);
+
+    free((*void)dout);  free((*void)hb);  free((*void)hs);  free((*void)blk);  free((*void)buf);
     return 0;
 }
