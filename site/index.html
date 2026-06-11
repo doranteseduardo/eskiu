@@ -883,8 +883,8 @@
           <div class="glance-item">
             <h3>Async without a framework</h3>
             <p>
-              <code>async fn</code> and <code>await</code> compile to coroutine
-              state machines. Pair with the built-in executor and channels, or
+              <code>async</code> functions and <code>await</code> compile to
+              coroutine state machines. Pair with the built-in executor and channels, or
               write your own scheduler. It all links into your binary.
             </p>
           </div>
@@ -938,7 +938,7 @@
 <span class="kw">import</span> &lt;<span class="fn">future</span>&gt;;
 <span class="kw">import</span> &lt;<span class="fn">channel</span>&gt;;
 
-<span class="cm">// async fn — the compiler generates a coroutine state machine.</span>
+<span class="cm">// an async function compiles to a coroutine state machine.</span>
 <span class="kw">async</span> <span class="ty">int</span> <span class="fn">sum_squares</span>(<span class="ty">Chan</span>&lt;<span class="ty">int</span>&gt;<span class="ty">*</span> ch) {
     <span class="kw">let</span> a: <span class="ty">int</span> <span class="op">=</span> <span class="aw">await</span> <span class="fn">chan_recv</span>(ch);
     <span class="kw">let</span> b: <span class="ty">int</span> <span class="op">=</span> <span class="aw">await</span> <span class="fn">chan_recv</span>(ch);

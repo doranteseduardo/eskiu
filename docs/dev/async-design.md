@@ -30,7 +30,7 @@ monomorphic templates, the `<eventloop>` reactor, and `<threading>`.
 
 **Goals**
 
-- `async fn` and `await` usable for real network I/O today (the prod projects need
+- `async` function and `await` usable for real network I/O today (the prod projects need
   it for HTTP): an async TCP read/connect that suspends without blocking a thread.
 - **Cancellation / drop in v1.** A future can be dropped before it completes;
   doing so releases its resources (loop registrations, memory) and cascades into
@@ -181,7 +181,7 @@ This is the heart of the design. The contract locks the *requirements* (atomic
 
 ---
 
-## 4. Lowering an `async fn` to a state machine (AST transform)
+## 4. Lowering an `async` function to a state machine (AST transform)
 
 ```eskiu
 async int fetch_len(EventLoop* lp, string host) {
@@ -193,7 +193,7 @@ async int fetch_len(EventLoop* lp, string host) {
 
 ### 4.1 The frame
 
-One struct per async fn — embeds the return future (one allocation), resume state,
+One struct per async function — embeds the return future (one allocation), resume state,
 the `awaiting` back-pointer (cascade-drop), the home executor, params, and locals
 **live across an await**:
 
@@ -256,7 +256,7 @@ suspend — read value, fall through. Zero extra round-trips when nothing blocks
 | Await source | Completes via | Drops via | New field? |
 |---|---|---|---|
 | Socket readable (leaf) | loop callback reads, §3.2 | `on_drop`=`el_del`+free | no |
-| Another `async fn` | resume §3.2 | `on_drop` cascades `awaiting`, frees frame | no |
+| Another `async` function | resume §3.2 | `on_drop` cascades `awaiting`, frees frame | no |
 | Timer `await sleep(ms)` | loop timeout, §3.2 | `on_drop` cancels timer+free | no |
 | `await thread_join(t)` / worker pool | worker completes on its thread; waker schedules resume on home executor (§3.2) | `on_drop` detach+free | no |
 | `await chan.recv()` | sender §3.2 | `on_drop` unlinks+free | no |
@@ -329,9 +329,9 @@ contract change) — a deliberate later feature.
   leading qualifier before the return type).
 - An `async T f(...)` has *declared* return type `T`; its *call expression* has type
   `Future<T>*`. The type checker performs this rewrite.
-- `await E`: `E : Future<T>*`, `await E : T`. Legal **only inside an `async fn`**
+- `await E`: `E : Future<T>*`, `await E : T`. Legal **only inside an `async` function**
   (top level uses `future_block`). New keywords: `async`, `await`.
-- Calling an `async fn` without `await` yields `Future<T>*` (start now, await later,
+- Calling an `async` function without `await` yields `Future<T>*` (start now, await later,
   or hand to a combinator). If neither awaited nor handed off, the transform drops it
   on scope exit (§7).
 - `future_drop(f)` is the explicit cancel entry; the transform also inserts it
@@ -376,7 +376,7 @@ test (the leaf fd is deregistered and the frame freed) and a thread-affinity tes
 ## 10. What is locked, what is free
 
 **Locked now (compiler↔generated-code ABI — breaking these recompiles/rewrites every
-async fn in existence):**
+async function in existence):**
 
 - `Future<T>` field set **and order**: `{ int state; fn()->void waker; fn()->void
   on_drop; T value; }` — `value` **last** so the header is type-erasable (§2.1).
