@@ -687,10 +687,10 @@ thread_join(t);
 
 > **Status:** implemented and runs. An async function lowers to a resumable state
 > machine and executes over the `<eventloop>`/`<executor>` runtime. Supported:
-> single and multiple awaits, `return await`, `x = await E`, `async void`, and
-> `if`/`while`/C-style `for` containing awaits; cancellation via `future_drop`;
-> verified leak-free. `for-in`/`switch` containing an await are not lowered yet
-> (rejected with a clear error).
+> single and multiple awaits, `return await`, `x = await E`, `async void`, every
+> control-flow construct containing an await (`if`/`while`/C-style `for`/`switch`/
+> `for-in`, with `break`/`continue`); cancellation via `future_drop`; verified
+> leak-free.
 
 An `async` function is declared with the `async` modifier before the return type. Its
 *declared* return type is the value it ultimately produces, but a **call** to it
