@@ -28,6 +28,7 @@ public:
     void visit(InterfaceDecl* node) override;
     void visit(ContinueStmt* node) override;
     void visit(SwitchStmt* node) override;
+    void visit(MatchStmt* node) override;
     void visit(TemplateCallExpr* node) override;
 
     void visit(BlockStmt* node) override;
@@ -127,6 +128,11 @@ private:
     // Enum registry: member name -> integer value; and the set of enum type names
     std::map<std::string, long long> enumConstants;
     std::set<std::string> enumTypes;
+    // Algebraic (payload-bearing) enums: distinct value types, not ints.
+    std::set<std::string> adtEnums;                              // ADT enum names
+    std::map<std::string, EnumDecl*> enumDecls;                  // name -> decl (for payloads)
+    // Variant name -> (enum name, tag index).
+    std::map<std::string, std::pair<std::string, int>> adtVariants;
     // Type aliases: alias name -> underlying type string
     std::map<std::string, std::string> typeAliases;
 

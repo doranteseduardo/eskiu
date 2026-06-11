@@ -1075,6 +1075,34 @@ if (c == Red) { /* ... */ }
 
 Members are unscoped — `Red` is used directly, as in C. The enum name may be used anywhere a type is expected (it behaves as `int`).
 
+#### 8.7.1 Algebraic enums (tagged unions)
+
+When one or more variants carry a **payload**, the enum becomes an algebraic data type — a tagged union, not an integer. Each variant is constructed by name (with arguments for its payload), and a value is destructured with `match`:
+
+```eskiu
+enum Shape {
+    Circle(float),
+    Rect(float, float),
+    Unit,                       // a payload-free variant
+}
+
+float area(Shape s) {
+    match s {
+        Circle(r)  -> return 3.14 * r * r;
+        Rect(w, h) -> return w * h;          // payload fields bind to w, h
+        _          -> return 0.0;            // `_` matches any remaining variant
+    }
+}
+
+Shape a = Circle(2.0);          // construct; payload-free variants are bare (`Unit`)
+```
+
+A `match` arm names a variant and binds its payload fields, or uses `_` as a
+default; the arm body is any statement (often a block or a `return`). The value is
+laid out as `{ tag, payload }`, where the payload area is sized to the largest
+variant. (A `match` subject is parsed without a trailing struct literal, like the
+condition of an `if`; wrap it in parens if you need one.)
+
 ### 8.8 Type Aliases
 
 `type Name = ExistingType;` introduces a name for an existing type. The alias is fully interchangeable with its underlying type — it resolves before type checking and code generation. Aliases work for any type, including pointers and templates.

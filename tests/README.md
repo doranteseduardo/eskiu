@@ -60,6 +60,7 @@ when you add a test.
 | `structs_methods` | named initializers, field access, method calls, `self` mutation |
 | `interfaces` | structural interfaces, vtable fat-pointer dispatch |
 | `enums` | enum members as int constants, usable in `switch`/comparisons |
+| `enum_adt` | algebraic enums + `match` — payload variants, multiple bindings, `_` default, classic enum coexisting |
 | `type_alias` | `type u8 = uint8;` resolves to the underlying type |
 | `bitfields` | bitfield assignment + masked read; signed fields sign-extend |
 | `templates_result` | `Result<int,string>` monomorphization, `Ok`/`Err` |

@@ -31,6 +31,7 @@ void AllocWithExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void InterfaceDecl::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void ContinueStmt::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void SwitchStmt::accept(ASTVisitor* visitor) { visitor->visit(this); }
+void MatchStmt::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void TemplateCallExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void StructInitExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
 

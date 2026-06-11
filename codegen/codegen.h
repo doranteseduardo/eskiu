@@ -196,6 +196,7 @@ private:
     void visit(InterfaceDecl* node) override;
     void visit(ContinueStmt* node) override;
     void visit(SwitchStmt* node) override;
+    void visit(MatchStmt* node) override;
     void visit(StructInitExpr* node) override;
     void visit(AllocWithExpr* node) override;
     void visit(TemplateCallExpr* node) override;
@@ -224,6 +225,13 @@ private:
     // Enum members -> integer value; the set of enum type names (each maps to i32)
     std::map<std::string, long long> enumConstants;
     std::set<std::string> enumTypes;
+    // Algebraic enums: name -> decl (payloads) and variant -> (enum, tag). The
+    // LLVM type lives in structTypes[enumName] as { i32 tag, [N x i64] payload }.
+    std::set<std::string> adtEnums;
+    std::map<std::string, EnumDecl*> adtEnumDecls;
+    std::map<std::string, std::pair<std::string, int>> adtVariants;
+    // Build an algebraic-enum value for `variant`(args) (args may be empty).
+    llvm::Value* buildVariant(const std::string& variant, const std::vector<ExprPtr>& args);
     // Names declared `intrinsic` — calls to these lower to inline IR, not a call.
     std::set<std::string> intrinsicNames;
     // Type aliases: alias name -> underlying type string

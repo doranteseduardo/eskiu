@@ -331,6 +331,28 @@ void ASTPrinter::visit(InterfaceDecl* node) {
 
 void ASTPrinter::visit(ContinueStmt* node) { println("ContinueStmt"); }
 
+void ASTPrinter::visit(MatchStmt* node) {
+    println("MatchStmt");
+    indentLevel++;
+    println("Subject:");
+    indentLevel++;
+    node->subject->accept(this);
+    indentLevel--;
+    for (auto& arm : node->arms) {
+        std::string label = arm.variant.empty() ? "_" : arm.variant;
+        if (!arm.bindings.empty()) {
+            label += "(";
+            for (size_t i = 0; i < arm.bindings.size(); ++i) { if (i) label += ", "; label += arm.bindings[i]; }
+            label += ")";
+        }
+        println("Arm " + label + ":");
+        indentLevel++;
+        if (arm.body) arm.body->accept(this);
+        indentLevel--;
+    }
+    indentLevel--;
+}
+
 void ASTPrinter::visit(SwitchStmt* node) {
     println("SwitchStmt");
     indentLevel++;

@@ -400,12 +400,21 @@ DeclPtr Parser::parseDeclaration() {
             std::string name = consume(TokenType::IDENT, "Expected enum name").value;
             consume(TokenType::LBRACE, "Expected '{'");
             std::vector<std::pair<std::string, long long>> members;
+            std::vector<std::vector<std::string>> payloads;
             long long next = 0;
             while (!check(TokenType::RBRACE) && !is_at_end()) {
                 std::string mname = consume(TokenType::IDENT,
                     "Expected enum member name").value;
                 long long val = next;
-                if (match(TokenType::EQ)) {
+                std::vector<std::string> payload;
+                if (match(TokenType::LPAREN)) {
+                    // Algebraic variant with a payload: `Circle(float)`, `Rect(float, float)`.
+                    if (!check(TokenType::RPAREN)) {
+                        do { payload.push_back(parseType()); } while (match(TokenType::COMMA));
+                    }
+                    consume(TokenType::RPAREN, "Expected ')' after variant payload");
+                } else if (match(TokenType::EQ)) {
+                    // Classic integer enum with an explicit value (payload-free only).
                     bool neg = match(TokenType::MINUS);
                     Token num = consume(TokenType::INT_LIT,
                         "Expected integer value for enum member");
@@ -413,12 +422,15 @@ DeclPtr Parser::parseDeclaration() {
                     if (neg) val = -val;
                 }
                 members.push_back({mname, val});
+                payloads.push_back(payload);
                 next = val + 1;
                 if (!match(TokenType::COMMA)) break;
             }
             consume(TokenType::RBRACE, "Expected '}'");
             sharedTypeNames->insert(name);
-            return std::make_shared<EnumDecl>(name, members);
+            auto ed = std::make_shared<EnumDecl>(name, members);
+            ed->payloads = std::move(payloads);
+            return ed;
         }
 
         // type Alias = UnderlyingType;  (contextual — 'type' stays a usable identifier)
@@ -692,6 +704,9 @@ StmtPtr Parser::parseStatement() {
     if (check(TokenType::SWITCH)) {
         return parseSwitchStatement();
     }
+    if (check(TokenType::MATCH)) {
+        return parseMatchStatement();
+    }
     if (match(TokenType::RETURN)) {
         return parseReturnStatement();
     }
@@ -955,6 +970,42 @@ StmtPtr Parser::parseExpressionStatement() {
 // ============================================================================
 // Expressions (Precedence Climbing)
 // ============================================================================
+
+// match subject { Variant(b0, b1) -> stmt   Other -> stmt   _ -> stmt }
+StmtPtr Parser::parseMatchStatement() {
+    Token kw = consume(TokenType::MATCH, "Expected 'match'");
+    // Parse the subject without treating a trailing `Name { ... }` as a struct
+    // literal — the `{` opens the match body (cf. Rust's match/if rule). Wrap the
+    // subject in parens if a struct literal is genuinely needed there.
+    bool savedNSL = noStructLiteral; noStructLiteral = true;
+    ExprPtr subject = parseExpression();
+    noStructLiteral = savedNSL;
+    consume(TokenType::LBRACE, "Expected '{' after match subject");
+    std::vector<MatchStmt::Arm> arms;
+    while (!check(TokenType::RBRACE) && !is_at_end()) {
+        MatchStmt::Arm arm;
+        if (check(TokenType::IDENT) && peek().value == "_") {
+            advance();                              // `_` default arm
+        } else {
+            arm.variant = consume(TokenType::IDENT, "Expected variant name or '_'").value;
+            if (match(TokenType::LPAREN)) {         // payload bindings
+                if (!check(TokenType::RPAREN)) {
+                    do {
+                        arm.bindings.push_back(consume(TokenType::IDENT, "Expected binding name").value);
+                    } while (match(TokenType::COMMA));
+                }
+                consume(TokenType::RPAREN, "Expected ')' after match bindings");
+            }
+        }
+        consume(TokenType::ARROW, "Expected '->' after match pattern");
+        arm.body = parseStatement();
+        arms.push_back(std::move(arm));
+    }
+    consume(TokenType::RBRACE, "Expected '}' to close match");
+    auto ms = std::make_shared<MatchStmt>(subject, std::move(arms));
+    ms->line = kw.line; ms->col = kw.column;
+    return ms;
+}
 
 StmtPtr Parser::parseSwitchStatement() {
     consume(TokenType::SWITCH, "Expected 'switch'");
@@ -1382,7 +1433,7 @@ ExprPtr Parser::parsePrimary() {
     }
 
     if (match(TokenType::IDENT)) {
-        if (check(TokenType::LBRACE)) {
+        if (check(TokenType::LBRACE) && !noStructLiteral) {
             return withPos(parseStructInit(tok.value), tok);
         }
         return withPos(std::make_shared<IdentExpr>(tok.value), tok);

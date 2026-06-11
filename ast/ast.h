@@ -161,10 +161,21 @@ public:
 class EnumDecl : public Decl {
 public:
     std::vector<std::pair<std::string, long long>> members; // (name, value)
+    // Per-variant payload field types, parallel to `members` (empty = no payload).
+    // If any variant has a payload, this enum is an algebraic data type: a tagged
+    // union laid out as { i32 tag; <storage for the largest variant> }, rather than
+    // a plain integer enum. Variants are constructed by name (`Circle(2.0)`, or a
+    // bare `None`) and consumed with `match`.
+    std::vector<std::vector<std::string>> payloads;
 
     EnumDecl(const std::string& name,
              std::vector<std::pair<std::string, long long>> members)
         : Decl(name), members(std::move(members)) {}
+
+    bool isADT() const {
+        for (const auto& p : payloads) if (!p.empty()) return true;
+        return false;
+    }
 
     void accept(class ASTVisitor* visitor) override;
 };
@@ -286,6 +297,26 @@ public:
 
     SwitchStmt(ExprPtr subj, std::vector<Case> cases)
         : subject(std::move(subj)), cases(std::move(cases)) {}
+
+    void accept(class ASTVisitor* visitor) override;
+};
+
+// match subject { Variant(b0, b1) -> stmt;  Other -> stmt;  _ -> stmt; }
+// Destructures an algebraic-enum value: dispatches on its tag and binds the
+// active variant's payload fields to names in that arm.
+class MatchStmt : public Stmt {
+public:
+    struct Arm {
+        std::string variant;                 // variant name, or "" for the `_` default
+        std::vector<std::string> bindings;   // payload binding names (for this variant)
+        StmtPtr body;
+    };
+    ExprPtr subject;
+    std::vector<Arm> arms;
+    std::string enumName;                     // filled by the type checker (subject's enum)
+
+    MatchStmt(ExprPtr subject, std::vector<Arm> arms)
+        : subject(std::move(subject)), arms(std::move(arms)) {}
 
     void accept(class ASTVisitor* visitor) override;
 };
@@ -600,6 +631,7 @@ public:
     virtual void visit(BreakStmt* node) = 0;
     virtual void visit(ContinueStmt* node) = 0;
     virtual void visit(SwitchStmt* node) = 0;
+    virtual void visit(MatchStmt* node) = 0;
     virtual void visit(ExprStmt* node) = 0;
     virtual void visit(BinaryExpr* node) = 0;
     virtual void visit(UnaryExpr* node) = 0;

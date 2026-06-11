@@ -250,6 +250,7 @@ std::string tokenTypeToString(TokenType type) {
         case TokenType::IF: return "IF";
         case TokenType::ELSE: return "ELSE";
         case TokenType::SWITCH: return "SWITCH";
+        case TokenType::MATCH: return "MATCH";
         case TokenType::CASE: return "CASE";
         case TokenType::DEFAULT: return "DEFAULT";
         case TokenType::BREAK: return "BREAK";
@@ -370,6 +371,7 @@ std::unordered_map<std::string, TokenType> Lexer::keywords = {
     {"if", TokenType::IF},
     {"else", TokenType::ELSE},
     {"switch", TokenType::SWITCH},
+    {"match", TokenType::MATCH},
     {"case", TokenType::CASE},
     {"default", TokenType::DEFAULT},
     {"break", TokenType::BREAK},

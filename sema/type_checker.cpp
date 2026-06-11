@@ -25,7 +25,16 @@ bool TypeChecker::check(Program* program) {
     for (const auto& decl : program->declarations) {
         if (auto enumDecl = dynamic_cast<EnumDecl*>(decl.get())) {
             enumTypes.insert(enumDecl->name);
-            for (const auto& m : enumDecl->members) enumConstants[m.first] = m.second;
+            if (enumDecl->isADT()) {
+                // Algebraic enum: a tagged union, not int constants. Register each
+                // variant by name -> (enum, tag) for construction + match.
+                adtEnums.insert(enumDecl->name);
+                enumDecls[enumDecl->name] = enumDecl;
+                for (size_t i = 0; i < enumDecl->members.size(); ++i)
+                    adtVariants[enumDecl->members[i].first] = {enumDecl->name, (int)i};
+            } else {
+                for (const auto& m : enumDecl->members) enumConstants[m.first] = m.second;
+            }
             continue;
         }
         if (auto aliasDecl = dynamic_cast<TypeAliasDecl*>(decl.get())) {
@@ -692,6 +701,29 @@ void TypeChecker::visit(UnaryExpr* node) {
 }
 
 void TypeChecker::visit(CallExpr* node) {
+    // Algebraic variant construction: `Circle(2.0)`, `Some(x)`. The callee names a
+    // variant; the call yields the enum value, checking the payload field types.
+    if (auto cid = dynamic_cast<IdentExpr*>(node->callee.get())) {
+        auto vit = adtVariants.find(cid->name);
+        if (vit != adtVariants.end() && lookupSymbol(cid->name).empty()) {
+            const std::string& enumName = vit->second.first;
+            const auto& payload = enumDecls[enumName]->payloads[vit->second.second];
+            for (auto& a : node->args) a->accept(this);
+            if (node->args.size() != payload.size())
+                errorAt(node, "variant '" + cid->name + "' expects " +
+                    std::to_string(payload.size()) + " argument(s), got " +
+                    std::to_string(node->args.size()));
+            else
+                for (size_t i = 0; i < payload.size(); ++i) {
+                    std::string at = getExpressionType(node->args[i].get());
+                    if (at != "unknown" && !isValidAssignment(payload[i], at))
+                        errorAt(node, "variant '" + cid->name + "' argument " +
+                            std::to_string(i + 1) + " type mismatch");
+                }
+            expressionTypes[node] = enumName;
+            return;
+        }
+    }
     // Method call: callee is MemberExpr (e.g. p.distance(q))
     if (auto member = dynamic_cast<MemberExpr*>(node->callee.get())) {
         member->base->accept(this);
@@ -1000,6 +1032,17 @@ void TypeChecker::visit(IdentExpr* node) {
         useLocations[{node->line, node->col}] = node->name;
         return;
     }
+    if (type.empty() && adtVariants.count(node->name)) {
+        // Bare algebraic variant, e.g. `None` — constructs the enum value. Variants
+        // with a payload must be called (`Some(x)`), handled in visit(CallExpr).
+        auto& info = adtVariants[node->name];
+        const auto& payload = enumDecls[info.first]->payloads[info.second];
+        if (!payload.empty())
+            errorAt(node, "variant '" + node->name + "' needs " +
+                std::to_string(payload.size()) + " argument(s)");
+        expressionTypes[node] = info.first;     // the enum value type
+        return;
+    }
     // A top-level function used as a value decays to a `fn(params)->ret` pointer.
     if (type.empty() && functionSignatures.count(node->name)) {
         const auto& sig = functionSignatures[node->name];   // (returnType, paramTypes)
@@ -1176,6 +1219,35 @@ void TypeChecker::visit(TryStmt* node) {
         popScope();
     }
     if (node->finally) node->finally->accept(this);
+}
+
+void TypeChecker::visit(MatchStmt* node) {
+    node->subject->accept(this);
+    std::string st = normalizeType(getExpressionType(node->subject.get()));
+    EnumDecl* ed = adtEnums.count(st) ? enumDecls[st] : nullptr;
+    if (!ed && st != "unknown")
+        errorAt(node, "match subject must be an algebraic enum, got " + st);
+    node->enumName = st;
+    for (auto& arm : node->arms) {
+        pushScope();
+        if (!arm.variant.empty() && ed) {
+            auto vit = adtVariants.find(arm.variant);
+            if (vit == adtVariants.end() || vit->second.first != st) {
+                errorAt(node, "'" + arm.variant + "' is not a variant of " + st);
+            } else {
+                const auto& payload = ed->payloads[vit->second.second];
+                if (arm.bindings.size() != payload.size())
+                    errorAt(node, "variant '" + arm.variant + "' binds " +
+                        std::to_string(payload.size()) + " field(s), got " +
+                        std::to_string(arm.bindings.size()));
+                for (size_t i = 0; i < arm.bindings.size() && i < payload.size(); ++i)
+                    defineSymbol(arm.bindings[i], normalizeType(payload[i]),
+                                 node->line, node->col, /*isParam=*/false);
+            }
+        }
+        if (arm.body) arm.body->accept(this);
+        popScope();
+    }
 }
 
 void TypeChecker::visit(SwitchStmt* node) {
@@ -1588,7 +1660,8 @@ std::string TypeChecker::normalizeType(const std::string& type) {
     // Resolve a type alias to its underlying type.
     if (auto it = typeAliases.find(type); it != typeAliases.end())
         return normalizeType(it->second);
-    // An enum type is an integer.
+    // A classic enum is an integer; an algebraic enum is its own value type.
+    if (adtEnums.count(type)) return type;
     if (enumTypes.count(type)) return "int";
     if (type.find("struct:") == 0 || type.find("interface:") == 0) {
         return type;

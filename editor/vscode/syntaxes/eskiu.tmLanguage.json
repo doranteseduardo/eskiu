@@ -116,7 +116,7 @@
       "patterns": [
         {
           "name": "keyword.control.eskiu",
-          "match": "\\b(if|else|for|while|switch|case|default|break|continue|return|in|await)\\b"
+          "match": "\\b(if|else|for|while|switch|case|default|break|continue|return|in|await|match)\\b"
         },
         {
           "name": "keyword.control.exception.eskiu",
