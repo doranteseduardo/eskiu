@@ -1,7 +1,7 @@
 // spawn: fire-and-forget a detached async task. A ready task completes + frees
 // synchronously; a suspending task is driven by the event loop. Leak-free (the
-// reap waker frees the future and its own env). `spawn` is also a regular name
-// now (the dead thread/spawn/mutex reserved words were removed).
+// reap waker frees the future and its own env). The generic `spawn<T>` takes a
+// typed `Future<T>*` directly — no `(FutureHdr*)` cast at the call site.
 import <future>;
 import <net_async>;
 import <eventloop>;
@@ -20,11 +20,11 @@ async void suspTask(EventLoop* lp, int fd) {
     el_stop(lp);
 }
 int main() {
-    spawn((FutureHdr*)readyTask());
+    spawn(readyTask());
     int[2] fds; pipe(&fds[0]);
     write(fds[1], (*void)"abcd", (int64)4);
     g_lp = el_new(64);
-    spawn((FutureHdr*)suspTask(g_lp, fds[0]));
+    spawn(suspTask(g_lp, fds[0]));
     el_run(g_lp);
     printf("%d %d\n", g_ready, g_susp);   // 7 4
     el_free(g_lp);

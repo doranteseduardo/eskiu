@@ -1,5 +1,6 @@
 // join2: await both futures, then read both values. Two pipe reads complete in
 // some order; join2 fires once both are done. Deterministic; leak-free.
+// Uses the generic `join2(ra, rb)` — typed futures, no `(FutureHdr*)` cast.
 import <future>;
 import <net_async>;
 import <eventloop>;
@@ -12,7 +13,7 @@ EventLoop* g_lp;
 async int both(EventLoop* lp, int fa, int fb) {
     Future<int>* ra = net_read_async(lp, fa, &ba[0], (int64)64);
     Future<int>* rb = net_read_async(lp, fb, &bb[0], (int64)64);
-    int done = await join2((FutureHdr*)ra, (FutureHdr*)rb);
+    int done = await join2(ra, rb);
     int total = ra.value + rb.value;
     free_future<int>(ra);  free_future<int>(rb);
     return total;
