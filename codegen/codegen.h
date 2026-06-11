@@ -27,6 +27,9 @@ public:
     std::string targetTriple;
     // Freestanding mode: alloc/free use esk_alloc/esk_free instead of malloc/free
     bool freestanding = false;
+    // Sanitizer instrumentation, applied to the module before object emission.
+    bool asan = false;   // AddressSanitizer (memory errors); needs the asan runtime
+    bool ubsan = false;  // bounds checking; traps on out-of-bounds (no runtime)
 
     // Print LLVM IR to stdout
     void printIR() const;

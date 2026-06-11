@@ -151,6 +151,9 @@ try {
 - **Multi-file compilation**: `eskiuc a.esk b.esk -o prog` compiles several files together, merging their declarations (order-independent thanks to the prototype pre-pass)
 - **`-Wall`**: lint-style warnings — unused variables, parameters, and functions, plus assignment used as a condition (`if (x = 0)`); off by default
 - **`-Wextra`**: extra warnings layered on top of `-Wall` — comparison between signed and unsigned integers; off by default
+- **`eskiuc run file.esk [args...]`**: compile to a temporary executable, run it (forwarding `[args...]`), then delete it; the program's exit code is propagated. Compiler flags precede the script, program arguments follow it.
+- **Shebang scripts**: a leading `#!/usr/bin/env eskiuc run` line is ignored by the preprocessor (line numbers preserved), so a `.esk` file can be made executable (`chmod +x`) and run directly.
+- **`--asan` / `--ubsan`**: real sanitizer instrumentation via the LLVM pass manager. `--asan` runs AddressSanitizer (heap/stack/global memory errors) and links the matching LLVM compiler-rt runtime; `--ubsan` inserts trapping bounds checks (no runtime needed). Both compose with `eskiuc run`.
 
 ### Standard library
 

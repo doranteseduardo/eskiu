@@ -150,11 +150,11 @@ Phase 3 rounds out ergonomics and tooling.
 - [x] `#error` directive — aborts compilation with the message (respects `#ifdef` branches). Test: `errors/pp_error`
 - [x] `#pragma pack(N)` with N > 1 — caps each field's alignment at N (manual padded layout matching the C `#pragma pack(N)` ABI; total size rounds up to the struct's alignment). Test: `pack_n`
 - [x] `-Wextra` — signed/unsigned comparison mismatches (off by default; layers on top of `-Wall`)
-- [ ] Shebang support — `#!/usr/bin/env eskiuc run`
+- [x] Shebang support — a leading `#!/usr/bin/env eskiuc run` line is ignored by the preprocessor (line numbers preserved), so a `.esk` file can be `chmod +x`'d and run directly. Test: `shebang`
 - [ ] Package manager — dependency resolution, registry, build integration
-- [ ] `eskiuc run file.esk` — compile and execute without leaving a binary
+- [x] `eskiuc run file.esk [args...]` — compile to a temporary executable, run it (forwarding `[args...]`), and delete it; the program's exit code is propagated. Flags go before the script (`eskiuc run --asan f.esk`), program args after
 - [ ] `eskiuc fmt` — formatter
-- [ ] `--asan` / `--ubsan` as first-class flags
+- [x] `--asan` / `--ubsan` as first-class flags — real instrumentation via the LLVM pass manager: `--asan` runs AddressSanitizer (memory errors) and links the matching compiler-rt runtime; `--ubsan` inserts trapping bounds checks (no runtime). Both compose with `eskiuc run`
 
 **Documentation**
 - [ ] Formal, complete BNF grammar

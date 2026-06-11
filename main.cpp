@@ -80,8 +80,19 @@ static llvm::cl::list<std::string> LinkArgs("link-arg",
     llvm::cl::desc("Pass an extra argument to the linker (repeatable)"),
     llvm::cl::value_desc("arg"));
 
+// Sanitizers: instrument the module (real LLVM passes) and link the runtime.
+static llvm::cl::opt<bool> Asan("asan",
+    llvm::cl::desc("Instrument with AddressSanitizer (detects memory errors)"));
+static llvm::cl::opt<bool> Ubsan("ubsan",
+    llvm::cl::desc("Instrument with bounds checking (traps on out-of-bounds access)"));
+
 const char* VERSION = "0.2.0-dev";
 static std::string stdlibRoot; // set once at startup via resolveStdlibPath()
+
+// `eskiuc run`: set when argv[1] == "run". The program is compiled to a
+// temporary executable, run with g_runArgs, then deleted (see main()).
+static bool g_runMode = false;
+static std::vector<std::string> g_runArgs;
 
 // Resolve stdlib root: $ESKIU_ROOT env var, or dirname(argv[0])/../lib/eskiu
 static std::string resolveStdlibPath() {
@@ -165,7 +176,17 @@ static bool endsWith(const std::string& s, const std::string& suffix) {
 }
 
 // Locate a C linker driver: $CC first, then cc / clang / gcc on PATH.
-static std::string findCDriver() {
+// When `sanitized` is set, prefer the clang from the LLVM toolchain this
+// compiler was built against — its compiler-rt matches the ASan instrumentation
+// we emit, so the runtime versions agree (Apple's system clang ships a different
+// ASan ABI and would fail to link).
+static std::string findCDriver(bool sanitized = false) {
+#ifdef ESKIU_LLVM_BINDIR
+    if (sanitized) {
+        std::string llvmClang = std::string(ESKIU_LLVM_BINDIR) + "/clang";
+        if (llvm::sys::fs::exists(llvmClang)) return llvmClang;
+    }
+#endif
     if (const char* cc = std::getenv("CC")) {
         if (auto p = llvm::sys::findProgramByName(cc)) return *p;
     }
@@ -180,8 +201,9 @@ static std::string findCDriver() {
 static bool linkExecutable(const std::string& obj, const std::string& out,
                            const std::vector<std::string>& libs,
                            const std::vector<std::string>& paths,
-                           const std::vector<std::string>& extra) {
-    std::string driver = findCDriver();
+                           const std::vector<std::string>& extra,
+                           bool sanitized = false) {
+    std::string driver = findCDriver(sanitized);
     if (driver.empty()) {
         std::cerr << "error: no C linker driver found (looked for $CC, cc, clang, gcc).\n"
                      "       Install a C toolchain, or use -c to emit an object file "
@@ -206,6 +228,25 @@ static bool linkExecutable(const std::string& obj, const std::string& out,
         return false;
     }
     return true;
+}
+
+// Run an executable, forwarding `progArgs`, and return its exit code (or 1 if it
+// could not be launched). Used by `eskiuc run`.
+static int runExecutable(const std::string& exe, const std::vector<std::string>& progArgs) {
+    std::vector<std::string> argv = {exe};
+    for (const auto& a : progArgs) argv.push_back(a);
+    std::vector<llvm::StringRef> args(argv.begin(), argv.end());
+    std::string errMsg;
+    int rc = llvm::sys::ExecuteAndWait(exe, args, /*Env=*/std::nullopt,
+                                       /*Redirects=*/{}, /*SecondsToWait=*/0,
+                                       /*MemoryLimit=*/0, &errMsg);
+    if (rc < 0) {
+        std::cerr << "error: could not run '" << exe << "'";
+        if (!errMsg.empty()) std::cerr << ": " << errMsg;
+        std::cerr << std::endl;
+        return 1;
+    }
+    return rc;
 }
 
 // Test lexer: tokenize and print all tokens
@@ -329,7 +370,28 @@ int main(int argc, char** argv) {
            << LLVM_VERSION_MINOR << "." << LLVM_VERSION_PATCH << ")\n";
     });
 
-    llvm::cl::ParseCommandLineOptions(argc, argv, "Eskiu Language Compiler\n");
+    // `eskiuc run script.esk [args...]` — compile to a temporary executable, run
+    // it forwarding [args...], then delete it. Enables shebang scripts
+    // (`#!/usr/bin/env eskiuc run`). Rewritten here before option parsing: any
+    // leading flags and the first non-flag token (the script) go to the option
+    // parser; everything after the script becomes the program's argv.
+    if (argc >= 2 && std::string(argv[1]) == "run") {
+        g_runMode = true;
+        std::vector<char*> clArgv = { argv[0] };
+        bool gotScript = false;
+        for (int i = 2; i < argc; ++i) {
+            if (!gotScript) {
+                clArgv.push_back(argv[i]);
+                if (argv[i][0] != '-') gotScript = true;   // first non-flag = the script
+            } else {
+                g_runArgs.push_back(argv[i]);
+            }
+        }
+        int newArgc = (int)clArgv.size();
+        llvm::cl::ParseCommandLineOptions(newArgc, clArgv.data(), "Eskiu Language Compiler\n");
+    } else {
+        llvm::cl::ParseCommandLineOptions(argc, argv, "Eskiu Language Compiler\n");
+    }
 
     // Resolve stdlib root once — used by all parsers for import <name>
     stdlibRoot = resolveStdlibPath();
@@ -467,20 +529,33 @@ int main(int argc, char** argv) {
         CodeGen codegen;
         if (!TargetTriple.empty()) codegen.targetTriple = std::string(TargetTriple);
         codegen.freestanding = Freestanding;
+        codegen.asan = Asan;
+        codegen.ubsan = Ubsan;
         if (!codegen.generateCode(program)) {
             std::cerr << "error: code generation failed" << std::endl;
             return 1;
         }
 
-        std::string outFile = OutputFilename.empty()
-            ? std::string(InputFilename) + ".o"
+        // `eskiuc run`: link into a temporary executable, then run it.
+        std::string runExePath;
+        if (g_runMode) {
+            llvm::SmallString<128> tmpExe;
+            if (llvm::sys::fs::createTemporaryFile("eskiu-run", "", tmpExe)) {
+                std::cerr << "error: could not create a temporary executable" << std::endl;
+                return 1;
+            }
+            runExePath = std::string(tmpExe.str());
+        }
+
+        std::string outFile = !runExePath.empty() ? runExePath
+            : OutputFilename.empty() ? std::string(InputFilename) + ".o"
             : std::string(OutputFilename);
 
         // Link into an executable when the output is not an object file.
         // Object-only when: -c is given, the output ends in .o, no -o was given,
         // or --freestanding (bare-metal needs a custom linker script — link yourself).
-        bool linkExe = !CompileOnly && !Freestanding &&
-                       !OutputFilename.empty() && !endsWith(outFile, ".o");
+        bool linkExe = g_runMode || (!CompileOnly && !Freestanding &&
+                       !OutputFilename.empty() && !endsWith(outFile, ".o"));
 
         if (linkExe) {
             llvm::SmallString<128> tmpObj;
@@ -496,9 +571,17 @@ int main(int argc, char** argv) {
             std::vector<std::string> libs(LinkLibs.begin(), LinkLibs.end());
             std::vector<std::string> paths(LinkPaths.begin(), LinkPaths.end());
             std::vector<std::string> extra(LinkArgs.begin(), LinkArgs.end());
-            bool ok = linkExecutable(tmpObjPath, outFile, libs, paths, extra);
+            // ASan needs its runtime linked; --ubsan traps directly (no runtime).
+            if (Asan) extra.push_back("-fsanitize=address");
+            bool ok = linkExecutable(tmpObjPath, outFile, libs, paths, extra, /*sanitized=*/Asan);
             llvm::sys::fs::remove(tmpObjPath);
-            if (!ok) return 1;
+            if (!ok) { if (g_runMode) llvm::sys::fs::remove(runExePath); return 1; }
+
+            if (g_runMode) {
+                int rc = runExecutable(runExePath, g_runArgs);
+                llvm::sys::fs::remove(runExePath);
+                return rc;
+            }
             std::cout << outFile << std::endl;
             return 0;
         }

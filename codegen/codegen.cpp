@@ -9,6 +9,9 @@
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/MC/TargetRegistry.h"
+#include "llvm/Passes/PassBuilder.h"
+#include "llvm/Transforms/Instrumentation/AddressSanitizer.h"
+#include "llvm/Transforms/Instrumentation/BoundsChecking.h"
 #include "llvm/TargetParser/Host.h"
 #include "llvm/TargetParser/Triple.h"
 #include "llvm/Support/raw_os_ostream.h"
@@ -3311,6 +3314,41 @@ bool CodeGen::emitObjectFile(const std::string& filename) {
     std::unique_ptr<llvm::TargetMachine> tm(
         target->createTargetMachine(triple, cpu, "", opt, llvm::Reloc::PIC_));
     module->setDataLayout(tm->createDataLayout());
+
+    // Sanitizer instrumentation (new pass manager), run over the whole module
+    // before code generation. --asan instruments memory accesses (the asan
+    // runtime is linked separately); --ubsan inserts trapping bounds checks.
+    if (asan || ubsan) {
+        llvm::LoopAnalysisManager LAM;
+        llvm::FunctionAnalysisManager FAM;
+        llvm::CGSCCAnalysisManager CGAM;
+        llvm::ModuleAnalysisManager MAM;
+        llvm::PassBuilder PB(tm.get());
+        PB.registerModuleAnalyses(MAM);
+        PB.registerCGSCCAnalyses(CGAM);
+        PB.registerFunctionAnalyses(FAM);
+        PB.registerLoopAnalyses(LAM);
+        PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
+
+        // AddressSanitizer only instruments functions marked sanitize_address
+        // (Clang stamps this per function); add it to every defined function.
+        if (asan) {
+            for (llvm::Function& F : *module)
+                if (!F.isDeclaration()) F.addFnAttr(llvm::Attribute::SanitizeAddress);
+        }
+
+        llvm::ModulePassManager MPM;
+        if (ubsan) {
+            llvm::BoundsCheckingPass::Options opts;   // empty Runtime => trap on OOB
+            llvm::FunctionPassManager FPM;
+            FPM.addPass(llvm::BoundsCheckingPass(opts));
+            MPM.addPass(llvm::createModuleToFunctionPassAdaptor(std::move(FPM)));
+        }
+        if (asan) {
+            MPM.addPass(llvm::AddressSanitizerPass(llvm::AddressSanitizerOptions{}));
+        }
+        MPM.run(*module, MAM);
+    }
 
     std::error_code ec;
     llvm::raw_fd_ostream dest(filename, ec, llvm::sys::fs::OF_None);
