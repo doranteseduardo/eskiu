@@ -56,6 +56,9 @@ static llvm::cl::opt<bool> Wall("Wall",
     llvm::cl::desc("Enable lint-style warnings: unused variables, parameters, "
                    "and functions, and assignment used as a condition"));
 
+static llvm::cl::opt<bool> Wextra("Wextra",
+    llvm::cl::desc("Extra warnings: signed/unsigned comparison mismatches"));
+
 static llvm::cl::opt<std::string> HoverAt("hover-at",
     llvm::cl::desc("Print the Eskiu type at LINE:COL (e.g. --hover-at 8:12)"),
     llvm::cl::value_desc("LINE:COL"));
@@ -246,6 +249,7 @@ static int testTypeChecker(const std::string& filename) {
         TypeChecker typeChecker;
         typeChecker.sourceFile = filename;
         typeChecker.warnAll = Wall;
+        typeChecker.warnExtra = Wextra;
         bool success = typeChecker.check(program.get());
 
         std::cout << "========================================================" << std::endl;
@@ -454,6 +458,7 @@ int main(int argc, char** argv) {
         TypeChecker typeChecker;
         typeChecker.sourceFile = std::string(InputFilename);
         typeChecker.warnAll = Wall;
+        typeChecker.warnExtra = Wextra;
         if (!typeChecker.check(program.get())) {
             return 1;
         }

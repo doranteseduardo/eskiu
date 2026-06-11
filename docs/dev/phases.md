@@ -149,7 +149,7 @@ Phase 3 rounds out ergonomics and tooling.
 - [x] `__FILE__` and `__LINE__` in the preprocessor — `__LINE__` refreshed per line, `__FILE__` threaded from the compiled/imported path. Test: `pp_loc`
 - [x] `#error` directive — aborts compilation with the message (respects `#ifdef` branches). Test: `errors/pp_error`
 - [ ] `#pragma pack(N)` with N > 1 (v0.1.0 honours `pack(1)` only)
-- [ ] `-Wextra` — signed/unsigned mismatches, implicit conversions
+- [x] `-Wextra` — signed/unsigned comparison mismatches (off by default; layers on top of `-Wall`)
 - [ ] Shebang support — `#!/usr/bin/env eskiuc run`
 - [ ] Package manager — dependency resolution, registry, build integration
 - [ ] `eskiuc run file.esk` — compile and execute without leaving a binary

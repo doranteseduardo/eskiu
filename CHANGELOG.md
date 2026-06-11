@@ -148,6 +148,7 @@ try {
 
 - **Multi-file compilation**: `eskiuc a.esk b.esk -o prog` compiles several files together, merging their declarations (order-independent thanks to the prototype pre-pass)
 - **`-Wall`**: lint-style warnings — unused variables, parameters, and functions, plus assignment used as a condition (`if (x = 0)`); off by default
+- **`-Wextra`**: extra warnings layered on top of `-Wall` — comparison between signed and unsigned integers; off by default
 
 ### Standard library
 
