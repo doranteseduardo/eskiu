@@ -1027,9 +1027,15 @@ StmtPtr Parser::parseMatchStatement() {
     // Parse the subject without treating a trailing `Name { ... }` as a struct
     // literal — the `{` opens the match body (cf. Rust's match/if rule). Wrap the
     // subject in parens if a struct literal is genuinely needed there.
-    bool savedNSL = noStructLiteral; noStructLiteral = true;
-    ExprPtr subject = parseExpression();
-    noStructLiteral = savedNSL;
+    // RAII so the flag is restored even if parseExpression throws — otherwise a
+    // parse error in the subject would leave struct literals disabled for the
+    // rest of the file. Restores at the end of this block (before the arm bodies,
+    // which legitimately contain struct literals).
+    ExprPtr subject;
+    {
+        struct NslGuard { bool& f; bool saved; NslGuard(bool& x) : f(x), saved(x) { f = true; } ~NslGuard() { f = saved; } } guard(noStructLiteral);
+        subject = parseExpression();
+    }
     consume(TokenType::LBRACE, "Expected '{' after match subject");
     std::vector<MatchStmt::Arm> arms;
     while (!check(TokenType::RBRACE) && !is_at_end()) {

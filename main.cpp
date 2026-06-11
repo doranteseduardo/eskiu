@@ -205,19 +205,23 @@ static std::string formatSource(const std::string& src) {
         wroteAny = true;
 
         // Update nesting from this line's code, skipping strings/chars/comments.
+        // Strings are checked first, so a `/*` or `}` inside a literal is ignored.
         for (size_t i = 0; i < t.size(); ++i) {
             char c = t[i];
+            if (c == '"' || c == '\'') {                                     // string / char literal
+                char q = c; ++i;
+                while (i < t.size() && t[i] != q) {
+                    if (t[i] == '\\' && i + 1 < t.size()) { ++i; }           // skip the escaped char
+                    ++i;
+                }
+                continue;
+            }
             if (c == '/' && i + 1 < t.size() && t[i + 1] == '/') break;       // line comment
             if (c == '/' && i + 1 < t.size() && t[i + 1] == '*') {            // block comment
                 inBlock = true;
                 for (size_t j = i + 2; j + 1 < t.size(); ++j)
                     if (t[j] == '*' && t[j + 1] == '/') { inBlock = false; i = j + 1; break; }
                 if (inBlock) break;                                          // runs onto next line
-                continue;
-            }
-            if (c == '"' || c == '\'') {                                     // string / char literal
-                char q = c; ++i;
-                while (i < t.size() && t[i] != q) { if (t[i] == '\\') ++i; ++i; }
                 continue;
             }
             if (c == '{') depth++;
@@ -423,6 +427,14 @@ static void testCodegen(const std::string& filename) {
     std::cout << "========================================================" << std::endl;
 
     try {
+        // Type-check first: the async transform relies on resolved await types,
+        // and codegen on the type checker's struct/enum registration.
+        TypeChecker tc;
+        tc.sourceFile = filename;
+        if (!tc.check(program.get())) {
+            std::cerr << "Type checking failed!" << std::endl;
+            return;
+        }
         AsyncTransform().run(program.get());
         // Codegen
         CodeGen codegen;

@@ -154,6 +154,9 @@ private:
     std::string calleeContext;
     // True while checking the body of an `async fn` — gates `await`.
     bool inAsyncFn = false;
+    // Set when an `await` is seen in the current function body — an `async fn`
+    // with none is rejected (the transform needs at least one suspend point).
+    bool awaitSeenInFn = false;
 
     // -Wall function-usage tracking: top-level functions defined vs. referenced
     std::map<std::string, std::pair<int,int>> definedFns; // name -> (line,col)

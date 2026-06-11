@@ -1,0 +1,5 @@
+// An `async fn` with no `await` is rejected with a source location (the
+// state-machine transform needs a suspend point).
+// EXPECT-ERROR: has no `await`
+async int f() { return 3; }
+int main() { return 0; }

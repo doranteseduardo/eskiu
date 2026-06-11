@@ -352,6 +352,8 @@ void TypeChecker::visit(FunctionDecl* node) {
     currentFunctionReturnType = node->returnType;   // inner T (async body returns T)
     bool prevInAsync = inAsyncFn;
     inAsyncFn = node->isAsync;
+    bool prevAwaitSeen = awaitSeenInFn;
+    awaitSeenInFn = false;
     pushScope();
 
     // Define parameters (preserving a pointee-const qualifier so writing through
@@ -382,6 +384,20 @@ void TypeChecker::visit(FunctionDecl* node) {
         node->body->accept(this);
     }
 
+    // An `async fn` must contain at least one `await` — the state-machine
+    // transform needs a suspend point. Report here, where the location is known.
+    if (node->isAsync && !awaitSeenInFn) {
+        errorAt(node, "async function '" + node->name + "' has no `await`; "
+                      "remove `async` or add an `await`");
+    }
+    // A generic `async fn` is not supported: the coroutine frame is built once
+    // from the body's source types, so a type parameter (`T`) would not be
+    // substituted per instantiation. Reject it rather than miscompile.
+    if (node->isAsync && !node->typeParams.empty()) {
+        errorAt(node, "async function '" + node->name + "' cannot be generic; "
+                      "write a concrete async function or await a generic helper from it");
+    }
+
     for (size_t i = 0; i < node->params.size(); ++i) {
         if (escapedFnParams.count(node->params[i].second)) {
             errorAt(node, "closure parameter '" + node->params[i].second +
@@ -394,6 +410,7 @@ void TypeChecker::visit(FunctionDecl* node) {
     popScope();
     currentFunctionReturnType = "";
     inAsyncFn = prevInAsync;
+    awaitSeenInFn = prevAwaitSeen;
 }
 
 void TypeChecker::visit(VarDecl* node) {
@@ -1233,6 +1250,7 @@ void TypeChecker::visit(SizeofExpr* node) {
 void TypeChecker::visit(AwaitExpr* node) {
     if (!inAsyncFn)
         errorAt(node, "await is only allowed inside an async function");
+    awaitSeenInFn = true;
     node->operand->accept(this);
     std::string t = getExpressionType(node->operand.get());
 
@@ -1329,8 +1347,13 @@ void TypeChecker::visit(MatchStmt* node) {
     };
     bool hasDefault = false;
     std::set<std::string> covered;
-    for (auto& arm : node->arms) {
-        if (arm.variant.empty()) hasDefault = true;
+    for (size_t ai = 0; ai < node->arms.size(); ++ai) {
+        auto& arm = node->arms[ai];
+        if (arm.variant.empty()) {
+            hasDefault = true;
+            if (ai + 1 < node->arms.size())   // arms after `_` can never match
+                warning(node->line, node->col, "match arms after the `_` default are unreachable");
+        }
         else if (!covered.insert(arm.variant).second)
             errorAt(node, "duplicate match arm for variant '" + arm.variant + "'");
         pushScope();
