@@ -16,6 +16,7 @@
 //   }
 
 import <mem>;
+import <time>;
 
 // A read-ready callback receives the loop (so it can register/remove fds or
 // stop) and the fd that became readable.
@@ -29,11 +30,20 @@ struct EvHandler {
     int gen;
 }
 
+// A one-shot timer: fire `on_fire` once the monotonic clock reaches `deadline`.
+struct EvTimer {
+    int64       deadline;   // monotonic ms (time_monotonic_ms)
+    fn()->void  on_fire;
+    int         active;
+}
+
 struct EventLoop {
     int        backend;   // kqueue / epoll descriptor
     int        running;
     *EvHandler slots;     // indexed by fd
     int        cap;
+    *EvTimer   timers;    // timer slots [0, tcap)
+    int        tcap;
 }
 
 // ── Platform backend ─────────────────────────────────────────────────────────
@@ -66,9 +76,20 @@ void _el_ctl(int kq, int fd, int add) {
     kevent(kq, (*void)&ev, 1, (*void)0, 0, (*void)0);
 }
 
-// Wait for readiness; fill fds[0..) with ready descriptors, return the count.
-int _el_wait(int kq, *EvNative evs, *int fds, int max) {
-    int n = kevent(kq, (*void)0, 0, (*void)evs, max, (*void)0);
+// struct timespec (64-bit macOS): { time_t tv_sec; long tv_nsec; } = 16 bytes.
+struct EvTimespec { int64 tv_sec; int64 tv_nsec; }
+
+// Wait for readiness (or until `timeout_ms`, -1 = forever); fill fds[0..) with
+// ready descriptors, return the count (0 on timeout).
+int _el_wait(int kq, *EvNative evs, *int fds, int max, int64 timeout_ms) {
+    let ts: EvTimespec;
+    *void tsp = (*void)0;                 // NULL timeout = wait forever
+    if (timeout_ms >= (int64)0) {
+        ts.tv_sec  = timeout_ms / (int64)1000;
+        ts.tv_nsec = (timeout_ms % (int64)1000) * (int64)1000000;
+        tsp = (*void)&ts;
+    }
+    int n = kevent(kq, (*void)0, 0, (*void)evs, max, tsp);
     int i = 0;
     while (i < n) { fds[i] = (int)evs[i].ident; i = i + 1; }
     return n;
@@ -97,8 +118,8 @@ void _el_ctl(int ep, int fd, int add) {
     epoll_ctl(ep, op, fd, (*void)&ev);
 }
 
-int _el_wait(int ep, *EvNative evs, *int fds, int max) {
-    int n = epoll_wait(ep, (*void)evs, max, -1);
+int _el_wait(int ep, *EvNative evs, *int fds, int max, int64 timeout_ms) {
+    int n = epoll_wait(ep, (*void)evs, max, (int)timeout_ms);   // -1 = forever
     int i = 0;
     while (i < n) { fds[i] = (int)evs[i].data; i = i + 1; }
     return n;
@@ -117,7 +138,37 @@ EventLoop* el_new(int max_fds) {
     lp.slots   = alloc<EvHandler>(max_fds);
     int i = 0;
     while (i < max_fds) { lp.slots[i].active = 0; lp.slots[i].gen = 0; i = i + 1; }
+    lp.tcap    = max_fds;
+    lp.timers  = alloc<EvTimer>(max_fds);
+    int t = 0;
+    while (t < max_fds) { lp.timers[t].active = 0; t = t + 1; }
     return lp;
+}
+
+// Register a one-shot timer firing at monotonic `deadline` (ms). Returns a timer
+// id (slot index) or -1 if full. `el_run` fires it once, then frees `on_fire`.
+int el_add_timer(EventLoop* lp, int64 deadline, escaping fn()->void on_fire) {
+    int t = 0;
+    while (t < lp.tcap) {
+        if (lp.timers[t].active == 0) {
+            lp.timers[t].deadline = deadline;
+            lp.timers[t].on_fire  = on_fire;
+            lp.timers[t].active   = 1;
+            return t;
+        }
+        t = t + 1;
+    }
+    return -1;
+}
+
+// Cancel a pending timer and free its env. Safe to call after it has fired
+// (no-op then). Use from outside the timer's own on_fire.
+void el_del_timer(EventLoop* lp, int id) {
+    if (id < 0 || id >= lp.tcap) { return; }
+    if (lp.timers[id].active != 0) {
+        free_closure(lp.timers[id].on_fire);
+        lp.timers[id].active = 0;
+    }
 }
 
 // Register `fd` for read-readiness; `cb` fires each time it is readable.
@@ -156,7 +207,21 @@ void el_run(EventLoop* lp) {
     *int      fds = alloc<int>(max);
     lp.running = 1;
     while (lp.running != 0) {
-        int n = _el_wait(lp.backend, evs, fds, max);
+        // Block only until the nearest timer deadline (forever if none), so the
+        // loop wakes in time to fire timers even with no fd activity.
+        int64 now = time_monotonic_ms();
+        int64 timeout = (int64)0 - (int64)1;            // -1 = wait forever
+        int t = 0;
+        while (t < lp.tcap) {
+            if (lp.timers[t].active != 0) {
+                int64 d = lp.timers[t].deadline - now;
+                if (d < (int64)0) { d = (int64)0; }
+                if (timeout < (int64)0) { timeout = d; }
+                else if (d < timeout) { timeout = d; }
+            }
+            t = t + 1;
+        }
+        int n = _el_wait(lp.backend, evs, fds, max, timeout);
         int i = 0;
         while (i < n) {
             int fd = fds[i];
@@ -172,11 +237,31 @@ void el_run(EventLoop* lp) {
             }
             i = i + 1;
         }
+        // Fire expired timers. Deactivate before firing so on_fire (-> resume) can
+        // reuse the slot; free the snapshot env afterwards (one-shot, now spent).
+        now = time_monotonic_ms();
+        t = 0;
+        while (t < lp.tcap) {
+            if (lp.timers[t].active != 0 && lp.timers[t].deadline <= now) {
+                let fire: fn()->void = lp.timers[t].on_fire;
+                lp.timers[t].active = 0;
+                fire();
+                free_closure(fire);
+            }
+            t = t + 1;
+        }
     }
     free((*void)evs);  free((*void)fds);
 }
 
 void el_free(EventLoop* lp) {
+    // Release any still-armed timer envs (e.g. the loop stopped with timers pending).
+    int t = 0;
+    while (t < lp.tcap) {
+        if (lp.timers[t].active != 0) { free_closure(lp.timers[t].on_fire); }
+        t = t + 1;
+    }
+    free((*void)lp.timers);
     free((*void)lp.slots);
     free((*void)lp);
 }

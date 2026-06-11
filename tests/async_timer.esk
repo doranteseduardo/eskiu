@@ -1,0 +1,47 @@
+// Timer leaf future. `timer_after(lp, ms)` completes after `ms` of monotonic
+// time, driven by the event loop's timer wheel (the loop blocks until the nearest
+// deadline — no busy-wait). Two cases: a plain delayed await, and the flagship
+// read-with-timeout via select2 (no data ever arrives, so the timer wins and the
+// pending read is dropped). Deterministic; leak-free.
+import <future>;
+import <timer>;
+import <net_async>;
+import <eventloop>;
+import <time>;
+extern int printf(string fmt, ...);
+extern int pipe(*int fds);
+uint8[8] rb;
+EventLoop* g;
+
+async int wait_ms(EventLoop* lp, int64 ms) {
+    int r = await timer_after(lp, ms);
+    return r + 42;                          // r == 0 -> 42
+}
+
+async int read_or_timeout(EventLoop* lp, int fd) {
+    Future<int>* rd = net_read_async(lp, fd, &rb[0], (int64)8);
+    Future<int>* tm = timer_after(lp, 20);
+    int w = await select2(rd, tm);          // loser dropped by select2; free winner
+    if (w == 0) { free_future<int>(rd); return 1; }   // data
+    free_future<int>(tm); return 2;                    // timed out
+}
+
+int main() {
+    g = el_new(64);
+
+    int64 t0 = time_monotonic_ms();
+    Future<int>* a = wait_ms(g, (int64)30);
+    if (future_poll<int>(a, void() { el_stop(g); }) == 0) { el_run(g); }
+    int64 dt = time_monotonic_ms() - t0;
+    printf("a=%d waited=%d\n", a.value, (dt >= (int64)25));   // 42, 1
+    free_future<int>(a);
+
+    int[2] fds; pipe(&fds[0]);              // never written -> read stays pending
+    Future<int>* b = read_or_timeout(g, fds[0]);
+    if (future_poll<int>(b, void() { el_stop(g); }) == 0) { el_run(g); }
+    printf("b=%d\n", b.value);              // 2 (timeout wins)
+    free_future<int>(b);
+
+    el_free(g);
+    return 0;
+}
