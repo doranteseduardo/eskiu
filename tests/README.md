@@ -53,6 +53,8 @@ when you add a test.
 | `inline_asm` | `asm(...)` simple + extended compiles, links, runs |
 | `variadic` | user-defined variadic fn — `...` + `va_list`/`va_start`/`va_arg<T>`/`va_end` (int + double) |
 | `http2_frame` | `<http2>` 9-byte frame-header encode/decode round-trip (incl. 31-bit stream id) |
+| `http2_conn` | `<http2>` stage 2 codecs: SETTINGS write/apply, ACK, PING/PONG, GOAWAY round-trips |
+| `http2_handshake` | `<http2>` async server opening handshake over a socketpair (preface + SETTINGS exchange + ACK) |
 | `const` | immutable bindings, usable as array sizes |
 | `pointer_const` | `const T*` (pointee read-only) vs `T* const` (binding read-only); read/rebind allowed, write-through and const-drop rejected |
 | `pack_n` | `#pragma pack(N)` for N > 1 — field-alignment cap, padding, size matches the C ABI |

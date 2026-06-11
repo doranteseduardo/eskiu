@@ -1,0 +1,48 @@
+// HTTP/2 stage 2 — the async opening handshake over a real socket. A socketpair
+// stands in for client/server: the client writes the preface + a SETTINGS frame,
+// then the server runs h2_server_handshake_async over the event loop — validating
+// the preface, reading frames (with the partial-read loop), applying the peer's
+// SETTINGS, and replying with its own SETTINGS + an ACK.
+import <mem>;
+import <future>;
+import <eventloop>;
+import <net>;
+import <http2>;
+extern int printf(string fmt, ...);
+extern int socketpair(int domain, int type, int protocol, *int sv);
+
+EventLoop* g_lp;
+H2Conn g_conn;
+
+int main() {
+    *int sv = alloc<int>(2);
+    if (socketpair(1, 1, 0, sv) != 0) { printf("socketpair failed\n"); return 1; }
+    int srv = sv[0];  int cli = sv[1];
+
+    // Client: preface + a SETTINGS frame (blocking writes fit the socket buffer).
+    string pf = h2_preface();
+    net_send(cli, (*void)pf, (int64)24);
+    *uint8 cb = alloc<uint8>(64);
+    let cs: H2Settings;  h2_settings_defaults(&cs);
+    cs.max_concurrent_streams = (int64)50;
+    int sn = h2_write_settings(cb, &cs);
+    net_send(cli, (*void)cb, (int64)sn);
+
+    // Server: run the opening handshake over the event loop.
+    g_lp = el_new(16);
+    h2_conn_init(&g_conn, srv);
+    Future<int>* f = h2_server_handshake_async(g_lp, &g_conn);
+    future_poll<int>(f, void() { el_stop(g_lp); });
+    el_run(g_lp);
+
+    printf("rc=%d max_streams=%lld\n", f.value, g_conn.remote.max_concurrent_streams);
+
+    // Read what the server sent back: its SETTINGS, then a SETTINGS ACK.
+    *uint8 rb = alloc<uint8>(128);
+    int got = (int)net_recv(cli, (*void)rb, (int64)128);
+    let h1: H2Frame;  h2_read_header(rb, &h1);
+    let h2: H2Frame;  h2_read_header(rb + 9 + h1.length, &h2);
+    printf("got=%d first=%d second=%d ack=%d\n",
+           got, h1.type, h2.type, h2.flags & H2_FLAG_ACK);
+    return 0;
+}
