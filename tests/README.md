@@ -104,6 +104,9 @@ when you add a test.
 | `async_loop` | `while` loop containing an await (read-until-EOF; loop back-edge) |
 | `async_if` | `if`/`else` with an await in each branch (branch-join states) |
 | `async_for` | C-style `for` loop containing an await |
+| `async_break` | `break`/`continue` inside an awaiting `while`/`for` (state transitions; `for` continue runs the step) |
+| `async_switch` | `switch` containing an await: fall-through + suspending case + `default` + `break` |
+| `async_for_in` | `for-in` containing an await, over a fixed-size array and a `List`-like struct (suspending) |
 | `async_spawn` | detached generic `spawn<T>` of async tasks (ready + suspending), leak-free |
 | `async_select` | generic `select2<A,B>` — await the first of two futures; loser dropped (A-wins + B-wins) |
 | `async_join` | generic `join2<A,B>` — await both futures, then read both values |
