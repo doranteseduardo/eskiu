@@ -94,6 +94,16 @@ when you add a test.
 | `time` | `<time>` wall clock / monotonic / `sleep_ms` |
 | `executor` | async `Executor` — scheduled wakers run on the loop thread in FIFO order |
 | `net_async` | leaf future: a coroutine awaits `net_read_async` over the reactor |
+| `async_basic` | `async`/`await` transform: one await of an already-ready future (fast path) |
+| `async_io` | suspending await over a real reactor read; params live across the await |
+| `async_multi` | multiple awaits (fast path); values thread through frame states |
+| `async_multi_io` | two suspending awaits over the reactor (multi-state chain) |
+| `async_return_await` | `return await E;` desugaring and `async void` (uint8 unit) |
+| `async_cancel` | `future_drop` on a suspended async fn: cascade-drop + free, no UAF |
+| `async_loop` | `while` loop containing an await (read-until-EOF; loop back-edge) |
+| `async_if` | `if`/`else` with an await in each branch (branch-join states) |
+| `async_for` | C-style `for` loop containing an await |
+| `async_spawn` | detached `spawn` of async tasks (ready + suspending), leak-free |
 
 ### `smoke` tests (compile + link + exit 0)
 
@@ -101,6 +111,7 @@ when you add a test.
 |------|-----------|
 | `eventloop` | single-threaded echo server over the `<eventloop>` reactor |
 | `http_roundtrip` | worker-pool server + client round trip |
+| `http_async` | non-blocking async HTTP server (`<http_async>`) + client round trip |
 | `threads` | `thread_create`/`thread_join` — output order is non-deterministic |
 | `test_struct` | minimal struct field access |
 
@@ -117,6 +128,7 @@ when you add a test.
 | `errors/question_bad_return` | `?` used in a function not returning `Result` |
 | `errors/unknown_intrinsic` | an `intrinsic` declared with a name the compiler can't lower |
 | `errors/escaping_param` | a non-`escaping` closure parameter used beyond a direct call |
+| `errors/await_outside_async` | `await` used outside an `async` function |
 | `errors/parse_error` | malformed syntax |
 | `errors/unterminated_string` | unterminated string literal |
 | `errors/unterminated_char` | malformed/unterminated char literal |

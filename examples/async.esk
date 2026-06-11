@@ -1,0 +1,44 @@
+// async.esk — async / await in Eskiu.
+//
+// An `async` function suspends on I/O (via `await`) without blocking a thread;
+// the <eventloop> reactor resumes it when the I/O is ready. The call returns a
+// *Future<T> handle; `await E` yields the awaited value once it completes.
+//
+// Run from the repo root (so the stdlib resolves):
+//   ESKIU_ROOT=. eskiuc examples/async.esk -o async && ./async
+
+import <future>;
+import <net_async>;
+import <eventloop>;
+extern int   printf(string fmt, ...);
+extern int   pipe(*int fds);
+extern int64 write(int fd, *void buf, int64 n);
+
+uint8[64] g_buf;
+
+// Reads from `fd`, suspending until data is ready, and returns the byte count.
+async int read_once(EventLoop* lp, int fd) {
+    int n = await net_read_async(lp, fd, &g_buf[0], (int64)64);
+    return n;
+}
+
+int main() {
+    // A pipe stands in for a socket: write some bytes, then read them async.
+    int[2] fds;
+    pipe(&fds[0]);
+    write(fds[1], (*void)"hello, async!", (int64)13);
+
+    EventLoop* lp = el_new(64);
+    Future<int>* f = read_once(lp, fds[0]);     // starts; parks on the read
+
+    // Drive the future to completion on the event loop, then read its value.
+    if (future_poll<int>(f, void() { el_stop(lp); }) == 0) {
+        el_run(lp);
+    }
+    g_buf[f.value] = (uint8)0;                   // NUL-terminate what we read
+    printf("read %d bytes: %s\n", f.value, (string)&g_buf[0]);
+
+    free_future<int>(f);
+    el_free(lp);
+    return 0;
+}
