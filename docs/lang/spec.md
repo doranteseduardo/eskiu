@@ -1761,6 +1761,8 @@ All four sections are separated by `:`. Trailing sections may be omitted if empt
 | `eskiuc a.esk b.esk -o prog` | Compile several files together (declarations are merged) |
 | `eskiuc run file.esk [args...]` | Compile to a temp executable, run it (forwarding `args`), delete it; exit code propagated |
 | `eskiuc run --asan file.esk` | Same, with a compiler flag (flags precede the script, program args follow) |
+| `eskiuc fmt file.esk …` | Reformat files in place (indentation/whitespace; preserves content and comments) |
+| `eskiuc fmt --check file.esk …` | Report files that are not formatted (exit non-zero); write nothing |
 | `eskiuc file.esk --asan -o prog` | Instrument with AddressSanitizer (memory errors) and link its runtime |
 | `eskiuc file.esk --ubsan -o prog` | Insert trapping bounds checks (traps on out-of-bounds; no runtime) |
 | `eskiuc file.esk -Wall -o prog` | Enable lint warnings: unused vars/params/functions, assignment-in-condition |
@@ -1788,6 +1790,8 @@ no linking happens, so bare-metal targets are linked yourself (see the kernel's
 `ld.lld` invocation).
 
 **Running directly.** `eskiuc run file.esk [args...]` compiles to a temporary executable, runs it (forwarding `args...`), then deletes it, propagating the program's exit code — handy for quick iteration. Compiler flags go *before* the script and program arguments *after* it (`eskiuc run --asan file.esk -- input.txt`). Because a leading `#!` line is ignored, a script can also start with `#!/usr/bin/env eskiuc run` and, once `chmod +x`'d, be executed directly.
+
+**Formatting.** `eskiuc fmt file.esk …` reformats files in place. It is deliberately conservative: it re-indents to four spaces per brace level, trims trailing whitespace, collapses consecutive blank lines, and ensures a final newline — but leaves each line's content (operator spacing, comments, string contents) exactly as written, so it never alters a program's behavior and is idempotent. `--check` makes it report (and exit non-zero on) files that would change, without writing — useful in CI.
 
 **Sanitizers.** `--asan` instruments the program with AddressSanitizer (detecting heap, stack and global memory errors) and links the matching LLVM runtime; `--ubsan` inserts trapping bounds checks (an out-of-bounds access aborts via a trap; no runtime is required). Both are real LLVM instrumentation passes and compose with `eskiuc run`.
 

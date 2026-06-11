@@ -101,6 +101,22 @@ if [[ -d "$here/errors" ]]; then
     done
 fi
 
+# ---- formatter idempotency ------------------------------------------------
+# `eskiuc fmt` must be idempotent: formatting an already-formatted file is a
+# no-op. Format every positive test into a temp file, then assert `fmt --check`
+# reports no further change.
+echo "Formatter idempotency:"
+for esk in "$here"/*.esk; do
+    name="$(basename "$esk" .esk)"
+    cp "$esk" "$work/$name.fmt.esk"
+    "$ESKIUC" fmt "$work/$name.fmt.esk" >/dev/null 2>&1
+    if "$ESKIUC" fmt --check "$work/$name.fmt.esk" >/dev/null 2>&1; then
+        ok "fmt/$name"
+    else
+        bad "fmt/$name" "fmt is not idempotent"
+    fi
+done
+
 # ---- summary --------------------------------------------------------------
 echo
 echo "------------------------------------------------------------"

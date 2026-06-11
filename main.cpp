@@ -148,6 +148,110 @@ static std::string dirOf(const std::string& path) {
     return slash == std::string::npos ? "." : path.substr(0, slash);
 }
 
+// ── eskiuc fmt ──────────────────────────────────────────────────────────────
+// A conservative, comment-preserving reindenter. It normalizes only what is
+// unambiguous and can never change a program's meaning:
+//   * leading indentation = 4 spaces per `{`-nesting level
+//   * trailing whitespace stripped
+//   * runs of blank lines collapsed to one; leading/trailing blank lines removed
+//   * exactly one final newline
+// Each line's *content* (operators, inner spacing, comments) is preserved
+// verbatim. Braces inside strings, char literals and comments are ignored, so
+// formatting is idempotent and safe. Preprocessor lines (`#…`) sit at column 0
+// and do not affect nesting.
+static std::string formatSource(const std::string& src) {
+    std::vector<std::string> lines;
+    { std::string cur; for (char c : src) { if (c == '\n') { lines.push_back(cur); cur.clear(); }
+                                            else if (c != '\r') cur += c; }
+      lines.push_back(cur); }
+
+    auto trim = [](const std::string& s) {
+        size_t a = s.find_first_not_of(" \t");
+        if (a == std::string::npos) return std::string();
+        size_t b = s.find_last_not_of(" \t");
+        return s.substr(a, b - a + 1);
+    };
+
+    std::string out;
+    int depth = 0;            // current `{` nesting
+    bool inBlock = false;     // inside a /* … */ block comment
+    int pendingBlank = 0;     // blank lines buffered (for collapsing)
+    bool wroteAny = false;
+
+    for (const std::string& raw : lines) {
+        if (inBlock) {                       // verbatim until the comment closes
+            out += raw; out += "\n";
+            for (size_t i = 0; i + 1 < raw.size(); ++i)
+                if (raw[i] == '*' && raw[i + 1] == '/') { inBlock = false; break; }
+            wroteAny = true;
+            continue;
+        }
+        std::string t = trim(raw);
+        if (t.empty()) { pendingBlank++; continue; }
+
+        if (wroteAny && pendingBlank > 0) out += "\n";   // collapse to one blank
+        pendingBlank = 0;
+
+        if (t[0] == '#') {                   // preprocessor line: column 0, no nesting change
+            out += t; out += "\n"; wroteAny = true; continue;
+        }
+
+        // This line's indent dedents for each leading `}`.
+        int lead = depth;
+        for (char c : t) { if (c == '}') lead--; else break; }
+        if (lead < 0) lead = 0;
+        out.append((size_t)lead * 4, ' ');
+        out += t; out += "\n";
+        wroteAny = true;
+
+        // Update nesting from this line's code, skipping strings/chars/comments.
+        for (size_t i = 0; i < t.size(); ++i) {
+            char c = t[i];
+            if (c == '/' && i + 1 < t.size() && t[i + 1] == '/') break;       // line comment
+            if (c == '/' && i + 1 < t.size() && t[i + 1] == '*') {            // block comment
+                inBlock = true;
+                for (size_t j = i + 2; j + 1 < t.size(); ++j)
+                    if (t[j] == '*' && t[j + 1] == '/') { inBlock = false; i = j + 1; break; }
+                if (inBlock) break;                                          // runs onto next line
+                continue;
+            }
+            if (c == '"' || c == '\'') {                                     // string / char literal
+                char q = c; ++i;
+                while (i < t.size() && t[i] != q) { if (t[i] == '\\') ++i; ++i; }
+                continue;
+            }
+            if (c == '{') depth++;
+            else if (c == '}') depth--;
+        }
+        if (depth < 0) depth = 0;
+    }
+    return out;
+}
+
+// `eskiuc fmt [--check] file.esk …` — reformat each file in place. With --check,
+// don't write; exit non-zero if any file is not already formatted. Returns the
+// process exit code.
+static int runFmt(const std::vector<std::string>& files, bool check) {
+    if (files.empty()) { std::cerr << "error: fmt: no input files\n"; return 1; }
+    int changed = 0, failed = 0;
+    for (const auto& f : files) {
+        std::ifstream in(f);
+        if (!in.is_open()) { std::cerr << "error: fmt: cannot open '" << f << "'\n"; failed++; continue; }
+        std::stringstream buf; buf << in.rdbuf(); in.close();
+        std::string original = buf.str();
+        std::string formatted = formatSource(original);
+        if (formatted == original) continue;
+        changed++;
+        if (check) { std::cout << f << "\n"; continue; }
+        std::ofstream outF(f, std::ios::trunc);
+        if (!outF.is_open()) { std::cerr << "error: fmt: cannot write '" << f << "'\n"; failed++; continue; }
+        outF << formatted; outF.close();
+    }
+    if (failed) return 1;
+    if (check && changed) return 1;     // CI signal: files need formatting
+    return 0;
+}
+
 // Load → lex → parse a single source file. Returns the parsed Program, or
 // nullptr on a lexical or parse error (a diagnostic is printed by the lexer or
 // parser). Shared by every single-file pipeline mode (parse/typecheck/codegen,
@@ -369,6 +473,19 @@ int main(int argc, char** argv) {
         os << "Eskiu " << VERSION << " (LLVM " << LLVM_VERSION_MAJOR << "."
            << LLVM_VERSION_MINOR << "." << LLVM_VERSION_PATCH << ")\n";
     });
+
+    // `eskiuc fmt [--check] file.esk …` — reformat files in place. Handled before
+    // option parsing; it does not use the compiler pipeline.
+    if (argc >= 2 && std::string(argv[1]) == "fmt") {
+        bool check = false;
+        std::vector<std::string> files;
+        for (int i = 2; i < argc; ++i) {
+            std::string a = argv[i];
+            if (a == "--check") check = true;
+            else files.push_back(a);
+        }
+        return runFmt(files, check);
+    }
 
     // `eskiuc run script.esk [args...]` — compile to a temporary executable, run
     // it forwarding [args...], then delete it. Enables shebang scripts

@@ -151,9 +151,9 @@ Phase 3 rounds out ergonomics and tooling.
 - [x] `#pragma pack(N)` with N > 1 — caps each field's alignment at N (manual padded layout matching the C `#pragma pack(N)` ABI; total size rounds up to the struct's alignment). Test: `pack_n`
 - [x] `-Wextra` — signed/unsigned comparison mismatches (off by default; layers on top of `-Wall`)
 - [x] Shebang support — a leading `#!/usr/bin/env eskiuc run` line is ignored by the preprocessor (line numbers preserved), so a `.esk` file can be `chmod +x`'d and run directly. Test: `shebang`
-- [ ] Package manager — dependency resolution, registry, build integration
+- [ ] Package manager — dependency resolution, registry, build integration *(deferred: revisit when a real dependency need appears)*
 - [x] `eskiuc run file.esk [args...]` — compile to a temporary executable, run it (forwarding `[args...]`), and delete it; the program's exit code is propagated. Flags go before the script (`eskiuc run --asan f.esk`), program args after
-- [ ] `eskiuc fmt` — formatter
+- [x] `eskiuc fmt [--check] file.esk …` — conservative, comment-preserving reindenter: normalizes leading indentation (4 spaces per `{`-level), strips trailing whitespace, collapses blank-line runs, ensures a final newline; preserves each line's content (operators, spacing, comments, strings) verbatim, so it is idempotent and can never change a program's meaning. `--check` writes nothing and exits non-zero if any file would change (CI). Guarded by a formatter-idempotency pass over every test
 - [x] `--asan` / `--ubsan` as first-class flags — real instrumentation via the LLVM pass manager: `--asan` runs AddressSanitizer (memory errors) and links the matching compiler-rt runtime; `--ubsan` inserts trapping bounds checks (no runtime). Both compose with `eskiuc run`
 
 **Documentation**
