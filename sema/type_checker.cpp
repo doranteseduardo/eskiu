@@ -729,6 +729,37 @@ void TypeChecker::visit(CallExpr* node) {
             expressionTypes[node] = enumName;
             return;
         }
+        // Bare generic-variant construction with inference: `Some(5)`. Infer the
+        // enum's type args by unifying the variant's payload against the arg types;
+        // if they don't fully determine the type, require explicit args (turbofish).
+        auto gvit = genericVariants.find(cid->name);
+        if (gvit != genericVariants.end() && lookupSymbol(cid->name).empty()) {
+            EnumDecl* ge = genericEnumDecls[gvit->second.first];
+            const auto& payload = ge->payloads[gvit->second.second];
+            for (auto& a : node->args) a->accept(this);
+            std::set<std::string> tps(ge->typeParams.begin(), ge->typeParams.end());
+            std::map<std::string, std::string> subs;
+            for (size_t i = 0; i < payload.size() && i < node->args.size(); ++i) {
+                std::string at = getExpressionType(node->args[i].get());
+                if (at != "unknown" && !at.empty()) unifyTypeParam(payload[i], at, tps, subs);
+            }
+            bool allBound = true;
+            for (const auto& tp : ge->typeParams) if (!subs.count(tp)) allBound = false;
+            if (!allBound) {
+                errorAt(node, "cannot infer type arguments for variant '" + cid->name +
+                    "'; write them explicitly, e.g. " + cid->name + "<...>(...)");
+                expressionTypes[node] = "unknown";
+                return;
+            }
+            if (node->args.size() != payload.size())
+                errorAt(node, "variant '" + cid->name + "' expects " +
+                    std::to_string(payload.size()) + " argument(s), got " + std::to_string(node->args.size()));
+            std::string inst = gvit->second.first + "<";
+            for (size_t i = 0; i < ge->typeParams.size(); ++i) { if (i) inst += ","; inst += subs[ge->typeParams[i]]; }
+            inst += ">";
+            expressionTypes[node] = normalizeType(inst);
+            return;
+        }
     }
     // Method call: callee is MemberExpr (e.g. p.distance(q))
     if (auto member = dynamic_cast<MemberExpr*>(node->callee.get())) {

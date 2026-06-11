@@ -1485,6 +1485,31 @@ void CodeGen::visit(CallExpr* node) {
             exprValueStack.push(buildVariant(vid->name, node->args));
             return;
         }
+        // Bare generic-variant with inference: infer each type param from the arg
+        // whose payload slot IS that param (the type checker has verified all are
+        // determined), then build the instance.
+        if (!lookupSymbol(vid->name) && genericVariants.count(vid->name)) {
+            auto& gi = genericVariants[vid->name];
+            EnumDecl* ge = genericEnumDecls[gi.first];
+            const auto& payload = ge->payloads[gi.second];
+            std::map<std::string, std::string> subs;
+            for (size_t i = 0; i < payload.size() && i < node->args.size(); ++i)
+                for (const auto& tp : ge->typeParams)
+                    if (payload[i] == tp && !subs.count(tp)) {
+                        std::string at = getExprEskiuType(node->args[i]);
+                        if (!typeParamOverride.empty()) at = substType(at, typeParamOverride);
+                        subs[tp] = at;
+                    }
+            std::vector<std::string> targs;
+            for (const auto& tp : ge->typeParams) targs.push_back(subs.count(tp) ? subs[tp] : "int");
+            std::string mangled = ensureEnumInst(gi.first, targs);
+            std::map<std::string, std::string> sub2;
+            for (size_t i = 0; i < ge->typeParams.size() && i < targs.size(); ++i) sub2[ge->typeParams[i]] = targs[i];
+            std::vector<llvm::Type*> fts;
+            for (const auto& ft : payload) fts.push_back(getTypeFromString(substType(ft, sub2)));
+            exprValueStack.push(buildEnumValue(structTypes[mangled], gi.second, fts, node->args));
+            return;
+        }
     }
     // Intrinsics: a call to an `intrinsic`-declared name lowers to inline IR
     // instead of a call. Gated on intrinsicNames (only populated when the
