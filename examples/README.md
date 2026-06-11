@@ -40,6 +40,7 @@ from the repo root works out of the box (or set `ESKIU_ROOT=.`).
 | [tcp_echo_server.esk](tcp_echo_server.esk) | a TCP echo server over the POSIX socket API | `<net>` |
 | [http_server.esk](http_server.esk) | a concurrent HTTP/1.1 server with a worker pool | `<http>` |
 | [async.esk](async.esk) | `async`/`await` — a coroutine that suspends on I/O over the event loop | `<future>` `<net_async>` `<eventloop>` |
+| [async_combinators.esk](async_combinators.esk) | composing futures: `select2` (read-with-timeout), `join2` (wait-for-both), `timer_after`, and `spawn` (fire-and-forget) | `<future>` `<timer>` `<net_async>` `<eventloop>` |
 
 The network examples bind a local port — run them in one terminal and connect
 from another (e.g. `curl localhost:PORT` or `nc localhost PORT`).
