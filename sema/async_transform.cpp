@@ -302,6 +302,25 @@ void AsyncTransform::run(Program* program) {
             return false;
         };
 
+        // Does `s` definitely transfer control away (so nothing after it in the
+        // same state is reachable)? A `return`/`throw`, a block that reaches one,
+        // or an if whose both branches do. Used so a plain (no-await) terminating
+        // statement returns -1 from lowerStmt — otherwise the caller appends a
+        // state transition *after* the return, producing a mid-block terminator.
+        std::function<bool(const StmtPtr&)> stmtTerminates = [&](const StmtPtr& s) -> bool {
+            if (!s) return false;
+            if (dynamic_cast<ReturnStmt*>(s.get()) || dynamic_cast<ThrowStmt*>(s.get())) return true;
+            if (auto* b = dynamic_cast<BlockStmt*>(s.get())) {
+                for (auto& it : b->items)
+                    if (std::holds_alternative<StmtPtr>(it) && stmtTerminates(std::get<StmtPtr>(it)))
+                        return true;
+                return false;
+            }
+            if (auto* i = dynamic_cast<IfStmt*>(s.get()))
+                return i->elseBranch && stmtTerminates(i->thenBranch) && stmtTerminates(i->elseBranch);
+            return false;
+        };
+
         // Complete the future with `v` (already rewritten), then return.
         auto completeInto = [&](std::vector<BlockItem>& st, ExprPtr v) {
             st.push_back(assign(std::make_shared<MemberExpr>(fr("ret"), "value"), v));
@@ -452,7 +471,10 @@ void AsyncTransform::run(Program* program) {
             }
             // Emit verbatim only if there's no await AND no break/continue that would
             // escape into the resume loop; otherwise fall through to structural lowering.
-            if (!stmtHasAwait(s) && !loopEscapes(s)) { states[cur].push_back(rewritePlain(s)); return cur; }
+            if (!stmtHasAwait(s) && !loopEscapes(s)) {
+                states[cur].push_back(rewritePlain(s));
+                return stmtTerminates(s) ? -1 : cur;   // -1: control left this state
+            }
             if (auto* i = dynamic_cast<IfStmt*>(s.get())) {
                 rewrite(i->condition, vars);
                 int thenE = newState(), elseE = newState(), join = newState();
