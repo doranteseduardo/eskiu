@@ -105,6 +105,8 @@ public:
     std::vector<DeclPtr> methods;
     std::vector<std::string> typeParams; // non-empty → this is a template
     bool isPacked = false;               // `packed struct` or under `#pragma pack(1)`
+    int  packAlign = 0;                  // `#pragma pack(N)`: cap field alignment at N
+                                         // (0 = natural; 1 = fully packed == isPacked)
 
     StructDecl(const std::string& name, const std::vector<Field>& fields)
         : Decl(name), fields(fields) {}

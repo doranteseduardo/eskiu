@@ -1,0 +1,29 @@
+// `#pragma pack(N)` with N > 1 caps each field's alignment at N (v0.1.0 only
+// honored pack(1)). Layout matches the C `#pragma pack(N)` ABI: padding is
+// inserted to N-capped offsets and the total size rounds up to the struct's
+// alignment (min of max-field-alignment and N). Field reads/writes land at the
+// packed offsets. `#pragma pack()` resets to natural alignment.
+extern int printf(string fmt, ...);
+
+struct Natural { char a; int b; }          // a@0, pad@1..4, b@4..8 -> size 8
+
+#pragma pack(2)
+struct Packed2 { char a; int b; }          // a@0, pad@1, b@2..6 -> size 6
+#pragma pack()
+
+#pragma pack(4)
+struct Packed4 { char a; int64 b; int16 c; } // a@0, pad@1..4, b@4..12, c@12..14 -> size 16
+#pragma pack()
+
+struct Reset { char a; int b; }            // back to natural -> size 8
+
+int main() {
+    printf("%d %d %d %d\n", sizeof(Natural), sizeof(Packed2), sizeof(Packed4), sizeof(Reset));
+
+    Packed2 p;
+    p.a = 65; p.b = 1000;
+    Packed4 q;
+    q.a = 1; q.b = 111; q.c = 7;
+    printf("%d %d %d %lld %d\n", p.a, p.b, q.a, q.b, q.c);
+    return 0;
+}
