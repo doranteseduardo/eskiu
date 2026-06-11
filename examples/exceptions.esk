@@ -1,0 +1,30 @@
+// exceptions.esk — try / catch / finally / throw.
+//
+// throw raises an int error code; the nearest matching catch handles it, and a
+// finally block always runs (success or failure). Exceptions propagate out of
+// nested calls. Link with -lc++ (macOS) / -lstdc++ (Linux) for the C++ runtime.
+extern int printf(string fmt, ...);
+
+const int ERR_DIVIDE_BY_ZERO = 1;
+
+int checked_div(int a, int b) {
+    if (b == 0) { throw ERR_DIVIDE_BY_ZERO; }
+    return a / b;
+}
+
+void run(int a, int b) {
+    try {
+        int q = checked_div(a, b);          // may throw from the nested call
+        printf("%d / %d = %d\n", a, b, q);
+    } catch (int code) {
+        printf("%d / %d failed (error %d)\n", a, b, code);
+    } finally {
+        printf("  (done with %d / %d)\n", a, b);
+    }
+}
+
+int main() {
+    run(10, 2);
+    run(7, 0);
+    return 0;
+}
