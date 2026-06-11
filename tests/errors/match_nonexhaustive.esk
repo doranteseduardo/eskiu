@@ -1,0 +1,10 @@
+// EXPECT-ERROR: non-exhaustive
+enum Sig { Tick(int), Tock, Done }
+int f(Sig s) {
+    match s {
+        Tick(n) -> return n;
+        Tock    -> return 0;
+    }
+    return -1;
+}
+int main() { return f(Tock); }

@@ -142,6 +142,7 @@ when you add a test.
 | `errors/question_bad_return` | `?` used in a function not returning `Result` |
 | `errors/unknown_intrinsic` | an `intrinsic` declared with a name the compiler can't lower |
 | `errors/pp_error` | a `#error` directive aborts compilation |
+| `errors/match_nonexhaustive` | a `match` missing a variant (no `_`) is rejected |
 | `errors/escaping_param` | a non-`escaping` closure parameter used beyond a direct call |
 | `errors/await_outside_async` | `await` used outside an `async` function |
 | `errors/parse_error` | malformed syntax |
