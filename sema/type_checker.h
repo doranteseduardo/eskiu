@@ -66,6 +66,7 @@ public:
 
     // -Wall: emit lint-style warnings (unused vars/params/functions, etc.)
     bool warnAll = false;
+    bool warnExtra = false;   // -Wextra: signed/unsigned comparison mismatches, etc.
 
     // --- LSP / tooling interface (consumed by --hover-at / --definition-at) ---
     std::string sourceFile = "unknown";   // source file name (for error messages)

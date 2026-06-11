@@ -644,6 +644,22 @@ void TypeChecker::visit(BinaryExpr* node) {
         return;
     }
 
+    // -Wextra: comparing a signed and an unsigned integer is a classic bug source
+    // (the signed operand is converted to unsigned, so negatives become large).
+    if (warnExtra && (node->op == "<" || node->op == ">" || node->op == "<=" ||
+                      node->op == ">=" || node->op == "==" || node->op == "!=")) {
+        auto isUns = [](const std::string& t) {
+            return t == "uint" || t == "uint8" || t == "uint16" || t == "uint32" || t == "uint64";
+        };
+        auto isSgn = [](const std::string& t) {
+            return t == "int" || t == "int8" || t == "int16" || t == "int32" || t == "int64";
+        };
+        std::string l = normalizeType(leftType), r = normalizeType(rightType);
+        if ((isUns(l) && isSgn(r)) || (isSgn(l) && isUns(r)))
+            warning(node->line, node->col, "comparison between signed and unsigned integers ('" +
+                    leftType + "' and '" + rightType + "')");
+    }
+
     std::string resultType = inferBinaryExprType(leftType, node->op, rightType);
 
     if (resultType == "error") {

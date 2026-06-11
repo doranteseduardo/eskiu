@@ -1741,6 +1741,7 @@ All four sections are separated by `:`. Trailing sections may be omitted if empt
 | `eskiuc file.esk -o prog` | Compile **and link** into the executable `prog` |
 | `eskiuc a.esk b.esk -o prog` | Compile several files together (declarations are merged) |
 | `eskiuc file.esk -Wall -o prog` | Enable lint warnings: unused vars/params/functions, assignment-in-condition |
+| `eskiuc file.esk -Wextra -o prog` | Extra warnings on top of `-Wall`: signed/unsigned comparison mismatches |
 | `eskiuc file.esk -o prog -lpthread` | Link, passing library flags through to the linker |
 | `eskiuc file.esk -o file.o` | Compile to an object file only (no link) |
 | `eskiuc file.esk -c -o name` | Compile to an object file only, any name |
