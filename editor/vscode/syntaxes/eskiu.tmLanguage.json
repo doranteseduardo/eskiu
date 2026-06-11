@@ -242,6 +242,10 @@
           "match": "->"
         },
         {
+          "name": "keyword.operator.range.eskiu",
+          "match": "\\.\\."
+        },
+        {
           "name": "keyword.operator.assignment.eskiu",
           "match": "(?<![=!<>])=(?!=)"
         }
