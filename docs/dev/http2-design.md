@@ -50,9 +50,22 @@ tested and useful on its own.
   async `h2_read_header_block_async`. Tested by `http2_stream` (state machine,
   flow control, codecs). RESERVED states are omitted (no server push; we advertise
   `ENABLE_PUSH = 0`).
-- [ ] **Stage 5 — TLS / ALPN.** HTTP/2 in browsers requires TLS with ALPN
-  negotiating `h2`. Planned via OpenSSL by FFI (already proven — the crypto
-  pipeline links OpenSSL via `extern`). Cleartext `h2c` is the interim test path.
+- [x] **Stage 5 — TLS / ALPN** (`stdlib/tls.esk`). OpenSSL (libssl) by FFI: a
+  server `SSL_CTX` that loads a cert/key and installs an ALPN callback selecting
+  `h2` (`tls_server_ctx`), blocking `tls_accept`/`tls_read_full`/`tls_write_all`/
+  `tls_close`, and `http2_tls_serve_conn` running the `<http2>` frame protocol
+  over the encrypted stream (reusing the codecs, HPACK, and the `<http2_server>`
+  request/response glue). The ALPN selector is handed to OpenSSL as a **raw C
+  function pointer** — the new `(*void)fn` cast (see the language spec §13.4).
+  Verified **end-to-end against `curl --http2`**: ALPN negotiates h2, the request
+  is served, and curl reports `HTTP/2 200`. See `examples/http2_tls_server.esk`.
+  (Automated suite coverage isn't included — it needs OpenSSL link flags + a cert
+  + a TLS client, outside the suite's fixed, dependency-free setup; the ALPN
+  selector logic is pure and exercised by that end-to-end run.) Fixed along the
+  way: a server must not advertise `SETTINGS_ENABLE_PUSH=1` (§6.5.2) — both
+  servers now send `0`. The server is blocking (thread-per-connection, like
+  `<http>`'s `http_serve`); async TLS over the reactor (`SSL_read` WANT_READ/
+  WANT_WRITE) is a later refinement.
 - [x] **Stage 6 — Server API** (`stdlib/http2_server.esk`). `http2_serve_async(lp,
   fd, handler, max_conns)` (and per-connection `http2_serve_conn_async`) mirroring
   the concurrent `<http_async>` server and reusing `<http>`'s `HttpRequest`/

@@ -60,6 +60,7 @@ when you add a test.
 | `http2_server` | `<http2_server>` stage 6: the h2c server end-to-end over a socketpair (request → handler → response) |
 | `const` | immutable bindings, usable as array sizes |
 | `param_reassign` | reassigning scalar/pointer parameters; method call through a pointer parameter |
+| `c_callback` | passing a top-level Eskiu function to a C API as a raw callback (drives libc `qsort`) |
 | `pointer_const` | `const T*` (pointee read-only) vs `T* const` (binding read-only); read/rebind allowed, write-through and const-drop rejected |
 | `pack_n` | `#pragma pack(N)` for N > 1 — field-alignment cap, padding, size matches the C ABI |
 | `sizeof_union_ptr` | `sizeof`, `union` (incl. float member), typed pointer arithmetic |
