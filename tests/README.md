@@ -121,6 +121,7 @@ when you add a test.
 | `eventloop` | single-threaded echo server over the `<eventloop>` reactor |
 | `http_roundtrip` | worker-pool server + client round trip |
 | `http_async` | non-blocking async HTTP server (`<http_async>`) + client round trip |
+| `http_async_concurrent` | concurrent async HTTP server: 3 simultaneous clients, channel wait-group shutdown |
 | `threads` | `thread_create`/`thread_join` — output order is non-deterministic |
 | `test_struct` | minimal struct field access |
 
