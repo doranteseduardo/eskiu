@@ -38,6 +38,7 @@ Backend-services phase. v0.1.0 is frozen at its tag; this is the in-progress nex
 - **`<atomic>`** — `atomic_load`, `atomic_store`, `atomic_swap`, `atomic_cas` over an `int` cell, lowering to LLVM atomics (acquire / release / acq_rel). Foundation for the async runtime's lock-free `Future` state handshake.
 - **`<executor>` / `<net_async>`** — async runtime foundation: an `Executor` (event loop + thread-safe ready-queue + self-pipe wakeup, so wakers always resume on the home thread) and leaf futures (`net_read_async`, `net_accept_async`) over `<eventloop>`. The async/await de-risk gate validated the runtime model end-to-end (reactor read, cancel, cross-thread resume).
 - **`<http_async>`** — a non-blocking HTTP/1.1 server over `<eventloop>`, written as a single async accept-loop function (awaits accept + read; serves connections sequentially). The Phase-2 async-HTTP goal, end to end.
+- **`<timer>`** — `timer_after(lp, ms)`, a leaf `*Future<int>` that completes after `ms` of monotonic time. `<eventloop>` gained a timer wheel (`el_add_timer`/`el_del_timer`); `el_run` now blocks only until the nearest deadline. Enables real read-with-timeout: `select2(net_read_async(...), timer_after(lp, ms))`.
 
 ### Compiler correctness (consistency audit)
 - Unsigned integer types use unsigned div/rem/shift/compare; 64-bit integer literals no longer truncate; mixed-width ops sign/zero-extend by signedness; variadic call args get the C default-argument promotions.

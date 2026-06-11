@@ -716,8 +716,9 @@ from a leaf primitive (`<net_async>`) or from calling another async function.
 `Future<T>`, the executor, and the leaf futures live in the standard library
 (`<future>`, `<executor>`, `<net_async>`); the generic combinators `spawn<T>` (detach
 a fire-and-forget task), `select2<A,B>` (first-of-two) and `join2<A,B>` (all-of-two)
-take typed futures with no cast at the call site, and `<http_async>` is a non-blocking
-HTTP server built on the accept loop. See
+take typed futures with no cast at the call site, `<timer>` `timer_after(lp, ms)` is a
+leaf future for deadlines (so `select2(read, timer_after(...))` is a real timeout), and
+`<http_async>` is a non-blocking HTTP server built on the accept loop. See
 `docs/dev/async-design.md` for the runtime contract and the lowering design.
 
 ### 6.9 Exception Handling

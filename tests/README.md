@@ -107,6 +107,7 @@ when you add a test.
 | `async_break` | `break`/`continue` inside an awaiting `while`/`for` (state transitions; `for` continue runs the step) |
 | `async_switch` | `switch` containing an await: fall-through + suspending case + `default` + `break` |
 | `async_for_in` | `for-in` containing an await, over a fixed-size array and a `List`-like struct (suspending) |
+| `async_timer` | `<timer>` `timer_after` leaf future: a delayed await + read-with-timeout via `select2(read, timer)` |
 | `async_spawn` | detached generic `spawn<T>` of async tasks (ready + suspending), leak-free |
 | `async_select` | generic `select2<A,B>` — await the first of two futures; loser dropped (A-wins + B-wins) |
 | `async_join` | generic `join2<A,B>` — await both futures, then read both values |
