@@ -201,6 +201,21 @@ void AsyncTransform::run(Program* program) {
                 return std::make_shared<WhileStmt>(w->condition, desugarStmt(w->body));
             if (auto* f = dynamic_cast<ForStmt*>(s.get()))
                 return std::make_shared<ForStmt>(f->init, f->condition, f->step, desugarStmt(f->body));
+            if (auto* sw = dynamic_cast<SwitchStmt*>(s.get())) {
+                // Normalize awaits inside each case. Wrap the case body in a block so
+                // its statements run through desugarItems (which let-binds awaits and
+                // may introduce VarDecls); all locals are hoisted to frame fields
+                // anyway, so the extra block does not change fall-through visibility.
+                auto out = std::make_shared<SwitchStmt>(sw->subject, std::vector<SwitchStmt::Case>{});
+                for (auto& c : sw->cases) {
+                    SwitchStmt::Case nc; nc.value = c.value;
+                    std::vector<BlockItem> bi;
+                    for (auto& st : c.stmts) bi.push_back(BlockItem(st));
+                    nc.stmts.push_back(std::make_shared<BlockStmt>(desugarItems(bi)));
+                    out->cases.push_back(nc);
+                }
+                return out;
+            }
             return s;
         };
         std::vector<BlockItem> items = desugarItems(block->items);
@@ -470,9 +485,40 @@ void AsyncTransform::run(Program* program) {
                 if (be != -1) goTo(be, step);      // body exit -> step
                 return after;
             }
+            if (auto* sw = dynamic_cast<SwitchStmt*>(s.get())) {
+                // Dispatch on the subject in `cur`, then C-style fall-through between
+                // per-case entry states; `break` (pushed below) exits to `join`.
+                rewrite(sw->subject, vars);
+                int n = (int)sw->cases.size();
+                std::vector<int> entry(n);
+                for (int k = 0; k < n; ++k) entry[k] = newState();
+                int join = newState();
+                int dflt = join;                              // no default -> skip to join
+                for (int k = 0; k < n; ++k) if (!sw->cases[k].value) { dflt = entry[k]; break; }
+                // if (subj==V0) st=entry0; else if (subj==V1) st=entry1; ... else st=dflt
+                StmtPtr chain = assign(fr("st"), intlit(dflt));
+                for (int k = n - 1; k >= 0; --k) {
+                    if (!sw->cases[k].value) continue;        // default is the else
+                    ExprPtr cv = sw->cases[k].value; rewrite(cv, vars);
+                    std::vector<BlockItem> tb; tb.push_back(assign(fr("st"), intlit(entry[k])));
+                    chain = std::make_shared<IfStmt>(binop(sw->subject, "==", cv),
+                        std::make_shared<BlockStmt>(tb),
+                        std::make_shared<BlockStmt>(std::vector<BlockItem>{ chain }));
+                }
+                states[cur].push_back(chain);
+                brkTargets.push_back(join);                   // break -> switch end
+                for (int k = 0; k < n; ++k) {
+                    std::vector<BlockItem> body;
+                    for (auto& st : sw->cases[k].stmts) body.push_back(BlockItem(st));
+                    int e = lowerSeq(body, entry[k]);
+                    if (e != -1) goTo(e, (k + 1 < n) ? entry[k + 1] : join);  // fall through
+                }
+                brkTargets.pop_back();
+                return join;
+            }
             if (auto* b = dynamic_cast<BlockStmt*>(s.get())) return lowerSeq(b->items, cur);
             throw std::runtime_error("async function '" + name + "': await inside this statement "
-                "is not lowered yet (supported: if / while / C-style for; not for-in / switch)");
+                "is not lowered yet (supported: if / while / C-style for / switch; not for-in)");
         };
 
         int entry = newState();                 // state 0
