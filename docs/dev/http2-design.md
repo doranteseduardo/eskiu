@@ -15,9 +15,16 @@ tested and useful on its own.
   codec (`h2_write_header` / `h2_read_header`, big-endian length/type/flags/stream),
   frame-type and flag constants, and the connection preface. Self-contained and
   unit-tested (`tests/http2_frame`). Everything below is built on it.
-- [ ] **Stage 2 — Connection lifecycle.** Send/recv the client preface; the
-  SETTINGS frame exchange + ACK; PING/PONG; GOAWAY. A `H2Conn` over a non-blocking
-  fd, driven by the event loop (read frames, dispatch by type).
+- [x] **Stage 2 — Connection lifecycle** (`stdlib/http2.esk`). SETTINGS codec
+  (`h2_write_settings`/`h2_apply_settings` over the 6 standard params + an
+  `H2Settings` model with RFC defaults), the SETTINGS ACK, PING/PONG
+  (`h2_write_ping`/`h2_send_pong`), and GOAWAY (`h2_write_goaway`/`h2_read_goaway`/
+  `h2_send_goaway`) with the §7 error codes. An `H2Conn` holds per-connection
+  state. Async I/O over the event loop: `h2_read_full_async` (partial-read loop),
+  `h2_read_frame_async` (header + payload), and `h2_server_handshake_async`
+  (validate preface → read + apply client SETTINGS → send ours + ACK). Tested:
+  `http2_conn` (pure codecs) and `http2_handshake` (the async handshake over a
+  socketpair).
 - [ ] **Stage 3 — HPACK** (RFC 7541). Header compression: the static table, a
   dynamic table with eviction, integer + string literal coding, and Huffman
   decode/encode. This is its own sizeable module (`stdlib/hpack.esk`).
