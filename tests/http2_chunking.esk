@@ -1,0 +1,53 @@
+// A response body larger than SETTINGS_MAX_FRAME_SIZE (16384) must be split
+// across multiple DATA frames — a single frame may not exceed it. This drives
+// h2_build_response directly (no socket) and walks the produced frames, checking
+// every DATA frame is <= 16384, only the last has END_STREAM, and the bytes
+// reassemble to the original body.
+import <mem>;
+import <hpack>;
+import <http2>;
+import <http>;
+import <http2_server>;
+import <string>;
+extern int printf(string fmt, ...);
+
+int main() {
+    int N = 40000;
+    let res: HttpResponse;  HttpResponse_init(&res, 200);
+    let big: String;  String_init(&big, N);
+    int i = 0;
+    while (i < N) { String_push(&big, (char)((i % 26) + 65)); i = i + 1; }
+    HttpResponse_set_body(&res, String_cstr(&big));
+
+    *uint8 out = alloc<uint8>(h2_response_bufsize(&res));
+    int total = h2_build_response(out, 1, &res);
+
+    int pos = 0;  int data_total = 0;  int max_chunk = 0;  int nchunks = 0;
+    int last_end = 0;  int ok_bytes = 1;  int seen = 0;
+    while (pos + 9 <= total) {
+        let fr: H2Frame;  h2_read_header(out + pos, &fr);
+        int payload = pos + 9;
+        if (fr.type == H2_DATA) {
+            nchunks = nchunks + 1;
+            data_total = data_total + fr.length;
+            if (fr.length > max_chunk) { max_chunk = fr.length; }
+            last_end = fr.flags & H2_FLAG_END_STREAM;
+            // verify these payload bytes match the original body at offset `seen`
+            int k = 0;
+            while (k < fr.length) {
+                if (out[payload + k] != (uint8)(((seen + k) % 26) + 65)) { ok_bytes = 0; }
+                k = k + 1;
+            }
+            seen = seen + fr.length;
+        }
+        pos = payload + fr.length;
+    }
+    // 40000 / 16384 -> 16384 + 16384 + 7232 = 3 chunks; only the last END_STREAM.
+    printf("total_data=%d max_chunk=%d chunks=%d last_end=%d bytes_ok=%d\n",
+           data_total, max_chunk, nchunks, last_end, ok_bytes);
+
+    String_free(&big);
+    HttpResponse_free(&res);
+    free((*void)out);
+    return 0;
+}

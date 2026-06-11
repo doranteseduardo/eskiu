@@ -58,6 +58,7 @@ when you add a test.
 | `hpack` | `<hpack>` HPACK (RFC 7541): integer/string codecs, static + dynamic tables, §6 decode/encode, Huffman — RFC vectors |
 | `http2_stream` | `<http2>` stage 4: stream state machine, flow-control accounting, HEADERS/DATA/WINDOW_UPDATE/RST_STREAM codecs |
 | `http2_server` | `<http2_server>` stage 6: the h2c server end-to-end over a socketpair (request → handler → response) |
+| `http2_chunking` | response bodies > 16384 split into MAX_FRAME_SIZE DATA frames (last has END_STREAM) |
 | `const` | immutable bindings, usable as array sizes |
 | `param_reassign` | reassigning scalar/pointer parameters; method call through a pointer parameter |
 | `c_callback` | passing a top-level Eskiu function to a C API as a raw callback (drives libc `qsort`) |

@@ -72,11 +72,13 @@ tested and useful on its own.
   `HttpResponse`. Drives the handshake, then a frame-dispatch loop: a request
   (HEADERS + optional DATA) is HPACK-decoded into an `HttpRequest`, the handler
   fills an `HttpResponse`, and the response is encoded back as a HEADERS frame
-  (`:status` + `content-length` + the handler's headers, lowercased) and a DATA
-  frame with END_STREAM; SETTINGS/PING are answered, GOAWAY/EOF ends the loop.
-  Tested end-to-end over a socketpair (`http2_server`). v1 handles streams
-  sequentially (correct request/response, not yet concurrent multiplexing) and is
-  cleartext h2c (TLS is stage 5).
+  (`:status` + `content-length` + the handler's headers, lowercased) followed by
+  the body split into `SETTINGS_MAX_FRAME_SIZE`-bounded (16384) DATA frames, the
+  last carrying END_STREAM; SETTINGS/PING are answered, GOAWAY/EOF ends the loop.
+  Tested end-to-end over a socketpair (`http2_server`), with large-body DATA
+  chunking checked directly (`http2_chunking`) and over real TLS via curl. v1
+  handles streams sequentially (correct request/response, not yet concurrent
+  multiplexing) and is cleartext h2c (TLS is stage 5).
 
 ## Frame header (RFC 7540 §4.1)
 

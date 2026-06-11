@@ -174,7 +174,7 @@ void http2_tls_serve_conn(*void ssl, escaping fn(HttpRequest*, HttpResponse*)->v
             }
             let res: HttpResponse;  HttpResponse_init(&res, 200);
             handler(&req, &res);
-            *uint8 out = alloc<uint8>(8192 + String_len(&res.body) + 64);
+            *uint8 out = alloc<uint8>(h2_response_bufsize(&res));
             int on = h2_build_response(out, fr.stream_id, &res);
             tls_write_all(ssl, out, on);
             free((*void)out);
