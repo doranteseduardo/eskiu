@@ -131,8 +131,13 @@ private:
     // Algebraic (payload-bearing) enums: distinct value types, not ints.
     std::set<std::string> adtEnums;                              // ADT enum names
     std::map<std::string, EnumDecl*> enumDecls;                  // name -> decl (for payloads)
-    // Variant name -> (enum name, tag index).
+    // Variant name -> (enum name, tag index). Concrete (non-generic) ADT enums.
     std::map<std::string, std::pair<std::string, int>> adtVariants;
+    // Generic ADT enums (e.g. Option<T>): name -> decl, and variant -> (enum, tag).
+    // Instances (Option_int) are recorded in adtEnums + templateInstanceArgs and
+    // resolved back to the generic decl + type args for match / construction.
+    std::map<std::string, EnumDecl*> genericEnumDecls;
+    std::map<std::string, std::pair<std::string, int>> genericVariants;
     // Type aliases: alias name -> underlying type string
     std::map<std::string, std::string> typeAliases;
 

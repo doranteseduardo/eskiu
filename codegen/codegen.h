@@ -230,8 +230,21 @@ private:
     std::set<std::string> adtEnums;
     std::map<std::string, EnumDecl*> adtEnumDecls;
     std::map<std::string, std::pair<std::string, int>> adtVariants;
-    // Build an algebraic-enum value for `variant`(args) (args may be empty).
+    // Generic algebraic enums (Option<T>): template decl + variant->(enum,tag), and
+    // per-instance (Option_int) -> (generic name, concrete type args) for resolution.
+    std::map<std::string, EnumDecl*> genericEnumDecls;
+    std::map<std::string, std::pair<std::string, int>> genericVariants;
+    std::map<std::string, std::pair<std::string, std::vector<std::string>>> enumInstanceArgs;
+    // Build an algebraic-enum value for `variant`(args) (concrete enum; args may be empty).
     llvm::Value* buildVariant(const std::string& variant, const std::vector<ExprPtr>& args);
+    // Core builder: { tag, payload } value with payload fields of `fieldTypes`.
+    llvm::Value* buildEnumValue(llvm::StructType* et, int tag,
+                                const std::vector<llvm::Type*>& fieldTypes,
+                                const std::vector<ExprPtr>& args);
+    // Monomorphize a generic enum for `typeArgs`; returns the mangled instance name
+    // (and creates its struct type + records enumInstanceArgs on first use).
+    std::string ensureEnumInst(const std::string& genericName,
+                               const std::vector<std::string>& typeArgs);
     // Names declared `intrinsic` — calls to these lower to inline IR, not a call.
     std::set<std::string> intrinsicNames;
     // Type aliases: alias name -> underlying type string

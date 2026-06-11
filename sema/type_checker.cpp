@@ -25,7 +25,13 @@ bool TypeChecker::check(Program* program) {
     for (const auto& decl : program->declarations) {
         if (auto enumDecl = dynamic_cast<EnumDecl*>(decl.get())) {
             enumTypes.insert(enumDecl->name);
-            if (enumDecl->isADT()) {
+            if (enumDecl->isADT() && !enumDecl->typeParams.empty()) {
+                // Generic algebraic enum (Option<T>): a template; instances are
+                // monomorphized on use (normalizeType).
+                genericEnumDecls[enumDecl->name] = enumDecl;
+                for (size_t i = 0; i < enumDecl->members.size(); ++i)
+                    genericVariants[enumDecl->members[i].first] = {enumDecl->name, (int)i};
+            } else if (enumDecl->isADT()) {
                 // Algebraic enum: a tagged union, not int constants. Register each
                 // variant by name -> (enum, tag) for construction + match.
                 adtEnums.insert(enumDecl->name);
@@ -1224,10 +1230,31 @@ void TypeChecker::visit(TryStmt* node) {
 void TypeChecker::visit(MatchStmt* node) {
     node->subject->accept(this);
     std::string st = normalizeType(getExpressionType(node->subject.get()));
-    EnumDecl* ed = adtEnums.count(st) ? enumDecls[st] : nullptr;
+    // Resolve the enum decl + (for a generic instance like Option_int) the type-
+    // parameter substitutions, so payload types come out concrete.
+    EnumDecl* ed = nullptr;
+    std::map<std::string, std::string> subs;
+    if (enumDecls.count(st)) {
+        ed = enumDecls[st];                                  // concrete ADT enum
+    } else if (templateInstanceArgs.count(st)) {             // generic instance
+        auto& inst = templateInstanceArgs[st];
+        auto git = genericEnumDecls.find(inst.first);
+        if (git != genericEnumDecls.end()) {
+            ed = git->second;
+            for (size_t i = 0; i < ed->typeParams.size() && i < inst.second.size(); ++i)
+                subs[ed->typeParams[i]] = inst.second[i];
+        }
+    }
     if (!ed && st != "unknown")
         errorAt(node, "match subject must be an algebraic enum, got " + st);
     node->enumName = st;
+    // Index of a variant within `ed` by name (-1 if absent).
+    auto variantIndex = [&](const std::string& v) -> int {
+        if (!ed) return -1;
+        for (size_t i = 0; i < ed->members.size(); ++i)
+            if (ed->members[i].first == v) return (int)i;
+        return -1;
+    };
     bool hasDefault = false;
     std::set<std::string> covered;
     for (auto& arm : node->arms) {
@@ -1236,17 +1263,17 @@ void TypeChecker::visit(MatchStmt* node) {
             errorAt(node, "duplicate match arm for variant '" + arm.variant + "'");
         pushScope();
         if (!arm.variant.empty() && ed) {
-            auto vit = adtVariants.find(arm.variant);
-            if (vit == adtVariants.end() || vit->second.first != st) {
+            int vi = variantIndex(arm.variant);
+            if (vi < 0) {
                 errorAt(node, "'" + arm.variant + "' is not a variant of " + st);
             } else {
-                const auto& payload = ed->payloads[vit->second.second];
+                const auto& payload = ed->payloads[vi];
                 if (arm.bindings.size() != payload.size())
                     errorAt(node, "variant '" + arm.variant + "' binds " +
                         std::to_string(payload.size()) + " field(s), got " +
                         std::to_string(arm.bindings.size()));
                 for (size_t i = 0; i < arm.bindings.size() && i < payload.size(); ++i)
-                    defineSymbol(arm.bindings[i], normalizeType(payload[i]),
+                    defineSymbol(arm.bindings[i], normalizeType(substType(payload[i], subs)),
                                  node->line, node->col, /*isParam=*/false);
             }
         }
@@ -1287,6 +1314,34 @@ void TypeChecker::visit(SwitchStmt* node) {
 }
 
 void TypeChecker::visit(TemplateCallExpr* node) {
+    // Generic algebraic-variant construction with explicit type args:
+    // `Some<int>(5)`, `Left<int,string>(x)`, `None<int>()`.
+    auto gv = genericVariants.find(node->templateName);
+    if (gv != genericVariants.end()) {
+        EnumDecl* ge = genericEnumDecls[gv->second.first];
+        std::map<std::string, std::string> subs;
+        for (size_t i = 0; i < ge->typeParams.size() && i < node->typeArgs.size(); ++i)
+            subs[ge->typeParams[i]] = node->typeArgs[i];
+        const auto& payload = ge->payloads[gv->second.second];
+        for (auto& a : node->args) a->accept(this);
+        if (node->args.size() != payload.size())
+            errorAt(node, "variant '" + node->templateName + "' expects " +
+                std::to_string(payload.size()) + " argument(s), got " + std::to_string(node->args.size()));
+        else
+            for (size_t i = 0; i < payload.size(); ++i) {
+                std::string want = normalizeType(substType(payload[i], subs));
+                std::string at = getExpressionType(node->args[i].get());
+                if (at != "unknown" && !isValidAssignment(want, at))
+                    errorAt(node, "variant '" + node->templateName + "' argument " +
+                        std::to_string(i + 1) + " type mismatch");
+            }
+        // Build the instance type name (Option<int>) and normalize -> Option_int.
+        std::string inst = gv->second.first + "<";
+        for (size_t i = 0; i < node->typeArgs.size(); ++i) { if (i) inst += ","; inst += node->typeArgs[i]; }
+        inst += ">";
+        expressionTypes[node] = normalizeType(inst);
+        return;
+    }
     auto templ = funcTemplateDecls.find(node->templateName);
     if (templ == funcTemplateDecls.end()) {
         errorAt(node,"undefined template function '" + node->templateName + "'");
@@ -1549,7 +1604,8 @@ void TypeChecker::validateStructType(const std::string& type) {
         // is an undefined type. (Aliases/enums are resolved later in codegen.)
         if (structs.find(baseType) == structs.end() &&
             typeAliases.find(baseType) == typeAliases.end() &&
-            enumTypes.find(baseType) == enumTypes.end()) {
+            enumTypes.find(baseType) == enumTypes.end() &&
+            adtEnums.find(baseType) == adtEnums.end()) {     // incl. generic enum instances
             error(0, 0, "undefined struct '" + baseType + "'");
         }
     }
@@ -1679,6 +1735,16 @@ std::string TypeChecker::normalizeType(const std::string& type) {
     if (enumTypes.count(type)) return "int";
     if (type.find("struct:") == 0 || type.find("interface:") == 0) {
         return type;
+    }
+    // Generic algebraic enum instance: Option<int> → the value type "Option_int".
+    if (type.find('<') != std::string::npos) {
+        auto [gname, gargs] = splitTemplateType(type);
+        if (genericEnumDecls.count(gname)) {
+            std::string mangled = mangleTemplate(type);
+            templateInstanceArgs[mangled] = {gname, gargs};   // resolved back for match/construction
+            adtEnums.insert(mangled);                          // a distinct value type
+            return mangled;
+        }
     }
     // Template instantiation: Result<int,string> → struct:Result_int_string
     if (type.find('<') != std::string::npos) {

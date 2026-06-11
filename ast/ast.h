@@ -167,6 +167,9 @@ public:
     // a plain integer enum. Variants are constructed by name (`Circle(2.0)`, or a
     // bare `None`) and consumed with `match`.
     std::vector<std::vector<std::string>> payloads;
+    // Non-empty → a generic algebraic enum (e.g. `enum Option<T> { None, Some(T) }`),
+    // monomorphized per instantiation like a template struct.
+    std::vector<std::string> typeParams;
 
     EnumDecl(const std::string& name,
              std::vector<std::pair<std::string, long long>> members)
