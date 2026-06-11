@@ -398,6 +398,13 @@ DeclPtr Parser::parseDeclaration() {
         // enum Color { Red, Green = 5, Blue }
         if (match(TokenType::ENUM)) {
             std::string name = consume(TokenType::IDENT, "Expected enum name").value;
+            std::vector<std::string> enumTypeParams;
+            if (match(TokenType::LT)) {                 // enum Option<T, U> { ... }
+                do {
+                    enumTypeParams.push_back(consume(TokenType::IDENT, "Expected type parameter name").value);
+                } while (match(TokenType::COMMA));
+                consume(TokenType::GT, "Expected '>' after enum type parameters");
+            }
             consume(TokenType::LBRACE, "Expected '{'");
             std::vector<std::pair<std::string, long long>> members;
             std::vector<std::vector<std::string>> payloads;
@@ -430,6 +437,7 @@ DeclPtr Parser::parseDeclaration() {
             sharedTypeNames->insert(name);
             auto ed = std::make_shared<EnumDecl>(name, members);
             ed->payloads = std::move(payloads);
+            ed->typeParams = std::move(enumTypeParams);
             return ed;
         }
 

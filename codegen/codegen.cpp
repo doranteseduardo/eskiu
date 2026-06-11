@@ -164,6 +164,10 @@ llvm::Type* CodeGen::getTypeFromString(const std::string& typeStr) {
     // Template instantiation: "Result<int,string>" → %Result_int_string
     if (typeStr.find('<') != std::string::npos) {
         auto [tname, args] = splitTemplateType(typeStr);
+        if (genericEnumDecls.count(tname)) {                 // generic ADT enum instance
+            std::string mangled = ensureEnumInst(tname, args);
+            return structTypes[mangled];
+        }
         std::string mangled = mangleTemplate(typeStr);
         ensureTemplateInstantiated(mangled, tname, args);
         auto it = structTypes.find(mangled);
@@ -2430,60 +2434,92 @@ void CodeGen::visit(TryStmt* node) {
     builder->SetInsertPoint(doneBB);
 }
 
-void CodeGen::visit(EnumDecl* node) {
-    enumTypes.insert(node->name);
-    if (!node->isADT()) {
-        for (const auto& m : node->members) enumConstants[m.first] = m.second;
-        return;
-    }
-    // Algebraic enum: a tagged union { i32 tag; [N x i64] payload }. The i64 array
-    // forces 8-byte alignment, enough for any scalar/pointer/double payload; N is
-    // sized to the largest variant. Each variant's fields are written/read by
-    // viewing the payload area as that variant's struct.
-    adtEnums.insert(node->name);
-    adtEnumDecls[node->name] = node;
-    const auto& DL = module->getDataLayout();
+// Create the tagged-union LLVM type for an ADT enum given each variant's payload
+// field types: { i32 tag; [N x i64] payload }, N sized to the largest variant. The
+// i64 array forces 8-byte alignment (enough for scalars/pointers/doubles).
+static llvm::StructType* makeAdtStruct(llvm::LLVMContext& ctx, const llvm::DataLayout& DL,
+                                       const std::string& name,
+                                       const std::vector<std::vector<llvm::Type*>>& variantFields) {
     uint64_t maxBytes = 0;
-    for (size_t v = 0; v < node->members.size(); ++v) {
-        adtVariants[node->members[v].first] = {node->name, (int)v};
+    for (const auto& fields : variantFields) {
         uint64_t bytes = 0;
-        for (const auto& ft : node->payloads[v]) {
-            llvm::Type* t = getTypeFromString(ft);
+        for (llvm::Type* t : fields) {
             uint64_t al = DL.getABITypeAlign(t).value();
             bytes = ((bytes + al - 1) / al) * al + DL.getTypeAllocSize(t);
         }
         if (bytes > maxBytes) maxBytes = bytes;
     }
     uint64_t n = (maxBytes + 7) / 8; if (n == 0) n = 1;
-    std::vector<llvm::Type*> fields = {
-        llvm::Type::getInt32Ty(*context),
-        llvm::ArrayType::get(llvm::Type::getInt64Ty(*context), n)
+    std::vector<llvm::Type*> f = {
+        llvm::Type::getInt32Ty(ctx),
+        llvm::ArrayType::get(llvm::Type::getInt64Ty(ctx), n)
     };
-    structTypes[node->name] = llvm::StructType::create(*context, fields, node->name);
+    return llvm::StructType::create(ctx, f, name);
 }
 
-// Build an algebraic-enum value: alloca the enum struct, store the tag, write the
-// payload fields by viewing the payload bytes as the variant's struct, then load.
-llvm::Value* CodeGen::buildVariant(const std::string& variant, const std::vector<ExprPtr>& args) {
-    auto& info = adtVariants[variant];
-    EnumDecl* ed = adtEnumDecls[info.first];
-    llvm::StructType* et = structTypes[info.first];
-    llvm::Value* tmp = builder->CreateAlloca(et, nullptr, variant + ".tmp");
-    builder->CreateStore(llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), info.second),
+void CodeGen::visit(EnumDecl* node) {
+    enumTypes.insert(node->name);
+    if (!node->isADT()) {
+        for (const auto& m : node->members) enumConstants[m.first] = m.second;
+        return;
+    }
+    if (!node->typeParams.empty()) {
+        // Generic ADT enum: a template; instances are built on demand (ensureEnumInst).
+        genericEnumDecls[node->name] = node;
+        for (size_t v = 0; v < node->members.size(); ++v)
+            genericVariants[node->members[v].first] = {node->name, (int)v};
+        return;
+    }
+    adtEnums.insert(node->name);
+    adtEnumDecls[node->name] = node;
+    std::vector<std::vector<llvm::Type*>> vf;
+    for (size_t v = 0; v < node->members.size(); ++v) {
+        adtVariants[node->members[v].first] = {node->name, (int)v};
+        std::vector<llvm::Type*> fields;
+        for (const auto& ft : node->payloads[v]) fields.push_back(getTypeFromString(ft));
+        vf.push_back(fields);
+    }
+    structTypes[node->name] = makeAdtStruct(*context, module->getDataLayout(), node->name, vf);
+}
+
+// Monomorphize a generic enum for `typeArgs` (build its struct + record the args).
+std::string CodeGen::ensureEnumInst(const std::string& genericName,
+                                    const std::vector<std::string>& typeArgs) {
+    std::string inst = genericName + "<";
+    for (size_t i = 0; i < typeArgs.size(); ++i) { if (i) inst += ","; inst += typeArgs[i]; }
+    inst += ">";
+    std::string mangled = mangleTemplate(inst);
+    if (structTypes.count(mangled)) return mangled;
+    EnumDecl* ge = genericEnumDecls[genericName];
+    std::map<std::string, std::string> subs;
+    for (size_t i = 0; i < ge->typeParams.size() && i < typeArgs.size(); ++i)
+        subs[ge->typeParams[i]] = typeArgs[i];
+    std::vector<std::vector<llvm::Type*>> vf;
+    for (size_t v = 0; v < ge->members.size(); ++v) {
+        std::vector<llvm::Type*> fields;
+        for (const auto& ft : ge->payloads[v]) fields.push_back(getTypeFromString(substType(ft, subs)));
+        vf.push_back(fields);
+    }
+    structTypes[mangled] = makeAdtStruct(*context, module->getDataLayout(), mangled, vf);
+    enumInstanceArgs[mangled] = {genericName, typeArgs};
+    return mangled;
+}
+
+// Core builder: alloca the enum struct, store the tag, write payload fields (viewed
+// as the variant's struct, coerced to the field types), then load the value.
+llvm::Value* CodeGen::buildEnumValue(llvm::StructType* et, int tag,
+        const std::vector<llvm::Type*>& fieldTypes, const std::vector<ExprPtr>& args) {
+    llvm::Value* tmp = builder->CreateAlloca(et, nullptr, "variant.tmp");
+    builder->CreateStore(llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), tag),
                          builder->CreateStructGEP(et, tmp, 0));
-    const auto& payload = ed->payloads[info.second];
-    if (!payload.empty()) {
-        std::vector<llvm::Type*> vfields;
-        for (const auto& ft : payload) vfields.push_back(getTypeFromString(ft));
-        llvm::StructType* vt = llvm::StructType::get(*context, vfields);
+    if (!fieldTypes.empty()) {
+        llvm::StructType* vt = llvm::StructType::get(*context, fieldTypes);
         llvm::Value* pay = builder->CreateStructGEP(et, tmp, 1);   // the [N x i64] area
-        for (size_t i = 0; i < args.size() && i < payload.size(); ++i) {
+        for (size_t i = 0; i < args.size() && i < fieldTypes.size(); ++i) {
             llvm::Value* fp = builder->CreateStructGEP(vt, pay, i);
             llvm::Value* val = evaluateExpr(args[i]);
-            // Coerce the argument to the field's type (e.g. a `2.0` double literal
-            // into a `float` field) so the stored bytes match what match reads back.
-            llvm::Type* ft = vfields[i];
-            if (val && val->getType() != ft) {
+            llvm::Type* ft = fieldTypes[i];
+            if (val && val->getType() != ft) {       // coerce arg to the field type
                 if (val->getType()->isIntegerTy() && ft->isIntegerTy())
                     val = val->getType()->getIntegerBitWidth() > ft->getIntegerBitWidth()
                           ? builder->CreateTrunc(val, ft) : builder->CreateSExt(val, ft);
@@ -2497,7 +2533,15 @@ llvm::Value* CodeGen::buildVariant(const std::string& variant, const std::vector
             builder->CreateStore(val, fp);
         }
     }
-    return builder->CreateLoad(et, tmp, variant + ".val");
+    return builder->CreateLoad(et, tmp, "variant.val");
+}
+
+llvm::Value* CodeGen::buildVariant(const std::string& variant, const std::vector<ExprPtr>& args) {
+    auto& info = adtVariants[variant];
+    EnumDecl* ed = adtEnumDecls[info.first];
+    std::vector<llvm::Type*> fts;
+    for (const auto& ft : ed->payloads[info.second]) fts.push_back(getTypeFromString(ft));
+    return buildEnumValue(structTypes[info.first], info.second, fts, args);
 }
 
 void CodeGen::visit(TypeAliasDecl* node) {
@@ -2783,9 +2827,32 @@ void CodeGen::visit(ContinueStmt* node) {
 }
 
 void CodeGen::visit(MatchStmt* node) {
-    llvm::StructType* et = structTypes[node->enumName];
-    EnumDecl* ed = adtEnumDecls[node->enumName];
     llvm::Type* i32 = llvm::Type::getInt32Ty(*context);
+    // Resolve the enum decl + (for a generic instance) the type-arg substitutions,
+    // so each variant's payload field types come out concrete.
+    EnumDecl* ed = nullptr;
+    std::map<std::string, std::string> subs;
+    if (adtEnumDecls.count(node->enumName)) {
+        ed = adtEnumDecls[node->enumName];                   // concrete ADT enum
+    } else if (enumInstanceArgs.count(node->enumName)) {     // generic instance
+        auto& inst = enumInstanceArgs[node->enumName];
+        ed = genericEnumDecls[inst.first];
+        for (size_t i = 0; i < ed->typeParams.size() && i < inst.second.size(); ++i)
+            subs[ed->typeParams[i]] = inst.second[i];
+    }
+    auto variantIndex = [&](const std::string& v) -> int {
+        for (size_t i = 0; i < ed->members.size(); ++i)
+            if (ed->members[i].first == v) return (int)i;
+        return -1;
+    };
+    // Concrete payload LLVM field types of a variant (after substitution).
+    auto payloadTypes = [&](int idx) {
+        std::vector<llvm::Type*> v;
+        for (const auto& ft : ed->payloads[idx]) v.push_back(getTypeFromString(substType(ft, subs)));
+        return v;
+    };
+
+    llvm::StructType* et = structTypes[node->enumName];
 
     // Materialize the subject so tag + payload can be read by pointer.
     llvm::Value* sv = evaluateExpr(node->subject);
@@ -2803,25 +2870,24 @@ void CodeGen::visit(MatchStmt* node) {
     llvm::SwitchInst* sw = builder->CreateSwitch(tag, defaultBlock);
     for (size_t i = 0; i < node->arms.size(); ++i)
         if (!node->arms[i].variant.empty())
-            sw->addCase(llvm::cast<llvm::ConstantInt>(llvm::ConstantInt::get(i32, adtVariants[node->arms[i].variant].second)), armBlocks[i]);
+            sw->addCase(llvm::cast<llvm::ConstantInt>(llvm::ConstantInt::get(i32, variantIndex(node->arms[i].variant))), armBlocks[i]);
 
     for (size_t i = 0; i < node->arms.size(); ++i) {
         auto& arm = node->arms[i];
         builder->SetInsertPoint(armBlocks[i]);
         pushScope();
         if (!arm.variant.empty() && !arm.bindings.empty()) {
-            const auto& payload = ed->payloads[adtVariants[arm.variant].second];
-            std::vector<llvm::Type*> vfields;
-            for (const auto& ft : payload) vfields.push_back(getTypeFromString(ft));
+            int vi = variantIndex(arm.variant);
+            std::vector<llvm::Type*> vfields = payloadTypes(vi);
             llvm::StructType* vt = llvm::StructType::get(*context, vfields);
             llvm::Value* pay = builder->CreateStructGEP(et, sptr, 1);
-            for (size_t b = 0; b < arm.bindings.size() && b < payload.size(); ++b) {
+            for (size_t b = 0; b < arm.bindings.size() && b < vfields.size(); ++b) {
                 llvm::Value* fp = builder->CreateStructGEP(vt, pay, b);
                 llvm::Value* val = builder->CreateLoad(vfields[b], fp, arm.bindings[b]);
                 llvm::Value* slot = builder->CreateAlloca(vfields[b], nullptr, arm.bindings[b]);
                 builder->CreateStore(val, slot);
                 defineSymbol(arm.bindings[b], slot);
-                defineVarType(arm.bindings[b], payload[b]);
+                defineVarType(arm.bindings[b], substType(ed->payloads[vi][b], subs));
             }
         }
         if (arm.body) arm.body->accept(this);
@@ -2885,6 +2951,24 @@ void CodeGen::visit(SwitchStmt* node) {
 }
 
 void CodeGen::visit(TemplateCallExpr* node) {
+    // Generic algebraic-variant construction: `Some<int>(5)`, `Left<A,B>(x)`. Type
+    // args resolve through the enclosing template's substitutions (so `Left<A,B>`
+    // inside select2<A,B> becomes Left<int,int> at instantiation).
+    if (genericVariants.count(node->templateName)) {
+        auto& gi = genericVariants[node->templateName];      // (genericName, tag)
+        std::vector<std::string> args;
+        for (const auto& t : node->typeArgs)
+            args.push_back(typeParamOverride.empty() ? t : substType(t, typeParamOverride));
+        std::string mangled = ensureEnumInst(gi.first, args);
+        EnumDecl* ge = genericEnumDecls[gi.first];
+        std::map<std::string, std::string> subs;
+        for (size_t i = 0; i < ge->typeParams.size() && i < args.size(); ++i)
+            subs[ge->typeParams[i]] = args[i];
+        std::vector<llvm::Type*> fts;
+        for (const auto& ft : ge->payloads[gi.second]) fts.push_back(getTypeFromString(substType(ft, subs)));
+        exprValueStack.push(buildEnumValue(structTypes[mangled], gi.second, fts, node->args));
+        return;
+    }
     auto templ = funcTemplateDecls.find(node->templateName);
     if (templ == funcTemplateDecls.end())
         throw std::runtime_error("Unknown template function: " + node->templateName);

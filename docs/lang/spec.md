@@ -1097,6 +1097,20 @@ float area(Shape s) {
 Shape a = Circle(2.0);          // construct; payload-free variants are bare (`Unit`)
 ```
 
+Algebraic enums may be **generic** and are monomorphized per instantiation, like
+template structs. Construct a generic variant with explicit type arguments:
+
+```eskiu
+enum Option<T>    { None, Some(T) }
+enum Either<A, B> { Left(A), Right(B) }
+
+Option<int> x = Some<int>(42);
+Option<int> y = None<int>();
+Either<int, string> e = Left<int, string>(7);
+
+match x { Some(v) -> printf("%d\n", v);  None -> printf("none\n"); }
+```
+
 A `match` must be **exhaustive**: every variant must have an arm, or there must be
 a `_` default — otherwise it is a compile error naming the missing variants. A
 variant may not appear in two arms. The arm body is any statement (often a block
