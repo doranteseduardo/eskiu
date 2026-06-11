@@ -1,0 +1,39 @@
+// Function parameters are mutable lvalues: reassigning a parameter (scalar or
+// pointer) works like a local. Also covers calling a method through a
+// pointer-to-struct parameter (the receiver is the pointer it holds, not the
+// address of its slot) — both fixed when every parameter gained a stack slot.
+extern int printf(string fmt, ...);
+
+struct Counter { int n;  int get() { return self.n; } }
+
+// Reassign a scalar parameter (classic accumulator-by-reassignment).
+int countdown(int x) {
+    int steps = 0;
+    while (x > 0) { x = x - 1; steps = steps + 1; }   // x is reassigned
+    return steps;
+}
+
+// Reassign a pointer parameter to walk an array, and call a method via a
+// pointer parameter.
+int sum_via_ptr(*int p, int n) {
+    int total = 0;
+    while (n > 0) { total = total + *p; p = p + 1; n = n - 1; }  // p reassigned
+    return total;
+}
+
+int call_through(Counter* c) { return c.get(); }     // method on a pointer param
+
+int main() {
+    printf("%d\n", countdown(5));                     // 5
+
+    *int a = (*int)alloc_ints(3);
+    a[0] = 10; a[1] = 20; a[2] = 30;
+    printf("%d\n", sum_via_ptr(a, 3));                // 60
+
+    let ctr: Counter = Counter { n: 42 };
+    printf("%d\n", call_through(&ctr));               // 42
+    return 0;
+}
+
+extern *void malloc(int64 n);
+*int alloc_ints(int count) { return (*int)malloc((int64)(count * 4)); }

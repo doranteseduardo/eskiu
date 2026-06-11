@@ -69,6 +69,7 @@ Backend-services phase. v0.1.0 is frozen at its tag; this is the in-progress nex
 - **`__FILE__`/`__LINE__` reference** — spec §18 now documents all predefined macros (`__LINE__`, `__FILE__`, OS macros, `__ESKIU_FREESTANDING__`) and the shebang interaction.
 
 ### Compiler correctness (consistency audit)
+- **Mutable parameters.** Every function parameter now gets a stack slot, so a parameter can be reassigned in the body like a local (`int f(int n) { n = n + 1; … }`) — previously this miscompiled (a store into a non-pointer SSA value, caught by the IR verifier). Consequently the receiver resolution for method calls and interface dispatch was made representation-independent: a value-struct receiver passes its address, a pointer receiver passes the pointer it holds, and an interface value (a pointer to its `{data, vtable}` fat struct) is loaded from its slot — fixing a latent bug in calling a struct method through a pointer parameter. Tests: `param_reassign`, `interfaces`.
 - Unsigned integer types use unsigned div/rem/shift/compare; 64-bit integer literals no longer truncate; mixed-width ops sign/zero-extend by signedness; variadic call args get the C default-argument promotions.
 - Member access on a struct-valued temporary; `(Type)`/`(Type*)`/alias/enum casts; type alias as a local pointer/array; `List<StructType>` through helper functions; `T*` (trailing-star) pointer deref; nested template close `>>`; closures no longer capture module globals by value.
 
