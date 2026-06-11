@@ -99,7 +99,7 @@
       "patterns": [
         {
           "name": "keyword.control.eskiu",
-          "match": "\\b(if|else|for|while|switch|case|default|break|continue|return|in)\\b"
+          "match": "\\b(if|else|for|while|switch|case|default|break|continue|return|in|await)\\b"
         },
         {
           "name": "keyword.control.exception.eskiu",
@@ -111,7 +111,7 @@
         },
         {
           "name": "storage.modifier.eskiu",
-          "match": "\\b(const|volatile|escaping)\\b"
+          "match": "\\b(const|volatile|escaping|async)\\b"
         },
         {
           "name": "keyword.other.eskiu",
