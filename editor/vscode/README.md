@@ -41,7 +41,7 @@ Restart VS Code after installing.
 | Function names at declaration and call sites | entity.name.function |
 | Type names (uppercase-starting) | entity.name.type |
 | Template parameters `<T, E>` | entity.name.type.parameter |
-| `+= == && \| ^ <<` operators | keyword.operator |
+| `+= == && \| ^ << ..` operators (incl. the `..` range) | keyword.operator |
 
 ## File association
 
