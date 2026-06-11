@@ -1,8 +1,13 @@
-# Eskiu 0.1.0
+# Eskiu 0.2.0
 
-Eskiu is a systems language built to replace the C + Go + C++ + Python stack that compute-intensive backend services typically require. C-style syntax, structural interfaces, monomorphic templates, and explicit memory — compiled to native via LLVM with no garbage collector and no runtime.
+This is the backend-services release. v0.1.0 laid the foundation — native
+compilation through LLVM, templates, interfaces, manual memory, bare-metal
+support. v0.2.0 adds what you need to write servers: async/await, a complete
+HTTP/2 stack with TLS, sum types with `match`, and a much larger standard
+library.
 
-This is the first release. It includes everything needed to write real backend services and bare-metal systems code, validated against a cryptographic pipeline running at 74 ms on arm64 — 2.5× faster than the reference C implementation — and a bare-metal ARM64 kernel booting in QEMU without libc.
+The base is unchanged. It compiles to native code, you manage memory yourself,
+and the output is a standalone binary.
 
 ---
 
@@ -29,89 +34,108 @@ git clone https://github.com/doranteseduardo/eskiu
 cd eskiu && cmake -S . -B build && cmake --build build
 ```
 
-Compile and run in one step — `eskiuc` links the executable for you (it invokes
-your system C toolchain, the same way `rustc` does):
+Compile and run a file in one step:
 
 ```bash
-eskiuc hello.esk -o hello && ./hello
+eskiuc run hello.esk
 ```
 
 ---
 
-## What you get
+## What's new
 
-**A complete systems language.** C-style syntax, no surprises. If you know C, you can read Eskiu immediately.
+**async/await.** `async T f(...)` returns a `*Future<T>`, and `await e` suspends
+until it resolves. The compiler lowers each async function to a resumable state
+machine. Every control-flow construct works around an `await` — `if`, `while`,
+`for`, `switch`, `for`-`in`, `break`, `continue`, and `return await`. Pair it
+with the built-in executor and channels, or write your own scheduler.
+Cancellation works, and the runtime is leak-free.
 
 ```eskiu
-extern int printf(string fmt, ...);
+import <future>;
+import <channel>;
 
-interface Shape { float area(); }
-
-struct Circle {
-    float radius;
-    float area() { return self.radius * self.radius * 3.14159; }
-}
-
-void render(Shape s) { printf("area = %f\n", s.area()); }
-
-int main() {
-    let c: Circle = Circle { radius: 5.0 };
-    render(&c);                                    // structural dispatch, no implements
-
-    let square: fn(int)->int = int(int n) { return n * n; };
-    printf("%d\n", square(6));                     // 36, closure over captured state
-
-    *void t = thread_create(void() { printf("hello\n"); });
-    thread_join(t);
-
-    try {
-        throw "something went wrong";
-    } catch (string e) {
-        printf("caught: %s\n", e);
-    }
-
-    return 0;
+async int sum_squares(Chan<int>* ch) {
+    let a: int = await chan_recv(ch);
+    let b: int = await chan_recv(ch);
+    let c: int = await chan_recv(ch);
+    return a + b + c;
 }
 ```
 
-**Direct access to C libraries.** Declare with `extern`, call directly. OpenSSL, POSIX, CoreGraphics — no binding layer.
+**HTTP/2, end to end.** A full RFC 7540 / 7541 stack written in Eskiu: the frame
+codec, HPACK with Huffman, the per-stream state machine, flow control, and a
+multiplexed server. The async server runs many connections on one thread,
+handles interleaved streams, and honors send windows so large bodies flow
+correctly. TLS comes from OpenSSL, with ALPN negotiating `h2`. Verified against
+`curl --http2`, including 1 MB bodies and three concurrent connections. See
+`examples/http2_tls_server.esk`.
 
-**Explicit memory.** `alloc(T, N)` / `free(ptr)`. You control what goes on the heap. No GC, no pause times.
-
-**Ergonomic where it counts.** Template type arguments are inferred — `List_get(&nums, i)`, not `List_get<int>(&nums, i)`. `for (x in nums)` iterates arrays and lists. The `?` operator propagates `Result` errors: `let x = divide(a, b)?;` returns the `Err` or unwraps the value.
-
-**Networking.** The `<net>` module gives you TCP sockets — listen, accept, connect, send, recv — over the POSIX socket API, portable across macOS and Linux. A concurrent server is `<net>` plus `thread_create`. A complete HTTP server fits on a screen:
+**Sum types and `match`.** An `enum` variant can carry a payload, turning the
+enum into a tagged union. Construct variants by name and destructure them with
+`match`, which is checked for exhaustiveness and rejects duplicate arms.
 
 ```eskiu
-import <net>;
+enum ParseResult { Port(int), InvalidRange(int), NotANumber }
 
 int main() {
-    int fd = net_tcp_listen(8080);
-    *uint8 req = alloc(uint8, 4096);
-    while (1) {
-        int c = net_accept(fd);
-        net_recv(c, (*void)req, 4096);
-        net_send_str(c, "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nHello from Eskiu.\n");
-        net_close(c);
+    match parse_port("8080") {
+        Port(p)         -> printf("Listening on :%d\n", p);
+        InvalidRange(n) -> printf("%d out of range\n", n);
+        NotANumber      -> printf("not a number\n");
     }
     return 0;
 }
 ```
 
-**Standard library** — imported with `import <name>`:
+Algebraic enums can be generic too — `Option<T>`, `Either<A,B>` — with type
+arguments inferred from the payload (`Some(5)` gives `Option<int>`).
+
+**More language.** `const` bindings and pointer constness (`const T*`,
+`T* const`); integer ranges in `for`-`in` (`for (i in 0..n)`); user-defined
+variadic functions with `va_list`; raw C function pointers via `(*void)fn` for
+C callbacks; escaping closures with `free_closure`; future combinators
+(`spawn`, `select2`, `join2`); and `__LINE__` / `__FILE__` / `#error` in the
+preprocessor.
+
+---
+
+## Standard library additions
+
+Imported with `import <name>`:
 
 | Module | Contents |
 |--------|----------|
-| `<result>` | `Result<T,E>`, `Ok`, `Err` — error-as-value |
-| `<list>` | `List<T>` with auto-resize |
-| `<string>` | rich mutable `String` — append/concat, char access, equality, search, substring, reverse, int conversion |
-| `<fs>` | File I/O — open, read, write, seek, read_all, write_all |
-| `<net>` | TCP sockets — `net_tcp_listen`/`accept`/`connect`/`send`/`recv`/`close` |
-| `<math>` | sqrt, pow, fabs, floor, ceil |
-| `<io>` | printf, scanf, puts |
-| `<mem>` | memcpy, memset, strlen |
+| `<http2>` | HTTP/2 framing, lifecycle, streams, flow control (RFC 7540) |
+| `<hpack>` | HPACK header compression with Huffman (RFC 7541) |
+| `<http2_server>` | multiplexed, non-blocking h2c server |
+| `<tls>` | OpenSSL server with ALPN, blocking and async |
+| `<eventloop>` | readiness reactor over kqueue / epoll, with timers |
+| `<executor>` / `<net_async>` | async runtime — executor and non-blocking sockets |
+| `<channel>` | async channel; `chan_recv` is a future |
+| `<http_async>` | concurrent, non-blocking HTTP/1.1 server |
+| `<either>` / `<futureval>` | `Option<T>`, `Either<A,B>`, `Pair<A,B>` and helpers |
+| `<atomic>` | `atomic_load` / `store` / `swap` / `cas` over LLVM atomics |
+| `<alloc>` / `<sysheap>` | explicit allocators and an mmap-backed heap |
+| `<json>` | JSON builder and parser |
+| `<base64>` | RFC 4648 encode / decode |
+| `<time>` / `<env>` / `<path>` | clocks, environment, path manipulation |
+| `<threading>` | `Mutex`, `Cond`, `Sem` over pthread |
 
-**Bare-metal capable.** `--freestanding`, `--target TRIPLE`, inline asm with GCC-compatible constraints, `volatile` for MMIO, and `packed struct` (or `#pragma pack`) for exact on-the-wire / register-map layouts. The kernel in `kernel/` boots on QEMU without libc.
+---
+
+## Notable fixes
+
+- **Unsigned widening** — `(int)(uint8)255` now zero-extends to `255` instead of
+  sign-extending to `-1`, fixing byte-level decoding throughout.
+- **Mutable parameters** — every parameter gets a stack slot, so it can be
+  reassigned in the body like a local.
+- **`bool` widening** — widening a `bool` or comparison result into an `int`
+  yields `1`, not `-1`.
+- **Async `else`-`if` with `await`** — a terminating branch no longer produces
+  invalid IR.
+
+The full, granular log is in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
