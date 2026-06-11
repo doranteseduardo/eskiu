@@ -851,10 +851,29 @@ StmtPtr Parser::parseForStatement() {
     if (check(TokenType::IDENT) && peek_ahead(1).type == TokenType::IN) {
         Token nameTok = advance();                // x
         consume(TokenType::IN, "Expected 'in'");
-        ExprPtr iterable = parseExpression();
+        ExprPtr first = parseExpression();
+        // for (i in A..B) — half-open numeric range [A, B). Desugar at parse time
+        // into a counted `for (int i = A; i < B; i = i + 1)`, so it reuses all the
+        // for-loop machinery (codegen, the async transform, break/continue).
+        if (match(TokenType::RANGE)) {
+            ExprPtr end = parseExpression();
+            consume(TokenType::RPAREN, "Expected ')'");
+            StmtPtr body = parseStatement();
+            auto iv = [&]() { return withPos(std::make_shared<IdentExpr>(nameTok.value), nameTok); };
+            auto idecl = std::make_shared<VarDecl>(nameTok.value, "int", first);
+            idecl->line = nameTok.line; idecl->col = nameTok.column;
+            StmtPtr init = std::make_shared<BlockStmt>(std::vector<BlockItem>{ DeclPtr(idecl) });
+            ExprPtr cond = std::make_shared<BinaryExpr>(iv(), "<", end);
+            ExprPtr one  = std::make_shared<LiteralExpr>(LiteralExpr::Kind::INT, "1");
+            ExprPtr step = std::make_shared<BinaryExpr>(iv(), "=",
+                               std::make_shared<BinaryExpr>(iv(), "+", one));
+            auto fs = std::make_shared<ForStmt>(init, cond, step, body);
+            fs->line = nameTok.line; fs->col = nameTok.column;
+            return fs;
+        }
         consume(TokenType::RPAREN, "Expected ')'");
         StmtPtr body = parseStatement();
-        auto fin = std::make_shared<ForInStmt>(nameTok.value, iterable, body);
+        auto fin = std::make_shared<ForInStmt>(nameTok.value, first, body);
         fin->line = nameTok.line; fin->col = nameTok.column;
         return fin;
     }

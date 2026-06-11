@@ -116,6 +116,7 @@ enum class TokenType {
     SEMICOLON,
     COMMA,
     DOT,
+    RANGE,         // `..` — half-open range (e.g. `for (i in 0..10)`)
     COLON,
     ARROW,
     ELLIPSIS,

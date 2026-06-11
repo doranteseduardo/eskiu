@@ -833,7 +833,19 @@ The `for (x in iterable)` form binds `x` to each element of `iterable` in turn.
 The loop variable is a fresh copy each iteration; assigning to it does not modify
 the underlying collection. `break` and `continue` work as in any loop.
 
-Two kinds of iterable are supported:
+Three kinds of iterable are supported:
+
+- **Half-open integer ranges** `A..B` — iterate `A, A+1, …, B-1` (the upper bound
+  is exclusive). `A` and `B` are any integer expressions:
+
+  ```eskiu
+  for (i in 0..10) {        // 0,1,…,9
+      printf("%d\n", i);
+  }
+  ```
+
+  A range desugars to `for (int i = A; i < B; i = i + 1)`, so an empty range
+  (`A >= B`) runs zero times.
 
 - **Fixed-size arrays** (`T[N]`), including array fields:
 

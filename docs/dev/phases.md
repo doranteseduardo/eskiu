@@ -142,7 +142,7 @@ Phase 3 rounds out ergonomics and tooling.
 - [x] `<path>` — path manipulation (join, basename, dirname, extension, is_absolute)
 
 **Phase 3 — Ergonomics and tooling**
-- [ ] `for (i in 0..10)` — native ranges (builds on the existing `for`-`in`)
+- [x] `for (i in 0..10)` — native half-open ranges `[A, B)`. Desugared at parse time to a counted `for`, so it reuses all the loop machinery (codegen, async transform, break/continue). Lexer gained a `..` (`RANGE`) token. Test: `range_for`
 - [ ] User-defined variadic functions
 - [ ] Pointer constness — distinguish a const pointer from a pointer-to-const (`const int*` vs `int* const`); `const` currently only qualifies the binding
 - [ ] `__FILE__` and `__LINE__` in the preprocessor
