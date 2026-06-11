@@ -1,4 +1,5 @@
 #include "codegen.h"
+#include "../ast/type_qual.h"
 #include "llvm/IR/InlineAsm.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/IR/Type.h"
@@ -96,6 +97,9 @@ bool CodeGen::resolveArrayDim(const std::string& dim, uint64_t& out) const {
 }
 
 llvm::Type* CodeGen::getTypeFromString(const std::string& typeStr) {
+    // const has no ABI/layout meaning — strip it before lowering.
+    { std::string s = tyq::strip(typeStr); if (s != typeStr) return getTypeFromString(s); }
+
     // Apply type parameter override during template function instantiation
     if (!typeParamOverride.empty()) {
         std::string resolved = substType(typeStr, typeParamOverride);
@@ -329,7 +333,9 @@ llvm::Constant* CodeGen::evaluateConstantExpr(const ExprPtr& expr) {
     }
 }
 
-std::string CodeGen::expandAlias(const std::string& t) const {
+std::string CodeGen::expandAlias(const std::string& raw) const {
+    // const is checked only by the type checker; codegen works on stripped types.
+    std::string t = tyq::strip(raw);
     if (t.empty()) return t;
     if (t.front() == '*') return "*" + expandAlias(t.substr(1));
     if (t.back()  == '*') return expandAlias(t.substr(0, t.size() - 1)) + "*";
@@ -407,7 +413,7 @@ std::string CodeGen::getExprEskiuType(const ExprPtr& expr) const {
         auto it = structFields.find(base);
         if (it != structFields.end()) {
             for (const auto& f : it->second) {
-                if (f.name == member->member) return f.type;
+                if (f.name == member->member) return tyq::strip(f.type);
             }
         }
     }

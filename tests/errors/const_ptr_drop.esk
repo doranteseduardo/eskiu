@@ -1,0 +1,8 @@
+// Converting a pointer-to-const to a plain pointer drops const — rejected.
+// EXPECT-ERROR: discards a const qualifier
+int main() {
+    int a = 5;
+    const int* r = &a;
+    int* q = r;
+    return *q;
+}

@@ -1,4 +1,4 @@
-// EXPECT-ERROR: cannot assign to constant
+// EXPECT-ERROR: cannot assign to read-only location
 struct P { int x; }
 int main() {
     const let p: P = P { x: 1 };

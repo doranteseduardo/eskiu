@@ -1,5 +1,6 @@
 #include "parser.h"
 #include "../lexer/lexer.h"
+#include "../ast/type_qual.h"
 #include <stdexcept>
 #include <iostream>
 #include <fstream>
@@ -109,6 +110,12 @@ void Parser::consumeTemplateClose(const char* ctx) {
 std::string Parser::parseType() {
     std::string type;
 
+    // Optional leading `const` qualifies the base/pointee: `const int*` is a
+    // pointer to const int. Re-attached as a `const ` prefix after the type is
+    // assembled. (A `const` before a `let`/decl binding is handled by the
+    // declaration parser, not here.)
+    bool baseIsConst = match(TokenType::CONST);
+
     // Handle leading pointers (Rust-style: *i32)
     int leading_pointers = 0;
     while (match(TokenType::STAR)) {
@@ -136,6 +143,7 @@ std::string Parser::parseType() {
         type += parseType();
         // No trailing pointer handling needed for fn types — return early
         for (int lp = 0; lp < leading_pointers; ++lp) type = "*" + type;
+        if (baseIsConst) type = "const " + type;
         return type;
     }
     if (match({TokenType::INT, TokenType::FLOAT, TokenType::DOUBLE,
@@ -162,15 +170,20 @@ std::string Parser::parseType() {
         throw std::runtime_error("Expected type, got " + tokenTypeToString(peek().type));
     }
 
-    // Handle trailing pointers (C-style: i32*)
+    // Handle trailing pointers (C-style: i32*). A `const` right after a star
+    // makes that pointer level const (`int* const`), encoded as `*const`.
     while (match(TokenType::STAR)) {
         type += "*";
+        if (match(TokenType::CONST)) type += "const";
     }
 
     // Add leading pointers at the beginning
     for (int i = 0; i < leading_pointers; i++) {
         type = "*" + type;
     }
+
+    // Re-attach the base/pointee const as a leading qualifier.
+    if (baseIsConst) type = "const " + type;
 
     // Handle array syntax [N] — capture the size literal
     while (match(TokenType::LBRACKET)) {
@@ -457,7 +470,28 @@ DeclPtr Parser::parseDeclaration() {
         // Optional leading qualifiers, in either order: `volatile let`,
         // `let volatile`, `volatile T x`, `const let`, etc.
         bool leadingVol = match(TokenType::VOLATILE);
-        bool isConst = match(TokenType::CONST);
+
+        // A `const` immediately before a `let` binding is a *binding* qualifier
+        // (const binding). A `const` before a *type* (`const int x`,
+        // `const int* foo()`) is part of the type and is left for parseType, so
+        // const works uniformly for variables, params, fields and return types.
+        bool constLet = false;
+        if (check(TokenType::CONST)) {
+            size_t k = 1;
+            if (peek_ahead(k).type == TokenType::VOLATILE) k++;
+            if (peek_ahead(k).type == TokenType::LET) { advance(); constLet = true; }
+        }
+
+        // Split a parsed type into its stored form (pointee-const preserved,
+        // binding-only qualifiers removed) and a binding-const flag.
+        auto finalizeVar = [](std::string t, bool bindFlag,
+                              std::string& storedOut, bool& constOut) {
+            constOut = bindFlag || tyq::bindingConst(t);
+            size_t p;
+            while ((p = t.find("*const")) != std::string::npos) t.erase(p + 1, 5);
+            if (tyq::valueConst(t)) t = t.substr(6);   // "const int" -> "int" (flag carries it)
+            storedOut = t;
+        };
 
         // Handle 'let' variable declarations. The qualifier comes first
         // (`volatile let x`, like `const int`), captured by leadingVol above.
@@ -467,13 +501,15 @@ DeclPtr Parser::parseDeclaration() {
             std::string name = consume(TokenType::IDENT, "Expected identifier after 'let'").value;
             consume(TokenType::COLON, "Expected ':' after variable name");
             std::string type = parseType();
+            std::string stored; bool isConst;
+            finalizeVar(type, constLet, stored, isConst);
 
             ExprPtr init = nullptr;
             if (match(TokenType::EQ)) {
                 init = parseExpression();
             }
             consume(TokenType::SEMICOLON, "Expected ';' after variable declaration");
-            auto vd = std::make_shared<VarDecl>(name, type, init);
+            auto vd = std::make_shared<VarDecl>(name, stored, init);
             vd->line = letNameTok.line; vd->col = letNameTok.column;
             vd->isVolatile = isVol;
             vd->isConst = isConst;
@@ -485,7 +521,8 @@ DeclPtr Parser::parseDeclaration() {
         bool declIsVolatile = leadingVol;
         if (check(TokenType::VOLATILE)) { declIsVolatile = true; advance(); }
 
-        if (check(TokenType::INT) || check(TokenType::FLOAT) || check(TokenType::DOUBLE) ||
+        if (check(TokenType::CONST) ||
+            check(TokenType::INT) || check(TokenType::FLOAT) || check(TokenType::DOUBLE) ||
             check(TokenType::BOOL) || check(TokenType::CHAR) || check(TokenType::STRING) ||
             check(TokenType::VOID) || check(TokenType::STAR) || check(TokenType::IDENT) ||
             check(TokenType::FN) ||
@@ -505,13 +542,15 @@ DeclPtr Parser::parseDeclaration() {
                     current = savePos;
                     return parseFunctionDecl();
                 } else if (match(TokenType::SEMICOLON) || match(TokenType::EQ)) {
-                    // Variable declaration
+                    // Variable declaration — split const into stored type + flag.
+                    std::string stored; bool isConst;
+                    finalizeVar(type, false, stored, isConst);
                     ExprPtr init = nullptr;
                     if (tokens[current - 1].type == TokenType::EQ) {
                         init = parseExpression();
                         consume(TokenType::SEMICOLON, "Expected ';'");
                     }
-                    auto vd = std::make_shared<VarDecl>(name, type, init);
+                    auto vd = std::make_shared<VarDecl>(name, stored, init);
                     vd->line = nameTok2.line; vd->col = nameTok2.column;
                     vd->isVolatile = declIsVolatile;
                     vd->isConst = isConst;
