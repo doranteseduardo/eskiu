@@ -21,13 +21,14 @@ import <time>;
 // A read-ready callback receives the loop (so it can register/remove fds or
 // stop) and the fd that became readable.
 struct EvHandler {
-    fn(EventLoop*, int)->void on_read;
+    fn(EventLoop*, int)->void on_read;   // the callback (read- or write-readiness)
     int active;
     // Bumped on every (re-)registration. el_run uses it to tell whether the
     // callback it just invoked is still the installed one: a one-shot read loop
     // on a single fd re-arms that fd *from inside the callback* (via resume), so
     // `active` is back to 1 by the time el_run checks — `gen` is not.
     int gen;
+    int isWrite;   // 0 = waiting for readable, 1 = waiting for writable
 }
 
 // A one-shot timer: fire `on_fire` once the monotonic clock reaches `deadline`.
@@ -65,15 +66,24 @@ struct EvNative {
 
 int _el_backend_new() { return kqueue(); }
 
-void _el_ctl(int kq, int fd, int add) {
+// One kevent change: filter (-1 = EVFILT_READ, -2 = EVFILT_WRITE), flag
+// (1 = EV_ADD, 2 = EV_DELETE).
+void _el_kev(int kq, int fd, int filter, int flag) {
     let ev: EvNative;
     ev.ident  = (uint64)fd;
-    ev.filter = -1;                       // EVFILT_READ
-    uint16 fl = 2;                        // EV_DELETE
-    if (add != 0) { fl = 1; }             // EV_ADD
-    ev.flags  = fl;
+    ev.filter = (int16)filter;
+    ev.flags  = (uint16)flag;
     ev.fflags = 0;  ev.data = 0;  ev.udata = (*void)0;
     kevent(kq, (*void)&ev, 1, (*void)0, 0, (*void)0);
+}
+
+// Set fd's interest: mode 0 = none, 1 = readable, 2 = writable. kqueue filters
+// are independent, so we add the wanted one and delete the other (ENOENT on a
+// not-registered filter is harmless). `wasActive` is unused here (epoll needs it).
+void _el_ctl(int kq, int fd, int mode, int wasActive) {
+    if (mode == 0) { _el_kev(kq, fd, -1, 2); _el_kev(kq, fd, -2, 2); return; }
+    if (mode == 2) { _el_kev(kq, fd, -2, 1); _el_kev(kq, fd, -1, 2); }   // want write
+    else           { _el_kev(kq, fd, -1, 1); _el_kev(kq, fd, -2, 2); }   // want read
 }
 
 // struct timespec (64-bit macOS): { time_t tv_sec; long tv_nsec; } = 16 bytes.
@@ -109,12 +119,15 @@ packed struct EvNative {
 
 int _el_backend_new() { return epoll_create1(0); }
 
-void _el_ctl(int ep, int fd, int add) {
+// Set fd's interest: mode 0 = none (DEL), 1 = readable (EPOLLIN), 2 = writable
+// (EPOLLOUT). epoll keeps one entry per fd, so switching read<->write is a MOD
+// (the fd was already registered) and the first registration is an ADD.
+void _el_ctl(int ep, int fd, int mode, int wasActive) {
+    if (mode == 0) { epoll_ctl(ep, 2, fd, (*void)0); return; }   // EPOLL_CTL_DEL
     let ev: EvNative;
-    ev.events = 1;            // EPOLLIN
+    ev.events = 1;  if (mode == 2) { ev.events = 4; }            // EPOLLIN=1, EPOLLOUT=4
     ev.data   = (uint64)fd;
-    int op = 2;               // EPOLL_CTL_DEL
-    if (add != 0) { op = 1; } // EPOLL_CTL_ADD
+    int op = 1;  if (wasActive != 0) { op = 3; }                 // ADD=1, MOD=3 (EPOLL_CTL_MOD)
     epoll_ctl(ep, op, fd, (*void)&ev);
 }
 
@@ -137,7 +150,7 @@ EventLoop* el_new(int max_fds) {
     lp.cap     = max_fds;
     lp.slots   = alloc<EvHandler>(max_fds);
     int i = 0;
-    while (i < max_fds) { lp.slots[i].active = 0; lp.slots[i].gen = 0; i = i + 1; }
+    while (i < max_fds) { lp.slots[i].active = 0; lp.slots[i].gen = 0; lp.slots[i].isWrite = 0; i = i + 1; }
     lp.tcap    = max_fds;
     lp.timers  = alloc<EvTimer>(max_fds);
     int t = 0;
@@ -174,10 +187,25 @@ void el_del_timer(EventLoop* lp, int id) {
 // Register `fd` for read-readiness; `cb` fires each time it is readable.
 void el_add_read(EventLoop* lp, int fd, escaping fn(EventLoop*, int)->void cb) {
     if (fd < 0 || fd >= lp.cap) { return; }
+    int was = lp.slots[fd].active;
     lp.slots[fd].on_read = cb;
     lp.slots[fd].active  = 1;
+    lp.slots[fd].isWrite = 0;
     lp.slots[fd].gen     = lp.slots[fd].gen + 1;   // new registration identity
-    _el_ctl(lp.backend, fd, 1);
+    _el_ctl(lp.backend, fd, 1, was);
+}
+
+// Register `fd` for write-readiness; `cb` fires once it is writable. Used by the
+// async write path and the non-blocking TLS pump. A fd waits for read OR write
+// at a time; this replaces any prior read interest on the fd.
+void el_add_write(EventLoop* lp, int fd, escaping fn(EventLoop*, int)->void cb) {
+    if (fd < 0 || fd >= lp.cap) { return; }
+    int was = lp.slots[fd].active;
+    lp.slots[fd].on_read = cb;
+    lp.slots[fd].active  = 1;
+    lp.slots[fd].isWrite = 1;
+    lp.slots[fd].gen     = lp.slots[fd].gen + 1;
+    _el_ctl(lp.backend, fd, 2, was);
 }
 
 // Stop watching `fd`. (Does not free the callback env — on the normal path the
@@ -185,7 +213,7 @@ void el_add_read(EventLoop* lp, int fd, escaping fn(EventLoop*, int)->void cb) {
 void el_del(EventLoop* lp, int fd) {
     if (fd < 0 || fd >= lp.cap) { return; }
     lp.slots[fd].active = 0;
-    _el_ctl(lp.backend, fd, 0);
+    _el_ctl(lp.backend, fd, 0, 1);
 }
 
 // Deregister `fd` and free its callback's heap env. For deregistering from

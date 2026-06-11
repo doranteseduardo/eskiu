@@ -449,6 +449,7 @@ int h2_is_preface(*uint8 buf) {
 // client's SETTINGS and apply it to `c.remote`, then send our SETTINGS followed
 // by an ACK of theirs. Returns 0 on success, negative on a protocol error.
 async int h2_server_handshake_async(EventLoop* lp, H2Conn* c) {
+    net_set_nonblocking(c.fd);                         // never block the loop thread
     *uint8 pf = alloc<uint8>(24);
     int pn = await h2_read_full_async(lp, c.fd, pf, 24);
     int good = 0; if (pn == 24) { good = h2_is_preface(pf); }
@@ -463,10 +464,11 @@ async int h2_server_handshake_async(EventLoop* lp, H2Conn* c) {
 
     c.local.enable_push = 0;                           // a server MUST NOT set ENABLE_PUSH=1 (§6.5.2)
     int sn = h2_write_settings(fb, &c.local);          // advertise ours
-    net_send(c.fd, (*void)fb, (int64)sn);
+    int sw = await net_write_async(lp, c.fd, fb, (int64)sn);
     int an = h2_write_settings_ack(fb);                // ACK theirs
-    net_send(c.fd, (*void)fb, (int64)an);
+    int aw = await net_write_async(lp, c.fd, fb, (int64)an);
     free((*void)fb);
+    if (sw < 0 || aw < 0) { return -3; }
     return 0;
 }
 
