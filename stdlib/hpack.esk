@@ -7,10 +7,10 @@
 // Huffman-coded), and the field representations of §6 (indexed; literal with /
 // without / never indexing; dynamic-table size update).
 //
-// Status: STAGE 3a — primitives, both tables, and the §6 decoder/encoder over
-// *raw* (non-Huffman) string literals. Huffman decode/encode (§5.2, Appendix B)
-// is stage 3b; until then a Huffman-coded string (H bit set) decodes to an error
-// and the encoder always emits raw (H=0). See docs/dev/http2-design.md.
+// The decoder maintains the dynamic table and handles every §6 representation;
+// the encoder is stateless (it emits an indexed field for a static-table match,
+// otherwise a literal, choosing the shorter of raw and Huffman). The Huffman
+// code table (Appendix B) lives in hpack_huffman.esk, generated from the RFC.
 
 import <mem>;
 import <hpack_huffman>;    // hpack_huff_code(i) / hpack_huff_len(i) — RFC Appendix B
@@ -55,7 +55,7 @@ int64 hpack_decode_int(*uint8 buf, int off, int n, int* next) {
     return v;
 }
 
-// ── §5.2 String literal (raw; Huffman is stage 3b) ───────────────────────────
+// ── §5.2 String literal (raw; Huffman variants below) ───────────────────────
 
 // Encode `slen` bytes at `s` as a raw (H=0) string literal; returns new off.
 int hpack_encode_str(*uint8 buf, int off, *uint8 s, int slen) {
@@ -358,7 +358,7 @@ int hpack_resolve(HpackDecoder* d, int idx, HpackHeader* h) {
 
 // Decode one literal representation (the prefix byte at buf[off] selects the
 // name-index prefix width and whether to index). Fills `h`; returns the next
-// offset, or -1 on error (incl. a Huffman string, until 3b).
+// offset, or -1 on error.
 int hpack_decode_literal(HpackDecoder* d, *uint8 buf, int off, int prefixBits,
                          HpackHeader* h, int doIndex) {
     int nx = 0;
@@ -383,7 +383,7 @@ int hpack_decode_literal(HpackDecoder* d, *uint8 buf, int off, int prefixBits,
 }
 
 // Decode a complete header block (`len` bytes at `buf`) into out[0..max).
-// Returns the header count, or -1 on a malformed block / Huffman (until 3b).
+// Returns the header count, or -1 on a malformed block.
 int hpack_decode(HpackDecoder* d, *uint8 buf, int len, HpackHeader* out, int max) {
     d.scratch_used = 0;                  // reset the per-block arena for Huffman strings
     int off = 0;  int count = 0;

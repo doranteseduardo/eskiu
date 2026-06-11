@@ -1,16 +1,14 @@
 // http2_server.esk — HTTP/2 (h2c, cleartext) server over the async event loop.
 //
-// Stage 6 of the <http2> build: it drives a connection through the opening
-// handshake, then a frame-dispatch loop — SETTINGS/PING/GOAWAY housekeeping plus
-// request handling. A request (a HEADERS block, optionally followed by DATA) is
-// HPACK-decoded into <http>'s HttpRequest, passed to the user handler, and the
-// HttpResponse is encoded back as a HEADERS frame (:status + headers) and a DATA
-// frame (the body, with END_STREAM). The handler interface matches the
-// HTTP/1.1 <http_async> server, so the same handlers serve both.
-//
-// Scope (v1): one request handled at a time per connection (sequential streams —
-// correct for request/response, not yet concurrent multiplexing); TLS/ALPN (h2)
-// is stage 5. Small responses are assumed to fit the initial flow-control window.
+// Drives a connection through the opening handshake, then a frame-dispatch loop:
+// SETTINGS/PING/WINDOW_UPDATE/GOAWAY housekeeping plus request handling. Streams
+// are multiplexed — interleaved request frames are routed to per-stream slots and
+// each completes when its END_STREAM arrives. A completed request (a HEADERS
+// block, optionally followed by DATA) is HPACK-decoded into <http>'s HttpRequest,
+// passed to the user handler, and the HttpResponse is encoded back as a HEADERS
+// frame plus the body in flow-controlled, MAX_FRAME_SIZE-bounded DATA frames. The
+// handler interface matches the HTTP/1.1 <http_async> server, so the same
+// handlers serve both. For h2 over TLS, see <tls>.
 //
 //   void hello(HttpRequest* req, HttpResponse* res) {
 //       HttpResponse_set_body(res, "hi\n");
@@ -270,7 +268,8 @@ async void http2_serve_conn_async(EventLoop* lp, int fd,
     int hs = await h2_server_handshake_async(lp, &conn);
     if (hs == 0) {
         let dec: HpackDecoder;  hpack_decoder_init(&dec, (int64)4096);
-        *uint8 fb = alloc<uint8>(16384);
+        int FBCAP = 16384 + H2_FRAME_HEADER_LEN;        // hold a full MAX_FRAME_SIZE payload + header
+        *uint8 fb = alloc<uint8>(FBCAP);
         *HpackHeader harr = alloc<HpackHeader>(64);
         int MAXS = 128;
         *H2PendingStream streams = alloc<H2PendingStream>(MAXS);
@@ -278,7 +277,7 @@ async void http2_serve_conn_async(EventLoop* lp, int fd,
         int running = 1;
         while (running != 0) {
             let hdr: H2Frame;
-            int plen = await h2_read_frame_async(lp, fd, fb, 16384, &hdr);
+            int plen = await h2_read_frame_async(lp, fd, fb, FBCAP, &hdr);
             if (plen < 0) {
                 running = 0;
             } else if (hdr.type == H2_HEADERS) {
@@ -288,19 +287,24 @@ async void http2_serve_conn_async(EventLoop* lp, int fd,
                         streams[slot].active = 1;  streams[slot].id = hdr.stream_id;
                         HttpRequest_init(&streams[slot].req);
                     }
-                    int nh = hpack_decode(&dec, fb + 9, hdr.length, harr, 64);
+                    int boff = 0;  int blen = 0;
+                    h2_headers_fragment(&hdr, fb + 9, &boff, &blen);   // skip PADDED/PRIORITY
+                    int nh = hpack_decode(&dec, fb + 9 + boff, blen, harr, 64);
                     conn.last_stream_id = hdr.stream_id;
-                    if (nh > 0) { h2_fill_request(&streams[slot].req, harr, nh); }
+                    if (nh < 0) { running = 0; }            // COMPRESSION_ERROR — close
+                    else if (nh > 0) { h2_fill_request(&streams[slot].req, harr, nh); }
                     if ((hdr.flags & H2_FLAG_END_STREAM) != 0) {
                         int ow = await h2_complete_request_async(lp, &conn, hdr.stream_id,
-                                                                 &streams[slot].req, handler, fb, 16384);
+                                                                 &streams[slot].req, handler, fb, FBCAP);
                         HttpRequest_free(&streams[slot].req);  streams[slot].active = 0;
                         if (ow < 0) { running = 0; }
                     }
                 } else {
                     // HPACK is stateful, so a dropped HEADERS must still be decoded
                     // to keep the dynamic table in sync.
-                    int nh = hpack_decode(&dec, fb + 9, hdr.length, harr, 64);
+                    int boff = 0;  int blen = 0;
+                    h2_headers_fragment(&hdr, fb + 9, &boff, &blen);
+                    int nh = hpack_decode(&dec, fb + 9 + boff, blen, harr, 64);
                 }
             } else if (hdr.type == H2_DATA) {
                 int slot = h2_stream_slot(streams, MAXS, hdr.stream_id, 0);
@@ -309,7 +313,7 @@ async void http2_serve_conn_async(EventLoop* lp, int fd,
                     while (k < hdr.length) { String_push(&streams[slot].req.body, (char)fb[9 + k]); k = k + 1; }
                     if ((hdr.flags & H2_FLAG_END_STREAM) != 0) {
                         int ow = await h2_complete_request_async(lp, &conn, hdr.stream_id,
-                                                                 &streams[slot].req, handler, fb, 16384);
+                                                                 &streams[slot].req, handler, fb, FBCAP);
                         HttpRequest_free(&streams[slot].req);  streams[slot].active = 0;
                         if (ow < 0) { running = 0; }
                     }
