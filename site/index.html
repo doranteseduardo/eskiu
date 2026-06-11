@@ -3,183 +3,239 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Eskiu: One language from bare metal to backend</title>
-  <meta name="description" content="Eskiu is a systems language with C-style syntax that compiles straight to native code via LLVM, with no GC and no runtime. From a bare-metal kernel to an HTTP server, in one toolchain." />
+  <title>Eskiu — Systems language, async-native.</title>
+  <meta name="description" content="Eskiu is a compiled systems language with async/await, sum types, HTTP/2, and atomics. LLVM backend. No GC, no runtime. v0.2.0 releasing soon." />
   <link rel="canonical" href="https://eskiu-lang.org" />
   <link rel="icon" type="image/png" href="../assets/logo.png" />
   <link rel="apple-touch-icon" href="../assets/logo.png" />
-  <meta property="og:title" content="Eskiu: One language from bare metal to backend" />
-  <meta property="og:description" content="C-style syntax. Native via LLVM. No GC, no runtime. A kernel and an HTTP server in the same language." />
+  <meta property="og:title" content="Eskiu — Systems language, async-native." />
+  <meta property="og:description" content="Compiled via LLVM. Async/await, sum types, HTTP/2. No GC, no runtime." />
   <meta property="og:url" content="https://eskiu-lang.org" />
   <meta property="og:image" content="https://eskiu-lang.org/assets/logo.png" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" />
+
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
-      --bg:     #fffdf9;
-      --tint:   #fbf2ea;   /* warm sand */
-      --tint2:  #f3eafc;   /* soft lavender wash */
-      --tint3:  #e7f3ee;   /* soft mint */
-      --tint4:  #fdeee8;   /* soft peach */
-      --ink:    #2b2926;
-      --ink2:   #615c56;
-      --muted:  #a39c93;
-      --lav:    #8b6bae;
-      --lav-dk: #7558a0;
-      --peach:  #ef9f86;
-      --mint:   #6fb79b;
-      --bd:     #ece3d6;
-      --term:   #251f33;   /* dark code surface */
-      --term-bd:#3a3450;
-      --sans: ui-rounded, "SF Pro Rounded", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-      --mono: "SFMono-Regular", "JetBrains Mono", Consolas, Menlo, monospace;
+      --bg:        #f9f7f3;
+      --white:     #ffffff;
+      --surface:   #f2efe8;
+      --border:    #ddd8ce;
+      --ink:       #1b1915;
+      --ink2:      #6b6560;
+      --muted:     #ada59b;
+      --purple:    #4c31bb;
+      --purple-lt: #6448d4;
+      --purple-dk: #3a27a0;
+      --purple-bg: #edeaff;
+      --code:      #1b1728;
+      --code-bd:   #2c2444;
+      --sans: 'Space Grotesk', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      --mono: 'JetBrains Mono', 'SFMono-Regular', Consolas, Menlo, monospace;
     }
+
     html { scroll-behavior: smooth; overflow-x: clip; }
-    body { background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 16px; line-height: 1.65; -webkit-font-smoothing: antialiased; }
-    a { color: var(--lav-dk); text-decoration: none; }
+    body  { background: var(--bg); color: var(--ink); font-family: var(--sans);
+            font-size: 16px; line-height: 1.65; -webkit-font-smoothing: antialiased; }
+    a { color: var(--purple); text-decoration: none; }
     a:hover { text-decoration: underline; }
-    code { font-family: var(--mono); font-size: 0.86em; background: var(--tint2); padding: 0.1em 0.4em; border-radius: 5px; color: var(--lav-dk); }
-    .wrap { max-width: 1060px; margin: 0 auto; padding: 0 1.6rem; }
-    .section { padding-top: 5rem; padding-bottom: 5rem; }
-    .eyebrow { color: var(--lav); font-weight: 800; letter-spacing: 0.09em; text-transform: uppercase; font-size: 0.74rem; }
-    h2 { font-size: clamp(1.85rem, 3.2vw, 2.55rem); font-weight: 900; letter-spacing: -0.03em; line-height: 1.12; margin: 0.45rem 0 0.7rem; }
-    .lead { color: var(--ink2); max-width: 580px; font-size: 1.05rem; line-height: 1.7; }
+    code { font-family: var(--mono); font-size: 0.84em; background: var(--surface);
+           padding: 0.12em 0.42em; border-radius: 4px; border: 1px solid var(--border); }
+    .wrap { max-width: 1100px; margin: 0 auto; padding: 0 1.25rem; }
+    hr { border: none; border-top: 1px solid var(--border); }
+    @media (min-width: 600px) { .wrap { padding: 0 2rem; } }
 
-    /* Buttons */
-    .btn { display: inline-flex; align-items: center; gap: 0.45rem; padding: 0.8rem 1.6rem; border-radius: 999px; font-weight: 700; font-size: 0.98rem; cursor: pointer; transition: transform 0.12s, box-shadow 0.15s; }
-    .btn:hover { transform: translateY(-2px); text-decoration: none; }
-    .btn-primary { background: var(--lav); color: #fff; box-shadow: 0 8px 22px rgba(139,107,174,0.34); }
-    .btn-primary:hover { box-shadow: 0 12px 26px rgba(139,107,174,0.42); }
-    .btn-ghost { background: #fff; color: var(--ink); border: 2px solid var(--bd); }
-    .btn-light { background: #fff; color: var(--lav-dk); }
+    /* Prevent grid children from blowing out their containers */
+    .hero-grid > *, .examples-wrap > * { min-width: 0; }
 
-    /* Nav */
-    nav { padding: 0.9rem 0; position: sticky; top: 0; background: rgba(255,253,249,0.82); backdrop-filter: blur(10px); z-index: 30; }
-    .nav-in { max-width: 1060px; margin: 0 auto; padding: 0 1.6rem; display: flex; align-items: center; gap: 1rem; }
-    .brand { display: flex; align-items: center; gap: 0.5rem; font-weight: 800; font-size: 1.25rem; letter-spacing: -0.02em; color: var(--ink); }
-    .brand img { width: 38px; height: 38px; }
+    /* ── Nav ──────────────────────────────────────────────────────── */
+    nav { background: rgba(249,247,243,0.97); backdrop-filter: blur(12px);
+          border-bottom: 1px solid var(--border); padding: 0;
+          position: sticky; top: 0; z-index: 40; }
+    .nav-in { max-width: 1100px; margin: 0 auto; padding: 0 1.25rem;
+              height: 56px; display: flex; align-items: center; gap: 0.5rem; }
+    @media (min-width: 600px) { .nav-in { padding: 0 2rem; } }
+    .brand { display: flex; align-items: center; gap: 0.5rem; font-weight: 700;
+             font-size: 1.1rem; letter-spacing: -0.01em; color: var(--ink); }
+    .brand img { width: 28px; height: 28px; border-radius: 5px; }
+    .brand-ver { font-size: 0.65rem; font-weight: 600; background: var(--surface);
+                 color: var(--ink2); padding: 0.1rem 0.42rem; border-radius: 4px;
+                 letter-spacing: 0.05em; }
     .nav-links { margin-left: auto; display: flex; align-items: center; gap: 1.6rem; }
-    .nav-links a { color: var(--ink2); font-weight: 600; font-size: 0.92rem; }
-    .nav-links a:hover { color: var(--lav-dk); text-decoration: none; }
-    .pill-btn { background: var(--lav); color: #fff !important; padding: 0.5rem 1.15rem; border-radius: 999px; font-weight: 700; }
-    .pill-btn:hover { background: var(--lav-dk); }
-    @media (max-width: 680px) { .nav-links a:not(.pill-btn) { display: none; } }
+    .nav-links a:not(.nav-gh) { display: none; }
+    @media (min-width: 680px) { .nav-links a:not(.nav-gh) { display: inline-flex; } }
+    .nav-links a { color: var(--ink2); font-weight: 500; font-size: 0.88rem; transition: color 0.12s; }
+    .nav-links a:hover { color: var(--ink); text-decoration: none; }
+    .nav-gh { display: inline-flex; align-items: center; gap: 0.4rem;
+              background: var(--white); border: 1px solid var(--border);
+              padding: 0.38rem 0.9rem; border-radius: 6px; color: var(--ink) !important;
+              font-weight: 600; font-size: 0.84rem; transition: border-color 0.12s; }
+    .nav-gh:hover { border-color: var(--purple); text-decoration: none; }
 
-    /* Hero */
-    .hero { padding: 3rem 0 1.5rem; overflow: hidden; }
-    .hero-grid { display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 2rem; align-items: center; }
-    @media (max-width: 820px) { .hero-grid { grid-template-columns: 1fr; text-align: center; } .hero-art { order: -1; } }
-    .hero h1 { font-size: clamp(2.7rem, 5.5vw, 4.3rem); font-weight: 900; line-height: 1.02; letter-spacing: -0.035em; }
-    .hero h1 .lav { color: var(--lav); }
-    .hero h1 .peach { color: var(--peach); }
-    .hero-sub { font-size: 1.15rem; color: var(--ink2); line-height: 1.65; max-width: 470px; margin: 1.25rem 0 1.9rem; }
-    @media (max-width: 820px) { .hero-sub { margin-left: auto; margin-right: auto; } }
-    .hero-actions { display: flex; gap: 0.8rem; flex-wrap: wrap; }
-    @media (max-width: 820px) { .hero-actions { justify-content: center; } }
-    .hero-art { position: relative; display: flex; justify-content: center; align-items: center; min-height: 340px; }
-    .blob { position: absolute; width: 370px; height: 370px; border-radius: 50%; background: radial-gradient(circle at 42% 36%, var(--tint2), var(--tint) 72%); filter: blur(4px); z-index: 0; }
-    .hero-cat { position: relative; z-index: 1; width: 268px; filter: drop-shadow(0 18px 32px rgba(139,107,174,0.28)); }
-    .float-card { position: absolute; z-index: 2; background: var(--term); border-radius: 12px; padding: 0.7rem 0.95rem; font-family: var(--mono); font-size: 0.72rem; color: #d7dcf0; box-shadow: 0 14px 30px rgba(44,42,40,0.24); }
-    .float-card .g { color: #c3e88d; }
-    .fc-1 { right: -8px; top: 26px; }
-    .fc-2 { left: -14px; bottom: 30px; font-weight: 700; color: #fff; }
-    .fc-2 b { color: var(--peach); }
-    @media (max-width: 820px) { .float-card { display: none; } }
-    @media (max-width: 460px) { .blob { width: 280px; height: 280px; } .hero-cat { width: 216px; } .hero-art { min-height: 280px; } }
+    /* ── Hero ─────────────────────────────────────────────────────── */
+    .hero { background: var(--bg); padding: 3rem 0 0; }
+    @media (min-width: 860px) { .hero { padding: 4.5rem 0 0; } }
 
-    /* Wave dividers */
-    .wave { display: block; width: 100%; height: 64px; }
-    .band-tint { background: var(--tint); }
-    .band-lav  { background: var(--lav); }
+    .hero-grid { display: grid; grid-template-columns: 1fr; gap: 2rem; align-items: start; }
+    @media (min-width: 860px) { .hero-grid { grid-template-columns: 1fr 1.05fr; gap: 3rem; } }
 
-    /* Stats */
-    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; }
-    @media (max-width: 600px) { .stats { grid-template-columns: repeat(2,1fr); } }
-    .stat { background: #fff; border: 1px solid var(--bd); border-radius: 16px; padding: 1.3rem; text-align: center; }
-    .stat b { display: block; font-size: 1.9rem; font-weight: 900; color: var(--lav-dk); letter-spacing: -0.03em; }
-    .stat span { font-size: 0.78rem; color: var(--ink2); }
+    .hero-ver { display: inline-block; font-size: 0.73rem; font-weight: 600;
+                letter-spacing: 0.06em; text-transform: uppercase;
+                color: var(--purple); margin-bottom: 1rem; }
+    h1 { font-size: clamp(2.4rem, 8vw, 4.4rem); font-weight: 700; color: var(--ink);
+         letter-spacing: -0.04em; line-height: 1.0; margin-bottom: 1.1rem; }
+    .hero-sub { font-size: 1rem; color: var(--ink2); line-height: 1.7;
+                max-width: 430px; margin-bottom: 1.8rem; }
+    @media (min-width: 860px) { .hero-sub { font-size: 1.05rem; } }
+    .hero-btns { display: flex; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 2.2rem; }
+    .btn-w { display: inline-flex; align-items: center; gap: 0.4rem;
+             background: var(--purple); color: #fff; font-weight: 700;
+             padding: 0.7rem 1.4rem; border-radius: 7px; font-size: 0.9rem;
+             transition: background 0.12s; }
+    .btn-w:hover { background: var(--purple-lt); text-decoration: none; }
+    .btn-o { display: inline-flex; align-items: center; gap: 0.4rem;
+             background: var(--white); color: var(--ink);
+             border: 1px solid var(--border); font-weight: 600;
+             padding: 0.7rem 1.4rem; border-radius: 7px; font-size: 0.9rem;
+             transition: border-color 0.12s; }
+    .btn-o:hover { border-color: var(--purple); text-decoration: none; }
 
-    /* Pillars / cards */
-    .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1.2rem; margin-top: 2.6rem; }
-    @media (max-width: 860px) { .cards { grid-template-columns: repeat(2,1fr); } }
-    @media (max-width: 480px) { .cards { grid-template-columns: 1fr; } }
-    .card { background: #fff; border: 1px solid var(--bd); border-radius: 18px; padding: 1.4rem; box-shadow: 0 6px 16px rgba(44,42,40,0.04); }
-    .ic { width: 44px; height: 44px; border-radius: 13px; display: grid; place-items: center; margin-bottom: 0.85rem; }
-    .ic svg { width: 22px; height: 22px; }
-    .card h3 { font-size: 1.02rem; font-weight: 800; margin-bottom: 0.35rem; }
-    .card p { font-size: 0.88rem; color: var(--ink2); line-height: 1.6; }
+    /* Hero terminal */
+    .hero-term { position: relative; padding-top: 8rem; order: -1; }
+    @media (min-width: 860px) { .hero-term { order: 0; margin-top: 0.5rem; } }
+    .hero-mascot { position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+                   width: 150px; height: 150px; display: block; z-index: 2; }
+    .terminal { background: var(--code); border: 1px solid var(--code-bd);
+                border-radius: 10px; overflow: hidden; width: 100%;
+                box-shadow: 0 32px 80px rgba(0,0,0,0.18); }
+    .tbar { background: #252035; border-bottom: 1px solid var(--code-bd);
+            padding: 0.55rem 1rem; display: flex; align-items: center; gap: 0.45rem; }
+    .tdot { width: 10px; height: 10px; border-radius: 50%; }
+    .tname { margin-left: auto; font-family: var(--mono); font-size: 0.66rem; color: #6b6480; }
+    .tbody { padding: 1rem 1.25rem; font-family: var(--mono); font-size: 0.68rem;
+             line-height: 1.9; color: #b4bccc; overflow-x: auto; white-space: pre;
+             display: block; max-width: 100%; }
+    @media (min-width: 600px) { .tbody { padding: 1.3rem 1.5rem; font-size: 0.78rem; } }
 
-    /* Tabs + code */
-    .tabs { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 1rem; }
-    .tab-btn { padding: 0.5rem 1rem; font-size: 0.82rem; font-weight: 700; color: var(--ink2); cursor: pointer; border: 1px solid var(--bd); background: #fff; border-radius: 999px; font-family: var(--mono); transition: all 0.15s; }
-    .tab-btn:hover { border-color: var(--lav-lt); color: var(--lav-dk); }
-    .tab-btn.active { background: var(--lav); color: #fff; border-color: var(--lav); }
+    /* Hero props strip */
+    .hero-props { margin-top: 2rem; border-top: 1px solid var(--border);
+                  padding: 1rem 0; display: flex; gap: 0; flex-wrap: wrap; }
+    @media (min-width: 860px) { .hero-props { margin-top: 2.8rem; } }
+    .hprop { font-size: 0.75rem; font-weight: 500; color: var(--muted);
+             padding: 0.3rem 1.2rem 0.3rem 0; letter-spacing: 0.01em; }
+    .hprop.new { color: var(--purple); font-weight: 600; }
+
+    /* ── Syntax colours ───────────────────────────────────────────── */
+    .kw { color: #c792ea; font-weight: 600; }
+    .ty { color: #82aaff; }
+    .fn { color: #82d9c5; }
+    .st { color: #c3e88d; }
+    .cm { color: #4a4460; font-style: italic; }
+    .nu { color: #f78c6c; }
+    .aw { color: #ffcb6b; font-weight: 600; }
+    .op { color: #89ddff; }
+
+    /* ── Sections ─────────────────────────────────────────────────── */
+    .section { padding: 3.5rem 0; }
+    @media (min-width: 600px) { .section { padding: 5rem 0; } }
+    .label { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.12em;
+             text-transform: uppercase; color: var(--muted); margin-bottom: 0.7rem; display: block; }
+    h2 { font-size: clamp(1.65rem, 4vw, 2.4rem); font-weight: 700;
+         letter-spacing: -0.03em; line-height: 1.1; margin-bottom: 0.75rem; }
+    h2 .dim { color: var(--muted); }
+    .lead { color: var(--ink2); max-width: 560px; font-size: 1rem; line-height: 1.72; }
+
+    /* ── Why Eskiu ────────────────────────────────────────────────── */
+    .glance { display: grid; grid-template-columns: 1fr; gap: 0;
+              border: 1px solid var(--border); border-radius: 10px;
+              overflow: hidden; margin-top: 2.5rem; }
+    @media (min-width: 700px) { .glance { grid-template-columns: repeat(3, 1fr); } }
+    .glance-item { padding: 1.6rem 1.5rem; background: var(--white);
+                   border-bottom: 1px solid var(--border); }
+    .glance-item:last-child { border-bottom: none; }
+    @media (min-width: 700px) {
+      .glance-item { border-bottom: none; border-right: 1px solid var(--border); }
+      .glance-item:last-child { border-right: none; }
+    }
+    .glance-item::before { content: ''; display: block; width: 24px; height: 3px;
+                            background: var(--purple); border-radius: 2px; margin-bottom: 1rem; }
+    .glance-item h3 { font-size: 0.97rem; font-weight: 700; margin-bottom: 0.5rem; }
+    .glance-item p  { font-size: 0.84rem; color: var(--ink2); line-height: 1.65; }
+
+    /* ── Code examples ─────────────────────────────────────────────── */
+    .examples-wrap { display: grid; grid-template-columns: 1fr; gap: 1.5rem; align-items: start; }
+    @media (min-width: 740px) { .examples-wrap { grid-template-columns: auto 1fr; gap: 2.5rem; } }
+    .tab-list { display: flex; flex-direction: row; flex-wrap: wrap; gap: 2px; }
+    @media (min-width: 740px) { .tab-list { flex-direction: column; min-width: 140px; } }
+    .tab-btn { background: none; border: none; font-family: var(--mono); font-size: 0.78rem;
+               font-weight: 600; color: var(--ink2); padding: 0.5rem 0.75rem; border-radius: 6px;
+               cursor: pointer; transition: all 0.12s;
+               border-bottom: 2px solid transparent; }
+    .tab-btn:hover { background: var(--surface); color: var(--ink); }
+    .tab-btn.active { background: var(--white); color: var(--purple);
+                      border-bottom-color: var(--purple);
+                      box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+    @media (min-width: 740px) {
+      .tab-btn { display: block; width: 100%; text-align: left;
+                 border-bottom: none; border-left: 2px solid transparent; }
+      .tab-btn.active { border-bottom-color: transparent; border-left-color: var(--purple); }
+    }
     .tab-panel { display: none; }
     .tab-panel.active { display: block; }
-    .code { background: var(--term); border-radius: 16px; overflow: hidden; box-shadow: 0 14px 34px rgba(44,42,40,0.12); }
-    .code-bar { padding: 0.6rem 1rem; border-bottom: 1px solid var(--term-bd); display: flex; align-items: center; gap: 0.4rem; }
-    .code-bar .d { width: 10px; height: 10px; border-radius: 50%; }
-    .code-bar .nm { margin-left: auto; font-family: var(--mono); font-size: 0.7rem; color: #807aa0; }
-    .code pre { padding: 1.4rem 1.6rem; font-family: var(--mono); font-size: 0.82rem; line-height: 1.75; overflow-x: auto; color: #d7dcf0; }
-    .kw{color:#c792ea;font-weight:600}.ty{color:#82aaff}.fn{color:#a3d6c4}.st{color:#c3e88d}.cm{color:#8983ad;font-style:italic}.nu{color:#f78c6c}
+    .code-block { background: var(--code); border: 1px solid var(--code-bd);
+                  border-radius: 10px; overflow: hidden; width: 100%;
+                  box-shadow: 0 8px 24px rgba(0,0,0,0.12); }
+    .cbar { background: #252035; border-bottom: 1px solid var(--code-bd);
+            padding: 0.5rem 1rem; display: flex; align-items: center; gap: 0.4rem; }
+    .cbar .d { width: 10px; height: 10px; border-radius: 50%; }
+    .cbar .nm { margin-left: auto; font-family: var(--mono); font-size: 0.65rem; color: #6b6480; }
+    .code-block pre { padding: 1rem 1.25rem; font-family: var(--mono); font-size: 0.72rem;
+                      line-height: 1.9; overflow-x: auto; color: #b4bccc; }
+    @media (min-width: 600px) { .code-block pre { padding: 1.35rem 1.5rem; font-size: 0.78rem; } }
 
-    /* Proof */
-    .bench { display: grid; grid-template-columns: 1fr 1fr; gap: 2.5rem; align-items: start; }
-    @media (max-width: 760px) { .bench { grid-template-columns: 1fr; } }
-    .big-cards { display: flex; gap: 1rem; margin-bottom: 1rem; }
-    .big-card { flex: 1; background: #fff; border: 1px solid var(--bd); border-radius: 16px; padding: 1.3rem; }
-    .big-val { font-size: 2.1rem; font-weight: 900; letter-spacing: -0.03em; color: var(--lav-dk); display: block; line-height: 1; }
-    .big-val.ref { color: var(--muted); }
-    .big-lbl { font-size: 0.78rem; color: var(--ink2); margin-top: 0.45rem; }
-    table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
-    th, td { text-align: left; padding: 0.6rem 0.4rem; border-bottom: 1px solid var(--bd); }
-    th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
-    td.esk { color: var(--lav-dk); font-weight: 700; font-family: var(--mono); }
-    td.ref { color: var(--muted); font-family: var(--mono); }
-    .kernel { margin-top: 3rem; display: grid; grid-template-columns: 1fr 1.25fr; gap: 2.5rem; align-items: center; }
-    @media (max-width: 760px) { .kernel { grid-template-columns: 1fr; } }
-    .kernel h3 { font-size: 1.15rem; font-weight: 800; margin-bottom: 0.55rem; }
-    .kernel p { font-size: 0.9rem; color: var(--ink2); line-height: 1.65; }
-    .kframe { background: var(--term); border-radius: 16px; overflow: hidden; box-shadow: 0 14px 34px rgba(44,42,40,0.14); }
-    .kframe img { width: 100%; display: block; }
+    /* ── Sponsors ─────────────────────────────────────────────────── */
+    .sponsors { padding: 3rem 0; background: var(--code);
+                border-top: 1px solid var(--code-bd); border-bottom: 1px solid var(--code-bd); }
+    .sp-label { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.12em;
+                text-transform: uppercase; color: rgba(255,255,255,0.3);
+                text-align: center; margin-bottom: 2rem; }
+    .sp-logos { display: flex; align-items: center; justify-content: center;
+                gap: 3rem; flex-wrap: wrap; }
+    @media (min-width: 600px) { .sp-logos { gap: 4rem; } }
+    .sp-item { display: flex; flex-direction: column; align-items: center; gap: 0.5rem;
+               opacity: 0.6; transition: opacity 0.2s; }
+    .sp-item:hover { opacity: 1; }
+    .sp-item img { height: 28px; width: auto; }
+    .sp-role { font-size: 0.67rem; color: rgba(255,255,255,0.3); text-transform: uppercase;
+               letter-spacing: 0.07em; font-weight: 600; }
 
-    /* Roadmap */
-    .steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1.1rem; margin-top: 2rem; }
-    @media (max-width: 760px) { .steps { grid-template-columns: repeat(2,1fr); } }
-    .step { background: #fff; border: 1px solid var(--bd); border-radius: 16px; padding: 1.2rem; }
-    .step.done { border-color: var(--lav); box-shadow: 0 6px 16px rgba(139,107,174,0.12); }
-    .step-tag { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.72rem; font-weight: 800; letter-spacing: 0.03em; margin-bottom: 0.45rem; }
-    .step-dot { width: 9px; height: 9px; border-radius: 50%; }
-    .step-title { font-weight: 800; font-size: 0.98rem; margin-bottom: 0.2rem; }
-    .step-sub { font-size: 0.82rem; color: var(--ink2); line-height: 1.55; }
-    .chips { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-top: 0.9rem; }
-    .chip { font-size: 0.78rem; font-weight: 700; color: var(--ink2); background: #fff; border: 1px solid var(--bd); border-radius: 999px; padding: 0.32rem 0.85rem; }
+    /* ── Get started ──────────────────────────────────────────────── */
+    .start { background: var(--white); border-top: 1px solid var(--border);
+             border-bottom: 1px solid var(--border); padding: 3.5rem 0; }
+    @media (min-width: 600px) { .start { padding: 5rem 0; } }
+    .cli { background: var(--code); border: 1px solid var(--code-bd); border-radius: 10px;
+           overflow: hidden; max-width: 680px; margin-top: 2rem; }
+    .cli pre { padding: 1rem 1.25rem; font-family: var(--mono); font-size: 0.72rem;
+               line-height: 2; color: #b4bccc; overflow-x: auto; }
+    @media (min-width: 600px) { .cli pre { padding: 1.3rem 1.5rem; font-size: 0.78rem; } }
+    .cp { color: #82d9c5; }
+    .cc { color: #4a4460; }
 
-    /* News */
-    .news { display: grid; grid-template-columns: 1fr 1.4fr; gap: 3rem; align-items: start; }
-    @media (max-width: 760px) { .news { grid-template-columns: 1fr; } }
-    .news-item { padding: 1.1rem 0; border-bottom: 1px solid var(--bd); }
-    .news-item:first-child { padding-top: 0; }
-    .news-title { font-weight: 800; display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.3rem; }
-    .news-body { font-size: 0.88rem; color: var(--ink2); line-height: 1.6; }
-    .tag { font-size: 0.64rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: var(--lav-dk); background: var(--tint2); border-radius: 6px; padding: 0.14rem 0.5rem; }
-
-    /* Terminal card */
-    .cli { background: var(--term); border-radius: 16px; overflow: hidden; box-shadow: 0 14px 34px rgba(44,42,40,0.12); max-width: 740px; }
-    .cli pre { margin: 0; padding: 1.4rem 1.5rem; font-family: var(--mono); font-size: 0.82rem; line-height: 1.95; color: #d7dcf0; overflow-x: auto; }
-    .cli .p { color: #a3d6c4; }
-    .cli .c { color: #807aa0; }
-
-    /* CTA + footer */
-    .cta { text-align: center; color: #fff; padding: 4.5rem 1.6rem; }
-    .cta h2 { color: #fff; }
-    .cta p { color: rgba(255,255,255,0.9); margin: 0.5rem 0 1.8rem; }
-    footer { border-top: 1px solid var(--bd); background: var(--tint); }
-    .footer-in { max-width: 1060px; margin: 0 auto; padding: 2.5rem 1.6rem; display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap; }
-    .footer-logo { display: flex; align-items: center; gap: 0.5rem; font-weight: 800; color: var(--ink); }
-    .footer-logo img { width: 32px; height: 32px; }
+    /* ── Footer ───────────────────────────────────────────────────── */
+    footer { background: var(--bg); border-top: 1px solid var(--border); }
+    .footer-in { max-width: 1100px; margin: 0 auto; padding: 1.5rem 1.25rem;
+                 display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap; }
+    @media (min-width: 600px) { .footer-in { padding: 2rem; } }
+    .footer-brand { display: flex; align-items: center; gap: 0.5rem;
+                    font-weight: 700; font-size: 0.92rem; color: var(--ink); }
+    .footer-brand img { width: 24px; height: 24px; border-radius: 4px; }
     .footer-links { display: flex; gap: 1.4rem; flex-wrap: wrap; }
-    .footer-links a { color: var(--ink2); font-size: 0.85rem; }
-    .footer-copy { margin-left: auto; font-size: 0.8rem; color: var(--muted); }
+    .footer-links a { color: var(--ink2); font-size: 0.82rem; }
+    .footer-links a:hover { color: var(--ink); text-decoration: none; }
+    .footer-copy { margin-left: auto; font-size: 0.77rem; color: var(--muted); }
   </style>
 </head>
 <body>
@@ -187,332 +243,251 @@
 <!-- Nav -->
 <nav>
   <div class="nav-in">
-    <a class="brand" href="#"><img src="../assets/logo.png" alt="Eskiu cat mascot" />eskiu</a>
+    <a class="brand" href="#">
+      <img src="../assets/logo.png" alt="Eskiu" />
+      eskiu
+      <span class="brand-ver">v0.2</span>
+    </a>
     <div class="nav-links">
       <a href="#examples">Examples</a>
-      <a href="#proof">Proof</a>
       <a href="https://eskiu-lang.org/assets/the-book-of-eskiu.pdf">Book</a>
       <a href="https://github.com/doranteseduardo/eskiu/tree/main/docs/lang">Docs</a>
-      <a class="pill-btn" href="https://github.com/doranteseduardo/eskiu">Download</a>
+      <a class="nav-gh" href="https://github.com/doranteseduardo/eskiu">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0 1 12 6.844a9.59 9.59 0 0 1 2.504.337c1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.02 10.02 0 0 0 22 12.017C22 6.484 17.522 2 12 2z"/></svg>
+        GitHub
+      </a>
     </div>
   </div>
 </nav>
 
 <!-- Hero -->
-<div class="hero">
+<section class="hero">
   <div class="wrap">
     <div class="hero-grid">
       <div>
-        <h1>From <span class="lav">bare&nbsp;metal</span><br>to <span class="peach">backend</span>.</h1>
-        <p class="hero-sub">A systems language with C-style syntax that compiles to native code through LLVM, with no garbage collector and no runtime. The same language boots a kernel and serves HTTP.</p>
-        <div class="hero-actions">
-          <a class="btn btn-primary" href="https://github.com/doranteseduardo/eskiu/blob/main/QUICKSTART.md">Get started →</a>
-          <a class="btn btn-ghost" href="https://github.com/doranteseduardo/eskiu">View on GitHub</a>
+        <span class="hero-ver">v0.2.0</span>
+        <h1>Systems<br>speed.<br>Async-<br>native.</h1>
+        <p class="hero-sub">Compiles to native code via LLVM. You allocate, you free, there's nothing underneath. It can boot a bare-metal ARM64 kernel or run an HTTP/2 server. Async/await and sum types are built in.</p>
+        <div class="hero-btns">
+          <a class="btn-w" href="https://github.com/doranteseduardo/eskiu/blob/main/QUICKSTART.md">Get started →</a>
+          <a class="btn-o" href="https://github.com/doranteseduardo/eskiu">View on GitHub</a>
         </div>
       </div>
-      <div class="hero-art">
-        <div class="blob"></div>
-        <img class="hero-cat" src="../assets/logo.png" alt="Eskiu cat mascot" />
-        <div class="float-card fc-1"><span class="g">$</span> ./server &amp; curl :8080<br><span class="g">Hello from Eskiu.</span></div>
-        <div class="float-card fc-2"><b>2.5×</b> faster than C</div>
+      <div class="hero-term">
+        <img class="hero-mascot" src="../assets/logo.png" alt="Eskiu mascot" />
+        <div class="terminal">
+          <div class="tbar">
+            <span class="tdot" style="background:#ff5f57"></span>
+            <span class="tdot" style="background:#febc2e"></span>
+            <span class="tdot" style="background:#28c840"></span>
+            <span class="tname">bash</span>
+          </div>
+          <div class="tbody"><span class="cp">$</span> git clone https://github.com/doranteseduardo/eskiu
+<span class="cm">Cloning into 'eskiu'...</span>
+
+<span class="cp">$</span> cmake -S eskiu -B build &amp;&amp; cmake --build build
+<span class="cm">[100%] Built target eskiuc</span>
+
+<span class="cp">$</span> cat hello.esk
+<span class="kw">extern</span> <span class="ty">int</span> <span class="fn">printf</span>(<span class="ty">string</span> fmt, ...);
+<span class="ty">int</span> <span class="fn">main</span>() {
+    <span class="fn">printf</span>(<span class="st">"Hello from Eskiu.\n"</span>);
+    <span class="kw">return</span> <span class="nu">0</span>;
+}
+
+<span class="cp">$</span> eskiuc run hello.esk
+<span class="st">Hello from Eskiu.</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="hero-props">
+      <span class="hprop">Compiled via LLVM</span>
+      <span class="hprop">No GC</span>
+      <span class="hprop">No runtime</span>
+      <span class="hprop new">async/await</span>
+      <span class="hprop new">sum types</span>
+      <span class="hprop new">HTTP/2 + TLS</span>
+      <span class="hprop new">atomics</span>
+      <span class="hprop">C FFI</span>
+      <span class="hprop">freestanding</span>
+      <span class="hprop">arm64 · x86-64</span>
+    </div>
+  </div>
+</section>
+
+<!-- Why Eskiu -->
+<section class="section">
+  <div class="wrap">
+    <span class="label">Why Eskiu</span>
+    <h2>One toolchain instead of four.</h2>
+    <p class="lead">Compute-intensive services lean on C for speed, Go for concurrency, C++ for libraries, and something else for glue. Eskiu handles all of it — compiled, explicit, and async-capable from day one.</p>
+    <div class="glance">
+      <div class="glance-item">
+        <h3>Machine code, explicit allocation</h3>
+        <p>LLVM backend, no collector. <code>alloc&lt;T&gt;(N)</code> and <code>free(ptr)</code> are how you allocate — visible in source, no hidden runtime. 2.5× faster than reference C on our crypto pipeline benchmark.</p>
+      </div>
+      <div class="glance-item">
+        <h3>Async without a framework</h3>
+        <p><code>async fn</code> and <code>await</code> compile to coroutine state machines. Pair with the built-in executor and channels, or write your own scheduler. No external runtime required.</p>
+      </div>
+      <div class="glance-item">
+        <h3>Metal to backend, same language</h3>
+        <p>Freestanding mode boots a bare-metal ARM64 kernel in QEMU. The same syntax and stdlib handle HTTP/2 on the other end. No context switch between runtimes.</p>
       </div>
     </div>
   </div>
-</div>
+</section>
 
-<!-- Stats -->
-<div class="wrap" style="padding-bottom:1rem">
-  <div class="stats">
-    <div class="stat"><b>74 ms</b><span>real-world benchmark</span></div>
-    <div class="stat"><b>2.5&times;</b><span>faster than reference C</span></div>
-    <div class="stat"><b>No GC</b><span>no garbage collector</span></div>
-    <div class="stat"><b>LLVM</b><span>native code backend</span></div>
-  </div>
-</div>
-
-<!-- wave into tinted Why band -->
-<svg class="wave" viewBox="0 0 1440 64" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg" style="margin-top:3rem">
-  <path d="M0,38 C240,70 480,6 720,30 C960,52 1200,14 1440,36 L1440,64 L0,64 Z" fill="#fbf2ea"></path>
-</svg>
-
-<div class="band-tint">
-  <div class="wrap section" style="padding-top:1.5rem">
-    <div style="max-width:680px">
-      <div class="eyebrow">Why Eskiu</div>
-      <h2>One language instead of four.</h2>
-      <p class="lead">Compute-intensive services lean on C for speed, Go for concurrency, C++ for libraries, and something else for glue. That's four toolchains to keep in sync, and Eskiu does the whole job in one.</p>
-    </div>
-    <div class="cards">
-      <div class="card">
-        <div class="ic" style="background:var(--tint2);color:var(--lav-dk)">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 L5 13 h6 l-2 9 9-12 h-6 z"/></svg>
-        </div>
-        <h3>Native speed</h3>
-        <p>Compiled to machine code by LLVM. With no garbage collector and no runtime, throughput stays predictable under load.</p>
+<!-- Code examples -->
+<hr />
+<section id="examples" class="section">
+  <div class="wrap">
+    <span class="label">Examples</span>
+    <h2>It reads like C. <span class="dim">It runs like native.</span></h2>
+    <p class="lead" style="margin-bottom:2.5rem">Each file below is a complete program. Compile and run with <code>eskiuc run file.esk</code>.</p>
+    <div class="examples-wrap">
+      <div class="tab-list" role="tablist">
+        <button class="tab-btn active" onclick="switchTab(event,'async')">async.esk</button>
+        <button class="tab-btn" onclick="switchTab(event,'match')">match.esk</button>
+        <button class="tab-btn" onclick="switchTab(event,'hello')">hello.esk</button>
+        <button class="tab-btn" onclick="switchTab(event,'server')">server.esk</button>
       </div>
-      <div class="card">
-        <div class="ic" style="background:var(--tint4);color:#c47a5e">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4 H6.5 A2.5 2.5 0 0 0 4 6.5 V9 a2 2 0 0 1-2 2 a2 2 0 0 1 2 2 v2.5 A2.5 2.5 0 0 0 6.5 20 H8"/><path d="M16 4 h1.5 A2.5 2.5 0 0 1 20 6.5 V9 a2 2 0 0 0 2 2 a2 2 0 0 0-2 2 v2.5 A2.5 2.5 0 0 1 17.5 20 H16"/></svg>
-        </div>
-        <h3>Explicit memory</h3>
-        <p><code>alloc&lt;T&gt;(N)</code> and <code>free(ptr)</code> from <code>&lt;mem&gt;</code>. Allocation is visible in the code, never hidden.</p>
-      </div>
-      <div class="card">
-        <div class="ic" style="background:var(--tint3);color:#3f8a6f">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13 a5 5 0 0 0 7 0 l2-2 a5 5 0 0 0-7-7 l-1 1"/><path d="M14 11 a5 5 0 0 0-7 0 l-2 2 a5 5 0 0 0 7 7 l1-1"/></svg>
-        </div>
-        <h3>Direct C interop</h3>
-        <p><code>extern</code> any C library (OpenSSL, POSIX, sockets) with no binding layer.</p>
-      </div>
-      <div class="card">
-        <div class="ic" style="background:var(--tint2);color:var(--lav-dk)">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 L2 7 l10 5 10-5 z"/><path d="M2 12 l10 5 10-5"/><path d="M2 17 l10 5 10-5"/></svg>
-        </div>
-        <h3>Metal to backend</h3>
-        <p>Boots a kernel in QEMU without libc, and runs a TCP/HTTP server, with the same toolchain at both ends.</p>
-      </div>
-    </div>
-  </div>
-</div>
+      <div>
+        <div id="tab-async" class="tab-panel active">
+          <div class="code-block">
+            <div class="cbar"><span class="d" style="background:#ff5f57"></span><span class="d" style="background:#febc2e"></span><span class="d" style="background:#28c840"></span><span class="nm">async.esk</span></div>
+<pre><span class="kw">extern</span> <span class="ty">int</span> <span class="fn">printf</span>(<span class="ty">string</span> fmt, ...);
+<span class="kw">import</span> &lt;<span class="fn">future</span>&gt;;
+<span class="kw">import</span> &lt;<span class="fn">channel</span>&gt;;
 
-<!-- Examples -->
-<div id="examples" class="wrap section">
-  <div class="eyebrow">Examples</div>
-  <h2>It reads like C.</h2>
-  <p class="lead" style="margin-bottom:2.2rem">Each tab below is a complete program that compiles and runs.</p>
+<span class="cm">// async fn — the compiler generates a coroutine state machine.</span>
+<span class="kw">async</span> <span class="ty">int</span> <span class="fn">sum_squares</span>(<span class="ty">Chan</span>&lt;<span class="ty">int</span>&gt;<span class="ty">*</span> ch) {
+    <span class="kw">let</span> a: <span class="ty">int</span> <span class="op">=</span> <span class="aw">await</span> <span class="fn">chan_recv</span>(ch);
+    <span class="kw">let</span> b: <span class="ty">int</span> <span class="op">=</span> <span class="aw">await</span> <span class="fn">chan_recv</span>(ch);
+    <span class="kw">let</span> c: <span class="ty">int</span> <span class="op">=</span> <span class="aw">await</span> <span class="fn">chan_recv</span>(ch);
+    <span class="kw">return</span> a + b + c;
+}
 
-  <div class="tabs">
-    <button class="tab-btn active" onclick="switchTab(event,'hello')">hello.esk</button>
-    <button class="tab-btn" onclick="switchTab(event,'server')">server.esk</button>
-    <button class="tab-btn" onclick="switchTab(event,'shapes')">shapes.esk</button>
-    <button class="tab-btn" onclick="switchTab(event,'result')">result.esk</button>
-  </div>
+<span class="ty">int</span> <span class="fn">main</span>() {
+    <span class="ty">Chan</span>&lt;<span class="ty">int</span>&gt;<span class="ty">*</span> ch <span class="op">=</span> <span class="fn">chan_new</span>&lt;<span class="ty">int</span>&gt;(<span class="nu">8</span>);
+    <span class="kw">for</span> (i <span class="kw">in</span> <span class="nu">1</span>..<span class="nu">4</span>) { <span class="fn">chan_send</span>(ch, i * i); }   <span class="cm">// 1, 4, 9</span>
+    <span class="ty">Future</span>&lt;<span class="ty">int</span>&gt;<span class="ty">*</span> f <span class="op">=</span> <span class="fn">sum_squares</span>(ch);
+    <span class="fn">future_poll</span>&lt;<span class="ty">int</span>&gt;(f, <span class="ty">void</span>() {});             <span class="cm">// drive it to completion</span>
+    <span class="fn">printf</span>(<span class="st">"sum of squares = %d\n"</span>, f.value);   <span class="cm">// 14</span>
+    <span class="fn">free_future</span>&lt;<span class="ty">int</span>&gt;(f);  <span class="fn">chan_free</span>&lt;<span class="ty">int</span>&gt;(ch);
+    <span class="kw">return</span> <span class="nu">0</span>;
+}
+<span class="cm">// Output: sum of squares = 14</span></pre>
+          </div>
+        </div>
 
-  <div id="tab-hello" class="tab-panel active">
-    <div class="code">
-      <div class="code-bar"><span class="d" style="background:#ff5f57"></span><span class="d" style="background:#febc2e"></span><span class="d" style="background:#28c840"></span><span class="nm">hello.esk</span></div>
+        <div id="tab-match" class="tab-panel">
+          <div class="code-block">
+            <div class="cbar"><span class="d" style="background:#ff5f57"></span><span class="d" style="background:#febc2e"></span><span class="d" style="background:#28c840"></span><span class="nm">match.esk</span></div>
+<pre><span class="kw">extern</span> <span class="ty">int</span> <span class="fn">printf</span>(<span class="ty">string</span> fmt, ...);
+<span class="kw">extern</span> <span class="ty">int</span> <span class="fn">atoi</span>(<span class="ty">string</span> s);
+
+<span class="cm">// Algebraic enum with payload variants.</span>
+<span class="kw">enum</span> <span class="ty">ParseResult</span> {
+    <span class="fn">Port</span>(<span class="ty">int</span>),
+    <span class="fn">InvalidRange</span>(<span class="ty">int</span>),
+    <span class="fn">NotANumber</span>,
+}
+
+<span class="ty">ParseResult</span> <span class="fn">parse_port</span>(<span class="ty">string</span> s) {
+    <span class="kw">let</span> n: <span class="ty">int</span> <span class="op">=</span> <span class="fn">atoi</span>(s);
+    <span class="kw">if</span> (n <span class="op">==</span> <span class="nu">0</span>) { <span class="kw">return</span> <span class="fn">NotANumber</span>; }
+    <span class="kw">if</span> (n &lt; <span class="nu">1</span> <span class="op">||</span> n &gt; <span class="nu">65535</span>) { <span class="kw">return</span> <span class="fn">InvalidRange</span>(n); }
+    <span class="kw">return</span> <span class="fn">Port</span>(n);
+}
+
+<span class="ty">int</span> <span class="fn">main</span>() {
+    <span class="kw">match</span> <span class="fn">parse_port</span>(<span class="st">"8080"</span>) {
+        <span class="fn">Port</span>(p)         <span class="op">-&gt;</span> <span class="fn">printf</span>(<span class="st">"Listening on :%d\n"</span>, p);
+        <span class="fn">InvalidRange</span>(n) <span class="op">-&gt;</span> <span class="fn">printf</span>(<span class="st">"%d out of range\n"</span>, n);
+        <span class="fn">NotANumber</span>      <span class="op">-&gt;</span> <span class="fn">printf</span>(<span class="st">"not a number\n"</span>);
+    }
+    <span class="kw">return</span> <span class="nu">0</span>;
+}
+<span class="cm">// Output: Listening on :8080</span></pre>
+          </div>
+        </div>
+
+        <div id="tab-hello" class="tab-panel">
+          <div class="code-block">
+            <div class="cbar"><span class="d" style="background:#ff5f57"></span><span class="d" style="background:#febc2e"></span><span class="d" style="background:#28c840"></span><span class="nm">hello.esk</span></div>
 <pre><span class="kw">extern</span> <span class="ty">int</span> <span class="fn">printf</span>(<span class="ty">string</span> fmt, ...);
 <span class="kw">import</span> &lt;<span class="fn">list</span>&gt;;
 
 <span class="ty">int</span> <span class="fn">main</span>() {
     <span class="kw">let</span> nums: <span class="ty">List</span>&lt;<span class="ty">int</span>&gt;;
     <span class="fn">List_init</span>(&amp;nums, <span class="nu">4</span>);
-    <span class="kw">for</span> (<span class="ty">int</span> i = <span class="nu">0</span>; i &lt; <span class="nu">5</span>; i += <span class="nu">1</span>) { <span class="fn">List_push</span>(&amp;nums, i * i); }
+    <span class="kw">for</span> (i <span class="kw">in</span> <span class="nu">0</span>..<span class="nu">5</span>) { <span class="fn">List_push</span>(&amp;nums, i * i); }
 
     <span class="kw">for</span> (n <span class="kw">in</span> nums) { <span class="fn">printf</span>(<span class="st">"%d\n"</span>, n); }   <span class="cm">// 0 1 4 9 16</span>
     <span class="kw">return</span> <span class="nu">0</span>;
 }</pre>
-    </div>
-  </div>
+          </div>
+        </div>
 
-  <div id="tab-server" class="tab-panel">
-    <div class="code">
-      <div class="code-bar"><span class="d" style="background:#ff5f57"></span><span class="d" style="background:#febc2e"></span><span class="d" style="background:#28c840"></span><span class="nm">server.esk</span></div>
+        <div id="tab-server" class="tab-panel">
+          <div class="code-block">
+            <div class="cbar"><span class="d" style="background:#ff5f57"></span><span class="d" style="background:#febc2e"></span><span class="d" style="background:#28c840"></span><span class="nm">server.esk</span></div>
 <pre><span class="kw">import</span> &lt;<span class="fn">net</span>&gt;;
 <span class="kw">import</span> &lt;<span class="fn">mem</span>&gt;;
 
-<span class="cm">// A web server using sockets from the stdlib.</span>
 <span class="ty">int</span> <span class="fn">main</span>() {
-    <span class="ty">int</span> fd = <span class="fn">net_tcp_listen</span>(<span class="nu">8080</span>);
-    *<span class="ty">uint8</span> req = <span class="fn">alloc</span>&lt;<span class="ty">uint8</span>&gt;(<span class="nu">4096</span>);
+    <span class="ty">int</span>   fd  <span class="op">=</span> <span class="fn">net_tcp_listen</span>(<span class="nu">8080</span>);
+    <span class="ty">*uint8</span> req <span class="op">=</span> <span class="fn">alloc</span>&lt;<span class="ty">uint8</span>&gt;(<span class="nu">4096</span>);
     <span class="kw">while</span> (<span class="nu">1</span>) {
-        <span class="ty">int</span> c = <span class="fn">net_accept</span>(fd);
-        <span class="fn">net_recv</span>(c, (*<span class="ty">void</span>)req, <span class="nu">4096</span>);
+        <span class="ty">int</span> c <span class="op">=</span> <span class="fn">net_accept</span>(fd);
+        <span class="fn">net_recv</span>(c, (<span class="ty">*void</span>)req, <span class="nu">4096</span>);
         <span class="fn">net_send_str</span>(c, <span class="st">"HTTP/1.1 200 OK\r\n\r\nHello from Eskiu.\n"</span>);
         <span class="fn">net_close</span>(c);
     }
     <span class="kw">return</span> <span class="nu">0</span>;
 }</pre>
-    </div>
-  </div>
-
-  <div id="tab-shapes" class="tab-panel">
-    <div class="code">
-      <div class="code-bar"><span class="d" style="background:#ff5f57"></span><span class="d" style="background:#febc2e"></span><span class="d" style="background:#28c840"></span><span class="nm">shapes.esk</span></div>
-<pre><span class="kw">extern</span> <span class="ty">int</span> <span class="fn">printf</span>(<span class="ty">string</span> fmt, ...);
-
-<span class="kw">interface</span> <span class="ty">Shape</span> { <span class="ty">float</span> <span class="fn">area</span>(); }
-
-<span class="kw">struct</span> <span class="ty">Circle</span> {
-    <span class="ty">float</span> radius;
-    <span class="ty">float</span> <span class="fn">area</span>() { <span class="kw">return</span> self.radius * self.radius * <span class="nu">3.14159</span>; }
-}
-
-<span class="cm">// Structural: a struct satisfies Shape just by having area().</span>
-<span class="ty">void</span> <span class="fn">render</span>(<span class="ty">Shape</span> s) { <span class="fn">printf</span>(<span class="st">"area = %f\n"</span>, s.<span class="fn">area</span>()); }
-
-<span class="ty">int</span> <span class="fn">main</span>() {
-    <span class="kw">let</span> c: <span class="ty">Circle</span> = <span class="ty">Circle</span> { radius: <span class="nu">5.0</span> };
-    <span class="fn">render</span>(&amp;c);              <span class="cm">// area = 78.54</span>
-    <span class="kw">return</span> <span class="nu">0</span>;
-}</pre>
-    </div>
-  </div>
-
-  <div id="tab-result" class="tab-panel">
-    <div class="code">
-      <div class="code-bar"><span class="d" style="background:#ff5f57"></span><span class="d" style="background:#febc2e"></span><span class="d" style="background:#28c840"></span><span class="nm">result.esk</span></div>
-<pre><span class="kw">extern</span> <span class="ty">int</span> <span class="fn">printf</span>(<span class="ty">string</span> fmt, ...);
-<span class="kw">import</span> &lt;<span class="fn">result</span>&gt;;
-
-<span class="ty">Result</span>&lt;<span class="ty">int</span>, <span class="ty">string</span>&gt; <span class="fn">divide</span>(<span class="ty">int</span> a, <span class="ty">int</span> b) {
-    <span class="kw">if</span> (b == <span class="nu">0</span>) { <span class="kw">return</span> <span class="fn">Err</span>&lt;<span class="ty">int</span>, <span class="ty">string</span>&gt;(<span class="st">"divide by zero"</span>); }
-    <span class="kw">return</span> <span class="fn">Ok</span>&lt;<span class="ty">int</span>, <span class="ty">string</span>&gt;(a / b);
-}
-
-<span class="cm">// `?` returns the Err early, or unwraps the value.</span>
-<span class="ty">Result</span>&lt;<span class="ty">int</span>, <span class="ty">string</span>&gt; <span class="fn">ratio</span>(<span class="ty">int</span> a, <span class="ty">int</span> b, <span class="ty">int</span> c) {
-    <span class="kw">let</span> x: <span class="ty">int</span> = <span class="fn">divide</span>(a, b)?;
-    <span class="kw">return</span> <span class="fn">Ok</span>&lt;<span class="ty">int</span>, <span class="ty">string</span>&gt;(x + c);
-}
-
-<span class="ty">int</span> <span class="fn">main</span>() {
-    <span class="kw">let</span> r: <span class="ty">Result</span>&lt;<span class="ty">int</span>, <span class="ty">string</span>&gt; = <span class="fn">ratio</span>(<span class="nu">10</span>, <span class="nu">2</span>, <span class="nu">1</span>);
-    <span class="kw">if</span> (r.ok == <span class="nu">1</span>) { <span class="fn">printf</span>(<span class="st">"result = %d\n"</span>, r.value); }  <span class="cm">// result = 6</span>
-    <span class="kw">return</span> <span class="nu">0</span>;
-}</pre>
-    </div>
-  </div>
-</div>
-
-<!-- wave into Proof band -->
-<svg class="wave" viewBox="0 0 1440 64" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
-  <path d="M0,30 C240,4 480,60 720,36 C960,12 1200,56 1440,28 L1440,64 L0,64 Z" fill="#fbf2ea"></path>
-</svg>
-
-<!-- Proof -->
-<div id="proof" class="band-tint">
-  <div class="wrap section" style="padding-top:1.5rem">
-    <div class="eyebrow">Proof</div>
-    <h2>Faster than the reference C, and it boots on bare metal.</h2>
-    <p class="lead" style="margin-bottom:2.4rem">A real cryptographic pipeline (AES-256-CBC + RSA-8192 decryption, image processing, and structured output) running entirely in Eskiu via <code>extern</code> C interop.</p>
-
-    <div class="bench">
-      <div>
-        <div class="big-cards">
-          <div class="big-card"><span class="big-val">74 ms</span><div class="big-lbl">Eskiu, end-to-end</div></div>
-          <div class="big-card"><span class="big-val ref">189 ms</span><div class="big-lbl">Reference C, end-to-end</div></div>
-        </div>
-        <p style="font-size:0.85rem;color:var(--muted);line-height:1.6">Measured on Apple Silicon (arm64). <strong style="color:var(--ink2)">2.5&times; faster</strong> than reference C; the crypto stage matches hand-written C within 0.1&nbsp;ms.</p>
-      </div>
-      <div>
-        <table>
-          <thead><tr><th>Stage</th><th>Eskiu</th><th>Reference C</th></tr></thead>
-          <tbody>
-            <tr><td>QR / image extraction</td><td class="esk">71.7 ms</td><td class="ref">185.5 ms</td></tr>
-            <tr><td>Crypto (AES + RSA-8192)</td><td class="esk">2.8 ms</td><td class="ref">2.9 ms</td></tr>
-            <tr><td>Output decode</td><td class="esk">&lt; 1 ms</td><td class="ref">0.5 ms</td></tr>
-            <tr><td>Total</td><td class="esk">74.4 ms</td><td class="ref">188.9 ms</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <div class="kernel">
-      <div>
-        <h3>A kernel, in Eskiu, on bare metal.</h3>
-        <p>An ARM64 kernel written in Eskiu boots in QEMU on the PL011 UART, with <strong style="color:var(--ink2)">no libc and no C runtime</strong>. Freestanding mode, inline assembly, and <code>volatile</code> MMIO are part of the language.</p>
-      </div>
-      <div class="kframe">
-        <div class="code-bar"><span class="d" style="background:#ff5f57"></span><span class="d" style="background:#febc2e"></span><span class="d" style="background:#28c840"></span><span class="nm">qemu-system-aarch64 -M virt</span></div>
-        <img src="../assets/kernel.png" alt="Eskiu v0.1 kernel booting in QEMU" />
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- Roadmap -->
-<div class="wrap section">
-  <div class="eyebrow">Roadmap</div>
-  <h2>From systems language to production tool.</h2>
-  <div class="steps">
-    <div class="step done">
-      <span class="step-tag" style="color:var(--lav-dk)"><span class="step-dot" style="background:var(--lav)"></span>v0.1.0 · shipped</span>
-      <div class="step-title">Systems foundation</div>
-      <div class="step-sub">The full language, TCP sockets, and a bare-metal kernel. Benchmarked 2.5× faster than reference C.</div>
-    </div>
-    <div class="step">
-      <span class="step-tag" style="color:var(--muted)"><span class="step-dot" style="border:2px solid var(--muted)"></span>v0.2</span>
-      <div class="step-title">Backend services</div>
-      <div class="step-sub">async/await, an event loop, and an HTTP stack, plus a package manager and a broader stdlib.</div>
-    </div>
-    <div class="step">
-      <span class="step-tag" style="color:var(--muted)"><span class="step-dot" style="border:2px solid var(--muted)"></span>v0.3</span>
-      <div class="step-title">Self-hosting groundwork</div>
-      <div class="step-sub">LLVM bindings; the lexer and parser rewritten in Eskiu.</div>
-    </div>
-    <div class="step">
-      <span class="step-tag" style="color:var(--muted)"><span class="step-dot" style="border:2px solid var(--muted)"></span>v1.0</span>
-      <div class="step-title">Production-ready</div>
-      <div class="step-sub">A self-hosting compiler and first-class types for high-throughput services.</div>
-    </div>
-  </div>
-  <div style="margin-top:2.4rem">
-    <div class="eyebrow">In v0.1.0 today</div>
-    <div class="chips">
-      <span class="chip">templates</span><span class="chip">interfaces</span><span class="chip">closures</span>
-      <span class="chip">threads</span><span class="chip">TCP sockets</span><span class="chip">exceptions</span>
-      <span class="chip">packed structs</span><span class="chip">C FFI</span><span class="chip">freestanding</span>
-      <a href="https://github.com/doranteseduardo/eskiu/blob/main/docs/lang/spec.md" style="font-size:0.82rem;font-weight:700;margin-left:0.35rem">full feature list →</a>
-    </div>
-  </div>
-</div>
-
-<!-- wave into News band -->
-<svg class="wave" viewBox="0 0 1440 64" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
-  <path d="M0,38 C240,70 480,6 720,30 C960,52 1200,14 1440,36 L1440,64 L0,64 Z" fill="#fbf2ea"></path>
-</svg>
-
-<!-- News -->
-<div class="band-tint">
-  <div class="wrap section" style="padding-top:1.5rem">
-    <div class="news">
-      <div>
-        <div class="eyebrow">News</div>
-        <h2>Latest releases</h2>
-        <p class="lead" style="margin:0.5rem 0 1.5rem">New releases land regularly; the full history is in the changelog.</p>
-        <a class="btn btn-primary" href="https://github.com/doranteseduardo/eskiu/blob/main/CHANGELOG.md">Full changelog</a>
-      </div>
-      <div>
-        <div class="news-item">
-          <div class="news-title">Eskiu v0.1.0 <span class="tag">release</span></div>
-          <div class="news-body">The first release: the full systems language, TCP sockets, and a bare-metal kernel. Binaries for macOS arm64 and Linux x86-64.</div>
-        </div>
-        <div class="news-item">
-          <div class="news-title">Foundation complete <span class="tag">milestone</span></div>
-          <div class="news-body">A cryptographic pipeline running entirely in Eskiu at 74 ms, 2.5× faster than reference C.</div>
+          </div>
         </div>
       </div>
+    </div>
+  </div>
+</section>
+
+<!-- Sponsors -->
+<div class="sponsors">
+  <div class="wrap">
+    <p class="sp-label">Early adopters &amp; sponsors</p>
+    <div class="sp-logos">
+      <a class="sp-item" href="https://reactvision.xyz" target="_blank" rel="noopener">
+        <img src="../assets/reactvision.png" alt="ReactVision" style="height:44px" />
+      </a>
+      <a class="sp-item" href="#" target="_blank" rel="noopener">
+        <img src="../assets/morrow.png" alt="The Morrow Digital" />
+      </a>
     </div>
   </div>
 </div>
 
 <!-- Get started -->
-<div class="wrap section">
-  <div class="eyebrow">Get started</div>
-  <h2>Compile and run in one step.</h2>
-  <p class="lead" style="margin-bottom:2rem">Build from source in under a minute. LLVM and a C toolchain are the only dependencies, and <code>eskiuc</code> links the executable for you.</p>
-  <div class="cli">
-<pre><span class="p">$</span> git clone https://github.com/doranteseduardo/eskiu
-<span class="p">$</span> cmake -S eskiu -B build &amp;&amp; cmake --build build   <span class="c"># build eskiuc</span>
-<span class="p">$</span> eskiuc hello.esk -o hello &amp;&amp; ./hello             <span class="c"># compile, link &amp; run</span></pre>
+<div class="start" id="start">
+  <div class="wrap">
+    <span class="label">Get started</span>
+    <h2>Read the quickstart.</h2>
+    <p class="lead">LLVM and a C toolchain are the only dependencies. The quickstart walks you through building the compiler and running your first program.</p>
+    <div style="margin-top:1.75rem">
+      <a class="btn-w" href="https://github.com/doranteseduardo/eskiu/blob/main/QUICKSTART.md">Read the quickstart →</a>
+    </div>
   </div>
-</div>
-
-<!-- CTA -->
-<div class="band-lav cta">
-  <h2>Get the compiler.</h2>
-  <p>Builds on macOS and Linux in under a minute. Targets arm64 and x86-64.</p>
-  <a class="btn btn-light" href="https://github.com/doranteseduardo/eskiu/blob/main/QUICKSTART.md">Get started →</a>
 </div>
 
 <!-- Footer -->
 <footer>
   <div class="footer-in">
-    <div class="footer-logo"><img src="../assets/logo.png" alt="Eskiu" />eskiu</div>
+    <div class="footer-brand"><img src="../assets/logo.png" alt="Eskiu" />eskiu</div>
     <div class="footer-links">
       <a href="https://eskiu-lang.org/assets/the-book-of-eskiu.pdf">The Book (PDF)</a>
-      <a href="https://github.com/doranteseduardo/eskiu/blob/main/docs/lang/getting-started.md">Documentation</a>
+      <a href="https://github.com/doranteseduardo/eskiu/blob/main/docs/lang/getting-started.md">Docs</a>
       <a href="https://github.com/doranteseduardo/eskiu/blob/main/docs/dev/architecture.md">Internals</a>
       <a href="https://github.com/doranteseduardo/eskiu/blob/main/CHANGELOG.md">Changelog</a>
       <a href="https://github.com/doranteseduardo/eskiu">GitHub</a>
