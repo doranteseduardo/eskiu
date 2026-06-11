@@ -1120,17 +1120,16 @@ void TypeChecker::visit(AwaitExpr* node) {
     while (!inner.empty() && inner.front() == '*') inner = inner.substr(1);
     while (!inner.empty() && inner.back()  == '*') inner.pop_back();
 
-    // The operand's Future<T> may arrive in source form (`Future<int>`) from a
-    // plain function, or already normalized to `struct:Future_int` from a template
-    // call (its return type went through normalizeType). Recover T from either:
-    // for the normalized form, the mangled name maps back to {base, args} via
-    // templateInstanceArgs (recorded when the instance was first normalized).
+    // A `*Future<T>` reaches here in two spellings — source form (`Future<int>`,
+    // from a plain function) or already-mangled (`struct:Future_int`, from a
+    // template call whose return type went through normalizeType). Normalizing
+    // once collapses both to `struct:Future_int` AND registers the reverse map, so
+    // a single lookup recovers T regardless of how the future was produced.
     std::string base;
     std::vector<std::string> args;
-    if (inner.size() > 7 && inner.substr(0, 7) == "Future<") {
-        std::tie(base, args) = splitTemplateType(inner);
-    } else if (inner.rfind("struct:", 0) == 0) {
-        auto ti = templateInstanceArgs.find(inner.substr(7));  // "Future_int"
+    std::string norm = normalizeType(inner);
+    if (norm.rfind("struct:", 0) == 0) {
+        auto ti = templateInstanceArgs.find(norm.substr(7));  // "Future_int"
         if (ti != templateInstanceArgs.end()) { base = ti->second.first; args = ti->second.second; }
     }
     if (base == "Future") {
