@@ -98,7 +98,7 @@ void Pool_free(Pool* self, *void p) {
 // Each region is [FFNode header][payload]. Free regions are linked through the
 // header's `next`; used regions keep their size in the header. Alloc does a
 // first-fit search and splits a large region; free pushes the region back onto
-// the list. (Coalescing of adjacent free regions is a planned refinement.)
+// the list. Adjacent free regions are not coalesced.
 struct FFNode {
     int64    size;   // payload bytes available in this region
     *FFNode  next;   // next free region (used regions: ignored)

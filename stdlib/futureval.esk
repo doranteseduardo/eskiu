@@ -86,8 +86,7 @@ Future<Either<A, B>>* select2v<A, B>(Future<A>* a, Future<B>* b) {
         free_closure(self);
     };
 
-    // State constants (PENDING=0, WAITING=1) — see future.esk; named consts there
-    // are module-local, so the literals are spelled out with this note.
+    // Future states: PENDING = 0, WAITING = 1 (see future.esk).
     a.waker = onA;
     if (atomic_cas(&a.state, 0, 1) == false) {            // a already READY -> a wins
         free_closure(onA);                                // onA never fires

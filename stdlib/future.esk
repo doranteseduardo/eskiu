@@ -1,8 +1,8 @@
 // future.esk — the async runtime's Future<T> (see docs/dev/async-design.md).
 //
 // This is the locked compiler↔generated-code contract. A coroutine compiles to a
-// state machine that talks to a Future<T> through the protocols below; for now
-// (the de-risk gate) the state machines are written by hand.
+// state machine that talks to a Future<T> through the protocols below. Leaf
+// futures (e.g. the <net_async> primitives) implement those protocols directly.
 //
 // Future<T> layout is FIXED: `value` is LAST so the first three fields sit at the
 // same offsets for every T, which lets cancellation and the executor view any

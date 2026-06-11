@@ -1,11 +1,13 @@
-// http2.esk — HTTP/2 (RFC 7540) over the async event loop.
+// http2.esk — HTTP/2 (RFC 7540) framing, connection lifecycle, and streams.
 //
-// Status: STAGE 1 — the frame layer. HTTP/2 is a binary, multiplexed protocol;
-// every exchange is a sequence of frames sharing one connection. This module
-// encodes/decodes the 9-byte frame header and defines the frame-type and flag
-// constants. Later stages build on it: SETTINGS handshake, HPACK header
-// (de)compression, stream multiplexing + flow control, and TLS/ALPN. See
-// docs/dev/http2-design.md for the roadmap.
+// HTTP/2 is a binary, multiplexed protocol: every exchange is a sequence of
+// frames sharing one connection. This module provides the wire layer the
+// servers build on — the 9-byte frame header codec and frame-type/flag
+// constants; the connection lifecycle (SETTINGS exchange + ACK, PING/PONG,
+// GOAWAY) with an `H2Conn`; the per-stream state machine and credit-based flow
+// control (`H2Stream`); the HEADERS/DATA/WINDOW_UPDATE/RST_STREAM codecs; and the
+// async frame I/O the event-loop servers await on. HPACK header compression is
+// in <hpack>; the servers are in <http2_server> (h2c) and <tls> (h2 over TLS).
 //
 // Frame header (RFC 7540 §4.1), 9 bytes, big-endian:
 //   [ Length (24) | Type (8) | Flags (8) | R(1) | Stream Id (31) ]
@@ -80,7 +82,7 @@ int h2_frame_finish(*uint8 buf, int type, int flags, int stream_id, int len) {
     return H2_FRAME_HEADER_LEN + len;
 }
 
-// ── Stage 2: connection lifecycle (SETTINGS, PING, GOAWAY) ───────────────────
+// ── Connection lifecycle: SETTINGS, PING, GOAWAY ────────────────────────────
 //
 // HTTP/2 opens with the client preface ("PRI * HTTP/2.0…" + a SETTINGS frame);
 // both peers exchange SETTINGS and ACK them. PING/PONG keeps a connection live
@@ -229,7 +231,7 @@ int h2_read_goaway(*uint8 payload, int len, int* last_stream_id, int* error_code
     return 0;
 }
 
-// Connection state, shared by later stages (streams/flow control build on this).
+// Per-connection state: negotiated settings, flow-control windows, last stream id.
 struct H2Conn {
     int fd;                 // the (non-blocking) socket
     H2Settings local;       // settings we advertised
@@ -251,7 +253,7 @@ void h2_conn_init(H2Conn* c, int fd) {
     c.recv_window = 65535;
 }
 
-// ── Stage 4: streams & flow control ──────────────────────────────────────────
+// ── Streams & flow control ───────────────────────────────────────────────────
 //
 // One HTTP/2 connection multiplexes many request/response *streams*, each with
 // its own state machine (§5.1) and flow-control window (§6.9). A server stream
@@ -353,6 +355,20 @@ int h2_read_window_update(*uint8 payload) {
 int h2_write_rst_stream(*uint8 buf, int stream_id, int error_code) {
     h2_put_u32(buf, H2_FRAME_HEADER_LEN, (int64)error_code);
     return h2_frame_finish(buf, H2_RST_STREAM, 0, stream_id, 4);
+}
+
+// Locate the HPACK header-block fragment within a HEADERS-frame payload `p`
+// (`hdr.length` bytes): a PADDED frame begins with a 1-byte pad length (and ends
+// with that many pad bytes), and a PRIORITY frame has a 5-byte stream-dependency
+// block before the fragment (§6.2). Sets *boff/*blen to the fragment bounds.
+void h2_headers_fragment(H2Frame* hdr, *uint8 p, int* boff, int* blen) {
+    int off = 0;  int pad = 0;
+    if ((hdr.flags & H2_FLAG_PADDED) != 0)   { pad = (int)p[0]; off = 1; }
+    if ((hdr.flags & H2_FLAG_PRIORITY) != 0) { off = off + 5; }
+    *boff = off;
+    int n = hdr.length - off - pad;
+    if (n < 0) { n = 0; }
+    *blen = n;
 }
 
 // HEADERS (§6.2): an (already HPACK-encoded) header block. No padding/priority.

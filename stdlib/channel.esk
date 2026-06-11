@@ -13,11 +13,11 @@
 //   chan_send(ch, 10);  chan_send(ch, 20);   // values inferred
 //   // ... drive consume(ch) on the event loop ...
 //
-// Model (v1): a bounded ring buffer with a SINGLE outstanding receiver (one
-// awaiter at a time — the typical task-to-task / fan-in-to-one-consumer shape)
-// and a non-blocking `chan_send` (returns false when the buffer is full and no
+// Model: a bounded ring buffer with a single outstanding receiver (one awaiter
+// at a time — the typical task-to-task / fan-in-to-one-consumer shape) and a
+// non-blocking `chan_send` (returns false when the buffer is full and no
 // receiver is parked). Single-threaded: a send hands off to a parked receiver
-// inline; cross-thread channels (atomic count/waiter) are a later addition.
+// inline.
 
 import <mem>;
 import <future>;

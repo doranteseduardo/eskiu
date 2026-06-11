@@ -4,16 +4,14 @@
 // handshake via ALPN (Application-Layer Protocol Negotiation): the client
 // offers a list, the server picks "h2". This module wraps OpenSSL (libssl) by
 // FFI: a server SSL_CTX that loads a cert/key and installs an ALPN callback
-// selecting "h2", a blocking accept/read/write, and an h2-over-TLS connection
-// handler that runs the <http2> frame protocol over the encrypted stream.
+// selecting "h2", and the h2-over-TLS connection handlers that run the <http2>
+// frame protocol over the encrypted stream. Two flavours are provided: a
+// blocking, thread-per-connection server (http2_tls_serve_conn) and an async one
+// (http2_tls_serve_async) that runs many TLS connections on one event-loop
+// thread via a non-blocking SSL pump (retrying SSL_* on WANT_READ/WANT_WRITE).
 //
 // Build: link with OpenSSL, e.g.
 //   eskiuc app.esk -o app -L/opt/homebrew/opt/openssl@3/lib -lssl -lcrypto
-//
-// Stage 5 of the <http2> build. The h2 server here is blocking (one connection
-// per thread, like <http>'s http_serve); the async event-loop server is h2c
-// (<http2_server>) — wiring TLS into the non-blocking reactor (SSL_read's
-// WANT_READ/WANT_WRITE) is a later refinement.
 
 import <mem>;
 import <future>;
@@ -145,7 +143,7 @@ void http2_tls_serve_conn(*void ssl, escaping fn(HttpRequest*, HttpResponse*)->v
     free((*void)pf);
     if (ok == 0) { tls_close(ssl); return; }
 
-    *uint8 fb = alloc<uint8>(16384);
+    *uint8 fb = alloc<uint8>(16384 + H2_FRAME_HEADER_LEN);
     let local: H2Settings;  h2_settings_defaults(&local);
     local.enable_push = 0;                               // a server MUST NOT set ENABLE_PUSH=1 (§6.5.2)
     let hdr: H2Frame;
@@ -163,7 +161,9 @@ void http2_tls_serve_conn(*void ssl, escaping fn(HttpRequest*, HttpResponse*)->v
         if (fl < 0) {
             running = 0;
         } else if (fr.type == H2_HEADERS) {
-            int nh = hpack_decode(&dec, fb + 9, fr.length, harr, 64);
+            int boff = 0;  int blen = 0;
+            h2_headers_fragment(&fr, fb + 9, &boff, &blen);     // skip PADDED/PRIORITY
+            int nh = hpack_decode(&dec, fb + 9 + boff, blen, harr, 64);
             let req: HttpRequest;  HttpRequest_init(&req);
             if (nh > 0) { h2_fill_request(&req, harr, nh); }
             if ((fr.flags & H2_FLAG_END_STREAM) == 0) {
@@ -335,7 +335,9 @@ async void http2_tls_dispatch_async(EventLoop* lp, int fd, *void ssl, *uint8 fb,
         if (fl < 0) {
             running = 0;
         } else if (fr.type == H2_HEADERS) {
-            int nh = hpack_decode(&dec, fb + 9, fr.length, harr, 64);
+            int boff = 0;  int blen = 0;
+            h2_headers_fragment(&fr, fb + 9, &boff, &blen);     // skip PADDED/PRIORITY
+            int nh = hpack_decode(&dec, fb + 9 + boff, blen, harr, 64);
             let req: HttpRequest;  HttpRequest_init(&req);
             if (nh > 0) { h2_fill_request(&req, harr, nh); }
             int alive = 1;
@@ -378,7 +380,7 @@ async void http2_tls_conn_async(EventLoop* lp, int fd, *void ctx,
     int ok = 0;
     if (ssl != (*void)0) { ok = await tls_accept_async(lp, fd, ssl); }
     if (ok == 1) {
-        *uint8 fb = alloc<uint8>(16384);
+        *uint8 fb = alloc<uint8>(16384 + H2_FRAME_HEADER_LEN);
         int hs = await http2_tls_handshake_async(lp, fd, ssl, fb);
         if (hs == 0) { await http2_tls_dispatch_async(lp, fd, ssl, fb, handler); }
         free((*void)fb);
