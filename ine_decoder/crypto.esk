@@ -313,13 +313,13 @@ int64 find_bytes(*uint8 hay, int64 hlen, string needle) {
     int64 nlen = strlen(needle);
     int64 i = 0;
     while (i + nlen <= hlen) {
-        int match = 1;
+        int matched = 1;
         int64 j = 0;
         while (j < nlen) {
-            if (hay[i + j] != needle[j]) { match = 0; j = nlen; }
+            if (hay[i + j] != needle[j]) { matched = 0; j = nlen; }
             j += 1;
         }
-        if (match != 0) return i;
+        if (matched != 0) return i;
         i += 1;
     }
     return -1;
