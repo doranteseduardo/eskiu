@@ -231,6 +231,8 @@ std::vector<DeclPtr> Parser::parseProgram() {
     // Owned import set if caller didn't provide one
     std::set<std::string> ownedSet;
     if (!importedFiles) importedFiles = &ownedSet;
+    // The root parser owns the shared type-name set; sub-parsers point at it.
+    if (!sharedTypeNames) sharedTypeNames = &declaredTypeNames;
 
     while (!is_at_end()) {
         // Compiler directive (e.g. #pragma pack) — updates parser state, emits no decl.
@@ -298,6 +300,7 @@ std::vector<DeclPtr> Parser::parseProgram() {
                     sub.stdlibPath    = stdlibPath;
                     sub.importedFiles = importedFiles;
                     sub.macros        = macros;
+                    sub.sharedTypeNames = sharedTypeNames;   // one set for all parsers
 
                     auto subProg = sub.parse();
                     if (!subProg) {
@@ -305,12 +308,10 @@ std::vector<DeclPtr> Parser::parseProgram() {
                     } else {
                         declarations.insert(declarations.end(),
                             subProg->declarations.begin(), subProg->declarations.end());
-                        // Imported type names must be visible here so that a cast
-                        // to an imported type — e.g. `(FutureHdr*)p` — is parsed as
-                        // a cast, not as `FutureHdr * p`. (sub already merged its
-                        // own imports' names, so this is transitive.)
-                        for (const auto& tn : sub.declaredTypeNames)
-                            declaredTypeNames.insert(tn);
+                        // Type names are recorded directly into the shared set as
+                        // each file is parsed, so a cast to an imported type —
+                        // `(FutureHdr*)p` — parses correctly here regardless of
+                        // which import path defined it (no post-merge needed).
                     }
                 }
             } catch (const std::exception& e) {
@@ -373,7 +374,7 @@ DeclPtr Parser::parseDeclaration() {
                 fields.push_back({fieldType, fieldName});
             }
             consume(TokenType::RBRACE, "Expected '}'");
-            declaredTypeNames.insert(name);
+            sharedTypeNames->insert(name);
             return std::make_shared<UnionDecl>(name, fields);
         }
         if (match(TokenType::INTERFACE)) {
@@ -416,7 +417,7 @@ DeclPtr Parser::parseDeclaration() {
                 if (!match(TokenType::COMMA)) break;
             }
             consume(TokenType::RBRACE, "Expected '}'");
-            declaredTypeNames.insert(name);
+            sharedTypeNames->insert(name);
             return std::make_shared<EnumDecl>(name, members);
         }
 
@@ -429,7 +430,7 @@ DeclPtr Parser::parseDeclaration() {
             advance();                                  // '='
             std::string underlying = parseType();
             consume(TokenType::SEMICOLON, "Expected ';' after type alias");
-            declaredTypeNames.insert(name);
+            sharedTypeNames->insert(name);
             return std::make_shared<TypeAliasDecl>(name, underlying);
         }
 
@@ -616,7 +617,7 @@ DeclPtr Parser::parseStructDecl() {
 
     consume(TokenType::RBRACE, "Expected '}'");
 
-    declaredTypeNames.insert(name);
+    sharedTypeNames->insert(name);
     auto decl = std::make_shared<StructDecl>(name, fields);
     decl->methods  = methods;
     decl->typeParams = typeParams;
@@ -1174,7 +1175,7 @@ ExprPtr Parser::parseUnary() {
         // Also a cast when the inner token names a declared type — a struct,
         // enum, union, or alias — as `(Name)x`, `(Name*)x`, or `(Name<...>)x`.
         if (!isTypeKeyword && inner == TokenType::IDENT &&
-            declaredTypeNames.count(peek_ahead(1).value)) {
+            sharedTypeNames->count(peek_ahead(1).value)) {
             isTypeKeyword = true;
         }
         if (isTypeKeyword) {
