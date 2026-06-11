@@ -635,14 +635,14 @@ void CodeGen::visit(FunctionDecl* node) {
     for (auto& arg : func->args()) {
         if (sret && argIdx == 0) { argIdx++; continue; }  // skip sret ptr
         if (paramIdx < node->params.size() && node->params[paramIdx].first != "...") {
-            // Struct-by-value params need an alloca so MemberExpr GEP has a pointer
-            llvm::Value* paramSlot = &arg;
-            if (arg.getType()->isStructTy()) {
-                auto* a = builder->CreateAlloca(arg.getType(), nullptr,
-                                                node->params[paramIdx].second + ".byval");
-                builder->CreateStore(&arg, a);
-                paramSlot = a;
-            }
+            // Give every parameter a stack slot: it makes the parameter a mutable
+            // lvalue (so the body may reassign it, like a local) and gives
+            // struct-by-value params a pointer for MemberExpr GEP. The incoming
+            // argument is stored into the slot; reads load from it.
+            auto* a = builder->CreateAlloca(arg.getType(), nullptr,
+                                            node->params[paramIdx].second);
+            builder->CreateStore(&arg, a);
+            llvm::Value* paramSlot = a;
             defineSymbol(node->params[paramIdx].second, paramSlot);
             std::string ptype = !typeParamOverride.empty()
                 ? substType(node->params[paramIdx].first, typeParamOverride)
@@ -1635,6 +1635,11 @@ void CodeGen::visit(CallExpr* node) {
     // Unified method/interface call: callee is MemberExpr
     if (auto member = dynamic_cast<MemberExpr*>(node->callee.get())) {
         std::string baseType = getExprEskiuType(member->base);
+        // Pointer-vs-value base: a pointer-to-struct base supplies the receiver
+        // by its *value* (the pointer — load it), a value struct by its *address*.
+        // (Mirrors the field-access logic; robust to parameters now living in a
+        // stack slot.)
+        bool baseIsPtr = (!baseType.empty() && (baseType.front() == '*' || baseType.back() == '*'));
         if (baseType.size() > 7 && baseType.substr(0, 7) == "struct:") baseType = baseType.substr(7);
         if (!baseType.empty() && baseType.front() == '*') baseType = baseType.substr(1);
         while (!baseType.empty() && baseType.back() == '*') baseType.pop_back();
@@ -1647,7 +1652,9 @@ void CodeGen::visit(CallExpr* node) {
         // Interface vtable dispatch
         auto ifIt = ifaceMethodOrder.find(baseType);
         if (ifIt != ifaceMethodOrder.end()) {
-            llvm::Value* fatPtr = evaluateLValue(member->base);
+            // An interface value IS a pointer to the fat {data, vtable} struct,
+            // so its *value* (loaded from the variable's slot) is the fat pointer.
+            llvm::Value* fatPtr = evaluateExpr(member->base);
             llvm::StructType* fatType = ifaceFatPtrTypes[baseType];
             llvm::Value* dataGEP = builder->CreateStructGEP(fatType, fatPtr, 0);
             llvm::Value* dataPtr = builder->CreateLoad(llvm::PointerType::get(*context, 0), dataGEP);
@@ -1702,7 +1709,11 @@ void CodeGen::visit(CallExpr* node) {
         std::string mangled = baseType + "_" + member->member;
         llvm::Function* mfunc = module->getFunction(mangled);
         if (mfunc) {
-            std::vector<llvm::Value*> margs = {evaluateLValue(member->base)};
+            // self: a value-struct receiver passes its address; a pointer receiver
+            // passes the pointer it holds (loaded), not the address of its slot.
+            llvm::Value* self = baseIsPtr ? evaluateExpr(member->base)
+                                          : evaluateLValue(member->base);
+            std::vector<llvm::Value*> margs = {self};
             for (auto& arg : node->args) margs.push_back(evaluateExpr(arg));
             exprValueStack.push(builder->CreateCall(mfunc, margs));
             return;
