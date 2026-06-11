@@ -1228,7 +1228,12 @@ void TypeChecker::visit(MatchStmt* node) {
     if (!ed && st != "unknown")
         errorAt(node, "match subject must be an algebraic enum, got " + st);
     node->enumName = st;
+    bool hasDefault = false;
+    std::set<std::string> covered;
     for (auto& arm : node->arms) {
+        if (arm.variant.empty()) hasDefault = true;
+        else if (!covered.insert(arm.variant).second)
+            errorAt(node, "duplicate match arm for variant '" + arm.variant + "'");
         pushScope();
         if (!arm.variant.empty() && ed) {
             auto vit = adtVariants.find(arm.variant);
@@ -1247,6 +1252,15 @@ void TypeChecker::visit(MatchStmt* node) {
         }
         if (arm.body) arm.body->accept(this);
         popScope();
+    }
+    // Exhaustiveness: without a `_` default, every variant must be covered.
+    if (ed && !hasDefault) {
+        std::string missing;
+        for (const auto& m : ed->members)
+            if (!covered.count(m.first)) missing += (missing.empty() ? "" : ", ") + m.first;
+        if (!missing.empty())
+            errorAt(node, "non-exhaustive match on " + st + ": missing " + missing +
+                          " (add those arms or a `_` default)");
     }
 }
 

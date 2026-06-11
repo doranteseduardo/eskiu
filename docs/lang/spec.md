@@ -1097,8 +1097,10 @@ float area(Shape s) {
 Shape a = Circle(2.0);          // construct; payload-free variants are bare (`Unit`)
 ```
 
-A `match` arm names a variant and binds its payload fields, or uses `_` as a
-default; the arm body is any statement (often a block or a `return`). The value is
+A `match` must be **exhaustive**: every variant must have an arm, or there must be
+a `_` default — otherwise it is a compile error naming the missing variants. A
+variant may not appear in two arms. The arm body is any statement (often a block
+or a `return`). The value is
 laid out as `{ tag, payload }`, where the payload area is sized to the largest
 variant. (A `match` subject is parsed without a trailing struct literal, like the
 condition of an `if`; wrap it in parens if you need one.)
