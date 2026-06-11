@@ -208,8 +208,134 @@ std::string TypeChecker::getDefinitionAt(int line, int col) const {
     return "";
 }
 
+namespace {
+// Type-independent capture analysis for TEMPLATE function bodies.
+//
+// The normal capture detection (visit(IdentExpr)/visit(LambdaExpr)) runs as part
+// of type-checking, which skips template bodies (their expressions mention the
+// unresolved type parameter T). So a lambda inside a generic function would get
+// an empty capture list and miscompile ("Referring to an argument in another
+// function"). This pass fills that gap: a pure lexical scope + free-variable walk
+// (no types resolved, no diagnostics) that records, for each lambda, the
+// enclosing-scope names it references — with their SOURCE-form types (T intact).
+// Codegen's getTypeFromString already substitutes typeParamOverride, so a capture
+// typed `*Future<T>` becomes `*Future<int>` automatically per instantiation.
+//
+// Purely additive: it only writes LambdaExpr::captures, which were previously
+// empty for template-body lambdas, so it cannot affect non-template code.
+struct TemplateCapturePass {
+    std::vector<std::map<std::string, std::string>> scopes;  // name -> source type
+    struct Active { int boundary; std::map<std::string, std::string> caps; };
+    std::vector<Active> lambdas;
+
+    void define(const std::string& name, const std::string& srcType) {
+        if (!scopes.empty()) scopes.back()[name] = srcType;
+    }
+    int defIndex(const std::string& name) {
+        for (int i = (int)scopes.size() - 1; i >= 0; --i)
+            if (scopes[i].count(name)) return i;
+        return -1;   // not a tracked local -> a global or top-level fn (not captured)
+    }
+    void run(FunctionDecl* fn) {
+        scopes.push_back({});
+        for (auto& p : fn->params) define(p.second, p.first);  // params: (type, name)
+        walkStmt(fn->body.get());
+        scopes.pop_back();
+    }
+    void walkStmt(Stmt* s) {
+        if (!s) return;
+        if (auto* b = dynamic_cast<BlockStmt*>(s)) {
+            scopes.push_back({});
+            for (auto& it : b->items) {
+                if (std::holds_alternative<DeclPtr>(it)) {
+                    if (auto* vd = dynamic_cast<VarDecl*>(std::get<DeclPtr>(it).get())) {
+                        if (vd->initializer) walkExpr(vd->initializer.get());
+                        define(vd->name, vd->type);
+                    }
+                } else walkStmt(std::get<StmtPtr>(it).get());
+            }
+            scopes.pop_back(); return;
+        }
+        if (auto* i = dynamic_cast<IfStmt*>(s)) {
+            walkExpr(i->condition.get()); walkStmt(i->thenBranch.get()); walkStmt(i->elseBranch.get()); return;
+        }
+        if (auto* w = dynamic_cast<WhileStmt*>(s)) { walkExpr(w->condition.get()); walkStmt(w->body.get()); return; }
+        if (auto* f = dynamic_cast<ForStmt*>(s)) {
+            scopes.push_back({});
+            walkStmt(f->init.get()); walkExpr(f->condition.get()); walkExpr(f->step.get()); walkStmt(f->body.get());
+            scopes.pop_back(); return;
+        }
+        if (auto* fi = dynamic_cast<ForInStmt*>(s)) {
+            scopes.push_back({});
+            walkExpr(fi->iterable.get()); define(fi->varName, "");
+            walkStmt(fi->body.get());
+            scopes.pop_back(); return;
+        }
+        if (auto* r = dynamic_cast<ReturnStmt*>(s)) { walkExpr(r->value.get()); return; }
+        if (auto* es = dynamic_cast<ExprStmt*>(s)) { walkExpr(es->expr.get()); return; }
+        if (auto* sw = dynamic_cast<SwitchStmt*>(s)) {
+            walkExpr(sw->subject.get());
+            for (auto& c : sw->cases) { walkExpr(c.value.get()); for (auto& st : c.stmts) walkStmt(st.get()); }
+            return;
+        }
+        if (auto* th = dynamic_cast<ThrowStmt*>(s)) { walkExpr(th->value.get()); return; }
+        if (auto* tr = dynamic_cast<TryStmt*>(s)) {
+            walkStmt(tr->body.get());
+            for (auto& cc : tr->catches) { scopes.push_back({}); define(cc.name, cc.type); walkStmt(cc.body.get()); scopes.pop_back(); }
+            walkStmt(tr->finally.get()); return;
+        }
+        if (auto* tj = dynamic_cast<ThreadJoinStmt*>(s)) { walkExpr(tj->tid.get()); return; }
+        if (auto* a = dynamic_cast<AsmStmt*>(s)) { for (auto& in : a->inputs) walkExpr(in.second.get()); return; }
+        // BreakStmt / ContinueStmt: no children
+    }
+    void walkExpr(Expr* e) {
+        if (!e) return;
+        if (auto* id = dynamic_cast<IdentExpr*>(e)) {
+            int di = defIndex(id->name);
+            if (di >= 0)
+                for (auto& L : lambdas)
+                    if (di < L.boundary) L.caps[id->name] = scopes[di][id->name];
+            return;
+        }
+        if (auto* lam = dynamic_cast<LambdaExpr*>(e)) {
+            lambdas.push_back({(int)scopes.size(), {}});
+            scopes.push_back({});
+            std::set<std::string> params;
+            for (auto& p : lam->params) { define(p.second, p.first); params.insert(p.second); }
+            walkStmt(lam->body.get());
+            scopes.pop_back();
+            Active fin = lambdas.back(); lambdas.pop_back();
+            lam->captures.clear();
+            for (auto& [n, t] : fin.caps)
+                if (!params.count(n)) lam->captures.push_back({n, t});
+            return;
+        }
+        if (auto* b = dynamic_cast<BinaryExpr*>(e)) { walkExpr(b->left.get()); walkExpr(b->right.get()); return; }
+        if (auto* u = dynamic_cast<UnaryExpr*>(e)) { walkExpr(u->operand.get()); return; }
+        if (auto* q = dynamic_cast<QuestionExpr*>(e)) { walkExpr(q->operand.get()); return; }
+        if (auto* m = dynamic_cast<MemberExpr*>(e)) { walkExpr(m->base.get()); return; }
+        if (auto* ix = dynamic_cast<IndexExpr*>(e)) { walkExpr(ix->base.get()); walkExpr(ix->index.get()); return; }
+        if (auto* c = dynamic_cast<CastExpr*>(e)) { walkExpr(c->expr.get()); return; }
+        if (auto* call = dynamic_cast<CallExpr*>(e)) { walkExpr(call->callee.get()); for (auto& a : call->args) walkExpr(a.get()); return; }
+        if (auto* tc = dynamic_cast<TemplateCallExpr*>(e)) { for (auto& a : tc->args) walkExpr(a.get()); return; }
+        if (auto* si = dynamic_cast<StructInitExpr*>(e)) { for (auto& f : si->fieldInits) walkExpr(f.second.get()); return; }
+        if (auto* aw = dynamic_cast<AwaitExpr*>(e)) { walkExpr(aw->operand.get()); return; }
+        if (auto* fc = dynamic_cast<FreeClosureExpr*>(e)) { walkExpr(fc->closure.get()); return; }
+        if (auto* al = dynamic_cast<AllocWithExpr*>(e)) { walkExpr(al->allocator.get()); walkExpr(al->count.get()); return; }
+        if (auto* tcr = dynamic_cast<ThreadCreateExpr*>(e)) { walkExpr(tcr->worker.get()); return; }
+        // LiteralExpr / SizeofExpr: no captured children
+    }
+};
+} // namespace
+
 void TypeChecker::visit(FunctionDecl* node) {
-    if (!node->typeParams.empty()) return; // Template body checked on instantiation
+    if (!node->typeParams.empty()) {
+        // Template body: type-checking is deferred to instantiation, but lambda
+        // captures must be resolved now (codegen has no equivalent pass). See
+        // TemplateCapturePass — purely additive, type-independent.
+        if (node->body) { TemplateCapturePass p; p.run(node); }
+        return;
+    }
 
     // Record definition location
     definitionLocations[node->name] = {node->line, node->col, sourceFile};
@@ -1000,8 +1126,20 @@ void TypeChecker::visit(AwaitExpr* node) {
     while (!inner.empty() && inner.front() == '*') inner = inner.substr(1);
     while (!inner.empty() && inner.back()  == '*') inner.pop_back();
 
+    // The operand's Future<T> may arrive in source form (`Future<int>`) from a
+    // plain function, or already normalized to `struct:Future_int` from a template
+    // call (its return type went through normalizeType). Recover T from either:
+    // for the normalized form, the mangled name maps back to {base, args} via
+    // templateInstanceArgs (recorded when the instance was first normalized).
+    std::string base;
+    std::vector<std::string> args;
     if (inner.size() > 7 && inner.substr(0, 7) == "Future<") {
-        auto [nm, args] = splitTemplateType(inner);
+        std::tie(base, args) = splitTemplateType(inner);
+    } else if (inner.rfind("struct:", 0) == 0) {
+        auto ti = templateInstanceArgs.find(inner.substr(7));  // "Future_int"
+        if (ti != templateInstanceArgs.end()) { base = ti->second.first; args = ti->second.second; }
+    }
+    if (base == "Future") {
         std::string res = (args.size() == 1) ? normalizeType(args[0]) : "unknown";
         expressionTypes[node] = res;
         node->resolvedType = res;          // consumed by the async transform

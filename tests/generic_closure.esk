@@ -1,0 +1,31 @@
+// A capturing closure declared INSIDE a generic function body. The closure
+// captures both a T-typed value (`v`) and a concrete pointer (`hits`). Capture
+// analysis runs on template bodies (TemplateCapturePass), and the env field type
+// `T` is substituted per instantiation by codegen — so `box<int>`'s env holds an
+// int and `box<int64>`'s holds an int64. Pre-fix this miscompiled (empty capture
+// list -> "Referring to an argument in another function").
+import <mem>;
+extern int printf(string fmt, ...);
+
+int call_it(escaping fn()->int op) { return op(); }
+
+int box<T>(T v, int bump) {
+    *int hits = alloc<int>(1);  *hits = 0;
+    let f: fn()->int = int() {        // captures v (type T) and hits (*int)
+        *hits = *hits + bump;         // also captures bump (int)
+        return (int)v + *hits;
+    };
+    int r1 = call_it(f);              // v + bump
+    int r2 = call_it(f);              // v + 2*bump
+    free_closure(f);
+    int h = *hits;  free((*void)hits);
+    return r1 + r2 + h;
+}
+
+int main() {
+    // box<int>(10, 1):  r1=11, r2=12, hits=2  -> 25
+    printf("%d\n", box<int>(10, 1));
+    // box<int64>(100,5): r1=105, r2=110, hits=10 -> 225
+    printf("%d\n", box<int64>((int64)100, 5));
+    return 0;
+}
