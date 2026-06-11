@@ -41,9 +41,15 @@ tested and useful on its own.
   - Verified against the RFC's own vectors — §C.1.1 (integer), §C.3.1 (raw
     request), §C.4.1 (Huffman request) — plus encode→decode round-trips
     (`tests/hpack`).
-- [ ] **Stage 4 — Streams & flow control.** Stream state machine (idle → open →
-  half-closed → closed), HEADERS+CONTINUATION assembly, DATA framing, per-stream
-  and connection WINDOW_UPDATE flow control, RST_STREAM.
+- [x] **Stage 4 — Streams & flow control** (`stdlib/http2.esk`). The per-stream
+  state machine (`H2Stream`, idle → open → half-closed-local/remote → closed via
+  `h2_stream_on_recv`/`h2_stream_on_send`); credit-based flow control (`h2_can_send`/
+  `h2_account_sent`/`h2_account_recv`/`h2_grant_window`) over per-stream and
+  connection windows; and the stream-frame codecs — HEADERS, DATA, WINDOW_UPDATE,
+  RST_STREAM (`h2_write_*`). HEADERS+CONTINUATION reassembly to END_HEADERS is the
+  async `h2_read_header_block_async`. Tested by `http2_stream` (state machine,
+  flow control, codecs). RESERVED states are omitted (no server push; we advertise
+  `ENABLE_PUSH = 0`).
 - [ ] **Stage 5 — TLS / ALPN.** HTTP/2 in browsers requires TLS with ALPN
   negotiating `h2`. Planned via OpenSSL by FFI (already proven — the crypto
   pipeline links OpenSSL via `extern`). Cleartext `h2c` is the interim test path.

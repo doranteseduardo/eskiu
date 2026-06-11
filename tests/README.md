@@ -55,7 +55,8 @@ when you add a test.
 | `http2_frame` | `<http2>` 9-byte frame-header encode/decode round-trip (incl. 31-bit stream id) |
 | `http2_conn` | `<http2>` stage 2 codecs: SETTINGS write/apply, ACK, PING/PONG, GOAWAY round-trips |
 | `http2_handshake` | `<http2>` async server opening handshake over a socketpair (preface + SETTINGS exchange + ACK) |
-| `hpack` | `<hpack>` HPACK (RFC 7541): integer/string codecs, static + dynamic tables, §6 decode/encode — RFC vectors |
+| `hpack` | `<hpack>` HPACK (RFC 7541): integer/string codecs, static + dynamic tables, §6 decode/encode, Huffman — RFC vectors |
+| `http2_stream` | `<http2>` stage 4: stream state machine, flow-control accounting, HEADERS/DATA/WINDOW_UPDATE/RST_STREAM codecs |
 | `const` | immutable bindings, usable as array sizes |
 | `param_reassign` | reassigning scalar/pointer parameters; method call through a pointer parameter |
 | `pointer_const` | `const T*` (pointee read-only) vs `T* const` (binding read-only); read/rebind allowed, write-through and const-drop rejected |

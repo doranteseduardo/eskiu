@@ -1151,7 +1151,14 @@ void CodeGen::visit(ReturnStmt* node) {
         if (v->getType()->isIntegerTy() && ft->isIntegerTy()) {
             unsigned vw = llvm::cast<llvm::IntegerType>(v->getType())->getBitWidth();
             unsigned fw = llvm::cast<llvm::IntegerType>(ft)->getBitWidth();
-            return vw < fw ? builder->CreateSExt(v, ft) : builder->CreateTrunc(v, ft);
+            if (vw >= fw) return builder->CreateTrunc(v, ft);
+            // Widen by the source's signedness: a bool/comparison result (i1) or
+            // an unsigned source zero-extends — e.g. `return a < b;` from an int
+            // function is 1, not -1.
+            std::string st = node->value ? expandAlias(getExprEskiuType(node->value)) : "";
+            bool uns = vw == 1 || st == "uint" || st == "uint8" || st == "uint16" ||
+                       st == "uint32" || st == "uint64" || st == "char" || st == "bool";
+            return uns ? builder->CreateZExt(v, ft) : builder->CreateSExt(v, ft);
         }
         if (v->getType()->isIntegerTy() && ft->isFloatingPointTy())
             return builder->CreateSIToFP(v, ft);
