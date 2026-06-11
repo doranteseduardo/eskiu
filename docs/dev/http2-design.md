@@ -83,10 +83,16 @@ tested and useful on its own.
   `net_write_async`) and **flow-controlled**: `h2_respond_async` spends the stream
   and connection send windows per DATA frame and parks for WINDOW_UPDATE when a
   window is exhausted — verified delivering 1 MB bodies over `curl` past the
-  65535-byte default window. Tested end-to-end over a socketpair (`http2_server`),
-  with DATA chunking checked directly (`http2_chunking`). v1 handles streams
-  sequentially (correct request/response, not yet concurrent multiplexing) and is
-  cleartext h2c (TLS is stage 5).
+  65535-byte default window. **Streams are multiplexed**: interleaved request
+  frames are routed to per-stream slots (`H2PendingStream`) and each completes
+  (handler + response) on its END_STREAM, so a client may run many concurrent
+  streams on one connection; responses are serialized on the connection's single
+  writer (correct, and avoids concurrent socket writes). Tested over a socketpair
+  end-to-end (`http2_server`), with DATA chunking (`http2_chunking`) and
+  interleaved two-stream multiplexing (`http2_multiplex`) checked directly. It is
+  cleartext h2c (TLS is stage 5). (One bounded limitation: while a response is
+  parked on flow control, other streams' frames wait — fine for the typical
+  small-response mix.)
 
 ## Frame header (RFC 7540 §4.1)
 
