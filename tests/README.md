@@ -104,6 +104,8 @@ when you add a test.
 | `async_if` | `if`/`else` with an await in each branch (branch-join states) |
 | `async_for` | C-style `for` loop containing an await |
 | `async_spawn` | detached `spawn` of async tasks (ready + suspending), leak-free |
+| `async_select` | `select2` — await the first of two futures; loser dropped (A-wins + B-wins) |
+| `async_join` | `join2` — await both futures, then read both values |
 
 ### `smoke` tests (compile + link + exit 0)
 
