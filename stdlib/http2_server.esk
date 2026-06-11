@@ -125,17 +125,38 @@ int h2_build_response(*uint8 out, int stream_id, HttpResponse* res) {
     h2_encode_resp_headers(block, &off, res);
 
     int total = h2_write_headers(out, stream_id, block, off, 0, 1);  // END_HEADERS, body follows
+
+    // Body as DATA frames, each no larger than the default SETTINGS_MAX_FRAME_SIZE
+    // (16384) — a single frame may not exceed it. Only the final frame carries
+    // END_STREAM; an empty body still sends one empty END_STREAM frame.
     int blen = String_len(&res.body);
-    total = total + h2_write_data(out + total, stream_id,
-                                  (*uint8)String_cstr(&res.body), blen, 1);  // END_STREAM
+    *uint8 body = (*uint8)String_cstr(&res.body);
+    int sent = 0;
+    int more = 1;
+    while (more != 0) {
+        int n = blen - sent;
+        if (n > 16384) { n = 16384; }
+        int last = 0;
+        if (sent + n >= blen) { last = 1; }
+        total = total + h2_write_data(out + total, stream_id, body + sent, n, last);
+        sent = sent + n;
+        if (last != 0) { more = 0; }
+    }
     free((*void)block);
     return total;
 }
 
+// Upper bound on the encoded size of a response: header block + body + a 9-byte
+// frame header per DATA chunk + slack. Callers size their buffer with this.
+int h2_response_bufsize(HttpResponse* res) {
+    int blen = String_len(&res.body);
+    int chunks = blen / 16384 + 2;
+    return 8192 + blen + 9 * chunks + 64;
+}
+
 // Encode and send a response on `stream_id` over the connection's socket.
 void h2_send_response(H2Conn* conn, int stream_id, HttpResponse* res) {
-    int cap = 8192 + String_len(&res.body) + 64;
-    *uint8 out = alloc<uint8>(cap);
+    *uint8 out = alloc<uint8>(h2_response_bufsize(res));
     int n = h2_build_response(out, stream_id, res);
     net_send(conn.fd, (*void)out, (int64)n);
     free((*void)out);
