@@ -35,7 +35,7 @@ Restart VS Code after installing.
 | `try catch finally throw` | keyword.control.exception |
 | `let struct packed union interface enum fn extern intrinsic import` | keyword.declaration |
 | `const volatile` | storage.modifier |
-| `sizeof asm alloc_with thread_create thread_join thread spawn mutex` | keyword.other |
+| `sizeof asm alloc_with thread_create thread_join` | keyword.other |
 | `import <mem>;` stdlib imports and `type Alias = …` | namespace / declaration |
 | `int uint8 float double bool char string void` … | support.type |
 | Function names at declaration and call sites | entity.name.function |
