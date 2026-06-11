@@ -160,6 +160,7 @@ when you add a test.
 | `errors/const_no_init` | `const` declared without an initializer |
 | `errors/const_reassign` | reassigning a `const` |
 | `errors/arg_count` | calling a function with the wrong argument count |
+| `errors/async_no_await` | an `async fn` with no `await` is rejected |
 | `errors/match_duplicate` | two `match` arms for the same variant |
 | `errors/const_field` | assigning to a field of a `const` value |
 | `errors/const_ptr_write` | writing through a pointer-to-const (`*r = …`) |
