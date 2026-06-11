@@ -104,11 +104,10 @@ void h2_encode_resp_headers(*uint8 block, int* off, HttpResponse* res) {
     }
 }
 
-// Build a complete response on `stream_id` into `out` (must be large enough):
-// a HEADERS frame (:status, content-length, then the handler's headers) followed
-// by a DATA frame (the body) with END_STREAM. Returns the total byte count.
-// Transport-agnostic, so both the plain-socket and TLS servers reuse it.
-int h2_build_response(*uint8 out, int stream_id, HttpResponse* res) {
+// Build just the response HEADERS frame (`:status`, `content-length`, then the
+// handler's headers) into `out`; END_HEADERS set, END_STREAM not (a body follows).
+// Returns the frame length.
+int h2_build_headers(*uint8 out, int stream_id, HttpResponse* res) {
     *uint8 block = alloc<uint8>(8192);
     int off = 0;
 
@@ -123,8 +122,18 @@ int h2_build_response(*uint8 out, int stream_id, HttpResponse* res) {
     String_free(&cl);
 
     h2_encode_resp_headers(block, &off, res);
+    int n = h2_write_headers(out, stream_id, block, off, 0, 1);
+    free((*void)block);
+    return n;
+}
 
-    int total = h2_write_headers(out, stream_id, block, off, 0, 1);  // END_HEADERS, body follows
+// Build a complete response on `stream_id` into `out` (must be large enough):
+// the HEADERS frame followed by the body as MAX_FRAME_SIZE-bounded DATA frames
+// (last carries END_STREAM). Returns the total byte count. Transport-agnostic;
+// the blocking TLS server uses this. The async server uses h2_respond_async,
+// which adds flow control.
+int h2_build_response(*uint8 out, int stream_id, HttpResponse* res) {
+    int total = h2_build_headers(out, stream_id, res);
 
     // Body as DATA frames, each no larger than the default SETTINGS_MAX_FRAME_SIZE
     // (16384) — a single frame may not exceed it. Only the final frame carries
@@ -142,8 +151,61 @@ int h2_build_response(*uint8 out, int stream_id, HttpResponse* res) {
         sent = sent + n;
         if (last != 0) { more = 0; }
     }
-    free((*void)block);
     return total;
+}
+
+// Send a response on `stream_id` over the async connection with flow control:
+// the HEADERS frame, then the body in MAX_FRAME_SIZE chunks that each spend the
+// stream and connection send windows. When a window is exhausted, read frames
+// (applying WINDOW_UPDATE) until it reopens. `rbuf`/`rbufcap` is scratch for
+// those reads. Returns 0, or -1 if the connection drops. The peer's per-stream
+// initial window comes from its SETTINGS.
+async int h2_respond_async(EventLoop* lp, H2Conn* conn, int sid, HttpResponse* res,
+                           *uint8 rbuf, int rbufcap) {
+    *uint8 hb = alloc<uint8>(8704);
+    int hn = h2_build_headers(hb, sid, res);
+    int hw = await net_write_async(lp, conn.fd, hb, (int64)hn);
+    free((*void)hb);
+    if (hw < 0) { return -1; }
+
+    let stream: H2Stream;
+    h2_stream_init(&stream, sid, (int)conn.remote.initial_window_size, 65535);
+    int blen = String_len(&res.body);
+    *uint8 body = (*uint8)String_cstr(&res.body);
+    *uint8 df = alloc<uint8>(16384 + 9);
+    int sent = 0;
+    int more = 1;
+    while (more != 0) {
+        // Flow control: wait until at least one byte of window is available on
+        // BOTH the stream and the connection, reading WINDOW_UPDATE frames that
+        // replenish them. (A zero-length body skips this and sends one empty
+        // END_STREAM frame — empty DATA does not consume the window.)
+        while (blen - sent > 0 && h2_can_send(conn, &stream, 1) == 0) {
+            let wf: H2Frame;
+            int wl = await h2_read_frame_async(lp, conn.fd, rbuf, rbufcap, &wf);
+            if (wl < 0) { free((*void)df); return -1; }
+            if (wf.type == H2_WINDOW_UPDATE) {
+                int inc = h2_read_window_update(rbuf + 9);
+                if (wf.stream_id == 0) { h2_grant_window(conn, (H2Stream*)0, inc); }
+                else { h2_grant_window(conn, &stream, inc); }
+            }
+        }
+        // Send as much as the frame size AND the available windows allow.
+        int n = blen - sent;
+        if (n > 16384) { n = 16384; }
+        if (n > stream.send_window) { n = stream.send_window; }
+        if (n > conn.send_window)   { n = conn.send_window; }
+        int last = 0;
+        if (sent + n >= blen) { last = 1; }
+        int dn = h2_write_data(df, sid, body + sent, n, last);
+        int dw = await net_write_async(lp, conn.fd, df, (int64)dn);
+        if (dw < 0) { free((*void)df); return -1; }
+        h2_account_sent(conn, &stream, n);
+        sent = sent + n;
+        if (last != 0) { more = 0; }
+    }
+    free((*void)df);
+    return 0;
 }
 
 // Upper bound on the encoded size of a response: header block + body + a 9-byte
@@ -200,10 +262,7 @@ async void http2_serve_conn_async(EventLoop* lp, int fd,
                 }
                 let res: HttpResponse;  HttpResponse_init(&res, 200);
                 handler(&req, &res);
-                *uint8 out = alloc<uint8>(h2_response_bufsize(&res));
-                int on = h2_build_response(out, hdr.stream_id, &res);
-                int ow = await net_write_async(lp, fd, out, (int64)on);  // non-blocking send
-                free((*void)out);
+                int ow = await h2_respond_async(lp, &conn, hdr.stream_id, &res, fb, 16384);
                 HttpResponse_free(&res);
                 HttpRequest_free(&req);
                 if (ow < 0) { running = 0; }
@@ -221,11 +280,17 @@ async void http2_serve_conn_async(EventLoop* lp, int fd,
                     int w = await net_write_async(lp, fd, pb, (int64)pn2);
                     free((*void)pb);
                 }
+            } else if (hdr.type == H2_WINDOW_UPDATE) {
+                // Connection-level credit (stream 0). Clients send a large one
+                // early; applying it lets big responses flow past the 65535
+                // default window. Stream-level updates are handled mid-response.
+                if (hdr.stream_id == 0) {
+                    h2_grant_window(&conn, (H2Stream*)0, h2_read_window_update(fb + 9));
+                }
             } else if (hdr.type == H2_GOAWAY) {
                 running = 0;
             }
-            // WINDOW_UPDATE / RST_STREAM and other frames: no action needed for
-            // the small request/response exchanges this server handles.
+            // RST_STREAM and other frames need no action for this server.
         }
         free((*void)harr);
         free((*void)fb);
