@@ -1,0 +1,22 @@
+// A top-level Eskiu function can be passed to a C API as a raw callback by
+// casting it to a pointer type: `(*void)cmp` yields the bare C function pointer
+// (not the {fn,env} closure fat pointer). Verified by driving libc's qsort.
+import <mem>;
+extern int printf(string fmt, ...);
+extern void qsort(*void base, int64 n, int64 size, *void compar);
+
+int cmp(*void a, *void b) {
+    int x = *(*int)a;  int y = *(*int)b;
+    if (x < y) { return -1; }
+    if (x > y) { return 1; }
+    return 0;
+}
+
+int main() {
+    *int arr = alloc<int>(5);
+    arr[0] = 3;  arr[1] = 1;  arr[2] = 4;  arr[3] = 1;  arr[4] = 5;
+    qsort((*void)arr, (int64)5, (int64)4, (*void)cmp);
+    printf("%d %d %d %d %d\n", arr[0], arr[1], arr[2], arr[3], arr[4]);
+    free((*void)arr);
+    return 0;
+}
