@@ -1567,6 +1567,25 @@ extern *void memset(*void ptr, int value, int n);
 
 (For heap allocation, prefer `import <mem>` and `alloc<T>`/`free` over declaring `malloc`/`free` as `extern` yourself — see §11.2.)
 
+### 13.4 Passing an Eskiu function as a C callback
+
+Many C APIs take a function pointer (`qsort`, `signal`, OpenSSL's ALPN selector,
+…). Casting a **top-level** Eskiu function to a pointer type yields its bare C
+function-pointer address — the raw symbol, not the `{fn, env}` closure fat
+pointer a function name otherwise decays to:
+
+```eskiu
+extern void qsort(*void base, int64 n, int64 size, *void compar);
+
+int cmp(*void a, *void b) { return *(*int)a - *(*int)b; }
+
+qsort((*void)arr, (int64)5, (int64)4, (*void)cmp);   // (*void)cmp is the raw C pointer
+```
+
+The callback's signature must match what the C side expects (C ABI). This works
+only for top-level functions (a closure or fn-pointer variable still carries an
+environment and is not C-callable).
+
 ---
 
 ## 14. Stdlib

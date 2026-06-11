@@ -2016,9 +2016,24 @@ void CodeGen::storeBitfield(MemberExpr* m, llvm::Value* val) {
 }
 
 void CodeGen::visit(CastExpr* node) {
-    llvm::Value* val = evaluateExpr(node->expr);
-
     llvm::Type* targetType = getTypeFromString(node->targetType);
+
+    // Casting a top-level function name to a pointer type yields its RAW C
+    // function pointer — the bare symbol address, not the {fn, env} closure fat
+    // pointer the name would otherwise decay to. This is how an Eskiu function is
+    // handed to a C API as a callback (e.g. OpenSSL's ALPN select callback).
+    if (targetType->isPointerTy()) {
+        if (auto* id = dynamic_cast<IdentExpr*>(node->expr.get())) {
+            if (!lookupSymbol(id->name)) {               // not shadowed by a variable
+                if (llvm::Function* fn = module->getFunction(id->name)) {
+                    exprValueStack.push(fn);             // a Function* is already a ptr
+                    return;
+                }
+            }
+        }
+    }
+
+    llvm::Value* val = evaluateExpr(node->expr);
 
     llvm::Value* result = nullptr;
 
