@@ -336,6 +336,22 @@ llvm::Constant* CodeGen::evaluateConstantExpr(const ExprPtr& expr) {
     }
 }
 
+bool CodeGen::eskiuUnsigned(const std::string& t) const {
+    std::string s = tyq::strip(expandAlias(t));
+    return s == "uint" || s == "uint8" || s == "uint16" || s == "uint32" ||
+           s == "uint64" || s == "char" || s == "bool";
+}
+
+llvm::Value* CodeGen::coerceInt(llvm::Value* val, llvm::Type* ty, bool unsignedSrc) {
+    if (!val || val->getType() == ty) return val;
+    if (!val->getType()->isIntegerTy() || !ty->isIntegerTy()) return val;
+    unsigned sw = val->getType()->getIntegerBitWidth();
+    unsigned dw = ty->getIntegerBitWidth();
+    if (sw < dw) return unsignedSrc ? builder->CreateZExt(val, ty) : builder->CreateSExt(val, ty);
+    if (sw > dw) return builder->CreateTrunc(val, ty);
+    return val;
+}
+
 std::string CodeGen::expandAlias(const std::string& raw) const {
     // const is checked only by the type checker; codegen works on stripped types.
     std::string t = tyq::strip(raw);
@@ -747,14 +763,7 @@ void CodeGen::visit(VarDecl* node) {
             llvm::Value* val = evaluateExpr(node->initializer);
             if (val && val->getType() != declType) {
                 if (val->getType()->isIntegerTy() && declType->isIntegerTy()) {
-                    unsigned src = llvm::cast<llvm::IntegerType>(val->getType())->getBitWidth();
-                    unsigned dst = llvm::cast<llvm::IntegerType>(declType)->getBitWidth();
-                    if (src > dst)
-                        val = builder->CreateTrunc(val, declType);
-                    else if (src < dst)
-                        // ZExt for i1 (bool comparisons) to avoid sign-extending 1 → -1
-                        val = (src == 1) ? builder->CreateZExt(val, declType)
-                                         : builder->CreateSExt(val, declType);
+                    val = coerceInt(val, declType, eskiuUnsigned(getExprEskiuType(node->initializer)));
                 } else if (val->getType()->isIntegerTy() && declType->isFloatingPointTy()) {
                     val = builder->CreateSIToFP(val, declType);
                 } else if (val->getType()->isFloatingPointTy() && declType->isIntegerTy()) {
@@ -1232,10 +1241,7 @@ void CodeGen::visit(BinaryExpr* node) {
         }
         if (elemType && rhs->getType() != elemType) {
             if (rhs->getType()->isIntegerTy() && elemType->isIntegerTy()) {
-                unsigned rw = llvm::cast<llvm::IntegerType>(rhs->getType())->getBitWidth();
-                unsigned ew = llvm::cast<llvm::IntegerType>(elemType)->getBitWidth();
-                rhs = rw < ew ? builder->CreateZExt(rhs, elemType)
-                               : builder->CreateTrunc(rhs, elemType);
+                rhs = coerceInt(rhs, elemType, eskiuUnsigned(getExprEskiuType(node->right)));
             } else if (rhs->getType()->isIntegerTy() && elemType->isFloatingPointTy()) {
                 rhs = builder->CreateSIToFP(rhs, elemType);
             } else if (rhs->getType()->isFloatingPointTy() && elemType->isIntegerTy()) {
@@ -1809,11 +1815,8 @@ void CodeGen::visit(CallExpr* node) {
         for (size_t i = 0; i < args.size() && i < fparams.size(); ++i) {
             if (args[i]->getType()->isIntegerTy() && fparams[i]->isIntegerTy()
                     && args[i]->getType() != fparams[i]) {
-                unsigned aw = llvm::cast<llvm::IntegerType>(args[i]->getType())->getBitWidth();
-                unsigned pw = llvm::cast<llvm::IntegerType>(fparams[i])->getBitWidth();
-                args[i] = aw < pw
-                    ? builder->CreateSExt(args[i], fparams[i])
-                    : builder->CreateTrunc(args[i], fparams[i]);
+                bool uns = i < node->args.size() && eskiuUnsigned(getExprEskiuType(node->args[i]));
+                args[i] = coerceInt(args[i], fparams[i], uns);
             }
         }
     }
@@ -2668,8 +2671,7 @@ llvm::Value* CodeGen::buildEnumValue(llvm::StructType* et, int tag,
             llvm::Type* ft = fieldTypes[i];
             if (val && val->getType() != ft) {       // coerce arg to the field type
                 if (val->getType()->isIntegerTy() && ft->isIntegerTy())
-                    val = val->getType()->getIntegerBitWidth() > ft->getIntegerBitWidth()
-                          ? builder->CreateTrunc(val, ft) : builder->CreateSExt(val, ft);
+                    val = coerceInt(val, ft, eskiuUnsigned(getExprEskiuType(args[i])));
                 else if (val->getType()->isIntegerTy() && ft->isFloatingPointTy())
                     val = builder->CreateSIToFP(val, ft);
                 else if (val->getType()->isFloatingPointTy() && ft->isIntegerTy())
@@ -2840,13 +2842,10 @@ void CodeGen::emitStructInitInto(llvm::Value* dest, StructInitExpr* init) {
 
     bool named = !init->fieldInits.empty() && !init->fieldInits[0].first.empty();
 
-    auto coerce = [&](llvm::Value* val, llvm::Type* fieldType) -> llvm::Value* {
+    auto coerce = [&](llvm::Value* val, llvm::Type* fieldType, bool unsignedSrc) -> llvm::Value* {
         if (val && val->getType() != fieldType) {
             if (val->getType()->isIntegerTy() && fieldType->isIntegerTy()) {
-                unsigned s = val->getType()->getIntegerBitWidth();
-                unsigned d = fieldType->getIntegerBitWidth();
-                val = s > d ? builder->CreateTrunc(val, fieldType)
-                            : builder->CreateSExt(val, fieldType);
+                val = coerceInt(val, fieldType, unsignedSrc);
             } else if (val->getType()->isIntegerTy() && fieldType->isFloatingPointTy()) {
                 val = builder->CreateSIToFP(val, fieldType);
             } else if (val->getType()->isFloatingPointTy() && fieldType->isIntegerTy()) {
@@ -2860,17 +2859,18 @@ void CodeGen::emitStructInitInto(llvm::Value* dest, StructInitExpr* init) {
 
     auto storeField = [&](size_t idx, ExprPtr expr) {
         llvm::Value* val = evaluateExpr(expr);
+        bool uns = eskiuUnsigned(getExprEskiuType(expr));
         // Bitfield-layout struct: store via the physical slot.
         auto lit = structLayout.find(sname);
         if (lit != structLayout.end()) {
             const BitfieldSlot& slot = lit->second.at(fields[idx].name);
             llvm::Value* gep = builder->CreateStructGEP(st, dest, slot.physIndex);
             if (slot.isBitfield) { storeBitfieldInto(gep, slot, val); return; }
-            if (val) builder->CreateStore(coerce(val, slot.storageType), gep);
+            if (val) builder->CreateStore(coerce(val, slot.storageType, uns), gep);
             return;
         }
         llvm::Type* fieldType = getTypeFromString(fields[idx].type);
-        val = coerce(val, fieldType);
+        val = coerce(val, fieldType, uns);
         llvm::Value* gep = builder->CreateStructGEP(st, dest, idx);
         if (val) builder->CreateStore(val, gep);
     };
@@ -3213,8 +3213,7 @@ void CodeGen::visit(TemplateCallExpr* node) {
         if (v->getType()->isFloatingPointTy() && pt->isFloatingPointTy())
             args[i] = builder->CreateFPCast(v, pt);
         else if (v->getType()->isIntegerTy() && pt->isIntegerTy())
-            args[i] = v->getType()->getIntegerBitWidth() > pt->getIntegerBitWidth()
-                ? builder->CreateTrunc(v, pt) : builder->CreateSExt(v, pt);
+            args[i] = coerceInt(v, pt, i < node->args.size() && eskiuUnsigned(getExprEskiuType(node->args[i])));
         else if (v->getType()->isIntegerTy() && pt->isFloatingPointTy())
             args[i] = builder->CreateSIToFP(v, pt);
         else if (v->getType()->isFloatingPointTy() && pt->isIntegerTy())

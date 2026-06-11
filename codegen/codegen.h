@@ -165,6 +165,13 @@ private:
     // downstream logic sees e.g. "*uint8" instead of an alias name like "Bytes".
     std::string expandAlias(const std::string& t) const;
 
+    // True if the Eskiu type widens with zero-extension (unsigned / char / bool).
+    bool eskiuUnsigned(const std::string& t) const;
+    // Widen or truncate integer `val` to `ty`, choosing zero- vs sign-extension by
+    // the source's signedness. The single place integer width coercion happens, so
+    // an unsigned source never sign-extends (e.g. (int)(uint8)200 stays 200).
+    llvm::Value* coerceInt(llvm::Value* val, llvm::Type* ty, bool unsignedSrc);
+
     // Helper methods
     void pushScope();
     void popScope();
