@@ -230,6 +230,14 @@ public:
     std::string varName;
     ExprPtr iterable;
     StmtPtr body;
+    // Stamped by the type checker (consumed by the async transform's for-in
+    // desugar, which has no type info of its own): the loop variable's element
+    // type, whether the iterable is a fixed-size array (vs a List-like struct
+    // with `data`/`size`), and the array dimension `N` (literal / const / enum
+    // name) when it is an array.
+    std::string resolvedElemType;
+    bool        isArrayIter = false;
+    std::string arrayDim;
 
     ForInStmt(std::string varName, ExprPtr iterable, StmtPtr body)
         : varName(std::move(varName)), iterable(std::move(iterable)), body(std::move(body)) {}
