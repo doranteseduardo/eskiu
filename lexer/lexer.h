@@ -153,8 +153,10 @@ class Lexer {
 public:
     // `macros` is an optional shared macro table: when provided, #defines from
     // earlier files persist so they propagate across import / multi-file builds.
+    // `filename` (when known) is exposed to the preprocessor as `__FILE__`.
     explicit Lexer(const std::string& source,
-                   std::map<std::string, Macro>* macros = nullptr);
+                   std::map<std::string, Macro>* macros = nullptr,
+                   const std::string& filename = "");
 
     Token next_token();
     void print_all_tokens();

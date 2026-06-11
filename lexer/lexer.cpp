@@ -110,7 +110,13 @@ static std::string ppExpand(const std::string& text,
 
 static void preprocess(const std::string& src,
                        std::map<std::string, Macro>& defines,
-                       std::string& result) {
+                       std::string& result,
+                       const std::string& filename,
+                       bool& hadErr) {
+    // Predefined `__FILE__` (constant for this file). `__LINE__` is refreshed each
+    // line below. Both are ordinary object-like macros so ppExpand handles them
+    // with correct identifier boundaries.
+    { Macro m; m.body = "\"" + filename + "\""; defines["__FILE__"] = m; }
     struct Cond { bool parentActive; bool branchActive; };
     std::vector<Cond> stack;
     auto active = [&]() {
@@ -120,7 +126,10 @@ static void preprocess(const std::string& src,
     std::istringstream in(src);
     std::ostringstream out;
     std::string line; bool first = true;
+    int curLine = 0;
     while (std::getline(in, line)) {
+        curLine++;                       // physical line of this logical line
+        int lineNo = curLine;            // __LINE__ for this logical line
         // Line splicing: a trailing backslash continues onto the next physical
         // line, so a #define (or any line) may span several lines. The joined
         // logical line is emitted as one line followed by `extra` blank lines,
@@ -132,6 +141,7 @@ static void preprocess(const std::string& src,
             if (!std::getline(in, cont)) break;
             line += cont;
             extra++;
+            curLine++;                   // each continuation is a physical line too
         }
 
         if (!first) out << "\n";
@@ -185,11 +195,21 @@ static void preprocess(const std::string& src,
                 // it through unchanged so the lexer/parser can act on it (e.g.
                 // `#pragma pack`). Unknown pragmas are ignored downstream.
                 if (active()) out << ppTrim(line.substr(h));
+            } else if (kw == "error") {
+                // #error <message> — abort compilation with the message (only on
+                // an active branch, so it can guard #ifdef blocks).
+                if (active()) {
+                    std::string msg; std::getline(ds, msg); msg = ppTrim(msg);
+                    std::cerr << "error: " << (filename.empty() ? "<input>" : filename)
+                              << ":" << lineNo << ": #error " << msg << std::endl;
+                    hadErr = true;
+                }
             }
             // any other directive emits a blank line
         }
 
         if (!handled && active()) {
+            { Macro m; m.body = std::to_string(lineNo); defines["__LINE__"] = m; }
             std::set<std::string> expanding; out << ppExpand(line, defines, expanding);
         }
         // inactive / directive lines emit blank
@@ -377,10 +397,11 @@ std::unordered_map<std::string, TokenType> Lexer::keywords = {
     {"uint64", TokenType::UINT64},
 };
 
-Lexer::Lexer(const std::string& source, std::map<std::string, Macro>* macros)
+Lexer::Lexer(const std::string& source, std::map<std::string, Macro>* macros,
+             const std::string& filename)
     : current(0), line(1), column(1) {
     std::map<std::string, Macro> local;
-    preprocess(source, macros ? *macros : local, this->source);
+    preprocess(source, macros ? *macros : local, this->source, filename, this->hadError);
 }
 
 char Lexer::peek() const {

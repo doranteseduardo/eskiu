@@ -145,8 +145,8 @@ Phase 3 rounds out ergonomics and tooling.
 - [x] `for (i in 0..10)` — native half-open ranges `[A, B)`. Desugared at parse time to a counted `for`, so it reuses all the loop machinery (codegen, async transform, break/continue). Lexer gained a `..` (`RANGE`) token. Test: `range_for`
 - [ ] User-defined variadic functions
 - [ ] Pointer constness — distinguish a const pointer from a pointer-to-const (`const int*` vs `int* const`); `const` currently only qualifies the binding
-- [ ] `__FILE__` and `__LINE__` in the preprocessor
-- [ ] `#error` directive
+- [x] `__FILE__` and `__LINE__` in the preprocessor — `__LINE__` refreshed per line, `__FILE__` threaded from the compiled/imported path. Test: `pp_loc`
+- [x] `#error` directive — aborts compilation with the message (respects `#ifdef` branches). Test: `errors/pp_error`
 - [ ] `#pragma pack(N)` with N > 1 (v0.1.0 honours `pack(1)` only)
 - [ ] `-Wextra` — signed/unsigned mismatches, implicit conversions
 - [ ] Shebang support — `#!/usr/bin/env eskiuc run`

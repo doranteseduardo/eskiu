@@ -4,6 +4,7 @@
   "scopeName": "source.eskiu",
   "fileTypes": ["esk"],
   "patterns": [
+    { "include": "#preprocessor" },
     { "include": "#comments" },
     { "include": "#strings" },
     { "include": "#char-literals" },
@@ -23,6 +24,18 @@
     { "include": "#identifiers" }
   ],
   "repository": {
+
+    "preprocessor": {
+      "patterns": [
+        {
+          "match": "^\\s*(#)\\s*(define|undef|ifdef|ifndef|else|endif|pragma|error)\\b",
+          "captures": {
+            "1": { "name": "punctuation.definition.directive.eskiu" },
+            "2": { "name": "keyword.control.directive.eskiu" }
+          }
+        }
+      ]
+    },
 
     "comments": {
       "patterns": [
@@ -91,6 +104,10 @@
         {
           "name": "constant.language.null.eskiu",
           "match": "\\bnull\\b"
+        },
+        {
+          "name": "constant.language.preprocessor.eskiu",
+          "match": "\\b(__FILE__|__LINE__)\\b"
         }
       ]
     },

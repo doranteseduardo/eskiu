@@ -287,7 +287,7 @@ std::vector<DeclPtr> Parser::parseProgram() {
                     ss << file.rdbuf();
                     std::string src = ss.str();
 
-                    Lexer lexer(src, macros);  // share macros into the imported file
+                    Lexer lexer(src, macros, fullPath);  // share macros; fullPath = __FILE__
                     std::vector<Token> itoks;
                     Token t = lexer.next_token();
                     while (t.type != TokenType::EOF_TOKEN) { itoks.push_back(t); t = lexer.next_token(); }

@@ -56,6 +56,7 @@ when you add a test.
 | `os_macros` | exactly one host-OS macro (`__APPLE__`/`__linux__`) is defined |
 | `preprocessor` | object-like and function-like `#define`, `#ifdef` |
 | `pp_pack` | backslash-continued function-like macro; `#pragma pack` |
+| `pp_loc` | `__LINE__` / `__FILE__` preprocessor expansion |
 | `structs_methods` | named initializers, field access, method calls, `self` mutation |
 | `interfaces` | structural interfaces, vtable fat-pointer dispatch |
 | `enums` | enum members as int constants, usable in `switch`/comparisons |
@@ -139,6 +140,7 @@ when you add a test.
 | `errors/const_field` | assigning to a field of a `const` value |
 | `errors/question_bad_return` | `?` used in a function not returning `Result` |
 | `errors/unknown_intrinsic` | an `intrinsic` declared with a name the compiler can't lower |
+| `errors/pp_error` | a `#error` directive aborts compilation |
 | `errors/escaping_param` | a non-`escaping` closure parameter used beyond a direct call |
 | `errors/await_outside_async` | `await` used outside an `async` function |
 | `errors/parse_error` | malformed syntax |
