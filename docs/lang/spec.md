@@ -714,8 +714,9 @@ future explicitly (there is no top-level `await`). The future being awaited may 
 from a leaf primitive (`<net_async>`) or from calling another async function.
 
 `Future<T>`, the executor, and the leaf futures live in the standard library
-(`<future>`, `<executor>`, `<net_async>`); `spawn` detaches a fire-and-forget task
-and `<http_async>` is a non-blocking HTTP server built on the accept loop. See
+(`<future>`, `<executor>`, `<net_async>`); `spawn` detaches a fire-and-forget task, `select2`/`join2` combine futures
+(first-of-two / all-of-two), and `<http_async>` is a non-blocking HTTP server built
+on the accept loop. See
 `docs/dev/async-design.md` for the runtime contract and the lowering design.
 
 ### 6.9 Exception Handling

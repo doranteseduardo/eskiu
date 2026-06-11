@@ -22,6 +22,7 @@ Backend-services phase. v0.1.0 is frozen at its tag; this is the in-progress nex
 - Fixed: a cast to a type imported from another file (e.g. `(FutureHdr*)p`) was misparsed; imported type names are now visible for cast detection.
 - **`async` / `await`** — `async T f(...)` whose call yields `*Future<T>`, and the `await E` expression (`E: *Future<T>` → `T`), legal only inside an async fn. A pre-codegen pass lowers an async function to a resumable state machine (frame struct + resume + constructor). Single and multiple awaits run end-to-end (fast path and suspend-over-reactor), including `return await` and `async void`. Cancellation works, control flow around await (if/while/for) is supported, and the runtime is leak-free (verified with `leaks`). for-in/switch around await still error clearly.
 - **`spawn`** — fire-and-forget a detached async task (driven to completion by the event loop, freed automatically, leak-free). Removed the dead `thread`/`spawn`/`mutex` reserved words (the lexer reserved them but nothing used them), freeing those identifiers.
+- **`select2` / `join2`** — future combinators: `select2` completes with the index of whichever of two futures finishes first (loser dropped); `join2` completes once both finish. Type-erased and leak-free.
 
 ### Standard library
 - **`<alloc>`** — `Bump`, `Arena`, `Pool`, `FirstFit` allocators over caller-provided buffers (libc-free; work under `--freestanding`).
