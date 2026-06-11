@@ -820,7 +820,8 @@ Available modules:
 | `<math>`     | `sqrt`, `fabs`, `pow`, `floor`, `ceil`, `abs`         |
 | `<io>`       | `printf`, `fprintf`, `sprintf`, `scanf`, `puts`       |
 | `<mem>`      | `alloc<T>(n)`, `free(p)`, `memcpy`, `memset`, `memmove`, `memcmp`, `strlen` |
-| `<alloc>`    | `Bump`, `Arena`, `Pool`, `FirstFit` allocators over `alloc_with` (libc-free) |
+| `<alloc>`    | `Bump`, `Arena`, `Pool`, `FirstFit` — explicit allocators over a buffer you own (the Zig model; not a `malloc` replacement) |
+| `<sysheap>`  | `Heap` — a general heap that `mmap`s OS pages and runs `FirstFit` on them (no libc `malloc`) |
 | `<fs>`       | `fs_open`, `fs_close`, `fs_read`, `fs_write`, `fs_puts`, `fs_seek`, `fs_tell`, `fs_size`, `fs_read_all`, `fs_write_all`, `fs_eof`, `fs_error` |
 | `<net>`      | TCP sockets — `net_tcp_listen`, `net_accept`, `net_tcp_connect`, `net_send`, `net_recv`, `net_close` |
 | `<http>`     | HTTP/1.1 — `HttpRequest`/`HttpResponse`, threaded `http_serve(port, workers, handler)` |
@@ -830,8 +831,14 @@ Available modules:
 | `<env>`      | `env_get`, `env_has`, `env_get_or`, `env_get_int` |
 | `<path>`     | `path_join`, `path_basename`, `path_dirname`, `path_extension`, `path_is_absolute` |
 | `<threading>`| `Mutex`, `Cond`, `Sem` over pthread (pairs with `thread_create`/`thread_join`) |
-| `<eventloop>`| readiness reactor over kqueue/epoll — `el_new`/`el_add_read`/`el_run`/`el_stop` |
+| `<eventloop>`| readiness reactor over kqueue/epoll — `el_new`/`el_add_read`/`el_run`/`el_stop`/`el_add_timer` |
 | `<atomic>`   | atomic `int` cell — `atomic_load`/`atomic_store`/`atomic_swap`/`atomic_cas` |
+| `<future>`   | the `async`/`await` runtime — `Future<T>`, `future_poll`/`complete`/`drop`, `spawn`/`select2`/`join2` |
+| `<executor>` | `Executor` — event loop + thread-safe ready-queue + self-pipe wakeup |
+| `<net_async>`| async leaf futures — `net_read_async`, `net_accept_async` |
+| `<timer>`    | `timer_after(lp, ms)` — a `*Future<int>` that completes after a delay (timeouts) |
+| `<channel>`  | async message channel — `chan_new`/`chan_send`/`chan_recv` (a `*Future<T>`) |
+| `<http_async>`| non-blocking concurrent HTTP/1.1 server — `http_serve_async` |
 
 Note: when using `<math>` link with `-lm`. Library flags are passed straight
 through to the linker, so the one-command form works too:
