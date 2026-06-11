@@ -1,0 +1,49 @@
+// break / continue inside an await-containing loop. The state-machine lowering
+// must turn break/continue into state transitions — a literal break/continue
+// would escape the resume function's own `while(true)` dispatch loop (a hang /
+// wrong result). `continue` in a C-style `for` must also run the step expression.
+// Deterministic: each await is an already-ready future (fast path), so the loops
+// run to completion synchronously.
+import <future>;
+extern int printf(string fmt, ...);
+
+Future<int>* produce(int v) { Future<int>* f = future_new<int>(); future_complete<int>(f, v); return f; }
+
+// while: skip even values (continue), stop at 5 (break), sum the rest.
+async int w_loop() {
+    int sum = 0;
+    int i = 0;
+    while (i < 100) {
+        int x = await produce(i);
+        i = i + 1;
+        if (x == 5) { break; }
+        if (x % 2 == 0) { continue; }   // skip evens
+        sum = sum + x;                  // odds below 5: 1 + 3 = 4
+    }
+    return sum * 100 + i;               // 4 * 100 + 6 = 406
+}
+
+// for: `continue` must run the step (j = j + 1), else this would spin forever.
+async int for_loop() {
+    int sum = 0;
+    for (int j = 0; j < 100; j = j + 1) {
+        int x = await produce(j);
+        if (x == 7) { break; }
+        if (x % 2 == 0) { continue; }   // even -> skip, but step still runs
+        sum = sum + x;                  // odds below 7: 1 + 3 + 5 = 9
+    }
+    return sum;
+}
+
+int main() {
+    Future<int>* a = w_loop();
+    future_poll<int>(a, void() {});     // ready -> completes on the fast path
+    printf("%d\n", a.value);            // 406
+    free_future<int>(a);
+
+    Future<int>* b = for_loop();
+    future_poll<int>(b, void() {});
+    printf("%d\n", b.value);            // 9
+    free_future<int>(b);
+    return 0;
+}
