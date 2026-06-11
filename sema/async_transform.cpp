@@ -1,4 +1,5 @@
 #include "async_transform.h"
+#include "../ast/ast_walk.h"
 #include <stdexcept>
 #include <set>
 #include <map>
@@ -32,29 +33,16 @@ bool isFuturePtr(const std::string& t) {
 
 // Recursively rewrite references to frame variables (params + body locals) into
 // `fr.<name>` member accesses, in place.
+// Rename frame-hoisted locals to `fr.<name>` throughout an expression. Recurses
+// via the shared child enumeration (astwalk::forEachChildExpr), so every
+// expression node — struct literals, alloc_with, etc. — is covered.
 void rewrite(ExprPtr& e, const std::set<std::string>& vars) {
     if (!e) return;
     if (auto* id = dynamic_cast<IdentExpr*>(e.get())) {
         if (vars.count(id->name)) e = fr(id->name);
         return;
     }
-    if (auto* b = dynamic_cast<BinaryExpr*>(e.get())) { rewrite(b->left, vars); rewrite(b->right, vars); return; }
-    if (auto* u = dynamic_cast<UnaryExpr*>(e.get()))  { rewrite(u->operand, vars); return; }
-    if (auto* m = dynamic_cast<MemberExpr*>(e.get())) { rewrite(m->base, vars); return; }
-    if (auto* ix = dynamic_cast<IndexExpr*>(e.get())) { rewrite(ix->base, vars); rewrite(ix->index, vars); return; }
-    if (auto* c = dynamic_cast<CastExpr*>(e.get()))   { rewrite(c->expr, vars); return; }
-    if (auto* q = dynamic_cast<QuestionExpr*>(e.get())) { rewrite(q->operand, vars); return; }
-    if (auto* a = dynamic_cast<AwaitExpr*>(e.get()))  { rewrite(a->operand, vars); return; }
-    if (auto* call = dynamic_cast<CallExpr*>(e.get())) {
-        rewrite(call->callee, vars);
-        for (auto& arg : call->args) rewrite(arg, vars);
-        return;
-    }
-    if (auto* tc = dynamic_cast<TemplateCallExpr*>(e.get())) {
-        for (auto& arg : tc->args) rewrite(arg, vars);
-        return;
-    }
-    // Literals and other leaf/unsupported nodes: nothing to rewrite.
+    astwalk::forEachChildExpr(e.get(), [&](ExprPtr& c) { rewrite(c, vars); });
 }
 
 // True if an expression contains an AwaitExpr anywhere (used to reject `await`
@@ -62,22 +50,9 @@ void rewrite(ExprPtr& e, const std::set<std::string>& vars) {
 bool hasAwait(const ExprPtr& e) {
     if (!e) return false;
     if (dynamic_cast<AwaitExpr*>(e.get())) return true;
-    if (auto* b = dynamic_cast<BinaryExpr*>(e.get())) return hasAwait(b->left) || hasAwait(b->right);
-    if (auto* u = dynamic_cast<UnaryExpr*>(e.get()))  return hasAwait(u->operand);
-    if (auto* m = dynamic_cast<MemberExpr*>(e.get())) return hasAwait(m->base);
-    if (auto* ix = dynamic_cast<IndexExpr*>(e.get())) return hasAwait(ix->base) || hasAwait(ix->index);
-    if (auto* c = dynamic_cast<CastExpr*>(e.get()))   return hasAwait(c->expr);
-    if (auto* q = dynamic_cast<QuestionExpr*>(e.get())) return hasAwait(q->operand);
-    if (auto* call = dynamic_cast<CallExpr*>(e.get())) {
-        if (hasAwait(call->callee)) return true;
-        for (auto& a : call->args) if (hasAwait(a)) return true;
-        return false;
-    }
-    if (auto* tc = dynamic_cast<TemplateCallExpr*>(e.get())) {
-        for (auto& a : tc->args) if (hasAwait(a)) return true;
-        return false;
-    }
-    return false;
+    bool found = false;
+    astwalk::forEachChildExpr(e.get(), [&](ExprPtr& c) { if (hasAwait(c)) found = true; });
+    return found;
 }
 
 // True if a statement contains an `await` anywhere (decides plain vs state-split).

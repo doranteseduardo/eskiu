@@ -9,6 +9,7 @@
 // are shared with codegen; see template_utils.h.
 #include "../template_utils.h"
 #include "../intrinsics.h"
+#include "../ast/ast_walk.h"
 
 // ============================================================================
 
@@ -310,20 +311,10 @@ struct TemplateCapturePass {
                 if (!params.count(n)) lam->captures.push_back({n, t});
             return;
         }
-        if (auto* b = dynamic_cast<BinaryExpr*>(e)) { walkExpr(b->left.get()); walkExpr(b->right.get()); return; }
-        if (auto* u = dynamic_cast<UnaryExpr*>(e)) { walkExpr(u->operand.get()); return; }
-        if (auto* q = dynamic_cast<QuestionExpr*>(e)) { walkExpr(q->operand.get()); return; }
-        if (auto* m = dynamic_cast<MemberExpr*>(e)) { walkExpr(m->base.get()); return; }
-        if (auto* ix = dynamic_cast<IndexExpr*>(e)) { walkExpr(ix->base.get()); walkExpr(ix->index.get()); return; }
-        if (auto* c = dynamic_cast<CastExpr*>(e)) { walkExpr(c->expr.get()); return; }
-        if (auto* call = dynamic_cast<CallExpr*>(e)) { walkExpr(call->callee.get()); for (auto& a : call->args) walkExpr(a.get()); return; }
-        if (auto* tc = dynamic_cast<TemplateCallExpr*>(e)) { for (auto& a : tc->args) walkExpr(a.get()); return; }
-        if (auto* si = dynamic_cast<StructInitExpr*>(e)) { for (auto& f : si->fieldInits) walkExpr(f.second.get()); return; }
-        if (auto* aw = dynamic_cast<AwaitExpr*>(e)) { walkExpr(aw->operand.get()); return; }
-        if (auto* fc = dynamic_cast<FreeClosureExpr*>(e)) { walkExpr(fc->closure.get()); return; }
-        if (auto* al = dynamic_cast<AllocWithExpr*>(e)) { walkExpr(al->allocator.get()); walkExpr(al->count.get()); return; }
-        if (auto* tcr = dynamic_cast<ThreadCreateExpr*>(e)) { walkExpr(tcr->worker.get()); return; }
-        // LiteralExpr / SizeofExpr: no captured children
+        // IdentExpr and LambdaExpr are handled above (capture recording / scope
+        // boundary); every other expression just recurses into its children via
+        // the shared enumeration, so this pass can never miss a node type.
+        astwalk::forEachChildExpr(e, [&](ExprPtr& c) { walkExpr(c.get()); });
     }
 };
 } // namespace
