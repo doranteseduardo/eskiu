@@ -29,14 +29,22 @@ struct Future<T> {
     T          value;
 }
 
-// State constants (Eskiu has no const-in-expression yet; these are the contract).
-//   PENDING=0  WAITING=1  READY=2  CANCELLED=3
+// State constants — the locked compiler↔generated-code contract. The async
+// transform emits these same numeric values directly into the IR it generates
+// (state 0 at construction, swap to 2 on completion), so the *numbers* are fixed;
+// these names just make the handshake below readable. Note: a `future_poll`
+// return of 0/1 (parked / already-ready) and a `select`/`join` completion value
+// (winner index / count) are NOT states — they stay as literals.
+const int PENDING   = 0;
+const int WAITING   = 1;
+const int READY     = 2;
+const int CANCELLED = 3;
 
 // A freshly allocated, pending future. waker/on_drop are set later by the
 // awaiter / producer. state starts PENDING (a plain store — not yet shared).
 Future<T>* future_new<T>() {
     Future<T>* f = alloc<Future<T>>(1);
-    f.state = 0;
+    f.state = PENDING;
     // waker/on_drop default to no-ops (null env) so free_future/future_drop can
     // always free_closure them safely, even if no one sets them.
     f.waker   = void() {};
@@ -49,7 +57,7 @@ Future<T>* future_new<T>() {
 // the future was already READY — the caller should read `value` and not suspend.
 int future_poll<T>(Future<T>* f, escaping fn()->void resume) {
     f.waker = resume;
-    if (atomic_cas(&f.state, 0, 1)) {   // PENDING -> WAITING: parked
+    if (atomic_cas(&f.state, PENDING, WAITING)) {   // PENDING -> WAITING: parked
         return 0;
     }
     return 1;                            // already READY: take value inline
@@ -63,8 +71,8 @@ int future_poll<T>(Future<T>* f, escaping fn()->void resume) {
 // parked (state was WAITING).
 void future_complete<T>(Future<T>* f, T v) {
     f.value = v;
-    if (atomic_cas(&f.state, 0, 2)) { return; }   // PENDING -> READY (awaiter not parked yet)
-    if (atomic_cas(&f.state, 1, 2)) { f.waker(); } // WAITING -> READY: wake the awaiter
+    if (atomic_cas(&f.state, PENDING, READY)) { return; }   // PENDING -> READY (awaiter not parked yet)
+    if (atomic_cas(&f.state, WAITING, READY)) { f.waker(); } // WAITING -> READY: wake the awaiter
     // else: already terminal -> ignore (drop/cancel won the race)
 }
 
@@ -84,7 +92,7 @@ void spawn_hdr(FutureHdr* f) {
         free_closure(self);                   // free this closure's env (last act)
     };
     f.waker = reap;
-    if (atomic_cas(&f.state, 0, 1)) { return; }      // PENDING -> WAITING: parked
+    if (atomic_cas(&f.state, PENDING, WAITING)) { return; }      // PENDING -> WAITING: parked
     // Already terminal (READY): the waker never fires — free it and the future now.
     free_closure(reap);
     free_closure(f.on_drop);  free((*void)f);
@@ -111,7 +119,7 @@ Future<int>* select2_hdr(FutureHdr* a, FutureHdr* b) {
         free_closure(self);
     };
     a.waker = onA;
-    if (atomic_cas(&a.state, 0, 1) == false) {   // a already READY -> a wins
+    if (atomic_cas(&a.state, PENDING, WAITING) == false) {   // a already READY -> a wins
         free_closure(onA);                       // onA never fires (a won't be future_drop'd)
         free_closure(onB);                       // onB was created but never armed
         future_drop(b);                          // drop the loser (frees b's waker/on_drop/struct)
@@ -119,7 +127,7 @@ Future<int>* select2_hdr(FutureHdr* a, FutureHdr* b) {
         return sel;
     }
     b.waker = onB;
-    if (atomic_cas(&b.state, 0, 1) == false) {   // b already READY -> b wins
+    if (atomic_cas(&b.state, PENDING, WAITING) == false) {   // b already READY -> b wins
         free_closure(onB);                       // onB never fires
         future_drop(a);                          // a was armed (WAITING) -> future_drop frees onA
         future_complete<int>(sel, 1);
@@ -149,9 +157,9 @@ Future<int>* join2_hdr(FutureHdr* a, FutureHdr* b) {
         free_closure(self);
     };
     a.waker = onA;
-    if (atomic_cas(&a.state, 0, 1) == false) { *cnt = *cnt + 1; free_closure(onA); }  // a already done
+    if (atomic_cas(&a.state, PENDING, WAITING) == false) { *cnt = *cnt + 1; free_closure(onA); }  // a already done
     b.waker = onB;
-    if (atomic_cas(&b.state, 0, 1) == false) { *cnt = *cnt + 1; free_closure(onB); }  // b already done
+    if (atomic_cas(&b.state, PENDING, WAITING) == false) { *cnt = *cnt + 1; free_closure(onB); }  // b already done
     if (*cnt == 2) { free((*void)cnt); future_complete<int>(j, 2); }                   // both already done
     return j;
 }
@@ -167,8 +175,8 @@ void free_future<T>(Future<T>* f) {
 // producer is done and we only free, otherwise on_drop releases external
 // resources (loop registration), cascades, and frees.
 void future_drop(FutureHdr* f) {
-    int old = atomic_swap(&f.state, 3);  // -> CANCELLED
-    if (old != 2) {                      // not already READY: release resources + cascade
+    int old = atomic_swap(&f.state, CANCELLED);  // -> CANCELLED
+    if (old != READY) {                      // not already READY: release resources + cascade
         f.on_drop();                     // (must NOT free f — future_drop owns the free)
     }
     free_closure(f.waker);               // a parked awaiter's resume will never fire now
