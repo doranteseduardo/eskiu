@@ -241,9 +241,6 @@ std::string tokenTypeToString(TokenType type) {
         case TokenType::NULL_KW: return "NULL";
         case TokenType::TRUE: return "TRUE";
         case TokenType::FALSE: return "FALSE";
-        case TokenType::THREAD: return "THREAD";
-        case TokenType::SPAWN: return "SPAWN";
-        case TokenType::MUTEX: return "MUTEX";
         case TokenType::SIZEOF: return "SIZEOF";
         case TokenType::FREE_CLOSURE: return "FREE_CLOSURE";
         case TokenType::TRY: return "TRY";
@@ -363,9 +360,6 @@ std::unordered_map<std::string, TokenType> Lexer::keywords = {
     {"null", TokenType::NULL_KW},
     {"true", TokenType::TRUE},
     {"false", TokenType::FALSE},
-    {"thread", TokenType::THREAD},
-    {"spawn", TokenType::SPAWN},
-    {"mutex", TokenType::MUTEX},
     {"try", TokenType::TRY},
     {"catch", TokenType::CATCH},
     {"finally", TokenType::FINALLY},

@@ -68,6 +68,27 @@ void future_complete<T>(Future<T>* f, T v) {
     // else: already terminal -> ignore (drop/cancel won the race)
 }
 
+// Fire-and-forget a future: drive it to completion, then free it. Use for a
+// detached async task (no one awaits its result). The caller must still run the
+// event loop so the task's leaf futures can complete. Leak-free: the completion
+// waker frees the future *and* its own heap env (it saves its own fat pointer,
+// frees the future, then free_closures the saved copy as its last act).
+// Type-erased: call as spawn((FutureHdr*)f). Non-template so the reap
+// closure's capture of `f` is analyzed (template bodies skip capture analysis).
+// All operations are type-agnostic (header fields + free), so no T is needed.
+void spawn(FutureHdr* f) {
+    let reap: fn()->void = void() {
+        let self: fn()->void = f.waker;       // this closure (f.waker == this)
+        free_closure(f.on_drop);  free((*void)f);   // == free_future, type-agnostic
+        free_closure(self);                   // free this closure's env (last act)
+    };
+    f.waker = reap;
+    if (atomic_cas(&f.state, 0, 1)) { return; }      // PENDING -> WAITING: parked
+    // Already terminal (READY): the waker never fires — free it and the future now.
+    free_closure(reap);
+    free_closure(f.on_drop);  free((*void)f);
+}
+
 // Free a future's memory. The single owner (the awaiter, after reading value, or
 // future_drop on cancel) calls this exactly once.
 void free_future<T>(Future<T>* f) {

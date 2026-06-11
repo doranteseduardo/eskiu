@@ -1,0 +1,32 @@
+// spawn: fire-and-forget a detached async task. A ready task completes + frees
+// synchronously; a suspending task is driven by the event loop. Leak-free (the
+// reap waker frees the future and its own env). `spawn` is also a regular name
+// now (the dead thread/spawn/mutex reserved words were removed).
+import <future>;
+import <net_async>;
+import <eventloop>;
+extern int  printf(string fmt, ...);
+extern int  pipe(*int fds);
+extern int64 write(int fd, *void buf, int64 n);
+Future<int>* produce(int v){ Future<int>* f=future_new<int>(); future_complete<int>(f,v); return f; }
+uint8[64] gb;
+int g_ready = 0;
+int g_susp  = 0;
+EventLoop* g_lp;
+async void readyTask() { int x = await produce(7); g_ready = x; }
+async void suspTask(EventLoop* lp, int fd) {
+    int n = await net_read_async(lp, fd, &gb[0], (int64)64);
+    g_susp = n;
+    el_stop(lp);
+}
+int main() {
+    spawn((FutureHdr*)readyTask());
+    int[2] fds; pipe(&fds[0]);
+    write(fds[1], (*void)"abcd", (int64)4);
+    g_lp = el_new(64);
+    spawn((FutureHdr*)suspTask(g_lp, fds[0]));
+    el_run(g_lp);
+    printf("%d %d\n", g_ready, g_susp);   // 7 4
+    el_free(g_lp);
+    return 0;
+}
