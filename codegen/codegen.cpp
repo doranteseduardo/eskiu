@@ -114,6 +114,18 @@ llvm::Type* CodeGen::getTypeFromString(const std::string& typeStr) {
     // Resolve a type alias to its underlying type.
     if (auto it = typeAliases.find(typeStr); it != typeAliases.end())
         return getTypeFromString(it->second);
+    // va_list — backing storage for variadic access. {ptr,ptr,ptr,i32,i32} is the
+    // AArch64 layout (32 B, 8-aligned) and a superset of x86-64's (24 B), so one
+    // type works for both; the va_start/va_arg machinery reads the target's slice.
+    if (typeStr == "va_list") {
+        auto it = structTypes.find("__va_list");
+        if (it != structTypes.end()) return it->second;
+        llvm::Type* p = llvm::PointerType::get(*context, 0);
+        llvm::Type* i32 = llvm::Type::getInt32Ty(*context);
+        auto* st = llvm::StructType::create(*context, {p, p, p, i32, i32}, "__va_list");
+        structTypes["__va_list"] = st;
+        return st;
+    }
     // A classic enum is an i32; an algebraic enum is its tagged-union struct.
     if (enumTypes.count(typeStr)) {
         auto st = structTypes.find(typeStr);
@@ -552,8 +564,10 @@ llvm::Function* CodeGen::declareFunction(
     // Idempotent: reuse a prototype declared by the pre-pass.
     if (llvm::Function* existing = module->getFunction(name)) return existing;
 
+    bool isVarArg = false;
+    for (auto& p : params) if (p.first == "...") isVarArg = true;
     llvm::FunctionType* funcType = llvm::FunctionType::get(
-        sret ? llvm::Type::getVoidTy(*context) : returnType, paramTypes, false);
+        sret ? llvm::Type::getVoidTy(*context) : returnType, paramTypes, isVarArg);
     llvm::Function* func = llvm::Function::Create(
         funcType, llvm::Function::ExternalLinkage, name, module.get());
 
@@ -1479,6 +1493,18 @@ llvm::Value* CodeGen::lowerIntrinsicCall(const std::string& fn, CallExpr* node) 
 }
 
 void CodeGen::visit(CallExpr* node) {
+    // Variadic access: va_start(ap) / va_end(ap) — `ap` is a local va_list, whose
+    // alloca is the pointer the intrinsics need.
+    if (auto* bid = dynamic_cast<IdentExpr*>(node->callee.get())) {
+        if ((bid->name == "va_start" || bid->name == "va_end") && node->args.size() == 1) {
+            llvm::Value* ap = evaluateLValue(node->args[0]);
+            llvm::Function* fn = getOrDeclareFunc(
+                bid->name == "va_start" ? "llvm.va_start.p0" : "llvm.va_end.p0",
+                llvm::Type::getVoidTy(*context), {llvm::PointerType::get(*context, 0)}, false);
+            exprValueStack.push(builder->CreateCall(fn, {ap}));
+            return;
+        }
+    }
     // Algebraic variant construction: `Circle(2.0)`, `Some(x)`.
     if (auto* vid = dynamic_cast<IdentExpr*>(node->callee.get())) {
         if (!lookupSymbol(vid->name) && adtVariants.count(vid->name)) {
@@ -3002,6 +3028,14 @@ void CodeGen::visit(SwitchStmt* node) {
 }
 
 void CodeGen::visit(TemplateCallExpr* node) {
+    // Variadic access: va_arg<T>(ap) -> next argument of type T.
+    if (node->templateName == "va_arg" && node->args.size() == 1 && node->typeArgs.size() == 1) {
+        llvm::Value* ap = evaluateLValue(node->args[0]);
+        std::string t = typeParamOverride.empty() ? node->typeArgs[0]
+                                                   : substType(node->typeArgs[0], typeParamOverride);
+        exprValueStack.push(builder->CreateVAArg(ap, getTypeFromString(t), "va.arg"));
+        return;
+    }
     // Generic algebraic-variant construction: `Some<int>(5)`, `Left<A,B>(x)`. Type
     // args resolve through the enclosing template's substitutions (so `Left<A,B>`
     // inside select2<A,B> becomes Left<int,int> at instantiation).

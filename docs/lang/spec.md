@@ -531,16 +531,34 @@ void log_event(string msg) {
 
 A `void` function may use `return;` with no operand or allow control to fall off the end of the body.
 
-### 6.3 Variadic Functions (extern only)
+### 6.3 Variadic Functions
 
-The ellipsis `...` marks a variadic parameter list in `extern` declarations:
+The ellipsis `...` marks a variadic parameter list — at least one fixed parameter
+must precede it. It is valid in both `extern` declarations and user functions:
 
 ```eskiu
 extern int printf(string fmt, ...);
-extern int sprintf(string buf, string fmt, ...);
 ```
 
-User-defined variadic functions are not supported. `...` is only valid in `extern` declarations.
+A user-defined variadic function reads its extra arguments with `va_list` and the
+builtins `va_start(ap)`, `va_arg<T>(ap)` (one argument of type `T`), and
+`va_end(ap)`:
+
+```eskiu
+int sum(int n, ...) {
+    va_list ap;
+    va_start(ap);
+    int total = 0;
+    for (i in 0..n) { total = total + va_arg<int>(ap); }
+    va_end(ap);
+    return total;
+}
+```
+
+The C default argument promotions apply to variadic arguments: a `float` is passed
+as `double` (read it with `va_arg<double>`), and integer types narrower than `int`
+arrive as `int`. There is no automatic count of the arguments — pass it explicitly
+(as `n` above) or use a sentinel.
 
 ### 6.4 Extern Declarations
 

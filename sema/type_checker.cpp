@@ -707,6 +707,14 @@ void TypeChecker::visit(UnaryExpr* node) {
 }
 
 void TypeChecker::visit(CallExpr* node) {
+    // Variadic access builtins: va_start(ap) / va_end(ap) — void.
+    if (auto* bid = dynamic_cast<IdentExpr*>(node->callee.get())) {
+        if ((bid->name == "va_start" || bid->name == "va_end") && lookupSymbol(bid->name).empty()) {
+            for (auto& a : node->args) a->accept(this);
+            expressionTypes[node] = "void";
+            return;
+        }
+    }
     // Algebraic variant construction: `Circle(2.0)`, `Some(x)`. The callee names a
     // variant; the call yields the enum value, checking the payload field types.
     if (auto cid = dynamic_cast<IdentExpr*>(node->callee.get())) {
@@ -1345,6 +1353,12 @@ void TypeChecker::visit(SwitchStmt* node) {
 }
 
 void TypeChecker::visit(TemplateCallExpr* node) {
+    // Variadic access: va_arg<T>(ap) yields the next argument as T.
+    if (node->templateName == "va_arg" && node->typeArgs.size() == 1) {
+        for (auto& a : node->args) a->accept(this);
+        expressionTypes[node] = normalizeType(node->typeArgs[0]);
+        return;
+    }
     // Generic algebraic-variant construction with explicit type args:
     // `Some<int>(5)`, `Left<int,string>(x)`, `None<int>()`.
     auto gv = genericVariants.find(node->templateName);
@@ -1630,7 +1644,7 @@ void TypeChecker::validateStructType(const std::string& type) {
         if (structs.find(structName) == structs.end()) {
             error(0, 0, "undefined struct '" + structName + "'");
         }
-    } else if (!isPrimitiveType(baseType)) {
+    } else if (!isPrimitiveType(baseType) && baseType != "va_list") {
         // Valid if it's a known struct, type alias, or enum type — anything else
         // is an undefined type. (Aliases/enums are resolved later in codegen.)
         if (structs.find(baseType) == structs.end() &&
