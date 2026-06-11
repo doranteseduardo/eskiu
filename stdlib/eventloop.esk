@@ -22,6 +22,11 @@ import <mem>;
 struct EvHandler {
     fn(EventLoop*, int)->void on_read;
     int active;
+    // Bumped on every (re-)registration. el_run uses it to tell whether the
+    // callback it just invoked is still the installed one: a one-shot read loop
+    // on a single fd re-arms that fd *from inside the callback* (via resume), so
+    // `active` is back to 1 by the time el_run checks — `gen` is not.
+    int gen;
 }
 
 struct EventLoop {
@@ -111,7 +116,7 @@ EventLoop* el_new(int max_fds) {
     lp.cap     = max_fds;
     lp.slots   = alloc<EvHandler>(max_fds);
     int i = 0;
-    while (i < max_fds) { lp.slots[i].active = 0; i = i + 1; }
+    while (i < max_fds) { lp.slots[i].active = 0; lp.slots[i].gen = 0; i = i + 1; }
     return lp;
 }
 
@@ -120,6 +125,7 @@ void el_add_read(EventLoop* lp, int fd, escaping fn(EventLoop*, int)->void cb) {
     if (fd < 0 || fd >= lp.cap) { return; }
     lp.slots[fd].on_read = cb;
     lp.slots[fd].active  = 1;
+    lp.slots[fd].gen     = lp.slots[fd].gen + 1;   // new registration identity
     _el_ctl(lp.backend, fd, 1);
 }
 
@@ -156,10 +162,13 @@ void el_run(EventLoop* lp) {
             int fd = fds[i];
             if (fd >= 0 && fd < lp.cap && lp.slots[fd].active != 0) {
                 let cb: fn(EventLoop*, int)->void = lp.slots[fd].on_read;
+                int g = lp.slots[fd].gen;
                 cb(lp, fd);
-                // A one-shot callback deregisters itself (active -> 0). Free its
-                // heap env now that it has returned (safe: no longer running).
-                if (lp.slots[fd].active == 0) { free_closure(cb); }
+                // Free `cb`'s heap env once it is no longer the installed
+                // registration: either it deregistered (active -> 0) or it re-armed
+                // the same fd with a *new* closure during its own run (gen bumped).
+                // A still-installed persistent callback (same gen, active) is left.
+                if (lp.slots[fd].active == 0 || lp.slots[fd].gen != g) { free_closure(cb); }
             }
             i = i + 1;
         }
