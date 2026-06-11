@@ -1,0 +1,68 @@
+// http2.esk — HTTP/2 (RFC 7540) over the async event loop.
+//
+// Status: STAGE 1 — the frame layer. HTTP/2 is a binary, multiplexed protocol;
+// every exchange is a sequence of frames sharing one connection. This module
+// encodes/decodes the 9-byte frame header and defines the frame-type and flag
+// constants. Later stages build on it: SETTINGS handshake, HPACK header
+// (de)compression, stream multiplexing + flow control, and TLS/ALPN. See
+// docs/dev/http2-design.md for the roadmap.
+//
+// Frame header (RFC 7540 §4.1), 9 bytes, big-endian:
+//   [ Length (24) | Type (8) | Flags (8) | R(1) | Stream Id (31) ]
+
+import <mem>;
+
+// Frame types (§6).
+const int H2_DATA          = 0;
+const int H2_HEADERS       = 1;
+const int H2_PRIORITY      = 2;
+const int H2_RST_STREAM    = 3;
+const int H2_SETTINGS      = 4;
+const int H2_PUSH_PROMISE  = 5;
+const int H2_PING          = 6;
+const int H2_GOAWAY        = 7;
+const int H2_WINDOW_UPDATE = 8;
+const int H2_CONTINUATION  = 9;
+
+// Frame flags (§6) — shared bit positions across frame types.
+const int H2_FLAG_END_STREAM  = 1;     // 0x1 on DATA / HEADERS
+const int H2_FLAG_ACK         = 1;     // 0x1 on SETTINGS / PING
+const int H2_FLAG_END_HEADERS = 4;     // 0x4 on HEADERS / CONTINUATION
+const int H2_FLAG_PADDED      = 8;     // 0x8
+const int H2_FLAG_PRIORITY    = 32;    // 0x20 on HEADERS
+
+const int H2_FRAME_HEADER_LEN = 9;
+
+// The client connection preface that opens every HTTP/2 connection (§3.5):
+// "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n" (24 bytes), followed by a SETTINGS frame.
+string h2_preface() { return "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"; }
+
+// A decoded frame header (the payload follows in the stream).
+struct H2Frame {
+    int length;        // payload length (0 .. 2^24-1)
+    int type;          // H2_* frame type
+    int flags;
+    int stream_id;     // 31-bit; 0 = connection control
+}
+
+// Write the 9-byte frame header into `buf` (must hold >= 9 bytes), big-endian.
+void h2_write_header(*uint8 buf, H2Frame* f) {
+    buf[0] = (uint8)((f.length >> 16) & 255);
+    buf[1] = (uint8)((f.length >> 8) & 255);
+    buf[2] = (uint8)(f.length & 255);
+    buf[3] = (uint8)(f.type & 255);
+    buf[4] = (uint8)(f.flags & 255);
+    buf[5] = (uint8)((f.stream_id >> 24) & 127);   // top bit reserved (R), kept 0
+    buf[6] = (uint8)((f.stream_id >> 16) & 255);
+    buf[7] = (uint8)((f.stream_id >> 8) & 255);
+    buf[8] = (uint8)(f.stream_id & 255);
+}
+
+// Parse a 9-byte frame header from `buf` into `f`.
+void h2_read_header(*uint8 buf, H2Frame* f) {
+    f.length    = ((int)buf[0] << 16) | ((int)buf[1] << 8) | (int)buf[2];
+    f.type      = (int)buf[3];
+    f.flags     = (int)buf[4];
+    f.stream_id = (((int)buf[5] & 127) << 24) | ((int)buf[6] << 16) |
+                  ((int)buf[7] << 8) | (int)buf[8];
+}

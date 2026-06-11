@@ -1954,7 +1954,13 @@ void CodeGen::visit(CastExpr* node) {
         unsigned srcWidth = llvm::cast<llvm::IntegerType>(val->getType())->getBitWidth();
         unsigned dstWidth = llvm::cast<llvm::IntegerType>(targetType)->getBitWidth();
         if (srcWidth < dstWidth) {
-            result = builder->CreateSExt(val, targetType);
+            // Widen per the SOURCE's signedness: an unsigned source (uint*/char/bool)
+            // zero-extends — e.g. (int)(uint8)255 is 255, not -1.
+            std::string st = expandAlias(getExprEskiuType(node->expr));
+            bool uns = st == "uint" || st == "uint8" || st == "uint16" || st == "uint32" ||
+                       st == "uint64" || st == "char" || st == "bool";
+            result = uns ? builder->CreateZExt(val, targetType)
+                         : builder->CreateSExt(val, targetType);
         } else {
             result = builder->CreateTrunc(val, targetType);
         }

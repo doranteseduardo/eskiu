@@ -52,6 +52,7 @@ when you add a test.
 | `volatile` | `volatile let` pointer load/store marked volatile in IR |
 | `inline_asm` | `asm(...)` simple + extended compiles, links, runs |
 | `variadic` | user-defined variadic fn — `...` + `va_list`/`va_start`/`va_arg<T>`/`va_end` (int + double) |
+| `http2_frame` | `<http2>` 9-byte frame-header encode/decode round-trip (incl. 31-bit stream id) |
 | `const` | immutable bindings, usable as array sizes |
 | `sizeof_union_ptr` | `sizeof`, `union` (incl. float member), typed pointer arithmetic |
 | `os_macros` | exactly one host-OS macro (`__APPLE__`/`__linux__`) is defined |
