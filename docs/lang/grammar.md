@@ -205,7 +205,7 @@ Precedence, lowest to highest. Each level is left-associative unless noted.
 
 ```
 expr            = assignment
-assignment      = ternary ( assign-op assignment )?               // right-assoc
+assignment      = logical-or ( assign-op assignment )?            // right-assoc
 assign-op       = '=' | '+=' | '-=' | '*=' | '/=' | '%='
                 | '&=' | '|=' | '^=' | '<<=' | '>>='              // compound forms desugar
 logical-or      = logical-and ( '||' logical-and )*
@@ -230,9 +230,9 @@ postfix-op      = '(' arg-list? ')'          // call
 arg-list        = expr (',' expr)*
 ```
 
-`ternary` is the conditional level; in this grammar it folds into the
-precedence chain above (Eskiu has no `a ? b : c` ternary — `?` is the postfix
-error-propagation operator on a `Result`).
+Eskiu has no `a ? b : c` conditional operator — `?` is the postfix
+error-propagation operator applied to a `Result` (it returns early on the error
+variant). Assignment is the lowest-precedence, right-associative level.
 
 ```
 primary =
