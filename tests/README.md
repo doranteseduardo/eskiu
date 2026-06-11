@@ -36,6 +36,7 @@ when you add a test.
 | Test | Exercises |
 |------|-----------|
 | `arithmetic` | integer arithmetic, precedence, `/` `%`, comparison, `&&`/`\|\|` |
+| `int_widen` | integer widening honors source signedness at call/assign/init/struct/enum sites |
 | `int64_arith` | an `int` literal mixed with an `int64` operand widens to 64-bit |
 | `int_width` | integer width, signedness, and variadic-promotion correctness |
 | `bitwise_assign` | compound bitwise assignment `&= \|= ^= <<= >>=` |
@@ -107,6 +108,7 @@ when you add a test.
 | `env` | `<env>` `env_get`/`has`/`get_or`/`get_int` |
 | `fs` | `<fs>` file I/O |
 | `http` | `<http>` request parser + response builder |
+| `math` | `<math>` libm wrappers: sqrt/fabs/pow/floor/ceil/fmod/abs |
 | `json` | `<json>` builder + recursive-descent parser |
 | `net_echo` | `<net>` loopback TCP echo (server thread passed as a bare fn) |
 | `path` | `<path>` `join`/`basename`/`dirname`/`extension`/`is_absolute` |
@@ -157,6 +159,8 @@ when you add a test.
 | `errors/undefined_field` | access to an undefined struct member |
 | `errors/const_no_init` | `const` declared without an initializer |
 | `errors/const_reassign` | reassigning a `const` |
+| `errors/arg_count` | calling a function with the wrong argument count |
+| `errors/match_duplicate` | two `match` arms for the same variant |
 | `errors/const_field` | assigning to a field of a `const` value |
 | `errors/const_ptr_write` | writing through a pointer-to-const (`*r = …`) |
 | `errors/const_ptr_drop` | a conversion that discards a const qualifier (`int* = const int*`) |

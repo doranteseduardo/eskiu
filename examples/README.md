@@ -33,13 +33,18 @@ from the repo root works out of the box (or set `ESKIU_ROOT=.`).
 | [hello.esk](hello.esk) | `extern` C declarations, plain functions, `int main()`, arithmetic | — |
 | [argv.esk](argv.esk) | command-line arguments: `int main(int argc, string* argv)`, `argv[i]` | — |
 | [structs.esk](structs.esk) | structs with methods, `self`, field access | — |
+| [enums.esk](enums.esk) | algebraic data types (payload-bearing `enum`) destructured with exhaustive `match` | — |
 | [interfaces.esk](interfaces.esk) | structural interfaces (no `implements` keyword) — any struct with the methods satisfies them | — |
 | [generics.esk](generics.esk) | templates: the generic `List<T>`, template functions and structs | — |
+| [closures.esk](closures.esk) | lambdas, higher-order functions, and capturing variables from the enclosing scope | — |
+| [exceptions.esk](exceptions.esk) | `try`/`catch`/`finally`/`throw` (build with `-lc++` on macOS, `-lstdc++` on Linux) | — |
 | [allocators.esk](allocators.esk) | managing memory without libc `malloc`: an `<alloc>` Arena over a static buffer, and a `<sysheap>` mmap-backed `FirstFit` heap | `<alloc>` `<sysheap>` |
 | [result.esk](result.esk) | `Result<T, E>` error-as-value with `Ok`/`Err` | `<result>` |
+| [strings.esk](strings.esk) | the mutable `String` builder — append, trim, prefix/suffix tests, int formatting | `<string>` |
 | [json.esk](json.esk) | build a JSON document and parse it back | `<json>` |
 | [tcp_echo_server.esk](tcp_echo_server.esk) | a TCP echo server over the POSIX socket API | `<net>` |
 | [http_server.esk](http_server.esk) | a concurrent HTTP/1.1 server with a worker pool | `<http>` |
+| [http2_tls_server.esk](http2_tls_server.esk) | an HTTP/2-over-TLS server (ALPN negotiates `h2`) via OpenSSL | `<tls>` `<http2>` |
 | [async.esk](async.esk) | `async`/`await` — a coroutine that suspends on I/O over the event loop | `<future>` `<net_async>` `<eventloop>` |
 | [async_combinators.esk](async_combinators.esk) | composing futures: `select2` (read-with-timeout), `join2` (wait-for-both), `timer_after`, and `spawn` (fire-and-forget) | `<future>` `<timer>` `<net_async>` `<eventloop>` |
 

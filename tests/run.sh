@@ -27,7 +27,7 @@ here="$(cd "$(dirname "$0")" && pwd)"
 root="$(cd "$here/.." && pwd)"
 ESKIUC="${ESKIUC:-$root/build/eskiuc}"
 CC="${CC:-clang}"
-LDFLAGS="-lc++ -lpthread"
+LDFLAGS="-lc++ -lpthread -lm"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
