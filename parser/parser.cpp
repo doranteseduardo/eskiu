@@ -358,7 +358,7 @@ DeclPtr Parser::parseDeclaration() {
         if (match(TokenType::PACKED)) {
             consume(TokenType::STRUCT, "Expected 'struct' after 'packed'");
             auto decl = parseStructDecl();
-            if (auto* sd = dynamic_cast<StructDecl*>(decl.get())) sd->isPacked = true;
+            if (auto* sd = dynamic_cast<StructDecl*>(decl.get())) { sd->isPacked = true; sd->packAlign = 1; }
             return decl;
         }
 
@@ -641,13 +641,16 @@ DeclPtr Parser::parseStructDecl() {
     auto decl = std::make_shared<StructDecl>(name, fields);
     decl->methods  = methods;
     decl->typeParams = typeParams;
-    if (currentPack == 1) decl->isPacked = true;  // under #pragma pack(1)
+    if (currentPack >= 1) {                       // under #pragma pack(N)
+        decl->packAlign = currentPack;
+        if (currentPack == 1) decl->isPacked = true;
+    }
     return decl;
 }
 
 // Interpret a `#pragma ...` directive. Only `#pragma pack` affects compilation;
 // every other pragma is ignored. Supported forms:
-//   #pragma pack(N)         set current alignment (N==1 packs subsequent structs)
+//   #pragma pack(N)         cap field alignment at N for subsequent structs
 //   #pragma pack()          reset to default
 //   #pragma pack(push, N)   save current, then set to N
 //   #pragma pack(pop)       restore the last saved value

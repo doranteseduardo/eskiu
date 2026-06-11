@@ -148,7 +148,7 @@ Phase 3 rounds out ergonomics and tooling.
 - [ ] Pointer constness — distinguish a const pointer from a pointer-to-const (`const int*` vs `int* const`); `const` currently only qualifies the binding
 - [x] `__FILE__` and `__LINE__` in the preprocessor — `__LINE__` refreshed per line, `__FILE__` threaded from the compiled/imported path. Test: `pp_loc`
 - [x] `#error` directive — aborts compilation with the message (respects `#ifdef` branches). Test: `errors/pp_error`
-- [ ] `#pragma pack(N)` with N > 1 (v0.1.0 honours `pack(1)` only)
+- [x] `#pragma pack(N)` with N > 1 — caps each field's alignment at N (manual padded layout matching the C `#pragma pack(N)` ABI; total size rounds up to the struct's alignment). Test: `pack_n`
 - [x] `-Wextra` — signed/unsigned comparison mismatches (off by default; layers on top of `-Wall`)
 - [ ] Shebang support — `#!/usr/bin/env eskiuc run`
 - [ ] Package manager — dependency resolution, registry, build integration

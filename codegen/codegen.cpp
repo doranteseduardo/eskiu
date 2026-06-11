@@ -779,9 +779,47 @@ void CodeGen::ensureTemplateInstantiated(const std::string& mangled,
         fieldTypes.push_back(getTypeFromString(concrete));
         fields.push_back({concrete, f.name});
     }
+    // #pragma pack(N>=2): same manual layout as concrete structs.
+    if (tmpl->packAlign >= 2) {
+        std::vector<llvm::Type*> phys;
+        std::map<std::string, BitfieldSlot> slots;
+        buildPackedLayout(fields, (unsigned)tmpl->packAlign, phys, slots);
+        structTypes[mangled]  = llvm::StructType::create(*context, phys, mangled, /*isPacked=*/true);
+        structFields[mangled] = fields;
+        structLayout[mangled] = slots;
+        return;
+    }
     llvm::StructType* st = llvm::StructType::create(*context, fieldTypes, mangled, tmpl->isPacked);
     structTypes[mangled] = st;
     structFields[mangled] = fields;
+}
+
+bool CodeGen::buildPackedLayout(const std::vector<StructDecl::Field>& fields, unsigned packN,
+                                std::vector<llvm::Type*>& phys,
+                                std::map<std::string, BitfieldSlot>& slots) {
+    const llvm::DataLayout& DL = module->getDataLayout();
+    llvm::Type* i8 = llvm::Type::getInt8Ty(*context);
+    uint64_t offset = 0, structAlign = 1;
+    for (const auto& f : fields) {
+        if (f.bitWidth > 0) return false;  // pack + bitfields: fall back to the bitfield path
+        llvm::Type* ft = getTypeFromString(f.type);
+        uint64_t align = std::min<uint64_t>(DL.getABITypeAlign(ft).value(), packN);
+        if (align > structAlign) structAlign = align;
+        uint64_t aligned = (offset + align - 1) / align * align;
+        if (aligned > offset) { phys.push_back(llvm::ArrayType::get(i8, aligned - offset)); offset = aligned; }
+        BitfieldSlot s;
+        s.isBitfield = false;
+        s.physIndex = (unsigned)phys.size();
+        s.storageType = ft;
+        slots[f.name] = s;
+        phys.push_back(ft);
+        offset += DL.getTypeAllocSize(ft).getFixedValue();
+    }
+    // Round the total size up to the struct's alignment (min(maxFieldAlign, N)),
+    // so an array element stride matches the C `#pragma pack(N)` ABI.
+    uint64_t total = (offset + structAlign - 1) / structAlign * structAlign;
+    if (total > offset) phys.push_back(llvm::ArrayType::get(i8, total - offset));
+    return true;
 }
 
 void CodeGen::declareStructType(StructDecl* node) {
@@ -795,6 +833,16 @@ void CodeGen::declareStructType(StructDecl* node) {
     for (const auto& f : node->fields) if (f.bitWidth > 0) hasBitfields = true;
 
     if (!hasBitfields) {
+        // #pragma pack(N>=2): manual layout (padding + physical-index remap).
+        if (node->packAlign >= 2) {
+            std::vector<llvm::Type*> phys;
+            std::map<std::string, BitfieldSlot> slots;
+            buildPackedLayout(node->fields, (unsigned)node->packAlign, phys, slots);
+            structTypes[node->name]  = llvm::StructType::create(*context, phys, node->name, /*isPacked=*/true);
+            structFields[node->name] = node->fields;
+            structLayout[node->name] = slots;
+            return;
+        }
         std::vector<llvm::Type*> fieldTypes;
         for (const auto& field : node->fields)
             fieldTypes.push_back(getTypeFromString(field.type));
