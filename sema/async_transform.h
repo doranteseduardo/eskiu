@@ -7,9 +7,10 @@
 // (an if-chain over the resume state), and a constructor that returns *Future<T>.
 // The result is ordinary Eskiu AST that normal codegen handles.
 //
-// v1 supports a single `await` bound in a `let`:
-//     async T f(params) { <stmts> let x = await CALL(...); <stmts> return E; }
-// Unsupported shapes raise a clear error rather than miscompiling.
+// Awaits are lowered across all control flow — `if`/`else`, `while`, C-style
+// `for`, `switch`, and `for`-`in` (desugared to a counted `for`), including
+// `break`/`continue` and early `return`. An `await` must be bound in a `let`
+// (the desugaring pass normalizes the other forms first).
 class AsyncTransform {
 public:
     void run(Program* program);

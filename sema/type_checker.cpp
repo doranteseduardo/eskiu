@@ -1637,11 +1637,6 @@ std::string TypeChecker::inferBinaryExprType(const std::string& leftType, const 
     if ((op == "+" || op == "-") && isPointerType(leftType) && isIntType(rightType)) {
         return leftType;
     }
-    // Bitwise/shift ops work on integers of any width
-    if (op == "&" || op == "|" || op == "^" || op == "<<" || op == ">>") {
-        if (isIntType(leftType) && isIntType(rightType)) return promoteType(leftType, rightType);
-        return "error";
-    }
     if (!isNumericType(leftType) || !isNumericType(rightType)) {
         return "error";
     }

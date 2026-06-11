@@ -24,12 +24,6 @@ StmtPtr exprStmt(ExprPtr e)  { return std::make_shared<ExprStmt>(std::move(e)); 
 StmtPtr assign(ExprPtr lhs, ExprPtr rhs) { return exprStmt(binop(std::move(lhs), "=", std::move(rhs))); }
 StmtPtr ret(ExprPtr v) { return std::make_shared<ReturnStmt>(std::move(v)); }
 
-bool isFuturePtr(const std::string& t) {
-    std::string s = t;
-    while (!s.empty() && s.front() == '*') s = s.substr(1);
-    while (!s.empty() && s.back()  == '*') s.pop_back();
-    return s.rfind("Future<", 0) == 0;
-}
 
 // Recursively rewrite references to frame variables (params + body locals) into
 // `fr.<name>` member accesses, in place.
@@ -45,8 +39,8 @@ void rewrite(ExprPtr& e, const std::set<std::string>& vars) {
     astwalk::forEachChildExpr(e.get(), [&](ExprPtr& c) { rewrite(c, vars); });
 }
 
-// True if an expression contains an AwaitExpr anywhere (used to reject `await`
-// in positions the v1 transform does not handle, e.g. inside a larger expression).
+// True if an expression contains an AwaitExpr anywhere (used to require `await`
+// be bound in a `let` rather than nested inside a larger expression).
 bool hasAwait(const ExprPtr& e) {
     if (!e) return false;
     if (dynamic_cast<AwaitExpr*>(e.get())) return true;
@@ -561,8 +555,8 @@ void AsyncTransform::run(Program* program) {
                 return join;
             }
             if (auto* b = dynamic_cast<BlockStmt*>(s.get())) return lowerSeq(b->items, cur);
-            throw std::runtime_error("async function '" + name + "': await inside this statement "
-                "is not lowered yet (supported: if / while / C-style for / switch; not for-in)");
+            throw std::runtime_error("async function '" + name + "': await is not supported "
+                "inside this statement (supported: if/else, while, for, for-in, switch)");
         };
 
         int entry = newState();                 // state 0
@@ -634,7 +628,6 @@ void AsyncTransform::run(Program* program) {
         out.push_back(std::make_shared<StructDecl>(frameT, fields));
         out.push_back(resumeFn);
         out.push_back(ctorFn);
-        (void)isFuturePtr;
     }
 
     program->declarations = std::move(out);

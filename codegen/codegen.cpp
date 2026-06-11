@@ -2736,8 +2736,8 @@ void CodeGen::visit(AwaitExpr* node) {
     // The async transform rewrites `async fn`/`await` into a state machine before
     // codegen; reaching here means the transform has not run on this code.
     (void)node;
-    throw std::runtime_error("async/await codegen requires the state-machine "
-                             "transform (not yet implemented)");
+    throw std::runtime_error("internal error: an `await` survived to codegen — "
+                             "the async state-machine transform did not run");
 }
 
 void CodeGen::visit(FreeClosureExpr* node) {
