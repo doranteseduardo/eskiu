@@ -1884,7 +1884,33 @@ Substitution is identifier-aware and leaves string and character literals untouc
 
 Unlike the other directives, `#pragma` is not consumed by the preprocessor — it is passed through to the compiler. Only `#pragma pack` is acted upon (§8.9); any other pragma is ignored.
 
-**Predefined macros.** The compiler predefines a macro for the host operating system — `__APPLE__` on macOS, `__linux__` on Linux — so stdlib and user code can branch on platform with `#ifdef`. This is how `<net>` selects the correct `sockaddr_in` layout:
+### Predefined macros
+
+The compiler predefines these:
+
+| Macro | Value | Notes |
+|---|---|---|
+| `__LINE__` | current source line, an integer | refreshed for every line; reflects the line of the *use*, after line-splicing |
+| `__FILE__` | current file path, a string literal | the path as passed to the compiler or resolved by `import`; distinct per file in a multi-file build |
+| `__APPLE__` | `1` (macOS only) | host-OS macro; exactly one of `__APPLE__`/`__linux__` is defined |
+| `__linux__` | `1` (Linux only) | |
+| `__ESKIU_FREESTANDING__` | `1` under `--freestanding` | lets stdlib target `esk_alloc`/`esk_free` instead of libc |
+
+`__LINE__` and `__FILE__` are ordinary object-like macros (so substitution
+respects identifier boundaries and skips string/char literals) but their values
+are maintained by the compiler. `__LINE__` is re-set to the physical line number
+of each logical line before that line is expanded, so a `__LINE__` inside a
+multi-line continuation still reports the line where it textually appears.
+`__FILE__` is threaded from the file currently being compiled or imported, so in
+a multi-file or `import`-driven build each file sees its own path. Together with
+`#error` they support assertions, build guards, and `file:line` diagnostics:
+
+```eskiu
+printf("%s:%d: reached\n", __FILE__, __LINE__);   // e.g. "src/main.esk:42: reached"
+```
+
+The host-OS macros let stdlib and user code branch on platform with `#ifdef` —
+this is how `<net>` selects the correct `sockaddr_in` layout:
 
 ```eskiu
 #ifdef __APPLE__
@@ -1893,3 +1919,10 @@ Unlike the other directives, `#pragma` is not consumed by the preprocessor — i
     // Linux
 #endif
 ```
+
+### Shebang lines
+
+If the first line of a file begins with `#!` (e.g. `#!/usr/bin/env eskiuc run`),
+the preprocessor treats it as an unrecognized directive and blanks it out,
+preserving line numbers. This lets a `.esk` file be marked executable
+(`chmod +x`) and run directly as a script — see `eskiuc run` in §17.

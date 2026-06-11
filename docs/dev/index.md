@@ -37,6 +37,7 @@ Each test mode exits 0 on success and prints a human-readable dump to stdout. A 
 | Document            | What it covers                                                                                 |
 | ------------------- | ---------------------------------------------------------------------------------------------- |
 | `architecture.md`   | Pipeline stages, AST node hierarchy, visitor pattern, type mappings (Eskiu → LLVM)             |
+| `abi.md`            | Type lowering, calling convention (sret, varargs), fat pointers, name mangling — the C-ABI contract |
 | `phases.md`         | Phase status (0–8), current feature table, roadmap (v0.2 → v1.0)                              |
 | `contributing.md`   | Branch workflow, code style, commit conventions, testing checklist                             |
 | `design.md`         | Rationale for key decisions: C-style syntax, no GC, implicit interfaces, monomorphic templates |
