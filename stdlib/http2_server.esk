@@ -200,18 +200,27 @@ async void http2_serve_conn_async(EventLoop* lp, int fd,
                 }
                 let res: HttpResponse;  HttpResponse_init(&res, 200);
                 handler(&req, &res);
-                h2_send_response(&conn, hdr.stream_id, &res);
+                *uint8 out = alloc<uint8>(h2_response_bufsize(&res));
+                int on = h2_build_response(out, hdr.stream_id, &res);
+                int ow = await net_write_async(lp, fd, out, (int64)on);  // non-blocking send
+                free((*void)out);
                 HttpResponse_free(&res);
                 HttpRequest_free(&req);
+                if (ow < 0) { running = 0; }
             } else if (hdr.type == H2_SETTINGS) {
                 if ((hdr.flags & H2_FLAG_ACK) == 0) {
                     *uint8 a = alloc<uint8>(9);
                     int an = h2_write_settings_ack(a);
-                    net_send(fd, (*void)a, (int64)an);
+                    int w = await net_write_async(lp, fd, a, (int64)an);
                     free((*void)a);
                 }
             } else if (hdr.type == H2_PING) {
-                if ((hdr.flags & H2_FLAG_ACK) == 0) { h2_send_pong(fd, fb + 9); }
+                if ((hdr.flags & H2_FLAG_ACK) == 0) {
+                    *uint8 pb = alloc<uint8>(17);
+                    int pn2 = h2_write_ping(pb, fb + 9, 1);
+                    int w = await net_write_async(lp, fd, pb, (int64)pn2);
+                    free((*void)pb);
+                }
             } else if (hdr.type == H2_GOAWAY) {
                 running = 0;
             }
