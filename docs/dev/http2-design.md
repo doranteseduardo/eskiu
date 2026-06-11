@@ -25,9 +25,17 @@ tested and useful on its own.
   (validate preface → read + apply client SETTINGS → send ours + ACK). Tested:
   `http2_conn` (pure codecs) and `http2_handshake` (the async handshake over a
   socketpair).
-- [ ] **Stage 3 — HPACK** (RFC 7541). Header compression: the static table, a
-  dynamic table with eviction, integer + string literal coding, and Huffman
-  decode/encode. This is its own sizeable module (`stdlib/hpack.esk`).
+- [~] **Stage 3 — HPACK** (RFC 7541), `stdlib/hpack.esk`. Header compression.
+  - [x] *3a* — prefix-integer coding (§5.1), raw string literals (§5.2, H=0), the
+    61-entry static table (Appendix A), a dynamic table with size-based eviction
+    (§4), and the §6 decoder/encoder (indexed; literal with / without / never
+    indexing; dynamic-table size update). Checked against the RFC's own vectors
+    (§C.1.1 integer, §C.3.1 request block) plus an encode→decode round-trip
+    (`tests/hpack`). The decoder maintains the dynamic table; the encoder is
+    stateless (indexed static matches, else literal-without-indexing).
+  - [ ] *3b* — Huffman coding (§5.2 + Appendix B): the 257-symbol table, decode
+    (required to read real clients' headers) and encode. A Huffman-coded string
+    (H bit set) currently decodes to an error; this is the only HPACK gap.
 - [ ] **Stage 4 — Streams & flow control.** Stream state machine (idle → open →
   half-closed → closed), HEADERS+CONTINUATION assembly, DATA framing, per-stream
   and connection WINDOW_UPDATE flow control, RST_STREAM.
