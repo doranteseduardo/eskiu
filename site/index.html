@@ -320,7 +320,7 @@
   <div class="wrap">
     <span class="label">Why Eskiu</span>
     <h2>One toolchain instead of four.</h2>
-    <p class="lead">Compute-intensive services lean on C for speed, Go for concurrency, C++ for libraries, and something else for glue. Eskiu handles all of it — compiled, explicit, and async-capable from day one.</p>
+    <p class="lead">Compute-intensive services lean on C for speed, Go for concurrency, C++ for libraries, and something else for glue. Eskiu does all of it in one compiled language, with async built in.</p>
     <div class="glance">
       <div class="glance-item">
         <h3>Machine code, explicit allocation</h3>
@@ -328,11 +328,11 @@
       </div>
       <div class="glance-item">
         <h3>Async without a framework</h3>
-        <p><code>async fn</code> and <code>await</code> compile to coroutine state machines. Pair with the built-in executor and channels, or write your own scheduler. No external runtime required.</p>
+        <p><code>async fn</code> and <code>await</code> compile to coroutine state machines. Pair with the built-in executor and channels, or write your own scheduler. No external runtime.</p>
       </div>
       <div class="glance-item">
-        <h3>Metal to backend, same language</h3>
-        <p>Freestanding mode boots a bare-metal ARM64 kernel in QEMU. The same syntax and stdlib handle HTTP/2 on the other end. No context switch between runtimes.</p>
+        <h3>Kernel to server, one language</h3>
+        <p>Freestanding mode boots a bare-metal ARM64 kernel in QEMU. The same syntax and stdlib handle HTTP/2 on a server. One language for both ends.</p>
       </div>
     </div>
   </div>
@@ -344,7 +344,7 @@
   <div class="wrap">
     <span class="label">Examples</span>
     <h2>Looks like C.</h2>
-    <p class="lead" style="margin-bottom:2.5rem">Each file below is a complete program. Compile and run with <code>eskiuc run file.esk</code>.</p>
+    <p class="lead" style="margin-bottom:2.5rem">Each file below is a complete program. Compile and run with <code style="white-space:nowrap">eskiuc run file.esk</code>.</p>
     <div class="examples-wrap">
       <div class="tab-list" role="tablist">
         <button class="tab-btn active" onclick="switchTab(event,'async')">async.esk</button>
