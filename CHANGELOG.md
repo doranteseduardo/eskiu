@@ -16,6 +16,7 @@ Backend-services phase. v0.1.0 is frozen at its tag; this is the in-progress nex
 - **`const`** — immutable typed bindings, usable as array sizes; field/element mutation of a `const` value is rejected.
 - **Integer ranges in `for`-`in`** — `for (i in A..B)` iterates the half-open range `[A, B)` (a new `..` operator). Desugars to a counted `for`, so it composes with `break`/`continue` and the async transform.
 - **Preprocessor diagnostics** — `__LINE__` (current source line) and `__FILE__` (current file path) expand in place, and `#error message` aborts compilation (honoring `#ifdef` branches). The VS Code grammar now also highlights all preprocessor directives.
+- **Algebraic enums + `match`** — an `enum` variant may carry a payload (`enum Shape { Circle(float), Rect(float, float), Unit }`), making the enum a tagged union. Variants are constructed by name (`Circle(2.0)`, bare `Unit`) and destructured with `match s { Circle(r) -> …; _ -> … }`, which binds payload fields per arm. Classic integer enums are unchanged. (Stage 1: concrete payload types; exhaustiveness and generic enums to follow.)
 - **`alloc_with(&allocator, T, n)`** — explicit-allocator built-in.
 - **`volatile let`** — qualifier-first form (like `const int`), in local and top-level declarations.
 - Multi-argument `fn` types (`fn(A,B)->R`); function pointers usable as values, parameters, return types, and struct fields, and capturable in closures.

@@ -45,6 +45,7 @@ enum class TokenType {
     IF,
     ELSE,
     SWITCH,
+    MATCH,
     CASE,
     DEFAULT,
     BREAK,

@@ -81,6 +81,10 @@ private:
     StmtPtr parseBreakStatement();
     StmtPtr parseContinueStatement();
     StmtPtr parseSwitchStatement();
+    StmtPtr parseMatchStatement();
+    // When set, a bare `Name {` is not parsed as a struct literal (so a match
+    // subject's trailing `{` opens the match body). Restored after the subject.
+    bool noStructLiteral = false;
     StmtPtr parseExpressionStatement();
 
     ExprPtr parseStructInit(const std::string& structName);

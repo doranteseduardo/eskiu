@@ -114,8 +114,12 @@ llvm::Type* CodeGen::getTypeFromString(const std::string& typeStr) {
     // Resolve a type alias to its underlying type.
     if (auto it = typeAliases.find(typeStr); it != typeAliases.end())
         return getTypeFromString(it->second);
-    // An enum type is an i32.
-    if (enumTypes.count(typeStr)) return llvm::Type::getInt32Ty(*context);
+    // A classic enum is an i32; an algebraic enum is its tagged-union struct.
+    if (enumTypes.count(typeStr)) {
+        auto st = structTypes.find(typeStr);
+        if (st != structTypes.end()) return st->second;   // ADT enum
+        return llvm::Type::getInt32Ty(*context);
+    }
 
     if (typeStr == "int"  || typeStr == "int32")  return llvm::Type::getInt32Ty(*context);
     if (typeStr == "int8")                         return llvm::Type::getInt8Ty(*context);
@@ -1471,6 +1475,13 @@ llvm::Value* CodeGen::lowerIntrinsicCall(const std::string& fn, CallExpr* node) 
 }
 
 void CodeGen::visit(CallExpr* node) {
+    // Algebraic variant construction: `Circle(2.0)`, `Some(x)`.
+    if (auto* vid = dynamic_cast<IdentExpr*>(node->callee.get())) {
+        if (!lookupSymbol(vid->name) && adtVariants.count(vid->name)) {
+            exprValueStack.push(buildVariant(vid->name, node->args));
+            return;
+        }
+    }
     // Intrinsics: a call to an `intrinsic`-declared name lowers to inline IR
     // instead of a call. Gated on intrinsicNames (only populated when the
     // declaring module is imported), so a user function of the same name that
@@ -1971,6 +1982,11 @@ void CodeGen::visit(IdentExpr* node) {
                 llvm::Type::getInt32Ty(*context), ec->second, /*isSigned=*/true));
             return;
         }
+        // Bare algebraic variant with no payload, e.g. `None`.
+        if (adtVariants.count(node->name)) {
+            exprValueStack.push(buildVariant(node->name, {}));
+            return;
+        }
     }
 
     // Look up variable
@@ -2416,7 +2432,72 @@ void CodeGen::visit(TryStmt* node) {
 
 void CodeGen::visit(EnumDecl* node) {
     enumTypes.insert(node->name);
-    for (const auto& m : node->members) enumConstants[m.first] = m.second;
+    if (!node->isADT()) {
+        for (const auto& m : node->members) enumConstants[m.first] = m.second;
+        return;
+    }
+    // Algebraic enum: a tagged union { i32 tag; [N x i64] payload }. The i64 array
+    // forces 8-byte alignment, enough for any scalar/pointer/double payload; N is
+    // sized to the largest variant. Each variant's fields are written/read by
+    // viewing the payload area as that variant's struct.
+    adtEnums.insert(node->name);
+    adtEnumDecls[node->name] = node;
+    const auto& DL = module->getDataLayout();
+    uint64_t maxBytes = 0;
+    for (size_t v = 0; v < node->members.size(); ++v) {
+        adtVariants[node->members[v].first] = {node->name, (int)v};
+        uint64_t bytes = 0;
+        for (const auto& ft : node->payloads[v]) {
+            llvm::Type* t = getTypeFromString(ft);
+            uint64_t al = DL.getABITypeAlign(t).value();
+            bytes = ((bytes + al - 1) / al) * al + DL.getTypeAllocSize(t);
+        }
+        if (bytes > maxBytes) maxBytes = bytes;
+    }
+    uint64_t n = (maxBytes + 7) / 8; if (n == 0) n = 1;
+    std::vector<llvm::Type*> fields = {
+        llvm::Type::getInt32Ty(*context),
+        llvm::ArrayType::get(llvm::Type::getInt64Ty(*context), n)
+    };
+    structTypes[node->name] = llvm::StructType::create(*context, fields, node->name);
+}
+
+// Build an algebraic-enum value: alloca the enum struct, store the tag, write the
+// payload fields by viewing the payload bytes as the variant's struct, then load.
+llvm::Value* CodeGen::buildVariant(const std::string& variant, const std::vector<ExprPtr>& args) {
+    auto& info = adtVariants[variant];
+    EnumDecl* ed = adtEnumDecls[info.first];
+    llvm::StructType* et = structTypes[info.first];
+    llvm::Value* tmp = builder->CreateAlloca(et, nullptr, variant + ".tmp");
+    builder->CreateStore(llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), info.second),
+                         builder->CreateStructGEP(et, tmp, 0));
+    const auto& payload = ed->payloads[info.second];
+    if (!payload.empty()) {
+        std::vector<llvm::Type*> vfields;
+        for (const auto& ft : payload) vfields.push_back(getTypeFromString(ft));
+        llvm::StructType* vt = llvm::StructType::get(*context, vfields);
+        llvm::Value* pay = builder->CreateStructGEP(et, tmp, 1);   // the [N x i64] area
+        for (size_t i = 0; i < args.size() && i < payload.size(); ++i) {
+            llvm::Value* fp = builder->CreateStructGEP(vt, pay, i);
+            llvm::Value* val = evaluateExpr(args[i]);
+            // Coerce the argument to the field's type (e.g. a `2.0` double literal
+            // into a `float` field) so the stored bytes match what match reads back.
+            llvm::Type* ft = vfields[i];
+            if (val && val->getType() != ft) {
+                if (val->getType()->isIntegerTy() && ft->isIntegerTy())
+                    val = val->getType()->getIntegerBitWidth() > ft->getIntegerBitWidth()
+                          ? builder->CreateTrunc(val, ft) : builder->CreateSExt(val, ft);
+                else if (val->getType()->isIntegerTy() && ft->isFloatingPointTy())
+                    val = builder->CreateSIToFP(val, ft);
+                else if (val->getType()->isFloatingPointTy() && ft->isIntegerTy())
+                    val = builder->CreateFPToSI(val, ft);
+                else if (val->getType()->isFloatingPointTy() && ft->isFloatingPointTy())
+                    val = builder->CreateFPCast(val, ft);
+            }
+            builder->CreateStore(val, fp);
+        }
+    }
+    return builder->CreateLoad(et, tmp, variant + ".val");
 }
 
 void CodeGen::visit(TypeAliasDecl* node) {
@@ -2699,6 +2780,56 @@ void CodeGen::visit(ContinueStmt* node) {
     if (!continueTarget)
         throw std::runtime_error("continue used outside of a loop");
     builder->CreateBr(continueTarget);
+}
+
+void CodeGen::visit(MatchStmt* node) {
+    llvm::StructType* et = structTypes[node->enumName];
+    EnumDecl* ed = adtEnumDecls[node->enumName];
+    llvm::Type* i32 = llvm::Type::getInt32Ty(*context);
+
+    // Materialize the subject so tag + payload can be read by pointer.
+    llvm::Value* sv = evaluateExpr(node->subject);
+    llvm::Value* sptr = builder->CreateAlloca(et, nullptr, "match.subj");
+    builder->CreateStore(sv, sptr);
+    llvm::Value* tag = builder->CreateLoad(i32, builder->CreateStructGEP(et, sptr, 0), "match.tag");
+
+    llvm::BasicBlock* endBlock = llvm::BasicBlock::Create(*context, "match.end", currentFunction);
+    std::vector<llvm::BasicBlock*> armBlocks(node->arms.size());
+    llvm::BasicBlock* defaultBlock = endBlock;
+    for (size_t i = 0; i < node->arms.size(); ++i) {
+        armBlocks[i] = llvm::BasicBlock::Create(*context, "match.arm", currentFunction);
+        if (node->arms[i].variant.empty()) defaultBlock = armBlocks[i];
+    }
+    llvm::SwitchInst* sw = builder->CreateSwitch(tag, defaultBlock);
+    for (size_t i = 0; i < node->arms.size(); ++i)
+        if (!node->arms[i].variant.empty())
+            sw->addCase(llvm::cast<llvm::ConstantInt>(llvm::ConstantInt::get(i32, adtVariants[node->arms[i].variant].second)), armBlocks[i]);
+
+    for (size_t i = 0; i < node->arms.size(); ++i) {
+        auto& arm = node->arms[i];
+        builder->SetInsertPoint(armBlocks[i]);
+        pushScope();
+        if (!arm.variant.empty() && !arm.bindings.empty()) {
+            const auto& payload = ed->payloads[adtVariants[arm.variant].second];
+            std::vector<llvm::Type*> vfields;
+            for (const auto& ft : payload) vfields.push_back(getTypeFromString(ft));
+            llvm::StructType* vt = llvm::StructType::get(*context, vfields);
+            llvm::Value* pay = builder->CreateStructGEP(et, sptr, 1);
+            for (size_t b = 0; b < arm.bindings.size() && b < payload.size(); ++b) {
+                llvm::Value* fp = builder->CreateStructGEP(vt, pay, b);
+                llvm::Value* val = builder->CreateLoad(vfields[b], fp, arm.bindings[b]);
+                llvm::Value* slot = builder->CreateAlloca(vfields[b], nullptr, arm.bindings[b]);
+                builder->CreateStore(val, slot);
+                defineSymbol(arm.bindings[b], slot);
+                defineVarType(arm.bindings[b], payload[b]);
+            }
+        }
+        if (arm.body) arm.body->accept(this);
+        popScope();
+        if (!builder->GetInsertBlock()->getTerminator())
+            builder->CreateBr(endBlock);
+    }
+    builder->SetInsertPoint(endBlock);
 }
 
 void CodeGen::visit(SwitchStmt* node) {

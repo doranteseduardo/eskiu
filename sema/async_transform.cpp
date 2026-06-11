@@ -80,6 +80,11 @@ bool stmtHasAwait(const StmtPtr& s) {
         for (auto& c : sw->cases) for (auto& st : c.stmts) if (stmtHasAwait(st)) return true;
         return false;
     }
+    if (auto* m = dynamic_cast<MatchStmt*>(s.get())) {
+        if (hasAwait(m->subject)) return true;
+        for (auto& arm : m->arms) if (stmtHasAwait(arm.body)) return true;
+        return false;
+    }
     if (auto* rs = dynamic_cast<ReturnStmt*>(s.get())) return hasAwait(rs->value);
     if (auto* es = dynamic_cast<ExprStmt*>(s.get()))  return hasAwait(es->expr);
     return false;
@@ -355,6 +360,17 @@ void AsyncTransform::run(Program* program) {
                     SwitchStmt::Case nc; nc.value = c.value;
                     for (auto& st : c.stmts) nc.stmts.push_back(rewritePlain(st));
                     out2->cases.push_back(nc);
+                }
+                return out2;
+            }
+            if (auto* m = dynamic_cast<MatchStmt*>(s.get())) {
+                rewrite(m->subject, vars);
+                auto out2 = std::make_shared<MatchStmt>(m->subject, std::vector<MatchStmt::Arm>{});
+                out2->enumName = m->enumName;   // stamped by the type checker
+                for (auto& arm : m->arms) {
+                    MatchStmt::Arm na; na.variant = arm.variant; na.bindings = arm.bindings;
+                    na.body = arm.body ? rewritePlain(arm.body) : nullptr;
+                    out2->arms.push_back(na);
                 }
                 return out2;
             }
