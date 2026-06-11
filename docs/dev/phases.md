@@ -43,7 +43,7 @@ The project follows two phases:
 | Freestanding mode — compile without libc | ✅ |
 | volatile — for memory-mapped I/O | ✅ |
 | const — immutable typed bindings, usable as array sizes (v0.2.0) | ✅ |
-| `alloc_with(&a, T, n)` + `<alloc>` (Bump/Arena/Pool/FirstFit) — caller-buffer allocators, libc-free (v0.2.0) | ✅ |
+| `alloc_with(&a, T, n)` + `<alloc>` (Bump/Arena/Pool/FirstFit) — explicit allocators over a buffer you own (Zig model); `<sysheap>` adds an mmap-backed heap with no libc `malloc` (v0.2.0) | ✅ |
 | Nested template instantiation — a template calling another with the type param forwarded (`alloc<T>(n)` inside `List_push<T>`) (v0.2.0) | ✅ |
 | Closures — capturing variables from the enclosing scope | ✅ |
 | Threads — `thread_create`/`thread_join` primitives | ✅ |
@@ -115,7 +115,8 @@ Phase 3 rounds out ergonomics and tooling.
 **Phase 1 — Unblock real projects**
 - [x] `const` — typed, scoped constants, usable as array sizes
 - [x] `alloc_with(&allocator, T, n)` — explicit-allocator form alongside the default `alloc<T>` (built-in; `alloc`/`free` themselves moved to `<mem>`)
-- [x] `<alloc>` — first-fit general-purpose allocator (after Ken Thompson's original), plus Arena, Pool, and Bump, all over `alloc_with`. A libc-free foundation for `--freestanding` (no dependency on libc `malloc`)
+- [x] `<alloc>` — a toolkit of explicit allocators (FirstFit after Ken Thompson, plus Arena, Pool, Bump) over a buffer you own, via `alloc_with` (the Zig allocator model). Pure pointer arithmetic, no externs. NOT a global `malloc` replacement — the default `alloc<T>` is still libc `malloc` in hosted mode; these are for managing a region, and are the building blocks for a freestanding heap (the kernel's `esk_alloc`)
+- [x] `<sysheap>` — a general-purpose heap that sources OS pages via `mmap` and allocates with `FirstFit`: no libc `malloc` on the allocation path (the Zig `page_allocator` / jemalloc / Go-runtime approach). The libc-`malloc`-free hosted heap, opt-in
 - [x] `<threading>` — mutex, condvar, semaphore over pthread
 - [x] `<http>` — HTTP/1.1 parser + response builder + worker pool
 - [x] `<base64>` — encode / decode

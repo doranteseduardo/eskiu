@@ -35,6 +35,7 @@ from the repo root works out of the box (or set `ESKIU_ROOT=.`).
 | [structs.esk](structs.esk) | structs with methods, `self`, field access | — |
 | [interfaces.esk](interfaces.esk) | structural interfaces (no `implements` keyword) — any struct with the methods satisfies them | — |
 | [generics.esk](generics.esk) | templates: the generic `List<T>`, template functions and structs | — |
+| [allocators.esk](allocators.esk) | managing memory without libc `malloc`: an `<alloc>` Arena over a static buffer, and a `<sysheap>` mmap-backed `FirstFit` heap | `<alloc>` `<sysheap>` |
 | [result.esk](result.esk) | `Result<T, E>` error-as-value with `Ok`/`Err` | `<result>` |
 | [json.esk](json.esk) | build a JSON document and parse it back | `<json>` |
 | [tcp_echo_server.esk](tcp_echo_server.esk) | a TCP echo server over the POSIX socket API | `<net>` |
