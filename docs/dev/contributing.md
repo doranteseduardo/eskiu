@@ -15,7 +15,7 @@ All four flags on examples/hello.esk before touching anything:
 --test-lexer / --test-parser / --test-typechecker / --test-codegen
 
 ### Recommended reading
-docs/ARCHITECTURE.md, docs/PHASES.md, ast/ast.h, sema/type_checker.cpp
+docs/dev/architecture.md, docs/dev/phases.md, ast/ast.h, sema/type_checker.cpp
 
 ## Development Workflow
 Branch naming: feat/ fix/ refactor/
@@ -49,7 +49,5 @@ Codegen checks: single alloca per var, every branch terminated, no undef, correc
 - [ ] Docs updated if behavior changed
 
 ## Current Focus
-v0.0.11-alpha, all core features complete.
-Active milestone: INE QR decoder port (v0.1) — application port, no new language work needed.
-Near-term: String.append realloc strategy, interface return type dispatch.
-Phases 5.5/6/7 complete; no active language development. New feature proposals require an issue referencing the v0.1 context.
+v0.2.0 — the "backend services" release. The systems foundation (v0.1.0) is shipped and tagged; v0.2.0 layers the concurrent-backend stack on top: async/await, the full HTTP/2 stack (framing, HPACK, streams + flow control, multiplexed server, TLS/ALPN), sum types with `match`, and the stdlib (allocators, threading, sockets, async runtime, JSON, and more).
+Genuinely deferred: a package manager, and the tighter locals-across-await liveness optimization. See docs/dev/phases.md for the full feature table and roadmap. New feature proposals require an issue.

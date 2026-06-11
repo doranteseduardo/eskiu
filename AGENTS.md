@@ -61,9 +61,12 @@ Use `examples/` and `tests/` as inputs. Add a `.esk` file for any feature you im
 | `examples/` | Working demos. |
 | `kernel/` | Bare-metal ARM64 kernel for QEMU (v0.1 milestone). |
 
-## Current language status (v0.1.0)
+## Current language status (v0.2.0)
 
-All items below are implemented and tested end-to-end.
+All items below are implemented and tested end-to-end. v0.1.0 shipped the systems
+foundation (closures, threads, exceptions, the bare-metal kernel); v0.2.0 adds the
+backend-services stack: async/await, the full HTTP/2 + HPACK + TLS stack, sum types
+with `match`, and the concurrent stdlib.
 
 | Feature | Notes |
 |---|---|
@@ -100,16 +103,20 @@ All items below are implemented and tested end-to-end.
 | Multi-file compile | `eskiuc a.esk b.esk -o prog` — declarations from all inputs are merged into one program |
 | Warnings (`-Wall`) | Unused variables/parameters/functions, assignment-in-condition; off by default |
 | VS Code | Real-time errors, hover types, go-to-definition |
-| stdlib | `result.esk`, `list.esk`, `string.esk`, `math.esk`, `io.esk`, `mem.esk`, `fs.esk`, `net.esk`, `alloc.esk`, `time.esk`, `env.esk`, `base64.esk`, `json.esk`, `threading.esk`, `http.esk`, `path.esk`, `eventloop.esk`, `atomic.esk`, `future.esk`, `executor.esk`, `net_async.esk`, `http_async.esk` (async runtime) |
+| stdlib | Core: `result.esk`, `either.esk`, `list.esk`, `string.esk`, `math.esk`, `io.esk`, `mem.esk`, `path.esk`, `env.esk`, `time.esk`. Memory: `alloc.esk` (Bump/Arena/Pool/FirstFit), `sysheap.esk` (mmap heap). Concurrency: `threading.esk`, `atomic.esk`. Async runtime: `eventloop.esk`, `future.esk`, `futureval.esk`, `executor.esk`, `net_async.esk`, `timer.esk`, `channel.esk`. Net/codecs: `net.esk`, `base64.esk`, `json.esk`. HTTP: `http.esk`, `http_async.esk`, `http2.esk`, `http2_server.esk`, `hpack.esk`, `hpack_huffman.esk`, `tls.esk`. Files: `fs.esk` |
 
-## Roadmap (as of v0.1.0)
+## Roadmap (as of v0.2.0)
 
 | Milestone | Items | Status |
 |---|---|---|
 | Systems milestone | Bare-metal kernel on QEMU | ✅ |
-| v0.1 | Closures, threads, exceptions | ✅ |
-| v0.2 | HTTP stdlib (`http.esk`) | ❌ |
+| v0.1.0 | Closures, threads, exceptions, enums, unions, bitfields, preprocessor | ✅ |
+| v0.2.0 | async/await, HTTP/1.1 + HTTP/2 + HPACK + TLS, sum types + `match`, allocators, the concurrent stdlib | ✅ |
+| v0.3 | Self-hosting prerequisites (LLVM C bindings, lexer/parser in Eskiu) | ❌ |
 | v1.0 | Package manager, self-hosting | ❌ |
+
+Genuinely deferred within v0.2.0: a package manager, and the tighter
+locals-across-await liveness optimization (see `docs/dev/phases.md`).
 
 ## Adding a new AST node
 

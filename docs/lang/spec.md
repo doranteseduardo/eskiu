@@ -722,12 +722,11 @@ thread_join(t);
 
 ### 6.8 Async Functions and `await`
 
-> **Status:** implemented and runs. An async function lowers to a resumable state
-> machine and executes over the `<eventloop>`/`<executor>` runtime. Supported:
-> single and multiple awaits, `return await`, `x = await E`, `async void`, every
-> control-flow construct containing an await (`if`/`while`/C-style `for`/`switch`/
-> `for-in`, with `break`/`continue`); cancellation via `future_drop`; verified
-> leak-free.
+An `async` function lowers to a resumable state machine and executes over the
+`<eventloop>`/`<executor>` runtime. Single and multiple awaits, `return await`,
+`x = await E`, `async void`, and every control-flow construct containing an await
+(`if`/`while`/C-style `for`/`switch`/`for-in`, with `break`/`continue`) are
+supported; a pending future is cancelled with `future_drop`.
 
 An `async` function is declared with the `async` modifier before the return type. Its
 *declared* return type is the value it ultimately produces, but a **call** to it
@@ -1609,9 +1608,23 @@ Eskiu ships a set of standard library files in the `stdlib/` directory. Import t
 | `stdlib/path.esk`     | Unix path manipulation: `path_join`, `path_basename`, `path_dirname`, `path_extension`, `path_is_absolute` |
 | `stdlib/http.esk`     | HTTP/1.1: `HttpRequest` + `HttpRequest_parse`/`_header`, `HttpResponse` + `HttpResponse_header`/`_set_body`/`_render`, and a threaded worker pool `http_serve(port, nworkers, handler)` where `handler` is `fn(HttpRequest*, HttpResponse*)->void` |
 | `stdlib/threading.esk`| Synchronization over pthread: `Mutex` (`_init`/`_lock`/`_unlock`/`_destroy`), `Cond` (`_init`/`_wait`/`_signal`/`_broadcast`/`_destroy`), `Sem` (`_init`/`_wait`/`_post`/`_destroy`). Pairs with the `thread_create`/`thread_join` built-ins |
-| `stdlib/eventloop.esk`| Readiness reactor over kqueue (macOS) / epoll (Linux): `EventLoop`, `el_new`, `el_add_read`, `el_del`, `el_run`, `el_stop`, `el_free`. Callback is `fn(EventLoop*, int)->void` |
+| `stdlib/eventloop.esk`| Readiness reactor over kqueue (macOS) / epoll (Linux): `EventLoop`, `el_new`, `el_add_read`, `el_add_write`, `el_del`, `el_run`, `el_stop`, `el_free`, plus a timer wheel (`el_add_timer`/`el_del_timer`). Callback is `fn(EventLoop*, int)->void` |
 | `stdlib/atomic.esk`| Atomic intrinsics on an `int` cell: `atomic_load`/`atomic_store`/`atomic_swap`/`atomic_cas`, lowering to LLVM atomics with fixed acquire/release ordering. Declared with the `intrinsic` qualifier |
 | `stdlib/json.esk`     | JSON builder + parser. Builder: `Json` + `Json_init`/`_free`/`_cstr`, `Json_obj_begin`/`_end`, `Json_arr_begin`/`_end`, `Json_key`, `Json_str`, `Json_int`, `Json_bool`, `Json_null` (auto separators). Parser: `json_parse(src) -> *JsonValue` + `JsonValue_kind`/`_len`/`_at`/`_get`/`_as_int`/`_as_double`/`_as_bool`/`_as_cstr`/`_free` |
+| `stdlib/sysheap.esk`  | `Heap` — a general-purpose heap that `mmap`s OS pages and runs `FirstFit` over them, providing allocation with no libc `malloc` (suitable as a freestanding backend) |
+| `stdlib/future.esk`   | The async runtime's `Future<T>` (the locked compiler↔generated-code contract): the `state`/`waker`/`on_drop` handshake, `future_new`/`future_complete`/`future_poll`/`future_drop`/`free_future`, and the generic combinators `spawn<T>`, `select2<A,B>` (first of two), `join2<A,B>` (all of two) |
+| `stdlib/executor.esk` | `Executor` — a thread that owns an event loop plus a thread-safe ready-queue of wakers woken through a self-pipe, so a waker (a coroutine resume) always runs on the executor's own thread: `executor_new`, `executor_schedule`, `executor_run` |
+| `stdlib/net_async.esk`| Leaf futures for non-blocking network I/O over `<eventloop>`: `net_set_nonblocking`, `net_read_async`, `net_write_async`, `net_accept_async` — each registers an fd and completes its `*Future<int>` when ready |
+| `stdlib/timer.esk`    | `timer_after(lp, ms)` — a `*Future<int>` that completes once `ms` of monotonic time elapses, driven by the loop's timer wheel; combine with a read for a real timeout |
+| `stdlib/channel.esk`  | `Chan<T>` — an async message channel over the Future runtime: `chan_new<T>(cap)`, `chan_send`, and `chan_recv` (a `*Future<T>` that completes with the next item) |
+| `stdlib/either.esk`   | The standard sum types `Option<T>` and `Either<A,B>` (generic algebraic enums) plus helpers (`opt_is_some`/`opt_unwrap_or`, …) |
+| `stdlib/futureval.esk`| Value-returning future combinators: `select2v<A,B>` resolves to the winner's value wrapped in `Either<A,B>`; `join2v<A,B>` resolves to a `Pair<A,B>` of both values |
+| `stdlib/http_async.esk`| Non-blocking concurrent HTTP/1.1 server built on the event loop's accept loop: `http_serve_async`, with the same `fn(HttpRequest*, HttpResponse*)->void` handler interface as `<http>` |
+| `stdlib/http2.esk`    | HTTP/2 (RFC 7540) wire layer: the 9-byte frame header codec, frame-type/flag constants, the connection lifecycle (`H2Conn`: SETTINGS exchange + ACK, PING/PONG, GOAWAY), the per-stream state machine and credit-based flow control (`H2Stream`), the HEADERS/DATA/WINDOW_UPDATE/RST_STREAM codecs, and async frame I/O |
+| `stdlib/hpack.esk`    | HPACK (RFC 7541) header compression: prefix-integer and string-literal coding, the 61-entry static table, a per-connection dynamic table, and the §6 field representations; the encoder picks the shorter of raw and Huffman |
+| `stdlib/hpack_huffman.esk`| The HPACK Huffman code table (RFC 7541 Appendix B), generated from the RFC: `hpack_huff_code(i)` / `hpack_huff_len(i)`, used by `<hpack>` |
+| `stdlib/http2_server.esk`| HTTP/2 (h2c, cleartext) server over the async event loop: drives the opening handshake then a frame-dispatch loop, multiplexes interleaved streams to per-stream slots, HPACK-decodes a completed request into an `HttpRequest`, and encodes the `HttpResponse` back as a HEADERS frame plus flow-controlled DATA frames: `http2_serve_async` |
+| `stdlib/tls.esk`      | TLS for HTTP/2 over OpenSSL (libssl) with ALPN negotiating `"h2"`: a server `SSL_CTX` that loads a cert/key and selects `"h2"`, plus blocking (`http2_tls_serve_conn`) and async (`http2_tls_serve_async`) h2-over-TLS servers that run the `<http2>` protocol over the encrypted stream |
 
 ### Result<T,E>
 
