@@ -821,27 +821,21 @@
                 <span class="tdot" style="background: #28c840"></span>
                 <span class="tname">bash</span>
               </div>
-              <div class="tbody">
-                <span class="cp">$</span> git clone
-                https://github.com/doranteseduardo/eskiu
-                <span class="cm">Cloning into 'eskiu'...</span>
+              <pre class="tbody"><span class="cp">$</span> git clone https://github.com/doranteseduardo/eskiu
+<span class="cm">Cloning into 'eskiu'...</span>
 
-                <span class="cp">$</span> cmake -S eskiu -B build &amp;&amp;
-                cmake --build build
-                <span class="cm">[100%] Built target eskiuc</span>
+<span class="cp">$</span> cmake -S eskiu -B build &amp;&amp; cmake --build build
+<span class="cm">[100%] Built target eskiuc</span>
 
-                <span class="cp">$</span> cat hello.esk
-                <span class="kw">extern</span> <span class="ty">int</span>
-                <span class="fn">printf</span>(<span class="ty">string</span>
-                fmt, ...); <span class="ty">int</span>
-                <span class="fn">main</span>() {
-                <span class="fn">printf</span>(<span class="st"
-                  >"Hello from Eskiu.\n"</span
-                >); <span class="kw">return</span> <span class="nu">0</span>; }
+<span class="cp">$</span> cat hello.esk
+<span class="kw">extern</span> <span class="ty">int</span> <span class="fn">printf</span>(<span class="ty">string</span> fmt, ...);
+<span class="ty">int</span> <span class="fn">main</span>() {
+    <span class="fn">printf</span>(<span class="st">"Hello from Eskiu.\n"</span>);
+    <span class="kw">return</span> <span class="nu">0</span>;
+}
 
-                <span class="cp">$</span> eskiuc run hello.esk
-                <span class="st">Hello from Eskiu.</span>
-              </div>
+<span class="cp">$</span> eskiuc run hello.esk
+<span class="st">Hello from Eskiu.</span></pre>
             </div>
           </div>
         </div>
