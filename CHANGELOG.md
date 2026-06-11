@@ -54,6 +54,18 @@ Backend-services phase. v0.1.0 is frozen at its tag; this is the in-progress nex
 - **`<either>`** — the standard sum types built on generic algebraic enums: `Option<T>` (`None`/`Some`) and `Either<A,B>` (`Left`/`Right`), with helpers (`opt_is_some`, `opt_unwrap_or`, `either_is_left`, …). `match` works inside these generic helpers (codegen resolves the enum instance from the subject's type under the active type substitution).
 - **`<channel>`** — an async message channel over the `Future` runtime: `chan_recv(ch)` is a `*Future<T>` that completes with the next item (immediately if buffered, else it parks until a `chan_send` hands one off and wakes it); `chan_send(ch, v)` enqueues or hands off directly. v1 is a bounded ring with a single outstanding receiver and non-blocking send. Generic and cast-free; leak-free.
 
+### Tooling
+- **`eskiuc run file.esk [args...]`**: compile to a temporary executable, run it (forwarding `[args...]`), then delete it; the program's exit code is propagated. Compiler flags precede the script, program arguments follow it.
+- **Shebang scripts**: a leading `#!/usr/bin/env eskiuc run` line is ignored by the preprocessor (line numbers preserved), so a `.esk` file can be made executable (`chmod +x`) and run directly.
+- **`eskiuc fmt [--check] file.esk …`**: a conservative, comment-preserving source reindenter — normalizes leading indentation (4 spaces per brace level), trailing whitespace, blank-line runs and the final newline, while preserving every line's content (operators, inner spacing, comments, strings) verbatim. Idempotent and meaning-preserving; braces inside strings/comments are ignored. `--check` reports unformatted files (exit non-zero) without writing.
+- **`--asan` / `--ubsan`**: real sanitizer instrumentation via the LLVM pass manager. `--asan` runs AddressSanitizer (heap/stack/global memory errors) and links the matching LLVM compiler-rt runtime; `--ubsan` inserts trapping bounds checks (no runtime needed). Both compose with `eskiuc run`.
+- **`-Wextra`**: extra warnings layered on top of `-Wall` — comparison between signed and unsigned integers; off by default.
+
+### Documentation
+- **`docs/lang/grammar.md`** — a formal EBNF grammar derived from the parser: lexical structure, preprocessor, declarations, the type grammar, statements, and the full expression-precedence chain.
+- **`docs/dev/abi.md`** — the C-ABI contract: scalar/pointer lowering (const has no ABI effect), struct/packed/bitfield/union layout, ADT tagged-union shape, the >16-byte sret rule, varargs + `va_list`, fat pointers for closures/interfaces, and template name mangling.
+- **`__FILE__`/`__LINE__` reference** — spec §18 now documents all predefined macros (`__LINE__`, `__FILE__`, OS macros, `__ESKIU_FREESTANDING__`) and the shebang interaction.
+
 ### Compiler correctness (consistency audit)
 - Unsigned integer types use unsigned div/rem/shift/compare; 64-bit integer literals no longer truncate; mixed-width ops sign/zero-extend by signedness; variadic call args get the C default-argument promotions.
 - Member access on a struct-valued temporary; `(Type)`/`(Type*)`/alias/enum casts; type alias as a local pointer/array; `List<StructType>` through helper functions; `T*` (trailing-star) pointer deref; nested template close `>>`; closures no longer capture module globals by value.
@@ -150,11 +162,6 @@ try {
 
 - **Multi-file compilation**: `eskiuc a.esk b.esk -o prog` compiles several files together, merging their declarations (order-independent thanks to the prototype pre-pass)
 - **`-Wall`**: lint-style warnings — unused variables, parameters, and functions, plus assignment used as a condition (`if (x = 0)`); off by default
-- **`-Wextra`**: extra warnings layered on top of `-Wall` — comparison between signed and unsigned integers; off by default
-- **`eskiuc run file.esk [args...]`**: compile to a temporary executable, run it (forwarding `[args...]`), then delete it; the program's exit code is propagated. Compiler flags precede the script, program arguments follow it.
-- **`eskiuc fmt [--check] file.esk …`**: a conservative, comment-preserving source reindenter — normalizes leading indentation (4 spaces per brace level), trailing whitespace, blank-line runs and the final newline, while preserving every line's content (operators, inner spacing, comments, strings) verbatim. Idempotent and meaning-preserving; braces inside strings/comments are ignored. `--check` reports unformatted files (exit non-zero) without writing.
-- **Shebang scripts**: a leading `#!/usr/bin/env eskiuc run` line is ignored by the preprocessor (line numbers preserved), so a `.esk` file can be made executable (`chmod +x`) and run directly.
-- **`--asan` / `--ubsan`**: real sanitizer instrumentation via the LLVM pass manager. `--asan` runs AddressSanitizer (heap/stack/global memory errors) and links the matching LLVM compiler-rt runtime; `--ubsan` inserts trapping bounds checks (no runtime needed). Both compose with `eskiuc run`.
 
 ### Standard library
 

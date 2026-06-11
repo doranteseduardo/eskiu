@@ -157,9 +157,9 @@ Phase 3 rounds out ergonomics and tooling.
 - [x] `--asan` / `--ubsan` as first-class flags — real instrumentation via the LLVM pass manager: `--asan` runs AddressSanitizer (memory errors) and links the matching compiler-rt runtime; `--ubsan` inserts trapping bounds checks (no runtime). Both compose with `eskiuc run`
 
 **Documentation**
-- [ ] Formal, complete BNF grammar
-- [ ] Documented ABI
-- [ ] `__FILE__` / `__LINE__` reference (once implemented)
+- [x] Formal, complete BNF grammar — `docs/lang/grammar.md` (EBNF: lexical structure, preprocessor, declarations, types, statements, full expression precedence), derived from the parser
+- [x] Documented ABI — `docs/dev/abi.md` (scalar/pointer lowering, const has no ABI effect, struct/packed/bitfield/union layout, ADT tagged unions, sret >16 B rule, varargs + `va_list`, fat pointers for closures/interfaces, template mangling)
+- [x] `__FILE__` / `__LINE__` reference — expanded the predefined-macros section of spec.md §18 (per-line `__LINE__`, per-file `__FILE__`, OS + freestanding macros, shebang interaction)
 
 ### v0.3 — Self-hosting prerequisites
 

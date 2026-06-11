@@ -14,6 +14,7 @@ The goal is a single language that replaces that stack. Phase one establishes a 
 |---|---|---|
 | [getting-started.md](getting-started.md) | Hands-on tutorial — build, hello world, all features | You're new to Eskiu |
 | [spec.md](spec.md) | Complete language reference | You need exact syntax or semantics |
+| [grammar.md](grammar.md) | Formal EBNF grammar | You need the precise concrete syntax |
 | [build.md](build.md) | Install the compiler on macOS / Linux | You need to set up a dev environment |
 | [../../docs/GLOSSARY.md](../GLOSSARY.md) | Terminology definitions | You encounter an unfamiliar term |
 
