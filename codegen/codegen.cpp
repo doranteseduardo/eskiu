@@ -2828,14 +2828,36 @@ void CodeGen::visit(ContinueStmt* node) {
 
 void CodeGen::visit(MatchStmt* node) {
     llvm::Type* i32 = llvm::Type::getInt32Ty(*context);
+    // The type checker stamps node->enumName, except inside template-function
+    // bodies (which it skips) — there we derive it from the subject's type, with
+    // the active typeParamOverride applied, and ensure the instance is built.
+    std::string enumName = node->enumName;
+    if (enumName.empty() || !structTypes.count(enumName)) {
+        std::string st = getExprEskiuType(node->subject);
+        // getExprEskiuType's deref only strips a leading '*'; for a trailing-star
+        // pointer (`Option<int>*`) it returns "" — fall back to the operand's type.
+        if (st.empty())
+            if (auto* u = dynamic_cast<UnaryExpr*>(node->subject.get()); u && u->op == "*")
+                st = getExprEskiuType(u->operand);
+        if (!typeParamOverride.empty()) st = substType(st, typeParamOverride);  // T -> int
+        while (!st.empty() && st.front() == '*') st = st.substr(1);
+        while (!st.empty() && st.back()  == '*') st.pop_back();
+        if (st.rfind("struct:", 0) == 0) st = st.substr(7);
+        if (st.find('<') != std::string::npos) {
+            auto [b, a] = splitTemplateType(st);
+            enumName = genericEnumDecls.count(b) ? ensureEnumInst(b, a) : mangleTemplate(st);
+        } else if (!st.empty()) {
+            enumName = st;
+        }
+    }
     // Resolve the enum decl + (for a generic instance) the type-arg substitutions,
     // so each variant's payload field types come out concrete.
     EnumDecl* ed = nullptr;
     std::map<std::string, std::string> subs;
-    if (adtEnumDecls.count(node->enumName)) {
-        ed = adtEnumDecls[node->enumName];                   // concrete ADT enum
-    } else if (enumInstanceArgs.count(node->enumName)) {     // generic instance
-        auto& inst = enumInstanceArgs[node->enumName];
+    if (adtEnumDecls.count(enumName)) {
+        ed = adtEnumDecls[enumName];                         // concrete ADT enum
+    } else if (enumInstanceArgs.count(enumName)) {           // generic instance
+        auto& inst = enumInstanceArgs[enumName];
         ed = genericEnumDecls[inst.first];
         for (size_t i = 0; i < ed->typeParams.size() && i < inst.second.size(); ++i)
             subs[ed->typeParams[i]] = inst.second[i];
@@ -2852,7 +2874,7 @@ void CodeGen::visit(MatchStmt* node) {
         return v;
     };
 
-    llvm::StructType* et = structTypes[node->enumName];
+    llvm::StructType* et = structTypes[enumName];
 
     // Materialize the subject so tag + payload can be read by pointer.
     llvm::Value* sv = evaluateExpr(node->subject);
