@@ -1,0 +1,89 @@
+// HTTP/2 multiplexing: a client interleaves two streams' frames on one
+// connection. Stream 1 is a POST (HEADERS without END_STREAM, body sent later);
+// stream 3 is a GET that arrives and completes *between* stream 1's HEADERS and
+// its DATA. The server must route each frame to its stream and respond to both —
+// it can't assume one request finishes before the next begins. The handler
+// echoes the request path, so each response identifies its stream.
+import <mem>;
+import <future>;
+import <eventloop>;
+import <net>;
+import <channel>;
+import <hpack>;
+import <http2>;
+import <http>;
+import <http2_server>;
+import <string>;
+extern int printf(string fmt, ...);
+extern int socketpair(int domain, int type, int protocol, *int sv);
+
+EventLoop* g_lp;
+
+void echo_path(HttpRequest* req, HttpResponse* res) {
+    HttpResponse_set_body(res, String_cstr(&req.path));
+}
+
+// Encode a request HEADERS frame for `method`/`path` on `sid` into `b`; returns size.
+int req_headers(*uint8 b, int sid, string method, string path, int end_stream) {
+    *uint8 blk = alloc<uint8>(256);  int off = 0;
+    off = hpack_encode_header(blk, off, (*uint8)":method", 7, (*uint8)method, strlen(method));
+    off = hpack_encode_header(blk, off, (*uint8)":path", 5, (*uint8)path, strlen(path));
+    off = hpack_encode_header(blk, off, (*uint8)":scheme", 7, (*uint8)"http", 4);
+    off = hpack_encode_header(blk, off, (*uint8)":authority", 10, (*uint8)"localhost", 9);
+    int n = h2_write_headers(b, sid, blk, off, end_stream, 1);
+    free((*void)blk);
+    return n;
+}
+
+int main() {
+    *int sv = alloc<int>(2);
+    if (socketpair(1, 1, 0, sv) != 0) { printf("socketpair failed\n"); return 1; }
+    int srv = sv[0];  int cli = sv[1];
+    *uint8 b = alloc<uint8>(512);
+
+    net_send(cli, (*void)h2_preface(), (int64)24);
+    let cs: H2Settings;  h2_settings_defaults(&cs);
+    int sn = h2_write_settings(b, &cs);  net_send(cli, (*void)b, (int64)sn);
+
+    // Interleave: stream 1 HEADERS (POST, open), stream 3 HEADERS (GET, ends),
+    // then stream 1 DATA (ends). Stream 3 completes between stream 1's frames.
+    int n1 = req_headers(b, 1, "POST", "/one", 0);     net_send(cli, (*void)b, (int64)n1);
+    int n3 = req_headers(b, 3, "GET",  "/three", 1);   net_send(cli, (*void)b, (int64)n3);
+    int nd = h2_write_data(b, 1, (*uint8)"x", 1, 1);   net_send(cli, (*void)b, (int64)nd);
+    int gn = h2_write_goaway(b, 3, H2_NO_ERROR, (*uint8)0, 0);  net_send(cli, (*void)b, (int64)gn);
+
+    g_lp = el_new(64);
+    Chan<int>* done = chan_new<int>(1);
+    Future<uint8>* f = http2_serve_conn_async(g_lp, srv, echo_path, done);
+    future_poll<uint8>(f, void() { el_stop(g_lp); });
+    el_run(g_lp);
+
+    // Walk the server's frames; record each stream's :status and body.
+    *uint8 rb = alloc<uint8>(4096);
+    int total = (int)net_recv(cli, (*void)rb, (int64)4096);
+    let dec: HpackDecoder;  hpack_decoder_init(&dec, (int64)4096);
+    *HpackHeader hs = alloc<HpackHeader>(32);
+    int pos = 0;
+    while (pos + 9 <= total) {
+        let fr: H2Frame;  h2_read_header(rb + pos, &fr);
+        int payload = pos + 9;
+        if (fr.type == H2_HEADERS) {
+            int nh = hpack_decode(&dec, rb + payload, fr.length, hs, 32);
+            int st = 0;  int i = 0;
+            while (i < nh) {
+                if (h2_name_eq(&hs[i], ":status") != 0) {
+                    int v = 0;  int j = 0;
+                    while (j < hs[i].vlen) { v = v * 10 + ((int)hs[i].value[j] - 48); j = j + 1; }
+                    st = v;
+                }
+                i = i + 1;
+            }
+            printf("stream %d status %d\n", fr.stream_id, st);
+        } else if (fr.type == H2_DATA) {
+            printf("stream %d body %.*s\n", fr.stream_id, fr.length, rb + payload);
+        }
+        pos = payload + fr.length;
+    }
+    hpack_decoder_free(&dec);
+    return 0;
+}

@@ -59,6 +59,8 @@ when you add a test.
 | `http2_stream` | `<http2>` stage 4: stream state machine, flow-control accounting, HEADERS/DATA/WINDOW_UPDATE/RST_STREAM codecs |
 | `http2_server` | `<http2_server>` stage 6: the h2c server end-to-end over a socketpair (request → handler → response) |
 | `http2_chunking` | response bodies > 16384 split into MAX_FRAME_SIZE DATA frames (last has END_STREAM) |
+| `async_elseif` | async `if/else-if/else` with `await` in branches + terminating `else` (transform regression) |
+| `http2_multiplex` | interleaved two-stream multiplexing — per-stream request assembly, each routed + answered |
 | `const` | immutable bindings, usable as array sizes |
 | `param_reassign` | reassigning scalar/pointer parameters; method call through a pointer parameter |
 | `c_callback` | passing a top-level Eskiu function to a C API as a raw callback (drives libc `qsort`) |

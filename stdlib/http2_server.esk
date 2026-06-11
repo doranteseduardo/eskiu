@@ -224,7 +224,45 @@ void h2_send_response(H2Conn* conn, int stream_id, HttpResponse* res) {
     free((*void)out);
 }
 
+// A request being assembled for one open stream. HTTP/2 multiplexes streams, so
+// a client may interleave several requests' frames on one connection — each is
+// accumulated in its own slot until END_STREAM completes it.
+struct H2PendingStream {
+    int id;          // stream id (valid while active)
+    int active;      // 1 while this slot holds an in-progress request
+    HttpRequest req;
+}
+
+// Find the slot for stream `id`; if `alloc` and none exists, return a free slot.
+// Returns -1 if not found / no free slot.
+int h2_stream_slot(*H2PendingStream s, int n, int id, int alloc) {
+    int i = 0;  int free_i = -1;
+    while (i < n) {
+        if (s[i].active != 0 && s[i].id == id) { return i; }
+        if (s[i].active == 0 && free_i < 0) { free_i = i; }
+        i = i + 1;
+    }
+    if (alloc != 0) { return free_i; }
+    return -1;
+}
+
+// Run the handler for a fully-received request on `sid` and send the response
+// (flow-controlled). Returns h2_respond_async's status.
+async int h2_complete_request_async(EventLoop* lp, H2Conn* conn, int sid, HttpRequest* req,
+                                    escaping fn(HttpRequest*, HttpResponse*)->void handler,
+                                    *uint8 rbuf, int rbufcap) {
+    let res: HttpResponse;  HttpResponse_init(&res, 200);
+    handler(req, &res);
+    int ow = await h2_respond_async(lp, conn, sid, &res, rbuf, rbufcap);
+    HttpResponse_free(&res);
+    return ow;
+}
+
 // Drive one connection: handshake, then dispatch frames until GOAWAY or EOF.
+// Streams are multiplexed — interleaved request frames are routed to per-stream
+// slots and completed (handler + response) when END_STREAM arrives. Responses
+// are still serialized on the connection (one writer), which is correct and
+// avoids concurrent writes to the same socket.
 async void http2_serve_conn_async(EventLoop* lp, int fd,
                                   escaping fn(HttpRequest*, HttpResponse*)->void handler,
                                   Chan<int>* done) {
@@ -234,6 +272,9 @@ async void http2_serve_conn_async(EventLoop* lp, int fd,
         let dec: HpackDecoder;  hpack_decoder_init(&dec, (int64)4096);
         *uint8 fb = alloc<uint8>(16384);
         *HpackHeader harr = alloc<HpackHeader>(64);
+        int MAXS = 128;
+        *H2PendingStream streams = alloc<H2PendingStream>(MAXS);
+        int si = 0;  while (si < MAXS) { streams[si].active = 0; si = si + 1; }
         int running = 1;
         while (running != 0) {
             let hdr: H2Frame;
@@ -241,31 +282,38 @@ async void http2_serve_conn_async(EventLoop* lp, int fd,
             if (plen < 0) {
                 running = 0;
             } else if (hdr.type == H2_HEADERS) {
-                int nh = hpack_decode(&dec, fb + 9, hdr.length, harr, 64);
-                conn.last_stream_id = hdr.stream_id;
-                let req: HttpRequest;  HttpRequest_init(&req);
-                if (nh > 0) { h2_fill_request(&req, harr, nh); }
-                // Request body: read DATA frames until END_STREAM, unless the
-                // HEADERS already ended the stream (a bodyless GET).
-                if ((hdr.flags & H2_FLAG_END_STREAM) == 0) {
-                    int body_done = 0;
-                    while (body_done == 0) {
-                        let df: H2Frame;
-                        int dl = await h2_read_frame_async(lp, fd, fb, 16384, &df);
-                        if (dl < 0) { body_done = 1; running = 0; }
-                        else if (df.type == H2_DATA) {
-                            int k = 0;
-                            while (k < df.length) { String_push(&req.body, (char)fb[9 + k]); k = k + 1; }
-                            if ((df.flags & H2_FLAG_END_STREAM) != 0) { body_done = 1; }
-                        }
+                int slot = h2_stream_slot(streams, MAXS, hdr.stream_id, 1);
+                if (slot >= 0) {
+                    if (streams[slot].active == 0) {
+                        streams[slot].active = 1;  streams[slot].id = hdr.stream_id;
+                        HttpRequest_init(&streams[slot].req);
+                    }
+                    int nh = hpack_decode(&dec, fb + 9, hdr.length, harr, 64);
+                    conn.last_stream_id = hdr.stream_id;
+                    if (nh > 0) { h2_fill_request(&streams[slot].req, harr, nh); }
+                    if ((hdr.flags & H2_FLAG_END_STREAM) != 0) {
+                        int ow = await h2_complete_request_async(lp, &conn, hdr.stream_id,
+                                                                 &streams[slot].req, handler, fb, 16384);
+                        HttpRequest_free(&streams[slot].req);  streams[slot].active = 0;
+                        if (ow < 0) { running = 0; }
+                    }
+                } else {
+                    // HPACK is stateful, so a dropped HEADERS must still be decoded
+                    // to keep the dynamic table in sync.
+                    int nh = hpack_decode(&dec, fb + 9, hdr.length, harr, 64);
+                }
+            } else if (hdr.type == H2_DATA) {
+                int slot = h2_stream_slot(streams, MAXS, hdr.stream_id, 0);
+                if (slot >= 0) {
+                    int k = 0;
+                    while (k < hdr.length) { String_push(&streams[slot].req.body, (char)fb[9 + k]); k = k + 1; }
+                    if ((hdr.flags & H2_FLAG_END_STREAM) != 0) {
+                        int ow = await h2_complete_request_async(lp, &conn, hdr.stream_id,
+                                                                 &streams[slot].req, handler, fb, 16384);
+                        HttpRequest_free(&streams[slot].req);  streams[slot].active = 0;
+                        if (ow < 0) { running = 0; }
                     }
                 }
-                let res: HttpResponse;  HttpResponse_init(&res, 200);
-                handler(&req, &res);
-                int ow = await h2_respond_async(lp, &conn, hdr.stream_id, &res, fb, 16384);
-                HttpResponse_free(&res);
-                HttpRequest_free(&req);
-                if (ow < 0) { running = 0; }
             } else if (hdr.type == H2_SETTINGS) {
                 if ((hdr.flags & H2_FLAG_ACK) == 0) {
                     *uint8 a = alloc<uint8>(9);
@@ -292,6 +340,9 @@ async void http2_serve_conn_async(EventLoop* lp, int fd,
             }
             // RST_STREAM and other frames need no action for this server.
         }
+        int sf = 0;
+        while (sf < MAXS) { if (streams[sf].active != 0) { HttpRequest_free(&streams[sf].req); } sf = sf + 1; }
+        free((*void)streams);
         free((*void)harr);
         free((*void)fb);
         hpack_decoder_free(&dec);
