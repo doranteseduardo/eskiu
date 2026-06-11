@@ -461,6 +461,7 @@ async int h2_server_handshake_async(EventLoop* lp, H2Conn* c) {
     if (plen < 0 || hdr.type != H2_SETTINGS) { free((*void)fb); return -2; }
     h2_apply_settings(&c.remote, fb + H2_FRAME_HEADER_LEN, hdr.length);
 
+    c.local.enable_push = 0;                           // a server MUST NOT set ENABLE_PUSH=1 (§6.5.2)
     int sn = h2_write_settings(fb, &c.local);          // advertise ours
     net_send(c.fd, (*void)fb, (int64)sn);
     int an = h2_write_settings_ack(fb);                // ACK theirs

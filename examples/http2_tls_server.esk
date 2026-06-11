@@ -1,0 +1,43 @@
+// http2_tls_server.esk — an HTTP/2 server over TLS (h2), via <tls> + OpenSSL.
+//
+// HTTP/2 in browsers requires TLS with ALPN negotiating "h2"; <tls> wraps
+// OpenSSL and selects h2 automatically. Each connection is served (blocking) by
+// http2_tls_serve_conn, which runs the <http2> frame protocol over the encrypted
+// stream and dispatches to a normal <http> handler.
+//
+// Build + run (OpenSSL 3; adjust the path for your platform):
+//   openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem \
+//           -days 365 -nodes -subj "/CN=localhost"
+//   eskiuc examples/http2_tls_server.esk -o h2server \
+//          -L/opt/homebrew/opt/openssl@3/lib -lssl -lcrypto
+//   ./h2server &
+//   curl --http2 -k https://localhost:8443/      # -> HTTP/2 200, "hello over h2+TLS"
+
+import <mem>;
+import <net>;
+import <tls>;
+import <http>;
+extern int printf(string fmt, ...);
+
+void handler(HttpRequest* req, HttpResponse* res) {
+    HttpResponse_header(res, "Content-Type", "text/plain");
+    HttpResponse_set_body(res, "hello over h2+TLS\n");
+}
+
+int main() {
+    *void ctx = tls_server_ctx("cert.pem", "key.pem");
+    if (ctx == (*void)0) { printf("could not load cert.pem / key.pem\n"); return 1; }
+
+    int lfd = net_tcp_listen((uint16)8443);
+    if (lfd < 0) { printf("listen failed\n"); return 1; }
+    printf("HTTP/2 (TLS) server on https://localhost:8443/\n");
+
+    while (1 == 1) {
+        int c = net_accept(lfd);
+        if (c < 0) { continue; }
+        *void ssl = tls_accept(ctx, c);                 // TLS handshake + ALPN -> h2
+        if (ssl != (*void)0) { http2_tls_serve_conn(ssl, handler); }
+        net_close(c);
+    }
+    return 0;
+}

@@ -104,10 +104,11 @@ void h2_encode_resp_headers(*uint8 block, int* off, HttpResponse* res) {
     }
 }
 
-// Encode and send a response on `stream_id`: a HEADERS frame (:status,
-// content-length, then the handler's headers) followed by a DATA frame (the
-// body) with END_STREAM.
-void h2_send_response(H2Conn* conn, int stream_id, HttpResponse* res) {
+// Build a complete response on `stream_id` into `out` (must be large enough):
+// a HEADERS frame (:status, content-length, then the handler's headers) followed
+// by a DATA frame (the body) with END_STREAM. Returns the total byte count.
+// Transport-agnostic, so both the plain-socket and TLS servers reuse it.
+int h2_build_response(*uint8 out, int stream_id, HttpResponse* res) {
     *uint8 block = alloc<uint8>(8192);
     int off = 0;
 
@@ -123,17 +124,21 @@ void h2_send_response(H2Conn* conn, int stream_id, HttpResponse* res) {
 
     h2_encode_resp_headers(block, &off, res);
 
+    int total = h2_write_headers(out, stream_id, block, off, 0, 1);  // END_HEADERS, body follows
     int blen = String_len(&res.body);
-    *uint8 hf = alloc<uint8>(off + 9);
-    int hn = h2_write_headers(hf, stream_id, block, off, 0, 1);     // END_HEADERS, body follows
-    net_send(conn.fd, (*void)hf, (int64)hn);
-    free((*void)hf);
-
-    *uint8 df = alloc<uint8>(blen + 9);
-    int dn = h2_write_data(df, stream_id, (*uint8)String_cstr(&res.body), blen, 1);  // END_STREAM
-    net_send(conn.fd, (*void)df, (int64)dn);
-    free((*void)df);
+    total = total + h2_write_data(out + total, stream_id,
+                                  (*uint8)String_cstr(&res.body), blen, 1);  // END_STREAM
     free((*void)block);
+    return total;
+}
+
+// Encode and send a response on `stream_id` over the connection's socket.
+void h2_send_response(H2Conn* conn, int stream_id, HttpResponse* res) {
+    int cap = 8192 + String_len(&res.body) + 64;
+    *uint8 out = alloc<uint8>(cap);
+    int n = h2_build_response(out, stream_id, res);
+    net_send(conn.fd, (*void)out, (int64)n);
+    free((*void)out);
 }
 
 // Drive one connection: handshake, then dispatch frames until GOAWAY or EOF.
