@@ -13,6 +13,7 @@
 // and the encoder always emits raw (H=0). See docs/dev/http2-design.md.
 
 import <mem>;
+import <hpack_huffman>;    // hpack_huff_code(i) / hpack_huff_len(i) — RFC Appendix B
 
 // ── §5.1 Integer representation ──────────────────────────────────────────────
 // An integer with an N-bit prefix. The high (8-N) bits of the first byte carry
@@ -64,18 +65,123 @@ int hpack_encode_str(*uint8 buf, int off, *uint8 s, int slen) {
     return off + slen;
 }
 
-// Decode a string at buf[off]. On success sets *data_off (offset of the bytes
-// within buf), *outlen, and *next; returns 0. Returns 1 if the string is
-// Huffman-coded (unsupported until stage 3b), -1 on a malformed length.
-int hpack_decode_str(*uint8 buf, int off, int* data_off, int* outlen, int* next) {
-    int huff = ((int)buf[off] & 128) != 0;
-    int n2 = 0;
-    int64 len = hpack_decode_int(buf, off, 7, &n2);
-    if (huff != 0) { return 1; }
-    *data_off = n2;
-    *outlen = (int)len;
-    *next = n2 + (int)len;
-    return 0;
+// ── §5.2 Huffman coding (RFC 7541 Appendix B) ────────────────────────────────
+// Decoding walks a binary trie built from the 257-symbol code table; encoding
+// packs each symbol's MSB-aligned code. The table itself is generated from the
+// RFC text (stdlib/hpack_huffman.esk) — never hand-transcribed.
+
+struct HpackStr { *uint8 ptr; int len; }
+
+// A Huffman decoding trie: child0/child1 are node indices (-1 = none), sym is
+// the decoded symbol at a leaf (-1 = internal node). Node 0 is the root.
+struct HpackHuff {
+    *int child0;  *int child1;  *int sym;  int nodes;
+}
+
+void hpack_huff_build(HpackHuff* h) {
+    int cap = 8192;
+    h.child0 = alloc<int>(cap);  h.child1 = alloc<int>(cap);  h.sym = alloc<int>(cap);
+    int i = 0;
+    while (i < cap) { h.child0[i] = -1; h.child1[i] = -1; h.sym[i] = -1; i = i + 1; }
+    h.nodes = 1;                                  // root
+    int s = 0;
+    while (s < 257) {
+        int64 code = hpack_huff_code(s);
+        int len = hpack_huff_len(s);
+        int node = 0;
+        int b = len - 1;
+        while (b >= 0) {
+            int bit = (int)((code >> b) & (int64)1);
+            int next = -1;
+            if (bit == 0) { next = h.child0[node]; } else { next = h.child1[node]; }
+            if (next < 0) {
+                next = h.nodes;  h.nodes = h.nodes + 1;
+                if (bit == 0) { h.child0[node] = next; } else { h.child1[node] = next; }
+            }
+            node = next;
+            b = b - 1;
+        }
+        h.sym[node] = s;
+        s = s + 1;
+    }
+}
+
+void hpack_huff_free(HpackHuff* h) {
+    free((*void)h.child0);  free((*void)h.child1);  free((*void)h.sym);
+}
+
+// Decode `srclen` Huffman bytes at `src` into `dst` (capacity `dstcap`). Returns
+// the decoded length, or -1 on an invalid code, an EOS symbol, overflow, or
+// invalid padding (trailing bits must be the EOS prefix — all ones — and < 8).
+int hpack_huff_decode(HpackHuff* h, *uint8 src, int srclen, *uint8 dst, int dstcap) {
+    int node = 0;  int outlen = 0;
+    int since = 0;  int allones = 1;             // bits since the last completed symbol
+    int i = 0;
+    while (i < srclen) {
+        int byte = (int)src[i];
+        int b = 7;
+        while (b >= 0) {
+            int bit = (byte >> b) & 1;
+            since = since + 1;
+            if (bit == 0) { allones = 0; node = h.child0[node]; } else { node = h.child1[node]; }
+            if (node < 0) { return -1; }
+            if (h.sym[node] >= 0) {
+                int sym = h.sym[node];
+                if (sym == 256) { return -1; }    // EOS must not appear in the data
+                if (outlen >= dstcap) { return -1; }
+                dst[outlen] = (uint8)sym;  outlen = outlen + 1;
+                node = 0;  since = 0;  allones = 1;
+            }
+            b = b - 1;
+        }
+        i = i + 1;
+    }
+    if (node != 0) {                              // leftover bits = padding
+        if (since > 7 || allones == 0) { return -1; }
+    }
+    return outlen;
+}
+
+// Number of bytes the Huffman encoding of `src` would occupy.
+int hpack_huff_encoded_len(*uint8 src, int srclen) {
+    int64 bits = (int64)0;
+    int i = 0;
+    while (i < srclen) { bits = bits + (int64)hpack_huff_len((int)src[i]); i = i + 1; }
+    return (int)((bits + (int64)7) / (int64)8);
+}
+
+// Huffman-encode `src` into dst[off..); returns new off. Trailing bits are
+// padded with the EOS prefix (all ones), per §5.2.
+int hpack_huff_encode(*uint8 dst, int off, *uint8 src, int srclen) {
+    int64 acc = (int64)0;  int bits = 0;
+    int i = 0;
+    while (i < srclen) {
+        int sym = (int)src[i];
+        acc = (acc << hpack_huff_len(sym)) | hpack_huff_code(sym);
+        bits = bits + hpack_huff_len(sym);
+        while (bits >= 8) {
+            bits = bits - 8;
+            dst[off] = (uint8)((acc >> bits) & (int64)255);  off = off + 1;
+        }
+        i = i + 1;
+    }
+    if (bits > 0) {
+        int pad = 8 - bits;
+        acc = (acc << pad) | (((int64)1 << pad) - (int64)1);
+        dst[off] = (uint8)(acc & (int64)255);  off = off + 1;
+    }
+    return off;
+}
+
+// Encode a string literal, choosing the smaller of raw and Huffman (a valid
+// choice either way, and what real encoders do): the H bit signals which.
+int hpack_emit_str(*uint8 buf, int off, *uint8 s, int slen) {
+    int hlen = hpack_huff_encoded_len(s, slen);
+    if (hlen < slen) {
+        off = hpack_encode_int(buf, off, 7, 128, (int64)hlen);   // H = 1
+        return hpack_huff_encode(buf, off, s, slen);
+    }
+    return hpack_encode_str(buf, off, s, slen);                  // H = 0
 }
 
 // ── Appendix A: static table (indices 1..61) ─────────────────────────────────
@@ -141,13 +247,19 @@ struct HpackEntry {
     int    size;   // RFC entry size = nlen + vlen + 32
 }
 
-// HPACK decoder state: the dynamic table (newest entry at index 0).
+// HPACK decoder state: the dynamic table (newest entry at index 0), the Huffman
+// decode trie, and a per-block scratch arena that Huffman-decoded strings live
+// in (header pointers point into it or directly into the input block).
 struct HpackDecoder {
     *HpackEntry dyn;
     int   dyn_count;
     int   dyn_cap;
     int64 max_size;     // SETTINGS_HEADER_TABLE_SIZE
     int64 cur_size;
+    HpackHuff huff;
+    *uint8 scratch;
+    int   scratch_cap;
+    int   scratch_used;
 }
 
 void hpack_decoder_init(HpackDecoder* d, int64 max_size) {
@@ -157,6 +269,10 @@ void hpack_decoder_init(HpackDecoder* d, int64 max_size) {
     d.dyn_cap = cap;
     d.max_size = max_size;
     d.cur_size = (int64)0;
+    hpack_huff_build(&d.huff);
+    d.scratch_cap = 16384;
+    d.scratch = alloc<uint8>(d.scratch_cap);
+    d.scratch_used = 0;
 }
 
 void hpack_decoder_free(HpackDecoder* d) {
@@ -167,7 +283,28 @@ void hpack_decoder_free(HpackDecoder* d) {
         i = i + 1;
     }
     free((*void)d.dyn);
+    hpack_huff_free(&d.huff);
+    free((*void)d.scratch);
     d.dyn_count = 0;
+}
+
+// Read a (possibly Huffman-coded) string literal at buf[off]. On success fills
+// `out` (pointing into buf for raw strings, or the scratch arena for Huffman)
+// and returns the next offset; returns -1 on error.
+int hpack_read_str(HpackDecoder* d, *uint8 buf, int off, HpackStr* out) {
+    int huff = ((int)buf[off] & 128) != 0;
+    int nx = 0;
+    int64 len = hpack_decode_int(buf, off, 7, &nx);
+    if (huff == 0) {
+        out.ptr = buf + nx;  out.len = (int)len;
+        return nx + (int)len;
+    }
+    *uint8 dst = d.scratch + d.scratch_used;
+    int dn = hpack_huff_decode(&d.huff, buf + nx, (int)len, dst, d.scratch_cap - d.scratch_used);
+    if (dn < 0) { return -1; }
+    out.ptr = dst;  out.len = dn;
+    d.scratch_used = d.scratch_used + dn;
+    return nx + (int)len;
 }
 
 // Evict the oldest entries until `need` more bytes fit (or the table is empty).
@@ -232,15 +369,15 @@ int hpack_decode_literal(HpackDecoder* d, *uint8 buf, int off, int prefixBits,
         if (hpack_resolve(d, (int)nameIdx, &nh) != 0) { return -1; }
         h.name = nh.name;  h.nlen = nh.nlen;
     } else {
-        int doff = 0;  int dlen = 0;  int next = 0;
-        if (hpack_decode_str(buf, off, &doff, &dlen, &next) != 0) { return -1; }
-        h.name = buf + doff;  h.nlen = dlen;
-        off = next;
+        let ns: HpackStr;
+        off = hpack_read_str(d, buf, off, &ns);
+        if (off < 0) { return -1; }
+        h.name = ns.ptr;  h.nlen = ns.len;
     }
-    int voff = 0;  int vlen = 0;  int vnext = 0;
-    if (hpack_decode_str(buf, off, &voff, &vlen, &vnext) != 0) { return -1; }
-    h.value = buf + voff;  h.vlen = vlen;
-    off = vnext;
+    let vs: HpackStr;
+    off = hpack_read_str(d, buf, off, &vs);
+    if (off < 0) { return -1; }
+    h.value = vs.ptr;  h.vlen = vs.len;
     if (doIndex != 0) { hpack_dyn_insert(d, h.name, h.nlen, h.value, h.vlen); }
     return off;
 }
@@ -248,6 +385,7 @@ int hpack_decode_literal(HpackDecoder* d, *uint8 buf, int off, int prefixBits,
 // Decode a complete header block (`len` bytes at `buf`) into out[0..max).
 // Returns the header count, or -1 on a malformed block / Huffman (until 3b).
 int hpack_decode(HpackDecoder* d, *uint8 buf, int len, HpackHeader* out, int max) {
+    d.scratch_used = 0;                  // reset the per-block arena for Huffman strings
     int off = 0;  int count = 0;
     while (off < len) {
         if (count >= max) { return -1; }
@@ -320,9 +458,9 @@ int hpack_encode_header(*uint8 buf, int off, *uint8 name, int nlen, *uint8 value
     int ni = hpack_static_find_name(name, nlen);      // §6.2.2 without indexing (flags 0x00)
     if (ni != 0) {
         off = hpack_encode_int(buf, off, 4, 0, (int64)ni);
-        return hpack_encode_str(buf, off, value, vlen);
+        return hpack_emit_str(buf, off, value, vlen);
     }
     off = hpack_encode_int(buf, off, 4, 0, (int64)0); // name index 0 -> literal name
-    off = hpack_encode_str(buf, off, name, nlen);
-    return hpack_encode_str(buf, off, value, vlen);
+    off = hpack_emit_str(buf, off, name, nlen);
+    return hpack_emit_str(buf, off, value, vlen);
 }

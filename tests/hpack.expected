@@ -7,3 +7,7 @@ count=4 dyn=1
 :authority=www.example.com
 dyn62=:authority:www.example.com
 rt=1 custom-key=custom-value
+huff_count=4
+huff_authority=:authority
+huff_value=www.example.com
+huff_rt enc=32 dec=43 match=1
