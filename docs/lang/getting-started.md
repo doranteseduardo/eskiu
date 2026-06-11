@@ -822,6 +822,7 @@ Available modules:
 | `<mem>`      | `alloc<T>(n)`, `free(p)`, `memcpy`, `memset`, `memmove`, `memcmp`, `strlen` |
 | `<alloc>`    | `Bump`, `Arena`, `Pool`, `FirstFit` — explicit allocators over a buffer you own (the Zig model; not a `malloc` replacement) |
 | `<either>`   | sum types — `Option<T>`, `Either<A,B>` + helpers (built on generic algebraic enums) |
+| `<futureval>`| value-returning combinators — `select2v` -> `Either`, `join2v` -> `Pair` |
 | `<sysheap>`  | `Heap` — a general heap that `mmap`s OS pages and runs `FirstFit` on them (no libc `malloc`) |
 | `<fs>`       | `fs_open`, `fs_close`, `fs_read`, `fs_write`, `fs_puts`, `fs_seek`, `fs_tell`, `fs_size`, `fs_read_all`, `fs_write_all`, `fs_eof`, `fs_error` |
 | `<net>`      | TCP sockets — `net_tcp_listen`, `net_accept`, `net_tcp_connect`, `net_send`, `net_recv`, `net_close` |
