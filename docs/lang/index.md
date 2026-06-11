@@ -32,7 +32,7 @@ The goal is a single language that replaces that stack. Phase one establishes a 
 | **Lambdas / Closures** | `int(int x) { return x * 2; }` — anonymous functions; `fn(T,...)->R` fat-pointer types; closure capture by value; higher-order functions |
 | **Threads** | `thread_create(fn()->void)` / `thread_join(*void)` — OS thread keywords; closure fat pointer maps directly to pthread ABI |
 | **Exceptions** | `try`/`catch`/`finally`/`throw` — LLVM `invoke`/`landingpad`, Itanium ABI; multiple `catch` clauses; link `-lc++` (macOS) or `-lstdc++` (Linux) |
-| **Async / await** | `async fn` lowered to a resumable state-machine coroutine; a call yields `*Future<T>`; `await` suspends until ready. Runtime in `<future>`/`<executor>`/`<eventloop>` |
+| **Async / await** | `async` function lowered to a resumable state-machine coroutine; a call yields `*Future<T>`; `await` suspends until ready. Runtime in `<future>`/`<executor>`/`<eventloop>` |
 | **Enums / match** | `enum` of named integer constants; payload-bearing variants form algebraic data types (tagged unions), destructured with exhaustive `match`; generic enums (`Option<T>`, `Either<A,B>`) |
 | **Structs** | Fields, methods with `self`, struct literal init `Point { x: 1, y: 2 }`, bitfields `f: N`, `packed` layout |
 | **Templates** | `struct Result<T,E>`, `fn Ok<T,E>(T v)` — monomorphic instantiation |

@@ -155,7 +155,7 @@ public:
 };
 ```
 
-Lowers `async fn` + `await` into a resumable state machine. It runs after type
+Lowers `async` functions and `await` into a resumable state machine. It runs after type
 checking and before code generation: each async function is replaced by a frame
 struct, a `__<name>_resume` function (an if-chain over the resume state), and a
 constructor that returns `*Future<T>`. Awaits are lowered across all control flow
