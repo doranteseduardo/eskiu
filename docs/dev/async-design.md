@@ -1,28 +1,24 @@
-# Async / Await — Design Note
+# Async / Await — Design & Contract
 
-**Status:** implemented (async core complete). This note pinned the contract
-*before* the transform was written, because the parts it fixes are expensive to
-change once async functions exist in the wild (see "What is locked, what is free").
+This note is the contract reference for Eskiu's async runtime: the `Future<T>`
+ABI, the atomic four-state handshake, and the waker model. These are the parts
+that are expensive to change once async functions exist in the wild (see "What is
+locked, what is free"), so they are fixed here.
 
-**Progress (gate, §9): COMPLETE ✅.** Step 0 (atomic intrinsics) ✅.
-`stdlib/future.esk` holds the locked `Future<T>`/`FutureHdr` contract and the §3
-handshake. A hand-written coroutine validated all three gate requirements:
-reactor-driven read over `<eventloop>` ✅, type-erased drop/cancel ✅, and
-**cross-thread resume** (worker thread completes; atomic CAS catches the parked
-loop; waker marshals via a self-pipe; continuation runs on the loop thread) ✅.
-The gate surfaced and we solved a blocking prerequisite — **escaping closures**
-(a waker/callback outlives its creating function) read a dangling stack env — now
-fixed language-wide via escape analysis + the `escaping` qualifier + `free_closure`
-(spec §6.5). The runtime model is proven sound. Implementation since: the Executor + leaf
-futures (`<executor>`/`<net_async>`, steps 2–3) ✅; the `async`/`await` frontend
-(steps 4–5) ✅; and the AST→state-machine transform (`sema/async_transform.cpp`,
-steps 6–7) — **single and multiple `await` working end-to-end** (fast path +
-single/multi suspend over real reactor reads; values thread through frame fields
-across N+1 states). Done: single+multi await, return await, async void, cancellation, **all control
-flow around await** (if/while/C-style for/switch/for-in, with break/continue),
-full closure-env ownership — verified leak-free with `leaks`. Combinators
-(`spawn`/`select2`/`join2`, generic + cast-free) and a `<timer>` leaf future for
-deadline-based timeouts are built on this shape.
+**Implementation.** The runtime model is built on `stdlib/future.esk` (the locked
+`Future<T>`/`FutureHdr` contract and the §3 handshake), the atomic intrinsics
+(`<atomic>`), and escaping closures (a waker/callback outlives its creating
+function, so it needs a heap env — escape analysis + the `escaping` qualifier +
+`free_closure`, spec §6.5). On top sit the Executor and leaf futures
+(`<executor>`/`<net_async>`), the `async`/`await` frontend, and the
+AST→state-machine transform (`sema/async_transform.cpp`). Supported: single and
+multiple `await` (fast path + suspend over real reactor reads, values threaded
+through frame fields across N+1 states), `return await`, bare `await`, `async
+void`, cancellation, and all control flow around `await` (`if`/`while`/C-style
+`for`/`switch`/`for-in`, with `break`/`continue`), with full closure-env
+ownership — leak-free under `leaks`. Combinators (`spawn`/`select2`/`join2`,
+generic + cast-free) and a `<timer>` leaf future for deadline-based timeouts build
+on this shape.
 
 **Audience:** compiler maintainers. Assumes familiarity with the existing closure
 model (`fn(T)->R` is a fat pointer `{fn_ptr, env_ptr}` that captures by value),
@@ -58,8 +54,7 @@ monomorphic templates, the `<eventloop>` reactor, and `<threading>`.
 - **Atomic intrinsics** (atomic load/store/CAS/swap with acquire/release ordering).
   Multi-thread completion needs a lock-free state handshake. LLVM exposes these
   directly (`cmpxchg`, atomic `load`/`store`), so codegen is tractable, and
-  `<threading>` benefits independently. This is implemented *before* the executor
-  (§9, step 0).
+  `<threading>` uses them independently. They underpin the §3 handshake.
 
 **Non-goals (v1 — deferred, each forward-compatible)**
 
@@ -180,9 +175,9 @@ else { F.on_drop(); }                        // PENDING/WAITING: release + casca
 > state as its `old` and performs only the free, never a second resource release.
 > Memory is freed exactly once, by whichever path reached terminal.
 
-This is the heart of the design and the part step-1 (§9) must prove with a
-cross-thread test — the note locks the *requirements* (atomic 4-state, ordering,
-single-free); the exact CAS choreography lives in the proven `future.esk`.
+This is the heart of the design. The contract locks the *requirements* (atomic
+4-state, ordering, single-free); the exact CAS choreography lives in
+`stdlib/future.esk`, exercised by a cross-thread test.
 
 ---
 
@@ -346,37 +341,35 @@ contract change) — a deliberate later feature.
 
 ---
 
-## 9. Implementation order (each step independently testable)
+## 9. Components
 
-0. **Atomic intrinsics** — `atomic_load`/`atomic_store`/`atomic_cas`/`atomic_swap`
-   with acquire/release, lowering to LLVM atomics. Test in isolation; `<threading>`
-   can adopt them too. *Prerequisite for the handshake.*
-1. **`stdlib/future.esk`** — `Future<T>` + `FutureHdr` + `free_future` /
-   `future_drop`, implementing the §3 atomic protocol. Hand-write a coroutine *by
-   hand* in Eskiu against this contract — including a drop path **and a cross-thread
-   completion** (worker thread completes; resume scheduled on a different executor)
-   — and drive it with `<eventloop>`. Validates the runtime model, cancellation, and
-   multi-thread end-to-end **before** touching the compiler. **← the de-risk gate.**
-2. **Executor** — ready-queue + self-pipe/`eventfd` wakeup over `<eventloop>`;
-   `current_executor()`, `spawn`. Hand-written.
-3. **Leaf futures** — `net_connect_async`/`net_read_async` (`stdlib/net_async.esk`)
-   with real `on_drop`. Hand-written.
-4. **Lexer/parser** — `async` modifier, `await` expression, tokens.
-5. **Type checker** — async return → `Future<T>*`; `await` typing; "await only in
-   async"; track unconsumed `Future` locals for the drop pass.
-6. **AST transform** — state-machine split (§4) + implicit `future_drop` (§7). Bulk
-   of the work; inspectable via `--test-parser`.
-7. **Codegen** — nearly free: the transform emits structs/switch/closures/casts/
-   atomics codegen already handles.
-8. **Tests** — the hand-written coroutine (step 1) is the oracle; the same logic in
-   `async`/`await` must match, plus: a cancellation test (asserts the leaf fd was
-   deregistered and frame freed) and a thread-affinity test (completion on worker,
-   resume observed on the home executor's thread).
+The async stack decomposes into independently testable layers:
 
-Step 1 is the gate: if a hand-written state machine over this contract cannot drive a
-real non-blocking socket read, be cleanly cancelled, **and** resume on a different
-thread than it completed on, the design is wrong — and we learn it before writing the
-transform.
+- **Atomic intrinsics** (`<atomic>`) — `atomic_load`/`atomic_store`/`atomic_cas`/
+  `atomic_swap` with acquire/release, lowering to LLVM atomics. The lock-free
+  primitives the §3 handshake stands on; `<threading>` uses them too.
+- **`stdlib/future.esk`** — `Future<T>` + `FutureHdr` + `free_future` /
+  `future_drop`, implementing the §3 atomic protocol. The runtime model is
+  validated by a hand-written coroutine over this contract that drives a real
+  non-blocking socket read via `<eventloop>`, is cleanly cancelled, and resumes on
+  a different thread than it completed on (cross-thread completion: a worker thread
+  completes; the resume is scheduled on a different executor).
+- **Executor** (`<executor>`) — ready-queue + self-pipe/`eventfd` wakeup over
+  `<eventloop>`; `current_executor()`, `spawn`.
+- **Leaf futures** (`<net_async>`) — `net_connect_async`/`net_read_async` with a
+  real `on_drop`.
+- **Lexer/parser** — the `async` modifier, the `await` expression, and their tokens.
+- **Type checker** — async return → `Future<T>*`; `await` typing; "await only in
+  async"; tracking of unconsumed `Future` locals for the drop pass.
+- **AST transform** (`sema/async_transform.cpp`) — the state-machine split (§4) plus
+  implicit `future_drop` (§7). The bulk of the work; inspectable via `--test-parser`.
+- **Codegen** — no async-specific path: the transform emits structs/switch/closures/
+  casts/atomics that codegen already handles.
+
+The hand-written coroutine over `future.esk` is the behavioural oracle: the same
+logic expressed in `async`/`await` must match it, and the suite adds a cancellation
+test (the leaf fd is deregistered and the frame freed) and a thread-affinity test
+(completion on a worker, resume observed on the home executor's thread).
 
 ---
 
@@ -404,6 +397,6 @@ internals — no recompile of user async code):**
 - `select`/`join` combinators (built on drop + completion).
 - A cooperative cancellation token for cleanup-on-cancel.
 
-Getting `value`-last, the atomic four-state handshake, `on_drop`, and the
-home-executor waker contract into the locked set *before* any async code exists is
-the entire reason for writing this note first.
+`value`-last, the atomic four-state handshake, `on_drop`, and the home-executor
+waker contract form the locked set: the ABI every async function and every leaf
+future is generated against.

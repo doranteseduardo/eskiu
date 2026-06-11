@@ -46,13 +46,13 @@ Each test mode exits 0 on success and prints a human-readable dump to stdout. A 
 
 ---
 
-## Current State (v0.0.12-alpha)
+## Current State (v0.2.0)
 
-All compiler phases (0–8) and editor tooling are complete and tested end-to-end. The v0.1 milestone is done: the INE credential decoder (727 lines of Eskiu) runs at 74 ms on arm64 — 2.5× faster than the reference C implementation.
+All compiler phases and editor tooling are complete and tested end-to-end. The language is feature-complete for the **v0.2.0 "backend services" release**: async/await, the full HTTP/2 stack (framing, HPACK with Huffman, streams and flow control, the multiplexed server, and TLS/ALPN), sum types with `match`, monomorphic generics, and the stdlib (allocators, threading, sockets, async runtime, JSON, and more).
 
-Phase 8 added lambdas and anonymous functions (`int(int x) { return x * 2; }`), function pointer types (`fn(T,...)->R`), and higher-order functions. The VS Code extension provides real-time error squiggles, hover type info, and go-to-definition via two new CLI flags (`--hover-at`, `--definition-at`).
+**v0.1.0** (the bare-metal systems foundation) is shipped and tagged: a cryptographic pipeline running entirely in Eskiu at 74 ms on arm64 — 2.5× faster than the reference C — plus an ARM64 kernel booting in QEMU without libc. v0.2.0 builds the concurrent-backend stack on top of that foundation.
 
-The next milestone is **v0.1**: booting Eskiu code on bare metal in QEMU without libc. It requires three additions — inline assembly, freestanding mode, and `volatile`. See `phases.md` for the full roadmap.
+The VS Code extension provides real-time error squiggles, hover type info, and go-to-definition via two CLI flags (`--hover-at`, `--definition-at`). See `phases.md` for the full feature table and roadmap.
 
 ---
 
