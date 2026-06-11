@@ -1098,7 +1098,10 @@ Shape a = Circle(2.0);          // construct; payload-free variants are bare (`U
 ```
 
 Algebraic enums may be **generic** and are monomorphized per instantiation, like
-template structs. Construct a generic variant with explicit type arguments:
+template structs. The type arguments of a generic variant are inferred from the
+payload arguments when they determine them (`Some(42)` → `Option<int>`); otherwise
+— a payload-free variant like `None`, or one that under-determines the type like
+`Either`'s `Left` — write them explicitly:
 
 ```eskiu
 enum Option<T>    { None, Some(T) }
