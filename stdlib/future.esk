@@ -131,6 +131,37 @@ Future<int>* select2(FutureHdr* a, FutureHdr* b) {
     return sel;                                  // both parked: first to complete wins
 }
 
+// join2: complete (with 2) once BOTH `a` and `b` have finished. Type-erased; the
+// awaiter then reads both futures' typed values and frees both. Leak-free: a
+// shared heap counter tracks completions (freed by the second completer), and
+// each waker self-frees its env.
+//
+//   await join2((FutureHdr*)x, (FutureHdr*)y);
+//   int sum = x.value + y.value;  free_future<int>(x);  free_future<int>(y);
+Future<int>* join2(FutureHdr* a, FutureHdr* b) {
+    Future<int>* j = future_new<int>();
+    *int cnt = alloc<int>(1);
+    *cnt = 0;
+    let onA: fn()->void = void() {
+        let self: fn()->void = a.waker;
+        *cnt = *cnt + 1;
+        if (*cnt == 2) { free((*void)cnt); future_complete<int>(j, 2); }
+        free_closure(self);
+    };
+    let onB: fn()->void = void() {
+        let self: fn()->void = b.waker;
+        *cnt = *cnt + 1;
+        if (*cnt == 2) { free((*void)cnt); future_complete<int>(j, 2); }
+        free_closure(self);
+    };
+    a.waker = onA;
+    if (atomic_cas(&a.state, 0, 1) == false) { *cnt = *cnt + 1; free_closure(onA); }  // a already done
+    b.waker = onB;
+    if (atomic_cas(&b.state, 0, 1) == false) { *cnt = *cnt + 1; free_closure(onB); }  // b already done
+    if (*cnt == 2) { free((*void)cnt); future_complete<int>(j, 2); }                   // both already done
+    return j;
+}
+
 // Free a future's memory. The single owner (the awaiter, after reading value, or
 // future_drop on cancel) calls this exactly once.
 void free_future<T>(Future<T>* f) {
