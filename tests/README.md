@@ -51,6 +51,7 @@ when you add a test.
 | `question_op` | `?` postfix error-propagation operator |
 | `volatile` | `volatile let` pointer load/store marked volatile in IR |
 | `inline_asm` | `asm(...)` simple + extended compiles, links, runs |
+| `variadic` | user-defined variadic fn — `...` + `va_list`/`va_start`/`va_arg<T>`/`va_end` (int + double) |
 | `const` | immutable bindings, usable as array sizes |
 | `sizeof_union_ptr` | `sizeof`, `union` (incl. float member), typed pointer arithmetic |
 | `os_macros` | exactly one host-OS macro (`__APPLE__`/`__linux__`) is defined |

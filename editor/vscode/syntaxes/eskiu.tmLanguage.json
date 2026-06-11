@@ -132,14 +132,14 @@
         },
         {
           "name": "keyword.other.eskiu",
-          "match": "\\b(sizeof|free_closure|asm|alloc_with|thread_create|thread_join)\\b"
+          "match": "\\b(sizeof|free_closure|asm|alloc_with|thread_create|thread_join|va_start|va_arg|va_end)\\b"
         }
       ]
     },
 
     "types": {
       "name": "support.type.primitive.eskiu",
-      "match": "\\b(int|int8|int16|int32|int64|uint|uint8|uint16|uint32|uint64|float|double|bool|char|string|void)\\b"
+      "match": "\\b(int|int8|int16|int32|int64|uint|uint8|uint16|uint32|uint64|float|double|bool|char|string|void|va_list)\\b"
     },
 
     "import": {
