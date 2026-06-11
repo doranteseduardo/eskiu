@@ -61,6 +61,22 @@ Future<int>* net_write_async(EventLoop* lp, int fd, *uint8 buf, int64 len) {
     return f;
 }
 
+// Complete once `fd` is readable / writable, doing no I/O itself. Used to drive
+// a non-blocking TLS handshake / SSL_read / SSL_write, which decide *what* I/O
+// to retry based on WANT_READ / WANT_WRITE.
+Future<int>* net_readable_async(EventLoop* lp, int fd) {
+    Future<int>* f = future_new<int>();
+    f.on_drop = void() { el_del_free(lp, fd); };
+    el_add_read(lp, fd, void(EventLoop* l, int rfd) { el_del(l, rfd); future_complete<int>(f, 0); });
+    return f;
+}
+Future<int>* net_writable_async(EventLoop* lp, int fd) {
+    Future<int>* f = future_new<int>();
+    f.on_drop = void() { el_del_free(lp, fd); };
+    el_add_write(lp, fd, void(EventLoop* l, int wfd) { el_del(l, wfd); future_complete<int>(f, 0); });
+    return f;
+}
+
 // Complete with the number of bytes read into `buf` (capacity `cap`) once `fd`
 // is readable. One-shot: the fd is deregistered when it fires.
 Future<int>* net_read_async(EventLoop* lp, int fd, *uint8 buf, int64 cap) {
