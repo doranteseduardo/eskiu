@@ -53,8 +53,17 @@ tested and useful on its own.
 - [ ] **Stage 5 — TLS / ALPN.** HTTP/2 in browsers requires TLS with ALPN
   negotiating `h2`. Planned via OpenSSL by FFI (already proven — the crypto
   pipeline links OpenSSL via `extern`). Cleartext `h2c` is the interim test path.
-- [ ] **Stage 6 — Server API.** `http2_serve_async(lp, fd, handler, …)` mirroring
-  the concurrent `<http_async>` server, reusing `<http>`'s `HttpRequest`/`Response`.
+- [x] **Stage 6 — Server API** (`stdlib/http2_server.esk`). `http2_serve_async(lp,
+  fd, handler, max_conns)` (and per-connection `http2_serve_conn_async`) mirroring
+  the concurrent `<http_async>` server and reusing `<http>`'s `HttpRequest`/
+  `HttpResponse`. Drives the handshake, then a frame-dispatch loop: a request
+  (HEADERS + optional DATA) is HPACK-decoded into an `HttpRequest`, the handler
+  fills an `HttpResponse`, and the response is encoded back as a HEADERS frame
+  (`:status` + `content-length` + the handler's headers, lowercased) and a DATA
+  frame with END_STREAM; SETTINGS/PING are answered, GOAWAY/EOF ends the loop.
+  Tested end-to-end over a socketpair (`http2_server`). v1 handles streams
+  sequentially (correct request/response, not yet concurrent multiplexing) and is
+  cleartext h2c (TLS is stage 5).
 
 ## Frame header (RFC 7540 §4.1)
 
