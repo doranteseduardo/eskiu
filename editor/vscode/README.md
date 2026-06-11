@@ -30,7 +30,8 @@ Restart VS Code after installing.
 | `"..."` string literals (with escape sequences) | string |
 | `'a'` char literals | string |
 | `0xFF`, `3.14`, `42` numbers | constant.numeric |
-| `true`, `false`, `null` | constant.language |
+| `true`, `false`, `null`, `__FILE__`, `__LINE__` | constant.language |
+| `#define #undef #ifdef #ifndef #else #endif #pragma #error` directives | keyword.control.directive |
 | `if else for while switch case break continue return in await` | keyword.control |
 | `try catch finally throw` | keyword.control.exception |
 | `let struct packed union interface enum fn extern intrinsic import` | keyword.declaration |

@@ -1747,7 +1747,19 @@ A small text pass runs before lexing. It supports **object-like and function-lik
 | `#undef NAME` | Remove a definition |
 | `#ifdef NAME` / `#ifndef NAME` | Begin a block compiled only if `NAME` is / is not defined |
 | `#else` / `#endif` | Else branch / end of a conditional |
+| `#error message` | Abort compilation with `message` (only on an active `#ifdef` branch) |
 | `#pragma pack(...)` | Struct packing directive — see §8.9 |
+
+Two predefined macros expand in place: `__LINE__` (the current source line, an
+integer) and `__FILE__` (the current file path, a string literal). Together with
+`#error` they support assertions and build guards:
+
+```eskiu
+#ifndef CONFIG_OK
+#error "build CONFIG_OK is required"
+#endif
+printf("%s:%d: reached\n", __FILE__, __LINE__);
+```
 
 A line ending in a backslash (`\`) is **continued** onto the next line, so a macro body may span several physical lines (the spliced lines stay counted, so line numbers are preserved):
 

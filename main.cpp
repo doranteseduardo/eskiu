@@ -426,7 +426,7 @@ int main(int argc, char** argv) {
 
         for (const auto& fname : inputs) {
             std::string source = readFile(fname);
-            Lexer lexer(source, &macros);
+            Lexer lexer(source, &macros, fname);
             std::vector<Token> tokens;
             Token tok = lexer.next_token();
             while (tok.type != TokenType::EOF_TOKEN) {

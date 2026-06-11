@@ -15,6 +15,7 @@ Backend-services phase. v0.1.0 is frozen at its tag; this is the in-progress nex
 - **`alloc`/`free` are no longer keywords** — heap allocation moved to the `<mem>` stdlib as the generic functions `alloc<T>(n)` and `free(p)`. Under `--freestanding` they target `esk_alloc`/`esk_free` via the predefined `__ESKIU_FREESTANDING__` macro.
 - **`const`** — immutable typed bindings, usable as array sizes; field/element mutation of a `const` value is rejected.
 - **Integer ranges in `for`-`in`** — `for (i in A..B)` iterates the half-open range `[A, B)` (a new `..` operator). Desugars to a counted `for`, so it composes with `break`/`continue` and the async transform.
+- **Preprocessor diagnostics** — `__LINE__` (current source line) and `__FILE__` (current file path) expand in place, and `#error message` aborts compilation (honoring `#ifdef` branches). The VS Code grammar now also highlights all preprocessor directives.
 - **`alloc_with(&allocator, T, n)`** — explicit-allocator built-in.
 - **`volatile let`** — qualifier-first form (like `const int`), in local and top-level declarations.
 - Multi-argument `fn` types (`fn(A,B)->R`); function pointers usable as values, parameters, return types, and struct fields, and capturable in closures.
