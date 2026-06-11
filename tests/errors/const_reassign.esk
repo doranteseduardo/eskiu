@@ -1,2 +1,2 @@
-// EXPECT-ERROR: cannot assign to constant
+// EXPECT-ERROR: cannot assign to read-only location
 int main() { const int N = 3; N = 4; return 0; }

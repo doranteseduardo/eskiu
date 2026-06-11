@@ -10,6 +10,7 @@
 #include "../template_utils.h"
 #include "../intrinsics.h"
 #include "../ast/ast_walk.h"
+#include "../ast/type_qual.h"
 
 // ============================================================================
 
@@ -353,10 +354,12 @@ void TypeChecker::visit(FunctionDecl* node) {
     inAsyncFn = node->isAsync;
     pushScope();
 
-    // Define parameters
+    // Define parameters (preserving a pointee-const qualifier so writing through
+    // a `const T*` parameter is caught; normalization otherwise strips const).
     for (const auto& param : node->params) {
-        defineSymbol(param.second, normalizeType(param.first),
-                     node->line, node->col, /*isParam=*/true);  // resolve aliases/enums
+        std::string pt = normalizeType(param.first);
+        if (tyq::baseConst(param.first) && tyq::isPtr(param.first)) pt = "const " + pt;
+        defineSymbol(param.second, pt, node->line, node->col, /*isParam=*/true);
     }
 
     // Escape-soundness: a non-`escaping` closure parameter may only be *called*.
@@ -400,8 +403,12 @@ void TypeChecker::visit(VarDecl* node) {
     if (node->initializer) {
         node->initializer->accept(this);
         std::string initType = getExpressionType(node->initializer.get());
-        if (initType != "unknown" && !isValidAssignment(node->type, initType)) {
-            warning(0, 0, "implicit conversion from " + initType + " to " + node->type);
+        if (initType != "unknown") {
+            if (tyq::dropsConst(node->type, initType))
+                errorAt(node, "cannot initialize '" + node->type + "' from '" + initType +
+                              "' — conversion discards a const qualifier");
+            else if (!isValidAssignment(node->type, initType))
+                warning(0, 0, "implicit conversion from " + initType + " to " + node->type);
         }
     }
     // A const must be initialized — there is no later point to assign it.
@@ -415,7 +422,13 @@ void TypeChecker::visit(VarDecl* node) {
     // Validate that struct types exist before use
     validateStructType(normalizedType);
 
-    defineSymbol(node->name, normalizedType, node->line, node->col, /*isParam=*/false);
+    // Preserve a pointee-const qualifier through normalization so the symbol
+    // remembers it's read-only (const checks read it back; everything else strips).
+    std::string storedType = normalizedType;
+    if (tyq::baseConst(node->type) && tyq::isPtr(node->type))
+        storedType = "const " + normalizedType;
+
+    defineSymbol(node->name, storedType, node->line, node->col, /*isParam=*/false);
     if (node->isConst && !scopes.empty()) scopes.back()[node->name].isConst = true;
 }
 
@@ -628,12 +641,16 @@ void TypeChecker::visit(BinaryExpr* node) {
     node->left->accept(this);
     node->right->accept(this);
 
-    // Assigning to a `const` binding — or a field/element of a const value — is
-    // an error (writing through a const pointer is allowed; see assignsToConst).
+    // Assigning to a `const` binding, a field/element of a const value, or
+    // through a pointer-to-const (`const T*`) is an error. See assignsToConst.
     if (node->op == "=") {
         std::string cname;
         if (assignsToConst(node->left.get(), cname))
-            errorAt(node, "cannot assign to constant '" + cname + "'");
+            errorAt(node, "cannot assign to read-only location '" + cname + "'");
+        std::string lt = getExpressionType(node->left.get());
+        std::string rt = getExpressionType(node->right.get());
+        if (tyq::dropsConst(lt, rt))
+            errorAt(node, "assignment discards a const qualifier ('" + rt + "' to '" + lt + "')");
     }
 
     std::string leftType = getExpressionType(node->left.get());
@@ -1511,24 +1528,49 @@ bool TypeChecker::isConstSymbol(const std::string& name) const {
 
 bool TypeChecker::assignsToConst(Expr* lhs, std::string& nameOut) {
     Expr* cur = lhs;
+    // Root identifier of an expression, for a readable diagnostic.
+    auto rootName = [](Expr* e) -> std::string {
+        while (e) {
+            if (auto* id = dynamic_cast<IdentExpr*>(e)) return id->name;
+            if (auto* u = dynamic_cast<UnaryExpr*>(e))  { e = u->operand.get(); continue; }
+            if (auto* m = dynamic_cast<MemberExpr*>(e)) { e = m->base.get();    continue; }
+            if (auto* ix = dynamic_cast<IndexExpr*>(e)) { e = ix->base.get();   continue; }
+            return "";
+        }
+        return "";
+    };
     while (cur) {
         if (auto* id = dynamic_cast<IdentExpr*>(cur)) {
             if (isConstSymbol(id->name)) { nameOut = id->name; return true; }
             return false;
         }
-        // Field/element of a *value* aggregate keeps the same const root; but a
-        // member/index through a pointer writes the pointee, so stop there.
+        // Dereference: `*p = x` writes the pointee — illegal if it is const.
+        if (auto* u = dynamic_cast<UnaryExpr*>(cur)) {
+            if (u->op == "*" && tyq::baseConst(getPointeeType(getExpressionType(u->operand.get())))) {
+                nameOut = rootName(u->operand.get()); return true;
+            }
+            return false;
+        }
+        // Member/element of a *value* aggregate keeps the same const root and we
+        // keep walking; through a pointer it writes the pointee, which is illegal
+        // only if that pointee (the struct/element) is const.
         if (auto* m = dynamic_cast<MemberExpr*>(cur)) {
             std::string bt = getExpressionType(m->base.get());
-            if ((!bt.empty() && bt.front() == '*') || hasPointerSuffix(bt)) return false;
+            if (tyq::isPtr(bt)) {
+                if (tyq::baseConst(getPointeeType(bt))) { nameOut = m->member; return true; }
+                return false;
+            }
             cur = m->base.get(); continue;
         }
         if (auto* ix = dynamic_cast<IndexExpr*>(cur)) {
             std::string bt = getExpressionType(ix->base.get());
-            if ((!bt.empty() && bt.front() == '*') || hasPointerSuffix(bt)) return false;
+            if (tyq::isPtr(bt)) {
+                if (tyq::baseConst(getPointeeType(bt))) { nameOut = rootName(ix->base.get()); return true; }
+                return false;
+            }
             cur = ix->base.get(); continue;
         }
-        return false;  // *p, calls, etc. — not an in-place const mutation
+        return false;  // calls, etc. — not an in-place const mutation
     }
     return false;
 }
@@ -1686,6 +1728,10 @@ static bool structSatisfiesInterface(
 }
 
 bool TypeChecker::isValidAssignment(const std::string& lhsType, const std::string& rhsType) {
+    // const-correctness: reject a conversion that would silently drop a pointee
+    // const (`const int*` → `int*`). Adding const (`int*` → `const int*`) is fine.
+    if (tyq::dropsConst(lhsType, rhsType)) return false;
+
     // Normalize both sides so "Point" == "struct:Point"
     std::string lhs = normalizeType(lhsType);
     std::string rhs = normalizeType(rhsType);
@@ -1714,7 +1760,8 @@ bool TypeChecker::isNumericType(const std::string& type) {
     return isIntType(type) || isFloatType(type);
 }
 
-bool TypeChecker::isIntType(const std::string& type) {
+bool TypeChecker::isIntType(const std::string& rawType) {
+    std::string type = tyq::strip(rawType);
     return type == "int"   || type == "int8"  || type == "int16"  ||
            type == "int32" || type == "int64" ||
            type == "uint"  || type == "uint8" || type == "uint16" ||
@@ -1722,25 +1769,36 @@ bool TypeChecker::isIntType(const std::string& type) {
            type == "char"  || type == "bool";
 }
 
-bool TypeChecker::isFloatType(const std::string& type) {
+bool TypeChecker::isFloatType(const std::string& rawType) {
+    std::string type = tyq::strip(rawType);
     return type == "float" || type == "double";
 }
 
-bool TypeChecker::isPrimitiveType(const std::string& type) {
+bool TypeChecker::isPrimitiveType(const std::string& rawType) {
+    std::string type = tyq::strip(rawType);
     if (type.size() > 3 && type.substr(0, 3) == "fn(") return true;
     return isNumericType(type) || type == "void" || type == "string";
 }
 
-bool TypeChecker::isPointerType(const std::string& type) {
+bool TypeChecker::isPointerType(const std::string& rawType) {
+    std::string type = tyq::strip(rawType);
     return !type.empty() && (type[0] == '*' || type.back() == '*' || type == "string");
 }
 
 std::string TypeChecker::getPointeeType(const std::string& pointerType) {
     // Accept both pointer spellings: *T (canonical) and T* (trailing-star).
-    if (!pointerType.empty() && pointerType.front() == '*')
-        return pointerType.substr(1);
+    // The pointee's own const is preserved (a `const int*` derefs to `const int`).
+    if (pointerType.size() >= 6 && pointerType.compare(pointerType.size() - 6, 6, "*const") == 0)
+        return pointerType.substr(0, pointerType.size() - 6);
     if (!pointerType.empty() && pointerType.back() == '*')
         return pointerType.substr(0, pointerType.size() - 1);
+    // leading-star spelling: const sits before the star(s), e.g. "const *int"
+    if (!pointerType.empty() && pointerType.front() == '*')
+        return pointerType.substr(1);
+    if (tyq::baseConst(pointerType)) {
+        std::string inner = pointerType.substr(6);
+        if (!inner.empty() && inner.front() == '*') return "const " + inner.substr(1);
+    }
     return "";
 }
 
@@ -1784,7 +1842,11 @@ void TypeChecker::unifyTypeParam(std::string pattern, std::string concrete,
         unifyTypeParam(pargs[i], cargs[i], tps, subs);
 }
 
-std::string TypeChecker::normalizeType(const std::string& type) {
+std::string TypeChecker::normalizeType(const std::string& rawType) {
+    // const has no bearing on identity/layout — strip it so the rest of the
+    // type machinery is const-agnostic. (const survives only in stored declared
+    // types, read back by the const-correctness checks.)
+    std::string type = tyq::strip(rawType);
     if (hasPointerSuffix(type)) {
         return addPointerSuffix(normalizeType(extractBaseType(type)));
     }
@@ -1837,7 +1899,8 @@ std::string TypeChecker::normalizeType(const std::string& type) {
 }
 
 // Type promotion
-std::string TypeChecker::promoteType(const std::string& type1, const std::string& type2) {
+std::string TypeChecker::promoteType(const std::string& raw1, const std::string& raw2) {
+    std::string type1 = tyq::strip(raw1), type2 = tyq::strip(raw2);
     if (type1 == type2) return type1;
     if (type1 == "double"  || type2 == "double")  return "double";
     if (type1 == "float"   || type2 == "float")   return "float";

@@ -317,7 +317,7 @@ The `const` qualifier declares an immutable, typed binding. It prefixes either d
 const int MAX = 100;
 const let step: int = 5;
 
-MAX = 200;   // error: cannot assign to constant 'MAX'
+MAX = 200;   // error: cannot assign to read-only location 'MAX'
 ```
 
 A `const` integer can also be used as a **fixed-size array dimension**, in struct fields and in local variables:
@@ -341,18 +341,37 @@ Array dimensions accept a decimal literal, an `enum` member, or a `const int`. `
 ```eskiu
 const string name = "Eskiu";   // any type may be const
 const let p: Point = Point { x: 1.0, y: 2.0 };
-p.x = 5.0;                      // error: cannot assign to constant 'p'
+p.x = 5.0;                      // error: cannot assign to read-only location 'p'
 ```
 
-The one case it does **not** cover is writing *through* a `const` pointer: `const` makes the pointer binding non-reassignable, but the pointee is still writable.
+### Pointer constness
+
+For pointers, `const` distinguishes *what* is read-only, exactly as in C:
+
+| Spelling | Meaning | Pointer rebindable? | Pointee writable? |
+|---|---|---|---|
+| `int*`         | ordinary pointer        | yes | yes |
+| `const int*`   | pointer to const int    | yes | **no** |
+| `int* const`   | const pointer to int    | **no** | yes |
+| `const int* const` | const pointer to const int | **no** | **no** |
 
 ```eskiu
-const let q: *int = &v;
-q = &w;     // error: cannot assign to constant 'q'  (rebinding the pointer)
-*q = 10;    // allowed — writes the pointee, not the binding
+int sum(const int* p, int n) {  // a read-only view of the caller's data
+    int s = 0;
+    for (i in 0..n) { s = s + p[i]; }   // reads through the const pointer are fine
+    return s;
+}
+
+const int* r = &v;
+r = &w;     // allowed — the pointer is rebindable
+*r = 10;    // error: cannot assign to read-only location 'r'  (pointee is const)
+
+int* const c = &v;
+c = &w;     // error: cannot assign to read-only location 'c'  (binding is const)
+*c = 10;    // allowed — the pointee is writable
 ```
 
-Eskiu does not distinguish a pointer-to-const from a const-pointer (there is no `const int*` vs `int* const`); `const` always qualifies the binding.
+Const-correctness is enforced on conversions: adding const (`int*` → `const int*`) is always allowed, but any conversion that would **drop** a const qualifier — in an initializer, assignment, call argument, or return — is a compile error. `const` has no ABI effect; it is stripped before code generation. It applies uniformly to locals, parameters, struct fields and return types.
 
 ---
 

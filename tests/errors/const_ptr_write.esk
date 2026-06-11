@@ -1,0 +1,8 @@
+// Writing through a pointer-to-const is rejected.
+// EXPECT-ERROR: cannot assign to read-only location
+int main() {
+    int a = 5;
+    const int* r = &a;
+    *r = 9;
+    return 0;
+}

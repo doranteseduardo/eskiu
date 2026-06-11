@@ -145,7 +145,7 @@ Phase 3 rounds out ergonomics and tooling.
 **Phase 3 — Ergonomics and tooling**
 - [x] `for (i in 0..10)` — native half-open ranges `[A, B)`. Desugared at parse time to a counted `for`, so it reuses all the loop machinery (codegen, async transform, break/continue). Lexer gained a `..` (`RANGE`) token. Test: `range_for`
 - [x] User-defined variadic functions — `int f(int n, ...)` read with `va_list` / `va_start` / `va_arg<T>` / `va_end` (LLVM `va_arg` instruction; works on arm64 + x86-64). Test: `variadic`
-- [ ] Pointer constness — distinguish a const pointer from a pointer-to-const (`const int*` vs `int* const`); `const` currently only qualifies the binding
+- [x] Pointer constness — `const int*` (pointer to const: pointee read-only, pointer rebindable) vs `int* const` (const pointer: binding read-only, pointee writable), composable as `const int* const`. Reading through and rebinding a `const T*` are allowed; writing through it, and any conversion that drops a const qualifier (init, assignment, argument, return), are rejected. const has no ABI effect (stripped in codegen). Tests: `pointer_const`, `errors/const_ptr_write`, `errors/const_ptr_drop`
 - [x] `__FILE__` and `__LINE__` in the preprocessor — `__LINE__` refreshed per line, `__FILE__` threaded from the compiled/imported path. Test: `pp_loc`
 - [x] `#error` directive — aborts compilation with the message (respects `#ifdef` branches). Test: `errors/pp_error`
 - [x] `#pragma pack(N)` with N > 1 — caps each field's alignment at N (manual padded layout matching the C `#pragma pack(N)` ABI; total size rounds up to the struct's alignment). Test: `pack_n`

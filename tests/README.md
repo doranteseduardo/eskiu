@@ -54,6 +54,8 @@ when you add a test.
 | `variadic` | user-defined variadic fn — `...` + `va_list`/`va_start`/`va_arg<T>`/`va_end` (int + double) |
 | `http2_frame` | `<http2>` 9-byte frame-header encode/decode round-trip (incl. 31-bit stream id) |
 | `const` | immutable bindings, usable as array sizes |
+| `pointer_const` | `const T*` (pointee read-only) vs `T* const` (binding read-only); read/rebind allowed, write-through and const-drop rejected |
+| `pack_n` | `#pragma pack(N)` for N > 1 — field-alignment cap, padding, size matches the C ABI |
 | `sizeof_union_ptr` | `sizeof`, `union` (incl. float member), typed pointer arithmetic |
 | `os_macros` | exactly one host-OS macro (`__APPLE__`/`__linux__`) is defined |
 | `preprocessor` | object-like and function-like `#define`, `#ifdef` |
@@ -145,6 +147,8 @@ when you add a test.
 | `errors/const_no_init` | `const` declared without an initializer |
 | `errors/const_reassign` | reassigning a `const` |
 | `errors/const_field` | assigning to a field of a `const` value |
+| `errors/const_ptr_write` | writing through a pointer-to-const (`*r = …`) |
+| `errors/const_ptr_drop` | a conversion that discards a const qualifier (`int* = const int*`) |
 | `errors/question_bad_return` | `?` used in a function not returning `Result` |
 | `errors/unknown_intrinsic` | an `intrinsic` declared with a name the compiler can't lower |
 | `errors/pp_error` | a `#error` directive aborts compilation |
