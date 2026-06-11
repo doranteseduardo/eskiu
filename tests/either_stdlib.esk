@@ -1,0 +1,9 @@
+import <either>;
+extern int printf(string fmt, ...);
+int main() {
+    Option<int> a = Some<int>(7);
+    Option<int> b = None<int>();
+    printf("%d %d\n", opt_is_some<int>(&a), opt_is_some<int>(&b));   // 1 0
+    printf("%d %d\n", opt_unwrap_or<int>(&a, -1), opt_unwrap_or<int>(&b, -1)); // 7 -1
+    return 0;
+}
