@@ -658,11 +658,20 @@
         letter-spacing: 0.07em;
         font-weight: 600;
       }
+      .proof {
+        background: var(--surface);
+        border-top: 1px solid var(--border);
+        border-bottom: 1px solid var(--border);
+        padding: 3.5rem 0;
+      }
+      @media (min-width: 720px) {
+        .proof {
+          padding: 5rem 0;
+        }
+      }
       .testimonial {
-        max-width: 640px;
-        margin: 0 auto 2.75rem;
-        padding-bottom: 2.5rem;
-        border-bottom: 1px solid var(--code-bd);
+        max-width: 680px;
+        margin: 0 auto;
         text-align: center;
       }
       .testimonial .stat {
@@ -670,33 +679,34 @@
       }
       .stat-num {
         display: block;
-        font-size: clamp(2.6rem, 9vw, 3.6rem);
+        font-size: clamp(2.8rem, 9vw, 4rem);
         font-weight: 700;
         letter-spacing: -0.03em;
         line-height: 1;
-        color: var(--purple-lt);
+        color: var(--purple);
       }
       .stat-cap {
         display: block;
         margin-top: 0.55rem;
-        font-size: 0.8rem;
-        color: rgba(255, 255, 255, 0.5);
+        font-size: 0.82rem;
+        color: var(--ink2);
       }
       .testimonial blockquote {
-        font-size: 1.05rem;
+        font-size: 1.1rem;
         line-height: 1.6;
-        color: rgba(255, 255, 255, 0.82);
+        color: var(--ink);
         font-weight: 400;
       }
       .testimonial figcaption {
-        margin-top: 1.1rem;
+        margin-top: 1.2rem;
         font-size: 0.72rem;
         letter-spacing: 0.08em;
         text-transform: uppercase;
         font-weight: 600;
+        color: var(--ink2);
       }
       .testimonial figcaption a {
-        color: var(--purple-lt);
+        color: var(--purple);
         text-decoration: none;
       }
       .testimonial figcaption a:hover {
@@ -704,7 +714,7 @@
       }
       @media (min-width: 600px) {
         .testimonial blockquote {
-          font-size: 1.18rem;
+          font-size: 1.28rem;
         }
       }
 
@@ -1073,12 +1083,13 @@
 <span class="kw">import</span> &lt;<span class="fn">mem</span>&gt;;
 
 <span class="ty">int</span> <span class="fn">main</span>() {
-    <span class="ty">int</span>   fd  <span class="op">=</span> <span class="fn">net_tcp_listen</span>(<span class="nu">8080</span>);
-    <span class="ty">*uint8</span> req <span class="op">=</span> <span class="fn">alloc</span>&lt;<span class="ty">uint8</span>&gt;(<span class="nu">4096</span>);
+    <span class="ty">int</span> fd <span class="op">=</span> <span class="fn">net_tcp_listen</span>(<span class="nu">8080</span>);
     <span class="kw">while</span> (<span class="nu">1</span>) {
         <span class="ty">int</span> c <span class="op">=</span> <span class="fn">net_accept</span>(fd);
+        <span class="ty">*uint8</span> req <span class="op">=</span> <span class="fn">alloc</span>&lt;<span class="ty">uint8</span>&gt;(<span class="nu">4096</span>);
         <span class="fn">net_recv</span>(c, (<span class="ty">*void</span>)req, <span class="nu">4096</span>);
         <span class="fn">net_send_str</span>(c, <span class="st">"HTTP/1.1 200 OK\r\n\r\nHello from Eskiu.\n"</span>);
+        <span class="fn">free</span>((<span class="ty">*void</span>)req);
         <span class="fn">net_close</span>(c);
     }
     <span class="kw">return</span> <span class="nu">0</span>;
@@ -1090,8 +1101,8 @@
       </div>
     </section>
 
-    <!-- Sponsors -->
-    <div class="sponsors">
+    <!-- Testimonial -->
+    <section class="proof">
       <div class="wrap">
         <figure class="testimonial">
           <div class="stat">
@@ -1112,6 +1123,12 @@
             >
           </figcaption>
         </figure>
+      </div>
+    </section>
+
+    <!-- Sponsors -->
+    <div class="sponsors">
+      <div class="wrap">
         <p class="sp-label">Early adopters &amp; sponsors</p>
         <div class="sp-logos">
           <a
