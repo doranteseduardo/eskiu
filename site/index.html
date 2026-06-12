@@ -658,6 +658,38 @@
         letter-spacing: 0.07em;
         font-weight: 600;
       }
+      .testimonial {
+        max-width: 640px;
+        margin: 0 auto 2.75rem;
+        padding-bottom: 2.5rem;
+        border-bottom: 1px solid var(--code-bd);
+        text-align: center;
+      }
+      .testimonial blockquote {
+        font-size: 1.05rem;
+        line-height: 1.6;
+        color: rgba(255, 255, 255, 0.82);
+        font-weight: 400;
+      }
+      .testimonial figcaption {
+        margin-top: 1.1rem;
+        font-size: 0.72rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        font-weight: 600;
+      }
+      .testimonial figcaption a {
+        color: var(--purple-lt);
+        text-decoration: none;
+      }
+      .testimonial figcaption a:hover {
+        text-decoration: underline;
+      }
+      @media (min-width: 600px) {
+        .testimonial blockquote {
+          font-size: 1.18rem;
+        }
+      }
 
       /* ── Get started ──────────────────────────────────────────────── */
       .start {
@@ -1044,6 +1076,19 @@
     <!-- Sponsors -->
     <div class="sponsors">
       <div class="wrap">
+        <figure class="testimonial">
+          <blockquote>
+            “ReactVision is adopting Eskiu selectively to replace
+            memory-sensitive C++ components with explicit, auditable native
+            modules while preserving C ABI interoperability with the existing
+            stack.”
+          </blockquote>
+          <figcaption>
+            <a href="https://reactvision.xyz" target="_blank" rel="noopener"
+              >ReactVision</a
+            >
+          </figcaption>
+        </figure>
         <p class="sp-label">Early adopters &amp; sponsors</p>
         <div class="sp-logos">
           <a
