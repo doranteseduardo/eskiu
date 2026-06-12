@@ -123,7 +123,7 @@ when you add a test.
 | `async_multi` | multiple awaits (fast path); values thread through frame states |
 | `async_multi_io` | two suspending awaits over the reactor (multi-state chain) |
 | `async_return_await` | `return await E;` desugaring and `async void` (uint8 unit) |
-| `async_cancel` | `future_drop` on a suspended async fn: cascade-drop + free, no UAF |
+| `async_cancel` | `future_drop` on a suspended async function: cascade-drop + free, no UAF |
 | `async_loop` | `while` loop containing an await (read-until-EOF; loop back-edge) |
 | `async_if` | `if`/`else` with an await in each branch (branch-join states) |
 | `async_for` | C-style `for` loop containing an await |
@@ -160,7 +160,7 @@ when you add a test.
 | `errors/const_no_init` | `const` declared without an initializer |
 | `errors/const_reassign` | reassigning a `const` |
 | `errors/arg_count` | calling a function with the wrong argument count |
-| `errors/async_no_await` | an `async fn` with no `await` is rejected |
+| `errors/async_no_await` | an `async` function with no `await` is rejected |
 | `errors/match_duplicate` | two `match` arms for the same variant |
 | `errors/const_field` | assigning to a field of a `const` value |
 | `errors/const_ptr_write` | writing through a pointer-to-const (`*r = …`) |
