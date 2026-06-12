@@ -86,7 +86,7 @@ with `match`, and the concurrent stdlib.
 | `escaping` / `free_closure` | `escaping` is a parameter qualifier (Swift-style): it marks a param that *retains* the closure beyond the call. Sema enforces soundness — a non-`escaping` closure param used beyond a direct call is a compile error (`functionParamEscaping` + the `nonEscapingFnParams`/`escapedFnParams` walk in the type checker). `free_closure(f)` (a builtin, `FreeClosureExpr`) frees an escaping closure's heap env (slot 1 of the fat pointer); `free(null)` is a safe no-op for non-capturing closures |
 | Function-as-value | A bare function name used as a value decays to a `fn(...)->R` via `makeFunctionPointer` (synthesizes a `__fnptr_<name>` env-ignoring thunk). `visit(CallExpr)` resolves direct named calls before `evaluateExpr` so calls don't decay |
 | Predefined macros | `main.cpp` seeds the shared macro table with `__APPLE__`/`__linux__` (host OS) for `#ifdef` portability |
-| `<net>` sockets | `stdlib/net.esk` — POSIX socket `extern`s + portable `packed sockaddr_in` (`#ifdef __APPLE__`) + `net_*` helpers. No compiler support needed beyond FFI |
+| `<net>` sockets | `stdlib/net.esk` — POSIX socket `extern`s + portable `packed sockaddr_in` (`#ifdef __APPLE__`) + `net_*` helpers (incl. `net_accept_addr` → peer IPv4). No compiler support needed beyond FFI |
 | `thread_create` / `thread_join` | Language keywords; fat-pointer maps to `pthread_create(fn, env)` |
 | `try` / `catch` / `finally` / `throw` | LLVM `invoke`/`landingpad` + `__gxx_personality_v0`; link `-lc++` |
 | Inline assembly | `asm("cli")` simple; `asm("op" :: "r"(x) : "mem")` extended |
@@ -103,7 +103,7 @@ with `match`, and the concurrent stdlib.
 | Multi-file compile | `eskiuc a.esk b.esk -o prog` — declarations from all inputs are merged into one program |
 | Warnings (`-Wall`) | Unused variables/parameters/functions, assignment-in-condition; off by default |
 | VS Code | Real-time errors, hover types, go-to-definition |
-| stdlib | Core: `result.esk`, `either.esk`, `list.esk`, `string.esk`, `math.esk`, `io.esk`, `mem.esk`, `path.esk`, `env.esk`, `time.esk`. Memory: `alloc.esk` (Bump/Arena/Pool/FirstFit), `sysheap.esk` (mmap heap). Concurrency: `threading.esk`, `atomic.esk`. Async runtime: `eventloop.esk`, `future.esk`, `futureval.esk`, `executor.esk`, `net_async.esk`, `timer.esk`, `channel.esk`. Net/codecs: `net.esk`, `base64.esk`, `json.esk`. HTTP: `http.esk`, `http_async.esk`, `http2.esk`, `http2_server.esk`, `hpack.esk`, `hpack_huffman.esk`, `tls.esk`. Files: `fs.esk` |
+| stdlib | Core: `result.esk`, `either.esk`, `list.esk`, `map.esk` (`Map<V>`, string-keyed), `string.esk`, `math.esk`, `io.esk`, `mem.esk`, `path.esk`, `env.esk`, `time.esk`. Memory: `alloc.esk` (Bump/Arena/Pool/FirstFit), `sysheap.esk` (mmap heap). Concurrency: `threading.esk`, `atomic.esk`. Async runtime: `eventloop.esk`, `future.esk`, `futureval.esk`, `executor.esk`, `net_async.esk`, `timer.esk`, `channel.esk`. Net/codecs: `net.esk`, `base64.esk`, `json.esk`, `multipart.esk`. HTTP: `http.esk` (String `HttpRequest` + binary-safe `HttpReq`/`http_recv`), `http_async.esk`, `http2.esk`, `http2_server.esk`, `hpack.esk`, `hpack_huffman.esk`, `tls.esk`. Files: `fs.esk` |
 
 ## Roadmap (as of v0.2.0)
 
