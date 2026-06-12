@@ -172,6 +172,14 @@ private:
     // an unsigned source never sign-extends (e.g. (int)(uint8)200 stays 200).
     llvm::Value* coerceInt(llvm::Value* val, llvm::Type* ty, bool unsignedSrc);
 
+    // Reserve a stack slot in the *entry* block of the current function. All
+    // allocas must live in the entry block: an alloca emitted inside a loop body
+    // is re-run every iteration and its slot is not reclaimed until the function
+    // returns, so a long-running loop with locals overflows the stack. Stores
+    // still happen at the current insertion point; only the reservation hoists.
+    llvm::AllocaInst* entryAlloca(llvm::Type* ty, llvm::Value* arrSize,
+                                  const llvm::Twine& name = "");
+
     // Helper methods
     void pushScope();
     void popScope();
