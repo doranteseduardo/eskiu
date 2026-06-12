@@ -1,0 +1,9 @@
+starts(  H)=1 ends(d  )=1
+trimmed=[Hello, World] len=12
+starts(Hello)=1 ends(World)=1 ends(x)=0
+[0]=a
+[1]=b
+[2]=
+[3]=c
+nparts=4
+list_nparts=4 list[3]=c

@@ -1,0 +1,22 @@
+// Cancelling a suspended async fn: future_drop on its future runs ret.on_drop,
+// which cascade-drops the awaited leaf future (deregistering its fd) and frees
+// the frame. Must not crash or use-after-free.
+import <future>;
+import <net_async>;
+import <eventloop>;
+extern int printf(string fmt, ...);
+extern int pipe(*int fds);
+uint8[64] g_buf;
+async int fetch(EventLoop* lp, int fd) {
+    int n = await net_read_async(lp, fd, &g_buf[0], (int64)64);
+    return n;
+}
+int main() {
+    int[2] fds; pipe(&fds[0]);          // no data -> the read never becomes ready
+    EventLoop* lp = el_new(64);
+    Future<int>* f = fetch(lp, fds[0]); // parks (suspended)
+    future_drop((FutureHdr*)f);         // cancel: cascade-drop + free frame
+    printf("ok\n");
+    el_free(lp);
+    return 0;
+}

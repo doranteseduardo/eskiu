@@ -1,0 +1,36 @@
+// Generic algebraic enums: Option<T> / Either<A,B>, monomorphized per use.
+// Construction uses explicit type args (Some<int>(x), None<int>(), Left<A,B>(x)).
+// Two Option instantiations (int and int64) prove per-instance layout.
+extern int printf(string fmt, ...);
+
+enum Option<T>    { None, Some(T) }
+enum Either<A, B> { Left(A), Right(B) }
+
+int opt_or(Option<int> o, int dflt) {
+    match o {
+        Some(v) -> return v;
+        None    -> return dflt;
+    }
+}
+
+int64 opt64_or(Option<int64> o, int64 dflt) {
+    match o {
+        Some(v) -> return v;
+        None    -> return dflt;
+    }
+}
+
+int either_i(Either<int, int> e) {
+    match e {
+        Left(a)  -> return a;
+        Right(b) -> return 100 + b;
+    }
+}
+
+int main() {
+    printf("%d %d\n", opt_or(Some<int>(42), -1), opt_or(None<int>(), -1));    // 42 -1
+    int64 big = opt64_or(Some<int64>((int64)9000000000), (int64)0);            // > int32 max
+    printf("%lld\n", big);                                                     // 9000000000
+    printf("%d %d\n", either_i(Left<int, int>(7)), either_i(Right<int, int>(9))); // 7 109
+    return 0;
+}

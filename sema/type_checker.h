@@ -24,9 +24,11 @@ public:
     void visit(VarDecl* node) override;
     void visit(StructDecl* node) override;
     void visit(ExternDecl* node) override;
+    void visit(IntrinsicDecl* node) override;
     void visit(InterfaceDecl* node) override;
     void visit(ContinueStmt* node) override;
     void visit(SwitchStmt* node) override;
+    void visit(MatchStmt* node) override;
     void visit(TemplateCallExpr* node) override;
 
     void visit(BlockStmt* node) override;
@@ -48,11 +50,13 @@ public:
     void visit(LiteralExpr* node) override;
     void visit(IdentExpr* node) override;
     void visit(StructInitExpr* node) override;
-    void visit(AllocExpr* node) override;
+    void visit(AllocWithExpr* node) override;
     void visit(LambdaExpr* node) override;
     void visit(AsmStmt* node) override;
     void visit(UnionDecl* node) override;
     void visit(SizeofExpr* node) override;
+    void visit(FreeClosureExpr* node) override;
+    void visit(AwaitExpr* node) override;
     void visit(ThreadCreateExpr* node) override;
     void visit(ThreadJoinStmt* node) override;
     void visit(ThrowStmt* node) override;
@@ -60,9 +64,22 @@ public:
     void visit(EnumDecl* node) override;
     void visit(TypeAliasDecl* node) override;
 
-public:
     // -Wall: emit lint-style warnings (unused vars/params/functions, etc.)
     bool warnAll = false;
+    bool warnExtra = false;   // -Wextra: signed/unsigned comparison mismatches, etc.
+
+    // --- LSP / tooling interface (consumed by --hover-at / --definition-at) ---
+    std::string sourceFile = "unknown";   // source file name (for error messages)
+    std::string getTypeAtPosition(int line, int col) const;
+    struct DefLocation { int line; int col; std::string file; };
+    std::map<std::string, DefLocation> definitionLocations;
+    // Use-site map: (line,col) → symbol name (populated from IdentExpr visits)
+    std::map<std::pair<int,int>, std::string> useLocations;
+    std::string getDefinitionAt(int line, int col) const;
+    // Declared-name hover spans (variables, parameters): cursor on the declared
+    // name → its type, even though the name is not an expression node.
+    struct HoverSym { int line; int col; int width; std::string type; };
+    std::vector<HoverSym> hoverSyms;
 
 private:
     // Symbol table: maps name -> type
@@ -72,7 +89,16 @@ private:
         bool used = false;     // -Wall: referenced at least once
         int  line = 0, col = 0;
         bool isParam = false;
+        bool isConst = false;  // declared with `const` — reassignment is an error
     };
+
+    // True if `name` resolves to a symbol declared `const` (searches scopes).
+    bool isConstSymbol(const std::string& name) const;
+    // If assigning to `lhs` would mutate a `const` value in place (the binding
+    // itself, or a field/element of a const aggregate), returns true and sets
+    // `nameOut` to the constant's name. Stops at pointer dereferences: writing
+    // *through* a const pointer mutates the pointee, not the binding.
+    bool assignsToConst(Expr* lhs, std::string& nameOut);
 
     // Struct information: name -> fields
     struct StructInfo {
@@ -103,11 +129,34 @@ private:
     // Enum registry: member name -> integer value; and the set of enum type names
     std::map<std::string, long long> enumConstants;
     std::set<std::string> enumTypes;
+    // Algebraic (payload-bearing) enums: distinct value types, not ints.
+    std::set<std::string> adtEnums;                              // ADT enum names
+    std::map<std::string, EnumDecl*> enumDecls;                  // name -> decl (for payloads)
+    // Variant name -> (enum name, tag index). Concrete (non-generic) ADT enums.
+    std::map<std::string, std::pair<std::string, int>> adtVariants;
+    // Generic ADT enums (e.g. Option<T>): name -> decl, and variant -> (enum, tag).
+    // Instances (Option_int) are recorded in adtEnums + templateInstanceArgs and
+    // resolved back to the generic decl + type args for match / construction.
+    std::map<std::string, EnumDecl*> genericEnumDecls;
+    std::map<std::string, std::pair<std::string, int>> genericVariants;
     // Type aliases: alias name -> underlying type string
     std::map<std::string, std::string> typeAliases;
 
     // Function signatures: name -> (return type, parameter types)
     std::map<std::string, std::pair<std::string, std::vector<std::string>>> functionSignatures;
+    // Per-function `escaping` flags for each parameter (closure-retention).
+    std::map<std::string, std::vector<bool>> functionParamEscaping;
+    // Escape-soundness state for the function currently being checked: the names
+    // of its non-escaping fn-typed params, those found to escape, and the name
+    // currently in callee position (a call of the param does NOT make it escape).
+    std::set<std::string> nonEscapingFnParams;
+    std::set<std::string> escapedFnParams;
+    std::string calleeContext;
+    // True while checking the body of an `async fn` — gates `await`.
+    bool inAsyncFn = false;
+    // Set when an `await` is seen in the current function body — an `async fn`
+    // with none is rejected (the transform needs at least one suspend point).
+    bool awaitSeenInFn = false;
 
     // -Wall function-usage tracking: top-level functions defined vs. referenced
     std::map<std::string, std::pair<int,int>> definedFns; // name -> (line,col)
@@ -158,22 +207,6 @@ private:
     std::string extractBaseType(const std::string& pointerType) const;
     std::string addPointerSuffix(const std::string& baseType) const;
 
-public:
-    // Source file name (for error messages)
-    std::string sourceFile = "unknown";
-
-    // Find the Eskiu type of the expression nearest to (line, col)
-    std::string getTypeAtPosition(int line, int col) const;
-
-    // Definition location: (line, col, file)
-    struct DefLocation { int line; int col; std::string file; };
-    std::map<std::string, DefLocation> definitionLocations;
-    // Use-site map: (line,col) → symbol name (populated from IdentExpr visits)
-    std::map<std::pair<int,int>, std::string> useLocations;
-    std::string getDefinitionAt(int line, int col) const;
-
-private:
-
     // Error reporting
     void error(int line, int col, const std::string& message);
     void warning(int line, int col, const std::string& message);
@@ -190,5 +223,9 @@ private:
     // Each entry is the set of (name, type) pairs captured so far.
     // IdentExpr visitor adds to the top entry when it finds an outer-scope var.
     std::vector<std::map<std::string, std::string>> captureStack;
+    // Parallel to captureStack: the scope count at each lambda's entry. A name
+    // is captured when it resolves to a scope index below this boundary (i.e. an
+    // enclosing function's param/local), regardless of any same-named global.
+    std::vector<int> captureBoundary;
     int lambdaScopeDepth = 0; // how many scopes the lambda itself pushed
 };

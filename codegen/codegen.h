@@ -27,6 +27,9 @@ public:
     std::string targetTriple;
     // Freestanding mode: alloc/free use esk_alloc/esk_free instead of malloc/free
     bool freestanding = false;
+    // Sanitizer instrumentation, applied to the module before object emission.
+    bool asan = false;   // AddressSanitizer (memory errors); needs the asan runtime
+    bool ubsan = false;  // bounds checking; traps on out-of-bounds (no runtime)
 
     // Print LLVM IR to stdout
     void printIR() const;
@@ -86,6 +89,9 @@ private:
 
     // Eskiu param types per function — for interface boxing at call sites
     std::map<std::string, std::vector<std::string>> funcEskiuParamTypes;
+    // Eskiu return type per function — lets getExprEskiuType resolve the static
+    // type of a call result (so member access on a temporary works).
+    std::map<std::string, std::string> funcEskiuReturnType;
 
     // Interface method return types — indexed by [ifaceName][methodIndex]
     std::map<std::string, std::vector<std::string>> ifaceMethodReturnTypes;
@@ -159,6 +165,21 @@ private:
     // downstream logic sees e.g. "*uint8" instead of an alias name like "Bytes".
     std::string expandAlias(const std::string& t) const;
 
+    // True if the Eskiu type widens with zero-extension (unsigned / char / bool).
+    bool eskiuUnsigned(const std::string& t) const;
+    // Widen or truncate integer `val` to `ty`, choosing zero- vs sign-extension by
+    // the source's signedness. The single place integer width coercion happens, so
+    // an unsigned source never sign-extends (e.g. (int)(uint8)200 stays 200).
+    llvm::Value* coerceInt(llvm::Value* val, llvm::Type* ty, bool unsignedSrc);
+
+    // Reserve a stack slot in the *entry* block of the current function. All
+    // allocas must live in the entry block: an alloca emitted inside a loop body
+    // is re-run every iteration and its slot is not reclaimed until the function
+    // returns, so a long-running loop with locals overflows the stack. Stores
+    // still happen at the current insertion point; only the reservation hoists.
+    llvm::AllocaInst* entryAlloca(llvm::Type* ty, llvm::Value* arrSize,
+                                  const llvm::Twine& name = "");
+
     // Helper methods
     void pushScope();
     void popScope();
@@ -171,6 +192,8 @@ private:
     void visit(VarDecl* node) override;
     void visit(StructDecl* node) override;
     void visit(ExternDecl* node) override;
+    void visit(IntrinsicDecl* node) override;
+    llvm::Value* lowerIntrinsicCall(const std::string& fn, class CallExpr* node);
     void visit(BlockStmt* node) override;
     void visit(IfStmt* node) override;
     void visit(ForStmt* node) override;
@@ -191,13 +214,16 @@ private:
     void visit(InterfaceDecl* node) override;
     void visit(ContinueStmt* node) override;
     void visit(SwitchStmt* node) override;
+    void visit(MatchStmt* node) override;
     void visit(StructInitExpr* node) override;
-    void visit(AllocExpr* node) override;
+    void visit(AllocWithExpr* node) override;
     void visit(TemplateCallExpr* node) override;
     void visit(LambdaExpr* node) override;
     void visit(AsmStmt* node) override;
     void visit(UnionDecl* node) override;
     void visit(SizeofExpr* node) override;
+    void visit(FreeClosureExpr* node) override;
+    void visit(AwaitExpr* node) override;
     void visit(ThreadCreateExpr* node) override;
 
     // Union registry: name → fields (all share offset 0; stored as [N x i8])
@@ -208,9 +234,37 @@ private:
     void visit(EnumDecl* node) override;
     void visit(TypeAliasDecl* node) override;
 
+    // `const` integer values, by name — so a const can be used as an array size.
+    std::map<std::string, long long> constInts;
+    // Resolve an array-dimension string (a decimal literal, an enum constant, or
+    // a const int) to its value. Returns false if it cannot be resolved.
+    bool resolveArrayDim(const std::string& dim, uint64_t& out) const;
+
     // Enum members -> integer value; the set of enum type names (each maps to i32)
     std::map<std::string, long long> enumConstants;
     std::set<std::string> enumTypes;
+    // Algebraic enums: name -> decl (payloads) and variant -> (enum, tag). The
+    // LLVM type lives in structTypes[enumName] as { i32 tag, [N x i64] payload }.
+    std::set<std::string> adtEnums;
+    std::map<std::string, EnumDecl*> adtEnumDecls;
+    std::map<std::string, std::pair<std::string, int>> adtVariants;
+    // Generic algebraic enums (Option<T>): template decl + variant->(enum,tag), and
+    // per-instance (Option_int) -> (generic name, concrete type args) for resolution.
+    std::map<std::string, EnumDecl*> genericEnumDecls;
+    std::map<std::string, std::pair<std::string, int>> genericVariants;
+    std::map<std::string, std::pair<std::string, std::vector<std::string>>> enumInstanceArgs;
+    // Build an algebraic-enum value for `variant`(args) (concrete enum; args may be empty).
+    llvm::Value* buildVariant(const std::string& variant, const std::vector<ExprPtr>& args);
+    // Core builder: { tag, payload } value with payload fields of `fieldTypes`.
+    llvm::Value* buildEnumValue(llvm::StructType* et, int tag,
+                                const std::vector<llvm::Type*>& fieldTypes,
+                                const std::vector<ExprPtr>& args);
+    // Monomorphize a generic enum for `typeArgs`; returns the mangled instance name
+    // (and creates its struct type + records enumInstanceArgs on first use).
+    std::string ensureEnumInst(const std::string& genericName,
+                               const std::vector<std::string>& typeArgs);
+    // Names declared `intrinsic` — calls to these lower to inline IR, not a call.
+    std::set<std::string> intrinsicNames;
     // Type aliases: alias name -> underlying type string
     std::map<std::string, std::string> typeAliases;
 
@@ -230,6 +284,13 @@ private:
         const std::vector<std::pair<std::string, std::string>>& params);
     // Create the LLVM struct type shell for a (non-template) struct. Idempotent.
     void declareStructType(StructDecl* node);
+    // #pragma pack(N>=2): manual layout capping each field's alignment at packN.
+    // Fills `phys` with field types interleaved with i8 padding and `slots` with
+    // one non-bitfield entry per field (physIndex into `phys`). Returns true if a
+    // layout was produced (always, for packN>=2 with no bitfields).
+    bool buildPackedLayout(const std::vector<StructDecl::Field>& fields, unsigned packN,
+                           std::vector<llvm::Type*>& phys,
+                           std::map<std::string, BitfieldSlot>& slots);
 
     // Expression evaluation (returns LLVM Value)
     std::stack<llvm::Value*> exprValueStack;

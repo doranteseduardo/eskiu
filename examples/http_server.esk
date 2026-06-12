@@ -1,40 +1,32 @@
-// http_server.esk — a minimal HTTP/1.1 server written entirely in Eskiu.
+// http_server.esk — a concurrent HTTP/1.1 server using the <http> stdlib.
 //
 //   eskiuc examples/http_server.esk -o http_server && ./http_server
-//   # then: curl http://127.0.0.1:8080/
+//   # then: curl http://127.0.0.1:8080/  or  curl http://127.0.0.1:8080/ping
 //
-// It accepts connections, ignores the request, and replies with a fixed
-// plain-text body. Single-threaded and intentionally tiny — a starting point.
+// The request is parsed for you; the handler just fills in the response. A pool
+// of worker threads serves connections concurrently (<http> sits on <net> +
+// <threading>).
 
-import <net>;
+import <http>;
 
 extern int printf(string fmt, ...);
 
+// One handler, called once per request. Route on the parsed path.
+void handle(HttpRequest* req, HttpResponse* res) {
+    HttpResponse_header(res, "Content-Type", "text/plain");
+    HttpResponse_header(res, "Connection", "close");
+    if (String_eq_cstr(&req.path, "/ping") == 1) {
+        HttpResponse_set_body(res, "pong\n");
+    } else {
+        HttpResponse_body_append(res, "Hello from an HTTP server written in Eskiu.\n");
+        HttpResponse_body_append(res, "You asked for: ");
+        HttpResponse_body_append(res, String_cstr(&req.path));
+        HttpResponse_body_append(res, "\n");
+    }
+}
+
 int main() {
-    int fd = net_tcp_listen(8080);
-    if (fd < 0) {
-        printf("failed to bind port 8080\n");
-        return 1;
-    }
-    printf("Eskiu HTTP server listening on http://127.0.0.1:8080\n");
-
-    *uint8 req = alloc(uint8, 4096);
-    string response =
-        "HTTP/1.1 200 OK\r\n"
-        "Content-Type: text/plain\r\n"
-        "Connection: close\r\n"
-        "\r\n"
-        "Hello from an HTTP server written in Eskiu.\n";
-
-    while (1) {
-        int c = net_accept(fd);
-        if (c < 0) { continue; }
-        net_recv(c, (*void)req, 4096);     // consume the request line/headers
-        net_send_str(c, response);
-        net_close(c);
-    }
-
-    free(req);
-    net_close(fd);
+    printf("Eskiu HTTP server listening on http://127.0.0.1:8080 (4 workers)\n");
+    http_serve(8080, 4, handle);   // blocks, serving across 4 threads
     return 0;
 }

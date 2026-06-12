@@ -1,3 +1,5 @@
+import <mem>;
+
 extern int printf(string fmt, ...);
 
 union Value {
@@ -28,7 +30,7 @@ int main() {
     printf("v.f = %f\n", v.f);
 
     // typed pointer arithmetic
-    let arr: *int = alloc(int, 4);
+    let arr: *int = alloc<int>(4);
     arr[0] = 10;
     arr[1] = 20;
     arr[2] = 30;

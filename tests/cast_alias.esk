@@ -1,0 +1,20 @@
+// Regression: casts to struct-pointer / alias / enum, and alias used as a
+// leading-star pointer or array element in a LOCAL declaration.
+import <mem>;
+extern int printf(string fmt, ...);
+type u8 = uint8;
+enum E { A, B = 5, C }
+struct P { int x; }
+int main() {
+    P s; s.x = 7;
+    *P q = &s;
+    P* b = (P*)q;                          // struct trailing-star cast
+    printf("ptr=%d\n", b.x);
+    printf("alias_cast=%d\n", (int)((u8)321));   // (u8)321 -> 65
+    printf("enum_cast=%d\n", (int)((E)5));        // -> 5
+    *u8 m = alloc<u8>(2); m[0] = 9;        // *u8 local
+    u8[3] arr; arr[0] = 4;                  // u8[N] local
+    printf("ptr_arr=%d %d\n", (int)m[0], (int)arr[0]);
+    free(m);
+    return 0;
+}

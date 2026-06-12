@@ -1,0 +1,76 @@
+// HPACK (RFC 7541) stage 3a — primitives, the static + dynamic tables, and the
+// §6 decoder/encoder over raw strings. Checked against the RFC's own vectors:
+//   * §C.1.1  integer 1337 with a 5-bit prefix -> 1F 9A 0A
+//   * §C.3.1  a first request header block (indexed + literal-incremental)
+// plus an encode -> decode round-trip of a custom (non-table) field.
+import <mem>;
+import <hpack>;
+extern int printf(string fmt, ...);
+
+int main() {
+    *uint8 buf = alloc<uint8>(256);
+
+    // --- §C.1.1: 1337 in a 5-bit prefix is 1F 9A 0A.
+    int e = hpack_encode_int(buf, 0, 5, 0, (int64)1337);
+    printf("%d %d %d %d\n", e, (int)buf[0], (int)buf[1], (int)buf[2]);   // 3 31 154 10
+    int nx = 0;
+    int64 back = hpack_decode_int(buf, 0, 5, &nx);
+    printf("%lld %d\n", back, nx);                                       // 1337 3
+
+    // --- §C.3.1: decode a real first-request block.
+    //   82 86 84 41 0f "www.example.com"
+    *uint8 blk = alloc<uint8>(32);
+    blk[0]=(uint8)130; blk[1]=(uint8)134; blk[2]=(uint8)132; blk[3]=(uint8)65; blk[4]=(uint8)15;
+    string host = "www.example.com";
+    int i = 0; while (i < 15) { blk[5 + i] = ((*uint8)host)[i]; i = i + 1; }
+
+    let dec: HpackDecoder;  hpack_decoder_init(&dec, (int64)4096);
+    *HpackHeader hs = alloc<HpackHeader>(16);
+    int n = hpack_decode(&dec, blk, 20, hs, 16);
+    printf("count=%d dyn=%d\n", n, dec.dyn_count);                       // count=4 dyn=1
+    i = 0;
+    while (i < n) {
+        printf("%.*s=%.*s\n", hs[i].nlen, hs[i].name, hs[i].vlen, hs[i].value);
+        i = i + 1;
+    }
+    // The literal field was added to the dynamic table: index 62 resolves to it.
+    let r: HpackHeader;  hpack_resolve(&dec, 62, &r);
+    printf("dyn62=%.*s:%.*s\n", r.nlen, r.name, r.vlen, r.value);        // :authority:www.example.com
+    hpack_decoder_free(&dec);
+
+    // --- Encode -> decode round-trip of a custom field (fully literal).
+    string ck = "custom-key";  string cv = "custom-value";
+    int p = hpack_encode_header(buf, 0, (*uint8)ck, 10, (*uint8)cv, 12);
+    let d2: HpackDecoder;  hpack_decoder_init(&d2, (int64)4096);
+    int m = hpack_decode(&d2, buf, p, hs, 16);
+    printf("rt=%d %.*s=%.*s\n", m, hs[0].nlen, hs[0].name, hs[0].vlen, hs[0].value);
+    hpack_decoder_free(&d2);
+
+    // --- §C.4.1: the same request, Huffman-coded. The :authority value
+    //   "www.example.com" is "8c f1 e3 c2 e5 f2 3a 6b a0 ab 90 f4 ff" (H=1, 12 B).
+    *uint8 hb = alloc<uint8>(32);
+    hb[0]=(uint8)130; hb[1]=(uint8)134; hb[2]=(uint8)132; hb[3]=(uint8)65; hb[4]=(uint8)140;
+    hb[5]=(uint8)241; hb[6]=(uint8)227; hb[7]=(uint8)194; hb[8]=(uint8)229; hb[9]=(uint8)242;
+    hb[10]=(uint8)58; hb[11]=(uint8)107; hb[12]=(uint8)160; hb[13]=(uint8)171; hb[14]=(uint8)144;
+    hb[15]=(uint8)244; hb[16]=(uint8)255;
+    let d3: HpackDecoder;  hpack_decoder_init(&d3, (int64)4096);
+    int hn = hpack_decode(&d3, hb, 17, hs, 16);
+    printf("huff_count=%d\n", hn);                                       // 4
+    printf("huff_authority=%.*s\n", hs[3].nlen, hs[3].name);            // :authority
+    printf("huff_value=%.*s\n", hs[3].vlen, hs[3].value);              // www.example.com
+    hpack_decoder_free(&d3);
+
+    // --- Huffman encode then decode back (exercises many symbols).
+    string sample = "Mozilla/5.0 (custom-agent) text/html; q=0.9";
+    int slen = strlen(sample);
+    int he = hpack_huff_encode(buf, 0, (*uint8)sample, slen);
+    *uint8 dout = alloc<uint8>(128);
+    let huff: HpackHuff;  hpack_huff_build(&huff);
+    int dn = hpack_huff_decode(&huff, buf, he, dout, 128);
+    printf("huff_rt enc=%d dec=%d match=%d\n", he, dn,
+           (dn == slen) && (memcmp((*void)dout, (*void)sample, slen) == 0));
+    hpack_huff_free(&huff);
+
+    free((*void)dout);  free((*void)hb);  free((*void)hs);  free((*void)blk);  free((*void)buf);
+    return 0;
+}

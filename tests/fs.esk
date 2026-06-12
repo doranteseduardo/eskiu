@@ -1,0 +1,14 @@
+import <fs>;
+import <mem>;
+extern int printf(string fmt, ...);
+int load(string s, *uint8 d) { int i = 0; while (s[i] != 0) { d[i] = (uint8)s[i]; i = i + 1; } return i; }
+int main() {
+    *uint8 buf = alloc<uint8>(16);
+    int n = load("hello fs", buf);
+    fs_write_all("/tmp/eskiu_fs_test.txt", buf, (int64)n);
+    let outlen: int64 = 0;
+    *uint8 rd = fs_read_all("/tmp/eskiu_fs_test.txt", &outlen);
+    printf("read=%s len=%lld\n", (string)rd, outlen);
+    free(buf); free(rd);
+    return 0;
+}

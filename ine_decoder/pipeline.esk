@@ -9,6 +9,8 @@
 // produce heap memory (Stage 2 plain, Stage 3 json/webp) document which
 // pointer the caller must free().
 
+import <mem>;
+
 import "types.esk";
 import "extern.esk";
 import "crypto.esk";
@@ -37,7 +39,7 @@ Result<int, string> stage_extract(string image_path, *QRPair qr_out) {
 //             *plain_len receives its length.
 
 Result<int, string> stage_crypto(*QRPair qr, **uint8 plain_out, *int64 plain_len) {
-    let combined: *uint8 = alloc(uint8, 1712);
+    let combined: *uint8 = alloc<uint8>(1712);
     memcpy(combined,       &qr.left[2],  856);
     memcpy(combined + 856, &qr.right[2], 856);
 

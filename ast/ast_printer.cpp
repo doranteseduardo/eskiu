@@ -86,6 +86,20 @@ void ASTPrinter::visit(ExternDecl* node) {
     indentLevel--;
 }
 
+void ASTPrinter::visit(IntrinsicDecl* node) {
+    println("IntrinsicDecl: " + node->name + " -> " + node->returnType);
+    indentLevel++;
+
+    println("Parameters:");
+    indentLevel++;
+    for (auto& param : node->params) {
+        println(param.first + " " + param.second);
+    }
+    indentLevel--;
+
+    indentLevel--;
+}
+
 void ASTPrinter::visit(BlockStmt* node) {
     println("BlockStmt");
     indentLevel++;
@@ -317,6 +331,28 @@ void ASTPrinter::visit(InterfaceDecl* node) {
 
 void ASTPrinter::visit(ContinueStmt* node) { println("ContinueStmt"); }
 
+void ASTPrinter::visit(MatchStmt* node) {
+    println("MatchStmt");
+    indentLevel++;
+    println("Subject:");
+    indentLevel++;
+    node->subject->accept(this);
+    indentLevel--;
+    for (auto& arm : node->arms) {
+        std::string label = arm.variant.empty() ? "_" : arm.variant;
+        if (!arm.bindings.empty()) {
+            label += "(";
+            for (size_t i = 0; i < arm.bindings.size(); ++i) { if (i) label += ", "; label += arm.bindings[i]; }
+            label += ")";
+        }
+        println("Arm " + label + ":");
+        indentLevel++;
+        if (arm.body) arm.body->accept(this);
+        indentLevel--;
+    }
+    indentLevel--;
+}
+
 void ASTPrinter::visit(SwitchStmt* node) {
     println("SwitchStmt");
     indentLevel++;
@@ -352,9 +388,10 @@ void ASTPrinter::visit(TemplateCallExpr* node) {
     indentLevel--;
 }
 
-void ASTPrinter::visit(AllocExpr* node) {
-    println("AllocExpr: alloc(" + node->elemType + ", ...)");
+void ASTPrinter::visit(AllocWithExpr* node) {
+    println("AllocWithExpr: alloc_with(<allocator>, " + node->elemType + ", ...)");
     indentLevel++;
+    node->allocator->accept(this);
     node->count->accept(this);
     indentLevel--;
 }
@@ -425,6 +462,20 @@ void ASTPrinter::visit(TryStmt* node) {
 
 void ASTPrinter::visit(SizeofExpr* node) {
     println("SizeofExpr: sizeof(" + node->typeName + ")");
+}
+
+void ASTPrinter::visit(FreeClosureExpr* node) {
+    println("FreeClosureExpr:");
+    indentLevel++;
+    if (node->closure) node->closure->accept(this);
+    indentLevel--;
+}
+
+void ASTPrinter::visit(AwaitExpr* node) {
+    println("AwaitExpr:");
+    indentLevel++;
+    if (node->operand) node->operand->accept(this);
+    indentLevel--;
 }
 
 void ASTPrinter::visit(UnionDecl* node) {

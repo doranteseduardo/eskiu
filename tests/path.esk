@@ -1,0 +1,21 @@
+import <path>;
+
+extern int printf(string fmt, ...);
+
+int main() {
+    let o: String;  String_init(&o, 16);
+
+    path_basename(&o, "/usr/local/bin");   printf("base=%s\n", String_cstr(&o));
+    path_basename(&o, "/usr/bin/");         printf("base2=%s\n", String_cstr(&o));
+    path_dirname(&o, "/usr/local/bin");     printf("dir=%s\n", String_cstr(&o));
+    path_dirname(&o, "foo");                printf("dir2=%s\n", String_cstr(&o));
+    path_dirname(&o, "/etc");               printf("dir3=%s\n", String_cstr(&o));
+    path_extension(&o, "/a/b/file.tar.gz"); printf("ext=%s\n", String_cstr(&o));
+    path_extension(&o, "/a/.bashrc");       printf("ext2=[%s]\n", String_cstr(&o));
+    path_join(&o, "/usr/local/", "/bin");   printf("join=%s\n", String_cstr(&o));
+    path_join(&o, "a", "b");                printf("join2=%s\n", String_cstr(&o));
+
+    printf("abs(/x)=%d abs(x)=%d\n", path_is_absolute("/x"), path_is_absolute("x"));
+    String_free(&o);
+    return 0;
+}

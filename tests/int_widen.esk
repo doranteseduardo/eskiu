@@ -1,0 +1,22 @@
+// Integer widening must honor the SOURCE's signedness everywhere it happens —
+// not just casts/returns. An unsigned source zero-extends, a signed source
+// sign-extends, at call arguments, assignment, var initialization, struct-field
+// and enum-payload init. (These sites used to always sign- or always zero-extend.)
+extern int printf(string fmt, ...);
+
+int take(int x) { return x; }
+struct Box { int v; }
+enum E { Wrap(int) }
+
+int main() {
+    uint8 u = (uint8)200;     // 200
+    int8  s = (int8)-5;       // -5
+
+    int arg  = take(u);       // call arg: 200 (was -56)
+    int asn  = 0;  asn = s;   // assignment: -5 (was 251)
+    int ini  = u;             // var init: 200 (was -56)
+
+    Box b = Box { v: u };     // struct field init: 200
+    printf("%d %d %d %d\n", arg, asn, ini, b.v);   // 200 -5 200 200
+    return 0;
+}

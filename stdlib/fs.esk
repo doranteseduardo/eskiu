@@ -22,7 +22,8 @@ extern int64  ftell(*void fp);
 extern void   rewind(*void fp);
 extern int    feof(*void fp);
 extern int    ferror(*void fp);
-extern *void  malloc(int64 size);
+
+import <mem>;   // heap allocation via the built-in alloc<T>, not raw malloc
 
 // ── Open / close ──────────────────────────────────────────────────────────
 
@@ -96,7 +97,7 @@ int64 fs_size(*void fp) {
     int64 size = ftell(fp);
     fseek(fp, 0, 0);
 
-    *uint8 buf = (uint8*) malloc(size + 1);
+    *uint8 buf = alloc<uint8>(size + 1);
     if (buf == null) { fclose(fp); return null; }
 
     int64 n = fread(buf, 1, size, fp);

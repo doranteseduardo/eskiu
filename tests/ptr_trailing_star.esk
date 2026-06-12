@@ -1,0 +1,13 @@
+// Regression: the trailing-star pointer spelling `T*` must dereference the same
+// as the canonical `*T`. getPointeeType used substr(1) (assuming a leading star),
+// so `int*` deref produced the bogus pointee type "nt*".
+extern int printf(string fmt, ...);
+
+int via_trailing(int* p) { return *p + 1; }   // T* form
+int via_leading(*int p)  { return *p + 2; }    // *T form
+
+int main() {
+    int x = 40;
+    printf("%d %d\n", via_trailing(&x), via_leading(&x));
+    return 0;
+}

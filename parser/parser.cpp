@@ -1,5 +1,6 @@
 #include "parser.h"
 #include "../lexer/lexer.h"
+#include "../ast/type_qual.h"
 #include <stdexcept>
 #include <iostream>
 #include <fstream>
@@ -89,8 +90,31 @@ bool Parser::is_at_end() const {
 // Type Parsing
 // ============================================================================
 
+void Parser::consumeTemplateClose(const char* ctx) {
+    if (check(TokenType::GT)) { advance(); return; }
+    // A lexed ">>" (right-shift) closes two template levels at once. Split it
+    // permanently into "> >" by rewriting this token to ">" and inserting a
+    // second ">" after it, then consume the first. Insertion (vs. a destructive
+    // rewrite) keeps the stream correct across the parser's backtracking — a
+    // saved position is always before `current`, so it is unaffected.
+    if (check(TokenType::RSHIFT)) {
+        tokens[current].type  = TokenType::GT;
+        tokens[current].value = ">";
+        tokens.insert(tokens.begin() + current + 1, tokens[current]);
+        advance();
+        return;
+    }
+    consume(TokenType::GT, ctx);   // not a close — emit the standard error
+}
+
 std::string Parser::parseType() {
     std::string type;
+
+    // Optional leading `const` qualifies the base/pointee: `const int*` is a
+    // pointer to const int. Re-attached as a `const ` prefix after the type is
+    // assembled. (A `const` before a `let`/decl binding is handled by the
+    // declaration parser, not here.)
+    bool baseIsConst = match(TokenType::CONST);
 
     // Handle leading pointers (Rust-style: *i32)
     int leading_pointers = 0;
@@ -109,7 +133,7 @@ std::string Parser::parseType() {
         consume(TokenType::LPAREN, "Expected '(' in fn type");
         bool first = true;
         while (!check(TokenType::RPAREN) && !is_at_end()) {
-            if (!first) type += ",";
+            if (!first) { consume(TokenType::COMMA, "Expected ',' between fn parameter types"); type += ","; }
             first = false;
             type += parseType();
         }
@@ -119,6 +143,7 @@ std::string Parser::parseType() {
         type += parseType();
         // No trailing pointer handling needed for fn types — return early
         for (int lp = 0; lp < leading_pointers; ++lp) type = "*" + type;
+        if (baseIsConst) type = "const " + type;
         return type;
     }
     if (match({TokenType::INT, TokenType::FLOAT, TokenType::DOUBLE,
@@ -138,22 +163,27 @@ std::string Parser::parseType() {
                 first = false;
                 type += parseType();
             } while (match(TokenType::COMMA));
-            consume(TokenType::GT, "Expected '>' after template arguments");
+            consumeTemplateClose("Expected '>' after template arguments");
             type += ">";
         }
     } else {
         throw std::runtime_error("Expected type, got " + tokenTypeToString(peek().type));
     }
 
-    // Handle trailing pointers (C-style: i32*)
+    // Handle trailing pointers (C-style: i32*). A `const` right after a star
+    // makes that pointer level const (`int* const`), encoded as `*const`.
     while (match(TokenType::STAR)) {
         type += "*";
+        if (match(TokenType::CONST)) type += "const";
     }
 
     // Add leading pointers at the beginning
     for (int i = 0; i < leading_pointers; i++) {
         type = "*" + type;
     }
+
+    // Re-attach the base/pointee const as a leading qualifier.
+    if (baseIsConst) type = "const " + type;
 
     // Handle array syntax [N] — capture the size literal
     while (match(TokenType::LBRACKET)) {
@@ -171,7 +201,8 @@ std::string Parser::parseType() {
     return type;
 }
 
-std::vector<std::pair<std::string, std::string>> Parser::parseParameterList() {
+std::vector<std::pair<std::string, std::string>> Parser::parseParameterList(
+        std::vector<bool>* escaping) {
     std::vector<std::pair<std::string, std::string>> params;
 
     if (!check(TokenType::RPAREN)) {
@@ -179,12 +210,18 @@ std::vector<std::pair<std::string, std::string>> Parser::parseParameterList() {
             // Handle variadic parameters (...)
             if (match(TokenType::ELLIPSIS)) {
                 params.push_back({"...", "..."});
+                if (escaping) escaping->push_back(false);
                 break;
             }
 
+            // Optional `escaping` qualifier: the parameter retains the closure
+            // beyond the call (e.g. stores it), so closures passed here need a
+            // heap environment.
+            bool isEscaping = match(TokenType::ESCAPING);
             std::string type = parseType();
             std::string name = consume(TokenType::IDENT, "Expected parameter name").value;
             params.push_back({type, name});
+            if (escaping) escaping->push_back(isEscaping);
         } while (match(TokenType::COMMA));
     }
 
@@ -207,6 +244,8 @@ std::vector<DeclPtr> Parser::parseProgram() {
     // Owned import set if caller didn't provide one
     std::set<std::string> ownedSet;
     if (!importedFiles) importedFiles = &ownedSet;
+    // The root parser owns the shared type-name set; sub-parsers point at it.
+    if (!sharedTypeNames) sharedTypeNames = &declaredTypeNames;
 
     while (!is_at_end()) {
         // Compiler directive (e.g. #pragma pack) — updates parser state, emits no decl.
@@ -261,11 +300,12 @@ std::vector<DeclPtr> Parser::parseProgram() {
                     ss << file.rdbuf();
                     std::string src = ss.str();
 
-                    Lexer lexer(src, macros);  // share macros into the imported file
+                    Lexer lexer(src, macros, fullPath);  // share macros; fullPath = __FILE__
                     std::vector<Token> itoks;
                     Token t = lexer.next_token();
                     while (t.type != TokenType::EOF_TOKEN) { itoks.push_back(t); t = lexer.next_token(); }
                     itoks.push_back(t);
+                    if (lexer.hadError) hadError = true;  // propagate lexical errors from the import
 
                     Parser sub(itoks);
                     size_t slash = fullPath.rfind('/');
@@ -273,6 +313,7 @@ std::vector<DeclPtr> Parser::parseProgram() {
                     sub.stdlibPath    = stdlibPath;
                     sub.importedFiles = importedFiles;
                     sub.macros        = macros;
+                    sub.sharedTypeNames = sharedTypeNames;   // one set for all parsers
 
                     auto subProg = sub.parse();
                     if (!subProg) {
@@ -280,6 +321,10 @@ std::vector<DeclPtr> Parser::parseProgram() {
                     } else {
                         declarations.insert(declarations.end(),
                             subProg->declarations.begin(), subProg->declarations.end());
+                        // Type names are recorded directly into the shared set as
+                        // each file is parsed, so a cast to an imported type —
+                        // `(FutureHdr*)p` — parses correctly here regardless of
+                        // which import path defined it (no post-merge needed).
                     }
                 }
             } catch (const std::exception& e) {
@@ -310,6 +355,15 @@ DeclPtr Parser::parseDeclaration() {
         if (match(TokenType::EXTERN)) {
             return parseExternDecl();
         }
+        if (match(TokenType::INTRINSIC)) {
+            return parseIntrinsicDecl();
+        }
+        // `async T f(...) { ... }` — function modifier before the return type.
+        if (match(TokenType::ASYNC)) {
+            auto decl = parseFunctionDecl();
+            if (auto* fd = dynamic_cast<FunctionDecl*>(decl.get())) fd->isAsync = true;
+            return decl;
+        }
         if (match(TokenType::STRUCT)) {
             return parseStructDecl();
         }
@@ -317,7 +371,7 @@ DeclPtr Parser::parseDeclaration() {
         if (match(TokenType::PACKED)) {
             consume(TokenType::STRUCT, "Expected 'struct' after 'packed'");
             auto decl = parseStructDecl();
-            if (auto* sd = dynamic_cast<StructDecl*>(decl.get())) sd->isPacked = true;
+            if (auto* sd = dynamic_cast<StructDecl*>(decl.get())) { sd->isPacked = true; sd->packAlign = 1; }
             return decl;
         }
 
@@ -333,6 +387,7 @@ DeclPtr Parser::parseDeclaration() {
                 fields.push_back({fieldType, fieldName});
             }
             consume(TokenType::RBRACE, "Expected '}'");
+            sharedTypeNames->insert(name);
             return std::make_shared<UnionDecl>(name, fields);
         }
         if (match(TokenType::INTERFACE)) {
@@ -356,14 +411,30 @@ DeclPtr Parser::parseDeclaration() {
         // enum Color { Red, Green = 5, Blue }
         if (match(TokenType::ENUM)) {
             std::string name = consume(TokenType::IDENT, "Expected enum name").value;
+            std::vector<std::string> enumTypeParams;
+            if (match(TokenType::LT)) {                 // enum Option<T, U> { ... }
+                do {
+                    enumTypeParams.push_back(consume(TokenType::IDENT, "Expected type parameter name").value);
+                } while (match(TokenType::COMMA));
+                consume(TokenType::GT, "Expected '>' after enum type parameters");
+            }
             consume(TokenType::LBRACE, "Expected '{'");
             std::vector<std::pair<std::string, long long>> members;
+            std::vector<std::vector<std::string>> payloads;
             long long next = 0;
             while (!check(TokenType::RBRACE) && !is_at_end()) {
                 std::string mname = consume(TokenType::IDENT,
                     "Expected enum member name").value;
                 long long val = next;
-                if (match(TokenType::EQ)) {
+                std::vector<std::string> payload;
+                if (match(TokenType::LPAREN)) {
+                    // Algebraic variant with a payload: `Circle(float)`, `Rect(float, float)`.
+                    if (!check(TokenType::RPAREN)) {
+                        do { payload.push_back(parseType()); } while (match(TokenType::COMMA));
+                    }
+                    consume(TokenType::RPAREN, "Expected ')' after variant payload");
+                } else if (match(TokenType::EQ)) {
+                    // Classic integer enum with an explicit value (payload-free only).
                     bool neg = match(TokenType::MINUS);
                     Token num = consume(TokenType::INT_LIT,
                         "Expected integer value for enum member");
@@ -371,11 +442,16 @@ DeclPtr Parser::parseDeclaration() {
                     if (neg) val = -val;
                 }
                 members.push_back({mname, val});
+                payloads.push_back(payload);
                 next = val + 1;
                 if (!match(TokenType::COMMA)) break;
             }
             consume(TokenType::RBRACE, "Expected '}'");
-            return std::make_shared<EnumDecl>(name, members);
+            sharedTypeNames->insert(name);
+            auto ed = std::make_shared<EnumDecl>(name, members);
+            ed->payloads = std::move(payloads);
+            ed->typeParams = std::move(enumTypeParams);
+            return ed;
         }
 
         // type Alias = UnderlyingType;  (contextual — 'type' stays a usable identifier)
@@ -387,36 +463,69 @@ DeclPtr Parser::parseDeclaration() {
             advance();                                  // '='
             std::string underlying = parseType();
             consume(TokenType::SEMICOLON, "Expected ';' after type alias");
+            sharedTypeNames->insert(name);
             return std::make_shared<TypeAliasDecl>(name, underlying);
         }
 
-        // Handle 'let' variable declarations (optionally volatile)
+        // Optional leading qualifiers, in either order: `volatile let`,
+        // `let volatile`, `volatile T x`, `const let`, etc.
+        bool leadingVol = match(TokenType::VOLATILE);
+
+        // A `const` immediately before a `let` binding is a *binding* qualifier
+        // (const binding). A `const` before a *type* (`const int x`,
+        // `const int* foo()`) is part of the type and is left for parseType, so
+        // const works uniformly for variables, params, fields and return types.
+        bool constLet = false;
+        if (check(TokenType::CONST)) {
+            size_t k = 1;
+            if (peek_ahead(k).type == TokenType::VOLATILE) k++;
+            if (peek_ahead(k).type == TokenType::LET) { advance(); constLet = true; }
+        }
+
+        // Split a parsed type into its stored form (pointee-const preserved,
+        // binding-only qualifiers removed) and a binding-const flag.
+        auto finalizeVar = [](std::string t, bool bindFlag,
+                              std::string& storedOut, bool& constOut) {
+            constOut = bindFlag || tyq::bindingConst(t);
+            size_t p;
+            while ((p = t.find("*const")) != std::string::npos) t.erase(p + 1, 5);
+            if (tyq::valueConst(t)) t = t.substr(6);   // "const int" -> "int" (flag carries it)
+            storedOut = t;
+        };
+
+        // Handle 'let' variable declarations. The qualifier comes first
+        // (`volatile let x`, like `const int`), captured by leadingVol above.
         if (match(TokenType::LET)) {
-            bool isVol = match(TokenType::VOLATILE);
+            bool isVol = leadingVol;
             Token letNameTok = peek();
             std::string name = consume(TokenType::IDENT, "Expected identifier after 'let'").value;
             consume(TokenType::COLON, "Expected ':' after variable name");
             std::string type = parseType();
+            std::string stored; bool isConst;
+            finalizeVar(type, constLet, stored, isConst);
 
             ExprPtr init = nullptr;
             if (match(TokenType::EQ)) {
                 init = parseExpression();
             }
             consume(TokenType::SEMICOLON, "Expected ';' after variable declaration");
-            auto vd = std::make_shared<VarDecl>(name, type, init);
+            auto vd = std::make_shared<VarDecl>(name, stored, init);
             vd->line = letNameTok.line; vd->col = letNameTok.column;
             vd->isVolatile = isVol;
+            vd->isConst = isConst;
             return vd;
         }
 
         // Try to parse as type declaration (function or variable)
-        // Optionally prefixed with 'volatile'
-        bool declIsVolatile = false;
+        // Optionally prefixed with 'volatile' (also accepted as a leading qualifier above)
+        bool declIsVolatile = leadingVol;
         if (check(TokenType::VOLATILE)) { declIsVolatile = true; advance(); }
 
-        if (check(TokenType::INT) || check(TokenType::FLOAT) || check(TokenType::DOUBLE) ||
+        if (check(TokenType::CONST) ||
+            check(TokenType::INT) || check(TokenType::FLOAT) || check(TokenType::DOUBLE) ||
             check(TokenType::BOOL) || check(TokenType::CHAR) || check(TokenType::STRING) ||
             check(TokenType::VOID) || check(TokenType::STAR) || check(TokenType::IDENT) ||
+            check(TokenType::FN) ||
             check(TokenType::INT8) || check(TokenType::INT16) || check(TokenType::INT32) ||
             check(TokenType::INT64) || check(TokenType::UINT) || check(TokenType::UINT8) ||
             check(TokenType::UINT16) || check(TokenType::UINT32) || check(TokenType::UINT64)) {
@@ -433,15 +542,18 @@ DeclPtr Parser::parseDeclaration() {
                     current = savePos;
                     return parseFunctionDecl();
                 } else if (match(TokenType::SEMICOLON) || match(TokenType::EQ)) {
-                    // Variable declaration
+                    // Variable declaration — split const into stored type + flag.
+                    std::string stored; bool isConst;
+                    finalizeVar(type, false, stored, isConst);
                     ExprPtr init = nullptr;
                     if (tokens[current - 1].type == TokenType::EQ) {
                         init = parseExpression();
                         consume(TokenType::SEMICOLON, "Expected ';'");
                     }
-                    auto vd = std::make_shared<VarDecl>(name, type, init);
+                    auto vd = std::make_shared<VarDecl>(name, stored, init);
                     vd->line = nameTok2.line; vd->col = nameTok2.column;
                     vd->isVolatile = declIsVolatile;
+                    vd->isConst = isConst;
                     return vd;
                 }
             }
@@ -469,7 +581,8 @@ DeclPtr Parser::parseFunctionDecl() {
     }
 
     consume(TokenType::LPAREN, "Expected '('");
-    auto params = parseParameterList();
+    std::vector<bool> esc;
+    auto params = parseParameterList(&esc);
     consume(TokenType::RPAREN, "Expected ')'");
 
     // A bare ';' marks a forward declaration (prototype only, no body).
@@ -480,6 +593,7 @@ DeclPtr Parser::parseFunctionDecl() {
 
     auto decl = std::make_shared<FunctionDecl>(name, returnType, params, body);
     decl->typeParams = typeParams;
+    decl->paramEscaping = esc;
     decl->line = nameTok.line; decl->col = nameTok.column;
     return decl;
 }
@@ -489,11 +603,32 @@ DeclPtr Parser::parseExternDecl() {
     std::string name = consume(TokenType::IDENT, "Expected function name").value;
 
     consume(TokenType::LPAREN, "Expected '('");
-    auto params = parseParameterList();
+    std::vector<bool> esc;
+    auto params = parseParameterList(&esc);
     consume(TokenType::RPAREN, "Expected ')'");
     consume(TokenType::SEMICOLON, "Expected ';'");
 
-    return std::make_shared<ExternDecl>(name, returnType, params);
+    auto d = std::make_shared<ExternDecl>(name, returnType, params);
+    d->paramEscaping = esc;
+    return d;
+}
+
+DeclPtr Parser::parseIntrinsicDecl() {
+    // Same prototype syntax as extern, but a distinct node: the call lowers to
+    // inline IR rather than a call to an external C symbol.
+    Token startTok = peek();   // return-type token — stamps the decl's position
+    std::string returnType = parseType();
+    std::string name = consume(TokenType::IDENT, "Expected intrinsic name").value;
+
+    consume(TokenType::LPAREN, "Expected '('");
+    std::vector<bool> esc;
+    auto params = parseParameterList(&esc);
+    consume(TokenType::RPAREN, "Expected ')'");
+    consume(TokenType::SEMICOLON, "Expected ';'");
+
+    auto d = std::make_shared<IntrinsicDecl>(name, returnType, params);
+    d->paramEscaping = esc;
+    return withPos(d, startTok);
 }
 
 DeclPtr Parser::parseStructDecl() {
@@ -541,16 +676,20 @@ DeclPtr Parser::parseStructDecl() {
 
     consume(TokenType::RBRACE, "Expected '}'");
 
+    sharedTypeNames->insert(name);
     auto decl = std::make_shared<StructDecl>(name, fields);
     decl->methods  = methods;
     decl->typeParams = typeParams;
-    if (currentPack == 1) decl->isPacked = true;  // under #pragma pack(1)
+    if (currentPack >= 1) {                       // under #pragma pack(N)
+        decl->packAlign = currentPack;
+        if (currentPack == 1) decl->isPacked = true;
+    }
     return decl;
 }
 
 // Interpret a `#pragma ...` directive. Only `#pragma pack` affects compilation;
 // every other pragma is ignored. Supported forms:
-//   #pragma pack(N)         set current alignment (N==1 packs subsequent structs)
+//   #pragma pack(N)         cap field alignment at N for subsequent structs
 //   #pragma pack()          reset to default
 //   #pragma pack(push, N)   save current, then set to N
 //   #pragma pack(pop)       restore the last saved value
@@ -614,6 +753,9 @@ StmtPtr Parser::parseStatement() {
     }
     if (check(TokenType::SWITCH)) {
         return parseSwitchStatement();
+    }
+    if (check(TokenType::MATCH)) {
+        return parseMatchStatement();
     }
     if (match(TokenType::RETURN)) {
         return parseReturnStatement();
@@ -717,7 +859,9 @@ StmtPtr Parser::parseBlockStatement() {
 
     while (!check(TokenType::RBRACE) && !is_at_end()) {
         // Check if this looks like a declaration
-        if (check(TokenType::LET) ||
+        if (check(TokenType::CONST) ||
+            check(TokenType::VOLATILE) ||
+            check(TokenType::LET) ||
             check(TokenType::INT) || check(TokenType::FLOAT) ||
             check(TokenType::DOUBLE) || check(TokenType::BOOL) ||
             check(TokenType::CHAR) || check(TokenType::STRING) ||
@@ -772,10 +916,29 @@ StmtPtr Parser::parseForStatement() {
     if (check(TokenType::IDENT) && peek_ahead(1).type == TokenType::IN) {
         Token nameTok = advance();                // x
         consume(TokenType::IN, "Expected 'in'");
-        ExprPtr iterable = parseExpression();
+        ExprPtr first = parseExpression();
+        // for (i in A..B) — half-open numeric range [A, B). Desugar at parse time
+        // into a counted `for (int i = A; i < B; i = i + 1)`, so it reuses all the
+        // for-loop machinery (codegen, the async transform, break/continue).
+        if (match(TokenType::RANGE)) {
+            ExprPtr end = parseExpression();
+            consume(TokenType::RPAREN, "Expected ')'");
+            StmtPtr body = parseStatement();
+            auto iv = [&]() { return withPos(std::make_shared<IdentExpr>(nameTok.value), nameTok); };
+            auto idecl = std::make_shared<VarDecl>(nameTok.value, "int", first);
+            idecl->line = nameTok.line; idecl->col = nameTok.column;
+            StmtPtr init = std::make_shared<BlockStmt>(std::vector<BlockItem>{ DeclPtr(idecl) });
+            ExprPtr cond = std::make_shared<BinaryExpr>(iv(), "<", end);
+            ExprPtr one  = std::make_shared<LiteralExpr>(LiteralExpr::Kind::INT, "1");
+            ExprPtr step = std::make_shared<BinaryExpr>(iv(), "=",
+                               std::make_shared<BinaryExpr>(iv(), "+", one));
+            auto fs = std::make_shared<ForStmt>(init, cond, step, body);
+            fs->line = nameTok.line; fs->col = nameTok.column;
+            return fs;
+        }
         consume(TokenType::RPAREN, "Expected ')'");
         StmtPtr body = parseStatement();
-        auto fin = std::make_shared<ForInStmt>(nameTok.value, iterable, body);
+        auto fin = std::make_shared<ForInStmt>(nameTok.value, first, body);
         fin->line = nameTok.line; fin->col = nameTok.column;
         return fin;
     }
@@ -857,6 +1020,48 @@ StmtPtr Parser::parseExpressionStatement() {
 // ============================================================================
 // Expressions (Precedence Climbing)
 // ============================================================================
+
+// match subject { Variant(b0, b1) -> stmt   Other -> stmt   _ -> stmt }
+StmtPtr Parser::parseMatchStatement() {
+    Token kw = consume(TokenType::MATCH, "Expected 'match'");
+    // Parse the subject without treating a trailing `Name { ... }` as a struct
+    // literal — the `{` opens the match body (cf. Rust's match/if rule). Wrap the
+    // subject in parens if a struct literal is genuinely needed there.
+    // RAII so the flag is restored even if parseExpression throws — otherwise a
+    // parse error in the subject would leave struct literals disabled for the
+    // rest of the file. Restores at the end of this block (before the arm bodies,
+    // which legitimately contain struct literals).
+    ExprPtr subject;
+    {
+        struct NslGuard { bool& f; bool saved; NslGuard(bool& x) : f(x), saved(x) { f = true; } ~NslGuard() { f = saved; } } guard(noStructLiteral);
+        subject = parseExpression();
+    }
+    consume(TokenType::LBRACE, "Expected '{' after match subject");
+    std::vector<MatchStmt::Arm> arms;
+    while (!check(TokenType::RBRACE) && !is_at_end()) {
+        MatchStmt::Arm arm;
+        if (check(TokenType::IDENT) && peek().value == "_") {
+            advance();                              // `_` default arm
+        } else {
+            arm.variant = consume(TokenType::IDENT, "Expected variant name or '_'").value;
+            if (match(TokenType::LPAREN)) {         // payload bindings
+                if (!check(TokenType::RPAREN)) {
+                    do {
+                        arm.bindings.push_back(consume(TokenType::IDENT, "Expected binding name").value);
+                    } while (match(TokenType::COMMA));
+                }
+                consume(TokenType::RPAREN, "Expected ')' after match bindings");
+            }
+        }
+        consume(TokenType::ARROW, "Expected '->' after match pattern");
+        arm.body = parseStatement();
+        arms.push_back(std::move(arm));
+    }
+    consume(TokenType::RBRACE, "Expected '}' to close match");
+    auto ms = std::make_shared<MatchStmt>(subject, std::move(arms));
+    ms->line = kw.line; ms->col = kw.column;
+    return ms;
+}
 
 StmtPtr Parser::parseSwitchStatement() {
     consume(TokenType::SWITCH, "Expected 'switch'");
@@ -1053,6 +1258,12 @@ ExprPtr Parser::parseMultiplication() {
 }
 
 ExprPtr Parser::parseUnary() {
+    // await E — prefix operator; binds like a unary operator.
+    if (check(TokenType::AWAIT)) {
+        Token awaitTok = advance();
+        ExprPtr operand = parseUnary();
+        return withPos(std::make_shared<AwaitExpr>(operand), awaitTok);
+    }
     // Fold -N and -N.N into a negative literal directly (avoids UnaryExpr for constants)
     if (check(TokenType::MINUS)) {
         TokenType next = peek_ahead(1).type;
@@ -1087,6 +1298,12 @@ ExprPtr Parser::parseUnary() {
                               inner == TokenType::UINT    || inner == TokenType::UINT8   ||
                               inner == TokenType::UINT16  || inner == TokenType::UINT32  ||
                               inner == TokenType::UINT64);
+        // Also a cast when the inner token names a declared type — a struct,
+        // enum, union, or alias — as `(Name)x`, `(Name*)x`, or `(Name<...>)x`.
+        if (!isTypeKeyword && inner == TokenType::IDENT &&
+            sharedTypeNames->count(peek_ahead(1).value)) {
+            isTypeKeyword = true;
+        }
         if (isTypeKeyword) {
             size_t savePos = current;
             try {
@@ -1116,7 +1333,8 @@ ExprPtr Parser::parsePostfix() {
                     advance(); // consume <
                     std::vector<std::string> typeArgs;
                     do { typeArgs.push_back(parseType()); } while (match(TokenType::COMMA));
-                    if (match(TokenType::GT)) {
+                    if (check(TokenType::GT) || check(TokenType::RSHIFT)) {
+                        consumeTemplateClose("Expected '>'");
                         if (match(TokenType::LPAREN)) {
                             // Template function call: Name<T,...>(args)
                             std::vector<ExprPtr> args;
@@ -1201,24 +1419,18 @@ ExprPtr Parser::parsePrimary() {
     if (match(TokenType::CHAR_LIT)) {
         return withPos(std::make_shared<LiteralExpr>(LiteralExpr::Kind::CHAR, tok.value), tok);
     }
-    // alloc(T, N) — type keyword as first argument requires special parsing
-    if (match(TokenType::ALLOC)) {
-        consume(TokenType::LPAREN, "Expected '(' after alloc");
+    // alloc_with(&allocator, T, N) — like alloc, but from an explicit allocator
+    if (match(TokenType::ALLOC_WITH)) {
+        consume(TokenType::LPAREN, "Expected '(' after alloc_with");
+        ExprPtr allocator = parseExpression();
+        consume(TokenType::COMMA, "Expected ',' after allocator in alloc_with");
         std::string elemType = parseType();
-        consume(TokenType::COMMA, "Expected ',' after type in alloc");
+        consume(TokenType::COMMA, "Expected ',' after type in alloc_with");
         ExprPtr count = parseExpression();
         consume(TokenType::RPAREN, "Expected ')'");
-        return std::make_shared<AllocExpr>(elemType, count);
+        return std::make_shared<AllocWithExpr>(allocator, elemType, count);
     }
 
-    // free(ptr) — keyword call, maps to the C free function
-    if (match(TokenType::FREE)) {
-        consume(TokenType::LPAREN, "Expected '(' after free");
-        ExprPtr arg = parseExpression();
-        consume(TokenType::RPAREN, "Expected ')'");
-        auto callee = std::make_shared<IdentExpr>("free");
-        return std::make_shared<CallExpr>(callee, std::vector<ExprPtr>{arg});
-    }
 
     // sizeof(T) -> int64
     if (match(TokenType::SIZEOF)) {
@@ -1226,6 +1438,14 @@ ExprPtr Parser::parsePrimary() {
         std::string typeName = parseType();
         consume(TokenType::RPAREN, "Expected ')'");
         return withPos(std::make_shared<SizeofExpr>(typeName), tok);
+    }
+
+    // free_closure(closureExpr) -> void — release an escaping closure's env.
+    if (match(TokenType::FREE_CLOSURE)) {
+        consume(TokenType::LPAREN, "Expected '(' after free_closure");
+        ExprPtr c = parseExpression();
+        consume(TokenType::RPAREN, "Expected ')'");
+        return withPos(std::make_shared<FreeClosureExpr>(c), tok);
     }
 
     // thread_create(fn()->void worker) -> *void
@@ -1253,12 +1473,14 @@ ExprPtr Parser::parsePrimary() {
             try {
                 std::string retType = parseType();           // consume return type
                 consume(TokenType::LPAREN, "");
-                auto params = parseParameterList();
+                std::vector<bool> esc;
+                auto params = parseParameterList(&esc);
                 consume(TokenType::RPAREN, "");
                 if (check(TokenType::LBRACE)) {              // confirmed: it's a lambda
                     StmtPtr body = parseBlockStatement();
                     auto lambda = std::make_shared<LambdaExpr>(params, retType, body);
                     lambda->line = tok.line; lambda->col = tok.column;
+                    lambda->paramEscaping = esc;
                     return lambda;
                 }
             } catch (...) {}
@@ -1267,7 +1489,7 @@ ExprPtr Parser::parsePrimary() {
     }
 
     if (match(TokenType::IDENT)) {
-        if (check(TokenType::LBRACE)) {
+        if (check(TokenType::LBRACE) && !noStructLiteral) {
             return withPos(parseStructInit(tok.value), tok);
         }
         return withPos(std::make_shared<IdentExpr>(tok.value), tok);

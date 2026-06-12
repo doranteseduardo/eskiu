@@ -1,0 +1,20 @@
+extern int printf(string fmt, ...);
+
+const int CAP = 4;
+struct Ring { int[CAP] slots; }     // const as a struct-field array size
+
+int main() {
+    const let base: int = 10;       // const, let form
+    int[CAP] xs;                    // const as a local array size
+    for (int i = 0; i < CAP; i += 1) { xs[i] = base + i; }
+    int sum = 0;
+    for (v in xs) { sum += v; }      // for-in over a const-sized array
+
+    let r: Ring;
+    r.slots[0] = 99;
+
+    printf("%d\n", sum);             // 46
+    printf("%d\n", r.slots[0]);      // 99
+    printf("%d\n", sizeof(Ring));    // 16
+    return 0;
+}

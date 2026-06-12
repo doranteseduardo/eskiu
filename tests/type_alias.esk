@@ -1,3 +1,5 @@
+import <mem>;
+
 extern int printf(string fmt, ...);
 
 type u8    = uint8;     // scalar alias
@@ -10,7 +12,7 @@ int main() {
     u8 b = 200;
     printf("%d\n", b);              // 200
 
-    Bytes buf = alloc(u8, 4);
+    Bytes buf = alloc<u8>(4);
     buf[0] = 65;
     buf[1] = 66;
     printf("%d %d\n", buf[0], buf[1]);   // 65 66

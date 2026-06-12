@@ -1,0 +1,87 @@
+// async_combinators.esk — composing futures with select2, join2, and a timer.
+//
+// Building on async/await (see async.esk), these combinators coordinate several
+// futures at once, all on one thread over the <eventloop> reactor:
+//   * select2(a, b)  — resume with whichever finishes first; the loser is dropped.
+//   * join2(a, b)    — resume once both have finished.
+//   * timer_after(ms)— a future that completes after a delay (for timeouts).
+//
+// The flagship pattern is a read with a timeout: race the read against a timer.
+//
+// Run from the repo root (so the stdlib resolves):
+//   ESKIU_ROOT=. eskiuc examples/async_combinators.esk -o async_combinators && ./async_combinators
+
+import <future>;
+import <timer>;
+import <net_async>;
+import <eventloop>;
+extern int   printf(string fmt, ...);
+extern int   pipe(*int fds);
+extern int64 write(int fd, *void buf, int64 n);
+
+uint8[64] ba;  uint8[64] bb;
+EventLoop* g;
+int g_bg = 0;
+
+// Read from `fd`, but give up after `ms` milliseconds. Returns the byte count, or
+// -1 on timeout. `select2` resumes us with the index of the first future to finish;
+// the other is dropped (its loop registration / timer is cleaned up).
+async int read_timeout(EventLoop* lp, int fd, int64 ms) {
+    Future<int>* rd = net_read_async(lp, fd, &ba[0], (int64)64);
+    Future<int>* to = timer_after(lp, ms);
+    int w = await select2(rd, to);
+    if (w == 0) { int n = rd.value;  free_future<int>(rd);  return n; }   // data won
+    free_future<int>(to);  return -1;                                     // timer won
+}
+
+// Wait for BOTH reads to finish, then return the total bytes. join2 resumes once
+// the second of the two completes.
+async int read_both(EventLoop* lp, int fa, int fb) {
+    Future<int>* ra = net_read_async(lp, fa, &ba[0], (int64)64);
+    Future<int>* rb = net_read_async(lp, fb, &bb[0], (int64)64);
+    await join2(ra, rb);
+    int total = ra.value + rb.value;
+    free_future<int>(ra);  free_future<int>(rb);
+    return total;
+}
+
+// A detached task: `spawn` drives it to completion and frees it — no one awaits
+// its result. It reads a pipe, records the count, and stops the loop when done.
+async void background(EventLoop* lp, int fd) {
+    int n = await net_read_async(lp, fd, &bb[0], (int64)64);
+    g_bg = n;
+    el_stop(lp);
+}
+
+// Drive one int-returning future to completion on the loop and return its value.
+int run(Future<int>* f) {
+    if (future_poll<int>(f, void() { el_stop(g); }) == 0) { el_run(g); }
+    int v = f.value;  free_future<int>(f);  return v;
+}
+
+int main() {
+    g = el_new(64);
+
+    // 1) Timeout: nothing is ever written to this pipe, so the timer wins.
+    int[2] empty;  pipe(&empty[0]);
+    printf("read_timeout (no data): %d\n", run(read_timeout(g, empty[0], (int64)20)));   // -1
+
+    // 2) Data beats the timer: the pipe already has bytes ready.
+    int[2] ready;  pipe(&ready[0]);
+    write(ready[1], (*void)"hi", (int64)2);
+    printf("read_timeout (data):    %d\n", run(read_timeout(g, ready[0], (int64)1000))); // 2
+
+    // 3) Wait for both pipes.
+    int[2] pa;  pipe(&pa[0]);  write(pa[1], (*void)"abc", (int64)3);
+    int[2] pb;  pipe(&pb[0]);  write(pb[1], (*void)"wxyz", (int64)4);
+    printf("read_both:              %d\n", run(read_both(g, pa[0], pb[0])));             // 7
+
+    // 4) Fire-and-forget a background task with spawn (no handle kept).
+    int[2] bg;  pipe(&bg[0]);  write(bg[1], (*void)"ping", (int64)4);
+    spawn(background(g, bg[0]));
+    el_run(g);                                                                            // runs until background() stops it
+    printf("spawn background:       %d\n", g_bg);                                         // 4
+
+    el_free(g);
+    return 0;
+}

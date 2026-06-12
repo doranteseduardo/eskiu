@@ -1,0 +1,14 @@
+// Regression: a cast to a type imported from another file — `(FutureHdr*)f` —
+// must parse as a cast, not as `FutureHdr * f`. Imported type names are now
+// merged into the importing file's declared-type set.
+import <future>;
+extern int printf(string fmt, ...);
+
+int main() {
+    Future<int>* f = future_new<int>();
+    future_complete<int>(f, 5);
+    FutureHdr* h = (FutureHdr*)f;          // imported-type cast (used to misparse)
+    printf("%d %d\n", h.state, f.value);   // 2 (READY) and 5
+    free_future<int>(f);
+    return 0;
+}

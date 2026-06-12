@@ -1,0 +1,9 @@
+// EXPECT-ERROR: await is only allowed inside an async
+// `await` is only legal inside an `async fn`; at top level you drive a future
+// explicitly (e.g. future_block), never with await.
+import <future>;
+int main() {
+    Future<int>* f = future_new<int>();
+    int x = await f;
+    return x;
+}

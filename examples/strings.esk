@@ -1,0 +1,30 @@
+// strings.esk — the mutable String builder and <string> helpers.
+//
+// String is a growable, heap-backed buffer (own it: String_free). Its methods
+// build, query, trim, and test prefixes/suffixes.
+import <string>;
+extern int printf(string fmt, ...);
+
+int main() {
+    let s: String;  String_init(&s, 16);
+    String_append(&s, "Hello");
+    String_push(&s, (char)',');
+    String_append(&s, " Eskiu");
+    printf("built=[%s] len=%d\n", String_cstr(&s), String_len(&s));   // Hello, Eskiu / 12
+
+    let g: String;  String_init(&g, 16);
+    String_append(&g, "  trim me  ");
+    String_trim(&g);                                                  // in place
+    printf("trimmed=[%s]\n", String_cstr(&g));
+
+    let name: String;  String_init(&name, 16);
+    String_append(&name, "image.webp");
+    printf("starts=%d ends=%d\n",
+           String_starts_with(&name, "image"), String_ends_with(&name, ".webp"));
+
+    let n: String;  String_init(&n, 8);  String_from_int(&n, -2026);
+    printf("num=%s\n", String_cstr(&n));
+
+    String_free(&n);  String_free(&name);  String_free(&g);  String_free(&s);
+    return 0;
+}

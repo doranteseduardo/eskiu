@@ -1,0 +1,3 @@
+// EXPECT-ERROR: #error
+#error this build is broken
+int main() { return 0; }

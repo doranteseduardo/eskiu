@@ -1,0 +1,50 @@
+// either.esk — the standard sum types: Option<T> and Either<A,B>.
+//
+// Built on generic algebraic enums + match. Construct with explicit type args
+// (`Some<int>(5)`, `None<int>()`, `Left<int,string>(x)`), inspect with the helpers
+// here or with `match` directly:
+//
+//   Option<int> o = Some<int>(5);
+//   if (opt_is_some<int>(&o)) { int v = opt_unwrap_or<int>(&o, 0); }
+//   match o { Some(v) -> ...; None -> ...; }
+
+enum Option<T> {
+    None,
+    Some(T),
+}
+
+enum Either<A, B> {
+    Left(A),
+    Right(B),
+}
+
+// ── Option helpers ──────────────────────────────────────────────────────────
+bool opt_is_some<T>(Option<T>* o) {
+    match *o {
+        Some(v) -> return true;
+        None    -> return false;
+    }
+}
+
+bool opt_is_none<T>(Option<T>* o) {
+    match *o {
+        Some(v) -> return false;
+        None    -> return true;
+    }
+}
+
+// Return the contained value, or `dflt` if None.
+T opt_unwrap_or<T>(Option<T>* o, T dflt) {
+    match *o {
+        Some(v) -> return v;
+        None    -> return dflt;
+    }
+}
+
+// ── Either helpers ──────────────────────────────────────────────────────────
+bool either_is_left<A, B>(Either<A, B>* e) {
+    match *e {
+        Left(a)  -> return true;
+        Right(b) -> return false;
+    }
+}

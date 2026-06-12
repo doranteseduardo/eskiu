@@ -48,7 +48,7 @@ Source (.esk)
 
 ### Why all passes implement ASTVisitor
 
-Every analysis or code generation pass implements `ASTVisitor`. This keeps traversal logic out of the AST nodes themselves and allows passes (type checker, codegen, AST printer) to be added without modifying `ast/ast.h`. The base class declares one pure-virtual `visit()` overload per concrete node type (38 today), so a new node type forces every pass to handle it or fail to compile.
+Every analysis or code generation pass implements `ASTVisitor`. This keeps traversal logic out of the AST nodes themselves and allows passes (type checker, codegen, AST printer) to be added without modifying `ast/ast.h`. The base class declares one pure-virtual `visit()` overload per concrete node type (42 today), so a new node type forces every pass to handle it or fail to compile.
 
 ### How accept()/visit() dispatch works
 
@@ -218,39 +218,54 @@ This means import is purely textual flattening — all declarations from importe
 ```
 ASTNode                    (line:int, col:int)
 ├── Decl                   (name:string)
-│   ├── FunctionDecl       (returnType, params[(type,name)], body:StmtPtr, typeParams[])
+│   ├── FunctionDecl       (returnType, params[(type,name)], body:StmtPtr, typeParams[], isAsync)
 │   ├── VarDecl            (type:string, initializer:ExprPtr?)
-│   ├── StructDecl         (fields[{type,name}], methods[DeclPtr], typeParams[])
+│   ├── StructDecl         (fields[{type,name}], methods[DeclPtr], typeParams[], isPacked)
 │   ├── ExternDecl         (returnType, params[(type,name)])
-│   └── InterfaceDecl      (methods[{returnType,name,params}])
+│   ├── IntrinsicDecl      (returnType, params[(type,name)])  — lowers to inline IR, no C symbol
+│   ├── InterfaceDecl      (methods[{returnType,name,params}])
+│   ├── EnumDecl           (members[{name,value?}], variants[payload fields]) — int enums + ADTs
+│   ├── UnionDecl          (fields[{type,name}])
+│   └── TypeAliasDecl      (name, underlying:string)
 ├── Stmt
 │   ├── BlockStmt          (items: vector<BlockItem>)
 │   ├── IfStmt             (condition, thenBranch, elseBranch?)
 │   ├── ForStmt            (init:StmtPtr?, condition:ExprPtr?, step:ExprPtr?, body)
+│   ├── ForInStmt          (var, iterable, body)  — for-each / range; desugared to ForStmt
 │   ├── WhileStmt          (condition, body)
 │   ├── ReturnStmt         (value:ExprPtr?)
 │   ├── BreakStmt
 │   ├── ContinueStmt
 │   ├── SwitchStmt         (subject:ExprPtr, cases[{value:ExprPtr?,stmts[StmtPtr]}])
-│   └── ExprStmt           (expr)
+│   ├── MatchStmt          (subject:ExprPtr, arms[{variant,bindings,body}], default?)
+│   ├── ExprStmt           (expr)
+│   ├── AsmStmt            (template, outputs, inputs, clobbers)
+│   ├── ThreadJoinStmt     (handle:ExprPtr)
+│   ├── ThrowStmt          (value:ExprPtr)
+│   └── TryStmt            (body, catches[{type,name,body}], finallyBody?)
 └── Expr
     ├── BinaryExpr         (left, op:string, right)
     ├── UnaryExpr          (op:string, operand)
+    ├── QuestionExpr       (operand)  — `?` error-propagation for Result<T,E>
     ├── CallExpr           (callee:ExprPtr, args[ExprPtr])
     ├── IndexExpr          (base, index)
     ├── MemberExpr         (base, member:string)
     ├── CastExpr           (targetType:string, expr)
     ├── LiteralExpr        (kind:{INT,FLOAT,STRING,CHAR,BOOL,NULL_VAL}, value:string)
     ├── IdentExpr          (name:string)
-    ├── AllocExpr          (elemType:string, count:ExprPtr)
-    ├── TemplateCallExpr   (templateName, typeArgs[], args[])
     ├── StructInitExpr     (structName, fieldInits[(name,ExprPtr)])
-    └── LambdaExpr         (returnType:string, params[(type,name)], body:StmtPtr)
+    ├── AllocWithExpr      (allocator:ExprPtr, elemType:string, count:ExprPtr)
+    ├── TemplateCallExpr   (templateName, typeArgs[], args[])
+    ├── LambdaExpr         (returnType:string, params[(type,name)], body:StmtPtr, escapes, captures[])
+    ├── SizeofExpr         (type:string)
+    ├── ThreadCreateExpr   (fn:ExprPtr)
+    ├── FreeClosureExpr    (operand:ExprPtr)  — frees an escaping closure's heap env
+    └── AwaitExpr          (operand:ExprPtr)  — requires *Future<T>, yields T
 
 Program                    (declarations: vector<DeclPtr>)  — root node
 ```
 
-`ASTVisitor` declares 27 pure-virtual `visit()` overloads (one per concrete class: `Program`, 5 `Decl` subtypes, 9 `Stmt` subtypes, 12 `Expr` subtypes).
+`ASTVisitor` declares 42 pure-virtual `visit()` overloads (one per concrete class: `Program`, 9 `Decl` subtypes, 15 `Stmt` subtypes, 17 `Expr` subtypes). The `alloc<T>(n)` / `free` primitives are stdlib generic functions (`<mem>`), not AST nodes; the explicit-allocator form `alloc_with(&a, T, n)` is the `AllocWithExpr` node.
 
 `LambdaExpr` carries the full function signature and body inline. During codegen, `visit(LambdaExpr*)` saves the current insert point, emits a new private `llvm::Function` with a synthesized unique name (e.g. `__lambda_0`, `__lambda_1`), restores the insert point, and pushes the `llvm::Function*` onto `exprValueStack` as the expression value. The `fn(T,...)->R` type is stored in `expressionTypes` for that node so the type checker can validate assignments and call sites.
 
@@ -442,12 +457,12 @@ Enums register member→value constants and the enum type name (→ `i32`); `vis
 | `\|` | `CreateOr` |
 | `^` | `CreateXor` |
 | `<<` | `CreateShl` |
-| `>>` | `CreateAShr` (arithmetic shift right) |
+| `>>` | `CreateAShr` (arithmetic) for signed operands; `CreateLShr` (logical) for unsigned |
 | `~` (unary) | `CreateNot` |
 
 ### Comparison operations
 
-`visit(BinaryExpr*)` checks `isFloatingPointTy()` first; if true, uses ordered float comparisons (`FCmpOEQ`, `FCmpONE`, `FCmpOLT`, etc.). Otherwise uses signed integer comparisons (`ICmpEQ`, `ICmpNE`, `ICmpSLT`, `ICmpSGT`, `ICmpSLE`, `ICmpSGE`). Pointer comparisons fall through the integer path since LLVM opaque pointers satisfy `!isFloatingPointTy()`.
+`visit(BinaryExpr*)` checks `isFloatingPointTy()` first; if true, uses ordered float comparisons (`FCmpOEQ`, `FCmpONE`, `FCmpOLT`, etc.). Otherwise it emits integer comparisons, selecting signed (`ICmpSLT`/`SGT`/…) or unsigned (`ICmpULT`/`UGT`/…) relational predicates from the operands' Eskiu signedness; `==`/`!=` are sign-agnostic (`ICmpEQ`/`ICmpNE`). Pointer comparisons fall through the integer path since LLVM opaque pointers satisfy `!isFloatingPointTy()`.
 
 ### `emitObjectFile()`: LLVM TargetMachine + legacy PassManager
 
@@ -471,7 +486,7 @@ The data layout is set twice: once in `generateCode()` (for `sizeof` queries dur
 | Source → Destination | Instruction |
 |---|---|
 | `i32` → `i8` (wider → narrower integer) | `CreateTrunc` |
-| `i8` → `i32` (narrower → wider integer) | `CreateSExt` |
+| `i8` → `i32` (narrower → wider integer) | `CreateSExt` for signed sources, `CreateZExt` for unsigned (chosen from the source's signedness) |
 | `i1` → `i32` (bool → wider integer) | `CreateZExt` (zero-extend, not sign-extend) |
 | integer → float/double | `CreateSIToFP` |
 | float/double → integer | `CreateFPToSI` |
@@ -509,7 +524,7 @@ The same coercion logic appears in `emitStructInitInto()` for struct field initi
 | `int8` | `i8` | |
 | `int16` | `i16` | |
 | `int64` | `i64` | |
-| `uint`, `uint32` | `i32` | Signedness is in the instruction (`sdiv` vs `udiv`), not the LLVM type |
+| `uint`, `uint32` | `i32` | Same LLVM type as `int`; signedness is carried in the instruction (`udiv`/`urem`/`lshr`/`ICmpULT` for unsigned), and integer widening zero- vs sign-extends per the source's signedness |
 | `uint8` | `i8` | |
 | `uint16` | `i16` | |
 | `uint64` | `i64` | |
@@ -525,7 +540,7 @@ The same coercion logic appears in `emitStructInitInto()` for struct field initi
 | Interface name (e.g. `Greeter`) | `ptr` (opaque) | Interface values are `ptr` to `%Greeter_fat` |
 | `T[N]` (fixed-size array) | `[N x T]` (`llvm::ArrayType`) | e.g. `uint8[858]` → `[858 x i8]` |
 
-Integer literals are emitted as `i32`. Float literals are emitted as `double` (`f64`). A float literal assigned to a `float` (`f32`) variable is coerced down via `CreateFPCast`. Unsigned arithmetic uses the same signed LLVM instructions — `CreateSDiv`, `CreateICmpSLT`, etc. — because signedness is not tracked through the IR.
+Integer literals are emitted as `i32` (64-bit literals widen to `i64` without truncation). Float literals are emitted as `double` (`f64`). A float literal assigned to a `float` (`f32`) variable is coerced down via `CreateFPCast`. Signedness is tracked through codegen from the Eskiu type: unsigned types use the unsigned LLVM instructions (`CreateUDiv`, `CreateURem`, `CreateLShr`, `CreateICmpULT`, etc.) while signed types use the signed forms, and integer widening picks `CreateZExt` vs `CreateSExt` from the source operand's signedness at every coercion site.
 
 ---
 
@@ -534,5 +549,3 @@ Integer literals are emitted as `i32`. Float literals are emitted as `double` (`
 - **Float literal width mismatch**: float literals always emit as `double` (`f64`). When assigned to a `float` (`f32`) field via `emitStructInitInto()`, the `CreateFPCast` coercion fires correctly, but a `float` local variable initialized with a float literal goes through `CreateFPCast` from `double` → `float` in `visit(VarDecl*)`. This is correct but may emit a wider intermediate value than expected.
 - **Interface dispatch return type**: vtable function pointers are called with `FunctionType::get(void, [ptr, ptr, ...], false)`. For `void` methods this is exact. For methods that return values, the call result is still pushed to `exprValueStack` and the caller uses it — but the `FunctionType` used for the indirect call declares void return, which means LLVM IR emits a `call void` and the result is `void`. This works for `void` interface methods only. Non-void interface methods require storing the return type in `ifaceMethodReturnTypes` and using it in the `FunctionType`.
 - **Source line numbers at `0:0`**: nodes not stamped by `withPos()` in the parser (including internally synthesized nodes like desugared compound assignments' outer `BinaryExpr`, some `BlockStmt` wrappers) report `line=0, col=0` in error messages. All primary expressions, operators, and control-flow statements are stamped correctly.
-- **Unsigned arithmetic uses signed instructions**: `uint`/`uint8`/etc. types map to the same LLVM integer types as `int`/`int8`/etc. Division (`CreateSDiv`), modulo (`CreateSRem`), and ordered comparisons (`ICmpSLT` etc.) are signed. Unsigned types that cross division, modulo, or comparison boundaries will produce incorrect results for values where signed and unsigned interpretation differ.
-- **Dereference loads as `i8`**: `visit(UnaryExpr*)` for `op == "*"` emits `CreateLoad(i8, val)` because the pointee type is not tracked in the LLVM opaque pointer system. Code that dereferences `*T` where T is not `i8`/`char` will load only one byte. Using array indexing (`ptr[i]`) or member access (`.field`) on pointed-to structs is the correct path — both use `getExprEskiuType()` and `structFields` to emit the right type.

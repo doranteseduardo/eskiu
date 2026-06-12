@@ -1,0 +1,81 @@
+// channel.esk — an async message channel over the Future runtime.
+//
+// A `Chan<T>` carries values between tasks. `chan_recv` is a `*Future<T>` that
+// completes with the next item — immediately if one is buffered, otherwise it
+// parks until a `chan_send` arrives and hands the value off (waking the awaiter):
+//
+//   async int consume(Chan<int>* ch) {
+//       int a = await chan_recv(ch);
+//       int b = await chan_recv(ch);
+//       return a + b;
+//   }
+//   Chan<int>* ch = chan_new<int>(8);
+//   chan_send(ch, 10);  chan_send(ch, 20);   // values inferred
+//   // ... drive consume(ch) on the event loop ...
+//
+// Model: a bounded ring buffer with a single outstanding receiver (one awaiter
+// at a time — the typical task-to-task / fan-in-to-one-consumer shape) and a
+// non-blocking `chan_send` (returns false when the buffer is full and no
+// receiver is parked). Single-threaded: a send hands off to a parked receiver
+// inline.
+
+import <mem>;
+import <future>;
+
+struct Chan<T> {
+    *T          buf;       // ring buffer (capacity `cap`)
+    int         cap;
+    int         head;      // index of the oldest buffered item
+    int         count;     // items currently buffered
+    Future<T>*  waiter;    // a parked receiver's future, or null
+}
+
+Chan<T>* chan_new<T>(int cap) {
+    Chan<T>* ch = alloc<Chan<T>>(1);
+    ch.buf    = alloc<T>(cap);
+    ch.cap    = cap;
+    ch.head   = 0;
+    ch.count  = 0;
+    ch.waiter = (Future<T>*)0;
+    return ch;
+}
+
+// Send `v`. If a receiver is parked, hand the value off directly (waking it);
+// otherwise buffer it. Returns false if the buffer is full and nobody is waiting.
+bool chan_send<T>(Chan<T>* ch, T v) {
+    if (ch.waiter != (Future<T>*)0) {
+        Future<T>* w = ch.waiter;
+        ch.waiter = (Future<T>*)0;          // clear first: completing may resume an
+        future_complete<T>(w, v);           // awaiter that immediately recvs again
+        return true;
+    }
+    if (ch.count >= ch.cap) { return false; }       // full, no receiver
+    int tail = ch.head + ch.count;
+    if (tail >= ch.cap) { tail = tail - ch.cap; }
+    ch.buf[tail] = v;
+    ch.count = ch.count + 1;
+    return true;
+}
+
+// Receive the next item as a `*Future<T>`. If one is buffered the future is
+// already complete (the awaiter takes it without suspending); otherwise it parks
+// and `chan_send` completes it later. Single consumer: at most one outstanding
+// recv at a time (a second overwrites the first's parked slot).
+Future<T>* chan_recv<T>(Chan<T>* ch) {
+    Future<T>* f = future_new<T>();
+    if (ch.count > 0) {
+        T v = ch.buf[ch.head];
+        ch.head = ch.head + 1;
+        if (ch.head >= ch.cap) { ch.head = 0; }
+        ch.count = ch.count - 1;
+        future_complete<T>(f, v);           // ready immediately (fast path)
+    } else {
+        ch.waiter = f;                      // park; a future chan_send hands off
+    }
+    return f;
+}
+
+void chan_free<T>(Chan<T>* ch) {
+    free((*void)ch.buf);
+    free((*void)ch);
+}

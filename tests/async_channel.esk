@@ -1,0 +1,41 @@
+// <channel>: an async message channel. chan_recv is a *Future<T> that completes
+// with the next item — immediately if one is buffered, else it parks until a
+// chan_send hands a value off. Two paths exercised: buffered (sends precede the
+// recvs, fast path) and parked handoff (recv parks first, each send resumes it).
+//
+// Also a regression guard for the import fix: this file imports <future> directly
+// AND <channel> (which re-imports <future>); a cast inside channel.esk
+// (`(Future<T>*)0`) must still parse after the deduplicated re-import.
+import <mem>;
+import <future>;
+import <channel>;
+extern int printf(string fmt, ...);
+
+async int consume3(Chan<int>* ch) {
+    int a = await chan_recv(ch);
+    int b = await chan_recv(ch);
+    int c = await chan_recv(ch);
+    return a + b + c;
+}
+
+int main() {
+    // Buffered: three values are queued before the consumer runs -> fast path.
+    Chan<int>* b = chan_new<int>(8);
+    chan_send<int>(b, 10);  chan_send<int>(b, 20);  chan_send<int>(b, 30);
+    Future<int>* fb = consume3(b);
+    future_poll<int>(fb, void() {});                  // all ready -> completes synchronously
+    printf("buffered=%d\n", fb.value);                // 60
+    free_future<int>(fb);  chan_free<int>(b);
+
+    // Parked handoff: the consumer parks on an empty channel; each send resumes
+    // it (which immediately reparks on the next recv) until all three arrive.
+    Chan<int>* p = chan_new<int>(8);
+    Future<int>* fp = consume3(p);
+    future_poll<int>(fp, void() {});                  // parks on the first recv
+    chan_send<int>(p, 1);                              // resume -> park on 2nd
+    chan_send<int>(p, 2);                              // resume -> park on 3rd
+    chan_send<int>(p, 4);                              // resume -> complete
+    printf("parked=%d\n", fp.value);                  // 7
+    free_future<int>(fp);  chan_free<int>(p);
+    return 0;
+}

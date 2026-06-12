@@ -1,0 +1,13 @@
+// Regression: member read/write through a LOCAL pointer-to-struct variable must
+// dereference the pointer (not treat the variable's address as the struct).
+extern int printf(string fmt, ...);
+struct P { int x; int y; }
+int main() {
+    let q: P = P { x: 1, y: 2 };
+    *P p = &q;
+    p.x = 10;          // mutate q through the local pointer
+    p.y = 20;
+    printf("%d %d\n", p.x, q.x);   // 10 10
+    printf("%d\n", q.y);            // 20
+    return 0;
+}

@@ -1,0 +1,43 @@
+// Algebraic enums (tagged unions) + match. Variants carry payloads; `match`
+// dispatches on the variant and binds the payload fields. Covers multiple
+// bindings, a no-payload variant, a `_` default, arms that return vs arms that
+// fall through, an enum passed by value, and a classic int enum coexisting.
+extern int printf(string fmt, ...);
+
+enum Expr {
+    Lit(int),
+    Add(int, int),
+    Neg(int),
+    Zero,
+}
+
+int eval(Expr e) {
+    match e {
+        Lit(v)    -> return v;
+        Add(a, b) -> return a + b;
+        Neg(n)    -> return 0 - n;
+        Zero      -> return 0;
+    }
+    return -1;            // unreachable (all variants covered)
+}
+
+// Arms that assign and fall through to the code after the match.
+int kind(Expr e) {
+    int k = 0;
+    match e {
+        Zero   -> k = 1;
+        Lit(v) -> k = 2;
+        _      -> k = 9;   // Add / Neg
+    }
+    return k;
+}
+
+// A classic integer enum must still work alongside ADTs.
+enum Color { Red, Green = 5, Blue }
+
+int main() {
+    printf("%d %d %d %d\n", eval(Lit(7)), eval(Add(3, 4)), eval(Neg(9)), eval(Zero));   // 7 7 -9 0
+    printf("%d %d %d\n", kind(Zero), kind(Lit(5)), kind(Add(1, 2)));                     // 1 2 9
+    printf("%d %d %d\n", Red, Green, Blue);                                              // 0 5 6
+    return 0;
+}
