@@ -665,6 +665,23 @@
         border-bottom: 1px solid var(--code-bd);
         text-align: center;
       }
+      .testimonial .stat {
+        margin-bottom: 1.5rem;
+      }
+      .stat-num {
+        display: block;
+        font-size: clamp(2.6rem, 9vw, 3.6rem);
+        font-weight: 700;
+        letter-spacing: -0.03em;
+        line-height: 1;
+        color: var(--purple-lt);
+      }
+      .stat-cap {
+        display: block;
+        margin-top: 0.55rem;
+        font-size: 0.8rem;
+        color: rgba(255, 255, 255, 0.5);
+      }
       .testimonial blockquote {
         font-size: 1.05rem;
         line-height: 1.6;
@@ -1077,6 +1094,12 @@
     <div class="sponsors">
       <div class="wrap">
         <figure class="testimonial">
+          <div class="stat">
+            <span class="stat-num">~85%</span>
+            <span class="stat-cap"
+              >less memory after migrating C++ modules to Eskiu</span
+            >
+          </div>
           <blockquote>
             “ReactVision is adopting Eskiu selectively to replace
             memory-sensitive C++ components with explicit, auditable native
