@@ -1,0 +1,18 @@
+// multipart_part: extract the "photo" part from a form-data body.
+import <mem>;
+import <string>;
+import <multipart>;
+extern int printf(string fmt, ...);
+extern int strlen(string s);
+int main() {
+    string body = "--B\r\nContent-Disposition: form-data; name=\"photo\"; filename=\"x\"\r\n\r\nHELLO\r\n--B--\r\n";
+    int64 n = (int64)strlen(body);
+    let bd: String;  String_init(&bd, 4);  String_append(&bd, "B");
+    let part: *uint8 = null;  int64 plen = 0;
+    int ok = multipart_part((*uint8)body, n, &bd, "photo", &part, &plen);
+    printf("%d %lld ", ok, plen);
+    int i = 0;  while (i < plen) { printf("%c", (char)part[i]); i = i + 1; }
+    printf("\n");
+    String_free(&bd);
+    return 0;
+}

@@ -7,13 +7,6 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
-## [Unreleased]
-
-### Compiler fixes
-- **Allocas are hoisted to the entry block.** A local declared inside a loop body emitted its `alloca` in the loop block, so the slot was re-reserved every iteration and never reclaimed until the function returned — a long-running loop with locals (e.g. `<base64>` encoding a multi-hundred-KB buffer) overflowed the stack and crashed. All stack-slot reservations now go in the function's entry block (stores stay at their original point); only the reservation hoists. Fixes `<base64>` on large inputs and any temp-heavy hot loop.
-
----
-
 ## [0.2.0] — 2026-06-11
 
 Backend-services phase: async/await, the full HTTP/2 stack (framing, HPACK with
@@ -43,6 +36,7 @@ systems foundation.
 
 ### Compiler fixes
 - **Unsigned widening cast** — `(int)(uint8)255` (and `uint16`/`uint32`/`char`/`bool` → wider) now **zero-extends** (→ 255), matching the source's unsignedness, instead of always sign-extending (→ -1). Fixes byte-level decoding (parsers, the HTTP/2 frame codec, etc.).
+- **Allocas are hoisted to the entry block.** A local declared inside a loop body emitted its `alloca` in the loop block, so the slot was re-reserved every iteration and never reclaimed until the function returned — a long-running loop with locals (e.g. `<base64>` encoding a multi-hundred-KB buffer) overflowed the stack and crashed. All stack-slot reservations now live in the function's entry block (stores stay at their original point; only the reservation hoists). Fixes `<base64>` on large inputs and any temp-heavy hot loop.
 
 ### Standard library
 - **`<http2>`** — HTTP/2 (RFC 7540):
@@ -61,7 +55,10 @@ systems foundation.
 - **`<base64>`** — RFC 4648 `base64_encode` / `base64_decode` over buffers.
 - **`<json>`** — JSON builder (`Json`) plus a recursive-descent parser (`json_parse` → `JsonValue`).
 - **`<threading>`** — `Mutex`, `Cond`, `Sem` over pthread.
-- **`<http>`** — HTTP/1.1 request parser, response builder, and a threaded worker pool (`http_serve`).
+- **`<http>`** — HTTP/1.1 request parser, response builder, and a threaded worker pool (`http_serve`). Also a binary-safe request reader, `HttpReq` + `http_recv` (loops `recv` until the full Content-Length body arrives, into a `*uint8` body — for uploads a single-recv String body would truncate/corrupt), with `HttpReq_header`, `http_reply`, and `http_reply_error`.
+- **`<multipart>`** — extract a named part from a `multipart/form-data` body over raw bytes: `multipart_boundary` (parse the boundary from Content-Type) and `multipart_part(body, len, boundary, name, …)` (returns a slice into the body).
+- **`<map>`** — `Map<V>`, a string-keyed hash map (open addressing, linear probing, grows at 0.75 load): `Map_init`/`Map_at` (get-or-insert, returns a `*V` slot)/`Map_get`/`Map_free`. Keys are strings (arbitrary-`K` hashing can't be synthesised generically).
+- **`<net>`** — `net_accept_addr(fd, *uint32 peer_ip)` accepts a connection and reports the peer's IPv4 address (the plain `net_accept` drops it), enabling per-client rate limiting and logging.
 - **`<string>`** — `starts_with`, `ends_with`, `trim`, `split` (List + streaming token iterator).
 - **`<path>`** — `path_join`, `path_basename`, `path_dirname`, `path_extension`, `path_is_absolute`.
 - **`<eventloop>`** — readiness reactor over kqueue (macOS) / epoll (Linux): `el_new`, `el_add_read`, **`el_add_write`** (write-readiness — `EVFILT_WRITE`/`EPOLLOUT`; a fd waits for read *or* write at a time), `el_del`, `el_run`, `el_stop`, `el_free`. Callbacks are `fn(EventLoop*, int)->void`. Foundation for async I/O and the HTTP stack. Fixed: a one-shot callback's heap env leaked when its fd was re-armed from inside the callback (a sequential read loop on one fd) — `el_run` now frees the env it invoked using a per-registration generation counter, not the post-callback `active` flag.

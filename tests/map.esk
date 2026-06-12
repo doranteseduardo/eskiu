@@ -1,0 +1,22 @@
+// Map<V>: string-keyed hash map with grow + struct values.
+import <mem>;
+import <map>;
+extern int printf(string fmt, ...);
+extern int sprintf(*char s, string fmt, ...);
+int main() {
+    let m: Map<int>;  Map_init<int>(&m, 8);
+    let key: char[32];
+    int i = 0;
+    while (i < 50) {                       // 10 distinct keys, repeated → force grows
+        sprintf(&key[0], "id-%d", i % 10);
+        int c = 0;
+        *int s = Map_at<int>(&m, &key[0], &c);
+        if (c == 1) { s[0] = 0; }
+        s[0] = s[0] + 1;
+        i = i + 1;
+    }
+    int v = 0;  Map_get<int>(&m, "id-3", &v);
+    printf("%d %d\n", v, m.count);
+    Map_free<int>(&m);
+    return 0;
+}
