@@ -342,6 +342,13 @@ bool CodeGen::eskiuUnsigned(const std::string& t) const {
            s == "uint64" || s == "char" || s == "bool";
 }
 
+llvm::AllocaInst* CodeGen::entryAlloca(llvm::Type* ty, llvm::Value* arrSize,
+                                       const llvm::Twine& name) {
+    llvm::BasicBlock* entry = &builder->GetInsertBlock()->getParent()->getEntryBlock();
+    llvm::IRBuilder<> tmp(entry, entry->begin());
+    return tmp.CreateAlloca(ty, arrSize, name);
+}
+
 llvm::Value* CodeGen::coerceInt(llvm::Value* val, llvm::Type* ty, bool unsignedSrc) {
     if (!val || val->getType() == ty) return val;
     if (!val->getType()->isIntegerTy() || !ty->isIntegerTy()) return val;
@@ -655,7 +662,7 @@ void CodeGen::visit(FunctionDecl* node) {
             // lvalue (so the body may reassign it, like a local) and gives
             // struct-by-value params a pointer for MemberExpr GEP. The incoming
             // argument is stored into the slot; reads load from it.
-            auto* a = builder->CreateAlloca(arg.getType(), nullptr,
+            auto* a = entryAlloca(arg.getType(), nullptr,
                                             node->params[paramIdx].second);
             builder->CreateStore(&arg, a);
             llvm::Value* paramSlot = a;
@@ -737,7 +744,7 @@ void CodeGen::visit(VarDecl* node) {
         defineVarType(node->name, node->type);
         return;
     }
-    llvm::AllocaInst* alloca = builder->CreateAlloca(declType, nullptr, node->name);
+    llvm::AllocaInst* alloca = entryAlloca(declType, nullptr, node->name);
     if (node->isVolatile) volatileVars.insert(node->name);
     defineSymbol(node->name, alloca);
     // Resolve type params and mangle template names for varTypeStack,
@@ -1449,7 +1456,7 @@ void CodeGen::visit(QuestionExpr* node) {
     }
 
     // Materialize the Result into a temp so we can read fields and return it whole.
-    llvm::Value* tmp = builder->CreateAlloca(st, nullptr, "try.tmp");
+    llvm::Value* tmp = entryAlloca(st, nullptr, "try.tmp");
     builder->CreateStore(resVal, tmp);
 
     llvm::Value* okPtr = builder->CreateStructGEP(st, tmp, okIdx);
@@ -1705,7 +1712,7 @@ void CodeGen::visit(CallExpr* node) {
             bool iSret = needsSret(retType);
             llvm::Value* sretBuf = nullptr;
             if (iSret) {
-                sretBuf = builder->CreateAlloca(retType, nullptr, "iface.sret");
+                sretBuf = entryAlloca(retType, nullptr, "iface.sret");
                 iargs.insert(iargs.begin() + 0, sretBuf); // sret after self? actually: sret first
                 paramLLVM.insert(paramLLVM.begin(), llvm::PointerType::get(*context, 0));
                 retType = llvm::Type::getVoidTy(*context);
@@ -1853,7 +1860,7 @@ void CodeGen::visit(CallExpr* node) {
     // sret: alloca for large struct return, pass as hidden arg 0, load result
     auto sretIt = funcSretTypes.find(func->getName().str());
     if (sretIt != funcSretTypes.end()) {
-        llvm::Value* sretAlloca = builder->CreateAlloca(sretIt->second, nullptr, "sret.tmp");
+        llvm::Value* sretAlloca = entryAlloca(sretIt->second, nullptr, "sret.tmp");
         args.insert(args.begin(), sretAlloca);
         createMaybeInvoke(func->getFunctionType(), func, args);
         exprValueStack.push(builder->CreateLoad(sretIt->second, sretAlloca));
@@ -1933,7 +1940,7 @@ void CodeGen::visit(MemberExpr* node) {
         if (baseIsPtr) return evaluateExpr(node->base);
         if (baseIsTemp) {
             llvm::Value* v = evaluateExpr(node->base);
-            llvm::Value* tmp = builder->CreateAlloca(v->getType(), nullptr, "mem.tmp");
+            llvm::Value* tmp = entryAlloca(v->getType(), nullptr, "mem.tmp");
             builder->CreateStore(v, tmp);
             return tmp;
         }
@@ -2260,7 +2267,7 @@ llvm::Value* CodeGen::makeFunctionPointer(llvm::Function* target) {
 
     // Build fat pointer {wrapper, null} — same shape lambdas produce.
     llvm::StructType* fatTy = llvm::cast<llvm::StructType>(getTypeFromString("fn()->void"));
-    llvm::Value* fatAlloca = builder->CreateAlloca(fatTy, nullptr, "fnptr.fat");
+    llvm::Value* fatAlloca = entryAlloca(fatTy, nullptr, "fnptr.fat");
     builder->CreateStore(wrapper, builder->CreateStructGEP(fatTy, fatAlloca, 0));
     builder->CreateStore(llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(ptrTy)),
                          builder->CreateStructGEP(fatTy, fatAlloca, 1));
@@ -2297,7 +2304,7 @@ void CodeGen::visit(LambdaExpr* node) {
         } else {
             // Non-escaping closure: the env dies with this frame — stack-allocate
             // it. Zero cost, no leak. (The common map/filter/apply case.)
-            envAlloca = builder->CreateAlloca(envTy, nullptr, lambdaName + ".env");
+            envAlloca = entryAlloca(envTy, nullptr, lambdaName + ".env");
         }
         for (size_t ci = 0; ci < node->captures.size(); ++ci) {
             llvm::Value* capturedVal = nullptr;
@@ -2352,7 +2359,7 @@ void CodeGen::visit(LambdaExpr* node) {
         for (size_t ci = 0; ci < node->captures.size(); ++ci) {
             const auto& [capName, capType] = node->captures[ci];
             llvm::Type* capLLVMTy = getTypeFromString(capType);
-            auto* capAlloca = builder->CreateAlloca(capLLVMTy, nullptr, capName);
+            auto* capAlloca = entryAlloca(capLLVMTy, nullptr, capName);
             auto* gep = builder->CreateStructGEP(envTy, envArg, ci, capName + ".gep");
             auto* val = builder->CreateLoad(capLLVMTy, gep, capName + ".val");
             builder->CreateStore(val, capAlloca);
@@ -2368,7 +2375,7 @@ void CodeGen::visit(LambdaExpr* node) {
     for (; argIt != func->arg_end(); ++argIt, ++i) {
         llvm::Value* slot = &*argIt;
         if (argIt->getType()->isStructTy()) {
-            auto* a = builder->CreateAlloca(argIt->getType(), nullptr,
+            auto* a = entryAlloca(argIt->getType(), nullptr,
                                             node->params[i].second + ".byval");
             builder->CreateStore(&*argIt, a);
             slot = a;
@@ -2391,7 +2398,7 @@ void CodeGen::visit(LambdaExpr* node) {
     // ── Build fat pointer {fn_ptr, env_ptr} ──────────────────────────────
     llvm::StructType* fatTy = llvm::cast<llvm::StructType>(
         getTypeFromString("fn()->void")); // any fn type gives {ptr,ptr}
-    llvm::Value* fatAlloca = builder->CreateAlloca(fatTy, nullptr, lambdaName + ".fat");
+    llvm::Value* fatAlloca = entryAlloca(fatTy, nullptr, lambdaName + ".fat");
     auto* fnSlot  = builder->CreateStructGEP(fatTy, fatAlloca, 0);
     auto* envSlot = builder->CreateStructGEP(fatTy, fatAlloca, 1);
     builder->CreateStore(func, fnSlot);
@@ -2556,7 +2563,7 @@ void CodeGen::visit(TryStmt* node) {
         llvm::Value* catchVal = catchTy->isPointerTy()
             ? builder->CreateIntToPtr(ival, catchTy)
             : builder->CreateTrunc(ival, catchTy);
-        auto* catchAlloca = builder->CreateAlloca(catchTy, nullptr, c.name);
+        auto* catchAlloca = entryAlloca(catchTy, nullptr, c.name);
         builder->CreateStore(catchVal, catchAlloca);
         defineSymbol(c.name, catchAlloca);
         defineVarType(c.name, c.type);
@@ -2662,7 +2669,7 @@ std::string CodeGen::ensureEnumInst(const std::string& genericName,
 // as the variant's struct, coerced to the field types), then load the value.
 llvm::Value* CodeGen::buildEnumValue(llvm::StructType* et, int tag,
         const std::vector<llvm::Type*>& fieldTypes, const std::vector<ExprPtr>& args) {
-    llvm::Value* tmp = builder->CreateAlloca(et, nullptr, "variant.tmp");
+    llvm::Value* tmp = entryAlloca(et, nullptr, "variant.tmp");
     builder->CreateStore(llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), tag),
                          builder->CreateStructGEP(et, tmp, 0));
     if (!fieldTypes.empty()) {
@@ -2765,7 +2772,7 @@ void CodeGen::visit(ThreadCreateExpr* node) {
 
     // pthread_t is typically *void; alloca space for the tid
     llvm::Type* ptrTy = llvm::PointerType::get(*context, 0);
-    llvm::Value* tidAlloca = builder->CreateAlloca(ptrTy, nullptr, "thr.tid");
+    llvm::Value* tidAlloca = entryAlloca(ptrTy, nullptr, "thr.tid");
 
     // pthread_create(pthread_t* tid, null, fn_ptr, env_ptr)
     llvm::Function* pthreadCreate = getOrDeclareFunc("pthread_create",
@@ -2898,7 +2905,7 @@ void CodeGen::visit(StructInitExpr* node) {
         throw std::runtime_error("Unknown struct: " + node->structName);
     llvm::StructType* st = structTypes[sname];
     // Temporary alloca — filled then loaded so caller can store it anywhere
-    llvm::Value* tmp = builder->CreateAlloca(st, nullptr, sname + ".init");
+    llvm::Value* tmp = entryAlloca(st, nullptr, sname + ".init");
     emitStructInitInto(tmp, node);
     exprValueStack.push(builder->CreateLoad(st, tmp));
 }
@@ -2964,7 +2971,7 @@ llvm::Value* CodeGen::boxAsInterface(const std::string& ifaceName,
     }
 
     // Alloca for the fat pointer
-    llvm::Value* fat = builder->CreateAlloca(fatType, nullptr, ifaceName + ".box");
+    llvm::Value* fat = entryAlloca(fatType, nullptr, ifaceName + ".box");
     // fat[0] = data ptr
     llvm::Value* d = builder->CreateStructGEP(fatType, fat, 0);
     builder->CreateStore(structPtr, d);
@@ -3035,7 +3042,7 @@ void CodeGen::visit(MatchStmt* node) {
 
     // Materialize the subject so tag + payload can be read by pointer.
     llvm::Value* sv = evaluateExpr(node->subject);
-    llvm::Value* sptr = builder->CreateAlloca(et, nullptr, "match.subj");
+    llvm::Value* sptr = entryAlloca(et, nullptr, "match.subj");
     builder->CreateStore(sv, sptr);
     llvm::Value* tag = builder->CreateLoad(i32, builder->CreateStructGEP(et, sptr, 0), "match.tag");
 
@@ -3063,7 +3070,7 @@ void CodeGen::visit(MatchStmt* node) {
             for (size_t b = 0; b < arm.bindings.size() && b < vfields.size(); ++b) {
                 llvm::Value* fp = builder->CreateStructGEP(vt, pay, b);
                 llvm::Value* val = builder->CreateLoad(vfields[b], fp, arm.bindings[b]);
-                llvm::Value* slot = builder->CreateAlloca(vfields[b], nullptr, arm.bindings[b]);
+                llvm::Value* slot = entryAlloca(vfields[b], nullptr, arm.bindings[b]);
                 builder->CreateStore(val, slot);
                 defineSymbol(arm.bindings[b], slot);
                 defineVarType(arm.bindings[b], substType(ed->payloads[vi][b], subs));
@@ -3228,7 +3235,7 @@ void CodeGen::visit(TemplateCallExpr* node) {
 
     auto sretIt = funcSretTypes.find(mangledName);
     if (sretIt != funcSretTypes.end()) {
-        llvm::Value* sretAlloca = builder->CreateAlloca(sretIt->second, nullptr, "sret.tmp");
+        llvm::Value* sretAlloca = entryAlloca(sretIt->second, nullptr, "sret.tmp");
         args.insert(args.begin(), sretAlloca);
         builder->CreateCall(func, args);
         exprValueStack.push(builder->CreateLoad(sretIt->second, sretAlloca));

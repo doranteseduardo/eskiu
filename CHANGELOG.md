@@ -7,6 +7,13 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
+## [Unreleased]
+
+### Compiler fixes
+- **Allocas are hoisted to the entry block.** A local declared inside a loop body emitted its `alloca` in the loop block, so the slot was re-reserved every iteration and never reclaimed until the function returned — a long-running loop with locals (e.g. `<base64>` encoding a multi-hundred-KB buffer) overflowed the stack and crashed. All stack-slot reservations now go in the function's entry block (stores stay at their original point); only the reservation hoists. Fixes `<base64>` on large inputs and any temp-heavy hot loop.
+
+---
+
 ## [0.2.0] — 2026-06-11
 
 Backend-services phase: async/await, the full HTTP/2 stack (framing, HPACK with
