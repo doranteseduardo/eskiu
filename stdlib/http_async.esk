@@ -1,0 +1,70 @@
+// http_async.esk — a non-blocking, concurrent HTTP/1.1 server over <eventloop>.
+//
+// Unlike <http>'s thread-per-connection http_serve, this runs on a single thread:
+// an accept loop spawns a detached handler per connection (so a slow request
+// never blocks the others) and the loop immediately goes back to accepting. Each
+// handler suspends on its own read instead of blocking. A channel acts as a
+// wait-group: every handler signals completion, and the server awaits all of them
+// before finishing — so shutdown is clean (no handler is cut off mid-response).
+//
+//   void hello(HttpRequest* req, HttpResponse* res) {
+//       HttpResponse_set_body(res, "hi\n");
+//   }
+//   int fd = net_tcp_listen(8080);
+//   EventLoop* lp = el_new(256);
+//   Future<uint8>* f = http_serve_async(lp, fd, hello, 1000);
+//   future_poll<uint8>(f, void(){ });   // drive: el_run(lp) until it completes
+
+import <mem>;
+import <future>;
+import <net_async>;
+import <eventloop>;
+import <channel>;
+import <net>;
+import <http>;
+import <string>;
+
+// One connection, handled to completion, then a completion signal on `done`.
+// Detached via `spawn`, so many run concurrently over the one event loop.
+async void http_conn_async(EventLoop* lp, int c,
+                           escaping fn(HttpRequest*, HttpResponse*)->void handler,
+                           Chan<int>* done) {
+    *uint8 buf = alloc<uint8>(8192);
+    int n = await net_read_async(lp, c, buf, (int64)8192);
+    if (n > 0) {
+        let req: HttpRequest;  HttpRequest_init(&req);
+        HttpRequest_parse(&req, buf, n);
+        let res: HttpResponse;  HttpResponse_init(&res, 200);
+        handler(&req, &res);
+        let out: String;  String_init(&out, 256);
+        HttpResponse_render(&res, &out);
+        net_send(c, (*void)String_cstr(&out), out.len);
+        String_free(&out);
+        HttpResponse_free(&res);
+        HttpRequest_free(&req);
+    }
+    net_close(c);
+    free((*void)buf);
+    chan_send<int>(done, 1);            // wait-group: this connection is done
+}
+
+// Accept and serve `max_conns` connections concurrently, then wait for every
+// spawned handler to finish (so the returned future completes only when all the
+// work is truly done). Pass a large count for a long-running server.
+async void http_serve_async(EventLoop* lp, int listen_fd,
+                            escaping fn(HttpRequest*, HttpResponse*)->void handler,
+                            int max_conns) {
+    Chan<int>* done = chan_new<int>(max_conns);
+    int accepted = 0;
+    while (accepted < max_conns) {
+        int c = await net_accept_async(lp, listen_fd);
+        spawn(http_conn_async(lp, c, handler, done));   // detached; runs concurrently
+        accepted = accepted + 1;
+    }
+    int finished = 0;
+    while (finished < max_conns) {
+        int sig = await chan_recv(done);                // wait-group join
+        finished = finished + 1;
+    }
+    chan_free<int>(done);
+}

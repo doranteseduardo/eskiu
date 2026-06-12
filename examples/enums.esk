@@ -1,0 +1,31 @@
+// enums.esk — algebraic data types (sum types) and `match`.
+//
+// An enum variant may carry a payload, making the enum a tagged union. `match`
+// destructures it, binding the payload per arm; the compiler checks the match is
+// exhaustive. Generic enums like Option<T> work the same way.
+extern int printf(string fmt, ...);
+
+// A shape: each variant carries its own data.
+enum Shape {
+    Circle(float),          // radius
+    Rect(float, float),     // width, height
+    Point                   // no payload
+}
+
+// area() dispatches on the variant and uses the bound payload fields.
+float area(Shape s) {
+    match s {
+        Circle(r)    -> { return 3.14159 * r * r; }
+        Rect(w, h)   -> { return w * h; }
+        Point        -> { return 0.0; }
+    }
+    return 0.0;
+}
+
+int main() {
+    Shape a = Circle(2.0);
+    Shape b = Rect(3.0, 4.0);
+    Shape c = Point;
+    printf("circle=%.2f rect=%.2f point=%.2f\n", area(a), area(b), area(c));
+    return 0;
+}

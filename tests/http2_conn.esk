@@ -1,0 +1,53 @@
+// HTTP/2 stage 2 — connection-lifecycle frame codecs: SETTINGS (write + apply
+// round-trip), the SETTINGS ACK frame, PING/PONG opaque round-trip, and GOAWAY
+// build/parse. Pure buffer codecs, so this runs without a socket.
+import <mem>;
+import <http2>;
+extern int printf(string fmt, ...);
+
+int main() {
+    *uint8 buf = alloc<uint8>(256);
+
+    // --- SETTINGS round-trip: write our settings, parse them back into a peer.
+    let local: H2Settings;  h2_settings_defaults(&local);
+    local.enable_push = 0;                 // a server disables push
+    local.max_concurrent_streams = (int64)100;
+    local.initial_window_size = (int64)1048576;
+    int n = h2_write_settings(buf, &local);
+
+    let hdr: H2Frame;  h2_read_header(buf, &hdr);
+    // 5 of 6 params present (max_header_list_size stays -1 => omitted): 5*6 = 30.
+    printf("%d %d %d %d\n", n, hdr.type, hdr.length, hdr.stream_id);   // 39 4 30 0
+
+    let peer: H2Settings;  h2_settings_defaults(&peer);
+    int rc = h2_apply_settings(&peer, buf + H2_FRAME_HEADER_LEN, hdr.length);
+    printf("%d %d %lld %lld\n", rc, peer.enable_push,
+           peer.max_concurrent_streams, peer.initial_window_size); // 0 0 100 1048576
+    // header_table_size was sent at its default, so it round-trips unchanged.
+    printf("%lld\n", peer.header_table_size);                       // 4096
+
+    // --- SETTINGS ACK: empty payload, ACK flag set.
+    int a = h2_write_settings_ack(buf);
+    let ah: H2Frame;  h2_read_header(buf, &ah);
+    printf("%d %d %d %d\n", a, ah.type, ah.length, ah.flags & H2_FLAG_ACK); // 9 4 0 1
+
+    // --- PING / PONG: 8 opaque bytes survive, ACK marks the response.
+    *uint8 opaque = alloc<uint8>(8);
+    int i = 0; while (i < 8) { opaque[i] = (uint8)(i + 1); i = i + 1; }
+    int pn = h2_write_ping(buf, opaque, 1);
+    let ph: H2Frame;  h2_read_header(buf, &ph);
+    int ok = 1; i = 0;
+    while (i < 8) { if (buf[H2_FRAME_HEADER_LEN + i] != (uint8)(i + 1)) { ok = 0; } i = i + 1; }
+    printf("%d %d %d %d\n", pn, ph.type, ph.flags & H2_FLAG_ACK, ok);  // 17 6 1 1
+
+    // --- GOAWAY: last-stream-id + error code round-trip.
+    int gn = h2_write_goaway(buf, 7, H2_PROTOCOL_ERROR, (*uint8)0, 0);
+    let gh: H2Frame;  h2_read_header(buf, &gh);
+    int last = 0;  int err = 0;
+    h2_read_goaway(buf + H2_FRAME_HEADER_LEN, gh.length, &last, &err);
+    printf("%d %d %d %d\n", gn, gh.type, last, err);                  // 17 7 7 1
+
+    free((*void)opaque);
+    free((*void)buf);
+    return 0;
+}

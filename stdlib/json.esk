@@ -1,0 +1,315 @@
+// json.esk — a complete JSON module: a builder (writer) and a parser (reader).
+//
+// Builder — `Json` accumulates text; separators are inserted automatically:
+//   let j: Json;  Json_init(&j);
+//   Json_obj_begin(&j);
+//     Json_key(&j, "name"); Json_str(&j, "Eskiu");
+//     Json_key(&j, "year"); Json_int(&j, 2026);
+//   Json_obj_end(&j);
+//   printf("%s\n", Json_cstr(&j));    // {"name":"Eskiu","year":2026}
+//   Json_free(&j);
+//
+// Parser — `json_parse` returns a `*JsonValue` tree (null on error):
+//   *JsonValue v = json_parse(text);
+//   *JsonValue name = JsonValue_get(v, "name");   // object lookup
+//   printf("%s\n", JsonValue_as_cstr(name));
+//   JsonValue_free(v);
+
+import <string>;
+
+extern double atof(string s);
+
+// ── Builder ──────────────────────────────────────────────────────────────────
+
+struct Json {
+    String buf;
+}
+
+void Json_init(Json* self)  { String_init(&self.buf, 64); }
+void Json_free(Json* self)  { String_free(&self.buf); }
+*char Json_cstr(Json* self) { return String_cstr(&self.buf); }
+
+// Insert a separating comma unless the last byte is an opener or a key colon.
+void Json_sep(Json* self) {
+    int n = self.buf.len;
+    if (n == 0) { return; }
+    char last = self.buf.data[n - 1];
+    if (last == 123 || last == 91 || last == 58 || last == 44) { return; } // { [ : ,
+    String_push(&self.buf, ',');
+}
+
+// Append a JSON string literal with the minimal required escaping.
+void Json_raw_str(Json* self, string s) {
+    String_push(&self.buf, '"');
+    let i: int = 0;
+    while (s[i] != 0) {
+        char c = s[i];
+        if (c == 34 || c == 92) { String_push(&self.buf, '\\'); }  // " or backslash
+        String_push(&self.buf, c);
+        i = i + 1;
+    }
+    String_push(&self.buf, '"');
+}
+
+void Json_obj_begin(Json* self) { Json_sep(self); String_push(&self.buf, '{'); }
+void Json_obj_end(Json* self)   { String_push(&self.buf, '}'); }
+void Json_arr_begin(Json* self) { Json_sep(self); String_push(&self.buf, '['); }
+void Json_arr_end(Json* self)   { String_push(&self.buf, ']'); }
+
+// Object key: emits "key": — the following value attaches without a comma.
+void Json_key(Json* self, string k) {
+    Json_sep(self);
+    Json_raw_str(self, k);
+    String_push(&self.buf, ':');
+}
+
+void Json_str(Json* self, string v) { Json_sep(self); Json_raw_str(self, v); }
+
+void Json_int(Json* self, int64 v) {
+    Json_sep(self);
+    let tmp: String;  String_init(&tmp, 24);
+    String_from_int(&tmp, (int)v);
+    String_append(&self.buf, String_cstr(&tmp));
+    String_free(&tmp);
+}
+
+void Json_bool(Json* self, int b) {
+    Json_sep(self);
+    if (b != 0) { String_append(&self.buf, "true"); }
+    else        { String_append(&self.buf, "false"); }
+}
+
+void Json_null(Json* self) { Json_sep(self); String_append(&self.buf, "null"); }
+
+// ── Parsed value tree ────────────────────────────────────────────────────────
+
+enum JsonKind { JNull, JBool, JNumber, JString, JArray, JObject }
+
+// A node uses first-child / next-sibling links, so arrays and objects need no
+// generic containers. Object members carry their `key`; everything else leaves
+// it empty. `str`/`key` own their buffers (data == null when unused).
+struct JsonValue {
+    int        kind;
+    double     num;       // JNumber
+    int        boolean;   // JBool
+    String     str;       // JString value
+    String     key;       // set when this node is an object member
+    *JsonValue child;     // first array element / object member
+    *JsonValue next;      // next sibling
+}
+
+*JsonValue JsonValue_new(int kind) {
+    *JsonValue v = alloc<JsonValue>(1);
+    v.kind = kind;
+    v.num = 0.0;
+    v.boolean = 0;
+    v.str.data = (*char)0; v.str.len = 0; v.str.cap = 0;
+    v.key.data = (*char)0; v.key.len = 0; v.key.cap = 0;
+    v.child = (*JsonValue)0;
+    v.next  = (*JsonValue)0;
+    return v;
+}
+
+// Recursively free a value tree (safe on null).
+void JsonValue_free(JsonValue* v) {
+    if (v == null) { return; }
+    JsonValue_free(v.child);
+    JsonValue_free(v.next);
+    if (v.str.data != null) { String_free(&v.str); }
+    if (v.key.data != null) { String_free(&v.key); }
+    free((*void)v);
+}
+
+int JsonValue_kind(JsonValue* v) { return v.kind; }
+
+// Number of array elements / object members.
+int JsonValue_len(JsonValue* v) {
+    int n = 0;
+    *JsonValue c = v.child;
+    while (c != null) { n = n + 1; c = c.next; }
+    return n;
+}
+
+// The i-th array element (or object member), or null if out of range.
+*JsonValue JsonValue_at(JsonValue* v, int i) {
+    *JsonValue c = v.child;
+    int j = 0;
+    while (c != null) {
+        if (j == i) { return c; }
+        j = j + 1;
+        c = c.next;
+    }
+    return (*JsonValue)0;
+}
+
+// The object member whose key equals `key`, or null.
+*JsonValue JsonValue_get(JsonValue* v, string key) {
+    *JsonValue c = v.child;
+    while (c != null) {
+        if (c.key.data != null && String_eq_cstr(&c.key, key) == 1) { return c; }
+        c = c.next;
+    }
+    return (*JsonValue)0;
+}
+
+int64  JsonValue_as_int(JsonValue* v)    { return (int64)v.num; }
+double JsonValue_as_double(JsonValue* v) { return v.num; }
+int    JsonValue_as_bool(JsonValue* v)   { return v.boolean; }
+*char  JsonValue_as_cstr(JsonValue* v)   { return String_cstr(&v.str); }
+
+// ── Parser (recursive descent) ───────────────────────────────────────────────
+
+struct JParser {
+    string src;
+    int    pos;
+    int    err;   // 0 = ok, 1 = malformed
+}
+
+void JParser_ws(JParser* self) {
+    while (1) {
+        char c = self.src[self.pos];
+        if (c == 32 || c == 9 || c == 10 || c == 13) { self.pos = self.pos + 1; }
+        else { return; }
+    }
+}
+
+// Read a quoted string (cursor must be on the opening quote) into `out`,
+// decoding the common escapes.
+void JParser_read_string(JParser* self, String* out) {
+    self.pos = self.pos + 1;   // skip opening quote
+    while (1) {
+        char c = self.src[self.pos];
+        if (c == 0)  { self.err = 1; return; }     // unterminated
+        if (c == 34) { self.pos = self.pos + 1; return; }   // closing quote
+        if (c == 92) {                              // backslash escape
+            self.pos = self.pos + 1;
+            char e = self.src[self.pos];
+            if      (e == 110) { String_push(out, '\n'); }
+            else if (e == 116) { String_push(out, '\t'); }
+            else if (e == 114) { String_push(out, '\r'); }
+            else               { String_push(out, e); }   // ", \, /, others
+            self.pos = self.pos + 1;
+        } else {
+            String_push(out, c);
+            self.pos = self.pos + 1;
+        }
+    }
+}
+
+double JParser_read_number(JParser* self) {
+    *char buf = alloc<char>(64);
+    int n = 0;
+    while (n < 63) {
+        char c = self.src[self.pos];
+        if (c == 45 || c == 43 || c == 46 || c == 101 || c == 69 ||
+            (c >= 48 && c <= 57)) {                 // - + . e E 0-9
+            buf[n] = c;
+            n = n + 1;
+            self.pos = self.pos + 1;
+        } else { break; }
+    }
+    buf[n] = 0;
+    double d = atof((string)buf);
+    free(buf);
+    return d;
+}
+
+*JsonValue JParser_value(JParser* self);   // forward (mutual recursion)
+
+*JsonValue JParser_array(JParser* self) {
+    *JsonValue arr = JsonValue_new(JArray);
+    self.pos = self.pos + 1;   // skip [
+    JParser_ws(self);
+    if (self.src[self.pos] == 93) { self.pos = self.pos + 1; return arr; }  // ]
+    *JsonValue tail = (*JsonValue)0;
+    while (1) {
+        *JsonValue elem = JParser_value(self);
+        if (self.err == 1) { return arr; }
+        if (arr.child == null) { arr.child = elem; } else { tail.next = elem; }
+        tail = elem;
+        JParser_ws(self);
+        char c = self.src[self.pos];
+        if (c == 44) { self.pos = self.pos + 1; }            // ,
+        else if (c == 93) { self.pos = self.pos + 1; return arr; }  // ]
+        else { self.err = 1; return arr; }
+    }
+    return arr;
+}
+
+*JsonValue JParser_object(JParser* self) {
+    *JsonValue obj = JsonValue_new(JObject);
+    self.pos = self.pos + 1;   // skip {
+    JParser_ws(self);
+    if (self.src[self.pos] == 125) { self.pos = self.pos + 1; return obj; }  // }
+    *JsonValue tail = (*JsonValue)0;
+    while (1) {
+        JParser_ws(self);
+        if (self.src[self.pos] != 34) { self.err = 1; return obj; }   // expect "
+        let k: String;  String_init(&k, 8);
+        JParser_read_string(self, &k);
+        JParser_ws(self);
+        if (self.src[self.pos] != 58) { self.err = 1; String_free(&k); return obj; }  // :
+        self.pos = self.pos + 1;
+        *JsonValue val = JParser_value(self);
+        if (self.err == 1) { String_free(&k); return obj; }
+        val.key.data = k.data;  val.key.len = k.len;  val.key.cap = k.cap;  // move key in
+        if (obj.child == null) { obj.child = val; } else { tail.next = val; }
+        tail = val;
+        JParser_ws(self);
+        char c = self.src[self.pos];
+        if (c == 44) { self.pos = self.pos + 1; }            // ,
+        else if (c == 125) { self.pos = self.pos + 1; return obj; }  // }
+        else { self.err = 1; return obj; }
+    }
+    return obj;
+}
+
+*JsonValue JParser_value(JParser* self) {
+    JParser_ws(self);
+    char c = self.src[self.pos];
+    if (c == 123) { return JParser_object(self); }   // {
+    if (c == 91)  { return JParser_array(self); }    // [
+    if (c == 34) {                                   // "
+        *JsonValue v = JsonValue_new(JString);
+        String_init(&v.str, 8);
+        JParser_read_string(self, &v.str);
+        return v;
+    }
+    if (c == 116) {   // true
+        *JsonValue v = JsonValue_new(JBool); v.boolean = 1;
+        self.pos = self.pos + 4;
+        return v;
+    }
+    if (c == 102) {   // false
+        *JsonValue v = JsonValue_new(JBool); v.boolean = 0;
+        self.pos = self.pos + 5;
+        return v;
+    }
+    if (c == 110) {   // null
+        *JsonValue v = JsonValue_new(JNull);
+        self.pos = self.pos + 4;
+        return v;
+    }
+    if (c == 45 || (c >= 48 && c <= 57)) {           // - or digit
+        *JsonValue v = JsonValue_new(JNumber);
+        v.num = JParser_read_number(self);
+        return v;
+    }
+    self.err = 1;
+    return (*JsonValue)0;
+}
+
+// Parse `src` into a value tree. Returns null on malformed input (any partial
+// tree is freed first). Free the result with JsonValue_free.
+*JsonValue json_parse(string src) {
+    let p: JParser;
+    p.src = src;
+    p.pos = 0;
+    p.err = 0;
+    *JsonValue v = JParser_value(&p);
+    if (p.err == 1) {
+        JsonValue_free(v);
+        return (*JsonValue)0;
+    }
+    return v;
+}

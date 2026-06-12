@@ -21,6 +21,7 @@ private:
     void visit(VarDecl* node) override;
     void visit(StructDecl* node) override;
     void visit(ExternDecl* node) override;
+    void visit(IntrinsicDecl* node) override;
     void visit(BlockStmt* node) override;
     void visit(IfStmt* node) override;
     void visit(ForStmt* node) override;
@@ -41,13 +42,16 @@ private:
     void visit(InterfaceDecl* node) override;
     void visit(ContinueStmt* node) override;
     void visit(SwitchStmt* node) override;
+    void visit(MatchStmt* node) override;
     void visit(StructInitExpr* node) override;
-    void visit(AllocExpr* node) override;
+    void visit(AllocWithExpr* node) override;
     void visit(TemplateCallExpr* node) override;
     void visit(LambdaExpr* node) override;
     void visit(AsmStmt* node) override;
     void visit(UnionDecl* node) override;
     void visit(SizeofExpr* node) override;
+    void visit(FreeClosureExpr* node) override;
+    void visit(AwaitExpr* node) override;
     void visit(ThreadCreateExpr* node) override;
     void visit(ThreadJoinStmt* node) override;
     void visit(ThrowStmt* node) override;

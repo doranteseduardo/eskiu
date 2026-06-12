@@ -1,0 +1,2 @@
+rc=0 max_streams=50
+got=42 first=4 second=4 ack=1

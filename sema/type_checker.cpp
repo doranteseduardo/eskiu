@@ -5,74 +5,17 @@
 #include <climits>
 #include <set>
 
-// ============================================================================
-// Template utilities (file-local helpers)
-// ============================================================================
-
-static std::string mangleTemplate(const std::string& type) {
-    // "Result<int,string>" → "Result_int_string"
-    std::string out;
-    for (char c : type) {
-        if (c == '<' || c == '>' || c == ',') out += '_';
-        else if (c != ' ')                   out += c;
-    }
-    while (!out.empty() && out.back() == '_') out.pop_back();
-    return out;
-}
-
-static std::pair<std::string, std::vector<std::string>>
-splitTemplateType(const std::string& type) {
-    size_t lt = type.find('<');
-    if (lt == std::string::npos) return {type, {}};
-    std::string name = type.substr(0, lt);
-    std::string inner = type.substr(lt + 1, type.size() - lt - 2);
-    std::vector<std::string> args;
-    int depth = 0; std::string cur;
-    for (char c : inner) {
-        if (c == '<') { depth++; cur += c; }
-        else if (c == '>') { depth--; cur += c; }
-        else if (c == ',' && depth == 0) { args.push_back(cur); cur.clear(); }
-        else cur += c;
-    }
-    if (!cur.empty()) args.push_back(cur);
-    return {name, args};
-}
-
-static std::string substType(const std::string& t,
-                             const std::map<std::string, std::string>& subs) {
-    auto it = subs.find(t);
-    if (it != subs.end()) return it->second;
-    if (!t.empty() && t.front() == '*') return "*" + substType(t.substr(1), subs);
-    if (!t.empty() && t.back()  == '*') return substType(t.substr(0, t.size()-1), subs) + "*";
-    size_t lb = t.rfind('[');
-    if (lb != std::string::npos && t.back() == ']')
-        return substType(t.substr(0, lb), subs) + t.substr(lb);
-    size_t lt = t.find('<');
-    if (lt != std::string::npos && t.back() == '>') {
-        std::string name  = t.substr(0, lt);
-        std::string inner = t.substr(lt + 1, t.size() - lt - 2);
-        std::vector<std::string> args;
-        int depth = 0; std::string cur;
-        for (char c : inner) {
-            if      (c == '<') { depth++; cur += c; }
-            else if (c == '>') { depth--; cur += c; }
-            else if (c == ',' && depth == 0) { args.push_back(substType(cur, subs)); cur.clear(); }
-            else cur += c;
-        }
-        if (!cur.empty()) args.push_back(substType(cur, subs));
-        std::string result = name + "<";
-        for (size_t i = 0; i < args.size(); ++i) { if (i) result += ","; result += args[i]; }
-        return result + ">";
-    }
-    return t;
-}
+// Template type-name utilities (mangleTemplate / splitTemplateType / substType)
+// are shared with codegen; see template_utils.h.
+#include "../template_utils.h"
+#include "../intrinsics.h"
+#include "../ast/ast_walk.h"
+#include "../ast/type_qual.h"
 
 // ============================================================================
 
 TypeChecker::TypeChecker() {
     pushScope();  // Global scope
-    // Pre-register C runtime builtins available without explicit extern
-    defineFunction("free", "void", {"..."});  // accepts any pointer
 }
 
 bool TypeChecker::check(Program* program) {
@@ -83,7 +26,22 @@ bool TypeChecker::check(Program* program) {
     for (const auto& decl : program->declarations) {
         if (auto enumDecl = dynamic_cast<EnumDecl*>(decl.get())) {
             enumTypes.insert(enumDecl->name);
-            for (const auto& m : enumDecl->members) enumConstants[m.first] = m.second;
+            if (enumDecl->isADT() && !enumDecl->typeParams.empty()) {
+                // Generic algebraic enum (Option<T>): a template; instances are
+                // monomorphized on use (normalizeType).
+                genericEnumDecls[enumDecl->name] = enumDecl;
+                for (size_t i = 0; i < enumDecl->members.size(); ++i)
+                    genericVariants[enumDecl->members[i].first] = {enumDecl->name, (int)i};
+            } else if (enumDecl->isADT()) {
+                // Algebraic enum: a tagged union, not int constants. Register each
+                // variant by name -> (enum, tag) for construction + match.
+                adtEnums.insert(enumDecl->name);
+                enumDecls[enumDecl->name] = enumDecl;
+                for (size_t i = 0; i < enumDecl->members.size(); ++i)
+                    adtVariants[enumDecl->members[i].first] = {enumDecl->name, (int)i};
+            } else {
+                for (const auto& m : enumDecl->members) enumConstants[m.first] = m.second;
+            }
             continue;
         }
         if (auto aliasDecl = dynamic_cast<TypeAliasDecl*>(decl.get())) {
@@ -130,13 +88,31 @@ bool TypeChecker::check(Program* program) {
             for (const auto& param : funcDecl->params) {
                 paramTypes.push_back(param.first);  // first = type, second = name
             }
-            defineFunction(funcDecl->name, funcDecl->returnType, paramTypes);
+            // An async fn's call expression yields *Future<T>; the declared T is
+            // the inner type the body returns (the transform wraps it). `async
+            // void` uses a 1-byte unit (uint8) as the future's value type.
+            std::string sigRet = funcDecl->returnType;
+            if (funcDecl->isAsync)
+                sigRet = "*Future<" + (funcDecl->returnType == "void" ? std::string("uint8")
+                                                                      : funcDecl->returnType) + ">";
+            defineFunction(funcDecl->name, sigRet, paramTypes);
+            functionParamEscaping[funcDecl->name] = funcDecl->paramEscaping;
         } else if (auto externDecl = dynamic_cast<ExternDecl*>(decl.get())) {
             std::vector<std::string> paramTypes;
             for (const auto& param : externDecl->params) {
                 paramTypes.push_back(param.first);  // first = type, second = name
             }
             defineFunction(externDecl->name, externDecl->returnType, paramTypes);
+            functionParamEscaping[externDecl->name] = externDecl->paramEscaping;
+        } else if (auto intrinDecl = dynamic_cast<IntrinsicDecl*>(decl.get())) {
+            // Intrinsics carry an ordinary signature; only codegen treats them
+            // specially (inline lowering instead of a call).
+            std::vector<std::string> paramTypes;
+            for (const auto& param : intrinDecl->params) {
+                paramTypes.push_back(param.first);
+            }
+            defineFunction(intrinDecl->name, intrinDecl->returnType, paramTypes);
+            functionParamEscaping[intrinDecl->name] = intrinDecl->paramEscaping;
         }
     }
 
@@ -175,16 +151,45 @@ void TypeChecker::visit(Program* node) {
     // This is called if someone visits it directly
 }
 
+// Approximate the on-screen width of an expression's leading token, so hover can
+// require the cursor to actually fall ON the expression rather than merely share
+// its line. Identifiers and literals have a clear single-token footprint; for
+// composite expressions we use width 1 (match only at their exact start column),
+// which lets a more specific child identifier/literal win.
+static int hoverSpanWidth(const Expr* e) {
+    if (auto* id = dynamic_cast<const IdentExpr*>(e))
+        return std::max(1, (int)id->name.size());
+    if (auto* lit = dynamic_cast<const LiteralExpr*>(e)) {
+        int n = (int)lit->value.size();
+        if (lit->kind == LiteralExpr::Kind::STRING ||
+            lit->kind == LiteralExpr::Kind::CHAR)
+            n += 2;  // surrounding quotes, which the cursor sits within
+        return std::max(1, n);
+    }
+    return 1;
+}
+
 std::string TypeChecker::getTypeAtPosition(int line, int col) const {
-    Expr* best = nullptr;
-    int   bestDist = INT_MAX;
+    // Return a type only when the cursor is within an expression's token span —
+    // never for keywords, type annotations, operators, or whitespace. Among the
+    // expressions that contain the cursor, prefer the narrowest (most specific).
+    int         bestWidth = INT_MAX;
+    std::string bestType;
     for (const auto& [node, type] : expressionTypes) {
         if (type == "unknown" || type.empty()) continue;
-        if (node->line != line) continue;
-        int dist = std::abs(node->col - col);
-        if (dist < bestDist) { bestDist = dist; best = node; }
+        if (node->line != line || node->col <= 0) continue;
+        int width = hoverSpanWidth(node);
+        if (col < node->col || col >= node->col + width) continue;
+        if (width < bestWidth) { bestWidth = width; bestType = type; }
     }
-    return best ? expressionTypes.at(best) : "";
+    // Declared names (variables, parameters) at their declaration site.
+    for (const auto& s : hoverSyms) {
+        if (s.type.empty() || s.line != line || s.col <= 0) continue;
+        int width = std::max(1, s.width);
+        if (col < s.col || col >= s.col + width) continue;
+        if (width < bestWidth) { bestWidth = width; bestType = s.type; }
+    }
+    return bestType;
 }
 
 std::string TypeChecker::getDefinitionAt(int line, int col) const {
@@ -220,21 +225,158 @@ std::string TypeChecker::getDefinitionAt(int line, int col) const {
     return "";
 }
 
+namespace {
+// Type-independent capture analysis for TEMPLATE function bodies.
+//
+// The normal capture detection (visit(IdentExpr)/visit(LambdaExpr)) runs as part
+// of type-checking, which skips template bodies (their expressions mention the
+// unresolved type parameter T). So a lambda inside a generic function would get
+// an empty capture list and miscompile ("Referring to an argument in another
+// function"). This pass fills that gap: a pure lexical scope + free-variable walk
+// (no types resolved, no diagnostics) that records, for each lambda, the
+// enclosing-scope names it references — with their SOURCE-form types (T intact).
+// Codegen's getTypeFromString already substitutes typeParamOverride, so a capture
+// typed `*Future<T>` becomes `*Future<int>` automatically per instantiation.
+//
+// Purely additive: it only writes LambdaExpr::captures, which were previously
+// empty for template-body lambdas, so it cannot affect non-template code.
+struct TemplateCapturePass {
+    std::vector<std::map<std::string, std::string>> scopes;  // name -> source type
+    struct Active { int boundary; std::map<std::string, std::string> caps; };
+    std::vector<Active> lambdas;
+
+    void define(const std::string& name, const std::string& srcType) {
+        if (!scopes.empty()) scopes.back()[name] = srcType;
+    }
+    int defIndex(const std::string& name) {
+        for (int i = (int)scopes.size() - 1; i >= 0; --i)
+            if (scopes[i].count(name)) return i;
+        return -1;   // not a tracked local -> a global or top-level fn (not captured)
+    }
+    void run(FunctionDecl* fn) {
+        scopes.push_back({});
+        for (auto& p : fn->params) define(p.second, p.first);  // params: (type, name)
+        walkStmt(fn->body.get());
+        scopes.pop_back();
+    }
+    void walkStmt(Stmt* s) {
+        if (!s) return;
+        if (auto* b = dynamic_cast<BlockStmt*>(s)) {
+            scopes.push_back({});
+            for (auto& it : b->items) {
+                if (std::holds_alternative<DeclPtr>(it)) {
+                    if (auto* vd = dynamic_cast<VarDecl*>(std::get<DeclPtr>(it).get())) {
+                        if (vd->initializer) walkExpr(vd->initializer.get());
+                        define(vd->name, vd->type);
+                    }
+                } else walkStmt(std::get<StmtPtr>(it).get());
+            }
+            scopes.pop_back(); return;
+        }
+        if (auto* i = dynamic_cast<IfStmt*>(s)) {
+            walkExpr(i->condition.get()); walkStmt(i->thenBranch.get()); walkStmt(i->elseBranch.get()); return;
+        }
+        if (auto* w = dynamic_cast<WhileStmt*>(s)) { walkExpr(w->condition.get()); walkStmt(w->body.get()); return; }
+        if (auto* f = dynamic_cast<ForStmt*>(s)) {
+            scopes.push_back({});
+            walkStmt(f->init.get()); walkExpr(f->condition.get()); walkExpr(f->step.get()); walkStmt(f->body.get());
+            scopes.pop_back(); return;
+        }
+        if (auto* fi = dynamic_cast<ForInStmt*>(s)) {
+            scopes.push_back({});
+            walkExpr(fi->iterable.get()); define(fi->varName, "");
+            walkStmt(fi->body.get());
+            scopes.pop_back(); return;
+        }
+        if (auto* r = dynamic_cast<ReturnStmt*>(s)) { walkExpr(r->value.get()); return; }
+        if (auto* es = dynamic_cast<ExprStmt*>(s)) { walkExpr(es->expr.get()); return; }
+        if (auto* sw = dynamic_cast<SwitchStmt*>(s)) {
+            walkExpr(sw->subject.get());
+            for (auto& c : sw->cases) { walkExpr(c.value.get()); for (auto& st : c.stmts) walkStmt(st.get()); }
+            return;
+        }
+        if (auto* th = dynamic_cast<ThrowStmt*>(s)) { walkExpr(th->value.get()); return; }
+        if (auto* tr = dynamic_cast<TryStmt*>(s)) {
+            walkStmt(tr->body.get());
+            for (auto& cc : tr->catches) { scopes.push_back({}); define(cc.name, cc.type); walkStmt(cc.body.get()); scopes.pop_back(); }
+            walkStmt(tr->finally.get()); return;
+        }
+        if (auto* tj = dynamic_cast<ThreadJoinStmt*>(s)) { walkExpr(tj->tid.get()); return; }
+        if (auto* a = dynamic_cast<AsmStmt*>(s)) { for (auto& in : a->inputs) walkExpr(in.second.get()); return; }
+        // BreakStmt / ContinueStmt: no children
+    }
+    void walkExpr(Expr* e) {
+        if (!e) return;
+        if (auto* id = dynamic_cast<IdentExpr*>(e)) {
+            int di = defIndex(id->name);
+            if (di >= 0)
+                for (auto& L : lambdas)
+                    if (di < L.boundary) L.caps[id->name] = scopes[di][id->name];
+            return;
+        }
+        if (auto* lam = dynamic_cast<LambdaExpr*>(e)) {
+            lambdas.push_back({(int)scopes.size(), {}});
+            scopes.push_back({});
+            std::set<std::string> params;
+            for (auto& p : lam->params) { define(p.second, p.first); params.insert(p.second); }
+            walkStmt(lam->body.get());
+            scopes.pop_back();
+            Active fin = lambdas.back(); lambdas.pop_back();
+            lam->captures.clear();
+            for (auto& [n, t] : fin.caps)
+                if (!params.count(n)) lam->captures.push_back({n, t});
+            return;
+        }
+        // IdentExpr and LambdaExpr are handled above (capture recording / scope
+        // boundary); every other expression just recurses into its children via
+        // the shared enumeration, so this pass can never miss a node type.
+        astwalk::forEachChildExpr(e, [&](ExprPtr& c) { walkExpr(c.get()); });
+    }
+};
+} // namespace
+
 void TypeChecker::visit(FunctionDecl* node) {
-    if (!node->typeParams.empty()) return; // Template body checked on instantiation
+    if (!node->typeParams.empty()) {
+        // Template body: type-checking is deferred to instantiation, but lambda
+        // captures must be resolved now (codegen has no equivalent pass). See
+        // TemplateCapturePass — purely additive, type-independent.
+        if (node->body) { TemplateCapturePass p; p.run(node); }
+        return;
+    }
 
     // Record definition location
     definitionLocations[node->name] = {node->line, node->col, sourceFile};
     // -Wall: track top-level functions for unused-function reporting (skip main).
     if (node->name != "main") definedFns[node->name] = {node->line, node->col};
 
-    currentFunctionReturnType = node->returnType;
+    currentFunctionReturnType = node->returnType;   // inner T (async body returns T)
+    bool prevInAsync = inAsyncFn;
+    inAsyncFn = node->isAsync;
+    bool prevAwaitSeen = awaitSeenInFn;
+    awaitSeenInFn = false;
     pushScope();
 
-    // Define parameters
+    // Define parameters (preserving a pointee-const qualifier so writing through
+    // a `const T*` parameter is caught; normalization otherwise strips const).
     for (const auto& param : node->params) {
-        defineSymbol(param.second, normalizeType(param.first),
-                     node->line, node->col, /*isParam=*/true);  // resolve aliases/enums
+        std::string pt = normalizeType(param.first);
+        if (tyq::baseConst(param.first) && tyq::isPtr(param.first)) pt = "const " + pt;
+        defineSymbol(param.second, pt, node->line, node->col, /*isParam=*/true);
+    }
+
+    // Escape-soundness: a non-`escaping` closure parameter may only be *called*.
+    // Any other use (returned, stored, passed as an argument, captured) lets the
+    // closure outlive the call, which is unsound unless its env is heap-allocated
+    // — so it must be marked `escaping`. Track such params and verify after the body.
+    std::set<std::string> prevWatch = nonEscapingFnParams;
+    std::set<std::string> prevEscaped = escapedFnParams;
+    nonEscapingFnParams.clear();
+    escapedFnParams.clear();
+    for (size_t i = 0; i < node->params.size(); ++i) {
+        const std::string& pty = node->params[i].first;
+        bool isFn = pty.size() > 3 && pty.substr(0, 3) == "fn(";
+        bool marked = i < node->paramEscaping.size() && node->paramEscaping[i];
+        if (isFn && !marked) nonEscapingFnParams.insert(node->params[i].second);
     }
 
     // Type check body
@@ -242,8 +384,33 @@ void TypeChecker::visit(FunctionDecl* node) {
         node->body->accept(this);
     }
 
+    // An `async fn` must contain at least one `await` — the state-machine
+    // transform needs a suspend point. Report here, where the location is known.
+    if (node->isAsync && !awaitSeenInFn) {
+        errorAt(node, "async function '" + node->name + "' has no `await`; "
+                      "remove `async` or add an `await`");
+    }
+    // A generic `async fn` is not supported: the coroutine frame is built once
+    // from the body's source types, so a type parameter (`T`) would not be
+    // substituted per instantiation. Reject it rather than miscompile.
+    if (node->isAsync && !node->typeParams.empty()) {
+        errorAt(node, "async function '" + node->name + "' cannot be generic; "
+                      "write a concrete async function or await a generic helper from it");
+    }
+
+    for (size_t i = 0; i < node->params.size(); ++i) {
+        if (escapedFnParams.count(node->params[i].second)) {
+            errorAt(node, "closure parameter '" + node->params[i].second +
+                "' escapes (used beyond a direct call); mark it `escaping`");
+        }
+    }
+    nonEscapingFnParams = prevWatch;
+    escapedFnParams = prevEscaped;
+
     popScope();
     currentFunctionReturnType = "";
+    inAsyncFn = prevInAsync;
+    awaitSeenInFn = prevAwaitSeen;
 }
 
 void TypeChecker::visit(VarDecl* node) {
@@ -253,17 +420,33 @@ void TypeChecker::visit(VarDecl* node) {
     if (node->initializer) {
         node->initializer->accept(this);
         std::string initType = getExpressionType(node->initializer.get());
-        if (initType != "unknown" && !isValidAssignment(node->type, initType)) {
-            warning(0, 0, "implicit conversion from " + initType + " to " + node->type);
+        if (initType != "unknown") {
+            if (tyq::dropsConst(node->type, initType))
+                errorAt(node, "cannot initialize '" + node->type + "' from '" + initType +
+                              "' — conversion discards a const qualifier");
+            else if (!isValidAssignment(node->type, initType))
+                warning(0, 0, "implicit conversion from " + initType + " to " + node->type);
         }
     }
+    // A const must be initialized — there is no later point to assign it.
+    if (node->isConst && !node->initializer) {
+        errorAt(node, "const '" + node->name + "' must be initialized");
+    }
+
     // Normalize the type (e.g., "Point" -> "struct:Point")
     std::string normalizedType = normalizeType(node->type);
 
     // Validate that struct types exist before use
     validateStructType(normalizedType);
 
-    defineSymbol(node->name, normalizedType, node->line, node->col, /*isParam=*/false);
+    // Preserve a pointee-const qualifier through normalization so the symbol
+    // remembers it's read-only (const checks read it back; everything else strips).
+    std::string storedType = normalizedType;
+    if (tyq::baseConst(node->type) && tyq::isPtr(node->type))
+        storedType = "const " + normalizedType;
+
+    defineSymbol(node->name, storedType, node->line, node->col, /*isParam=*/false);
+    if (node->isConst && !scopes.empty()) scopes.back()[node->name].isConst = true;
 }
 
 void TypeChecker::visit(StructDecl* node) {
@@ -286,6 +469,16 @@ void TypeChecker::visit(StructDecl* node) {
 void TypeChecker::visit(ExternDecl* node) {
     // Extern functions are already registered in first pass
     // Just verify they have valid signatures
+}
+
+void TypeChecker::visit(IntrinsicDecl* node) {
+    // `intrinsic` is a compiler-provided mechanism, not a user extension point:
+    // a name with no codegen lowering must be rejected here, not blow up later.
+    if (!isSupportedIntrinsic(node->name)) {
+        errorAt(node, "unknown intrinsic '" + node->name +
+            "': the compiler provides no lowering for it. `intrinsic` cannot "
+            "declare new operations — use `extern` for an external C symbol.");
+    }
 }
 
 void TypeChecker::visit(EnumDecl* node) {
@@ -346,6 +539,8 @@ void TypeChecker::visit(ForInStmt* node) {
     auto lb = itType.find('[');
     if (lb != std::string::npos && !itType.empty() && itType.back() == ']') {
         elemType = normalizeType(itType.substr(0, lb));      // fixed-size array
+        node->isArrayIter = true;
+        node->arrayDim = itType.substr(lb + 1, itType.size() - lb - 2);
     } else {
         std::string s = itType;
         if (s.rfind("struct:", 0) == 0) s = s.substr(7);
@@ -366,6 +561,7 @@ void TypeChecker::visit(ForInStmt* node) {
         }
     }
 
+    node->resolvedElemType = elemType;
     pushScope();
     if (elemType.empty()) {
         errorAt(node, "for-in expects a fixed-size array or a List-like value "
@@ -462,12 +658,40 @@ void TypeChecker::visit(BinaryExpr* node) {
     node->left->accept(this);
     node->right->accept(this);
 
+    // Assigning to a `const` binding, a field/element of a const value, or
+    // through a pointer-to-const (`const T*`) is an error. See assignsToConst.
+    if (node->op == "=") {
+        std::string cname;
+        if (assignsToConst(node->left.get(), cname))
+            errorAt(node, "cannot assign to read-only location '" + cname + "'");
+        std::string lt = getExpressionType(node->left.get());
+        std::string rt = getExpressionType(node->right.get());
+        if (tyq::dropsConst(lt, rt))
+            errorAt(node, "assignment discards a const qualifier ('" + rt + "' to '" + lt + "')");
+    }
+
     std::string leftType = getExpressionType(node->left.get());
     std::string rightType = getExpressionType(node->right.get());
 
     if (leftType == "unknown" || rightType == "unknown") {
         expressionTypes[node] = "unknown";
         return;
+    }
+
+    // -Wextra: comparing a signed and an unsigned integer is a classic bug source
+    // (the signed operand is converted to unsigned, so negatives become large).
+    if (warnExtra && (node->op == "<" || node->op == ">" || node->op == "<=" ||
+                      node->op == ">=" || node->op == "==" || node->op == "!=")) {
+        auto isUns = [](const std::string& t) {
+            return t == "uint" || t == "uint8" || t == "uint16" || t == "uint32" || t == "uint64";
+        };
+        auto isSgn = [](const std::string& t) {
+            return t == "int" || t == "int8" || t == "int16" || t == "int32" || t == "int64";
+        };
+        std::string l = normalizeType(leftType), r = normalizeType(rightType);
+        if ((isUns(l) && isSgn(r)) || (isSgn(l) && isUns(r)))
+            warning(node->line, node->col, "comparison between signed and unsigned integers ('" +
+                    leftType + "' and '" + rightType + "')");
     }
 
     std::string resultType = inferBinaryExprType(leftType, node->op, rightType);
@@ -533,6 +757,68 @@ void TypeChecker::visit(UnaryExpr* node) {
 }
 
 void TypeChecker::visit(CallExpr* node) {
+    // Variadic access builtins: va_start(ap) / va_end(ap) — void.
+    if (auto* bid = dynamic_cast<IdentExpr*>(node->callee.get())) {
+        if ((bid->name == "va_start" || bid->name == "va_end") && lookupSymbol(bid->name).empty()) {
+            for (auto& a : node->args) a->accept(this);
+            expressionTypes[node] = "void";
+            return;
+        }
+    }
+    // Algebraic variant construction: `Circle(2.0)`, `Some(x)`. The callee names a
+    // variant; the call yields the enum value, checking the payload field types.
+    if (auto cid = dynamic_cast<IdentExpr*>(node->callee.get())) {
+        auto vit = adtVariants.find(cid->name);
+        if (vit != adtVariants.end() && lookupSymbol(cid->name).empty()) {
+            const std::string& enumName = vit->second.first;
+            const auto& payload = enumDecls[enumName]->payloads[vit->second.second];
+            for (auto& a : node->args) a->accept(this);
+            if (node->args.size() != payload.size())
+                errorAt(node, "variant '" + cid->name + "' expects " +
+                    std::to_string(payload.size()) + " argument(s), got " +
+                    std::to_string(node->args.size()));
+            else
+                for (size_t i = 0; i < payload.size(); ++i) {
+                    std::string at = getExpressionType(node->args[i].get());
+                    if (at != "unknown" && !isValidAssignment(payload[i], at))
+                        errorAt(node, "variant '" + cid->name + "' argument " +
+                            std::to_string(i + 1) + " type mismatch");
+                }
+            expressionTypes[node] = enumName;
+            return;
+        }
+        // Bare generic-variant construction with inference: `Some(5)`. Infer the
+        // enum's type args by unifying the variant's payload against the arg types;
+        // if they don't fully determine the type, require explicit args (turbofish).
+        auto gvit = genericVariants.find(cid->name);
+        if (gvit != genericVariants.end() && lookupSymbol(cid->name).empty()) {
+            EnumDecl* ge = genericEnumDecls[gvit->second.first];
+            const auto& payload = ge->payloads[gvit->second.second];
+            for (auto& a : node->args) a->accept(this);
+            std::set<std::string> tps(ge->typeParams.begin(), ge->typeParams.end());
+            std::map<std::string, std::string> subs;
+            for (size_t i = 0; i < payload.size() && i < node->args.size(); ++i) {
+                std::string at = getExpressionType(node->args[i].get());
+                if (at != "unknown" && !at.empty()) unifyTypeParam(payload[i], at, tps, subs);
+            }
+            bool allBound = true;
+            for (const auto& tp : ge->typeParams) if (!subs.count(tp)) allBound = false;
+            if (!allBound) {
+                errorAt(node, "cannot infer type arguments for variant '" + cid->name +
+                    "'; write them explicitly, e.g. " + cid->name + "<...>(...)");
+                expressionTypes[node] = "unknown";
+                return;
+            }
+            if (node->args.size() != payload.size())
+                errorAt(node, "variant '" + cid->name + "' expects " +
+                    std::to_string(payload.size()) + " argument(s), got " + std::to_string(node->args.size()));
+            std::string inst = gvit->second.first + "<";
+            for (size_t i = 0; i < ge->typeParams.size(); ++i) { if (i) inst += ","; inst += subs[ge->typeParams[i]]; }
+            inst += ">";
+            expressionTypes[node] = normalizeType(inst);
+            return;
+        }
+    }
     // Method call: callee is MemberExpr (e.g. p.distance(q))
     if (auto member = dynamic_cast<MemberExpr*>(node->callee.get())) {
         member->base->accept(this);
@@ -586,6 +872,16 @@ void TypeChecker::visit(CallExpr* node) {
                 return;
             }
         }
+        // Not a method — maybe a struct field holding a fn pointer: o.op(args).
+        member->accept(this);
+        std::string fieldTy = getExpressionType(member);
+        if (fieldTy.size() > 3 && fieldTy.substr(0, 3) == "fn(") {
+            for (auto& arg : node->args) arg->accept(this);
+            size_t rp = fieldTy.find(")->");
+            expressionTypes[node] = (rp != std::string::npos)
+                ? normalizeType(fieldTy.substr(rp + 3)) : "unknown";
+            return;
+        }
         errorAt(node,"undefined method '" + member->member + "' on type '" + baseType + "'");
         expressionTypes[node] = "unknown";
         return;
@@ -607,6 +903,14 @@ void TypeChecker::visit(CallExpr* node) {
     {
         std::string varType = lookupSymbol(funcName);
         if (!varType.empty() && varType.size() > 3 && varType.substr(0, 3) == "fn(") {
+            // The callee is a fn-pointer *variable*. Visit it so that, inside a
+            // lambda, an outer-scope fn pointer used in callee position is
+            // registered as a capture (visit(CallExpr) otherwise resolves the
+            // name directly and never reaches visit(IdentExpr)).
+            // calleeContext marks this occurrence as a *call* of the var, so a
+            // watched closure param used here is not counted as escaping.
+            { std::string prev = calleeContext; calleeContext = funcName;
+              node->callee->accept(this); calleeContext = prev; }
             // Extract return type from fn(T,...)->R
             size_t rp = varType.find(")->");
             std::string retType = (rp != std::string::npos) ? varType.substr(rp + 3) : "unknown";
@@ -668,9 +972,22 @@ void TypeChecker::visit(CallExpr* node) {
         return;
     }
 
+    // Per-param escaping flags for this callee (empty if none declared).
+    auto escIt = functionParamEscaping.find(funcName);
+    const std::vector<bool>* escVec =
+        (escIt != functionParamEscaping.end() && !escIt->second.empty())
+            ? &escIt->second : nullptr;
+
     // Type check fixed arguments; visit (but do not type-check) variadic extras
     for (size_t i = 0; i < node->args.size(); ++i) {
         node->args[i]->accept(this);
+        // Escape optimization: a lambda passed directly to a NON-escaping
+        // parameter does not outlive the call (the callee may only call it —
+        // enforced by the soundness check), so its env can stay on the stack.
+        if (auto* lam = dynamic_cast<LambdaExpr*>(node->args[i].get())) {
+            bool paramEscapes = escVec && i < escVec->size() && (*escVec)[i];
+            if (!paramEscapes) lam->escapes = false;
+        }
         if (i < fixedCount) {
             std::string argType = getExpressionType(node->args[i].get());
             if (argType != "unknown" && !isValidAssignment(expectedParamTypes[i], argType)) {
@@ -798,11 +1115,27 @@ void TypeChecker::visit(IdentExpr* node) {
     // -Wall: a function referenced as a value counts as used.
     if (functionSignatures.count(node->name)) calledFns.insert(node->name);
 
+    // Escape soundness: a watched closure param referenced anywhere other than
+    // as the immediate callee of a call escapes (see visit(FunctionDecl)).
+    if (nonEscapingFnParams.count(node->name) && node->name != calleeContext)
+        escapedFnParams.insert(node->name);
+
     std::string type = lookupSymbol(node->name);
     if (type.empty() && enumConstants.count(node->name)) {
         // Bare enum member, e.g. `Red` — an int constant.
         expressionTypes[node] = "int";
         useLocations[{node->line, node->col}] = node->name;
+        return;
+    }
+    if (type.empty() && adtVariants.count(node->name)) {
+        // Bare algebraic variant, e.g. `None` — constructs the enum value. Variants
+        // with a payload must be called (`Some(x)`), handled in visit(CallExpr).
+        auto& info = adtVariants[node->name];
+        const auto& payload = enumDecls[info.first]->payloads[info.second];
+        if (!payload.empty())
+            errorAt(node, "variant '" + node->name + "' needs " +
+                std::to_string(payload.size()) + " argument(s)");
+        expressionTypes[node] = info.first;     // the enum value type
         return;
     }
     // A top-level function used as a value decays to a `fn(params)->ret` pointer.
@@ -827,17 +1160,21 @@ void TypeChecker::visit(IdentExpr* node) {
     // Record use-site so go-to-definition can map cursor → definition
     useLocations[{node->line, node->col}] = node->name;
 
-    // Capture detection: if we are inside a lambda body, check whether this
-    // identifier is defined in an outer scope (not the lambda's own scope).
+    // Capture detection: inside a lambda, a name is captured when it resolves to
+    // a variable in an enclosing scope (below the lambda's own scopes). We key off
+    // the variable's defining scope index, NOT functionSignatures — a param or
+    // local that shadows a same-named top-level function must still be captured.
     if (!captureStack.empty() && !type.empty()) {
-        // The lambda pushed one scope then defined its params. A variable is
-        // "outer" if it exists in scopes below the lambda's own top scope.
-        // The lambda's scope is scopes.back(). Look deeper.
-        if (scopes.size() >= 2) {
-            bool inLambdaScope = scopes.back().count(node->name) > 0;
-            if (!inLambdaScope && !functionSignatures.count(node->name)) {
-                captureStack.back()[node->name] = type;
-            }
+        int boundary = captureBoundary.back();
+        int defIdx = -1;
+        for (int si = (int)scopes.size() - 1; si >= 0; --si) {
+            if (scopes[si].count(node->name)) { defIdx = si; break; }
+        }
+        // Capture only enclosing-function scopes: index >= 1 (the global scope
+        // at 0 is module-level and accessed directly, not captured by value)
+        // and below the lambda's own boundary.
+        if (defIdx >= 1 && defIdx < boundary) {
+            captureStack.back()[node->name] = type;
         }
     }
 }
@@ -854,7 +1191,7 @@ void TypeChecker::visit(LambdaExpr* node) {
     // Push a capture collector before entering the lambda scope.
     // visit(IdentExpr) will add outer-scope vars to captureStack.back().
     captureStack.push_back({});
-    int outerScopeCount = (int)scopes.size();
+    captureBoundary.push_back((int)scopes.size());   // scopes below this are "outer"
 
     pushScope();
     std::string savedReturn = currentFunctionReturnType;
@@ -878,6 +1215,7 @@ void TypeChecker::visit(LambdaExpr* node) {
             node->captures.push_back({name, type});
     }
     captureStack.pop_back();
+    captureBoundary.pop_back();
 
     expressionTypes[node] = sig;
 }
@@ -909,6 +1247,49 @@ void TypeChecker::visit(SizeofExpr* node) {
     expressionTypes[node] = "int64";
 }
 
+void TypeChecker::visit(AwaitExpr* node) {
+    if (!inAsyncFn)
+        errorAt(node, "await is only allowed inside an async function");
+    awaitSeenInFn = true;
+    node->operand->accept(this);
+    std::string t = getExpressionType(node->operand.get());
+
+    // Strip pointer decorators: the operand should be *Future<T> (or Future<T>*).
+    std::string inner = t;
+    while (!inner.empty() && inner.front() == '*') inner = inner.substr(1);
+    while (!inner.empty() && inner.back()  == '*') inner.pop_back();
+
+    // A `*Future<T>` reaches here in two spellings — source form (`Future<int>`,
+    // from a plain function) or already-mangled (`struct:Future_int`, from a
+    // template call whose return type went through normalizeType). Normalizing
+    // once collapses both to `struct:Future_int` AND registers the reverse map, so
+    // a single lookup recovers T regardless of how the future was produced.
+    std::string base;
+    std::vector<std::string> args;
+    std::string norm = normalizeType(inner);
+    if (norm.rfind("struct:", 0) == 0) {
+        auto ti = templateInstanceArgs.find(norm.substr(7));  // "Future_int"
+        if (ti != templateInstanceArgs.end()) { base = ti->second.first; args = ti->second.second; }
+    }
+    if (base == "Future") {
+        std::string res = (args.size() == 1) ? normalizeType(args[0]) : "unknown";
+        expressionTypes[node] = res;
+        node->resolvedType = res;          // consumed by the async transform
+    } else {
+        if (t != "unknown")
+            errorAt(node, "await expects a *Future<T>, got " + t);
+        expressionTypes[node] = "unknown";
+    }
+}
+
+void TypeChecker::visit(FreeClosureExpr* node) {
+    node->closure->accept(this);
+    std::string t = getExpressionType(node->closure.get());
+    if (t != "unknown" && !(t.size() > 3 && t.substr(0, 3) == "fn("))
+        errorAt(node, "free_closure expects a closure (fn(...)->R), got " + t);
+    expressionTypes[node] = "void";
+}
+
 void TypeChecker::visit(ThreadCreateExpr* node) {
     node->worker->accept(this);
     expressionTypes[node] = "*void";
@@ -936,6 +1317,75 @@ void TypeChecker::visit(TryStmt* node) {
     if (node->finally) node->finally->accept(this);
 }
 
+void TypeChecker::visit(MatchStmt* node) {
+    node->subject->accept(this);
+    std::string st = normalizeType(getExpressionType(node->subject.get()));
+    // Resolve the enum decl + (for a generic instance like Option_int) the type-
+    // parameter substitutions, so payload types come out concrete.
+    EnumDecl* ed = nullptr;
+    std::map<std::string, std::string> subs;
+    if (enumDecls.count(st)) {
+        ed = enumDecls[st];                                  // concrete ADT enum
+    } else if (templateInstanceArgs.count(st)) {             // generic instance
+        auto& inst = templateInstanceArgs[st];
+        auto git = genericEnumDecls.find(inst.first);
+        if (git != genericEnumDecls.end()) {
+            ed = git->second;
+            for (size_t i = 0; i < ed->typeParams.size() && i < inst.second.size(); ++i)
+                subs[ed->typeParams[i]] = inst.second[i];
+        }
+    }
+    if (!ed && st != "unknown")
+        errorAt(node, "match subject must be an algebraic enum, got " + st);
+    node->enumName = st;
+    // Index of a variant within `ed` by name (-1 if absent).
+    auto variantIndex = [&](const std::string& v) -> int {
+        if (!ed) return -1;
+        for (size_t i = 0; i < ed->members.size(); ++i)
+            if (ed->members[i].first == v) return (int)i;
+        return -1;
+    };
+    bool hasDefault = false;
+    std::set<std::string> covered;
+    for (size_t ai = 0; ai < node->arms.size(); ++ai) {
+        auto& arm = node->arms[ai];
+        if (arm.variant.empty()) {
+            hasDefault = true;
+            if (ai + 1 < node->arms.size())   // arms after `_` can never match
+                warning(node->line, node->col, "match arms after the `_` default are unreachable");
+        }
+        else if (!covered.insert(arm.variant).second)
+            errorAt(node, "duplicate match arm for variant '" + arm.variant + "'");
+        pushScope();
+        if (!arm.variant.empty() && ed) {
+            int vi = variantIndex(arm.variant);
+            if (vi < 0) {
+                errorAt(node, "'" + arm.variant + "' is not a variant of " + st);
+            } else {
+                const auto& payload = ed->payloads[vi];
+                if (arm.bindings.size() != payload.size())
+                    errorAt(node, "variant '" + arm.variant + "' binds " +
+                        std::to_string(payload.size()) + " field(s), got " +
+                        std::to_string(arm.bindings.size()));
+                for (size_t i = 0; i < arm.bindings.size() && i < payload.size(); ++i)
+                    defineSymbol(arm.bindings[i], normalizeType(substType(payload[i], subs)),
+                                 node->line, node->col, /*isParam=*/false);
+            }
+        }
+        if (arm.body) arm.body->accept(this);
+        popScope();
+    }
+    // Exhaustiveness: without a `_` default, every variant must be covered.
+    if (ed && !hasDefault) {
+        std::string missing;
+        for (const auto& m : ed->members)
+            if (!covered.count(m.first)) missing += (missing.empty() ? "" : ", ") + m.first;
+        if (!missing.empty())
+            errorAt(node, "non-exhaustive match on " + st + ": missing " + missing +
+                          " (add those arms or a `_` default)");
+    }
+}
+
 void TypeChecker::visit(SwitchStmt* node) {
     node->subject->accept(this);
     std::string subjType = getExpressionType(node->subject.get());
@@ -959,6 +1409,40 @@ void TypeChecker::visit(SwitchStmt* node) {
 }
 
 void TypeChecker::visit(TemplateCallExpr* node) {
+    // Variadic access: va_arg<T>(ap) yields the next argument as T.
+    if (node->templateName == "va_arg" && node->typeArgs.size() == 1) {
+        for (auto& a : node->args) a->accept(this);
+        expressionTypes[node] = normalizeType(node->typeArgs[0]);
+        return;
+    }
+    // Generic algebraic-variant construction with explicit type args:
+    // `Some<int>(5)`, `Left<int,string>(x)`, `None<int>()`.
+    auto gv = genericVariants.find(node->templateName);
+    if (gv != genericVariants.end()) {
+        EnumDecl* ge = genericEnumDecls[gv->second.first];
+        std::map<std::string, std::string> subs;
+        for (size_t i = 0; i < ge->typeParams.size() && i < node->typeArgs.size(); ++i)
+            subs[ge->typeParams[i]] = node->typeArgs[i];
+        const auto& payload = ge->payloads[gv->second.second];
+        for (auto& a : node->args) a->accept(this);
+        if (node->args.size() != payload.size())
+            errorAt(node, "variant '" + node->templateName + "' expects " +
+                std::to_string(payload.size()) + " argument(s), got " + std::to_string(node->args.size()));
+        else
+            for (size_t i = 0; i < payload.size(); ++i) {
+                std::string want = normalizeType(substType(payload[i], subs));
+                std::string at = getExpressionType(node->args[i].get());
+                if (at != "unknown" && !isValidAssignment(want, at))
+                    errorAt(node, "variant '" + node->templateName + "' argument " +
+                        std::to_string(i + 1) + " type mismatch");
+            }
+        // Build the instance type name (Option<int>) and normalize -> Option_int.
+        std::string inst = gv->second.first + "<";
+        for (size_t i = 0; i < node->typeArgs.size(); ++i) { if (i) inst += ","; inst += node->typeArgs[i]; }
+        inst += ">";
+        expressionTypes[node] = normalizeType(inst);
+        return;
+    }
     auto templ = funcTemplateDecls.find(node->templateName);
     if (templ == funcTemplateDecls.end()) {
         errorAt(node,"undefined template function '" + node->templateName + "'");
@@ -984,11 +1468,12 @@ void TypeChecker::visit(TemplateCallExpr* node) {
     expressionTypes[node] = retType;
 }
 
-void TypeChecker::visit(AllocExpr* node) {
+void TypeChecker::visit(AllocWithExpr* node) {
+    node->allocator->accept(this);
     node->count->accept(this);
     std::string countType = getExpressionType(node->count.get());
     if (countType != "unknown" && !isIntType(countType))
-        errorAt(node,"alloc count must be integer, got " + countType);
+        errorAt(node,"alloc_with count must be integer, got " + countType);
     expressionTypes[node] = "*" + node->elemType;
 }
 
@@ -1056,6 +1541,63 @@ void TypeChecker::popScope() {
     scopes.pop_back();
 }
 
+bool TypeChecker::isConstSymbol(const std::string& name) const {
+    for (auto it = scopes.rbegin(); it != scopes.rend(); ++it) {
+        auto f = it->find(name);
+        if (f != it->end()) return f->second.isConst;
+    }
+    return false;
+}
+
+bool TypeChecker::assignsToConst(Expr* lhs, std::string& nameOut) {
+    Expr* cur = lhs;
+    // Root identifier of an expression, for a readable diagnostic.
+    auto rootName = [](Expr* e) -> std::string {
+        while (e) {
+            if (auto* id = dynamic_cast<IdentExpr*>(e)) return id->name;
+            if (auto* u = dynamic_cast<UnaryExpr*>(e))  { e = u->operand.get(); continue; }
+            if (auto* m = dynamic_cast<MemberExpr*>(e)) { e = m->base.get();    continue; }
+            if (auto* ix = dynamic_cast<IndexExpr*>(e)) { e = ix->base.get();   continue; }
+            return "";
+        }
+        return "";
+    };
+    while (cur) {
+        if (auto* id = dynamic_cast<IdentExpr*>(cur)) {
+            if (isConstSymbol(id->name)) { nameOut = id->name; return true; }
+            return false;
+        }
+        // Dereference: `*p = x` writes the pointee — illegal if it is const.
+        if (auto* u = dynamic_cast<UnaryExpr*>(cur)) {
+            if (u->op == "*" && tyq::baseConst(getPointeeType(getExpressionType(u->operand.get())))) {
+                nameOut = rootName(u->operand.get()); return true;
+            }
+            return false;
+        }
+        // Member/element of a *value* aggregate keeps the same const root and we
+        // keep walking; through a pointer it writes the pointee, which is illegal
+        // only if that pointee (the struct/element) is const.
+        if (auto* m = dynamic_cast<MemberExpr*>(cur)) {
+            std::string bt = getExpressionType(m->base.get());
+            if (tyq::isPtr(bt)) {
+                if (tyq::baseConst(getPointeeType(bt))) { nameOut = m->member; return true; }
+                return false;
+            }
+            cur = m->base.get(); continue;
+        }
+        if (auto* ix = dynamic_cast<IndexExpr*>(cur)) {
+            std::string bt = getExpressionType(ix->base.get());
+            if (tyq::isPtr(bt)) {
+                if (tyq::baseConst(getPointeeType(bt))) { nameOut = rootName(ix->base.get()); return true; }
+                return false;
+            }
+            cur = ix->base.get(); continue;
+        }
+        return false;  // calls, etc. — not an in-place const mutation
+    }
+    return false;
+}
+
 void TypeChecker::defineSymbol(const std::string& name, const std::string& type) {
     defineSymbol(name, type, 0, 0, false);
 }
@@ -1067,6 +1609,15 @@ void TypeChecker::defineSymbol(const std::string& name, const std::string& type,
         s.type = type; s.isDeclared = true;
         s.used = false; s.line = line; s.col = col; s.isParam = isParam;
         scopes.back()[name] = s;
+    }
+    // Record a hover span for the declared name (col points at the name token).
+    // Parameters are excluded: the parser stamps them at the *function's*
+    // position, not the parameter's, so a span there would be wrong. Parameter
+    // uses inside the body still hover correctly via expression types.
+    if (line > 0 && !isParam) {
+        std::string disp = type;
+        if (disp.rfind("struct:", 0) == 0) disp = disp.substr(7);  // display "Point", not "struct:Point"
+        hoverSyms.push_back({line, col, (int)name.size(), disp});
     }
 }
 
@@ -1109,11 +1660,6 @@ std::string TypeChecker::inferBinaryExprType(const std::string& leftType, const 
     if ((op == "+" || op == "-") && isPointerType(leftType) && isIntType(rightType)) {
         return leftType;
     }
-    // Bitwise/shift ops work on integers of any width
-    if (op == "&" || op == "|" || op == "^" || op == "<<" || op == ">>") {
-        if (isIntType(leftType) && isIntType(rightType)) return promoteType(leftType, rightType);
-        return "error";
-    }
     if (!isNumericType(leftType) || !isNumericType(rightType)) {
         return "error";
     }
@@ -1151,6 +1697,12 @@ void TypeChecker::validateStructType(const std::string& type) {
     // Function pointer types are always valid
     if (type.size() > 3 && type.substr(0, 3) == "fn(") return;
     std::string baseType = type;
+    // Strip a fixed-size array suffix (T[N]) — the element type is what matters
+    // here; the dimension (a literal, enum, or const) is resolved in codegen.
+    if (!baseType.empty() && baseType.back() == ']') {
+        size_t lb = baseType.rfind('[');
+        if (lb != std::string::npos) baseType = baseType.substr(0, lb);
+    }
     // Strip ALL pointer decorators (*T, T*, **T, etc.)
     bool stripped = true;
     while (stripped && !baseType.empty()) {
@@ -1168,11 +1720,13 @@ void TypeChecker::validateStructType(const std::string& type) {
         if (structs.find(structName) == structs.end()) {
             error(0, 0, "undefined struct '" + structName + "'");
         }
-    } else if (!isPrimitiveType(baseType)) {
-        // Check if it's an unknown type that might be a struct
-        // Primitive types: i8, i16, i32, i64, u8, u16, u32, u64, f32, f64, bool
-        if (structs.find(baseType) == structs.end()) {
-            // Not a primitive, not a known struct -> might be undefined struct
+    } else if (!isPrimitiveType(baseType) && baseType != "va_list") {
+        // Valid if it's a known struct, type alias, or enum type — anything else
+        // is an undefined type. (Aliases/enums are resolved later in codegen.)
+        if (structs.find(baseType) == structs.end() &&
+            typeAliases.find(baseType) == typeAliases.end() &&
+            enumTypes.find(baseType) == enumTypes.end() &&
+            adtEnums.find(baseType) == adtEnums.end()) {     // incl. generic enum instances
             error(0, 0, "undefined struct '" + baseType + "'");
         }
     }
@@ -1192,6 +1746,10 @@ static bool structSatisfiesInterface(
 }
 
 bool TypeChecker::isValidAssignment(const std::string& lhsType, const std::string& rhsType) {
+    // const-correctness: reject a conversion that would silently drop a pointee
+    // const (`const int*` → `int*`). Adding const (`int*` → `const int*`) is fine.
+    if (tyq::dropsConst(lhsType, rhsType)) return false;
+
     // Normalize both sides so "Point" == "struct:Point"
     std::string lhs = normalizeType(lhsType);
     std::string rhs = normalizeType(rhsType);
@@ -1220,7 +1778,8 @@ bool TypeChecker::isNumericType(const std::string& type) {
     return isIntType(type) || isFloatType(type);
 }
 
-bool TypeChecker::isIntType(const std::string& type) {
+bool TypeChecker::isIntType(const std::string& rawType) {
+    std::string type = tyq::strip(rawType);
     return type == "int"   || type == "int8"  || type == "int16"  ||
            type == "int32" || type == "int64" ||
            type == "uint"  || type == "uint8" || type == "uint16" ||
@@ -1228,22 +1787,35 @@ bool TypeChecker::isIntType(const std::string& type) {
            type == "char"  || type == "bool";
 }
 
-bool TypeChecker::isFloatType(const std::string& type) {
+bool TypeChecker::isFloatType(const std::string& rawType) {
+    std::string type = tyq::strip(rawType);
     return type == "float" || type == "double";
 }
 
-bool TypeChecker::isPrimitiveType(const std::string& type) {
+bool TypeChecker::isPrimitiveType(const std::string& rawType) {
+    std::string type = tyq::strip(rawType);
     if (type.size() > 3 && type.substr(0, 3) == "fn(") return true;
     return isNumericType(type) || type == "void" || type == "string";
 }
 
-bool TypeChecker::isPointerType(const std::string& type) {
+bool TypeChecker::isPointerType(const std::string& rawType) {
+    std::string type = tyq::strip(rawType);
     return !type.empty() && (type[0] == '*' || type.back() == '*' || type == "string");
 }
 
 std::string TypeChecker::getPointeeType(const std::string& pointerType) {
-    if (isPointerType(pointerType)) {
+    // Accept both pointer spellings: *T (canonical) and T* (trailing-star).
+    // The pointee's own const is preserved (a `const int*` derefs to `const int`).
+    if (pointerType.size() >= 6 && pointerType.compare(pointerType.size() - 6, 6, "*const") == 0)
+        return pointerType.substr(0, pointerType.size() - 6);
+    if (!pointerType.empty() && pointerType.back() == '*')
+        return pointerType.substr(0, pointerType.size() - 1);
+    // leading-star spelling: const sits before the star(s), e.g. "const *int"
+    if (!pointerType.empty() && pointerType.front() == '*')
         return pointerType.substr(1);
+    if (tyq::baseConst(pointerType)) {
+        std::string inner = pointerType.substr(6);
+        if (!inner.empty() && inner.front() == '*') return "const " + inner.substr(1);
     }
     return "";
 }
@@ -1288,17 +1860,32 @@ void TypeChecker::unifyTypeParam(std::string pattern, std::string concrete,
         unifyTypeParam(pargs[i], cargs[i], tps, subs);
 }
 
-std::string TypeChecker::normalizeType(const std::string& type) {
+std::string TypeChecker::normalizeType(const std::string& rawType) {
+    // const has no bearing on identity/layout — strip it so the rest of the
+    // type machinery is const-agnostic. (const survives only in stored declared
+    // types, read back by the const-correctness checks.)
+    std::string type = tyq::strip(rawType);
     if (hasPointerSuffix(type)) {
         return addPointerSuffix(normalizeType(extractBaseType(type)));
     }
     // Resolve a type alias to its underlying type.
     if (auto it = typeAliases.find(type); it != typeAliases.end())
         return normalizeType(it->second);
-    // An enum type is an integer.
+    // A classic enum is an integer; an algebraic enum is its own value type.
+    if (adtEnums.count(type)) return type;
     if (enumTypes.count(type)) return "int";
     if (type.find("struct:") == 0 || type.find("interface:") == 0) {
         return type;
+    }
+    // Generic algebraic enum instance: Option<int> → the value type "Option_int".
+    if (type.find('<') != std::string::npos) {
+        auto [gname, gargs] = splitTemplateType(type);
+        if (genericEnumDecls.count(gname)) {
+            std::string mangled = mangleTemplate(type);
+            templateInstanceArgs[mangled] = {gname, gargs};   // resolved back for match/construction
+            adtEnums.insert(mangled);                          // a distinct value type
+            return mangled;
+        }
     }
     // Template instantiation: Result<int,string> → struct:Result_int_string
     if (type.find('<') != std::string::npos) {
@@ -1330,7 +1917,8 @@ std::string TypeChecker::normalizeType(const std::string& type) {
 }
 
 // Type promotion
-std::string TypeChecker::promoteType(const std::string& type1, const std::string& type2) {
+std::string TypeChecker::promoteType(const std::string& raw1, const std::string& raw2) {
+    std::string type1 = tyq::strip(raw1), type2 = tyq::strip(raw2);
     if (type1 == type2) return type1;
     if (type1 == "double"  || type2 == "double")  return "double";
     if (type1 == "float"   || type2 == "float")   return "float";

@@ -1,0 +1,14 @@
+import <time>;
+
+extern int printf(string fmt, ...);
+
+int main() {
+    int64 a = time_monotonic_ms();
+    sleep_ms(30);
+    int64 b = time_monotonic_ms();
+    if (b - a >= 20) { printf("slept\n"); } else { printf("nosleep\n"); }
+    // Wall clock is well past 2023 (1_000_000_000_000 ms).
+    if (time_now_ms() > 1000000000000) { printf("epoch_ok\n"); }
+    if (time_now_s()  > 1000000000)    { printf("secs_ok\n"); }
+    return 0;
+}

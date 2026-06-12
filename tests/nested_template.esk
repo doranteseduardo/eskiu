@@ -1,0 +1,20 @@
+// Regression: a template function calling another template with the type
+// parameter forwarded (here alloc<T>/sizeof(T) inside esz<T>). The inner
+// instantiation must bind T to the outer's concrete type, and must not wipe
+// the outer template's substitutions. Before the fix, T defaulted to i32, so
+// esz<uint8> returned 4 instead of 1.
+import <mem>;
+
+extern int printf(string fmt, ...);
+
+int64 esz<T>(int64 n) {
+    *T p = alloc<T>(n);
+    free((*void)p);
+    return sizeof(T);
+}
+
+int main() {
+    printf("uint8=%lld int=%lld double=%lld\n",
+           esz<uint8>(2), esz<int>(2), esz<double>(2));
+    return 0;
+}

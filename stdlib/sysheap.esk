@@ -1,0 +1,64 @@
+// sysheap.esk — a general-purpose heap backed by OS pages, with no libc malloc.
+//
+// This is how "real" systems allocators work (Zig's page_allocator, jemalloc, the
+// Go runtime): get raw pages straight from the kernel via `mmap`, then run our own
+// allocator (`<alloc>`'s FirstFit) on top. The allocation *logic* is ours — libc
+// `malloc` is never called. (`mmap` itself is a libc syscall wrapper; for a build
+// with no libc symbols at all, use `--freestanding` and supply your own
+// `esk_alloc` over a fixed region — see `kernel/alloc.esk`.)
+//
+//   let h: Heap;
+//   if (heap_init(&h, 1024 * 1024)) {                 // 1 MB straight from the OS
+//       *int xs = (*int)heap_alloc(&h, sizeof(int) * 16);
+//       // ... use xs ...
+//       heap_free(&h, (*void)xs);
+//       heap_destroy(&h);                             // returns the pages to the OS
+//   }
+
+import <alloc>;
+
+extern *void mmap(*void addr, int64 length, int prot, int flags, int fd, int64 offset);
+extern int   munmap(*void addr, int64 length);
+
+// PROT_READ|PROT_WRITE = 3 (same on Linux and macOS). The anonymous-private flags
+// differ: macOS MAP_PRIVATE(0x0002)|MAP_ANON(0x1000); Linux uses MAP_ANONYMOUS(0x0020).
+#ifdef __APPLE__
+int _sys_map_flags = 4098;     // 0x1002
+#else
+int _sys_map_flags = 34;       // 0x0022
+#endif
+
+// Map `length` bytes of fresh zeroed read/write memory from the kernel, or null.
+// mmap reports failure as MAP_FAILED (== (void*)-1), not null — check both.
+*uint8 sys_pages(int64 length) {
+    *void p = mmap((*void)0, length, 3, _sys_map_flags, -1, (int64)0);
+    int64 pv = (int64)p;
+    if (pv == 0 || pv == -1) { return (*uint8)0; }
+    return (*uint8)p;
+}
+
+void sys_unpages(*uint8 p, int64 length) { munmap((*void)p, length); }
+
+// A general-purpose heap: one OS mapping with FirstFit allocation over it.
+struct Heap {
+    FirstFit ff;
+    *uint8   base;
+    int64    size;
+}
+
+// Map `size` bytes from the OS and arm a FirstFit allocator over them. Returns
+// false if the mapping failed.
+bool heap_init(Heap* self, int64 size) {
+    *uint8 mem = sys_pages(size);
+    if (mem == (*uint8)0) { return false; }
+    self.base = mem;
+    self.size = size;
+    FirstFit_init(&self.ff, mem, size);
+    return true;
+}
+
+*void heap_alloc(Heap* self, int64 nbytes) { return FirstFit_alloc(&self.ff, nbytes); }
+void  heap_free(Heap* self, *void p)        { FirstFit_free(&self.ff, p); }
+
+// Return all the heap's pages to the OS. Frees everything at once.
+void heap_destroy(Heap* self) { sys_unpages(self.base, self.size); }

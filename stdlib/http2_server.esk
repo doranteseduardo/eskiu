@@ -1,0 +1,376 @@
+// http2_server.esk — HTTP/2 (h2c, cleartext) server over the async event loop.
+//
+// Drives a connection through the opening handshake, then a frame-dispatch loop:
+// SETTINGS/PING/WINDOW_UPDATE/GOAWAY housekeeping plus request handling. Streams
+// are multiplexed — interleaved request frames are routed to per-stream slots and
+// each completes when its END_STREAM arrives. A completed request (a HEADERS
+// block, optionally followed by DATA) is HPACK-decoded into <http>'s HttpRequest,
+// passed to the user handler, and the HttpResponse is encoded back as a HEADERS
+// frame plus the body in flow-controlled, MAX_FRAME_SIZE-bounded DATA frames. The
+// handler interface matches the HTTP/1.1 <http_async> server, so the same
+// handlers serve both. For h2 over TLS, see <tls>.
+//
+//   void hello(HttpRequest* req, HttpResponse* res) {
+//       HttpResponse_set_body(res, "hi\n");
+//   }
+//   int fd = net_tcp_listen(8080);
+//   EventLoop* lp = el_new(256);
+//   Future<uint8>* f = http2_serve_async(lp, fd, hello, 1000);
+
+import <mem>;
+import <future>;
+import <eventloop>;
+import <net_async>;
+import <net>;
+import <channel>;
+import <http2>;
+import <hpack>;
+import <http>;
+import <string>;
+
+extern int memcmp(*void a, *void b, int n);
+extern int strlen(string s);
+
+// True if a decoded header's name equals the cstring `name`.
+int h2_name_eq(HpackHeader* h, string name) {
+    int n = strlen(name);
+    if (h.nlen != n) { return 0; }
+    return memcmp((*void)h.name, (*void)name, n) == 0;
+}
+
+// Set a String to the `n` bytes at `p`.
+void h2_str_set_bytes(String* s, *uint8 p, int n) {
+    String_clear(s);
+    int i = 0;
+    while (i < n) { String_push(s, (char)p[i]); i = i + 1; }
+}
+
+// Populate an HttpRequest from decoded HPACK headers: the :method / :path
+// pseudo-headers map to the request fields; ordinary headers are appended to the
+// header block as "name: value\n" (pseudo-headers — names starting with ':' —
+// are not). The version is reported as HTTP/2.0.
+void h2_fill_request(HttpRequest* req, HpackHeader* hs, int n) {
+    String_from(&req.version, "HTTP/2.0");
+    int i = 0;
+    while (i < n) {
+        if (h2_name_eq(&hs[i], ":method") != 0) {
+            h2_str_set_bytes(&req.method, hs[i].value, hs[i].vlen);
+        } else if (h2_name_eq(&hs[i], ":path") != 0) {
+            h2_str_set_bytes(&req.path, hs[i].value, hs[i].vlen);
+        } else if (hs[i].nlen > 0 && hs[i].name[0] != (uint8)58) {   // 58 = ':'
+            int j = 0;
+            while (j < hs[i].nlen) { String_push(&req.headers, (char)hs[i].name[j]); j = j + 1; }
+            String_append(&req.headers, ": ");
+            j = 0;
+            while (j < hs[i].vlen) { String_push(&req.headers, (char)hs[i].value[j]); j = j + 1; }
+            String_push(&req.headers, (char)10);                    // '\n'
+        }
+        i = i + 1;
+    }
+}
+
+// HPACK-encode the handler's response headers (the "Key: Value\r\n" block) into
+// `block` at *off, lowercasing each key (HTTP/2 requires lowercase names).
+void h2_encode_resp_headers(*uint8 block, int* off, HttpResponse* res) {
+    *char data = String_cstr(&res.headers);
+    int len = String_len(&res.headers);
+    int i = 0;
+    while (i < len) {
+        int ks = i;
+        while (i < len && data[i] != (char)58) { i = i + 1; }       // ':'
+        int ke = i;
+        if (i < len) { i = i + 1; }
+        while (i < len && data[i] == (char)32) { i = i + 1; }       // skip ' '
+        int vs = i;
+        while (i < len && data[i] != (char)13) { i = i + 1; }       // until CR
+        int ve = i;
+        if (i + 1 < len && data[i] == (char)13 && data[i + 1] == (char)10) { i = i + 2; }
+        else { i = len; }
+        int klen = ke - ks;
+        if (klen > 0) {
+            *uint8 key = alloc<uint8>(klen);
+            int j = 0;
+            while (j < klen) {
+                int c = (int)data[ks + j];
+                if (c >= 65 && c <= 90) { c = c + 32; }              // to lowercase
+                key[j] = (uint8)c;
+                j = j + 1;
+            }
+            *off = hpack_encode_header(block, *off, key, klen, (*uint8)(data + vs), ve - vs);
+            free((*void)key);
+        }
+    }
+}
+
+// Build just the response HEADERS frame (`:status`, `content-length`, then the
+// handler's headers) into `out`; END_HEADERS set, END_STREAM not (a body follows).
+// Returns the frame length.
+int h2_build_headers(*uint8 out, int stream_id, HttpResponse* res) {
+    *uint8 block = alloc<uint8>(8192);
+    int off = 0;
+
+    let st: String;  String_init(&st, 8);  String_from_int(&st, res.status);
+    off = hpack_encode_header(block, off, (*uint8)":status", 7,
+                              (*uint8)String_cstr(&st), String_len(&st));
+    String_free(&st);
+
+    let cl: String;  String_init(&cl, 16);  String_from_int(&cl, String_len(&res.body));
+    off = hpack_encode_header(block, off, (*uint8)"content-length", 14,
+                              (*uint8)String_cstr(&cl), String_len(&cl));
+    String_free(&cl);
+
+    h2_encode_resp_headers(block, &off, res);
+    int n = h2_write_headers(out, stream_id, block, off, 0, 1);
+    free((*void)block);
+    return n;
+}
+
+// Build a complete response on `stream_id` into `out` (must be large enough):
+// the HEADERS frame followed by the body as MAX_FRAME_SIZE-bounded DATA frames
+// (last carries END_STREAM). Returns the total byte count. Transport-agnostic;
+// the blocking TLS server uses this. The async server uses h2_respond_async,
+// which adds flow control.
+int h2_build_response(*uint8 out, int stream_id, HttpResponse* res) {
+    int total = h2_build_headers(out, stream_id, res);
+
+    // Body as DATA frames, each no larger than the default SETTINGS_MAX_FRAME_SIZE
+    // (16384) — a single frame may not exceed it. Only the final frame carries
+    // END_STREAM; an empty body still sends one empty END_STREAM frame.
+    int blen = String_len(&res.body);
+    *uint8 body = (*uint8)String_cstr(&res.body);
+    int sent = 0;
+    int more = 1;
+    while (more != 0) {
+        int n = blen - sent;
+        if (n > 16384) { n = 16384; }
+        int last = 0;
+        if (sent + n >= blen) { last = 1; }
+        total = total + h2_write_data(out + total, stream_id, body + sent, n, last);
+        sent = sent + n;
+        if (last != 0) { more = 0; }
+    }
+    return total;
+}
+
+// Send a response on `stream_id` over the async connection with flow control:
+// the HEADERS frame, then the body in MAX_FRAME_SIZE chunks that each spend the
+// stream and connection send windows. When a window is exhausted, read frames
+// (applying WINDOW_UPDATE) until it reopens. `rbuf`/`rbufcap` is scratch for
+// those reads. Returns 0, or -1 if the connection drops. The peer's per-stream
+// initial window comes from its SETTINGS.
+async int h2_respond_async(EventLoop* lp, H2Conn* conn, int sid, HttpResponse* res,
+                           *uint8 rbuf, int rbufcap) {
+    *uint8 hb = alloc<uint8>(8704);
+    int hn = h2_build_headers(hb, sid, res);
+    int hw = await net_write_async(lp, conn.fd, hb, (int64)hn);
+    free((*void)hb);
+    if (hw < 0) { return -1; }
+
+    let stream: H2Stream;
+    h2_stream_init(&stream, sid, (int)conn.remote.initial_window_size, 65535);
+    int blen = String_len(&res.body);
+    *uint8 body = (*uint8)String_cstr(&res.body);
+    *uint8 df = alloc<uint8>(16384 + 9);
+    int sent = 0;
+    int more = 1;
+    while (more != 0) {
+        // Flow control: wait until at least one byte of window is available on
+        // BOTH the stream and the connection, reading WINDOW_UPDATE frames that
+        // replenish them. (A zero-length body skips this and sends one empty
+        // END_STREAM frame — empty DATA does not consume the window.)
+        while (blen - sent > 0 && h2_can_send(conn, &stream, 1) == 0) {
+            let wf: H2Frame;
+            int wl = await h2_read_frame_async(lp, conn.fd, rbuf, rbufcap, &wf);
+            if (wl < 0) { free((*void)df); return -1; }
+            if (wf.type == H2_WINDOW_UPDATE) {
+                int inc = h2_read_window_update(rbuf + 9);
+                if (wf.stream_id == 0) { h2_grant_window(conn, (H2Stream*)0, inc); }
+                else { h2_grant_window(conn, &stream, inc); }
+            }
+        }
+        // Send as much as the frame size AND the available windows allow.
+        int n = blen - sent;
+        if (n > 16384) { n = 16384; }
+        if (n > stream.send_window) { n = stream.send_window; }
+        if (n > conn.send_window)   { n = conn.send_window; }
+        int last = 0;
+        if (sent + n >= blen) { last = 1; }
+        int dn = h2_write_data(df, sid, body + sent, n, last);
+        int dw = await net_write_async(lp, conn.fd, df, (int64)dn);
+        if (dw < 0) { free((*void)df); return -1; }
+        h2_account_sent(conn, &stream, n);
+        sent = sent + n;
+        if (last != 0) { more = 0; }
+    }
+    free((*void)df);
+    return 0;
+}
+
+// Upper bound on the encoded size of a response: header block + body + a 9-byte
+// frame header per DATA chunk + slack. Callers size their buffer with this.
+int h2_response_bufsize(HttpResponse* res) {
+    int blen = String_len(&res.body);
+    int chunks = blen / 16384 + 2;
+    return 8192 + blen + 9 * chunks + 64;
+}
+
+// Encode and send a response on `stream_id` over the connection's socket.
+void h2_send_response(H2Conn* conn, int stream_id, HttpResponse* res) {
+    *uint8 out = alloc<uint8>(h2_response_bufsize(res));
+    int n = h2_build_response(out, stream_id, res);
+    net_send(conn.fd, (*void)out, (int64)n);
+    free((*void)out);
+}
+
+// A request being assembled for one open stream. HTTP/2 multiplexes streams, so
+// a client may interleave several requests' frames on one connection — each is
+// accumulated in its own slot until END_STREAM completes it.
+struct H2PendingStream {
+    int id;          // stream id (valid while active)
+    int active;      // 1 while this slot holds an in-progress request
+    HttpRequest req;
+}
+
+// Find the slot for stream `id`; if `alloc` and none exists, return a free slot.
+// Returns -1 if not found / no free slot.
+int h2_stream_slot(*H2PendingStream s, int n, int id, int alloc) {
+    int i = 0;  int free_i = -1;
+    while (i < n) {
+        if (s[i].active != 0 && s[i].id == id) { return i; }
+        if (s[i].active == 0 && free_i < 0) { free_i = i; }
+        i = i + 1;
+    }
+    if (alloc != 0) { return free_i; }
+    return -1;
+}
+
+// Run the handler for a fully-received request on `sid` and send the response
+// (flow-controlled). Returns h2_respond_async's status.
+async int h2_complete_request_async(EventLoop* lp, H2Conn* conn, int sid, HttpRequest* req,
+                                    escaping fn(HttpRequest*, HttpResponse*)->void handler,
+                                    *uint8 rbuf, int rbufcap) {
+    let res: HttpResponse;  HttpResponse_init(&res, 200);
+    handler(req, &res);
+    int ow = await h2_respond_async(lp, conn, sid, &res, rbuf, rbufcap);
+    HttpResponse_free(&res);
+    return ow;
+}
+
+// Drive one connection: handshake, then dispatch frames until GOAWAY or EOF.
+// Streams are multiplexed — interleaved request frames are routed to per-stream
+// slots and completed (handler + response) when END_STREAM arrives. Responses
+// are still serialized on the connection (one writer), which is correct and
+// avoids concurrent writes to the same socket.
+async void http2_serve_conn_async(EventLoop* lp, int fd,
+                                  escaping fn(HttpRequest*, HttpResponse*)->void handler,
+                                  Chan<int>* done) {
+    let conn: H2Conn;  h2_conn_init(&conn, fd);
+    int hs = await h2_server_handshake_async(lp, &conn);
+    if (hs == 0) {
+        let dec: HpackDecoder;  hpack_decoder_init(&dec, (int64)4096);
+        int FBCAP = 16384 + H2_FRAME_HEADER_LEN;        // hold a full MAX_FRAME_SIZE payload + header
+        *uint8 fb = alloc<uint8>(FBCAP);
+        *HpackHeader harr = alloc<HpackHeader>(64);
+        int MAXS = 128;
+        *H2PendingStream streams = alloc<H2PendingStream>(MAXS);
+        int si = 0;  while (si < MAXS) { streams[si].active = 0; si = si + 1; }
+        int running = 1;
+        while (running != 0) {
+            let hdr: H2Frame;
+            int plen = await h2_read_frame_async(lp, fd, fb, FBCAP, &hdr);
+            if (plen < 0) {
+                running = 0;
+            } else if (hdr.type == H2_HEADERS) {
+                int slot = h2_stream_slot(streams, MAXS, hdr.stream_id, 1);
+                if (slot >= 0) {
+                    if (streams[slot].active == 0) {
+                        streams[slot].active = 1;  streams[slot].id = hdr.stream_id;
+                        HttpRequest_init(&streams[slot].req);
+                    }
+                    int boff = 0;  int blen = 0;
+                    h2_headers_fragment(&hdr, fb + 9, &boff, &blen);   // skip PADDED/PRIORITY
+                    int nh = hpack_decode(&dec, fb + 9 + boff, blen, harr, 64);
+                    conn.last_stream_id = hdr.stream_id;
+                    if (nh < 0) { running = 0; }            // COMPRESSION_ERROR — close
+                    else if (nh > 0) { h2_fill_request(&streams[slot].req, harr, nh); }
+                    if ((hdr.flags & H2_FLAG_END_STREAM) != 0) {
+                        int ow = await h2_complete_request_async(lp, &conn, hdr.stream_id,
+                                                                 &streams[slot].req, handler, fb, FBCAP);
+                        HttpRequest_free(&streams[slot].req);  streams[slot].active = 0;
+                        if (ow < 0) { running = 0; }
+                    }
+                } else {
+                    // HPACK is stateful, so a dropped HEADERS must still be decoded
+                    // to keep the dynamic table in sync.
+                    int boff = 0;  int blen = 0;
+                    h2_headers_fragment(&hdr, fb + 9, &boff, &blen);
+                    int nh = hpack_decode(&dec, fb + 9 + boff, blen, harr, 64);
+                }
+            } else if (hdr.type == H2_DATA) {
+                int slot = h2_stream_slot(streams, MAXS, hdr.stream_id, 0);
+                if (slot >= 0) {
+                    int k = 0;
+                    while (k < hdr.length) { String_push(&streams[slot].req.body, (char)fb[9 + k]); k = k + 1; }
+                    if ((hdr.flags & H2_FLAG_END_STREAM) != 0) {
+                        int ow = await h2_complete_request_async(lp, &conn, hdr.stream_id,
+                                                                 &streams[slot].req, handler, fb, FBCAP);
+                        HttpRequest_free(&streams[slot].req);  streams[slot].active = 0;
+                        if (ow < 0) { running = 0; }
+                    }
+                }
+            } else if (hdr.type == H2_SETTINGS) {
+                if ((hdr.flags & H2_FLAG_ACK) == 0) {
+                    *uint8 a = alloc<uint8>(9);
+                    int an = h2_write_settings_ack(a);
+                    int w = await net_write_async(lp, fd, a, (int64)an);
+                    free((*void)a);
+                }
+            } else if (hdr.type == H2_PING) {
+                if ((hdr.flags & H2_FLAG_ACK) == 0) {
+                    *uint8 pb = alloc<uint8>(17);
+                    int pn2 = h2_write_ping(pb, fb + 9, 1);
+                    int w = await net_write_async(lp, fd, pb, (int64)pn2);
+                    free((*void)pb);
+                }
+            } else if (hdr.type == H2_WINDOW_UPDATE) {
+                // Connection-level credit (stream 0). Clients send a large one
+                // early; applying it lets big responses flow past the 65535
+                // default window. Stream-level updates are handled mid-response.
+                if (hdr.stream_id == 0) {
+                    h2_grant_window(&conn, (H2Stream*)0, h2_read_window_update(fb + 9));
+                }
+            } else if (hdr.type == H2_GOAWAY) {
+                running = 0;
+            }
+            // RST_STREAM and other frames need no action for this server.
+        }
+        int sf = 0;
+        while (sf < MAXS) { if (streams[sf].active != 0) { HttpRequest_free(&streams[sf].req); } sf = sf + 1; }
+        free((*void)streams);
+        free((*void)harr);
+        free((*void)fb);
+        hpack_decoder_free(&dec);
+    }
+    net_close(fd);
+    chan_send<int>(done, 1);
+}
+
+// Accept and serve `max_conns` connections concurrently (each detached), then
+// wait for all to finish — mirroring <http_async>'s http_serve_async.
+async void http2_serve_async(EventLoop* lp, int listen_fd,
+                             escaping fn(HttpRequest*, HttpResponse*)->void handler,
+                             int max_conns) {
+    Chan<int>* done = chan_new<int>(max_conns);
+    int accepted = 0;
+    while (accepted < max_conns) {
+        int c = await net_accept_async(lp, listen_fd);
+        spawn(http2_serve_conn_async(lp, c, handler, done));
+        accepted = accepted + 1;
+    }
+    int finished = 0;
+    while (finished < max_conns) {
+        int sig = await chan_recv(done);
+        finished = finished + 1;
+    }
+    chan_free<int>(done);
+}

@@ -1,0 +1,25 @@
+// closures.esk — lambdas, higher-order functions, and capture.
+//
+// A lambda `R (params) { ... }` is a value of fn-pointer type fn(params)->R. It
+// can capture variables from the enclosing scope; passed to a higher-order
+// function, it carries its captured environment with it.
+extern int printf(string fmt, ...);
+
+// Higher-order: apply `f` to each of 1..n and sum the results.
+int sum_map(int n, fn(int)->int f) {
+    int total = 0;
+    for (i in 1..n + 1) { total = total + f(i); }
+    return total;
+}
+
+int main() {
+    // A non-capturing lambda.
+    int squares = sum_map(4, int (int x) { return x * x; });   // 1+4+9+16 = 30
+    printf("squares=%d\n", squares);
+
+    // A capturing lambda: `factor` is captured from main's scope.
+    int factor = 10;
+    int scaled = sum_map(3, int (int x) { return x * factor; }); // 10+20+30 = 60
+    printf("scaled=%d\n", scaled);
+    return 0;
+}

@@ -7,11 +7,26 @@ Reference glossary of terms used in Eskiu documentation and compiler source code
 **Abstract Syntax Tree (AST)**
 Tree-structured representation of a program's syntactic form after parsing. Each node corresponds to a language construct such as a function declaration, binary expression, or loop. The type checker and code generator both traverse the AST using the visitor pattern. See also: ASTVisitor, parser.
 
+**algebraic data type (ADT)**
+A type formed as a tagged choice between several variants, some of which may carry payload data — also called a sum type or tagged union. In Eskiu an `enum` with one or more payload-bearing variants is an ADT, laid out as `{ tag, payload }` and destructured with an exhaustive `match`. See also: enum, tagged union, match.
+
 **alloca**
 LLVM IR instruction that allocates space on the stack frame of the current function and returns a pointer to it. Every local variable in Eskiu compiles to an `alloca` in the function's entry block, followed by `store`/`load` instructions. Stack allocations are automatically reclaimed when the function returns.
 
+**ALPN (Application-Layer Protocol Negotiation)**
+A TLS handshake extension by which the client offers a list of protocols and the server selects one. The `<tls>` module installs an ALPN callback that selects `"h2"`, the way browsers negotiate HTTP/2 over TLS. See also: HTTP/2, TLS.
+
+**async**
+A function modifier (`async int f(...)`) marking a function that may suspend at `await` points. A call to an async function does not run it to completion; it yields a `*Future<T>` handle to the eventual result. The compiler lowers each async function into a resumable state-machine coroutine. See also: await, Future, coroutine.
+
 **ASTVisitor**
 Abstract base class that defines a `visit` method for each AST node type. Concrete subclasses (e.g., `TypeChecker`, `CodeGen`) implement these methods to traverse the tree without embedding logic inside the node classes themselves. See also: visitor pattern.
+
+**atomic**
+An operation on a shared memory cell that completes indivisibly with respect to other threads. The `<atomic>` module exposes `atomic_load`/`atomic_store`/`atomic_swap`/`atomic_cas` on an `int` cell, declared `intrinsic` and lowered to LLVM atomics with fixed acquire/release ordering. See also: intrinsic, executor.
+
+**await**
+An expression (`await E`) that suspends the enclosing `async` function until the future `E` completes, then evaluates to its result. `E` must have type `*Future<T>` and `await E` has type `T`. It is legal only inside an `async` function. See also: async, Future, coroutine.
 
 ## B
 
@@ -21,6 +36,9 @@ Maximal sequence of LLVM IR instructions with no branches except at the end. Eve
 **binary operator**
 An operator that takes exactly two operands. Eskiu supports arithmetic (`+`, `-`, `*`, `/`, `%`), comparison (`==`, `!=`, `<`, `<=`, `>`, `>=`), and logical (`&&`, `||`) binary operators. Precedence rules determine evaluation order when operators appear without parentheses. See also: unary operator, precedence.
 
+**bitfield**
+A struct integer field declared with a bit width (`uint32 mode : 3;`), occupying only that many bits. Consecutive bitfields pack into storage words of their declared type; reads mask and shift the field out (signed fields sign-extend) and writes are read-modify-write. The address of a bitfield cannot be taken. See also: packed struct, struct.
+
 **BlockItem**
 Union type used internally in the parser and AST to represent a single item inside a block statement — either a declaration (VarDecl, StructDecl) or an executable statement. Storing both as `BlockItem` allows the parser to handle declaration-in-block uniformly. See also: BlockStmt, declaration, statement.
 
@@ -29,13 +47,36 @@ AST node representing a `{ ... }` block. Contains an ordered list of `BlockItem`
 
 ## C
 
+**channel**
+An async message queue between tasks (`Chan<T>` in `<channel>`). `chan_recv` returns a `*Future<T>` that completes with the next item — immediately if one is buffered, otherwise when a `chan_send` hands a value off to the parked receiver. See also: Future, await.
+
+**closure**
+A function value that captures variables from its enclosing scope. Represented as a two-word fat pointer `{fn_ptr, env_ptr}`: a non-capturing closure has a null environment, while a capturing one packages its captured variables into an environment struct. The type annotation is `fn(T,...)->R` in both cases. See also: escaping, fat pointer, lambda.
+
 **codegen**
-Short form of "code generation." Refers to Phase 3 of the Eskiu compiler, implemented in `codegen/codegen.cpp`, which walks the AST and emits LLVM IR instructions via `IRBuilder`. Also used informally to describe any pass that produces output code. See also: IRBuilder, LLVM IR.
+Short form of "code generation." Refers to the code-generation pass of the Eskiu compiler, implemented in `codegen/codegen.cpp`, which walks the AST and emits LLVM IR instructions via `IRBuilder`. Also used informally to describe any pass that produces output code. See also: IRBuilder, LLVM IR.
+
+**coroutine**
+A function whose execution can suspend and later resume. Each Eskiu `async` function is lowered to a coroutine: a frame struct holding its live state plus a resume function that advances an explicit state machine across `await` points. See also: async, await, Future.
+
+## D
 
 **declaration**
-A language construct that introduces a new named entity into the current scope. Eskiu declaration forms are: `FunctionDecl`, `VarDecl`, `StructDecl`, and `ExternDecl`. Declarations are distinct from statements in that they bind a name; statements execute logic. See also: statement, scope.
+A language construct that introduces a new named entity into the current scope. Eskiu declaration forms are: `FunctionDecl`, `VarDecl`, `StructDecl`, `UnionDecl`, `EnumDecl`, `InterfaceDecl`, `TypeAliasDecl`, `IntrinsicDecl`, and `ExternDecl`. Declarations are distinct from statements in that they bind a name; statements execute logic. See also: statement, scope.
 
 ## E
+
+**enum**
+A declaration of named constants. A plain `enum` defines integer constants (the type behaves as `int`); an `enum` with one or more payload-bearing variants is an algebraic data type laid out as `{ tag, payload }` and destructured with `match`. Enums may be generic (e.g. `Option<T>`) and are monomorphized per instantiation. See also: algebraic data type, match, tagged union.
+
+**escaping**
+A parameter qualifier (`escaping fn(int)->void cb`) marking a function-pointer parameter that the callee retains beyond the call — by storing, returning, or forwarding it. An escaping closure's environment is heap-allocated (released with `free_closure`) so it outlives the creating frame; a non-escaping closure keeps its environment on the stack. Using a non-`escaping` parameter beyond a direct call is a compile error. See also: closure, fat pointer.
+
+**event loop / reactor**
+A single thread that watches many file descriptors and dispatches a callback when one becomes ready, via kqueue (macOS) or epoll (Linux). Implemented as `EventLoop` in `<eventloop>`, it is the readiness reactor underpinning async I/O, the HTTP stack, and the timer wheel. See also: executor, Future, async.
+
+**executor**
+A thread that owns an event loop plus a thread-safe ready-queue of wakers (`Executor` in `<executor>`). Completion may occur on any thread; `executor_schedule` enqueues a waker and wakes the loop through a self-pipe so the waker (a coroutine resume) always runs on the executor's own thread. See also: event loop / reactor, coroutine, Future.
 
 **expression**
 A syntactic form that evaluates to a value and has a type. Examples: `3 + 4`, `add(5, 2)`, `point.x`, `*ptr`. Expressions form the leaves and internal nodes of most AST subtrees. See also: lvalue, rvalue, statement.
@@ -45,18 +86,38 @@ AST node representing a declaration of a function whose implementation lives in 
 
 ## F
 
+**fat pointer**
+A two-word value carrying a data pointer alongside a second pointer. Eskiu uses fat pointers in two places: a closure / function-pointer value is `{fn_ptr, env_ptr}`, and an interface value is `{data_ptr, vtable_ptr}`. The representation is transparent to user code. See also: closure, interface, vtable.
+
+**flow control**
+In HTTP/2, the credit-based mechanism that bounds how much DATA a sender may transmit before the receiver grants more window via WINDOW_UPDATE frames, applied per stream and per connection. The `<http2>` `H2Stream` tracks the send window and the server emits DATA in flow-controlled, bounded frames. See also: HTTP/2, stream multiplexing.
+
 **FunctionDecl**
 AST node representing a function definition, including its name, parameter list, return type, and body (`BlockStmt`). During type checking, parameters are pushed into a new scope and the body is validated against the declared return type. During code generation, a new LLVM `Function` object is created and populated. See also: declaration, scope.
+
+**Future**
+A handle to a value that may not exist yet — the result of an `async` function call or a leaf primitive. `Future<T>` (in `<future>`) is a fixed-layout struct `{ state, waker, on_drop, value }`: `state` advances through PENDING/WAITING/READY/CANCELLED, `waker` resumes the awaiter on completion, and `on_drop` releases resources on cancellation. A pending future is cancelled with `future_drop`. See also: async, await, executor.
 
 ## G
 
 **GEP (getelementptr)**
 LLVM IR instruction that computes the address of a sub-element of an aggregate type (array or struct) without loading data. Used by the Eskiu code generator to access struct fields and array elements. GEP does pointer arithmetic at the IR level and produces a typed pointer to the target element.
 
+## H
+
+**HPACK**
+The HTTP/2 header-compression format (RFC 7541). It combines a static table of common header fields, a per-connection dynamic table the peers grow as they go, and a compact wire coding (prefix integers and optionally Huffman-coded string literals). Implemented in `<hpack>`. See also: HTTP/2, ALPN.
+
+**HTTP/2 frame**
+The unit of the HTTP/2 wire protocol (RFC 7540): a 9-byte binary header (length, type, flags, stream id) followed by a payload. Frame types include DATA, HEADERS, SETTINGS, WINDOW_UPDATE, PING, and GOAWAY. Many frames sharing one connection are interleaved across streams. The `<http2>` module provides the frame-header codec and frame I/O. See also: stream multiplexing, flow control, HPACK.
+
 ## I
 
 **identifier**
 A name chosen by the programmer to label a variable, function, struct, or parameter. In Eskiu, identifiers must begin with a letter or underscore and may contain letters, digits, and underscores. The lexer emits an `IDENTIFIER` token; the parser stores the raw string in `IdentExpr` or declaration nodes.
+
+**intrinsic**
+A function declared with the `intrinsic` qualifier whose calls the compiler lowers to inline IR rather than an ordinary call. Used for operations that must compile directly to specific instructions, such as the `<atomic>` cell operations. See also: atomic, declaration.
 
 **IRBuilder**
 LLVM C++ API class (`llvm::IRBuilder<>`) that provides a cursor-based interface for inserting IR instructions into a basic block. Eskiu's code generator holds a single `IRBuilder` instance and repositions it as it enters new blocks. See also: basic block, codegen.
@@ -77,6 +138,9 @@ An expression that refers to a storage location and can appear on the left side 
 
 ## M
 
+**match**
+A control construct that destructures an algebraic-enum value by variant, binding each variant's payload fields in its arm. A `match` must be exhaustive — every variant has an arm or a `_` default catches the rest — and no variant may appear twice; the type checker enforces both. See also: algebraic data type, enum, tagged union.
+
 **module**
 The top-level LLVM IR container (`llvm::Module`) that holds all function definitions, global variables, and external declarations produced for a single compilation unit. The code generator creates one module per `.esk` file. The module is printed as LLVM IR text when `--test-codegen` is passed.
 
@@ -87,11 +151,14 @@ LLVM pointer type in LLVM 15+ (`ptr`) that carries no element-type information; 
 
 ## P
 
+**packed struct**
+A struct laid out with no inter-field padding, so fields sit back-to-back. Marked with the `packed` qualifier or `#pragma pack(1)`; `#pragma pack(N)` for `N > 1` instead caps each field's alignment at `N`. Used to match an exact on-the-wire or on-disk byte layout, or a C struct declared `__attribute__((packed))`. The chosen layout is reflected by `sizeof` and every field access. See also: bitfield, struct.
+
 **parser**
 Phase 2 of the Eskiu compiler, implemented in `parser/`. Consumes the token stream produced by the lexer and builds the AST using recursive descent. Handles declarations, statements, and expressions with explicit precedence climbing. See also: recursive descent, AST, precedence.
 
 **phase**
-A numbered stage in the Eskiu compiler roadmap. Phases 0-4 are complete (build/CLI, lexer, parser, codegen, type checker). Phase 5 (structs/interfaces/templates), Phase 6 (heap), and Phase 7 (stdlib/Result<T,E>) are upcoming. The term is also used informally within a phase to label sub-milestones. See also: codegen, type checker, semantic analysis.
+A numbered stage in the Eskiu compiler roadmap, used to organize development: the build/CLI, lexer, parser, code generator, and type checker, followed by structs/interfaces/templates, the heap and explicit-allocator model, and the standard library (including `Result<T,E>` and the async runtime). The term is also used informally within a phase to label sub-milestones. See also: codegen, type checker, semantic analysis.
 
 **pointer type**
 A type that holds the memory address of a value of another type. Eskiu accepts both leading-star notation (`*T`) and trailing-star notation (`T*`) in source code; both are normalized to the same internal representation. Pointer arithmetic and dereferencing are supported; pointer safety is the programmer's responsibility. See also: opaque pointer, GEP, lvalue.
@@ -118,11 +185,17 @@ The region of source code in which a declared name is visible. Eskiu uses lexica
 **semantic analysis**
 The compiler phase (Phase 4) that validates program meaning beyond syntactic correctness. In Eskiu this is the type checker: it verifies type compatibility, resolves identifiers, checks struct-field existence, validates function call arities and types, and enforces return-type consistency. See also: type checker, scope.
 
+**sret (structure return)**
+The calling convention for returning a struct too large to fit in registers: the caller passes a hidden pointer to a result slot, the LLVM function itself returns `void`, and the body writes the result through that pointer. The code generator applies sret automatically to large aggregate return types. See also: codegen, struct.
+
 **statement**
 A language construct that performs an action but does not itself produce a value. Eskiu statement kinds: `BlockStmt`, `IfStmt`, `ForStmt`, `WhileStmt`, `ReturnStmt`, `BreakStmt`, `ExprStmt`. Statements are sequenced inside `BlockStmt`. See also: expression, declaration.
 
+**stream multiplexing**
+In HTTP/2, the interleaving of many concurrent request/response exchanges (streams), each with its own id, over a single connection. The `<http2_server>` routes interleaved frames to per-stream slots, each completing when its END_STREAM arrives. See also: HTTP/2 frame, flow control.
+
 **struct**
-A composite type composed of named fields, each with its own type. Declared with `struct Name { ... }`. Fields are accessed via the `.` member operator. Methods can be defined on structs (Phase 5). The type checker validates field access; the code generator lays fields out sequentially in an LLVM struct type and uses GEP to address them. See also: StructDecl, GEP.
+A composite type composed of named fields, each with its own type. Declared with `struct Name { ... }`. Fields are accessed via the `.` member operator. Methods can be defined on structs. The type checker validates field access; the code generator lays fields out sequentially in an LLVM struct type and uses GEP to address them. See also: StructDecl, GEP.
 
 **StructDecl**
 AST node representing a struct type definition, including the struct's name, its field list (name + type pairs), and any method declarations. Registered in the struct registry during semantic analysis so that `MemberExpr` nodes can look up field types. See also: struct, declaration.
@@ -131,6 +204,12 @@ AST node representing a struct type definition, including the struct's name, its
 A data structure mapping identifier names to their resolved types and declarations within a scope. Eskiu's type checker maintains a stack of symbol-table frames, pushing a new frame on block entry and popping it on block exit. Used to resolve variable references and detect undeclared identifiers. See also: scope, identifier.
 
 ## T
+
+**tagged union**
+A value that holds one of several alternatives, distinguished by an integer tag stored alongside the payload — the runtime representation of an Eskiu algebraic-enum value (`{ tag, payload }`, with the payload area sized to the largest variant). Unlike a `union`, a tagged union records which alternative is active. See also: algebraic data type, enum, match, union.
+
+**TLS**
+Transport Layer Security — the encryption layer HTTP/2 typically runs over in browsers. The `<tls>` module wraps OpenSSL (libssl) by FFI and uses ALPN to negotiate `"h2"`, then runs the `<http2>` frame protocol over the encrypted stream. See also: ALPN, HTTP/2.
 
 **token**
 The smallest meaningful unit produced by the lexer. Each token carries a `TokenType`, its raw lexeme string, and a source location (line, column). Examples: keyword `int`, identifier `result`, punctuation `{`, integer literal `42`, string literal `"hello"`. See also: TokenType, lexer.
@@ -170,5 +249,5 @@ Object-oriented design pattern in which an external object (the visitor) defines
 
 - [architecture.md](dev/architecture.md) — Compiler architecture and pass pipeline
 - [spec.md](lang/spec.md) — Full language specification
-- [DESIGN_DECISIONS.md](DESIGN_DECISIONS.md) — Rationale for key design choices
+- [design.md](dev/design.md) — Rationale for key design choices
 - [phases.md](dev/phases.md) — Compiler development roadmap

@@ -1,0 +1,18 @@
+// Value-returning join: join2v waits for both futures and resolves with a Pair of
+// their values. Deterministic (ready futures, fast path). The combinator does not
+// own the inputs — the caller frees a, b, and the result.
+import <future>;
+import <futureval>;
+extern int printf(string fmt, ...);
+
+Future<int>* produce(int v) { Future<int>* f = future_new<int>(); future_complete<int>(f, v); return f; }
+
+int main() {
+    Future<int>* a = produce(3);
+    Future<int>* b = produce(4);
+    Future<Pair<int, int>>* j = join2v<int, int>(a, b);
+    future_poll<Pair<int, int>>(j, void() {});
+    printf("%d %d %d\n", j.value.first, j.value.second, j.value.first + j.value.second);  // 3 4 7
+    free_future<int>(a);  free_future<int>(b);  free_future<Pair<int, int>>(j);
+    return 0;
+}

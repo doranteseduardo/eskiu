@@ -1,0 +1,8 @@
+states 0 3 3 4
+cansend 1
+after 5535 5535 0
+granted 25535 25535
+wu 13 8 3 12345
+rst 13 3 5 8
+hdr 12 1 5
+data 11 0 1

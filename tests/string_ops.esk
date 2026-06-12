@@ -1,0 +1,40 @@
+import <string>;
+
+extern int printf(string fmt, ...);
+
+int main() {
+    let s: String;  String_init(&s, 16);
+    String_append(&s, "  Hello, World  ");
+
+    printf("starts(  H)=%d ends(d  )=%d\n",
+           String_starts_with(&s, "  H"), String_ends_with(&s, "d  "));
+
+    String_trim(&s);
+    printf("trimmed=[%s] len=%d\n", String_cstr(&s), String_len(&s));
+    printf("starts(Hello)=%d ends(World)=%d ends(x)=%d\n",
+           String_starts_with(&s, "Hello"), String_ends_with(&s, "World"),
+           String_ends_with(&s, "x"));
+
+    // split "a,b,,c" on ',' -> a | b | (empty) | c
+    let csv: String;  String_init(&csv, 8);  String_append(&csv, "a,b,,c");
+    let tok: String;  String_init(&tok, 8);
+    int pos = 0;
+    int n = 0;
+    while (String_next_token(&csv, ',', &pos, &tok) == 1) {
+        printf("[%d]=%s\n", n, String_cstr(&tok));
+        n = n + 1;
+    }
+    printf("nparts=%d\n", n);
+
+    // same split, collected into a List<String>
+    let parts: List<String>;  List_init<String>(&parts, 2);
+    String_split(&csv, ',', &parts);
+    let last: String = List_get<String>(&parts, 3);
+    printf("list_nparts=%d list[3]=%s\n", List_len<String>(&parts), String_cstr(&last));
+    String_split_free(&parts);
+
+    String_free(&tok);
+    String_free(&csv);
+    String_free(&s);
+    return 0;
+}

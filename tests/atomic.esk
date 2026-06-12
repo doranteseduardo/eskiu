@@ -1,0 +1,13 @@
+// Atomic intrinsics lower to LLVM atomics (foundation for the async runtime).
+import <atomic>;
+extern int printf(string fmt, ...);
+
+int main() {
+    int cell = 0;
+    atomic_store(&cell, 7);
+    bool ok1 = atomic_cas(&cell, 7, 9);     // succeeds: 7 -> 9
+    bool ok2 = atomic_cas(&cell, 7, 100);   // fails: cell is 9
+    int old  = atomic_swap(&cell, 42);      // returns 9, sets 42
+    printf("%d %d %d %d %d\n", ok1, ok2, old, atomic_load(&cell), 0);
+    return 0;
+}

@@ -1,0 +1,16 @@
+// Regression: a lexed ">>" must close nested template brackets — in a type
+// declaration (Box<Box<int>>), a user template call (pick<Box<int>>()), and a
+// stdlib template call whose body instantiates over the nested type
+// (List_init<List<int>> -> alloc<List<int>>). A space was previously required,
+// and the destructive split corrupted the stream on backtracking.
+import <list>;
+extern int printf(string fmt, ...);
+struct Box<T> { T v; }
+int pick<T>(int x) { return x; }
+int main() {
+    let b: Box<Box<int>>;  b.v.v = 42;
+    let xs: List<List<int>>;  List_init<List<int>>(&xs, 4);
+    printf("%d %d %d len=%d\n", b.v.v, pick<Box<int>>(7), 256 >> 2,
+           List_len<List<int>>(&xs));
+    return 0;
+}

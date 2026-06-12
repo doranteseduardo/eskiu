@@ -1,0 +1,8 @@
+// __LINE__ expands to the current source line; __FILE__ to the file path.
+extern int   printf(string fmt, ...);
+extern *char strstr(*char haystack, *char needle);
+int main() {
+    printf("%d\n", __LINE__);                                             // line 5
+    printf("%d\n", (strstr((*char)__FILE__, (*char)"pp_loc") != (*char)0)); // 1
+    return 0;
+}

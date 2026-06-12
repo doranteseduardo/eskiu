@@ -1,4 +1,19 @@
-// mem stdlib — wraps libc memory functions
+// mem stdlib — heap allocation and the libc memory functions.
+
+// Heap allocation. `alloc<T>(n)` returns a `*T` for n elements; `free(p)`
+// releases it. Under --freestanding these target the user-provided
+// esk_alloc/esk_free (no libc); otherwise they use libc malloc/free.
+#ifdef __ESKIU_FREESTANDING__
+extern *void esk_alloc(int64 nbytes);
+extern void  esk_free(*void p);
+*T   alloc<T>(int64 n) { return (*T)esk_alloc(n * sizeof(T)); }
+void free(*void p)     { esk_free(p); }
+#else
+extern *void malloc(int64 nbytes);
+extern void  free(*void p);
+*T   alloc<T>(int64 n) { return (*T)malloc(n * sizeof(T)); }
+#endif
+
 extern *void memcpy(*void dst, *void src, int n);
 extern *void memset(*void dst, int c, int n);
 extern *void memmove(*void dst, *void src, int n);

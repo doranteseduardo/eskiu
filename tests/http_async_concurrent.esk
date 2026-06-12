@@ -1,0 +1,51 @@
+// Smoke test: the concurrent async HTTP server handles several simultaneous
+// connections. The accept loop spawns a detached handler per connection, so three
+// clients are in flight at once; a channel wait-group makes the server future
+// complete only after all three handlers finish. main exits non-zero unless all
+// three round-trips succeeded.
+import <http_async>;
+import <future>;
+import <eventloop>;
+import <net>;
+extern int    printf(string fmt, ...);
+extern int    usleep(uint32 usec);
+extern int64  recv(int fd, *void buf, int64 n, int flags);
+extern *char  strstr(*char haystack, *char needle);
+
+EventLoop* g_lp;
+int g_ok = 0;     // shared success counter (incremented by client threads)
+
+void hello(HttpRequest* req, HttpResponse* res) {
+    HttpResponse_header(res, "Content-Type", "text/plain");
+    HttpResponse_set_body(res, "hello-concurrent\n");
+}
+
+void client() {
+    usleep(100000);
+    int c = net_tcp_connect("127.0.0.1", (uint16)18097);
+    net_send_str(c, "GET / HTTP/1.1\r\nHost: x\r\n\r\n");
+    uint8[1024] resp;
+    int64 n = recv(c, (*void)&resp[0], (int64)1023, 0);
+    if (n > 0) {
+        resp[(int)n] = (uint8)0;
+        if (strstr((*char)&resp[0], (*char)"hello-concurrent") != (*char)0) { g_ok = g_ok + 1; }
+    }
+    net_close(c);
+}
+
+int main() {
+    int fd = net_tcp_listen((uint16)18097);
+    g_lp = el_new(256);
+    Future<uint8>* f = http_serve_async(g_lp, fd, hello, 3);   // serve 3 connections
+    let t0: *void = thread_create(client);
+    let t1: *void = thread_create(client);
+    let t2: *void = thread_create(client);
+    if (future_poll<uint8>(f, void() { el_stop(g_lp); }) == 0) { el_run(g_lp); }
+    thread_join(t0);  thread_join(t1);  thread_join(t2);
+    free_future<uint8>(f);
+    el_free(g_lp);
+    net_close(fd);
+    printf("ok=%d\n", g_ok);
+    if (g_ok != 3) { return 1; }       // all three round-trips must have succeeded
+    return 0;
+}

@@ -1,0 +1,148 @@
+// alloc.esk — a toolkit of explicit allocators over memory YOU own.
+//
+// This is the Zig model, not a global `malloc` replacement: each allocator
+// sub-allocates from a buffer you hand it (pure pointer arithmetic — this file
+// has no externs and calls nothing), plugging into `alloc_with(&a, T, count)` via
+// `*void <T>_alloc(<T>* self, int64 n)`. They give you arena / pool / first-fit
+// strategies and are the building blocks for a freestanding heap.
+//
+// Where the backing buffer comes from is YOUR choice, and that decides the libc
+// story — the allocators are libc-agnostic either way:
+//   * a static array     — zero libc, zero syscalls, fixed size
+//   * `<sysheap>` (mmap)  — OS pages, no libc `malloc` (Zig page_allocator style)
+//   * `alloc<uint8>(n)`   — one upfront libc `malloc` (fine for hosted code)
+//   * a fixed region      — under `--freestanding` (see `kernel/alloc.esk`)
+//
+// Note: the default `alloc<T>` in `<mem>` is still libc `malloc` in hosted mode;
+// these allocators don't change that — they're for when you manage a region.
+//
+//   uint8[4096] backing;                 // a static buffer — no malloc at all
+//   let a: Bump;  Bump_init(&a, &backing[0], 4096);
+//   *int xs = alloc_with(&a, int, 16);
+
+// Round n up to the next multiple of 8 (alignment for any scalar/pointer).
+int64 alloc_align8(int64 n) {
+    return ((n + 7) / 8) * 8;
+}
+
+// ── Bump: monotonic; individual frees are no-ops, reset frees everything ──────
+struct Bump {
+    *uint8 buf;
+    int64  cap;
+    int64  off;
+}
+void Bump_init(Bump* self, *uint8 buf, int64 cap) {
+    self.buf = buf; self.cap = cap; self.off = 0;
+}
+*void Bump_alloc(Bump* self, int64 n) {
+    int64 start = alloc_align8(self.off);
+    if (start + n > self.cap) { return (*void)0; }
+    self.off = start + n;
+    return (*void)(self.buf + start);
+}
+void Bump_reset(Bump* self) { self.off = 0; }
+
+// ── Arena: a bump with checkpoint/restore (save an offset, free back to it) ──
+struct Arena {
+    *uint8 buf;
+    int64  cap;
+    int64  off;
+}
+void Arena_init(Arena* self, *uint8 buf, int64 cap) {
+    self.buf = buf; self.cap = cap; self.off = 0;
+}
+*void Arena_alloc(Arena* self, int64 n) {
+    int64 start = alloc_align8(self.off);
+    if (start + n > self.cap) { return (*void)0; }
+    self.off = start + n;
+    return (*void)(self.buf + start);
+}
+int64 Arena_save(Arena* self) { return self.off; }
+void  Arena_restore(Arena* self, int64 marker) { self.off = marker; }
+void  Arena_reset(Arena* self) { self.off = 0; }
+
+// ── Pool: fixed-size blocks with a free list threaded through free blocks ────
+struct PoolNode { *PoolNode next; }
+struct Pool {
+    *uint8     buf;
+    int64      cap;
+    int64      blockSize;
+    *PoolNode  freeHead;
+    int64      highWater;
+}
+void Pool_init(Pool* self, *uint8 buf, int64 cap, int64 blockSize) {
+    int64 bs = alloc_align8(blockSize);
+    if (bs < 8) { bs = 8; }
+    self.buf = buf; self.cap = cap; self.blockSize = bs;
+    self.freeHead = (*PoolNode)0; self.highWater = 0;
+}
+*void Pool_alloc(Pool* self, int64 n) {
+    if (n > self.blockSize) { return (*void)0; }
+    if (self.freeHead != (*PoolNode)0) {     // reuse a freed block
+        *PoolNode node = self.freeHead;
+        self.freeHead = node.next;
+        return (*void)node;
+    }
+    if (self.highWater + self.blockSize > self.cap) { return (*void)0; }
+    *void p = (*void)(self.buf + self.highWater);
+    self.highWater = self.highWater + self.blockSize;
+    return p;
+}
+void Pool_free(Pool* self, *void p) {
+    *PoolNode node = (*PoolNode)p;
+    node.next = self.freeHead;
+    self.freeHead = node;
+}
+
+// ── First-fit general-purpose (after Thompson's original) ────────────────────
+// Each region is [FFNode header][payload]. Free regions are linked through the
+// header's `next`; used regions keep their size in the header. Alloc does a
+// first-fit search and splits a large region; free pushes the region back onto
+// the list. Adjacent free regions are not coalesced.
+struct FFNode {
+    int64    size;   // payload bytes available in this region
+    *FFNode  next;   // next free region (used regions: ignored)
+}
+struct FirstFit {
+    *uint8    buf;
+    int64     cap;
+    *FFNode   freeHead;
+}
+void FirstFit_init(FirstFit* self, *uint8 buf, int64 cap) {
+    self.buf = buf; self.cap = cap;
+    *FFNode head = (*FFNode)buf;
+    head.size = cap - 16;        // 16 = sizeof(FFNode)
+    head.next = (*FFNode)0;
+    self.freeHead = head;
+}
+*void FirstFit_alloc(FirstFit* self, int64 n) {
+    int64 want = alloc_align8(n);
+    *FFNode prev = (*FFNode)0;
+    *FFNode cur  = self.freeHead;
+    while (cur != (*FFNode)0) {
+        if (cur.size >= want) {
+            // Split if the leftover can hold a header plus a little payload.
+            if (cur.size >= want + 16 + 8) {
+                *FFNode rest = (*FFNode)((*uint8)cur + 16 + want);
+                rest.size = cur.size - want - 16;
+                rest.next = cur.next;
+                cur.size  = want;
+                if (prev == (*FFNode)0) { self.freeHead = rest; }
+                else                    { prev.next = rest; }
+            } else {
+                // Use the whole region; unlink it.
+                if (prev == (*FFNode)0) { self.freeHead = cur.next; }
+                else                    { prev.next = cur.next; }
+            }
+            return (*void)((*uint8)cur + 16);
+        }
+        prev = cur;
+        cur  = cur.next;
+    }
+    return (*void)0;             // out of memory
+}
+void FirstFit_free(FirstFit* self, *void p) {
+    *FFNode hdr = (*FFNode)((*uint8)p - 16);
+    hdr.next = self.freeHead;
+    self.freeHead = hdr;
+}

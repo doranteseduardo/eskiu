@@ -1,0 +1,107 @@
+// futureval.esk — value-returning future combinators (sum-typed results).
+//
+// select2v races two futures and resolves with the WINNER'S VALUE wrapped in an
+// Either<A,B> (Left = a won, Right = b won) — the loser is dropped. Unlike the
+// index-returning select2, the caller gets the typed value directly and frees
+// only the result future:
+//
+//   Future<Either<int,int>>* f = select2v<int,int>(rd, timer);
+//   // ... drive on the loop ...
+//   match f.value { Left(n) -> use n;  Right(t) -> timed out; }
+//   free_future<Either<int,int>>(f);
+//
+// Ownership: select2v consumes both `a` and `b`; the caller owns only the result.
+// Leak-free via the self-free waker technique (a waker frees its own env last).
+
+import <mem>;
+import <atomic>;
+import <future>;
+import <either>;
+
+// A pair of values — the result of join2v.
+struct Pair<A, B> {
+    A first;
+    B second;
+}
+
+// join2v waits for BOTH futures and resolves with a Pair of their values. Like
+// the index-returning join2, it does NOT take ownership: the caller frees `a`,
+// `b`, and the result. Leak-free via a shared counter + self-free wakers.
+//
+//   Future<Pair<int,int>>* j = join2v<int,int>(ra, rb);
+//   // ... drive ...
+//   int sum = j.value.first + j.value.second;
+//   free_future<int>(ra);  free_future<int>(rb);  free_future<Pair<int,int>>(j);
+Future<Pair<A, B>>* join2v<A, B>(Future<A>* a, Future<B>* b) {
+    Future<Pair<A, B>>* j = future_new<Pair<A, B>>();
+    *int cnt = alloc<int>(1);
+    *cnt = 0;
+    let onA: fn()->void = void() {
+        let self: fn()->void = a.waker;
+        *cnt = *cnt + 1;
+        if (*cnt == 2) {
+            free((*void)cnt);
+            future_complete<Pair<A, B>>(j, Pair<A, B>{ first: a.value, second: b.value });
+        }
+        free_closure(self);
+    };
+    let onB: fn()->void = void() {
+        let self: fn()->void = b.waker;
+        *cnt = *cnt + 1;
+        if (*cnt == 2) {
+            free((*void)cnt);
+            future_complete<Pair<A, B>>(j, Pair<A, B>{ first: a.value, second: b.value });
+        }
+        free_closure(self);
+    };
+    a.waker = onA;
+    if (atomic_cas(&a.state, 0, 1) == false) { *cnt = *cnt + 1; free_closure(onA); }   // a already done
+    b.waker = onB;
+    if (atomic_cas(&b.state, 0, 1) == false) { *cnt = *cnt + 1; free_closure(onB); }   // b already done
+    if (*cnt == 2) {
+        free((*void)cnt);
+        future_complete<Pair<A, B>>(j, Pair<A, B>{ first: a.value, second: b.value });
+    }
+    return j;
+}
+
+Future<Either<A, B>>* select2v<A, B>(Future<A>* a, Future<B>* b) {
+    Future<Either<A, B>>* sel = future_new<Either<A, B>>();
+
+    // a finishes first: take its value as Left, drop b, free a, complete sel.
+    let onA: fn()->void = void() {
+        let self: fn()->void = a.waker;
+        A av = a.value;
+        future_drop((FutureHdr*)b);                       // loser (frees onB env if armed)
+        free_future<A>(a);                                // winner consumed
+        future_complete<Either<A, B>>(sel, Left<A, B>(av)); // resumes the awaiter
+        free_closure(self);                               // free onA env (last act)
+    };
+    let onB: fn()->void = void() {
+        let self: fn()->void = b.waker;
+        B bv = b.value;
+        future_drop((FutureHdr*)a);
+        free_future<B>(b);
+        future_complete<Either<A, B>>(sel, Right<A, B>(bv));
+        free_closure(self);
+    };
+
+    // Future states: PENDING = 0, WAITING = 1 (see future.esk).
+    a.waker = onA;
+    if (atomic_cas(&a.state, 0, 1) == false) {            // a already READY -> a wins
+        free_closure(onA);                                // onA never fires
+        free_closure(onB);                                // onB never armed
+        A av = a.value;  free_future<A>(a);  future_drop((FutureHdr*)b);
+        future_complete<Either<A, B>>(sel, Left<A, B>(av));
+        return sel;
+    }
+    b.waker = onB;
+    if (atomic_cas(&b.state, 0, 1) == false) {            // b already READY -> b wins
+        free_closure(onB);                                // onB never fires
+        future_drop((FutureHdr*)a);                       // a armed -> drop frees onA
+        B bv = b.value;  free_future<B>(b);
+        future_complete<Either<A, B>>(sel, Right<A, B>(bv));
+        return sel;
+    }
+    return sel;                                           // both parked: first to finish wins
+}

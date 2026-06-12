@@ -1,0 +1,5 @@
+// A struct larger than 16 bytes is returned via sret on arm64.
+extern int printf(string fmt, ...);
+struct Big { int a; int b; int c; int d; int e; }
+Big make() { let x: Big; x.a = 1; x.b = 2; x.c = 3; x.d = 4; x.e = 5; return x; }
+int main() { let g: Big = make(); printf("%d %d %d\n", g.a, g.c, g.e); return 0; }

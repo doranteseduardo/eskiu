@@ -1,0 +1,8 @@
+// EXPECT-ERROR: unknown intrinsic
+// `intrinsic` is compiler-provided, not user-definable: an unrecognised name
+// must be rejected at type-check, not fail later at codegen.
+intrinsic int my_op(int x);
+
+int main() {
+    return my_op(1);
+}

@@ -1,4 +1,5 @@
 #include "codegen.h"
+#include "../ast/type_qual.h"
 #include "llvm/IR/InlineAsm.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/IR/Type.h"
@@ -8,72 +9,17 @@
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/MC/TargetRegistry.h"
+#include "llvm/Passes/PassBuilder.h"
+#include "llvm/Transforms/Instrumentation/AddressSanitizer.h"
+#include "llvm/Transforms/Instrumentation/BoundsChecking.h"
 #include "llvm/TargetParser/Host.h"
 #include "llvm/TargetParser/Triple.h"
 #include "llvm/Support/raw_os_ostream.h"
 #include <iostream>
 
-// ============================================================================
-// Template utilities (file-local)
-// ============================================================================
-
-static std::string mangleTemplate(const std::string& type) {
-    std::string out;
-    for (char c : type) {
-        if (c == '<' || c == '>' || c == ',') out += '_';
-        else if (c != ' ')                   out += c;
-    }
-    while (!out.empty() && out.back() == '_') out.pop_back();
-    return out;
-}
-
-static std::pair<std::string, std::vector<std::string>>
-splitTemplateType(const std::string& type) {
-    size_t lt = type.find('<');
-    if (lt == std::string::npos) return {type, {}};
-    std::string name = type.substr(0, lt);
-    std::string inner = type.substr(lt + 1, type.size() - lt - 2);
-    std::vector<std::string> args;
-    int depth = 0; std::string cur;
-    for (char c : inner) {
-        if (c == '<') { depth++; cur += c; }
-        else if (c == '>') { depth--; cur += c; }
-        else if (c == ',' && depth == 0) { args.push_back(cur); cur.clear(); }
-        else cur += c;
-    }
-    if (!cur.empty()) args.push_back(cur);
-    return {name, args};
-}
-
-static std::string substType(const std::string& t,
-                             const std::map<std::string, std::string>& subs) {
-    auto it = subs.find(t);
-    if (it != subs.end()) return it->second;
-    if (!t.empty() && t.front() == '*') return "*" + substType(t.substr(1), subs);
-    if (!t.empty() && t.back()  == '*') return substType(t.substr(0, t.size()-1), subs) + "*";
-    size_t lb = t.rfind('[');
-    if (lb != std::string::npos && t.back() == ']')
-        return substType(t.substr(0, lb), subs) + t.substr(lb);
-    // Template type: Name<T, E> → substitute type args
-    size_t lt = t.find('<');
-    if (lt != std::string::npos && t.back() == '>') {
-        std::string name  = t.substr(0, lt);
-        std::string inner = t.substr(lt + 1, t.size() - lt - 2);
-        std::vector<std::string> args;
-        int depth = 0; std::string cur;
-        for (char c : inner) {
-            if      (c == '<') { depth++; cur += c; }
-            else if (c == '>') { depth--; cur += c; }
-            else if (c == ',' && depth == 0) { args.push_back(substType(cur, subs)); cur.clear(); }
-            else cur += c;
-        }
-        if (!cur.empty()) args.push_back(substType(cur, subs));
-        std::string result = name + "<";
-        for (size_t i = 0; i < args.size(); ++i) { if (i) result += ","; result += args[i]; }
-        return result + ">";
-    }
-    return t;
-}
+// Template type-name utilities (mangleTemplate / splitTemplateType / substType)
+// are shared with the type checker; see template_utils.h.
+#include "../template_utils.h"
 
 // ============================================================================
 
@@ -109,9 +55,9 @@ llvm::Module* CodeGen::generateCode(std::shared_ptr<Program> program) {
             targetTriple != llvm::sys::getDefaultTargetTriple();
         auto cpu = isCross ? llvm::StringRef("generic") : llvm::sys::getHostCPUName();
         llvm::TargetOptions opt;
-        auto* tm = target->createTargetMachine(triple, cpu, "", opt, llvm::Reloc::PIC_);
+        std::unique_ptr<llvm::TargetMachine> tm(
+            target->createTargetMachine(triple, cpu, "", opt, llvm::Reloc::PIC_));
         module->setDataLayout(tm->createDataLayout());
-        delete tm;
     }
 
     program->accept(this);
@@ -141,7 +87,22 @@ void CodeGen::printIR() const {
 // Type System
 // ============================================================================
 
+bool CodeGen::resolveArrayDim(const std::string& dim, uint64_t& out) const {
+    if (dim.empty()) return false;
+    bool digits = true;
+    for (char c : dim) if (!std::isdigit((unsigned char)c)) { digits = false; break; }
+    if (digits) { out = std::stoull(dim); return true; }
+    auto e = enumConstants.find(dim);
+    if (e != enumConstants.end()) { out = (uint64_t)e->second; return true; }
+    auto c = constInts.find(dim);
+    if (c != constInts.end())     { out = (uint64_t)c->second; return true; }
+    return false;
+}
+
 llvm::Type* CodeGen::getTypeFromString(const std::string& typeStr) {
+    // const has no ABI/layout meaning — strip it before lowering.
+    { std::string s = tyq::strip(typeStr); if (s != typeStr) return getTypeFromString(s); }
+
     // Apply type parameter override during template function instantiation
     if (!typeParamOverride.empty()) {
         std::string resolved = substType(typeStr, typeParamOverride);
@@ -160,8 +121,24 @@ llvm::Type* CodeGen::getTypeFromString(const std::string& typeStr) {
     // Resolve a type alias to its underlying type.
     if (auto it = typeAliases.find(typeStr); it != typeAliases.end())
         return getTypeFromString(it->second);
-    // An enum type is an i32.
-    if (enumTypes.count(typeStr)) return llvm::Type::getInt32Ty(*context);
+    // va_list — backing storage for variadic access. {ptr,ptr,ptr,i32,i32} is the
+    // AArch64 layout (32 B, 8-aligned) and a superset of x86-64's (24 B), so one
+    // type works for both; the va_start/va_arg machinery reads the target's slice.
+    if (typeStr == "va_list") {
+        auto it = structTypes.find("__va_list");
+        if (it != structTypes.end()) return it->second;
+        llvm::Type* p = llvm::PointerType::get(*context, 0);
+        llvm::Type* i32 = llvm::Type::getInt32Ty(*context);
+        auto* st = llvm::StructType::create(*context, {p, p, p, i32, i32}, "__va_list");
+        structTypes["__va_list"] = st;
+        return st;
+    }
+    // A classic enum is an i32; an algebraic enum is its tagged-union struct.
+    if (enumTypes.count(typeStr)) {
+        auto st = structTypes.find(typeStr);
+        if (st != structTypes.end()) return st->second;   // ADT enum
+        return llvm::Type::getInt32Ty(*context);
+    }
 
     if (typeStr == "int"  || typeStr == "int32")  return llvm::Type::getInt32Ty(*context);
     if (typeStr == "int8")                         return llvm::Type::getInt8Ty(*context);
@@ -206,6 +183,10 @@ llvm::Type* CodeGen::getTypeFromString(const std::string& typeStr) {
     // Template instantiation: "Result<int,string>" → %Result_int_string
     if (typeStr.find('<') != std::string::npos) {
         auto [tname, args] = splitTemplateType(typeStr);
+        if (genericEnumDecls.count(tname)) {                 // generic ADT enum instance
+            std::string mangled = ensureEnumInst(tname, args);
+            return structTypes[mangled];
+        }
         std::string mangled = mangleTemplate(typeStr);
         ensureTemplateInstantiated(mangled, tname, args);
         auto it = structTypes.find(mangled);
@@ -219,8 +200,8 @@ llvm::Type* CodeGen::getTypeFromString(const std::string& typeStr) {
             std::string elemStr = typeStr.substr(0, lb);
             std::string sizeStr = typeStr.substr(lb + 1, typeStr.size() - lb - 2);
             llvm::Type* elem = getTypeFromString(elemStr);
-            if (!sizeStr.empty()) {
-                uint64_t n = std::stoull(sizeStr);
+            uint64_t n = 0;
+            if (resolveArrayDim(sizeStr, n)) {
                 return llvm::ArrayType::get(elem, n);
             }
             return llvm::PointerType::get(*context, 0); // unsized → pointer
@@ -355,7 +336,32 @@ llvm::Constant* CodeGen::evaluateConstantExpr(const ExprPtr& expr) {
     }
 }
 
-std::string CodeGen::expandAlias(const std::string& t) const {
+bool CodeGen::eskiuUnsigned(const std::string& t) const {
+    std::string s = tyq::strip(expandAlias(t));
+    return s == "uint" || s == "uint8" || s == "uint16" || s == "uint32" ||
+           s == "uint64" || s == "char" || s == "bool";
+}
+
+llvm::AllocaInst* CodeGen::entryAlloca(llvm::Type* ty, llvm::Value* arrSize,
+                                       const llvm::Twine& name) {
+    llvm::BasicBlock* entry = &builder->GetInsertBlock()->getParent()->getEntryBlock();
+    llvm::IRBuilder<> tmp(entry, entry->begin());
+    return tmp.CreateAlloca(ty, arrSize, name);
+}
+
+llvm::Value* CodeGen::coerceInt(llvm::Value* val, llvm::Type* ty, bool unsignedSrc) {
+    if (!val || val->getType() == ty) return val;
+    if (!val->getType()->isIntegerTy() || !ty->isIntegerTy()) return val;
+    unsigned sw = val->getType()->getIntegerBitWidth();
+    unsigned dw = ty->getIntegerBitWidth();
+    if (sw < dw) return unsignedSrc ? builder->CreateZExt(val, ty) : builder->CreateSExt(val, ty);
+    if (sw > dw) return builder->CreateTrunc(val, ty);
+    return val;
+}
+
+std::string CodeGen::expandAlias(const std::string& raw) const {
+    // const is checked only by the type checker; codegen works on stripped types.
+    std::string t = tyq::strip(raw);
     if (t.empty()) return t;
     if (t.front() == '*') return "*" + expandAlias(t.substr(1));
     if (t.back()  == '*') return expandAlias(t.substr(0, t.size() - 1)) + "*";
@@ -409,6 +415,11 @@ std::string CodeGen::getExprEskiuType(const ExprPtr& expr) const {
     if (auto ident = dynamic_cast<IdentExpr*>(expr.get())) {
         return expandAlias(lookupVarType(ident->name));
     }
+    // A cast's static type IS the cast target — important so that pointer
+    // arithmetic on e.g. (*uint8)structPtr uses a byte stride, not the struct's.
+    if (auto cast = dynamic_cast<CastExpr*>(expr.get())) {
+        return expandAlias(cast->targetType);
+    }
     if (auto lit = dynamic_cast<LiteralExpr*>(expr.get())) {
         switch (lit->kind) {
             case LiteralExpr::Kind::INT:    return "int";
@@ -428,7 +439,7 @@ std::string CodeGen::getExprEskiuType(const ExprPtr& expr) const {
         auto it = structFields.find(base);
         if (it != structFields.end()) {
             for (const auto& f : it->second) {
-                if (f.name == member->member) return f.type;
+                if (f.name == member->member) return tyq::strip(f.type);
             }
         }
     }
@@ -445,6 +456,37 @@ std::string CodeGen::getExprEskiuType(const ExprPtr& expr) const {
         if (lb != std::string::npos) return base.substr(0, lb);
         if (!base.empty() && base.front() == '*') return base.substr(1);
         if (!base.empty() && base.back()  == '*') return base.substr(0, base.size() - 1);
+    }
+    // A call's static type is its function's return type — needed so member
+    // access on a temporary (e.g. make().x) can resolve the struct.
+    if (auto call = dynamic_cast<CallExpr*>(expr.get())) {
+        if (auto id = dynamic_cast<IdentExpr*>(call->callee.get())) {
+            auto it = funcEskiuReturnType.find(id->name);
+            if (it != funcEskiuReturnType.end()) return expandAlias(it->second);
+        } else if (auto m = dynamic_cast<MemberExpr*>(call->callee.get())) {
+            std::string bt = getExprEskiuType(m->base);
+            if (bt.size() > 7 && bt.substr(0, 7) == "struct:") bt = bt.substr(7);
+            if (!bt.empty() && bt.front() == '*') bt = bt.substr(1);
+            while (!bt.empty() && bt.back() == '*') bt.pop_back();
+            if (bt.find('<') != std::string::npos) bt = mangleTemplate(bt);
+            auto it = funcEskiuReturnType.find(bt + "_" + m->member);
+            if (it != funcEskiuReturnType.end()) return expandAlias(it->second);
+        }
+        return "";
+    }
+    if (auto tc = dynamic_cast<TemplateCallExpr*>(expr.get())) {
+        auto td = funcTemplateDecls.find(tc->templateName);
+        if (td != funcTemplateDecls.end()) {
+            auto& tp = td->second->typeParams;
+            std::map<std::string, std::string> subs;
+            for (size_t i = 0; i < tp.size() && i < tc->typeArgs.size(); ++i)
+                subs[tp[i]] = tc->typeArgs[i];
+            return expandAlias(substType(td->second->returnType, subs));
+        }
+        return "";
+    }
+    if (auto si = dynamic_cast<StructInitExpr*>(expr.get())) {
+        return si->structName;
     }
     return "";
 }
@@ -471,6 +513,17 @@ void CodeGen::visit(Program* node) {
     //   1. type shells (structs/unions) + extern declarations
     //   2. function prototypes (free functions and struct methods)
     //   3. bodies / globals
+    // Pre-pass: fold top-level `const` ints so they can be used as array sizes
+    // in struct fields / globals declared anywhere (resolved during phase 1).
+    for (auto& decl : node->declarations) {
+        if (auto* v = dynamic_cast<VarDecl*>(decl.get())) {
+            if (v->isConst && v->initializer) {
+                if (auto* c = evaluateConstantExpr(v->initializer))
+                    if (auto* ci = llvm::dyn_cast<llvm::ConstantInt>(c))
+                        constInts[v->name] = ci->getSExtValue();
+            }
+        }
+    }
     for (auto& decl : node->declarations) {
         if (auto* s = dynamic_cast<StructDecl*>(decl.get())) {
             declareStructType(s); // registers template structs and creates concrete types
@@ -478,7 +531,8 @@ void CodeGen::visit(Program* node) {
                    dynamic_cast<InterfaceDecl*>(decl.get()) ||
                    dynamic_cast<EnumDecl*>(decl.get()) ||
                    dynamic_cast<TypeAliasDecl*>(decl.get()) ||
-                   dynamic_cast<ExternDecl*>(decl.get())) {
+                   dynamic_cast<ExternDecl*>(decl.get()) ||
+                   dynamic_cast<IntrinsicDecl*>(decl.get())) {
             decl->accept(this);
         }
     }
@@ -501,6 +555,7 @@ void CodeGen::visit(Program* node) {
     for (auto& decl : node->declarations) {
         // Externs, unions, interfaces, enums, and aliases were handled in phase 1.
         if (dynamic_cast<ExternDecl*>(decl.get()) ||
+            dynamic_cast<IntrinsicDecl*>(decl.get()) ||
             dynamic_cast<UnionDecl*>(decl.get()) ||
             dynamic_cast<InterfaceDecl*>(decl.get()) ||
             dynamic_cast<EnumDecl*>(decl.get()) ||
@@ -536,12 +591,15 @@ llvm::Function* CodeGen::declareFunction(
             if (p.first != "...") pts.push_back(p.first);
         funcEskiuParamTypes[name] = pts;
     }
+    funcEskiuReturnType[name] = returnTypeStr;
 
     // Idempotent: reuse a prototype declared by the pre-pass.
     if (llvm::Function* existing = module->getFunction(name)) return existing;
 
+    bool isVarArg = false;
+    for (auto& p : params) if (p.first == "...") isVarArg = true;
     llvm::FunctionType* funcType = llvm::FunctionType::get(
-        sret ? llvm::Type::getVoidTy(*context) : returnType, paramTypes, false);
+        sret ? llvm::Type::getVoidTy(*context) : returnType, paramTypes, isVarArg);
     llvm::Function* func = llvm::Function::Create(
         funcType, llvm::Function::ExternalLinkage, name, module.get());
 
@@ -600,14 +658,14 @@ void CodeGen::visit(FunctionDecl* node) {
     for (auto& arg : func->args()) {
         if (sret && argIdx == 0) { argIdx++; continue; }  // skip sret ptr
         if (paramIdx < node->params.size() && node->params[paramIdx].first != "...") {
-            // Struct-by-value params need an alloca so MemberExpr GEP has a pointer
-            llvm::Value* paramSlot = &arg;
-            if (arg.getType()->isStructTy()) {
-                auto* a = builder->CreateAlloca(arg.getType(), nullptr,
-                                                node->params[paramIdx].second + ".byval");
-                builder->CreateStore(&arg, a);
-                paramSlot = a;
-            }
+            // Give every parameter a stack slot: it makes the parameter a mutable
+            // lvalue (so the body may reassign it, like a local) and gives
+            // struct-by-value params a pointer for MemberExpr GEP. The incoming
+            // argument is stored into the slot; reads load from it.
+            auto* a = entryAlloca(arg.getType(), nullptr,
+                                            node->params[paramIdx].second);
+            builder->CreateStore(&arg, a);
+            llvm::Value* paramSlot = a;
             defineSymbol(node->params[paramIdx].second, paramSlot);
             std::string ptype = !typeParamOverride.empty()
                 ? substType(node->params[paramIdx].first, typeParamOverride)
@@ -615,6 +673,11 @@ void CodeGen::visit(FunctionDecl* node) {
             if (ptype.find('<') != std::string::npos) {
                 std::string sfx;
                 while (!ptype.empty() && ptype.back() == '*') { sfx += '*'; ptype.pop_back(); }
+                // Instantiate the template instance's struct now, so member
+                // access on this param (e.g. List<String>* self -> self.data)
+                // finds its fields even if no earlier code referenced the type.
+                auto [tn, targs] = splitTemplateType(ptype);
+                ensureTemplateInstantiated(mangleTemplate(ptype), tn, targs);
                 ptype = mangleTemplate(ptype) + sfx;
             }
             defineVarType(node->params[paramIdx].second, ptype);
@@ -646,6 +709,13 @@ void CodeGen::visit(FunctionDecl* node) {
 }
 
 void CodeGen::visit(VarDecl* node) {
+    // Register `const` ints so a later (local) array dimension can use them.
+    if (node->isConst && node->initializer && !constInts.count(node->name)) {
+        if (auto* c = evaluateConstantExpr(node->initializer))
+            if (auto* ci = llvm::dyn_cast<llvm::ConstantInt>(c))
+                constInts[node->name] = ci->getSExtValue();
+    }
+
     llvm::Type* declType = getTypeFromString(node->type);
 
     // Global scope (no active function) → emit as llvm::GlobalVariable
@@ -674,7 +744,7 @@ void CodeGen::visit(VarDecl* node) {
         defineVarType(node->name, node->type);
         return;
     }
-    llvm::AllocaInst* alloca = builder->CreateAlloca(declType, nullptr, node->name);
+    llvm::AllocaInst* alloca = entryAlloca(declType, nullptr, node->name);
     if (node->isVolatile) volatileVars.insert(node->name);
     defineSymbol(node->name, alloca);
     // Resolve type params and mangle template names for varTypeStack,
@@ -700,14 +770,7 @@ void CodeGen::visit(VarDecl* node) {
             llvm::Value* val = evaluateExpr(node->initializer);
             if (val && val->getType() != declType) {
                 if (val->getType()->isIntegerTy() && declType->isIntegerTy()) {
-                    unsigned src = llvm::cast<llvm::IntegerType>(val->getType())->getBitWidth();
-                    unsigned dst = llvm::cast<llvm::IntegerType>(declType)->getBitWidth();
-                    if (src > dst)
-                        val = builder->CreateTrunc(val, declType);
-                    else if (src < dst)
-                        // ZExt for i1 (bool comparisons) to avoid sign-extending 1 → -1
-                        val = (src == 1) ? builder->CreateZExt(val, declType)
-                                         : builder->CreateSExt(val, declType);
+                    val = coerceInt(val, declType, eskiuUnsigned(getExprEskiuType(node->initializer)));
                 } else if (val->getType()->isIntegerTy() && declType->isFloatingPointTy()) {
                     val = builder->CreateSIToFP(val, declType);
                 } else if (val->getType()->isFloatingPointTy() && declType->isIntegerTy()) {
@@ -741,9 +804,47 @@ void CodeGen::ensureTemplateInstantiated(const std::string& mangled,
         fieldTypes.push_back(getTypeFromString(concrete));
         fields.push_back({concrete, f.name});
     }
+    // #pragma pack(N>=2): same manual layout as concrete structs.
+    if (tmpl->packAlign >= 2) {
+        std::vector<llvm::Type*> phys;
+        std::map<std::string, BitfieldSlot> slots;
+        buildPackedLayout(fields, (unsigned)tmpl->packAlign, phys, slots);
+        structTypes[mangled]  = llvm::StructType::create(*context, phys, mangled, /*isPacked=*/true);
+        structFields[mangled] = fields;
+        structLayout[mangled] = slots;
+        return;
+    }
     llvm::StructType* st = llvm::StructType::create(*context, fieldTypes, mangled, tmpl->isPacked);
     structTypes[mangled] = st;
     structFields[mangled] = fields;
+}
+
+bool CodeGen::buildPackedLayout(const std::vector<StructDecl::Field>& fields, unsigned packN,
+                                std::vector<llvm::Type*>& phys,
+                                std::map<std::string, BitfieldSlot>& slots) {
+    const llvm::DataLayout& DL = module->getDataLayout();
+    llvm::Type* i8 = llvm::Type::getInt8Ty(*context);
+    uint64_t offset = 0, structAlign = 1;
+    for (const auto& f : fields) {
+        if (f.bitWidth > 0) return false;  // pack + bitfields: fall back to the bitfield path
+        llvm::Type* ft = getTypeFromString(f.type);
+        uint64_t align = std::min<uint64_t>(DL.getABITypeAlign(ft).value(), packN);
+        if (align > structAlign) structAlign = align;
+        uint64_t aligned = (offset + align - 1) / align * align;
+        if (aligned > offset) { phys.push_back(llvm::ArrayType::get(i8, aligned - offset)); offset = aligned; }
+        BitfieldSlot s;
+        s.isBitfield = false;
+        s.physIndex = (unsigned)phys.size();
+        s.storageType = ft;
+        slots[f.name] = s;
+        phys.push_back(ft);
+        offset += DL.getTypeAllocSize(ft).getFixedValue();
+    }
+    // Round the total size up to the struct's alignment (min(maxFieldAlign, N)),
+    // so an array element stride matches the C `#pragma pack(N)` ABI.
+    uint64_t total = (offset + structAlign - 1) / structAlign * structAlign;
+    if (total > offset) phys.push_back(llvm::ArrayType::get(i8, total - offset));
+    return true;
 }
 
 void CodeGen::declareStructType(StructDecl* node) {
@@ -757,6 +858,16 @@ void CodeGen::declareStructType(StructDecl* node) {
     for (const auto& f : node->fields) if (f.bitWidth > 0) hasBitfields = true;
 
     if (!hasBitfields) {
+        // #pragma pack(N>=2): manual layout (padding + physical-index remap).
+        if (node->packAlign >= 2) {
+            std::vector<llvm::Type*> phys;
+            std::map<std::string, BitfieldSlot> slots;
+            buildPackedLayout(node->fields, (unsigned)node->packAlign, phys, slots);
+            structTypes[node->name]  = llvm::StructType::create(*context, phys, node->name, /*isPacked=*/true);
+            structFields[node->name] = node->fields;
+            structLayout[node->name] = slots;
+            return;
+        }
         std::vector<llvm::Type*> fieldTypes;
         for (const auto& field : node->fields)
             fieldTypes.push_back(getTypeFromString(field.type));
@@ -844,6 +955,13 @@ void CodeGen::visit(ExternDecl* node) {
 
     // Create external function declaration
     llvm::Function::Create(funcType, llvm::Function::ExternalLinkage, node->name, module.get());
+}
+
+void CodeGen::visit(IntrinsicDecl* node) {
+    // No declaration is emitted: a call to an intrinsic lowers to inline IR
+    // (see the intrinsic dispatch at the top of visit(CallExpr)). We only record
+    // the name so that callsites can be recognised regardless of source order.
+    intrinsicNames.insert(node->name);
 }
 
 void CodeGen::visit(BlockStmt* node) {
@@ -997,9 +1115,11 @@ void CodeGen::visit(ForInStmt* node) {
 
     size_t lb = itType.rfind('[');
     if (lb != std::string::npos && !itType.empty() && itType.back() == ']') {
-        // Fixed-size array T[N]
+        // Fixed-size array T[N] — resolve N (literal, enum, or const int).
         elemType   = itType.substr(0, lb);
-        lengthExpr = intLit(itType.substr(lb + 1, itType.size() - lb - 2));
+        uint64_t len = 0;
+        resolveArrayDim(itType.substr(lb + 1, itType.size() - lb - 2), len);
+        lengthExpr = intLit(std::to_string(len));
         elemExpr   = std::make_shared<IndexExpr>(node->iterable, idx());
     } else {
         // List-like struct: needs `data` (pointer) and `size` (int) fields.
@@ -1047,7 +1167,14 @@ void CodeGen::visit(ReturnStmt* node) {
         if (v->getType()->isIntegerTy() && ft->isIntegerTy()) {
             unsigned vw = llvm::cast<llvm::IntegerType>(v->getType())->getBitWidth();
             unsigned fw = llvm::cast<llvm::IntegerType>(ft)->getBitWidth();
-            return vw < fw ? builder->CreateSExt(v, ft) : builder->CreateTrunc(v, ft);
+            if (vw >= fw) return builder->CreateTrunc(v, ft);
+            // Widen by the source's signedness: a bool/comparison result (i1) or
+            // an unsigned source zero-extends — e.g. `return a < b;` from an int
+            // function is 1, not -1.
+            std::string st = node->value ? expandAlias(getExprEskiuType(node->value)) : "";
+            bool uns = vw == 1 || st == "uint" || st == "uint8" || st == "uint16" ||
+                       st == "uint32" || st == "uint64" || st == "char" || st == "bool";
+            return uns ? builder->CreateZExt(v, ft) : builder->CreateSExt(v, ft);
         }
         if (v->getType()->isIntegerTy() && ft->isFloatingPointTy())
             return builder->CreateSIToFP(v, ft);
@@ -1121,10 +1248,7 @@ void CodeGen::visit(BinaryExpr* node) {
         }
         if (elemType && rhs->getType() != elemType) {
             if (rhs->getType()->isIntegerTy() && elemType->isIntegerTy()) {
-                unsigned rw = llvm::cast<llvm::IntegerType>(rhs->getType())->getBitWidth();
-                unsigned ew = llvm::cast<llvm::IntegerType>(elemType)->getBitWidth();
-                rhs = rw < ew ? builder->CreateZExt(rhs, elemType)
-                               : builder->CreateTrunc(rhs, elemType);
+                rhs = coerceInt(rhs, elemType, eskiuUnsigned(getExprEskiuType(node->right)));
             } else if (rhs->getType()->isIntegerTy() && elemType->isFloatingPointTy()) {
                 rhs = builder->CreateSIToFP(rhs, elemType);
             } else if (rhs->getType()->isFloatingPointTy() && elemType->isIntegerTy()) {
@@ -1152,6 +1276,20 @@ void CodeGen::visit(BinaryExpr* node) {
 
     llvm::Value* result = nullptr;
 
+    // Integer signedness of each operand, from its Eskiu type. Drives sign- vs
+    // zero-extension when widening, and signed vs unsigned div/rem/shr/compare.
+    auto isUnsignedEsk = [&](const ExprPtr& e) -> bool {
+        std::string t = expandAlias(getExprEskiuType(e));
+        return t == "uint" || t == "uint8" || t == "uint16" || t == "uint32" ||
+               t == "uint64" || t == "char" || t == "bool";
+    };
+    bool lUns = isUnsignedEsk(node->left);
+    bool rUns = isUnsignedEsk(node->right);
+    bool opUnsigned = lUns || rUns;   // C-style: unsigned wins in a mixed op
+    auto extTo = [&](llvm::Value* v, llvm::Type* ty, bool uns) {
+        return uns ? builder->CreateZExt(v, ty) : builder->CreateSExt(v, ty);
+    };
+
     // Promote to common type: int→float, float→double
     auto promoteToFloat = [&]() {
         if (left->getType()->isFloatingPointTy() && right->getType()->isIntegerTy())
@@ -1169,27 +1307,19 @@ void CodeGen::visit(BinaryExpr* node) {
         }
     };
 
-    // Widen narrower integer to match wider for bitwise/shift ops
-    auto widenForBitwise = [&]() {
+    // Widen the narrower integer to match the wider one, extending each operand
+    // according to ITS OWN signedness (sign-extend signed, zero-extend unsigned).
+    auto widenInts = [&]() {
         if (left->getType()->isIntegerTy() && right->getType()->isIntegerTy()
                 && left->getType() != right->getType()) {
             unsigned lw = llvm::cast<llvm::IntegerType>(left->getType())->getBitWidth();
             unsigned rw = llvm::cast<llvm::IntegerType>(right->getType())->getBitWidth();
-            if (lw < rw) left  = builder->CreateZExt(left,  right->getType());
-            else          right = builder->CreateZExt(right, left->getType());
+            if (lw < rw) left  = extTo(left,  right->getType(), lUns);
+            else          right = extTo(right, left->getType(),  rUns);
         }
     };
-
-    // Widen narrower integer to match wider for arithmetic (e.g. i8 - i32)
-    auto widenForArith = [&]() {
-        if (left->getType()->isIntegerTy() && right->getType()->isIntegerTy()
-                && left->getType() != right->getType()) {
-            unsigned lw = llvm::cast<llvm::IntegerType>(left->getType())->getBitWidth();
-            unsigned rw = llvm::cast<llvm::IntegerType>(right->getType())->getBitWidth();
-            if (lw < rw) left  = builder->CreateZExt(left,  right->getType());
-            else          right = builder->CreateZExt(right, left->getType());
-        }
-    };
+    auto widenForBitwise = widenInts;
+    auto widenForArith   = widenInts;
 
     // Resolve the element type for typed pointer arithmetic.
     // *int → i32, *uint8 → i8, *void/*char/unknown → i8 (byte arithmetic)
@@ -1242,53 +1372,44 @@ void CodeGen::visit(BinaryExpr* node) {
         promoteToFloat(); widenForArith();
         result = left->getType()->isFloatingPointTy()
             ? builder->CreateFDiv(left, right)
-            : builder->CreateSDiv(left, right);
+            : (opUnsigned ? builder->CreateUDiv(left, right)
+                          : builder->CreateSDiv(left, right));
     } else if (node->op == "%") {
-        result = builder->CreateSRem(left, right);
+        promoteToFloat(); widenForArith();
+        result = left->getType()->isFloatingPointTy()
+            ? builder->CreateFRem(left, right)
+            : (opUnsigned ? builder->CreateURem(left, right)
+                          : builder->CreateSRem(left, right));
     } else if (node->op == "==") {
         if (left->getType()->isFloatingPointTy())
             result = builder->CreateFCmpOEQ(left, right);
         else {
-            // Widen narrower integer to match wider (e.g. i8 == i32)
-            if (left->getType()->isIntegerTy() && right->getType()->isIntegerTy()
-                    && left->getType() != right->getType()) {
-                unsigned lw = llvm::cast<llvm::IntegerType>(left->getType())->getBitWidth();
-                unsigned rw = llvm::cast<llvm::IntegerType>(right->getType())->getBitWidth();
-                if (lw < rw) left  = builder->CreateZExt(left,  right->getType());
-                else          right = builder->CreateZExt(right, left->getType());
-            }
+            widenInts();   // equality is bit-equal; widening just needs the right extend
             result = builder->CreateICmpEQ(left, right);
         }
     } else if (node->op == "!=" || node->op == "<" || node->op == ">" ||
                node->op == "<=" || node->op == ">=") {
-        // Widen narrower integer to match wider for all comparisons
-        if (left->getType()->isIntegerTy() && right->getType()->isIntegerTy()
-                && left->getType() != right->getType()) {
-            unsigned lw = llvm::cast<llvm::IntegerType>(left->getType())->getBitWidth();
-            unsigned rw = llvm::cast<llvm::IntegerType>(right->getType())->getBitWidth();
-            if (lw < rw) left  = builder->CreateZExt(left,  right->getType());
-            else          right = builder->CreateZExt(right, left->getType());
-        }
+        bool isFloat = left->getType()->isFloatingPointTy();
+        if (!isFloat) widenInts();
         if (node->op == "!=") {
-            result = left->getType()->isFloatingPointTy()
-                ? builder->CreateFCmpONE(left, right)
-                : builder->CreateICmpNE(left, right);
+            result = isFloat ? builder->CreateFCmpONE(left, right)
+                             : builder->CreateICmpNE(left, right);
         } else if (node->op == "<") {
-            result = left->getType()->isFloatingPointTy()
-                ? builder->CreateFCmpOLT(left, right)
-                : builder->CreateICmpSLT(left, right);
+            result = isFloat ? builder->CreateFCmpOLT(left, right)
+                   : (opUnsigned ? builder->CreateICmpULT(left, right)
+                                 : builder->CreateICmpSLT(left, right));
         } else if (node->op == ">") {
-            result = left->getType()->isFloatingPointTy()
-                ? builder->CreateFCmpOGT(left, right)
-                : builder->CreateICmpSGT(left, right);
+            result = isFloat ? builder->CreateFCmpOGT(left, right)
+                   : (opUnsigned ? builder->CreateICmpUGT(left, right)
+                                 : builder->CreateICmpSGT(left, right));
         } else if (node->op == "<=") {
-            result = left->getType()->isFloatingPointTy()
-                ? builder->CreateFCmpOLE(left, right)
-                : builder->CreateICmpSLE(left, right);
+            result = isFloat ? builder->CreateFCmpOLE(left, right)
+                   : (opUnsigned ? builder->CreateICmpULE(left, right)
+                                 : builder->CreateICmpSLE(left, right));
         } else {
-            result = left->getType()->isFloatingPointTy()
-                ? builder->CreateFCmpOGE(left, right)
-                : builder->CreateICmpSGE(left, right);
+            result = isFloat ? builder->CreateFCmpOGE(left, right)
+                   : (opUnsigned ? builder->CreateICmpUGE(left, right)
+                                 : builder->CreateICmpSGE(left, right));
         }
     } else if (node->op == "&&") {
         result = builder->CreateLogicalAnd(left, right);
@@ -1304,7 +1425,9 @@ void CodeGen::visit(BinaryExpr* node) {
     } else if (node->op == "<<") {
         widenForBitwise(); result = builder->CreateShl(left, right);
     } else if (node->op == ">>") {
-        widenForBitwise(); result = builder->CreateAShr(left, right);
+        widenForBitwise();
+        result = opUnsigned ? builder->CreateLShr(left, right)
+                            : builder->CreateAShr(left, right);
     } else {
         throw std::runtime_error("Unknown binary operator: " + node->op);
     }
@@ -1333,7 +1456,7 @@ void CodeGen::visit(QuestionExpr* node) {
     }
 
     // Materialize the Result into a temp so we can read fields and return it whole.
-    llvm::Value* tmp = builder->CreateAlloca(st, nullptr, "try.tmp");
+    llvm::Value* tmp = entryAlloca(st, nullptr, "try.tmp");
     builder->CreateStore(resVal, tmp);
 
     llvm::Value* okPtr = builder->CreateStructGEP(st, tmp, okIdx);
@@ -1407,7 +1530,105 @@ void CodeGen::visit(UnaryExpr* node) {
     exprValueStack.push(result);
 }
 
+// Lower a call to an `intrinsic`-declared function to inline IR. The registry of
+// supported intrinsics lives here; their signatures are declared in stdlib (e.g.
+// stdlib/atomic.esk) and the orderings/semantics are fixed (docs/dev/async-design.md §3).
+llvm::Value* CodeGen::lowerIntrinsicCall(const std::string& fn, CallExpr* node) {
+    // Atomics operate on a *int (i32) cell.
+    if (fn == "atomic_load") {
+        llvm::Value* cell = evaluateExpr(node->args[0]);
+        auto* ld = builder->CreateLoad(llvm::Type::getInt32Ty(*context), cell, "atm.load");
+        ld->setAtomic(llvm::AtomicOrdering::Acquire);
+        ld->setAlignment(llvm::Align(4));
+        return ld;
+    }
+    if (fn == "atomic_store") {
+        llvm::Value* cell = evaluateExpr(node->args[0]);
+        llvm::Value* v    = evaluateExpr(node->args[1]);
+        auto* st = builder->CreateStore(v, cell);
+        st->setAtomic(llvm::AtomicOrdering::Release);
+        st->setAlignment(llvm::Align(4));
+        return llvm::UndefValue::get(llvm::Type::getVoidTy(*context));
+    }
+    if (fn == "atomic_swap") {
+        llvm::Value* cell = evaluateExpr(node->args[0]);
+        llvm::Value* v    = evaluateExpr(node->args[1]);
+        // Alignment from the operand width, so a 64-bit cell isn't under-aligned.
+        llvm::MaybeAlign al = module->getDataLayout().getABITypeAlign(v->getType());
+        return builder->CreateAtomicRMW(
+            llvm::AtomicRMWInst::Xchg, cell, v, al,
+            llvm::AtomicOrdering::AcquireRelease);
+    }
+    if (fn == "atomic_cas") {
+        llvm::Value* cell     = evaluateExpr(node->args[0]);
+        llvm::Value* expected = evaluateExpr(node->args[1]);
+        llvm::Value* desired  = evaluateExpr(node->args[2]);
+        llvm::MaybeAlign al = module->getDataLayout().getABITypeAlign(desired->getType());
+        llvm::Value* cx = builder->CreateAtomicCmpXchg(
+            cell, expected, desired, al,
+            llvm::AtomicOrdering::AcquireRelease, llvm::AtomicOrdering::Acquire);
+        return builder->CreateExtractValue(cx, 1, "atm.cas.ok"); // success bit (i1)
+    }
+    throw std::runtime_error("intrinsic '" + fn + "' is declared but has no codegen lowering");
+}
+
 void CodeGen::visit(CallExpr* node) {
+    // Variadic access: va_start(ap) / va_end(ap) — `ap` is a local va_list, whose
+    // alloca is the pointer the intrinsics need.
+    if (auto* bid = dynamic_cast<IdentExpr*>(node->callee.get())) {
+        if ((bid->name == "va_start" || bid->name == "va_end") && node->args.size() == 1) {
+            llvm::Value* ap = evaluateLValue(node->args[0]);
+            llvm::Function* fn = getOrDeclareFunc(
+                bid->name == "va_start" ? "llvm.va_start.p0" : "llvm.va_end.p0",
+                llvm::Type::getVoidTy(*context), {llvm::PointerType::get(*context, 0)}, false);
+            exprValueStack.push(builder->CreateCall(fn, {ap}));
+            return;
+        }
+    }
+    // Algebraic variant construction: `Circle(2.0)`, `Some(x)`.
+    if (auto* vid = dynamic_cast<IdentExpr*>(node->callee.get())) {
+        if (!lookupSymbol(vid->name) && adtVariants.count(vid->name)) {
+            exprValueStack.push(buildVariant(vid->name, node->args));
+            return;
+        }
+        // Bare generic-variant with inference: infer each type param from the arg
+        // whose payload slot IS that param (the type checker has verified all are
+        // determined), then build the instance.
+        if (!lookupSymbol(vid->name) && genericVariants.count(vid->name)) {
+            auto& gi = genericVariants[vid->name];
+            EnumDecl* ge = genericEnumDecls[gi.first];
+            const auto& payload = ge->payloads[gi.second];
+            std::map<std::string, std::string> subs;
+            for (size_t i = 0; i < payload.size() && i < node->args.size(); ++i)
+                for (const auto& tp : ge->typeParams)
+                    if (payload[i] == tp && !subs.count(tp)) {
+                        std::string at = getExprEskiuType(node->args[i]);
+                        if (!typeParamOverride.empty()) at = substType(at, typeParamOverride);
+                        subs[tp] = at;
+                    }
+            std::vector<std::string> targs;
+            for (const auto& tp : ge->typeParams) targs.push_back(subs.count(tp) ? subs[tp] : "int");
+            std::string mangled = ensureEnumInst(gi.first, targs);
+            std::map<std::string, std::string> sub2;
+            for (size_t i = 0; i < ge->typeParams.size() && i < targs.size(); ++i) sub2[ge->typeParams[i]] = targs[i];
+            std::vector<llvm::Type*> fts;
+            for (const auto& ft : payload) fts.push_back(getTypeFromString(substType(ft, sub2)));
+            exprValueStack.push(buildEnumValue(structTypes[mangled], gi.second, fts, node->args));
+            return;
+        }
+    }
+    // Intrinsics: a call to an `intrinsic`-declared name lowers to inline IR
+    // instead of a call. Gated on intrinsicNames (only populated when the
+    // declaring module is imported), so a user function of the same name that
+    // was *not* imported as an intrinsic is unaffected.
+    if (auto* aid = dynamic_cast<IdentExpr*>(node->callee.get())) {
+        const std::string& fn = aid->name;
+        if (intrinsicNames.count(fn) && !lookupSymbol(fn)) {
+            exprValueStack.push(lowerIntrinsicCall(fn, node));
+            return;
+        }
+    }
+
     // Template function called without explicit type arguments: infer each type
     // parameter by structurally unifying every parameter type against the concrete
     // argument type. Covers bare params (T max<T>(T a, T b) → max(3,5)) and
@@ -1437,6 +1658,11 @@ void CodeGen::visit(CallExpr* node) {
     // Unified method/interface call: callee is MemberExpr
     if (auto member = dynamic_cast<MemberExpr*>(node->callee.get())) {
         std::string baseType = getExprEskiuType(member->base);
+        // Pointer-vs-value base: a pointer-to-struct base supplies the receiver
+        // by its *value* (the pointer — load it), a value struct by its *address*.
+        // (Mirrors the field-access logic; robust to parameters now living in a
+        // stack slot.)
+        bool baseIsPtr = (!baseType.empty() && (baseType.front() == '*' || baseType.back() == '*'));
         if (baseType.size() > 7 && baseType.substr(0, 7) == "struct:") baseType = baseType.substr(7);
         if (!baseType.empty() && baseType.front() == '*') baseType = baseType.substr(1);
         while (!baseType.empty() && baseType.back() == '*') baseType.pop_back();
@@ -1449,7 +1675,9 @@ void CodeGen::visit(CallExpr* node) {
         // Interface vtable dispatch
         auto ifIt = ifaceMethodOrder.find(baseType);
         if (ifIt != ifaceMethodOrder.end()) {
-            llvm::Value* fatPtr = evaluateLValue(member->base);
+            // An interface value IS a pointer to the fat {data, vtable} struct,
+            // so its *value* (loaded from the variable's slot) is the fat pointer.
+            llvm::Value* fatPtr = evaluateExpr(member->base);
             llvm::StructType* fatType = ifaceFatPtrTypes[baseType];
             llvm::Value* dataGEP = builder->CreateStructGEP(fatType, fatPtr, 0);
             llvm::Value* dataPtr = builder->CreateLoad(llvm::PointerType::get(*context, 0), dataGEP);
@@ -1484,7 +1712,7 @@ void CodeGen::visit(CallExpr* node) {
             bool iSret = needsSret(retType);
             llvm::Value* sretBuf = nullptr;
             if (iSret) {
-                sretBuf = builder->CreateAlloca(retType, nullptr, "iface.sret");
+                sretBuf = entryAlloca(retType, nullptr, "iface.sret");
                 iargs.insert(iargs.begin() + 0, sretBuf); // sret after self? actually: sret first
                 paramLLVM.insert(paramLLVM.begin(), llvm::PointerType::get(*context, 0));
                 retType = llvm::Type::getVoidTy(*context);
@@ -1504,30 +1732,20 @@ void CodeGen::visit(CallExpr* node) {
         std::string mangled = baseType + "_" + member->member;
         llvm::Function* mfunc = module->getFunction(mangled);
         if (mfunc) {
-            std::vector<llvm::Value*> margs = {evaluateLValue(member->base)};
+            // self: a value-struct receiver passes its address; a pointer receiver
+            // passes the pointer it holds (loaded), not the address of its slot.
+            llvm::Value* self = baseIsPtr ? evaluateExpr(member->base)
+                                          : evaluateLValue(member->base);
+            std::vector<llvm::Value*> margs = {self};
             for (auto& arg : node->args) margs.push_back(evaluateExpr(arg));
             exprValueStack.push(builder->CreateCall(mfunc, margs));
             return;
         }
-        throw std::runtime_error("Undefined method: " + baseType + "::" + member->member);
-    }
-
-    // Regular function call — auto-declare free/malloc if not yet visible
-    if (auto ident = dynamic_cast<IdentExpr*>(node->callee.get())) {
-        if (ident->name == "free") {
-            std::string freeSym = freestanding ? "esk_free" : "free";
-            getOrDeclareFunc(freeSym, llvm::Type::getVoidTy(*context),
-                             {llvm::PointerType::get(*context, 0)});
-            // Redirect the call symbol if in freestanding mode
-            if (freestanding) {
-                auto* fn = module->getFunction("esk_free");
-                std::vector<llvm::Value*> fargs = {evaluateExpr(node->args[0])};
-                builder->CreateCall(fn, fargs);
-                exprValueStack.push(llvm::Constant::getNullValue(
-                    llvm::Type::getInt32Ty(*context)));
-                return;
-            }
-        }
+        // Not a method: if o.member is a fn-pointer field, fall through to the
+        // general indirect-call path (evaluateExpr(callee) yields the fat ptr).
+        std::string ft = getExprEskiuType(node->callee);
+        if (!(ft.size() > 3 && ft.substr(0, 3) == "fn("))
+            throw std::runtime_error("Undefined method: " + baseType + "::" + member->member);
     }
 
     // A bare name that resolves to a function (and is not shadowed by a local
@@ -1571,7 +1789,9 @@ void CodeGen::visit(CallExpr* node) {
 
             std::vector<llvm::Value*> iargs = {envPtr};
             for (auto& a : node->args) iargs.push_back(evaluateExpr(a));
-            exprValueStack.push(builder->CreateCall(fty, fnPtr, iargs, "fn.call"));
+            // A void-returning call must not be given a name (LLVM forbids it).
+            exprValueStack.push(builder->CreateCall(
+                fty, fnPtr, iargs, retTy->isVoidTy() ? "" : "fn.call"));
             return;
         }
         throw std::runtime_error("Call target is not a function");
@@ -1605,11 +1825,34 @@ void CodeGen::visit(CallExpr* node) {
         for (size_t i = 0; i < args.size() && i < fparams.size(); ++i) {
             if (args[i]->getType()->isIntegerTy() && fparams[i]->isIntegerTy()
                     && args[i]->getType() != fparams[i]) {
-                unsigned aw = llvm::cast<llvm::IntegerType>(args[i]->getType())->getBitWidth();
-                unsigned pw = llvm::cast<llvm::IntegerType>(fparams[i])->getBitWidth();
-                args[i] = aw < pw
-                    ? builder->CreateSExt(args[i], fparams[i])
-                    : builder->CreateTrunc(args[i], fparams[i]);
+                bool uns = i < node->args.size() && eskiuUnsigned(getExprEskiuType(node->args[i]));
+                args[i] = coerceInt(args[i], fparams[i], uns);
+            }
+        }
+    }
+
+    // C default argument promotions for the variadic ("...") arguments: an
+    // integer narrower than int widens to i32 (sign/zero per its signedness),
+    // and a float widens to double. Without this, printf("%d", anInt8) reads a
+    // full int from a byte-sized argument slot.
+    if (func->getFunctionType()->isVarArg()) {
+        auto argUnsigned = [&](size_t i) -> bool {
+            if (i >= node->args.size()) return false;
+            std::string t = expandAlias(getExprEskiuType(node->args[i]));
+            return t == "uint" || t == "uint8" || t == "uint16" || t == "uint32" ||
+                   t == "uint64" || t == "char" || t == "bool";
+        };
+        unsigned fixed = func->getFunctionType()->getNumParams();
+        llvm::Type* i32 = llvm::Type::getInt32Ty(*context);
+        for (size_t i = fixed; i < args.size(); ++i) {
+            llvm::Type* at = args[i]->getType();
+            if (at->isIntegerTy() && at->getIntegerBitWidth() < 32) {
+                // i1 (a bool / comparison result) is 0/1 — always zero-extend.
+                bool uns = argUnsigned(i) || at->getIntegerBitWidth() == 1;
+                args[i] = uns ? builder->CreateZExt(args[i], i32)
+                              : builder->CreateSExt(args[i], i32);
+            } else if (at->isFloatTy()) {
+                args[i] = builder->CreateFPExt(args[i], llvm::Type::getDoubleTy(*context));
             }
         }
     }
@@ -1617,7 +1860,7 @@ void CodeGen::visit(CallExpr* node) {
     // sret: alloca for large struct return, pass as hidden arg 0, load result
     auto sretIt = funcSretTypes.find(func->getName().str());
     if (sretIt != funcSretTypes.end()) {
-        llvm::Value* sretAlloca = builder->CreateAlloca(sretIt->second, nullptr, "sret.tmp");
+        llvm::Value* sretAlloca = entryAlloca(sretIt->second, nullptr, "sret.tmp");
         args.insert(args.begin(), sretAlloca);
         createMaybeInvoke(func->getFunctionType(), func, args);
         exprValueStack.push(builder->CreateLoad(sretIt->second, sretAlloca));
@@ -1683,6 +1926,27 @@ std::string CodeGen::structBaseTypeOf(const ExprPtr& base) {
 void CodeGen::visit(MemberExpr* node) {
     std::string baseType = structBaseTypeOf(node->base);
 
+    // A pointer-to-struct base is dereferenced via its value; a value-struct
+    // base via its address (see the matching logic in evaluateLValue).
+    std::string rawBaseTy = getExprEskiuType(node->base);
+    bool baseIsPtr = (!rawBaseTy.empty() && (rawBaseTy.front() == '*' || rawBaseTy.back() == '*'));
+    // A struct-valued temporary (call result, template call, struct literal) is
+    // an rvalue with no address — materialize it into an alloca so we can GEP.
+    Expr* b = node->base.get();
+    bool baseIsTemp = !baseIsPtr &&
+        (dynamic_cast<CallExpr*>(b) || dynamic_cast<TemplateCallExpr*>(b) ||
+         dynamic_cast<StructInitExpr*>(b));
+    auto baseAddr = [&]() -> llvm::Value* {
+        if (baseIsPtr) return evaluateExpr(node->base);
+        if (baseIsTemp) {
+            llvm::Value* v = evaluateExpr(node->base);
+            llvm::Value* tmp = entryAlloca(v->getType(), nullptr, "mem.tmp");
+            builder->CreateStore(v, tmp);
+            return tmp;
+        }
+        return evaluateLValue(node->base);
+    };
+
     // Bitfield-layout struct: physical slot map (handles bitfields and the
     // non-bitfield fields whose physical index differs from the logical one).
     auto lit = structLayout.find(baseType);
@@ -1691,7 +1955,7 @@ void CodeGen::visit(MemberExpr* node) {
         if (sit == lit->second.end())
             throw std::runtime_error("Struct '" + baseType + "' has no field '" + node->member + "'");
         const BitfieldSlot& slot = sit->second;
-        llvm::Value* basePtr = evaluateLValue(node->base);
+        llvm::Value* basePtr = baseAddr();
         llvm::Value* gep = builder->CreateStructGEP(structTypes[baseType], basePtr,
                                                     slot.physIndex, node->member);
         if (!slot.isBitfield) {
@@ -1720,7 +1984,7 @@ void CodeGen::visit(MemberExpr* node) {
     bool isUnion = unionFields.count(baseType) > 0;
     for (size_t i = 0; i < fields.size(); ++i) {
         if (fields[i].name == node->member) {
-            llvm::Value* basePtr = evaluateLValue(node->base);
+            llvm::Value* basePtr = baseAddr();
             llvm::Type*  fieldTy = getTypeFromString(fields[i].type);
             llvm::Value* ptr;
             if (isUnion) {
@@ -1765,9 +2029,24 @@ void CodeGen::storeBitfield(MemberExpr* m, llvm::Value* val) {
 }
 
 void CodeGen::visit(CastExpr* node) {
-    llvm::Value* val = evaluateExpr(node->expr);
-
     llvm::Type* targetType = getTypeFromString(node->targetType);
+
+    // Casting a top-level function name to a pointer type yields its RAW C
+    // function pointer — the bare symbol address, not the {fn, env} closure fat
+    // pointer the name would otherwise decay to. This is how an Eskiu function is
+    // handed to a C API as a callback (e.g. OpenSSL's ALPN select callback).
+    if (targetType->isPointerTy()) {
+        if (auto* id = dynamic_cast<IdentExpr*>(node->expr.get())) {
+            if (!lookupSymbol(id->name)) {               // not shadowed by a variable
+                if (llvm::Function* fn = module->getFunction(id->name)) {
+                    exprValueStack.push(fn);             // a Function* is already a ptr
+                    return;
+                }
+            }
+        }
+    }
+
+    llvm::Value* val = evaluateExpr(node->expr);
 
     llvm::Value* result = nullptr;
 
@@ -1778,7 +2057,13 @@ void CodeGen::visit(CastExpr* node) {
         unsigned srcWidth = llvm::cast<llvm::IntegerType>(val->getType())->getBitWidth();
         unsigned dstWidth = llvm::cast<llvm::IntegerType>(targetType)->getBitWidth();
         if (srcWidth < dstWidth) {
-            result = builder->CreateSExt(val, targetType);
+            // Widen per the SOURCE's signedness: an unsigned source (uint*/char/bool)
+            // zero-extends — e.g. (int)(uint8)255 is 255, not -1.
+            std::string st = expandAlias(getExprEskiuType(node->expr));
+            bool uns = st == "uint" || st == "uint8" || st == "uint16" || st == "uint32" ||
+                       st == "uint64" || st == "char" || st == "bool";
+            result = uns ? builder->CreateZExt(val, targetType)
+                         : builder->CreateSExt(val, targetType);
         } else {
             result = builder->CreateTrunc(val, targetType);
         }
@@ -1806,8 +2091,21 @@ void CodeGen::visit(LiteralExpr* node) {
 
     switch (node->kind) {
         case LiteralExpr::Kind::INT: {
-            long long val = std::stoll(node->value, nullptr, 0); // base 0 = auto (dec/hex/oct)
-            result = llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), val);
+            // base 0 = auto (dec/hex/oct). Materialize as i64 when the value
+            // doesn't fit in 32 bits, so large literals aren't truncated.
+            unsigned long long uval;
+            bool wide;
+            try {
+                long long sval = std::stoll(node->value, nullptr, 0);
+                uval = (unsigned long long)sval;
+                wide = (sval < -2147483648LL || sval > 4294967295LL);
+            } catch (const std::out_of_range&) {
+                uval = std::stoull(node->value, nullptr, 0); // e.g. large uint64 literal
+                wide = true;
+            }
+            llvm::Type* ity = wide ? llvm::Type::getInt64Ty(*context)
+                                   : llvm::Type::getInt32Ty(*context);
+            result = llvm::ConstantInt::get(ity, uval, false);
             break;
         }
         case LiteralExpr::Kind::FLOAT: {
@@ -1846,6 +2144,11 @@ void CodeGen::visit(IdentExpr* node) {
         if (ec != enumConstants.end()) {
             exprValueStack.push(llvm::ConstantInt::get(
                 llvm::Type::getInt32Ty(*context), ec->second, /*isSigned=*/true));
+            return;
+        }
+        // Bare algebraic variant with no payload, e.g. `None`.
+        if (adtVariants.count(node->name)) {
+            exprValueStack.push(buildVariant(node->name, {}));
             return;
         }
     }
@@ -1903,20 +2206,36 @@ llvm::Function* CodeGen::getOrDeclareFunc(const std::string& name, llvm::Type* r
     return f;
 }
 
-void CodeGen::visit(AllocExpr* node) {
-    llvm::Type* elemType = getTypeFromString(node->elemType);
-    llvm::Value* count   = evaluateExpr(node->count);
+void CodeGen::visit(AllocWithExpr* node) {
+    // Lower to: (*T) <AllocType>_alloc(allocator, count * sizeof(T))
+    // The allocator is a struct providing `*void alloc(... size)`.
+    llvm::Value* allocPtr = evaluateExpr(node->allocator);
 
-    // sizeof(T) from DataLayout
-    uint64_t elemSize = module->getDataLayout().getTypeAllocSize(elemType);
-    llvm::Value* size64 = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), elemSize);
-    llvm::Value* n64    = builder->CreateIntCast(count, llvm::Type::getInt64Ty(*context), false);
-    llvm::Value* total  = builder->CreateMul(n64, size64, "alloc.size");
+    std::string at = getExprEskiuType(node->allocator);
+    while (!at.empty() && at.front() == '*') at = at.substr(1);
+    while (!at.empty() && at.back()  == '*') at.pop_back();
+    if (at.rfind("struct:", 0) == 0) at = at.substr(7);
 
-    std::string allocSym = freestanding ? "esk_alloc" : "malloc";
-    llvm::Function* mallocFn = getOrDeclareFunc(allocSym,
-        llvm::PointerType::get(*context, 0), {llvm::Type::getInt64Ty(*context)});
-    exprValueStack.push(builder->CreateCall(mallocFn, {total}, "alloc.ptr"));
+    std::string fnName = at + "_alloc";
+    llvm::Function* af = module->getFunction(fnName);
+    if (!af)
+        throw std::runtime_error("alloc_with: allocator type '" + at +
+                                 "' has no alloc method (" + fnName + ")");
+
+    llvm::Type* elemTy = getTypeFromString(node->elemType);
+    uint64_t esz = module->getDataLayout().getTypeAllocSize(elemTy);
+    llvm::Value* n64 = builder->CreateIntCast(evaluateExpr(node->count),
+                            llvm::Type::getInt64Ty(*context), false);
+    llvm::Value* total = builder->CreateMul(
+        n64, llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), esz), "allocw.size");
+
+    // Coerce the size to the alloc method's second parameter type.
+    llvm::FunctionType* fty = af->getFunctionType();
+    if (fty->getNumParams() >= 2 && fty->getParamType(1) != total->getType())
+        total = builder->CreateIntCast(total, fty->getParamType(1), false);
+
+    // Returns *void; the cast to *T is a no-op under opaque pointers.
+    exprValueStack.push(builder->CreateCall(af, {allocPtr, total}, "allocw.ptr"));
 }
 
 llvm::Value* CodeGen::makeFunctionPointer(llvm::Function* target) {
@@ -1948,7 +2267,7 @@ llvm::Value* CodeGen::makeFunctionPointer(llvm::Function* target) {
 
     // Build fat pointer {wrapper, null} — same shape lambdas produce.
     llvm::StructType* fatTy = llvm::cast<llvm::StructType>(getTypeFromString("fn()->void"));
-    llvm::Value* fatAlloca = builder->CreateAlloca(fatTy, nullptr, "fnptr.fat");
+    llvm::Value* fatAlloca = entryAlloca(fatTy, nullptr, "fnptr.fat");
     builder->CreateStore(wrapper, builder->CreateStructGEP(fatTy, fatAlloca, 0));
     builder->CreateStore(llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(ptrTy)),
                          builder->CreateStructGEP(fatTy, fatAlloca, 1));
@@ -1971,8 +2290,22 @@ void CodeGen::visit(LambdaExpr* node) {
             envFields.push_back(getTypeFromString(type));
         envTy = llvm::StructType::create(*context, envFields,
                                          lambdaName + ".env");
-        // Allocate and populate env in the *current* (outer) function
-        envAlloca = builder->CreateAlloca(envTy, nullptr, lambdaName + ".env.alloc");
+        if (node->escapes) {
+            // Escaping closure (returned, stored, or passed to an `escaping`
+            // parameter): heap-allocate the env so it outlives this function.
+            // Freed via free_closure (the async transform emits it at the owner
+            // boundary; otherwise the owner frees it explicitly).
+            uint64_t envSize = module->getDataLayout().getTypeAllocSize(envTy);
+            llvm::Function* mallocFn = getOrDeclareFunc(
+                "malloc", ptrTy, {llvm::Type::getInt64Ty(*context)}, false);
+            envAlloca = builder->CreateCall(mallocFn,
+                {llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), envSize)},
+                lambdaName + ".env.heap");
+        } else {
+            // Non-escaping closure: the env dies with this frame — stack-allocate
+            // it. Zero cost, no leak. (The common map/filter/apply case.)
+            envAlloca = entryAlloca(envTy, nullptr, lambdaName + ".env");
+        }
         for (size_t ci = 0; ci < node->captures.size(); ++ci) {
             llvm::Value* capturedVal = nullptr;
             llvm::Value* sym = lookupSymbol(node->captures[ci].first);
@@ -2026,7 +2359,7 @@ void CodeGen::visit(LambdaExpr* node) {
         for (size_t ci = 0; ci < node->captures.size(); ++ci) {
             const auto& [capName, capType] = node->captures[ci];
             llvm::Type* capLLVMTy = getTypeFromString(capType);
-            auto* capAlloca = builder->CreateAlloca(capLLVMTy, nullptr, capName);
+            auto* capAlloca = entryAlloca(capLLVMTy, nullptr, capName);
             auto* gep = builder->CreateStructGEP(envTy, envArg, ci, capName + ".gep");
             auto* val = builder->CreateLoad(capLLVMTy, gep, capName + ".val");
             builder->CreateStore(val, capAlloca);
@@ -2042,7 +2375,7 @@ void CodeGen::visit(LambdaExpr* node) {
     for (; argIt != func->arg_end(); ++argIt, ++i) {
         llvm::Value* slot = &*argIt;
         if (argIt->getType()->isStructTy()) {
-            auto* a = builder->CreateAlloca(argIt->getType(), nullptr,
+            auto* a = entryAlloca(argIt->getType(), nullptr,
                                             node->params[i].second + ".byval");
             builder->CreateStore(&*argIt, a);
             slot = a;
@@ -2065,7 +2398,7 @@ void CodeGen::visit(LambdaExpr* node) {
     // ── Build fat pointer {fn_ptr, env_ptr} ──────────────────────────────
     llvm::StructType* fatTy = llvm::cast<llvm::StructType>(
         getTypeFromString("fn()->void")); // any fn type gives {ptr,ptr}
-    llvm::Value* fatAlloca = builder->CreateAlloca(fatTy, nullptr, lambdaName + ".fat");
+    llvm::Value* fatAlloca = entryAlloca(fatTy, nullptr, lambdaName + ".fat");
     auto* fnSlot  = builder->CreateStructGEP(fatTy, fatAlloca, 0);
     auto* envSlot = builder->CreateStructGEP(fatTy, fatAlloca, 1);
     builder->CreateStore(func, fnSlot);
@@ -2230,7 +2563,7 @@ void CodeGen::visit(TryStmt* node) {
         llvm::Value* catchVal = catchTy->isPointerTy()
             ? builder->CreateIntToPtr(ival, catchTy)
             : builder->CreateTrunc(ival, catchTy);
-        auto* catchAlloca = builder->CreateAlloca(catchTy, nullptr, c.name);
+        auto* catchAlloca = entryAlloca(catchTy, nullptr, c.name);
         builder->CreateStore(catchVal, catchAlloca);
         defineSymbol(c.name, catchAlloca);
         defineVarType(c.name, c.type);
@@ -2261,9 +2594,113 @@ void CodeGen::visit(TryStmt* node) {
     builder->SetInsertPoint(doneBB);
 }
 
+// Create the tagged-union LLVM type for an ADT enum given each variant's payload
+// field types: { i32 tag; [N x i64] payload }, N sized to the largest variant. The
+// i64 array forces 8-byte alignment (enough for scalars/pointers/doubles).
+static llvm::StructType* makeAdtStruct(llvm::LLVMContext& ctx, const llvm::DataLayout& DL,
+                                       const std::string& name,
+                                       const std::vector<std::vector<llvm::Type*>>& variantFields) {
+    uint64_t maxBytes = 0;
+    for (const auto& fields : variantFields) {
+        uint64_t bytes = 0;
+        for (llvm::Type* t : fields) {
+            uint64_t al = DL.getABITypeAlign(t).value();
+            bytes = ((bytes + al - 1) / al) * al + DL.getTypeAllocSize(t);
+        }
+        if (bytes > maxBytes) maxBytes = bytes;
+    }
+    uint64_t n = (maxBytes + 7) / 8; if (n == 0) n = 1;
+    std::vector<llvm::Type*> f = {
+        llvm::Type::getInt32Ty(ctx),
+        llvm::ArrayType::get(llvm::Type::getInt64Ty(ctx), n)
+    };
+    return llvm::StructType::create(ctx, f, name);
+}
+
 void CodeGen::visit(EnumDecl* node) {
     enumTypes.insert(node->name);
-    for (const auto& m : node->members) enumConstants[m.first] = m.second;
+    if (!node->isADT()) {
+        for (const auto& m : node->members) enumConstants[m.first] = m.second;
+        return;
+    }
+    if (!node->typeParams.empty()) {
+        // Generic ADT enum: a template; instances are built on demand (ensureEnumInst).
+        genericEnumDecls[node->name] = node;
+        for (size_t v = 0; v < node->members.size(); ++v)
+            genericVariants[node->members[v].first] = {node->name, (int)v};
+        return;
+    }
+    adtEnums.insert(node->name);
+    adtEnumDecls[node->name] = node;
+    std::vector<std::vector<llvm::Type*>> vf;
+    for (size_t v = 0; v < node->members.size(); ++v) {
+        adtVariants[node->members[v].first] = {node->name, (int)v};
+        std::vector<llvm::Type*> fields;
+        for (const auto& ft : node->payloads[v]) fields.push_back(getTypeFromString(ft));
+        vf.push_back(fields);
+    }
+    structTypes[node->name] = makeAdtStruct(*context, module->getDataLayout(), node->name, vf);
+}
+
+// Monomorphize a generic enum for `typeArgs` (build its struct + record the args).
+std::string CodeGen::ensureEnumInst(const std::string& genericName,
+                                    const std::vector<std::string>& typeArgs) {
+    std::string inst = genericName + "<";
+    for (size_t i = 0; i < typeArgs.size(); ++i) { if (i) inst += ","; inst += typeArgs[i]; }
+    inst += ">";
+    std::string mangled = mangleTemplate(inst);
+    if (structTypes.count(mangled)) return mangled;
+    EnumDecl* ge = genericEnumDecls[genericName];
+    std::map<std::string, std::string> subs;
+    for (size_t i = 0; i < ge->typeParams.size() && i < typeArgs.size(); ++i)
+        subs[ge->typeParams[i]] = typeArgs[i];
+    std::vector<std::vector<llvm::Type*>> vf;
+    for (size_t v = 0; v < ge->members.size(); ++v) {
+        std::vector<llvm::Type*> fields;
+        for (const auto& ft : ge->payloads[v]) fields.push_back(getTypeFromString(substType(ft, subs)));
+        vf.push_back(fields);
+    }
+    structTypes[mangled] = makeAdtStruct(*context, module->getDataLayout(), mangled, vf);
+    enumInstanceArgs[mangled] = {genericName, typeArgs};
+    return mangled;
+}
+
+// Core builder: alloca the enum struct, store the tag, write payload fields (viewed
+// as the variant's struct, coerced to the field types), then load the value.
+llvm::Value* CodeGen::buildEnumValue(llvm::StructType* et, int tag,
+        const std::vector<llvm::Type*>& fieldTypes, const std::vector<ExprPtr>& args) {
+    llvm::Value* tmp = entryAlloca(et, nullptr, "variant.tmp");
+    builder->CreateStore(llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), tag),
+                         builder->CreateStructGEP(et, tmp, 0));
+    if (!fieldTypes.empty()) {
+        llvm::StructType* vt = llvm::StructType::get(*context, fieldTypes);
+        llvm::Value* pay = builder->CreateStructGEP(et, tmp, 1);   // the [N x i64] area
+        for (size_t i = 0; i < args.size() && i < fieldTypes.size(); ++i) {
+            llvm::Value* fp = builder->CreateStructGEP(vt, pay, i);
+            llvm::Value* val = evaluateExpr(args[i]);
+            llvm::Type* ft = fieldTypes[i];
+            if (val && val->getType() != ft) {       // coerce arg to the field type
+                if (val->getType()->isIntegerTy() && ft->isIntegerTy())
+                    val = coerceInt(val, ft, eskiuUnsigned(getExprEskiuType(args[i])));
+                else if (val->getType()->isIntegerTy() && ft->isFloatingPointTy())
+                    val = builder->CreateSIToFP(val, ft);
+                else if (val->getType()->isFloatingPointTy() && ft->isIntegerTy())
+                    val = builder->CreateFPToSI(val, ft);
+                else if (val->getType()->isFloatingPointTy() && ft->isFloatingPointTy())
+                    val = builder->CreateFPCast(val, ft);
+            }
+            builder->CreateStore(val, fp);
+        }
+    }
+    return builder->CreateLoad(et, tmp, "variant.val");
+}
+
+llvm::Value* CodeGen::buildVariant(const std::string& variant, const std::vector<ExprPtr>& args) {
+    auto& info = adtVariants[variant];
+    EnumDecl* ed = adtEnumDecls[info.first];
+    std::vector<llvm::Type*> fts;
+    for (const auto& ft : ed->payloads[info.second]) fts.push_back(getTypeFromString(ft));
+    return buildEnumValue(structTypes[info.first], info.second, fts, args);
 }
 
 void CodeGen::visit(TypeAliasDecl* node) {
@@ -2305,6 +2742,26 @@ void CodeGen::visit(SizeofExpr* node) {
         llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), size));
 }
 
+void CodeGen::visit(AwaitExpr* node) {
+    // The async transform rewrites `async fn`/`await` into a state machine before
+    // codegen; reaching here means the transform has not run on this code.
+    (void)node;
+    throw std::runtime_error("internal error: an `await` survived to codegen — "
+                             "the async state-machine transform did not run");
+}
+
+void CodeGen::visit(FreeClosureExpr* node) {
+    // A closure is a fat pointer {fn_ptr, env_ptr}. Free its heap env (slot 1).
+    // A non-capturing closure has a null env; free(null) is a safe no-op.
+    llvm::Value* fat = evaluateExpr(node->closure);
+    llvm::Value* env = builder->CreateExtractValue(fat, 1, "clos.env");
+    llvm::Function* freeFn = getOrDeclareFunc(
+        "free", llvm::Type::getVoidTy(*context),
+        {llvm::PointerType::get(*context, 0)}, false);
+    builder->CreateCall(freeFn, {env});
+    exprValueStack.push(llvm::UndefValue::get(llvm::Type::getVoidTy(*context)));
+}
+
 void CodeGen::visit(ThreadCreateExpr* node) {
     // Evaluate the closure — a fat pointer {fn_ptr, env_ptr}
     llvm::Value* fatPtr = evaluateExpr(node->worker);
@@ -2315,7 +2772,7 @@ void CodeGen::visit(ThreadCreateExpr* node) {
 
     // pthread_t is typically *void; alloca space for the tid
     llvm::Type* ptrTy = llvm::PointerType::get(*context, 0);
-    llvm::Value* tidAlloca = builder->CreateAlloca(ptrTy, nullptr, "thr.tid");
+    llvm::Value* tidAlloca = entryAlloca(ptrTy, nullptr, "thr.tid");
 
     // pthread_create(pthread_t* tid, null, fn_ptr, env_ptr)
     llvm::Function* pthreadCreate = getOrDeclareFunc("pthread_create",
@@ -2376,8 +2833,12 @@ void CodeGen::visit(AsmStmt* node) {
 
 std::string CodeGen::resolveStructInitName(const std::string& name) {
     if (name.find('<') == std::string::npos) return name;
-    auto [tn, args] = splitTemplateType(name);
-    std::string mangled = mangleTemplate(name);
+    // Resolve type args through the enclosing template's substitutions, so a
+    // `Pair<A,B>{...}` literal inside a template body instantiates Pair<int,int>,
+    // not a bogus Pair_A_B.
+    std::string resolved = typeParamOverride.empty() ? name : substType(name, typeParamOverride);
+    auto [tn, args] = splitTemplateType(resolved);
+    std::string mangled = mangleTemplate(resolved);
     ensureTemplateInstantiated(mangled, tn, args);
     return mangled;
 }
@@ -2391,13 +2852,10 @@ void CodeGen::emitStructInitInto(llvm::Value* dest, StructInitExpr* init) {
 
     bool named = !init->fieldInits.empty() && !init->fieldInits[0].first.empty();
 
-    auto coerce = [&](llvm::Value* val, llvm::Type* fieldType) -> llvm::Value* {
+    auto coerce = [&](llvm::Value* val, llvm::Type* fieldType, bool unsignedSrc) -> llvm::Value* {
         if (val && val->getType() != fieldType) {
             if (val->getType()->isIntegerTy() && fieldType->isIntegerTy()) {
-                unsigned s = val->getType()->getIntegerBitWidth();
-                unsigned d = fieldType->getIntegerBitWidth();
-                val = s > d ? builder->CreateTrunc(val, fieldType)
-                            : builder->CreateSExt(val, fieldType);
+                val = coerceInt(val, fieldType, unsignedSrc);
             } else if (val->getType()->isIntegerTy() && fieldType->isFloatingPointTy()) {
                 val = builder->CreateSIToFP(val, fieldType);
             } else if (val->getType()->isFloatingPointTy() && fieldType->isIntegerTy()) {
@@ -2411,17 +2869,18 @@ void CodeGen::emitStructInitInto(llvm::Value* dest, StructInitExpr* init) {
 
     auto storeField = [&](size_t idx, ExprPtr expr) {
         llvm::Value* val = evaluateExpr(expr);
+        bool uns = eskiuUnsigned(getExprEskiuType(expr));
         // Bitfield-layout struct: store via the physical slot.
         auto lit = structLayout.find(sname);
         if (lit != structLayout.end()) {
             const BitfieldSlot& slot = lit->second.at(fields[idx].name);
             llvm::Value* gep = builder->CreateStructGEP(st, dest, slot.physIndex);
             if (slot.isBitfield) { storeBitfieldInto(gep, slot, val); return; }
-            if (val) builder->CreateStore(coerce(val, slot.storageType), gep);
+            if (val) builder->CreateStore(coerce(val, slot.storageType, uns), gep);
             return;
         }
         llvm::Type* fieldType = getTypeFromString(fields[idx].type);
-        val = coerce(val, fieldType);
+        val = coerce(val, fieldType, uns);
         llvm::Value* gep = builder->CreateStructGEP(st, dest, idx);
         if (val) builder->CreateStore(val, gep);
     };
@@ -2446,7 +2905,7 @@ void CodeGen::visit(StructInitExpr* node) {
         throw std::runtime_error("Unknown struct: " + node->structName);
     llvm::StructType* st = structTypes[sname];
     // Temporary alloca — filled then loaded so caller can store it anywhere
-    llvm::Value* tmp = builder->CreateAlloca(st, nullptr, sname + ".init");
+    llvm::Value* tmp = entryAlloca(st, nullptr, sname + ".init");
     emitStructInitInto(tmp, node);
     exprValueStack.push(builder->CreateLoad(st, tmp));
 }
@@ -2512,7 +2971,7 @@ llvm::Value* CodeGen::boxAsInterface(const std::string& ifaceName,
     }
 
     // Alloca for the fat pointer
-    llvm::Value* fat = builder->CreateAlloca(fatType, nullptr, ifaceName + ".box");
+    llvm::Value* fat = entryAlloca(fatType, nullptr, ifaceName + ".box");
     // fat[0] = data ptr
     llvm::Value* d = builder->CreateStructGEP(fatType, fat, 0);
     builder->CreateStore(structPtr, d);
@@ -2526,6 +2985,103 @@ void CodeGen::visit(ContinueStmt* node) {
     if (!continueTarget)
         throw std::runtime_error("continue used outside of a loop");
     builder->CreateBr(continueTarget);
+}
+
+void CodeGen::visit(MatchStmt* node) {
+    llvm::Type* i32 = llvm::Type::getInt32Ty(*context);
+    // The type checker stamps node->enumName, except inside template-function
+    // bodies (which it skips) — there we derive it from the subject's type, with
+    // the active typeParamOverride applied, and ensure the instance is built.
+    std::string enumName = node->enumName;
+    if (enumName.empty() || !structTypes.count(enumName)) {
+        std::string st = getExprEskiuType(node->subject);
+        // getExprEskiuType's deref only strips a leading '*'; for a trailing-star
+        // pointer (`Option<int>*`) it returns "" — fall back to the operand's type.
+        if (st.empty())
+            if (auto* u = dynamic_cast<UnaryExpr*>(node->subject.get()); u && u->op == "*")
+                st = getExprEskiuType(u->operand);
+        if (!typeParamOverride.empty()) st = substType(st, typeParamOverride);  // T -> int
+        while (!st.empty() && st.front() == '*') st = st.substr(1);
+        while (!st.empty() && st.back()  == '*') st.pop_back();
+        if (st.rfind("struct:", 0) == 0) st = st.substr(7);
+        if (st.find('<') != std::string::npos) {
+            auto [b, a] = splitTemplateType(st);
+            enumName = genericEnumDecls.count(b) ? ensureEnumInst(b, a) : mangleTemplate(st);
+        } else if (!st.empty()) {
+            enumName = st;
+        }
+    }
+    // Resolve the enum decl + (for a generic instance) the type-arg substitutions,
+    // so each variant's payload field types come out concrete.
+    EnumDecl* ed = nullptr;
+    std::map<std::string, std::string> subs;
+    if (adtEnumDecls.count(enumName)) {
+        ed = adtEnumDecls[enumName];                         // concrete ADT enum
+    } else if (enumInstanceArgs.count(enumName)) {           // generic instance
+        auto& inst = enumInstanceArgs[enumName];
+        ed = genericEnumDecls[inst.first];
+        for (size_t i = 0; i < ed->typeParams.size() && i < inst.second.size(); ++i)
+            subs[ed->typeParams[i]] = inst.second[i];
+    }
+    if (!ed)
+        throw std::runtime_error("match: could not resolve the algebraic enum for subject "
+                                 "type '" + enumName + "' (the subject must be an enum value)");
+    auto variantIndex = [&](const std::string& v) -> int {
+        for (size_t i = 0; i < ed->members.size(); ++i)
+            if (ed->members[i].first == v) return (int)i;
+        return -1;
+    };
+    // Concrete payload LLVM field types of a variant (after substitution).
+    auto payloadTypes = [&](int idx) {
+        std::vector<llvm::Type*> v;
+        for (const auto& ft : ed->payloads[idx]) v.push_back(getTypeFromString(substType(ft, subs)));
+        return v;
+    };
+
+    llvm::StructType* et = structTypes[enumName];
+
+    // Materialize the subject so tag + payload can be read by pointer.
+    llvm::Value* sv = evaluateExpr(node->subject);
+    llvm::Value* sptr = entryAlloca(et, nullptr, "match.subj");
+    builder->CreateStore(sv, sptr);
+    llvm::Value* tag = builder->CreateLoad(i32, builder->CreateStructGEP(et, sptr, 0), "match.tag");
+
+    llvm::BasicBlock* endBlock = llvm::BasicBlock::Create(*context, "match.end", currentFunction);
+    std::vector<llvm::BasicBlock*> armBlocks(node->arms.size());
+    llvm::BasicBlock* defaultBlock = endBlock;
+    for (size_t i = 0; i < node->arms.size(); ++i) {
+        armBlocks[i] = llvm::BasicBlock::Create(*context, "match.arm", currentFunction);
+        if (node->arms[i].variant.empty()) defaultBlock = armBlocks[i];
+    }
+    llvm::SwitchInst* sw = builder->CreateSwitch(tag, defaultBlock);
+    for (size_t i = 0; i < node->arms.size(); ++i)
+        if (!node->arms[i].variant.empty())
+            sw->addCase(llvm::cast<llvm::ConstantInt>(llvm::ConstantInt::get(i32, variantIndex(node->arms[i].variant))), armBlocks[i]);
+
+    for (size_t i = 0; i < node->arms.size(); ++i) {
+        auto& arm = node->arms[i];
+        builder->SetInsertPoint(armBlocks[i]);
+        pushScope();
+        if (!arm.variant.empty() && !arm.bindings.empty()) {
+            int vi = variantIndex(arm.variant);
+            std::vector<llvm::Type*> vfields = payloadTypes(vi);
+            llvm::StructType* vt = llvm::StructType::get(*context, vfields);
+            llvm::Value* pay = builder->CreateStructGEP(et, sptr, 1);
+            for (size_t b = 0; b < arm.bindings.size() && b < vfields.size(); ++b) {
+                llvm::Value* fp = builder->CreateStructGEP(vt, pay, b);
+                llvm::Value* val = builder->CreateLoad(vfields[b], fp, arm.bindings[b]);
+                llvm::Value* slot = entryAlloca(vfields[b], nullptr, arm.bindings[b]);
+                builder->CreateStore(val, slot);
+                defineSymbol(arm.bindings[b], slot);
+                defineVarType(arm.bindings[b], substType(ed->payloads[vi][b], subs));
+            }
+        }
+        if (arm.body) arm.body->accept(this);
+        popScope();
+        if (!builder->GetInsertBlock()->getTerminator())
+            builder->CreateBr(endBlock);
+    }
+    builder->SetInsertPoint(endBlock);
 }
 
 void CodeGen::visit(SwitchStmt* node) {
@@ -2581,19 +3137,53 @@ void CodeGen::visit(SwitchStmt* node) {
 }
 
 void CodeGen::visit(TemplateCallExpr* node) {
+    // Variadic access: va_arg<T>(ap) -> next argument of type T.
+    if (node->templateName == "va_arg" && node->args.size() == 1 && node->typeArgs.size() == 1) {
+        llvm::Value* ap = evaluateLValue(node->args[0]);
+        std::string t = typeParamOverride.empty() ? node->typeArgs[0]
+                                                   : substType(node->typeArgs[0], typeParamOverride);
+        exprValueStack.push(builder->CreateVAArg(ap, getTypeFromString(t), "va.arg"));
+        return;
+    }
+    // Generic algebraic-variant construction: `Some<int>(5)`, `Left<A,B>(x)`. Type
+    // args resolve through the enclosing template's substitutions (so `Left<A,B>`
+    // inside select2<A,B> becomes Left<int,int> at instantiation).
+    if (genericVariants.count(node->templateName)) {
+        auto& gi = genericVariants[node->templateName];      // (genericName, tag)
+        std::vector<std::string> args;
+        for (const auto& t : node->typeArgs)
+            args.push_back(typeParamOverride.empty() ? t : substType(t, typeParamOverride));
+        std::string mangled = ensureEnumInst(gi.first, args);
+        EnumDecl* ge = genericEnumDecls[gi.first];
+        std::map<std::string, std::string> subs;
+        for (size_t i = 0; i < ge->typeParams.size() && i < args.size(); ++i)
+            subs[ge->typeParams[i]] = args[i];
+        std::vector<llvm::Type*> fts;
+        for (const auto& ft : ge->payloads[gi.second]) fts.push_back(getTypeFromString(substType(ft, subs)));
+        exprValueStack.push(buildEnumValue(structTypes[mangled], gi.second, fts, node->args));
+        return;
+    }
     auto templ = funcTemplateDecls.find(node->templateName);
     if (templ == funcTemplateDecls.end())
         throw std::runtime_error("Unknown template function: " + node->templateName);
 
     FunctionDecl* fd = templ->second;
     auto& tp = fd->typeParams;
+    // Resolve each explicit type argument through the enclosing template's active
+    // substitutions. When this call appears inside another template body (e.g.
+    // `mk<T>(n)` inside `esz<T>`), node->typeArgs holds the literal param name
+    // "T"; without this it would instantiate `mk_T` (T unresolved → i32). We must
+    // not mutate node->typeArgs — the same node is re-visited per instantiation.
+    auto resolveArg = [&](const std::string& t) {
+        return typeParamOverride.empty() ? t : substType(t, typeParamOverride);
+    };
     std::map<std::string, std::string> subs;
     for (size_t i = 0; i < tp.size() && i < node->typeArgs.size(); ++i)
-        subs[tp[i]] = node->typeArgs[i];
+        subs[tp[i]] = resolveArg(node->typeArgs[i]);
 
     // Mangle the instantiated function name
     std::string mangledName = node->templateName;
-    for (const auto& t : node->typeArgs) mangledName += "_" + mangleTemplate(t);
+    for (const auto& t : node->typeArgs) mangledName += "_" + mangleTemplate(resolveArg(t));
 
     // Instantiate if not already in module.
     // Save/restore the insert point — we may be inside another function's body.
@@ -2602,11 +3192,14 @@ void CodeGen::visit(TemplateCallExpr* node) {
         llvm::BasicBlock::iterator savedPoint      = builder->GetInsertPoint();
         llvm::Function*            savedFunc       = currentFunction;
         llvm::Value*               savedSretParam  = currentSretParam;
+        // Restore (not clear) the override: this call may be nested inside another
+        // template body whose substitutions must survive the inner instantiation.
+        auto                       savedOverride   = typeParamOverride;
 
         typeParamOverride = subs;
         auto inst = std::make_shared<FunctionDecl>(mangledName, fd->returnType, fd->params, fd->body);
         inst->accept(this);
-        typeParamOverride.clear();
+        typeParamOverride = savedOverride;
 
         // Restore caller's context
         currentFunction  = savedFunc;
@@ -2633,8 +3226,7 @@ void CodeGen::visit(TemplateCallExpr* node) {
         if (v->getType()->isFloatingPointTy() && pt->isFloatingPointTy())
             args[i] = builder->CreateFPCast(v, pt);
         else if (v->getType()->isIntegerTy() && pt->isIntegerTy())
-            args[i] = v->getType()->getIntegerBitWidth() > pt->getIntegerBitWidth()
-                ? builder->CreateTrunc(v, pt) : builder->CreateSExt(v, pt);
+            args[i] = coerceInt(v, pt, i < node->args.size() && eskiuUnsigned(getExprEskiuType(node->args[i])));
         else if (v->getType()->isIntegerTy() && pt->isFloatingPointTy())
             args[i] = builder->CreateSIToFP(v, pt);
         else if (v->getType()->isFloatingPointTy() && pt->isIntegerTy())
@@ -2643,7 +3235,7 @@ void CodeGen::visit(TemplateCallExpr* node) {
 
     auto sretIt = funcSretTypes.find(mangledName);
     if (sretIt != funcSretTypes.end()) {
-        llvm::Value* sretAlloca = builder->CreateAlloca(sretIt->second, nullptr, "sret.tmp");
+        llvm::Value* sretAlloca = entryAlloca(sretIt->second, nullptr, "sret.tmp");
         args.insert(args.begin(), sretAlloca);
         builder->CreateCall(func, args);
         exprValueStack.push(builder->CreateLoad(sretIt->second, sretAlloca));
@@ -2669,6 +3261,13 @@ llvm::Value* CodeGen::evaluateLValue(const ExprPtr& expr) {
 
     if (auto member = dynamic_cast<MemberExpr*>(expr.get())) {
         std::string baseType = getExprEskiuType(member->base);
+        // A pointer-to-struct base must be dereferenced: the struct pointer is the
+        // base's *value* (evaluateExpr loads a local pointer var or yields a param),
+        // whereas a value-struct base uses its *address* (evaluateLValue).
+        bool baseIsPtr = (!baseType.empty() && (baseType.front() == '*' || baseType.back() == '*'));
+        auto baseAddr = [&]() -> llvm::Value* {
+            return baseIsPtr ? evaluateExpr(member->base) : evaluateLValue(member->base);
+        };
         if (baseType.size() > 7 && baseType.substr(0, 7) == "struct:") baseType = baseType.substr(7);
     if (!baseType.empty() && baseType.front() == '*') baseType = baseType.substr(1);
     while (!baseType.empty() && baseType.back()  == '*') baseType.pop_back();
@@ -2691,14 +3290,14 @@ llvm::Value* CodeGen::evaluateLValue(const ExprPtr& expr) {
                 if (sit->second.isBitfield)
                     throw std::runtime_error("cannot take the address of bitfield '"
                                              + member->member + "'");
-                llvm::Value* basePtr = evaluateLValue(member->base);
+                llvm::Value* basePtr = baseAddr();
                 return builder->CreateStructGEP(structTypes[baseType], basePtr,
                                                 sit->second.physIndex);
             }
         }
         for (size_t i = 0; i < fields.size(); ++i) {
             if (fields[i].name == member->member) {
-                llvm::Value* basePtr = evaluateLValue(member->base);
+                llvm::Value* basePtr = baseAddr();
                 if (isUnion) return basePtr; // offset 0 for all union fields
                 return builder->CreateStructGEP(structTypes[baseType], basePtr, i);
             }
@@ -2757,8 +3356,44 @@ bool CodeGen::emitObjectFile(const std::string& filename) {
         targetTriple != llvm::sys::getDefaultTargetTriple();
     auto cpu = isCross ? llvm::StringRef("generic") : llvm::sys::getHostCPUName();
     llvm::TargetOptions opt;
-    auto* tm = target->createTargetMachine(triple, cpu, "", opt, llvm::Reloc::PIC_);
+    std::unique_ptr<llvm::TargetMachine> tm(
+        target->createTargetMachine(triple, cpu, "", opt, llvm::Reloc::PIC_));
     module->setDataLayout(tm->createDataLayout());
+
+    // Sanitizer instrumentation (new pass manager), run over the whole module
+    // before code generation. --asan instruments memory accesses (the asan
+    // runtime is linked separately); --ubsan inserts trapping bounds checks.
+    if (asan || ubsan) {
+        llvm::LoopAnalysisManager LAM;
+        llvm::FunctionAnalysisManager FAM;
+        llvm::CGSCCAnalysisManager CGAM;
+        llvm::ModuleAnalysisManager MAM;
+        llvm::PassBuilder PB(tm.get());
+        PB.registerModuleAnalyses(MAM);
+        PB.registerCGSCCAnalyses(CGAM);
+        PB.registerFunctionAnalyses(FAM);
+        PB.registerLoopAnalyses(LAM);
+        PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
+
+        // AddressSanitizer only instruments functions marked sanitize_address
+        // (Clang stamps this per function); add it to every defined function.
+        if (asan) {
+            for (llvm::Function& F : *module)
+                if (!F.isDeclaration()) F.addFnAttr(llvm::Attribute::SanitizeAddress);
+        }
+
+        llvm::ModulePassManager MPM;
+        if (ubsan) {
+            llvm::BoundsCheckingPass::Options opts;   // empty Runtime => trap on OOB
+            llvm::FunctionPassManager FPM;
+            FPM.addPass(llvm::BoundsCheckingPass(opts));
+            MPM.addPass(llvm::createModuleToFunctionPassAdaptor(std::move(FPM)));
+        }
+        if (asan) {
+            MPM.addPass(llvm::AddressSanitizerPass(llvm::AddressSanitizerOptions{}));
+        }
+        MPM.run(*module, MAM);
+    }
 
     std::error_code ec;
     llvm::raw_fd_ostream dest(filename, ec, llvm::sys::fs::OF_None);
@@ -2775,6 +3410,5 @@ bool CodeGen::emitObjectFile(const std::string& filename) {
 
     pm.run(*module);
     dest.flush();
-    delete tm;
     return true;
 }

@@ -1,0 +1,48 @@
+import <json>;
+
+extern int printf(string fmt, ...);
+
+int main() {
+    // Builder
+    let j: Json;  Json_init(&j);
+    Json_obj_begin(&j);
+        Json_key(&j, "name");  Json_str(&j, "Eskiu");
+        Json_key(&j, "year");  Json_int(&j, 2026);
+        Json_key(&j, "ok");    Json_bool(&j, 1);
+        Json_key(&j, "tags");
+        Json_arr_begin(&j);
+            Json_str(&j, "systems");
+            Json_str(&j, "llvm");
+        Json_arr_end(&j);
+        Json_key(&j, "note");  Json_null(&j);
+    Json_obj_end(&j);
+    printf("%s\n", Json_cstr(&j));
+    Json_free(&j);
+
+    // Parser
+    *JsonValue v = json_parse("{\"a\":[1,2,3],\"b\":\"xy\",\"ok\":true,\"z\":null}");
+    if (v == null) { printf("parse failed\n"); return 1; }
+
+    *JsonValue a = JsonValue_get(v, "a");
+    printf("a.len=%d a[0]=%lld a[2]=%lld\n",
+           JsonValue_len(a), JsonValue_as_int(JsonValue_at(a, 0)),
+           JsonValue_as_int(JsonValue_at(a, 2)));
+
+    *JsonValue b = JsonValue_get(v, "b");
+    printf("b=%s kind=%d\n", JsonValue_as_cstr(b), JsonValue_kind(b));
+
+    *JsonValue ok = JsonValue_get(v, "ok");
+    printf("ok=%d\n", JsonValue_as_bool(ok));
+
+    printf("z.kind=%d missing=%d\n",
+           JsonValue_kind(JsonValue_get(v, "z")),
+           (JsonValue_get(v, "nope") == null));
+    JsonValue_free(v);
+
+    // Escape decoding: "a\tb" is 3 characters once decoded.
+    *JsonValue esc = json_parse("\"a\\tb\"");
+    printf("esc.len=%d\n", String_len(&esc.str));
+    JsonValue_free(esc);
+
+    return 0;
+}

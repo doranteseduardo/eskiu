@@ -1,0 +1,13 @@
+// Exactly one host-OS macro is defined on a supported platform.
+extern int printf(string fmt, ...);
+int main() {
+    int n = 0;
+#ifdef __APPLE__
+    n = n + 1;
+#endif
+#ifdef __linux__
+    n = n + 1;
+#endif
+    printf("os_macros=%d\n", n);
+    return 0;
+}

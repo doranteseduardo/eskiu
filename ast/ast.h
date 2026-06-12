@@ -50,6 +50,13 @@ public:
     std::vector<std::pair<std::string, std::string>> params; // (type, name)
     StmtPtr body;
     std::vector<std::string> typeParams; // non-empty → template function
+    // Per-param `escaping` flag (parallel to params): the param retains the
+    // closure beyond the call, so closures passed there get a heap env.
+    std::vector<bool> paramEscaping;
+    // `async fn`: the call yields `*Future<returnType>`; the body is lowered to a
+    // resumable state machine by the async transform. Declared return type stays
+    // in `returnType` (the inner T).
+    bool isAsync = false;
 
     FunctionDecl(const std::string& name, const std::string& returnType,
                  const std::vector<std::pair<std::string, std::string>>& params,
@@ -64,6 +71,7 @@ public:
     std::string type;
     ExprPtr initializer;
     bool isVolatile = false;
+    bool isConst = false;
 
     VarDecl(const std::string& name, const std::string& type, ExprPtr init = nullptr)
         : Decl(name), type(type), initializer(std::move(init)) {}
@@ -97,6 +105,8 @@ public:
     std::vector<DeclPtr> methods;
     std::vector<std::string> typeParams; // non-empty → this is a template
     bool isPacked = false;               // `packed struct` or under `#pragma pack(1)`
+    int  packAlign = 0;                  // `#pragma pack(N)`: cap field alignment at N
+                                         // (0 = natural; 1 = fully packed == isPacked)
 
     StructDecl(const std::string& name, const std::vector<Field>& fields)
         : Decl(name), fields(fields) {}
@@ -121,9 +131,28 @@ class ExternDecl : public Decl {
 public:
     std::string returnType;
     std::vector<std::pair<std::string, std::string>> params;
+    std::vector<bool> paramEscaping;   // per-param `escaping` flag
 
     ExternDecl(const std::string& name, const std::string& returnType,
                const std::vector<std::pair<std::string, std::string>>& params)
+        : Decl(name), returnType(returnType), params(params) {}
+
+    void accept(class ASTVisitor* visitor) override;
+};
+
+// intrinsic int atomic_cas(*int cell, int expected, int desired);
+// Syntactically an extern prototype, but a call lowers to inline IR (e.g. an
+// LLVM atomic), NOT to a call to an external C symbol. Codegen recognises the
+// name via its intrinsic registry and emits the operation directly; no `declare`
+// is produced. Distinct from ExternDecl so the two intents never blur.
+class IntrinsicDecl : public Decl {
+public:
+    std::string returnType;
+    std::vector<std::pair<std::string, std::string>> params;
+    std::vector<bool> paramEscaping;   // per-param `escaping` flag
+
+    IntrinsicDecl(const std::string& name, const std::string& returnType,
+                  const std::vector<std::pair<std::string, std::string>>& params)
         : Decl(name), returnType(returnType), params(params) {}
 
     void accept(class ASTVisitor* visitor) override;
@@ -134,10 +163,24 @@ public:
 class EnumDecl : public Decl {
 public:
     std::vector<std::pair<std::string, long long>> members; // (name, value)
+    // Per-variant payload field types, parallel to `members` (empty = no payload).
+    // If any variant has a payload, this enum is an algebraic data type: a tagged
+    // union laid out as { i32 tag; <storage for the largest variant> }, rather than
+    // a plain integer enum. Variants are constructed by name (`Circle(2.0)`, or a
+    // bare `None`) and consumed with `match`.
+    std::vector<std::vector<std::string>> payloads;
+    // Non-empty → a generic algebraic enum (e.g. `enum Option<T> { None, Some(T) }`),
+    // monomorphized per instantiation like a template struct.
+    std::vector<std::string> typeParams;
 
     EnumDecl(const std::string& name,
              std::vector<std::pair<std::string, long long>> members)
         : Decl(name), members(std::move(members)) {}
+
+    bool isADT() const {
+        for (const auto& p : payloads) if (!p.empty()) return true;
+        return false;
+    }
 
     void accept(class ASTVisitor* visitor) override;
 };
@@ -203,6 +246,14 @@ public:
     std::string varName;
     ExprPtr iterable;
     StmtPtr body;
+    // Stamped by the type checker (consumed by the async transform's for-in
+    // desugar, which has no type info of its own): the loop variable's element
+    // type, whether the iterable is a fixed-size array (vs a List-like struct
+    // with `data`/`size`), and the array dimension `N` (literal / const / enum
+    // name) when it is an array.
+    std::string resolvedElemType;
+    bool        isArrayIter = false;
+    std::string arrayDim;
 
     ForInStmt(std::string varName, ExprPtr iterable, StmtPtr body)
         : varName(std::move(varName)), iterable(std::move(iterable)), body(std::move(body)) {}
@@ -251,6 +302,26 @@ public:
 
     SwitchStmt(ExprPtr subj, std::vector<Case> cases)
         : subject(std::move(subj)), cases(std::move(cases)) {}
+
+    void accept(class ASTVisitor* visitor) override;
+};
+
+// match subject { Variant(b0, b1) -> stmt;  Other -> stmt;  _ -> stmt; }
+// Destructures an algebraic-enum value: dispatches on its tag and binds the
+// active variant's payload fields to names in that arm.
+class MatchStmt : public Stmt {
+public:
+    struct Arm {
+        std::string variant;                 // variant name, or "" for the `_` default
+        std::vector<std::string> bindings;   // payload binding names (for this variant)
+        StmtPtr body;
+    };
+    ExprPtr subject;
+    std::vector<Arm> arms;
+    std::string enumName;                     // filled by the type checker (subject's enum)
+
+    MatchStmt(ExprPtr subject, std::vector<Arm> arms)
+        : subject(std::move(subject)), arms(std::move(arms)) {}
 
     void accept(class ASTVisitor* visitor) override;
 };
@@ -428,13 +499,16 @@ public:
     void accept(class ASTVisitor* visitor) override;
 };
 
-class AllocExpr : public Expr {
+// alloc_with(&allocator, T, N) — allocate N*sizeof(T) bytes from an explicit
+// allocator (a struct providing `*void alloc(...)`), returning *T.
+class AllocWithExpr : public Expr {
 public:
-    std::string elemType;  // T in alloc(T, N)
+    ExprPtr allocator;     // the allocator (typically &someAllocator)
+    std::string elemType;  // T
     ExprPtr count;         // N
 
-    AllocExpr(const std::string& type, ExprPtr count)
-        : elemType(type), count(std::move(count)) {}
+    AllocWithExpr(ExprPtr allocator, const std::string& type, ExprPtr count)
+        : allocator(std::move(allocator)), elemType(type), count(std::move(count)) {}
 
     void accept(class ASTVisitor* visitor) override;
 };
@@ -472,6 +546,10 @@ public:
     StmtPtr body;
     // Populated by TypeChecker: variables captured from enclosing scope
     std::vector<std::pair<std::string, std::string>> captures; // (name, type)
+    std::vector<bool> paramEscaping;   // per-param `escaping` flag
+    // Set by analysis: true if this closure may outlive its creating function
+    // (escapes) and therefore needs a heap-allocated environment.
+    bool escapes = true;   // sound default: heap unless proven non-escaping
 
     LambdaExpr(std::vector<std::pair<std::string, std::string>> params,
                std::string returnType, StmtPtr body)
@@ -494,6 +572,27 @@ class ThreadCreateExpr : public Expr {
 public:
     ExprPtr worker;
     explicit ThreadCreateExpr(ExprPtr w) : worker(std::move(w)) {}
+    void accept(class ASTVisitor* visitor) override;
+};
+
+// await E — suspend the enclosing async fn until the Future E completes, then
+// yield its value. E must have type `*Future<T>`; the result type is T. Legal
+// only inside an `async fn`. Lowered by the async transform.
+class AwaitExpr : public Expr {
+public:
+    ExprPtr operand;
+    std::string resolvedType;   // set by the type checker: the awaited value type T'
+    explicit AwaitExpr(ExprPtr o) : operand(std::move(o)) {}
+    void accept(class ASTVisitor* visitor) override;
+};
+
+// free_closure(f) -> void — release the heap environment of an escaping closure.
+// The argument is any closure value (fn(...)->R fat pointer); this frees its env
+// (slot 1 of the fat pointer). A no-op for non-capturing closures (null env).
+class FreeClosureExpr : public Expr {
+public:
+    ExprPtr closure;
+    explicit FreeClosureExpr(ExprPtr c) : closure(std::move(c)) {}
     void accept(class ASTVisitor* visitor) override;
 };
 
@@ -524,6 +623,7 @@ public:
     virtual void visit(VarDecl* node) = 0;
     virtual void visit(StructDecl* node) = 0;
     virtual void visit(ExternDecl* node) = 0;
+    virtual void visit(IntrinsicDecl* node) = 0;
     virtual void visit(InterfaceDecl* node) = 0;
     virtual void visit(EnumDecl* node) = 0;
     virtual void visit(TypeAliasDecl* node) = 0;
@@ -536,6 +636,7 @@ public:
     virtual void visit(BreakStmt* node) = 0;
     virtual void visit(ContinueStmt* node) = 0;
     virtual void visit(SwitchStmt* node) = 0;
+    virtual void visit(MatchStmt* node) = 0;
     virtual void visit(ExprStmt* node) = 0;
     virtual void visit(BinaryExpr* node) = 0;
     virtual void visit(UnaryExpr* node) = 0;
@@ -547,13 +648,15 @@ public:
     virtual void visit(LiteralExpr* node) = 0;
     virtual void visit(IdentExpr* node) = 0;
     virtual void visit(StructInitExpr* node) = 0;
-    virtual void visit(AllocExpr* node) = 0;
+    virtual void visit(AllocWithExpr* node) = 0;
     virtual void visit(TemplateCallExpr* node) = 0;
     virtual void visit(LambdaExpr* node) = 0;
     virtual void visit(AsmStmt* node) = 0;
     virtual void visit(UnionDecl* node) = 0;
     virtual void visit(SizeofExpr* node) = 0;
     virtual void visit(ThreadCreateExpr* node) = 0;
+    virtual void visit(FreeClosureExpr* node) = 0;
+    virtual void visit(AwaitExpr* node) = 0;
     virtual void visit(ThreadJoinStmt* node) = 0;
     virtual void visit(ThrowStmt* node) = 0;
     virtual void visit(TryStmt* node) = 0;

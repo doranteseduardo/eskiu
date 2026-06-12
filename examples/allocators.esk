@@ -1,0 +1,40 @@
+// allocators.esk — managing memory yourself, without libc malloc.
+//
+// <alloc> is a toolkit of explicit allocators (the Zig model): you give each one
+// a region and it sub-allocates from it. Where the region comes from is your
+// choice. Two malloc-free patterns:
+//   1. an Arena over a STATIC buffer — zero libc, zero syscalls;
+//   2. a Heap from <sysheap>, whose pages come straight from the OS via mmap.
+//
+//   ESKIU_ROOT=. eskiuc examples/allocators.esk -o allocators && ./allocators
+
+import <alloc>;
+import <sysheap>;
+extern int printf(string fmt, ...);
+
+uint8[4096] g_scratch;        // a static buffer in .bss — no malloc, no mmap
+
+int main() {
+    // 1) Arena over the static buffer: bump-allocate, then checkpoint/restore to
+    //    free a batch in O(1). No allocator call ever touches the OS or libc.
+    let ar: Arena;  Arena_init(&ar, &g_scratch[0], 4096);
+    *int a = alloc_with(&ar, int, 3);
+    a[0] = 1;  a[1] = 2;  a[2] = 3;
+    int64 mark = Arena_save(&ar);
+    *int tmp = alloc_with(&ar, int, 100);     // transient scratch
+    tmp[0] = 99;
+    Arena_restore(&ar, mark);                  // reclaim `tmp` instantly
+    printf("arena sum=%d\n", a[0] + a[1] + a[2]);          // 6
+
+    // 2) A general-purpose heap whose memory is mmap'd from the kernel — the
+    //    allocation logic is ours (FirstFit), libc malloc is never called.
+    let h: Heap;
+    if (heap_init(&h, 1024 * 1024) == false) { return 1; }  // 1 MB from the OS
+    *int xs = (*int)heap_alloc(&h, sizeof(int) * 8);
+    int i = 0;
+    while (i < 8) { xs[i] = i * i; i = i + 1; }
+    printf("heap xs[7]=%d\n", xs[7]);                       // 49
+    heap_free(&h, (*void)xs);
+    heap_destroy(&h);                          // return the pages to the OS
+    return 0;
+}

@@ -1,0 +1,31 @@
+// Pointer constness: `const T*` is a pointer to const T (the pointee is
+// read-only, the pointer is rebindable); `T* const` is a const pointer (the
+// binding is read-only, the pointee is writable). A non-const `T*` converts to
+// `const T*` (adding const is safe); dropping const is a compile error (see
+// errors/const_ptr_*). Reading through a const pointer and rebinding it are
+// both allowed.
+extern int printf(string fmt, ...);
+
+int sum(const int* p, int n) {        // read-only view of the caller's data
+    int s = 0;
+    for (i in 0..n) { s = s + p[i]; } // reads through const are fine
+    return s;
+}
+
+int main() {
+    int[3] a; a[0] = 1; a[1] = 2; a[2] = 3;
+
+    const int* r = &a[0];             // pointer to const int
+    int* q = &a[0];                   // ordinary pointer aliasing the same data
+    r = q;                            // rebinding the pointer is allowed
+    int first = *r;                   // reading through it is allowed
+    *q = 10;                          // writing through an ordinary pointer is fine
+
+    int total = sum(q, 3);            // int* -> const int* (adding const) is fine
+
+    int* const cp = &a[1];            // const pointer: cp can't be rebound
+    *cp = 20;                         // but its pointee is writable
+
+    printf("%d %d %d\n", first, total, *cp);   // 1, 10+2+3=15, 20
+    return 0;
+}

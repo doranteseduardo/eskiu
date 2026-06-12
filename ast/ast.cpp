@@ -5,6 +5,7 @@ void FunctionDecl::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void VarDecl::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void StructDecl::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void ExternDecl::accept(ASTVisitor* visitor) { visitor->visit(this); }
+void IntrinsicDecl::accept(ASTVisitor* visitor) { visitor->visit(this); }
 
 // Statements
 void BlockStmt::accept(ASTVisitor* visitor) { visitor->visit(this); }
@@ -26,10 +27,11 @@ void MemberExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void CastExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void LiteralExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void IdentExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
-void AllocExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
+void AllocWithExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void InterfaceDecl::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void ContinueStmt::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void SwitchStmt::accept(ASTVisitor* visitor) { visitor->visit(this); }
+void MatchStmt::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void TemplateCallExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void StructInitExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
 
@@ -37,6 +39,8 @@ void LambdaExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void AsmStmt::accept(ASTVisitor* visitor)        { visitor->visit(this); }
 void UnionDecl::accept(ASTVisitor* v)            { v->visit(this); }
 void SizeofExpr::accept(ASTVisitor* v)           { v->visit(this); }
+void FreeClosureExpr::accept(ASTVisitor* v)      { v->visit(this); }
+void AwaitExpr::accept(ASTVisitor* v)            { v->visit(this); }
 void ThreadCreateExpr::accept(ASTVisitor* v)     { v->visit(this); }
 void ThreadJoinStmt::accept(ASTVisitor* v)       { v->visit(this); }
 void ThrowStmt::accept(ASTVisitor* v)            { v->visit(this); }

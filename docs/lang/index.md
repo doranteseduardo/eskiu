@@ -2,9 +2,9 @@
 
 Eskiu is a statically typed systems language built to address a specific problem: compute-intensive services typically pull in C for performance-critical work, Go for concurrency, C++ for libraries, and Python for glue — each with its own toolchain and interop cost.
 
-The goal is a single language that replaces that stack. Phase one establishes a solid systems foundation: native performance, explicit memory, direct access to any C library. Phase two, once that foundation is stable, will introduce first-class support for the domain types that high-throughput services actually work with. The syntax is deliberately C-style; the language adds monomorphic templates, structural interfaces, lambdas, and an explicit heap model via `alloc`/`free`.
+The goal is a single language that replaces that stack. Phase one establishes a solid systems foundation: native performance, explicit memory, direct access to any C library. Phase two, once that foundation is stable, will introduce first-class support for the domain types that high-throughput services actually work with. The syntax is deliberately C-style; the language adds monomorphic templates, structural interfaces, lambdas, and an explicit heap model via `alloc<T>`/`free`.
 
-**Current version: v0.1.0** — typed pointer arithmetic (`p + 1` advances by `sizeof(*p)`), `sizeof(T)` compile-time size expression, and `union` declarations. Exception handling added in v0.1.0; closures and thread primitives in v0.1.0.
+**Current version: v0.2.0** — heap allocation moved to the `<mem>` stdlib (`alloc<T>(n)` / `free`, no longer keywords); `const` bindings; `intrinsic`; `escaping` closures + `free_closure`; and **`async`/`await`** lowered to a state-machine coroutine. New stdlib: the `<alloc>` explicit-allocator toolkit (Bump/Arena/Pool/FirstFit over `alloc_with`) and `<sysheap>` (mmap-backed, no libc malloc); the async runtime — `<eventloop>`, `<atomic>`, `<future>`, `<executor>`, `<net_async>`, `<timer>`, `<channel>`, and a concurrent `<http_async>` server; plus `<time>`, `<env>`, `<base64>`, `<json>` (builder + parser), `<threading>`, `<http>`, `<string>`, `<path>`. v0.1.0 (frozen at its tag) added typed pointer arithmetic, `sizeof(T)`, `union`, exceptions, closures, and thread primitives.
 
 ---
 
@@ -14,8 +14,9 @@ The goal is a single language that replaces that stack. Phase one establishes a 
 |---|---|---|
 | [getting-started.md](getting-started.md) | Hands-on tutorial — build, hello world, all features | You're new to Eskiu |
 | [spec.md](spec.md) | Complete language reference | You need exact syntax or semantics |
+| [grammar.md](grammar.md) | Formal EBNF grammar | You need the precise concrete syntax |
 | [build.md](build.md) | Install the compiler on macOS / Linux | You need to set up a dev environment |
-| [../../docs/GLOSSARY.md](../GLOSSARY.md) | Terminology definitions | You encounter an unfamiliar term |
+| [../GLOSSARY.md](../GLOSSARY.md) | Terminology definitions | You encounter an unfamiliar term |
 
 ---
 
@@ -31,17 +32,20 @@ The goal is a single language that replaces that stack. Phase one establishes a 
 | **Lambdas / Closures** | `int(int x) { return x * 2; }` — anonymous functions; `fn(T,...)->R` fat-pointer types; closure capture by value; higher-order functions |
 | **Threads** | `thread_create(fn()->void)` / `thread_join(*void)` — OS thread keywords; closure fat pointer maps directly to pthread ABI |
 | **Exceptions** | `try`/`catch`/`finally`/`throw` — LLVM `invoke`/`landingpad`, Itanium ABI; multiple `catch` clauses; link `-lc++` (macOS) or `-lstdc++` (Linux) |
-| **Structs** | Fields, methods with `self`, struct literal init `Point { x: 1, y: 2 }` |
+| **Async / await** | `async` function lowered to a resumable state-machine coroutine; a call yields `*Future<T>`; `await` suspends until ready. Runtime in `<future>`/`<executor>`/`<eventloop>` |
+| **Enums / match** | `enum` of named integer constants; payload-bearing variants form algebraic data types (tagged unions), destructured with exhaustive `match`; generic enums (`Option<T>`, `Either<A,B>`) |
+| **Structs** | Fields, methods with `self`, struct literal init `Point { x: 1, y: 2 }`, bitfields `f: N`, `packed` layout |
 | **Templates** | `struct Result<T,E>`, `fn Ok<T,E>(T v)` — monomorphic instantiation |
 | **Interfaces** | `interface Drawable { void draw(); }` — structural typing, vtable dispatch |
-| **Memory** | Stack default, `alloc(T,N)` / `free(ptr)`, pointer arithmetic |
+| **Memory** | Stack default; heap via `<mem>` `alloc<T>(n)` / `free`; explicit allocators `<alloc>` via `alloc_with`; typed pointer arithmetic |
 | **volatile** | `volatile let reg: *uint8 = (uint8*) 0x3F8;` — MMIO-safe loads/stores |
 | **Inline asm** | `asm("cli");` simple form; `asm("outb %0, %1" :: "a"(v), "Nd"(p) : "memory");` extended form |
-| **Freestanding** | `--freestanding` flag — `alloc`/`free` call `esk_alloc`/`esk_free`; user-supplied in kernel |
+| **Freestanding** | `--freestanding` flag — `<mem>` `alloc<T>`/`free` call `esk_alloc`/`esk_free`; user-supplied in kernel |
 | **Cross-compile** | `--target TRIPLE` — AArch64 and X86 backends included |
 | **Multi-file** | `import <result>` stdlib modules · `import "file.esk"` relative local files |
 | **Errors** | `file.esk:8:22: message` — real line/col from parser |
-| **Stdlib** | `<result>`, `<list>`, `<string>`, `<math>`, `<io>`, `<mem>`, `<fs>` |
+| **HTTP/2** | `<http2>` frame codec + connection/stream state machine, `<hpack>` header compression, `<tls>` (h2 over OpenSSL with ALPN), `<http2_server>` (h2c) — full multiplexed HTTP/2 stack |
+| **Stdlib** | Core (`<result>`, `<list>`, `<string>`, `<math>`, `<io>`, `<mem>`, `<fs>`, `<path>`, `<base64>`, `<json>`, `<time>`, `<env>`); memory (`<alloc>`, `<sysheap>`); concurrency (`<threading>`, `<atomic>`); the async runtime (`<eventloop>`, `<future>`, `<executor>`, `<net_async>`, `<timer>`, `<channel>`, `<futureval>`); sum types (`<either>`); networking (`<net>`, `<http>`, `<http_async>`); and the HTTP/2 stack (`<http2>`, `<hpack>`, `<tls>`, `<http2_server>`) |
 
 ---
 
@@ -76,9 +80,15 @@ postfix     f() a[i] a.b
 
 ### CLI flags
 
-| Flag | Action |
+| Flag / subcommand | Action |
 |---|---|
-| `-o file.o`                 | Compile to native object file                   |
+| `-o prog` / `-o file.o`     | Link an executable / emit an object file (by suffix) |
+| `-c`                        | Compile to an object file only                  |
+| `-l<lib>` / `-L<path>`      | Pass library / search-path flags to the linker  |
+| `eskiuc run file.esk`       | Compile to a temp executable and run it         |
+| `eskiuc fmt file.esk`       | Reformat source in place                        |
+| `-Wall` / `-Wextra`         | Lint warnings / signed-unsigned comparison warnings |
+| `--asan` / `--ubsan`        | AddressSanitizer / trapping bounds checks       |
 | `--target TRIPLE`           | Cross-compile for the given target triple        |
 | `--freestanding`            | Use `esk_alloc`/`esk_free` instead of libc      |
 | `--test-lexer`              | Print token stream                              |

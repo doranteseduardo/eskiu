@@ -28,8 +28,22 @@ public:
     std::set<std::string>* importedFiles = nullptr;
     // Shared preprocessor macro table — lets #defines propagate into imports
     std::map<std::string, Macro>* macros = nullptr;
+    // Shared across all sub-parsers (like importedFiles): type names declared in
+    // ANY file, so a cast to a type stays a cast even when that type's defining
+    // import was deduplicated via a different path. Without sharing, a file that
+    // imports an already-imported module never learned its type names and
+    // misparsed `(Type*)x` casts (e.g. `(Future<T>*)0` after `import <future>`).
+    std::set<std::string>* sharedTypeNames = nullptr;
 
 private:
+    // Backing store for sharedTypeNames in the root parser; sub-parsers point
+    // sharedTypeNames at the root's. Names of declared types (structs, enums,
+    // unions, aliases) — lets the cast parser recognize (TypeName)expr.
+    std::set<std::string> declaredTypeNames;
+    // Consume a template-closing '>'. Handles a lexed '>>' (right-shift) at the
+    // close of nested templates (List<List<int>>) by splitting it: the inner
+    // close turns '>>' into a single '>' left for the outer close.
+    void consumeTemplateClose(const char* ctx);
     std::vector<Token> tokens;
     size_t current;
 
@@ -51,6 +65,7 @@ private:
     DeclPtr parseVarDecl();
     DeclPtr parseStructDecl();
     DeclPtr parseExternDecl();
+    DeclPtr parseIntrinsicDecl();
 
     // #pragma pack state: structs declared while currentPack==1 are packed.
     int currentPack = 0;
@@ -66,6 +81,10 @@ private:
     StmtPtr parseBreakStatement();
     StmtPtr parseContinueStatement();
     StmtPtr parseSwitchStatement();
+    StmtPtr parseMatchStatement();
+    // When set, a bare `Name {` is not parsed as a struct literal (so a match
+    // subject's trailing `{` opens the match body). Restored after the subject.
+    bool noStructLiteral = false;
     StmtPtr parseExpressionStatement();
 
     ExprPtr parseStructInit(const std::string& structName);
@@ -86,5 +105,6 @@ private:
     ExprPtr parsePrimary();
 
     std::string parseType();
-    std::vector<std::pair<std::string, std::string>> parseParameterList();
+    std::vector<std::pair<std::string, std::string>> parseParameterList(
+        std::vector<bool>* escaping = nullptr);
 };

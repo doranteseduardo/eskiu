@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(eskiuc VERSION 0.1.0 LANGUAGES C CXX)
+project(eskiuc VERSION 0.2.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -20,6 +20,7 @@ set(SOURCES
     ast/ast.cpp
     ast/ast_printer.cpp
     sema/type_checker.cpp
+    sema/async_transform.cpp
     codegen/codegen.cpp
 )
 
@@ -61,6 +62,11 @@ else()
         x86codegen x86asmparser x86desc x86info)
     target_link_libraries(eskiuc ${llvm_libs})
 endif()
+
+# The sanitizer instrumentation (ASan) is emitted by this exact LLVM, so its
+# runtime must match — bake in the LLVM toolchain's clang for sanitized links.
+target_compile_definitions(eskiuc PRIVATE
+    ESKIU_LLVM_BINDIR="${LLVM_TOOLS_BINARY_DIR}")
 
 if(MSVC)
     target_compile_options(eskiuc PRIVATE /W4)

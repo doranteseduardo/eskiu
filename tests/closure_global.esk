@@ -1,0 +1,11 @@
+// Regression: a global variable read inside a closure must read the global
+// directly, not be captured-by-value (which snapshotted garbage).
+extern int printf(string fmt, ...);
+let G: int = 1000;
+int main() {
+    int loc = 50; *int pl = &loc;
+    let f: fn()->int = int(){ return G; };
+    let h: fn()->int = int(){ return G + *pl; };
+    printf("%d %d\n", f(), h());
+    return 0;
+}

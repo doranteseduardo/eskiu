@@ -1,0 +1,42 @@
+import <mem>;
+import <http>;
+
+extern int printf(string fmt, ...);
+
+int load(string s, *uint8 dst) {
+    int i = 0;
+    while (s[i] != 0) { dst[i] = (uint8)s[i]; i = i + 1; }
+    return i;
+}
+
+int main() {
+    // --- Parser ---
+    *uint8 buf = alloc<uint8>(512);
+    int n = load("GET /hello?x=1 HTTP/1.1\r\nHost: localhost\r\nContent-Length: 5\r\n\r\nworld", buf);
+
+    let req: HttpRequest;  HttpRequest_init(&req);
+    int ok = HttpRequest_parse(&req, buf, n);
+    printf("ok=%d method=%s path=%s version=%s\n", ok,
+           String_cstr(&req.method), String_cstr(&req.path), String_cstr(&req.version));
+
+    let h: String;  String_init(&h, 32);
+    HttpRequest_header(&req, "host", &h);             // case-insensitive
+    printf("host=%s\n", String_cstr(&h));
+    HttpRequest_header(&req, "Content-Length", &h);
+    printf("clen=%s\n", String_cstr(&h));
+    printf("body=%s\n", String_cstr(&req.body));
+    String_free(&h);
+    HttpRequest_free(&req);
+    free(buf);
+
+    // --- Builder ---  (render length checked, to keep the expected file ASCII)
+    let res: HttpResponse;  HttpResponse_init(&res, 404);
+    HttpResponse_header(&res, "Content-Type", "text/plain");
+    HttpResponse_set_body(&res, "nope");
+    let out: String;  String_init(&out, 256);
+    HttpResponse_render(&res, &out);
+    printf("reason=%s rlen=%d\n", http_reason(404), out.len);
+    String_free(&out);
+    HttpResponse_free(&res);
+    return 0;
+}

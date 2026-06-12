@@ -1,0 +1,410 @@
+// tls.esk — TLS for HTTP/2 over OpenSSL, with ALPN negotiating "h2".
+//
+// HTTP/2 in browsers runs over TLS, with the protocol chosen during the
+// handshake via ALPN (Application-Layer Protocol Negotiation): the client
+// offers a list, the server picks "h2". This module wraps OpenSSL (libssl) by
+// FFI: a server SSL_CTX that loads a cert/key and installs an ALPN callback
+// selecting "h2", and the h2-over-TLS connection handlers that run the <http2>
+// frame protocol over the encrypted stream. Two flavours are provided: a
+// blocking, thread-per-connection server (http2_tls_serve_conn) and an async one
+// (http2_tls_serve_async) that runs many TLS connections on one event-loop
+// thread via a non-blocking SSL pump (retrying SSL_* on WANT_READ/WANT_WRITE).
+//
+// Build: link with OpenSSL, e.g.
+//   eskiuc app.esk -o app -L/opt/homebrew/opt/openssl@3/lib -lssl -lcrypto
+
+import <mem>;
+import <future>;
+import <eventloop>;
+import <net_async>;
+import <http2>;
+import <hpack>;
+import <http>;
+import <http2_server>;
+import <string>;
+import <channel>;
+
+// ── OpenSSL FFI (libssl, OpenSSL 1.1 / 3.x) ──────────────────────────────────
+extern *void TLS_server_method();
+extern *void SSL_CTX_new(*void method);
+extern void  SSL_CTX_free(*void ctx);
+extern int   SSL_CTX_use_certificate_file(*void ctx, string file, int type);
+extern int   SSL_CTX_use_PrivateKey_file(*void ctx, string file, int type);
+extern void  SSL_CTX_set_alpn_select_cb(*void ctx, *void cb, *void arg);
+extern *void SSL_new(*void ctx);
+extern int   SSL_set_fd(*void ssl, int fd);
+extern int   SSL_accept(*void ssl);
+extern int   SSL_read(*void ssl, *void buf, int n);
+extern int   SSL_write(*void ssl, *void buf, int n);
+extern int   SSL_shutdown(*void ssl);
+extern void  SSL_free(*void ssl);
+extern int   SSL_get_error(*void ssl, int ret);
+
+const int X509_FILETYPE_PEM   = 1;
+const int SSL_ERROR_WANT_READ  = 2;
+const int SSL_ERROR_WANT_WRITE = 3;
+const int SSL_TLSEXT_ERR_OK    = 0;   // ALPN: a protocol was selected
+const int SSL_TLSEXT_ERR_NOACK = 3;   // ALPN: none acceptable
+
+// ── ALPN: select "h2" ────────────────────────────────────────────────────────
+
+// Scan the wire-format protocol list `protos` (each entry: a 1-byte length then
+// that many name bytes) for "h2". On a match, point *out at the name and set
+// *outlen to 2, returning 1; otherwise 0. Pure — unit-testable without a socket.
+int tls_alpn_pick_h2(*uint8 protos, int len, **uint8 out, *uint8 outlen) {
+    int i = 0;
+    while (i < len) {
+        int plen = (int)protos[i];
+        if (plen == 2 && protos[i + 1] == (uint8)104 && protos[i + 2] == (uint8)50) {  // 'h','2'
+            *out = protos + i + 1;
+            *outlen = (uint8)2;
+            return 1;
+        }
+        i = i + 1 + plen;
+    }
+    return 0;
+}
+
+// OpenSSL ALPN select callback (C ABI). Passed to SSL_CTX_set_alpn_select_cb as a
+// raw C function pointer — `(*void)tls_alpn_select`.
+int tls_alpn_select(*void ssl, **uint8 out, *uint8 outlen, *uint8 protos, uint inlen, *void arg) {
+    if (tls_alpn_pick_h2(protos, (int)inlen, out, outlen) != 0) { return SSL_TLSEXT_ERR_OK; }
+    return SSL_TLSEXT_ERR_NOACK;
+}
+
+// ── Server context + connection ──────────────────────────────────────────────
+
+// Build a server SSL_CTX: load the PEM cert + key and install the ALPN-"h2"
+// callback. Returns null on failure.
+*void tls_server_ctx(string cert_file, string key_file) {
+    *void ctx = SSL_CTX_new(TLS_server_method());
+    if (ctx == (*void)0) { return (*void)0; }
+    if (SSL_CTX_use_certificate_file(ctx, cert_file, X509_FILETYPE_PEM) <= 0) {
+        SSL_CTX_free(ctx); return (*void)0;
+    }
+    if (SSL_CTX_use_PrivateKey_file(ctx, key_file, X509_FILETYPE_PEM) <= 0) {
+        SSL_CTX_free(ctx); return (*void)0;
+    }
+    SSL_CTX_set_alpn_select_cb(ctx, (*void)tls_alpn_select, (*void)0);
+    return ctx;
+}
+
+// Wrap an accepted socket in TLS and complete the handshake (ALPN runs here).
+// Returns the SSL* on success, null on handshake failure.
+*void tls_accept(*void ctx, int fd) {
+    *void ssl = SSL_new(ctx);
+    if (ssl == (*void)0) { return (*void)0; }
+    SSL_set_fd(ssl, fd);
+    if (SSL_accept(ssl) <= 0) { SSL_free(ssl); return (*void)0; }
+    return ssl;
+}
+
+// Read exactly `n` bytes (blocking); returns the count (< n on close/error).
+int tls_read_full(*void ssl, *uint8 buf, int n) {
+    int got = 0;
+    while (got < n) {
+        int r = SSL_read(ssl, (*void)(buf + got), n - got);
+        if (r <= 0) { return got; }
+        got = got + r;
+    }
+    return got;
+}
+
+// Write all `n` bytes (blocking).
+void tls_write_all(*void ssl, *uint8 buf, int n) {
+    int sent = 0;
+    while (sent < n) {
+        int w = SSL_write(ssl, (*void)(buf + sent), n - sent);
+        if (w <= 0) { return; }
+        sent = sent + w;
+    }
+}
+
+void tls_close(*void ssl) { SSL_shutdown(ssl); SSL_free(ssl); }
+
+// Read one whole frame (header into `hdr`, payload into buf+9). Returns the
+// payload length, or -1 on close/error.
+int tls_read_frame(*void ssl, *uint8 buf, H2Frame* hdr) {
+    if (tls_read_full(ssl, buf, 9) < 9) { return -1; }
+    h2_read_header(buf, hdr);
+    if (hdr.length > 0) {
+        if (tls_read_full(ssl, buf + 9, hdr.length) < hdr.length) { return -1; }
+    }
+    return hdr.length;
+}
+
+// Serve one h2-over-TLS connection (blocking): handshake, then the frame loop —
+// HEADERS (+ DATA) → handler → response, with SETTINGS/PING housekeeping. Closes
+// the TLS connection on return.
+void http2_tls_serve_conn(*void ssl, escaping fn(HttpRequest*, HttpResponse*)->void handler) {
+    *uint8 pf = alloc<uint8>(24);
+    int pn = tls_read_full(ssl, pf, 24);
+    int ok = 0;  if (pn == 24) { ok = h2_is_preface(pf); }
+    free((*void)pf);
+    if (ok == 0) { tls_close(ssl); return; }
+
+    *uint8 fb = alloc<uint8>(16384 + H2_FRAME_HEADER_LEN);
+    let local: H2Settings;  h2_settings_defaults(&local);
+    local.enable_push = 0;                               // a server MUST NOT set ENABLE_PUSH=1 (§6.5.2)
+    let hdr: H2Frame;
+    int plen = tls_read_frame(ssl, fb, &hdr);            // client SETTINGS
+    if (plen < 0 || hdr.type != H2_SETTINGS) { free((*void)fb); tls_close(ssl); return; }
+    int sn = h2_write_settings(fb, &local);  tls_write_all(ssl, fb, sn);
+    int an = h2_write_settings_ack(fb);      tls_write_all(ssl, fb, an);
+
+    let dec: HpackDecoder;  hpack_decoder_init(&dec, (int64)4096);
+    *HpackHeader harr = alloc<HpackHeader>(64);
+    int running = 1;
+    while (running != 0) {
+        let fr: H2Frame;
+        int fl = tls_read_frame(ssl, fb, &fr);
+        if (fl < 0) {
+            running = 0;
+        } else if (fr.type == H2_HEADERS) {
+            int boff = 0;  int blen = 0;
+            h2_headers_fragment(&fr, fb + 9, &boff, &blen);     // skip PADDED/PRIORITY
+            int nh = hpack_decode(&dec, fb + 9 + boff, blen, harr, 64);
+            let req: HttpRequest;  HttpRequest_init(&req);
+            if (nh > 0) { h2_fill_request(&req, harr, nh); }
+            if ((fr.flags & H2_FLAG_END_STREAM) == 0) {
+                int bd = 0;
+                while (bd == 0) {
+                    let df: H2Frame;
+                    int dl = tls_read_frame(ssl, fb, &df);
+                    if (dl < 0) { bd = 1; running = 0; }
+                    else if (df.type == H2_DATA) {
+                        int k = 0;
+                        while (k < df.length) { String_push(&req.body, (char)fb[9 + k]); k = k + 1; }
+                        if ((df.flags & H2_FLAG_END_STREAM) != 0) { bd = 1; }
+                    }
+                }
+            }
+            let res: HttpResponse;  HttpResponse_init(&res, 200);
+            handler(&req, &res);
+            *uint8 out = alloc<uint8>(h2_response_bufsize(&res));
+            int on = h2_build_response(out, fr.stream_id, &res);
+            tls_write_all(ssl, out, on);
+            free((*void)out);
+            HttpResponse_free(&res);
+            HttpRequest_free(&req);
+        } else if (fr.type == H2_SETTINGS) {
+            if ((fr.flags & H2_FLAG_ACK) == 0) { int a = h2_write_settings_ack(fb); tls_write_all(ssl, fb, a); }
+        } else if (fr.type == H2_PING) {
+            if ((fr.flags & H2_FLAG_ACK) == 0) {
+                *uint8 pb = alloc<uint8>(17);
+                int pp = h2_write_ping(pb, fb + 9, 1);
+                tls_write_all(ssl, pb, pp);
+                free((*void)pb);
+            }
+        } else if (fr.type == H2_GOAWAY) {
+            running = 0;
+        }
+    }
+    free((*void)harr);
+    free((*void)fb);
+    hpack_decoder_free(&dec);
+    tls_close(ssl);
+}
+
+// ── Async (event-loop) TLS ───────────────────────────────────────────────────
+// The async server runs many TLS connections on one thread (like the h2c
+// <http2_server>). SSL over a non-blocking fd drives I/O by retrying SSL_*
+// whenever the error is WANT_READ / WANT_WRITE and parking on that readiness.
+
+// Create an SSL for `fd` (no handshake yet). The fd should be non-blocking.
+*void tls_new(*void ctx, int fd) {
+    *void ssl = SSL_new(ctx);
+    if (ssl != (*void)0) { SSL_set_fd(ssl, fd); }
+    return ssl;
+}
+
+// Drive SSL_accept to completion over the loop. Returns 1 on success, -1 on error.
+async int tls_accept_async(EventLoop* lp, int fd, *void ssl) {
+    int done = 0;
+    while (done == 0) {
+        int r = SSL_accept(ssl);
+        if (r == 1) { return 1; }
+        int e = SSL_get_error(ssl, r);
+        if (e != SSL_ERROR_WANT_READ && e != SSL_ERROR_WANT_WRITE) { return -1; }
+        if (e == SSL_ERROR_WANT_READ)  { int x = await net_readable_async(lp, fd); }
+        if (e == SSL_ERROR_WANT_WRITE) { int x = await net_writable_async(lp, fd); }
+    }
+    return -1;
+}
+
+// Read once; retry across readiness on WANT_READ/WANT_WRITE. Returns bytes (>0),
+// or <= 0 on a clean close / error.
+async int tls_read_async(EventLoop* lp, int fd, *void ssl, *uint8 buf, int n) {
+    int done = 0;
+    while (done == 0) {
+        int r = SSL_read(ssl, (*void)buf, n);
+        if (r > 0) { return r; }
+        int e = SSL_get_error(ssl, r);
+        if (e != SSL_ERROR_WANT_READ && e != SSL_ERROR_WANT_WRITE) { return -1; }
+        if (e == SSL_ERROR_WANT_READ)  { int x = await net_readable_async(lp, fd); }
+        if (e == SSL_ERROR_WANT_WRITE) { int x = await net_writable_async(lp, fd); }
+    }
+    return -1;
+}
+
+// Read exactly `n` bytes; a result < n means the peer closed.
+async int tls_read_full_async(EventLoop* lp, int fd, *void ssl, *uint8 buf, int n) {
+    int got = 0;
+    while (got < n) {
+        int r = await tls_read_async(lp, fd, ssl, buf + got, n - got);
+        if (r <= 0) { return got; }
+        got = got + r;
+    }
+    return got;
+}
+
+// Write all `n` bytes (looping SSL_write, parking on readiness). Returns n or -1.
+async int tls_write_all_async(EventLoop* lp, int fd, *void ssl, *uint8 buf, int n) {
+    int sent = 0;
+    while (sent < n) {
+        int w = SSL_write(ssl, (*void)(buf + sent), n - sent);
+        if (w > 0) { sent = sent + w; }
+        if (w <= 0) {
+            int e = SSL_get_error(ssl, w);
+            if (e != SSL_ERROR_WANT_READ && e != SSL_ERROR_WANT_WRITE) { return -1; }
+            if (e == SSL_ERROR_WANT_READ)  { int x = await net_readable_async(lp, fd); }
+            if (e == SSL_ERROR_WANT_WRITE) { int x = await net_writable_async(lp, fd); }
+        }
+    }
+    return sent;
+}
+
+// Read one whole frame over TLS into `buf` (header into `hdr`). Returns the
+// payload length, or -1 on close/error.
+async int tls_read_frame_async(EventLoop* lp, int fd, *void ssl, *uint8 buf, H2Frame* hdr) {
+    int h = await tls_read_full_async(lp, fd, ssl, buf, 9);
+    if (h < 9) { return -1; }
+    h2_read_header(buf, hdr);
+    if (hdr.length > 0) {
+        int p = await tls_read_full_async(lp, fd, ssl, buf + 9, hdr.length);
+        if (p < hdr.length) { return -1; }
+    }
+    return hdr.length;
+}
+
+// Server opening handshake over TLS: validate the preface, read+apply the
+// client SETTINGS, send ours + ACK. Returns 0 on success, negative on failure.
+// (Split out to keep each async function's control flow simple.)
+async int http2_tls_handshake_async(EventLoop* lp, int fd, *void ssl, *uint8 fb) {
+    int pn = await tls_read_full_async(lp, fd, ssl, fb, 24);
+    if (pn < 24) { return -1; }
+    if (h2_is_preface(fb) == 0) { return -1; }
+    let hdr: H2Frame;
+    int plen = await tls_read_frame_async(lp, fd, ssl, fb, &hdr);
+    if (plen < 0 || hdr.type != H2_SETTINGS) { return -2; }
+    let local: H2Settings;  h2_settings_defaults(&local);  local.enable_push = 0;
+    int sn = h2_write_settings(fb, &local);
+    int w1 = await tls_write_all_async(lp, fd, ssl, fb, sn);
+    int an = h2_write_settings_ack(fb);
+    int w2 = await tls_write_all_async(lp, fd, ssl, fb, an);
+    if (w1 < 0 || w2 < 0) { return -3; }
+    return 0;
+}
+
+// Read a request body (DATA frames until END_STREAM) into `req.body` over TLS.
+// Returns 1 if the connection is still healthy, 0 if it dropped.
+async int http2_tls_read_body_async(EventLoop* lp, int fd, *void ssl, *uint8 fb, HttpRequest* req) {
+    int bd = 0;
+    while (bd == 0) {
+        let df: H2Frame;
+        int dl = await tls_read_frame_async(lp, fd, ssl, fb, &df);
+        if (dl < 0) { return 0; }
+        if (df.type == H2_DATA) {
+            int k = 0;
+            while (k < df.length) { String_push(&req.body, (char)fb[9 + k]); k = k + 1; }
+            if ((df.flags & H2_FLAG_END_STREAM) != 0) { bd = 1; }
+        }
+    }
+    return 1;
+}
+
+// The post-handshake frame-dispatch loop over TLS. Runs until GOAWAY or EOF.
+async void http2_tls_dispatch_async(EventLoop* lp, int fd, *void ssl, *uint8 fb,
+                                    escaping fn(HttpRequest*, HttpResponse*)->void handler) {
+    let dec: HpackDecoder;  hpack_decoder_init(&dec, (int64)4096);
+    *HpackHeader harr = alloc<HpackHeader>(64);
+    int running = 1;
+    while (running != 0) {
+        let fr: H2Frame;
+        int fl = await tls_read_frame_async(lp, fd, ssl, fb, &fr);
+        if (fl < 0) {
+            running = 0;
+        } else if (fr.type == H2_HEADERS) {
+            int boff = 0;  int blen = 0;
+            h2_headers_fragment(&fr, fb + 9, &boff, &blen);     // skip PADDED/PRIORITY
+            int nh = hpack_decode(&dec, fb + 9 + boff, blen, harr, 64);
+            let req: HttpRequest;  HttpRequest_init(&req);
+            if (nh > 0) { h2_fill_request(&req, harr, nh); }
+            int alive = 1;
+            if ((fr.flags & H2_FLAG_END_STREAM) == 0) {
+                alive = await http2_tls_read_body_async(lp, fd, ssl, fb, &req);
+            }
+            if (alive == 0) { running = 0; }
+            let res: HttpResponse;  HttpResponse_init(&res, 200);
+            handler(&req, &res);
+            *uint8 out = alloc<uint8>(h2_response_bufsize(&res));
+            int on = h2_build_response(out, fr.stream_id, &res);
+            int ow = await tls_write_all_async(lp, fd, ssl, out, on);
+            free((*void)out);
+            HttpResponse_free(&res);
+            HttpRequest_free(&req);
+            if (ow < 0) { running = 0; }
+        } else if (fr.type == H2_SETTINGS) {
+            if ((fr.flags & H2_FLAG_ACK) == 0) {
+                int a = h2_write_settings_ack(fb);
+                int w = await tls_write_all_async(lp, fd, ssl, fb, a);
+            }
+        } else if (fr.type == H2_GOAWAY) {
+            running = 0;
+        }
+    }
+    free((*void)harr);
+    hpack_decoder_free(&dec);
+}
+
+// Serve one h2-over-TLS connection asynchronously over the event loop: the SSL
+// handshake (ALPN -> h2), then the frame-dispatch loop. Detached per connection
+// by http2_tls_serve_async, so many TLS connections share one thread. Responses
+// are chunked to MAX_FRAME_SIZE; send-side window flow control is the h2c
+// server's (this path assumes the cooperative-client window, like browsers).
+async void http2_tls_conn_async(EventLoop* lp, int fd, *void ctx,
+                                escaping fn(HttpRequest*, HttpResponse*)->void handler,
+                                Chan<int>* done) {
+    net_set_nonblocking(fd);
+    *void ssl = tls_new(ctx, fd);
+    int ok = 0;
+    if (ssl != (*void)0) { ok = await tls_accept_async(lp, fd, ssl); }
+    if (ok == 1) {
+        *uint8 fb = alloc<uint8>(16384 + H2_FRAME_HEADER_LEN);
+        int hs = await http2_tls_handshake_async(lp, fd, ssl, fb);
+        if (hs == 0) { await http2_tls_dispatch_async(lp, fd, ssl, fb, handler); }
+        free((*void)fb);
+    }
+    if (ssl != (*void)0) { tls_close(ssl); }
+    net_close(fd);
+    chan_send<int>(done, 1);
+}
+
+// Accept and serve `max_conns` TLS connections concurrently over one event loop.
+async void http2_tls_serve_async(EventLoop* lp, int listen_fd, *void ctx,
+                                 escaping fn(HttpRequest*, HttpResponse*)->void handler,
+                                 int max_conns) {
+    Chan<int>* done = chan_new<int>(max_conns);
+    int accepted = 0;
+    while (accepted < max_conns) {
+        int c = await net_accept_async(lp, listen_fd);
+        spawn(http2_tls_conn_async(lp, c, ctx, handler, done));
+        accepted = accepted + 1;
+    }
+    int finished = 0;
+    while (finished < max_conns) {
+        int sig = await chan_recv(done);
+        finished = finished + 1;
+    }
+    chan_free<int>(done);
+}

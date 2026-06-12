@@ -33,6 +33,10 @@ enum class TokenType {
     FN,
     ASM,
     VOLATILE,
+    ESCAPING,
+    ASYNC,
+    AWAIT,
+    CONST,
     THREAD_CREATE,
     THREAD_JOIN,
     FOR,
@@ -41,21 +45,20 @@ enum class TokenType {
     IF,
     ELSE,
     SWITCH,
+    MATCH,
     CASE,
     DEFAULT,
     BREAK,
     RETURN,
     IMPORT,
     EXTERN,
-    ALLOC,
-    FREE,
+    INTRINSIC,
+    ALLOC_WITH,
     NULL_KW,
     TRUE,
     FALSE,
-    THREAD,
-    SPAWN,
-    MUTEX,
     SIZEOF,
+    FREE_CLOSURE,
     TRY,
     CATCH,
     FINALLY,
@@ -114,6 +117,7 @@ enum class TokenType {
     SEMICOLON,
     COMMA,
     DOT,
+    RANGE,         // `..` — half-open range (e.g. `for (i in 0..10)`)
     COLON,
     ARROW,
     ELLIPSIS,
@@ -150,17 +154,26 @@ class Lexer {
 public:
     // `macros` is an optional shared macro table: when provided, #defines from
     // earlier files persist so they propagate across import / multi-file builds.
+    // `filename` (when known) is exposed to the preprocessor as `__FILE__`.
     explicit Lexer(const std::string& source,
-                   std::map<std::string, Macro>* macros = nullptr);
+                   std::map<std::string, Macro>* macros = nullptr,
+                   const std::string& filename = "");
 
     Token next_token();
     void print_all_tokens();
+
+    // Set when a lexical error (unterminated literal/comment, malformed char)
+    // was reported. The driver checks this and aborts before parsing.
+    bool hadError = false;
 
 private:
     std::string source;
     size_t current;
     int line;
     int column;
+
+    // Report a lexical error at the given position and set hadError.
+    void lexError(int errLine, int errCol, const std::string& msg);
 
     char peek() const;
     char peek_next() const;

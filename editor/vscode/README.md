@@ -30,14 +30,19 @@ Restart VS Code after installing.
 | `"..."` string literals (with escape sequences) | string |
 | `'a'` char literals | string |
 | `0xFF`, `3.14`, `42` numbers | constant.numeric |
-| `true`, `false`, `null` | constant.language |
-| `if else for while switch case break continue return` | keyword.control |
-| `let struct interface fn extern import alloc free` | keyword.declaration |
+| `true`, `false`, `null`, `__FILE__`, `__LINE__` | constant.language |
+| `#define #undef #ifdef #ifndef #else #endif #pragma #error` directives | keyword.control.directive |
+| `if else for while switch case break continue return in await match` | keyword.control |
+| `try catch finally throw` | keyword.control.exception |
+| `let struct packed union interface enum fn extern intrinsic import` | keyword.declaration |
+| `const volatile escaping async` | storage.modifier |
+| `sizeof asm alloc_with thread_create thread_join va_start va_arg va_end` | keyword.other |
+| `import <mem>;` stdlib imports and `type Alias = …` | namespace / declaration |
 | `int uint8 float double bool char string void` … | support.type |
 | Function names at declaration and call sites | entity.name.function |
 | Type names (uppercase-starting) | entity.name.type |
 | Template parameters `<T, E>` | entity.name.type.parameter |
-| `+= == && \| ^ <<` operators | keyword.operator |
+| `+= == && \| ^ << ..` operators (incl. the `..` range) | keyword.operator |
 
 ## File association
 

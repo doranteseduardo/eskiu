@@ -1,0 +1,121 @@
+// map.esk — Map<V>: a string-keyed hash map (open addressing, linear probing).
+//
+// Keys are strings (the common case — config, headers, identities); values are
+// any type V. A fully generic Map<K,V> would need a hash/eq for arbitrary K,
+// which Eskiu can't synthesise, so the key is fixed to string.
+//
+//   let m: Map<int>;  Map_init<int>(&m, 16);
+//   int created = 0;
+//   *int slot = Map_at<int>(&m, "hits", &created);   // get-or-insert
+//   if (created == 1) { slot[0] = 0; }
+//   slot[0] = slot[0] + 1;
+//   int v;  if (Map_get<int>(&m, "hits", &v) == 1) { /* v == count */ }
+//   Map_free<int>(&m);
+
+import <mem>;
+
+extern int strlen(string s);
+
+struct Map<V> {
+    **char keys;    // owned key copies; null marks an empty slot
+    *V     vals;
+    int    cap;     // bucket count
+    int    count;   // live entries
+}
+
+// djb2, forced non-negative (used only for bucketing).
+int map_hash(string s) {
+    int h = 5381;
+    int i = 0;
+    while (s[i] != 0) { h = h * 33 + ((int)s[i] & 255); i = i + 1; }
+    if (h < 0) { h = 0 - h; }
+    return h;
+}
+
+int map_streq(*char a, string b) {
+    int i = 0;
+    while (a[i] != 0 && b[i] != 0) {
+        if (a[i] != b[i]) { return 0; }
+        i = i + 1;
+    }
+    if (a[i] != b[i]) { return 0; }
+    return 1;
+}
+
+*char map_dup(string s) {
+    int n = strlen(s);
+    *char d = alloc<char>(n + 1);
+    int i = 0;  while (i < n) { d[i] = s[i]; i = i + 1; }
+    d[n] = 0;
+    return d;
+}
+
+void Map_init<V>(Map<V>* m, int cap) {
+    if (cap < 8) { cap = 8; }
+    m.keys  = alloc<*char>(cap);
+    m.vals  = alloc<V>(cap);
+    m.cap   = cap;
+    m.count = 0;
+    int i = 0;  while (i < cap) { m.keys[i] = null; i = i + 1; }
+}
+
+void Map_free<V>(Map<V>* m) {
+    int i = 0;
+    while (i < m.cap) { if (m.keys[i] != null) { free((*void)m.keys[i]); } i = i + 1; }
+    free((*void)m.keys);
+    free((*void)m.vals);
+    m.keys = null;  m.vals = null;  m.cap = 0;  m.count = 0;
+}
+
+// Double the table and rehash. Keys are moved (not re-duplicated).
+void Map_grow<V>(Map<V>* m) {
+    int oldcap = m.cap;
+    **char oldk = m.keys;
+    *V     oldv = m.vals;
+    int newcap = oldcap * 2;
+    **char nk = alloc<*char>(newcap);
+    *V     nv = alloc<V>(newcap);
+    int i = 0;  while (i < newcap) { nk[i] = null; i = i + 1; }
+    i = 0;
+    while (i < oldcap) {
+        if (oldk[i] != null) {
+            int j = map_hash(oldk[i]) % newcap;
+            while (nk[j] != null) { j = (j + 1) % newcap; }
+            nk[j] = oldk[i];
+            nv[j] = oldv[i];
+        }
+        i = i + 1;
+    }
+    free((*void)oldk);
+    free((*void)oldv);
+    m.keys = nk;  m.vals = nv;  m.cap = newcap;
+}
+
+// Get-or-insert. Returns a pointer to the value slot for `key`; sets
+// *created to 1 if the key was just inserted (slot value is uninitialised —
+// the caller must initialise it) or 0 if it already existed. The pointer is
+// valid until the next insert that grows the map.
+*V Map_at<V>(Map<V>* m, string key, *int created) {
+    if ((m.count + 1) * 4 >= m.cap * 3) { Map_grow<V>(m); }   // load factor 0.75
+    int i = map_hash(key) % m.cap;
+    while (m.keys[i] != null) {
+        if (map_streq(m.keys[i], key) == 1) { created[0] = 0; return &m.vals[i]; }
+        i = (i + 1) % m.cap;
+    }
+    m.keys[i] = map_dup(key);
+    m.count   = m.count + 1;
+    created[0] = 1;
+    return &m.vals[i];
+}
+
+// Read-only lookup. Copies the value into *out and returns 1, or returns 0.
+int Map_get<V>(Map<V>* m, string key, *V out) {
+    int i = map_hash(key) % m.cap;
+    int n = 0;
+    while (m.keys[i] != null && n < m.cap) {
+        if (map_streq(m.keys[i], key) == 1) { out[0] = m.vals[i]; return 1; }
+        i = (i + 1) % m.cap;
+        n = n + 1;
+    }
+    return 0;
+}

@@ -5,6 +5,8 @@
 //
 // Each accepted connection is read once and the bytes are sent straight back.
 
+import <mem>;
+
 import <net>;
 
 extern int printf(string fmt, ...);
@@ -17,7 +19,7 @@ int main() {
     }
     printf("echo server listening on 127.0.0.1:7000\n");
 
-    *uint8 buf = alloc(uint8, 1024);
+    *uint8 buf = alloc<uint8>(1024);
     while (1) {
         int c = net_accept(fd);
         if (c < 0) { continue; }

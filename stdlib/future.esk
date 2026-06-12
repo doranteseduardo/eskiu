@@ -1,0 +1,215 @@
+// future.esk — the async runtime's Future<T> (see docs/dev/async-design.md).
+//
+// This is the locked compiler↔generated-code contract. A coroutine compiles to a
+// state machine that talks to a Future<T> through the protocols below. Leaf
+// futures (e.g. the <net_async> primitives) implement those protocols directly.
+//
+// Future<T> layout is FIXED: `value` is LAST so the first three fields sit at the
+// same offsets for every T, which lets cancellation and the executor view any
+// future through the type-erased FutureHdr.
+//
+//   state: 0 PENDING, 1 WAITING, 2 READY, 3 CANCELLED   (atomic; §3 handshake)
+//   waker:   completion path — resume the awaiter (set by the awaiter)
+//   on_drop: cancel path — release own resources + cascade (set by the producer)
+
+import <mem>;
+import <atomic>;
+
+// Type-erased view of the first three fields — same offsets for any Future<T>.
+struct FutureHdr {
+    int        state;
+    fn()->void waker;
+    fn()->void on_drop;
+}
+
+struct Future<T> {
+    int        state;
+    fn()->void waker;
+    fn()->void on_drop;
+    T          value;
+}
+
+// State constants — the locked compiler↔generated-code contract. The async
+// transform emits these same numeric values directly into the IR it generates
+// (state 0 at construction, swap to 2 on completion), so the *numbers* are fixed;
+// these names just make the handshake below readable. Note: a `future_poll`
+// return of 0/1 (parked / already-ready) and a `select`/`join` completion value
+// (winner index / count) are NOT states — they stay as literals.
+const int PENDING   = 0;
+const int WAITING   = 1;
+const int READY     = 2;
+const int CANCELLED = 3;
+
+// A freshly allocated, pending future. waker/on_drop are set later by the
+// awaiter / producer. state starts PENDING (a plain store — not yet shared).
+Future<T>* future_new<T>() {
+    Future<T>* f = alloc<Future<T>>(1);
+    f.state = PENDING;
+    // waker/on_drop default to no-ops (null env) so free_future/future_drop can
+    // always free_closure them safely, even if no one sets them.
+    f.waker   = void() {};
+    f.on_drop = void() {};
+    return f;
+}
+
+// Awaiter side. Register `resume` and try to park (PENDING -> WAITING).
+// Returns 0 if parked (the producer will call `resume` on completion), or 1 if
+// the future was already READY — the caller should read `value` and not suspend.
+int future_poll<T>(Future<T>* f, escaping fn()->void resume) {
+    f.waker = resume;
+    if (atomic_cas(&f.state, PENDING, WAITING)) {   // PENDING -> WAITING: parked
+        return 0;
+    }
+    return 1;                            // already READY: take value inline
+}
+
+// Producer side. Publish the value, then win the right to complete by moving
+// PENDING/WAITING -> READY. `value` is written before the publishing CAS
+// (release) so a reader observing READY sees it. If the future is already
+// terminal (READY or CANCELLED — e.g. a `select` loser was dropped, or a
+// concurrent cancel won), completing is a no-op. Wake the awaiter iff it had
+// parked (state was WAITING).
+void future_complete<T>(Future<T>* f, T v) {
+    f.value = v;
+    if (atomic_cas(&f.state, PENDING, READY)) { return; }   // PENDING -> READY (awaiter not parked yet)
+    if (atomic_cas(&f.state, WAITING, READY)) { f.waker(); } // WAITING -> READY: wake the awaiter
+    // else: already terminal -> ignore (drop/cancel won the race)
+}
+
+// Fire-and-forget a future: drive it to completion, then free it. Use for a
+// detached async task (no one awaits its result). The caller must still run the
+// event loop so the task's leaf futures can complete. Leak-free: the completion
+// waker frees the future *and* its own heap env (it saves its own fat pointer,
+// frees the future, then free_closures the saved copy as its last act).
+//
+// `spawn_hdr` is the type-erased core (all work is header-only: fields + free).
+// Prefer the generic `spawn<T>` wrapper below — it takes a typed `Future<T>*`
+// with no cast at the call site and forwards here.
+void spawn_hdr(FutureHdr* f) {
+    let reap: fn()->void = void() {
+        let self: fn()->void = f.waker;       // this closure (f.waker == this)
+        free_closure(f.on_drop);  free((*void)f);   // == free_future, type-agnostic
+        free_closure(self);                   // free this closure's env (last act)
+    };
+    f.waker = reap;
+    if (atomic_cas(&f.state, PENDING, WAITING)) { return; }      // PENDING -> WAITING: parked
+    // Already terminal (READY): the waker never fires — free it and the future now.
+    free_closure(reap);
+    free_closure(f.on_drop);  free((*void)f);
+}
+
+// select2_hdr: complete with the index (0 or 1) of whichever of `a`/`b` finishes
+// first; the loser is dropped (deregistered + freed). Type-erased by necessity —
+// the loser's value type is not known here, so it can only be dropped through the
+// FutureHdr view. Ownership: takes neither future; on resolution the loser is
+// freed here, and the CALLER frees the winner after reading it. Leak-free via the
+// self-free waker technique. Prefer the generic `select2<A,B>` wrapper below.
+Future<int>* select2_hdr(FutureHdr* a, FutureHdr* b) {
+    Future<int>* sel = future_new<int>();
+    let onA: fn()->void = void() {
+        let self: fn()->void = a.waker;
+        future_drop(b);                  // loser: deregister + free (frees onB env too)
+        future_complete<int>(sel, 0);    // resumes the awaiter (reads a.value, frees a)
+        free_closure(self);              // free onA env (last act)
+    };
+    let onB: fn()->void = void() {
+        let self: fn()->void = b.waker;
+        future_drop(a);
+        future_complete<int>(sel, 1);
+        free_closure(self);
+    };
+    a.waker = onA;
+    if (atomic_cas(&a.state, PENDING, WAITING) == false) {   // a already READY -> a wins
+        free_closure(onA);                       // onA never fires (a won't be future_drop'd)
+        free_closure(onB);                       // onB was created but never armed
+        future_drop(b);                          // drop the loser (frees b's waker/on_drop/struct)
+        future_complete<int>(sel, 0);
+        return sel;
+    }
+    b.waker = onB;
+    if (atomic_cas(&b.state, PENDING, WAITING) == false) {   // b already READY -> b wins
+        free_closure(onB);                       // onB never fires
+        future_drop(a);                          // a was armed (WAITING) -> future_drop frees onA
+        future_complete<int>(sel, 1);
+        return sel;
+    }
+    return sel;                                  // both parked: first to complete wins
+}
+
+// join2_hdr: complete (with 2) once BOTH `a` and `b` have finished. Type-erased;
+// the awaiter then reads both futures' typed values and frees both. Leak-free: a
+// shared heap counter tracks completions (freed by the second completer), and
+// each waker self-frees its env. Prefer the generic `join2<A,B>` wrapper below.
+Future<int>* join2_hdr(FutureHdr* a, FutureHdr* b) {
+    Future<int>* j = future_new<int>();
+    *int cnt = alloc<int>(1);
+    *cnt = 0;
+    let onA: fn()->void = void() {
+        let self: fn()->void = a.waker;
+        *cnt = *cnt + 1;
+        if (*cnt == 2) { free((*void)cnt); future_complete<int>(j, 2); }
+        free_closure(self);
+    };
+    let onB: fn()->void = void() {
+        let self: fn()->void = b.waker;
+        *cnt = *cnt + 1;
+        if (*cnt == 2) { free((*void)cnt); future_complete<int>(j, 2); }
+        free_closure(self);
+    };
+    a.waker = onA;
+    if (atomic_cas(&a.state, PENDING, WAITING) == false) { *cnt = *cnt + 1; free_closure(onA); }  // a already done
+    b.waker = onB;
+    if (atomic_cas(&b.state, PENDING, WAITING) == false) { *cnt = *cnt + 1; free_closure(onB); }  // b already done
+    if (*cnt == 2) { free((*void)cnt); future_complete<int>(j, 2); }                   // both already done
+    return j;
+}
+
+// Free a future's memory. The single owner (the awaiter, after reading value, or
+// future_drop on cancel) calls this exactly once.
+void free_future<T>(Future<T>* f) {
+    free_closure(f.on_drop);   // release the producer's on_drop env
+    free((*void)f);            // (== free the embedded frame for a coroutine future)
+}
+
+// Cancel/drop, type-erased. Swap to CANCELLED; if it was already READY the
+// producer is done and we only free, otherwise on_drop releases external
+// resources (loop registration), cascades, and frees.
+void future_drop(FutureHdr* f) {
+    int old = atomic_swap(&f.state, CANCELLED);  // -> CANCELLED
+    if (old != READY) {                      // not already READY: release resources + cascade
+        f.on_drop();                     // (must NOT free f — future_drop owns the free)
+    }
+    free_closure(f.waker);               // a parked awaiter's resume will never fire now
+    free_closure(f.on_drop);             // free the on_drop env (it has returned)
+    free((*void)f);
+}
+
+// ── Generic combinators: typed, cast-free public API ────────────────────────
+// Thin wrappers over the type-erased *_hdr cores above. The cores must be
+// type-erased (they manipulate a future whose value type is statically unknown —
+// e.g. dropping a select loser), so these wrappers only recover the ergonomics:
+// the caller passes typed `Future<A>*`/`Future<B>*` and the type args are
+// inferred, with no `(FutureHdr*)` casts at the call site. One shared core, so no
+// per-instantiation code bloat.
+
+// spawn<T>: detach a typed future as a fire-and-forget task.
+//   spawn(task);            // T inferred
+void spawn<T>(Future<T>* f) { spawn_hdr((FutureHdr*)f); }
+
+// select2<A,B>: await the first of two futures; the loser is dropped. Completes
+// with the winner's index (0 or 1). The awaiter reads the winner's typed value
+// and frees it (the loser is already gone):
+//   int w = await select2(rd, timer);            // A,B inferred
+//   if (w == 0) { use rd.value;  free_future<int>(rd); }
+//   else        {                free_future<int>(timer); }
+Future<int>* select2<A, B>(Future<A>* a, Future<B>* b) {
+    return select2_hdr((FutureHdr*)a, (FutureHdr*)b);
+}
+
+// join2<A,B>: await BOTH futures. The awaiter then reads both typed values and
+// frees both:
+//   await join2(x, y);                           // A,B inferred
+//   int sum = x.value + y.value;  free_future<int>(x);  free_future<int>(y);
+Future<int>* join2<A, B>(Future<A>* a, Future<B>* b) {
+    return join2_hdr((FutureHdr*)a, (FutureHdr*)b);
+}

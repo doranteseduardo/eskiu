@@ -1,0 +1,2 @@
+// EXPECT-ERROR: unterminated string
+int main() { string s = "oops; return 0; }

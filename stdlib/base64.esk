@@ -1,0 +1,100 @@
+// base64.esk — standard Base64 (RFC 4648) encode/decode over byte buffers.
+//
+//   import <base64>;
+//   *uint8 out = alloc<uint8>(base64_encoded_len(n) + 1);
+//   int m = base64_encode(src, n, out);   // out[m] is left as a NUL terminator
+//
+// The caller owns the buffers. Use the *_len helpers to size them.
+
+// 6-bit value of a Base64 character, or -1 if it is not a Base64 digit.
+int base64_value(uint8 c) {
+    if (c >= 65 && c <= 90)  { return (int)c - 65; }        // 'A'-'Z' -> 0..25
+    if (c >= 97 && c <= 122) { return (int)c - 97 + 26; }   // 'a'-'z' -> 26..51
+    if (c >= 48 && c <= 57)  { return (int)c - 48 + 52; }   // '0'-'9' -> 52..61
+    if (c == 43) { return 62; }                             // '+'
+    if (c == 47) { return 63; }                             // '/'
+    return -1;
+}
+
+// The 'digit'-th Base64 character.
+uint8 base64_digit(int v) {
+    if (v < 26) { return (uint8)(65 + v); }        // 'A'-'Z'
+    if (v < 52) { return (uint8)(97 + v - 26); }   // 'a'-'z'
+    if (v < 62) { return (uint8)(48 + v - 52); }   // '0'-'9'
+    if (v == 62) { return 43; }                    // '+'
+    return 47;                                     // '/'
+}
+
+// Encoded length (without the NUL) for `n` input bytes.
+int base64_encoded_len(int n) {
+    return ((n + 2) / 3) * 4;
+}
+
+// Worst-case decoded length for `n` input characters.
+int base64_decoded_len(int n) {
+    return (n / 4) * 3 + 3;
+}
+
+// Encode `n` bytes from src into out. Returns the number of characters written
+// (out is also NUL-terminated at that index). out must hold
+// base64_encoded_len(n) + 1 bytes.
+int base64_encode(*uint8 src, int n, *uint8 out) {
+    int i = 0;
+    int o = 0;
+    while (i + 2 < n) {
+        int b0 = (int)src[i];
+        int b1 = (int)src[i + 1];
+        int b2 = (int)src[i + 2];
+        out[o]     = base64_digit(b0 >> 2);
+        out[o + 1] = base64_digit(((b0 & 3) << 4) | (b1 >> 4));
+        out[o + 2] = base64_digit(((b1 & 15) << 2) | (b2 >> 6));
+        out[o + 3] = base64_digit(b2 & 63);
+        i = i + 3;
+        o = o + 4;
+    }
+    int rem = n - i;
+    if (rem == 1) {
+        int b0 = (int)src[i];
+        out[o]     = base64_digit(b0 >> 2);
+        out[o + 1] = base64_digit((b0 & 3) << 4);
+        out[o + 2] = 61;   // '='
+        out[o + 3] = 61;   // '='
+        o = o + 4;
+    } else if (rem == 2) {
+        int b0 = (int)src[i];
+        int b1 = (int)src[i + 1];
+        out[o]     = base64_digit(b0 >> 2);
+        out[o + 1] = base64_digit(((b0 & 3) << 4) | (b1 >> 4));
+        out[o + 2] = base64_digit((b1 & 15) << 2);
+        out[o + 3] = 61;   // '='
+        o = o + 4;
+    }
+    out[o] = 0;
+    return o;
+}
+
+// Decode `n` characters from src into out. Returns the number of bytes written,
+// or -1 on a malformed character. Whitespace and padding ('=') are ignored.
+// out must hold base64_decoded_len(n) bytes.
+int base64_decode(*uint8 src, int n, *uint8 out) {
+    int acc  = 0;   // bit accumulator
+    int bits = 0;   // bits currently in acc
+    int o    = 0;
+    int i    = 0;
+    while (i < n) {
+        uint8 c = src[i];
+        i = i + 1;
+        if (c == 61) { continue; }                       // '=' padding
+        if (c == 32 || c == 10 || c == 13 || c == 9) { continue; }  // whitespace
+        int v = base64_value(c);
+        if (v < 0) { return -1; }
+        acc  = (acc << 6) | v;
+        bits = bits + 6;
+        if (bits >= 8) {
+            bits = bits - 8;
+            out[o] = (uint8)((acc >> bits) & 255);
+            o = o + 1;
+        }
+    }
+    return o;
+}

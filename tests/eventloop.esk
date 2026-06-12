@@ -1,0 +1,64 @@
+// Smoke test (no .expected → exit 0 = pass): a single-threaded echo server built
+// on the <eventloop> reactor, driven by a client in the same process.
+import <mem>;
+import <eventloop>;
+import <net>;
+import <time>;
+
+extern int printf(string fmt, ...);
+
+int srv_fd = -1;   // listen fd, read by the server thread
+
+// A connection became readable: echo one message, then stop the loop.
+void on_client(EventLoop* lp, int fd) {
+    *uint8 buf = alloc<uint8>(256);
+    int64 n = net_recv(fd, (*void)buf, 256);
+    if (n > 0) { net_send(fd, (*void)buf, n); }
+    net_close(fd);
+    el_del(lp, fd);
+    free(buf);
+    el_stop(lp);
+}
+
+// The listen fd became readable: accept and register the client.
+void on_accept(EventLoop* lp, int fd) {
+    int c = net_accept(fd);
+    if (c >= 0) { el_add_read(lp, c, on_client); }
+}
+
+void run_server() {
+    EventLoop* lp = el_new(256);
+    el_add_read(lp, srv_fd, on_accept);
+    el_run(lp);
+    el_free(lp);
+}
+
+int main() {
+    srv_fd = net_tcp_listen(18090);
+    if (srv_fd < 0) { printf("bind failed\n"); return 1; }
+
+    let srv: fn()->void = void() { run_server(); };
+    thread_create(srv);
+
+    int c = -1;
+    int tries = 0;
+    while (c < 0 && tries < 40) {
+        sleep_ms(25);
+        c = net_tcp_connect("127.0.0.1", 18090);
+        tries = tries + 1;
+    }
+    if (c < 0) { printf("connect failed\n"); return 1; }
+
+    net_send_str(c, "ping");
+    *uint8 buf = alloc<uint8>(64);
+    int64 n = net_recv(c, (*void)buf, 64);
+    net_close(c);
+
+    int ok = 0;
+    if (n == 4 && buf[0] == 'p' && buf[1] == 'i' && buf[2] == 'n' && buf[3] == 'g') { ok = 1; }
+    free(buf);
+
+    if (ok == 1) { printf("eventloop echo ok\n"); return 0; }
+    printf("bad echo (n=%lld)\n", n);
+    return 1;
+}

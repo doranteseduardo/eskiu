@@ -1,6 +1,8 @@
 // Loopback TCP echo: a server thread (passed as a bare function — fn-pointer
 // decay) accepts one connection and echoes; the main thread connects and reads
 // it back. Exercises <net>, packed sockaddr_in, threads, and fn-pointer decay.
+import <mem>;
+
 import <net>;
 extern int printf(string fmt, ...);
 extern int usleep(int us);
@@ -9,7 +11,7 @@ void echo_server() {
     int fd = net_tcp_listen(54331);
     if (fd < 0) { return; }
     int c = net_accept(fd);
-    *uint8 buf = alloc(uint8, 256);
+    *uint8 buf = alloc<uint8>(256);
     int64 n = net_recv(c, (*void)buf, 256);
     net_send(c, (*void)buf, n);
     net_close(c);
@@ -24,7 +26,7 @@ int main() {
     int fd = net_tcp_connect("127.0.0.1", 54331);
     if (fd < 0) { printf("connect failed\n"); return 1; }
     net_send_str(fd, "ping");
-    *uint8 buf = alloc(uint8, 256);
+    *uint8 buf = alloc<uint8>(256);
     int64 n = net_recv(fd, (*void)buf, 256);
     buf[n] = 0;
     printf("echoed: %s\n", (string)buf);

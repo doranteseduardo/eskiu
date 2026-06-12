@@ -1,0 +1,10 @@
+#!/usr/bin/env eskiuc run
+// A leading `#!` line lets a .esk file be an executable script
+// (`chmod +x file.esk` then run it). The preprocessor ignores the shebang and
+// keeps line numbers intact, so normal compilation is unaffected.
+extern int printf(string fmt, ...);
+
+int main() {
+    printf("shebang line ignored\n");
+    return 0;
+}

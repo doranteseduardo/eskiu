@@ -110,7 +110,13 @@ static std::string ppExpand(const std::string& text,
 
 static void preprocess(const std::string& src,
                        std::map<std::string, Macro>& defines,
-                       std::string& result) {
+                       std::string& result,
+                       const std::string& filename,
+                       bool& hadErr) {
+    // Predefined `__FILE__` (constant for this file). `__LINE__` is refreshed each
+    // line below. Both are ordinary object-like macros so ppExpand handles them
+    // with correct identifier boundaries.
+    { Macro m; m.body = "\"" + filename + "\""; defines["__FILE__"] = m; }
     struct Cond { bool parentActive; bool branchActive; };
     std::vector<Cond> stack;
     auto active = [&]() {
@@ -120,7 +126,10 @@ static void preprocess(const std::string& src,
     std::istringstream in(src);
     std::ostringstream out;
     std::string line; bool first = true;
+    int curLine = 0;
     while (std::getline(in, line)) {
+        curLine++;                       // physical line of this logical line
+        int lineNo = curLine;            // __LINE__ for this logical line
         // Line splicing: a trailing backslash continues onto the next physical
         // line, so a #define (or any line) may span several lines. The joined
         // logical line is emitted as one line followed by `extra` blank lines,
@@ -132,6 +141,7 @@ static void preprocess(const std::string& src,
             if (!std::getline(in, cont)) break;
             line += cont;
             extra++;
+            curLine++;                   // each continuation is a physical line too
         }
 
         if (!first) out << "\n";
@@ -185,11 +195,21 @@ static void preprocess(const std::string& src,
                 // it through unchanged so the lexer/parser can act on it (e.g.
                 // `#pragma pack`). Unknown pragmas are ignored downstream.
                 if (active()) out << ppTrim(line.substr(h));
+            } else if (kw == "error") {
+                // #error <message> — abort compilation with the message (only on
+                // an active branch, so it can guard #ifdef blocks).
+                if (active()) {
+                    std::string msg; std::getline(ds, msg); msg = ppTrim(msg);
+                    std::cerr << "error: " << (filename.empty() ? "<input>" : filename)
+                              << ":" << lineNo << ": #error " << msg << std::endl;
+                    hadErr = true;
+                }
             }
             // any other directive emits a blank line
         }
 
         if (!handled && active()) {
+            { Macro m; m.body = std::to_string(lineNo); defines["__LINE__"] = m; }
             std::set<std::string> expanding; out << ppExpand(line, defines, expanding);
         }
         // inactive / directive lines emit blank
@@ -218,6 +238,10 @@ std::string tokenTypeToString(TokenType type) {
         case TokenType::FN: return "FN";
         case TokenType::ASM: return "ASM";
         case TokenType::VOLATILE:      return "VOLATILE";
+        case TokenType::ESCAPING:      return "ESCAPING";
+        case TokenType::ASYNC:         return "ASYNC";
+        case TokenType::AWAIT:         return "AWAIT";
+        case TokenType::CONST:         return "CONST";
         case TokenType::THREAD_CREATE: return "THREAD_CREATE";
         case TokenType::THREAD_JOIN:   return "THREAD_JOIN";
         case TokenType::FOR: return "FOR";
@@ -226,20 +250,20 @@ std::string tokenTypeToString(TokenType type) {
         case TokenType::IF: return "IF";
         case TokenType::ELSE: return "ELSE";
         case TokenType::SWITCH: return "SWITCH";
+        case TokenType::MATCH: return "MATCH";
         case TokenType::CASE: return "CASE";
         case TokenType::DEFAULT: return "DEFAULT";
         case TokenType::BREAK: return "BREAK";
         case TokenType::RETURN: return "RETURN";
         case TokenType::IMPORT: return "IMPORT";
         case TokenType::EXTERN: return "EXTERN";
-        case TokenType::ALLOC: return "ALLOC";
-        case TokenType::FREE: return "FREE";
+        case TokenType::INTRINSIC: return "INTRINSIC";
+        case TokenType::ALLOC_WITH: return "ALLOC_WITH";
         case TokenType::NULL_KW: return "NULL";
         case TokenType::TRUE: return "TRUE";
         case TokenType::FALSE: return "FALSE";
-        case TokenType::THREAD: return "THREAD";
-        case TokenType::SPAWN: return "SPAWN";
-        case TokenType::MUTEX: return "MUTEX";
+        case TokenType::SIZEOF: return "SIZEOF";
+        case TokenType::FREE_CLOSURE: return "FREE_CLOSURE";
         case TokenType::TRY: return "TRY";
         case TokenType::CATCH: return "CATCH";
         case TokenType::FINALLY: return "FINALLY";
@@ -296,6 +320,7 @@ std::string tokenTypeToString(TokenType type) {
         case TokenType::SEMICOLON: return "SEMICOLON";
         case TokenType::COMMA: return "COMMA";
         case TokenType::DOT: return "DOT";
+        case TokenType::RANGE: return "RANGE";
         case TokenType::COLON: return "COLON";
         case TokenType::QUESTION: return "QUESTION";
         case TokenType::ARROW: return "ARROW";
@@ -310,8 +335,9 @@ std::string tokenTypeToString(TokenType type) {
         case TokenType::EOF_TOKEN: return "EOF";
         case TokenType::PRAGMA: return "PRAGMA";
         case TokenType::UNKNOWN: return "UNKNOWN";
-        default: return "???";
+        // No default: -Wswitch flags any TokenType that is missing a case here.
     }
+    return "???";
 }
 
 std::unordered_map<std::string, TokenType> Lexer::keywords = {
@@ -331,7 +357,12 @@ std::unordered_map<std::string, TokenType> Lexer::keywords = {
     {"fn", TokenType::FN},
     {"asm", TokenType::ASM},
     {"volatile",       TokenType::VOLATILE},
+    {"escaping",       TokenType::ESCAPING},
+    {"async",          TokenType::ASYNC},
+    {"await",          TokenType::AWAIT},
+    {"const",          TokenType::CONST},
     {"sizeof",         TokenType::SIZEOF},
+    {"free_closure",   TokenType::FREE_CLOSURE},
     {"thread_create",  TokenType::THREAD_CREATE},
     {"thread_join",    TokenType::THREAD_JOIN},
     {"for", TokenType::FOR},
@@ -340,20 +371,18 @@ std::unordered_map<std::string, TokenType> Lexer::keywords = {
     {"if", TokenType::IF},
     {"else", TokenType::ELSE},
     {"switch", TokenType::SWITCH},
+    {"match", TokenType::MATCH},
     {"case", TokenType::CASE},
     {"default", TokenType::DEFAULT},
     {"break", TokenType::BREAK},
     {"return", TokenType::RETURN},
     {"import", TokenType::IMPORT},
     {"extern", TokenType::EXTERN},
-    {"alloc", TokenType::ALLOC},
-    {"free", TokenType::FREE},
+    {"intrinsic", TokenType::INTRINSIC},
+    {"alloc_with", TokenType::ALLOC_WITH},
     {"null", TokenType::NULL_KW},
     {"true", TokenType::TRUE},
     {"false", TokenType::FALSE},
-    {"thread", TokenType::THREAD},
-    {"spawn", TokenType::SPAWN},
-    {"mutex", TokenType::MUTEX},
     {"try", TokenType::TRY},
     {"catch", TokenType::CATCH},
     {"finally", TokenType::FINALLY},
@@ -370,10 +399,11 @@ std::unordered_map<std::string, TokenType> Lexer::keywords = {
     {"uint64", TokenType::UINT64},
 };
 
-Lexer::Lexer(const std::string& source, std::map<std::string, Macro>* macros)
+Lexer::Lexer(const std::string& source, std::map<std::string, Macro>* macros,
+             const std::string& filename)
     : current(0), line(1), column(1) {
     std::map<std::string, Macro> local;
-    preprocess(source, macros ? *macros : local, this->source);
+    preprocess(source, macros ? *macros : local, this->source, filename, this->hadError);
 }
 
 char Lexer::peek() const {
@@ -416,16 +446,20 @@ void Lexer::skip_comment() {
         }
     } else if (peek() == '/' && peek_next() == '*') {
         // Multi-line comment
+        int start_line = line, start_col = column;
         advance(); // /
         advance(); // *
+        bool closed = false;
         while (!is_at_end()) {
             if (peek() == '*' && peek_next() == '/') {
                 advance(); // *
                 advance(); // /
+                closed = true;
                 break;
             }
             advance();
         }
+        if (!closed) lexError(start_line, start_col, "unterminated block comment");
     }
 }
 
@@ -469,6 +503,11 @@ Token Lexer::read_number() {
     return Token(TokenType::INT_LIT, num, start_line, start_col);
 }
 
+void Lexer::lexError(int errLine, int errCol, const std::string& msg) {
+    std::cerr << "error: " << errLine << ":" << errCol << ": " << msg << std::endl;
+    hadError = true;
+}
+
 Token Lexer::read_string() {
     int start_line = line;
     int start_col = column;
@@ -494,7 +533,9 @@ Token Lexer::read_string() {
         }
     }
 
-    if (!is_at_end()) {
+    if (is_at_end()) {
+        lexError(start_line, start_col, "unterminated string literal");
+    } else {
         advance(); // consume closing "
     }
 
@@ -507,6 +548,15 @@ Token Lexer::read_char() {
     advance(); // consume opening '
 
     std::string ch;
+    if (is_at_end()) {
+        lexError(start_line, start_col, "unterminated character literal");
+        return Token(TokenType::CHAR_LIT, ch, start_line, start_col);
+    }
+    if (peek() == '\'') {
+        lexError(start_line, start_col, "empty character literal");
+        advance(); // consume closing '
+        return Token(TokenType::CHAR_LIT, ch, start_line, start_col);
+    }
     if (peek() == '\\') {
         advance();
         char escaped = advance();
@@ -522,6 +572,16 @@ Token Lexer::read_char() {
 
     if (!is_at_end() && peek() == '\'') {
         advance(); // consume closing '
+    } else {
+        // Unterminated, or more than one character before the closing quote.
+        bool unterminated = is_at_end() || peek() == '\n';
+        lexError(start_line, start_col,
+                 unterminated ? "unterminated character literal"
+                              : "character literal must contain a single character");
+        // Recover: skip to the closing ' (or end of line) so the rest of the
+        // malformed literal does not mis-lex into stray tokens.
+        while (!is_at_end() && peek() != '\'' && peek() != '\n') advance();
+        if (!is_at_end() && peek() == '\'') advance();
     }
 
     return Token(TokenType::CHAR_LIT, ch, start_line, start_col);
@@ -693,6 +753,10 @@ Token Lexer::next_token() {
                 advance();
                 advance();
                 return Token(TokenType::ELLIPSIS, "...", start_line, start_col);
+            }
+            if (!is_at_end() && peek() == '.') {          // `..` half-open range
+                advance();
+                return Token(TokenType::RANGE, "..", start_line, start_col);
             }
             return Token(TokenType::DOT, ".", start_line, start_col);
         default:

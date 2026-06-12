@@ -12,7 +12,7 @@ The goal is to replace that stack with a single language. Not a compromise betwe
 
 **Foundation phase.** Establish a language that can do everything C can do: native performance, explicit memory, direct access to any C library. Validate it against real production code before claiming it works. This phase is complete — a cryptographic pipeline running entirely in Eskiu, 2.5× faster than the reference C.
 
-**v0.1 milestone.** Boot Eskiu code on bare metal in QEMU without libc. The classic proof-of-concept for a systems language. Requires inline assembly, freestanding mode, and `volatile`.
+**v0.1 milestone — shipped.** Booting Eskiu code on bare metal in QEMU without libc — the classic proof-of-concept for a systems language. Delivered in v0.1.0 via inline assembly, freestanding mode, and `volatile`: an ARM64 kernel written in Eskiu boots in QEMU (`-M virt`) on the PL011 UART, with no libc or C runtime.
 
 **Domain specialisation phase.** Once the systems foundation is stable, make the domain types that high-throughput services actually work with first-class in the language — without losing general systems capability.
 
@@ -45,15 +45,15 @@ Every design decision below was evaluated against two questions: does it get the
 
 ## 2. No Garbage Collector
 
-**Decision:** Eskiu has no garbage collector. Memory is managed with `alloc(T, N)` (which emits `malloc`) and `free(ptr)`. There is no reference counting, no tracing GC, no arena allocator built into the language runtime.
+**Decision:** Eskiu has no garbage collector. Memory is managed explicitly with `alloc<T>(n)` (which emits `malloc`) and `free(ptr)` from the `<mem>` stdlib. There is no reference counting and no tracing GC. (As of v0.2.0 the stdlib does ship arena/bump/pool allocators in `<alloc>` over the `alloc_with` primitive — see below — but they are opt-in library types, not built into the language runtime.)
 
 **Alternatives considered:**
 
 - *Tracing GC (Boehm GC or custom)* — A conservative tracing GC can be linked as a library and used transparently. Rejected because GC pauses — even short ones — are unacceptable when the target is a 74 ms pipeline where total runtime matters. A GC collection triggered mid-pipeline would ruin the benchmark.
 - *Reference counting (like Swift ARC)* — Automatic reference counting eliminates pause times but adds retain/release overhead on every pointer assignment. For a pipeline that allocates a handful of fixed buffers at startup and frees them at the end, ARC overhead is pure waste.
-- *Arena/bump allocator built into the language* — Would require the compiler to reason about object lifetimes, which is a significant semantic addition. Deferred; the stdlib could provide an `Arena` struct in a later phase.
+- *Arena/bump allocator built into the language* — Would require the compiler to reason about object lifetimes, which is a significant semantic addition. Kept out of the language; instead v0.2.0 ships `<alloc>` (Bump/Arena/Pool/FirstFit) as ordinary stdlib types over the `alloc_with(&a, T, n)` primitive — the strategy is a plain value, not a language feature.
 
-**Why no GC:** The pipeline allocates known-size buffers (`alloc(uint8, 858)`, `alloc(uint8, 4096)`), uses them, and frees them in a deterministic sequence. Explicit `alloc`/`free` matches the mental model exactly and produces the same object code as hand-written C.
+**Why no GC:** The pipeline allocates known-size buffers (`alloc<uint8>(858)`, `alloc<uint8>(4096)`), uses them, and frees them in a deterministic sequence. Explicit `alloc<T>`/`free` matches the mental model exactly and produces the same object code as hand-written C.
 
 ---
 
@@ -92,10 +92,10 @@ Every design decision below was evaluated against two questions: does it get the
 **Alternatives considered:**
 
 - *`dynamic_cast` chains in each pass* — `if (auto* e = dynamic_cast<BinaryExpr*>(node)) { ... } else if (auto* e = dynamic_cast<CallExpr*>(node)) { ... }` — works but scatters the type-switch pattern throughout each pass, making it easy to miss a node type silently.
-- *`std::variant` + `std::visit`* — Using `std::variant<BinaryExpr, CallExpr, ...>` for the node union gives exhaustive static dispatch. Rejected because the AST hierarchy is deep (38 concrete node types across three inheritance branches), variant nesting becomes unwieldy, and pointer-based polymorphism is needed because some node subtrees are co-owned (codegen shares a method/template `FunctionDecl`'s `body` across the synthesized and instantiated copies — see the smart-pointer note in `architecture.md`).
+- *`std::variant` + `std::visit`* — Using `std::variant<BinaryExpr, CallExpr, ...>` for the node union gives exhaustive static dispatch. Rejected because the AST hierarchy is deep (41 concrete node types across three inheritance branches, plus `Program`), variant nesting becomes unwieldy, and pointer-based polymorphism is needed because some node subtrees are co-owned (codegen shares a method/template `FunctionDecl`'s `body` across the synthesized and instantiated copies — see the smart-pointer note in `architecture.md`).
 - *Embedding pass logic in AST nodes (like `codegen()` on each node)* — Rejected because it couples the AST definition to specific passes. Adding a new pass (e.g. a future linter or a dataflow analysis) would require modifying every node class.
 
-**Why visitor:** Adding a new pass means implementing a new `ASTVisitor` subclass. Existing AST nodes and existing passes are not touched. The compiler has three pass implementations today (`ASTPrinter`, `TypeChecker`, `CodeGen`); each was added without modifying the other two. The `ASTVisitor` base class declares one pure-virtual `visit()` overload per concrete node type (36 today) — so the compiler enforces coverage: a new node type added to `ast.h` that lacks a `visit()` overload causes a compile-time error in all three passes simultaneously.
+**Why visitor:** Adding a new pass means implementing a new `ASTVisitor` subclass. Existing AST nodes and existing passes are not touched. The compiler has three pass implementations today (`ASTPrinter`, `TypeChecker`, `CodeGen`); each was added without modifying the other two. The `ASTVisitor` base class declares one pure-virtual `visit()` overload per concrete node type (42 today) — so the compiler enforces coverage: a new node type added to `ast.h` that lacks a `visit()` overload causes a compile-time error in all three passes simultaneously.
 
 ---
 
