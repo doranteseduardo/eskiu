@@ -1,0 +1,118 @@
+// bytes.esk — Bytes: a growable, binary-safe byte buffer.
+//
+// String (stdlib/string.esk) is `*char` + NUL-terminated — fine for text, but
+// it truncates on an embedded NUL and sign-extends bytes > 127. Bytes is
+// length-prefixed over `*uint8`, so arbitrary binary survives intact. It still
+// keeps a trailing NUL (cap >= len+1) so Bytes_cstr can hand the buffer to a C
+// API, but `len` is authoritative — embedded NULs are real data.
+//
+//   let b: Bytes;  Bytes_init(&b, 16);
+//   Bytes_append_raw(&b, payload, n);     // n bytes, any values
+//   Bytes_push(&b, 0);                     // an embedded NUL is fine
+//   ... use b.data[0..b.len) ...
+//   Bytes_free(&b);
+//
+// A slice (Bytes_slice) is a non-owning view: cap == 0, so Bytes_free skips it.
+
+import <mem>;
+import <base64>;
+
+extern int strlen(string s);
+
+struct Bytes {
+    *uint8 data;
+    int64  len;
+    int64  cap;     // owned capacity; 0 == non-owning view (see Bytes_slice)
+}
+
+void Bytes_init(Bytes* self, int64 cap) {
+    if (cap < 8) { cap = 8; }
+    self.data = alloc<uint8>(cap);
+    self.len  = 0;
+    self.cap  = cap;
+    self.data[0] = 0;
+}
+
+void Bytes_free(Bytes* self) {
+    if (self.cap > 0 && self.data != null) { free((*void)self.data); }
+    self.data = null;  self.len = 0;  self.cap = 0;
+}
+
+// Ensure room for `extra` more bytes plus the trailing NUL.
+void Bytes_reserve(Bytes* self, int64 extra) {
+    int64 need = self.len + extra + 1;
+    if (need <= self.cap) { return; }
+    int64 nc = self.cap * 2;
+    if (nc < need) { nc = need; }
+    *uint8 nb = alloc<uint8>(nc);
+    if (self.len > 0) { memcpy((*void)nb, (*void)self.data, (int)self.len); }
+    if (self.cap > 0 && self.data != null) { free((*void)self.data); }
+    self.data = nb;  self.cap = nc;
+}
+
+void Bytes_push(Bytes* self, uint8 b) {
+    Bytes_reserve(self, 1);
+    self.data[self.len] = b;
+    self.len = self.len + 1;
+    self.data[self.len] = 0;
+}
+
+void Bytes_append_raw(Bytes* self, *uint8 src, int64 n) {
+    if (n <= 0) { return; }
+    Bytes_reserve(self, n);
+    memcpy((*void)(self.data + self.len), (*void)src, (int)n);
+    self.len = self.len + n;
+    self.data[self.len] = 0;
+}
+
+void Bytes_append(Bytes* self, Bytes* other) {
+    Bytes_append_raw(self, other.data, other.len);
+}
+
+void Bytes_from_str(Bytes* self, string s) {
+    Bytes_init(self, 16);
+    Bytes_append_raw(self, (*uint8)s, (int64)strlen(s));
+}
+
+int Bytes_eq(Bytes* a, Bytes* b) {
+    if (a.len != b.len) { return 0; }
+    int64 i = 0;
+    while (i < a.len) { if (a.data[i] != b.data[i]) { return 0; } i = i + 1; }
+    return 1;
+}
+
+// A non-owning window into `self` — shares its storage, never freed. Valid only
+// while `self` lives and isn't grown.
+Bytes Bytes_slice(Bytes* self, int64 start, int64 n) {
+    let v: Bytes;
+    v.data = self.data + start;
+    v.len  = n;
+    v.cap  = 0;                 // view → Bytes_free is a no-op
+    return v;
+}
+
+// The buffer as a C string (valid when the data has no embedded NUL).
+*char Bytes_cstr(Bytes* self) { return (*char)self.data; }
+
+// ── base64 convenience (the common reason you hold raw bytes) ──────────────────
+
+// Decode a base64 string into a fresh owned Bytes.
+Bytes Bytes_from_base64(string s) {
+    let out: Bytes;
+    int n = strlen(s);
+    Bytes_init(&out, (int64)(base64_decoded_len(n) + 1));
+    int got = base64_decode((*uint8)s, n, out.data);
+    if (got < 0) { got = 0; }
+    out.len = (int64)got;
+    out.data[out.len] = 0;
+    return out;
+}
+
+// Encode bytes to a fresh owned Bytes holding the base64 ASCII (NUL-terminated).
+Bytes Bytes_to_base64(Bytes* b) {
+    let out: Bytes;
+    Bytes_init(&out, (int64)(base64_encoded_len((int)b.len) + 1));
+    int wrote = base64_encode(b.data, (int)b.len, out.data);
+    out.len = (int64)wrote;
+    return out;
+}

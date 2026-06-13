@@ -1,0 +1,28 @@
+// Bytes: binary-safe buffer (embedded NUL survives), append/eq/slice, base64 RT.
+import <mem>;
+import <bytes>;
+extern int printf(string fmt, ...);
+int main() {
+    let b: Bytes;  Bytes_init(&b, 4);
+    Bytes_push(&b, 72);   // 'H'
+    Bytes_push(&b, 0);    // embedded NUL — real data
+    Bytes_push(&b, 105);  // 'i'
+    printf("len=%lld\n", b.len);
+    Bytes_append_raw(&b, (*uint8)"!!", 2);
+    printf("len2=%lld\n", b.len);
+
+    let c: Bytes;  Bytes_init(&c, 4);  Bytes_append(&c, &b);
+    printf("eq=%d\n", Bytes_eq(&b, &c));
+
+    let s: Bytes = Bytes_slice(&b, 2, 2);
+    printf("slice=%c%c cap=%lld\n", (char)s.data[0], (char)s.data[1], s.cap);
+    Bytes_free(&s);
+
+    let enc: Bytes = Bytes_to_base64(&b);
+    printf("b64=%s\n", Bytes_cstr(&enc));
+    let dec: Bytes = Bytes_from_base64(Bytes_cstr(&enc));
+    printf("rt_eq=%d\n", Bytes_eq(&b, &dec));
+
+    Bytes_free(&b);  Bytes_free(&c);  Bytes_free(&enc);  Bytes_free(&dec);
+    return 0;
+}

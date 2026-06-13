@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [develop, main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install LLVM 22 + toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake build-essential libc++-dev libc++abi-dev
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 22
+          sudo apt-get install -y llvm-22-dev clang-22
+          echo "LLVM_DIR=/usr/lib/llvm-22/lib/cmake/llvm" >> $GITHUB_ENV
+
+      - name: Configure & build
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DLLVM_DIR=$LLVM_DIR \
+            -DCMAKE_CXX_COMPILER=clang++-22
+          cmake --build build --target eskiuc -j"$(nproc)"
+
+      # The full test suite, three ways. The sanitizer runs are the hardening
+      # gate: a class of codegen bug (e.g. allocas leaking stack inside loops)
+      # shows up here even when the plain run passes. clang-22 keeps the asan
+      # ABI in sync with the compiler's own instrumentation.
+      - name: Tests
+        run: CC=clang-22 tests/run.sh
+
+      - name: Tests (ubsan)
+        run: CC=clang-22 SANITIZE=ubsan tests/run.sh
+
+      - name: Tests (asan)
+        run: CC=clang-22 SANITIZE=asan tests/run.sh

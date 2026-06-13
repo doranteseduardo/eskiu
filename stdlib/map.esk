@@ -119,3 +119,111 @@ int Map_get<V>(Map<V>* m, string key, *V out) {
     }
     return 0;
 }
+
+// ── HashMap<K,V> — generic over the key type ────────────────────────────────────
+//
+// Map<V> above is string-keyed and owns its keys (the common case). HashMap<K,V>
+// keys on ANY value type K — you supply hash/eq at init, since Eskiu has no
+// trait/constraint system to synthesise them (the systems-language answer: pass
+// the comparator, like C's qsort). Keys are stored BY VALUE, so use it for value
+// types (int, small structs); for owned string keys use Map<V>.
+//
+//   let m: HashMap<int, int>;
+//   HashMap_init<int,int>(&m, 16, int_hash, int_eq);
+//   int created = 0;
+//   *int slot = HashMap_at<int,int>(&m, 42, &created);
+//   if (created == 1) { slot[0] = 0; }
+//   slot[0] = slot[0] + 1;
+//   HashMap_free<int,int>(&m);
+
+struct HashMap<K, V> {
+    *K     keys;
+    *V     vals;
+    *uint8 used;            // 0 = empty slot, 1 = occupied
+    int    cap;
+    int    count;
+    fn(*K)->uint64    hash;
+    fn(*K, *K)->int   eq;
+}
+
+void HashMap_init<K, V>(HashMap<K, V>* m, int cap,
+                        fn(*K)->uint64 hash, fn(*K, *K)->int eq) {
+    if (cap < 8) { cap = 8; }
+    m.keys  = alloc<K>(cap);
+    m.vals  = alloc<V>(cap);
+    m.used  = alloc<uint8>(cap);
+    memset((*void)m.used, 0, cap);
+    m.cap   = cap;
+    m.count = 0;
+    m.hash  = hash;
+    m.eq    = eq;
+}
+
+void HashMap_free<K, V>(HashMap<K, V>* m) {
+    free((*void)m.keys);
+    free((*void)m.vals);
+    free((*void)m.used);
+    m.keys = null;  m.vals = null;  m.used = null;  m.cap = 0;  m.count = 0;
+}
+
+void HashMap_grow<K, V>(HashMap<K, V>* m) {
+    int oldcap = m.cap;
+    *K     ok = m.keys;
+    *V     ov = m.vals;
+    *uint8 ou = m.used;
+    int newcap = oldcap * 2;
+    *K     nk = alloc<K>(newcap);
+    *V     nv = alloc<V>(newcap);
+    *uint8 nu = alloc<uint8>(newcap);
+    memset((*void)nu, 0, newcap);
+    let hashfn: fn(*K)->uint64 = m.hash;
+    int i = 0;
+    while (i < oldcap) {
+        if (ou[i] == 1) {
+            uint64 h = hashfn(&ok[i]);
+            int j = (int)(h % (uint64)newcap);
+            while (nu[j] == 1) { j = (j + 1) % newcap; }
+            nu[j] = 1;  nk[j] = ok[i];  nv[j] = ov[i];
+        }
+        i = i + 1;
+    }
+    free((*void)ok);  free((*void)ov);  free((*void)ou);
+    m.keys = nk;  m.vals = nv;  m.used = nu;  m.cap = newcap;
+}
+
+// Get-or-insert. Returns a pointer to the value slot; *created = 1 if the key
+// was just inserted (value slot uninitialised — caller initialises it).
+*V HashMap_at<K, V>(HashMap<K, V>* m, K key, *int created) {
+    if ((m.count + 1) * 4 >= m.cap * 3) { HashMap_grow<K, V>(m); }
+    let hashfn: fn(*K)->uint64    = m.hash;
+    let eqfn:   fn(*K, *K)->int   = m.eq;
+    uint64 h = hashfn(&key);
+    int i = (int)(h % (uint64)m.cap);
+    while (m.used[i] == 1) {
+        if (eqfn(&key, &m.keys[i]) == 1) { created[0] = 0; return &m.vals[i]; }
+        i = (i + 1) % m.cap;
+    }
+    m.used[i] = 1;
+    m.keys[i] = key;
+    m.count = m.count + 1;
+    created[0] = 1;
+    return &m.vals[i];
+}
+
+// Read-only lookup. Copies the value into *out and returns 1, or returns 0.
+int HashMap_get<K, V>(HashMap<K, V>* m, K key, *V out) {
+    let hashfn: fn(*K)->uint64    = m.hash;
+    let eqfn:   fn(*K, *K)->int   = m.eq;
+    uint64 h = hashfn(&key);
+    int i = (int)(h % (uint64)m.cap);
+    int n = 0;
+    while (m.used[i] == 1 && n < m.cap) {
+        if (eqfn(&key, &m.keys[i]) == 1) { out[0] = m.vals[i];  return 1; }
+        i = (i + 1) % m.cap;  n = n + 1;
+    }
+    return 0;
+}
+
+// Built-in hash/eq for int keys (Knuth multiplicative hash).
+uint64 int_hash(*int k) { return (uint64)k[0] * 2654435761; }
+int    int_eq(*int a, *int b) { if (a[0] == b[0]) { return 1; } return 0; }

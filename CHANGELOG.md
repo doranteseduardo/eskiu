@@ -7,6 +7,23 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
+## [0.2.1] — 2026-06-13
+
+Hardening and ergonomics, shaken out by building a real service (an INE-QR HTTP
+API) on 0.2.0.
+
+### Compiler
+- **`codegen.cpp` split** into `codegen_{module,type,scope,decl,stmt,expr}.cpp` — the 3,400-line file became six; no behavior change (same 243 tests).
+- **Sanitizer hardening gate** — `tests/run.sh` gains `SANITIZE=asan|ubsan` (compiles every positive test with the instrumentation and fails on a sanitizer abort), and CI runs the whole suite under both. A new `loop_locals` stress test locks in the entry-block-alloca fix.
+- **Fix: integer arguments to sret-returning functions** were matched against the wrong parameter — the coercion loop didn't skip the hidden sret pointer at index 0, so the first scalar argument was checked against the sret pointer and an `int` literal was left unwidened (an IR-verifier error for a >16-byte-returning function called with int literals). Now offset-correct.
+- **Fix: `substType` substitutes type parameters inside function types** (`fn(*K)->uint64` → `fn(*int)->uint64`), so generic APIs with callback parameters type-check and monomorphize.
+
+### Standard library
+- **`<bytes>`** — `Bytes`, a growable binary-safe byte buffer (`*uint8` + length; embedded NULs are real data, unlike `String`'s NUL-terminated `*char`): `Bytes_init`/`_free`/`_push`/`_append`/`_append_raw`/`_slice` (non-owning view)/`_eq`/`_from_str`/`_cstr`, plus base64 convenience (`Bytes_from_base64`/`Bytes_to_base64`). `<http>` gains `HttpReq_body` — a non-owning `Bytes` view of the request body.
+- **`HashMap<K,V>`** (`<map>`) — a hash map over any value-type key: you pass `hash`/`eq` function pointers at init (Eskiu has no trait system to synthesise them — the systems-language answer, like C's `qsort` comparator), with built-in `int_hash`/`int_eq`. The string-keyed, key-owning `Map<V>` is unchanged.
+
+---
+
 ## [0.2.0] — 2026-06-11
 
 Backend-services phase: async/await, the full HTTP/2 stack (framing, HPACK with
