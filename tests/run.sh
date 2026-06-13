@@ -35,7 +35,12 @@ LDFLAGS="-lc++ -lpthread -lm"
 SANITIZE="${SANITIZE:-}"
 SAN_FLAG=""
 case "$SANITIZE" in
-    asan)  SAN_FLAG="--asan";  LDFLAGS="$LDFLAGS -fsanitize=address" ;;
+    # detect_leaks=0: the gate targets memory *corruption* (overflow / use-after-
+    # free — the alloca-bug class), not leaks. Linux asan turns on LeakSanitizer
+    # by default, and the test programs are short-lived and not leak-audited, so
+    # leak detection stays off here (auditing the suite for leaks is future work).
+    asan)  SAN_FLAG="--asan";  LDFLAGS="$LDFLAGS -fsanitize=address"
+           export ASAN_OPTIONS="detect_leaks=0" ;;
     ubsan) SAN_FLAG="--ubsan" ;;
     "")    ;;
     *)     echo "error: SANITIZE must be asan, ubsan, or unset" >&2; exit 2 ;;
