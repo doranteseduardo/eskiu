@@ -103,7 +103,7 @@ with `match`, and the concurrent stdlib.
 | Multi-file compile | `eskiuc a.esk b.esk -o prog` — declarations from all inputs are merged into one program |
 | Warnings (`-Wall`) | Unused variables/parameters/functions, assignment-in-condition; off by default |
 | VS Code | Real-time errors, hover types, go-to-definition |
-| stdlib | Core: `result.esk`, `either.esk`, `list.esk`, `map.esk` (`Map<V>`, string-keyed), `string.esk`, `math.esk`, `io.esk`, `mem.esk`, `path.esk`, `env.esk`, `time.esk`. Memory: `alloc.esk` (Bump/Arena/Pool/FirstFit), `sysheap.esk` (mmap heap). Concurrency: `threading.esk`, `atomic.esk`. Async runtime: `eventloop.esk`, `future.esk`, `futureval.esk`, `executor.esk`, `net_async.esk`, `timer.esk`, `channel.esk`. Net/codecs: `net.esk`, `base64.esk`, `json.esk`, `multipart.esk`. HTTP: `http.esk` (String `HttpRequest` + binary-safe `HttpReq`/`http_recv`), `http_async.esk`, `http2.esk`, `http2_server.esk`, `hpack.esk`, `hpack_huffman.esk`, `tls.esk`. Files: `fs.esk` |
+| stdlib | Core: `result.esk`, `either.esk`, `list.esk`, `map.esk` (`Map<V>` string-keyed + `HashMap<K,V>` fn-pointer hash/eq), `string.esk`, `bytes.esk` (`Bytes`, binary-safe buffer), `math.esk`, `io.esk`, `mem.esk`, `path.esk`, `env.esk`, `time.esk`. Memory: `alloc.esk` (Bump/Arena/Pool/FirstFit), `sysheap.esk` (mmap heap). Concurrency: `threading.esk`, `atomic.esk`. Async runtime: `eventloop.esk`, `future.esk`, `futureval.esk`, `executor.esk`, `net_async.esk`, `timer.esk`, `channel.esk`. Net/codecs: `net.esk`, `base64.esk`, `json.esk`, `multipart.esk`. HTTP: `http.esk` (String `HttpRequest` + binary-safe `HttpReq`/`http_recv`), `http_async.esk`, `http2.esk`, `http2_server.esk`, `hpack.esk`, `hpack_huffman.esk`, `tls.esk`. Files: `fs.esk` |
 
 ## Roadmap (as of v0.2.0)
 
@@ -112,6 +112,7 @@ with `match`, and the concurrent stdlib.
 | Systems milestone | Bare-metal kernel on QEMU | ✅ |
 | v0.1.0 | Closures, threads, exceptions, enums, unions, bitfields, preprocessor | ✅ |
 | v0.2.0 | async/await, HTTP/1.1 + HTTP/2 + HPACK + TLS, sum types + `match`, allocators, the concurrent stdlib | ✅ |
+| v0.2.1 | codegen split into 6 files; sanitizer (asan/ubsan) CI gate; `<bytes>`; `HashMap<K,V>`; sret-arg + fn-type-substitution fixes | ✅ |
 | v0.3 | Self-hosting prerequisites (LLVM C bindings, lexer/parser in Eskiu) | ❌ |
 | v1.0 | Package manager, self-hosting | ❌ |
 
