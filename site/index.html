@@ -917,36 +917,38 @@
     <section class="section">
       <div class="wrap">
         <span class="label">Why Eskiu</span>
-        <h2>One toolchain instead of four.</h2>
+        <h2>Drop a native module into your C++ stack.</h2>
         <p class="lead">
-          Compute-intensive services lean on C for speed, Go for concurrency,
-          C++ for libraries, and something else for glue. Eskiu does all of it
-          in one compiled language, with async built in.
+          Eskiu compiles to native code and speaks the C ABI directly. Take a
+          memory-heavy C++ component, rewrite it as an explicit, auditable Eskiu
+          module, and link it straight into the existing stack — you manage the
+          memory, so the footprint is yours to control. The same language scales
+          from a bare-metal kernel to an HTTP/2 service in the cloud.
         </p>
         <div class="glance">
           <div class="glance-item">
-            <h3>Machine code, explicit allocation</h3>
+            <h3>Slots into your C/C++ stack</h3>
             <p>
-              LLVM backend. You manage memory yourself with
-              <code>alloc&lt;T&gt;(N)</code> and <code>free(ptr)</code>, right
-              there in the source. 2.5× faster than reference C on our crypto
-              pipeline benchmark.
+              C ABI in and out, and it links as a plain native object. Call C
+              libraries directly, hand Eskiu functions back as C callbacks, and
+              drop a module into an existing codebase without rewriting the host.
             </p>
           </div>
           <div class="glance-item">
-            <h3>Async without a framework</h3>
+            <h3>Explicit memory, smaller footprint</h3>
             <p>
-              <code>async</code> functions and <code>await</code> compile to
-              coroutine state machines. Pair with the built-in executor and channels, or
-              write your own scheduler. It all links into your binary.
+              You allocate and free in the source with
+              <code>alloc&lt;T&gt;(N)</code> and <code>free(ptr)</code> — the
+              memory is yours to account for, the lever teams pull when replacing
+              C++. And 2.5× faster than reference C on our crypto benchmark.
             </p>
           </div>
           <div class="glance-item">
-            <h3>Kernel to server, one language</h3>
+            <h3>Kernel to cloud, one language</h3>
             <p>
               Freestanding mode boots a bare-metal ARM64 kernel in QEMU. The
-              same syntax and stdlib handle HTTP/2 on a server. One language for
-              both ends.
+              same syntax and stdlib run an HTTP/2 service in the cloud. One
+              language across the stack.
             </p>
           </div>
         </div>
