@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Case study — ReactVision · Eskiu</title>
+  <meta name="description" content="How ReactVision uses Eskiu to replace memory-sensitive C++ in its AR/VR rendering engine — ≈85% less memory in migrated modules — and to run an HTTP/2 API in the cloud." />
+  <link rel="canonical" href="https://eskiu-lang.org/case-study-reactvision.html" />
+  <link rel="icon" type="image/png" href="../assets/logo.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #f9f7f3; --surface: #f2efe8; --border: #ddd8ce;
+      --ink: #1b1915; --ink2: #6b6560; --purple: #4c31bb; --purple-lt: #6448d4;
+      --sans: "Space Grotesk", system-ui, -apple-system, sans-serif;
+      --mono: "JetBrains Mono", Menlo, monospace;
+    }
+    body { background: var(--bg); color: var(--ink); font-family: var(--sans);
+           line-height: 1.65; -webkit-font-smoothing: antialiased; }
+    .wrap { max-width: 720px; margin: 0 auto; padding: 2.5rem 1.25rem 5rem; }
+    .top { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 2.5rem; }
+    .top img { width: 30px; height: 30px; }
+    .top a { color: var(--ink2); text-decoration: none; font-size: 0.85rem; }
+    .top a:hover { color: var(--purple); }
+    .eyebrow { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.12em;
+               text-transform: uppercase; color: var(--purple); margin-bottom: 0.6rem; }
+    h1 { font-size: clamp(1.8rem, 5vw, 2.6rem); letter-spacing: -0.03em;
+         line-height: 1.1; margin-bottom: 1.5rem; }
+    h2 { font-size: 1.25rem; letter-spacing: -0.02em; margin: 2.5rem 0 0.75rem; }
+    p { margin: 0 0 1rem; }
+    a { color: var(--purple); }
+    .pull { border-left: 3px solid var(--purple); background: var(--surface);
+            padding: 1.1rem 1.25rem; border-radius: 0 8px 8px 0; margin: 0 0 1.5rem;
+            font-size: 1.05rem; }
+    .pull .stat { display: block; margin-top: 0.6rem; font-weight: 600; color: var(--purple); }
+    table { width: 100%; border-collapse: collapse; margin: 0 0 1.5rem; font-size: 0.92rem; }
+    th, td { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border); }
+    th { color: var(--ink2); font-weight: 600; }
+    ul { margin: 0 0 1rem 1.1rem; }
+    li { margin-bottom: 0.5rem; }
+    code { font-family: var(--mono); font-size: 0.88em; background: var(--surface);
+           padding: 0.1em 0.35em; border-radius: 4px; }
+    strong { font-weight: 600; }
+    .foot { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--border);
+            font-size: 0.9rem; color: var(--ink2); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <img src="../assets/logo.png" alt="Eskiu" />
+      <a href="index.html">← eskiu</a>
+    </div>
+
+    <div class="eyebrow">Case study</div>
+    <h1>ReactVision: cutting memory in an AR/VR rendering engine</h1>
+
+    <div class="pull">
+      “ReactVision is adopting Eskiu selectively to replace memory-sensitive C++
+      components in its AR/VR rendering engine with explicit, auditable native
+      modules, while preserving C ABI interoperability with the existing stack.”
+      <span class="stat">≈85% less memory in the rendering modules migrated to Eskiu.</span>
+    </div>
+
+    <h2>The setup</h2>
+    <p>
+      ReactVision builds <strong>ViroCore</strong>, the native AR/VR rendering
+      engine behind <code>@reactvision/react-viro</code> on iOS, Android, Meta
+      Quest, and visionOS. It is a large, long-lived C++ codebase — on the order
+      of <strong>2,200+ files and ~23 MB</strong> of engine source — split across
+      the parts you'd expect of a real-time renderer:
+    </p>
+    <table>
+      <tr><th>Subsystem</th><th>Scale</th></tr>
+      <tr><td>Renderer</td><td>~800 files</td></tr>
+      <tr><td>Physics</td><td>~480 files</td></tr>
+      <tr><td>Scene graph</td><td>~110 files</td></tr>
+      <tr><td>Image / texture, materials, lighting, text, particles</td><td>the rest</td></tr>
+    </table>
+    <p>
+      It ships to phones and headsets, where <strong>memory is the scarce
+      resource</strong> — every texture buffer, scene-graph node, and per-frame
+      allocation counts. The hot, memory-sensitive paths (image and texture
+      preprocessing, the scene graph, physics) are exactly the kind of native
+      code where how you allocate decides the footprint.
+    </p>
+
+    <h2>Why Eskiu fit</h2>
+    <p>
+      The team didn't want to rewrite the engine, and didn't want to trade C++'s
+      control for a language with a garbage collector or a heavy runtime. Eskiu's
+      shape matched the constraints:
+    </p>
+    <ul>
+      <li><strong>Native, no runtime.</strong> Compiles to native code through
+        LLVM — no collector, nothing to embed — so the binary footprint stays
+        predictable.</li>
+      <li><strong>Memory you account for.</strong> <code>alloc&lt;T&gt;(N)</code>
+        / <code>free(ptr)</code> live in the source. A migrated component's
+        allocation pattern is explicit and auditable, not hidden behind a
+        framework.</li>
+      <li><strong>C ABI in and out.</strong> Eskiu speaks the C ABI directly and
+        links as a plain native object. A module drops into the existing C++
+        engine — called from it, calling back into it — without rewriting the
+        host.</li>
+      <li><strong>Modern where it helps.</strong> Sum types with <code>match</code>,
+        async/await, templates — current-language ergonomics without giving up
+        the systems layer.</li>
+    </ul>
+
+    <h2>The approach</h2>
+    <p>
+      Selective, not a rewrite: take one memory-sensitive C++ component,
+      re-implement it as an explicit Eskiu module, and link it in over the C ABI.
+      The surrounding engine doesn't change — it sees the same symbols. Each
+      migrated module is small enough to audit and measure on its own, so the
+      footprint win is attributable. On the modules moved so far:
+      <strong>≈85% less memory.</strong>
+    </p>
+
+    <h2>The same language in the cloud</h2>
+    <p>
+      The other end of the stack validated the same toolchain. ReactVision's INE
+      credential-QR decoder — a real image-plus-crypto pipeline (QR extraction,
+      then multi-round AES-256-CBC + RSA-8192) — was reimplemented in Eskiu and
+      is served as an HTTP/2 API. On the cryptographic pipeline it runs
+      <strong>2.5× faster than the reference C implementation</strong>, on a
+      stack built entirely from Eskiu's standard library (<code>&lt;http&gt;</code>,
+      <code>&lt;json&gt;</code>, <code>&lt;base64&gt;</code>, threading) — no
+      external framework.
+    </p>
+    <p>
+      So the same language that boots a bare-metal ARM64 kernel, and that drops a
+      memory-tight module into a C++ rendering engine, also runs a service in the
+      cloud. One language across the stack — used where it pays, not everywhere
+      at once.
+    </p>
+
+    <div class="foot">
+      <a href="index.html">← Back to eskiu</a> &nbsp;·&nbsp;
+      <a href="https://reactvision.xyz" target="_blank" rel="noopener">ReactVision</a>
+    </div>
+  </div>
+</body>
+</html>
