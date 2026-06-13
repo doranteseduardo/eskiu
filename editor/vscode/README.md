@@ -41,7 +41,7 @@ Restart VS Code after installing.
 | `int uint8 float double bool char string void` … | support.type |
 | Function names at declaration and call sites | entity.name.function |
 | Type names (uppercase-starting) | entity.name.type |
-| Template parameters `<T, E>` | entity.name.type.parameter |
+| Template parameters `<T, E>`, incl. bounded `<T: Iface>` / `<T: A + B>` | entity.name.type.parameter |
 | `+= == && \| ^ << ..` operators (incl. the `..` range) | keyword.operator |
 
 ## File association

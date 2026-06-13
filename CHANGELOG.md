@@ -7,6 +7,41 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
+## [0.2.2] — 2026-06-13
+
+Exclusively hardening + traits — no new stdlib surface. The goal: make the
+compiler trustworthy and close the generics gap before the self-hosting arc.
+
+### Compiler hardening
+- **A fuzzer** (`tests/fuzz/eskiu_fuzz.py`) — mutates the test corpus and generates
+  programs biased toward the known bug classes, using the **LLVM IR verifier** and
+  sanitizers as oracles (a crash, a verifier failure, or an asan/ubsan abort is a
+  finding). Wired into CI as a bounded, fixed-seed job. Its first run found four
+  real bug classes, now fixed:
+  - **Unreachable code after a block terminator** (`return`/`break`/…) was emitted
+    into the terminated block → "terminator in the middle of a basic block". Codegen
+    now stops at the terminator and drops the dead code.
+  - **Integer arguments on indirect / closure calls** weren't widened to the
+    callee's parameter type → an IR-verifier mismatch. Now coerced (the same family
+    as the 0.2.1 sret-argument fix).
+  - **`switch` with duplicate case values** reached codegen and produced an invalid
+    `switch` → now a clean type error.
+  - **A negative array dimension** degraded the variable to a bare pointer that was
+    then array-indexed → invalid GEP. Now rejected with a clear message.
+
+### Traits / constraints (bounded generics)
+- **`<T: Iface>`** (and `<T: A + B>`) on function and struct type parameters, built
+  on the existing structural `interface`. At instantiation the concrete type
+  argument must satisfy every listed interface (define its methods); otherwise it's
+  a type error at the use site — `type 'X' does not satisfy constraint 'I'` — instead
+  of a confusing downstream failure. Inside a generic body, a constrained method
+  call resolves to the concrete type's method. Works for both `T f<T: Ord>(…)` and
+  `struct Box<T: Ord> { … }`. (Constraints are method-based, so a constrained type
+  must be a struct with the methods; primitive keys still use the fn-pointer
+  `HashMap<K,V>` from 0.2.1.)
+
+---
+
 ## [0.2.1] — 2026-06-13
 
 Hardening and ergonomics, shaken out by building a real service (an INE-QR HTTP
