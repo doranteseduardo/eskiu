@@ -12,6 +12,7 @@ import <mem>;
 import <string>;
 import <net>;
 import <threading>;
+import <bytes>;
 
 // ── Request (parsed) ─────────────────────────────────────────────────────────
 
@@ -264,6 +265,15 @@ void HttpReq_free(HttpReq* self) {
     String_free(&self.path);
     String_free(&self.headers);
     if (self.body != null) { free(self.body); self.body = null; }
+}
+
+// The request body as a non-owning, binary-safe Bytes view (no copy).
+Bytes HttpReq_body(HttpReq* self) {
+    let v: Bytes;
+    v.data = self.body;
+    v.len  = self.body_len;
+    v.cap  = 0;
+    return v;
 }
 
 // Index just past the "\r\n\r\n" header terminator in b[0..n), or -1.
