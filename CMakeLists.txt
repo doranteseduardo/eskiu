@@ -21,7 +21,12 @@ set(SOURCES
     ast/ast_printer.cpp
     sema/type_checker.cpp
     sema/async_transform.cpp
-    codegen/codegen.cpp
+    codegen/codegen_module.cpp
+    codegen/codegen_type.cpp
+    codegen/codegen_scope.cpp
+    codegen/codegen_decl.cpp
+    codegen/codegen_stmt.cpp
+    codegen/codegen_expr.cpp
 )
 
 add_executable(eskiuc ${SOURCES})
