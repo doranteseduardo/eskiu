@@ -940,6 +940,7 @@ void TypeChecker::visit(CallExpr* node) {
             for (const auto& tpName : fd->typeParams)
                 if (!subs.count(tpName)) { allBound = false; break; }
             if (allBound) {
+                checkConstraints(node, fd->constraints, subs);
                 expressionTypes[node] = normalizeType(substType(fd->returnType, subs));
                 return;
             }
@@ -1474,6 +1475,8 @@ void TypeChecker::visit(TemplateCallExpr* node) {
     for (size_t i = 0; i < tp.size() && i < node->typeArgs.size(); ++i)
         subs[tp[i]] = node->typeArgs[i];
 
+    checkConstraints(node, fd->constraints, subs);
+
     // Type-check arguments
     for (size_t i = 0; i < node->args.size() && i < fd->params.size(); ++i) {
         node->args[i]->accept(this);
@@ -1764,6 +1767,39 @@ static bool structSatisfiesInterface(
     return true;
 }
 
+// Bounded generics: verify each constrained type parameter's concrete argument
+// satisfies its interface constraint(s). `subs` maps type-param name → concrete
+// type. Reuses the structural-satisfaction check (the concrete type must define
+// every method the interface requires).
+void TypeChecker::checkConstraints(ASTNode* node,
+        const std::map<std::string, std::vector<std::string>>& constraints,
+        const std::map<std::string, std::string>& subs) {
+    for (const auto& kv : constraints) {
+        auto sit = subs.find(kv.first);
+        if (sit == subs.end()) continue;
+        std::string concrete = sit->second;
+        // Normalize first (List<int> → struct:List_int), then strip the
+        // struct:/pointer decoration to the bare name used in method mangling.
+        std::string bare = normalizeType(concrete);
+        if (bare.size() > 7 && bare.compare(0, 7, "struct:") == 0) bare = bare.substr(7);
+        while (!bare.empty() && bare.front() == '*') bare = bare.substr(1);
+        while (!bare.empty() && bare.back() == '*') bare.pop_back();
+        for (const auto& ic : kv.second) {
+            auto iit = interfaceDecls.find(ic);
+            if (iit == interfaceDecls.end()) {
+                if (node) errorAt(node, "unknown constraint interface '" + ic + "'");
+                else error(0, 0, "unknown constraint interface '" + ic + "'");
+                continue;
+            }
+            if (!structSatisfiesInterface(functionSignatures, bare, iit->second)) {
+                std::string msg = "type '" + concrete + "' does not satisfy constraint '" +
+                                  ic + "' (required by a bounded type parameter)";
+                if (node) errorAt(node, msg); else error(0, 0, msg);
+            }
+        }
+    }
+}
+
 bool TypeChecker::isValidAssignment(const std::string& lhsType, const std::string& rhsType) {
     // const-correctness: reject a conversion that would silently drop a pointee
     // const (`const int*` → `int*`). Adding const (`int*` → `const int*`) is fine.
@@ -1924,6 +1960,9 @@ std::string TypeChecker::normalizeType(const std::string& rawType) {
                 for (const auto& f : templ->second->fields)
                     info.fields.push_back({substType(f.type, subs), f.name});
                 structs[mangled] = info;
+                // Bounded generics on a struct template (`Map<K: Hashable, V>`):
+                // verify the type args satisfy their constraints, once per instance.
+                checkConstraints(nullptr, templ->second->constraints, subs);
             }
             return "struct:" + mangled;
         }

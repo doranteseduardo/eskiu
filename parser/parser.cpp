@@ -573,9 +573,18 @@ DeclPtr Parser::parseFunctionDecl() {
 
     // Optional type parameters: int max<T>(T a, T b) { ... }
     std::vector<std::string> typeParams;
+    std::map<std::string, std::vector<std::string>> typeConstraints;
     if (match(TokenType::LT)) {
         do {
-            typeParams.push_back(consume(TokenType::IDENT, "Expected type parameter").value);
+            std::string tp = consume(TokenType::IDENT, "Expected type parameter").value;
+            typeParams.push_back(tp);
+            // Optional constraint(s): `<T: Iface>` or `<T: A + B>`.
+            if (match(TokenType::COLON)) {
+                do {
+                    typeConstraints[tp].push_back(
+                        consume(TokenType::IDENT, "Expected constraint interface name").value);
+                } while (match(TokenType::PLUS));
+            }
         } while (match(TokenType::COMMA));
         consume(TokenType::GT, "Expected '>'");
     }
@@ -593,6 +602,7 @@ DeclPtr Parser::parseFunctionDecl() {
 
     auto decl = std::make_shared<FunctionDecl>(name, returnType, params, body);
     decl->typeParams = typeParams;
+    decl->constraints = typeConstraints;
     decl->paramEscaping = esc;
     decl->line = nameTok.line; decl->col = nameTok.column;
     return decl;
@@ -636,9 +646,17 @@ DeclPtr Parser::parseStructDecl() {
 
     // Optional type parameters: struct List<T>  or  struct Result<T, E>
     std::vector<std::string> typeParams;
+    std::map<std::string, std::vector<std::string>> typeConstraints;
     if (match(TokenType::LT)) {
         do {
-            typeParams.push_back(consume(TokenType::IDENT, "Expected type parameter name").value);
+            std::string tp = consume(TokenType::IDENT, "Expected type parameter name").value;
+            typeParams.push_back(tp);
+            if (match(TokenType::COLON)) {     // `<K: Hashable>` / `<K: A + B>`
+                do {
+                    typeConstraints[tp].push_back(
+                        consume(TokenType::IDENT, "Expected constraint interface name").value);
+                } while (match(TokenType::PLUS));
+            }
         } while (match(TokenType::COMMA));
         consume(TokenType::GT, "Expected '>'");
     }
@@ -680,6 +698,7 @@ DeclPtr Parser::parseStructDecl() {
     auto decl = std::make_shared<StructDecl>(name, fields);
     decl->methods  = methods;
     decl->typeParams = typeParams;
+    decl->constraints = typeConstraints;
     if (currentPack >= 1) {                       // under #pragma pack(N)
         decl->packAlign = currentPack;
         if (currentPack == 1) decl->isPacked = true;
