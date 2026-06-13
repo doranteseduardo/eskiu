@@ -1391,6 +1391,8 @@ void TypeChecker::visit(SwitchStmt* node) {
     std::string subjType = getExpressionType(node->subject.get());
     if (subjType != "unknown" && !isIntType(subjType))
         errorAt(node,"switch subject must be integer type, got " + subjType);
+    std::set<long long> seenCases;   // detect duplicate case values (else codegen
+                                     // emits a switch the IR verifier rejects)
     for (auto& c : node->cases) {
         if (c.value) {
             c.value->accept(this);
@@ -1402,6 +1404,23 @@ void TypeChecker::visit(SwitchStmt* node) {
                         "case value type '" + caseType +
                         "' is incompatible with switch subject type '" + subjType + "'");
                 }
+            }
+            // Constant-fold integer literals and enum constants to catch dupes.
+            long long cv = 0;  bool haveCv = false;
+            if (auto* lit = dynamic_cast<LiteralExpr*>(c.value.get())) {
+                if (lit->kind == LiteralExpr::Kind::INT) {
+                    try { cv = std::stoll(lit->value, nullptr, 0); haveCv = true; }
+                    catch (...) {}
+                }
+            } else if (auto* id = dynamic_cast<IdentExpr*>(c.value.get())) {
+                auto eit = enumConstants.find(id->name);
+                if (eit != enumConstants.end()) { cv = eit->second; haveCv = true; }
+            }
+            if (haveCv) {
+                if (seenCases.count(cv))
+                    errorAt(c.value.get(), "duplicate case value in switch");
+                else
+                    seenCases.insert(cv);
             }
         }
         for (auto& s : c.stmts) s->accept(this);

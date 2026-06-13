@@ -675,7 +675,16 @@ void CodeGen::visit(CallExpr* node) {
             llvm::Value* envPtr = builder->CreateExtractValue(calleeVal, {1}, "env.ptr");
 
             std::vector<llvm::Value*> iargs = {envPtr};
-            for (auto& a : node->args) iargs.push_back(evaluateExpr(a));
+            for (size_t i = 0; i < node->args.size(); ++i) {
+                llvm::Value* av = evaluateExpr(node->args[i]);
+                size_t pidx = i + 1;   // env pointer is param 0
+                if (pidx < pts.size() && av->getType()->isIntegerTy()
+                        && pts[pidx]->isIntegerTy() && av->getType() != pts[pidx]) {
+                    av = coerceInt(av, pts[pidx],
+                                   eskiuUnsigned(getExprEskiuType(node->args[i])));
+                }
+                iargs.push_back(av);
+            }
             // A void-returning call must not be given a name (LLVM forbids it).
             exprValueStack.push(builder->CreateCall(
                 fty, fnPtr, iargs, retTy->isVoidTy() ? "" : "fn.call"));

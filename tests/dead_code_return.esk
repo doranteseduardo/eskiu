@@ -1,0 +1,8 @@
+// Code after a return is unreachable: codegen must drop it, not emit into a
+// terminated block (which produced invalid IR). Regression for the fuzzer find.
+extern int printf(string fmt, ...);
+int main() {
+    printf("before\n");
+    return 0;
+    printf("dead\n");
+}
