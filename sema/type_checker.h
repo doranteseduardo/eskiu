@@ -189,6 +189,11 @@ private:
 
     // Type checking utilities
     bool isValidAssignment(const std::string& lhsType, const std::string& rhsType);
+    // Bounded generics: check that each constrained type param's concrete arg
+    // (in `subs`) satisfies its interface constraint(s).
+    void checkConstraints(ASTNode* node,
+                          const std::map<std::string, std::vector<std::string>>& constraints,
+                          const std::map<std::string, std::string>& subs);
     bool isNumericType(const std::string& type);
     bool isIntType(const std::string& type);
     bool isFloatType(const std::string& type);
