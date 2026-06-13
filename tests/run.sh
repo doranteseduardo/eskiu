@@ -28,6 +28,20 @@ root="$(cd "$here/.." && pwd)"
 ESKIUC="${ESKIUC:-$root/build/eskiuc}"
 CC="${CC:-clang}"
 LDFLAGS="-lc++ -lpthread -lm"
+
+# Hardening gate: SANITIZE=asan|ubsan compiles every positive test with the
+# matching instrumentation and runs it; a sanitizer abort fails the test.
+# ubsan traps (no runtime); asan needs -fsanitize=address at link.
+SANITIZE="${SANITIZE:-}"
+SAN_FLAG=""
+case "$SANITIZE" in
+    asan)  SAN_FLAG="--asan";  LDFLAGS="$LDFLAGS -fsanitize=address" ;;
+    ubsan) SAN_FLAG="--ubsan" ;;
+    "")    ;;
+    *)     echo "error: SANITIZE must be asan, ubsan, or unset" >&2; exit 2 ;;
+esac
+[[ -n "$SANITIZE" ]] && echo "(sanitizer: $SANITIZE)"
+
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
@@ -50,7 +64,7 @@ for esk in "$here"/*.esk; do
     obj="$work/$name.o"
     bin="$work/$name"
 
-    if ! "$ESKIUC" "$esk" -o "$obj" >"$work/cerr" 2>&1; then
+    if ! "$ESKIUC" $SAN_FLAG "$esk" -o "$obj" >"$work/cerr" 2>&1; then
         bad "$name" "compile failed: $(head -1 "$work/cerr")"
         continue
     fi
