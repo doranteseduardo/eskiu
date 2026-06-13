@@ -142,6 +142,15 @@ llvm::Type* CodeGen::getTypeFromString(const std::string& typeStr) {
             if (resolveArrayDim(sizeStr, n)) {
                 return llvm::ArrayType::get(elem, n);
             }
+            // A negative literal dimension is never valid: reject it cleanly
+            // rather than degrading to a pointer, which would then be indexed
+            // array-style and produce an invalid GEP the IR verifier rejects.
+            bool negLit = sizeStr.size() > 1 && sizeStr[0] == '-';
+            for (size_t i = 1; negLit && i < sizeStr.size(); ++i)
+                if (!std::isdigit((unsigned char)sizeStr[i])) negLit = false;
+            if (negLit)
+                throw std::runtime_error("array size must be a positive constant, got '"
+                                         + sizeStr + "'");
             return llvm::PointerType::get(*context, 0); // unsized → pointer
         }
     }

@@ -41,3 +41,9 @@ jobs:
 
       - name: Tests (asan)
         run: CC=clang-22 SANITIZE=asan tests/run.sh
+
+      # Bounded, deterministic fuzz pass: generates/mutates programs and fails on
+      # any compiler crash, IR-verifier failure, or sanitizer abort. Fixed seed
+      # so a green run is reproducible; raise --iterations for a longer nightly.
+      - name: Fuzz (compiler)
+        run: python3 tests/fuzz/eskiu_fuzz.py --iterations 1500 --seed 1

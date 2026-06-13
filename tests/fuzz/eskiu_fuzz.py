@@ -1,0 +1,201 @@
+#!/usr/bin/env python3
+"""
+eskiu_fuzz.py — a small fuzzer for the Eskiu compiler.
+
+It feeds programs to `eskiuc --test-codegen` (which runs codegen + the LLVM IR
+verifier) and treats three outcomes as findings:
+
+  CRASH    — the compiler died on a signal / abort (segfault, assertion, uncaught
+             C++ exception).  A bug, always.
+  VERIFIER — codegen produced IR the LLVM verifier rejected ("LLVM verification
+             failed").  A miscompile the verifier caught — exactly the class that
+             the sret-argument bug fell into.
+  HANG     — the compiler exceeded the timeout.
+
+A clean rejection (exit non-zero with an `error:` diagnostic) is NOT a finding —
+the compiler is allowed to reject bad programs.
+
+Inputs come from two sources:
+  · mutation — small edits to the existing tests/*.esk corpus (realistic code).
+  · generation — programs biased toward the known bug classes: deep loops with
+    many locals, sret-returning (>16-byte) functions called with mixed-width int
+    literals, and generic functions/structs with fn-typed params.
+
+Usage:
+  python3 tests/fuzz/eskiu_fuzz.py --iterations 2000 [--seed 1] [--eskiuc PATH]
+Findings are written to tests/fuzz/findings/ and the run exits non-zero if any.
+"""
+
+import argparse, os, random, re, subprocess, sys, glob, pathlib
+
+HERE = pathlib.Path(__file__).resolve().parent
+TESTS = HERE.parent
+ROOT = TESTS.parent
+FINDINGS = HERE / "findings"
+
+INT_TYPES = ["int", "int8", "int16", "int32", "int64",
+             "uint8", "uint16", "uint32", "uint64", "char", "bool"]
+INT_LITERALS = ["0", "1", "-1", "255", "256", "-128", "127", "65535",
+                "2147483647", "-2147483648", "4294967295", "9223372036854775807"]
+
+
+# ── Mutators (operate on source text; parser-invalid results are pruned) ───────
+
+def mut_swap_int_literal(src):
+    nums = [m for m in re.finditer(r'(?<![\w.])-?\d+(?![\w.])', src)]
+    if not nums: return None
+    m = random.choice(nums)
+    return src[:m.start()] + random.choice(INT_LITERALS) + src[m.end():]
+
+def mut_swap_int_type(src):
+    # change one integer type token to another width/signedness (exercises coercion)
+    toks = [m for m in re.finditer(r'\b(' + '|'.join(INT_TYPES) + r')\b', src)]
+    if not toks: return None
+    m = random.choice(toks)
+    return src[:m.start()] + random.choice(INT_TYPES) + src[m.end():]
+
+def mut_dup_line(src):
+    lines = src.split("\n")
+    body = [i for i, l in enumerate(lines) if l.strip().endswith(";")]
+    if not body: return None
+    i = random.choice(body)
+    lines.insert(i, lines[i])
+    return "\n".join(lines)
+
+def mut_dup_local_in_loop(src):
+    # duplicate a `let`/decl line — if it lands in a loop body, stresses allocas
+    lines = src.split("\n")
+    decls = [i for i, l in enumerate(lines)
+             if re.search(r'^\s*(let\s+\w+|int|int64|uint8|\*?\w+\s+\w+\s*=)', l)
+             and l.strip().endswith(";")]
+    if not decls: return None
+    i = random.choice(decls)
+    lines.insert(i + 1, lines[i])
+    return "\n".join(lines)
+
+def mut_delete_line(src):
+    lines = src.split("\n")
+    if len(lines) < 3: return None
+    del lines[random.randrange(len(lines))]
+    return "\n".join(lines)
+
+MUTATORS = [mut_swap_int_literal, mut_swap_int_type, mut_dup_line,
+            mut_dup_local_in_loop, mut_delete_line]
+
+
+# ── Generators (biased toward the known bug classes) ───────────────────────────
+
+def gen_loop_locals():
+    n = random.randint(3, 12)
+    decls = "\n".join(f"        int v{i} = i & {1 << (i % 20)};" for i in range(n))
+    sums = " + ".join(f"v{i}" for i in range(n))
+    return f"""extern int printf(string fmt, ...);
+int main() {{
+    int64 acc = 0;
+    int i = 0;
+    while (i < {random.choice([100000, 500000, 1000000])}) {{
+{decls}
+        acc = acc + (int64)({sums});
+        i = i + 1;
+    }}
+    printf("%lld\\n", acc);
+    return 0;
+}}
+"""
+
+def gen_sret_mixed_args():
+    # a >16-byte-returning function called with int literals of assorted widths
+    fields = "\n".join(f"    int64 f{i};" for i in range(random.randint(3, 6)))
+    args = ", ".join(random.choice(INT_LITERALS) for _ in range(3))
+    return f"""extern int printf(string fmt, ...);
+struct Big {{
+{fields}
+}}
+Big make(int a, int64 b, uint8 c) {{
+    let r: Big;
+    r.f0 = (int64)a + b + (int64)c;
+    return r;
+}}
+int main() {{
+    let r: Big = make({args});
+    printf("%lld\\n", r.f0);
+    return 0;
+}}
+"""
+
+def gen_generic_fn_param():
+    return f"""extern int printf(string fmt, ...);
+int apply<T>(fn(T)->T f, T x) {{ return (int)f(x); }}
+int dbl(int n) {{ return n * 2; }}
+int main() {{
+    printf("%d\\n", apply<int>(dbl, {random.choice(INT_LITERALS[:6])}));
+    return 0;
+}}
+"""
+
+GENERATORS = [gen_loop_locals, gen_sret_mixed_args, gen_generic_fn_param]
+
+
+# ── Oracle ─────────────────────────────────────────────────────────────────────
+
+CRASH_MARKERS = ("Assertion", "terminate called", "Stack dump", "PLEASE submit",
+                 "libc++abi", "std::__")
+
+def classify(eskiuc, src, timeout=15):
+    """Return ('CRASH'|'VERIFIER'|'HANG'|'OK', detail)."""
+    import tempfile
+    with tempfile.NamedTemporaryFile("w", suffix=".esk", delete=False) as f:
+        f.write(src); path = f.name
+    try:
+        p = subprocess.run([eskiuc, "--test-codegen", path],
+                           capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        os.unlink(path); return ("HANG", "timeout")
+    os.unlink(path)
+    out = (p.stdout or "") + (p.stderr or "")
+    if "LLVM verification failed" in out:
+        return ("VERIFIER", out.split("LLVM verification failed", 1)[1][:300])
+    if p.returncode < 0 or p.returncode in (134, 138, 139):
+        return ("CRASH", f"rc={p.returncode}: {out[-300:]}")
+    if any(mk in out for mk in CRASH_MARKERS):
+        return ("CRASH", out[-300:])
+    return ("OK", "")
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--iterations", type=int, default=1000)
+    ap.add_argument("--seed", type=int, default=None)
+    ap.add_argument("--eskiuc", default=os.environ.get("ESKIUC", str(ROOT / "build" / "eskiuc")))
+    args = ap.parse_args()
+    if args.seed is not None: random.seed(args.seed)
+
+    if not os.path.exists(args.eskiuc):
+        print(f"error: eskiuc not found at {args.eskiuc}", file=sys.stderr); sys.exit(2)
+
+    seeds = [open(p).read() for p in glob.glob(str(TESTS / "*.esk"))]
+    FINDINGS.mkdir(exist_ok=True)
+    findings = 0
+
+    for it in range(args.iterations):
+        if random.random() < 0.35 or not seeds:           # generation
+            src = random.choice(GENERATORS)()
+        else:                                              # mutation
+            src = random.choice(seeds)
+            for _ in range(random.randint(1, 3)):
+                m = random.choice(MUTATORS)(src)
+                if m is not None: src = m
+
+        kind, detail = classify(args.eskiuc, src)
+        if kind != "OK":
+            findings += 1
+            fn = FINDINGS / f"{kind.lower()}_{it}.esk"
+            with open(fn, "w") as f: f.write(src)
+            print(f"[{kind}] iter {it} -> {fn}\n    {detail.strip()[:200]}")
+
+    print(f"\n{args.iterations} iterations, {findings} finding(s).")
+    sys.exit(1 if findings else 0)
+
+
+if __name__ == "__main__":
+    main()

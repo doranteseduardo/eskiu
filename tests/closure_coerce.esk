@@ -1,0 +1,9 @@
+// Calling a closure with an int narrower than its param must widen the arg
+// (the indirect-call path skipped coercion → IR-verifier mismatch).
+extern int printf(string fmt, ...);
+int main() {
+    let f: fn(int)->int = int(int x) { return x + 1; };
+    uint8 y = 41;
+    printf("%d\n", f(y));
+    return 0;
+}
