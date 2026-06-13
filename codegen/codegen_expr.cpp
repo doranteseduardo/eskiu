@@ -706,14 +706,20 @@ void CodeGen::visit(CallExpr* node) {
         if (!boxed) args.push_back(evaluateExpr(node->args[i]));
     }
 
-    // Widen/truncate integer arguments to match function parameter types
+    // Widen/truncate integer arguments to match function parameter types. If the
+    // callee returns via sret, its real params start at index 1 (param 0 is the
+    // hidden sret pointer, prepended to `args` only later), so align with that
+    // offset — otherwise the first scalar arg is matched against the sret pointer
+    // and an int literal is left unwidened (caught by the IR verifier).
     {
         auto fparams = func->getFunctionType()->params();
-        for (size_t i = 0; i < args.size() && i < fparams.size(); ++i) {
-            if (args[i]->getType()->isIntegerTy() && fparams[i]->isIntegerTy()
-                    && args[i]->getType() != fparams[i]) {
+        unsigned pbase = funcSretTypes.count(func->getName().str()) ? 1u : 0u;
+        for (size_t i = 0; i < args.size() && i + pbase < fparams.size(); ++i) {
+            llvm::Type* pt = fparams[i + pbase];
+            if (args[i]->getType()->isIntegerTy() && pt->isIntegerTy()
+                    && args[i]->getType() != pt) {
                 bool uns = i < node->args.size() && eskiuUnsigned(getExprEskiuType(node->args[i]));
-                args[i] = coerceInt(args[i], fparams[i], uns);
+                args[i] = coerceInt(args[i], pt, uns);
             }
         }
     }
