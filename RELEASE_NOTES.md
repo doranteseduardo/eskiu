@@ -1,9 +1,11 @@
-# Eskiu 0.2.1
+# Eskiu 0.2.2
 
-A hardening-and-ergonomics patch on 0.2.0, shaken out by building a real service
-(an INE-QR HTTP API) on top of it. No language changes — the base is the same
-0.2.0: compiled to native through LLVM, you manage memory yourself, standalone
-binaries.
+A correctness release with one new language feature. Building a real service on
+Eskiu (the INE-QR HTTP API) surfaced three compiler bugs in one session, so 0.2.2
+is, by decision, exactly two things: **hardening** the compiler so it can be
+trusted, and **bounded generics** — the clean path the dogfooding kept hitting.
+No new stdlib, no other surface changes. The base is the same 0.2.x: compiled to
+native through LLVM, you manage memory yourself, standalone binaries.
 
 ---
 
@@ -34,34 +36,45 @@ cd eskiu && cmake -S . -B build && cmake --build build
 
 ## What's new
 
-**A sanitizer CI gate.** `tests/run.sh` gains `SANITIZE=asan|ubsan`, and CI now
-runs the whole suite three ways — plain, AddressSanitizer, and UBSan — on every
-push. This is the standing guard against the class of codegen bug that 0.2.0's
-`<base64>` crash turned out to be (a stack overflow from allocas leaking inside a
-loop). A `loop_locals` stress test locks that fix in.
+**Bounded generics — `<T: Iface>`.** A type parameter can now carry one or more
+interface constraints, on both functions and structs:
 
-**`<bytes>` — a binary-safe byte buffer.** `String` is `*char` and
-NUL-terminated, so it truncates on embedded NULs and isn't safe for binary.
-`Bytes` is length-prefixed over `*uint8` — push/append/slice (non-owning
-view)/eq/from_str/cstr, plus `Bytes_from_base64`/`Bytes_to_base64`. `<http>`
-gains `HttpReq_body`, a non-owning `Bytes` view of the request body.
+```eskiu
+interface Ord { int cmp(*Self other); }
 
-**`HashMap<K,V>` — a map over any key type.** The string-keyed `Map<V>` is
-unchanged; the new `HashMap<K,V>` keys on any value type by taking `hash`/`eq`
-function pointers at init (Eskiu has no trait system to synthesise them — the
-systems-language answer, like C's `qsort` comparator), with built-in
-`int_hash`/`int_eq`.
+T max<T: Ord>(T a, T b) {        // T must satisfy Ord
+    if (a.cmp(&b) > 0) return a;
+    return b;
+}
 
-**Two compiler fixes** the new gate and the IR verifier surfaced:
-- Integer arguments to functions that return via sret (a >16-byte struct) were
-  matched against the wrong parameter, leaving an `int` literal unwidened — an
-  IR-verifier error. Now offset-correct.
-- `substType` now substitutes type parameters inside function types
-  (`fn(*K)->uint64` → `fn(*int)->uint64`), so generic APIs with callback
-  parameters (like `HashMap<K,V>`'s hash/eq) type-check and monomorphize.
+struct Cache<K: Hashable + Eq, V> { ... }   // multiple constraints with +
+```
 
-**Internal:** the 3,400-line `codegen.cpp` was split into six files
-(`codegen_{module,type,scope,decl,stmt,expr}.cpp`) — no behavior change.
+Satisfaction reuses the existing structural `interface` match, and the constraint
+is checked **at the instantiation site** — for explicit (`max<Num>(...)`),
+inferred (`max(a, b)`), and template-struct uses alike — so a missing method is a
+clear, located type error instead of a confusing failure deep in codegen:
+
+```
+error: type 'int' does not satisfy constraint 'Ord' (required by a bounded type parameter)
+```
+
+Satisfaction is method-based, so only `struct` types can satisfy a constraint;
+for primitive keys the function-pointer `HashMap<K, V>` from 0.2.1 stays the path.
+
+**A fuzzer, wired into CI.** `tests/fuzz/eskiu_fuzz.py` generates and mutates
+Eskiu programs and uses the LLVM IR verifier and AddressSanitizer as oracles — a
+finding is a compiler crash, a verifier failure, or a sanitizer abort, no
+reference implementation needed. CI runs a bounded, fixed-seed fuzz job on top of
+the plain + asan + ubsan suite.
+
+**Four bug classes it found, all fixed** (each with a locked-in regression test):
+- Code after a `return`/terminator inside a block was still lowered, producing
+  invalid IR with instructions past a block terminator.
+- Arguments to a closure/indirect call weren't coerced to the parameter types
+  (off by the hidden environment pointer).
+- A `switch` with duplicate `case` values now reports a type error.
+- A negative array dimension is rejected instead of silently falling back.
 
 The full log is in [CHANGELOG.md](CHANGELOG.md).
 
@@ -69,5 +82,5 @@ The full log is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Upgrade
 
-Drop-in over 0.2.0 — no source changes required. Existing code keeps compiling;
-`<bytes>` and `HashMap<K,V>` are additive.
+Drop-in over 0.2.0/0.2.1 — no source changes required. Bounded generics are
+additive: existing unconstrained `<T>` code keeps compiling unchanged.
