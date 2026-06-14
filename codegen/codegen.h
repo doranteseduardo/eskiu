@@ -31,6 +31,10 @@ public:
     bool asan = false;   // AddressSanitizer (memory errors); needs the asan runtime
     bool ubsan = false;  // bounds checking; traps on out-of-bounds (no runtime)
 
+    // Single-resolver table: post-AsyncTransform type checker's expressionTypeMap.
+    // When set, getExprEskiuType returns these resolved types instead of re-deriving.
+    const std::map<Expr*, std::string>* resolvedExprTypes = nullptr;
+
     // Print LLVM IR to stdout
     void printIR() const;
 

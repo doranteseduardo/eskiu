@@ -186,7 +186,10 @@ void CodeGen::visit(ForInStmt* node) {
         elemExpr   = std::make_shared<IndexExpr>(node->iterable, idx());
     } else {
         // List-like struct: needs `data` (pointer) and `size` (int) fields.
+        // Strip the struct:/pointer decoration to the bare registry key (the
+        // resolved type arrives normalized as e.g. "struct:List_int").
         std::string s = itType;
+        if (s.rfind("struct:", 0) == 0) s = s.substr(7);
         while (!s.empty() && s.front() == '*') s = s.substr(1);
         while (!s.empty() && s.back()  == '*') s.pop_back();
         auto it = structFields.find(s);

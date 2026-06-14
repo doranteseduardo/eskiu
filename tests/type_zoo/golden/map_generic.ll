@@ -41,7 +41,7 @@ while:                                            ; preds = %while_body, %entry
   %1 = load ptr, ptr %s1, align 8
   %2 = getelementptr i8, ptr %1, i32 %0
   %3 = load i8, ptr %2, align 1
-  %4 = sext i8 %3 to i32
+  %4 = zext i8 %3 to i32
   %5 = icmp ne i32 %4, 0
   br i1 %5, label %while_body, label %while_exit
 
@@ -52,7 +52,7 @@ while_body:                                       ; preds = %while
   %9 = load ptr, ptr %s1, align 8
   %10 = getelementptr i8, ptr %9, i32 %8
   %11 = load i8, ptr %10, align 1
-  %12 = sext i8 %11 to i32
+  %12 = zext i8 %11 to i32
   %13 = and i32 %12, 255
   %14 = add i32 %7, %13
   store i32 %14, ptr %h, align 4
@@ -98,7 +98,7 @@ while:                                            ; preds = %merge, %entry
   %7 = load ptr, ptr %b2, align 8
   %8 = getelementptr i8, ptr %7, i32 %6
   %9 = load i8, ptr %8, align 1
-  %10 = sext i8 %9 to i32
+  %10 = zext i8 %9 to i32
   %11 = icmp ne i32 %10, 0
   %12 = select i1 %5, i1 %11, i1 false
   br i1 %12, label %while_body, label %while_exit

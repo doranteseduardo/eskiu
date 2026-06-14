@@ -173,8 +173,12 @@ static void testCodegen(const std::string& filename) {
             return;
         }
         AsyncTransform().run(program.get());
+        // Single resolver: re-resolve the post-transform AST; codegen consumes it.
+        TypeChecker postTc; postTc.sourceFile = filename;
+        postTc.check(program.get());
         // Codegen
         CodeGen codegen;
+        codegen.resolvedExprTypes = &postTc.expressionTypeMap();
         if (!TargetTriple.empty()) codegen.targetTriple = std::string(TargetTriple);
         codegen.freestanding = Freestanding;
         llvm::Module* module = codegen.generateCode(program);
@@ -392,7 +396,11 @@ int main(int argc, char** argv) {
         }
 
         AsyncTransform().run(program.get());
+        // Single resolver: re-resolve the post-transform AST; codegen consumes it.
+        TypeChecker postTc; postTc.sourceFile = std::string(InputFilename);
+        postTc.check(program.get());
         CodeGen codegen;
+        codegen.resolvedExprTypes = &postTc.expressionTypeMap();
         if (!TargetTriple.empty()) codegen.targetTriple = std::string(TargetTriple);
         codegen.freestanding = Freestanding;
         codegen.asan = Asan;
