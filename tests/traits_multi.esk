@@ -1,0 +1,11 @@
+// Multiple constraints: `<T: Show + Eq>`.
+extern int printf(string fmt, ...);
+interface Show { int show(); }
+interface Eq { int eq(Eq* o); }
+struct N { int v; int show() { return self.v; } int eq(N* o) { return self.v == o.v; } }
+int dump<T: Show + Eq>(T* x) { return x.show(); }
+int main() {
+    let n: N;  n.v = 5;
+    printf("%d\n", dump<N>(&n));
+    return 0;
+}

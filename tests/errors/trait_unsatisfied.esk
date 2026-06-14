@@ -1,0 +1,4 @@
+// EXPECT-ERROR: does not satisfy constraint
+interface Ord { int cmp(Ord* o); }
+T pick<T: Ord>(T a, T b) { return a; }
+int main() { return pick<int>(1, 2); }

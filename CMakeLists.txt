@@ -15,11 +15,20 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
 set(SOURCES
     main.cpp
+    main_support.cpp
     lexer/lexer.cpp
+    lexer/preprocessor.cpp
     parser/parser.cpp
+    parser/parse_decl.cpp
+    parser/parse_stmt.cpp
+    parser/parse_expr.cpp
     ast/ast.cpp
     ast/ast_printer.cpp
     sema/type_checker.cpp
+    sema/typecheck_decl.cpp
+    sema/typecheck_stmt.cpp
+    sema/typecheck_expr.cpp
+    sema/typecheck_type.cpp
     sema/async_transform.cpp
     codegen/codegen_module.cpp
     codegen/codegen_type.cpp
@@ -27,6 +36,9 @@ set(SOURCES
     codegen/codegen_decl.cpp
     codegen/codegen_stmt.cpp
     codegen/codegen_expr.cpp
+    codegen/codegen_call.cpp
+    codegen/codegen_closure.cpp
+    codegen/codegen_adt.cpp
 )
 
 add_executable(eskiuc ${SOURCES})

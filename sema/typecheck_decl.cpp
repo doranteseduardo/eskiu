@@ -1,0 +1,300 @@
+#include "type_checker.h"
+#include <iostream>
+#include <sstream>
+#include <algorithm>
+#include <climits>
+#include <set>
+
+// Template type-name utilities (mangleTemplate / splitTemplateType / substType)
+// are shared with codegen; see template_utils.h.
+#include "../template_utils.h"
+#include "../intrinsics.h"
+#include "../ast/ast_walk.h"
+#include "../ast/type_qual.h"
+
+// ============================================================================
+
+// TypeChecker — declaration visitors (functions, structs, enums, unions,
+// interfaces, type aliases) + the template capture pass.
+// Part of the type_checker.cpp split; all methods are TypeChecker members
+// declared in type_checker.h.
+
+namespace {
+// Type-independent capture analysis for TEMPLATE function bodies.
+//
+// The normal capture detection (visit(IdentExpr)/visit(LambdaExpr)) runs as part
+// of type-checking, which skips template bodies (their expressions mention the
+// unresolved type parameter T). So a lambda inside a generic function would get
+// an empty capture list and miscompile ("Referring to an argument in another
+// function"). This pass fills that gap: a pure lexical scope + free-variable walk
+// (no types resolved, no diagnostics) that records, for each lambda, the
+// enclosing-scope names it references — with their SOURCE-form types (T intact).
+// Codegen's getTypeFromString already substitutes typeParamOverride, so a capture
+// typed `*Future<T>` becomes `*Future<int>` automatically per instantiation.
+//
+// Purely additive: it only writes LambdaExpr::captures, which were previously
+// empty for template-body lambdas, so it cannot affect non-template code.
+struct TemplateCapturePass {
+    std::vector<std::map<std::string, std::string>> scopes;  // name -> source type
+    struct Active { int boundary; std::map<std::string, std::string> caps; };
+    std::vector<Active> lambdas;
+
+    void define(const std::string& name, const std::string& srcType) {
+        if (!scopes.empty()) scopes.back()[name] = srcType;
+    }
+    int defIndex(const std::string& name) {
+        for (int i = (int)scopes.size() - 1; i >= 0; --i)
+            if (scopes[i].count(name)) return i;
+        return -1;   // not a tracked local -> a global or top-level fn (not captured)
+    }
+    void run(FunctionDecl* fn) {
+        scopes.push_back({});
+        for (auto& p : fn->params) define(p.second, p.first);  // params: (type, name)
+        walkStmt(fn->body.get());
+        scopes.pop_back();
+    }
+    void walkStmt(Stmt* s) {
+        if (!s) return;
+        if (auto* b = dynamic_cast<BlockStmt*>(s)) {
+            scopes.push_back({});
+            for (auto& it : b->items) {
+                if (std::holds_alternative<DeclPtr>(it)) {
+                    if (auto* vd = dynamic_cast<VarDecl*>(std::get<DeclPtr>(it).get())) {
+                        if (vd->initializer) walkExpr(vd->initializer.get());
+                        define(vd->name, vd->type);
+                    }
+                } else walkStmt(std::get<StmtPtr>(it).get());
+            }
+            scopes.pop_back(); return;
+        }
+        if (auto* i = dynamic_cast<IfStmt*>(s)) {
+            walkExpr(i->condition.get()); walkStmt(i->thenBranch.get()); walkStmt(i->elseBranch.get()); return;
+        }
+        if (auto* w = dynamic_cast<WhileStmt*>(s)) { walkExpr(w->condition.get()); walkStmt(w->body.get()); return; }
+        if (auto* f = dynamic_cast<ForStmt*>(s)) {
+            scopes.push_back({});
+            walkStmt(f->init.get()); walkExpr(f->condition.get()); walkExpr(f->step.get()); walkStmt(f->body.get());
+            scopes.pop_back(); return;
+        }
+        if (auto* fi = dynamic_cast<ForInStmt*>(s)) {
+            scopes.push_back({});
+            walkExpr(fi->iterable.get()); define(fi->varName, "");
+            walkStmt(fi->body.get());
+            scopes.pop_back(); return;
+        }
+        if (auto* r = dynamic_cast<ReturnStmt*>(s)) { walkExpr(r->value.get()); return; }
+        if (auto* es = dynamic_cast<ExprStmt*>(s)) { walkExpr(es->expr.get()); return; }
+        if (auto* sw = dynamic_cast<SwitchStmt*>(s)) {
+            walkExpr(sw->subject.get());
+            for (auto& c : sw->cases) { walkExpr(c.value.get()); for (auto& st : c.stmts) walkStmt(st.get()); }
+            return;
+        }
+        if (auto* th = dynamic_cast<ThrowStmt*>(s)) { walkExpr(th->value.get()); return; }
+        if (auto* tr = dynamic_cast<TryStmt*>(s)) {
+            walkStmt(tr->body.get());
+            for (auto& cc : tr->catches) { scopes.push_back({}); define(cc.name, cc.type); walkStmt(cc.body.get()); scopes.pop_back(); }
+            walkStmt(tr->finally.get()); return;
+        }
+        if (auto* tj = dynamic_cast<ThreadJoinStmt*>(s)) { walkExpr(tj->tid.get()); return; }
+        if (auto* a = dynamic_cast<AsmStmt*>(s)) { for (auto& in : a->inputs) walkExpr(in.second.get()); return; }
+        // BreakStmt / ContinueStmt: no children
+    }
+    void walkExpr(Expr* e) {
+        if (!e) return;
+        if (auto* id = dynamic_cast<IdentExpr*>(e)) {
+            int di = defIndex(id->name);
+            if (di >= 0)
+                for (auto& L : lambdas)
+                    if (di < L.boundary) L.caps[id->name] = scopes[di][id->name];
+            return;
+        }
+        if (auto* lam = dynamic_cast<LambdaExpr*>(e)) {
+            lambdas.push_back({(int)scopes.size(), {}});
+            scopes.push_back({});
+            std::set<std::string> params;
+            for (auto& p : lam->params) { define(p.second, p.first); params.insert(p.second); }
+            walkStmt(lam->body.get());
+            scopes.pop_back();
+            Active fin = lambdas.back(); lambdas.pop_back();
+            lam->captures.clear();
+            for (auto& [n, t] : fin.caps)
+                if (!params.count(n)) lam->captures.push_back({n, t});
+            return;
+        }
+        // IdentExpr and LambdaExpr are handled above (capture recording / scope
+        // boundary); every other expression just recurses into its children via
+        // the shared enumeration, so this pass can never miss a node type.
+        astwalk::forEachChildExpr(e, [&](ExprPtr& c) { walkExpr(c.get()); });
+    }
+};
+} // namespace
+
+void TypeChecker::visit(FunctionDecl* node) {
+    if (!node->typeParams.empty()) {
+        // Template body: type-checking is deferred to instantiation, but lambda
+        // captures must be resolved now (codegen has no equivalent pass). See
+        // TemplateCapturePass — purely additive, type-independent.
+        if (node->body) { TemplateCapturePass p; p.run(node); }
+        return;
+    }
+
+    // Record definition location
+    definitionLocations[node->name] = {node->line, node->col, sourceFile};
+    // -Wall: track top-level functions for unused-function reporting (skip main).
+    if (node->name != "main") definedFns[node->name] = {node->line, node->col};
+
+    currentFunctionReturnType = node->returnType;   // inner T (async body returns T)
+    bool prevInAsync = inAsyncFn;
+    inAsyncFn = node->isAsync;
+    bool prevAwaitSeen = awaitSeenInFn;
+    awaitSeenInFn = false;
+    pushScope();
+
+    // Define parameters (preserving a pointee-const qualifier so writing through
+    // a `const T*` parameter is caught; normalization otherwise strips const).
+    for (const auto& param : node->params) {
+        std::string pt = normalizeType(param.first);
+        if (tyq::baseConst(param.first) && tyq::isPtr(param.first)) pt = "const " + pt;
+        defineSymbol(param.second, pt, node->line, node->col, /*isParam=*/true);
+    }
+
+    // Escape-soundness: a non-`escaping` closure parameter may only be *called*.
+    // Any other use (returned, stored, passed as an argument, captured) lets the
+    // closure outlive the call, which is unsound unless its env is heap-allocated
+    // — so it must be marked `escaping`. Track such params and verify after the body.
+    std::set<std::string> prevWatch = nonEscapingFnParams;
+    std::set<std::string> prevEscaped = escapedFnParams;
+    nonEscapingFnParams.clear();
+    escapedFnParams.clear();
+    for (size_t i = 0; i < node->params.size(); ++i) {
+        const std::string& pty = node->params[i].first;
+        bool isFn = pty.size() > 3 && pty.substr(0, 3) == "fn(";
+        bool marked = i < node->paramEscaping.size() && node->paramEscaping[i];
+        if (isFn && !marked) nonEscapingFnParams.insert(node->params[i].second);
+    }
+
+    // Type check body
+    if (node->body) {
+        node->body->accept(this);
+    }
+
+    // An `async fn` must contain at least one `await` — the state-machine
+    // transform needs a suspend point. Report here, where the location is known.
+    if (node->isAsync && !awaitSeenInFn) {
+        errorAt(node, "async function '" + node->name + "' has no `await`; "
+                      "remove `async` or add an `await`");
+    }
+    // A generic `async fn` is not supported: the coroutine frame is built once
+    // from the body's source types, so a type parameter (`T`) would not be
+    // substituted per instantiation. Reject it rather than miscompile.
+    if (node->isAsync && !node->typeParams.empty()) {
+        errorAt(node, "async function '" + node->name + "' cannot be generic; "
+                      "write a concrete async function or await a generic helper from it");
+    }
+
+    for (size_t i = 0; i < node->params.size(); ++i) {
+        if (escapedFnParams.count(node->params[i].second)) {
+            errorAt(node, "closure parameter '" + node->params[i].second +
+                "' escapes (used beyond a direct call); mark it `escaping`");
+        }
+    }
+    nonEscapingFnParams = prevWatch;
+    escapedFnParams = prevEscaped;
+
+    popScope();
+    currentFunctionReturnType = "";
+    inAsyncFn = prevInAsync;
+    awaitSeenInFn = prevAwaitSeen;
+}
+
+void TypeChecker::visit(VarDecl* node) {
+    // Record definition location
+    if (node->line > 0)
+        definitionLocations[node->name] = {node->line, node->col, sourceFile};
+    if (node->initializer) {
+        node->initializer->accept(this);
+        std::string initType = getExpressionType(node->initializer.get());
+        if (initType != "unknown") {
+            if (tyq::dropsConst(node->type, initType))
+                errorAt(node, "cannot initialize '" + node->type + "' from '" + initType +
+                              "' — conversion discards a const qualifier");
+            else if (!isValidAssignment(node->type, initType))
+                warning(0, 0, "implicit conversion from " + initType + " to " + node->type);
+        }
+    }
+    // A const must be initialized — there is no later point to assign it.
+    if (node->isConst && !node->initializer) {
+        errorAt(node, "const '" + node->name + "' must be initialized");
+    }
+
+    // Normalize the type (e.g., "Point" -> "struct:Point")
+    std::string normalizedType = normalizeType(node->type);
+
+    // Validate that struct types exist before use
+    validateStructType(normalizedType);
+
+    // Preserve a pointee-const qualifier through normalization so the symbol
+    // remembers it's read-only (const checks read it back; everything else strips).
+    std::string storedType = normalizedType;
+    if (tyq::baseConst(node->type) && tyq::isPtr(node->type))
+        storedType = "const " + normalizedType;
+
+    defineSymbol(node->name, storedType, node->line, node->col, /*isParam=*/false);
+    if (node->isConst && !scopes.empty()) scopes.back()[node->name].isConst = true;
+}
+
+void TypeChecker::visit(StructDecl* node) {
+    defineSymbol(node->name, "struct:" + node->name);
+    // Type-check method bodies
+    for (const auto& method : node->methods) {
+        if (auto func = dynamic_cast<FunctionDecl*>(method.get())) {
+            std::string savedReturn = currentFunctionReturnType;
+            currentFunctionReturnType = func->returnType;
+            pushScope();
+            defineSymbol("self", "*" + node->name);
+            for (const auto& p : func->params) defineSymbol(p.second, normalizeType(p.first));
+            if (func->body) func->body->accept(this);
+            popScope();
+            currentFunctionReturnType = savedReturn;
+        }
+    }
+}
+
+void TypeChecker::visit(ExternDecl* node) {
+    // Extern functions are already registered in first pass
+    // Just verify they have valid signatures
+}
+
+void TypeChecker::visit(IntrinsicDecl* node) {
+    // `intrinsic` is a compiler-provided mechanism, not a user extension point:
+    // a name with no codegen lowering must be rejected here, not blow up later.
+    if (!isSupportedIntrinsic(node->name)) {
+        errorAt(node, "unknown intrinsic '" + node->name +
+            "': the compiler provides no lowering for it. `intrinsic` cannot "
+            "declare new operations — use `extern` for an external C symbol.");
+    }
+}
+
+void TypeChecker::visit(EnumDecl* node) {
+    // Members and the enum type were registered in the first pass.
+    definitionLocations[node->name] = {node->line, node->col, sourceFile};
+}
+
+void TypeChecker::visit(TypeAliasDecl* node) {
+    // The alias was registered in the first pass; validate the underlying type.
+    validateStructType(normalizeType(node->aliased));
+}
+
+void TypeChecker::visit(InterfaceDecl* node) {
+    // Interface registered in first pass; no body to type-check
+}
+
+void TypeChecker::visit(UnionDecl* node) {
+    // Register the union as a struct in the type system so field access works.
+    // All fields are registered; the codegen handles the shared-offset layout.
+    StructInfo info;
+    info.name = node->name;
+    for (const auto& f : node->fields)
+        info.fields.push_back({f.type, f.name});
+    structs[node->name] = info;
+}

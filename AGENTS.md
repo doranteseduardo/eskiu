@@ -48,14 +48,14 @@ Use `examples/` and `tests/` as inputs. Add a `.esk` file for any feature you im
 
 | Path | Responsibility |
 |---|---|
-| `lexer/` | Tokeniser. `Lexer::next_token()` only. |
-| `parser/` | Recursive-descent. Returns `shared_ptr<Program>`. |
+| `lexer/lexer.cpp` | Tokeniser (`Lexer::next_token()`). `lexer/preprocessor.cpp` is the `#define`/`#ifdef` text pass (`preprocess()`, declared in `preprocessor.h`), run from the `Lexer` ctor. |
+| `parser/` | Recursive-descent. Returns `shared_ptr<Program>`. Split into `parser.cpp` (token helpers, `parseType`, entry) + `parse_{decl,stmt,expr}.cpp`; the `withPos` template lives in `parser/parser_internal.h`. |
 | `ast/ast.h` | All AST node types + `ASTVisitor` interface. |
 | `ast/ast.cpp` | `accept()` definitions. |
 | `ast/ast_printer.cpp` | Pretty-printer (`--test-parser`). |
-| `sema/type_checker.cpp` | Type inference, scope, struct/interface/template registry. |
-| `codegen/codegen.cpp` | LLVM IR via `IRBuilder`. |
-| `main.cpp` | CLI entry point. |
+| `sema/` | Type checker, split into `type_checker.cpp` (core: `check`, scope, LSP, errors) + `typecheck_{decl,stmt,expr,type}.cpp` (all `TypeChecker` members sharing `type_checker.h`). `sema/async_transform.cpp` is the async lowering pass. |
+| `codegen/` | LLVM IR via `IRBuilder`. Split into `codegen_{module,type,scope,decl,stmt}.cpp` + `codegen_{expr,call,closure,adt}.cpp` (all `CodeGen` members sharing `codegen.h`). |
+| `main.cpp` | CLI entry point + phase dispatch. `main_support.cpp` (decl in `main_support.h`) holds the cl::opt-free driver utilities: filesystem/path, `fmt`, the C-linker driver + runner, and `loadProgram`. |
 | `stdlib/` | Eskiu stdlib modules (`result.esk`, `list.esk`, etc.). |
 | `tests/` | Regression tests (`.esk` files). |
 | `examples/` | Working demos. |
@@ -113,6 +113,7 @@ with `match`, and the concurrent stdlib.
 | v0.1.0 | Closures, threads, exceptions, enums, unions, bitfields, preprocessor | ✅ |
 | v0.2.0 | async/await, HTTP/1.1 + HTTP/2 + HPACK + TLS, sum types + `match`, allocators, the concurrent stdlib | ✅ |
 | v0.2.1 | codegen split into 6 files; sanitizer (asan/ubsan) CI gate; `<bytes>`; `HashMap<K,V>`; sret-arg + fn-type-substitution fixes | ✅ |
+| v0.2.2 | hardening (generative fuzzer with an O0-vs-O2 differential oracle + 4 codegen/sema fixes, CI fuzz gate); bounded generics `<T: Iface>` / `<T: A + B>` (method-based, checked at the instantiation site); compiler source modularized (type_checker / codegen_expr / parser / lexer / main split — no behavior change) | ✅ |
 | v0.3 | Self-hosting prerequisites (LLVM C bindings, lexer/parser in Eskiu) | ❌ |
 | v1.0 | Package manager, self-hosting | ❌ |
 
@@ -124,8 +125,8 @@ locals-across-await liveness optimization (see `docs/dev/phases.md`).
 1. Define the class in `ast/ast.h` — extend `Expr`, `Stmt`, or `Decl`.
 2. Add `virtual void visit(YourNode*) = 0` to `ASTVisitor`.
 3. Add `void YourNode::accept(ASTVisitor* v) { v->visit(this); }` in `ast/ast.cpp`.
-4. Add `void visit(YourNode*) override` in: `ASTPrinter`, `TypeChecker`, `CodeGen`.
-5. Add parse site in `parser/parser.cpp` (statement → `parseStatement`, expression → `parsePrimary` or `parseUnary`).
+4. Add `void visit(YourNode*) override` in: `ASTPrinter`, `TypeChecker`, `CodeGen` — the `TypeChecker`/`CodeGen` definitions go in the matching split file (`typecheck_{decl,stmt,expr,type}.cpp`, `codegen_{expr,call,closure,adt}.cpp`).
+5. Add parse site in the matching `parse_{decl,stmt,expr}.cpp` (statement → `parseStatement`, expression → `parsePrimary` or `parseUnary`).
 6. Write a test in `tests/` and verify with `--test-typechecker` and `--test-codegen`.
 
 ## Coding rules
@@ -177,6 +178,8 @@ If a module has a `Foo` struct, its operations are `Foo_*`, not `foo_*`. (`<json
 **Cross-compilation:** When `targetTriple != ""` and differs from native, the CPU is set to `"generic"` to avoid host CPU features leaking into the cross-compiled object.
 
 **Nested template instantiation (a template calling another with the param forwarded, e.g. `alloc<T>(n)` inside `List_push<T>`):** in `visit(TemplateCallExpr)`, resolve each explicit type arg through the active `typeParamOverride` before mangling/instantiating (`alloc<T>` inside `List_push<int>` must become `alloc_int`, not `alloc_T` → i32). And **save/restore** `typeParamOverride` around the inner instantiation rather than `clear()`ing it — clearing wipes the enclosing template's substitutions, so the outer body's `sizeof(T)`/param types silently revert to i32 after the inner call returns.
+
+**Bounded generics / constraints (`<T: Iface>`):** parsed in the typeParams loops (`parser/parser.cpp`) into `FunctionDecl::constraints` / `StructDecl::constraints` (type-param name → interface names), modelled on the `paramEscaping` parallel-data precedent. Enforcement lives only in the type checker — `checkConstraints` (`type_checker.cpp`) takes the constraint map + the `subs` (T→concrete) and, for each constrained param, **normalizes the concrete type first, *then* strips `struct:`/pointers** before `structSatisfiesInterface` (normalizing after stripping re-adds `struct:` and looks up the wrong key — a false negative on satisfied types). Called from three sites: `visit(TemplateCallExpr)` (explicit args), the inferred path in `visit(CallExpr)` once `allBound`, and the not-yet-instantiated branch of `normalizeType` for template structs (node is null there → `error(0,0,…)`). Codegen is untouched: the constraint only turns a would-be late instantiation failure into an early, located type error. Satisfaction is method-based, so primitives can't satisfy a constraint (documented limitation; fn-pointer `HashMap<K,V>` is the primitive-key path).
 
 **Template-struct instantiation for params (`List<Point>* self`):** when `visit(FunctionDecl)` records a template-instance param type, it must `ensureTemplateInstantiated` the struct (e.g. `List_Point`) — not just mangle the name. Otherwise a `List<Point>` used only via helper functions (never a direct `let x: List<Point>` that would resolve the type) leaves the struct unregistered, and member access on `self` fails with "Unknown struct type". The struct type carries no `<`, so the on-demand path in `structBaseTypeOf` (which keys off `<`) won't catch it later.
 

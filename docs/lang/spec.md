@@ -1362,6 +1362,51 @@ Result<int, string> compute(int a, int b, int c) {
 A value is treated as Result-like if it has an `int ok` field and a `value`
 field; the standard library's `Result<T, E>` satisfies this.
 
+### 10.6 Bounded type parameters (constraints)
+
+A type parameter may carry one or more interface constraints, written after a
+colon. The constraint requires that every concrete type substituted for the
+parameter satisfy the named interface(s) — the same structural match used for
+`interface` values (§9): the type must provide a method for each signature in the
+interface.
+
+```eskiu
+interface Ord {
+    int cmp(*Self other);
+}
+
+// `T` must satisfy `Ord` — checked at the call site, not deep in codegen.
+T max<T: Ord>(T a, T b) {
+    if (a.cmp(&b) > 0) return a;
+    return b;
+}
+
+// Multiple constraints with `+`.
+struct Cache<K: Hashable + Eq, V> {
+    *K  keys;
+    *V  vals;
+    int len;
+}
+```
+
+The constraint is enforced when the template is instantiated. If the concrete
+type does not satisfy the interface, the compiler reports the error at the
+instantiation site:
+
+```
+error: type 'int' does not satisfy constraint 'Ord' (required by a bounded type parameter)
+```
+
+Constraints are checked for both explicit (`max<Num>(...)`) and inferred
+(`max(a, b)`) instantiations, and for template structs the moment a concrete
+`Name<...>` type is resolved. They do not affect name mangling — instances are
+still keyed on the concrete type arguments (§10.3).
+
+**Limitation.** Satisfaction is method-based, so only `struct` types (which can
+declare methods) satisfy a constraint; primitives such as `int` have no methods
+and cannot. For primitive keys, use the function-pointer `HashMap<K, V>` from the
+standard library, which threads `hash`/`eq` explicitly.
+
 ---
 
 ## 11. Memory

@@ -6,7 +6,7 @@
     <title>Eskiu — Systems language, async-native.</title>
     <meta
       name="description"
-      content="Eskiu is a compiled systems language with async/await, sum types, HTTP/2, and atomics. LLVM backend, manual memory, compiles to a standalone binary. v0.2.0 releasing soon."
+      content="Eskiu is a compiled systems language with async/await, sum types, generics, HTTP/2, and atomics. LLVM backend, manual memory, compiles to a standalone binary. v0.2.2 out now."
     />
     <link rel="canonical" href="https://eskiu-lang.org" />
     <link rel="icon" type="image/png" href="../assets/logo.png" />
@@ -17,7 +17,7 @@
     />
     <meta
       property="og:description"
-      content="Compiled via LLVM. Async/await, sum types, HTTP/2. Manual memory, standalone binaries."
+      content="Compiled via LLVM. Async/await, sum types, generics, HTTP/2. Manual memory, standalone binaries."
     />
     <meta property="og:url" content="https://eskiu-lang.org" />
     <meta
@@ -849,7 +849,7 @@
       <div class="wrap">
         <div class="hero-grid">
           <div>
-            <span class="hero-ver">v0.2.0</span>
+            <span class="hero-ver">v0.2.2</span>
             <h1>Native power,<br />scripting flexibility.</h1>
             <p class="hero-sub">
               A statically typed, natively compiled language where you manage
@@ -904,6 +904,7 @@
           <span class="hprop">Standalone binary</span>
           <span class="hprop new">async/await</span>
           <span class="hprop new">sum types</span>
+          <span class="hprop new">generics</span>
           <span class="hprop new">HTTP/2 + TLS</span>
           <span class="hprop new">atomics</span>
           <span class="hprop">C FFI</span>
@@ -917,36 +918,38 @@
     <section class="section">
       <div class="wrap">
         <span class="label">Why Eskiu</span>
-        <h2>One toolchain instead of four.</h2>
+        <h2>Drop a native module into your C++ stack.</h2>
         <p class="lead">
-          Compute-intensive services lean on C for speed, Go for concurrency,
-          C++ for libraries, and something else for glue. Eskiu does all of it
-          in one compiled language, with async built in.
+          Eskiu compiles to native code and speaks the C ABI directly. Take a
+          memory-heavy C++ component, rewrite it as an explicit, auditable Eskiu
+          module, and link it straight into the existing stack — you manage the
+          memory, so the footprint is yours to control. The same language scales
+          from a bare-metal kernel to an HTTP/2 service in the cloud.
         </p>
         <div class="glance">
           <div class="glance-item">
-            <h3>Machine code, explicit allocation</h3>
+            <h3>Slots into your C/C++ stack</h3>
             <p>
-              LLVM backend. You manage memory yourself with
-              <code>alloc&lt;T&gt;(N)</code> and <code>free(ptr)</code>, right
-              there in the source. 2.5× faster than reference C on our crypto
-              pipeline benchmark.
+              C ABI in and out, and it links as a plain native object. Call C
+              libraries directly, hand Eskiu functions back as C callbacks, and
+              drop a module into an existing codebase without rewriting the host.
             </p>
           </div>
           <div class="glance-item">
-            <h3>Async without a framework</h3>
+            <h3>Explicit memory, smaller footprint</h3>
             <p>
-              <code>async</code> functions and <code>await</code> compile to
-              coroutine state machines. Pair with the built-in executor and channels, or
-              write your own scheduler. It all links into your binary.
+              You allocate and free in the source with
+              <code>alloc&lt;T&gt;(N)</code> and <code>free(ptr)</code> — the
+              memory is yours to account for, the lever teams pull when replacing
+              C++. And 2.5× faster than reference C on our crypto benchmark.
             </p>
           </div>
           <div class="glance-item">
-            <h3>Kernel to server, one language</h3>
+            <h3>Kernel to cloud, one language</h3>
             <p>
               Freestanding mode boots a bare-metal ARM64 kernel in QEMU. The
-              same syntax and stdlib handle HTTP/2 on a server. One language for
-              both ends.
+              same syntax and stdlib run an HTTP/2 service in the cloud. One
+              language across the stack.
             </p>
           </div>
         </div>
@@ -970,6 +973,9 @@
             </button>
             <button class="tab-btn" onclick="switchTab(event, 'match')">
               match.esk
+            </button>
+            <button class="tab-btn" onclick="switchTab(event, 'generics')">
+              generics.esk
             </button>
             <button class="tab-btn" onclick="switchTab(event, 'hello')">
               hello.esk
@@ -1049,6 +1055,41 @@
               </div>
             </div>
 
+            <div id="tab-generics" class="tab-panel">
+              <div class="code-block">
+                <div class="cbar">
+                  <span class="d" style="background: #ff5f57"></span
+                  ><span class="d" style="background: #febc2e"></span
+                  ><span class="d" style="background: #28c840"></span
+                  ><span class="nm">generics.esk</span>
+                </div>
+                <pre><span class="kw">extern</span> <span class="ty">int</span> <span class="fn">printf</span>(<span class="ty">string</span> fmt, ...);
+
+<span class="cm">// A constraint: a type that can compare itself to another.</span>
+<span class="kw">interface</span> <span class="ty">Ord</span> { <span class="ty">int</span> <span class="fn">cmp</span>(<span class="ty">Ord</span><span class="ty">*</span> o); }
+
+<span class="cm">// Coin satisfies Ord by providing cmp — structural, no "implements".</span>
+<span class="kw">struct</span> <span class="ty">Coin</span> {
+    <span class="ty">int</span> value;
+    <span class="ty">int</span> <span class="fn">cmp</span>(<span class="ty">Coin</span><span class="ty">*</span> o) { <span class="kw">if</span> (<span class="kw">self</span>.value <span class="op">&lt;</span> o.value) { <span class="kw">return</span> <span class="nu">-1</span>; } <span class="kw">return</span> <span class="nu">1</span>; }
+}
+
+<span class="cm">// T is bounded by Ord; the compiler checks it at the call site.</span>
+<span class="ty">T</span> <span class="fn">max</span>&lt;<span class="ty">T</span>: <span class="ty">Ord</span>&gt;(<span class="ty">T</span><span class="ty">*</span> a, <span class="ty">T</span><span class="ty">*</span> b) {
+    <span class="kw">if</span> (a.<span class="fn">cmp</span>(b) <span class="op">&gt;</span> <span class="nu">0</span>) { <span class="kw">return</span> a[<span class="nu">0</span>]; }
+    <span class="kw">return</span> b[<span class="nu">0</span>];
+}
+
+<span class="ty">int</span> <span class="fn">main</span>() {
+    <span class="kw">let</span> x: <span class="ty">Coin</span>;  x.value <span class="op">=</span> <span class="nu">7</span>;
+    <span class="kw">let</span> y: <span class="ty">Coin</span>;  y.value <span class="op">=</span> <span class="nu">3</span>;
+    <span class="kw">let</span> hi: <span class="ty">Coin</span> <span class="op">=</span> <span class="fn">max</span>&lt;<span class="ty">Coin</span>&gt;(&amp;x, &amp;y);
+    <span class="fn">printf</span>(<span class="st">"max = %d\n"</span>, hi.value);   <span class="cm">// max = 7</span>
+    <span class="kw">return</span> <span class="nu">0</span>;
+}</pre>
+              </div>
+            </div>
+
             <div id="tab-hello" class="tab-panel">
               <div class="code-block">
                 <div class="cbar">
@@ -1108,19 +1149,21 @@
           <div class="stat">
             <span class="stat-num">~85%</span>
             <span class="stat-cap"
-              >less memory after migrating C++ modules to Eskiu</span
+              >less memory in rendering modules migrated to Eskiu</span
             >
           </div>
           <blockquote>
             “ReactVision is adopting Eskiu selectively to replace
-            memory-sensitive C++ components with explicit, auditable native
-            modules while preserving C ABI interoperability with the existing
-            stack.”
+            memory-sensitive C++ components in its AR/VR rendering engine with
+            explicit, auditable native modules, while preserving C ABI
+            interoperability with the existing stack.”
           </blockquote>
           <figcaption>
             <a href="https://reactvision.xyz" target="_blank" rel="noopener"
               >ReactVision</a
             >
+            &nbsp;·&nbsp;
+            <a href="case-study-reactvision.html">Read the case study →</a>
           </figcaption>
         </figure>
       </div>
