@@ -71,7 +71,7 @@ let  int  int8  int16  int32  int64
 uint  uint8  uint16  uint32  uint64
 float  double  bool  char  string  void
 struct  packed  interface  fn  extern  intrinsic  import
-if  else  for  while  in  switch  case  default
+if  else  for  while  in  switch  case  default  match
 return  break  continue
 true  false  null
 alloc_with
@@ -435,6 +435,13 @@ Short-circuit evaluation applies: in `a && b`, `b` is not evaluated if `a` is fa
 | `x *= e`  | Multiply and assign          |
 | `x /= e`  | Divide and assign            |
 | `x %= e`  | Modulo and assign            |
+| `x &= e`  | Bitwise AND and assign       |
+| `x \|= e` | Bitwise OR and assign        |
+| `x ^= e`  | Bitwise XOR and assign       |
+| `x <<= e` | Left-shift and assign        |
+| `x >>= e` | Right-shift and assign       |
+
+The compound bitwise/shift operators are desugared by the parser: `x op= e` is equivalent to `x = x op e`.
 
 The left-hand side must be an lvalue: a named variable, a pointer dereference (`*ptr = value`), or a field access. Assigning through a dereferenced pointer parameter works correctly — `*ptr = value` stores through the pointer as expected.
 
@@ -490,7 +497,7 @@ Listed from lowest precedence (loosest binding) to highest (tightest binding):
 
 | Level | Operators                                    | Associativity |
 |-------|----------------------------------------------|---------------|
-| 1     | `=` `+=` `-=` `*=` `/=` `%=`                | Right to left |
+| 1     | `=` `+=` `-=` `*=` `/=` `%=` `&=` `\|=` `^=` `<<=` `>>=` | Right to left |
 | 2     | `\|\|`                                       | Left to right |
 | 3     | `&&`                                         | Left to right |
 | 4     | `\|` (bitwise)                               | Left to right |
@@ -1318,7 +1325,7 @@ int big = max<int>(10, 20);
 ### 10.4 Using Result<T,E> from stdlib
 
 ```eskiu
-import "stdlib/result.esk";
+import <result>;
 
 int main() {
     let r: Result<int, string> = Ok<int, string>(42);
@@ -1563,8 +1570,8 @@ Each file is parsed and processed at most once per compilation, regardless of ho
 
 ```eskiu
 // main.esk
-import "stdlib/io.esk";
-import "stdlib/result.esk";
+import <io>;
+import <result>;
 
 int main() {
     let r: Result<int, string> = Ok<int, string>(0);
@@ -1639,7 +1646,7 @@ environment and is not C-callable).
 
 ## 14. Stdlib
 
-Eskiu ships a set of standard library files in the `stdlib/` directory. Import them with relative paths from your source file.
+Eskiu ships a set of standard library files in the `stdlib/` directory. Import a module by name with `import <name>;` (the canonical form, resolved by the compiler); `import "stdlib/name.esk";` with a relative path also works.
 
 | File                  | Contents                                                         |
 |-----------------------|------------------------------------------------------------------|
@@ -1682,7 +1689,7 @@ Eskiu ships a set of standard library files in the `stdlib/` directory. Import t
 ### Result<T,E>
 
 ```eskiu
-import "stdlib/result.esk";
+import <result>;
 
 Result<int, string> divide(int a, int b) {
     if (b == 0) return Err<int, string>("division by zero");
@@ -1703,7 +1710,7 @@ int main() {
 ### List<T>
 
 ```eskiu
-import "stdlib/list.esk";
+import <list>;
 
 int main() {
     let items: List<int>;
@@ -1721,7 +1728,7 @@ int main() {
 ### String
 
 ```eskiu
-import "stdlib/string.esk";
+import <string>;
 
 int main() {
     let s: String;

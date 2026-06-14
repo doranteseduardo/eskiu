@@ -37,7 +37,8 @@ The goal is a single language that replaces that stack. Phase one establishes a 
 | **Async / await** | `async` function lowered to a resumable state-machine coroutine; a call yields `*Future<T>`; `await` suspends until ready. Runtime in `<future>`/`<executor>`/`<eventloop>` |
 | **Enums / match** | `enum` of named integer constants; payload-bearing variants form algebraic data types (tagged unions), destructured with exhaustive `match`; generic enums (`Option<T>`, `Either<A,B>`) |
 | **Structs** | Fields, methods with `self`, struct literal init `Point { x: 1, y: 2 }`, bitfields `f: N`, `packed` layout |
-| **Templates** | `struct Result<T,E>`, `fn Ok<T,E>(T v)` — monomorphic instantiation |
+| **Templates** | `struct Result<T,E>`, `fn Ok<T,E>(T v)` — monomorphic instantiation; bounded generics `<T: Iface>` / `<T: A + B>` (a primitive satisfies a constraint via a free function) |
+| **Collections** | `<list>` `List<T>`, `<map>` `Map<V>` (string-keyed) / `HashMap<K,V>`, `<string>` `String`, `<bytes>` binary-safe `Bytes` buffer |
 | **Interfaces** | `interface Drawable { void draw(); }` — structural typing, vtable dispatch |
 | **Memory** | Stack default; heap via `<mem>` `alloc<T>(n)` / `free`; explicit allocators `<alloc>` via `alloc_with`; typed pointer arithmetic |
 | **volatile** | `volatile let reg: *uint8 = (uint8*) 0x3F8;` — MMIO-safe loads/stores |

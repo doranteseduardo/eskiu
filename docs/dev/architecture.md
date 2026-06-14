@@ -13,32 +13,46 @@ Source (.esk)
 ┌─────────┐   vector<Token>
 │  Lexer  │──────────────────────────────────────────►
 └─────────┘                                           │
-  lexer/lexer.cpp                                     ▼
-                                               ┌──────────┐   shared_ptr<Program>
+ lexer/lexer.cpp                                      ▼
+ lexer/preprocessor.cpp                        ┌──────────┐   shared_ptr<Program>
                                                │  Parser  │──────────────────────►
                                                └──────────┘                       │
-                                              parser/parser.cpp                   ▼
-                                                                          ┌──────────────┐
-                                                                          │ Type Checker │── errors → stderr
+                                       parser/parser.cpp                          ▼
+                                       parse_{decl,stmt,expr}.cpp          ┌──────────────┐
+                                                                          │ Type Checker  │── errors → stderr
                                                                           └──────────────┘
-                                                                         sema/type_checker.cpp
+                                                          sema/type_checker.cpp + typecheck_{decl,stmt,expr,type}.cpp
+                                                          sema/type.{h,cpp}  (ty::Type IR)
                                                                                   │ validated AST
+                                                                                  ▼
+                                                                          ┌────────────────┐
+                                                                          │ Async transform │  async fn → frame + resume + Future ctor
+                                                                          └────────────────┘
+                                                                          sema/async_transform.cpp
+                                                                                  │ transformed AST
+                                                                                  ▼
+                                                                          ┌──────────────┐
+                                                                          │ Type Checker  │  RE-RUN: single resolver →
+                                                                          │   (re-run)    │  per-expression ty::Type table
+                                                                          └──────────────┘
+                                                                                  │ AST + resolved type table
                                                                                   ▼
                                                                           ┌─────────┐   llvm::Module*
                                                                           │ Codegen │────────────────► .o file → Binary
-                                                                          └─────────┘
-                                                                        codegen/codegen.cpp
+                                                                          └─────────┘   (consumes the type table; does NOT
+                                                                        codegen/codegen_*.cpp  re-derive expression types)
 ```
 
 | Stage | File(s) | Responsibility | Status |
 |---|---|---|---|
-| Preprocessor | `lexer/lexer.cpp` (`preprocess`) | Text pass run inside the `Lexer` constructor: object-/function-like `#define`, `#ifdef`/`#ifndef`/`#else`/`#endif`; shared macro table propagates across `import`/multi-file; blanks directive/skipped lines to preserve line numbers | Complete |
+| Preprocessor | `lexer/preprocessor.cpp` (`preprocess`, declared in `preprocessor.h`) | Text pass run inside the `Lexer` constructor: object-/function-like `#define`, `#ifdef`/`#ifndef`/`#else`/`#endif`; shared macro table propagates across `import`/multi-file; blanks directive/skipped lines to preserve line numbers | Complete |
 | Lexer | `lexer/lexer.cpp`, `lexer/lexer.h` | Converts the preprocessed source into a flat `vector<Token>` stream with line/column positions | Complete |
-| Parser | `parser/parser.cpp`, `parser/parser.h` | Recursive-descent; produces a `shared_ptr<Program>` AST; resolves `import` inline | Complete |
-| Type Checker | `sema/type_checker.cpp`, `sema/type_checker.h` | Two-pass visitor; registers structs/interfaces/functions then validates types and scopes | Complete |
-| Codegen | `codegen/codegen.cpp`, `codegen/codegen.h` | Visitor over the validated AST; emits LLVM IR via `IRBuilder<>`; emits native `.o` | Complete |
+| Parser | `parser/` — `parser.cpp` (core) + `parse_{decl,stmt,expr}.cpp` | Recursive-descent; produces a `shared_ptr<Program>` AST; resolves `import` inline | Complete |
+| Type Checker | `sema/type_checker.cpp` + `typecheck_{decl,stmt,expr,type}.cpp`; the structured `ty::Type` IR in `sema/type.{h,cpp}` | Two-pass visitor; registers structs/interfaces/functions then validates types and scopes; resolves every expression's type into a table | Complete |
+| Async transform | `sema/async_transform.cpp` | Rewrites each `async fn` into a frame struct + `__name_resume` + a `*Future<T>` constructor — ordinary AST that normal codegen handles | Complete |
+| Codegen | `codegen/codegen_{module,type,scope,decl,stmt,expr,call,closure,adt}.cpp`, `codegen.h` | Visitor over the validated AST; emits LLVM IR via `IRBuilder<>`; emits native `.o` | Complete |
 
-**How they compose.** `main.cpp` runs each stage in sequence. The lexer is driven to exhaustion first — the full token stream is materialized into `std::vector<Token>` and handed to `Parser`. The parser returns `shared_ptr<Program>`. The type checker takes `Program*` and walks the tree through the visitor interface. Codegen takes `shared_ptr<Program>`, generates IR, verifies it with `llvm::verifyModule`, and calls `emitObjectFile()` which uses `llvm::TargetMachine` + `legacy::PassManager` to produce the `.o`. None of the stages modify the AST; they only read it and produce output.
+**How they compose.** `main.cpp` runs each stage in sequence. The lexer is driven to exhaustion first — the full token stream is materialized into `std::vector<Token>` and handed to `Parser`. The parser returns `shared_ptr<Program>`. The type checker takes `Program*` and walks the tree through the visitor interface. The async transform then rewrites the AST. The type checker is **re-run on the transformed AST** and its resolved per-expression types are handed to codegen — so the type checker is the single resolver and codegen consumes its types rather than re-deriving them. Codegen takes `shared_ptr<Program>`, generates IR, verifies it with `llvm::verifyModule`, and calls `emitObjectFile()` which uses `llvm::TargetMachine` + `legacy::PassManager` to produce the `.o`. None of the stages modify the AST after the transform; they only read it and produce output.
 
 **Tooling CLI flags.** `--hover-at LINE:COL` runs the full pipeline through the type checker, then walks `program->declarations` to find the innermost AST node whose source range contains the given position and prints its inferred Eskiu type (from `expressionTypes`). `--definition-at LINE:COL` similarly finds the symbol at the given position and prints the `file:line:col` where that symbol was declared (from `functionSignatures`, `structs`, or the scope where the `VarDecl` was registered). Both flags are consumed by the VS Code extension for hover tooltips and go-to-definition navigation.
 
@@ -350,6 +364,17 @@ Two pointer notations coexist in `expressionTypes`:
 
 `MemberExpr` auto-dereferences both forms: it strips trailing `*` via `hasPointerSuffix`, then strips a leading `*` via `type.substr(1)`, then calls `normalizeType()` to get the canonical `struct:Name` form.
 
+### The `ty::Type` IR (`sema/type.{h,cpp}`)
+
+Type spellings are interpreted through a structured IR, `ty::Type`, rather than ad-hoc string manipulation. It is the single grammar interpreter for the type language, used by both the type checker and codegen:
+
+- `ty::Type::parse(spelling)` — the one grammar interpreter: turns a surface type string (`"Result<int,string>"`, `"List<int>*"`, `"*Point"`, `"uint8[858]"`) into structured form (nominal name, type arguments, pointer levels, array extents).
+- `str()` — render a `ty::Type` back to its canonical spelling.
+- `substitute(subs)` — apply a type-parameter → concrete-type map (template/generic instantiation), recursing through type arguments and pointer levels.
+- `nominalName()` — extract the underlying nominal name, peeling pointers/qualifiers; the canonical replacement for the older ad-hoc strip sites (these ad-hoc strips were the origin of the two-evaluator divergence).
+
+Because both phases share `ty::Type::parse`, there is exactly one interpretation of any type spelling. Codegen's `getTypeFromString` dispatches on `ty::Type::parse`; it does not implement a second, independent type evaluator. This is what makes the type checker the single resolver (see *Pipeline Overview* and Decision 14 in `design.md`).
+
 ---
 
 ## Codegen (`codegen/`)
@@ -382,18 +407,20 @@ Because all prototypes exist before any body is generated, a call to a function 
 
 **`evaluateLValue(const ExprPtr&)`**: returns the storage pointer without loading. Handles `IdentExpr` (returns the `AllocaInst*` directly), `MemberExpr` (resolves field index, returns `CreateStructGEP` result), and `IndexExpr` (returns `CreateGEP` into array or pointer). Used for the left side of `=`, for `&expr`, and for method call dispatch (`self` pointer).
 
-### `varTypeStack` for struct/array/interface expression type resolution
+### `varTypeStack` and consuming the resolved type table
 
 `varTypeStack` is a `vector<map<string,string>>` that parallels `scopeStack`, storing the Eskiu type string for each named variable. It is managed by `pushScope()`/`popScope()` alongside the LLVM value table.
 
-`getExprEskiuType(const ExprPtr&)` resolves the Eskiu type of an expression at codegen time (without re-running the type checker):
+The type checker is the **single resolver** (see *Pipeline Overview*): on its re-run over the transformed AST it resolves every expression's type into a per-expression table, and codegen **consumes that table** rather than independently re-deriving expression types. `varTypeStack` is the codegen-side mirror of that resolved information for named variables, and `getTypeFromString` interprets every type spelling through the one shared grammar interpreter, `ty::Type::parse` — codegen never runs a second, divergent type evaluator.
+
+`getExprEskiuType(const ExprPtr&)` is the codegen-side accessor that returns an expression's resolved Eskiu type from this shared information:
 - `IdentExpr` → `lookupVarType(name)`
 - `MemberExpr` → resolves base type from `varTypeStack`, looks up the field in `structFields`
 - `UnaryExpr` with `&` → prepends `"*"` to the operand's type
 - `UnaryExpr` with `*` → strips leading `"*"` from the operand's type
 - `IndexExpr` → strips `[N]` or leading/trailing `*` from the base type
 
-This is used by `visit(MemberExpr*)`, `visit(IndexExpr*)`, and `visit(CallExpr*)` for method and interface dispatch.
+This is used by `visit(MemberExpr*)`, `visit(IndexExpr*)`, and `visit(CallExpr*)` for method and interface dispatch. All of these are consistent with the resolver's table by construction, because both phases interpret type spellings through `ty::Type::parse`.
 
 ### Template struct instantiation: `ensureTemplateInstantiated()`
 
@@ -541,6 +568,17 @@ The same coercion logic appears in `emitStructInitInto()` for struct field initi
 | `T[N]` (fixed-size array) | `[N x T]` (`llvm::ArrayType`) | e.g. `uint8[858]` → `[858 x i8]` |
 
 Integer literals are emitted as `i32` (64-bit literals widen to `i64` without truncation). Float literals are emitted as `double` (`f64`). A float literal assigned to a `float` (`f32`) variable is coerced down via `CreateFPCast`. Signedness is tracked through codegen from the Eskiu type: unsigned types use the unsigned LLVM instructions (`CreateUDiv`, `CreateURem`, `CreateLShr`, `CreateICmpULT`, etc.) while signed types use the signed forms, and integer widening picks `CreateZExt` vs `CreateSExt` from the source operand's signedness at every coercion site.
+
+---
+
+## Hardening Apparatus
+
+Beyond the `--test-*` modes, the compiler is guarded by an automated harness (run in CI; see `debugging.md` for how to use each as a diagnosis tool):
+
+- **Golden-IR oracle** — `tests/type_zoo/snapshot.sh` + `tests/type_zoo/golden/`: emits IR for the type-zoo corpus and diffs it against the checked-in baseline. A behavior-preserving change must produce byte-identical IR; this is the codegen-regression guard.
+- **Generative + mutation fuzzer** — `tests/fuzz/eskiu_fuzz.py` with an **O0-vs-O2 differential oracle**: synthesized programs are run at both optimization levels and any divergence is a miscompile. This catches accidentally-`-O0`-correct IR (undef, wrong width, missing extension).
+- **`--asan` / `--ubsan` gates** — AddressSanitizer and trapping UB checks run over the test corpus for runtime memory errors and undefined behavior.
+- **Formatter idempotency** — `eskiuc fmt --check` over every test.
 
 ---
 

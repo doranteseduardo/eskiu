@@ -92,7 +92,7 @@ Every design decision below was evaluated against two questions: does it get the
 **Alternatives considered:**
 
 - *`dynamic_cast` chains in each pass* — `if (auto* e = dynamic_cast<BinaryExpr*>(node)) { ... } else if (auto* e = dynamic_cast<CallExpr*>(node)) { ... }` — works but scatters the type-switch pattern throughout each pass, making it easy to miss a node type silently.
-- *`std::variant` + `std::visit`* — Using `std::variant<BinaryExpr, CallExpr, ...>` for the node union gives exhaustive static dispatch. Rejected because the AST hierarchy is deep (41 concrete node types across three inheritance branches, plus `Program`), variant nesting becomes unwieldy, and pointer-based polymorphism is needed because some node subtrees are co-owned (codegen shares a method/template `FunctionDecl`'s `body` across the synthesized and instantiated copies — see the smart-pointer note in `architecture.md`).
+- *`std::variant` + `std::visit`* — Using `std::variant<BinaryExpr, CallExpr, ...>` for the node union gives exhaustive static dispatch. Rejected because the AST hierarchy is deep (42 concrete node types across three inheritance branches, including `Program`), variant nesting becomes unwieldy, and pointer-based polymorphism is needed because some node subtrees are co-owned (codegen shares a method/template `FunctionDecl`'s `body` across the synthesized and instantiated copies — see the smart-pointer note in `architecture.md`).
 - *Embedding pass logic in AST nodes (like `codegen()` on each node)* — Rejected because it couples the AST definition to specific passes. Adding a new pass (e.g. a future linter or a dataflow analysis) would require modifying every node class.
 
 **Why visitor:** Adding a new pass means implementing a new `ASTVisitor` subclass. Existing AST nodes and existing passes are not touched. The compiler has three pass implementations today (`ASTPrinter`, `TypeChecker`, `CodeGen`); each was added without modifying the other two. The `ASTVisitor` base class declares one pure-virtual `visit()` overload per concrete node type (42 today) — so the compiler enforces coverage: a new node type added to `ast.h` that lacks a `visit()` overload causes a compile-time error in all three passes simultaneously.
@@ -204,7 +204,7 @@ popScope()
 - *Eager instantiation at declaration* — Instantiate all template combinations at declaration time by scanning all uses in a pre-pass. Requires a two-phase compilation model where the use sites are known before the template is processed. This is the C++ header model: the template definition must be visible at every use site, and the compiler instantiates it per translation unit. For a single-file or explicitly-imported model, eager instantiation means scanning the entire program before generating any IR.
 - *JIT instantiation at codegen, no type-checker involvement* — The type checker ignores templates; codegen handles everything. Rejected because type errors in template usage (wrong number of type arguments, field access on a non-existent field in a substituted type) would not be caught until codegen or link time.
 
-**Why lazy:** Lazy instantiation means the template machinery is activated only when a concrete type is needed. The type checker's `normalizeType("Result<int,string>")` performs substitution and registers `StructInfo` for `"Result_int_string"` the first time the type appears. Codegen's `ensureTemplateInstantiated` is idempotent: it checks `structTypes.count(mangled)` before doing any work. Template functions follow the same pattern: `visit(TemplateCallExpr*)` mangles the name, saves/restores the insert point, sets `typeParamOverride`, and re-visits the `FunctionDecl` body exactly once per unique type argument combination.
+**Why lazy:** Lazy instantiation means the template machinery is activated only when a concrete type is needed. The type checker's `normalizeType("Result<int,string>")` performs substitution and registers `StructInfo` for `"Result_int_string"` the first time the type appears. Codegen's `ensureTemplateInstantiated` is idempotent: it checks `structTypes.count(mangled)` before doing any work. Both the type checker and codegen interpret the type spelling through the same `ty::Type::parse` grammar (see Decision 14), so the substitution and instantiation logic is shared rather than reimplemented per phase. Template functions follow the same pattern: `visit(TemplateCallExpr*)` mangles the name, saves/restores the insert point, sets `typeParamOverride`, and re-visits the `FunctionDecl` body exactly once per unique type argument combination.
 
 ---
 
@@ -222,6 +222,19 @@ popScope()
 - *Truncate the wider operand to the narrower width* — `ICmpEQ(i8 %byte, trunc i32 0x30 to i8)` works for equality but is incorrect for relational comparisons: `(uint8)200 < (int)256` should be true, but truncating 256 to `i8` gives 0, making the comparison `200 < 0` which is false.
 
 **Why ZExt:** Zero-extension from `i8` to `i32` correctly represents unsigned byte values in the range 0–255 as `i32` values in the range 0–255, preserving the ordering relationship for all relational operators.
+
+---
+
+## 14. Structured `ty::Type` IR and a Single Type Resolver
+
+**Decision:** Types are represented internally by a structured `ty::Type` IR (`sema/type.{h,cpp}`) with one grammar interpreter, `ty::Type::parse`, and the type checker is the **single resolver**: it resolves every expression's type into a per-expression table that codegen consumes. Codegen does not re-derive expression types — its `getTypeFromString` dispatches on `ty::Type::parse`, the same grammar interpreter the type checker uses.
+
+**Alternatives considered:**
+
+- *Two independent string evaluators (the prior state)* — The type checker resolved expression types from type strings, and codegen separately re-derived an expression's Eskiu type at codegen time from its own `varTypeStack`/`structFields` walk. Both consumed the same surface spellings (`"Result<int,string>"`, `"List<int>*"`, `"*Point"`) but interpreted them with **two different ad-hoc string parsers**. Any divergence between the two — a corner of the type grammar one handled and the other didn't — was a silent miscompile: a program that type-checked could lower to wrong IR. Three latent miscompiles (a float literal kept as `double`, a pointer-deref width, a `char` zero-extension) were exactly this class of bug.
+- *Keep string-typing but share one helper* — Cheaper than a full IR, but a flat string is the wrong representation to share: substitution, pointer peeling, nominal-name extraction, and constraint checking all want structure, and every call site re-parsed the string ad hoc (the bug origin).
+
+**Why a structured IR + one resolver:** A `ty::Type` value carries the structure (nominal name, type arguments, pointer levels) directly, with `parse` / `str` / `substitute` / `nominalName` as the operations every phase needs — so substitution and nominal-name extraction happen once, in one place, instead of being re-derived by each ad-hoc string strip. Making the type checker the sole resolver and having codegen consume its table means there is exactly **one** answer for any expression's type. `ty::Type::parse` is the single grammar interpreter both phases share, which structurally closes the two-evaluator divergence risk. The migration was behavior-preserving (gated by the golden-IR oracle) and, once the single resolver landed, fixed the three latent miscompiles above.
 
 ---
 

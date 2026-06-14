@@ -258,7 +258,11 @@ x -= 3;    // x = 12
 x *= 2;    // x = 24
 x /= 4;    // x = 6
 x %= 4;    // x = 2
-x = x >> 1; // x = 1  (compound bitwise assignment like >>= is not supported)
+x &= 0x3;  // x = 2
+x |= 0x1;  // x = 3
+x ^= 0x2;  // x = 1
+x <<= 3;   // x = 8
+x >>= 1;   // x = 4
 ```
 
 ### Address-of and dereference
@@ -527,6 +531,47 @@ In LLVM IR this becomes `[858 x i8]` — no heap allocation required.
 
 ---
 
+## Enums and `match`
+
+A plain `enum` is a set of named integer constants, like C:
+
+```eskiu
+enum Color  { Red, Green, Blue }            // 0, 1, 2
+enum Status { Ok = 0, Err = 2, Pending }    // 0, 2, 3
+
+let c: Color = Green;            // c == 1
+```
+
+When one or more variants carry a **payload**, the enum becomes an algebraic data type — a tagged union. Variants are constructed by name and destructured with `match`:
+
+```eskiu
+extern int printf(string fmt, ...);
+
+enum Shape {
+    Circle(float),
+    Rect(float, float),
+    Unit,                       // a payload-free variant
+}
+
+float area(Shape s) {
+    match s {
+        Circle(r)  -> return 3.14 * r * r;
+        Rect(w, h) -> return w * h;          // payload fields bind to w, h
+        _          -> return 0.0;            // `_` matches the rest
+    }
+}
+
+int main() {
+    Shape a = Circle(2.0);
+    printf("%f\n", area(a));
+    return 0;
+}
+```
+
+A `match` must be **exhaustive**: every variant needs an arm, or there must be a `_` default. Algebraic enums may also be generic (`enum Option<T> { None, Some(T) }`) and are monomorphized per instantiation. See spec §8.7 for the full rules.
+
+---
+
 ## Templates
 
 ### Template structs
@@ -606,6 +651,23 @@ int main() {
     return 0;
 }
 ```
+
+### Bounded generics (constraints)
+
+A type parameter can require that its concrete type satisfy one or more interfaces, written after a colon. The constraint is checked at the instantiation site, not deep in codegen:
+
+```eskiu
+interface Ord {
+    int cmp(*Self other);
+}
+
+T max<T: Ord>(T a, T b) {
+    if (a.cmp(&b) > 0) { return a; }
+    return b;
+}
+```
+
+Use `+` to require several interfaces at once (`<K: Hashable + Eq, V>`). A struct satisfies a constraint by defining the interface's methods. A primitive type has no methods, so it satisfies a constraint through a **free function** named like the interface method whose first parameter is that primitive — e.g. `int cmp(int, int)` makes `int` satisfy `Ord`. See spec §10.6 for the full rules.
 
 ---
 
@@ -816,6 +878,8 @@ Available modules:
 | ------------------- | ----------------------------------------------------- |
 | `<result>`   | `Result<T,E>`, `Ok<T,E>()`, `Err<T,E>()`             |
 | `<list>`     | `List<T>` — `List_init`, `push`, `get`, `len`, `free` |
+| `<map>`      | `Map<V>` — string-keyed hash map (`Map_init`/`_at`/`_get`/`_free`); `HashMap<K,V>` — keyed on any type via `hash`/`eq` function pointers |
+| `<bytes>`    | `Bytes` — growable, binary-safe byte buffer (`_init`/`_push`/`_append`/`_slice`/`_eq`/`_from_str`, plus base64 round-trip) |
 | `<string>`   | `String` — `init`, `from`, `append`, `concat`, `cstr`, `len`, `free`, `starts_with`, `ends_with`, `trim`, `split`, `next_token` |
 | `<math>`     | `sqrt`, `fabs`, `pow`, `floor`, `ceil`, `abs`         |
 | `<io>`       | `printf`, `fprintf`, `sprintf`, `scanf`, `puts`       |
@@ -832,6 +896,7 @@ Available modules:
 | `<net>`      | TCP sockets — `net_tcp_listen`, `net_accept`, `net_tcp_connect`, `net_send`, `net_recv`, `net_close` |
 | `<http>`     | HTTP/1.1 — `HttpRequest`/`HttpResponse`, threaded `http_serve(port, workers, handler)` |
 | `<json>`     | `Json` builder + `json_parse` → `JsonValue` tree |
+| `<multipart>`| extract a named part from a `multipart/form-data` body — `multipart_boundary`, `multipart_part` |
 | `<base64>`   | `base64_encode` / `base64_decode` over byte buffers |
 | `<time>`     | `time_now_ms`, `time_now_s`, `time_monotonic_ms`, `sleep_ms` |
 | `<env>`      | `env_get`, `env_has`, `env_get_or`, `env_get_int` |

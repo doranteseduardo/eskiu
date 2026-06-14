@@ -13,10 +13,11 @@
 
 ---
 
-Eskiu is a statically typed systems language that compiles to native code via LLVM. C-style syntax, structural interfaces, templates, async/await, sum types with `match`, and memory you manage yourself.
+Eskiu is a statically typed systems language that compiles to native code via LLVM. C-style syntax, structural interfaces, templates with bounded generics, async/await, sum types with `match`, and memory you manage yourself.
 
 - **v0.1** — a bare-metal ARM64 kernel boots in QEMU without libc.
-- **v0.2** — the same language runs an HTTP/2 server with TLS ([example](examples/http2_tls_server.esk)).
+- **v0.2** — the same language runs an HTTP/2 server with TLS ([example](examples/http2_tls_server.esk)), with async/await, sum types, generics, and a standard library.
+- **v0.2.1–0.2.4** — a growing stdlib (`<bytes>`, `HashMap<K,V>`), bounded generics (`<T: Iface>`, `<T: A + B>`) checked at instantiation, a generative differential fuzzer, and a structured type IR that makes the type checker the single resolver.
 
 <p align="center">
   <img src="assets/kernel.png" alt="Eskiu kernel running in QEMU" width="320">
