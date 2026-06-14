@@ -11,6 +11,11 @@ verifier) and treats three outcomes as findings:
              failed").  A miscompile the verifier caught — exactly the class that
              the sret-argument bug fell into.
   HANG     — the compiler exceeded the timeout.
+  DIFF     — a verifier-clean program produced DIFFERENT runtime output at -O0 vs
+             -O2 (the differential oracle below).  A miscompile the verifier
+             missed: valid IR, wrong semantics that the optimizer diverged on.
+  BUILDFAIL— clang could not build the emitted IR at some -O level (IR the LLVM
+             verifier accepted but the real pipeline rejects).
 
 A clean rejection (exit non-zero with an `error:` diagnostic) is NOT a finding —
 the compiler is allowed to reject bad programs.
@@ -263,37 +268,132 @@ def classify(eskiuc, src, timeout=15):
     return ("OK", "")
 
 
+# ── Differential oracle (O0 vs O2) ──────────────────────────────────────────────
+#
+# A program that passes the IR verifier can still be *miscompiled* — valid IR
+# with wrong semantics. The verifier won't catch that, but LLVM's optimizer will
+# often diverge on it: if eskiuc emits IR with latent UB (poison, bad attributes,
+# aliasing the optimizer is allowed to exploit), -O2 produces different runtime
+# behavior than -O0. So: emit the IR once, compile it BOTH at -O0 and -O2 with
+# clang, run both, and compare (stdout, exit code). Divergence = a real bug.
+#
+# Only applied to *un-mutated generated* programs — they are UB-free by
+# construction (always-initialized, no OOB, wrapping arithmetic), so any O0/O2
+# divergence is the compiler's fault, not the program's. (Mutated programs can
+# introduce genuine UB, which would diverge legitimately = false positives.)
+
+def find_clang():
+    import shutil
+    cand = os.environ.get("ESKIU_CLANG")
+    if cand:
+        # accept either a full path or a bare command name (e.g. "clang-22")
+        return cand if os.path.exists(cand) else shutil.which(cand)
+    for name in ("clang", "clang-22", "clang-21", "clang-20"):
+        p = shutil.which(name)
+        if p:
+            return p
+    # Homebrew LLVM (matches the toolchain eskiuc itself emits for)
+    for p in ("/opt/homebrew/opt/llvm/bin/clang", "/usr/local/opt/llvm/bin/clang"):
+        if os.path.exists(p):
+            return p
+    return None
+
+def emit_ir(eskiuc, src, timeout=15):
+    """Compile to IR via --test-codegen and return the textual module, or None."""
+    import tempfile
+    with tempfile.NamedTemporaryFile("w", suffix=".esk", delete=False) as f:
+        f.write(src); path = f.name
+    try:
+        p = subprocess.run([eskiuc, "--test-codegen", path],
+                           capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        os.unlink(path); return None
+    os.unlink(path)
+    # The IR is printed between the two "====" banner separators.
+    lines, depth, ir = (p.stdout or "").split("\n"), 0, []
+    for ln in lines:
+        if ln.startswith("===="):
+            depth += 1; continue
+        if depth == 1:
+            ir.append(ln)
+    return "\n".join(ir) if ir else None
+
+def run_bin(path, timeout=10):
+    try:
+        r = subprocess.run([path], capture_output=True, text=True, timeout=timeout)
+        return (r.stdout, r.returncode)
+    except subprocess.TimeoutExpired:
+        return (None, "timeout")
+
+def differential(clang, ir, timeout=15):
+    """Return ('DIFF'|'BUILDFAIL'|'OK', detail). Requires UB-free input."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        llp = os.path.join(d, "p.ll")
+        with open(llp, "w") as f: f.write(ir)
+        outs = {}
+        for lvl in ("O0", "O2"):
+            binp = os.path.join(d, lvl)
+            try:
+                c = subprocess.run([clang, f"-{lvl}", "-x", "ir", llp, "-o", binp, "-lm"],
+                                   capture_output=True, text=True, timeout=timeout)
+            except subprocess.TimeoutExpired:
+                return ("BUILDFAIL", f"clang -{lvl} timed out")
+            if c.returncode != 0:
+                # clang rejected verifier-passing IR — itself a finding.
+                return ("BUILDFAIL", f"clang -{lvl}: {(c.stderr or '')[-300:]}")
+            outs[lvl] = run_bin(binp)
+        if outs["O0"] != outs["O2"]:
+            return ("DIFF", f"O0={outs['O0']!r} O2={outs['O2']!r}")
+        return ("OK", "")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--iterations", type=int, default=1000)
     ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("--eskiuc", default=os.environ.get("ESKIUC", str(ROOT / "build" / "eskiuc")))
+    ap.add_argument("--no-differential", action="store_true",
+                    help="skip the O0-vs-O2 runtime differential (auto-skipped if clang is absent)")
     args = ap.parse_args()
     if args.seed is not None: random.seed(args.seed)
 
     if not os.path.exists(args.eskiuc):
         print(f"error: eskiuc not found at {args.eskiuc}", file=sys.stderr); sys.exit(2)
 
+    clang = None if args.no_differential else find_clang()
+    if not args.no_differential and not clang:
+        print("note: clang not found — running without the O0/O2 differential oracle")
+
     seeds = [open(p).read() for p in glob.glob(str(TESTS / "*.esk"))]
     FINDINGS.mkdir(exist_ok=True)
     findings = 0
 
     for it in range(args.iterations):
+        mutated = False
         if random.random() < 0.35 or not seeds:           # generation
             src = random.choice(GENERATORS)()
             # half the time, also mutate the generated program — combines
             # structural diversity with literal/type/line edge-poking.
             if random.random() < 0.5:
+                mutated = True
                 for _ in range(random.randint(1, 2)):
                     m = random.choice(MUTATORS)(src)
                     if m is not None: src = m
         else:                                              # mutation
+            mutated = True
             src = random.choice(seeds)
             for _ in range(random.randint(1, 3)):
                 m = random.choice(MUTATORS)(src)
                 if m is not None: src = m
 
         kind, detail = classify(args.eskiuc, src)
+        if kind == "OK" and clang and not mutated:
+            # un-mutated generated program: UB-free, so an O0/O2 runtime
+            # divergence (or IR clang can't build) is the compiler's fault.
+            ir = emit_ir(args.eskiuc, src)
+            if ir:
+                kind, detail = differential(clang, ir)
         if kind != "OK":
             findings += 1
             fn = FINDINGS / f"{kind.lower()}_{it}.esk"

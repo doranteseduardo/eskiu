@@ -43,7 +43,8 @@ jobs:
         run: CC=clang-22 SANITIZE=asan tests/run.sh
 
       # Bounded, deterministic fuzz pass: generates/mutates programs and fails on
-      # any compiler crash, IR-verifier failure, or sanitizer abort. Fixed seed
-      # so a green run is reproducible; raise --iterations for a longer nightly.
+      # any compiler crash, IR-verifier failure, or O0-vs-O2 runtime divergence.
+      # ESKIU_CLANG enables the differential oracle (clang installed as clang-22).
+      # Fixed seed so a green run is reproducible; raise --iterations for nightly.
       - name: Fuzz (compiler)
-        run: python3 tests/fuzz/eskiu_fuzz.py --iterations 1500 --seed 1
+        run: ESKIU_CLANG=clang-22 python3 tests/fuzz/eskiu_fuzz.py --iterations 1500 --seed 1
