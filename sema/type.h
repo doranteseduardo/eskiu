@@ -72,6 +72,14 @@ struct Type {
     bool isFn()        const { return kind == Kind::Fn; }
     bool isArray()     const { return kind == Kind::Array; }
     bool isParam()     const { return kind == Kind::Param; }
+    // The undecorated nominal name: strips pointers and the struct:/interface:
+    // decoration to the bare name used for method-mangling / registry lookups.
+    // (`*struct:Point` → "Point", "struct:List_int" → "List_int", "int" → "int".)
+    // Replaces the hand-rolled "strip struct: then leading/trailing *" surgery.
+    std::string nominalName() const {
+        if (kind == Kind::Pointer) return pointee->nominalName();
+        return name;   // Struct/Interface/Named/Param/Template base, or leaf spelling
+    }
     bool isPrimitive() const {
         switch (kind) {
             case Kind::Int: case Kind::Float: case Kind::Bool:

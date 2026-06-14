@@ -155,12 +155,11 @@ void TypeChecker::checkConstraints(ASTNode* node,
         auto sit = subs.find(kv.first);
         if (sit == subs.end()) continue;
         std::string concrete = sit->second;
-        // Normalize first (List<int> → struct:List_int), then strip the
-        // struct:/pointer decoration to the bare name used in method mangling.
-        std::string bare = normalizeType(concrete);
-        if (bare.size() > 7 && bare.compare(0, 7, "struct:") == 0) bare = bare.substr(7);
-        while (!bare.empty() && bare.front() == '*') bare = bare.substr(1);
-        while (!bare.empty() && bare.back() == '*') bare.pop_back();
+        // Normalize first (List<int> → struct:List_int), then take the bare
+        // nominal name used in method mangling. The strip used to be hand-rolled
+        // here (and got the struct: ordering wrong once) — now it's the structured
+        // Type's nominalName(), which can't be gotten wrong.
+        std::string bare = ty::Type::parse(normalizeType(concrete)).nominalName();
         for (const auto& ic : kv.second) {
             auto iit = interfaceDecls.find(ic);
             if (iit == interfaceDecls.end()) {
