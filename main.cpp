@@ -87,7 +87,7 @@ static llvm::cl::opt<bool> Asan("asan",
 static llvm::cl::opt<bool> Ubsan("ubsan",
     llvm::cl::desc("Instrument with bounds checking (traps on out-of-bounds access)"));
 
-const char* VERSION = "0.2.2";
+const char* VERSION = "0.2.3";
 
 // `eskiuc run`: set when argv[1] == "run". The program is compiled to a
 // temporary executable, run with g_runArgs, then deleted (see main()).

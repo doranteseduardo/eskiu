@@ -7,6 +7,42 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
+## [0.2.3] — 2026-06-14
+
+Completing bounded generics, plus a typed internal type representation that
+replaces ad-hoc type-string surgery — the foundation for keeping the compiler
+sound as it grows.
+
+### Bounded generics — primitives can satisfy a constraint
+- A primitive type now satisfies a constraint through a **free function** named
+  like the interface method whose first parameter is that primitive — e.g.
+  `int cmp(int, int)` makes `int` satisfy `interface Ord { int cmp(Self) }`. Inside
+  a generic body a constrained call `t.cmp(x)` on such a `t` lowers to `cmp(t, x)`.
+  So `max<T: Ord>(int…)` and a constraint-bounded map over `int` keys now compile.
+  Closes the method-only seam; the fn-pointer `HashMap<K,V>` remains for explicit
+  `hash`/`eq`. Sema and codegen are gated in lockstep (scalar primitives only).
+
+### Typed `Type` representation (soundness foundation, no behavior change)
+- **`sema/type.{h,cpp}` — a structured `ty::Type` IR** (a tagged value with
+  `parse`/`str`/`substitute`/`nominalName`), the typed replacement for the
+  `std::string` type surgery that was scattered across ~175 call sites. Types
+  still travel as canonical strings at the boundaries; the IR is the manipulation
+  form, so invariants are enforced by the type instead of by convention (which is
+  what produced the earlier `checkConstraints` `struct:`-ordering bug).
+- **Migrated onto it:** `substType` (now `Type::substitute`) and the duplicated
+  "strip `struct:` + pointers → bare name" surgery at six sema sites — including
+  the exact `checkConstraints` strip that caused that bug, which no longer exists.
+- **A golden-IR oracle** (`tests/type_zoo/snapshot.sh`) snapshots the emitted IR
+  over a 24-program type-zoo and asserts byte-identical output across the
+  migration — every step above is verified behavior-preserving by it, plus the
+  suite, sanitizers, and the differential fuzzer. A standalone round-trip unit
+  test (`tests/type_roundtrip/`) checks `parse(s).str() == s` over the grammar.
+- The registry-coupled `normalizeType`/`unifyTypeParam` and the cross-phase
+  consolidation (codegen consuming resolved `Type`s rather than re-deriving from
+  strings) are intentionally left for a later step — they are not string surgery.
+
+---
+
 ## [0.2.2] — 2026-06-13
 
 Exclusively hardening + traits — no new stdlib surface. The goal: make the

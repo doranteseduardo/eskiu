@@ -24,6 +24,7 @@ set(SOURCES
     parser/parse_expr.cpp
     ast/ast.cpp
     ast/ast_printer.cpp
+    sema/type.cpp
     sema/type_checker.cpp
     sema/typecheck_decl.cpp
     sema/typecheck_stmt.cpp

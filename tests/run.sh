@@ -27,6 +27,8 @@ here="$(cd "$(dirname "$0")" && pwd)"
 root="$(cd "$here/.." && pwd)"
 ESKIUC="${ESKIUC:-$root/build/eskiuc}"
 CC="${CC:-clang}"
+# C++ driver for the unit tests: derive from CC (clang-22 → clang++-22) unless set.
+CXX="${CXX:-${CC/clang/clang++}}"
 LDFLAGS="-lc++ -lpthread -lm"
 
 # Hardening gate: SANITIZE=asan|ubsan compiles every positive test with the
@@ -135,6 +137,21 @@ for esk in "$here"/*.esk; do
         bad "fmt/$name" "fmt is not idempotent"
     fi
 done
+
+# ---- C++ unit tests -------------------------------------------------------
+# The typed `Type` IR (sema/type.{h,cpp}) is a standalone, dependency-free unit;
+# its round-trip invariant (parse(s).str()==s) is checked here.
+echo "Unit tests:"
+rt_src="$here/type_roundtrip/roundtrip_test.cpp"
+if [ -f "$rt_src" ]; then
+    if "${CXX:-clang++}" -std=c++17 "$rt_src" "$root/sema/type.cpp" -I"$root/sema" \
+            -o "$work/type_roundtrip" 2>"$work/rt_cerr"; then
+        if "$work/type_roundtrip" >/dev/null 2>&1; then ok "unit/type_roundtrip"
+        else bad "unit/type_roundtrip" "round-trip assertions failed"; fi
+    else
+        bad "unit/type_roundtrip" "compile failed: $(head -1 "$work/rt_cerr")"
+    fi
+fi
 
 # ---- summary --------------------------------------------------------------
 echo
