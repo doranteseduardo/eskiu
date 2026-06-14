@@ -15,7 +15,9 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
 set(SOURCES
     main.cpp
+    main_support.cpp
     lexer/lexer.cpp
+    lexer/preprocessor.cpp
     parser/parser.cpp
     parser/parse_decl.cpp
     parser/parse_stmt.cpp
