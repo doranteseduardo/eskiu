@@ -187,11 +187,8 @@ void TypeChecker::visit(CallExpr* node) {
     // Method call: callee is MemberExpr (e.g. p.distance(q))
     if (auto member = dynamic_cast<MemberExpr*>(node->callee.get())) {
         member->base->accept(this);
-        std::string baseType = getExpressionType(member->base.get());
-        if (baseType.size() > 7 && baseType.substr(0, 7) == "struct:") baseType = baseType.substr(7);
-        // Strip pointer decorators so *Rect and Rect both resolve to Rect_method
-        while (!baseType.empty() && baseType.front() == '*') baseType = baseType.substr(1);
-        while (!baseType.empty() && baseType.back()  == '*') baseType.pop_back();
+        // bare nominal: *Rect and Rect both resolve to Rect_method
+        std::string baseType = ty::Type::parse(getExpressionType(member->base.get())).nominalName();
 
         std::string mangled = baseType + "_" + member->member;
         auto mit = functionSignatures.find(mangled);
