@@ -31,6 +31,9 @@ set(SOURCES
     codegen/codegen_decl.cpp
     codegen/codegen_stmt.cpp
     codegen/codegen_expr.cpp
+    codegen/codegen_call.cpp
+    codegen/codegen_closure.cpp
+    codegen/codegen_adt.cpp
 )
 
 add_executable(eskiuc ${SOURCES})
