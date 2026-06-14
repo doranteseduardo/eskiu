@@ -69,10 +69,7 @@ void TypeChecker::visit(ForInStmt* node) {
         node->isArrayIter = true;
         node->arrayDim = itType.substr(lb + 1, itType.size() - lb - 2);
     } else {
-        std::string s = itType;
-        if (s.rfind("struct:", 0) == 0) s = s.substr(7);
-        while (!s.empty() && s.front() == '*') s = s.substr(1);
-        while (!s.empty() && s.back()  == '*') s.pop_back();
+        std::string s = ty::Type::parse(itType).nominalName();
         auto it = structs.find(s);
         if (it != structs.end()) {                           // List-like struct
             bool hasSize = false; std::string dataType;

@@ -133,10 +133,7 @@ static bool structSatisfiesInterface(
             "uint64","char","bool","float","double"};
         auto fit = funcs.find(method.name);
         if (kScalarPrims.count(structName) && fit != funcs.end() && !fit->second.second.empty()) {
-            std::string p0 = fit->second.second[0];
-            if (p0.size() > 7 && p0.compare(0, 7, "struct:") == 0) p0 = p0.substr(7);
-            while (!p0.empty() && p0.front() == '*') p0 = p0.substr(1);
-            while (!p0.empty() && p0.back()  == '*') p0.pop_back();
+            std::string p0 = ty::Type::parse(fit->second.second[0]).nominalName();
             if (p0 == structName) continue;
         }
         return false;
@@ -193,11 +190,7 @@ bool TypeChecker::isValidAssignment(const std::string& lhsType, const std::strin
     // Interface satisfaction: assigning a struct to an interface type
     auto ifaceIt = interfaceDecls.find(lhs);
     if (ifaceIt != interfaceDecls.end()) {
-        std::string structName = rhs;
-        // Strip leading * and struct: prefix to get bare struct name
-        if (!structName.empty() && structName.front() == '*') structName = structName.substr(1);
-        if (structName.size() > 7 && structName.substr(0, 7) == "struct:") structName = structName.substr(7);
-        while (!structName.empty() && structName.back() == '*') structName.pop_back();
+        std::string structName = ty::Type::parse(rhs).nominalName();
         if (structSatisfiesInterface(functionSignatures, structName, ifaceIt->second))
             return true;
     }
