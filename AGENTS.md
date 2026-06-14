@@ -53,7 +53,7 @@ Use `examples/` and `tests/` as inputs. Add a `.esk` file for any feature you im
 | `ast/ast.h` | All AST node types + `ASTVisitor` interface. |
 | `ast/ast.cpp` | `accept()` definitions. |
 | `ast/ast_printer.cpp` | Pretty-printer (`--test-parser`). |
-| `sema/` | Type checker, split into `type_checker.cpp` (core: `check`, scope, LSP, errors) + `typecheck_{decl,stmt,expr,type}.cpp` (all `TypeChecker` members sharing `type_checker.h`). `sema/async_transform.cpp` is the async lowering pass. |
+| `sema/` | Type checker, split into `type_checker.cpp` (core: `check`, scope, LSP, errors) + `typecheck_{decl,stmt,expr,type}.cpp` (all `TypeChecker` members sharing `type_checker.h`). `sema/type.{h,cpp}` is the structured `ty::Type` IR (parse/str/substitute/nominalName) — the typed replacement for ad-hoc type-string surgery; `substType` and the sema bare-name strips delegate to it. `sema/async_transform.cpp` is the async lowering pass. |
 | `codegen/` | LLVM IR via `IRBuilder`. Split into `codegen_{module,type,scope,decl,stmt}.cpp` + `codegen_{expr,call,closure,adt}.cpp` (all `CodeGen` members sharing `codegen.h`). |
 | `main.cpp` | CLI entry point + phase dispatch. `main_support.cpp` (decl in `main_support.h`) holds the cl::opt-free driver utilities: filesystem/path, `fmt`, the C-linker driver + runner, and `loadProgram`. |
 | `stdlib/` | Eskiu stdlib modules (`result.esk`, `list.esk`, etc.). |
@@ -114,7 +114,7 @@ with `match`, and the concurrent stdlib.
 | v0.2.0 | async/await, HTTP/1.1 + HTTP/2 + HPACK + TLS, sum types + `match`, allocators, the concurrent stdlib | ✅ |
 | v0.2.1 | codegen split into 6 files; sanitizer (asan/ubsan) CI gate; `<bytes>`; `HashMap<K,V>`; sret-arg + fn-type-substitution fixes | ✅ |
 | v0.2.2 | hardening (generative fuzzer with an O0-vs-O2 differential oracle + 4 codegen/sema fixes, CI fuzz gate); bounded generics `<T: Iface>` / `<T: A + B>` (method-based, checked at the instantiation site); compiler source modularized (type_checker / codegen_expr / parser / lexer / main split — no behavior change) | ✅ |
-| v0.2.3 | soundness + bounded-generics completion: primitives satisfy a constraint via a free function; typed `Type` representation replacing string-based types (staged, behavior-preserving) | 🚧 |
+| v0.2.3 | bounded-generics completion (primitives satisfy a constraint via a free function); typed `ty::Type` IR foundation (`sema/type.{h,cpp}`) — `substType` + the sema bare-name strips migrated to it, golden-IR oracle gating behavior-preservation. Cross-phase consolidation (codegen consuming resolved Types) deferred | ✅ |
 | v0.3 | Self-hosting prerequisites (LLVM C bindings, lexer/parser in Eskiu) | ❌ |
 | v1.0 | Package manager, self-hosting | ❌ |
 
