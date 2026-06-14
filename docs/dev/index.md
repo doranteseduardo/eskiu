@@ -46,9 +46,11 @@ Each test mode exits 0 on success and prints a human-readable dump to stdout. A 
 
 ---
 
-## Current State (v0.2.0)
+## Current State (v0.2.3)
 
-All compiler phases and editor tooling are complete and tested end-to-end. The language is feature-complete for the **v0.2.0 "backend services" release**: async/await, the full HTTP/2 stack (framing, HPACK with Huffman, streams and flow control, the multiplexed server, and TLS/ALPN), sum types with `match`, monomorphic generics, and the stdlib (allocators, threading, sockets, async runtime, JSON, and more).
+All compiler phases and editor tooling are complete and tested end-to-end. The **v0.2.0 "backend services" release** was feature-complete: async/await, the full HTTP/2 stack (framing, HPACK with Huffman, streams and flow control, the multiplexed server, and TLS/ALPN), sum types with `match`, monomorphic generics, and the stdlib (allocators, threading, sockets, async runtime, JSON, and more).
+
+Since then: **0.2.1** added `<bytes>` and `HashMap<K,V>` + miscompile fixes; **0.2.2** added **bounded generics** (`<T: Iface>` / `<T: A + B>`) plus a hardening pass (a generative fuzzer with an O0-vs-O2 differential oracle, in CI) and a source-modularization refactor; **0.2.3** extended bounded generics so a primitive satisfies a constraint via a free function, and introduced an internal typed `ty::Type` representation (behavior-preserving soundness foundation, gated by a golden-IR oracle).
 
 **v0.1.0** (the bare-metal systems foundation) is shipped and tagged: a cryptographic pipeline running entirely in Eskiu at 74 ms on arm64 — 2.5× faster than the reference C — plus an ARM64 kernel booting in QEMU without libc. v0.2.0 builds the concurrent-backend stack on top of that foundation.
 
