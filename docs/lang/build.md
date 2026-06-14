@@ -42,7 +42,7 @@ cmake --build build -- -j$(sysctl -n hw.logicalcpu)
 Expected output (last few lines):
 
 ```
-[ 85%] Building CXX object CMakeFiles/eskiuc.dir/codegen/codegen.cpp.o
+[ 85%] Building CXX object CMakeFiles/eskiuc.dir/codegen/codegen_expr.cpp.o
 [100%] Linking CXX executable eskiuc
 [100%] Built target eskiuc
 ```
@@ -168,7 +168,7 @@ source_filename = "eskiu_module"
 @0 = private unnamed_addr constant [19 x i8] c"Hello from Eskiu!\0A\00"
 @1 = private unnamed_addr constant [13 x i8] c"Result: %d\0A\00"
 
-declare i32 @printf(i8*, ...)
+declare i32 @printf(ptr, ...)
 
 define i32 @add(i32 %a, i32 %b) {
 entry:
@@ -236,7 +236,22 @@ The build links `support`, `core`, and `irreader`. If you see undefined symbols 
 
 ## Running Tests
 
-There is no automated test runner yet. The four `--test-*` modes serve as the manual test suite.
+The automated suite is driven by `tests/run.sh`, which compiles, links, and runs every
+`tests/*.esk` case (matching stdout against `*.expected`, smoke-running the rest, and
+checking that `tests/errors/*.esk` are rejected):
+
+```bash
+tests/run.sh                       # full suite against build/eskiuc
+ESKIUC=/path/eskiuc tests/run.sh   # point at a specific compiler
+```
+
+CI runs the suite three ways — plain, then under UBSan and ASan (`SANITIZE=ubsan` /
+`SANITIZE=asan`) as hardening gates — plus a generative fuzzer
+(`tests/fuzz/eskiu_fuzz.py`) that mutates programs and fails on any compiler crash,
+IR-verifier failure, or O0-vs-O2 runtime divergence (a differential oracle); a
+golden-IR oracle guards against unintended codegen changes.
+
+The four `--test-*` modes below expose individual compiler phases for manual inspection.
 
 ### `--test-lexer`
 
@@ -282,7 +297,7 @@ FunctionDecl: main
 
 ### `--test-typechecker`
 
-Runs semantic analysis. Prints nothing on success; prints typed errors on failure.
+Runs semantic analysis. Prints `Type checking succeeded!` on success, or typed errors on failure.
 
 ```bash
 ./build/eskiuc examples/hello.esk --test-typechecker
@@ -291,7 +306,10 @@ Runs semantic analysis. Prints nothing on success; prints typed errors on failur
 Expected output on a valid file:
 
 ```
-Type checking passed.
+Type checking: examples/hello.esk
+========================================================
+========================================================
+Type checking succeeded!
 ```
 
 Example error output for a type mismatch:

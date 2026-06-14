@@ -4,7 +4,7 @@
 
 Authoritative status reference for Eskiu compiler contributors.
 
-Last updated: 2026-06-08.
+Last updated: 2026-06-14.
 
 ---
 
@@ -74,6 +74,11 @@ The project follows two phases:
 | One-step linking — `eskiuc -o prog` invokes the system C toolchain | ✅ |
 | Multi-file compilation — `eskiuc a.esk b.esk -o prog` | ✅ |
 | `-Wall` warnings — unused vars/params/functions, assignment-in-condition | ✅ |
+| `<bytes>` and `HashMap<K,V>` stdlib (v0.2.1) | ✅ |
+| Bounded generics — `<T: Iface>` / `<T: A + B>` constraints (v0.2.2) | ✅ |
+| Primitives satisfy constraints via a free function (v0.2.3) | ✅ |
+| Structured `ty::Type` IR — `sema/type.{h,cpp}`, parse/str/substitute/nominalName (v0.2.3) | ✅ |
+| Single-resolver type unification — type checker resolves every expression type; codegen consumes the table (v0.2.4) | ✅ |
 | Package manager | ❌ |
 | Self-hosting | ❌ |
 
@@ -96,15 +101,16 @@ Compiler foundation proved on a real production workload: a cryptographic pipeli
 
 ## Roadmap
 
-### v0.1.0 — current release — COMPLETE
+### v0.1.0 — systems foundation — SHIPPED
 
 Everything in the feature table above ships in v0.1.0: the full systems language plus closures, threads, exceptions (`try`/`catch`/`finally`/`throw`), enums, unions, bitfields, type aliases, the preprocessor, one-step linking, multi-file builds, and `-Wall`. Ergonomics round it out: structural template-argument inference (including composite parameters like `List<T>*`), `for`-`in` iteration over arrays and lists, the `?` error-propagation operator for `Result<T,E>`, a rich mutable `String` type, packed structs, function-as-value decay, and a `<net>` TCP sockets module (with an HTTP server example). A bare-metal ARM64 kernel written in Eskiu boots in QEMU (`-M virt`) on the PL011 UART — without libc or a C runtime — and the cryptographic pipeline above runs 2.5× faster than the reference C. This is the first release.
 
-### v0.2.0 — Backend services
+### v0.2.0 — Backend services — SHIPPED
 
 The theme is making Eskiu a practical language for concurrent backend services:
 real async I/O, an HTTP stack, and the everyday stdlib + tooling that adoption
-needs. v0.1.0 is frozen at its tag; v0.2.0 ships the items below.
+needs. v0.1.0 is frozen at its tag; v0.2.0 shipped the items below. The current
+release is **v0.2.4** (see the post-0.2.0 hardening section that follows).
 
 Tracking checklist (checked = landed on `develop`).
 
@@ -160,6 +166,30 @@ Phase 3 rounds out ergonomics and tooling.
 - [x] Formal, complete BNF grammar — `docs/lang/grammar.md` (EBNF: lexical structure, preprocessor, declarations, types, statements, full expression precedence), derived from the parser
 - [x] Documented ABI — `docs/dev/abi.md` (scalar/pointer lowering, const has no ABI effect, struct/packed/bitfield/union layout, ADT tagged unions, sret >16 B rule, varargs + `va_list`, fat pointers for closures/interfaces, template mangling)
 - [x] `__FILE__` / `__LINE__` reference — expanded the predefined-macros section of spec.md §18 (per-line `__LINE__`, per-file `__FILE__`, OS + freestanding macros, shebang interaction)
+
+### Post-0.2.0 hardening / reinforcement (v0.2.1 – v0.2.4) — current release v0.2.4
+
+With the backend-services stack shipped, the theme shifted from new features to
+**reinforcing the language**: hardening, maintainability, and type soundness.
+Feature freeze on the surface language; the work below is internal robustness
+plus a few generics extensions.
+
+**v0.2.1**
+- [x] `<bytes>` and `HashMap<K,V>` stdlib types
+- [x] Source modularization — split the monolithic codegen into `codegen/codegen_{module,type,scope,decl,stmt,expr,call,closure,adt}.cpp` (and similar splits for sema/parser/lexer/main)
+- [x] **asan/ubsan CI gate** — `--asan` / `--ubsan` run on the test corpus in CI
+- [x] Miscompile fixes surfaced by the new gates
+
+**v0.2.2**
+- [x] **Bounded generics** — `<T: Iface>` and multi-bound `<T: A + B>` constraints, checked at instantiation
+- [x] **Generative + mutation fuzzer** — `tests/fuzz/eskiu_fuzz.py` with an **O0-vs-O2 differential oracle** (divergence between optimization levels flags a miscompile), wired into CI
+
+**v0.2.3**
+- [x] **Primitives satisfy constraints** — a primitive type can satisfy a bounded-generic constraint via a free function (not only a struct method)
+- [x] **`ty::Type` IR** — a structured type representation in `sema/type.{h,cpp}` (`parse` / `str` / `substitute` / `nominalName`); behavior-preserving soundness foundation, gated by the golden-IR oracle `tests/type_zoo/snapshot.sh` + `tests/type_zoo/golden/`
+
+**v0.2.4**
+- [x] **Single-resolver type unification** — the type checker is the one type resolver: it produces a per-expression `ty::Type` table that codegen consumes (codegen no longer re-derives expression types). `getTypeFromString` dispatches on `ty::Type::parse`, the single grammar interpreter shared by both phases. This closed the two-evaluator miscompile risk and fixed three latent miscompiles (float-literal `double`, pointer-deref width, `char` zero-extension)
 
 ### v0.3 — Self-hosting prerequisites
 

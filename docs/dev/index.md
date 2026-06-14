@@ -38,7 +38,7 @@ Each test mode exits 0 on success and prints a human-readable dump to stdout. A 
 | ------------------- | ---------------------------------------------------------------------------------------------- |
 | `architecture.md`   | Pipeline stages, AST node hierarchy, visitor pattern, type mappings (Eskiu → LLVM)             |
 | `abi.md`            | Type lowering, calling convention (sret, varargs), fat pointers, name mangling — the C-ABI contract |
-| `phases.md`         | Phase status (0–8), current feature table, roadmap (v0.2 → v1.0)                              |
+| `phases.md`         | Current language status, feature table, and roadmap (v0.1 shipped → v0.2.x hardening → v1.0)  |
 | `contributing.md`   | Branch workflow, code style, commit conventions, testing checklist                             |
 | `design.md`         | Rationale for key decisions: C-style syntax, no GC, implicit interfaces, monomorphic templates |
 | `debugging.md`      | How each `--test-*` mode works, error message format, common failure patterns                  |
@@ -62,16 +62,19 @@ The VS Code extension provides real-time error squiggles, hover type info, and g
 
 | Component      | Location                | Responsibility                                                                          |
 | -------------- | ----------------------- | --------------------------------------------------------------------------------------- |
-| Lexer          | `lexer/`                | Converts source text to a token stream with line/column tracking                        |
-| Parser         | `parser/`               | Recursive-descent; produces a typed AST from the token stream                          |
+| Lexer          | `lexer/lexer.cpp`, `lexer/preprocessor.cpp` | Converts source text to a token stream with line/column tracking; runs the preprocessor pass first |
+| Parser         | `parser/parser.cpp` + `parse_{decl,stmt,expr}.cpp` (`parser_internal.h`) | Recursive-descent; produces a typed AST from the token stream |
 | AST            | `ast/ast.h`             | All node types; visitor interface used by every downstream pass                         |
-| Type checker   | `sema/type_checker.cpp` | Scope resolution, type inference, struct registry, interface satisfaction, signatures   |
-| Code generator | `codegen/codegen.cpp`   | Walks the AST via visitor, emits LLVM IR using `llvm::IRBuilder<>`; handles GEP, vtable dispatch, and monomorphic template instantiation |
-| Entry point    | `main.cpp`              | CLI dispatch; routes `--test-*` flags to the appropriate pass and drives object emission |
+| Type checker   | `sema/type_checker.cpp` + `typecheck_{decl,stmt,expr,type}.cpp`; the `ty::Type` IR in `sema/type.{h,cpp}` | Scope resolution, type inference, struct registry, interface satisfaction, signatures; the **single type resolver** — produces a per-expression `ty::Type` table that codegen consumes |
+| Async transform | `sema/async_transform.cpp` | Rewrites each `async fn` into a frame struct + resume function + `*Future<T>` constructor (ordinary AST that normal codegen handles) |
+| Code generator | `codegen/codegen_{module,type,scope,decl,stmt,expr,call,closure,adt}.cpp`, `codegen.h` (no single `codegen/codegen.cpp`) | Walks the AST via visitor, emits LLVM IR using `llvm::IRBuilder<>`; handles GEP, vtable dispatch, and monomorphic template instantiation; consumes the type checker's resolved type table |
+| Entry point    | `main.cpp` + `main_support.cpp` | CLI dispatch; routes `--test-*` flags to the appropriate pass and drives object emission |
+
+**Pipeline.** lexer → parser → type checker → async transform → **type checker RE-RUN on the transformed AST (the single resolver, producing a per-expression `ty::Type` table)** → codegen (consumes that table; `getTypeFromString` dispatches on `ty::Type::parse`, the one grammar interpreter — codegen does not re-derive expression types).
 
 **Where to look first:**
 
-- Adding a new statement or expression type: `ast/ast.h` → `parser/` → `sema/type_checker.cpp` → `codegen/codegen.cpp`, in that order.
-- Fixing a type error: start in `sema/type_checker.cpp`; the struct registry and scope stack are both local to that file.
-- Wrong IR output: run with `--test-codegen` and inspect the IR; the visitor method for the relevant AST node is in `codegen/codegen.cpp`.
+- Adding a new statement or expression type: `ast/ast.h` → `parser/` → `sema/` (`type_checker.cpp` + the `typecheck_*.cpp` split) → `codegen/`, in that order.
+- Fixing a type error: start in `sema/type_checker.cpp` and the `typecheck_*.cpp` split; the struct registry and scope stack are both local to those files.
+- Wrong IR output: run with `--test-codegen` and inspect the IR; the visitor method for the relevant AST node is in the relevant `codegen/codegen_*.cpp`.
 - Tracing a diagnostic: error messages include file, line, and column; the source location is threaded through every AST node from the lexer onward.
