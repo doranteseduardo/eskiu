@@ -455,7 +455,10 @@ void TypeChecker::visit(LiteralExpr* node) {
             expressionTypes[node] = "int";
             break;
         case LiteralExpr::Kind::FLOAT:
-            expressionTypes[node] = "float";
+            // A float literal lowers to a `double` constant (the lexer has no
+            // float/double distinction; codegen emits ConstantFP::getDoubleTy).
+            // Sema previously said "float" — a latent disagreement with codegen.
+            expressionTypes[node] = "double";
             break;
         case LiteralExpr::Kind::STRING:
             expressionTypes[node] = "string";
