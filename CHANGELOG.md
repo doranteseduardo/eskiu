@@ -40,6 +40,20 @@ compiler trustworthy and close the generics gap before the self-hosting arc.
   must be a struct with the methods; primitive keys still use the fn-pointer
   `HashMap<K,V>` from 0.2.1.)
 
+### Hardening + maintainability (0.2.2 re-cut, no behavior change)
+- **Fuzzer: O0-vs-O2 differential oracle.** The fuzzer now also builds each
+  verifier-clean generated program at `-O0` and `-O2` with clang and compares the
+  runtime output — a divergence is a miscompile the IR verifier can't catch
+  (valid IR, wrong semantics). Plus four more generators (ADT enums + `match`,
+  capturing closures, async/await across control flow, nested structs) and
+  mutation of generated programs. Wired into CI.
+- **Compiler source modularized.** The three ~2,000-line files were split, with no
+  behavior change: `sema/type_checker.cpp` → `typecheck_{decl,stmt,expr,type}.cpp`;
+  `codegen/codegen_expr.cpp` → `codegen_{call,closure,adt}.cpp`; `parser/parser.cpp`
+  → `parse_{decl,stmt,expr}.cpp`; the lexer's preprocessor pass into
+  `lexer/preprocessor.cpp`; and `main.cpp`'s driver utilities into `main_support.cpp`.
+  No source file exceeds ~760 lines.
+
 ---
 
 ## [0.2.1] — 2026-06-13
