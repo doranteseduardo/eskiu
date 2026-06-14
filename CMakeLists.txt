@@ -20,6 +20,10 @@ set(SOURCES
     ast/ast.cpp
     ast/ast_printer.cpp
     sema/type_checker.cpp
+    sema/typecheck_decl.cpp
+    sema/typecheck_stmt.cpp
+    sema/typecheck_expr.cpp
+    sema/typecheck_type.cpp
     sema/async_transform.cpp
     codegen/codegen_module.cpp
     codegen/codegen_type.cpp
