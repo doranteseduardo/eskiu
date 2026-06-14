@@ -24,6 +24,12 @@
 void CodeGen::visit(BlockStmt* node) {
     // Generate code for items in the order they appear in the block
     for (auto& item : node->items) {
+        // Once this block has a terminator (a return/break/continue/throw was
+        // emitted), the rest is unreachable. Emitting into a terminated block
+        // yields invalid IR ("terminator in the middle of a basic block"), so
+        // stop here — the dead code is simply dropped.
+        if (builder->GetInsertBlock() && builder->GetInsertBlock()->getTerminator())
+            break;
         if (std::holds_alternative<DeclPtr>(item)) {
             // Extract declaration and visit it
             auto decl = std::get<DeclPtr>(item);

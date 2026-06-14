@@ -5,6 +5,7 @@
 #include <memory>
 #include <variant>
 #include <utility>
+#include <map>
 
 // Forward declarations
 class ASTNode;
@@ -50,6 +51,10 @@ public:
     std::vector<std::pair<std::string, std::string>> params; // (type, name)
     StmtPtr body;
     std::vector<std::string> typeParams; // non-empty → template function
+    // Bounded generics: type-param name → interface constraint(s), e.g.
+    // `<T: Ord>` or `<K: Hashable + Eq>`. A concrete type arg must satisfy
+    // every listed interface at instantiation.
+    std::map<std::string, std::vector<std::string>> constraints;
     // Per-param `escaping` flag (parallel to params): the param retains the
     // closure beyond the call, so closures passed there get a heap env.
     std::vector<bool> paramEscaping;
@@ -104,6 +109,8 @@ public:
     std::vector<Field> fields;
     std::vector<DeclPtr> methods;
     std::vector<std::string> typeParams; // non-empty → this is a template
+    // Bounded generics: type-param name → interface constraint(s) (`<K: Hashable>`).
+    std::map<std::string, std::vector<std::string>> constraints;
     bool isPacked = false;               // `packed struct` or under `#pragma pack(1)`
     int  packAlign = 0;                  // `#pragma pack(N)`: cap field alignment at N
                                          // (0 = natural; 1 = fully packed == isPacked)

@@ -1,0 +1,15 @@
+// Bounded generics over the structural interface: a fn and a struct constrained
+// to `Ord`, instantiated with a struct that satisfies it.
+extern int printf(string fmt, ...);
+interface Ord { int cmp(Ord* o); }
+struct Num { int v; int cmp(Num* o) { if (self.v < o.v) { return -1; } return 1; } }
+T pick<T: Ord>(T* a, T* b) { if (a.cmp(b) < 0) { return a[0]; } return b[0]; }
+struct Box<T: Ord> { T item; }
+int main() {
+    let x: Num;  x.v = 3;
+    let y: Num;  y.v = 7;
+    let lo: Num = pick<Num>(&x, &y);
+    let b: Box<Num>;  b.item.v = 42;
+    printf("%d %d\n", lo.v, b.item.v);
+    return 0;
+}

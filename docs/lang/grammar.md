@@ -112,7 +112,8 @@ function-decl   = 'async'? type IDENT type-params? '(' param-list? ')' ( block |
 extern-decl     = 'extern'    type IDENT '(' param-list? ')' ';'
 intrinsic-decl  = 'intrinsic' type IDENT '(' param-list? ')' ';'
 
-type-params     = '<' IDENT (',' IDENT)* '>'
+type-params     = '<' type-param (',' type-param)* '>'
+type-param      = IDENT ( ':' IDENT ('+' IDENT)* )?   // optional interface constraint(s)
 
 param-list      = param (',' param)* (',' '...')?  |  '...'
 param           = 'escaping'? type IDENT
