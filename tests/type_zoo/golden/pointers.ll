@@ -81,39 +81,38 @@ for_exit:                                         ; preds = %for
   %25 = call i32 (ptr, ...) @printf(ptr @2, i32 %24)
   %26 = load ptr, ptr %arr, align 8
   %ptr.add1 = getelementptr i32, ptr %26, i64 4
-  %27 = load i8, ptr %ptr.add1, align 1
-  %28 = sext i8 %27 to i32
-  %29 = call i32 (ptr, ...) @printf(ptr @3, i32 %28)
+  %27 = load i32, ptr %ptr.add1, align 4
+  %28 = call i32 (ptr, ...) @printf(ptr @3, i32 %27)
   store i32 0, ptr %total, align 4
   store i32 0, ptr %j, align 4
   br label %for2
 
 for2:                                             ; preds = %for_step4, %for_exit
-  %30 = load i32, ptr %j, align 4
-  %31 = icmp slt i32 %30, 5
-  br i1 %31, label %for_body3, label %for_exit5
+  %29 = load i32, ptr %j, align 4
+  %30 = icmp slt i32 %29, 5
+  br i1 %30, label %for_body3, label %for_exit5
 
 for_body3:                                        ; preds = %for2
-  %32 = load i32, ptr %total, align 4
-  %33 = load i32, ptr %j, align 4
-  %34 = load ptr, ptr %arr, align 8
-  %35 = getelementptr i32, ptr %34, i32 %33
-  %36 = load i32, ptr %35, align 4
-  %37 = add i32 %32, %36
-  store i32 %37, ptr %total, align 4
+  %31 = load i32, ptr %total, align 4
+  %32 = load i32, ptr %j, align 4
+  %33 = load ptr, ptr %arr, align 8
+  %34 = getelementptr i32, ptr %33, i32 %32
+  %35 = load i32, ptr %34, align 4
+  %36 = add i32 %31, %35
+  store i32 %36, ptr %total, align 4
   br label %for_step4
 
 for_step4:                                        ; preds = %for_body3
-  %38 = load i32, ptr %j, align 4
-  %39 = add i32 %38, 1
-  store i32 %39, ptr %j, align 4
+  %37 = load i32, ptr %j, align 4
+  %38 = add i32 %37, 1
+  store i32 %38, ptr %j, align 4
   br label %for2
 
 for_exit5:                                        ; preds = %for2
-  %40 = load i32, ptr %total, align 4
-  %41 = call i32 (ptr, ...) @printf(ptr @4, i32 %40)
-  %42 = load ptr, ptr %arr, align 8
-  call void @free(ptr %42)
+  %39 = load i32, ptr %total, align 4
+  %40 = call i32 (ptr, ...) @printf(ptr @4, i32 %39)
+  %41 = load ptr, ptr %arr, align 8
+  call void @free(ptr %41)
   ret i32 0
 }
 

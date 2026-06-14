@@ -225,6 +225,12 @@ std::string CodeGen::expandAlias(const std::string& raw) const {
 }
 
 std::string CodeGen::getExprEskiuType(const ExprPtr& expr) const {
+    // Single resolver: prefer the post-transform type checker's resolved type.
+    if (resolvedExprTypes) {
+        auto it = resolvedExprTypes->find(expr.get());
+        if (it != resolvedExprTypes->end() && it->second != "unknown")
+            return it->second;
+    }
     if (auto ident = dynamic_cast<IdentExpr*>(expr.get())) {
         return expandAlias(lookupVarType(ident->name));
     }
