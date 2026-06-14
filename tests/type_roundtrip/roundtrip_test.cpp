@@ -69,6 +69,35 @@ int main() {
         if (p.str() != "T") { std::printf("FAIL: Param str\n"); ++failures; }
     }
 
+    // substitute(): structural type-param substitution (the substType engine).
+    {
+        std::map<std::string, std::string> s1 = {{"T", "int"}};
+        auto sub = [](const std::string& t, const std::map<std::string,std::string>& m) {
+            std::set<std::string> keys; for (auto& kv : m) keys.insert(kv.first);
+            return ty::Type::parse(t, keys).substitute(m).str();
+        };
+        struct Case { std::string in; std::map<std::string,std::string> subs; std::string want; };
+        std::vector<Case> cases = {
+            {"T", {{"T","int"}}, "int"},
+            {"*T", {{"T","int"}}, "*int"},
+            {"T*", {{"T","int"}}, "int*"},
+            {"T[8]", {{"T","int"}}, "int[8]"},          // dim untouched
+            {"List<T>", {{"T","int"}}, "List<int>"},
+            {"fn(*T)->T", {{"T","int"}}, "fn(*int)->int"},
+            {"Map<K,V>", {{"K","string"},{"V","bool"}}, "Map<string,bool>"},
+            {"fn(K,V)->K", {{"K","int"},{"V","char"}}, "fn(int,char)->int"},
+            {"List<Box<T>>", {{"T","int"}}, "List<Box<int>>"},
+            {"U", {{"T","int"}}, "U"},                   // no key → unchanged
+        };
+        for (auto& c : cases) {
+            std::string got = sub(c.in, c.subs);
+            if (got != c.want) {
+                std::printf("FAIL substitute: %s -> %s (want %s)\n", c.in.c_str(), got.c_str(), c.want.c_str());
+                ++failures;
+            }
+        }
+    }
+
     if (failures == 0) std::printf("type round-trip: %zu spellings OK\n", corpus.size());
     else               std::printf("type round-trip: %d FAILURE(S)\n", failures);
     return failures ? 1 : 0;

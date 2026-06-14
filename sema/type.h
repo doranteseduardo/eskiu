@@ -21,6 +21,7 @@
 #include <vector>
 #include <memory>
 #include <set>
+#include <map>
 
 namespace ty {
 
@@ -58,6 +59,11 @@ struct Type {
     // Same, but names in `typeParams` parse as Kind::Param instead of Kind::Named.
     static Type parse(const std::string& s, const std::set<std::string>& typeParams);
     std::string str() const;
+
+    // Substitute type parameters using `subs` (e.g. T->int), recursively. Mirrors
+    // the old free-function `substType`: a full-string hit on `str()` wins at each
+    // node, else recurse into pointee / args / params / ret / elem.
+    Type substitute(const std::map<std::string, std::string>& subs) const;
 
     // --- queries ---
     bool isPointer()   const { return kind == Kind::Pointer; }

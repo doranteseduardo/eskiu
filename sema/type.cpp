@@ -206,4 +206,32 @@ std::string Type::str() const {
     return leadingQuals + body;
 }
 
+Type Type::substitute(const std::map<std::string, std::string>& subs) const {
+    // Full-string hit at this node (mirrors substType's `subs.find(t)` at every
+    // recursion level): a param/named/decorated spelling present as a key wins.
+    auto it = subs.find(str());
+    if (it != subs.end()) return parse(it->second);
+
+    Type r = *this;
+    switch (kind) {
+        case Kind::Pointer:
+            r.pointee = std::make_shared<Type>(pointee->substitute(subs));
+            break;
+        case Kind::Array:
+            r.elem = std::make_shared<Type>(elem->substitute(subs));
+            break;            // dim is opaque text — never substituted
+        case Kind::Fn:
+            r.params.clear();
+            for (const auto& p : params) r.params.push_back(p.substitute(subs));
+            r.ret = std::make_shared<Type>(ret->substitute(subs));
+            break;
+        case Kind::Template:
+            r.args.clear();
+            for (const auto& a : args) r.args.push_back(a.substitute(subs));
+            break;
+        default: break;       // leaves substitute only via the full-string hit above
+    }
+    return r;
+}
+
 }  // namespace ty
