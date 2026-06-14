@@ -2,6 +2,7 @@
 
 #include "../ast/ast.h"
 #include "../lexer/lexer.h"
+#include "type.h"
 #include <map>
 #include <set>
 #include <vector>

@@ -2,7 +2,9 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <set>
 #include <utility>
+#include "sema/type.h"
 
 // ============================================================================
 // Template type-name utilities — shared by the type checker and codegen.
@@ -41,57 +43,13 @@ splitTemplateType(const std::string& type) {
 }
 
 // Substitute type parameters in `t` using `subs` (e.g. T->int), recursively
-// through pointers, arrays, and nested template types.
+// through pointers, arrays, function types, and nested templates. Delegates to
+// the structured `Type` IR (`Type::substitute`) — one parser/renderer instead of
+// the hand-rolled string surgery this used to be. The names appearing as `subs`
+// keys parse as type parameters so they substitute structurally.
 inline std::string substType(const std::string& t,
                              const std::map<std::string, std::string>& subs) {
-    auto it = subs.find(t);
-    if (it != subs.end()) return it->second;
-    if (!t.empty() && t.front() == '*') return "*" + substType(t.substr(1), subs);
-    if (!t.empty() && t.back()  == '*') return substType(t.substr(0, t.size()-1), subs) + "*";
-    size_t lb = t.rfind('[');
-    if (lb != std::string::npos && t.back() == ']')
-        return substType(t.substr(0, lb), subs) + t.substr(lb);
-
-    // Function type: fn(P1, P2, ...)->R → substitute each param and the return,
-    // so a generic callback param like fn(*K)->uint64 becomes fn(*int)->uint64
-    // at instantiation. (Top-level commas only; nested <...>/(...) are kept.)
-    if (t.rfind("fn(", 0) == 0) {
-        size_t close = t.rfind(")->");
-        if (close != std::string::npos) {
-            std::string inner = t.substr(3, close - 3);
-            std::string ret   = t.substr(close + 3);
-            std::vector<std::string> params;
-            int depth = 0; std::string cur;
-            for (char c : inner) {
-                if      (c == '(' || c == '<') { depth++; cur += c; }
-                else if (c == ')' || c == '>') { depth--; cur += c; }
-                else if (c == ',' && depth == 0) { params.push_back(substType(cur, subs)); cur.clear(); }
-                else cur += c;
-            }
-            if (!cur.empty()) params.push_back(substType(cur, subs));
-            std::string result = "fn(";
-            for (size_t i = 0; i < params.size(); ++i) { if (i) result += ","; result += params[i]; }
-            return result + ")->" + substType(ret, subs);
-        }
-    }
-
-    // Template type: Name<T, E> → substitute type args
-    size_t lt = t.find('<');
-    if (lt != std::string::npos && t.back() == '>') {
-        std::string name  = t.substr(0, lt);
-        std::string inner = t.substr(lt + 1, t.size() - lt - 2);
-        std::vector<std::string> args;
-        int depth = 0; std::string cur;
-        for (char c : inner) {
-            if      (c == '<') { depth++; cur += c; }
-            else if (c == '>') { depth--; cur += c; }
-            else if (c == ',' && depth == 0) { args.push_back(substType(cur, subs)); cur.clear(); }
-            else cur += c;
-        }
-        if (!cur.empty()) args.push_back(substType(cur, subs));
-        std::string result = name + "<";
-        for (size_t i = 0; i < args.size(); ++i) { if (i) result += ","; result += args[i]; }
-        return result + ">";
-    }
-    return t;
+    std::set<std::string> keys;
+    for (const auto& kv : subs) keys.insert(kv.first);
+    return ty::Type::parse(t, keys).substitute(subs).str();
 }

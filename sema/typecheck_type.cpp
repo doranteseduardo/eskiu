@@ -119,8 +119,24 @@ static bool structSatisfiesInterface(
         const std::string& structName,
         InterfaceDecl* iface) {
     for (const auto& method : iface->methods) {
+        // A struct satisfies via a mangled method `Type_method`.
         std::string mangled = structName + "_" + method.name;
-        if (funcs.find(mangled) == funcs.end()) return false;
+        if (funcs.find(mangled) != funcs.end()) continue;
+        // Free-function fallback (lets PRIMITIVES satisfy a constraint): a
+        // top-level fn named `method` whose first parameter is the constrained
+        // type acts as the receiver-taking implementation — `t.method(...)`
+        // lowers to `method(t, ...)`. So `int cmp(int,int)` satisfies `Ord` for int.
+        // Gated to scalar primitives to match codegen's dispatch (a struct must
+        // satisfy via a real method) — keeps sema and codegen in lockstep.
+        static const std::set<std::string> kScalarPrims = {
+            "int","int8","int16","int32","int64","uint","uint8","uint16","uint32",
+            "uint64","char","bool","float","double"};
+        auto fit = funcs.find(method.name);
+        if (kScalarPrims.count(structName) && fit != funcs.end() && !fit->second.second.empty()) {
+            std::string p0 = ty::Type::parse(fit->second.second[0]).nominalName();
+            if (p0 == structName) continue;
+        }
+        return false;
     }
     return true;
 }
@@ -136,12 +152,11 @@ void TypeChecker::checkConstraints(ASTNode* node,
         auto sit = subs.find(kv.first);
         if (sit == subs.end()) continue;
         std::string concrete = sit->second;
-        // Normalize first (List<int> → struct:List_int), then strip the
-        // struct:/pointer decoration to the bare name used in method mangling.
-        std::string bare = normalizeType(concrete);
-        if (bare.size() > 7 && bare.compare(0, 7, "struct:") == 0) bare = bare.substr(7);
-        while (!bare.empty() && bare.front() == '*') bare = bare.substr(1);
-        while (!bare.empty() && bare.back() == '*') bare.pop_back();
+        // Normalize first (List<int> → struct:List_int), then take the bare
+        // nominal name used in method mangling. The strip used to be hand-rolled
+        // here (and got the struct: ordering wrong once) — now it's the structured
+        // Type's nominalName(), which can't be gotten wrong.
+        std::string bare = ty::Type::parse(normalizeType(concrete)).nominalName();
         for (const auto& ic : kv.second) {
             auto iit = interfaceDecls.find(ic);
             if (iit == interfaceDecls.end()) {
@@ -175,11 +190,7 @@ bool TypeChecker::isValidAssignment(const std::string& lhsType, const std::strin
     // Interface satisfaction: assigning a struct to an interface type
     auto ifaceIt = interfaceDecls.find(lhs);
     if (ifaceIt != interfaceDecls.end()) {
-        std::string structName = rhs;
-        // Strip leading * and struct: prefix to get bare struct name
-        if (!structName.empty() && structName.front() == '*') structName = structName.substr(1);
-        if (structName.size() > 7 && structName.substr(0, 7) == "struct:") structName = structName.substr(7);
-        while (!structName.empty() && structName.back() == '*') structName.pop_back();
+        std::string structName = ty::Type::parse(rhs).nominalName();
         if (structSatisfiesInterface(functionSignatures, structName, ifaceIt->second))
             return true;
     }
