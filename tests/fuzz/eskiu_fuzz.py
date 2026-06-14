@@ -19,7 +19,8 @@ Inputs come from two sources:
   · mutation — small edits to the existing tests/*.esk corpus (realistic code).
   · generation — programs biased toward the known bug classes: deep loops with
     many locals, sret-returning (>16-byte) functions called with mixed-width int
-    literals, and generic functions/structs with fn-typed params.
+    literals, generic functions/structs with fn-typed params, ADT enums + match,
+    capturing closures, async/await across control flow, and nested structs.
 
 Usage:
   python3 tests/fuzz/eskiu_fuzz.py --iterations 2000 [--seed 1] [--eskiuc PATH]
@@ -133,7 +134,107 @@ int main() {{
 }}
 """
 
-GENERATORS = [gen_loop_locals, gen_sret_mixed_args, gen_generic_fn_param]
+def gen_enum_match():
+    # an ADT enum with random payload variants + a match that binds them.
+    n = random.randint(2, 5)
+    specs = [(f"V{i}", random.randint(0, 2)) for i in range(n)]
+    variants, arms = [], []
+    for name, pc in specs:
+        if pc == 0:
+            variants.append(f"    {name},")
+            arms.append(f"        {name} -> return {random.choice(INT_LITERALS[:6])};")
+        else:
+            variants.append(f"    {name}({', '.join('int' for _ in range(pc))}),")
+            binds = ", ".join(f"p{j}" for j in range(pc))
+            body = " + ".join(f"p{j}" for j in range(pc))
+            arms.append(f"        {name}({binds}) -> return {body};")
+    cname, cpc = random.choice(specs)
+    cargs = ", ".join(random.choice(INT_LITERALS[:6]) for _ in range(cpc))
+    ctor = f"{cname}({cargs})" if cpc else cname
+    nl = "\n"
+    return f"""extern int printf(string fmt, ...);
+enum E {{
+{nl.join(variants)}
+}}
+int eval(E e) {{
+    match e {{
+{nl.join(arms)}
+    }}
+    return -1;
+}}
+int main() {{
+    printf("%d\\n", eval({ctor}));
+    return 0;
+}}
+"""
+
+def gen_closure_capture():
+    # a lambda capturing N locals of assorted widths, called directly + via a HOF.
+    n = random.randint(1, 4)
+    caps = "\n".join(f"    int c{i} = {random.choice(INT_LITERALS[:6])};" for i in range(n))
+    capsum = " + ".join(f"c{i}" for i in range(n))
+    return f"""extern int printf(string fmt, ...);
+int apply(fn(int)->int f, int x) {{ return f(x); }}
+int main() {{
+{caps}
+    let g: fn(int)->int = int(int x) {{ return x + {capsum}; }};
+    printf("%d\\n", apply(g, {random.choice(INT_LITERALS[:6])}));
+    return 0;
+}}
+"""
+
+def gen_async_await():
+    # an async fn awaiting a ready future, with control flow around the suspend.
+    cf = random.choice(["plain", "if", "while"])
+    if cf == "plain":
+        body = "    int n = await produce();\n    return n + 1;"
+    elif cf == "if":
+        body = ("    int n = await produce();\n"
+                "    if (n > 0) { int m = await produce(); return n + m; }\n"
+                "    return n;")
+    else:
+        body = ("    int acc = 0;\n    int i = 0;\n"
+                "    while (i < 3) { int n = await produce(); acc = acc + n; i = i + 1; }\n"
+                "    return acc;")
+    val = random.choice(["1", "7", "41"])
+    return f"""import <future>;
+extern int printf(string fmt, ...);
+Future<int>* produce() {{
+    Future<int>* f = future_new<int>();
+    future_complete<int>(f, {val});
+    return f;
+}}
+async int run() {{
+{body}
+}}
+int main() {{
+    Future<int>* r = run();
+    printf("%d\\n", r.value);
+    free_future<int>(r);
+    return 0;
+}}
+"""
+
+def gen_nested_struct():
+    # struct-in-struct: nested member access + assignment (GEP / layout stress).
+    return f"""extern int printf(string fmt, ...);
+struct Inner {{ int a; int b; }}
+struct Outer {{ Inner lo; Inner hi; int tag; }}
+int main() {{
+    let o: Outer;
+    o.lo.a = {random.choice(INT_LITERALS[:6])};
+    o.lo.b = {random.choice(INT_LITERALS[:6])};
+    o.hi.a = {random.choice(INT_LITERALS[:6])};
+    o.hi.b = {random.choice(INT_LITERALS[:6])};
+    o.tag = o.lo.a + o.hi.b;
+    printf("%d\\n", o.tag);
+    return 0;
+}}
+"""
+
+GENERATORS = [gen_loop_locals, gen_sret_mixed_args, gen_generic_fn_param,
+              gen_enum_match, gen_closure_capture, gen_async_await,
+              gen_nested_struct]
 
 
 # ── Oracle ─────────────────────────────────────────────────────────────────────
@@ -180,6 +281,12 @@ def main():
     for it in range(args.iterations):
         if random.random() < 0.35 or not seeds:           # generation
             src = random.choice(GENERATORS)()
+            # half the time, also mutate the generated program — combines
+            # structural diversity with literal/type/line edge-poking.
+            if random.random() < 0.5:
+                for _ in range(random.randint(1, 2)):
+                    m = random.choice(MUTATORS)(src)
+                    if m is not None: src = m
         else:                                              # mutation
             src = random.choice(seeds)
             for _ in range(random.randint(1, 3)):
