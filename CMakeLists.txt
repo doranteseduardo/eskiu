@@ -17,6 +17,9 @@ set(SOURCES
     main.cpp
     lexer/lexer.cpp
     parser/parser.cpp
+    parser/parse_decl.cpp
+    parser/parse_stmt.cpp
+    parser/parse_expr.cpp
     ast/ast.cpp
     ast/ast_printer.cpp
     sema/type_checker.cpp
