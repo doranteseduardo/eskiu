@@ -119,8 +119,27 @@ static bool structSatisfiesInterface(
         const std::string& structName,
         InterfaceDecl* iface) {
     for (const auto& method : iface->methods) {
+        // A struct satisfies via a mangled method `Type_method`.
         std::string mangled = structName + "_" + method.name;
-        if (funcs.find(mangled) == funcs.end()) return false;
+        if (funcs.find(mangled) != funcs.end()) continue;
+        // Free-function fallback (lets PRIMITIVES satisfy a constraint): a
+        // top-level fn named `method` whose first parameter is the constrained
+        // type acts as the receiver-taking implementation — `t.method(...)`
+        // lowers to `method(t, ...)`. So `int cmp(int,int)` satisfies `Ord` for int.
+        // Gated to scalar primitives to match codegen's dispatch (a struct must
+        // satisfy via a real method) — keeps sema and codegen in lockstep.
+        static const std::set<std::string> kScalarPrims = {
+            "int","int8","int16","int32","int64","uint","uint8","uint16","uint32",
+            "uint64","char","bool","float","double"};
+        auto fit = funcs.find(method.name);
+        if (kScalarPrims.count(structName) && fit != funcs.end() && !fit->second.second.empty()) {
+            std::string p0 = fit->second.second[0];
+            if (p0.size() > 7 && p0.compare(0, 7, "struct:") == 0) p0 = p0.substr(7);
+            while (!p0.empty() && p0.front() == '*') p0 = p0.substr(1);
+            while (!p0.empty() && p0.back()  == '*') p0.pop_back();
+            if (p0 == structName) continue;
+        }
+        return false;
     }
     return true;
 }

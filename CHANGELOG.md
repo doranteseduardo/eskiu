@@ -7,6 +7,21 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
+## [Unreleased] — 0.2.3 (in progress)
+
+Soundness + completing bounded generics. In progress on `develop`.
+
+### Bounded generics — primitives can satisfy a constraint
+- A primitive type now satisfies a constraint through a **free function** named
+  like the interface method whose first parameter is that primitive — e.g.
+  `int cmp(int, int)` makes `int` satisfy `interface Ord { int cmp(Self) }`. Inside
+  a generic body a constrained call `t.cmp(x)` on such a `t` lowers to `cmp(t, x)`.
+  So `max<T: Ord>(int…)` and a constraint-bounded map over `int` keys now compile.
+  Closes the method-only seam; the fn-pointer `HashMap<K,V>` remains for explicit
+  `hash`/`eq`. Sema and codegen are gated in lockstep (scalar primitives only).
+
+---
+
 ## [0.2.2] — 2026-06-13
 
 Exclusively hardening + traits — no new stdlib surface. The goal: make the

@@ -1402,10 +1402,15 @@ Constraints are checked for both explicit (`max<Num>(...)`) and inferred
 `Name<...>` type is resolved. They do not affect name mangling — instances are
 still keyed on the concrete type arguments (§10.3).
 
-**Limitation.** Satisfaction is method-based, so only `struct` types (which can
-declare methods) satisfy a constraint; primitives such as `int` have no methods
-and cannot. For primitive keys, use the function-pointer `HashMap<K, V>` from the
-standard library, which threads `hash`/`eq` explicitly.
+**Primitives via free functions.** A `struct` satisfies a constraint by defining
+the interface's methods. A *primitive* type (`int`, `float`, …) has no methods, so
+it satisfies a constraint through a **free function** named like the interface
+method whose first parameter is that primitive — e.g. `int cmp(int, int)` makes
+`int` satisfy `interface Ord { int cmp(Self) }`. Inside a generic body a
+constrained call `t.cmp(x)` on such a `t` lowers to `cmp(t, x)`. So both
+`max<T: Ord>(int…)` and a constraint-bounded `Map<K: Hashable, V>` over `int` keys
+type-check and compile. (The function-pointer `HashMap<K, V>` from the standard
+library remains for cases where you want to thread `hash`/`eq` explicitly.)
 
 ---
 

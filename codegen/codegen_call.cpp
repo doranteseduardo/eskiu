@@ -312,6 +312,32 @@ void CodeGen::visit(CallExpr* node) {
             exprValueStack.push(builder->CreateCall(mfunc, margs));
             return;
         }
+        // Free-function constraint satisfaction: `t.m(x)` on a PRIMITIVE receiver
+        // (a bounded type param T:Iface satisfied by a free fn, e.g. `int cmp(int,int)`
+        // satisfies `Ord` for int) lowers to `m(t, x)` — the receiver is the first
+        // argument, passed by value. Gated to scalar primitives so a mistyped struct
+        // method still errors instead of silently hitting a same-named global fn.
+        static const std::set<std::string> kScalarPrims = {
+            "int","int8","int16","int32","int64","uint","uint8","uint16","uint32",
+            "uint64","char","bool","float","double"};
+        if (kScalarPrims.count(baseType)) {
+            if (llvm::Function* ffunc = module->getFunction(member->member)) {
+                std::vector<llvm::Value*> fargs = {evaluateExpr(member->base)};
+                for (auto& arg : node->args) fargs.push_back(evaluateExpr(arg));
+                llvm::FunctionType* fty = ffunc->getFunctionType();
+                for (size_t i = 0; i < fargs.size() && i < fty->getNumParams(); ++i) {
+                    llvm::Type* pt = fty->getParamType(i);
+                    if (fargs[i]->getType()->isIntegerTy() && pt->isIntegerTy() &&
+                        fargs[i]->getType() != pt) {
+                        std::string srcTy = (i == 0) ? baseType
+                                                     : getExprEskiuType(node->args[i - 1]);
+                        fargs[i] = coerceInt(fargs[i], pt, eskiuUnsigned(srcTy));
+                    }
+                }
+                exprValueStack.push(builder->CreateCall(ffunc, fargs));
+                return;
+            }
+        }
         // Not a method: if o.member is a fn-pointer field, fall through to the
         // general indirect-call path (evaluateExpr(callee) yields the fat ptr).
         std::string ft = getExprEskiuType(node->callee);
