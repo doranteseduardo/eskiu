@@ -47,116 +47,99 @@ llvm::Type* CodeGen::getTypeFromString(const std::string& typeStr) {
         if (resolved != typeStr) return getTypeFromString(resolved);
     }
 
-    // Leading pointer: *T (spec style)
-    if (!typeStr.empty() && typeStr.front() == '*') {
-        return llvm::PointerType::get(*context, 0);
-    }
-    // Trailing pointer: T* (C style)
-    if (!typeStr.empty() && typeStr.back() == '*') {
-        return llvm::PointerType::get(*context, 0);
-    }
-
-    // Resolve a type alias to its underlying type.
+    // Resolve a type alias to its underlying type (bare-name aliases only; a
+    // decorated spelling like *Alias is not an alias key — it lowers to a pointer).
     if (auto it = typeAliases.find(typeStr); it != typeAliases.end())
         return getTypeFromString(it->second);
-    // va_list — backing storage for variadic access. {ptr,ptr,ptr,i32,i32} is the
-    // AArch64 layout (32 B, 8-aligned) and a superset of x86-64's (24 B), so one
-    // type works for both; the va_start/va_arg machinery reads the target's slice.
-    if (typeStr == "va_list") {
-        auto it = structTypes.find("__va_list");
-        if (it != structTypes.end()) return it->second;
-        llvm::Type* p = llvm::PointerType::get(*context, 0);
-        llvm::Type* i32 = llvm::Type::getInt32Ty(*context);
-        auto* st = llvm::StructType::create(*context, {p, p, p, i32, i32}, "__va_list");
-        structTypes["__va_list"] = st;
-        return st;
-    }
-    // A classic enum is an i32; an algebraic enum is its tagged-union struct.
-    if (enumTypes.count(typeStr)) {
-        auto st = structTypes.find(typeStr);
-        if (st != structTypes.end()) return st->second;   // ADT enum
-        return llvm::Type::getInt32Ty(*context);
-    }
 
-    if (typeStr == "int"  || typeStr == "int32")  return llvm::Type::getInt32Ty(*context);
-    if (typeStr == "int8")                         return llvm::Type::getInt8Ty(*context);
-    if (typeStr == "int16")                        return llvm::Type::getInt16Ty(*context);
-    if (typeStr == "int64")                        return llvm::Type::getInt64Ty(*context);
-    if (typeStr == "uint" || typeStr == "uint32")  return llvm::Type::getInt32Ty(*context);
-    if (typeStr == "uint8")                        return llvm::Type::getInt8Ty(*context);
-    if (typeStr == "uint16")                       return llvm::Type::getInt16Ty(*context);
-    if (typeStr == "uint64")                       return llvm::Type::getInt64Ty(*context);
-    if (typeStr == "float")                        return llvm::Type::getFloatTy(*context);
-    if (typeStr == "double")                       return llvm::Type::getDoubleTy(*context);
-    if (typeStr == "bool")                         return llvm::Type::getInt1Ty(*context);
-    if (typeStr == "void")                         return llvm::Type::getVoidTy(*context);
-    if (typeStr == "char")                         return llvm::Type::getInt8Ty(*context);
-    if (typeStr == "string")                       return llvm::PointerType::get(*context, 0);
-    // Function pointer type: fn(T,...)->R — fat pointer {fn_ptr, env_ptr}
-    if (typeStr.size() > 3 && typeStr.substr(0, 3) == "fn(")
-        return llvm::StructType::get(*context, {
-            llvm::PointerType::get(*context, 0),  // fn pointer
-            llvm::PointerType::get(*context, 0),  // env pointer (null if no capture)
-        });
-
-    // Struct type with "struct:" prefix (from type checker normalization)
-    if (typeStr.find("struct:") == 0) {
-        std::string name = typeStr.substr(7);
-        auto it = structTypes.find(name);
-        if (it != structTypes.end()) return it->second;
-        return llvm::PointerType::get(*context, 0); // forward ref placeholder
-    }
-
-    // Bare struct name (from parser, before normalization)
-    {
-        auto it = structTypes.find(typeStr);
-        if (it != structTypes.end()) return it->second;
-    }
-
-    // Interface type → opaque pointer (interfaces passed by pointer to fat struct)
-    if (ifaceFatPtrTypes.count(typeStr)) {
-        return llvm::PointerType::get(*context, 0);
-    }
-
-    // Template instantiation: "Result<int,string>" → %Result_int_string
-    if (typeStr.find('<') != std::string::npos) {
-        auto [tname, args] = splitTemplateType(typeStr);
-        if (genericEnumDecls.count(tname)) {                 // generic ADT enum instance
-            std::string mangled = ensureEnumInst(tname, args);
-            return structTypes[mangled];
+    // Structural dispatch via the one grammar parser (`ty::Type::parse`) — the same
+    // interpreter the type checker uses, so codegen no longer re-implements the
+    // type-string grammar. Registry lookups + instantiation stay here.
+    llvm::Type* i32 = llvm::Type::getInt32Ty(*context);
+    ty::Type t = ty::Type::parse(typeStr);
+    switch (t.kind) {
+        case ty::Type::Kind::Pointer:
+        case ty::Type::Kind::String:
+            return llvm::PointerType::get(*context, 0);   // both lower to an opaque ptr
+        case ty::Type::Kind::Void:  return llvm::Type::getVoidTy(*context);
+        case ty::Type::Kind::Bool:  return llvm::Type::getInt1Ty(*context);
+        case ty::Type::Kind::Char:  return llvm::Type::getInt8Ty(*context);
+        case ty::Type::Kind::Float:
+            return t.name == "float" ? llvm::Type::getFloatTy(*context)
+                                     : llvm::Type::getDoubleTy(*context);
+        case ty::Type::Kind::Int: {
+            const std::string& s = t.name;
+            if (s == "int8"  || s == "uint8")  return llvm::Type::getInt8Ty(*context);
+            if (s == "int16" || s == "uint16") return llvm::Type::getInt16Ty(*context);
+            if (s == "int64" || s == "uint64") return llvm::Type::getInt64Ty(*context);
+            return i32;   // int/int32/uint/uint32
         }
-        std::string mangled = mangleTemplate(typeStr);
-        ensureTemplateInstantiated(mangled, tname, args);
-        auto it = structTypes.find(mangled);
-        if (it != structTypes.end()) return it->second;
-    }
-
-    // Fixed-size array: T[N]  (e.g. "uint8[858]")
-    {
-        size_t lb = typeStr.rfind('[');
-        if (lb != std::string::npos && typeStr.back() == ']') {
-            std::string elemStr = typeStr.substr(0, lb);
-            std::string sizeStr = typeStr.substr(lb + 1, typeStr.size() - lb - 2);
-            llvm::Type* elem = getTypeFromString(elemStr);
-            uint64_t n = 0;
-            if (resolveArrayDim(sizeStr, n)) {
-                return llvm::ArrayType::get(elem, n);
+        case ty::Type::Kind::VaList: {
+            // {ptr,ptr,ptr,i32,i32} — AArch64 layout (superset of x86-64); one type
+            // works for both; the va_start/va_arg machinery reads the target slice.
+            auto it = structTypes.find("__va_list");
+            if (it != structTypes.end()) return it->second;
+            llvm::Type* p = llvm::PointerType::get(*context, 0);
+            auto* st = llvm::StructType::create(*context, {p, p, p, i32, i32}, "__va_list");
+            structTypes["__va_list"] = st;
+            return st;
+        }
+        case ty::Type::Kind::Fn:
+            return llvm::StructType::get(*context, {       // fat pointer {fn_ptr, env_ptr}
+                llvm::PointerType::get(*context, 0),
+                llvm::PointerType::get(*context, 0),
+            });
+        case ty::Type::Kind::Struct: {                     // "struct:Name" (normalized)
+            auto it = structTypes.find(t.name);
+            if (it != structTypes.end()) return it->second;
+            return llvm::PointerType::get(*context, 0);     // forward-ref placeholder
+        }
+        case ty::Type::Kind::Interface:
+            // QUIRK preserved: a decorated `interface:X` matched nothing in the old
+            // code and fell through to i32. (Bare interface names lower to ptr via
+            // the Named branch.) Kept identical; a deliberate fix is a later step.
+            return i32;
+        case ty::Type::Kind::Template: {                   // "Name<args>" — instantiate
+            auto [tname, args] = splitTemplateType(typeStr);
+            if (genericEnumDecls.count(tname)) {            // generic ADT enum instance
+                std::string mangled = ensureEnumInst(tname, args);
+                return structTypes[mangled];
             }
-            // A negative literal dimension is never valid: reject it cleanly
-            // rather than degrading to a pointer, which would then be indexed
-            // array-style and produce an invalid GEP the IR verifier rejects.
-            bool negLit = sizeStr.size() > 1 && sizeStr[0] == '-';
-            for (size_t i = 1; negLit && i < sizeStr.size(); ++i)
-                if (!std::isdigit((unsigned char)sizeStr[i])) negLit = false;
+            std::string mangled = mangleTemplate(typeStr);
+            ensureTemplateInstantiated(mangled, tname, args);
+            auto it = structTypes.find(mangled);
+            if (it != structTypes.end()) return it->second;
+            break;   // fall through to the i32 fallback below
+        }
+        case ty::Type::Kind::Array: {                      // "T[N]"
+            llvm::Type* elem = getTypeFromString(t.elem->str());
+            uint64_t n = 0;
+            if (resolveArrayDim(t.dim, n)) return llvm::ArrayType::get(elem, n);
+            bool negLit = t.dim.size() > 1 && t.dim[0] == '-';
+            for (size_t i = 1; negLit && i < t.dim.size(); ++i)
+                if (!std::isdigit((unsigned char)t.dim[i])) negLit = false;
             if (negLit)
                 throw std::runtime_error("array size must be a positive constant, got '"
-                                         + sizeStr + "'");
-            return llvm::PointerType::get(*context, 0); // unsized → pointer
+                                         + t.dim + "'");
+            return llvm::PointerType::get(*context, 0);     // unsized → pointer
         }
+        case ty::Type::Kind::Named: {                      // bare nominal: enum/struct/iface
+            if (enumTypes.count(t.name)) {                 // classic enum → i32; ADT → struct
+                auto st = structTypes.find(t.name);
+                if (st != structTypes.end()) return st->second;
+                return i32;
+            }
+            auto it = structTypes.find(t.name);            // bare struct name
+            if (it != structTypes.end()) return it->second;
+            if (ifaceFatPtrTypes.count(t.name))            // interface value → opaque ptr
+                return llvm::PointerType::get(*context, 0);
+            break;
+        }
+        default: break;                                    // Null/Unknown/Error
     }
 
     std::cerr << "Warning: unknown type '" << typeStr << "', defaulting to i32" << std::endl;
-    return llvm::Type::getInt32Ty(*context);
+    return i32;
 }
 
 bool CodeGen::needsSret(llvm::Type* retType) const {
@@ -225,6 +208,12 @@ std::string CodeGen::expandAlias(const std::string& raw) const {
 }
 
 std::string CodeGen::getExprEskiuType(const ExprPtr& expr) const {
+    // Single resolver: prefer the post-transform type checker's resolved type.
+    if (resolvedExprTypes) {
+        auto it = resolvedExprTypes->find(expr.get());
+        if (it != resolvedExprTypes->end() && it->second != "unknown")
+            return it->second;
+    }
     if (auto ident = dynamic_cast<IdentExpr*>(expr.get())) {
         return expandAlias(lookupVarType(ident->name));
     }

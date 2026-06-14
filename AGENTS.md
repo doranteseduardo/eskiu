@@ -115,6 +115,7 @@ with `match`, and the concurrent stdlib.
 | v0.2.1 | codegen split into 6 files; sanitizer (asan/ubsan) CI gate; `<bytes>`; `HashMap<K,V>`; sret-arg + fn-type-substitution fixes | ✅ |
 | v0.2.2 | hardening (generative fuzzer with an O0-vs-O2 differential oracle + 4 codegen/sema fixes, CI fuzz gate); bounded generics `<T: Iface>` / `<T: A + B>` (method-based, checked at the instantiation site); compiler source modularized (type_checker / codegen_expr / parser / lexer / main split — no behavior change) | ✅ |
 | v0.2.3 | bounded-generics completion (primitives satisfy a constraint via a free function); typed `ty::Type` IR foundation (`sema/type.{h,cpp}`) — `substType` + the sema bare-name strips migrated to it, golden-IR oracle gating behavior-preservation. Cross-phase consolidation (codegen consuming resolved Types) deferred | ✅ |
+| v0.2.4 | type unification — the type checker is the single resolver: codegen consumes its resolved expression types (re-run post-AsyncTransform) instead of re-deriving, and `getTypeFromString` dispatches on `ty::Type::parse` (one grammar interpreter across both phases). Closed the two-evaluator risk; fixed 3 latent miscompiles it surfaced (float-lit `double`, ptr-deref width, `char` zext) | ✅ |
 | v0.3 | Self-hosting prerequisites (LLVM C bindings, lexer/parser in Eskiu) | ❌ |
 | v1.0 | Package manager, self-hosting | ❌ |
 
