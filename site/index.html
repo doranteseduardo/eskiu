@@ -974,6 +974,9 @@
             <button class="tab-btn" onclick="switchTab(event, 'match')">
               match.esk
             </button>
+            <button class="tab-btn" onclick="switchTab(event, 'generics')">
+              generics.esk
+            </button>
             <button class="tab-btn" onclick="switchTab(event, 'hello')">
               hello.esk
             </button>
@@ -1049,6 +1052,41 @@
     <span class="kw">return</span> <span class="nu">0</span>;
 }
 <span class="cm">// Output: Listening on :8080</span></pre>
+              </div>
+            </div>
+
+            <div id="tab-generics" class="tab-panel">
+              <div class="code-block">
+                <div class="cbar">
+                  <span class="d" style="background: #ff5f57"></span
+                  ><span class="d" style="background: #febc2e"></span
+                  ><span class="d" style="background: #28c840"></span
+                  ><span class="nm">generics.esk</span>
+                </div>
+                <pre><span class="kw">extern</span> <span class="ty">int</span> <span class="fn">printf</span>(<span class="ty">string</span> fmt, ...);
+
+<span class="cm">// A constraint: a type that can compare itself to another.</span>
+<span class="kw">interface</span> <span class="ty">Ord</span> { <span class="ty">int</span> <span class="fn">cmp</span>(<span class="ty">Ord</span><span class="ty">*</span> o); }
+
+<span class="cm">// Coin satisfies Ord by providing cmp — structural, no "implements".</span>
+<span class="kw">struct</span> <span class="ty">Coin</span> {
+    <span class="ty">int</span> value;
+    <span class="ty">int</span> <span class="fn">cmp</span>(<span class="ty">Coin</span><span class="ty">*</span> o) { <span class="kw">if</span> (<span class="kw">self</span>.value <span class="op">&lt;</span> o.value) { <span class="kw">return</span> <span class="nu">-1</span>; } <span class="kw">return</span> <span class="nu">1</span>; }
+}
+
+<span class="cm">// T is bounded by Ord; the compiler checks it at the call site.</span>
+<span class="ty">T</span> <span class="fn">max</span>&lt;<span class="ty">T</span>: <span class="ty">Ord</span>&gt;(<span class="ty">T</span><span class="ty">*</span> a, <span class="ty">T</span><span class="ty">*</span> b) {
+    <span class="kw">if</span> (a.<span class="fn">cmp</span>(b) <span class="op">&gt;</span> <span class="nu">0</span>) { <span class="kw">return</span> a[<span class="nu">0</span>]; }
+    <span class="kw">return</span> b[<span class="nu">0</span>];
+}
+
+<span class="ty">int</span> <span class="fn">main</span>() {
+    <span class="kw">let</span> x: <span class="ty">Coin</span>;  x.value <span class="op">=</span> <span class="nu">7</span>;
+    <span class="kw">let</span> y: <span class="ty">Coin</span>;  y.value <span class="op">=</span> <span class="nu">3</span>;
+    <span class="kw">let</span> hi: <span class="ty">Coin</span> <span class="op">=</span> <span class="fn">max</span>&lt;<span class="ty">Coin</span>&gt;(&amp;x, &amp;y);
+    <span class="fn">printf</span>(<span class="st">"max = %d\n"</span>, hi.value);   <span class="cm">// max = 7</span>
+    <span class="kw">return</span> <span class="nu">0</span>;
+}</pre>
               </div>
             </div>
 
