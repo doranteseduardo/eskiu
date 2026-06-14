@@ -7,11 +7,12 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
-## [Unreleased] — 0.3.0 (in progress)
+## [0.2.4] — 2026-06-14
 
-Type unification — making the type checker the single resolver of expression
-types so codegen stops re-deriving them independently (the two-evaluator risk).
-In progress on `develop`.
+Type unification — making the type checker the single resolver, so codegen stops
+re-deriving types independently (closing the two-evaluator risk). Internal
+soundness work; the only user-visible effect is three latent miscompiles it
+surfaced and fixed.
 
 ### Single type resolver (kills codegen's independent re-derivation)
 - The type checker is re-run on the post-AsyncTransform AST and its resolved
@@ -29,6 +30,11 @@ In progress on `develop`.
     paths; `char` is unsigned in Eskiu, so it is now `zext`.
   - Plus a `for-in` consumption fix (the resolved iterable type arrives as
     `struct:List_int`; the loop lowering now strips the `struct:` decoration).
+- **One grammar interpreter.** `codegen`'s `getTypeFromString` now dispatches on
+  `ty::Type::parse` — the same parser the type checker uses — instead of its own
+  hand-rolled string matching. The type-string grammar is interpreted in exactly
+  one place across both phases. Behavior-preserving (golden-IR identical; existing
+  quirks preserved).
 
 ---
 
