@@ -1,10 +1,11 @@
-# Eskiu 0.2.3
+# Eskiu 0.2.4
 
-Completes bounded generics, and lands a typed internal type representation that
-replaces the compiler's ad-hoc type-string handling — the soundness foundation
-for growing the language without the string-convention bugs that surface
-otherwise. The base is the same 0.2.x: compiled to native through LLVM, you
-manage memory yourself, standalone binaries.
+An internal soundness release. The compiler had two independent type resolvers —
+the type checker and codegen each interpreted the type grammar and derived
+expression types on their own. This release makes the type checker the **single
+resolver** and codegen a consumer of its results, closing a latent class of
+"the two disagree" bugs. No new language surface; the only user-visible effect is
+three latent miscompiles the unification surfaced and fixed.
 
 ---
 
@@ -35,36 +36,26 @@ cd eskiu && cmake -S . -B build && cmake --build build
 
 ## What's new
 
-**Primitives can satisfy a constraint.** Bounded generics (`<T: Iface>`, from
-0.2.2) were method-based, so only structs could satisfy a constraint. Now a
-*primitive* satisfies one through a **free function** named like the interface
-method whose first parameter is that primitive:
+**One type resolver.** The type checker is re-run on the AST after the async
+transform, and its resolved per-expression types are handed to codegen — which now
+consumes them instead of re-deriving its own. Plus `getTypeFromString` now
+dispatches on the same `ty::Type` parser the checker uses, so the type-string
+grammar is interpreted in exactly one place across both phases. This eliminates the
+structural condition behind an earlier constraint-checking bug.
 
-```eskiu
-interface Ord { int cmp(Self other); }
+**Three latent miscompiles fixed** (surfaced by the unification — they were benign
+only because the affected values happened to be small):
 
-int cmp(int a, int b) { return a - b; }   // makes `int` satisfy Ord
+- **Float literals** are now `double` in the type checker too (they always lowered
+  to a `double` constant), so generic inference like `max(1.5, 2.5)` monomorphizes
+  to `double` to match the emitted value.
+- **Pointer-arithmetic dereference** `*(arr + n)` for `arr: *int` could load `i8`
+  (one byte of a four-byte int) on some paths; now correctly loads `i32`.
+- **`char` widening** to `int` used a signed extend on some paths; `char` is
+  unsigned in Eskiu, so it is now a zero extend.
 
-T max<T: Ord>(T a, T b) {                 // now works for T = int
-    if (a.cmp(b) > 0) { return a; }
-    return b;
-}
-```
-
-Inside a generic body, a constrained call `t.cmp(x)` on a primitive `t` lowers to
-`cmp(t, x)`. So `max<int>(…)` and a constraint-bounded map over `int` keys compile
-— closing the method-only seam. (The function-pointer `HashMap<K, V>` from 0.2.1
-stays for when you'd rather thread `hash`/`eq` explicitly.)
-
-**A typed internal type representation.** Under the hood, types were `std::string`
-everywhere, manipulated by ad-hoc surgery in ~175 places — the kind of
-convention-enforced invariant that produced a subtle constraint-checking bug in
-0.2.2. This release introduces a structured `Type` IR as the manipulation form
-(types still travel as canonical strings at the boundaries), migrates the
-type-substitution engine and the duplicated bare-name surgery onto it (the exact
-strip that caused that bug no longer exists), and adds a golden-IR oracle that
-asserts the emitted code is byte-identical across the change. No behavior change
-— it's a foundation, verified by the test suite, sanitizers, and the fuzzer.
+Everything else is behavior-preserving, verified by the test suite, sanitizers, a
+golden-IR snapshot oracle, and the O0-vs-O2 differential fuzzer.
 
 The full log is in [CHANGELOG.md](CHANGELOG.md).
 
@@ -72,5 +63,5 @@ The full log is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Upgrade
 
-Drop-in over 0.2.x — no source changes required. The new primitive-constraint
-support is additive; existing code keeps compiling unchanged.
+Drop-in over 0.2.x. The three fixes only change code that was already relying on
+(benign) latent miscompiles; correct programs are unaffected.

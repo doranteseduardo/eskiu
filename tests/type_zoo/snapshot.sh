@@ -36,6 +36,7 @@ corpus=(
   pointers pointer_const
   closures fn_pointer generic_closure closure_coerce
   sret variadic
+  async_basic async_channel
 )
 
 # Emit the canonical IR for one test: extract the body between the ==== banners,

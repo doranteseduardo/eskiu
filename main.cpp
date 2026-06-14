@@ -87,7 +87,7 @@ static llvm::cl::opt<bool> Asan("asan",
 static llvm::cl::opt<bool> Ubsan("ubsan",
     llvm::cl::desc("Instrument with bounds checking (traps on out-of-bounds access)"));
 
-const char* VERSION = "0.2.3";
+const char* VERSION = "0.2.4";
 
 // `eskiuc run`: set when argv[1] == "run". The program is compiled to a
 // temporary executable, run with g_runArgs, then deleted (see main()).
@@ -173,8 +173,12 @@ static void testCodegen(const std::string& filename) {
             return;
         }
         AsyncTransform().run(program.get());
+        // Single resolver: re-resolve the post-transform AST; codegen consumes it.
+        TypeChecker postTc; postTc.sourceFile = filename;
+        postTc.check(program.get());
         // Codegen
         CodeGen codegen;
+        codegen.resolvedExprTypes = &postTc.expressionTypeMap();
         if (!TargetTriple.empty()) codegen.targetTriple = std::string(TargetTriple);
         codegen.freestanding = Freestanding;
         llvm::Module* module = codegen.generateCode(program);
@@ -392,7 +396,11 @@ int main(int argc, char** argv) {
         }
 
         AsyncTransform().run(program.get());
+        // Single resolver: re-resolve the post-transform AST; codegen consumes it.
+        TypeChecker postTc; postTc.sourceFile = std::string(InputFilename);
+        postTc.check(program.get());
         CodeGen codegen;
+        codegen.resolvedExprTypes = &postTc.expressionTypeMap();
         if (!TargetTriple.empty()) codegen.targetTriple = std::string(TargetTriple);
         codegen.freestanding = Freestanding;
         codegen.asan = Asan;

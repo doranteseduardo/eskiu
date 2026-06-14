@@ -2,7 +2,7 @@
 
 How Eskiu types and constructs lower to LLVM IR, and the calling/layout
 conventions a foreign caller must follow. This reflects the code generator
-(`codegen/codegen.cpp`); it is the contract for linking Eskiu with C (and, on
+(`codegen/codegen_*.cpp`); it is the contract for linking Eskiu with C (and, on
 the roadmap, Swift/Kotlin over the C ABI).
 
 Eskiu targets the platform's native C ABI via LLVM, so on a given target the

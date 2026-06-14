@@ -7,6 +7,37 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
+## [0.2.4] — 2026-06-14
+
+Type unification — making the type checker the single resolver, so codegen stops
+re-deriving types independently (closing the two-evaluator risk). Internal
+soundness work; the only user-visible effect is three latent miscompiles it
+surfaced and fixed.
+
+### Single type resolver (kills codegen's independent re-derivation)
+- The type checker is re-run on the post-AsyncTransform AST and its resolved
+  per-expression types are handed to codegen, which now consumes them instead of
+  re-deriving via `getExprEskiuType`. This eliminated the structural condition
+  behind the earlier `checkConstraints` bug — and immediately **surfaced and fixed
+  three latent miscompiles** where the two evaluators silently disagreed (benign
+  only because the affected test values were small):
+  - **Float literals are `double` in sema too** (were typed `float` — codegen
+    always emitted a `double` constant, so generic inference like `max(1.5, 2.5)`
+    now monomorphizes to `double`, matching the emitted value).
+  - **Pointer-arithmetic deref width**: `*(arr + n)` for `arr: *int` loaded `i8`
+    in some paths (reading 1 byte of a 4-byte int); now correctly `i32`.
+  - **`char` widening signedness**: a `char` widened to `int` used `sext` in some
+    paths; `char` is unsigned in Eskiu, so it is now `zext`.
+  - Plus a `for-in` consumption fix (the resolved iterable type arrives as
+    `struct:List_int`; the loop lowering now strips the `struct:` decoration).
+- **One grammar interpreter.** `codegen`'s `getTypeFromString` now dispatches on
+  `ty::Type::parse` — the same parser the type checker uses — instead of its own
+  hand-rolled string matching. The type-string grammar is interpreted in exactly
+  one place across both phases. Behavior-preserving (golden-IR identical; existing
+  quirks preserved).
+
+---
+
 ## [0.2.3] — 2026-06-14
 
 Completing bounded generics, plus a typed internal type representation that

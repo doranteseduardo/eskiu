@@ -19,6 +19,11 @@ public:
     // Get inferred type of an expression
     std::string getExpressionType(Expr* expr);
 
+    // Resolved per-expression type table (Expr* → normalized type). Re-running
+    // check() on the post-AsyncTransform AST and handing this to codegen makes the
+    // type checker the single resolver of expression types.
+    const std::map<Expr*, std::string>& expressionTypeMap() const { return expressionTypes; }
+
     // Visitor methods
     void visit(Program* node) override;
     void visit(FunctionDecl* node) override;
