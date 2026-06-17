@@ -2,9 +2,11 @@
 // and parity-tested against the C++ `--test-lexer`. Free functions over a
 // `Lexer*` (explicit cursor state); mirrors the C++ peek/advance/skip semantics.
 //
-// Stage 6: whitespace + line/block comments, identifiers + keywords, numbers,
+// Complete: whitespace + line/block comments, identifiers + keywords, numbers,
 // string + char literals, operators + delimiters + pragma, EOF. Mirrors the full
-// preprocessor-free C++ lexer; gated file-by-file by the parity harness.
+// preprocessor-free C++ lexer; byte-identical to `--test-lexer` over the whole
+// real corpus (tests/selfhost/lex_parity.sh --full → 114/114). The preprocessor
+// itself is a separate (future) self-host target — see selfhost/README.md.
 
 import <ctype>;
 import "tokens.esk";
