@@ -2,9 +2,9 @@
 // and parity-tested against the C++ `--test-lexer`. Free functions over a
 // `Lexer*` (explicit cursor state); mirrors the C++ peek/advance/skip semantics.
 //
-// Stage 2: whitespace + identifiers + keyword classification + EOF. (Numbers,
-// strings, chars, operators, comments arrive in later slices — each gated by the
-// parity harness.)
+// Stage 4: whitespace, identifiers + keywords, number literals, string + char
+// literals, EOF. (Operators and comments arrive in later slices — each gated by
+// the parity harness.)
 
 import <ctype>;
 import "tokens.esk";
@@ -184,6 +184,62 @@ Token lx_next(Lexer* lx) {
             return t;
         }
         t.type = INT_LIT; t.start = sp; t.len = lx.pos - sp;
+        t.line = sl; t.col = sc;
+        return t;
+    }
+
+    // String literal (mirror read_string's escape-aware scan; value decoded by
+    // the driver). The span [start, len) includes both quotes.
+    if (c == 34) {                                   // '"'
+        lx_advance(lx);                              // opening "
+        while (lx_at_end(lx) == 0 && lx_peek(lx) != 34) {
+            if (lx_peek(lx) == 92 && lx_peek_next(lx) != 0) {   // '\' + a char
+                lx_advance(lx);                      // backslash
+                lx_advance(lx);                      // escaped char
+            } else {
+                lx_advance(lx);
+            }
+        }
+        if (lx_at_end(lx) == 0) {
+            lx_advance(lx);                           // closing "
+        }
+        t.type = STRING_LIT; t.start = sp; t.len = lx.pos - sp;
+        t.line = sl; t.col = sc;
+        return t;
+    }
+
+    // Char literal (mirror read_char, incl. its recovery scan to the closing '
+    // or end-of-line). The driver decodes the first logical char only.
+    if (c == 39) {                                   // '\''
+        lx_advance(lx);                              // opening '
+        if (lx_at_end(lx) == 1) {
+            t.type = CHAR_LIT; t.start = sp; t.len = lx.pos - sp;
+            t.line = sl; t.col = sc;
+            return t;
+        }
+        if (lx_peek(lx) == 39) {                     // empty ''
+            lx_advance(lx);                          // closing '
+            t.type = CHAR_LIT; t.start = sp; t.len = lx.pos - sp;
+            t.line = sl; t.col = sc;
+            return t;
+        }
+        if (lx_peek(lx) == 92) {                     // backslash escape
+            lx_advance(lx);
+            lx_advance(lx);
+        } else {
+            lx_advance(lx);
+        }
+        if (lx_at_end(lx) == 0 && lx_peek(lx) == 39) {
+            lx_advance(lx);                          // closing '
+        } else {
+            while (lx_at_end(lx) == 0 && lx_peek(lx) != 39 && lx_peek(lx) != 10) {
+                lx_advance(lx);
+            }
+            if (lx_at_end(lx) == 0 && lx_peek(lx) == 39) {
+                lx_advance(lx);
+            }
+        }
+        t.type = CHAR_LIT; t.start = sp; t.len = lx.pos - sp;
         t.line = sl; t.col = sc;
         return t;
     }

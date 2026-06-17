@@ -1,0 +1,7 @@
+"hello" "" "with space"
+"newline\nhere" "tab\there" "carriage\rret"
+"quote\"inside" "back\\slash" "all\n\t\\\"done"
+greeting "mixed" ident
+'x' 'Z' '0' ' '
+'\n' '\t' '\\' '\r'
+'ab' 'too many'
