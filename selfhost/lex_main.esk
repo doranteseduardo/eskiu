@@ -1,11 +1,75 @@
-// Driver: `eskiuc run selfhost/lex_main.esk FILE` — lex FILE and print each token,
-// one per line, as:  Line L, Col C: NAME 'value'  (NAME via token_name).
-// EOF is not printed (the C++ loop stops at it). The parity harness normalizes
-// BOTH this output and the C++ `--test-lexer` output to `L|C|NAME|value` and diffs.
+// Driver: `eskiuc run selfhost/lex_main.esk FILE` — lex FILE and print each token
+// in the EXACT format of the C++ `--test-lexer` token lines (main.cpp testLexer):
+//   "  Line %3d, Col %3d  %15s  '<value>'"
+// where <value> is the DECODED lexeme (string/char escapes applied, quotes
+// stripped — mirroring read_string/read_char). EOF is not printed. The parity
+// harness strips the C++ banner/trailer and raw-diffs the two token streams, so
+// byte-identical = parity (embedded newlines in string values match on both sides).
 
 import <io>;
 import <fs>;
 import "lexer.esk";
+
+// Escape decode, mirroring read_string's switch (n,t,r,\,"; default = the char).
+int decode_str_escape(int e) {
+    if (e == 110) { return 10; }     // \n
+    if (e == 116) { return 9; }      // \t
+    if (e == 114) { return 13; }     // \r
+    if (e == 92) { return 92; }      // \\
+    if (e == 34) { return 34; }      // \"
+    return e;
+}
+
+// NOTE: the char escape decode is INLINED in emit_value (not a helper). Pulling
+// it out as a second `int(int)` helper triggers a codegen bug where the helper's
+// `return e` fall-through yields 0 (its literal-return branches are fine, and the
+// first such helper — decode_str_escape — works). See selfhost/NOTES.md. Inlining
+// with a `dv` accumulator sidesteps the buggy return-the-parameter path.
+
+// Print a token's value exactly as the C++ lexer stores it: STRING_LIT/CHAR_LIT
+// are decoded (escapes applied, surrounding quotes dropped); everything else is
+// the raw lexeme bytes [start, start+len).
+void emit_value(*uint8 src, int type, int start, int len) {
+    if (type == STRING_LIT) {
+        int i = start + 1;                  // skip opening "
+        int endp = start + len - 1;         // index of closing "
+        while (i < endp) {
+            int ch = (int)src[i];
+            if (ch == 92 && i + 1 < endp) { // '\' with a char after it
+                i = i + 1;
+                putchar(decode_str_escape((int)src[i]));
+            } else {
+                putchar(ch);
+            }
+            i = i + 1;
+        }
+        return;
+    }
+    if (type == CHAR_LIT) {
+        int i = start + 1;                  // skip opening '
+        int endp = start + len - 1;         // index of closing '
+        if (i < endp) {                     // read_char keeps only the first char
+            int ch = (int)src[i];
+            if (ch == 92 && i + 1 < endp) {
+                i = i + 1;
+                int e = (int)src[i];     // read_char escapes: n,t,\ ; else the char
+                int dv = e;
+                if (e == 110) { dv = 10; }
+                if (e == 116) { dv = 9; }
+                if (e == 92) { dv = 92; }
+                putchar(dv);
+            } else {
+                putchar(ch);
+            }
+        }
+        return;
+    }
+    int i = 0;
+    while (i < len) {
+        putchar((int)src[start + i]);
+        i = i + 1;
+    }
+}
 
 int main(int argc, string* argv) {
     if (argc < 2) {
@@ -29,12 +93,8 @@ int main(int argc, string* argv) {
 
     Token t = lx_next(&lx);
     while (t.type != EOF_TOKEN) {
-        printf("Line %d, Col %d: %s '", t.line, t.col, token_name(t.type));
-        int i = 0;
-        while (i < t.len) {
-            putchar((int)src[t.start + i]);
-            i = i + 1;
-        }
+        printf("  Line %3d, Col %3d  %15s  '", t.line, t.col, token_name(t.type));
+        emit_value(src, t.type, t.start, t.len);
         printf("'\n");
         t = lx_next(&lx);
     }
