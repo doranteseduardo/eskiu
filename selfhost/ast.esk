@@ -11,7 +11,7 @@ import <list>;
 // Node kind tags (mirror the C++ node set; extended as slices land).
 enum DeclKind { DK_FUNCTION }
 enum StmtKind { SK_BLOCK, SK_RETURN }
-enum ExprKind { EK_LITERAL }
+enum ExprKind { EK_LITERAL, EK_IDENT, EK_BINARY, EK_UNARY }
 
 // Literal kinds, in the C++ LiteralExpr::Kind order; lit_name maps to the
 // printer's label (INT/FLOAT/STRING/CHAR/BOOL/NULL).
@@ -73,6 +73,26 @@ void print_expr(*ExprNode e, int d) {
     if (e.kind == EK_LITERAL) {
         pind(d);
         printf("LiteralExpr(%s): %s\n", lit_name(e.lit_kind), e.sval);
+        return;
+    }
+    if (e.kind == EK_IDENT) {
+        pind(d);
+        printf("IdentExpr: %s\n", e.sval);
+        return;
+    }
+    if (e.kind == EK_BINARY) {
+        pind(d);
+        printf("BinaryExpr: %s\n", e.sval);
+        pline(d + 1, "Left:");
+        print_expr(e.a, d + 2);
+        pline(d + 1, "Right:");
+        print_expr(e.b, d + 2);
+        return;
+    }
+    if (e.kind == EK_UNARY) {
+        pind(d);
+        printf("UnaryExpr: %s\n", e.sval);
+        print_expr(e.a, d + 1);
         return;
     }
 }
