@@ -2,8 +2,9 @@
 // and parity-tested against the C++ `--test-lexer`. Free functions over a
 // `Lexer*` (explicit cursor state); mirrors the C++ peek/advance/skip semantics.
 //
-// Stage 1: whitespace + identifiers + EOF. (Keywords, numbers, strings, chars,
-// operators, comments arrive in later slices — each gated by the parity harness.)
+// Stage 2: whitespace + identifiers + keyword classification + EOF. (Numbers,
+// strings, chars, operators, comments arrive in later slices — each gated by the
+// parity harness.)
 
 import <ctype>;
 import "tokens.esk";
@@ -45,6 +46,80 @@ void lx_skip_ws(Lexer* lx) {
     }
 }
 
+// Does the lexeme src[start, start+len) equal the NUL-terminated keyword `kw`?
+int lexeme_eq(*uint8 src, int start, int len, string kw) {
+    int i = 0;
+    while (i < len) {
+        if (kw[i] == 0) { return 0; }                     // kw shorter than lexeme
+        if ((int)src[start + i] != (int)kw[i]) { return 0; }
+        i = i + 1;
+    }
+    if (kw[len] == 0) { return 1; }                       // kw ends exactly at len
+    return 0;
+}
+
+// Classify an identifier lexeme: keyword TokenType if it matches the table
+// (mirrors Lexer::keywords in lexer/lexer.cpp), else IDENT.
+int keyword_type(*uint8 src, int start, int len) {
+    if (lexeme_eq(src, start, len, "let") == 1) { return LET; }
+    if (lexeme_eq(src, start, len, "int") == 1) { return INT; }
+    if (lexeme_eq(src, start, len, "float") == 1) { return FLOAT; }
+    if (lexeme_eq(src, start, len, "double") == 1) { return DOUBLE; }
+    if (lexeme_eq(src, start, len, "bool") == 1) { return BOOL; }
+    if (lexeme_eq(src, start, len, "char") == 1) { return CHAR; }
+    if (lexeme_eq(src, start, len, "string") == 1) { return STRING; }
+    if (lexeme_eq(src, start, len, "void") == 1) { return VOID; }
+    if (lexeme_eq(src, start, len, "struct") == 1) { return STRUCT; }
+    if (lexeme_eq(src, start, len, "packed") == 1) { return PACKED; }
+    if (lexeme_eq(src, start, len, "union") == 1) { return UNION; }
+    if (lexeme_eq(src, start, len, "interface") == 1) { return INTERFACE; }
+    if (lexeme_eq(src, start, len, "enum") == 1) { return ENUM; }
+    if (lexeme_eq(src, start, len, "fn") == 1) { return FN; }
+    if (lexeme_eq(src, start, len, "asm") == 1) { return ASM; }
+    if (lexeme_eq(src, start, len, "volatile") == 1) { return VOLATILE; }
+    if (lexeme_eq(src, start, len, "escaping") == 1) { return ESCAPING; }
+    if (lexeme_eq(src, start, len, "async") == 1) { return ASYNC; }
+    if (lexeme_eq(src, start, len, "await") == 1) { return AWAIT; }
+    if (lexeme_eq(src, start, len, "const") == 1) { return CONST; }
+    if (lexeme_eq(src, start, len, "sizeof") == 1) { return SIZEOF; }
+    if (lexeme_eq(src, start, len, "free_closure") == 1) { return FREE_CLOSURE; }
+    if (lexeme_eq(src, start, len, "thread_create") == 1) { return THREAD_CREATE; }
+    if (lexeme_eq(src, start, len, "thread_join") == 1) { return THREAD_JOIN; }
+    if (lexeme_eq(src, start, len, "for") == 1) { return FOR; }
+    if (lexeme_eq(src, start, len, "in") == 1) { return IN; }
+    if (lexeme_eq(src, start, len, "while") == 1) { return WHILE; }
+    if (lexeme_eq(src, start, len, "if") == 1) { return IF; }
+    if (lexeme_eq(src, start, len, "else") == 1) { return ELSE; }
+    if (lexeme_eq(src, start, len, "switch") == 1) { return SWITCH; }
+    if (lexeme_eq(src, start, len, "match") == 1) { return MATCH; }
+    if (lexeme_eq(src, start, len, "case") == 1) { return CASE; }
+    if (lexeme_eq(src, start, len, "default") == 1) { return DEFAULT; }
+    if (lexeme_eq(src, start, len, "break") == 1) { return BREAK; }
+    if (lexeme_eq(src, start, len, "return") == 1) { return RETURN; }
+    if (lexeme_eq(src, start, len, "import") == 1) { return IMPORT; }
+    if (lexeme_eq(src, start, len, "extern") == 1) { return EXTERN; }
+    if (lexeme_eq(src, start, len, "intrinsic") == 1) { return INTRINSIC; }
+    if (lexeme_eq(src, start, len, "alloc_with") == 1) { return ALLOC_WITH; }
+    if (lexeme_eq(src, start, len, "null") == 1) { return NULL_KW; }
+    if (lexeme_eq(src, start, len, "true") == 1) { return TRUE; }
+    if (lexeme_eq(src, start, len, "false") == 1) { return FALSE; }
+    if (lexeme_eq(src, start, len, "try") == 1) { return TRY; }
+    if (lexeme_eq(src, start, len, "catch") == 1) { return CATCH; }
+    if (lexeme_eq(src, start, len, "finally") == 1) { return FINALLY; }
+    if (lexeme_eq(src, start, len, "throw") == 1) { return THROW; }
+    if (lexeme_eq(src, start, len, "continue") == 1) { return CONTINUE; }
+    if (lexeme_eq(src, start, len, "int8") == 1) { return INT8; }
+    if (lexeme_eq(src, start, len, "int16") == 1) { return INT16; }
+    if (lexeme_eq(src, start, len, "int32") == 1) { return INT32; }
+    if (lexeme_eq(src, start, len, "int64") == 1) { return INT64; }
+    if (lexeme_eq(src, start, len, "uint") == 1) { return UINT; }
+    if (lexeme_eq(src, start, len, "uint8") == 1) { return UINT8; }
+    if (lexeme_eq(src, start, len, "uint16") == 1) { return UINT16; }
+    if (lexeme_eq(src, start, len, "uint32") == 1) { return UINT32; }
+    if (lexeme_eq(src, start, len, "uint64") == 1) { return UINT64; }
+    return IDENT;
+}
+
 Token lx_next(Lexer* lx) {
     lx_skip_ws(lx);
 
@@ -61,12 +136,13 @@ Token lx_next(Lexer* lx) {
     int sp = lx.pos;
     int c = lx_peek(lx);
 
-    // Identifiers (keyword classification is a later slice — all → IDENT for now).
+    // Identifiers + keywords.
     if (is_ident_start(c) == 1) {
         while (lx_at_end(lx) == 0 && is_ident_cont(lx_peek(lx)) == 1) {
             lx_advance(lx);
         }
-        t.type = IDENT; t.start = sp; t.len = lx.pos - sp;
+        t.type = keyword_type(lx.src, sp, lx.pos - sp);
+        t.start = sp; t.len = lx.pos - sp;
         t.line = sl; t.col = sc;
         return t;
     }

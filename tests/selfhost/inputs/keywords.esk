@@ -1,0 +1,7 @@
+let int float double bool char string void
+struct packed union interface enum fn
+if else while for in switch match case default
+break return continue async await const
+true false null sizeof
+int8 int16 int32 int64 uint uint8 uint16 uint32 uint64
+foo letx in_ if2 structure intt
