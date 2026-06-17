@@ -16,6 +16,11 @@ verifier) and treats three outcomes as findings:
              missed: valid IR, wrong semantics that the optimizer diverged on.
   BUILDFAIL— clang could not build the emitted IR at some -O level (IR the LLVM
              verifier accepted but the real pipeline rejects).
+  OUTPUT   — a program with KNOWN expected stdout produced something else (the
+             expected-output oracle, for the backslash generators below). RUNFAIL
+             is its build/run-failure sibling. Catches uniformly-mis-lexed
+             programs the O0/O2 oracle is blind to — e.g. a // comment ending in
+             '\' that swallows the next source line.
 
 A clean rejection (exit non-zero with an `error:` diagnostic) is NOT a finding —
 the compiler is allowed to reject bad programs.
@@ -25,7 +30,9 @@ Inputs come from two sources:
   · generation — programs biased toward the known bug classes: deep loops with
     many locals, sret-returning (>16-byte) functions called with mixed-width int
     literals, generic functions/structs with fn-typed params, ADT enums + match,
-    capturing closures, async/await across control flow, and nested structs.
+    capturing closures, async/await across control flow, nested structs, and
+    backslash-newline inside // & /* */ comments and string literals (with a
+    self-checking expected stdout — the preprocessor must not splice there).
 
 Usage:
   python3 tests/fuzz/eskiu_fuzz.py --iterations 2000 [--seed 1] [--eskiuc PATH]
@@ -242,6 +249,87 @@ GENERATORS = [gen_loop_locals, gen_sret_mixed_args, gen_generic_fn_param,
               gen_nested_struct]
 
 
+# ── Backslash-newline in comments & strings (preprocessor/lexer hardening) ──────
+#
+# The preprocessor honors backslash-newline line continuation, but it must NOT
+# splice inside a // or /* */ comment or a string literal — otherwise a comment
+# ending in '\' silently swallows the next source line (a real bug found dogfooding
+# the self-hosted lexer). The O0/O2 oracle is blind to this (both levels mis-lex
+# identically), so these generators carry their OWN expected stdout: any swallowed
+# line, or a comment-aware-scan slip, breaks it. Each returns (src, expected).
+
+def esk_decode(body):
+    """Decode an Eskiu string-literal body the way read_string does (n,t,r,\\,")."""
+    out, i = [], 0
+    esc = {"n": "\n", "t": "\t", "r": "\r", "\\": "\\", "\"": "\""}
+    while i < len(body):
+        c = body[i]
+        if c == "\\" and i + 1 < len(body):
+            out.append(esc.get(body[i + 1], body[i + 1])); i += 2
+        else:
+            out.append(c); i += 1
+    return "".join(out)
+
+# Line-comment junk (everything after // is comment text): includes //, /*, */,
+# quotes, '\' to stress the comment-aware continuation scan. Never a newline.
+_CMT_JUNK = ["x", "ab", "1+2", "slash//here", "blk/*open", "close*/y",
+             "q'c'", "arrow->", "dots...", "bs\\\\", "tab\\t"]
+# Block-comment interior junk MUST NOT contain */ (would close the comment early)
+# or /* (avoid confusion); comments don't nest.
+_BLK_JUNK = ["x", "ab", "1+2", "word", "q'c'", "arrow->", "dots...", "bs\\\\", "tab\\t"]
+
+# String-literal bodies with a known decode (no unescaped " or %, no real newline).
+_STR_BODIES = ["plain text", "with // slashes", "block /* x */ end",
+               "tab\\tafter", "bs\\\\end", "quote\\\"inside", "a\\tb // c /* d */"]
+
+def _line_comment(trailing_bs):
+    txt = "// " + " ".join(random.sample(_CMT_JUNK, random.randint(1, 4)))
+    return txt + ("\\" if trailing_bs else "")
+
+def _block_comment():
+    # may span physical lines; an interior line may end in '\' (a block comment's
+    # trailing '\' must not splice out the closing */ on the next line).
+    mid = "".join("\n     more " + (" \\" if random.random() < 0.5 else "")
+                  for _ in range(random.randint(0, 2)))
+    return "/* " + " ".join(random.sample(_BLK_JUNK, 2)) + mid + " */"
+
+def gen_backslash_comments():
+    body = ['extern int printf(string fmt, ...);', 'int main() {']
+    expected = []
+    for _ in range(random.randint(2, 6)):
+        r = random.random()
+        if r < 0.55:                                   # a marker print, maybe with
+            k = random.randint(0, 99)                  # a trailing '\'-comment that
+            trail = ""                                 # must not eat the next line
+            if random.random() < 0.6:
+                trail = "  // " + " ".join(random.sample(_CMT_JUNK, 2)) + "\\"
+            body.append(f'    printf("%d\\n", {k});{trail}')
+            expected.append(f"{k}\n")
+        elif r < 0.8:                                  # standalone line comment
+            body.append("    " + _line_comment(random.random() < 0.85))
+        else:                                          # block comment
+            body.append("    " + _block_comment())
+    body.append('    printf("END\\n");')               # a final line a '\' could eat
+    expected.append("END\n")
+    body += ["    return 0;", "}"]
+    return "\n".join(body) + "\n", "".join(expected)
+
+def gen_backslash_strings():
+    body = ['extern int printf(string fmt, ...);', 'int main() {']
+    expected = []
+    for _ in range(random.randint(2, 6)):
+        s = random.choice(_STR_BODIES)
+        trail = ""
+        if random.random() < 0.5:                      # trailing '\'-comment after
+            trail = "  // c " + random.choice(_CMT_JUNK) + "\\"
+        body.append(f'    printf("{s}\\n");{trail}')
+        expected.append(esk_decode(s) + "\n")
+    body += ["    return 0;", "}"]
+    return "\n".join(body) + "\n", "".join(expected)
+
+OUTPUT_GENERATORS = [gen_backslash_comments, gen_backslash_strings]
+
+
 # ── Oracle ─────────────────────────────────────────────────────────────────────
 
 CRASH_MARKERS = ("Assertion", "terminate called", "Stack dump", "PLEASE submit",
@@ -348,6 +436,29 @@ def differential(clang, ir, timeout=15):
         return ("OK", "")
 
 
+# ── Expected-output oracle (for the backslash generators) ───────────────────────
+#
+# Compile+run via `eskiuc run` and compare stdout to the generator's known-good
+# output. Catches "silently eaten line" mis-lexing that the O0/O2 oracle can't (it
+# would diverge identically at both levels). OUTPUT = wrong stdout; RUNFAIL = the
+# program failed to build/run (e.g. a swallowed `return`/`}`).
+
+def output_oracle(eskiuc, src, expected, timeout=15):
+    import tempfile
+    with tempfile.NamedTemporaryFile("w", suffix=".esk", delete=False) as f:
+        f.write(src); path = f.name
+    try:
+        p = subprocess.run([eskiuc, "run", path], capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        os.unlink(path); return ("HANG", "timeout")
+    os.unlink(path)
+    if p.returncode != 0:
+        return ("RUNFAIL", f"rc={p.returncode}: {((p.stderr or '') + (p.stdout or ''))[-300:]}")
+    if p.stdout != expected:
+        return ("OUTPUT", f"expected {expected!r} got {p.stdout!r}")
+    return ("OK", "")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--iterations", type=int, default=1000)
@@ -370,6 +481,18 @@ def main():
     findings = 0
 
     for it in range(args.iterations):
+        # 20%: backslash-in-comment/string lexing check — its own expected-output
+        # oracle (the O0/O2 differential can't see a uniformly mis-lexed program).
+        if random.random() < 0.20:
+            src, expected = random.choice(OUTPUT_GENERATORS)()
+            kind, detail = output_oracle(args.eskiuc, src, expected)
+            if kind != "OK":
+                findings += 1
+                fn = FINDINGS / f"{kind.lower()}_{it}.esk"
+                with open(fn, "w") as f: f.write(src)
+                print(f"[{kind}] iter {it} -> {fn}\n    {detail.strip()[:200]}")
+            continue
+
         mutated = False
         if random.random() < 0.35 or not seeds:           # generation
             src = random.choice(GENERATORS)()
