@@ -1,0 +1,156 @@
+// Token model for the self-hosted lexer.
+//
+// TokenType mirrors `lexer/lexer.h`'s enum in EXACT order, so the integer value
+// of each variant matches the C++ `static_cast<int>(tok.type)` — that's what the
+// parity harness diffs against `--test-lexer`. Keep this in lockstep with lexer.h.
+enum TokenType {
+    // Keywords
+    LET, INT, FLOAT, DOUBLE, BOOL, CHAR, STRING, VOID, STRUCT, PACKED, UNION,
+    INTERFACE, ENUM, FN, ASM, VOLATILE, ESCAPING, ASYNC, AWAIT, CONST,
+    THREAD_CREATE, THREAD_JOIN, FOR, IN, WHILE, IF, ELSE, SWITCH, MATCH, CASE,
+    DEFAULT, BREAK, RETURN, IMPORT, EXTERN, INTRINSIC, ALLOC_WITH, NULL_KW,
+    TRUE, FALSE, SIZEOF, FREE_CLOSURE, TRY, CATCH, FINALLY, THROW, CONTINUE,
+    INT8, INT16, INT32, INT64, UINT, UINT8, UINT16, UINT32, UINT64,
+
+    // Operators
+    PLUS, MINUS, STAR, SLASH, PERCENT, PLUS_EQ, MINUS_EQ, STAR_EQ, SLASH_EQ,
+    PERCENT_EQ, EQ, EQEQ, NE, LT, GT, LE, GE, AND, OR, NOT, AMPERSAND, PIPE,
+    CARET, TILDE, LSHIFT, RSHIFT, AMP_EQ, PIPE_EQ, CARET_EQ, LSHIFT_EQ, RSHIFT_EQ,
+
+    // Delimiters
+    LBRACE, RBRACE, LPAREN, RPAREN, LBRACKET, RBRACKET, SEMICOLON, COMMA, DOT,
+    RANGE, COLON, ARROW, ELLIPSIS, QUESTION,
+
+    // Literals
+    INT_LIT, FLOAT_LIT, STRING_LIT, CHAR_LIT, IDENT,
+
+    // Special
+    PRAGMA, EOF_TOKEN, UNKNOWN,
+}
+
+// A token references its lexeme by [start, start+len) byte offsets into the
+// source buffer (no owned String — avoids copies and aliasing). line/col point
+// at the first character of the lexeme.
+struct Token {
+    int type;
+    int start;
+    int len;
+    int line;
+    int col;
+}
+
+// Mirror of the C++ `tokenTypeToString` (lexer/preprocessor.cpp) — used by the
+// parity harness so both lexers print the type by NAME. Every member returns its
+// own name except NULL_KW -> "NULL" and EOF_TOKEN -> "EOF" (as in the C++).
+string token_name(int t) {
+    if (t == LET) { return "LET"; }
+    if (t == INT) { return "INT"; }
+    if (t == FLOAT) { return "FLOAT"; }
+    if (t == DOUBLE) { return "DOUBLE"; }
+    if (t == BOOL) { return "BOOL"; }
+    if (t == CHAR) { return "CHAR"; }
+    if (t == STRING) { return "STRING"; }
+    if (t == VOID) { return "VOID"; }
+    if (t == STRUCT) { return "STRUCT"; }
+    if (t == PACKED) { return "PACKED"; }
+    if (t == UNION) { return "UNION"; }
+    if (t == INTERFACE) { return "INTERFACE"; }
+    if (t == ENUM) { return "ENUM"; }
+    if (t == FN) { return "FN"; }
+    if (t == ASM) { return "ASM"; }
+    if (t == VOLATILE) { return "VOLATILE"; }
+    if (t == ESCAPING) { return "ESCAPING"; }
+    if (t == ASYNC) { return "ASYNC"; }
+    if (t == AWAIT) { return "AWAIT"; }
+    if (t == CONST) { return "CONST"; }
+    if (t == THREAD_CREATE) { return "THREAD_CREATE"; }
+    if (t == THREAD_JOIN) { return "THREAD_JOIN"; }
+    if (t == FOR) { return "FOR"; }
+    if (t == IN) { return "IN"; }
+    if (t == WHILE) { return "WHILE"; }
+    if (t == IF) { return "IF"; }
+    if (t == ELSE) { return "ELSE"; }
+    if (t == SWITCH) { return "SWITCH"; }
+    if (t == MATCH) { return "MATCH"; }
+    if (t == CASE) { return "CASE"; }
+    if (t == DEFAULT) { return "DEFAULT"; }
+    if (t == BREAK) { return "BREAK"; }
+    if (t == RETURN) { return "RETURN"; }
+    if (t == IMPORT) { return "IMPORT"; }
+    if (t == EXTERN) { return "EXTERN"; }
+    if (t == INTRINSIC) { return "INTRINSIC"; }
+    if (t == ALLOC_WITH) { return "ALLOC_WITH"; }
+    if (t == NULL_KW) { return "NULL"; }
+    if (t == TRUE) { return "TRUE"; }
+    if (t == FALSE) { return "FALSE"; }
+    if (t == SIZEOF) { return "SIZEOF"; }
+    if (t == FREE_CLOSURE) { return "FREE_CLOSURE"; }
+    if (t == TRY) { return "TRY"; }
+    if (t == CATCH) { return "CATCH"; }
+    if (t == FINALLY) { return "FINALLY"; }
+    if (t == THROW) { return "THROW"; }
+    if (t == CONTINUE) { return "CONTINUE"; }
+    if (t == INT8) { return "INT8"; }
+    if (t == INT16) { return "INT16"; }
+    if (t == INT32) { return "INT32"; }
+    if (t == INT64) { return "INT64"; }
+    if (t == UINT) { return "UINT"; }
+    if (t == UINT8) { return "UINT8"; }
+    if (t == UINT16) { return "UINT16"; }
+    if (t == UINT32) { return "UINT32"; }
+    if (t == UINT64) { return "UINT64"; }
+    if (t == PLUS) { return "PLUS"; }
+    if (t == MINUS) { return "MINUS"; }
+    if (t == STAR) { return "STAR"; }
+    if (t == SLASH) { return "SLASH"; }
+    if (t == PERCENT) { return "PERCENT"; }
+    if (t == PLUS_EQ) { return "PLUS_EQ"; }
+    if (t == MINUS_EQ) { return "MINUS_EQ"; }
+    if (t == STAR_EQ) { return "STAR_EQ"; }
+    if (t == SLASH_EQ) { return "SLASH_EQ"; }
+    if (t == PERCENT_EQ) { return "PERCENT_EQ"; }
+    if (t == EQ) { return "EQ"; }
+    if (t == EQEQ) { return "EQEQ"; }
+    if (t == NE) { return "NE"; }
+    if (t == LT) { return "LT"; }
+    if (t == GT) { return "GT"; }
+    if (t == LE) { return "LE"; }
+    if (t == GE) { return "GE"; }
+    if (t == AND) { return "AND"; }
+    if (t == OR) { return "OR"; }
+    if (t == NOT) { return "NOT"; }
+    if (t == AMPERSAND) { return "AMPERSAND"; }
+    if (t == PIPE) { return "PIPE"; }
+    if (t == CARET) { return "CARET"; }
+    if (t == TILDE) { return "TILDE"; }
+    if (t == LSHIFT) { return "LSHIFT"; }
+    if (t == RSHIFT) { return "RSHIFT"; }
+    if (t == AMP_EQ) { return "AMP_EQ"; }
+    if (t == PIPE_EQ) { return "PIPE_EQ"; }
+    if (t == CARET_EQ) { return "CARET_EQ"; }
+    if (t == LSHIFT_EQ) { return "LSHIFT_EQ"; }
+    if (t == RSHIFT_EQ) { return "RSHIFT_EQ"; }
+    if (t == LBRACE) { return "LBRACE"; }
+    if (t == RBRACE) { return "RBRACE"; }
+    if (t == LPAREN) { return "LPAREN"; }
+    if (t == RPAREN) { return "RPAREN"; }
+    if (t == LBRACKET) { return "LBRACKET"; }
+    if (t == RBRACKET) { return "RBRACKET"; }
+    if (t == SEMICOLON) { return "SEMICOLON"; }
+    if (t == COMMA) { return "COMMA"; }
+    if (t == DOT) { return "DOT"; }
+    if (t == RANGE) { return "RANGE"; }
+    if (t == COLON) { return "COLON"; }
+    if (t == ARROW) { return "ARROW"; }
+    if (t == ELLIPSIS) { return "ELLIPSIS"; }
+    if (t == QUESTION) { return "QUESTION"; }
+    if (t == INT_LIT) { return "INT_LIT"; }
+    if (t == FLOAT_LIT) { return "FLOAT_LIT"; }
+    if (t == STRING_LIT) { return "STRING_LIT"; }
+    if (t == CHAR_LIT) { return "CHAR_LIT"; }
+    if (t == IDENT) { return "IDENT"; }
+    if (t == PRAGMA) { return "PRAGMA"; }
+    if (t == EOF_TOKEN) { return "EOF"; }
+    if (t == UNKNOWN) { return "UNKNOWN"; }
+    return "???";
+}
