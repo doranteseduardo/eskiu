@@ -28,6 +28,18 @@ Use this whenever you touch codegen, the `ty::Type` IR, or anything in `sema/` t
 
 Why this catches real bugs: a correct program must produce the same observable result regardless of optimization level. When the two disagree, the front end emitted IR that was *accidentally* correct at `-O0` but wrong once LLVM's optimizer was allowed to exploit it (e.g. an undef value, a wrong integer width, or a missing extension that `-O0` happened to mask). This is precisely the class of latent miscompile the v0.2.4 single-resolver work fixed. When the fuzzer flags a case, minimize the generated program, then bisect with `--test-codegen` to find the construct whose IR is wrong.
 
+Some generators carry their own **expected stdout** instead of relying on the O0/O2 differential — notably the backslash-newline-in-comments/strings generators, which catch *uniformly* mis-lexed programs (where O0 and O2 agree but are both wrong, e.g. a `//` comment ending in `\` swallowing the next line). A mismatch against the known output (or a build failure) is the finding.
+
+## Resolver Consistency: `ESKIU_RESOLVER_DEBUG`
+
+The single resolver (v0.2.4) makes codegen consume the type checker's resolved-type table instead of re-deriving types. The table doesn't annotate *every* expression, so codegen keeps a structural fallback (`deriveExprEskiuType`). To guard against the two ever disagreeing — the latent-miscompile class — set `ESKIU_RESOLVER_DEBUG=1`: whenever the table *has* an entry, codegen also runs the derivation and prints `[resolver-disagree] table=… derive=… <ExprKind>` on any semantic difference (benign representational noise — the `struct:`/`interface:` tag and alias spelling — is normalized away first).
+
+```
+for f in tests/*.esk; do ESKIU_RESOLVER_DEBUG=1 build/eskiuc --test-codegen "$f" 2>&1 >/dev/null; done | grep resolver-disagree
+```
+
+Across the corpus this is silent except for one benign enum-as-underlying-int case (`Color` vs `int`) — i.e. the two evaluators agree on every behavior-affecting type. Run it after any change to `sema/` type resolution or codegen's type derivation; a new disagreement is the diagnosis.
+
 ## Runtime Memory / UB: `--asan` and `--ubsan`
 
 For defects that only show up at run time:
