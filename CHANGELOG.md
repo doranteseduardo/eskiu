@@ -7,7 +7,7 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
-## [Unreleased]
+## [0.2.5] — 2026-06-17
 
 ### Added
 - **Self-hosting milestone 1: the lexer, in Eskiu** (`selfhost/` +
