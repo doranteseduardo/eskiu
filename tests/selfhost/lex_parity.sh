@@ -8,7 +8,11 @@
 # identically on both sides, match too — no fragile re-parsing of the output).
 #
 # Usage: tests/selfhost/lex_parity.sh [file.esk ...]
-#   no args -> the whole corpus under tests/selfhost/inputs/
+#   no args   -> the synthetic corpus under tests/selfhost/inputs/
+#   --full    -> the whole real corpus tests/*.esk, minus the preprocessor-
+#                dependent files (the C++ lexer runs preprocess() first, so files
+#                that #define/#ifdef/#include, use __LINE__/__FILE__, or carry a
+#                shebang would diverge — #pragma passes through and IS compared).
 # Green (exit 0) = byte-identical token streams for every file.
 
 set -u
@@ -30,7 +34,21 @@ strip_banner() {
     sed -E '/^Tokenizing: /d; /^=+$/d; /^Total tokens: /d'
 }
 
-if [ "$#" -gt 0 ]; then
+# A file is preprocessor-dependent (excluded from --full) if a directive that
+# rewrites the token stream appears, or a built-in macro is used. #pragma is NOT
+# excluded — it survives preprocessing and lexes identically on both sides.
+PP_RE='(^[[:space:]]*#[[:space:]]*(define|undef|ifdef|ifndef|if|elif|else|endif|include)\b)|(^#!)|__LINE__|__FILE__'
+
+if [ "$#" -eq 1 ] && [ "$1" = "--full" ]; then
+    files=()
+    excluded=()
+    for f in tests/*.esk; do
+        if grep -qE "$PP_RE" "$f"; then excluded+=("$f"); else files+=("$f"); fi
+    done
+    echo "corpus: ${#files[@]} files (excluded ${#excluded[@]} preprocessor-dependent)"
+    for e in "${excluded[@]}"; do echo "  skip  ${e#tests/}  (preprocessor)"; done
+    echo "----"
+elif [ "$#" -gt 0 ]; then
     files=("$@")
 else
     files=(tests/selfhost/inputs/*.esk)
