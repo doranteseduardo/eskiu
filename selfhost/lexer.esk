@@ -2,9 +2,9 @@
 // and parity-tested against the C++ `--test-lexer`. Free functions over a
 // `Lexer*` (explicit cursor state); mirrors the C++ peek/advance/skip semantics.
 //
-// Stage 4: whitespace, identifiers + keywords, number literals, string + char
-// literals, EOF. (Operators and comments arrive in later slices — each gated by
-// the parity harness.)
+// Stage 5: whitespace, identifiers + keywords, numbers, string + char literals,
+// operators + delimiters + pragma, EOF. (Comments arrive in the next slice —
+// gated by the parity harness.)
 
 import <ctype>;
 import "tokens.esk";
@@ -20,6 +20,16 @@ struct Lexer {
 int lx_at_end(Lexer* lx) {
     if (lx.pos >= lx.len) { return 1; }
     return 0;
+}
+
+// Stamp span/position on a token built by the operator dispatch and return it
+// (keeps each operator case to one line). len is derived from the cursor.
+Token lx_finish(Token t, int sp, int pos, int sl, int sc) {
+    t.start = sp;
+    t.len = pos - sp;
+    t.line = sl;
+    t.col = sc;
+    return t;
 }
 
 // Current byte (0 at end), as an int — matches the C++ `peek()` returning '\0'.
@@ -244,9 +254,116 @@ Token lx_next(Lexer* lx) {
         return t;
     }
 
-    // Anything else: consume one byte as UNKNOWN (later slices replace this).
+    // Compiler directive surviving the preprocessor: `#...` to end of line. The
+    // C++ value excludes the '#', so start at sp+1 (Token.start is value-only).
+    if (c == 35) {                                   // '#'
+        lx_advance(lx);                              // consume '#'
+        while (lx_at_end(lx) == 0 && lx_peek(lx) != 10) {
+            lx_advance(lx);
+        }
+        t.type = PRAGMA; t.start = sp + 1; t.len = lx.pos - (sp + 1);
+        t.line = sl; t.col = sc;
+        return t;
+    }
+
+    // Operators and delimiters (mirror next_token's switch). Consume the first
+    // char, then longest-match the multi-char forms.
     lx_advance(lx);
-    t.type = UNKNOWN; t.start = sp; t.len = lx.pos - sp;
-    t.line = sl; t.col = sc;
-    return t;
+
+    if (c == 43) {                                   // '+'
+        if (lx_at_end(lx) == 0 && lx_peek(lx) == 61) { lx_advance(lx); t.type = PLUS_EQ; }
+        else { t.type = PLUS; }
+        return lx_finish(t, sp, lx.pos, sl, sc);
+    }
+    if (c == 45) {                                   // '-'
+        if (lx_at_end(lx) == 0 && lx_peek(lx) == 61) { lx_advance(lx); t.type = MINUS_EQ; }
+        else if (lx_at_end(lx) == 0 && lx_peek(lx) == 62) { lx_advance(lx); t.type = ARROW; }
+        else { t.type = MINUS; }
+        return lx_finish(t, sp, lx.pos, sl, sc);
+    }
+    if (c == 42) {                                   // '*'
+        if (lx_at_end(lx) == 0 && lx_peek(lx) == 61) { lx_advance(lx); t.type = STAR_EQ; }
+        else { t.type = STAR; }
+        return lx_finish(t, sp, lx.pos, sl, sc);
+    }
+    if (c == 47) {                                   // '/'
+        if (lx_at_end(lx) == 0 && lx_peek(lx) == 61) { lx_advance(lx); t.type = SLASH_EQ; }
+        else { t.type = SLASH; }
+        return lx_finish(t, sp, lx.pos, sl, sc);
+    }
+    if (c == 37) {                                   // '%'
+        if (lx_at_end(lx) == 0 && lx_peek(lx) == 61) { lx_advance(lx); t.type = PERCENT_EQ; }
+        else { t.type = PERCENT; }
+        return lx_finish(t, sp, lx.pos, sl, sc);
+    }
+    if (c == 61) {                                   // '='
+        if (lx_at_end(lx) == 0 && lx_peek(lx) == 61) { lx_advance(lx); t.type = EQEQ; }
+        else { t.type = EQ; }
+        return lx_finish(t, sp, lx.pos, sl, sc);
+    }
+    if (c == 33) {                                   // '!'
+        if (lx_at_end(lx) == 0 && lx_peek(lx) == 61) { lx_advance(lx); t.type = NE; }
+        else { t.type = NOT; }
+        return lx_finish(t, sp, lx.pos, sl, sc);
+    }
+    if (c == 60) {                                   // '<'
+        if (lx_at_end(lx) == 0 && lx_peek(lx) == 61) { lx_advance(lx); t.type = LE; }
+        else if (lx_at_end(lx) == 0 && lx_peek(lx) == 60) {
+            lx_advance(lx);
+            if (lx_at_end(lx) == 0 && lx_peek(lx) == 61) { lx_advance(lx); t.type = LSHIFT_EQ; }
+            else { t.type = LSHIFT; }
+        }
+        else { t.type = LT; }
+        return lx_finish(t, sp, lx.pos, sl, sc);
+    }
+    if (c == 62) {                                   // '>'
+        if (lx_at_end(lx) == 0 && lx_peek(lx) == 61) { lx_advance(lx); t.type = GE; }
+        else if (lx_at_end(lx) == 0 && lx_peek(lx) == 62) {
+            lx_advance(lx);
+            if (lx_at_end(lx) == 0 && lx_peek(lx) == 61) { lx_advance(lx); t.type = RSHIFT_EQ; }
+            else { t.type = RSHIFT; }
+        }
+        else { t.type = GT; }
+        return lx_finish(t, sp, lx.pos, sl, sc);
+    }
+    if (c == 38) {                                   // '&'
+        if (lx_at_end(lx) == 0 && lx_peek(lx) == 38) { lx_advance(lx); t.type = AND; }
+        else if (lx_at_end(lx) == 0 && lx_peek(lx) == 61) { lx_advance(lx); t.type = AMP_EQ; }
+        else { t.type = AMPERSAND; }
+        return lx_finish(t, sp, lx.pos, sl, sc);
+    }
+    if (c == 124) {                                  // '|'
+        if (lx_at_end(lx) == 0 && lx_peek(lx) == 124) { lx_advance(lx); t.type = OR; }
+        else if (lx_at_end(lx) == 0 && lx_peek(lx) == 61) { lx_advance(lx); t.type = PIPE_EQ; }
+        else { t.type = PIPE; }
+        return lx_finish(t, sp, lx.pos, sl, sc);
+    }
+    if (c == 94) {                                   // '^'
+        if (lx_at_end(lx) == 0 && lx_peek(lx) == 61) { lx_advance(lx); t.type = CARET_EQ; }
+        else { t.type = CARET; }
+        return lx_finish(t, sp, lx.pos, sl, sc);
+    }
+    if (c == 46) {                                   // '.'
+        if (lx_at_end(lx) == 0 && lx_peek(lx) == 46 && lx_peek_next(lx) == 46) {
+            lx_advance(lx); lx_advance(lx); t.type = ELLIPSIS;
+        }
+        else if (lx_at_end(lx) == 0 && lx_peek(lx) == 46) { lx_advance(lx); t.type = RANGE; }
+        else { t.type = DOT; }
+        return lx_finish(t, sp, lx.pos, sl, sc);
+    }
+    if (c == 126) { t.type = TILDE;     return lx_finish(t, sp, lx.pos, sl, sc); }   // '~'
+    if (c == 123) { t.type = LBRACE;    return lx_finish(t, sp, lx.pos, sl, sc); }   // '{'
+    if (c == 125) { t.type = RBRACE;    return lx_finish(t, sp, lx.pos, sl, sc); }   // '}'
+    if (c == 40)  { t.type = LPAREN;    return lx_finish(t, sp, lx.pos, sl, sc); }   // '('
+    if (c == 41)  { t.type = RPAREN;    return lx_finish(t, sp, lx.pos, sl, sc); }   // ')'
+    if (c == 91)  { t.type = LBRACKET;  return lx_finish(t, sp, lx.pos, sl, sc); }   // '['
+    if (c == 93)  { t.type = RBRACKET;  return lx_finish(t, sp, lx.pos, sl, sc); }   // ']'
+    if (c == 59)  { t.type = SEMICOLON; return lx_finish(t, sp, lx.pos, sl, sc); }   // ';'
+    if (c == 44)  { t.type = COMMA;     return lx_finish(t, sp, lx.pos, sl, sc); }   // ','
+    if (c == 58)  { t.type = COLON;     return lx_finish(t, sp, lx.pos, sl, sc); }   // ':'
+    if (c == 63)  { t.type = QUESTION;  return lx_finish(t, sp, lx.pos, sl, sc); }   // '?'
+
+    // Anything else: a single-byte UNKNOWN token (matches the switch default).
+    t.type = UNKNOWN;
+    return lx_finish(t, sp, lx.pos, sl, sc);
 }
