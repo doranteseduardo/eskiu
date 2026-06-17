@@ -7,6 +7,20 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
+## [Unreleased]
+
+### Fixed
+- **Preprocessor: a `//` comment ending in `\` no longer swallows the next source
+  line.** Backslash-newline line continuation was applied unconditionally, so a
+  comment whose last character was a backslash spliced the following line into the
+  comment — silently deleting a `return`, an `else` branch, or any statement, with
+  no diagnostic. Continuation now fires only when the trailing `\` is genuine code
+  (not inside a `//` or `/* */` comment or a string/char literal); legitimate
+  `#define` continuation is unaffected. Found by dogfooding the self-hosted lexer.
+  Regression test: `tests/comment_backslash_continuation.esk`.
+
+---
+
 ## [0.2.4] — 2026-06-14
 
 Type unification — making the type checker the single resolver, so codegen stops
