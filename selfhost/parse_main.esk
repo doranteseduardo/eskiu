@@ -1,0 +1,25 @@
+// Driver: `eskiuc run selfhost/parse_main.esk FILE` (or compiled) — parse FILE and
+// print its AST in the C++ `--test-parser` format (just the dump, from "Program"
+// down). The parity harness strips the C++ banner and raw-diffs the two.
+
+import <io>;
+import <fs>;
+import "parser.esk";
+
+int main(int argc, string* argv) {
+    if (argc < 2) {
+        printf("usage: parse_main <file.esk>\n");
+        return 1;
+    }
+    let n: int64 = 0;
+    *uint8 src = fs_read_all(argv[1], &n);
+    if (src == null) {
+        printf("error: cannot read %s\n", argv[1]);
+        return 1;
+    }
+    let p: Parser;
+    p_init(&p, src, (int)n);
+    *Program prog = parse_program(&p);
+    print_program(prog);
+    return 0;
+}
