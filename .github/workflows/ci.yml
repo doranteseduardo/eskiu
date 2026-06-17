@@ -48,3 +48,10 @@ jobs:
       # Fixed seed so a green run is reproducible; raise --iterations for nightly.
       - name: Fuzz (compiler)
         run: ESKIU_CLANG=clang-22 python3 tests/fuzz/eskiu_fuzz.py --iterations 1500 --seed 1
+
+      # Self-hosted lexer (selfhost/) must stay byte-identical to the C++ lexer
+      # over the whole preprocessor-free corpus. The driver is compiled once to a
+      # native binary, so this is ~seconds. A divergence means the Eskiu lexer (or
+      # the C++ lexer it mirrors) changed.
+      - name: Lexer self-host parity
+        run: tests/selfhost/lex_parity.sh --full
