@@ -1,0 +1,9 @@
+int calls() { return f(a, b) + g(); }
+int chain() { return obj.field.method(x)[i].y; }
+int idx() { return arr[i + 1][j]; }
+int q() { return may_fail()?; }
+int casts() { return (int)x + (*uint8)p; }
+int sz() { return sizeof(int) + sizeof(*Foo) + sizeof(int[8]); }
+int strs() { return puts("hello\nworld"); }
+int chars() { return 'a' + '\n'; }
+int adj() { return cat("ab" "cd" "ef"); }

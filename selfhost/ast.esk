@@ -11,7 +11,10 @@ import <list>;
 // Node kind tags (mirror the C++ node set; extended as slices land).
 enum DeclKind { DK_FUNCTION }
 enum StmtKind { SK_BLOCK, SK_RETURN }
-enum ExprKind { EK_LITERAL, EK_IDENT, EK_BINARY, EK_UNARY }
+enum ExprKind {
+    EK_LITERAL, EK_IDENT, EK_BINARY, EK_UNARY,
+    EK_CALL, EK_INDEX, EK_MEMBER, EK_QUESTION, EK_CAST, EK_SIZEOF
+}
 
 // Literal kinds, in the C++ LiteralExpr::Kind order; lit_name maps to the
 // printer's label (INT/FLOAT/STRING/CHAR/BOOL/NULL).
@@ -93,6 +96,46 @@ void print_expr(*ExprNode e, int d) {
         pind(d);
         printf("UnaryExpr: %s\n", e.sval);
         print_expr(e.a, d + 1);
+        return;
+    }
+    if (e.kind == EK_CALL) {
+        pline(d, "CallExpr");
+        pline(d + 1, "Callee:");
+        print_expr(e.a, d + 2);
+        pline(d + 1, "Args:");
+        int i = 0;
+        int n = List_len<*ExprNode>(&e.kids);
+        while (i < n) { print_expr(List_get<*ExprNode>(&e.kids, i), d + 2); i = i + 1; }
+        return;
+    }
+    if (e.kind == EK_INDEX) {
+        pline(d, "IndexExpr");
+        pline(d + 1, "Base:");
+        print_expr(e.a, d + 2);
+        pline(d + 1, "Index:");
+        print_expr(e.b, d + 2);
+        return;
+    }
+    if (e.kind == EK_MEMBER) {
+        pind(d);
+        printf("MemberExpr: .%s\n", e.sval);
+        print_expr(e.a, d + 1);
+        return;
+    }
+    if (e.kind == EK_QUESTION) {
+        pline(d, "QuestionExpr (?)");
+        print_expr(e.a, d + 1);
+        return;
+    }
+    if (e.kind == EK_CAST) {
+        pind(d);
+        printf("CastExpr: (%s)\n", e.sval);
+        print_expr(e.a, d + 1);
+        return;
+    }
+    if (e.kind == EK_SIZEOF) {
+        pind(d);
+        printf("SizeofExpr: sizeof(%s)\n", e.sval);
         return;
     }
 }
