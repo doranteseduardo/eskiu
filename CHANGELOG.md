@@ -7,6 +7,47 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
+## [0.2.5] — 2026-06-17
+
+### Added
+- **Self-hosting milestone 1: the lexer, in Eskiu** (`selfhost/` +
+  `stdlib/ctype.esk`). A full lexer written in Eskiu, byte-identical to the C++
+  `--test-lexer` over the entire preprocessor-free corpus. Parity gate
+  `tests/selfhost/lex_parity.sh` (`--full` → 114/114; compiles the driver once to a
+  native binary, ~seconds) is **wired into CI**. Dogfood/tooling — the production
+  compiler is untouched. See `selfhost/README.md`.
+- **Self-hosting milestone 2: the parser, in Eskiu** (`selfhost/{ast,parser,parse_main}.esk`)
+  — in progress. Builds a recursive AST (tagged heap structs) from the self-hosted
+  lexer's tokens and prints it byte-identical to `--test-parser`; gate
+  `tests/selfhost/parse_parity.sh`. Done so far: the full expression layer
+  (precedence chain, unary, postfix call/index/member/`?`, casts, `sizeof`, all
+  literal kinds). Statements/declarations/templates next.
+
+### Hardening
+- **Resolver consistency check (`ESKIU_RESOLVER_DEBUG`).** Codegen's type
+  derivation is split out (`deriveExprEskiuType`) so that, under the env flag, the
+  single-resolver table is cross-checked against the structural derivation on every
+  hit; a semantic disagreement (the v0.2.4 two-evaluator miscompile class) is
+  printed. Across the whole corpus the two agree on every behavior-affecting type
+  (the only difference is a benign enum-as-int representation), confirming the
+  v0.2.4 reconciliation holds. Behavior-preserving (golden IR 26/26).
+- **Fuzzer: backslash-newline in comments & strings.** New generators with a
+  self-checking expected-output oracle (the O0/O2 differential is blind to a
+  uniformly mis-lexed program) — guards the comment-continuation footgun fixed
+  below.
+
+### Fixed
+- **Preprocessor: a `//` comment ending in `\` no longer swallows the next source
+  line.** Backslash-newline line continuation was applied unconditionally, so a
+  comment whose last character was a backslash spliced the following line into the
+  comment — silently deleting a `return`, an `else` branch, or any statement, with
+  no diagnostic. Continuation now fires only when the trailing `\` is genuine code
+  (not inside a `//` or `/* */` comment or a string/char literal); legitimate
+  `#define` continuation is unaffected. Found by dogfooding the self-hosted lexer.
+  Regression test: `tests/comment_backslash_continuation.esk`.
+
+---
+
 ## [0.2.4] — 2026-06-14
 
 Type unification — making the type checker the single resolver, so codegen stops

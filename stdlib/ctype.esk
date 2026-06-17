@@ -1,0 +1,45 @@
+// Pure ASCII character classification — freestanding-safe (no libc ctype).
+// Comparisons only, like <string>'s String_is_space. Takes `int` to mirror the
+// C++ <cctype> domain and avoid char/uint8 width surprises at call sites.
+
+// isspace: space, \t, \n, \v, \f, \r  (matches std::isspace for the C locale)
+int is_space(int c) {
+    if (c == 32 || c == 9 || c == 10 || c == 11 || c == 12 || c == 13) { return 1; }
+    return 0;
+}
+
+int is_digit(int c) {
+    if (c >= 48 && c <= 57) { return 1; }       // '0'..'9'
+    return 0;
+}
+
+int is_hex(int c) {
+    if (c >= 48 && c <= 57) { return 1; }        // '0'..'9'
+    if (c >= 97 && c <= 102) { return 1; }       // 'a'..'f'
+    if (c >= 65 && c <= 70) { return 1; }        // 'A'..'F'
+    return 0;
+}
+
+int is_alpha(int c) {
+    if (c >= 97 && c <= 122) { return 1; }       // 'a'..'z'
+    if (c >= 65 && c <= 90) { return 1; }        // 'A'..'Z'
+    return 0;
+}
+
+int is_alnum(int c) {
+    if (is_digit(c) == 1) { return 1; }
+    if (is_alpha(c) == 1) { return 1; }
+    return 0;
+}
+
+int is_ident_start(int c) {
+    if (is_alpha(c) == 1) { return 1; }
+    if (c == 95) { return 1; }                   // '_'
+    return 0;
+}
+
+int is_ident_cont(int c) {
+    if (is_alnum(c) == 1) { return 1; }
+    if (c == 95) { return 1; }
+    return 0;
+}

@@ -1,0 +1,22 @@
+// Regression: a `//` line comment ending in '\' must NOT splice the next source
+// line into the comment (backslash-newline continuation applies to code only).
+// A bug here silently swallowed a following `return`/`else`/statement.
+import <io>;
+
+// A trailing backslash inside a comment used to eat the next line \
+int eaten_if_buggy(int x) {
+    if (x == 1) { return 10; }   // \n
+    if (x == 2) { return 20; }   // \\  <- comment ends in backslash, then `return x`
+    return x;                    // this line was swallowed by the bug above
+}
+
+// Legit continuation still works: this #define spans two physical lines. \
+#define ADD(a, b) ((a) + \
+                   (b))
+
+int main() {
+    // The comment two lines above ends in '\'; this println must still run.
+    printf("%d %d %d\n", eaten_if_buggy(1), eaten_if_buggy(2), eaten_if_buggy(7));
+    printf("add=%d\n", ADD(3, 4));
+    return 0;
+}

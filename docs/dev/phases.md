@@ -4,7 +4,7 @@
 
 Authoritative status reference for Eskiu compiler contributors.
 
-Last updated: 2026-06-14.
+Last updated: 2026-06-17.
 
 ---
 
@@ -110,7 +110,7 @@ Everything in the feature table above ships in v0.1.0: the full systems language
 The theme is making Eskiu a practical language for concurrent backend services:
 real async I/O, an HTTP stack, and the everyday stdlib + tooling that adoption
 needs. v0.1.0 is frozen at its tag; v0.2.0 shipped the items below. The current
-release is **v0.2.4** (see the post-0.2.0 hardening section that follows).
+release is **v0.2.5** (see the post-0.2.0 hardening section that follows).
 
 Tracking checklist (checked = landed on `develop`).
 
@@ -167,7 +167,7 @@ Phase 3 rounds out ergonomics and tooling.
 - [x] Documented ABI — `docs/dev/abi.md` (scalar/pointer lowering, const has no ABI effect, struct/packed/bitfield/union layout, ADT tagged unions, sret >16 B rule, varargs + `va_list`, fat pointers for closures/interfaces, template mangling)
 - [x] `__FILE__` / `__LINE__` reference — expanded the predefined-macros section of spec.md §18 (per-line `__LINE__`, per-file `__FILE__`, OS + freestanding macros, shebang interaction)
 
-### Post-0.2.0 hardening / reinforcement (v0.2.1 – v0.2.4) — current release v0.2.4
+### Post-0.2.0 hardening / reinforcement (v0.2.1 – v0.2.5) — current release v0.2.5
 
 With the backend-services stack shipped, the theme shifted from new features to
 **reinforcing the language**: hardening, maintainability, and type soundness.
@@ -191,11 +191,19 @@ plus a few generics extensions.
 **v0.2.4**
 - [x] **Single-resolver type unification** — the type checker is the one type resolver: it produces a per-expression `ty::Type` table that codegen consumes (codegen no longer re-derives expression types). `getTypeFromString` dispatches on `ty::Type::parse`, the single grammar interpreter shared by both phases. This closed the two-evaluator miscompile risk and fixed three latent miscompiles (float-literal `double`, pointer-deref width, `char` zero-extension)
 
+**v0.2.5**
+- [x] **Preprocessor fix (correctness)** — a `//` (or `/* */`) comment ending in `\` no longer triggers backslash-newline line continuation, which silently spliced the next source line into the comment (eating a `return`/`else`/statement, no diagnostic). Found dogfooding the self-hosted lexer; regression test + spec note
+- [x] **Self-hosting milestone 1 — the lexer in Eskiu** (`selfhost/`) — byte-identical to `--test-lexer` over the whole preprocessor-free corpus (114/114), gated in CI; the parser (milestone 2) is underway (expression layer done)
+- [x] **Hardening** — `ESKIU_RESOLVER_DEBUG` table-vs-derivation consistency oracle (confirms the v0.2.4 single-resolver is sound across the corpus); fuzzer generators for backslash-newline in comments/strings
+
 ### v0.3 — Self-hosting prerequisites
 
 - LLVM C API bindings via `extern`
-- Lexer rewritten in Eskiu
-- Parser rewritten in Eskiu
+- [x] Lexer rewritten in Eskiu — byte-identical to `--test-lexer` over the whole
+  preprocessor-free corpus (114/114), gated in CI (`selfhost/`)
+- [~] Parser rewritten in Eskiu — in progress (`selfhost/parser.esk`): expressions
+  done (de-risk + full precedence chain + postfix + casts + literals), parity-gated
+  vs `--test-parser`; statements/declarations/templates next
 
 ### v1.0 — Production-ready
 

@@ -1,5 +1,8 @@
 #include "codegen.h"
 #include "../ast/type_qual.h"
+#include <typeinfo>
+#include <cstdlib>
+#include <cstdio>
 #include "llvm/IR/InlineAsm.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/IR/Type.h"
@@ -211,9 +214,39 @@ std::string CodeGen::getExprEskiuType(const ExprPtr& expr) const {
     // Single resolver: prefer the post-transform type checker's resolved type.
     if (resolvedExprTypes) {
         auto it = resolvedExprTypes->find(expr.get());
-        if (it != resolvedExprTypes->end() && it->second != "unknown")
+        if (it != resolvedExprTypes->end() && it->second != "unknown") {
+            // [diagnostic] cross-check: the structural derivation must AGREE with
+            // the resolver table (a disagreement is a latent two-evaluator bug, of
+            // the class fixed in v0.2.4). Off unless ESKIU_RESOLVER_DEBUG is set.
+            if (std::getenv("ESKIU_RESOLVER_DEBUG")) {
+                std::string d = deriveExprEskiuType(expr);
+                // Normalize away benign representational differences (alias spelling,
+                // and the `struct:`/`interface:` tag the resolver carries but
+                // derivation doesn't) so only semantically meaningful disagreements
+                // — a real two-evaluator divergence — are reported.
+                auto norm = [&](std::string s) {
+                    s = expandAlias(s);
+                    for (const char* tag : {"struct:", "interface:"}) {
+                        size_t p;
+                        while ((p = s.find(tag)) != std::string::npos)
+                            s.erase(p, std::string(tag).size());
+                    }
+                    return s;
+                };
+                if (!d.empty() && d != "unknown" && norm(d) != norm(it->second))
+                    fprintf(stderr, "[resolver-disagree] table=%s derive=%s %s\n",
+                            it->second.c_str(), d.c_str(), typeid(*expr).name());
+            }
             return it->second;
+        }
+        // A table miss is by design — the resolver doesn't annotate every expr, so
+        // the structural derivation below legitimately carries the rest. (Only a
+        // table/derivation *disagreement* above is a bug.)
     }
+    return deriveExprEskiuType(expr);
+}
+
+std::string CodeGen::deriveExprEskiuType(const ExprPtr& expr) const {
     if (auto ident = dynamic_cast<IdentExpr*>(expr.get())) {
         return expandAlias(lookupVarType(ident->name));
     }

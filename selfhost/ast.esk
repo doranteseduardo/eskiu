@@ -1,0 +1,188 @@
+// AST for the self-hosted parser + a printer that reproduces the C++
+// `--test-parser` dump (ast/ast_printer.cpp) byte-for-byte. Nodes are tagged
+// heap structs (one fat struct per category, `kind` selects the live fields);
+// cross-category children are pointers. Grown slice by slice — S0 covers just
+// FunctionDecl / BlockStmt / ReturnStmt / integer LiteralExpr.
+
+import <io>;
+import <mem>;
+import <list>;
+
+// Node kind tags (mirror the C++ node set; extended as slices land).
+enum DeclKind { DK_FUNCTION }
+enum StmtKind { SK_BLOCK, SK_RETURN }
+enum ExprKind {
+    EK_LITERAL, EK_IDENT, EK_BINARY, EK_UNARY,
+    EK_CALL, EK_INDEX, EK_MEMBER, EK_QUESTION, EK_CAST, EK_SIZEOF
+}
+
+// Literal kinds, in the C++ LiteralExpr::Kind order; lit_name maps to the
+// printer's label (INT/FLOAT/STRING/CHAR/BOOL/NULL).
+enum LitKind { LIT_INT, LIT_FLOAT, LIT_STRING, LIT_CHAR, LIT_BOOL, LIT_NULL }
+
+struct Param { string ty; string name; }
+
+struct ExprNode {
+    int kind;
+    int lit_kind;          // for EK_LITERAL
+    string sval;           // literal text / operator / name / member
+    *ExprNode a;
+    *ExprNode b;
+    List<*ExprNode> kids;
+}
+
+struct StmtNode {
+    int kind;
+    *ExprNode expr;        // return value / expr-stmt / condition
+    *StmtNode s1;          // then / body
+    *StmtNode s2;          // else
+    List<*StmtNode> items; // block items
+}
+
+struct DeclNode {
+    int kind;
+    string name;
+    string ret_type;
+    *StmtNode body;
+    List<Param> params;
+}
+
+struct Program {
+    List<*DeclNode> decls;
+}
+
+string lit_name(int k) {
+    if (k == LIT_INT) { return "INT"; }
+    if (k == LIT_FLOAT) { return "FLOAT"; }
+    if (k == LIT_STRING) { return "STRING"; }
+    if (k == LIT_CHAR) { return "CHAR"; }
+    if (k == LIT_BOOL) { return "BOOL"; }
+    return "NULL";
+}
+
+// ── Printer (2-space indent per depth; mirrors ast_printer.cpp) ──────────────
+
+void pind(int d) {
+    int i = 0;
+    while (i < d) { printf("  "); i = i + 1; }
+}
+
+void pline(int d, string s) {
+    pind(d);
+    printf("%s\n", s);
+}
+
+void print_expr(*ExprNode e, int d) {
+    if (e.kind == EK_LITERAL) {
+        pind(d);
+        printf("LiteralExpr(%s): %s\n", lit_name(e.lit_kind), e.sval);
+        return;
+    }
+    if (e.kind == EK_IDENT) {
+        pind(d);
+        printf("IdentExpr: %s\n", e.sval);
+        return;
+    }
+    if (e.kind == EK_BINARY) {
+        pind(d);
+        printf("BinaryExpr: %s\n", e.sval);
+        pline(d + 1, "Left:");
+        print_expr(e.a, d + 2);
+        pline(d + 1, "Right:");
+        print_expr(e.b, d + 2);
+        return;
+    }
+    if (e.kind == EK_UNARY) {
+        pind(d);
+        printf("UnaryExpr: %s\n", e.sval);
+        print_expr(e.a, d + 1);
+        return;
+    }
+    if (e.kind == EK_CALL) {
+        pline(d, "CallExpr");
+        pline(d + 1, "Callee:");
+        print_expr(e.a, d + 2);
+        pline(d + 1, "Args:");
+        int i = 0;
+        int n = List_len<*ExprNode>(&e.kids);
+        while (i < n) { print_expr(List_get<*ExprNode>(&e.kids, i), d + 2); i = i + 1; }
+        return;
+    }
+    if (e.kind == EK_INDEX) {
+        pline(d, "IndexExpr");
+        pline(d + 1, "Base:");
+        print_expr(e.a, d + 2);
+        pline(d + 1, "Index:");
+        print_expr(e.b, d + 2);
+        return;
+    }
+    if (e.kind == EK_MEMBER) {
+        pind(d);
+        printf("MemberExpr: .%s\n", e.sval);
+        print_expr(e.a, d + 1);
+        return;
+    }
+    if (e.kind == EK_QUESTION) {
+        pline(d, "QuestionExpr (?)");
+        print_expr(e.a, d + 1);
+        return;
+    }
+    if (e.kind == EK_CAST) {
+        pind(d);
+        printf("CastExpr: (%s)\n", e.sval);
+        print_expr(e.a, d + 1);
+        return;
+    }
+    if (e.kind == EK_SIZEOF) {
+        pind(d);
+        printf("SizeofExpr: sizeof(%s)\n", e.sval);
+        return;
+    }
+}
+
+void print_stmt(*StmtNode s, int d) {
+    if (s.kind == SK_BLOCK) {
+        pline(d, "BlockStmt");
+        int i = 0;
+        int n = List_len<*StmtNode>(&s.items);
+        while (i < n) {
+            print_stmt(List_get<*StmtNode>(&s.items, i), d + 1);
+            i = i + 1;
+        }
+        return;
+    }
+    if (s.kind == SK_RETURN) {
+        pline(d, "ReturnStmt");
+        if (s.expr != null) { print_expr(s.expr, d + 1); }
+        return;
+    }
+}
+
+void print_decl(*DeclNode dn, int d) {
+    if (dn.kind == DK_FUNCTION) {
+        pind(d);
+        printf("FunctionDecl: %s -> %s\n", dn.name, dn.ret_type);
+        pline(d + 1, "Parameters:");
+        int i = 0;
+        int n = List_len<Param>(&dn.params);
+        while (i < n) {
+            Param pm = List_get<Param>(&dn.params, i);
+            pind(d + 2);
+            printf("%s %s\n", pm.ty, pm.name);
+            i = i + 1;
+        }
+        pline(d + 1, "Body:");
+        print_stmt(dn.body, d + 2);
+        return;
+    }
+}
+
+void print_program(*Program p) {
+    printf("Program\n");
+    int i = 0;
+    int n = List_len<*DeclNode>(&p.decls);
+    while (i < n) {
+        print_decl(List_get<*DeclNode>(&p.decls, i), 1);
+        i = i + 1;
+    }
+}
