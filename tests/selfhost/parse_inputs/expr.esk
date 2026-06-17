@@ -1,0 +1,11 @@
+int prec() { return a + b * c - d / e; }
+int paren() { return (a + b) * (c - d); }
+int cmp() { return a == b && c != d || e < f; }
+int bits() { return a | b ^ c & d << 2 >> 1; }
+int un() { return -x + !a - ~b; }
+int ptr() { return *p + &x; }
+int neg() { return -5 + -3.14; }
+int assign() { return a = b = c; }
+int compound() { return x += y * 2; }
+int lits() { return true; }
+int nul() { return null; }
