@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Parity gate for the self-hosted lexer (selfhost/lexer.esk) vs the C++ lexer.
 #
-# For each corpus file we run BOTH lexers. The Eskiu driver emits token lines in
+# The Eskiu driver is compiled once to a native binary, then run per file. For
+# each corpus file we run BOTH lexers. The Eskiu driver emits token lines in
 # the EXACT format of the C++ `--test-lexer` (same padding, same decoded values),
 # so we just strip the C++ banner/separators/total and raw-`diff` the token
 # streams. Byte-identical = parity (embedded newlines in string values, decoded
@@ -26,6 +27,16 @@ if [ -z "$BIN" ]; then
 fi
 
 DRIVER=selfhost/lex_main.esk
+
+# Compile the Eskiu driver ONCE to a native binary and run that per file — far
+# faster than `eskiuc run DRIVER FILE` (which recompiles the driver every time),
+# which is what makes the full corpus viable in CI.
+LEXBIN="$(mktemp -t lex_main.XXXXXX)"
+trap 'rm -f "$LEXBIN"' EXIT
+if ! "$BIN" "$DRIVER" -o "$LEXBIN" 2>/tmp/lexbuild.$$; then
+    echo "lex_parity: failed to build $DRIVER"; cat /tmp/lexbuild.$$; rm -f /tmp/lexbuild.$$; exit 2
+fi
+rm -f /tmp/lexbuild.$$
 
 # The C++ --test-lexer wraps the token lines in a banner; strip those three
 # format-only lines (anchored at column 0 — real token lines start with "  Line"
@@ -60,7 +71,7 @@ for f in "${files[@]}"; do
     [ -f "$f" ] || { echo "MISS  $f (no such file)"; fail=1; continue; }
     total=$((total + 1))
     ref=$("$BIN" --test-lexer "$f" 2>/dev/null | strip_banner)
-    got=$("$BIN" run "$DRIVER" "$f" 2>/dev/null)
+    got=$("$LEXBIN" "$f" 2>/dev/null)
     if [ "$ref" = "$got" ]; then
         echo "ok    $f"
     else
