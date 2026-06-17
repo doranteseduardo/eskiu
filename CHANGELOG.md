@@ -9,6 +9,14 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ## [Unreleased]
 
+### Added
+- **Self-hosting milestone 1: the lexer, in Eskiu** (`selfhost/` +
+  `stdlib/ctype.esk`). A full lexer written in Eskiu, byte-identical to the C++
+  `--test-lexer` over the entire preprocessor-free corpus. Parity gate
+  `tests/selfhost/lex_parity.sh` (`--full` → 114/114; compiles the driver once to a
+  native binary, ~seconds) is **wired into CI**. Dogfood/tooling — the production
+  compiler is untouched. See `selfhost/README.md`.
+
 ### Hardening
 - **Resolver consistency check (`ESKIU_RESOLVER_DEBUG`).** Codegen's type
   derivation is split out (`deriveExprEskiuType`) so that, under the env flag, the
