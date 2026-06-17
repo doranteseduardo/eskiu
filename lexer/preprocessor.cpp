@@ -109,6 +109,40 @@ static std::string ppExpand(const std::string& text,
     return out;
 }
 
+// Does a line ending in '\' genuinely continue onto the next physical line?
+// Only if the trailing '\' is real code — NOT inside a // or /* */ comment, nor a
+// string/char literal. Otherwise a comment ending in '\' would silently swallow
+// the following source line (a footgun: it eats a `return`, an `else`, etc.).
+// Note: cross-line block-comment state isn't tracked here (a '\' on an interior
+// line of a multi-line /* */ may still splice — harmless, it only drops a newline
+// inside comment text). Precondition: line.back() == '\\'.
+static bool backslashContinuesLine(const std::string& line) {
+    bool inStr = false, inChr = false, inBlock = false;
+    for (size_t i = 0; i < line.size(); ++i) {
+        char c = line[i];
+        if (inBlock) {
+            if (c == '*' && i + 1 < line.size() && line[i + 1] == '/') { inBlock = false; ++i; }
+            continue;
+        }
+        if (inStr) {
+            if (c == '\\' && i + 1 < line.size()) { ++i; continue; }   // skip escaped char
+            if (c == '"') inStr = false;
+            continue;
+        }
+        if (inChr) {
+            if (c == '\\' && i + 1 < line.size()) { ++i; continue; }
+            if (c == '\'') inChr = false;
+            continue;
+        }
+        if (c == '"')  { inStr = true; continue; }
+        if (c == '\'') { inChr = true; continue; }
+        if (c == '/' && i + 1 < line.size() && line[i + 1] == '/') return false;  // line comment
+        if (c == '/' && i + 1 < line.size() && line[i + 1] == '*') { inBlock = true; ++i; continue; }
+    }
+    // The trailing '\' is reached in this state: only code-context splices.
+    return !inStr && !inChr && !inBlock;
+}
+
 void preprocess(const std::string& src,
                        std::map<std::string, Macro>& defines,
                        std::string& result,
@@ -136,7 +170,7 @@ void preprocess(const std::string& src,
         // logical line is emitted as one line followed by `extra` blank lines,
         // keeping every later source line on its original line number.
         int extra = 0;
-        while (!line.empty() && line.back() == '\\') {
+        while (!line.empty() && line.back() == '\\' && backslashContinuesLine(line)) {
             line.pop_back();
             std::string cont;
             if (!std::getline(in, cont)) break;

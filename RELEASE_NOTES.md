@@ -1,11 +1,8 @@
-# Eskiu 0.2.4
+# Eskiu 0.2.5
 
-An internal soundness release. The compiler had two independent type resolvers —
-the type checker and codegen each interpreted the type grammar and derived
-expression types on their own. This release makes the type checker the **single
-resolver** and codegen a consumer of its results, closing a latent class of
-"the two disagree" bugs. No new language surface; the only user-visible effect is
-three latent miscompiles the unification surfaced and fixed.
+A correctness fix plus the first self-hosting milestone. The headline is a
+preprocessor bug fix; alongside it, the lexer is now also written in Eskiu and
+proven byte-identical to the C++ lexer. No new language surface.
 
 ---
 
@@ -36,26 +33,30 @@ cd eskiu && cmake -S . -B build && cmake --build build
 
 ## What's new
 
-**One type resolver.** The type checker is re-run on the AST after the async
-transform, and its resolved per-expression types are handed to codegen — which now
-consumes them instead of re-deriving its own. Plus `getTypeFromString` now
-dispatches on the same `ty::Type` parser the checker uses, so the type-string
-grammar is interpreted in exactly one place across both phases. This eliminates the
-structural condition behind an earlier constraint-checking bug.
+**Fixed — a `//` comment ending in `\` no longer eats the next line.** The
+preprocessor applied C-style backslash-newline line continuation unconditionally,
+so a comment whose last character was a backslash silently spliced the following
+source line into the comment — deleting a `return`, an `else` branch, or any
+statement, with no diagnostic. Continuation now fires only when the trailing `\`
+is genuine code (not inside a `//` or `/* */` comment or a string/char literal);
+legitimate `#define` continuation is unaffected. Regression test added. This was
+found by dogfooding the new self-hosted lexer.
 
-**Three latent miscompiles fixed** (surfaced by the unification — they were benign
-only because the affected values happened to be small):
+**Self-hosting milestone 1 — the lexer, in Eskiu.** A full lexer written in Eskiu
+(`selfhost/`) now produces a token stream byte-identical to the C++ `--test-lexer`
+over the entire preprocessor-free corpus (114/114), checked by a parity gate wired
+into CI. This is dogfood/tooling — the production compiler is untouched. The parser
+(milestone 2) is underway; its expression layer is done.
 
-- **Float literals** are now `double` in the type checker too (they always lowered
-  to a `double` constant), so generic inference like `max(1.5, 2.5)` monomorphizes
-  to `double` to match the emitted value.
-- **Pointer-arithmetic dereference** `*(arr + n)` for `arr: *int` could load `i8`
-  (one byte of a four-byte int) on some paths; now correctly loads `i32`.
-- **`char` widening** to `int` used a signed extend on some paths; `char` is
-  unsigned in Eskiu, so it is now a zero extend.
+**Hardening.** A `ESKIU_RESOLVER_DEBUG` mode cross-checks the v0.2.4 single resolver
+against codegen's structural type derivation on every table hit; across the whole
+corpus the two agree on every behavior-affecting type, confirming the unification is
+sound. The fuzzer gained generators for backslash-newline inside comments and
+strings (with a self-checking expected-output oracle, which the O0/O2 differential
+can't see) — guarding the footgun fixed above.
 
-Everything else is behavior-preserving, verified by the test suite, sanitizers, a
-golden-IR snapshot oracle, and the O0-vs-O2 differential fuzzer.
+Behavior-preserving apart from the preprocessor fix, verified by the test suite,
+sanitizers, the golden-IR snapshot oracle, and the O0-vs-O2 differential fuzzer.
 
 The full log is in [CHANGELOG.md](CHANGELOG.md).
 
@@ -63,5 +64,6 @@ The full log is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Upgrade
 
-Drop-in over 0.2.x. The three fixes only change code that was already relying on
-(benign) latent miscompiles; correct programs are unaffected.
+Drop-in over 0.2.x. The only behavior change is the preprocessor fix: if you had a
+`//` comment ending in `\`, it was silently swallowing the next line — that line now
+runs. Correct programs are otherwise unaffected.

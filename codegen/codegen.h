@@ -164,6 +164,10 @@ private:
 
     // Resolve the Eskiu type string of an expression (for struct/array access)
     std::string getExprEskiuType(const ExprPtr& expr) const;
+    // The structural fallback: derive an expression's Eskiu type from the AST when
+    // the single-resolver table has no entry. Split out so getExprEskiuType can,
+    // under ESKIU_RESOLVER_DEBUG, cross-check the table against this derivation.
+    std::string deriveExprEskiuType(const ExprPtr& expr) const;
 
     // Expand a type alias to its underlying type string (peels pointers), so
     // downstream logic sees e.g. "*uint8" instead of an alias name like "Bytes".

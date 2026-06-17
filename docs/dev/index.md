@@ -46,7 +46,7 @@ Each test mode exits 0 on success and prints a human-readable dump to stdout. A 
 
 ---
 
-## Current State (v0.2.4)
+## Current State (v0.2.5)
 
 All compiler phases and editor tooling are complete and tested end-to-end. The **v0.2.0 "backend services" release** was feature-complete: async/await, the full HTTP/2 stack (framing, HPACK with Huffman, streams and flow control, the multiplexed server, and TLS/ALPN), sum types with `match`, monomorphic generics, and the stdlib (allocators, threading, sockets, async runtime, JSON, and more).
 

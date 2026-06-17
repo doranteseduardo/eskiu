@@ -1,0 +1,531 @@
+// Self-hosted recursive-descent parser. Tokenizes the whole file up front (via the
+// self-hosted lexer, selfhost/lexer.esk) into a buffer and indexes into it — like
+// the C++ parser — for arbitrary lookahead and backtracking. Builds the AST
+// (selfhost/ast.esk), printed in the C++ `--test-parser` format. Parity-gated.
+//
+// S0: function `<type> <name>() { return <int>; }`.
+// S1: full expression precedence chain + unary + parens + negative-literal folding;
+//     literals INT/FLOAT/BOOL/NULL + identifiers. (String/char literal values and
+//     postfix call/index/member/cast arrive in S2.)
+
+import "lexer.esk";
+import "ast.esk";
+
+struct Parser {
+    List<Token> toks;
+    int pos;
+    *uint8 src;
+}
+
+void p_init(Parser* p, *uint8 src, int len) {
+    p.src = src;
+    p.pos = 0;
+    List_init<Token>(&p.toks, 256);
+    let lx: Lexer;
+    lx.src = src; lx.len = len; lx.pos = 0; lx.line = 1; lx.col = 1;
+    Token t = lx_next(&lx);
+    while (t.type != EOF_TOKEN) {
+        List_push<Token>(&p.toks, t);
+        t = lx_next(&lx);
+    }
+    List_push<Token>(&p.toks, t);          // keep the EOF token as the last element
+}
+
+Token p_peek(Parser* p) {
+    return List_get<Token>(&p.toks, p.pos);
+}
+
+Token p_peek2(Parser* p) {
+    int i = p.pos + 1;
+    int n = List_len<Token>(&p.toks);
+    if (i >= n) { i = n - 1; }
+    return List_get<Token>(&p.toks, i);
+}
+
+int p_at(Parser* p) {
+    return p_peek(p).type;
+}
+
+Token p_adv(Parser* p) {
+    Token t = p_peek(p);
+    if (p.pos + 1 < List_len<Token>(&p.toks)) { p.pos = p.pos + 1; }
+    return t;
+}
+
+// Forward declarations (mutually-recursive descent).
+*ExprNode parse_assignment(Parser* p);
+*ExprNode parse_expr(Parser* p);
+*ExprNode parse_postfix(Parser* p);
+string parse_type(Parser* p);
+
+// Lexeme of a token as an owned NUL-terminated string (heap copy of source bytes).
+string tok_text(*uint8 src, Token t) {
+    *uint8 buf = alloc<uint8>(t.len + 1);
+    int i = 0;
+    while (i < t.len) { buf[i] = src[t.start + i]; i = i + 1; }
+    buf[t.len] = 0;
+    return (string)buf;
+}
+
+int cstr_len(string s) {
+    int i = 0;
+    while (s[i] != 0) { i = i + 1; }
+    return i;
+}
+
+string str_concat(string a, string b) {
+    int la = cstr_len(a);
+    int lb = cstr_len(b);
+    *uint8 buf = alloc<uint8>(la + lb + 1);
+    int i = 0;
+    while (i < la) { buf[i] = (uint8)a[i]; i = i + 1; }
+    int j = 0;
+    while (j < lb) { buf[la + j] = (uint8)b[j]; j = j + 1; }
+    buf[la + lb] = 0;
+    return (string)buf;
+}
+
+int is_type_kw(int t) {
+    if (t == INT || t == FLOAT || t == DOUBLE || t == BOOL || t == CHAR || t == STRING || t == VOID) { return 1; }
+    if (t == INT8 || t == INT16 || t == INT32 || t == INT64) { return 1; }
+    if (t == UINT || t == UINT8 || t == UINT16 || t == UINT32 || t == UINT64) { return 1; }
+    return 0;
+}
+
+// String/char literal decoding (mirrors read_string / read_char — the C++ stores
+// the decoded value, quotes stripped, in LiteralExpr.value).
+int decode_str_escape(int e) {
+    if (e == 110) { return 10; }
+    if (e == 116) { return 9; }
+    if (e == 114) { return 13; }
+    if (e == 92) { return 92; }
+    if (e == 34) { return 34; }
+    return e;
+}
+int decode_chr_escape(int e) {
+    if (e == 110) { return 10; }
+    if (e == 116) { return 9; }
+    if (e == 92) { return 92; }
+    return e;
+}
+
+string tok_str_value(*uint8 src, Token t) {
+    *uint8 buf = alloc<uint8>(t.len + 1);
+    int off = 0;
+    int i = t.start + 1;
+    int endp = t.start + t.len - 1;
+    while (i < endp) {
+        int ch = (int)src[i];
+        if (ch == 92 && i + 1 < endp) {
+            i = i + 1;
+            buf[off] = (uint8)decode_str_escape((int)src[i]);
+        } else {
+            buf[off] = (uint8)ch;
+        }
+        off = off + 1;
+        i = i + 1;
+    }
+    buf[off] = 0;
+    return (string)buf;
+}
+
+string tok_char_value(*uint8 src, Token t) {
+    *uint8 buf = alloc<uint8>(4);
+    int off = 0;
+    int i = t.start + 1;
+    int endp = t.start + t.len - 1;
+    if (i < endp) {
+        int ch = (int)src[i];
+        if (ch == 92 && i + 1 < endp) {
+            buf[off] = (uint8)decode_chr_escape((int)src[i + 1]);
+        } else {
+            buf[off] = (uint8)ch;
+        }
+        off = off + 1;
+    }
+    buf[off] = 0;
+    return (string)buf;
+}
+
+// Parse a type into its canonical string (mirrors parser.cpp parseType). Template
+// instantiation `Name<...>` is added in a later slice (S2b/S6).
+string parse_type(Parser* p) {
+    int is_const = 0;
+    if (p_at(p) == CONST) { p_adv(p); is_const = 1; }
+    int leading = 0;
+    while (p_at(p) == STAR) { p_adv(p); leading = leading + 1; }
+
+    if (p_at(p) == FN) {
+        p_adv(p);                          // 'fn'
+        p_adv(p);                          // '('
+        string ft = "fn(";
+        int first = 1;
+        while (p_at(p) != RPAREN && p_at(p) != EOF_TOKEN) {
+            if (first == 0) { p_adv(p); ft = str_concat(ft, ","); }
+            first = 0;
+            ft = str_concat(ft, parse_type(p));
+        }
+        p_adv(p);                          // ')'
+        ft = str_concat(ft, ")->");
+        p_adv(p);                          // '->'
+        ft = str_concat(ft, parse_type(p));
+        int li = 0;
+        while (li < leading) { ft = str_concat("*", ft); li = li + 1; }
+        if (is_const == 1) { ft = str_concat("const ", ft); }
+        return ft;
+    }
+
+    Token base_tok = p_adv(p);             // type keyword or named type (IDENT)
+    string ty = tok_text(p.src, base_tok);
+
+    while (p_at(p) == STAR) {
+        p_adv(p); ty = str_concat(ty, "*");
+        if (p_at(p) == CONST) { p_adv(p); ty = str_concat(ty, "const"); }
+    }
+    int li = 0;
+    while (li < leading) { ty = str_concat("*", ty); li = li + 1; }
+    if (is_const == 1) { ty = str_concat("const ", ty); }
+
+    while (p_at(p) == LBRACKET) {
+        p_adv(p);
+        string sz = "";
+        while (p_at(p) != RBRACKET && p_at(p) != EOF_TOKEN) {
+            sz = str_concat(sz, tok_text(p.src, p_peek(p)));
+            p_adv(p);
+        }
+        p_adv(p);                          // ']'
+        ty = str_concat(ty, str_concat("[", str_concat(sz, "]")));
+    }
+    return ty;
+}
+
+// ── AST node constructors ────────────────────────────────────────────────────
+
+*ExprNode mk_lit(int lk, string v) {
+    *ExprNode e = alloc<ExprNode>(1);
+    e.kind = EK_LITERAL; e.lit_kind = lk; e.sval = v;
+    return e;
+}
+*ExprNode mk_ident(string nm) {
+    *ExprNode e = alloc<ExprNode>(1);
+    e.kind = EK_IDENT; e.sval = nm;
+    return e;
+}
+*ExprNode mk_bin(string op, *ExprNode l, *ExprNode r) {
+    *ExprNode e = alloc<ExprNode>(1);
+    e.kind = EK_BINARY; e.sval = op; e.a = l; e.b = r;
+    return e;
+}
+*ExprNode mk_un(string op, *ExprNode operand) {
+    *ExprNode e = alloc<ExprNode>(1);
+    e.kind = EK_UNARY; e.sval = op; e.a = operand;
+    return e;
+}
+
+// Operator lexeme for a binary/unary operator token type (matches Token.value).
+string op_str(int t) {
+    if (t == PLUS) { return "+"; }
+    if (t == MINUS) { return "-"; }
+    if (t == STAR) { return "*"; }
+    if (t == SLASH) { return "/"; }
+    if (t == PERCENT) { return "%"; }
+    if (t == AMPERSAND) { return "&"; }
+    if (t == PIPE) { return "|"; }
+    if (t == CARET) { return "^"; }
+    if (t == LSHIFT) { return "<<"; }
+    if (t == RSHIFT) { return ">>"; }
+    if (t == EQEQ) { return "=="; }
+    if (t == NE) { return "!="; }
+    if (t == LT) { return "<"; }
+    if (t == GT) { return ">"; }
+    if (t == LE) { return "<="; }
+    if (t == GE) { return ">="; }
+    if (t == AND) { return "&&"; }
+    if (t == OR) { return "||"; }
+    if (t == NOT) { return "!"; }
+    if (t == TILDE) { return "~"; }
+    return "?";
+}
+
+// Base operator for a compound-assignment token (x += y desugars to x = x + y).
+string compound_base(int t) {
+    if (t == PLUS_EQ) { return "+"; }
+    if (t == MINUS_EQ) { return "-"; }
+    if (t == STAR_EQ) { return "*"; }
+    if (t == SLASH_EQ) { return "/"; }
+    if (t == PERCENT_EQ) { return "%"; }
+    if (t == AMP_EQ) { return "&"; }
+    if (t == PIPE_EQ) { return "|"; }
+    if (t == CARET_EQ) { return "^"; }
+    if (t == LSHIFT_EQ) { return "<<"; }
+    if (t == RSHIFT_EQ) { return ">>"; }
+    return "?";
+}
+int is_compound(int t) {
+    if (t == PLUS_EQ || t == MINUS_EQ || t == STAR_EQ || t == SLASH_EQ || t == PERCENT_EQ) { return 1; }
+    if (t == AMP_EQ || t == PIPE_EQ || t == CARET_EQ || t == LSHIFT_EQ || t == RSHIFT_EQ) { return 1; }
+    return 0;
+}
+
+// ── Expression precedence chain (mirrors parse_expr.cpp) ──────────────────────
+
+*ExprNode mk_cast(string ty, *ExprNode inner) {
+    *ExprNode e = alloc<ExprNode>(1);
+    e.kind = EK_CAST; e.sval = ty; e.a = inner;
+    return e;
+}
+
+*ExprNode parse_primary(Parser* p) {
+    int t = p_at(p);
+    if (t == TRUE)  { p_adv(p); return mk_lit(LIT_BOOL, "true"); }
+    if (t == FALSE) { p_adv(p); return mk_lit(LIT_BOOL, "false"); }
+    if (t == NULL_KW) { p_adv(p); return mk_lit(LIT_NULL, "null"); }
+    if (t == INT_LIT)   { Token tok = p_adv(p); return mk_lit(LIT_INT,   tok_text(p.src, tok)); }
+    if (t == FLOAT_LIT) { Token tok = p_adv(p); return mk_lit(LIT_FLOAT, tok_text(p.src, tok)); }
+    if (t == STRING_LIT) {
+        Token first = p_adv(p);
+        string v = tok_str_value(p.src, first);
+        while (p_at(p) == STRING_LIT) {        // adjacent string concatenation
+            Token nx = p_adv(p);
+            v = str_concat(v, tok_str_value(p.src, nx));
+        }
+        return mk_lit(LIT_STRING, v);
+    }
+    if (t == CHAR_LIT) { Token tok = p_adv(p); return mk_lit(LIT_CHAR, tok_char_value(p.src, tok)); }
+    if (t == SIZEOF) {
+        p_adv(p);                              // 'sizeof'
+        p_adv(p);                              // '('
+        string ty = parse_type(p);
+        p_adv(p);                              // ')'
+        *ExprNode e = alloc<ExprNode>(1);
+        e.kind = EK_SIZEOF; e.sval = ty;
+        return e;
+    }
+    if (t == IDENT)  { Token tok = p_adv(p); return mk_ident(tok_text(p.src, tok)); }
+    if (t == LPAREN) {
+        p_adv(p);
+        *ExprNode e = parse_assignment(p);
+        p_adv(p);                          // consume ')'
+        return e;
+    }
+    return null;
+}
+
+// Postfix chain: call (args), index [e], member .m, error-propagation ?.
+// (Template call Name<...>(args) and struct-init Name{...} arrive in S2b.)
+*ExprNode parse_postfix(Parser* p) {
+    *ExprNode e = parse_primary(p);
+    while (1 == 1) {
+        int t = p_at(p);
+        if (t == LPAREN) {
+            p_adv(p);
+            *ExprNode c = alloc<ExprNode>(1);
+            c.kind = EK_CALL; c.a = e;
+            List_init<*ExprNode>(&c.kids, 4);
+            if (p_at(p) != RPAREN) {
+                List_push<*ExprNode>(&c.kids, parse_expr(p));
+                while (p_at(p) == COMMA) { p_adv(p); List_push<*ExprNode>(&c.kids, parse_expr(p)); }
+            }
+            p_adv(p);                          // ')'
+            e = c;
+        } else if (t == LBRACKET) {
+            p_adv(p);
+            *ExprNode ix = alloc<ExprNode>(1);
+            ix.kind = EK_INDEX; ix.a = e; ix.b = parse_expr(p);
+            p_adv(p);                          // ']'
+            e = ix;
+        } else if (t == DOT) {
+            p_adv(p);
+            Token m = p_adv(p);                // member name
+            *ExprNode mb = alloc<ExprNode>(1);
+            mb.kind = EK_MEMBER; mb.a = e; mb.sval = tok_text(p.src, m);
+            e = mb;
+        } else if (t == QUESTION) {
+            p_adv(p);
+            *ExprNode q = alloc<ExprNode>(1);
+            q.kind = EK_QUESTION; q.a = e;
+            e = q;
+        } else {
+            return e;
+        }
+    }
+    return e;
+}
+
+*ExprNode parse_unary(Parser* p) {
+    // Fold -<int|float literal> into a negative literal (matches the C++).
+    if (p_at(p) == MINUS) {
+        int nt = p_peek2(p).type;
+        if (nt == INT_LIT || nt == FLOAT_LIT) {
+            p_adv(p);                       // '-'
+            Token num = p_adv(p);
+            int lk = LIT_INT;
+            if (nt == FLOAT_LIT) { lk = LIT_FLOAT; }
+            *uint8 raw = p.src;
+            // build "-" + lexeme
+            *uint8 buf = alloc<uint8>(num.len + 2);
+            buf[0] = 45;                    // '-'
+            int i = 0;
+            while (i < num.len) { buf[1 + i] = raw[num.start + i]; i = i + 1; }
+            buf[num.len + 1] = 0;
+            return mk_lit(lk, (string)buf);
+        }
+    }
+    int t = p_at(p);
+    if (t == NOT || t == MINUS || t == PLUS || t == AMPERSAND || t == STAR || t == TILDE) {
+        p_adv(p);
+        return mk_un(op_str(t), parse_unary(p));
+    }
+    // Cast (TYPE) expr — only on a type keyword or '*'-led type (declared-name
+    // casts need the type-name registry; enabled with declarations in S5).
+    if (t == LPAREN) {
+        int inner = p_peek2(p).type;
+        if (is_type_kw(inner) == 1 || inner == STAR) {
+            p_adv(p);                          // '('
+            string cty = parse_type(p);
+            p_adv(p);                          // ')'
+            return mk_cast(cty, parse_unary(p));
+        }
+    }
+    return parse_postfix(p);
+}
+
+*ExprNode parse_mul(Parser* p) {
+    *ExprNode e = parse_unary(p);
+    while (p_at(p) == STAR || p_at(p) == SLASH || p_at(p) == PERCENT) {
+        int t = p_at(p); p_adv(p);
+        e = mk_bin(op_str(t), e, parse_unary(p));
+    }
+    return e;
+}
+*ExprNode parse_add(Parser* p) {
+    *ExprNode e = parse_mul(p);
+    while (p_at(p) == PLUS || p_at(p) == MINUS) {
+        int t = p_at(p); p_adv(p);
+        e = mk_bin(op_str(t), e, parse_mul(p));
+    }
+    return e;
+}
+*ExprNode parse_shift(Parser* p) {
+    *ExprNode e = parse_add(p);
+    while (p_at(p) == LSHIFT || p_at(p) == RSHIFT) {
+        int t = p_at(p); p_adv(p);
+        e = mk_bin(op_str(t), e, parse_add(p));
+    }
+    return e;
+}
+*ExprNode parse_cmp(Parser* p) {
+    *ExprNode e = parse_shift(p);
+    while (p_at(p) == LT || p_at(p) == GT || p_at(p) == LE || p_at(p) == GE) {
+        int t = p_at(p); p_adv(p);
+        e = mk_bin(op_str(t), e, parse_shift(p));
+    }
+    return e;
+}
+*ExprNode parse_eq(Parser* p) {
+    *ExprNode e = parse_cmp(p);
+    while (p_at(p) == EQEQ || p_at(p) == NE) {
+        int t = p_at(p); p_adv(p);
+        e = mk_bin(op_str(t), e, parse_cmp(p));
+    }
+    return e;
+}
+*ExprNode parse_band(Parser* p) {
+    *ExprNode e = parse_eq(p);
+    while (p_at(p) == AMPERSAND) { p_adv(p); e = mk_bin("&", e, parse_eq(p)); }
+    return e;
+}
+*ExprNode parse_bxor(Parser* p) {
+    *ExprNode e = parse_band(p);
+    while (p_at(p) == CARET) { p_adv(p); e = mk_bin("^", e, parse_band(p)); }
+    return e;
+}
+*ExprNode parse_bor(Parser* p) {
+    *ExprNode e = parse_bxor(p);
+    while (p_at(p) == PIPE) { p_adv(p); e = mk_bin("|", e, parse_bxor(p)); }
+    return e;
+}
+*ExprNode parse_and(Parser* p) {
+    *ExprNode e = parse_bor(p);
+    while (p_at(p) == AND) { p_adv(p); e = mk_bin("&&", e, parse_bor(p)); }
+    return e;
+}
+*ExprNode parse_or(Parser* p) {
+    *ExprNode e = parse_and(p);
+    while (p_at(p) == OR) { p_adv(p); e = mk_bin("||", e, parse_and(p)); }
+    return e;
+}
+
+*ExprNode parse_assignment(Parser* p) {
+    *ExprNode left = parse_or(p);
+    int t = p_at(p);
+    if (is_compound(t) == 1) {
+        string base = compound_base(t);
+        p_adv(p);
+        *ExprNode rhs = parse_assignment(p);
+        return mk_bin("=", left, mk_bin(base, left, rhs));
+    }
+    if (t == EQ) {
+        p_adv(p);
+        return mk_bin("=", left, parse_assignment(p));
+    }
+    return left;
+}
+
+*ExprNode parse_expr(Parser* p) {
+    return parse_assignment(p);
+}
+
+// ── Statements ────────────────────────────────────────────────────────────────
+
+*StmtNode parse_return(Parser* p) {
+    p_adv(p);                              // 'return'
+    *StmtNode s = alloc<StmtNode>(1);
+    s.kind = SK_RETURN;
+    s.expr = null;
+    if (p_at(p) != SEMICOLON) { s.expr = parse_expr(p); }
+    p_adv(p);                              // ';'
+    return s;
+}
+
+*StmtNode parse_stmt(Parser* p) {
+    if (p_at(p) == RETURN) { return parse_return(p); }
+    return null;
+}
+
+*StmtNode parse_block(Parser* p) {
+    p_adv(p);                              // '{'
+    *StmtNode b = alloc<StmtNode>(1);
+    b.kind = SK_BLOCK;
+    List_init<*StmtNode>(&b.items, 4);
+    while (p_at(p) != RBRACE && p_at(p) != EOF_TOKEN) {
+        List_push<*StmtNode>(&b.items, parse_stmt(p));
+    }
+    p_adv(p);                              // '}'
+    return b;
+}
+
+// ── Declarations ────────────────────────────────────────────────────────────
+
+*DeclNode parse_function(Parser* p) {
+    Token rt = p_adv(p);                   // return type
+    Token nm = p_adv(p);                   // name
+    p_adv(p);                              // '('
+    p_adv(p);                              // ')'  (S0/S1: no params)
+    *DeclNode d = alloc<DeclNode>(1);
+    d.kind = DK_FUNCTION;
+    d.name = tok_text(p.src, nm);
+    d.ret_type = tok_text(p.src, rt);
+    List_init<Param>(&d.params, 1);
+    d.body = parse_block(p);
+    return d;
+}
+
+*Program parse_program(Parser* p) {
+    *Program prog = alloc<Program>(1);
+    List_init<*DeclNode>(&prog.decls, 4);
+    while (p_at(p) != EOF_TOKEN) {
+        List_push<*DeclNode>(&prog.decls, parse_function(p));
+    }
+    return prog;
+}
