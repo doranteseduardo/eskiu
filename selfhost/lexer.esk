@@ -1,0 +1,79 @@
+// Self-hosted lexer — the Eskiu port of `lexer/lexer.cpp`, built incrementally
+// and parity-tested against the C++ `--test-lexer`. Free functions over a
+// `Lexer*` (explicit cursor state); mirrors the C++ peek/advance/skip semantics.
+//
+// Stage 1: whitespace + identifiers + EOF. (Keywords, numbers, strings, chars,
+// operators, comments arrive in later slices — each gated by the parity harness.)
+
+import <ctype>;
+import "tokens.esk";
+
+struct Lexer {
+    *uint8 src;
+    int len;
+    int pos;
+    int line;
+    int col;
+}
+
+int lx_at_end(Lexer* lx) {
+    if (lx.pos >= lx.len) { return 1; }
+    return 0;
+}
+
+// Current byte (0 at end), as an int — matches the C++ `peek()` returning '\0'.
+int lx_peek(Lexer* lx) {
+    if (lx_at_end(lx) == 1) { return 0; }
+    return (int)lx.src[lx.pos];
+}
+
+int lx_advance(Lexer* lx) {
+    int c = lx_peek(lx);
+    lx.pos = lx.pos + 1;
+    if (c == 10) {           // '\n'
+        lx.line = lx.line + 1;
+        lx.col = 1;
+    } else {
+        lx.col = lx.col + 1;
+    }
+    return c;
+}
+
+void lx_skip_ws(Lexer* lx) {
+    while (lx_at_end(lx) == 0 && is_space(lx_peek(lx)) == 1) {
+        lx_advance(lx);
+    }
+}
+
+Token lx_next(Lexer* lx) {
+    lx_skip_ws(lx);
+
+    let t: Token;
+    if (lx_at_end(lx) == 1) {
+        t.type = EOF_TOKEN; t.start = lx.pos; t.len = 0;
+        t.line = lx.line; t.col = lx.col;
+        return t;
+    }
+
+    // Token position is captured at the first character, after skipping whitespace.
+    int sl = lx.line;
+    int sc = lx.col;
+    int sp = lx.pos;
+    int c = lx_peek(lx);
+
+    // Identifiers (keyword classification is a later slice — all → IDENT for now).
+    if (is_ident_start(c) == 1) {
+        while (lx_at_end(lx) == 0 && is_ident_cont(lx_peek(lx)) == 1) {
+            lx_advance(lx);
+        }
+        t.type = IDENT; t.start = sp; t.len = lx.pos - sp;
+        t.line = sl; t.col = sc;
+        return t;
+    }
+
+    // Anything else: consume one byte as UNKNOWN (later slices replace this).
+    lx_advance(lx);
+    t.type = UNKNOWN; t.start = sp; t.len = lx.pos - sp;
+    t.line = sl; t.col = sc;
+    return t;
+}
