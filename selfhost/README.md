@@ -25,7 +25,9 @@ tests/selfhost/lex_parity.sh FILE ...  # specific files
 ```
 
 Both lexers run; the C++ banner is stripped and the token streams are raw-`diff`ed.
-Byte-identical = pass.
+Byte-identical = pass. The Eskiu driver is compiled once to a native binary (not
+re-`run` per file), so the whole corpus takes ~seconds. **Wired into CI** as the
+"Lexer self-host parity" step (`--full`).
 
 **Excluded from `--full` (6 files): preprocessor-dependent.** The C++ `Lexer` runs
 `preprocess()` first, so files that `#define`/`#ifdef`/`#include`, use
@@ -33,8 +35,7 @@ Byte-identical = pass.
 is NOT excluded — it passes through and lexes identically. The preprocessor is a
 separate future self-host target.
 
-Not wired into `tests/run.sh`: the gate recompiles `lex_main.esk` per file, which
-is too slow for the main suite. Run it on lexer changes.
+Runs as its own CI step (not folded into `tests/run.sh`) right after the fuzzer.
 
 ## Notes
 
