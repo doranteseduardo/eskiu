@@ -1,60 +1,46 @@
 # Self-hosting dogfood notes
 
-Pain points and compiler findings surfaced while writing the lexer in Eskiu.
-Per the milestone plan we record them here (feature freeze holds — these are for a
-later hardening/ergonomics pass, not new features). Ordered worst-first.
+Findings surfaced while writing the lexer in Eskiu. The milestone's point is partly
+this: dogfooding finds bugs the fuzzer can't. First payload below.
 
-## 1. Silent miscompile: a helper's `return <param>` fall-through yields 0  ⚠️ correctness
+## Resolved: `//` comment ending in `\` silently swallowed the next source line
 
-**Severity: high (silent wrong codegen, no diagnostic).**
+**One preprocessor bug, found via two confusing symptoms.** Writing the lexer I hit
+what looked like two separate problems:
 
-In the full `selfhost/lex_main.esk` module, a small helper
+1. A helper `decode_char_escape(int e)` returned **0** from its `return e`
+   fall-through (its literal-return branches were fine) — looked like a codegen
+   miscompile, and seemed "layout-sensitive" (vanished when surrounding code
+   changed).
+2. A deeply nested `if/else` chain failed to parse with `Expected expression, got
+   ELSE` — looked like a parser quirk with `else { if ... }`.
 
-```
-int decode_char_escape(int e) {
-    if (e == 110) { return 10; }   // these literal-return branches WORK
-    if (e == 116) { return 9; }
-    if (e == 92)  { return 92; }
-    return e;                      // <-- this fall-through returns 0, not e
-}
-```
-
-returns **0** for any input that reaches the final `return e` (e.g. 114='r',
-120='x', 48='0'), while inputs that hit a literal-return branch are correct
-(`decode_char_escape(110)==10`). Confirmed by probing from both `main` and the
-caller (`emit_value`).
-
-Not name-specific (renaming to `decode_chr_escape` reproduces) and not
-caller-specific (fails when called directly from `main`). It is NOT reproduced by:
-- the same body as a standalone program,
-- the same body as a 1st helper (the sibling `decode_str_escape`, defined just
-  above with more branches, works — including ITS `return e` fall-through, e.g.
-  `decode_str_escape(120)==120`),
-- the same body added as a *3rd* helper/clone (works),
-- a 2-helper toy that imports `lexer.esk`.
-
-So the trigger needs the full module shape (both decode helpers + `emit_value`'s
-3 branches that call them + the imported lexer/ctype/tokens function set). Not yet
-minimized to a small standalone repro — the real file is the reliable reproducer
-(see git history at the stage-4 commit, before the inline workaround).
-
-**Workaround in use:** inline the char-escape decode into `emit_value` with a `dv`
-accumulator (`int dv = e; if (...) dv = ...; putchar(dv)`) — i.e. never return the
-parameter through a helper. The string path keeps `decode_str_escape` (it works).
-
-**Investigate:** smells like a codegen aliasing / wrong-slot issue keyed by the
-function's position/role in the module, surfacing only past some module-shape
-threshold. A target for the fuzzer (parameter-passthrough return across many
-small `int(int)` functions in one module) and the golden-IR oracle.
-
-## 2. Parser: an `if`/`else` nested inside an `else { ... }` block fails to parse
+Both were the **same** root cause: the preprocessor applied backslash-newline line
+continuation **unconditionally**, including when the trailing `\` was inside a `//`
+comment. My helper had
 
 ```
-if (a) { ... } else { if (b) { ... } else { ... } }   // -> "Expected expression, got ELSE"
+if (e == 92) { return 92; }   // \\   <- comment ends in '\'
+return e;                              <- spliced INTO the comment above, gone
 ```
 
-A *braced* `else` block whose body is itself an `if`-with-`else` errors out at the
-inner `else`. Note `else if (...)` (no braces) parses fine — so this is specific to
-the `else { if ... else ... }` shape, not chained conditionals in general.
-Workaround: use `else if`, flat sequential `if`s with early `return` (see
-`keyword_type`), or an accumulator variable.
+so `return e` was eaten → the function fell off the end → garbage/0. The "parser
+quirk" was the same: a `// \\` comment ate the next `else` branch, unbalancing the
+braces. The "layout sensitivity" was just me editing those `\\`-ending comments
+away.
+
+**Fix:** `lexer/preprocessor.cpp` `backslashContinuesLine()` — line continuation
+now fires only when the trailing `\` is genuine code, not inside a `//` or `/* */`
+comment or a string/char literal. Legit `#define` continuation still works.
+Regression test: `tests/comment_backslash_continuation.esk`. Suite 265/0, golden IR
+26/26.
+
+**Lesson:** a footgun-class bug (silent code deletion, no diagnostic) that the
+fuzzer never hit because it doesn't generate trailing-`\` comments. Worth a fuzzer
+generator for backslash-newline in comments/strings.
+
+## Minor ergonomics (not bugs)
+
+- Nested conditionals: prefer `else if`, flat `if`+`return` (see `keyword_type`), or
+  an accumulator over deeply nested `else { if ... }` — all parse fine; the earlier
+  "parse failure" was the comment bug above, not the syntax.

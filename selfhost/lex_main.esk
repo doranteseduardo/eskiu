@@ -20,11 +20,13 @@ int decode_str_escape(int e) {
     return e;
 }
 
-// NOTE: the char escape decode is INLINED in emit_value (not a helper). Pulling
-// it out as a second `int(int)` helper triggers a codegen bug where the helper's
-// `return e` fall-through yields 0 (its literal-return branches are fine, and the
-// first such helper — decode_str_escape — works). See selfhost/NOTES.md. Inlining
-// with a `dv` accumulator sidesteps the buggy return-the-parameter path.
+// read_char's switch is narrower: only n,t,\ ; default = the char (so '\r' = 'r').
+int decode_chr_escape(int e) {
+    if (e == 110) { return 10; }     // newline
+    if (e == 116) { return 9; }      // tab
+    if (e == 92) { return 92; }      // backslash
+    return e;
+}
 
 // Print a token's value exactly as the C++ lexer stores it: STRING_LIT/CHAR_LIT
 // are decoded (escapes applied, surrounding quotes dropped); everything else is
@@ -52,12 +54,7 @@ void emit_value(*uint8 src, int type, int start, int len) {
             int ch = (int)src[i];
             if (ch == 92 && i + 1 < endp) {
                 i = i + 1;
-                int e = (int)src[i];     // read_char escapes: n,t,\ ; else the char
-                int dv = e;
-                if (e == 110) { dv = 10; }
-                if (e == 116) { dv = 9; }
-                if (e == 92) { dv = 92; }
-                putchar(dv);
+                putchar(decode_chr_escape((int)src[i]));
             } else {
                 putchar(ch);
             }
