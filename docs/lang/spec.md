@@ -43,7 +43,7 @@ clang file.o -o file        # link it yourself
 
 ### 2.1 Comments
 
-Single-line comments begin with `//` and extend to the end of the line. Block comments are enclosed in `/* ... */` and may span multiple lines. Comments do not nest.
+Single-line comments begin with `//` and extend to the end of the line — a trailing backslash does **not** continue the comment onto the next line (unlike C). Block comments are enclosed in `/* ... */` and may span multiple lines. Comments do not nest.
 
 ```eskiu
 // This is a single-line comment
