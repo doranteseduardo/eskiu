@@ -9,6 +9,19 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ## [Unreleased]
 
+### Hardening
+- **Resolver consistency check (`ESKIU_RESOLVER_DEBUG`).** Codegen's type
+  derivation is split out (`deriveExprEskiuType`) so that, under the env flag, the
+  single-resolver table is cross-checked against the structural derivation on every
+  hit; a semantic disagreement (the v0.2.4 two-evaluator miscompile class) is
+  printed. Across the whole corpus the two agree on every behavior-affecting type
+  (the only difference is a benign enum-as-int representation), confirming the
+  v0.2.4 reconciliation holds. Behavior-preserving (golden IR 26/26).
+- **Fuzzer: backslash-newline in comments & strings.** New generators with a
+  self-checking expected-output oracle (the O0/O2 differential is blind to a
+  uniformly mis-lexed program) — guards the comment-continuation footgun fixed
+  below.
+
 ### Fixed
 - **Preprocessor: a `//` comment ending in `\` no longer swallows the next source
   line.** Backslash-newline line continuation was applied unconditionally, so a
