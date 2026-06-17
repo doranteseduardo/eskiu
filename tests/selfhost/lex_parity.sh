@@ -33,7 +33,7 @@ DRIVER=selfhost/lex_main.esk
 # which is what makes the full corpus viable in CI.
 LEXBIN="$(mktemp -t lex_main.XXXXXX)"
 trap 'rm -f "$LEXBIN"' EXIT
-if ! "$BIN" "$DRIVER" -o "$LEXBIN" 2>/tmp/lexbuild.$$; then
+if ! "$BIN" "$DRIVER" -o "$LEXBIN" >/dev/null 2>/tmp/lexbuild.$$; then
     echo "lex_parity: failed to build $DRIVER"; cat /tmp/lexbuild.$$; rm -f /tmp/lexbuild.$$; exit 2
 fi
 rm -f /tmp/lexbuild.$$

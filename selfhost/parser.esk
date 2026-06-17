@@ -1,0 +1,105 @@
+// Self-hosted recursive-descent parser. Consumes the self-hosted lexer's token
+// stream (selfhost/lexer.esk) and builds the AST (selfhost/ast.esk), to be printed
+// in the C++ `--test-parser` format. Built slice by slice, parity-gated.
+//
+// S0: a top-level function `<type> <name>() { return <int-literal>; }`.
+
+import "lexer.esk";
+import "ast.esk";
+
+// One-token lookahead over the lexer cursor.
+struct Parser {
+    Lexer lx;
+    Token cur;
+}
+
+void p_init(Parser* p, *uint8 src, int len) {
+    p.lx.src = src; p.lx.len = len; p.lx.pos = 0; p.lx.line = 1; p.lx.col = 1;
+    p.cur = lx_next(&p.lx);
+}
+
+void p_advance(Parser* p) {
+    p.cur = lx_next(&p.lx);
+}
+
+// The lexeme of a token as an owned NUL-terminated string (heap copy of the
+// source byte range). Used for names, type spellings, and literal text.
+string tok_text(*uint8 src, Token t) {
+    *uint8 buf = alloc<uint8>(t.len + 1);
+    int i = 0;
+    while (i < t.len) { buf[i] = src[t.start + i]; i = i + 1; }
+    buf[t.len] = 0;
+    return (string)buf;
+}
+
+// ── Expressions ─────────────────────────────────────────────────────────────
+
+*ExprNode parse_expr(Parser* p) {
+    if (p.cur.type == INT_LIT) {
+        *ExprNode e = alloc<ExprNode>(1);
+        e.kind = EK_LITERAL;
+        e.lit_kind = LIT_INT;
+        e.sval = tok_text(p.lx.src, p.cur);
+        p_advance(p);
+        return e;
+    }
+    return null;
+}
+
+// ── Statements ──────────────────────────────────────────────────────────────
+
+*StmtNode parse_return(Parser* p) {
+    p_advance(p);                         // consume 'return'
+    *StmtNode s = alloc<StmtNode>(1);
+    s.kind = SK_RETURN;
+    s.expr = null;
+    if (p.cur.type != SEMICOLON) {
+        s.expr = parse_expr(p);
+    }
+    p_advance(p);                         // consume ';'
+    return s;
+}
+
+*StmtNode parse_stmt(Parser* p) {
+    if (p.cur.type == RETURN) { return parse_return(p); }
+    return null;
+}
+
+*StmtNode parse_block(Parser* p) {
+    p_advance(p);                         // consume '{'
+    *StmtNode b = alloc<StmtNode>(1);
+    b.kind = SK_BLOCK;
+    List_init<*StmtNode>(&b.items, 4);
+    while (p.cur.type != RBRACE && p.cur.type != EOF_TOKEN) {
+        List_push<*StmtNode>(&b.items, parse_stmt(p));
+    }
+    p_advance(p);                         // consume '}'
+    return b;
+}
+
+// ── Declarations ────────────────────────────────────────────────────────────
+
+*DeclNode parse_function(Parser* p) {
+    string rty = tok_text(p.lx.src, p.cur);   // return type
+    p_advance(p);
+    string nm = tok_text(p.lx.src, p.cur);    // function name
+    p_advance(p);
+    p_advance(p);                              // consume '('
+    p_advance(p);                              // consume ')'  (S0: no params)
+    *DeclNode d = alloc<DeclNode>(1);
+    d.kind = DK_FUNCTION;
+    d.name = nm;
+    d.ret_type = rty;
+    List_init<Param>(&d.params, 1);
+    d.body = parse_block(p);
+    return d;
+}
+
+*Program parse_program(Parser* p) {
+    *Program prog = alloc<Program>(1);
+    List_init<*DeclNode>(&prog.decls, 4);
+    while (p.cur.type != EOF_TOKEN) {
+        List_push<*DeclNode>(&prog.decls, parse_function(p));
+    }
+    return prog;
+}
