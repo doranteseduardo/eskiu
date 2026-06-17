@@ -2,9 +2,9 @@
 // and parity-tested against the C++ `--test-lexer`. Free functions over a
 // `Lexer*` (explicit cursor state); mirrors the C++ peek/advance/skip semantics.
 //
-// Stage 5: whitespace, identifiers + keywords, numbers, string + char literals,
-// operators + delimiters + pragma, EOF. (Comments arrive in the next slice —
-// gated by the parity harness.)
+// Stage 6: whitespace + line/block comments, identifiers + keywords, numbers,
+// string + char literals, operators + delimiters + pragma, EOF. Mirrors the full
+// preprocessor-free C++ lexer; gated file-by-file by the parity harness.
 
 import <ctype>;
 import "tokens.esk";
@@ -59,6 +59,28 @@ int lx_advance(Lexer* lx) {
 void lx_skip_ws(Lexer* lx) {
     while (lx_at_end(lx) == 0 && is_space(lx_peek(lx)) == 1) {
         lx_advance(lx);
+    }
+}
+
+// Skip a `//` line comment or a `/* */` block comment (mirror skip_comment). The
+// C++ reports unterminated block comments to stderr only, so the stdout token
+// stream is unaffected — we just consume to EOF and stop.
+void lx_skip_comment(Lexer* lx) {
+    if (lx_peek(lx) == 47 && lx_peek_next(lx) == 47) {          // '//'
+        while (lx_at_end(lx) == 0 && lx_peek(lx) != 10) {
+            lx_advance(lx);
+        }
+    } else if (lx_peek(lx) == 47 && lx_peek_next(lx) == 42) {   // '/*'
+        lx_advance(lx);                                         // '/'
+        lx_advance(lx);                                         // '*'
+        while (lx_at_end(lx) == 0) {
+            if (lx_peek(lx) == 42 && lx_peek_next(lx) == 47) {  // '*/'
+                lx_advance(lx);
+                lx_advance(lx);
+                return;
+            }
+            lx_advance(lx);
+        }
     }
 }
 
@@ -138,6 +160,12 @@ int keyword_type(*uint8 src, int start, int len) {
 
 Token lx_next(Lexer* lx) {
     lx_skip_ws(lx);
+    // Skip comments (interleaved with whitespace), exactly like next_token.
+    while (lx_at_end(lx) == 0 && lx_peek(lx) == 47
+           && (lx_peek_next(lx) == 47 || lx_peek_next(lx) == 42)) {
+        lx_skip_comment(lx);
+        lx_skip_ws(lx);
+    }
 
     let t: Token;
     if (lx_at_end(lx) == 1) {

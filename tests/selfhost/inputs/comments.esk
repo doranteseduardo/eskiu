@@ -1,0 +1,11 @@
+// a full line comment
+foo // trailing comment
+bar /* inline block */ baz
+/* multi
+   line
+   block */ qux
+a /**/ b /* */ c
+x/*tight*/y
+"// not a comment in a string"
+'/' '*'
+end
