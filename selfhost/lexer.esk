@@ -28,6 +28,12 @@ int lx_peek(Lexer* lx) {
     return (int)lx.src[lx.pos];
 }
 
+// Next byte after the cursor (0 if none) — matches the C++ `peek_next()`.
+int lx_peek_next(Lexer* lx) {
+    if (lx.pos + 1 >= lx.len) { return 0; }
+    return (int)lx.src[lx.pos + 1];
+}
+
 int lx_advance(Lexer* lx) {
     int c = lx_peek(lx);
     lx.pos = lx.pos + 1;
@@ -143,6 +149,41 @@ Token lx_next(Lexer* lx) {
         }
         t.type = keyword_type(lx.src, sp, lx.pos - sp);
         t.start = sp; t.len = lx.pos - sp;
+        t.line = sl; t.col = sc;
+        return t;
+    }
+
+    // Number literals (mirror read_number). Entry requires a leading digit, so
+    // the C++ leading-dot-float branch is unreachable and omitted. No exponent /
+    // no suffix — exactly as the C++ lexer.
+    if (is_digit(c) == 1) {
+        while (lx_at_end(lx) == 0 && is_digit(lx_peek(lx)) == 1) {
+            lx_advance(lx);
+        }
+        // Hex: integer part is EXACTLY "0", then x/X, then hex digits.
+        if (lx.pos - sp == 1 && (int)lx.src[sp] == 48) {     // '0'
+            int px = lx_peek(lx);
+            if (lx_at_end(lx) == 0 && (px == 120 || px == 88)) {   // 'x' 'X'
+                lx_advance(lx);
+                while (lx_at_end(lx) == 0 && is_hex(lx_peek(lx)) == 1) {
+                    lx_advance(lx);
+                }
+                t.type = INT_LIT; t.start = sp; t.len = lx.pos - sp;
+                t.line = sl; t.col = sc;
+                return t;
+            }
+        }
+        // Float: '.' immediately followed by a digit.
+        if (lx_at_end(lx) == 0 && lx_peek(lx) == 46 && is_digit(lx_peek_next(lx)) == 1) {
+            lx_advance(lx);                                  // '.'
+            while (lx_at_end(lx) == 0 && is_digit(lx_peek(lx)) == 1) {
+                lx_advance(lx);
+            }
+            t.type = FLOAT_LIT; t.start = sp; t.len = lx.pos - sp;
+            t.line = sl; t.col = sc;
+            return t;
+        }
+        t.type = INT_LIT; t.start = sp; t.len = lx.pos - sp;
         t.line = sl; t.col = sc;
         return t;
     }
