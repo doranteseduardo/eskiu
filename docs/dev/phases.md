@@ -194,8 +194,11 @@ plus a few generics extensions.
 ### v0.3 — Self-hosting prerequisites
 
 - LLVM C API bindings via `extern`
-- Lexer rewritten in Eskiu
-- Parser rewritten in Eskiu
+- [x] Lexer rewritten in Eskiu — byte-identical to `--test-lexer` over the whole
+  preprocessor-free corpus (114/114), gated in CI (`selfhost/`)
+- [~] Parser rewritten in Eskiu — in progress (`selfhost/parser.esk`): expressions
+  done (de-risk + full precedence chain + postfix + casts + literals), parity-gated
+  vs `--test-parser`; statements/declarations/templates next
 
 ### v1.0 — Production-ready
 
