@@ -16,6 +16,12 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   `tests/selfhost/lex_parity.sh` (`--full` → 114/114; compiles the driver once to a
   native binary, ~seconds) is **wired into CI**. Dogfood/tooling — the production
   compiler is untouched. See `selfhost/README.md`.
+- **Self-hosting milestone 2: the parser, in Eskiu** (`selfhost/{ast,parser,parse_main}.esk`)
+  — in progress. Builds a recursive AST (tagged heap structs) from the self-hosted
+  lexer's tokens and prints it byte-identical to `--test-parser`; gate
+  `tests/selfhost/parse_parity.sh`. Done so far: the full expression layer
+  (precedence chain, unary, postfix call/index/member/`?`, casts, `sizeof`, all
+  literal kinds). Statements/declarations/templates next.
 
 ### Hardening
 - **Resolver consistency check (`ESKIU_RESOLVER_DEBUG`).** Codegen's type
