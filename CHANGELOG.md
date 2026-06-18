@@ -10,6 +10,10 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 ## [0.2.5] — 2026-06-17
 
 ### Added
+- **`<ctype>` stdlib module** — pure-Eskiu ASCII character classification (no libc,
+  freestanding-safe): `is_space`, `is_digit`, `is_hex`, `is_alpha`, `is_alnum`,
+  `is_ident_start`, `is_ident_cont`. Introduced for the self-hosted lexer; usable
+  by any program via `import <ctype>;`.
 - **Self-hosting milestone 1: the lexer, in Eskiu** (`selfhost/` +
   `stdlib/ctype.esk`). A full lexer written in Eskiu, byte-identical to the C++
   `--test-lexer` over the entire preprocessor-free corpus. Parity gate
