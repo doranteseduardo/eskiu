@@ -2601,67 +2601,6 @@ pre.code-block {
 <pre class="code-block"> thread_create        thread_join       async       await        spawn      escaping</pre>
 <pre class="code-block"> try     catch    finally     throw</pre>
 <pre class="code-block"> true     false    null</pre>
-<h3 class="subsection">net — import</h3>
-<pre class="code-block">        Symbol                 Signature                                               Notes</pre>
-<pre class="code-block">        net_tcp_listen         int net_tcp_listen(uint16 port)                         bind+listen; returns fd or -1</pre>
-<pre class="code-block">        net_accept             int net_accept(int listen_fd)                           accept; returns fd or -1</pre>
-<pre class="code-block">        net_tcp_connect        int net_tcp_connect(string host, uint16 port)           connect; returns fd or -1</pre>
-<pre class="code-block">        net_send               int64 net_send(int fd, *void buf, int64 n)              returns bytes sent</pre>
-<pre class="code-block">        net_recv               int64 net_recv(int fd, *void buf, int64 n)              returns bytes received;
-                                                                                       0=closed, -1=error</pre>
-<pre class="code-block">        net_send_str       int64 net_send_str(int fd, string s)         send string literal</pre>
-<pre class="code-block">        net_close          void net_close(int fd)                       close connection or server fd</pre>
-<h3 class="subsection">threading — import</h3>
-<pre class="code-block"> Mutex: Mutex_init / Mutex_lock / Mutex_unlock / Mutex_destroy
- Cond:     Cond_init / Cond_wait / Cond_signal / Cond_broadcast / Cond_destroy
- Sem:      Sem_init(initial) / Sem_post / Sem_wait / Sem_destroy</pre>
-<h3 class="subsection">http — import</h3>
-<pre class="code-block"> http_serve(port, workers, handler)              // threaded worker pool
- handler type: fn(HttpRequest*, HttpResponse*)-&gt;void
- HttpRequest:       method / path / version / headers / body (String fields)
- HttpResponse: HttpResponse_header / HttpResponse_set_body / HttpResponse_render</pre>
-<pre class="code-block"> // Binary-safe full-body reader (use for uploads and binary data)
- struct HttpReq { String method; String path; String headers;
-                    *uint8 body; int64 body_len; }
- HttpReq_init / HttpReq_free / HttpReq_header(r, name) -&gt; string
- int http_recv(int fd, HttpReq* r, int64 max_body)                // loop recv full body
- void http_reply(int fd, int status, string ctype, string extra, String* body)
- void http_reply_error(int fd, int status, string extra, string msg)</pre>
-<h3 class="subsection">json — import</h3>
-<pre class="code-block"> // Builder
- Json_init / Json_obj_begin / Json_obj_end / Json_arr_begin / Json_arr_end
- Json_key / Json_str / Json_int / Json_float / Json_bool / Json_null
- Json_cstr / Json_free
- // Parser
- *JsonValue json_parse(string text)
- *JsonValue JsonValue_get(*JsonValue obj, string key)
- double JsonValue_as_double / string JsonValue_as_cstr / int JsonValue_is_null
- void JsonValue_free(*JsonValue)</pre>
-<h3 class="subsection">alloc — import &lt;alloc&gt; (explicit allocators over a buffer you own)</h3>
-<pre class="code-block"> // All allocators use: *void T_alloc(T* self, int64 n) -&gt; plugs into alloc_with
- Bump:     Bump_init(buf, cap) / Bump_alloc / Bump_reset
- Arena: Arena_init / Arena_alloc / Arena_save / Arena_restore / Arena_reset
- Pool:     Pool_init(buf, cap, blockSize) / Pool_alloc / Pool_free
- FirstFit: FirstFit_init(buf, cap) / FirstFit_alloc / FirstFit_free
- sysheap: heap_init / heap_alloc / heap_free / heap_destroy</pre>
-<h3 class="subsection">bytes — import</h3>
-<pre class="code-block"> Bytes: binary-safe *uint8 + length buffer (unlike String: NUL-safe, length-authoritative)
- Bytes_init(&amp;b, cap)     Bytes_free(&amp;b)   Bytes_push(&amp;b, u8)
- Bytes_append_raw(&amp;b, *uint8 src, n)      Bytes_append(&amp;b, &amp;other)
- Bytes_slice(&amp;b, start, n) -&gt; Bytes       (cap=0, non-owning)
- Bytes_to_base64(&amp;b) -&gt; Bytes       Bytes_from_base64(s) -&gt; Bytes
- HttpReq_body(&amp;r) -&gt; Bytes                  (non-owning view of HTTP body)</pre>
-<h3 class="subsection">HashMap—generic key (also in )</h3>
-<pre class="code-block"> HashMap&lt;K,V&gt;: any-key map; you supply hash + eq fn pointers (like qsort)
- HashMap_init&lt;K,V&gt;(&amp;m, cap, hash_fn, eq_fn)        built-in: int_hash / int_eq
- *V HashMap_at&lt;K,V&gt;(&amp;m, key, *int created)         // get-or-insert
- int HashMap_get&lt;K,V&gt;(&amp;m, key, *V out) -&gt; 1/0 // lookup
- HashMap_free&lt;K,V&gt;(&amp;m)</pre>
-<h3 class="subsection">time / env / base64 / path — quick reference</h3>
-<pre class="code-block"> import &lt;time&gt;;       time_now_ms   time_now_s    time_monotonic_ms   sleep_ms(ms)
- import &lt;env&gt;;        env_get   env_has   env_get_or   env_get_int
- import &lt;base64&gt;;     base64_encode/decode(*uint8 src, int n, *uint8 out)
- import &lt;path&gt;;       path_join   path_basename    path_dirname   path_extension</pre>
 <div class="chapter-start" id="ref-r2"><span class="chapter-label ref">Ref R2</span>
 <h1 class="chapter-title">Types</h1><hr class="chapter-rule"></div>
 <h3 class="subsection">Primitive Types</h3>
@@ -2815,7 +2754,7 @@ pre.code-block {
 <p>not re-expanded within its own expansion. The macro table is shared across all files in a multi-file build.</p>
 <div class="chapter-start" id="ref-r8"><span class="chapter-label ref">Ref R8</span>
 <h1 class="chapter-title">Standard Library</h1><hr class="chapter-rule"></div>
-<h3 class="subsection">net — import</h3>
+<h3 class="subsection">net — import &lt;net&gt;</h3>
 <pre class="code-block">        Symbol             Signature                                          Notes</pre>
 <pre class="code-block">        net_tcp_listen     int net_tcp_listen(uint16 port)                    bind+listen; returns fd or -1</pre>
 <pre class="code-block">        net_accept         int net_accept(int listen_fd)                      accept; returns fd or -1</pre>
@@ -2825,11 +2764,11 @@ pre.code-block {
                                                                               0=closed, -1=error</pre>
 <pre class="code-block">        net_send_str       int64 net_send_str(int fd, string s)               send string literal</pre>
 <pre class="code-block">        net_close          void net_close(int fd)                             close connection or server fd</pre>
-<h3 class="subsection">threading — import</h3>
+<h3 class="subsection">threading — import &lt;threading&gt;</h3>
 <pre class="code-block"> Mutex: Mutex_init / Mutex_lock / Mutex_unlock / Mutex_destroy
  Cond:     Cond_init / Cond_wait / Cond_signal / Cond_broadcast / Cond_destroy
  Sem:      Sem_init(initial) / Sem_post / Sem_wait / Sem_destroy</pre>
-<h3 class="subsection">http — import</h3>
+<h3 class="subsection">http — import &lt;http&gt;</h3>
 <pre class="code-block"> http_serve(port, workers, handler)              // threaded worker pool
  handler type: fn(HttpRequest*, HttpResponse*)-&gt;void
  HttpRequest:       method / path / version / headers / body (String fields)
@@ -2841,7 +2780,7 @@ pre.code-block {
  int http_recv(int fd, HttpReq* r, int64 max_body)                      // loop recv full body
  void http_reply(int fd, int status, string ctype, string extra, String* body)
  void http_reply_error(int fd, int status, string extra, string msg)</pre>
-<h3 class="subsection">json — import</h3>
+<h3 class="subsection">json — import &lt;json&gt;</h3>
 <pre class="code-block"> // Builder
  Json_init / Json_obj_begin / Json_obj_end / Json_arr_begin / Json_arr_end
  Json_key / Json_str / Json_int / Json_float / Json_bool / Json_null
@@ -2858,7 +2797,7 @@ pre.code-block {
  Pool:     Pool_init(buf, cap, blockSize) / Pool_alloc / Pool_free
  FirstFit: FirstFit_init(buf, cap) / FirstFit_alloc / FirstFit_free
  sysheap: heap_init / heap_alloc / heap_free / heap_destroy</pre>
-<h3 class="subsection">map — import</h3>
+<h3 class="subsection">map — import &lt;map&gt;</h3>
 <pre class="code-block"> Map&lt;V&gt; — string-keyed hash map (open addressing, 0.75 load factor)
  Map_init&lt;V&gt;(&amp;m, cap)                         // initialise
  *V Map_at&lt;V&gt;(&amp;m, key, *int created)          // get-or-insert; *created=1 if new
@@ -2867,14 +2806,14 @@ pre.code-block {
 <p>multipart — <code>import</code></p>
 <pre class="code-block"> multipart_boundary(String* ctype, String* out) -&gt; int        // 1 = boundary found
  multipart_part(body, blen, boundary, name, &amp;ptr, &amp;plen) -&gt; int</pre>
-<h3 class="subsection">bytes — import</h3>
+<h3 class="subsection">bytes — import &lt;bytes&gt;</h3>
 <pre class="code-block"> Bytes: binary-safe *uint8 + length buffer (unlike String: NUL-safe, length-authoritative)
  Bytes_init(&amp;b, cap)     Bytes_free(&amp;b)   Bytes_push(&amp;b, u8)
  Bytes_append_raw(&amp;b, *uint8 src, n)      Bytes_append(&amp;b, &amp;other)
  Bytes_slice(&amp;b, start, n) -&gt; Bytes       (cap=0, non-owning)
  Bytes_to_base64(&amp;b) -&gt; Bytes      Bytes_from_base64(s) -&gt; Bytes
  HttpReq_body(&amp;r) -&gt; Bytes                 (non-owning view of HTTP body)</pre>
-<h3 class="subsection">HashMap—generic key (also in )</h3>
+<h3 class="subsection">HashMap — generic key (also in &lt;map&gt;)</h3>
 <pre class="code-block"> HashMap&lt;K,V&gt;: any-key map; you supply hash + eq fn pointers (like qsort)
  HashMap_init&lt;K,V&gt;(&amp;m, cap, hash_fn, eq_fn)       built-in: int_hash / int_eq
  *V HashMap_at&lt;K,V&gt;(&amp;m, key, *int created)        // get-or-insert
