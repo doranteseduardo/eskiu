@@ -2637,7 +2637,7 @@ pre.code-block {
  *JsonValue JsonValue_get(*JsonValue obj, string key)
  double JsonValue_as_double / string JsonValue_as_cstr / int JsonValue_is_null
  void JsonValue_free(*JsonValue)</pre>
-<h3 class="subsection">alloc — import (explicit allocators over a buffer you own)</h3>
+<h3 class="subsection">alloc — import &lt;alloc&gt; (explicit allocators over a buffer you own)</h3>
 <pre class="code-block"> // All allocators use: *void T_alloc(T* self, int64 n) -&gt; plugs into alloc_with
  Bump:     Bump_init(buf, cap) / Bump_alloc / Bump_reset
  Arena: Arena_init / Arena_alloc / Arena_save / Arena_restore / Arena_reset
@@ -2774,9 +2774,9 @@ pre.code-block {
 <h1 class="chapter-title">Memory</h1><hr class="chapter-rule"></div>
 <pre class="code-block">        Operation           Syntax / Description</pre>
 <pre class="code-block">        Stack alloc         All local variables. Reclaimed on function return.</pre>
-<pre class="code-block">        Heap alloc          alloc(N) — import ; returns *T. libc malloc hosted, esk_alloc in freestanding.</pre>
+<pre class="code-block">        Heap alloc          alloc(N) — import &lt;mem&gt;; returns *T. libc malloc hosted, esk_alloc in freestanding.</pre>
 <pre class="code-block">        Heap free           free(ptr) — calls free() or esk_free. Freeing null is safe.</pre>
-<pre class="code-block">        Address-of          &amp;x; — yields *T where x: T</pre>
+<pre class="code-block">        Address-of          &amp;x — yields *T where x: T</pre>
 <pre class="code-block">        Dereference         *ptr — yields T where ptr: *T</pre>
 <pre class="code-block">        Subscript           ptr[i] — equivalent to *(ptr + i)</pre>
 <pre class="code-block">        volatile            volatile let p: *T = ... — all loads/stores through p emitted as volatile IR</pre>
@@ -2851,7 +2851,7 @@ pre.code-block {
  *JsonValue JsonValue_get(*JsonValue obj, string key)
  double JsonValue_as_double / string JsonValue_as_cstr / int JsonValue_is_null
  void JsonValue_free(*JsonValue)</pre>
-<h3 class="subsection">alloc — import (explicit allocators over a buffer you own)</h3>
+<h3 class="subsection">alloc — import &lt;alloc&gt; (explicit allocators over a buffer you own)</h3>
 <pre class="code-block"> // All allocators use: *void T_alloc(T* self, int64 n) -&gt; plugs into alloc_with
  Bump:     Bump_init(buf, cap) / Bump_alloc / Bump_reset
  Arena: Arena_init / Arena_alloc / Arena_save / Arena_restore / Arena_reset
@@ -3042,68 +3042,76 @@ pre.code-block {
  Bump_reset(&amp;b);                            // free all at once</pre>
 <div class="chapter-start" id="appendix-b"><span class="chapter-label app">Appendix B</span>
 <h1 class="chapter-title">Glossary</h1><hr class="chapter-rule"></div>
-<h3 class="subsection">alloc(N)</h3>
-<pre class="code-block">Heap allocation stdlib function from . Not a language keyword. Returns *T. Pairs with free(). ilt-in.
-Allocates N elements of type T on the heap and returns *T. Calls malloc in hosted mode; calls
-esk_alloc in freestanding mode. Always paired with free.</pre>
-<p>ABI Application Binary Interface. The binary-level contract between separately compiled code: how arguments are passed, where return values go, how structs are laid out. Eskiu uses the C ABI, which is why <code>extern</code> functions work transparently.</p>
-<p>AST Abstract Syntax Tree. The tree-shaped data structure the parser builds from source code. Each node represents one language construct. The type checker and code generator both walk it.</p>
-<p>bump allocator The simplest heap allocator. Keeps a pointer to the next <code>free</code> byte. Allocation advances the pointer. Free is a no-op. Used in the Eskiu kernel.</p>
-<p>closure</p>
-<pre class="code-block">A lambda that captures variables from its enclosing scope by value. Represented as a fat pointer
-{fn_ptr, env_ptr} where env_ptr points to a heap-allocated copy of captured variables.</pre>
-<p>cross-compilation</p>
-<pre class="code-block">Building a binary for a different machine than the one running the compiler. Controlled with --target
-TRIPLE.</pre>
-<p>data race Two threads accessing the same memory concurrently, at least one writing, with no synchronisation. Undefined behaviour. Closures avoid data races by capturing variables by value.</p>
-<p><code>double</code>-<code>free</code> Calling <code>free</code> on the same pointer twice. Corrupts the heap. Prevented by setting pointers to <code>null</code> after <code>free</code>.</p>
-<p><code>extern</code></p>
-<pre class="code-block">Declares a function from a C library. The compiler generates a C-ABI call; the linker resolves it. Any
-C library is accessible this way.</pre>
-<p>fat pointer</p>
-<pre class="code-block">A two-word value. {data_ptr, vtable_ptr} for interfaces; {fn_ptr, env_ptr} for closures.</pre>
-<p>freestanding</p>
-<pre class="code-block">Compilation mode without libc. --freestanding redirects alloc and free to esk_alloc and esk_free,
-which the user provides.</pre>
-<p>GEP getelementptr. LLVM IR instruction for pointer arithmetic. Used to access struct fields and array elements without loading data.</p>
-<p>heap A large pool of memory managed with <code>alloc</code> and <code>free</code>. Allocations persist until freed and outlive the function that created them.</p>
-<p>interface</p>
-<pre class="code-block">A named set of method signatures. Any struct that provides all required methods satisfies the
-interface (structural typing). The compiler generates a vtable automatically.</pre>
-<p>LLVM IR The intermediate representation used internally. Platform-independent, strongly typed, SSA form. Inspect with --test-codegen.</p>
-<p>memory leak An allocation that is never freed. The program slowly consumes all available memory.</p>
-<p>monomorphic template A template that generates one concrete type or function per unique set of type arguments. No runtime overhead compared to hand-written type-specific code.</p>
-<p><code>null</code> A pointer value that points to nothing. Dereferencing <code>null</code> crashes. Check ptr != <code>null</code> before dereferencing.</p>
-<p>pointer A variable holding a memory address. *T is a pointer to T. &amp;x; gives the address of x. *ptr reads or writes through the pointer.</p>
-<p><code>Result</code> Template struct from stdlib. ok==1 and value holds T on success; ok==0 and error holds E on failure.</p>
-<p><code>self</code></p>
-<pre class="code-block">Implicit pointer to the struct instance inside a method body. Equivalent to &#x27;this&#x27; in C++ or Java.</pre>
-<p>stack</p>
-<pre class="code-block">Memory automatically reclaimed as functions call and return. Local variables live here. Fast, limited
-in size.</pre>
-<p>struct</p>
-<pre class="code-block">A composite type with named fields. Can have methods. Created with a struct literal: Point { x: 1.0,
-y: 2.0 }.</pre>
-<p>structural typing</p>
-<pre class="code-block">Interface satisfaction rule: a struct satisfies an interface if it provides all required methods. No
-explicit &#x27;implements&#x27; needed.</pre>
-<p>thread_create / thread_join</p>
-<pre class="code-block">Language keywords. thread_create(fn) spawns a thread, returns a handle. thread_join(handle)
-blocks until the thread finishes. Link with -lpthread on Linux.</pre>
-<p>union Like a struct, but all fields share offset 0. Size equals the largest field. Used for type punning — treating the same bits as different types.</p>
-<p>use-after-<code>free</code> Reading or writing through a pointer after the memory was freed. Produces garbage or corrupts other allocations. Prevented by nulling after <code>free</code>.</p>
-<p><code>volatile</code></p>
-<pre class="code-block">Qualifier preventing the compiler from optimising away loads and stores to a pointer. Required for
-memory-mapped hardware registers.</pre>
-<p>vtable</p>
-<pre class="code-block">Compiler-generated table of function pointers, one per interface method, for a specific struct. Part of
-the fat pointer used in interface dispatch.</pre>
-<p>async / await Language keywords for non-blocking concurrency. An async function returns *<code>Future</code>; await E suspends the enclosing async function until the future is ready. The compiler lowers async functions to resumable state machines.</p>
-<p><code>Future</code> A handle to a value of type T that may not exist yet. Produced by async functions and leaf I/O primitives. Release with free_future(f). Import from .</p>
-<p>event loop A reactor that watches file descriptors for readiness (kqueue/epoll) and resumes parked futures when I/O is ready. Provided by : el_new / el_run / el_free.</p>
-<p>escaping closure A closure whose environment outlives the function that created it. Gets a heap-allocated env instead of a stack one. Mark the receiving parameter escaping; release with free_closure(f).</p>
-<p>monomorphization Generating a separate concrete copy of a template function or struct for each unique set of type arguments at compile time. Zero runtime overhead.</p>
-<p>constraint (bounded type parameter) An interface requirement on a type parameter: means the concrete type must provide every method declared by Ord. Multiple constraints: . Structs satisfy by defining the methods. Primitives (<code>int</code>, <code>float</code> …) satisfy via a <code>free</code> function named like the method with the primitive as its first argument: <code>int</code> cmp(<code>int</code>,<code>int</code>) makes <code>int</code> satisfy Ord.</p>
+<h3 class="subsection">ABI</h3>
+<p>Application Binary Interface. The binary-level contract between separately compiled code: how arguments are passed, where return values go, how structs are laid out. Eskiu uses the C ABI, which is why <code>extern</code> functions work transparently.</p>
+<h3 class="subsection">alloc&lt;T&gt;(N)</h3>
+<p>Heap-allocation stdlib function from <code>&lt;mem&gt;</code> — not a language keyword. Allocates N elements of type T on the heap and returns <code>*T</code>; calls <code>malloc</code> in hosted mode and <code>esk_alloc</code> in freestanding mode. Always paired with <code>free</code>.</p>
+<h3 class="subsection">AST</h3>
+<p>Abstract Syntax Tree. The tree-shaped data structure the parser builds from source code. Each node represents one language construct; the type checker and code generator both walk it.</p>
+<h3 class="subsection">async / await</h3>
+<p>Language keywords for non-blocking concurrency. An async function returns <code>*Future</code>; <code>await E</code> suspends the enclosing async function until the future is ready. The compiler lowers async functions to resumable state machines.</p>
+<h3 class="subsection">bump allocator</h3>
+<p>The simplest heap allocator. Keeps a pointer to the next free byte; allocation advances the pointer and free is a no-op. Used in the Eskiu kernel.</p>
+<h3 class="subsection">closure</h3>
+<p>A lambda that captures variables from its enclosing scope by value. Represented as a fat pointer <code>{fn_ptr, env_ptr}</code>, where <code>env_ptr</code> points to a heap-allocated copy of the captured variables.</p>
+<h3 class="subsection">constraint (bounded type parameter)</h3>
+<p>An interface requirement on a type parameter: <code>&lt;T: Ord&gt;</code> means the concrete type must provide every method declared by <code>Ord</code>. Multiple constraints are written <code>&lt;T: A + B&gt;</code>. Structs satisfy a constraint by defining the methods; primitives (<code>int</code>, <code>float</code>, …) satisfy it via a free function named like the method with the primitive as its first argument — <code>int cmp(int, int)</code> makes <code>int</code> satisfy <code>Ord</code>.</p>
+<h3 class="subsection">cross-compilation</h3>
+<p>Building a binary for a different machine than the one running the compiler. Controlled with <code>--target TRIPLE</code>.</p>
+<h3 class="subsection">data race</h3>
+<p>Two threads accessing the same memory concurrently, at least one writing, with no synchronisation — undefined behaviour. Closures avoid data races by capturing variables by value.</p>
+<h3 class="subsection">double-free</h3>
+<p>Calling <code>free</code> on the same pointer twice. Corrupts the heap. Prevented by setting pointers to <code>null</code> after <code>free</code>.</p>
+<h3 class="subsection">escaping closure</h3>
+<p>A closure whose environment outlives the function that created it, so it gets a heap-allocated env instead of a stack one. Mark the receiving parameter <code>escaping</code>; release it with <code>free_closure(f)</code>.</p>
+<h3 class="subsection">event loop</h3>
+<p>A reactor that watches file descriptors for readiness (kqueue/epoll) and resumes parked futures when I/O is ready. Provided by <code>&lt;eventloop&gt;</code>: <code>el_new</code> / <code>el_run</code> / <code>el_free</code>.</p>
+<h3 class="subsection">extern</h3>
+<p>Declares a function from a C library. The compiler generates a C-ABI call and the linker resolves it; any C library is accessible this way.</p>
+<h3 class="subsection">fat pointer</h3>
+<p>A two-word value: <code>{data_ptr, vtable_ptr}</code> for interfaces, <code>{fn_ptr, env_ptr}</code> for closures.</p>
+<h3 class="subsection">freestanding</h3>
+<p>Compilation mode without libc. <code>--freestanding</code> redirects <code>alloc</code> and <code>free</code> to <code>esk_alloc</code> and <code>esk_free</code>, which the user provides.</p>
+<h3 class="subsection">Future</h3>
+<p>A handle to a value of type T that may not exist yet. Produced by async functions and leaf I/O primitives. Release with <code>free_future(f)</code>. Import from <code>&lt;future&gt;</code>.</p>
+<h3 class="subsection">GEP</h3>
+<p><code>getelementptr</code>. The LLVM IR instruction for pointer arithmetic — used to access struct fields and array elements without loading data.</p>
+<h3 class="subsection">heap</h3>
+<p>A large pool of memory managed with <code>alloc</code> and <code>free</code>. Allocations persist until freed and outlive the function that created them.</p>
+<h3 class="subsection">interface</h3>
+<p>A named set of method signatures. Any struct that provides all the required methods satisfies the interface (structural typing); the compiler generates a vtable automatically.</p>
+<h3 class="subsection">LLVM IR</h3>
+<p>The intermediate representation used internally — platform-independent, strongly typed, SSA form. Inspect it with <code>--test-codegen</code>.</p>
+<h3 class="subsection">memory leak</h3>
+<p>An allocation that is never freed. The program slowly consumes all available memory.</p>
+<h3 class="subsection">monomorphic template</h3>
+<p>A template that generates one concrete type or function per unique set of type arguments. No runtime overhead compared to hand-written type-specific code.</p>
+<h3 class="subsection">monomorphization</h3>
+<p>Generating a separate concrete copy of a template function or struct for each unique set of type arguments at compile time. Zero runtime overhead.</p>
+<h3 class="subsection">null</h3>
+<p>A pointer value that points to nothing. Dereferencing <code>null</code> crashes; check <code>ptr != null</code> before dereferencing.</p>
+<h3 class="subsection">pointer</h3>
+<p>A variable holding a memory address. <code>*T</code> is a pointer to T, <code>&amp;x</code> gives the address of x, and <code>*ptr</code> reads or writes through the pointer.</p>
+<h3 class="subsection">Result</h3>
+<p>Template struct from stdlib: <code>ok == 1</code> and <code>value</code> holds T on success; <code>ok == 0</code> and <code>error</code> holds E on failure.</p>
+<h3 class="subsection">self</h3>
+<p>Implicit pointer to the struct instance inside a method body. Equivalent to <code>this</code> in C++ or Java.</p>
+<h3 class="subsection">stack</h3>
+<p>Memory automatically reclaimed as functions call and return. Local variables live here — fast, but limited in size.</p>
+<h3 class="subsection">struct</h3>
+<p>A composite type with named fields; can have methods. Created with a struct literal: <code>Point { x: 1.0, y: 2.0 }</code>.</p>
+<h3 class="subsection">structural typing</h3>
+<p>Interface-satisfaction rule: a struct satisfies an interface if it provides all the required methods — no explicit <code>implements</code> needed.</p>
+<h3 class="subsection">thread_create / thread_join</h3>
+<p>Language keywords. <code>thread_create(fn)</code> spawns a thread and returns a handle; <code>thread_join(handle)</code> blocks until the thread finishes. Link with <code>-lpthread</code> on Linux.</p>
+<h3 class="subsection">union</h3>
+<p>Like a struct, but all fields share offset 0; size equals the largest field. Used for type punning — treating the same bits as different types.</p>
+<h3 class="subsection">use-after-free</h3>
+<p>Reading or writing through a pointer after its memory was freed. Produces garbage or corrupts other allocations. Prevented by nulling after <code>free</code>.</p>
+<h3 class="subsection">volatile</h3>
+<p>Qualifier preventing the compiler from optimising away loads and stores to a pointer. Required for memory-mapped hardware registers.</p>
+<h3 class="subsection">vtable</h3>
+<p>Compiler-generated table of function pointers — one per interface method, for a specific struct. Part of the fat pointer used in interface dispatch.</p>
 <p>The Book of Eskiu | Eduardo Dorantes | eskiu-lang.org | v0.2.5 | MIT License</p>
 
 </main>
