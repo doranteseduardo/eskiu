@@ -22,7 +22,8 @@ enum StmtKind {
 enum ExprKind {
     EK_LITERAL, EK_IDENT, EK_BINARY, EK_UNARY,
     EK_CALL, EK_INDEX, EK_MEMBER, EK_QUESTION, EK_CAST, EK_SIZEOF,
-    EK_STRUCTINIT, EK_TEMPLATECALL
+    EK_STRUCTINIT, EK_TEMPLATECALL,
+    EK_AWAIT, EK_LAMBDA, EK_ALLOCWITH, EK_FREECLOSURE, EK_THREADCREATE
 }
 
 // Literal kinds, in the C++ LiteralExpr::Kind order; lit_name maps to the
@@ -39,6 +40,7 @@ struct ExprNode {
     *ExprNode b;
     List<*ExprNode> kids;  // call/template args, struct-init values
     List<string> names;    // struct-init field names (parallel to kids; "" = positional)
+    *StmtNode stmt;        // lambda body
 }
 
 struct StmtNode {
@@ -176,6 +178,34 @@ void print_expr(*ExprNode e, int d) {
             print_expr(List_get<*ExprNode>(&e.kids, i), d + 1);
             i = i + 1;
         }
+        return;
+    }
+    if (e.kind == EK_AWAIT) {
+        pline(d, "AwaitExpr:");
+        print_expr(e.a, d + 1);
+        return;
+    }
+    if (e.kind == EK_LAMBDA) {
+        pind(d);
+        printf("LambdaExpr: %s\n", e.sval);
+        print_stmt(e.stmt, d + 1);
+        return;
+    }
+    if (e.kind == EK_ALLOCWITH) {
+        pind(d);
+        printf("AllocWithExpr: alloc_with(<allocator>, %s, ...)\n", e.sval);
+        print_expr(e.a, d + 1);
+        print_expr(e.b, d + 1);
+        return;
+    }
+    if (e.kind == EK_FREECLOSURE) {
+        pline(d, "FreeClosureExpr:");
+        print_expr(e.a, d + 1);
+        return;
+    }
+    if (e.kind == EK_THREADCREATE) {
+        pline(d, "ThreadCreateExpr");
+        print_expr(e.a, d + 1);
         return;
     }
 }

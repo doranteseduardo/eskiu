@@ -356,6 +356,22 @@ int is_compound(int t) {
     return e;
 }
 
+// Lambda signature string for the printer: "<ret>(t0 n0, t1 n1)".
+string lambda_sig(string ret, *DeclNode d) {
+    string sig = str_concat(ret, "(");
+    int i = 0;
+    int n = List_len<Param>(&d.params);
+    while (i < n) {
+        Param pm = List_get<Param>(&d.params, i);
+        if (i > 0) { sig = str_concat(sig, ", "); }
+        sig = str_concat(sig, pm.ty);
+        sig = str_concat(sig, " ");
+        sig = str_concat(sig, pm.name);
+        i = i + 1;
+    }
+    return str_concat(sig, ")");
+}
+
 *ExprNode parse_primary(Parser* p) {
     int t = p_at(p);
     if (t == TRUE)  { p_adv(p); return mk_lit(LIT_BOOL, "true"); }
@@ -381,6 +397,49 @@ int is_compound(int t) {
         *ExprNode e = alloc<ExprNode>(1);
         e.kind = EK_SIZEOF; e.sval = ty;
         return e;
+    }
+    if (t == ALLOC_WITH) {
+        p_adv(p); p_adv(p);                    // 'alloc_with' '('
+        *ExprNode al = parse_expr(p);
+        p_adv(p);                              // ','
+        string ety = parse_type(p);
+        p_adv(p);                              // ','
+        *ExprNode cnt = parse_expr(p);
+        p_adv(p);                              // ')'
+        *ExprNode e = alloc<ExprNode>(1);
+        e.kind = EK_ALLOCWITH; e.sval = ety; e.a = al; e.b = cnt;
+        return e;
+    }
+    if (t == FREE_CLOSURE) {
+        p_adv(p); p_adv(p);                    // 'free_closure' '('
+        *ExprNode c = parse_expr(p);
+        p_adv(p);                              // ')'
+        *ExprNode e = alloc<ExprNode>(1);
+        e.kind = EK_FREECLOSURE; e.a = c;
+        return e;
+    }
+    if (t == THREAD_CREATE) {
+        p_adv(p); p_adv(p);                    // 'thread_create' '('
+        *ExprNode w = parse_expr(p);
+        p_adv(p);                              // ')'
+        *ExprNode e = alloc<ExprNode>(1);
+        e.kind = EK_THREADCREATE; e.a = w;
+        return e;
+    }
+    // Lambda: RetType(params) { body } — a type keyword followed by '('.
+    if (is_type_kw(t) == 1 && p_peek2(p).type == LPAREN) {
+        int save = p.pos;
+        string ret = parse_type(p);
+        p_adv(p);                              // '('
+        *DeclNode tmp = alloc<DeclNode>(1);
+        parse_params(p, tmp);
+        p_adv(p);                              // ')'
+        if (p_at(p) == LBRACE) {
+            *ExprNode e = alloc<ExprNode>(1);
+            e.kind = EK_LAMBDA; e.sval = lambda_sig(ret, tmp); e.stmt = parse_block(p);
+            return e;
+        }
+        p.pos = save;                          // not a lambda — back out
     }
     if (t == IDENT) {
         Token tok = p_adv(p);
@@ -477,6 +536,13 @@ int is_compound(int t) {
 }
 
 *ExprNode parse_unary(Parser* p) {
+    // await E — prefix, binds like a unary operator.
+    if (p_at(p) == AWAIT) {
+        p_adv(p);
+        *ExprNode e = alloc<ExprNode>(1);
+        e.kind = EK_AWAIT; e.a = parse_unary(p);
+        return e;
+    }
     // Fold -<int|float literal> into a negative literal (matches the C++).
     if (p_at(p) == MINUS) {
         int nt = p_peek2(p).type;
