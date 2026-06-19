@@ -51,6 +51,22 @@ way, so `forward_decl.esk` is back in the parity corpus (43/43). The harness sti
 skips any file the C++ oracle can't print, as a guard. Codegen was never affected —
 only the debug printer.
 
+## Resolved: `<list>` lacked `set` / `remove`  ✅ stdlib gap
+
+Writing the preprocessor's macro table (milestone 3) surfaced that `List<T>` had only
+`init`/`push`/`get`/`len`/`free` — no way to overwrite an element (macro redefine) or
+remove one (`#undef`). Worked around-free: **added `List_set<T>` and `List_remove<T>`
+to `stdlib/list.esk`** (generally useful, not preprocessor-specific). The macro table
+then maps cleanly — redefine = `List_set`, `#undef` = `List_remove`, `#else`/`#endif`
+edit/pop the conditional stack the same way. Not a bug; a genuine stdlib gap the
+dogfood found.
+
+Worth noting: the preprocessor (a faithful port of `lexer/preprocessor.cpp` —
+conditionals, recursive object/function macros, splicing, `__FILE__`/`__LINE__`)
+passed byte-identical parity on its **first** real run over the whole `tests/` +
+`stdlib/` corpus (156/156). A positive signal: the language + stdlib are mature
+enough that a non-trivial text-processing pass ports without compiler surprises.
+
 ## Minor ergonomics (not bugs)
 
 - Nested conditionals: prefer `else if`, flat `if`+`return` (see `keyword_type`), or

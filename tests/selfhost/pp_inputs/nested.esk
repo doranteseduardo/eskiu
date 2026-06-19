@@ -1,0 +1,15 @@
+#define A
+#define B
+#ifdef A
+int a = 1;
+#ifdef B
+int ab = 2;
+#else
+int anob = 3;
+#endif
+#else
+int noa = 4;
+#endif
+#ifndef C
+int noc = 5;
+#endif

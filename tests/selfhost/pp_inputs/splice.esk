@@ -1,0 +1,5 @@
+#define LONG(a, b, c) \
+    ((a) + (b) + \
+     (c))
+int v = LONG(1, 2, 3);
+int after = 99;
