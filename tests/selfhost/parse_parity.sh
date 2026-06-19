@@ -8,10 +8,13 @@
 #
 # Usage: tests/selfhost/parse_parity.sh [file.esk ...]
 #   no args   -> the synthetic corpus under tests/selfhost/parse_inputs/
-#   --full    -> the real corpus tests/*.esk, minus files the single-file parser
-#                can't match: any that `import` (the C++ parser follows imports and
-#                merges their decls) or that use stream-rewriting preprocessor
-#                directives / built-in macros / a shebang.
+#   --full    -> the real corpus tests/*.esk. The self-hosted parser now follows
+#                `import` (resolving <stdlib> + relative paths, recursively), so the
+#                only files it can't match are those whose transitive import closure
+#                touches a stream-rewriting preprocessor directive / built-in macro /
+#                shebang — the preprocessor isn't self-hosted yet, so the C++ token
+#                stream would differ. A file is excluded iff ANY file in its closure
+#                (itself + everything it imports) has such a directive.
 # Green (exit 0) = byte-identical AST dumps for every file.
 
 set -u
@@ -42,17 +45,50 @@ strip_banner() {
     sed -E '/^Parsing: /d; /^=+$/d; /^Parse succeeded!$/d'
 }
 
-# Excluded from --full: imports (C++ parser follows them) or stream-rewriting
-# preprocessor directives / built-in macros / shebang (change tokens before parse).
-EXCL_RE='(^[[:space:]]*import\b)|(^[[:space:]]*#[[:space:]]*(define|undef|ifdef|ifndef|if|elif|else|endif|include)\b)|(^#!)|__LINE__|__FILE__'
+# A file's import closure is "dirty" if it (or any file it transitively imports) uses
+# a stream-rewriting preprocessor directive / built-in macro / shebang — the
+# self-hosted lexer doesn't preprocess, so the C++ token stream would differ.
+PP_RE='(^[[:space:]]*#[[:space:]]*(define|undef|ifdef|ifndef|if|elif|else|endif|include)\b)|(^#!)|__LINE__|__FILE__'
+
+# Resolve an `import` line to a path, mirroring the parser: bare `<name>` ->
+# stdlib/name.esk, `<a/b>` -> a/b, relative `"p"` -> <dir>/p, absolute kept.
+re_std='import[[:space:]]*<([^>]+)>'
+re_rel='import[[:space:]]*"([^"]+)"'
+
+# closure_dirty FILE -> exit 0 if FILE's transitive import closure touches the
+# preprocessor, else exit 1. Plain string "seen" set for bash 3.2 portability.
+closure_dirty() {
+    local seen=" " queue="$1" f dir line resolved name p
+    while [ -n "$queue" ]; do
+        f="${queue%%$'\n'*}"
+        if [ "$f" = "$queue" ]; then queue=""; else queue="${queue#*$'\n'}"; fi
+        case "$seen" in *" $f "*) continue ;; esac
+        seen="$seen$f "
+        [ -f "$f" ] || continue
+        grep -qE "$PP_RE" "$f" && return 0
+        dir=$(dirname "$f")
+        while IFS= read -r line; do
+            resolved=""
+            if [[ "$line" =~ $re_std ]]; then
+                name="${BASH_REMATCH[1]}"
+                case "$name" in */*) resolved="$name" ;; *) resolved="stdlib/${name}.esk" ;; esac
+            elif [[ "$line" =~ $re_rel ]]; then
+                p="${BASH_REMATCH[1]}"
+                case "$p" in /*) resolved="$p" ;; *) resolved="$dir/$p" ;; esac
+            fi
+            [ -n "$resolved" ] && queue="$queue"$'\n'"$resolved"
+        done < <(grep -E '^[[:space:]]*import\b' "$f")
+    done
+    return 1
+}
 
 if [ "$#" -eq 1 ] && [ "$1" = "--full" ]; then
     files=()
     excluded=()
     for f in tests/*.esk; do
-        if grep -qE "$EXCL_RE" "$f"; then excluded+=("$f"); else files+=("$f"); fi
+        if closure_dirty "$f"; then excluded+=("$f"); else files+=("$f"); fi
     done
-    echo "corpus: ${#files[@]} files (excluded ${#excluded[@]} import/preprocessor-dependent)"
+    echo "corpus: ${#files[@]} files (excluded ${#excluded[@]} with preprocessor in import closure)"
     echo "----"
 elif [ "$#" -gt 0 ]; then
     files=("$@")

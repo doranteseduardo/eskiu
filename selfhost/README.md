@@ -9,10 +9,12 @@ pipeline is untouched.
 - **Milestone 2 — the parser** (`ast.esk` + `parser.esk` + `parse_main.esk`):
   builds a recursive AST from the lexer's tokens and prints it byte-identical to
   `--test-parser`. Covers the full grammar — expressions, statements, declarations,
-  templates/generics, lambdas/async. Parity over the import-free corpus
-  (`parse_parity.sh --full`); excludes files that `import` (the C++ parser follows
-  imports) or that the C++ `--test-parser` can't print (top-level prototypes crash
-  its printer — see NOTES.md).
+  templates/generics, lambdas/async. **Follows `import`** — resolves `<name>` →
+  `stdlib/name.esk` and relative `"path"` against the importing file's dir, parses
+  them recursively, and merges their decls in order (dedup + shared type names, like
+  the C++ parser). Parity (`parse_parity.sh --full`) covers every `tests/*.esk` whose
+  transitive import closure is preprocessor-free; files whose closure touches the
+  preprocessor are excluded until it's self-hosted (the harness computes the closure).
 
 ## Files
 

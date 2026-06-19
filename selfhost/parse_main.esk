@@ -17,8 +17,10 @@ int main(int argc, string* argv) {
         printf("error: cannot read %s\n", argv[1]);
         return 1;
     }
+    parser_session_init();
     let p: Parser;
     p_init(&p, src, (int)n);
+    p.basedir = str_dir(argv[1]);          // relative imports resolve from here
     *Program prog = parse_program(&p);
     print_program(prog);
     return 0;
