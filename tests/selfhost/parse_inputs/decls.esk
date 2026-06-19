@@ -1,0 +1,18 @@
+struct Point { int x; int y; }
+struct Flags { uint32 a : 1; uint32 b : 3; int n; }
+packed struct Packed { char c; int n; }
+union Value { int i; float f; *void p; }
+interface Drawable { void draw(int x); int area(); }
+enum Color { Red, Green, Blue }
+enum Status { Ok = 0, Err = 2, Pending }
+enum Signed { Neg = -1, Zero, Pos }
+type u8 = uint8;
+type IntPtr = *int;
+extern int printf(string fmt, ...);
+intrinsic int atomic_load(*int p);
+async int fetch(int id) {
+    return id;
+}
+int add(int a, int b) {
+    return a + b;
+}

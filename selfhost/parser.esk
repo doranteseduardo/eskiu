@@ -966,11 +966,188 @@ void parse_params(Parser* p, *DeclNode d) {
     return d;
 }
 
+// int -> decimal string (handles negatives; enum member values).
+string int_to_str(int n) {
+    if (n == 0) { return "0"; }
+    int neg = 0;
+    if (n < 0) { neg = 1; n = 0 - n; }
+    *uint8 tmp = alloc<uint8>(16);
+    int len = 0;
+    while (n > 0) { tmp[len] = (uint8)(48 + (n % 10)); n = n / 10; len = len + 1; }
+    int total = len;
+    if (neg == 1) { total = total + 1; }
+    *uint8 buf = alloc<uint8>(total + 1);
+    int off = 0;
+    if (neg == 1) { buf[0] = 45; off = 1; }
+    int i = 0;
+    while (i < len) { buf[off + i] = tmp[len - 1 - i]; i = i + 1; }
+    buf[total] = 0;
+    return (string)buf;
+}
+
+// Parse a decimal or 0x-hex integer literal lexeme to an int (enum values).
+int str_to_int(string s) {
+    int i = 0;
+    int v = 0;
+    if (s[0] == 48 && (s[1] == 120 || s[1] == 88)) {       // "0x"
+        i = 2;
+        while (s[i] != 0) {
+            int c = (int)s[i];
+            int dgt = 0;
+            if (c >= 48 && c <= 57) { dgt = c - 48; }
+            else if (c >= 97 && c <= 102) { dgt = c - 87; }
+            else { dgt = c - 55; }
+            v = v * 16 + dgt;
+            i = i + 1;
+        }
+        return v;
+    }
+    while (s[i] != 0) { v = v * 10 + ((int)s[i] - 48); i = i + 1; }
+    return v;
+}
+
+// extern / intrinsic share the prototype shape: RetType name(params);
+*DeclNode parse_proto(Parser* p, int kind) {
+    *DeclNode d = alloc<DeclNode>(1);
+    d.kind = kind;
+    d.ret_type = parse_type(p);
+    d.name = tok_text(p.src, p_adv(p));
+    p_adv(p);                              // '('
+    parse_params(p, d);
+    p_adv(p);                              // ')'
+    p_adv(p);                              // ';'
+    return d;
+}
+
+*DeclNode parse_struct(Parser* p) {
+    *DeclNode d = alloc<DeclNode>(1);
+    d.kind = DK_STRUCT;
+    d.name = tok_text(p.src, p_adv(p));
+    p_adv(p);                              // '{'   (type params <T> + methods → S6)
+    List_init<Param>(&d.params, 4);
+    while (p_at(p) != RBRACE && p_at(p) != EOF_TOKEN) {
+        let pm: Param;
+        pm.ty = parse_type(p);
+        pm.name = tok_text(p.src, p_adv(p));
+        if (p_at(p) == COLON) { p_adv(p); p_adv(p); }   // bitfield ': width' (not printed)
+        p_adv(p);                          // ';'
+        List_push<Param>(&d.params, pm);
+    }
+    p_adv(p);                              // '}'
+    return d;
+}
+
+*DeclNode parse_union(Parser* p) {
+    *DeclNode d = alloc<DeclNode>(1);
+    d.kind = DK_UNION;
+    d.name = tok_text(p.src, p_adv(p));
+    p_adv(p);                              // '{'
+    List_init<Param>(&d.params, 4);
+    while (p_at(p) != RBRACE && p_at(p) != EOF_TOKEN) {
+        let pm: Param;
+        pm.ty = parse_type(p);
+        pm.name = tok_text(p.src, p_adv(p));
+        p_adv(p);                          // ';'
+        List_push<Param>(&d.params, pm);
+    }
+    p_adv(p);                              // '}'
+    return d;
+}
+
+*DeclNode parse_interface(Parser* p) {
+    *DeclNode d = alloc<DeclNode>(1);
+    d.kind = DK_INTERFACE;
+    d.name = tok_text(p.src, p_adv(p));
+    p_adv(p);                              // '{'
+    List_init<Param>(&d.params, 4);
+    while (p_at(p) != RBRACE && p_at(p) != EOF_TOKEN) {
+        let pm: Param;
+        pm.ty = parse_type(p);             // return type
+        pm.name = tok_text(p.src, p_adv(p));   // method name
+        p_adv(p);                          // '('
+        *DeclNode tmp = alloc<DeclNode>(1);
+        parse_params(p, tmp);              // consume params (printer shows "(...)")
+        p_adv(p);                          // ')'
+        p_adv(p);                          // ';'
+        List_push<Param>(&d.params, pm);
+    }
+    p_adv(p);                              // '}'
+    return d;
+}
+
+*DeclNode parse_enum(Parser* p) {
+    *DeclNode d = alloc<DeclNode>(1);
+    d.kind = DK_ENUM;
+    d.name = tok_text(p.src, p_adv(p));
+    p_adv(p);                              // '{'  (type params <T> → S6)
+    List_init<Param>(&d.params, 4);
+    int next = 0;
+    while (p_at(p) != RBRACE && p_at(p) != EOF_TOKEN) {
+        string mname = tok_text(p.src, p_adv(p));
+        int val = next;
+        if (p_at(p) == LPAREN) {           // ADT payload — consumed, not printed
+            p_adv(p);
+            if (p_at(p) != RPAREN) {
+                parse_type(p);
+                while (p_at(p) == COMMA) { p_adv(p); parse_type(p); }
+            }
+            p_adv(p);                      // ')'
+        } else if (p_at(p) == EQ) {        // explicit value
+            p_adv(p);
+            int neg = 0;
+            if (p_at(p) == MINUS) { p_adv(p); neg = 1; }
+            val = str_to_int(tok_text(p.src, p_adv(p)));
+            if (neg == 1) { val = 0 - val; }
+        }
+        let pm: Param;
+        pm.name = mname;
+        pm.ty = int_to_str(val);
+        List_push<Param>(&d.params, pm);
+        next = val + 1;
+        if (p_at(p) == COMMA) { p_adv(p); } else { break; }
+    }
+    p_adv(p);                              // '}'
+    return d;
+}
+
+*DeclNode parse_typealias(Parser* p) {
+    p_adv(p);                              // 'type'
+    *DeclNode d = alloc<DeclNode>(1);
+    d.kind = DK_TYPEALIAS;
+    d.name = tok_text(p.src, p_adv(p));    // alias name
+    p_adv(p);                              // '='
+    d.ret_type = parse_type(p);
+    p_adv(p);                              // ';'
+    return d;
+}
+
+// Top-level declaration dispatch (mirrors parseDeclaration). Top-level globals are
+// not yet handled — the fallback assumes a function (the common case).
+*DeclNode parse_decl_top(Parser* p) {
+    int t = p_at(p);
+    if (t == EXTERN) { p_adv(p); return parse_proto(p, DK_EXTERN); }
+    if (t == INTRINSIC) { p_adv(p); return parse_proto(p, DK_INTRINSIC); }
+    if (t == ASYNC) { p_adv(p); return parse_function(p); }      // async modifier (not printed)
+    if (t == STRUCT) { p_adv(p); return parse_struct(p); }
+    if (t == PACKED) { p_adv(p); p_adv(p); return parse_struct(p); }   // 'packed' 'struct'
+    if (t == UNION) { p_adv(p); return parse_union(p); }
+    if (t == INTERFACE) { p_adv(p); return parse_interface(p); }
+    if (t == ENUM) { p_adv(p); return parse_enum(p); }
+    if (t == IDENT) {                      // contextual `type Alias = ...;`
+        Token cur = p_peek(p);
+        if (lexeme_eq(p.src, cur.start, cur.len, "type") == 1
+            && p_peek2(p).type == IDENT && p_peek_k(p, 2).type == EQ) {
+            return parse_typealias(p);
+        }
+    }
+    return parse_function(p);
+}
+
 *Program parse_program(Parser* p) {
     *Program prog = alloc<Program>(1);
     List_init<*DeclNode>(&prog.decls, 4);
     while (p_at(p) != EOF_TOKEN) {
-        List_push<*DeclNode>(&prog.decls, parse_function(p));
+        List_push<*DeclNode>(&prog.decls, parse_decl_top(p));
     }
     return prog;
 }

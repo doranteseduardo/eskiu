@@ -9,7 +9,10 @@ import <mem>;
 import <list>;
 
 // Node kind tags (mirror the C++ node set; extended as slices land).
-enum DeclKind { DK_FUNCTION }
+enum DeclKind {
+    DK_FUNCTION, DK_EXTERN, DK_INTRINSIC, DK_STRUCT, DK_UNION,
+    DK_INTERFACE, DK_ENUM, DK_TYPEALIAS
+}
 enum StmtKind {
     SK_BLOCK, SK_RETURN, SK_IF, SK_WHILE, SK_FOR, SK_FORIN,
     SK_BREAK, SK_CONTINUE, SK_EXPR, SK_VARDECL,
@@ -336,21 +339,85 @@ void print_stmt(*StmtNode s, int d) {
     }
 }
 
+// Print each entry of dn.params as `<ty> <name>` at depth d (function/extern
+// parameters, struct/union fields).
+void print_params(*DeclNode dn, int d) {
+    int i = 0;
+    int n = List_len<Param>(&dn.params);
+    while (i < n) {
+        Param pm = List_get<Param>(&dn.params, i);
+        pind(d);
+        printf("%s %s\n", pm.ty, pm.name);
+        i = i + 1;
+    }
+}
+
 void print_decl(*DeclNode dn, int d) {
     if (dn.kind == DK_FUNCTION) {
         pind(d);
         printf("FunctionDecl: %s -> %s\n", dn.name, dn.ret_type);
         pline(d + 1, "Parameters:");
+        print_params(dn, d + 2);
+        pline(d + 1, "Body:");
+        print_stmt(dn.body, d + 2);
+        return;
+    }
+    if (dn.kind == DK_EXTERN) {
+        pind(d);
+        printf("ExternDecl: %s -> %s\n", dn.name, dn.ret_type);
+        pline(d + 1, "Parameters:");
+        print_params(dn, d + 2);
+        return;
+    }
+    if (dn.kind == DK_INTRINSIC) {
+        pind(d);
+        printf("IntrinsicDecl: %s -> %s\n", dn.name, dn.ret_type);
+        pline(d + 1, "Parameters:");
+        print_params(dn, d + 2);
+        return;
+    }
+    if (dn.kind == DK_STRUCT) {
+        pind(d);
+        printf("StructDecl: %s\n", dn.name);
+        pline(d + 1, "Fields:");
+        print_params(dn, d + 2);
+        return;
+    }
+    if (dn.kind == DK_UNION) {
+        pind(d);
+        printf("UnionDecl: %s\n", dn.name);
+        print_params(dn, d + 1);
+        return;
+    }
+    if (dn.kind == DK_INTERFACE) {
+        pind(d);
+        printf("InterfaceDecl: %s\n", dn.name);
         int i = 0;
         int n = List_len<Param>(&dn.params);
         while (i < n) {
             Param pm = List_get<Param>(&dn.params, i);
-            pind(d + 2);
-            printf("%s %s\n", pm.ty, pm.name);
+            pind(d + 1);
+            printf("%s %s(...)\n", pm.ty, pm.name);
             i = i + 1;
         }
-        pline(d + 1, "Body:");
-        print_stmt(dn.body, d + 2);
+        return;
+    }
+    if (dn.kind == DK_ENUM) {
+        pind(d);
+        printf("EnumDecl: %s\n", dn.name);
+        int i = 0;
+        int n = List_len<Param>(&dn.params);
+        while (i < n) {
+            Param pm = List_get<Param>(&dn.params, i);
+            pind(d + 1);
+            printf("%s = %s\n", pm.name, pm.ty);     // name = value
+            i = i + 1;
+        }
+        return;
+    }
+    if (dn.kind == DK_TYPEALIAS) {
+        pind(d);
+        printf("TypeAlias: %s = %s\n", dn.name, dn.ret_type);
         return;
     }
 }
