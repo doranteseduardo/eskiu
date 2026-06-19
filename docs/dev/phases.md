@@ -201,9 +201,9 @@ plus a few generics extensions.
 - LLVM C API bindings via `extern`
 - [x] Lexer rewritten in Eskiu — byte-identical to `--test-lexer` over the whole
   preprocessor-free corpus (114/114), gated in CI (`selfhost/`)
-- [~] Parser rewritten in Eskiu — in progress (`selfhost/parser.esk`): expressions
-  done (de-risk + full precedence chain + postfix + casts + literals), parity-gated
-  vs `--test-parser`; statements/declarations/templates next
+- [x] Parser rewritten in Eskiu (`selfhost/parser.esk`) — the full grammar
+  (expressions, statements, declarations, templates/generics, lambdas/async),
+  byte-identical to `--test-parser` over the import-free corpus (42/42), CI-gated
 
 ### v1.0 — Production-ready
 
