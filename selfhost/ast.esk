@@ -13,7 +13,8 @@ enum DeclKind { DK_FUNCTION }
 enum StmtKind { SK_BLOCK, SK_RETURN }
 enum ExprKind {
     EK_LITERAL, EK_IDENT, EK_BINARY, EK_UNARY,
-    EK_CALL, EK_INDEX, EK_MEMBER, EK_QUESTION, EK_CAST, EK_SIZEOF
+    EK_CALL, EK_INDEX, EK_MEMBER, EK_QUESTION, EK_CAST, EK_SIZEOF,
+    EK_STRUCTINIT, EK_TEMPLATECALL
 }
 
 // Literal kinds, in the C++ LiteralExpr::Kind order; lit_name maps to the
@@ -25,10 +26,11 @@ struct Param { string ty; string name; }
 struct ExprNode {
     int kind;
     int lit_kind;          // for EK_LITERAL
-    string sval;           // literal text / operator / name / member
+    string sval;           // literal text / operator / name / member / struct or template sig
     *ExprNode a;
     *ExprNode b;
-    List<*ExprNode> kids;
+    List<*ExprNode> kids;  // call/template args, struct-init values
+    List<string> names;    // struct-init field names (parallel to kids; "" = positional)
 }
 
 struct StmtNode {
@@ -136,6 +138,33 @@ void print_expr(*ExprNode e, int d) {
     if (e.kind == EK_SIZEOF) {
         pind(d);
         printf("SizeofExpr: sizeof(%s)\n", e.sval);
+        return;
+    }
+    if (e.kind == EK_STRUCTINIT) {
+        pind(d);
+        printf("StructInitExpr: %s\n", e.sval);
+        int i = 0;
+        int n = List_len<*ExprNode>(&e.kids);
+        while (i < n) {
+            string nm = List_get<string>(&e.names, i);
+            if (nm[0] != 0) {                 // named field
+                pind(d + 1);
+                printf(".%s:\n", nm);
+            }
+            print_expr(List_get<*ExprNode>(&e.kids, i), d + 2);
+            i = i + 1;
+        }
+        return;
+    }
+    if (e.kind == EK_TEMPLATECALL) {
+        pind(d);
+        printf("TemplateCallExpr: %s\n", e.sval);
+        int i = 0;
+        int n = List_len<*ExprNode>(&e.kids);
+        while (i < n) {
+            print_expr(List_get<*ExprNode>(&e.kids, i), d + 1);
+            i = i + 1;
+        }
         return;
     }
 }
