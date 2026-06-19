@@ -8,6 +8,7 @@
 //     literals INT/FLOAT/BOOL/NULL + identifiers. (String/char literal values and
 //     postfix call/index/member/cast arrive in S2.)
 
+import <fs>;
 import "lexer.esk";
 import "ast.esk";
 
@@ -17,7 +18,18 @@ struct Parser {
     *uint8 src;
     int pending_gt;        // a `>>` being consumed as two `>` (template close)
     int no_struct_lit;     // suppress `Name { ... }` struct literals (match subject)
-    List<string> type_names;   // declared type names → enables `(Foo)x` casts
+    string basedir;        // directory of this file (relative imports resolve here)
+}
+
+// Session state shared across every file parsed in one run (mirrors the C++ parser's
+// shared `importedFiles` + `sharedTypeNames`). Globals — `parser_session_init` sets
+// them up once before parsing; a fresh process per parity test resets them.
+List<string> g_imported;       // resolved import paths already parsed (dedup)
+List<string> g_typenames;      // declared type names → enables `(Foo)x` casts
+
+void parser_session_init() {
+    List_init<string>(&g_imported, 16);
+    List_init<string>(&g_typenames, 64);
 }
 
 void p_init(Parser* p, *uint8 src, int len) {
@@ -25,7 +37,7 @@ void p_init(Parser* p, *uint8 src, int len) {
     p.pos = 0;
     p.pending_gt = 0;
     p.no_struct_lit = 0;
-    List_init<string>(&p.type_names, 16);
+    p.basedir = ".";
     List_init<Token>(&p.toks, 256);
     let lx: Lexer;
     lx.src = src; lx.len = len; lx.pos = 0; lx.line = 1; lx.col = 1;
@@ -89,6 +101,7 @@ string parse_type(Parser* p);
 *StmtNode parse_block(Parser* p);
 *StmtNode parse_block_item(Parser* p);
 *StmtNode try_var_decl(Parser* p);
+void parse_into(Parser* p, *Program prog);
 
 // Lexeme of a token as an owned NUL-terminated string (heap copy of source bytes).
 string tok_text(*uint8 src, Token t) {
@@ -127,15 +140,35 @@ int str_eq(string a, string b) {
     return 0;
 }
 
+int str_has_char(string s, int c) {
+    int i = 0;
+    while (s[i] != 0) { if ((int)s[i] == c) { return 1; } i = i + 1; }
+    return 0;
+}
+
+// Directory portion of a path (everything before the last '/'), or "." if none.
+string str_dir(string s) {
+    int n = cstr_len(s);
+    int last = 0 - 1;
+    int i = 0;
+    while (i < n) { if ((int)s[i] == 47) { last = i; } i = i + 1; }   // 47 = '/'
+    if (last < 0) { return "."; }
+    *uint8 buf = alloc<uint8>(last + 1);
+    int j = 0;
+    while (j < last) { buf[j] = (uint8)s[j]; j = j + 1; }
+    buf[last] = 0;
+    return (string)buf;
+}
+
 void register_type(Parser* p, string name) {
-    List_push<string>(&p.type_names, name);
+    List_push<string>(&g_typenames, name);     // shared across all imported files
 }
 
 int is_known_type(Parser* p, string name) {
     int i = 0;
-    int n = List_len<string>(&p.type_names);
+    int n = List_len<string>(&g_typenames);
     while (i < n) {
-        if (str_eq(List_get<string>(&p.type_names, i), name) == 1) { return 1; }
+        if (str_eq(List_get<string>(&g_typenames, i), name) == 1) { return 1; }
         i = i + 1;
     }
     return 0;
@@ -1327,12 +1360,69 @@ int str_to_int(string s) {
     return parse_decl_fallback(p);
 }
 
+// Resolve and recursively parse an `import`, appending the imported file's decls to
+// `prog` at this position (mirrors parser.cpp: dedup via g_imported, stdlib `<name>`
+// → stdlib/name.esk, relative `"path"` → basedir/path). The caller has already
+// consumed the IMPORT keyword; `p` is positioned at the path token.
+void do_import(Parser* p, *Program prog) {
+    string path = "";
+    int is_std = 0;
+    if (p_at(p) == STRING_LIT) {
+        path = tok_str_value(p.src, p_peek(p));
+        p_adv(p);
+    } else if (p_at(p) == LT) {
+        p_adv(p);
+        string name = "";
+        while (p_at(p) != GT && p_at(p) != EOF_TOKEN) {
+            name = str_concat(name, tok_text(p.src, p_adv(p)));
+        }
+        if (p_at(p) == GT) { p_adv(p); }
+        if (str_has_char(name, 47) == 0) {       // bare name → stdlib/<name>.esk
+            name = str_concat("stdlib/", str_concat(name, ".esk"));
+        }
+        path = name;
+        is_std = 1;
+    } else {
+        return;                                  // malformed; valid corpus won't hit this
+    }
+    if (p_at(p) == SEMICOLON) { p_adv(p); }
+
+    // Resolve full path: stdlib relative to cwd, otherwise relative to this file's dir.
+    string full;
+    if (is_std == 1) { full = path; }
+    else if ((int)path[0] != 47) { full = str_concat(p.basedir, str_concat("/", path)); }
+    else { full = path; }
+
+    int i = 0;                                   // dedup — parse each file once
+    int seen = List_len<string>(&g_imported);
+    while (i < seen) {
+        if (str_eq(List_get<string>(&g_imported, i), full) == 1) { return; }
+        i = i + 1;
+    }
+    List_push<string>(&g_imported, full);
+
+    let bytes: int64 = 0;
+    *uint8 isrc = fs_read_all(full, &bytes);
+    if (isrc == null) { return; }                // unreadable import — skip (C++ errors)
+    let sub: Parser;
+    p_init(&sub, isrc, (int)bytes);
+    sub.basedir = str_dir(full);
+    parse_into(&sub, prog);
+}
+
+// Parse top-level items from `p` into an existing program (used both for the entry
+// file and recursively for each import, so imported decls land in declaration order).
+void parse_into(Parser* p, *Program prog) {
+    while (p_at(p) != EOF_TOKEN) {
+        if (p_at(p) == PRAGMA) { p_adv(p); }            // #pragma — state-only, no decl
+        else if (p_at(p) == IMPORT) { p_adv(p); do_import(p, prog); }
+        else { List_push<*DeclNode>(&prog.decls, parse_decl_top(p)); }
+    }
+}
+
 *Program parse_program(Parser* p) {
     *Program prog = alloc<Program>(1);
     List_init<*DeclNode>(&prog.decls, 4);
-    while (p_at(p) != EOF_TOKEN) {
-        if (p_at(p) == PRAGMA) { p_adv(p); }     // #pragma — state-only, emits no decl
-        else { List_push<*DeclNode>(&prog.decls, parse_decl_top(p)); }
-    }
+    parse_into(p, prog);
     return prog;
 }

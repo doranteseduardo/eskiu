@@ -24,6 +24,13 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   (42/42 real `tests/*.esk` + synthetic). Gate `tests/selfhost/parse_parity.sh`
   (`--full`) is **wired into CI**. Dogfood/tooling; the production compiler is
   untouched. (v0.2.5 shipped this milestone in progress; it is now finished.)
+- **Self-hosted parser follows `import`.** It now resolves and recursively parses
+  imports — `<name>` → `stdlib/name.esk`, relative `"path"` against the importing
+  file's directory — merging the imported decls in declaration order, with dedup and
+  shared type-name registration across files (mirroring the C++ parser). Parity now
+  covers every `tests/*.esk` whose **transitive import closure** is preprocessor-free
+  (corpus 43 → 50); files whose closure touches the preprocessor stay excluded until
+  the preprocessor is self-hosted. The harness computes the closure to gate inclusion.
 
 ---
 
