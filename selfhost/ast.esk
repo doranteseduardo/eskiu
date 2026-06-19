@@ -10,7 +10,10 @@ import <list>;
 
 // Node kind tags (mirror the C++ node set; extended as slices land).
 enum DeclKind { DK_FUNCTION }
-enum StmtKind { SK_BLOCK, SK_RETURN }
+enum StmtKind {
+    SK_BLOCK, SK_RETURN, SK_IF, SK_WHILE, SK_FOR, SK_FORIN,
+    SK_BREAK, SK_CONTINUE, SK_EXPR, SK_VARDECL
+}
 enum ExprKind {
     EK_LITERAL, EK_IDENT, EK_BINARY, EK_UNARY,
     EK_CALL, EK_INDEX, EK_MEMBER, EK_QUESTION, EK_CAST, EK_SIZEOF,
@@ -35,10 +38,13 @@ struct ExprNode {
 
 struct StmtNode {
     int kind;
-    *ExprNode expr;        // return value / expr-stmt / condition
-    *StmtNode s1;          // then / body
-    *StmtNode s2;          // else
+    *ExprNode expr;        // return value / expr-stmt / if|while cond / for cond / for-in iterable / var init
+    *ExprNode expr2;       // for step
+    *StmtNode s1;          // then / while|for-in body / for init
+    *StmtNode s2;          // else / for body
     List<*StmtNode> items; // block items
+    string name;           // var-decl name / for-in variable
+    string type;           // var-decl type
 }
 
 struct DeclNode {
@@ -183,6 +189,69 @@ void print_stmt(*StmtNode s, int d) {
     if (s.kind == SK_RETURN) {
         pline(d, "ReturnStmt");
         if (s.expr != null) { print_expr(s.expr, d + 1); }
+        return;
+    }
+    if (s.kind == SK_IF) {
+        pline(d, "IfStmt");
+        pline(d + 1, "Condition:");
+        print_expr(s.expr, d + 2);
+        pline(d + 1, "Then:");
+        print_stmt(s.s1, d + 2);
+        if (s.s2 != null) {
+            pline(d + 1, "Else:");
+            print_stmt(s.s2, d + 2);
+        }
+        return;
+    }
+    if (s.kind == SK_WHILE) {
+        pline(d, "WhileStmt");
+        pline(d + 1, "Condition:");
+        print_expr(s.expr, d + 2);
+        pline(d + 1, "Body:");
+        print_stmt(s.s1, d + 2);
+        return;
+    }
+    if (s.kind == SK_FOR) {
+        pline(d, "ForStmt");
+        if (s.s1 != null) {
+            pline(d + 1, "Init:");
+            print_stmt(s.s1, d + 2);
+        }
+        if (s.expr != null) {
+            pline(d + 1, "Condition:");
+            print_expr(s.expr, d + 2);
+        }
+        if (s.expr2 != null) {
+            pline(d + 1, "Step:");
+            print_expr(s.expr2, d + 2);
+        }
+        pline(d + 1, "Body:");
+        print_stmt(s.s2, d + 2);
+        return;
+    }
+    if (s.kind == SK_FORIN) {
+        pind(d);
+        printf("ForInStmt (%s in ...)\n", s.name);
+        pline(d + 1, "Iterable:");
+        print_expr(s.expr, d + 2);
+        pline(d + 1, "Body:");
+        print_stmt(s.s1, d + 2);
+        return;
+    }
+    if (s.kind == SK_BREAK) { pline(d, "BreakStmt"); return; }
+    if (s.kind == SK_CONTINUE) { pline(d, "ContinueStmt"); return; }
+    if (s.kind == SK_EXPR) {
+        pline(d, "ExprStmt");
+        print_expr(s.expr, d + 1);
+        return;
+    }
+    if (s.kind == SK_VARDECL) {
+        pind(d);
+        printf("VarDecl: %s: %s\n", s.name, s.type);
+        if (s.expr != null) {
+            pline(d + 1, "Initializer:");
+            print_expr(s.expr, d + 2);
+        }
         return;
     }
 }

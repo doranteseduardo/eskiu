@@ -1,0 +1,40 @@
+int vars() {
+    int x = 5;
+    let y: int = 10;
+    Point p;
+    *int q = null;
+    const int z = 1;
+    x = x + 1;
+    return x;
+}
+int control(int n) {
+    if (n > 0) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+int loops(int n) {
+    int s = 0;
+    for (int i = 0; i < n; i = i + 1) {
+        s = s + i;
+        if (s > 100) { break; }
+        continue;
+    }
+    while (s > 0) {
+        s = s - 1;
+    }
+    for (x in items) {
+        use(x);
+    }
+    for (i in 0..n) {
+        s = s + i;
+    }
+    return s;
+}
+int calls() {
+    foo();
+    obj.method(a, b);
+    arr[i] = compute(x) + 1;
+    return 0;
+}
