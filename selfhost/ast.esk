@@ -11,7 +11,7 @@ import <list>;
 // Node kind tags (mirror the C++ node set; extended as slices land).
 enum DeclKind {
     DK_FUNCTION, DK_EXTERN, DK_INTRINSIC, DK_STRUCT, DK_UNION,
-    DK_INTERFACE, DK_ENUM, DK_TYPEALIAS
+    DK_INTERFACE, DK_ENUM, DK_TYPEALIAS, DK_VARDECL
 }
 enum StmtKind {
     SK_BLOCK, SK_RETURN, SK_IF, SK_WHILE, SK_FOR, SK_FORIN,
@@ -57,9 +57,10 @@ struct StmtNode {
 struct DeclNode {
     int kind;
     string name;
-    string ret_type;
+    string ret_type;       // function return type / type-alias target / var-decl type
     *StmtNode body;
     List<Param> params;
+    *ExprNode init;        // top-level var-decl initializer
 }
 
 struct Program {
@@ -448,6 +449,15 @@ void print_decl(*DeclNode dn, int d) {
     if (dn.kind == DK_TYPEALIAS) {
         pind(d);
         printf("TypeAlias: %s = %s\n", dn.name, dn.ret_type);
+        return;
+    }
+    if (dn.kind == DK_VARDECL) {
+        pind(d);
+        printf("VarDecl: %s: %s\n", dn.name, dn.ret_type);
+        if (dn.init != null) {
+            pline(d + 1, "Initializer:");
+            print_expr(dn.init, d + 2);
+        }
         return;
     }
 }

@@ -691,20 +691,37 @@ string lambda_sig(string ret, *DeclNode d) {
     return b;
 }
 
-// finalizeVar's stored type: a binding-only leading `const ` is dropped into the
-// (un-printed) const flag, so the printed type omits it. (Pointee-const / *const
-// nuances are deferred.)
+// finalizeVar's stored type: drop binding-only const into the (un-printed) flag.
+// (1) `*const` -> `*` (a const *pointer*); (2) a leading `const ` -> dropped, but
+// only when the type is value-const (no `*` — pointee-const stays in the type).
 string strip_binding_const(string t) {
-    if (cstr_len(t) >= 6 && t[0] == 99 && t[1] == 111 && t[2] == 110
-        && t[3] == 115 && t[4] == 116 && t[5] == 32) {     // "const "
-        int n = cstr_len(t);
-        *uint8 buf = alloc<uint8>(n - 6 + 1);
-        int i = 6;
-        while (i < n) { buf[i - 6] = (uint8)t[i]; i = i + 1; }
-        buf[n - 6] = 0;
-        return (string)buf;
+    int n = cstr_len(t);
+    *uint8 buf = alloc<uint8>(n + 1);
+    int w = 0;
+    int i = 0;
+    while (i < n) {
+        if (t[i] == 42 && i + 5 < n && t[i+1] == 99 && t[i+2] == 111
+            && t[i+3] == 110 && t[i+4] == 115 && t[i+5] == 116) {   // "*const"
+            buf[w] = 42; w = w + 1;        // keep '*'
+            i = i + 6;                     // skip "*const"
+        } else {
+            buf[w] = (uint8)t[i]; w = w + 1; i = i + 1;
+        }
     }
-    return t;
+    buf[w] = 0;
+    // value-const leading strip, only if there is no pointer in the result.
+    int has_star = 0;
+    int k = 0;
+    while (k < w) { if (buf[k] == 42) { has_star = 1; } k = k + 1; }
+    if (has_star == 0 && w >= 6 && buf[0] == 99 && buf[1] == 111 && buf[2] == 110
+        && buf[3] == 115 && buf[4] == 116 && buf[5] == 32) {        // "const "
+        *uint8 b2 = alloc<uint8>(w - 6 + 1);
+        int j = 6;
+        while (j < w) { b2[j - 6] = buf[j]; j = j + 1; }
+        b2[w - 6] = 0;
+        return (string)b2;
+    }
+    return (string)buf;
 }
 
 *StmtNode parse_return(Parser* p) {
@@ -1247,9 +1264,47 @@ int str_to_int(string s) {
     return d;
 }
 
-// Top-level declaration dispatch (mirrors parseDeclaration). Top-level globals are
-// not yet handled — the fallback assumes a function (the common case). A declared
-// type name is registered so later `(Name)x` casts are recognized.
+*DeclNode mk_decl_var(string nm, string ty, *ExprNode init) {
+    *DeclNode d = alloc<DeclNode>(1);
+    d.kind = DK_VARDECL; d.name = nm; d.ret_type = ty; d.init = init;
+    return d;
+}
+
+// Fallback for a non-keyword top-level decl: a let/typed global var, or a function
+// (`Type name(` / `Type name<`). Mirrors parseDeclaration's tail.
+*DeclNode parse_decl_fallback(Parser* p) {
+    int save = p.pos;
+    if (p_at(p) == VOLATILE) { p_adv(p); }
+    if (p_at(p) == CONST) {
+        int k = 1;
+        if (p_peek_k(p, 1).type == VOLATILE) { k = 2; }
+        if (p_peek_k(p, k).type == LET) { p_adv(p); }
+    }
+    if (p_at(p) == VOLATILE) { p_adv(p); }
+    if (p_at(p) == LET) {
+        p_adv(p);
+        string nm = tok_text(p.src, p_adv(p));
+        p_adv(p);                          // ':'
+        string ty = strip_binding_const(parse_type(p));
+        *ExprNode init = null;
+        if (p_at(p) == EQ) { p_adv(p); init = parse_expr(p); }
+        p_adv(p);                          // ';'
+        return mk_decl_var(nm, ty, init);
+    }
+    string ty = strip_binding_const(parse_type(p));
+    Token nm = p_adv(p);                   // name
+    if (p_at(p) == LPAREN || p_at(p) == LT) {
+        p.pos = save;                      // it's a function — re-parse from the top
+        return parse_function(p);
+    }
+    *ExprNode init = null;
+    if (p_at(p) == EQ) { p_adv(p); init = parse_expr(p); }
+    p_adv(p);                              // ';'
+    return mk_decl_var(tok_text(p.src, nm), ty, init);
+}
+
+// Top-level declaration dispatch (mirrors parseDeclaration). A declared type name
+// is registered so later `(Name)x` casts are recognized.
 *DeclNode parse_decl_top(Parser* p) {
     int t = p_at(p);
     *DeclNode d;
@@ -1268,14 +1323,15 @@ int str_to_int(string s) {
             d = parse_typealias(p); register_type(p, d.name); return d;
         }
     }
-    return parse_function(p);
+    return parse_decl_fallback(p);
 }
 
 *Program parse_program(Parser* p) {
     *Program prog = alloc<Program>(1);
     List_init<*DeclNode>(&prog.decls, 4);
     while (p_at(p) != EOF_TOKEN) {
-        List_push<*DeclNode>(&prog.decls, parse_decl_top(p));
+        if (p_at(p) == PRAGMA) { p_adv(p); }     // #pragma — state-only, emits no decl
+        else { List_push<*DeclNode>(&prog.decls, parse_decl_top(p)); }
     }
     return prog;
 }

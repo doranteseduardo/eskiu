@@ -1,13 +1,28 @@
 # selfhost/ — Eskiu in Eskiu
 
-Self-hosting milestone 1: **the lexer, written in Eskiu**, validated for
-byte-identical parity against the production C++ lexer. This is dogfood/tooling,
-not part of the compiler build — the C++ pipeline is untouched.
+Self-hosting, written in Eskiu and validated for byte-identical parity against the
+production C++ tooling. Dogfood/tooling — not part of the compiler build; the C++
+pipeline is untouched.
+
+- **Milestone 1 — the lexer** (`tokens.esk` + `lexer.esk` + `lex_main.esk`):
+  byte-identical to `--test-lexer` over the whole preprocessor-free corpus.
+- **Milestone 2 — the parser** (`ast.esk` + `parser.esk` + `parse_main.esk`):
+  builds a recursive AST from the lexer's tokens and prints it byte-identical to
+  `--test-parser`. Covers the full grammar — expressions, statements, declarations,
+  templates/generics, lambdas/async. Parity over the import-free corpus
+  (`parse_parity.sh --full`); excludes files that `import` (the C++ parser follows
+  imports) or that the C++ `--test-parser` can't print (top-level prototypes crash
+  its printer — see NOTES.md).
 
 ## Files
 
 - `tokens.esk` — `TokenType` enum (mirrors `lexer/lexer.h` in exact order) + the
-  `Token` struct (lexeme by `[start, len)` offsets) + `token_name`.
+  `Token` struct (lexeme by `[start, len)` offsets) + `token_name` + escape decode.
+- `ast.esk` — AST node structs (tagged heap structs) + the `--test-parser`-format
+  printer (mirrors `ast/ast_printer.cpp`).
+- `parser.esk` — recursive-descent parser over the lexer's tokens (token buffer +
+  index, like the C++; backtracking for decl-vs-stmt and template `<`).
+- `parse_main.esk` — parser driver (reads `argv[1]`, prints the AST dump).
 - `lexer.esk` — the lexer: a `Lexer` cursor over the source bytes and `lx_next`,
   mirroring `lexer/lexer.cpp` (peek/advance, skip ws + comments, identifiers +
   keyword table, numbers, strings/chars, the operator switch).

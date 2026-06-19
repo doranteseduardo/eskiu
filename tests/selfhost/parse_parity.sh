@@ -62,10 +62,19 @@ fi
 
 fail=0
 total=0
+skipped=0
 for f in "${files[@]}"; do
     [ -f "$f" ] || { echo "MISS  $f (no such file)"; fail=1; continue; }
+    # The reference oracle itself must parse cleanly. The C++ ASTPrinter crashes on
+    # a body-less FunctionDecl (top-level prototype), so skip files where
+    # --test-parser doesn't reach "Parse succeeded!" — they can't be compared.
+    rawref=$("$BIN" --test-parser "$f" 2>/dev/null)
+    case "$rawref" in
+        *"Parse succeeded!"*) ;;
+        *) echo "skip  ${f#tests/}  (C++ --test-parser did not succeed)"; skipped=$((skipped + 1)); continue ;;
+    esac
     total=$((total + 1))
-    ref=$("$BIN" --test-parser "$f" 2>/dev/null | strip_banner)
+    ref=$(printf '%s' "$rawref" | strip_banner)
     got=$("$PBIN" "$f" 2>/dev/null)
     if [ "$ref" = "$got" ]; then
         echo "ok    $f"
