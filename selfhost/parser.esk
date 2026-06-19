@@ -1092,7 +1092,8 @@ void parse_params(Parser* p, *DeclNode d) {
     d.ret_type = rty;
     parse_params(p, d);                    // fills d.params, stops at ')'
     p_adv(p);                              // ')'
-    d.body = parse_block(p);
+    if (p_at(p) == LBRACE) { d.body = parse_block(p); }
+    else { d.body = null; p_adv(p); }      // forward declaration: ';' (no body)
     return d;
 }
 
