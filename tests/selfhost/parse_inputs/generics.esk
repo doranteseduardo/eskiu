@@ -1,0 +1,30 @@
+struct List<T> {
+    *T data;
+    int size;
+    int cap;
+}
+struct HashMap<K, V> {
+    *K keys;
+    *V vals;
+}
+enum Option<T> { None, Some(T) }
+enum Either<A, B> { Left(A), Right(B) }
+int max<T: Ord>(T a, T b) {
+    return a;
+}
+void multi<A, B: X + Y>(A a, B b) {
+    use(a);
+}
+struct Counter {
+    int n;
+    void inc() {
+        n = n + 1;
+    }
+    int get() {
+        return n;
+    }
+}
+int casts(Shape* s) {
+    Counter c = (Counter)s;
+    return (Option)c;
+}
