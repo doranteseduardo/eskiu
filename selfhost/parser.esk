@@ -17,6 +17,7 @@ struct Parser {
     *uint8 src;
     int pending_gt;        // a `>>` being consumed as two `>` (template close)
     int no_struct_lit;     // suppress `Name { ... }` struct literals (match subject)
+    List<string> type_names;   // declared type names → enables `(Foo)x` casts
 }
 
 void p_init(Parser* p, *uint8 src, int len) {
@@ -24,6 +25,7 @@ void p_init(Parser* p, *uint8 src, int len) {
     p.pos = 0;
     p.pending_gt = 0;
     p.no_struct_lit = 0;
+    List_init<string>(&p.type_names, 16);
     List_init<Token>(&p.toks, 256);
     let lx: Lexer;
     lx.src = src; lx.len = len; lx.pos = 0; lx.line = 1; lx.col = 1;
@@ -113,6 +115,30 @@ string str_concat(string a, string b) {
     while (j < lb) { buf[la + j] = (uint8)b[j]; j = j + 1; }
     buf[la + lb] = 0;
     return (string)buf;
+}
+
+int str_eq(string a, string b) {
+    int i = 0;
+    while (a[i] != 0 && b[i] != 0) {
+        if (a[i] != b[i]) { return 0; }
+        i = i + 1;
+    }
+    if (a[i] == b[i]) { return 1; }        // both reached NUL together
+    return 0;
+}
+
+void register_type(Parser* p, string name) {
+    List_push<string>(&p.type_names, name);
+}
+
+int is_known_type(Parser* p, string name) {
+    int i = 0;
+    int n = List_len<string>(&p.type_names);
+    while (i < n) {
+        if (str_eq(List_get<string>(&p.type_names, i), name) == 1) { return 1; }
+        i = i + 1;
+    }
+    return 0;
 }
 
 int is_type_kw(int t) {
@@ -474,11 +500,14 @@ int is_compound(int t) {
         p_adv(p);
         return mk_un(op_str(t), parse_unary(p));
     }
-    // Cast (TYPE) expr — only on a type keyword or '*'-led type (declared-name
-    // casts need the type-name registry; enabled with declarations in S5).
+    // Cast (TYPE) expr — on a type keyword, a '*'-led type, or a declared type name.
     if (t == LPAREN) {
-        int inner = p_peek2(p).type;
-        if (is_type_kw(inner) == 1 || inner == STAR) {
+        Token i2 = p_peek2(p);
+        int inner = i2.type;
+        int is_cast = 0;
+        if (is_type_kw(inner) == 1 || inner == STAR) { is_cast = 1; }
+        else if (inner == IDENT && is_known_type(p, tok_text(p.src, i2)) == 1) { is_cast = 1; }
+        if (is_cast == 1) {
             p_adv(p);                          // '('
             string cty = parse_type(p);
             p_adv(p);                          // ')'
@@ -929,6 +958,23 @@ string strip_binding_const(string t) {
 
 // ── Declarations ────────────────────────────────────────────────────────────
 
+// Consume a type-parameter list `<T, U: Iface + B>` if present (fn/struct/enum).
+// The AST printer doesn't emit type params, so we just skip them.
+void skip_type_params(Parser* p) {
+    if (p_at(p) != LT) { return; }
+    p_adv(p);                              // '<'
+    while (1 == 1) {
+        p_adv(p);                          // type-param name
+        if (p_at(p) == COLON) {            // constraints `: A + B`
+            p_adv(p);
+            p_adv(p);                      // first constraint
+            while (p_at(p) == PLUS) { p_adv(p); p_adv(p); }
+        }
+        if (p_at(p) == COMMA) { p_adv(p); } else { break; }
+    }
+    consume_tclose(p);                     // '>' (or split '>>')
+}
+
 // Parameter list (mirror parseParameterList): `[escaping] Type name`, comma-
 // separated, or a trailing `...` variadic. Fills d.params; leaves p at ')'.
 void parse_params(Parser* p, *DeclNode d) {
@@ -955,6 +1001,7 @@ void parse_params(Parser* p, *DeclNode d) {
 *DeclNode parse_function(Parser* p) {
     string rty = parse_type(p);            // return type (may be *T, List<T>, …)
     Token nm = p_adv(p);                   // function name
+    skip_type_params(p);                   // optional <T, U: Iface>
     p_adv(p);                              // '('
     *DeclNode d = alloc<DeclNode>(1);
     d.kind = DK_FUNCTION;
@@ -1023,15 +1070,27 @@ int str_to_int(string s) {
     *DeclNode d = alloc<DeclNode>(1);
     d.kind = DK_STRUCT;
     d.name = tok_text(p.src, p_adv(p));
-    p_adv(p);                              // '{'   (type params <T> + methods → S6)
+    skip_type_params(p);                   // optional <T, E: Iface>
+    p_adv(p);                              // '{'
     List_init<Param>(&d.params, 4);
     while (p_at(p) != RBRACE && p_at(p) != EOF_TOKEN) {
-        let pm: Param;
-        pm.ty = parse_type(p);
-        pm.name = tok_text(p.src, p_adv(p));
-        if (p_at(p) == COLON) { p_adv(p); p_adv(p); }   // bitfield ': width' (not printed)
-        p_adv(p);                          // ';'
-        List_push<Param>(&d.params, pm);
+        string mty = parse_type(p);
+        Token mnm = p_adv(p);              // member name
+        if (p_at(p) == LPAREN) {
+            // Method — consume params + body; the printer ignores struct methods.
+            p_adv(p);                      // '('
+            *DeclNode tmp = alloc<DeclNode>(1);
+            parse_params(p, tmp);
+            p_adv(p);                      // ')'
+            if (p_at(p) == LBRACE) { parse_block(p); } else { p_adv(p); }
+        } else {
+            if (p_at(p) == COLON) { p_adv(p); p_adv(p); }   // bitfield ': width' (not printed)
+            p_adv(p);                      // ';'
+            let pm: Param;
+            pm.ty = mty;
+            pm.name = tok_text(p.src, mnm);
+            List_push<Param>(&d.params, pm);
+        }
     }
     p_adv(p);                              // '}'
     return d;
@@ -1079,7 +1138,8 @@ int str_to_int(string s) {
     *DeclNode d = alloc<DeclNode>(1);
     d.kind = DK_ENUM;
     d.name = tok_text(p.src, p_adv(p));
-    p_adv(p);                              // '{'  (type params <T> → S6)
+    skip_type_params(p);                   // optional <T> (generic ADT)
+    p_adv(p);                              // '{'
     List_init<Param>(&d.params, 4);
     int next = 0;
     while (p_at(p) != RBRACE && p_at(p) != EOF_TOKEN) {
@@ -1122,22 +1182,24 @@ int str_to_int(string s) {
 }
 
 // Top-level declaration dispatch (mirrors parseDeclaration). Top-level globals are
-// not yet handled — the fallback assumes a function (the common case).
+// not yet handled — the fallback assumes a function (the common case). A declared
+// type name is registered so later `(Name)x` casts are recognized.
 *DeclNode parse_decl_top(Parser* p) {
     int t = p_at(p);
+    *DeclNode d;
     if (t == EXTERN) { p_adv(p); return parse_proto(p, DK_EXTERN); }
     if (t == INTRINSIC) { p_adv(p); return parse_proto(p, DK_INTRINSIC); }
     if (t == ASYNC) { p_adv(p); return parse_function(p); }      // async modifier (not printed)
-    if (t == STRUCT) { p_adv(p); return parse_struct(p); }
-    if (t == PACKED) { p_adv(p); p_adv(p); return parse_struct(p); }   // 'packed' 'struct'
-    if (t == UNION) { p_adv(p); return parse_union(p); }
-    if (t == INTERFACE) { p_adv(p); return parse_interface(p); }
-    if (t == ENUM) { p_adv(p); return parse_enum(p); }
+    if (t == STRUCT) { p_adv(p); d = parse_struct(p); register_type(p, d.name); return d; }
+    if (t == PACKED) { p_adv(p); p_adv(p); d = parse_struct(p); register_type(p, d.name); return d; }
+    if (t == UNION) { p_adv(p); d = parse_union(p); register_type(p, d.name); return d; }
+    if (t == INTERFACE) { p_adv(p); d = parse_interface(p); register_type(p, d.name); return d; }
+    if (t == ENUM) { p_adv(p); d = parse_enum(p); register_type(p, d.name); return d; }
     if (t == IDENT) {                      // contextual `type Alias = ...;`
         Token cur = p_peek(p);
         if (lexeme_eq(p.src, cur.start, cur.len, "type") == 1
             && p_peek2(p).type == IDENT && p_peek_k(p, 2).type == EQ) {
-            return parse_typealias(p);
+            d = parse_typealias(p); register_type(p, d.name); return d;
         }
     }
     return parse_function(p);
