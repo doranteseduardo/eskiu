@@ -15,11 +15,15 @@ struct Parser {
     List<Token> toks;
     int pos;
     *uint8 src;
+    int pending_gt;        // a `>>` being consumed as two `>` (template close)
+    int no_struct_lit;     // suppress `Name { ... }` struct literals (match subject)
 }
 
 void p_init(Parser* p, *uint8 src, int len) {
     p.src = src;
     p.pos = 0;
+    p.pending_gt = 0;
+    p.no_struct_lit = 0;
     List_init<Token>(&p.toks, 256);
     let lx: Lexer;
     lx.src = src; lx.len = len; lx.pos = 0; lx.line = 1; lx.col = 1;
@@ -52,11 +56,26 @@ Token p_adv(Parser* p) {
     return t;
 }
 
+// Template close: a single `>` (GT) or one `>` of a `>>` (RSHIFT, split in place
+// via pending_gt — the token list isn't mutable, so we model the second `>`).
+int at_tclose(Parser* p) {
+    if (p.pending_gt > 0) { return 1; }
+    int t = p_at(p);
+    if (t == GT || t == RSHIFT) { return 1; }
+    return 0;
+}
+void consume_tclose(Parser* p) {
+    if (p.pending_gt > 0) { p.pending_gt = 0; p_adv(p); return; }   // 2nd `>` of `>>`
+    if (p_at(p) == RSHIFT) { p.pending_gt = 1; return; }            // 1st `>` of `>>`
+    p_adv(p);                                                        // a lone `>`
+}
+
 // Forward declarations (mutually-recursive descent).
 *ExprNode parse_assignment(Parser* p);
 *ExprNode parse_expr(Parser* p);
 *ExprNode parse_postfix(Parser* p);
 string parse_type(Parser* p);
+*ExprNode parse_struct_init(Parser* p, string name);
 
 // Lexeme of a token as an owned NUL-terminated string (heap copy of source bytes).
 string tok_text(*uint8 src, Token t) {
@@ -178,6 +197,20 @@ string parse_type(Parser* p) {
     Token base_tok = p_adv(p);             // type keyword or named type (IDENT)
     string ty = tok_text(p.src, base_tok);
 
+    // Template instantiation: Name<TypeArg, ...>
+    if (base_tok.type == IDENT && p_at(p) == LT) {
+        p_adv(p);                          // '<'
+        ty = str_concat(ty, "<");
+        ty = str_concat(ty, parse_type(p));
+        while (p_at(p) == COMMA) {
+            p_adv(p);
+            ty = str_concat(ty, ",");
+            ty = str_concat(ty, parse_type(p));
+        }
+        consume_tclose(p);
+        ty = str_concat(ty, ">");
+    }
+
     while (p_at(p) == STAR) {
         p_adv(p); ty = str_concat(ty, "*");
         if (p_at(p) == CONST) { p_adv(p); ty = str_concat(ty, "const"); }
@@ -275,6 +308,31 @@ int is_compound(int t) {
     return e;
 }
 
+// Struct literal: Name { field: expr, ... } or Name { expr, ... } (positional).
+// `name` already parsed (may carry a <...> template suffix). At '{'.
+*ExprNode parse_struct_init(Parser* p, string name) {
+    p_adv(p);                              // '{'
+    *ExprNode e = alloc<ExprNode>(1);
+    e.kind = EK_STRUCTINIT; e.sval = name;
+    List_init<*ExprNode>(&e.kids, 4);
+    List_init<string>(&e.names, 4);
+    if (p_at(p) != RBRACE) {
+        while (1 == 1) {
+            if (p_at(p) == IDENT && p_peek2(p).type == COLON) {
+                Token nm = p_adv(p);       // field name  (NB: not `fn` — reserved keyword)
+                p_adv(p);                  // ':'
+                List_push<string>(&e.names, tok_text(p.src, nm));
+            } else {
+                List_push<string>(&e.names, "");
+            }
+            List_push<*ExprNode>(&e.kids, parse_expr(p));
+            if (p_at(p) == COMMA) { p_adv(p); } else { break; }
+        }
+    }
+    p_adv(p);                              // '}'
+    return e;
+}
+
 *ExprNode parse_primary(Parser* p) {
     int t = p_at(p);
     if (t == TRUE)  { p_adv(p); return mk_lit(LIT_BOOL, "true"); }
@@ -301,7 +359,13 @@ int is_compound(int t) {
         e.kind = EK_SIZEOF; e.sval = ty;
         return e;
     }
-    if (t == IDENT)  { Token tok = p_adv(p); return mk_ident(tok_text(p.src, tok)); }
+    if (t == IDENT) {
+        Token tok = p_adv(p);
+        if (p_at(p) == LBRACE && p.no_struct_lit == 0) {   // Name { ... } struct literal
+            return parse_struct_init(p, tok_text(p.src, tok));
+        }
+        return mk_ident(tok_text(p.src, tok));
+    }
     if (t == LPAREN) {
         p_adv(p);
         *ExprNode e = parse_assignment(p);
@@ -311,11 +375,48 @@ int is_compound(int t) {
     return null;
 }
 
-// Postfix chain: call (args), index [e], member .m, error-propagation ?.
-// (Template call Name<...>(args) and struct-init Name{...} arrive in S2b.)
+// Postfix chain: template call Name<...>(args), template struct-init Name<...>{...},
+// call (args), index [e], member .m, error-propagation ?.
 *ExprNode parse_postfix(Parser* p) {
     *ExprNode e = parse_primary(p);
     while (1 == 1) {
+        // Template call / template struct literal: ident '<' types '>' ( '(' | '{' ).
+        // Speculative — restore on failure so a bare `<` is left for comparison.
+        if (e.kind == EK_IDENT && p_at(p) == LT) {
+            int save_pos = p.pos;
+            int save_gt = p.pending_gt;
+            p_adv(p);                          // '<'
+            string sig = str_concat(e.sval, "<");
+            sig = str_concat(sig, parse_type(p));
+            while (p_at(p) == COMMA) {
+                p_adv(p);
+                sig = str_concat(sig, ",");
+                sig = str_concat(sig, parse_type(p));
+            }
+            int matched = 0;
+            if (at_tclose(p) == 1) {
+                consume_tclose(p);
+                sig = str_concat(sig, ">");
+                if (p_at(p) == LPAREN) {
+                    p_adv(p);
+                    *ExprNode tc = alloc<ExprNode>(1);
+                    tc.kind = EK_TEMPLATECALL; tc.sval = sig;
+                    List_init<*ExprNode>(&tc.kids, 4);
+                    if (p_at(p) != RPAREN) {
+                        List_push<*ExprNode>(&tc.kids, parse_expr(p));
+                        while (p_at(p) == COMMA) { p_adv(p); List_push<*ExprNode>(&tc.kids, parse_expr(p)); }
+                    }
+                    p_adv(p);                  // ')'
+                    e = tc; matched = 1;
+                } else if (p_at(p) == LBRACE) {
+                    e = parse_struct_init(p, sig);   // Name<...> { ... }
+                    matched = 1;
+                }
+            }
+            if (matched == 1) { continue; }
+            p.pos = save_pos;                  // not a template — back out
+            p.pending_gt = save_gt;
+        }
         int t = p_at(p);
         if (t == LPAREN) {
             p_adv(p);

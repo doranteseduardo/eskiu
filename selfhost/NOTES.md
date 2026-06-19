@@ -44,3 +44,9 @@ generator for backslash-newline in comments/strings.
 - Nested conditionals: prefer `else if`, flat `if`+`return` (see `keyword_type`), or
   an accumulator over deeply nested `else { if ... }` — all parse fine; the earlier
   "parse failure" was the comment bug above, not the syntax.
+- **Misleading diagnostic for a keyword used as an identifier.** Naming a local `fn`
+  (`Token fn = ...;`) — `fn` is the reserved function-type keyword — fails to parse
+  with `Error parsing declaration: Expected ';'`, which points nowhere near the real
+  problem. (Cost an hour bisecting in S2b before realizing `fn` was the culprit, not
+  a compiler bug.) A clearer message would be `expected a name, found keyword 'fn'`.
+  Worth improving in the C++ parser; not a correctness bug.
