@@ -55,3 +55,10 @@ jobs:
       # the C++ lexer it mirrors) changed.
       - name: Lexer self-host parity
         run: tests/selfhost/lex_parity.sh --full
+
+      # Self-hosted parser (selfhost/parser.esk) must produce an AST dump byte-
+      # identical to the C++ --test-parser over the import-free corpus. Compiles
+      # the driver once; ~seconds. Excludes files that import or that the C++
+      # --test-parser itself can't print (top-level prototypes crash its printer).
+      - name: Parser self-host parity
+        run: tests/selfhost/parse_parity.sh --full

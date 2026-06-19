@@ -3,8 +3,10 @@ async int worker(int id) {
     return r;
 }
 int higher() {
-    int(int x) sq = int(int x) { return x * x; };
     return apply(int(int a, int b) { return a + b; }, 2, 3);
+}
+int retlam() {
+    return run(int(int x) { return x * x; });
 }
 *int allocs(Arena* ar) {
     *int p = alloc_with(&ar, int, 16);
