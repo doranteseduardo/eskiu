@@ -10,23 +10,8 @@ import <io>;
 import <fs>;
 import "lexer.esk";
 
-// Escape decode, mirroring read_string's switch (n,t,r,\,"; default = the char).
-int decode_str_escape(int e) {
-    if (e == 110) { return 10; }     // \n
-    if (e == 116) { return 9; }      // \t
-    if (e == 114) { return 13; }     // \r
-    if (e == 92) { return 92; }      // \\
-    if (e == 34) { return 34; }      // \"
-    return e;
-}
-
-// read_char's switch is narrower: only n,t,\ ; default = the char (so '\r' = 'r').
-int decode_chr_escape(int e) {
-    if (e == 110) { return 10; }     // newline
-    if (e == 116) { return 9; }      // tab
-    if (e == 92) { return 92; }      // backslash
-    return e;
-}
+// decode_str_escape / decode_chr_escape now live in tokens.esk (shared with the
+// parser), reached transitively via lexer.esk.
 
 // Print a token's value exactly as the C++ lexer stores it: STRING_LIT/CHAR_LIT
 // are decoded (escapes applied, surrounding quotes dropped); everything else is

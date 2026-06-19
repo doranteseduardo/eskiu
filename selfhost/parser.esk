@@ -111,23 +111,9 @@ int is_type_kw(int t) {
     return 0;
 }
 
-// String/char literal decoding (mirrors read_string / read_char — the C++ stores
-// the decoded value, quotes stripped, in LiteralExpr.value).
-int decode_str_escape(int e) {
-    if (e == 110) { return 10; }
-    if (e == 116) { return 9; }
-    if (e == 114) { return 13; }
-    if (e == 92) { return 92; }
-    if (e == 34) { return 34; }
-    return e;
-}
-int decode_chr_escape(int e) {
-    if (e == 110) { return 10; }
-    if (e == 116) { return 9; }
-    if (e == 92) { return 92; }
-    return e;
-}
-
+// String/char literal value (decoded, quotes stripped — the C++ stores the decoded
+// value in LiteralExpr.value). The byte-level escape decode (decode_str_escape /
+// decode_chr_escape) is shared from tokens.esk.
 string tok_str_value(*uint8 src, Token t) {
     *uint8 buf = alloc<uint8>(t.len + 1);
     int off = 0;
