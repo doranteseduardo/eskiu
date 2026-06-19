@@ -389,8 +389,10 @@ void print_decl(*DeclNode dn, int d) {
         printf("FunctionDecl: %s -> %s\n", dn.name, dn.ret_type);
         pline(d + 1, "Parameters:");
         print_params(dn, d + 2);
-        pline(d + 1, "Body:");
-        print_stmt(dn.body, d + 2);
+        if (dn.body != null) {             // forward declaration → no Body section
+            pline(d + 1, "Body:");
+            print_stmt(dn.body, d + 2);
+        }
         return;
     }
     if (dn.kind == DK_EXTERN) {

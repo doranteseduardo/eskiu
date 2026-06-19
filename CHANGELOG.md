@@ -9,6 +9,13 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ## [Unreleased]
 
+### Fixed
+- **`--test-parser` no longer crashes on a forward-declared function.** The AST
+  printer dereferenced a null `FunctionDecl::body` (a prototype like `int f(int);`),
+  segfaulting `eskiuc --test-parser`. It now omits the `Body:` section for a
+  body-less function (as `ReturnStmt` already does for a null value). Found
+  dogfooding the self-hosted parser. Affected only the debug printer, not codegen.
+
 ### Added
 - **Self-hosting milestone 2 complete: the parser, in Eskiu.** The self-hosted
   parser (`selfhost/{ast,parser,parse_main}.esk`) now covers the full grammar —

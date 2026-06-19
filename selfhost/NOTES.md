@@ -39,17 +39,17 @@ Regression test: `tests/comment_backslash_continuation.esk`. Suite 265/0, golden
 fuzzer never hit because it doesn't generate trailing-`\` comments. Worth a fuzzer
 generator for backslash-newline in comments/strings.
 
-## Found: `--test-parser` crashes on a body-less FunctionDecl  ⚠️ tooling
+## Resolved: `--test-parser` crashed on a body-less FunctionDecl  ✅ tooling
 
-`ASTPrinter::visit(FunctionDecl*)` (ast/ast_printer.cpp) does `node->body->accept(this)`
-with no null check, so a **top-level function prototype** (`int helper(int n);` —
-forward declaration, `body == nullptr`) segfaults `eskiuc --test-parser` (SIGSEGV,
-exit 139). Hit while running the self-hosted parser's parity over the real corpus
-(`tests/forward_decl.esk`). The parity harness now skips files where the C++ oracle
-doesn't reach "Parse succeeded!", so the milestone isn't blocked — but the printer
-should guard the null body (`if (node->body) …`, like ReturnStmt already does). Not
-a correctness bug in the compiler proper (codegen handles prototypes fine); only the
-debug printer.
+`ASTPrinter::visit(FunctionDecl*)` (ast/ast_printer.cpp) dereferenced a null
+`node->body`, so a **top-level function prototype** (`int helper(int n);`, forward
+declaration) segfaulted `eskiuc --test-parser` (SIGSEGV). Found dogfooding the
+self-hosted parser over the real corpus (`tests/forward_decl.esk`). **Fixed:** the
+printer now omits the `Body:` section when `body` is null (as `ReturnStmt` already
+does for a null value); the self-hosted parser + printer handle prototypes the same
+way, so `forward_decl.esk` is back in the parity corpus (43/43). The harness still
+skips any file the C++ oracle can't print, as a guard. Codegen was never affected —
+only the debug printer.
 
 ## Minor ergonomics (not bugs)
 

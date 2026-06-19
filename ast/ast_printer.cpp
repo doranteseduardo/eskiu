@@ -38,10 +38,14 @@ void ASTPrinter::visit(FunctionDecl* node) {
     }
     indentLevel--;
 
-    println("Body:");
-    indentLevel++;
-    node->body->accept(this);
-    indentLevel--;
+    // A forward declaration (prototype) has no body — omit the section rather than
+    // dereferencing a null body (cf. ReturnStmt skipping a null value).
+    if (node->body) {
+        println("Body:");
+        indentLevel++;
+        node->body->accept(this);
+        indentLevel--;
+    }
 
     indentLevel--;
 }
