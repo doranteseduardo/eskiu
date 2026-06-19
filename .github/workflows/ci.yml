@@ -62,3 +62,10 @@ jobs:
       # --test-parser itself can't print (top-level prototypes crash its printer).
       - name: Parser self-host parity
         run: tests/selfhost/parse_parity.sh --full
+
+      # Self-hosted preprocessor (selfhost/preprocessor.esk) validated through the
+      # lexer: pp_main preprocesses + lexes and must match the C++ --test-lexer
+      # (which preprocesses too) over the whole tests/ + stdlib/ corpus — no
+      # exclusions, since every directive is now handled. Compiles once; ~seconds.
+      - name: Preprocessor self-host parity
+        run: tests/selfhost/pp_parity.sh --full

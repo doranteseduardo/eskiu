@@ -17,6 +17,18 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   dogfooding the self-hosted parser. Affected only the debug printer, not codegen.
 
 ### Added
+- **Self-hosting milestone 3: the preprocessor, in Eskiu.** `selfhost/preprocessor.esk`
+  ports `lexer/preprocessor.cpp` — object- and function-like `#define`/`#undef`,
+  `#ifdef`/`#ifndef`/`#else`/`#endif` conditionals, `#pragma` passthrough, `#error`,
+  backslash line splicing, recursive identifier-aware macro expansion, and the
+  predefined `__FILE__`/`__LINE__`. Validated **through the lexer** (`pp_main`
+  preprocesses + lexes; gate `tests/selfhost/pp_parity.sh`): byte-identical to the
+  C++ `--test-lexer` over the whole `tests/` + `stdlib/` corpus (156/156, no
+  exclusions) — clean and directive-using files alike. **Wired into CI.** Tooling;
+  the production compiler is untouched.
+- **`List_set` / `List_remove`** in `<list>` — set an element by index, and remove
+  one (shifting the tail). Surfaced by the preprocessor's macro table (redefine =
+  set, `#undef` = remove); generally useful.
 - **Self-hosting milestone 2 complete: the parser, in Eskiu.** The self-hosted
   parser (`selfhost/{ast,parser,parse_main}.esk`) now covers the full grammar —
   expressions, statements, declarations, templates/generics, lambdas/async — and is

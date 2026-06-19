@@ -1,0 +1,4 @@
+#define INNER 5
+#define OUTER (INNER + INNER)
+#define LIMIT (OUTER + 1)
+int x = LIMIT;

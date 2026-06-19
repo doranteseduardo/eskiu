@@ -203,7 +203,14 @@ plus a few generics extensions.
   preprocessor-free corpus (114/114), gated in CI (`selfhost/`)
 - [x] Parser rewritten in Eskiu (`selfhost/parser.esk`) — the full grammar
   (expressions, statements, declarations, templates/generics, lambdas/async),
-  byte-identical to `--test-parser` over the import-free corpus (42/42), CI-gated
+  byte-identical to `--test-parser`; **follows `import`** (resolves `<stdlib>` +
+  relative paths recursively, merges decls) → corpus parity 50/50 over files with a
+  preprocessor-free import closure, CI-gated
+- [x] Preprocessor rewritten in Eskiu (`selfhost/preprocessor.esk`) — `#define`/
+  `#undef` (object + function), `#ifdef`/`#ifndef`/`#else`/`#endif`, `#pragma`,
+  `#error`, line splicing, recursive expansion, `__FILE__`/`__LINE__`. Validated
+  through the lexer: byte-identical to `--test-lexer` over the whole `tests/` +
+  `stdlib/` corpus (156/156, no exclusions), CI-gated
 
 ### v1.0 — Production-ready
 
