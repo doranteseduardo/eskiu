@@ -747,16 +747,157 @@ string strip_binding_const(string t) {
     return null;
 }
 
+*StmtNode parse_switch(Parser* p) {
+    p_adv(p);                              // 'switch'
+    p_adv(p);                              // '('
+    *StmtNode s = alloc<StmtNode>(1);
+    s.kind = SK_SWITCH;
+    s.expr = parse_expr(p);                // subject
+    p_adv(p);                              // ')'
+    p_adv(p);                              // '{'
+    List_init<*StmtNode>(&s.items, 4);
+    while (p_at(p) != RBRACE && p_at(p) != EOF_TOKEN) {
+        *StmtNode c = alloc<StmtNode>(1);
+        c.kind = SK_CASE;
+        c.expr = null;
+        if (p_at(p) == CASE) { p_adv(p); c.expr = parse_expr(p); p_adv(p); }   // 'case' val ':'
+        else if (p_at(p) == DEFAULT) { p_adv(p); p_adv(p); }                   // 'default' ':'
+        else { break; }
+        List_init<*StmtNode>(&c.items, 4);
+        while (p_at(p) != CASE && p_at(p) != DEFAULT && p_at(p) != RBRACE && p_at(p) != EOF_TOKEN) {
+            List_push<*StmtNode>(&c.items, parse_stmt(p));
+        }
+        List_push<*StmtNode>(&s.items, c);
+    }
+    p_adv(p);                              // '}'
+    return s;
+}
+
+*StmtNode parse_match(Parser* p) {
+    p_adv(p);                              // 'match'
+    int saved = p.no_struct_lit;
+    p.no_struct_lit = 1;                   // subject `Name { ... }` is the match body, not a literal
+    *ExprNode subj = parse_expr(p);
+    p.no_struct_lit = saved;
+    p_adv(p);                              // '{'
+    *StmtNode s = alloc<StmtNode>(1);
+    s.kind = SK_MATCH; s.expr = subj;
+    List_init<*StmtNode>(&s.items, 4);
+    while (p_at(p) != RBRACE && p_at(p) != EOF_TOKEN) {
+        Token cur = p_peek(p);
+        string label;
+        if (p_at(p) == IDENT && cur.len == 1 && (int)p.src[cur.start] == 95) {
+            label = "_"; p_adv(p);         // default arm
+        } else {
+            label = tok_text(p.src, p_adv(p));        // variant name
+            if (p_at(p) == LPAREN) {                  // payload bindings
+                p_adv(p);
+                label = str_concat(label, "(");
+                if (p_at(p) != RPAREN) {
+                    label = str_concat(label, tok_text(p.src, p_adv(p)));
+                    while (p_at(p) == COMMA) {
+                        p_adv(p);
+                        label = str_concat(label, ", ");
+                        label = str_concat(label, tok_text(p.src, p_adv(p)));
+                    }
+                }
+                p_adv(p);                  // ')'
+                label = str_concat(label, ")");
+            }
+        }
+        p_adv(p);                          // '->'
+        *StmtNode arm = alloc<StmtNode>(1);
+        arm.kind = SK_ARM; arm.name = label; arm.s1 = parse_stmt(p);
+        List_push<*StmtNode>(&s.items, arm);
+    }
+    p_adv(p);                              // '}'
+    return s;
+}
+
+*StmtNode parse_try(Parser* p) {
+    p_adv(p);                              // 'try'
+    *StmtNode s = alloc<StmtNode>(1);
+    s.kind = SK_TRY;
+    s.s2 = null;                           // finally (optional)
+    s.s1 = parse_block(p);                 // body
+    List_init<*StmtNode>(&s.items, 2);
+    while (p_at(p) == CATCH) {
+        p_adv(p);                          // 'catch'
+        p_adv(p);                          // '('
+        string cty = parse_type(p);
+        string cnm = tok_text(p.src, p_adv(p));   // exception variable name
+        p_adv(p);                          // ')'
+        *StmtNode cat = alloc<StmtNode>(1);
+        cat.kind = SK_CATCH;
+        cat.name = str_concat(str_concat(cty, " "), cnm);
+        cat.s1 = parse_block(p);
+        List_push<*StmtNode>(&s.items, cat);
+    }
+    if (p_at(p) == FINALLY) { p_adv(p); s.s2 = parse_block(p); }
+    return s;
+}
+
+*StmtNode parse_asm(Parser* p) {
+    p_adv(p);                              // 'asm'
+    p_adv(p);                              // '('
+    *StmtNode s = alloc<StmtNode>(1);
+    s.kind = SK_ASM;
+    s.name = tok_str_value(p.src, p_adv(p));   // the asm string (decoded)
+    List_init<*StmtNode>(&s.items, 2);
+    if (p_at(p) == COLON) {                // outputs (skipped) : inputs : clobbers
+        p_adv(p);
+        if (p_at(p) == COLON) {
+            p_adv(p);
+            while (p_at(p) != RPAREN && p_at(p) != COLON && p_at(p) != EOF_TOKEN) {
+                Token ct = p_adv(p);       // constraint string
+                p_adv(p);                  // '('
+                *StmtNode inp = alloc<StmtNode>(1);
+                inp.kind = SK_ASMINPUT;
+                inp.name = tok_str_value(p.src, ct);
+                inp.expr = parse_expr(p);
+                p_adv(p);                  // ')'
+                List_push<*StmtNode>(&s.items, inp);
+                if (p_at(p) == COMMA) { p_adv(p); } else { break; }
+            }
+            if (p_at(p) == COLON) {        // clobbers (skipped)
+                p_adv(p);
+                while (p_at(p) != RPAREN && p_at(p) != EOF_TOKEN) {
+                    p_adv(p);
+                    if (p_at(p) == COMMA) { p_adv(p); } else { break; }
+                }
+            }
+        }
+    }
+    p_adv(p);                              // ')'
+    p_adv(p);                              // ';'
+    return s;
+}
+
 *StmtNode parse_stmt(Parser* p) {
     int t = p_at(p);
     if (t == LBRACE) { return parse_block(p); }
     if (t == IF) { return parse_if(p); }
     if (t == FOR) { return parse_for(p); }
     if (t == WHILE) { return parse_while(p); }
+    if (t == SWITCH) { return parse_switch(p); }
+    if (t == MATCH) { return parse_match(p); }
+    if (t == TRY) { return parse_try(p); }
+    if (t == ASM) { return parse_asm(p); }
     if (t == RETURN) { return parse_return(p); }
     if (t == BREAK) { p_adv(p); p_adv(p); return mk_simple(SK_BREAK); }
     if (t == CONTINUE) { p_adv(p); p_adv(p); return mk_simple(SK_CONTINUE); }
-    // switch/match/try/throw/asm/thread arrive in S4.
+    if (t == THROW) {
+        p_adv(p);
+        *StmtNode s = alloc<StmtNode>(1); s.kind = SK_THROW; s.expr = parse_expr(p);
+        p_adv(p);                          // ';'
+        return s;
+    }
+    if (t == THREAD_JOIN) {
+        p_adv(p); p_adv(p);                // 'thread_join' '('
+        *StmtNode s = alloc<StmtNode>(1); s.kind = SK_THREADJOIN; s.expr = parse_expr(p);
+        p_adv(p); p_adv(p);                // ')' ';'
+        return s;
+    }
     return parse_expr_stmt(p);
 }
 

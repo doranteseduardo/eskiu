@@ -1,0 +1,38 @@
+int sw(int n) {
+    switch (n) {
+        case 0:
+            return 1;
+        case 1:
+            foo();
+            break;
+        default:
+            return 9;
+    }
+    return 0;
+}
+int mt(Option x) {
+    match x {
+        Some(v) -> return v;
+        Pair(a, b) -> return a + b;
+        None -> return 0;
+        _ -> return -1;
+    }
+}
+int exc() {
+    try {
+        risky();
+    } catch (Error e) {
+        handle(e);
+    } catch (Other o) {
+        log(o);
+    } finally {
+        cleanup();
+    }
+    throw boom();
+}
+void thr(int tid) {
+    thread_join(tid);
+    asm("nop");
+    asm("mov %0, x" : : "r"(y));
+    return;
+}

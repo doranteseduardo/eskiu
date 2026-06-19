@@ -12,7 +12,9 @@ import <list>;
 enum DeclKind { DK_FUNCTION }
 enum StmtKind {
     SK_BLOCK, SK_RETURN, SK_IF, SK_WHILE, SK_FOR, SK_FORIN,
-    SK_BREAK, SK_CONTINUE, SK_EXPR, SK_VARDECL
+    SK_BREAK, SK_CONTINUE, SK_EXPR, SK_VARDECL,
+    SK_SWITCH, SK_CASE, SK_MATCH, SK_ARM, SK_TRY, SK_CATCH,
+    SK_THROW, SK_THREADJOIN, SK_ASM, SK_ASMINPUT
 }
 enum ExprKind {
     EK_LITERAL, EK_IDENT, EK_BINARY, EK_UNARY,
@@ -251,6 +253,84 @@ void print_stmt(*StmtNode s, int d) {
         if (s.expr != null) {
             pline(d + 1, "Initializer:");
             print_expr(s.expr, d + 2);
+        }
+        return;
+    }
+    if (s.kind == SK_SWITCH) {
+        pline(d, "SwitchStmt");
+        pline(d + 1, "Subject:");
+        print_expr(s.expr, d + 2);
+        int i = 0;
+        int n = List_len<*StmtNode>(&s.items);
+        while (i < n) { print_stmt(List_get<*StmtNode>(&s.items, i), d + 1); i = i + 1; }
+        return;
+    }
+    if (s.kind == SK_CASE) {
+        if (s.expr != null) {
+            pline(d, "Case:");
+            print_expr(s.expr, d + 1);
+        } else {
+            pline(d, "Default:");
+        }
+        int i = 0;
+        int n = List_len<*StmtNode>(&s.items);
+        while (i < n) { print_stmt(List_get<*StmtNode>(&s.items, i), d + 1); i = i + 1; }
+        return;
+    }
+    if (s.kind == SK_MATCH) {
+        pline(d, "MatchStmt");
+        pline(d + 1, "Subject:");
+        print_expr(s.expr, d + 2);
+        int i = 0;
+        int n = List_len<*StmtNode>(&s.items);
+        while (i < n) { print_stmt(List_get<*StmtNode>(&s.items, i), d + 1); i = i + 1; }
+        return;
+    }
+    if (s.kind == SK_ARM) {
+        pind(d);
+        printf("Arm %s:\n", s.name);
+        print_stmt(s.s1, d + 1);
+        return;
+    }
+    if (s.kind == SK_TRY) {
+        pline(d, "TryStmt");
+        print_stmt(s.s1, d + 1);
+        int i = 0;
+        int n = List_len<*StmtNode>(&s.items);
+        while (i < n) { print_stmt(List_get<*StmtNode>(&s.items, i), d + 1); i = i + 1; }
+        if (s.s2 != null) {
+            pline(d + 1, "Finally");
+            print_stmt(s.s2, d + 2);
+        }
+        return;
+    }
+    if (s.kind == SK_CATCH) {
+        pind(d);
+        printf("CatchClause: %s\n", s.name);
+        print_stmt(s.s1, d + 1);
+        return;
+    }
+    if (s.kind == SK_THROW) {
+        pline(d, "ThrowStmt");
+        if (s.expr != null) { print_expr(s.expr, d + 1); }
+        return;
+    }
+    if (s.kind == SK_THREADJOIN) {
+        pline(d, "ThreadJoinStmt");
+        print_expr(s.expr, d + 1);
+        return;
+    }
+    if (s.kind == SK_ASM) {
+        pind(d);
+        printf("AsmStmt: asm(\"%s\")\n", s.name);
+        int n = List_len<*StmtNode>(&s.items);
+        int i = 0;
+        while (i < n) {
+            *StmtNode inp = List_get<*StmtNode>(&s.items, i);
+            pind(d + 1);
+            printf("input: \"%s\"\n", inp.name);
+            print_expr(inp.expr, d + 2);
+            i = i + 1;
         }
         return;
     }
