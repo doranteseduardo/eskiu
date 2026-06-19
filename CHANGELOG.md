@@ -7,6 +7,19 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
+## [Unreleased]
+
+### Added
+- **Self-hosting milestone 2 complete: the parser, in Eskiu.** The self-hosted
+  parser (`selfhost/{ast,parser,parse_main}.esk`) now covers the full grammar —
+  expressions, statements, declarations, templates/generics, lambdas/async — and is
+  byte-identical to the C++ `--test-parser` AST dump over the import-free corpus
+  (42/42 real `tests/*.esk` + synthetic). Gate `tests/selfhost/parse_parity.sh`
+  (`--full`) is **wired into CI**. Dogfood/tooling; the production compiler is
+  untouched. (v0.2.5 shipped this milestone in progress; it is now finished.)
+
+---
+
 ## [0.2.5] — 2026-06-17
 
 ### Added
