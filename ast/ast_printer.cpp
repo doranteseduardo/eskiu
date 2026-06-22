@@ -96,6 +96,13 @@ void ASTPrinter::visit(StructDecl* node) {
     }
     indentLevel--;
 
+    if (!node->methods.empty()) {
+        println("Methods:");
+        indentLevel++;
+        for (auto& m : node->methods) m->accept(this);
+        indentLevel--;
+    }
+
     indentLevel--;
 }
 
@@ -517,8 +524,18 @@ void ASTPrinter::visit(EnumDecl* node) {
     println("EnumDecl: " + node->name);
     indentLevel++;
     printTypeParams(node->typeParams, {});   // EnumDecl has no constraints field
-    for (const auto& m : node->members)
-        println(m.first + " = " + std::to_string(m.second));
+    for (size_t i = 0; i < node->members.size(); ++i) {
+        std::string line = node->members[i].first + " = " + std::to_string(node->members[i].second);
+        if (i < node->payloads.size() && !node->payloads[i].empty()) {
+            line += "(";
+            for (size_t j = 0; j < node->payloads[i].size(); ++j) {
+                if (j) line += ", ";
+                line += node->payloads[i][j];
+            }
+            line += ")";
+        }
+        println(line);
+    }
     indentLevel--;
 }
 

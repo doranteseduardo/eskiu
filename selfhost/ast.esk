@@ -69,6 +69,8 @@ struct DeclNode {
     List<Param> params;
     *ExprNode init;        // top-level var-decl initializer
     List<TypeParam> type_params;   // generic <T, U: Iface> on fn/struct/enum (else empty)
+    List<*DeclNode> methods;       // struct methods (each a FunctionDecl; else empty)
+    List<List<string>> payloads;   // enum ADT payload types per member (parallel to params)
 }
 
 struct Program {
@@ -450,6 +452,15 @@ void print_decl(*DeclNode dn, int d) {
         print_type_params(dn, d + 1);
         pline(d + 1, "Fields:");
         print_params(dn, d + 2);
+        int mn = List_len<*DeclNode>(&dn.methods);
+        if (mn > 0) {
+            pline(d + 1, "Methods:");
+            int mi = 0;
+            while (mi < mn) {
+                print_decl(List_get<*DeclNode>(&dn.methods, mi), d + 2);
+                mi = mi + 1;
+            }
+        }
         return;
     }
     if (dn.kind == DK_UNION) {
@@ -480,7 +491,20 @@ void print_decl(*DeclNode dn, int d) {
         while (i < n) {
             Param pm = List_get<Param>(&dn.params, i);
             pind(d + 1);
-            printf("%s = %s\n", pm.name, pm.ty);     // name = value
+            printf("%s = %s", pm.name, pm.ty);       // name = value
+            List<string> pl = List_get<List<string>>(&dn.payloads, i);
+            int pn = List_len<string>(&pl);
+            if (pn > 0) {                            // ADT variant payload: (t1, t2)
+                printf("(");
+                int j = 0;
+                while (j < pn) {
+                    if (j > 0) { printf(", "); }
+                    printf("%s", List_get<string>(&pl, j));
+                    j = j + 1;
+                }
+                printf(")");
+            }
+            printf("\n");
             i = i + 1;
         }
         return;
