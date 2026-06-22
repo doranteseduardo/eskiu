@@ -361,8 +361,15 @@ void ASTPrinter::visit(IdentExpr* node) {
 void ASTPrinter::visit(InterfaceDecl* node) {
     println("InterfaceDecl: " + node->name);
     indentLevel++;
-    for (const auto& m : node->methods)
-        println(m.returnType + " " + m.name + "(...)");
+    for (const auto& m : node->methods) {
+        std::string sig = m.returnType + " " + m.name + "(";
+        for (size_t i = 0; i < m.params.size(); ++i) {
+            if (i) sig += ", ";
+            sig += m.params[i].first;
+        }
+        sig += ")";
+        println(sig);
+    }
     indentLevel--;
 }
 
