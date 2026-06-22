@@ -27,10 +27,32 @@ void ASTPrinter::visit(Program* node) {
     indentLevel--;
 }
 
+void ASTPrinter::printTypeParams(const std::vector<std::string>& typeParams,
+                                 const std::map<std::string, std::vector<std::string>>& constraints) {
+    if (typeParams.empty()) return;
+    println("TypeParams:");
+    indentLevel++;
+    for (const auto& tp : typeParams) {
+        auto it = constraints.find(tp);
+        if (it != constraints.end() && !it->second.empty()) {
+            std::string s = tp + ": ";
+            for (size_t i = 0; i < it->second.size(); ++i) {
+                if (i) s += " + ";
+                s += it->second[i];
+            }
+            println(s);
+        } else {
+            println(tp);
+        }
+    }
+    indentLevel--;
+}
+
 void ASTPrinter::visit(FunctionDecl* node) {
     println("FunctionDecl: " + node->name + " -> " + node->returnType);
     indentLevel++;
 
+    printTypeParams(node->typeParams, node->constraints);
     println("Parameters:");
     indentLevel++;
     for (auto& param : node->params) {
@@ -66,6 +88,7 @@ void ASTPrinter::visit(StructDecl* node) {
     println("StructDecl: " + node->name);
     indentLevel++;
 
+    printTypeParams(node->typeParams, node->constraints);
     println("Fields:");
     indentLevel++;
     for (auto& field : node->fields) {
@@ -493,6 +516,7 @@ void ASTPrinter::visit(UnionDecl* node) {
 void ASTPrinter::visit(EnumDecl* node) {
     println("EnumDecl: " + node->name);
     indentLevel++;
+    printTypeParams(node->typeParams, {});   // EnumDecl has no constraints field
     for (const auto& m : node->members)
         println(m.first + " = " + std::to_string(m.second));
     indentLevel--;

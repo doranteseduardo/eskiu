@@ -54,6 +54,13 @@ struct StmtNode {
     string type;           // var-decl type
 }
 
+// A generic type parameter with its (possibly empty) interface constraints, e.g.
+// `T: Ord + Eq` → { name "T", constraints ["Ord","Eq"] }. Captured for sema.
+struct TypeParam {
+    string name;
+    List<string> constraints;
+}
+
 struct DeclNode {
     int kind;
     string name;
@@ -61,6 +68,7 @@ struct DeclNode {
     *StmtNode body;
     List<Param> params;
     *ExprNode init;        // top-level var-decl initializer
+    List<TypeParam> type_params;   // generic <T, U: Iface> on fn/struct/enum (else empty)
 }
 
 struct Program {
@@ -383,10 +391,37 @@ void print_params(*DeclNode dn, int d) {
     }
 }
 
+// Print the `TypeParams:` section (only when the decl has generic params), each as
+// `T` or `T: A + B`. Mirrors ASTPrinter::printTypeParams in ast/ast_printer.cpp.
+void print_type_params(*DeclNode dn, int d) {
+    int n = List_len<TypeParam>(&dn.type_params);
+    if (n == 0) { return; }
+    pline(d, "TypeParams:");
+    int i = 0;
+    while (i < n) {
+        TypeParam tp = List_get<TypeParam>(&dn.type_params, i);
+        pind(d + 1);
+        printf("%s", tp.name);
+        int cn = List_len<string>(&tp.constraints);
+        if (cn > 0) {
+            printf(": ");
+            int j = 0;
+            while (j < cn) {
+                if (j > 0) { printf(" + "); }
+                printf("%s", List_get<string>(&tp.constraints, j));
+                j = j + 1;
+            }
+        }
+        printf("\n");
+        i = i + 1;
+    }
+}
+
 void print_decl(*DeclNode dn, int d) {
     if (dn.kind == DK_FUNCTION) {
         pind(d);
         printf("FunctionDecl: %s -> %s\n", dn.name, dn.ret_type);
+        print_type_params(dn, d + 1);
         pline(d + 1, "Parameters:");
         print_params(dn, d + 2);
         if (dn.body != null) {             // forward declaration → no Body section
@@ -412,6 +447,7 @@ void print_decl(*DeclNode dn, int d) {
     if (dn.kind == DK_STRUCT) {
         pind(d);
         printf("StructDecl: %s\n", dn.name);
+        print_type_params(dn, d + 1);
         pline(d + 1, "Fields:");
         print_params(dn, d + 2);
         return;
@@ -438,6 +474,7 @@ void print_decl(*DeclNode dn, int d) {
     if (dn.kind == DK_ENUM) {
         pind(d);
         printf("EnumDecl: %s\n", dn.name);
+        print_type_params(dn, d + 1);
         int i = 0;
         int n = List_len<Param>(&dn.params);
         while (i < n) {
