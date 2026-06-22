@@ -72,6 +72,11 @@ enough that a non-trivial text-processing pass ports without compiler surprises.
 - Nested conditionals: prefer `else if`, flat `if`+`return` (see `keyword_type`), or
   an accumulator over deeply nested `else { if ... }` — all parse fine; the earlier
   "parse failure" was the comment bug above, not the syntax.
+- **The `fn` footgun, third strike (Phase B S0).** Named a parameter `*DeclNode fn`
+  in `sema_check_fn` — `fn` is reserved, so the param list failed with `Expected
+  parameter name` and later uses gave `Expected expression, got FN`. Renamed to `f`.
+  This recurs often enough that improving the C++ parser's diagnostic (suggest "keyword
+  used as a name") would pay for itself.
 - **The `fn`-as-identifier footgun bit again (Phase A).** Writing the bitfield field
   loop I named a counter `int fn = List_len(...)` — `fn` is reserved, so `eskiuc`
   rejected the self-hosted source with `Expected expression, got INT`, which points
