@@ -608,6 +608,170 @@
         }
       }
 
+      /* ── Try it (playground) ──────────────────────────────────────── */
+      .try {
+        background: var(--white);
+        border-top: 1px solid var(--border);
+        border-bottom: 1px solid var(--border);
+      }
+      .try-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 1.25rem;
+        margin-top: 2.5rem;
+        align-items: stretch;
+      }
+      @media (min-width: 880px) {
+        .try-grid {
+          grid-template-columns: 1.15fr 0.85fr;
+          gap: 1.5rem;
+        }
+      }
+      .pg-panel {
+        background: var(--code);
+        border: 1px solid var(--code-bd);
+        border-radius: 10px;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+        min-height: 340px;
+      }
+      .pg-bar {
+        background: #252035;
+        border-bottom: 1px solid var(--code-bd);
+        padding: 0.5rem 0.85rem;
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+      }
+      .pg-bar .d {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+      }
+      .pg-bar .nm {
+        margin-left: auto;
+        font-family: var(--mono);
+        font-size: 0.65rem;
+        color: #6b6480;
+      }
+      .pg-editor {
+        flex: 1;
+        width: 100%;
+        border: none;
+        outline: none;
+        resize: vertical;
+        background: var(--code);
+        color: #d6dbe6;
+        font-family: var(--mono);
+        font-size: 0.76rem;
+        line-height: 1.85;
+        padding: 1rem 1.25rem;
+        tab-size: 4;
+        white-space: pre;
+        overflow-wrap: normal;
+        overflow-x: auto;
+        min-height: 280px;
+      }
+      .pg-editor::selection {
+        background: rgba(120, 100, 200, 0.4);
+      }
+      .pg-out {
+        flex: 1;
+        margin: 0;
+        padding: 1rem 1.25rem;
+        font-family: var(--mono);
+        font-size: 0.76rem;
+        line-height: 1.85;
+        color: #b4bccc;
+        overflow: auto;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      .pg-out .ok {
+        color: #c3e88d;
+      }
+      .pg-out .err {
+        color: #ff8a80;
+      }
+      .pg-out .meta {
+        color: #6b6480;
+      }
+      .pg-out .hint {
+        color: #6b6480;
+      }
+      .pg-controls {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        flex-wrap: wrap;
+        margin-top: 1.1rem;
+      }
+      .pg-run {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        background: var(--purple);
+        color: #fff;
+        font-family: var(--sans);
+        font-weight: 700;
+        border: none;
+        padding: 0.6rem 1.3rem;
+        border-radius: 7px;
+        font-size: 0.88rem;
+        cursor: pointer;
+        transition: background 0.12s;
+      }
+      .pg-run:hover:not(:disabled) {
+        background: var(--purple-lt);
+      }
+      .pg-run:disabled {
+        opacity: 0.6;
+        cursor: progress;
+      }
+      .pg-examples {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        flex-wrap: wrap;
+        margin-left: auto;
+      }
+      .pg-ex {
+        background: var(--white);
+        border: 1px solid var(--border);
+        color: var(--ink2);
+        font-family: var(--mono);
+        font-size: 0.74rem;
+        font-weight: 600;
+        padding: 0.35rem 0.7rem;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: all 0.12s;
+      }
+      .pg-ex:hover {
+        border-color: var(--purple);
+        color: var(--purple);
+      }
+      .pg-note {
+        font-size: 0.78rem;
+        color: var(--muted);
+        margin-top: 1rem;
+      }
+      .spin {
+        width: 13px;
+        height: 13px;
+        border: 2px solid rgba(255, 255, 255, 0.4);
+        border-top-color: #fff;
+        border-radius: 50%;
+        animation: pg-spin 0.6s linear infinite;
+      }
+      @keyframes pg-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
       /* ── Sponsors ─────────────────────────────────────────────────── */
       .sponsors {
         padding: 3rem 0;
@@ -822,6 +986,7 @@
         </a>
         <div class="nav-links">
           <a href="#examples">Examples</a>
+          <a href="#try">Try it</a>
           <a href="the-book-of-eskiu.html">Book</a>
           <a href="https://github.com/doranteseduardo/eskiu/tree/main/docs/lang"
             >Docs</a
@@ -1142,6 +1307,66 @@
       </div>
     </section>
 
+    <!-- Try it -->
+    <section id="try" class="section try">
+      <div class="wrap">
+        <span class="label">Try it</span>
+        <h2>Run Eskiu in your browser.</h2>
+        <p class="lead">
+          Edit the code and hit Run. It compiles via LLVM and executes on a
+          sandboxed server — the same <code>eskiuc run</code> you'd use locally.
+        </p>
+        <div class="try-grid">
+          <div class="pg-panel">
+            <div class="pg-bar">
+              <span class="d" style="background: #ff5f57"></span
+              ><span class="d" style="background: #febc2e"></span
+              ><span class="d" style="background: #28c840"></span
+              ><span class="nm">main.esk</span>
+            </div>
+            <textarea
+              id="pg-code"
+              class="pg-editor"
+              spellcheck="false"
+              autocapitalize="off"
+              autocomplete="off"
+              autocorrect="off"
+            ></textarea>
+          </div>
+          <div class="pg-panel">
+            <div class="pg-bar">
+              <span class="d" style="background: #ff5f57"></span
+              ><span class="d" style="background: #febc2e"></span
+              ><span class="d" style="background: #28c840"></span
+              ><span class="nm">output</span>
+            </div>
+            <pre id="pg-out" class="pg-out"><span class="hint">Output appears here. Press Run (or ⌘/Ctrl + Enter).</span></pre>
+          </div>
+        </div>
+        <div class="pg-controls">
+          <button id="pg-run" class="pg-run" onclick="runEskiu()">
+            <span id="pg-run-label">▶ Run</span>
+          </button>
+          <div class="pg-examples">
+            <button class="pg-ex" onclick="loadExample('hello')">hello</button>
+            <button class="pg-ex" onclick="loadExample('match')">match</button>
+            <button class="pg-ex" onclick="loadExample('generics')">
+              generics
+            </button>
+            <button class="pg-ex" onclick="loadExample('async')">async</button>
+          </div>
+        </div>
+        <p class="pg-note">
+          Sandboxed: no network, time- and memory-limited, output capped. For
+          the full toolchain,
+          <a
+            href="https://github.com/doranteseduardo/eskiu/blob/main/QUICKSTART.md"
+            >install eskiuc locally</a
+          >.
+        </p>
+      </div>
+    </section>
+
     <!-- Testimonial -->
     <section class="proof">
       <div class="wrap">
@@ -1256,6 +1481,167 @@
         e.currentTarget.classList.add("active");
         document.getElementById("tab-" + name).classList.add("active");
       }
+
+      /* ── Playground ──────────────────────────────────────────────── */
+      // Point this at your VPS endpoint (reverse-proxied to the Docker API).
+      const PLAYGROUND_API = "https://api.eskiu-lang.org";
+
+      const EXAMPLES = {
+        hello: `extern int printf(string fmt, ...);
+import <list>;
+
+int main() {
+    let nums: List<int>;
+    List_init(&nums, 4);
+    for (i in 0..5) { List_push(&nums, i * i); }
+
+    for (n in nums) { printf("%d\\n", n); }   // 0 1 4 9 16
+    return 0;
+}
+`,
+        match: `extern int printf(string fmt, ...);
+extern int atoi(string s);
+
+enum ParseResult {
+    Port(int),
+    InvalidRange(int),
+    NotANumber,
+}
+
+ParseResult parse_port(string s) {
+    let n: int = atoi(s);
+    if (n == 0) { return NotANumber; }
+    if (n < 1 || n > 65535) { return InvalidRange(n); }
+    return Port(n);
+}
+
+int main() {
+    match parse_port("8080") {
+        Port(p)         -> printf("Listening on :%d\\n", p);
+        InvalidRange(n) -> printf("%d out of range\\n", n);
+        NotANumber      -> printf("not a number\\n");
+    }
+    return 0;
+}
+`,
+        generics: `extern int printf(string fmt, ...);
+
+interface Ord { int cmp(Ord* o); }
+
+struct Coin {
+    int value;
+    int cmp(Coin* o) { if (self.value < o.value) { return -1; } return 1; }
+}
+
+T max<T: Ord>(T* a, T* b) {
+    if (a.cmp(b) > 0) { return a[0]; }
+    return b[0];
+}
+
+int main() {
+    let x: Coin;  x.value = 7;
+    let y: Coin;  y.value = 3;
+    let hi: Coin = max<Coin>(&x, &y);
+    printf("max = %d\\n", hi.value);   // max = 7
+    return 0;
+}
+`,
+        async: `extern int printf(string fmt, ...);
+import <future>;
+import <channel>;
+
+async int sum_squares(Chan<int>* ch) {
+    let a: int = await chan_recv(ch);
+    let b: int = await chan_recv(ch);
+    let c: int = await chan_recv(ch);
+    return a + b + c;
+}
+
+int main() {
+    Chan<int>* ch = chan_new<int>(8);
+    for (i in 1..4) { chan_send(ch, i * i); }   // 1, 4, 9
+    Future<int>* f = sum_squares(ch);
+    future_poll<int>(f, void() {});
+    printf("sum of squares = %d\\n", f.value);   // 14
+    free_future<int>(f);  chan_free<int>(ch);
+    return 0;
+}
+`,
+      };
+
+      function loadExample(name) {
+        document.getElementById("pg-code").value = EXAMPLES[name];
+      }
+
+      function esc(s) {
+        return s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+      }
+
+      async function runEskiu() {
+        const btn = document.getElementById("pg-run");
+        const label = document.getElementById("pg-run-label");
+        const out = document.getElementById("pg-out");
+        const code = document.getElementById("pg-code").value;
+
+        if (!code.trim()) {
+          out.innerHTML = '<span class="err">Nothing to run — write some code first.</span>';
+          return;
+        }
+
+        btn.disabled = true;
+        label.innerHTML = '<span class="spin"></span> Running';
+        out.innerHTML = '<span class="meta">Compiling &amp; running…</span>';
+
+        try {
+          const res = await fetch(PLAYGROUND_API + "/run", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ code }),
+          });
+          const data = await res.json();
+
+          if (!data.ok) {
+            out.innerHTML = '<span class="err">' + esc(data.error || "Request failed.") + "</span>";
+            return;
+          }
+
+          let html = "";
+          if (data.stdout) html += esc(data.stdout);
+          if (data.stderr) html += '<span class="err">' + esc(data.stderr) + "</span>";
+          if (!data.stdout && !data.stderr) html += '<span class="meta">(no output)</span>';
+
+          const parts = [];
+          if (data.timed_out) parts.push('<span class="err">timed out</span>');
+          else if (data.exit_code === 0) parts.push('<span class="ok">exit 0</span>');
+          else parts.push('<span class="err">exit ' + data.exit_code + "</span>");
+          if (typeof data.duration_ms === "number") parts.push(data.duration_ms + "ms");
+          if (data.truncated) parts.push("output truncated");
+
+          html += '\n\n<span class="meta">— ' + parts.join(" · ") + "</span>";
+          out.innerHTML = html;
+        } catch (e) {
+          out.innerHTML =
+            '<span class="err">Could not reach the playground server.</span>\n' +
+            '<span class="hint">The live runner may be offline. Run locally instead — see the quickstart.</span>';
+        } finally {
+          btn.disabled = false;
+          label.textContent = "▶ Run";
+        }
+      }
+
+      // Seed the editor and wire ⌘/Ctrl + Enter.
+      (function () {
+        const ta = document.getElementById("pg-code");
+        if (ta) {
+          ta.value = EXAMPLES.hello;
+          ta.addEventListener("keydown", (e) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+              e.preventDefault();
+              runEskiu();
+            }
+          });
+        }
+      })();
     </script>
   </body>
 </html>
