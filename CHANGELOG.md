@@ -17,6 +17,15 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   dogfooding the self-hosted parser. Affected only the debug printer, not codegen.
 
 ### Added
+- **Self-hosting back-end, Phase A: AST enrichment.** The self-hosted parser's AST
+  (`selfhost/{ast,parser}.esk`) now captures what it previously parsed-and-discarded,
+  so it can feed a future sema/codegen: generic **type-params + constraints**, struct
+  **methods**, enum **ADT payloads**, **bitfield widths**, the **async** modifier, and
+  full **interface method signatures**. Validated by a *lockstep* extension of both the
+  C++ `ast/ast_printer.cpp` and the self-hosted printer (new `TypeParams:`/`Methods:`
+  sections, `Name = tag(t1, t2)`, `type name : N`, `(async)`, `ret name(t1, t2)`) —
+  keeping `--test-parser` byte-identical (corpus 50/50, synthetic 11/11). Tooling; the
+  production compiler change is the additive, debug-only printer extension.
 - **Self-hosting milestone 3: the preprocessor, in Eskiu.** `selfhost/preprocessor.esk`
   ports `lexer/preprocessor.cpp` — object- and function-like `#define`/`#undef`,
   `#ifdef`/`#ifndef`/`#else`/`#endif` conditionals, `#pragma` passthrough, `#error`,
