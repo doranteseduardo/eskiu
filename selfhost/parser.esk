@@ -1085,6 +1085,8 @@ string strip_binding_const(string t) {
     List_init<TypeParam>(&d.type_params, 2);
     List_init<*DeclNode>(&d.methods, 2);
     List_init<List<string>>(&d.payloads, 2);
+    List_init<int>(&d.field_bits, 4);
+    d.is_async = 0;
     return d;
 }
 
@@ -1226,12 +1228,14 @@ int str_to_int(string s) {
             if (p_at(p) == LBRACE) { m.body = parse_block(p); } else { m.body = null; p_adv(p); }
             List_push<*DeclNode>(&d.methods, m);
         } else {
-            if (p_at(p) == COLON) { p_adv(p); p_adv(p); }   // bitfield ': width' (not printed)
+            int bw = 0;
+            if (p_at(p) == COLON) { p_adv(p); bw = str_to_int(tok_text(p.src, p_adv(p))); }   // bitfield ': width'
             p_adv(p);                      // ';'
             let pm: Param;
             pm.ty = mty;
             pm.name = tok_text(p.src, mnm);
             List_push<Param>(&d.params, pm);
+            List_push<int>(&d.field_bits, bw);
         }
     }
     p_adv(p);                              // '}'
@@ -1368,7 +1372,7 @@ int str_to_int(string s) {
     *DeclNode d;
     if (t == EXTERN) { p_adv(p); return parse_proto(p, DK_EXTERN); }
     if (t == INTRINSIC) { p_adv(p); return parse_proto(p, DK_INTRINSIC); }
-    if (t == ASYNC) { p_adv(p); return parse_function(p); }      // async modifier (not printed)
+    if (t == ASYNC) { p_adv(p); d = parse_function(p); d.is_async = 1; return d; }   // async fn
     if (t == STRUCT) { p_adv(p); d = parse_struct(p); register_type(p, d.name); return d; }
     if (t == PACKED) { p_adv(p); p_adv(p); d = parse_struct(p); register_type(p, d.name); return d; }
     if (t == UNION) { p_adv(p); d = parse_union(p); register_type(p, d.name); return d; }
