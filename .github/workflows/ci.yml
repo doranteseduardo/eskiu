@@ -69,3 +69,10 @@ jobs:
       # exclusions, since every directive is now handled. Compiles once; ~seconds.
       - name: Preprocessor self-host parity
         run: tests/selfhost/pp_parity.sh --full
+
+      # Self-hosted type checker (selfhost/sema.esk) must reach the same verdict as
+      # the C++ --test-typechecker over the positive corpus (no false rejections),
+      # and reject the implemented tests/errors classes with the right message.
+      # Compiles tc_main once; ~seconds.
+      - name: Sema self-host parity
+        run: tests/selfhost/tc_parity.sh
