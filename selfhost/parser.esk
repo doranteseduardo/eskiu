@@ -1076,16 +1076,39 @@ string strip_binding_const(string t) {
 
 // Consume a type-parameter list `<T, U: Iface + B>` if present (fn/struct/enum).
 // The AST printer doesn't emit type params, so we just skip them.
-void skip_type_params(Parser* p) {
+// Allocate a DeclNode and initialize the fields that aren't otherwise set by the
+// caller (alloc<T> does NOT zero memory). Centralizes init of the enrichment fields
+// added for sema/codegen so each is set once, not at every creation site.
+*DeclNode new_decl(int kind) {
+    *DeclNode d = alloc<DeclNode>(1);
+    d.kind = kind;
+    List_init<TypeParam>(&d.type_params, 2);
+    return d;
+}
+
+// Parse an optional generic `<T, U: A + B>` list into `out` (captures names + their
+// constraints; was previously skipped). `with_constraints` mirrors the C++ AST: fn/
+// struct store constraints, but EnumDecl has no constraints field, so a generic enum
+// CONSUMES `: A + B` without storing it (keeps the printers byte-identical). Empty if
+// there's no `<`.
+void parse_type_params(Parser* p, List<TypeParam>* out, int with_constraints) {
     if (p_at(p) != LT) { return; }
     p_adv(p);                              // '<'
     while (1 == 1) {
-        p_adv(p);                          // type-param name
+        let tp: TypeParam;
+        tp.name = tok_text(p.src, p_adv(p));       // type-param name
+        List_init<string>(&tp.constraints, 2);
         if (p_at(p) == COLON) {            // constraints `: A + B`
             p_adv(p);
-            p_adv(p);                      // first constraint
-            while (p_at(p) == PLUS) { p_adv(p); p_adv(p); }
+            string c0 = tok_text(p.src, p_adv(p));                  // first
+            if (with_constraints == 1) { List_push<string>(&tp.constraints, c0); }
+            while (p_at(p) == PLUS) {
+                p_adv(p);
+                string ck = tok_text(p.src, p_adv(p));
+                if (with_constraints == 1) { List_push<string>(&tp.constraints, ck); }
+            }
         }
+        List_push<TypeParam>(out, tp);
         if (p_at(p) == COMMA) { p_adv(p); } else { break; }
     }
     consume_tclose(p);                     // '>' (or split '>>')
@@ -1117,12 +1140,11 @@ void parse_params(Parser* p, *DeclNode d) {
 *DeclNode parse_function(Parser* p) {
     string rty = parse_type(p);            // return type (may be *T, List<T>, …)
     Token nm = p_adv(p);                   // function name
-    skip_type_params(p);                   // optional <T, U: Iface>
-    p_adv(p);                              // '('
-    *DeclNode d = alloc<DeclNode>(1);
-    d.kind = DK_FUNCTION;
+    *DeclNode d = new_decl(DK_FUNCTION);
     d.name = tok_text(p.src, nm);
     d.ret_type = rty;
+    parse_type_params(p, &d.type_params, 1);   // optional <T, U: Iface>
+    p_adv(p);                              // '('
     parse_params(p, d);                    // fills d.params, stops at ')'
     p_adv(p);                              // ')'
     if (p_at(p) == LBRACE) { d.body = parse_block(p); }
@@ -1172,8 +1194,7 @@ int str_to_int(string s) {
 
 // extern / intrinsic share the prototype shape: RetType name(params);
 *DeclNode parse_proto(Parser* p, int kind) {
-    *DeclNode d = alloc<DeclNode>(1);
-    d.kind = kind;
+    *DeclNode d = new_decl(kind);
     d.ret_type = parse_type(p);
     d.name = tok_text(p.src, p_adv(p));
     p_adv(p);                              // '('
@@ -1184,10 +1205,9 @@ int str_to_int(string s) {
 }
 
 *DeclNode parse_struct(Parser* p) {
-    *DeclNode d = alloc<DeclNode>(1);
-    d.kind = DK_STRUCT;
+    *DeclNode d = new_decl(DK_STRUCT);
     d.name = tok_text(p.src, p_adv(p));
-    skip_type_params(p);                   // optional <T, E: Iface>
+    parse_type_params(p, &d.type_params, 1);   // optional <T, E: Iface>
     p_adv(p);                              // '{'
     List_init<Param>(&d.params, 4);
     while (p_at(p) != RBRACE && p_at(p) != EOF_TOKEN) {
@@ -1214,8 +1234,7 @@ int str_to_int(string s) {
 }
 
 *DeclNode parse_union(Parser* p) {
-    *DeclNode d = alloc<DeclNode>(1);
-    d.kind = DK_UNION;
+    *DeclNode d = new_decl(DK_UNION);
     d.name = tok_text(p.src, p_adv(p));
     p_adv(p);                              // '{'
     List_init<Param>(&d.params, 4);
@@ -1231,8 +1250,7 @@ int str_to_int(string s) {
 }
 
 *DeclNode parse_interface(Parser* p) {
-    *DeclNode d = alloc<DeclNode>(1);
-    d.kind = DK_INTERFACE;
+    *DeclNode d = new_decl(DK_INTERFACE);
     d.name = tok_text(p.src, p_adv(p));
     p_adv(p);                              // '{'
     List_init<Param>(&d.params, 4);
@@ -1252,10 +1270,9 @@ int str_to_int(string s) {
 }
 
 *DeclNode parse_enum(Parser* p) {
-    *DeclNode d = alloc<DeclNode>(1);
-    d.kind = DK_ENUM;
+    *DeclNode d = new_decl(DK_ENUM);
     d.name = tok_text(p.src, p_adv(p));
-    skip_type_params(p);                   // optional <T> (generic ADT)
+    parse_type_params(p, &d.type_params, 0);   // optional <T> (enum: no constraints field)
     p_adv(p);                              // '{'
     List_init<Param>(&d.params, 4);
     int next = 0;
@@ -1289,8 +1306,7 @@ int str_to_int(string s) {
 
 *DeclNode parse_typealias(Parser* p) {
     p_adv(p);                              // 'type'
-    *DeclNode d = alloc<DeclNode>(1);
-    d.kind = DK_TYPEALIAS;
+    *DeclNode d = new_decl(DK_TYPEALIAS);
     d.name = tok_text(p.src, p_adv(p));    // alias name
     p_adv(p);                              // '='
     d.ret_type = parse_type(p);
@@ -1299,8 +1315,8 @@ int str_to_int(string s) {
 }
 
 *DeclNode mk_decl_var(string nm, string ty, *ExprNode init) {
-    *DeclNode d = alloc<DeclNode>(1);
-    d.kind = DK_VARDECL; d.name = nm; d.ret_type = ty; d.init = init;
+    *DeclNode d = new_decl(DK_VARDECL);
+    d.name = nm; d.ret_type = ty; d.init = init;
     return d;
 }
 
