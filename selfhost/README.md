@@ -21,6 +21,13 @@ pipeline is untouched.
   splicing, recursive macro expansion, predefined `__FILE__`/`__LINE__`. Validated
   *through the lexer* (`pp_main` preprocesses + lexes), byte-identical to the C++
   `--test-lexer` over the whole `tests/` + `stdlib/` corpus (156/156, no exclusions).
+- **Back-end (in progress)** — roadmap in `BACKEND_PLAN.md`. AST **enrichment**
+  (Phase A) is done: `ast.esk`/`parser.esk` now capture type-params + constraints,
+  struct methods, ADT payloads, bitfields, `async`, and interface signatures (lockstep
+  printer gate, corpus 50/50). **Sema** (Phase B: `sema.esk` + `tc_main.esk`) is
+  underway — S0 does name resolution (undefined variables), the verdict matching the
+  C++ `--test-typechecker` on all 120 positive corpus files. Codegen + self-compilation
+  follow.
 
 ## Files
 
@@ -41,6 +48,10 @@ pipeline is untouched.
   stack, recursive `pp_expand`, line splicing, `__FILE__`/`__LINE__`.
 - `pp_main.esk` — driver: preprocesses `argv[1]` (filename `""`, matching
   `--test-lexer`) then lexes the result and prints tokens in the `--test-lexer` format.
+- `sema.esk` — the type checker (Phase B; mirrors `sema/type_checker.cpp`). S0:
+  two-pass name resolution with a flat `{name, depth}` scope stack.
+- `tc_main.esk` — driver: preprocess → parse → check `argv[1]`, in the
+  `--test-typechecker` format (banner + verdict + exit code).
 - `../stdlib/ctype.esk` — pure-Eskiu ASCII classification (freestanding-clean; no
   libc ctype), used by the lexer.
 

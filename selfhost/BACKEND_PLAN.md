@@ -111,8 +111,17 @@ its structure:
 - **Diagnostics** — `file:line:col: message`; queue errors (verdict fails if any),
   warnings to stderr; exit 0/1. Driver `tc_main.esk` mirrors `testTypeChecker`.
 
-**Slices (each parity-gated):** S0 Type IR round-trip + symbol table + trivial program
-→ "succeeded". S1 literals/idents/primitive inference + binary/unary promotion. S2
+**Status (2026-06-23): S0 DONE.** `selfhost/{sema,tc_main}.esk` + `tc_parity.sh`
+(CI-wired). Two-pass name resolution (flat `{name,depth}` scope stack — avoids nested-
+List mutation) catches undefined variables; verdict matches `--test-typechecker` on all
+120 positive files (0 false rejections), `undefined_var` rejected. Symbol table chose
+the flat-list design over nested scopes. The for-init is wrapped in a BlockStmt — must
+walk its items in the FOR scope, not via a sub-scope (else the loop var is dropped).
+Lambda/match-arm/catch bodies not yet walked (bindings unextracted; safe under-check).
+The Type IR (ty::Type port) is deferred to S1 (S0 needs only name presence).
+
+**Slices (each parity-gated):** S0 (DONE) name resolution → undefined-var. S1 Type IR
++ literals/idents/primitive inference + binary/unary promotion. S2
 var-decls + const-correctness (`const_*` error tests). S3 struct/enum/fn registration +
 calls (arg-count, undefined var/type/field). S4 method dispatch + interfaces +
 constraints (trait tests). S5 generics instantiation + unification. S6 match
