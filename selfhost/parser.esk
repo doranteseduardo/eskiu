@@ -1083,6 +1083,8 @@ string strip_binding_const(string t) {
     *DeclNode d = alloc<DeclNode>(1);
     d.kind = kind;
     List_init<TypeParam>(&d.type_params, 2);
+    List_init<*DeclNode>(&d.methods, 2);
+    List_init<List<string>>(&d.payloads, 2);
     return d;
 }
 
@@ -1214,12 +1216,15 @@ int str_to_int(string s) {
         string mty = parse_type(p);
         Token mnm = p_adv(p);              // member name
         if (p_at(p) == LPAREN) {
-            // Method — consume params + body; the printer ignores struct methods.
+            // Method — a FunctionDecl whose return type + name were already read.
+            *DeclNode m = new_decl(DK_FUNCTION);
+            m.ret_type = mty;
+            m.name = tok_text(p.src, mnm);
             p_adv(p);                      // '('
-            *DeclNode tmp = alloc<DeclNode>(1);
-            parse_params(p, tmp);
+            parse_params(p, m);
             p_adv(p);                      // ')'
-            if (p_at(p) == LBRACE) { parse_block(p); } else { p_adv(p); }
+            if (p_at(p) == LBRACE) { m.body = parse_block(p); } else { m.body = null; p_adv(p); }
+            List_push<*DeclNode>(&d.methods, m);
         } else {
             if (p_at(p) == COLON) { p_adv(p); p_adv(p); }   // bitfield ': width' (not printed)
             p_adv(p);                      // ';'
@@ -1279,11 +1284,13 @@ int str_to_int(string s) {
     while (p_at(p) != RBRACE && p_at(p) != EOF_TOKEN) {
         string mname = tok_text(p.src, p_adv(p));
         int val = next;
-        if (p_at(p) == LPAREN) {           // ADT payload — consumed, not printed
+        let pl: List<string>;
+        List_init<string>(&pl, 2);
+        if (p_at(p) == LPAREN) {           // ADT payload — capture variant field types
             p_adv(p);
             if (p_at(p) != RPAREN) {
-                parse_type(p);
-                while (p_at(p) == COMMA) { p_adv(p); parse_type(p); }
+                List_push<string>(&pl, parse_type(p));
+                while (p_at(p) == COMMA) { p_adv(p); List_push<string>(&pl, parse_type(p)); }
             }
             p_adv(p);                      // ')'
         } else if (p_at(p) == EQ) {        // explicit value
@@ -1297,6 +1304,7 @@ int str_to_int(string s) {
         pm.name = mname;
         pm.ty = int_to_str(val);
         List_push<Param>(&d.params, pm);
+        List_push<List<string>>(&d.payloads, pl);
         next = val + 1;
         if (p_at(p) == COMMA) { p_adv(p); } else { break; }
     }
