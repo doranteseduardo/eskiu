@@ -1,6 +1,11 @@
 // Exercises Phase-A enrichment: type-params + constraints, struct methods,
-// bitfields, enum ADT payloads, and the async modifier — all import-free so the
-// synthetic parity gate validates the enriched AST dump directly.
+// bitfields, enum ADT payloads, interface method signatures, and the async modifier
+// — all import-free so the synthetic parity gate validates the enriched AST dump.
+interface Comparable {
+    int cmp(Comparable* other);
+    bool eq(Comparable* a, Comparable* b);
+}
+
 struct Box<T> {
     T value;
     uint32 flags : 3;

@@ -1262,17 +1262,15 @@ int str_to_int(string s) {
     *DeclNode d = new_decl(DK_INTERFACE);
     d.name = tok_text(p.src, p_adv(p));
     p_adv(p);                              // '{'
-    List_init<Param>(&d.params, 4);
     while (p_at(p) != RBRACE && p_at(p) != EOF_TOKEN) {
-        let pm: Param;
-        pm.ty = parse_type(p);             // return type
-        pm.name = tok_text(p.src, p_adv(p));   // method name
+        *DeclNode m = new_decl(DK_FUNCTION);
+        m.ret_type = parse_type(p);        // return type
+        m.name = tok_text(p.src, p_adv(p));    // method name
         p_adv(p);                          // '('
-        *DeclNode tmp = alloc<DeclNode>(1);
-        parse_params(p, tmp);              // consume params (printer shows "(...)")
+        parse_params(p, m);                // capture the method's params
         p_adv(p);                          // ')'
         p_adv(p);                          // ';'
-        List_push<Param>(&d.params, pm);
+        List_push<*DeclNode>(&d.methods, m);
     }
     p_adv(p);                              // '}'
     return d;

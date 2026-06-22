@@ -487,11 +487,19 @@ void print_decl(*DeclNode dn, int d) {
         pind(d);
         printf("InterfaceDecl: %s\n", dn.name);
         int i = 0;
-        int n = List_len<Param>(&dn.params);
+        int n = List_len<*DeclNode>(&dn.methods);
         while (i < n) {
-            Param pm = List_get<Param>(&dn.params, i);
+            *DeclNode m = List_get<*DeclNode>(&dn.methods, i);
             pind(d + 1);
-            printf("%s %s(...)\n", pm.ty, pm.name);
+            printf("%s %s(", m.ret_type, m.name);
+            int pn = List_len<Param>(&m.params);
+            int j = 0;
+            while (j < pn) {
+                if (j > 0) { printf(", "); }
+                printf("%s", List_get<Param>(&m.params, j).ty);
+                j = j + 1;
+            }
+            printf(")\n");
             i = i + 1;
         }
         return;
