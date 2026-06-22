@@ -49,7 +49,8 @@ void ASTPrinter::printTypeParams(const std::vector<std::string>& typeParams,
 }
 
 void ASTPrinter::visit(FunctionDecl* node) {
-    println("FunctionDecl: " + node->name + " -> " + node->returnType);
+    println("FunctionDecl: " + node->name + " -> " + node->returnType +
+            (node->isAsync ? " (async)" : ""));
     indentLevel++;
 
     printTypeParams(node->typeParams, node->constraints);
@@ -92,7 +93,9 @@ void ASTPrinter::visit(StructDecl* node) {
     println("Fields:");
     indentLevel++;
     for (auto& field : node->fields) {
-        println(field.type + " " + field.name);
+        std::string line = field.type + " " + field.name;
+        if (field.bitWidth > 0) line += " : " + std::to_string(field.bitWidth);
+        println(line);
     }
     indentLevel--;
 

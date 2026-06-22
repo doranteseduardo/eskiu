@@ -71,6 +71,8 @@ struct DeclNode {
     List<TypeParam> type_params;   // generic <T, U: Iface> on fn/struct/enum (else empty)
     List<*DeclNode> methods;       // struct methods (each a FunctionDecl; else empty)
     List<List<string>> payloads;   // enum ADT payload types per member (parallel to params)
+    List<int> field_bits;          // struct field bitfield widths (parallel to params; 0 = none)
+    int is_async;                  // function declared `async` (1) or not (0)
 }
 
 struct Program {
@@ -422,7 +424,9 @@ void print_type_params(*DeclNode dn, int d) {
 void print_decl(*DeclNode dn, int d) {
     if (dn.kind == DK_FUNCTION) {
         pind(d);
-        printf("FunctionDecl: %s -> %s\n", dn.name, dn.ret_type);
+        printf("FunctionDecl: %s -> %s", dn.name, dn.ret_type);
+        if (dn.is_async == 1) { printf(" (async)"); }
+        printf("\n");
         print_type_params(dn, d + 1);
         pline(d + 1, "Parameters:");
         print_params(dn, d + 2);
@@ -451,7 +455,17 @@ void print_decl(*DeclNode dn, int d) {
         printf("StructDecl: %s\n", dn.name);
         print_type_params(dn, d + 1);
         pline(d + 1, "Fields:");
-        print_params(dn, d + 2);
+        int fi = 0;
+        int nf = List_len<Param>(&dn.params);
+        while (fi < nf) {
+            Param pm = List_get<Param>(&dn.params, fi);
+            pind(d + 2);
+            printf("%s %s", pm.ty, pm.name);
+            int bw = List_get<int>(&dn.field_bits, fi);
+            if (bw > 0) { printf(" : %d", bw); }     // bitfield width
+            printf("\n");
+            fi = fi + 1;
+        }
         int mn = List_len<*DeclNode>(&dn.methods);
         if (mn > 0) {
             pline(d + 1, "Methods:");

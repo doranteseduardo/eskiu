@@ -1,0 +1,21 @@
+// Exercises Phase-A enrichment: type-params + constraints, struct methods,
+// bitfields, enum ADT payloads, and the async modifier — all import-free so the
+// synthetic parity gate validates the enriched AST dump directly.
+struct Box<T> {
+    T value;
+    uint32 flags : 3;
+    T get() { return self.value; }
+    void set(T v) { self.value = v; }
+}
+
+enum Expr<T> {
+    Lit(int),
+    Pair(int, string),
+    Empty
+}
+
+int max<T: Ord + Eq>(T a, T b) { return 0; }
+
+async int fetch(int n) { return n; }
+
+int main() { return 0; }
