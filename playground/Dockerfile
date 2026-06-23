@@ -33,7 +33,7 @@ COPY dist/lib/eskiu/stdlib     /opt/eskiu/stdlib
 ENV ESKIU_ROOT=/opt/eskiu \
     ESKIUC=/opt/eskiu/bin/eskiuc \
     CC=gcc \
-    PATH=/opt/eskiu/bin:/usr/bin:/bin \
+    PATH=/opt/eskiu/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
