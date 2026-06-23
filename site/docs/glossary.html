@@ -68,7 +68,7 @@ body { background: var(--bg); color: var(--ink); font-family: var(--sans);
       <img src="../../assets/logo.png" alt="Eskiu" />
       <a href="../index.html">← eskiu</a>
     </div>
-    <nav class="docnav"><a href="index.html">Overview</a><a href="getting-started.html">Getting started</a><a href="spec.html">Spec</a><a href="grammar.html">Grammar</a><a href="build.html">Tooling</a><a href="api.html">Compiler API</a><a href="glossary.html" class="active">Glossary</a></nav>
+    <nav class="docnav"><a href="index.html">Overview</a><a href="getting-started.html">Getting started</a><a href="spec.html">Spec</a><a href="grammar.html">Grammar</a><a href="build.html">Tooling</a><a href="glossary.html" class="active">Glossary</a><a href="internals.html">Internals →</a></nav>
     <div class="content">
 <h1 id="glossary">Glossary</h1>
 <p>Reference glossary of terms used in Eskiu documentation and compiler source code.</p>
@@ -248,9 +248,9 @@ Object-oriented design pattern in which an external object (the visitor) defines
 A table of function pointers, one per method of an interface, shared by all values of a given concrete type. It is the second word of an interface fat pointer <code>{data_ptr, vtable_ptr}</code>: a method call loads the target function from the vtable at a fixed slot and invokes it with the data pointer as the receiver, giving dynamic dispatch. See also: interface, fat pointer.</p>
 <hr>
 <ul>
-<li><a href="https://github.com/doranteseduardo/eskiu/blob/main/docs/dev/architecture.md">architecture.md</a> — Compiler architecture and pass pipeline</li>
+<li><a href="architecture.html">architecture.md</a> — Compiler architecture and pass pipeline</li>
 <li><a href="spec.html">spec.md</a> — Full language specification</li>
-<li><a href="https://github.com/doranteseduardo/eskiu/blob/main/docs/dev/design.md">design.md</a> — Rationale for key design choices</li>
+<li><a href="design.html">design.md</a> — Rationale for key design choices</li>
 <li><a href="https://github.com/doranteseduardo/eskiu/blob/main/docs/dev/phases.md">phases.md</a> — Compiler development roadmap</li>
 </ul>
     </div>
