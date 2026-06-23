@@ -160,10 +160,11 @@ int sema_is_type(Sema* s, string name) {
     return 0;
 }
 
-// Base name of a (possibly generic) type spelling: "Box<int>" -> "Box", "W" -> "W".
+// Leading name of a spelling, up to a generic '<' or payload '(':
+// "Box<int>" -> "Box", "A(x)" -> "A", "W" -> "W".
 string sema_base_name(string sp) {
     int n = 0;
-    while (sp[n] != 0 && (int)sp[n] != 60) { n = n + 1; }   // 60 = '<'
+    while (sp[n] != 0 && (int)sp[n] != 60 && (int)sp[n] != 40) { n = n + 1; }   // '<' or '('
     if ((int)sp[n] == 0) { return sp; }
     *uint8 buf = alloc<uint8>(n + 1);
     int i = 0;
@@ -386,6 +387,33 @@ void sema_stmt(Sema* s, *StmtNode st) {
                     }
                 }
                 ci = ci + 1;
+            }
+        }
+        if (k == SK_MATCH) {
+            // Duplicate match arm: same variant name twice (arm label is "Variant(binds)").
+            List<string> seen;
+            List_init<string>(&seen, 8);
+            int ai = 0;
+            int an = List_len<*StmtNode>(&st.items);
+            while (ai < an) {
+                *StmtNode arm = List_get<*StmtNode>(&st.items, ai);
+                if (arm.kind == SK_ARM) {
+                    string v = sema_base_name(arm.name);
+                    int j = 0;
+                    int found = 0;
+                    int sn = List_len<string>(&seen);
+                    while (j < sn) {
+                        if (sema_streq(List_get<string>(&seen, j), v) == 1) { found = 1; }
+                        j = j + 1;
+                    }
+                    if (found == 1) {
+                        s.had_error = 1;
+                        printf("error: %s:0:0: duplicate match arm for variant '%s'\n", s.filename, v);
+                    } else {
+                        List_push<string>(&seen, v);
+                    }
+                }
+                ai = ai + 1;
             }
         }
         int i = 0;
