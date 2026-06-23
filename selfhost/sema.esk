@@ -20,8 +20,13 @@ import "ast.esk";
 
 struct Sym { string name; int depth; }
 
+// Signature of a non-generic top-level function/extern/intrinsic, for arg-count
+// checking. `variadic` = trailing `...`; `fixed` = required arg count.
+struct FnSig { string name; int fixed; int variadic; }
+
 struct Sema {
     List<Sym> syms;
+    List<FnSig> fns;
     int depth;
     int had_error;
     string filename;
@@ -43,6 +48,7 @@ int sema_streq(string a, string b) {
 
 void sema_init(Sema* s, string filename) {
     List_init<Sym>(&s.syms, 64);
+    List_init<FnSig>(&s.fns, 32);
     s.depth = 0;                           // global scope
     s.had_error = 0;
     s.filename = filename;
@@ -76,6 +82,52 @@ int sema_lookup(Sema* s, string name) {
     return 0;
 }
 
+// Is `name` bound in a local (non-global) scope? The innermost binding wins, so a
+// local shadow of a global function means a call should NOT be arg-count-checked
+// against the function signature (it could be a fn-pointer variable).
+int sema_local_bound(Sema* s, string name) {
+    int i = List_len<Sym>(&s.syms) - 1;
+    while (i >= 0) {
+        Sym sym = List_get<Sym>(&s.syms, i);
+        if (sema_streq(sym.name, name) == 1) {
+            if (sym.depth > 0) { return 1; }
+            return 0;
+        }
+        i = i - 1;
+    }
+    return 0;
+}
+
+// Register a non-generic function/extern/intrinsic signature. Generic functions are
+// instantiated/inferred, so they get no fixed arg-count check (mirrors the C++
+// funcTemplateDecls vs functionSignatures split).
+void sema_register_fn(Sema* s, *DeclNode d) {
+    if (List_len<TypeParam>(&d.type_params) > 0) { return; }
+    let sig: FnSig;
+    sig.name = d.name;
+    int np = List_len<Param>(&d.params);
+    sig.variadic = 0;
+    sig.fixed = np;
+    if (np > 0) {                          // guard List_get against a -1 index
+        string lastty = List_get<Param>(&d.params, np - 1).ty;
+        if (sema_streq(lastty, "...") == 1) {
+            sig.variadic = 1;
+            sig.fixed = np - 1;
+        }
+    }
+    List_push<FnSig>(&s.fns, sig);
+}
+
+int sema_find_fn(Sema* s, string name) {
+    int i = 0;
+    int n = List_len<FnSig>(&s.fns);
+    while (i < n) {
+        if (sema_streq(List_get<FnSig>(&s.fns, i).name, name) == 1) { return i; }
+        i = i + 1;
+    }
+    return 0 - 1;
+}
+
 // ── expression walk ──
 
 void sema_expr(Sema* s, *ExprNode e) {
@@ -97,6 +149,26 @@ void sema_expr(Sema* s, *ExprNode e) {
     }
     if (k == EK_INDEX || k == EK_ALLOCWITH) { sema_expr(s, e.a); sema_expr(s, e.b); return; }
     if (k == EK_CALL) {
+        // arg-count check: only when the callee is a bare global function (not a local
+        // fn-pointer var, not an ADT variant, not a generic — those resolve elsewhere).
+        if (e.a != null && e.a.kind == EK_IDENT && sema_local_bound(s, e.a.sval) == 0) {
+            int fi = sema_find_fn(s, e.a.sval);
+            if (fi >= 0) {
+                FnSig sig = List_get<FnSig>(&s.fns, fi);
+                int argc = List_len<*ExprNode>(&e.kids);
+                if (sig.variadic == 1) {
+                    if (argc < sig.fixed) {
+                        s.had_error = 1;
+                        printf("error: %s:0:0: function '%s' expects at least %d arguments, got %d\n",
+                               s.filename, e.a.sval, sig.fixed, argc);
+                    }
+                } else if (argc != sig.fixed) {
+                    s.had_error = 1;
+                    printf("error: %s:0:0: function '%s' expects %d arguments, got %d\n",
+                           s.filename, e.a.sval, sig.fixed, argc);
+                }
+            }
+        }
         sema_expr(s, e.a);                 // callee (functions live in the global scope)
         int i = 0;
         int n = List_len<*ExprNode>(&e.kids);
@@ -208,6 +280,9 @@ void sema_register_globals(Sema* s, *Program prog) {
         if (d.kind == DK_FUNCTION || d.kind == DK_EXTERN
             || d.kind == DK_INTRINSIC || d.kind == DK_VARDECL) {
             sema_define(s, d.name);
+        }
+        if (d.kind == DK_FUNCTION || d.kind == DK_EXTERN || d.kind == DK_INTRINSIC) {
+            sema_register_fn(s, d);
         }
         if (d.kind == DK_ENUM) {
             int j = 0;
