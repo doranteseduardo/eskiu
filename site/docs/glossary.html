@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Glossary · Eskiu docs</title>
+  <meta name="description" content="Reference glossary of terms used in Eskiu documentation and compiler source code." />
+  <link rel="canonical" href="https://eskiu-lang.org/docs/glossary.html" />
+  <link rel="icon" type="image/png" href="../../assets/logo.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <style>*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #f9f7f3; --surface: #f2efe8; --border: #ddd8ce;
+  --ink: #1b1915; --ink2: #6b6560; --purple: #4c31bb; --purple-lt: #6448d4;
+  --code: #1b1728; --code-bd: #2c2444;
+  --sans: "Space Grotesk", system-ui, -apple-system, sans-serif;
+  --mono: "JetBrains Mono", Menlo, monospace;
+}
+body { background: var(--bg); color: var(--ink); font-family: var(--sans);
+       line-height: 1.65; -webkit-font-smoothing: antialiased; }
+.wrap { max-width: 800px; margin: 0 auto; padding: 2.25rem 1.25rem 5rem; }
+.top { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 1.5rem; }
+.top img { width: 30px; height: 30px; }
+.top a { color: var(--ink2); text-decoration: none; font-size: 0.85rem; }
+.top a:hover { color: var(--purple); }
+.docnav { display: flex; flex-wrap: wrap; gap: 0.35rem 0.5rem; margin-bottom: 2.5rem;
+          padding-bottom: 1.25rem; border-bottom: 1px solid var(--border); }
+.docnav a { font-size: 0.8rem; color: var(--ink2); text-decoration: none;
+            padding: 0.25rem 0.6rem; border-radius: 6px; border: 1px solid transparent; }
+.docnav a:hover { color: var(--purple); background: var(--surface); }
+.docnav a.active { color: var(--purple); border-color: var(--border); background: #fff; font-weight: 600; }
+.content h1 { font-size: clamp(1.7rem, 4.5vw, 2.4rem); letter-spacing: -0.03em;
+              line-height: 1.12; margin: 0 0 1.25rem; }
+.content h2 { font-size: 1.35rem; letter-spacing: -0.02em; margin: 2.5rem 0 0.85rem;
+              padding-top: 0.5rem; }
+.content h3 { font-size: 1.08rem; margin: 1.75rem 0 0.6rem; }
+.content h4 { font-size: 0.95rem; margin: 1.4rem 0 0.5rem; color: var(--ink2); }
+.content p { margin: 0 0 1rem; }
+.content a { color: var(--purple); }
+.content ul, .content ol { margin: 0 0 1rem 1.3rem; }
+.content li { margin-bottom: 0.4rem; }
+.content strong { font-weight: 600; }
+.content hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+.content blockquote { border-left: 3px solid var(--purple); background: var(--surface);
+                      padding: 0.8rem 1.1rem; border-radius: 0 8px 8px 0; margin: 0 0 1.25rem;
+                      color: var(--ink2); }
+.content blockquote p:last-child { margin-bottom: 0; }
+.content code { font-family: var(--mono); font-size: 0.86em; background: var(--surface);
+                padding: 0.1em 0.35em; border-radius: 4px; }
+.content pre { background: var(--code); border: 1px solid var(--code-bd); border-radius: 8px;
+               padding: 0.95rem 1.1rem; margin: 0 0 1.5rem; overflow-x: auto;
+               font-family: var(--mono); font-size: 0.78rem; line-height: 1.75; color: #b4bccc; }
+.content pre code { background: none; padding: 0; font-size: inherit; color: inherit; }
+.tablewrap { overflow-x: auto; margin: 0 0 1.5rem; }
+.content table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+.content th, .content td { text-align: left; padding: 0.5rem 0.75rem;
+                          border-bottom: 1px solid var(--border); vertical-align: top; }
+.content th { color: var(--ink2); font-weight: 600; white-space: nowrap; }
+.content td code { white-space: nowrap; }
+.foot { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--border);
+        font-size: 0.9rem; color: var(--ink2); }</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <img src="../../assets/logo.png" alt="Eskiu" />
+      <a href="../index.html">← eskiu</a>
+    </div>
+    <nav class="docnav"><a href="index.html">Overview</a><a href="getting-started.html">Getting started</a><a href="spec.html">Spec</a><a href="grammar.html">Grammar</a><a href="build.html">Tooling</a><a href="api.html">Compiler API</a><a href="glossary.html" class="active">Glossary</a></nav>
+    <div class="content">
+<h1 id="glossary">Glossary</h1>
+<p>Reference glossary of terms used in Eskiu documentation and compiler source code.</p>
+<h2 id="a">A</h2>
+<p><strong>Abstract Syntax Tree (AST)</strong>
+Tree-structured representation of a program's syntactic form after parsing. Each node corresponds to a language construct such as a function declaration, binary expression, or loop. The type checker and code generator both traverse the AST using the visitor pattern. See also: ASTVisitor, parser.</p>
+<p><strong>algebraic data type (ADT)</strong>
+A type formed as a tagged choice between several variants, some of which may carry payload data — also called a sum type or tagged union. In Eskiu an <code>enum</code> with one or more payload-bearing variants is an ADT, laid out as <code>{ tag, payload }</code> and destructured with an exhaustive <code>match</code>. See also: enum, tagged union, match.</p>
+<p><strong>alloca</strong>
+LLVM IR instruction that allocates space on the stack frame of the current function and returns a pointer to it. Every local variable in Eskiu compiles to an <code>alloca</code> in the function's entry block, followed by <code>store</code>/<code>load</code> instructions. Stack allocations are automatically reclaimed when the function returns.</p>
+<p><strong>ALPN (Application-Layer Protocol Negotiation)</strong>
+A TLS handshake extension by which the client offers a list of protocols and the server selects one. The <code>&lt;tls&gt;</code> module installs an ALPN callback that selects <code>"h2"</code>, the way browsers negotiate HTTP/2 over TLS. See also: HTTP/2, TLS.</p>
+<p><strong>async</strong>
+A function modifier (<code>async int f(...)</code>) marking a function that may suspend at <code>await</code> points. A call to an async function does not run it to completion; it yields a <code>*Future&lt;T&gt;</code> handle to the eventual result. The compiler lowers each async function into a resumable state-machine coroutine. See also: await, Future, coroutine.</p>
+<p><strong>ASTVisitor</strong>
+Abstract base class that defines a <code>visit</code> method for each AST node type. Concrete subclasses (e.g., <code>TypeChecker</code>, <code>CodeGen</code>) implement these methods to traverse the tree without embedding logic inside the node classes themselves. See also: visitor pattern.</p>
+<p><strong>atomic</strong>
+An operation on a shared memory cell that completes indivisibly with respect to other threads. The <code>&lt;atomic&gt;</code> module exposes <code>atomic_load</code>/<code>atomic_store</code>/<code>atomic_swap</code>/<code>atomic_cas</code> on an <code>int</code> cell, declared <code>intrinsic</code> and lowered to LLVM atomics with fixed acquire/release ordering. See also: intrinsic, executor.</p>
+<p><strong>await</strong>
+An expression (<code>await E</code>) that suspends the enclosing <code>async</code> function until the future <code>E</code> completes, then evaluates to its result. <code>E</code> must have type <code>*Future&lt;T&gt;</code> and <code>await E</code> has type <code>T</code>. It is legal only inside an <code>async</code> function. See also: async, Future, coroutine.</p>
+<h2 id="b">B</h2>
+<p><strong>basic block</strong>
+Maximal sequence of LLVM IR instructions with no branches except at the end. Every function body is a graph of basic blocks. Control-flow constructs (if, while, for) cause the code generator to create new basic blocks and wire them with branch instructions. See also: IRBuilder.</p>
+<p><strong>binary operator</strong>
+An operator that takes exactly two operands. Eskiu supports arithmetic (<code>+</code>, <code>-</code>, <code>*</code>, <code>/</code>, <code>%</code>), comparison (<code>==</code>, <code>!=</code>, <code>&lt;</code>, <code>&lt;=</code>, <code>&gt;</code>, <code>&gt;=</code>), and logical (<code>&amp;&amp;</code>, <code>||</code>) binary operators. Precedence rules determine evaluation order when operators appear without parentheses. See also: unary operator, precedence.</p>
+<p><strong>bitfield</strong>
+A struct integer field declared with a bit width (<code>uint32 mode : 3;</code>), occupying only that many bits. Consecutive bitfields pack into storage words of their declared type; reads mask and shift the field out (signed fields sign-extend) and writes are read-modify-write. The address of a bitfield cannot be taken. See also: packed struct, struct.</p>
+<p><strong>BlockItem</strong>
+Union type used internally in the parser and AST to represent a single item inside a block statement — either a declaration (VarDecl, StructDecl) or an executable statement. Storing both as <code>BlockItem</code> allows the parser to handle declaration-in-block uniformly. See also: BlockStmt, declaration, statement.</p>
+<p><strong>BlockStmt</strong>
+AST node representing a <code>{ ... }</code> block. Contains an ordered list of <code>BlockItem</code> entries and introduces a new nested scope. Functions, if-branches, loops, and standalone braces all produce a <code>BlockStmt</code>. See also: scope, BlockItem.</p>
+<p><strong>bounded generic / type-parameter constraint</strong>
+A type parameter restricted to types that satisfy one or more interfaces, written <code>&lt;T: Iface&gt;</code> for a single bound or <code>&lt;T: A + B&gt;</code> for several. The constraint is checked at instantiation: every concrete type substituted for <code>T</code> must satisfy each named interface. A primitive type can satisfy a constraint via a free function that implements the required method set. Added in v0.2.2 (multi-bound <code>+</code>), with primitive satisfaction in v0.2.3. See also: interface, template / generic, monomorphization.</p>
+<h2 id="c">C</h2>
+<p><strong>channel</strong>
+An async message queue between tasks (<code>Chan&lt;T&gt;</code> in <code>&lt;channel&gt;</code>). <code>chan_recv</code> returns a <code>*Future&lt;T&gt;</code> that completes with the next item — immediately if one is buffered, otherwise when a <code>chan_send</code> hands a value off to the parked receiver. See also: Future, await.</p>
+<p><strong>closure</strong>
+A function value that captures variables from its enclosing scope. Represented as a two-word fat pointer <code>{fn_ptr, env_ptr}</code>: a non-capturing closure has a null environment, while a capturing one packages its captured variables into an environment struct. The type annotation is <code>fn(T,...)-&gt;R</code> in both cases. See also: escaping, fat pointer, lambda.</p>
+<p><strong>codegen</strong>
+Short form of "code generation." Refers to the code-generation pass of the Eskiu compiler, implemented across <code>codegen/codegen_*.cpp</code> (module, type, scope, decl, stmt, expr, call, closure, adt), which walks the AST and emits LLVM IR instructions via <code>IRBuilder</code>. Also used informally to describe any pass that produces output code. See also: IRBuilder, LLVM IR.</p>
+<p><strong>coroutine</strong>
+A function whose execution can suspend and later resume. Each Eskiu <code>async</code> function is lowered to a coroutine: a frame struct holding its live state plus a resume function that advances an explicit state machine across <code>await</code> points. See also: async, await, Future.</p>
+<h2 id="d">D</h2>
+<p><strong>declaration</strong>
+A language construct that introduces a new named entity into the current scope. Eskiu declaration forms are: <code>FunctionDecl</code>, <code>VarDecl</code>, <code>StructDecl</code>, <code>UnionDecl</code>, <code>EnumDecl</code>, <code>InterfaceDecl</code>, <code>TypeAliasDecl</code>, <code>IntrinsicDecl</code>, and <code>ExternDecl</code>. Declarations are distinct from statements in that they bind a name; statements execute logic. See also: statement, scope.</p>
+<h2 id="e">E</h2>
+<p><strong>enum</strong>
+A declaration of named constants. A plain <code>enum</code> defines integer constants (the type behaves as <code>int</code>); an <code>enum</code> with one or more payload-bearing variants is an algebraic data type laid out as <code>{ tag, payload }</code> and destructured with <code>match</code>. Enums may be generic (e.g. <code>Option&lt;T&gt;</code>) and are monomorphized per instantiation. See also: algebraic data type, match, tagged union.</p>
+<p><strong>escaping</strong>
+A parameter qualifier (<code>escaping fn(int)-&gt;void cb</code>) marking a function-pointer parameter that the callee retains beyond the call — by storing, returning, or forwarding it. An escaping closure's environment is heap-allocated (released with <code>free_closure</code>) so it outlives the creating frame; a non-escaping closure keeps its environment on the stack. Using a non-<code>escaping</code> parameter beyond a direct call is a compile error. See also: closure, fat pointer.</p>
+<p><strong>event loop / reactor</strong>
+A single thread that watches many file descriptors and dispatches a callback when one becomes ready, via kqueue (macOS) or epoll (Linux). Implemented as <code>EventLoop</code> in <code>&lt;eventloop&gt;</code>, it is the readiness reactor underpinning async I/O, the HTTP stack, and the timer wheel. See also: executor, Future, async.</p>
+<p><strong>executor</strong>
+A thread that owns an event loop plus a thread-safe ready-queue of wakers (<code>Executor</code> in <code>&lt;executor&gt;</code>). Completion may occur on any thread; <code>executor_schedule</code> enqueues a waker and wakes the loop through a self-pipe so the waker (a coroutine resume) always runs on the executor's own thread. See also: event loop / reactor, coroutine, Future.</p>
+<p><strong>expression</strong>
+A syntactic form that evaluates to a value and has a type. Examples: <code>3 + 4</code>, <code>add(5, 2)</code>, <code>point.x</code>, <code>*ptr</code>. Expressions form the leaves and internal nodes of most AST subtrees. See also: lvalue, rvalue, statement.</p>
+<p><strong>ExternDecl</strong>
+AST node representing a declaration of a function whose implementation lives in an external C library. Syntax: <code>extern int printf(string fmt, ...);</code>. The type checker records the function signature; the code generator emits an LLVM <code>declare</code> instruction so the linker can resolve it. See also: variadic, declaration.</p>
+<h2 id="f">F</h2>
+<p><strong>fat pointer</strong>
+A two-word value carrying a data pointer alongside a second pointer. Eskiu uses fat pointers in two places: a closure / function-pointer value is <code>{fn_ptr, env_ptr}</code>, and an interface value is <code>{data_ptr, vtable_ptr}</code>. The representation is transparent to user code. See also: closure, interface, vtable.</p>
+<p><strong>flow control</strong>
+In HTTP/2, the credit-based mechanism that bounds how much DATA a sender may transmit before the receiver grants more window via WINDOW_UPDATE frames, applied per stream and per connection. The <code>&lt;http2&gt;</code> <code>H2Stream</code> tracks the send window and the server emits DATA in flow-controlled, bounded frames. See also: HTTP/2, stream multiplexing.</p>
+<p><strong>FunctionDecl</strong>
+AST node representing a function definition, including its name, parameter list, return type, and body (<code>BlockStmt</code>). During type checking, parameters are pushed into a new scope and the body is validated against the declared return type. During code generation, a new LLVM <code>Function</code> object is created and populated. See also: declaration, scope.</p>
+<p><strong>Future</strong>
+A handle to a value that may not exist yet — the result of an <code>async</code> function call or a leaf primitive. <code>Future&lt;T&gt;</code> (in <code>&lt;future&gt;</code>) is a fixed-layout struct <code>{ state, waker, on_drop, value }</code>: <code>state</code> advances through PENDING/WAITING/READY/CANCELLED, <code>waker</code> resumes the awaiter on completion, and <code>on_drop</code> releases resources on cancellation. A pending future is cancelled with <code>future_drop</code>. See also: async, await, executor.</p>
+<p><strong>fuzzer / differential oracle</strong>
+A generative test harness (<code>tests/fuzz/eskiu_fuzz.py</code>, added in v0.2.2) that synthesizes random valid Eskiu programs and compiles each at <code>-O0</code> and <code>-O2</code>, then compares their output. A mismatch is a differential failure: it catches miscompiles that pass the LLVM verifier yet behave differently across optimization levels. See also: codegen, LLVM IR.</p>
+<h2 id="g">G</h2>
+<p><strong>GEP (getelementptr)</strong>
+LLVM IR instruction that computes the address of a sub-element of an aggregate type (array or struct) without loading data. Used by the Eskiu code generator to access struct fields and array elements. GEP does pointer arithmetic at the IR level and produces a typed pointer to the target element.</p>
+<h2 id="h">H</h2>
+<p><strong>HPACK</strong>
+The HTTP/2 header-compression format (RFC 7541). It combines a static table of common header fields, a per-connection dynamic table the peers grow as they go, and a compact wire coding (prefix integers and optionally Huffman-coded string literals). Implemented in <code>&lt;hpack&gt;</code>. See also: HTTP/2, ALPN.</p>
+<p><strong>HTTP/2 frame</strong>
+The unit of the HTTP/2 wire protocol (RFC 7540): a 9-byte binary header (length, type, flags, stream id) followed by a payload. Frame types include DATA, HEADERS, SETTINGS, WINDOW_UPDATE, PING, and GOAWAY. Many frames sharing one connection are interleaved across streams. The <code>&lt;http2&gt;</code> module provides the frame-header codec and frame I/O. See also: stream multiplexing, flow control, HPACK.</p>
+<h2 id="i">I</h2>
+<p><strong>identifier</strong>
+A name chosen by the programmer to label a variable, function, struct, or parameter. In Eskiu, identifiers must begin with a letter or underscore and may contain letters, digits, and underscores. The lexer emits an <code>IDENTIFIER</code> token; the parser stores the raw string in <code>IdentExpr</code> or declaration nodes.</p>
+<p><strong>interface</strong>
+A structurally typed contract defined by a method set (<code>interface Drawable { void draw(); }</code>). A concrete type satisfies an interface implicitly whenever it provides all the named methods — no explicit <code>implements</code> declaration is required. An interface value is a fat pointer <code>{data_ptr, vtable_ptr}</code>, and method calls dispatch dynamically through the vtable. See also: vtable, fat pointer, bounded generic / type-parameter constraint.</p>
+<p><strong>intrinsic</strong>
+A function declared with the <code>intrinsic</code> qualifier whose calls the compiler lowers to inline IR rather than an ordinary call. Used for operations that must compile directly to specific instructions, such as the <code>&lt;atomic&gt;</code> cell operations. See also: atomic, declaration.</p>
+<p><strong>IRBuilder</strong>
+LLVM C++ API class (<code>llvm::IRBuilder&lt;&gt;</code>) that provides a cursor-based interface for inserting IR instructions into a basic block. Eskiu's code generator holds a single <code>IRBuilder</code> instance and repositions it as it enters new blocks. See also: basic block, codegen.</p>
+<h2 id="l">L</h2>
+<p><strong>lambda / closure</strong>
+An anonymous function expression, written <code>int(int n) { return n * n; }</code> and typed <code>fn(T,...)-&gt;R</code>. A lambda that references variables from its enclosing scope is a closure; escape analysis decides whether its captured environment lives on the stack (non-escaping) or the heap (escaping). At runtime both compile to a two-word fat pointer <code>{fn_ptr, env_ptr}</code>. See also: closure, escaping, fat pointer.</p>
+<p><strong>lexer</strong>
+Phase 1 of the Eskiu compiler, implemented in <code>lexer/</code>. Reads the raw source text character by character and produces a flat sequence of tokens annotated with type, value, line, and column. The lexer handles whitespace, comments, string literals, numeric literals, keywords, and punctuation. See also: token, TokenType, parser.</p>
+<p><strong>literal</strong>
+A compile-time constant value written directly in source code. Eskiu literal kinds: integer literals (<code>42</code>), floating-point literals (<code>3.14</code>), string literals (<code>"hello"</code>), boolean literals (<code>true</code>, <code>false</code>), and character literals (<code>'a'</code>). Represented in the AST as <code>LiteralExpr</code>. See also: expression.</p>
+<p><strong>LLVM IR</strong>
+The text and in-memory intermediate representation used by the LLVM compiler infrastructure. Eskiu compiles to LLVM IR, which is then lowered to machine code by LLVM's optimization and backend passes. IR is strongly typed, uses Static Single Assignment (SSA) form, and is human-readable in <code>.ll</code> files. See also: codegen, basic block, IRBuilder.</p>
+<p><strong>lvalue</strong>
+An expression that refers to a storage location and can appear on the left side of an assignment. In Eskiu, variable names and pointer dereferences (<code>*ptr</code>) are lvalues. The code generator resolves lvalues to their <code>alloca</code> address (emitting a GEP for struct fields), then uses <code>store</code> to write the value. See also: rvalue, alloca.</p>
+<h2 id="m">M</h2>
+<p><strong>match</strong>
+A control construct that destructures an algebraic-enum value by variant, binding each variant's payload fields in its arm. A <code>match</code> must be exhaustive — every variant has an arm or a <code>_</code> default catches the rest — and no variant may appear twice; the type checker enforces both. See also: algebraic data type, enum, tagged union.</p>
+<p><strong>module</strong>
+The top-level LLVM IR container (<code>llvm::Module</code>) that holds all function definitions, global variables, and external declarations produced for a single compilation unit. The code generator creates one module per <code>.esk</code> file. The module is printed as LLVM IR text when <code>--test-codegen</code> is passed.</p>
+<p><strong>monomorphization</strong>
+The compilation strategy by which a generic definition is specialized into a separate concrete copy for each distinct set of type arguments it is instantiated with. Eskiu templates and generic enums are monomorphic: instead of boxing or runtime dispatch, the compiler emits one stamped-out version per instantiation, each with a mangled name. See also: template / generic, monomorphic.</p>
+<h2 id="o">O</h2>
+<p><strong>opaque pointer</strong>
+LLVM pointer type in LLVM 15+ (<code>ptr</code>) that carries no element-type information; replaced typed pointers (<code>i32*</code>, <code>i8*</code>, etc.). Eskiu targets opaque-pointer mode and uses GEP with explicit type hints to navigate aggregate structures. See also: GEP, pointer type.</p>
+<h2 id="p">P</h2>
+<p><strong>packed struct</strong>
+A struct laid out with no inter-field padding, so fields sit back-to-back. Marked with the <code>packed</code> qualifier or <code>#pragma pack(1)</code>; <code>#pragma pack(N)</code> for <code>N &gt; 1</code> instead caps each field's alignment at <code>N</code>. Used to match an exact on-the-wire or on-disk byte layout, or a C struct declared <code>__attribute__((packed))</code>. The chosen layout is reflected by <code>sizeof</code> and every field access. See also: bitfield, struct.</p>
+<p><strong>parser</strong>
+Phase 2 of the Eskiu compiler, implemented in <code>parser/</code>. Consumes the token stream produced by the lexer and builds the AST using recursive descent. Handles declarations, statements, and expressions with explicit precedence climbing. See also: recursive descent, AST, precedence.</p>
+<p><strong>phase</strong>
+A numbered stage in the Eskiu compiler roadmap, used to organize development: the build/CLI, lexer, parser, code generator, and type checker, followed by structs/interfaces/templates, the heap and explicit-allocator model, and the standard library (including <code>Result&lt;T,E&gt;</code> and the async runtime). The term is also used informally within a phase to label sub-milestones. See also: codegen, type checker, semantic analysis.</p>
+<p><strong>pointer type</strong>
+A type that holds the memory address of a value of another type. Eskiu accepts both leading-star notation (<code>*T</code>) and trailing-star notation (<code>T*</code>) in source code; both are normalized to the same internal representation. Pointer arithmetic and dereferencing are supported; pointer safety is the programmer's responsibility. See also: opaque pointer, GEP, lvalue.</p>
+<p><strong>precedence</strong>
+The binding strength of an operator relative to others. Higher-precedence operators bind their operands before lower-precedence ones. Eskiu follows C operator precedence: multiplicative (<code>*</code>, <code>/</code>, <code>%</code>) before additive (<code>+</code>, <code>-</code>), which is before relational, then equality, then logical-and, then logical-or. The parser implements precedence via recursive descent helper functions. See also: binary operator, parser.</p>
+<p><strong>program</strong>
+A complete Eskiu source file (<code>.esk</code>) that defines or declares all entities needed for compilation. At the AST level a program is a <code>ProgramNode</code> containing a list of top-level declarations. See also: declaration, module.</p>
+<h2 id="r">R</h2>
+<p><strong>recursive descent</strong>
+Parsing strategy in which each grammar rule is implemented as a mutually recursive function. Eskiu's parser is a hand-written recursive-descent parser; <code>parseDecl</code>, <code>parseStmt</code>, and <code>parseExpr</code> call each other according to the grammar's structure. See also: parser.</p>
+<p><strong>rvalue</strong>
+An expression whose value can be read but that does not itself designate a storage location. Literals, arithmetic results, and function-call results are rvalues in Eskiu. The code generator evaluates rvalues with <code>load</code> instructions (when reading a variable) or directly as IR values (for computed results). See also: lvalue.</p>
+<h2 id="s">S</h2>
+<p><strong>scope</strong>
+The region of source code in which a declared name is visible. Eskiu uses lexical (block) scoping: each <code>BlockStmt</code> introduces a new scope. The symbol table supports nested scopes via a scope stack; inner scopes can shadow outer ones. Names go out of scope when their enclosing block ends. See also: symbol table, BlockStmt.</p>
+<p><strong>semantic analysis</strong>
+The compiler phase (Phase 4) that validates program meaning beyond syntactic correctness. In Eskiu this is the type checker: it verifies type compatibility, resolves identifiers, checks struct-field existence, validates function call arities and types, and enforces return-type consistency. See also: type checker, scope.</p>
+<p><strong>sret (structure return)</strong>
+The calling convention for returning a struct too large to fit in registers: the caller passes a hidden pointer to a result slot, the LLVM function itself returns <code>void</code>, and the body writes the result through that pointer. The code generator applies sret automatically to large aggregate return types. See also: codegen, struct.</p>
+<p><strong>statement</strong>
+A language construct that performs an action but does not itself produce a value. Eskiu statement kinds: <code>BlockStmt</code>, <code>IfStmt</code>, <code>ForStmt</code>, <code>WhileStmt</code>, <code>ReturnStmt</code>, <code>BreakStmt</code>, <code>ExprStmt</code>. Statements are sequenced inside <code>BlockStmt</code>. See also: expression, declaration.</p>
+<p><strong>stream multiplexing</strong>
+In HTTP/2, the interleaving of many concurrent request/response exchanges (streams), each with its own id, over a single connection. The <code>&lt;http2_server&gt;</code> routes interleaved frames to per-stream slots, each completing when its END_STREAM arrives. See also: HTTP/2 frame, flow control.</p>
+<p><strong>struct</strong>
+A composite type composed of named fields, each with its own type. Declared with <code>struct Name { ... }</code>. Fields are accessed via the <code>.</code> member operator. Methods can be defined on structs. The type checker validates field access; the code generator lays fields out sequentially in an LLVM struct type and uses GEP to address them. See also: StructDecl, GEP.</p>
+<p><strong>StructDecl</strong>
+AST node representing a struct type definition, including the struct's name, its field list (name + type pairs), and any method declarations. Registered in the struct registry during semantic analysis so that <code>MemberExpr</code> nodes can look up field types. See also: struct, declaration.</p>
+<p><strong>symbol table</strong>
+A data structure mapping identifier names to their resolved types and declarations within a scope. Eskiu's type checker maintains a stack of symbol-table frames, pushing a new frame on block entry and popping it on block exit. Used to resolve variable references and detect undeclared identifiers. See also: scope, identifier.</p>
+<h2 id="t">T</h2>
+<p><strong>tagged union</strong>
+A value that holds one of several alternatives, distinguished by an integer tag stored alongside the payload — the runtime representation of an Eskiu algebraic-enum value (<code>{ tag, payload }</code>, with the payload area sized to the largest variant). Unlike a <code>union</code>, a tagged union records which alternative is active. See also: algebraic data type, enum, match, union.</p>
+<p><strong>template / generic</strong>
+A definition parameterized over one or more type variables (<code>struct Vec&lt;T&gt; { ... }</code>, generic functions, and generic enums such as <code>Option&lt;T&gt;</code>). Generics in Eskiu are monomorphic: each instantiation is stamped out as a concrete copy with a name produced by <code>mangleTemplate</code>, rather than compiled once with type erasure. A type parameter may carry a constraint (<code>&lt;T: Iface&gt;</code>). See also: monomorphization, bounded generic / type-parameter constraint, enum.</p>
+<p><strong>TLS</strong>
+Transport Layer Security — the encryption layer HTTP/2 typically runs over in browsers. The <code>&lt;tls&gt;</code> module wraps OpenSSL (libssl) by FFI and uses ALPN to negotiate <code>"h2"</code>, then runs the <code>&lt;http2&gt;</code> frame protocol over the encrypted stream. See also: ALPN, HTTP/2.</p>
+<p><strong>token</strong>
+The smallest meaningful unit produced by the lexer. Each token carries a <code>TokenType</code>, its raw lexeme string, and a source location (line, column). Examples: keyword <code>int</code>, identifier <code>result</code>, punctuation <code>{</code>, integer literal <code>42</code>, string literal <code>"hello"</code>. See also: TokenType, lexer.</p>
+<p><strong>TokenType</strong>
+Enumeration of all token categories recognized by the Eskiu lexer. Includes keywords (<code>INT</code>, <code>RETURN</code>, <code>IF</code>, <code>WHILE</code>, ...), literals (<code>INTEGER_LITERAL</code>, <code>FLOAT_LITERAL</code>, <code>STRING_LITERAL</code>), identifiers (<code>IDENTIFIER</code>), operators, punctuation, and <code>END_OF_FILE</code>. Used in the parser's <code>expect()</code> and <code>match()</code> helpers to drive grammar rules. See also: token, lexer.</p>
+<p><strong><code>ty::Type</code> IR</strong>
+The compiler's structured, in-memory representation of types (<code>sema/type.{h,cpp}</code>), replacing earlier reliance on raw type-name strings. Each <code>ty::Type</code> describes a type by kind (primitive, pointer, struct, interface, generic instantiation, function, and so on) and its components, so the type checker compares and resolves types by structure rather than by string matching. Introduced in v0.2.3; since v0.2.4 it is the single resolver, with type unification performed against it. See also: type checker, type unification, type normalization.</p>
+<p><strong>type checker</strong>
+The compiler component (Phase 4) that traverses the AST, infers or verifies the type of every expression, validates declarations, and reports semantic errors. It maintains the symbol table and struct registry. The implementation is split across <code>sema/type_checker.cpp</code> and <code>sema/typecheck_{decl,stmt,expr,type}.cpp</code>, and it operates over a structured <code>ty::Type</code> IR (<code>sema/type.{h,cpp}</code>); since v0.2.4 the type checker is the single resolver via type unification. See also: semantic analysis, type inference, symbol table, ty::Type IR, type unification.</p>
+<p><strong>type coercion</strong>
+Implicit or explicit conversion of a value from one type to another. Eskiu requires explicit casts for most conversions (e.g., <code>(int)myFloat</code>). The type checker identifies cases where implicit promotion is safe (e.g., widening integer types in expressions) and emits the appropriate LLVM extension or truncation instructions. See also: type inference, CastExpr.</p>
+<p><strong>type inference</strong>
+The compiler's ability to deduce the type of an expression or variable from context without an explicit annotation. Eskiu performs limited local type inference — for example, the right-hand side of a declaration can constrain the variable's type — but does not perform full Hindley-Milner inference. Explicit type annotations are generally required. See also: type checker, VarDecl.</p>
+<p><strong>type normalization</strong>
+The process of canonicalizing type names to a single internal representation before comparison or storage. Eskiu maps source-level aliases to canonical forms (e.g., <code>int</code> -&gt; <code>i32</code>, <code>uint8</code> -&gt; <code>u8</code>, <code>*T</code> and <code>T*</code> both -&gt; pointer-to-T) so that the type checker and code generator operate on a consistent set of type descriptors. See also: type checker, pointer type.</p>
+<p><strong>type unification</strong>
+The process of reconciling two <code>ty::Type</code> values into a single consistent type — for example matching a call argument against a parameter, or inferring a generic type parameter from the types supplied at a call site. Introduced in v0.2.4, unification makes the type checker the single authority on type resolution, so code generation no longer re-derives types from name strings. See also: ty::Type IR, type checker, type inference.</p>
+<h2 id="u">U</h2>
+<p><strong>unary operator</strong>
+An operator that takes a single operand. Eskiu unary operators: <code>-</code> (arithmetic negation), <code>!</code> (logical not), <code>*</code> (pointer dereference), <code>&amp;</code> (address-of). Represented in the AST as <code>UnaryExpr</code>. See also: binary operator.</p>
+<h2 id="v">V</h2>
+<p><strong>variadic</strong>
+A function that accepts a variable number of arguments after a fixed parameter list, indicated by <code>...</code> in its signature. Used primarily for C-interop functions such as <code>printf</code>. The type checker allows variadic calls to accept any arguments beyond the fixed parameters; LLVM emits a variadic function declaration. See also: ExternDecl.</p>
+<p><strong>VarDecl</strong>
+AST node representing the declaration of a local or global variable. Stores the variable's name, declared type (may be inferred), and optional initializer expression. The type checker validates that the initializer type matches the declared type; the code generator emits an <code>alloca</code> and an optional <code>store</code>. Supports both C-style (<code>int x = 5;</code>) and <code>let</code>-style (<code>let x: int = 5;</code>) syntax. See also: alloca, declaration, type inference.</p>
+<p><strong>visitor pattern</strong>
+Object-oriented design pattern in which an external object (the visitor) defines operations on the nodes of a data structure without modifying those nodes. Eskiu's AST nodes expose an <code>accept(ASTVisitor&amp;)</code> method; the type checker and code generator each implement <code>ASTVisitor</code> to walk the tree. This separates compiler passes from AST node definitions. See also: ASTVisitor, AST.</p>
+<p><strong>vtable</strong>
+A table of function pointers, one per method of an interface, shared by all values of a given concrete type. It is the second word of an interface fat pointer <code>{data_ptr, vtable_ptr}</code>: a method call loads the target function from the vtable at a fixed slot and invokes it with the data pointer as the receiver, giving dynamic dispatch. See also: interface, fat pointer.</p>
+<hr>
+<ul>
+<li><a href="https://github.com/doranteseduardo/eskiu/blob/main/docs/dev/architecture.md">architecture.md</a> — Compiler architecture and pass pipeline</li>
+<li><a href="spec.html">spec.md</a> — Full language specification</li>
+<li><a href="https://github.com/doranteseduardo/eskiu/blob/main/docs/dev/design.md">design.md</a> — Rationale for key design choices</li>
+<li><a href="https://github.com/doranteseduardo/eskiu/blob/main/docs/dev/phases.md">phases.md</a> — Compiler development roadmap</li>
+</ul>
+    </div>
+    <div class="foot"><a href="../index.html">← Back to eskiu</a></div>
+  </div>
+</body>
+</html>

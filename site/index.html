@@ -988,9 +988,7 @@
           <a href="#examples">Examples</a>
           <a href="#try">Try it</a>
           <a href="the-book-of-eskiu.html">Book</a>
-          <a href="https://github.com/doranteseduardo/eskiu/tree/main/docs/lang"
-            >Docs</a
-          >
+          <a href="docs/index.html">Docs</a>
           <a class="nav-gh" href="https://github.com/doranteseduardo/eskiu">
             <svg
               width="14"
@@ -1022,11 +1020,7 @@
               from bare-metal kernels to HTTP/2 servers.
             </p>
             <div class="hero-btns">
-              <a
-                class="btn-w"
-                href="https://github.com/doranteseduardo/eskiu/blob/main/QUICKSTART.md"
-                >Get started →</a
-              >
+              <a class="btn-w" href="quickstart.html">Get started →</a>
               <a class="btn-o" href="https://github.com/doranteseduardo/eskiu"
                 >View on GitHub</a
               >
@@ -1313,8 +1307,8 @@
         <span class="label">Try it</span>
         <h2>Run Eskiu in your browser.</h2>
         <p class="lead">
-          Edit the code and hit Run. It compiles via LLVM and executes on a
-          sandboxed server — the same <code>eskiuc run</code> you'd use locally.
+          Write some Eskiu and run it. The server compiles it with LLVM and
+          runs it through the same <code>eskiuc run</code> you have locally.
         </p>
         <div class="try-grid">
           <div class="pg-panel">
@@ -1427,17 +1421,20 @@
     <div class="start" id="start">
       <div class="wrap">
         <span class="label">Get started</span>
-        <h2>Read the quickstart.</h2>
+        <h2>Download the compiler.</h2>
         <p class="lead">
-          LLVM and a C toolchain are the only dependencies. The quickstart walks
-          you through building the compiler and running your first program.
+          Grab a prebuilt binary, untar it into <code>/usr/local</code>, and
+          run <code style="white-space: nowrap">eskiuc --version</code>. The
+          stdlib is bundled — imports work right away.
         </p>
-        <div style="margin-top: 1.75rem">
-          <a
-            class="btn-w"
-            href="https://github.com/doranteseduardo/eskiu/blob/main/QUICKSTART.md"
-            >Read the quickstart →</a
-          >
+        <div class="hero-btns" style="margin-top: 1.75rem">
+          <a class="btn-w" href="../assets/eskiuc-linux-x86_64.tar.gz" download>
+            ↓ Linux (x86-64)
+          </a>
+          <a class="btn-w" href="../assets/eskiuc-macos-arm64.tar.gz" download>
+            ↓ macOS (Apple Silicon)
+          </a>
+          <a class="btn-o" href="quickstart.html">Read the quickstart →</a>
         </div>
       </div>
     </div>
@@ -1452,10 +1449,7 @@
           <a href="the-book-of-eskiu.html"
             >The Book</a
           >
-          <a
-            href="https://github.com/doranteseduardo/eskiu/blob/main/docs/lang/getting-started.md"
-            >Docs</a
-          >
+          <a href="docs/index.html">Docs</a>
           <a
             href="https://github.com/doranteseduardo/eskiu/blob/main/docs/dev/architecture.md"
             >Internals</a
@@ -1484,18 +1478,18 @@
 
       /* ── Playground ──────────────────────────────────────────────── */
       // Point this at your VPS endpoint (reverse-proxied to the Docker API).
-      const PLAYGROUND_API = "https://api.eskiu-lang.org";
+      const PLAYGROUND_API = "https://eskiu-playground-4cb1.orvex.cloud";
 
       const EXAMPLES = {
         hello: `extern int printf(string fmt, ...);
-import <list>;
+
+int add(int a, int b) {
+    return a + b;
+}
 
 int main() {
-    let nums: List<int>;
-    List_init(&nums, 4);
-    for (i in 0..5) { List_push(&nums, i * i); }
-
-    for (n in nums) { printf("%d\\n", n); }   // 0 1 4 9 16
+    printf("Hello from Eskiu!\\n");
+    printf("2 + 3 = %d\\n", add(2, 3));
     return 0;
 }
 `,
