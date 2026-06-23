@@ -16,15 +16,33 @@ POST /run
 
 `GET /healthz` → `{ "ok": true }` once the compiler is present.
 
-## Build (from the repo root)
+## The vendored compiler (`dist/`)
 
-The image compiles `eskiuc` from source, so the build context is the repo root:
+The repo is private, so the image can't pull the release asset during a build.
+Instead the Linux compiler is **vendored** in `dist/` (committed) and copied in:
 
-```bash
-docker build -f playground/Dockerfile -t eskiu-playground .
+```
+dist/bin/eskiuc
+dist/lib/eskiu/stdlib/...
 ```
 
-First build is slow (it installs LLVM 22 and builds the compiler).
+Refresh it whenever you cut a new release:
+
+```bash
+./update-dist.sh            # latest tag
+./update-dist.sh v0.2.5     # a specific tag
+```
+
+(The release binary statically links LLVM, so the image stays small — it only
+needs a few shared libs + `gcc` as the C linker for `eskiuc run`.)
+
+## Build
+
+The build context is **this directory** (`playground/`):
+
+```bash
+docker build -t eskiu-playground .
+```
 
 ## Run on the VPS
 
