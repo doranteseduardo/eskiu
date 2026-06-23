@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Compiler C++ API · Eskiu docs</title>
+  <meta name="description" content="This document describes the public C++ API of the Eskiu compiler components. It" />
+  <link rel="canonical" href="https://eskiu-lang.org/docs/api.html" />
+  <link rel="icon" type="image/png" href="../../assets/logo.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <style>*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #f9f7f3; --surface: #f2efe8; --border: #ddd8ce;
+  --ink: #1b1915; --ink2: #6b6560; --purple: #4c31bb; --purple-lt: #6448d4;
+  --code: #1b1728; --code-bd: #2c2444;
+  --sans: "Space Grotesk", system-ui, -apple-system, sans-serif;
+  --mono: "JetBrains Mono", Menlo, monospace;
+}
+body { background: var(--bg); color: var(--ink); font-family: var(--sans);
+       line-height: 1.65; -webkit-font-smoothing: antialiased; }
+.wrap { max-width: 800px; margin: 0 auto; padding: 2.25rem 1.25rem 5rem; }
+.top { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 1.5rem; }
+.top img { width: 30px; height: 30px; }
+.top a { color: var(--ink2); text-decoration: none; font-size: 0.85rem; }
+.top a:hover { color: var(--purple); }
+.docnav { display: flex; flex-wrap: wrap; gap: 0.35rem 0.5rem; margin-bottom: 2.5rem;
+          padding-bottom: 1.25rem; border-bottom: 1px solid var(--border); }
+.docnav a { font-size: 0.8rem; color: var(--ink2); text-decoration: none;
+            padding: 0.25rem 0.6rem; border-radius: 6px; border: 1px solid transparent; }
+.docnav a:hover { color: var(--purple); background: var(--surface); }
+.docnav a.active { color: var(--purple); border-color: var(--border); background: #fff; font-weight: 600; }
+.content h1 { font-size: clamp(1.7rem, 4.5vw, 2.4rem); letter-spacing: -0.03em;
+              line-height: 1.12; margin: 0 0 1.25rem; }
+.content h2 { font-size: 1.35rem; letter-spacing: -0.02em; margin: 2.5rem 0 0.85rem;
+              padding-top: 0.5rem; }
+.content h3 { font-size: 1.08rem; margin: 1.75rem 0 0.6rem; }
+.content h4 { font-size: 0.95rem; margin: 1.4rem 0 0.5rem; color: var(--ink2); }
+.content p { margin: 0 0 1rem; }
+.content a { color: var(--purple); }
+.content ul, .content ol { margin: 0 0 1rem 1.3rem; }
+.content li { margin-bottom: 0.4rem; }
+.content strong { font-weight: 600; }
+.content hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+.content blockquote { border-left: 3px solid var(--purple); background: var(--surface);
+                      padding: 0.8rem 1.1rem; border-radius: 0 8px 8px 0; margin: 0 0 1.25rem;
+                      color: var(--ink2); }
+.content blockquote p:last-child { margin-bottom: 0; }
+.content code { font-family: var(--mono); font-size: 0.86em; background: var(--surface);
+                padding: 0.1em 0.35em; border-radius: 4px; }
+.content pre { background: var(--code); border: 1px solid var(--code-bd); border-radius: 8px;
+               padding: 0.95rem 1.1rem; margin: 0 0 1.5rem; overflow-x: auto;
+               font-family: var(--mono); font-size: 0.78rem; line-height: 1.75; color: #b4bccc; }
+.content pre code { background: none; padding: 0; font-size: inherit; color: inherit; }
+.tablewrap { overflow-x: auto; margin: 0 0 1.5rem; }
+.content table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+.content th, .content td { text-align: left; padding: 0.5rem 0.75rem;
+                          border-bottom: 1px solid var(--border); vertical-align: top; }
+.content th { color: var(--ink2); font-weight: 600; white-space: nowrap; }
+.content td code { white-space: nowrap; }
+.foot { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--border);
+        font-size: 0.9rem; color: var(--ink2); }</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <img src="../../assets/logo.png" alt="Eskiu" />
+      <a href="../index.html">← eskiu</a>
+    </div>
+    <nav class="docnav"><a href="index.html">Overview</a><a href="getting-started.html">Getting started</a><a href="spec.html">Spec</a><a href="grammar.html">Grammar</a><a href="build.html">Tooling</a><a href="api.html" class="active">Compiler API</a><a href="glossary.html">Glossary</a></nav>
+    <div class="content">
+<h1 id="eskiu-compiler-c-api-reference">Eskiu Compiler C++ API Reference</h1>
+<p>This document describes the public C++ API of the Eskiu compiler components. It
+is intended for developers embedding the compiler as a library or building
+additional analysis and transformation passes on the existing infrastructure.</p>
+<p>The compiler is built with C++17 and links against LLVM. All public headers live
+under the project root; include paths are relative to it. The pipeline is a chain
+of four passes — lex, parse, type-check, code-generate — with an async-lowering
+pass between type checking and code generation. Each pass is an independent class
+that can be driven on its own.</p>
+<hr>
+<h2 id="lexer">Lexer</h2>
+<p>Header: <code>lexer/lexer.h</code></p>
+<pre><code class="language-cpp">class Lexer {
+public:
+    explicit Lexer(const std::string&amp; source,
+                   std::map&lt;std::string, Macro&gt;* macros = nullptr,
+                   const std::string&amp; filename = &quot;&quot;);
+
+    Token next_token();          // produce the next token; returns EOF_TOKEN at end
+    void  print_all_tokens();    // debugging dump (drives --test-lexer)
+
+    bool hadError = false;       // set on a lexical error; the driver aborts before parsing
+};
+</code></pre>
+<p>The lexer runs a small preprocessor pass before tokenizing. The optional <code>macros</code>
+table is shared across files so <code>#define</code>s propagate through <code>import</code> and
+multi-file builds; <code>filename</code> is exposed to the preprocessor as <code>__FILE__</code>.</p>
+<p>A streaming lexer: call <code>next_token()</code> until it returns a <code>Token</code> of type
+<code>TokenType::EOF_TOKEN</code>. Callers collect the tokens into a <code>std::vector&lt;Token&gt;</code> for
+the parser (pushing the final EOF token themselves).</p>
+<h3 id="token-tokentype">Token / TokenType</h3>
+<pre><code class="language-cpp">enum class TokenType { /* keywords, operators, delimiters, literals, special */ };
+
+struct Token {
+    TokenType   type;
+    std::string value;
+    int         line;
+    int         column;
+
+    Token(TokenType type = TokenType::UNKNOWN, const std::string&amp; value = &quot;&quot;,
+          int line = 0, int column = 0);
+};
+
+std::string tokenTypeToString(TokenType type);   // free function
+</code></pre>
+<p><code>TokenType</code> enumerates every category the lexer recognizes: keywords (<code>INT</code>,
+<code>RETURN</code>, <code>ASYNC</code>, <code>AWAIT</code>, <code>MATCH</code>, <code>ENUM</code>, <code>INTRINSIC</code>, …), operators (<code>EQ</code>,
+<code>EQEQ</code>, <code>LSHIFT</code>, …), delimiters (<code>LBRACE</code>, <code>LBRACKET</code>, <code>ARROW</code>, <code>RANGE</code>, …),
+literals (<code>INT_LIT</code>, <code>FLOAT_LIT</code>, <code>STRING_LIT</code>, <code>CHAR_LIT</code>, <code>IDENT</code>), and the
+specials <code>PRAGMA</code>, <code>EOF_TOKEN</code>, <code>UNKNOWN</code>. Every <code>Token</code> carries its source
+location (1-based line and column).</p>
+<p>A <code>Macro</code> is the preprocessor's record of a <code>#define</code> — object-like or
+function-like — with its parameter names and body text.</p>
+<hr>
+<h2 id="parser">Parser</h2>
+<p>Header: <code>parser/parser.h</code></p>
+<pre><code class="language-cpp">class Parser {
+public:
+    explicit Parser(const std::vector&lt;Token&gt;&amp; tokens);
+
+    std::shared_ptr&lt;Program&gt; parse();   // returns nullptr if any declaration failed
+
+    bool hadError = false;              // set when a declaration/import failed to parse
+
+    std::string                basedir;             // dir of the current file (relative imports)
+    std::string                stdlibPath;          // stdlib root (&lt;module&gt; imports)
+    std::set&lt;std::string&gt;*     importedFiles = nullptr;   // shared dedup set
+    std::map&lt;std::string,Macro&gt;* macros = nullptr;        // shared macro table
+    std::set&lt;std::string&gt;*     sharedTypeNames = nullptr; // type names across all files
+};
+</code></pre>
+<p>A hand-written recursive-descent parser that builds the AST. <code>parse()</code> consumes
+the token vector and returns a <code>std::shared_ptr&lt;Program&gt;</code>; on a parse failure it
+prints diagnostics to stderr, sets <code>hadError</code>, and returns <code>nullptr</code>, so callers
+fail loudly rather than silently dropping code.</p>
+<p>The public fields wire up multi-file compilation: <code>basedir</code> and <code>stdlibPath</code>
+resolve <code>import "file.esk"</code> and <code>import &lt;module&gt;</code> respectively; <code>importedFiles</code>,
+<code>macros</code>, and <code>sharedTypeNames</code> are shared with the sub-parsers spawned for
+imported files so deduplication, macros, and declared type names propagate across
+the whole compilation.</p>
+<hr>
+<h2 id="type-checker">Type Checker</h2>
+<p>Header: <code>sema/type_checker.h</code></p>
+<pre><code class="language-cpp">class TypeChecker : public ASTVisitor {
+public:
+    TypeChecker();
+
+    bool check(Program* program);          // entry point; returns false if errors were found
+
+    std::string getExpressionType(Expr* expr);
+
+    bool warnAll   = false;                // -Wall: lint warnings
+    bool warnExtra = false;                // -Wextra: signed/unsigned mismatch, etc.
+
+    // LSP / tooling
+    std::string sourceFile = &quot;unknown&quot;;    // file name for diagnostics
+    std::string getTypeAtPosition(int line, int col) const;   // --hover-at
+    std::string getDefinitionAt(int line, int col) const;     // --definition-at
+};
+</code></pre>
+<p><code>check()</code> takes a raw <code>Program*</code> (it does not own the AST) and runs a two-pass
+semantic analysis: a first pass registers top-level declarations (functions,
+structs, templates, interfaces, enums, type aliases) so order is irrelevant, and
+a second pass type-checks bodies. It returns <code>false</code> if any error was reported,
+and accumulates errors with <code>file:line:col: message</code> locations. <code>warnAll</code> and
+<code>warnExtra</code> enable lint diagnostics.</p>
+<p>The tooling interface backs the editor integration: after a successful <code>check()</code>,
+<code>getTypeAtPosition(line, col)</code> returns the inferred type of the expression (or
+declared name) under a 1-based cursor, and <code>getDefinitionAt(line, col)</code> returns
+the definition location of the symbol there. <code>getExpressionType(Expr*)</code> returns
+the cached type of an already-visited expression node.</p>
+<p>As an <code>ASTVisitor</code>, the type checker overrides a <code>visit</code> method for every node
+kind (declarations, statements, expressions); these are the traversal mechanism
+and are not normally called directly.</p>
+<hr>
+<h2 id="async-transform">Async Transform</h2>
+<p>Header: <code>sema/async_transform.h</code></p>
+<pre><code class="language-cpp">class AsyncTransform {
+public:
+    void run(Program* program);
+};
+</code></pre>
+<p>Lowers <code>async</code> functions and <code>await</code> into a resumable state machine. It runs after type
+checking and before code generation: each async function is replaced by a frame
+struct, a <code>__&lt;name&gt;_resume</code> function (an if-chain over the resume state), and a
+constructor that returns <code>*Future&lt;T&gt;</code>. Awaits are lowered across all control flow
+(<code>if</code>/<code>else</code>, <code>while</code>, C-style <code>for</code>, <code>switch</code>, and <code>for</code>-<code>in</code>), including
+<code>break</code>/<code>continue</code> and early <code>return</code>. The output is ordinary Eskiu AST that
+normal code generation handles, so the pass mutates the <code>Program</code> in place and
+returns nothing.</p>
+<hr>
+<h2 id="code-generation">Code Generation</h2>
+<p>Header: <code>codegen/codegen.h</code></p>
+<pre><code class="language-cpp">class CodeGen : public ASTVisitor {
+public:
+    CodeGen();
+    ~CodeGen();
+
+    llvm::Module* generateCode(std::shared_ptr&lt;Program&gt; program);  // null on failure
+    llvm::Module* getModule() const;                               // non-owning
+
+    std::string targetTriple;     // target triple override (empty = native)
+    bool freestanding = false;    // alloc/free → esk_alloc/esk_free instead of malloc/free
+    bool asan  = false;           // AddressSanitizer instrumentation
+    bool ubsan = false;           // trapping bounds checks
+
+    void printIR() const;                            // print IR to stdout (--test-codegen)
+    bool emitObjectFile(const std::string&amp; filename); // write a native object file
+};
+</code></pre>
+<p><code>generateCode()</code> walks the AST via the visitor pattern and emits LLVM IR through
+an <code>IRBuilder</code>, returning the populated <code>llvm::Module*</code> (owned by the <code>CodeGen</code>
+instance; <code>nullptr</code> on failure). <code>getModule()</code> returns the same module
+non-owningly.</p>
+<p>Configure the run before calling <code>generateCode()</code>:</p>
+<ul>
+<li><code>targetTriple</code> — set to cross-compile for a given triple; empty targets the host.</li>
+<li><code>freestanding</code> — predefines <code>__ESKIU_FREESTANDING__</code> and routes heap allocation
+  to user-supplied <code>esk_alloc</code>/<code>esk_free</code>.</li>
+<li><code>asan</code> / <code>ubsan</code> — apply the corresponding LLVM instrumentation pass to the
+  module before object emission.</li>
+</ul>
+<p><code>printIR()</code> prints the module's IR to stdout (valid before the module's ownership
+is transferred away). <code>emitObjectFile(filename)</code> lowers the module to a native
+object file for <code>targetTriple</code> (or the host) and writes it to <code>filename</code>,
+returning <code>true</code> on success.</p>
+<hr>
+<h2 id="pipeline-example">Pipeline Example</h2>
+<p>The passes compose as the driver (<code>main.cpp</code>) uses them:</p>
+<pre><code class="language-cpp">// 1. Lex
+Lexer lexer(source, &amp;macros, filename);
+std::vector&lt;Token&gt; tokens;
+for (Token t = lexer.next_token(); ; t = lexer.next_token()) {
+    tokens.push_back(t);
+    if (t.type == TokenType::EOF_TOKEN) break;
+}
+if (lexer.hadError) return 1;
+
+// 2. Parse
+Parser parser(tokens);
+parser.basedir = ...; parser.stdlibPath = ...;
+std::shared_ptr&lt;Program&gt; program = parser.parse();
+if (!program) return 1;   // parse failure
+
+// 3. Type-check
+TypeChecker checker;
+checker.sourceFile = filename;
+if (!checker.check(program.get())) return 1;   // raw pointer; checker does not own the AST
+
+// 4. Lower async → state machine
+AsyncTransform().run(program.get());
+
+// 5. Code-generate
+CodeGen codegen;
+codegen.targetTriple = ...;          // optional
+codegen.freestanding = freestanding; // optional
+if (!codegen.generateCode(program)) return 1;   // shared_ptr
+codegen.emitObjectFile(&quot;out.o&quot;);     // or codegen.printIR();
+</code></pre>
+<p>Note the ownership boundary: the parser produces a <code>std::shared_ptr&lt;Program&gt;</code>;
+<code>TypeChecker::check</code> and <code>AsyncTransform::run</code> take a raw <code>Program*</code> (they do not
+own it); <code>CodeGen::generateCode</code> takes the <code>shared_ptr</code>.</p>
+    </div>
+    <div class="foot"><a href="../index.html">← Back to eskiu</a></div>
+  </div>
+</body>
+</html>
