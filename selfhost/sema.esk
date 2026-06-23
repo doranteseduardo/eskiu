@@ -30,6 +30,8 @@ struct Sema {
     List<string> types;     // declared type names (struct/union/interface/enum/alias)
     int depth;
     int had_error;
+    int in_async;           // currently inside an `async` function body?
+    int await_seen;         // has an `await` appeared in the current function?
     string filename;
 }
 
@@ -53,6 +55,8 @@ void sema_init(Sema* s, string filename) {
     List_init<string>(&s.types, 32);
     s.depth = 0;                           // global scope
     s.had_error = 0;
+    s.in_async = 0;
+    s.await_seen = 0;
     s.filename = filename;
 }
 
@@ -166,8 +170,17 @@ void sema_expr(Sema* s, *ExprNode e) {
     }
     if (k == EK_LITERAL || k == EK_SIZEOF) { return; }
     if (k == EK_BINARY) { sema_expr(s, e.a); sema_expr(s, e.b); return; }
+    if (k == EK_AWAIT) {
+        if (s.in_async == 0) {
+            s.had_error = 1;
+            printf("error: %s:0:0: await is only allowed inside an async function\n", s.filename);
+        }
+        s.await_seen = 1;
+        sema_expr(s, e.a);
+        return;
+    }
     if (k == EK_UNARY || k == EK_MEMBER || k == EK_QUESTION || k == EK_CAST
-        || k == EK_AWAIT || k == EK_FREECLOSURE || k == EK_THREADCREATE) {
+        || k == EK_FREECLOSURE || k == EK_THREADCREATE) {
         sema_expr(s, e.a);
         return;
     }
@@ -336,6 +349,8 @@ void sema_register_globals(Sema* s, *Program prog) {
 // methods) defined, then walk the body.
 void sema_check_fn(Sema* s, *DeclNode f, int is_method) {
     if (f.body == null) { return; }
+    s.in_async = f.is_async;
+    s.await_seen = 0;
     sema_push(s);
     if (is_method == 1) { sema_define(s, "self"); }
     int j = 0;
@@ -343,6 +358,11 @@ void sema_check_fn(Sema* s, *DeclNode f, int is_method) {
     while (j < m) { sema_define(s, List_get<Param>(&f.params, j).name); j = j + 1; }
     sema_stmt(s, f.body);
     sema_pop(s);
+    if (f.is_async == 1 && s.await_seen == 0) {
+        s.had_error = 1;
+        printf("error: %s:0:0: async function '%s' has no `await`\n", s.filename, f.name);
+    }
+    s.in_async = 0;
 }
 
 // Returns 1 if the program type-checks (no errors), 0 otherwise.
