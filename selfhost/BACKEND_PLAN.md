@@ -111,11 +111,16 @@ its structure:
 - **Diagnostics** — `file:line:col: message`; queue errors (verdict fails if any),
   warnings to stderr; exit 0/1. Driver `tc_main.esk` mirrors `testTypeChecker`.
 
-**Status (2026-06-24): S0 + arg-count DONE.** `tc_parity` HANDLED = {undefined_var,
-arg_count}; still 120/120 verdict parity, 0 false rejections. Writing the arg-count
-check surfaced a **real codegen bug — `&&`/`||` didn't short-circuit** (both operands
-evaluated eagerly); fixed in `codegen/codegen_expr.cpp` (conditional branch + PHI),
-regression test `tests/short_circuit.esk`. See NOTES.md.
+**Status (2026-06-24): the type-free checks DONE** (7 error classes). `tc_parity`
+HANDLED = undefined_var, arg_count, undefined_type, await_outside_async, async_no_await,
+switch_dup_case, unknown_intrinsic. 121/121 verdict parity, 0 false rejections. Built on
+registries: FnSig (arg-count), type-names (undefined_type via struct-init base name),
+in_async/await_seen (async), per-switch case-value dedup, intrinsic name set.
+Writing arg-count surfaced a **real codegen bug — `&&`/`||` didn't short-circuit**
+(fixed in `codegen/codegen_expr.cpp`, regression `tests/short_circuit.esk`; see NOTES).
+**NEXT needs the Type IR:** the remaining classes — const_* (5), undefined_field,
+match_duplicate/nonexhaustive, trait_*, question_bad_return, escaping_param — all need
+expr→type inference, so the Type IR (port ty::Type) is the next big slice.
 
 **Status (2026-06-23): S0 DONE.** `selfhost/{sema,tc_main}.esk` + `tc_parity.sh`
 (CI-wired). Two-pass name resolution (flat `{name,depth}` scope stack — avoids nested-
