@@ -25,7 +25,7 @@ fi
 
 # Error classes (files under tests/errors/) that the current sema slice catches.
 # Grows per slice; the rest are reported as skipped.
-HANDLED="undefined_var"
+HANDLED="undefined_var arg_count"
 
 DRIVER=selfhost/tc_main.esk
 TCBIN="$(mktemp -t tc_main.XXXXXX)"
