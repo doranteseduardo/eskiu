@@ -287,6 +287,35 @@ void sema_stmt(Sema* s, *StmtNode st) {
     if (k == SK_BREAK || k == SK_CONTINUE) { return; }
     if (k == SK_SWITCH || k == SK_MATCH) {
         sema_expr(s, st.expr);             // subject
+        if (k == SK_SWITCH) {
+            // Duplicate case values: compare literal/ident text (under-detects across
+            // different spellings of the same value, but never false-positives).
+            List<string> seen;
+            List_init<string>(&seen, 8);
+            int ci = 0;
+            int cn = List_len<*StmtNode>(&st.items);
+            while (ci < cn) {
+                *StmtNode c = List_get<*StmtNode>(&st.items, ci);
+                if (c.kind == SK_CASE && c.expr != null
+                    && (c.expr.kind == EK_LITERAL || c.expr.kind == EK_IDENT)) {
+                    string key = c.expr.sval;
+                    int j = 0;
+                    int found = 0;
+                    int sn = List_len<string>(&seen);
+                    while (j < sn) {
+                        if (sema_streq(List_get<string>(&seen, j), key) == 1) { found = 1; }
+                        j = j + 1;
+                    }
+                    if (found == 1) {
+                        s.had_error = 1;
+                        printf("error: %s:0:0: duplicate case value in switch\n", s.filename);
+                    } else {
+                        List_push<string>(&seen, key);
+                    }
+                }
+                ci = ci + 1;
+            }
+        }
         int i = 0;
         int n = List_len<*StmtNode>(&st.items);
         while (i < n) { sema_stmt(s, List_get<*StmtNode>(&st.items, i)); i = i + 1; }
@@ -372,6 +401,13 @@ int sema_check(Sema* s, *Program prog) {
     int n = List_len<*DeclNode>(&prog.decls);
     while (i < n) {
         *DeclNode d = List_get<*DeclNode>(&prog.decls, i);
+        if (d.kind == DK_INTRINSIC) {
+            if (sema_streq(d.name, "atomic_load") == 0 && sema_streq(d.name, "atomic_store") == 0
+                && sema_streq(d.name, "atomic_swap") == 0 && sema_streq(d.name, "atomic_cas") == 0) {
+                s.had_error = 1;
+                printf("error: %s:0:0: unknown intrinsic '%s'\n", s.filename, d.name);
+            }
+        }
         if (d.kind == DK_FUNCTION) { sema_check_fn(s, d, 0); }
         if (d.kind == DK_STRUCT) {
             int k = 0;
