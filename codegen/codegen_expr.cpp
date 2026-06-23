@@ -78,6 +78,36 @@ void CodeGen::visit(BinaryExpr* node) {
         return;
     }
 
+    // Short-circuit logical operators: the RHS must be evaluated ONLY when the LHS
+    // doesn't already decide the result, so a guarded expression like
+    // `p != null && p.field` (or any RHS unsafe when the LHS is false/true) is not
+    // executed. Evaluating both operands eagerly — as the plain path below does —
+    // was a correctness bug.
+    if (node->op == "&&" || node->op == "||") {
+        llvm::Value* l = evaluateExpr(node->left);
+        if (!l->getType()->isIntegerTy(1))
+            l = builder->CreateICmpNE(l, llvm::ConstantInt::get(l->getType(), 0));
+        llvm::BasicBlock* startBB = builder->GetInsertBlock();
+        llvm::BasicBlock* rhsBB  = llvm::BasicBlock::Create(*context, "sc.rhs", currentFunction);
+        llvm::BasicBlock* contBB = llvm::BasicBlock::Create(*context, "sc.cont", currentFunction);
+        if (node->op == "&&")
+            builder->CreateCondBr(l, rhsBB, contBB);   // l true → eval RHS; false → result false
+        else
+            builder->CreateCondBr(l, contBB, rhsBB);   // l true → result true; false → eval RHS
+        builder->SetInsertPoint(rhsBB);
+        llvm::Value* r = evaluateExpr(node->right);
+        if (!r->getType()->isIntegerTy(1))
+            r = builder->CreateICmpNE(r, llvm::ConstantInt::get(r->getType(), 0));
+        llvm::BasicBlock* rhsEndBB = builder->GetInsertBlock();   // RHS may have added blocks
+        builder->CreateBr(contBB);
+        builder->SetInsertPoint(contBB);
+        llvm::PHINode* phi = builder->CreatePHI(llvm::Type::getInt1Ty(*context), 2);
+        phi->addIncoming(builder->getInt1(node->op == "||"), startBB);  // short-circuit value
+        phi->addIncoming(r, rhsEndBB);
+        exprValueStack.push(phi);
+        return;
+    }
+
     llvm::Value* left = evaluateExpr(node->left);
     llvm::Value* right = evaluateExpr(node->right);
 

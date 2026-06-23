@@ -94,38 +94,44 @@ while:                                            ; preds = %merge, %entry
   %3 = load i8, ptr %2, align 1
   %4 = zext i8 %3 to i32
   %5 = icmp ne i32 %4, 0
+  br i1 %5, label %sc.rhs, label %sc.cont
+
+while_body:                                       ; preds = %sc.cont
   %6 = load i32, ptr %i, align 4
-  %7 = load ptr, ptr %b2, align 8
+  %7 = load ptr, ptr %a1, align 8
   %8 = getelementptr i8, ptr %7, i32 %6
   %9 = load i8, ptr %8, align 1
-  %10 = zext i8 %9 to i32
-  %11 = icmp ne i32 %10, 0
-  %12 = select i1 %5, i1 %11, i1 false
-  br i1 %12, label %while_body, label %while_exit
+  %10 = load i32, ptr %i, align 4
+  %11 = load ptr, ptr %b2, align 8
+  %12 = getelementptr i8, ptr %11, i32 %10
+  %13 = load i8, ptr %12, align 1
+  %14 = icmp ne i8 %9, %13
+  br i1 %14, label %then, label %merge
 
-while_body:                                       ; preds = %while
-  %13 = load i32, ptr %i, align 4
-  %14 = load ptr, ptr %a1, align 8
-  %15 = getelementptr i8, ptr %14, i32 %13
-  %16 = load i8, ptr %15, align 1
-  %17 = load i32, ptr %i, align 4
-  %18 = load ptr, ptr %b2, align 8
-  %19 = getelementptr i8, ptr %18, i32 %17
-  %20 = load i8, ptr %19, align 1
-  %21 = icmp ne i8 %16, %20
-  br i1 %21, label %then, label %merge
+while_exit:                                       ; preds = %sc.cont
+  %15 = load i32, ptr %i, align 4
+  %16 = load ptr, ptr %a1, align 8
+  %17 = getelementptr i8, ptr %16, i32 %15
+  %18 = load i8, ptr %17, align 1
+  %19 = load i32, ptr %i, align 4
+  %20 = load ptr, ptr %b2, align 8
+  %21 = getelementptr i8, ptr %20, i32 %19
+  %22 = load i8, ptr %21, align 1
+  %23 = icmp ne i8 %18, %22
+  br i1 %23, label %then3, label %merge4
 
-while_exit:                                       ; preds = %while
-  %22 = load i32, ptr %i, align 4
-  %23 = load ptr, ptr %a1, align 8
-  %24 = getelementptr i8, ptr %23, i32 %22
-  %25 = load i8, ptr %24, align 1
-  %26 = load i32, ptr %i, align 4
-  %27 = load ptr, ptr %b2, align 8
-  %28 = getelementptr i8, ptr %27, i32 %26
-  %29 = load i8, ptr %28, align 1
-  %30 = icmp ne i8 %25, %29
-  br i1 %30, label %then3, label %merge4
+sc.rhs:                                           ; preds = %while
+  %24 = load i32, ptr %i, align 4
+  %25 = load ptr, ptr %b2, align 8
+  %26 = getelementptr i8, ptr %25, i32 %24
+  %27 = load i8, ptr %26, align 1
+  %28 = zext i8 %27 to i32
+  %29 = icmp ne i32 %28, 0
+  br label %sc.cont
+
+sc.cont:                                          ; preds = %sc.rhs, %while
+  %30 = phi i1 [ false, %while ], [ %29, %sc.rhs ]
+  br i1 %30, label %while_body, label %while_exit
 
 then:                                             ; preds = %while_body
   ret i32 0
@@ -253,6 +259,9 @@ entry:
   %x4 = getelementptr inbounds nuw %Pt, ptr %1, i32 0, i32 0
   %x5 = load i32, ptr %x4, align 4
   %2 = icmp eq i32 %x3, %x5
+  br i1 %2, label %sc.rhs, label %sc.cont
+
+sc.rhs:                                           ; preds = %entry
   %3 = load ptr, ptr %a1, align 8
   %y = getelementptr inbounds nuw %Pt, ptr %3, i32 0, i32 1
   %y6 = load i32, ptr %y, align 4
@@ -260,13 +269,16 @@ entry:
   %y7 = getelementptr inbounds nuw %Pt, ptr %4, i32 0, i32 1
   %y8 = load i32, ptr %y7, align 4
   %5 = icmp eq i32 %y6, %y8
-  %6 = select i1 %2, i1 %5, i1 false
+  br label %sc.cont
+
+sc.cont:                                          ; preds = %sc.rhs, %entry
+  %6 = phi i1 [ false, %entry ], [ %5, %sc.rhs ]
   br i1 %6, label %then, label %merge
 
-then:                                             ; preds = %entry
+then:                                             ; preds = %sc.cont
   ret i32 1
 
-merge:                                            ; preds = %entry
+merge:                                            ; preds = %sc.cont
   ret i32 0
 }
 
@@ -873,36 +885,42 @@ while:                                            ; preds = %merge, %entry
   %12 = load i8, ptr %11, align 1
   %13 = zext i8 %12 to i32
   %14 = icmp eq i32 %13, 1
-  %15 = load i32, ptr %n, align 4
-  %16 = load ptr, ptr %m1, align 8
-  %cap8 = getelementptr inbounds nuw %HashMap_int_int, ptr %16, i32 0, i32 3
-  %cap9 = load i32, ptr %cap8, align 4
-  %17 = icmp slt i32 %15, %cap9
-  %18 = select i1 %14, i1 %17, i1 false
-  br i1 %18, label %while_body, label %while_exit
+  br i1 %14, label %sc.rhs, label %sc.cont
 
-while_body:                                       ; preds = %while
-  %19 = load { ptr, ptr }, ptr %eqfn, align 8
-  %fn.ptr10 = extractvalue { ptr, ptr } %19, 0
-  %env.ptr11 = extractvalue { ptr, ptr } %19, 1
-  %20 = load i32, ptr %key2, align 4
+while_body:                                       ; preds = %sc.cont
+  %15 = load { ptr, ptr }, ptr %eqfn, align 8
+  %fn.ptr10 = extractvalue { ptr, ptr } %15, 0
+  %env.ptr11 = extractvalue { ptr, ptr } %15, 1
+  %16 = load i32, ptr %key2, align 4
+  %17 = load i32, ptr %i, align 4
+  %18 = load ptr, ptr %m1, align 8
+  %keys = getelementptr inbounds nuw %HashMap_int_int, ptr %18, i32 0, i32 0
+  %keys12 = load ptr, ptr %keys, align 8
+  %19 = getelementptr i32, ptr %keys12, i32 %17
+  %20 = load i32, ptr %19, align 4
   %21 = load i32, ptr %i, align 4
   %22 = load ptr, ptr %m1, align 8
-  %keys = getelementptr inbounds nuw %HashMap_int_int, ptr %22, i32 0, i32 0
-  %keys12 = load ptr, ptr %keys, align 8
-  %23 = getelementptr i32, ptr %keys12, i32 %21
-  %24 = load i32, ptr %23, align 4
-  %25 = load i32, ptr %i, align 4
-  %26 = load ptr, ptr %m1, align 8
-  %keys13 = getelementptr inbounds nuw %HashMap_int_int, ptr %26, i32 0, i32 0
+  %keys13 = getelementptr inbounds nuw %HashMap_int_int, ptr %22, i32 0, i32 0
   %keys14 = load ptr, ptr %keys13, align 8
-  %27 = getelementptr i32, ptr %keys14, i32 %25
-  %fn.call15 = call i32 %fn.ptr10(ptr %env.ptr11, ptr %key2, ptr %27)
-  %28 = icmp eq i32 %fn.call15, 1
-  br i1 %28, label %then, label %merge
+  %23 = getelementptr i32, ptr %keys14, i32 %21
+  %fn.call15 = call i32 %fn.ptr10(ptr %env.ptr11, ptr %key2, ptr %23)
+  %24 = icmp eq i32 %fn.call15, 1
+  br i1 %24, label %then, label %merge
 
-while_exit:                                       ; preds = %while
+while_exit:                                       ; preds = %sc.cont
   ret i32 0
+
+sc.rhs:                                           ; preds = %while
+  %25 = load i32, ptr %n, align 4
+  %26 = load ptr, ptr %m1, align 8
+  %cap8 = getelementptr inbounds nuw %HashMap_int_int, ptr %26, i32 0, i32 3
+  %cap9 = load i32, ptr %cap8, align 4
+  %27 = icmp slt i32 %25, %cap9
+  br label %sc.cont
+
+sc.cont:                                          ; preds = %sc.rhs, %while
+  %28 = phi i1 [ false, %while ], [ %27, %sc.rhs ]
+  br i1 %28, label %while_body, label %while_exit
 
 then:                                             ; preds = %while_body
   %29 = load ptr, ptr %out3, align 8
@@ -1374,36 +1392,42 @@ while:                                            ; preds = %merge, %entry
   %12 = load i8, ptr %11, align 1
   %13 = zext i8 %12 to i32
   %14 = icmp eq i32 %13, 1
-  %15 = load i32, ptr %n, align 4
-  %16 = load ptr, ptr %m1, align 8
-  %cap8 = getelementptr inbounds nuw %HashMap_Pt_int, ptr %16, i32 0, i32 3
-  %cap9 = load i32, ptr %cap8, align 4
-  %17 = icmp slt i32 %15, %cap9
-  %18 = select i1 %14, i1 %17, i1 false
-  br i1 %18, label %while_body, label %while_exit
+  br i1 %14, label %sc.rhs, label %sc.cont
 
-while_body:                                       ; preds = %while
-  %19 = load { ptr, ptr }, ptr %eqfn, align 8
-  %fn.ptr10 = extractvalue { ptr, ptr } %19, 0
-  %env.ptr11 = extractvalue { ptr, ptr } %19, 1
-  %20 = load %Pt, ptr %key2, align 4
+while_body:                                       ; preds = %sc.cont
+  %15 = load { ptr, ptr }, ptr %eqfn, align 8
+  %fn.ptr10 = extractvalue { ptr, ptr } %15, 0
+  %env.ptr11 = extractvalue { ptr, ptr } %15, 1
+  %16 = load %Pt, ptr %key2, align 4
+  %17 = load i32, ptr %i, align 4
+  %18 = load ptr, ptr %m1, align 8
+  %keys = getelementptr inbounds nuw %HashMap_Pt_int, ptr %18, i32 0, i32 0
+  %keys12 = load ptr, ptr %keys, align 8
+  %19 = getelementptr %Pt, ptr %keys12, i32 %17
+  %20 = load %Pt, ptr %19, align 4
   %21 = load i32, ptr %i, align 4
   %22 = load ptr, ptr %m1, align 8
-  %keys = getelementptr inbounds nuw %HashMap_Pt_int, ptr %22, i32 0, i32 0
-  %keys12 = load ptr, ptr %keys, align 8
-  %23 = getelementptr %Pt, ptr %keys12, i32 %21
-  %24 = load %Pt, ptr %23, align 4
-  %25 = load i32, ptr %i, align 4
-  %26 = load ptr, ptr %m1, align 8
-  %keys13 = getelementptr inbounds nuw %HashMap_Pt_int, ptr %26, i32 0, i32 0
+  %keys13 = getelementptr inbounds nuw %HashMap_Pt_int, ptr %22, i32 0, i32 0
   %keys14 = load ptr, ptr %keys13, align 8
-  %27 = getelementptr %Pt, ptr %keys14, i32 %25
-  %fn.call15 = call i32 %fn.ptr10(ptr %env.ptr11, ptr %key2, ptr %27)
-  %28 = icmp eq i32 %fn.call15, 1
-  br i1 %28, label %then, label %merge
+  %23 = getelementptr %Pt, ptr %keys14, i32 %21
+  %fn.call15 = call i32 %fn.ptr10(ptr %env.ptr11, ptr %key2, ptr %23)
+  %24 = icmp eq i32 %fn.call15, 1
+  br i1 %24, label %then, label %merge
 
-while_exit:                                       ; preds = %while
+while_exit:                                       ; preds = %sc.cont
   ret i32 0
+
+sc.rhs:                                           ; preds = %while
+  %25 = load i32, ptr %n, align 4
+  %26 = load ptr, ptr %m1, align 8
+  %cap8 = getelementptr inbounds nuw %HashMap_Pt_int, ptr %26, i32 0, i32 3
+  %cap9 = load i32, ptr %cap8, align 4
+  %27 = icmp slt i32 %25, %cap9
+  br label %sc.cont
+
+sc.cont:                                          ; preds = %sc.rhs, %while
+  %28 = phi i1 [ false, %while ], [ %27, %sc.rhs ]
+  br i1 %28, label %while_body, label %while_exit
 
 then:                                             ; preds = %while_body
   %29 = load ptr, ptr %out3, align 8
