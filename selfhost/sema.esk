@@ -27,6 +27,7 @@ struct FnSig { string name; int fixed; int variadic; }
 struct Sema {
     List<Sym> syms;
     List<FnSig> fns;
+    List<string> types;     // declared type names (struct/union/interface/enum/alias)
     int depth;
     int had_error;
     string filename;
@@ -49,6 +50,7 @@ int sema_streq(string a, string b) {
 void sema_init(Sema* s, string filename) {
     List_init<Sym>(&s.syms, 64);
     List_init<FnSig>(&s.fns, 32);
+    List_init<string>(&s.types, 32);
     s.depth = 0;                           // global scope
     s.had_error = 0;
     s.filename = filename;
@@ -128,6 +130,28 @@ int sema_find_fn(Sema* s, string name) {
     return 0 - 1;
 }
 
+int sema_is_type(Sema* s, string name) {
+    int i = 0;
+    int n = List_len<string>(&s.types);
+    while (i < n) {
+        if (sema_streq(List_get<string>(&s.types, i), name) == 1) { return 1; }
+        i = i + 1;
+    }
+    return 0;
+}
+
+// Base name of a (possibly generic) type spelling: "Box<int>" -> "Box", "W" -> "W".
+string sema_base_name(string sp) {
+    int n = 0;
+    while (sp[n] != 0 && (int)sp[n] != 60) { n = n + 1; }   // 60 = '<'
+    if ((int)sp[n] == 0) { return sp; }
+    *uint8 buf = alloc<uint8>(n + 1);
+    int i = 0;
+    while (i < n) { buf[i] = (uint8)sp[i]; i = i + 1; }
+    buf[n] = 0;
+    return (string)buf;
+}
+
 // ── expression walk ──
 
 void sema_expr(Sema* s, *ExprNode e) {
@@ -175,7 +199,18 @@ void sema_expr(Sema* s, *ExprNode e) {
         while (i < n) { sema_expr(s, List_get<*ExprNode>(&e.kids, i)); i = i + 1; }
         return;
     }
-    if (k == EK_STRUCTINIT || k == EK_TEMPLATECALL) {   // name is a type/fn, not an ident
+    if (k == EK_STRUCTINIT) {
+        string base = sema_base_name(e.sval);
+        if (sema_is_type(s, base) == 0) {
+            s.had_error = 1;
+            printf("error: %s:0:0: undefined struct '%s'\n", s.filename, base);
+        }
+        int i = 0;
+        int n = List_len<*ExprNode>(&e.kids);
+        while (i < n) { sema_expr(s, List_get<*ExprNode>(&e.kids, i)); i = i + 1; }
+        return;
+    }
+    if (k == EK_TEMPLATECALL) {        // name is a fn, not an ident
         int i = 0;
         int n = List_len<*ExprNode>(&e.kids);
         while (i < n) { sema_expr(s, List_get<*ExprNode>(&e.kids, i)); i = i + 1; }
@@ -283,6 +318,10 @@ void sema_register_globals(Sema* s, *Program prog) {
         }
         if (d.kind == DK_FUNCTION || d.kind == DK_EXTERN || d.kind == DK_INTRINSIC) {
             sema_register_fn(s, d);
+        }
+        if (d.kind == DK_STRUCT || d.kind == DK_UNION || d.kind == DK_INTERFACE
+            || d.kind == DK_ENUM || d.kind == DK_TYPEALIAS) {
+            List_push<string>(&s.types, d.name);
         }
         if (d.kind == DK_ENUM) {
             int j = 0;
