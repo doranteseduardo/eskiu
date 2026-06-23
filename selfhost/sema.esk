@@ -24,12 +24,17 @@ struct Sym { string name; string type; int depth; }
 // checking. `variadic` = trailing `...`; `fixed` = required arg count.
 struct FnSig { string name; int fixed; int variadic; }
 
+// One enum variant, for match exhaustiveness.
+struct EVar { string en; string variant; }
+
 struct Sema {
     List<Sym> syms;
     List<FnSig> fns;
     List<string> types;     // declared type names (struct/union/interface/enum/alias)
     List<string> structs;   // struct names (subset of types; have fields/methods)
     List<string> members;   // "Struct.member" keys for each struct field AND method
+    List<string> enums;     // enum names (for match exhaustiveness)
+    List<EVar> evars;       // every enum's variants
     int depth;
     int had_error;
     int in_async;           // currently inside an `async` function body?
@@ -57,6 +62,8 @@ void sema_init(Sema* s, string filename) {
     List_init<string>(&s.types, 32);
     List_init<string>(&s.structs, 16);
     List_init<string>(&s.members, 64);
+    List_init<string>(&s.enums, 16);
+    List_init<EVar>(&s.evars, 32);
     s.depth = 0;                           // global scope
     s.had_error = 0;
     s.in_async = 0;
@@ -206,6 +213,12 @@ int sema_is_struct(Sema* s, string name) {
 int sema_has_member(Sema* s, string key) {   // key = "Struct.member"
     int i = 0; int n = List_len<string>(&s.members);
     while (i < n) { if (sema_streq(List_get<string>(&s.members, i), key) == 1) { return 1; } i = i + 1; }
+    return 0;
+}
+
+int sema_is_enum(Sema* s, string name) {
+    int i = 0; int n = List_len<string>(&s.enums);
+    while (i < n) { if (sema_streq(List_get<string>(&s.enums, i), name) == 1) { return 1; } i = i + 1; }
     return 0;
 }
 
@@ -390,15 +403,18 @@ void sema_stmt(Sema* s, *StmtNode st) {
             }
         }
         if (k == SK_MATCH) {
-            // Duplicate match arm: same variant name twice (arm label is "Variant(binds)").
+            // Collect arm variants (label is "Variant(binds)" or "_"), catching dups
+            // and noting a `_` wildcard, then check exhaustiveness.
             List<string> seen;
             List_init<string>(&seen, 8);
+            int has_wild = 0;
             int ai = 0;
             int an = List_len<*StmtNode>(&st.items);
             while (ai < an) {
                 *StmtNode arm = List_get<*StmtNode>(&st.items, ai);
                 if (arm.kind == SK_ARM) {
                     string v = sema_base_name(arm.name);
+                    if (sema_streq(v, "_") == 1) { has_wild = 1; }
                     int j = 0;
                     int found = 0;
                     int sn = List_len<string>(&seen);
@@ -414,6 +430,35 @@ void sema_stmt(Sema* s, *StmtNode st) {
                     }
                 }
                 ai = ai + 1;
+            }
+            // Exhaustiveness: without `_`, every variant of the subject's enum must
+            // be covered. Skip if the subject type/enum can't be determined.
+            if (has_wild == 0) {
+                string sty = sema_struct_of_type(sema_infer_type(s, st.expr));
+                if (sema_is_enum(s, sty) == 1) {
+                    int reported = 0;
+                    int ei = 0;
+                    int en = List_len<EVar>(&s.evars);
+                    while (ei < en) {
+                        EVar ev = List_get<EVar>(&s.evars, ei);
+                        if (reported == 0 && sema_streq(ev.en, sty) == 1) {
+                            int j = 0;
+                            int covered = 0;
+                            int sn = List_len<string>(&seen);
+                            while (j < sn) {
+                                if (sema_streq(List_get<string>(&seen, j), ev.variant) == 1) { covered = 1; }
+                                j = j + 1;
+                            }
+                            if (covered == 0) {
+                                s.had_error = 1;
+                                printf("error: %s:0:0: non-exhaustive match on '%s': missing '%s'\n",
+                                       s.filename, sty, ev.variant);
+                                reported = 1;
+                            }
+                        }
+                        ei = ei + 1;
+                    }
+                }
             }
         }
         int i = 0;
@@ -483,9 +528,16 @@ void sema_register_globals(Sema* s, *Program prog) {
             }
         }
         if (d.kind == DK_ENUM) {
+            List_push<string>(&s.enums, d.name);
             int j = 0;
             int m = List_len<Param>(&d.params);
-            while (j < m) { sema_define(s, List_get<Param>(&d.params, j).name, ""); j = j + 1; }
+            while (j < m) {
+                string vn = List_get<Param>(&d.params, j).name;
+                sema_define(s, vn, "");
+                let ev: EVar; ev.en = d.name; ev.variant = vn;
+                List_push<EVar>(&s.evars, ev);
+                j = j + 1;
+            }
         }
         i = i + 1;
     }
