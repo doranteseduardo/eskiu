@@ -1,0 +1,126 @@
+// fs.esk — file system I/O
+//
+// Usage:
+//   import <fs>;
+//
+//   *void f = fs_open("data.bin", "rb");
+//   if (f == null) { /* handle error */ }
+//   int64 n = fs_read(f, buf, len);
+//   fs_close(f);
+
+// ── libc declarations ─────────────────────────────────────────────────────
+
+extern *void  fopen(string path, string mode);
+extern int    fclose(*void fp);
+extern int    fflush(*void fp);
+extern int64  fread(*void buf, int64 size, int64 count, *void fp);
+extern int64  fwrite(*void buf, int64 size, int64 count, *void fp);
+extern *uint8 fgets(*uint8 buf, int n, *void fp);
+extern int    fputs(string s, *void fp);
+extern int    fseek(*void fp, int64 offset, int whence);
+extern int64  ftell(*void fp);
+extern void   rewind(*void fp);
+extern int    feof(*void fp);
+extern int    ferror(*void fp);
+
+import <mem>;   // heap allocation via the built-in alloc<T>, not raw malloc
+
+// ── Open / close ──────────────────────────────────────────────────────────
+
+// Open a file. mode: "r", "w", "rb", "wb", "a", "r+", etc.
+// Returns null on failure.
+*void fs_open(string path, string mode) {
+    return fopen(path, mode);
+}
+
+void fs_close(*void fp) {
+    fclose(fp);
+}
+
+void fs_flush(*void fp) {
+    fflush(fp);
+}
+
+// ── Read ──────────────────────────────────────────────────────────────────
+
+// Read up to n bytes into buf. Returns bytes actually read (0 = EOF).
+int64 fs_read(*void fp, *uint8 buf, int64 n) {
+    return fread(buf, 1, n, fp);
+}
+
+// Read a line into buf (at most n-1 bytes). Returns null on EOF/error.
+*uint8 fs_readline(*void fp, *uint8 buf, int n) {
+    return fgets(buf, n, fp);
+}
+
+// ── Write ─────────────────────────────────────────────────────────────────
+
+int64 fs_write(*void fp, *uint8 buf, int64 n) {
+    return fwrite(buf, 1, n, fp);
+}
+
+int fs_puts(*void fp, string s) {
+    return fputs(s, fp);
+}
+
+// ── Seek / tell ───────────────────────────────────────────────────────────
+
+// whence: 0 = SEEK_SET, 1 = SEEK_CUR, 2 = SEEK_END
+int fs_seek(*void fp, int64 offset, int whence) {
+    return fseek(fp, offset, whence);
+}
+
+int64 fs_tell(*void fp) {
+    return ftell(fp);
+}
+
+// ── File size ─────────────────────────────────────────────────────────────
+
+// Returns the byte size of an open file, restores the seek position.
+int64 fs_size(*void fp) {
+    int64 saved = ftell(fp);
+    fseek(fp, 0, 2);
+    int64 size = ftell(fp);
+    fseek(fp, saved, 0);
+    return size;
+}
+
+// ── Read entire file ──────────────────────────────────────────────────────
+
+// Reads the entire file into a heap-allocated buffer (caller must free).
+// Sets *out_len to the byte count. Returns null on error.
+*uint8 fs_read_all(string path, *int64 out_len) {
+    *void fp = fopen(path, "rb");
+    if (fp == null) { return null; }
+
+    fseek(fp, 0, 2);
+    int64 size = ftell(fp);
+    fseek(fp, 0, 0);
+
+    *uint8 buf = alloc<uint8>(size + 1);
+    if (buf == null) { fclose(fp); return null; }
+
+    int64 n = fread(buf, 1, size, fp);
+    fclose(fp);
+
+    buf[n] = 0;      // null-terminate for text use
+    *out_len = n;
+    return buf;
+}
+
+// ── Write entire buffer to file ───────────────────────────────────────────
+
+// Returns 1 on success, 0 on error.
+int fs_write_all(string path, *uint8 buf, int64 n) {
+    *void fp = fopen(path, "wb");
+    if (fp == null) { return 0; }
+    int64 written = fwrite(buf, 1, n, fp);
+    fclose(fp);
+    if (written == n) { return 1; }
+    return 0;
+}
+
+// ── EOF / error checks ────────────────────────────────────────────────────
+
+int fs_eof(*void fp)   { return feof(fp);   }
+int fs_error(*void fp) { return ferror(fp); }

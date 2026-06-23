@@ -1,0 +1,50 @@
+// List<T> — growable dynamic array.
+// Capacity doubles on overflow; element-by-element copy avoids needing sizeof.
+
+import <mem>;
+
+struct List<T> {
+    *T  data;
+    int size;
+    int cap;
+}
+
+void List_init<T>(List<T>* self, int initial_cap) {
+    int cap = initial_cap;
+    if (cap < 4) cap = 4;
+    self.data = alloc<T>(cap);
+    self.size = 0;
+    self.cap  = cap;
+}
+
+void List_push<T>(List<T>* self, T item) {
+    if (self.size >= self.cap) {
+        int new_cap = self.cap * 2;
+        if (new_cap < 4) new_cap = 4;
+        let new_data: *T = alloc<T>(new_cap);
+        int i = 0;
+        while (i < self.size) {
+            new_data[i] = self.data[i];
+            i += 1;
+        }
+        free(self.data);
+        self.data = new_data;
+        self.cap  = new_cap;
+    }
+    self.data[self.size] = item;
+    self.size = self.size + 1;
+}
+
+T List_get<T>(List<T>* self, int i) {
+    return self.data[i];
+}
+
+int List_len<T>(List<T>* self) {
+    return self.size;
+}
+
+void List_free<T>(List<T>* self) {
+    free(self.data);
+    self.size = 0;
+    self.cap  = 0;
+}

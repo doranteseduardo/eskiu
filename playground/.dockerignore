@@ -1,11 +1,5 @@
-# Keep the build context small (it's the repo root). The compiler is rebuilt
-# from source inside the image, so local build artifacts and docs aren't needed.
-build/
-.git/
-site/
-docs/
-tests/
-editor/
-*.o
-*.out
+# Context is playground/. Keep it small; dist/ IS needed (vendored compiler).
 **/__pycache__/
+*.pyc
+update-dist.sh
+README.md

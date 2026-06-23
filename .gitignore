@@ -41,3 +41,10 @@ CODE_REVIEW_V2.md
 
 # Python bytecode (fuzzer module imports)
 __pycache__/
+
+# Vendored playground compiler — the repo is private, so the Docker image can't
+# fetch the release asset at build time; it's committed under playground/dist.
+# Negations must re-include the directory first, then its contents, and override
+# the bare `eskiuc` / `dist/` rules above.
+!playground/dist/
+!playground/dist/**

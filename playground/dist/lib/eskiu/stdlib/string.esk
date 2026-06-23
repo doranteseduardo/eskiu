@@ -1,0 +1,285 @@
+// String — mutable string with owned buffer
+// Requires: stdlib/mem.esk for alloc/free/memcpy/strlen
+
+import <mem>;
+import <list>;   // String_split collects parts into a List<String>
+
+struct String {
+    *char data;
+    int   len;
+    int   cap;
+}
+
+void String_init(String* self, int initial_cap) {
+    self.data = alloc<char>(initial_cap);
+    self.len  = 0;
+    self.cap  = initial_cap;
+    self.data[0] = 0;
+}
+
+void String_from(String* self, string s) {
+    int n = strlen(s);
+    self.data = alloc<char>(n + 1);
+    memcpy(self.data, s, n + 1);
+    self.len = n;
+    self.cap = n + 1;
+}
+
+*char String_cstr(String* self) {
+    return self.data;
+}
+
+int String_len(String* self) {
+    return self.len;
+}
+
+void String_free(String* self) {
+    free(self.data);
+    self.len = 0;
+    self.cap = 0;
+}
+
+void String_append(String* self, string s) {
+    int slen   = strlen(s);
+    int newlen = self.len + slen;
+    if (newlen >= self.cap) {
+        int newcap = newlen * 2 + 1;
+        let newbuf: *char = alloc<char>(newcap);
+        memcpy(newbuf, self.data, self.len);
+        free(self.data);
+        self.data = newbuf;
+        self.cap  = newcap;
+    }
+    memcpy(self.data + self.len, s, slen + 1);
+    self.len = newlen;
+}
+
+void String_concat(String* self, String* other) {
+    String_append(self, other.data);
+}
+
+// Append a single character, growing the buffer if needed and keeping the
+// trailing NUL so the buffer stays a valid C string.
+void String_push(String* self, char c) {
+    if (self.len + 1 >= self.cap) {
+        int newcap = self.cap * 2 + 2;
+        let newbuf: *char = alloc<char>(newcap);
+        memcpy(newbuf, self.data, self.len);
+        free(self.data);
+        self.data = newbuf;
+        self.cap  = newcap;
+    }
+    self.data[self.len] = c;
+    self.len = self.len + 1;
+    self.data[self.len] = 0;
+}
+
+// Read the i-th character (no bounds check).
+char String_char_at(String* self, int i) {
+    return self.data[i];
+}
+
+// Overwrite the i-th character in place (no bounds check, no length change).
+void String_set(String* self, int i, char c) {
+    self.data[i] = c;
+}
+
+// Reset to the empty string, keeping the allocated buffer.
+void String_clear(String* self) {
+    self.len = 0;
+    self.data[0] = 0;
+}
+
+// First index of c, or -1 if absent.
+int String_index_of(String* self, char c) {
+    int i = 0;
+    while (i < self.len) {
+        if (self.data[i] == c) { return i; }
+        i = i + 1;
+    }
+    return -1;
+}
+
+// 1 if the two Strings hold the same bytes, else 0.
+int String_eq(String* self, String* other) {
+    if (self.len != other.len) { return 0; }
+    int i = 0;
+    while (i < self.len) {
+        if (self.data[i] != other.data[i]) { return 0; }
+        i = i + 1;
+    }
+    return 1;
+}
+
+// 1 if this String equals the C string s, else 0.
+int String_eq_cstr(String* self, string s) {
+    int n = strlen(s);
+    if (self.len != n) { return 0; }
+    int i = 0;
+    while (i < n) {
+        if (self.data[i] != s[i]) { return 0; }
+        i = i + 1;
+    }
+    return 1;
+}
+
+// Reverse the characters in place.
+void String_reverse(String* self) {
+    int i = 0;
+    int j = self.len - 1;
+    while (i < j) {
+        char t = self.data[i];
+        self.data[i] = self.data[j];
+        self.data[j] = t;
+        i = i + 1;
+        j = j - 1;
+    }
+}
+
+// Copy up to `count` characters starting at `start` from self into out.
+// out must already be initialised; it is cleared first.
+void String_substring(String* self, String* out, int start, int count) {
+    String_clear(out);
+    int i = 0;
+    while (i < count) {
+        if (start + i >= self.len) { return; }
+        String_push(out, self.data[start + i]);
+        i = i + 1;
+    }
+}
+
+// Render an integer (with optional minus sign) into self.
+void String_from_int(String* self, int n) {
+    String_clear(self);
+    if (n == 0) {
+        String_push(self, '0');
+        return;
+    }
+    int v   = n;
+    int neg = 0;
+    if (v < 0) {
+        neg = 1;
+        v = -v;
+    }
+    while (v > 0) {
+        String_push(self, (char)((int)'0' + (v % 10)));
+        v = v / 10;
+    }
+    if (neg == 1) { String_push(self, '-'); }
+    String_reverse(self);
+}
+
+// Parse a leading (optionally signed) decimal integer; stops at the first
+// non-digit. Returns 0 for an empty or non-numeric string.
+int String_to_int(String* self) {
+    int result = 0;
+    int i = 0;
+    int neg = 0;
+    int done = 0;
+    if (self.len > 0 && self.data[0] == '-') {
+        neg = 1;
+        i = 1;
+    }
+    while (i < self.len && done == 0) {
+        char c = self.data[i];
+        if (c < '0' || c > '9') {
+            done = 1;
+        } else {
+            result = result * 10 + ((int)c - (int)'0');
+            i = i + 1;
+        }
+    }
+    if (neg == 1) { return -result; }
+    return result;
+}
+
+// 1 if this String begins with the C string `prefix`, else 0.
+int String_starts_with(String* self, string prefix) {
+    int i = 0;
+    while (prefix[i] != 0) {
+        if (i >= self.len || self.data[i] != prefix[i]) { return 0; }
+        i = i + 1;
+    }
+    return 1;
+}
+
+// 1 if this String ends with the C string `suffix`, else 0.
+int String_ends_with(String* self, string suffix) {
+    int slen = strlen(suffix);
+    if (slen > self.len) { return 0; }
+    int off = self.len - slen;
+    int i = 0;
+    while (i < slen) {
+        if (self.data[off + i] != suffix[i]) { return 0; }
+        i = i + 1;
+    }
+    return 1;
+}
+
+// True for ASCII whitespace: space, tab, newline, carriage return.
+int String_is_space(char c) {
+    if (c == 32 || c == 9 || c == 10 || c == 13) { return 1; }
+    return 0;
+}
+
+// Remove leading and trailing ASCII whitespace, in place.
+void String_trim(String* self) {
+    int start = 0;
+    while (start < self.len && String_is_space(self.data[start]) == 1) { start = start + 1; }
+    int end = self.len;
+    while (end > start && String_is_space(self.data[end - 1]) == 1) { end = end - 1; }
+    int n = end - start;
+    if (start > 0) {
+        int i = 0;
+        while (i < n) { self.data[i] = self.data[start + i]; i = i + 1; }
+    }
+    self.len = n;
+    self.data[n] = 0;
+}
+
+// Split on `sep`, one token at a time (streaming — no allocation per call).
+// Start with `pos` = 0; each call fills `out` with the next token, advances
+// `pos`, and returns 1. Returns 0 when there are no more tokens. Consecutive
+// separators (and a trailing one) yield empty tokens.
+//
+//   let tok: String;  String_init(&tok, 8);
+//   int pos = 0;
+//   while (String_next_token(&s, ',', &pos, &tok) == 1) { /* use tok */ }
+//   String_free(&tok);
+int String_next_token(String* self, char sep, *int pos, String* out) {
+    String_clear(out);
+    int p = *pos;
+    if (p > self.len) { return 0; }
+    while (p < self.len && self.data[p] != sep) {
+        String_push(out, self.data[p]);
+        p = p + 1;
+    }
+    if (p < self.len) { *pos = p + 1; }          // skip the separator
+    else              { *pos = self.len + 1; }   // last token; stop next call
+    return 1;
+}
+
+// Split on `sep`, collecting every part into `out` (a List<String> the caller
+// has initialised). Each part is a freshly allocated String the list owns;
+// consecutive separators yield empty parts. Free with String_split_free.
+void String_split(String* self, char sep, List<String>* out) {
+    let tok: String;  String_init(&tok, 8);
+    int pos = 0;
+    while (String_next_token(self, sep, &pos, &tok) == 1) {
+        let copy: String;  String_init(&copy, 8);
+        String_append(&copy, String_cstr(&tok));
+        List_push<String>(out, copy);
+    }
+    String_free(&tok);
+}
+
+// Free every part of a split result, then the list itself.
+void String_split_free(List<String>* parts) {
+    int i = 0;
+    while (i < List_len<String>(parts)) {
+        let p: String = List_get<String>(parts, i);
+        String_free(&p);
+        i = i + 1;
+    }
+    List_free<String>(parts);
+}

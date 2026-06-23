@@ -1,0 +1,114 @@
+// net.esk — TCP sockets over the POSIX BSD socket API.
+//
+// Hosted mode only (uses libc); link normally, no extra flags. The raw
+// `extern`s are exposed for advanced use, but most code only needs the
+// `net_*` helpers below.
+//
+//   import <net>;
+//   int fd = net_tcp_listen(8080);
+//   int c  = net_accept(fd);
+//   net_send_str(c, "hello\n");
+//   net_close(c);
+
+extern int   socket(int domain, int type, int protocol);
+extern int   bind(int fd, *void addr, int len);
+extern int   listen(int fd, int backlog);
+extern int   accept(int fd, *void addr, *int len);
+extern int   connect(int fd, *void addr, int len);
+extern int   close(int fd);
+extern int   setsockopt(int fd, int level, int opt, *void val, int len);
+extern int64 send(int fd, *void buf, int64 n, int flags);
+extern int64 recv(int fd, *void buf, int64 n, int flags);
+extern uint16 htons(uint16 x);
+extern uint32 htonl(uint32 x);
+extern uint32 inet_addr(string dotted);
+extern int    strlen(string s);
+
+// sockaddr_in — an exact 16-byte layout (hence `packed`). macOS leads with a
+// `sin_len` byte; Linux starts with a 2-byte `sin_family`. Selected at compile
+// time via the predefined `__APPLE__` macro.
+#ifdef __APPLE__
+packed struct sockaddr_in {
+    uint8  sin_len;
+    uint8  sin_family;
+    uint16 sin_port;
+    uint32 sin_addr;
+    uint8  z0; uint8 z1; uint8 z2; uint8 z3;
+    uint8  z4; uint8 z5; uint8 z6; uint8 z7;
+}
+#else
+packed struct sockaddr_in {
+    uint16 sin_family;
+    uint16 sin_port;
+    uint32 sin_addr;
+    uint8  z0; uint8 z1; uint8 z2; uint8 z3;
+    uint8  z4; uint8 z5; uint8 z6; uint8 z7;
+}
+#endif
+
+// AF_INET / SOCK_STREAM match across macOS and Linux; SOL_SOCKET and
+// SO_REUSEADDR do not, so they are selected per platform.
+#define AF_INET     2
+#define SOCK_STREAM 1
+#ifdef __APPLE__
+#define SOL_SOCKET    65535
+#define SO_REUSEADDR  4
+#else
+#define SOL_SOCKET    1
+#define SO_REUSEADDR  2
+#endif
+
+// Fill a sockaddr_in with a network-order address and a host-order port.
+void net_fill_addr(sockaddr_in* a, uint32 net_ip, uint16 port) {
+#ifdef __APPLE__
+    a.sin_len = 16;
+#endif
+    a.sin_family = AF_INET;
+    a.sin_port   = htons(port);
+    a.sin_addr   = net_ip;
+}
+
+// Open a listening TCP socket on 0.0.0.0:port. Returns the fd, or -1 on error.
+int net_tcp_listen(uint16 port) {
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) { return -1; }
+    int one = 1;
+    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (*void)&one, 4);
+    let a: sockaddr_in;
+    net_fill_addr(&a, 0, port);              // INADDR_ANY
+    if (bind(fd, (*void)&a, 16) != 0) { close(fd); return -1; }
+    if (listen(fd, 16) != 0)          { close(fd); return -1; }
+    return fd;
+}
+
+// Accept the next pending connection. Returns the connection fd, or -1.
+int net_accept(int listen_fd) {
+    return accept(listen_fd, (*void)0, (*int)0);
+}
+
+// Accept the next connection and write the peer's IPv4 address (network byte
+// order) into *peer_ip (pass null to ignore). Returns the connection fd, or -1.
+// Enables real per-client rate limiting / logging — net_accept alone drops the
+// peer address.
+int net_accept_addr(int listen_fd, *uint32 peer_ip) {
+    let a: sockaddr_in;
+    let alen: int = 16;
+    int c = accept(listen_fd, (*void)&a, &alen);
+    if (c >= 0 && peer_ip != null) { peer_ip[0] = a.sin_addr; }
+    return c;
+}
+
+// Connect to a dotted-quad host (e.g. "127.0.0.1") and port. Returns fd, or -1.
+int net_tcp_connect(string host, uint16 port) {
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) { return -1; }
+    let a: sockaddr_in;
+    net_fill_addr(&a, inet_addr(host), port);
+    if (connect(fd, (*void)&a, 16) != 0) { close(fd); return -1; }
+    return fd;
+}
+
+int64 net_send(int fd, *void buf, int64 n) { return send(fd, buf, n, 0); }
+int64 net_recv(int fd, *void buf, int64 n) { return recv(fd, buf, n, 0); }
+int64 net_send_str(int fd, string s)       { return send(fd, (*void)s, strlen(s), 0); }
+void  net_close(int fd)                    { close(fd); }
