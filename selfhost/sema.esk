@@ -18,7 +18,7 @@ import <list>;
 import <mem>;
 import "ast.esk";
 
-struct Sym { string name; int depth; }
+struct Sym { string name; string type; int depth; }
 
 // Signature of a non-generic top-level function/extern/intrinsic, for arg-count
 // checking. `variadic` = trailing `...`; `fixed` = required arg count.
@@ -28,6 +28,8 @@ struct Sema {
     List<Sym> syms;
     List<FnSig> fns;
     List<string> types;     // declared type names (struct/union/interface/enum/alias)
+    List<string> structs;   // struct names (subset of types; have fields/methods)
+    List<string> members;   // "Struct.member" keys for each struct field AND method
     int depth;
     int had_error;
     int in_async;           // currently inside an `async` function body?
@@ -53,6 +55,8 @@ void sema_init(Sema* s, string filename) {
     List_init<Sym>(&s.syms, 64);
     List_init<FnSig>(&s.fns, 32);
     List_init<string>(&s.types, 32);
+    List_init<string>(&s.structs, 16);
+    List_init<string>(&s.members, 64);
     s.depth = 0;                           // global scope
     s.had_error = 0;
     s.in_async = 0;
@@ -72,9 +76,10 @@ void sema_pop(Sema* s) {
     s.depth = d - 1;
 }
 
-void sema_define(Sema* s, string name) {
+void sema_define(Sema* s, string name, string type) {
     let sym: Sym;
     sym.name = name;
+    sym.type = type;
     sym.depth = s.depth;
     List_push<Sym>(&s.syms, sym);
 }
@@ -86,6 +91,17 @@ int sema_lookup(Sema* s, string name) {
         i = i - 1;
     }
     return 0;
+}
+
+// Declared type of `name` (innermost binding), or "" if unbound / untyped.
+string sema_lookup_type(Sema* s, string name) {
+    int i = List_len<Sym>(&s.syms) - 1;
+    while (i >= 0) {
+        Sym sym = List_get<Sym>(&s.syms, i);
+        if (sema_streq(sym.name, name) == 1) { return sym.type; }
+        i = i - 1;
+    }
+    return "";
 }
 
 // Is `name` bound in a local (non-global) scope? The innermost binding wins, so a
@@ -156,6 +172,50 @@ string sema_base_name(string sp) {
     return (string)buf;
 }
 
+string sema_cat(string a, string b) {
+    int la = 0; while (a[la] != 0) { la = la + 1; }
+    int lb = 0; while (b[lb] != 0) { lb = lb + 1; }
+    *uint8 buf = alloc<uint8>(la + lb + 1);
+    int i = 0; while (i < la) { buf[i] = (uint8)a[i]; i = i + 1; }
+    int j = 0; while (j < lb) { buf[la + j] = (uint8)b[j]; j = j + 1; }
+    buf[la + lb] = 0;
+    return (string)buf;
+}
+
+// Reduce a type spelling to its base struct name: strip leading '*'/spaces and any
+// generic '<...>' or pointer suffix. "*Point" -> "Point", "List<int>" -> "List".
+string sema_struct_of_type(string t) {
+    int i = 0;
+    while ((int)t[i] == 42 || (int)t[i] == 32) { i = i + 1; }       // skip '*' / ' '
+    int j = i;
+    while (t[j] != 0 && (int)t[j] != 60 && (int)t[j] != 42 && (int)t[j] != 32) { j = j + 1; }
+    int len = j - i;
+    *uint8 buf = alloc<uint8>(len + 1);
+    int k = 0; while (k < len) { buf[k] = (uint8)t[i + k]; k = k + 1; }
+    buf[len] = 0;
+    return (string)buf;
+}
+
+int sema_is_struct(Sema* s, string name) {
+    int i = 0; int n = List_len<string>(&s.structs);
+    while (i < n) { if (sema_streq(List_get<string>(&s.structs, i), name) == 1) { return 1; } i = i + 1; }
+    return 0;
+}
+
+int sema_has_member(Sema* s, string key) {   // key = "Struct.member"
+    int i = 0; int n = List_len<string>(&s.members);
+    while (i < n) { if (sema_streq(List_get<string>(&s.members, i), key) == 1) { return 1; } i = i + 1; }
+    return 0;
+}
+
+// Best-effort string type of an expression ("" = unknown). Grows per slice; for now
+// only identifiers (via the symbol table) resolve — enough to validate `ident.field`.
+string sema_infer_type(Sema* s, *ExprNode e) {
+    if (e == null) { return ""; }
+    if (e.kind == EK_IDENT) { return sema_lookup_type(s, e.sval); }
+    return "";
+}
+
 // ── expression walk ──
 
 void sema_expr(Sema* s, *ExprNode e) {
@@ -179,7 +239,19 @@ void sema_expr(Sema* s, *ExprNode e) {
         sema_expr(s, e.a);
         return;
     }
-    if (k == EK_UNARY || k == EK_MEMBER || k == EK_QUESTION || k == EK_CAST
+    if (k == EK_MEMBER) {
+        sema_expr(s, e.a);                 // walk base (catches undefined vars in it)
+        string bt = sema_infer_type(s, e.a);
+        if (bt[0] != 0) {                  // base type known → validate the member
+            string sn = sema_struct_of_type(bt);
+            if (sema_is_struct(s, sn) == 1 && sema_has_member(s, sema_cat(sema_cat(sn, "."), e.sval)) == 0) {
+                s.had_error = 1;
+                printf("error: %s:0:0: struct '%s' has no member '%s'\n", s.filename, sn, e.sval);
+            }
+        }
+        return;
+    }
+    if (k == EK_UNARY || k == EK_QUESTION || k == EK_CAST
         || k == EK_FREECLOSURE || k == EK_THREADCREATE) {
         sema_expr(s, e.a);
         return;
@@ -247,7 +319,7 @@ void sema_stmt(Sema* s, *StmtNode st) {
     }
     if (k == SK_VARDECL) {
         sema_expr(s, st.expr);             // initializer (can't reference itself)
-        sema_define(s, st.name);
+        sema_define(s, st.name, st.type);
         return;
     }
     if (k == SK_RETURN || k == SK_THROW) { sema_expr(s, st.expr); return; }
@@ -279,7 +351,7 @@ void sema_stmt(Sema* s, *StmtNode st) {
     if (k == SK_FORIN) {
         sema_push(s);
         sema_expr(s, st.expr);             // iterable (loop var not yet in scope)
-        sema_define(s, st.name);
+        sema_define(s, st.name, "");       // element type not inferred yet
         sema_stmt(s, st.s1);
         sema_pop(s);
         return;
@@ -356,7 +428,9 @@ void sema_register_globals(Sema* s, *Program prog) {
         *DeclNode d = List_get<*DeclNode>(&prog.decls, i);
         if (d.kind == DK_FUNCTION || d.kind == DK_EXTERN
             || d.kind == DK_INTRINSIC || d.kind == DK_VARDECL) {
-            sema_define(s, d.name);
+            string gty = "";
+            if (d.kind == DK_VARDECL) { gty = d.ret_type; }   // global var's type
+            sema_define(s, d.name, gty);
         }
         if (d.kind == DK_FUNCTION || d.kind == DK_EXTERN || d.kind == DK_INTRINSIC) {
             sema_register_fn(s, d);
@@ -365,10 +439,25 @@ void sema_register_globals(Sema* s, *Program prog) {
             || d.kind == DK_ENUM || d.kind == DK_TYPEALIAS) {
             List_push<string>(&s.types, d.name);
         }
+        if (d.kind == DK_STRUCT) {
+            List_push<string>(&s.structs, d.name);
+            int fi = 0;                                       // fields are valid members
+            int fn2 = List_len<Param>(&d.params);
+            while (fi < fn2) {
+                List_push<string>(&s.members, sema_cat(sema_cat(d.name, "."), List_get<Param>(&d.params, fi).name));
+                fi = fi + 1;
+            }
+            int mi = 0;                                       // methods are valid members too
+            int mn = List_len<*DeclNode>(&d.methods);
+            while (mi < mn) {
+                List_push<string>(&s.members, sema_cat(sema_cat(d.name, "."), List_get<*DeclNode>(&d.methods, mi).name));
+                mi = mi + 1;
+            }
+        }
         if (d.kind == DK_ENUM) {
             int j = 0;
             int m = List_len<Param>(&d.params);
-            while (j < m) { sema_define(s, List_get<Param>(&d.params, j).name); j = j + 1; }
+            while (j < m) { sema_define(s, List_get<Param>(&d.params, j).name, ""); j = j + 1; }
         }
         i = i + 1;
     }
@@ -376,15 +465,19 @@ void sema_register_globals(Sema* s, *Program prog) {
 
 // Check a function/method body: a fresh scope with the params (and `self` for
 // methods) defined, then walk the body.
-void sema_check_fn(Sema* s, *DeclNode f, int is_method) {
+void sema_check_fn(Sema* s, *DeclNode f, string self_type) {
     if (f.body == null) { return; }
     s.in_async = f.is_async;
     s.await_seen = 0;
     sema_push(s);
-    if (is_method == 1) { sema_define(s, "self"); }
+    if (self_type[0] != 0) { sema_define(s, "self", self_type); }   // method: self is the struct
     int j = 0;
     int m = List_len<Param>(&f.params);
-    while (j < m) { sema_define(s, List_get<Param>(&f.params, j).name); j = j + 1; }
+    while (j < m) {
+        Param pm = List_get<Param>(&f.params, j);
+        sema_define(s, pm.name, pm.ty);
+        j = j + 1;
+    }
     sema_stmt(s, f.body);
     sema_pop(s);
     if (f.is_async == 1 && s.await_seen == 0) {
@@ -408,11 +501,11 @@ int sema_check(Sema* s, *Program prog) {
                 printf("error: %s:0:0: unknown intrinsic '%s'\n", s.filename, d.name);
             }
         }
-        if (d.kind == DK_FUNCTION) { sema_check_fn(s, d, 0); }
+        if (d.kind == DK_FUNCTION) { sema_check_fn(s, d, ""); }
         if (d.kind == DK_STRUCT) {
             int k = 0;
             int mm = List_len<*DeclNode>(&d.methods);
-            while (k < mm) { sema_check_fn(s, List_get<*DeclNode>(&d.methods, k), 1); k = k + 1; }
+            while (k < mm) { sema_check_fn(s, List_get<*DeclNode>(&d.methods, k), d.name); k = k + 1; }
         }
         i = i + 1;
     }
