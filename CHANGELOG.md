@@ -10,6 +10,11 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 ## [Unreleased]
 
 ### Fixed
+- **`&&` and `||` now short-circuit.** Code generation evaluated both operands eagerly
+  and emitted a logical-and/or, so the right-hand side always ran — a guarded
+  dereference like `p != null && p.field` could fault. They now lower to a conditional
+  branch + PHI, evaluating the RHS only when the LHS doesn't decide the result. Found
+  dogfooding the self-hosted type checker. Regression test `tests/short_circuit.esk`.
 - **`--test-parser` no longer crashes on a forward-declared function.** The AST
   printer dereferenced a null `FunctionDecl::body` (a prototype like `int f(int);`),
   segfaulting `eskiuc --test-parser`. It now omits the `Body:` section for a
