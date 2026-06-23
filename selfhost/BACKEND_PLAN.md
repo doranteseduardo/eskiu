@@ -118,9 +118,18 @@ registries: FnSig (arg-count), type-names (undefined_type via struct-init base n
 in_async/await_seen (async), per-switch case-value dedup, intrinsic name set.
 Writing arg-count surfaced a **real codegen bug — `&&`/`||` didn't short-circuit**
 (fixed in `codegen/codegen_expr.cpp`, regression `tests/short_circuit.esk`; see NOTES).
-**NEXT needs the Type IR:** the remaining classes — const_* (5), undefined_field,
-match_duplicate/nonexhaustive, trait_*, question_bad_return, escaping_param — all need
-expr→type inference, so the Type IR (port ty::Type) is the next big slice.
+Then a string-based type layer landed (no full ty::Type port — the C++ flows types as
+strings at the codegen boundary anyway): typed symbols (`Sym.type`), a struct
+field+method registry (`Struct.member` keys), and `sema_infer_type` (idents for now).
+That unlocked **undefined_field** (`ident.field` validation, auto-deref via
+`sema_struct_of_type`) and **match_duplicate** (dup arm variant). HANDLED is now 9:
++ undefined_field, match_duplicate. Still 121/121, 0 false rejections.
+
+**NEXT (need more inference / Phase-A flags):** const_* (5 — need the const flag that
+Phase A deferred, parity-neutral; capture it), match_nonexhaustive (need the enum's full
+variant set + subject-type inference), trait_* (interface satisfaction), question_bad_return
+(return-type + `?` type), escaping_param (escape analysis). Grow `sema_infer_type`
+(member/call/binary) as these need it.
 
 **Status (2026-06-23): S0 DONE.** `selfhost/{sema,tc_main}.esk` + `tc_parity.sh`
 (CI-wired). Two-pass name resolution (flat `{name,depth}` scope stack — avoids nested-
