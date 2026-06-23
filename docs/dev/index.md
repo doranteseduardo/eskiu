@@ -36,13 +36,13 @@ Each test mode exits 0 on success and prints a human-readable dump to stdout. A 
 
 | Document            | What it covers                                                                                 |
 | ------------------- | ---------------------------------------------------------------------------------------------- |
-| `architecture.md`   | Pipeline stages, AST node hierarchy, visitor pattern, type mappings (Eskiu → LLVM)             |
-| `abi.md`            | Type lowering, calling convention (sret, varargs), fat pointers, name mangling — the C-ABI contract |
+| [`architecture.md`](architecture.md)   | Pipeline stages, AST node hierarchy, visitor pattern, type mappings (Eskiu → LLVM)             |
+| [`abi.md`](abi.md)            | Type lowering, calling convention (sret, varargs), fat pointers, name mangling — the C-ABI contract |
 | `phases.md`         | Current language status, feature table, and roadmap (v0.1 shipped → v0.2.x hardening → v1.0)  |
-| `contributing.md`   | Branch workflow, code style, commit conventions, testing checklist                             |
-| `design.md`         | Rationale for key decisions: C-style syntax, no GC, implicit interfaces, monomorphic templates |
-| `debugging.md`      | How each `--test-*` mode works, error message format, common failure patterns                  |
-| `../../docs/API.md` | C++ public API reference for the lexer, parser, type checker, and codegen modules              |
+| [`contributing.md`](contributing.md)   | Branch workflow, code style, commit conventions, testing checklist                             |
+| [`design.md`](design.md)         | Rationale for key decisions: C-style syntax, no GC, implicit interfaces, monomorphic templates |
+| [`debugging.md`](debugging.md)      | How each `--test-*` mode works, error message format, common failure patterns                  |
+| [`../../docs/API.md`](../../docs/API.md) | C++ public API reference for the lexer, parser, type checker, and codegen modules              |
 
 ---
 
