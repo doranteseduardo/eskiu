@@ -111,6 +111,12 @@ its structure:
 - **Diagnostics** — `file:line:col: message`; queue errors (verdict fails if any),
   warnings to stderr; exit 0/1. Driver `tc_main.esk` mirrors `testTypeChecker`.
 
+**Status (2026-06-24): S0 + arg-count DONE.** `tc_parity` HANDLED = {undefined_var,
+arg_count}; still 120/120 verdict parity, 0 false rejections. Writing the arg-count
+check surfaced a **real codegen bug — `&&`/`||` didn't short-circuit** (both operands
+evaluated eagerly); fixed in `codegen/codegen_expr.cpp` (conditional branch + PHI),
+regression test `tests/short_circuit.esk`. See NOTES.md.
+
 **Status (2026-06-23): S0 DONE.** `selfhost/{sema,tc_main}.esk` + `tc_parity.sh`
 (CI-wired). Two-pass name resolution (flat `{name,depth}` scope stack — avoids nested-
 List mutation) catches undefined variables; verdict matches `--test-typechecker` on all

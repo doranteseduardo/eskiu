@@ -67,6 +67,25 @@ passed byte-identical parity on its **first** real run over the whole `tests/` +
 `stdlib/` corpus (156/156). A positive signal: the language + stdlib are mature
 enough that a non-trivial text-processing pass ports without compiler surprises.
 
+## Resolved: `&&` / `||` did not short-circuit  ✅ codegen (real bug)
+
+**The biggest dogfood find yet.** Writing the self-hosted type checker (Phase B S0/S1),
+a guarded `np > 0 && List_get(&params, np-1).ty == "..."` segfaulted when `np == 0`.
+Root cause: `CodeGen::visit(BinaryExpr)` evaluated BOTH operands eagerly
+(`left = evaluateExpr(...); right = evaluateExpr(...)`) and then emitted
+`CreateLogicalAnd/Or` — so `&&` and `||` **never short-circuited**. It was masked
+across the whole corpus because almost every RHS is safe to evaluate when the LHS
+decides the result (e.g. `a[i] != 0 && b[i] != 0` — `b[i]` reads a valid NUL-terminated
+buffer). It only bites when the RHS is *unsafe* under the short-circuit (a null/OOB
+dereference): `p != null && p.field` would dereference null. A scalar OOB read happened
+not to fault, which is why it surfaced only with a struct-returning `List_get<P>().ty`.
+
+**Fix:** `codegen/codegen_expr.cpp` now lowers `&&`/`||` with a real conditional
+branch — evaluate the LHS, `CreateCondBr` to an `sc.rhs` block only when needed, and a
+PHI at `sc.cont` for the short-circuit value. Regression test `tests/short_circuit.esk`
+(side-effect skip + null-guard). Suite 267/0, golden IR 26/26 (only `map_generic`
+re-captured — a `while (i<n && a[i]==b[i])` loop now correctly guards the array read).
+
 ## Minor ergonomics (not bugs)
 
 - Nested conditionals: prefer `else if`, flat `if`+`return` (see `keyword_type`), or
