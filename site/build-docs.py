@@ -3,7 +3,8 @@
 Generate the site's docs pages from the Markdown sources in docs/.
 
 The repo is private, so the public can't read the docs on GitHub. This renders
-docs/lang/*, docs/API.md and docs/GLOSSARY.md into self-contained, styled HTML
+the language docs (docs/lang/*, docs/API.md, docs/GLOSSARY.md) and the
+contributor docs (docs/dev/*, minus phases.md) into self-contained, styled HTML
 under site/docs/, matching the look of the hand-written pages (case-study,
 quickstart).
 
@@ -22,39 +23,54 @@ import markdown
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "site", "docs")
 
-# source (relative to repo root) -> output basename, page title
+# source (relative to repo root) -> (output basename, page title, section)
 PAGES = [
-    ("docs/lang/index.md",            "index.html",           "Documentation"),
-    ("docs/lang/getting-started.md",  "getting-started.html", "Getting started"),
-    ("docs/lang/spec.md",             "spec.html",            "Language spec"),
-    ("docs/lang/grammar.md",          "grammar.html",         "Grammar"),
-    ("docs/lang/build.md",            "build.html",           "Building & tooling"),
-    ("docs/API.md",                   "api.html",             "Compiler C++ API"),
-    ("docs/GLOSSARY.md",              "glossary.html",        "Glossary"),
+    ("docs/lang/index.md",           "index.html",           "Documentation",        "lang"),
+    ("docs/lang/getting-started.md", "getting-started.html", "Getting started",      "lang"),
+    ("docs/lang/spec.md",            "spec.html",            "Language spec",        "lang"),
+    ("docs/lang/grammar.md",         "grammar.html",         "Grammar",              "lang"),
+    ("docs/lang/build.md",           "build.html",           "Building & tooling",   "lang"),
+    ("docs/API.md",                  "api.html",             "Compiler C++ API",     "dev"),
+    ("docs/GLOSSARY.md",             "glossary.html",        "Glossary",             "lang"),
+    ("docs/dev/index.md",            "internals.html",       "Compiler internals",   "dev"),
+    ("docs/dev/architecture.md",     "architecture.html",    "Architecture",         "dev"),
+    ("docs/dev/design.md",           "design.html",          "Design",               "dev"),
+    ("docs/dev/abi.md",              "abi.html",             "ABI",                  "dev"),
+    ("docs/dev/async-design.md",     "async-design.html",    "Async design",         "dev"),
+    ("docs/dev/http2-design.md",     "http2-design.html",    "HTTP/2 design",        "dev"),
+    ("docs/dev/debugging.md",        "debugging.html",       "Debugging",            "dev"),
+    ("docs/dev/contributing.md",     "contributing.html",    "Contributing",         "dev"),
 ]
 
-# nav shown at the top of every docs page
-NAV = [
+# repo-relative source path (normalized) -> output html, for link rewriting
+PATHMAP = {os.path.normpath(src): out for src, out, _, _ in PAGES}
+
+# top nav, per section
+NAV_LANG = [
     ("index.html", "Overview"),
     ("getting-started.html", "Getting started"),
     ("spec.html", "Spec"),
     ("grammar.html", "Grammar"),
     ("build.html", "Tooling"),
-    ("api.html", "Compiler API"),
     ("glossary.html", "Glossary"),
+    ("internals.html", "Internals →"),
 ]
+NAV_DEV = [
+    ("index.html", "← Language docs"),
+    ("internals.html", "Overview"),
+    ("architecture.html", "Architecture"),
+    ("design.html", "Design"),
+    ("abi.html", "ABI"),
+    ("async-design.html", "Async"),
+    ("http2-design.html", "HTTP/2"),
+    ("api.html", "C++ API"),
+    ("debugging.html", "Debugging"),
+    ("contributing.html", "Contributing"),
+]
+NAVS = {"lang": NAV_LANG, "dev": NAV_DEV}
 
-# any *.md link is rewritten to one of these by basename; unknown -> GitHub
-LINK_MAP = {
-    "index.md": "index.html",
-    "getting-started.md": "getting-started.html",
-    "spec.md": "spec.html",
-    "grammar.md": "grammar.html",
-    "build.md": "build.html",
-    "API.md": "api.html",
-    "GLOSSARY.md": "glossary.html",
-}
-GH_BLOB = "https://github.com/doranteseduardo/eskiu/blob/main/docs/"
+# un-ported docs (e.g. dev/phases.md) fall back to the GitHub source
+GH_BLOB = "https://github.com/doranteseduardo/eskiu/blob/main/"
 
 CSS = """
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -141,28 +157,33 @@ PAGE = """<!doctype html>
 """
 
 
-def rewrite_link(m):
-    target = m.group(1)
-    # split off any #anchor
-    anchor = ""
-    if "#" in target:
-        target, anchor = target.split("#", 1)
-        anchor = "#" + anchor
-    if not target:  # pure in-page anchor
-        return f'href="{anchor}"'
-    base = os.path.basename(target)
-    if base in LINK_MAP:
-        return f'href="{LINK_MAP[base]}{anchor}"'
-    # an un-ported doc (e.g. dev/*.md) — fall back to the GitHub source
-    if base.endswith(".md"):
-        rel = target.replace("../", "")
-        return f'href="{GH_BLOB}{rel}{anchor}"'
-    return m.group(0)
+def make_rewriter(srcdir):
+    """Return a regex callback that rewrites .md hrefs relative to srcdir."""
+
+    def rewrite(m):
+        target = m.group(1)
+        anchor = ""
+        if "#" in target:
+            target, anchor = target.split("#", 1)
+            anchor = "#" + anchor
+        if not target:  # pure in-page anchor
+            return f'href="{anchor}"'
+        if "://" in target:  # already absolute
+            return m.group(0)
+        # resolve relative to the source file's directory, against repo root
+        resolved = os.path.normpath(os.path.join(srcdir, target))
+        if resolved in PATHMAP:
+            return f'href="{PATHMAP[resolved]}{anchor}"'
+        if target.endswith(".md"):  # un-ported doc -> GitHub source
+            return f'href="{GH_BLOB}{resolved}{anchor}"'
+        return m.group(0)
+
+    return rewrite
 
 
-def build_nav(active):
+def build_nav(section, active):
     out = []
-    for href, label in NAV:
+    for href, label in NAVS[section]:
         cls = ' class="active"' if href == active else ""
         out.append(f'<a href="{href}"{cls}>{html.escape(label)}</a>')
     return "".join(out)
@@ -182,14 +203,13 @@ def main():
         extensions=["extra", "sane_lists", "toc"],
         output_format="html5",
     )
-    for src, out, title in PAGES:
+    for src, out, title, section in PAGES:
+        srcdir = os.path.dirname(src)
         with open(os.path.join(ROOT, src), encoding="utf-8") as f:
             text = f.read()
         md.reset()
         body = md.convert(text)
-        # rewrite .md cross-links
-        body = re.sub(r'href="([^"]+)"', rewrite_link, body)
-        # wrap tables so they scroll on narrow screens
+        body = re.sub(r'href="([^"]+)"', make_rewriter(srcdir), body)
         body = body.replace("<table>", '<div class="tablewrap"><table>').replace(
             "</table>", "</table></div>"
         )
@@ -198,7 +218,7 @@ def main():
             desc=html.escape(first_paragraph(text)),
             out=out,
             css=CSS,
-            nav=build_nav(out),
+            nav=build_nav(section, out),
             body=body,
         )
         with open(os.path.join(OUT, out), "w", encoding="utf-8") as f:

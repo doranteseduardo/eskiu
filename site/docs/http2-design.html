@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HTTP/2 design · Eskiu docs</title>
+  <meta name="description" content="&lt;http2&gt; brings HTTP/2 (RFC 7540) to Eskiu over the async &lt;eventloop&gt;. HTTP/2 is" />
+  <link rel="canonical" href="https://eskiu-lang.org/docs/http2-design.html" />
+  <link rel="icon" type="image/png" href="../../assets/logo.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <style>*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #f9f7f3; --surface: #f2efe8; --border: #ddd8ce;
+  --ink: #1b1915; --ink2: #6b6560; --purple: #4c31bb; --purple-lt: #6448d4;
+  --code: #1b1728; --code-bd: #2c2444;
+  --sans: "Space Grotesk", system-ui, -apple-system, sans-serif;
+  --mono: "JetBrains Mono", Menlo, monospace;
+}
+body { background: var(--bg); color: var(--ink); font-family: var(--sans);
+       line-height: 1.65; -webkit-font-smoothing: antialiased; }
+.wrap { max-width: 800px; margin: 0 auto; padding: 2.25rem 1.25rem 5rem; }
+.top { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 1.5rem; }
+.top img { width: 30px; height: 30px; }
+.top a { color: var(--ink2); text-decoration: none; font-size: 0.85rem; }
+.top a:hover { color: var(--purple); }
+.docnav { display: flex; flex-wrap: wrap; gap: 0.35rem 0.5rem; margin-bottom: 2.5rem;
+          padding-bottom: 1.25rem; border-bottom: 1px solid var(--border); }
+.docnav a { font-size: 0.8rem; color: var(--ink2); text-decoration: none;
+            padding: 0.25rem 0.6rem; border-radius: 6px; border: 1px solid transparent; }
+.docnav a:hover { color: var(--purple); background: var(--surface); }
+.docnav a.active { color: var(--purple); border-color: var(--border); background: #fff; font-weight: 600; }
+.content h1 { font-size: clamp(1.7rem, 4.5vw, 2.4rem); letter-spacing: -0.03em;
+              line-height: 1.12; margin: 0 0 1.25rem; }
+.content h2 { font-size: 1.35rem; letter-spacing: -0.02em; margin: 2.5rem 0 0.85rem;
+              padding-top: 0.5rem; }
+.content h3 { font-size: 1.08rem; margin: 1.75rem 0 0.6rem; }
+.content h4 { font-size: 0.95rem; margin: 1.4rem 0 0.5rem; color: var(--ink2); }
+.content p { margin: 0 0 1rem; }
+.content a { color: var(--purple); }
+.content ul, .content ol { margin: 0 0 1rem 1.3rem; }
+.content li { margin-bottom: 0.4rem; }
+.content strong { font-weight: 600; }
+.content hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+.content blockquote { border-left: 3px solid var(--purple); background: var(--surface);
+                      padding: 0.8rem 1.1rem; border-radius: 0 8px 8px 0; margin: 0 0 1.25rem;
+                      color: var(--ink2); }
+.content blockquote p:last-child { margin-bottom: 0; }
+.content code { font-family: var(--mono); font-size: 0.86em; background: var(--surface);
+                padding: 0.1em 0.35em; border-radius: 4px; }
+.content pre { background: var(--code); border: 1px solid var(--code-bd); border-radius: 8px;
+               padding: 0.95rem 1.1rem; margin: 0 0 1.5rem; overflow-x: auto;
+               font-family: var(--mono); font-size: 0.78rem; line-height: 1.75; color: #b4bccc; }
+.content pre code { background: none; padding: 0; font-size: inherit; color: inherit; }
+.tablewrap { overflow-x: auto; margin: 0 0 1.5rem; }
+.content table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+.content th, .content td { text-align: left; padding: 0.5rem 0.75rem;
+                          border-bottom: 1px solid var(--border); vertical-align: top; }
+.content th { color: var(--ink2); font-weight: 600; white-space: nowrap; }
+.content td code { white-space: nowrap; }
+.foot { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--border);
+        font-size: 0.9rem; color: var(--ink2); }</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <img src="../../assets/logo.png" alt="Eskiu" />
+      <a href="../index.html">← eskiu</a>
+    </div>
+    <nav class="docnav"><a href="index.html">← Language docs</a><a href="internals.html">Overview</a><a href="architecture.html">Architecture</a><a href="design.html">Design</a><a href="abi.html">ABI</a><a href="async-design.html">Async</a><a href="http2-design.html" class="active">HTTP/2</a><a href="api.html">C++ API</a><a href="debugging.html">Debugging</a><a href="contributing.html">Contributing</a></nav>
+    <div class="content">
+<h1 id="http2-architecture">HTTP/2 — architecture</h1>
+<p><code>&lt;http2&gt;</code> brings HTTP/2 (RFC 7540) to Eskiu over the async <code>&lt;eventloop&gt;</code>. HTTP/2 is
+a binary, multiplexed protocol: one TCP (TLS) connection carries many concurrent
+request/response <em>streams</em>, each a sequence of <em>frames</em>, with header compression
+and flow control. The implementation is split across a stack of stdlib modules,
+each layer self-contained and testable on its own.</p>
+<p><strong>Audience:</strong> compiler/stdlib maintainers. Assumes the async stack (<code>&lt;future&gt;</code>,
+<code>&lt;eventloop&gt;</code>, <code>&lt;net_async&gt;</code>, <code>&lt;http_async&gt;</code>) and <code>&lt;http&gt;</code>'s message types.</p>
+<h2 id="layers">Layers</h2>
+<h3 id="frame-layer-stdlibhttp2esk">Frame layer (<code>stdlib/http2.esk</code>)</h3>
+<p>The 9-byte frame-header codec (<code>h2_write_header</code> / <code>h2_read_header</code>, big-endian
+length/type/flags/stream), the frame-type and flag constants (<code>H2_*</code> /
+<code>H2_FLAG_*</code>), and the connection preface. Self-contained; everything below builds
+on it. Unit-tested by <code>tests/http2_frame</code>.</p>
+<h3 id="connection-lifecycle-stdlibhttp2esk">Connection lifecycle (<code>stdlib/http2.esk</code>)</h3>
+<p>The SETTINGS codec (<code>h2_write_settings</code>/<code>h2_apply_settings</code> over the 6 standard
+params, with an <code>H2Settings</code> model carrying the RFC defaults), the SETTINGS ACK,
+PING/PONG (<code>h2_write_ping</code>/<code>h2_send_pong</code>), and GOAWAY
+(<code>h2_write_goaway</code>/<code>h2_read_goaway</code>/<code>h2_send_goaway</code>) with the §7 error codes. An
+<code>H2Conn</code> holds per-connection state. I/O is async over the event loop:
+<code>h2_read_full_async</code> (partial-read loop), <code>h2_read_frame_async</code> (header +
+payload), and <code>h2_server_handshake_async</code> (validate preface → read + apply client
+SETTINGS → send ours + ACK). A server advertises <code>SETTINGS_ENABLE_PUSH = 0</code> (no
+server push, §6.5.2). Tested by <code>http2_conn</code> (pure codecs) and <code>http2_handshake</code>
+(the async handshake over a socketpair).</p>
+<h3 id="hpack-header-compression-stdlibhpackesk-stdlibhpack_huffmanesk">HPACK header compression (<code>stdlib/hpack.esk</code>, <code>stdlib/hpack_huffman.esk</code>)</h3>
+<p>HPACK (RFC 7541). Prefix-integer coding (§5.1), string literals (§5.2), the
+61-entry static table (Appendix A), and a dynamic table with size-based eviction
+(§4) feed the §6 decoder/encoder (indexed; literal with / without / never
+indexing; dynamic-table size update). The decoder maintains the dynamic table; the
+encoder is stateless (indexed static matches, else literal-without-indexing).</p>
+<p>Huffman coding (§5.2 + Appendix B) is a decode trie plus bit-packed encode over
+the 257-symbol table. The table is <strong>generated</strong> from the RFC text by
+<code>tools/gen_hpack_huffman.py</code> (→ <code>stdlib/hpack_huffman.esk</code>) rather than
+hand-transcribed; the generator asserts the worked example (sym 47 = 0x18/6), the
+EOS length, and completeness. The decoder validates padding (trailing bits must be
+the EOS prefix) and rejects a literal EOS; the encoder picks the smaller of
+raw/Huffman per string. Validated against the RFC vectors — §C.1.1 (integer),
+§C.3.1 (raw request), §C.4.1 (Huffman request) — plus encode→decode round-trips
+(<code>tests/hpack</code>).</p>
+<h3 id="streams-and-flow-control-stdlibhttp2esk">Streams and flow control (<code>stdlib/http2.esk</code>)</h3>
+<p>The per-stream state machine (<code>H2Stream</code>: idle → open → half-closed-local/remote →
+closed, via <code>h2_stream_on_recv</code>/<code>h2_stream_on_send</code>); credit-based flow control
+(<code>h2_can_send</code>/<code>h2_account_sent</code>/<code>h2_account_recv</code>/<code>h2_grant_window</code>) over
+per-stream and connection windows; and the stream-frame codecs — HEADERS, DATA,
+WINDOW_UPDATE, RST_STREAM (<code>h2_write_*</code>). HEADERS+CONTINUATION reassembly to
+END_HEADERS is the async <code>h2_read_header_block_async</code>. RESERVED states are omitted
+(no server push). Tested by <code>http2_stream</code> (state machine, flow control, codecs).</p>
+<h3 id="multiplexed-server-api-stdlibhttp2_serveresk">Multiplexed server API (<code>stdlib/http2_server.esk</code>)</h3>
+<p><code>http2_serve_async(lp, fd, handler, max_conns)</code> (and per-connection
+<code>http2_serve_conn_async</code>) mirrors the concurrent <code>&lt;http_async&gt;</code> server and reuses
+<code>&lt;http&gt;</code>'s <code>HttpRequest</code>/<code>HttpResponse</code>. It drives the handshake, then runs a
+frame-dispatch loop: a request (HEADERS + optional DATA) is HPACK-decoded into an
+<code>HttpRequest</code>, the handler fills an <code>HttpResponse</code>, and the response is encoded
+back as a HEADERS frame (<code>:status</code> + <code>content-length</code> + the handler's headers,
+lowercased) followed by the body split into <code>SETTINGS_MAX_FRAME_SIZE</code>-bounded
+(16384) DATA frames, the last carrying END_STREAM. SETTINGS/PING/WINDOW_UPDATE are
+handled; GOAWAY/EOF ends the loop.</p>
+<p>The async server is fully non-blocking (responses via <code>net_write_async</code>) and
+flow-controlled: <code>h2_respond_async</code> spends the stream and connection send windows
+per DATA frame and parks for WINDOW_UPDATE when a window is exhausted, so it
+delivers bodies larger than the 65535-byte default window. Streams are
+multiplexed: interleaved request frames are routed to per-stream slots
+(<code>H2PendingStream</code>) and each completes (handler + response) on its END_STREAM, so
+a client may run many concurrent streams on one connection; responses are
+serialized on the connection's single writer (correct, and avoids concurrent
+socket writes). While a response is parked on flow control, other streams' frames
+wait — a bounded property suited to the typical small-response mix. This path is
+cleartext h2c; TLS is the layer below. Tested over a socketpair end-to-end
+(<code>http2_server</code>), with DATA chunking (<code>http2_chunking</code>) and interleaved two-stream
+multiplexing (<code>http2_multiplex</code>).</p>
+<h3 id="tls-alpn-stdlibtlsesk">TLS / ALPN (<code>stdlib/tls.esk</code>)</h3>
+<p>OpenSSL (libssl) by FFI. A server <code>SSL_CTX</code> loads a cert/key and installs an ALPN
+callback selecting <code>h2</code> (<code>tls_server_ctx</code>); the ALPN selector is handed to OpenSSL
+as a raw C function pointer via the <code>(*void)fn</code> cast (language spec §13.4). Two
+server flavours run the <code>&lt;http2&gt;</code> frame protocol — reusing the codecs, HPACK, and
+the <code>&lt;http2_server&gt;</code> request/response glue — over the encrypted stream:</p>
+<ul>
+<li><strong>Blocking</strong>, thread-per-connection: <code>http2_tls_serve_conn</code> over
+  <code>tls_accept</code>/<code>tls_read_full</code>/<code>tls_write_all</code>/<code>tls_close</code>.</li>
+<li><strong>Async</strong>, many TLS connections on one event-loop thread:
+  <code>http2_tls_serve_async</code>. A non-blocking SSL pump
+  (<code>tls_accept_async</code>/<code>tls_read_async</code>/<code>tls_write_all_async</code>) retries <code>SSL_*</code> on
+  <code>WANT_READ</code>/<code>WANT_WRITE</code> and parks on the matching readiness via the reactor's
+  <code>el_add_read</code>/<code>el_add_write</code>.</li>
+</ul>
+<p>Verified end-to-end against <code>curl --http2</code>: ALPN negotiates h2 and the request is
+served as <code>HTTP/2 200</code>, including multiple concurrent connections on the async
+server's single thread. See <code>examples/http2_tls_server.esk</code>. (The TLS path is
+outside the dependency-free automated suite — it needs OpenSSL link flags, a cert,
+and a TLS client — but the pure ALPN selector logic is exercised by that
+end-to-end run.)</p>
+<h2 id="frame-header-rfc-7540-41">Frame header (RFC 7540 §4.1)</h2>
+<pre><code>[ Length (24) | Type (8) | Flags (8) | R(1) | Stream Identifier (31) ]   — 9 bytes, big-endian
+</code></pre>
+<p><code>h2_read_header</code> masks off the reserved top bit of the stream id; <code>h2_write_header</code>
+keeps it zero. Stream id 0 is the connection-control stream. Frame types and flags
+are the <code>H2_*</code> / <code>H2_FLAG_*</code> constants.</p>
+<h2 id="notes">Notes</h2>
+<ul>
+<li>HTTP/2 multiplexing wants non-blocking I/O, so the connection loop is async
+  throughout (one <code>H2Conn</code> parked on its fd, resumed per readable batch of frames).</li>
+<li>Flow control and HPACK's dynamic table are the two stateful, easy-to-get-wrong
+  parts; each has its own focused test (<code>http2_stream</code>, <code>hpack</code>).</li>
+</ul>
+    </div>
+    <div class="foot"><a href="../index.html">← Back to eskiu</a></div>
+  </div>
+</body>
+</html>
