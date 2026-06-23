@@ -121,15 +121,15 @@ Writing arg-count surfaced a **real codegen bug — `&&`/`||` didn't short-circu
 Then a string-based type layer landed (no full ty::Type port — the C++ flows types as
 strings at the codegen boundary anyway): typed symbols (`Sym.type`), a struct
 field+method registry (`Struct.member` keys), and `sema_infer_type` (idents for now).
-That unlocked **undefined_field** (`ident.field` validation, auto-deref via
-`sema_struct_of_type`) and **match_duplicate** (dup arm variant). HANDLED is now 9:
-+ undefined_field, match_duplicate. Still 121/121, 0 false rejections.
+That unlocked **undefined_field** (`ident.field`, auto-deref via `sema_struct_of_type`),
+**match_duplicate** (dup arm variant), and **match_nonexhaustive** (enum-variant
+registry `s.evars` + subject-type inference + `_` wildcard). HANDLED is now **10**.
+Still 121/121, 0 false rejections.
 
-**NEXT (need more inference / Phase-A flags):** const_* (5 — need the const flag that
-Phase A deferred, parity-neutral; capture it), match_nonexhaustive (need the enum's full
-variant set + subject-type inference), trait_* (interface satisfaction), question_bad_return
-(return-type + `?` type), escaping_param (escape analysis). Grow `sema_infer_type`
-(member/call/binary) as these need it.
+**NEXT (need Phase-A flags / more inference):** const_* (5 — the var-decl type drops
+`const`, so first capture a const flag in ast/parser, then track const symbols/fields/
+pointers), trait_* (interface satisfaction), question_bad_return (return-type + `?` type),
+escaping_param (escape analysis). The const group is the next chunk: revisit Phase A.
 
 **Status (2026-06-23): S0 DONE.** `selfhost/{sema,tc_main}.esk` + `tc_parity.sh`
 (CI-wired). Two-pass name resolution (flat `{name,depth}` scope stack — avoids nested-
