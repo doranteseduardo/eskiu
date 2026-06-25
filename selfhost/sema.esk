@@ -41,6 +41,7 @@ struct Sema {
     int had_error;
     int in_async;           // currently inside an `async` function body?
     int await_seen;         // has an `await` appeared in the current function?
+    string cur_ret;         // current function's return type (for `?` propagation)
     string filename;
 }
 
@@ -72,6 +73,7 @@ void sema_init(Sema* s, string filename) {
     s.had_error = 0;
     s.in_async = 0;
     s.await_seen = 0;
+    s.cur_ret = "";
     s.filename = filename;
 }
 
@@ -408,7 +410,15 @@ void sema_expr(Sema* s, *ExprNode e) {
         }
         return;
     }
-    if (k == EK_UNARY || k == EK_QUESTION || k == EK_CAST
+    if (k == EK_QUESTION) {            // `expr?` propagates an Err — fn must return a Result
+        if (sema_streq(sema_base_name(s.cur_ret), "Result") == 0) {
+            s.had_error = 1;
+            printf("error: %s:0:0: `?` can only be used in a function returning the same Result type\n", s.filename);
+        }
+        sema_expr(s, e.a);
+        return;
+    }
+    if (k == EK_UNARY || k == EK_CAST
         || k == EK_FREECLOSURE || k == EK_THREADCREATE) {
         sema_expr(s, e.a);
         return;
@@ -730,6 +740,7 @@ void sema_check_fn(Sema* s, *DeclNode f, string self_type) {
     if (f.body == null) { return; }
     s.in_async = f.is_async;
     s.await_seen = 0;
+    s.cur_ret = f.ret_type;
     sema_push(s);
     if (self_type[0] != 0) { sema_define(s, "self", self_type, 0); }   // method: self is the struct
     int j = 0;
