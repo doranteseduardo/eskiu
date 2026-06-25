@@ -1,0 +1,3 @@
+int sq(int x) { return x * x; }
+int sumsq(int a, int b) { return sq(a) + sq(b); }
+int main() { return sumsq(3, 4); }
