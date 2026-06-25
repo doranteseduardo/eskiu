@@ -81,6 +81,7 @@ CSS = """
   --sans: "Space Grotesk", system-ui, -apple-system, sans-serif;
   --mono: "JetBrains Mono", Menlo, monospace;
 }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 body { background: var(--bg); color: var(--ink); font-family: var(--sans);
        line-height: 1.65; -webkit-font-smoothing: antialiased; }
 .wrap { max-width: 800px; margin: 0 auto; padding: 2.25rem 1.25rem 5rem; }
@@ -124,6 +125,10 @@ body { background: var(--bg); color: var(--ink); font-family: var(--sans);
 .content td code { white-space: nowrap; }
 .foot { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--border);
         font-size: 0.9rem; color: var(--ink2); }
+@media (max-width: 600px) {
+  .content table { font-size: 0.8rem; }
+  .content th, .content td { padding: 0.4rem 0.55rem; white-space: normal; }
+}
 """.strip()
 
 PAGE = """<!doctype html>
