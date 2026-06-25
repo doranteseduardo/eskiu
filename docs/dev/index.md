@@ -1,6 +1,4 @@
-## Eskiu Compiler — Developer Documentation
-
-Eskiu is a systems language built to address the fragmentation of compute-intensive services — C for performance-critical work, Go for concurrency, C++ for libraries, Python for glue. The goal is a single language that replaces that stack, starting with a solid systems foundation and eventually adding first-class support for the domain types that high-throughput services actually work with.
+# Eskiu Compiler — Developer Documentation
 
 This section covers the internals of the compiler: its full compilation pipeline, AST design, type system, semantic analysis, and LLVM-based code generation layer. It is written for contributors who want to understand how the compiler works, add a new language feature, fix a bug, or extend the test suite. Familiarity with C++17 and a basic understanding of LLVM IR are assumed; no prior compiler experience is required.
 
@@ -46,13 +44,9 @@ Each test mode exits 0 on success and prints a human-readable dump to stdout. A 
 
 ---
 
-## Current State (v0.2.5)
+## Current State
 
-All compiler phases and editor tooling are complete and tested end-to-end. The **v0.2.0 "backend services" release** was feature-complete: async/await, the full HTTP/2 stack (framing, HPACK with Huffman, streams and flow control, the multiplexed server, and TLS/ALPN), sum types with `match`, monomorphic generics, and the stdlib (allocators, threading, sockets, async runtime, JSON, and more).
-
-Since then: **0.2.1** added `<bytes>` and `HashMap<K,V>` + miscompile fixes; **0.2.2** added **bounded generics** (`<T: Iface>` / `<T: A + B>`) plus a hardening pass (a generative fuzzer with an O0-vs-O2 differential oracle, in CI) and a source-modularization refactor; **0.2.3** extended bounded generics so a primitive satisfies a constraint via a free function, and introduced an internal typed `ty::Type` representation (behavior-preserving soundness foundation, gated by a golden-IR oracle); **0.2.4** completed the type unification — the type checker is the single resolver (codegen consumes its resolved expression types, and `getTypeFromString` dispatches on `ty::Type::parse`), closing the two-evaluator risk and fixing three latent miscompiles.
-
-**v0.1.0** (the bare-metal systems foundation) is shipped and tagged: a cryptographic pipeline running entirely in Eskiu at 74 ms on arm64 — 2.5× faster than the reference C — plus an ARM64 kernel booting in QEMU without libc. v0.2.0 builds the concurrent-backend stack on top of that foundation.
+All compiler phases and editor tooling are complete and tested end-to-end. The language covers async/await, the full HTTP/2 stack (framing, HPACK with Huffman, streams and flow control, the multiplexed server, and TLS/ALPN), sum types with `match`, monomorphic and bounded generics (`<T: Iface>` / `<T: A + B>`), and a broad stdlib (allocators, threading, sockets, the async runtime, JSON, and more). The type checker is the single type resolver, and codegen consumes its resolved expression types.
 
 The VS Code extension provides real-time error squiggles, hover type info, and go-to-definition via two CLI flags (`--hover-at`, `--definition-at`). See `phases.md` for the full feature table and roadmap.
 

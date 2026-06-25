@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Compiler internals · Eskiu docs</title>
-  <meta name="description" content="Eskiu is a systems language built to address the fragmentation of compute-intensive services — C for performance-critical work, Go for concurrency, C++ for" />
+  <meta name="description" content="This section covers the internals of the compiler: its full compilation pipeline, AST design, type system, semantic analysis, and LLVM-based code generatio" />
   <link rel="canonical" href="https://eskiu-lang.org/docs/internals.html" />
   <link rel="icon" type="image/png" href="../../assets/logo.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -18,6 +18,7 @@
   --sans: "Space Grotesk", system-ui, -apple-system, sans-serif;
   --mono: "JetBrains Mono", Menlo, monospace;
 }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 body { background: var(--bg); color: var(--ink); font-family: var(--sans);
        line-height: 1.65; -webkit-font-smoothing: antialiased; }
 .wrap { max-width: 800px; margin: 0 auto; padding: 2.25rem 1.25rem 5rem; }
@@ -60,7 +61,11 @@ body { background: var(--bg); color: var(--ink); font-family: var(--sans);
 .content th { color: var(--ink2); font-weight: 600; white-space: nowrap; }
 .content td code { white-space: nowrap; }
 .foot { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--border);
-        font-size: 0.9rem; color: var(--ink2); }</style>
+        font-size: 0.9rem; color: var(--ink2); }
+@media (max-width: 600px) {
+  .content table { font-size: 0.8rem; }
+  .content th, .content td { padding: 0.4rem 0.55rem; white-space: normal; }
+}</style>
 </head>
 <body>
   <div class="wrap">
@@ -70,8 +75,7 @@ body { background: var(--bg); color: var(--ink); font-family: var(--sans);
     </div>
     <nav class="docnav"><a href="index.html">← Language docs</a><a href="internals.html" class="active">Overview</a><a href="architecture.html">Architecture</a><a href="design.html">Design</a><a href="abi.html">ABI</a><a href="async-design.html">Async</a><a href="http2-design.html">HTTP/2</a><a href="api.html">C++ API</a><a href="debugging.html">Debugging</a><a href="contributing.html">Contributing</a></nav>
     <div class="content">
-<h2 id="eskiu-compiler-developer-documentation">Eskiu Compiler — Developer Documentation</h2>
-<p>Eskiu is a systems language built to address the fragmentation of compute-intensive services — C for performance-critical work, Go for concurrency, C++ for libraries, Python for glue. The goal is a single language that replaces that stack, starting with a solid systems foundation and eventually adding first-class support for the domain types that high-throughput services actually work with.</p>
+<h1 id="eskiu-compiler-developer-documentation">Eskiu Compiler — Developer Documentation</h1>
 <p>This section covers the internals of the compiler: its full compilation pipeline, AST design, type system, semantic analysis, and LLVM-based code generation layer. It is written for contributors who want to understand how the compiler works, add a new language feature, fix a bug, or extend the test suite. Familiarity with C++17 and a basic understanding of LLVM IR are assumed; no prior compiler experience is required.</p>
 <hr>
 <h2 id="quick-start-for-contributors">Quick Start for Contributors</h2>
@@ -135,10 +139,8 @@ clang hello.o -o hello
 </tbody>
 </table></div>
 <hr>
-<h2 id="current-state-v025">Current State (v0.2.5)</h2>
-<p>All compiler phases and editor tooling are complete and tested end-to-end. The <strong>v0.2.0 "backend services" release</strong> was feature-complete: async/await, the full HTTP/2 stack (framing, HPACK with Huffman, streams and flow control, the multiplexed server, and TLS/ALPN), sum types with <code>match</code>, monomorphic generics, and the stdlib (allocators, threading, sockets, async runtime, JSON, and more).</p>
-<p>Since then: <strong>0.2.1</strong> added <code>&lt;bytes&gt;</code> and <code>HashMap&lt;K,V&gt;</code> + miscompile fixes; <strong>0.2.2</strong> added <strong>bounded generics</strong> (<code>&lt;T: Iface&gt;</code> / <code>&lt;T: A + B&gt;</code>) plus a hardening pass (a generative fuzzer with an O0-vs-O2 differential oracle, in CI) and a source-modularization refactor; <strong>0.2.3</strong> extended bounded generics so a primitive satisfies a constraint via a free function, and introduced an internal typed <code>ty::Type</code> representation (behavior-preserving soundness foundation, gated by a golden-IR oracle); <strong>0.2.4</strong> completed the type unification — the type checker is the single resolver (codegen consumes its resolved expression types, and <code>getTypeFromString</code> dispatches on <code>ty::Type::parse</code>), closing the two-evaluator risk and fixing three latent miscompiles.</p>
-<p><strong>v0.1.0</strong> (the bare-metal systems foundation) is shipped and tagged: a cryptographic pipeline running entirely in Eskiu at 74 ms on arm64 — 2.5× faster than the reference C — plus an ARM64 kernel booting in QEMU without libc. v0.2.0 builds the concurrent-backend stack on top of that foundation.</p>
+<h2 id="current-state">Current State</h2>
+<p>All compiler phases and editor tooling are complete and tested end-to-end. The language covers async/await, the full HTTP/2 stack (framing, HPACK with Huffman, streams and flow control, the multiplexed server, and TLS/ALPN), sum types with <code>match</code>, monomorphic and bounded generics (<code>&lt;T: Iface&gt;</code> / <code>&lt;T: A + B&gt;</code>), and a broad stdlib (allocators, threading, sockets, the async runtime, JSON, and more). The type checker is the single type resolver, and codegen consumes its resolved expression types.</p>
 <p>The VS Code extension provides real-time error squiggles, hover type info, and go-to-definition via two CLI flags (<code>--hover-at</code>, <code>--definition-at</code>). See <code>phases.md</code> for the full feature table and roadmap.</p>
 <hr>
 <h2 id="architecture-at-a-glance">Architecture at a Glance</h2>
