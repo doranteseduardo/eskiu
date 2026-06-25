@@ -1101,6 +1101,7 @@ string strip_binding_const(string t) {
     List_init<*DeclNode>(&d.methods, 2);
     List_init<List<string>>(&d.payloads, 2);
     List_init<int>(&d.field_bits, 4);
+    List_init<int>(&d.param_escaping, 4);
     d.is_async = 0;
     d.is_const = 0;
     return d;
@@ -1138,20 +1139,24 @@ void parse_type_params(Parser* p, List<TypeParam>* out, int with_constraints) {
 // separated, or a trailing `...` variadic. Fills d.params; leaves p at ')'.
 void parse_params(Parser* p, *DeclNode d) {
     List_init<Param>(&d.params, 4);
+    List_init<int>(&d.param_escaping, 4);
     if (p_at(p) != RPAREN) {
         while (1 == 1) {
             if (p_at(p) == ELLIPSIS) {
                 p_adv(p);
                 let pm: Param; pm.ty = "..."; pm.name = "...";
                 List_push<Param>(&d.params, pm);
+                List_push<int>(&d.param_escaping, 0);
                 break;                     // variadic must be last
             }
-            if (p_at(p) == ESCAPING) { p_adv(p); }
+            int esc = 0;
+            if (p_at(p) == ESCAPING) { p_adv(p); esc = 1; }
             let pm: Param;
             pm.ty = parse_type(p);
             pm.name = tok_text(p.src, p_peek(p));
             p_adv(p);                      // parameter name
             List_push<Param>(&d.params, pm);
+            List_push<int>(&d.param_escaping, esc);
             if (p_at(p) == COMMA) { p_adv(p); } else { break; }
         }
     }

@@ -75,6 +75,7 @@ struct DeclNode {
     List<int> field_bits;          // struct field bitfield widths (parallel to params; 0 = none)
     int is_async;                  // function declared `async` (1) or not (0)
     int is_const;                  // DK_VARDECL: declared value-const global
+    List<int> param_escaping;      // per-param `escaping` flag (parallel to params)
 }
 
 struct Program {
