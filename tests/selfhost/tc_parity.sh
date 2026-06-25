@@ -27,7 +27,8 @@ fi
 # Grows per slice; the rest are reported as skipped.
 HANDLED="undefined_var arg_count undefined_type await_outside_async async_no_await switch_dup_case unknown_intrinsic undefined_field match_duplicate match_nonexhaustive
          const_reassign const_no_init const_field const_ptr_write const_ptr_drop
-         trait_unsatisfied trait_primitive_unsat question_bad_return"
+         trait_unsatisfied trait_primitive_unsat question_bad_return escaping_param"
+HANDLED="$(echo $HANDLED)"   # collapse the multi-line list to single spaces for matching
 
 DRIVER=selfhost/tc_main.esk
 TCBIN="$(mktemp -t tc_main.XXXXXX)"
@@ -60,9 +61,16 @@ echo "Negative corpus (handled error classes):"
 for esk in tests/errors/*.esk; do
     [ -e "$esk" ] || continue
     base="$(basename "$esk" .esk)"
+    # Not sema's job — caught upstream by the (already self-hosted) lexer / parser /
+    # preprocessor, not the type checker.
+    UPSTREAM=" parse_error pp_error unterminated_char unterminated_comment unterminated_string "
     case " $HANDLED " in
         *" $base "*) ;;
-        *) echo "  skip  errors/$base  (not yet implemented)"; continue ;;
+        *) case "$UPSTREAM" in
+               *" $base "*) echo "  skip  errors/$base  (upstream: lexer/parser/pp)" ;;
+               *) echo "  skip  errors/$base  (sema — not yet implemented)" ;;
+           esac
+           continue ;;
     esac
     want="$(grep -m1 'EXPECT-ERROR:' "$esk" | sed 's/.*EXPECT-ERROR:[[:space:]]*//')"
     out="$("$TCBIN" "$esk" 2>&1)"; code=$?

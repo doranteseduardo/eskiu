@@ -42,6 +42,9 @@ struct Sema {
     int in_async;           // currently inside an `async` function body?
     int await_seen;         // has an `await` appeared in the current function?
     string cur_ret;         // current function's return type (for `?` propagation)
+    List<string> watched;   // non-escaping fn-type params of the current function
+    List<string> escaped;   // watched params seen used beyond a direct call
+    string callee_ctx;      // name being called right now (a watched param here is OK)
     string filename;
 }
 
@@ -56,6 +59,17 @@ int sema_streq(string a, string b) {
         i = i + 1;
     }
     if (a[i] == b[i]) { return 1; }
+    return 0;
+}
+
+int sema_is_fn_type(string t) {     // "fn(...)->R"
+    if (t[0] == 102 && t[1] == 110 && t[2] == 40) { return 1; }   // 'f','n','('
+    return 0;
+}
+
+int sema_in_list(List<string>* l, string name) {
+    int i = 0; int n = List_len<string>(l);
+    while (i < n) { if (sema_streq(List_get<string>(l, i), name) == 1) { return 1; } i = i + 1; }
     return 0;
 }
 
@@ -74,6 +88,9 @@ void sema_init(Sema* s, string filename) {
     s.in_async = 0;
     s.await_seen = 0;
     s.cur_ret = "";
+    List_init<string>(&s.watched, 4);
+    List_init<string>(&s.escaped, 4);
+    s.callee_ctx = "";
     s.filename = filename;
 }
 
@@ -379,6 +396,11 @@ void sema_expr(Sema* s, *ExprNode e) {
             s.had_error = 1;
             printf("error: %s:0:0: undefined variable '%s'\n", s.filename, e.sval);
         }
+        // Escape soundness: a non-escaping closure param used anywhere but as the
+        // immediate callee of a call escapes.
+        if (sema_in_list(&s.watched, e.sval) == 1 && sema_streq(e.sval, s.callee_ctx) == 0) {
+            if (sema_in_list(&s.escaped, e.sval) == 0) { List_push<string>(&s.escaped, e.sval); }
+        }
         return;
     }
     if (k == EK_LITERAL || k == EK_SIZEOF) { return; }
@@ -445,7 +467,11 @@ void sema_expr(Sema* s, *ExprNode e) {
                 }
             }
         }
+        string prev = s.callee_ctx;        // mark the callee so a watched param here is OK
+        if (e.a != null && e.a.kind == EK_IDENT) { s.callee_ctx = e.a.sval; }
+        else { s.callee_ctx = ""; }
         sema_expr(s, e.a);                 // callee (functions live in the global scope)
+        s.callee_ctx = prev;
         int i = 0;
         int n = List_len<*ExprNode>(&e.kids);
         while (i < n) { sema_expr(s, List_get<*ExprNode>(&e.kids, i)); i = i + 1; }
@@ -741,6 +767,19 @@ void sema_check_fn(Sema* s, *DeclNode f, string self_type) {
     s.in_async = f.is_async;
     s.await_seen = 0;
     s.cur_ret = f.ret_type;
+    // Escape soundness: watch non-escaping fn-type params for the body walk.
+    List_init<string>(&s.watched, 4);
+    List_init<string>(&s.escaped, 4);
+    s.callee_ctx = "";
+    int pe = 0;
+    int pn = List_len<Param>(&f.params);
+    while (pe < pn) {
+        Param pm = List_get<Param>(&f.params, pe);
+        int marked = 0;
+        if (pe < List_len<int>(&f.param_escaping)) { marked = List_get<int>(&f.param_escaping, pe); }
+        if (sema_is_fn_type(pm.ty) == 1 && marked == 0) { List_push<string>(&s.watched, pm.name); }
+        pe = pe + 1;
+    }
     sema_push(s);
     if (self_type[0] != 0) { sema_define(s, "self", self_type, 0); }   // method: self is the struct
     int j = 0;
@@ -755,6 +794,17 @@ void sema_check_fn(Sema* s, *DeclNode f, string self_type) {
     if (f.is_async == 1 && s.await_seen == 0) {
         s.had_error = 1;
         printf("error: %s:0:0: async function '%s' has no `await`\n", s.filename, f.name);
+    }
+    int wi = 0;
+    int wn = List_len<string>(&s.watched);
+    while (wi < wn) {
+        string wnm = List_get<string>(&s.watched, wi);
+        if (sema_in_list(&s.escaped, wnm) == 1) {
+            s.had_error = 1;
+            printf("error: %s:0:0: closure parameter '%s' escapes (used beyond a direct call); mark it `escaping`\n",
+                   s.filename, wnm);
+        }
+        wi = wi + 1;
     }
     s.in_async = 0;
 }
