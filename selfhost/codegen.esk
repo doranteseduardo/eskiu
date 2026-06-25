@@ -19,6 +19,8 @@ import "ast.esk";
 struct CgVal { string op; string ty; }
 // A local binding: source name → its alloca slot + LLVM type.
 struct CgLocal { string name; string slot; string ty; }
+// A function's LLVM return type, for typing call results.
+struct CgFn { string name; string retty; }
 
 struct Codegen {
     String out;
@@ -28,6 +30,7 @@ struct Codegen {
     int terminated;      // is the current basic block already terminated?
     List<string> loop_cont;  // continue targets (innermost last)
     List<string> loop_end;   // break targets
+    List<CgFn> fns;          // function → LLVM return type
 }
 
 int cg_streq(string a, string b) {
@@ -71,6 +74,17 @@ void cg_init(Codegen* g) {
     g.terminated = 0;
     List_init<string>(&g.loop_cont, 4);
     List_init<string>(&g.loop_end, 4);
+    List_init<CgFn>(&g.fns, 32);
+}
+
+string cg_find_fn_ret(Codegen* g, string name) {
+    int i = 0; int n = List_len<CgFn>(&g.fns);
+    while (i < n) {
+        CgFn f = List_get<CgFn>(&g.fns, i);
+        if (cg_streq(f.name, name) == 1) { return f.retty; }
+        i = i + 1;
+    }
+    return "i32";   // unknown callee → assume int
 }
 
 void cg_emit(Codegen* g, string s) { String_append(&g.out, s); }
@@ -223,6 +237,31 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
             v.op = t; v.ty = l.ty; return v;
         }
         return l;                                       // unhandled binary (S1) → left
+    }
+
+    if (e.kind == EK_CALL) {
+        // Evaluate args (left to right), collecting "<ty> <op>" operands.
+        string args = "";
+        int i = 0;
+        int n = List_len<*ExprNode>(&e.kids);
+        while (i < n) {
+            CgVal a = cg_expr(g, List_get<*ExprNode>(&e.kids, i));
+            if (i > 0) { args = cg_cat(args, ", "); }
+            args = cg_cat(args, cg_cat(a.ty, cg_cat(" ", a.op)));
+            i = i + 1;
+        }
+        string fname = "";
+        if (e.a != null && e.a.kind == EK_IDENT) { fname = e.a.sval; }
+        string rty = cg_find_fn_ret(g, fname);
+        if (cg_streq(rty, "void") == 1) {
+            cg_emit(g, "  call void @"); cg_emit(g, fname); cg_emit(g, "(");
+            cg_emit(g, args); cg_emit(g, ")\n");
+            v.op = ""; v.ty = "void"; return v;
+        }
+        string t = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = call "); cg_emit(g, rty);
+        cg_emit(g, " @"); cg_emit(g, fname); cg_emit(g, "("); cg_emit(g, args); cg_emit(g, ")\n");
+        v.op = t; v.ty = rty; return v;
     }
 
     v.op = "0"; v.ty = "i32"; return v;
@@ -391,7 +430,17 @@ void cg_decl(Codegen* g, *DeclNode d) {
 }
 
 void cg_program(Codegen* g, *Program prog) {
-    int i = 0;
     int n = List_len<*DeclNode>(&prog.decls);
+    // Pre-pass: record every function's return type so calls can be typed.
+    int i = 0;
+    while (i < n) {
+        *DeclNode d = List_get<*DeclNode>(&prog.decls, i);
+        if (d.kind == DK_FUNCTION || d.kind == DK_EXTERN || d.kind == DK_INTRINSIC) {
+            let f: CgFn; f.name = d.name; f.retty = cg_lltype(d.ret_type);
+            List_push<CgFn>(&g.fns, f);
+        }
+        i = i + 1;
+    }
+    i = 0;
     while (i < n) { cg_decl(g, List_get<*DeclNode>(&prog.decls, i)); i = i + 1; }
 }
