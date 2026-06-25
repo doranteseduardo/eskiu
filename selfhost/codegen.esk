@@ -22,9 +22,12 @@ struct CgLocal { string name; string slot; string ty; }
 
 struct Codegen {
     String out;
-    int next;            // SSA temp / slot counter
+    int next;            // SSA temp / slot / label counter
     string cur_ret;      // current function's LLVM return type
     List<CgLocal> locals;
+    int terminated;      // is the current basic block already terminated?
+    List<string> loop_cont;  // continue targets (innermost last)
+    List<string> loop_end;   // break targets
 }
 
 int cg_streq(string a, string b) {
@@ -65,6 +68,9 @@ void cg_init(Codegen* g) {
     g.next = 0;
     g.cur_ret = "void";
     List_init<CgLocal>(&g.locals, 8);
+    g.terminated = 0;
+    List_init<string>(&g.loop_cont, 4);
+    List_init<string>(&g.loop_end, 4);
 }
 
 void cg_emit(Codegen* g, string s) { String_append(&g.out, s); }
@@ -73,6 +79,25 @@ string cg_tmp(Codegen* g) {
     string r = cg_cat("%t", cg_itoa(g.next));
     g.next = g.next + 1;
     return r;
+}
+
+string cg_lbl(Codegen* g) {
+    string r = cg_cat("L", cg_itoa(g.next));
+    g.next = g.next + 1;
+    return r;
+}
+
+// Start a new basic block (resets the terminated flag).
+void cg_label(Codegen* g, string name) {
+    cg_emit(g, name); cg_emit(g, ":\n");
+    g.terminated = 0;
+}
+
+// Unconditional branch — skipped if the block is already terminated.
+void cg_br(Codegen* g, string target) {
+    if (g.terminated == 1) { return; }
+    cg_emit(g, "  br label %"); cg_emit(g, target); cg_emit(g, "\n");
+    g.terminated = 1;
 }
 
 // Eskiu type spelling → LLVM type. Pointers (anything with `*`) lower to opaque `ptr`.
@@ -203,12 +228,99 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
     v.op = "0"; v.ty = "i32"; return v;
 }
 
+// Evaluate a condition to an i1 operand (compare-to-zero if it isn't already i1).
+CgVal cg_cond(Codegen* g, *ExprNode e) {
+    CgVal c = cg_expr(g, e);
+    if (cg_streq(c.ty, "i1") == 1) { return c; }
+    string t = cg_tmp(g);
+    cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = icmp ne "); cg_emit(g, c.ty);
+    cg_emit(g, " "); cg_emit(g, c.op); cg_emit(g, ", 0\n");
+    let r: CgVal; r.op = t; r.ty = "i1"; return r;
+}
+
 void cg_stmt(Codegen* g, *StmtNode st) {
     if (st == null) { return; }
     if (st.kind == SK_BLOCK) {
         int i = 0;
         int n = List_len<*StmtNode>(&st.items);
-        while (i < n) { cg_stmt(g, List_get<*StmtNode>(&st.items, i)); i = i + 1; }
+        while (i < n) {
+            if (g.terminated == 1) { return; }       // rest of the block is unreachable
+            cg_stmt(g, List_get<*StmtNode>(&st.items, i));
+            i = i + 1;
+        }
+        return;
+    }
+    if (st.kind == SK_IF) {
+        CgVal c = cg_cond(g, st.expr);
+        string l_then = cg_lbl(g);
+        string l_end = cg_lbl(g);
+        string l_else = l_end;
+        if (st.s2 != null) { l_else = cg_lbl(g); }
+        cg_emit(g, "  br i1 "); cg_emit(g, c.op); cg_emit(g, ", label %"); cg_emit(g, l_then);
+        cg_emit(g, ", label %"); cg_emit(g, l_else); cg_emit(g, "\n");
+        g.terminated = 1;
+        cg_label(g, l_then); cg_stmt(g, st.s1); cg_br(g, l_end);
+        if (st.s2 != null) { cg_label(g, l_else); cg_stmt(g, st.s2); cg_br(g, l_end); }
+        cg_label(g, l_end);
+        return;
+    }
+    if (st.kind == SK_WHILE) {
+        string l_cond = cg_lbl(g);
+        string l_body = cg_lbl(g);
+        string l_end = cg_lbl(g);
+        cg_br(g, l_cond);
+        cg_label(g, l_cond);
+        CgVal c = cg_cond(g, st.expr);
+        cg_emit(g, "  br i1 "); cg_emit(g, c.op); cg_emit(g, ", label %"); cg_emit(g, l_body);
+        cg_emit(g, ", label %"); cg_emit(g, l_end); cg_emit(g, "\n");
+        g.terminated = 1;
+        cg_label(g, l_body);
+        List_push<string>(&g.loop_cont, l_cond);
+        List_push<string>(&g.loop_end, l_end);
+        cg_stmt(g, st.s1);
+        List_remove<string>(&g.loop_cont, List_len<string>(&g.loop_cont) - 1);
+        List_remove<string>(&g.loop_end, List_len<string>(&g.loop_end) - 1);
+        cg_br(g, l_cond);
+        cg_label(g, l_end);
+        return;
+    }
+    if (st.kind == SK_FOR) {
+        string l_cond = cg_lbl(g);
+        string l_body = cg_lbl(g);
+        string l_step = cg_lbl(g);
+        string l_end = cg_lbl(g);
+        if (st.s1 != null) { cg_stmt(g, st.s1); }     // init (a wrapping block)
+        cg_br(g, l_cond);
+        cg_label(g, l_cond);
+        if (st.expr != null) {
+            CgVal c = cg_cond(g, st.expr);
+            cg_emit(g, "  br i1 "); cg_emit(g, c.op); cg_emit(g, ", label %"); cg_emit(g, l_body);
+            cg_emit(g, ", label %"); cg_emit(g, l_end); cg_emit(g, "\n");
+            g.terminated = 1;
+        } else {
+            cg_br(g, l_body);
+        }
+        cg_label(g, l_body);
+        List_push<string>(&g.loop_cont, l_step);
+        List_push<string>(&g.loop_end, l_end);
+        cg_stmt(g, st.s2);
+        List_remove<string>(&g.loop_cont, List_len<string>(&g.loop_cont) - 1);
+        List_remove<string>(&g.loop_end, List_len<string>(&g.loop_end) - 1);
+        cg_br(g, l_step);
+        cg_label(g, l_step);
+        if (st.expr2 != null) { cg_expr(g, st.expr2); }
+        cg_br(g, l_cond);
+        cg_label(g, l_end);
+        return;
+    }
+    if (st.kind == SK_BREAK) {
+        int n = List_len<string>(&g.loop_end);
+        if (n > 0) { cg_br(g, List_get<string>(&g.loop_end, n - 1)); }
+        return;
+    }
+    if (st.kind == SK_CONTINUE) {
+        int n = List_len<string>(&g.loop_cont);
+        if (n > 0) { cg_br(g, List_get<string>(&g.loop_cont, n - 1)); }
         return;
     }
     if (st.kind == SK_VARDECL) {
@@ -230,6 +342,7 @@ void cg_stmt(Codegen* g, *StmtNode st) {
         } else {
             cg_emit(g, "  ret void\n");
         }
+        g.terminated = 1;
         return;
     }
     if (st.kind == SK_EXPR) { cg_expr(g, st.expr); return; }
@@ -252,6 +365,7 @@ void cg_decl(Codegen* g, *DeclNode d) {
         pi = pi + 1;
     }
     cg_emit(g, ") {\nentry:\n");
+    g.terminated = 0;
 
     // Spill each parameter to a stack slot so it reads/writes like a local.
     pi = 0;
@@ -267,7 +381,12 @@ void cg_decl(Codegen* g, *DeclNode d) {
     }
 
     cg_stmt(g, d.body);
-    if (cg_streq(rt, "void") == 1) { cg_emit(g, "  ret void\n"); }
+    // Terminate a trailing fall-through block: `ret void` for void, else the block is
+    // unreachable (a valid function returns on all paths) — emit `unreachable`.
+    if (g.terminated == 0) {
+        if (cg_streq(rt, "void") == 1) { cg_emit(g, "  ret void\n"); }
+        else { cg_emit(g, "  unreachable\n"); }
+    }
     cg_emit(g, "}\n\n");
 }
 
