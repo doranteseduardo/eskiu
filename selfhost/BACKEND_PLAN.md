@@ -194,13 +194,19 @@ exit code) against the C++-compiled binary, over a representative corpus. (Optio
 also a *normalized* IR diff — renumber SSA values in definition order — as a tighter
 secondary check.)
 
-**Slices:** S0 de-risk — `int main(){return 42;}` → emit `.ll` → clang → run → exit 42.
-Then: arithmetic/locals (alloca/load/store), control flow (if/while → labelled blocks +
-br/condbr), structs + GEP + bitfield layout, function calls + sret, closures (fat
-`{ptr,ptr}` + env structs), ADTs (`{i32 tag,[N x i64]}`). **Defer** exceptions
-(landingpad/invoke) and atomics — the gnarliest ~40%; if textual emission proves too
-painful there, bind just those few ops via the LLVM-**C** API (`extern`) as a targeted
-hybrid, rather than binding the whole API.
+**Status (2026-06-26): S0 DONE.** `selfhost/{codegen,cg_main}.esk` + `cg_parity.sh`
+(behavioral oracle: emit .ll → clang → run, compare exit/stdout to the C++ build).
+`int main(){return N;}` → valid `.ll` → native binary with the matching exit code (3/3).
+Design: named SSA temps `%tN` (avoid LLVM's strict unnamed 0,1,2… numbering); `cg_lltype`
+maps Eskiu types → LLVM (`*`→`ptr`, int→i32, …); `cg_expr` returns an operand string.
+Not yet CI-wired (needs clang at runtime + more coverage first).
+
+**Slices:** S0 (DONE) constant return. NEXT: arithmetic/locals (alloca/load/store +
+SSA temps), control flow (if/while → labelled blocks + br/condbr), structs + GEP +
+bitfield layout, function calls + sret, closures (fat `{ptr,ptr}` + env structs), ADTs
+(`{i32 tag,[N x i64]}`). **Defer** exceptions (landingpad/invoke) and atomics — the
+gnarliest ~40%; if textual emission gets too painful there, bind just those few ops via
+the LLVM-**C** API (`extern`) as a targeted hybrid, rather than the whole API.
 
 **Critical files:** new `selfhost/codegen.esk`, `selfhost/cg_main.esk`,
 `tests/selfhost/cg_parity.sh`. Reference: `codegen/codegen_{module,decl,stmt,expr,
