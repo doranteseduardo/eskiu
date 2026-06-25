@@ -19,18 +19,20 @@ import "ast.esk";
 struct CgVal { string op; string ty; }
 // A local binding: source name → its alloca slot + LLVM type.
 struct CgLocal { string name; string slot; string ty; }
-// A function's LLVM return type, for typing call results.
-struct CgFn { string name; string retty; }
+// A function's LLVM return type + (for variadic externs) its call-type prefix.
+struct CgFn { string name; string retty; int variadic; string fixedtypes; }
 
 struct Codegen {
     String out;
+    String globals;      // module-top: extern declares + string-literal constants
     int next;            // SSA temp / slot / label counter
+    int strcount;        // string-literal global counter
     string cur_ret;      // current function's LLVM return type
     List<CgLocal> locals;
     int terminated;      // is the current basic block already terminated?
     List<string> loop_cont;  // continue targets (innermost last)
     List<string> loop_end;   // break targets
-    List<CgFn> fns;          // function → LLVM return type
+    List<CgFn> fns;          // function → return type / variadic signature
 }
 
 int cg_streq(string a, string b) {
@@ -68,7 +70,9 @@ string cg_itoa(int n) {
 
 void cg_init(Codegen* g) {
     String_init(&g.out, 1024);
+    String_init(&g.globals, 256);
     g.next = 0;
+    g.strcount = 0;
     g.cur_ret = "void";
     List_init<CgLocal>(&g.locals, 8);
     g.terminated = 0;
@@ -77,17 +81,62 @@ void cg_init(Codegen* g) {
     List_init<CgFn>(&g.fns, 32);
 }
 
-string cg_find_fn_ret(Codegen* g, string name) {
+CgFn cg_find_fn(Codegen* g, string name) {
     int i = 0; int n = List_len<CgFn>(&g.fns);
     while (i < n) {
         CgFn f = List_get<CgFn>(&g.fns, i);
-        if (cg_streq(f.name, name) == 1) { return f.retty; }
+        if (cg_streq(f.name, name) == 1) { return f; }
         i = i + 1;
     }
-    return "i32";   // unknown callee → assume int
+    let none: CgFn; none.name = name; none.retty = "i32"; none.variadic = 0; none.fixedtypes = "";
+    return none;
 }
 
 void cg_emit(Codegen* g, string s) { String_append(&g.out, s); }
+
+int cg_strlen(string s) { int i = 0; while (s[i] != 0) { i = i + 1; } return i; }
+
+int cg_hexd(int d) { if (d < 10) { return 48 + d; } return 55 + d; }   // 0-9, A-F
+
+string cg_hex2(int b) {
+    *uint8 buf = alloc<uint8>(3);
+    buf[0] = (uint8)cg_hexd((b / 16) % 16);
+    buf[1] = (uint8)cg_hexd(b % 16);
+    buf[2] = 0;
+    return (string)buf;
+}
+
+// Emit a private string-literal constant for `s` and return its global name (a `ptr`).
+// Bytes are LLVM-escaped: printables verbatim, `"`/`\`/non-printables as \NN, + a NUL.
+string cg_string_global(Codegen* g, string s) {
+    int len = cg_strlen(s);
+    string name = cg_cat("@.str", cg_itoa(g.strcount));
+    g.strcount = g.strcount + 1;
+    String_append(&g.globals, name);
+    String_append(&g.globals, " = private unnamed_addr constant [");
+    String_append(&g.globals, cg_itoa(len + 1));
+    String_append(&g.globals, " x i8] c\"");
+    int i = 0;
+    while (i < len) {
+        int b = (int)s[i];
+        if (b < 0) { b = b + 256; }
+        if (b >= 32 && b <= 126 && b != 34 && b != 92) {
+            String_push(&g.globals, (char)b);
+        } else {
+            String_push(&g.globals, '\\');
+            String_append(&g.globals, cg_hex2(b));
+        }
+        i = i + 1;
+    }
+    String_append(&g.globals, "\\00\"\n");
+    return name;
+}
+
+// Variadic parameter list: "<fixed>, ..." (or just "..." when there are no fixed types).
+string cg_va(string fixed) {
+    if (fixed[0] == 0) { return "..."; }
+    return cg_cat(fixed, ", ...");
+}
 
 string cg_tmp(Codegen* g) {
     string r = cg_cat("%t", cg_itoa(g.next));
@@ -177,10 +226,12 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
     if (e == null) { v.op = "0"; v.ty = "i32"; return v; }
 
     if (e.kind == EK_LITERAL) {
+        if (e.lit_kind == LIT_STRING) { v.op = cg_string_global(g, e.sval); v.ty = "ptr"; return v; }
+        if (e.lit_kind == LIT_CHAR) { v.op = cg_itoa((int)e.sval[0]); v.ty = "i8"; return v; }
         v.op = e.sval;
         if (e.lit_kind == LIT_BOOL) { v.ty = "i1"; }
         else if (e.lit_kind == LIT_NULL) { v.op = "null"; v.ty = "ptr"; }
-        else { v.ty = "i32"; }            // integer literal (S1)
+        else { v.ty = "i32"; }            // integer literal
         return v;
     }
 
@@ -252,16 +303,19 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
         }
         string fname = "";
         if (e.a != null && e.a.kind == EK_IDENT) { fname = e.a.sval; }
-        string rty = cg_find_fn_ret(g, fname);
-        if (cg_streq(rty, "void") == 1) {
-            cg_emit(g, "  call void @"); cg_emit(g, fname); cg_emit(g, "(");
-            cg_emit(g, args); cg_emit(g, ")\n");
+        CgFn f = cg_find_fn(g, fname);
+        // A variadic callee needs the explicit function type: `call i32 (ptr, ...) @printf`.
+        string callty = f.retty;
+        if (f.variadic == 1) { callty = cg_cat(f.retty, cg_cat(" (", cg_cat(cg_va(f.fixedtypes), ")"))); }
+        if (cg_streq(f.retty, "void") == 1) {
+            cg_emit(g, "  call "); cg_emit(g, callty); cg_emit(g, " @"); cg_emit(g, fname);
+            cg_emit(g, "("); cg_emit(g, args); cg_emit(g, ")\n");
             v.op = ""; v.ty = "void"; return v;
         }
         string t = cg_tmp(g);
-        cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = call "); cg_emit(g, rty);
+        cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = call "); cg_emit(g, callty);
         cg_emit(g, " @"); cg_emit(g, fname); cg_emit(g, "("); cg_emit(g, args); cg_emit(g, ")\n");
-        v.op = t; v.ty = rty; return v;
+        v.op = t; v.ty = f.retty; return v;
     }
 
     v.op = "0"; v.ty = "i32"; return v;
@@ -436,8 +490,36 @@ void cg_program(Codegen* g, *Program prog) {
     while (i < n) {
         *DeclNode d = List_get<*DeclNode>(&prog.decls, i);
         if (d.kind == DK_FUNCTION || d.kind == DK_EXTERN || d.kind == DK_INTRINSIC) {
-            let f: CgFn; f.name = d.name; f.retty = cg_lltype(d.ret_type);
+            let f: CgFn;
+            f.name = d.name;
+            f.retty = cg_lltype(d.ret_type);
+            f.variadic = 0;
+            string fixed = "";
+            int np = List_len<Param>(&d.params);
+            int pi = 0;
+            int first = 1;
+            while (pi < np) {
+                Param pm = List_get<Param>(&d.params, pi);
+                if (cg_streq(pm.ty, "...") == 1) { f.variadic = 1; }
+                else {
+                    if (first == 0) { fixed = cg_cat(fixed, ", "); }
+                    fixed = cg_cat(fixed, cg_lltype(pm.ty));
+                    first = 0;
+                }
+                pi = pi + 1;
+            }
+            f.fixedtypes = fixed;
             List_push<CgFn>(&g.fns, f);
+            if (d.kind == DK_EXTERN) {       // emit a declaration the calls can reference
+                String_append(&g.globals, "declare ");
+                String_append(&g.globals, f.retty);
+                String_append(&g.globals, " @");
+                String_append(&g.globals, f.name);
+                String_append(&g.globals, "(");
+                if (f.variadic == 1) { String_append(&g.globals, cg_va(fixed)); }
+                else { String_append(&g.globals, fixed); }
+                String_append(&g.globals, ")\n");
+            }
         }
         i = i + 1;
     }

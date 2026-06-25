@@ -36,6 +36,8 @@ int main(int argc, string* argv) {
     let g: Codegen;
     cg_init(&g);
     cg_program(&g, prog);
-    printf("%s", (string)String_cstr(&g.out));
+    printf("%s", (string)String_cstr(&g.globals));   // declares + string constants
+    printf("\n");
+    printf("%s", (string)String_cstr(&g.out));        // function definitions
     return 0;
 }
