@@ -242,6 +242,19 @@ string sema_infer_type(Sema* s, *ExprNode e) {
     return "";
 }
 
+int sema_has_star(string t) {
+    int i = 0;
+    while (t[i] != 0) { if ((int)t[i] == 42) { return 1; } i = i + 1; }   // 42 = '*'
+    return 0;
+}
+
+// Pointer-to-const: spelling starts with "const " and is a pointer (e.g. "const int*").
+int sema_pointee_const(string t) {
+    if (t[0] != 99 || t[1] != 111 || t[2] != 110 || t[3] != 115
+        || t[4] != 116 || t[5] != 32) { return 0; }     // not "const "
+    return sema_has_star(t);
+}
+
 int sema_is_assign(string op) {
     if (sema_streq(op, "=") == 1) { return 1; }
     if (sema_streq(op, "+=") == 1 || sema_streq(op, "-=") == 1 || sema_streq(op, "*=") == 1
@@ -256,6 +269,10 @@ int sema_is_readonly_lvalue(Sema* s, *ExprNode e) {
     if (e == null) { return 0; }
     if (e.kind == EK_IDENT) { return sema_sym_const(s, e.sval); }
     if (e.kind == EK_MEMBER || e.kind == EK_INDEX) { return sema_is_readonly_lvalue(s, e.a); }
+    // `*p` writes through a pointer — read-only when p points to const.
+    if (e.kind == EK_UNARY && sema_streq(e.sval, "*") == 1) {
+        return sema_pointee_const(sema_infer_type(s, e.a));
+    }
     return 0;
 }
 
@@ -371,6 +388,13 @@ void sema_stmt(Sema* s, *StmtNode st) {
         if (st.is_const == 1 && st.expr == null) {
             s.had_error = 1;
             printf("error: %s:0:0: const '%s' must be initialized\n", s.filename, st.name);
+        }
+        // Initializing a non-const pointer from a pointer-to-const drops const.
+        if (st.expr != null && sema_has_star(st.type) == 1 && sema_pointee_const(st.type) == 0) {
+            if (sema_pointee_const(sema_infer_type(s, st.expr)) == 1) {
+                s.had_error = 1;
+                printf("error: %s:0:0: initialization discards a const qualifier\n", s.filename);
+            }
         }
         sema_define(s, st.name, st.type, st.is_const);
         return;
