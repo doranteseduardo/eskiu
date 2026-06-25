@@ -18,7 +18,7 @@ import <list>;
 import <mem>;
 import "ast.esk";
 
-struct Sym { string name; string type; int depth; }
+struct Sym { string name; string type; int depth; int is_const; }
 
 // Signature of a non-generic top-level function/extern/intrinsic, for arg-count
 // checking. `variadic` = trailing `...`; `fixed` = required arg count.
@@ -83,12 +83,24 @@ void sema_pop(Sema* s) {
     s.depth = d - 1;
 }
 
-void sema_define(Sema* s, string name, string type) {
+void sema_define(Sema* s, string name, string type, int is_const) {
     let sym: Sym;
     sym.name = name;
     sym.type = type;
     sym.depth = s.depth;
+    sym.is_const = is_const;
     List_push<Sym>(&s.syms, sym);
+}
+
+// Is `name` a read-only (const) binding?
+int sema_sym_const(Sema* s, string name) {
+    int i = List_len<Sym>(&s.syms) - 1;
+    while (i >= 0) {
+        Sym sym = List_get<Sym>(&s.syms, i);
+        if (sema_streq(sym.name, name) == 1) { return sym.is_const; }
+        i = i - 1;
+    }
+    return 0;
 }
 
 int sema_lookup(Sema* s, string name) {
@@ -230,6 +242,23 @@ string sema_infer_type(Sema* s, *ExprNode e) {
     return "";
 }
 
+int sema_is_assign(string op) {
+    if (sema_streq(op, "=") == 1) { return 1; }
+    if (sema_streq(op, "+=") == 1 || sema_streq(op, "-=") == 1 || sema_streq(op, "*=") == 1
+        || sema_streq(op, "/=") == 1 || sema_streq(op, "%=") == 1) { return 1; }
+    return 0;
+}
+
+// Is the assignment target a read-only location? A const binding, or a field/element
+// reached through one (a const struct's members are read-only). Pointee-const through
+// a deref is a later slice.
+int sema_is_readonly_lvalue(Sema* s, *ExprNode e) {
+    if (e == null) { return 0; }
+    if (e.kind == EK_IDENT) { return sema_sym_const(s, e.sval); }
+    if (e.kind == EK_MEMBER || e.kind == EK_INDEX) { return sema_is_readonly_lvalue(s, e.a); }
+    return 0;
+}
+
 // ── expression walk ──
 
 void sema_expr(Sema* s, *ExprNode e) {
@@ -243,7 +272,13 @@ void sema_expr(Sema* s, *ExprNode e) {
         return;
     }
     if (k == EK_LITERAL || k == EK_SIZEOF) { return; }
-    if (k == EK_BINARY) { sema_expr(s, e.a); sema_expr(s, e.b); return; }
+    if (k == EK_BINARY) {
+        if (sema_is_assign(e.sval) == 1 && sema_is_readonly_lvalue(s, e.a) == 1) {
+            s.had_error = 1;
+            printf("error: %s:0:0: cannot assign to read-only location\n", s.filename);
+        }
+        sema_expr(s, e.a); sema_expr(s, e.b); return;
+    }
     if (k == EK_AWAIT) {
         if (s.in_async == 0) {
             s.had_error = 1;
@@ -333,7 +368,11 @@ void sema_stmt(Sema* s, *StmtNode st) {
     }
     if (k == SK_VARDECL) {
         sema_expr(s, st.expr);             // initializer (can't reference itself)
-        sema_define(s, st.name, st.type);
+        if (st.is_const == 1 && st.expr == null) {
+            s.had_error = 1;
+            printf("error: %s:0:0: const '%s' must be initialized\n", s.filename, st.name);
+        }
+        sema_define(s, st.name, st.type, st.is_const);
         return;
     }
     if (k == SK_RETURN || k == SK_THROW) { sema_expr(s, st.expr); return; }
@@ -365,7 +404,7 @@ void sema_stmt(Sema* s, *StmtNode st) {
     if (k == SK_FORIN) {
         sema_push(s);
         sema_expr(s, st.expr);             // iterable (loop var not yet in scope)
-        sema_define(s, st.name, "");       // element type not inferred yet
+        sema_define(s, st.name, "", 0);       // element type not inferred yet
         sema_stmt(s, st.s1);
         sema_pop(s);
         return;
@@ -503,7 +542,7 @@ void sema_register_globals(Sema* s, *Program prog) {
             || d.kind == DK_INTRINSIC || d.kind == DK_VARDECL) {
             string gty = "";
             if (d.kind == DK_VARDECL) { gty = d.ret_type; }   // global var's type
-            sema_define(s, d.name, gty);
+            sema_define(s, d.name, gty, d.is_const);
         }
         if (d.kind == DK_FUNCTION || d.kind == DK_EXTERN || d.kind == DK_INTRINSIC) {
             sema_register_fn(s, d);
@@ -533,7 +572,7 @@ void sema_register_globals(Sema* s, *Program prog) {
             int m = List_len<Param>(&d.params);
             while (j < m) {
                 string vn = List_get<Param>(&d.params, j).name;
-                sema_define(s, vn, "");
+                sema_define(s, vn, "", 0);
                 let ev: EVar; ev.en = d.name; ev.variant = vn;
                 List_push<EVar>(&s.evars, ev);
                 j = j + 1;
@@ -550,12 +589,12 @@ void sema_check_fn(Sema* s, *DeclNode f, string self_type) {
     s.in_async = f.is_async;
     s.await_seen = 0;
     sema_push(s);
-    if (self_type[0] != 0) { sema_define(s, "self", self_type); }   // method: self is the struct
+    if (self_type[0] != 0) { sema_define(s, "self", self_type, 0); }   // method: self is the struct
     int j = 0;
     int m = List_len<Param>(&f.params);
     while (j < m) {
         Param pm = List_get<Param>(&f.params, j);
-        sema_define(s, pm.name, pm.ty);
+        sema_define(s, pm.name, pm.ty, 0);
         j = j + 1;
     }
     sema_stmt(s, f.body);

@@ -52,6 +52,7 @@ struct StmtNode {
     List<*StmtNode> items; // block items
     string name;           // var-decl name / for-in variable
     string type;           // var-decl type
+    int is_const;          // SK_VARDECL: declared value-const (read-only binding)
 }
 
 // A generic type parameter with its (possibly empty) interface constraints, e.g.
@@ -73,6 +74,7 @@ struct DeclNode {
     List<List<string>> payloads;   // enum ADT payload types per member (parallel to params)
     List<int> field_bits;          // struct field bitfield widths (parallel to params; 0 = none)
     int is_async;                  // function declared `async` (1) or not (0)
+    int is_const;                  // DK_VARDECL: declared value-const global
 }
 
 struct Program {
