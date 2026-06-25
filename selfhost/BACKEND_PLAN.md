@@ -133,10 +133,20 @@ neutral, parser still 51/51). Sema: `Sym.is_const`, `sema_is_readonly_lvalue`
 via spelling (`sema_pointee_const` = starts `const ` + has `*`): const_reassign,
 const_no_init, const_field, const_ptr_write, const_ptr_drop. **HANDLED is now 15.**
 
-**NEXT (4 left, all harder):** trait_unsatisfied / trait_primitive_unsat (interface
-satisfaction — match a type's methods against the constraint's interface; uses the
-Phase-A type-params + the member registry), question_bad_return (`?` operand Result vs
-function return type), escaping_param (escape analysis of non-escaping closure params).
+**Phase B error detection COMPLETE (2026-06-26) — all 19 sema classes.** Added the last
+four: trait_unsatisfied/trait_primitive_unsat (structural interface satisfaction — a
+struct via a real method `C.m`, a scalar primitive via a free fn `m(C,...)`; checked at
+`Name<args>(...)` template calls against the Phase-A type-param constraints),
+question_bad_return (`?` requires the enclosing fn to return a Result), escaping_param
+(escape analysis — watch non-escaping `fn(...)`-type params, captured `param_escaping`
+in the parser; a use outside callee position escapes, mirroring the C++ calleeContext).
+`tc_parity` verdict-matches `--test-typechecker` on all 121 positive files AND rejects
+all 19 sema `tests/errors/` cases with the right message; the 5 remaining error files are
+NOT sema (lexer/parser/pp — caught upstream). Suite 267/0, golden 26/26, all parities green.
+
+**NEXT: Phase C — codegen.** The checker is done; codegen needs fuller expr→type
+annotation (grow `sema_infer_type`: call returns, binary promotion, member types) as the
+textual LLVM IR emitter needs it. `async_transform` (a lowering pass) is a later sub-phase.
 
 **Status (2026-06-23): S0 DONE.** `selfhost/{sema,tc_main}.esk` + `tc_parity.sh`
 (CI-wired). Two-pass name resolution (flat `{name,depth}` scope stack — avoids nested-
