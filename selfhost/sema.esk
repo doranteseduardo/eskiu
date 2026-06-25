@@ -35,6 +35,8 @@ struct Sema {
     List<string> members;   // "Struct.member" keys for each struct field AND method
     List<string> enums;     // enum names (for match exhaustiveness)
     List<EVar> evars;       // every enum's variants
+    List<*DeclNode> fndecls; // all top-level fn/extern/intrinsic decls (params, type-params)
+    List<*DeclNode> ifaces;  // interface decls (their required methods)
     int depth;
     int had_error;
     int in_async;           // currently inside an `async` function body?
@@ -64,6 +66,8 @@ void sema_init(Sema* s, string filename) {
     List_init<string>(&s.members, 64);
     List_init<string>(&s.enums, 16);
     List_init<EVar>(&s.evars, 32);
+    List_init<*DeclNode>(&s.fndecls, 64);
+    List_init<*DeclNode>(&s.ifaces, 16);
     s.depth = 0;                           // global scope
     s.had_error = 0;
     s.in_async = 0;
@@ -276,6 +280,93 @@ int sema_is_readonly_lvalue(Sema* s, *ExprNode e) {
     return 0;
 }
 
+// Owned substring s[a, b) with leading/trailing spaces trimmed.
+string sema_trim_sub(string s, int a, int b) {
+    while (a < b && (int)s[a] == 32) { a = a + 1; }
+    while (b > a && (int)s[b - 1] == 32) { b = b - 1; }
+    int len = b - a;
+    *uint8 buf = alloc<uint8>(len + 1);
+    int i = 0; while (i < len) { buf[i] = (uint8)s[a + i]; i = i + 1; }
+    buf[len] = 0;
+    return (string)buf;
+}
+
+*DeclNode sema_find_fndecl(Sema* s, string name) {
+    int i = 0; int n = List_len<*DeclNode>(&s.fndecls);
+    while (i < n) {
+        *DeclNode d = List_get<*DeclNode>(&s.fndecls, i);
+        if (sema_streq(d.name, name) == 1) { return d; }
+        i = i + 1;
+    }
+    return null;
+}
+
+*DeclNode sema_find_iface(Sema* s, string name) {
+    int i = 0; int n = List_len<*DeclNode>(&s.ifaces);
+    while (i < n) {
+        *DeclNode d = List_get<*DeclNode>(&s.ifaces, i);
+        if (sema_streq(d.name, name) == 1) { return d; }
+        i = i + 1;
+    }
+    return null;
+}
+
+int sema_is_scalar_prim(string c) {
+    if (sema_streq(c, "int") == 1 || sema_streq(c, "int8") == 1 || sema_streq(c, "int16") == 1
+        || sema_streq(c, "int32") == 1 || sema_streq(c, "int64") == 1 || sema_streq(c, "uint") == 1
+        || sema_streq(c, "uint8") == 1 || sema_streq(c, "uint16") == 1 || sema_streq(c, "uint32") == 1
+        || sema_streq(c, "uint64") == 1 || sema_streq(c, "char") == 1 || sema_streq(c, "bool") == 1
+        || sema_streq(c, "float") == 1 || sema_streq(c, "double") == 1) { return 1; }
+    return 0;
+}
+
+// Does concrete type `c` satisfy interface `iface_name`? A struct satisfies via a
+// real method `c.method`; a scalar primitive may satisfy via a free function named
+// `method` whose first parameter is `c` (mirrors structSatisfiesInterface). Unknown
+// interface → treat as satisfied (don't false-positive).
+int sema_satisfies(Sema* s, string c, string iface_name) {
+    *DeclNode iface = sema_find_iface(s, iface_name);
+    if (iface == null) { return 1; }
+    int prim = sema_is_scalar_prim(c);
+    int i = 0; int n = List_len<*DeclNode>(&iface.methods);
+    while (i < n) {
+        string m = List_get<*DeclNode>(&iface.methods, i).name;
+        int ok = 0;
+        if (sema_has_member(s, sema_cat(sema_cat(c, "."), m)) == 1) { ok = 1; }   // struct method
+        if (ok == 0 && prim == 1) {                                               // free-fn fallback
+            *DeclNode ff = sema_find_fndecl(s, m);
+            if (ff != null && List_len<Param>(&ff.params) > 0) {
+                if (sema_streq(sema_struct_of_type(List_get<Param>(&ff.params, 0).ty), c) == 1) { ok = 1; }
+            }
+        }
+        if (ok == 0) { return 0; }
+        i = i + 1;
+    }
+    return 1;
+}
+
+// Extract the type arguments of a template-call spelling ("pick<int>" → ["int"],
+// "Map<string, int>" → ["string","int"]), tracking nesting and trimming spaces.
+void sema_parse_targs(string sval, List<string>* out) {
+    int i = 0;
+    while (sval[i] != 0 && (int)sval[i] != 60) { i = i + 1; }   // find '<'
+    if (sval[i] == 0) { return; }
+    i = i + 1;
+    int depth = 0;
+    int start = i;
+    while (sval[i] != 0) {
+        int c = (int)sval[i];
+        if (c == 60) { depth = depth + 1; }
+        else if (c == 62) { if (depth == 0) { break; } depth = depth - 1; }
+        else if (c == 44 && depth == 0) {
+            List_push<string>(out, sema_trim_sub(sval, start, i));
+            start = i + 1;
+        }
+        i = i + 1;
+    }
+    if (i > start) { List_push<string>(out, sema_trim_sub(sval, start, i)); }
+}
+
 // ── expression walk ──
 
 void sema_expr(Sema* s, *ExprNode e) {
@@ -361,7 +452,32 @@ void sema_expr(Sema* s, *ExprNode e) {
         while (i < n) { sema_expr(s, List_get<*ExprNode>(&e.kids, i)); i = i + 1; }
         return;
     }
-    if (k == EK_TEMPLATECALL) {        // name is a fn, not an ident
+    if (k == EK_TEMPLATECALL) {        // Name<args>(...) — check bounded-generic constraints
+        *DeclNode fd = sema_find_fndecl(s, sema_base_name(e.sval));
+        if (fd != null) {
+            List<string> targs;
+            List_init<string>(&targs, 4);
+            sema_parse_targs(e.sval, &targs);
+            int tn = List_len<TypeParam>(&fd.type_params);
+            int na = List_len<string>(&targs);
+            int ti = 0;
+            while (ti < tn && ti < na) {
+                TypeParam tp = List_get<TypeParam>(&fd.type_params, ti);
+                string concrete = List_get<string>(&targs, ti);
+                int ci = 0;
+                int cn = List_len<string>(&tp.constraints);
+                while (ci < cn) {
+                    string ic = List_get<string>(&tp.constraints, ci);
+                    if (sema_satisfies(s, concrete, ic) == 0) {
+                        s.had_error = 1;
+                        printf("error: %s:0:0: type '%s' does not satisfy constraint '%s'\n",
+                               s.filename, concrete, ic);
+                    }
+                    ci = ci + 1;
+                }
+                ti = ti + 1;
+            }
+        }
         int i = 0;
         int n = List_len<*ExprNode>(&e.kids);
         while (i < n) { sema_expr(s, List_get<*ExprNode>(&e.kids, i)); i = i + 1; }
@@ -570,7 +686,9 @@ void sema_register_globals(Sema* s, *Program prog) {
         }
         if (d.kind == DK_FUNCTION || d.kind == DK_EXTERN || d.kind == DK_INTRINSIC) {
             sema_register_fn(s, d);
+            List_push<*DeclNode>(&s.fndecls, d);
         }
+        if (d.kind == DK_INTERFACE) { List_push<*DeclNode>(&s.ifaces, d); }
         if (d.kind == DK_STRUCT || d.kind == DK_UNION || d.kind == DK_INTERFACE
             || d.kind == DK_ENUM || d.kind == DK_TYPEALIAS) {
             List_push<string>(&s.types, d.name);
