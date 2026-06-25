@@ -209,9 +209,12 @@ flag (no double terminators; unreachable trailing block → `unreachable`), loop
 loop_end stacks for break/continue; cg 12/12. (Caveat: allocas aren't hoisted to entry
 yet — fine for short loops, revisit for long ones.) **S3a (DONE)** direct function calls
 + recursion: `cg_program` pre-pass records fn→retty (`CgFn`); `call <retty> @f(args)`,
-void calls drop the result; cg 15/15. NEXT: **S3b printf** — externs (`declare`), string
-literals (global `c"…\00"` constants), variadic call syntax → unlocks **stdout** parity
-on real corpus programs. Then structs + GEP +
+void calls drop the result; cg 15/15. **S3b (DONE)** printf: extern `declare`s, string
+literals (module-top `@.strN` constants, LLVM-escaped + opaque-ptr pass), variadic call
+type `call i32 (ptr, ...) @printf` — **stdout parity** (cg 19/19). Real corpus programs
+that stay within int/control-flow/calls/printf now compile + run identically to the C++
+build (hello, recursion, control_flow). NEXT: more types (float/int64 + arg coercion),
+then structs + GEP +
 bitfield layout, function calls + sret, closures (fat `{ptr,ptr}` + env structs), ADTs
 (`{i32 tag,[N x i64]}`). **Defer** exceptions (landingpad/invoke) and atomics — the
 gnarliest ~40%; if textual emission gets too painful there, bind just those few ops via
