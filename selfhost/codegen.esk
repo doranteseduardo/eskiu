@@ -5,8 +5,9 @@
 // matched byte-for-byte). Named SSA temps (%tN) sidestep LLVM's strict 0,1,2,…
 // numbering for unnamed values.
 //
-// S0 (de-risk): functions returning an integer constant — proves AST → .ll → clang →
-// native exit. Locals, arithmetic, control flow, structs follow in later slices.
+// S0: functions returning an integer constant.
+// S1: scalar locals + params via alloca/load/store, integer arithmetic, comparisons,
+//     bitwise ops, unary negate, assignment. Control flow, calls, structs follow.
 
 import <io>;
 import <string>;
@@ -14,10 +15,16 @@ import <list>;
 import <mem>;
 import "ast.esk";
 
+// An evaluated expression: its LLVM operand text and LLVM type.
+struct CgVal { string op; string ty; }
+// A local binding: source name → its alloca slot + LLVM type.
+struct CgLocal { string name; string slot; string ty; }
+
 struct Codegen {
     String out;
-    int next;          // SSA temp counter (per module is fine for named temps)
-    string cur_ret;    // current function's LLVM return type
+    int next;            // SSA temp / slot counter
+    string cur_ret;      // current function's LLVM return type
+    List<CgLocal> locals;
 }
 
 int cg_streq(string a, string b) {
@@ -27,13 +34,46 @@ int cg_streq(string a, string b) {
     return 0;
 }
 
+string cg_cat(string a, string b) {
+    int la = 0; while (a[la] != 0) { la = la + 1; }
+    int lb = 0; while (b[lb] != 0) { lb = lb + 1; }
+    *uint8 buf = alloc<uint8>(la + lb + 1);
+    int i = 0; while (i < la) { buf[i] = (uint8)a[i]; i = i + 1; }
+    int j = 0; while (j < lb) { buf[la + j] = (uint8)b[j]; j = j + 1; }
+    buf[la + lb] = 0;
+    return (string)buf;
+}
+
+string cg_itoa(int n) {
+    if (n == 0) { return "0"; }
+    int neg = 0;
+    if (n < 0) { neg = 1; n = 0 - n; }
+    *uint8 tmp = alloc<uint8>(16);
+    int len = 0;
+    while (n > 0) { tmp[len] = (uint8)(48 + (n % 10)); n = n / 10; len = len + 1; }
+    int total = len; if (neg == 1) { total = total + 1; }
+    *uint8 buf = alloc<uint8>(total + 1);
+    int off = 0;
+    if (neg == 1) { buf[0] = 45; off = 1; }
+    int i = 0; while (i < len) { buf[off + i] = tmp[len - 1 - i]; i = i + 1; }
+    buf[total] = 0;
+    return (string)buf;
+}
+
 void cg_init(Codegen* g) {
     String_init(&g.out, 1024);
     g.next = 0;
     g.cur_ret = "void";
+    List_init<CgLocal>(&g.locals, 8);
 }
 
 void cg_emit(Codegen* g, string s) { String_append(&g.out, s); }
+
+string cg_tmp(Codegen* g) {
+    string r = cg_cat("%t", cg_itoa(g.next));
+    g.next = g.next + 1;
+    return r;
+}
 
 // Eskiu type spelling → LLVM type. Pointers (anything with `*`) lower to opaque `ptr`.
 string cg_lltype(string t) {
@@ -50,11 +90,117 @@ string cg_lltype(string t) {
     return "i32";   // int/int32/uint/... and the default
 }
 
-// Evaluate an expression to an LLVM operand string ("42", "%t3", …).
-string cg_expr(Codegen* g, *ExprNode e) {
-    if (e == null) { return "0"; }
-    if (e.kind == EK_LITERAL) { return e.sval; }     // S0: integer constant
-    return "0";
+// Innermost local binding for `name` (slot == "" if none).
+CgLocal cg_find_local(Codegen* g, string name) {
+    int i = List_len<CgLocal>(&g.locals) - 1;
+    while (i >= 0) {
+        CgLocal l = List_get<CgLocal>(&g.locals, i);
+        if (cg_streq(l.name, name) == 1) { return l; }
+        i = i - 1;
+    }
+    let none: CgLocal; none.name = name; none.slot = ""; none.ty = "i32";
+    return none;
+}
+
+void cg_add_local(Codegen* g, string name, string slot, string ty) {
+    let l: CgLocal; l.name = name; l.slot = slot; l.ty = ty;
+    List_push<CgLocal>(&g.locals, l);
+}
+
+// Integer arithmetic/bitwise op → LLVM mnemonic ("" if not such an op).
+string cg_arith_op(string s) {
+    if (cg_streq(s, "+") == 1) { return "add"; }
+    if (cg_streq(s, "-") == 1) { return "sub"; }
+    if (cg_streq(s, "*") == 1) { return "mul"; }
+    if (cg_streq(s, "/") == 1) { return "sdiv"; }
+    if (cg_streq(s, "%") == 1) { return "srem"; }
+    if (cg_streq(s, "&") == 1) { return "and"; }
+    if (cg_streq(s, "|") == 1) { return "or"; }
+    if (cg_streq(s, "^") == 1) { return "xor"; }
+    if (cg_streq(s, "<<") == 1) { return "shl"; }
+    if (cg_streq(s, ">>") == 1) { return "ashr"; }
+    return "";
+}
+
+// Comparison op → LLVM icmp predicate ("" if not a comparison).
+string cg_cmp_pred(string s) {
+    if (cg_streq(s, "==") == 1) { return "eq"; }
+    if (cg_streq(s, "!=") == 1) { return "ne"; }
+    if (cg_streq(s, "<") == 1) { return "slt"; }
+    if (cg_streq(s, ">") == 1) { return "sgt"; }
+    if (cg_streq(s, "<=") == 1) { return "sle"; }
+    if (cg_streq(s, ">=") == 1) { return "sge"; }
+    return "";
+}
+
+CgVal cg_expr(Codegen* g, *ExprNode e) {
+    let v: CgVal;
+    if (e == null) { v.op = "0"; v.ty = "i32"; return v; }
+
+    if (e.kind == EK_LITERAL) {
+        v.op = e.sval;
+        if (e.lit_kind == LIT_BOOL) { v.ty = "i1"; }
+        else if (e.lit_kind == LIT_NULL) { v.op = "null"; v.ty = "ptr"; }
+        else { v.ty = "i32"; }            // integer literal (S1)
+        return v;
+    }
+
+    if (e.kind == EK_IDENT) {
+        CgLocal l = cg_find_local(g, e.sval);
+        if (l.slot[0] != 0) {
+            string t = cg_tmp(g);
+            cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = load "); cg_emit(g, l.ty);
+            cg_emit(g, ", ptr "); cg_emit(g, l.slot); cg_emit(g, "\n");
+            v.op = t; v.ty = l.ty; return v;
+        }
+        v.op = e.sval; v.ty = "i32"; return v;        // fallback (S1)
+    }
+
+    if (e.kind == EK_UNARY) {
+        if (cg_streq(e.sval, "-") == 1) {
+            CgVal a = cg_expr(g, e.a);
+            string t = cg_tmp(g);
+            cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = sub "); cg_emit(g, a.ty);
+            cg_emit(g, " 0, "); cg_emit(g, a.op); cg_emit(g, "\n");
+            v.op = t; v.ty = a.ty; return v;
+        }
+        return cg_expr(g, e.a);
+    }
+
+    if (e.kind == EK_BINARY) {
+        if (cg_streq(e.sval, "=") == 1) {              // assignment: store into a local
+            CgVal rhs = cg_expr(g, e.b);
+            if (e.a != null && e.a.kind == EK_IDENT) {
+                CgLocal l = cg_find_local(g, e.a.sval);
+                if (l.slot[0] != 0) {
+                    cg_emit(g, "  store "); cg_emit(g, l.ty); cg_emit(g, " "); cg_emit(g, rhs.op);
+                    cg_emit(g, ", ptr "); cg_emit(g, l.slot); cg_emit(g, "\n");
+                }
+            }
+            return rhs;
+        }
+        CgVal l = cg_expr(g, e.a);
+        CgVal r = cg_expr(g, e.b);
+        string pred = cg_cmp_pred(e.sval);
+        if (pred[0] != 0) {
+            string t = cg_tmp(g);
+            cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = icmp "); cg_emit(g, pred);
+            cg_emit(g, " "); cg_emit(g, l.ty); cg_emit(g, " "); cg_emit(g, l.op);
+            cg_emit(g, ", "); cg_emit(g, r.op); cg_emit(g, "\n");
+            v.op = t; v.ty = "i1"; return v;
+        }
+        string op = cg_arith_op(e.sval);
+        if (op[0] != 0) {
+            string t = cg_tmp(g);
+            cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = "); cg_emit(g, op);
+            cg_emit(g, " "); cg_emit(g, l.ty); cg_emit(g, " "); cg_emit(g, l.op);
+            cg_emit(g, ", "); cg_emit(g, r.op); cg_emit(g, "\n");
+            v.op = t; v.ty = l.ty; return v;
+        }
+        return l;                                       // unhandled binary (S1) → left
+    }
+
+    v.op = "0"; v.ty = "i32"; return v;
 }
 
 void cg_stmt(Codegen* g, *StmtNode st) {
@@ -65,32 +211,63 @@ void cg_stmt(Codegen* g, *StmtNode st) {
         while (i < n) { cg_stmt(g, List_get<*StmtNode>(&st.items, i)); i = i + 1; }
         return;
     }
+    if (st.kind == SK_VARDECL) {
+        string ty = cg_lltype(st.type);
+        string slot = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, slot); cg_emit(g, " = alloca "); cg_emit(g, ty); cg_emit(g, "\n");
+        if (st.expr != null) {
+            CgVal init = cg_expr(g, st.expr);
+            cg_emit(g, "  store "); cg_emit(g, ty); cg_emit(g, " "); cg_emit(g, init.op);
+            cg_emit(g, ", ptr "); cg_emit(g, slot); cg_emit(g, "\n");
+        }
+        cg_add_local(g, st.name, slot, ty);
+        return;
+    }
     if (st.kind == SK_RETURN) {
         if (st.expr != null) {
-            cg_emit(g, "  ret ");
-            cg_emit(g, g.cur_ret);
-            cg_emit(g, " ");
-            cg_emit(g, cg_expr(g, st.expr));
-            cg_emit(g, "\n");
+            CgVal r = cg_expr(g, st.expr);
+            cg_emit(g, "  ret "); cg_emit(g, g.cur_ret); cg_emit(g, " "); cg_emit(g, r.op); cg_emit(g, "\n");
         } else {
             cg_emit(g, "  ret void\n");
         }
         return;
     }
+    if (st.kind == SK_EXPR) { cg_expr(g, st.expr); return; }
 }
 
 void cg_decl(Codegen* g, *DeclNode d) {
-    if (d.kind != DK_FUNCTION) { return; }       // S0: functions only
-    if (d.body == null) { return; }              // skip prototypes
+    if (d.kind != DK_FUNCTION) { return; }
+    if (d.body == null) { return; }
     string rt = cg_lltype(d.ret_type);
     g.cur_ret = rt;
-    cg_emit(g, "define ");
-    cg_emit(g, rt);
-    cg_emit(g, " @");
-    cg_emit(g, d.name);
-    cg_emit(g, "() {\nentry:\n");
+    List_init<CgLocal>(&g.locals, 8);
+
+    cg_emit(g, "define "); cg_emit(g, rt); cg_emit(g, " @"); cg_emit(g, d.name); cg_emit(g, "(");
+    int np = List_len<Param>(&d.params);
+    int pi = 0;
+    while (pi < np) {
+        Param pm = List_get<Param>(&d.params, pi);
+        if (pi > 0) { cg_emit(g, ", "); }
+        cg_emit(g, cg_lltype(pm.ty)); cg_emit(g, " %p"); cg_emit(g, cg_itoa(pi));
+        pi = pi + 1;
+    }
+    cg_emit(g, ") {\nentry:\n");
+
+    // Spill each parameter to a stack slot so it reads/writes like a local.
+    pi = 0;
+    while (pi < np) {
+        Param pm = List_get<Param>(&d.params, pi);
+        string pty = cg_lltype(pm.ty);
+        string slot = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, slot); cg_emit(g, " = alloca "); cg_emit(g, pty); cg_emit(g, "\n");
+        cg_emit(g, "  store "); cg_emit(g, pty); cg_emit(g, " %p"); cg_emit(g, cg_itoa(pi));
+        cg_emit(g, ", ptr "); cg_emit(g, slot); cg_emit(g, "\n");
+        cg_add_local(g, pm.name, slot, pty);
+        pi = pi + 1;
+    }
+
     cg_stmt(g, d.body);
-    if (cg_streq(rt, "void") == 1) { cg_emit(g, "  ret void\n"); }   // fallthrough terminator
+    if (cg_streq(rt, "void") == 1) { cg_emit(g, "  ret void\n"); }
     cg_emit(g, "}\n\n");
 }
 
