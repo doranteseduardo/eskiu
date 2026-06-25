@@ -126,10 +126,17 @@ That unlocked **undefined_field** (`ident.field`, auto-deref via `sema_struct_of
 registry `s.evars` + subject-type inference + `_` wildcard). HANDLED is now **10**.
 Still 121/121, 0 false rejections.
 
-**NEXT (need Phase-A flags / more inference):** const_* (5 — the var-decl type drops
-`const`, so first capture a const flag in ast/parser, then track const symbols/fields/
-pointers), trait_* (interface satisfaction), question_bad_return (return-type + `?` type),
-escaping_param (escape analysis). The const group is the next chunk: revisit Phase A.
+**const_* DONE (all 5).** Captured the value-const flag in ast/parser (`mk_vardecl`/
+`mk_decl_var` carry `is_const`; `is_value_const`/`strip_binding_const` split — parity-
+neutral, parser still 51/51). Sema: `Sym.is_const`, `sema_is_readonly_lvalue`
+(ident / member-of-const / index / `*ptr`-to-const), const-no-init, and pointer-const
+via spelling (`sema_pointee_const` = starts `const ` + has `*`): const_reassign,
+const_no_init, const_field, const_ptr_write, const_ptr_drop. **HANDLED is now 15.**
+
+**NEXT (4 left, all harder):** trait_unsatisfied / trait_primitive_unsat (interface
+satisfaction — match a type's methods against the constraint's interface; uses the
+Phase-A type-params + the member registry), question_bad_return (`?` operand Result vs
+function return type), escaping_param (escape analysis of non-escaping closure params).
 
 **Status (2026-06-23): S0 DONE.** `selfhost/{sema,tc_main}.esk` + `tc_parity.sh`
 (CI-wired). Two-pass name resolution (flat `{name,depth}` scope stack — avoids nested-
