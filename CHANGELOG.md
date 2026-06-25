@@ -22,15 +22,16 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   dogfooding the self-hosted parser. Affected only the debug printer, not codegen.
 
 ### Added
-- **Self-hosting back-end, Phase B (sema) S0: the type checker skeleton, in Eskiu.**
-  `selfhost/sema.esk` does two-pass name resolution over the enriched AST — register
-  top-level names, then walk function/method bodies with a `{name, depth}` scope stack
-  — catching **undefined variables**. Driver `selfhost/tc_main.esk` runs the full
-  self-hosted pipeline (preprocess → parse → check) in the `--test-typechecker` format.
-  Gate `tests/selfhost/tc_parity.sh` (**wired into CI**): the self-hosted verdict
-  matches `eskiuc --test-typechecker` on all **120** positive corpus files (no false
-  rejections), and `undefined_var` is rejected with the right diagnostic. Types,
-  calls, generics, traits, const-correctness, match exhaustiveness come in later slices.
+- **Self-hosting back-end, Phase B: the type checker, in Eskiu.** `selfhost/sema.esk`
+  (driver `tc_main.esk`, full pipeline preprocess → parse → check) now catches **all 19
+  semantic error classes** in `tests/errors/` — name resolution, argument counts,
+  undefined types & fields, async/await rules, switch/match exhaustiveness & duplicates,
+  const-correctness (value, field, and pointer-pointee), interface satisfaction for
+  bounded generics, the `?` operator's return type, and closure-escape soundness. Gate
+  `tests/selfhost/tc_parity.sh` (**wired into CI**): the verdict matches
+  `eskiuc --test-typechecker` on all **121** positive corpus files with zero false
+  rejections, and every sema negative test is rejected with the right diagnostic. Types
+  flow as strings (no structured Type IR), matching the C++ checker's codegen boundary.
 - **Self-hosting back-end, Phase A: AST enrichment.** The self-hosted parser's AST
   (`selfhost/{ast,parser}.esk`) now captures what it previously parsed-and-discarded,
   so it can feed a future sema/codegen: generic **type-params + constraints**, struct
