@@ -710,10 +710,20 @@ string lambda_sig(string ret, *DeclNode d) {
     return s;
 }
 
-*StmtNode mk_vardecl(string nm, string ty, *ExprNode init) {
+*StmtNode mk_vardecl(string nm, string ty, *ExprNode init, int is_const) {
     *StmtNode s = alloc<StmtNode>(1);
-    s.kind = SK_VARDECL; s.name = nm; s.type = ty; s.expr = init;
+    s.kind = SK_VARDECL; s.name = nm; s.type = ty; s.expr = init; s.is_const = is_const;
     return s;
+}
+
+// Is `t` a value-const type — a leading `const ` with no pointer (mirrors the C++
+// finalizeVar rule)? Such a binding is read-only; pointee-const (`const int*`) is not.
+int is_value_const(string t) {
+    if (t[0] != 99 || t[1] != 111 || t[2] != 110 || t[3] != 115
+        || t[4] != 116 || t[5] != 32) { return 0; }     // not "const "
+    int i = 6;
+    while (t[i] != 0) { if (t[i] == 42) { return 0; } i = i + 1; }   // 42 = '*'
+    return 1;
 }
 
 *StmtNode wrap_block(*StmtNode inner) {        // a BlockStmt holding one item
@@ -803,7 +813,7 @@ string strip_binding_const(string t) {
 *StmtNode desugar_range(string var, *ExprNode lo, *ExprNode hi, *StmtNode body) {
     *StmtNode s = alloc<StmtNode>(1);
     s.kind = SK_FOR;
-    s.s1 = wrap_block(mk_vardecl(var, "int", lo));
+    s.s1 = wrap_block(mk_vardecl(var, "int", lo, 0));
     s.expr = mk_bin("<", mk_ident(var), hi);
     s.expr2 = mk_bin("=", mk_ident(var), mk_bin("+", mk_ident(var), mk_lit(LIT_INT, "1")));
     s.s2 = body;
@@ -856,11 +866,12 @@ string strip_binding_const(string t) {
 // (caller restores pos) if the tokens aren't actually a declaration.
 *StmtNode try_var_decl(Parser* p) {
     int save = p.pos;
+    int is_const = 0;
     if (p_at(p) == VOLATILE) { p_adv(p); }
     if (p_at(p) == CONST) {                          // const-let binding (const before let)
         int k = 1;
         if (p_peek_k(p, 1).type == VOLATILE) { k = 2; }
-        if (p_peek_k(p, k).type == LET) { p_adv(p); }
+        if (p_peek_k(p, k).type == LET) { is_const = 1; p_adv(p); }
     }
     if (p_at(p) == VOLATILE) { p_adv(p); }
     if (p_at(p) == LET) {
@@ -869,15 +880,19 @@ string strip_binding_const(string t) {
         string nm = tok_text(p.src, p_peek(p)); p_adv(p);
         if (p_at(p) != COLON) { p.pos = save; return null; }
         p_adv(p);
-        string ty = strip_binding_const(parse_type(p));
+        string raw = parse_type(p);
+        if (is_value_const(raw) == 1) { is_const = 1; }
+        string ty = strip_binding_const(raw);
         *ExprNode init = null;
         if (p_at(p) == EQ) { p_adv(p); init = parse_expr(p); }
         if (p_at(p) != SEMICOLON) { p.pos = save; return null; }
         p_adv(p);
-        return mk_vardecl(nm, ty, init);
+        return mk_vardecl(nm, ty, init, is_const);
     }
     // typed: Type name [= expr] ;
-    string ty = strip_binding_const(parse_type(p));
+    string raw = parse_type(p);
+    if (is_value_const(raw) == 1) { is_const = 1; }
+    string ty = strip_binding_const(raw);
     if (p_at(p) != IDENT) { p.pos = save; return null; }
     string nm = tok_text(p.src, p_peek(p)); p_adv(p);
     if (p_at(p) == EQ) {
@@ -885,9 +900,9 @@ string strip_binding_const(string t) {
         *ExprNode init = parse_expr(p);
         if (p_at(p) != SEMICOLON) { p.pos = save; return null; }
         p_adv(p);
-        return mk_vardecl(nm, ty, init);
+        return mk_vardecl(nm, ty, init, is_const);
     }
-    if (p_at(p) == SEMICOLON) { p_adv(p); return mk_vardecl(nm, ty, null); }
+    if (p_at(p) == SEMICOLON) { p_adv(p); return mk_vardecl(nm, ty, null, is_const); }
     p.pos = save;
     return null;
 }
@@ -1087,6 +1102,7 @@ string strip_binding_const(string t) {
     List_init<List<string>>(&d.payloads, 2);
     List_init<int>(&d.field_bits, 4);
     d.is_async = 0;
+    d.is_const = 0;
     return d;
 }
 
@@ -1324,9 +1340,9 @@ int str_to_int(string s) {
     return d;
 }
 
-*DeclNode mk_decl_var(string nm, string ty, *ExprNode init) {
+*DeclNode mk_decl_var(string nm, string ty, *ExprNode init, int is_const) {
     *DeclNode d = new_decl(DK_VARDECL);
-    d.name = nm; d.ret_type = ty; d.init = init;
+    d.name = nm; d.ret_type = ty; d.init = init; d.is_const = is_const;
     return d;
 }
 
@@ -1334,24 +1350,29 @@ int str_to_int(string s) {
 // (`Type name(` / `Type name<`). Mirrors parseDeclaration's tail.
 *DeclNode parse_decl_fallback(Parser* p) {
     int save = p.pos;
+    int is_const = 0;
     if (p_at(p) == VOLATILE) { p_adv(p); }
     if (p_at(p) == CONST) {
         int k = 1;
         if (p_peek_k(p, 1).type == VOLATILE) { k = 2; }
-        if (p_peek_k(p, k).type == LET) { p_adv(p); }
+        if (p_peek_k(p, k).type == LET) { is_const = 1; p_adv(p); }
     }
     if (p_at(p) == VOLATILE) { p_adv(p); }
     if (p_at(p) == LET) {
         p_adv(p);
         string nm = tok_text(p.src, p_adv(p));
         p_adv(p);                          // ':'
-        string ty = strip_binding_const(parse_type(p));
+        string raw = parse_type(p);
+        if (is_value_const(raw) == 1) { is_const = 1; }
+        string ty = strip_binding_const(raw);
         *ExprNode init = null;
         if (p_at(p) == EQ) { p_adv(p); init = parse_expr(p); }
         p_adv(p);                          // ';'
-        return mk_decl_var(nm, ty, init);
+        return mk_decl_var(nm, ty, init, is_const);
     }
-    string ty = strip_binding_const(parse_type(p));
+    string raw = parse_type(p);
+    if (is_value_const(raw) == 1) { is_const = 1; }
+    string ty = strip_binding_const(raw);
     Token nm = p_adv(p);                   // name
     if (p_at(p) == LPAREN || p_at(p) == LT) {
         p.pos = save;                      // it's a function — re-parse from the top
@@ -1360,7 +1381,7 @@ int str_to_int(string s) {
     *ExprNode init = null;
     if (p_at(p) == EQ) { p_adv(p); init = parse_expr(p); }
     p_adv(p);                              // ';'
-    return mk_decl_var(tok_text(p.src, nm), ty, init);
+    return mk_decl_var(tok_text(p.src, nm), ty, init, is_const);
 }
 
 // Top-level declaration dispatch (mirrors parseDeclaration). A declared type name
