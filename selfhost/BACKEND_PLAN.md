@@ -201,8 +201,10 @@ Design: named SSA temps `%tN` (avoid LLVM's strict unnamed 0,1,2… numbering); 
 maps Eskiu types → LLVM (`*`→`ptr`, int→i32, …); `cg_expr` returns an operand string.
 Not yet CI-wired (needs clang at runtime + more coverage first).
 
-**Slices:** S0 (DONE) constant return. NEXT: arithmetic/locals (alloca/load/store +
-SSA temps), control flow (if/while → labelled blocks + br/condbr), structs + GEP +
+**Slices:** S0 (DONE) constant return. **S1 (DONE)** scalar locals + params via
+alloca/load/store, integer arithmetic / comparison / bitwise / unary-negate, assignment
+(`cg_expr` returns `{op, ty}`; named `%tN` slots/temps); cg 7/7. NEXT: control flow
+(if/while → labelled blocks + br/condbr), structs + GEP +
 bitfield layout, function calls + sret, closures (fat `{ptr,ptr}` + env structs), ADTs
 (`{i32 tag,[N x i64]}`). **Defer** exceptions (landingpad/invoke) and atomics — the
 gnarliest ~40%; if textual emission gets too painful there, bind just those few ops via
