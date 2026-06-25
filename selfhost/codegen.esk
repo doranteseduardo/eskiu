@@ -1,0 +1,101 @@
+// Self-hosted code generation (Phase C of the back-end). Walks the typed AST and
+// emits LLVM IR as TEXT — no LLVM library to bind. The oracle is behavioral: the
+// emitted .ll, compiled with clang and run, must produce the same exit code/output
+// as the C++-built binary (LLVM auto-numbers/folds, so the IR text itself can't be
+// matched byte-for-byte). Named SSA temps (%tN) sidestep LLVM's strict 0,1,2,…
+// numbering for unnamed values.
+//
+// S0 (de-risk): functions returning an integer constant — proves AST → .ll → clang →
+// native exit. Locals, arithmetic, control flow, structs follow in later slices.
+
+import <io>;
+import <string>;
+import <list>;
+import <mem>;
+import "ast.esk";
+
+struct Codegen {
+    String out;
+    int next;          // SSA temp counter (per module is fine for named temps)
+    string cur_ret;    // current function's LLVM return type
+}
+
+int cg_streq(string a, string b) {
+    int i = 0;
+    while (a[i] != 0 && b[i] != 0) { if (a[i] != b[i]) { return 0; } i = i + 1; }
+    if (a[i] == b[i]) { return 1; }
+    return 0;
+}
+
+void cg_init(Codegen* g) {
+    String_init(&g.out, 1024);
+    g.next = 0;
+    g.cur_ret = "void";
+}
+
+void cg_emit(Codegen* g, string s) { String_append(&g.out, s); }
+
+// Eskiu type spelling → LLVM type. Pointers (anything with `*`) lower to opaque `ptr`.
+string cg_lltype(string t) {
+    int i = 0;
+    while (t[i] != 0) { if ((int)t[i] == 42) { return "ptr"; } i = i + 1; }   // '*'
+    if (cg_streq(t, "void") == 1) { return "void"; }
+    if (cg_streq(t, "bool") == 1) { return "i1"; }
+    if (cg_streq(t, "char") == 1 || cg_streq(t, "int8") == 1 || cg_streq(t, "uint8") == 1) { return "i8"; }
+    if (cg_streq(t, "int16") == 1 || cg_streq(t, "uint16") == 1) { return "i16"; }
+    if (cg_streq(t, "int64") == 1 || cg_streq(t, "uint64") == 1) { return "i64"; }
+    if (cg_streq(t, "float") == 1) { return "float"; }
+    if (cg_streq(t, "double") == 1) { return "double"; }
+    if (cg_streq(t, "string") == 1) { return "ptr"; }
+    return "i32";   // int/int32/uint/... and the default
+}
+
+// Evaluate an expression to an LLVM operand string ("42", "%t3", …).
+string cg_expr(Codegen* g, *ExprNode e) {
+    if (e == null) { return "0"; }
+    if (e.kind == EK_LITERAL) { return e.sval; }     // S0: integer constant
+    return "0";
+}
+
+void cg_stmt(Codegen* g, *StmtNode st) {
+    if (st == null) { return; }
+    if (st.kind == SK_BLOCK) {
+        int i = 0;
+        int n = List_len<*StmtNode>(&st.items);
+        while (i < n) { cg_stmt(g, List_get<*StmtNode>(&st.items, i)); i = i + 1; }
+        return;
+    }
+    if (st.kind == SK_RETURN) {
+        if (st.expr != null) {
+            cg_emit(g, "  ret ");
+            cg_emit(g, g.cur_ret);
+            cg_emit(g, " ");
+            cg_emit(g, cg_expr(g, st.expr));
+            cg_emit(g, "\n");
+        } else {
+            cg_emit(g, "  ret void\n");
+        }
+        return;
+    }
+}
+
+void cg_decl(Codegen* g, *DeclNode d) {
+    if (d.kind != DK_FUNCTION) { return; }       // S0: functions only
+    if (d.body == null) { return; }              // skip prototypes
+    string rt = cg_lltype(d.ret_type);
+    g.cur_ret = rt;
+    cg_emit(g, "define ");
+    cg_emit(g, rt);
+    cg_emit(g, " @");
+    cg_emit(g, d.name);
+    cg_emit(g, "() {\nentry:\n");
+    cg_stmt(g, d.body);
+    if (cg_streq(rt, "void") == 1) { cg_emit(g, "  ret void\n"); }   // fallthrough terminator
+    cg_emit(g, "}\n\n");
+}
+
+void cg_program(Codegen* g, *Program prog) {
+    int i = 0;
+    int n = List_len<*DeclNode>(&prog.decls);
+    while (i < n) { cg_decl(g, List_get<*DeclNode>(&prog.decls, i)); i = i + 1; }
+}
