@@ -207,8 +207,11 @@ alloca/load/store, integer arithmetic / comparison / bitwise / unary-negate, ass
 flow: if/while/C-for/break/continue via labelled blocks + `br`/`condbr`, a `terminated`
 flag (no double terminators; unreachable trailing block → `unreachable`), loop_cont/
 loop_end stacks for break/continue; cg 12/12. (Caveat: allocas aren't hoisted to entry
-yet — fine for short loops, revisit for long ones.) NEXT: function **calls** (+ recursion,
-then printf → stdout parity unlocks real programs), structs + GEP +
+yet — fine for short loops, revisit for long ones.) **S3a (DONE)** direct function calls
++ recursion: `cg_program` pre-pass records fn→retty (`CgFn`); `call <retty> @f(args)`,
+void calls drop the result; cg 15/15. NEXT: **S3b printf** — externs (`declare`), string
+literals (global `c"…\00"` constants), variadic call syntax → unlocks **stdout** parity
+on real corpus programs. Then structs + GEP +
 bitfield layout, function calls + sret, closures (fat `{ptr,ptr}` + env structs), ADTs
 (`{i32 tag,[N x i64]}`). **Defer** exceptions (landingpad/invoke) and atomics — the
 gnarliest ~40%; if textual emission gets too painful there, bind just those few ops via
