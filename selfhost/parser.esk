@@ -11,6 +11,7 @@
 import <fs>;
 import "lexer.esk";
 import "ast.esk";
+import "preprocessor.esk";
 
 struct Parser {
     List<Token> toks;
@@ -1456,8 +1457,14 @@ void do_import(Parser* p, *Program prog) {
     let bytes: int64 = 0;
     *uint8 isrc = fs_read_all(full, &bytes);
     if (isrc == null) { return; }                // unreadable import — skip (C++ errors)
+    // Preprocess the import (the C++ folds preprocessing into the lexer per file); this
+    // evaluates its #ifdef/#define so e.g. mem.esk picks one branch, not both.
+    let pe: int = 0;
+    string psrc = pp_run((string)isrc, (int)bytes, full, &pe);
+    *uint8 ppsrc = (*uint8)psrc;
+    int plen = 0; while (ppsrc[plen] != 0) { plen = plen + 1; }
     let sub: Parser;
-    p_init(&sub, isrc, (int)bytes);
+    p_init(&sub, ppsrc, plen);
     sub.basedir = str_dir(full);
     parse_into(&sub, prog);
 }

@@ -1,0 +1,12 @@
+// Stdlib generics end-to-end: <list>/<mem> import closure now preprocessed per file
+// (so mem.esk's #ifdef picks one branch). Monomorphizes List<int> + List_init/push/get.
+import <mem>;
+import <list>;
+
+int main() {
+    let xs: List<int>;
+    List_init<int>(&xs, 4);
+    List_push<int>(&xs, 10);
+    List_push<int>(&xs, 32);
+    return List_get<int>(&xs, 0) + List_get<int>(&xs, 1);
+}
