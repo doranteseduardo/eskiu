@@ -505,6 +505,18 @@ string cg_strip_ptr(string t) {
     return (string)buf;
 }
 
+// Bit width of an LLVM integer type string ("i32"->32), or 0 if not an integer.
+int cg_int_w(string t) {
+    if ((int)t[0] != 105) { return 0; }                  // not 'i...'
+    int w = 0; int i = 1;
+    while (t[i] != 0) {
+        int c = (int)t[i];
+        if (c < 48 || c > 57) { return 0; }
+        w = w * 10 + (c - 48); i = i + 1;
+    }
+    return w;
+}
+
 int cg_is_ptr_ty(string t) {
     int i = 0;
     while (t[i] != 0) { if ((int)t[i] == 42) { return 1; } i = i + 1; }
@@ -836,6 +848,39 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
         cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = call "); cg_emit(g, f.retty);
         cg_emit(g, " @"); cg_emit(g, mangled); cg_emit(g, "("); cg_emit(g, args); cg_emit(g, ")\n");
         v.op = t; v.ty = f.retty; return v;
+    }
+
+    if (e.kind == EK_SIZEOF) {
+        // sizeof(T) without hardcoded sizes: ptrtoint of `gep T, null, 1`.
+        string llty = cg_lltype(g, e.sval);              // applies the active sub
+        string g1 = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, g1); cg_emit(g, " = getelementptr ");
+        cg_emit(g, llty); cg_emit(g, ", ptr null, i32 1\n");
+        string t = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = ptrtoint ptr "); cg_emit(g, g1);
+        cg_emit(g, " to i64\n");
+        v.op = t; v.ty = "i64"; return v;
+    }
+
+    if (e.kind == EK_CAST) {
+        string dstety = cg_apply_sub(g, e.sval);
+        string dll = cg_lltype(g, dstety);
+        CgVal src = cg_expr(g, e.a);
+        v.ety = dstety;
+        if (cg_streq(src.ty, dll) == 1) { v.op = src.op; v.ty = dll; return v; }
+        int dstptr = cg_is_ptr_ty(dstety);
+        int srcptr = cg_streq(src.ty, "ptr");
+        if (dstptr == 1 && srcptr == 1) { v.op = src.op; v.ty = "ptr"; return v; }   // ptr<->ptr no-op
+        int dw = cg_int_w(dll); int sw = cg_int_w(src.ty);
+        string t = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = ");
+        if (dstptr == 1 && sw > 0) { cg_emit(g, "inttoptr "); cg_emit(g, src.ty); cg_emit(g, " "); cg_emit(g, src.op); cg_emit(g, " to ptr"); }
+        else if (srcptr == 1 && dw > 0) { cg_emit(g, "ptrtoint ptr "); cg_emit(g, src.op); cg_emit(g, " to "); cg_emit(g, dll); }
+        else if (dw > 0 && sw > 0 && dw < sw) { cg_emit(g, "trunc "); cg_emit(g, src.ty); cg_emit(g, " "); cg_emit(g, src.op); cg_emit(g, " to "); cg_emit(g, dll); }
+        else if (dw > 0 && sw > 0 && dw > sw) { cg_emit(g, "sext "); cg_emit(g, src.ty); cg_emit(g, " "); cg_emit(g, src.op); cg_emit(g, " to "); cg_emit(g, dll); }
+        else { cg_emit(g, "bitcast "); cg_emit(g, src.ty); cg_emit(g, " "); cg_emit(g, src.op); cg_emit(g, " to "); cg_emit(g, dll); }
+        cg_emit(g, "\n");
+        v.op = t; v.ty = dll; return v;
     }
 
     v.op = "0"; v.ty = "i32"; return v;
