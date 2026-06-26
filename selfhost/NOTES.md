@@ -86,20 +86,22 @@ PHI at `sc.cont` for the short-circuit value. Regression test `tests/short_circu
 (side-effect skip + null-guard). Suite 267/0, golden IR 26/26 (only `map_generic`
 re-captured — a `while (i<n && a[i]==b[i])` loop now correctly guards the array read).
 
-## Open: imports bypass the preprocessor (blocks stdlib generics in self-host codegen)
+## Resolved: imports bypassed the preprocessor  ✅ parser (real gap)
 
-Surfaced wiring up generic codegen (Phase C). The self-hosted driver runs `pp_run`
-on the *entry* file only; `parse_program` then resolves `import`ed files (mem/list/…)
-directly — they never pass through the preprocessor. So an imported file's `#ifdef`
-directives aren't evaluated: `stdlib/mem.esk`'s `#ifdef __ESKIU_FREESTANDING__ … #else
-… #endif` keeps **both** branches, yielding a duplicate `free` (one `declare`, one
-`define`) plus two `alloc<T>` definitions → clang rejects the `.ll`. The generic
-codegen itself is correct: a self-contained generic dynamic array (own `extern malloc`
-+ `alloc<T>` with `sizeof`/cast, generic struct with a pointer field, several generic
-fns, indexing) compiles + runs to parity (`tests/selfhost/cg_inputs/generic_vec.esk`).
-Fix is architectural — run imported files through the preprocessor during resolution
-(with the same predefined-macro set the entry file gets). Needed before self-compiling
-anything that imports the stdlib. Tracked for the import-preprocessing slice.
+Surfaced wiring up generic codegen (Phase C). The self-hosted driver ran `pp_run` on
+the *entry* file only; `parse_program` then resolved `import`ed files (mem/list/…)
+directly — they never passed through the preprocessor. So an imported file's `#ifdef`
+went unevaluated: `stdlib/mem.esk`'s `#ifdef __ESKIU_FREESTANDING__ … #else … #endif`
+kept **both** branches → duplicate `free` (declare + define) + two `alloc<T>` → clang
+rejected the `.ll`. Root cause: the C++ folds preprocessing into the lexer and threads
+a shared `macros` table per imported file (`Lexer(src, macros, fullPath)`); the
+self-host had split `pp_run` out, so imports skipped it. FIX: `do_import` now runs
+`pp_run` on each imported file's source before lexing (parser.esk imports
+preprocessor.esk — no cycle: pp imports string/list/mem). The critical macro
+(`__ESKIU_FREESTANDING__`) is predefined-only, so per-file `pp_run` with a fresh table
+suffices (cross-file `#define` sharing not yet threaded — rare, defer). Now the stdlib
+`List<int>` monomorphizes + runs to parity (`cg_inputs/stdlib_list.esk`). No regression:
+parse_parity 51/51 (preprocessor-free closures → `pp_run` is identity), cg 28/28.
 
 ## Minor ergonomics (not bugs)
 
