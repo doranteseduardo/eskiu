@@ -86,6 +86,21 @@ PHI at `sc.cont` for the short-circuit value. Regression test `tests/short_circu
 (side-effect skip + null-guard). Suite 267/0, golden IR 26/26 (only `map_generic`
 re-captured — a `while (i<n && a[i]==b[i])` loop now correctly guards the array read).
 
+## Open: imports bypass the preprocessor (blocks stdlib generics in self-host codegen)
+
+Surfaced wiring up generic codegen (Phase C). The self-hosted driver runs `pp_run`
+on the *entry* file only; `parse_program` then resolves `import`ed files (mem/list/…)
+directly — they never pass through the preprocessor. So an imported file's `#ifdef`
+directives aren't evaluated: `stdlib/mem.esk`'s `#ifdef __ESKIU_FREESTANDING__ … #else
+… #endif` keeps **both** branches, yielding a duplicate `free` (one `declare`, one
+`define`) plus two `alloc<T>` definitions → clang rejects the `.ll`. The generic
+codegen itself is correct: a self-contained generic dynamic array (own `extern malloc`
++ `alloc<T>` with `sizeof`/cast, generic struct with a pointer field, several generic
+fns, indexing) compiles + runs to parity (`tests/selfhost/cg_inputs/generic_vec.esk`).
+Fix is architectural — run imported files through the preprocessor during resolution
+(with the same predefined-macro set the entry file gets). Needed before self-compiling
+anything that imports the stdlib. Tracked for the import-preprocessing slice.
+
 ## Minor ergonomics (not bugs)
 
 - Nested conditionals: prefer `else if`, flat `if`+`return` (see `keyword_type`), or
