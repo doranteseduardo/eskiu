@@ -220,9 +220,9 @@ handles both `*P` and `P*`; cg 21/21, real programs ptr_member/test_struct MATCH
 factored out (self = leading `ptr %p0`, bound to `self`/`*Struct`); methods emitted +
 registered mangled `Struct_method`; `recv.m(...)` call passes self first; structs_methods
 MATCH, cg 22/22. **S5 (DONE)** arrays: `T[N]`→`[N x T]`, indexing `a[i]` via GEP (array
-base `…, i32 0, idx`; pointer base `T, ptr, idx`); cg 24/24 (corpus 20/121). NEXT:
-**enums/`match`** (ADT tagged layout + match dispatch), then the big one **generics/
-monomorphization** (List<T> — the bootstrap needs it); sret for struct-by-value returns.
+base `…, i32 0, idx`; pointer base `T, ptr, idx`); cg 24/24. **S6a (DONE)** plain integer enums (constant → int, type → i32); cg 25/25.
+NEXT: **generics/monomorphization** (List<T> — the bootstrap critically needs it); then
+sret, global vars. ADT enums/`match` deferred (compiler uses if-kind chains, not match).
 (float/exceptions/atomics/async deferred — not needed for self-compilation.) Then closures +
 bitfield layout, function calls + sret, closures (fat `{ptr,ptr}` + env structs), ADTs
 (`{i32 tag,[N x i64]}`). **Defer** exceptions (landingpad/invoke) and atomics — the
