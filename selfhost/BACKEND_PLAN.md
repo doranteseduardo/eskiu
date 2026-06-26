@@ -231,9 +231,11 @@ at the `EK_TEMPLATECALL` site and emit bodies later via `cg_drain_worklist` with
 (GEP-null + ptrtoint — no hardcoded sizes) and `EK_CAST` (ptr/int coercions) so the
 stdlib `alloc<T>` (`(*T)malloc(n*sizeof(T))`) monomorphizes. Verified end-to-end on a
 self-contained generic dynamic array (`generic_vec.esk`): generic struct w/ pointer
-field + alloc + indexing + N generic fns; cg 28/28. **Blocker for the *stdlib* List**:
-imports bypass the preprocessor, so `mem.esk`'s `#ifdef` keeps both branches (dup `free`)
-— see NOTES; that's the next slice. Then sret, global vars. ADT enums/`match` deferred
+field + alloc + indexing + N generic fns; cg 28/28. **Import-preprocessing (DONE)**:
+`do_import` now runs `pp_run` per imported file (the C++ folds preprocessing into the
+lexer) so `mem.esk`'s `#ifdef` picks one branch — the stdlib `List<int>` monomorphizes
++ runs to parity (`stdlib_list.esk`); no regression (parse 51/51, cg 28/28). NEXT: sret
+(struct-by-value returns), global vars. ADT enums/`match` deferred
 (compiler uses if-kind chains, not match). (float/exceptions/atomics/async deferred — not
 needed for self-compilation.) Then closures +
 bitfield layout, function calls + sret, closures (fat `{ptr,ptr}` + env structs), ADTs
