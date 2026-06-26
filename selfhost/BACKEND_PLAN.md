@@ -213,8 +213,13 @@ void calls drop the result; cg 15/15. **S3b (DONE)** printf: extern `declare`s, 
 literals (module-top `@.strN` constants, LLVM-escaped + opaque-ptr pass), variadic call
 type `call i32 (ptr, ...) @printf` — **stdout parity** (cg 19/19). Real corpus programs
 that stay within int/control-flow/calls/printf now compile + run identically to the C++
-build (hello, recursion, control_flow). NEXT: more types (float/int64 + arg coercion),
-then structs + GEP +
+build (hello, recursion, control_flow). **S4a (DONE)** structs + pointers: named struct
+types `%P = type {…}`, struct-init via GEP/store, member read/write (lvalue machinery
+`cg_lval`/`cg_etype` tracking Eskiu types), address-of `&`, deref `*`; `cg_strip_ptr`
+handles both `*P` and `P*`; cg 21/21, real programs ptr_member/test_struct MATCH. NEXT:
+**S4b methods** (`p.m()` → `Type_m(self, …)` mangled call + self pointer — structs_methods),
+then sret (struct-by-value returns), arrays, then ADTs. (float/int64 deferred — the
+compiler doesn't use floats.) Then closures +
 bitfield layout, function calls + sret, closures (fat `{ptr,ptr}` + env structs), ADTs
 (`{i32 tag,[N x i64]}`). **Defer** exceptions (landingpad/invoke) and atomics — the
 gnarliest ~40%; if textual emission gets too painful there, bind just those few ops via
