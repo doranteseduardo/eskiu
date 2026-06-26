@@ -26,6 +26,10 @@ struct CgFn { string name; string retty; int variadic; string fixedtypes; }
 struct CgStruct { string name; List<string> fnames; List<string> fetys; }
 // A plain (integer) enum constant: name → its integer value as a string.
 struct CgEnumC { string name; string val; }
+// One active type-parameter substitution (T → concrete) during instantiation.
+struct CgSub { string param; string arg; }
+// A pending monomorphization: the generic decl + concrete type args + mangled name.
+struct CgInst { *DeclNode decl; string mangled; int is_struct; List<string> args; }
 
 struct Codegen {
     String out;
@@ -41,6 +45,11 @@ struct Codegen {
     List<CgStruct> structs;  // struct name → field layout
     List<CgEnumC> econsts;   // plain-enum constants → value
     List<string> enum_names; // enum type names (lower to i32)
+    List<*DeclNode> gstructs; // generic struct decls (by name, type_params non-empty)
+    List<*DeclNode> gfns;     // generic function decls
+    List<CgSub> cursub;      // active T→concrete substitution during instantiation
+    List<string> inst_seen;  // mangled names already queued/emitted (dedup)
+    List<CgInst> worklist;   // pending monomorphizations
 }
 
 int cg_streq(string a, string b) {
@@ -57,6 +66,14 @@ string cg_cat(string a, string b) {
     int i = 0; while (i < la) { buf[i] = (uint8)a[i]; i = i + 1; }
     int j = 0; while (j < lb) { buf[la + j] = (uint8)b[j]; j = j + 1; }
     buf[la + lb] = 0;
+    return (string)buf;
+}
+
+string cg_sub_str(string s, int a, int b) {
+    int len = b - a;
+    *uint8 buf = alloc<uint8>(len + 1);
+    int k = 0; while (k < len) { buf[k] = (uint8)s[a + k]; k = k + 1; }
+    buf[len] = 0;
     return (string)buf;
 }
 
@@ -90,6 +107,175 @@ void cg_init(Codegen* g) {
     List_init<CgStruct>(&g.structs, 16);
     List_init<CgEnumC>(&g.econsts, 32);
     List_init<string>(&g.enum_names, 16);
+    List_init<*DeclNode>(&g.gstructs, 8);
+    List_init<*DeclNode>(&g.gfns, 16);
+    List_init<CgSub>(&g.cursub, 4);
+    List_init<string>(&g.inst_seen, 16);
+    List_init<CgInst>(&g.worklist, 16);
+}
+
+// Mangle a generic type/call spelling into an LLVM-safe name: "Box<int>" -> "Box_int",
+// "Map<string, int>" -> "Map_string__int", "List<*int>" -> "List_pint". Internally
+// consistent (defs and refs agree), which is all clang needs.
+string cg_mangle(string s) {
+    int n = 0; while (s[n] != 0) { n = n + 1; }
+    *uint8 buf = alloc<uint8>(n + 1);
+    int o = 0;
+    int i = 0;
+    while (i < n) {
+        int c = (int)s[i];
+        if ((c >= 97 && c <= 122) || (c >= 65 && c <= 90) || (c >= 48 && c <= 57) || c == 95) {
+            buf[o] = (uint8)c; o = o + 1;
+        } else if (c == 42) { buf[o] = 112; o = o + 1; }   // '*' -> 'p'
+        else if (c == 62 || c == 32) { }                   // '>' / ' ' dropped
+        else { buf[o] = 95; o = o + 1; }                   // '<' ',' etc. -> '_'
+        i = i + 1;
+    }
+    buf[o] = 0;
+    return (string)buf;
+}
+
+// Apply the active substitution to a type spelling: identifier runs equal to a type
+// parameter are replaced by its concrete type. "*T" -> "*int", "List<T>" -> "List<int>".
+string cg_apply_sub(Codegen* g, string t) {
+    if (List_len<CgSub>(&g.cursub) == 0) { return t; }
+    int n = 0; while (t[n] != 0) { n = n + 1; }
+    String out; String_init(&out, n + 8);
+    int i = 0;
+    while (i < n) {
+        int c = (int)t[i];
+        if ((c >= 97 && c <= 122) || (c >= 65 && c <= 90) || (c >= 48 && c <= 57) || c == 95) {
+            int s = i;
+            while (i < n) {
+                int d = (int)t[i];
+                if ((d >= 97 && d <= 122) || (d >= 65 && d <= 90) || (d >= 48 && d <= 57) || d == 95) { i = i + 1; }
+                else { break; }
+            }
+            string id = cg_sub_str(t, s, i);
+            string rep = id;
+            int k = 0; int m = List_len<CgSub>(&g.cursub);
+            while (k < m) {
+                CgSub sb = List_get<CgSub>(&g.cursub, k);
+                if (cg_streq(sb.param, id) == 1) { rep = sb.arg; }
+                k = k + 1;
+            }
+            String_append(&out, rep);
+        } else {
+            String_push(&out, (char)c);
+            i = i + 1;
+        }
+    }
+    return (string)String_cstr(&out);
+}
+
+// Does a type/call spelling carry generic args ("Name<...>")?
+int cg_has_targs(string s) {
+    int i = 0;
+    while (s[i] != 0) { if ((int)s[i] == 60) { return 1; } i = i + 1; }   // '<'
+    return 0;
+}
+
+// Base name of a generic spelling: "Box<int>" -> "Box", "List_init<int>" -> "List_init".
+string cg_gen_base(string s) {
+    int n = 0;
+    while (s[n] != 0 && (int)s[n] != 60) { n = n + 1; }   // up to '<'
+    *uint8 buf = alloc<uint8>(n + 1);
+    int k = 0; while (k < n) { buf[k] = (uint8)s[k]; k = k + 1; }
+    buf[n] = 0;
+    return (string)buf;
+}
+
+// Parse the comma-separated args inside the outermost <...> of a generic spelling,
+// honoring nesting ("Map<List<int>, int>" -> ["List<int>", "int"]).
+void cg_gen_args(string s, List<string>* out) {
+    int i = 0;
+    while (s[i] != 0 && (int)s[i] != 60) { i = i + 1; }   // to '<'
+    if (s[i] == 0) { return; }
+    i = i + 1;                                            // past '<'
+    int depth = 1;
+    int start = i;
+    while (s[i] != 0 && depth > 0) {
+        int c = (int)s[i];
+        if (c == 60) { depth = depth + 1; }
+        else if (c == 62) { depth = depth - 1; if (depth == 0) { break; } }
+        else if (c == 44 && depth == 1) {                 // top-level ','
+            string a = cg_sub_str(s, start, i);
+            List_push<string>(out, cg_trim(a));
+            i = i + 1; start = i; continue;
+        }
+        i = i + 1;
+    }
+    if (i > start) { List_push<string>(out, cg_trim(cg_sub_str(s, start, i))); }
+}
+
+// Trim leading/trailing spaces.
+string cg_trim(string s) {
+    int a = 0; while ((int)s[a] == 32) { a = a + 1; }
+    int b = 0; while (s[b] != 0) { b = b + 1; }
+    while (b > a && (int)s[b - 1] == 32) { b = b - 1; }
+    return cg_sub_str(s, a, b);
+}
+
+int cg_seen_inst(Codegen* g, string mangled) {
+    int i = 0; int n = List_len<string>(&g.inst_seen);
+    while (i < n) { if (cg_streq(List_get<string>(&g.inst_seen, i), mangled) == 1) { return 1; } i = i + 1; }
+    return 0;
+}
+
+*DeclNode cg_find_gstruct(Codegen* g, string name) {
+    int i = 0; int n = List_len<*DeclNode>(&g.gstructs);
+    while (i < n) {
+        *DeclNode d = List_get<*DeclNode>(&g.gstructs, i);
+        if (cg_streq(d.name, name) == 1) { return d; }
+        i = i + 1;
+    }
+    return null;
+}
+
+// Monomorphize a generic struct spelling ("Box<int>") into a concrete named type
+// `%Box_int = type {…}` with the type params substituted in its field types. Returns
+// the mangled name. Idempotent (deduped via inst_seen).
+string cg_ensure_struct_inst(Codegen* g, string spelling) {
+    string mangled = cg_mangle(spelling);
+    if (cg_seen_inst(g, mangled) == 1) { return mangled; }
+    string base = cg_gen_base(spelling);
+    *DeclNode gd = cg_find_gstruct(g, base);
+    if (gd == null) { return mangled; }                   // unknown generic — leave as-is
+    List_push<string>(&g.inst_seen, mangled);             // mark before building (recursion)
+
+    List<string> args; List_init<string>(&args, 4);
+    cg_gen_args(spelling, &args);
+
+    List<CgSub> oldsub = g.cursub;                        // save/restore the active sub
+    List_init<CgSub>(&g.cursub, 4);
+    int tp = 0; int ntp = List_len<TypeParam>(&gd.type_params);
+    while (tp < ntp && tp < List_len<string>(&args)) {
+        let sb: CgSub;
+        sb.param = List_get<TypeParam>(&gd.type_params, tp).name;
+        sb.arg = List_get<string>(&args, tp);
+        List_push<CgSub>(&g.cursub, sb);
+        tp = tp + 1;
+    }
+
+    let s: CgStruct; s.name = mangled;
+    List_init<string>(&s.fnames, 4); List_init<string>(&s.fetys, 4);
+    String_append(&g.globals, "%"); String_append(&g.globals, mangled);
+    String_append(&g.globals, " = type { ");
+    int fi = 0; int nf = List_len<Param>(&gd.params);
+    while (fi < nf) {
+        Param fp = List_get<Param>(&gd.params, fi);
+        string fety = cg_apply_sub(g, fp.ty);             // T -> concrete spelling
+        List_push<string>(&s.fnames, fp.name);
+        List_push<string>(&s.fetys, fety);
+        if (fi > 0) { String_append(&g.globals, ", "); }
+        String_append(&g.globals, cg_lltype(g, fety));
+        fi = fi + 1;
+    }
+    String_append(&g.globals, " }\n");
+    List_push<CgStruct>(&g.structs, s);
+
+    g.cursub = oldsub;                                    // restore
+    return mangled;
 }
 
 // Value of a plain-enum constant, or "" if `name` isn't one.
@@ -126,6 +312,7 @@ void cg_emit(Codegen* g, string s) { String_append(&g.out, s); }
 CgVal cg_expr(Codegen* g, *ExprNode e);
 CgVal cg_lval(Codegen* g, *ExprNode e);
 string cg_etype(Codegen* g, *ExprNode e);
+string cg_ensure_struct_inst(Codegen* g, string spelling);   // monomorphize a generic struct
 
 int cg_strlen(string s) { int i = 0; while (s[i] != 0) { i = i + 1; } return i; }
 
@@ -205,12 +392,16 @@ int cg_is_struct(Codegen* g, string name) {
 // Eskiu type spelling → LLVM type. Pointers (anything with `*`) lower to opaque `ptr`;
 // a registered struct name → its named type `%Name`.
 string cg_lltype(Codegen* g, string t) {
+    t = cg_apply_sub(g, t);               // T -> concrete during instantiation
     if (cg_is_array(t) == 1) {            // "T[N]" -> [N x <T>]
         return cg_cat("[", cg_cat(cg_array_count(t), cg_cat(" x ",
                        cg_cat(cg_lltype(g, cg_array_elem(t)), "]"))));
     }
     int i = 0;
     while (t[i] != 0) { if ((int)t[i] == 42) { return "ptr"; } i = i + 1; }   // '*'
+    if (cg_has_targs(t) == 1) {           // "Box<int>" -> monomorphize -> %Box_int
+        return cg_cat("%", cg_ensure_struct_inst(g, t));
+    }
     if (cg_streq(t, "void") == 1) { return "void"; }
     if (cg_streq(t, "bool") == 1) { return "i1"; }
     if (cg_streq(t, "char") == 1 || cg_streq(t, "int8") == 1 || cg_streq(t, "uint8") == 1) { return "i8"; }
@@ -274,6 +465,7 @@ string cg_array_count(string t) {
 }
 
 CgStruct cg_find_struct(Codegen* g, string name) {
+    if (cg_has_targs(name) == 1) { name = cg_ensure_struct_inst(g, name); }   // generic -> mangled
     int i = 0; int n = List_len<CgStruct>(&g.structs);
     while (i < n) {
         CgStruct s = List_get<CgStruct>(&g.structs, i);
@@ -401,7 +593,7 @@ CgVal cg_lval(Codegen* g, *ExprNode e) {
         int idx = cg_field_idx(&s, e.sval);
         string t = cg_tmp(g);
         cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = getelementptr inbounds %");
-        cg_emit(g, sname); cg_emit(g, ", ptr "); cg_emit(g, sptr);
+        cg_emit(g, s.name); cg_emit(g, ", ptr "); cg_emit(g, sptr);
         cg_emit(g, ", i32 0, i32 "); cg_emit(g, cg_itoa(idx)); cg_emit(g, "\n");
         v.op = t;
         if (idx >= 0) { v.ety = List_get<string>(&s.fetys, idx); }
@@ -564,7 +756,7 @@ void cg_struct_init(Codegen* g, string slot, string sname, *ExprNode e) {
         CgVal val = cg_expr(g, List_get<*ExprNode>(&e.kids, i));
         string fp = cg_tmp(g);
         cg_emit(g, "  "); cg_emit(g, fp); cg_emit(g, " = getelementptr inbounds %");
-        cg_emit(g, sname); cg_emit(g, ", ptr "); cg_emit(g, slot);
+        cg_emit(g, s.name); cg_emit(g, ", ptr "); cg_emit(g, slot);
         cg_emit(g, ", i32 0, i32 "); cg_emit(g, cg_itoa(idx)); cg_emit(g, "\n");
         cg_emit(g, "  store "); cg_emit(g, cg_lltype(g, fety)); cg_emit(g, " "); cg_emit(g, val.op);
         cg_emit(g, ", ptr "); cg_emit(g, fp); cg_emit(g, "\n");
@@ -747,6 +939,7 @@ void cg_emit_fn(Codegen* g, *DeclNode d, string llname, string self_struct) {
 }
 
 void cg_decl(Codegen* g, *DeclNode d) {
+    if (List_len<TypeParam>(&d.type_params) > 0) { return; }   // generic — emitted on demand
     if (d.kind == DK_FUNCTION) { cg_emit_fn(g, d, d.name, ""); return; }
     if (d.kind == DK_STRUCT) {                          // emit the struct's methods
         int i = 0;
@@ -767,7 +960,9 @@ void cg_program(Codegen* g, *Program prog) {
     int si = 0;
     while (si < n) {
         *DeclNode d = List_get<*DeclNode>(&prog.decls, si);
-        if (d.kind == DK_STRUCT) {
+        if (d.kind == DK_STRUCT && List_len<TypeParam>(&d.type_params) > 0) {
+            List_push<*DeclNode>(&g.gstructs, d);          // generic — monomorphized on demand
+        } else if (d.kind == DK_STRUCT) {
             let s: CgStruct;
             s.name = d.name;
             List_init<string>(&s.fnames, 4);
@@ -788,7 +983,7 @@ void cg_program(Codegen* g, *Program prog) {
     si = 0;
     while (si < n) {
         *DeclNode d = List_get<*DeclNode>(&prog.decls, si);
-        if (d.kind == DK_STRUCT) {
+        if (d.kind == DK_STRUCT && List_len<TypeParam>(&d.type_params) == 0) {
             String_append(&g.globals, "%"); String_append(&g.globals, d.name);
             String_append(&g.globals, " = type { ");
             int nf = List_len<Param>(&d.params);
@@ -826,7 +1021,9 @@ void cg_program(Codegen* g, *Program prog) {
     int i = 0;
     while (i < n) {
         *DeclNode d = List_get<*DeclNode>(&prog.decls, i);
-        if (d.kind == DK_FUNCTION || d.kind == DK_EXTERN || d.kind == DK_INTRINSIC) {
+        if (d.kind == DK_FUNCTION && List_len<TypeParam>(&d.type_params) > 0) {
+            List_push<*DeclNode>(&g.gfns, d);              // generic fn — monomorphized on demand
+        } else if (d.kind == DK_FUNCTION || d.kind == DK_EXTERN || d.kind == DK_INTRINSIC) {
             let f: CgFn;
             f.name = d.name;
             f.retty = cg_lltype(g, d.ret_type);
@@ -864,7 +1061,7 @@ void cg_program(Codegen* g, *Program prog) {
     i = 0;
     while (i < n) {
         *DeclNode d = List_get<*DeclNode>(&prog.decls, i);
-        if (d.kind == DK_STRUCT) {
+        if (d.kind == DK_STRUCT && List_len<TypeParam>(&d.type_params) == 0) {
             int mi = 0;
             int mn = List_len<*DeclNode>(&d.methods);
             while (mi < mn) {
