@@ -1,0 +1,2 @@
+extern int printf(string fmt, ...);
+int main() { int[5] a; int i = 0; while (i < 5) { a[i] = i * i; i = i + 1; } int s = 0; i = 0; while (i < 5) { s = s + a[i]; i = i + 1; } printf("%d\n", s); return 0; }
