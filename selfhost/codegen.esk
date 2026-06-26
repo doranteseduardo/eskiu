@@ -424,18 +424,30 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
     }
 
     if (e.kind == EK_CALL) {
-        // Evaluate args (left to right), collecting "<ty> <op>" operands.
+        // Resolve the callee. A bare ident is a free function; a MemberExpr is a method
+        // call `recv.m(...)` → `Struct_m(self, ...)` with `self` a pointer to the receiver.
+        string fname = "";
         string args = "";
+        if (e.a != null && e.a.kind == EK_MEMBER) {
+            string recv_ety = cg_etype(g, e.a.a);
+            string sptr = "";
+            string sname = recv_ety;
+            if (cg_is_ptr_ty(recv_ety) == 1) { sptr = cg_expr(g, e.a.a).op; sname = cg_strip_ptr(recv_ety); }
+            else { sptr = cg_lval(g, e.a.a).op; }
+            fname = cg_cat(cg_cat(sname, "_"), e.a.sval);
+            args = cg_cat("ptr ", sptr);                // self is the first argument
+        } else if (e.a != null && e.a.kind == EK_IDENT) {
+            fname = e.a.sval;
+        }
+        // Evaluate the declared args (left to right), appending "<ty> <op>".
         int i = 0;
         int n = List_len<*ExprNode>(&e.kids);
         while (i < n) {
             CgVal a = cg_expr(g, List_get<*ExprNode>(&e.kids, i));
-            if (i > 0) { args = cg_cat(args, ", "); }
+            if (args[0] != 0) { args = cg_cat(args, ", "); }
             args = cg_cat(args, cg_cat(a.ty, cg_cat(" ", a.op)));
             i = i + 1;
         }
-        string fname = "";
-        if (e.a != null && e.a.kind == EK_IDENT) { fname = e.a.sval; }
         CgFn f = cg_find_fn(g, fname);
         // A variadic callee needs the explicit function type: `call i32 (ptr, ...) @printf`.
         string callty = f.retty;
@@ -601,46 +613,68 @@ void cg_stmt(Codegen* g, *StmtNode st) {
     if (st.kind == SK_EXPR) { cg_expr(g, st.expr); return; }
 }
 
-void cg_decl(Codegen* g, *DeclNode d) {
-    if (d.kind != DK_FUNCTION) { return; }
+// Emit a function definition under LLVM name `llname`. When `self_struct` is non-empty
+// the function is a method: a leading `ptr %p0` self parameter (bound to `self`, a
+// pointer to the struct) precedes the declared params.
+void cg_emit_fn(Codegen* g, *DeclNode d, string llname, string self_struct) {
     if (d.body == null) { return; }
     string rt = cg_lltype(g, d.ret_type);
     g.cur_ret = rt;
     List_init<CgLocal>(&g.locals, 8);
+    g.terminated = 0;
+    int base = 0;
+    if (self_struct[0] != 0) { base = 1; }
 
-    cg_emit(g, "define "); cg_emit(g, rt); cg_emit(g, " @"); cg_emit(g, d.name); cg_emit(g, "(");
+    cg_emit(g, "define "); cg_emit(g, rt); cg_emit(g, " @"); cg_emit(g, llname); cg_emit(g, "(");
+    if (base == 1) { cg_emit(g, "ptr %p0"); }
     int np = List_len<Param>(&d.params);
     int pi = 0;
     while (pi < np) {
         Param pm = List_get<Param>(&d.params, pi);
-        if (pi > 0) { cg_emit(g, ", "); }
-        cg_emit(g, cg_lltype(g, pm.ty)); cg_emit(g, " %p"); cg_emit(g, cg_itoa(pi));
+        if (pi + base > 0) { cg_emit(g, ", "); }
+        cg_emit(g, cg_lltype(g, pm.ty)); cg_emit(g, " %p"); cg_emit(g, cg_itoa(pi + base));
         pi = pi + 1;
     }
     cg_emit(g, ") {\nentry:\n");
-    g.terminated = 0;
 
-    // Spill each parameter to a stack slot so it reads/writes like a local.
+    if (base == 1) {                                    // spill self (a pointer to the struct)
+        string sslot = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, sslot); cg_emit(g, " = alloca ptr\n");
+        cg_emit(g, "  store ptr %p0, ptr "); cg_emit(g, sslot); cg_emit(g, "\n");
+        cg_add_local(g, "self", sslot, "ptr", cg_cat("*", self_struct));
+    }
     pi = 0;
     while (pi < np) {
         Param pm = List_get<Param>(&d.params, pi);
         string pty = cg_lltype(g, pm.ty);
         string slot = cg_tmp(g);
         cg_emit(g, "  "); cg_emit(g, slot); cg_emit(g, " = alloca "); cg_emit(g, pty); cg_emit(g, "\n");
-        cg_emit(g, "  store "); cg_emit(g, pty); cg_emit(g, " %p"); cg_emit(g, cg_itoa(pi));
+        cg_emit(g, "  store "); cg_emit(g, pty); cg_emit(g, " %p"); cg_emit(g, cg_itoa(pi + base));
         cg_emit(g, ", ptr "); cg_emit(g, slot); cg_emit(g, "\n");
         cg_add_local(g, pm.name, slot, pty, pm.ty);
         pi = pi + 1;
     }
 
     cg_stmt(g, d.body);
-    // Terminate a trailing fall-through block: `ret void` for void, else the block is
-    // unreachable (a valid function returns on all paths) — emit `unreachable`.
     if (g.terminated == 0) {
         if (cg_streq(rt, "void") == 1) { cg_emit(g, "  ret void\n"); }
         else { cg_emit(g, "  unreachable\n"); }
     }
     cg_emit(g, "}\n\n");
+}
+
+void cg_decl(Codegen* g, *DeclNode d) {
+    if (d.kind == DK_FUNCTION) { cg_emit_fn(g, d, d.name, ""); return; }
+    if (d.kind == DK_STRUCT) {                          // emit the struct's methods
+        int i = 0;
+        int n = List_len<*DeclNode>(&d.methods);
+        while (i < n) {
+            *DeclNode m = List_get<*DeclNode>(&d.methods, i);
+            cg_emit_fn(g, m, cg_cat(cg_cat(d.name, "_"), m.name), d.name);
+            i = i + 1;
+        }
+        return;
+    }
 }
 
 void cg_program(Codegen* g, *Program prog) {
@@ -724,6 +758,27 @@ void cg_program(Codegen* g, *Program prog) {
         }
         i = i + 1;
     }
+    // Pass 2b: register struct methods under their mangled name `Struct_method`.
+    i = 0;
+    while (i < n) {
+        *DeclNode d = List_get<*DeclNode>(&prog.decls, i);
+        if (d.kind == DK_STRUCT) {
+            int mi = 0;
+            int mn = List_len<*DeclNode>(&d.methods);
+            while (mi < mn) {
+                *DeclNode m = List_get<*DeclNode>(&d.methods, mi);
+                let mf: CgFn;
+                mf.name = cg_cat(cg_cat(d.name, "_"), m.name);
+                mf.retty = cg_lltype(g, m.ret_type);
+                mf.variadic = 0;
+                mf.fixedtypes = "";
+                List_push<CgFn>(&g.fns, mf);
+                mi = mi + 1;
+            }
+        }
+        i = i + 1;
+    }
+
     i = 0;
     while (i < n) { cg_decl(g, List_get<*DeclNode>(&prog.decls, i)); i = i + 1; }
 }
