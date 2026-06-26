@@ -221,9 +221,18 @@ factored out (self = leading `ptr %p0`, bound to `self`/`*Struct`); methods emit
 registered mangled `Struct_method`; `recv.m(...)` call passes self first; structs_methods
 MATCH, cg 22/22. **S5 (DONE)** arrays: `T[N]`→`[N x T]`, indexing `a[i]` via GEP (array
 base `…, i32 0, idx`; pointer base `T, ptr, idx`); cg 24/24. **S6a (DONE)** plain integer enums (constant → int, type → i32); cg 25/25.
-NEXT: **generics/monomorphization** (List<T> — the bootstrap critically needs it); then
-sret, global vars. ADT enums/`match` deferred (compiler uses if-kind chains, not match).
-(float/exceptions/atomics/async deferred — not needed for self-compilation.) Then closures +
+NEXT: **generics/monomorphization** — the big bootstrap-critical slice. Approach (mirrors
+the C++ `mangleTemplate`/`ensureTemplateInstantiated`/`substType` + a `typeParamOverride`
+map): (1) mangle `Box<int>`→`Box_int`, `List_init<int>`→`List_init_int`; (2) on-demand
+instantiate with a generated-set for dedup — emit `%Box_int = type {…}` and
+`@List_init_int(…)` by cloning the generic decl's fields/body with a T→concrete
+substitution map active; (3) `cg_lltype` + `cg_etype` apply the active substitution and
+trigger instantiation of referenced generic types; (4) rewrite type-spellings + template
+calls to mangled names. Generic structs first (types), then generic functions (bodies
+under substitution). AST already carries `type_params`; `TemplateCallExpr` sval = `name<args>`,
+generic type spellings = `Name<args>`. Then sret, global vars. ADT enums/`match` deferred
+(compiler uses if-kind chains, not match). (float/exceptions/atomics/async deferred — not
+needed for self-compilation.) Then closures +
 bitfield layout, function calls + sret, closures (fat `{ptr,ptr}` + env structs), ADTs
 (`{i32 tag,[N x i64]}`). **Defer** exceptions (landingpad/invoke) and atomics — the
 gnarliest ~40%; if textual emission gets too painful there, bind just those few ops via
