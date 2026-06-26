@@ -278,6 +278,81 @@ string cg_ensure_struct_inst(Codegen* g, string spelling) {
     return mangled;
 }
 
+*DeclNode cg_find_gfn(Codegen* g, string name) {
+    int i = 0; int n = List_len<*DeclNode>(&g.gfns);
+    while (i < n) {
+        *DeclNode d = List_get<*DeclNode>(&g.gfns, i);
+        if (cg_streq(d.name, name) == 1) { return d; }
+        i = i + 1;
+    }
+    return null;
+}
+
+// Build the active T→concrete substitution for a generic decl + its type args, saving
+// and returning the previous one (restore by assigning it back to g.cursub).
+List<CgSub> cg_push_sub(Codegen* g, *DeclNode gd, List<string>* args) {
+    List<CgSub> old = g.cursub;
+    List_init<CgSub>(&g.cursub, 4);
+    int tp = 0; int ntp = List_len<TypeParam>(&gd.type_params);
+    while (tp < ntp && tp < List_len<string>(args)) {
+        let sb: CgSub;
+        sb.param = List_get<TypeParam>(&gd.type_params, tp).name;
+        sb.arg = List_get<string>(args, tp);
+        List_push<CgSub>(&g.cursub, sb);
+        tp = tp + 1;
+    }
+    return old;
+}
+
+// Monomorphize a generic function call spelling ("id<int>") — register its concrete
+// signature now (so the call site is typed) and queue its body for emission. Returns
+// the mangled name. Idempotent.
+string cg_ensure_fn_inst(Codegen* g, string spelling) {
+    string mangled = cg_mangle(spelling);
+    if (cg_seen_inst(g, mangled) == 1) { return mangled; }
+    string base = cg_gen_base(spelling);
+    *DeclNode gd = cg_find_gfn(g, base);
+    if (gd == null) { return mangled; }                   // unknown generic — leave as-is
+    List_push<string>(&g.inst_seen, mangled);
+
+    List<string> args; List_init<string>(&args, 4);
+    cg_gen_args(spelling, &args);
+
+    let inst: CgInst; inst.decl = gd; inst.mangled = mangled; inst.is_struct = 0;
+    List_init<string>(&inst.args, 4);
+    int ai = 0; while (ai < List_len<string>(&args)) { List_push<string>(&inst.args, List_get<string>(&args, ai)); ai = ai + 1; }
+    List_push<CgInst>(&g.worklist, inst);
+
+    List<CgSub> oldsub = cg_push_sub(g, gd, &args);       // signature types under sub
+    let f: CgFn; f.name = mangled; f.retty = cg_lltype(g, gd.ret_type); f.variadic = 0;
+    string fixed = ""; int np = List_len<Param>(&gd.params); int pi = 0; int first = 1;
+    while (pi < np) {
+        Param pm = List_get<Param>(&gd.params, pi);
+        if (first == 0) { fixed = cg_cat(fixed, ", "); }
+        fixed = cg_cat(fixed, cg_lltype(g, pm.ty)); first = 0;
+        pi = pi + 1;
+    }
+    f.fixedtypes = fixed;
+    List_push<CgFn>(&g.fns, f);
+    g.cursub = oldsub;
+    return mangled;
+}
+
+// Emit every queued generic-function instantiation. Bodies may queue further
+// instantiations (transitive generics), so iterate until the worklist is exhausted.
+void cg_drain_worklist(Codegen* g) {
+    int wi = 0;
+    while (wi < List_len<CgInst>(&g.worklist)) {
+        CgInst inst = List_get<CgInst>(&g.worklist, wi);
+        if (inst.is_struct == 0) {
+            List<CgSub> oldsub = cg_push_sub(g, inst.decl, &inst.args);
+            cg_emit_fn(g, inst.decl, inst.mangled, "");
+            g.cursub = oldsub;
+        }
+        wi = wi + 1;
+    }
+}
+
 // Value of a plain-enum constant, or "" if `name` isn't one.
 string cg_enum_val(Codegen* g, string name) {
     int i = 0; int n = List_len<CgEnumC>(&g.econsts);
@@ -313,6 +388,8 @@ CgVal cg_expr(Codegen* g, *ExprNode e);
 CgVal cg_lval(Codegen* g, *ExprNode e);
 string cg_etype(Codegen* g, *ExprNode e);
 string cg_ensure_struct_inst(Codegen* g, string spelling);   // monomorphize a generic struct
+string cg_ensure_fn_inst(Codegen* g, string spelling);       // monomorphize a generic function
+void cg_emit_fn(Codegen* g, *DeclNode d, string llname, string self_struct);
 
 int cg_strlen(string s) { int i = 0; while (s[i] != 0) { i = i + 1; } return i; }
 
@@ -738,6 +815,29 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
         v.op = t; v.ty = f.retty; return v;
     }
 
+    if (e.kind == EK_TEMPLATECALL) {
+        string mangled = cg_ensure_fn_inst(g, e.sval);     // "id<int>" -> "id_int" (queued)
+        string args = "";
+        int i = 0;
+        int n = List_len<*ExprNode>(&e.kids);
+        while (i < n) {
+            CgVal a = cg_expr(g, List_get<*ExprNode>(&e.kids, i));
+            if (args[0] != 0) { args = cg_cat(args, ", "); }
+            args = cg_cat(args, cg_cat(a.ty, cg_cat(" ", a.op)));
+            i = i + 1;
+        }
+        CgFn f = cg_find_fn(g, mangled);
+        if (cg_streq(f.retty, "void") == 1) {
+            cg_emit(g, "  call void @"); cg_emit(g, mangled);
+            cg_emit(g, "("); cg_emit(g, args); cg_emit(g, ")\n");
+            v.op = ""; v.ty = "void"; return v;
+        }
+        string t = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = call "); cg_emit(g, f.retty);
+        cg_emit(g, " @"); cg_emit(g, mangled); cg_emit(g, "("); cg_emit(g, args); cg_emit(g, ")\n");
+        v.op = t; v.ty = f.retty; return v;
+    }
+
     v.op = "0"; v.ty = "i32"; return v;
 }
 
@@ -863,7 +963,7 @@ void cg_stmt(Codegen* g, *StmtNode st) {
         string ty = cg_lltype(g, st.type);
         string slot = cg_tmp(g);
         cg_emit(g, "  "); cg_emit(g, slot); cg_emit(g, " = alloca "); cg_emit(g, ty); cg_emit(g, "\n");
-        cg_add_local(g, st.name, slot, ty, st.type);
+        cg_add_local(g, st.name, slot, ty, cg_apply_sub(g, st.type));
         if (st.expr != null) {
             if (st.expr.kind == EK_STRUCTINIT) {        // P { f: v, ... } → store fields via GEP
                 cg_struct_init(g, slot, st.type, st.expr);
@@ -926,7 +1026,7 @@ void cg_emit_fn(Codegen* g, *DeclNode d, string llname, string self_struct) {
         cg_emit(g, "  "); cg_emit(g, slot); cg_emit(g, " = alloca "); cg_emit(g, pty); cg_emit(g, "\n");
         cg_emit(g, "  store "); cg_emit(g, pty); cg_emit(g, " %p"); cg_emit(g, cg_itoa(pi + base));
         cg_emit(g, ", ptr "); cg_emit(g, slot); cg_emit(g, "\n");
-        cg_add_local(g, pm.name, slot, pty, pm.ty);
+        cg_add_local(g, pm.name, slot, pty, cg_apply_sub(g, pm.ty));
         pi = pi + 1;
     }
 
@@ -1080,4 +1180,6 @@ void cg_program(Codegen* g, *Program prog) {
 
     i = 0;
     while (i < n) { cg_decl(g, List_get<*DeclNode>(&prog.decls, i)); i = i + 1; }
+
+    cg_drain_worklist(g);   // emit all generic-function instantiations (transitively)
 }
