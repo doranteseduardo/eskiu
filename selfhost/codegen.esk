@@ -182,6 +182,10 @@ int cg_is_struct(Codegen* g, string name) {
 // Eskiu type spelling → LLVM type. Pointers (anything with `*`) lower to opaque `ptr`;
 // a registered struct name → its named type `%Name`.
 string cg_lltype(Codegen* g, string t) {
+    if (cg_is_array(t) == 1) {            // "T[N]" -> [N x <T>]
+        return cg_cat("[", cg_cat(cg_array_count(t), cg_cat(" x ",
+                       cg_cat(cg_lltype(g, cg_array_elem(t)), "]"))));
+    }
     int i = 0;
     while (t[i] != 0) { if ((int)t[i] == 42) { return "ptr"; } i = i + 1; }   // '*'
     if (cg_streq(t, "void") == 1) { return "void"; }
@@ -214,6 +218,36 @@ int cg_is_ptr_ty(string t) {
     int i = 0;
     while (t[i] != 0) { if ((int)t[i] == 42) { return 1; } i = i + 1; }
     return 0;
+}
+
+int cg_is_array(string t) {
+    int i = 0;
+    while (t[i] != 0) { if ((int)t[i] == 91) { return 1; } i = i + 1; }   // '['
+    return 0;
+}
+
+// "int[4]" -> element "int".
+string cg_array_elem(string t) {
+    int n = 0;
+    while (t[n] != 0 && (int)t[n] != 91) { n = n + 1; }   // up to '['
+    *uint8 buf = alloc<uint8>(n + 1);
+    int k = 0; while (k < n) { buf[k] = (uint8)t[k]; k = k + 1; }
+    buf[n] = 0;
+    return (string)buf;
+}
+
+// "int[4]" -> count "4".
+string cg_array_count(string t) {
+    int i = 0;
+    while (t[i] != 0 && (int)t[i] != 91) { i = i + 1; }
+    if (t[i] == 0) { return "0"; }
+    i = i + 1;                                            // past '['
+    int s = i;
+    while (t[i] != 0 && (int)t[i] != 93) { i = i + 1; }   // up to ']'
+    *uint8 buf = alloc<uint8>(i - s + 1);
+    int k = 0; while (k < i - s) { buf[k] = (uint8)t[s + k]; k = k + 1; }
+    buf[i - s] = 0;
+    return (string)buf;
 }
 
 CgStruct cg_find_struct(Codegen* g, string name) {
@@ -290,6 +324,12 @@ string cg_etype(Codegen* g, *ExprNode e) {
         if (idx >= 0) { return List_get<string>(&s.fetys, idx); }
         return "";
     }
+    if (e.kind == EK_INDEX) {
+        string bet = cg_etype(g, e.a);
+        if (cg_is_array(bet) == 1) { return cg_array_elem(bet); }
+        if (cg_is_ptr_ty(bet) == 1) { return cg_strip_ptr(bet); }
+        return "";
+    }
     if (e.kind == EK_UNARY) {
         if (cg_streq(e.sval, "*") == 1) { return cg_strip_ptr(cg_etype(g, e.a)); }
         if (cg_streq(e.sval, "&") == 1) { return cg_cat("*", cg_etype(g, e.a)); }
@@ -309,6 +349,24 @@ CgVal cg_lval(Codegen* g, *ExprNode e) {
     if (e.kind == EK_UNARY && cg_streq(e.sval, "*") == 1) {
         CgVal p = cg_expr(g, e.a);                      // value of the pointer = the address
         v.op = p.op; v.ety = cg_strip_ptr(cg_etype(g, e.a)); return v;
+    }
+    if (e.kind == EK_INDEX) {
+        string bet = cg_etype(g, e.a);
+        CgVal idx = cg_expr(g, e.b);
+        string t = cg_tmp(g);
+        if (cg_is_array(bet) == 1) {                    // array: GEP [N x T], ptr, 0, idx
+            string slot = cg_lval(g, e.a).op;
+            cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = getelementptr inbounds ");
+            cg_emit(g, cg_lltype(g, bet)); cg_emit(g, ", ptr "); cg_emit(g, slot);
+            cg_emit(g, ", i32 0, i32 "); cg_emit(g, idx.op); cg_emit(g, "\n");
+            v.op = t; v.ety = cg_array_elem(bet); return v;
+        }
+        string pval = cg_expr(g, e.a).op;               // pointer: GEP T, ptr, idx
+        string elem = cg_strip_ptr(bet);
+        cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = getelementptr inbounds ");
+        cg_emit(g, cg_lltype(g, elem)); cg_emit(g, ", ptr "); cg_emit(g, pval);
+        cg_emit(g, ", i32 "); cg_emit(g, idx.op); cg_emit(g, "\n");
+        v.op = t; v.ety = elem; return v;
     }
     if (e.kind == EK_MEMBER) {
         string bet = cg_etype(g, e.a);
@@ -355,7 +413,7 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
         v.op = e.sval; v.ty = "i32"; return v;        // fallback
     }
 
-    if (e.kind == EK_MEMBER) {                          // field read: GEP + load
+    if (e.kind == EK_MEMBER || e.kind == EK_INDEX) {    // field/element read: GEP + load
         CgVal lv = cg_lval(g, e);
         string llty = cg_lltype(g, lv.ety);
         string t = cg_tmp(g);
