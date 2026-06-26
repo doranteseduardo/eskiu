@@ -216,10 +216,13 @@ that stay within int/control-flow/calls/printf now compile + run identically to 
 build (hello, recursion, control_flow). **S4a (DONE)** structs + pointers: named struct
 types `%P = type {…}`, struct-init via GEP/store, member read/write (lvalue machinery
 `cg_lval`/`cg_etype` tracking Eskiu types), address-of `&`, deref `*`; `cg_strip_ptr`
-handles both `*P` and `P*`; cg 21/21, real programs ptr_member/test_struct MATCH. NEXT:
-**S4b methods** (`p.m()` → `Type_m(self, …)` mangled call + self pointer — structs_methods),
-then sret (struct-by-value returns), arrays, then ADTs. (float/int64 deferred — the
-compiler doesn't use floats.) Then closures +
+handles both `*P` and `P*`; cg 21/21, real programs ptr_member/test_struct MATCH. **S4b (DONE)** methods: `cg_emit_fn`
+factored out (self = leading `ptr %p0`, bound to `self`/`*Struct`); methods emitted +
+registered mangled `Struct_method`; `recv.m(...)` call passes self first; structs_methods
+MATCH, cg 22/22 (corpus 19/121). NEXT: **arrays** (`T[N]`, index), **enums/`match`**
+(ADTs), then the big one **generics/monomorphization** (List<T> — the bootstrap needs it);
+sret for struct-by-value returns. (float/exceptions/atomics/async deferred — not needed
+for self-compilation.) Then closures +
 bitfield layout, function calls + sret, closures (fat `{ptr,ptr}` + env structs), ADTs
 (`{i32 tag,[N x i64]}`). **Defer** exceptions (landingpad/invoke) and atomics — the
 gnarliest ~40%; if textual emission gets too painful there, bind just those few ops via
