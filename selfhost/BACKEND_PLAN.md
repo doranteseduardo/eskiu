@@ -221,16 +221,19 @@ factored out (self = leading `ptr %p0`, bound to `self`/`*Struct`); methods emit
 registered mangled `Struct_method`; `recv.m(...)` call passes self first; structs_methods
 MATCH, cg 22/22. **S5 (DONE)** arrays: `T[N]`→`[N x T]`, indexing `a[i]` via GEP (array
 base `…, i32 0, idx`; pointer base `T, ptr, idx`); cg 24/24. **S6a (DONE)** plain integer enums (constant → int, type → i32); cg 25/25.
-NEXT: **generics/monomorphization** — the big bootstrap-critical slice. Approach (mirrors
-the C++ `mangleTemplate`/`ensureTemplateInstantiated`/`substType` + a `typeParamOverride`
-map): (1) mangle `Box<int>`→`Box_int`, `List_init<int>`→`List_init_int`; (2) on-demand
-instantiate with a generated-set for dedup — emit `%Box_int = type {…}` and
-`@List_init_int(…)` by cloning the generic decl's fields/body with a T→concrete
-substitution map active; (3) `cg_lltype` + `cg_etype` apply the active substitution and
-trigger instantiation of referenced generic types; (4) rewrite type-spellings + template
-calls to mangled names. Generic structs first (types), then generic functions (bodies
-under substitution). AST already carries `type_params`; `TemplateCallExpr` sval = `name<args>`,
-generic type spellings = `Name<args>`. Then sret, global vars. ADT enums/`match` deferred
+**S7 (DONE) generics/monomorphization** — the big bootstrap slice. `cg_mangle`
+(`Box<int>`→`Box_int`, `List_init<int>`→`List_init_int`), `cg_apply_sub` (whole-token
+T→concrete in spellings), an `inst_seen` dedup set + `worklist` of `CgInst`. Generic
+structs (`gstructs`) instantiate immediately in `cg_lltype`/`cg_find_struct` (substituted
+fields → `%Box_int = type{…}`); generic functions (`gfns`) register a concrete signature
+at the `EK_TEMPLATECALL` site and emit bodies later via `cg_drain_worklist` with
+`cg_push_sub` setting `g.cursub` (param/local/ret etys substituted). Added `EK_SIZEOF`
+(GEP-null + ptrtoint — no hardcoded sizes) and `EK_CAST` (ptr/int coercions) so the
+stdlib `alloc<T>` (`(*T)malloc(n*sizeof(T))`) monomorphizes. Verified end-to-end on a
+self-contained generic dynamic array (`generic_vec.esk`): generic struct w/ pointer
+field + alloc + indexing + N generic fns; cg 28/28. **Blocker for the *stdlib* List**:
+imports bypass the preprocessor, so `mem.esk`'s `#ifdef` keeps both branches (dup `free`)
+— see NOTES; that's the next slice. Then sret, global vars. ADT enums/`match` deferred
 (compiler uses if-kind chains, not match). (float/exceptions/atomics/async deferred — not
 needed for self-compilation.) Then closures +
 bitfield layout, function calls + sret, closures (fat `{ptr,ptr}` + env structs), ADTs
