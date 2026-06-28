@@ -22,6 +22,28 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   dogfooding the self-hosted parser. Affected only the debug printer, not codegen.
 
 ### Added
+- **Self-hosting reached a bootstrap fixpoint (Phase D).** The self-hosted code
+  generator emits valid LLVM IR for the *entire* self-hosted compiler, and `cg_main`
+  compiled **by itself** reproduces the C++-built code generator's IR byte-for-byte
+  over all 45 inputs (the whole `selfhost/` tree + the corpus). All five drivers
+  (lexer/preprocessor/parser/typechecker/codegen), compiled by the self-hosted codegen,
+  produce output identical to the C++-built ones. New gate `tests/selfhost/cg_selfhost.sh`
+  (emit-validity + fixpoint, **wired into CI**). Eleven codegen bugs were found and fixed
+  at the root by dogfooding the compiler's own source.
+- **Self-hosting back-end, Phase C: the code generator, in Eskiu.** `selfhost/codegen.esk`
+  (driver `cg_main.esk`) generates **textual LLVM IR** (assembled + linked by `clang`,
+  no LLVM library). Covers scalars/arithmetic/control-flow, structs + methods + pointers,
+  arrays, plain integer enums, **generics via monomorphization** (`List<T>`,
+  `Box<int>` → `%Box_int`, `id<int>` → `@id_int`, with `sizeof`/cast so the stdlib
+  `alloc<T>` instantiates), global variables, struct-by-value (sret), pointer
+  arithmetic, and short-circuit `&&`/`||`. Behavioral oracle: emit `.ll` → `clang` →
+  run → compare exit code + stdout to the C++-built binary, over a synthetic corpus
+  (`tests/selfhost/cg_parity.sh`, **wired into CI**). Deferred (unused by the compiler's
+  own source): floats, ADT enums/`match`, closures, exceptions, async, atomics.
+- **Imported files are now preprocessed.** The self-hosted parser ran `import`ed files
+  straight into the lexer, skipping the preprocessor, so an import's `#ifdef` kept both
+  branches (e.g. `stdlib/mem.esk` emitted a duplicate `free`). `do_import` now runs
+  `pp_run` per imported file — mirroring how the C++ folds preprocessing into the lexer.
 - **Self-hosting back-end, Phase B: the type checker, in Eskiu.** `selfhost/sema.esk`
   (driver `tc_main.esk`, full pipeline preprocess → parse → check) now catches **all 19
   semantic error classes** in `tests/errors/` — name resolution, argument counts,

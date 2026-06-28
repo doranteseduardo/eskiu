@@ -80,7 +80,7 @@ The project follows two phases:
 | Structured `ty::Type` IR — `sema/type.{h,cpp}`, parse/str/substitute/nominalName (v0.2.3) | ✅ |
 | Single-resolver type unification — type checker resolves every expression type; codegen consumes the table (v0.2.4) | ✅ |
 | Package manager | ❌ |
-| Self-hosting | ❌ |
+| Self-hosting — lexer/parser/preprocessor/sema/codegen all in Eskiu; bootstrap fixpoint reached (`selfhost/`) | 🔨 |
 
 ---
 
@@ -198,23 +198,43 @@ plus a few generics extensions.
 
 ### v0.3 — Self-hosting prerequisites
 
-- LLVM C API bindings via `extern`
+Code generation emits **textual LLVM IR** (assembled + linked by `clang`), not LLVM-C
+bindings — keeps the self-host dependency-free and is the standard bootstrap path.
+
 - [x] Lexer rewritten in Eskiu — byte-identical to `--test-lexer` over the whole
   preprocessor-free corpus (114/114), gated in CI (`selfhost/`)
 - [x] Parser rewritten in Eskiu (`selfhost/parser.esk`) — the full grammar
   (expressions, statements, declarations, templates/generics, lambdas/async),
   byte-identical to `--test-parser`; **follows `import`** (resolves `<stdlib>` +
-  relative paths recursively, merges decls) → corpus parity 50/50 over files with a
-  preprocessor-free import closure, CI-gated
+  relative paths recursively, merges decls, now preprocessing each imported file) →
+  corpus parity 51/51 over files with a preprocessor-free import closure, CI-gated
 - [x] Preprocessor rewritten in Eskiu (`selfhost/preprocessor.esk`) — `#define`/
   `#undef` (object + function), `#ifdef`/`#ifndef`/`#else`/`#endif`, `#pragma`,
   `#error`, line splicing, recursive expansion, `__FILE__`/`__LINE__`. Validated
   through the lexer: byte-identical to `--test-lexer` over the whole `tests/` +
   `stdlib/` corpus (156/156, no exclusions), CI-gated
+- [x] Type checker rewritten in Eskiu (`selfhost/sema.esk`) — two-pass name resolution
+  + a string-based type layer catching **all 19** semantic error classes. Verdict
+  matches `--test-typechecker` on 121/121 positive corpus files (0 false rejections);
+  every sema negative test rejected with the right diagnostic. CI-gated (`tc_parity.sh`)
+- [x] **Code generator rewritten in Eskiu** (`selfhost/codegen.esk`) — textual LLVM IR:
+  scalars/arith/control-flow, structs+methods+pointers, arrays, plain enums, **generics
+  (monomorphization)**, `sizeof`/cast, globals, struct-by-value, pointer arithmetic,
+  `&&`/`||` short-circuit. Behavioral oracle: emit `.ll` → `clang` → run, compared to
+  the C++-built binary (`cg_parity.sh`, CI-gated). Deferred (the compiler's own source
+  doesn't use them): floats, ADT enums/`match`, closures, exceptions, async, atomics
+- [x] **Self-compilation reached (Phase D)** — the self-hosted codegen emits valid IR
+  for the *entire* self-hosted compiler, and `cg_main` compiled by itself reproduces
+  the C++-built codegen's IR byte-for-byte over all 45 inputs (a **bootstrap fixpoint**).
+  All five drivers, self-compiled, match the C++-built ones. Gate `cg_selfhost.sh`, CI
 
 ### v1.0 — Production-ready
 
-- `eskiuc` compiles itself (self-hosting)
+- [~] `eskiuc` compiles itself (self-hosting) — **bootstrap fixpoint reached** for the
+  pp→parse→codegen pipeline (the compiler's own source round-trips identically).
+  Remaining: a unified `pp→parse→sema→codegen` driver + a second-generation binary
+  bootstrap; full feature coverage (floats/match/closures/exceptions/async) is needed
+  only to compile arbitrary user programs, not to self-host
 - First-class types for high-throughput services
 
 ---

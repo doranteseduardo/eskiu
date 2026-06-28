@@ -21,13 +21,22 @@ pipeline is untouched.
   splicing, recursive macro expansion, predefined `__FILE__`/`__LINE__`. Validated
   *through the lexer* (`pp_main` preprocesses + lexes), byte-identical to the C++
   `--test-lexer` over the whole `tests/` + `stdlib/` corpus (156/156, no exclusions).
-- **Back-end (in progress)** — roadmap in `BACKEND_PLAN.md`. AST **enrichment**
-  (Phase A) is done: `ast.esk`/`parser.esk` now capture type-params + constraints,
-  struct methods, ADT payloads, bitfields, `async`, and interface signatures (lockstep
-  printer gate, corpus 50/50). **Sema** (Phase B: `sema.esk` + `tc_main.esk`) is
-  underway — S0 does name resolution (undefined variables), the verdict matching the
-  C++ `--test-typechecker` on all 120 positive corpus files. Codegen + self-compilation
-  follow.
+- **Back-end** — roadmap in `BACKEND_PLAN.md`. AST **enrichment** (Phase A): `ast.esk`/
+  `parser.esk` capture type-params + constraints, struct methods, ADT payloads,
+  bitfields, `async`, interface signatures (lockstep printer gate). **Sema** (Phase B:
+  `sema.esk` + `tc_main.esk`): two-pass name resolution + a string-based type layer
+  catching **all 19** semantic error classes; verdict matches `--test-typechecker` on
+  121/121 positive corpus files, every sema negative test rejected (`tc_parity.sh`).
+  **Codegen** (Phase C: `codegen.esk` + `cg_main.esk`): **textual LLVM IR** (assembled
+  by `clang`), covering scalars/control-flow, structs+methods+pointers, arrays, plain
+  enums, **generics (monomorphization)**, `sizeof`/cast, globals, struct-by-value,
+  pointer arithmetic, `&&`/`||` short-circuit. Behavioral oracle (`cg_parity.sh`).
+- **Self-compilation reached (Phase D).** The self-hosted codegen emits valid IR for the
+  *entire* self-hosted compiler, and `cg_main` compiled **by itself** reproduces the
+  C++-built codegen's IR byte-for-byte over all 45 inputs — a **bootstrap fixpoint**
+  (`cg_selfhost.sh`). All five drivers, self-compiled, match the C++-built ones. Deferred
+  (unused by the compiler's own source): floats, ADT enums/`match`, closures, exceptions,
+  async, atomics — needed only to compile arbitrary user programs, not to self-host.
 
 ## Files
 
@@ -48,10 +57,14 @@ pipeline is untouched.
   stack, recursive `pp_expand`, line splicing, `__FILE__`/`__LINE__`.
 - `pp_main.esk` — driver: preprocesses `argv[1]` (filename `""`, matching
   `--test-lexer`) then lexes the result and prints tokens in the `--test-lexer` format.
-- `sema.esk` — the type checker (Phase B; mirrors `sema/type_checker.cpp`). S0:
-  two-pass name resolution with a flat `{name, depth}` scope stack.
+- `sema.esk` — the type checker (Phase B; mirrors `sema/type_checker.cpp`): two-pass
+  name resolution + a string-based type layer; all 19 semantic error classes.
 - `tc_main.esk` — driver: preprocess → parse → check `argv[1]`, in the
   `--test-typechecker` format (banner + verdict + exit code).
+- `codegen.esk` — the code generator (Phase C; mirrors `codegen/`): walks the parsed
+  AST and writes **textual LLVM IR** (named SSA temps, monomorphized generics, struct
+  GEPs, ...). No LLVM library — `clang` assembles + links the emitted `.ll`.
+- `cg_main.esk` — driver: preprocess → parse → codegen `argv[1]`, printing the `.ll`.
 - `../stdlib/ctype.esk` — pure-Eskiu ASCII classification (freestanding-clean; no
   libc ctype), used by the lexer.
 
@@ -79,8 +92,16 @@ Runs as its own CI step (not folded into `tests/run.sh`) right after the fuzzer.
 ```
 tests/selfhost/pp_parity.sh            # synthetic corpus (tests/selfhost/pp_inputs/)
 tests/selfhost/pp_parity.sh --full     # tests/*.esk + stdlib/*.esk → 156/156
-tests/selfhost/parse_parity.sh --full  # parser AST dump → 50/50
+tests/selfhost/parse_parity.sh --full  # parser AST dump → 51/51
+tests/selfhost/tc_parity.sh            # type-checker verdict parity (121 + 19 errors)
+tests/selfhost/cg_parity.sh            # codegen: emit .ll → clang → run vs C++ binary
+tests/selfhost/cg_selfhost.sh          # Phase D: whole compiler emits valid IR + fixpoint
 ```
+
+`cg_parity.sh` and `cg_selfhost.sh` need `clang` on `PATH` (override with `CLANG=…`;
+CI passes `CLANG=clang-22`). `cg_selfhost.sh` is the bootstrap gate: it builds `cg_main`,
+then `cg_main` compiled by itself, and checks the two emit identical IR for the whole
+`selfhost/` tree.
 
 The preprocessor has no standalone oracle, so `pp_parity.sh` validates it *through
 the lexer*: `pp_main` preprocesses + lexes, and the token stream is diffed against
