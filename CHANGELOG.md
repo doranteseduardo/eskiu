@@ -37,6 +37,14 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   with `throw`/`try` link `-lc++abi`) and **atomics** (`atomic_load`/`store`/`swap`/`cas` →
   `load atomic`/`store atomic`/`atomicrmw xchg`/`cmpxchg`). The self-hosted compiler
   reproduces its own IR throughout (bootstrap fixpoint stays green).
+- **Self-hosting async: now 18 of 19 async tests pass** — closures' environments are
+  **heap-allocated** (an escaping closure — e.g. an event-loop callback or a future combinator,
+  called after its creating frame returns — no longer dangles its captured variables); struct
+  literals work as **rvalues** (`x = P{…}`, not just var-decls); and the async constructor emits
+  the **`on_drop` cancellation closure** (`future_drop` on a suspended task cascade-drops the
+  awaited future). Together these unblock the event-loop / socket / timer / combinator
+  (`select`/`join`/`spawn`) / cancellation async tests. (Only async `for-in` remains — it needs
+  iterable element-type resolution.)
 - **Self-hosting back-end: the async/await lowering pass, in Eskiu** (`selfhost/async_lower.esk`,
   a port of `sema/async_transform.cpp`, run between parse and codegen). Each `async fn` is
   rewritten into a frame struct + a `while(1){if st==0…}` state-machine resume function + a
