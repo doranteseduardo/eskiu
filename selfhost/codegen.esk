@@ -633,6 +633,8 @@ string cg_ensure_struct_inst(Codegen* g, string spelling);   // monomorphize a g
 CgVal cg_build_variant(Codegen* g, CgVariant var, *ExprNode call);   // construct an ADT value
 CgVal cg_emit_atomic(Codegen* g, string nm, *ExprNode e);            // atomic intrinsic
 CgVal cg_indirect_call(Codegen* g, string cval, string fnty, *ExprNode e);  // call a closure value
+CgVal cg_call_mangled(Codegen* g, string mangled, *ExprNode e);      // call a monomorphized fn
+string cg_infer_generic(Codegen* g, *DeclNode gd, *ExprNode e);      // infer `name<args>` from arg types
 void cg_collect_idents_e(*ExprNode e, List<string>* out);
 void cg_collect_idents_s(*StmtNode s, List<string>* out);
 string cg_ensure_fn_inst(Codegen* g, string spelling);       // monomorphize a generic function
@@ -1269,6 +1271,15 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
             CgVal cv = cg_expr(g, e.a);                 // load the %closure field value
             return cg_indirect_call(g, cv.op, cg_etype(g, e.a), e);
         }
+        // A generic free function called WITHOUT explicit type args (`chan_recv(ch)`):
+        // infer `chan_recv<int>` from the argument types, then instantiate + call.
+        if (e.a != null && e.a.kind == EK_IDENT) {
+            *DeclNode gd = cg_find_gfn(g, e.a.sval);
+            if (gd != null) {
+                string spelling = cg_infer_generic(g, gd, e);
+                if (spelling[0] != 0) { return cg_call_mangled(g, cg_ensure_fn_inst(g, spelling), e); }
+            }
+        }
         // Resolve the callee. A bare ident is a free function; a MemberExpr is a method
         // call `recv.m(...)` → `Struct_m(self, ...)` with `self` a pointer to the receiver.
         string fname = "";
@@ -1314,23 +1325,7 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
 
     if (e.kind == EK_TEMPLATECALL) {
         string mangled = cg_ensure_fn_inst(g, e.sval);     // "id<int>" -> "id_int" (queued)
-        CgFn f = cg_find_fn(g, mangled);
-        string args = "";
-        int i = 0;
-        int n = List_len<*ExprNode>(&e.kids);
-        while (i < n) {
-            CgVal a = cg_expr(g, List_get<*ExprNode>(&e.kids, i));
-            string pty = cg_pty(&f, i);
-            string aop = a.op; string aty = a.ty;
-            if (pty[0] != 0) { aop = cg_coerce(g, a, pty); aty = pty; }
-            if (args[0] != 0) { args = cg_cat(args, ", "); }
-            args = cg_cat(args, cg_cat(aty, cg_cat(" ", aop)));
-            i = i + 1;
-        }
-        int isvoid = cg_streq(f.retty, "void");
-        string t = cg_emit_callish(g, f.retty, cg_cat("@", mangled), args, isvoid);
-        if (isvoid == 1) { v.op = ""; v.ty = "void"; return v; }
-        v.op = t; v.ty = f.retty; v.ety = f.rety; return v;
+        return cg_call_mangled(g, mangled, e);
     }
 
     if (e.kind == EK_SIZEOF) {
@@ -1514,6 +1509,90 @@ CgVal cg_indirect_call(Codegen* g, string cval, string fnty, *ExprNode e) {
     string t = cg_emit_callish(g, rt, fp, cargs, isvoidc);
     if (isvoidc == 1) { v.op = ""; v.ty = "void"; return v; }
     v.op = t; v.ty = rt; v.ety = cg_fnty_ret(fnty); return v;
+}
+
+// Emit a call to an already-monomorphized function `@mangled` with e's args (coerced to
+// its declared param types). Shared by explicit template calls and inferred generic calls.
+CgVal cg_call_mangled(Codegen* g, string mangled, *ExprNode e) {
+    let v: CgVal; v.ety = "";
+    CgFn f = cg_find_fn(g, mangled);
+    string args = "";
+    int i = 0; int n = List_len<*ExprNode>(&e.kids);
+    while (i < n) {
+        CgVal a = cg_expr(g, List_get<*ExprNode>(&e.kids, i));
+        string pty = cg_pty(&f, i);
+        string aop = a.op; string aty = a.ty;
+        if (pty[0] != 0) { aop = cg_coerce(g, a, pty); aty = pty; }
+        if (args[0] != 0) { args = cg_cat(args, ", "); }
+        args = cg_cat(args, cg_cat(aty, cg_cat(" ", aop)));
+        i = i + 1;
+    }
+    int isvoid = cg_streq(f.retty, "void");
+    string t = cg_emit_callish(g, f.retty, cg_cat("@", mangled), args, isvoid);
+    if (isvoid == 1) { v.op = ""; v.ty = "void"; return v; }
+    v.op = t; v.ty = f.retty; v.ety = f.rety; return v;
+}
+
+// Whole-token index of `tok` in `s` (delimited by non-identifier chars), or -1.
+int cg_tok_index(string s, string tok) {
+    int n = 0; while (s[n] != 0) { n = n + 1; }
+    int m = 0; while (tok[m] != 0) { m = m + 1; }
+    int i = 0;
+    while (i + m <= n) {
+        int eq = 1; int k = 0;
+        while (k < m) { if (s[i + k] != tok[k]) { eq = 0; } k = k + 1; }
+        if (eq == 1) {
+            int beforeOk = 1; if (i > 0) { int b = (int)s[i - 1]; if ((b >= 97 && b <= 122) || (b >= 65 && b <= 90) || (b >= 48 && b <= 57) || b == 95) { beforeOk = 0; } }
+            int afterOk = 1; int af = (int)s[i + m]; if ((af >= 97 && af <= 122) || (af >= 65 && af <= 90) || (af >= 48 && af <= 57) || af == 95) { afterOk = 0; }
+            if (beforeOk == 1 && afterOk == 1) { return i; }
+        }
+        i = i + 1;
+    }
+    return 0 - 1;
+}
+
+// Infer one type-param binding by unifying a param pattern (e.g. "Chan<T>*") against a
+// concrete arg type ("Chan<int>*"): the pattern is prefix + Tp + suffix, so the binding is
+// the middle of the arg once prefix/suffix are stripped. "" if it doesn't fit.
+string cg_infer_one(string pattern, string tp, string arg) {
+    int pos = cg_tok_index(pattern, tp);
+    if (pos < 0) { return ""; }
+    int pn = 0; while (pattern[pn] != 0) { pn = pn + 1; }
+    int tn = 0; while (tp[tn] != 0) { tn = tn + 1; }
+    int an = 0; while (arg[an] != 0) { an = an + 1; }
+    string prefix = cg_sub_str(pattern, 0, pos);
+    string suffix = cg_sub_str(pattern, pos + tn, pn);
+    int pl = pos; int sl = pn - (pos + tn);
+    if (an < pl + sl) { return ""; }
+    int k = 0; while (k < pl) { if (arg[k] != prefix[k]) { return ""; } k = k + 1; }   // prefix matches
+    k = 0; while (k < sl) { if (arg[an - sl + k] != suffix[k]) { return ""; } k = k + 1; }  // suffix matches
+    return cg_sub_str(arg, pl, an - sl);
+}
+
+// Build `name<arg0, arg1, …>` for a generic fn called without explicit type args, inferring
+// each type param from the first parameter whose pattern mentions it. "" if any is unsolved.
+string cg_infer_generic(Codegen* g, *DeclNode gd, *ExprNode e) {
+    String sp; String_init(&sp, 16);
+    String_append(&sp, gd.name); String_append(&sp, "<");
+    int ti = 0; int ntp = List_len<TypeParam>(&gd.type_params);
+    while (ti < ntp) {
+        string tp = List_get<TypeParam>(&gd.type_params, ti).name;
+        string binding = "";
+        int pi = 0; int np = List_len<Param>(&gd.params);
+        while (pi < np && binding[0] == 0) {
+            if (pi < List_len<*ExprNode>(&e.kids)) {
+                string argty = cg_etype(g, List_get<*ExprNode>(&e.kids, pi));
+                if (argty[0] != 0) { binding = cg_infer_one(List_get<Param>(&gd.params, pi).ty, tp, argty); }
+            }
+            pi = pi + 1;
+        }
+        if (binding[0] == 0) { return ""; }              // couldn't infer this param
+        if (ti > 0) { String_append(&sp, ", "); }
+        String_append(&sp, binding);
+        ti = ti + 1;
+    }
+    String_append(&sp, ">");
+    return (string)String_cstr(&sp);
 }
 
 void cg_struct_init(Codegen* g, string slot, string sname, *ExprNode e) {

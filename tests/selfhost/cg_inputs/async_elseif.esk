@@ -1,0 +1,44 @@
+// Regression: an `if / else if / else` chain whose branches contain `await`,
+// with a terminating `else` (return), inside a loop. The async transform used to
+// emit a state transition *after* the plain `return`, producing a mid-block
+// terminator the IR verifier rejected. Each `await` branch and the early-return
+// path must lower correctly.
+import <mem>;
+import <future>;
+import <channel>;
+extern int printf(string fmt, ...);
+
+async int pick(Chan<int>* ch, int sel) {
+    int acc = 0;
+    int n = 0;
+    while (n < 2) {
+        if (sel == 1) { int a = await chan_recv(ch); acc = acc + a; }
+        else if (sel == 2) { int b = await chan_recv(ch); acc = acc + b + 100; }
+        else { return -7; }                      // terminating else, no await
+        n = n + 1;
+    }
+    return acc;
+}
+
+int main() {
+    Chan<int>* a = chan_new<int>(8);
+    chan_send<int>(a, 10);  chan_send<int>(a, 20);
+    Future<int>* fa = pick(a, 1);
+    future_poll<int>(fa, void() {});
+    printf("sel1=%d\n", fa.value);                // 30
+    free_future<int>(fa);  chan_free<int>(a);
+
+    Chan<int>* b = chan_new<int>(8);
+    chan_send<int>(b, 5);  chan_send<int>(b, 5);
+    Future<int>* fb = pick(b, 2);
+    future_poll<int>(fb, void() {});
+    printf("sel2=%d\n", fb.value);                // 5+100 + 5+100 = 210
+    free_future<int>(fb);  chan_free<int>(b);
+
+    Chan<int>* c = chan_new<int>(8);
+    Future<int>* fc = pick(c, 9);                 // hits the terminating else immediately
+    future_poll<int>(fc, void() {});
+    printf("sel9=%d\n", fc.value);                // -7
+    free_future<int>(fc);  chan_free<int>(c);
+    return 0;
+}
