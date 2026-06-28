@@ -954,6 +954,14 @@ string cg_cmp_pred(string s) {
 // access and pointer depth.
 string cg_etype(Codegen* g, *ExprNode e) {
     if (e == null) { return ""; }
+    if (e.kind == EK_LITERAL) {
+        if (e.lit_kind == LIT_INT) { return "int"; }
+        if (e.lit_kind == LIT_FLOAT) { return "double"; }
+        if (e.lit_kind == LIT_BOOL) { return "bool"; }
+        if (e.lit_kind == LIT_CHAR) { return "char"; }
+        if (e.lit_kind == LIT_STRING) { return "string"; }
+        return "";
+    }
     if (e.kind == EK_IDENT) {
         CgLocal l = cg_find_local(g, e.sval);
         if (l.slot[0] != 0) { return l.ety; }
@@ -1554,7 +1562,24 @@ int cg_tok_index(string s, string tok) {
 // Infer one type-param binding by unifying a param pattern (e.g. "Chan<T>*") against a
 // concrete arg type ("Chan<int>*"): the pattern is prefix + Tp + suffix, so the binding is
 // the middle of the arg once prefix/suffix are stripped. "" if it doesn't fit.
-string cg_infer_one(string pattern, string tp, string arg) {
+// Canonical pointer form: trailing '*'/spaces moved to the front ("Box<T>*" → "*Box<T>"),
+// so a declared param (trailing-star) and a cg_etype result (leading-star) compare equal.
+string cg_norm_ptr(string t) {
+    int b = 0; while (t[b] != 0) { b = b + 1; }
+    int stars = 0;
+    while (b > 0 && ((int)t[b - 1] == 42 || (int)t[b - 1] == 32)) { if ((int)t[b - 1] == 42) { stars = stars + 1; } b = b - 1; }
+    int a = 0;
+    while ((int)t[a] == 42) { stars = stars + 1; a = a + 1; }
+    string core = cg_sub_str(t, a, b);
+    String r; String_init(&r, b - a + stars);
+    int i = 0; while (i < stars) { String_push(&r, '*'); i = i + 1; }
+    String_append(&r, core);
+    return (string)String_cstr(&r);
+}
+
+string cg_infer_one(string pat0, string tp, string arg0) {
+    string pattern = cg_norm_ptr(pat0);
+    string arg = cg_norm_ptr(arg0);
     int pos = cg_tok_index(pattern, tp);
     if (pos < 0) { return ""; }
     int pn = 0; while (pattern[pn] != 0) { pn = pn + 1; }
