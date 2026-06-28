@@ -22,6 +22,15 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   dogfooding the self-hosted parser. Affected only the debug printer, not codegen.
 
 ### Added
+- **Self-hosted codegen — more of the language.** Beyond the bootstrap subset, the
+  self-hosted code generator (`selfhost/codegen.esk`) now also lowers: **floating point**
+  (`fadd`/`fsub`/`fmul`/`fdiv`, `fcmp`, `fneg`, and int↔float casts via `sitofp`/`fptosi`/
+  `fpext`/`fptrunc`, with mixed int/float promotion); **`switch`** (a real LLVM `switch`
+  with C-style fall-through + `break`); and **ADT enums + `match`** (the tagged-union
+  layout `{ i32 tag, [N x i64] payload }`, variant construction, and `match` lowered to a
+  tag switch with payload bindings). Each is behaviorally parity-tested (`cg_parity.sh`).
+  Return values are now coerced to the function's return type (e.g. a `bool` result
+  zero-extended to `int`). Still deferred: closures, exceptions, async, atomics.
 - **Unified self-hosted compiler driver + a three-stage bootstrap.** `selfhost/esk_main.esk`
   runs the full pipeline in Eskiu — preprocess → parse → **type-check** → code-gen —
   rejecting ill-typed input without emitting IR. The new gate `tests/selfhost/cg_bootstrap.sh`

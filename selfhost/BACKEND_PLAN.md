@@ -268,15 +268,24 @@ build: C++ eskiuc → cc0, cc0 → cc1, cc1 → cc2; **stage2 ≡ stage3** (cc1 
 identical IR for the compiler AND a sample, cc2 runs correctly). Binary byte-equality is
 NOT asserted — Mach-O LC_UUID + ad-hoc signature differ for identical input (linker
 artifact). All three codegen gates (cg_parity, cg_selfhost, cg_bootstrap) wired into CI
-with `CLANG=clang-22`. NEXT: broaden inputs (programs using float/match/closures still
-unsupported); errors→stderr in esk_main (a polish item; sema prints to stdout today).
-ADT enums/`match`
-deferred (compiler uses if-kind chains, not match). (float/exceptions/atomics/async
-deferred — not needed for self-compilation.) Later, if pursued: closures +
-bitfield layout, closures (fat `{ptr,ptr}` + env structs), ADTs
-(`{i32 tag,[N x i64]}`). **Defer** exceptions (landingpad/invoke) and atomics — the
-gnarliest ~40%; if textual emission gets too painful there, bind just those few ops via
-the LLVM-**C** API (`extern`) as a targeted hybrid, rather than the whole API.
+with `CLANG=clang-22`.
+
+**FEATURE COVERAGE beyond the bootstrap subset (for arbitrary user programs; the compiler
+itself uses none of these).** DONE: **floats** (fadd/fsub/fmul/fdiv, fcmp, fneg, int↔float
+casts via sitofp/fptosi/fpext/fptrunc, mixed promotion; `cg_is_float`/`cg_farith_op`/
+`cg_fcmp_pred`, cg_coerce extended); **switch** (LLVM `switch`, C fall-through + break);
+**ADT enums + match** (tagged union `{i32 tag,[N x i64]}`, `CgVariant` registry,
+`cg_build_variant`, match = tag switch + payload-binding extraction with arm-scoped
+locals). Also a root fix: SK_RETURN now coerces to the fn's return type (bool→int = zext).
+cg_parity 36/36, cg_selfhost 48/48, bootstrap fixpoint all green. **REMAINING (each a
+large slice; NONE needed for self-hosting):** (1) **closures/lambdas** — the self-hosted
+AST stores only the lambda signature + body (NO captures), so this needs free-variable
+analysis in codegen + an env struct + fat pointer `{ptr fn, ptr env}` + escape analysis
+(stack vs heap env) + fn-type lowering + indirect calls. Bigger than generics. (2)
+**exceptions** (try/catch/throw → landingpad/invoke) — the gnarliest; if textual emission
+is too painful, bind just those ops via the LLVM-**C** API (`extern`). (3) **async/await**
+— port `sema/async_transform.cpp` (651 lines, a lowering pass). (4) **atomics** (intrinsics),
+unions, bitfield layout, dynamic trait dispatch. Polish: esk_main errors→stderr.
 
 **Critical files:** new `selfhost/codegen.esk`, `selfhost/cg_main.esk`,
 `tests/selfhost/cg_parity.sh`. Reference: `codegen/codegen_{module,decl,stmt,expr,
