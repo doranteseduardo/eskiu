@@ -22,6 +22,13 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   dogfooding the self-hosted parser. Affected only the debug printer, not codegen.
 
 ### Added
+- **Unified self-hosted compiler driver + a three-stage bootstrap.** `selfhost/esk_main.esk`
+  runs the full pipeline in Eskiu — preprocess → parse → **type-check** → code-gen —
+  rejecting ill-typed input without emitting IR. The new gate `tests/selfhost/cg_bootstrap.sh`
+  performs the canonical bootstrap: the C++ `eskiuc` builds the driver (cc0), cc0 builds it
+  (cc1), and cc1 builds it (cc2); **cc1 and cc2 emit byte-identical IR** for the compiler
+  and for a sample program, and cc2 compiles a runnable binary — i.e. stage2 ≡ stage3, a
+  true self-hosting fixpoint. **Wired into CI.**
 - **Self-hosting reached a bootstrap fixpoint (Phase D).** The self-hosted code
   generator emits valid LLVM IR for the *entire* self-hosted compiler, and `cg_main`
   compiled **by itself** reproduces the C++-built code generator's IR byte-for-byte
