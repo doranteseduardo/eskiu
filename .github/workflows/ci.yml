@@ -89,3 +89,10 @@ jobs:
       # the C++-built codegen's IR byte-for-byte (a self-consistent fixpoint).
       - name: Codegen self-compilation (bootstrap fixpoint)
         run: CLANG=clang-22 tests/selfhost/cg_selfhost.sh
+
+      # Three-stage bootstrap over the unified driver (esk_main.esk: pp→parse→sema→
+      # codegen): the C++ eskiuc builds it (cc0), cc0 builds it (cc1), cc1 builds it
+      # (cc2); cc1 and cc2 must emit identical IR (stage2 ≡ stage3 = a true fixpoint),
+      # and cc2 must compile a runnable program.
+      - name: Compiler bootstrap (3-stage fixpoint)
+        run: CLANG=clang-22 tests/selfhost/cg_bootstrap.sh
