@@ -234,10 +234,19 @@ self-contained generic dynamic array (`generic_vec.esk`): generic struct w/ poin
 field + alloc + indexing + N generic fns; cg 28/28. **Import-preprocessing (DONE)**:
 `do_import` now runs `pp_run` per imported file (the C++ folds preprocessing into the
 lexer) so `mem.esk`'s `#ifdef` picks one branch — the stdlib `List<int>` monomorphizes
-+ runs to parity (`stdlib_list.esk`); no regression (parse 51/51, cg 28/28). NEXT: sret
-(struct-by-value returns), global vars. ADT enums/`match` deferred
-(compiler uses if-kind chains, not match). (float/exceptions/atomics/async deferred — not
-needed for self-compilation.) Then closures +
++ runs to parity (`stdlib_list.esk`); no regression (parse 51/51, cg 28/28). **S8
+(DONE) sret + globals, cg 31/31.** sret needed NO code — LLVM first-class aggregates
+emit `ret %T`/`call %T`/`store %T` directly and clang lowers them (struct-by-value
+params + returns, incl. generic structs, run to parity; `struct_value.esk`). The
+compiler returns `CgVal`/`CgStruct` by value pervasively → confirmed. **Global vars**:
+pre-pass 1d registers top-level `DK_VARDECL` into `g.gvars` (`@name` = storage address)
++ emits `@name = global <llty> <init>` (literal scalar folds; else `zeroinitializer`,
+set up at runtime). EK_IDENT/`cg_lval`/`cg_etype` resolve globals after locals/enums.
+Verified the compiler's own `g_imported` pattern: a global `List<int>` (zeroinitializer)
++ runtime `List_init`/push/get (`global_list.esk`). NEXT: dogfood the codegen against
+real compiler source to find the remaining gaps before Phase D. ADT enums/`match`
+deferred (compiler uses if-kind chains, not match). (float/exceptions/atomics/async
+deferred — not needed for self-compilation.) Then closures +
 bitfield layout, function calls + sret, closures (fat `{ptr,ptr}` + env structs), ADTs
 (`{i32 tag,[N x i64]}`). **Defer** exceptions (landingpad/invoke) and atomics — the
 gnarliest ~40%; if textual emission gets too painful there, bind just those few ops via
