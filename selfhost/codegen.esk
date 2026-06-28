@@ -55,6 +55,8 @@ struct Codegen {
     List<CgLambda> lambdas;  // queued lambda bodies, emitted after the main decls
     int lam_seq;             // counter for unique lambda names
     string lam_expret;       // return type expected from a lambda's assignment context ("" = none)
+    int uses_eh;             // program uses try/throw → declare the Itanium EH runtime
+    string cur_unwind;       // active landingpad label inside a try body ("" = plain calls)
     List<CgLocal> gvars;     // global variables (slot = "@name", a pointer to storage)
     List<*DeclNode> gstructs; // generic struct decls (by name, type_params non-empty)
     List<*DeclNode> gfns;     // generic function decls
@@ -123,6 +125,8 @@ void cg_init(Codegen* g) {
     List_init<CgLambda>(&g.lambdas, 8);
     g.lam_seq = 0;
     g.lam_expret = "";
+    g.uses_eh = 0;
+    g.cur_unwind = "";
     List_init<CgLocal>(&g.gvars, 8);
     List_init<*DeclNode>(&g.gstructs, 8);
     List_init<*DeclNode>(&g.gfns, 16);
@@ -550,6 +554,28 @@ CgFn cg_find_fn(Codegen* g, string name) {
 }
 
 void cg_emit(Codegen* g, string s) { String_append(&g.out, s); }
+
+// Emit a `call` — or, inside a try body (cur_unwind set), an `invoke` that routes
+// unwinding to the landingpad and continues in a fresh block. Returns the result temp
+// ("" for a void call). `callty` is the call type (ret type, or a variadic fn type),
+// `target` the callee (`@name` or `%fp`).
+string cg_emit_callish(Codegen* g, string callty, string target, string args, int isvoid) {
+    string t = "";
+    cg_emit(g, "  ");
+    if (isvoid == 0) { t = cg_tmp(g); cg_emit(g, t); cg_emit(g, " = "); }
+    if (g.cur_unwind[0] != 0) {
+        string cont = cg_lbl(g);
+        cg_emit(g, "invoke "); cg_emit(g, callty); cg_emit(g, " "); cg_emit(g, target);
+        cg_emit(g, "("); cg_emit(g, args); cg_emit(g, ") to label %"); cg_emit(g, cont);
+        cg_emit(g, " unwind label %"); cg_emit(g, g.cur_unwind); cg_emit(g, "\n");
+        g.terminated = 1;
+        cg_label(g, cont);
+    } else {
+        cg_emit(g, "call "); cg_emit(g, callty); cg_emit(g, " "); cg_emit(g, target);
+        cg_emit(g, "("); cg_emit(g, args); cg_emit(g, ")\n");
+    }
+    return t;
+}
 
 // Collect every identifier referenced in an expr/stmt subtree (for a lambda's free-
 // variable analysis — the captures are those that are enclosing locals).
@@ -1231,13 +1257,9 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
                     cargs = cg_cat(cargs, cg_cat(", ", cg_cat(aty, cg_cat(" ", aop))));
                     i = i + 1;
                 }
-                if (cg_streq(rt, "void") == 1) {
-                    cg_emit(g, "  call void "); cg_emit(g, fp); cg_emit(g, "("); cg_emit(g, cargs); cg_emit(g, ")\n");
-                    v.op = ""; v.ty = "void"; return v;
-                }
-                string t = cg_tmp(g);
-                cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = call "); cg_emit(g, rt); cg_emit(g, " "); cg_emit(g, fp);
-                cg_emit(g, "("); cg_emit(g, cargs); cg_emit(g, ")\n");
+                int isvoidc = cg_streq(rt, "void");
+                string t = cg_emit_callish(g, rt, fp, cargs, isvoidc);
+                if (isvoidc == 1) { v.op = ""; v.ty = "void"; return v; }
                 v.op = t; v.ty = rt; v.ety = cg_fnty_ret(lf.ety); return v;
             }
         }
@@ -1278,14 +1300,9 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
         // A variadic callee needs the explicit function type: `call i32 (ptr, ...) @printf`.
         string callty = f.retty;
         if (f.variadic == 1) { callty = cg_cat(f.retty, cg_cat(" (", cg_cat(cg_va(f.fixedtypes), ")"))); }
-        if (cg_streq(f.retty, "void") == 1) {
-            cg_emit(g, "  call "); cg_emit(g, callty); cg_emit(g, " @"); cg_emit(g, fname);
-            cg_emit(g, "("); cg_emit(g, args); cg_emit(g, ")\n");
-            v.op = ""; v.ty = "void"; return v;
-        }
-        string t = cg_tmp(g);
-        cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = call "); cg_emit(g, callty);
-        cg_emit(g, " @"); cg_emit(g, fname); cg_emit(g, "("); cg_emit(g, args); cg_emit(g, ")\n");
+        int isvoid = cg_streq(f.retty, "void");
+        string t = cg_emit_callish(g, callty, cg_cat("@", fname), args, isvoid);
+        if (isvoid == 1) { v.op = ""; v.ty = "void"; return v; }
         v.op = t; v.ty = f.retty; v.ety = f.rety; return v;
     }
 
@@ -1304,14 +1321,9 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
             args = cg_cat(args, cg_cat(aty, cg_cat(" ", aop)));
             i = i + 1;
         }
-        if (cg_streq(f.retty, "void") == 1) {
-            cg_emit(g, "  call void @"); cg_emit(g, mangled);
-            cg_emit(g, "("); cg_emit(g, args); cg_emit(g, ")\n");
-            v.op = ""; v.ty = "void"; return v;
-        }
-        string t = cg_tmp(g);
-        cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = call "); cg_emit(g, f.retty);
-        cg_emit(g, " @"); cg_emit(g, mangled); cg_emit(g, "("); cg_emit(g, args); cg_emit(g, ")\n");
+        int isvoid = cg_streq(f.retty, "void");
+        string t = cg_emit_callish(g, f.retty, cg_cat("@", mangled), args, isvoid);
+        if (isvoid == 1) { v.op = ""; v.ty = "void"; return v; }
         v.op = t; v.ty = f.retty; v.ety = f.rety; return v;
     }
 
@@ -1474,6 +1486,31 @@ CgVal cg_cond(Codegen* g, *ExprNode e) {
     cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = icmp ne "); cg_emit(g, c.ty);
     cg_emit(g, " "); cg_emit(g, c.op); cg_emit(g, ", "); cg_emit(g, zero); cg_emit(g, "\n");
     let r: CgVal; r.op = t; r.ty = "i1"; return r;
+}
+
+// The static type name of a thrown value, used for catch-clause strcmp matching.
+string cg_throw_typename(Codegen* g, *ExprNode e) {
+    if (e != null && e.kind == EK_LITERAL) {
+        if (e.lit_kind == LIT_STRING) { return "string"; }
+        if (e.lit_kind == LIT_INT) { return "int"; }
+        if (e.lit_kind == LIT_BOOL) { return "bool"; }
+        if (e.lit_kind == LIT_CHAR) { return "char"; }
+    }
+    string t = cg_etype(g, e);
+    if (t[0] == 0) { return "unknown"; }
+    return t;
+}
+
+// Does a statement subtree contain a `try`? (→ the function needs an EH personality.)
+// Does NOT descend into expressions: a lambda body is a separate function.
+int cg_has_try_s(*StmtNode s) {
+    if (s == null) { return 0; }
+    if (s.kind == SK_TRY) { return 1; }
+    if (cg_has_try_s(s.s1) == 1) { return 1; }
+    if (cg_has_try_s(s.s2) == 1) { return 1; }
+    int i = 0; int n = List_len<*StmtNode>(&s.items);
+    while (i < n) { if (cg_has_try_s(List_get<*StmtNode>(&s.items, i)) == 1) { return 1; } i = i + 1; }
+    return 0;
 }
 
 void cg_stmt(Codegen* g, *StmtNode st) {
@@ -1711,6 +1748,83 @@ void cg_stmt(Codegen* g, *StmtNode st) {
         cg_label(g, l_end);
         return;
     }
+    if (st.kind == SK_THROW) {
+        // Itanium ABI: allocate a 16-byte EskiuEx { i64 value, ptr type_name }, fill it,
+        // and __cxa_throw it (an invoke inside a try so the landingpad catches it).
+        g.uses_eh = 1;
+        CgVal val = cg_expr(g, st.expr);
+        string ex = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, ex); cg_emit(g, " = call ptr @__cxa_allocate_exception(i64 16)\n");
+        string ival = cg_coerce(g, val, "i64");           // value as i64 (ptrtoint / sext)
+        cg_emit(g, "  store i64 "); cg_emit(g, ival); cg_emit(g, ", ptr "); cg_emit(g, ex); cg_emit(g, "\n");
+        string tnameg = cg_string_global(g, cg_throw_typename(g, st.expr));
+        string tslot = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, tslot); cg_emit(g, " = getelementptr i8, ptr "); cg_emit(g, ex); cg_emit(g, ", i64 8\n");
+        cg_emit(g, "  store ptr "); cg_emit(g, tnameg); cg_emit(g, ", ptr "); cg_emit(g, tslot); cg_emit(g, "\n");
+        cg_emit_callish(g, "void", "@__cxa_throw", cg_cat("ptr ", cg_cat(ex, ", ptr @_ZTIPv, ptr null")), 1);
+        cg_emit(g, "  unreachable\n");
+        g.terminated = 1;
+        return;
+    }
+    if (st.kind == SK_TRY) {
+        // try body runs with calls turned into invokes (unwind → landingpad). The landingpad
+        // catches everything, reads the exception's type name, and strcmp-matches each catch.
+        g.uses_eh = 1;
+        string lpad = cg_lbl(g);
+        string ldone = cg_lbl(g);
+        string saved = g.cur_unwind;
+        g.cur_unwind = lpad;
+        cg_stmt(g, st.s1);                                // try body
+        g.cur_unwind = saved;
+        cg_br(g, ldone);
+        cg_label(g, lpad);
+        string lp = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, lp); cg_emit(g, " = landingpad { ptr, i32 } catch ptr null\n");
+        string exptr = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, exptr); cg_emit(g, " = extractvalue { ptr, i32 } "); cg_emit(g, lp); cg_emit(g, ", 0\n");
+        string exdata = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, exdata); cg_emit(g, " = call ptr @__cxa_begin_catch(ptr "); cg_emit(g, exptr); cg_emit(g, ")\n");
+        string ets = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, ets); cg_emit(g, " = getelementptr i8, ptr "); cg_emit(g, exdata); cg_emit(g, ", i64 8\n");
+        string extype = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, extype); cg_emit(g, " = load ptr, ptr "); cg_emit(g, ets); cg_emit(g, "\n");
+        int ci = 0; int cn = List_len<*StmtNode>(&st.items);
+        while (ci < cn) {
+            *StmtNode c = List_get<*StmtNode>(&st.items, ci);
+            string ctype = cg_drop_last_word(c.name);
+            string cname = cg_last_word(c.name);
+            string ctg = cg_string_global(g, ctype);
+            string cmp = cg_tmp(g);
+            cg_emit(g, "  "); cg_emit(g, cmp); cg_emit(g, " = call i32 @strcmp(ptr "); cg_emit(g, extype); cg_emit(g, ", ptr "); cg_emit(g, ctg); cg_emit(g, ")\n");
+            string m = cg_tmp(g);
+            cg_emit(g, "  "); cg_emit(g, m); cg_emit(g, " = icmp eq i32 "); cg_emit(g, cmp); cg_emit(g, ", 0\n");
+            string hbl = cg_lbl(g); string nbl = cg_lbl(g);
+            cg_emit(g, "  br i1 "); cg_emit(g, m); cg_emit(g, ", label %"); cg_emit(g, hbl); cg_emit(g, ", label %"); cg_emit(g, nbl); cg_emit(g, "\n");
+            g.terminated = 1;
+            cg_label(g, hbl);
+            int lbase = List_len<CgLocal>(&g.locals);
+            string cty = cg_lltype(g, ctype);
+            string iv = cg_tmp(g);
+            cg_emit(g, "  "); cg_emit(g, iv); cg_emit(g, " = load i64, ptr "); cg_emit(g, exdata); cg_emit(g, "\n");
+            let ivv: CgVal; ivv.op = iv; ivv.ty = "i64"; ivv.ety = "";
+            string cv = cg_coerce(g, ivv, cty);            // i64 → catch type (inttoptr / trunc)
+            string cslot = cg_tmp(g);
+            cg_emit(g, "  "); cg_emit(g, cslot); cg_emit(g, " = alloca "); cg_emit(g, cty); cg_emit(g, "\n");
+            cg_emit(g, "  store "); cg_emit(g, cty); cg_emit(g, " "); cg_emit(g, cv); cg_emit(g, ", ptr "); cg_emit(g, cslot); cg_emit(g, "\n");
+            cg_add_local(g, cname, cslot, cty, ctype);
+            cg_emit(g, "  call void @__cxa_end_catch()\n");
+            cg_stmt(g, c.s1);                             // handler body
+            cg_br(g, ldone);
+            while (List_len<CgLocal>(&g.locals) > lbase) { List_remove<CgLocal>(&g.locals, List_len<CgLocal>(&g.locals) - 1); }
+            cg_label(g, nbl);
+            ci = ci + 1;
+        }
+        cg_emit(g, "  call void @__cxa_end_catch()\n");    // no clause matched — swallow
+        cg_br(g, ldone);
+        cg_label(g, ldone);
+        if (st.s2 != null) { cg_stmt(g, st.s2); }          // finally
+        return;
+    }
     if (st.kind == SK_RETURN) {
         if (st.expr != null) {
             CgVal r = cg_expr(g, st.expr);
@@ -1747,7 +1861,9 @@ void cg_emit_fn(Codegen* g, *DeclNode d, string llname, string self_struct) {
         cg_emit(g, cg_lltype(g, pm.ty)); cg_emit(g, " %p"); cg_emit(g, cg_itoa(pi + base));
         pi = pi + 1;
     }
-    cg_emit(g, ") {\nentry:\n");
+    cg_emit(g, ")");
+    if (cg_has_try_s(d.body) == 1) { cg_emit(g, " personality ptr @__gxx_personality_v0"); g.uses_eh = 1; }
+    cg_emit(g, " {\nentry:\n");
 
     if (base == 1) {                                    // spill self (a pointer to the struct)
         string sslot = cg_tmp(g);
@@ -2047,4 +2163,14 @@ void cg_program(Codegen* g, *Program prog) {
 
     cg_drain_worklist(g);   // emit all generic-function instantiations (transitively)
     cg_drain_lambdas(g);    // emit all queued lambda bodies
+
+    if (g.uses_eh == 1) {   // Itanium EH runtime (declared once, only when used)
+        String_append(&g.globals, "declare i32 @__gxx_personality_v0(...)\n");
+        String_append(&g.globals, "@_ZTIPv = external global ptr\n");
+        String_append(&g.globals, "declare ptr @__cxa_allocate_exception(i64)\n");
+        String_append(&g.globals, "declare void @__cxa_throw(ptr, ptr, ptr)\n");
+        String_append(&g.globals, "declare ptr @__cxa_begin_catch(ptr)\n");
+        String_append(&g.globals, "declare void @__cxa_end_catch()\n");
+        String_append(&g.globals, "declare i32 @strcmp(ptr, ptr)\n");
+    }
 }

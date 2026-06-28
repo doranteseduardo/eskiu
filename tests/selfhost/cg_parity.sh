@@ -43,7 +43,7 @@ for f in "${files[@]}"; do
     if ! "$CGBIN" "$f" > "$WORK/$base.ll" 2>"$WORK/$base.emit.err"; then
         echo "FAIL  $base  (self-host codegen errored)"; fail=1; continue
     fi
-    if ! "$CLANG" "$WORK/$base.ll" -o "$WORK/$base.self" 2>"$WORK/$base.clang.err"; then
+    if ! "$CLANG" "$WORK/$base.ll" -lc++abi -o "$WORK/$base.self" 2>"$WORK/$base.clang.err"; then
         echo "FAIL  $base  (clang rejected emitted .ll)"; sed 's/^/      /' "$WORK/$base.clang.err" | head; fail=1; continue
     fi
     self_out="$("$WORK/$base.self" 2>/dev/null)"; self_code=$?
