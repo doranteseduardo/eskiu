@@ -1,0 +1,53 @@
+extern int printf(string fmt, ...);
+
+int divide(int a, int b) {
+    if (b == 0) {
+        throw "division by zero";
+    }
+    return a / b;
+}
+
+string validate(int n) {
+    if (n < 0) {
+        throw "negative value";
+    }
+    return "ok";
+}
+
+int main() {
+    // Basic try/catch
+    try {
+        int r = divide(10, 2);
+        printf("10 / 2 = %d\n", r);
+    } catch (string e) {
+        printf("caught: %s\n", e);
+    }
+
+    // Catch a thrown exception
+    try {
+        int r = divide(10, 0);
+        printf("should not reach here\n");
+    } catch (string e) {
+        printf("caught: %s\n", e);
+    }
+
+    // finally always runs
+    try {
+        throw "test error";
+    } catch (string e) {
+        printf("caught: %s\n", e);
+    } finally {
+        printf("finally ran\n");
+    }
+
+    // Exception from nested call
+    try {
+        string s = validate(-5);
+        printf("should not reach here\n");
+    } catch (string e) {
+        printf("caught: %s\n", e);
+    }
+
+    printf("done\n");
+    return 0;
+}
