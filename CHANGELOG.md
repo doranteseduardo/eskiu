@@ -34,8 +34,10 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   a stack env + a fat pointer `{ fn, env }`, higher-order functions, indirect calls) and
   **exceptions** (the Itanium ABI — `invoke`/`landingpad`, `__cxa_allocate_exception`/
   `__cxa_throw`/`__cxa_begin_catch`, type-name `strcmp` catch matching, `finally`; programs
-  with `throw`/`try` link `-lc++abi`). Still deferred: async/await, atomics. The self-hosted
-  compiler reproduces its own IR throughout (bootstrap fixpoint stays green).
+  with `throw`/`try` link `-lc++abi`) and **atomics** (`atomic_load`/`store`/`swap`/`cas` →
+  `load atomic`/`store atomic`/`atomicrmw xchg`/`cmpxchg`). Still deferred: async/await
+  (a large AST-lowering pass). The self-hosted compiler reproduces its own IR throughout
+  (bootstrap fixpoint stays green).
 - **Unified self-hosted compiler driver + a three-stage bootstrap.** `selfhost/esk_main.esk`
   runs the full pipeline in Eskiu — preprocess → parse → **type-check** → code-gen —
   rejecting ill-typed input without emitting IR. The new gate `tests/selfhost/cg_bootstrap.sh`

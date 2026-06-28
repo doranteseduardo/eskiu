@@ -288,11 +288,32 @@ typename}` and `__cxa_throw`s it (invoke inside a try); the landingpad does `__c
 strcmp-matches catch clauses by type name, binds, `__cxa_end_catch`; `finally` runs at the
 join; functions with a try get `personality @__gxx_personality_v0`; EH decls emitted once
 when used; programs link `-lc++abi`. `exceptions.esk` byte-identical. cg_parity 37/37,
-cg_selfhost 50/50, bootstrap fixpoint green. **REMAINING (none needed for self-hosting):**
-(1) **async/await** — the big one: port `sema/async_transform.cpp` (651 lines), an AST→AST
-lowering to a frame + state-machine resume function; qualitatively different (a transform
-pass, not codegen) → a dedicated effort. (2) **atomics** (intrinsics), unions, bitfield
-layout, dynamic trait dispatch. Polish: esk_main errors→stderr.
+cg_selfhost 50/50, bootstrap fixpoint green. **atomics (DONE)** — `atomic_load`/`store`/
+`swap`/`cas` intercepted in EK_CALL (`cg_is_atomic`/`cg_emit_atomic`) → `load atomic`/
+`store atomic`/`atomicrmw xchg`/`cmpxchg` with acquire/release/acq_rel orderings; cas
+returns the `{i32,i1}` success bit. `atomics.esk` matches; cg_parity 38/38, cg_selfhost
+51/51.
+
+**REMAINING: async/await — THE capstone (a dedicated multi-step effort).** It is NOT a
+codegen slice but an AST→AST lowering pass (`sema/async_transform.cpp`, 634 lines), run
+between parse and codegen. Design (to port into a new `selfhost/async_lower.esk`, invoked
+in cg_main/esk_main after `parse_program`): for each `async fn name() -> T`, synthesize
+(a) a frame struct `__name_frame { Future<T> ret; int st; FutureHdr* awaiting; <params>;
+<hoisted locals>; *Future<Ti> __awI; }`; (b) a `void __name_resume(__name_frame* fr)` whose
+body is a `while(1) switch(fr.st)` state machine — each `await` splits a state: evaluate
+the future, register a waker closure, `if (!ready) return;`, then resume at the next state
+reading `fr.__awI.value`; (c) the entry `Future<T>* name(params){ frame=alloc; init; st=0;
+__name_resume(frame); return &frame.ret; }`. Completion: `fr.ret.value = v; if
+(atomic_swap(&fr.ret.state, 2) == 1) fr.ret.waker();` (atomics — now available). Pre-passes:
+desugar every `await` to a `let __awN = await E;` (recursing control flow); hoist all locals
+to frame fields; rewrite local refs to `fr.<name>`. **PREREQUISITES/blockers:** (1) the
+awaited type Ti (C++ uses sema's `aw->resolvedType`) — the self-hosted AST lacks it; resolve
+it in the pass by looking up the awaited call's return type (`produce()` → `Future<int>*` →
+Ti=int). (2) closures (DONE — for the waker), atomics (DONE), generics/Future runtime (DONE).
+**De-risk:** `async_basic.esk` (one await of a ready future, linear body) — get that to
+byte-match, THEN add control-flow-around-await (if/while/for/switch + break/continue → the
+state-graph retargeting, the gnarliest ~half of the pass). Other remaining: unions,
+bitfield layout, dynamic trait dispatch. Polish: esk_main errors→stderr.
 
 **Critical files:** new `selfhost/codegen.esk`, `selfhost/cg_main.esk`,
 `tests/selfhost/cg_parity.sh`. Reference: `codegen/codegen_{module,decl,stmt,expr,
