@@ -1,0 +1,349 @@
+// async_lower.esk — the async/await lowering pass (a port of sema/async_transform.cpp),
+// run on the parsed Program between parse and codegen. Each `async fn name() -> T` is
+// rewritten into three ordinary decls:
+//
+//   struct __name_frame { Future<T> ret; int st; *FutureHdr awaiting; <params>; <locals>;
+//                         *Future<Ti> __awI; }          // ret FIRST: &fr.ret == fr
+//   void __name_resume(*__name_frame fr) { while (1) { if (fr.st==0){…} else if … } }
+//   *Future<T> name(params) { fr = alloc; init; fr.st=0; __name_resume(fr); return &fr.ret; }
+//
+// A state machine: each `await` splits a state — evaluate the future, `future_poll` it,
+// suspend (return) if pending, and resume in the next state reading `fr.__awI.value`. The
+// waker is a closure `void(){ fr.st=<next>; __name_resume(fr); }` capturing the frame.
+//
+// SCOPE: the linear case (awaits bound in a top-level `let`, sequential body). Control
+// flow *around* an await (if/while/for/switch with break/continue) is not yet lowered —
+// such a function is left untransformed (codegen then rejects the bare `await`/`async`),
+// which is a clear failure rather than a miscompile. That is the next slice.
+
+import "ast.esk";
+import "parser.esk";   // mk_ident/mk_lit/mk_bin/mk_cast, str_concat/str_eq/int_to_str, new_decl
+
+// ── AST builders ─────────────────────────────────────────────────────────────
+*ExprNode al_member(*ExprNode base, string field) {
+    *ExprNode e = alloc<ExprNode>(1);
+    e.kind = EK_MEMBER; e.a = base; e.sval = field;
+    return e;
+}
+*ExprNode al_fr(string field) { return al_member(mk_ident("fr"), field); }
+
+*ExprNode al_call(string name, List<*ExprNode>* args) {
+    *ExprNode e = alloc<ExprNode>(1);
+    e.kind = EK_CALL; e.a = mk_ident(name);
+    List_init<*ExprNode>(&e.kids, 4);
+    int i = 0; while (i < List_len<*ExprNode>(args)) { List_push<*ExprNode>(&e.kids, List_get<*ExprNode>(args, i)); i = i + 1; }
+    return e;
+}
+*ExprNode al_tcall(string spelling, List<*ExprNode>* args) {
+    *ExprNode e = alloc<ExprNode>(1);
+    e.kind = EK_TEMPLATECALL; e.sval = spelling;
+    List_init<*ExprNode>(&e.kids, 4);
+    int i = 0; while (i < List_len<*ExprNode>(args)) { List_push<*ExprNode>(&e.kids, List_get<*ExprNode>(args, i)); i = i + 1; }
+    return e;
+}
+*ExprNode al_int(int n) { return mk_lit(LIT_INT, int_to_str(n)); }
+
+*StmtNode al_exprstmt(*ExprNode e) {
+    *StmtNode s = alloc<StmtNode>(1);
+    s.kind = SK_EXPR; s.expr = e;
+    return s;
+}
+*StmtNode al_assign(*ExprNode lhs, *ExprNode rhs) { return al_exprstmt(mk_bin("=", lhs, rhs)); }
+*StmtNode al_return(*ExprNode v) {
+    *StmtNode s = alloc<StmtNode>(1);
+    s.kind = SK_RETURN; s.expr = v;
+    return s;
+}
+*StmtNode al_block(List<*StmtNode>* items) {
+    *StmtNode s = alloc<StmtNode>(1);
+    s.kind = SK_BLOCK;
+    List_init<*StmtNode>(&s.items, 4);
+    int i = 0; while (i < List_len<*StmtNode>(items)) { List_push<*StmtNode>(&s.items, List_get<*StmtNode>(items, i)); i = i + 1; }
+    return s;
+}
+*StmtNode al_if(*ExprNode cond, *StmtNode then_s, *StmtNode else_s) {
+    *StmtNode s = alloc<StmtNode>(1);
+    s.kind = SK_IF; s.expr = cond; s.s1 = then_s; s.s2 = else_s;
+    return s;
+}
+
+// The waker closure `void() { fr.st = <state>; __name_resume(fr); }` (captures fr).
+*ExprNode al_waker(string resumeN, int state) {
+    List<*StmtNode> body; List_init<*StmtNode>(&body, 2);
+    List_push<*StmtNode>(&body, al_assign(al_fr("st"), al_int(state)));
+    List<*ExprNode> ra; List_init<*ExprNode>(&ra, 1); List_push<*ExprNode>(&ra, mk_ident("fr"));
+    List_push<*StmtNode>(&body, al_exprstmt(al_call(resumeN, &ra)));
+    *ExprNode e = alloc<ExprNode>(1);
+    e.kind = EK_LAMBDA; e.sval = "void()"; e.stmt = al_block(&body);
+    return e;
+}
+
+// ── Frame-variable rewrite: a local/param reference `x` becomes `fr.x` ─────────
+int al_in(List<string>* vars, string nm) {
+    int i = 0; while (i < List_len<string>(vars)) { if (str_eq(List_get<string>(vars, i), nm) == 1) { return 1; } i = i + 1; }
+    return 0;
+}
+void al_rewrite(*ExprNode e, List<string>* vars) {
+    if (e == null) { return; }
+    if (e.kind == EK_IDENT) {
+        if (al_in(vars, e.sval) == 1) { e.kind = EK_MEMBER; e.a = mk_ident("fr"); }   // x -> fr.x
+        return;
+    }
+    if (e.kind == EK_BINARY || e.kind == EK_INDEX) { al_rewrite(e.a, vars); al_rewrite(e.b, vars); }
+    else if (e.kind == EK_UNARY || e.kind == EK_MEMBER || e.kind == EK_CAST
+             || e.kind == EK_QUESTION || e.kind == EK_AWAIT || e.kind == EK_CALL) { al_rewrite(e.a, vars); }
+    if (e.kind == EK_CALL || e.kind == EK_TEMPLATECALL || e.kind == EK_STRUCTINIT) {
+        int i = 0; while (i < List_len<*ExprNode>(&e.kids)) { al_rewrite(List_get<*ExprNode>(&e.kids, i), vars); i = i + 1; }
+    }
+}
+
+// ── Resolve the awaited inner type Ti: `await produce()` where produce returns
+//    `Future<int>*` → Ti = "int". Looks the callee up in the program. ───────────
+string al_inner_of_future(string ty) {        // "Future<int>*" / "*Future<int>" → "int"
+    int i = 0; int n = 0; while (ty[n] != 0) { n = n + 1; }
+    while (i < n && (int)ty[i] != 60) { i = i + 1; }   // to '<'
+    if (i >= n) { return "int"; }
+    int start = i + 1; int depth = 1; i = start;
+    while (i < n && depth > 0) {
+        int c = (int)ty[i];
+        if (c == 60) { depth = depth + 1; }
+        else if (c == 62) { depth = depth - 1; if (depth == 0) { break; } }
+        i = i + 1;
+    }
+    *uint8 buf = alloc<uint8>(i - start + 1);
+    int k = 0; while (k < i - start) { buf[k] = (uint8)ty[start + k]; k = k + 1; }
+    buf[i - start] = 0;
+    return (string)buf;
+}
+string al_await_type(*Program prog, *ExprNode awaited) {
+    string callee = "";
+    if (awaited != null && awaited.kind == EK_CALL && awaited.a != null && awaited.a.kind == EK_IDENT) { callee = awaited.a.sval; }
+    if (callee[0] == 0) { return "int"; }
+    int i = 0; int n = List_len<*DeclNode>(&prog.decls);
+    while (i < n) {
+        *DeclNode d = List_get<*DeclNode>(&prog.decls, i);
+        if (d.kind == DK_FUNCTION && str_eq(d.name, callee) == 1) { return al_inner_of_future(d.ret_type); }
+        i = i + 1;
+    }
+    return "int";
+}
+
+// ── The transform ─────────────────────────────────────────────────────────────
+int al_stmt_has_await(*StmtNode s);
+int al_newstate(List<List<*StmtNode>>* states);
+void al_complete_into(List<List<*StmtNode>>* states, int st, *ExprNode v);
+void List_get_ref_push(List<List<*StmtNode>>* states, int i, *StmtNode s);
+*ExprNode al_waker_noop();
+*ExprNode al_call_on(*ExprNode callee, List<*ExprNode>* args);
+
+// Lower one async function into [frame struct, resume fn, ctor fn], appended to `out`.
+void al_transform(*Program prog, *DeclNode d, List<*DeclNode>* out) {
+    string name = d.name;
+    string frameT = str_concat("__", str_concat(name, "_frame"));
+    string resumeN = str_concat("__", str_concat(name, "_resume"));
+    string Tret = d.ret_type;
+    if (str_eq(Tret, "void") == 1) { Tret = "uint8"; }
+
+    // Collect frame vars (params + body locals) and await sites, in order.
+    List<string> vars; List_init<string>(&vars, 8);
+    List<Param> fields; List_init<Param>(&fields, 8);
+    let fret: Param; fret.name = "ret"; fret.ty = str_concat("Future<", str_concat(Tret, ">")); List_push<Param>(&fields, fret);
+    let fst: Param; fst.name = "st"; fst.ty = "int"; List_push<Param>(&fields, fst);
+    let faw: Param; faw.name = "awaiting"; faw.ty = "*FutureHdr"; List_push<Param>(&fields, faw);
+    int pi = 0;
+    while (pi < List_len<Param>(&d.params)) {
+        Param p = List_get<Param>(&d.params, pi);
+        List_push<string>(&vars, p.name); List_push<Param>(&fields, p);
+        pi = pi + 1;
+    }
+
+    // Items of the (linear) body block.
+    List<*StmtNode> items; List_init<*StmtNode>(&items, 8);
+    int bi = 0; int bn = List_len<*StmtNode>(&d.body.items);
+    while (bi < bn) { List_push<*StmtNode>(&items, List_get<*StmtNode>(&d.body.items, bi)); bi = bi + 1; }
+
+    // First pass: register locals + await fields (parallel: per await an __awI of *Future<Ti>).
+    int naw = 0;
+    int it = 0;
+    while (it < List_len<*StmtNode>(&items)) {
+        *StmtNode s = List_get<*StmtNode>(&items, it);
+        if (s.kind == SK_VARDECL) {
+            if (al_in(&vars, s.name) == 0) {
+                List_push<string>(&vars, s.name);
+                let lf: Param; lf.name = s.name; lf.ty = s.type; List_push<Param>(&fields, lf);
+            }
+            if (s.expr != null && s.expr.kind == EK_AWAIT) {
+                string Ti = al_await_type(prog, s.expr.a);
+                let af: Param; af.name = str_concat("__aw", int_to_str(naw));
+                af.ty = str_concat("*Future<", str_concat(Ti, ">"));
+                List_push<Param>(&fields, af);
+                naw = naw + 1;
+            }
+        }
+        it = it + 1;
+    }
+
+    // Build states. Each await splits cur → next; a return completes the future.
+    List<List<*StmtNode>> states; List_init<List<*StmtNode>>(&states, 4);
+    List<*StmtNode> s0; List_init<*StmtNode>(&s0, 8); List_push<List<*StmtNode>>(&states, s0);
+    int cur = 0;
+    naw = 0;
+    it = 0;
+    while (it < List_len<*StmtNode>(&items)) {
+        *StmtNode s = List_get<*StmtNode>(&items, it);
+        it = it + 1;
+        if (s.kind == SK_VARDECL && s.expr != null && s.expr.kind == EK_AWAIT) {
+            string awf = str_concat("__aw", int_to_str(naw));
+            string Ti = al_await_type(prog, s.expr.a);
+            naw = naw + 1;
+            *ExprNode callE = s.expr.a; al_rewrite(callE, &vars);
+            List_get_ref_push(&states, cur, al_assign(al_fr(awf), callE));
+            int next = al_newstate(&states);
+            // if (future_poll<Ti>(fr.awf, waker) == 0) { fr.awaiting = (*FutureHdr)fr.awf; return; }
+            List<*ExprNode> pa; List_init<*ExprNode>(&pa, 2);
+            List_push<*ExprNode>(&pa, al_fr(awf)); List_push<*ExprNode>(&pa, al_waker(resumeN, next));
+            *ExprNode poll = al_tcall(str_concat("future_poll<", str_concat(Ti, ">")), &pa);
+            List<*StmtNode> pk; List_init<*StmtNode>(&pk, 2);
+            List_push<*StmtNode>(&pk, al_assign(al_fr("awaiting"), mk_cast("*FutureHdr", al_fr(awf))));
+            List_push<*StmtNode>(&pk, al_return(null));
+            List_get_ref_push(&states, cur, al_if(mk_bin("==", poll, al_int(0)), al_block(&pk), null));
+            List_get_ref_push(&states, cur, al_assign(al_fr("st"), al_int(next)));   // goTo next
+            // next state: read value, free the awaited future
+            List_get_ref_push(&states, next, al_assign(al_fr("awaiting"), mk_cast("*FutureHdr", al_int(0))));
+            List_get_ref_push(&states, next, al_assign(al_fr(s.name), al_member(al_fr(awf), "value")));
+            List<*ExprNode> fa; List_init<*ExprNode>(&fa, 1); List_push<*ExprNode>(&fa, al_fr(awf));
+            List_get_ref_push(&states, next, al_exprstmt(al_tcall(str_concat("free_future<", str_concat(Ti, ">")), &fa)));
+            cur = next;
+        } else if (s.kind == SK_VARDECL) {
+            if (s.expr != null) { al_rewrite(s.expr, &vars); List_get_ref_push(&states, cur, al_assign(al_fr(s.name), s.expr)); }
+        } else if (s.kind == SK_RETURN) {
+            *ExprNode v = s.expr; if (v == null) { v = al_int(0); } al_rewrite(v, &vars);
+            al_complete_into(&states, cur, v);
+            cur = 0 - 1;                       // path terminated
+        } else {
+            al_rewrite(s.expr, &vars);
+            List_get_ref_push(&states, cur, s);
+        }
+    }
+    if (cur != 0 - 1) { al_complete_into(&states, cur, al_int(0)); }
+
+    // resume fn: while (1) { if (fr.st==0){…} else if (fr.st==1){…} … else return; }
+    *StmtNode chain = al_return(null);
+    int si = List_len<List<*StmtNode>>(&states) - 1;
+    while (si >= 0) {
+        List<*StmtNode> body = List_get<List<*StmtNode>>(&states, si);
+        List<*StmtNode> blk; List_init<*StmtNode>(&blk, 8);
+        int k = 0; while (k < List_len<*StmtNode>(&body)) { List_push<*StmtNode>(&blk, List_get<*StmtNode>(&body, k)); k = k + 1; }
+        chain = al_if(mk_bin("==", al_fr("st"), al_int(si)), al_block(&blk), chain);
+        si = si - 1;
+    }
+    *StmtNode wh = alloc<StmtNode>(1); wh.kind = SK_WHILE; wh.expr = mk_lit(LIT_BOOL, "true");
+    List<*StmtNode> wb; List_init<*StmtNode>(&wb, 1); List_push<*StmtNode>(&wb, chain); wh.s1 = al_block(&wb);
+    List<*StmtNode> rb; List_init<*StmtNode>(&rb, 1); List_push<*StmtNode>(&rb, wh);
+    *DeclNode resumeFn = new_decl(DK_FUNCTION);
+    resumeFn.name = resumeN; resumeFn.ret_type = "void"; resumeFn.body = al_block(&rb);
+    List_init<Param>(&resumeFn.params, 1);
+    let fp: Param; fp.name = "fr"; fp.ty = str_concat("*", frameT); List_push<Param>(&resumeFn.params, fp);
+
+    // ctor: *Future<Tret> name(params) { fr = alloc<frameT>(1); init; resume(fr); return &fr.ret; }
+    List<*StmtNode> ctor; List_init<*StmtNode>(&ctor, 8);
+    List<*ExprNode> aa; List_init<*ExprNode>(&aa, 1); List_push<*ExprNode>(&aa, al_int(1));
+    List_push<*StmtNode>(&ctor, mk_vardecl("fr", str_concat("*", frameT), al_tcall(str_concat("alloc<", str_concat(frameT, ">")), &aa), 0));
+    List_push<*StmtNode>(&ctor, al_assign(al_fr("st"), al_int(0)));
+    List_push<*StmtNode>(&ctor, al_assign(al_fr("awaiting"), mk_cast("*FutureHdr", al_int(0))));
+    List_push<*StmtNode>(&ctor, al_assign(al_member(al_fr("ret"), "state"), al_int(0)));
+    List_push<*StmtNode>(&ctor, al_assign(al_member(al_fr("ret"), "waker"), al_waker_noop()));
+    pi = 0;
+    while (pi < List_len<Param>(&d.params)) {
+        Param p = List_get<Param>(&d.params, pi);
+        List_push<*StmtNode>(&ctor, al_assign(al_fr(p.name), mk_ident(p.name)));
+        pi = pi + 1;
+    }
+    List<*ExprNode> ca; List_init<*ExprNode>(&ca, 1); List_push<*ExprNode>(&ca, mk_ident("fr"));
+    List_push<*StmtNode>(&ctor, al_exprstmt(al_call(resumeN, &ca)));
+    List_push<*StmtNode>(&ctor, al_return(mk_un("&", al_member(mk_ident("fr"), "ret"))));
+    *DeclNode ctorFn = new_decl(DK_FUNCTION);
+    ctorFn.name = name; ctorFn.ret_type = str_concat("*Future<", str_concat(Tret, ">"));
+    ctorFn.body = al_block(&ctor);
+    List_init<Param>(&ctorFn.params, 2);
+    pi = 0; while (pi < List_len<Param>(&d.params)) { List_push<Param>(&ctorFn.params, List_get<Param>(&d.params, pi)); pi = pi + 1; }
+
+    // frame struct
+    *DeclNode frameD = new_decl(DK_STRUCT);
+    frameD.name = frameT;
+    List_init<Param>(&frameD.params, List_len<Param>(&fields));
+    int ff = 0; while (ff < List_len<Param>(&fields)) { List_push<Param>(&frameD.params, List_get<Param>(&fields, ff)); ff = ff + 1; }
+
+    List_push<*DeclNode>(out, frameD);
+    List_push<*DeclNode>(out, resumeFn);
+    List_push<*DeclNode>(out, ctorFn);
+}
+
+// A no-op `void(){}` waker lambda.
+*ExprNode al_waker_noop() {
+    List<*StmtNode> empty; List_init<*StmtNode>(&empty, 1);
+    *ExprNode e = alloc<ExprNode>(1);
+    e.kind = EK_LAMBDA; e.sval = "void()"; e.stmt = al_block(&empty);
+    return e;
+}
+
+// Complete the future with `v` then return: fr.ret.value = v;
+// if (atomic_swap(&fr.ret.state, 2) == 1) { fr.ret.waker(); } return;
+void al_complete_into(List<List<*StmtNode>>* states, int st, *ExprNode v) {
+    List_get_ref_push(states, st, al_assign(al_member(al_fr("ret"), "value"), v));
+    List<*ExprNode> sa; List_init<*ExprNode>(&sa, 2);
+    List_push<*ExprNode>(&sa, mk_un("&", al_member(al_fr("ret"), "state"))); List_push<*ExprNode>(&sa, al_int(2));
+    *ExprNode swap = al_call("atomic_swap", &sa);
+    List<*StmtNode> wk; List_init<*StmtNode>(&wk, 1);
+    List<*ExprNode> wa; List_init<*ExprNode>(&wa, 1);
+    List_push<*StmtNode>(&wk, al_exprstmt(al_call_on(al_member(al_fr("ret"), "waker"), &wa)));
+    List_get_ref_push(states, st, al_if(mk_bin("==", swap, al_int(1)), al_block(&wk), null));
+    List_get_ref_push(states, st, al_return(null));
+}
+
+// A call through an expression callee (e.g. `fr.ret.waker()`).
+*ExprNode al_call_on(*ExprNode callee, List<*ExprNode>* args) {
+    *ExprNode e = alloc<ExprNode>(1);
+    e.kind = EK_CALL; e.a = callee;
+    List_init<*ExprNode>(&e.kids, 1);
+    int i = 0; while (i < List_len<*ExprNode>(args)) { List_push<*ExprNode>(&e.kids, List_get<*ExprNode>(args, i)); i = i + 1; }
+    return e;
+}
+
+int al_newstate(List<List<*StmtNode>>* states) {
+    List<*StmtNode> s; List_init<*StmtNode>(&s, 8);
+    List_push<List<*StmtNode>>(states, s);
+    return List_len<List<*StmtNode>>(states) - 1;
+}
+
+// Append a statement to states[i] (List_get returns by value, so write back).
+void List_get_ref_push(List<List<*StmtNode>>* states, int i, *StmtNode s) {
+    List<*StmtNode> body = List_get<List<*StmtNode>>(states, i);
+    List_push<*StmtNode>(&body, s);
+    List_set<List<*StmtNode>>(states, i, body);
+}
+
+int al_stmt_has_await(*StmtNode s) {
+    if (s == null) { return 0; }
+    if (s.kind == SK_VARDECL || s.kind == SK_EXPR || s.kind == SK_RETURN) {
+        if (s.expr != null && s.expr.kind == EK_AWAIT) { return 1; }
+    }
+    return 0;
+}
+
+// Rewrite every async function in the program. Functions with control flow around an
+// await are left as-is (the linear case only) — see the file header.
+void async_lower(*Program prog) {
+    List<*DeclNode> out; List_init<*DeclNode>(&out, List_len<*DeclNode>(&prog.decls));
+    int i = 0; int n = List_len<*DeclNode>(&prog.decls);
+    while (i < n) {
+        *DeclNode d = List_get<*DeclNode>(&prog.decls, i);
+        if (d.kind == DK_FUNCTION && d.is_async == 1 && d.body != null) {
+            al_transform(prog, d, &out);
+        } else {
+            List_push<*DeclNode>(&out, d);
+        }
+        i = i + 1;
+    }
+    prog.decls = out;
+}
