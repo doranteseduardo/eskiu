@@ -2165,7 +2165,9 @@ void cg_program(Codegen* g, *Program prog) {
         *DeclNode d = List_get<*DeclNode>(&prog.decls, i);
         if (d.kind == DK_FUNCTION && List_len<TypeParam>(&d.type_params) > 0) {
             List_push<*DeclNode>(&g.gfns, d);              // generic fn — monomorphized on demand
-        } else if (d.kind == DK_FUNCTION || d.kind == DK_EXTERN || d.kind == DK_INTRINSIC) {
+        } else if ((d.kind == DK_FUNCTION || d.kind == DK_EXTERN || d.kind == DK_INTRINSIC)
+                   && cg_seen_inst(g, cg_cat("fn:", d.name)) == 0) {
+            List_push<string>(&g.inst_seen, cg_cat("fn:", d.name));   // dedup (same extern in 2 stdlib files)
             let f: CgFn;
             f.name = d.name;
             f.retty = cg_lltype(g, d.ret_type);
