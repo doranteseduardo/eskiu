@@ -56,6 +56,7 @@ struct Codegen {
     int lam_seq;             // counter for unique lambda names
     string lam_expret;       // return type expected from a lambda's assignment context ("" = none)
     int uses_eh;             // program uses try/throw → declare the Itanium EH runtime
+    int uses_heap_env;       // a closure heap-allocated its env → ensure malloc is declared
     string cur_unwind;       // active landingpad label inside a try body ("" = plain calls)
     List<CgLocal> gvars;     // global variables (slot = "@name", a pointer to storage)
     List<*DeclNode> gstructs; // generic struct decls (by name, type_params non-empty)
@@ -126,6 +127,7 @@ void cg_init(Codegen* g) {
     g.lam_seq = 0;
     g.lam_expret = "";
     g.uses_eh = 0;
+    g.uses_heap_env = 0;
     g.cur_unwind = "";
     List_init<CgLocal>(&g.gvars, 8);
     List_init<*DeclNode>(&g.gstructs, 8);
@@ -1392,8 +1394,16 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
         int nc = List_len<string>(&capn);
         if (nc > 0) {
             string envty = cg_env_lltype(g, &capt);
+            // Heap-allocate the env: a closure may escape (be stored/returned and called after
+            // this frame returns — e.g. an event-loop callback), so the env must outlive the
+            // frame. (Sound default; non-escaping closures leak the env — acceptable for now.)
+            g.uses_heap_env = 1;
+            string szg = cg_tmp(g);
+            cg_emit(g, "  "); cg_emit(g, szg); cg_emit(g, " = getelementptr "); cg_emit(g, envty); cg_emit(g, ", ptr null, i32 1\n");
+            string szi = cg_tmp(g);
+            cg_emit(g, "  "); cg_emit(g, szi); cg_emit(g, " = ptrtoint ptr "); cg_emit(g, szg); cg_emit(g, " to i64\n");
             env = cg_tmp(g);
-            cg_emit(g, "  "); cg_emit(g, env); cg_emit(g, " = alloca "); cg_emit(g, envty); cg_emit(g, "\n");
+            cg_emit(g, "  "); cg_emit(g, env); cg_emit(g, " = call ptr @malloc(i64 "); cg_emit(g, szi); cg_emit(g, ")\n");
             int j = 0;
             while (j < nc) {
                 CgLocal l = cg_find_local(g, List_get<string>(&capn, j));
@@ -2345,6 +2355,11 @@ void cg_program(Codegen* g, *Program prog) {
 
     cg_drain_worklist(g);   // emit all generic-function instantiations (transitively)
     cg_drain_lambdas(g);    // emit all queued lambda bodies
+
+    if (g.uses_heap_env == 1 && cg_seen_inst(g, "fn:malloc") == 0) {   // closures' env malloc
+        String_append(&g.globals, "declare ptr @malloc(i64)\n");
+        List_push<string>(&g.inst_seen, "fn:malloc");
+    }
 
     if (g.uses_eh == 1) {   // Itanium EH runtime (declared once, only when used)
         String_append(&g.globals, "declare i32 @__gxx_personality_v0(...)\n");
