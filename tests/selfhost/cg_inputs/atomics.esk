@@ -1,0 +1,12 @@
+// Atomic intrinsics → LLVM atomic instructions (load/store atomic, atomicrmw xchg, cmpxchg).
+import <atomic>;
+int main() {
+    let flag: int = 0;
+    atomic_store(&flag, 5);
+    let a: int = atomic_load(&flag);
+    let old: int = atomic_swap(&flag, 9);
+    let won: bool = atomic_cas(&flag, 9, 20);
+    let now: int = atomic_load(&flag);
+    let w: int = 0; if (won) { w = 8; }
+    return a + old + now + w;   // 5 + 5 + 20 + 8 = 38
+}
