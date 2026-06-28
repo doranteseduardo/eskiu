@@ -26,6 +26,8 @@ struct CgFn { string name; string retty; string rety; int variadic; string fixed
 struct CgStruct { string name; List<string> fnames; List<string> fetys; }
 // A plain (integer) enum constant: name → its integer value as a string.
 struct CgEnumC { string name; string val; }
+// An ADT enum variant: its name, owning enum, integer tag, and payload field types.
+struct CgVariant { string vname; string ename; int tag; List<string> ptys; }
 // One active type-parameter substitution (T → concrete) during instantiation.
 struct CgSub { string param; string arg; }
 // A pending monomorphization: the generic decl + concrete type args + mangled name.
@@ -45,6 +47,8 @@ struct Codegen {
     List<CgStruct> structs;  // struct name → field layout
     List<CgEnumC> econsts;   // plain-enum constants → value
     List<string> enum_names; // enum type names (lower to i32)
+    List<CgVariant> variants; // ADT enum variants (by name)
+    List<string> adt_names;  // ADT enum type names (lower to %Name, a tagged union)
     List<CgLocal> gvars;     // global variables (slot = "@name", a pointer to storage)
     List<*DeclNode> gstructs; // generic struct decls (by name, type_params non-empty)
     List<*DeclNode> gfns;     // generic function decls
@@ -108,6 +112,8 @@ void cg_init(Codegen* g) {
     List_init<CgStruct>(&g.structs, 16);
     List_init<CgEnumC>(&g.econsts, 32);
     List_init<string>(&g.enum_names, 16);
+    List_init<CgVariant>(&g.variants, 16);
+    List_init<string>(&g.adt_names, 8);
     List_init<CgLocal>(&g.gvars, 8);
     List_init<*DeclNode>(&g.gstructs, 8);
     List_init<*DeclNode>(&g.gfns, 16);
@@ -385,6 +391,62 @@ int cg_is_enum(Codegen* g, string name) {
     return 0;
 }
 
+// Variant name of a match-arm label "Circle(r)" -> "Circle" (or the whole label if no '(').
+string cg_arm_var(string label) {
+    int n = 0;
+    while (label[n] != 0 && (int)label[n] != 40) { n = n + 1; }   // up to '('
+    return cg_sub_str(label, 0, n);
+}
+
+// Binding names inside a match-arm label: "Rect(w, h)" -> ["w","h"]; "Empty" -> [].
+void cg_arm_binds(string label, List<string>* out) {
+    int i = 0;
+    while (label[i] != 0 && (int)label[i] != 40) { i = i + 1; }   // to '('
+    if (label[i] == 0) { return; }
+    i = i + 1;
+    int start = i;
+    while (label[i] != 0) {
+        int c = (int)label[i];
+        if (c == 41) { if (i > start) { List_push<string>(out, cg_trim(cg_sub_str(label, start, i))); } break; }   // ')'
+        if (c == 44) { List_push<string>(out, cg_trim(cg_sub_str(label, start, i))); i = i + 1; start = i; continue; }
+        i = i + 1;
+    }
+}
+
+int cg_is_adt(Codegen* g, string name) {
+    int i = 0; int n = List_len<string>(&g.adt_names);
+    while (i < n) { if (cg_streq(List_get<string>(&g.adt_names, i), name) == 1) { return 1; } i = i + 1; }
+    return 0;
+}
+
+// Find an ADT variant by name; sentinel with .ename == "" if not a known variant.
+CgVariant cg_find_variant(Codegen* g, string vname) {
+    int i = 0; int n = List_len<CgVariant>(&g.variants);
+    while (i < n) {
+        CgVariant v = List_get<CgVariant>(&g.variants, i);
+        if (cg_streq(v.vname, vname) == 1) { return v; }
+        i = i + 1;
+    }
+    let none: CgVariant; none.vname = vname; none.ename = ""; none.tag = 0;
+    List_init<string>(&none.ptys, 1);
+    return none;
+}
+
+// LLVM literal struct type for a variant's payload fields, e.g. "{ i32, i32 }" — used to
+// view the tagged union's [N x i64] storage as the variant's fields for load/store.
+string cg_payload_lltype(Codegen* g, CgVariant* v) {
+    String t; String_init(&t, 16);
+    String_append(&t, "{ ");
+    int i = 0; int n = List_len<string>(&v.ptys);
+    while (i < n) {
+        if (i > 0) { String_append(&t, ", "); }
+        String_append(&t, cg_lltype(g, List_get<string>(&v.ptys, i)));
+        i = i + 1;
+    }
+    String_append(&t, " }");
+    return (string)String_cstr(&t);
+}
+
 // Coerce a value to a target LLVM type, emitting the conversion if needed; returns the
 // operand to use. Mirrors the casts in EK_CAST — for ABI-correct call arguments (e.g. an
 // i32 count passed to an `int64 n` parameter must be widened, not reinterpreted).
@@ -406,6 +468,7 @@ string cg_coerce(Codegen* g, CgVal val, string target) {
     else if (tptr == 1 && sw > 0) { cg_emit(g, "inttoptr "); cg_emit(g, val.ty); cg_emit(g, " "); cg_emit(g, val.op); cg_emit(g, " to ptr"); }
     else if (sptr == 1 && tw > 0) { cg_emit(g, "ptrtoint ptr "); cg_emit(g, val.op); cg_emit(g, " to "); cg_emit(g, target); }
     else if (tw > 0 && sw > 0 && tw < sw) { cg_emit(g, "trunc "); cg_emit(g, val.ty); cg_emit(g, " "); cg_emit(g, val.op); cg_emit(g, " to "); cg_emit(g, target); }
+    else if (sw == 1 && tw > 1) { cg_emit(g, "zext "); cg_emit(g, val.ty); cg_emit(g, " "); cg_emit(g, val.op); cg_emit(g, " to "); cg_emit(g, target); }  // bool→int is 0/1
     else if (tw > 0 && sw > 0 && tw > sw) { cg_emit(g, "sext "); cg_emit(g, val.ty); cg_emit(g, " "); cg_emit(g, val.op); cg_emit(g, " to "); cg_emit(g, target); }
     else { cg_emit(g, "bitcast "); cg_emit(g, val.ty); cg_emit(g, " "); cg_emit(g, val.op); cg_emit(g, " to "); cg_emit(g, target); }
     cg_emit(g, "\n");
@@ -437,6 +500,7 @@ CgVal cg_expr(Codegen* g, *ExprNode e);
 CgVal cg_lval(Codegen* g, *ExprNode e);
 string cg_etype(Codegen* g, *ExprNode e);
 string cg_ensure_struct_inst(Codegen* g, string spelling);   // monomorphize a generic struct
+CgVal cg_build_variant(Codegen* g, CgVariant var, *ExprNode call);   // construct an ADT value
 string cg_ensure_fn_inst(Codegen* g, string spelling);       // monomorphize a generic function
 void cg_emit_fn(Codegen* g, *DeclNode d, string llname, string self_struct);
 
@@ -536,6 +600,7 @@ string cg_lltype(Codegen* g, string t) {
     if (cg_streq(t, "double") == 1) { return "double"; }
     if (cg_streq(t, "string") == 1) { return "ptr"; }
     if (cg_is_struct(g, t) == 1) { return cg_cat("%", t); }
+    if (cg_is_adt(g, t) == 1) { return cg_cat("%", t); }   // ADT enum → tagged-union type
     return "i32";   // int/int32/uint/... and the default
 }
 
@@ -885,6 +950,8 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
             cg_emit(g, ", ptr "); cg_emit(g, gv.slot); cg_emit(g, "\n");
             v.op = t; v.ty = gv.ty; v.ety = gv.ety; return v;
         }
+        CgVariant var = cg_find_variant(g, e.sval);    // a payload-less ADT variant (e.g. None)?
+        if (var.ename[0] != 0) { return cg_build_variant(g, var, null); }
         v.op = e.sval; v.ty = "i32"; return v;         // fallback
     }
 
@@ -1038,6 +1105,11 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
     }
 
     if (e.kind == EK_CALL) {
+        // An ADT variant constructor `Circle(4)` parses as a call with a bare-ident callee.
+        if (e.a != null && e.a.kind == EK_IDENT) {
+            CgVariant var = cg_find_variant(g, e.a.sval);
+            if (var.ename[0] != 0) { return cg_build_variant(g, var, e); }
+        }
         // Resolve the callee. A bare ident is a free function; a MemberExpr is a method
         // call `recv.m(...)` → `Struct_m(self, ...)` with `self` a pointer to the receiver.
         string fname = "";
@@ -1134,6 +1206,43 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
 
 // Initialize the struct at `slot` (a ptr) from a `Name { field: val, ... }` literal:
 // GEP to each field and store its value.
+// Construct an ADT enum value: alloca the `{ i32, [N x i64] }` tagged union, store the
+// variant tag, then write each payload field by viewing the storage as the variant's
+// field struct. `call` is the EK_CALL node carrying the argument exprs (null for a
+// payload-less variant like `None`). Returns the loaded value (by value, like a struct).
+CgVal cg_build_variant(Codegen* g, CgVariant var, *ExprNode call) {
+    let v: CgVal; v.ety = "";
+    string llty = cg_cat("%", var.ename);
+    string slot = cg_tmp(g);
+    cg_emit(g, "  "); cg_emit(g, slot); cg_emit(g, " = alloca "); cg_emit(g, llty); cg_emit(g, "\n");
+    string tp = cg_tmp(g);
+    cg_emit(g, "  "); cg_emit(g, tp); cg_emit(g, " = getelementptr "); cg_emit(g, llty);
+    cg_emit(g, ", ptr "); cg_emit(g, slot); cg_emit(g, ", i32 0, i32 0\n");
+    cg_emit(g, "  store i32 "); cg_emit(g, cg_itoa(var.tag)); cg_emit(g, ", ptr "); cg_emit(g, tp); cg_emit(g, "\n");
+    int np = List_len<string>(&var.ptys);
+    if (np > 0 && call != null) {
+        string pstruct = cg_payload_lltype(g, &var);   // "{ i32, i32 }"
+        string pp = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, pp); cg_emit(g, " = getelementptr "); cg_emit(g, llty);
+        cg_emit(g, ", ptr "); cg_emit(g, slot); cg_emit(g, ", i32 0, i32 1\n");
+        int i = 0;
+        while (i < np && i < List_len<*ExprNode>(&call.kids)) {
+            CgVal a = cg_expr(g, List_get<*ExprNode>(&call.kids, i));
+            string fty = cg_lltype(g, List_get<string>(&var.ptys, i));
+            string aop = cg_coerce(g, a, fty);
+            string fp = cg_tmp(g);
+            cg_emit(g, "  "); cg_emit(g, fp); cg_emit(g, " = getelementptr "); cg_emit(g, pstruct);
+            cg_emit(g, ", ptr "); cg_emit(g, pp); cg_emit(g, ", i32 0, i32 "); cg_emit(g, cg_itoa(i)); cg_emit(g, "\n");
+            cg_emit(g, "  store "); cg_emit(g, fty); cg_emit(g, " "); cg_emit(g, aop);
+            cg_emit(g, ", ptr "); cg_emit(g, fp); cg_emit(g, "\n");
+            i = i + 1;
+        }
+    }
+    string r = cg_tmp(g);
+    cg_emit(g, "  "); cg_emit(g, r); cg_emit(g, " = load "); cg_emit(g, llty); cg_emit(g, ", ptr "); cg_emit(g, slot); cg_emit(g, "\n");
+    v.op = r; v.ty = llty; v.ety = var.ename; return v;
+}
+
 void cg_struct_init(Codegen* g, string slot, string sname, *ExprNode e) {
     CgStruct s = cg_find_struct(g, sname);
     int n = List_len<*ExprNode>(&e.kids);
@@ -1319,10 +1428,97 @@ void cg_stmt(Codegen* g, *StmtNode st) {
         cg_label(g, l_end);
         return;
     }
+    if (st.kind == SK_MATCH) {
+        // Read the tag of the ADT subject, switch on it to per-arm blocks; each arm binds
+        // its payload fields as locals, runs its body, then jumps to the end. A `_` arm is
+        // the default. Arms don't fall through.
+        CgVal lv = cg_lval(g, st.expr);
+        string sptr = lv.op; string sety = lv.ety;
+        if (sptr[0] == 0) {                               // rvalue subject — materialize
+            CgVal val = cg_expr(g, st.expr);
+            sety = val.ety;
+            sptr = cg_tmp(g);
+            cg_emit(g, "  "); cg_emit(g, sptr); cg_emit(g, " = alloca "); cg_emit(g, val.ty); cg_emit(g, "\n");
+            cg_emit(g, "  store "); cg_emit(g, val.ty); cg_emit(g, " "); cg_emit(g, val.op);
+            cg_emit(g, ", ptr "); cg_emit(g, sptr); cg_emit(g, "\n");
+        }
+        string llty = cg_lltype(g, sety);
+        string tp = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, tp); cg_emit(g, " = getelementptr "); cg_emit(g, llty);
+        cg_emit(g, ", ptr "); cg_emit(g, sptr); cg_emit(g, ", i32 0, i32 0\n");
+        string tag = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, tag); cg_emit(g, " = load i32, ptr "); cg_emit(g, tp); cg_emit(g, "\n");
+
+        int na = List_len<*StmtNode>(&st.items);
+        List<string> alabels; List_init<string>(&alabels, na);
+        int di = 0 - 1;
+        int i = 0;
+        while (i < na) {
+            List_push<string>(&alabels, cg_lbl(g));
+            if (cg_streq(cg_arm_var(List_get<*StmtNode>(&st.items, i).name), "_") == 1) { di = i; }
+            i = i + 1;
+        }
+        string l_end = cg_lbl(g);
+        string deflbl = l_end;
+        if (di >= 0) { deflbl = List_get<string>(&alabels, di); }
+        cg_emit(g, "  switch i32 "); cg_emit(g, tag); cg_emit(g, ", label %"); cg_emit(g, deflbl); cg_emit(g, " [ ");
+        i = 0;
+        while (i < na) {
+            *StmtNode arm = List_get<*StmtNode>(&st.items, i);
+            string vn = cg_arm_var(arm.name);
+            if (cg_streq(vn, "_") == 0) {
+                CgVariant var = cg_find_variant(g, vn);
+                cg_emit(g, "i32 "); cg_emit(g, cg_itoa(var.tag));
+                cg_emit(g, ", label %"); cg_emit(g, List_get<string>(&alabels, i)); cg_emit(g, " ");
+            }
+            i = i + 1;
+        }
+        cg_emit(g, "]\n");
+        g.terminated = 1;
+        i = 0;
+        while (i < na) {
+            cg_label(g, List_get<string>(&alabels, i));
+            *StmtNode arm = List_get<*StmtNode>(&st.items, i);
+            string vn = cg_arm_var(arm.name);
+            int lbase = List_len<CgLocal>(&g.locals);     // arm-scoped bindings
+            CgVariant var = cg_find_variant(g, vn);
+            List<string> binds; List_init<string>(&binds, 2);
+            cg_arm_binds(arm.name, &binds);
+            int nb = List_len<string>(&binds);
+            if (nb > 0 && var.ename[0] != 0) {
+                string pstruct = cg_payload_lltype(g, &var);
+                string pp = cg_tmp(g);
+                cg_emit(g, "  "); cg_emit(g, pp); cg_emit(g, " = getelementptr "); cg_emit(g, llty);
+                cg_emit(g, ", ptr "); cg_emit(g, sptr); cg_emit(g, ", i32 0, i32 1\n");
+                int j = 0;
+                while (j < nb && j < List_len<string>(&var.ptys)) {
+                    string fety = List_get<string>(&var.ptys, j);
+                    string fty = cg_lltype(g, fety);
+                    string fp = cg_tmp(g);
+                    cg_emit(g, "  "); cg_emit(g, fp); cg_emit(g, " = getelementptr "); cg_emit(g, pstruct);
+                    cg_emit(g, ", ptr "); cg_emit(g, pp); cg_emit(g, ", i32 0, i32 "); cg_emit(g, cg_itoa(j)); cg_emit(g, "\n");
+                    string ld = cg_tmp(g);
+                    cg_emit(g, "  "); cg_emit(g, ld); cg_emit(g, " = load "); cg_emit(g, fty); cg_emit(g, ", ptr "); cg_emit(g, fp); cg_emit(g, "\n");
+                    string slot = cg_tmp(g);
+                    cg_emit(g, "  "); cg_emit(g, slot); cg_emit(g, " = alloca "); cg_emit(g, fty); cg_emit(g, "\n");
+                    cg_emit(g, "  store "); cg_emit(g, fty); cg_emit(g, " "); cg_emit(g, ld); cg_emit(g, ", ptr "); cg_emit(g, slot); cg_emit(g, "\n");
+                    cg_add_local(g, List_get<string>(&binds, j), slot, fty, fety);
+                    j = j + 1;
+                }
+            }
+            cg_stmt(g, arm.s1);
+            cg_br(g, l_end);
+            while (List_len<CgLocal>(&g.locals) > lbase) { List_remove<CgLocal>(&g.locals, List_len<CgLocal>(&g.locals) - 1); }
+            i = i + 1;
+        }
+        cg_label(g, l_end);
+        return;
+    }
     if (st.kind == SK_RETURN) {
         if (st.expr != null) {
             CgVal r = cg_expr(g, st.expr);
-            cg_emit(g, "  ret "); cg_emit(g, g.cur_ret); cg_emit(g, " "); cg_emit(g, r.op); cg_emit(g, "\n");
+            string rop = cg_coerce(g, r, g.cur_ret);     // widen/convert to the return type (bool→int, etc.)
+            cg_emit(g, "  ret "); cg_emit(g, g.cur_ret); cg_emit(g, " "); cg_emit(g, rop); cg_emit(g, "\n");
         } else {
             cg_emit(g, "  ret void\n");
         }
@@ -1445,20 +1641,51 @@ void cg_program(Codegen* g, *Program prog) {
         si = si + 1;
     }
 
-    // Pass 1c: register plain-enum names + their integer constants (parser stored each
-    // member as Param{name, ty=value-string}).
+    // Pass 1c: register enums. A plain enum (every variant payload-less) → integer
+    // constants + an i32 type. An ADT enum (some variant carries a payload) → a
+    // tagged-union type `%E = type { i32, [N x i64] }` (N = max payload field count) +
+    // a variant registry (name → tag + payload types), keyed by declaration order.
     si = 0;
     while (si < n) {
         *DeclNode d = List_get<*DeclNode>(&prog.decls, si);
         if (d.kind == DK_ENUM) {
-            List_push<string>(&g.enum_names, d.name);
             int m = List_len<Param>(&d.params);
+            int is_adt = 0; int slots = 0;
             int j = 0;
             while (j < m) {
-                Param pm = List_get<Param>(&d.params, j);
-                let c: CgEnumC; c.name = pm.name; c.val = pm.ty;
-                List_push<CgEnumC>(&g.econsts, c);
+                List<string> pl0 = List_get<List<string>>(&d.payloads, j);
+                int pn = List_len<string>(&pl0);
+                if (pn > 0) { is_adt = 1; }
+                if (pn > slots) { slots = pn; }
                 j = j + 1;
+            }
+            if (is_adt == 1) {
+                if (slots < 1) { slots = 1; }
+                List_push<string>(&g.adt_names, d.name);
+                String_append(&g.globals, "%"); String_append(&g.globals, d.name);
+                String_append(&g.globals, " = type { i32, [");
+                String_append(&g.globals, cg_itoa(slots)); String_append(&g.globals, " x i64] }\n");
+                j = 0;
+                while (j < m) {
+                    let var: CgVariant;
+                    var.vname = List_get<Param>(&d.params, j).name;
+                    var.ename = d.name; var.tag = j;
+                    List<string> pl = List_get<List<string>>(&d.payloads, j);
+                    List_init<string>(&var.ptys, List_len<string>(&pl));
+                    int k = 0;
+                    while (k < List_len<string>(&pl)) { List_push<string>(&var.ptys, List_get<string>(&pl, k)); k = k + 1; }
+                    List_push<CgVariant>(&g.variants, var);
+                    j = j + 1;
+                }
+            } else {
+                List_push<string>(&g.enum_names, d.name);
+                j = 0;
+                while (j < m) {
+                    Param pm = List_get<Param>(&d.params, j);
+                    let c: CgEnumC; c.name = pm.name; c.val = pm.ty;
+                    List_push<CgEnumC>(&g.econsts, c);
+                    j = j + 1;
+                }
             }
         }
         si = si + 1;
