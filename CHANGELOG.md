@@ -50,6 +50,12 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   without `<T>` — or async for-in/switch, or closure→fn-pointer extern callbacks, await those
   orthogonal features.) Code generation also now **de-duplicates extern declarations** (the
   same `extern` in two imported stdlib files no longer emits two `declare`s).
+- **Generic-argument inference.** A generic function called without explicit type arguments
+  (`chan_recv(ch)`, `unwrap(&b)`, `add(7, 5)`) now has its type parameters solved by unifying
+  each parameter's pattern (`Chan<T>*`, `Box<T>*`, `T`) against the actual argument types, then
+  monomorphized like an explicit `chan_recv<int>`. Pointer spellings are normalized
+  (`Box<T>*` ≡ `*Box<int>`) and `cg_etype` now types literals. This unblocks the channel-based
+  async tests (`async_channel`, `async_elseif`) and any generic call relying on inference.
 - **Unified self-hosted compiler driver + a three-stage bootstrap.** `selfhost/esk_main.esk`
   runs the full pipeline in Eskiu — preprocess → parse → **type-check** → code-gen —
   rejecting ill-typed input without emitting IR. The new gate `tests/selfhost/cg_bootstrap.sh`
