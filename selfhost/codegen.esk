@@ -528,6 +528,7 @@ int cg_int_w(string t) {
 // indexing/deref: `**ExprNode`→`*ExprNode`, `*int`→`int`, `int*`→`int`. Distinct from
 // cg_strip_ptr, which strips ALL '*' to recover a struct's base name.
 string cg_deref_ty(string t) {
+    if (cg_streq(t, "string") == 1) { return "char"; }    // string = *char → element is a char
     int b = 0; while (t[b] != 0) { b = b + 1; }
     if (b > 0 && (int)t[b - 1] == 42) { return cg_sub_str(t, 0, b - 1); }   // trailing '*'
     int a = 0; while ((int)t[a] == 32) { a = a + 1; }
@@ -688,7 +689,7 @@ string cg_etype(Codegen* g, *ExprNode e) {
     if (e.kind == EK_INDEX) {
         string bet = cg_etype(g, e.a);
         if (cg_is_array(bet) == 1) { return cg_array_elem(bet); }
-        if (cg_is_ptr_ty(bet) == 1) { return cg_deref_ty(bet); }
+        if (cg_is_ptr_ty(bet) == 1 || cg_streq(bet, "string") == 1) { return cg_deref_ty(bet); }
         return "";
     }
     if (e.kind == EK_UNARY) {
@@ -727,18 +728,20 @@ CgVal cg_lval(Codegen* g, *ExprNode e) {
         string bet = cg_etype(g, e.a);
         CgVal idx = cg_expr(g, e.b);
         string t = cg_tmp(g);
+        string ity = idx.ty;                            // index keeps its own width (i32/i64)
+        if (cg_int_w(ity) == 0) { ity = "i32"; }         // non-int (shouldn't happen) → i32
         if (cg_is_array(bet) == 1) {                    // array: GEP [N x T], ptr, 0, idx
             string slot = cg_lval(g, e.a).op;
             cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = getelementptr inbounds ");
             cg_emit(g, cg_lltype(g, bet)); cg_emit(g, ", ptr "); cg_emit(g, slot);
-            cg_emit(g, ", i32 0, i32 "); cg_emit(g, idx.op); cg_emit(g, "\n");
+            cg_emit(g, ", i32 0, "); cg_emit(g, ity); cg_emit(g, " "); cg_emit(g, idx.op); cg_emit(g, "\n");
             v.op = t; v.ety = cg_array_elem(bet); return v;
         }
         string pval = cg_expr(g, e.a).op;               // pointer: GEP T, ptr, idx
         string elem = cg_deref_ty(bet);
         cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = getelementptr inbounds ");
         cg_emit(g, cg_lltype(g, elem)); cg_emit(g, ", ptr "); cg_emit(g, pval);
-        cg_emit(g, ", i32 "); cg_emit(g, idx.op); cg_emit(g, "\n");
+        cg_emit(g, ", "); cg_emit(g, ity); cg_emit(g, " "); cg_emit(g, idx.op); cg_emit(g, "\n");
         v.op = t; v.ety = elem; return v;
     }
     if (e.kind == EK_MEMBER) {
@@ -897,6 +900,26 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
             cg_emit(g, " "); cg_emit(g, cty); cg_emit(g, " "); cg_emit(g, lop);
             cg_emit(g, ", "); cg_emit(g, rop); cg_emit(g, "\n");
             v.op = t; v.ty = "i1"; return v;
+        }
+        // Pointer arithmetic: `p + n` / `n + p` / `p - n` lower to getelementptr over the
+        // pointee, not an integer add on a `ptr` (which is invalid IR).
+        if ((cg_streq(e.sval, "+") == 1 || cg_streq(e.sval, "-") == 1)
+            && (cg_streq(l.ty, "ptr") == 1 || cg_streq(r.ty, "ptr") == 1)) {
+            CgVal base = l; CgVal off = r;
+            if (cg_streq(l.ty, "ptr") == 0) { base = r; off = l; }
+            string offop = off.op;
+            if (cg_streq(e.sval, "-") == 1) {              // p - n: index by -n
+                string nt = cg_tmp(g);
+                cg_emit(g, "  "); cg_emit(g, nt); cg_emit(g, " = sub "); cg_emit(g, off.ty);
+                cg_emit(g, " 0, "); cg_emit(g, off.op); cg_emit(g, "\n");
+                offop = nt;
+            }
+            string elem = cg_deref_ty(base.ety);
+            string t = cg_tmp(g);
+            cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = getelementptr inbounds ");
+            cg_emit(g, cg_lltype(g, elem)); cg_emit(g, ", ptr "); cg_emit(g, base.op);
+            cg_emit(g, ", "); cg_emit(g, off.ty); cg_emit(g, " "); cg_emit(g, offop); cg_emit(g, "\n");
+            v.op = t; v.ty = "ptr"; v.ety = base.ety; return v;
         }
         string op = cg_arith_op(e.sval);
         if (op[0] != 0) {
