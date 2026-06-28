@@ -45,6 +45,7 @@ struct Codegen {
     List<CgStruct> structs;  // struct name → field layout
     List<CgEnumC> econsts;   // plain-enum constants → value
     List<string> enum_names; // enum type names (lower to i32)
+    List<CgLocal> gvars;     // global variables (slot = "@name", a pointer to storage)
     List<*DeclNode> gstructs; // generic struct decls (by name, type_params non-empty)
     List<*DeclNode> gfns;     // generic function decls
     List<CgSub> cursub;      // active T→concrete substitution during instantiation
@@ -107,6 +108,7 @@ void cg_init(Codegen* g) {
     List_init<CgStruct>(&g.structs, 16);
     List_init<CgEnumC>(&g.econsts, 32);
     List_init<string>(&g.enum_names, 16);
+    List_init<CgLocal>(&g.gvars, 8);
     List_init<*DeclNode>(&g.gstructs, 8);
     List_init<*DeclNode>(&g.gfns, 16);
     List_init<CgSub>(&g.cursub, 4);
@@ -588,6 +590,38 @@ void cg_add_local(Codegen* g, string name, string slot, string ty, string ety) {
     List_push<CgLocal>(&g.locals, l);
 }
 
+void cg_add_global(Codegen* g, string name, string slot, string ty, string ety) {
+    let l: CgLocal; l.name = name; l.slot = slot; l.ty = ty; l.ety = ety;
+    List_push<CgLocal>(&g.gvars, l);
+}
+
+// A global variable by name, or a sentinel with empty .slot if not found.
+CgLocal cg_find_global(Codegen* g, string name) {
+    int i = 0; int n = List_len<CgLocal>(&g.gvars);
+    while (i < n) {
+        CgLocal l = List_get<CgLocal>(&g.gvars, i);
+        if (cg_streq(l.name, name) == 1) { return l; }
+        i = i + 1;
+    }
+    let none: CgLocal; none.name = name; none.slot = ""; none.ty = "i32"; none.ety = "";
+    return none;
+}
+
+// Constant initializer text for a global of LLVM type `llty`. Literal scalars fold to a
+// constant; everything else (incl. a missing/non-constant init) is zeroinitializer —
+// such a global must be set up at runtime (e.g. List_init in a session-init function).
+string cg_global_init(Codegen* g, *ExprNode e, string llty) {
+    if (e == null) { return "zeroinitializer"; }
+    if (e.kind == EK_LITERAL) {
+        if (e.lit_kind == LIT_NULL) { return "null"; }
+        if (e.lit_kind == LIT_CHAR) { return cg_itoa((int)e.sval[0]); }
+        if (e.lit_kind == LIT_BOOL) { return e.sval; }      // "true"/"false"? -> below
+        if (e.lit_kind == LIT_STRING) { return "zeroinitializer"; }   // ptr global; rare, defer
+        return e.sval;                                       // integer literal
+    }
+    return "zeroinitializer";
+}
+
 // Integer arithmetic/bitwise op → LLVM mnemonic ("" if not such an op).
 string cg_arith_op(string s) {
     if (cg_streq(s, "+") == 1) { return "add"; }
@@ -618,7 +652,11 @@ string cg_cmp_pred(string s) {
 // access and pointer depth.
 string cg_etype(Codegen* g, *ExprNode e) {
     if (e == null) { return ""; }
-    if (e.kind == EK_IDENT) { return cg_find_local(g, e.sval).ety; }
+    if (e.kind == EK_IDENT) {
+        CgLocal l = cg_find_local(g, e.sval);
+        if (l.slot[0] != 0) { return l.ety; }
+        return cg_find_global(g, e.sval).ety;
+    }
     if (e.kind == EK_MEMBER) {
         string bet = cg_etype(g, e.a);
         string sname = bet;
@@ -648,7 +686,9 @@ CgVal cg_lval(Codegen* g, *ExprNode e) {
     if (e == null) { return v; }
     if (e.kind == EK_IDENT) {
         CgLocal l = cg_find_local(g, e.sval);
-        v.op = l.slot; v.ety = l.ety; return v;        // the slot is already a pointer
+        if (l.slot[0] != 0) { v.op = l.slot; v.ety = l.ety; return v; }   // slot is a pointer
+        CgLocal gv = cg_find_global(g, e.sval);        // global symbol IS its address
+        v.op = gv.slot; v.ety = gv.ety; return v;
     }
     if (e.kind == EK_UNARY && cg_streq(e.sval, "*") == 1) {
         CgVal p = cg_expr(g, e.a);                      // value of the pointer = the address
@@ -716,6 +756,13 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
         }
         string ev = cg_enum_val(g, e.sval);            // a plain-enum constant?
         if (ev[0] != 0) { v.op = ev; v.ty = "i32"; return v; }
+        CgLocal gv = cg_find_global(g, e.sval);        // a global variable?
+        if (gv.slot[0] != 0) {
+            string t = cg_tmp(g);
+            cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = load "); cg_emit(g, gv.ty);
+            cg_emit(g, ", ptr "); cg_emit(g, gv.slot); cg_emit(g, "\n");
+            v.op = t; v.ty = gv.ty; v.ety = gv.ety; return v;
+        }
         v.op = e.sval; v.ty = "i32"; return v;         // fallback
     }
 
@@ -1158,6 +1205,22 @@ void cg_program(Codegen* g, *Program prog) {
                 List_push<CgEnumC>(&g.econsts, c);
                 j = j + 1;
             }
+        }
+        si = si + 1;
+    }
+
+    // Pass 1d: register + emit global variables (top-level var-decls). The symbol `@name`
+    // is the address of the storage; reads load from it, writes store to it.
+    si = 0;
+    while (si < n) {
+        *DeclNode d = List_get<*DeclNode>(&prog.decls, si);
+        if (d.kind == DK_VARDECL) {
+            string llty = cg_lltype(g, d.ret_type);
+            cg_add_global(g, d.name, cg_cat("@", d.name), llty, d.ret_type);
+            String_append(&g.globals, "@"); String_append(&g.globals, d.name);
+            String_append(&g.globals, " = global "); String_append(&g.globals, llty);
+            String_append(&g.globals, " "); String_append(&g.globals, cg_global_init(g, d.init, llty));
+            String_append(&g.globals, "\n");
         }
         si = si + 1;
     }

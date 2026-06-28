@@ -1,0 +1,14 @@
+// Global generic container initialized at runtime — the compiler's own `g_imported`
+// pattern: `List<int>` global (zeroinitializer) + List_init/push/get.
+import <mem>;
+import <list>;
+
+List<int> g_xs;
+
+void setup() {
+    List_init<int>(&g_xs, 4);
+    List_push<int>(&g_xs, 19);
+    List_push<int>(&g_xs, 23);
+}
+
+int main() { setup(); return List_get<int>(&g_xs, 0) + List_get<int>(&g_xs, 1); }
