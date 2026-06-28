@@ -631,6 +631,7 @@ CgVal cg_lval(Codegen* g, *ExprNode e);
 string cg_etype(Codegen* g, *ExprNode e);
 string cg_ensure_struct_inst(Codegen* g, string spelling);   // monomorphize a generic struct
 CgVal cg_build_variant(Codegen* g, CgVariant var, *ExprNode call);   // construct an ADT value
+CgVal cg_emit_atomic(Codegen* g, string nm, *ExprNode e);            // atomic intrinsic
 void cg_collect_idents_e(*ExprNode e, List<string>* out);
 void cg_collect_idents_s(*StmtNode s, List<string>* out);
 string cg_ensure_fn_inst(Codegen* g, string spelling);       // monomorphize a generic function
@@ -1243,6 +1244,10 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
     }
 
     if (e.kind == EK_CALL) {
+        // Atomic intrinsics → LLVM atomic instructions (cell is *int, values i32).
+        if (e.a != null && e.a.kind == EK_IDENT && cg_is_atomic(e.a.sval) == 1) {
+            return cg_emit_atomic(g, e.a.sval, e);
+        }
         // An ADT variant constructor `Circle(4)` parses as a call with a bare-ident callee.
         if (e.a != null && e.a.kind == EK_IDENT) {
             CgVariant var = cg_find_variant(g, e.a.sval);
@@ -1461,6 +1466,41 @@ CgVal cg_build_variant(Codegen* g, CgVariant var, *ExprNode call) {
     string r = cg_tmp(g);
     cg_emit(g, "  "); cg_emit(g, r); cg_emit(g, " = load "); cg_emit(g, llty); cg_emit(g, ", ptr "); cg_emit(g, slot); cg_emit(g, "\n");
     v.op = r; v.ty = llty; v.ety = var.ename; return v;
+}
+
+int cg_is_atomic(string nm) {
+    return cg_streq(nm, "atomic_load") == 1 || cg_streq(nm, "atomic_store") == 1
+        || cg_streq(nm, "atomic_swap") == 1 || cg_streq(nm, "atomic_cas") == 1;
+}
+
+// Lower an atomic intrinsic to the matching LLVM atomic instruction. The cell is a
+// `*int` (i32 storage); orderings mirror the C++ (acquire/release/acq_rel).
+CgVal cg_emit_atomic(Codegen* g, string nm, *ExprNode e) {
+    let v: CgVal; v.ety = "";
+    string cell = cg_expr(g, List_get<*ExprNode>(&e.kids, 0)).op;
+    if (cg_streq(nm, "atomic_load") == 1) {
+        string t = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = load atomic i32, ptr "); cg_emit(g, cell); cg_emit(g, " acquire, align 4\n");
+        v.op = t; v.ty = "i32"; return v;
+    }
+    string a1 = cg_coerce(g, cg_expr(g, List_get<*ExprNode>(&e.kids, 1)), "i32");
+    if (cg_streq(nm, "atomic_store") == 1) {
+        cg_emit(g, "  store atomic i32 "); cg_emit(g, a1); cg_emit(g, ", ptr "); cg_emit(g, cell); cg_emit(g, " release, align 4\n");
+        v.op = ""; v.ty = "void"; return v;
+    }
+    if (cg_streq(nm, "atomic_swap") == 1) {
+        string t = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = atomicrmw xchg ptr "); cg_emit(g, cell); cg_emit(g, ", i32 "); cg_emit(g, a1); cg_emit(g, " acq_rel, align 4\n");
+        v.op = t; v.ty = "i32"; return v;
+    }
+    // atomic_cas(cell, expected, desired) → bool (did the swap happen)
+    string des = cg_coerce(g, cg_expr(g, List_get<*ExprNode>(&e.kids, 2)), "i32");
+    string p = cg_tmp(g);
+    cg_emit(g, "  "); cg_emit(g, p); cg_emit(g, " = cmpxchg ptr "); cg_emit(g, cell);
+    cg_emit(g, ", i32 "); cg_emit(g, a1); cg_emit(g, ", i32 "); cg_emit(g, des); cg_emit(g, " acq_rel acquire, align 4\n");
+    string t = cg_tmp(g);
+    cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = extractvalue { i32, i1 } "); cg_emit(g, p); cg_emit(g, ", 1\n");
+    v.op = t; v.ty = "i1"; return v;
 }
 
 void cg_struct_init(Codegen* g, string slot, string sname, *ExprNode e) {
