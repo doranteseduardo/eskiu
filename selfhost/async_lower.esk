@@ -173,6 +173,7 @@ int al_stmt_has_await_deep(*StmtNode s);
 void al_desugar_items(*AlCtx c, List<*StmtNode>* inp, List<*StmtNode>* out);
 *ExprNode al_call_on(*ExprNode callee, List<*ExprNode>* args);
 *ExprNode al_waker_noop();
+*ExprNode al_ondrop();
 
 int al_newst(*AlCtx c) {
     List<*StmtNode> s; List_init<*StmtNode>(&s, 8);
@@ -555,6 +556,7 @@ void al_transform(*Program prog, *DeclNode d, List<*DeclNode>* out) {
     List_push<*StmtNode>(&ctor, al_assign(al_fr("awaiting"), mk_cast("*FutureHdr", al_int(0))));
     List_push<*StmtNode>(&ctor, al_assign(al_member(al_fr("ret"), "state"), al_int(0)));
     List_push<*StmtNode>(&ctor, al_assign(al_member(al_fr("ret"), "waker"), al_waker_noop()));
+    List_push<*StmtNode>(&ctor, al_assign(al_member(al_fr("ret"), "on_drop"), al_ondrop()));
     pi = 0;
     while (pi < List_len<Param>(&d.params)) {
         Param p = List_get<Param>(&d.params, pi);
@@ -586,6 +588,20 @@ void al_transform(*Program prog, *DeclNode d, List<*DeclNode>* out) {
     List<*StmtNode> empty; List_init<*StmtNode>(&empty, 1);
     *ExprNode e = alloc<ExprNode>(1);
     e.kind = EK_LAMBDA; e.sval = "void()"; e.stmt = al_block(&empty);
+    return e;
+}
+
+// The cancellation closure: `void() { if (fr.awaiting != (*FutureHdr)0) future_drop(fr.awaiting); }`
+// (captures fr). Run by future_drop when a suspended async fn is cancelled — it cascade-drops
+// the future being awaited; future_drop then frees the frame (== &fr.ret) and this env.
+*ExprNode al_ondrop() {
+    List<*ExprNode> da; List_init<*ExprNode>(&da, 1); List_push<*ExprNode>(&da, al_fr("awaiting"));
+    List<*StmtNode> drop; List_init<*StmtNode>(&drop, 1);
+    List_push<*StmtNode>(&drop, al_exprstmt(al_call("future_drop", &da)));
+    List<*StmtNode> body; List_init<*StmtNode>(&body, 1);
+    List_push<*StmtNode>(&body, al_if(mk_bin("!=", al_fr("awaiting"), mk_cast("*FutureHdr", al_int(0))), al_block(&drop), null));
+    *ExprNode e = alloc<ExprNode>(1);
+    e.kind = EK_LAMBDA; e.sval = "void()"; e.stmt = al_block(&body);
     return e;
 }
 
