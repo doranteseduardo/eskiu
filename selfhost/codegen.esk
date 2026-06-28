@@ -813,6 +813,30 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
             }
             return rhs;
         }
+        if (cg_streq(e.sval, "&&") == 1 || cg_streq(e.sval, "||") == 1) {
+            // Short-circuit via a result slot: store the LHS, branch over the RHS when
+            // the result is already decided (&& false / || true), else evaluate the RHS.
+            int is_and = cg_streq(e.sval, "&&");
+            string res = cg_tmp(g);
+            cg_emit(g, "  "); cg_emit(g, res); cg_emit(g, " = alloca i1\n");
+            CgVal a = cg_cond(g, e.a);
+            cg_emit(g, "  store i1 "); cg_emit(g, a.op); cg_emit(g, ", ptr "); cg_emit(g, res); cg_emit(g, "\n");
+            string lrhs = cg_lbl(g);
+            string lend = cg_lbl(g);
+            cg_emit(g, "  br i1 "); cg_emit(g, a.op);
+            if (is_and == 1) { cg_emit(g, ", label %"); cg_emit(g, lrhs); cg_emit(g, ", label %"); cg_emit(g, lend); }
+            else { cg_emit(g, ", label %"); cg_emit(g, lend); cg_emit(g, ", label %"); cg_emit(g, lrhs); }
+            cg_emit(g, "\n");
+            g.terminated = 1;
+            cg_label(g, lrhs);
+            CgVal b = cg_cond(g, e.b);
+            cg_emit(g, "  store i1 "); cg_emit(g, b.op); cg_emit(g, ", ptr "); cg_emit(g, res); cg_emit(g, "\n");
+            cg_br(g, lend);
+            cg_label(g, lend);
+            string t = cg_tmp(g);
+            cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = load i1, ptr "); cg_emit(g, res); cg_emit(g, "\n");
+            v.op = t; v.ty = "i1"; return v;
+        }
         CgVal l = cg_expr(g, e.a);
         CgVal r = cg_expr(g, e.b);
         string pred = cg_cmp_pred(e.sval);
