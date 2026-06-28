@@ -632,6 +632,7 @@ string cg_etype(Codegen* g, *ExprNode e);
 string cg_ensure_struct_inst(Codegen* g, string spelling);   // monomorphize a generic struct
 CgVal cg_build_variant(Codegen* g, CgVariant var, *ExprNode call);   // construct an ADT value
 CgVal cg_emit_atomic(Codegen* g, string nm, *ExprNode e);            // atomic intrinsic
+CgVal cg_indirect_call(Codegen* g, string cval, string fnty, *ExprNode e);  // call a closure value
 void cg_collect_idents_e(*ExprNode e, List<string>* out);
 void cg_collect_idents_s(*StmtNode s, List<string>* out);
 string cg_ensure_fn_inst(Codegen* g, string spelling);       // monomorphize a generic function
@@ -1260,26 +1261,13 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
             if (lf.slot[0] != 0 && cg_is_fnty(lf.ety) == 1) {
                 string cval = cg_tmp(g);
                 cg_emit(g, "  "); cg_emit(g, cval); cg_emit(g, " = load %closure, ptr "); cg_emit(g, lf.slot); cg_emit(g, "\n");
-                string fp = cg_tmp(g);
-                cg_emit(g, "  "); cg_emit(g, fp); cg_emit(g, " = extractvalue %closure "); cg_emit(g, cval); cg_emit(g, ", 0\n");
-                string ep = cg_tmp(g);
-                cg_emit(g, "  "); cg_emit(g, ep); cg_emit(g, " = extractvalue %closure "); cg_emit(g, cval); cg_emit(g, ", 1\n");
-                List<string> fpt; List_init<string>(&fpt, 4); cg_paren_list(lf.ety, &fpt);
-                string rt = cg_lltype(g, cg_fnty_ret(lf.ety));
-                string cargs = cg_cat("ptr ", ep);        // env is the first argument
-                int i = 0; int nn = List_len<*ExprNode>(&e.kids);
-                while (i < nn) {
-                    CgVal a = cg_expr(g, List_get<*ExprNode>(&e.kids, i));
-                    string aop = a.op; string aty = a.ty;
-                    if (i < List_len<string>(&fpt)) { string pty = cg_lltype(g, List_get<string>(&fpt, i)); aop = cg_coerce(g, a, pty); aty = pty; }
-                    cargs = cg_cat(cargs, cg_cat(", ", cg_cat(aty, cg_cat(" ", aop))));
-                    i = i + 1;
-                }
-                int isvoidc = cg_streq(rt, "void");
-                string t = cg_emit_callish(g, rt, fp, cargs, isvoidc);
-                if (isvoidc == 1) { v.op = ""; v.ty = "void"; return v; }
-                v.op = t; v.ty = rt; v.ety = cg_fnty_ret(lf.ety); return v;
+                return cg_indirect_call(g, cval, lf.ety, e);
             }
+        }
+        // A call through a closure-typed FIELD (e.g. `fr.ret.waker()`): not a method.
+        if (e.a != null && e.a.kind == EK_MEMBER && cg_is_fnty(cg_etype(g, e.a)) == 1) {
+            CgVal cv = cg_expr(g, e.a);                 // load the %closure field value
+            return cg_indirect_call(g, cv.op, cg_etype(g, e.a), e);
         }
         // Resolve the callee. A bare ident is a free function; a MemberExpr is a method
         // call `recv.m(...)` → `Struct_m(self, ...)` with `self` a pointer to the receiver.
@@ -1501,6 +1489,31 @@ CgVal cg_emit_atomic(Codegen* g, string nm, *ExprNode e) {
     string t = cg_tmp(g);
     cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = extractvalue { i32, i1 } "); cg_emit(g, p); cg_emit(g, ", 1\n");
     v.op = t; v.ty = "i1"; return v;
+}
+
+// Call a closure value `cval` (a loaded %closure) of fn-type `fnty`: extract { fn, env }
+// and call fn(env, args...). Shared by ident-of-fn-type and closure-typed-field callees.
+CgVal cg_indirect_call(Codegen* g, string cval, string fnty, *ExprNode e) {
+    let v: CgVal; v.ety = "";
+    string fp = cg_tmp(g);
+    cg_emit(g, "  "); cg_emit(g, fp); cg_emit(g, " = extractvalue %closure "); cg_emit(g, cval); cg_emit(g, ", 0\n");
+    string ep = cg_tmp(g);
+    cg_emit(g, "  "); cg_emit(g, ep); cg_emit(g, " = extractvalue %closure "); cg_emit(g, cval); cg_emit(g, ", 1\n");
+    List<string> fpt; List_init<string>(&fpt, 4); cg_paren_list(fnty, &fpt);
+    string rt = cg_lltype(g, cg_fnty_ret(fnty));
+    string cargs = cg_cat("ptr ", ep);                  // env is the first argument
+    int i = 0; int nn = List_len<*ExprNode>(&e.kids);
+    while (i < nn) {
+        CgVal a = cg_expr(g, List_get<*ExprNode>(&e.kids, i));
+        string aop = a.op; string aty = a.ty;
+        if (i < List_len<string>(&fpt)) { string pty = cg_lltype(g, List_get<string>(&fpt, i)); aop = cg_coerce(g, a, pty); aty = pty; }
+        cargs = cg_cat(cargs, cg_cat(", ", cg_cat(aty, cg_cat(" ", aop))));
+        i = i + 1;
+    }
+    int isvoidc = cg_streq(rt, "void");
+    string t = cg_emit_callish(g, rt, fp, cargs, isvoidc);
+    if (isvoidc == 1) { v.op = ""; v.ty = "void"; return v; }
+    v.op = t; v.ty = rt; v.ety = cg_fnty_ret(fnty); return v;
 }
 
 void cg_struct_init(Codegen* g, string slot, string sname, *ExprNode e) {

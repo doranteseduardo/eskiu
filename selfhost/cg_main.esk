@@ -7,6 +7,7 @@ import <io>;
 import <fs>;
 import "preprocessor.esk";
 import "parser.esk";
+import "async_lower.esk";
 import "codegen.esk";
 
 int main(int argc, string* argv) {
@@ -32,6 +33,8 @@ int main(int argc, string* argv) {
     p_init(&p, src, plen);
     p.basedir = str_dir(argv[1]);
     *Program prog = parse_program(&p);
+
+    async_lower(prog);                 // lower async fns → frame + resume + ctor
 
     let g: Codegen;
     cg_init(&g);
