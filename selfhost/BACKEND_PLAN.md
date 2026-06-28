@@ -294,7 +294,24 @@ cg_selfhost 50/50, bootstrap fixpoint green. **atomics (DONE)** — `atomic_load
 returns the `{i32,i1}` success bit. `atomics.esk` matches; cg_parity 38/38, cg_selfhost
 51/51.
 
-**REMAINING: async/await — THE capstone (a dedicated multi-step effort).** It is NOT a
+**async/await — LINEAR CASE DONE (2026-06-29).** `selfhost/async_lower.esk` (port of
+async_transform.cpp), run in cg_main/esk_main between parse and codegen: each `async fn`
+→ frame struct (`ret` first so `&fr.ret == fr`) + `__name_resume` (`while(1){if st==N…}`
+state machine) + ctor returning `Future<T>*`; each await splits a state (eval future →
+`future_poll<Ti>` → suspend/return → resume reads `fr.__awI.value` + `free_future`);
+completion = `fr.ret.value=v; if(atomic_swap(&fr.ret.state,2)==1) fr.ret.waker();`. The
+awaited type Ti is resolved from the callee's return type (`produce()`→`Future<int>*`→int,
+`al_inner_of_future`). Locals→`fr.<name>` via `al_rewrite`. Needed a codegen fix:
+`recv.field()` where field is a closure-typed member is an INDIRECT call (`cg_indirect_call`
+factored out), not a method. Linearity guard (`al_is_linear`) leaves control-flow-around-
+await async fns untransformed (a clean boundary, not a miscompile). `async_basic` +
+multi-await/param run to parity; cg_parity 39/39, cg_selfhost 52/52, fixpoint green.
+**NEXT (async, the harder half): control flow around await** — lower if/while/for/switch
+containing an await into the state graph with break/continue retargeting (`brkTargets`/
+`contTargets`), + the desugar pass (await not already in a `let` → `let __awN = await E`).
+Then the remaining async tests (async_break/elseif/cancel/…). After that:
+
+**REMAINING (other): the capstone is largely covered.** It is NOT a
 codegen slice but an AST→AST lowering pass (`sema/async_transform.cpp`, 634 lines), run
 between parse and codegen. Design (to port into a new `selfhost/async_lower.esk`, invoked
 in cg_main/esk_main after `parse_program`): for each `async fn name() -> T`, synthesize
