@@ -19,7 +19,8 @@ if [ -z "$BIN" ]; then
     elif command -v eskiuc >/dev/null 2>&1; then BIN=eskiuc
     else echo "cg_selfhost: cannot find eskiuc (set ESKIUC or build it)"; exit 2; fi
 fi
-command -v clang >/dev/null 2>&1 || { echo "cg_selfhost: clang not found"; exit 2; }
+CLANG="${CLANG:-clang}"   # CI installs clang as clang-22; override via $CLANG
+command -v "$CLANG" >/dev/null 2>&1 || { echo "cg_selfhost: $CLANG not found (set CLANG)"; exit 2; }
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
@@ -31,7 +32,7 @@ fi
 if ! "$WORK/cg_main" selfhost/cg_main.esk > "$WORK/cg_main.ll" 2>"$WORK/e.log"; then
     echo "cg_selfhost: cg_main could not emit IR for itself"; cat "$WORK/e.log"; exit 2
 fi
-if ! clang "$WORK/cg_main.ll" -o "$WORK/cg_main.self" 2>"$WORK/c.log"; then
+if ! "$CLANG" "$WORK/cg_main.ll" -o "$WORK/cg_main.self" 2>"$WORK/c.log"; then
     echo "cg_selfhost: clang rejected self-emitted cg_main.ll"; sed 's/^/      /' "$WORK/c.log" | head; exit 2
 fi
 
@@ -47,7 +48,7 @@ for f in $INPUTS; do
     base="$(basename "$f")"
     # 1. emit-validity (C++-built codegen → clang -c)
     if ! "$WORK/cg_main" "$f" > "$WORK/a.ll" 2>/dev/null; then echo "FAIL  $base (emit)"; fail=1; continue; fi
-    if ! clang -c "$WORK/a.ll" -o "$WORK/a.o" 2>"$WORK/cc.log"; then
+    if ! "$CLANG" -c "$WORK/a.ll" -o "$WORK/a.o" 2>"$WORK/cc.log"; then
         echo "FAIL  $base (clang rejected IR)"; sed 's/^/      /' "$WORK/cc.log" | head -3; fail=1; continue
     fi
     # 2. bootstrap fixpoint (self-built codegen emits identical IR)
