@@ -76,6 +76,20 @@ import "parser.esk";   // mk_ident/mk_lit/mk_bin/mk_cast, str_concat/str_eq/int_
     s.kind = SK_FOR; s.s1 = init; s.expr = cond; s.expr2 = step; s.s2 = body;
     return s;
 }
+*StmtNode al_case(*ExprNode value, List<*StmtNode>* body) {
+    *StmtNode s = alloc<StmtNode>(1);
+    s.kind = SK_CASE; s.expr = value;
+    List_init<*StmtNode>(&s.items, 4);
+    int i = 0; while (i < List_len<*StmtNode>(body)) { List_push<*StmtNode>(&s.items, List_get<*StmtNode>(body, i)); i = i + 1; }
+    return s;
+}
+*StmtNode al_switch(*ExprNode subject, List<*StmtNode>* cases) {
+    *StmtNode s = alloc<StmtNode>(1);
+    s.kind = SK_SWITCH; s.expr = subject;
+    List_init<*StmtNode>(&s.items, 4);
+    int i = 0; while (i < List_len<*StmtNode>(cases)) { List_push<*StmtNode>(&s.items, List_get<*StmtNode>(cases, i)); i = i + 1; }
+    return s;
+}
 
 // The waker closure `void() { fr.st = <state>; __name_resume(fr); }` (captures fr).
 *ExprNode al_waker(string resumeN, int state) {
@@ -248,6 +262,19 @@ int al_loop_escapes(*StmtNode s) {
         al_rewrite(s.expr, &c.vars); al_rewrite(s.expr2, &c.vars);
         return al_for(in2, s.expr, s.expr2, al_rewrite_plain(c, s.s2));
     }
+    if (s.kind == SK_SWITCH) {
+        al_rewrite(s.expr, &c.vars);
+        List<*StmtNode> ncases; List_init<*StmtNode>(&ncases, 4);
+        int k = 0;
+        while (k < List_len<*StmtNode>(&s.items)) {
+            *StmtNode cs = List_get<*StmtNode>(&s.items, k); k = k + 1;
+            al_rewrite(cs.expr, &c.vars);
+            List<*StmtNode> nb; List_init<*StmtNode>(&nb, 4);
+            int j = 0; while (j < List_len<*StmtNode>(&cs.items)) { List_push<*StmtNode>(&nb, al_rewrite_plain(c, List_get<*StmtNode>(&cs.items, j))); j = j + 1; }
+            List_push<*StmtNode>(&ncases, al_case(cs.expr, &nb));
+        }
+        return al_switch(s.expr, &ncases);
+    }
     return s;     // break/continue/etc.
 }
 
@@ -353,6 +380,43 @@ int al_lower_stmt(*AlCtx c, *StmtNode s, int cur) {
         if (be != 0 - 1) { al_goto(c, be, step); }
         return after;
     }
+    if (s.kind == SK_SWITCH) {
+        // Dispatch on the subject in `cur` (if subj==Vk → st=entry[k], else default), then
+        // each case is a state with C-style fall-through; break → join.
+        al_rewrite(s.expr, &c.vars);
+        int nc = List_len<*StmtNode>(&s.items);
+        List<int> entry; List_init<int>(&entry, nc);
+        int k = 0; while (k < nc) { List_push<int>(&entry, al_newst(c)); k = k + 1; }
+        int join = al_newst(c);
+        int dflt = join;
+        k = 0; while (k < nc) { if (List_get<*StmtNode>(&s.items, k).expr == null) { dflt = List_get<int>(&entry, k); } k = k + 1; }
+        // Build the dispatch chain bottom-up: ...else { st = dflt }
+        *StmtNode chain = al_assign(al_fr("st"), al_int(dflt));
+        k = nc - 1;
+        while (k >= 0) {
+            *StmtNode cs = List_get<*StmtNode>(&s.items, k);
+            if (cs.expr != null) {
+                al_rewrite(cs.expr, &c.vars);
+                List<*StmtNode> tb; List_init<*StmtNode>(&tb, 1); List_push<*StmtNode>(&tb, al_assign(al_fr("st"), al_int(List_get<int>(&entry, k))));
+                List<*StmtNode> eb; List_init<*StmtNode>(&eb, 1); List_push<*StmtNode>(&eb, chain);
+                chain = al_if(mk_bin("==", s.expr, cs.expr), al_block(&tb), al_block(&eb));
+            }
+            k = k - 1;
+        }
+        al_push(c, cur, chain);
+        List_push<int>(&c.brk, join);
+        k = 0;
+        while (k < nc) {
+            *StmtNode cs = List_get<*StmtNode>(&s.items, k);
+            int e = al_lower_seq(c, &cs.items, List_get<int>(&entry, k));
+            if (e != 0 - 1) {                            // fall through to the next case (or join)
+                if (k + 1 < nc) { al_goto(c, e, List_get<int>(&entry, k + 1)); } else { al_goto(c, e, join); }
+            }
+            k = k + 1;
+        }
+        List_remove<int>(&c.brk, List_len<int>(&c.brk) - 1);
+        return join;
+    }
     if (s.kind == SK_BLOCK) { return al_lower_seq(c, &s.items, cur); }
     return cur;     // unsupported await container — should be filtered by al_can_lower
 }
@@ -397,6 +461,17 @@ void al_desugar_items(*AlCtx c, List<*StmtNode>* inp, List<*StmtNode>* out) {
     }
     if (s.kind == SK_WHILE) { return al_while(s.expr, al_desugar_stmt(c, s.s1)); }
     if (s.kind == SK_FOR) { return al_for(s.s1, s.expr, s.expr2, al_desugar_stmt(c, s.s2)); }
+    if (s.kind == SK_SWITCH) {
+        List<*StmtNode> ncases; List_init<*StmtNode>(&ncases, 4);
+        int k = 0;
+        while (k < List_len<*StmtNode>(&s.items)) {
+            *StmtNode cs = List_get<*StmtNode>(&s.items, k); k = k + 1;
+            List<*StmtNode> nb; List_init<*StmtNode>(&nb, 4);
+            al_desugar_items(c, &cs.items, &nb);
+            List_push<*StmtNode>(&ncases, al_case(cs.expr, &nb));
+        }
+        return al_switch(s.expr, &ncases);
+    }
     return s;
 }
 
@@ -412,7 +487,7 @@ void al_scan_locals(*AlCtx c, *StmtNode s) {
     }
     if (s.kind == SK_IF || s.kind == SK_WHILE || s.kind == SK_FOR) { al_scan_locals(c, s.s1); }
     if (s.kind == SK_IF || s.kind == SK_FOR) { al_scan_locals(c, s.s2); }
-    if (s.kind == SK_BLOCK) {
+    if (s.kind == SK_BLOCK || s.kind == SK_SWITCH || s.kind == SK_CASE) {
         int i = 0; while (i < List_len<*StmtNode>(&s.items)) { al_scan_locals(c, List_get<*StmtNode>(&s.items, i)); i = i + 1; }
     }
 }
@@ -570,7 +645,7 @@ int al_can_lower(*StmtNode s) {
     if (s.kind == SK_IF) { return al_can_lower(s.s1) == 1 && al_can_lower(s.s2) == 1; }
     if (s.kind == SK_WHILE) { return al_can_lower(s.s1) == 1; }
     if (s.kind == SK_FOR) { return al_can_lower(s.s1) == 1 && al_can_lower(s.s2) == 1; }
-    if (s.kind == SK_BLOCK) {
+    if (s.kind == SK_BLOCK || s.kind == SK_SWITCH || s.kind == SK_CASE) {
         int i = 0; while (i < List_len<*StmtNode>(&s.items)) { if (al_can_lower(List_get<*StmtNode>(&s.items, i)) == 0) { return 0; } i = i + 1; }
         return 1;
     }
