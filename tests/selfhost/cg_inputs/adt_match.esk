@@ -1,0 +1,16 @@
+// ADT enums + match: tagged-union layout { i32 tag, [N x i64] payload }, variant
+// construction (tag + payload write), and match (tag switch + payload binding).
+enum Shape { Circle(int), Rect(int, int), Empty }
+
+int area(Shape s) {
+    match (s) {
+        Circle(r) -> { return r * r * 3; }
+        Rect(w, h) -> { return w * h; }
+        Empty -> { return 7; }
+    }
+    return -1;
+}
+
+int main() {
+    return area(Rect(5, 6)) + area(Empty) + area(Circle(2));   // 30 + 7 + 12 = 49
+}
