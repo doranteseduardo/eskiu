@@ -1359,6 +1359,19 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
         v.ty = dll; v.ety = dstety; return v;
     }
 
+    if (e.kind == EK_STRUCTINIT) {
+        // A struct literal `P{ … }` used as an rvalue (e.g. `x = P{…}`): materialize into a
+        // temp, fill its fields, and load the struct value. (Var-decls fill in place.)
+        string sname = e.sval;
+        string llty = cg_lltype(g, sname);
+        string slot = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, slot); cg_emit(g, " = alloca "); cg_emit(g, llty); cg_emit(g, "\n");
+        cg_struct_init(g, slot, sname, e);
+        string r = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, r); cg_emit(g, " = load "); cg_emit(g, llty); cg_emit(g, ", ptr "); cg_emit(g, slot); cg_emit(g, "\n");
+        v.op = r; v.ty = llty; v.ety = sname; return v;
+    }
+
     if (e.kind == EK_LAMBDA) {
         // Free-variable analysis: capture the enclosing locals the body references (not its
         // own params). The env is stack-allocated here (valid for non-escaping closures —
