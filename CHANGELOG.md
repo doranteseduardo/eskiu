@@ -30,7 +30,12 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   layout `{ i32 tag, [N x i64] payload }`, variant construction, and `match` lowered to a
   tag switch with payload bindings). Each is behaviorally parity-tested (`cg_parity.sh`).
   Return values are now coerced to the function's return type (e.g. a `bool` result
-  zero-extended to `int`). Still deferred: closures, exceptions, async, atomics.
+  zero-extended to `int`). It also lowers **closures/lambdas** (free-variable capture into
+  a stack env + a fat pointer `{ fn, env }`, higher-order functions, indirect calls) and
+  **exceptions** (the Itanium ABI — `invoke`/`landingpad`, `__cxa_allocate_exception`/
+  `__cxa_throw`/`__cxa_begin_catch`, type-name `strcmp` catch matching, `finally`; programs
+  with `throw`/`try` link `-lc++abi`). Still deferred: async/await, atomics. The self-hosted
+  compiler reproduces its own IR throughout (bootstrap fixpoint stays green).
 - **Unified self-hosted compiler driver + a three-stage bootstrap.** `selfhost/esk_main.esk`
   runs the full pipeline in Eskiu — preprocess → parse → **type-check** → code-gen —
   rejecting ill-typed input without emitting IR. The new gate `tests/selfhost/cg_bootstrap.sh`
