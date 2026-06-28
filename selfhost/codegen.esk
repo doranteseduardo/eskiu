@@ -581,21 +581,34 @@ string cg_emit_callish(Codegen* g, string callty, string target, string args, in
 // variable analysis — the captures are those that are enclosing locals).
 void cg_collect_idents_e(*ExprNode e, List<string>* out) {
     if (e == null) { return; }
-    if (e.kind == EK_IDENT) { List_push<string>(out, e.sval); }
-    cg_collect_idents_e(e.a, out);
-    cg_collect_idents_e(e.b, out);
-    int i = 0; int n = List_len<*ExprNode>(&e.kids);
-    while (i < n) { cg_collect_idents_e(List_get<*ExprNode>(&e.kids, i), out); i = i + 1; }
-    cg_collect_idents_s(e.stmt, out);
+    if (e.kind == EK_IDENT) { List_push<string>(out, e.sval); return; }
+    // Recurse only into the sub-expr fields each kind populates (unset fields are garbage).
+    if (e.kind == EK_BINARY || e.kind == EK_INDEX) { cg_collect_idents_e(e.a, out); cg_collect_idents_e(e.b, out); }
+    else if (e.kind == EK_UNARY || e.kind == EK_MEMBER || e.kind == EK_CAST
+             || e.kind == EK_QUESTION || e.kind == EK_AWAIT || e.kind == EK_CALL) { cg_collect_idents_e(e.a, out); }
+    if (e.kind == EK_CALL || e.kind == EK_TEMPLATECALL || e.kind == EK_STRUCTINIT) {
+        int i = 0; int n = List_len<*ExprNode>(&e.kids);
+        while (i < n) { cg_collect_idents_e(List_get<*ExprNode>(&e.kids, i), out); i = i + 1; }
+    }
+    if (e.kind == EK_LAMBDA) { cg_collect_idents_s(e.stmt, out); }
 }
 void cg_collect_idents_s(*StmtNode s, List<string>* out) {
     if (s == null) { return; }
-    cg_collect_idents_e(s.expr, out);
-    cg_collect_idents_e(s.expr2, out);
-    cg_collect_idents_s(s.s1, out);
-    cg_collect_idents_s(s.s2, out);
-    int i = 0; int n = List_len<*StmtNode>(&s.items);
-    while (i < n) { cg_collect_idents_s(List_get<*StmtNode>(&s.items, i), out); i = i + 1; }
+    if (s.kind == SK_RETURN || s.kind == SK_EXPR || s.kind == SK_THROW || s.kind == SK_VARDECL
+        || s.kind == SK_IF || s.kind == SK_WHILE || s.kind == SK_FOR || s.kind == SK_FORIN
+        || s.kind == SK_SWITCH || s.kind == SK_CASE || s.kind == SK_MATCH) {
+        cg_collect_idents_e(s.expr, out);
+    }
+    if (s.kind == SK_FOR) { cg_collect_idents_e(s.expr2, out); }
+    if (s.kind == SK_IF || s.kind == SK_WHILE || s.kind == SK_FOR || s.kind == SK_FORIN
+        || s.kind == SK_ARM || s.kind == SK_CATCH) { cg_collect_idents_s(s.s1, out); }
+    if (s.kind == SK_IF || s.kind == SK_FOR) { cg_collect_idents_s(s.s2, out); }
+    if (s.kind == SK_BLOCK || s.kind == SK_SWITCH || s.kind == SK_CASE || s.kind == SK_MATCH
+        || s.kind == SK_TRY) {
+        int i = 0; int n = List_len<*StmtNode>(&s.items);
+        while (i < n) { cg_collect_idents_s(List_get<*StmtNode>(&s.items, i), out); i = i + 1; }
+    }
+    if (s.kind == SK_TRY) { cg_collect_idents_s(s.s1, out); cg_collect_idents_s(s.s2, out); }
 }
 
 // The LLVM literal struct type holding a closure's captured variables, e.g. "{ i32, double }".
@@ -1502,14 +1515,23 @@ string cg_throw_typename(Codegen* g, *ExprNode e) {
 }
 
 // Does a statement subtree contain a `try`? (→ the function needs an EH personality.)
-// Does NOT descend into expressions: a lambda body is a separate function.
+// Kind-aware: only recurses into the nested-statement fields each kind populates (alloc
+// doesn't zero, so the other fields hold garbage). Doesn't descend into expressions.
 int cg_has_try_s(*StmtNode s) {
     if (s == null) { return 0; }
     if (s.kind == SK_TRY) { return 1; }
-    if (cg_has_try_s(s.s1) == 1) { return 1; }
-    if (cg_has_try_s(s.s2) == 1) { return 1; }
-    int i = 0; int n = List_len<*StmtNode>(&s.items);
-    while (i < n) { if (cg_has_try_s(List_get<*StmtNode>(&s.items, i)) == 1) { return 1; } i = i + 1; }
+    if (s.kind == SK_BLOCK || s.kind == SK_SWITCH || s.kind == SK_CASE
+        || s.kind == SK_MATCH) {
+        int i = 0; int n = List_len<*StmtNode>(&s.items);
+        while (i < n) { if (cg_has_try_s(List_get<*StmtNode>(&s.items, i)) == 1) { return 1; } i = i + 1; }
+    }
+    if (s.kind == SK_IF || s.kind == SK_WHILE || s.kind == SK_FOR || s.kind == SK_FORIN
+        || s.kind == SK_ARM || s.kind == SK_CATCH) {
+        if (cg_has_try_s(s.s1) == 1) { return 1; }
+    }
+    if (s.kind == SK_IF || s.kind == SK_FOR) {
+        if (cg_has_try_s(s.s2) == 1) { return 1; }
+    }
     return 0;
 }
 

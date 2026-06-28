@@ -41,7 +41,7 @@ for f in "${files[@]}"; do
 
     # Self-hosted: emit .ll, compile with clang, run.
     if ! "$CGBIN" "$f" > "$WORK/$base.ll" 2>"$WORK/$base.emit.err"; then
-        echo "FAIL  $base  (self-host codegen errored)"; fail=1; continue
+        echo "FAIL  $base  (self-host codegen errored)"; sed 's/^/      /' "$WORK/$base.emit.err" | head; fail=1; continue
     fi
     if ! "$CLANG" "$WORK/$base.ll" -lc++abi -o "$WORK/$base.self" 2>"$WORK/$base.clang.err"; then
         echo "FAIL  $base  (clang rejected emitted .ll)"; sed 's/^/      /' "$WORK/$base.clang.err" | head; fail=1; continue
