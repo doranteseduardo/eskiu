@@ -149,11 +149,14 @@ struct AlCtx {
     List<int> brk;                 // break-target states (innermost last)
     List<int> cont;                // continue-target states
     int awcount;                   // await counter → __aw0, __aw1, …
+    int tmpn;                      // desugar temp counter → __awt0, …
 }
 int al_lower_seq(*AlCtx c, List<*StmtNode>* items, int entry);
 int al_lower_stmt(*AlCtx c, *StmtNode s, int cur);
 int al_stmt_has_await_deep(*StmtNode s);
 *StmtNode al_rewrite_plain(*AlCtx c, *StmtNode s);
+*StmtNode al_desugar_stmt(*AlCtx c, *StmtNode s);
+void al_desugar_items(*AlCtx c, List<*StmtNode>* inp, List<*StmtNode>* out);
 *ExprNode al_call_on(*ExprNode callee, List<*ExprNode>* args);
 *ExprNode al_waker_noop();
 
@@ -354,6 +357,49 @@ int al_lower_stmt(*AlCtx c, *StmtNode s, int cur) {
     return cur;     // unsupported await container — should be filtered by al_can_lower
 }
 
+// ── Desugar: make every await the whole initializer of a `let` ────────────────
+//   return await E;  →  let __awtN = await E; return __awtN;
+//   await E;         →  let __awtN = await E;                 (value discarded)
+//   x = await E;     →  let __awtN = await E; x = __awtN;
+// Recurses into if/while/for bodies so awaits in control flow are normalized too.
+void al_desugar_items(*AlCtx c, List<*StmtNode>* inp, List<*StmtNode>* out) {
+    int i = 0;
+    while (i < List_len<*StmtNode>(inp)) {
+        *StmtNode s = List_get<*StmtNode>(inp, i); i = i + 1;
+        if (s.kind == SK_RETURN && s.expr != null && s.expr.kind == EK_AWAIT) {
+            string tn = str_concat("__awt", int_to_str(c.tmpn)); c.tmpn = c.tmpn + 1;
+            string Ti = al_await_type(c.prog, s.expr.a);
+            List_push<*StmtNode>(out, mk_vardecl(tn, Ti, s.expr, 0));
+            List_push<*StmtNode>(out, al_return(mk_ident(tn)));
+        } else if (s.kind == SK_EXPR && s.expr != null && s.expr.kind == EK_AWAIT) {
+            string tn = str_concat("__awt", int_to_str(c.tmpn)); c.tmpn = c.tmpn + 1;
+            List_push<*StmtNode>(out, mk_vardecl(tn, al_await_type(c.prog, s.expr.a), s.expr, 0));
+        } else if (s.kind == SK_EXPR && s.expr != null && s.expr.kind == EK_BINARY
+                   && str_eq(s.expr.sval, "=") == 1 && s.expr.b != null && s.expr.b.kind == EK_AWAIT) {
+            string tn = str_concat("__awt", int_to_str(c.tmpn)); c.tmpn = c.tmpn + 1;
+            List_push<*StmtNode>(out, mk_vardecl(tn, al_await_type(c.prog, s.expr.b.a), s.expr.b, 0));
+            List_push<*StmtNode>(out, al_exprstmt(mk_bin("=", s.expr.a, mk_ident(tn))));
+        } else {
+            List_push<*StmtNode>(out, al_desugar_stmt(c, s));
+        }
+    }
+}
+*StmtNode al_desugar_stmt(*AlCtx c, *StmtNode s) {
+    if (s == null) { return s; }
+    if (s.kind == SK_BLOCK) {
+        List<*StmtNode> out; List_init<*StmtNode>(&out, 8);
+        al_desugar_items(c, &s.items, &out);
+        return al_block(&out);
+    }
+    if (s.kind == SK_IF) {
+        *StmtNode e2 = null; if (s.s2 != null) { e2 = al_desugar_stmt(c, s.s2); }
+        return al_if(s.expr, al_desugar_stmt(c, s.s1), e2);
+    }
+    if (s.kind == SK_WHILE) { return al_while(s.expr, al_desugar_stmt(c, s.s1)); }
+    if (s.kind == SK_FOR) { return al_for(s.s1, s.expr, s.expr2, al_desugar_stmt(c, s.s2)); }
+    return s;
+}
+
 // Recursively register body locals (vardecls anywhere) as frame fields.
 void al_scan_locals(*AlCtx c, *StmtNode s) {
     if (s == null) { return; }
@@ -380,7 +426,7 @@ void al_transform(*Program prog, *DeclNode d, List<*DeclNode>* out) {
     if (str_eq(Tret, "void") == 1) { Tret = "uint8"; }
 
     let c: AlCtx;
-    c.prog = prog; c.resumeN = resumeN; c.awcount = 0;
+    c.prog = prog; c.resumeN = resumeN; c.awcount = 0; c.tmpn = 0;
     List_init<string>(&c.vars, 8);
     List_init<Param>(&c.fields, 8);
     List_init<List<*StmtNode>>(&c.states, 4);
@@ -395,12 +441,14 @@ void al_transform(*Program prog, *DeclNode d, List<*DeclNode>* out) {
         List_push<string>(&c.vars, p.name); List_push<Param>(&c.fields, p);
         pi = pi + 1;
     }
-    // Hoist all body locals (incl. those nested in control flow) to frame fields.
+    // Desugar awaits to let-bindings, then hoist all locals to frame fields.
+    List<*StmtNode> dbody; List_init<*StmtNode>(&dbody, 8);
+    al_desugar_items(&c, &d.body.items, &dbody);
     int bi = 0;
-    while (bi < List_len<*StmtNode>(&d.body.items)) { al_scan_locals(&c, List_get<*StmtNode>(&d.body.items, bi)); bi = bi + 1; }
+    while (bi < List_len<*StmtNode>(&dbody)) { al_scan_locals(&c, List_get<*StmtNode>(&dbody, bi)); bi = bi + 1; }
 
     int entry = al_newst(&c);                  // state 0
-    int exit = al_lower_seq(&c, &d.body.items, entry);
+    int exit = al_lower_seq(&c, &dbody, entry);
     if (exit != 0 - 1) {
         if (str_eq(d.ret_type, "void") == 1) { al_complete(&c, exit, al_int(0)); }
         else { al_complete(&c, exit, al_int(0)); }
@@ -509,7 +557,16 @@ int al_can_lower(*StmtNode s) {
         if (s.expr != null && s.expr.kind == EK_AWAIT) { return 1; }   // a let-bound await: fine
         return al_expr_has_await(s.expr) == 0;                         // await in a larger expr: no
     }
-    if (s.kind == SK_RETURN || s.kind == SK_EXPR) { return al_expr_has_await(s.expr) == 0; }
+    if (s.kind == SK_RETURN) {
+        if (s.expr != null && s.expr.kind == EK_AWAIT) { return 1; }   // `return await E` (desugared)
+        return al_expr_has_await(s.expr) == 0;
+    }
+    if (s.kind == SK_EXPR) {
+        if (s.expr != null && s.expr.kind == EK_AWAIT) { return 1; }   // `await E;` (desugared)
+        if (s.expr != null && s.expr.kind == EK_BINARY && str_eq(s.expr.sval, "=") == 1
+            && s.expr.b != null && s.expr.b.kind == EK_AWAIT) { return 1; }   // `x = await E`
+        return al_expr_has_await(s.expr) == 0;
+    }
     if (s.kind == SK_IF) { return al_can_lower(s.s1) == 1 && al_can_lower(s.s2) == 1; }
     if (s.kind == SK_WHILE) { return al_can_lower(s.s1) == 1; }
     if (s.kind == SK_FOR) { return al_can_lower(s.s1) == 1 && al_can_lower(s.s2) == 1; }
