@@ -35,9 +35,17 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   **exceptions** (the Itanium ABI — `invoke`/`landingpad`, `__cxa_allocate_exception`/
   `__cxa_throw`/`__cxa_begin_catch`, type-name `strcmp` catch matching, `finally`; programs
   with `throw`/`try` link `-lc++abi`) and **atomics** (`atomic_load`/`store`/`swap`/`cas` →
-  `load atomic`/`store atomic`/`atomicrmw xchg`/`cmpxchg`). Still deferred: async/await
-  (a large AST-lowering pass). The self-hosted compiler reproduces its own IR throughout
-  (bootstrap fixpoint stays green).
+  `load atomic`/`store atomic`/`atomicrmw xchg`/`cmpxchg`). The self-hosted compiler
+  reproduces its own IR throughout (bootstrap fixpoint stays green).
+- **Self-hosting back-end: the async/await lowering pass, in Eskiu** (`selfhost/async_lower.esk`,
+  a port of `sema/async_transform.cpp`, run between parse and codegen). Each `async fn` is
+  rewritten into a frame struct + a `while(1){if st==0…}` state-machine resume function + a
+  constructor that returns a `Future<T>*`; each `await` splits a state (evaluate the future,
+  `future_poll` it, suspend, resume reading the value), with completion via `atomic_swap` and
+  a waker closure — built on the now-available closures, atomics, and generics. Currently the
+  **linear** case (awaits bound in top-level `let`s); control flow *around* an await
+  (if/while/for/switch with break/continue) is left untransformed for now. `async_basic`
+  runs to parity.
 - **Unified self-hosted compiler driver + a three-stage bootstrap.** `selfhost/esk_main.esk`
   runs the full pipeline in Eskiu — preprocess → parse → **type-check** → code-gen —
   rejecting ill-typed input without emitting IR. The new gate `tests/selfhost/cg_bootstrap.sh`
