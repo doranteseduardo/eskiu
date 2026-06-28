@@ -120,6 +120,23 @@ compiled by the self-hosted codegen, now match the C++-built ones byte-for-byte,
 compiler (a bootstrap fixpoint). Gate: `tests/selfhost/cg_selfhost.sh` (45/45). The
 milestone's thesis held once more: dogfooding finds what the corpus can't.
 
+## Resolved: uninitialized-field read in new AST traversals (Linux-only crash) ✅
+
+Adding exceptions/closures introduced two *unconditional* AST walkers — `cg_has_try_s`
+(does a function body contain a `try`? → needs an EH personality) and
+`cg_collect_idents_*` (a lambda's free variables). Both recursed into `s.s1`/`s.s2`/
+`e.a`/`e.b`/`kids`/`stmt` for **every** node kind. But `alloc` doesn't zero and the parser
+only sets the fields each kind uses (`mk_lit` leaves `a`/`b`/`kids` garbage; a vardecl's
+`s1`/`s2` are never assigned) — so these walkers dereferenced garbage pointers. It passed
+on macOS (heap happened to be zero) and on the first Linux CI run, then a later push
+tripped it: `cg parity` FAILed `global_list`/`stdlib_list` with "self-host codegen errored".
+Caught locally with macOS guard malloc + `MallocPreScribble=1 MALLOC_PROTECT_BEFORE=1`
+(fills fresh allocations with `0xAA`): a deterministic `EXC_BAD_ACCESS` at `0xaaaa…` in
+`cg_has_try_s`. FIX: made both walkers **kind-aware** (recurse only into the fields a kind
+actually populates), matching the convention the printer / `cg_stmt` / `cg_expr` already
+follow. The codebase's standing rule bites again — *alloc doesn't zero; never read a field
+a node kind doesn't set.* Guard malloc is the tool to surface it before CI does.
+
 ## Minor ergonomics (not bugs)
 
 - Nested conditionals: prefer `else if`, flat `if`+`return` (see `keyword_type`), or
