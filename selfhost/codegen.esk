@@ -392,11 +392,18 @@ string cg_coerce(Codegen* g, CgVal val, string target) {
     if (cg_streq(val.ty, target) == 1) { return val.op; }
     int tptr = cg_streq(target, "ptr"); int sptr = cg_streq(val.ty, "ptr");
     if (tptr == 1 && sptr == 1) { return val.op; }
+    int tf = cg_is_float(target); int sf = cg_is_float(val.ty);
     int tw = cg_int_w(target); int sw = cg_int_w(val.ty);
-    if (tw == 0 && sw == 0) { return val.op; }            // non-scalar (struct) — leave as-is
+    if (tf == 0 && sf == 0 && tw == 0 && sw == 0) { return val.op; }   // non-scalar (struct)
     string t = cg_tmp(g);
     cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = ");
-    if (tptr == 1 && sw > 0) { cg_emit(g, "inttoptr "); cg_emit(g, val.ty); cg_emit(g, " "); cg_emit(g, val.op); cg_emit(g, " to ptr"); }
+    if (tf == 1 && sw > 0) { cg_emit(g, "sitofp "); cg_emit(g, val.ty); cg_emit(g, " "); cg_emit(g, val.op); cg_emit(g, " to "); cg_emit(g, target); }
+    else if (tw > 0 && sf == 1) { cg_emit(g, "fptosi "); cg_emit(g, val.ty); cg_emit(g, " "); cg_emit(g, val.op); cg_emit(g, " to "); cg_emit(g, target); }
+    else if (tf == 1 && sf == 1) {                        // float<->double
+        if (cg_streq(target, "double") == 1) { cg_emit(g, "fpext "); } else { cg_emit(g, "fptrunc "); }
+        cg_emit(g, val.ty); cg_emit(g, " "); cg_emit(g, val.op); cg_emit(g, " to "); cg_emit(g, target);
+    }
+    else if (tptr == 1 && sw > 0) { cg_emit(g, "inttoptr "); cg_emit(g, val.ty); cg_emit(g, " "); cg_emit(g, val.op); cg_emit(g, " to ptr"); }
     else if (sptr == 1 && tw > 0) { cg_emit(g, "ptrtoint ptr "); cg_emit(g, val.op); cg_emit(g, " to "); cg_emit(g, target); }
     else if (tw > 0 && sw > 0 && tw < sw) { cg_emit(g, "trunc "); cg_emit(g, val.ty); cg_emit(g, " "); cg_emit(g, val.op); cg_emit(g, " to "); cg_emit(g, target); }
     else if (tw > 0 && sw > 0 && tw > sw) { cg_emit(g, "sext "); cg_emit(g, val.ty); cg_emit(g, " "); cg_emit(g, val.op); cg_emit(g, " to "); cg_emit(g, target); }
@@ -685,6 +692,31 @@ string cg_global_init(Codegen* g, *ExprNode e, string llty) {
     return "zeroinitializer";
 }
 
+int cg_is_float(string ty) {
+    return cg_streq(ty, "double") == 1 || cg_streq(ty, "float") == 1;
+}
+
+// Floating-point arithmetic op → LLVM mnemonic ("" if not arithmetic). No bitwise/shift.
+string cg_farith_op(string s) {
+    if (cg_streq(s, "+") == 1) { return "fadd"; }
+    if (cg_streq(s, "-") == 1) { return "fsub"; }
+    if (cg_streq(s, "*") == 1) { return "fmul"; }
+    if (cg_streq(s, "/") == 1) { return "fdiv"; }
+    if (cg_streq(s, "%") == 1) { return "frem"; }
+    return "";
+}
+
+// Floating-point comparison predicate (ordered) → LLVM mnemonic ("" if not a comparison).
+string cg_fcmp_pred(string s) {
+    if (cg_streq(s, "==") == 1) { return "oeq"; }
+    if (cg_streq(s, "!=") == 1) { return "one"; }
+    if (cg_streq(s, "<") == 1) { return "olt"; }
+    if (cg_streq(s, ">") == 1) { return "ogt"; }
+    if (cg_streq(s, "<=") == 1) { return "ole"; }
+    if (cg_streq(s, ">=") == 1) { return "oge"; }
+    return "";
+}
+
 // Integer arithmetic/bitwise op → LLVM mnemonic ("" if not such an op).
 string cg_arith_op(string s) {
     if (cg_streq(s, "+") == 1) { return "add"; }
@@ -831,6 +863,7 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
         v.op = e.sval;
         if (e.lit_kind == LIT_BOOL) { v.ty = "i1"; }
         else if (e.lit_kind == LIT_NULL) { v.op = "null"; v.ty = "ptr"; }
+        else if (e.lit_kind == LIT_FLOAT) { v.ty = "double"; }   // float literal defaults to double
         else { v.ty = "i32"; }            // integer literal
         return v;
     }
@@ -881,8 +914,13 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
         if (cg_streq(e.sval, "-") == 1) {
             CgVal a = cg_expr(g, e.a);
             string t = cg_tmp(g);
-            cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = sub "); cg_emit(g, a.ty);
-            cg_emit(g, " 0, "); cg_emit(g, a.op); cg_emit(g, "\n");
+            if (cg_is_float(a.ty) == 1) {                  // floating-point negation
+                cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = fneg "); cg_emit(g, a.ty);
+                cg_emit(g, " "); cg_emit(g, a.op); cg_emit(g, "\n");
+            } else {
+                cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = sub "); cg_emit(g, a.ty);
+                cg_emit(g, " 0, "); cg_emit(g, a.op); cg_emit(g, "\n");
+            }
             v.op = t; v.ty = a.ty; return v;
         }
         return cg_expr(g, e.a);
@@ -928,6 +966,30 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
         }
         CgVal l = cg_expr(g, e.a);
         CgVal r = cg_expr(g, e.b);
+        // Floating-point: if either operand is float/double, promote both to the wider
+        // and use fcmp/fadd/… (mixed int/float promotes the int via sitofp in cg_coerce).
+        if (cg_is_float(l.ty) == 1 || cg_is_float(r.ty) == 1) {
+            string fty = "float";
+            if (cg_streq(l.ty, "double") == 1 || cg_streq(r.ty, "double") == 1) { fty = "double"; }
+            string lop = cg_coerce(g, l, fty);
+            string rop = cg_coerce(g, r, fty);
+            string fpred = cg_fcmp_pred(e.sval);
+            if (fpred[0] != 0) {
+                string t = cg_tmp(g);
+                cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = fcmp "); cg_emit(g, fpred);
+                cg_emit(g, " "); cg_emit(g, fty); cg_emit(g, " "); cg_emit(g, lop);
+                cg_emit(g, ", "); cg_emit(g, rop); cg_emit(g, "\n");
+                v.op = t; v.ty = "i1"; return v;
+            }
+            string fop = cg_farith_op(e.sval);
+            if (fop[0] != 0) {
+                string t = cg_tmp(g);
+                cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = "); cg_emit(g, fop);
+                cg_emit(g, " "); cg_emit(g, fty); cg_emit(g, " "); cg_emit(g, lop);
+                cg_emit(g, ", "); cg_emit(g, rop); cg_emit(g, "\n");
+                v.op = t; v.ty = fty; return v;
+            }
+        }
         string pred = cg_cmp_pred(e.sval);
         if (pred[0] != 0) {
             // Pointer comparisons: use `ptr` as the icmp type and turn a literal `0` on
@@ -1063,21 +1125,8 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
         string dstety = cg_apply_sub(g, e.sval);
         string dll = cg_lltype(g, dstety);
         CgVal src = cg_expr(g, e.a);
-        v.ety = dstety;
-        if (cg_streq(src.ty, dll) == 1) { v.op = src.op; v.ty = dll; return v; }
-        int dstptr = cg_is_ptr_ty(dstety);
-        int srcptr = cg_streq(src.ty, "ptr");
-        if (dstptr == 1 && srcptr == 1) { v.op = src.op; v.ty = "ptr"; return v; }   // ptr<->ptr no-op
-        int dw = cg_int_w(dll); int sw = cg_int_w(src.ty);
-        string t = cg_tmp(g);
-        cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = ");
-        if (dstptr == 1 && sw > 0) { cg_emit(g, "inttoptr "); cg_emit(g, src.ty); cg_emit(g, " "); cg_emit(g, src.op); cg_emit(g, " to ptr"); }
-        else if (srcptr == 1 && dw > 0) { cg_emit(g, "ptrtoint ptr "); cg_emit(g, src.op); cg_emit(g, " to "); cg_emit(g, dll); }
-        else if (dw > 0 && sw > 0 && dw < sw) { cg_emit(g, "trunc "); cg_emit(g, src.ty); cg_emit(g, " "); cg_emit(g, src.op); cg_emit(g, " to "); cg_emit(g, dll); }
-        else if (dw > 0 && sw > 0 && dw > sw) { cg_emit(g, "sext "); cg_emit(g, src.ty); cg_emit(g, " "); cg_emit(g, src.op); cg_emit(g, " to "); cg_emit(g, dll); }
-        else { cg_emit(g, "bitcast "); cg_emit(g, src.ty); cg_emit(g, " "); cg_emit(g, src.op); cg_emit(g, " to "); cg_emit(g, dll); }
-        cg_emit(g, "\n");
-        v.op = t; v.ty = dll; return v;
+        v.op = cg_coerce(g, src, dll);    // int/float/ptr conversions (sitofp/fptosi/…)
+        v.ty = dll; v.ety = dstety; return v;
     }
 
     v.op = "0"; v.ty = "i32"; return v;
@@ -1110,9 +1159,14 @@ void cg_struct_init(Codegen* g, string slot, string sname, *ExprNode e) {
 CgVal cg_cond(Codegen* g, *ExprNode e) {
     CgVal c = cg_expr(g, e);
     if (cg_streq(c.ty, "i1") == 1) { return c; }
+    string t = cg_tmp(g);
+    if (cg_is_float(c.ty) == 1) {                          // float truthiness: != 0.0
+        cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = fcmp one "); cg_emit(g, c.ty);
+        cg_emit(g, " "); cg_emit(g, c.op); cg_emit(g, ", 0.0\n");
+        let rf: CgVal; rf.op = t; rf.ty = "i1"; return rf;
+    }
     string zero = "0";
     if (cg_streq(c.ty, "ptr") == 1) { zero = "null"; }   // pointer truthiness vs null
-    string t = cg_tmp(g);
     cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = icmp ne "); cg_emit(g, c.ty);
     cg_emit(g, " "); cg_emit(g, c.op); cg_emit(g, ", "); cg_emit(g, zero); cg_emit(g, "\n");
     let r: CgVal; r.op = t; r.ty = "i1"; return r;
