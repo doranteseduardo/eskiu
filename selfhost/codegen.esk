@@ -1273,6 +1273,52 @@ void cg_stmt(Codegen* g, *StmtNode st) {
         }
         return;
     }
+    if (st.kind == SK_SWITCH) {
+        // C-style fall-through: a `switch` instruction jumps to each case's block; a
+        // block flows into the next unless its body terminates (break/return). `break`
+        // targets the end (pushed onto loop_end). Case values must be constants.
+        CgVal subj = cg_expr(g, st.expr);
+        int nc = List_len<*StmtNode>(&st.items);
+        List<string> labels; List_init<string>(&labels, nc);
+        int di = 0 - 1;                                   // default case index, -1 if none
+        int i = 0;
+        while (i < nc) {
+            List_push<string>(&labels, cg_lbl(g));
+            if (List_get<*StmtNode>(&st.items, i).expr == null) { di = i; }
+            i = i + 1;
+        }
+        string l_end = cg_lbl(g);
+        string deflbl = l_end;
+        if (di >= 0) { deflbl = List_get<string>(&labels, di); }
+        cg_emit(g, "  switch "); cg_emit(g, subj.ty); cg_emit(g, " "); cg_emit(g, subj.op);
+        cg_emit(g, ", label %"); cg_emit(g, deflbl); cg_emit(g, " [ ");
+        i = 0;
+        while (i < nc) {
+            *StmtNode c = List_get<*StmtNode>(&st.items, i);
+            if (c.expr != null) {
+                CgVal cv = cg_expr(g, c.expr);            // constant operand
+                cg_emit(g, subj.ty); cg_emit(g, " "); cg_emit(g, cv.op);
+                cg_emit(g, ", label %"); cg_emit(g, List_get<string>(&labels, i)); cg_emit(g, " ");
+            }
+            i = i + 1;
+        }
+        cg_emit(g, "]\n");
+        g.terminated = 1;
+        List_push<string>(&g.loop_end, l_end);            // break → end
+        i = 0;
+        while (i < nc) {
+            cg_label(g, List_get<string>(&labels, i));
+            *StmtNode c = List_get<*StmtNode>(&st.items, i);
+            int bi = 0; int bn = List_len<*StmtNode>(&c.items);
+            while (bi < bn) { cg_stmt(g, List_get<*StmtNode>(&c.items, bi)); bi = bi + 1; }
+            if (i + 1 < nc) { cg_br(g, List_get<string>(&labels, i + 1)); }   // fall through
+            else { cg_br(g, l_end); }
+            i = i + 1;
+        }
+        List_remove<string>(&g.loop_end, List_len<string>(&g.loop_end) - 1);
+        cg_label(g, l_end);
+        return;
+    }
     if (st.kind == SK_RETURN) {
         if (st.expr != null) {
             CgVal r = cg_expr(g, st.expr);
