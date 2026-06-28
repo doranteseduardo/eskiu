@@ -21,7 +21,7 @@ struct CgVal { string op; string ty; string ety; }
 // A local binding: source name → its alloca slot + LLVM type + Eskiu type.
 struct CgLocal { string name; string slot; string ty; string ety; }
 // A function's LLVM return type + (for variadic externs) its call-type prefix.
-struct CgFn { string name; string retty; int variadic; string fixedtypes; }
+struct CgFn { string name; string retty; string rety; int variadic; string fixedtypes; }
 // A struct's field layout: parallel field names + Eskiu types (index = GEP index).
 struct CgStruct { string name; List<string> fnames; List<string> fetys; }
 // A plain (integer) enum constant: name → its integer value as a string.
@@ -261,20 +261,24 @@ string cg_ensure_struct_inst(Codegen* g, string spelling) {
 
     let s: CgStruct; s.name = mangled;
     List_init<string>(&s.fnames, 4); List_init<string>(&s.fetys, 4);
-    String_append(&g.globals, "%"); String_append(&g.globals, mangled);
-    String_append(&g.globals, " = type { ");
+    // Assemble the field-type list into a local buffer first: a field whose type is
+    // itself generic triggers a nested instantiation that appends to g.globals, so the
+    // nested type must land BEFORE this one's line (not interleaved mid-line).
+    String body; String_init(&body, 32);
     int fi = 0; int nf = List_len<Param>(&gd.params);
     while (fi < nf) {
         Param fp = List_get<Param>(&gd.params, fi);
         string fety = cg_apply_sub(g, fp.ty);             // T -> concrete spelling
         List_push<string>(&s.fnames, fp.name);
         List_push<string>(&s.fetys, fety);
-        if (fi > 0) { String_append(&g.globals, ", "); }
-        String_append(&g.globals, cg_lltype(g, fety));
+        if (fi > 0) { String_append(&body, ", "); }
+        String_append(&body, cg_lltype(g, fety));
         fi = fi + 1;
     }
+    List_push<CgStruct>(&g.structs, s);                   // register before emitting the line
+    String_append(&g.globals, "%"); String_append(&g.globals, mangled);
+    String_append(&g.globals, " = type { "); String_append(&g.globals, (string)String_cstr(&body));
     String_append(&g.globals, " }\n");
-    List_push<CgStruct>(&g.structs, s);
 
     g.cursub = oldsub;                                    // restore
     return mangled;
@@ -326,7 +330,8 @@ string cg_ensure_fn_inst(Codegen* g, string spelling) {
     List_push<CgInst>(&g.worklist, inst);
 
     List<CgSub> oldsub = cg_push_sub(g, gd, &args);       // signature types under sub
-    let f: CgFn; f.name = mangled; f.retty = cg_lltype(g, gd.ret_type); f.variadic = 0;
+    let f: CgFn; f.name = mangled; f.retty = cg_lltype(g, gd.ret_type);
+    f.rety = cg_apply_sub(g, gd.ret_type); f.variadic = 0;
     string fixed = ""; int np = List_len<Param>(&gd.params); int pi = 0; int first = 1;
     while (pi < np) {
         Param pm = List_get<Param>(&gd.params, pi);
@@ -379,7 +384,7 @@ CgFn cg_find_fn(Codegen* g, string name) {
         if (cg_streq(f.name, name) == 1) { return f; }
         i = i + 1;
     }
-    let none: CgFn; none.name = name; none.retty = "i32"; none.variadic = 0; none.fixedtypes = "";
+    let none: CgFn; none.name = name; none.retty = "i32"; none.rety = ""; none.variadic = 0; none.fixedtypes = "";
     return none;
 }
 
@@ -517,6 +522,20 @@ int cg_int_w(string t) {
         w = w * 10 + (c - 48); i = i + 1;
     }
     return w;
+}
+
+// Pointee of a pointer type — strips exactly ONE '*' (the outermost, either end). For
+// indexing/deref: `**ExprNode`→`*ExprNode`, `*int`→`int`, `int*`→`int`. Distinct from
+// cg_strip_ptr, which strips ALL '*' to recover a struct's base name.
+string cg_deref_ty(string t) {
+    int b = 0; while (t[b] != 0) { b = b + 1; }
+    if (b > 0 && (int)t[b - 1] == 42) { return cg_sub_str(t, 0, b - 1); }   // trailing '*'
+    int a = 0; while ((int)t[a] == 32) { a = a + 1; }
+    if ((int)t[a] == 42) {                                                  // leading '*'
+        string r = cg_sub_str(t, a + 1, b);
+        return cg_trim(r);
+    }
+    return t;
 }
 
 int cg_is_ptr_ty(string t) {
@@ -669,14 +688,24 @@ string cg_etype(Codegen* g, *ExprNode e) {
     if (e.kind == EK_INDEX) {
         string bet = cg_etype(g, e.a);
         if (cg_is_array(bet) == 1) { return cg_array_elem(bet); }
-        if (cg_is_ptr_ty(bet) == 1) { return cg_strip_ptr(bet); }
+        if (cg_is_ptr_ty(bet) == 1) { return cg_deref_ty(bet); }
         return "";
     }
     if (e.kind == EK_UNARY) {
-        if (cg_streq(e.sval, "*") == 1) { return cg_strip_ptr(cg_etype(g, e.a)); }
+        if (cg_streq(e.sval, "*") == 1) { return cg_deref_ty(cg_etype(g, e.a)); }
         if (cg_streq(e.sval, "&") == 1) { return cg_cat("*", cg_etype(g, e.a)); }
         return cg_etype(g, e.a);
     }
+    if (e.kind == EK_TEMPLATECALL) { return cg_find_fn(g, cg_mangle(e.sval)).rety; }
+    if (e.kind == EK_CALL) {
+        if (e.a != null && e.a.kind == EK_MEMBER) {        // method call → Struct_method
+            string sname = cg_strip_ptr(cg_etype(g, e.a.a));
+            return cg_find_fn(g, cg_cat(cg_cat(sname, "_"), e.a.sval)).rety;
+        }
+        if (e.a != null && e.a.kind == EK_IDENT) { return cg_find_fn(g, e.a.sval).rety; }
+        return "";
+    }
+    if (e.kind == EK_CAST) { return cg_apply_sub(g, e.sval); }
     return "";
 }
 
@@ -692,7 +721,7 @@ CgVal cg_lval(Codegen* g, *ExprNode e) {
     }
     if (e.kind == EK_UNARY && cg_streq(e.sval, "*") == 1) {
         CgVal p = cg_expr(g, e.a);                      // value of the pointer = the address
-        v.op = p.op; v.ety = cg_strip_ptr(cg_etype(g, e.a)); return v;
+        v.op = p.op; v.ety = cg_deref_ty(cg_etype(g, e.a)); return v;
     }
     if (e.kind == EK_INDEX) {
         string bet = cg_etype(g, e.a);
@@ -706,7 +735,7 @@ CgVal cg_lval(Codegen* g, *ExprNode e) {
             v.op = t; v.ety = cg_array_elem(bet); return v;
         }
         string pval = cg_expr(g, e.a).op;               // pointer: GEP T, ptr, idx
-        string elem = cg_strip_ptr(bet);
+        string elem = cg_deref_ty(bet);
         cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = getelementptr inbounds ");
         cg_emit(g, cg_lltype(g, elem)); cg_emit(g, ", ptr "); cg_emit(g, pval);
         cg_emit(g, ", i32 "); cg_emit(g, idx.op); cg_emit(g, "\n");
@@ -717,7 +746,21 @@ CgVal cg_lval(Codegen* g, *ExprNode e) {
         string sptr = "";
         string sname = bet;
         if (cg_is_ptr_ty(bet) == 1) { sptr = cg_expr(g, e.a).op; sname = cg_strip_ptr(bet); }
-        else { sptr = cg_lval(g, e.a).op; }
+        else {
+            CgVal base = cg_lval(g, e.a);
+            if (base.op[0] != 0) { sptr = base.op; if (base.ety[0] != 0) { sname = base.ety; } }
+            else {
+                // The base is an rvalue with no address (e.g. a function call returning a
+                // struct by value) — materialize it into a fresh alloca, then GEP into that.
+                CgVal val = cg_expr(g, e.a);
+                if (val.ety[0] != 0) { sname = val.ety; }
+                string slot = cg_tmp(g);
+                cg_emit(g, "  "); cg_emit(g, slot); cg_emit(g, " = alloca "); cg_emit(g, val.ty); cg_emit(g, "\n");
+                cg_emit(g, "  store "); cg_emit(g, val.ty); cg_emit(g, " "); cg_emit(g, val.op);
+                cg_emit(g, ", ptr "); cg_emit(g, slot); cg_emit(g, "\n");
+                sptr = slot;
+            }
+        }
         CgStruct s = cg_find_struct(g, sname);
         int idx = cg_field_idx(&s, e.sval);
         string t = cg_tmp(g);
@@ -782,7 +825,7 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
         }
         if (cg_streq(e.sval, "*") == 1) {               // deref (rvalue)
             CgVal p = cg_expr(g, e.a);
-            string ety = cg_strip_ptr(cg_etype(g, e.a));
+            string ety = cg_deref_ty(cg_etype(g, e.a));
             string llty = cg_lltype(g, ety);
             string t = cg_tmp(g);
             cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = load "); cg_emit(g, llty);
@@ -841,10 +884,18 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
         CgVal r = cg_expr(g, e.b);
         string pred = cg_cmp_pred(e.sval);
         if (pred[0] != 0) {
+            // Pointer comparisons: use `ptr` as the icmp type and turn a literal `0` on
+            // either side into `null` (Eskiu writes both `p != null` and `p != 0`).
+            string cty = l.ty; string lop = l.op; string rop = r.op;
+            if (cg_streq(l.ty, "ptr") == 1 || cg_streq(r.ty, "ptr") == 1) {
+                cty = "ptr";
+                if (cg_streq(lop, "0") == 1) { lop = "null"; }
+                if (cg_streq(rop, "0") == 1) { rop = "null"; }
+            }
             string t = cg_tmp(g);
             cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = icmp "); cg_emit(g, pred);
-            cg_emit(g, " "); cg_emit(g, l.ty); cg_emit(g, " "); cg_emit(g, l.op);
-            cg_emit(g, ", "); cg_emit(g, r.op); cg_emit(g, "\n");
+            cg_emit(g, " "); cg_emit(g, cty); cg_emit(g, " "); cg_emit(g, lop);
+            cg_emit(g, ", "); cg_emit(g, rop); cg_emit(g, "\n");
             v.op = t; v.ty = "i1"; return v;
         }
         string op = cg_arith_op(e.sval);
@@ -895,7 +946,7 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
         string t = cg_tmp(g);
         cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = call "); cg_emit(g, callty);
         cg_emit(g, " @"); cg_emit(g, fname); cg_emit(g, "("); cg_emit(g, args); cg_emit(g, ")\n");
-        v.op = t; v.ty = f.retty; return v;
+        v.op = t; v.ty = f.retty; v.ety = f.rety; return v;
     }
 
     if (e.kind == EK_TEMPLATECALL) {
@@ -918,7 +969,7 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
         string t = cg_tmp(g);
         cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = call "); cg_emit(g, f.retty);
         cg_emit(g, " @"); cg_emit(g, mangled); cg_emit(g, "("); cg_emit(g, args); cg_emit(g, ")\n");
-        v.op = t; v.ty = f.retty; return v;
+        v.op = t; v.ty = f.retty; v.ety = f.rety; return v;
     }
 
     if (e.kind == EK_SIZEOF) {
@@ -984,9 +1035,11 @@ void cg_struct_init(Codegen* g, string slot, string sname, *ExprNode e) {
 CgVal cg_cond(Codegen* g, *ExprNode e) {
     CgVal c = cg_expr(g, e);
     if (cg_streq(c.ty, "i1") == 1) { return c; }
+    string zero = "0";
+    if (cg_streq(c.ty, "ptr") == 1) { zero = "null"; }   // pointer truthiness vs null
     string t = cg_tmp(g);
     cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = icmp ne "); cg_emit(g, c.ty);
-    cg_emit(g, " "); cg_emit(g, c.op); cg_emit(g, ", 0\n");
+    cg_emit(g, " "); cg_emit(g, c.op); cg_emit(g, ", "); cg_emit(g, zero); cg_emit(g, "\n");
     let r: CgVal; r.op = t; r.ty = "i1"; return r;
 }
 
@@ -1200,15 +1253,18 @@ void cg_program(Codegen* g, *Program prog) {
     while (si < n) {
         *DeclNode d = List_get<*DeclNode>(&prog.decls, si);
         if (d.kind == DK_STRUCT && List_len<TypeParam>(&d.type_params) == 0) {
-            String_append(&g.globals, "%"); String_append(&g.globals, d.name);
-            String_append(&g.globals, " = type { ");
+            // Build the body first — a generic field type instantiates into g.globals and
+            // must precede this line, not interleave (see cg_ensure_struct_inst).
+            String body; String_init(&body, 32);
             int nf = List_len<Param>(&d.params);
             int fi = 0;
             while (fi < nf) {
-                if (fi > 0) { String_append(&g.globals, ", "); }
-                String_append(&g.globals, cg_lltype(g, List_get<Param>(&d.params, fi).ty));
+                if (fi > 0) { String_append(&body, ", "); }
+                String_append(&body, cg_lltype(g, List_get<Param>(&d.params, fi).ty));
                 fi = fi + 1;
             }
+            String_append(&g.globals, "%"); String_append(&g.globals, d.name);
+            String_append(&g.globals, " = type { "); String_append(&g.globals, (string)String_cstr(&body));
             String_append(&g.globals, " }\n");
         }
         si = si + 1;
@@ -1259,6 +1315,7 @@ void cg_program(Codegen* g, *Program prog) {
             let f: CgFn;
             f.name = d.name;
             f.retty = cg_lltype(g, d.ret_type);
+            f.rety = d.ret_type;
             f.variadic = 0;
             string fixed = "";
             int np = List_len<Param>(&d.params);
@@ -1301,6 +1358,7 @@ void cg_program(Codegen* g, *Program prog) {
                 let mf: CgFn;
                 mf.name = cg_cat(cg_cat(d.name, "_"), m.name);
                 mf.retty = cg_lltype(g, m.ret_type);
+                mf.rety = m.ret_type;
                 mf.variadic = 0;
                 mf.fixedtypes = "";
                 List_push<CgFn>(&g.fns, mf);
