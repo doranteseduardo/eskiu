@@ -19,7 +19,8 @@ if [ -z "$BIN" ]; then
     elif command -v eskiuc >/dev/null 2>&1; then BIN=eskiuc
     else echo "cg_parity: cannot find eskiuc (set ESKIUC or build it)"; exit 2; fi
 fi
-command -v clang >/dev/null 2>&1 || { echo "cg_parity: clang not found"; exit 2; }
+CLANG="${CLANG:-clang}"   # CI installs clang as clang-22; override via $CLANG
+command -v "$CLANG" >/dev/null 2>&1 || { echo "cg_parity: $CLANG not found (set CLANG)"; exit 2; }
 
 DRIVER=selfhost/cg_main.esk
 CGBIN="$(mktemp -t cg_main.XXXXXX)"
@@ -42,7 +43,7 @@ for f in "${files[@]}"; do
     if ! "$CGBIN" "$f" > "$WORK/$base.ll" 2>"$WORK/$base.emit.err"; then
         echo "FAIL  $base  (self-host codegen errored)"; fail=1; continue
     fi
-    if ! clang "$WORK/$base.ll" -o "$WORK/$base.self" 2>"$WORK/$base.clang.err"; then
+    if ! "$CLANG" "$WORK/$base.ll" -o "$WORK/$base.self" 2>"$WORK/$base.clang.err"; then
         echo "FAIL  $base  (clang rejected emitted .ll)"; sed 's/^/      /' "$WORK/$base.clang.err" | head; fail=1; continue
     fi
     self_out="$("$WORK/$base.self" 2>/dev/null)"; self_code=$?

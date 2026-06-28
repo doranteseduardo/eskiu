@@ -76,3 +76,16 @@ jobs:
       # Compiles tc_main once; ~seconds.
       - name: Sema self-host parity
         run: tests/selfhost/tc_parity.sh
+
+      # Self-hosted code generator (selfhost/codegen.esk): emit LLVM IR, compile it
+      # with clang, run, and compare exit code + stdout to the C++-built binary over
+      # the synthetic corpus. Behavioral oracle (IR can't match byte-for-byte). clang
+      # is installed as clang-22 on the runner.
+      - name: Codegen self-host parity
+        run: CLANG=clang-22 tests/selfhost/cg_parity.sh
+
+      # Phase D bootstrap gate: cg_main emits valid IR for the WHOLE self-hosted
+      # compiler (lexer→codegen + drivers), and cg_main compiled by ITSELF reproduces
+      # the C++-built codegen's IR byte-for-byte (a self-consistent fixpoint).
+      - name: Codegen self-compilation (bootstrap fixpoint)
+        run: CLANG=clang-22 tests/selfhost/cg_selfhost.sh
