@@ -1,0 +1,11 @@
+// Closures: non-capturing + capturing lambdas (free-variable analysis → stack env +
+// fat pointer { fn, env }), higher-order functions, and indirect calls through fn values.
+int apply(fn(int)->int f, int x) { return f(x); }
+int main() {
+    let square: fn(int)->int = int(int n) { return n * n; };
+    int base = 10;
+    let add_base: fn(int)->int = int(int x) { return x + base; };
+    int a = 3; int b = 4;
+    let sum_ab: fn(int)->int = int(int x) { return x + a + b; };
+    return square(6) + apply(add_base, 7) + sum_ab(1);   // 36 + 17 + 8 = 61
+}
