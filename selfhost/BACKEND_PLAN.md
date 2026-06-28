@@ -277,15 +277,22 @@ casts via sitofp/fptosi/fpext/fptrunc, mixed promotion; `cg_is_float`/`cg_farith
 **ADT enums + match** (tagged union `{i32 tag,[N x i64]}`, `CgVariant` registry,
 `cg_build_variant`, match = tag switch + payload-binding extraction with arm-scoped
 locals). Also a root fix: SK_RETURN now coerces to the fn's return type (bool→int = zext).
-cg_parity 36/36, cg_selfhost 48/48, bootstrap fixpoint all green. **REMAINING (each a
-large slice; NONE needed for self-hosting):** (1) **closures/lambdas** — the self-hosted
-AST stores only the lambda signature + body (NO captures), so this needs free-variable
-analysis in codegen + an env struct + fat pointer `{ptr fn, ptr env}` + escape analysis
-(stack vs heap env) + fn-type lowering + indirect calls. Bigger than generics. (2)
-**exceptions** (try/catch/throw → landingpad/invoke) — the gnarliest; if textual emission
-is too painful, bind just those ops via the LLVM-**C** API (`extern`). (3) **async/await**
-— port `sema/async_transform.cpp` (651 lines, a lowering pass). (4) **atomics** (intrinsics),
-unions, bitfield layout, dynamic trait dispatch. Polish: esk_main errors→stderr.
+**closures (DONE)** — free-variable analysis (`cg_collect_idents_*`) finds captured
+enclosing locals; env is a stack struct, the closure value a fat pointer `%closure =
+{ptr fn, ptr env}`; lambdas emitted via a worklist (`cg_emit_lambda`), called indirectly
+by extracting {fn,env}; fn-type return resolved from the assignment context; C vararg
+float→double promotion. `closures.esk` byte-identical. **exceptions (DONE) — full Itanium
+ABI** (per user pref, not setjmp): every call in a try body becomes an `invoke` (centralized
+in `cg_emit_callish` gated on `cur_unwind`); `throw` allocates a 16-byte `{i64 val, ptr
+typename}` and `__cxa_throw`s it (invoke inside a try); the landingpad does `__cxa_begin_catch`,
+strcmp-matches catch clauses by type name, binds, `__cxa_end_catch`; `finally` runs at the
+join; functions with a try get `personality @__gxx_personality_v0`; EH decls emitted once
+when used; programs link `-lc++abi`. `exceptions.esk` byte-identical. cg_parity 37/37,
+cg_selfhost 50/50, bootstrap fixpoint green. **REMAINING (none needed for self-hosting):**
+(1) **async/await** — the big one: port `sema/async_transform.cpp` (651 lines), an AST→AST
+lowering to a frame + state-machine resume function; qualitatively different (a transform
+pass, not codegen) → a dedicated effort. (2) **atomics** (intrinsics), unions, bitfield
+layout, dynamic trait dispatch. Polish: esk_main errors→stderr.
 
 **Critical files:** new `selfhost/codegen.esk`, `selfhost/cg_main.esk`,
 `tests/selfhost/cg_parity.sh`. Reference: `codegen/codegen_{module,decl,stmt,expr,
