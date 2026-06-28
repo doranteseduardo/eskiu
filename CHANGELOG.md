@@ -42,10 +42,14 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   rewritten into a frame struct + a `while(1){if st==0…}` state-machine resume function + a
   constructor that returns a `Future<T>*`; each `await` splits a state (evaluate the future,
   `future_poll` it, suspend, resume reading the value), with completion via `atomic_swap` and
-  a waker closure — built on the now-available closures, atomics, and generics. Currently the
-  **linear** case (awaits bound in top-level `let`s); control flow *around* an await
-  (if/while/for/switch with break/continue) is left untransformed for now. `async_basic`
-  runs to parity.
+  a waker closure — built on the now-available closures, atomics, and generics. Covers
+  sequential bodies, **control flow around an await** (if / while / for with break/continue,
+  lowered into the state graph), and a desugar pass (`return await E` / `await E;` /
+  `x = await E` → let-bound). `async_basic`/`async_if`/`async_for`/`async_multi`/`async_break`/
+  `async_return_await` run to parity. (Tests using generic-argument *inference* — `chan_recv(ch)`
+  without `<T>` — or async for-in/switch, or closure→fn-pointer extern callbacks, await those
+  orthogonal features.) Code generation also now **de-duplicates extern declarations** (the
+  same `extern` in two imported stdlib files no longer emits two `declare`s).
 - **Unified self-hosted compiler driver + a three-stage bootstrap.** `selfhost/esk_main.esk`
   runs the full pipeline in Eskiu — preprocess → parse → **type-check** → code-gen —
   rejecting ill-typed input without emitting IR. The new gate `tests/selfhost/cg_bootstrap.sh`

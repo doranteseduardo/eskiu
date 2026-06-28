@@ -306,10 +306,20 @@ awaited type Ti is resolved from the callee's return type (`produce()`→`Future
 factored out), not a method. Linearity guard (`al_is_linear`) leaves control-flow-around-
 await async fns untransformed (a clean boundary, not a miscompile). `async_basic` +
 multi-await/param run to parity; cg_parity 39/39, cg_selfhost 52/52, fixpoint green.
-**NEXT (async, the harder half): control flow around await** — lower if/while/for/switch
-containing an await into the state graph with break/continue retargeting (`brkTargets`/
-`contTargets`), + the desugar pass (await not already in a `let` → `let __awN = await E`).
-Then the remaining async tests (async_break/elseif/cancel/…). After that:
+**async control flow + desugar DONE (2026-06-29).** `al_transform` rebuilt around an `AlCtx`
+threading the state graph: recursive `al_lower_seq`/`al_lower_stmt` lower if/while/for
+containing an await into states with break/continue retargeting (`c.brk`/`c.cont`); a
+no-await statement is emitted verbatim via `al_rewrite_plain`. A desugar pass
+(`al_desugar_items`) turns `return await E` / `await E;` / `x = await E` into let-bound
+awaits. `al_can_lower` gates: top-level + if/while/for/block awaits transform; switch/for-in/
+match-with-await are left untransformed. Also a codegen fix: extern declarations are now
+de-duplicated (`fn:` keys in `inst_seen`) — the same `extern` in two stdlib files no longer
+double-`declare`s. **6 async tests pass** (basic/if/for/multi/break/return_await — incl. real
+while+for+break+continue). cg_parity 40/40, cg_selfhost 53/53, fixpoint green. **The async
+transform itself is essentially complete.** Remaining async tests await ORTHOGONAL features:
+generic-arg INFERENCE (`chan_recv(ch)` → `chan_recv<int>`, for channel/elseif/select/join/
+spawn), closure→fn-pointer coercion for `extern` callbacks (loop/io/timer), and async
+for-in/switch lowering. After that:
 
 **REMAINING (other): the capstone is largely covered.** It is NOT a
 codegen slice but an AST→AST lowering pass (`sema/async_transform.cpp`, 634 lines), run
