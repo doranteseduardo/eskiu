@@ -103,6 +103,23 @@ suffices (cross-file `#define` sharing not yet threaded — rare, defer). Now th
 `List<int>` monomorphizes + runs to parity (`cg_inputs/stdlib_list.esk`). No regression:
 parse_parity 51/51 (preprocessor-free closures → `pp_run` is identity), cg 28/28.
 
+## Phase D: self-compilation reached — dogfooding the codegen found 11 root bugs ✅
+
+Emitting IR for the compiler's own source (tokens→codegen + drivers) through the
+self-hosted code generator surfaced eleven codegen bugs, each fixed at the root (no
+patches): generic-field struct-type interleave; pointer comparison vs `null`; member
+access on a call-result rvalue (materialize into an alloca); one-level vs all-level
+pointer stripping (`cg_deref_ty`); `string` indexed as `*char`; pointer arithmetic →
+getelementptr; i64 GEP indices; `&&`/`||` short-circuit; call-argument coercion to the
+callee's param types; template type-arg resolution through the active substitution; and
+the keystone — counting only a TOP-LEVEL `*` so `List<*ExprNode>` is a generic struct
+value, not a `ptr` (the mis-lowering corrupted `ExprNode`'s layout). The last two were
+the segfault root causes (a bad `alloc` size, a wrong field offset). All five drivers,
+compiled by the self-hosted codegen, now match the C++-built ones byte-for-byte, and
+`cg_main` compiled by itself reproduces the C++-built codegen's IR exactly over the whole
+compiler (a bootstrap fixpoint). Gate: `tests/selfhost/cg_selfhost.sh` (45/45). The
+milestone's thesis held once more: dogfooding finds what the corpus can't.
+
 ## Minor ergonomics (not bugs)
 
 - Nested conditionals: prefer `else if`, flat `if`+`return` (see `keyword_type`), or

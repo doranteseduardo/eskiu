@@ -243,11 +243,30 @@ pre-pass 1d registers top-level `DK_VARDECL` into `g.gvars` (`@name` = storage a
 + emits `@name = global <llty> <init>` (literal scalar folds; else `zeroinitializer`,
 set up at runtime). EK_IDENT/`cg_lval`/`cg_etype` resolve globals after locals/enums.
 Verified the compiler's own `g_imported` pattern: a global `List<int>` (zeroinitializer)
-+ runtime `List_init`/push/get (`global_list.esk`). NEXT: dogfood the codegen against
-real compiler source to find the remaining gaps before Phase D. ADT enums/`match`
++ runtime `List_init`/push/get (`global_list.esk`).
+
+**PHASE D REACHED — self-compilation works (2026-06-27).** Dogfooding the codegen against
+the real compiler source surfaced + fixed (all ROOT fixes, no patches): nested-generic
+struct-type interleave (assemble body before emitting the line); pointer comparison/
+truthiness (`icmp ptr … null`, not `0`); member access on an rvalue (call result)
+materialized into an alloca; `cg_deref_ty` strips ONE pointer level (`**X`→`*X`, vs
+cg_strip_ptr's all); `string` indexed as `*char` (i8); pointer arithmetic → getelementptr;
+i64 GEP indices; `&&`/`||` short-circuit (alloca result slot); **argument coercion** to
+the callee's declared param types (an i32 count widening to an `int64` param — the bug
+that segfaulted `alloc<*ExprNode>`); type-arg resolution through the active substitution
+in template calls (`alloc<T>`→`alloc<Param>`, not `alloc_T`); and the keystone:
+**top-level-only `*` detection** so `List<*ExprNode>` is a generic struct (value), not a
+pointer — it was mis-lowered to `ptr`, corrupting `ExprNode`'s layout. RESULT: all 5
+drivers (lex/pp/parse/tc/cg), compiled by the self-hosted codegen, produce byte-identical
+output to the C++-built ones; and `cg_main.self` (the codegen compiled by ITSELF) emits
+byte-identical IR to the C++-built codegen for all 45 inputs incl. the whole compiler —
+a verified **bootstrap fixpoint**. Gate: `tests/selfhost/cg_selfhost.sh` (emit-validity +
+fixpoint, 45/45). cg 33/33. NEXT: wire cg_selfhost + cg_parity into CI (needs clang on
+the runner); broaden inputs (programs using float/match/closures still unsupported);
+optionally a full link-and-run bootstrap of the whole pipeline driver. ADT enums/`match`
 deferred (compiler uses if-kind chains, not match). (float/exceptions/atomics/async
-deferred — not needed for self-compilation.) Then closures +
-bitfield layout, function calls + sret, closures (fat `{ptr,ptr}` + env structs), ADTs
+deferred — not needed for self-compilation.) Later, if pursued: closures +
+bitfield layout, closures (fat `{ptr,ptr}` + env structs), ADTs
 (`{i32 tag,[N x i64]}`). **Defer** exceptions (landingpad/invoke) and atomics — the
 gnarliest ~40%; if textual emission gets too painful there, bind just those few ops via
 the LLVM-**C** API (`extern`) as a targeted hybrid, rather than the whole API.
