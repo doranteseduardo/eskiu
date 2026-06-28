@@ -14,6 +14,10 @@ import <string>;
 import <list>;
 import <mem>;
 
+// Host OS macro to predefine for real compilation (set by the compiler driver per host;
+// null/"" for the lexer-parity driver). See pp_run.
+string g_pp_os;
+
 struct PPMacro {
     string name;
     int is_function;
@@ -316,6 +320,14 @@ string pp_run(string src, int len, string filename, *int had_err) {
     fm.name = "__FILE__"; fm.is_function = 0; List_init<string>(&fm.params, 1);
     fm.body = (string)String_cstr(&fb);
     pp_define(&tbl, fm);
+
+    // Host OS macro (e.g. __APPLE__/__linux__) for real compilation, so platform `#ifdef`s
+    // in the stdlib pick the right branch. Left unset by the lexer-parity driver (pp_main),
+    // which passes filename "" and must match --test-lexer's macro-free environment.
+    if (g_pp_os != null) { if (g_pp_os[0] != 0) {
+        PPMacro om; om.name = g_pp_os; om.is_function = 0; List_init<string>(&om.params, 1); om.body = "";
+        pp_define(&tbl, om);
+    } }
 
     List<PPCond> stack;
     List_init<PPCond>(&stack, 8);
