@@ -261,9 +261,16 @@ drivers (lex/pp/parse/tc/cg), compiled by the self-hosted codegen, produce byte-
 output to the C++-built ones; and `cg_main.self` (the codegen compiled by ITSELF) emits
 byte-identical IR to the C++-built codegen for all 45 inputs incl. the whole compiler —
 a verified **bootstrap fixpoint**. Gate: `tests/selfhost/cg_selfhost.sh` (emit-validity +
-fixpoint, 45/45). cg 33/33. NEXT: wire cg_selfhost + cg_parity into CI (needs clang on
-the runner); broaden inputs (programs using float/match/closures still unsupported);
-optionally a full link-and-run bootstrap of the whole pipeline driver. ADT enums/`match`
+fixpoint, 45/45). cg 33/33. **Unified driver + 3-stage bootstrap (DONE).** `esk_main.esk`
+runs the full pipeline pp→parse→**sema**→codegen (rejects ill-typed input without emitting
+IR; all selfhost sources type-check clean). `cg_bootstrap.sh` does the canonical 3-stage
+build: C++ eskiuc → cc0, cc0 → cc1, cc1 → cc2; **stage2 ≡ stage3** (cc1 and cc2 emit
+identical IR for the compiler AND a sample, cc2 runs correctly). Binary byte-equality is
+NOT asserted — Mach-O LC_UUID + ad-hoc signature differ for identical input (linker
+artifact). All three codegen gates (cg_parity, cg_selfhost, cg_bootstrap) wired into CI
+with `CLANG=clang-22`. NEXT: broaden inputs (programs using float/match/closures still
+unsupported); errors→stderr in esk_main (a polish item; sema prints to stdout today).
+ADT enums/`match`
 deferred (compiler uses if-kind chains, not match). (float/exceptions/atomics/async
 deferred — not needed for self-compilation.) Later, if pursued: closures +
 bitfield layout, closures (fat `{ptr,ptr}` + env structs), ADTs

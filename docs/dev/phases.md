@@ -230,11 +230,12 @@ bindings — keeps the self-host dependency-free and is the standard bootstrap p
 
 ### v1.0 — Production-ready
 
-- [~] `eskiuc` compiles itself (self-hosting) — **bootstrap fixpoint reached** for the
-  pp→parse→codegen pipeline (the compiler's own source round-trips identically).
-  Remaining: a unified `pp→parse→sema→codegen` driver + a second-generation binary
-  bootstrap; full feature coverage (floats/match/closures/exceptions/async) is needed
-  only to compile arbitrary user programs, not to self-host
+- [~] `eskiuc` compiles itself (self-hosting) — **3-stage bootstrap fixpoint reached.**
+  The unified driver `selfhost/esk_main.esk` (pp→parse→sema→codegen) is built by the C++
+  eskiuc (cc0), then by cc0 (cc1), then by cc1 (cc2); cc1 ≡ cc2 emit identical IR for the
+  compiler's own source — a true self-hosting fixpoint (`cg_bootstrap.sh`, CI). Remaining
+  for v1.0: feature coverage (floats/match/closures/exceptions/async) — needed only to
+  compile arbitrary user programs, not to self-host
 - First-class types for high-throughput services
 
 ---

@@ -65,6 +65,9 @@ pipeline is untouched.
   AST and writes **textual LLVM IR** (named SSA temps, monomorphized generics, struct
   GEPs, ...). No LLVM library — `clang` assembles + links the emitted `.ll`.
 - `cg_main.esk` — driver: preprocess → parse → codegen `argv[1]`, printing the `.ll`.
+- `esk_main.esk` — the **unified compiler driver**: preprocess → parse → **sema** →
+  codegen. Rejects ill-typed input (exit 1, no IR); otherwise prints the `.ll`. This is
+  the binary the 3-stage bootstrap (`cg_bootstrap.sh`) builds from itself.
 - `../stdlib/ctype.esk` — pure-Eskiu ASCII classification (freestanding-clean; no
   libc ctype), used by the lexer.
 
@@ -96,12 +99,15 @@ tests/selfhost/parse_parity.sh --full  # parser AST dump → 51/51
 tests/selfhost/tc_parity.sh            # type-checker verdict parity (121 + 19 errors)
 tests/selfhost/cg_parity.sh            # codegen: emit .ll → clang → run vs C++ binary
 tests/selfhost/cg_selfhost.sh          # Phase D: whole compiler emits valid IR + fixpoint
+tests/selfhost/cg_bootstrap.sh         # 3-stage bootstrap: cc0→cc1→cc2, stage2 ≡ stage3
 ```
 
-`cg_parity.sh` and `cg_selfhost.sh` need `clang` on `PATH` (override with `CLANG=…`;
-CI passes `CLANG=clang-22`). `cg_selfhost.sh` is the bootstrap gate: it builds `cg_main`,
-then `cg_main` compiled by itself, and checks the two emit identical IR for the whole
-`selfhost/` tree.
+The codegen gates need `clang` on `PATH` (override with `CLANG=…`; CI passes
+`CLANG=clang-22`). `cg_selfhost.sh` checks `cg_main` and `cg_main`-built-by-itself emit
+identical IR for the whole `selfhost/` tree. `cg_bootstrap.sh` goes a generation further
+over the unified `esk_main` driver: the C++ eskiuc builds cc0, cc0 builds cc1, cc1 builds
+cc2, and cc1 ≡ cc2 (identical IR). Binaries aren't byte-compared — macOS Mach-O embeds an
+LC_UUID + ad-hoc signature that differ for identical input.
 
 The preprocessor has no standalone oracle, so `pp_parity.sh` validates it *through
 the lexer*: `pp_main` preprocesses + lexes, and the token stream is diffed against
