@@ -414,9 +414,23 @@ bytes across substituted variant payloads) + concrete variants registered keyed 
 (EK_TEMPLATECALL branch); match derives the concrete enum from the subject type. Fixes
 enum_generic, either_stdlib. cg_parity 65, cg_selfhost 78, fixpoint.
 
-Remaining (2 groups): **unhandled builtins** EK_ALLOCWITH / EK_THREADCREATE / EK_FREECLOSURE
-+ thread_join — alloc, alloc_with, threads, threading (valid IR now but wrong behavior — fall
-through to a default 0); **crashes** (segfault) traits_primitive, variadic, member_temp.
+**(crashes) 2 of 3 fixed.** **member_temp** was a self-host PARSER bug (NOT codegen):
+`(P { … })` was mis-parsed as a cast `(P)…` because `P` is a known type — the cast heuristic
+didn't verify a `)` follows the type. Fixed by making cast detection speculative (parse the
+type; only a cast if `)` follows, else back out so parse_postfix handles the parenthesized
+struct literal). parse-parity stays 51/51. **traits_primitive** was method dispatch on a
+PRIMITIVE receiver: `a.cmp(b)` where `a: int` (a primitive satisfying `Ord` via a free fn)
+ran the struct-method path and indexed a non-existent struct's fields → crash. Fixed by
+lowering `a.m(b)` → `m(a, b)` (receiver by value) when the receiver isn't a struct/ADT and a
+free fn `m` exists (mirrors the C++ scalar-primitive constraint dispatch). cg_parity 67,
+cg_selfhost 80, fixpoint.
+
+Remaining (2 groups, both unimplemented FEATURES, not quick fixes): **variadic** — the
+`va_list`/`va_start`/`va_arg<T>`/`va_end` builtins (the last "crash" is really this gap; it
+derefs the `"va_start"` string as a node). Needs the LLVM `va_arg` instruction +
+`llvm.va_start`/`va_end` intrinsics + platform va_list lowering. **unhandled builtins**
+EK_ALLOCWITH / EK_THREADCREATE / EK_FREECLOSURE + thread_join — alloc, alloc_with, threads,
+threading (valid IR now but wrong behavior — fall through to a default 0).
 
 **(historical) REMAINING (other): the capstone is largely covered.** It is NOT a
 codegen slice but an AST→AST lowering pass (`sema/async_transform.cpp`, 634 lines), run
