@@ -37,6 +37,18 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   with `throw`/`try` link `-lc++abi`) and **atomics** (`atomic_load`/`store`/`swap`/`cas` →
   `load atomic`/`store atomic`/`atomicrmw xchg`/`cmpxchg`). The self-hosted compiler
   reproduces its own IR throughout (bootstrap fixpoint stays green).
+- **Self-hosted codegen — unions, bitfields, and dynamic trait dispatch.** The
+  self-hosted code generator now also lowers: **unions** (every member overlaps at
+  offset 0; the type is `{ [N x i8] }` sized to the largest member, member access GEPs
+  to the shared storage); **bitfields** (declared widths packed into `i32` words —
+  reads `lshr`+`and`+optional `sext`, writes read-modify-write the word with a cleared
+  mask, struct-init fills bit slots, and a normal field in a bitfield struct uses its
+  real word index); and **interfaces / dynamic trait dispatch** (an interface value is a
+  fat pointer `{ data, vtable }`; passing a struct pointer where an interface is expected
+  **boxes** it — building a per-`(interface, struct)` vtable global of the struct's method
+  implementations — and a call through an interface value dispatches by loading the method
+  pointer from its vtable slot and calling it with `data` as the implicit receiver). Each
+  is behaviorally parity-tested; the bootstrap fixpoint stays green.
 - **Self-hosting async: all 19 async tests pass** — `for-in` over an await now lowers too
   (desugared to a counted `for` — array `T[N]` indexes `xs[i]`/length N; a list-like struct
   uses `xs.data[i]`/`xs.size`), completing the async transform. (Was 18/19.)
