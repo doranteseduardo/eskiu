@@ -433,10 +433,22 @@ cg_selfhost 80, fixpoint.
 `cg_ensure_extern`. Fixes alloc, alloc_with, threads, threading. cg_parity 71, cg_selfhost
 84, fixpoint, guard-malloc clean.
 
-Remaining (1 group): **variadic** — the `va_list`/`va_start`/`va_arg<T>`/`va_end` builtins
-(unimplemented; currently crashes — derefs the `"va_start"` string as a node). Needs the LLVM
-`va_arg` instruction + `llvm.va_start`/`va_end` intrinsics + platform va_list lowering. The
-only remaining feature-sweep gap.
+**(variadic) DONE** — user-defined variadic fns (`int f(int n, ...)`: cg_emit_fn emits the
+trailing `...` and skips it from the param allocas) + `va_list` (→ `%__va_list = type
+{ ptr, ptr, ptr, i32, i32 }`, AArch64 layout / x86-64 superset) + `va_start(ap)`/`va_end(ap)`
+(→ `llvm.va_start.p0`/`va_end.p0` on the va_list's address) + `va_arg<T>(ap)` (→ the LLVM
+`va_arg` instruction). Fixes variadic. cg_parity 72, cg_selfhost 85, fixpoint.
+
+**SWEEP RE-RUN (decisive check) — 46 ok, 3 FAIL.** The original triage detailed only 17 of
+21 failures (truncated output), so the punch-list UNDERCOUNTED — these 3 were failing all
+along, not regressions (lesson, again: enumerate the FULL failure set). Remaining gaps:
+**`?` operator** (question_op) — `Result` error propagation: `x?` should early-return the
+error when the operand is an `Err`. Self-host returns the value unconditionally (no
+propagation). **packed structs** (pack_n, pp_pack) — `packed struct` / `#pragma pack(N)`
+must emit an LLVM packed struct `<{ … }>` (no inter-field padding); the self-host emits a
+natural `{ … }`, so `sizeof`/layout differ. (The `isPacked`/`packAlign` flags were a Phase-A
+deferral — never carried into self-host codegen.) Both were in the original 21; surfaced now
+that the crashes/bad-IR ahead of them are fixed.
 
 **(historical) REMAINING (other): the capstone is largely covered.** It is NOT a
 codegen slice but an AST→AST lowering pass (`sema/async_transform.cpp`, 634 lines), run
