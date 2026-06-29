@@ -405,9 +405,17 @@ just `@name`. `cg_is_fn` + `cg_fn_to_closure`/`cg_emit_thunk`/`cg_drain_thunks`;
 cg_expr EK_IDENT (→ `@name` ptr) + cg_coerce (`@name`→`%closure`). Fixes fn_pointer,
 fn_more, c_callback, map_generic. cg_parity 63, cg_selfhost 76, fixpoint.
 
-Remaining (3 groups): **#5 generic ADT enum monomorphization** (enum_generic,
-either_stdlib); **unhandled builtins** EK_ALLOCWITH / EK_THREADCREATE / EK_FREECLOSURE +
-thread_join — alloc, alloc_with, threads, threading (valid IR now but wrong behavior — fall
+**(5) generic ADT enum monomorphization DONE** — `cg_ensure_enum_inst` (mirrors
+`cg_ensure_struct_inst`): `Option<int>` → `%Option_int = type { i32, [N x i64] }` (N sized by
+bytes across substituted variant payloads) + concrete variants registered keyed by
+`(vname, mangled-enum)` via `cg_find_variant_in`. Generic enums register into `g.genums` +
+`g.gvariants` (patterns); cg_lltype dispatches targs to enum-vs-struct inst; construction
+`Some<int>(42)` resolves the instance from the variant's generic enum + explicit type args
+(EK_TEMPLATECALL branch); match derives the concrete enum from the subject type. Fixes
+enum_generic, either_stdlib. cg_parity 65, cg_selfhost 78, fixpoint.
+
+Remaining (2 groups): **unhandled builtins** EK_ALLOCWITH / EK_THREADCREATE / EK_FREECLOSURE
++ thread_join — alloc, alloc_with, threads, threading (valid IR now but wrong behavior — fall
 through to a default 0); **crashes** (segfault) traits_primitive, variadic, member_temp.
 
 **(historical) REMAINING (other): the capstone is largely covered.** It is NOT a
