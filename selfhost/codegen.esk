@@ -52,6 +52,7 @@ struct Codegen {
     List<string> enum_names; // enum type names (lower to i32)
     List<CgVariant> variants; // ADT enum variants (by name)
     List<string> adt_names;  // ADT enum type names (lower to %Name, a tagged union)
+    List<string> union_names; // union type names (all members overlap at offset 0)
     List<CgLambda> lambdas;  // queued lambda bodies, emitted after the main decls
     int lam_seq;             // counter for unique lambda names
     string lam_expret;       // return type expected from a lambda's assignment context ("" = none)
@@ -123,6 +124,7 @@ void cg_init(Codegen* g) {
     List_init<string>(&g.enum_names, 16);
     List_init<CgVariant>(&g.variants, 16);
     List_init<string>(&g.adt_names, 8);
+    List_init<string>(&g.union_names, 4);
     List_init<CgLambda>(&g.lambdas, 8);
     g.lam_seq = 0;
     g.lam_expret = "";
@@ -479,6 +481,31 @@ int cg_is_adt(Codegen* g, string name) {
     int i = 0; int n = List_len<string>(&g.adt_names);
     while (i < n) { if (cg_streq(List_get<string>(&g.adt_names, i), name) == 1) { return 1; } i = i + 1; }
     return 0;
+}
+
+int cg_is_union(Codegen* g, string name) {
+    int i = 0; int n = List_len<string>(&g.union_names);
+    while (i < n) { if (cg_streq(List_get<string>(&g.union_names, i), name) == 1) { return 1; } i = i + 1; }
+    return 0;
+}
+
+// Approximate byte size of a type (no DataLayout): pointers/i64/double 8, i32/float 4,
+// i16 2, i8/bool/char 1; a struct sums its fields. Used to size a union's storage.
+int cg_type_bytes(Codegen* g, string t) {
+    if (cg_is_ptr_ty(t) == 1 || cg_streq(t, "string") == 1) { return 8; }
+    if (cg_streq(t, "int64") == 1 || cg_streq(t, "uint64") == 1 || cg_streq(t, "double") == 1) { return 8; }
+    if (cg_streq(t, "int") == 1 || cg_streq(t, "int32") == 1 || cg_streq(t, "uint") == 1
+        || cg_streq(t, "uint32") == 1 || cg_streq(t, "float") == 1) { return 4; }
+    if (cg_streq(t, "int16") == 1 || cg_streq(t, "uint16") == 1) { return 2; }
+    if (cg_streq(t, "int8") == 1 || cg_streq(t, "uint8") == 1 || cg_streq(t, "char") == 1 || cg_streq(t, "bool") == 1) { return 1; }
+    if (cg_is_struct(g, t) == 1) {
+        CgStruct s = cg_find_struct(g, t);
+        int sum = 0; int i = 0;
+        while (i < List_len<string>(&s.fetys)) { sum = sum + cg_type_bytes(g, List_get<string>(&s.fetys, i)); i = i + 1; }
+        if (sum < 1) { sum = 1; }
+        return sum;
+    }
+    return 8;     // unknown — be safe
 }
 
 // Find an ADT variant by name; sentinel with .ename == "" if not a known variant.
@@ -1059,10 +1086,14 @@ CgVal cg_lval(Codegen* g, *ExprNode e) {
         }
         CgStruct s = cg_find_struct(g, sname);
         int idx = cg_field_idx(&s, e.sval);
+        // A union's members all overlap at offset 0: GEP to the storage (field 0), and the
+        // member's own type governs the later load/store. A struct uses the field index.
+        int gepidx = idx;
+        if (cg_is_union(g, s.name) == 1) { gepidx = 0; }
         string t = cg_tmp(g);
         cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = getelementptr inbounds %");
         cg_emit(g, s.name); cg_emit(g, ", ptr "); cg_emit(g, sptr);
-        cg_emit(g, ", i32 0, i32 "); cg_emit(g, cg_itoa(idx)); cg_emit(g, "\n");
+        cg_emit(g, ", i32 0, i32 "); cg_emit(g, cg_itoa(gepidx)); cg_emit(g, "\n");
         v.op = t;
         if (idx >= 0) { v.ety = List_get<string>(&s.fetys, idx); }
         return v;
@@ -1151,11 +1182,14 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
             CgVal rhs = cg_expr(g, e.b);
             if (e.a != null && e.a.kind == EK_IDENT && cg_find_local(g, e.a.sval).slot[0] != 0) {
                 CgLocal l = cg_find_local(g, e.a.sval);
-                cg_emit(g, "  store "); cg_emit(g, l.ty); cg_emit(g, " "); cg_emit(g, rhs.op);
+                string rop = cg_coerce(g, rhs, l.ty);   // coerce RHS to the variable's type
+                cg_emit(g, "  store "); cg_emit(g, l.ty); cg_emit(g, " "); cg_emit(g, rop);
                 cg_emit(g, ", ptr "); cg_emit(g, l.slot); cg_emit(g, "\n");
             } else {                                    // member / deref / index lvalue
                 CgVal lv = cg_lval(g, e.a);
-                cg_emit(g, "  store "); cg_emit(g, cg_lltype(g, lv.ety)); cg_emit(g, " "); cg_emit(g, rhs.op);
+                string lty = cg_lltype(g, lv.ety);
+                string rop = cg_coerce(g, rhs, lty);    // coerce RHS to the field/element type
+                cg_emit(g, "  store "); cg_emit(g, lty); cg_emit(g, " "); cg_emit(g, rop);
                 cg_emit(g, ", ptr "); cg_emit(g, lv.op); cg_emit(g, "\n");
             }
             return rhs;
@@ -2196,6 +2230,21 @@ void cg_program(Codegen* g, *Program prog) {
                 fi = fi + 1;
             }
             List_push<CgStruct>(&g.structs, s);
+        } else if (d.kind == DK_UNION) {
+            let s: CgStruct;
+            s.name = d.name;
+            List_init<string>(&s.fnames, 4);
+            List_init<string>(&s.fetys, 4);
+            int nf = List_len<Param>(&d.params);
+            int fi = 0;
+            while (fi < nf) {
+                Param pm = List_get<Param>(&d.params, fi);
+                List_push<string>(&s.fnames, pm.name);
+                List_push<string>(&s.fetys, pm.ty);
+                fi = fi + 1;
+            }
+            List_push<CgStruct>(&g.structs, s);
+            List_push<string>(&g.union_names, d.name);
         }
         si = si + 1;
     }
@@ -2217,6 +2266,17 @@ void cg_program(Codegen* g, *Program prog) {
             String_append(&g.globals, "%"); String_append(&g.globals, d.name);
             String_append(&g.globals, " = type { "); String_append(&g.globals, (string)String_cstr(&body));
             String_append(&g.globals, " }\n");
+        } else if (d.kind == DK_UNION) {
+            // A union is storage sized to its largest member; all members overlap at offset 0.
+            int maxb = 1; int fi = 0;
+            while (fi < List_len<Param>(&d.params)) {
+                int bb = cg_type_bytes(g, List_get<Param>(&d.params, fi).ty);
+                if (bb > maxb) { maxb = bb; }
+                fi = fi + 1;
+            }
+            String_append(&g.globals, "%"); String_append(&g.globals, d.name);
+            String_append(&g.globals, " = type { ["); String_append(&g.globals, cg_itoa(maxb));
+            String_append(&g.globals, " x i8] }\n");
         }
         si = si + 1;
     }
