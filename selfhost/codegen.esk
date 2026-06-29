@@ -1086,6 +1086,13 @@ string cg_lltype(Codegen* g, string t) {
     if (cg_streq(t, "float") == 1) { return "float"; }
     if (cg_streq(t, "double") == 1) { return "double"; }
     if (cg_streq(t, "string") == 1) { return "ptr"; }
+    if (cg_streq(t, "va_list") == 1) {                     // {ptr,ptr,ptr,i32,i32} (AArch64 layout, x86-64 superset)
+        if (cg_seen_inst(g, "type:__va_list") == 0) {
+            List_push<string>(&g.inst_seen, "type:__va_list");
+            String_append(&g.globals, "%__va_list = type { ptr, ptr, ptr, i32, i32 }\n");
+        }
+        return "%__va_list";
+    }
     if (cg_is_iface(g, t) == 1) { return "ptr"; }          // interface value = ptr to fat {data,vtable}
     if (cg_is_struct(g, t) == 1) { return cg_cat("%", t); }
     if (cg_is_adt(g, t) == 1) { return cg_cat("%", t); }   // ADT enum → tagged-union type
@@ -1687,6 +1694,16 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
         if (e.a != null && e.a.kind == EK_IDENT && cg_is_atomic(e.a.sval) == 1) {
             return cg_emit_atomic(g, e.a.sval, e);
         }
+        // Variadic access: va_start(ap)/va_end(ap) → the llvm.va_{start,end} intrinsic on the
+        // va_list's address (its alloca). `ap` is a local va_list.
+        if (e.a != null && e.a.kind == EK_IDENT
+            && (cg_streq(e.a.sval, "va_start") == 1 || cg_streq(e.a.sval, "va_end") == 1)) {
+            string ap = cg_lval(g, List_get<*ExprNode>(&e.kids, 0)).op;
+            string intr = "llvm.va_start.p0"; if (cg_streq(e.a.sval, "va_end") == 1) { intr = "llvm.va_end.p0"; }
+            cg_ensure_extern(g, intr, cg_cat(cg_cat("declare void @", intr), "(ptr)\n"));
+            cg_emit(g, "  call void @"); cg_emit(g, intr); cg_emit(g, "(ptr "); cg_emit(g, ap); cg_emit(g, ")\n");
+            v.op = ""; v.ty = "void"; return v;
+        }
         // An ADT variant constructor `Circle(4)` parses as a call with a bare-ident callee.
         if (e.a != null && e.a.kind == EK_IDENT) {
             CgVariant var = cg_find_variant(g, e.a.sval);
@@ -1792,6 +1809,18 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
     }
 
     if (e.kind == EK_TEMPLATECALL) {
+        // Variadic access: va_arg<T>(ap) → the LLVM `va_arg` instruction reading the next
+        // argument of type T from the va_list's address.
+        if (cg_streq(cg_gen_base(e.sval), "va_arg") == 1) {
+            List<string> ta; List_init<string>(&ta, 1); cg_gen_args(e.sval, &ta);
+            string ety = cg_apply_sub(g, List_get<string>(&ta, 0));
+            string llty = cg_lltype(g, ety);
+            string ap = cg_lval(g, List_get<*ExprNode>(&e.kids, 0)).op;
+            string r = cg_tmp(g);
+            cg_emit(g, "  "); cg_emit(g, r); cg_emit(g, " = va_arg ptr "); cg_emit(g, ap);
+            cg_emit(g, ", "); cg_emit(g, llty); cg_emit(g, "\n");
+            v.op = r; v.ty = llty; v.ety = ety; return v;
+        }
         // A generic ADT variant constructor: `Some<int>(42)` / `None<int>()`. Resolve the
         // concrete enum from the variant's generic enum + the explicit type args, ensure the
         // instance, then build the value through its concrete (substituted) variant.
@@ -2734,7 +2763,8 @@ void cg_emit_fn(Codegen* g, *DeclNode d, string llname, string self_struct) {
     while (pi < np) {
         Param pm = List_get<Param>(&d.params, pi);
         if (pi + base > 0) { cg_emit(g, ", "); }
-        cg_emit(g, cg_lltype(g, pm.ty)); cg_emit(g, " %p"); cg_emit(g, cg_itoa(pi + base));
+        if (cg_streq(pm.ty, "...") == 1) { cg_emit(g, "..."); }   // user-defined variadic
+        else { cg_emit(g, cg_lltype(g, pm.ty)); cg_emit(g, " %p"); cg_emit(g, cg_itoa(pi + base)); }
         pi = pi + 1;
     }
     cg_emit(g, ")");
@@ -2750,6 +2780,7 @@ void cg_emit_fn(Codegen* g, *DeclNode d, string llname, string self_struct) {
     pi = 0;
     while (pi < np) {
         Param pm = List_get<Param>(&d.params, pi);
+        if (cg_streq(pm.ty, "...") == 1) { pi = pi + 1; continue; }   // variadic marker: no slot
         string pty = cg_lltype(g, pm.ty);
         string slot = cg_tmp(g);
         cg_emit(g, "  "); cg_emit(g, slot); cg_emit(g, " = alloca "); cg_emit(g, pty); cg_emit(g, "\n");
