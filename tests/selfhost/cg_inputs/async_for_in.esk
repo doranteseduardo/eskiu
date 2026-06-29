@@ -1,0 +1,64 @@
+// for-in containing an await, over both iterable kinds. The transform desugars
+// for-in into a counted for (using the type checker's element-type stamp), then
+// the ordinary for lowering handles the await + continue/break. Covers a
+// fixed-size array (with continue + break) and a List-like struct (`data`/`size`),
+// the latter with a *suspending* await over the reactor.
+import <mem>;
+import <future>;
+import <net_async>;
+import <eventloop>;
+extern int  printf(string fmt, ...);
+extern int  pipe(*int fds);
+extern int64 write(int fd, *void buf, int64 n);
+extern int  close(int fd);
+struct IntList { *int data; int size; }
+uint8[8] rb;
+EventLoop* g;
+
+Future<int>* produce(int v) { Future<int>* f = future_new<int>(); future_complete<int>(f, v); return f; }
+
+// Array path, ready futures: skip zeros (continue), stop at 99 (break).
+async int sum_arr() {
+    int[5] xs;
+    xs[0] = 10; xs[1] = 20; xs[2] = 0; xs[3] = 30; xs[4] = 99;
+    int total = 0;
+    for (v in xs) {
+        int got = await produce(v);
+        if (got == 0) { continue; }
+        if (got == 99) { break; }
+        total = total + got;
+    }
+    return total;                       // 10 + 20 + 30 = 60
+}
+
+// List path, with a suspending reactor read once per element.
+async int sum_list(EventLoop* lp, IntList* xs, int fd) {
+    int total = 0;
+    for (v in xs) {
+        int n = await net_read_async(lp, fd, &rb[0], (int64)1);   // suspends
+        total = total + v * n;          // n is 1 byte each
+    }
+    return total;                       // (3+4+5) * 1 = 12
+}
+
+int main() {
+    Future<int>* a = sum_arr();
+    future_poll<int>(a, void() {});
+    printf("%d\n", a.value);            // 60
+    free_future<int>(a);
+
+    IntList lst;
+    lst.data = alloc<int>(3); lst.size = 3;
+    lst.data[0] = 3; lst.data[1] = 4; lst.data[2] = 5;
+    int[2] fds; pipe(&fds[0]);
+    write(fds[1], (*void)"abc", (int64)3);   // one byte consumed per element
+    close(fds[1]);
+    g = el_new(64);
+    Future<int>* b = sum_list(g, &lst, fds[0]);
+    if (future_poll<int>(b, void() { el_stop(g); }) == 0) { el_run(g); }
+    printf("%d\n", b.value);            // 12
+    free_future<int>(b);
+    el_free(g);
+    free((*void)lst.data);
+    return 0;
+}
