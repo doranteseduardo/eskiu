@@ -128,7 +128,7 @@ Codegen checks: single alloca per var, every branch terminated, no undef, correc
 - Source modularization (the codegen/sema/parser splits), the asan/ubsan CI gate, and the generative fuzzer with its O0-vs-O2 differential oracle (0.2.1–0.2.2).
 - Bounded generics (<code>&lt;T: Iface&gt;</code> / <code>&lt;T: A + B&gt;</code>) and primitives-satisfy-constraints (0.2.2–0.2.3).
 - The structured <code>ty::Type</code> IR (0.2.3) and the type unification that made the type checker the <strong>single resolver</strong> (0.2.4): codegen consumes the resolved per-expression types, and <code>getTypeFromString</code> dispatches on <code>ty::Type::parse</code>. This closed the old two-evaluator miscompile risk and fixed three latent miscompiles (float-lit double, ptr-deref width, char zext).
-Genuinely deferred: a package manager, self-hosting/renderer, and the tighter locals-across-await liveness optimization. See docs/dev/phases.md for the full feature table and roadmap. New feature proposals require an issue.</p>
+Genuinely deferred: a package manager and the tighter locals-across-await liveness optimization. (Self-hosting shipped in v0.3.0 — the compiler is reimplemented in Eskiu in <code>selfhost/</code>.) See docs/dev/phases.md for the full feature table and roadmap. New feature proposals require an issue.</p>
     </div>
     <div class="foot"><a href="../index.html">← Back to eskiu</a></div>
   </div>

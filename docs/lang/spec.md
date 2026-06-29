@@ -105,7 +105,9 @@ sizeof  free_closure  union  enum
 
 Negative literals are first-class values and can be used in any expression context, including global variable initialisers and struct field initialisers.
 
-**Float literals** contain a decimal point:
+**Float literals** contain a decimal point. They have type `double` (f64) by default;
+assigning one to a `float` (f32) variable or field coerces it down (a `double`→`float`
+cast). Integer literals are `int` (i32), widening to `int64` when they exceed 32 bits.
 
 ```eskiu
 3.14    2.0    0.5
@@ -157,7 +159,7 @@ Negative literals are first-class values and can be used in any expression conte
 | `float`  | `float`  | 32 bits | IEEE 754 single-precision          |
 | `double` | `double` | 64 bits | IEEE 754 double-precision          |
 | `bool`   | `i1`     | 1 bit   | `true` or `false`                  |
-| `char`   | `i8`     | 8 bits  | Single byte                        |
+| `char`   | `i8`     | 8 bits  | Unsigned; single byte              |
 | `string` | `i8*`    | pointer | Immutable C-string literal         |
 | `void`   | `void`   | —       | No value; valid only as return type|
 
@@ -1367,7 +1369,8 @@ Result<int, string> compute(int a, int b, int c) {
 ```
 
 A value is treated as Result-like if it has an `int ok` field and a `value`
-field; the standard library's `Result<T, E>` satisfies this.
+field; the standard library's `Result<T, E>` satisfies this. Applying `?` to an
+expression of any other type is a compile error.
 
 ### 10.6 Bounded type parameters (constraints)
 

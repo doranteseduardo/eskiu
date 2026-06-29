@@ -748,10 +748,9 @@ result = builder-&gt;CreateGEP(ptrElemType(), left, neg, &quot;ptr.sub&quot;);
 <hr>
 <h2 id="known-limitations">Known Limitations</h2>
 <ul>
-<li><strong>Float literal width mismatch</strong>: float literals always emit as <code>double</code> (<code>f64</code>). When assigned to a <code>float</code> (<code>f32</code>) field via <code>emitStructInitInto()</code>, the <code>CreateFPCast</code> coercion fires correctly, but a <code>float</code> local variable initialized with a float literal goes through <code>CreateFPCast</code> from <code>double</code> → <code>float</code> in <code>visit(VarDecl*)</code>. This is correct but may emit a wider intermediate value than expected.</li>
-<li><strong>Interface dispatch return type</strong>: vtable function pointers are called with <code>FunctionType::get(void, [ptr, ptr, ...], false)</code>. For <code>void</code> methods this is exact. For methods that return values, the call result is still pushed to <code>exprValueStack</code> and the caller uses it — but the <code>FunctionType</code> used for the indirect call declares void return, which means LLVM IR emits a <code>call void</code> and the result is <code>void</code>. This works for <code>void</code> interface methods only. Non-void interface methods require storing the return type in <code>ifaceMethodReturnTypes</code> and using it in the <code>FunctionType</code>.</li>
 <li><strong>Source line numbers at <code>0:0</code></strong>: nodes not stamped by <code>withPos()</code> in the parser (including internally synthesized nodes like desugared compound assignments' outer <code>BinaryExpr</code>, some <code>BlockStmt</code> wrappers) report <code>line=0, col=0</code> in error messages. All primary expressions, operators, and control-flow statements are stamped correctly.</li>
 </ul>
+<p>(Two former limitations are resolved: float-literal handling — literals are <code>double</code> and coerce to <code>float</code> on assignment, which is correct, see "Type lowering" above — and non-<code>void</code> interface-method dispatch, which uses the method's real return type via <code>ifaceMethodReturnTypes</code> / <code>ifaceMethodParamEskiuTypes</code> to build the indirect-call <code>FunctionType</code>.)</p>
     </div>
     <div class="foot"><a href="../index.html">← Back to eskiu</a></div>
   </div>
