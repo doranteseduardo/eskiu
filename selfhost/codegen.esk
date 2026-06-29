@@ -1864,6 +1864,45 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
         v.ty = dll; v.ety = dstety; return v;
     }
 
+    if (e.kind == EK_QUESTION) {
+        // `expr?` — if expr is an Err Result (`.ok == 0`), return it whole from the enclosing
+        // function; otherwise the expression yields the unwrapped `.value` field.
+        CgVal r = cg_expr(g, e.a);
+        string llty = r.ty; string sname = llty;
+        if ((int)llty[0] == 37) { int ll = 0; while (llty[ll] != 0) { ll = ll + 1; } sname = cg_sub_str(llty, 1, ll); }
+        CgStruct s = cg_find_struct(g, sname);
+        int okIdx = cg_field_idx(&s, "ok");
+        int valIdx = cg_field_idx(&s, "value");
+        string okllty = cg_lltype(g, List_get<string>(&s.fetys, okIdx));
+        string valety = List_get<string>(&s.fetys, valIdx);
+        string valllty = cg_lltype(g, valety);
+        string tmp = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, tmp); cg_emit(g, " = alloca "); cg_emit(g, llty); cg_emit(g, "\n");
+        cg_emit(g, "  store "); cg_emit(g, llty); cg_emit(g, " "); cg_emit(g, r.op); cg_emit(g, ", ptr "); cg_emit(g, tmp); cg_emit(g, "\n");
+        string okp = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, okp); cg_emit(g, " = getelementptr "); cg_emit(g, llty); cg_emit(g, ", ptr "); cg_emit(g, tmp);
+        cg_emit(g, ", i32 0, i32 "); cg_emit(g, cg_itoa(okIdx)); cg_emit(g, "\n");
+        string okv = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, okv); cg_emit(g, " = load "); cg_emit(g, okllty); cg_emit(g, ", ptr "); cg_emit(g, okp); cg_emit(g, "\n");
+        string iserr = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, iserr); cg_emit(g, " = icmp eq "); cg_emit(g, okllty); cg_emit(g, " "); cg_emit(g, okv); cg_emit(g, ", 0\n");
+        string errl = cg_lbl(g); string contl = cg_lbl(g);
+        cg_emit(g, "  br i1 "); cg_emit(g, iserr); cg_emit(g, ", label %"); cg_emit(g, errl); cg_emit(g, ", label %"); cg_emit(g, contl); cg_emit(g, "\n");
+        g.terminated = 1;
+        cg_label(g, errl);                               // propagate the Err out of the function
+        string whole = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, whole); cg_emit(g, " = load "); cg_emit(g, llty); cg_emit(g, ", ptr "); cg_emit(g, tmp); cg_emit(g, "\n");
+        cg_emit(g, "  ret "); cg_emit(g, g.cur_ret); cg_emit(g, " "); cg_emit(g, whole); cg_emit(g, "\n");
+        g.terminated = 1;
+        cg_label(g, contl);                              // success: unwrap .value
+        string valp = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, valp); cg_emit(g, " = getelementptr "); cg_emit(g, llty); cg_emit(g, ", ptr "); cg_emit(g, tmp);
+        cg_emit(g, ", i32 0, i32 "); cg_emit(g, cg_itoa(valIdx)); cg_emit(g, "\n");
+        string val = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, val); cg_emit(g, " = load "); cg_emit(g, valllty); cg_emit(g, ", ptr "); cg_emit(g, valp); cg_emit(g, "\n");
+        v.op = val; v.ty = valllty; v.ety = valety; return v;
+    }
+
     if (e.kind == EK_ALLOCWITH) {
         // alloc_with(&a, T, n) → (*T) <AllocType>_alloc(&a, n * sizeof(T)). The allocator's
         // static struct type names the alloc method; the result is a `*T`.
