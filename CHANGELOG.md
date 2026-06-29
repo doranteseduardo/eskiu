@@ -9,6 +9,13 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-06-29
+
+The self-hosting milestone: the whole compiler — lexer, preprocessor, parser, semantic
+analyzer, and code generator — is reimplemented in Eskiu (`selfhost/`), reaches a 3-stage
+bootstrap fixpoint, and the self-hosted codegen is **feature-complete against the C++
+corpus** (a full feature sweep is clean). All parity/self-host/bootstrap gates are CI-wired.
+
 ### Fixed
 - **`&&` and `||` now short-circuit.** Code generation evaluated both operands eagerly
   and emitted a logical-and/or, so the right-hand side always ran — a guarded

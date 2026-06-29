@@ -4,7 +4,7 @@ Eskiu is a statically typed systems language built to replace a familiar stack: 
 
 The goal is one language for all of it — native performance, explicit memory (`alloc<T>` / `free`), and direct access to any C library, in deliberately C-style syntax with modern conveniences on top: bounded generics (`<T: Iface>`), structural interfaces, sum types with `match`, lambdas, and `async`/`await`.
 
-**Current version: v0.2.5.**
+**Current version: v0.3.0.**
 
 ---
 
