@@ -889,6 +889,15 @@ void cg_drain_thunks(Codegen* g) {
     while (i < List_len<string>(&g.fnthunks)) { cg_emit_thunk(g, List_get<string>(&g.fnthunks, i)); i = i + 1; }
 }
 
+// Emit a runtime `declare` once for a libc/pthread symbol the codegen calls directly
+// (pthread_create/join, free). Skips it if the symbol is already a declared extern.
+void cg_ensure_extern(Codegen* g, string name, string decl) {
+    if (cg_is_fn(g, name) == 1) { return; }
+    if (cg_seen_inst(g, cg_cat("decl:", name)) == 1) { return; }
+    List_push<string>(&g.inst_seen, cg_cat("decl:", name));
+    String_append(&g.globals, decl);
+}
+
 void cg_emit(Codegen* g, string s) { String_append(&g.out, s); }
 
 // Emit a `call` — or, inside a try body (cur_unwind set), an `invoke` that routes
@@ -1826,6 +1835,55 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
         v.ty = dll; v.ety = dstety; return v;
     }
 
+    if (e.kind == EK_ALLOCWITH) {
+        // alloc_with(&a, T, n) → (*T) <AllocType>_alloc(&a, n * sizeof(T)). The allocator's
+        // static struct type names the alloc method; the result is a `*T`.
+        string elemty = cg_apply_sub(g, e.sval);
+        CgVal av = cg_expr(g, e.a);                       // allocator pointer
+        string at = cg_strip_ptr(cg_etype(g, e.a));       // allocator struct name
+        string fname = cg_cat(at, "_alloc");
+        CgFn f = cg_find_fn(g, fname);
+        CgVal cnt = cg_expr(g, e.b);
+        string n64 = cg_coerce(g, cnt, "i64");
+        string total = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, total); cg_emit(g, " = mul i64 "); cg_emit(g, n64);
+        cg_emit(g, ", "); cg_emit(g, cg_itoa(cg_size(g, elemty))); cg_emit(g, "\n");
+        string p1 = cg_pty(&f, 1); string targ = total; string targty = "i64";
+        if (p1[0] != 0) { let tv: CgVal; tv.op = total; tv.ty = "i64"; tv.ety = "int64"; targ = cg_coerce(g, tv, p1); targty = p1; }
+        string r = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, r); cg_emit(g, " = call "); cg_emit(g, f.retty);
+        cg_emit(g, " @"); cg_emit(g, fname); cg_emit(g, "(ptr "); cg_emit(g, av.op);
+        cg_emit(g, ", "); cg_emit(g, targty); cg_emit(g, " "); cg_emit(g, targ); cg_emit(g, ")\n");
+        v.op = r; v.ty = "ptr"; v.ety = cg_cat("*", elemty); return v;
+    }
+
+    if (e.kind == EK_THREADCREATE) {
+        // thread_create(worker) → pthread_create(&tid, null, fn, env); returns the tid.
+        CgVal fat = cg_expr(g, e.a);                      // %closure {fn, env}
+        string fnp = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, fnp); cg_emit(g, " = extractvalue %closure "); cg_emit(g, fat.op); cg_emit(g, ", 0\n");
+        string env = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, env); cg_emit(g, " = extractvalue %closure "); cg_emit(g, fat.op); cg_emit(g, ", 1\n");
+        string tid = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, tid); cg_emit(g, " = alloca ptr\n");
+        cg_ensure_extern(g, "pthread_create", "declare i32 @pthread_create(ptr, ptr, ptr, ptr)\n");
+        cg_emit(g, "  call i32 @pthread_create(ptr "); cg_emit(g, tid); cg_emit(g, ", ptr null, ptr ");
+        cg_emit(g, fnp); cg_emit(g, ", ptr "); cg_emit(g, env); cg_emit(g, ")\n");
+        string h = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, h); cg_emit(g, " = load ptr, ptr "); cg_emit(g, tid); cg_emit(g, "\n");
+        v.op = h; v.ty = "ptr"; v.ety = "*void"; return v;
+    }
+
+    if (e.kind == EK_FREECLOSURE) {
+        // free_closure(f) → free the closure's heap env (slot 1); free(null) is a safe no-op.
+        CgVal fat = cg_expr(g, e.a);
+        string env = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, env); cg_emit(g, " = extractvalue %closure "); cg_emit(g, fat.op); cg_emit(g, ", 1\n");
+        cg_ensure_extern(g, "free", "declare void @free(ptr)\n");
+        cg_emit(g, "  call void @free(ptr "); cg_emit(g, env); cg_emit(g, ")\n");
+        v.op = ""; v.ty = "void"; return v;
+    }
+
     if (e.kind == EK_STRUCTINIT) {
         // A struct literal `P{ … }` used as an rvalue (e.g. `x = P{…}`): materialize into a
         // temp, fill its fields, and load the struct value. (Var-decls fill in place.)
@@ -2645,6 +2703,13 @@ void cg_stmt(Codegen* g, *StmtNode st) {
             cg_emit(g, "  ret void\n");
         }
         g.terminated = 1;
+        return;
+    }
+    if (st.kind == SK_THREADJOIN) {
+        // thread_join(t) → pthread_join(t, null)
+        string tid = cg_expr(g, st.expr).op;
+        cg_ensure_extern(g, "pthread_join", "declare i32 @pthread_join(ptr, ptr)\n");
+        cg_emit(g, "  call i32 @pthread_join(ptr "); cg_emit(g, tid); cg_emit(g, ", ptr null)\n");
         return;
     }
     if (st.kind == SK_EXPR) { cg_expr(g, st.expr); return; }

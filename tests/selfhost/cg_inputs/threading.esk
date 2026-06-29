@@ -1,0 +1,61 @@
+import <threading>;
+
+extern int printf(string fmt, ...);
+
+// Shared state captured by pointer so all threads see the same mutex + counter.
+struct Shared {
+    Mutex mtx;
+    int   counter;
+}
+
+// A semaphore-gated handoff: the worker blocks in Sem_wait until main posts.
+struct Gate {
+    Sem sem;
+    int done;
+}
+
+int main() {
+    // --- Mutex: three threads each do 100k locked increments ---
+    let s: Shared;
+    Mutex_init(&s.mtx);
+    s.counter = 0;
+    *Shared ps = &s;
+
+    let worker: fn()->void = void() {
+        int i = 0;
+        while (i < 100000) {
+            Mutex_lock(&ps.mtx);
+            ps.counter = ps.counter + 1;
+            Mutex_unlock(&ps.mtx);
+            i = i + 1;
+        }
+    };
+
+    *void t1 = thread_create(worker);
+    *void t2 = thread_create(worker);
+    *void t3 = thread_create(worker);
+    thread_join(t1);
+    thread_join(t2);
+    thread_join(t3);
+    printf("counter=%d\n", s.counter);     // 300000 (no lost updates)
+    Mutex_destroy(&s.mtx);
+
+    // --- Semaphore/cond: worker waits until main releases it ---
+    let g: Gate;
+    Sem_init(&g.sem, 0);
+    g.done = 0;
+    *Gate pg = &g;
+
+    let consumer: fn()->void = void() {
+        Sem_wait(&pg.sem);     // blocks until the post below
+        pg.done = 42;
+    };
+
+    *void t = thread_create(consumer);
+    Sem_post(&pg.sem);          // release the worker
+    thread_join(t);
+    printf("done=%d\n", g.done);   // 42
+    Sem_destroy(&g.sem);
+
+    return 0;
+}
