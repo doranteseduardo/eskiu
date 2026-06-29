@@ -167,7 +167,7 @@ Phase 3 rounds out ergonomics and tooling.
 - [x] Documented ABI — `docs/dev/abi.md` (scalar/pointer lowering, const has no ABI effect, struct/packed/bitfield/union layout, ADT tagged unions, sret >16 B rule, varargs + `va_list`, fat pointers for closures/interfaces, template mangling)
 - [x] `__FILE__` / `__LINE__` reference — expanded the predefined-macros section of spec.md §18 (per-line `__LINE__`, per-file `__FILE__`, OS + freestanding macros, shebang interaction)
 
-### Post-0.2.0 hardening / reinforcement (v0.2.1 – v0.2.5) — current release v0.2.5
+### Post-0.2.0 hardening / reinforcement (v0.2.1 – v0.2.5)
 
 With the backend-services stack shipped, the theme shifted from new features to
 **reinforcing the language**: hardening, maintainability, and type soundness.
