@@ -11,10 +11,11 @@
 // suspend (return) if pending, and resume in the next state reading `fr.__awI.value`. The
 // waker is a closure `void(){ fr.st=<next>; __name_resume(fr); }` capturing the frame.
 //
-// SCOPE: the linear case (awaits bound in a top-level `let`, sequential body). Control
-// flow *around* an await (if/while/for/switch with break/continue) is not yet lowered —
-// such a function is left untransformed (codegen then rejects the bare `await`/`async`),
-// which is a clear failure rather than a miscompile. That is the next slice.
+// Covers the full structure: sequential bodies, control flow around an await
+// (if/while/for/for-in/switch with break/continue, lowered into the state graph), a
+// desugar pass (`return await E` / `await E;` / `x = await E` → let-bound), and the
+// constructor's waker + on_drop (cancellation) closures. for-in desugars to a counted
+// for (array `T[N]` or a list-like struct with `data`/`size`). All 19 async tests pass.
 
 import "ast.esk";
 import "parser.esk";   // mk_ident/mk_lit/mk_bin/mk_cast, str_concat/str_eq/int_to_str, new_decl
