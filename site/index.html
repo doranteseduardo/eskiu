@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Eskiu — Systems language, async-native.</title>
+    <title>Eskiu — a self-hosting systems language</title>
     <meta
       name="description"
       content="Eskiu is a compiled systems language with async/await, sum types, generics, HTTP/2, and atomics. LLVM backend, manual memory, compiles to a standalone binary. v0.3.0 — now self-hosting."
@@ -41,13 +41,13 @@
         padding: 0;
       }
       :root {
-        --bg: #f9f7f3;
+        --bg: #fbfbfc;
         --white: #ffffff;
-        --surface: #f2efe8;
-        --border: #ddd8ce;
-        --ink: #1b1915;
-        --ink2: #6b6560;
-        --muted: #ada59b;
+        --surface: #f3f4f6;
+        --border: #e4e6ea;
+        --ink: #14161a;
+        --ink2: #565b65;
+        --muted: #969ba6;
         --purple: #4c31bb;
         --purple-lt: #6448d4;
         --purple-dk: #3a27a0;
@@ -309,10 +309,11 @@
         top: 0;
         left: 50%;
         transform: translateX(-50%);
-        width: 150px;
-        height: 150px;
+        width: 72px;
+        height: 72px;
         display: block;
         z-index: 2;
+        opacity: 0.9;
       }
       .terminal {
         background: var(--code);
@@ -381,8 +382,8 @@
         letter-spacing: 0.01em;
       }
       .hprop.new {
-        color: var(--purple);
-        font-weight: 600;
+        color: var(--ink2);
+        font-weight: 500;
       }
 
       /* ── Syntax colours ───────────────────────────────────────────── */
@@ -1015,12 +1016,12 @@
         <div class="hero-grid">
           <div>
             <span class="hero-ver">v0.3.0 — now self-hosting</span>
-            <h1>Native power,<br />scripting flexibility.</h1>
+            <h1>The systems language<br />that compiles itself.</h1>
             <p class="hero-sub">
-              A statically typed, natively compiled language where you manage
-              memory yourself. Async/await, sum types, and run-a-file tooling —
-              from bare-metal kernels to HTTP/2 servers. As of v0.3.0 the compiler
-              is written in Eskiu itself.
+              Eskiu compiles to native binaries through LLVM — manual memory, the
+              C ABI, no runtime — with generics, sum types, interfaces, and
+              async/await. As of v0.3.0 the compiler is written in Eskiu itself,
+              validated by a 3-stage bootstrap fixpoint.
             </p>
             <div class="hero-btns">
               <a class="btn-w" href="quickstart.html">Get started →</a>
@@ -1367,21 +1368,22 @@
           <div class="stat">
             <span class="stat-num">~85%</span>
             <span class="stat-cap"
-              >less memory in rendering modules migrated to Eskiu</span
+              >less memory in the rendering modules migrated from C++ — measured;
+              method in the case study</span
             >
           </div>
           <blockquote>
-            “ReactVision is adopting Eskiu selectively to replace
-            memory-sensitive C++ components in its AR/VR rendering engine with
-            explicit, auditable native modules, while preserving C ABI
-            interoperability with the existing stack.”
+            Eskiu is used in production at ReactVision — which builds it — to
+            replace memory-sensitive C++ components in an AR/VR rendering engine
+            with explicit, auditable native modules, while preserving C-ABI
+            interoperability with the existing stack.
           </blockquote>
           <figcaption>
             <a href="https://reactvision.xyz" target="_blank" rel="noopener"
               >ReactVision</a
             >
-            &nbsp;·&nbsp;
-            <a href="case-study-reactvision.html">Read the case study →</a>
+            builds and runs Eskiu &nbsp;·&nbsp;
+            <a href="case-study-reactvision.html">Read the case study (with methodology) →</a>
           </figcaption>
         </figure>
       </div>
@@ -1390,7 +1392,7 @@
     <!-- Sponsors -->
     <div class="sponsors">
       <div class="wrap">
-        <p class="sp-label">Early adopters &amp; sponsors</p>
+        <p class="sp-label">Early adopters</p>
         <div class="sp-logos">
           <a
             class="sp-item"
