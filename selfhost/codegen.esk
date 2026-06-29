@@ -1088,6 +1088,28 @@ string cg_cmp_pred(string s) {
     return "";
 }
 
+// Arithmetic op honoring signedness: unsigned operands use udiv/urem/lshr (logical) in
+// place of the signed sdiv/srem/ashr. Other ops are signedness-agnostic.
+string cg_arith_op_s(string s, int uns) {
+    if (uns == 1) {
+        if (cg_streq(s, "/") == 1) { return "udiv"; }
+        if (cg_streq(s, "%") == 1) { return "urem"; }
+        if (cg_streq(s, ">>") == 1) { return "lshr"; }
+    }
+    return cg_arith_op(s);
+}
+
+// Comparison predicate honoring signedness: unsigned operands use ult/ugt/ule/uge.
+string cg_cmp_pred_s(string s, int uns) {
+    if (uns == 1) {
+        if (cg_streq(s, "<") == 1) { return "ult"; }
+        if (cg_streq(s, ">") == 1) { return "ugt"; }
+        if (cg_streq(s, "<=") == 1) { return "ule"; }
+        if (cg_streq(s, ">=") == 1) { return "uge"; }
+    }
+    return cg_cmp_pred(s);
+}
+
 // The Eskiu type of an expression ("" if unknown). Enough to resolve struct member
 // access and pointer depth.
 string cg_etype(Codegen* g, *ExprNode e) {
@@ -1222,7 +1244,13 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
         if (e.lit_kind == LIT_BOOL) { v.ty = "i1"; }
         else if (e.lit_kind == LIT_NULL) { v.op = "null"; v.ty = "ptr"; }
         else if (e.lit_kind == LIT_FLOAT) { v.ty = "double"; }   // float literal defaults to double
-        else { v.ty = "i32"; }            // integer literal
+        else {                            // integer literal: i64 if it doesn't fit in 32 bits
+            v.ty = "i32";
+            int k = 0; if (e.sval[0] == 45) { k = 1; }       // skip leading '-'
+            let mag: int64 = 0;
+            while (e.sval[k] != 0) { mag = mag * 10 + (int64)((int)e.sval[k] - 48); k = k + 1; }
+            if (mag > 2147483647) { v.ty = "i64"; }
+        }
         return v;
     }
 
@@ -1377,13 +1405,25 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
                 v.op = t; v.ty = fty; return v;
             }
         }
-        string pred = cg_cmp_pred(e.sval);
+        // Integer operand unification (C usual arithmetic conversions): widen the narrower
+        // operand to the wider (signedness-aware via cg_coerce), and pick unsigned ops/
+        // predicates when either operand is unsigned. Pointer operands skip this (handled
+        // specially below); for them lw/rw are 0 so icty/ilop/irop stay the raw values.
+        int lw = cg_int_w(l.ty); int rw = cg_int_w(r.ty);
+        string icty = l.ty; string ilop = l.op; string irop = r.op; int uns = 0;
+        if (lw > 0 && rw > 0) {
+            if (rw > lw) { icty = r.ty; } else { icty = l.ty; }
+            ilop = cg_coerce(g, l, icty);
+            irop = cg_coerce(g, r, icty);
+            if (cg_is_unsigned(l.ety) == 1 || cg_is_unsigned(r.ety) == 1) { uns = 1; }
+        }
+        string pred = cg_cmp_pred_s(e.sval, uns);
         if (pred[0] != 0) {
             // Pointer comparisons: use `ptr` as the icmp type and turn a literal `0` on
             // either side into `null` (Eskiu writes both `p != null` and `p != 0`).
-            string cty = l.ty; string lop = l.op; string rop = r.op;
+            string cty = icty; string lop = ilop; string rop = irop;
             if (cg_streq(l.ty, "ptr") == 1 || cg_streq(r.ty, "ptr") == 1) {
-                cty = "ptr";
+                cty = "ptr"; lop = l.op; rop = r.op;
                 if (cg_streq(lop, "0") == 1) { lop = "null"; }
                 if (cg_streq(rop, "0") == 1) { rop = "null"; }
             }
@@ -1413,13 +1453,13 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
             cg_emit(g, ", "); cg_emit(g, off.ty); cg_emit(g, " "); cg_emit(g, offop); cg_emit(g, "\n");
             v.op = t; v.ty = "ptr"; v.ety = base.ety; return v;
         }
-        string op = cg_arith_op(e.sval);
+        string op = cg_arith_op_s(e.sval, uns);
         if (op[0] != 0) {
             string t = cg_tmp(g);
             cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = "); cg_emit(g, op);
-            cg_emit(g, " "); cg_emit(g, l.ty); cg_emit(g, " "); cg_emit(g, l.op);
-            cg_emit(g, ", "); cg_emit(g, r.op); cg_emit(g, "\n");
-            v.op = t; v.ty = l.ty; return v;
+            cg_emit(g, " "); cg_emit(g, icty); cg_emit(g, " "); cg_emit(g, ilop);
+            cg_emit(g, ", "); cg_emit(g, irop); cg_emit(g, "\n");
+            v.op = t; v.ty = icty; v.ety = l.ety; return v;
         }
         return l;                                       // unhandled binary (S1) → left
     }
@@ -1504,6 +1544,9 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
                 if (pty[0] != 0) { aop = cg_coerce(g, a, pty); aty = pty; }
                 else if (cg_streq(a.ty, "float") == 1) {     // C vararg promotion: float → double
                     aop = cg_coerce(g, a, "double"); aty = "double";
+                }
+                else if (cg_int_w(a.ty) > 0 && cg_int_w(a.ty) < 32) {   // C default arg promotion: small int → i32 (signedness-aware)
+                    aop = cg_coerce(g, a, "i32"); aty = "i32";
                 }
                 if (args[0] != 0) { args = cg_cat(args, ", "); }
                 args = cg_cat(args, cg_cat(aty, cg_cat(" ", aop)));
