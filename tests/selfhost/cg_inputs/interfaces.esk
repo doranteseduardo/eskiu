@@ -1,0 +1,34 @@
+extern int printf(string fmt, ...);
+
+// Structural interface: any struct with a matching method satisfies it.
+interface Speaker {
+    int sound();
+}
+
+struct Dog {
+    int volume;
+    int sound() { return self.volume * 2; }
+}
+
+struct Cat {
+    int volume;
+    int sound() { return self.volume + 1; }
+}
+
+// Dynamic dispatch through the interface (vtable fat pointer)
+int speak(Speaker s) {
+    return s.sound();
+}
+
+int main() {
+    let d: Dog = Dog { volume: 10 };
+    let c: Cat = Cat { volume: 10 };
+
+    printf("dog=%d\n", speak(&d));       // dog=20
+    printf("cat=%d\n", speak(&c));       // cat=11
+
+    // Sum through two interface values
+    printf("sum=%d\n", speak(&d) + speak(&c));  // sum=31
+
+    return 0;
+}
