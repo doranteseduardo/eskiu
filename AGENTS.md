@@ -118,17 +118,18 @@ with `match`, and the concurrent stdlib.
 | v0.2.3 | bounded-generics completion (primitives satisfy a constraint via a free function); typed `ty::Type` IR foundation (`sema/type.{h,cpp}`) — `substType` + the sema bare-name strips migrated to it, golden-IR oracle gating behavior-preservation. Cross-phase consolidation (codegen consuming resolved Types) deferred | ✅ |
 | v0.2.4 | type unification — the type checker is the single resolver: codegen consumes its resolved expression types (re-run post-AsyncTransform) instead of re-deriving, and `getTypeFromString` dispatches on `ty::Type::parse` (one grammar interpreter across both phases). Closed the two-evaluator risk; fixed 3 latent miscompiles it surfaced (float-lit `double`, ptr-deref width, `char` zext) | ✅ |
 | v0.2.5 | preprocessor correctness fix (a `//`/`/* */` comment ending in `\` no longer splices the next source line — silent code-eating footgun; found dogfooding the self-hosted lexer); **self-hosting milestone 1: the lexer in Eskiu** (`selfhost/`, byte-identical to `--test-lexer` over the preprocessor-free corpus, CI-gated); hardening (`ESKIU_RESOLVER_DEBUG` consistency oracle, backslash fuzzer generators) | ✅ |
-| v0.3 (on `develop`, unreleased) | **Self-hosting: the whole compiler in Eskiu.** Front-end (lexer / parser + import resolution / preprocessor) and back-end (sema with all 19 error classes; codegen — full bootstrap subset PLUS floats, switch, ADT enums + `match`, closures, exceptions (Itanium ABI), atomics, generics + argument inference, async/await 19/19, unions, bitfields, interfaces/dynamic-trait-dispatch) all reimplemented in Eskiu. **3-stage bootstrap fixpoint reached** (the self-built compiler reproduces its own IR). All parity gates CI-wired. | ✅ (capstone done; long-tail surface remains) |
+| v0.3 (on `develop`, unreleased) | **Self-hosting: the whole compiler in Eskiu.** Front-end (lexer / parser + import resolution / preprocessor) and back-end (sema with all 19 error classes; codegen — full bootstrap subset PLUS floats, switch, ADT enums + `match`, closures, exceptions (Itanium ABI), atomics, generics + argument inference, async/await 19/19, unions, bitfields, interfaces/dynamic-trait-dispatch) all reimplemented in Eskiu. **3-stage bootstrap fixpoint reached** (the self-built compiler reproduces its own IR). All parity gates CI-wired. Codegen feature coverage complete (no known gaps). | ✅ |
 | v1.0 | Package manager; release-cut the self-hosting compiler | ❌ |
 
-Self-hosting long-tail still open (not blocking): **>8B ADT struct payloads** — an ADT
-variant carrying a struct-by-value wider than one `i64` slot (the tagged union is
-`{ i32, [N x i64] }`, one slot per field); rare, same limit as the C++ side. Async
-`for-in`, the type-erased `select2`/`join2`/`spawn` combinators, and `esk_main`/`cg_main`
-errors→stderr are all DONE (corpus-tested). The one nuance: async `for-in` resolves its
+Self-hosting codegen feature coverage is **complete — no known gaps**. (The former >8B
+ADT-payload limit is fixed: the `{ i32, [N x i64] }` payload area is sized by bytes with
+field alignment, so a struct-by-value variant fits.) The combinators, async `for-in`, and
+errors→stderr are all done + corpus-tested. The one nuance: async `for-in` resolves its
 element type with a local heuristic in `async_lower.esk` rather than a sema-stamped type,
-so an exotic iterable could miss. Genuinely deferred earlier: a package manager, and the
-tighter locals-across-await liveness optimization (see `docs/dev/phases.md`).
+so an exotic iterable could miss — robustness, not a gap. A worthwhile follow-up is
+expanding the parse-parity corpus to the ~70 preprocessor-touching files. Genuinely
+deferred earlier: a package manager, and the tighter locals-across-await liveness
+optimization (see `docs/dev/phases.md`).
 
 ## Working on the self-hosted compiler (`selfhost/`)
 

@@ -22,6 +22,13 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   dogfooding the self-hosted parser. Affected only the debug printer, not codegen.
 
 ### Added
+- **Self-hosted codegen — ADT payloads wider than one slot.** An ADT enum's tagged-union
+  payload area (`{ i32, [N x i64] }`) is now sized by **bytes with field alignment**
+  (`cg_layout_size`, mirroring the C++ DataLayout), not by field count — so a variant
+  carrying a struct-by-value larger than 8 bytes (e.g. `Line(Vec3)` where `Vec3` is 12B)
+  fits instead of overflowing its slot. Construction + `match` extraction already viewed
+  the payload as the variant's `{ fields }` struct, so only the area sizing needed the fix.
+  This closes the last self-hosting codegen gap. Test `adt_big_payload`. cg_parity 56/56.
 - **Self-hosting feature coverage audited + closed out.** Verified the async combinators
   `select2`/`join2`/`spawn` all work through the self-hosted codegen (added `async_select`/
   `async_spawn` to the parity corpus). The self-hosted drivers (`esk_main`/`cg_main`) now
