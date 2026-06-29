@@ -1,0 +1,28 @@
+// ADT enum with a payload wider than one i64 slot: the tagged-union payload area is
+// sized by BYTES (with field alignment), not field count, so a struct-by-value variant
+// fits. Vec3 is 12 bytes (> 8); Pair(Vec3, int) is 16 bytes — the area must hold both.
+extern int printf(string fmt, ...);
+
+struct Vec3 { int x; int y; int z; }
+
+enum Shape {
+    Dot,
+    Line(Vec3),
+    Pair(Vec3, int)
+}
+
+int main() {
+    Shape s = Line(Vec3 { x: 1, y: 2, z: 3 });
+    match (s) {
+        Dot -> { printf("dot\n"); }
+        Line(v) -> { printf("line %d %d %d\n", v.x, v.y, v.z); }
+        Pair(v, n) -> { printf("pair?\n"); }
+    }
+    Shape t = Pair(Vec3 { x: 4, y: 5, z: 6 }, 7);
+    match (t) {
+        Dot -> { printf("dot\n"); }
+        Line(v) -> { printf("line?\n"); }
+        Pair(v, n) -> { printf("pair %d %d %d n=%d\n", v.x, v.y, v.z, n); }
+    }
+    return 0;
+}
