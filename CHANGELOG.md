@@ -37,7 +37,10 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   with `throw`/`try` link `-lc++abi`) and **atomics** (`atomic_load`/`store`/`swap`/`cas` →
   `load atomic`/`store atomic`/`atomicrmw xchg`/`cmpxchg`). The self-hosted compiler
   reproduces its own IR throughout (bootstrap fixpoint stays green).
-- **Self-hosting async: now 18 of 19 async tests pass** — closures' environments are
+- **Self-hosting async: all 19 async tests pass** — `for-in` over an await now lowers too
+  (desugared to a counted `for` — array `T[N]` indexes `xs[i]`/length N; a list-like struct
+  uses `xs.data[i]`/`xs.size`), completing the async transform. (Was 18/19.)
+- **Self-hosting async: 18 of 19 async tests pass** — closures' environments are
   **heap-allocated** (an escaping closure — e.g. an event-loop callback or a future combinator,
   called after its creating frame returns — no longer dangles its captured variables); struct
   literals work as **rvalues** (`x = P{…}`, not just var-decls); and the async constructor emits
