@@ -608,10 +608,18 @@ string lambda_sig(string ret, *DeclNode d) {
         if (is_type_kw(inner) == 1 || inner == STAR) { is_cast = 1; }
         else if (inner == IDENT && is_known_type(p, tok_text(p.src, i2)) == 1) { is_cast = 1; }
         if (is_cast == 1) {
+            // Speculative: `(Type)operand` is a cast, but `(Type { ... })` is a
+            // parenthesized struct literal — distinguished by what follows the type. Parse
+            // the type and require a closing `)`; otherwise back out and let parse_postfix
+            // handle the parenthesized expression (e.g. `(P{ … }).field`).
+            int save = p.pos; int savegt = p.pending_gt;
             p_adv(p);                          // '('
             string cty = parse_type(p);
-            p_adv(p);                          // ')'
-            return mk_cast(cty, parse_unary(p));
+            if (p_at(p) == RPAREN) {
+                p_adv(p);                      // ')'
+                return mk_cast(cty, parse_unary(p));
+            }
+            p.pos = save; p.pending_gt = savegt;   // not a cast
         }
     }
     return parse_postfix(p);
