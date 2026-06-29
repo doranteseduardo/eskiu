@@ -63,6 +63,7 @@ struct Codegen {
     List<CgIface> ifaces;    // interfaces (name → method order + return types)
     int uses_iface;          // any interface declared → emit the shared %iface_fat type once
     List<CgSub> aliases;     // type aliases (name → underlying type spelling)
+    List<string> fnthunks;   // top-level fns used as closure values → emit a __fnptr_<name> thunk
     List<CgBF> bitfields;    // bitfield slots (struct.field → word/offset/width/signed)
     List<CgLambda> lambdas;  // queued lambda bodies, emitted after the main decls
     int lam_seq;             // counter for unique lambda names
@@ -139,6 +140,7 @@ void cg_init(Codegen* g) {
     List_init<CgIface>(&g.ifaces, 4);
     g.uses_iface = 0;
     List_init<CgSub>(&g.aliases, 4);
+    List_init<string>(&g.fnthunks, 4);
     List_init<CgBF>(&g.bitfields, 8);
     List_init<CgLambda>(&g.lambdas, 8);
     g.lam_seq = 0;
@@ -644,11 +646,21 @@ string cg_payload_lltype(Codegen* g, CgVariant* v) {
 }
 
 int cg_is_unsigned(string t);   // fwd (defined later); for signedness-aware widening
+int cg_is_fn(Codegen* g, string name);
+string cg_fn_to_closure(Codegen* g, string fnname);   // fwd: decay a top-level fn to a {thunk,null} closure
 
 // Coerce a value to a target LLVM type, emitting the conversion if needed; returns the
 // operand to use. Mirrors the casts in EK_CAST — for ABI-correct call arguments (e.g. an
 // i32 count passed to an `int64 n` parameter must be widened, not reinterpreted).
 string cg_coerce(Codegen* g, CgVal val, string target) {
+    // A bare top-level function used where a closure is expected (`apply2(add, …)`): decay
+    // it to a fat pointer {__fnptr_<name>, null} (the thunk drops the closure env arg). A
+    // function used as a raw pointer (`(*void)cmp`) is just `@name` (target "ptr" below).
+    if (cg_streq(target, "%closure") == 1 && (int)val.op[0] == 64) {   // op is "@name"
+        int ln = 0; while (val.op[ln] != 0) { ln = ln + 1; }
+        string fnm = cg_sub_str(val.op, 1, ln);
+        if (cg_is_fn(g, fnm) == 1) { return cg_fn_to_closure(g, fnm); }
+    }
     if (cg_streq(val.ty, target) == 1) { return val.op; }
     int tptr = cg_streq(target, "ptr"); int sptr = cg_streq(val.ty, "ptr");
     if (tptr == 1 && sptr == 1) { return val.op; }
@@ -723,6 +735,60 @@ CgFn cg_find_fn(Codegen* g, string name) {
     let none: CgFn; none.name = name; none.retty = "i32"; none.rety = ""; none.variadic = 0; none.fixedtypes = "";
     List_init<string>(&none.ptys, 1);
     return none;
+}
+
+// Is `name` a registered top-level function (free fn or extern, not a struct method)?
+int cg_is_fn(Codegen* g, string name) {
+    int i = 0; int n = List_len<CgFn>(&g.fns);
+    while (i < n) { if (cg_streq(List_get<CgFn>(&g.fns, i).name, name) == 1) { return 1; } i = i + 1; }
+    return 0;
+}
+
+// Build a closure fat pointer {@__fnptr_<name>, null} for a top-level function used as a
+// value where a `fn(...)->R` is expected. The thunk (queued, emitted once via
+// cg_drain_thunks) drops the closure's leading env arg and forwards to the real function.
+string cg_fn_to_closure(Codegen* g, string fnname) {
+    if (cg_seen_inst(g, cg_cat("thunk:", fnname)) == 0) {
+        List_push<string>(&g.inst_seen, cg_cat("thunk:", fnname));
+        List_push<string>(&g.fnthunks, fnname);
+    }
+    string c1 = cg_tmp(g);
+    cg_emit(g, "  "); cg_emit(g, c1); cg_emit(g, " = insertvalue %closure undef, ptr @__fnptr_");
+    cg_emit(g, fnname); cg_emit(g, ", 0\n");
+    string c2 = cg_tmp(g);
+    cg_emit(g, "  "); cg_emit(g, c2); cg_emit(g, " = insertvalue %closure "); cg_emit(g, c1);
+    cg_emit(g, ", ptr null, 1\n");
+    return c2;
+}
+
+// Emit one `__fnptr_<name>` thunk: `R __fnptr_f(ptr env, <params>) { return f(<params>); }`.
+void cg_emit_thunk(Codegen* g, string fnname) {
+    CgFn f = cg_find_fn(g, fnname);
+    int np = List_len<string>(&f.ptys);
+    cg_emit(g, "define "); cg_emit(g, f.retty); cg_emit(g, " @__fnptr_"); cg_emit(g, fnname); cg_emit(g, "(ptr %e");
+    string args = "";
+    int i = 0;
+    while (i < np) {
+        string pt = List_get<string>(&f.ptys, i);
+        cg_emit(g, ", "); cg_emit(g, pt); cg_emit(g, " %a"); cg_emit(g, cg_itoa(i));
+        if (i > 0) { args = cg_cat(args, ", "); }
+        args = cg_cat(args, cg_cat(pt, cg_cat(" %a", cg_itoa(i))));
+        i = i + 1;
+    }
+    cg_emit(g, ") {\n");
+    if (cg_streq(f.retty, "void") == 1) {
+        cg_emit(g, "  call void @"); cg_emit(g, fnname); cg_emit(g, "("); cg_emit(g, args); cg_emit(g, ")\n");
+        cg_emit(g, "  ret void\n}\n\n");
+    } else {
+        cg_emit(g, "  %r = call "); cg_emit(g, f.retty); cg_emit(g, " @"); cg_emit(g, fnname);
+        cg_emit(g, "("); cg_emit(g, args); cg_emit(g, ")\n");
+        cg_emit(g, "  ret "); cg_emit(g, f.retty); cg_emit(g, " %r\n}\n\n");
+    }
+}
+
+void cg_drain_thunks(Codegen* g) {
+    int i = 0;
+    while (i < List_len<string>(&g.fnthunks)) { cg_emit_thunk(g, List_get<string>(&g.fnthunks, i)); i = i + 1; }
 }
 
 void cg_emit(Codegen* g, string s) { String_append(&g.out, s); }
@@ -1314,6 +1380,9 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
         }
         CgVariant var = cg_find_variant(g, e.sval);    // a payload-less ADT variant (e.g. None)?
         if (var.ename[0] != 0) { return cg_build_variant(g, var, null); }
+        if (cg_is_fn(g, e.sval) == 1) {                // a top-level function used as a value
+            v.op = cg_cat("@", e.sval); v.ty = "ptr"; v.ety = ""; return v;   // raw fn ptr; → closure via cg_coerce
+        }
         v.op = e.sval; v.ty = "i32"; return v;         // fallback
     }
 
@@ -2933,6 +3002,7 @@ void cg_program(Codegen* g, *Program prog) {
 
     cg_drain_worklist(g);   // emit all generic-function instantiations (transitively)
     cg_drain_lambdas(g);    // emit all queued lambda bodies
+    cg_drain_thunks(g);     // emit all queued __fnptr_<name> thunks (fn-as-closure-value)
 
     if (g.uses_heap_env == 1 && cg_seen_inst(g, "fn:malloc") == 0) {   // closures' env malloc
         String_append(&g.globals, "declare ptr @malloc(i64)\n");
