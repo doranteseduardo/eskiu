@@ -137,24 +137,44 @@ actually populates), matching the convention the printer / `cg_stmt` / `cg_expr`
 follow. The codebase's standing rule bites again — *alloc doesn't zero; never read a field
 a node kind doesn't set.* Guard malloc is the tool to surface it before CI does.
 
+## Resolved: feature-coverage sweep — `(P{…})` parsed as a cast, + the "complete" trap ✅
+
+Taking the codegen from bootstrap-subset to feature-complete (v0.3.0) surfaced a second
+wave of dogfood finds. The notable ones:
+
+- **A parser bug, not codegen.** `member_temp` crashed in `parse_postfix`. Root cause:
+  `(P { x: 9 }).y` — a parenthesized struct literal — was mis-parsed as a **cast** `(P)…`,
+  because `P` is a known type and the cast heuristic only checked "`(` then a type name",
+  never that a `)` actually follows. Fixed by making cast detection *speculative*: parse the
+  type, treat it as a cast only if `)` follows, else back out and let the parenthesized
+  expression parse. (`(int)x` / `(*void)p` casts still work.) Self-hosting dogfoods the
+  *parser* too, not just codegen.
+- **Method-on-primitive dispatch.** `a.cmp(b)` where `a: int` (a primitive satisfying a
+  constraint via a free function) ran the struct-method path and indexed a non-existent
+  struct's fields → crash. Fixed by lowering `a.m(b)` → `m(a, b)` (receiver by value) when
+  the receiver isn't a struct/ADT and a free `m` exists — mirroring the C++ scalar-primitive
+  constraint dispatch.
+
+**The meta-lesson (paid for ~4×): never claim "feature-complete" from the bootstrap
+fixpoint.** It only exercises the slice of the language the compiler's *own* source uses — it
+says nothing about floats, unions, the `?` operator, etc. The only proof is to push the
+*whole* feature corpus through the behavioral oracle and get a clean sweep. And enumerate the
+**full** failure set every round: an early triage truncated 21 failures to 17 (the terminal
+cut off the tail), so the punch-list undercounted and "only N left" was wrong twice. A system
+that checks itself only confirms the paths it walks.
+
 ## Minor ergonomics (not bugs)
 
 - Nested conditionals: prefer `else if`, flat `if`+`return` (see `keyword_type`), or
   an accumulator over deeply nested `else { if ... }` — all parse fine; the earlier
   "parse failure" was the comment bug above, not the syntax.
-- **The `fn` footgun, third strike (Phase B S0).** Named a parameter `*DeclNode fn`
-  in `sema_check_fn` — `fn` is reserved, so the param list failed with `Expected
-  parameter name` and later uses gave `Expected expression, got FN`. Renamed to `f`.
-  This recurs often enough that improving the C++ parser's diagnostic (suggest "keyword
-  used as a name") would pay for itself.
-- **The `fn`-as-identifier footgun bit again (Phase A).** Writing the bitfield field
-  loop I named a counter `int fn = List_len(...)` — `fn` is reserved, so `eskiuc`
-  rejected the self-hosted source with `Expected expression, got INT`, which points
-  nowhere near the real cause. Same class of bug as below; cost a few minutes. The
-  diagnostic really is worth improving in the C++ parser. (Renamed to `nf`.)
-- **Misleading diagnostic for a keyword used as an identifier.** Naming a local `fn`
-  (`Token fn = ...;`) — `fn` is the reserved function-type keyword — fails to parse
-  with `Error parsing declaration: Expected ';'`, which points nowhere near the real
-  problem. (Cost an hour bisecting in S2b before realizing `fn` was the culprit, not
-  a compiler bug.) A clearer message would be `expected a name, found keyword 'fn'`.
-  Worth improving in the C++ parser; not a correctness bug.
+- **The keyword-as-identifier footgun (struck ~13× across the whole self-host).**
+  `fn`, `in`, and `match` are reserved keywords; using one as a variable / parameter /
+  field name makes `eskiuc` fail far from the cause — a local `fn` gives `Error parsing
+  declaration: Expected ';'`, a param `fn` gives `Expected parameter name` then `Expected
+  expression, got FN`, a counter `int fn` gives `Expected expression, got INT`. The first
+  cost an hour to bisect; later ones cost minutes once the pattern was known. Renames used:
+  `f`/`nf`/`fnp`/`nm`/`curfn` (for `fn`), `inp` (for `in`), `eq` (for `match`). **This is
+  the single most recurring papercut of the project — improving the C++ parser's diagnostic
+  to "expected a name, found keyword 'fn'" would pay for itself many times over.** Not a
+  correctness bug.
