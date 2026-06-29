@@ -439,16 +439,23 @@ trailing `...` and skips it from the param allocas) + `va_list` (→ `%__va_list
 (→ `llvm.va_start.p0`/`va_end.p0` on the va_list's address) + `va_arg<T>(ap)` (→ the LLVM
 `va_arg` instruction). Fixes variadic. cg_parity 72, cg_selfhost 85, fixpoint.
 
-**SWEEP RE-RUN (decisive check) — 46 ok, 3 FAIL.** The original triage detailed only 17 of
-21 failures (truncated output), so the punch-list UNDERCOUNTED — these 3 were failing all
-along, not regressions (lesson, again: enumerate the FULL failure set). Remaining gaps:
-**`?` operator** (question_op) — `Result` error propagation: `x?` should early-return the
-error when the operand is an `Err`. Self-host returns the value unconditionally (no
-propagation). **packed structs** (pack_n, pp_pack) — `packed struct` / `#pragma pack(N)`
-must emit an LLVM packed struct `<{ … }>` (no inter-field padding); the self-host emits a
-natural `{ … }`, so `sizeof`/layout differ. (The `isPacked`/`packAlign` flags were a Phase-A
-deferral — never carried into self-host codegen.) Both were in the original 21; surfaced now
-that the crashes/bad-IR ahead of them are fixed.
+**SWEEP RE-RUN (decisive check).** The original triage detailed only 17 of 21 failures
+(truncated output), so the punch-list UNDERCOUNTED — the rest were failing all along, not
+regressions (lesson, again: enumerate the FULL failure set, every round).
+
+**(packed structs) DONE.** `packed struct` / `#pragma pack(N)`. AST gained `is_packed` +
+`pack_align`; the parser tracks `#pragma pack(N)/(push,N)/(pop)/()` state (`apply_pragma`,
+`g_cur_pack`/`g_pack_stack`) and `packed struct`. Codegen: `packed`/`pack(1)` → an LLVM
+packed struct `<{ … }>` (align 1, indices unchanged); `pack(N≥2)` → `cg_emit_pack2` lays out
+fields at `min(natural,N)` with explicit `[K x i8]` padding fillers in a packed `<{ … }>`,
+recording a physical-index slot per field (reuses the bitfield `CgBF` machinery, so member
+GEP / struct-init pick up the phys index). Parser parity stays 51/51 (flags un-printed).
+Fixes pack_n, pp_pack. cg_parity 74, cg_selfhost 87, fixpoint, guard-malloc clean.
+
+**Full sweep now 49 ok, 1 FAIL — the ONLY remaining gap is the `?` operator** (question_op):
+`Result` error propagation — `x?` should early-return the error when the operand is an `Err`;
+the self-host returns the value unconditionally (no propagation). Once it lands, a clean
+re-run = self-host codegen feature-complete against the C++ corpus.
 
 **(historical) REMAINING (other): the capstone is largely covered.** It is NOT a
 codegen slice but an AST→AST lowering pass (`sema/async_transform.cpp`, 634 lines), run
