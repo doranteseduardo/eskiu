@@ -118,21 +118,23 @@ with `match`, and the concurrent stdlib.
 | v0.2.3 | bounded-generics completion (primitives satisfy a constraint via a free function); typed `ty::Type` IR foundation (`sema/type.{h,cpp}`) — `substType` + the sema bare-name strips migrated to it, golden-IR oracle gating behavior-preservation. Cross-phase consolidation (codegen consuming resolved Types) deferred | ✅ |
 | v0.2.4 | type unification — the type checker is the single resolver: codegen consumes its resolved expression types (re-run post-AsyncTransform) instead of re-deriving, and `getTypeFromString` dispatches on `ty::Type::parse` (one grammar interpreter across both phases). Closed the two-evaluator risk; fixed 3 latent miscompiles it surfaced (float-lit `double`, ptr-deref width, `char` zext) | ✅ |
 | v0.2.5 | preprocessor correctness fix (a `//`/`/* */` comment ending in `\` no longer splices the next source line — silent code-eating footgun; found dogfooding the self-hosted lexer); **self-hosting milestone 1: the lexer in Eskiu** (`selfhost/`, byte-identical to `--test-lexer` over the preprocessor-free corpus, CI-gated); hardening (`ESKIU_RESOLVER_DEBUG` consistency oracle, backslash fuzzer generators) | ✅ |
-| v0.3 (on `develop`, unreleased) | **Self-hosting: the whole compiler in Eskiu.** Front-end (lexer / parser + import resolution / preprocessor) and back-end (sema with all 19 error classes; codegen — full bootstrap subset PLUS floats, switch, ADT enums + `match`, closures, exceptions (Itanium ABI), atomics, generics + argument inference, async/await 19/19, unions, bitfields, interfaces/dynamic-trait-dispatch) all reimplemented in Eskiu. **3-stage bootstrap fixpoint reached** (the self-built compiler reproduces its own IR). All parity gates CI-wired. Codegen covers a broad subset; a feature sweep found ~8 remaining gaps (tracked in `selfhost/BACKEND_PLAN.md`) — NOT yet feature-complete. | 🚧 |
+| v0.3 (on `develop`, unreleased) | **Self-hosting: the whole compiler in Eskiu.** Front-end (lexer / parser + import resolution / preprocessor) and back-end (sema with all 19 error classes; codegen — full bootstrap subset PLUS floats, switch, ADT enums + `match`, closures, exceptions (Itanium ABI), atomics, generics + argument inference, async/await 19/19, unions, bitfields, interfaces/dynamic-trait-dispatch) all reimplemented in Eskiu. **3-stage bootstrap fixpoint reached** (the self-built compiler reproduces its own IR). All parity gates CI-wired. **Codegen is feature-complete against the C++ corpus** — a full feature sweep through `cg_parity.sh` is clean (50/50), earned + verified (not assumed from the bootstrap). | ✅ |
 | v1.0 | Package manager; release-cut the self-hosting compiler | ❌ |
 
-Self-hosting codegen covers a broad subset (closures, traits, generics + inference, async,
-exceptions, atomics, unions, bitfields, interfaces, packed structs, inline asm, volatile,
-the `?` operator, most templates) but is **NOT yet feature-complete**. A feature sweep
-(pushing the C++ test corpus through `cg_parity.sh`) found ~8 root-cause gaps — literal-`0`
-→`null` store to a pointer, integer width coercion on store/init, type aliases,
-function-as-value decay, generic ADT enum monomorphization, a template-struct-literal edge,
-and three codegen crashes. **The full punch-list + status lives in `selfhost/BACKEND_PLAN.md`
-— consult it before assuming a feature works in the self-host.** (Caution: the bootstrap
-fixpoint only exercises the subset the compiler's own source uses, so it does NOT prove
-general feature coverage — probe with a parity test.) Residual non-gap: async `for-in` types
-its element via a local heuristic, not a sema stamp. Genuinely deferred earlier: a package
-manager, and the tighter locals-across-await liveness optimization (see `docs/dev/phases.md`).
+Self-hosting codegen is **feature-complete against the C++ corpus** — a full feature sweep
+(every feature-bearing `tests/*.esk` pushed through `cg_parity.sh`) is clean (50/50): each
+program self-host-compiles to the same behavior as the C++ build. This was earned by fixing
+11 root-cause gaps the sweep exposed (coercion/signedness, integer semantics, type aliases,
+function-as-value decay, generic ADT enums, a parser cast-vs-struct-literal bug, primitive
+constraint dispatch, alloc_with/thread builtins, variadics/`va_*`, packed structs, the `?`
+operator) — see `selfhost/BACKEND_PLAN.md` for the slice-by-slice record. **Caution that bit
+us repeatedly: the bootstrap fixpoint only exercises the subset the compiler's own source
+uses — it does NOT prove general feature coverage. To check whether a feature works in the
+self-host, write a parity test and re-run the FULL sweep; never claim "complete" from the
+bootstrap alone.** Residual non-gaps: async `for-in` types its element via a local heuristic,
+not a sema stamp; the parse-parity corpus could expand to the ~70 preprocessor-touching
+files. Genuinely deferred earlier: a package manager, and the tighter locals-across-await
+liveness optimization (see `docs/dev/phases.md`).
 
 ## Working on the self-hosted compiler (`selfhost/`)
 

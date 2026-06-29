@@ -22,6 +22,20 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   dogfooding the self-hosted parser. Affected only the debug printer, not codegen.
 
 ### Added
+- **Self-hosted codegen is now feature-complete against the C++ corpus.** A systematic feature
+  sweep (every feature-bearing `tests/*.esk` through `cg_parity.sh`) is clean — each program,
+  compiled by the Eskiu-written codegen, runs identically to the C++ build. Closing it required
+  11 root-cause fixes the sweep exposed (the bootstrap fixpoint had only ever exercised the
+  subset the compiler's own source uses): var-decl/struct-init coercion + signedness-aware
+  integer widening; full integer semantics (binary-op operand-width unification, unsigned
+  `udiv`/`lshr`/`icmp`, >32-bit literals as `i64`, vararg small-int promotion); type-alias
+  resolution; function-as-value decay (a `__fnptr` env-dropping thunk + `{thunk,null}` closure,
+  or a bare `@fn` for a pointer cast); generic ADT enum monomorphization; a self-host *parser*
+  fix (a parenthesized struct literal `(P{…})` was mis-parsed as a cast); primitive constraint
+  dispatch (`a.m(b)` on a primitive → `m(a,b)`); the `alloc_with`/`thread_create`/`thread_join`/
+  `free_closure` builtins; user-defined variadic functions + `va_list`/`va_start`/`va_arg<T>`/
+  `va_end`; packed structs (`packed` / `#pragma pack(N)`); and the `?` error-propagation
+  operator. All parity/self-host/bootstrap gates stay green throughout.
 - **Self-hosted codegen — ADT payloads wider than one slot.** An ADT enum's tagged-union
   payload area (`{ i32, [N x i64] }`) is now sized by **bytes with field alignment**
   (`cg_layout_size`, mirroring the C++ DataLayout), not by field count — so a variant

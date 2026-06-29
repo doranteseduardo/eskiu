@@ -452,10 +452,22 @@ recording a physical-index slot per field (reuses the bitfield `CgBF` machinery,
 GEP / struct-init pick up the phys index). Parser parity stays 51/51 (flags un-printed).
 Fixes pack_n, pp_pack. cg_parity 74, cg_selfhost 87, fixpoint, guard-malloc clean.
 
-**Full sweep now 49 ok, 1 FAIL — the ONLY remaining gap is the `?` operator** (question_op):
-`Result` error propagation — `x?` should early-return the error when the operand is an `Err`;
-the self-host returns the value unconditionally (no propagation). Once it lands, a clean
-re-run = self-host codegen feature-complete against the C++ corpus.
+**(`?` operator) DONE.** `expr?` on a `Result` struct (`{ int ok; T value; E error; }`):
+materialize the operand, load `.ok`; if `0` (Err) `ret` the whole Result out of the enclosing
+function (self-host returns structs by value → no sret needed, unlike the C++ which also
+handles an sret param); else the expression yields `.value`. Fixes question_op.
+
+**FEATURE SWEEP CLEAN — 50 ok / 0 FAIL (2026-06-29).** Re-ran the full feature corpus through
+`cg_parity.sh`: every program self-host-compiles to the same behavior as the C++ build. The
+self-hosted codegen is now **feature-complete against the C++ corpus** (an EARNED claim —
+verified by the full sweep, per the hard-won lesson, not assumed from the bootstrap). Final
+gates: cg_parity 75/75, cg_selfhost 88/88, bootstrap fixpoint, parser parity 51/51, pp 157/157,
+guard-malloc clean. **All 11 sweep root-causes fixed this session** (var-decl/struct-init
+coercion, integer semantics, type aliases, function-as-value decay, generic ADT enums,
+paren-struct-literal parser bug, primitive constraint dispatch, alloc_with/thread builtins,
+variadics/va_*, packed structs, the `?` operator). Residual non-gaps: async `for-in` element
+typing via a local heuristic; parse-parity corpus could expand to the ~70 preprocessor-touching
+files. NEXT: v0.3.0 release (refresh STATUS.md, version bump, doc version audit, cut + tag).
 
 **(historical) REMAINING (other): the capstone is largely covered.** It is NOT a
 codegen slice but an AST→AST lowering pass (`sema/async_transform.cpp`, 634 lines), run
