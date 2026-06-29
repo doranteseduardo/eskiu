@@ -27,10 +27,57 @@ struct Parser {
 // them up once before parsing; a fresh process per parity test resets them.
 List<string> g_imported;       // resolved import paths already parsed (dedup)
 List<string> g_typenames;      // declared type names → enables `(Foo)x` casts
+int g_cur_pack;                // active `#pragma pack(N)` alignment (0 = natural)
+List<int> g_pack_stack;        // saved pack values for `pack(push, N)` / `pack(pop)`
 
 void parser_session_init() {
     List_init<string>(&g_imported, 16);
     List_init<string>(&g_typenames, 64);
+    g_cur_pack = 0;
+    List_init<int>(&g_pack_stack, 8);
+}
+
+// Interpret a `#pragma pack(...)` directive (text is everything after `#`, e.g.
+// "pragma pack(2)" / "pragma pack(push, 1)" / "pragma pack(pop)" / "pragma pack()").
+// Sets g_cur_pack for subsequent struct declarations; other pragmas are ignored.
+void apply_pragma(string text) {
+    int n = 0; while (text[n] != 0) { n = n + 1; }
+    int pk = -1; int i = 0;                          // find "pack"
+    while (i + 4 <= n) {
+        if (text[i]==112 && text[i+1]==97 && text[i+2]==99 && text[i+3]==107) { pk = i; break; }
+        i = i + 1;
+    }
+    if (pk < 0) { return; }
+    int lp = pk; while (lp < n && (int)text[lp] != 40) { lp = lp + 1; }   // '('
+    // collect comma-separated args inside (...)
+    List<string> args; List_init<string>(&args, 2);
+    if (lp < n) {
+        int j = lp + 1; int start = j;
+        while (j < n && (int)text[j] != 41) {        // ')'
+            if ((int)text[j] == 44) {                // ','
+                string a = str_trim(p_sub(text, start, j));
+                if (a[0] != 0) { List_push<string>(&args, a); }
+                start = j + 1;
+            }
+            j = j + 1;
+        }
+        string a = str_trim(p_sub(text, start, j));
+        if (a[0] != 0) { List_push<string>(&args, a); }
+    }
+    if (List_len<string>(&args) == 0) { g_cur_pack = 0; return; }   // pack() → reset
+    string a0 = List_get<string>(&args, 0);
+    if (str_eq(a0, "push") == 1) {
+        List_push<int>(&g_pack_stack, g_cur_pack);
+        if (List_len<string>(&args) >= 2) { g_cur_pack = str_to_int(List_get<string>(&args, 1)); }
+        return;
+    }
+    if (str_eq(a0, "pop") == 1) {
+        int sn = List_len<int>(&g_pack_stack);
+        if (sn > 0) { g_cur_pack = List_get<int>(&g_pack_stack, sn - 1); List_remove<int>(&g_pack_stack, sn - 1); }
+        else { g_cur_pack = 0; }
+        return;
+    }
+    g_cur_pack = str_to_int(a0);                     // pack(N)
 }
 
 void p_init(Parser* p, *uint8 src, int len) {
@@ -129,6 +176,23 @@ string str_concat(string a, string b) {
     while (j < lb) { buf[la + j] = (uint8)b[j]; j = j + 1; }
     buf[la + lb] = 0;
     return (string)buf;
+}
+
+// Substring s[a, b) as a fresh NUL-terminated string.
+string p_sub(string s, int a, int b) {
+    int len = b - a; if (len < 0) { len = 0; }
+    *uint8 buf = alloc<uint8>(len + 1);
+    int k = 0; while (k < len) { buf[k] = (uint8)s[a + k]; k = k + 1; }
+    buf[len] = 0;
+    return (string)buf;
+}
+
+// Trim leading/trailing spaces and tabs.
+string str_trim(string s) {
+    int n = 0; while (s[n] != 0) { n = n + 1; }
+    int a = 0; while (a < n && ((int)s[a] == 32 || (int)s[a] == 9)) { a = a + 1; }
+    int b = n; while (b > a && ((int)s[b - 1] == 32 || (int)s[b - 1] == 9)) { b = b - 1; }
+    return p_sub(s, a, b);
 }
 
 int str_eq(string a, string b) {
@@ -1113,6 +1177,8 @@ string strip_binding_const(string t) {
     List_init<int>(&d.param_escaping, 4);
     d.is_async = 0;
     d.is_const = 0;
+    d.is_packed = 0;
+    d.pack_align = 0;
     return d;
 }
 
@@ -1241,6 +1307,7 @@ int str_to_int(string s) {
 *DeclNode parse_struct(Parser* p) {
     *DeclNode d = new_decl(DK_STRUCT);
     d.name = tok_text(p.src, p_adv(p));
+    if (g_cur_pack >= 1) { d.pack_align = g_cur_pack; if (g_cur_pack == 1) { d.is_packed = 1; } }
     parse_type_params(p, &d.type_params, 1);   // optional <T, E: Iface>
     p_adv(p);                              // '{'
     List_init<Param>(&d.params, 4);
@@ -1407,7 +1474,7 @@ int str_to_int(string s) {
     if (t == INTRINSIC) { p_adv(p); return parse_proto(p, DK_INTRINSIC); }
     if (t == ASYNC) { p_adv(p); d = parse_function(p); d.is_async = 1; return d; }   // async fn
     if (t == STRUCT) { p_adv(p); d = parse_struct(p); register_type(p, d.name); return d; }
-    if (t == PACKED) { p_adv(p); p_adv(p); d = parse_struct(p); register_type(p, d.name); return d; }
+    if (t == PACKED) { p_adv(p); p_adv(p); d = parse_struct(p); d.is_packed = 1; d.pack_align = 1; register_type(p, d.name); return d; }
     if (t == UNION) { p_adv(p); d = parse_union(p); register_type(p, d.name); return d; }
     if (t == INTERFACE) { p_adv(p); d = parse_interface(p); register_type(p, d.name); return d; }
     if (t == ENUM) { p_adv(p); d = parse_enum(p); register_type(p, d.name); return d; }
@@ -1481,7 +1548,7 @@ void do_import(Parser* p, *Program prog) {
 // file and recursively for each import, so imported decls land in declaration order).
 void parse_into(Parser* p, *Program prog) {
     while (p_at(p) != EOF_TOKEN) {
-        if (p_at(p) == PRAGMA) { p_adv(p); }            // #pragma — state-only, no decl
+        if (p_at(p) == PRAGMA) { apply_pragma(tok_text(p.src, p_adv(p))); }   // #pragma pack state
         else if (p_at(p) == IMPORT) { p_adv(p); do_import(p, prog); }
         else { List_push<*DeclNode>(&prog.decls, parse_decl_top(p)); }
     }

@@ -64,7 +64,7 @@ struct Codegen {
     int uses_iface;          // any interface declared → emit the shared %iface_fat type once
     List<CgSub> aliases;     // type aliases (name → underlying type spelling)
     List<string> fnthunks;   // top-level fns used as closure values → emit a __fnptr_<name> thunk
-    List<CgBF> bitfields;    // bitfield slots (struct.field → word/offset/width/signed)
+    List<CgBF> bitfields;    // bitfield slots (struct.field → word/offset/width/signed) + pack(N≥2) phys-index slots
     List<CgLambda> lambdas;  // queued lambda bodies, emitted after the main decls
     int lam_seq;             // counter for unique lambda names
     string lam_expret;       // return type expected from a lambda's assignment context ("" = none)
@@ -2950,6 +2950,46 @@ void cg_bf_layout(Codegen* g, *DeclNode d) {
     String_append(&g.globals, " }\n");
 }
 
+// Lay out a `#pragma pack(N>=2)` struct: each field at min(natural align, N), with explicit
+// `[K x i8]` padding fillers, emitted as an LLVM packed struct `<{ … }>` (so LLVM adds no
+// padding of its own). Records a phys-index slot per field (reusing the bitfield machinery,
+// so member GEP / struct-init pick up the physical index). The logical CgStruct field-list
+// is already registered by pass 1a; this only emits the type + the phys slots.
+void cg_emit_pack2(Codegen* g, *DeclNode d) {
+    int N = d.pack_align;
+    String body; String_init(&body, 32);
+    int nf = List_len<Param>(&d.params);
+    int offset = 0; int structAlign = 1; int physIdx = 0; int emitted = 0;
+    int i = 0;
+    while (i < nf) {
+        Param pm = List_get<Param>(&d.params, i);
+        int al = cg_align(g, pm.ty); if (al > N) { al = N; }
+        if (al > structAlign) { structAlign = al; }
+        int aligned = cg_align_up(offset, al);
+        if (aligned > offset) {                              // alignment padding filler
+            if (emitted > 0) { String_append(&body, ", "); }
+            String_append(&body, "["); String_append(&body, cg_itoa(aligned - offset)); String_append(&body, " x i8]");
+            emitted = emitted + 1; physIdx = physIdx + 1; offset = aligned;
+        }
+        let slot: CgBF; slot.sname = d.name; slot.fname = pm.name;
+        slot.fidx = physIdx; slot.boff = 0; slot.bw = 0; slot.sgn = 0;
+        List_push<CgBF>(&g.bitfields, slot);
+        if (emitted > 0) { String_append(&body, ", "); }
+        String_append(&body, cg_lltype(g, pm.ty));
+        emitted = emitted + 1; physIdx = physIdx + 1;
+        offset = offset + cg_size(g, pm.ty);
+        i = i + 1;
+    }
+    int total = cg_align_up(offset, structAlign);            // size rounds up to the struct's align
+    if (total > offset) {
+        if (emitted > 0) { String_append(&body, ", "); }
+        String_append(&body, "["); String_append(&body, cg_itoa(total - offset)); String_append(&body, " x i8]");
+    }
+    String_append(&g.globals, "%"); String_append(&g.globals, d.name);
+    String_append(&g.globals, " = type <{ "); String_append(&g.globals, (string)String_cstr(&body));
+    String_append(&g.globals, " }>\n");
+}
+
 void cg_program(Codegen* g, *Program prog) {
     int n = List_len<*DeclNode>(&prog.decls);
 
@@ -3045,7 +3085,9 @@ void cg_program(Codegen* g, *Program prog) {
     si = 0;
     while (si < n) {
         *DeclNode d = List_get<*DeclNode>(&prog.decls, si);
-        if (d.kind == DK_STRUCT && List_len<TypeParam>(&d.type_params) == 0 && cg_struct_has_bf(d) == 0) {
+        if (d.kind == DK_STRUCT && List_len<TypeParam>(&d.type_params) == 0 && cg_struct_has_bf(d) == 0 && d.pack_align >= 2) {
+            cg_emit_pack2(g, d);                  // #pragma pack(N>=2): explicit padding + phys-index slots
+        } else if (d.kind == DK_STRUCT && List_len<TypeParam>(&d.type_params) == 0 && cg_struct_has_bf(d) == 0) {
             // Build the body first — a generic field type instantiates into g.globals and
             // must precede this line, not interleave (see cg_ensure_struct_inst).
             String body; String_init(&body, 32);
@@ -3056,9 +3098,13 @@ void cg_program(Codegen* g, *Program prog) {
                 String_append(&body, cg_lltype(g, List_get<Param>(&d.params, fi).ty));
                 fi = fi + 1;
             }
+            // A `packed` struct (or `#pragma pack(1)`) is an LLVM packed struct `<{…}>`
+            // (no inter-field padding, align 1); indices are unchanged (no fillers).
+            string op = " = type { "; string cl = " }\n";
+            if (d.is_packed == 1) { op = " = type <{ "; cl = " }>\n"; }
             String_append(&g.globals, "%"); String_append(&g.globals, d.name);
-            String_append(&g.globals, " = type { "); String_append(&g.globals, (string)String_cstr(&body));
-            String_append(&g.globals, " }\n");
+            String_append(&g.globals, op); String_append(&g.globals, (string)String_cstr(&body));
+            String_append(&g.globals, cl);
         } else if (d.kind == DK_UNION) {
             // A union is storage sized to its largest member; all members overlap at offset 0.
             int maxb = 1; int fi = 0;
