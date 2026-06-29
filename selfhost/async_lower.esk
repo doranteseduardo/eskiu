@@ -76,6 +76,17 @@ import "parser.esk";   // mk_ident/mk_lit/mk_bin/mk_cast, str_concat/str_eq/int_
     s.kind = SK_FOR; s.s1 = init; s.expr = cond; s.expr2 = step; s.s2 = body;
     return s;
 }
+string al_substr(string s, int a, int b) {
+    *uint8 buf = alloc<uint8>(b - a + 1);
+    int k = 0; while (k < b - a) { buf[k] = (uint8)s[a + k]; k = k + 1; }
+    buf[b - a] = 0;
+    return (string)buf;
+}
+*ExprNode al_index(*ExprNode base, *ExprNode idx) {
+    *ExprNode e = alloc<ExprNode>(1);
+    e.kind = EK_INDEX; e.a = base; e.b = idx;
+    return e;
+}
 *StmtNode al_case(*ExprNode value, List<*StmtNode>* body) {
     *StmtNode s = alloc<StmtNode>(1);
     s.kind = SK_CASE; s.expr = value;
@@ -152,6 +163,41 @@ string al_await_type(*Program prog, *ExprNode awaited) {
     return "int";
 }
 
+// Declared type of a variable name (a param or a body local) in statement subtree `s`.
+string al_find_vartype(*StmtNode s, string name) {
+    if (s == null) { return ""; }
+    if (s.kind == SK_VARDECL && str_eq(s.name, name) == 1) { return s.type; }
+    if (s.kind == SK_IF || s.kind == SK_WHILE || s.kind == SK_FOR || s.kind == SK_FORIN) {
+        string t = al_find_vartype(s.s1, name); if (t[0] != 0) { return t; }
+    }
+    if (s.kind == SK_IF || s.kind == SK_FOR) { string t = al_find_vartype(s.s2, name); if (t[0] != 0) { return t; } }
+    if (s.kind == SK_BLOCK || s.kind == SK_SWITCH || s.kind == SK_CASE) {
+        int i = 0; while (i < List_len<*StmtNode>(&s.items)) { string t = al_find_vartype(List_get<*StmtNode>(&s.items, i), name); if (t[0] != 0) { return t; } i = i + 1; }
+    }
+    return "";
+}
+string al_var_type(*DeclNode curfn, string name) {
+    int i = 0; while (i < List_len<Param>(&curfn.params)) { Param p = List_get<Param>(&curfn.params, i); if (str_eq(p.name, name) == 1) { return p.ty; } i = i + 1; }
+    return al_find_vartype(curfn.body, name);
+}
+
+// Strip a leading/trailing '*' from a type (pointee), e.g. "*int" / "int*" → "int".
+string al_deref(string t) {
+    int n = 0; while (t[n] != 0) { n = n + 1; }
+    if (n > 0 && (int)t[n - 1] == 42) { *uint8 b = alloc<uint8>(n); int k=0; while(k<n-1){b[k]=(uint8)t[k];k=k+1;} b[n-1]=0; return (string)b; }
+    if ((int)t[0] == 42) { *uint8 b = alloc<uint8>(n); int k=1; while(k<n){b[k-1]=(uint8)t[k];k=k+1;} b[n-1]=0; return (string)b; }
+    return t;
+}
+// Find a struct decl by name in the program (for list-like for-in: its `data` field type).
+*DeclNode al_find_struct(*Program prog, string name) {
+    int i = 0; while (i < List_len<*DeclNode>(&prog.decls)) {
+        *DeclNode d = List_get<*DeclNode>(&prog.decls, i);
+        if (d.kind == DK_STRUCT && str_eq(d.name, name) == 1) { return d; }
+        i = i + 1;
+    }
+    return null;
+}
+
 // ── The transform ─────────────────────────────────────────────────────────────
 // Shared state-graph context, threaded by pointer through the recursive lowering.
 struct AlCtx {
@@ -164,6 +210,7 @@ struct AlCtx {
     List<int> cont;                // continue-target states
     int awcount;                   // await counter → __aw0, __aw1, …
     int tmpn;                      // desugar temp counter → __awt0, …
+    *DeclNode curfn;                  // the async fn being lowered (for iterable type lookup)
 }
 int al_lower_seq(*AlCtx c, List<*StmtNode>* items, int entry);
 int al_lower_stmt(*AlCtx c, *StmtNode s, int cur);
@@ -462,6 +509,38 @@ void al_desugar_items(*AlCtx c, List<*StmtNode>* inp, List<*StmtNode>* out) {
     }
     if (s.kind == SK_WHILE) { return al_while(s.expr, al_desugar_stmt(c, s.s1)); }
     if (s.kind == SK_FOR) { return al_for(s.s1, s.expr, s.expr2, al_desugar_stmt(c, s.s2)); }
+    if (s.kind == SK_FORIN) {
+        // Desugar `for (v in it)` into a counted C-for, then let the for-lowering handle the
+        // await + break/continue. Array `T[N]`: `it[i]`, length N. List-like struct (with
+        // `data`/`size`): `it.data[i]`, length `it.size`. The iterable is an ident here.
+        string itname = ""; if (s.expr != null && s.expr.kind == EK_IDENT) { itname = s.expr.sval; }
+        string ty = al_var_type(c.curfn, itname);
+        string fi = str_concat("__fi", int_to_str(c.tmpn)); c.tmpn = c.tmpn + 1;
+        string elemTy = "int"; *ExprNode lengthE = al_int(0); *ExprNode elemE = al_int(0);
+        int br = 0; int tn2 = 0; while (ty[tn2] != 0) { if ((int)ty[tn2] == 91) { br = tn2; } tn2 = tn2 + 1; }   // '['
+        if (br > 0) {                                  // array "T[N]"
+            elemTy = al_substr(ty, 0, br);             // before '['
+            int e2 = br + 1; int s2 = e2; while (ty[e2] != 0 && (int)ty[e2] != 93) { e2 = e2 + 1; }
+            lengthE = mk_lit(LIT_INT, al_substr(ty, s2, e2));
+            elemE = al_index(mk_ident(itname), mk_ident(fi));
+        } else {                                       // list-like struct (data/size)
+            string sn = al_deref(ty);
+            *DeclNode sd = al_find_struct(c.prog, sn);
+            if (sd != null) {
+                int k = 0; while (k < List_len<Param>(&sd.params)) { Param p = List_get<Param>(&sd.params, k); if (str_eq(p.name, "data") == 1) { elemTy = al_deref(p.ty); } k = k + 1; }
+            }
+            lengthE = al_member(mk_ident(itname), "size");
+            elemE = al_index(al_member(mk_ident(itname), "data"), mk_ident(fi));
+        }
+        List<*StmtNode> initb; List_init<*StmtNode>(&initb, 1);
+        List_push<*StmtNode>(&initb, mk_vardecl(fi, "int", al_int(0), 0));
+        *ExprNode cond = mk_bin("<", mk_ident(fi), lengthE);
+        *ExprNode step = mk_bin("=", mk_ident(fi), mk_bin("+", mk_ident(fi), al_int(1)));
+        List<*StmtNode> body; List_init<*StmtNode>(&body, 2);
+        List_push<*StmtNode>(&body, mk_vardecl(s.name, elemTy, elemE, 0));
+        List_push<*StmtNode>(&body, al_desugar_stmt(c, s.s1));
+        return al_for(al_block(&initb), cond, step, al_block(&body));
+    }
     if (s.kind == SK_SWITCH) {
         List<*StmtNode> ncases; List_init<*StmtNode>(&ncases, 4);
         int k = 0;
@@ -502,7 +581,7 @@ void al_transform(*Program prog, *DeclNode d, List<*DeclNode>* out) {
     if (str_eq(Tret, "void") == 1) { Tret = "uint8"; }
 
     let c: AlCtx;
-    c.prog = prog; c.resumeN = resumeN; c.awcount = 0; c.tmpn = 0;
+    c.prog = prog; c.resumeN = resumeN; c.awcount = 0; c.tmpn = 0; c.curfn = d;
     List_init<string>(&c.vars, 8);
     List_init<Param>(&c.fields, 8);
     List_init<List<*StmtNode>>(&c.states, 4);
@@ -659,7 +738,7 @@ int al_can_lower(*StmtNode s) {
         return al_expr_has_await(s.expr) == 0;
     }
     if (s.kind == SK_IF) { return al_can_lower(s.s1) == 1 && al_can_lower(s.s2) == 1; }
-    if (s.kind == SK_WHILE) { return al_can_lower(s.s1) == 1; }
+    if (s.kind == SK_WHILE || s.kind == SK_FORIN) { return al_can_lower(s.s1) == 1; }
     if (s.kind == SK_FOR) { return al_can_lower(s.s1) == 1 && al_can_lower(s.s2) == 1; }
     if (s.kind == SK_BLOCK || s.kind == SK_SWITCH || s.kind == SK_CASE) {
         int i = 0; while (i < List_len<*StmtNode>(&s.items)) { if (al_can_lower(List_get<*StmtNode>(&s.items, i)) == 0) { return 0; } i = i + 1; }
