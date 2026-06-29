@@ -389,6 +389,22 @@ a clean sweep. Residual beyond the punch-list: async `for-in` element type via a
 heuristic (robustness, not a gap); parse-parity corpus could expand to the ~70
 preprocessor-touching files.
 
+**PROGRESS (2026-06-29, same session).** Fixed + committed, each parity-tested + fixpoint-
+preserving (cg_parity 59→, cg_selfhost 72→): **(2)** var-decl-init / struct-field-init now
+coerce to the declared type, signedness-aware widening (uint→zext, int→sext), and a latent
+`cg_struct_init` interleave bug (cg_coerce emitted mid-`store` line) — fixes `int_widen`,
+and as a side effect `template_struct_literal`. **(2b)** integer semantics — binary-op
+operand width unification (C usual conversions), unsigned `udiv`/`urem`/`lshr`, unsigned
+`icmp` predicates, >32-bit literals typed `i64`, and C default-arg promotion of small ints
+to `i32` in varargs (signedness-aware) — fixes `int_width`. **(3)** type aliases — a
+`cg_dealias` registry/resolver (`type u8 = uint8`), applied in `cg_lltype` + when recording
+local/param/global/field etys — fixes `type_alias`. Re-baselined remaining (4 groups):
+**#4 function-as-value decay** (fn_pointer, fn_more, c_callback, map_generic — `bitcast i32
+add to %closure`); **#5 generic ADT enum monomorphization** (enum_generic, either_stdlib);
+**unhandled builtins** EK_ALLOCWITH / EK_THREADCREATE / EK_FREECLOSURE + thread_join — alloc,
+alloc_with, threads, threading (now emit valid IR but wrong behavior — the builtins fall
+through to a default 0); **crashes** (segfault) traits_primitive, variadic, member_temp.
+
 **(historical) REMAINING (other): the capstone is largely covered.** It is NOT a
 codegen slice but an AST→AST lowering pass (`sema/async_transform.cpp`, 634 lines), run
 
