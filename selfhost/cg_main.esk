@@ -10,15 +10,26 @@ import "parser.esk";
 import "async_lower.esk";
 import "codegen.esk";
 
+extern int64 write(int fd, *void buf, int64 n);
+
+// Diagnostics go to stderr (fd 2), never stdout — stdout carries only the emitted .ll.
+void eprint(string s) {
+    int64 n = 0;
+    while (s[n] != 0) { n = n + 1; }
+    write(2, (*void)s, n);
+}
+
 int main(int argc, string* argv) {
     if (argc < 2) {
-        printf("usage: cg_main <file.esk>\n");
+        eprint("usage: cg_main <file.esk>\n");
         return 1;
     }
     let n: int64 = 0;
     *uint8 raw = fs_read_all(argv[1], &n);
     if (raw == null) {
-        printf("error: cannot read %s\n", argv[1]);
+        uint8[512] eb;
+        sprintf((string)&eb[0], "error: cannot read %s\n", argv[1]);
+        eprint((string)&eb[0]);
         return 1;
     }
 
