@@ -321,6 +321,27 @@ generic-arg INFERENCE (`chan_recv(ch)` → `chan_recv<int>`, for channel/elseif/
 spawn), closure→fn-pointer coercion for `extern` callbacks (loop/io/timer), and async
 for-in/switch lowering. After that:
 
+**unions + bitfields + dynamic trait dispatch DONE (2026-06-29).** Three more
+feature-coverage slices, each behaviorally parity-tested + fixpoint-preserving.
+**unions** — `%U = type { [N x i8] }` sized to the largest member (`cg_type_bytes`);
+all members overlap at offset 0, so `cg_lval` GEPs union member access to field 0 and
+the member's own type governs the load/store. Assignment now **coerces RHS to the
+lvalue's type** (a root fix: storing a `double` literal into a `float` member needs
+`fptrunc`). **bitfields** — declared widths packed into `i32` words (`cg_bf_layout`);
+read = GEP word → `load` → `lshr` by offset → `and` mask → optional `sext` (signed);
+write = read-modify-write (`and` cleared mask, `or` shifted value); struct-init fills
+bit slots; a normal field in a bitfield struct uses its real word index. **interfaces /
+dynamic trait dispatch** — an interface value is a fat pointer `%iface_fat = { ptr data,
+ptr vtable }`; each interface registers a `%I_vtable = { ptr… }` type + method order/
+return types (`CgIface`). Passing a struct pointer where a param expects an interface
+**boxes** it (`cg_box_iface`): emit a per-`(interface, struct)` `@I_vtable_S` global of
+the struct's method fns, alloca the fat pointer, store data + vtable. A call through an
+interface value (`cg_dispatch_iface`) loads data + vtable from the fat pointer, loads the
+method fn pointer from its vtable slot (method index), and calls it with `data` as the
+implicit receiver. `CgFn` gained `petys` (param Eskiu types) to detect interface params
+at the call site. `interfaces.esk` runs to parity (dog=20/cat=11/sum=31). cg_parity
+53/53, cg_selfhost 66/66, bootstrap fixpoint green, guard-malloc clean.
+
 **REMAINING (other): the capstone is largely covered.** It is NOT a
 codegen slice but an AST→AST lowering pass (`sema/async_transform.cpp`, 634 lines), run
 between parse and codegen. Design (to port into a new `selfhost/async_lower.esk`, invoked
@@ -339,8 +360,9 @@ it in the pass by looking up the awaited call's return type (`produce()` → `Fu
 Ti=int). (2) closures (DONE — for the waker), atomics (DONE), generics/Future runtime (DONE).
 **De-risk:** `async_basic.esk` (one await of a ready future, linear body) — get that to
 byte-match, THEN add control-flow-around-await (if/while/for/switch + break/continue → the
-state-graph retargeting, the gnarliest ~half of the pass). Other remaining: unions,
-bitfield layout, dynamic trait dispatch. Polish: esk_main errors→stderr.
+state-graph retargeting, the gnarliest ~half of the pass). (Unions, bitfield layout, and
+dynamic trait dispatch are now DONE — see the 2026-06-29 block above.) Polish:
+esk_main errors→stderr.
 
 **Critical files:** new `selfhost/codegen.esk`, `selfhost/cg_main.esk`,
 `tests/selfhost/cg_parity.sh`. Reference: `codegen/codegen_{module,decl,stmt,expr,
