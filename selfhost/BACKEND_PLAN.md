@@ -350,18 +350,47 @@ parity-pass), async `for-in` is done (19/19, element type via a local heuristic 
 go to **stderr** (an `eprint` helper over `write(2, …)` + `sprintf` — diagnostics never
 contaminate the stdout `.ll` stream). cg_parity 55/55, cg_selfhost 68/68, fixpoint green.
 
-**LAST GAP CLOSED — >8B ADT payloads (2026-06-29).** An ADT enum's `{ i32, [N x i64] }`
-payload area is now sized by BYTES with field alignment (`cg_layout_size` + `cg_align`/
-`cg_size`, mirroring the C++ `makeAdtStruct`/DataLayout) instead of by field count, so a
-variant carrying a struct-by-value wider than one slot fits (`Line(Vec3)`, Vec3=12B → the
-old field-count gave 1 i64=8B < 12B, corruption; now `ceil(12/8)=2` slots). Construction
+**>8B ADT payloads fixed (2026-06-29).** An ADT enum's `{ i32, [N x i64] }` payload area
+is now sized by BYTES with field alignment (`cg_layout_size` + `cg_align`/`cg_size`,
+mirroring the C++ `makeAdtStruct`/DataLayout) instead of by field count, so a variant
+carrying a struct-by-value wider than one slot fits (`Line(Vec3)`, Vec3=12B → the old
+field-count gave 1 i64=8B < 12B, corruption; now `ceil(12/8)=2` slots). Construction
 (`cg_build_variant`) and `match` extraction already viewed the payload as the variant's
 `{ fields }` literal struct (LLVM lays it out with natural padding), so ONLY the area
-sizing needed fixing. Test `adt_big_payload` (Line(Vec3) + Pair(Vec3,int)) to parity;
-guard-malloc clean. cg_parity 56/56, cg_selfhost 69/69, bootstrap fixpoint green.
-**Self-hosting codegen feature coverage is now COMPLETE — no known gaps.** (Residual:
-async `for-in` types its element via a local heuristic, not a sema stamp — robustness, not
-a gap; and the parse-parity corpus could expand to the ~70 preprocessor-touching files.)
+sizing needed fixing. Test `adt_big_payload`; guard-malloc clean.
+
+**FEATURE SWEEP — self-host codegen is NOT yet feature-complete (2026-06-29).** Pushed the
+C++ test corpus (the feature-bearing, non-net tests) through `cg_parity.sh`: **29 pass, 17
+fail → ~8 distinct root causes** (the bootstrap only exercises the subset the compiler's
+own source uses, so these were invisible until probed). LESSON reinforced: never claim
+"complete" from the bootstrap alone — probe the whole feature surface. Punch-list, cheap
+mechanical first:
+1. **Literal `0` → `null` on store to a pointer** — `store ptr 0, …` (alloc, alloc_with,
+   threads, threading). Mirror the existing `icmp …, null` 0→null handling on the store path.
+2. **Integer width coercion on store/init** — `store i32 %x` where `%x` is i8, and the
+   reverse (int_widen, int_width). Extend the RHS-coerce already added for union/member/
+   deref/index assignment to the remaining store + var-decl-init paths.
+3. **Type alias unresolved in codegen** — `type u8 = uint8` leaves a `ptr` vs `i32`
+   mismatch (type_alias). Expand aliases in `cg_lltype`/`cg_etype`.
+4. **Function-as-value decay** — a bare fn name used as a value emits `bitcast i32 add to
+   %closure` / `inttoptr i32 cmp to ptr` (fn_pointer, fn_more, c_callback). Synthesize a
+   fn-ptr thunk + fat pointer (mirror C++ `makeFunctionPointer`).
+5. **Generic ADT enum monomorphization** — `Option<int>`/`Either<…>` emit an undefined
+   `%Option_int` (enum_generic, either_stdlib). Mirror C++ `ensureEnumInst`; the
+   generic-struct monomorphization path is the model.
+6. **Template-struct-literal / generic edge** — `expected ',' after store operand`,
+   `expected value token` (template_struct_literal, map_generic). Needs triage.
+7-9. **Codegen crashes (segfault, exit 139)** — traits_primitive, variadic, member_temp.
+   Triage each (likely null-init / non-kind-aware traversal; catch with guard malloc).
+
+Estimate: #1–3 + #5 are well-understood (existing patterns to mirror) → ~one focused
+session; #4, #6, and the three crashes are the variable → likely 1–2 more. ~2–3 sessions to
+a clean sweep. Residual beyond the punch-list: async `for-in` element type via a local
+heuristic (robustness, not a gap); parse-parity corpus could expand to the ~70
+preprocessor-touching files.
+
+**(historical) REMAINING (other): the capstone is largely covered.** It is NOT a
+codegen slice but an AST→AST lowering pass (`sema/async_transform.cpp`, 634 lines), run
 
 **(historical) REMAINING (other): the capstone is largely covered.** It is NOT a
 codegen slice but an AST→AST lowering pass (`sema/async_transform.cpp`, 634 lines), run

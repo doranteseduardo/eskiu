@@ -28,14 +28,17 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   carrying a struct-by-value larger than 8 bytes (e.g. `Line(Vec3)` where `Vec3` is 12B)
   fits instead of overflowing its slot. Construction + `match` extraction already viewed
   the payload as the variant's `{ fields }` struct, so only the area sizing needed the fix.
-  This closes the last self-hosting codegen gap. Test `adt_big_payload`. cg_parity 56/56.
+  Test `adt_big_payload`. cg_parity 56/56. (A subsequent feature sweep found this was NOT
+  the last gap — see below.)
 - **Self-hosting feature coverage audited + closed out.** Verified the async combinators
   `select2`/`join2`/`spawn` all work through the self-hosted codegen (added `async_select`/
   `async_spawn` to the parity corpus). The self-hosted drivers (`esk_main`/`cg_main`) now
   route diagnostics to **stderr** (an `eprint` helper over `write(2, …)` + `sprintf`) so an
-  error can never contaminate the `.ll` text on stdout. The only remaining self-host codegen
-  gap is an ADT variant carrying a struct-by-value wider than 8 bytes (the tagged-union
-  payload is one `i64` per field). cg_parity 55/55, cg_selfhost 68/68, bootstrap fixpoint.
+  error can never contaminate the `.ll` text on stdout. cg_parity 55/55, cg_selfhost 68/68,
+  bootstrap fixpoint. (NOTE: a later systematic feature sweep — pushing the C++ test corpus
+  through the parity oracle — showed self-host codegen is NOT yet feature-complete; ~8
+  root-cause gaps remain, tracked in `selfhost/BACKEND_PLAN.md`. The bootstrap only exercises
+  the subset the compiler's own source uses, so it missed them.)
 - **Self-hosted codegen — more of the language.** Beyond the bootstrap subset, the
   self-hosted code generator (`selfhost/codegen.esk`) now also lowers: **floating point**
   (`fadd`/`fsub`/`fmul`/`fdiv`, `fcmp`, `fneg`, and int↔float casts via `sitofp`/`fptosi`/
