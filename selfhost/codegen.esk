@@ -603,6 +603,8 @@ string cg_payload_lltype(Codegen* g, CgVariant* v) {
     return (string)String_cstr(&t);
 }
 
+int cg_is_unsigned(string t);   // fwd (defined later); for signedness-aware widening
+
 // Coerce a value to a target LLVM type, emitting the conversion if needed; returns the
 // operand to use. Mirrors the casts in EK_CAST — for ABI-correct call arguments (e.g. an
 // i32 count passed to an `int64 n` parameter must be widened, not reinterpreted).
@@ -625,7 +627,10 @@ string cg_coerce(Codegen* g, CgVal val, string target) {
     else if (sptr == 1 && tw > 0) { cg_emit(g, "ptrtoint ptr "); cg_emit(g, val.op); cg_emit(g, " to "); cg_emit(g, target); }
     else if (tw > 0 && sw > 0 && tw < sw) { cg_emit(g, "trunc "); cg_emit(g, val.ty); cg_emit(g, " "); cg_emit(g, val.op); cg_emit(g, " to "); cg_emit(g, target); }
     else if (sw == 1 && tw > 1) { cg_emit(g, "zext "); cg_emit(g, val.ty); cg_emit(g, " "); cg_emit(g, val.op); cg_emit(g, " to "); cg_emit(g, target); }  // bool→int is 0/1
-    else if (tw > 0 && sw > 0 && tw > sw) { cg_emit(g, "sext "); cg_emit(g, val.ty); cg_emit(g, " "); cg_emit(g, val.op); cg_emit(g, " to "); cg_emit(g, target); }
+    else if (tw > 0 && sw > 0 && tw > sw) {   // widen — honor the SOURCE's signedness (unsigned → zext)
+        if (cg_is_unsigned(val.ety) == 1) { cg_emit(g, "zext "); } else { cg_emit(g, "sext "); }
+        cg_emit(g, val.ty); cg_emit(g, " "); cg_emit(g, val.op); cg_emit(g, " to "); cg_emit(g, target);
+    }
     else { cg_emit(g, "bitcast "); cg_emit(g, val.ty); cg_emit(g, " "); cg_emit(g, val.op); cg_emit(g, " to "); cg_emit(g, target); }
     cg_emit(g, "\n");
     return t;
@@ -1976,7 +1981,8 @@ void cg_struct_init(Codegen* g, string slot, string sname, *ExprNode e) {
         cg_emit(g, s.name); cg_emit(g, ", ptr "); cg_emit(g, slot);
         cg_emit(g, ", i32 0, i32 "); cg_emit(g, cg_itoa(gepidx)); cg_emit(g, "\n");
         string flty = cg_lltype(g, fety);
-        cg_emit(g, "  store "); cg_emit(g, flty); cg_emit(g, " "); cg_emit(g, cg_coerce(g, val, flty));
+        string fop = cg_coerce(g, val, flty);   // hoist: cg_coerce emits its own instr — must not interleave the store line
+        cg_emit(g, "  store "); cg_emit(g, flty); cg_emit(g, " "); cg_emit(g, fop);
         cg_emit(g, ", ptr "); cg_emit(g, fp); cg_emit(g, "\n");
         i = i + 1;
     }
@@ -2130,7 +2136,8 @@ void cg_stmt(Codegen* g, *StmtNode st) {
                 if (cg_is_fnty(st.type) == 1) { g.lam_expret = cg_fnty_ret(st.type); }   // thread fn-type return into a lambda init
                 CgVal init = cg_expr(g, st.expr);
                 g.lam_expret = "";
-                cg_emit(g, "  store "); cg_emit(g, ty); cg_emit(g, " "); cg_emit(g, init.op);
+                string iop = cg_coerce(g, init, ty);    // widen/truncate/null-coerce to the declared type
+                cg_emit(g, "  store "); cg_emit(g, ty); cg_emit(g, " "); cg_emit(g, iop);
                 cg_emit(g, ", ptr "); cg_emit(g, slot); cg_emit(g, "\n");
             }
         }
