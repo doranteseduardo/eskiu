@@ -1,0 +1,14 @@
+// A primitive satisfies a constraint via a free function: `int cmp(int,int)`
+// makes `int` satisfy `Ord`, so `pick<int>` type-checks and `a.cmp(b)` inside
+// the generic body lowers to `cmp(a, b)`.
+extern int printf(string fmt, ...);
+interface Ord { int cmp(Ord* o); }
+int cmp(int a, int b) { if (a < b) { return -1; } return 1; }
+T pick<T: Ord>(T a, T b) {
+    if (a.cmp(b) < 0) { return a; }
+    return b;
+}
+int main() {
+    printf("%d\n", pick<int>(3, 7));
+    return 0;
+}
