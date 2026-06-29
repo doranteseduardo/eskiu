@@ -398,11 +398,16 @@ operand width unification (C usual conversions), unsigned `udiv`/`urem`/`lshr`, 
 `icmp` predicates, >32-bit literals typed `i64`, and C default-arg promotion of small ints
 to `i32` in varargs (signedness-aware) — fixes `int_width`. **(3)** type aliases — a
 `cg_dealias` registry/resolver (`type u8 = uint8`), applied in `cg_lltype` + when recording
-local/param/global/field etys — fixes `type_alias`. Re-baselined remaining (4 groups):
-**#4 function-as-value decay** (fn_pointer, fn_more, c_callback, map_generic — `bitcast i32
-add to %closure`); **#5 generic ADT enum monomorphization** (enum_generic, either_stdlib);
-**unhandled builtins** EK_ALLOCWITH / EK_THREADCREATE / EK_FREECLOSURE + thread_join — alloc,
-alloc_with, threads, threading (now emit valid IR but wrong behavior — the builtins fall
+local/param/global/field etys — fixes `type_alias`. **(4) function-as-value decay DONE** — a bare top-level fn used as a value decays to a
+`{@__fnptr_<name>, null}` closure (the `__fnptr_` thunk, queued + drained, drops the
+closure's env arg and forwards to the real fn); used as a raw pointer (`(*void)cmp`) it is
+just `@name`. `cg_is_fn` + `cg_fn_to_closure`/`cg_emit_thunk`/`cg_drain_thunks`; decay in
+cg_expr EK_IDENT (→ `@name` ptr) + cg_coerce (`@name`→`%closure`). Fixes fn_pointer,
+fn_more, c_callback, map_generic. cg_parity 63, cg_selfhost 76, fixpoint.
+
+Remaining (3 groups): **#5 generic ADT enum monomorphization** (enum_generic,
+either_stdlib); **unhandled builtins** EK_ALLOCWITH / EK_THREADCREATE / EK_FREECLOSURE +
+thread_join — alloc, alloc_with, threads, threading (valid IR now but wrong behavior — fall
 through to a default 0); **crashes** (segfault) traits_primitive, variadic, member_temp.
 
 **(historical) REMAINING (other): the capstone is largely covered.** It is NOT a
