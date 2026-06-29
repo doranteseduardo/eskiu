@@ -425,12 +425,18 @@ lowering `a.m(b)` → `m(a, b)` (receiver by value) when the receiver isn't a st
 free fn `m` exists (mirrors the C++ scalar-primitive constraint dispatch). cg_parity 67,
 cg_selfhost 80, fixpoint.
 
-Remaining (2 groups, both unimplemented FEATURES, not quick fixes): **variadic** — the
-`va_list`/`va_start`/`va_arg<T>`/`va_end` builtins (the last "crash" is really this gap; it
-derefs the `"va_start"` string as a node). Needs the LLVM `va_arg` instruction +
-`llvm.va_start`/`va_end` intrinsics + platform va_list lowering. **unhandled builtins**
-EK_ALLOCWITH / EK_THREADCREATE / EK_FREECLOSURE + thread_join — alloc, alloc_with, threads,
-threading (valid IR now but wrong behavior — fall through to a default 0).
+**(builtins) DONE** — `alloc_with(&a, T, n)` → `(*T) <AllocType>_alloc(&a, n*sizeof(T))`
+(`sizeof` via `cg_size`; size coerced to the alloc method's 2nd param type);
+`thread_create(w)` → `pthread_create(&tid, null, fn, env)` (extract {fn,env} from the
+`%closure`), returns the tid; `thread_join(t)` (SK_THREADJOIN) → `pthread_join(t, null)`;
+`free_closure(f)` frees the closure's heap env (slot 1). On-demand `declare`s deduped via
+`cg_ensure_extern`. Fixes alloc, alloc_with, threads, threading. cg_parity 71, cg_selfhost
+84, fixpoint, guard-malloc clean.
+
+Remaining (1 group): **variadic** — the `va_list`/`va_start`/`va_arg<T>`/`va_end` builtins
+(unimplemented; currently crashes — derefs the `"va_start"` string as a node). Needs the LLVM
+`va_arg` instruction + `llvm.va_start`/`va_end` intrinsics + platform va_list lowering. The
+only remaining feature-sweep gap.
 
 **(historical) REMAINING (other): the capstone is largely covered.** It is NOT a
 codegen slice but an AST→AST lowering pass (`sema/async_transform.cpp`, 634 lines), run
