@@ -79,7 +79,7 @@ body { background: var(--bg); color: var(--ink); font-family: var(--sans);
 <h1 id="getting-started-with-eskiu">Getting Started with Eskiu</h1>
 <p>A hands-on introduction to the Eskiu language. You will go from zero to writing
 and inspecting real compiled programs in about 30 minutes.</p>
-<h2 id="all-code-blocks-in-this-document-compile-and-run-with-eskiu-v025">All code blocks in this document compile and run with <strong>Eskiu v0.2.5</strong>.</h2>
+<h2 id="all-code-blocks-in-this-document-compile-and-run-with-eskiu-v030">All code blocks in this document compile and run with <strong>Eskiu v0.3.0</strong>.</h2>
 <h2 id="installation">Installation</h2>
 <h3 id="prerequisites">Prerequisites</h3>
 <div class="tablewrap"><table>
@@ -130,7 +130,7 @@ cmake --build build -j$(nproc)
 </code></pre>
 <h3 id="verify">Verify</h3>
 <pre><code class="language-bash">./build/eskiuc --version
-# Eskiu 0.2.5 (LLVM 22.1.6)   — exact LLVM version depends on your install
+# Eskiu 0.3.0 (LLVM 22.1.6)   — exact LLVM version depends on your install
 </code></pre>
 <p>Add <code>./build</code> to your <code>PATH</code> so you can type <code>eskiuc</code> from any directory.</p>
 <hr>
@@ -970,7 +970,7 @@ import &lt;math&gt;;
 through to the linker, so the one-command form works too:</p>
 <pre><code class="language-bash">eskiuc file.esk -o file -lm
 </code></pre>
-<h3 id="standard-library-highlights-v025">Standard library highlights (v0.2.5)</h3>
+<h3 id="standard-library-highlights-v030">Standard library highlights (v0.3.0)</h3>
 <p>A few of the newer modules. See the language spec §14 for the full reference.</p>
 <p><strong><code>&lt;alloc&gt;</code> — allocators over a caller buffer.</strong> <code>alloc_with(&amp;a, T, n)</code> carves a
 typed <code>*T</code> out of any struct that exposes a <code>_alloc</code> method. Bump is the
