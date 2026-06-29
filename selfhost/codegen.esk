@@ -28,6 +28,9 @@ struct CgStruct { string name; List<string> fnames; List<string> fetys; }
 struct CgEnumC { string name; string val; }
 // An ADT enum variant: its name, owning enum, integer tag, and payload field types.
 struct CgVariant { string vname; string ename; int tag; List<string> ptys; }
+// A bitfield slot: which struct/field, the LLVM word it lives in (field index), its bit
+// offset + width within that word, and whether the field is signed (→ sign-extend on read).
+struct CgBF { string sname; string fname; int fidx; int boff; int bw; int sgn; }
 // A queued lambda: its unique name, the AST node (signature in .sval, body in .stmt),
 // and its captured outer variables (parallel name/Eskiu-type lists).
 struct CgLambda { string name; *ExprNode node; string rety; List<string> capn; List<string> capt; }
@@ -53,6 +56,7 @@ struct Codegen {
     List<CgVariant> variants; // ADT enum variants (by name)
     List<string> adt_names;  // ADT enum type names (lower to %Name, a tagged union)
     List<string> union_names; // union type names (all members overlap at offset 0)
+    List<CgBF> bitfields;    // bitfield slots (struct.field → word/offset/width/signed)
     List<CgLambda> lambdas;  // queued lambda bodies, emitted after the main decls
     int lam_seq;             // counter for unique lambda names
     string lam_expret;       // return type expected from a lambda's assignment context ("" = none)
@@ -125,6 +129,7 @@ void cg_init(Codegen* g) {
     List_init<CgVariant>(&g.variants, 16);
     List_init<string>(&g.adt_names, 8);
     List_init<string>(&g.union_names, 4);
+    List_init<CgBF>(&g.bitfields, 8);
     List_init<CgLambda>(&g.lambdas, 8);
     g.lam_seq = 0;
     g.lam_expret = "";
@@ -663,6 +668,8 @@ CgVal cg_build_variant(Codegen* g, CgVariant var, *ExprNode call);   // construc
 CgVal cg_emit_atomic(Codegen* g, string nm, *ExprNode e);            // atomic intrinsic
 CgVal cg_indirect_call(Codegen* g, string cval, string fnty, *ExprNode e);  // call a closure value
 CgVal cg_call_mangled(Codegen* g, string mangled, *ExprNode e);      // call a monomorphized fn
+string cg_member_baseptr(Codegen* g, *ExprNode ea, *string out_sname);  // struct ptr + name
+CgBF cg_bf(Codegen* g, string sname, string fname);
 string cg_infer_generic(Codegen* g, *DeclNode gd, *ExprNode e);      // infer `name<args>` from arg types
 void cg_collect_idents_e(*ExprNode e, List<string>* out);
 void cg_collect_idents_s(*StmtNode s, List<string>* out);
@@ -1090,6 +1097,7 @@ CgVal cg_lval(Codegen* g, *ExprNode e) {
         // member's own type governs the later load/store. A struct uses the field index.
         int gepidx = idx;
         if (cg_is_union(g, s.name) == 1) { gepidx = 0; }
+        else if (cg_is_bf_struct(g, s.name) == 1) { gepidx = cg_bf(g, s.name, e.sval).fidx; }   // bitfield struct: real word/field index
         string t = cg_tmp(g);
         cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = getelementptr inbounds %");
         cg_emit(g, s.name); cg_emit(g, ", ptr "); cg_emit(g, sptr);
@@ -1139,6 +1147,16 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
         v.op = e.sval; v.ty = "i32"; return v;         // fallback
     }
 
+    if (e.kind == EK_MEMBER) {                          // a bitfield member read masks/shifts
+        string bet = cg_etype(g, e.a);
+        string sn = bet; if (cg_is_ptr_ty(bet) == 1) { sn = cg_strip_ptr(bet); }
+        CgBF slot = cg_bf(g, sn, e.sval);
+        if (slot.bw > 0) {
+            string sn2 = "";
+            string baseptr = cg_member_baseptr(g, e.a, &sn2);
+            return cg_bf_read(g, baseptr, sn2, slot);
+        }
+    }
     if (e.kind == EK_MEMBER || e.kind == EK_INDEX) {    // field/element read: GEP + load
         CgVal lv = cg_lval(g, e);
         string llty = cg_lltype(g, lv.ety);
@@ -1179,6 +1197,20 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
 
     if (e.kind == EK_BINARY) {
         if (cg_streq(e.sval, "=") == 1) {              // assignment
+            // Assignment to a bitfield member → read-modify-write the storage word.
+            if (e.a != null && e.a.kind == EK_MEMBER) {
+                string bet = cg_etype(g, e.a.a);
+                string sn = bet; if (cg_is_ptr_ty(bet) == 1) { sn = cg_strip_ptr(bet); }
+                CgBF slot = cg_bf(g, sn, e.a.sval);
+                if (slot.bw > 0) {
+                    CgVal rv = cg_expr(g, e.b);
+                    string rop = cg_coerce(g, rv, "i32");
+                    string sn2 = "";
+                    string baseptr = cg_member_baseptr(g, e.a.a, &sn2);
+                    cg_bf_write(g, baseptr, sn2, slot, rop);
+                    return rv;
+                }
+            }
             CgVal rhs = cg_expr(g, e.b);
             if (e.a != null && e.a.kind == EK_IDENT && cg_find_local(g, e.a.sval).slot[0] != 0) {
                 CgLocal l = cg_find_local(g, e.a.sval);
@@ -1678,6 +1710,67 @@ string cg_infer_generic(Codegen* g, *DeclNode gd, *ExprNode e) {
     return (string)String_cstr(&sp);
 }
 
+// The address (a ptr) of the struct that a member expression `ea` denotes, plus its struct
+// type name (via out_sname). Mirrors the base resolution in cg_lval's EK_MEMBER.
+string cg_member_baseptr(Codegen* g, *ExprNode ea, *string out_sname) {
+    string bet = cg_etype(g, ea);
+    if (cg_is_ptr_ty(bet) == 1) { out_sname[0] = cg_strip_ptr(bet); return cg_expr(g, ea).op; }
+    CgVal lv = cg_lval(g, ea);
+    if (lv.op[0] != 0) { out_sname[0] = bet; if (lv.ety[0] != 0) { out_sname[0] = lv.ety; } return lv.op; }
+    CgVal val = cg_expr(g, ea);                       // rvalue → materialize
+    if (val.ety[0] != 0) { out_sname[0] = val.ety; } else { out_sname[0] = bet; }
+    string slot = cg_tmp(g);
+    cg_emit(g, "  "); cg_emit(g, slot); cg_emit(g, " = alloca "); cg_emit(g, val.ty); cg_emit(g, "\n");
+    cg_emit(g, "  store "); cg_emit(g, val.ty); cg_emit(g, " "); cg_emit(g, val.op); cg_emit(g, ", ptr "); cg_emit(g, slot); cg_emit(g, "\n");
+    return slot;
+}
+
+// (1<<bw)-1, or -1 (all 32 bits) when bw >= 32.
+int cg_bf_mask(int bw) { if (bw >= 32) { return 0 - 1; } int m = 1; int i = 0; while (i < bw) { m = m * 2; i = i + 1; } return m - 1; }
+
+// Read a bitfield: load its word, shift down, mask, and sign-extend if signed.
+CgVal cg_bf_read(Codegen* g, string baseptr, string sname, CgBF slot) {
+    let v: CgVal; v.ety = "";
+    string wa = cg_tmp(g);
+    cg_emit(g, "  "); cg_emit(g, wa); cg_emit(g, " = getelementptr inbounds %"); cg_emit(g, sname);
+    cg_emit(g, ", ptr "); cg_emit(g, baseptr); cg_emit(g, ", i32 0, i32 "); cg_emit(g, cg_itoa(slot.fidx)); cg_emit(g, "\n");
+    string w = cg_tmp(g);
+    cg_emit(g, "  "); cg_emit(g, w); cg_emit(g, " = load i32, ptr "); cg_emit(g, wa); cg_emit(g, "\n");
+    string sh = cg_tmp(g);
+    cg_emit(g, "  "); cg_emit(g, sh); cg_emit(g, " = lshr i32 "); cg_emit(g, w); cg_emit(g, ", "); cg_emit(g, cg_itoa(slot.boff)); cg_emit(g, "\n");
+    string m = cg_tmp(g);
+    cg_emit(g, "  "); cg_emit(g, m); cg_emit(g, " = and i32 "); cg_emit(g, sh); cg_emit(g, ", "); cg_emit(g, cg_itoa(cg_bf_mask(slot.bw))); cg_emit(g, "\n");
+    if (slot.sgn == 1 && slot.bw < 32) {              // sign-extend from bw bits
+        string s1 = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, s1); cg_emit(g, " = shl i32 "); cg_emit(g, m); cg_emit(g, ", "); cg_emit(g, cg_itoa(32 - slot.bw)); cg_emit(g, "\n");
+        string s2 = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, s2); cg_emit(g, " = ashr i32 "); cg_emit(g, s1); cg_emit(g, ", "); cg_emit(g, cg_itoa(32 - slot.bw)); cg_emit(g, "\n");
+        v.op = s2; v.ty = "i32"; return v;
+    }
+    v.op = m; v.ty = "i32"; return v;
+}
+
+// Write a bitfield: load the word, clear the field's bits, OR in the masked/shifted value.
+void cg_bf_write(Codegen* g, string baseptr, string sname, CgBF slot, string rhsop) {
+    int mask = cg_bf_mask(slot.bw);
+    int sm = mask << slot.boff;
+    int clr = (0 - 1) - sm;                           // ~(mask << boff), in two's complement
+    string wa = cg_tmp(g);
+    cg_emit(g, "  "); cg_emit(g, wa); cg_emit(g, " = getelementptr inbounds %"); cg_emit(g, sname);
+    cg_emit(g, ", ptr "); cg_emit(g, baseptr); cg_emit(g, ", i32 0, i32 "); cg_emit(g, cg_itoa(slot.fidx)); cg_emit(g, "\n");
+    string w = cg_tmp(g);
+    cg_emit(g, "  "); cg_emit(g, w); cg_emit(g, " = load i32, ptr "); cg_emit(g, wa); cg_emit(g, "\n");
+    string c = cg_tmp(g);
+    cg_emit(g, "  "); cg_emit(g, c); cg_emit(g, " = and i32 "); cg_emit(g, w); cg_emit(g, ", "); cg_emit(g, cg_itoa(clr)); cg_emit(g, "\n");
+    string vm = cg_tmp(g);
+    cg_emit(g, "  "); cg_emit(g, vm); cg_emit(g, " = and i32 "); cg_emit(g, rhsop); cg_emit(g, ", "); cg_emit(g, cg_itoa(mask)); cg_emit(g, "\n");
+    string shv = cg_tmp(g);
+    cg_emit(g, "  "); cg_emit(g, shv); cg_emit(g, " = shl i32 "); cg_emit(g, vm); cg_emit(g, ", "); cg_emit(g, cg_itoa(slot.boff)); cg_emit(g, "\n");
+    string nw = cg_tmp(g);
+    cg_emit(g, "  "); cg_emit(g, nw); cg_emit(g, " = or i32 "); cg_emit(g, c); cg_emit(g, ", "); cg_emit(g, shv); cg_emit(g, "\n");
+    cg_emit(g, "  store i32 "); cg_emit(g, nw); cg_emit(g, ", ptr "); cg_emit(g, wa); cg_emit(g, "\n");
+}
+
 void cg_struct_init(Codegen* g, string slot, string sname, *ExprNode e) {
     CgStruct s = cg_find_struct(g, sname);
     int n = List_len<*ExprNode>(&e.kids);
@@ -1688,12 +1781,20 @@ void cg_struct_init(Codegen* g, string slot, string sname, *ExprNode e) {
         if (fname[0] != 0) { idx = cg_field_idx(&s, fname); }
         string fety = "";
         if (idx >= 0 && idx < List_len<string>(&s.fetys)) { fety = List_get<string>(&s.fetys, idx); }
+        string actual = fname; if (actual[0] == 0 && idx >= 0 && idx < List_len<string>(&s.fnames)) { actual = List_get<string>(&s.fnames, idx); }
         CgVal val = cg_expr(g, List_get<*ExprNode>(&e.kids, i));
+        CgBF bfslot = cg_bf(g, sname, actual);
+        if (bfslot.bw > 0) {                            // a bitfield member of this literal
+            cg_bf_write(g, slot, s.name, bfslot, cg_coerce(g, val, "i32"));
+            i = i + 1; continue;
+        }
+        int gepidx = idx; if (bfslot.fidx >= 0) { gepidx = bfslot.fidx; }   // normal field in a bf struct
         string fp = cg_tmp(g);
         cg_emit(g, "  "); cg_emit(g, fp); cg_emit(g, " = getelementptr inbounds %");
         cg_emit(g, s.name); cg_emit(g, ", ptr "); cg_emit(g, slot);
-        cg_emit(g, ", i32 0, i32 "); cg_emit(g, cg_itoa(idx)); cg_emit(g, "\n");
-        cg_emit(g, "  store "); cg_emit(g, cg_lltype(g, fety)); cg_emit(g, " "); cg_emit(g, val.op);
+        cg_emit(g, ", i32 0, i32 "); cg_emit(g, cg_itoa(gepidx)); cg_emit(g, "\n");
+        string flty = cg_lltype(g, fety);
+        cg_emit(g, "  store "); cg_emit(g, flty); cg_emit(g, " "); cg_emit(g, cg_coerce(g, val, flty));
         cg_emit(g, ", ptr "); cg_emit(g, fp); cg_emit(g, "\n");
         i = i + 1;
     }
@@ -2205,6 +2306,81 @@ void cg_drain_lambdas(Codegen* g) {
     }
 }
 
+// Does a struct decl have any bitfield member (a `: width` field)?
+int cg_struct_has_bf(*DeclNode d) {
+    int i = 0; int n = List_len<int>(&d.field_bits);
+    while (i < n) { if (List_get<int>(&d.field_bits, i) > 0) { return 1; } i = i + 1; }
+    return 0;
+}
+
+// Is `t` an unsigned-base type (→ bitfield read zero-extends, not sign-extends)?
+int cg_is_unsigned(string t) {
+    return cg_streq(t, "uint") == 1 || cg_streq(t, "uint8") == 1 || cg_streq(t, "uint16") == 1
+        || cg_streq(t, "uint32") == 1 || cg_streq(t, "uint64") == 1 || cg_streq(t, "bool") == 1
+        || cg_streq(t, "char") == 1;
+}
+
+// The bitfield slot for `sname.fname` (sentinel .fidx == -1 if not registered).
+CgBF cg_bf(Codegen* g, string sname, string fname) {
+    int i = 0; int n = List_len<CgBF>(&g.bitfields);
+    while (i < n) {
+        CgBF b = List_get<CgBF>(&g.bitfields, i);
+        if (cg_streq(b.sname, sname) == 1 && cg_streq(b.fname, fname) == 1) { return b; }
+        i = i + 1;
+    }
+    let none: CgBF; none.sname = sname; none.fname = fname; none.fidx = 0 - 1; none.boff = 0; none.bw = 0; none.sgn = 0;
+    return none;
+}
+int cg_is_bf_struct(Codegen* g, string sname) {
+    int i = 0; int n = List_len<CgBF>(&g.bitfields);
+    while (i < n) { if (cg_streq(List_get<CgBF>(&g.bitfields, i).sname, sname) == 1) { return 1; } i = i + 1; }
+    return 0;
+}
+
+// Lay out a bitfield struct: consecutive bitfields pack into i32 words (a new word when the
+// next field won't fit in 32 bits); a normal field flushes the open word and gets its own
+// slot. Registers a slot per field (word index + bit offset/width, or a plain index for a
+// normal field), emits `%S = type { … }`, and registers the field-name/type list.
+void cg_bf_layout(Codegen* g, *DeclNode d) {
+    let cs: CgStruct; cs.name = d.name;
+    List_init<string>(&cs.fnames, 4); List_init<string>(&cs.fetys, 4);
+    String body; String_init(&body, 32);
+    int nf = List_len<Param>(&d.params);
+    int llcount = 0;          // number of LLVM fields emitted so far
+    int curword = 0 - 1;      // open bitfield word's LLVM index (-1 = none)
+    int curoff = 0;
+    int i = 0;
+    while (i < nf) {
+        Param pm = List_get<Param>(&d.params, i);
+        int bw = List_get<int>(&d.field_bits, i);
+        List_push<string>(&cs.fnames, pm.name);
+        List_push<string>(&cs.fetys, pm.ty);
+        let slot: CgBF; slot.sname = d.name; slot.fname = pm.name;
+        if (bw > 0) {
+            if (curword < 0 || curoff + bw > 32) {       // open a fresh i32 word
+                if (llcount > 0) { String_append(&body, ", "); }
+                String_append(&body, "i32");
+                curword = llcount; llcount = llcount + 1; curoff = 0;
+            }
+            slot.fidx = curword; slot.boff = curoff; slot.bw = bw;
+            slot.sgn = 0; if (cg_is_unsigned(pm.ty) == 0) { slot.sgn = 1; }
+            curoff = curoff + bw;
+        } else {
+            curword = 0 - 1; curoff = 0;                  // a normal field closes the word
+            if (llcount > 0) { String_append(&body, ", "); }
+            String_append(&body, cg_lltype(g, pm.ty));
+            slot.fidx = llcount; slot.boff = 0; slot.bw = 0; slot.sgn = 0;
+            llcount = llcount + 1;
+        }
+        List_push<CgBF>(&g.bitfields, slot);
+        i = i + 1;
+    }
+    List_push<CgStruct>(&g.structs, cs);
+    String_append(&g.globals, "%"); String_append(&g.globals, d.name);
+    String_append(&g.globals, " = type { "); String_append(&g.globals, (string)String_cstr(&body));
+    String_append(&g.globals, " }\n");
+}
+
 void cg_program(Codegen* g, *Program prog) {
     int n = List_len<*DeclNode>(&prog.decls);
 
@@ -2216,6 +2392,8 @@ void cg_program(Codegen* g, *Program prog) {
         *DeclNode d = List_get<*DeclNode>(&prog.decls, si);
         if (d.kind == DK_STRUCT && List_len<TypeParam>(&d.type_params) > 0) {
             List_push<*DeclNode>(&g.gstructs, d);          // generic — monomorphized on demand
+        } else if (d.kind == DK_STRUCT && cg_struct_has_bf(d) == 1) {
+            cg_bf_layout(g, d);                            // bitfield struct: registers + emits here
         } else if (d.kind == DK_STRUCT) {
             let s: CgStruct;
             s.name = d.name;
@@ -2252,7 +2430,7 @@ void cg_program(Codegen* g, *Program prog) {
     si = 0;
     while (si < n) {
         *DeclNode d = List_get<*DeclNode>(&prog.decls, si);
-        if (d.kind == DK_STRUCT && List_len<TypeParam>(&d.type_params) == 0) {
+        if (d.kind == DK_STRUCT && List_len<TypeParam>(&d.type_params) == 0 && cg_struct_has_bf(d) == 0) {
             // Build the body first — a generic field type instantiates into g.globals and
             // must precede this line, not interleave (see cg_ensure_struct_inst).
             String body; String_init(&body, 32);
