@@ -60,8 +60,9 @@ Use `examples/` and `tests/` as inputs. Add a `.esk` file for any feature you im
 | `tests/` | Regression tests (`.esk` files). |
 | `examples/` | Working demos. |
 | `kernel/` | Bare-metal ARM64 kernel for QEMU (v0.1 milestone). |
+| `selfhost/` | The compiler reimplemented **in Eskiu** — `lexer`/`parser`/`preprocessor`/`sema`/`codegen` (+`async_lower`) + drivers (`{lex,parse,pp,tc,cg,esk}_main.esk`). Codegen emits LLVM IR as text (no LLVM lib). Validated against the C++ `eskiuc` and against itself (bootstrap fixpoint). Slice-by-slice log + design: `selfhost/BACKEND_PLAN.md`; dogfood finds: `selfhost/NOTES.md`. |
 
-## Current language status (v0.2.0)
+## Current language status
 
 All items below are implemented and tested end-to-end. v0.1.0 shipped the systems
 foundation (closures, threads, exceptions, the bare-metal kernel); v0.2.0 adds the
@@ -105,7 +106,7 @@ with `match`, and the concurrent stdlib.
 | VS Code | Real-time errors, hover types, go-to-definition |
 | stdlib | Core: `result.esk`, `either.esk`, `list.esk`, `map.esk` (`Map<V>` string-keyed + `HashMap<K,V>` fn-pointer hash/eq), `string.esk`, `bytes.esk` (`Bytes`, binary-safe buffer), `math.esk`, `io.esk`, `mem.esk`, `path.esk`, `env.esk`, `time.esk`. Memory: `alloc.esk` (Bump/Arena/Pool/FirstFit), `sysheap.esk` (mmap heap). Concurrency: `threading.esk`, `atomic.esk`. Async runtime: `eventloop.esk`, `future.esk`, `futureval.esk`, `executor.esk`, `net_async.esk`, `timer.esk`, `channel.esk`. Net/codecs: `net.esk`, `base64.esk`, `json.esk`, `multipart.esk`. HTTP: `http.esk` (String `HttpRequest` + binary-safe `HttpReq`/`http_recv`), `http_async.esk`, `http2.esk`, `http2_server.esk`, `hpack.esk`, `hpack_huffman.esk`, `tls.esk`. Files: `fs.esk` |
 
-## Roadmap (as of v0.2.0)
+## Roadmap
 
 | Milestone | Items | Status |
 |---|---|---|
@@ -117,11 +118,44 @@ with `match`, and the concurrent stdlib.
 | v0.2.3 | bounded-generics completion (primitives satisfy a constraint via a free function); typed `ty::Type` IR foundation (`sema/type.{h,cpp}`) — `substType` + the sema bare-name strips migrated to it, golden-IR oracle gating behavior-preservation. Cross-phase consolidation (codegen consuming resolved Types) deferred | ✅ |
 | v0.2.4 | type unification — the type checker is the single resolver: codegen consumes its resolved expression types (re-run post-AsyncTransform) instead of re-deriving, and `getTypeFromString` dispatches on `ty::Type::parse` (one grammar interpreter across both phases). Closed the two-evaluator risk; fixed 3 latent miscompiles it surfaced (float-lit `double`, ptr-deref width, `char` zext) | ✅ |
 | v0.2.5 | preprocessor correctness fix (a `//`/`/* */` comment ending in `\` no longer splices the next source line — silent code-eating footgun; found dogfooding the self-hosted lexer); **self-hosting milestone 1: the lexer in Eskiu** (`selfhost/`, byte-identical to `--test-lexer` over the preprocessor-free corpus, CI-gated); hardening (`ESKIU_RESOLVER_DEBUG` consistency oracle, backslash fuzzer generators) | ✅ |
-| v0.3 | Self-hosting prerequisites (LLVM C bindings, lexer ✅ / parser in Eskiu 🚧) | 🚧 |
-| v1.0 | Package manager, self-hosting | ❌ |
+| v0.3 (on `develop`, unreleased) | **Self-hosting: the whole compiler in Eskiu.** Front-end (lexer / parser + import resolution / preprocessor) and back-end (sema with all 19 error classes; codegen — full bootstrap subset PLUS floats, switch, ADT enums + `match`, closures, exceptions (Itanium ABI), atomics, generics + argument inference, async/await 19/19, unions, bitfields, interfaces/dynamic-trait-dispatch) all reimplemented in Eskiu. **3-stage bootstrap fixpoint reached** (the self-built compiler reproduces its own IR). All parity gates CI-wired. | ✅ (capstone done; long-tail surface remains) |
+| v1.0 | Package manager; release-cut the self-hosting compiler | ❌ |
 
-Genuinely deferred within v0.2.0: a package manager, and the tighter
-locals-across-await liveness optimization (see `docs/dev/phases.md`).
+Self-hosting long-tail still open (not blocking): >8B ADT struct payloads, the
+type-erased `select`/`join`/`spawn` future combinators, async `for-in` element typing in
+the self-hosted sema, and `esk_main` errors → stderr. Genuinely deferred earlier: a
+package manager, and the tighter locals-across-await liveness optimization (see
+`docs/dev/phases.md`).
+
+## Working on the self-hosted compiler (`selfhost/`)
+
+The C++ `eskiuc` stays the oracle; the Eskiu reimplementation is validated against it.
+**Parity method, by phase:**
+
+- Front-end (lexer/parser/preprocessor) = **byte-exact** diff vs `eskiuc --test-{lexer,parser}`
+  (strip the C++ banner). Preprocessor parity runs *through* the lexer.
+- Sema = **verdict + `EXPECT-ERROR` substring** (no byte dump — most programs type-check
+  cleanly).
+- Codegen = **behavioral**: emit `.ll` → `clang` → run → compare exit code + stdout to the
+  C++-built binary (IR can't match byte-for-byte — SSA auto-numbering + constant folding).
+- Bootstrap = **IR fixpoint** (cc1 and cc2 emit identical IR), NOT binary equality (Mach-O
+  `LC_UUID` + ad-hoc signature differ for identical input).
+
+Gates: `tests/selfhost/{lex,parse,pp,tc,cg}_parity.sh` + `cg_selfhost.sh` + `cg_bootstrap.sh`,
+all CI-wired and honoring a `CLANG` env override (CI uses clang-22) like `ESKIUC`.
+
+**Footguns that bite repeatedly (check these first when self-host code breaks):**
+
+- `fn`, `in`, and `match` are **reserved keywords** — never use one as a variable / param /
+  field name. The C++ parser derails silently ("Expected expression, got …").
+- `alloc<T>` does **not** zero memory — initialize optional/nullable pointer fields
+  explicitly or a later read segfaults.
+- AST traversal must be **kind-aware**: never read a field a node kind doesn't set (garbage →
+  Linux-only UB). Catch with guard malloc (`DYLD_INSERT_LIBRARIES=libgmalloc.dylib`).
+- `… | head` masks `eskiuc`'s exit code → a failed build silently reuses the stale binary.
+
+Discipline per slice: incremental → de-risk on a focused test → all gates green +
+guard-malloc clean → fixpoint preserved → short commit → docs. Root fixes, never patches.
 
 ## Adding a new AST node
 
