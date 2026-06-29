@@ -1077,7 +1077,54 @@
       </div>
     </section>
 
+    <!-- Self-hosting -->
+    <hr />
+    <section class="section">
+      <div class="wrap">
+        <span class="label">Self-hosting</span>
+        <h2>The compiler is written in Eskiu.</h2>
+        <p class="lead">
+          Every pass — lexer, preprocessor, parser, type checker, code generator —
+          is reimplemented in Eskiu and checked against the reference C++ compiler.
+          Code generation emits textual LLVM IR; no LLVM library is linked. The result
+          is validated two ways: parity per pass, and a three-stage bootstrap in which
+          the compiler reproduces its own output.
+        </p>
+        <div class="glance">
+          <div class="glance-item">
+            <h3>Bootstrap fixpoint</h3>
+            <p>
+              The C++ <code>eskiuc</code> builds the Eskiu compiler (cc0); cc0 builds
+              cc1; cc1 builds cc2 — and <code>cc1 ≡ cc2</code> emit identical IR. A
+              compiler reproducing its own output is the proof it self-hosts.
+            </p>
+          </div>
+          <div class="glance-item">
+            <h3>Feature-complete codegen</h3>
+            <p>
+              Not just the subset the compiler itself uses — a full feature sweep
+              passes 50/50: floats, sum types, closures, exceptions, atomics,
+              generics, async/await, interfaces, the <code>?</code> operator. Each
+              program runs identically to the C++ build.
+            </p>
+          </div>
+          <div class="glance-item">
+            <h3>Parity-gated in CI</h3>
+            <p>
+              Every pass has a parity gate against <code>eskiuc</code> wired into CI —
+              byte-exact for the front end, verdict-for-verdict for the type checker,
+              behavioral for codegen — so the self-hosted compiler can't silently drift.
+            </p>
+          </div>
+        </div>
+        <p class="lead" style="margin-top: 1.75rem">
+          <a href="docs/self-hosting.html">How self-hosting works →</a>
+        </p>
+      </div>
+    </section>
+
     <!-- Why Eskiu -->
+    <hr />
     <section class="section">
       <div class="wrap">
         <span class="label">Why Eskiu</span>
@@ -1104,7 +1151,9 @@
               You allocate and free in the source with
               <code>alloc&lt;T&gt;(N)</code> and <code>free(ptr)</code> — the
               memory is yours to account for, the lever teams pull when replacing
-              C++. And 2.5× faster than reference C on our crypto benchmark.
+              C++ — and, on a real crypto pipeline,
+              <a href="case-study-reactvision.html">2.5× faster than the reference C</a>
+              (benchmark + method in the case study).
             </p>
           </div>
           <div class="glance-item">
