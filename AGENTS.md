@@ -121,11 +121,14 @@ with `match`, and the concurrent stdlib.
 | v0.3 (on `develop`, unreleased) | **Self-hosting: the whole compiler in Eskiu.** Front-end (lexer / parser + import resolution / preprocessor) and back-end (sema with all 19 error classes; codegen — full bootstrap subset PLUS floats, switch, ADT enums + `match`, closures, exceptions (Itanium ABI), atomics, generics + argument inference, async/await 19/19, unions, bitfields, interfaces/dynamic-trait-dispatch) all reimplemented in Eskiu. **3-stage bootstrap fixpoint reached** (the self-built compiler reproduces its own IR). All parity gates CI-wired. | ✅ (capstone done; long-tail surface remains) |
 | v1.0 | Package manager; release-cut the self-hosting compiler | ❌ |
 
-Self-hosting long-tail still open (not blocking): >8B ADT struct payloads, the
-type-erased `select`/`join`/`spawn` future combinators, async `for-in` element typing in
-the self-hosted sema, and `esk_main` errors → stderr. Genuinely deferred earlier: a
-package manager, and the tighter locals-across-await liveness optimization (see
-`docs/dev/phases.md`).
+Self-hosting long-tail still open (not blocking): **>8B ADT struct payloads** — an ADT
+variant carrying a struct-by-value wider than one `i64` slot (the tagged union is
+`{ i32, [N x i64] }`, one slot per field); rare, same limit as the C++ side. Async
+`for-in`, the type-erased `select2`/`join2`/`spawn` combinators, and `esk_main`/`cg_main`
+errors→stderr are all DONE (corpus-tested). The one nuance: async `for-in` resolves its
+element type with a local heuristic in `async_lower.esk` rather than a sema-stamped type,
+so an exotic iterable could miss. Genuinely deferred earlier: a package manager, and the
+tighter locals-across-await liveness optimization (see `docs/dev/phases.md`).
 
 ## Working on the self-hosted compiler (`selfhost/`)
 

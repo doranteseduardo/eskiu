@@ -342,7 +342,19 @@ implicit receiver. `CgFn` gained `petys` (param Eskiu types) to detect interface
 at the call site. `interfaces.esk` runs to parity (dog=20/cat=11/sum=31). cg_parity
 53/53, cg_selfhost 66/66, bootstrap fixpoint green, guard-malloc clean.
 
-**REMAINING (other): the capstone is largely covered.** It is NOT a
+**FEATURE COVERAGE COMPLETE — long-tail audited (2026-06-29).** Verified the remaining
+items rather than trusting stale notes: the async combinators `select2`/`join2`/`spawn`
+ALL work through the self-host (added `async_select`/`async_spawn` to the corpus; both
+parity-pass), async `for-in` is done (19/19, element type via a local heuristic in
+`async_lower.esk` — a robustness caveat, not a gap), and `esk_main`/`cg_main` errors now
+go to **stderr** (an `eprint` helper over `write(2, …)` + `sprintf` — diagnostics never
+contaminate the stdout `.ll` stream). The ONE genuinely-open codegen gap is **>8B ADT
+struct payloads**: the tagged union is `{ i32, [N x i64] }`, one `i64` slot per payload
+field, so a variant carrying a struct-by-value wider than 8 bytes doesn't fit (rare; same
+limit as the C++ side — to fix, size the payload area by max bytes and GEP wider fields
+into the byte array). cg_parity 55/55, cg_selfhost 68/68, bootstrap fixpoint green.
+
+**(historical) REMAINING (other): the capstone is largely covered.** It is NOT a
 codegen slice but an AST→AST lowering pass (`sema/async_transform.cpp`, 634 lines), run
 between parse and codegen. Design (to port into a new `selfhost/async_lower.esk`, invoked
 in cg_main/esk_main after `parse_program`): for each `async fn name() -> T`, synthesize
@@ -361,8 +373,9 @@ Ti=int). (2) closures (DONE — for the waker), atomics (DONE), generics/Future 
 **De-risk:** `async_basic.esk` (one await of a ready future, linear body) — get that to
 byte-match, THEN add control-flow-around-await (if/while/for/switch + break/continue → the
 state-graph retargeting, the gnarliest ~half of the pass). (Unions, bitfield layout, and
-dynamic trait dispatch are now DONE — see the 2026-06-29 block above.) Polish:
-esk_main errors→stderr.
+dynamic trait dispatch are now DONE — see the 2026-06-29 blocks above, which also record
+the verified long-tail: combinators + for-in done, errors→stderr done, only >8B ADT
+payloads remain.)
 
 **Critical files:** new `selfhost/codegen.esk`, `selfhost/cg_main.esk`,
 `tests/selfhost/cg_parity.sh`. Reference: `codegen/codegen_{module,decl,stmt,expr,
