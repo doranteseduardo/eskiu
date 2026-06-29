@@ -523,6 +523,58 @@ int cg_type_bytes(Codegen* g, string t) {
     return 8;     // unknown — be safe
 }
 
+int cg_layout_size(Codegen* g, List<string>* fields);   // fwd: mutually recursive with cg_size
+
+int cg_align_up(int x, int a) { return ((x + a - 1) / a) * a; }
+
+// Natural LLVM alignment of a type (matches DataLayout for our type set: ptr/i64/double
+// align 8, i32/float 4, i16 2, i8/bool/char 1; a struct's align = its max field align).
+int cg_align(Codegen* g, string t) {
+    if (cg_is_ptr_ty(t) == 1 || cg_streq(t, "string") == 1) { return 8; }
+    if (cg_streq(t, "int64") == 1 || cg_streq(t, "uint64") == 1 || cg_streq(t, "double") == 1) { return 8; }
+    if (cg_streq(t, "int16") == 1 || cg_streq(t, "uint16") == 1) { return 2; }
+    if (cg_streq(t, "int8") == 1 || cg_streq(t, "uint8") == 1 || cg_streq(t, "char") == 1 || cg_streq(t, "bool") == 1) { return 1; }
+    if (cg_is_struct(g, t) == 1) {
+        CgStruct s = cg_find_struct(g, t);
+        int maxal = 1; int i = 0;
+        while (i < List_len<string>(&s.fetys)) {
+            int al = cg_align(g, List_get<string>(&s.fetys, i));
+            if (al > maxal) { maxal = al; }
+            i = i + 1;
+        }
+        return maxal;
+    }
+    return 4;     // int/int32/uint and the default
+}
+
+// Natural LLVM size (with field alignment padding) of a type. Scalars/pointers = their
+// byte width; a struct recurses through its field layout.
+int cg_size(Codegen* g, string t) {
+    if (cg_is_struct(g, t) == 1) {
+        CgStruct s = cg_find_struct(g, t);
+        return cg_layout_size(g, &s.fetys);
+    }
+    return cg_type_bytes(g, t);
+}
+
+// Natural LLVM size of the literal struct `{ fields }`: each field placed at its
+// alignment, the total rounded up to the struct's own (max-field) alignment. This is
+// exactly how LLVM lays out the `{ payload fields }` view used to read/write a variant,
+// so an ADT enum's `[N x i64]` payload area must hold `cg_layout_size` bytes (the C++
+// codegen sizes it the same way, via DataLayout, in makeAdtStruct).
+int cg_layout_size(Codegen* g, List<string>* fields) {
+    int bytes = 0; int maxal = 1;
+    int i = 0; int n = List_len<string>(fields);
+    while (i < n) {
+        string ft = List_get<string>(fields, i);
+        int al = cg_align(g, ft);
+        if (al > maxal) { maxal = al; }
+        bytes = cg_align_up(bytes, al) + cg_size(g, ft);
+        i = i + 1;
+    }
+    return cg_align_up(bytes, maxal);
+}
+
 // Find an ADT variant by name; sentinel with .ename == "" if not a known variant.
 CgVariant cg_find_variant(Codegen* g, string vname) {
     int i = 0; int n = List_len<CgVariant>(&g.variants);
@@ -2624,8 +2676,10 @@ void cg_program(Codegen* g, *Program prog) {
 
     // Pass 1c: register enums. A plain enum (every variant payload-less) → integer
     // constants + an i32 type. An ADT enum (some variant carries a payload) → a
-    // tagged-union type `%E = type { i32, [N x i64] }` (N = max payload field count) +
-    // a variant registry (name → tag + payload types), keyed by declaration order.
+    // tagged-union type `%E = type { i32, [N x i64] }` (N = i64s to hold the largest
+    // variant's payload, sized by BYTES with field alignment — so a struct-by-value
+    // payload wider than one slot fits) + a variant registry (name → tag + payload
+    // types), keyed by declaration order.
     si = 0;
     while (si < n) {
         *DeclNode d = List_get<*DeclNode>(&prog.decls, si);
@@ -2637,7 +2691,8 @@ void cg_program(Codegen* g, *Program prog) {
                 List<string> pl0 = List_get<List<string>>(&d.payloads, j);
                 int pn = List_len<string>(&pl0);
                 if (pn > 0) { is_adt = 1; }
-                if (pn > slots) { slots = pn; }
+                int isl = (cg_layout_size(g, &pl0) + 7) / 8;   // i64 slots for this variant
+                if (isl > slots) { slots = isl; }
                 j = j + 1;
             }
             if (is_adt == 1) {
