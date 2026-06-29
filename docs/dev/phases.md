@@ -110,7 +110,7 @@ Everything in the feature table above ships in v0.1.0: the full systems language
 The theme is making Eskiu a practical language for concurrent backend services:
 real async I/O, an HTTP stack, and the everyday stdlib + tooling that adoption
 needs. v0.1.0 is frozen at its tag; v0.2.0 shipped the items below. The current
-release is **v0.2.5** (see the post-0.2.0 hardening section that follows).
+release is **v0.3.0** — the self-hosting milestone (see the v0.3 section below).
 
 Tracking checklist (checked = landed on `develop`).
 
@@ -196,10 +196,11 @@ plus a few generics extensions.
 - [x] **Self-hosting milestone 1 — the lexer in Eskiu** (`selfhost/`) — byte-identical to `--test-lexer` over the whole preprocessor-free corpus (114/114), gated in CI; the parser (milestone 2) is underway (expression layer done)
 - [x] **Hardening** — `ESKIU_RESOLVER_DEBUG` table-vs-derivation consistency oracle (confirms the v0.2.4 single-resolver is sound across the corpus); fuzzer generators for backslash-newline in comments/strings
 
-### v0.3 — Self-hosting prerequisites
+### v0.3.0 — Self-hosting — SHIPPED
 
-Code generation emits **textual LLVM IR** (assembled + linked by `clang`), not LLVM-C
-bindings — keeps the self-host dependency-free and is the standard bootstrap path.
+The whole compiler is reimplemented in Eskiu, validated against the C++ `eskiuc` and
+against itself. Code generation emits **textual LLVM IR** (assembled + linked by `clang`),
+not LLVM-C bindings — keeps the self-host dependency-free and is the standard bootstrap path.
 
 - [x] Lexer rewritten in Eskiu — byte-identical to `--test-lexer` over the whole
   preprocessor-free corpus (114/114), gated in CI (`selfhost/`)
@@ -217,25 +218,28 @@ bindings — keeps the self-host dependency-free and is the standard bootstrap p
   + a string-based type layer catching **all 19** semantic error classes. Verdict
   matches `--test-typechecker` on 121/121 positive corpus files (0 false rejections);
   every sema negative test rejected with the right diagnostic. CI-gated (`tc_parity.sh`)
-- [x] **Code generator rewritten in Eskiu** (`selfhost/codegen.esk`) — textual LLVM IR:
-  scalars/arith/control-flow, structs+methods+pointers, arrays, plain enums, **generics
-  (monomorphization)**, `sizeof`/cast, globals, struct-by-value, pointer arithmetic,
-  `&&`/`||` short-circuit. Behavioral oracle: emit `.ll` → `clang` → run, compared to
-  the C++-built binary (`cg_parity.sh`, CI-gated). Deferred (the compiler's own source
-  doesn't use them): floats, ADT enums/`match`, closures, exceptions, async, atomics
+- [x] **Code generator rewritten in Eskiu** (`selfhost/codegen.esk`) — textual LLVM IR.
+  Behavioral oracle: emit `.ll` → `clang` → run, compared to the C++-built binary
+  (`cg_parity.sh`, CI-gated). **Feature-complete against the C++ corpus** — a full feature
+  sweep is clean (50/50). Beyond the bootstrap subset it covers floats, `switch`, ADT enums
+  + `match` (incl. generics + payloads wider than one slot), closures, exceptions (Itanium
+  ABI), atomics, generics + argument inference, async/await, unions, bitfields, interfaces
+  (dynamic dispatch), type aliases, function-as-value, packed structs, user variadics +
+  `va_*`, `alloc_with`/`thread_*` builtins, and the `?` operator
 - [x] **Self-compilation reached (Phase D)** — the self-hosted codegen emits valid IR
   for the *entire* self-hosted compiler, and `cg_main` compiled by itself reproduces
-  the C++-built codegen's IR byte-for-byte over all 45 inputs (a **bootstrap fixpoint**).
-  All five drivers, self-compiled, match the C++-built ones. Gate `cg_selfhost.sh`, CI
+  the C++-built codegen's IR byte-for-byte (a **bootstrap fixpoint**). All five drivers,
+  self-compiled, match the C++-built ones. Gate `cg_selfhost.sh`, CI
 
 ### v1.0 — Production-ready
 
 - [~] `eskiuc` compiles itself (self-hosting) — **3-stage bootstrap fixpoint reached.**
   The unified driver `selfhost/esk_main.esk` (pp→parse→sema→codegen) is built by the C++
   eskiuc (cc0), then by cc0 (cc1), then by cc1 (cc2); cc1 ≡ cc2 emit identical IR for the
-  compiler's own source — a true self-hosting fixpoint (`cg_bootstrap.sh`, CI). Remaining
-  for v1.0: feature coverage (floats/match/closures/exceptions/async) — needed only to
-  compile arbitrary user programs, not to self-host
+  compiler's own source — a true self-hosting fixpoint (`cg_bootstrap.sh`, CI). The
+  self-hosted codegen is also feature-complete against the C++ corpus (shipped in v0.3.0).
+  Remaining for v1.0: a package manager, and promoting the Eskiu-written compiler to the
+  primary build (it currently rides alongside the C++ `eskiuc`)
 - First-class types for high-throughput services
 
 ---
