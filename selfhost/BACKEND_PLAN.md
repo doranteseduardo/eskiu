@@ -348,11 +348,20 @@ ALL work through the self-host (added `async_select`/`async_spawn` to the corpus
 parity-pass), async `for-in` is done (19/19, element type via a local heuristic in
 `async_lower.esk` — a robustness caveat, not a gap), and `esk_main`/`cg_main` errors now
 go to **stderr** (an `eprint` helper over `write(2, …)` + `sprintf` — diagnostics never
-contaminate the stdout `.ll` stream). The ONE genuinely-open codegen gap is **>8B ADT
-struct payloads**: the tagged union is `{ i32, [N x i64] }`, one `i64` slot per payload
-field, so a variant carrying a struct-by-value wider than 8 bytes doesn't fit (rare; same
-limit as the C++ side — to fix, size the payload area by max bytes and GEP wider fields
-into the byte array). cg_parity 55/55, cg_selfhost 68/68, bootstrap fixpoint green.
+contaminate the stdout `.ll` stream). cg_parity 55/55, cg_selfhost 68/68, fixpoint green.
+
+**LAST GAP CLOSED — >8B ADT payloads (2026-06-29).** An ADT enum's `{ i32, [N x i64] }`
+payload area is now sized by BYTES with field alignment (`cg_layout_size` + `cg_align`/
+`cg_size`, mirroring the C++ `makeAdtStruct`/DataLayout) instead of by field count, so a
+variant carrying a struct-by-value wider than one slot fits (`Line(Vec3)`, Vec3=12B → the
+old field-count gave 1 i64=8B < 12B, corruption; now `ceil(12/8)=2` slots). Construction
+(`cg_build_variant`) and `match` extraction already viewed the payload as the variant's
+`{ fields }` literal struct (LLVM lays it out with natural padding), so ONLY the area
+sizing needed fixing. Test `adt_big_payload` (Line(Vec3) + Pair(Vec3,int)) to parity;
+guard-malloc clean. cg_parity 56/56, cg_selfhost 69/69, bootstrap fixpoint green.
+**Self-hosting codegen feature coverage is now COMPLETE — no known gaps.** (Residual:
+async `for-in` types its element via a local heuristic, not a sema stamp — robustness, not
+a gap; and the parse-parity corpus could expand to the ~70 preprocessor-touching files.)
 
 **(historical) REMAINING (other): the capstone is largely covered.** It is NOT a
 codegen slice but an AST→AST lowering pass (`sema/async_transform.cpp`, 634 lines), run
