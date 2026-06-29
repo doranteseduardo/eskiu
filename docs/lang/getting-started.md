@@ -160,7 +160,7 @@ Both styles compile to the same IR. Use whichever reads more clearly in context.
 | Type     | Width    | Notes                           |
 | -------- | -------- | ------------------------------- |
 | `bool`   | 1 bit    | `true` / `false`                |
-| `char`   | 8-bit    | Single character                |
+| `char`   | 8-bit    | Unsigned; single character      |
 | `int`    | 32-bit   | Signed                          |
 | `int8`   | 8-bit    | Signed                          |
 | `int16`  | 16-bit   | Signed                          |
@@ -171,7 +171,7 @@ Both styles compile to the same IR. Use whichever reads more clearly in context.
 | `uint16` | 16-bit   | Unsigned                        |
 | `uint32` | 32-bit   | Unsigned                        |
 | `uint64` | 64-bit   | Unsigned                        |
-| `float`  | 32-bit   | IEEE 754 single-precision       |
+| `float`  | 32-bit   | IEEE 754 single-precision (literals are `double`; assigning coerces down) |
 | `double` | 64-bit   | IEEE 754 double-precision       |
 | `string` | pointer  | Null-terminated C string        |
 | `void`   | —        | Used as function return type    |

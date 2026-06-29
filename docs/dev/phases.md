@@ -4,7 +4,7 @@
 
 Authoritative status reference for Eskiu compiler contributors.
 
-Last updated: 2026-06-17.
+Last updated: 2026-06-29.
 
 ---
 
@@ -80,7 +80,7 @@ The project follows two phases:
 | Structured `ty::Type` IR — `sema/type.{h,cpp}`, parse/str/substitute/nominalName (v0.2.3) | ✅ |
 | Single-resolver type unification — type checker resolves every expression type; codegen consumes the table (v0.2.4) | ✅ |
 | Package manager | ❌ |
-| Self-hosting — lexer/parser/preprocessor/sema/codegen all in Eskiu; bootstrap fixpoint reached (`selfhost/`) | 🔨 |
+| Self-hosting — lexer/parser/preprocessor/sema/codegen all in Eskiu; 3-stage bootstrap fixpoint, codegen feature-complete (v0.3.0, `selfhost/`) | ✅ |
 
 ---
 

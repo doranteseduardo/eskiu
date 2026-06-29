@@ -145,7 +145,9 @@ sizeof  free_closure  union  enum
 -3.14    -0.5
 </code></pre>
 <p>Negative literals are first-class values and can be used in any expression context, including global variable initialisers and struct field initialisers.</p>
-<p><strong>Float literals</strong> contain a decimal point:</p>
+<p><strong>Float literals</strong> contain a decimal point. They have type <code>double</code> (f64) by default;
+assigning one to a <code>float</code> (f32) variable or field coerces it down (a <code>double</code>→<code>float</code>
+cast). Integer literals are <code>int</code> (i32), widening to <code>int64</code> when they exceed 32 bits.</p>
 <pre><code class="language-eskiu">3.14    2.0    0.5
 </code></pre>
 <p><strong>String literals</strong> are sequences of characters enclosed in double quotes. The following escape sequences are recognized:</p>
@@ -279,7 +281,7 @@ sizeof  free_closure  union  enum
 <td><code>char</code></td>
 <td><code>i8</code></td>
 <td>8 bits</td>
-<td>Single byte</td>
+<td>Unsigned; single byte</td>
 </tr>
 <tr>
 <td><code>string</code></td>
@@ -1378,7 +1380,8 @@ Result&lt;int, string&gt; compute(int a, int b, int c) {
 }
 </code></pre>
 <p>A value is treated as Result-like if it has an <code>int ok</code> field and a <code>value</code>
-field; the standard library's <code>Result&lt;T, E&gt;</code> satisfies this.</p>
+field; the standard library's <code>Result&lt;T, E&gt;</code> satisfies this. Applying <code>?</code> to an
+expression of any other type is a compile error.</p>
 <h3 id="106-bounded-type-parameters-constraints">10.6 Bounded type parameters (constraints)</h3>
 <p>A type parameter may carry one or more interface constraints, written after a
 colon. The constraint requires that every concrete type substituted for the
