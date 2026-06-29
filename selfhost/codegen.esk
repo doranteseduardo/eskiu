@@ -1721,13 +1721,24 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
         int pbase = 0;                                  // 1 when an implicit self precedes args
         if (e.a != null && e.a.kind == EK_MEMBER) {
             string recv_ety = cg_etype(g, e.a.a);
-            string sptr = "";
             string sname = recv_ety;
-            if (cg_is_ptr_ty(recv_ety) == 1) { sptr = cg_expr(g, e.a.a).op; sname = cg_strip_ptr(recv_ety); }
-            else { sptr = cg_lval(g, e.a.a).op; }
-            fname = cg_cat(cg_cat(sname, "_"), e.a.sval);
-            args = cg_cat("ptr ", sptr);                // self is the first argument
-            pbase = 1;
+            if (cg_is_ptr_ty(recv_ety) == 1) { sname = cg_strip_ptr(recv_ety); }
+            // A primitive receiver satisfying a constraint via a free function: `a.cmp(b)`
+            // where `a: int` lowers to `cmp(a, b)` (receiver passed BY VALUE as arg 0). The
+            // struct-method path would index a non-existent struct's fields and crash.
+            if (cg_is_struct(g, sname) == 0 && cg_is_adt(g, sname) == 0 && cg_is_fn(g, e.a.sval) == 1) {
+                fname = e.a.sval;
+                CgVal selfv = cg_expr(g, e.a.a);
+                args = cg_cat(cg_cat(selfv.ty, " "), selfv.op);   // receiver by value
+                pbase = 1;
+            } else {
+                string sptr = "";
+                if (cg_is_ptr_ty(recv_ety) == 1) { sptr = cg_expr(g, e.a.a).op; }
+                else { sptr = cg_lval(g, e.a.a).op; }
+                fname = cg_cat(cg_cat(sname, "_"), e.a.sval);
+                args = cg_cat("ptr ", sptr);                // self is the first argument
+                pbase = 1;
+            }
         } else if (e.a != null && e.a.kind == EK_IDENT) {
             fname = e.a.sval;
         }
