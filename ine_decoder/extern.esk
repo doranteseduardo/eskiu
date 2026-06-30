@@ -8,9 +8,9 @@ import "types.esk";
 
 // ── libc ──────────────────────────────────────────────────────────────────────
 extern int   printf(string fmt, ...);
-extern int   strlen(string s);
-extern *void memcpy(*void dst, *void src, int n);
-extern *void memset(*void dst, int c, int n);
+extern int64   strlen(string s);
+extern *void memcpy(*void dst, *void src, int64 n);
+extern *void memset(*void dst, int c, int64 n);
 extern *void fopen(string path, string mode);
 
 // ── OpenSSL EVP — AES-256-CBC ─────────────────────────────────────────────────
@@ -21,7 +21,7 @@ extern int   EVP_DecryptInit_ex(*void ctx, *void type, *void engine, *uint8 key,
 extern int   EVP_DecryptUpdate(*void ctx, *uint8 out, *int outl, *uint8 inp, int inl);
 extern int   EVP_DecryptFinal_ex(*void ctx, *uint8 out, *int outl);
 extern int   fclose(*void fp);
-extern int   fwrite(*void buf, int size, int count, *void fp);
+extern int64   fwrite(*void buf, int64 size, int64 count, *void fp);
 // `free` comes from <mem> (imported by the modules that use it); not a keyword.
 extern int64 clock();
 
