@@ -24,17 +24,17 @@ declare ptr @malloc(i64)
 
 declare void @free(ptr)
 
-declare ptr @memcpy(ptr, ptr, i32)
+declare ptr @memcpy(ptr, ptr, i64)
 
-declare ptr @memset(ptr, i32, i32)
+declare ptr @memset(ptr, i32, i64)
 
-declare ptr @memmove(ptr, ptr, i32)
+declare ptr @memmove(ptr, ptr, i64)
 
-declare i32 @memcmp(ptr, ptr, i32)
+declare i32 @memcmp(ptr, ptr, i64)
 
-declare i32 @strlen(ptr)
+declare i64 @strlen(ptr)
 
-declare ptr @memchr(ptr, i32, i32)
+declare ptr @memchr(ptr, i32, i64)
 
 declare i32 @printf(ptr, ...)
 
