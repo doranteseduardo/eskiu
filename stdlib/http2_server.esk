@@ -28,8 +28,8 @@ import <hpack>;
 import <http>;
 import <string>;
 
-extern int memcmp(*void a, *void b, int n);
-extern int strlen(string s);
+extern int memcmp(*void a, *void b, int64 n);
+extern int64 strlen(string s);
 
 // True if a decoded header's name equals the cstring `name`.
 int h2_name_eq(HpackHeader* h, string name) {
@@ -39,7 +39,7 @@ int h2_name_eq(HpackHeader* h, string name) {
 }
 
 // Set a String to the `n` bytes at `p`.
-void h2_str_set_bytes(String* s, *uint8 p, int n) {
+void h2_str_set_bytes(String* s, *uint8 p, int64 n) {
     String_clear(s);
     int i = 0;
     while (i < n) { String_push(s, (char)p[i]); i = i + 1; }
@@ -49,7 +49,7 @@ void h2_str_set_bytes(String* s, *uint8 p, int n) {
 // pseudo-headers map to the request fields; ordinary headers are appended to the
 // header block as "name: value\n" (pseudo-headers — names starting with ':' —
 // are not). The version is reported as HTTP/2.0.
-void h2_fill_request(HttpRequest* req, HpackHeader* hs, int n) {
+void h2_fill_request(HttpRequest* req, HpackHeader* hs, int64 n) {
     String_from(&req.version, "HTTP/2.0");
     int i = 0;
     while (i < n) {

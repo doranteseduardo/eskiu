@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Self-hosting · Eskiu docs</title>
+  <meta name="description" content="How the Eskiu compiler is written in Eskiu, and how that&#x27;s kept honest. Shipped in" />
+  <link rel="canonical" href="https://eskiu-lang.org/docs/self-hosting.html" />
+  <link rel="icon" type="image/png" href="../../assets/logo.png" />
+  <style>*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #ffffff; --surface: #f6f7f9; --border: #e6e8ec;
+  --ink: #16181d; --ink2: #4f555f; --purple: #4c31bb; --purple-lt: #6448d4;
+  --code: #1b1728; --code-bd: #2c2444;
+  --sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+}
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+body { background: var(--bg); color: var(--ink); font-family: var(--sans);
+       line-height: 1.65; -webkit-font-smoothing: antialiased; }
+.wrap { max-width: 800px; margin: 0 auto; padding: 2.25rem 1.25rem 5rem; }
+.top { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 1.5rem; }
+.top img { width: 30px; height: 30px; }
+.top a { color: var(--ink2); text-decoration: none; font-size: 0.85rem; }
+.top a:hover { color: var(--purple); }
+.docnav { display: flex; flex-wrap: wrap; gap: 0.35rem 0.5rem; margin-bottom: 2.5rem;
+          padding-bottom: 1.25rem; border-bottom: 1px solid var(--border); }
+.docnav a { font-size: 0.8rem; color: var(--ink2); text-decoration: none;
+            padding: 0.25rem 0.6rem; border-radius: 6px; border: 1px solid transparent; }
+.docnav a:hover { color: var(--purple); background: var(--surface); }
+.docnav a.active { color: var(--purple); border-color: var(--border); background: #fff; font-weight: 600; }
+.content h1 { font-size: clamp(1.7rem, 4.5vw, 2.4rem); letter-spacing: -0.03em;
+              line-height: 1.12; margin: 0 0 1.25rem; }
+.content h2 { font-size: 1.35rem; letter-spacing: -0.02em; margin: 2.5rem 0 0.85rem;
+              padding-top: 0.5rem; }
+.content h3 { font-size: 1.08rem; margin: 1.75rem 0 0.6rem; }
+.content h4 { font-size: 0.95rem; margin: 1.4rem 0 0.5rem; color: var(--ink2); }
+.content p { margin: 0 0 1rem; }
+.content a { color: var(--purple); }
+.content ul, .content ol { margin: 0 0 1rem 1.3rem; }
+.content li { margin-bottom: 0.4rem; }
+.content strong { font-weight: 600; }
+.content hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+.content blockquote { border-left: 3px solid var(--purple); background: var(--surface);
+                      padding: 0.8rem 1.1rem; border-radius: 0 8px 8px 0; margin: 0 0 1.25rem;
+                      color: var(--ink2); }
+.content blockquote p:last-child { margin-bottom: 0; }
+.content code { font-family: var(--mono); font-size: 0.86em; background: var(--surface);
+                padding: 0.1em 0.35em; border-radius: 4px; }
+.content pre { background: var(--code); border: 1px solid var(--code-bd); border-radius: 8px;
+               padding: 0.95rem 1.1rem; margin: 0 0 1.5rem; overflow-x: auto;
+               font-family: var(--mono); font-size: 0.78rem; line-height: 1.75; color: #b4bccc; }
+.content pre code { background: none; padding: 0; font-size: inherit; color: inherit; }
+.tablewrap { overflow-x: auto; margin: 0 0 1.5rem; }
+.content table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+.content th, .content td { text-align: left; padding: 0.5rem 0.75rem;
+                          border-bottom: 1px solid var(--border); vertical-align: top; }
+.content th { color: var(--ink2); font-weight: 600; white-space: nowrap; }
+.content td code { white-space: nowrap; }
+.foot { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--border);
+        font-size: 0.9rem; color: var(--ink2); }
+@media (max-width: 600px) {
+  .content table { font-size: 0.8rem; }
+  .content th, .content td { padding: 0.4rem 0.55rem; white-space: normal; }
+}</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <img src="../../assets/logo.png" alt="Eskiu" />
+      <a href="../index.html">← eskiu</a>
+    </div>
+    <nav class="docnav"><a href="index.html">← Language docs</a><a href="internals.html">Overview</a><a href="architecture.html">Architecture</a><a href="design.html">Design</a><a href="abi.html">ABI</a><a href="async-design.html">Async</a><a href="self-hosting.html" class="active">Self-hosting</a><a href="http2-design.html">HTTP/2</a><a href="api.html">C++ API</a><a href="debugging.html">Debugging</a><a href="contributing.html">Contributing</a></nav>
+    <div class="content">
+<h1 id="eskiu-self-hosting">Eskiu Self-Hosting</h1>
+<p>How the Eskiu compiler is written in Eskiu, and how that's kept honest. Shipped in
+<strong>v0.3.0</strong>.</p>
+<hr>
+<h2 id="what-self-hosting-means-here">What "self-hosting" means here</h2>
+<p>The production compiler is <code>eskiuc</code>, written in C++17. Alongside it, the entire compiler
+pipeline is <strong>reimplemented in Eskiu</strong> under <code>selfhost/</code>:</p>
+<pre><code>lexer.esk → preprocessor.esk → parser.esk → sema.esk → async_lower.esk → codegen.esk
+</code></pre>
+<p>with drivers <code>lex_main</code>, <code>pp_main</code>, <code>parse_main</code>, <code>tc_main</code>, <code>cg_main</code>, and the unified
+<code>esk_main</code> (preprocess → parse → type-check → generate). The code generator emits <strong>LLVM IR
+as text</strong> (no LLVM library is linked), which <code>clang</code> then assembles and links. This keeps
+the self-hosted compiler dependency-free and is the standard bootstrap path.</p>
+<p>The endgame (v1.0): <code>eskiuc</code> compiles its own source. v0.3.0 reaches the key milestones on
+the way there: a 3-stage bootstrap fixpoint and feature-completeness against the C++ corpus.</p>
+<h2 id="validation-parity-oracles-not-faith">Validation: parity oracles, not faith</h2>
+<p>Each pass is validated against the C++ <code>eskiuc</code>, which is the oracle. The method differs by
+phase, because the available ground truth differs:</p>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th>Pass</th>
+<th>Oracle</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Lexer / Parser / Preprocessor</td>
+<td><strong>Byte-exact</strong> diff against <code>eskiuc --test-{lexer,parser}</code> (preprocessor parity runs <em>through</em> the lexer)</td>
+</tr>
+<tr>
+<td>Semantic analysis</td>
+<td><strong>Verdict + diagnostic</strong>: same accept/reject as <code>--test-typechecker</code>, every error class caught with the right message</td>
+</tr>
+<tr>
+<td>Code generation</td>
+<td><strong>Behavioral</strong>: emit <code>.ll</code> → <code>clang</code> → run, compare exit code + stdout to the C++-built binary (LLVM renumbers SSA values and constant-folds, so IR can't be matched byte-for-byte)</td>
+</tr>
+</tbody>
+</table></div>
+<p>These run as CI gates: <code>tests/selfhost/{lex,parse,pp,tc,cg}_parity.sh</code>.</p>
+<h2 id="the-bootstrap-fixpoint">The bootstrap fixpoint</h2>
+<p>Beyond per-pass parity, the self-hosted compiler is validated <strong>against itself</strong>:</p>
+<ul>
+<li><strong><code>cg_selfhost.sh</code></strong>: the self-hosted codegen emits valid IR for the <em>entire</em> self-hosted
+  compiler, and <code>cg_main</code> compiled by itself reproduces the C++-built codegen's IR
+  byte-for-byte.</li>
+<li><strong><code>cg_bootstrap.sh</code></strong> runs a 3-stage build: the C++ <code>eskiuc</code> builds <code>cc0</code>, <code>cc0</code> builds
+  <code>cc1</code>, <code>cc1</code> builds <code>cc2</code>; the gate asserts <strong><code>cc1</code> ≡ <code>cc2</code></strong> (identical IR for the
+  compiler's own source). A self-built compiler reproducing its own output is a true
+  bootstrap fixpoint.</li>
+</ul>
+<p>(Binary byte-equality is <em>not</em> asserted; a Mach-O <code>LC_UUID</code> and ad-hoc signature differ even
+for identical input, so the IR fixpoint is the real proof.)</p>
+<h2 id="feature-completeness">Feature-completeness</h2>
+<p>The compiler's own source only exercises a subset of the language, so the bootstrap fixpoint
+alone does <strong>not</strong> prove general feature coverage. To verify it, the full C++ feature corpus
+is pushed through the behavioral codegen oracle. A clean sweep (every program self-host
+compiles to the same behavior as the C++ build) is what earns the "feature-complete" claim.</p>
+<p>As of v0.3.0 the self-hosted code generator covers, beyond the bootstrap subset: floating
+point, <code>switch</code>, ADT enums + <code>match</code> (generic, and payloads wider than one word), closures,
+exceptions (the Itanium ABI), atomics, generics with argument inference, async/await, unions,
+bitfields, interfaces (dynamic dispatch), type aliases, function-as-value decay, packed
+structs (<code>packed</code> / <code>#pragma pack(N)</code>), user-defined variadics + <code>va_list</code>/<code>va_arg</code>, the
+<code>alloc_with</code>/<code>thread_create</code>/<code>thread_join</code>/<code>free_closure</code> builtins, and the <code>?</code> error-
+propagation operator.</p>
+<h2 id="running-the-gates">Running the gates</h2>
+<pre><code class="language-bash">tests/selfhost/lex_parity.sh   --full   # lexer
+tests/selfhost/parse_parity.sh --full   # parser
+tests/selfhost/pp_parity.sh    --full   # preprocessor
+tests/selfhost/tc_parity.sh              # semantic analysis
+tests/selfhost/cg_parity.sh              # codegen (behavioral)
+tests/selfhost/cg_selfhost.sh            # self-compilation + emit validity
+tests/selfhost/cg_bootstrap.sh           # 3-stage bootstrap fixpoint
+</code></pre>
+<p>All are wired into CI. The sources live in <code>selfhost/</code>; the slice-by-slice development record
+is in <code>selfhost/BACKEND_PLAN.md</code>.</p>
+    </div>
+    <div class="foot"><a href="../index.html">← Back to eskiu</a></div>
+  </div>
+</body>
+</html>

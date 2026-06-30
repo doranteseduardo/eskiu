@@ -55,3 +55,44 @@ jobs:
       # the C++ lexer it mirrors) changed.
       - name: Lexer self-host parity
         run: tests/selfhost/lex_parity.sh --full
+
+      # Self-hosted parser (selfhost/parser.esk) must produce an AST dump byte-
+      # identical to the C++ --test-parser over the import-free corpus. Compiles
+      # the driver once; ~seconds. Excludes files that import or that the C++
+      # --test-parser itself can't print (top-level prototypes crash its printer).
+      - name: Parser self-host parity
+        run: tests/selfhost/parse_parity.sh --full
+
+      # Self-hosted preprocessor (selfhost/preprocessor.esk) validated through the
+      # lexer: pp_main preprocesses + lexes and must match the C++ --test-lexer
+      # (which preprocesses too) over the whole tests/ + stdlib/ corpus — no
+      # exclusions, since every directive is now handled. Compiles once; ~seconds.
+      - name: Preprocessor self-host parity
+        run: tests/selfhost/pp_parity.sh --full
+
+      # Self-hosted type checker (selfhost/sema.esk) must reach the same verdict as
+      # the C++ --test-typechecker over the positive corpus (no false rejections),
+      # and reject the implemented tests/errors classes with the right message.
+      # Compiles tc_main once; ~seconds.
+      - name: Sema self-host parity
+        run: tests/selfhost/tc_parity.sh
+
+      # Self-hosted code generator (selfhost/codegen.esk): emit LLVM IR, compile it
+      # with clang, run, and compare exit code + stdout to the C++-built binary over
+      # the synthetic corpus. Behavioral oracle (IR can't match byte-for-byte). clang
+      # is installed as clang-22 on the runner.
+      - name: Codegen self-host parity
+        run: CLANG=clang-22 tests/selfhost/cg_parity.sh
+
+      # Phase D bootstrap gate: cg_main emits valid IR for the WHOLE self-hosted
+      # compiler (lexer→codegen + drivers), and cg_main compiled by ITSELF reproduces
+      # the C++-built codegen's IR byte-for-byte (a self-consistent fixpoint).
+      - name: Codegen self-compilation (bootstrap fixpoint)
+        run: CLANG=clang-22 tests/selfhost/cg_selfhost.sh
+
+      # Three-stage bootstrap over the unified driver (esk_main.esk: pp→parse→sema→
+      # codegen): the C++ eskiuc builds it (cc0), cc0 builds it (cc1), cc1 builds it
+      # (cc2); cc1 and cc2 must emit identical IR (stage2 ≡ stage3 = a true fixpoint),
+      # and cc2 must compile a runnable program.
+      - name: Compiler bootstrap (3-stage fixpoint)
+        run: CLANG=clang-22 tests/selfhost/cg_bootstrap.sh

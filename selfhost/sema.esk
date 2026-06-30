@@ -1,0 +1,836 @@
+// Self-hosted semantic analyzer (Phase B of the back-end). Consumes the enriched
+// AST (ast.esk). Mirrors sema/type_checker.cpp incrementally.
+//
+// S0: name resolution — a two-pass walk (register top-level names, then check
+// bodies with a scope stack) that catches *undefined variables*. The oracle is the
+// verdict (`Type checking succeeded!` / exit code) + the `tests/errors/` EXPECT-ERROR
+// substring, like tests/run.sh's negative tests. Types, calls, generics, traits,
+// const-correctness, match exhaustiveness, async/escape come in later slices.
+//
+// Symbol table: a flat list of {name, depth}. Entering a scope bumps `depth`;
+// leaving it pops every trailing entry at that depth. Avoids nested-List mutation
+// (List_get returns structs by value). Lambda/match-arm/catch bodies are not yet
+// walked (they bind names we don't extract yet) — safe: under-checking can't turn a
+// clean program's verdict from succeeded to failed.
+
+import <io>;
+import <list>;
+import <mem>;
+import "ast.esk";
+
+struct Sym { string name; string type; int depth; int is_const; }
+
+// Signature of a non-generic top-level function/extern/intrinsic, for arg-count
+// checking. `variadic` = trailing `...`; `fixed` = required arg count.
+struct FnSig { string name; int fixed; int variadic; }
+
+// One enum variant, for match exhaustiveness.
+struct EVar { string en; string variant; }
+
+struct Sema {
+    List<Sym> syms;
+    List<FnSig> fns;
+    List<string> types;     // declared type names (struct/union/interface/enum/alias)
+    List<string> structs;   // struct names (subset of types; have fields/methods)
+    List<string> members;   // "Struct.member" keys for each struct field AND method
+    List<string> enums;     // enum names (for match exhaustiveness)
+    List<EVar> evars;       // every enum's variants
+    List<*DeclNode> fndecls; // all top-level fn/extern/intrinsic decls (params, type-params)
+    List<*DeclNode> ifaces;  // interface decls (their required methods)
+    int depth;
+    int had_error;
+    int in_async;           // currently inside an `async` function body?
+    int await_seen;         // has an `await` appeared in the current function?
+    string cur_ret;         // current function's return type (for `?` propagation)
+    List<string> watched;   // non-escaping fn-type params of the current function
+    List<string> escaped;   // watched params seen used beyond a direct call
+    string callee_ctx;      // name being called right now (a watched param here is OK)
+    string filename;
+}
+
+// Mutually-recursive walk.
+void sema_expr(Sema* s, *ExprNode e);
+void sema_stmt(Sema* s, *StmtNode st);
+
+int sema_streq(string a, string b) {
+    int i = 0;
+    while (a[i] != 0 && b[i] != 0) {
+        if (a[i] != b[i]) { return 0; }
+        i = i + 1;
+    }
+    if (a[i] == b[i]) { return 1; }
+    return 0;
+}
+
+int sema_is_fn_type(string t) {     // "fn(...)->R"
+    if (t[0] == 102 && t[1] == 110 && t[2] == 40) { return 1; }   // 'f','n','('
+    return 0;
+}
+
+int sema_in_list(List<string>* l, string name) {
+    int i = 0; int n = List_len<string>(l);
+    while (i < n) { if (sema_streq(List_get<string>(l, i), name) == 1) { return 1; } i = i + 1; }
+    return 0;
+}
+
+void sema_init(Sema* s, string filename) {
+    List_init<Sym>(&s.syms, 64);
+    List_init<FnSig>(&s.fns, 32);
+    List_init<string>(&s.types, 32);
+    List_init<string>(&s.structs, 16);
+    List_init<string>(&s.members, 64);
+    List_init<string>(&s.enums, 16);
+    List_init<EVar>(&s.evars, 32);
+    List_init<*DeclNode>(&s.fndecls, 64);
+    List_init<*DeclNode>(&s.ifaces, 16);
+    s.depth = 0;                           // global scope
+    s.had_error = 0;
+    s.in_async = 0;
+    s.await_seen = 0;
+    s.cur_ret = "";
+    List_init<string>(&s.watched, 4);
+    List_init<string>(&s.escaped, 4);
+    s.callee_ctx = "";
+    s.filename = filename;
+}
+
+void sema_push(Sema* s) { s.depth = s.depth + 1; }
+
+void sema_pop(Sema* s) {
+    int d = s.depth;
+    while (List_len<Sym>(&s.syms) > 0) {
+        Sym last = List_get<Sym>(&s.syms, List_len<Sym>(&s.syms) - 1);
+        if (last.depth < d) { break; }
+        List_remove<Sym>(&s.syms, List_len<Sym>(&s.syms) - 1);
+    }
+    s.depth = d - 1;
+}
+
+void sema_define(Sema* s, string name, string type, int is_const) {
+    let sym: Sym;
+    sym.name = name;
+    sym.type = type;
+    sym.depth = s.depth;
+    sym.is_const = is_const;
+    List_push<Sym>(&s.syms, sym);
+}
+
+// Is `name` a read-only (const) binding?
+int sema_sym_const(Sema* s, string name) {
+    int i = List_len<Sym>(&s.syms) - 1;
+    while (i >= 0) {
+        Sym sym = List_get<Sym>(&s.syms, i);
+        if (sema_streq(sym.name, name) == 1) { return sym.is_const; }
+        i = i - 1;
+    }
+    return 0;
+}
+
+int sema_lookup(Sema* s, string name) {
+    int i = List_len<Sym>(&s.syms) - 1;
+    while (i >= 0) {
+        if (sema_streq(List_get<Sym>(&s.syms, i).name, name) == 1) { return 1; }
+        i = i - 1;
+    }
+    return 0;
+}
+
+// Declared type of `name` (innermost binding), or "" if unbound / untyped.
+string sema_lookup_type(Sema* s, string name) {
+    int i = List_len<Sym>(&s.syms) - 1;
+    while (i >= 0) {
+        Sym sym = List_get<Sym>(&s.syms, i);
+        if (sema_streq(sym.name, name) == 1) { return sym.type; }
+        i = i - 1;
+    }
+    return "";
+}
+
+// Is `name` bound in a local (non-global) scope? The innermost binding wins, so a
+// local shadow of a global function means a call should NOT be arg-count-checked
+// against the function signature (it could be a fn-pointer variable).
+int sema_local_bound(Sema* s, string name) {
+    int i = List_len<Sym>(&s.syms) - 1;
+    while (i >= 0) {
+        Sym sym = List_get<Sym>(&s.syms, i);
+        if (sema_streq(sym.name, name) == 1) {
+            if (sym.depth > 0) { return 1; }
+            return 0;
+        }
+        i = i - 1;
+    }
+    return 0;
+}
+
+// Register a non-generic function/extern/intrinsic signature. Generic functions are
+// instantiated/inferred, so they get no fixed arg-count check (mirrors the C++
+// funcTemplateDecls vs functionSignatures split).
+void sema_register_fn(Sema* s, *DeclNode d) {
+    if (List_len<TypeParam>(&d.type_params) > 0) { return; }
+    let sig: FnSig;
+    sig.name = d.name;
+    int np = List_len<Param>(&d.params);
+    sig.variadic = 0;
+    sig.fixed = np;
+    if (np > 0) {                          // guard List_get against a -1 index
+        string lastty = List_get<Param>(&d.params, np - 1).ty;
+        if (sema_streq(lastty, "...") == 1) {
+            sig.variadic = 1;
+            sig.fixed = np - 1;
+        }
+    }
+    List_push<FnSig>(&s.fns, sig);
+}
+
+int sema_find_fn(Sema* s, string name) {
+    int i = 0;
+    int n = List_len<FnSig>(&s.fns);
+    while (i < n) {
+        if (sema_streq(List_get<FnSig>(&s.fns, i).name, name) == 1) { return i; }
+        i = i + 1;
+    }
+    return 0 - 1;
+}
+
+int sema_is_type(Sema* s, string name) {
+    int i = 0;
+    int n = List_len<string>(&s.types);
+    while (i < n) {
+        if (sema_streq(List_get<string>(&s.types, i), name) == 1) { return 1; }
+        i = i + 1;
+    }
+    return 0;
+}
+
+// Leading name of a spelling, up to a generic '<' or payload '(':
+// "Box<int>" -> "Box", "A(x)" -> "A", "W" -> "W".
+string sema_base_name(string sp) {
+    int n = 0;
+    while (sp[n] != 0 && (int)sp[n] != 60 && (int)sp[n] != 40) { n = n + 1; }   // '<' or '('
+    if ((int)sp[n] == 0) { return sp; }
+    *uint8 buf = alloc<uint8>(n + 1);
+    int i = 0;
+    while (i < n) { buf[i] = (uint8)sp[i]; i = i + 1; }
+    buf[n] = 0;
+    return (string)buf;
+}
+
+string sema_cat(string a, string b) {
+    int la = 0; while (a[la] != 0) { la = la + 1; }
+    int lb = 0; while (b[lb] != 0) { lb = lb + 1; }
+    *uint8 buf = alloc<uint8>(la + lb + 1);
+    int i = 0; while (i < la) { buf[i] = (uint8)a[i]; i = i + 1; }
+    int j = 0; while (j < lb) { buf[la + j] = (uint8)b[j]; j = j + 1; }
+    buf[la + lb] = 0;
+    return (string)buf;
+}
+
+// Reduce a type spelling to its base struct name: strip leading '*'/spaces and any
+// generic '<...>' or pointer suffix. "*Point" -> "Point", "List<int>" -> "List".
+string sema_struct_of_type(string t) {
+    int i = 0;
+    while ((int)t[i] == 42 || (int)t[i] == 32) { i = i + 1; }       // skip '*' / ' '
+    int j = i;
+    while (t[j] != 0 && (int)t[j] != 60 && (int)t[j] != 42 && (int)t[j] != 32) { j = j + 1; }
+    int len = j - i;
+    *uint8 buf = alloc<uint8>(len + 1);
+    int k = 0; while (k < len) { buf[k] = (uint8)t[i + k]; k = k + 1; }
+    buf[len] = 0;
+    return (string)buf;
+}
+
+int sema_is_struct(Sema* s, string name) {
+    int i = 0; int n = List_len<string>(&s.structs);
+    while (i < n) { if (sema_streq(List_get<string>(&s.structs, i), name) == 1) { return 1; } i = i + 1; }
+    return 0;
+}
+
+int sema_has_member(Sema* s, string key) {   // key = "Struct.member"
+    int i = 0; int n = List_len<string>(&s.members);
+    while (i < n) { if (sema_streq(List_get<string>(&s.members, i), key) == 1) { return 1; } i = i + 1; }
+    return 0;
+}
+
+int sema_is_enum(Sema* s, string name) {
+    int i = 0; int n = List_len<string>(&s.enums);
+    while (i < n) { if (sema_streq(List_get<string>(&s.enums, i), name) == 1) { return 1; } i = i + 1; }
+    return 0;
+}
+
+// Best-effort string type of an expression ("" = unknown). Grows per slice; for now
+// only identifiers (via the symbol table) resolve — enough to validate `ident.field`.
+string sema_infer_type(Sema* s, *ExprNode e) {
+    if (e == null) { return ""; }
+    if (e.kind == EK_IDENT) { return sema_lookup_type(s, e.sval); }
+    return "";
+}
+
+int sema_has_star(string t) {
+    int i = 0;
+    while (t[i] != 0) { if ((int)t[i] == 42) { return 1; } i = i + 1; }   // 42 = '*'
+    return 0;
+}
+
+// Pointer-to-const: spelling starts with "const " and is a pointer (e.g. "const int*").
+int sema_pointee_const(string t) {
+    if (t[0] != 99 || t[1] != 111 || t[2] != 110 || t[3] != 115
+        || t[4] != 116 || t[5] != 32) { return 0; }     // not "const "
+    return sema_has_star(t);
+}
+
+int sema_is_assign(string op) {
+    if (sema_streq(op, "=") == 1) { return 1; }
+    if (sema_streq(op, "+=") == 1 || sema_streq(op, "-=") == 1 || sema_streq(op, "*=") == 1
+        || sema_streq(op, "/=") == 1 || sema_streq(op, "%=") == 1) { return 1; }
+    return 0;
+}
+
+// Is the assignment target a read-only location? A const binding, or a field/element
+// reached through one (a const struct's members are read-only). Pointee-const through
+// a deref is a later slice.
+int sema_is_readonly_lvalue(Sema* s, *ExprNode e) {
+    if (e == null) { return 0; }
+    if (e.kind == EK_IDENT) { return sema_sym_const(s, e.sval); }
+    if (e.kind == EK_MEMBER || e.kind == EK_INDEX) { return sema_is_readonly_lvalue(s, e.a); }
+    // `*p` writes through a pointer — read-only when p points to const.
+    if (e.kind == EK_UNARY && sema_streq(e.sval, "*") == 1) {
+        return sema_pointee_const(sema_infer_type(s, e.a));
+    }
+    return 0;
+}
+
+// Owned substring s[a, b) with leading/trailing spaces trimmed.
+string sema_trim_sub(string s, int a, int b) {
+    while (a < b && (int)s[a] == 32) { a = a + 1; }
+    while (b > a && (int)s[b - 1] == 32) { b = b - 1; }
+    int len = b - a;
+    *uint8 buf = alloc<uint8>(len + 1);
+    int i = 0; while (i < len) { buf[i] = (uint8)s[a + i]; i = i + 1; }
+    buf[len] = 0;
+    return (string)buf;
+}
+
+*DeclNode sema_find_fndecl(Sema* s, string name) {
+    int i = 0; int n = List_len<*DeclNode>(&s.fndecls);
+    while (i < n) {
+        *DeclNode d = List_get<*DeclNode>(&s.fndecls, i);
+        if (sema_streq(d.name, name) == 1) { return d; }
+        i = i + 1;
+    }
+    return null;
+}
+
+*DeclNode sema_find_iface(Sema* s, string name) {
+    int i = 0; int n = List_len<*DeclNode>(&s.ifaces);
+    while (i < n) {
+        *DeclNode d = List_get<*DeclNode>(&s.ifaces, i);
+        if (sema_streq(d.name, name) == 1) { return d; }
+        i = i + 1;
+    }
+    return null;
+}
+
+int sema_is_scalar_prim(string c) {
+    if (sema_streq(c, "int") == 1 || sema_streq(c, "int8") == 1 || sema_streq(c, "int16") == 1
+        || sema_streq(c, "int32") == 1 || sema_streq(c, "int64") == 1 || sema_streq(c, "uint") == 1
+        || sema_streq(c, "uint8") == 1 || sema_streq(c, "uint16") == 1 || sema_streq(c, "uint32") == 1
+        || sema_streq(c, "uint64") == 1 || sema_streq(c, "char") == 1 || sema_streq(c, "bool") == 1
+        || sema_streq(c, "float") == 1 || sema_streq(c, "double") == 1) { return 1; }
+    return 0;
+}
+
+// Does concrete type `c` satisfy interface `iface_name`? A struct satisfies via a
+// real method `c.method`; a scalar primitive may satisfy via a free function named
+// `method` whose first parameter is `c` (mirrors structSatisfiesInterface). Unknown
+// interface → treat as satisfied (don't false-positive).
+int sema_satisfies(Sema* s, string c, string iface_name) {
+    *DeclNode iface = sema_find_iface(s, iface_name);
+    if (iface == null) { return 1; }
+    int prim = sema_is_scalar_prim(c);
+    int i = 0; int n = List_len<*DeclNode>(&iface.methods);
+    while (i < n) {
+        string m = List_get<*DeclNode>(&iface.methods, i).name;
+        int ok = 0;
+        if (sema_has_member(s, sema_cat(sema_cat(c, "."), m)) == 1) { ok = 1; }   // struct method
+        if (ok == 0 && prim == 1) {                                               // free-fn fallback
+            *DeclNode ff = sema_find_fndecl(s, m);
+            if (ff != null && List_len<Param>(&ff.params) > 0) {
+                if (sema_streq(sema_struct_of_type(List_get<Param>(&ff.params, 0).ty), c) == 1) { ok = 1; }
+            }
+        }
+        if (ok == 0) { return 0; }
+        i = i + 1;
+    }
+    return 1;
+}
+
+// Extract the type arguments of a template-call spelling ("pick<int>" → ["int"],
+// "Map<string, int>" → ["string","int"]), tracking nesting and trimming spaces.
+void sema_parse_targs(string sval, List<string>* out) {
+    int i = 0;
+    while (sval[i] != 0 && (int)sval[i] != 60) { i = i + 1; }   // find '<'
+    if (sval[i] == 0) { return; }
+    i = i + 1;
+    int depth = 0;
+    int start = i;
+    while (sval[i] != 0) {
+        int c = (int)sval[i];
+        if (c == 60) { depth = depth + 1; }
+        else if (c == 62) { if (depth == 0) { break; } depth = depth - 1; }
+        else if (c == 44 && depth == 0) {
+            List_push<string>(out, sema_trim_sub(sval, start, i));
+            start = i + 1;
+        }
+        i = i + 1;
+    }
+    if (i > start) { List_push<string>(out, sema_trim_sub(sval, start, i)); }
+}
+
+// ── expression walk ──
+
+void sema_expr(Sema* s, *ExprNode e) {
+    if (e == null) { return; }
+    int k = e.kind;
+    if (k == EK_IDENT) {
+        if (sema_lookup(s, e.sval) == 0) {
+            s.had_error = 1;
+            printf("error: %s:0:0: undefined variable '%s'\n", s.filename, e.sval);
+        }
+        // Escape soundness: a non-escaping closure param used anywhere but as the
+        // immediate callee of a call escapes.
+        if (sema_in_list(&s.watched, e.sval) == 1 && sema_streq(e.sval, s.callee_ctx) == 0) {
+            if (sema_in_list(&s.escaped, e.sval) == 0) { List_push<string>(&s.escaped, e.sval); }
+        }
+        return;
+    }
+    if (k == EK_LITERAL || k == EK_SIZEOF) { return; }
+    if (k == EK_BINARY) {
+        if (sema_is_assign(e.sval) == 1 && sema_is_readonly_lvalue(s, e.a) == 1) {
+            s.had_error = 1;
+            printf("error: %s:0:0: cannot assign to read-only location\n", s.filename);
+        }
+        sema_expr(s, e.a); sema_expr(s, e.b); return;
+    }
+    if (k == EK_AWAIT) {
+        if (s.in_async == 0) {
+            s.had_error = 1;
+            printf("error: %s:0:0: await is only allowed inside an async function\n", s.filename);
+        }
+        s.await_seen = 1;
+        sema_expr(s, e.a);
+        return;
+    }
+    if (k == EK_MEMBER) {
+        sema_expr(s, e.a);                 // walk base (catches undefined vars in it)
+        string bt = sema_infer_type(s, e.a);
+        if (bt[0] != 0) {                  // base type known → validate the member
+            string sn = sema_struct_of_type(bt);
+            if (sema_is_struct(s, sn) == 1 && sema_has_member(s, sema_cat(sema_cat(sn, "."), e.sval)) == 0) {
+                s.had_error = 1;
+                printf("error: %s:0:0: struct '%s' has no member '%s'\n", s.filename, sn, e.sval);
+            }
+        }
+        return;
+    }
+    if (k == EK_QUESTION) {            // `expr?` propagates an Err — fn must return a Result
+        if (sema_streq(sema_base_name(s.cur_ret), "Result") == 0) {
+            s.had_error = 1;
+            printf("error: %s:0:0: `?` can only be used in a function returning the same Result type\n", s.filename);
+        }
+        sema_expr(s, e.a);
+        return;
+    }
+    if (k == EK_UNARY || k == EK_CAST
+        || k == EK_FREECLOSURE || k == EK_THREADCREATE) {
+        sema_expr(s, e.a);
+        return;
+    }
+    if (k == EK_INDEX || k == EK_ALLOCWITH) { sema_expr(s, e.a); sema_expr(s, e.b); return; }
+    if (k == EK_CALL) {
+        // arg-count check: only when the callee is a bare global function (not a local
+        // fn-pointer var, not an ADT variant, not a generic — those resolve elsewhere).
+        if (e.a != null && e.a.kind == EK_IDENT && sema_local_bound(s, e.a.sval) == 0) {
+            int fi = sema_find_fn(s, e.a.sval);
+            if (fi >= 0) {
+                FnSig sig = List_get<FnSig>(&s.fns, fi);
+                int argc = List_len<*ExprNode>(&e.kids);
+                if (sig.variadic == 1) {
+                    if (argc < sig.fixed) {
+                        s.had_error = 1;
+                        printf("error: %s:0:0: function '%s' expects at least %d arguments, got %d\n",
+                               s.filename, e.a.sval, sig.fixed, argc);
+                    }
+                } else if (argc != sig.fixed) {
+                    s.had_error = 1;
+                    printf("error: %s:0:0: function '%s' expects %d arguments, got %d\n",
+                           s.filename, e.a.sval, sig.fixed, argc);
+                }
+            }
+        }
+        string prev = s.callee_ctx;        // mark the callee so a watched param here is OK
+        if (e.a != null && e.a.kind == EK_IDENT) { s.callee_ctx = e.a.sval; }
+        else { s.callee_ctx = ""; }
+        sema_expr(s, e.a);                 // callee (functions live in the global scope)
+        s.callee_ctx = prev;
+        int i = 0;
+        int n = List_len<*ExprNode>(&e.kids);
+        while (i < n) { sema_expr(s, List_get<*ExprNode>(&e.kids, i)); i = i + 1; }
+        return;
+    }
+    if (k == EK_STRUCTINIT) {
+        string base = sema_base_name(e.sval);
+        if (sema_is_type(s, base) == 0) {
+            s.had_error = 1;
+            printf("error: %s:0:0: undefined struct '%s'\n", s.filename, base);
+        }
+        int i = 0;
+        int n = List_len<*ExprNode>(&e.kids);
+        while (i < n) { sema_expr(s, List_get<*ExprNode>(&e.kids, i)); i = i + 1; }
+        return;
+    }
+    if (k == EK_TEMPLATECALL) {        // Name<args>(...) — check bounded-generic constraints
+        *DeclNode fd = sema_find_fndecl(s, sema_base_name(e.sval));
+        if (fd != null) {
+            List<string> targs;
+            List_init<string>(&targs, 4);
+            sema_parse_targs(e.sval, &targs);
+            int tn = List_len<TypeParam>(&fd.type_params);
+            int na = List_len<string>(&targs);
+            int ti = 0;
+            while (ti < tn && ti < na) {
+                TypeParam tp = List_get<TypeParam>(&fd.type_params, ti);
+                string concrete = List_get<string>(&targs, ti);
+                int ci = 0;
+                int cn = List_len<string>(&tp.constraints);
+                while (ci < cn) {
+                    string ic = List_get<string>(&tp.constraints, ci);
+                    if (sema_satisfies(s, concrete, ic) == 0) {
+                        s.had_error = 1;
+                        printf("error: %s:0:0: type '%s' does not satisfy constraint '%s'\n",
+                               s.filename, concrete, ic);
+                    }
+                    ci = ci + 1;
+                }
+                ti = ti + 1;
+            }
+        }
+        int i = 0;
+        int n = List_len<*ExprNode>(&e.kids);
+        while (i < n) { sema_expr(s, List_get<*ExprNode>(&e.kids, i)); i = i + 1; }
+        return;
+    }
+    // EK_LAMBDA: body params aren't extracted yet → skip (S0 under-check, no false error).
+}
+
+// ── statement walk ──
+
+void sema_stmt(Sema* s, *StmtNode st) {
+    if (st == null) { return; }
+    int k = st.kind;
+    if (k == SK_BLOCK) {
+        sema_push(s);
+        int i = 0;
+        int n = List_len<*StmtNode>(&st.items);
+        while (i < n) { sema_stmt(s, List_get<*StmtNode>(&st.items, i)); i = i + 1; }
+        sema_pop(s);
+        return;
+    }
+    if (k == SK_VARDECL) {
+        sema_expr(s, st.expr);             // initializer (can't reference itself)
+        if (st.is_const == 1 && st.expr == null) {
+            s.had_error = 1;
+            printf("error: %s:0:0: const '%s' must be initialized\n", s.filename, st.name);
+        }
+        // Initializing a non-const pointer from a pointer-to-const drops const.
+        if (st.expr != null && sema_has_star(st.type) == 1 && sema_pointee_const(st.type) == 0) {
+            if (sema_pointee_const(sema_infer_type(s, st.expr)) == 1) {
+                s.had_error = 1;
+                printf("error: %s:0:0: initialization discards a const qualifier\n", s.filename);
+            }
+        }
+        sema_define(s, st.name, st.type, st.is_const);
+        return;
+    }
+    if (k == SK_RETURN || k == SK_THROW) { sema_expr(s, st.expr); return; }
+    if (k == SK_EXPR || k == SK_THREADJOIN) { sema_expr(s, st.expr); return; }
+    if (k == SK_IF) {
+        sema_expr(s, st.expr);
+        sema_stmt(s, st.s1);
+        sema_stmt(s, st.s2);
+        return;
+    }
+    if (k == SK_WHILE) { sema_expr(s, st.expr); sema_stmt(s, st.s1); return; }
+    if (k == SK_FOR) {
+        sema_push(s);                      // init var stays in scope for cond/step/body
+        // The init is wrapped in a BlockStmt; walk its items in the FOR scope rather
+        // than via sema_stmt (which would push/pop a sub-scope and drop the loop var).
+        if (st.s1 != null && st.s1.kind == SK_BLOCK) {
+            int i = 0;
+            int n = List_len<*StmtNode>(&st.s1.items);
+            while (i < n) { sema_stmt(s, List_get<*StmtNode>(&st.s1.items, i)); i = i + 1; }
+        } else {
+            sema_stmt(s, st.s1);
+        }
+        sema_expr(s, st.expr);
+        sema_expr(s, st.expr2);
+        sema_stmt(s, st.s2);
+        sema_pop(s);
+        return;
+    }
+    if (k == SK_FORIN) {
+        sema_push(s);
+        sema_expr(s, st.expr);             // iterable (loop var not yet in scope)
+        sema_define(s, st.name, "", 0);       // element type not inferred yet
+        sema_stmt(s, st.s1);
+        sema_pop(s);
+        return;
+    }
+    if (k == SK_BREAK || k == SK_CONTINUE) { return; }
+    if (k == SK_SWITCH || k == SK_MATCH) {
+        sema_expr(s, st.expr);             // subject
+        if (k == SK_SWITCH) {
+            // Duplicate case values: compare literal/ident text (under-detects across
+            // different spellings of the same value, but never false-positives).
+            List<string> seen;
+            List_init<string>(&seen, 8);
+            int ci = 0;
+            int cn = List_len<*StmtNode>(&st.items);
+            while (ci < cn) {
+                *StmtNode c = List_get<*StmtNode>(&st.items, ci);
+                if (c.kind == SK_CASE && c.expr != null
+                    && (c.expr.kind == EK_LITERAL || c.expr.kind == EK_IDENT)) {
+                    string key = c.expr.sval;
+                    int j = 0;
+                    int found = 0;
+                    int sn = List_len<string>(&seen);
+                    while (j < sn) {
+                        if (sema_streq(List_get<string>(&seen, j), key) == 1) { found = 1; }
+                        j = j + 1;
+                    }
+                    if (found == 1) {
+                        s.had_error = 1;
+                        printf("error: %s:0:0: duplicate case value in switch\n", s.filename);
+                    } else {
+                        List_push<string>(&seen, key);
+                    }
+                }
+                ci = ci + 1;
+            }
+        }
+        if (k == SK_MATCH) {
+            // Collect arm variants (label is "Variant(binds)" or "_"), catching dups
+            // and noting a `_` wildcard, then check exhaustiveness.
+            List<string> seen;
+            List_init<string>(&seen, 8);
+            int has_wild = 0;
+            int ai = 0;
+            int an = List_len<*StmtNode>(&st.items);
+            while (ai < an) {
+                *StmtNode arm = List_get<*StmtNode>(&st.items, ai);
+                if (arm.kind == SK_ARM) {
+                    string v = sema_base_name(arm.name);
+                    if (sema_streq(v, "_") == 1) { has_wild = 1; }
+                    int j = 0;
+                    int found = 0;
+                    int sn = List_len<string>(&seen);
+                    while (j < sn) {
+                        if (sema_streq(List_get<string>(&seen, j), v) == 1) { found = 1; }
+                        j = j + 1;
+                    }
+                    if (found == 1) {
+                        s.had_error = 1;
+                        printf("error: %s:0:0: duplicate match arm for variant '%s'\n", s.filename, v);
+                    } else {
+                        List_push<string>(&seen, v);
+                    }
+                }
+                ai = ai + 1;
+            }
+            // Exhaustiveness: without `_`, every variant of the subject's enum must
+            // be covered. Skip if the subject type/enum can't be determined.
+            if (has_wild == 0) {
+                string sty = sema_struct_of_type(sema_infer_type(s, st.expr));
+                if (sema_is_enum(s, sty) == 1) {
+                    int reported = 0;
+                    int ei = 0;
+                    int en = List_len<EVar>(&s.evars);
+                    while (ei < en) {
+                        EVar ev = List_get<EVar>(&s.evars, ei);
+                        if (reported == 0 && sema_streq(ev.en, sty) == 1) {
+                            int j = 0;
+                            int covered = 0;
+                            int sn = List_len<string>(&seen);
+                            while (j < sn) {
+                                if (sema_streq(List_get<string>(&seen, j), ev.variant) == 1) { covered = 1; }
+                                j = j + 1;
+                            }
+                            if (covered == 0) {
+                                s.had_error = 1;
+                                printf("error: %s:0:0: non-exhaustive match on '%s': missing '%s'\n",
+                                       s.filename, sty, ev.variant);
+                                reported = 1;
+                            }
+                        }
+                        ei = ei + 1;
+                    }
+                }
+            }
+        }
+        int i = 0;
+        int n = List_len<*StmtNode>(&st.items);
+        while (i < n) { sema_stmt(s, List_get<*StmtNode>(&st.items, i)); i = i + 1; }
+        return;
+    }
+    if (k == SK_CASE) {
+        sema_expr(s, st.expr);             // case value (null for default)
+        sema_push(s);
+        int i = 0;
+        int n = List_len<*StmtNode>(&st.items);
+        while (i < n) { sema_stmt(s, List_get<*StmtNode>(&st.items, i)); i = i + 1; }
+        sema_pop(s);
+        return;
+    }
+    if (k == SK_TRY) {
+        sema_stmt(s, st.s1);               // body
+        // catch clauses (items) bind names we don't extract yet → skip their bodies
+        sema_stmt(s, st.s2);               // finally
+        return;
+    }
+    if (k == SK_ASM) {
+        int i = 0;
+        int n = List_len<*StmtNode>(&st.items);
+        while (i < n) { sema_expr(s, List_get<*StmtNode>(&st.items, i).expr); i = i + 1; }
+        return;
+    }
+    // SK_ARM / SK_CATCH bodies: not walked in S0 (bindings not yet extracted).
+}
+
+// ── entry ──
+
+// Register top-level names that can be referenced as a bare identifier: functions,
+// externs, intrinsics, global vars, and enum members (constants / variant ctors).
+void sema_register_globals(Sema* s, *Program prog) {
+    int i = 0;
+    int n = List_len<*DeclNode>(&prog.decls);
+    while (i < n) {
+        *DeclNode d = List_get<*DeclNode>(&prog.decls, i);
+        if (d.kind == DK_FUNCTION || d.kind == DK_EXTERN
+            || d.kind == DK_INTRINSIC || d.kind == DK_VARDECL) {
+            string gty = "";
+            if (d.kind == DK_VARDECL) { gty = d.ret_type; }   // global var's type
+            sema_define(s, d.name, gty, d.is_const);
+        }
+        if (d.kind == DK_FUNCTION || d.kind == DK_EXTERN || d.kind == DK_INTRINSIC) {
+            sema_register_fn(s, d);
+            List_push<*DeclNode>(&s.fndecls, d);
+        }
+        if (d.kind == DK_INTERFACE) { List_push<*DeclNode>(&s.ifaces, d); }
+        if (d.kind == DK_STRUCT || d.kind == DK_UNION || d.kind == DK_INTERFACE
+            || d.kind == DK_ENUM || d.kind == DK_TYPEALIAS) {
+            List_push<string>(&s.types, d.name);
+        }
+        if (d.kind == DK_STRUCT) {
+            List_push<string>(&s.structs, d.name);
+            int fi = 0;                                       // fields are valid members
+            int fn2 = List_len<Param>(&d.params);
+            while (fi < fn2) {
+                List_push<string>(&s.members, sema_cat(sema_cat(d.name, "."), List_get<Param>(&d.params, fi).name));
+                fi = fi + 1;
+            }
+            int mi = 0;                                       // methods are valid members too
+            int mn = List_len<*DeclNode>(&d.methods);
+            while (mi < mn) {
+                List_push<string>(&s.members, sema_cat(sema_cat(d.name, "."), List_get<*DeclNode>(&d.methods, mi).name));
+                mi = mi + 1;
+            }
+        }
+        if (d.kind == DK_ENUM) {
+            List_push<string>(&s.enums, d.name);
+            int j = 0;
+            int m = List_len<Param>(&d.params);
+            while (j < m) {
+                string vn = List_get<Param>(&d.params, j).name;
+                sema_define(s, vn, "", 0);
+                let ev: EVar; ev.en = d.name; ev.variant = vn;
+                List_push<EVar>(&s.evars, ev);
+                j = j + 1;
+            }
+        }
+        i = i + 1;
+    }
+}
+
+// Check a function/method body: a fresh scope with the params (and `self` for
+// methods) defined, then walk the body.
+void sema_check_fn(Sema* s, *DeclNode f, string self_type) {
+    if (f.body == null) { return; }
+    s.in_async = f.is_async;
+    s.await_seen = 0;
+    s.cur_ret = f.ret_type;
+    // Escape soundness: watch non-escaping fn-type params for the body walk.
+    List_init<string>(&s.watched, 4);
+    List_init<string>(&s.escaped, 4);
+    s.callee_ctx = "";
+    int pe = 0;
+    int pn = List_len<Param>(&f.params);
+    while (pe < pn) {
+        Param pm = List_get<Param>(&f.params, pe);
+        int marked = 0;
+        if (pe < List_len<int>(&f.param_escaping)) { marked = List_get<int>(&f.param_escaping, pe); }
+        if (sema_is_fn_type(pm.ty) == 1 && marked == 0) { List_push<string>(&s.watched, pm.name); }
+        pe = pe + 1;
+    }
+    sema_push(s);
+    if (self_type[0] != 0) { sema_define(s, "self", self_type, 0); }   // method: self is the struct
+    int j = 0;
+    int m = List_len<Param>(&f.params);
+    while (j < m) {
+        Param pm = List_get<Param>(&f.params, j);
+        sema_define(s, pm.name, pm.ty, 0);
+        j = j + 1;
+    }
+    sema_stmt(s, f.body);
+    sema_pop(s);
+    if (f.is_async == 1 && s.await_seen == 0) {
+        s.had_error = 1;
+        printf("error: %s:0:0: async function '%s' has no `await`\n", s.filename, f.name);
+    }
+    int wi = 0;
+    int wn = List_len<string>(&s.watched);
+    while (wi < wn) {
+        string wnm = List_get<string>(&s.watched, wi);
+        if (sema_in_list(&s.escaped, wnm) == 1) {
+            s.had_error = 1;
+            printf("error: %s:0:0: closure parameter '%s' escapes (used beyond a direct call); mark it `escaping`\n",
+                   s.filename, wnm);
+        }
+        wi = wi + 1;
+    }
+    s.in_async = 0;
+}
+
+// Returns 1 if the program type-checks (no errors), 0 otherwise.
+int sema_check(Sema* s, *Program prog) {
+    sema_register_globals(s, prog);
+    int i = 0;
+    int n = List_len<*DeclNode>(&prog.decls);
+    while (i < n) {
+        *DeclNode d = List_get<*DeclNode>(&prog.decls, i);
+        if (d.kind == DK_INTRINSIC) {
+            if (sema_streq(d.name, "atomic_load") == 0 && sema_streq(d.name, "atomic_store") == 0
+                && sema_streq(d.name, "atomic_swap") == 0 && sema_streq(d.name, "atomic_cas") == 0) {
+                s.had_error = 1;
+                printf("error: %s:0:0: unknown intrinsic '%s'\n", s.filename, d.name);
+            }
+        }
+        if (d.kind == DK_FUNCTION) { sema_check_fn(s, d, ""); }
+        if (d.kind == DK_STRUCT) {
+            int k = 0;
+            int mm = List_len<*DeclNode>(&d.methods);
+            while (k < mm) { sema_check_fn(s, List_get<*DeclNode>(&d.methods, k), d.name); k = k + 1; }
+        }
+        i = i + 1;
+    }
+    if (s.had_error == 1) { return 0; }
+    return 1;
+}

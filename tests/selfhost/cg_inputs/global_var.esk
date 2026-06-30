@@ -1,0 +1,13 @@
+// Global variables: scalar + struct, read/write across functions. `@name` is the
+// storage address (load to read, store to write); struct global → zeroinitializer.
+int counter = 0;
+struct Acc { int n; }
+Acc acc;
+
+int bump() { counter = counter + 1; return counter; }
+
+int main() {
+    bump(); bump();
+    acc.n = 40;
+    return counter + acc.n;
+}

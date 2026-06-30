@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Grammar · Eskiu docs</title>
+  <meta name="description" content="A formal grammar for Eskiu, reflecting the actual recursive-descent parser" />
+  <link rel="canonical" href="https://eskiu-lang.org/docs/grammar.html" />
+  <link rel="icon" type="image/png" href="../../assets/logo.png" />
+  <style>*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #ffffff; --surface: #f6f7f9; --border: #e6e8ec;
+  --ink: #16181d; --ink2: #4f555f; --purple: #4c31bb; --purple-lt: #6448d4;
+  --code: #1b1728; --code-bd: #2c2444;
+  --sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+}
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+body { background: var(--bg); color: var(--ink); font-family: var(--sans);
+       line-height: 1.65; -webkit-font-smoothing: antialiased; }
+.wrap { max-width: 800px; margin: 0 auto; padding: 2.25rem 1.25rem 5rem; }
+.top { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 1.5rem; }
+.top img { width: 30px; height: 30px; }
+.top a { color: var(--ink2); text-decoration: none; font-size: 0.85rem; }
+.top a:hover { color: var(--purple); }
+.docnav { display: flex; flex-wrap: wrap; gap: 0.35rem 0.5rem; margin-bottom: 2.5rem;
+          padding-bottom: 1.25rem; border-bottom: 1px solid var(--border); }
+.docnav a { font-size: 0.8rem; color: var(--ink2); text-decoration: none;
+            padding: 0.25rem 0.6rem; border-radius: 6px; border: 1px solid transparent; }
+.docnav a:hover { color: var(--purple); background: var(--surface); }
+.docnav a.active { color: var(--purple); border-color: var(--border); background: #fff; font-weight: 600; }
+.content h1 { font-size: clamp(1.7rem, 4.5vw, 2.4rem); letter-spacing: -0.03em;
+              line-height: 1.12; margin: 0 0 1.25rem; }
+.content h2 { font-size: 1.35rem; letter-spacing: -0.02em; margin: 2.5rem 0 0.85rem;
+              padding-top: 0.5rem; }
+.content h3 { font-size: 1.08rem; margin: 1.75rem 0 0.6rem; }
+.content h4 { font-size: 0.95rem; margin: 1.4rem 0 0.5rem; color: var(--ink2); }
+.content p { margin: 0 0 1rem; }
+.content a { color: var(--purple); }
+.content ul, .content ol { margin: 0 0 1rem 1.3rem; }
+.content li { margin-bottom: 0.4rem; }
+.content strong { font-weight: 600; }
+.content hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+.content blockquote { border-left: 3px solid var(--purple); background: var(--surface);
+                      padding: 0.8rem 1.1rem; border-radius: 0 8px 8px 0; margin: 0 0 1.25rem;
+                      color: var(--ink2); }
+.content blockquote p:last-child { margin-bottom: 0; }
+.content code { font-family: var(--mono); font-size: 0.86em; background: var(--surface);
+                padding: 0.1em 0.35em; border-radius: 4px; }
+.content pre { background: var(--code); border: 1px solid var(--code-bd); border-radius: 8px;
+               padding: 0.95rem 1.1rem; margin: 0 0 1.5rem; overflow-x: auto;
+               font-family: var(--mono); font-size: 0.78rem; line-height: 1.75; color: #b4bccc; }
+.content pre code { background: none; padding: 0; font-size: inherit; color: inherit; }
+.tablewrap { overflow-x: auto; margin: 0 0 1.5rem; }
+.content table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+.content th, .content td { text-align: left; padding: 0.5rem 0.75rem;
+                          border-bottom: 1px solid var(--border); vertical-align: top; }
+.content th { color: var(--ink2); font-weight: 600; white-space: nowrap; }
+.content td code { white-space: nowrap; }
+.foot { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--border);
+        font-size: 0.9rem; color: var(--ink2); }
+@media (max-width: 600px) {
+  .content table { font-size: 0.8rem; }
+  .content th, .content td { padding: 0.4rem 0.55rem; white-space: normal; }
+}</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <img src="../../assets/logo.png" alt="Eskiu" />
+      <a href="../index.html">← eskiu</a>
+    </div>
+    <nav class="docnav"><a href="index.html">Overview</a><a href="getting-started.html">Getting started</a><a href="spec.html">Spec</a><a href="grammar.html" class="active">Grammar</a><a href="build.html">Tooling</a><a href="glossary.html">Glossary</a><a href="internals.html">Internals →</a></nav>
+    <div class="content">
+<h1 id="eskiu-grammar">Eskiu Grammar</h1>
+<p>A formal grammar for Eskiu, reflecting the actual recursive-descent parser
+(<code>parser/parser.cpp</code>) and lexer (<code>lexer/lexer.cpp</code>). It is the authoritative
+syntax reference; the prose in <a href="spec.html">spec.md</a> explains semantics.</p>
+<p>Notation (EBNF):</p>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th>Form</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>x?</code></td>
+<td>optional</td>
+</tr>
+<tr>
+<td><code>x*</code></td>
+<td>zero or more</td>
+</tr>
+<tr>
+<td><code>x+</code></td>
+<td>one or more</td>
+</tr>
+<tr>
+<td><code>x (',' x)*</code></td>
+<td>comma-separated list</td>
+</tr>
+<tr>
+<td><code>a \| b</code></td>
+<td>alternation</td>
+</tr>
+<tr>
+<td><code>'tok'</code></td>
+<td>literal token</td>
+</tr>
+<tr>
+<td><code>UPPER</code></td>
+<td>a token class (terminal); see <a href="#lexical-structure">Lexical</a></td>
+</tr>
+<tr>
+<td><code>lower</code></td>
+<td>a non-terminal</td>
+</tr>
+</tbody>
+</table></div>
+<p>The grammar is presented top-down: lexical structure, then the preprocessor,
+then declarations, types, statements, and expressions (lowest precedence first).</p>
+<hr>
+<h2 id="lexical-structure">Lexical structure</h2>
+<p>Tokens are produced after the <a href="#preprocessor">preprocessor</a> pass. Whitespace and
+comments separate tokens and are otherwise insignificant.</p>
+<pre><code>IDENT      = [A-Za-z_] [A-Za-z0-9_]*
+INT_LIT    = [0-9]+  |  '0x' [0-9A-Fa-f]+
+FLOAT_LIT  = [0-9]+ '.' [0-9]+  |  '.' [0-9]+
+STRING_LIT = '&quot;' ( escape | not('&quot;') )* '&quot;'        // adjacent literals concatenate: &quot;a&quot; &quot;b&quot; == &quot;ab&quot;
+CHAR_LIT   = &quot;'&quot; ( escape | not(&quot;'&quot;) ) &quot;'&quot;
+escape     = '\' ( 'n' | 't' | 'r' | '\' | '&quot;' | &quot;'&quot; | '0' )
+</code></pre>
+<p>Comments: <code>// … end-of-line</code> and <code>/* … */</code> (block comments do not nest).</p>
+<h3 id="keywords-reserved">Keywords (reserved)</h3>
+<pre><code>let  const  volatile  async  await  escaping
+int int8 int16 int32 int64  uint uint8 uint16 uint32 uint64
+float double bool char string void
+struct packed union interface enum fn
+if else while for in switch match case default break continue return
+import extern intrinsic  sizeof alloc_with free_closure
+thread_create thread_join  asm  try catch finally throw
+null true false
+</code></pre>
+<p><code>type</code> is <strong>not</strong> reserved — it is a contextual keyword recognized only in the
+type-alias form <code>type NAME = …</code>.</p>
+<h3 id="operators-and-punctuation">Operators and punctuation</h3>
+<pre><code>+  -  *  /  %                          arithmetic
+=  +=  -=  *=  /=  %=  &amp;=  |=  ^=  &lt;&lt;=  &gt;&gt;=   assignment (compound forms desugar)
+==  !=  &lt;  &gt;  &lt;=  &gt;=                   comparison
+&amp;&amp;  ||  !                             logical
+&amp;  |  ^  ~  &lt;&lt;  &gt;&gt;                     bitwise
+( ) { } [ ]  ;  ,  .                  delimiters
+..   ...   :   -&gt;   ?                  range, ellipsis, colon, arrow, error-propagation
+</code></pre>
+<hr>
+<h2 id="preprocessor">Preprocessor</h2>
+<p>A text pass run before tokenizing. Directives occupy a whole line; skipped or
+directive lines become blank lines so source line numbers are preserved.</p>
+<pre><code>directive =
+    '#define' IDENT macro-body
+  | '#define' IDENT '(' (IDENT (',' IDENT)*)? ')' macro-body    // function-like
+  | '#undef'  IDENT
+  | '#ifdef'  IDENT  |  '#ifndef' IDENT  |  '#else'  |  '#endif'
+  | '#pragma' …                          // passed through to the compiler (e.g. pack)
+  | '#error'  text                       // aborts compilation on an active branch
+  | '#!' …                               // shebang: ignored (see __FILE__/__LINE__ ref)
+</code></pre>
+<p>Predefined macros: <code>__FILE__</code>, <code>__LINE__</code>, a host-OS macro
+(<code>__APPLE__</code>/<code>__linux__</code>), and <code>__ESKIU_FREESTANDING__</code> under <code>--freestanding</code>.</p>
+<hr>
+<h2 id="program">Program</h2>
+<pre><code>program     = item*
+item        = import | declaration
+
+import      = 'import' STRING_LIT ';'           // relative path
+            | 'import' '&lt;' module-path '&gt;' ';'  // stdlib module
+</code></pre>
+<hr>
+<h2 id="declarations">Declarations</h2>
+<pre><code>declaration =
+    function-decl | struct-decl | union-decl | interface-decl | enum-decl
+  | type-alias  | extern-decl  | intrinsic-decl | var-decl
+
+function-decl   = 'async'? type IDENT type-params? '(' param-list? ')' ( block | ';' )
+extern-decl     = 'extern'    type IDENT '(' param-list? ')' ';'
+intrinsic-decl  = 'intrinsic' type IDENT '(' param-list? ')' ';'
+
+type-params     = '&lt;' type-param (',' type-param)* '&gt;'
+type-param      = IDENT ( ':' IDENT ('+' IDENT)* )?   // optional interface constraint(s)
+
+param-list      = param (',' param)* (',' '...')?  |  '...'
+param           = 'escaping'? type IDENT
+
+struct-decl     = 'packed'? 'struct' IDENT type-params? '{' struct-member* '}'
+struct-member   = type IDENT (':' INT_LIT)? ';'                 // field, optional bitfield width
+                | type IDENT '(' param-list? ')' block          // method
+
+union-decl      = 'union' IDENT '{' ( type IDENT ';' )* '}'
+
+interface-decl  = 'interface' IDENT '{' ( type IDENT '(' param-list? ')' ';' )* '}'
+
+enum-decl       = 'enum' IDENT type-params? '{' enum-variant (',' enum-variant)* ','? '}'
+enum-variant    = IDENT ( '(' type (',' type)* ')' )?           // ADT payload
+                | IDENT ( '=' expr )?                            // classic, optional value
+
+type-alias      = 'type' IDENT '=' type ';'
+
+var-decl        = qualifier* 'let' IDENT ':' type ( '=' expr )? ';'
+                | qualifier* type IDENT ( '=' expr )? ';'
+qualifier       = 'const' | 'volatile'
+</code></pre>
+<p><code>const</code> placement follows C: before a <code>let</code> it qualifies the binding; within a
+type it qualifies the pointee (<code>const int*</code>) or pointer level (<code>int* const</code>).</p>
+<hr>
+<h2 id="types">Types</h2>
+<pre><code>type        = 'const'? ptr* base ( '*' 'const'? )* array*
+base        = scalar-type
+            | IDENT ( '&lt;' type (',' type)* '&gt;' )?   // named type or template instance
+            | 'fn' '(' (type (',' type)*)? ')' '-&gt;' type   // function-pointer type
+ptr         = '*'                                    // leading-pointer (spec) spelling
+array       = '[' INT_LIT? ']'
+
+scalar-type = 'int' | 'int8' | 'int16' | 'int32' | 'int64'
+            | 'uint' | 'uint8' | 'uint16' | 'uint32' | 'uint64'
+            | 'float' | 'double' | 'bool' | 'char' | 'string' | 'void'
+</code></pre>
+<p>Pointers may be written either C-style (<code>int*</code>) or leading (<code>*int</code>); both are
+equivalent. <code>va_list</code> is a built-in named type used by variadics.</p>
+<hr>
+<h2 id="statements">Statements</h2>
+<pre><code>statement =
+    block | if-stmt | while-stmt | for-stmt | switch-stmt | match-stmt
+  | return-stmt | break-stmt | continue-stmt | throw-stmt | try-stmt
+  | asm-stmt | thread-join-stmt | var-decl | expr-stmt
+
+block         = '{' ( declaration | statement )* '}'
+if-stmt       = 'if' '(' expr ')' statement ( 'else' statement )?
+while-stmt    = 'while' '(' expr ')' statement
+for-stmt      = 'for' '(' ( var-decl | expr )? ';' expr? ';' expr? ')' statement
+              | 'for' '(' IDENT 'in' expr ( '..' expr )? ')' statement   // iterate / half-open range
+return-stmt   = 'return' expr? ';'
+break-stmt    = 'break' ';'
+continue-stmt = 'continue' ';'
+throw-stmt    = 'throw' expr ';'
+expr-stmt     = expr ';'
+
+switch-stmt   = 'switch' '(' expr ')' '{' switch-case* default-case? '}'
+switch-case   = 'case' expr ':' statement*
+default-case  = 'default' ':' statement*
+
+match-stmt    = 'match' expr '{' match-arm+ '}'
+match-arm     = IDENT ( '(' IDENT (',' IDENT)* ')' )? '-&gt;' statement   // variant + payload bindings
+              | '_' '-&gt;' statement                                     // default
+
+try-stmt      = 'try' block ( 'catch' '(' type IDENT ')' block )* ( 'finally' block )?
+asm-stmt      = 'asm' '(' STRING_LIT ( ':' ':' asm-operand (',' asm-operand)*
+                              ( ':' STRING_LIT (',' STRING_LIT)* )? )? ')' ';'
+asm-operand   = STRING_LIT '(' expr ')'
+thread-join-stmt = 'thread_join' '(' expr ')' ';'
+</code></pre>
+<p><code>for (i in A..B)</code> desugars to a counted <code>for (int i = A; i &lt; B; i = i + 1)</code>.</p>
+<hr>
+<h2 id="expressions">Expressions</h2>
+<p>Precedence, lowest to highest. Each level is left-associative unless noted.</p>
+<pre><code>expr            = assignment
+assignment      = logical-or ( assign-op assignment )?            // right-assoc
+assign-op       = '=' | '+=' | '-=' | '*=' | '/=' | '%='
+                | '&amp;=' | '|=' | '^=' | '&lt;&lt;=' | '&gt;&gt;='              // compound forms desugar
+logical-or      = logical-and ( '||' logical-and )*
+logical-and     = bitwise-or  ( '&amp;&amp;' bitwise-or  )*
+bitwise-or      = bitwise-xor ( '|'  bitwise-xor )*
+bitwise-xor     = bitwise-and ( '^'  bitwise-and )*
+bitwise-and     = equality    ( '&amp;'  equality    )*
+equality        = comparison  ( ('==' | '!=') comparison )*
+comparison      = shift       ( ('&lt;' | '&gt;' | '&lt;=' | '&gt;=') shift )*
+shift           = additive    ( ('&lt;&lt;' | '&gt;&gt;') additive )*
+additive        = multiplicative ( ('+' | '-') multiplicative )*
+multiplicative  = unary       ( ('*' | '/' | '%') unary )*
+unary           = ('!' | '-' | '+' | '&amp;' | '*' | '~' | 'await') unary   // right-assoc
+                | cast
+cast            = '(' type ')' unary
+                | postfix
+postfix         = primary postfix-op*
+postfix-op      = '(' arg-list? ')'          // call
+                | '[' expr ']'               // index
+                | '.' IDENT                  // member
+                | '?'                        // error propagation (Result)
+arg-list        = expr (',' expr)*
+</code></pre>
+<p>Eskiu has no <code>a ? b : c</code> conditional operator — <code>?</code> is the postfix
+error-propagation operator applied to a <code>Result</code> (it returns early on the error
+variant). Assignment is the lowest-precedence, right-associative level.</p>
+<pre><code>primary =
+    INT_LIT | FLOAT_LIT | STRING_LIT | CHAR_LIT | 'true' | 'false' | 'null'
+  | IDENT
+  | IDENT struct-init                                  // Name { … }
+  | IDENT '&lt;' type (',' type)* '&gt;' ( '(' arg-list? ')' | struct-init )  // turbofish call / templated literal
+  | '(' expr ')'
+  | lambda
+  | 'sizeof' '(' type ')'
+  | 'alloc_with' '(' expr ',' type ',' expr ')'
+  | 'free_closure' '(' expr ')'
+  | 'thread_create' '(' expr ')'
+
+struct-init = '{' ( field-init (',' field-init)* )? '}'
+field-init  = IDENT ':' expr        // named
+            | expr                  // positional
+
+lambda      = type '(' lambda-params? ')' block        // e.g. int (int x) { return x; }
+lambda-params = ('escaping'? type IDENT) (',' 'escaping'? type IDENT)*
+</code></pre>
+<p>A struct literal is suppressed where a <code>{</code> would instead open a block — e.g. the
+subject of <code>match</code>/<code>switch</code>/<code>if</code>/<code>while</code>/<code>for</code> conditions.</p>
+<hr>
+<h2 id="see-also">See also</h2>
+<ul>
+<li><a href="spec.html">spec.md</a> — language semantics and the standard library.</li>
+<li><a href="abi.html">../dev/abi.md</a> — how these constructs lower to LLVM IR.</li>
+</ul>
+    </div>
+    <div class="foot"><a href="../index.html">← Back to eskiu</a></div>
+  </div>
+</body>
+</html>

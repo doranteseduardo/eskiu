@@ -1,0 +1,4 @@
+extern int printf(string fmt, ...);
+enum Color { Red, Green, Blue }
+int classify(int c) { if (c == Red) { return 100; } if (c == Blue) { return 200; } return 0; }
+int main() { printf("%d %d %d\n", Red, Green, Blue); return classify(Blue); }

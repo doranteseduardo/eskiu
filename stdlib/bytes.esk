@@ -17,7 +17,7 @@
 import <mem>;
 import <base64>;
 
-extern int strlen(string s);
+extern int64 strlen(string s);
 
 struct Bytes {
     *uint8 data;

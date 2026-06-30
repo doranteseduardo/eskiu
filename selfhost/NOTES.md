@@ -1,46 +1,54 @@
 # Self-hosting dogfood notes
 
-Findings surfaced while writing the lexer in Eskiu. The milestone's point is partly
-this: dogfooding finds bugs the fuzzer can't. First payload below.
+Dogfooding the compiler in Eskiu found bugs the fuzzer couldn't, which is partly the point
+of the milestone. The individual fixes live in git history and `CHANGELOG.md`; this file
+keeps only the **durable lessons** and the **follow-ups still worth acting on**.
 
-## Resolved: `//` comment ending in `\` silently swallowed the next source line
+## Lessons that still apply
 
-**One preprocessor bug, found via two confusing symptoms.** Writing the lexer I hit
-what looked like two separate problems:
+- **`alloc` doesn't zero; never read a field a node kind doesn't set.** Several AST walkers
+  recursed into `s1`/`s2`/`a`/`b`/`kids` for *every* node kind and dereferenced garbage from
+  fields the parser never set for that kind, a Linux-only crash (the macOS heap happened to
+  be zero). Make every traversal kind-aware. Surface it before CI with macOS **guard malloc**
+  (`MallocPreScribble=1 MALLOC_PROTECT_BEFORE=1` fills fresh allocations with `0xAA`, giving a
+  deterministic fault at `0xaaaa…`).
 
-1. A helper `decode_char_escape(int e)` returned **0** from its `return e`
-   fall-through (its literal-return branches were fine) — looked like a codegen
-   miscompile, and seemed "layout-sensitive" (vanished when surrounding code
-   changed).
-2. A deeply nested `if/else` chain failed to parse with `Expected expression, got
-   ELSE` — looked like a parser quirk with `else { if ... }`.
+- **Never claim "feature-complete" from the bootstrap fixpoint.** It only exercises the slice
+  of the language the compiler's own source uses. It says nothing about floats, unions, the
+  `?` operator, etc. The only proof is pushing the *whole* feature corpus through the
+  behavioral oracle for a clean sweep. And enumerate the **full** failure set every round: a
+  truncated triage (21 failures shown as 17) made the punch-list undercount twice. A system
+  that checks itself only confirms the paths it walks.
 
-Both were the **same** root cause: the preprocessor applied backslash-newline line
-continuation **unconditionally**, including when the trailing `\` was inside a `//`
-comment. My helper had
+- **Dogfooding finds what the corpus can't.** Writing real Eskiu programs surfaced genuine
+  compiler bugs the fuzzer never generated: `&&`/`||` not short-circuiting, a parenthesized
+  struct literal mis-parsed as a cast, and more. Conversely, the preprocessor (a faithful
+  port) hit byte-identical parity on its first run over the whole corpus, a sign the language
+  and stdlib are mature.
 
-```
-if (e == 92) { return 92; }   // \\   <- comment ends in '\'
-return e;                              <- spliced INTO the comment above, gone
-```
+- **IR attributes are UNSOUND to emit without dedicated analysis — even `sret`.** A reviewer
+  asked for richer LLVM metadata (`nonnull`/`noundef`/`nocapture`/TBAA/...). Most is unsound
+  here: pointers are nullable (so a parameter — including a method receiver, since `p.m()`
+  passes a possibly-null `p`) can't be `nonnull`; locals can be uninitialized, so params/
+  returns can't be `noundef`; `nocapture`/TBAA need escape/alias analysis the front-end
+  doesn't have. The `sret` pointer *looked* safe (a fresh dedicated alloca per call site) and
+  passed the full macOS/arm64 suite + 800 O0-vs-O2 fuzz iterations — **but `noalias`/`nonnull`
+  on it crashed three HTTP/2 tests with SIGILL on Linux/x86-64 CI** (the `currentSretParam`
+  forwarding path — `x = x.method()` style — can make the slot alias, and the x86-64 backend
+  exploited it into an `unreachable`/`ud2`). Reverted. Lessons: (1) an attribute needs a
+  *soundness proof over every path that produces the value*, not just the common one; (2) the
+  macOS arm64 suite + fuzzer is **not** sufficient — a wrong attribute can pass there and
+  still miscompile on Linux/x86-64, so attribute work must be gated on the Linux CI before
+  shipping. Attributes are a real analysis task (tracked in `PROMOTION_PLAN.md`), not a quick
+  add.
 
-so `return e` was eaten → the function fell off the end → garbage/0. The "parser
-quirk" was the same: a `// \\` comment ate the next `else` branch, unbalancing the
-braces. The "layout sensitivity" was just me editing those `\\`-ending comments
-away.
+## Open follow-ups (worth doing, not yet done)
 
-**Fix:** `lexer/preprocessor.cpp` `backslashContinuesLine()` — line continuation
-now fires only when the trailing `\` is genuine code, not inside a `//` or `/* */`
-comment or a string/char literal. Legit `#define` continuation still works.
-Regression test: `tests/comment_backslash_continuation.esk`. Suite 265/0, golden IR
-26/26.
-
-**Lesson:** a footgun-class bug (silent code deletion, no diagnostic) that the
-fuzzer never hit because it doesn't generate trailing-`\` comments. Worth a fuzzer
-generator for backslash-newline in comments/strings.
-
-## Minor ergonomics (not bugs)
-
-- Nested conditionals: prefer `else if`, flat `if`+`return` (see `keyword_type`), or
-  an accumulator over deeply nested `else { if ... }` — all parse fine; the earlier
-  "parse failure" was the comment bug above, not the syntax.
+- **Keyword-as-identifier diagnostic — DONE in the C++ parser (v0.3.0).** `fn`/`in`/`match`
+  (and type names) used as a variable/param/field name now report `expected a name, found
+  keyword 'fn'` at the cause instead of a downstream `Expected ';'`/`Expected expression`.
+  This was the single most recurring papercut of the self-host (~13 strikes). The fix lives
+  in `Parser::consume` (the IDENT case), the typed-local-decl path in `parse_decl.cpp`, and
+  the speculative decl-vs-expression fallback in `parse_stmt.cpp` (only an IDENT/`*` start
+  falls back; a leading type keyword surfaces its real error). The self-hosted `parser.esk`
+  mirror is still pending, tracked as R3 in `PROMOTION_PLAN.md`.

@@ -1,0 +1,14 @@
+// Regression: integer width, signedness, and variadic-promotion correctness.
+extern int printf(string fmt, ...);
+int main() {
+    int64 a = 5000000000;        printf("%lld\n", a);        // 64-bit literal not truncated
+    uint32 u = 3000000000;       printf("%u\n", u / 3);      // unsigned division
+    uint32 uu = 4000000000;      printf("%u\n", uu >> 1);    // logical (unsigned) shift
+    if (uu > 1) { printf("ucmp\n"); }                        // unsigned compare (high bit set)
+    int64 b = 256; int8 x = b;   printf("%d\n", x);          // narrowing truncates -> 0
+    int8 n = -1; int64 m = 0;    printf("%lld\n", n + m);    // signed widening -> -1
+    int8 c = -5;                 printf("%d\n", c);          // variadic promote (sign) -> -5
+    uint8 d = 200;               printf("%d\n", d);          // variadic promote (zero) -> 200
+    bool t = (5 > 3);            printf("%d\n", t);          // bool -> 1 (not -1)
+    return 0;
+}

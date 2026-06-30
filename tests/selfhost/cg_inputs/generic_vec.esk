@@ -1,0 +1,19 @@
+// Generic dynamic array end-to-end: generic struct (pointer field) + multiple generic
+// functions + alloc<T> (sizeof + cast) + indexing. The bootstrap-critical slice.
+extern *void malloc(int64 nbytes);
+
+*T xalloc<T>(int64 n) { return (*T)malloc(n * sizeof(T)); }
+
+struct Vec<T> { *T data; int len; }
+
+void Vec_init<T>(Vec<T>* self, int cap) { self.data = xalloc<T>(cap); self.len = 0; }
+void Vec_push<T>(Vec<T>* self, T item) { self.data[self.len] = item; self.len = self.len + 1; }
+T Vec_get<T>(Vec<T>* self, int i) { return self.data[i]; }
+
+int main() {
+    let v: Vec<int>;
+    Vec_init<int>(&v, 8);
+    Vec_push<int>(&v, 30);
+    Vec_push<int>(&v, 12);
+    return Vec_get<int>(&v, 0) + Vec_get<int>(&v, 1);
+}

@@ -1,0 +1,43 @@
+import <mem>;
+
+import <alloc>;
+extern int printf(string fmt, ...);
+
+int main() {
+    *uint8 backing = alloc<uint8>(4096);
+
+    // Bump
+    let b: Bump; Bump_init(&b, backing, 4096);
+    *int x = alloc_with(&b, int, 3);
+    x[0]=1; x[1]=2; x[2]=3;
+    printf("bump: %d %d\n", x[0]+x[1]+x[2], (int)b.off);   // 6 12
+
+    // Arena save/restore
+    let ar: Arena; Arena_init(&ar, backing, 4096);
+    *int p = alloc_with(&ar, int, 4);
+    int64 mark = Arena_save(&ar);
+    *int q = alloc_with(&ar, int, 100);
+    Arena_restore(&ar, mark);
+    *int r = alloc_with(&ar, int, 2);   // reuses q's space
+    printf("arena: off=%d reused=%d\n", (int)ar.off, (r == q));   // off=24 reused=1
+
+    // Pool
+    let pl: Pool; Pool_init(&pl, backing, 4096, 32);
+    *void a1 = alloc_with(&pl, int, 4);
+    *void a2 = alloc_with(&pl, int, 4);
+    Pool_free(&pl, a1);
+    *void a3 = alloc_with(&pl, int, 4);  // reuses a1
+    printf("pool: reused=%d\n", (a3 == a1));   // 1
+
+    // First-fit
+    let ff: FirstFit; FirstFit_init(&ff, backing, 4096);
+    *int u = alloc_with(&ff, int, 8);
+    *int v = alloc_with(&ff, int, 8);
+    u[0]=42; v[0]=7;
+    FirstFit_free(&ff, (*void)u);
+    *int w = alloc_with(&ff, int, 8);    // first-fit reuses u's region
+    printf("ff: w==u=%d v=%d\n", (w == u), v[0]);   // 1 7
+
+    free(backing);
+    return 0;
+}

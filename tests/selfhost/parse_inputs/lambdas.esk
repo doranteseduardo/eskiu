@@ -1,0 +1,16 @@
+async int worker(int id) {
+    int r = await fetch(id);
+    return r;
+}
+int higher() {
+    return apply(int(int a, int b) { return a + b; }, 2, 3);
+}
+int retlam() {
+    return run(int(int x) { return x * x; });
+}
+*int allocs(Arena* ar) {
+    *int p = alloc_with(&ar, int, 16);
+    free_closure(cb);
+    thread_create(run);
+    return p;
+}

@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Debugging · Eskiu docs</title>
+  <meta name="description" content="How to diagnose issues in the lexer, parser, type checker, and code generator." />
+  <link rel="canonical" href="https://eskiu-lang.org/docs/debugging.html" />
+  <link rel="icon" type="image/png" href="../../assets/logo.png" />
+  <style>*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #ffffff; --surface: #f6f7f9; --border: #e6e8ec;
+  --ink: #16181d; --ink2: #4f555f; --purple: #4c31bb; --purple-lt: #6448d4;
+  --code: #1b1728; --code-bd: #2c2444;
+  --sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+}
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+body { background: var(--bg); color: var(--ink); font-family: var(--sans);
+       line-height: 1.65; -webkit-font-smoothing: antialiased; }
+.wrap { max-width: 800px; margin: 0 auto; padding: 2.25rem 1.25rem 5rem; }
+.top { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 1.5rem; }
+.top img { width: 30px; height: 30px; }
+.top a { color: var(--ink2); text-decoration: none; font-size: 0.85rem; }
+.top a:hover { color: var(--purple); }
+.docnav { display: flex; flex-wrap: wrap; gap: 0.35rem 0.5rem; margin-bottom: 2.5rem;
+          padding-bottom: 1.25rem; border-bottom: 1px solid var(--border); }
+.docnav a { font-size: 0.8rem; color: var(--ink2); text-decoration: none;
+            padding: 0.25rem 0.6rem; border-radius: 6px; border: 1px solid transparent; }
+.docnav a:hover { color: var(--purple); background: var(--surface); }
+.docnav a.active { color: var(--purple); border-color: var(--border); background: #fff; font-weight: 600; }
+.content h1 { font-size: clamp(1.7rem, 4.5vw, 2.4rem); letter-spacing: -0.03em;
+              line-height: 1.12; margin: 0 0 1.25rem; }
+.content h2 { font-size: 1.35rem; letter-spacing: -0.02em; margin: 2.5rem 0 0.85rem;
+              padding-top: 0.5rem; }
+.content h3 { font-size: 1.08rem; margin: 1.75rem 0 0.6rem; }
+.content h4 { font-size: 0.95rem; margin: 1.4rem 0 0.5rem; color: var(--ink2); }
+.content p { margin: 0 0 1rem; }
+.content a { color: var(--purple); }
+.content ul, .content ol { margin: 0 0 1rem 1.3rem; }
+.content li { margin-bottom: 0.4rem; }
+.content strong { font-weight: 600; }
+.content hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+.content blockquote { border-left: 3px solid var(--purple); background: var(--surface);
+                      padding: 0.8rem 1.1rem; border-radius: 0 8px 8px 0; margin: 0 0 1.25rem;
+                      color: var(--ink2); }
+.content blockquote p:last-child { margin-bottom: 0; }
+.content code { font-family: var(--mono); font-size: 0.86em; background: var(--surface);
+                padding: 0.1em 0.35em; border-radius: 4px; }
+.content pre { background: var(--code); border: 1px solid var(--code-bd); border-radius: 8px;
+               padding: 0.95rem 1.1rem; margin: 0 0 1.5rem; overflow-x: auto;
+               font-family: var(--mono); font-size: 0.78rem; line-height: 1.75; color: #b4bccc; }
+.content pre code { background: none; padding: 0; font-size: inherit; color: inherit; }
+.tablewrap { overflow-x: auto; margin: 0 0 1.5rem; }
+.content table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+.content th, .content td { text-align: left; padding: 0.5rem 0.75rem;
+                          border-bottom: 1px solid var(--border); vertical-align: top; }
+.content th { color: var(--ink2); font-weight: 600; white-space: nowrap; }
+.content td code { white-space: nowrap; }
+.foot { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--border);
+        font-size: 0.9rem; color: var(--ink2); }
+@media (max-width: 600px) {
+  .content table { font-size: 0.8rem; }
+  .content th, .content td { padding: 0.4rem 0.55rem; white-space: normal; }
+}</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <img src="../../assets/logo.png" alt="Eskiu" />
+      <a href="../index.html">← eskiu</a>
+    </div>
+    <nav class="docnav"><a href="index.html">← Language docs</a><a href="internals.html">Overview</a><a href="architecture.html">Architecture</a><a href="design.html">Design</a><a href="abi.html">ABI</a><a href="async-design.html">Async</a><a href="self-hosting.html">Self-hosting</a><a href="http2-design.html">HTTP/2</a><a href="api.html">C++ API</a><a href="debugging.html" class="active">Debugging</a><a href="contributing.html">Contributing</a></nav>
+    <div class="content">
+<h1 id="debugging-the-eskiu-compiler">Debugging the Eskiu Compiler</h1>
+<p>How to diagnose issues in the lexer, parser, type checker, and code generator.</p>
+<h2 id="test-modes-reference">Test Modes Reference</h2>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>What it does</th>
+<th>What it outputs</th>
+<th>When to use</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--test-lexer</code></td>
+<td>Tokenizes source, stops after lexing</td>
+<td>One token per line with type, lexeme, line, and column</td>
+<td>Diagnosing unrecognized tokens, bad keyword handling, or unexpected token splits</td>
+</tr>
+<tr>
+<td><code>--test-parser</code></td>
+<td>Tokenizes + parses, stops before type checking</td>
+<td>Indented AST via the ASTVisitor/ASTPrinter pass</td>
+<td>Diagnosing missing nodes, wrong nesting, or silently skipped declarations</td>
+</tr>
+<tr>
+<td><code>--test-typechecker</code></td>
+<td>Tokenizes + parses + type checks</td>
+<td>Errors prefixed with <code>file:line:col</code>, or "Type checking succeeded!"</td>
+<td>Diagnosing undefined variables, type mismatches, struct field errors</td>
+</tr>
+<tr>
+<td><code>--test-codegen</code></td>
+<td>Full pipeline except linking</td>
+<td>LLVM IR text via <code>module-&gt;print()</code></td>
+<td>Diagnosing wrong IR types, missing terminators, LLVM verification failures</td>
+</tr>
+</tbody>
+</table></div>
+<p>Each mode exits 0 on success; diagnostics go to stderr as <code>file.esk:line:col: message</code>. Pick the earliest mode whose output is already wrong — a defect at the lexer level is much easier to read in <code>--test-lexer</code> than in the final IR.</p>
+<h2 id="golden-ir-snapshot-oracle">Golden-IR Snapshot Oracle</h2>
+<p><code>tests/type_zoo/snapshot.sh</code> is the codegen-regression guard. The type zoo is a corpus of programs that exercise the breadth of the type grammar; the script emits each program's LLVM IR and compares it against the checked-in baseline under <code>tests/type_zoo/golden/</code>.</p>
+<ul>
+<li><strong>Check</strong> (the CI / default mode): regenerate the IR for every zoo program and diff it against <code>tests/type_zoo/golden/</code>. Any difference fails the run — that diff <em>is</em> the diagnosis: it shows exactly which construct now lowers differently.</li>
+<li><strong>Capture</strong> (after an intentional codegen change): regenerate and overwrite the golden files, then review the diff before committing so an unintended change can't slip in disguised as an intended one.</li>
+</ul>
+<p>Use this whenever you touch codegen, the <code>ty::Type</code> IR, or anything in <code>sema/</code> that feeds the resolved type table: a behavior-preserving refactor must produce byte-identical golden IR.</p>
+<h2 id="fuzzer-and-the-o0-vs-o2-differential">Fuzzer and the O0-vs-O2 Differential</h2>
+<p><code>tests/fuzz/eskiu_fuzz.py</code> is a generative + mutation fuzzer. It synthesizes (and mutates) <code>.esk</code> programs and runs them through a <strong>differential oracle</strong>: each program is compiled at <code>-O0</code> and at <code>-O2</code> and executed, and any divergence in output (or a crash at one level but not the other) is reported as a miscompile.</p>
+<p>Why this catches real bugs: a correct program must produce the same observable result regardless of optimization level. When the two disagree, the front end emitted IR that was <em>accidentally</em> correct at <code>-O0</code> but wrong once LLVM's optimizer was allowed to exploit it (e.g. an undef value, a wrong integer width, or a missing extension that <code>-O0</code> happened to mask). This is precisely the class of latent miscompile the v0.2.4 single-resolver work fixed. When the fuzzer flags a case, minimize the generated program, then bisect with <code>--test-codegen</code> to find the construct whose IR is wrong.</p>
+<p>Some generators carry their own <strong>expected stdout</strong> instead of relying on the O0/O2 differential — notably the backslash-newline-in-comments/strings generators, which catch <em>uniformly</em> mis-lexed programs (where O0 and O2 agree but are both wrong, e.g. a <code>//</code> comment ending in <code>\</code> swallowing the next line). A mismatch against the known output (or a build failure) is the finding.</p>
+<h2 id="resolver-consistency-eskiu_resolver_debug">Resolver Consistency: <code>ESKIU_RESOLVER_DEBUG</code></h2>
+<p>The single resolver (v0.2.4) makes codegen consume the type checker's resolved-type table instead of re-deriving types. The table doesn't annotate <em>every</em> expression, so codegen keeps a structural fallback (<code>deriveExprEskiuType</code>). To guard against the two ever disagreeing — the latent-miscompile class — set <code>ESKIU_RESOLVER_DEBUG=1</code>: whenever the table <em>has</em> an entry, codegen also runs the derivation and prints <code>[resolver-disagree] table=… derive=… &lt;ExprKind&gt;</code> on any semantic difference (benign representational noise — the <code>struct:</code>/<code>interface:</code> tag and alias spelling — is normalized away first).</p>
+<pre><code>for f in tests/*.esk; do ESKIU_RESOLVER_DEBUG=1 build/eskiuc --test-codegen &quot;$f&quot; 2&gt;&amp;1 &gt;/dev/null; done | grep resolver-disagree
+</code></pre>
+<p>Across the corpus this is silent except for one benign enum-as-underlying-int case (<code>Color</code> vs <code>int</code>) — i.e. the two evaluators agree on every behavior-affecting type. Run it after any change to <code>sema/</code> type resolution or codegen's type derivation; a new disagreement is the diagnosis.</p>
+<h2 id="runtime-memory-ub-asan-and-ubsan">Runtime Memory / UB: <code>--asan</code> and <code>--ubsan</code></h2>
+<p>For defects that only show up at run time:</p>
+<ul>
+<li><code>--asan</code> instruments the build with AddressSanitizer (via the LLVM pass manager) and links the matching compiler-rt runtime — catches use-after-free, out-of-bounds, and leaks at the point of the bad access.</li>
+<li><code>--ubsan</code> inserts trapping checks for undefined behavior (e.g. out-of-bounds indexing) with no runtime dependency.</li>
+</ul>
+<p>Both compose with <code>eskiuc run</code> (flags go before the script: <code>eskiuc run --asan f.esk</code>). Reach for these when a program type-checks, compiles, and produces wrong or nondeterministic results at run time rather than a compile-time diagnostic. They are also run as a CI gate over the test corpus.</p>
+<h2 id="editor-tooling-hover-at-definition-at">Editor Tooling: <code>--hover-at</code> / <code>--definition-at</code></h2>
+<p>The VS Code extension drives two CLI flags that are also useful for manual diagnosis:</p>
+<ul>
+<li><code>--hover-at LINE:COL</code> runs the pipeline through the type checker and prints the inferred Eskiu type of the innermost AST node containing that position (read straight from the resolved expression-type table). Use it to confirm what type the resolver actually assigned an expression.</li>
+<li><code>--definition-at LINE:COL</code> finds the symbol at that position and prints the <code>file:line:col</code> where it was declared.</li>
+</ul>
+<p>Because <code>--hover-at</code> reports the resolver's own answer, it is the quickest way to see whether a bug is "the type checker resolved the wrong type" versus "codegen lowered a correctly-resolved type wrongly."</p>
+<h2 id="note-the-type-checker-runs-twice-single-resolver">Note: the type checker runs twice (single resolver)</h2>
+<p>The pipeline runs the type checker, then the async transform rewrites the AST, then the type checker is <strong>re-run on the transformed AST</strong> to produce the per-expression <code>ty::Type</code> table that codegen consumes. Codegen does not re-derive expression types — it reads that table, and <code>getTypeFromString</code> interprets type spellings through the single <code>ty::Type::parse</code> grammar.</p>
+<p>This gives a defined diagnosis path for codegen bugs:</p>
+<ul>
+<li>If <code>--hover-at</code> (the resolver's table) shows the right type but the IR is wrong, the defect is in codegen's lowering of a correctly-resolved type.</li>
+<li>If the table itself shows the wrong type, the defect is in the type checker / <code>ty::Type</code> resolution.</li>
+<li>An <strong>O0-vs-O2</strong> divergence (fuzzer) or a <strong>table-vs-codegen</strong> mismatch (hover type correct, IR wrong) both point at codegen consuming the table incorrectly rather than at the resolver. Because there is now a single resolver, "the two evaluators disagreed" is no longer a possible cause — narrowing the search.</li>
+</ul>
+    </div>
+    <div class="foot"><a href="../index.html">← Back to eskiu</a></div>
+  </div>
+</body>
+</html>

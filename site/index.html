@@ -3,17 +3,17 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Eskiu — Systems language, async-native.</title>
+    <title>Eskiu: a self-hosting systems language</title>
     <meta
       name="description"
-      content="Eskiu is a compiled systems language with async/await, sum types, generics, HTTP/2, and atomics. LLVM backend, manual memory, compiles to a standalone binary. v0.2.5 out now."
+      content="Eskiu is a compiled systems language with async/await, sum types, generics, HTTP/2, and atomics. LLVM backend, manual memory, compiles to a standalone binary. Self-hosting as of v0.3.0."
     />
     <link rel="canonical" href="https://eskiu-lang.org" />
     <link rel="icon" type="image/png" href="../assets/logo.png" />
     <link rel="apple-touch-icon" href="../assets/logo.png" />
     <meta
       property="og:title"
-      content="Eskiu — Systems language, async-native."
+      content="Eskiu: a self-hosting systems language"
     />
     <meta
       property="og:description"
@@ -25,13 +25,6 @@
       content="https://eskiu-lang.org/assets/logo.png"
     />
 
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:ital,wght@0,400;0,600;1,400&display=swap"
-      rel="stylesheet"
-    />
-
     <style>
       *,
       *::before,
@@ -41,13 +34,13 @@
         padding: 0;
       }
       :root {
-        --bg: #f9f7f3;
+        --bg: #ffffff;
         --white: #ffffff;
-        --surface: #f2efe8;
-        --border: #ddd8ce;
-        --ink: #1b1915;
-        --ink2: #6b6560;
-        --muted: #ada59b;
+        --surface: #f6f7f9;
+        --border: #e6e8ec;
+        --ink: #16181d;
+        --ink2: #4f555f;
+        --muted: #8a8f99;
         --purple: #4c31bb;
         --purple-lt: #6448d4;
         --purple-dk: #3a27a0;
@@ -55,14 +48,18 @@
         --code: #1b1728;
         --code-bd: #2c2444;
         --sans:
-          "Space Grotesk", system-ui, -apple-system, BlinkMacSystemFont,
-          sans-serif;
-        --mono: "JetBrains Mono", "SFMono-Regular", Consolas, Menlo, monospace;
+          system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          Helvetica, Arial, sans-serif;
+        --mono:
+          ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas,
+          "Liberation Mono", monospace;
       }
 
       html {
         scroll-behavior: smooth;
         overflow-x: clip;
+        -webkit-text-size-adjust: 100%;
+        text-size-adjust: 100%;
       }
       body {
         background: var(--bg);
@@ -110,7 +107,7 @@
 
       /* ── Nav ──────────────────────────────────────────────────────── */
       nav {
-        background: rgba(249, 247, 243, 0.97);
+        background: rgba(255, 255, 255, 0.9);
         backdrop-filter: blur(12px);
         border-bottom: 1px solid var(--border);
         padding: 0;
@@ -209,15 +206,21 @@
       }
 
       .hero-grid {
-        display: grid;
-        grid-template-columns: 1fr;
-        gap: 2rem;
-        align-items: start;
+        display: flex;
+        flex-direction: column-reverse; /* mobile: mascot above the text */
+        gap: 1.75rem;
+        align-items: flex-start;
       }
-      @media (min-width: 860px) {
+      .hero-grid > :first-child {
+        flex: 1 1 auto;
+        min-width: 0;
+      }
+      @media (min-width: 820px) {
         .hero-grid {
-          grid-template-columns: 1fr 1.05fr;
-          gap: 3rem;
+          flex-direction: row;
+          gap: 3.5rem;
+          align-items: center;
+          justify-content: space-between;
         }
       }
 
@@ -231,18 +234,18 @@
         margin-bottom: 1rem;
       }
       h1 {
-        font-size: clamp(2.4rem, 8vw, 4.4rem);
+        font-size: clamp(1.9rem, 5vw, 3.1rem);
         font-weight: 700;
         color: var(--ink);
-        letter-spacing: -0.04em;
-        line-height: 1;
+        letter-spacing: -0.03em;
+        line-height: 1.08;
         margin-bottom: 1.1rem;
       }
       .hero-sub {
-        font-size: 1rem;
+        font-size: 1.05rem;
         color: var(--ink2);
         line-height: 1.7;
-        max-width: 430px;
+        max-width: 620px;
         margin-bottom: 1.8rem;
       }
       @media (min-width: 860px) {
@@ -291,34 +294,34 @@
       }
 
       /* Hero terminal */
-      .hero-term {
-        position: relative;
-        padding-top: 8rem;
-        order: -1;
+      .hero-art {
+        flex-shrink: 0;
       }
-      @media (min-width: 860px) {
-        .hero-term {
-          order: 0;
-          margin-top: 0.5rem;
+      .hero-art img {
+        width: 120px; /* small on mobile */
+        height: auto;
+        border-radius: 50%; /* clip the non-transparent square to a clean circle */
+        display: block;
+      }
+      @media (min-width: 820px) {
+        .hero-art img {
+          width: 300px; /* full size beside the text on desktop */
         }
       }
       .hero-mascot {
-        position: absolute;
-        top: 0;
-        left: 50%;
-        transform: translateX(-50%);
-        width: 150px;
-        height: 150px;
-        display: block;
-        z-index: 2;
+        display: none; /* the cat lives in the nav/footer brand mark, not floating over the hero */
+      }
+      /* Drop the decorative macOS traffic-light dots from code/terminal bars for a cleaner, editor-like look. */
+      .d,
+      .tdot {
+        display: none;
       }
       .terminal {
         background: var(--code);
         border: 1px solid var(--code-bd);
-        border-radius: 10px;
+        border-radius: 8px;
         overflow: hidden;
         width: 100%;
-        box-shadow: 0 32px 80px rgba(0, 0, 0, 0.18);
       }
       .tbar {
         background: #252035;
@@ -379,8 +382,8 @@
         letter-spacing: 0.01em;
       }
       .hprop.new {
-        color: var(--purple);
-        font-weight: 600;
+        color: var(--ink2);
+        font-weight: 500;
       }
 
       /* ── Syntax colours ───────────────────────────────────────────── */
@@ -608,6 +611,170 @@
         }
       }
 
+      /* ── Try it (playground) ──────────────────────────────────────── */
+      .try {
+        background: var(--white);
+        border-top: 1px solid var(--border);
+        border-bottom: 1px solid var(--border);
+      }
+      .try-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 1.25rem;
+        margin-top: 2.5rem;
+        align-items: stretch;
+      }
+      @media (min-width: 880px) {
+        .try-grid {
+          grid-template-columns: 1.15fr 0.85fr;
+          gap: 1.5rem;
+        }
+      }
+      .pg-panel {
+        background: var(--code);
+        border: 1px solid var(--code-bd);
+        border-radius: 10px;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+        min-height: 340px;
+      }
+      .pg-bar {
+        background: #252035;
+        border-bottom: 1px solid var(--code-bd);
+        padding: 0.5rem 0.85rem;
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+      }
+      .pg-bar .d {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+      }
+      .pg-bar .nm {
+        margin-left: auto;
+        font-family: var(--mono);
+        font-size: 0.65rem;
+        color: #6b6480;
+      }
+      .pg-editor {
+        flex: 1;
+        width: 100%;
+        border: none;
+        outline: none;
+        resize: vertical;
+        background: var(--code);
+        color: #d6dbe6;
+        font-family: var(--mono);
+        font-size: 0.76rem;
+        line-height: 1.85;
+        padding: 1rem 1.25rem;
+        tab-size: 4;
+        white-space: pre;
+        overflow-wrap: normal;
+        overflow-x: auto;
+        min-height: 280px;
+      }
+      .pg-editor::selection {
+        background: rgba(120, 100, 200, 0.4);
+      }
+      .pg-out {
+        flex: 1;
+        margin: 0;
+        padding: 1rem 1.25rem;
+        font-family: var(--mono);
+        font-size: 0.76rem;
+        line-height: 1.85;
+        color: #b4bccc;
+        overflow: auto;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      .pg-out .ok {
+        color: #c3e88d;
+      }
+      .pg-out .err {
+        color: #ff8a80;
+      }
+      .pg-out .meta {
+        color: #6b6480;
+      }
+      .pg-out .hint {
+        color: #6b6480;
+      }
+      .pg-controls {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        flex-wrap: wrap;
+        margin-top: 1.1rem;
+      }
+      .pg-run {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        background: var(--purple);
+        color: #fff;
+        font-family: var(--sans);
+        font-weight: 700;
+        border: none;
+        padding: 0.6rem 1.3rem;
+        border-radius: 7px;
+        font-size: 0.88rem;
+        cursor: pointer;
+        transition: background 0.12s;
+      }
+      .pg-run:hover:not(:disabled) {
+        background: var(--purple-lt);
+      }
+      .pg-run:disabled {
+        opacity: 0.6;
+        cursor: progress;
+      }
+      .pg-examples {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        flex-wrap: wrap;
+        margin-left: auto;
+      }
+      .pg-ex {
+        background: var(--white);
+        border: 1px solid var(--border);
+        color: var(--ink2);
+        font-family: var(--mono);
+        font-size: 0.74rem;
+        font-weight: 600;
+        padding: 0.35rem 0.7rem;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: all 0.12s;
+      }
+      .pg-ex:hover {
+        border-color: var(--purple);
+        color: var(--purple);
+      }
+      .pg-note {
+        font-size: 0.78rem;
+        color: var(--muted);
+        margin-top: 1rem;
+      }
+      .spin {
+        width: 13px;
+        height: 13px;
+        border: 2px solid rgba(255, 255, 255, 0.4);
+        border-top-color: #fff;
+        border-radius: 50%;
+        animation: pg-spin 0.6s linear infinite;
+      }
+      @keyframes pg-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
       /* ── Sponsors ─────────────────────────────────────────────────── */
       .sponsors {
         padding: 3rem 0;
@@ -818,14 +985,14 @@
         <a class="brand" href="#">
           <img src="../assets/logo.png" alt="Eskiu" />
           eskiu
-          <span class="brand-ver">v0.2</span>
+          <span class="brand-ver">v0.3</span>
         </a>
         <div class="nav-links">
+          <a href="docs/index.html">Docs</a>
+          <a href="the-book-of-eskiu.html">Book</a>
           <a href="#examples">Examples</a>
-          <a href="https://eskiu-lang.org/assets/the-book-of-eskiu.pdf">Book</a>
-          <a href="https://github.com/doranteseduardo/eskiu/tree/main/docs/lang"
-            >Docs</a
-          >
+          <a href="docs/self-hosting.html">Self-hosting</a>
+          <a href="case-study-reactvision.html">Case study</a>
           <a class="nav-gh" href="https://github.com/doranteseduardo/eskiu">
             <svg
               width="14"
@@ -849,330 +1016,89 @@
       <div class="wrap">
         <div class="hero-grid">
           <div>
-            <span class="hero-ver">v0.2.5</span>
-            <h1>Native power,<br />scripting flexibility.</h1>
+            <span class="hero-ver">v0.3.0</span>
+            <h1>A systems language for<br />native services.</h1>
             <p class="hero-sub">
-              A statically typed, natively compiled language where you manage
-              memory yourself. Async/await, sum types, and run-a-file tooling —
-              from bare-metal kernels to HTTP/2 servers.
+              Eskiu compiles to native binaries through LLVM, with manual memory and
+              the C ABI. It brings generics, sum types, interfaces, and async/await to
+              that level, so one language covers work that teams usually split across
+              C, Go, and C++.
             </p>
             <div class="hero-btns">
-              <a
-                class="btn-w"
-                href="https://github.com/doranteseduardo/eskiu/blob/main/QUICKSTART.md"
-                >Get started →</a
-              >
+              <a class="btn-w" href="quickstart.html">Get started →</a>
               <a class="btn-o" href="https://github.com/doranteseduardo/eskiu"
                 >View on GitHub</a
               >
             </div>
           </div>
-          <div class="hero-term">
-            <img
-              class="hero-mascot"
-              src="../assets/logo.png"
-              alt="Eskiu mascot"
-            />
-            <div class="terminal">
-              <div class="tbar">
-                <span class="tdot" style="background: #ff5f57"></span>
-                <span class="tdot" style="background: #febc2e"></span>
-                <span class="tdot" style="background: #28c840"></span>
-                <span class="tname">bash</span>
-              </div>
-              <pre class="tbody"><span class="cp">$</span> git clone https://github.com/doranteseduardo/eskiu
-<span class="cm">Cloning into 'eskiu'...</span>
-
-<span class="cp">$</span> cmake -S eskiu -B build &amp;&amp; cmake --build build
-<span class="cm">[100%] Built target eskiuc</span>
-
-<span class="cp">$</span> cat hello.esk
-<span class="kw">extern</span> <span class="ty">int</span> <span class="fn">printf</span>(<span class="ty">string</span> fmt, ...);
-<span class="ty">int</span> <span class="fn">main</span>() {
-    <span class="fn">printf</span>(<span class="st">"Hello from Eskiu.\n"</span>);
-    <span class="kw">return</span> <span class="nu">0</span>;
-}
-
-<span class="cp">$</span> eskiuc run hello.esk
-<span class="st">Hello from Eskiu.</span></pre>
-            </div>
-          </div>
-        </div>
-        <div class="hero-props">
-          <span class="hprop">Compiled via LLVM</span>
-          <span class="hprop">Manual memory</span>
-          <span class="hprop">Standalone binary</span>
-          <span class="hprop new">async/await</span>
-          <span class="hprop new">sum types</span>
-          <span class="hprop new">generics</span>
-          <span class="hprop new">HTTP/2 + TLS</span>
-          <span class="hprop new">atomics</span>
-          <span class="hprop">C FFI</span>
-          <span class="hprop">freestanding</span>
-          <span class="hprop">arm64 · x86-64</span>
-        </div>
-      </div>
-    </section>
-
-    <!-- Why Eskiu -->
-    <section class="section">
-      <div class="wrap">
-        <span class="label">Why Eskiu</span>
-        <h2>Drop a native module into your C++ stack.</h2>
-        <p class="lead">
-          Eskiu compiles to native code and speaks the C ABI directly. Take a
-          memory-heavy C++ component, rewrite it as an explicit, auditable Eskiu
-          module, and link it straight into the existing stack — you manage the
-          memory, so the footprint is yours to control. The same language scales
-          from a bare-metal kernel to an HTTP/2 service in the cloud.
-        </p>
-        <div class="glance">
-          <div class="glance-item">
-            <h3>Slots into your C/C++ stack</h3>
-            <p>
-              C ABI in and out, and it links as a plain native object. Call C
-              libraries directly, hand Eskiu functions back as C callbacks, and
-              drop a module into an existing codebase without rewriting the host.
-            </p>
-          </div>
-          <div class="glance-item">
-            <h3>Explicit memory, smaller footprint</h3>
-            <p>
-              You allocate and free in the source with
-              <code>alloc&lt;T&gt;(N)</code> and <code>free(ptr)</code> — the
-              memory is yours to account for, the lever teams pull when replacing
-              C++. And 2.5× faster than reference C on our crypto benchmark.
-            </p>
-          </div>
-          <div class="glance-item">
-            <h3>Kernel to cloud, one language</h3>
-            <p>
-              Freestanding mode boots a bare-metal ARM64 kernel in QEMU. The
-              same syntax and stdlib run an HTTP/2 service in the cloud. One
-              language across the stack.
-            </p>
+          <div class="hero-art">
+            <img src="../assets/eskiu_round.jpg" alt="Eskiu mascot" />
           </div>
         </div>
       </div>
     </section>
 
-    <!-- Code examples -->
-    <hr />
-    <section id="examples" class="section">
+    <!-- Examples + playground -->
+    <section id="examples" class="section try">
       <div class="wrap">
         <span class="label">Examples</span>
-        <h2>Looks like C.</h2>
-        <p class="lead" style="margin-bottom: 2.5rem">
-          Each file below is a complete program. Compile and run with
-          <code style="white-space: nowrap">eskiuc run file.esk</code>.
+        <h2>Read an example, run it.</h2>
+        <p class="lead">
+          Load one of the example programs and run it in place, or write your own.
+          The server compiles it with LLVM and runs it through the same
+          <code>eskiuc run</code> you would use locally.
         </p>
-        <div class="examples-wrap">
-          <div class="tab-list" role="tablist">
-            <button class="tab-btn active" onclick="switchTab(event, 'async')">
-              async.esk
-            </button>
-            <button class="tab-btn" onclick="switchTab(event, 'match')">
-              match.esk
-            </button>
-            <button class="tab-btn" onclick="switchTab(event, 'generics')">
-              generics.esk
-            </button>
-            <button class="tab-btn" onclick="switchTab(event, 'hello')">
-              hello.esk
-            </button>
-            <button class="tab-btn" onclick="switchTab(event, 'server')">
-              server.esk
-            </button>
+        <div class="try-grid">
+          <div class="pg-panel">
+            <div class="pg-bar">
+              <span class="d" style="background: #ff5f57"></span
+              ><span class="d" style="background: #febc2e"></span
+              ><span class="d" style="background: #28c840"></span
+              ><span class="nm">main.esk</span>
+            </div>
+            <textarea
+              id="pg-code"
+              class="pg-editor"
+              spellcheck="false"
+              autocapitalize="off"
+              autocomplete="off"
+              autocorrect="off"
+            ></textarea>
           </div>
-          <div>
-            <div id="tab-async" class="tab-panel active">
-              <div class="code-block">
-                <div class="cbar">
-                  <span class="d" style="background: #ff5f57"></span
-                  ><span class="d" style="background: #febc2e"></span
-                  ><span class="d" style="background: #28c840"></span
-                  ><span class="nm">async.esk</span>
-                </div>
-                <pre><span class="kw">extern</span> <span class="ty">int</span> <span class="fn">printf</span>(<span class="ty">string</span> fmt, ...);
-<span class="kw">import</span> &lt;<span class="fn">future</span>&gt;;
-<span class="kw">import</span> &lt;<span class="fn">channel</span>&gt;;
-
-<span class="cm">// an async function compiles to a coroutine state machine.</span>
-<span class="kw">async</span> <span class="ty">int</span> <span class="fn">sum_squares</span>(<span class="ty">Chan</span>&lt;<span class="ty">int</span>&gt;<span class="ty">*</span> ch) {
-    <span class="kw">let</span> a: <span class="ty">int</span> <span class="op">=</span> <span class="aw">await</span> <span class="fn">chan_recv</span>(ch);
-    <span class="kw">let</span> b: <span class="ty">int</span> <span class="op">=</span> <span class="aw">await</span> <span class="fn">chan_recv</span>(ch);
-    <span class="kw">let</span> c: <span class="ty">int</span> <span class="op">=</span> <span class="aw">await</span> <span class="fn">chan_recv</span>(ch);
-    <span class="kw">return</span> a + b + c;
-}
-
-<span class="ty">int</span> <span class="fn">main</span>() {
-    <span class="ty">Chan</span>&lt;<span class="ty">int</span>&gt;<span class="ty">*</span> ch <span class="op">=</span> <span class="fn">chan_new</span>&lt;<span class="ty">int</span>&gt;(<span class="nu">8</span>);
-    <span class="kw">for</span> (i <span class="kw">in</span> <span class="nu">1</span>..<span class="nu">4</span>) { <span class="fn">chan_send</span>(ch, i * i); }   <span class="cm">// 1, 4, 9</span>
-    <span class="ty">Future</span>&lt;<span class="ty">int</span>&gt;<span class="ty">*</span> f <span class="op">=</span> <span class="fn">sum_squares</span>(ch);
-    <span class="fn">future_poll</span>&lt;<span class="ty">int</span>&gt;(f, <span class="ty">void</span>() {});             <span class="cm">// drive it to completion</span>
-    <span class="fn">printf</span>(<span class="st">"sum of squares = %d\n"</span>, f.value);   <span class="cm">// 14</span>
-    <span class="fn">free_future</span>&lt;<span class="ty">int</span>&gt;(f);  <span class="fn">chan_free</span>&lt;<span class="ty">int</span>&gt;(ch);
-    <span class="kw">return</span> <span class="nu">0</span>;
-}
-<span class="cm">// Output: sum of squares = 14</span></pre>
-              </div>
+          <div class="pg-panel">
+            <div class="pg-bar">
+              <span class="d" style="background: #ff5f57"></span
+              ><span class="d" style="background: #febc2e"></span
+              ><span class="d" style="background: #28c840"></span
+              ><span class="nm">output</span>
             </div>
-
-            <div id="tab-match" class="tab-panel">
-              <div class="code-block">
-                <div class="cbar">
-                  <span class="d" style="background: #ff5f57"></span
-                  ><span class="d" style="background: #febc2e"></span
-                  ><span class="d" style="background: #28c840"></span
-                  ><span class="nm">match.esk</span>
-                </div>
-                <pre><span class="kw">extern</span> <span class="ty">int</span> <span class="fn">printf</span>(<span class="ty">string</span> fmt, ...);
-<span class="kw">extern</span> <span class="ty">int</span> <span class="fn">atoi</span>(<span class="ty">string</span> s);
-
-<span class="cm">// Algebraic enum with payload variants.</span>
-<span class="kw">enum</span> <span class="ty">ParseResult</span> {
-    <span class="fn">Port</span>(<span class="ty">int</span>),
-    <span class="fn">InvalidRange</span>(<span class="ty">int</span>),
-    <span class="fn">NotANumber</span>,
-}
-
-<span class="ty">ParseResult</span> <span class="fn">parse_port</span>(<span class="ty">string</span> s) {
-    <span class="kw">let</span> n: <span class="ty">int</span> <span class="op">=</span> <span class="fn">atoi</span>(s);
-    <span class="kw">if</span> (n <span class="op">==</span> <span class="nu">0</span>) { <span class="kw">return</span> <span class="fn">NotANumber</span>; }
-    <span class="kw">if</span> (n &lt; <span class="nu">1</span> <span class="op">||</span> n &gt; <span class="nu">65535</span>) { <span class="kw">return</span> <span class="fn">InvalidRange</span>(n); }
-    <span class="kw">return</span> <span class="fn">Port</span>(n);
-}
-
-<span class="ty">int</span> <span class="fn">main</span>() {
-    <span class="kw">match</span> <span class="fn">parse_port</span>(<span class="st">"8080"</span>) {
-        <span class="fn">Port</span>(p)         <span class="op">-&gt;</span> <span class="fn">printf</span>(<span class="st">"Listening on :%d\n"</span>, p);
-        <span class="fn">InvalidRange</span>(n) <span class="op">-&gt;</span> <span class="fn">printf</span>(<span class="st">"%d out of range\n"</span>, n);
-        <span class="fn">NotANumber</span>      <span class="op">-&gt;</span> <span class="fn">printf</span>(<span class="st">"not a number\n"</span>);
-    }
-    <span class="kw">return</span> <span class="nu">0</span>;
-}
-<span class="cm">// Output: Listening on :8080</span></pre>
-              </div>
-            </div>
-
-            <div id="tab-generics" class="tab-panel">
-              <div class="code-block">
-                <div class="cbar">
-                  <span class="d" style="background: #ff5f57"></span
-                  ><span class="d" style="background: #febc2e"></span
-                  ><span class="d" style="background: #28c840"></span
-                  ><span class="nm">generics.esk</span>
-                </div>
-                <pre><span class="kw">extern</span> <span class="ty">int</span> <span class="fn">printf</span>(<span class="ty">string</span> fmt, ...);
-
-<span class="cm">// A constraint: a type that can compare itself to another.</span>
-<span class="kw">interface</span> <span class="ty">Ord</span> { <span class="ty">int</span> <span class="fn">cmp</span>(<span class="ty">Ord</span><span class="ty">*</span> o); }
-
-<span class="cm">// Coin satisfies Ord by providing cmp — structural, no "implements".</span>
-<span class="kw">struct</span> <span class="ty">Coin</span> {
-    <span class="ty">int</span> value;
-    <span class="ty">int</span> <span class="fn">cmp</span>(<span class="ty">Coin</span><span class="ty">*</span> o) { <span class="kw">if</span> (<span class="kw">self</span>.value <span class="op">&lt;</span> o.value) { <span class="kw">return</span> <span class="nu">-1</span>; } <span class="kw">return</span> <span class="nu">1</span>; }
-}
-
-<span class="cm">// T is bounded by Ord; the compiler checks it at the call site.</span>
-<span class="ty">T</span> <span class="fn">max</span>&lt;<span class="ty">T</span>: <span class="ty">Ord</span>&gt;(<span class="ty">T</span><span class="ty">*</span> a, <span class="ty">T</span><span class="ty">*</span> b) {
-    <span class="kw">if</span> (a.<span class="fn">cmp</span>(b) <span class="op">&gt;</span> <span class="nu">0</span>) { <span class="kw">return</span> a[<span class="nu">0</span>]; }
-    <span class="kw">return</span> b[<span class="nu">0</span>];
-}
-
-<span class="ty">int</span> <span class="fn">main</span>() {
-    <span class="kw">let</span> x: <span class="ty">Coin</span>;  x.value <span class="op">=</span> <span class="nu">7</span>;
-    <span class="kw">let</span> y: <span class="ty">Coin</span>;  y.value <span class="op">=</span> <span class="nu">3</span>;
-    <span class="kw">let</span> hi: <span class="ty">Coin</span> <span class="op">=</span> <span class="fn">max</span>&lt;<span class="ty">Coin</span>&gt;(&amp;x, &amp;y);
-    <span class="fn">printf</span>(<span class="st">"max = %d\n"</span>, hi.value);   <span class="cm">// max = 7</span>
-    <span class="kw">return</span> <span class="nu">0</span>;
-}</pre>
-              </div>
-            </div>
-
-            <div id="tab-hello" class="tab-panel">
-              <div class="code-block">
-                <div class="cbar">
-                  <span class="d" style="background: #ff5f57"></span
-                  ><span class="d" style="background: #febc2e"></span
-                  ><span class="d" style="background: #28c840"></span
-                  ><span class="nm">hello.esk</span>
-                </div>
-                <pre><span class="kw">extern</span> <span class="ty">int</span> <span class="fn">printf</span>(<span class="ty">string</span> fmt, ...);
-<span class="kw">import</span> &lt;<span class="fn">list</span>&gt;;
-
-<span class="ty">int</span> <span class="fn">main</span>() {
-    <span class="kw">let</span> nums: <span class="ty">List</span>&lt;<span class="ty">int</span>&gt;;
-    <span class="fn">List_init</span>(&amp;nums, <span class="nu">4</span>);
-    <span class="kw">for</span> (i <span class="kw">in</span> <span class="nu">0</span>..<span class="nu">5</span>) { <span class="fn">List_push</span>(&amp;nums, i * i); }
-
-    <span class="kw">for</span> (n <span class="kw">in</span> nums) { <span class="fn">printf</span>(<span class="st">"%d\n"</span>, n); }   <span class="cm">// 0 1 4 9 16</span>
-    <span class="kw">return</span> <span class="nu">0</span>;
-}</pre>
-              </div>
-            </div>
-
-            <div id="tab-server" class="tab-panel">
-              <div class="code-block">
-                <div class="cbar">
-                  <span class="d" style="background: #ff5f57"></span
-                  ><span class="d" style="background: #febc2e"></span
-                  ><span class="d" style="background: #28c840"></span
-                  ><span class="nm">server.esk</span>
-                </div>
-                <pre><span class="kw">import</span> &lt;<span class="fn">net</span>&gt;;
-<span class="kw">import</span> &lt;<span class="fn">mem</span>&gt;;
-
-<span class="ty">int</span> <span class="fn">main</span>() {
-    <span class="ty">int</span> fd <span class="op">=</span> <span class="fn">net_tcp_listen</span>(<span class="nu">8080</span>);
-    <span class="kw">while</span> (<span class="nu">1</span>) {
-        <span class="ty">int</span> c <span class="op">=</span> <span class="fn">net_accept</span>(fd);
-        <span class="ty">*uint8</span> req <span class="op">=</span> <span class="fn">alloc</span>&lt;<span class="ty">uint8</span>&gt;(<span class="nu">4096</span>);
-        <span class="fn">net_recv</span>(c, (<span class="ty">*void</span>)req, <span class="nu">4096</span>);
-        <span class="fn">net_send_str</span>(c, <span class="st">"HTTP/1.1 200 OK\r\n\r\nHello from Eskiu.\n"</span>);
-        <span class="fn">free</span>((<span class="ty">*void</span>)req);
-        <span class="fn">net_close</span>(c);
-    }
-    <span class="kw">return</span> <span class="nu">0</span>;
-}</pre>
-              </div>
-            </div>
+            <pre id="pg-out" class="pg-out"><span class="hint">Output appears here. Press Run (or ⌘/Ctrl + Enter).</span></pre>
           </div>
         </div>
-      </div>
-    </section>
-
-    <!-- Testimonial -->
-    <section class="proof">
-      <div class="wrap">
-        <figure class="testimonial">
-          <div class="stat">
-            <span class="stat-num">~85%</span>
-            <span class="stat-cap"
-              >less memory in rendering modules migrated to Eskiu</span
-            >
+        <div class="pg-controls">
+          <button id="pg-run" class="pg-run" onclick="runEskiu()">
+            <span id="pg-run-label">▶ Run</span>
+          </button>
+          <div class="pg-examples">
+            <button class="pg-ex" onclick="loadExample('hello')">hello</button>
+            <button class="pg-ex" onclick="loadExample('match')">match</button>
+            <button class="pg-ex" onclick="loadExample('generics')">
+              generics
+            </button>
+            <button class="pg-ex" onclick="loadExample('async')">async</button>
           </div>
-          <blockquote>
-            “ReactVision is adopting Eskiu selectively to replace
-            memory-sensitive C++ components in its AR/VR rendering engine with
-            explicit, auditable native modules, while preserving C ABI
-            interoperability with the existing stack.”
-          </blockquote>
-          <figcaption>
-            <a href="https://reactvision.xyz" target="_blank" rel="noopener"
-              >ReactVision</a
-            >
-            &nbsp;·&nbsp;
-            <a href="case-study-reactvision.html">Read the case study →</a>
-          </figcaption>
-        </figure>
+        </div>
+        <p class="pg-note">
+          Sandboxed: no network, time- and memory-limited, output capped. For
+          the full toolchain, <a href="quickstart.html">install eskiuc locally</a>.
+        </p>
       </div>
     </section>
 
-    <!-- Sponsors -->
+    <!-- Early adopters -->
     <div class="sponsors">
       <div class="wrap">
-        <p class="sp-label">Early adopters &amp; sponsors</p>
+        <p class="sp-label">Early adopters</p>
         <div class="sp-logos">
           <a
             class="sp-item"
@@ -1202,17 +1128,20 @@
     <div class="start" id="start">
       <div class="wrap">
         <span class="label">Get started</span>
-        <h2>Read the quickstart.</h2>
+        <h2>Download the compiler.</h2>
         <p class="lead">
-          LLVM and a C toolchain are the only dependencies. The quickstart walks
-          you through building the compiler and running your first program.
+          Grab a prebuilt binary, untar it into <code>/usr/local</code>, and
+          run <code style="white-space: nowrap">eskiuc --version</code>. The
+          stdlib is bundled, so imports work right away.
         </p>
-        <div style="margin-top: 1.75rem">
-          <a
-            class="btn-w"
-            href="https://github.com/doranteseduardo/eskiu/blob/main/QUICKSTART.md"
-            >Read the quickstart →</a
-          >
+        <div class="hero-btns" style="margin-top: 1.75rem">
+          <a class="btn-w" href="../assets/eskiuc-linux-x86_64.tar.gz" download>
+            ↓ Linux (x86-64)
+          </a>
+          <a class="btn-w" href="../assets/eskiuc-macos-arm64.tar.gz" download>
+            ↓ macOS (Apple Silicon)
+          </a>
+          <a class="btn-o" href="quickstart.html">Read the quickstart →</a>
         </div>
       </div>
     </div>
@@ -1224,17 +1153,11 @@
           <img src="../assets/logo.png" alt="Eskiu" />eskiu
         </div>
         <div class="footer-links">
-          <a href="https://eskiu-lang.org/assets/the-book-of-eskiu.pdf"
-            >The Book (PDF)</a
+          <a href="the-book-of-eskiu.html"
+            >The Book</a
           >
-          <a
-            href="https://github.com/doranteseduardo/eskiu/blob/main/docs/lang/getting-started.md"
-            >Docs</a
-          >
-          <a
-            href="https://github.com/doranteseduardo/eskiu/blob/main/docs/dev/architecture.md"
-            >Internals</a
-          >
+          <a href="docs/index.html">Docs</a>
+          <a href="docs/internals.html">Internals</a>
           <a
             href="https://github.com/doranteseduardo/eskiu/blob/main/CHANGELOG.md"
             >Changelog</a
@@ -1256,6 +1179,167 @@
         e.currentTarget.classList.add("active");
         document.getElementById("tab-" + name).classList.add("active");
       }
+
+      /* ── Playground ──────────────────────────────────────────────── */
+      // Point this at your VPS endpoint (reverse-proxied to the Docker API).
+      const PLAYGROUND_API = "https://eskiu-playground-4cb1.orvex.cloud";
+
+      const EXAMPLES = {
+        hello: `extern int printf(string fmt, ...);
+
+int add(int a, int b) {
+    return a + b;
+}
+
+int main() {
+    printf("Hello from Eskiu!\\n");
+    printf("2 + 3 = %d\\n", add(2, 3));
+    return 0;
+}
+`,
+        match: `extern int printf(string fmt, ...);
+extern int atoi(string s);
+
+enum ParseResult {
+    Port(int),
+    InvalidRange(int),
+    NotANumber,
+}
+
+ParseResult parse_port(string s) {
+    let n: int = atoi(s);
+    if (n == 0) { return NotANumber; }
+    if (n < 1 || n > 65535) { return InvalidRange(n); }
+    return Port(n);
+}
+
+int main() {
+    match parse_port("8080") {
+        Port(p)         -> printf("Listening on :%d\\n", p);
+        InvalidRange(n) -> printf("%d out of range\\n", n);
+        NotANumber      -> printf("not a number\\n");
+    }
+    return 0;
+}
+`,
+        generics: `extern int printf(string fmt, ...);
+
+interface Ord { int cmp(Ord* o); }
+
+struct Coin {
+    int value;
+    int cmp(Coin* o) { if (self.value < o.value) { return -1; } return 1; }
+}
+
+T max<T: Ord>(T* a, T* b) {
+    if (a.cmp(b) > 0) { return a[0]; }
+    return b[0];
+}
+
+int main() {
+    let x: Coin;  x.value = 7;
+    let y: Coin;  y.value = 3;
+    let hi: Coin = max<Coin>(&x, &y);
+    printf("max = %d\\n", hi.value);   // max = 7
+    return 0;
+}
+`,
+        async: `extern int printf(string fmt, ...);
+import <future>;
+import <channel>;
+
+async int sum_squares(Chan<int>* ch) {
+    let a: int = await chan_recv(ch);
+    let b: int = await chan_recv(ch);
+    let c: int = await chan_recv(ch);
+    return a + b + c;
+}
+
+int main() {
+    Chan<int>* ch = chan_new<int>(8);
+    for (i in 1..4) { chan_send(ch, i * i); }   // 1, 4, 9
+    Future<int>* f = sum_squares(ch);
+    future_poll<int>(f, void() {});
+    printf("sum of squares = %d\\n", f.value);   // 14
+    free_future<int>(f);  chan_free<int>(ch);
+    return 0;
+}
+`,
+      };
+
+      function loadExample(name) {
+        document.getElementById("pg-code").value = EXAMPLES[name];
+      }
+
+      function esc(s) {
+        return s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+      }
+
+      async function runEskiu() {
+        const btn = document.getElementById("pg-run");
+        const label = document.getElementById("pg-run-label");
+        const out = document.getElementById("pg-out");
+        const code = document.getElementById("pg-code").value;
+
+        if (!code.trim()) {
+          out.innerHTML = '<span class="err">Nothing to run. Write some code first.</span>';
+          return;
+        }
+
+        btn.disabled = true;
+        label.innerHTML = '<span class="spin"></span> Running';
+        out.innerHTML = '<span class="meta">Compiling &amp; running…</span>';
+
+        try {
+          const res = await fetch(PLAYGROUND_API + "/run", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ code }),
+          });
+          const data = await res.json();
+
+          if (!data.ok) {
+            out.innerHTML = '<span class="err">' + esc(data.error || "Request failed.") + "</span>";
+            return;
+          }
+
+          let html = "";
+          if (data.stdout) html += esc(data.stdout);
+          if (data.stderr) html += '<span class="err">' + esc(data.stderr) + "</span>";
+          if (!data.stdout && !data.stderr) html += '<span class="meta">(no output)</span>';
+
+          const parts = [];
+          if (data.timed_out) parts.push('<span class="err">timed out</span>');
+          else if (data.exit_code === 0) parts.push('<span class="ok">exit 0</span>');
+          else parts.push('<span class="err">exit ' + data.exit_code + "</span>");
+          if (typeof data.duration_ms === "number") parts.push(data.duration_ms + "ms");
+          if (data.truncated) parts.push("output truncated");
+
+          html += '\n\n<span class="meta">' + parts.join(" · ") + "</span>";
+          out.innerHTML = html;
+        } catch (e) {
+          out.innerHTML =
+            '<span class="err">Could not reach the playground server.</span>\n' +
+            '<span class="hint">The live runner may be offline. Run locally instead; see the quickstart.</span>';
+        } finally {
+          btn.disabled = false;
+          label.textContent = "▶ Run";
+        }
+      }
+
+      // Seed the editor and wire ⌘/Ctrl + Enter.
+      (function () {
+        const ta = document.getElementById("pg-code");
+        if (ta) {
+          ta.value = EXAMPLES.hello;
+          ta.addEventListener("keydown", (e) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+              e.preventDefault();
+              runEskiu();
+            }
+          });
+        }
+      })();
     </script>
   </body>
 </html>

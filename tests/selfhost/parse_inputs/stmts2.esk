@@ -1,0 +1,25 @@
+int chain(int n) {
+    if (n == 1) {
+        return 10;
+    } else if (n == 2) {
+        return 20;
+    } else {
+        return 30;
+    }
+}
+void empties() {
+    for (;;) {
+        break;
+    }
+    {
+        int local = 1;
+        use(local);
+    }
+    return;
+}
+int nobrace(int n) {
+    if (n > 0)
+        return 1;
+    else
+        return 2;
+}

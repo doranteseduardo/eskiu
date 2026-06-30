@@ -1,0 +1,9 @@
+int tcall() { return make<int>(a, b); }
+int tmulti() { return f<int>(x) + g<A, B>(y); }
+int tnest() { return List_get<List<int>>(&xs, 0); }
+int sinit() { return Point { x: 1, y: 2 }; }
+int spos() { return Pair { a, b }; }
+int tsinit() { return Box<int> { v: 5 }; }
+int lt() { return a < b; }
+int ltchain() { return a < b > c; }
+int chain() { return make<T>(x).field[0]; }

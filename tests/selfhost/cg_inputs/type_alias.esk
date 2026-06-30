@@ -1,0 +1,23 @@
+import <mem>;
+
+extern int printf(string fmt, ...);
+
+type u8    = uint8;     // scalar alias
+type Bytes = *uint8;    // pointer alias
+type Int   = int;
+
+Int add(Int a, Int b) { return a + b; }
+
+int main() {
+    u8 b = 200;
+    printf("%d\n", b);              // 200
+
+    Bytes buf = alloc<u8>(4);
+    buf[0] = 65;
+    buf[1] = 66;
+    printf("%d %d\n", buf[0], buf[1]);   // 65 66
+    free(buf);
+
+    printf("%d\n", add(3, 4));      // 7
+    return 0;
+}

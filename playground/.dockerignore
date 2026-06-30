@@ -1,0 +1,5 @@
+# Context is playground/. Keep it small; dist/ IS needed (vendored compiler).
+**/__pycache__/
+*.pyc
+update-dist.sh
+README.md

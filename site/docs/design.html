@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Design · Eskiu docs</title>
+  <meta name="description" content="This document records the reasoning behind the architectural and language choices in Eskiu. Each section states the decision, lists the alternatives consid" />
+  <link rel="canonical" href="https://eskiu-lang.org/docs/design.html" />
+  <link rel="icon" type="image/png" href="../../assets/logo.png" />
+  <style>*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #ffffff; --surface: #f6f7f9; --border: #e6e8ec;
+  --ink: #16181d; --ink2: #4f555f; --purple: #4c31bb; --purple-lt: #6448d4;
+  --code: #1b1728; --code-bd: #2c2444;
+  --sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+}
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+body { background: var(--bg); color: var(--ink); font-family: var(--sans);
+       line-height: 1.65; -webkit-font-smoothing: antialiased; }
+.wrap { max-width: 800px; margin: 0 auto; padding: 2.25rem 1.25rem 5rem; }
+.top { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 1.5rem; }
+.top img { width: 30px; height: 30px; }
+.top a { color: var(--ink2); text-decoration: none; font-size: 0.85rem; }
+.top a:hover { color: var(--purple); }
+.docnav { display: flex; flex-wrap: wrap; gap: 0.35rem 0.5rem; margin-bottom: 2.5rem;
+          padding-bottom: 1.25rem; border-bottom: 1px solid var(--border); }
+.docnav a { font-size: 0.8rem; color: var(--ink2); text-decoration: none;
+            padding: 0.25rem 0.6rem; border-radius: 6px; border: 1px solid transparent; }
+.docnav a:hover { color: var(--purple); background: var(--surface); }
+.docnav a.active { color: var(--purple); border-color: var(--border); background: #fff; font-weight: 600; }
+.content h1 { font-size: clamp(1.7rem, 4.5vw, 2.4rem); letter-spacing: -0.03em;
+              line-height: 1.12; margin: 0 0 1.25rem; }
+.content h2 { font-size: 1.35rem; letter-spacing: -0.02em; margin: 2.5rem 0 0.85rem;
+              padding-top: 0.5rem; }
+.content h3 { font-size: 1.08rem; margin: 1.75rem 0 0.6rem; }
+.content h4 { font-size: 0.95rem; margin: 1.4rem 0 0.5rem; color: var(--ink2); }
+.content p { margin: 0 0 1rem; }
+.content a { color: var(--purple); }
+.content ul, .content ol { margin: 0 0 1rem 1.3rem; }
+.content li { margin-bottom: 0.4rem; }
+.content strong { font-weight: 600; }
+.content hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+.content blockquote { border-left: 3px solid var(--purple); background: var(--surface);
+                      padding: 0.8rem 1.1rem; border-radius: 0 8px 8px 0; margin: 0 0 1.25rem;
+                      color: var(--ink2); }
+.content blockquote p:last-child { margin-bottom: 0; }
+.content code { font-family: var(--mono); font-size: 0.86em; background: var(--surface);
+                padding: 0.1em 0.35em; border-radius: 4px; }
+.content pre { background: var(--code); border: 1px solid var(--code-bd); border-radius: 8px;
+               padding: 0.95rem 1.1rem; margin: 0 0 1.5rem; overflow-x: auto;
+               font-family: var(--mono); font-size: 0.78rem; line-height: 1.75; color: #b4bccc; }
+.content pre code { background: none; padding: 0; font-size: inherit; color: inherit; }
+.tablewrap { overflow-x: auto; margin: 0 0 1.5rem; }
+.content table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+.content th, .content td { text-align: left; padding: 0.5rem 0.75rem;
+                          border-bottom: 1px solid var(--border); vertical-align: top; }
+.content th { color: var(--ink2); font-weight: 600; white-space: nowrap; }
+.content td code { white-space: nowrap; }
+.foot { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--border);
+        font-size: 0.9rem; color: var(--ink2); }
+@media (max-width: 600px) {
+  .content table { font-size: 0.8rem; }
+  .content th, .content td { padding: 0.4rem 0.55rem; white-space: normal; }
+}</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <img src="../../assets/logo.png" alt="Eskiu" />
+      <a href="../index.html">← eskiu</a>
+    </div>
+    <nav class="docnav"><a href="index.html">← Language docs</a><a href="internals.html">Overview</a><a href="architecture.html">Architecture</a><a href="design.html" class="active">Design</a><a href="abi.html">ABI</a><a href="async-design.html">Async</a><a href="self-hosting.html">Self-hosting</a><a href="http2-design.html">HTTP/2</a><a href="api.html">C++ API</a><a href="debugging.html">Debugging</a><a href="contributing.html">Contributing</a></nav>
+    <div class="content">
+<h1 id="eskiu-design-decisions">Eskiu Design Decisions</h1>
+<p>This document records the reasoning behind the architectural and language choices in Eskiu. Each section states the decision, lists the alternatives considered, and explains why they were rejected.</p>
+<hr>
+<h2 id="origin-and-vision">Origin and vision</h2>
+<p>Eskiu was built in response to a concrete problem: compute-intensive services require too many languages at once. A typical pipeline involves C for performance-critical work, Go for concurrent services, C++ for libraries, and Python for glue — each with its own toolchain, idioms, and interop cost.</p>
+<p>The goal is to replace that stack with a single language. Not a compromise between them, but a language built from solid systems foundations and then extended upwards into the domain.</p>
+<p><strong>Foundation phase.</strong> Establish a language that can do everything C can do: native performance, explicit memory, direct access to any C library. Validate it against real production code before claiming it works. This phase is complete — a cryptographic pipeline running entirely in Eskiu, 2.5× faster than the reference C.</p>
+<p><strong>v0.1 milestone — shipped.</strong> Booting Eskiu code on bare metal in QEMU without libc — the classic proof-of-concept for a systems language. Delivered in v0.1.0 via inline assembly, freestanding mode, and <code>volatile</code>: an ARM64 kernel written in Eskiu boots in QEMU (<code>-M virt</code>) on the PL011 UART, with no libc or C runtime.</p>
+<p><strong>Domain specialisation phase.</strong> Once the systems foundation is stable, make the domain types that high-throughput services actually work with first-class in the language — without losing general systems capability.</p>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th>Stage</th>
+<th>Eskiu</th>
+<th>Reference C</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>QR extraction</td>
+<td>71.7 ms</td>
+<td>185.5 ms</td>
+</tr>
+<tr>
+<td>Crypto (AES+RSA)</td>
+<td>2.8 ms</td>
+<td>2.9 ms</td>
+</tr>
+<tr>
+<td>Output decode</td>
+<td>&lt; 1 ms</td>
+<td>0.5 ms</td>
+</tr>
+<tr>
+<td>Total</td>
+<td><strong>74.4 ms</strong></td>
+<td>188.9 ms</td>
+</tr>
+</tbody>
+</table></div>
+<p>2.5× faster than the reference C. The crypto stage matches hand-written C within 0.1 ms.</p>
+<p>Every design decision below was evaluated against two questions: does it get the decoder working correctly, and does it serve the long-term domain specialisation goal?</p>
+<hr>
+<h2 id="1-c-style-syntax">1. C-Style Syntax</h2>
+<p><strong>Decision:</strong> Eskiu uses C-style syntax — braces for blocks, semicolons as statement terminators, type-before-name declarations (<code>int x = 5</code>), <code>for (init; cond; step)</code>, explicit return types before function names.</p>
+<p><strong>Alternatives considered:</strong></p>
+<ul>
+<li><em>Rust-style syntax</em> — <code>let</code> bindings everywhere, <code>fn</code> keyword, <code>-&gt;</code> return types, <code>impl</code> blocks for methods, <code>pub</code>/<code>mod</code> visibility. Rejected because the target audience is engineers already writing C, OpenSSL calls, and <code>extern</code> function declarations. Switching to <code>fn main() -&gt; i32</code> and <code>impl Struct { ... }</code> adds cognitive load with no performance payoff.</li>
+<li><em>Go-style syntax</em> — <code>:=</code> short declarations, <code>func</code> keyword, no semicolons, package declarations. Rejected for the same familiarity reason. Go's <code>func (s *Struct) Method()</code> receiver syntax is unfamiliar to C programmers and requires a different mental model for method ownership.</li>
+<li><em>Python-like indentation-sensitive syntax</em> — Rejected immediately: indentation-sensitive grammars are hostile to a hand-written recursive-descent parser and to generated code with templates.</li>
+</ul>
+<p><strong>Why C-style was chosen:</strong> The decoder target requires calling <code>extern</code> C functions (<code>EVP_DecryptInit_ex</code>, <code>zxing::ImageView</code>), declaring C-compatible structs (<code>uint8[858]</code> fixed arrays, pointer fields), and reasoning about memory layout in terms the target audience already holds. C syntax is the least surprising bridge between "the language I'm writing" and "the C ABI I'm calling into."</p>
+<hr>
+<h2 id="2-no-garbage-collector">2. No Garbage Collector</h2>
+<p><strong>Decision:</strong> Eskiu has no garbage collector. Memory is managed explicitly with <code>alloc&lt;T&gt;(n)</code> (which emits <code>malloc</code>) and <code>free(ptr)</code> from the <code>&lt;mem&gt;</code> stdlib. There is no reference counting and no tracing GC. (As of v0.2.0 the stdlib does ship arena/bump/pool allocators in <code>&lt;alloc&gt;</code> over the <code>alloc_with</code> primitive — see below — but they are opt-in library types, not built into the language runtime.)</p>
+<p><strong>Alternatives considered:</strong></p>
+<ul>
+<li><em>Tracing GC (Boehm GC or custom)</em> — A conservative tracing GC can be linked as a library and used transparently. Rejected because GC pauses — even short ones — are unacceptable when the target is a 74 ms pipeline where total runtime matters. A GC collection triggered mid-pipeline would ruin the benchmark.</li>
+<li><em>Reference counting (like Swift ARC)</em> — Automatic reference counting eliminates pause times but adds retain/release overhead on every pointer assignment. For a pipeline that allocates a handful of fixed buffers at startup and frees them at the end, ARC overhead is pure waste.</li>
+<li><em>Arena/bump allocator built into the language</em> — Would require the compiler to reason about object lifetimes, which is a significant semantic addition. Kept out of the language; instead v0.2.0 ships <code>&lt;alloc&gt;</code> (Bump/Arena/Pool/FirstFit) as ordinary stdlib types over the <code>alloc_with(&amp;a, T, n)</code> primitive — the strategy is a plain value, not a language feature.</li>
+</ul>
+<p><strong>Why no GC:</strong> The pipeline allocates known-size buffers (<code>alloc&lt;uint8&gt;(858)</code>, <code>alloc&lt;uint8&gt;(4096)</code>), uses them, and frees them in a deterministic sequence. Explicit <code>alloc&lt;T&gt;</code>/<code>free</code> matches the mental model exactly and produces the same object code as hand-written C.</p>
+<hr>
+<h2 id="3-no-borrow-checker">3. No Borrow Checker</h2>
+<p><strong>Decision:</strong> Eskiu does not enforce ownership or borrowing rules at compile time. Pointers (<code>*T</code>) are raw; aliasing is permitted; there is no lifetime annotation system.</p>
+<p><strong>Alternatives considered:</strong></p>
+<ul>
+<li><em>Rust-style borrow checker</em> — Eliminates use-after-free and data races at compile time, but requires the programmer to annotate lifetimes on every function signature that passes pointers. For a project with a single-threaded pipeline and no concurrent access patterns in v0.1, the annotation burden far exceeds the safety benefit.</li>
+<li><em>Affine types / single-ownership without explicit lifetimes</em> — Simpler than Rust, but still requires the compiler to track ownership through assignment, function calls, and return values. Implementing this correctly for structs-with-pointer-fields (as the decoder uses) requires substantial semantic infrastructure.</li>
+</ul>
+<p><strong>Why rejected:</strong> The decoder code pattern is: allocate a buffer, pass a pointer to a C library function, check the result, free the buffer. This pattern is safe by inspection, and enforcing it mechanically would require the programmer to teach the borrow checker about C library semantics via annotations, which is the same work as writing the C directly. The explicit-control goal means the programmer is trusted to manage pointers correctly, the same assumption made in C.</p>
+<hr>
+<h2 id="4-llvm-as-backend">4. LLVM as Backend</h2>
+<p><strong>Decision:</strong> Eskiu emits LLVM IR via <code>IRBuilder&lt;&gt;</code> and uses <code>TargetMachine</code> + <code>legacy::PassManager</code> to produce native <code>.o</code> files. No custom backend.</p>
+<p><strong>Alternatives considered:</strong></p>
+<ul>
+<li><em>Emit C source</em> — Simplest possible backend: emit a <code>.c</code> file and call a C compiler. Rejected because it makes it impossible to control codegen precisely (integer width coercion, GEP arithmetic, struct layout), adds a runtime dependency on a C compiler, and prevents a future path to LLVM optimization passes.</li>
+<li><em>Emit x86-64 assembly directly</em> — Maximum control, but requires implementing register allocation, instruction selection, and calling conventions for every target. The decoder target already needed arm64 (Apple Silicon) and x86-64 support simultaneously.</li>
+<li><em>QBE backend</em> — QBE is a lightweight compiler backend with a clean IR. Rejected because it lacks WASM output and has limited optimization passes compared to LLVM. For a project whose v0.1 goal is speed, LLVM's <code>-O2</code> optimizations are valuable.</li>
+<li><em>Cranelift</em> — The backend used by Wasmtime and rustc's debug builds. Rejected because the LLVM C++ API was more familiar to the initial developer and because LLVM's ecosystem (target support, sanitizers, DWARF debug info) is more mature.</li>
+</ul>
+<p><strong>Why LLVM:</strong> A single LLVM IR module covers arm64 (Apple Silicon), x86-64 (Linux/Windows), RISC-V, and WASM with no changes to the compiler front end. <code>getDefaultTargetTriple()</code> + <code>InitializeNativeTarget()</code> means the same compiler binary produces correct code on the machine it runs on. The <code>emitObjectFile()</code> function is 15 lines; LLVM does the rest.</p>
+<hr>
+<h2 id="5-visitor-pattern-for-passes">5. Visitor Pattern for Passes</h2>
+<p><strong>Decision:</strong> Every compiler pass (type checker, code generator, AST printer) implements the <code>ASTVisitor</code> abstract class. Each AST node holds a pure-virtual <code>accept(ASTVisitor*)</code> method. Dispatch is double-dispatch: <code>node-&gt;accept(pass)</code> calls <code>pass-&gt;visit(node)</code> with the node's concrete type resolved at compile time through the node's own <code>accept</code> override.</p>
+<p><strong>Alternatives considered:</strong></p>
+<ul>
+<li><em><code>dynamic_cast</code> chains in each pass</em> — <code>if (auto* e = dynamic_cast&lt;BinaryExpr*&gt;(node)) { ... } else if (auto* e = dynamic_cast&lt;CallExpr*&gt;(node)) { ... }</code> — works but scatters the type-switch pattern throughout each pass, making it easy to miss a node type silently.</li>
+<li><em><code>std::variant</code> + <code>std::visit</code></em> — Using <code>std::variant&lt;BinaryExpr, CallExpr, ...&gt;</code> for the node union gives exhaustive static dispatch. Rejected because the AST hierarchy is deep (42 concrete node types across three inheritance branches, including <code>Program</code>), variant nesting becomes unwieldy, and pointer-based polymorphism is needed because some node subtrees are co-owned (codegen shares a method/template <code>FunctionDecl</code>'s <code>body</code> across the synthesized and instantiated copies — see the smart-pointer note in <code>architecture.md</code>).</li>
+<li><em>Embedding pass logic in AST nodes (like <code>codegen()</code> on each node)</em> — Rejected because it couples the AST definition to specific passes. Adding a new pass (e.g. a future linter or a dataflow analysis) would require modifying every node class.</li>
+</ul>
+<p><strong>Why visitor:</strong> Adding a new pass means implementing a new <code>ASTVisitor</code> subclass. Existing AST nodes and existing passes are not touched. The compiler has three pass implementations today (<code>ASTPrinter</code>, <code>TypeChecker</code>, <code>CodeGen</code>); each was added without modifying the other two. The <code>ASTVisitor</code> base class declares one pure-virtual <code>visit()</code> overload per concrete node type (42 today) — so the compiler enforces coverage: a new node type added to <code>ast.h</code> that lacks a <code>visit()</code> overload causes a compile-time error in all three passes simultaneously.</p>
+<hr>
+<h2 id="6-blockitem-stdvariantdeclptr-stmtptr">6. <code>BlockItem = std::variant&lt;DeclPtr, StmtPtr&gt;</code></h2>
+<p><strong>Decision:</strong> <code>BlockStmt::items</code> is <code>std::vector&lt;std::variant&lt;DeclPtr, StmtPtr&gt;&gt;</code> rather than two separate lists or a common <code>Stmt</code> base for declarations.</p>
+<p><strong>Alternatives considered:</strong></p>
+<ul>
+<li><em>Require all declarations at the top of a block (Pascal/early C style)</em> — Forces the programmer to reorganize code to hoist declarations, which conflicts with the C-familiarity goal. Modern C (C99+) allows declarations anywhere in a block.</li>
+<li><em>Treat <code>VarDecl</code> as a <code>Stmt</code> subclass</em> — The simplest change: <code>VarDecl</code> inherits from <code>Stmt</code>, <code>BlockStmt::items</code> is <code>vector&lt;StmtPtr&gt;</code>. Rejected because it conflates semantic roles: declarations introduce names into the scope; statements produce side effects or control flow. The distinction matters in the type checker's two-pass strategy — the first pass registers all struct and function declarations; if <code>VarDecl</code> were a <code>Stmt</code>, the registration pass would need to inspect statement subtrees, not just the top-level declaration list.</li>
+<li><em>Two separate lists <code>decls</code> and <code>stmts</code> in <code>BlockStmt</code></em> — Loses the ordering information. If a programmer writes <code>int x = f(); use(x); int y = x + 1;</code>, the declaration of <code>y</code> must come after <code>use(x)</code> is evaluated. Two separate lists cannot represent this correctly.</li>
+</ul>
+<p><strong>Why <code>variant</code>:</strong> <code>std::variant&lt;DeclPtr, StmtPtr&gt;</code> preserves both the ordering (a single <code>vector</code> iterated in sequence) and the semantic distinction (visitors dispatch to the declaration or statement path with <code>std::holds_alternative</code> / <code>std::get</code>). The type checker's <code>visit(BlockStmt*)</code> iterates <code>items</code> in order and calls <code>decl-&gt;accept(this)</code> or <code>stmt-&gt;accept(this)</code> based on the active alternative. This matches C semantics exactly: a variable declared in the middle of a block is visible to all code after it in the same block, but not before.</p>
+<hr>
+<h2 id="7-monomorphic-templates-not-genericpolymorphic">7. Monomorphic Templates (Not Generic/Polymorphic)</h2>
+<p><strong>Decision:</strong> Template structs and template functions are instantiated monomorphically: <code>Result&lt;int, string&gt;</code> and <code>Result&lt;bool, string&gt;</code> are two separate LLVM struct types (<code>%Result_int_string</code> and <code>%Result_bool_string</code>), emitted independently. There is no polymorphic representation (no type-erased value + vtable, no boxing).</p>
+<p><strong>Alternatives considered:</strong></p>
+<ul>
+<li><em>Type-erased generics (Java/Go-style)</em> — A single <code>Result</code> struct holds a <code>void*</code> value and a type tag. Accesses go through casts. Rejected because it requires boxing primitives (<code>int</code> becomes a heap-allocated <code>Integer*</code>) and defeats the purpose of a <code>uint8[858]</code> fixed-size array field, which the decoder relies on having a predictable stack layout.</li>
+<li><em>Reified generics with a single compiled copy (Haskell <code>Data.Map</code> style)</em> — Emit one copy of the function with <code>ptr</code> arguments and rely on the caller to cast. Same problem as type erasure: struct field access becomes a byte-offset calculation, not a GEP with known field types.</li>
+<li><em>C++ template-like deferred compilation</em> — Full C++ template semantics, including SFINAE and partial specialization. Rejected as premature: the decoder target needed <code>Result&lt;T,E&gt;</code> and <code>List&lt;T&gt;</code>, not a metaprogramming system. The complexity of C++ template instantiation (two-phase name lookup, dependent type resolution) is substantial and incompatible with the goal of keeping the type checker simple.</li>
+</ul>
+<p><strong>Why monomorphic:</strong> Monomorphization is the simplest implementation that produces correct, fast code. Each instantiation is a concrete LLVM struct type with known field offsets. <code>getTypeFromString("Result&lt;int,string&gt;")</code> calls <code>ensureTemplateInstantiated("Result_int_string", "Result", {"int","string"})</code>, which creates <code>%Result_int_string = type { i32, i32, ptr }</code> the first time it is needed. Subsequent uses find it in <code>structTypes</code>. The cost is code size (multiple copies of a template function body), which is acceptable for the decoder's small number of instantiations.</p>
+<hr>
+<h2 id="8-go-style-structural-interfaces">8. Go-Style Structural Interfaces</h2>
+<p><strong>Decision:</strong> An interface is satisfied implicitly by having all the required methods. No <code>implements</code> keyword, no declaration that a struct satisfies an interface. If <code>struct Point</code> has a method <code>float sum()</code> and <code>interface Summable</code> declares <code>float sum()</code>, then <code>Point</code> satisfies <code>Summable</code> — automatically, structurally.</p>
+<p><strong>Alternatives considered:</strong></p>
+<ul>
+<li><em>Explicit <code>implements</code> declaration (Java-style)</em> — Requires the programmer to declare conformance. This creates a coupling between the struct definition and the interface definition. If the struct is in an imported file and the interface is defined later, the imported file must be modified. For a language designed to call C libraries via <code>extern</code>, there will always be structs whose methods are defined separately from the interface that describes them.</li>
+<li><em>Rust-style <code>impl Trait for Type</code></em> — More explicit than Java (the <code>impl</code> block is separate from both the struct and the trait), but still requires an explicit linking declaration. Requires the programmer to know both the struct and the interface at the point of writing the <code>impl</code> block.</li>
+<li><em>C++ pure virtual base classes</em> — Requires the struct to inherit from the interface, which forces a vtable pointer into the struct's memory layout. This changes the struct's ABI and makes it impossible to use the struct as a plain C-compatible type.</li>
+</ul>
+<p><strong>Why structural:</strong> The type checker's <code>structSatisfiesInterface(functionSignatures, structName, iface)</code> function iterates the interface's method signatures and checks whether <code>structName_methodName</code> exists in <code>functionSignatures</code>. This check requires no annotation from the programmer — it falls out of the method registration that already happens in the type checker's first pass. Structural interfaces also let future stdlib code define interfaces that existing structs satisfy without modifying those structs.</p>
+<hr>
+<h2 id="9-resultte-before-exceptions">9. <code>Result&lt;T,E&gt;</code> Before Exceptions</h2>
+<p><strong>Decision:</strong> Error propagation in Eskiu is done via <code>Result&lt;T,E&gt;</code> values (<code>struct Result&lt;T,E&gt; { int ok; T value; E error; }</code>). This was implemented before exceptions, and the decoder was written against it (checking <code>result.ok</code> and branching manually). Both now ship in v0.1.0: exceptions (<code>try</code>/<code>catch</code>/<code>finally</code>/<code>throw</code>) landed as well, and the postfix <code>?</code> operator was added to make <code>Result</code>-based code ergonomic — <code>divide(a, b)?</code> returns the <code>Err</code> early or unwraps the value, removing the manual <code>if (!r.ok) return r;</code> boilerplate. The design rationale below — why <code>Result&lt;T,E&gt;</code> came first — still holds.</p>
+<p><strong>Alternatives considered:</strong></p>
+<ul>
+<li><em>Exceptions first (C++ style)</em> — <code>throw</code> / <code>catch</code> / <code>finally</code> with LLVM <code>invoke</code> / <code>landingpad</code>. Rejected for v0.1 because implementing correct EH requires an EH personality function, DWARF unwind tables, and correct stack unwinding through <code>extern</code> C frames (OpenSSL, zxing-cpp). This is non-trivial and was not needed to hit the benchmark target.</li>
+<li><em>Panic and abort (Go-style, no recovery)</em> — <code>panic("msg")</code> that terminates the process. Simpler to implement but eliminates the ability to handle errors gracefully. The decoder must distinguish "QR code not found" (user error, return a message) from "malloc failed" (fatal).</li>
+<li><em>Error codes via return value (C style, no struct)</em> — Return <code>int</code> from functions and check <code>!= 0</code>. Works but loses the error value (you know it failed, not why). <code>Result&lt;T,E&gt;</code> encodes both the success value and the error value in the same return, with <code>ok</code> as a discriminant.</li>
+</ul>
+<p><strong>Why <code>Result&lt;T,E&gt;</code> first:</strong> <code>Result&lt;T,E&gt;</code> is zero-cost when <code>ok == 1</code>: the caller accesses <code>result.value</code> directly via GEP without any dynamic dispatch or heap allocation. The struct layout is known at compile time. Error propagation is explicit in the code (the <code>?</code> operator is still a visible, checkable control-flow point, not a hidden unwind), which matches the explicit-control philosophy of the language. Exceptions were added alongside it without removing <code>Result&lt;T,E&gt;</code> — they serve different use cases (recoverable domain errors vs. unrecoverable runtime failures).</p>
+<hr>
+<h2 id="10-hand-written-recursive-descent-parser">10. Hand-Written Recursive-Descent Parser</h2>
+<p><strong>Decision:</strong> The parser is a hand-written recursive-descent parser with no parser generator. The grammar is encoded as a call graph: <code>parseProgram</code> calls <code>parseDeclaration</code>, which calls <code>parseFunctionDecl</code>, <code>parseStructDecl</code>, etc.</p>
+<p><strong>Alternatives considered:</strong></p>
+<ul>
+<li><em>yacc/bison (LALR(1) parser generator)</em> — Adds a build dependency on yacc/bison, requires a separate <code>.y</code> grammar file, and produces error messages that are difficult to customize. LALR(1) grammars cannot express certain constructs that are natural in recursive descent (e.g. the <code>IDENT { ... }</code> struct-init ambiguity with block statements, or the <code>ident&lt;T&gt;(args)</code> template call ambiguity with <code>&lt;</code> as less-than).</li>
+<li><em>ANTLR</em> — A more powerful parser generator (LL(*)), but adds a Java runtime dependency and generates C++ code that is harder to debug than hand-written code. Customizing error recovery requires understanding ANTLR's error listener API.</li>
+<li><em>PEG / Packrat parser</em> — Guaranteed linear time with backtracking via memoization. Packrat parsers are elegant but consume memory proportional to input size × grammar size (the memoization table). For source files that are small (the decoder is a few hundred lines), this is not a problem in practice, but the implementation complexity is higher than recursive descent.</li>
+</ul>
+<p><strong>Why recursive descent:</strong> Error messages are the primary reason. When <code>consume(SEMICOLON, "expected ';'")</code> fails, the throw site is the exact function that expected the semicolon — one function call away from the code the user wrote. The parser can provide "expected ';' after variable declaration" rather than "syntax error." Backtracking is controlled and explicit: three call sites use <code>size_t savePos = current</code> and reset on failure. The parser also handles the template-call ambiguity (<code>ident&lt;T&gt;(args)</code> vs <code>ident &lt; T</code>) with speculative parsing that resets <code>current</code> on failure — this pattern is awkward in a grammar table but natural in recursive descent.</p>
+<hr>
+<h2 id="11-for-loop-declaration-scope-fix">11. For-Loop Declaration Scope Fix</h2>
+<p><strong>Decision:</strong> The <code>init</code> clause of a <code>for</code> loop can be a variable declaration (<code>for (int i = 0; i &lt; n; i++)</code>), and that variable is scoped to the entire loop — condition, step, and body — not just the init clause.</p>
+<p><strong>Problem:</strong> The parser wraps a for-loop init declaration in a <code>BlockStmt</code> (a single-item block containing the <code>DeclPtr</code>). If the type checker treats this <code>BlockStmt</code> as an ordinary block, it pushes a scope for the init, evaluates the declaration, then pops the scope before checking the condition — making <code>i</code> invisible in <code>i &lt; n</code>.</p>
+<p><strong>How it was fixed:</strong> <code>visit(ForStmt*)</code> in the type checker detects when <code>init</code> is a <code>BlockStmt</code> and iterates its items directly in the for-loop's own scope rather than delegating to <code>visit(BlockStmt*)</code>. The scope push/pop wraps the entire for-loop body:</p>
+<pre><code>pushScope()
+  process init BlockStmt items (defines i)
+  visit condition (i &lt; n — sees i)
+  visit body (sees i)
+  visit step (i++ — sees i)
+popScope()
+</code></pre>
+<p><strong>Alternatives considered:</strong></p>
+<ul>
+<li><em>Special <code>ForInitDecl</code> AST node</em> — A dedicated node type that the type checker handles differently from <code>BlockStmt</code>. Cleaner semantically but requires a new AST node, a new visitor method on all three passes, and parser changes. The <code>BlockStmt</code> wrapper approach reuses existing infrastructure.</li>
+<li><em>Hoist the init declaration to the enclosing scope</em> — The init variable becomes visible outside the loop, matching pre-C99 behavior. This is what early C compilers did and what MSVC did until it was fixed. It is surprising and non-standard; rejected.</li>
+</ul>
+<p><strong>Why the fix matters:</strong> The decoder code uses <code>for (int i = 0; i &lt; len; i++)</code> throughout. Without the scope fix, every for-loop with a declaration init fails at the type checker with "undefined variable i."</p>
+<hr>
+<h2 id="12-lazy-template-instantiation">12. Lazy Template Instantiation</h2>
+<p><strong>Decision:</strong> Template structs and functions are not instantiated when they are declared. They are instantiated the first time they are used. <code>struct Result&lt;T,E&gt;</code> in the source file adds an entry to <code>templateDecls["Result"]</code> but emits no LLVM IR. The first <code>let r: Result&lt;int, string&gt;</code> triggers <code>ensureTemplateInstantiated("Result_int_string", "Result", {"int","string"})</code> which creates <code>%Result_int_string = type { i32, i32, ptr }</code>.</p>
+<p><strong>Alternatives considered:</strong></p>
+<ul>
+<li><em>Eager instantiation at declaration</em> — Instantiate all template combinations at declaration time by scanning all uses in a pre-pass. Requires a two-phase compilation model where the use sites are known before the template is processed. This is the C++ header model: the template definition must be visible at every use site, and the compiler instantiates it per translation unit. For a single-file or explicitly-imported model, eager instantiation means scanning the entire program before generating any IR.</li>
+<li><em>JIT instantiation at codegen, no type-checker involvement</em> — The type checker ignores templates; codegen handles everything. Rejected because type errors in template usage (wrong number of type arguments, field access on a non-existent field in a substituted type) would not be caught until codegen or link time.</li>
+</ul>
+<p><strong>Why lazy:</strong> Lazy instantiation means the template machinery is activated only when a concrete type is needed. The type checker's <code>normalizeType("Result&lt;int,string&gt;")</code> performs substitution and registers <code>StructInfo</code> for <code>"Result_int_string"</code> the first time the type appears. Codegen's <code>ensureTemplateInstantiated</code> is idempotent: it checks <code>structTypes.count(mangled)</code> before doing any work. Both the type checker and codegen interpret the type spelling through the same <code>ty::Type::parse</code> grammar (see Decision 14), so the substitution and instantiation logic is shared rather than reimplemented per phase. Template functions follow the same pattern: <code>visit(TemplateCallExpr*)</code> mangles the name, saves/restores the insert point, sets <code>typeParamOverride</code>, and re-visits the <code>FunctionDecl</code> body exactly once per unique type argument combination.</p>
+<hr>
+<h2 id="13-integer-width-coercion-in-comparisons">13. Integer Width Coercion in Comparisons</h2>
+<p><strong>Decision:</strong> When a comparison (<code>==</code>, <code>!=</code>, <code>&lt;</code>, etc.) is emitted for operands of different integer widths, the narrower operand is zero-extended (<code>ZExt</code>) or sign-extended (<code>SExt</code>) to match the wider type before the LLVM <code>ICmp</code> instruction is emitted.</p>
+<p><strong>Problem:</strong> LLVM's <code>CreateICmpEQ(left, right)</code> requires both operands to have the same type. The decoder computes with <code>uint8</code> values (from a <code>uint8[858]</code> buffer) and compares them to <code>int</code> constants. Without coercion, <code>ICmpEQ(i8 %byte, i32 0x30)</code> causes an LLVM assertion failure at IR verification time.</p>
+<p><strong>Implementation:</strong> <code>visit(BinaryExpr*)</code> checks whether the comparison involves integer operands of different widths. If <code>left</code> is <code>i8</code> and <code>right</code> is <code>i32</code>, it calls <code>CreateZExt(left, i32)</code> before emitting <code>ICmpEQ</code>. Zero-extension is used (not sign-extension) because the values being compared are byte values from a buffer, treated as unsigned. The same coercion is applied in <code>visit(VarDecl*)</code> for assignments and in <code>emitStructInitInto()</code> for struct field initialization.</p>
+<p><strong>Alternatives considered:</strong></p>
+<ul>
+<li><em>Require explicit casts in the source (<code>(int)byte == 0x30</code>)</em> — Correct but verbose. The decoder code iterates byte buffers and compares to ASCII constants; requiring an explicit cast on every comparison would make the code harder to read than equivalent C.</li>
+<li><em>Truncate the wider operand to the narrower width</em> — <code>ICmpEQ(i8 %byte, trunc i32 0x30 to i8)</code> works for equality but is incorrect for relational comparisons: <code>(uint8)200 &lt; (int)256</code> should be true, but truncating 256 to <code>i8</code> gives 0, making the comparison <code>200 &lt; 0</code> which is false.</li>
+</ul>
+<p><strong>Why ZExt:</strong> Zero-extension from <code>i8</code> to <code>i32</code> correctly represents unsigned byte values in the range 0–255 as <code>i32</code> values in the range 0–255, preserving the ordering relationship for all relational operators.</p>
+<hr>
+<h2 id="14-structured-tytype-ir-and-a-single-type-resolver">14. Structured <code>ty::Type</code> IR and a Single Type Resolver</h2>
+<p><strong>Decision:</strong> Types are represented internally by a structured <code>ty::Type</code> IR (<code>sema/type.{h,cpp}</code>) with one grammar interpreter, <code>ty::Type::parse</code>, and the type checker is the <strong>single resolver</strong>: it resolves every expression's type into a per-expression table that codegen consumes. Codegen does not re-derive expression types — its <code>getTypeFromString</code> dispatches on <code>ty::Type::parse</code>, the same grammar interpreter the type checker uses.</p>
+<p><strong>Alternatives considered:</strong></p>
+<ul>
+<li><em>Two independent string evaluators (the prior state)</em> — The type checker resolved expression types from type strings, and codegen separately re-derived an expression's Eskiu type at codegen time from its own <code>varTypeStack</code>/<code>structFields</code> walk. Both consumed the same surface spellings (<code>"Result&lt;int,string&gt;"</code>, <code>"List&lt;int&gt;*"</code>, <code>"*Point"</code>) but interpreted them with <strong>two different ad-hoc string parsers</strong>. Any divergence between the two — a corner of the type grammar one handled and the other didn't — was a silent miscompile: a program that type-checked could lower to wrong IR. Three latent miscompiles (a float literal kept as <code>double</code>, a pointer-deref width, a <code>char</code> zero-extension) were exactly this class of bug.</li>
+<li><em>Keep string-typing but share one helper</em> — Cheaper than a full IR, but a flat string is the wrong representation to share: substitution, pointer peeling, nominal-name extraction, and constraint checking all want structure, and every call site re-parsed the string ad hoc (the bug origin).</li>
+</ul>
+<p><strong>Why a structured IR + one resolver:</strong> A <code>ty::Type</code> value carries the structure (nominal name, type arguments, pointer levels) directly, with <code>parse</code> / <code>str</code> / <code>substitute</code> / <code>nominalName</code> as the operations every phase needs — so substitution and nominal-name extraction happen once, in one place, instead of being re-derived by each ad-hoc string strip. Making the type checker the sole resolver and having codegen consume its table means there is exactly <strong>one</strong> answer for any expression's type. <code>ty::Type::parse</code> is the single grammar interpreter both phases share, which structurally closes the two-evaluator divergence risk. The migration was behavior-preserving (gated by the golden-IR oracle) and, once the single resolver landed, fixed the three latent miscompiles above.</p>
+<hr>
+<h2 id="summary">Summary</h2>
+<p>The decisions above form a consistent position: Eskiu is an explicit-control systems language that targets programmers who already think in C, need to call C libraries, and want near-C performance without writing C. The compiler is designed to be read and modified by one to three people, so implementation simplicity (hand-written parser, recursive-descent, visitor pattern, no parser generator) is a real constraint. LLVM handles the hard parts of code generation; the front end's job is to produce correct IR quickly.</p>
+<p>The INE decoder benchmark is the north star. Every decision that made the benchmark harder to hit was rejected; every decision that kept the code close to C semantics while adding safety margins (structural interfaces, <code>Result&lt;T,E&gt;</code>, two-pass type checking) was accepted.</p>
+    </div>
+    <div class="foot"><a href="../index.html">← Back to eskiu</a></div>
+  </div>
+</body>
+</html>

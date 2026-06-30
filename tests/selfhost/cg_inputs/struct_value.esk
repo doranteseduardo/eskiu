@@ -1,0 +1,12 @@
+// Struct-by-value params + returns (sret): LLVM first-class aggregates handle these
+// directly in textual IR — no hidden-pointer transform needed. The compiler returns
+// CgVal/CgStruct by value pervasively, so this is bootstrap-critical to confirm.
+struct Pt { int x; int y; }
+
+Pt dbl(Pt p) { let r: Pt = Pt { x: p.x * 2, y: p.y * 2 }; return r; }
+int sum(Pt p) { return p.x + p.y; }
+
+int main() {
+    let a: Pt = Pt { x: 10, y: 11 };
+    return sum(dbl(a));
+}

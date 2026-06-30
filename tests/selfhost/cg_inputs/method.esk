@@ -1,0 +1,3 @@
+extern int printf(string fmt, ...);
+struct Counter { int n; void inc() { self.n = self.n + 1; } int get() { return self.n; } }
+int main() { let c: Counter = Counter { n: 0 }; c.inc(); c.inc(); c.inc(); printf("%d\n", c.get()); return 0; }

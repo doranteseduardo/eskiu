@@ -39,6 +39,23 @@ T List_get<T>(List<T>* self, int i) {
     return self.data[i];
 }
 
+void List_set<T>(List<T>* self, int i, T item) {
+    self.data[i] = item;
+}
+
+// Remove the element at index i, shifting the tail down one slot. Out-of-range
+// indices are ignored. O(n) in the number of trailing elements.
+void List_remove<T>(List<T>* self, int i) {
+    if (i < 0) return;
+    if (i >= self.size) return;
+    int j = i;
+    while (j + 1 < self.size) {
+        self.data[j] = self.data[j + 1];
+        j += 1;
+    }
+    self.size = self.size - 1;
+}
+
 int List_len<T>(List<T>* self) {
     return self.size;
 }

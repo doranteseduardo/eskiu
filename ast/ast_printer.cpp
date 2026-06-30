@@ -27,10 +27,33 @@ void ASTPrinter::visit(Program* node) {
     indentLevel--;
 }
 
+void ASTPrinter::printTypeParams(const std::vector<std::string>& typeParams,
+                                 const std::map<std::string, std::vector<std::string>>& constraints) {
+    if (typeParams.empty()) return;
+    println("TypeParams:");
+    indentLevel++;
+    for (const auto& tp : typeParams) {
+        auto it = constraints.find(tp);
+        if (it != constraints.end() && !it->second.empty()) {
+            std::string s = tp + ": ";
+            for (size_t i = 0; i < it->second.size(); ++i) {
+                if (i) s += " + ";
+                s += it->second[i];
+            }
+            println(s);
+        } else {
+            println(tp);
+        }
+    }
+    indentLevel--;
+}
+
 void ASTPrinter::visit(FunctionDecl* node) {
-    println("FunctionDecl: " + node->name + " -> " + node->returnType);
+    println("FunctionDecl: " + node->name + " -> " + node->returnType +
+            (node->isAsync ? " (async)" : ""));
     indentLevel++;
 
+    printTypeParams(node->typeParams, node->constraints);
     println("Parameters:");
     indentLevel++;
     for (auto& param : node->params) {
@@ -38,10 +61,14 @@ void ASTPrinter::visit(FunctionDecl* node) {
     }
     indentLevel--;
 
-    println("Body:");
-    indentLevel++;
-    node->body->accept(this);
-    indentLevel--;
+    // A forward declaration (prototype) has no body — omit the section rather than
+    // dereferencing a null body (cf. ReturnStmt skipping a null value).
+    if (node->body) {
+        println("Body:");
+        indentLevel++;
+        node->body->accept(this);
+        indentLevel--;
+    }
 
     indentLevel--;
 }
@@ -62,12 +89,22 @@ void ASTPrinter::visit(StructDecl* node) {
     println("StructDecl: " + node->name);
     indentLevel++;
 
+    printTypeParams(node->typeParams, node->constraints);
     println("Fields:");
     indentLevel++;
     for (auto& field : node->fields) {
-        println(field.type + " " + field.name);
+        std::string line = field.type + " " + field.name;
+        if (field.bitWidth > 0) line += " : " + std::to_string(field.bitWidth);
+        println(line);
     }
     indentLevel--;
+
+    if (!node->methods.empty()) {
+        println("Methods:");
+        indentLevel++;
+        for (auto& m : node->methods) m->accept(this);
+        indentLevel--;
+    }
 
     indentLevel--;
 }
@@ -324,8 +361,15 @@ void ASTPrinter::visit(IdentExpr* node) {
 void ASTPrinter::visit(InterfaceDecl* node) {
     println("InterfaceDecl: " + node->name);
     indentLevel++;
-    for (const auto& m : node->methods)
-        println(m.returnType + " " + m.name + "(...)");
+    for (const auto& m : node->methods) {
+        std::string sig = m.returnType + " " + m.name + "(";
+        for (size_t i = 0; i < m.params.size(); ++i) {
+            if (i) sig += ", ";
+            sig += m.params[i].first;
+        }
+        sig += ")";
+        println(sig);
+    }
     indentLevel--;
 }
 
@@ -489,8 +533,19 @@ void ASTPrinter::visit(UnionDecl* node) {
 void ASTPrinter::visit(EnumDecl* node) {
     println("EnumDecl: " + node->name);
     indentLevel++;
-    for (const auto& m : node->members)
-        println(m.first + " = " + std::to_string(m.second));
+    printTypeParams(node->typeParams, {});   // EnumDecl has no constraints field
+    for (size_t i = 0; i < node->members.size(); ++i) {
+        std::string line = node->members[i].first + " = " + std::to_string(node->members[i].second);
+        if (i < node->payloads.size() && !node->payloads[i].empty()) {
+            line += "(";
+            for (size_t j = 0; j < node->payloads[i].size(); ++j) {
+                if (j) line += ", ";
+                line += node->payloads[i][j];
+            }
+            line += ")";
+        }
+        println(line);
+    }
     indentLevel--;
 }
 
