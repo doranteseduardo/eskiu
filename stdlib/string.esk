@@ -35,6 +35,7 @@ int String_len(String* self) {
 
 void String_free(String* self) {
     free(self.data);
+    self.data = null;   // guard against double-free if the String is reused
     self.len = 0;
     self.cap = 0;
 }

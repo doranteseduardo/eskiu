@@ -14,9 +14,9 @@ extern void  free(*void p);
 *T   alloc<T>(int64 n) { return (*T)malloc(n * sizeof(T)); }
 #endif
 
-extern *void memcpy(*void dst, *void src, int n);
-extern *void memset(*void dst, int c, int n);
-extern *void memmove(*void dst, *void src, int n);
-extern int   memcmp(*void a, *void b, int n);
-extern int   strlen(string s);
-extern *void memchr(*void s, int c, int n);
+extern *void memcpy(*void dst, *void src, int64 n);
+extern *void memset(*void dst, int c, int64 n);
+extern *void memmove(*void dst, *void src, int64 n);
+extern int   memcmp(*void a, *void b, int64 n);
+extern int64   strlen(string s);
+extern *void memchr(*void s, int c, int64 n);

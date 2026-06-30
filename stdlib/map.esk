@@ -14,7 +14,7 @@
 
 import <mem>;
 
-extern int strlen(string s);
+extern int64 strlen(string s);
 
 struct Map<V> {
     **char keys;    // owned key copies; null marks an empty slot
