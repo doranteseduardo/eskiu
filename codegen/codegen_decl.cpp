@@ -121,6 +121,15 @@ llvm::Function* CodeGen::declareFunction(
     llvm::Function* func = llvm::Function::Create(
         funcType, llvm::Function::ExternalLinkage, name, module.get());
 
+    // The hidden sret pointer is always a fresh, dedicated return-slot alloca the
+    // caller provides: never null, and never aliasing the callee's other arguments
+    // (each call site allocates its own). Mark it so the optimizer can reason about
+    // the return slot. Sound regardless of user code (the frontend owns this arg).
+    if (sret) {
+        func->addParamAttr(0, llvm::Attribute::NoAlias);
+        func->addParamAttr(0, llvm::Attribute::NonNull);
+    }
+
     // Set parameter names (skip index 0 for sret functions — that's the hidden ret ptr)
     size_t paramIdx = 0;
     size_t argIdx   = 0;
