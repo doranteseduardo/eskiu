@@ -45,6 +45,18 @@ corpus** (a full feature sweep is clean). All parity/self-host/bootstrap gates a
   papercut. The self-hosted parser mirror is tracked in `selfhost/PROMOTION_PLAN.md` (R3).
 - **`String_free` clears `data`.** It sets `self.data = null` after `free`, so a reused or
   doubly-freed `String` can no longer hand a dangling pointer to `free`.
+- **`String` length/capacity are now `int64`.** `%String` went from `{ ptr, i32, i32 }` to
+  `{ ptr, i64, i64 }`; the length/index/capacity arithmetic inside `<string>` is `int64`
+  throughout. Matches `size_t`, removes the 2 GB object-size cap, and avoids width casts at
+  the libc boundary. Public accessors that return a length (`String_len`, `String_index_of`)
+  now return `int64`; callers that store into an `int` truncate exactly as before.
+- **`noalias`/`nonnull` on the hidden `sret` return pointer.** Code generation now marks the
+  struct-return slot pointer `noalias nonnull`. It is always a fresh, dedicated alloca the
+  caller provides, so this is sound regardless of user code and lets LLVM optimize the return
+  slot. (Broader IR attributes — `nonnull`/`noundef` on ordinary parameters, TBAA — are
+  intentionally NOT emitted: Eskiu pointers are nullable and locals may be uninitialized, so
+  those would be unsound without dedicated nullness/init analysis. Tracked in
+  `selfhost/PROMOTION_PLAN.md`.)
 - **Self-hosted codegen is now feature-complete against the C++ corpus.** A systematic feature
   sweep (every feature-bearing `tests/*.esk` through `cg_parity.sh`) is clean — each program,
   compiled by the Eskiu-written codegen, runs identically to the C++ build. Closing it required
