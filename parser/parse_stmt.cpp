@@ -156,6 +156,14 @@ StmtPtr Parser::parseBlockStatement() {
                     continue;
                 }
             } catch (...) {
+                // Only an identifier or a leading '*' is ambiguous (it can also
+                // begin an expression statement); fall back for those. A leading
+                // type keyword / const / volatile / let is unambiguously a
+                // declaration, so its error is real — surface it instead of
+                // masking it with a misleading expression-parse error (keeps the
+                // "expected a name, found keyword 'fn'" diagnostic for `int fn;`).
+                TokenType startTok = tokens[savePos].type;
+                if (startTok != TokenType::IDENT && startTok != TokenType::STAR) throw;
                 current = savePos;
             }
         }
@@ -228,6 +236,10 @@ StmtPtr Parser::parseForStatement() {
             DeclPtr decl = parseDeclaration();
             init = std::make_shared<BlockStmt>(std::vector<BlockItem>{decl});
         } catch (...) {
+            // Unambiguous decl starts (type keyword/const/volatile/let) surface
+            // their real error; only IDENT/'*' fall back to an expression.
+            TokenType startTok = tokens[savePos].type;
+            if (startTok != TokenType::IDENT && startTok != TokenType::STAR) throw;
             current = savePos;
             init = parseExpressionStatement();
         }
