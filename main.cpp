@@ -87,6 +87,12 @@ static llvm::cl::opt<bool> Asan("asan",
 static llvm::cl::opt<bool> Ubsan("ubsan",
     llvm::cl::desc("Instrument with bounds checking (traps on out-of-bounds access)"));
 
+// Optimization level: -O0 (default, naive IR straight to the backend), -O1/-O2/-O3
+// run the LLVM middle-end (mem2reg/SROA/instcombine/inlining/GVN/...) before codegen.
+static llvm::cl::opt<unsigned> OptLevel("O", llvm::cl::Prefix,
+    llvm::cl::desc("Optimization level: -O0 (default), -O1, -O2, -O3"),
+    llvm::cl::init(0));
+
 const char* VERSION = "0.3.0";
 
 // `eskiuc run`: set when argv[1] == "run". The program is compiled to a
@@ -181,12 +187,15 @@ static void testCodegen(const std::string& filename) {
         codegen.resolvedExprTypes = &postTc.expressionTypeMap();
         if (!TargetTriple.empty()) codegen.targetTriple = std::string(TargetTriple);
         codegen.freestanding = Freestanding;
+        codegen.optLevel = OptLevel;
         llvm::Module* module = codegen.generateCode(program);
 
         if (!module) {
             std::cerr << "Code generation failed!" << std::endl;
             return;
         }
+
+        if (OptLevel) codegen.optimizeModule();
 
         llvm::raw_os_ostream out(std::cout);
         module->print(out, nullptr);
@@ -405,10 +414,12 @@ int main(int argc, char** argv) {
         codegen.freestanding = Freestanding;
         codegen.asan = Asan;
         codegen.ubsan = Ubsan;
+        codegen.optLevel = OptLevel;
         if (!codegen.generateCode(program)) {
             std::cerr << "error: code generation failed" << std::endl;
             return 1;
         }
+        if (OptLevel) codegen.optimizeModule();
 
         // `eskiuc run`: link into a temporary executable, then run it.
         std::string runExePath;

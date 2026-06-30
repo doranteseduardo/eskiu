@@ -83,6 +83,58 @@ void CodeGen::printIR() const {
     }
 }
 
+void CodeGen::optimizeModule() {
+    if (optLevel == 0) return;
+
+    LLVMInitializeAArch64Target();
+    LLVMInitializeAArch64TargetInfo();
+    LLVMInitializeAArch64TargetMC();
+    LLVMInitializeX86Target();
+    LLVMInitializeX86TargetInfo();
+    LLVMInitializeX86TargetMC();
+
+    // Target-aware pipeline: give the PassBuilder a TargetMachine + DataLayout so
+    // target heuristics (and the data layout the optimizer needs for, e.g., SROA)
+    // are correct. Mirrors emitObjectFile's target setup.
+    std::string tripleStr = targetTriple.empty()
+        ? llvm::sys::getDefaultTargetTriple() : targetTriple;
+    llvm::Triple triple(tripleStr);
+    module->setTargetTriple(triple);
+
+    std::string err;
+    const llvm::Target* target = llvm::TargetRegistry::lookupTarget(tripleStr, err);
+    std::unique_ptr<llvm::TargetMachine> tm;
+    if (target) {
+        bool isCross = !targetTriple.empty() &&
+            targetTriple != llvm::sys::getDefaultTargetTriple();
+        auto cpu = isCross ? llvm::StringRef("generic") : llvm::sys::getHostCPUName();
+        llvm::TargetOptions opt;
+        tm.reset(target->createTargetMachine(triple, cpu, "", opt, llvm::Reloc::PIC_));
+        if (tm) module->setDataLayout(tm->createDataLayout());
+    }
+
+    llvm::OptimizationLevel lvl;
+    switch (optLevel) {
+        case 1:  lvl = llvm::OptimizationLevel::O1; break;
+        case 2:  lvl = llvm::OptimizationLevel::O2; break;
+        default: lvl = llvm::OptimizationLevel::O3; break;   // 3 and above
+    }
+
+    llvm::LoopAnalysisManager LAM;
+    llvm::FunctionAnalysisManager FAM;
+    llvm::CGSCCAnalysisManager CGAM;
+    llvm::ModuleAnalysisManager MAM;
+    llvm::PassBuilder PB(tm.get());
+    PB.registerModuleAnalyses(MAM);
+    PB.registerCGSCCAnalyses(CGAM);
+    PB.registerFunctionAnalyses(FAM);
+    PB.registerLoopAnalyses(LAM);
+    PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
+
+    llvm::ModulePassManager MPM = PB.buildPerModuleDefaultPipeline(lvl);
+    MPM.run(*module, MAM);
+}
+
 bool CodeGen::emitObjectFile(const std::string& filename) {
     LLVMInitializeAArch64Target();
     LLVMInitializeAArch64TargetInfo();

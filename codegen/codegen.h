@@ -30,6 +30,8 @@ public:
     // Sanitizer instrumentation, applied to the module before object emission.
     bool asan = false;   // AddressSanitizer (memory errors); needs the asan runtime
     bool ubsan = false;  // bounds checking; traps on out-of-bounds (no runtime)
+    // Optimization level (0 = -O0, no middle-end; 1..3 run the LLVM optimizer).
+    unsigned optLevel = 0;
 
     // Single-resolver table: post-AsyncTransform type checker's expressionTypeMap.
     // When set, getExprEskiuType returns these resolved types instead of re-deriving.
@@ -37,6 +39,11 @@ public:
 
     // Print LLVM IR to stdout
     void printIR() const;
+
+    // Run the LLVM middle-end optimization pipeline at `optLevel` (1..3) over the
+    // module, in place. No-op at level 0. Call after generateCode, before printing
+    // or emitting. (-O0 keeps today's naive-IR-straight-to-backend behavior.)
+    void optimizeModule();
 
     // Emit native object file
     bool emitObjectFile(const std::string& filename);
