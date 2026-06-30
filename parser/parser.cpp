@@ -66,6 +66,18 @@ Token Parser::consume(TokenType type, const std::string& message) {
     if (check(type)) {
         return advance();
     }
+    // Friendlier diagnostic: when a name is expected but the next token is a
+    // reserved keyword (fn/in/match/type names/...), say so at the cause instead
+    // of letting it surface far downstream ("Expected ';'", "Expected expression").
+    if (type == TokenType::IDENT) {
+        TokenType t = peek().type;
+        if (t >= TokenType::LET && t <= TokenType::UINT64) {
+            const std::string& kw = peek().value;
+            throw std::runtime_error(
+                "expected a name, found keyword '" +
+                (kw.empty() ? tokenTypeToString(t) : kw) + "'");
+        }
+    }
     throw std::runtime_error(message);
 }
 
