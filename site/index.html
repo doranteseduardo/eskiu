@@ -1007,14 +1007,13 @@
       <div class="wrap">
         <div class="hero-grid">
           <div>
-            <span class="hero-ver">v0.3.0 · self-hosting</span>
-            <h1>The systems language<br />that compiles itself.</h1>
+            <span class="hero-ver">v0.3.0</span>
+            <h1>A systems language for<br />compute-intensive work.</h1>
             <p class="hero-sub">
-              Eskiu compiles to native binaries through LLVM. You manage memory
-              yourself, it speaks the C ABI directly, and there is no runtime. The
-              language has generics, sum types, interfaces, and async/await. As of
-              v0.3.0 the compiler is written in Eskiu itself, validated by a 3-stage
-              bootstrap fixpoint.
+              Eskiu compiles to native binaries through LLVM, with manual memory and
+              the C ABI. It brings generics, sum types, interfaces, and async/await to
+              that level, so one language covers work that teams usually split across
+              C, Go, and C++.
             </p>
             <div class="hero-btns">
               <a class="btn-w" href="quickstart.html">Get started →</a>
@@ -1054,19 +1053,6 @@
             </div>
           </div>
         </div>
-        <div class="hero-props">
-          <span class="hprop">Compiled via LLVM</span>
-          <span class="hprop">Manual memory</span>
-          <span class="hprop">Standalone binary</span>
-          <span class="hprop new">async/await</span>
-          <span class="hprop new">sum types</span>
-          <span class="hprop new">generics</span>
-          <span class="hprop new">HTTP/2 + TLS</span>
-          <span class="hprop new">atomics</span>
-          <span class="hprop">C FFI</span>
-          <span class="hprop">freestanding</span>
-          <span class="hprop">arm64 · x86-64</span>
-        </div>
       </div>
     </section>
 
@@ -1074,108 +1060,24 @@
     <hr />
     <section class="section">
       <div class="wrap">
-        <span class="label">Self-hosting</span>
-        <h2>The compiler is written in Eskiu.</h2>
-        <p class="lead">
-          The lexer, preprocessor, parser, type checker, and code generator are all
-          reimplemented in Eskiu and checked against the reference C++ compiler. Code
-          generation emits textual LLVM IR; no LLVM library is linked. The result is
-          validated two ways: parity on every pass, and a three-stage bootstrap in
-          which the compiler reproduces its own output.
-        </p>
-        <div class="glance">
-          <div class="glance-item">
-            <h3>Bootstrap fixpoint</h3>
-            <p>
-              The C++ <code>eskiuc</code> builds the Eskiu compiler (cc0); cc0 builds
-              cc1; cc1 builds cc2, and <code>cc1 ≡ cc2</code> emit identical IR. A
-              compiler reproducing its own output is the proof it self-hosts.
-            </p>
-          </div>
-          <div class="glance-item">
-            <h3>Feature-complete codegen</h3>
-            <p>
-              Coverage goes past the subset the compiler itself uses. A full feature
-              sweep passes 50/50: floats, sum types, closures, exceptions, atomics,
-              generics, async/await, interfaces, the <code>?</code> operator. Every
-              program runs identically to the C++ build.
-            </p>
-          </div>
-          <div class="glance-item">
-            <h3>Parity-gated in CI</h3>
-            <p>
-              Every pass has a parity gate against <code>eskiuc</code> wired into CI.
-              The front end is checked byte-exact, the type checker verdict for verdict,
-              and codegen behaviorally, so the self-hosted compiler cannot silently drift.
-            </p>
-          </div>
-        </div>
-        <p class="lead" style="margin-top: 1.75rem">
-          <a href="docs/self-hosting.html">How self-hosting works →</a>
-        </p>
-      </div>
-    </section>
-
-    <!-- Status -->
-    <hr />
-    <section class="section">
-      <div class="wrap">
-        <span class="label">Status</span>
-        <h2>Version 0.3.0, under active development.</h2>
-        <p class="lead">
-          The current release is 0.3.0, the self-hosting milestone. Every change runs
-          the full test suite, AddressSanitizer and UndefinedBehaviorSanitizer, a
-          generative fuzzer with an O0-vs-O2 differential oracle, golden-IR snapshots,
-          and a parity gate for each self-hosted pass against the reference compiler.
-          The history is granular and the gates stay green; see
-          <a href="docs/self-hosting.html">how self-hosting works</a> and the
-          <a href="docs/internals.html">compiler internals</a>.
-        </p>
-      </div>
-    </section>
-
-    <!-- Why Eskiu -->
-    <hr />
-    <section class="section">
-      <div class="wrap">
         <span class="label">Why Eskiu</span>
-        <h2>Native performance, explicit memory.</h2>
+        <h2>One language instead of four.</h2>
         <p class="lead">
-          Eskiu compiles to native code and speaks the C ABI directly. Take a
-          memory-heavy C++ component, rewrite it as an explicit, auditable Eskiu
-          module, and link it straight into the existing stack. You manage the
-          memory, so the footprint is yours to control. The same language scales
-          from a bare-metal kernel to an HTTP/2 service in the cloud.
+          Compute-intensive backend work usually means C for the hot paths, Go for
+          concurrency, C++ for libraries, and Python for glue: four toolchains and four
+          sets of seams. Eskiu is one language across that range. You manage memory
+          yourself with <code>alloc&lt;T&gt;(N)</code> and <code>free(ptr)</code>, so the
+          footprint is yours; it speaks the C ABI, so it drops into an existing native
+          stack; and it runs from a bare-metal kernel to an HTTP/2 service.
         </p>
-        <div class="glance">
-          <div class="glance-item">
-            <h3>Slots into your C/C++ stack</h3>
-            <p>
-              C ABI in and out, and it links as a plain native object. Call C
-              libraries directly, hand Eskiu functions back as C callbacks, and
-              drop a module into an existing codebase without rewriting the host.
-            </p>
-          </div>
-          <div class="glance-item">
-            <h3>Explicit memory, smaller footprint</h3>
-            <p>
-              You allocate and free in the source with
-              <code>alloc&lt;T&gt;(N)</code> and <code>free(ptr)</code>, so the
-              memory is yours to account for. That is the lever teams pull when
-              replacing C++. On a real crypto pipeline it ran
-              <a href="case-study-reactvision.html">2.5× faster than the reference C</a>
-              (benchmark and method in the case study).
-            </p>
-          </div>
-          <div class="glance-item">
-            <h3>Kernel to cloud, one language</h3>
-            <p>
-              Freestanding mode boots a bare-metal ARM64 kernel in QEMU. The
-              same syntax and stdlib run an HTTP/2 service in the cloud. One
-              language across the stack.
-            </p>
-          </div>
-        </div>
+        <p class="lead" style="margin-top: 1rem">
+          It is already real. Eskiu boots a bare-metal ARM64 kernel in QEMU and runs a
+          production AES/RSA pipeline
+          <a href="case-study-reactvision.html">2.5× faster than the reference C</a>. As
+          of v0.3.0 it compiles itself: the whole compiler is written in Eskiu and
+          validated by a 3-stage bootstrap fixpoint.
+          <a href="docs/self-hosting.html">How self-hosting works.</a>
+        </p>
       </div>
     </section>
 
