@@ -239,7 +239,10 @@ not LLVM-C bindings — keeps the self-host dependency-free and is the standard 
   compiler's own source — a true self-hosting fixpoint (`cg_bootstrap.sh`, CI). The
   self-hosted codegen is also feature-complete against the C++ corpus (shipped in v0.3.0).
   Remaining for v1.0: a package manager, and promoting the Eskiu-written compiler to the
-  primary build (it currently rides alongside the C++ `eskiuc`)
+  primary build (it currently rides alongside the C++ `eskiuc`) — staged, parity-gated
+  plan in `selfhost/PROMOTION_PLAN.md` (folds in the three open self-host residuals:
+  async `for-in` element typing, parse-parity corpus expansion, and the keyword-as-
+  identifier diagnostic)
 - First-class types for high-throughput services
 
 ---
