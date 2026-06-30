@@ -209,7 +209,19 @@
         display: flex;
         flex-direction: column;
         gap: 2.5rem;
-        align-items: stretch;
+        align-items: flex-start;
+      }
+      .hero-grid > :first-child {
+        flex: 1 1 auto;
+        min-width: 0;
+      }
+      @media (min-width: 820px) {
+        .hero-grid {
+          flex-direction: row;
+          gap: 3.5rem;
+          align-items: center;
+          justify-content: space-between;
+        }
       }
 
       .hero-ver {
@@ -282,10 +294,15 @@
       }
 
       /* Hero terminal */
-      .hero-term {
-        position: relative;
-        max-width: 780px;
-        width: 100%;
+      .hero-art {
+        flex-shrink: 0;
+      }
+      .hero-art img {
+        width: 300px;
+        max-width: 72vw;
+        height: auto;
+        border-radius: 50%; /* clip the non-transparent square to a clean circle */
+        display: block;
       }
       .hero-mascot {
         display: none; /* the cat lives in the nav/footer brand mark, not floating over the hero */
@@ -967,10 +984,11 @@
           <span class="brand-ver">v0.3</span>
         </a>
         <div class="nav-links">
-          <a href="#start">Install</a>
           <a href="docs/index.html">Docs</a>
           <a href="the-book-of-eskiu.html">Book</a>
           <a href="#examples">Examples</a>
+          <a href="docs/self-hosting.html">Self-hosting</a>
+          <a href="case-study-reactvision.html">Case study</a>
           <a class="nav-gh" href="https://github.com/doranteseduardo/eskiu">
             <svg
               width="14"
@@ -1009,35 +1027,8 @@
               >
             </div>
           </div>
-          <div class="hero-term">
-            <img
-              class="hero-mascot"
-              src="../assets/logo.png"
-              alt="Eskiu mascot"
-            />
-            <div class="terminal">
-              <div class="tbar">
-                <span class="tdot" style="background: #ff5f57"></span>
-                <span class="tdot" style="background: #febc2e"></span>
-                <span class="tdot" style="background: #28c840"></span>
-                <span class="tname">bash</span>
-              </div>
-              <pre class="tbody"><span class="cp">$</span> git clone https://github.com/doranteseduardo/eskiu
-<span class="cm">Cloning into 'eskiu'...</span>
-
-<span class="cp">$</span> cmake -S eskiu -B build &amp;&amp; cmake --build build
-<span class="cm">[100%] Built target eskiuc</span>
-
-<span class="cp">$</span> cat hello.esk
-<span class="kw">extern</span> <span class="ty">int</span> <span class="fn">printf</span>(<span class="ty">string</span> fmt, ...);
-<span class="ty">int</span> <span class="fn">main</span>() {
-    <span class="fn">printf</span>(<span class="st">"Hello from Eskiu.\n"</span>);
-    <span class="kw">return</span> <span class="nu">0</span>;
-}
-
-<span class="cp">$</span> eskiuc run hello.esk
-<span class="st">Hello from Eskiu.</span></pre>
-            </div>
+          <div class="hero-art">
+            <img src="../assets/eskiu_round.jpg" alt="Eskiu mascot" />
           </div>
         </div>
       </div>
