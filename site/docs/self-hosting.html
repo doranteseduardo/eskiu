@@ -83,10 +83,10 @@ pipeline is <strong>reimplemented in Eskiu</strong> under <code>selfhost/</code>
 </code></pre>
 <p>with drivers <code>lex_main</code>, <code>pp_main</code>, <code>parse_main</code>, <code>tc_main</code>, <code>cg_main</code>, and the unified
 <code>esk_main</code> (preprocess → parse → type-check → generate). The code generator emits <strong>LLVM IR
-as text</strong> — no LLVM library is linked — which <code>clang</code> then assembles and links. This keeps
+as text</strong> (no LLVM library is linked), which <code>clang</code> then assembles and links. This keeps
 the self-hosted compiler dependency-free and is the standard bootstrap path.</p>
 <p>The endgame (v1.0): <code>eskiuc</code> compiles its own source. v0.3.0 reaches the key milestones on
-the way there — a 3-stage bootstrap fixpoint and feature-completeness against the C++ corpus.</p>
+the way there: a 3-stage bootstrap fixpoint and feature-completeness against the C++ corpus.</p>
 <h2 id="validation-parity-oracles-not-faith">Validation: parity oracles, not faith</h2>
 <p>Each pass is validated against the C++ <code>eskiuc</code>, which is the oracle. The method differs by
 phase, because the available ground truth differs:</p>
@@ -116,19 +116,20 @@ phase, because the available ground truth differs:</p>
 <h2 id="the-bootstrap-fixpoint">The bootstrap fixpoint</h2>
 <p>Beyond per-pass parity, the self-hosted compiler is validated <strong>against itself</strong>:</p>
 <ul>
-<li><strong><code>cg_selfhost.sh</code></strong> — the self-hosted codegen emits valid IR for the <em>entire</em> self-hosted
+<li><strong><code>cg_selfhost.sh</code></strong>: the self-hosted codegen emits valid IR for the <em>entire</em> self-hosted
   compiler, and <code>cg_main</code> compiled by itself reproduces the C++-built codegen's IR
   byte-for-byte.</li>
-<li><strong><code>cg_bootstrap.sh</code></strong> — a 3-stage build: the C++ <code>eskiuc</code> builds <code>cc0</code>, <code>cc0</code> builds <code>cc1</code>,
-  <code>cc1</code> builds <code>cc2</code>; the gate asserts <strong><code>cc1</code> ≡ <code>cc2</code></strong> (identical IR for the compiler's own
-  source). A self-built compiler reproducing its own output is a true bootstrap fixpoint.</li>
+<li><strong><code>cg_bootstrap.sh</code></strong> runs a 3-stage build: the C++ <code>eskiuc</code> builds <code>cc0</code>, <code>cc0</code> builds
+  <code>cc1</code>, <code>cc1</code> builds <code>cc2</code>; the gate asserts <strong><code>cc1</code> ≡ <code>cc2</code></strong> (identical IR for the
+  compiler's own source). A self-built compiler reproducing its own output is a true
+  bootstrap fixpoint.</li>
 </ul>
-<p>(Binary byte-equality is <em>not</em> asserted — a Mach-O <code>LC_UUID</code> and ad-hoc signature differ even
-for identical input; the IR fixpoint is the real proof.)</p>
+<p>(Binary byte-equality is <em>not</em> asserted; a Mach-O <code>LC_UUID</code> and ad-hoc signature differ even
+for identical input, so the IR fixpoint is the real proof.)</p>
 <h2 id="feature-completeness">Feature-completeness</h2>
 <p>The compiler's own source only exercises a subset of the language, so the bootstrap fixpoint
 alone does <strong>not</strong> prove general feature coverage. To verify it, the full C++ feature corpus
-is pushed through the behavioral codegen oracle — a clean sweep (every program self-host
+is pushed through the behavioral codegen oracle. A clean sweep (every program self-host
 compiles to the same behavior as the C++ build) is what earns the "feature-complete" claim.</p>
 <p>As of v0.3.0 the self-hosted code generator covers, beyond the bootstrap subset: floating
 point, <code>switch</code>, ADT enums + <code>match</code> (generic, and payloads wider than one word), closures,
