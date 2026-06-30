@@ -1,8 +1,10 @@
-# Eskiu 0.2.5
+# Eskiu 0.3.0
 
-A correctness fix plus the first self-hosting milestone. The headline is a
-preprocessor bug fix; alongside it, the lexer is now also written in Eskiu and
-proven byte-identical to the C++ lexer. No new language surface.
+The self-hosting milestone. The whole compiler (lexer, preprocessor, parser,
+semantic analyzer, and code generator) is now reimplemented in Eskiu under
+`selfhost/`, reaches a 3-stage bootstrap fixpoint, and the self-hosted code
+generator is feature-complete against the C++ corpus. For users, this release is
+a correctness fix plus a debug-printer crash fix; there is no new language surface.
 
 ---
 
@@ -33,30 +35,42 @@ cd eskiu && cmake -S . -B build && cmake --build build
 
 ## What's new
 
-**Fixed — a `//` comment ending in `\` no longer eats the next line.** The
-preprocessor applied C-style backslash-newline line continuation unconditionally,
-so a comment whose last character was a backslash silently spliced the following
-source line into the comment — deleting a `return`, an `else` branch, or any
-statement, with no diagnostic. Continuation now fires only when the trailing `\`
-is genuine code (not inside a `//` or `/* */` comment or a string/char literal);
-legitimate `#define` continuation is unaffected. Regression test added. This was
-found by dogfooding the new self-hosted lexer.
+**Fixed: `&&` and `||` now short-circuit.** Code generation evaluated both operands
+eagerly and emitted a logical-and/or, so the right-hand side always ran. A guarded
+dereference like `p != null && p.field` could fault. They now lower to a conditional
+branch plus PHI, evaluating the right-hand side only when the left doesn't already
+decide the result. Regression test added. Found by dogfooding the self-hosted type
+checker.
 
-**Self-hosting milestone 1 — the lexer, in Eskiu.** A full lexer written in Eskiu
-(`selfhost/`) now produces a token stream byte-identical to the C++ `--test-lexer`
-over the entire preprocessor-free corpus (114/114), checked by a parity gate wired
-into CI. This is dogfood/tooling — the production compiler is untouched. The parser
-(milestone 2) is underway; its expression layer is done.
+**Fixed: `--test-parser` no longer crashes on a forward-declared function.** The AST
+printer dereferenced a null `FunctionDecl::body` for a prototype like `int f(int);`,
+segfaulting `eskiuc --test-parser`. It now omits the `Body:` section for a body-less
+function. Affected only the debug printer, not code generation.
 
-**Hardening.** A `ESKIU_RESOLVER_DEBUG` mode cross-checks the v0.2.4 single resolver
-against codegen's structural type derivation on every table hit; across the whole
-corpus the two agree on every behavior-affecting type, confirming the unification is
-sound. The fuzzer gained generators for backslash-newline inside comments and
-strings (with a self-checking expected-output oracle, which the O0/O2 differential
-can't see) — guarding the footgun fixed above.
+**The self-hosting milestone is complete.** The entire compiler pipeline is written
+in Eskiu (`selfhost/`): lexer, preprocessor, parser, semantic analyzer, async
+lowering, and an LLVM-IR code generator that emits textual IR (no LLVM library is
+linked; `clang` assembles and links). Three things are proven and CI-gated:
 
-Behavior-preserving apart from the preprocessor fix, verified by the test suite,
-sanitizers, the golden-IR snapshot oracle, and the O0-vs-O2 differential fuzzer.
+- **Per-pass parity** against the C++ `eskiuc`. The front-end is byte-identical to
+  the reference debug dumps; the type checker matches its accept/reject verdict and
+  catches all 19 semantic error classes; the code generator is checked behaviorally
+  (compile both ways, run, compare exit code and output).
+- **A 3-stage bootstrap fixpoint.** The C++ compiler builds the self-hosted compiler
+  (cc0), cc0 builds it again (cc1), cc1 builds it a third time (cc2), and cc1 and cc2
+  emit identical IR for the compiler's own source.
+- **Feature-completeness.** The full C++ feature corpus, pushed through the behavioral
+  code-gen oracle, passes a clean sweep. Floats, `switch`, sum types and `match`,
+  closures, exceptions (the Itanium ABI), atomics, generics with inference, async/await,
+  unions, bitfields, interfaces, type aliases, function-as-value, packed structs,
+  variadics, and the `?` operator all generate correct code.
+
+This is dogfood and tooling. The production C++ compiler is untouched apart from one
+additive, debug-only printer extension used as a parity gate.
+
+Behavior-preserving for user programs apart from the short-circuit fix, verified by
+the test suite, sanitizers, the golden-IR snapshot oracle, and the O0-vs-O2
+differential fuzzer.
 
 The full log is in [CHANGELOG.md](CHANGELOG.md).
 
@@ -64,6 +78,7 @@ The full log is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Upgrade
 
-Drop-in over 0.2.x. The only behavior change is the preprocessor fix: if you had a
-`//` comment ending in `\`, it was silently swallowing the next line — that line now
-runs. Correct programs are otherwise unaffected.
+Drop-in over 0.2.x. The only behavior change is the short-circuit fix: if you relied
+on the right-hand side of `&&` or `||` always running (for a side effect), it now runs
+only when the left operand doesn't already decide the result. This is the standard C
+semantics; correct programs are otherwise unaffected.
