@@ -3,17 +3,17 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Eskiu — a self-hosting systems language</title>
+    <title>Eskiu: a self-hosting systems language</title>
     <meta
       name="description"
-      content="Eskiu is a compiled systems language with async/await, sum types, generics, HTTP/2, and atomics. LLVM backend, manual memory, compiles to a standalone binary. v0.3.0 — now self-hosting."
+      content="Eskiu is a compiled systems language with async/await, sum types, generics, HTTP/2, and atomics. LLVM backend, manual memory, compiles to a standalone binary. Self-hosting as of v0.3.0."
     />
     <link rel="canonical" href="https://eskiu-lang.org" />
     <link rel="icon" type="image/png" href="../assets/logo.png" />
     <link rel="apple-touch-icon" href="../assets/logo.png" />
     <meta
       property="og:title"
-      content="Eskiu — Systems language, async-native."
+      content="Eskiu: a self-hosting systems language"
     />
     <meta
       property="og:description"
@@ -1015,13 +1015,14 @@
       <div class="wrap">
         <div class="hero-grid">
           <div>
-            <span class="hero-ver">v0.3.0 — now self-hosting</span>
+            <span class="hero-ver">v0.3.0 · self-hosting</span>
             <h1>The systems language<br />that compiles itself.</h1>
             <p class="hero-sub">
-              Eskiu compiles to native binaries through LLVM — manual memory, the
-              C ABI, no runtime — with generics, sum types, interfaces, and
-              async/await. As of v0.3.0 the compiler is written in Eskiu itself,
-              validated by a 3-stage bootstrap fixpoint.
+              Eskiu compiles to native binaries through LLVM. You manage memory
+              yourself, it speaks the C ABI directly, and there is no runtime. The
+              language has generics, sum types, interfaces, and async/await. As of
+              v0.3.0 the compiler is written in Eskiu itself, validated by a 3-stage
+              bootstrap fixpoint.
             </p>
             <div class="hero-btns">
               <a class="btn-w" href="quickstart.html">Get started →</a>
@@ -1084,36 +1085,36 @@
         <span class="label">Self-hosting</span>
         <h2>The compiler is written in Eskiu.</h2>
         <p class="lead">
-          Every pass — lexer, preprocessor, parser, type checker, code generator —
-          is reimplemented in Eskiu and checked against the reference C++ compiler.
-          Code generation emits textual LLVM IR; no LLVM library is linked. The result
-          is validated two ways: parity per pass, and a three-stage bootstrap in which
-          the compiler reproduces its own output.
+          The lexer, preprocessor, parser, type checker, and code generator are all
+          reimplemented in Eskiu and checked against the reference C++ compiler. Code
+          generation emits textual LLVM IR; no LLVM library is linked. The result is
+          validated two ways: parity on every pass, and a three-stage bootstrap in
+          which the compiler reproduces its own output.
         </p>
         <div class="glance">
           <div class="glance-item">
             <h3>Bootstrap fixpoint</h3>
             <p>
               The C++ <code>eskiuc</code> builds the Eskiu compiler (cc0); cc0 builds
-              cc1; cc1 builds cc2 — and <code>cc1 ≡ cc2</code> emit identical IR. A
+              cc1; cc1 builds cc2, and <code>cc1 ≡ cc2</code> emit identical IR. A
               compiler reproducing its own output is the proof it self-hosts.
             </p>
           </div>
           <div class="glance-item">
             <h3>Feature-complete codegen</h3>
             <p>
-              Not just the subset the compiler itself uses — a full feature sweep
-              passes 50/50: floats, sum types, closures, exceptions, atomics,
-              generics, async/await, interfaces, the <code>?</code> operator. Each
+              Coverage goes past the subset the compiler itself uses. A full feature
+              sweep passes 50/50: floats, sum types, closures, exceptions, atomics,
+              generics, async/await, interfaces, the <code>?</code> operator. Every
               program runs identically to the C++ build.
             </p>
           </div>
           <div class="glance-item">
             <h3>Parity-gated in CI</h3>
             <p>
-              Every pass has a parity gate against <code>eskiuc</code> wired into CI —
-              byte-exact for the front end, verdict-for-verdict for the type checker,
-              behavioral for codegen — so the self-hosted compiler can't silently drift.
+              Every pass has a parity gate against <code>eskiuc</code> wired into CI.
+              The front end is checked byte-exact, the type checker verdict for verdict,
+              and codegen behaviorally, so the self-hosted compiler cannot silently drift.
             </p>
           </div>
         </div>
@@ -1132,7 +1133,7 @@
         <p class="lead">
           Eskiu compiles to native code and speaks the C ABI directly. Take a
           memory-heavy C++ component, rewrite it as an explicit, auditable Eskiu
-          module, and link it straight into the existing stack — you manage the
+          module, and link it straight into the existing stack. You manage the
           memory, so the footprint is yours to control. The same language scales
           from a bare-metal kernel to an HTTP/2 service in the cloud.
         </p>
@@ -1149,11 +1150,11 @@
             <h3>Explicit memory, smaller footprint</h3>
             <p>
               You allocate and free in the source with
-              <code>alloc&lt;T&gt;(N)</code> and <code>free(ptr)</code> — the
-              memory is yours to account for, the lever teams pull when replacing
-              C++ — and, on a real crypto pipeline,
+              <code>alloc&lt;T&gt;(N)</code> and <code>free(ptr)</code>, so the
+              memory is yours to account for. That is the lever teams pull when
+              replacing C++. On a real crypto pipeline it ran
               <a href="case-study-reactvision.html">2.5× faster than the reference C</a>
-              (benchmark + method in the case study).
+              (benchmark and method in the case study).
             </p>
           </div>
           <div class="glance-item">
@@ -1280,7 +1281,7 @@
 <span class="cm">// A constraint: a type that can compare itself to another.</span>
 <span class="kw">interface</span> <span class="ty">Ord</span> { <span class="ty">int</span> <span class="fn">cmp</span>(<span class="ty">Ord</span><span class="ty">*</span> o); }
 
-<span class="cm">// Coin satisfies Ord by providing cmp — structural, no "implements".</span>
+<span class="cm">// Coin satisfies Ord structurally by providing cmp (no "implements").</span>
 <span class="kw">struct</span> <span class="ty">Coin</span> {
     <span class="ty">int</span> value;
     <span class="ty">int</span> <span class="fn">cmp</span>(<span class="ty">Coin</span><span class="ty">*</span> o) { <span class="kw">if</span> (<span class="kw">self</span>.value <span class="op">&lt;</span> o.value) { <span class="kw">return</span> <span class="nu">-1</span>; } <span class="kw">return</span> <span class="nu">1</span>; }
@@ -1410,35 +1411,7 @@
       </div>
     </section>
 
-    <!-- Testimonial -->
-    <section class="proof">
-      <div class="wrap">
-        <figure class="testimonial">
-          <div class="stat">
-            <span class="stat-num">~85%</span>
-            <span class="stat-cap"
-              >less memory in the rendering modules migrated from C++ — measured;
-              method in the case study</span
-            >
-          </div>
-          <blockquote>
-            Eskiu is used in production at ReactVision — which builds it — to
-            replace memory-sensitive C++ components in an AR/VR rendering engine
-            with explicit, auditable native modules, while preserving C-ABI
-            interoperability with the existing stack.
-          </blockquote>
-          <figcaption>
-            <a href="https://reactvision.xyz" target="_blank" rel="noopener"
-              >ReactVision</a
-            >
-            builds and runs Eskiu &nbsp;·&nbsp;
-            <a href="case-study-reactvision.html">Read the case study (with methodology) →</a>
-          </figcaption>
-        </figure>
-      </div>
-    </section>
-
-    <!-- Sponsors -->
+    <!-- Early adopters -->
     <div class="sponsors">
       <div class="wrap">
         <p class="sp-label">Early adopters</p>
@@ -1475,7 +1448,7 @@
         <p class="lead">
           Grab a prebuilt binary, untar it into <code>/usr/local</code>, and
           run <code style="white-space: nowrap">eskiuc --version</code>. The
-          stdlib is bundled — imports work right away.
+          stdlib is bundled, so imports work right away.
         </p>
         <div class="hero-btns" style="margin-top: 1.75rem">
           <a class="btn-w" href="../assets/eskiuc-linux-x86_64.tar.gz" download>
@@ -1625,7 +1598,7 @@ int main() {
         const code = document.getElementById("pg-code").value;
 
         if (!code.trim()) {
-          out.innerHTML = '<span class="err">Nothing to run — write some code first.</span>';
+          out.innerHTML = '<span class="err">Nothing to run. Write some code first.</span>';
           return;
         }
 
@@ -1658,12 +1631,12 @@ int main() {
           if (typeof data.duration_ms === "number") parts.push(data.duration_ms + "ms");
           if (data.truncated) parts.push("output truncated");
 
-          html += '\n\n<span class="meta">— ' + parts.join(" · ") + "</span>";
+          html += '\n\n<span class="meta">' + parts.join(" · ") + "</span>";
           out.innerHTML = html;
         } catch (e) {
           out.innerHTML =
             '<span class="err">Could not reach the playground server.</span>\n' +
-            '<span class="hint">The live runner may be offline. Run locally instead — see the quickstart.</span>';
+            '<span class="hint">The live runner may be offline. Run locally instead; see the quickstart.</span>';
         } finally {
           btn.disabled = false;
           label.textContent = "▶ Run";
