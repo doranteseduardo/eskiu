@@ -207,8 +207,8 @@
 
       .hero-grid {
         display: flex;
-        flex-direction: column;
-        gap: 2.5rem;
+        flex-direction: column-reverse; /* mobile: mascot above the text */
+        gap: 1.75rem;
         align-items: flex-start;
       }
       .hero-grid > :first-child {
@@ -298,11 +298,15 @@
         flex-shrink: 0;
       }
       .hero-art img {
-        width: 300px;
-        max-width: 72vw;
+        width: 120px; /* small on mobile */
         height: auto;
         border-radius: 50%; /* clip the non-transparent square to a clean circle */
         display: block;
+      }
+      @media (min-width: 820px) {
+        .hero-art img {
+          width: 300px; /* full size beside the text on desktop */
+        }
       }
       .hero-mascot {
         display: none; /* the cat lives in the nav/footer brand mark, not floating over the hero */
