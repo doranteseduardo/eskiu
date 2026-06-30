@@ -107,7 +107,7 @@
 
       /* ── Nav ──────────────────────────────────────────────────────── */
       nav {
-        background: rgba(249, 247, 243, 0.97);
+        background: rgba(255, 255, 255, 0.9);
         backdrop-filter: blur(12px);
         border-bottom: 1px solid var(--border);
         padding: 0;
@@ -206,16 +206,10 @@
       }
 
       .hero-grid {
-        display: grid;
-        grid-template-columns: 1fr;
-        gap: 2rem;
-        align-items: start;
-      }
-      @media (min-width: 860px) {
-        .hero-grid {
-          grid-template-columns: 1fr 1.05fr;
-          gap: 3rem;
-        }
+        display: flex;
+        flex-direction: column;
+        gap: 2.5rem;
+        align-items: stretch;
       }
 
       .hero-ver {
@@ -236,10 +230,10 @@
         margin-bottom: 1.1rem;
       }
       .hero-sub {
-        font-size: 1rem;
+        font-size: 1.05rem;
         color: var(--ink2);
         line-height: 1.7;
-        max-width: 430px;
+        max-width: 620px;
         margin-bottom: 1.8rem;
       }
       @media (min-width: 860px) {
@@ -290,14 +284,8 @@
       /* Hero terminal */
       .hero-term {
         position: relative;
-        padding-top: 8rem;
-        order: -1;
-      }
-      @media (min-width: 860px) {
-        .hero-term {
-          order: 0;
-          margin-top: 0.5rem;
-        }
+        max-width: 780px;
+        width: 100%;
       }
       .hero-mascot {
         display: none; /* the cat lives in the nav/footer brand mark, not floating over the hero */
@@ -310,10 +298,9 @@
       .terminal {
         background: var(--code);
         border: 1px solid var(--code-bd);
-        border-radius: 10px;
+        border-radius: 8px;
         overflow: hidden;
         width: 100%;
-        box-shadow: 0 32px 80px rgba(0, 0, 0, 0.18);
       }
       .tbar {
         background: #252035;
