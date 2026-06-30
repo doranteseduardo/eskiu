@@ -26,6 +26,17 @@ keeps only the **durable lessons** and the **follow-ups still worth acting on**.
   port) hit byte-identical parity on its first run over the whole corpus, a sign the language
   and stdlib are mature.
 
+- **IR attributes are mostly UNSOUND to emit by default in Eskiu.** A reviewer asked for
+  richer LLVM metadata (`nonnull`/`noundef`/`nocapture`/TBAA/...). Most of it is unsound here:
+  pointers are nullable (so a parameter — including a method receiver, since `p.m()` passes a
+  possibly-null `p`) can't be `nonnull`; locals can be uninitialized, so params/returns can't
+  be `noundef`; `nocapture`/TBAA need escape/alias analysis the front-end doesn't have. The
+  one provably-sound attribute is on the **hidden `sret` pointer** (a fresh dedicated alloca
+  the front-end owns): `noalias nonnull`. Lesson: an attribute needs a *soundness argument*,
+  not just "clang emits it" — a wrong one is a silent `-O2`-only miscompile. The O0-vs-O2
+  differential fuzzer is the net that catches these. Broader attributes are a real analysis
+  task (tracked in `PROMOTION_PLAN.md`), not a quick add.
+
 ## Open follow-ups (worth doing, not yet done)
 
 - **Keyword-as-identifier diagnostic — DONE in the C++ parser (v0.3.0).** `fn`/`in`/`match`
