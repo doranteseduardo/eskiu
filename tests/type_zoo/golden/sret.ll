@@ -5,7 +5,7 @@
 
 declare i32 @printf(ptr, ...)
 
-define void @make(ptr noalias nonnull %sret.ptr) {
+define void @make(ptr %sret.ptr) {
 entry:
   %x = alloca %Big, align 8
   %0 = getelementptr inbounds nuw %Big, ptr %x, i32 0, i32 0

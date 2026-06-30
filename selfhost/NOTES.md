@@ -26,16 +26,21 @@ keeps only the **durable lessons** and the **follow-ups still worth acting on**.
   port) hit byte-identical parity on its first run over the whole corpus, a sign the language
   and stdlib are mature.
 
-- **IR attributes are mostly UNSOUND to emit by default in Eskiu.** A reviewer asked for
-  richer LLVM metadata (`nonnull`/`noundef`/`nocapture`/TBAA/...). Most of it is unsound here:
-  pointers are nullable (so a parameter — including a method receiver, since `p.m()` passes a
-  possibly-null `p`) can't be `nonnull`; locals can be uninitialized, so params/returns can't
-  be `noundef`; `nocapture`/TBAA need escape/alias analysis the front-end doesn't have. The
-  one provably-sound attribute is on the **hidden `sret` pointer** (a fresh dedicated alloca
-  the front-end owns): `noalias nonnull`. Lesson: an attribute needs a *soundness argument*,
-  not just "clang emits it" — a wrong one is a silent `-O2`-only miscompile. The O0-vs-O2
-  differential fuzzer is the net that catches these. Broader attributes are a real analysis
-  task (tracked in `PROMOTION_PLAN.md`), not a quick add.
+- **IR attributes are UNSOUND to emit without dedicated analysis — even `sret`.** A reviewer
+  asked for richer LLVM metadata (`nonnull`/`noundef`/`nocapture`/TBAA/...). Most is unsound
+  here: pointers are nullable (so a parameter — including a method receiver, since `p.m()`
+  passes a possibly-null `p`) can't be `nonnull`; locals can be uninitialized, so params/
+  returns can't be `noundef`; `nocapture`/TBAA need escape/alias analysis the front-end
+  doesn't have. The `sret` pointer *looked* safe (a fresh dedicated alloca per call site) and
+  passed the full macOS/arm64 suite + 800 O0-vs-O2 fuzz iterations — **but `noalias`/`nonnull`
+  on it crashed three HTTP/2 tests with SIGILL on Linux/x86-64 CI** (the `currentSretParam`
+  forwarding path — `x = x.method()` style — can make the slot alias, and the x86-64 backend
+  exploited it into an `unreachable`/`ud2`). Reverted. Lessons: (1) an attribute needs a
+  *soundness proof over every path that produces the value*, not just the common one; (2) the
+  macOS arm64 suite + fuzzer is **not** sufficient — a wrong attribute can pass there and
+  still miscompile on Linux/x86-64, so attribute work must be gated on the Linux CI before
+  shipping. Attributes are a real analysis task (tracked in `PROMOTION_PLAN.md`), not a quick
+  add.
 
 ## Open follow-ups (worth doing, not yet done)
 
