@@ -28,8 +28,11 @@ keeps only the **durable lessons** and the **follow-ups still worth acting on**.
 
 ## Open follow-ups (worth doing, not yet done)
 
-- **Improve the C++ parser's keyword-as-identifier diagnostic.** `fn`/`in`/`match` are
-  reserved; using one as a variable/param/field name fails far from the cause (`Expected ';'`,
-  `Expected expression, got FN`, `Expected parameter name`). This was the single most
-  recurring papercut of the self-host (~13 strikes). A message like
-  `expected a name, found keyword 'fn'` would pay for itself many times over.
+- **Keyword-as-identifier diagnostic — DONE in the C++ parser (v0.3.0).** `fn`/`in`/`match`
+  (and type names) used as a variable/param/field name now report `expected a name, found
+  keyword 'fn'` at the cause instead of a downstream `Expected ';'`/`Expected expression`.
+  This was the single most recurring papercut of the self-host (~13 strikes). The fix lives
+  in `Parser::consume` (the IDENT case), the typed-local-decl path in `parse_decl.cpp`, and
+  the speculative decl-vs-expression fallback in `parse_stmt.cpp` (only an IDENT/`*` start
+  falls back; a leading type keyword surfaces its real error). The self-hosted `parser.esk`
+  mirror is still pending, tracked as R3 in `PROMOTION_PLAN.md`.

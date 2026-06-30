@@ -45,9 +45,11 @@ moment the Eskiu compiler is primary, so they are prerequisites, not afterthough
   Eskiu front-end is the only front-end.
 - **R3 — keyword-as-identifier diagnostic.** Using `fn`/`in`/`match` as a name fails
   far from the cause (`Expected ';'`, etc.) — the single most recurring self-host
-  papercut. Add `expected a name, found keyword 'fn'`-style diagnostics. Do it in
-  **both** parsers in lockstep (C++ `parser/` and `selfhost/parser.esk`) so parse
-  parity stays byte-exact and the message is identical whichever binary is primary.
+  papercut. **The C++ parser is done (v0.3.0):** `expected a name, found keyword 'fn'`
+  at the cause (`Parser::consume`, the typed-local-decl path, and the speculative
+  decl-vs-expression fallback). **Still pending:** mirror it in `selfhost/parser.esk` so
+  the message is identical whichever binary is primary. (Parser error text is not in any
+  byte-exact gate, so the mirror is a consistency task, not a correctness one.)
 
 ## Stages (each parity-gated, built in order)
 

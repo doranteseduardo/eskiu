@@ -68,6 +68,17 @@ linked; `clang` assembles and links). Three things are proven and CI-gated:
 This is dogfood and tooling. The production C++ compiler is untouched apart from one
 additive, debug-only printer extension used as a parity gate.
 
+**Also in this release (reinforcement).**
+
+- **`-O` optimization levels.** `eskiuc -O1`/`-O2`/`-O3` runs the LLVM middle-end
+  (mem2reg/SROA/inlining/...) before code generation; `-O0` (the default) is unchanged.
+- **A clearer error for a keyword used as a name.** Writing `int fn = ...` (or using
+  `in`/`match`/a type name as a variable, parameter, or field) now says
+  `expected a name, found keyword 'fn'` at the cause instead of a confusing later error.
+- **Correct `size_t` ABI for libc string/memory functions.** `memcpy`/`memset`/`memmove`/
+  `memcmp`/`memchr` (size argument) and `strlen` (return) now use 64-bit `size_t`, fixing
+  the declared ABI on 64-bit targets.
+
 Behavior-preserving for user programs apart from the short-circuit fix, verified by
 the test suite, sanitizers, the golden-IR snapshot oracle, and the O0-vs-O2
 differential fuzzer.
