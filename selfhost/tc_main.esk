@@ -1,0 +1,51 @@
+// Driver: `eskiuc run selfhost/tc_main.esk FILE` (or compiled) — preprocess + parse +
+// type-check FILE, printing in the `--test-typechecker` format (banner + verdict).
+// Exit 0 = "Type checking succeeded!", 1 = "Type checking failed!". The parity
+// harness compares the verdict + diagnostics (EXPECT-ERROR substrings), like
+// tests/run.sh's negative tests — not a byte diff.
+
+import <io>;
+import <fs>;
+import "preprocessor.esk";
+import "parser.esk";
+import "sema.esk";
+
+int main(int argc, string* argv) {
+    if (argc < 2) {
+        printf("usage: tc_main <file.esk>\n");
+        return 1;
+    }
+    let n: int64 = 0;
+    *uint8 raw = fs_read_all(argv[1], &n);
+    if (raw == null) {
+        printf("error: cannot read %s\n", argv[1]);
+        return 1;
+    }
+
+    let pperr: int = 0;
+    string pp = pp_run((string)raw, (int)n, argv[1], &pperr);
+    *uint8 src = (*uint8)pp;
+    int plen = 0;
+    while (src[plen] != 0) { plen = plen + 1; }
+
+    printf("Type checking: %s\n", argv[1]);
+    printf("========================================================\n");
+
+    parser_session_init();
+    let p: Parser;
+    p_init(&p, src, plen);
+    p.basedir = str_dir(argv[1]);
+    *Program prog = parse_program(&p);
+
+    let sm: Sema;
+    sema_init(&sm, argv[1]);
+    int ok = sema_check(&sm, prog);
+
+    printf("========================================================\n");
+    if (ok == 1) {
+        printf("Type checking succeeded!\n");
+        return 0;
+    }
+    printf("Type checking failed!\n");
+    return 1;
+}

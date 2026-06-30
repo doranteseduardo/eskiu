@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Quickstart · Eskiu</title>
+  <meta name="description" content="Download Eskiu, write your first program, and run it. Hello world, structs with methods, manual alloc/free, and lambdas — the essentials in a few minutes." />
+  <link rel="canonical" href="https://eskiu-lang.org/quickstart.html" />
+  <link rel="icon" type="image/png" href="../assets/logo.png" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #ffffff; --surface: #f6f7f9; --border: #e6e8ec;
+      --ink: #16181d; --ink2: #4f555f; --purple: #4c31bb; --purple-lt: #6448d4;
+      --code: #1b1728; --code-bd: #2c2444;
+      --sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      --mono: ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+    }
+    html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+    body { background: var(--bg); color: var(--ink); font-family: var(--sans);
+           line-height: 1.65; -webkit-font-smoothing: antialiased; }
+    .wrap { max-width: 720px; margin: 0 auto; padding: 2.5rem 1.25rem 5rem; }
+    .top { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 2.5rem; }
+    .top img { width: 30px; height: 30px; }
+    .top a { color: var(--ink2); text-decoration: none; font-size: 0.85rem; }
+    .top a:hover { color: var(--purple); }
+    .eyebrow { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.12em;
+               text-transform: uppercase; color: var(--purple); margin-bottom: 0.6rem; }
+    h1 { font-size: clamp(1.8rem, 5vw, 2.6rem); letter-spacing: -0.03em;
+         line-height: 1.1; margin-bottom: 1rem; }
+    .lede { font-size: 1.05rem; color: var(--ink2); margin-bottom: 1.75rem; }
+    h2 { font-size: 1.25rem; letter-spacing: -0.02em; margin: 2.75rem 0 0.75rem; }
+    p { margin: 0 0 1rem; }
+    a { color: var(--purple); }
+    ul { margin: 0 0 1rem 1.1rem; }
+    li { margin-bottom: 0.4rem; }
+    strong { font-weight: 600; }
+    code { font-family: var(--mono); font-size: 0.88em; background: var(--surface);
+           padding: 0.1em 0.35em; border-radius: 4px; }
+    pre { background: var(--code); border: 1px solid var(--code-bd); border-radius: 8px;
+          padding: 0.95rem 1.1rem; margin: 0 0 1.5rem; overflow-x: auto;
+          font-family: var(--mono); font-size: 0.78rem; line-height: 1.8; color: #b4bccc; }
+    pre code { background: none; padding: 0; font-size: inherit; color: inherit; }
+    pre .c { color: #6b6480; }   /* comment / prompt */
+    pre .o { color: #c3e88d; }   /* output */
+    .btns { display: flex; gap: 0.7rem; flex-wrap: wrap; margin: 0 0 1rem; }
+    .btn-w { display: inline-flex; align-items: center; gap: 0.35rem; background: var(--purple);
+             color: #fff; font-weight: 700; padding: 0.6rem 1.2rem; border-radius: 7px;
+             font-size: 0.88rem; text-decoration: none; transition: background 0.12s; }
+    .btn-w:hover { background: var(--purple-lt); }
+    .note { font-size: 0.88rem; color: var(--ink2); }
+    .foot { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--border);
+            font-size: 0.9rem; color: var(--ink2); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <img src="../assets/logo.png" alt="Eskiu" />
+      <a href="index.html">← eskiu</a>
+    </div>
+
+    <div class="eyebrow">Quickstart</div>
+    <h1>Get Eskiu running</h1>
+    <p class="lede">
+      Download a prebuilt binary, write your first program, and run it. A few
+      minutes start to finish — no toolchain to assemble.
+    </p>
+
+    <h2>Install</h2>
+    <p>
+      Grab the build for your platform. The standard library ships inside the
+      tarball, so imports work the moment it's unpacked.
+    </p>
+    <div class="btns">
+      <a class="btn-w" href="../assets/eskiuc-linux-x86_64.tar.gz" download>↓ Linux (x86-64)</a>
+      <a class="btn-w" href="../assets/eskiuc-macos-arm64.tar.gz" download>↓ macOS (Apple Silicon)</a>
+    </div>
+    <p>Unpack it into <code>/usr/local</code> and check the version:</p>
+    <pre><code><span class="c"># macOS (Apple Silicon)</span>
+tar -xzf eskiuc-macos-arm64.tar.gz -C /usr/local
+
+<span class="c"># Linux (x86-64)</span>
+tar -xzf eskiuc-linux-x86_64.tar.gz -C /usr/local
+
+eskiuc --version
+<span class="o">Eskiu 0.3.0 (LLVM ...)</span></code></pre>
+    <p>The tarball installs:</p>
+    <ul>
+      <li><code>bin/eskiuc</code> — the compiler</li>
+      <li><code>lib/eskiu/stdlib/</code> — the standard library</li>
+    </ul>
+    <p class="note">
+      Linking needs a C toolchain on your machine (<code>clang</code> or
+      <code>gcc</code>) — the same one Rust and Clang call to produce a binary.
+      macOS has it via the Xcode command-line tools; on Linux, install
+      <code>build-essential</code> (or <code>gcc</code>).
+    </p>
+
+    <h2>Hello, Eskiu</h2>
+    <p>Create <code>hello.esk</code>:</p>
+    <pre><code>extern int printf(string fmt, ...);
+
+int add(int a, int b) {
+    return a + b;
+}
+
+int main() {
+    int result = add(5, 3);
+    printf("Hello from Eskiu!\n");
+    printf("Result: %d\n", result);
+    return 0;
+}</code></pre>
+    <p>
+      Compile and run it in one step. <code>eskiuc run</code> builds a temporary
+      native binary, runs it, and cleans up:
+    </p>
+    <pre><code>eskiuc run hello.esk
+<span class="o">Hello from Eskiu!
+Result: 8</span></code></pre>
+    <p>
+      Or keep the binary. When the <code>-o</code> name has no <code>.o</code>
+      extension, <code>eskiuc</code> links it into an executable for you:
+    </p>
+    <pre><code>eskiuc hello.esk -o hello && ./hello</code></pre>
+    <p>Want just the object file? Use a <code>.o</code> name, then link it yourself:</p>
+    <pre><code>eskiuc hello.esk -o hello.o && clang hello.o -o hello && ./hello</code></pre>
+
+    <h2>A struct with a method</h2>
+    <p>
+      Structs hold data. Methods are plain functions that take a pointer to the
+      struct as their first argument.
+    </p>
+    <pre><code>extern int printf(string fmt, ...);
+
+struct Point {
+    int x;
+    int y;
+}
+
+int Point_sum(Point* self) {
+    return self.x + self.y;
+}
+
+int main() {
+    let p: Point;
+    p.x = 3;
+    p.y = 7;
+    int s = Point_sum(&p);
+    printf("sum = %d\n", s);   <span class="c">// sum = 10</span>
+    return 0;
+}</code></pre>
+
+    <h2>alloc / free with pointer arithmetic</h2>
+    <p>
+      <code>alloc&lt;T&gt;(n)</code> (from the <code>&lt;mem&gt;</code> stdlib)
+      allocates <code>n</code> elements of type <code>T</code> and returns a typed
+      pointer. Index with <code>[]</code>. Call <code>free</code> when you're done —
+      the memory is yours to account for.
+    </p>
+    <pre><code>import &lt;mem&gt;;
+extern int printf(string fmt, ...);
+
+int main() {
+    *int buf = alloc&lt;int&gt;(4);
+    buf[0] = 10;
+    buf[1] = 20;
+    buf[2] = 30;
+    buf[3] = 40;
+    int sum = buf[0] + buf[1] + buf[2] + buf[3];
+    printf("sum = %d\n", sum);   <span class="c">// sum = 100</span>
+    free(buf);
+    return 0;
+}</code></pre>
+
+    <h2>Lambdas</h2>
+    <p>
+      Functions are first-class values. Write a lambda with the same syntax as a
+      regular function, minus the name:
+    </p>
+    <pre><code>extern int printf(string fmt, ...);
+
+int apply(fn(int)->int f, int x) {
+    return f(x);
+}
+
+int main() {
+    let double_it: fn(int)->int = int(int x) { return x * 2; };
+    printf("%d\n", double_it(5));          <span class="c">// 10</span>
+    printf("%d\n", apply(double_it, 4));   <span class="c">// 8</span>
+    return 0;
+}</code></pre>
+    <p>
+      <code>fn(int)-&gt;int</code> is the function-pointer type. The lambda
+      <code>int(int x) { ... }</code> produces a value of that type.
+    </p>
+
+    <h2>What's next</h2>
+    <ul>
+      <li><a href="index.html#try">Try Eskiu in your browser</a> — no install needed.</li>
+      <li><a href="the-book-of-eskiu.html">The Book of Eskiu</a> — the full language guide.</li>
+      <li><a href="index.html#examples">More examples</a> — async, sum types, generics, servers.</li>
+    </ul>
+
+    <div class="foot">
+      <a href="index.html">← Back to eskiu</a>
+    </div>
+  </div>
+</body>
+</html>

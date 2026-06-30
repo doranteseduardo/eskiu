@@ -1,0 +1,1380 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Getting started · Eskiu docs</title>
+  <meta name="description" content="---" />
+  <link rel="canonical" href="https://eskiu-lang.org/docs/getting-started.html" />
+  <link rel="icon" type="image/png" href="../../assets/logo.png" />
+  <style>*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #ffffff; --surface: #f6f7f9; --border: #e6e8ec;
+  --ink: #16181d; --ink2: #4f555f; --purple: #4c31bb; --purple-lt: #6448d4;
+  --code: #1b1728; --code-bd: #2c2444;
+  --sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+}
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+body { background: var(--bg); color: var(--ink); font-family: var(--sans);
+       line-height: 1.65; -webkit-font-smoothing: antialiased; }
+.wrap { max-width: 800px; margin: 0 auto; padding: 2.25rem 1.25rem 5rem; }
+.top { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 1.5rem; }
+.top img { width: 30px; height: 30px; }
+.top a { color: var(--ink2); text-decoration: none; font-size: 0.85rem; }
+.top a:hover { color: var(--purple); }
+.docnav { display: flex; flex-wrap: wrap; gap: 0.35rem 0.5rem; margin-bottom: 2.5rem;
+          padding-bottom: 1.25rem; border-bottom: 1px solid var(--border); }
+.docnav a { font-size: 0.8rem; color: var(--ink2); text-decoration: none;
+            padding: 0.25rem 0.6rem; border-radius: 6px; border: 1px solid transparent; }
+.docnav a:hover { color: var(--purple); background: var(--surface); }
+.docnav a.active { color: var(--purple); border-color: var(--border); background: #fff; font-weight: 600; }
+.content h1 { font-size: clamp(1.7rem, 4.5vw, 2.4rem); letter-spacing: -0.03em;
+              line-height: 1.12; margin: 0 0 1.25rem; }
+.content h2 { font-size: 1.35rem; letter-spacing: -0.02em; margin: 2.5rem 0 0.85rem;
+              padding-top: 0.5rem; }
+.content h3 { font-size: 1.08rem; margin: 1.75rem 0 0.6rem; }
+.content h4 { font-size: 0.95rem; margin: 1.4rem 0 0.5rem; color: var(--ink2); }
+.content p { margin: 0 0 1rem; }
+.content a { color: var(--purple); }
+.content ul, .content ol { margin: 0 0 1rem 1.3rem; }
+.content li { margin-bottom: 0.4rem; }
+.content strong { font-weight: 600; }
+.content hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+.content blockquote { border-left: 3px solid var(--purple); background: var(--surface);
+                      padding: 0.8rem 1.1rem; border-radius: 0 8px 8px 0; margin: 0 0 1.25rem;
+                      color: var(--ink2); }
+.content blockquote p:last-child { margin-bottom: 0; }
+.content code { font-family: var(--mono); font-size: 0.86em; background: var(--surface);
+                padding: 0.1em 0.35em; border-radius: 4px; }
+.content pre { background: var(--code); border: 1px solid var(--code-bd); border-radius: 8px;
+               padding: 0.95rem 1.1rem; margin: 0 0 1.5rem; overflow-x: auto;
+               font-family: var(--mono); font-size: 0.78rem; line-height: 1.75; color: #b4bccc; }
+.content pre code { background: none; padding: 0; font-size: inherit; color: inherit; }
+.tablewrap { overflow-x: auto; margin: 0 0 1.5rem; }
+.content table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+.content th, .content td { text-align: left; padding: 0.5rem 0.75rem;
+                          border-bottom: 1px solid var(--border); vertical-align: top; }
+.content th { color: var(--ink2); font-weight: 600; white-space: nowrap; }
+.content td code { white-space: nowrap; }
+.foot { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--border);
+        font-size: 0.9rem; color: var(--ink2); }
+@media (max-width: 600px) {
+  .content table { font-size: 0.8rem; }
+  .content th, .content td { padding: 0.4rem 0.55rem; white-space: normal; }
+}</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <img src="../../assets/logo.png" alt="Eskiu" />
+      <a href="../index.html">← eskiu</a>
+    </div>
+    <nav class="docnav"><a href="index.html">Overview</a><a href="getting-started.html" class="active">Getting started</a><a href="spec.html">Spec</a><a href="grammar.html">Grammar</a><a href="build.html">Tooling</a><a href="glossary.html">Glossary</a><a href="internals.html">Internals →</a></nav>
+    <div class="content">
+<hr>
+<h1 id="getting-started-with-eskiu">Getting Started with Eskiu</h1>
+<p>A hands-on introduction to the Eskiu language. You will go from zero to writing
+and inspecting real compiled programs in about 30 minutes.</p>
+<h2 id="all-code-blocks-in-this-document-compile-and-run-with-eskiu-v030">All code blocks in this document compile and run with <strong>Eskiu v0.3.0</strong>.</h2>
+<h2 id="installation">Installation</h2>
+<h3 id="prerequisites">Prerequisites</h3>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>Minimum version</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>LLVM</td>
+<td>17+</td>
+<td>Headers and libraries required</td>
+</tr>
+<tr>
+<td>CMake</td>
+<td>3.20+</td>
+<td>Build system</td>
+</tr>
+<tr>
+<td>C++ compiler</td>
+<td>C++17</td>
+<td>GCC 7+, Clang 5+, or Apple Clang</td>
+</tr>
+<tr>
+<td>clang</td>
+<td>any recent</td>
+<td>Used to link the final binary</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="macos">macOS</h3>
+<pre><code class="language-bash">brew install llvm cmake
+export LLVM_DIR=$(brew --prefix llvm)/lib/cmake/llvm
+</code></pre>
+<p>Add the <code>export</code> line to <code>~/.zshrc</code> to make it permanent. Then clone and build:</p>
+<pre><code class="language-bash">git clone https://github.com/doranteseduardo/eskiu.git
+cd eskiu
+cmake -S . -B build
+cmake --build build -j$(sysctl -n hw.ncpu)
+</code></pre>
+<h3 id="linux-ubuntu-debian">Linux (Ubuntu / Debian)</h3>
+<pre><code class="language-bash">sudo apt-get install -y cmake llvm-17-dev clang-17 build-essential
+cmake -S . -B build
+cmake --build build -j$(nproc)
+</code></pre>
+<h3 id="verify">Verify</h3>
+<pre><code class="language-bash">./build/eskiuc --version
+# Eskiu 0.3.0 (LLVM 22.1.6)   — exact LLVM version depends on your install
+</code></pre>
+<p>Add <code>./build</code> to your <code>PATH</code> so you can type <code>eskiuc</code> from any directory.</p>
+<hr>
+<h2 id="your-first-program">Your First Program</h2>
+<p>Create <code>hello.esk</code>:</p>
+<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+
+int add(int a, int b) {
+    return a + b;
+}
+
+int main() {
+    int result = add(5, 3);
+    printf(&quot;Hello from Eskiu!\n&quot;);
+    printf(&quot;Result: %d\n&quot;, result);
+    return 0;
+}
+</code></pre>
+<p>Compile and run. When the <code>-o</code> name has no <code>.o</code> extension, <code>eskiuc</code> links the
+program into an executable for you (it calls your system C toolchain under the
+hood, exactly as <code>rustc</code> does):</p>
+<pre><code class="language-bash">eskiuc hello.esk -o hello
+./hello
+</code></pre>
+<p>Prefer the two steps — for example to inspect or reuse the object file? Give the
+output a <code>.o</code> name (or pass <code>-c</code>) and link it yourself:</p>
+<pre><code class="language-bash">eskiuc hello.esk -o hello.o   # object only
+clang hello.o -o hello        # link
+./hello
+</code></pre>
+<p>Expected output:</p>
+<pre><code>Hello from Eskiu!
+Result: 8
+</code></pre>
+<h3 id="peek-at-the-generated-ir">Peek at the generated IR</h3>
+<p>Before producing an object file you can ask the compiler to print the LLVM IR it
+would emit:</p>
+<pre><code class="language-bash">eskiuc hello.esk --test-codegen
+</code></pre>
+<p>Abridged output:</p>
+<pre><code class="language-llvm">@0 = private unnamed_addr constant [19 x i8] c&quot;Hello from Eskiu!\0A\00&quot;
+@1 = private unnamed_addr constant [12 x i8] c&quot;Result: %d\0A\00&quot;
+
+declare i32 @printf(ptr, ...)
+
+define i32 @add(i32 %a, i32 %b) {
+entry:
+  %0 = add i32 %a, %b
+  ret i32 %0
+}
+
+define i32 @main() {
+entry:
+  %result = alloca i32, align 4
+  %0 = call i32 @add(i32 5, i32 3)
+  store i32 %0, ptr %result, align 4
+  ...
+  ret i32 0
+}
+</code></pre>
+<p>String literals become private globals. Local variables are stack slots
+(<code>alloca</code>). The <code>add</code> function compiles down to a single <code>add i32</code> instruction.</p>
+<hr>
+<h2 id="variables-and-types">Variables and Types</h2>
+<h3 id="declaring-variables">Declaring variables</h3>
+<p>Eskiu supports two equivalent declaration styles:</p>
+<pre><code class="language-eskiu">// C-style
+int x = 42;
+float pi = 3.14;
+bool flag = true;
+
+// let-style
+let x: int = 42;
+let pi: float = 3.14;
+let flag: bool = true;
+</code></pre>
+<p>Both styles compile to the same IR. Use whichever reads more clearly in context.</p>
+<h3 id="primitive-types">Primitive types</h3>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th>Type</th>
+<th>Width</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>bool</code></td>
+<td>1 bit</td>
+<td><code>true</code> / <code>false</code></td>
+</tr>
+<tr>
+<td><code>char</code></td>
+<td>8-bit</td>
+<td>Unsigned; single character</td>
+</tr>
+<tr>
+<td><code>int</code></td>
+<td>32-bit</td>
+<td>Signed</td>
+</tr>
+<tr>
+<td><code>int8</code></td>
+<td>8-bit</td>
+<td>Signed</td>
+</tr>
+<tr>
+<td><code>int16</code></td>
+<td>16-bit</td>
+<td>Signed</td>
+</tr>
+<tr>
+<td><code>int32</code></td>
+<td>32-bit</td>
+<td>Alias for <code>int</code></td>
+</tr>
+<tr>
+<td><code>int64</code></td>
+<td>64-bit</td>
+<td>Signed</td>
+</tr>
+<tr>
+<td><code>uint</code></td>
+<td>32-bit</td>
+<td>Unsigned</td>
+</tr>
+<tr>
+<td><code>uint8</code></td>
+<td>8-bit</td>
+<td>Unsigned (byte)</td>
+</tr>
+<tr>
+<td><code>uint16</code></td>
+<td>16-bit</td>
+<td>Unsigned</td>
+</tr>
+<tr>
+<td><code>uint32</code></td>
+<td>32-bit</td>
+<td>Unsigned</td>
+</tr>
+<tr>
+<td><code>uint64</code></td>
+<td>64-bit</td>
+<td>Unsigned</td>
+</tr>
+<tr>
+<td><code>float</code></td>
+<td>32-bit</td>
+<td>IEEE 754 single-precision (literals are <code>double</code>; assigning coerces down)</td>
+</tr>
+<tr>
+<td><code>double</code></td>
+<td>64-bit</td>
+<td>IEEE 754 double-precision</td>
+</tr>
+<tr>
+<td><code>string</code></td>
+<td>pointer</td>
+<td>Null-terminated C string</td>
+</tr>
+<tr>
+<td><code>void</code></td>
+<td>—</td>
+<td>Used as function return type</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="integer-and-hex-literals">Integer and hex literals</h3>
+<pre><code class="language-eskiu">int a = 255;
+int b = 0xFF;    // same value — hex prefix supported
+uint8 mask = 0x0F;
+int64 big = 1000000;
+int neg = -42;   // negative literals work anywhere, including global scope
+float f = -3.14;
+</code></pre>
+<h3 id="pointer-types">Pointer types</h3>
+<p>Prefix <code>*</code> to make a type a pointer:</p>
+<pre><code class="language-eskiu">let p: *int = null;
+int x = 10;
+p = &amp;x;           // address-of
+int val = *p;     // dereference
+</code></pre>
+<hr>
+<h2 id="operators">Operators</h2>
+<h3 id="arithmetic">Arithmetic</h3>
+<pre><code class="language-eskiu">int a = 10;
+int b = 3;
+int sum  = a + b;   // 13
+int diff = a - b;   // 7
+int prod = a * b;   // 30
+int quot = a / b;   // 3
+int rem  = a % b;   // 1
+</code></pre>
+<h3 id="comparison">Comparison</h3>
+<p>All comparison operators work on integers, floats, and pointers:</p>
+<pre><code class="language-eskiu">bool eq  = (a == b);
+bool neq = (a != b);
+bool lt  = (a &lt;  b);
+bool gt  = (a &gt;  b);
+bool lte = (a &lt;= b);
+bool gte = (a &gt;= b);
+</code></pre>
+<h3 id="logical">Logical</h3>
+<pre><code class="language-eskiu">bool x = true;
+bool y = false;
+bool both = x &amp;&amp; y;   // false
+bool either = x || y; // true
+bool inv = !x;        // false
+</code></pre>
+<h3 id="bitwise">Bitwise</h3>
+<pre><code class="language-eskiu">int flags = 0xFF;
+int low   = flags &amp; 0x0F;   // AND  → 15
+int hi    = flags | 0x100;  // OR   → 511
+int xord  = flags ^ 0x55;   // XOR  → 170
+int shl   = 1 &lt;&lt; 4;         // shift left  → 16
+int shr   = flags &gt;&gt; 4;     // shift right → 15
+int inv2  = ~0;              // bitwise NOT → -1
+</code></pre>
+<h3 id="compound-assignment">Compound assignment</h3>
+<pre><code class="language-eskiu">int x = 10;
+x += 5;    // x = 15
+x -= 3;    // x = 12
+x *= 2;    // x = 24
+x /= 4;    // x = 6
+x %= 4;    // x = 2
+x &amp;= 0x3;  // x = 2
+x |= 0x1;  // x = 3
+x ^= 0x2;  // x = 1
+x &lt;&lt;= 3;   // x = 8
+x &gt;&gt;= 1;   // x = 4
+</code></pre>
+<h3 id="address-of-and-dereference">Address-of and dereference</h3>
+<pre><code class="language-eskiu">int n = 42;
+let ptr: *int = &amp;n;   // address-of
+int copy = *ptr;      // dereference → 42
+</code></pre>
+<h3 id="pointer-arithmetic">Pointer arithmetic</h3>
+<pre><code class="language-eskiu">import &lt;mem&gt;;     // alloc&lt;T&gt; / free
+extern int printf(string fmt, ...);
+
+int main() {
+    let buf: *uint8 = alloc&lt;uint8&gt;(4);
+    *buf = 10;
+    *(buf + 1) = 20;
+    *(buf + 2) = 30;
+    printf(&quot;%d %d %d\n&quot;, *buf, *(buf + 1), *(buf + 2));
+    free(buf);
+    return 0;
+}
+</code></pre>
+<p><code>ptr + n</code> advances by <code>n * sizeof(*ptr)</code> bytes — typed arithmetic. Adding <code>1</code> to a <code>*uint8</code> moves one byte; adding <code>1</code> to a <code>*int</code> moves four bytes. <code>*void</code> and <code>*char</code> are the exceptions: they always use byte-level stride.</p>
+<h3 id="cast">Cast</h3>
+<pre><code class="language-eskiu">float f = 3.99;
+int   i = (int)f;      // truncates → 3
+uint8 b = (uint8)255;
+</code></pre>
+<hr>
+<h2 id="control-flow">Control Flow</h2>
+<h3 id="if-else">if / else</h3>
+<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+
+int main() {
+    int x = 7;
+    if (x &gt; 10) {
+        printf(&quot;big\n&quot;);
+    } else if (x &gt; 4) {
+        printf(&quot;medium\n&quot;);
+    } else {
+        printf(&quot;small\n&quot;);
+    }
+    return 0;
+}
+</code></pre>
+<p>Output: <code>medium</code></p>
+<h3 id="while">while</h3>
+<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+
+int main() {
+    int i = 1;
+    while (i &lt;= 5) {
+        printf(&quot;%d\n&quot;, i);
+        i += 1;
+    }
+    return 0;
+}
+</code></pre>
+<h3 id="for-with-declaration-init">for with declaration init</h3>
+<p>The loop variable can be declared directly in the <code>for</code> header:</p>
+<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+
+int main() {
+    for (int i = 0; i &lt; 5; i += 1) {
+        printf(&quot;i = %d\n&quot;, i);
+    }
+    return 0;
+}
+</code></pre>
+<h3 id="break-and-continue">break and continue</h3>
+<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+
+int main() {
+    for (int i = 0; i &lt; 10; i += 1) {
+        if (i == 3) { continue; }
+        if (i == 6) { break; }
+        printf(&quot;%d\n&quot;, i);
+    }
+    return 0;
+}
+</code></pre>
+<p>Output: <code>0 1 2 4 5</code> (one per line).</p>
+<h3 id="switch-case">switch / case</h3>
+<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+
+int main() {
+    int day = 3;
+    switch (day) {
+        case 1:
+            printf(&quot;Monday\n&quot;);
+            break;
+        case 2:
+            printf(&quot;Tuesday\n&quot;);
+            break;
+        case 3:
+            printf(&quot;Wednesday\n&quot;);
+            break;
+        default:
+            printf(&quot;Other\n&quot;);
+            break;
+    }
+    return 0;
+}
+</code></pre>
+<p>Output: <code>Wednesday</code></p>
+<hr>
+<h2 id="functions">Functions</h2>
+<h3 id="defining-and-calling">Defining and calling</h3>
+<p>Return type comes first, followed by the name and parameter list:</p>
+<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+
+int square(int n) {
+    return n * n;
+}
+
+bool isEven(int n) {
+    return n % 2 == 0;
+}
+
+int main() {
+    printf(&quot;4^2 = %d\n&quot;, square(4));
+    if (isEven(10)) {
+        printf(&quot;10 is even\n&quot;);
+    }
+    return 0;
+}
+</code></pre>
+<h3 id="extern-for-c-interop">extern for C interop</h3>
+<p><code>extern</code> declares a function that lives in a C library. The compiler emits an
+LLVM <code>declare</code> and the linker resolves it:</p>
+<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+extern int puts(string s);
+extern double sqrt(double x);
+</code></pre>
+<p>The <code>...</code> marks a variadic function — required for <code>printf</code>, <code>scanf</code>, etc.</p>
+<h3 id="declaration-order">Declaration order</h3>
+<p>Definition order doesn't matter: a function can call another that's defined later in the file, and mutual recursion works out of the box. You can also write a body-less forward declaration if you prefer to state a signature up front:</p>
+<pre><code class="language-eskiu">int is_odd(int n);                  // forward declaration (optional)
+
+int is_even(int n) {
+    if (n == 0) { return 1; }
+    return is_odd(n - 1);           // defined below — works
+}
+
+int is_odd(int n) {
+    if (n == 0) { return 0; }
+    return is_even(n - 1);
+}
+</code></pre>
+<hr>
+<h2 id="structs">Structs</h2>
+<h3 id="defining-and-using">Defining and using</h3>
+<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+
+struct Point {
+    float x;
+    float y;
+}
+
+int main() {
+    let p: Point = Point { x: 1.5, y: 2.5 };
+    printf(&quot;x=%f y=%f\n&quot;, p.x, p.y);
+    p.x = 10.0;
+    printf(&quot;x=%f\n&quot;, p.x);
+    return 0;
+}
+</code></pre>
+<p>Struct literals accept either named fields (<code>Point { x: 1.0, y: 2.0 }</code>) or
+positional fields (<code>Point { 1.0, 2.0 }</code>).</p>
+<h3 id="methods-with-self">Methods with self</h3>
+<p>Methods are defined inside the struct body and receive a pointer to the instance
+as <code>self</code>:</p>
+<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+
+struct Rect {
+    float w;
+    float h;
+
+    float area() {
+        return self.w * self.h;
+    }
+
+    void print() {
+        printf(&quot;Rect(%f x %f)\n&quot;, self.w, self.h);
+    }
+}
+
+int main() {
+    let r: Rect = Rect { w: 4.0, h: 3.0 };
+    r.print();
+    printf(&quot;area = %f\n&quot;, r.area());
+    return 0;
+}
+</code></pre>
+<p>The compiler lowers <code>r.area()</code> to <code>Rect_area(ptr %r)</code> — the receiver is passed
+as the first argument.</p>
+<h3 id="fixed-size-array-fields">Fixed-size array fields</h3>
+<p>A struct field can be a fixed-size array:</p>
+<pre><code class="language-eskiu">struct Packet {
+    uint8[858] left;
+    uint8[858] right;
+    int        len;
+}
+</code></pre>
+<p>In LLVM IR this becomes <code>[858 x i8]</code> — no heap allocation required.</p>
+<hr>
+<h2 id="enums-and-match">Enums and <code>match</code></h2>
+<p>A plain <code>enum</code> is a set of named integer constants, like C:</p>
+<pre><code class="language-eskiu">enum Color  { Red, Green, Blue }            // 0, 1, 2
+enum Status { Ok = 0, Err = 2, Pending }    // 0, 2, 3
+
+let c: Color = Green;            // c == 1
+</code></pre>
+<p>When one or more variants carry a <strong>payload</strong>, the enum becomes an algebraic data type — a tagged union. Variants are constructed by name and destructured with <code>match</code>:</p>
+<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+
+enum Shape {
+    Circle(float),
+    Rect(float, float),
+    Unit,                       // a payload-free variant
+}
+
+float area(Shape s) {
+    match s {
+        Circle(r)  -&gt; return 3.14 * r * r;
+        Rect(w, h) -&gt; return w * h;          // payload fields bind to w, h
+        _          -&gt; return 0.0;            // `_` matches the rest
+    }
+}
+
+int main() {
+    Shape a = Circle(2.0);
+    printf(&quot;%f\n&quot;, area(a));
+    return 0;
+}
+</code></pre>
+<p>A <code>match</code> must be <strong>exhaustive</strong>: every variant needs an arm, or there must be a <code>_</code> default. Algebraic enums may also be generic (<code>enum Option&lt;T&gt; { None, Some(T) }</code>) and are monomorphized per instantiation. See spec §8.7 for the full rules.</p>
+<hr>
+<h2 id="templates">Templates</h2>
+<h3 id="template-structs">Template structs</h3>
+<p>Use angle brackets to parameterize a struct over one or more types:</p>
+<pre><code class="language-eskiu">struct Pair&lt;A, B&gt; {
+    A first;
+    B second;
+}
+</code></pre>
+<p>Instantiate by supplying concrete types:</p>
+<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+
+struct Pair&lt;A, B&gt; {
+    A first;
+    B second;
+}
+
+int main() {
+    let p: Pair&lt;int, float&gt; = Pair&lt;int, float&gt; { first: 7, second: 3.14 };
+    printf(&quot;first=%d second=%f\n&quot;, p.first, p.second);
+    return 0;
+}
+</code></pre>
+<p>The compiler performs lazy monomorphic instantiation: <code>Pair&lt;int, float&gt;</code> becomes
+<code>%Pair_int_float</code> in IR.</p>
+<h3 id="template-functions">Template functions</h3>
+<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+
+T max&lt;T&gt;(T a, T b) {
+    if (a &gt; b) { return a; }
+    return b;
+}
+
+int main() {
+    printf(&quot;%d\n&quot;, max&lt;int&gt;(3, 5));      // explicit type argument
+    printf(&quot;%f\n&quot;, max&lt;float&gt;(1.2, 0.8));
+    printf(&quot;%d\n&quot;, max(7, 2));            // inferred: T = int
+    return 0;
+}
+</code></pre>
+<p>The return type is <code>T</code> — the function returns the same type it is instantiated with. The type argument can be explicit (<code>max&lt;int&gt;(3, 5)</code>) or inferred from the arguments (<code>max(7, 2)</code>) when the type parameter appears directly as a parameter type.</p>
+<h3 id="result-from-stdlib">Result<T, E> from stdlib</h3>
+<p><code>&lt;result&gt;</code> provides an error-as-value type ready to use:</p>
+<pre><code class="language-eskiu">import &lt;result&gt;;
+
+extern int printf(string fmt, ...);
+
+Result&lt;int, string&gt; divide(int a, int b) {
+    if (b == 0) {
+        return Err&lt;int, string&gt;(&quot;division by zero&quot;);
+    }
+    return Ok&lt;int, string&gt;(a / b);
+}
+
+int main() {
+    let r: Result&lt;int, string&gt; = divide(10, 2);
+    if (r.ok == 1) {
+        printf(&quot;result = %d\n&quot;, r.value);
+    } else {
+        printf(&quot;error: %s\n&quot;, r.error);
+    }
+    return 0;
+}
+</code></pre>
+<h3 id="bounded-generics-constraints">Bounded generics (constraints)</h3>
+<p>A type parameter can require that its concrete type satisfy one or more interfaces, written after a colon. The constraint is checked at the instantiation site, not deep in codegen:</p>
+<pre><code class="language-eskiu">interface Ord {
+    int cmp(*Self other);
+}
+
+T max&lt;T: Ord&gt;(T a, T b) {
+    if (a.cmp(&amp;b) &gt; 0) { return a; }
+    return b;
+}
+</code></pre>
+<p>Use <code>+</code> to require several interfaces at once (<code>&lt;K: Hashable + Eq, V&gt;</code>). A struct satisfies a constraint by defining the interface's methods. A primitive type has no methods, so it satisfies a constraint through a <strong>free function</strong> named like the interface method whose first parameter is that primitive — e.g. <code>int cmp(int, int)</code> makes <code>int</code> satisfy <code>Ord</code>. See spec §10.6 for the full rules.</p>
+<hr>
+<h2 id="interfaces">Interfaces</h2>
+<p>Interfaces declare a set of method signatures. Any struct that provides matching
+methods satisfies the interface — no <code>implements</code> keyword is needed.</p>
+<h3 id="declaring-an-interface">Declaring an interface</h3>
+<pre><code class="language-eskiu">interface Drawable {
+    void draw();
+}
+</code></pre>
+<h3 id="implementing-structurally">Implementing structurally</h3>
+<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+
+interface Drawable {
+    void draw();
+}
+
+struct Circle {
+    float radius;
+
+    void draw() {
+        printf(&quot;Circle(r=%f)\n&quot;, self.radius);
+    }
+}
+
+struct Square {
+    float side;
+
+    void draw() {
+        printf(&quot;Square(s=%f)\n&quot;, self.side);
+    }
+}
+</code></pre>
+<p><code>Circle</code> and <code>Square</code> both satisfy <code>Drawable</code> automatically because they
+implement a <code>draw()</code> method with a matching signature.</p>
+<h3 id="passing-a-struct-as-an-interface">Passing a struct as an interface</h3>
+<p>Pass a pointer to the struct where an interface parameter is expected. The
+compiler auto-boxes it into a fat pointer <code>{data_ptr, vtable_ptr}</code> and performs
+the vtable dispatch at the call site:</p>
+<pre><code class="language-eskiu">void render(Drawable d) {
+    d.draw();
+}
+
+int main() {
+    let c: Circle = Circle { radius: 5.0 };
+    let s: Square = Square { side: 3.0 };
+    render(&amp;c);
+    render(&amp;s);
+    return 0;
+}
+</code></pre>
+<p>Output:</p>
+<pre><code>Circle(r=5.000000)
+Square(s=3.000000)
+</code></pre>
+<hr>
+<h2 id="memory">Memory</h2>
+<h3 id="stack-allocation-default">Stack allocation (default)</h3>
+<p>All local variables and struct instances live on the stack automatically:</p>
+<pre><code class="language-eskiu">int x = 42;
+let p: Point = Point { x: 1.0, y: 2.0 };
+</code></pre>
+<h3 id="heap-allocation-with-alloc-free">Heap allocation with alloc / free</h3>
+<p><code>alloc&lt;T&gt;(n)</code> allocates <code>n</code> items of type <code>T</code> on the heap and returns <code>*T</code>;
+<code>free(ptr)</code> releases it. Both come from the <code>&lt;mem&gt;</code> stdlib (they are ordinary
+generic functions, not keywords):</p>
+<pre><code class="language-eskiu">import &lt;mem&gt;;
+extern int printf(string fmt, ...);
+
+int main() {
+    let buf: *int = alloc&lt;int&gt;(8);
+    for (int i = 0; i &lt; 8; i += 1) {
+        *(buf + i) = i * i;
+    }
+    for (int i = 0; i &lt; 8; i += 1) {
+        printf(&quot;%d &quot;, *(buf + i));
+    }
+    printf(&quot;\n&quot;);
+    free(buf);
+    return 0;
+}
+</code></pre>
+<p>Output: <code>0 1 4 9 16 25 36 49</code></p>
+<h3 id="null-checks">Null checks</h3>
+<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+
+int main() {
+    let p: *int = null;
+    if (p == null) {
+        printf(&quot;pointer is null\n&quot;);
+    }
+    return 0;
+}
+</code></pre>
+<p>Pointer comparisons use integer equality, not floating-point equality.</p>
+<h3 id="dereference">Dereference</h3>
+<pre><code class="language-eskiu">int n = 100;
+let ptr: *int = &amp;n;
+*ptr = 200;       // write through pointer
+int val = *ptr;   // read through pointer — val == 200
+</code></pre>
+<hr>
+<h2 id="multi-file-projects">Multi-file Projects</h2>
+<p>Eskiu has two import forms:</p>
+<pre><code class="language-eskiu">import &lt;result&gt;       // stdlib module — resolved by the compiler
+import &quot;utils.esk&quot;    // local file — relative to the current file
+</code></pre>
+<p><code>import &lt;name&gt;</code> looks up the module in the Eskiu installation's stdlib directory. No path required. <code>import "path"</code> is relative to the importing file, as before.</p>
+<p>Each file is parsed only once regardless of how many times it is imported.</p>
+<h3 id="example-layout">Example layout</h3>
+<pre><code>project/
+  main.esk
+  utils.esk
+</code></pre>
+<p><code>utils.esk</code>:</p>
+<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+
+void greet(string name) {
+    printf(&quot;Hello, %s!\n&quot;, name);
+}
+
+int clamp(int val, int lo, int hi) {
+    if (val &lt; lo) { return lo; }
+    if (val &gt; hi) { return hi; }
+    return val;
+}
+</code></pre>
+<p><code>main.esk</code>:</p>
+<pre><code class="language-eskiu">import &quot;utils.esk&quot;;
+
+int main() {
+    greet(&quot;Eskiu&quot;);
+    int v = clamp(150, 0, 100);
+    return 0;
+}
+</code></pre>
+<p>Compile the entry point only — the compiler follows imports automatically:</p>
+<pre><code class="language-bash">eskiuc main.esk -o main
+./main
+</code></pre>
+<h3 id="using-stdlib-modules">Using stdlib modules</h3>
+<p>Import stdlib modules with angle brackets — no path needed:</p>
+<pre><code class="language-eskiu">import &lt;result&gt;;
+import &lt;io&gt;;
+import &lt;math&gt;;
+</code></pre>
+<p>Available modules:</p>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th>Module</th>
+<th>Contents</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>&lt;result&gt;</code></td>
+<td><code>Result&lt;T,E&gt;</code>, <code>Ok&lt;T,E&gt;()</code>, <code>Err&lt;T,E&gt;()</code></td>
+</tr>
+<tr>
+<td><code>&lt;list&gt;</code></td>
+<td><code>List&lt;T&gt;</code> — <code>List_init</code>, <code>push</code>, <code>get</code>, <code>len</code>, <code>free</code></td>
+</tr>
+<tr>
+<td><code>&lt;map&gt;</code></td>
+<td><code>Map&lt;V&gt;</code> — string-keyed hash map (<code>Map_init</code>/<code>_at</code>/<code>_get</code>/<code>_free</code>); <code>HashMap&lt;K,V&gt;</code> — keyed on any type via <code>hash</code>/<code>eq</code> function pointers</td>
+</tr>
+<tr>
+<td><code>&lt;bytes&gt;</code></td>
+<td><code>Bytes</code> — growable, binary-safe byte buffer (<code>_init</code>/<code>_push</code>/<code>_append</code>/<code>_slice</code>/<code>_eq</code>/<code>_from_str</code>, plus base64 round-trip)</td>
+</tr>
+<tr>
+<td><code>&lt;string&gt;</code></td>
+<td><code>String</code> — <code>init</code>, <code>from</code>, <code>append</code>, <code>concat</code>, <code>cstr</code>, <code>len</code>, <code>free</code>, <code>starts_with</code>, <code>ends_with</code>, <code>trim</code>, <code>split</code>, <code>next_token</code></td>
+</tr>
+<tr>
+<td><code>&lt;math&gt;</code></td>
+<td><code>sqrt</code>, <code>fabs</code>, <code>pow</code>, <code>floor</code>, <code>ceil</code>, <code>abs</code></td>
+</tr>
+<tr>
+<td><code>&lt;io&gt;</code></td>
+<td><code>printf</code>, <code>fprintf</code>, <code>sprintf</code>, <code>scanf</code>, <code>puts</code></td>
+</tr>
+<tr>
+<td><code>&lt;mem&gt;</code></td>
+<td><code>alloc&lt;T&gt;(n)</code>, <code>free(p)</code>, <code>memcpy</code>, <code>memset</code>, <code>memmove</code>, <code>memcmp</code>, <code>strlen</code></td>
+</tr>
+<tr>
+<td><code>&lt;alloc&gt;</code></td>
+<td><code>Bump</code>, <code>Arena</code>, <code>Pool</code>, <code>FirstFit</code> — explicit allocators over a buffer you own (the Zig model; not a <code>malloc</code> replacement)</td>
+</tr>
+<tr>
+<td><code>&lt;either&gt;</code></td>
+<td>sum types — <code>Option&lt;T&gt;</code>, <code>Either&lt;A,B&gt;</code> + helpers (built on generic algebraic enums)</td>
+</tr>
+<tr>
+<td><code>&lt;futureval&gt;</code></td>
+<td>value-returning combinators — <code>select2v</code> -&gt; <code>Either</code>, <code>join2v</code> -&gt; <code>Pair</code></td>
+</tr>
+<tr>
+<td><code>&lt;http2&gt;</code></td>
+<td>HTTP/2 (RFC 7540) wire layer — frame-header codec + constants, connection lifecycle (<code>H2Conn</code>), per-stream state machine + flow control (<code>H2Stream</code>), and async frame I/O</td>
+</tr>
+<tr>
+<td><code>&lt;hpack&gt;</code></td>
+<td>HPACK (RFC 7541) header compression — static + dynamic tables, prefix-integer / string coding, Huffman</td>
+</tr>
+<tr>
+<td><code>&lt;http2_server&gt;</code></td>
+<td>HTTP/2 (h2c, cleartext) server over the event loop — <code>http2_serve_async</code>, multiplexed streams, same handler interface as <code>&lt;http&gt;</code></td>
+</tr>
+<tr>
+<td><code>&lt;tls&gt;</code></td>
+<td>h2 over TLS via OpenSSL with ALPN <code>"h2"</code> — <code>http2_tls_serve_conn</code> (blocking) / <code>http2_tls_serve_async</code></td>
+</tr>
+<tr>
+<td><code>&lt;sysheap&gt;</code></td>
+<td><code>Heap</code> — a general heap that <code>mmap</code>s OS pages and runs <code>FirstFit</code> on them (no libc <code>malloc</code>)</td>
+</tr>
+<tr>
+<td><code>&lt;fs&gt;</code></td>
+<td><code>fs_open</code>, <code>fs_close</code>, <code>fs_read</code>, <code>fs_write</code>, <code>fs_puts</code>, <code>fs_seek</code>, <code>fs_tell</code>, <code>fs_size</code>, <code>fs_read_all</code>, <code>fs_write_all</code>, <code>fs_eof</code>, <code>fs_error</code></td>
+</tr>
+<tr>
+<td><code>&lt;net&gt;</code></td>
+<td>TCP sockets — <code>net_tcp_listen</code>, <code>net_accept</code>, <code>net_tcp_connect</code>, <code>net_send</code>, <code>net_recv</code>, <code>net_close</code></td>
+</tr>
+<tr>
+<td><code>&lt;http&gt;</code></td>
+<td>HTTP/1.1 — <code>HttpRequest</code>/<code>HttpResponse</code>, threaded <code>http_serve(port, workers, handler)</code></td>
+</tr>
+<tr>
+<td><code>&lt;json&gt;</code></td>
+<td><code>Json</code> builder + <code>json_parse</code> → <code>JsonValue</code> tree</td>
+</tr>
+<tr>
+<td><code>&lt;multipart&gt;</code></td>
+<td>extract a named part from a <code>multipart/form-data</code> body — <code>multipart_boundary</code>, <code>multipart_part</code></td>
+</tr>
+<tr>
+<td><code>&lt;base64&gt;</code></td>
+<td><code>base64_encode</code> / <code>base64_decode</code> over byte buffers</td>
+</tr>
+<tr>
+<td><code>&lt;time&gt;</code></td>
+<td><code>time_now_ms</code>, <code>time_now_s</code>, <code>time_monotonic_ms</code>, <code>sleep_ms</code></td>
+</tr>
+<tr>
+<td><code>&lt;env&gt;</code></td>
+<td><code>env_get</code>, <code>env_has</code>, <code>env_get_or</code>, <code>env_get_int</code></td>
+</tr>
+<tr>
+<td><code>&lt;path&gt;</code></td>
+<td><code>path_join</code>, <code>path_basename</code>, <code>path_dirname</code>, <code>path_extension</code>, <code>path_is_absolute</code></td>
+</tr>
+<tr>
+<td><code>&lt;threading&gt;</code></td>
+<td><code>Mutex</code>, <code>Cond</code>, <code>Sem</code> over pthread (pairs with <code>thread_create</code>/<code>thread_join</code>)</td>
+</tr>
+<tr>
+<td><code>&lt;eventloop&gt;</code></td>
+<td>readiness reactor over kqueue/epoll — <code>el_new</code>/<code>el_add_read</code>/<code>el_run</code>/<code>el_stop</code>/<code>el_add_timer</code></td>
+</tr>
+<tr>
+<td><code>&lt;atomic&gt;</code></td>
+<td>atomic <code>int</code> cell — <code>atomic_load</code>/<code>atomic_store</code>/<code>atomic_swap</code>/<code>atomic_cas</code></td>
+</tr>
+<tr>
+<td><code>&lt;future&gt;</code></td>
+<td>the <code>async</code>/<code>await</code> runtime — <code>Future&lt;T&gt;</code>, <code>future_poll</code>/<code>complete</code>/<code>drop</code>, <code>spawn</code>/<code>select2</code>/<code>join2</code></td>
+</tr>
+<tr>
+<td><code>&lt;executor&gt;</code></td>
+<td><code>Executor</code> — event loop + thread-safe ready-queue + self-pipe wakeup</td>
+</tr>
+<tr>
+<td><code>&lt;net_async&gt;</code></td>
+<td>async leaf futures — <code>net_read_async</code>, <code>net_accept_async</code></td>
+</tr>
+<tr>
+<td><code>&lt;timer&gt;</code></td>
+<td><code>timer_after(lp, ms)</code> — a <code>*Future&lt;int&gt;</code> that completes after a delay (timeouts)</td>
+</tr>
+<tr>
+<td><code>&lt;channel&gt;</code></td>
+<td>async message channel — <code>chan_new</code>/<code>chan_send</code>/<code>chan_recv</code> (a <code>*Future&lt;T&gt;</code>)</td>
+</tr>
+<tr>
+<td><code>&lt;http_async&gt;</code></td>
+<td>non-blocking concurrent HTTP/1.1 server — <code>http_serve_async</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>Note: when using <code>&lt;math&gt;</code> link with <code>-lm</code>. Library flags are passed straight
+through to the linker, so the one-command form works too:</p>
+<pre><code class="language-bash">eskiuc file.esk -o file -lm
+</code></pre>
+<h3 id="standard-library-highlights-v030">Standard library highlights (v0.3.0)</h3>
+<p>A few of the newer modules. See the language spec §14 for the full reference.</p>
+<p><strong><code>&lt;alloc&gt;</code> — allocators over a caller buffer.</strong> <code>alloc_with(&amp;a, T, n)</code> carves a
+typed <code>*T</code> out of any struct that exposes a <code>_alloc</code> method. Bump is the
+simplest: individual frees are no-ops; one <code>free</code> of the backing buffer releases
+everything.</p>
+<pre><code class="language-eskiu">import &lt;mem&gt;;
+import &lt;alloc&gt;;
+extern int printf(string fmt, ...);
+
+int main() {
+    *uint8 backing = alloc&lt;uint8&gt;(4096);
+    let a: Bump;  Bump_init(&amp;a, backing, 4096);
+    *int xs = alloc_with(&amp;a, int, 16);     // 16 ints from the slab — no per-object malloc
+    xs[0] = 7;  xs[15] = 9;
+    printf(&quot;%d %d\n&quot;, xs[0], xs[15]);
+    free(backing);                          // frees xs too
+    return 0;
+}
+</code></pre>
+<p><strong><code>&lt;json&gt;</code> — build and parse.</strong> The builder inserts separators automatically;
+<code>json_parse</code> returns a <code>*JsonValue</code> tree.</p>
+<pre><code class="language-eskiu">import &lt;json&gt;;
+extern int printf(string fmt, ...);
+
+int main() {
+    let j: Json;  Json_init(&amp;j);
+    Json_obj_begin(&amp;j);
+        Json_key(&amp;j, &quot;year&quot;);  Json_int(&amp;j, 2026);
+    Json_obj_end(&amp;j);
+    printf(&quot;%s\n&quot;, Json_cstr(&amp;j));                 // {&quot;year&quot;:2026}
+
+    *JsonValue v = json_parse(Json_cstr(&amp;j));
+    printf(&quot;year=%lld\n&quot;, JsonValue_as_int(JsonValue_get(v, &quot;year&quot;)));
+    JsonValue_free(v);  Json_free(&amp;j);
+    return 0;
+}
+</code></pre>
+<p><strong><code>&lt;http&gt;</code> — a concurrent server in a few lines.</strong> The handler fills the
+response; <code>http_serve</code> runs a pool of worker threads over <code>&lt;net&gt;</code> + <code>&lt;threading&gt;</code>.</p>
+<pre><code class="language-eskiu">import &lt;http&gt;;
+
+void handle(HttpRequest* req, HttpResponse* res) {
+    HttpResponse_header(res, &quot;Content-Type&quot;, &quot;text/plain&quot;);
+    HttpResponse_set_body(res, &quot;Hello from Eskiu\n&quot;);
+}
+
+int main() { http_serve(8080, 4, handle); return 0; }   // 4 worker threads
+</code></pre>
+<hr>
+<h2 id="lambdas">Lambdas</h2>
+<p>Eskiu supports anonymous functions (lambdas) as first-class values. The syntax
+mirrors a regular function declaration without a name.</p>
+<h3 id="function-pointer-types">Function pointer types</h3>
+<p>Use the <code>fn(T,...)-&gt;R</code> syntax to declare a function pointer type:</p>
+<pre><code class="language-eskiu">let f: fn(int)-&gt;int;
+let g: fn(int, int)-&gt;bool;
+</code></pre>
+<h3 id="writing-a-lambda">Writing a lambda</h3>
+<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+
+int main() {
+    let double_it: fn(int)-&gt;int = int(int x) { return x * 2; };
+    printf(&quot;%d\n&quot;, double_it(5));   // 10
+    return 0;
+}
+</code></pre>
+<h3 id="passing-lambdas-as-arguments">Passing lambdas as arguments</h3>
+<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+
+int apply(fn(int)-&gt;int f, int x) {
+    return f(x);
+}
+
+int main() {
+    let square: fn(int)-&gt;int = int(int n) { return n * n; };
+    printf(&quot;%d\n&quot;, apply(square, 6));        // 36
+    printf(&quot;%d\n&quot;, apply(int(int n) { return n + 1; }, 9));  // 10
+    return 0;
+}
+</code></pre>
+<h3 id="closures-capturing-from-the-enclosing-scope">Closures — capturing from the enclosing scope</h3>
+<p>A lambda can reference variables declared in the surrounding scope. Those variables are captured by value at the point the lambda is created.</p>
+<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+
+int main() {
+    int base = 10;
+    let add: fn(int)-&gt;int = int(int x) { return x + base; };
+    printf(&quot;%d\n&quot;, add(5));   // 15
+    printf(&quot;%d\n&quot;, add(7));   // 17
+    return 0;
+}
+</code></pre>
+<p>Closures can be passed to higher-order functions exactly like plain lambdas — the <code>fn(T)-&gt;R</code> type is the same in both cases.</p>
+<pre><code class="language-eskiu">int apply(fn(int)-&gt;int f, int x) { return f(x); }
+
+int main() {
+    int offset = 100;
+    let shift: fn(int)-&gt;int = int(int x) { return x + offset; };
+    printf(&quot;%d\n&quot;, apply(shift, 5));   // 105
+    return 0;
+}
+</code></pre>
+<p>Under the hood, <code>fn(T)-&gt;R</code> is a fat pointer <code>{fn_ptr, env_ptr}</code>. Non-capturing lambdas have <code>env_ptr = null</code> and behave identically to before.</p>
+<hr>
+<h2 id="threads">Threads</h2>
+<p><code>thread_create</code> and <code>thread_join</code> are language keywords. Pass any <code>fn()-&gt;void</code> value — including a closure — to spawn a thread.</p>
+<h3 id="basic-usage">Basic usage</h3>
+<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+
+int main() {
+    *void t = thread_create(void() { printf(&quot;hello from thread\n&quot;); });
+    thread_join(t);
+    return 0;
+}
+</code></pre>
+<h3 id="capturing-outer-state">Capturing outer state</h3>
+<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+
+int main() {
+    int id = 42;
+    let worker: fn()-&gt;void = void() { printf(&quot;thread id = %d\n&quot;, id); };
+    *void t = thread_create(worker);
+    thread_join(t);
+    return 0;
+}
+</code></pre>
+<p>The closure fat pointer maps directly to pthread's <code>(start_routine, arg)</code> pair — no trampoline is generated. On Linux, link with <code>-lpthread</code>:</p>
+<pre><code class="language-bash">eskiuc threads.esk -o threads -lpthread
+./threads
+</code></pre>
+<hr>
+<h2 id="exception-handling">Exception Handling</h2>
+<p>Use <code>try</code>, <code>catch</code>, <code>finally</code>, and <code>throw</code> for structured exception handling.</p>
+<h3 id="basic-trycatch">Basic try/catch</h3>
+<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+
+int divide(int a, int b) {
+    if (b == 0) {
+        throw &quot;division by zero&quot;;
+    }
+    return a / b;
+}
+
+int main() {
+    try {
+        int r = divide(10, 0);
+        printf(&quot;result: %d\n&quot;, r);
+    } catch (string e) {
+        printf(&quot;caught: %s\n&quot;, e);
+    }
+    return 0;
+}
+</code></pre>
+<p>Output: <code>caught: division by zero</code></p>
+<h3 id="with-finally">With finally</h3>
+<p>The <code>finally</code> block always executes, whether or not an exception was raised:</p>
+<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+
+int main() {
+    try {
+        throw &quot;error&quot;;
+    } catch (string e) {
+        printf(&quot;caught: %s\n&quot;, e);
+    } finally {
+        printf(&quot;cleanup\n&quot;);
+    }
+    return 0;
+}
+</code></pre>
+<p>Output:</p>
+<pre><code>caught: error
+cleanup
+</code></pre>
+<h3 id="linking">Linking</h3>
+<p>Exception handling uses the Itanium C++ ABI personality function. Link with <code>-lc++</code> on macOS or <code>-lstdc++</code> on Linux:</p>
+<pre><code class="language-bash">eskiuc file.esk -o file -lc++      # macOS
+eskiuc file.esk -o file -lstdc++   # Linux
+./file
+</code></pre>
+<hr>
+<h2 id="ide-tooling-vs-code">IDE Tooling (VS Code)</h2>
+<p>The <code>editor/vscode/</code> directory contains a VS Code extension for Eskiu.</p>
+<h3 id="install">Install</h3>
+<pre><code class="language-bash">ln -s $(pwd)/editor/vscode ~/.vscode/extensions/eskiu-language
+</code></pre>
+<p>Restart VS Code. <code>.esk</code> files will have syntax highlighting immediately.</p>
+<h3 id="features">Features</h3>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th>Feature</th>
+<th>How it works</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Syntax highlighting</td>
+<td>TextMate grammar (<code>eskiu.tmLanguage.json</code>)</td>
+</tr>
+<tr>
+<td>Real-time error squiggles</td>
+<td>Extension runs <code>eskiuc --test-typechecker</code> on save and parses <code>file:line:col: message</code> output</td>
+</tr>
+<tr>
+<td>Hover type info</td>
+<td>Extension calls <code>eskiuc --hover-at LINE:COL</code> and shows the result in a tooltip</td>
+</tr>
+<tr>
+<td>Go-to-definition</td>
+<td>Extension calls <code>eskiuc --definition-at LINE:COL</code> and jumps to the returned location</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="cli-flags-used-by-the-extension">CLI flags used by the extension</h3>
+<pre><code class="language-bash"># Print the inferred type of the expression at line 10, column 5
+eskiuc file.esk --hover-at 10:5
+
+# Print the definition location of the symbol at line 10, column 5
+eskiuc file.esk --definition-at 10:5
+</code></pre>
+<p>Both flags accept <code>LINE:COL</code> with 1-based line and column numbers and print a
+single line of output. They can also be used directly on the command line for
+scripting.</p>
+<hr>
+<h2 id="using-the-test-modes">Using the Test Modes</h2>
+<p>The compiler exposes diagnostic flags that stop compilation after a specific
+phase and print what was produced. None of them produce an object file.</p>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Phase</th>
+<th>Output</th>
+<th>When to use</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--test-lexer</code></td>
+<td>Lexer</td>
+<td>Token stream with line/col</td>
+<td>Debugging unexpected parse errors</td>
+</tr>
+<tr>
+<td><code>--test-parser</code></td>
+<td>Parser</td>
+<td>Indented AST</td>
+<td>Checking whether syntax is parsed correctly</td>
+</tr>
+<tr>
+<td><code>--test-typechecker</code></td>
+<td>Type checker</td>
+<td>Errors, then <code>Type checking succeeded!</code> / <code>failed!</code></td>
+<td>Catching type mismatches before codegen</td>
+</tr>
+<tr>
+<td><code>--test-codegen</code></td>
+<td>Code gen</td>
+<td>LLVM IR</td>
+<td>Inspecting what IR the compiler produces</td>
+</tr>
+<tr>
+<td><code>--hover-at LINE:COL</code></td>
+<td>Type checker</td>
+<td>Type at position</td>
+<td>Hover type info (used by VS Code extension)</td>
+</tr>
+<tr>
+<td><code>--definition-at LINE:COL</code></td>
+<td>Type checker</td>
+<td>Definition location</td>
+<td>Go-to-definition (used by VS Code extension)</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="-test-lexer">--test-lexer</h3>
+<pre><code class="language-bash">eskiuc hello.esk --test-lexer
+</code></pre>
+<p>Produces one token per line with its kind, text, and <code>line:col</code> position.
+Useful when you see a parse error and want to check if the tokenizer is splitting
+tokens correctly.</p>
+<h3 id="-test-parser">--test-parser</h3>
+<pre><code class="language-bash">eskiuc hello.esk --test-parser
+</code></pre>
+<p>Prints the full AST as an indented tree. Each node shows its kind and the
+relevant identifiers or literals. Use this to verify that operator precedence,
+struct literals, and template arguments are parsed the way you expect.</p>
+<h3 id="-test-typechecker">--test-typechecker</h3>
+<pre><code class="language-bash">eskiuc hello.esk --test-typechecker
+</code></pre>
+<p>Runs type inference and struct field validation. If a struct field name is wrong
+you see the error here, before any IR is generated:</p>
+<pre><code>hello.esk:5:14: struct 'Point' has no member 'z'
+</code></pre>
+<h3 id="-test-codegen">--test-codegen</h3>
+<pre><code class="language-bash">eskiuc hello.esk --test-codegen
+</code></pre>
+<p>Prints the full LLVM IR to stdout. Useful for verifying that a cast, bitwise
+operation, or pointer dereference lowered the way you intended.</p>
+<hr>
+<h2 id="inline-assembly-and-volatile">Inline Assembly and volatile</h2>
+<p>These features are primarily useful for bare-metal and kernel programming. Both are available in any Eskiu program.</p>
+<h3 id="volatile">volatile</h3>
+<p>Mark a pointer variable <code>volatile</code> to prevent the compiler from optimising away loads and stores through it. This is essential for memory-mapped I/O (MMIO) registers:</p>
+<pre><code class="language-eskiu">volatile let uart: *uint8 = (uint8*) 0x3F8;
+
+// Both the read and the write are always emitted — never cached or removed
+uint8 status = *uart;
+*uart = 'A';
+</code></pre>
+<p>Without <code>volatile</code>, the compiler may eliminate or reorder accesses to addresses it considers side-effect-free.</p>
+<h3 id="inline-assembly-simple-form">Inline assembly — simple form</h3>
+<pre><code class="language-eskiu">asm(&quot;cli&quot;);   // disable interrupts
+asm(&quot;sti&quot;);   // enable interrupts
+asm(&quot;nop&quot;);
+</code></pre>
+<p>The string is passed verbatim to the assembler. Use this form for instructions that take no operands.</p>
+<h3 id="inline-assembly-extended-form">Inline assembly — extended form</h3>
+<p>The extended form passes values in and out of the asm template using GCC-compatible constraints:</p>
+<pre><code class="language-eskiu">// Write a byte to an x86 I/O port
+void outb(uint8 val, uint16 port) {
+    asm(&quot;outb %0, %1&quot; :: &quot;a&quot;(val), &quot;Nd&quot;(port) : &quot;memory&quot;);
+}
+</code></pre>
+<p>Syntax: <code>asm("template" : outputs : inputs : clobbers);</code></p>
+<ul>
+<li>Inputs and outputs are <code>"constraint"(expression)</code> pairs.</li>
+<li><code>"memory"</code> in the clobber list acts as a compiler barrier.</li>
+<li>Common constraints: <code>"a"</code> → rax/eax, <code>"Nd"</code> → 8-bit immediate or dx, <code>"r"</code> → any register.</li>
+</ul>
+<h3 id="freestanding-mode">Freestanding mode</h3>
+<p>When targeting bare metal or a kernel, pass <code>--freestanding</code> to the compiler. This redirects the built-in <code>alloc</code> and <code>free</code> to user-provided <code>esk_alloc</code> / <code>esk_free</code> symbols instead of the libc <code>malloc</code> / <code>free</code>:</p>
+<pre><code class="language-bash">eskiuc kernel.esk --target x86_64-pc-linux-gnu --freestanding -o kernel.o
+</code></pre>
+<p>You must provide <code>esk_alloc</code> and <code>esk_free</code> in your own source or a C shim:</p>
+<pre><code class="language-eskiu">// kernel_alloc.esk — linked together with kernel.esk
+*void esk_alloc(int size) { return bump_alloc(size); }
+void  esk_free(*void ptr)  { bump_free(ptr); }
+</code></pre>
+<hr>
+<h2 id="sizeof">sizeof</h2>
+<p><code>sizeof(T)</code> is a compile-time constant expression that returns the size of a type in bytes as an <code>int64</code>. It works for any Eskiu type, including structs.</p>
+<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+
+struct Grid {
+    float x;
+    float y;
+    float z;
+}
+
+int main() {
+    printf(&quot;sizeof(int)    = %lld\n&quot;, sizeof(int));    // 4
+    printf(&quot;sizeof(int64)  = %lld\n&quot;, sizeof(int64));  // 8
+    printf(&quot;sizeof(Grid)   = %lld\n&quot;, sizeof(Grid));   // 12
+    return 0;
+}
+</code></pre>
+<p><code>sizeof</code> is resolved entirely at compile time and produces no runtime code.</p>
+<hr>
+<h2 id="unions">Unions</h2>
+<p>A <code>union</code> is declared like a <code>struct</code>, but all fields share offset 0. The size of the union equals the size of its largest field. Reading a field reinterprets the stored bytes as that field's type.</p>
+<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+
+union Value {
+    int   i;
+    float f;
+}
+
+int main() {
+    let v: Value;
+    v.i = 0x3F800000;            // IEEE 754 bit pattern for 1.0
+    printf(&quot;%f\n&quot;, v.f);         // 1.000000 — same bytes, read as float
+    v.f = 3.14;
+    printf(&quot;%d\n&quot;, v.i);         // raw integer bits of 3.14
+    return 0;
+}
+</code></pre>
+<hr>
+<h2 id="typed-pointer-arithmetic">Typed Pointer Arithmetic</h2>
+<p>Pointer arithmetic scales by the pointed-to type's size, matching C behaviour. Adding <code>1</code> to a <code>*int</code> advances 4 bytes; adding <code>1</code> to a <code>*Grid</code> advances <code>sizeof(Grid)</code> bytes.</p>
+<pre><code class="language-eskiu">import &lt;mem&gt;;
+extern int printf(string fmt, ...);
+
+int main() {
+    let buf: *int = alloc&lt;int&gt;(4);
+    *buf = 10;
+    *(buf + 1) = 20;   // +4 bytes (one int)
+    *(buf + 2) = 30;   // +8 bytes
+    *(buf + 3) = 40;   // +12 bytes
+    for (int i = 0; i &lt; 4; i += 1) {
+        printf(&quot;%d\n&quot;, *(buf + i));
+    }
+    free(buf);
+    return 0;
+}
+</code></pre>
+<p><code>*void</code> and <code>*char</code> are exceptions: they always step one byte at a time.</p>
+<hr>
+<h2 id="whats-next">What's Next</h2>
+<ul>
+<li>Full language reference: <code>docs/lang/spec.md</code></li>
+<li>Standard library source: <code>stdlib/</code></li>
+<li>Worked examples: <code>examples/</code></li>
+<li>Contributing guide: <code>docs/dev/</code></li>
+</ul>
+    </div>
+    <div class="foot"><a href="../index.html">← Back to eskiu</a></div>
+  </div>
+</body>
+</html>

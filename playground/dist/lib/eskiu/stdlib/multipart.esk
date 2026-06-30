@@ -1,0 +1,102 @@
+// multipart.esk — extract a named part from a multipart/form-data body.
+//
+// Operates on the raw binary body (*uint8 + len), never a String, so file
+// bytes survive intact. Pairs with <http>'s HttpReq (binary body).
+//
+//   let bd: String;  String_init(&bd, 64);
+//   if (multipart_boundary(&contentType, &bd) == 1) {
+//       *uint8 part;  int64 plen;
+//       if (multipart_part(req.body, req.body_len, &bd, "photo", &part, &plen) == 1) {
+//           // `part` points into req.body (no copy); plen bytes
+//       }
+//   }
+
+import <mem>;
+import <string>;
+
+extern *void memmem(*void hay, int64 hlen, *void needle, int64 nlen);
+extern int   strlen(string s);
+
+// Offset of `needle` within hay[from..hlen), or -1.
+int64 mp_find(*uint8 hay, int64 hlen, int64 from, *uint8 needle, int64 nlen) {
+    if (from < 0 || from >= hlen) { return -1; }
+    *void p = memmem((*void)(hay + from), hlen - from, (*void)needle, nlen);
+    if (p == null) { return -1; }
+    return (int64)((*uint8)p - hay);
+}
+
+// Parse the boundary token from a Content-Type value
+// ("multipart/form-data; boundary=----abc"). Strips optional quotes. 1 = ok.
+int multipart_boundary(String* ctype, String* out) {
+    String_clear(out);
+    string key = "boundary=";
+    int n = ctype.len;
+    int klen = strlen(key);
+    int i = 0;
+    while (i + klen <= n) {
+        int j = 0;
+        int hit = 1;
+        while (j < klen) {
+            if (ctype.data[i + j] != key[j]) { hit = 0; }
+            j = j + 1;
+        }
+        if (hit == 1) {
+            int k = i + klen;
+            if (k < n && ctype.data[k] == 34) { k = k + 1; }
+            while (k < n) {
+                char c = ctype.data[k];
+                if (c == 34 || c == 59 || c == 32 || c == 13) { break; }
+                String_push(out, c);
+                k = k + 1;
+            }
+            if (out.len > 0) { return 1; }
+            return 0;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+// Locate the form-data part with `name="<name>"`. On success returns 1 and sets
+// *out_ptr / *out_len to a slice INTO `body` (no copy). 0 if absent.
+int multipart_part(*uint8 body, int64 blen, String* boundary, string name,
+                   **uint8 out_ptr, *int64 out_len) {
+    int bl = boundary.len;
+    int dlen = bl + 2;
+    *uint8 delim = alloc<uint8>(dlen);
+    delim[0] = 45;  delim[1] = 45;
+    int i = 0;  while (i < bl) { delim[2 + i] = (uint8)boundary.data[i]; i = i + 1; }
+
+    // Build the "name=\"<name>\"" needle.
+    int nlen = strlen(name);
+    int needle_len = nlen + 7;                       // name="" → 6 chars + the name
+    *uint8 needle = alloc<uint8>(needle_len);
+    string pre = "name=\"";
+    int p = 0;  while (p < 6) { needle[p] = (uint8)pre[p]; p = p + 1; }
+    int q = 0;  while (q < nlen) { needle[6 + q] = (uint8)name[q]; q = q + 1; }
+    needle[6 + nlen] = 34;                            // closing quote
+
+    string crlf2 = "\r\n\r\n";
+
+    int found = 0;
+    int64 pos = mp_find(body, blen, 0, delim, dlen);
+    while (pos >= 0 && found == 0) {
+        int64 part_start = pos + dlen;
+        int64 next = mp_find(body, blen, part_start, delim, dlen);
+        if (next < 0) { break; }
+        int64 he = mp_find(body, next, part_start, (*uint8)crlf2, 4);
+        if (he >= 0) {
+            int64 nh = mp_find(body, he, part_start, needle, needle_len);
+            if (nh >= 0) {
+                int64 cstart = he + 4;
+                int64 cend   = next - 2;
+                if (cend > cstart) { out_ptr[0] = body + cstart;  out_len[0] = cend - cstart;  found = 1; }
+            }
+        }
+        pos = next;
+    }
+
+    free(delim);
+    free(needle);
+    return found;
+}

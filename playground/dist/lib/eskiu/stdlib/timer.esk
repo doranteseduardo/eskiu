@@ -1,0 +1,29 @@
+// timer.esk — a timer leaf future for the async runtime.
+//
+// `timer_after(lp, ms)` is a `*Future<int>` that completes (with 0) once `ms`
+// milliseconds of monotonic time have elapsed, driven by the event loop's timer
+// wheel (no busy-waiting; the loop blocks until the nearest deadline). Combine it
+// with a read for a real timeout:
+//
+//   int w = await select2(net_read_async(lp, fd, buf, cap), timer_after(lp, 1000));
+//   if (w == 0) { /* data arrived */ } else { /* timed out */ }
+//
+// Ownership mirrors the other leaf futures: the awaiter (or a combinator) owns
+// the future. On normal fire the loop frees the on_fire env and the awaiter frees
+// the future; on cancel, on_drop deregisters the timer (freeing on_fire) and
+// future_drop frees the rest. Leak-free either way.
+
+import <mem>;
+import <future>;
+import <eventloop>;
+import <time>;
+
+Future<int>* timer_after(EventLoop* lp, int64 ms) {
+    Future<int>* f = future_new<int>();
+    int64 deadline = time_monotonic_ms() + ms;
+    int id = el_add_timer(lp, deadline, void() { future_complete<int>(f, 0); });
+    // Cancel path: deregister the timer (frees the on_fire env). The timer never
+    // frees the future; future_drop owns that.
+    f.on_drop = void() { el_del_timer(lp, id); };
+    return f;
+}

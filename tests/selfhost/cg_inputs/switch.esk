@@ -1,0 +1,16 @@
+// C-style switch: fall-through, break, default. Lowered to an LLVM `switch` instruction
+// with each case block flowing into the next unless terminated.
+int classify(int x) {
+    let r: int = 0;
+    switch (x) {
+        case 1: r = r + 1;          // falls through to case 2
+        case 2: r = r + 2; break;
+        case 3: r = r + 8;
+        default: r = r + 16;
+    }
+    return r;
+}
+int main() {
+    return classify(1) + classify(2) + classify(3) + classify(9);
+    // (1+2) + (2) + (8+16) + (16) = 3 + 2 + 24 + 16 = 45
+}

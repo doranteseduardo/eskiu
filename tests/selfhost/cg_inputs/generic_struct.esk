@@ -1,0 +1,9 @@
+// Generic struct monomorphization: Box<int> -> %Box_int, field substitution + access.
+struct Box<T> { T v; int tag; }
+
+int sum(Box<int>* b) { return b.v + b.tag; }
+
+int main() {
+    let b: Box<int> = Box<int> { v: 7, tag: 35 };
+    return sum(&b);
+}

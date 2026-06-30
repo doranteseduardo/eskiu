@@ -1,0 +1,105 @@
+// net_async.esk — leaf futures for non-blocking network I/O over <eventloop>.
+//
+// These are the `await`-able primitives an async function bottoms out on. Each
+// registers an fd on the event loop and completes its Future when the fd is
+// ready; the completion runs on the loop thread, so the awaiter's resume runs
+// there too (no cross-thread marshaling needed for I/O — see <executor> for the
+// cross-thread case). Each future's on_drop deregisters the fd, so cancelling a
+// pending read/accept cleanly releases its loop registration.
+//
+//   Future<int>* f = net_read_async(lp, fd, buf, 4096);
+//   // await f  ->  number of bytes read (0 = EOF, <0 = error)
+
+import <mem>;
+import <future>;
+import <eventloop>;
+import <net>;
+
+extern int64 read(int fd, *void buf, int64 n);
+extern int64 write(int fd, *void buf, int64 n);
+extern int   fcntl(int fd, int cmd, int arg);
+
+// errno (for EAGAIN/EWOULDBLOCK detection) + O_NONBLOCK, both platform-specific.
+#ifdef __APPLE__
+extern *int __error();
+int _net_errno() { return *__error(); }
+const int _NET_EAGAIN  = 35;     // EAGAIN == EWOULDBLOCK on macOS
+const int _NET_NONBLOCK = 4;     // O_NONBLOCK
+#else
+extern *int __errno_location();
+int _net_errno() { return *__errno_location(); }
+const int _NET_EAGAIN  = 11;     // EAGAIN == EWOULDBLOCK on Linux
+const int _NET_NONBLOCK = 2048;  // O_NONBLOCK (0x800)
+#endif
+
+// Put `fd` into non-blocking mode (so read/write return EAGAIN instead of
+// blocking the event-loop thread). F_GETFL = 3, F_SETFL = 4.
+void net_set_nonblocking(int fd) {
+    int fl = fcntl(fd, 3, 0);
+    fcntl(fd, 4, fl | _NET_NONBLOCK);
+}
+
+// Write all `len` bytes of `buf` to `fd` without blocking the loop: write what
+// the socket buffer accepts, then park on writability and resume when it drains,
+// until everything is sent. Completes with the byte count, or -1 on a hard error.
+// Requires `fd` to be non-blocking (see net_set_nonblocking).
+Future<int>* net_write_async(EventLoop* lp, int fd, *uint8 buf, int64 len) {
+    Future<int>* f = future_new<int>();
+    *int64 sent = alloc<int64>(1);  *sent = (int64)0;
+    // on_drop (cancel / free): release the loop registration and the counter.
+    f.on_drop = void() { el_del_free(lp, fd); free((*void)sent); };
+    el_add_write(lp, fd, void(EventLoop* l, int wfd) {
+        while (*sent < len) {
+            int64 w = write(wfd, (*void)(buf + *sent), len - *sent);
+            if (w > (int64)0) { *sent = *sent + w; }
+            else if (w < (int64)0 && _net_errno() == _NET_EAGAIN) { return; }  // buffer full: wait
+            else { el_del(l, wfd); future_complete<int>(f, -1); return; }       // hard error / 0
+        }
+        el_del(l, wfd);                          // all sent; one-shot
+        future_complete<int>(f, (int)len);
+    });
+    return f;
+}
+
+// Complete once `fd` is readable / writable, doing no I/O itself. Used to drive
+// a non-blocking TLS handshake / SSL_read / SSL_write, which decide *what* I/O
+// to retry based on WANT_READ / WANT_WRITE.
+Future<int>* net_readable_async(EventLoop* lp, int fd) {
+    Future<int>* f = future_new<int>();
+    f.on_drop = void() { el_del_free(lp, fd); };
+    el_add_read(lp, fd, void(EventLoop* l, int rfd) { el_del(l, rfd); future_complete<int>(f, 0); });
+    return f;
+}
+Future<int>* net_writable_async(EventLoop* lp, int fd) {
+    Future<int>* f = future_new<int>();
+    f.on_drop = void() { el_del_free(lp, fd); };
+    el_add_write(lp, fd, void(EventLoop* l, int wfd) { el_del(l, wfd); future_complete<int>(f, 0); });
+    return f;
+}
+
+// Complete with the number of bytes read into `buf` (capacity `cap`) once `fd`
+// is readable. One-shot: the fd is deregistered when it fires.
+Future<int>* net_read_async(EventLoop* lp, int fd, *uint8 buf, int64 cap) {
+    Future<int>* f = future_new<int>();
+    // on_drop (cancel path, callback never fired): release the loop registration
+    // and its callback env. future_drop frees the future struct itself.
+    f.on_drop = void() { el_del_free(lp, fd); };
+    el_add_read(lp, fd, void(EventLoop* l, int rfd) {
+        int64 n = read(rfd, (*void)buf, cap);
+        el_del(l, rfd);                          // one-shot; el_run frees this env on return
+        future_complete<int>(f, (int)n);         // resumes the awaiter (loop thread)
+    });
+    return f;
+}
+
+// Complete with an accepted client fd once `listen_fd` has a pending connection.
+Future<int>* net_accept_async(EventLoop* lp, int listen_fd) {
+    Future<int>* f = future_new<int>();
+    f.on_drop = void() { el_del_free(lp, listen_fd); };
+    el_add_read(lp, listen_fd, void(EventLoop* l, int sfd) {
+        int c = net_accept(sfd);
+        el_del(l, sfd);
+        future_complete<int>(f, c);
+    });
+    return f;
+}

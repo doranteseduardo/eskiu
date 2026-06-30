@@ -8,18 +8,84 @@
 //     literals INT/FLOAT/BOOL/NULL + identifiers. (String/char literal values and
 //     postfix call/index/member/cast arrive in S2.)
 
+import <fs>;
 import "lexer.esk";
 import "ast.esk";
+import "preprocessor.esk";
 
 struct Parser {
     List<Token> toks;
     int pos;
     *uint8 src;
+    int pending_gt;        // a `>>` being consumed as two `>` (template close)
+    int no_struct_lit;     // suppress `Name { ... }` struct literals (match subject)
+    string basedir;        // directory of this file (relative imports resolve here)
+}
+
+// Session state shared across every file parsed in one run (mirrors the C++ parser's
+// shared `importedFiles` + `sharedTypeNames`). Globals — `parser_session_init` sets
+// them up once before parsing; a fresh process per parity test resets them.
+List<string> g_imported;       // resolved import paths already parsed (dedup)
+List<string> g_typenames;      // declared type names → enables `(Foo)x` casts
+int g_cur_pack;                // active `#pragma pack(N)` alignment (0 = natural)
+List<int> g_pack_stack;        // saved pack values for `pack(push, N)` / `pack(pop)`
+
+void parser_session_init() {
+    List_init<string>(&g_imported, 16);
+    List_init<string>(&g_typenames, 64);
+    g_cur_pack = 0;
+    List_init<int>(&g_pack_stack, 8);
+}
+
+// Interpret a `#pragma pack(...)` directive (text is everything after `#`, e.g.
+// "pragma pack(2)" / "pragma pack(push, 1)" / "pragma pack(pop)" / "pragma pack()").
+// Sets g_cur_pack for subsequent struct declarations; other pragmas are ignored.
+void apply_pragma(string text) {
+    int n = 0; while (text[n] != 0) { n = n + 1; }
+    int pk = -1; int i = 0;                          // find "pack"
+    while (i + 4 <= n) {
+        if (text[i]==112 && text[i+1]==97 && text[i+2]==99 && text[i+3]==107) { pk = i; break; }
+        i = i + 1;
+    }
+    if (pk < 0) { return; }
+    int lp = pk; while (lp < n && (int)text[lp] != 40) { lp = lp + 1; }   // '('
+    // collect comma-separated args inside (...)
+    List<string> args; List_init<string>(&args, 2);
+    if (lp < n) {
+        int j = lp + 1; int start = j;
+        while (j < n && (int)text[j] != 41) {        // ')'
+            if ((int)text[j] == 44) {                // ','
+                string a = str_trim(p_sub(text, start, j));
+                if (a[0] != 0) { List_push<string>(&args, a); }
+                start = j + 1;
+            }
+            j = j + 1;
+        }
+        string a = str_trim(p_sub(text, start, j));
+        if (a[0] != 0) { List_push<string>(&args, a); }
+    }
+    if (List_len<string>(&args) == 0) { g_cur_pack = 0; return; }   // pack() → reset
+    string a0 = List_get<string>(&args, 0);
+    if (str_eq(a0, "push") == 1) {
+        List_push<int>(&g_pack_stack, g_cur_pack);
+        if (List_len<string>(&args) >= 2) { g_cur_pack = str_to_int(List_get<string>(&args, 1)); }
+        return;
+    }
+    if (str_eq(a0, "pop") == 1) {
+        int sn = List_len<int>(&g_pack_stack);
+        if (sn > 0) { g_cur_pack = List_get<int>(&g_pack_stack, sn - 1); List_remove<int>(&g_pack_stack, sn - 1); }
+        else { g_cur_pack = 0; }
+        return;
+    }
+    g_cur_pack = str_to_int(a0);                     // pack(N)
 }
 
 void p_init(Parser* p, *uint8 src, int len) {
     p.src = src;
     p.pos = 0;
+    p.pending_gt = 0;
+    p.no_struct_lit = 0;
+    p.basedir = ".";
     List_init<Token>(&p.toks, 256);
     let lx: Lexer;
     lx.src = src; lx.len = len; lx.pos = 0; lx.line = 1; lx.col = 1;
@@ -42,6 +108,13 @@ Token p_peek2(Parser* p) {
     return List_get<Token>(&p.toks, i);
 }
 
+Token p_peek_k(Parser* p, int k) {
+    int i = p.pos + k;
+    int n = List_len<Token>(&p.toks);
+    if (i >= n) { i = n - 1; }
+    return List_get<Token>(&p.toks, i);
+}
+
 int p_at(Parser* p) {
     return p_peek(p).type;
 }
@@ -52,11 +125,31 @@ Token p_adv(Parser* p) {
     return t;
 }
 
+// Template close: a single `>` (GT) or one `>` of a `>>` (RSHIFT, split in place
+// via pending_gt — the token list isn't mutable, so we model the second `>`).
+int at_tclose(Parser* p) {
+    if (p.pending_gt > 0) { return 1; }
+    int t = p_at(p);
+    if (t == GT || t == RSHIFT) { return 1; }
+    return 0;
+}
+void consume_tclose(Parser* p) {
+    if (p.pending_gt > 0) { p.pending_gt = 0; p_adv(p); return; }   // 2nd `>` of `>>`
+    if (p_at(p) == RSHIFT) { p.pending_gt = 1; return; }            // 1st `>` of `>>`
+    p_adv(p);                                                        // a lone `>`
+}
+
 // Forward declarations (mutually-recursive descent).
 *ExprNode parse_assignment(Parser* p);
 *ExprNode parse_expr(Parser* p);
 *ExprNode parse_postfix(Parser* p);
 string parse_type(Parser* p);
+*ExprNode parse_struct_init(Parser* p, string name);
+*StmtNode parse_stmt(Parser* p);
+*StmtNode parse_block(Parser* p);
+*StmtNode parse_block_item(Parser* p);
+*StmtNode try_var_decl(Parser* p);
+void parse_into(Parser* p, *Program prog);
 
 // Lexeme of a token as an owned NUL-terminated string (heap copy of source bytes).
 string tok_text(*uint8 src, Token t) {
@@ -85,6 +178,67 @@ string str_concat(string a, string b) {
     return (string)buf;
 }
 
+// Substring s[a, b) as a fresh NUL-terminated string.
+string p_sub(string s, int a, int b) {
+    int len = b - a; if (len < 0) { len = 0; }
+    *uint8 buf = alloc<uint8>(len + 1);
+    int k = 0; while (k < len) { buf[k] = (uint8)s[a + k]; k = k + 1; }
+    buf[len] = 0;
+    return (string)buf;
+}
+
+// Trim leading/trailing spaces and tabs.
+string str_trim(string s) {
+    int n = 0; while (s[n] != 0) { n = n + 1; }
+    int a = 0; while (a < n && ((int)s[a] == 32 || (int)s[a] == 9)) { a = a + 1; }
+    int b = n; while (b > a && ((int)s[b - 1] == 32 || (int)s[b - 1] == 9)) { b = b - 1; }
+    return p_sub(s, a, b);
+}
+
+int str_eq(string a, string b) {
+    int i = 0;
+    while (a[i] != 0 && b[i] != 0) {
+        if (a[i] != b[i]) { return 0; }
+        i = i + 1;
+    }
+    if (a[i] == b[i]) { return 1; }        // both reached NUL together
+    return 0;
+}
+
+int str_has_char(string s, int c) {
+    int i = 0;
+    while (s[i] != 0) { if ((int)s[i] == c) { return 1; } i = i + 1; }
+    return 0;
+}
+
+// Directory portion of a path (everything before the last '/'), or "." if none.
+string str_dir(string s) {
+    int n = cstr_len(s);
+    int last = 0 - 1;
+    int i = 0;
+    while (i < n) { if ((int)s[i] == 47) { last = i; } i = i + 1; }   // 47 = '/'
+    if (last < 0) { return "."; }
+    *uint8 buf = alloc<uint8>(last + 1);
+    int j = 0;
+    while (j < last) { buf[j] = (uint8)s[j]; j = j + 1; }
+    buf[last] = 0;
+    return (string)buf;
+}
+
+void register_type(Parser* p, string name) {
+    List_push<string>(&g_typenames, name);     // shared across all imported files
+}
+
+int is_known_type(Parser* p, string name) {
+    int i = 0;
+    int n = List_len<string>(&g_typenames);
+    while (i < n) {
+        if (str_eq(List_get<string>(&g_typenames, i), name) == 1) { return 1; }
+        i = i + 1;
+    }
+    return 0;
+}
+
 int is_type_kw(int t) {
     if (t == INT || t == FLOAT || t == DOUBLE || t == BOOL || t == CHAR || t == STRING || t == VOID) { return 1; }
     if (t == INT8 || t == INT16 || t == INT32 || t == INT64) { return 1; }
@@ -92,23 +246,9 @@ int is_type_kw(int t) {
     return 0;
 }
 
-// String/char literal decoding (mirrors read_string / read_char — the C++ stores
-// the decoded value, quotes stripped, in LiteralExpr.value).
-int decode_str_escape(int e) {
-    if (e == 110) { return 10; }
-    if (e == 116) { return 9; }
-    if (e == 114) { return 13; }
-    if (e == 92) { return 92; }
-    if (e == 34) { return 34; }
-    return e;
-}
-int decode_chr_escape(int e) {
-    if (e == 110) { return 10; }
-    if (e == 116) { return 9; }
-    if (e == 92) { return 92; }
-    return e;
-}
-
+// String/char literal value (decoded, quotes stripped — the C++ stores the decoded
+// value in LiteralExpr.value). The byte-level escape decode (decode_str_escape /
+// decode_chr_escape) is shared from tokens.esk.
 string tok_str_value(*uint8 src, Token t) {
     *uint8 buf = alloc<uint8>(t.len + 1);
     int off = 0;
@@ -177,6 +317,20 @@ string parse_type(Parser* p) {
 
     Token base_tok = p_adv(p);             // type keyword or named type (IDENT)
     string ty = tok_text(p.src, base_tok);
+
+    // Template instantiation: Name<TypeArg, ...>
+    if (base_tok.type == IDENT && p_at(p) == LT) {
+        p_adv(p);                          // '<'
+        ty = str_concat(ty, "<");
+        ty = str_concat(ty, parse_type(p));
+        while (p_at(p) == COMMA) {
+            p_adv(p);
+            ty = str_concat(ty, ",");
+            ty = str_concat(ty, parse_type(p));
+        }
+        consume_tclose(p);
+        ty = str_concat(ty, ">");
+    }
 
     while (p_at(p) == STAR) {
         p_adv(p); ty = str_concat(ty, "*");
@@ -275,6 +429,47 @@ int is_compound(int t) {
     return e;
 }
 
+// Struct literal: Name { field: expr, ... } or Name { expr, ... } (positional).
+// `name` already parsed (may carry a <...> template suffix). At '{'.
+*ExprNode parse_struct_init(Parser* p, string name) {
+    p_adv(p);                              // '{'
+    *ExprNode e = alloc<ExprNode>(1);
+    e.kind = EK_STRUCTINIT; e.sval = name;
+    List_init<*ExprNode>(&e.kids, 4);
+    List_init<string>(&e.names, 4);
+    if (p_at(p) != RBRACE) {
+        while (1 == 1) {
+            if (p_at(p) == IDENT && p_peek2(p).type == COLON) {
+                Token nm = p_adv(p);       // field name  (NB: not `fn` — reserved keyword)
+                p_adv(p);                  // ':'
+                List_push<string>(&e.names, tok_text(p.src, nm));
+            } else {
+                List_push<string>(&e.names, "");
+            }
+            List_push<*ExprNode>(&e.kids, parse_expr(p));
+            if (p_at(p) == COMMA) { p_adv(p); } else { break; }
+        }
+    }
+    p_adv(p);                              // '}'
+    return e;
+}
+
+// Lambda signature string for the printer: "<ret>(t0 n0, t1 n1)".
+string lambda_sig(string ret, *DeclNode d) {
+    string sig = str_concat(ret, "(");
+    int i = 0;
+    int n = List_len<Param>(&d.params);
+    while (i < n) {
+        Param pm = List_get<Param>(&d.params, i);
+        if (i > 0) { sig = str_concat(sig, ", "); }
+        sig = str_concat(sig, pm.ty);
+        sig = str_concat(sig, " ");
+        sig = str_concat(sig, pm.name);
+        i = i + 1;
+    }
+    return str_concat(sig, ")");
+}
+
 *ExprNode parse_primary(Parser* p) {
     int t = p_at(p);
     if (t == TRUE)  { p_adv(p); return mk_lit(LIT_BOOL, "true"); }
@@ -301,7 +496,56 @@ int is_compound(int t) {
         e.kind = EK_SIZEOF; e.sval = ty;
         return e;
     }
-    if (t == IDENT)  { Token tok = p_adv(p); return mk_ident(tok_text(p.src, tok)); }
+    if (t == ALLOC_WITH) {
+        p_adv(p); p_adv(p);                    // 'alloc_with' '('
+        *ExprNode al = parse_expr(p);
+        p_adv(p);                              // ','
+        string ety = parse_type(p);
+        p_adv(p);                              // ','
+        *ExprNode cnt = parse_expr(p);
+        p_adv(p);                              // ')'
+        *ExprNode e = alloc<ExprNode>(1);
+        e.kind = EK_ALLOCWITH; e.sval = ety; e.a = al; e.b = cnt;
+        return e;
+    }
+    if (t == FREE_CLOSURE) {
+        p_adv(p); p_adv(p);                    // 'free_closure' '('
+        *ExprNode c = parse_expr(p);
+        p_adv(p);                              // ')'
+        *ExprNode e = alloc<ExprNode>(1);
+        e.kind = EK_FREECLOSURE; e.a = c;
+        return e;
+    }
+    if (t == THREAD_CREATE) {
+        p_adv(p); p_adv(p);                    // 'thread_create' '('
+        *ExprNode w = parse_expr(p);
+        p_adv(p);                              // ')'
+        *ExprNode e = alloc<ExprNode>(1);
+        e.kind = EK_THREADCREATE; e.a = w;
+        return e;
+    }
+    // Lambda: RetType(params) { body } — a type keyword followed by '('.
+    if (is_type_kw(t) == 1 && p_peek2(p).type == LPAREN) {
+        int save = p.pos;
+        string ret = parse_type(p);
+        p_adv(p);                              // '('
+        *DeclNode tmp = alloc<DeclNode>(1);
+        parse_params(p, tmp);
+        p_adv(p);                              // ')'
+        if (p_at(p) == LBRACE) {
+            *ExprNode e = alloc<ExprNode>(1);
+            e.kind = EK_LAMBDA; e.sval = lambda_sig(ret, tmp); e.stmt = parse_block(p);
+            return e;
+        }
+        p.pos = save;                          // not a lambda — back out
+    }
+    if (t == IDENT) {
+        Token tok = p_adv(p);
+        if (p_at(p) == LBRACE && p.no_struct_lit == 0) {   // Name { ... } struct literal
+            return parse_struct_init(p, tok_text(p.src, tok));
+        }
+        return mk_ident(tok_text(p.src, tok));
+    }
     if (t == LPAREN) {
         p_adv(p);
         *ExprNode e = parse_assignment(p);
@@ -311,11 +555,48 @@ int is_compound(int t) {
     return null;
 }
 
-// Postfix chain: call (args), index [e], member .m, error-propagation ?.
-// (Template call Name<...>(args) and struct-init Name{...} arrive in S2b.)
+// Postfix chain: template call Name<...>(args), template struct-init Name<...>{...},
+// call (args), index [e], member .m, error-propagation ?.
 *ExprNode parse_postfix(Parser* p) {
     *ExprNode e = parse_primary(p);
     while (1 == 1) {
+        // Template call / template struct literal: ident '<' types '>' ( '(' | '{' ).
+        // Speculative — restore on failure so a bare `<` is left for comparison.
+        if (e.kind == EK_IDENT && p_at(p) == LT) {
+            int save_pos = p.pos;
+            int save_gt = p.pending_gt;
+            p_adv(p);                          // '<'
+            string sig = str_concat(e.sval, "<");
+            sig = str_concat(sig, parse_type(p));
+            while (p_at(p) == COMMA) {
+                p_adv(p);
+                sig = str_concat(sig, ",");
+                sig = str_concat(sig, parse_type(p));
+            }
+            int matched = 0;
+            if (at_tclose(p) == 1) {
+                consume_tclose(p);
+                sig = str_concat(sig, ">");
+                if (p_at(p) == LPAREN) {
+                    p_adv(p);
+                    *ExprNode tc = alloc<ExprNode>(1);
+                    tc.kind = EK_TEMPLATECALL; tc.sval = sig;
+                    List_init<*ExprNode>(&tc.kids, 4);
+                    if (p_at(p) != RPAREN) {
+                        List_push<*ExprNode>(&tc.kids, parse_expr(p));
+                        while (p_at(p) == COMMA) { p_adv(p); List_push<*ExprNode>(&tc.kids, parse_expr(p)); }
+                    }
+                    p_adv(p);                  // ')'
+                    e = tc; matched = 1;
+                } else if (p_at(p) == LBRACE) {
+                    e = parse_struct_init(p, sig);   // Name<...> { ... }
+                    matched = 1;
+                }
+            }
+            if (matched == 1) { continue; }
+            p.pos = save_pos;                  // not a template — back out
+            p.pending_gt = save_gt;
+        }
         int t = p_at(p);
         if (t == LPAREN) {
             p_adv(p);
@@ -353,6 +634,13 @@ int is_compound(int t) {
 }
 
 *ExprNode parse_unary(Parser* p) {
+    // await E — prefix, binds like a unary operator.
+    if (p_at(p) == AWAIT) {
+        p_adv(p);
+        *ExprNode e = alloc<ExprNode>(1);
+        e.kind = EK_AWAIT; e.a = parse_unary(p);
+        return e;
+    }
     // Fold -<int|float literal> into a negative literal (matches the C++).
     if (p_at(p) == MINUS) {
         int nt = p_peek2(p).type;
@@ -376,15 +664,26 @@ int is_compound(int t) {
         p_adv(p);
         return mk_un(op_str(t), parse_unary(p));
     }
-    // Cast (TYPE) expr — only on a type keyword or '*'-led type (declared-name
-    // casts need the type-name registry; enabled with declarations in S5).
+    // Cast (TYPE) expr — on a type keyword, a '*'-led type, or a declared type name.
     if (t == LPAREN) {
-        int inner = p_peek2(p).type;
-        if (is_type_kw(inner) == 1 || inner == STAR) {
+        Token i2 = p_peek2(p);
+        int inner = i2.type;
+        int is_cast = 0;
+        if (is_type_kw(inner) == 1 || inner == STAR) { is_cast = 1; }
+        else if (inner == IDENT && is_known_type(p, tok_text(p.src, i2)) == 1) { is_cast = 1; }
+        if (is_cast == 1) {
+            // Speculative: `(Type)operand` is a cast, but `(Type { ... })` is a
+            // parenthesized struct literal — distinguished by what follows the type. Parse
+            // the type and require a closing `)`; otherwise back out and let parse_postfix
+            // handle the parenthesized expression (e.g. `(P{ … }).field`).
+            int save = p.pos; int savegt = p.pending_gt;
             p_adv(p);                          // '('
             string cty = parse_type(p);
-            p_adv(p);                          // ')'
-            return mk_cast(cty, parse_unary(p));
+            if (p_at(p) == RPAREN) {
+                p_adv(p);                      // ')'
+                return mk_cast(cty, parse_unary(p));
+            }
+            p.pos = save; p.pending_gt = savegt;   // not a cast
         }
     }
     return parse_postfix(p);
@@ -478,6 +777,69 @@ int is_compound(int t) {
 
 // ── Statements ────────────────────────────────────────────────────────────────
 
+*StmtNode mk_simple(int kind) {
+    *StmtNode s = alloc<StmtNode>(1);
+    s.kind = kind;
+    return s;
+}
+
+*StmtNode mk_vardecl(string nm, string ty, *ExprNode init, int is_const) {
+    *StmtNode s = alloc<StmtNode>(1);
+    s.kind = SK_VARDECL; s.name = nm; s.type = ty; s.expr = init; s.is_const = is_const;
+    return s;
+}
+
+// Is `t` a value-const type — a leading `const ` with no pointer (mirrors the C++
+// finalizeVar rule)? Such a binding is read-only; pointee-const (`const int*`) is not.
+int is_value_const(string t) {
+    if (t[0] != 99 || t[1] != 111 || t[2] != 110 || t[3] != 115
+        || t[4] != 116 || t[5] != 32) { return 0; }     // not "const "
+    int i = 6;
+    while (t[i] != 0) { if (t[i] == 42) { return 0; } i = i + 1; }   // 42 = '*'
+    return 1;
+}
+
+*StmtNode wrap_block(*StmtNode inner) {        // a BlockStmt holding one item
+    *StmtNode b = alloc<StmtNode>(1);
+    b.kind = SK_BLOCK;
+    List_init<*StmtNode>(&b.items, 1);
+    List_push<*StmtNode>(&b.items, inner);
+    return b;
+}
+
+// finalizeVar's stored type: drop binding-only const into the (un-printed) flag.
+// (1) `*const` -> `*` (a const *pointer*); (2) a leading `const ` -> dropped, but
+// only when the type is value-const (no `*` — pointee-const stays in the type).
+string strip_binding_const(string t) {
+    int n = cstr_len(t);
+    *uint8 buf = alloc<uint8>(n + 1);
+    int w = 0;
+    int i = 0;
+    while (i < n) {
+        if (t[i] == 42 && i + 5 < n && t[i+1] == 99 && t[i+2] == 111
+            && t[i+3] == 110 && t[i+4] == 115 && t[i+5] == 116) {   // "*const"
+            buf[w] = 42; w = w + 1;        // keep '*'
+            i = i + 6;                     // skip "*const"
+        } else {
+            buf[w] = (uint8)t[i]; w = w + 1; i = i + 1;
+        }
+    }
+    buf[w] = 0;
+    // value-const leading strip, only if there is no pointer in the result.
+    int has_star = 0;
+    int k = 0;
+    while (k < w) { if (buf[k] == 42) { has_star = 1; } k = k + 1; }
+    if (has_star == 0 && w >= 6 && buf[0] == 99 && buf[1] == 111 && buf[2] == 110
+        && buf[3] == 115 && buf[4] == 116 && buf[5] == 32) {        // "const "
+        *uint8 b2 = alloc<uint8>(w - 6 + 1);
+        int j = 6;
+        while (j < w) { b2[j - 6] = buf[j]; j = j + 1; }
+        b2[w - 6] = 0;
+        return (string)b2;
+    }
+    return (string)buf;
+}
+
 *StmtNode parse_return(Parser* p) {
     p_adv(p);                              // 'return'
     *StmtNode s = alloc<StmtNode>(1);
@@ -488,9 +850,302 @@ int is_compound(int t) {
     return s;
 }
 
-*StmtNode parse_stmt(Parser* p) {
-    if (p_at(p) == RETURN) { return parse_return(p); }
+*StmtNode parse_expr_stmt(Parser* p) {
+    *ExprNode e = parse_expr(p);
+    p_adv(p);                              // ';'
+    *StmtNode s = alloc<StmtNode>(1);
+    s.kind = SK_EXPR; s.expr = e;
+    return s;
+}
+
+*StmtNode parse_if(Parser* p) {
+    p_adv(p);                              // 'if'
+    p_adv(p);                              // '('
+    *ExprNode cond = parse_expr(p);
+    p_adv(p);                              // ')'
+    *StmtNode s = alloc<StmtNode>(1);
+    s.kind = SK_IF; s.expr = cond;
+    s.s2 = null;                           // alloc doesn't zero — null the optional else
+    s.s1 = parse_stmt(p);                  // then
+    if (p_at(p) == ELSE) { p_adv(p); s.s2 = parse_stmt(p); }
+    return s;
+}
+
+*StmtNode parse_while(Parser* p) {
+    p_adv(p);                              // 'while'
+    p_adv(p);                              // '('
+    *ExprNode cond = parse_expr(p);
+    p_adv(p);                              // ')'
+    *StmtNode s = alloc<StmtNode>(1);
+    s.kind = SK_WHILE; s.expr = cond; s.s1 = parse_stmt(p);
+    return s;
+}
+
+// `for (x in A..B)` desugars (at parse time, like the C++) into a counted ForStmt:
+//   for (int x = A; x < B; x = x + 1) body
+*StmtNode desugar_range(string var, *ExprNode lo, *ExprNode hi, *StmtNode body) {
+    *StmtNode s = alloc<StmtNode>(1);
+    s.kind = SK_FOR;
+    s.s1 = wrap_block(mk_vardecl(var, "int", lo, 0));
+    s.expr = mk_bin("<", mk_ident(var), hi);
+    s.expr2 = mk_bin("=", mk_ident(var), mk_bin("+", mk_ident(var), mk_lit(LIT_INT, "1")));
+    s.s2 = body;
+    return s;
+}
+
+*StmtNode parse_for(Parser* p) {
+    p_adv(p);                              // 'for'
+    p_adv(p);                              // '('
+
+    // for-in: `IDENT in iterable` (or a range `A..B`)
+    if (p_at(p) == IDENT && p_peek2(p).type == IN) {
+        string var = tok_text(p.src, p_peek(p)); p_adv(p);   // x
+        p_adv(p);                          // 'in'
+        *ExprNode first = parse_expr(p);
+        if (p_at(p) == RANGE) {
+            p_adv(p);                      // '..'
+            *ExprNode hi = parse_expr(p);
+            p_adv(p);                      // ')'
+            return desugar_range(var, first, hi, parse_stmt(p));
+        }
+        p_adv(p);                          // ')'
+        *StmtNode s = alloc<StmtNode>(1);
+        s.kind = SK_FORIN; s.name = var; s.expr = first; s.s1 = parse_stmt(p);
+        return s;
+    }
+
+    // C-style for (init; cond; step) body
+    *StmtNode init = null;
+    if (p_at(p) != SEMICOLON) {
+        int save = p.pos;
+        *StmtNode d = try_var_decl(p);
+        if (d != null) { init = wrap_block(d); }     // decl consumes its own ';'
+        else { p.pos = save; init = parse_expr_stmt(p); }
+    } else {
+        p_adv(p);                          // ';'
+    }
+    *ExprNode cond = null;
+    if (p_at(p) != SEMICOLON) { cond = parse_expr(p); }
+    p_adv(p);                              // ';'
+    *ExprNode step = null;
+    if (p_at(p) != RPAREN) { step = parse_expr(p); }
+    p_adv(p);                              // ')'
+    *StmtNode s = alloc<StmtNode>(1);
+    s.kind = SK_FOR; s.s1 = init; s.expr = cond; s.expr2 = step; s.s2 = parse_stmt(p);
+    return s;
+}
+
+// Optional leading qualifiers, then a let- or typed local var-decl; returns null
+// (caller restores pos) if the tokens aren't actually a declaration.
+*StmtNode try_var_decl(Parser* p) {
+    int save = p.pos;
+    int is_const = 0;
+    if (p_at(p) == VOLATILE) { p_adv(p); }
+    if (p_at(p) == CONST) {                          // const-let binding (const before let)
+        int k = 1;
+        if (p_peek_k(p, 1).type == VOLATILE) { k = 2; }
+        if (p_peek_k(p, k).type == LET) { is_const = 1; p_adv(p); }
+    }
+    if (p_at(p) == VOLATILE) { p_adv(p); }
+    if (p_at(p) == LET) {
+        p_adv(p);
+        if (p_at(p) != IDENT) { p.pos = save; return null; }
+        string nm = tok_text(p.src, p_peek(p)); p_adv(p);
+        if (p_at(p) != COLON) { p.pos = save; return null; }
+        p_adv(p);
+        string raw = parse_type(p);
+        if (is_value_const(raw) == 1) { is_const = 1; }
+        string ty = strip_binding_const(raw);
+        *ExprNode init = null;
+        if (p_at(p) == EQ) { p_adv(p); init = parse_expr(p); }
+        if (p_at(p) != SEMICOLON) { p.pos = save; return null; }
+        p_adv(p);
+        return mk_vardecl(nm, ty, init, is_const);
+    }
+    // typed: Type name [= expr] ;
+    string raw = parse_type(p);
+    if (is_value_const(raw) == 1) { is_const = 1; }
+    string ty = strip_binding_const(raw);
+    if (p_at(p) != IDENT) { p.pos = save; return null; }
+    string nm = tok_text(p.src, p_peek(p)); p_adv(p);
+    if (p_at(p) == EQ) {
+        p_adv(p);
+        *ExprNode init = parse_expr(p);
+        if (p_at(p) != SEMICOLON) { p.pos = save; return null; }
+        p_adv(p);
+        return mk_vardecl(nm, ty, init, is_const);
+    }
+    if (p_at(p) == SEMICOLON) { p_adv(p); return mk_vardecl(nm, ty, null, is_const); }
+    p.pos = save;
     return null;
+}
+
+*StmtNode parse_switch(Parser* p) {
+    p_adv(p);                              // 'switch'
+    p_adv(p);                              // '('
+    *StmtNode s = alloc<StmtNode>(1);
+    s.kind = SK_SWITCH;
+    s.expr = parse_expr(p);                // subject
+    p_adv(p);                              // ')'
+    p_adv(p);                              // '{'
+    List_init<*StmtNode>(&s.items, 4);
+    while (p_at(p) != RBRACE && p_at(p) != EOF_TOKEN) {
+        *StmtNode c = alloc<StmtNode>(1);
+        c.kind = SK_CASE;
+        c.expr = null;
+        if (p_at(p) == CASE) { p_adv(p); c.expr = parse_expr(p); p_adv(p); }   // 'case' val ':'
+        else if (p_at(p) == DEFAULT) { p_adv(p); p_adv(p); }                   // 'default' ':'
+        else { break; }
+        List_init<*StmtNode>(&c.items, 4);
+        while (p_at(p) != CASE && p_at(p) != DEFAULT && p_at(p) != RBRACE && p_at(p) != EOF_TOKEN) {
+            List_push<*StmtNode>(&c.items, parse_stmt(p));
+        }
+        List_push<*StmtNode>(&s.items, c);
+    }
+    p_adv(p);                              // '}'
+    return s;
+}
+
+*StmtNode parse_match(Parser* p) {
+    p_adv(p);                              // 'match'
+    int saved = p.no_struct_lit;
+    p.no_struct_lit = 1;                   // subject `Name { ... }` is the match body, not a literal
+    *ExprNode subj = parse_expr(p);
+    p.no_struct_lit = saved;
+    p_adv(p);                              // '{'
+    *StmtNode s = alloc<StmtNode>(1);
+    s.kind = SK_MATCH; s.expr = subj;
+    List_init<*StmtNode>(&s.items, 4);
+    while (p_at(p) != RBRACE && p_at(p) != EOF_TOKEN) {
+        Token cur = p_peek(p);
+        string label;
+        if (p_at(p) == IDENT && cur.len == 1 && (int)p.src[cur.start] == 95) {
+            label = "_"; p_adv(p);         // default arm
+        } else {
+            label = tok_text(p.src, p_adv(p));        // variant name
+            if (p_at(p) == LPAREN) {                  // payload bindings
+                p_adv(p);
+                label = str_concat(label, "(");
+                if (p_at(p) != RPAREN) {
+                    label = str_concat(label, tok_text(p.src, p_adv(p)));
+                    while (p_at(p) == COMMA) {
+                        p_adv(p);
+                        label = str_concat(label, ", ");
+                        label = str_concat(label, tok_text(p.src, p_adv(p)));
+                    }
+                }
+                p_adv(p);                  // ')'
+                label = str_concat(label, ")");
+            }
+        }
+        p_adv(p);                          // '->'
+        *StmtNode arm = alloc<StmtNode>(1);
+        arm.kind = SK_ARM; arm.name = label; arm.s1 = parse_stmt(p);
+        List_push<*StmtNode>(&s.items, arm);
+    }
+    p_adv(p);                              // '}'
+    return s;
+}
+
+*StmtNode parse_try(Parser* p) {
+    p_adv(p);                              // 'try'
+    *StmtNode s = alloc<StmtNode>(1);
+    s.kind = SK_TRY;
+    s.s2 = null;                           // finally (optional)
+    s.s1 = parse_block(p);                 // body
+    List_init<*StmtNode>(&s.items, 2);
+    while (p_at(p) == CATCH) {
+        p_adv(p);                          // 'catch'
+        p_adv(p);                          // '('
+        string cty = parse_type(p);
+        string cnm = tok_text(p.src, p_adv(p));   // exception variable name
+        p_adv(p);                          // ')'
+        *StmtNode cat = alloc<StmtNode>(1);
+        cat.kind = SK_CATCH;
+        cat.name = str_concat(str_concat(cty, " "), cnm);
+        cat.s1 = parse_block(p);
+        List_push<*StmtNode>(&s.items, cat);
+    }
+    if (p_at(p) == FINALLY) { p_adv(p); s.s2 = parse_block(p); }
+    return s;
+}
+
+*StmtNode parse_asm(Parser* p) {
+    p_adv(p);                              // 'asm'
+    p_adv(p);                              // '('
+    *StmtNode s = alloc<StmtNode>(1);
+    s.kind = SK_ASM;
+    s.name = tok_str_value(p.src, p_adv(p));   // the asm string (decoded)
+    List_init<*StmtNode>(&s.items, 2);
+    if (p_at(p) == COLON) {                // outputs (skipped) : inputs : clobbers
+        p_adv(p);
+        if (p_at(p) == COLON) {
+            p_adv(p);
+            while (p_at(p) != RPAREN && p_at(p) != COLON && p_at(p) != EOF_TOKEN) {
+                Token ct = p_adv(p);       // constraint string
+                p_adv(p);                  // '('
+                *StmtNode inp = alloc<StmtNode>(1);
+                inp.kind = SK_ASMINPUT;
+                inp.name = tok_str_value(p.src, ct);
+                inp.expr = parse_expr(p);
+                p_adv(p);                  // ')'
+                List_push<*StmtNode>(&s.items, inp);
+                if (p_at(p) == COMMA) { p_adv(p); } else { break; }
+            }
+            if (p_at(p) == COLON) {        // clobbers (skipped)
+                p_adv(p);
+                while (p_at(p) != RPAREN && p_at(p) != EOF_TOKEN) {
+                    p_adv(p);
+                    if (p_at(p) == COMMA) { p_adv(p); } else { break; }
+                }
+            }
+        }
+    }
+    p_adv(p);                              // ')'
+    p_adv(p);                              // ';'
+    return s;
+}
+
+*StmtNode parse_stmt(Parser* p) {
+    int t = p_at(p);
+    if (t == LBRACE) { return parse_block(p); }
+    if (t == IF) { return parse_if(p); }
+    if (t == FOR) { return parse_for(p); }
+    if (t == WHILE) { return parse_while(p); }
+    if (t == SWITCH) { return parse_switch(p); }
+    if (t == MATCH) { return parse_match(p); }
+    if (t == TRY) { return parse_try(p); }
+    if (t == ASM) { return parse_asm(p); }
+    if (t == RETURN) { return parse_return(p); }
+    if (t == BREAK) { p_adv(p); p_adv(p); return mk_simple(SK_BREAK); }
+    if (t == CONTINUE) { p_adv(p); p_adv(p); return mk_simple(SK_CONTINUE); }
+    if (t == THROW) {
+        p_adv(p);
+        *StmtNode s = alloc<StmtNode>(1); s.kind = SK_THROW; s.expr = parse_expr(p);
+        p_adv(p);                          // ';'
+        return s;
+    }
+    if (t == THREAD_JOIN) {
+        p_adv(p); p_adv(p);                // 'thread_join' '('
+        *StmtNode s = alloc<StmtNode>(1); s.kind = SK_THREADJOIN; s.expr = parse_expr(p);
+        p_adv(p); p_adv(p);                // ')' ';'
+        return s;
+    }
+    return parse_expr_stmt(p);
+}
+
+// A block item is a local declaration (let / typed) or a statement. For a decl-
+// looking lead token, speculatively parse a var-decl and back out on failure.
+*StmtNode parse_block_item(Parser* p) {
+    int t = p_at(p);
+    if (t == LET || t == CONST || t == VOLATILE || t == STAR || t == IDENT
+        || t == FN || is_type_kw(t) == 1) {
+        int save = p.pos;
+        *StmtNode d = try_var_decl(p);
+        if (d != null) { return d; }
+        p.pos = save;
+    }
+    return parse_stmt(p);
 }
 
 *StmtNode parse_block(Parser* p) {
@@ -499,7 +1154,7 @@ int is_compound(int t) {
     b.kind = SK_BLOCK;
     List_init<*StmtNode>(&b.items, 4);
     while (p_at(p) != RBRACE && p_at(p) != EOF_TOKEN) {
-        List_push<*StmtNode>(&b.items, parse_stmt(p));
+        List_push<*StmtNode>(&b.items, parse_block_item(p));
     }
     p_adv(p);                              // '}'
     return b;
@@ -507,25 +1162,401 @@ int is_compound(int t) {
 
 // ── Declarations ────────────────────────────────────────────────────────────
 
-*DeclNode parse_function(Parser* p) {
-    Token rt = p_adv(p);                   // return type
-    Token nm = p_adv(p);                   // name
-    p_adv(p);                              // '('
-    p_adv(p);                              // ')'  (S0/S1: no params)
+// Consume a type-parameter list `<T, U: Iface + B>` if present (fn/struct/enum).
+// The AST printer doesn't emit type params, so we just skip them.
+// Allocate a DeclNode and initialize the fields that aren't otherwise set by the
+// caller (alloc<T> does NOT zero memory). Centralizes init of the enrichment fields
+// added for sema/codegen so each is set once, not at every creation site.
+*DeclNode new_decl(int kind) {
     *DeclNode d = alloc<DeclNode>(1);
-    d.kind = DK_FUNCTION;
-    d.name = tok_text(p.src, nm);
-    d.ret_type = tok_text(p.src, rt);
-    List_init<Param>(&d.params, 1);
-    d.body = parse_block(p);
+    d.kind = kind;
+    List_init<TypeParam>(&d.type_params, 2);
+    List_init<*DeclNode>(&d.methods, 2);
+    List_init<List<string>>(&d.payloads, 2);
+    List_init<int>(&d.field_bits, 4);
+    List_init<int>(&d.param_escaping, 4);
+    d.is_async = 0;
+    d.is_const = 0;
+    d.is_packed = 0;
+    d.pack_align = 0;
     return d;
+}
+
+// Parse an optional generic `<T, U: A + B>` list into `out` (captures names + their
+// constraints; was previously skipped). `with_constraints` mirrors the C++ AST: fn/
+// struct store constraints, but EnumDecl has no constraints field, so a generic enum
+// CONSUMES `: A + B` without storing it (keeps the printers byte-identical). Empty if
+// there's no `<`.
+void parse_type_params(Parser* p, List<TypeParam>* out, int with_constraints) {
+    if (p_at(p) != LT) { return; }
+    p_adv(p);                              // '<'
+    while (1 == 1) {
+        let tp: TypeParam;
+        tp.name = tok_text(p.src, p_adv(p));       // type-param name
+        List_init<string>(&tp.constraints, 2);
+        if (p_at(p) == COLON) {            // constraints `: A + B`
+            p_adv(p);
+            string c0 = tok_text(p.src, p_adv(p));                  // first
+            if (with_constraints == 1) { List_push<string>(&tp.constraints, c0); }
+            while (p_at(p) == PLUS) {
+                p_adv(p);
+                string ck = tok_text(p.src, p_adv(p));
+                if (with_constraints == 1) { List_push<string>(&tp.constraints, ck); }
+            }
+        }
+        List_push<TypeParam>(out, tp);
+        if (p_at(p) == COMMA) { p_adv(p); } else { break; }
+    }
+    consume_tclose(p);                     // '>' (or split '>>')
+}
+
+// Parameter list (mirror parseParameterList): `[escaping] Type name`, comma-
+// separated, or a trailing `...` variadic. Fills d.params; leaves p at ')'.
+void parse_params(Parser* p, *DeclNode d) {
+    List_init<Param>(&d.params, 4);
+    List_init<int>(&d.param_escaping, 4);
+    if (p_at(p) != RPAREN) {
+        while (1 == 1) {
+            if (p_at(p) == ELLIPSIS) {
+                p_adv(p);
+                let pm: Param; pm.ty = "..."; pm.name = "...";
+                List_push<Param>(&d.params, pm);
+                List_push<int>(&d.param_escaping, 0);
+                break;                     // variadic must be last
+            }
+            int esc = 0;
+            if (p_at(p) == ESCAPING) { p_adv(p); esc = 1; }
+            let pm: Param;
+            pm.ty = parse_type(p);
+            pm.name = tok_text(p.src, p_peek(p));
+            p_adv(p);                      // parameter name
+            List_push<Param>(&d.params, pm);
+            List_push<int>(&d.param_escaping, esc);
+            if (p_at(p) == COMMA) { p_adv(p); } else { break; }
+        }
+    }
+}
+
+*DeclNode parse_function(Parser* p) {
+    string rty = parse_type(p);            // return type (may be *T, List<T>, …)
+    Token nm = p_adv(p);                   // function name
+    *DeclNode d = new_decl(DK_FUNCTION);
+    d.name = tok_text(p.src, nm);
+    d.ret_type = rty;
+    parse_type_params(p, &d.type_params, 1);   // optional <T, U: Iface>
+    p_adv(p);                              // '('
+    parse_params(p, d);                    // fills d.params, stops at ')'
+    p_adv(p);                              // ')'
+    if (p_at(p) == LBRACE) { d.body = parse_block(p); }
+    else { d.body = null; p_adv(p); }      // forward declaration: ';' (no body)
+    return d;
+}
+
+// int -> decimal string (handles negatives; enum member values).
+string int_to_str(int n) {
+    if (n == 0) { return "0"; }
+    int neg = 0;
+    if (n < 0) { neg = 1; n = 0 - n; }
+    *uint8 tmp = alloc<uint8>(16);
+    int len = 0;
+    while (n > 0) { tmp[len] = (uint8)(48 + (n % 10)); n = n / 10; len = len + 1; }
+    int total = len;
+    if (neg == 1) { total = total + 1; }
+    *uint8 buf = alloc<uint8>(total + 1);
+    int off = 0;
+    if (neg == 1) { buf[0] = 45; off = 1; }
+    int i = 0;
+    while (i < len) { buf[off + i] = tmp[len - 1 - i]; i = i + 1; }
+    buf[total] = 0;
+    return (string)buf;
+}
+
+// Parse a decimal or 0x-hex integer literal lexeme to an int (enum values).
+int str_to_int(string s) {
+    int i = 0;
+    int v = 0;
+    if (s[0] == 48 && (s[1] == 120 || s[1] == 88)) {       // "0x"
+        i = 2;
+        while (s[i] != 0) {
+            int c = (int)s[i];
+            int dgt = 0;
+            if (c >= 48 && c <= 57) { dgt = c - 48; }
+            else if (c >= 97 && c <= 102) { dgt = c - 87; }
+            else { dgt = c - 55; }
+            v = v * 16 + dgt;
+            i = i + 1;
+        }
+        return v;
+    }
+    while (s[i] != 0) { v = v * 10 + ((int)s[i] - 48); i = i + 1; }
+    return v;
+}
+
+// extern / intrinsic share the prototype shape: RetType name(params);
+*DeclNode parse_proto(Parser* p, int kind) {
+    *DeclNode d = new_decl(kind);
+    d.ret_type = parse_type(p);
+    d.name = tok_text(p.src, p_adv(p));
+    p_adv(p);                              // '('
+    parse_params(p, d);
+    p_adv(p);                              // ')'
+    p_adv(p);                              // ';'
+    return d;
+}
+
+*DeclNode parse_struct(Parser* p) {
+    *DeclNode d = new_decl(DK_STRUCT);
+    d.name = tok_text(p.src, p_adv(p));
+    if (g_cur_pack >= 1) { d.pack_align = g_cur_pack; if (g_cur_pack == 1) { d.is_packed = 1; } }
+    parse_type_params(p, &d.type_params, 1);   // optional <T, E: Iface>
+    p_adv(p);                              // '{'
+    List_init<Param>(&d.params, 4);
+    while (p_at(p) != RBRACE && p_at(p) != EOF_TOKEN) {
+        string mty = parse_type(p);
+        Token mnm = p_adv(p);              // member name
+        if (p_at(p) == LPAREN) {
+            // Method — a FunctionDecl whose return type + name were already read.
+            *DeclNode m = new_decl(DK_FUNCTION);
+            m.ret_type = mty;
+            m.name = tok_text(p.src, mnm);
+            p_adv(p);                      // '('
+            parse_params(p, m);
+            p_adv(p);                      // ')'
+            if (p_at(p) == LBRACE) { m.body = parse_block(p); } else { m.body = null; p_adv(p); }
+            List_push<*DeclNode>(&d.methods, m);
+        } else {
+            int bw = 0;
+            if (p_at(p) == COLON) { p_adv(p); bw = str_to_int(tok_text(p.src, p_adv(p))); }   // bitfield ': width'
+            p_adv(p);                      // ';'
+            let pm: Param;
+            pm.ty = mty;
+            pm.name = tok_text(p.src, mnm);
+            List_push<Param>(&d.params, pm);
+            List_push<int>(&d.field_bits, bw);
+        }
+    }
+    p_adv(p);                              // '}'
+    return d;
+}
+
+*DeclNode parse_union(Parser* p) {
+    *DeclNode d = new_decl(DK_UNION);
+    d.name = tok_text(p.src, p_adv(p));
+    p_adv(p);                              // '{'
+    List_init<Param>(&d.params, 4);
+    while (p_at(p) != RBRACE && p_at(p) != EOF_TOKEN) {
+        let pm: Param;
+        pm.ty = parse_type(p);
+        pm.name = tok_text(p.src, p_adv(p));
+        p_adv(p);                          // ';'
+        List_push<Param>(&d.params, pm);
+    }
+    p_adv(p);                              // '}'
+    return d;
+}
+
+*DeclNode parse_interface(Parser* p) {
+    *DeclNode d = new_decl(DK_INTERFACE);
+    d.name = tok_text(p.src, p_adv(p));
+    p_adv(p);                              // '{'
+    while (p_at(p) != RBRACE && p_at(p) != EOF_TOKEN) {
+        *DeclNode m = new_decl(DK_FUNCTION);
+        m.ret_type = parse_type(p);        // return type
+        m.name = tok_text(p.src, p_adv(p));    // method name
+        p_adv(p);                          // '('
+        parse_params(p, m);                // capture the method's params
+        p_adv(p);                          // ')'
+        p_adv(p);                          // ';'
+        List_push<*DeclNode>(&d.methods, m);
+    }
+    p_adv(p);                              // '}'
+    return d;
+}
+
+*DeclNode parse_enum(Parser* p) {
+    *DeclNode d = new_decl(DK_ENUM);
+    d.name = tok_text(p.src, p_adv(p));
+    parse_type_params(p, &d.type_params, 0);   // optional <T> (enum: no constraints field)
+    p_adv(p);                              // '{'
+    List_init<Param>(&d.params, 4);
+    int next = 0;
+    while (p_at(p) != RBRACE && p_at(p) != EOF_TOKEN) {
+        string mname = tok_text(p.src, p_adv(p));
+        int val = next;
+        let pl: List<string>;
+        List_init<string>(&pl, 2);
+        if (p_at(p) == LPAREN) {           // ADT payload — capture variant field types
+            p_adv(p);
+            if (p_at(p) != RPAREN) {
+                List_push<string>(&pl, parse_type(p));
+                while (p_at(p) == COMMA) { p_adv(p); List_push<string>(&pl, parse_type(p)); }
+            }
+            p_adv(p);                      // ')'
+        } else if (p_at(p) == EQ) {        // explicit value
+            p_adv(p);
+            int neg = 0;
+            if (p_at(p) == MINUS) { p_adv(p); neg = 1; }
+            val = str_to_int(tok_text(p.src, p_adv(p)));
+            if (neg == 1) { val = 0 - val; }
+        }
+        let pm: Param;
+        pm.name = mname;
+        pm.ty = int_to_str(val);
+        List_push<Param>(&d.params, pm);
+        List_push<List<string>>(&d.payloads, pl);
+        next = val + 1;
+        if (p_at(p) == COMMA) { p_adv(p); } else { break; }
+    }
+    p_adv(p);                              // '}'
+    return d;
+}
+
+*DeclNode parse_typealias(Parser* p) {
+    p_adv(p);                              // 'type'
+    *DeclNode d = new_decl(DK_TYPEALIAS);
+    d.name = tok_text(p.src, p_adv(p));    // alias name
+    p_adv(p);                              // '='
+    d.ret_type = parse_type(p);
+    p_adv(p);                              // ';'
+    return d;
+}
+
+*DeclNode mk_decl_var(string nm, string ty, *ExprNode init, int is_const) {
+    *DeclNode d = new_decl(DK_VARDECL);
+    d.name = nm; d.ret_type = ty; d.init = init; d.is_const = is_const;
+    return d;
+}
+
+// Fallback for a non-keyword top-level decl: a let/typed global var, or a function
+// (`Type name(` / `Type name<`). Mirrors parseDeclaration's tail.
+*DeclNode parse_decl_fallback(Parser* p) {
+    int save = p.pos;
+    int is_const = 0;
+    if (p_at(p) == VOLATILE) { p_adv(p); }
+    if (p_at(p) == CONST) {
+        int k = 1;
+        if (p_peek_k(p, 1).type == VOLATILE) { k = 2; }
+        if (p_peek_k(p, k).type == LET) { is_const = 1; p_adv(p); }
+    }
+    if (p_at(p) == VOLATILE) { p_adv(p); }
+    if (p_at(p) == LET) {
+        p_adv(p);
+        string nm = tok_text(p.src, p_adv(p));
+        p_adv(p);                          // ':'
+        string raw = parse_type(p);
+        if (is_value_const(raw) == 1) { is_const = 1; }
+        string ty = strip_binding_const(raw);
+        *ExprNode init = null;
+        if (p_at(p) == EQ) { p_adv(p); init = parse_expr(p); }
+        p_adv(p);                          // ';'
+        return mk_decl_var(nm, ty, init, is_const);
+    }
+    string raw = parse_type(p);
+    if (is_value_const(raw) == 1) { is_const = 1; }
+    string ty = strip_binding_const(raw);
+    Token nm = p_adv(p);                   // name
+    if (p_at(p) == LPAREN || p_at(p) == LT) {
+        p.pos = save;                      // it's a function — re-parse from the top
+        return parse_function(p);
+    }
+    *ExprNode init = null;
+    if (p_at(p) == EQ) { p_adv(p); init = parse_expr(p); }
+    p_adv(p);                              // ';'
+    return mk_decl_var(tok_text(p.src, nm), ty, init, is_const);
+}
+
+// Top-level declaration dispatch (mirrors parseDeclaration). A declared type name
+// is registered so later `(Name)x` casts are recognized.
+*DeclNode parse_decl_top(Parser* p) {
+    int t = p_at(p);
+    *DeclNode d;
+    if (t == EXTERN) { p_adv(p); return parse_proto(p, DK_EXTERN); }
+    if (t == INTRINSIC) { p_adv(p); return parse_proto(p, DK_INTRINSIC); }
+    if (t == ASYNC) { p_adv(p); d = parse_function(p); d.is_async = 1; return d; }   // async fn
+    if (t == STRUCT) { p_adv(p); d = parse_struct(p); register_type(p, d.name); return d; }
+    if (t == PACKED) { p_adv(p); p_adv(p); d = parse_struct(p); d.is_packed = 1; d.pack_align = 1; register_type(p, d.name); return d; }
+    if (t == UNION) { p_adv(p); d = parse_union(p); register_type(p, d.name); return d; }
+    if (t == INTERFACE) { p_adv(p); d = parse_interface(p); register_type(p, d.name); return d; }
+    if (t == ENUM) { p_adv(p); d = parse_enum(p); register_type(p, d.name); return d; }
+    if (t == IDENT) {                      // contextual `type Alias = ...;`
+        Token cur = p_peek(p);
+        if (lexeme_eq(p.src, cur.start, cur.len, "type") == 1
+            && p_peek2(p).type == IDENT && p_peek_k(p, 2).type == EQ) {
+            d = parse_typealias(p); register_type(p, d.name); return d;
+        }
+    }
+    return parse_decl_fallback(p);
+}
+
+// Resolve and recursively parse an `import`, appending the imported file's decls to
+// `prog` at this position (mirrors parser.cpp: dedup via g_imported, stdlib `<name>`
+// → stdlib/name.esk, relative `"path"` → basedir/path). The caller has already
+// consumed the IMPORT keyword; `p` is positioned at the path token.
+void do_import(Parser* p, *Program prog) {
+    string path = "";
+    int is_std = 0;
+    if (p_at(p) == STRING_LIT) {
+        path = tok_str_value(p.src, p_peek(p));
+        p_adv(p);
+    } else if (p_at(p) == LT) {
+        p_adv(p);
+        string name = "";
+        while (p_at(p) != GT && p_at(p) != EOF_TOKEN) {
+            name = str_concat(name, tok_text(p.src, p_adv(p)));
+        }
+        if (p_at(p) == GT) { p_adv(p); }
+        if (str_has_char(name, 47) == 0) {       // bare name → stdlib/<name>.esk
+            name = str_concat("stdlib/", str_concat(name, ".esk"));
+        }
+        path = name;
+        is_std = 1;
+    } else {
+        return;                                  // malformed; valid corpus won't hit this
+    }
+    if (p_at(p) == SEMICOLON) { p_adv(p); }
+
+    // Resolve full path: stdlib relative to cwd, otherwise relative to this file's dir.
+    string full;
+    if (is_std == 1) { full = path; }
+    else if ((int)path[0] != 47) { full = str_concat(p.basedir, str_concat("/", path)); }
+    else { full = path; }
+
+    int i = 0;                                   // dedup — parse each file once
+    int seen = List_len<string>(&g_imported);
+    while (i < seen) {
+        if (str_eq(List_get<string>(&g_imported, i), full) == 1) { return; }
+        i = i + 1;
+    }
+    List_push<string>(&g_imported, full);
+
+    let bytes: int64 = 0;
+    *uint8 isrc = fs_read_all(full, &bytes);
+    if (isrc == null) { return; }                // unreadable import — skip (C++ errors)
+    // Preprocess the import (the C++ folds preprocessing into the lexer per file); this
+    // evaluates its #ifdef/#define so e.g. mem.esk picks one branch, not both.
+    let pe: int = 0;
+    string psrc = pp_run((string)isrc, (int)bytes, full, &pe);
+    *uint8 ppsrc = (*uint8)psrc;
+    int plen = 0; while (ppsrc[plen] != 0) { plen = plen + 1; }
+    let sub: Parser;
+    p_init(&sub, ppsrc, plen);
+    sub.basedir = str_dir(full);
+    parse_into(&sub, prog);
+}
+
+// Parse top-level items from `p` into an existing program (used both for the entry
+// file and recursively for each import, so imported decls land in declaration order).
+void parse_into(Parser* p, *Program prog) {
+    while (p_at(p) != EOF_TOKEN) {
+        if (p_at(p) == PRAGMA) { apply_pragma(tok_text(p.src, p_adv(p))); }   // #pragma pack state
+        else if (p_at(p) == IMPORT) { p_adv(p); do_import(p, prog); }
+        else { List_push<*DeclNode>(&prog.decls, parse_decl_top(p)); }
+    }
 }
 
 *Program parse_program(Parser* p) {
     *Program prog = alloc<Program>(1);
     List_init<*DeclNode>(&prog.decls, 4);
-    while (p_at(p) != EOF_TOKEN) {
-        List_push<*DeclNode>(&prog.decls, parse_function(p));
-    }
+    parse_into(p, prog);
     return prog;
 }

@@ -34,8 +34,10 @@ endif
 all: qr_decoder
 
 # Eskiu → object file (includes crypto.esk and output.esk)
+# -O2 runs the LLVM middle-end (mem2reg/SROA/inlining/...); without it eskiuc
+# emits naive -O0-style IR straight to the backend.
 main.o: main.esk types.esk extern.esk pipeline.esk crypto.esk output.esk
-	$(ESKIUC) main.esk -o main.o
+	$(ESKIUC) -O2 main.esk -o main.o
 
 # C/C++ sources — QR extraction only (crypto + output are in Eskiu)
 qr_extract.o: qr_extract.c

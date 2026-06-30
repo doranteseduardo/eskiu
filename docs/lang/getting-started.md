@@ -4,7 +4,7 @@
 A hands-on introduction to the Eskiu language. You will go from zero to writing
 and inspecting real compiled programs in about 30 minutes.
 
-All code blocks in this document compile and run with **Eskiu v0.2.5**.
+All code blocks in this document compile and run with **Eskiu v0.3.0**.
 ---
 
 ## Installation
@@ -46,7 +46,7 @@ cmake --build build -j$(nproc)
 
 ```bash
 ./build/eskiuc --version
-# Eskiu 0.2.5 (LLVM 22.1.6)   — exact LLVM version depends on your install
+# Eskiu 0.3.0 (LLVM 22.1.6)   — exact LLVM version depends on your install
 ```
 
 Add `./build` to your `PATH` so you can type `eskiuc` from any directory.
@@ -160,7 +160,7 @@ Both styles compile to the same IR. Use whichever reads more clearly in context.
 | Type     | Width    | Notes                           |
 | -------- | -------- | ------------------------------- |
 | `bool`   | 1 bit    | `true` / `false`                |
-| `char`   | 8-bit    | Single character                |
+| `char`   | 8-bit    | Unsigned; single character      |
 | `int`    | 32-bit   | Signed                          |
 | `int8`   | 8-bit    | Signed                          |
 | `int16`  | 16-bit   | Signed                          |
@@ -171,7 +171,7 @@ Both styles compile to the same IR. Use whichever reads more clearly in context.
 | `uint16` | 16-bit   | Unsigned                        |
 | `uint32` | 32-bit   | Unsigned                        |
 | `uint64` | 64-bit   | Unsigned                        |
-| `float`  | 32-bit   | IEEE 754 single-precision       |
+| `float`  | 32-bit   | IEEE 754 single-precision (literals are `double`; assigning coerces down) |
 | `double` | 64-bit   | IEEE 754 double-precision       |
 | `string` | pointer  | Null-terminated C string        |
 | `void`   | —        | Used as function return type    |
@@ -918,7 +918,7 @@ through to the linker, so the one-command form works too:
 eskiuc file.esk -o file -lm
 ```
 
-### Standard library highlights (v0.2.5)
+### Standard library highlights (v0.3.0)
 
 A few of the newer modules. See the language spec §14 for the full reference.
 

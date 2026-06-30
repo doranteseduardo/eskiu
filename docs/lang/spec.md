@@ -1,6 +1,6 @@
 # Eskiu Language Specification
 
-**Version:** v0.2.5
+**Version:** v0.3.0
 
 ---
 
@@ -105,7 +105,9 @@ sizeof  free_closure  union  enum
 
 Negative literals are first-class values and can be used in any expression context, including global variable initialisers and struct field initialisers.
 
-**Float literals** contain a decimal point:
+**Float literals** contain a decimal point. They have type `double` (f64) by default;
+assigning one to a `float` (f32) variable or field coerces it down (a `double`→`float`
+cast). Integer literals are `int` (i32), widening to `int64` when they exceed 32 bits.
 
 ```eskiu
 3.14    2.0    0.5
@@ -157,7 +159,7 @@ Negative literals are first-class values and can be used in any expression conte
 | `float`  | `float`  | 32 bits | IEEE 754 single-precision          |
 | `double` | `double` | 64 bits | IEEE 754 double-precision          |
 | `bool`   | `i1`     | 1 bit   | `true` or `false`                  |
-| `char`   | `i8`     | 8 bits  | Single byte                        |
+| `char`   | `i8`     | 8 bits  | Unsigned; single byte              |
 | `string` | `i8*`    | pointer | Immutable C-string literal         |
 | `void`   | `void`   | —       | No value; valid only as return type|
 
@@ -1367,7 +1369,8 @@ Result<int, string> compute(int a, int b, int c) {
 ```
 
 A value is treated as Result-like if it has an `int ok` field and a `value`
-field; the standard library's `Result<T, E>` satisfies this.
+field; the standard library's `Result<T, E>` satisfies this. Applying `?` to an
+expression of any other type is a compile error.
 
 ### 10.6 Bounded type parameters (constraints)
 
@@ -1651,8 +1654,9 @@ Eskiu ships a set of standard library files in the `stdlib/` directory. Import a
 | File                  | Contents                                                         |
 |-----------------------|------------------------------------------------------------------|
 | `stdlib/result.esk`   | `Result<T,E>` template struct; `Ok<T,E>(value)` and `Err<T,E>(err)` constructor functions |
-| `stdlib/list.esk`     | `List<T>` template struct; `List_init`, `List_push`, `List_get`, `List_len`, `List_free` |
+| `stdlib/list.esk`     | `List<T>` template struct; `List_init`, `List_push`, `List_get`, `List_set`, `List_remove`, `List_len`, `List_free` |
 | `stdlib/string.esk`   | `String` struct; `String_init`, `String_from`, `String_append`, `String_concat`, `String_push`, `String_char_at`, `String_set`, `String_clear`, `String_index_of`, `String_eq`, `String_eq_cstr`, `String_reverse`, `String_substring`, `String_from_int`, `String_to_int`, `String_cstr`, `String_len`, `String_free`, `String_starts_with`, `String_ends_with`, `String_trim`, `String_next_token` (streaming split), `String_split`/`String_split_free` (into a `List<String>`) |
+| `stdlib/ctype.esk`    | Pure-Eskiu ASCII character classification (comparisons only — no libc, freestanding-safe): `is_space`, `is_digit`, `is_hex`, `is_alpha`, `is_alnum`, `is_ident_start`, `is_ident_cont`. Each takes and returns `int` (1/0) |
 | `stdlib/math.esk`     | `extern` declarations for `sqrt`, `fabs`, `pow`, `floor`, `ceil`, `abs` |
 | `stdlib/io.esk`       | `extern` declarations for `printf`, `fprintf`, `sprintf`, `scanf`, `puts` |
 | `stdlib/mem.esk`      | Heap allocation `alloc<T>(n)` / `free(p)` (libc, or `esk_alloc`/`esk_free` under `--freestanding`); plus `extern` `memcpy`, `memset`, `memmove`, `memcmp`, `strlen` |
@@ -1859,6 +1863,7 @@ All four sections are separated by `:`. Trailing sections may be omitted if empt
 | `eskiuc file.esk --ubsan -o prog` | Insert trapping bounds checks (traps on out-of-bounds; no runtime) |
 | `eskiuc file.esk -Wall -o prog` | Enable lint warnings: unused vars/params/functions, assignment-in-condition |
 | `eskiuc file.esk -Wextra -o prog` | Extra warnings on top of `-Wall`: signed/unsigned comparison mismatches |
+| `eskiuc file.esk -O2 -o prog` | Optimize: run the LLVM middle-end (`-O1`/`-O2`/`-O3`). `-O0` (default) emits naive IR straight to the backend |
 | `eskiuc file.esk -o prog -lpthread` | Link, passing library flags through to the linker |
 | `eskiuc file.esk -o file.o` | Compile to an object file only (no link) |
 | `eskiuc file.esk -c -o name` | Compile to an object file only, any name |

@@ -42,6 +42,9 @@ jobs:
         with:
           name: eskiuc-macos-arm64
           path: eskiuc-macos-arm64.tar.gz
+          # Transient build→release handoff only; the real binaries are attached to
+          # the GitHub Release. Expire fast so they don't pile up in Actions storage.
+          retention-days: 7
 
   # ── Linux x86_64 ───────────────────────────────────────────────────────
   build-linux-x86_64:
@@ -82,6 +85,9 @@ jobs:
         with:
           name: eskiuc-linux-x86_64
           path: eskiuc-linux-x86_64.tar.gz
+          # Transient build→release handoff only; the real binaries are attached to
+          # the GitHub Release. Expire fast so they don't pile up in Actions storage.
+          retention-days: 7
 
   # ── GitHub Release ─────────────────────────────────────────────────────
   release:

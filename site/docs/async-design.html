@@ -1,0 +1,460 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Async design · Eskiu docs</title>
+  <meta name="description" content="This note is the contract reference for Eskiu&#x27;s async runtime: the Future&lt;T&gt;" />
+  <link rel="canonical" href="https://eskiu-lang.org/docs/async-design.html" />
+  <link rel="icon" type="image/png" href="../../assets/logo.png" />
+  <style>*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #ffffff; --surface: #f6f7f9; --border: #e6e8ec;
+  --ink: #16181d; --ink2: #4f555f; --purple: #4c31bb; --purple-lt: #6448d4;
+  --code: #1b1728; --code-bd: #2c2444;
+  --sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+}
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+body { background: var(--bg); color: var(--ink); font-family: var(--sans);
+       line-height: 1.65; -webkit-font-smoothing: antialiased; }
+.wrap { max-width: 800px; margin: 0 auto; padding: 2.25rem 1.25rem 5rem; }
+.top { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 1.5rem; }
+.top img { width: 30px; height: 30px; }
+.top a { color: var(--ink2); text-decoration: none; font-size: 0.85rem; }
+.top a:hover { color: var(--purple); }
+.docnav { display: flex; flex-wrap: wrap; gap: 0.35rem 0.5rem; margin-bottom: 2.5rem;
+          padding-bottom: 1.25rem; border-bottom: 1px solid var(--border); }
+.docnav a { font-size: 0.8rem; color: var(--ink2); text-decoration: none;
+            padding: 0.25rem 0.6rem; border-radius: 6px; border: 1px solid transparent; }
+.docnav a:hover { color: var(--purple); background: var(--surface); }
+.docnav a.active { color: var(--purple); border-color: var(--border); background: #fff; font-weight: 600; }
+.content h1 { font-size: clamp(1.7rem, 4.5vw, 2.4rem); letter-spacing: -0.03em;
+              line-height: 1.12; margin: 0 0 1.25rem; }
+.content h2 { font-size: 1.35rem; letter-spacing: -0.02em; margin: 2.5rem 0 0.85rem;
+              padding-top: 0.5rem; }
+.content h3 { font-size: 1.08rem; margin: 1.75rem 0 0.6rem; }
+.content h4 { font-size: 0.95rem; margin: 1.4rem 0 0.5rem; color: var(--ink2); }
+.content p { margin: 0 0 1rem; }
+.content a { color: var(--purple); }
+.content ul, .content ol { margin: 0 0 1rem 1.3rem; }
+.content li { margin-bottom: 0.4rem; }
+.content strong { font-weight: 600; }
+.content hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+.content blockquote { border-left: 3px solid var(--purple); background: var(--surface);
+                      padding: 0.8rem 1.1rem; border-radius: 0 8px 8px 0; margin: 0 0 1.25rem;
+                      color: var(--ink2); }
+.content blockquote p:last-child { margin-bottom: 0; }
+.content code { font-family: var(--mono); font-size: 0.86em; background: var(--surface);
+                padding: 0.1em 0.35em; border-radius: 4px; }
+.content pre { background: var(--code); border: 1px solid var(--code-bd); border-radius: 8px;
+               padding: 0.95rem 1.1rem; margin: 0 0 1.5rem; overflow-x: auto;
+               font-family: var(--mono); font-size: 0.78rem; line-height: 1.75; color: #b4bccc; }
+.content pre code { background: none; padding: 0; font-size: inherit; color: inherit; }
+.tablewrap { overflow-x: auto; margin: 0 0 1.5rem; }
+.content table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+.content th, .content td { text-align: left; padding: 0.5rem 0.75rem;
+                          border-bottom: 1px solid var(--border); vertical-align: top; }
+.content th { color: var(--ink2); font-weight: 600; white-space: nowrap; }
+.content td code { white-space: nowrap; }
+.foot { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--border);
+        font-size: 0.9rem; color: var(--ink2); }
+@media (max-width: 600px) {
+  .content table { font-size: 0.8rem; }
+  .content th, .content td { padding: 0.4rem 0.55rem; white-space: normal; }
+}</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <img src="../../assets/logo.png" alt="Eskiu" />
+      <a href="../index.html">← eskiu</a>
+    </div>
+    <nav class="docnav"><a href="index.html">← Language docs</a><a href="internals.html">Overview</a><a href="architecture.html">Architecture</a><a href="design.html">Design</a><a href="abi.html">ABI</a><a href="async-design.html" class="active">Async</a><a href="self-hosting.html">Self-hosting</a><a href="http2-design.html">HTTP/2</a><a href="api.html">C++ API</a><a href="debugging.html">Debugging</a><a href="contributing.html">Contributing</a></nav>
+    <div class="content">
+<h1 id="async-await-design-contract">Async / Await — Design &amp; Contract</h1>
+<p>This note is the contract reference for Eskiu's async runtime: the <code>Future&lt;T&gt;</code>
+ABI, the atomic four-state handshake, and the waker model. These are the parts
+that are expensive to change once async functions exist in the wild (see "What is
+locked, what is free"), so they are fixed here.</p>
+<p><strong>Implementation.</strong> The runtime model is built on <code>stdlib/future.esk</code> (the locked
+<code>Future&lt;T&gt;</code>/<code>FutureHdr</code> contract and the §3 handshake), the atomic intrinsics
+(<code>&lt;atomic&gt;</code>), and escaping closures (a waker/callback outlives its creating
+function, so it needs a heap env — escape analysis + the <code>escaping</code> qualifier +
+<code>free_closure</code>, spec §6.5). On top sit the Executor and leaf futures
+(<code>&lt;executor&gt;</code>/<code>&lt;net_async&gt;</code>), the <code>async</code>/<code>await</code> frontend, and the
+AST→state-machine transform (<code>sema/async_transform.cpp</code>). Supported: single and
+multiple <code>await</code> (fast path + suspend over real reactor reads, values threaded
+through frame fields across N+1 states), <code>return await</code>, bare <code>await</code>, <code>async
+void</code>, cancellation, and all control flow around <code>await</code> (<code>if</code>/<code>while</code>/C-style
+<code>for</code>/<code>switch</code>/<code>for-in</code>, with <code>break</code>/<code>continue</code>), with full closure-env
+ownership — leak-free under <code>leaks</code>. Combinators (<code>spawn</code>/<code>select2</code>/<code>join2</code>,
+generic + cast-free) and a <code>&lt;timer&gt;</code> leaf future for deadline-based timeouts build
+on this shape.</p>
+<p><strong>Audience:</strong> compiler maintainers. Assumes familiarity with the existing closure
+model (<code>fn(T)-&gt;R</code> is a fat pointer <code>{fn_ptr, env_ptr}</code> that captures by value),
+monomorphic templates, the <code>&lt;eventloop&gt;</code> reactor, and <code>&lt;threading&gt;</code>.</p>
+<hr>
+<h2 id="1-goals-and-non-goals">1. Goals and non-goals</h2>
+<p><strong>Goals</strong></p>
+<ul>
+<li><code>async</code> function and <code>await</code> usable for real network I/O today (the prod projects need
+  it for HTTP): an async TCP read/connect that suspends without blocking a thread.</li>
+<li><strong>Cancellation / drop in v1.</strong> A future can be dropped before it completes;
+  doing so releases its resources (loop registrations, memory) and cascades into
+  whatever it was awaiting.</li>
+<li><strong>Multi-threaded execution with thread-affinity in v1.</strong> A future may be
+  completed on one thread while its continuation must resume on another — the
+  motivating case is the future UI framework: background work completes on a worker
+  pool, but the continuation that touches UI state must run on the UI thread. This
+  dictates how completion and the waker work, so it is part of the locked contract,
+  not a later bolt-on.</li>
+<li>A <code>Future&lt;T&gt;</code> whose shape and atomic protocol we will <em>not</em> break when we later
+  add timers, channels, and <code>select</code>/<code>join</code> combinators.</li>
+<li>Reuse the existing compiler: closures (resume/drop continuations), monomorphic
+  templates (<code>Future&lt;T&gt;</code>), AST-visitor passes. The state-machine split is an
+  <strong>AST→AST transform</strong> — inspectable via <code>--test-parser</code>, reuses 100% of existing
+  codegen, no LLVM coroutine intrinsics.</li>
+<li>Manual memory, no GC, no hidden refcounting.</li>
+</ul>
+<p><strong>Prerequisite this design pulls in</strong></p>
+<ul>
+<li><strong>Atomic intrinsics</strong> (atomic load/store/CAS/swap with acquire/release ordering).
+  Multi-thread completion needs a lock-free state handshake. LLVM exposes these
+  directly (<code>cmpxchg</code>, atomic <code>load</code>/<code>store</code>), so codegen is tractable, and
+  <code>&lt;threading&gt;</code> uses them independently. They underpin the §3 handshake.</li>
+</ul>
+<p><strong>Non-goals (v1 — deferred, each forward-compatible)</strong></p>
+<ul>
+<li><code>select</code> / <code>join</code> combinators. Composable later on this shape; the v1 pieces they
+  need — cancellation (to drop losers) and cross-thread completion — are present.</li>
+<li>Cooperative cancellation that runs cleanup in a <em>suspended</em> coroutine (i.e.
+  <code>finally</code>-past-<code>await</code>). v1 drop frees the frame without resuming it (§7); the
+  forward path is a cancellation token, no contract change.</li>
+<li>Work-stealing / load-balancing across executors. The executor abstraction allows
+  it later; v1 uses fixed thread affinity.</li>
+</ul>
+<hr>
+<h2 id="2-the-runtime-model-completion-waker-atomic-with-drop">2. The runtime model: completion + waker, atomic, with drop</h2>
+<p>Two classic shapes: <strong>poll-based</strong> (Rust; inert futures, executor polls — payoff is
+avoiding per-future allocation) and <strong>completion + waker</strong> (JS Promise / C# Task;
+the future holds state + result + continuation).</p>
+<p><strong>We choose completion + waker.</strong> Our reactor already dispatches on readiness (a
+completion event), we already heap-allocate frames (so poll's allocation savings
+don't apply), and completion is simpler to <em>generate</em> — suspend points are explicit.</p>
+<p>The shape, an ordinary stdlib template (<code>stdlib/future.esk</code>):</p>
+<pre><code class="language-eskiu">struct Future&lt;T&gt; {
+    int        state;     // ATOMIC. 0 pending, 1 waiting, 2 ready, 3 cancelled  (§3)
+    fn()-&gt;void waker;     // completion path: schedule the awaiter on its home executor
+    fn()-&gt;void on_drop;   // cancel path: release own resources + cascade
+    T          value;     // valid only when state == ready; LAST (§2.1)
+}
+</code></pre>
+<p>A <strong>type-erased header</strong> aliasing the first three fields for any <code>T</code>:</p>
+<pre><code class="language-eskiu">struct FutureHdr { int state; fn()-&gt;void waker; fn()-&gt;void on_drop; }
+</code></pre>
+<p><code>(FutureHdr*)f</code> lets cascade-drop, the executor, and any thread touch
+<code>state</code>/<code>waker</code>/<code>on_drop</code> without knowing <code>T</code>.</p>
+<h3 id="21-why-value-is-last">2.1 Why <code>value</code> is last</h3>
+<p><code>Future&lt;int&gt;</code> and <code>Future&lt;string&gt;</code> are distinct monomorphizations of different
+sizes. If <code>value</code> sat before the other fields, <code>waker</code>/<code>on_drop</code>/<code>state</code> would land
+at different offsets per <code>T</code> and no <code>FutureHdr</code> view would be possible — cascade-drop
+and cross-thread dispatch would break. <code>value</code> <strong>last</strong> fixes the header offsets for
+every <code>T</code>. Free today, a hard break later — hence locked.</p>
+<h3 id="22-why-state-is-atomic">2.2 Why <code>state</code> is atomic</h3>
+<p>In multi-thread, a completer (worker thread) and the awaiter (home thread) touch the
+same future concurrently. Without atomicity there is a lost-wakeup race: the awaiter
+decides to park and the completer signals readiness in between. The fix is a
+lock-free handshake on an <strong>atomic <code>state</code></strong> with four values (§3) and
+acquire/release ordering so <code>value</code>, written before publish, is visible after the
+reader observes <code>ready</code>. Atomicity is a property of the <em>accesses</em>, not an extra
+field — but the four-value encoding and the ordering are part of the locked contract.</p>
+<p>Why these four fields and only these — the full walk — is §5.</p>
+<hr>
+<h2 id="3-protocols-the-compilergenerated-code-abi">3. Protocols (the compiler↔generated-code ABI)</h2>
+<p><code>state</code> is an atomic int: <code>PENDING=0</code>, <code>WAITING=1</code>, <code>READY=2</code>, <code>CANCELLED=3</code>.
+<code>READY</code> and <code>CANCELLED</code> are terminal. All transitions are CAS/swap with
+acquire/release; <code>value</code> is written before the publish to <code>READY</code> and read only
+after observing <code>READY</code>.</p>
+<h3 id="31-park-awaiter-on-its-home-thread-let-x-await-f">3.1 Park (awaiter, on its home thread) — <code>let x = await F;</code></h3>
+<pre><code>F.waker = &lt;resume-me&gt;;                       // publish continuation
+if (CAS(&amp;F.state, PENDING -&gt; WAITING)) {
+    frame.awaiting = (FutureHdr*)F; return;  // parked; executor will resume us
+}
+// CAS failed -&gt; F is already READY (completer beat us): take the value inline
+let x: T = F.value;  frame.awaiting = null;  free_future(F);
+// ...continue with x...
+</code></pre>
+<h3 id="32-complete-producer-any-thread">3.2 Complete (producer, any thread)</h3>
+<pre><code>F.value = &lt;result&gt;;                          // write result first
+F.on_drop = &lt;just-free F&gt;;                   // external resources already released
+old = SWAP(&amp;F.state, READY);                 // release
+if (old == WAITING) F.waker();               // awaiter parked -&gt; schedule its resume
+// old == PENDING: awaiter not parked yet; it sees READY in its CAS and takes value inline
+// old == CANCELLED: dropped first -&gt; producer releases &lt;result&gt; and frees (§3.4 arbitration)
+</code></pre>
+<p><strong>The waker does not run the continuation inline.</strong> It <em>schedules</em> the awaiter's
+resume on the awaiter's <strong>home executor</strong> (§4 captures that executor in the waker
+closure) and wakes that executor. So completion on a worker thread resumes the
+coroutine on, e.g., the UI thread — and, as a bonus, resume is never a nested call,
+which removes the deep-stack concern entirely.</p>
+<h3 id="33-drop-cancel-any-thread-future_dropfuturehdrf">3.3 Drop / cancel (any thread) — <code>future_drop((FutureHdr*)F)</code></h3>
+<pre><code>old = SWAP(&amp;F.state, CANCELLED);
+if (old == READY) { free_future(F); }        // completed already: just free memory
+else { F.on_drop(); }                        // PENDING/WAITING: release + cascade + free
+</code></pre>
+<ul>
+<li>A <strong>leaf</strong> future's <code>on_drop</code> deregisters its fd/timer from the loop, frees itself.</li>
+<li>A <strong>coroutine</strong> future's <code>on_drop</code> cascades: <code>if (frame.awaiting) future_drop(frame.awaiting);</code>
+  then frees the frame. The coroutine is <strong>not</strong> resumed (§7).</li>
+</ul>
+<h3 id="34-arbitration-the-one-invariant">3.4 Arbitration (the one invariant)</h3>
+<blockquote>
+<p>A future is finalized <strong>exactly once</strong>. The atomic swap to a terminal state
+(<code>READY</code> or <code>CANCELLED</code>) has a single winner; the loser observes the terminal
+state as its <code>old</code> and performs only the free, never a second resource release.
+Memory is freed exactly once, by whichever path reached terminal.</p>
+</blockquote>
+<p>This is the heart of the design. The contract locks the <em>requirements</em> (atomic
+4-state, ordering, single-free); the exact CAS choreography lives in
+<code>stdlib/future.esk</code>, exercised by a cross-thread test.</p>
+<hr>
+<h2 id="4-lowering-an-async-function-to-a-state-machine-ast-transform">4. Lowering an <code>async</code> function to a state machine (AST transform)</h2>
+<pre><code class="language-eskiu">async int fetch_len(EventLoop* lp, string host) {
+    int fd = await net_connect_async(lp, host);   // await #1
+    int n  = await net_read_async(lp, fd);         // await #2
+    return n;
+}
+</code></pre>
+<h3 id="41-the-frame">4.1 The frame</h3>
+<p>One struct per async function — embeds the return future (one allocation), resume state,
+the <code>awaiting</code> back-pointer (cascade-drop), the home executor, params, and locals
+<strong>live across an await</strong>:</p>
+<pre><code class="language-eskiu">struct __Frame_fetch_len {
+    Future&lt;int&gt; ret;       // &amp;frame.ret is the returned Future&lt;int&gt;*
+    int         st;        // resume state
+    FutureHdr*  awaiting;  // inner future currently parked on (null otherwise)
+    Executor*   home;      // where this coroutine's resumes must run (thread-affinity)
+    EventLoop*  lp;        // param
+    string      host;      // param
+    int         fd;        // local live across await #2
+}
+</code></pre>
+<p><code>awaiting</code>/<code>home</code> are <em>frame</em> fields, not <code>Future</code> fields — free to adjust, no
+contract cost. The frame is <strong>confined to its home executor</strong>: only that executor
+ever calls <code>__resume_*</code> on it, so the frame needs no locking. The only cross-thread
+object is the <code>Future</code> header, synchronized per §3.</p>
+<h3 id="42-constructor-resume">4.2 Constructor + resume</h3>
+<ul>
+<li><strong>Constructor</strong> <code>Future&lt;int&gt;* fetch_len(EventLoop* lp, string host)</code>: allocs the
+  frame, stores params, <code>st=0</code>, <code>awaiting=null</code>, <code>home = current_executor()</code>, sets
+  <code>frame.ret.on_drop = &lt;cascade-drop awaiting, free frame&gt;</code>, calls
+  <code>__resume_fetch_len(frame)</code> once, returns <code>&amp;frame.ret</code>.</li>
+<li><strong>Resume</strong> <code>void __resume_fetch_len(__Frame_fetch_len* f)</code>:</li>
+</ul>
+<pre><code>switch (f.st) {
+case 0:
+  Future&lt;int&gt;* g = net_connect_async(f.lp, f.host);
+  f.waker_of_g = &lt;closure capturing f, f.home: schedule &quot;f.st=1; __resume(f)&quot; on f.home&gt;;
+  // park via §3.1 against g; if g already ready, fall through with g.value
+  ... if parked: f.awaiting=(FutureHdr*)g; f.st=1; return;
+  f.fd = g.value; f.awaiting=null; free_future(g);
+case 1:
+  Future&lt;int&gt;* h = net_read_async(f.lp, f.fd);
+  ... (same park/fast-path against h, resume label 2) ...
+  int n = h.value; f.awaiting=null; free_future(h);
+  // return n: complete our own future (§3.2), then the awaiter's waker frees f
+  f.ret.value = n; f.ret.on_drop = &lt;just-free f&gt;;
+  old = SWAP(&amp;f.ret.state, READY); if (old==WAITING) f.ret.waker();
+  return;   // do not touch f afterward
+}
+</code></pre>
+<p>The continuations are existing closures capturing <code>f</code> and <code>f.home</code> by value — no new
+machinery. (The §3.1 park sequence is emitted inline at each await; shown abbreviated.)</p>
+<h3 id="43-fast-path">4.3 Fast path</h3>
+<p>The park's failed-CAS branch means an already-ready inner future does <strong>not</strong>
+suspend — read value, fall through. Zero extra round-trips when nothing blocks.</p>
+<hr>
+<h2 id="5-field-walk-why-state-waker-on_drop-value-survives-everything">5. Field walk: why <code>{state, waker, on_drop, value}</code> survives everything</h2>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th>Await source</th>
+<th>Completes via</th>
+<th>Drops via</th>
+<th>New field?</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Socket readable (leaf)</td>
+<td>loop callback reads, §3.2</td>
+<td><code>on_drop</code>=<code>el_del</code>+free</td>
+<td>no</td>
+</tr>
+<tr>
+<td>Another <code>async</code> function</td>
+<td>resume §3.2</td>
+<td><code>on_drop</code> cascades <code>awaiting</code>, frees frame</td>
+<td>no</td>
+</tr>
+<tr>
+<td>Timer <code>await sleep(ms)</code></td>
+<td>loop timeout, §3.2</td>
+<td><code>on_drop</code> cancels timer+free</td>
+<td>no</td>
+</tr>
+<tr>
+<td><code>await thread_join(t)</code> / worker pool</td>
+<td>worker completes on its thread; waker schedules resume on home executor (§3.2)</td>
+<td><code>on_drop</code> detach+free</td>
+<td>no</td>
+</tr>
+<tr>
+<td><code>await chan.recv()</code></td>
+<td>sender §3.2</td>
+<td><code>on_drop</code> unlinks+free</td>
+<td>no</td>
+</tr>
+<tr>
+<td><strong>UI: bg work → UI-thread continuation</strong></td>
+<td>worker §3.2; waker enqueues on UI executor</td>
+<td>parent <code>on_drop</code></td>
+<td>no</td>
+</tr>
+<tr>
+<td><code>select</code>/<code>join</code> (later)</td>
+<td>first child §3.2</td>
+<td>parent drops losers</td>
+<td>no</td>
+</tr>
+</tbody>
+</table></div>
+<ul>
+<li><strong>No <code>error</code> field</strong> — fallible async returns <code>Future&lt;Result&lt;T,E&gt;&gt;</code>; error rides
+  in <code>value</code>, composes with <code>?</code>.</li>
+<li><strong>No <code>waker_ctx</code>/<code>dropctx</code>/<code>executor</code> field in <code>Future</code></strong> — closures capture by
+  value, so the resume thunk and the home executor live in the waker's env.</li>
+<li><strong>No lock field</strong> — the atomic <code>state</code> handshake (§3) replaces a per-future lock.</li>
+</ul>
+<h3 id="51-futurevoid">5.1 <code>Future&lt;void&gt;</code></h3>
+<p><code>async void f()</code> lowers internally to <code>Future&lt;Unit&gt;</code> (<code>Unit</code> = 1-byte <code>uint8</code>);
+<code>await f()</code> discards the value. Invisible at source level.</p>
+<hr>
+<h2 id="6-executors-the-event-loop-and-thread-affinity">6. Executors, the event loop, and thread-affinity</h2>
+<p>An <strong>Executor</strong> is a thread plus a thread-safe ready-queue and a wakeup mechanism
+(self-pipe / <code>eventfd</code> registered with that thread's <code>&lt;eventloop&gt;</code>, or a condvar).
+<code>current_executor()</code> returns the one running the calling code.</p>
+<ul>
+<li>A coroutine's <code>home</code> executor is captured at construction; its waker enqueues the
+  resume onto <code>home</code>'s ready-queue and wakes <code>home</code>. The executor's run loop pops
+  ready entries and calls <code>__resume_*</code>.</li>
+<li><strong>I/O wake source.</strong> <code>&lt;eventloop&gt;</code> is one source of completions: when an fd is
+  ready, its leaf future completes (§3.2), scheduling the awaiter's resume on the
+  awaiter's home executor — which may differ from the loop's thread.</li>
+<li><strong>UI framework shape.</strong> The UI thread runs an executor; <code>spawn</code> background work on
+  a worker-pool executor; the worker completes the future and the waker marshals the
+  continuation back to the UI executor. This is the JS-main-thread / Swift-MainActor
+  / Kotlin-dispatcher model, and it needs <em>no <code>Future</code> change</em> — only that the waker
+  schedules onto <code>home</code>.</li>
+</ul>
+<p>Cross-thread enqueue + wakeup and the ready-queue are <strong>executor machinery, free to
+evolve</strong> (single-thread, fixed pool, later work-stealing). What is locked is only
+that completion goes through <code>waker()</code> and <code>waker</code> is responsible for landing the
+resume on the right thread.</p>
+<hr>
+<h2 id="7-memory-and-cancellation-one-invariant">7. Memory and cancellation: one invariant</h2>
+<blockquote>
+<p><strong>Every future is finalized exactly once</strong> — <em>awaited to completion</em> (the awaiter
+frees it), or <em>dropped</em> (<code>future_drop</code> frees it via <code>on_drop</code>). The atomic swap to
+a terminal state picks the single winner (§3.4); the other path only frees.</p>
+</blockquote>
+<p>One allocation per async call (frame + embedded return future), one per leaf future.
+A future created but never awaited or dropped is a <em>preventable</em> bug, not an accepted
+leak: the transform inserts <code>future_drop</code> on scope-exit paths where a <code>Future</code> local
+was created and not consumed.</p>
+<p><strong>Cascade.</strong> Dropping a suspended coroutine drops <code>frame.awaiting</code> first, recursively,
+then frees the frame — a whole await-chain torn down by dropping its head.</p>
+<p><strong>Accepted v1 semantic:</strong> dropping a <em>suspended</em> coroutine frees its frame <strong>without
+resuming it</strong>, so statements after the suspend point — including <code>finally</code> past an
+<code>await</code> — do not run (matches Rust async-drop). Guaranteed cleanup-on-cancel uses a
+cooperative <strong>cancellation token</strong> the coroutine checks (a normal threaded value, no
+contract change) — a deliberate later feature.</p>
+<hr>
+<h2 id="8-surface-syntax-and-type-rules">8. Surface syntax and type rules</h2>
+<ul>
+<li><code>async</code> is a function modifier: <code>async T f(...)</code>, parsed like <code>volatile let</code> (a
+  leading qualifier before the return type).</li>
+<li>An <code>async T f(...)</code> has <em>declared</em> return type <code>T</code>; its <em>call expression</em> has type
+  <code>Future&lt;T&gt;*</code>. The type checker performs this rewrite.</li>
+<li><code>await E</code>: <code>E : Future&lt;T&gt;*</code>, <code>await E : T</code>. Legal <strong>only inside an <code>async</code> function</strong>
+  (top level uses <code>future_block</code>). New keywords: <code>async</code>, <code>await</code>.</li>
+<li>Calling an <code>async</code> function without <code>await</code> yields <code>Future&lt;T&gt;*</code> (start now, await later,
+  or hand to a combinator). If neither awaited nor handed off, the transform drops it
+  on scope exit (§7).</li>
+<li><code>future_drop(f)</code> is the explicit cancel entry; the transform also inserts it
+  implicitly (§7).</li>
+<li><code>future_block(lp, f)</code> drives the loop at the top level: sets <code>f.waker</code> to stop the
+  loop, runs it, returns <code>f.value</code>, frees <code>f</code>.</li>
+</ul>
+<hr>
+<h2 id="9-components">9. Components</h2>
+<p>The async stack decomposes into independently testable layers:</p>
+<ul>
+<li><strong>Atomic intrinsics</strong> (<code>&lt;atomic&gt;</code>) — <code>atomic_load</code>/<code>atomic_store</code>/<code>atomic_cas</code>/
+  <code>atomic_swap</code> with acquire/release, lowering to LLVM atomics. The lock-free
+  primitives the §3 handshake stands on; <code>&lt;threading&gt;</code> uses them too.</li>
+<li><strong><code>stdlib/future.esk</code></strong> — <code>Future&lt;T&gt;</code> + <code>FutureHdr</code> + <code>free_future</code> /
+  <code>future_drop</code>, implementing the §3 atomic protocol. The runtime model is
+  validated by a hand-written coroutine over this contract that drives a real
+  non-blocking socket read via <code>&lt;eventloop&gt;</code>, is cleanly cancelled, and resumes on
+  a different thread than it completed on (cross-thread completion: a worker thread
+  completes; the resume is scheduled on a different executor).</li>
+<li><strong>Executor</strong> (<code>&lt;executor&gt;</code>) — ready-queue + self-pipe/<code>eventfd</code> wakeup over
+  <code>&lt;eventloop&gt;</code>; <code>current_executor()</code>, <code>spawn</code>.</li>
+<li><strong>Leaf futures</strong> (<code>&lt;net_async&gt;</code>) — <code>net_connect_async</code>/<code>net_read_async</code> with a
+  real <code>on_drop</code>.</li>
+<li><strong>Lexer/parser</strong> — the <code>async</code> modifier, the <code>await</code> expression, and their tokens.</li>
+<li><strong>Type checker</strong> — async return → <code>Future&lt;T&gt;*</code>; <code>await</code> typing; "await only in
+  async"; tracking of unconsumed <code>Future</code> locals for the drop pass.</li>
+<li><strong>AST transform</strong> (<code>sema/async_transform.cpp</code>) — the state-machine split (§4) plus
+  implicit <code>future_drop</code> (§7). The bulk of the work; inspectable via <code>--test-parser</code>.</li>
+<li><strong>Codegen</strong> — no async-specific path: the transform emits structs/switch/closures/
+  casts/atomics that codegen already handles.</li>
+</ul>
+<p>The hand-written coroutine over <code>future.esk</code> is the behavioural oracle: the same
+logic expressed in <code>async</code>/<code>await</code> must match it, and the suite adds a cancellation
+test (the leaf fd is deregistered and the frame freed) and a thread-affinity test
+(completion on a worker, resume observed on the home executor's thread).</p>
+<hr>
+<h2 id="10-what-is-locked-what-is-free">10. What is locked, what is free</h2>
+<p><strong>Locked now (compiler↔generated-code ABI — breaking these recompiles/rewrites every
+async function in existence):</strong></p>
+<ul>
+<li><code>Future&lt;T&gt;</code> field set <strong>and order</strong>: <code>{ int state; fn()-&gt;void waker; fn()-&gt;void
+  on_drop; T value; }</code> — <code>value</code> <strong>last</strong> so the header is type-erasable (§2.1).</li>
+<li><code>FutureHdr</code> aliases the first three fields.</li>
+<li><code>state</code> is <strong>atomic</strong>, four values <code>PENDING/WAITING/READY/CANCELLED</code>, with
+  acquire/release ordering and the single-winner terminal swap (§3).</li>
+<li>The completion, drop, and arbitration protocols (§3) and the finalized-once
+  invariant (§7).</li>
+<li>Completion goes through <code>waker()</code>, and <code>waker</code> lands the resume on the awaiter's
+  home executor (the contract that makes thread-affinity work).</li>
+</ul>
+<p><strong>Free to change later (touches only stdlib / the executor / the transform's
+internals — no recompile of user async code):</strong></p>
+<ul>
+<li>Await <em>sources</em> (timers, joins, channels) — new leaf futures obeying §3.</li>
+<li>Frame layout (<code>awaiting</code>, <code>home</code>, state numbering, spilled locals).</li>
+<li>Executor internals: thread count, ready-queue, wakeup mechanism, work-stealing.</li>
+<li><code>select</code>/<code>join</code> combinators (built on drop + completion).</li>
+<li>A cooperative cancellation token for cleanup-on-cancel.</li>
+</ul>
+<p><code>value</code>-last, the atomic four-state handshake, <code>on_drop</code>, and the home-executor
+waker contract form the locked set: the ABI every async function and every leaf
+future is generated against.</p>
+    </div>
+    <div class="foot"><a href="../index.html">← Back to eskiu</a></div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,10 @@
+// math stdlib — wraps libm
+// Link with: clang file.o -lm -o file
+
+extern double sqrt(double x);
+extern double fabs(double x);
+extern double pow(double base, double exp);
+extern double floor(double x);
+extern double ceil(double x);
+extern double fmod(double x, double y);
+extern int    abs(int x);

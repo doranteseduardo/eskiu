@@ -1,12 +1,12 @@
 # Eskiu Language Reference
 
-Eskiu is a statically typed systems language built to address a specific problem: compute-intensive services typically pull in C for performance-critical work, Go for concurrency, C++ for libraries, and Python for glue — each with its own toolchain and interop cost.
+Eskiu is a statically typed systems language built to replace a familiar stack: the C you reach for to go fast, the Go for concurrency, the C++ for libraries, and the Python that glues it together — each with its own toolchain and interop cost.
 
-The goal is a single language that replaces that stack. Phase one establishes a solid systems foundation: native performance, explicit memory, direct access to any C library. Phase two, once that foundation is stable, will introduce first-class support for the domain types that high-throughput services actually work with. The syntax is deliberately C-style; the language adds monomorphic templates with bounded generics (`<T: Iface>`), structural interfaces, lambdas, and an explicit heap model via `alloc<T>`/`free`.
+The goal is one language for all of it — native performance, explicit memory (`alloc<T>` / `free`), and direct access to any C library, in deliberately C-style syntax with modern conveniences on top: bounded generics (`<T: Iface>`), structural interfaces, sum types with `match`, lambdas, and `async`/`await`.
 
-**Current version: v0.2.5.** Since 0.2.0: `<bytes>` (binary-safe buffer) and `HashMap<K,V>` (0.2.1); **bounded generics** `<T: Iface>` / `<T: A + B>` (0.2.2), extended in 0.2.3 so a *primitive* can satisfy a constraint via a free function (`int cmp(int,int)` → `Ord`); plus compiler hardening (a generative fuzzer with an O0-vs-O2 differential oracle) and an internal typed `Type` representation. 0.2.4 unified that into a single type resolver (codegen consumes the type checker's resolved types instead of re-deriving them), which fixed three latent miscompiles. 0.2.5 fixes a preprocessor footgun (a `//` comment ending in `\` no longer eats the next source line) and ships the first self-hosting milestone — the lexer written in Eskiu, byte-identical to the C++ lexer over the whole corpus. All behavior-preserving except those fixes.
-
-**v0.2.0** — heap allocation moved to the `<mem>` stdlib (`alloc<T>(n)` / `free`, no longer keywords); `const` bindings; `intrinsic`; `escaping` closures + `free_closure`; and **`async`/`await`** lowered to a state-machine coroutine. New stdlib: the `<alloc>` explicit-allocator toolkit (Bump/Arena/Pool/FirstFit over `alloc_with`) and `<sysheap>` (mmap-backed, no libc malloc); the async runtime — `<eventloop>`, `<atomic>`, `<future>`, `<executor>`, `<net_async>`, `<timer>`, `<channel>`, and a concurrent `<http_async>` server; plus `<time>`, `<env>`, `<base64>`, `<json>` (builder + parser), `<threading>`, `<http>`, `<string>`, `<path>`. v0.1.0 (frozen at its tag) added typed pointer arithmetic, `sizeof(T)`, `union`, exceptions, closures, and thread primitives.
+**Current version: v0.3.0** — the self-hosting milestone: the compiler is reimplemented in
+Eskiu itself (`selfhost/`), reaching a 3-stage bootstrap fixpoint and a code generator
+feature-complete against the reference C++ compiler.
 
 ---
 

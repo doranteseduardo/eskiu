@@ -1,0 +1,19 @@
+// async + switch with await inside a case: the switch dispatches into per-case states,
+// fall-through + break work, and an await splits a case's state like any other.
+import <future>;
+extern int printf(string fmt, ...);
+Future<int>* produce(int x) { Future<int>* f = future_new<int>(); future_complete<int>(f, x); return f; }
+
+async int pick(int sel) {
+    int r = 0;
+    switch (sel) {
+        case 1: { int a = await produce(10); r = a; break; }
+        case 2: { int b = await produce(20); r = b + 1; break; }
+        default: { r = 99; }
+    }
+    return r;
+}
+int main() {
+    Future<int>* a = pick(1); Future<int>* b = pick(2); Future<int>* c = pick(9);
+    return a.value + b.value + c.value;   // 10 + 21 + 99 = 130 ... >255, but exit truncates; use a small check
+}

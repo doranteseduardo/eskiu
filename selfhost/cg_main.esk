@@ -1,0 +1,62 @@
+// Driver: `eskiuc run selfhost/cg_main.esk FILE` (or compiled) — preprocess + parse +
+// generate LLVM IR for FILE, printing the .ll text to stdout. Pipe it to clang to get
+// a native binary. The parity harness compiles both this output and the C++ build and
+// compares runtime behavior (exit code + stdout).
+
+import <io>;
+import <fs>;
+import "preprocessor.esk";
+import "parser.esk";
+import "async_lower.esk";
+import "codegen.esk";
+
+extern int64 write(int fd, *void buf, int64 n);
+
+// Diagnostics go to stderr (fd 2), never stdout — stdout carries only the emitted .ll.
+void eprint(string s) {
+    int64 n = 0;
+    while (s[n] != 0) { n = n + 1; }
+    write(2, (*void)s, n);
+}
+
+int main(int argc, string* argv) {
+    if (argc < 2) {
+        eprint("usage: cg_main <file.esk>\n");
+        return 1;
+    }
+    let n: int64 = 0;
+    *uint8 raw = fs_read_all(argv[1], &n);
+    if (raw == null) {
+        uint8[512] eb;
+        sprintf((string)&eb[0], "error: cannot read %s\n", argv[1]);
+        eprint((string)&eb[0]);
+        return 1;
+    }
+
+#ifdef __APPLE__
+    g_pp_os = "__APPLE__";       // host OS for stdlib platform #ifdefs (resolved at our build)
+#else
+    g_pp_os = "__linux__";
+#endif
+    let pperr: int = 0;
+    string pp = pp_run((string)raw, (int)n, argv[1], &pperr);
+    *uint8 src = (*uint8)pp;
+    int plen = 0;
+    while (src[plen] != 0) { plen = plen + 1; }
+
+    parser_session_init();
+    let p: Parser;
+    p_init(&p, src, plen);
+    p.basedir = str_dir(argv[1]);
+    *Program prog = parse_program(&p);
+
+    async_lower(prog);                 // lower async fns → frame + resume + ctor
+
+    let g: Codegen;
+    cg_init(&g);
+    cg_program(&g, prog);
+    printf("%s", (string)String_cstr(&g.globals));   // declares + string constants
+    printf("\n");
+    printf("%s", (string)String_cstr(&g.out));        // function definitions
+    return 0;
+}

@@ -1,0 +1,4 @@
+extern int printf(string fmt, ...);
+struct V { int a; int b; }
+int sum(V* v) { return v.a + v.b; }
+int main() { let v: V = V { a: 5, b: 7 }; printf("%d\n", sum(&v)); return 0; }

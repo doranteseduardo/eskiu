@@ -7,9 +7,221 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
+## [0.3.0] — 2026-06-29
+
+The self-hosting milestone: the whole compiler — lexer, preprocessor, parser, semantic
+analyzer, and code generator — is reimplemented in Eskiu (`selfhost/`), reaches a 3-stage
+bootstrap fixpoint, and the self-hosted codegen is **feature-complete against the C++
+corpus** (a full feature sweep is clean). All parity/self-host/bootstrap gates are CI-wired.
+
+### Fixed
+- **`&&` and `||` now short-circuit.** Code generation evaluated both operands eagerly
+  and emitted a logical-and/or, so the right-hand side always ran — a guarded
+  dereference like `p != null && p.field` could fault. They now lower to a conditional
+  branch + PHI, evaluating the RHS only when the LHS doesn't decide the result. Found
+  dogfooding the self-hosted type checker. Regression test `tests/short_circuit.esk`.
+- **`--test-parser` no longer crashes on a forward-declared function.** The AST
+  printer dereferenced a null `FunctionDecl::body` (a prototype like `int f(int);`),
+  segfaulting `eskiuc --test-parser`. It now omits the `Body:` section for a
+  body-less function (as `ReturnStmt` already does for a null value). Found
+  dogfooding the self-hosted parser. Affected only the debug printer, not codegen.
+- **C `size_t` externs now use `int64`, not `int`.** The `<mem>`/`<string>` declarations
+  for `memcpy`/`memset`/`memmove`/`memcmp`/`memchr` (size argument) and `strlen` (return)
+  were `int` (i32). That is an incorrect ABI on LP64 targets and truncates sizes above
+  4 GB. They are now `int64`, matching `size_t`. Behavior is unchanged for the common
+  sub-4 GB case (the value zero-extends into the argument register either way).
+
+### Added
+- **`-O` optimization levels.** `eskiuc -O1`/`-O2`/`-O3` now runs the LLVM middle-end
+  pipeline (mem2reg/SROA/instcombine/inlining/GVN/...) over the module before code
+  generation. `-O0` (the default) keeps the prior behavior: naive IR straight to the
+  backend. On real code this collapses the per-local stack traffic the front-end emits
+  (the `ine_decoder` demo drops from 514 allocas to 25 at `-O2`); its Makefile now builds
+  with `-O2`.
+- **Clearer diagnostic for a keyword used as a name.** Using a reserved word (`fn`, `in`,
+  `match`, a type name, ...) as a variable, parameter, or field name now reports
+  `expected a name, found keyword 'fn'` at the cause, instead of a misleading downstream
+  error (`Expected ';'`, `Expected expression`). This was the most recurring self-host
+  papercut. The self-hosted parser mirror is tracked in `selfhost/PROMOTION_PLAN.md` (R3).
+- **`String_free` clears `data`.** It sets `self.data = null` after `free`, so a reused or
+  doubly-freed `String` can no longer hand a dangling pointer to `free`.
+- **`String` length/capacity are now `int64`.** `%String` went from `{ ptr, i32, i32 }` to
+  `{ ptr, i64, i64 }`; the length/index/capacity arithmetic inside `<string>` is `int64`
+  throughout. Matches `size_t`, removes the 2 GB object-size cap, and avoids width casts at
+  the libc boundary. Public accessors that return a length (`String_len`, `String_index_of`)
+  now return `int64`; callers that store into an `int` truncate exactly as before.
+- **Self-hosted codegen is now feature-complete against the C++ corpus.** A systematic feature
+  sweep (every feature-bearing `tests/*.esk` through `cg_parity.sh`) is clean — each program,
+  compiled by the Eskiu-written codegen, runs identically to the C++ build. Closing it required
+  11 root-cause fixes the sweep exposed (the bootstrap fixpoint had only ever exercised the
+  subset the compiler's own source uses): var-decl/struct-init coercion + signedness-aware
+  integer widening; full integer semantics (binary-op operand-width unification, unsigned
+  `udiv`/`lshr`/`icmp`, >32-bit literals as `i64`, vararg small-int promotion); type-alias
+  resolution; function-as-value decay (a `__fnptr` env-dropping thunk + `{thunk,null}` closure,
+  or a bare `@fn` for a pointer cast); generic ADT enum monomorphization; a self-host *parser*
+  fix (a parenthesized struct literal `(P{…})` was mis-parsed as a cast); primitive constraint
+  dispatch (`a.m(b)` on a primitive → `m(a,b)`); the `alloc_with`/`thread_create`/`thread_join`/
+  `free_closure` builtins; user-defined variadic functions + `va_list`/`va_start`/`va_arg<T>`/
+  `va_end`; packed structs (`packed` / `#pragma pack(N)`); and the `?` error-propagation
+  operator. All parity/self-host/bootstrap gates stay green throughout.
+- **Self-hosted codegen — ADT payloads wider than one slot.** An ADT enum's tagged-union
+  payload area (`{ i32, [N x i64] }`) is now sized by **bytes with field alignment**
+  (`cg_layout_size`, mirroring the C++ DataLayout), not by field count — so a variant
+  carrying a struct-by-value larger than 8 bytes (e.g. `Line(Vec3)` where `Vec3` is 12B)
+  fits instead of overflowing its slot. Construction + `match` extraction already viewed
+  the payload as the variant's `{ fields }` struct, so only the area sizing needed the fix.
+  Test `adt_big_payload`. cg_parity 56/56. (A subsequent feature sweep found this was NOT
+  the last gap — see below.)
+- **Self-hosting feature coverage audited + closed out.** Verified the async combinators
+  `select2`/`join2`/`spawn` all work through the self-hosted codegen (added `async_select`/
+  `async_spawn` to the parity corpus). The self-hosted drivers (`esk_main`/`cg_main`) now
+  route diagnostics to **stderr** (an `eprint` helper over `write(2, …)` + `sprintf`) so an
+  error can never contaminate the `.ll` text on stdout. cg_parity 55/55, cg_selfhost 68/68,
+  bootstrap fixpoint. (NOTE: a later systematic feature sweep — pushing the C++ test corpus
+  through the parity oracle — showed self-host codegen is NOT yet feature-complete; ~8
+  root-cause gaps remain, tracked in `selfhost/BACKEND_PLAN.md`. The bootstrap only exercises
+  the subset the compiler's own source uses, so it missed them.)
+- **Self-hosted codegen — more of the language.** Beyond the bootstrap subset, the
+  self-hosted code generator (`selfhost/codegen.esk`) now also lowers: **floating point**
+  (`fadd`/`fsub`/`fmul`/`fdiv`, `fcmp`, `fneg`, and int↔float casts via `sitofp`/`fptosi`/
+  `fpext`/`fptrunc`, with mixed int/float promotion); **`switch`** (a real LLVM `switch`
+  with C-style fall-through + `break`); and **ADT enums + `match`** (the tagged-union
+  layout `{ i32 tag, [N x i64] payload }`, variant construction, and `match` lowered to a
+  tag switch with payload bindings). Each is behaviorally parity-tested (`cg_parity.sh`).
+  Return values are now coerced to the function's return type (e.g. a `bool` result
+  zero-extended to `int`). It also lowers **closures/lambdas** (free-variable capture into
+  a stack env + a fat pointer `{ fn, env }`, higher-order functions, indirect calls) and
+  **exceptions** (the Itanium ABI — `invoke`/`landingpad`, `__cxa_allocate_exception`/
+  `__cxa_throw`/`__cxa_begin_catch`, type-name `strcmp` catch matching, `finally`; programs
+  with `throw`/`try` link `-lc++abi`) and **atomics** (`atomic_load`/`store`/`swap`/`cas` →
+  `load atomic`/`store atomic`/`atomicrmw xchg`/`cmpxchg`). The self-hosted compiler
+  reproduces its own IR throughout (bootstrap fixpoint stays green).
+- **Self-hosted codegen — unions, bitfields, and dynamic trait dispatch.** The
+  self-hosted code generator now also lowers: **unions** (every member overlaps at
+  offset 0; the type is `{ [N x i8] }` sized to the largest member, member access GEPs
+  to the shared storage); **bitfields** (declared widths packed into `i32` words —
+  reads `lshr`+`and`+optional `sext`, writes read-modify-write the word with a cleared
+  mask, struct-init fills bit slots, and a normal field in a bitfield struct uses its
+  real word index); and **interfaces / dynamic trait dispatch** (an interface value is a
+  fat pointer `{ data, vtable }`; passing a struct pointer where an interface is expected
+  **boxes** it — building a per-`(interface, struct)` vtable global of the struct's method
+  implementations — and a call through an interface value dispatches by loading the method
+  pointer from its vtable slot and calling it with `data` as the implicit receiver). Each
+  is behaviorally parity-tested; the bootstrap fixpoint stays green.
+- **Self-hosting async: all 19 async tests pass** — `for-in` over an await now lowers too
+  (desugared to a counted `for` — array `T[N]` indexes `xs[i]`/length N; a list-like struct
+  uses `xs.data[i]`/`xs.size`), completing the async transform. (Was 18/19.)
+- **Self-hosting async: 18 of 19 async tests pass** — closures' environments are
+  **heap-allocated** (an escaping closure — e.g. an event-loop callback or a future combinator,
+  called after its creating frame returns — no longer dangles its captured variables); struct
+  literals work as **rvalues** (`x = P{…}`, not just var-decls); and the async constructor emits
+  the **`on_drop` cancellation closure** (`future_drop` on a suspended task cascade-drops the
+  awaited future). Together these unblock the event-loop / socket / timer / combinator
+  (`select`/`join`/`spawn`) / cancellation async tests. (Only async `for-in` remains — it needs
+  iterable element-type resolution.)
+- **Self-hosting back-end: the async/await lowering pass, in Eskiu** (`selfhost/async_lower.esk`,
+  a port of `sema/async_transform.cpp`, run between parse and codegen). Each `async fn` is
+  rewritten into a frame struct + a `while(1){if st==0…}` state-machine resume function + a
+  constructor that returns a `Future<T>*`; each `await` splits a state (evaluate the future,
+  `future_poll` it, suspend, resume reading the value), with completion via `atomic_swap` and
+  a waker closure — built on the now-available closures, atomics, and generics. Covers
+  sequential bodies, **control flow around an await** (if / while / for with break/continue,
+  lowered into the state graph), and a desugar pass (`return await E` / `await E;` /
+  `x = await E` → let-bound). `async_basic`/`async_if`/`async_for`/`async_multi`/`async_break`/
+  `async_return_await` run to parity. (Tests using generic-argument *inference* — `chan_recv(ch)`
+  without `<T>` — or async for-in/switch, or closure→fn-pointer extern callbacks, await those
+  orthogonal features.) Code generation also now **de-duplicates extern declarations** (the
+  same `extern` in two imported stdlib files no longer emits two `declare`s).
+- **Generic-argument inference.** A generic function called without explicit type arguments
+  (`chan_recv(ch)`, `unwrap(&b)`, `add(7, 5)`) now has its type parameters solved by unifying
+  each parameter's pattern (`Chan<T>*`, `Box<T>*`, `T`) against the actual argument types, then
+  monomorphized like an explicit `chan_recv<int>`. Pointer spellings are normalized
+  (`Box<T>*` ≡ `*Box<int>`) and `cg_etype` now types literals. This unblocks the channel-based
+  async tests (`async_channel`, `async_elseif`) and any generic call relying on inference.
+- **Unified self-hosted compiler driver + a three-stage bootstrap.** `selfhost/esk_main.esk`
+  runs the full pipeline in Eskiu — preprocess → parse → **type-check** → code-gen —
+  rejecting ill-typed input without emitting IR. The new gate `tests/selfhost/cg_bootstrap.sh`
+  performs the canonical bootstrap: the C++ `eskiuc` builds the driver (cc0), cc0 builds it
+  (cc1), and cc1 builds it (cc2); **cc1 and cc2 emit byte-identical IR** for the compiler
+  and for a sample program, and cc2 compiles a runnable binary — i.e. stage2 ≡ stage3, a
+  true self-hosting fixpoint. **Wired into CI.**
+- **Self-hosting reached a bootstrap fixpoint (Phase D).** The self-hosted code
+  generator emits valid LLVM IR for the *entire* self-hosted compiler, and `cg_main`
+  compiled **by itself** reproduces the C++-built code generator's IR byte-for-byte
+  over all 45 inputs (the whole `selfhost/` tree + the corpus). All five drivers
+  (lexer/preprocessor/parser/typechecker/codegen), compiled by the self-hosted codegen,
+  produce output identical to the C++-built ones. New gate `tests/selfhost/cg_selfhost.sh`
+  (emit-validity + fixpoint, **wired into CI**). Eleven codegen bugs were found and fixed
+  at the root by dogfooding the compiler's own source.
+- **Self-hosting back-end, Phase C: the code generator, in Eskiu.** `selfhost/codegen.esk`
+  (driver `cg_main.esk`) generates **textual LLVM IR** (assembled + linked by `clang`,
+  no LLVM library). Covers scalars/arithmetic/control-flow, structs + methods + pointers,
+  arrays, plain integer enums, **generics via monomorphization** (`List<T>`,
+  `Box<int>` → `%Box_int`, `id<int>` → `@id_int`, with `sizeof`/cast so the stdlib
+  `alloc<T>` instantiates), global variables, struct-by-value (sret), pointer
+  arithmetic, and short-circuit `&&`/`||`. Behavioral oracle: emit `.ll` → `clang` →
+  run → compare exit code + stdout to the C++-built binary, over a synthetic corpus
+  (`tests/selfhost/cg_parity.sh`, **wired into CI**). Deferred (unused by the compiler's
+  own source): floats, ADT enums/`match`, closures, exceptions, async, atomics.
+- **Imported files are now preprocessed.** The self-hosted parser ran `import`ed files
+  straight into the lexer, skipping the preprocessor, so an import's `#ifdef` kept both
+  branches (e.g. `stdlib/mem.esk` emitted a duplicate `free`). `do_import` now runs
+  `pp_run` per imported file — mirroring how the C++ folds preprocessing into the lexer.
+- **Self-hosting back-end, Phase B: the type checker, in Eskiu.** `selfhost/sema.esk`
+  (driver `tc_main.esk`, full pipeline preprocess → parse → check) now catches **all 19
+  semantic error classes** in `tests/errors/` — name resolution, argument counts,
+  undefined types & fields, async/await rules, switch/match exhaustiveness & duplicates,
+  const-correctness (value, field, and pointer-pointee), interface satisfaction for
+  bounded generics, the `?` operator's return type, and closure-escape soundness. Gate
+  `tests/selfhost/tc_parity.sh` (**wired into CI**): the verdict matches
+  `eskiuc --test-typechecker` on all **121** positive corpus files with zero false
+  rejections, and every sema negative test is rejected with the right diagnostic. Types
+  flow as strings (no structured Type IR), matching the C++ checker's codegen boundary.
+- **Self-hosting back-end, Phase A: AST enrichment.** The self-hosted parser's AST
+  (`selfhost/{ast,parser}.esk`) now captures what it previously parsed-and-discarded,
+  so it can feed a future sema/codegen: generic **type-params + constraints**, struct
+  **methods**, enum **ADT payloads**, **bitfield widths**, the **async** modifier, and
+  full **interface method signatures**. Validated by a *lockstep* extension of both the
+  C++ `ast/ast_printer.cpp` and the self-hosted printer (new `TypeParams:`/`Methods:`
+  sections, `Name = tag(t1, t2)`, `type name : N`, `(async)`, `ret name(t1, t2)`) —
+  keeping `--test-parser` byte-identical (corpus 50/50, synthetic 11/11). Tooling; the
+  production compiler change is the additive, debug-only printer extension.
+- **Self-hosting milestone 3: the preprocessor, in Eskiu.** `selfhost/preprocessor.esk`
+  ports `lexer/preprocessor.cpp` — object- and function-like `#define`/`#undef`,
+  `#ifdef`/`#ifndef`/`#else`/`#endif` conditionals, `#pragma` passthrough, `#error`,
+  backslash line splicing, recursive identifier-aware macro expansion, and the
+  predefined `__FILE__`/`__LINE__`. Validated **through the lexer** (`pp_main`
+  preprocesses + lexes; gate `tests/selfhost/pp_parity.sh`): byte-identical to the
+  C++ `--test-lexer` over the whole `tests/` + `stdlib/` corpus (156/156, no
+  exclusions) — clean and directive-using files alike. **Wired into CI.** Tooling;
+  the production compiler is untouched.
+- **`List_set` / `List_remove`** in `<list>` — set an element by index, and remove
+  one (shifting the tail). Surfaced by the preprocessor's macro table (redefine =
+  set, `#undef` = remove); generally useful.
+- **Self-hosting milestone 2 complete: the parser, in Eskiu.** The self-hosted
+  parser (`selfhost/{ast,parser,parse_main}.esk`) now covers the full grammar —
+  expressions, statements, declarations, templates/generics, lambdas/async — and is
+  byte-identical to the C++ `--test-parser` AST dump over the import-free corpus
+  (42/42 real `tests/*.esk` + synthetic). Gate `tests/selfhost/parse_parity.sh`
+  (`--full`) is **wired into CI**. Dogfood/tooling; the production compiler is
+  untouched. (v0.2.5 shipped this milestone in progress; it is now finished.)
+- **Self-hosted parser follows `import`.** It now resolves and recursively parses
+  imports — `<name>` → `stdlib/name.esk`, relative `"path"` against the importing
+  file's directory — merging the imported decls in declaration order, with dedup and
+  shared type-name registration across files (mirroring the C++ parser). Parity now
+  covers every `tests/*.esk` whose **transitive import closure** is preprocessor-free
+  (corpus 43 → 50); files whose closure touches the preprocessor stay excluded until
+  the preprocessor is self-hosted. The harness computes the closure to gate inclusion.
+
+---
+
 ## [0.2.5] — 2026-06-17
 
 ### Added
+- **`<ctype>` stdlib module** — pure-Eskiu ASCII character classification (no libc,
+  freestanding-safe): `is_space`, `is_digit`, `is_hex`, `is_alpha`, `is_alnum`,
+  `is_ident_start`, `is_ident_cont`. Introduced for the self-hosted lexer; usable
+  by any program via `import <ctype>;`.
 - **Self-hosting milestone 1: the lexer, in Eskiu** (`selfhost/` +
   `stdlib/ctype.esk`). A full lexer written in Eskiu, byte-identical to the C++
   `--test-lexer` over the entire preprocessor-free corpus. Parity gate

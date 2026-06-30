@@ -1,0 +1,75 @@
+// threading.esk — synchronization primitives over pthread.
+//
+// `thread_create` / `thread_join` are language built-ins (see the threads
+// example); this module adds the locking you need to share state safely:
+//
+//   let m: Mutex;  Mutex_init(&m);
+//   Mutex_lock(&m);  /* critical section */  Mutex_unlock(&m);
+//   Mutex_destroy(&m);
+//
+// Pass a *pointer* to a primitive into a thread closure (closures capture by
+// value, so capturing the pointer is what makes the lock shared).
+
+extern int pthread_mutex_init(*void m, *void attr);
+extern int pthread_mutex_lock(*void m);
+extern int pthread_mutex_unlock(*void m);
+extern int pthread_mutex_destroy(*void m);
+extern int pthread_cond_init(*void c, *void attr);
+extern int pthread_cond_wait(*void c, *void m);
+extern int pthread_cond_signal(*void c);
+extern int pthread_cond_broadcast(*void c);
+extern int pthread_cond_destroy(*void c);
+
+// Opaque storage, sized for the largest supported platform (macOS: mutex 64,
+// cond 48 bytes; Linux: 40, 48). int64 arrays also give the 8-byte alignment
+// pthread expects — for free, with no per-platform #ifdef.
+struct Mutex { int64[8] _opaque; }
+struct Cond  { int64[6] _opaque; }
+
+void Mutex_init(Mutex* self)    { pthread_mutex_init((*void)self, (*void)0); }
+void Mutex_lock(Mutex* self)    { pthread_mutex_lock((*void)self); }
+void Mutex_unlock(Mutex* self)  { pthread_mutex_unlock((*void)self); }
+void Mutex_destroy(Mutex* self) { pthread_mutex_destroy((*void)self); }
+
+void Cond_init(Cond* self)           { pthread_cond_init((*void)self, (*void)0); }
+void Cond_wait(Cond* self, Mutex* m) { pthread_cond_wait((*void)self, (*void)m); }
+void Cond_signal(Cond* self)         { pthread_cond_signal((*void)self); }
+void Cond_broadcast(Cond* self)      { pthread_cond_broadcast((*void)self); }
+void Cond_destroy(Cond* self)        { pthread_cond_destroy((*void)self); }
+
+// Counting semaphore built on Mutex + Cond — portable (macOS does not support
+// unnamed POSIX semaphores via sem_init).
+struct Sem {
+    Mutex m;
+    Cond  c;
+    int   count;
+}
+
+void Sem_init(Sem* self, int initial) {
+    Mutex_init(&self.m);
+    Cond_init(&self.c);
+    self.count = initial;
+}
+
+// Block until the count is positive, then take one.
+void Sem_wait(Sem* self) {
+    Mutex_lock(&self.m);
+    while (self.count <= 0) {
+        Cond_wait(&self.c, &self.m);
+    }
+    self.count = self.count - 1;
+    Mutex_unlock(&self.m);
+}
+
+// Release one, waking a waiter if any.
+void Sem_post(Sem* self) {
+    Mutex_lock(&self.m);
+    self.count = self.count + 1;
+    Cond_signal(&self.c);
+    Mutex_unlock(&self.m);
+}
+
+void Sem_destroy(Sem* self) {
+    Cond_destroy(&self.c);
+    Mutex_destroy(&self.m);
+}

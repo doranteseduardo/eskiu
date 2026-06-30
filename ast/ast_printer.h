@@ -15,6 +15,11 @@ private:
     void indent();
     void println(const std::string& text);
 
+    // Print a `TypeParams:` section (only when non-empty), each param as `T` or
+    // `T: A + B`. Shared by FunctionDecl / StructDecl / EnumDecl.
+    void printTypeParams(const std::vector<std::string>& typeParams,
+                         const std::map<std::string, std::vector<std::string>>& constraints);
+
     // Visitor methods
     void visit(Program* node) override;
     void visit(FunctionDecl* node) override;

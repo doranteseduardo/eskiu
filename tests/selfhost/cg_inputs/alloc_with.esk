@@ -1,0 +1,30 @@
+import <mem>;
+
+extern int printf(string fmt, ...);
+
+// Minimal bump allocator over a caller-provided buffer.
+struct Bump {
+    *uint8 buf;
+    int64  cap;
+    int64  off;
+}
+*void Bump_alloc(Bump* self, int64 n) {
+    if (self.off + n > self.cap) { return (*void)0; }
+    *void p = (*void)(self.buf + self.off);
+    self.off = self.off + n;
+    return p;
+}
+
+int main() {
+    *uint8 backing = alloc<uint8>(1024);
+    let a: Bump;
+    a.buf = backing; a.cap = 1024; a.off = 0;
+
+    *int xs = alloc_with(&a, int, 4);   // 4 ints from the bump allocator
+    xs[0] = 10; xs[1] = 20; xs[2] = 30; xs[3] = 40;
+    int sum = 0;
+    for (int i = 0; i < 4; i += 1) { sum += xs[i]; }
+    printf("sum=%d off=%lld\n", sum, a.off);   // sum=100 off=16
+    free(backing);
+    return 0;
+}

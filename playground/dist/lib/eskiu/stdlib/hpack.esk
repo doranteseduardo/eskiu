@@ -1,0 +1,466 @@
+// hpack.esk — HPACK (RFC 7541), HTTP/2 header compression.
+//
+// HTTP/2 carries header fields in a compressed block per HEADERS frame. HPACK
+// combines (a) a static table of 61 common header fields, (b) a per-connection
+// dynamic table the peers grow as they go, and (c) a compact wire coding:
+// prefix integers (§5.1), length-prefixed string literals (§5.2, optionally
+// Huffman-coded), and the field representations of §6 (indexed; literal with /
+// without / never indexing; dynamic-table size update).
+//
+// The decoder maintains the dynamic table and handles every §6 representation;
+// the encoder is stateless (it emits an indexed field for a static-table match,
+// otherwise a literal, choosing the shorter of raw and Huffman). The Huffman
+// code table (Appendix B) lives in hpack_huffman.esk, generated from the RFC.
+
+import <mem>;
+import <hpack_huffman>;    // hpack_huff_code(i) / hpack_huff_len(i) — RFC Appendix B
+
+// ── §5.1 Integer representation ──────────────────────────────────────────────
+// An integer with an N-bit prefix. The high (8-N) bits of the first byte carry
+// `flags` (the representation's opcode bits).
+
+// Encode `value` (>= 0) with an N-bit prefix into buf[off..); returns new off.
+int hpack_encode_int(*uint8 buf, int off, int n, int flags, int64 value) {
+    int maxp = (1 << n) - 1;
+    if (value < (int64)maxp) {
+        buf[off] = (uint8)(flags | (int)value);
+        return off + 1;
+    }
+    buf[off] = (uint8)(flags | maxp);
+    off = off + 1;
+    value = value - (int64)maxp;
+    while (value >= (int64)128) {
+        buf[off] = (uint8)(((int)(value & (int64)127)) | 128);
+        off = off + 1;
+        value = value >> 7;
+    }
+    buf[off] = (uint8)(int)value;
+    return off + 1;
+}
+
+// Decode an N-bit-prefix integer at buf[off]; writes the next offset to *next.
+int64 hpack_decode_int(*uint8 buf, int off, int n, int* next) {
+    int maxp = (1 << n) - 1;
+    int64 v = (int64)((int)buf[off] & maxp);
+    off = off + 1;
+    if (v < (int64)maxp) { *next = off; return v; }
+    int64 m = (int64)0;
+    int b = 128;
+    while ((b & 128) != 0) {
+        b = (int)buf[off]; off = off + 1;
+        v = v + ((int64)(b & 127) << m);
+        m = m + (int64)7;
+    }
+    *next = off;
+    return v;
+}
+
+// ── §5.2 String literal (raw; Huffman variants below) ───────────────────────
+
+// Encode `slen` bytes at `s` as a raw (H=0) string literal; returns new off.
+int hpack_encode_str(*uint8 buf, int off, *uint8 s, int slen) {
+    off = hpack_encode_int(buf, off, 7, 0, (int64)slen);   // H = 0
+    int i = 0;
+    while (i < slen) { buf[off + i] = s[i]; i = i + 1; }
+    return off + slen;
+}
+
+// ── §5.2 Huffman coding (RFC 7541 Appendix B) ────────────────────────────────
+// Decoding walks a binary trie built from the 257-symbol code table; encoding
+// packs each symbol's MSB-aligned code. The table itself is generated from the
+// RFC text (stdlib/hpack_huffman.esk) — never hand-transcribed.
+
+struct HpackStr { *uint8 ptr; int len; }
+
+// A Huffman decoding trie: child0/child1 are node indices (-1 = none), sym is
+// the decoded symbol at a leaf (-1 = internal node). Node 0 is the root.
+struct HpackHuff {
+    *int child0;  *int child1;  *int sym;  int nodes;
+}
+
+void hpack_huff_build(HpackHuff* h) {
+    int cap = 8192;
+    h.child0 = alloc<int>(cap);  h.child1 = alloc<int>(cap);  h.sym = alloc<int>(cap);
+    int i = 0;
+    while (i < cap) { h.child0[i] = -1; h.child1[i] = -1; h.sym[i] = -1; i = i + 1; }
+    h.nodes = 1;                                  // root
+    int s = 0;
+    while (s < 257) {
+        int64 code = hpack_huff_code(s);
+        int len = hpack_huff_len(s);
+        int node = 0;
+        int b = len - 1;
+        while (b >= 0) {
+            int bit = (int)((code >> b) & (int64)1);
+            int next = -1;
+            if (bit == 0) { next = h.child0[node]; } else { next = h.child1[node]; }
+            if (next < 0) {
+                next = h.nodes;  h.nodes = h.nodes + 1;
+                if (bit == 0) { h.child0[node] = next; } else { h.child1[node] = next; }
+            }
+            node = next;
+            b = b - 1;
+        }
+        h.sym[node] = s;
+        s = s + 1;
+    }
+}
+
+void hpack_huff_free(HpackHuff* h) {
+    free((*void)h.child0);  free((*void)h.child1);  free((*void)h.sym);
+}
+
+// Decode `srclen` Huffman bytes at `src` into `dst` (capacity `dstcap`). Returns
+// the decoded length, or -1 on an invalid code, an EOS symbol, overflow, or
+// invalid padding (trailing bits must be the EOS prefix — all ones — and < 8).
+int hpack_huff_decode(HpackHuff* h, *uint8 src, int srclen, *uint8 dst, int dstcap) {
+    int node = 0;  int outlen = 0;
+    int since = 0;  int allones = 1;             // bits since the last completed symbol
+    int i = 0;
+    while (i < srclen) {
+        int byte = (int)src[i];
+        int b = 7;
+        while (b >= 0) {
+            int bit = (byte >> b) & 1;
+            since = since + 1;
+            if (bit == 0) { allones = 0; node = h.child0[node]; } else { node = h.child1[node]; }
+            if (node < 0) { return -1; }
+            if (h.sym[node] >= 0) {
+                int sym = h.sym[node];
+                if (sym == 256) { return -1; }    // EOS must not appear in the data
+                if (outlen >= dstcap) { return -1; }
+                dst[outlen] = (uint8)sym;  outlen = outlen + 1;
+                node = 0;  since = 0;  allones = 1;
+            }
+            b = b - 1;
+        }
+        i = i + 1;
+    }
+    if (node != 0) {                              // leftover bits = padding
+        if (since > 7 || allones == 0) { return -1; }
+    }
+    return outlen;
+}
+
+// Number of bytes the Huffman encoding of `src` would occupy.
+int hpack_huff_encoded_len(*uint8 src, int srclen) {
+    int64 bits = (int64)0;
+    int i = 0;
+    while (i < srclen) { bits = bits + (int64)hpack_huff_len((int)src[i]); i = i + 1; }
+    return (int)((bits + (int64)7) / (int64)8);
+}
+
+// Huffman-encode `src` into dst[off..); returns new off. Trailing bits are
+// padded with the EOS prefix (all ones), per §5.2.
+int hpack_huff_encode(*uint8 dst, int off, *uint8 src, int srclen) {
+    int64 acc = (int64)0;  int bits = 0;
+    int i = 0;
+    while (i < srclen) {
+        int sym = (int)src[i];
+        acc = (acc << hpack_huff_len(sym)) | hpack_huff_code(sym);
+        bits = bits + hpack_huff_len(sym);
+        while (bits >= 8) {
+            bits = bits - 8;
+            dst[off] = (uint8)((acc >> bits) & (int64)255);  off = off + 1;
+        }
+        i = i + 1;
+    }
+    if (bits > 0) {
+        int pad = 8 - bits;
+        acc = (acc << pad) | (((int64)1 << pad) - (int64)1);
+        dst[off] = (uint8)(acc & (int64)255);  off = off + 1;
+    }
+    return off;
+}
+
+// Encode a string literal, choosing the smaller of raw and Huffman (a valid
+// choice either way, and what real encoders do): the H bit signals which.
+int hpack_emit_str(*uint8 buf, int off, *uint8 s, int slen) {
+    int hlen = hpack_huff_encoded_len(s, slen);
+    if (hlen < slen) {
+        off = hpack_encode_int(buf, off, 7, 128, (int64)hlen);   // H = 1
+        return hpack_huff_encode(buf, off, s, slen);
+    }
+    return hpack_encode_str(buf, off, s, slen);                  // H = 0
+}
+
+// ── Appendix A: static table (indices 1..61) ─────────────────────────────────
+string hpack_static_name(int i) {
+    if (i == 1)  { return ":authority"; }      if (i == 2)  { return ":method"; }
+    if (i == 3)  { return ":method"; }         if (i == 4)  { return ":path"; }
+    if (i == 5)  { return ":path"; }            if (i == 6)  { return ":scheme"; }
+    if (i == 7)  { return ":scheme"; }          if (i == 8)  { return ":status"; }
+    if (i == 9)  { return ":status"; }          if (i == 10) { return ":status"; }
+    if (i == 11) { return ":status"; }          if (i == 12) { return ":status"; }
+    if (i == 13) { return ":status"; }          if (i == 14) { return ":status"; }
+    if (i == 15) { return "accept-charset"; }   if (i == 16) { return "accept-encoding"; }
+    if (i == 17) { return "accept-language"; }  if (i == 18) { return "accept-ranges"; }
+    if (i == 19) { return "accept"; }           if (i == 20) { return "access-control-allow-origin"; }
+    if (i == 21) { return "age"; }              if (i == 22) { return "allow"; }
+    if (i == 23) { return "authorization"; }    if (i == 24) { return "cache-control"; }
+    if (i == 25) { return "content-disposition"; } if (i == 26) { return "content-encoding"; }
+    if (i == 27) { return "content-language"; } if (i == 28) { return "content-length"; }
+    if (i == 29) { return "content-location"; } if (i == 30) { return "content-range"; }
+    if (i == 31) { return "content-type"; }     if (i == 32) { return "cookie"; }
+    if (i == 33) { return "date"; }             if (i == 34) { return "etag"; }
+    if (i == 35) { return "expect"; }           if (i == 36) { return "expires"; }
+    if (i == 37) { return "from"; }             if (i == 38) { return "host"; }
+    if (i == 39) { return "if-match"; }         if (i == 40) { return "if-modified-since"; }
+    if (i == 41) { return "if-none-match"; }    if (i == 42) { return "if-range"; }
+    if (i == 43) { return "if-unmodified-since"; } if (i == 44) { return "last-modified"; }
+    if (i == 45) { return "link"; }             if (i == 46) { return "location"; }
+    if (i == 47) { return "max-forwards"; }     if (i == 48) { return "proxy-authenticate"; }
+    if (i == 49) { return "proxy-authorization"; } if (i == 50) { return "range"; }
+    if (i == 51) { return "referer"; }          if (i == 52) { return "refresh"; }
+    if (i == 53) { return "retry-after"; }      if (i == 54) { return "server"; }
+    if (i == 55) { return "set-cookie"; }       if (i == 56) { return "strict-transport-security"; }
+    if (i == 57) { return "transfer-encoding"; } if (i == 58) { return "user-agent"; }
+    if (i == 59) { return "vary"; }             if (i == 60) { return "via"; }
+    if (i == 61) { return "www-authenticate"; }
+    return "";
+}
+
+string hpack_static_value(int i) {
+    if (i == 2)  { return "GET"; }              if (i == 3)  { return "POST"; }
+    if (i == 4)  { return "/"; }                if (i == 5)  { return "/index.html"; }
+    if (i == 6)  { return "http"; }             if (i == 7)  { return "https"; }
+    if (i == 8)  { return "200"; }              if (i == 9)  { return "204"; }
+    if (i == 10) { return "206"; }              if (i == 11) { return "304"; }
+    if (i == 12) { return "400"; }              if (i == 13) { return "404"; }
+    if (i == 14) { return "500"; }              if (i == 16) { return "gzip, deflate"; }
+    return "";
+}
+
+// ── Dynamic table + decoder ──────────────────────────────────────────────────
+
+// One decoded header field. name/value point at storage owned by the static
+// table, the dynamic table, or the input block — valid for the decode's lifetime.
+struct HpackHeader {
+    *uint8 name;  int nlen;
+    *uint8 value; int vlen;
+}
+
+// A dynamic-table entry (a heap-owned copy of one inserted field).
+struct HpackEntry {
+    *uint8 name;  int nlen;
+    *uint8 value; int vlen;
+    int    size;   // RFC entry size = nlen + vlen + 32
+}
+
+// HPACK decoder state: the dynamic table (newest entry at index 0), the Huffman
+// decode trie, and a per-block scratch arena that Huffman-decoded strings live
+// in (header pointers point into it or directly into the input block).
+struct HpackDecoder {
+    *HpackEntry dyn;
+    int   dyn_count;
+    int   dyn_cap;
+    int64 max_size;     // SETTINGS_HEADER_TABLE_SIZE
+    int64 cur_size;
+    HpackHuff huff;
+    *uint8 scratch;
+    int   scratch_cap;
+    int   scratch_used;
+}
+
+void hpack_decoder_init(HpackDecoder* d, int64 max_size) {
+    int cap = (int)(max_size / (int64)32) + 1;   // min entry size is 32 bytes
+    d.dyn = alloc<HpackEntry>(cap);
+    d.dyn_count = 0;
+    d.dyn_cap = cap;
+    d.max_size = max_size;
+    d.cur_size = (int64)0;
+    hpack_huff_build(&d.huff);
+    d.scratch_cap = 16384;
+    d.scratch = alloc<uint8>(d.scratch_cap);
+    d.scratch_used = 0;
+}
+
+void hpack_decoder_free(HpackDecoder* d) {
+    int i = 0;
+    while (i < d.dyn_count) {
+        free((*void)d.dyn[i].name);
+        free((*void)d.dyn[i].value);
+        i = i + 1;
+    }
+    free((*void)d.dyn);
+    hpack_huff_free(&d.huff);
+    free((*void)d.scratch);
+    d.dyn_count = 0;
+}
+
+// Read a (possibly Huffman-coded) string literal at buf[off]. On success fills
+// `out` (pointing into buf for raw strings, or the scratch arena for Huffman)
+// and returns the next offset; returns -1 on error.
+int hpack_read_str(HpackDecoder* d, *uint8 buf, int off, HpackStr* out) {
+    int huff = ((int)buf[off] & 128) != 0;
+    int nx = 0;
+    int64 len = hpack_decode_int(buf, off, 7, &nx);
+    if (huff == 0) {
+        out.ptr = buf + nx;  out.len = (int)len;
+        return nx + (int)len;
+    }
+    *uint8 dst = d.scratch + d.scratch_used;
+    int dn = hpack_huff_decode(&d.huff, buf + nx, (int)len, dst, d.scratch_cap - d.scratch_used);
+    if (dn < 0) { return -1; }
+    out.ptr = dst;  out.len = dn;
+    d.scratch_used = d.scratch_used + dn;
+    return nx + (int)len;
+}
+
+// Evict the oldest entries until `need` more bytes fit (or the table is empty).
+void hpack_evict(HpackDecoder* d, int64 need) {
+    while (d.cur_size + need > d.max_size && d.dyn_count > 0) {
+        int last = d.dyn_count - 1;
+        d.cur_size = d.cur_size - (int64)d.dyn[last].size;
+        free((*void)d.dyn[last].name);
+        free((*void)d.dyn[last].value);
+        d.dyn_count = last;
+    }
+}
+
+// Insert a copy of (name, value) at the front of the dynamic table (§4.4).
+void hpack_dyn_insert(HpackDecoder* d, *uint8 name, int nlen, *uint8 value, int vlen) {
+    int64 esize = (int64)(nlen + vlen + 32);
+    hpack_evict(d, esize);
+    if (esize > d.max_size) { return; }       // larger than the whole table: table left empty
+    int i = d.dyn_count;
+    while (i > 0) { d.dyn[i] = d.dyn[i - 1]; i = i - 1; }
+    *uint8 nc = alloc<uint8>(nlen);  memcpy((*void)nc, (*void)name, nlen);
+    *uint8 vc = alloc<uint8>(vlen);  memcpy((*void)vc, (*void)value, vlen);
+    d.dyn[0].name = nc;  d.dyn[0].nlen = nlen;
+    d.dyn[0].value = vc; d.dyn[0].vlen = vlen;
+    d.dyn[0].size = nlen + vlen + 32;
+    d.dyn_count = d.dyn_count + 1;
+    d.cur_size = d.cur_size + esize;
+}
+
+// Set a new dynamic-table max size (§6.3 dynamic table size update); evicts.
+void hpack_set_max(HpackDecoder* d, int64 newmax) {
+    d.max_size = newmax;
+    hpack_evict(d, (int64)0);
+}
+
+// Resolve table index `idx` (1-based) into `h`. Returns 0 ok, -1 if out of range.
+int hpack_resolve(HpackDecoder* d, int idx, HpackHeader* h) {
+    if (idx >= 1 && idx <= 61) {
+        string nm = hpack_static_name(idx);
+        string vl = hpack_static_value(idx);
+        h.name = (*uint8)nm;  h.nlen = strlen(nm);
+        h.value = (*uint8)vl; h.vlen = strlen(vl);
+        return 0;
+    }
+    int pos = idx - 62;                          // 0 = most recently inserted
+    if (pos < 0 || pos >= d.dyn_count) { return -1; }
+    h.name = d.dyn[pos].name;  h.nlen = d.dyn[pos].nlen;
+    h.value = d.dyn[pos].value; h.vlen = d.dyn[pos].vlen;
+    return 0;
+}
+
+// Decode one literal representation (the prefix byte at buf[off] selects the
+// name-index prefix width and whether to index). Fills `h`; returns the next
+// offset, or -1 on error.
+int hpack_decode_literal(HpackDecoder* d, *uint8 buf, int off, int prefixBits,
+                         HpackHeader* h, int doIndex) {
+    int nx = 0;
+    int64 nameIdx = hpack_decode_int(buf, off, prefixBits, &nx);
+    off = nx;
+    if ((int)nameIdx != 0) {
+        let nh: HpackHeader;
+        if (hpack_resolve(d, (int)nameIdx, &nh) != 0) { return -1; }
+        h.name = nh.name;  h.nlen = nh.nlen;
+    } else {
+        let ns: HpackStr;
+        off = hpack_read_str(d, buf, off, &ns);
+        if (off < 0) { return -1; }
+        h.name = ns.ptr;  h.nlen = ns.len;
+    }
+    let vs: HpackStr;
+    off = hpack_read_str(d, buf, off, &vs);
+    if (off < 0) { return -1; }
+    h.value = vs.ptr;  h.vlen = vs.len;
+    if (doIndex != 0) { hpack_dyn_insert(d, h.name, h.nlen, h.value, h.vlen); }
+    return off;
+}
+
+// Decode a complete header block (`len` bytes at `buf`) into out[0..max).
+// Returns the header count, or -1 on a malformed block.
+int hpack_decode(HpackDecoder* d, *uint8 buf, int len, HpackHeader* out, int max) {
+    d.scratch_used = 0;                  // reset the per-block arena for Huffman strings
+    int off = 0;  int count = 0;
+    while (off < len) {
+        if (count >= max) { return -1; }
+        int b = (int)buf[off];
+        if ((b & 128) != 0) {                            // §6.1 indexed
+            int nx = 0;
+            int64 idx = hpack_decode_int(buf, off, 7, &nx);
+            off = nx;
+            if (hpack_resolve(d, (int)idx, &out[count]) != 0) { return -1; }
+            count = count + 1;
+        } else if ((b & 64) != 0) {                      // §6.2.1 literal, incremental indexing
+            off = hpack_decode_literal(d, buf, off, 6, &out[count], 1);
+            if (off < 0) { return -1; }
+            count = count + 1;
+        } else if ((b & 32) != 0) {                      // §6.3 dynamic table size update
+            int nx = 0;
+            int64 newmax = hpack_decode_int(buf, off, 5, &nx);
+            off = nx;
+            hpack_set_max(d, newmax);
+        } else {                                         // §6.2.2 / §6.2.3 without / never indexed
+            off = hpack_decode_literal(d, buf, off, 4, &out[count], 0);
+            if (off < 0) { return -1; }
+            count = count + 1;
+        }
+    }
+    return count;
+}
+
+// ── Encoder (stateless; raw strings) ─────────────────────────────────────────
+// A correct, deterministic encoder: emit an indexed field when (name, value)
+// matches the static table; else a "literal without indexing" reusing a static
+// name index when the name matches; else a fully literal field. It never grows
+// the dynamic table (so it needs no state and the output is reproducible).
+
+int hpack_bytes_eq(*uint8 a, int alen, *uint8 b, int blen) {
+    if (alen != blen) { return 0; }
+    return memcmp((*void)a, (*void)b, alen) == 0;
+}
+
+// Static index of an exact (name, value) match, or 0.
+int hpack_static_find(*uint8 name, int nlen, *uint8 value, int vlen) {
+    int i = 1;
+    while (i <= 61) {
+        string nm = hpack_static_name(i);
+        string vl = hpack_static_value(i);
+        if (hpack_bytes_eq(name, nlen, (*uint8)nm, strlen(nm)) != 0 &&
+            hpack_bytes_eq(value, vlen, (*uint8)vl, strlen(vl)) != 0) { return i; }
+        i = i + 1;
+    }
+    return 0;
+}
+
+// Static index whose name matches, or 0.
+int hpack_static_find_name(*uint8 name, int nlen) {
+    int i = 1;
+    while (i <= 61) {
+        string nm = hpack_static_name(i);
+        if (hpack_bytes_eq(name, nlen, (*uint8)nm, strlen(nm)) != 0) { return i; }
+        i = i + 1;
+    }
+    return 0;
+}
+
+// Encode one header field into buf[off..); returns new off.
+int hpack_encode_header(*uint8 buf, int off, *uint8 name, int nlen, *uint8 value, int vlen) {
+    int full = hpack_static_find(name, nlen, value, vlen);
+    if (full != 0) {                                  // §6.1 indexed
+        return hpack_encode_int(buf, off, 7, 128, (int64)full);
+    }
+    int ni = hpack_static_find_name(name, nlen);      // §6.2.2 without indexing (flags 0x00)
+    if (ni != 0) {
+        off = hpack_encode_int(buf, off, 4, 0, (int64)ni);
+        return hpack_emit_str(buf, off, value, vlen);
+    }
+    off = hpack_encode_int(buf, off, 4, 0, (int64)0); // name index 0 -> literal name
+    off = hpack_emit_str(buf, off, name, nlen);
+    return hpack_emit_str(buf, off, value, vlen);
+}

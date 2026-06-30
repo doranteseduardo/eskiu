@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ABI · Eskiu docs</title>
+  <meta name="description" content="How Eskiu types and constructs lower to LLVM IR, and the calling/layout" />
+  <link rel="canonical" href="https://eskiu-lang.org/docs/abi.html" />
+  <link rel="icon" type="image/png" href="../../assets/logo.png" />
+  <style>*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #ffffff; --surface: #f6f7f9; --border: #e6e8ec;
+  --ink: #16181d; --ink2: #4f555f; --purple: #4c31bb; --purple-lt: #6448d4;
+  --code: #1b1728; --code-bd: #2c2444;
+  --sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+}
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+body { background: var(--bg); color: var(--ink); font-family: var(--sans);
+       line-height: 1.65; -webkit-font-smoothing: antialiased; }
+.wrap { max-width: 800px; margin: 0 auto; padding: 2.25rem 1.25rem 5rem; }
+.top { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 1.5rem; }
+.top img { width: 30px; height: 30px; }
+.top a { color: var(--ink2); text-decoration: none; font-size: 0.85rem; }
+.top a:hover { color: var(--purple); }
+.docnav { display: flex; flex-wrap: wrap; gap: 0.35rem 0.5rem; margin-bottom: 2.5rem;
+          padding-bottom: 1.25rem; border-bottom: 1px solid var(--border); }
+.docnav a { font-size: 0.8rem; color: var(--ink2); text-decoration: none;
+            padding: 0.25rem 0.6rem; border-radius: 6px; border: 1px solid transparent; }
+.docnav a:hover { color: var(--purple); background: var(--surface); }
+.docnav a.active { color: var(--purple); border-color: var(--border); background: #fff; font-weight: 600; }
+.content h1 { font-size: clamp(1.7rem, 4.5vw, 2.4rem); letter-spacing: -0.03em;
+              line-height: 1.12; margin: 0 0 1.25rem; }
+.content h2 { font-size: 1.35rem; letter-spacing: -0.02em; margin: 2.5rem 0 0.85rem;
+              padding-top: 0.5rem; }
+.content h3 { font-size: 1.08rem; margin: 1.75rem 0 0.6rem; }
+.content h4 { font-size: 0.95rem; margin: 1.4rem 0 0.5rem; color: var(--ink2); }
+.content p { margin: 0 0 1rem; }
+.content a { color: var(--purple); }
+.content ul, .content ol { margin: 0 0 1rem 1.3rem; }
+.content li { margin-bottom: 0.4rem; }
+.content strong { font-weight: 600; }
+.content hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+.content blockquote { border-left: 3px solid var(--purple); background: var(--surface);
+                      padding: 0.8rem 1.1rem; border-radius: 0 8px 8px 0; margin: 0 0 1.25rem;
+                      color: var(--ink2); }
+.content blockquote p:last-child { margin-bottom: 0; }
+.content code { font-family: var(--mono); font-size: 0.86em; background: var(--surface);
+                padding: 0.1em 0.35em; border-radius: 4px; }
+.content pre { background: var(--code); border: 1px solid var(--code-bd); border-radius: 8px;
+               padding: 0.95rem 1.1rem; margin: 0 0 1.5rem; overflow-x: auto;
+               font-family: var(--mono); font-size: 0.78rem; line-height: 1.75; color: #b4bccc; }
+.content pre code { background: none; padding: 0; font-size: inherit; color: inherit; }
+.tablewrap { overflow-x: auto; margin: 0 0 1.5rem; }
+.content table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+.content th, .content td { text-align: left; padding: 0.5rem 0.75rem;
+                          border-bottom: 1px solid var(--border); vertical-align: top; }
+.content th { color: var(--ink2); font-weight: 600; white-space: nowrap; }
+.content td code { white-space: nowrap; }
+.foot { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--border);
+        font-size: 0.9rem; color: var(--ink2); }
+@media (max-width: 600px) {
+  .content table { font-size: 0.8rem; }
+  .content th, .content td { padding: 0.4rem 0.55rem; white-space: normal; }
+}</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <img src="../../assets/logo.png" alt="Eskiu" />
+      <a href="../index.html">← eskiu</a>
+    </div>
+    <nav class="docnav"><a href="index.html">← Language docs</a><a href="internals.html">Overview</a><a href="architecture.html">Architecture</a><a href="design.html">Design</a><a href="abi.html" class="active">ABI</a><a href="async-design.html">Async</a><a href="self-hosting.html">Self-hosting</a><a href="http2-design.html">HTTP/2</a><a href="api.html">C++ API</a><a href="debugging.html">Debugging</a><a href="contributing.html">Contributing</a></nav>
+    <div class="content">
+<h1 id="eskiu-abi">Eskiu ABI</h1>
+<p>How Eskiu types and constructs lower to LLVM IR, and the calling/layout
+conventions a foreign caller must follow. This reflects the code generator
+(<code>codegen/codegen_*.cpp</code>); it is the contract for linking Eskiu with C (and, on
+the roadmap, Swift/Kotlin over the C ABI).</p>
+<p>Eskiu targets the platform's native C ABI via LLVM, so on a given target the
+representations below match what a C compiler produces for the equivalent
+declarations. There is no separate Eskiu calling convention.</p>
+<hr>
+<h2 id="scalar-types">Scalar types</h2>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th>Eskiu</th>
+<th>LLVM</th>
+<th>Signed?</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>int</code>, <code>int32</code></td>
+<td><code>i32</code></td>
+<td>signed</td>
+<td>default integer width</td>
+</tr>
+<tr>
+<td><code>int8</code> / <code>int16</code> / <code>int64</code></td>
+<td><code>i8</code> / <code>i16</code> / <code>i64</code></td>
+<td>signed</td>
+<td></td>
+</tr>
+<tr>
+<td><code>uint</code>, <code>uint32</code></td>
+<td><code>i32</code></td>
+<td>unsigned</td>
+<td></td>
+</tr>
+<tr>
+<td><code>uint8</code> / <code>uint16</code> / <code>uint64</code></td>
+<td><code>i8</code> / <code>i16</code> / <code>i64</code></td>
+<td>unsigned</td>
+<td></td>
+</tr>
+<tr>
+<td><code>bool</code></td>
+<td><code>i1</code></td>
+<td>—</td>
+<td></td>
+</tr>
+<tr>
+<td><code>char</code></td>
+<td><code>i8</code></td>
+<td>unsigned</td>
+<td></td>
+</tr>
+<tr>
+<td><code>float</code></td>
+<td><code>float</code></td>
+<td>—</td>
+<td>IEEE-754 single</td>
+</tr>
+<tr>
+<td><code>double</code></td>
+<td><code>double</code></td>
+<td>—</td>
+<td>IEEE-754 double</td>
+</tr>
+<tr>
+<td><code>string</code></td>
+<td><code>ptr</code></td>
+<td>—</td>
+<td>pointer to a NUL-terminated byte buffer</td>
+</tr>
+<tr>
+<td><code>void</code></td>
+<td><code>void</code></td>
+<td>—</td>
+<td>return type only</td>
+</tr>
+</tbody>
+</table></div>
+<p>Signedness is not part of the LLVM type (both <code>int</code> and <code>uint</code> are <code>i32</code>); it
+is carried by the operations. Integer <strong>widening</strong> chooses the extension by the
+<em>source</em> type: <code>uint*</code>, <code>char</code> and <code>bool</code> zero-extend; signed integers
+sign-extend. Narrowing truncates. <code>int</code>↔float uses signed conversions
+(<code>sitofp</code>/<code>fptosi</code>).</p>
+<hr>
+<h2 id="pointers-and-const">Pointers and <code>const</code></h2>
+<p>All pointers lower to LLVM's opaque <code>ptr</code> (address space 0), regardless of
+pointee type or spelling (<code>int*</code> and <code>*int</code> are identical). Pointer-to-pointer,
+casts between pointer types, and <code>string</code> are all just <code>ptr</code>.</p>
+<p><code>const</code> has <strong>no ABI effect</strong>. Every <code>const</code> qualifier (base/pointee <code>const T</code>,
+pointer-level <code>T* const</code>) is stripped before lowering, so a <code>const int*</code> and an
+<code>int*</code> are the same at the IR/object level. const is purely a compile-time
+checking aid.</p>
+<hr>
+<h2 id="aggregates">Aggregates</h2>
+<h3 id="structs">Structs</h3>
+<p>A non-packed struct without bitfields lowers to an LLVM struct of its field
+types in declaration order, with the target's <strong>natural alignment</strong> (LLVM
+inserts padding). This matches a C <code>struct</code> with the same fields.</p>
+<h3 id="packed-structs">Packed structs</h3>
+<p><code>packed struct</code> (equivalently <code>#pragma pack(1)</code>) lowers to an LLVM <em>packed</em>
+struct — no padding, fields back-to-back.</p>
+<p><code>#pragma pack(N)</code> for <code>N &gt; 1</code> uses an explicit manual layout that caps each
+field's alignment at <code>N</code>: a field is placed at the next offset that is a
+multiple of <code>min(natural-align, N)</code>, with <code>[k x i8]</code> padding inserted as needed,
+and the total size rounded up to the struct's alignment (<code>min(max-field-align,
+N)</code>). The result is emitted as a packed LLVM struct (padding is explicit) and
+matches the C <code>#pragma pack(N)</code> ABI. Field access goes through a
+logical→physical index map (padding shifts indices).</p>
+<h3 id="bitfields">Bitfields</h3>
+<p>Consecutive bitfields are packed into a storage word of the field's declared
+integer type; a non-bitfield field closes the current word. Each field records
+its physical slot, bit offset and width. Reads load the word, shift by the bit
+offset and mask (sign-extending for signed fields); writes are read-modify-write
+of the word.</p>
+<h3 id="unions">Unions</h3>
+<p>A <code>union</code> lowers to a single byte array <code>[N x i8]</code> (wrapped in a one-field
+struct), where <code>N</code> is the size of the largest member. All members share offset
+0; a member access reinterprets the storage at that type.</p>
+<hr>
+<h2 id="enums">Enums</h2>
+<h3 id="classic-enums">Classic enums</h3>
+<p>A payload-less <code>enum</code> is an <code>i32</code>. Each member is a compile-time <code>i32</code> constant
+(explicit <code>= value</code> or the running auto-increment).</p>
+<h3 id="algebraic-enums-adts">Algebraic enums (ADTs)</h3>
+<p>A payload-bearing enum is a tagged union:</p>
+<pre><code>{ i32 tag, [N x i64] payload }
+</code></pre>
+<ul>
+<li><code>tag</code> is the 0-based variant index (<code>i32</code>).</li>
+<li><code>payload</code> is <code>[N x i64]</code>, where <code>N = ceil(maxPayloadBytes / 8)</code> (at least 1),
+  <code>maxPayloadBytes</code> being the largest variant's naturally-aligned field layout.</li>
+<li>Construction stores the tag, then writes each variant field into the payload
+  area (coercing the value to the field type). <code>match</code> reads the tag, branches,
+  and reads payload fields per arm.</li>
+</ul>
+<p>Generic ADTs (<code>Option&lt;T&gt;</code>, <code>Either&lt;A,B&gt;</code>) are monomorphized per instantiation —
+each concrete instance (<code>Option_int</code>) gets its own <code>{i32, [N x i64]}</code> sized for
+that instance, exactly like template structs.</p>
+<hr>
+<h2 id="functions-and-calling-convention">Functions and calling convention</h2>
+<p>Parameters and results use the platform C ABI as produced by LLVM for the
+lowered types. Scalars and pointers pass in registers per the target ABI.</p>
+<p><strong>Struct return (sret).</strong> A function returning a struct larger than <strong>16 bytes</strong>
+(<code>getTypeAllocSize &gt; 16</code>) returns <code>void</code> and takes a hidden pointer as its first
+parameter; the caller allocates the result buffer and passes its address.
+Structs ≤ 16 bytes are returned by value (the target ABI splits them into
+registers as usual). This is the System V / AArch64 rule and is C-compatible.</p>
+<p><strong>Variadics.</strong> A <code>...</code> parameter makes the LLVM function <code>isVarArg</code>. The built-in
+<code>va_list</code> is the struct <code>{ ptr, ptr, ptr, i32, i32 }</code> (32 B, 8-aligned) — a
+superset of the x86-64 (24 B) and AArch64 (32 B) layouts, so one type serves
+both; <code>va_start</code>/<code>va_arg&lt;T&gt;</code>/<code>va_end</code> lower to the corresponding LLVM
+intrinsics/instruction. Variadic arguments follow C default promotions:
+integers narrower than 32 bits widen to <code>i32</code> (sign- or zero-extended), <code>bool</code>
+zero-extends, and <code>float</code> widens to <code>double</code>.</p>
+<hr>
+<h2 id="function-pointers-closures-and-interfaces">Function pointers, closures and interfaces</h2>
+<p>These use <strong>fat pointers</strong> — a two-<code>ptr</code> struct <code>{ ptr, ptr }</code>.</p>
+<p><strong>Function values / closures.</strong> A <code>fn(A,B)-&gt;R</code> value is <code>{ fn, env }</code>: a code
+pointer plus an environment pointer. A lambda compiles to a function whose first
+parameter is the <code>env*</code>, followed by the declared parameters; captured variables
+are loaded from the env struct (one field per capture, in capture order). A bare
+top-level function used as a value is wrapped by a thunk <code>__fnptr_&lt;name&gt;</code> with
+<code>env == null</code>.</p>
+<p>A <strong>non-escaping</strong> closure (only called or passed to a non-<code>escaping</code> parameter)
+keeps its env on the stack (zero cost). An <strong>escaping</strong> closure (returned,
+stored, or passed to an <code>escaping</code> parameter) heap-allocates the env;
+<code>free_closure(f)</code> releases it. The choice is fixed at compile time by escape
+analysis.</p>
+<p><strong>Interfaces.</strong> An interface value is <code>{ data, vtable }</code>: a pointer to the
+underlying struct plus a pointer to a per-(interface, struct) vtable constant.
+The vtable is an array of function pointers, one per interface method in
+declaration order. A method call loads <code>data</code> and <code>vtable</code>, indexes the vtable
+by method position, and calls the function pointer with <code>data</code> as the first
+argument.</p>
+<hr>
+<h2 id="name-mangling">Name mangling</h2>
+<p>Template and generic-enum instances are monomorphized with a deterministic
+mangling: in the instance type, spaces are removed and <code>&lt;</code>, <code>&gt;</code>, <code>,</code> become <code>_</code>.</p>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th>Source</th>
+<th>Mangled instance</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>List&lt;int&gt;</code></td>
+<td><code>List_int</code></td>
+</tr>
+<tr>
+<td><code>Pair&lt;int, float&gt;</code></td>
+<td><code>Pair_int_float</code></td>
+</tr>
+<tr>
+<td><code>Option&lt;string&gt;</code></td>
+<td><code>Option_string</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>Struct methods are emitted as <code>Struct_method</code>; interface vtable entries as
+<code>Interface_method</code>. Non-template top-level functions keep their source names
+(Eskiu does not overload, so no signature mangling is needed). <code>extern</code> and
+<code>intrinsic</code> declarations use their exact C symbol names — that is how Eskiu
+calls into C.</p>
+<hr>
+<h2 id="async-frames">Async frames</h2>
+<p>An <code>async</code> function is lowered (before code generation) to a resumable state
+machine: a heap-allocated <strong>frame struct</strong> holding the live locals plus a resume
+state, a <code>resume</code> function, and a constructor that returns a <code>*Future&lt;T&gt;</code>. The
+<code>Future&lt;T&gt;</code>/<code>FutureHdr</code> layout and the completion/waker handshake are specified
+in <a href="async-design.html">async-design.md</a>; that document is the authoritative
+contract for the runtime side.</p>
+<hr>
+<h2 id="see-also">See also</h2>
+<ul>
+<li><a href="grammar.html">../lang/grammar.md</a> — the surface syntax these rules lower.</li>
+<li><a href="async-design.html">async-design.md</a> — the <code>Future&lt;T&gt;</code> ABI and scheduler contract.</li>
+<li><a href="architecture.html">architecture.md</a> — the compiler pipeline overview.</li>
+</ul>
+    </div>
+    <div class="foot"><a href="../index.html">← Back to eskiu</a></div>
+  </div>
+</body>
+</html>

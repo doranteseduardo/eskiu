@@ -217,10 +217,24 @@ DeclPtr Parser::parseDeclaration() {
                     vd->isConst = isConst;
                     return vd;
                 }
+            } else {
+                // Parsed a type but no name follows. If the next token is a
+                // reserved keyword, the user used it as a variable name — report
+                // that at the cause (e.g. `int fn = 3;`). A non-keyword falls
+                // through so the caller can reinterpret the tokens.
+                TokenType nt = peek().type;
+                if (nt >= TokenType::LET && nt <= TokenType::UINT64) {
+                    throw std::runtime_error(
+                        "expected a name, found keyword '" + peek().value + "'");
+                }
             }
         }
     } catch (const std::exception& e) {
-        throw std::runtime_error(std::string("Error parsing declaration: ") + e.what());
+        // Don't double-prefix when an inner declaration already wrapped the error
+        // (e.g. a malformed local decl inside a function body).
+        std::string m = e.what();
+        if (m.rfind("Error parsing declaration: ", 0) == 0) throw;
+        throw std::runtime_error("Error parsing declaration: " + m);
     }
 
     throw std::runtime_error("Expected declaration");

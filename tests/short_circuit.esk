@@ -1,0 +1,21 @@
+// `&&` / `||` must short-circuit: the RHS is evaluated only when the LHS doesn't
+// already decide the result. Regression test for the codegen bug where both operands
+// were evaluated eagerly (found dogfooding the self-hosted type checker).
+extern int printf(string fmt, ...);
+
+int calls = 0;
+int bump() { calls = calls + 1; return 1; }
+
+int main() {
+    // && with a false LHS must NOT evaluate the RHS.
+    if (1 == 0 && bump() == 1) { printf("unreachable-and\n"); }
+    // || with a true LHS must NOT evaluate the RHS.
+    if (1 == 1 || bump() == 1) { printf("or-taken\n"); }
+    printf("bumps=%d\n", calls);            // 0 — bump never ran
+
+    // The classic guard: a false LHS must stop the null dereference.
+    *int p = null;
+    if (p != null && p[0] == 5) { printf("unreachable-deref\n"); }
+    printf("safe\n");
+    return 0;
+}

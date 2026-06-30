@@ -1,0 +1,19 @@
+<idea-plugin>
+  <id>xyz.reactvision.eskiu</id>
+  <name>Eskiu</name>
+  <vendor url="https://reactvision.xyz">ReactVision</vendor>
+
+  <description><![CDATA[
+    Syntax highlighting for the Eskiu systems programming language (<code>.esk</code>),
+    powered by the same TextMate grammar as the VS Code extension.
+  ]]></description>
+
+  <!-- TextMate support is provided by the bundled platform plugin. -->
+  <depends>com.intellij.modules.platform</depends>
+  <depends>org.jetbrains.plugins.textmate</depends>
+
+  <extensions defaultExtensionNs="org.jetbrains.plugins.textmate">
+    <!-- Contribute the bundled grammar so it registers on install (no manual import). -->
+    <bundleProvider implementation="xyz.reactvision.eskiu.EskiuBundleProvider"/>
+  </extensions>
+</idea-plugin>

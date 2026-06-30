@@ -1,0 +1,33 @@
+// join2: await both futures, then read both values. Two pipe reads complete in
+// some order; join2 fires once both are done. Deterministic; leak-free.
+// Uses the generic `join2(ra, rb)` — typed futures, no `(FutureHdr*)` cast.
+import <future>;
+import <net_async>;
+import <eventloop>;
+extern int  printf(string fmt, ...);
+extern int  pipe(*int fds);
+extern int64 write(int fd, *void buf, int64 n);
+uint8[64] ba;  uint8[64] bb;
+EventLoop* g_lp;
+
+async int both(EventLoop* lp, int fa, int fb) {
+    Future<int>* ra = net_read_async(lp, fa, &ba[0], (int64)64);
+    Future<int>* rb = net_read_async(lp, fb, &bb[0], (int64)64);
+    int done = await join2(ra, rb);
+    int total = ra.value + rb.value;
+    free_future<int>(ra);  free_future<int>(rb);
+    return total;
+}
+int main() {
+    int[2] pa; pipe(&pa[0]);
+    int[2] pb; pipe(&pb[0]);
+    write(pa[1], (*void)"ab", (int64)2);
+    write(pb[1], (*void)"cde", (int64)3);
+    g_lp = el_new(64);
+    Future<int>* f = both(g_lp, pa[0], pb[0]);
+    if (future_poll<int>(f, void() { el_stop(g_lp); }) == 0) { el_run(g_lp); }
+    printf("%d\n", f.value);          // 2 + 3 = 5
+    free_future<int>(f);
+    el_free(g_lp);
+    return 0;
+}

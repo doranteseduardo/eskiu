@@ -1,0 +1,8 @@
+#define N 10
+int a = N;
+#define N 20
+int b = N;
+#undef N
+int c = N;
+#define N 30
+int d = N;
