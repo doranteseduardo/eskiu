@@ -25,8 +25,26 @@ corpus** (a full feature sweep is clean). All parity/self-host/bootstrap gates a
   segfaulting `eskiuc --test-parser`. It now omits the `Body:` section for a
   body-less function (as `ReturnStmt` already does for a null value). Found
   dogfooding the self-hosted parser. Affected only the debug printer, not codegen.
+- **C `size_t` externs now use `int64`, not `int`.** The `<mem>`/`<string>` declarations
+  for `memcpy`/`memset`/`memmove`/`memcmp`/`memchr` (size argument) and `strlen` (return)
+  were `int` (i32). That is an incorrect ABI on LP64 targets and truncates sizes above
+  4 GB. They are now `int64`, matching `size_t`. Behavior is unchanged for the common
+  sub-4 GB case (the value zero-extends into the argument register either way).
 
 ### Added
+- **`-O` optimization levels.** `eskiuc -O1`/`-O2`/`-O3` now runs the LLVM middle-end
+  pipeline (mem2reg/SROA/instcombine/inlining/GVN/...) over the module before code
+  generation. `-O0` (the default) keeps the prior behavior: naive IR straight to the
+  backend. On real code this collapses the per-local stack traffic the front-end emits
+  (the `ine_decoder` demo drops from 514 allocas to 25 at `-O2`); its Makefile now builds
+  with `-O2`.
+- **Clearer diagnostic for a keyword used as a name.** Using a reserved word (`fn`, `in`,
+  `match`, a type name, ...) as a variable, parameter, or field name now reports
+  `expected a name, found keyword 'fn'` at the cause, instead of a misleading downstream
+  error (`Expected ';'`, `Expected expression`). This was the most recurring self-host
+  papercut. The self-hosted parser mirror is tracked in `selfhost/PROMOTION_PLAN.md` (R3).
+- **`String_free` clears `data`.** It sets `self.data = null` after `free`, so a reused or
+  doubly-freed `String` can no longer hand a dangling pointer to `free`.
 - **Self-hosted codegen is now feature-complete against the C++ corpus.** A systematic feature
   sweep (every feature-bearing `tests/*.esk` through `cg_parity.sh`) is clean — each program,
   compiled by the Eskiu-written codegen, runs identically to the C++ build. Closing it required

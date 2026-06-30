@@ -1863,6 +1863,7 @@ All four sections are separated by `:`. Trailing sections may be omitted if empt
 | `eskiuc file.esk --ubsan -o prog` | Insert trapping bounds checks (traps on out-of-bounds; no runtime) |
 | `eskiuc file.esk -Wall -o prog` | Enable lint warnings: unused vars/params/functions, assignment-in-condition |
 | `eskiuc file.esk -Wextra -o prog` | Extra warnings on top of `-Wall`: signed/unsigned comparison mismatches |
+| `eskiuc file.esk -O2 -o prog` | Optimize: run the LLVM middle-end (`-O1`/`-O2`/`-O3`). `-O0` (default) emits naive IR straight to the backend |
 | `eskiuc file.esk -o prog -lpthread` | Link, passing library flags through to the linker |
 | `eskiuc file.esk -o file.o` | Compile to an object file only (no link) |
 | `eskiuc file.esk -c -o name` | Compile to an object file only, any name |
