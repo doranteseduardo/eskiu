@@ -108,6 +108,20 @@ Type parseCore(const std::string& in, const std::set<std::string>& tps) {
         }
     }
 
+    // Array `T[N]` — the trailing `[N]` binds outermost, so `*Node[3]` is an
+    // array of 3 pointers (matching the postfix-array grammar and codegen's
+    // IndexExpr lowering), NOT a pointer to an array. A pointer to an array is
+    // still spellable with a trailing star (`Node[3]*`). Checked before the
+    // pointer suffixes for that reason.
+    if (s.back() == ']') {
+        size_t open = matchOpenBracket(s);
+        if (open != std::string::npos) {
+            r.kind = Type::Kind::Array;
+            r.elem = std::make_shared<Type>(Type::parse(s.substr(0, open), tps));
+            r.dim  = s.substr(open + 1, s.size() - open - 2);
+            return r;
+        }
+    }
     // Leading-star pointer.
     if (s[0] == '*') {
         r.kind = Type::Kind::Pointer;
@@ -127,16 +141,6 @@ Type parseCore(const std::string& in, const std::set<std::string>& tps) {
         r.kind = Type::Kind::Pointer;
         r.pointee = std::make_shared<Type>(Type::parse(s.substr(0, s.size() - 1), tps));
         return r;
-    }
-    // Array `T[N]`.
-    if (s.back() == ']') {
-        size_t open = matchOpenBracket(s);
-        if (open != std::string::npos) {
-            r.kind = Type::Kind::Array;
-            r.elem = std::make_shared<Type>(Type::parse(s.substr(0, open), tps));
-            r.dim  = s.substr(open + 1, s.size() - open - 2);
-            return r;
-        }
     }
     // Template application `Name<args>`.
     size_t lt = topLevelAngle(s);

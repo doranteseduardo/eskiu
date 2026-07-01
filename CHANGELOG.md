@@ -7,6 +7,23 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
+## [0.3.1] — 2026-07-01
+
+### Fixed
+- **`*T[N]` now parses as an array of pointers, not a pointer to an array.** The
+  type-string parser (`ty::Type::parse`) peeled a leading `*` before the trailing
+  `[N]`, so `*Node[7]` became a *pointer to* `Node[7]` and lowered to a single
+  opaque `ptr` — while codegen's `IndexExpr` lowering assumed the array reading.
+  The two disagreed: indexing such a value emitted an invalid two-index GEP into a
+  scalar pointer, silently corrupting locals and crashing the compiler outright on
+  a module-level array (a constant-folded GEP tripped an LLVM assertion). The
+  trailing `[N]` now binds outermost, so `*Node[7]` is an array of 7 pointers
+  consistently across the type checker and codegen; a pointer *to* an array stays
+  spellable with a trailing star (`Node[7]*`). Found porting a C program whose
+  central data structure was a module-level `Actividad *agenda[7]`.
+
+---
+
 ## [0.3.0] — 2026-06-29
 
 The self-hosting milestone: the whole compiler — lexer, preprocessor, parser, semantic
