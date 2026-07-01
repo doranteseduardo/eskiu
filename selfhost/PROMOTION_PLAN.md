@@ -37,12 +37,11 @@ moment the Eskiu compiler is primary, so they are prerequisites, not afterthough
   the iterable's element type and have the lowering consume it, so an unusual
   iterable can't miscompile a coroutine. Gate: the async corpus (19/19) stays green
   with the heuristic removed.
-- **R2 — parse-parity corpus coverage.** `parse_parity.sh --full` is 51/51 over
-  files whose *import closure is preprocessor-free*. Expand the corpus toward the
-  ~70 preprocessor-touching files (now that the preprocessor is self-hosted and
-  `pp_parity.sh` is 157/157, the closure restriction can be relaxed). Goal: parser
-  parity over the whole corpus, removing the last "excluded files" caveat before the
-  Eskiu front-end is the only front-end.
+- **R2 — parse-parity corpus coverage. DONE (v0.3.1).** `parse_main` now preprocesses
+  the top-level file (matching the C++ `--test-parser`, which folds preprocessing into
+  the lexer), with `g_pp_os=""` and an empty `__FILE__` to mirror `loadProgram` exactly.
+  The preprocessor-closure exclusion is gone, so `parse_parity.sh --full` covers the
+  whole corpus: **51 → 121**, no "excluded files" caveat remains.
 - **R3 — keyword-as-identifier diagnostic.** Using `fn`/`in`/`match` as a name fails
   far from the cause (`Expected ';'`, etc.) — the single most recurring self-host
   papercut. **The C++ parser is done (v0.3.0):** `expected a name, found keyword 'fn'`

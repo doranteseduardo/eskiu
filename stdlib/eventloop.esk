@@ -150,7 +150,17 @@ EventLoop* el_new(int max_fds) {
     lp.cap     = max_fds;
     lp.slots   = alloc<EvHandler>(max_fds);
     int i = 0;
-    while (i < max_fds) { lp.slots[i].active = 0; lp.slots[i].gen = 0; lp.slots[i].isWrite = 0; i = i + 1; }
+    // `alloc` does not zero: initialize EVERY field, including the `on_read`
+    // closure. Dispatch is guarded by `active`, but leaving `on_read` as heap
+    // garbage means any stray read invokes a garbage function pointer (a SIGILL
+    // on Linux, where fresh allocations aren't zero as they happen to be on macOS).
+    while (i < max_fds) {
+        lp.slots[i].active  = 0;
+        lp.slots[i].gen     = 0;
+        lp.slots[i].isWrite = 0;
+        lp.slots[i].on_read = void(EventLoop* e, int fd) {};
+        i = i + 1;
+    }
     lp.tcap    = max_fds;
     lp.timers  = alloc<EvTimer>(max_fds);
     int t = 0;
