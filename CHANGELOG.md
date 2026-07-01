@@ -21,6 +21,21 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   consistently across the type checker and codegen; a pointer *to* an array stays
   spellable with a trailing star (`Node[7]*`). Found porting a C program whose
   central data structure was a module-level `Actividad *agenda[7]`.
+- **`<eventloop>`: initialize the `on_read` closure of every fd slot.** `el_new`
+  zeroed `active`/`gen`/`isWrite` but left the `on_read` fat pointer as `alloc`
+  garbage. Dispatch is guarded by `active`, so this was latent, but any stray read
+  would invoke a garbage function pointer — a SIGILL on Linux/x86-64 (fresh
+  allocations aren't zero there as they happen to be on macOS). Now defaulted to a
+  no-op. Defensive hardening for the intermittent HTTP/2-test SIGILL under
+  investigation (see the `project-flaky-http2` note).
+
+### Changed
+- **Self-hosted parser parity now covers the full corpus (51 → 121).** `parse_main`
+  preprocesses the top-level file (matching how the C++ `--test-parser` folds
+  preprocessing into the lexer), so `parse_parity.sh --full` no longer excludes
+  files whose import closure touches the preprocessor (`#ifdef`/`#define`/`__FILE__`/
+  `__LINE__`/shebang). A prerequisite for promoting the Eskiu-written compiler
+  (see `selfhost/PROMOTION_PLAN.md`, R2).
 
 ---
 
