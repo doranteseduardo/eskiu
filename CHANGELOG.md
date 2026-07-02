@@ -37,6 +37,14 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   silent `0.0` miscompile under `-O2`. Sema now sets the lambda's return type to the
   target's `R` so its `return` coerces through the normal path. Surfaced by an `-O0`-vs-`-O2`
   differential over the whole test corpus (`closures.esk` was the only divergence).
+- **Incompatible function-type assignments are now rejected.** Assigning a function
+  value to a `fn(...)` slot with a different signature (e.g. an `int`-returning function
+  to a `fn(int)->float`) was silently accepted — a fn value has a fixed call ABI (param
+  and return registers), so there is no implicit adapter, and reinterpreting it
+  miscompiled (wrong even at `-O0`, `0.0` under `-O2`). `isValidAssignment` now requires
+  fn types to match exactly, and a mismatched fn initializer is a hard error rather than a
+  warning. Lambda literals in a `let x: fn(...)->R = ...` still coerce (their return type
+  is malleable); only non-adaptable fn *values* are rejected. Test `errors/fn_return_mismatch`.
 
 ### Changed
 - **Self-hosted parser parity now covers the full corpus (51 → 121).** `parse_main`

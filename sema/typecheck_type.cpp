@@ -185,6 +185,19 @@ bool TypeChecker::isValidAssignment(const std::string& lhsType, const std::strin
     if (lhs == rhs) return true;
     if (isNumericType(lhs) && isNumericType(rhs)) return true;
     if (lhs == "null" || rhs == "null") return isPointerType(lhs) || isPointerType(rhs);
+
+    // Function/closure types carry a fixed call ABI (which registers hold the
+    // parameters and the return value), so there is no implicit adapter between two
+    // different fn signatures. Require an exact match — reinterpreting e.g. an
+    // int-returning fn as float-returning is a silent miscompile (wrong even at -O0,
+    // 0.0 under -O2). Checked before the generic pointer rule below, which a fn type
+    // would otherwise satisfy. (A null fn pointer is handled by the `null` case above.)
+    {
+        ty::Type lt = ty::Type::parse(lhs), rt = ty::Type::parse(rhs);
+        if (lt.isFn() || rt.isFn())
+            return lt.isFn() && rt.isFn() && lt.str() == rt.str();
+    }
+
     if (isPointerType(lhs) && isPointerType(rhs)) return true;
 
     // Interface satisfaction: assigning a struct to an interface type
