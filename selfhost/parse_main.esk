@@ -4,6 +4,7 @@
 
 import <io>;
 import <fs>;
+import "preprocessor.esk";
 import "parser.esk";
 
 int main(int argc, string* argv) {
@@ -12,14 +13,29 @@ int main(int argc, string* argv) {
         return 1;
     }
     let n: int64 = 0;
-    *uint8 src = fs_read_all(argv[1], &n);
-    if (src == null) {
+    *uint8 raw = fs_read_all(argv[1], &n);
+    if (raw == null) {
         printf("error: cannot read %s\n", argv[1]);
         return 1;
     }
+    // Preprocess the top-level file first so the parser sees the same token
+    // stream the C++ `--test-parser` does (it folds preprocessing into the lexer).
+    // Match that path exactly: it predefines NO OS macro (`loadProgram` builds a
+    // Lexer with no macro table), so leave `g_pp_os` empty — both `#ifdef __APPLE__`
+    // and `#ifdef __linux__` are then false, taking the same branch on either host.
+    // (The real compiler `esk_main` DOES set the host OS; this is a parity driver.)
+    g_pp_os = "";
+    let pperr: int = 0;
+    // Empty filename ⇒ `__FILE__` expands to "" — matching `--test-parser`, whose
+    // Lexer is built with no filename. (Imports still resolve via `p.basedir`.)
+    string pp = pp_run((string)raw, (int)n, "", &pperr);
+    *uint8 src = (*uint8)pp;
+    int plen = 0;
+    while (src[plen] != 0) { plen = plen + 1; }
+
     parser_session_init();
     let p: Parser;
-    p_init(&p, src, (int)n);
+    p_init(&p, src, plen);
     p.basedir = str_dir(argv[1]);          // relative imports resolve from here
     *Program prog = parse_program(&p);
     print_program(prog);

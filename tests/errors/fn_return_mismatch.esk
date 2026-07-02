@@ -1,0 +1,11 @@
+// EXPECT-ERROR: incompatible function type
+// An int-returning function cannot be assigned to a float-returning fn type:
+// the return ABI (integer vs FP register) differs and there is no implicit
+// adapter, so reinterpreting it would silently miscompile (0.0 under -O2).
+extern int printf(string fmt, ...);
+int ret5(int x) { return 5; }
+int main() {
+    let f: fn(int)->float = ret5;
+    printf("%f\n", f(4));
+    return 0;
+}

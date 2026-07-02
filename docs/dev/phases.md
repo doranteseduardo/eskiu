@@ -4,7 +4,7 @@
 
 Authoritative status reference for Eskiu compiler contributors.
 
-Last updated: 2026-06-29.
+Last updated: 2026-07-01.
 
 ---
 
@@ -109,8 +109,7 @@ Everything in the feature table above ships in v0.1.0: the full systems language
 
 The theme is making Eskiu a practical language for concurrent backend services:
 real async I/O, an HTTP stack, and the everyday stdlib + tooling that adoption
-needs. v0.1.0 is frozen at its tag; v0.2.0 shipped the items below. The current
-release is **v0.3.0** — the self-hosting milestone (see the v0.3 section below).
+needs. v0.1.0 is frozen at its tag; v0.2.0 shipped the items below. The current release is **v0.3.1** — the self-hosting milestone (see the v0.3 section below).
 
 Tracking checklist (checked = landed on `develop`).
 

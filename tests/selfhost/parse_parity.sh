@@ -45,50 +45,14 @@ strip_banner() {
     sed -E '/^Parsing: /d; /^=+$/d; /^Parse succeeded!$/d'
 }
 
-# A file's import closure is "dirty" if it (or any file it transitively imports) uses
-# a stream-rewriting preprocessor directive / built-in macro / shebang — the
-# self-hosted lexer doesn't preprocess, so the C++ token stream would differ.
-PP_RE='(^[[:space:]]*#[[:space:]]*(define|undef|ifdef|ifndef|if|elif|else|endif|include)\b)|(^#!)|__LINE__|__FILE__'
-
-# Resolve an `import` line to a path, mirroring the parser: bare `<name>` ->
-# stdlib/name.esk, `<a/b>` -> a/b, relative `"p"` -> <dir>/p, absolute kept.
-re_std='import[[:space:]]*<([^>]+)>'
-re_rel='import[[:space:]]*"([^"]+)"'
-
-# closure_dirty FILE -> exit 0 if FILE's transitive import closure touches the
-# preprocessor, else exit 1. Plain string "seen" set for bash 3.2 portability.
-closure_dirty() {
-    local seen=" " queue="$1" f dir line resolved name p
-    while [ -n "$queue" ]; do
-        f="${queue%%$'\n'*}"
-        if [ "$f" = "$queue" ]; then queue=""; else queue="${queue#*$'\n'}"; fi
-        case "$seen" in *" $f "*) continue ;; esac
-        seen="$seen$f "
-        [ -f "$f" ] || continue
-        grep -qE "$PP_RE" "$f" && return 0
-        dir=$(dirname "$f")
-        while IFS= read -r line; do
-            resolved=""
-            if [[ "$line" =~ $re_std ]]; then
-                name="${BASH_REMATCH[1]}"
-                case "$name" in */*) resolved="$name" ;; *) resolved="stdlib/${name}.esk" ;; esac
-            elif [[ "$line" =~ $re_rel ]]; then
-                p="${BASH_REMATCH[1]}"
-                case "$p" in /*) resolved="$p" ;; *) resolved="$dir/$p" ;; esac
-            fi
-            [ -n "$resolved" ] && queue="$queue"$'\n'"$resolved"
-        done < <(grep -E '^[[:space:]]*import\b' "$f")
-    done
-    return 1
-}
 
 if [ "$#" -eq 1 ] && [ "$1" = "--full" ]; then
-    files=()
-    excluded=()
-    for f in tests/*.esk; do
-        if closure_dirty "$f"; then excluded+=("$f"); else files+=("$f"); fi
-    done
-    echo "corpus: ${#files[@]} files (excluded ${#excluded[@]} with preprocessor in import closure)"
+    # parse_main preprocesses the top-level file (like --test-parser folds
+    # preprocessing into the lexer), so the WHOLE corpus is comparable now — no
+    # preprocessor-closure exclusion. Files where the C++ ASTPrinter itself crashes
+    # (body-less top-level prototype) are still skipped per-file below.
+    files=(tests/*.esk)
+    echo "corpus: ${#files[@]} files (full tests/*.esk)"
     echo "----"
 elif [ "$#" -gt 0 ]; then
     files=("$@")

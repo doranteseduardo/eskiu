@@ -25,7 +25,7 @@ int main() {
 
     // Closure that captures a float
     float factor = 2.5;
-    let scale: fn(int)->float = int(int x) { return (float)x * factor; };
+    let scale: fn(int)->float = float(int x) { return (float)x * factor; };
     printf("scale(4) = %f\n", scale(4));             // 10.0
 
     return 0;

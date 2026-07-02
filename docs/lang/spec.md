@@ -1,6 +1,6 @@
 # Eskiu Language Specification
 
-**Version:** v0.3.0
+**Version:** v0.3.1
 
 ---
 
@@ -199,6 +199,11 @@ int main() {
 }
 ```
 
+When a leading `*` meets a trailing `[N]`, the **array binds outermost**: `*T[N]` is an
+*array of N pointers* (each element a `*T`), i.e. it reads as `(*T)[N]`. A *pointer to an
+array* is written with a trailing star instead: `T[N]*`. For example `*Node[7]` is seven
+`Node` pointers, while `Node[7]*` points at a seven-`Node` array.
+
 `uint8[858]` lowers to `[858 x i8]` in LLVM IR.
 
 ### 3.4 Struct Types
@@ -246,6 +251,14 @@ Function pointer types can be used anywhere a type annotation is expected: varia
 let callback: fn(int)->int = int(int x) { return x * 2; };
 int apply(fn(int)->int f, int x) { return f(x); }
 ```
+
+A function *value* is assignable to an `fn(...)` type only when the signatures match
+exactly: a function's parameter and return registers are fixed by its calling convention,
+so there is no implicit conversion between function types. Assigning, say, an
+`fn(int)->int` value to an `fn(int)->float` is a compile error. (A lambda *literal* is the
+one exception — when its header return type differs from the target `fn(...)->R`, the
+return type is taken from `R` and the body's value is coerced, so `fn(int)->float =
+int(int x){ ... }` is accepted.)
 
 ### 3.8 Type Casting
 
