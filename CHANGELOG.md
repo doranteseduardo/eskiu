@@ -29,6 +29,15 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   no-op. Defensive hardening for the intermittent HTTP/2-test SIGILL under
   investigation (see the `project-flaky-http2` note).
 
+- **A lambda's return type is reconciled with its target `fn(...)->R` type.** Assigning
+  a lambda whose header return type disagrees with the declared closure type (e.g.
+  `let f: fn(int)->float = int(int x) { return (float)x * k; }`) emitted a function
+  returning the *header* type (`int`) — an `fptosi` truncation plus an int/float return-
+  register mismatch against the closure's call ABI. It was correct at `-O0` by luck but a
+  silent `0.0` miscompile under `-O2`. Sema now sets the lambda's return type to the
+  target's `R` so its `return` coerces through the normal path. Surfaced by an `-O0`-vs-`-O2`
+  differential over the whole test corpus (`closures.esk` was the only divergence).
+
 ### Changed
 - **Self-hosted parser parity now covers the full corpus (51 → 121).** `parse_main`
   preprocesses the top-level file (matching how the C++ `--test-parser` folds
