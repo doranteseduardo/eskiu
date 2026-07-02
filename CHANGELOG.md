@@ -47,6 +47,11 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   is malleable); only non-adaptable fn *values* are rejected. Test `errors/fn_return_mismatch`.
 
 ### Changed
+- **New CI gate: `-O0`-vs-`-O2` behavioral differential** (`tests/opt_differential.sh`).
+  Compiles the whole corpus at both levels and fails on any exit/stdout divergence,
+  guarding against optimization-path miscompiles now that `-O` exists (it caught the
+  float-closure bug above). The intermittent HTTP/2 async tests are excluded to keep the
+  gate deterministic.
 - **Self-hosted parser parity now covers the full corpus (51 → 121).** `parse_main`
   preprocesses the top-level file (matching how the C++ `--test-parser` folds
   preprocessing into the lexer), so `parse_parity.sh --full` no longer excludes
