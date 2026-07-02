@@ -318,6 +318,10 @@ int main() {
     return 0;
 }
 </code></pre>
+<p>When a leading <code>*</code> meets a trailing <code>[N]</code>, the <strong>array binds outermost</strong>: <code>*T[N]</code> is an
+<em>array of N pointers</em> (each element a <code>*T</code>), i.e. it reads as <code>(*T)[N]</code>. A <em>pointer to an
+array</em> is written with a trailing star instead: <code>T[N]*</code>. For example <code>*Node[7]</code> is seven
+<code>Node</code> pointers, while <code>Node[7]*</code> points at a seven-<code>Node</code> array.</p>
 <p><code>uint8[858]</code> lowers to <code>[858 x i8]</code> in LLVM IR.</p>
 <h3 id="34-struct-types">3.4 Struct Types</h3>
 <p>A struct type is named by its declaration (see §8). Variables of struct type are declared using the struct name as the type annotation:</p>
@@ -345,6 +349,13 @@ fn()-&gt;void            // function taking no arguments, returning void
 <pre><code class="language-eskiu">let callback: fn(int)-&gt;int = int(int x) { return x * 2; };
 int apply(fn(int)-&gt;int f, int x) { return f(x); }
 </code></pre>
+<p>A function <em>value</em> is assignable to an <code>fn(...)</code> type only when the signatures match
+exactly: a function's parameter and return registers are fixed by its calling convention,
+so there is no implicit conversion between function types. Assigning, say, an
+<code>fn(int)-&gt;int</code> value to an <code>fn(int)-&gt;float</code> is a compile error. (A lambda <em>literal</em> is the
+one exception — when its header return type differs from the target <code>fn(...)-&gt;R</code>, the
+return type is taken from <code>R</code> and the body's value is coerced, so <code>fn(int)-&gt;float =
+int(int x){ ... }</code> is accepted.)</p>
 <h3 id="38-type-casting">3.8 Type Casting</h3>
 <p>An explicit cast is written as <code>(TYPE)expr</code>. The expression is converted to the named type at the point of the cast.</p>
 <pre><code class="language-eskiu">double x = 3.14;
