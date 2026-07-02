@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Language spec · Eskiu docs</title>
-  <meta name="description" content="Version: v0.3.0" />
+  <meta name="description" content="Version: v0.3.1" />
   <link rel="canonical" href="https://eskiu-lang.org/docs/spec.html" />
   <link rel="icon" type="image/png" href="../../assets/logo.png" />
   <style>*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -73,7 +73,7 @@ body { background: var(--bg); color: var(--ink); font-family: var(--sans);
     <nav class="docnav"><a href="index.html">Overview</a><a href="getting-started.html">Getting started</a><a href="spec.html" class="active">Spec</a><a href="grammar.html">Grammar</a><a href="build.html">Tooling</a><a href="glossary.html">Glossary</a><a href="internals.html">Internals →</a></nav>
     <div class="content">
 <h1 id="eskiu-language-specification">Eskiu Language Specification</h1>
-<p><strong>Version:</strong> v0.3.0</p>
+<p><strong>Version:</strong> v0.3.1</p>
 <hr>
 <h2 id="1-overview">1. Overview</h2>
 <p>Eskiu is a systems programming language built to address the fragmentation of compute-intensive services. Services in this space commonly reach for C when performance matters, Go for concurrency, C++ for libraries, and Python for glue — each with its own toolchain and interop cost.</p>
@@ -1969,6 +1969,10 @@ asm(&quot;nop&quot;);
 <tr>
 <td><code>eskiuc file.esk -Wextra -o prog</code></td>
 <td>Extra warnings on top of <code>-Wall</code>: signed/unsigned comparison mismatches</td>
+</tr>
+<tr>
+<td><code>eskiuc file.esk -O2 -o prog</code></td>
+<td>Optimize: run the LLVM middle-end (<code>-O1</code>/<code>-O2</code>/<code>-O3</code>). <code>-O0</code> (default) emits naive IR straight to the backend</td>
 </tr>
 <tr>
 <td><code>eskiuc file.esk -o prog -lpthread</code></td>
