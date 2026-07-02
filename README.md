@@ -11,9 +11,18 @@
   <a href="CHANGELOG.md">Changelog</a>
 </p>
 
+<p align="center">
+  <a href="https://github.com/doranteseduardo/eskiu/actions/workflows/ci.yml"><img src="https://github.com/doranteseduardo/eskiu/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.3.1-6448d4" alt="Version 0.3.1"></a>
+  <img src="https://img.shields.io/badge/LLVM-17%2B-orange" alt="LLVM 17+">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License: MIT"></a>
+</p>
+
 ---
 
 Eskiu is a statically typed systems language that compiles to native code via LLVM. C-style syntax, structural interfaces, templates with bounded generics, async/await, sum types with `match`, and memory you manage yourself — one language from a bare-metal ARM64 kernel to an HTTP/2 server with TLS.
+
+The compiler is **self-hosted**: the whole pipeline — lexer, preprocessor, parser, type checker, and code generator — is written in Eskiu itself (`selfhost/`) and reproduces its own output through a 3-stage bootstrap fixpoint, with its code generator feature-complete against the reference C++ compiler.
 
 <p align="center">
   <img src="assets/kernel.png" alt="Eskiu kernel running in QEMU" width="320">

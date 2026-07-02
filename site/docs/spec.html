@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Language spec · Eskiu docs</title>
-  <meta name="description" content="Version: v0.3.0" />
+  <meta name="description" content="Version: v0.3.1" />
   <link rel="canonical" href="https://eskiu-lang.org/docs/spec.html" />
   <link rel="icon" type="image/png" href="../../assets/logo.png" />
   <style>*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -73,7 +73,7 @@ body { background: var(--bg); color: var(--ink); font-family: var(--sans);
     <nav class="docnav"><a href="index.html">Overview</a><a href="getting-started.html">Getting started</a><a href="spec.html" class="active">Spec</a><a href="grammar.html">Grammar</a><a href="build.html">Tooling</a><a href="glossary.html">Glossary</a><a href="internals.html">Internals →</a></nav>
     <div class="content">
 <h1 id="eskiu-language-specification">Eskiu Language Specification</h1>
-<p><strong>Version:</strong> v0.3.0</p>
+<p><strong>Version:</strong> v0.3.1</p>
 <hr>
 <h2 id="1-overview">1. Overview</h2>
 <p>Eskiu is a systems programming language built to address the fragmentation of compute-intensive services. Services in this space commonly reach for C when performance matters, Go for concurrency, C++ for libraries, and Python for glue — each with its own toolchain and interop cost.</p>
@@ -318,6 +318,10 @@ int main() {
     return 0;
 }
 </code></pre>
+<p>When a leading <code>*</code> meets a trailing <code>[N]</code>, the <strong>array binds outermost</strong>: <code>*T[N]</code> is an
+<em>array of N pointers</em> (each element a <code>*T</code>), i.e. it reads as <code>(*T)[N]</code>. A <em>pointer to an
+array</em> is written with a trailing star instead: <code>T[N]*</code>. For example <code>*Node[7]</code> is seven
+<code>Node</code> pointers, while <code>Node[7]*</code> points at a seven-<code>Node</code> array.</p>
 <p><code>uint8[858]</code> lowers to <code>[858 x i8]</code> in LLVM IR.</p>
 <h3 id="34-struct-types">3.4 Struct Types</h3>
 <p>A struct type is named by its declaration (see §8). Variables of struct type are declared using the struct name as the type annotation:</p>
@@ -345,6 +349,13 @@ fn()-&gt;void            // function taking no arguments, returning void
 <pre><code class="language-eskiu">let callback: fn(int)-&gt;int = int(int x) { return x * 2; };
 int apply(fn(int)-&gt;int f, int x) { return f(x); }
 </code></pre>
+<p>A function <em>value</em> is assignable to an <code>fn(...)</code> type only when the signatures match
+exactly: a function's parameter and return registers are fixed by its calling convention,
+so there is no implicit conversion between function types. Assigning, say, an
+<code>fn(int)-&gt;int</code> value to an <code>fn(int)-&gt;float</code> is a compile error. (A lambda <em>literal</em> is the
+one exception — when its header return type differs from the target <code>fn(...)-&gt;R</code>, the
+return type is taken from <code>R</code> and the body's value is coerced, so <code>fn(int)-&gt;float =
+int(int x){ ... }</code> is accepted.)</p>
 <h3 id="38-type-casting">3.8 Type Casting</h3>
 <p>An explicit cast is written as <code>(TYPE)expr</code>. The expression is converted to the named type at the point of the cast.</p>
 <pre><code class="language-eskiu">double x = 3.14;
@@ -1969,6 +1980,10 @@ asm(&quot;nop&quot;);
 <tr>
 <td><code>eskiuc file.esk -Wextra -o prog</code></td>
 <td>Extra warnings on top of <code>-Wall</code>: signed/unsigned comparison mismatches</td>
+</tr>
+<tr>
+<td><code>eskiuc file.esk -O2 -o prog</code></td>
+<td>Optimize: run the LLVM middle-end (<code>-O1</code>/<code>-O2</code>/<code>-O3</code>). <code>-O0</code> (default) emits naive IR straight to the backend</td>
 </tr>
 <tr>
 <td><code>eskiuc file.esk -o prog -lpthread</code></td>

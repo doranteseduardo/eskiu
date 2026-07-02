@@ -212,14 +212,33 @@ void TypeChecker::visit(VarDecl* node) {
     if (node->line > 0)
         definitionLocations[node->name] = {node->line, node->col, sourceFile};
     if (node->initializer) {
+        // Reconcile a lambda initializer's return type with a declared fn(...)->R
+        // target BEFORE checking its body. A mismatched lambda header (e.g. an
+        // `int(int x)` used as `fn(int)->float`) would otherwise emit a function
+        // whose return type disagrees with the closure's call ABI — correct at -O0
+        // by luck, a silent miscompile (0.0) under -O2. Setting the lambda's return
+        // type to R lets its `return` coerce to R through the normal path.
+        if (auto* lam = dynamic_cast<LambdaExpr*>(node->initializer.get())) {
+            ty::Type dt = ty::Type::parse(node->type);
+            if (dt.isFn() && dt.ret && dt.ret->str() != lam->returnType)
+                lam->returnType = dt.ret->str();
+        }
         node->initializer->accept(this);
         std::string initType = getExpressionType(node->initializer.get());
         if (initType != "unknown") {
             if (tyq::dropsConst(node->type, initType))
                 errorAt(node, "cannot initialize '" + node->type + "' from '" + initType +
                               "' — conversion discards a const qualifier");
-            else if (!isValidAssignment(node->type, initType))
-                warning(0, 0, "implicit conversion from " + initType + " to " + node->type);
+            else if (!isValidAssignment(node->type, initType)) {
+                // A function-type mismatch is never a valid implicit conversion (an
+                // fn value has a fixed call ABI); reject it instead of warning, or it
+                // silently miscompiles under -O2. Numeric narrowing stays a warning.
+                if (ty::Type::parse(node->type).isFn() || ty::Type::parse(initType).isFn())
+                    errorAt(node, "cannot initialize '" + node->type +
+                                  "' from incompatible function type '" + initType + "'");
+                else
+                    warning(0, 0, "implicit conversion from " + initType + " to " + node->type);
+            }
         }
     }
     // A const must be initialized — there is no later point to assign it.

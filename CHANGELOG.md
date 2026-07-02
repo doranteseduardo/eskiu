@@ -7,6 +7,60 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
+## [0.3.1] — 2026-07-01
+
+### Fixed
+- **`*T[N]` now parses as an array of pointers, not a pointer to an array.** The
+  type-string parser (`ty::Type::parse`) peeled a leading `*` before the trailing
+  `[N]`, so `*Node[7]` became a *pointer to* `Node[7]` and lowered to a single
+  opaque `ptr` — while codegen's `IndexExpr` lowering assumed the array reading.
+  The two disagreed: indexing such a value emitted an invalid two-index GEP into a
+  scalar pointer, silently corrupting locals and crashing the compiler outright on
+  a module-level array (a constant-folded GEP tripped an LLVM assertion). The
+  trailing `[N]` now binds outermost, so `*Node[7]` is an array of 7 pointers
+  consistently across the type checker and codegen; a pointer *to* an array stays
+  spellable with a trailing star (`Node[7]*`). Found porting a C program whose
+  central data structure was a module-level `Actividad *agenda[7]`.
+- **`<eventloop>`: initialize the `on_read` closure of every fd slot.** `el_new`
+  zeroed `active`/`gen`/`isWrite` but left the `on_read` fat pointer as `alloc`
+  garbage. Dispatch is guarded by `active`, so this was latent, but any stray read
+  would invoke a garbage function pointer — a SIGILL on Linux/x86-64 (fresh
+  allocations aren't zero there as they happen to be on macOS). Now defaulted to a
+  no-op. Defensive hardening for the intermittent HTTP/2-test SIGILL under
+  investigation (see the `project-flaky-http2` note).
+
+- **A lambda's return type is reconciled with its target `fn(...)->R` type.** Assigning
+  a lambda whose header return type disagrees with the declared closure type (e.g.
+  `let f: fn(int)->float = int(int x) { return (float)x * k; }`) emitted a function
+  returning the *header* type (`int`) — an `fptosi` truncation plus an int/float return-
+  register mismatch against the closure's call ABI. It was correct at `-O0` by luck but a
+  silent `0.0` miscompile under `-O2`. Sema now sets the lambda's return type to the
+  target's `R` so its `return` coerces through the normal path. Surfaced by an `-O0`-vs-`-O2`
+  differential over the whole test corpus (`closures.esk` was the only divergence).
+- **Incompatible function-type assignments are now rejected.** Assigning a function
+  value to a `fn(...)` slot with a different signature (e.g. an `int`-returning function
+  to a `fn(int)->float`) was silently accepted — a fn value has a fixed call ABI (param
+  and return registers), so there is no implicit adapter, and reinterpreting it
+  miscompiled (wrong even at `-O0`, `0.0` under `-O2`). `isValidAssignment` now requires
+  fn types to match exactly, and a mismatched fn initializer is a hard error rather than a
+  warning. Lambda literals in a `let x: fn(...)->R = ...` still coerce (their return type
+  is malleable); only non-adaptable fn *values* are rejected. Test `errors/fn_return_mismatch`.
+
+### Changed
+- **New CI gate: `-O0`-vs-`-O2` behavioral differential** (`tests/opt_differential.sh`).
+  Compiles the whole corpus at both levels and fails on any exit/stdout divergence,
+  guarding against optimization-path miscompiles now that `-O` exists (it caught the
+  float-closure bug above). The intermittent HTTP/2 async tests are excluded to keep the
+  gate deterministic.
+- **Self-hosted parser parity now covers the full corpus (51 → 121).** `parse_main`
+  preprocesses the top-level file (matching how the C++ `--test-parser` folds
+  preprocessing into the lexer), so `parse_parity.sh --full` no longer excludes
+  files whose import closure touches the preprocessor (`#ifdef`/`#define`/`__FILE__`/
+  `__LINE__`/shebang). A prerequisite for promoting the Eskiu-written compiler
+  (see `selfhost/PROMOTION_PLAN.md`, R2).
+
+---
+
 ## [0.3.0] — 2026-06-29
 
 The self-hosting milestone: the whole compiler — lexer, preprocessor, parser, semantic

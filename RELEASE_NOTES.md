@@ -1,10 +1,9 @@
-# Eskiu 0.3.0
+# Eskiu 0.3.1
 
-The self-hosting milestone. The whole compiler (lexer, preprocessor, parser,
-semantic analyzer, and code generator) is now reimplemented in Eskiu under
-`selfhost/`, reaches a 3-stage bootstrap fixpoint, and the self-hosted code
-generator is feature-complete against the C++ corpus. For users, this release is
-a correctness fix plus a debug-printer crash fix; there is no new language surface.
+A correctness and hardening release over the 0.3.0 self-hosting milestone. It fixes
+three real miscompiles (two of them exposed by the new `-O` optimization levels), adds
+a permanent gate to catch that whole class, and widens self-host test coverage. No new
+language surface.
 
 ---
 
@@ -35,53 +34,36 @@ cd eskiu && cmake -S . -B build && cmake --build build
 
 ## What's new
 
-**Fixed: `&&` and `||` now short-circuit.** Code generation evaluated both operands
-eagerly and emitted a logical-and/or, so the right-hand side always ran. A guarded
-dereference like `p != null && p.field` could fault. They now lower to a conditional
-branch plus PHI, evaluating the right-hand side only when the left doesn't already
-decide the result. Regression test added. Found by dogfooding the self-hosted type
-checker.
+**Fixed: `*T[N]` now parses as an array of pointers.** The type parser peeled a leading
+`*` before the trailing `[N]`, so `*Node[7]` became a *pointer to* `Node[7]` and lowered
+to a single opaque pointer, while indexing it assumed an array. The two disagreed and
+indexing corrupted memory (and crashed the compiler outright on a module-level array).
+`[N]` now binds outermost; a pointer *to* an array stays spellable as `Node[7]*`.
 
-**Fixed: `--test-parser` no longer crashes on a forward-declared function.** The AST
-printer dereferenced a null `FunctionDecl::body` for a prototype like `int f(int);`,
-segfaulting `eskiuc --test-parser`. It now omits the `Body:` section for a body-less
-function. Affected only the debug printer, not code generation.
+**Fixed: a float-returning closure no longer miscompiles under `-O2`.** A lambda whose
+header return type disagreed with its target `fn(...)->R` type (for example an
+`int`-returning lambda assigned to `fn(int)->float`) emitted a function whose return type
+disagreed with the closure's call ABI. It was correct at `-O0` by luck and returned `0.0`
+under `-O2`. The lambda's return type is now reconciled with its target.
 
-**The self-hosting milestone is complete.** The entire compiler pipeline is written
-in Eskiu (`selfhost/`): lexer, preprocessor, parser, semantic analyzer, async
-lowering, and an LLVM-IR code generator that emits textual IR (no LLVM library is
-linked; `clang` assembles and links). Three things are proven and CI-gated:
+**Fixed: incompatible function-type assignments are rejected.** Assigning a function to a
+`fn(...)` slot with a different signature (say an `int`-returning function to a
+`fn(int)->float`) was silently accepted and miscompiled. It is now a compile error.
 
-- **Per-pass parity** against the C++ `eskiuc`. The front-end is byte-identical to
-  the reference debug dumps; the type checker matches its accept/reject verdict and
-  catches all 19 semantic error classes; the code generator is checked behaviorally
-  (compile both ways, run, compare exit code and output).
-- **A 3-stage bootstrap fixpoint.** The C++ compiler builds the self-hosted compiler
-  (cc0), cc0 builds it again (cc1), cc1 builds it a third time (cc2), and cc1 and cc2
-  emit identical IR for the compiler's own source.
-- **Feature-completeness.** The full C++ feature corpus, pushed through the behavioral
-  code-gen oracle, passes a clean sweep. Floats, `switch`, sum types and `match`,
-  closures, exceptions (the Itanium ABI), atomics, generics with inference, async/await,
-  unions, bitfields, interfaces, type aliases, function-as-value, packed structs,
-  variadics, and the `?` operator all generate correct code.
+**Fixed: correct `size_t` ABI for libc string/memory functions.** `memcpy`/`memset`/
+`memmove`/`memcmp`/`memchr` (size argument) and `strlen` (return) now use 64-bit `size_t`.
 
-This is dogfood and tooling. The production C++ compiler is untouched apart from one
-additive, debug-only printer extension used as a parity gate.
+**New: `-O` optimization levels.** `eskiuc -O1`/`-O2`/`-O3` runs the LLVM middle-end
+(mem2reg/SROA/inlining/GVN/...) before code generation. `-O0` (the default) is unchanged.
 
-**Also in this release (reinforcement).**
+**New: clearer diagnostic for a keyword used as a name.** Writing `int fn = ...` (or using
+`in`/`match`/a type name as a variable, parameter, or field) now reports
+`expected a name, found keyword 'fn'` at the cause instead of a confusing later error.
 
-- **`-O` optimization levels.** `eskiuc -O1`/`-O2`/`-O3` runs the LLVM middle-end
-  (mem2reg/SROA/inlining/...) before code generation; `-O0` (the default) is unchanged.
-- **A clearer error for a keyword used as a name.** Writing `int fn = ...` (or using
-  `in`/`match`/a type name as a variable, parameter, or field) now says
-  `expected a name, found keyword 'fn'` at the cause instead of a confusing later error.
-- **Correct `size_t` ABI for libc string/memory functions.** `memcpy`/`memset`/`memmove`/
-  `memcmp`/`memchr` (size argument) and `strlen` (return) now use 64-bit `size_t`, fixing
-  the declared ABI on 64-bit targets.
-
-Behavior-preserving for user programs apart from the short-circuit fix, verified by
-the test suite, sanitizers, the golden-IR snapshot oracle, and the O0-vs-O2
-differential fuzzer.
+**Hardening.** A new `-O0`-vs-`-O2` behavioral differential runs the whole test corpus at
+both optimization levels in CI and fails on any divergence, guarding against
+optimization-path miscompiles. Self-hosted parser parity was extended to the full corpus
+(51 to 121 files), and the event loop now initializes every fd slot's callback defensively.
 
 The full log is in [CHANGELOG.md](CHANGELOG.md).
 
@@ -89,7 +71,6 @@ The full log is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Upgrade
 
-Drop-in over 0.2.x. The only behavior change is the short-circuit fix: if you relied
-on the right-hand side of `&&` or `||` always running (for a side effect), it now runs
-only when the left operand doesn't already decide the result. This is the standard C
-semantics; correct programs are otherwise unaffected.
+Drop-in over 0.3.0. The one source-level change is stricter: assigning a function to a
+differently-typed `fn(...)` slot (an ABI mismatch that previously miscompiled) is now a
+compile error. Correct programs are unaffected.

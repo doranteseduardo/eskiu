@@ -1,0 +1,30 @@
+// Regression: `*T[N]` is an array of N pointers (the trailing `[N]` binds
+// outermost), both at module scope and as a local. Previously the type parser
+// read `*T[N]` as a pointer-to-array and lowered it to a single opaque ptr —
+// indexing it emitted an invalid GEP that corrupted locals and crashed codegen
+// on a module-level array.
+extern int printf(string fmt, ...);
+
+struct Node { int val; }
+
+*Node[3] g_table;                 // module-level array of 3 pointers, zero-init
+
+int main() {
+    let a: Node;  a.val = 10;
+    let b: Node;  b.val = 20;
+    let c: Node;  c.val = 30;
+
+    // module-level array: store, read back as rvalue, compare to null.
+    printf("empty=%d\n", g_table[0] == null);       // 1
+    g_table[0] = &a;
+    g_table[1] = &b;
+    g_table[2] = &c;
+    printf("global=%d %d %d\n", g_table[0].val, g_table[1].val, g_table[2].val);
+
+    // local array of pointers: same shape.
+    let local: *Node[3];
+    local[0] = &c;  local[1] = &a;  local[2] = &b;
+    int sum = local[0].val + local[1].val + local[2].val;
+    printf("local_sum=%d filled=%d\n", sum, local[0] != null);
+    return 0;
+}

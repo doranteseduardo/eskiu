@@ -145,7 +145,7 @@ entry:
   ret i32 %3
 }
 
-define internal i32 @__lambda3(ptr %env, i32 %x) {
+define internal float @__lambda3(ptr %env, i32 %x) {
 entry:
   %factor = alloca float, align 4
   %factor.gep = getelementptr inbounds nuw %__lambda3.env, ptr %env, i32 0, i32 0
@@ -154,6 +154,5 @@ entry:
   %0 = sitofp i32 %x to float
   %1 = load float, ptr %factor, align 4
   %2 = fmul float %0, %1
-  %3 = fptosi float %2 to i32
-  ret i32 %3
+  ret float %2
 }
