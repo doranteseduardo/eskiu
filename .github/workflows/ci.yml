@@ -49,6 +49,13 @@ jobs:
       - name: Fuzz (compiler)
         run: ESKIU_CLANG=clang-22 python3 tests/fuzz/eskiu_fuzz.py --iterations 1500 --seed 1
 
+      # -O0 vs -O2 behavioral differential over the whole corpus: a program must
+      # behave identically with and without the middle-end optimizer. Catches
+      # optimization-path miscompiles (bad IR attributes, type/ABI mismatches, UB)
+      # that -O0 tolerates but -O2 exploits — e.g. the 0.3.1 float-closure fix.
+      - name: Optimization differential (-O0 vs -O2)
+        run: CC=clang-22 tests/opt_differential.sh
+
       # Self-hosted lexer (selfhost/) must stay byte-identical to the C++ lexer
       # over the whole preprocessor-free corpus. The driver is compiled once to a
       # native binary, so this is ~seconds. A divergence means the Eskiu lexer (or
