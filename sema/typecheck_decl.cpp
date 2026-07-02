@@ -212,6 +212,17 @@ void TypeChecker::visit(VarDecl* node) {
     if (node->line > 0)
         definitionLocations[node->name] = {node->line, node->col, sourceFile};
     if (node->initializer) {
+        // Reconcile a lambda initializer's return type with a declared fn(...)->R
+        // target BEFORE checking its body. A mismatched lambda header (e.g. an
+        // `int(int x)` used as `fn(int)->float`) would otherwise emit a function
+        // whose return type disagrees with the closure's call ABI — correct at -O0
+        // by luck, a silent miscompile (0.0) under -O2. Setting the lambda's return
+        // type to R lets its `return` coerce to R through the normal path.
+        if (auto* lam = dynamic_cast<LambdaExpr*>(node->initializer.get())) {
+            ty::Type dt = ty::Type::parse(node->type);
+            if (dt.isFn() && dt.ret && dt.ret->str() != lam->returnType)
+                lam->returnType = dt.ret->str();
+        }
         node->initializer->accept(this);
         std::string initType = getExpressionType(node->initializer.get());
         if (initType != "unknown") {
