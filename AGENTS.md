@@ -23,7 +23,7 @@ Every pass implements the `ASTVisitor` interface in `ast/ast.h`. When adding a n
 
 ```bash
 cmake -S . -B build
-cmake --build build -j$(nproc)
+cmake --build build -j"$(getconf _NPROCESSORS_ONLN)"   # portable core count (macOS + Linux)
 ./build/eskiuc --version
 ```
 
@@ -65,9 +65,11 @@ Use `examples/` and `tests/` as inputs. Add a `.esk` file for any feature you im
 ## Current language status
 
 All items below are implemented and tested end-to-end. v0.1.0 shipped the systems
-foundation (closures, threads, exceptions, the bare-metal kernel); v0.2.0 adds the
+foundation (closures, threads, exceptions, the bare-metal kernel); v0.2.0 added the
 backend-services stack: async/await, the full HTTP/2 + HPACK + TLS stack, sum types
-with `match`, and the concurrent stdlib.
+with `match`, and the concurrent stdlib. v0.3.0 reimplemented the whole compiler in Eskiu
+(self-hosting, a 3-stage bootstrap fixpoint, codegen feature-complete against the C++
+corpus). v0.3.1 added `-O0`/`-O1`/`-O2`/`-O3` optimization levels plus correctness fixes.
 
 | Feature | Notes |
 |---|---|
@@ -118,8 +120,9 @@ with `match`, and the concurrent stdlib.
 | v0.2.3 | bounded-generics completion (primitives satisfy a constraint via a free function); typed `ty::Type` IR foundation (`sema/type.{h,cpp}`) — `substType` + the sema bare-name strips migrated to it, golden-IR oracle gating behavior-preservation. Cross-phase consolidation (codegen consuming resolved Types) deferred | ✅ |
 | v0.2.4 | type unification — the type checker is the single resolver: codegen consumes its resolved expression types (re-run post-AsyncTransform) instead of re-deriving, and `getTypeFromString` dispatches on `ty::Type::parse` (one grammar interpreter across both phases). Closed the two-evaluator risk; fixed 3 latent miscompiles it surfaced (float-lit `double`, ptr-deref width, `char` zext) | ✅ |
 | v0.2.5 | preprocessor correctness fix (a `//`/`/* */` comment ending in `\` no longer splices the next source line — silent code-eating footgun; found dogfooding the self-hosted lexer); **self-hosting milestone 1: the lexer in Eskiu** (`selfhost/`, byte-identical to `--test-lexer` over the preprocessor-free corpus, CI-gated); hardening (`ESKIU_RESOLVER_DEBUG` consistency oracle, backslash fuzzer generators) | ✅ |
-| v0.3 (on `develop`, unreleased) | **Self-hosting: the whole compiler in Eskiu.** Front-end (lexer / parser + import resolution / preprocessor) and back-end (sema with all 19 error classes; codegen — full bootstrap subset PLUS floats, switch, ADT enums + `match`, closures, exceptions (Itanium ABI), atomics, generics + argument inference, async/await 19/19, unions, bitfields, interfaces/dynamic-trait-dispatch) all reimplemented in Eskiu. **3-stage bootstrap fixpoint reached** (the self-built compiler reproduces its own IR). All parity gates CI-wired. **Codegen is feature-complete against the C++ corpus** — a full feature sweep through `cg_parity.sh` is clean (50/50), earned + verified (not assumed from the bootstrap). | ✅ |
-| v1.0 | Package manager; release-cut the self-hosting compiler | ❌ |
+| v0.3.0 | **Self-hosting: the whole compiler in Eskiu.** Front-end (lexer / parser + import resolution / preprocessor) and back-end (sema with all 19 error classes; codegen covering the full bootstrap subset plus floats, switch, ADT enums + `match`, closures, exceptions (Itanium ABI), atomics, generics + argument inference, async/await 19/19, unions, bitfields, interfaces) all reimplemented in Eskiu. 3-stage bootstrap fixpoint reached; codegen feature-complete against the C++ corpus (a clean `cg_parity.sh` sweep, earned and verified, not assumed from the bootstrap). All parity gates CI-wired. | ✅ |
+| v0.3.1 | Correctness + optimization: `-O0`/`-O1`/`-O2`/`-O3` levels; a float-closure `-O2` miscompile fix (lambda return-type reconciliation); reject incompatible `fn`-type assignments; `*T[N]` = array of pointers; libc `size_t` externs to `int64`; a `-O0`-vs-`-O2` CI differential; parser self-host parity widened to the full corpus (51 → 121). | ✅ |
+| v1.0 | Package manager; promote the Eskiu-written compiler to the primary build (`selfhost/PROMOTION_PLAN.md`) | ❌ |
 
 Self-hosting codegen is **feature-complete against the C++ corpus** — a full feature sweep
 (every feature-bearing `tests/*.esk` pushed through `cg_parity.sh`) is clean (50/50): each

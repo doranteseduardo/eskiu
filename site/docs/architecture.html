@@ -739,6 +739,7 @@ result = builder-&gt;CreateGEP(ptrElemType(), left, neg, &quot;ptr.sub&quot;);
 <ul>
 <li><strong>Golden-IR oracle</strong> — <code>tests/type_zoo/snapshot.sh</code> + <code>tests/type_zoo/golden/</code>: emits IR for the type-zoo corpus and diffs it against the checked-in baseline. A behavior-preserving change must produce byte-identical IR; this is the codegen-regression guard.</li>
 <li><strong>Generative + mutation fuzzer</strong> — <code>tests/fuzz/eskiu_fuzz.py</code> with an <strong>O0-vs-O2 differential oracle</strong>: synthesized programs are run at both optimization levels and any divergence is a miscompile. This catches accidentally-<code>-O0</code>-correct IR (undef, wrong width, missing extension).</li>
+<li><strong><code>-O0</code>-vs-<code>-O2</code> corpus differential</strong> (<code>tests/opt_differential.sh</code>, v0.3.1): compiles every <code>tests/*.esk</code> with <code>eskiuc -O0</code> and <code>eskiuc -O2</code> (the LLVM middle-end the <code>-O</code> flag runs) and fails on any exit/stdout divergence. Where the fuzzer exercises synthesized programs, this exercises the real corpus. It caught the v0.3.1 float-closure return-type miscompile.</li>
 <li><strong><code>--asan</code> / <code>--ubsan</code> gates</strong> — AddressSanitizer and trapping UB checks run over the test corpus for runtime memory errors and undefined behavior.</li>
 <li><strong>Formatter idempotency</strong> — <code>eskiuc fmt --check</code> over every test.</li>
 </ul>

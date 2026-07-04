@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Case study — ReactVision · Eskiu</title>
-  <meta name="description" content="How ReactVision uses Eskiu to replace memory-sensitive C++ in its AR/VR rendering engine — ≈85% less memory in migrated modules — and to run an HTTP/2 API in the cloud." />
+  <title>Case study: ReactVision · Eskiu</title>
+  <meta name="description" content="How ReactVision uses Eskiu to replace memory-sensitive C++ in its AR/VR rendering engine (≈85% less memory in migrated modules) and to run an HTTP/2 API in the cloud." />
   <link rel="canonical" href="https://eskiu-lang.org/case-study-reactvision.html" />
   <link rel="icon" type="image/png" href="../assets/logo.png" />
   <style>
@@ -67,8 +67,8 @@
     <p>
       ReactVision builds <strong>ViroCore</strong>, the native AR/VR rendering
       engine behind <code>@reactvision/react-viro</code> on iOS, Android, Meta
-      Quest, and visionOS. It is a large, long-lived C++ codebase — on the order
-      of <strong>2,200+ files and ~23 MB</strong> of engine source — split across
+      Quest, and visionOS. It is a large, long-lived C++ codebase, on the order
+      of <strong>2,200+ files and ~23 MB</strong> of engine source, split across
       the parts you'd expect of a real-time renderer:
     </p>
     <table>
@@ -80,7 +80,7 @@
     </table>
     <p>
       It ships to phones and headsets, where <strong>memory is the scarce
-      resource</strong> — every texture buffer, scene-graph node, and per-frame
+      resource</strong>: every texture buffer, scene-graph node, and per-frame
       allocation counts. The hot, memory-sensitive paths (image and texture
       preprocessing, the scene graph, physics) are exactly the kind of native
       code where how you allocate decides the footprint.
@@ -94,7 +94,7 @@
     </p>
     <ul>
       <li><strong>Native, no runtime.</strong> Compiles to native code through
-        LLVM — no collector, nothing to embed — so the binary footprint stays
+        LLVM, with no collector and nothing to embed, so the binary footprint stays
         predictable.</li>
       <li><strong>Memory you account for.</strong> <code>alloc&lt;T&gt;(N)</code>
         / <code>free(ptr)</code> live in the source. A migrated component's
@@ -102,10 +102,10 @@
         framework.</li>
       <li><strong>C ABI in and out.</strong> Eskiu speaks the C ABI directly and
         links as a plain native object. A module drops into the existing C++
-        engine — called from it, calling back into it — without rewriting the
+        engine, called from it and calling back into it, without rewriting the
         host.</li>
       <li><strong>Modern where it helps.</strong> Sum types with <code>match</code>,
-        async/await, templates — current-language ergonomics without giving up
+        async/await, templates: current-language ergonomics without giving up
         the systems layer.</li>
     </ul>
 
@@ -113,7 +113,7 @@
     <p>
       Selective, not a rewrite: take one memory-sensitive C++ component,
       re-implement it as an explicit Eskiu module, and link it in over the C ABI.
-      The surrounding engine doesn't change — it sees the same symbols. Each
+      The surrounding engine doesn't change; it sees the same symbols. Each
       migrated module is small enough to audit and measure on its own, so the
       footprint win is attributable. On the modules moved so far:
       <strong>≈85% less memory.</strong>
@@ -122,19 +122,19 @@
     <h2>The same language in the cloud</h2>
     <p>
       The other end of the stack validated the same toolchain. Eduardo's INE
-      credential-QR decoder — a personal side project, a real image-plus-crypto
+      credential-QR decoder, a personal side project, a real image-plus-crypto
       pipeline (QR extraction,
-      then multi-round AES-256-CBC + RSA-8192) — was reimplemented in Eskiu and
+      then multi-round AES-256-CBC + RSA-8192), was reimplemented in Eskiu and
       is served as an HTTP/2 API. On the cryptographic pipeline it runs
       <strong>2.5× faster than the reference C implementation</strong>, on a
       stack built entirely from Eskiu's standard library (<code>&lt;http&gt;</code>,
-      <code>&lt;json&gt;</code>, <code>&lt;base64&gt;</code>, threading) — no
+      <code>&lt;json&gt;</code>, <code>&lt;base64&gt;</code>, threading), with no
       external framework.
     </p>
     <p>
       So the same language that boots a bare-metal ARM64 kernel, and that drops a
       memory-tight module into a C++ rendering engine, also runs a service in the
-      cloud. One language across the stack — used where it pays, not everywhere
+      cloud. One language across the stack, used where it pays, not everywhere
       at once.
     </p>
 

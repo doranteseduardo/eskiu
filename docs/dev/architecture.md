@@ -577,6 +577,7 @@ Beyond the `--test-*` modes, the compiler is guarded by an automated harness (ru
 
 - **Golden-IR oracle** — `tests/type_zoo/snapshot.sh` + `tests/type_zoo/golden/`: emits IR for the type-zoo corpus and diffs it against the checked-in baseline. A behavior-preserving change must produce byte-identical IR; this is the codegen-regression guard.
 - **Generative + mutation fuzzer** — `tests/fuzz/eskiu_fuzz.py` with an **O0-vs-O2 differential oracle**: synthesized programs are run at both optimization levels and any divergence is a miscompile. This catches accidentally-`-O0`-correct IR (undef, wrong width, missing extension).
+- **`-O0`-vs-`-O2` corpus differential** (`tests/opt_differential.sh`, v0.3.1): compiles every `tests/*.esk` with `eskiuc -O0` and `eskiuc -O2` (the LLVM middle-end the `-O` flag runs) and fails on any exit/stdout divergence. Where the fuzzer exercises synthesized programs, this exercises the real corpus. It caught the v0.3.1 float-closure return-type miscompile.
 - **`--asan` / `--ubsan` gates** — AddressSanitizer and trapping UB checks run over the test corpus for runtime memory errors and undefined behavior.
 - **Formatter idempotency** — `eskiuc fmt --check` over every test.
 

@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Quickstart · Eskiu</title>
-  <meta name="description" content="Download Eskiu, write your first program, and run it. Hello world, structs with methods, manual alloc/free, and lambdas — the essentials in a few minutes." />
+  <meta name="description" content="Download Eskiu, write your first program, and run it. Hello world, structs with methods, manual alloc/free, and lambdas: the essentials in a few minutes." />
   <link rel="canonical" href="https://eskiu-lang.org/quickstart.html" />
   <link rel="icon" type="image/png" href="../assets/logo.png" />
   <style>
@@ -64,7 +64,7 @@
     <h1>Get Eskiu running</h1>
     <p class="lede">
       Download a prebuilt binary, write your first program, and run it. A few
-      minutes start to finish — no toolchain to assemble.
+      minutes start to finish, with no toolchain to assemble.
     </p>
 
     <h2>Install</h2>
@@ -73,8 +73,8 @@
       tarball, so imports work the moment it's unpacked.
     </p>
     <div class="btns">
-      <a class="btn-w" href="../assets/eskiuc-linux-x86_64.tar.gz" download>↓ Linux (x86-64)</a>
-      <a class="btn-w" href="../assets/eskiuc-macos-arm64.tar.gz" download>↓ macOS (Apple Silicon)</a>
+      <a class="btn-w" href="https://github.com/doranteseduardo/eskiu/releases/latest/download/eskiuc-linux-x86_64.tar.gz">↓ Linux (x86-64)</a>
+      <a class="btn-w" href="https://github.com/doranteseduardo/eskiu/releases/latest/download/eskiuc-macos-arm64.tar.gz">↓ macOS (Apple Silicon)</a>
     </div>
     <p>Unpack it into <code>/usr/local</code> and check the version:</p>
     <pre><code><span class="c"># macOS (Apple Silicon)</span>
@@ -87,12 +87,12 @@ eskiuc --version
 <span class="o">Eskiu 0.3.1 (LLVM ...)</span></code></pre>
     <p>The tarball installs:</p>
     <ul>
-      <li><code>bin/eskiuc</code> — the compiler</li>
-      <li><code>lib/eskiu/stdlib/</code> — the standard library</li>
+      <li><code>bin/eskiuc</code>: the compiler</li>
+      <li><code>lib/eskiu/stdlib/</code>: the standard library</li>
     </ul>
     <p class="note">
       Linking needs a C toolchain on your machine (<code>clang</code> or
-      <code>gcc</code>) — the same one Rust and Clang call to produce a binary.
+      <code>gcc</code>), the same one Rust and Clang call to produce a binary.
       macOS has it via the Xcode command-line tools; on Linux, install
       <code>build-essential</code> (or <code>gcc</code>).
     </p>
@@ -155,8 +155,7 @@ int main() {
     <p>
       <code>alloc&lt;T&gt;(n)</code> (from the <code>&lt;mem&gt;</code> stdlib)
       allocates <code>n</code> elements of type <code>T</code> and returns a typed
-      pointer. Index with <code>[]</code>. Call <code>free</code> when you're done —
-      the memory is yours to account for.
+      pointer. Index with <code>[]</code>. Call <code>free</code> when you're done. The memory is yours to account for.
     </p>
     <pre><code>import &lt;mem&gt;;
 extern int printf(string fmt, ...);
@@ -197,9 +196,9 @@ int main() {
 
     <h2>What's next</h2>
     <ul>
-      <li><a href="index.html#try">Try Eskiu in your browser</a> — no install needed.</li>
-      <li><a href="the-book-of-eskiu.html">The Book of Eskiu</a> — the full language guide.</li>
-      <li><a href="index.html#examples">More examples</a> — async, sum types, generics, servers.</li>
+      <li><a href="index.html#try">Try Eskiu in your browser</a>: no install needed.</li>
+      <li><a href="the-book-of-eskiu.html">The Book of Eskiu</a>: the full language guide.</li>
+      <li><a href="index.html#examples">More examples</a>: async, sum types, generics, servers.</li>
     </ul>
 
     <div class="foot">

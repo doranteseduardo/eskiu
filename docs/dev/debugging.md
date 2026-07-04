@@ -30,6 +30,8 @@ Why this catches real bugs: a correct program must produce the same observable r
 
 Some generators carry their own **expected stdout** instead of relying on the O0/O2 differential — notably the backslash-newline-in-comments/strings generators, which catch *uniformly* mis-lexed programs (where O0 and O2 agree but are both wrong, e.g. a `//` comment ending in `\` swallowing the next line). A mismatch against the known output (or a build failure) is the finding.
 
+The corpus-wide counterpart is `tests/opt_differential.sh` (v0.3.1): it compiles every `tests/*.esk` with `eskiuc -O0` and with `eskiuc -O2` (the `-O0`/`-O1`/`-O2`/`-O3` flag runs the LLVM middle-end before code generation) and fails on any exit/stdout divergence. Reach for it when diagnosing a bug that only appears under optimization: run it, then re-run the one failing program at each level and diff `--test-codegen` output. It caught the v0.3.1 float-closure return-type miscompile.
+
 ## Resolver Consistency: `ESKIU_RESOLVER_DEBUG`
 
 The single resolver (v0.2.4) makes codegen consume the type checker's resolved-type table instead of re-deriving types. The table doesn't annotate *every* expression, so codegen keeps a structural fallback (`deriveExprEskiuType`). To guard against the two ever disagreeing — the latent-miscompile class — set `ESKIU_RESOLVER_DEBUG=1`: whenever the table *has* an entry, codegen also runs the derivation and prints `[resolver-disagree] table=… derive=… <ExprKind>` on any semantic difference (benign representational noise — the `struct:`/`interface:` tag and alias spelling — is normalized away first).

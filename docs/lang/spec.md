@@ -1604,8 +1604,8 @@ An `extern` declaration makes a C function available to Eskiu code. The declarat
 
 ```eskiu
 extern int printf(string fmt, ...);
-extern int strlen(string s);
-extern *void memcpy(*void dst, *void src, int n);
+extern int64 strlen(string s);
+extern *void memcpy(*void dst, *void src, int64 n);
 extern int open(string path, int flags);
 extern void exit(int code);
 ```
@@ -1630,9 +1630,9 @@ int main() {
 For functions that accept or return `void*`, use `*void` on the Eskiu side:
 
 ```eskiu
-extern *void malloc(int size);
-extern *void memcpy(*void dst, *void src, int n);
-extern *void memset(*void ptr, int value, int n);
+extern *void malloc(int64 size);
+extern *void memcpy(*void dst, *void src, int64 n);
+extern *void memset(*void ptr, int value, int64 n);
 ```
 
 (For heap allocation, prefer `import <mem>` and `alloc<T>`/`free` over declaring `malloc`/`free` as `extern` yourself — see §11.2.)
@@ -1729,7 +1729,7 @@ import <list>;
 
 int main() {
     let items: List<int>;
-    List_init(&items);
+    List_init(&items, 4);
     List_push(&items, 10);
     List_push(&items, 20);
     List_push(&items, 30);

@@ -145,7 +145,8 @@ type it qualifies the pointee (`const int*`) or pointer level (`int* const`).
 ## Types
 
 ```
-type        = 'const'? ptr* base ( '*' 'const'? )* array*
+type        = 'const'? ptr* base suffix*
+suffix      = array | '*' 'const'?                   // arrays and trailing pointers, any order
 base        = scalar-type
             | IDENT ( '<' type (',' type)* '>' )?   // named type or template instance
             | 'fn' '(' (type (',' type)*)? ')' '->' type   // function-pointer type
@@ -158,7 +159,9 @@ scalar-type = 'int' | 'int8' | 'int16' | 'int32' | 'int64'
 ```
 
 Pointers may be written either C-style (`int*`) or leading (`*int`); both are
-equivalent. `va_list` is a built-in named type used by variadics.
+equivalent. A trailing `[N]` binds outermost, so `*T[N]` is an array of N pointers
+(each element a `*T`), while a pointer to an array is written with the star after the
+brackets: `T[N]*`. `va_list` is a built-in named type used by variadics.
 
 ---
 

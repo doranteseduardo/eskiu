@@ -50,16 +50,6 @@ under `-O2`. The lambda's return type is now reconciled with its target.
 `fn(...)` slot with a different signature (say an `int`-returning function to a
 `fn(int)->float`) was silently accepted and miscompiled. It is now a compile error.
 
-**Fixed: correct `size_t` ABI for libc string/memory functions.** `memcpy`/`memset`/
-`memmove`/`memcmp`/`memchr` (size argument) and `strlen` (return) now use 64-bit `size_t`.
-
-**New: `-O` optimization levels.** `eskiuc -O1`/`-O2`/`-O3` runs the LLVM middle-end
-(mem2reg/SROA/inlining/GVN/...) before code generation. `-O0` (the default) is unchanged.
-
-**New: clearer diagnostic for a keyword used as a name.** Writing `int fn = ...` (or using
-`in`/`match`/a type name as a variable, parameter, or field) now reports
-`expected a name, found keyword 'fn'` at the cause instead of a confusing later error.
-
 **Hardening.** A new `-O0`-vs-`-O2` behavioral differential runs the whole test corpus at
 both optimization levels in CI and fails on any divergence, guarding against
 optimization-path miscompiles. Self-hosted parser parity was extended to the full corpus

@@ -162,6 +162,22 @@ clang hello.o -o hello        # link
 <pre><code>Hello from Eskiu!
 Result: 8
 </code></pre>
+<h3 id="run-it-like-a-script">Run it like a script</h3>
+<p>You don't have to compile and link by hand while iterating. <code>eskiuc run</code> compiles to a
+temporary executable, runs it, and cleans up, forwarding any arguments after the script:</p>
+<pre><code class="language-bash">eskiuc run hello.esk
+</code></pre>
+<p>Add a shebang line and a <code>.esk</code> file becomes directly executable, the way a Python or Ruby
+script is:</p>
+<pre><code class="language-eskiu">#!/usr/bin/env eskiuc run
+extern int printf(string fmt, ...);
+int main() { printf(&quot;hello\n&quot;); return 0; }
+</code></pre>
+<pre><code class="language-bash">chmod +x hello.esk
+./hello.esk
+</code></pre>
+<p>For an optimized build, pass <code>-O2</code> (or <code>-O1</code>/<code>-O3</code>), which runs the LLVM middle-end before
+code generation. The default is <code>-O0</code>, which emits naive IR straight to the backend.</p>
 <h3 id="peek-at-the-generated-ir">Peek at the generated IR</h3>
 <p>Before producing an object file you can ask the compiler to print the LLVM IR it
 would emit:</p>

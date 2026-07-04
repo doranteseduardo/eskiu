@@ -1582,8 +1582,8 @@ int main() {
 <h3 id="131-extern-function-declarations">13.1 Extern Function Declarations</h3>
 <p>An <code>extern</code> declaration makes a C function available to Eskiu code. The declaration must match the C function's ABI exactly.</p>
 <pre><code class="language-eskiu">extern int printf(string fmt, ...);
-extern int strlen(string s);
-extern *void memcpy(*void dst, *void src, int n);
+extern int64 strlen(string s);
+extern *void memcpy(*void dst, *void src, int64 n);
 extern int open(string path, int flags);
 extern void exit(int code);
 </code></pre>
@@ -1599,9 +1599,9 @@ int main() {
 <h3 id="133-c-abi-compatibility">13.3 C ABI Compatibility</h3>
 <p><code>extern</code> declarations emit standard C-ABI-compatible LLVM IR <code>call</code> instructions. Any function exported from a C library — including system libraries, OpenSSL, zxing-cpp, or any other C-compatible library — may be called this way.</p>
 <p>For functions that accept or return <code>void*</code>, use <code>*void</code> on the Eskiu side:</p>
-<pre><code class="language-eskiu">extern *void malloc(int size);
-extern *void memcpy(*void dst, *void src, int n);
-extern *void memset(*void ptr, int value, int n);
+<pre><code class="language-eskiu">extern *void malloc(int64 size);
+extern *void memcpy(*void dst, *void src, int64 n);
+extern *void memset(*void ptr, int value, int64 n);
 </code></pre>
 <p>(For heap allocation, prefer <code>import &lt;mem&gt;</code> and <code>alloc&lt;T&gt;</code>/<code>free</code> over declaring <code>malloc</code>/<code>free</code> as <code>extern</code> yourself — see §11.2.)</p>
 <h3 id="134-passing-an-eskiu-function-as-a-c-callback">13.4 Passing an Eskiu function as a C callback</h3>
@@ -1798,7 +1798,7 @@ int main() {
 
 int main() {
     let items: List&lt;int&gt;;
-    List_init(&amp;items);
+    List_init(&amp;items, 4);
     List_push(&amp;items, 10);
     List_push(&amp;items, 20);
     List_push(&amp;items, 30);
