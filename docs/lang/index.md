@@ -1,8 +1,6 @@
 # Eskiu Language Reference
 
-Eskiu is a statically typed systems language built to replace a familiar stack: the C you reach for to go fast, the Go for concurrency, the C++ for libraries, and the Python that glues it together — each with its own toolchain and interop cost.
-
-The goal is one language for all of it — native performance, explicit memory (`alloc<T>` / `free`), and direct access to any C library, in deliberately C-style syntax with modern conveniences on top: bounded generics (`<T: Iface>`), structural interfaces, sum types with `match`, lambdas, and `async`/`await`.
+Eskiu is a statically typed systems language with the power of C and the immediacy of a scripting language. It compiles to native code through LLVM, so you get native performance, explicit memory (`alloc<T>` / `free`), and direct access to any C library. But you can also run a `.esk` file on the spot: `eskiuc run file.esk` compiles and runs it in one step, and with a `#!/usr/bin/env eskiuc run` shebang the file becomes an executable script, like Python or Ruby. On that C foundation it adds bounded generics (`<T: Iface>`), structural interfaces, sum types with `match`, lambdas, and `async`/`await`.
 
 **Current version: v0.3.1** — the self-hosting milestone: the compiler is reimplemented in
 Eskiu itself (`selfhost/`), reaching a 3-stage bootstrap fixpoint and a code generator
