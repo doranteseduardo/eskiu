@@ -1,6 +1,6 @@
 # Contributing to Eskiu
 
-Read [architecture.md](architecture.md) before diving in. Understanding the pipeline — lexer → parser → type checker → async transform → type checker re-run (single resolver) → codegen — is the prerequisite for any meaningful contribution.
+Read [architecture.md](architecture.md) before diving in. Understanding the pipeline (lexer → parser → type checker → async transform → type checker re-run (single resolver) → codegen) is the prerequisite for any meaningful contribution.
 
 ## Getting Started
 
@@ -37,10 +37,10 @@ shared_ptr for all AST nodes via ExprPtr/StmtPtr/DeclPtr aliases
 No RTTI except existing dynamic_cast sites
 
 ## Testing
-There IS an automated suite — run it before any PR.
-- `tests/run.sh` — the regression harness over the `.esk` test corpus (the four `--test-*` modes plus end-to-end compile/run).
-- Generative + mutation fuzzer `tests/fuzz/eskiu_fuzz.py` with an **O0-vs-O2 differential oracle**: it compiles each generated program at `-O0` and `-O2` and flags any divergence in output — this is how miscompiles are caught.
-- Golden-IR oracle `tests/type_zoo/snapshot.sh` + `tests/type_zoo/golden/` — captures/checks the emitted IR for the type zoo; the codegen-regression guard.
+There IS an automated suite: run it before any PR.
+- `tests/run.sh`: the regression harness over the `.esk` test corpus (the four `--test-*` modes plus end-to-end compile/run).
+- Generative + mutation fuzzer `tests/fuzz/eskiu_fuzz.py` with an **O0-vs-O2 differential oracle**: it compiles each generated program at `-O0` and `-O2` and flags any divergence in output. This is how miscompiles are caught.
+- Golden-IR oracle `tests/type_zoo/snapshot.sh` + `tests/type_zoo/golden/`: captures/checks the emitted IR for the type zoo; the codegen-regression guard.
 - `--asan` / `--ubsan` gates in CI for runtime memory errors and undefined behavior.
 - A formatter-idempotency pass (`eskiuc fmt --check`) over every test.
 Manual checks still apply per feature:

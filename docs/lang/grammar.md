@@ -51,7 +51,7 @@ thread_create thread_join  asm  try catch finally throw
 null true false
 ```
 
-`type` is **not** reserved — it is a contextual keyword recognized only in the
+`type` is **not** reserved: it is a contextual keyword recognized only in the
 type-alias form `type NAME = …`.
 
 ### Operators and punctuation
@@ -234,7 +234,7 @@ postfix-op      = '(' arg-list? ')'          // call
 arg-list        = expr (',' expr)*
 ```
 
-Eskiu has no `a ? b : c` conditional operator — `?` is the postfix
+Eskiu has no `a ? b : c` conditional operator. `?` is the postfix
 error-propagation operator applied to a `Result` (it returns early on the error
 variant). Assignment is the lowest-precedence, right-associative level.
 
@@ -259,12 +259,12 @@ lambda      = type '(' lambda-params? ')' block        // e.g. int (int x) { ret
 lambda-params = ('escaping'? type IDENT) (',' 'escaping'? type IDENT)*
 ```
 
-A struct literal is suppressed where a `{` would instead open a block — e.g. the
+A struct literal is suppressed where a `{` would instead open a block, e.g. the
 subject of `match`/`switch`/`if`/`while`/`for` conditions.
 
 ---
 
 ## See also
 
-- [spec.md](spec.md) — language semantics and the standard library.
-- [../dev/abi.md](../dev/abi.md) — how these constructs lower to LLVM IR.
+- [spec.md](spec.md): language semantics and the standard library.
+- [../dev/abi.md](../dev/abi.md): how these constructs lower to LLVM IR.

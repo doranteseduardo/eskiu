@@ -8,7 +8,7 @@ Reference glossary of terms used in Eskiu documentation and compiler source code
 Tree-structured representation of a program's syntactic form after parsing. Each node corresponds to a language construct such as a function declaration, binary expression, or loop. The type checker and code generator both traverse the AST using the visitor pattern. See also: ASTVisitor, parser.
 
 **algebraic data type (ADT)**
-A type formed as a tagged choice between several variants, some of which may carry payload data — also called a sum type or tagged union. In Eskiu an `enum` with one or more payload-bearing variants is an ADT, laid out as `{ tag, payload }` and destructured with an exhaustive `match`. See also: enum, tagged union, match.
+A type formed as a tagged choice between several variants, some of which may carry payload data, also called a sum type or tagged union. In Eskiu an `enum` with one or more payload-bearing variants is an ADT, laid out as `{ tag, payload }` and destructured with an exhaustive `match`. See also: enum, tagged union, match.
 
 **alloca**
 LLVM IR instruction that allocates space on the stack frame of the current function and returns a pointer to it. Every local variable in Eskiu compiles to an `alloca` in the function's entry block, followed by `store`/`load` instructions. Stack allocations are automatically reclaimed when the function returns.
@@ -40,7 +40,7 @@ An operator that takes exactly two operands. Eskiu supports arithmetic (`+`, `-`
 A struct integer field declared with a bit width (`uint32 mode : 3;`), occupying only that many bits. Consecutive bitfields pack into storage words of their declared type; reads mask and shift the field out (signed fields sign-extend) and writes are read-modify-write. The address of a bitfield cannot be taken. See also: packed struct, struct.
 
 **BlockItem**
-Union type used internally in the parser and AST to represent a single item inside a block statement — either a declaration (VarDecl, StructDecl) or an executable statement. Storing both as `BlockItem` allows the parser to handle declaration-in-block uniformly. See also: BlockStmt, declaration, statement.
+Union type used internally in the parser and AST to represent a single item inside a block statement: either a declaration (VarDecl, StructDecl) or an executable statement. Storing both as `BlockItem` allows the parser to handle declaration-in-block uniformly. See also: BlockStmt, declaration, statement.
 
 **BlockStmt**
 AST node representing a `{ ... }` block. Contains an ordered list of `BlockItem` entries and introduces a new nested scope. Functions, if-branches, loops, and standalone braces all produce a `BlockStmt`. See also: scope, BlockItem.
@@ -54,7 +54,7 @@ The point at which a self-hosted compiler reproduces its own output. Eskiu's boo
 ## C
 
 **channel**
-An async message queue between tasks (`Chan<T>` in `<channel>`). `chan_recv` returns a `*Future<T>` that completes with the next item — immediately if one is buffered, otherwise when a `chan_send` hands a value off to the parked receiver. See also: Future, await.
+An async message queue between tasks (`Chan<T>` in `<channel>`). `chan_recv` returns a `*Future<T>` that completes with the next item: immediately if one is buffered, otherwise when a `chan_send` hands a value off to the parked receiver. See also: Future, await.
 
 **closure**
 A function value that captures variables from its enclosing scope. Represented as a two-word fat pointer `{fn_ptr, env_ptr}`: a non-capturing closure has a null environment, while a capturing one packages its captured variables into an environment struct. The type annotation is `fn(T,...)->R` in both cases. See also: escaping, fat pointer, lambda.
@@ -76,7 +76,7 @@ A language construct that introduces a new named entity into the current scope. 
 A declaration of named constants. A plain `enum` defines integer constants (the type behaves as `int`); an `enum` with one or more payload-bearing variants is an algebraic data type laid out as `{ tag, payload }` and destructured with `match`. Enums may be generic (e.g. `Option<T>`) and are monomorphized per instantiation. See also: algebraic data type, match, tagged union.
 
 **escaping**
-A parameter qualifier (`escaping fn(int)->void cb`) marking a function-pointer parameter that the callee retains beyond the call — by storing, returning, or forwarding it. An escaping closure's environment is heap-allocated (released with `free_closure`) so it outlives the creating frame; a non-escaping closure keeps its environment on the stack. Using a non-`escaping` parameter beyond a direct call is a compile error. See also: closure, fat pointer.
+A parameter qualifier (`escaping fn(int)->void cb`) marking a function-pointer parameter that the callee retains beyond the call: by storing, returning, or forwarding it. An escaping closure's environment is heap-allocated (released with `free_closure`) so it outlives the creating frame; a non-escaping closure keeps its environment on the stack. Using a non-`escaping` parameter beyond a direct call is a compile error. See also: closure, fat pointer.
 
 **event loop / reactor**
 A single thread that watches many file descriptors and dispatches a callback when one becomes ready, via kqueue (macOS) or epoll (Linux). Implemented as `EventLoop` in `<eventloop>`, it is the readiness reactor underpinning async I/O, the HTTP stack, and the timer wheel. See also: executor, Future, async.
@@ -102,7 +102,7 @@ In HTTP/2, the credit-based mechanism that bounds how much DATA a sender may tra
 AST node representing a function definition, including its name, parameter list, return type, and body (`BlockStmt`). During type checking, parameters are pushed into a new scope and the body is validated against the declared return type. During code generation, a new LLVM `Function` object is created and populated. See also: declaration, scope.
 
 **Future**
-A handle to a value that may not exist yet — the result of an `async` function call or a leaf primitive. `Future<T>` (in `<future>`) is a fixed-layout struct `{ state, waker, on_drop, value }`: `state` advances through PENDING/WAITING/READY/CANCELLED, `waker` resumes the awaiter on completion, and `on_drop` releases resources on cancellation. A pending future is cancelled with `future_drop`. See also: async, await, executor.
+A handle to a value that may not exist yet: the result of an `async` function call or a leaf primitive. `Future<T>` (in `<future>`) is a fixed-layout struct `{ state, waker, on_drop, value }`: `state` advances through PENDING/WAITING/READY/CANCELLED, `waker` resumes the awaiter on completion, and `on_drop` releases resources on cancellation. A pending future is cancelled with `future_drop`. See also: async, await, executor.
 
 **fuzzer / differential oracle**
 A generative test harness (`tests/fuzz/eskiu_fuzz.py`, added in v0.2.2) that synthesizes random valid Eskiu programs and compiles each at `-O0` and `-O2`, then compares their output. A mismatch is a differential failure: it catches miscompiles that pass the LLVM verifier yet behave differently across optimization levels. See also: codegen, LLVM IR.
@@ -126,7 +126,7 @@ The unit of the HTTP/2 wire protocol (RFC 7540): a 9-byte binary header (length,
 A name chosen by the programmer to label a variable, function, struct, or parameter. In Eskiu, identifiers must begin with a letter or underscore and may contain letters, digits, and underscores. The lexer emits an `IDENTIFIER` token; the parser stores the raw string in `IdentExpr` or declaration nodes.
 
 **interface**
-A structurally typed contract defined by a method set (`interface Drawable { void draw(); }`). A concrete type satisfies an interface implicitly whenever it provides all the named methods — no explicit `implements` declaration is required. An interface value is a fat pointer `{data_ptr, vtable_ptr}`, and method calls dispatch dynamically through the vtable. See also: vtable, fat pointer, bounded generic / type-parameter constraint.
+A structurally typed contract defined by a method set (`interface Drawable { void draw(); }`). A concrete type satisfies an interface implicitly whenever it provides all the named methods: no explicit `implements` declaration is required. An interface value is a fat pointer `{data_ptr, vtable_ptr}`, and method calls dispatch dynamically through the vtable. See also: vtable, fat pointer, bounded generic / type-parameter constraint.
 
 **intrinsic**
 A function declared with the `intrinsic` qualifier whose calls the compiler lowers to inline IR rather than an ordinary call. Used for operations that must compile directly to specific instructions, such as the `<atomic>` cell operations. See also: atomic, declaration.
@@ -154,7 +154,7 @@ An expression that refers to a storage location and can appear on the left side 
 ## M
 
 **match**
-A control construct that destructures an algebraic-enum value by variant, binding each variant's payload fields in its arm. A `match` must be exhaustive — every variant has an arm or a `_` default catches the rest — and no variant may appear twice; the type checker enforces both. See also: algebraic data type, enum, tagged union.
+A control construct that destructures an algebraic-enum value by variant, binding each variant's payload fields in its arm. A `match` must be exhaustive (every variant has an arm or a `_` default catches the rest) and no variant may appear twice; the type checker enforces both. See also: algebraic data type, enum, tagged union.
 
 **module**
 The top-level LLVM IR container (`llvm::Module`) that holds all function definitions, global variables, and external declarations produced for a single compilation unit. The code generator creates one module per `.esk` file. The module is printed as LLVM IR text when `--test-codegen` is passed.
@@ -227,13 +227,13 @@ A data structure mapping identifier names to their resolved types and declaratio
 ## T
 
 **tagged union**
-A value that holds one of several alternatives, distinguished by an integer tag stored alongside the payload — the runtime representation of an Eskiu algebraic-enum value (`{ tag, payload }`, with the payload area sized to the largest variant). Unlike a `union`, a tagged union records which alternative is active. See also: algebraic data type, enum, match, union.
+A value that holds one of several alternatives, distinguished by an integer tag stored alongside the payload: the runtime representation of an Eskiu algebraic-enum value (`{ tag, payload }`, with the payload area sized to the largest variant). Unlike a `union`, a tagged union records which alternative is active. See also: algebraic data type, enum, match, union.
 
 **template / generic**
 A definition parameterized over one or more type variables (`struct Vec<T> { ... }`, generic functions, and generic enums such as `Option<T>`). Generics in Eskiu are monomorphic: each instantiation is stamped out as a concrete copy with a name produced by `mangleTemplate`, rather than compiled once with type erasure. A type parameter may carry a constraint (`<T: Iface>`). See also: monomorphization, bounded generic / type-parameter constraint, enum.
 
 **TLS**
-Transport Layer Security — the encryption layer HTTP/2 typically runs over in browsers. The `<tls>` module wraps OpenSSL (libssl) by FFI and uses ALPN to negotiate `"h2"`, then runs the `<http2>` frame protocol over the encrypted stream. See also: ALPN, HTTP/2.
+Transport Layer Security, the encryption layer HTTP/2 typically runs over in browsers. The `<tls>` module wraps OpenSSL (libssl) by FFI and uses ALPN to negotiate `"h2"`, then runs the `<http2>` frame protocol over the encrypted stream. See also: ALPN, HTTP/2.
 
 **token**
 The smallest meaningful unit produced by the lexer. Each token carries a `TokenType`, its raw lexeme string, and a source location (line, column). Examples: keyword `int`, identifier `result`, punctuation `{`, integer literal `42`, string literal `"hello"`. See also: TokenType, lexer.
@@ -251,13 +251,13 @@ The compiler component (Phase 4) that traverses the AST, infers or verifies the 
 Implicit or explicit conversion of a value from one type to another. Eskiu requires explicit casts for most conversions (e.g., `(int)myFloat`). The type checker identifies cases where implicit promotion is safe (e.g., widening integer types in expressions) and emits the appropriate LLVM extension or truncation instructions. See also: type inference, CastExpr.
 
 **type inference**
-The compiler's ability to deduce the type of an expression or variable from context without an explicit annotation. Eskiu performs limited local type inference — for example, the right-hand side of a declaration can constrain the variable's type — but does not perform full Hindley-Milner inference. Explicit type annotations are generally required. See also: type checker, VarDecl.
+The compiler's ability to deduce the type of an expression or variable from context without an explicit annotation. Eskiu performs limited local type inference (for example, the right-hand side of a declaration can constrain the variable's type) but does not perform full Hindley-Milner inference. Explicit type annotations are generally required. See also: type checker, VarDecl.
 
 **type normalization**
 The process of canonicalizing type names to a single internal representation before comparison or storage. Eskiu maps source-level aliases to canonical forms (e.g., `int` -> `i32`, `uint8` -> `u8`, `*T` and `T*` both -> pointer-to-T) so that the type checker and code generator operate on a consistent set of type descriptors. See also: type checker, pointer type.
 
 **type unification**
-The process of reconciling two `ty::Type` values into a single consistent type — for example matching a call argument against a parameter, or inferring a generic type parameter from the types supplied at a call site. Introduced in v0.2.4, unification makes the type checker the single authority on type resolution, so code generation no longer re-derives types from name strings. See also: ty::Type IR, type checker, type inference.
+The process of reconciling two `ty::Type` values into a single consistent type: for example matching a call argument against a parameter, or inferring a generic type parameter from the types supplied at a call site. Introduced in v0.2.4, unification makes the type checker the single authority on type resolution, so code generation no longer re-derives types from name strings. See also: ty::Type IR, type checker, type inference.
 
 ## U
 
@@ -280,7 +280,7 @@ A table of function pointers, one per method of an interface, shared by all valu
 
 ---
 
-- [architecture.md](dev/architecture.md) — Compiler architecture and pass pipeline
-- [spec.md](lang/spec.md) — Full language specification
-- [design.md](dev/design.md) — Rationale for key design choices
-- [phases.md](dev/phases.md) — Compiler development roadmap
+- [architecture.md](dev/architecture.md): Compiler architecture and pass pipeline
+- [spec.md](lang/spec.md): Full language specification
+- [design.md](dev/design.md): Rationale for key design choices
+- [phases.md](dev/phases.md): Compiler development roadmap

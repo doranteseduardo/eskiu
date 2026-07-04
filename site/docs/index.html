@@ -90,7 +90,7 @@ feature-complete against the reference C++ compiler.</p>
 <tbody>
 <tr>
 <td><a href="getting-started.html">getting-started.md</a></td>
-<td>Hands-on tutorial — build, hello world, all features</td>
+<td>Hands-on tutorial: build, hello world, all features</td>
 <td>You're new to Eskiu</td>
 </tr>
 <tr>
@@ -147,15 +147,15 @@ feature-complete against the reference C++ compiler.</p>
 </tr>
 <tr>
 <td><strong>Lambdas / Closures</strong></td>
-<td><code>int(int x) { return x * 2; }</code> — anonymous functions; <code>fn(T,...)-&gt;R</code> fat-pointer types; closure capture by value; higher-order functions</td>
+<td><code>int(int x) { return x * 2; }</code>: anonymous functions; <code>fn(T,...)-&gt;R</code> fat-pointer types; closure capture by value; higher-order functions</td>
 </tr>
 <tr>
 <td><strong>Threads</strong></td>
-<td><code>thread_create(fn()-&gt;void)</code> / <code>thread_join(*void)</code> — OS thread keywords; closure fat pointer maps directly to pthread ABI</td>
+<td><code>thread_create(fn()-&gt;void)</code> / <code>thread_join(*void)</code>: OS thread keywords; closure fat pointer maps directly to pthread ABI</td>
 </tr>
 <tr>
 <td><strong>Exceptions</strong></td>
-<td><code>try</code>/<code>catch</code>/<code>finally</code>/<code>throw</code> — LLVM <code>invoke</code>/<code>landingpad</code>, Itanium ABI; multiple <code>catch</code> clauses; link <code>-lc++</code> (macOS) or <code>-lstdc++</code> (Linux)</td>
+<td><code>try</code>/<code>catch</code>/<code>finally</code>/<code>throw</code>: LLVM <code>invoke</code>/<code>landingpad</code>, Itanium ABI; multiple <code>catch</code> clauses; link <code>-lc++</code> (macOS) or <code>-lstdc++</code> (Linux)</td>
 </tr>
 <tr>
 <td><strong>Async / await</strong></td>
@@ -171,7 +171,7 @@ feature-complete against the reference C++ compiler.</p>
 </tr>
 <tr>
 <td><strong>Templates</strong></td>
-<td><code>struct Result&lt;T,E&gt;</code>, <code>fn Ok&lt;T,E&gt;(T v)</code> — monomorphic instantiation; bounded generics <code>&lt;T: Iface&gt;</code> / <code>&lt;T: A + B&gt;</code> (a primitive satisfies a constraint via a free function)</td>
+<td><code>struct Result&lt;T,E&gt;</code>, <code>fn Ok&lt;T,E&gt;(T v)</code>: monomorphic instantiation; bounded generics <code>&lt;T: Iface&gt;</code> / <code>&lt;T: A + B&gt;</code> (a primitive satisfies a constraint via a free function)</td>
 </tr>
 <tr>
 <td><strong>Collections</strong></td>
@@ -179,7 +179,7 @@ feature-complete against the reference C++ compiler.</p>
 </tr>
 <tr>
 <td><strong>Interfaces</strong></td>
-<td><code>interface Drawable { void draw(); }</code> — structural typing, vtable dispatch</td>
+<td><code>interface Drawable { void draw(); }</code>: structural typing, vtable dispatch</td>
 </tr>
 <tr>
 <td><strong>Memory</strong></td>
@@ -187,7 +187,7 @@ feature-complete against the reference C++ compiler.</p>
 </tr>
 <tr>
 <td><strong>volatile</strong></td>
-<td><code>volatile let reg: *uint8 = (uint8*) 0x3F8;</code> — MMIO-safe loads/stores</td>
+<td><code>volatile let reg: *uint8 = (uint8*) 0x3F8;</code>: MMIO-safe loads/stores</td>
 </tr>
 <tr>
 <td><strong>Inline asm</strong></td>
@@ -195,11 +195,11 @@ feature-complete against the reference C++ compiler.</p>
 </tr>
 <tr>
 <td><strong>Freestanding</strong></td>
-<td><code>--freestanding</code> flag — <code>&lt;mem&gt;</code> <code>alloc&lt;T&gt;</code>/<code>free</code> call <code>esk_alloc</code>/<code>esk_free</code>; user-supplied in kernel</td>
+<td><code>--freestanding</code> flag: <code>&lt;mem&gt;</code> <code>alloc&lt;T&gt;</code>/<code>free</code> call <code>esk_alloc</code>/<code>esk_free</code>; user-supplied in kernel</td>
 </tr>
 <tr>
 <td><strong>Cross-compile</strong></td>
-<td><code>--target TRIPLE</code> — AArch64 and X86 backends included</td>
+<td><code>--target TRIPLE</code>: AArch64 and X86 backends included</td>
 </tr>
 <tr>
 <td><strong>Multi-file</strong></td>
@@ -207,11 +207,11 @@ feature-complete against the reference C++ compiler.</p>
 </tr>
 <tr>
 <td><strong>Errors</strong></td>
-<td><code>file.esk:8:22: message</code> — real line/col from parser</td>
+<td><code>file.esk:8:22: message</code>: real line/col from parser</td>
 </tr>
 <tr>
 <td><strong>HTTP/2</strong></td>
-<td><code>&lt;http2&gt;</code> frame codec + connection/stream state machine, <code>&lt;hpack&gt;</code> header compression, <code>&lt;tls&gt;</code> (h2 over OpenSSL with ALPN), <code>&lt;http2_server&gt;</code> (h2c) — full multiplexed HTTP/2 stack</td>
+<td><code>&lt;http2&gt;</code> frame codec + connection/stream state machine, <code>&lt;hpack&gt;</code> header compression, <code>&lt;tls&gt;</code> (h2 over OpenSSL with ALPN), <code>&lt;http2_server&gt;</code> (h2c): full multiplexed HTTP/2 stack</td>
 </tr>
 <tr>
 <td><strong>Stdlib</strong></td>

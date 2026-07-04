@@ -143,7 +143,7 @@ import extern intrinsic  sizeof alloc_with free_closure
 thread_create thread_join  asm  try catch finally throw
 null true false
 </code></pre>
-<p><code>type</code> is <strong>not</strong> reserved — it is a contextual keyword recognized only in the
+<p><code>type</code> is <strong>not</strong> reserved: it is a contextual keyword recognized only in the
 type-alias form <code>type NAME = …</code>.</p>
 <h3 id="operators-and-punctuation">Operators and punctuation</h3>
 <pre><code>+  -  *  /  %                          arithmetic
@@ -292,7 +292,7 @@ postfix-op      = '(' arg-list? ')'          // call
                 | '?'                        // error propagation (Result)
 arg-list        = expr (',' expr)*
 </code></pre>
-<p>Eskiu has no <code>a ? b : c</code> conditional operator — <code>?</code> is the postfix
+<p>Eskiu has no <code>a ? b : c</code> conditional operator. <code>?</code> is the postfix
 error-propagation operator applied to a <code>Result</code> (it returns early on the error
 variant). Assignment is the lowest-precedence, right-associative level.</p>
 <pre><code>primary =
@@ -314,13 +314,13 @@ field-init  = IDENT ':' expr        // named
 lambda      = type '(' lambda-params? ')' block        // e.g. int (int x) { return x; }
 lambda-params = ('escaping'? type IDENT) (',' 'escaping'? type IDENT)*
 </code></pre>
-<p>A struct literal is suppressed where a <code>{</code> would instead open a block — e.g. the
+<p>A struct literal is suppressed where a <code>{</code> would instead open a block, e.g. the
 subject of <code>match</code>/<code>switch</code>/<code>if</code>/<code>while</code>/<code>for</code> conditions.</p>
 <hr>
 <h2 id="see-also">See also</h2>
 <ul>
-<li><a href="spec.html">spec.md</a> — language semantics and the standard library.</li>
-<li><a href="abi.html">../dev/abi.md</a> — how these constructs lower to LLVM IR.</li>
+<li><a href="spec.html">spec.md</a>: language semantics and the standard library.</li>
+<li><a href="abi.html">../dev/abi.md</a>: how these constructs lower to LLVM IR.</li>
 </ul>
     </div>
     <div class="foot"><a href="../index.html">← Back to eskiu</a></div>

@@ -46,7 +46,7 @@ cmake --build build -j$(nproc)
 
 ```bash
 ./build/eskiuc --version
-# Eskiu 0.3.1 (LLVM 22.1.6)   — exact LLVM version depends on your install
+# Eskiu 0.3.1 (LLVM 22.1.6)   (exact LLVM version depends on your install)
 ```
 
 Add `./build` to your `PATH` so you can type `eskiuc` from any directory.
@@ -81,7 +81,7 @@ eskiuc hello.esk -o hello
 ./hello
 ```
 
-Prefer the two steps — for example to inspect or reuse the object file? Give the
+Prefer the two steps, for example to inspect or reuse the object file? Give the
 output a `.o` name (or pass `-c`) and link it yourself:
 
 ```bash
@@ -200,13 +200,13 @@ Both styles compile to the same IR. Use whichever reads more clearly in context.
 | `float`  | 32-bit   | IEEE 754 single-precision (literals are `double`; assigning coerces down) |
 | `double` | 64-bit   | IEEE 754 double-precision       |
 | `string` | pointer  | Null-terminated C string        |
-| `void`   | —        | Used as function return type    |
+| `void`   | n/a      | Used as function return type    |
 
 ### Integer and hex literals
 
 ```eskiu
 int a = 255;
-int b = 0xFF;    // same value — hex prefix supported
+int b = 0xFF;    // same value, hex prefix supported
 uint8 mask = 0x0F;
 int64 big = 1000000;
 int neg = -42;   // negative literals work anywhere, including global scope
@@ -316,7 +316,7 @@ int main() {
 }
 ```
 
-`ptr + n` advances by `n * sizeof(*ptr)` bytes — typed arithmetic. Adding `1` to a `*uint8` moves one byte; adding `1` to a `*int` moves four bytes. `*void` and `*char` are the exceptions: they always use byte-level stride.
+`ptr + n` advances by `n * sizeof(*ptr)` bytes: typed arithmetic. Adding `1` to a `*uint8` moves one byte; adding `1` to a `*int` moves four bytes. `*void` and `*char` are the exceptions: they always use byte-level stride.
 
 ### Cast
 
@@ -463,7 +463,7 @@ extern int puts(string s);
 extern double sqrt(double x);
 ```
 
-The `...` marks a variadic function — required for `printf`, `scanf`, etc.
+The `...` marks a variadic function, required for `printf`, `scanf`, etc.
 
 ### Declaration order
 
@@ -474,7 +474,7 @@ int is_odd(int n);                  // forward declaration (optional)
 
 int is_even(int n) {
     if (n == 0) { return 1; }
-    return is_odd(n - 1);           // defined below — works
+    return is_odd(n - 1);           // defined below, works
 }
 
 int is_odd(int n) {
@@ -538,7 +538,7 @@ int main() {
 }
 ```
 
-The compiler lowers `r.area()` to `Rect_area(ptr %r)` — the receiver is passed
+The compiler lowers `r.area()` to `Rect_area(ptr %r)`: the receiver is passed
 as the first argument.
 
 ### Fixed-size array fields
@@ -553,7 +553,7 @@ struct Packet {
 }
 ```
 
-In LLVM IR this becomes `[858 x i8]` — no heap allocation required.
+In LLVM IR this becomes `[858 x i8]`, no heap allocation required.
 
 ---
 
@@ -568,7 +568,7 @@ enum Status { Ok = 0, Err = 2, Pending }    // 0, 2, 3
 let c: Color = Green;            // c == 1
 ```
 
-When one or more variants carry a **payload**, the enum becomes an algebraic data type — a tagged union. Variants are constructed by name and destructured with `match`:
+When one or more variants carry a **payload**, the enum becomes an algebraic data type, a tagged union. Variants are constructed by name and destructured with `match`:
 
 ```eskiu
 extern int printf(string fmt, ...);
@@ -649,7 +649,7 @@ int main() {
 }
 ```
 
-The return type is `T` — the function returns the same type it is instantiated with. The type argument can be explicit (`max<int>(3, 5)`) or inferred from the arguments (`max(7, 2)`) when the type parameter appears directly as a parameter type.
+The return type is `T`: the function returns the same type it is instantiated with. The type argument can be explicit (`max<int>(3, 5)`) or inferred from the arguments (`max(7, 2)`) when the type parameter appears directly as a parameter type.
 
 ### Result<T, E> from stdlib
 
@@ -693,14 +693,14 @@ T max<T: Ord>(T a, T b) {
 }
 ```
 
-Use `+` to require several interfaces at once (`<K: Hashable + Eq, V>`). A struct satisfies a constraint by defining the interface's methods. A primitive type has no methods, so it satisfies a constraint through a **free function** named like the interface method whose first parameter is that primitive — e.g. `int cmp(int, int)` makes `int` satisfy `Ord`. See spec §10.6 for the full rules.
+Use `+` to require several interfaces at once (`<K: Hashable + Eq, V>`). A struct satisfies a constraint by defining the interface's methods. A primitive type has no methods, so it satisfies a constraint through a **free function** named like the interface method whose first parameter is that primitive, e.g. `int cmp(int, int)` makes `int` satisfy `Ord`. See spec §10.6 for the full rules.
 
 ---
 
 ## Interfaces
 
 Interfaces declare a set of method signatures. Any struct that provides matching
-methods satisfies the interface — no `implements` keyword is needed.
+methods satisfies the interface. No `implements` keyword is needed.
 
 ### Declaring an interface
 
@@ -827,7 +827,7 @@ Pointer comparisons use integer equality, not floating-point equality.
 int n = 100;
 let ptr: *int = &n;
 *ptr = 200;       // write through pointer
-int val = *ptr;   // read through pointer — val == 200
+int val = *ptr;   // read through pointer, val == 200
 ```
 
 ---
@@ -837,8 +837,8 @@ int val = *ptr;   // read through pointer — val == 200
 Eskiu has two import forms:
 
 ```eskiu
-import <result>       // stdlib module — resolved by the compiler
-import "utils.esk"    // local file — relative to the current file
+import <result>       // stdlib module, resolved by the compiler
+import "utils.esk"    // local file, relative to the current file
 ```
 
 `import <name>` looks up the module in the Eskiu installation's stdlib directory. No path required. `import "path"` is relative to the importing file, as before.
@@ -881,7 +881,7 @@ int main() {
 }
 ```
 
-Compile the entry point only — the compiler follows imports automatically:
+Compile the entry point only; the compiler follows imports automatically:
 
 ```bash
 eskiuc main.esk -o main
@@ -890,7 +890,7 @@ eskiuc main.esk -o main
 
 ### Using stdlib modules
 
-Import stdlib modules with angle brackets — no path needed:
+Import stdlib modules with angle brackets, no path needed:
 
 ```eskiu
 import <result>;
@@ -903,39 +903,39 @@ Available modules:
 | Module              | Contents                                              |
 | ------------------- | ----------------------------------------------------- |
 | `<result>`   | `Result<T,E>`, `Ok<T,E>()`, `Err<T,E>()`             |
-| `<list>`     | `List<T>` — `List_init`, `push`, `get`, `len`, `free` |
-| `<map>`      | `Map<V>` — string-keyed hash map (`Map_init`/`_at`/`_get`/`_free`); `HashMap<K,V>` — keyed on any type via `hash`/`eq` function pointers |
-| `<bytes>`    | `Bytes` — growable, binary-safe byte buffer (`_init`/`_push`/`_append`/`_slice`/`_eq`/`_from_str`, plus base64 round-trip) |
-| `<string>`   | `String` — `init`, `from`, `append`, `concat`, `cstr`, `len`, `free`, `starts_with`, `ends_with`, `trim`, `split`, `next_token` |
+| `<list>`     | `List<T>`: `List_init`, `push`, `get`, `len`, `free` |
+| `<map>`      | `Map<V>`: string-keyed hash map (`Map_init`/`_at`/`_get`/`_free`); `HashMap<K,V>`: keyed on any type via `hash`/`eq` function pointers |
+| `<bytes>`    | `Bytes`: growable, binary-safe byte buffer (`_init`/`_push`/`_append`/`_slice`/`_eq`/`_from_str`, plus base64 round-trip) |
+| `<string>`   | `String`: `init`, `from`, `append`, `concat`, `cstr`, `len`, `free`, `starts_with`, `ends_with`, `trim`, `split`, `next_token` |
 | `<math>`     | `sqrt`, `fabs`, `pow`, `floor`, `ceil`, `abs`         |
 | `<io>`       | `printf`, `fprintf`, `sprintf`, `scanf`, `puts`       |
 | `<mem>`      | `alloc<T>(n)`, `free(p)`, `memcpy`, `memset`, `memmove`, `memcmp`, `strlen` |
-| `<alloc>`    | `Bump`, `Arena`, `Pool`, `FirstFit` — explicit allocators over a buffer you own (the Zig model; not a `malloc` replacement) |
-| `<either>`   | sum types — `Option<T>`, `Either<A,B>` + helpers (built on generic algebraic enums) |
-| `<futureval>`| value-returning combinators — `select2v` -> `Either`, `join2v` -> `Pair` |
-| `<http2>`    | HTTP/2 (RFC 7540) wire layer — frame-header codec + constants, connection lifecycle (`H2Conn`), per-stream state machine + flow control (`H2Stream`), and async frame I/O |
-| `<hpack>`    | HPACK (RFC 7541) header compression — static + dynamic tables, prefix-integer / string coding, Huffman |
-| `<http2_server>`| HTTP/2 (h2c, cleartext) server over the event loop — `http2_serve_async`, multiplexed streams, same handler interface as `<http>` |
-| `<tls>`      | h2 over TLS via OpenSSL with ALPN `"h2"` — `http2_tls_serve_conn` (blocking) / `http2_tls_serve_async` |
-| `<sysheap>`  | `Heap` — a general heap that `mmap`s OS pages and runs `FirstFit` on them (no libc `malloc`) |
+| `<alloc>`    | `Bump`, `Arena`, `Pool`, `FirstFit`: explicit allocators over a buffer you own (the Zig model; not a `malloc` replacement) |
+| `<either>`   | sum types: `Option<T>`, `Either<A,B>` + helpers (built on generic algebraic enums) |
+| `<futureval>`| value-returning combinators: `select2v` -> `Either`, `join2v` -> `Pair` |
+| `<http2>`    | HTTP/2 (RFC 7540) wire layer: frame-header codec + constants, connection lifecycle (`H2Conn`), per-stream state machine + flow control (`H2Stream`), and async frame I/O |
+| `<hpack>`    | HPACK (RFC 7541) header compression: static + dynamic tables, prefix-integer / string coding, Huffman |
+| `<http2_server>`| HTTP/2 (h2c, cleartext) server over the event loop: `http2_serve_async`, multiplexed streams, same handler interface as `<http>` |
+| `<tls>`      | h2 over TLS via OpenSSL with ALPN `"h2"`: `http2_tls_serve_conn` (blocking) / `http2_tls_serve_async` |
+| `<sysheap>`  | `Heap`: a general heap that `mmap`s OS pages and runs `FirstFit` on them (no libc `malloc`) |
 | `<fs>`       | `fs_open`, `fs_close`, `fs_read`, `fs_write`, `fs_puts`, `fs_seek`, `fs_tell`, `fs_size`, `fs_read_all`, `fs_write_all`, `fs_eof`, `fs_error` |
-| `<net>`      | TCP sockets — `net_tcp_listen`, `net_accept`, `net_tcp_connect`, `net_send`, `net_recv`, `net_close` |
-| `<http>`     | HTTP/1.1 — `HttpRequest`/`HttpResponse`, threaded `http_serve(port, workers, handler)` |
+| `<net>`      | TCP sockets: `net_tcp_listen`, `net_accept`, `net_tcp_connect`, `net_send`, `net_recv`, `net_close` |
+| `<http>`     | HTTP/1.1: `HttpRequest`/`HttpResponse`, threaded `http_serve(port, workers, handler)` |
 | `<json>`     | `Json` builder + `json_parse` → `JsonValue` tree |
-| `<multipart>`| extract a named part from a `multipart/form-data` body — `multipart_boundary`, `multipart_part` |
+| `<multipart>`| extract a named part from a `multipart/form-data` body: `multipart_boundary`, `multipart_part` |
 | `<base64>`   | `base64_encode` / `base64_decode` over byte buffers |
 | `<time>`     | `time_now_ms`, `time_now_s`, `time_monotonic_ms`, `sleep_ms` |
 | `<env>`      | `env_get`, `env_has`, `env_get_or`, `env_get_int` |
 | `<path>`     | `path_join`, `path_basename`, `path_dirname`, `path_extension`, `path_is_absolute` |
 | `<threading>`| `Mutex`, `Cond`, `Sem` over pthread (pairs with `thread_create`/`thread_join`) |
-| `<eventloop>`| readiness reactor over kqueue/epoll — `el_new`/`el_add_read`/`el_run`/`el_stop`/`el_add_timer` |
-| `<atomic>`   | atomic `int` cell — `atomic_load`/`atomic_store`/`atomic_swap`/`atomic_cas` |
-| `<future>`   | the `async`/`await` runtime — `Future<T>`, `future_poll`/`complete`/`drop`, `spawn`/`select2`/`join2` |
-| `<executor>` | `Executor` — event loop + thread-safe ready-queue + self-pipe wakeup |
-| `<net_async>`| async leaf futures — `net_read_async`, `net_accept_async` |
-| `<timer>`    | `timer_after(lp, ms)` — a `*Future<int>` that completes after a delay (timeouts) |
-| `<channel>`  | async message channel — `chan_new`/`chan_send`/`chan_recv` (a `*Future<T>`) |
-| `<http_async>`| non-blocking concurrent HTTP/1.1 server — `http_serve_async` |
+| `<eventloop>`| readiness reactor over kqueue/epoll: `el_new`/`el_add_read`/`el_run`/`el_stop`/`el_add_timer` |
+| `<atomic>`   | atomic `int` cell: `atomic_load`/`atomic_store`/`atomic_swap`/`atomic_cas` |
+| `<future>`   | the `async`/`await` runtime: `Future<T>`, `future_poll`/`complete`/`drop`, `spawn`/`select2`/`join2` |
+| `<executor>` | `Executor`: event loop + thread-safe ready-queue + self-pipe wakeup |
+| `<net_async>`| async leaf futures: `net_read_async`, `net_accept_async` |
+| `<timer>`    | `timer_after(lp, ms)`: a `*Future<int>` that completes after a delay (timeouts) |
+| `<channel>`  | async message channel: `chan_new`/`chan_send`/`chan_recv` (a `*Future<T>`) |
+| `<http_async>`| non-blocking concurrent HTTP/1.1 server: `http_serve_async` |
 
 Note: when using `<math>` link with `-lm`. Library flags are passed straight
 through to the linker, so the one-command form works too:
@@ -944,11 +944,11 @@ through to the linker, so the one-command form works too:
 eskiuc file.esk -o file -lm
 ```
 
-### Standard library highlights (v0.3.0)
+### Standard library highlights
 
 A few of the newer modules. See the language spec §14 for the full reference.
 
-**`<alloc>` — allocators over a caller buffer.** `alloc_with(&a, T, n)` carves a
+**`<alloc>`: allocators over a caller buffer.** `alloc_with(&a, T, n)` carves a
 typed `*T` out of any struct that exposes a `_alloc` method. Bump is the
 simplest: individual frees are no-ops; one `free` of the backing buffer releases
 everything.
@@ -961,7 +961,7 @@ extern int printf(string fmt, ...);
 int main() {
     *uint8 backing = alloc<uint8>(4096);
     let a: Bump;  Bump_init(&a, backing, 4096);
-    *int xs = alloc_with(&a, int, 16);     // 16 ints from the slab — no per-object malloc
+    *int xs = alloc_with(&a, int, 16);     // 16 ints from the slab, no per-object malloc
     xs[0] = 7;  xs[15] = 9;
     printf("%d %d\n", xs[0], xs[15]);
     free(backing);                          // frees xs too
@@ -969,7 +969,7 @@ int main() {
 }
 ```
 
-**`<json>` — build and parse.** The builder inserts separators automatically;
+**`<json>`: build and parse.** The builder inserts separators automatically;
 `json_parse` returns a `*JsonValue` tree.
 
 ```eskiu
@@ -990,7 +990,7 @@ int main() {
 }
 ```
 
-**`<http>` — a concurrent server in a few lines.** The handler fills the
+**`<http>`: a concurrent server in a few lines.** The handler fills the
 response; `http_serve` runs a pool of worker threads over `<net>` + `<threading>`.
 
 ```eskiu
@@ -1049,7 +1049,7 @@ int main() {
 }
 ```
 
-### Closures — capturing from the enclosing scope
+### Closures: capturing from the enclosing scope
 
 A lambda can reference variables declared in the surrounding scope. Those variables are captured by value at the point the lambda is created.
 
@@ -1065,7 +1065,7 @@ int main() {
 }
 ```
 
-Closures can be passed to higher-order functions exactly like plain lambdas — the `fn(T)->R` type is the same in both cases.
+Closures can be passed to higher-order functions exactly like plain lambdas: the `fn(T)->R` type is the same in both cases.
 
 ```eskiu
 int apply(fn(int)->int f, int x) { return f(x); }
@@ -1084,7 +1084,7 @@ Under the hood, `fn(T)->R` is a fat pointer `{fn_ptr, env_ptr}`. Non-capturing l
 
 ## Threads
 
-`thread_create` and `thread_join` are language keywords. Pass any `fn()->void` value — including a closure — to spawn a thread.
+`thread_create` and `thread_join` are language keywords. Pass any `fn()->void` value, including a closure, to spawn a thread.
 
 ### Basic usage
 
@@ -1112,7 +1112,7 @@ int main() {
 }
 ```
 
-The closure fat pointer maps directly to pthread's `(start_routine, arg)` pair — no trampoline is generated. On Linux, link with `-lpthread`:
+The closure fat pointer maps directly to pthread's `(start_routine, arg)` pair: no trampoline is generated. On Linux, link with `-lpthread`:
 
 ```bash
 eskiuc threads.esk -o threads -lpthread
@@ -1293,14 +1293,14 @@ Mark a pointer variable `volatile` to prevent the compiler from optimising away 
 ```eskiu
 volatile let uart: *uint8 = (uint8*) 0x3F8;
 
-// Both the read and the write are always emitted — never cached or removed
+// Both the read and the write are always emitted, never cached or removed
 uint8 status = *uart;
 *uart = 'A';
 ```
 
 Without `volatile`, the compiler may eliminate or reorder accesses to addresses it considers side-effect-free.
 
-### Inline assembly — simple form
+### Inline assembly: simple form
 
 ```eskiu
 asm("cli");   // disable interrupts
@@ -1310,7 +1310,7 @@ asm("nop");
 
 The string is passed verbatim to the assembler. Use this form for instructions that take no operands.
 
-### Inline assembly — extended form
+### Inline assembly: extended form
 
 The extended form passes values in and out of the asm template using GCC-compatible constraints:
 
@@ -1338,7 +1338,7 @@ eskiuc kernel.esk --target x86_64-pc-linux-gnu --freestanding -o kernel.o
 You must provide `esk_alloc` and `esk_free` in your own source or a C shim:
 
 ```eskiu
-// kernel_alloc.esk — linked together with kernel.esk
+// kernel_alloc.esk, linked together with kernel.esk
 *void esk_alloc(int size) { return bump_alloc(size); }
 void  esk_free(*void ptr)  { bump_free(ptr); }
 ```
@@ -1385,7 +1385,7 @@ union Value {
 int main() {
     let v: Value;
     v.i = 0x3F800000;            // IEEE 754 bit pattern for 1.0
-    printf("%f\n", v.f);         // 1.000000 — same bytes, read as float
+    printf("%f\n", v.f);         // 1.000000, same bytes, read as float
     v.f = 3.14;
     printf("%d\n", v.i);         // raw integer bits of 3.14
     return 0;
