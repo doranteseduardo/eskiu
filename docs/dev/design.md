@@ -6,15 +6,15 @@ This document records the reasoning behind the architectural and language choice
 
 ## Origin and vision
 
-Eskiu was built in response to a concrete problem: compute-intensive services require too many languages at once. A typical pipeline involves C for performance-critical work, Go for concurrent services, C++ for libraries, and Python for glue — each with its own toolchain, idioms, and interop cost.
+Eskiu was built in response to a concrete problem: compute-intensive work usually gets split across several languages, each strong at one thing. A typical pipeline uses C for performance-critical code, Go for concurrent services, C++ for libraries, and Python for glue, and every seam between them adds a toolchain, its own idioms, and an interop cost.
 
-The goal is to replace that stack with a single language. Not a compromise between them, but a language built from solid systems foundations and then extended upwards into the domain.
+Eskiu's answer is a single language with the power of C and the immediacy of a scripting language: it compiles to native code through LLVM, yet `eskiuc run file.esk` runs a `.esk` file directly, the way you would a Python or Ruby script. It starts from solid systems foundations and grows upward into the domain, so it can cover that ground without trading native performance for ergonomics.
 
-**Foundation phase.** Establish a language that can do everything C can do: native performance, explicit memory, direct access to any C library. Validate it against real production code before claiming it works. This phase is complete — a cryptographic pipeline running entirely in Eskiu, 2.5× faster than the reference C.
+**Foundation phase.** Establish a language that can do everything C can do: native performance, explicit memory, direct access to any C library. Validate it against real production code before claiming it works. This phase is complete: a cryptographic pipeline runs entirely in Eskiu, 2.5× faster than the reference C.
 
-**v0.1 milestone — shipped.** Booting Eskiu code on bare metal in QEMU without libc — the classic proof-of-concept for a systems language. Delivered in v0.1.0 via inline assembly, freestanding mode, and `volatile`: an ARM64 kernel written in Eskiu boots in QEMU (`-M virt`) on the PL011 UART, with no libc or C runtime.
+**v0.1 milestone, shipped.** Booting Eskiu code on bare metal in QEMU without libc, the classic proof-of-concept for a systems language. Delivered in v0.1.0 via inline assembly, freestanding mode, and `volatile`: an ARM64 kernel written in Eskiu boots in QEMU (`-M virt`) on the PL011 UART, with no libc or C runtime.
 
-**Domain specialisation phase.** Once the systems foundation is stable, make the domain types that high-throughput services actually work with first-class in the language — without losing general systems capability.
+**Domain specialisation phase.** Once the systems foundation is stable, make the domain types that high-throughput services actually work with first-class in the language, without losing general systems capability.
 
 | Stage | Eskiu | Reference C |
 |---|---|---|
