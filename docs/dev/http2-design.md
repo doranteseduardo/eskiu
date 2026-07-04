@@ -1,4 +1,4 @@
-# HTTP/2 — architecture
+# HTTP/2 architecture
 
 `<http2>` brings HTTP/2 (RFC 7540) to Eskiu over the async `<eventloop>`. HTTP/2 is
 a binary, multiplexed protocol: one TCP (TLS) connection carries many concurrent
@@ -45,8 +45,8 @@ the 257-symbol table. The table is **generated** from the RFC text by
 hand-transcribed; the generator asserts the worked example (sym 47 = 0x18/6), the
 EOS length, and completeness. The decoder validates padding (trailing bits must be
 the EOS prefix) and rejects a literal EOS; the encoder picks the smaller of
-raw/Huffman per string. Validated against the RFC vectors — §C.1.1 (integer),
-§C.3.1 (raw request), §C.4.1 (Huffman request) — plus encode→decode round-trips
+raw/Huffman per string. Validated against the RFC vectors, §C.1.1 (integer),
+§C.3.1 (raw request), §C.4.1 (Huffman request), plus encode→decode round-trips
 (`tests/hpack`).
 
 ### Streams and flow control (`stdlib/http2.esk`)
@@ -54,7 +54,7 @@ raw/Huffman per string. Validated against the RFC vectors — §C.1.1 (integer),
 The per-stream state machine (`H2Stream`: idle → open → half-closed-local/remote →
 closed, via `h2_stream_on_recv`/`h2_stream_on_send`); credit-based flow control
 (`h2_can_send`/`h2_account_sent`/`h2_account_recv`/`h2_grant_window`) over
-per-stream and connection windows; and the stream-frame codecs — HEADERS, DATA,
+per-stream and connection windows; and the stream-frame codecs: HEADERS, DATA,
 WINDOW_UPDATE, RST_STREAM (`h2_write_*`). HEADERS+CONTINUATION reassembly to
 END_HEADERS is the async `h2_read_header_block_async`. RESERVED states are omitted
 (no server push). Tested by `http2_stream` (state machine, flow control, codecs).
@@ -80,7 +80,7 @@ multiplexed: interleaved request frames are routed to per-stream slots
 a client may run many concurrent streams on one connection; responses are
 serialized on the connection's single writer (correct, and avoids concurrent
 socket writes). While a response is parked on flow control, other streams' frames
-wait — a bounded property suited to the typical small-response mix. This path is
+wait, a bounded property suited to the typical small-response mix. This path is
 cleartext h2c; TLS is the layer below. Tested over a socketpair end-to-end
 (`http2_server`), with DATA chunking (`http2_chunking`) and interleaved two-stream
 multiplexing (`http2_multiplex`).
@@ -90,8 +90,8 @@ multiplexing (`http2_multiplex`).
 OpenSSL (libssl) by FFI. A server `SSL_CTX` loads a cert/key and installs an ALPN
 callback selecting `h2` (`tls_server_ctx`); the ALPN selector is handed to OpenSSL
 as a raw C function pointer via the `(*void)fn` cast (language spec §13.4). Two
-server flavours run the `<http2>` frame protocol — reusing the codecs, HPACK, and
-the `<http2_server>` request/response glue — over the encrypted stream:
+server flavours run the `<http2>` frame protocol (reusing the codecs, HPACK, and
+the `<http2_server>` request/response glue) over the encrypted stream:
 
 - **Blocking**, thread-per-connection: `http2_tls_serve_conn` over
   `tls_accept`/`tls_read_full`/`tls_write_all`/`tls_close`.
@@ -104,14 +104,14 @@ the `<http2_server>` request/response glue — over the encrypted stream:
 Verified end-to-end against `curl --http2`: ALPN negotiates h2 and the request is
 served as `HTTP/2 200`, including multiple concurrent connections on the async
 server's single thread. See `examples/http2_tls_server.esk`. (The TLS path is
-outside the dependency-free automated suite — it needs OpenSSL link flags, a cert,
-and a TLS client — but the pure ALPN selector logic is exercised by that
+outside the dependency-free automated suite: it needs OpenSSL link flags, a cert,
+and a TLS client, but the pure ALPN selector logic is exercised by that
 end-to-end run.)
 
 ## Frame header (RFC 7540 §4.1)
 
 ```
-[ Length (24) | Type (8) | Flags (8) | R(1) | Stream Identifier (31) ]   — 9 bytes, big-endian
+[ Length (24) | Type (8) | Flags (8) | R(1) | Stream Identifier (31) ]   (9 bytes, big-endian)
 ```
 
 `h2_read_header` masks off the reserved top bit of the stream id; `h2_write_header`

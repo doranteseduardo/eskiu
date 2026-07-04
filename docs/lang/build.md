@@ -7,7 +7,7 @@
 | LLVM         | 17                                     | 22.x        |
 | CMake        | 3.20                                   | 3.x         |
 | C++ compiler | C++17 (clang++ recommended, g++ works) | clang++ 17+ |
-| git          | any                                    | —           |
+| git          | any                                    | n/a         |
 
 LLVM is the only non-trivial dependency. The compiler uses the `support`, `core`, and `irreader` component libraries.
 
@@ -110,16 +110,16 @@ cmake --build build -- -j$(nproc)
 ### Debug vs Release
 
 ```bash
-# Release — optimized binary, suitable for benchmarks
+# Release: optimized binary, suitable for benchmarks
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 
-# Debug — unoptimized, assertions enabled, better stack traces
+# Debug: unoptimized, assertions enabled, better stack traces
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
 ```
 
 ### Incremental builds
 
-After changing source files, just re-run the build step — CMake tracks dependencies:
+After changing source files, just re-run the build step; CMake tracks dependencies:
 
 ```bash
 cmake --build build -- -j$(nproc)
@@ -224,7 +224,7 @@ cmake -S . -B build \
   -DCMAKE_C_COMPILER=clang-17
 ```
 
-### Linker errors — undefined LLVM symbols
+### Linker errors: undefined LLVM symbols
 
 The build links `support`, `core`, and `irreader`. If you see undefined symbols from LLVM:
 
@@ -245,8 +245,8 @@ tests/run.sh                       # full suite against build/eskiuc
 ESKIUC=/path/eskiuc tests/run.sh   # point at a specific compiler
 ```
 
-CI runs the suite three ways — plain, then under UBSan and ASan (`SANITIZE=ubsan` /
-`SANITIZE=asan`) as hardening gates — plus a generative fuzzer
+CI runs the suite three ways: plain, then under UBSan and ASan (`SANITIZE=ubsan` /
+`SANITIZE=asan`) as hardening gates, plus a generative fuzzer
 (`tests/fuzz/eskiu_fuzz.py`) that mutates programs and fails on any compiler crash,
 IR-verifier failure, or O0-vs-O2 runtime divergence (a differential oracle); a
 golden-IR oracle guards against unintended codegen changes.

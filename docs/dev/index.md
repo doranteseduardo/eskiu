@@ -1,4 +1,4 @@
-# Eskiu Compiler — Developer Documentation
+# Eskiu Compiler: Developer Documentation
 
 This section covers the internals of the compiler: its full compilation pipeline, AST design, type system, semantic analysis, and LLVM-based code generation layer. It is written for contributors who want to understand how the compiler works, add a new language feature, fix a bug, or extend the test suite. Familiarity with C++17 and a basic understanding of LLVM IR are assumed; no prior compiler experience is required.
 
@@ -64,12 +64,12 @@ The VS Code extension provides real-time error squiggles, hover type info, and g
 | Lexer          | `lexer/lexer.cpp`, `lexer/preprocessor.cpp` | Converts source text to a token stream with line/column tracking; runs the preprocessor pass first |
 | Parser         | `parser/parser.cpp` + `parse_{decl,stmt,expr}.cpp` (`parser_internal.h`) | Recursive-descent; produces a typed AST from the token stream |
 | AST            | `ast/ast.h`             | All node types; visitor interface used by every downstream pass                         |
-| Type checker   | `sema/type_checker.cpp` + `typecheck_{decl,stmt,expr,type}.cpp`; the `ty::Type` IR in `sema/type.{h,cpp}` | Scope resolution, type inference, struct registry, interface satisfaction, signatures; the **single type resolver** — produces a per-expression `ty::Type` table that codegen consumes |
+| Type checker   | `sema/type_checker.cpp` + `typecheck_{decl,stmt,expr,type}.cpp`; the `ty::Type` IR in `sema/type.{h,cpp}` | Scope resolution, type inference, struct registry, interface satisfaction, signatures; the **single type resolver** that produces a per-expression `ty::Type` table that codegen consumes |
 | Async transform | `sema/async_transform.cpp` | Rewrites each `async fn` into a frame struct + resume function + `*Future<T>` constructor (ordinary AST that normal codegen handles) |
 | Code generator | `codegen/codegen_{module,type,scope,decl,stmt,expr,call,closure,adt}.cpp`, `codegen.h` (no single `codegen/codegen.cpp`) | Walks the AST via visitor, emits LLVM IR using `llvm::IRBuilder<>`; handles GEP, vtable dispatch, and monomorphic template instantiation; consumes the type checker's resolved type table |
 | Entry point    | `main.cpp` + `main_support.cpp` | CLI dispatch; routes `--test-*` flags to the appropriate pass and drives object emission |
 
-**Pipeline.** lexer → parser → type checker → async transform → **type checker RE-RUN on the transformed AST (the single resolver, producing a per-expression `ty::Type` table)** → codegen (consumes that table; `getTypeFromString` dispatches on `ty::Type::parse`, the one grammar interpreter — codegen does not re-derive expression types).
+**Pipeline.** lexer → parser → type checker → async transform → **type checker RE-RUN on the transformed AST (the single resolver, producing a per-expression `ty::Type` table)** → codegen (consumes that table; `getTypeFromString` dispatches on `ty::Type::parse`, the one grammar interpreter; codegen does not re-derive expression types).
 
 **Where to look first:**
 
