@@ -4,7 +4,7 @@ Two ways to get `eskiuc` running. Pick the one that suits you.
 
 ---
 
-## Option A — Pre-built binary (recommended)
+## Option A: Pre-built binary (recommended)
 
 Download the latest release from [github.com/doranteseduardo/eskiu/releases](https://github.com/doranteseduardo/eskiu/releases).
 
@@ -18,17 +18,17 @@ tar -xzf eskiuc-linux-x86_64.tar.gz -C /usr/local
 eskiuc --version
 ```
 
-Expected output: `Eskiu 0.2.5 (LLVM ...)`
+Expected output: `Eskiu 0.3.1 (LLVM ...)`
 
 The tarball installs:
-- `bin/eskiuc` — the compiler
-- `lib/eskiu/stdlib/` — the standard library
+- `bin/eskiuc`: the compiler
+- `lib/eskiu/stdlib/`: the standard library
 
 `import <result>` and other stdlib imports work immediately after installation.
 
 ---
 
-## Option B — Build from source
+## Option B: Build from source
 
 Requires LLVM 17+, CMake 3.20+, and a C++17 compiler.
 
@@ -38,7 +38,7 @@ cmake --build build
 ./build/eskiuc --version
 ```
 
-Expected output: `Eskiu 0.2.5 (LLVM ...)`
+Expected output: `Eskiu 0.3.1 (LLVM ...)`
 
 ## Hello, Eskiu
 

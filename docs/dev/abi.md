@@ -19,12 +19,12 @@ declarations. There is no separate Eskiu calling convention.
 | `int8` / `int16` / `int64` | `i8` / `i16` / `i64` | signed | |
 | `uint`, `uint32` | `i32` | unsigned | |
 | `uint8` / `uint16` / `uint64` | `i8` / `i16` / `i64` | unsigned | |
-| `bool` | `i1` | — | |
+| `bool` | `i1` | n/a | |
 | `char` | `i8` | unsigned | |
-| `float` | `float` | — | IEEE-754 single |
-| `double` | `double` | — | IEEE-754 double |
-| `string` | `ptr` | — | pointer to a NUL-terminated byte buffer |
-| `void` | `void` | — | return type only |
+| `float` | `float` | n/a | IEEE-754 single |
+| `double` | `double` | n/a | IEEE-754 double |
+| `string` | `ptr` | n/a | pointer to a NUL-terminated byte buffer |
+| `void` | `void` | n/a | return type only |
 
 Signedness is not part of the LLVM type (both `int` and `uint` are `i32`); it
 is carried by the operations. Integer **widening** chooses the extension by the
@@ -39,6 +39,12 @@ sign-extend. Narrowing truncates. `int`↔float uses signed conversions
 All pointers lower to LLVM's opaque `ptr` (address space 0), regardless of
 pointee type or spelling (`int*` and `*int` are identical). Pointer-to-pointer,
 casts between pointer types, and `string` are all just `ptr`.
+
+A leading `*` and a trailing `[N]` follow the source rule that the array binds
+outermost: `*T[N]` is an array of N `ptr` elements, while a pointer to an array is
+spelled `T[N]*` (a single `ptr`). For C interop, libc `size_t` parameters and returns
+(`strlen`, the size argument of `memcpy`/`memset`/`memmove`/`memcmp`/`memchr`) are
+declared `int64` so the extern signatures match the C ABI on 64-bit targets.
 
 `const` has **no ABI effect**. Every `const` qualifier (base/pointee `const T`,
 pointer-level `T* const`) is stripped before lowering, so a `const int*` and an
@@ -58,7 +64,7 @@ inserts padding). This matches a C `struct` with the same fields.
 ### Packed structs
 
 `packed struct` (equivalently `#pragma pack(1)`) lowers to an LLVM *packed*
-struct — no padding, fields back-to-back.
+struct: no padding, fields back-to-back.
 
 `#pragma pack(N)` for `N > 1` uses an explicit manual layout that caps each
 field's alignment at `N`: a field is placed at the next offset that is a
@@ -106,7 +112,7 @@ A payload-bearing enum is a tagged union:
   area (coercing the value to the field type). `match` reads the tag, branches,
   and reads payload fields per arm.
 
-Generic ADTs (`Option<T>`, `Either<A,B>`) are monomorphized per instantiation —
+Generic ADTs (`Option<T>`, `Either<A,B>`) are monomorphized per instantiation:
 each concrete instance (`Option_int`) gets its own `{i32, [N x i64]}` sized for
 that instance, exactly like template structs.
 
@@ -124,7 +130,7 @@ Structs ≤ 16 bytes are returned by value (the target ABI splits them into
 registers as usual). This is the System V / AArch64 rule and is C-compatible.
 
 **Variadics.** A `...` parameter makes the LLVM function `isVarArg`. The built-in
-`va_list` is the struct `{ ptr, ptr, ptr, i32, i32 }` (32 B, 8-aligned) — a
+`va_list` is the struct `{ ptr, ptr, ptr, i32, i32 }` (32 B, 8-aligned), a
 superset of the x86-64 (24 B) and AArch64 (32 B) layouts, so one type serves
 both; `va_start`/`va_arg<T>`/`va_end` lower to the corresponding LLVM
 intrinsics/instruction. Variadic arguments follow C default promotions:
@@ -135,7 +141,7 @@ zero-extends, and `float` widens to `double`.
 
 ## Function pointers, closures and interfaces
 
-These use **fat pointers** — a two-`ptr` struct `{ ptr, ptr }`.
+These use **fat pointers**: a two-`ptr` struct `{ ptr, ptr }`.
 
 **Function values / closures.** A `fn(A,B)->R` value is `{ fn, env }`: a code
 pointer plus an environment pointer. A lambda compiles to a function whose first
@@ -173,7 +179,7 @@ mangling: in the instance type, spaces are removed and `<`, `>`, `,` become `_`.
 Struct methods are emitted as `Struct_method`; interface vtable entries as
 `Interface_method`. Non-template top-level functions keep their source names
 (Eskiu does not overload, so no signature mangling is needed). `extern` and
-`intrinsic` declarations use their exact C symbol names — that is how Eskiu
+`intrinsic` declarations use their exact C symbol names: that is how Eskiu
 calls into C.
 
 ---
@@ -191,6 +197,6 @@ contract for the runtime side.
 
 ## See also
 
-- [../lang/grammar.md](../lang/grammar.md) — the surface syntax these rules lower.
-- [async-design.md](async-design.md) — the `Future<T>` ABI and scheduler contract.
-- [architecture.md](architecture.md) — the compiler pipeline overview.
+- [../lang/grammar.md](../lang/grammar.md): the surface syntax these rules lower.
+- [async-design.md](async-design.md): the `Future<T>` ABI and scheduler contract.
+- [architecture.md](architecture.md): the compiler pipeline overview.

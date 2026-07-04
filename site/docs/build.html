@@ -101,7 +101,7 @@ body { background: var(--bg); color: var(--ink); font-family: var(--sans);
 <tr>
 <td>git</td>
 <td>any</td>
-<td>—</td>
+<td>n/a</td>
 </tr>
 </tbody>
 </table></div>
@@ -166,14 +166,14 @@ cmake --build build -- -j$(nproc)
 <hr>
 <h2 id="build-options">Build Options</h2>
 <h3 id="debug-vs-release">Debug vs Release</h3>
-<pre><code class="language-bash"># Release — optimized binary, suitable for benchmarks
+<pre><code class="language-bash"># Release: optimized binary, suitable for benchmarks
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 
-# Debug — unoptimized, assertions enabled, better stack traces
+# Debug: unoptimized, assertions enabled, better stack traces
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
 </code></pre>
 <h3 id="incremental-builds">Incremental builds</h3>
-<p>After changing source files, just re-run the build step — CMake tracks dependencies:</p>
+<p>After changing source files, just re-run the build step; CMake tracks dependencies:</p>
 <pre><code class="language-bash">cmake --build build -- -j$(nproc)
 </code></pre>
 <h3 id="clean-rebuild">Clean rebuild</h3>
@@ -258,7 +258,7 @@ entry:
   -DCMAKE_CXX_COMPILER=clang++-17 \
   -DCMAKE_C_COMPILER=clang-17
 </code></pre>
-<h3 id="linker-errors-undefined-llvm-symbols">Linker errors — undefined LLVM symbols</h3>
+<h3 id="linker-errors-undefined-llvm-symbols">Linker errors: undefined LLVM symbols</h3>
 <p>The build links <code>support</code>, <code>core</code>, and <code>irreader</code>. If you see undefined symbols from LLVM:</p>
 <ol>
 <li>Confirm the installed LLVM version matches the headers used at configure time (<code>llvm-config --version</code>).</li>
@@ -273,8 +273,8 @@ checking that <code>tests/errors/*.esk</code> are rejected):</p>
 <pre><code class="language-bash">tests/run.sh                       # full suite against build/eskiuc
 ESKIUC=/path/eskiuc tests/run.sh   # point at a specific compiler
 </code></pre>
-<p>CI runs the suite three ways — plain, then under UBSan and ASan (<code>SANITIZE=ubsan</code> /
-<code>SANITIZE=asan</code>) as hardening gates — plus a generative fuzzer
+<p>CI runs the suite three ways: plain, then under UBSan and ASan (<code>SANITIZE=ubsan</code> /
+<code>SANITIZE=asan</code>) as hardening gates, plus a generative fuzzer
 (<code>tests/fuzz/eskiu_fuzz.py</code>) that mutates programs and fails on any compiler crash,
 IR-verifier failure, or O0-vs-O2 runtime divergence (a differential oracle); a
 golden-IR oracle guards against unintended codegen changes.</p>

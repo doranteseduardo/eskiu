@@ -6,14 +6,12 @@
 
 ## 1. Overview
 
-Eskiu is a systems programming language built to address the fragmentation of compute-intensive services. Services in this space commonly reach for C when performance matters, Go for concurrency, C++ for libraries, and Python for glue — each with its own toolchain and interop cost.
-
-Eskiu's goal is to replace that stack with a single language. Phase one establishes a solid systems foundation: native performance, explicit memory, direct C interop. Phase two, once the foundation is stable, will introduce first-class support for the domain types that high-throughput services actually work with, without giving up general systems capability.
+Eskiu is a statically typed, compiled systems language. It lowers to native code through LLVM, manages memory explicitly (no garbage collector), and interoperates directly with C. A `.esk` file can also be run on the spot with `eskiuc run` (or a `#!/usr/bin/env eskiuc run` shebang), so the same source is both a compiled artifact and a runnable script. This document is the language reference: syntax, type system, semantics, and ABI.
 
 Core properties:
 
 - Statically typed with explicit type annotations
-- Manual memory management — no garbage collector
+- Manual memory management, no garbage collector
 - Compiles to native object files via LLVM (arm64 and x86-64)
 - Structs with methods, monomorphic templates, and structural interfaces
 - Lambdas and `fn(T)->R` function pointer types
@@ -28,7 +26,7 @@ eskiuc file.esk -o file   # compile and link into an executable
 ```
 
 `eskiuc` links the program for you by invoking the system C toolchain (`$CC`,
-then `cc`/`clang`/`gcc`) — the same approach `rustc` and `clang` use. To stop at
+then `cc`/`clang`/`gcc`), the same approach `rustc` and `clang` use. To stop at
 the object file instead, give the output a `.o` name or pass `-c`, then link
 yourself:
 
@@ -43,7 +41,7 @@ clang file.o -o file        # link it yourself
 
 ### 2.1 Comments
 
-Single-line comments begin with `//` and extend to the end of the line — a trailing backslash does **not** continue the comment onto the next line (unlike C). Block comments are enclosed in `/* ... */` and may span multiple lines. Comments do not nest.
+Single-line comments begin with `//` and extend to the end of the line. A trailing backslash does **not** continue the comment onto the next line (unlike C). Block comments are enclosed in `/* ... */` and may span multiple lines. Comments do not nest.
 
 ```eskiu
 // This is a single-line comment
@@ -161,7 +159,7 @@ cast). Integer literals are `int` (i32), widening to `int64` when they exceed 32
 | `bool`   | `i1`     | 1 bit   | `true` or `false`                  |
 | `char`   | `i8`     | 8 bits  | Unsigned; single byte              |
 | `string` | `i8*`    | pointer | Immutable C-string literal         |
-| `void`   | `void`   | —       | No value; valid only as return type|
+| `void`   | `void`   | n/a     | No value; valid only as return type|
 
 Signedness is tracked by the compiler for correct arithmetic and comparison codegen. Signed and unsigned variants of the same width share the same LLVM integer type (e.g., `int8` and `uint8` are both `i8`).
 
@@ -184,7 +182,7 @@ let buf: *uint8 = null;
 
 ### 3.3 Array Types
 
-Fixed-size arrays use the form `T[N]` where `N` is a compile-time integer constant — a decimal literal, an `enum` member, or a `const int` (see §4.6). Array types are supported both as struct fields and as local variables:
+Fixed-size arrays use the form `T[N]` where `N` is a compile-time integer constant: a decimal literal, an `enum` member, or a `const int` (see §4.6). Array types are supported both as struct fields and as local variables:
 
 ```eskiu
 struct QRBuffer {
@@ -217,7 +215,7 @@ let r: Rect;
 
 ### 3.5 Template Types
 
-Template structs and functions are parameterized by one or more type variables. Instantiation is lazy and monomorphic — the compiler generates one concrete definition per unique set of type arguments.
+Template structs and functions are parameterized by one or more type variables. Instantiation is lazy and monomorphic: the compiler generates one concrete definition per unique set of type arguments.
 
 ```eskiu
 let r: Result<int, string>;
@@ -256,7 +254,7 @@ A function *value* is assignable to an `fn(...)` type only when the signatures m
 exactly: a function's parameter and return registers are fixed by its calling convention,
 so there is no implicit conversion between function types. Assigning, say, an
 `fn(int)->int` value to an `fn(int)->float` is a compile error. (A lambda *literal* is the
-one exception — when its header return type differs from the target `fn(...)->R`, the
+one exception: when its header return type differs from the target `fn(...)->R`, the
 return type is taken from `R` and the body's value is coerced, so `fn(int)->float =
 int(int x){ ... }` is accepted.)
 
@@ -319,7 +317,7 @@ The `volatile` qualifier prevents the compiler (via LLVM) from optimising away l
 
 ```eskiu
 volatile let uart: *uint8 = (uint8*) 0x3F8;
-*uart = 'A';   // store is always emitted — not eliminated by optimiser
+*uart = 'A';   // store is always emitted, not eliminated by optimiser
 ```
 
 `volatile` applies to all LLVM loads and stores that touch the declared pointer. It has no effect on variables that are never accessed through a pointer, but the canonical use is MMIO pointer variables as shown above.
@@ -378,15 +376,15 @@ int sum(const int* p, int n) {  // a read-only view of the caller's data
 }
 
 const int* r = &v;
-r = &w;     // allowed — the pointer is rebindable
+r = &w;     // allowed: the pointer is rebindable
 *r = 10;    // error: cannot assign to read-only location 'r'  (pointee is const)
 
 int* const c = &v;
 c = &w;     // error: cannot assign to read-only location 'c'  (binding is const)
-*c = 10;    // allowed — the pointee is writable
+*c = 10;    // allowed: the pointee is writable
 ```
 
-Const-correctness is enforced on conversions: adding const (`int*` → `const int*`) is always allowed, but any conversion that would **drop** a const qualifier — in an initializer, assignment, call argument, or return — is a compile error. `const` has no ABI effect; it is stripped before code generation. It applies uniformly to locals, parameters, struct fields and return types.
+Const-correctness is enforced on conversions: adding const (`int*` → `const int*`) is always allowed, but any conversion that would **drop** a const qualifier (in an initializer, assignment, call argument, or return) is a compile error. `const` has no ABI effect; it is stripped before code generation. It applies uniformly to locals, parameters, struct fields and return types.
 
 ---
 
@@ -458,7 +456,7 @@ Short-circuit evaluation applies: in `a && b`, `b` is not evaluated if `a` is fa
 
 The compound bitwise/shift operators are desugared by the parser: `x op= e` is equivalent to `x = x op e`.
 
-The left-hand side must be an lvalue: a named variable, a pointer dereference (`*ptr = value`), or a field access. Assigning through a dereferenced pointer parameter works correctly — `*ptr = value` stores through the pointer as expected.
+The left-hand side must be an lvalue: a named variable, a pointer dereference (`*ptr = value`), or a field access. Assigning through a dereferenced pointer parameter works correctly. `*ptr = value` stores through the pointer as expected.
 
 ### 5.6 Address-of and Dereference
 
@@ -481,7 +479,7 @@ Adding or subtracting an integer `n` from a pointer of type `*T` advances the po
 
 ```eskiu
 *int  pi = alloc<int>(8);
-*int  p2 = pi + 1;   // 4 bytes forward — points to element 1
+*int  p2 = pi + 1;   // 4 bytes forward, points to element 1
 ```
 
 The exceptions are `*void` and `*char`, which always use byte-level stride (1 byte per step) to preserve C interop semantics:
@@ -553,7 +551,7 @@ int is_odd(int n);                              // forward declaration
 
 int is_even(int n) {
     if (n == 0) { return 1; }
-    return is_odd(n - 1);                       // defined below — fine
+    return is_odd(n - 1);                       // defined below, fine
 }
 
 int is_odd(int n) {
@@ -574,7 +572,7 @@ A `void` function may use `return;` with no operand or allow control to fall off
 
 ### 6.3 Variadic Functions
 
-The ellipsis `...` marks a variadic parameter list — at least one fixed parameter
+The ellipsis `...` marks a variadic parameter list; at least one fixed parameter
 must precede it. It is valid in both `extern` declarations and user functions:
 
 ```eskiu
@@ -598,7 +596,7 @@ int sum(int n, ...) {
 
 The C default argument promotions apply to variadic arguments: a `float` is passed
 as `double` (read it with `va_arg<double>`), and integer types narrower than `int`
-arrive as `int`. There is no automatic count of the arguments — pass it explicitly
+arrive as `int`. There is no automatic count of the arguments: pass it explicitly
 (as `n` above) or use a sentinel.
 
 ### 6.4 Extern Declarations
@@ -635,15 +633,15 @@ int out2 = apply(int(int x) { return x + 1; }, 9);  // out2 == 10
 ```eskiu
 int base = 10;
 let add: fn(int)->int = int(int x) { return x + base; };
-add(5);   // 15 — 'base' was captured by value
+add(5);   // 15: 'base' was captured by value
 ```
 
-Under the hood, `fn(T)->R` is a two-word fat pointer `{fn_ptr, env_ptr}`. When a lambda captures one or more variables, the compiler packages them into an environment struct and stores its address in `env_ptr`. Lambdas that capture nothing have `env_ptr = null` and compile identically to plain function pointers. The representation is fully transparent to user code — the type annotation remains `fn(T)->R` in both cases.
+Under the hood, `fn(T)->R` is a two-word fat pointer `{fn_ptr, env_ptr}`. When a lambda captures one or more variables, the compiler packages them into an environment struct and stores its address in `env_ptr`. Lambdas that capture nothing have `env_ptr = null` and compile identically to plain function pointers. The representation is fully transparent to user code. The type annotation remains `fn(T)->R` in both cases.
 
 **Escape analysis and closure lifetime.** Where the environment lives depends on whether the closure *escapes* its creating function:
 
-- A **non-escaping** closure — one that is only called, or passed to a parameter that is not marked `escaping` — has its environment allocated on the **stack**. This costs nothing and needs no cleanup (the common `map`/`filter`/callback-invoked-in-place case).
-- An **escaping** closure — one that is returned, stored into a struct field / global / through a pointer, or passed to an `escaping` parameter — has its environment allocated on the **heap**, so it remains valid after the creating function returns. Release it with `free_closure(f)` (a no-op for non-capturing closures, whose env is null).
+- A **non-escaping** closure (one that is only called, or passed to a parameter that is not marked `escaping`) has its environment allocated on the **stack**. This costs nothing and needs no cleanup (the common `map`/`filter`/callback-invoked-in-place case).
+- An **escaping** closure (one that is returned, stored into a struct field / global / through a pointer, or passed to an `escaping` parameter) has its environment allocated on the **heap**, so it remains valid after the creating function returns. Release it with `free_closure(f)` (a no-op for non-capturing closures, whose env is null).
 
 A parameter that retains the closure beyond the call (stores it, returns it, hands it to another `escaping` parameter) must be declared `escaping`:
 
@@ -657,7 +655,7 @@ int apply(fn(int)->int f, int x) { return f(x); }
 
 This is checked: using a non-`escaping` closure parameter beyond a direct call is a compile error pointing you at `escaping`, so a closure can never silently outlive its stack environment. `escaping` and `free_closure` are reserved words (§2.3).
 
-**Named functions as values.** A top-level function used as a value (rather than called) decays to a `fn(T,...)->R`, so it can be assigned or passed directly — no lambda wrapper needed:
+**Named functions as values.** A top-level function used as a value (rather than called) decays to a `fn(T,...)->R`, so it can be assigned or passed directly, no lambda wrapper needed:
 
 ```eskiu
 void worker() { /* ... */ }
@@ -719,7 +717,7 @@ thread_create(fn()->void worker) -> *void
 thread_join(*void handle) -> void
 ```
 
-`thread_create` accepts any `fn()->void` value — including a closure — and returns an opaque `*void` thread handle. `thread_join` blocks the calling thread until the spawned thread completes.
+`thread_create` accepts any `fn()->void` value, including a closure, and returns an opaque `*void` thread handle. `thread_join` blocks the calling thread until the spawned thread completes.
 
 ```eskiu
 extern int printf(string fmt, ...);
@@ -740,7 +738,7 @@ let worker: fn()->void = void() { printf("thread %d\n", id); };
 thread_join(t);
 ```
 
-**Implementation detail.** The closure fat pointer `{fn_ptr, env_ptr}` maps directly to the `(start_routine, arg)` pair expected by `pthread_create` — no trampoline function is generated. On Linux, link the final binary with `-lpthread`.
+**Implementation detail.** The closure fat pointer `{fn_ptr, env_ptr}` maps directly to the `(start_routine, arg)` pair expected by `pthread_create`. No trampoline function is generated. On Linux, link the final binary with `-lpthread`.
 
 ### 6.8 Async Functions and `await`
 
@@ -752,7 +750,7 @@ supported; a pending future is cancelled with `future_drop`.
 
 An `async` function is declared with the `async` modifier before the return type. Its
 *declared* return type is the value it ultimately produces, but a **call** to it
-yields a `*Future<T>` — a handle to the eventual result — rather than `T` directly:
+yields a `*Future<T>`, a handle to the eventual result, rather than `T` directly:
 
 ```eskiu
 import <future>;
@@ -787,11 +785,11 @@ Eskiu supports structured exception handling via `try`, `catch`, `finally`, and 
 
 ```eskiu
 try {
-    // body — any function calls here are emitted as LLVM invoke
+    // body: any function calls here are emitted as LLVM invoke
 } catch (TYPE name) {
-    // handler — receives the thrown value as 'name'
+    // handler: receives the thrown value as 'name'
 } finally {
-    // cleanup — always executes
+    // cleanup: always executes
 }
 ```
 
@@ -799,7 +797,7 @@ Multiple `catch` clauses may be chained. The `finally` clause is optional. Eithe
 
 #### throw
 
-`throw expr` throws the value of `expr` as an exception. Any Eskiu value type may be thrown — `string`, `int`, a pointer, etc.
+`throw expr` throws the value of `expr` as an exception. Any Eskiu value type may be thrown: `string`, `int`, a pointer, etc.
 
 ```eskiu
 int divide(int a, int b) {
@@ -893,7 +891,7 @@ the underlying collection. `break` and `continue` work as in any loop.
 
 Three kinds of iterable are supported:
 
-- **Half-open integer ranges** `A..B` — iterate `A, A+1, …, B-1` (the upper bound
+- **Half-open integer ranges** `A..B`: iterate `A, A+1, …, B-1` (the upper bound
   is exclusive). `A` and `B` are any integer expressions:
 
   ```eskiu
@@ -915,7 +913,7 @@ Three kinds of iterable are supported:
   }
   ```
 
-- **List-like structs** — any struct with an `int size` field and a `data`
+- **List-like structs**: any struct with an `int size` field and a `data`
   pointer field, which includes `List<T>` from the standard library:
 
   ```eskiu
@@ -1095,7 +1093,7 @@ struct QRFrame {
 
 ### 8.6 Union Types
 
-A `union` declaration is identical in syntax to `struct`, but all fields share offset 0. The size of the union equals the size of its largest field. Accessing a field reinterprets the underlying bytes as the field's type — no explicit cast is needed.
+A `union` declaration is identical in syntax to `struct`, but all fields share offset 0. The size of the union equals the size of its largest field. Accessing a field reinterprets the underlying bytes as the field's type. No explicit cast is needed.
 
 ```eskiu
 union Value {
@@ -1117,7 +1115,7 @@ u.i = 0x3F800000;   // bit pattern for 1.0f
 printf("%f\n", u.f); // prints 1.0
 ```
 
-`sizeof(Value)` returns the size of the largest field — `sizeof(*uint8)` = 8 on a 64-bit target in this example.
+`sizeof(Value)` returns the size of the largest field: `sizeof(*uint8)` = 8 on a 64-bit target in this example.
 
 ### 8.7 Enums
 
@@ -1131,11 +1129,11 @@ let c: Color = Green;            // c == 1
 if (c == Red) { /* ... */ }
 ```
 
-Members are unscoped — `Red` is used directly, as in C. The enum name may be used anywhere a type is expected (it behaves as `int`).
+Members are unscoped. `Red` is used directly, as in C. The enum name may be used anywhere a type is expected (it behaves as `int`).
 
 #### 8.7.1 Algebraic enums (tagged unions)
 
-When one or more variants carry a **payload**, the enum becomes an algebraic data type — a tagged union, not an integer. Each variant is constructed by name (with arguments for its payload), and a value is destructured with `match`:
+When one or more variants carry a **payload**, the enum becomes an algebraic data type: a tagged union, not an integer. Each variant is constructed by name (with arguments for its payload), and a value is destructured with `match`:
 
 ```eskiu
 enum Shape {
@@ -1158,8 +1156,8 @@ Shape a = Circle(2.0);          // construct; payload-free variants are bare (`U
 Algebraic enums may be **generic** and are monomorphized per instantiation, like
 template structs. The type arguments of a generic variant are inferred from the
 payload arguments when they determine them (`Some(42)` → `Option<int>`); otherwise
-— a payload-free variant like `None`, or one that under-determines the type like
-`Either`'s `Left` — write them explicitly:
+(a payload-free variant like `None`, or one that under-determines the type like
+`Either`'s `Left`) write them explicitly:
 
 ```eskiu
 enum Option<T>    { None, Some(T) }
@@ -1173,7 +1171,7 @@ match x { Some(v) -> printf("%d\n", v);  None -> printf("none\n"); }
 ```
 
 A `match` must be **exhaustive**: every variant must have an arm, or there must be
-a `_` default — otherwise it is a compile error naming the missing variants. A
+a `_` default. Otherwise it is a compile error naming the missing variants. A
 variant may not appear in two arms. The arm body is any statement (often a block
 or a `return`). The value is
 laid out as `{ tag, payload }`, where the payload area is sized to the largest
@@ -1182,7 +1180,7 @@ condition of an `if`; wrap it in parens if you need one.)
 
 ### 8.8 Type Aliases
 
-`type Name = ExistingType;` introduces a name for an existing type. The alias is fully interchangeable with its underlying type — it resolves before type checking and code generation. Aliases work for any type, including pointers and templates.
+`type Name = ExistingType;` introduces a name for an existing type. The alias is fully interchangeable with its underlying type. It resolves before type checking and code generation. Aliases work for any type, including pointers and templates.
 
 ```eskiu
 type u8      = uint8;
@@ -1192,11 +1190,11 @@ type IntList = List<int>;
 let buf: Bytes = alloc<u8>(16);
 ```
 
-`type` is contextual — it is only a keyword in the form `type Name = ...;`, so it remains usable as an ordinary identifier elsewhere.
+`type` is contextual: it is only a keyword in the form `type Name = ...;`, so it remains usable as an ordinary identifier elsewhere.
 
 ### 8.9 Packed Structs
 
-By default a struct is laid out with natural alignment: the compiler inserts padding so each field sits on its required boundary. A **packed** struct removes that padding — fields are placed back-to-back. This matters when a struct must match an exact on-the-wire or on-disk byte layout, or a C struct declared with `#pragma pack` / `__attribute__((packed))`.
+By default a struct is laid out with natural alignment: the compiler inserts padding so each field sits on its required boundary. A **packed** struct removes that padding: fields are placed back-to-back. This matters when a struct must match an exact on-the-wire or on-disk byte layout, or a C struct declared with `#pragma pack` / `__attribute__((packed))`.
 
 Mark a struct packed with the `packed` qualifier:
 
@@ -1362,7 +1360,7 @@ every fallible call. Applied to a `Result<T, E>` value, `expr?`:
 - otherwise evaluates to the unwrapped success value of type `T`.
 
 It may only appear inside a function whose return type is the *same* `Result<T, E>`
-type — the compiler rejects `?` anywhere else, since there would be nothing to
+type. The compiler rejects `?` anywhere else, since there would be nothing to
 propagate into.
 
 ```eskiu
@@ -1389,7 +1387,7 @@ expression of any other type is a compile error.
 
 A type parameter may carry one or more interface constraints, written after a
 colon. The constraint requires that every concrete type substituted for the
-parameter satisfy the named interface(s) — the same structural match used for
+parameter satisfy the named interface(s), the same structural match used for
 `interface` values (§9): the type must provide a method for each signature in the
 interface.
 
@@ -1398,7 +1396,7 @@ interface Ord {
     int cmp(*Self other);
 }
 
-// `T` must satisfy `Ord` — checked at the call site, not deep in codegen.
+// `T` must satisfy `Ord`, checked at the call site, not deep in codegen.
 T max<T: Ord>(T a, T b) {
     if (a.cmp(&b) > 0) return a;
     return b;
@@ -1422,13 +1420,13 @@ error: type 'int' does not satisfy constraint 'Ord' (required by a bounded type 
 
 Constraints are checked for both explicit (`max<Num>(...)`) and inferred
 (`max(a, b)`) instantiations, and for template structs the moment a concrete
-`Name<...>` type is resolved. They do not affect name mangling — instances are
+`Name<...>` type is resolved. They do not affect name mangling; instances are
 still keyed on the concrete type arguments (§10.3).
 
 **Primitives via free functions.** A `struct` satisfies a constraint by defining
 the interface's methods. A *primitive* type (`int`, `float`, …) has no methods, so
 it satisfies a constraint through a **free function** named like the interface
-method whose first parameter is that primitive — e.g. `int cmp(int, int)` makes
+method whose first parameter is that primitive, e.g. `int cmp(int, int)` makes
 `int` satisfy `interface Ord { int cmp(Self) }`. Inside a generic body a
 constrained call `t.cmp(x)` on such a `t` lowers to `cmp(t, x)`. So both
 `max<T: Ord>(int…)` and a constraint-bounded `Map<K: Hashable, V>` over `int` keys
@@ -1456,7 +1454,7 @@ int main() {
 
 Heap allocation lives in the standard library, not the language core: `import <mem>` brings in `alloc<T>` and `free`.
 
-`alloc<T>(N)` allocates space for `N` elements of type `T` and returns a `*T`. In hosted mode (the default) it calls `malloc(N * sizeof(T))`. Under `--freestanding` (see §11.5) it calls the user-provided `esk_alloc` instead — the same source, selected at compile time via the `__ESKIU_FREESTANDING__` macro.
+`alloc<T>(N)` allocates space for `N` elements of type `T` and returns a `*T`. In hosted mode (the default) it calls `malloc(N * sizeof(T))`. Under `--freestanding` (see §11.5) it calls the user-provided `esk_alloc` instead; the same source, selected at compile time via the `__ESKIU_FREESTANDING__` macro.
 
 `free(ptr)` releases a heap-allocated pointer (libc `free` hosted, `esk_free` freestanding). It takes a `*void`; any pointer type coerces.
 
@@ -1468,7 +1466,7 @@ import <mem>;
 free(buf);
 ```
 
-`alloc<T>`/`free` are ordinary generic stdlib functions — there is no `alloc` keyword. (`alloc_with`, the explicit-allocator primitive, *is* a built-in; see §11.5.) Every allocation must be paired with exactly one `free`. Double-free and use-after-free are undefined behaviour.
+`alloc<T>`/`free` are ordinary generic stdlib functions. There is no `alloc` keyword. (`alloc_with`, the explicit-allocator primitive, *is* a built-in; see §11.5.) Every allocation must be paired with exactly one `free`. Double-free and use-after-free are undefined behaviour.
 
 ### 11.3 Pointer Arithmetic
 
@@ -1480,7 +1478,7 @@ Pointer arithmetic is typed: `p + n` on a `*T` pointer advances by `n * sizeof(T
 *uint8 back = ptr - 32;   // 32 bytes back
 
 *int pi = alloc<int>(8);
-*int  p2 = pi + 1;        // 4 bytes forward — next int element
+*int  p2 = pi + 1;        // 4 bytes forward, next int element
 ```
 
 The subscript operator `ptr[i]` reads or writes the `i`-th element and is exactly equivalent to `*(ptr + i)` (typed by the pointee). It is the idiomatic way to index allocated buffers and array fields:
@@ -1511,7 +1509,7 @@ Passing `--freestanding` predefines the macro `__ESKIU_FREESTANDING__`, which `<
 | `alloc<T>(n)`    | `malloc`         | `esk_alloc`                     |
 | `free(p)`        | `free`           | `esk_free`                      |
 
-In freestanding mode the user must provide `esk_alloc` and `esk_free` in their own code (typically in a kernel or bare-metal runtime); `<mem>` declares them `extern` and the linker resolves them from the user-supplied object file. Code that needs heap allocation still just writes `import <mem>` and calls `alloc<T>`/`free` — the same source compiles for both modes.
+In freestanding mode the user must provide `esk_alloc` and `esk_free` in their own code (typically in a kernel or bare-metal runtime); `<mem>` declares them `extern` and the linker resolves them from the user-supplied object file. Code that needs heap allocation still just writes `import <mem>` and calls `alloc<T>`/`free`. The same source compiles for both modes.
 
 ```eskiu
 // user-provided in kernel.esk or a C shim
@@ -1521,14 +1519,14 @@ void  esk_free(*void ptr)  { buddy_free(ptr); }
 
 Freestanding mode does not remove any other language features. The standard library modules (`stdlib/result.esk`, etc.) remain available but must not import libc functions that are absent from the target.
 
-**Custom allocators (`alloc_with`).** `alloc_with(&allocator, T, n)` is the explicit-allocator form of `alloc`: instead of going to `malloc`/`esk_alloc`, it calls `<Type>_alloc(&allocator, n * sizeof(T))` and returns a `*T`. Any struct that exposes a method `*void <Type>_alloc(<Type>* self, int64 nbytes)` is a valid allocator — so allocation strategy is a plain value, not a global.
+**Custom allocators (`alloc_with`).** `alloc_with(&allocator, T, n)` is the explicit-allocator form of `alloc`: instead of going to `malloc`/`esk_alloc`, it calls `<Type>_alloc(&allocator, n * sizeof(T))` and returns a `*T`. Any struct that exposes a method `*void <Type>_alloc(<Type>* self, int64 nbytes)` is a valid allocator, so allocation strategy is a plain value, not a global.
 
 ```eskiu
 import <alloc>;
 
 *uint8 backing = alloc<uint8>(4096);   // one slab from the host (or a static buffer in freestanding)
 let a: Bump;  Bump_init(&a, backing, 4096);
-*int xs = alloc_with(&a, int, 16);     // 16 ints carved from the slab — no per-object malloc
+*int xs = alloc_with(&a, int, 16);     // 16 ints carved from the slab, no per-object malloc
 ```
 
 The `<alloc>` module ships four allocators, all built on caller-provided memory (so they work under `--freestanding` with no libc `malloc`):
@@ -1560,15 +1558,15 @@ Every load and store through a `volatile` pointer is emitted as a `volatile load
 
 ## 12. Multi-file Programs
 
-A project can be split across files two ways: with `import` (below), or by passing several files to the compiler at once — `eskiuc a.esk b.esk -o prog` — which merges the declarations of all inputs into one program. Declaration order across files does not matter.
+A project can be split across files two ways: with `import` (below), or by passing several files to the compiler at once, `eskiuc a.esk b.esk -o prog`, which merges the declarations of all inputs into one program. Declaration order across files does not matter.
 
 ### 12.1 import Statement
 
 The `import` statement has two forms:
 
 ```eskiu
-import <result>;              // stdlib module — resolved by the compiler
-import "stdlib/result.esk";   // local file — path relative to the importing file
+import <result>;              // stdlib module, resolved by the compiler
+import "stdlib/result.esk";   // local file, path relative to the importing file
 import "../shared/types.esk";
 ```
 
@@ -1606,8 +1604,8 @@ An `extern` declaration makes a C function available to Eskiu code. The declarat
 
 ```eskiu
 extern int printf(string fmt, ...);
-extern int strlen(string s);
-extern *void memcpy(*void dst, *void src, int n);
+extern int64 strlen(string s);
+extern *void memcpy(*void dst, *void src, int64 n);
 extern int open(string path, int flags);
 extern void exit(int code);
 ```
@@ -1627,23 +1625,23 @@ int main() {
 
 ### 13.3 C ABI Compatibility
 
-`extern` declarations emit standard C-ABI-compatible LLVM IR `call` instructions. Any function exported from a C library — including system libraries, OpenSSL, zxing-cpp, or any other C-compatible library — may be called this way.
+`extern` declarations emit standard C-ABI-compatible LLVM IR `call` instructions. Any function exported from a C library, including system libraries, OpenSSL, zxing-cpp, or any other C-compatible library, may be called this way.
 
 For functions that accept or return `void*`, use `*void` on the Eskiu side:
 
 ```eskiu
-extern *void malloc(int size);
-extern *void memcpy(*void dst, *void src, int n);
-extern *void memset(*void ptr, int value, int n);
+extern *void malloc(int64 size);
+extern *void memcpy(*void dst, *void src, int64 n);
+extern *void memset(*void ptr, int value, int64 n);
 ```
 
-(For heap allocation, prefer `import <mem>` and `alloc<T>`/`free` over declaring `malloc`/`free` as `extern` yourself — see §11.2.)
+(For heap allocation, prefer `import <mem>` and `alloc<T>`/`free` over declaring `malloc`/`free` as `extern` yourself; see §11.2.)
 
 ### 13.4 Passing an Eskiu function as a C callback
 
 Many C APIs take a function pointer (`qsort`, `signal`, OpenSSL's ALPN selector,
 …). Casting a **top-level** Eskiu function to a pointer type yields its bare C
-function-pointer address — the raw symbol, not the `{fn, env}` closure fat
+function-pointer address, the raw symbol, not the `{fn, env}` closure fat
 pointer a function name otherwise decays to:
 
 ```eskiu
@@ -1669,31 +1667,31 @@ Eskiu ships a set of standard library files in the `stdlib/` directory. Import a
 | `stdlib/result.esk`   | `Result<T,E>` template struct; `Ok<T,E>(value)` and `Err<T,E>(err)` constructor functions |
 | `stdlib/list.esk`     | `List<T>` template struct; `List_init`, `List_push`, `List_get`, `List_set`, `List_remove`, `List_len`, `List_free` |
 | `stdlib/string.esk`   | `String` struct; `String_init`, `String_from`, `String_append`, `String_concat`, `String_push`, `String_char_at`, `String_set`, `String_clear`, `String_index_of`, `String_eq`, `String_eq_cstr`, `String_reverse`, `String_substring`, `String_from_int`, `String_to_int`, `String_cstr`, `String_len`, `String_free`, `String_starts_with`, `String_ends_with`, `String_trim`, `String_next_token` (streaming split), `String_split`/`String_split_free` (into a `List<String>`) |
-| `stdlib/ctype.esk`    | Pure-Eskiu ASCII character classification (comparisons only — no libc, freestanding-safe): `is_space`, `is_digit`, `is_hex`, `is_alpha`, `is_alnum`, `is_ident_start`, `is_ident_cont`. Each takes and returns `int` (1/0) |
+| `stdlib/ctype.esk`    | Pure-Eskiu ASCII character classification (comparisons only, no libc, freestanding-safe): `is_space`, `is_digit`, `is_hex`, `is_alpha`, `is_alnum`, `is_ident_start`, `is_ident_cont`. Each takes and returns `int` (1/0) |
 | `stdlib/math.esk`     | `extern` declarations for `sqrt`, `fabs`, `pow`, `floor`, `ceil`, `abs` |
 | `stdlib/io.esk`       | `extern` declarations for `printf`, `fprintf`, `sprintf`, `scanf`, `puts` |
 | `stdlib/mem.esk`      | Heap allocation `alloc<T>(n)` / `free(p)` (libc, or `esk_alloc`/`esk_free` under `--freestanding`); plus `extern` `memcpy`, `memset`, `memmove`, `memcmp`, `strlen` |
 | `stdlib/fs.esk`       | File I/O: `fs_open`, `fs_close`, `fs_flush`, `fs_read`, `fs_readline`, `fs_write`, `fs_puts`, `fs_seek`, `fs_tell`, `fs_size`, `fs_read_all`, `fs_write_all`, `fs_eof`, `fs_error` |
 | `stdlib/net.esk`      | TCP sockets: `net_tcp_listen`, `net_accept`, `net_accept_addr` (accept + peer IPv4), `net_tcp_connect`, `net_send`, `net_recv`, `net_send_str`, `net_close` (plus the raw POSIX `extern`s and a portable `sockaddr_in`) |
-| `stdlib/alloc.esk`    | Allocators over caller-provided memory for `alloc_with` (see §11.5): `Bump`, `Arena`, `Pool`, `FirstFit` — each with `_init`/`_alloc` (and `_free`/`_reset`/`_save`/`_restore` as applicable) |
+| `stdlib/alloc.esk`    | Allocators over caller-provided memory for `alloc_with` (see §11.5): `Bump`, `Arena`, `Pool`, `FirstFit`, each with `_init`/`_alloc` (and `_free`/`_reset`/`_save`/`_restore` as applicable) |
 | `stdlib/time.esk`     | `time_now_ms`, `time_now_s`, `time_monotonic_ms`, `sleep_ms` |
 | `stdlib/env.esk`      | `env_get`, `env_has`, `env_get_or`, `env_get_int` (process environment; CLI args come from `main`'s `argc`/`argv`) |
 | `stdlib/base64.esk`   | `base64_encode` / `base64_decode` over byte buffers, plus `base64_encoded_len` / `base64_decoded_len` and the `base64_value` / `base64_digit` primitives |
-| `stdlib/bytes.esk`    | `Bytes` — a growable, binary-safe byte buffer (`*uint8` + length; embedded NULs survive, unlike `String`): `Bytes_init`/`_free`/`_push`/`_append`/`_append_raw`/`_slice` (non-owning view)/`_eq`/`_from_str`/`_cstr`, plus `Bytes_from_base64`/`Bytes_to_base64` |
+| `stdlib/bytes.esk`    | `Bytes`, a growable, binary-safe byte buffer (`*uint8` + length; embedded NULs survive, unlike `String`): `Bytes_init`/`_free`/`_push`/`_append`/`_append_raw`/`_slice` (non-owning view)/`_eq`/`_from_str`/`_cstr`, plus `Bytes_from_base64`/`Bytes_to_base64` |
 | `stdlib/path.esk`     | Unix path manipulation: `path_join`, `path_basename`, `path_dirname`, `path_extension`, `path_is_absolute` |
-| `stdlib/http.esk`     | HTTP/1.1: `HttpRequest` + `HttpRequest_parse`/`_header`, `HttpResponse` + `HttpResponse_header`/`_set_body`/`_render`, and a threaded worker pool `http_serve(port, nworkers, handler)` where `handler` is `fn(HttpRequest*, HttpResponse*)->void`. Plus a binary-safe full-body reader `HttpReq` + `http_recv` (loops until the Content-Length body arrives, into a `*uint8` body), `HttpReq_header`, `http_reply`, `http_reply_error` — for uploads a single-recv String body would corrupt binary bytes |
+| `stdlib/http.esk`     | HTTP/1.1: `HttpRequest` + `HttpRequest_parse`/`_header`, `HttpResponse` + `HttpResponse_header`/`_set_body`/`_render`, and a threaded worker pool `http_serve(port, nworkers, handler)` where `handler` is `fn(HttpRequest*, HttpResponse*)->void`. Plus a binary-safe full-body reader `HttpReq` + `http_recv` (loops until the Content-Length body arrives, into a `*uint8` body), `HttpReq_header`, `http_reply`, `http_reply_error`: for uploads a single-recv String body would corrupt binary bytes |
 | `stdlib/multipart.esk`| Extract a named part from a `multipart/form-data` body over raw bytes: `multipart_boundary(ct, out)` and `multipart_part(body, len, boundary, name, *out_ptr, *out_len)` (returns a slice into the body) |
-| `stdlib/map.esk`      | `Map<V>` — a string-keyed hash map (open addressing, linear probing, grows at 0.75 load): `Map_init`, `Map_at` (get-or-insert → `*V` slot, sets `*created`), `Map_get`, `Map_free`. Plus `HashMap<K,V>` — keyed on any value type via `hash`/`eq` function pointers passed to `HashMap_init` (built-in `int_hash`/`int_eq`); same `_at`/`_get`/`_free` shape |
+| `stdlib/map.esk`      | `Map<V>`, a string-keyed hash map (open addressing, linear probing, grows at 0.75 load): `Map_init`, `Map_at` (get-or-insert → `*V` slot, sets `*created`), `Map_get`, `Map_free`. Plus `HashMap<K,V>`, keyed on any value type via `hash`/`eq` function pointers passed to `HashMap_init` (built-in `int_hash`/`int_eq`); same `_at`/`_get`/`_free` shape |
 | `stdlib/threading.esk`| Synchronization over pthread: `Mutex` (`_init`/`_lock`/`_unlock`/`_destroy`), `Cond` (`_init`/`_wait`/`_signal`/`_broadcast`/`_destroy`), `Sem` (`_init`/`_wait`/`_post`/`_destroy`). Pairs with the `thread_create`/`thread_join` built-ins |
 | `stdlib/eventloop.esk`| Readiness reactor over kqueue (macOS) / epoll (Linux): `EventLoop`, `el_new`, `el_add_read`, `el_add_write`, `el_del`, `el_run`, `el_stop`, `el_free`, plus a timer wheel (`el_add_timer`/`el_del_timer`). Callback is `fn(EventLoop*, int)->void` |
 | `stdlib/atomic.esk`| Atomic intrinsics on an `int` cell: `atomic_load`/`atomic_store`/`atomic_swap`/`atomic_cas`, lowering to LLVM atomics with fixed acquire/release ordering. Declared with the `intrinsic` qualifier |
 | `stdlib/json.esk`     | JSON builder + parser. Builder: `Json` + `Json_init`/`_free`/`_cstr`, `Json_obj_begin`/`_end`, `Json_arr_begin`/`_end`, `Json_key`, `Json_str`, `Json_int`, `Json_bool`, `Json_null` (auto separators). Parser: `json_parse(src) -> *JsonValue` + `JsonValue_kind`/`_len`/`_at`/`_get`/`_as_int`/`_as_double`/`_as_bool`/`_as_cstr`/`_free` |
-| `stdlib/sysheap.esk`  | `Heap` — a general-purpose heap that `mmap`s OS pages and runs `FirstFit` over them, providing allocation with no libc `malloc` (suitable as a freestanding backend) |
+| `stdlib/sysheap.esk`  | `Heap`, a general-purpose heap that `mmap`s OS pages and runs `FirstFit` over them, providing allocation with no libc `malloc` (suitable as a freestanding backend) |
 | `stdlib/future.esk`   | The async runtime's `Future<T>` (the locked compiler↔generated-code contract): the `state`/`waker`/`on_drop` handshake, `future_new`/`future_complete`/`future_poll`/`future_drop`/`free_future`, and the generic combinators `spawn<T>`, `select2<A,B>` (first of two), `join2<A,B>` (all of two) |
-| `stdlib/executor.esk` | `Executor` — a thread that owns an event loop plus a thread-safe ready-queue of wakers woken through a self-pipe, so a waker (a coroutine resume) always runs on the executor's own thread: `executor_new`, `executor_schedule`, `executor_run` |
-| `stdlib/net_async.esk`| Leaf futures for non-blocking network I/O over `<eventloop>`: `net_set_nonblocking`, `net_read_async`, `net_write_async`, `net_accept_async` — each registers an fd and completes its `*Future<int>` when ready |
-| `stdlib/timer.esk`    | `timer_after(lp, ms)` — a `*Future<int>` that completes once `ms` of monotonic time elapses, driven by the loop's timer wheel; combine with a read for a real timeout |
-| `stdlib/channel.esk`  | `Chan<T>` — an async message channel over the Future runtime: `chan_new<T>(cap)`, `chan_send`, and `chan_recv` (a `*Future<T>` that completes with the next item) |
+| `stdlib/executor.esk` | `Executor`, a thread that owns an event loop plus a thread-safe ready-queue of wakers woken through a self-pipe, so a waker (a coroutine resume) always runs on the executor's own thread: `executor_new`, `executor_schedule`, `executor_run` |
+| `stdlib/net_async.esk`| Leaf futures for non-blocking network I/O over `<eventloop>`: `net_set_nonblocking`, `net_read_async`, `net_write_async`, `net_accept_async`, each registers an fd and completes its `*Future<int>` when ready |
+| `stdlib/timer.esk`    | `timer_after(lp, ms)`, a `*Future<int>` that completes once `ms` of monotonic time elapses, driven by the loop's timer wheel; combine with a read for a real timeout |
+| `stdlib/channel.esk`  | `Chan<T>`, an async message channel over the Future runtime: `chan_new<T>(cap)`, `chan_send`, and `chan_recv` (a `*Future<T>` that completes with the next item) |
 | `stdlib/either.esk`   | The standard sum types `Option<T>` and `Either<A,B>` (generic algebraic enums) plus helpers (`opt_is_some`/`opt_unwrap_or`, …) |
 | `stdlib/futureval.esk`| Value-returning future combinators: `select2v<A,B>` resolves to the winner's value wrapped in `Either<A,B>`; `join2v<A,B>` resolves to a `Pair<A,B>` of both values |
 | `stdlib/http_async.esk`| Non-blocking concurrent HTTP/1.1 server built on the event loop's accept loop: `http_serve_async`, with the same `fn(HttpRequest*, HttpResponse*)->void` handler interface as `<http>` |
@@ -1731,7 +1729,7 @@ import <list>;
 
 int main() {
     let items: List<int>;
-    List_init(&items);
+    List_init(&items, 4);
     List_push(&items, 10);
     List_push(&items, 20);
     List_push(&items, 30);
@@ -1776,7 +1774,7 @@ String_free(&n);
 `<net>` wraps the POSIX BSD socket API for TCP. The `net_*` helpers cover the
 common path; the raw `extern`s (`socket`, `bind`, …) and a portable
 `sockaddr_in` are also exported for anything more specialised. It is a pure
-stdlib module — sockets need no compiler support beyond the C FFI.
+stdlib module. Sockets need no compiler support beyond the C FFI.
 
 ```eskiu
 import <net>;
@@ -1813,7 +1811,7 @@ int main() {
 
 `sockaddr_in` differs between macOS and Linux; `<net>` selects the right layout
 at compile time using the predefined `__APPLE__` / `__linux__` macro (see §18).
-A concurrent server combines `<net>` with `thread_create` — handing each
+A concurrent server combines `<net>` with `thread_create`, handing each
 accepted connection to a worker (see §6.5 for passing a function as a value).
 Complete programs are in `examples/http_server.esk` and
 `examples/tcp_echo_server.esk`.
@@ -1846,10 +1844,10 @@ asm("template" : outputs : inputs : clobbers);
 asm("outb %0, %1" :: "a"(val), "Nd"(port) : "memory");
 ```
 
-- **Template** — the assembly instruction string; `%0`, `%1`, … reference operands by index.
-- **Outputs** — list of `"constraint"(lvalue)` pairs; empty in the example above (omitted with `:`).
-- **Inputs** — list of `"constraint"(expr)` pairs. Common constraints: `"a"` (eax/rax), `"Nd"` (8-bit immediate or dx), `"r"` (any register), `"m"` (memory).
-- **Clobbers** — comma-separated list of clobbered resources. `"memory"` tells the compiler that the asm may read or write arbitrary memory (acts as a compiler barrier).
+- **Template**: the assembly instruction string; `%0`, `%1`, … reference operands by index.
+- **Outputs**: list of `"constraint"(lvalue)` pairs; empty in the example above (omitted with `:`).
+- **Inputs**: list of `"constraint"(expr)` pairs. Common constraints: `"a"` (eax/rax), `"Nd"` (8-bit immediate or dx), `"r"` (any register), `"m"` (memory).
+- **Clobbers**: comma-separated list of clobbered resources. `"memory"` tells the compiler that the asm may read or write arbitrary memory (acts as a compiler barrier).
 
 All four sections are separated by `:`. Trailing sections may be omitted if empty.
 
@@ -1892,16 +1890,16 @@ All four sections are separated by `:`. Trailing sections may be omitted if empt
 
 **Linking.** When the `-o` output is not an object file (no `.o` suffix) and `-c`
 is absent, `eskiuc` links the program into an executable by invoking the system
-C toolchain — `$CC`, then `cc`/`clang`/`gcc` on the `PATH` — exactly as `rustc`
+C toolchain (`$CC`, then `cc`/`clang`/`gcc` on the `PATH`) exactly as `rustc`
 and `clang` do internally. `-l<lib>` and `-L<path>` flags, and any `--link-arg=<arg>`,
 are forwarded to the linker. A C toolchain must therefore be installed (it is the
 only build-time dependency besides LLVM). With `--freestanding` (or a `.o` output)
 no linking happens, so bare-metal targets are linked yourself (see the kernel's
 `ld.lld` invocation).
 
-**Running directly.** `eskiuc run file.esk [args...]` compiles to a temporary executable, runs it (forwarding `args...`), then deletes it, propagating the program's exit code — handy for quick iteration. Compiler flags go *before* the script and program arguments *after* it (`eskiuc run --asan file.esk -- input.txt`). Because a leading `#!` line is ignored, a script can also start with `#!/usr/bin/env eskiuc run` and, once `chmod +x`'d, be executed directly.
+**Running directly.** `eskiuc run file.esk [args...]` compiles to a temporary executable, runs it (forwarding `args...`), then deletes it, propagating the program's exit code, handy for quick iteration. Compiler flags go *before* the script and program arguments *after* it (`eskiuc run --asan file.esk -- input.txt`). Because a leading `#!` line is ignored, a script can also start with `#!/usr/bin/env eskiuc run` and, once `chmod +x`'d, be executed directly.
 
-**Formatting.** `eskiuc fmt file.esk …` reformats files in place. It is deliberately conservative: it re-indents to four spaces per brace level, trims trailing whitespace, collapses consecutive blank lines, and ensures a final newline — but leaves each line's content (operator spacing, comments, string contents) exactly as written, so it never alters a program's behavior and is idempotent. `--check` makes it report (and exit non-zero on) files that would change, without writing — useful in CI.
+**Formatting.** `eskiuc fmt file.esk …` reformats files in place. It is deliberately conservative: it re-indents to four spaces per brace level, trims trailing whitespace, collapses consecutive blank lines, and ensures a final newline, but leaves each line's content (operator spacing, comments, string contents) exactly as written, so it never alters a program's behavior and is idempotent. `--check` makes it report (and exit non-zero on) files that would change, without writing. Useful in CI.
 
 **Sanitizers.** `--asan` instruments the program with AddressSanitizer (detecting heap, stack and global memory errors) and links the matching LLVM runtime; `--ubsan` inserts trapping bounds checks (an out-of-bounds access aborts via a trap; no runtime is required). Both are real LLVM instrumentation passes and compose with `eskiuc run`.
 
@@ -1955,7 +1953,7 @@ A small text pass runs before lexing. It supports **object-like and function-lik
 | `#ifdef NAME` / `#ifndef NAME` | Begin a block compiled only if `NAME` is / is not defined |
 | `#else` / `#endif` | Else branch / end of a conditional |
 | `#error message` | Abort compilation with `message` (only on an active `#ifdef` branch) |
-| `#pragma pack(...)` | Struct packing directive — see §8.9 |
+| `#pragma pack(...)` | Struct packing directive; see §8.9 |
 
 Two predefined macros expand in place: `__LINE__` (the current source line, an
 integer) and `__FILE__` (the current file path, a string literal). Together with
@@ -1990,9 +1988,9 @@ int main() {
 }
 ```
 
-Substitution is identifier-aware and leaves string and character literals untouched. Expansion is **recursive** — a macro whose body references other macros is expanded fully (a macro is never re-expanded within its own expansion). The macro table is **shared across files**, so a `#define` propagates into files pulled in by `import` and into the other inputs of a multi-file compile. A function-like macro *invocation* must fit on a single (post-continuation) line.
+Substitution is identifier-aware and leaves string and character literals untouched. Expansion is **recursive**: a macro whose body references other macros is expanded fully (a macro is never re-expanded within its own expansion). The macro table is **shared across files**, so a `#define` propagates into files pulled in by `import` and into the other inputs of a multi-file compile. A function-like macro *invocation* must fit on a single (post-continuation) line.
 
-Unlike the other directives, `#pragma` is not consumed by the preprocessor — it is passed through to the compiler. Only `#pragma pack` is acted upon (§8.9); any other pragma is ignored.
+Unlike the other directives, `#pragma` is not consumed by the preprocessor. It is passed through to the compiler. Only `#pragma pack` is acted upon (§8.9); any other pragma is ignored.
 
 ### Predefined macros
 
@@ -2019,8 +2017,8 @@ a multi-file or `import`-driven build each file sees its own path. Together with
 printf("%s:%d: reached\n", __FILE__, __LINE__);   // e.g. "src/main.esk:42: reached"
 ```
 
-The host-OS macros let stdlib and user code branch on platform with `#ifdef` —
-this is how `<net>` selects the correct `sockaddr_in` layout:
+The host-OS macros let stdlib and user code branch on platform with `#ifdef`.
+This is how `<net>` selects the correct `sockaddr_in` layout:
 
 ```eskiu
 #ifdef __APPLE__
@@ -2035,4 +2033,4 @@ this is how `<net>` selects the correct `sockaddr_in` layout:
 If the first line of a file begins with `#!` (e.g. `#!/usr/bin/env eskiuc run`),
 the preprocessor treats it as an unrecognized directive and blanks it out,
 preserving line numbers. This lets a `.esk` file be marked executable
-(`chmod +x`) and run directly as a script — see `eskiuc run` in §17.
+(`chmod +x`) and run directly as a script; see `eskiuc run` in §17.

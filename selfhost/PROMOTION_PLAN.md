@@ -26,24 +26,24 @@ Eskiu compiler must own the whole CLI and the link step, not just IR emission),
 then a **flip** (build/install/dist produce the Eskiu-built binary as `eskiuc`),
 each gated against the C++ oracle that v0.3.0 established.
 
-## Prerequisites — the three open residuals (close these first)
+## Prerequisites: the three open residuals (close these first)
 
 These are the known soft spots from self-hosting. They become *user-facing* the
 moment the Eskiu compiler is primary, so they are prerequisites, not afterthoughts.
 
-- **R1 — async `for-in` element typing.** `async_lower.esk` currently resolves the
+- **R1: async `for-in` element typing.** `async_lower.esk` currently resolves the
   loop element type with a local heuristic (array `T[N]` → `xs[i]`; list-like →
   `xs.data[i]`) rather than a sema-stamped type. Before the flip, have sema stamp
   the iterable's element type and have the lowering consume it, so an unusual
   iterable can't miscompile a coroutine. Gate: the async corpus (19/19) stays green
   with the heuristic removed.
-- **R2 — parse-parity corpus coverage. DONE (v0.3.1).** `parse_main` now preprocesses
+- **R2: parse-parity corpus coverage. DONE (v0.3.1).** `parse_main` now preprocesses
   the top-level file (matching the C++ `--test-parser`, which folds preprocessing into
   the lexer), with `g_pp_os=""` and an empty `__FILE__` to mirror `loadProgram` exactly.
   The preprocessor-closure exclusion is gone, so `parse_parity.sh --full` covers the
   whole corpus: **51 → 121**, no "excluded files" caveat remains.
-- **R3 — keyword-as-identifier diagnostic.** Using `fn`/`in`/`match` as a name fails
-  far from the cause (`Expected ';'`, etc.) — the single most recurring self-host
+- **R3: keyword-as-identifier diagnostic.** Using `fn`/`in`/`match` as a name fails
+  far from the cause (`Expected ';'`, etc.), the single most recurring self-host
   papercut. **The C++ parser is done (v0.3.0):** `expected a name, found keyword 'fn'`
   at the cause (`Parser::consume`, the typed-local-decl path, and the speculative
   decl-vs-expression fallback). **Still pending:** mirror it in `selfhost/parser.esk` so
@@ -52,35 +52,35 @@ moment the Eskiu compiler is primary, so they are prerequisites, not afterthough
 
 ## Stages (each parity-gated, built in order)
 
-- **P0 — Driver parity scaffold.** Grow `esk_main.esk` into a real CLI: argument
+- **P0: Driver parity scaffold.** Grow `esk_main.esk` into a real CLI: argument
   parsing, `-o <out>`, and **invoking clang** (spawn `clang file.ll -o out` via the
   existing process/exec extern path the `thread_*`/builtins already exercise) so the
   Eskiu compiler produces a *native binary* end to end, not just IR. Gate: a new
   `tests/selfhost/driver_parity.sh` compiles a sample with both compilers and asserts
   identical exit code + stdout from the resulting binaries.
-- **P1 — Flag + mode parity.** Port the rest of the C++ CLI surface to the Eskiu
+- **P1: Flag + mode parity.** Port the rest of the C++ CLI surface to the Eskiu
   driver: `--version`, `--test-{lexer,parser,typechecker,codegen}` (the drivers
-  already exist as `lex_main`/`parse_main`/`tc_main`/`cg_main` — unify them behind
+  already exist as `lex_main`/`parse_main`/`tc_main`/`cg_main`; unify them behind
   `esk_main` dispatch), `-Wall`/`-Wextra`, `--asan`/`--ubsan` (add the same clang
   `-fsanitize` flags), and multi-file input. Gate: each mode's output matches the
   C++ binary over the corpus (reuses the existing `*_parity.sh` oracles, now driven
   through the unified binary).
-- **P2 — `run` + `fmt` parity.** Port `eskiuc run script.esk [args...]` (compile to a
+- **P2: `run` + `fmt` parity.** Port `eskiuc run script.esk [args...]` (compile to a
   temp exe, exec, propagate exit code, clean up) and `eskiuc fmt [--check]` (the
   conservative reindenter). Gate: `run` over the runnable corpus matches; `fmt` stays
   idempotent and byte-identical to the C++ formatter over every test (the existing
   formatter-idempotency pass, now run through the Eskiu binary).
-- **P3 — Whole-corpus behavioral equivalence.** Promote the parity oracle from the
+- **P3: Whole-corpus behavioral equivalence.** Promote the parity oracle from the
   self-host input set to the **entire** `tests/` + `stdlib/` corpus on every CI run:
   for each program, the Eskiu-built compiler and the C++ compiler must produce
   binaries with identical exit + stdout. This is the acceptance gate for the flip:
   no divergence anywhere the C++ compiler is exercised.
-- **P4 — The flip (dual-build, Eskiu primary).** Make the build produce the
+- **P4: The flip (dual-build, Eskiu primary).** Make the build produce the
   Eskiu-built binary as `eskiuc` and install/dist it; keep the C++ compiler buildable
   as the bootstrap seed (`eskiuc-cxx`) and as the CI equivalence oracle. Concretely:
   CMake (or a thin bootstrap script) builds the C++ seed, the seed builds the Eskiu
   compiler, and the Eskiu binary is the shipped artifact. The Release workflow
-  packages the Eskiu-built `eskiuc`. The C++ compiler is retained, not deleted — it
+  packages the Eskiu-built `eskiuc`. The C++ compiler is retained, not deleted; it
   is the reproducible bootstrap root and the differential oracle.
 
 ## What stays true throughout

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>The Book of Eskiu — v0.3.1</title>
+<title>The Book of Eskiu, v0.3.1</title>
 <style>
 /* ── Reset & Base ─────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -273,9 +273,9 @@ pre.code-block {
 <a href="#sec-2-3" class="toc-sec">2.3 Explicit casting</a>
 <a href="#sec-2-4" class="toc-sec">2.4 A complete example</a>
 <a href="#sec-2-5" class="toc-sec">2.5 Global variables</a>
-<a href="#sec-2-6" class="toc-sec">2.6 const — immutable bindings</a>
-<a href="#sec-2-7" class="toc-sec">2.7 enum — named integer constants</a>
-<a href="#sec-2-8" class="toc-sec">2.8 type — aliases</a>
+<a href="#sec-2-6" class="toc-sec">2.6 const: immutable bindings</a>
+<a href="#sec-2-7" class="toc-sec">2.7 enum: named integer constants</a>
+<a href="#sec-2-8" class="toc-sec">2.8 type: aliases</a>
 <a href="#chapter-3" class="toc-ch">Chapter 3</a>
 <a href="#sec-3-1" class="toc-sec">3.1 Defining a function</a>
 <a href="#sec-3-2" class="toc-sec">3.2 Void functions</a>
@@ -350,25 +350,25 @@ pre.code-block {
 <a href="#sec-13-4" class="toc-sec">13.4 Project layout</a>
 <a href="#chapter-14" class="toc-ch">Chapter 14</a>
 <a href="#sec-14-1" class="toc-sec">14.1 Declaring extern functions</a>
-<a href="#sec-14-2" class="toc-sec">14.2 Calling OpenSSL — a real example</a>
+<a href="#sec-14-2" class="toc-sec">14.2 Calling OpenSSL: a real example</a>
 <a href="#sec-14-3" class="toc-sec">14.3 Linking</a>
 <a href="#sec-14-4" class="toc-sec">14.4 Passing Eskiu functions as C callbacks</a>
 <a href="#chapter-15" class="toc-ch">Chapter 15</a>
-<a href="#sec-15-1" class="toc-sec">15.1 result — errors as values</a>
-<a href="#sec-15-2" class="toc-sec">15.2 list — dynamic arrays</a>
-<a href="#sec-15-3" class="toc-sec">15.3 string — mutable text</a>
-<a href="#sec-15-4" class="toc-sec">15.4 math — mathematical functions</a>
-<a href="#sec-15-5" class="toc-sec">15.5 io — standard input/output</a>
-<a href="#sec-15-6" class="toc-sec">15.6 mem — memory operations</a>
-<a href="#sec-15-7" class="toc-sec">15.7 fs — file I/O</a>
-<a href="#sec-15-8" class="toc-sec">15.8 map — string-keyed hash map</a>
-<a href="#sec-15-8b" class="toc-sec">15.8b HashMap—generic key map</a>
-<a href="#sec-15-9" class="toc-sec">15.9 bytes — binary-safe byte buffer</a>
-<a href="#sec-15-10" class="toc-sec">15.10 Additional stdlib — quick reference</a>
+<a href="#sec-15-1" class="toc-sec">15.1 result: errors as values</a>
+<a href="#sec-15-2" class="toc-sec">15.2 list: dynamic arrays</a>
+<a href="#sec-15-3" class="toc-sec">15.3 string: mutable text</a>
+<a href="#sec-15-4" class="toc-sec">15.4 math: mathematical functions</a>
+<a href="#sec-15-5" class="toc-sec">15.5 io: standard input/output</a>
+<a href="#sec-15-6" class="toc-sec">15.6 mem: memory operations</a>
+<a href="#sec-15-7" class="toc-sec">15.7 fs: file I/O</a>
+<a href="#sec-15-8" class="toc-sec">15.8 map: string-keyed hash map</a>
+<a href="#sec-15-8b" class="toc-sec">15.8b HashMap: generic key map</a>
+<a href="#sec-15-9" class="toc-sec">15.9 bytes: binary-safe byte buffer</a>
+<a href="#sec-15-10" class="toc-sec">15.10 Additional stdlib: quick reference</a>
 <a href="#chapter-16" class="toc-ch">Chapter 16</a>
 <a href="#sec-16-1" class="toc-sec">16.1 Simple form</a>
 <a href="#sec-16-2" class="toc-sec">16.2 Extended form with inputs</a>
-<a href="#sec-16-3" class="toc-sec">16.3 volatile — a reminder</a>
+<a href="#sec-16-3" class="toc-sec">16.3 volatile: a reminder</a>
 <a href="#chapter-17" class="toc-ch">Chapter 17</a>
 <a href="#sec-17-1" class="toc-sec">17.1 --target</a>
 <a href="#sec-17-2" class="toc-sec">17.2 --freestanding</a>
@@ -424,7 +424,7 @@ pre.code-block {
 <a href="#chapter-26" class="toc-ch">Chapter 26</a>
 <a href="#sec-26-1" class="toc-sec">26.1 Algebraic enums</a>
 <a href="#sec-26-2" class="toc-sec">26.2 match</a>
-<a href="#sec-26-3" class="toc-sec">26.3 Generic enums — Option and Either</a>
+<a href="#sec-26-3" class="toc-sec">26.3 Generic enums: Option and Either</a>
 <a href="#sec-26-4" class="toc-sec">26.4 Generic enum definitions</a>
 <a href="#chapter-27" class="toc-ch">Chapter 27</a>
 <a href="#sec-27-1" class="toc-sec">27.1 Trust, but verify</a>
@@ -456,80 +456,80 @@ pre.code-block {
   <hr class="cover-rule">
   <p class="cover-subtitle">A complete introduction to systems programming</p>
   <p class="cover-author">Eduardo Dorantes</p>
-  <p class="cover-version">v0.3.1 &nbsp;—&nbsp; 2026</p>
+  <p class="cover-version">v0.3.1, 2026</p>
   <p class="cover-tagline">Close to the metal. Far from the noise.</p>
 </section>
 
 <!-- DEDICATION -->
 <section id="dedication">
-  <p class="dedication-text">This book is for everyone who will learn from it — and for those who made sure I was still standing when I wrote it: my mother, my grandparents, my husband, and three cats who never once doubted me.</p>
+  <p class="dedication-text">This book is for everyone who will learn from it, and for those who made sure I was still standing when I wrote it: my mother, my grandparents, my husband, and three cats who never once doubted me.</p>
 </section>
 
 <!-- TOC -->
 <section id="toc">
   <h1>Contents</h1>
   <hr class="toc-rule">
-  <p class="toc-part">Part I — Tutorial</p>
-  <div class="toc-entry"><a href="#preface"><strong>Preface</strong> <span class="toc-entry-desc">— Why this book exists</span></a></div>
-  <div class="toc-entry"><a href="#chapter-1"><strong>Chapter 1 — Hello, Eskiu</strong> <span class="toc-entry-desc">— Your first program from scratch</span></a></div>
-  <div class="toc-entry"><a href="#chapter-2"><strong>Chapter 2 — Variables and Types</strong> <span class="toc-entry-desc">— Naming values and describing their shape</span></a></div>
-  <div class="toc-entry"><a href="#chapter-3"><strong>Chapter 3 — Functions</strong> <span class="toc-entry-desc">— Defining, calling, and composing behaviour</span></a></div>
-  <div class="toc-entry"><a href="#chapter-4"><strong>Chapter 4 — Control Flow</strong> <span class="toc-entry-desc">— Decisions, loops, for-in, and early exits</span></a></div>
-  <div class="toc-entry"><a href="#chapter-5"><strong>Chapter 5 — Structs and Methods</strong> <span class="toc-entry-desc">— Grouping data with the behaviour it needs</span></a></div>
-  <div class="toc-entry"><a href="#chapter-6"><strong>Chapter 6 — Pointers and Memory</strong> <span class="toc-entry-desc">— Addresses, stack, heap, and the rules</span></a></div>
-  <div class="toc-entry"><a href="#chapter-7"><strong>Chapter 7 — Interfaces</strong> <span class="toc-entry-desc">— Polymorphism without inheritance</span></a></div>
-  <div class="toc-entry"><a href="#chapter-8"><strong>Chapter 8 — Templates</strong> <span class="toc-entry-desc">— Generic code at zero runtime cost</span></a></div>
-  <div class="toc-entry"><a href="#chapter-9"><strong>Chapter 9 — Closures and Lambdas</strong> <span class="toc-entry-desc">— Functions as values, functions with memory</span></a></div>
-  <div class="toc-entry"><a href="#chapter-10"><strong>Chapter 10 — Error Handling</strong> <span class="toc-entry-desc">— Result, the ? operator, and exceptions</span></a></div>
-  <div class="toc-entry"><a href="#chapter-11"><strong>Chapter 11 — Concurrency</strong> <span class="toc-entry-desc">— Threads, closures, and shared state</span></a></div>
-  <div class="toc-entry"><a href="#chapter-12"><strong>Chapter 12 — Operators</strong> <span class="toc-entry-desc">— Arithmetic, bitwise, sizeof, preprocessor</span></a></div>
-  <div class="toc-entry"><a href="#chapter-13"><strong>Chapter 13 — Multi-file Programs</strong> <span class="toc-entry-desc">— import, multi-file CLI, and project structure</span></a></div>
-  <div class="toc-entry"><a href="#chapter-14"><strong>Chapter 14 — C Interop</strong> <span class="toc-entry-desc">— Calling any C library from Eskiu</span></a></div>
-  <div class="toc-entry"><a href="#chapter-15"><strong>Chapter 15 — The Standard Library</strong> <span class="toc-entry-desc">— result, list, string, math, io, mem, fs, net</span></a></div>
-  <div class="toc-entry"><a href="#chapter-16"><strong>Chapter 16 — Inline Assembly</strong> <span class="toc-entry-desc">— Talking directly to hardware</span></a></div>
-  <div class="toc-entry"><a href="#chapter-17"><strong>Chapter 17 — Cross-compilation</strong> <span class="toc-entry-desc">— Building for ARM64, x86-64, and bare-metal</span></a></div>
-  <div class="toc-entry"><a href="#chapter-18"><strong>Chapter 18 — Bare-metal Programming</strong> <span class="toc-entry-desc">— A kernel in Eskiu — no libc, no OS</span></a></div>
-  <div class="toc-entry"><a href="#chapter-19"><strong>Chapter 19 — Ownership and Resources</strong> <span class="toc-entry-desc">— Designing safe code with alloc and free</span></a></div>
-  <div class="toc-entry"><a href="#chapter-20"><strong>Chapter 20 — Debugging</strong> <span class="toc-entry-desc">— Segfaults, leaks, and diagnostic strategies</span></a></div>
-  <div class="toc-entry"><a href="#chapter-21"><strong>Chapter 21 — Testing</strong> <span class="toc-entry-desc">— Assertions, unit tests, and test organisation</span></a></div>
-  <div class="toc-entry"><a href="#chapter-22"><strong>Chapter 22 — Common Bugs</strong> <span class="toc-entry-desc">— The mistakes everyone makes and how to avoid them</span></a></div>
-  <div class="toc-entry"><a href="#chapter-23"><strong>Chapter 23 — Networking</strong> <span class="toc-entry-desc">— TCP sockets, echo servers, and HTTP in Eskiu</span></a></div>
-  <div class="toc-entry"><a href="#chapter-24"><strong>Chapter 24 — Real World: INE QR Decoder</strong> <span class="toc-entry-desc">— A cryptographic pipeline in production Eskiu</span></a></div>
-  <div class="toc-entry"><a href="#chapter-25"><strong>Chapter 25 — Async and Await</strong> <span class="toc-entry-desc">— Concurrent I/O without threads</span></a></div>
-  <div class="toc-entry"><a href="#chapter-26"><strong>Chapter 26 — Sum Types and Match</strong> <span class="toc-entry-desc">— Algebraic enums, Option, Either</span></a></div>
-  <div class="toc-entry"><a href="#chapter-27"><strong>Chapter 27 — Self-Hosting</strong> <span class="toc-entry-desc">— The compiler written in Eskiu, the bootstrap fixpoint, feature-completeness</span></a></div>
-  <div class="toc-entry"><a href="#appendix-a"><strong>Appendix A — Quick Reference</strong> <span class="toc-entry-desc">— CLI flags, keywords, stdlib at a glance</span></a></div>
-  <div class="toc-entry"><a href="#appendix-b"><strong>Appendix B — Glossary</strong> <span class="toc-entry-desc">— Terms used throughout this book</span></a></div>
-  <p class="toc-part" style="margin-top:28px">Part II — Language Reference</p>
-  <div class="toc-entry"><a href="#ref-r1"><strong>Ref R1 — Lexical Elements</strong> <span class="toc-entry-desc">— Comments, identifiers, keywords, literals</span></a></div>
-  <div class="toc-entry"><a href="#ref-r2"><strong>Ref R2 — Types</strong> <span class="toc-entry-desc">— Primitives, pointers, arrays, structs, templates</span></a></div>
-  <div class="toc-entry"><a href="#ref-r3"><strong>Ref R3 — Operators</strong> <span class="toc-entry-desc">— Complete operator table with precedence</span></a></div>
-  <div class="toc-entry"><a href="#ref-r4"><strong>Ref R4 — Control Flow</strong> <span class="toc-entry-desc">— if, for, for-in, while, switch, break, continue</span></a></div>
-  <div class="toc-entry"><a href="#ref-r5"><strong>Ref R5 — Functions</strong> <span class="toc-entry-desc">— Regular, lambda, closure, template, thread primitives</span></a></div>
-  <div class="toc-entry"><a href="#ref-r6"><strong>Ref R6 — Memory</strong> <span class="toc-entry-desc">— Stack, heap, alloc/free, volatile, freestanding</span></a></div>
-  <div class="toc-entry"><a href="#ref-r7"><strong>Ref R7 — Preprocessor</strong> <span class="toc-entry-desc">— #define, #ifdef, #pragma pack, multi-line macros</span></a></div>
-  <div class="toc-entry"><a href="#ref-r8"><strong>Ref R8 — Standard Library</strong> <span class="toc-entry-desc">— Complete API for result, list, string, math, io, mem, fs, net</span></a></div>
-  <div class="toc-entry"><a href="#ref-r9"><strong>Ref R9 — CLI Reference</strong> <span class="toc-entry-desc">— All compiler flags, linking, cross-compilation</span></a></div>
-  <div class="toc-entry"><a href="#ref-r10"><strong>Ref R10 — Undefined Behaviour</strong> <span class="toc-entry-desc">— What the compiler does not guarantee</span></a></div>
+  <p class="toc-part">Part I: Tutorial</p>
+  <div class="toc-entry"><a href="#preface"><strong>Preface</strong> <span class="toc-entry-desc">(Why this book exists)</span></a></div>
+  <div class="toc-entry"><a href="#chapter-1"><strong>Chapter 1: Hello, Eskiu</strong> <span class="toc-entry-desc">(Your first program from scratch)</span></a></div>
+  <div class="toc-entry"><a href="#chapter-2"><strong>Chapter 2: Variables and Types</strong> <span class="toc-entry-desc">(Naming values and describing their shape)</span></a></div>
+  <div class="toc-entry"><a href="#chapter-3"><strong>Chapter 3: Functions</strong> <span class="toc-entry-desc">(Defining, calling, and composing behaviour)</span></a></div>
+  <div class="toc-entry"><a href="#chapter-4"><strong>Chapter 4: Control Flow</strong> <span class="toc-entry-desc">(Decisions, loops, for-in, and early exits)</span></a></div>
+  <div class="toc-entry"><a href="#chapter-5"><strong>Chapter 5: Structs and Methods</strong> <span class="toc-entry-desc">(Grouping data with the behaviour it needs)</span></a></div>
+  <div class="toc-entry"><a href="#chapter-6"><strong>Chapter 6: Pointers and Memory</strong> <span class="toc-entry-desc">(Addresses, stack, heap, and the rules)</span></a></div>
+  <div class="toc-entry"><a href="#chapter-7"><strong>Chapter 7: Interfaces</strong> <span class="toc-entry-desc">(Polymorphism without inheritance)</span></a></div>
+  <div class="toc-entry"><a href="#chapter-8"><strong>Chapter 8: Templates</strong> <span class="toc-entry-desc">(Generic code at zero runtime cost)</span></a></div>
+  <div class="toc-entry"><a href="#chapter-9"><strong>Chapter 9: Closures and Lambdas</strong> <span class="toc-entry-desc">(Functions as values, functions with memory)</span></a></div>
+  <div class="toc-entry"><a href="#chapter-10"><strong>Chapter 10: Error Handling</strong> <span class="toc-entry-desc">(Result, the ? operator, and exceptions)</span></a></div>
+  <div class="toc-entry"><a href="#chapter-11"><strong>Chapter 11: Concurrency</strong> <span class="toc-entry-desc">(Threads, closures, and shared state)</span></a></div>
+  <div class="toc-entry"><a href="#chapter-12"><strong>Chapter 12: Operators</strong> <span class="toc-entry-desc">(Arithmetic, bitwise, sizeof, preprocessor)</span></a></div>
+  <div class="toc-entry"><a href="#chapter-13"><strong>Chapter 13: Multi-file Programs</strong> <span class="toc-entry-desc">(import, multi-file CLI, and project structure)</span></a></div>
+  <div class="toc-entry"><a href="#chapter-14"><strong>Chapter 14: C Interop</strong> <span class="toc-entry-desc">(Calling any C library from Eskiu)</span></a></div>
+  <div class="toc-entry"><a href="#chapter-15"><strong>Chapter 15: The Standard Library</strong> <span class="toc-entry-desc">(result, list, string, math, io, mem, fs, net)</span></a></div>
+  <div class="toc-entry"><a href="#chapter-16"><strong>Chapter 16: Inline Assembly</strong> <span class="toc-entry-desc">(Talking directly to hardware)</span></a></div>
+  <div class="toc-entry"><a href="#chapter-17"><strong>Chapter 17: Cross-compilation</strong> <span class="toc-entry-desc">(Building for ARM64, x86-64, and bare-metal)</span></a></div>
+  <div class="toc-entry"><a href="#chapter-18"><strong>Chapter 18: Bare-metal Programming</strong> <span class="toc-entry-desc">(A kernel in Eskiu: no libc, no OS)</span></a></div>
+  <div class="toc-entry"><a href="#chapter-19"><strong>Chapter 19: Ownership and Resources</strong> <span class="toc-entry-desc">(Designing safe code with alloc and free)</span></a></div>
+  <div class="toc-entry"><a href="#chapter-20"><strong>Chapter 20: Debugging</strong> <span class="toc-entry-desc">(Segfaults, leaks, and diagnostic strategies)</span></a></div>
+  <div class="toc-entry"><a href="#chapter-21"><strong>Chapter 21: Testing</strong> <span class="toc-entry-desc">(Assertions, unit tests, and test organisation)</span></a></div>
+  <div class="toc-entry"><a href="#chapter-22"><strong>Chapter 22: Common Bugs</strong> <span class="toc-entry-desc">(The mistakes everyone makes and how to avoid them)</span></a></div>
+  <div class="toc-entry"><a href="#chapter-23"><strong>Chapter 23: Networking</strong> <span class="toc-entry-desc">(TCP sockets, echo servers, and HTTP in Eskiu)</span></a></div>
+  <div class="toc-entry"><a href="#chapter-24"><strong>Chapter 24: Real World: INE QR Decoder</strong> <span class="toc-entry-desc">(A cryptographic pipeline in production Eskiu)</span></a></div>
+  <div class="toc-entry"><a href="#chapter-25"><strong>Chapter 25: Async and Await</strong> <span class="toc-entry-desc">(Concurrent I/O without threads)</span></a></div>
+  <div class="toc-entry"><a href="#chapter-26"><strong>Chapter 26: Sum Types and Match</strong> <span class="toc-entry-desc">(Algebraic enums, Option, Either)</span></a></div>
+  <div class="toc-entry"><a href="#chapter-27"><strong>Chapter 27: Self-Hosting</strong> <span class="toc-entry-desc">(The compiler written in Eskiu, the bootstrap fixpoint, feature-completeness)</span></a></div>
+  <div class="toc-entry"><a href="#appendix-a"><strong>Appendix A: Quick Reference</strong> <span class="toc-entry-desc">(CLI flags, keywords, stdlib at a glance)</span></a></div>
+  <div class="toc-entry"><a href="#appendix-b"><strong>Appendix B: Glossary</strong> <span class="toc-entry-desc">(Terms used throughout this book)</span></a></div>
+  <p class="toc-part" style="margin-top:28px">Part II: Language Reference</p>
+  <div class="toc-entry"><a href="#ref-r1"><strong>Ref R1: Lexical Elements</strong> <span class="toc-entry-desc">(Comments, identifiers, keywords, literals)</span></a></div>
+  <div class="toc-entry"><a href="#ref-r2"><strong>Ref R2: Types</strong> <span class="toc-entry-desc">(Primitives, pointers, arrays, structs, templates)</span></a></div>
+  <div class="toc-entry"><a href="#ref-r3"><strong>Ref R3: Operators</strong> <span class="toc-entry-desc">(Complete operator table with precedence)</span></a></div>
+  <div class="toc-entry"><a href="#ref-r4"><strong>Ref R4: Control Flow</strong> <span class="toc-entry-desc">(if, for, for-in, while, switch, break, continue)</span></a></div>
+  <div class="toc-entry"><a href="#ref-r5"><strong>Ref R5: Functions</strong> <span class="toc-entry-desc">(Regular, lambda, closure, template, thread primitives)</span></a></div>
+  <div class="toc-entry"><a href="#ref-r6"><strong>Ref R6: Memory</strong> <span class="toc-entry-desc">(Stack, heap, alloc/free, volatile, freestanding)</span></a></div>
+  <div class="toc-entry"><a href="#ref-r7"><strong>Ref R7: Preprocessor</strong> <span class="toc-entry-desc">(#define, #ifdef, #pragma pack, multi-line macros)</span></a></div>
+  <div class="toc-entry"><a href="#ref-r8"><strong>Ref R8: Standard Library</strong> <span class="toc-entry-desc">(Complete API for result, list, string, math, io, mem, fs, net)</span></a></div>
+  <div class="toc-entry"><a href="#ref-r9"><strong>Ref R9: CLI Reference</strong> <span class="toc-entry-desc">(All compiler flags, linking, cross-compilation)</span></a></div>
+  <div class="toc-entry"><a href="#ref-r10"><strong>Ref R10: Undefined Behaviour</strong> <span class="toc-entry-desc">(What the compiler does not guarantee)</span></a></div>
 </section>
 
 <!-- BOOK BODY -->
 <section id="preface" class="chapter-start"><span class="chapter-label">Preface</span><h1 class="chapter-title">Why this book exists</h1><hr class="chapter-rule"></section>
 <p> This book teaches Eskiu from zero. You do not need to know any other programming language. You need a computer, a terminal, and the willingness to type things and see what happens.</p>
 <p>Programming is not a subject you read about and then understand. It is something you do. Every example in this book is short enough to type by hand. Type them. Run them. Change a number and see what breaks. That is how the knowledge becomes yours.</p>
-<p>Eskiu was built to solve a real problem. Compute-intensive services often reach for C when performance matters, Go for concurrency, C++ for libraries, and Python for glue. Four languages, four toolchains, four sets of things that can go wrong at the seams. Eskiu is one language that does all of it — with a single compiler, a single build command, and a mental model simple enough to hold in your head completely.</p>
+<p>Eskiu is a systems language with the power of C and the immediacy of a scripting language. It compiles to native code through LLVM, giving you native performance, explicit memory, and direct access to any C library, so it does the work you would normally reach for C to do. But it spares you C's ceremony for small things: <code>eskiuc run file.esk</code> compiles and runs in a single step, and a <code>#!/usr/bin/env eskiuc run</code> shebang turns a <code>.esk</code> file into an executable script, the way Python or Ruby would. One compiler, one build command, and a mental model small enough to hold in your head.</p>
 <p>The language has no garbage collector. Memory is yours to manage. You ask for it when you need it and give it back when you are done. This sounds more intimidating than it is. By the end of</p>
 <p>Chapter 6 you will do it without thinking.</p>
-<p>Every chapter follows the same pattern. A concept is explained in plain language. Then shown in code. Each chapter ends with a summary and exercises. Do the exercises — even the easy ones, especially the easy ones.</p>
+<p>Every chapter follows the same pattern. A concept is explained in plain language. Then shown in code. Each chapter ends with a summary and exercises. Do the exercises, even the easy ones, especially the easy ones.</p>
 <p>By the end you will have read the complete language, managed memory explicitly, called C libraries directly, spawned threads, and read through a real cryptographic pipeline that runs 2.5× faster than the hand-written C it replaced.</p>
 <p>Eskiu is named after a cat.</p>
 <p class="etymology">Tiny → Minusculiny (minúscula + tiny) → Kulini → Eskiulini → Eskiu.</p>
-<p>As of v0.3.0, Eskiu is self-hosting: the whole compiler — lexer, preprocessor, parser, type checker, and code generator — is written in Eskiu itself (<code>selfhost/</code>), reaches a three-stage bootstrap fixpoint, and its code generator is feature-complete against the reference C++ compiler. Chapter 27 tells that story.</p>
+<p>As of v0.3.0, Eskiu is self-hosting: the whole compiler (lexer, preprocessor, parser, type checker, and code generator) is written in Eskiu itself (<code>selfhost/</code>), reaches a three-stage bootstrap fixpoint, and its code generator is feature-complete against the reference C++ compiler. Chapter 27 tells that story.</p>
 <div class="chapter-start" id="chapter-1"><span class="chapter-label">Chapter 1</span>
 <h1 class="chapter-title">Hello, Eskiu</h1><hr class="chapter-rule"></div>
-<p>Every journey in programming starts with a single program that does almost nothing. It prints a line of text and exits. This is Hello World — a tradition as old as the C language itself. Its purpose is not the output. Its purpose is to prove that your tools work: the compiler is installed, you can type code, and the result runs on your machine. Everything else builds on that.</p>
+<p>Every journey in programming starts with a single program that does almost nothing. It prints a line of text and exits. This is Hello World, a tradition as old as the C language itself. Its purpose is not the output. Its purpose is to prove that your tools work: the compiler is installed, you can type code, and the result runs on your machine. Everything else builds on that.</p>
 <h2 class="section" id="sec-1-1">1.1 Installing the compiler</h2>
-<p>Go to eskiu-lang.org and download the binary for your platform. Unpack the archive and copy <code>eskiuc</code> to somewhere on your PATH — /usr/local/bin works on both macOS and Linux. You will also need Clang to link your programs:</p>
+<p>Go to eskiu-lang.org and download the binary for your platform. Unpack the archive and copy <code>eskiuc</code> to somewhere on your PATH. /usr/local/bin works on both macOS and Linux. You will also need Clang to link your programs:</p>
 <pre class="code-block"> # macOS
  xcode-select --install</pre>
 <pre class="code-block"> # Ubuntu / Debian
@@ -550,15 +550,15 @@ pre.code-block {
  ./hello</pre>
 <p class="output"><em>Output:</em> Hello, Eskiu!</p>
 <h2 class="section" id="sec-1-3">1.3 What just happened</h2>
-<p>The first command compiled and linked your program in one step. <code>eskiuc</code> invokes the LLVM backend to produce a native object file, then automatically calls the system C toolchain ($CC, then cc / clang / gcc) to link it into an executable — the same approach rustc and clang use. The second command runs the result.</p>
-<p>To stop at the object file — for example to link multiple files yourself — give the output a .o suffix or pass -c:</p>
-<pre class="code-block"> eskiuc hello.esk -c -o hello.o       # object file only — no linking</pre>
+<p>The first command compiled and linked your program in one step. <code>eskiuc</code> invokes the LLVM backend to produce a native object file, then automatically calls the system C toolchain ($CC, then cc / clang / gcc) to link it into an executable, the same approach rustc and clang use. The second command runs the result.</p>
+<p>To stop at the object file (for example to link multiple files yourself), give the output a .o suffix or pass -c:</p>
+<pre class="code-block"> eskiuc hello.esk -c -o hello.o       # object file only, no linking</pre>
 <h2 class="section" id="sec-1-4">1.4 Line by line</h2>
 <p>The first line declares a function from the C standard library:</p>
 <pre class="code-block"> extern int printf(string fmt, ...);</pre>
-<p><code>extern</code> means: this function exists somewhere else — I am just telling you its name and signature. The ... means it accepts any number of additional arguments after the format <code>string</code>.</p>
+<p><code>extern</code> means: this function exists somewhere else. I am just telling you its name and signature. The ... means it accepts any number of additional arguments after the format <code>string</code>.</p>
 <p>The main function is where every Eskiu program begins. The OS calls it when you run the program. Returning 0 signals success.</p>
-<p>Inside main, <code>printf</code> prints the format <code>string</code>. \n is a newline — it moves the cursor to the next line after printing.</p>
+<p>Inside main, <code>printf</code> prints the format <code>string</code>. \n is a newline. It moves the cursor to the next line after printing.</p>
 <h2 class="section" id="sec-1-5">1.5 Making a change</h2>
 <p>The best way to understand code is to change it. Try printing a number:</p>
 <pre class="code-block"> printf(&quot;The answer is %d
@@ -566,7 +566,7 @@ pre.code-block {
 <p>Recompile and run. The %d placeholder is replaced by 42.</p>
 <div class="chapter-start" id="chapter-2"><span class="chapter-label">Chapter 2</span>
 <h1 class="chapter-title">Variables and Types</h1><hr class="chapter-rule"></div>
-<p>A variable is a named location in memory that holds a value. In Eskiu every variable has a type, and that type never changes. The compiler uses the type to know how much memory to reserve, how to interpret the bits stored there, and what operations are valid. Types are not bureaucracy — they are the compiler&#x27;s way of catching mistakes before your program runs.</p>
+<p>A variable is a named location in memory that holds a value. In Eskiu every variable has a type, and that type never changes. The compiler uses the type to know how much memory to reserve, how to interpret the bits stored there, and what operations are valid. Types are not bureaucracy; they are the compiler&#x27;s way of catching mistakes before your program runs.</p>
 <h2 class="section" id="sec-2-1">2.1 Declaring a variable</h2>
 <p>Two equivalent forms:</p>
 <pre class="code-block"> let x: int = 5;                 // let-style with type annotation
@@ -594,7 +594,7 @@ pre.code-block {
  &#x27;;                 // newline escape
  char bs = &#x27;\\&#x27;;                  // backslash
  char sq = &#x27;\&#x27;&#x27;;                  // single quote</pre>
-<p>A <code>string</code> can be indexed to read individual characters — s[0] is the first <code>char</code>. Adjacent <code>string</code> literals are joined automatically, which keeps long text readable:</p>
+<p>A <code>string</code> can be indexed to read individual characters: s[0] is the first <code>char</code>. Adjacent <code>string</code> literals are joined automatically, which keeps long text readable:</p>
 <pre class="code-block"> string s = &quot;Eskiu&quot;;
  printf(&quot;%c%c
  &quot;, s[0], s[4]);              // Eu</pre>
@@ -602,9 +602,9 @@ pre.code-block {
  printf(&quot;%s
  &quot;, msg);                       // Hello, world!</pre>
 <h2 class="section" id="sec-2-3">2.3 Explicit casting</h2>
-<p>Eskiu never silently converts one type to another. When types differ, you cast explicitly — making the potential data loss visible in the code:</p>
+<p>Eskiu never silently converts one type to another. When types differ, you cast explicitly, making the potential data loss visible in the code:</p>
 <pre class="code-block"> double x = 3.99;
- int n          = (int)x;         // 3 — fractional part discarded
+ int n          = (int)x;         // 3: fractional part discarded
  uint8 b        = (uint8)n;       // fine if n fits in 0–255
  float f        = (float)n;       // widen to float</pre>
 <h2 class="section" id="sec-2-4">2.4 A complete example</h2>
@@ -629,7 +629,7 @@ pre.code-block {
  }</pre>
 <p class="output"><em>Output:</em> Name: Eduardo Age: 28 Height: 1.75 Grade: A Active: 1</p>
 <h2 class="section" id="sec-2-5">2.5 Global variables</h2>
-<p>A variable declared outside any function is a global. It exists for the entire run of the program and is visible to every function in the file. Reach for globals sparingly — for configuration or shared state that genuinely must outlive a single call:</p>
+<p>A variable declared outside any function is a global. It exists for the entire run of the program and is visible to every function in the file. Reach for globals sparingly, for configuration or shared state that genuinely must outlive a single call:</p>
 <pre class="code-block"> extern int printf(string fmt, ...);</pre>
 <pre class="code-block"> int counter = 0;                   // global</pre>
 <pre class="code-block"> void bump() { counter = counter + 1; }</pre>
@@ -642,19 +642,19 @@ pre.code-block {
        return 0;
  }</pre>
 <p class="output"><em>Output:</em> 3</p>
-<h2 class="section" id="sec-2-6">2.6 const — immutable bindings</h2>
+<h2 class="section" id="sec-2-6">2.6 const: immutable bindings</h2>
 <p>A <code>const</code> binding cannot be reassigned after its initial value. Unlike a plain variable, a <code>const</code> <code>int</code> can be used as an array size:</p>
 <pre class="code-block"> const int CAP = 4;
  int[CAP] xs;                    // const as array size</pre>
 <pre class="code-block"> struct Ring { int[CAP] slots; }         // const in struct field</pre>
 <pre class="code-block"> const let base: int = 10;           // const with let form
- // base = 11;                   // compile error — const cannot be reassigned</pre>
-<p><code>const</code> applies to the binding — the variable cannot be reassigned. For pointer constness, see <code>const</code> T* (pointer to read-only data) and T* <code>const</code> (read-only pointer, writable data):</p>
+ // base = 11;                   // compile error: const cannot be reassigned</pre>
+<p><code>const</code> applies to the binding: the variable cannot be reassigned. For pointer constness, see <code>const</code> T* (pointer to read-only data) and T* <code>const</code> (read-only pointer, writable data):</p>
 <pre class="code-block"> int[3] arr; arr[0] = 1; arr[1] = 2; arr[2] = 3;
  const int* r = &amp;arr[0];         // cannot write through r
  // r[0] = 99;                   // compile error
  r = &amp;arr[1];                    // rebinding the pointer is fine</pre>
-<h2 class="section" id="sec-2-7">2.7 enum — named integer constants</h2>
+<h2 class="section" id="sec-2-7">2.7 enum: named integer constants</h2>
 <p>An enum assigns names to integer values. Values start at 0 and increment by 1 unless you set them explicitly. After an explicit value, numbering continues from there:</p>
 <pre class="code-block"> enum Color     { Red, Green, Blue }                 // 0, 1, 2
  enum Status { Ok = 0, Err = 2, Pending }            // 0, 2, 3</pre>
@@ -671,12 +671,12 @@ pre.code-block {
  &quot;); break;
  }</pre>
 <p class="output"><em>Output:</em> 1 green</p>
-<h2 class="section" id="sec-2-8">2.8 type — aliases</h2>
+<h2 class="section" id="sec-2-8">2.8 type: aliases</h2>
 <p>A type alias gives an existing type a new name. The alias and the original are interchangeable. This is Eskiu&#x27;s equivalent of C&#x27;s typedef:</p>
 <pre class="code-block"> type u8        = uint8;
  type Bytes = *uint8;
  type Int       = int;</pre>
-<p>Once defined, the alias can be used anywhere the original type can — variable declarations, function parameters, return types, and <code>alloc</code>:</p>
+<p>Once defined, the alias can be used anywhere the original type can, including variable declarations, function parameters, return types, and <code>alloc</code>:</p>
 <pre class="code-block"> Int add(Int a, Int b) { return a + b; }</pre>
 <pre class="code-block"> u8 b = 200;
  printf(&quot;%d
@@ -691,7 +691,7 @@ pre.code-block {
 <p class="output"><em>Output:</em> 200 65 66 7</p>
 <div class="chapter-start" id="chapter-3"><span class="chapter-label">Chapter 3</span>
 <h1 class="chapter-title">Functions</h1><hr class="chapter-rule"></div>
-<p>A function is a named, reusable block of code. You define it once and call it as many times as you need. Functions are the primary tool for breaking a program into manageable pieces — each function does one thing, does it well, and can be understood in isolation.</p>
+<p>A function is a named, reusable block of code. You define it once and call it as many times as you need. Functions are the primary tool for breaking a program into manageable pieces. Each function does one thing, does it well, and can be understood in isolation.</p>
 <h2 class="section" id="sec-3-1">3.1 Defining a function</h2>
 <p>Return type first, then name, then parameters, then body:</p>
 <pre class="code-block"> int add(int a, int b) {
@@ -727,11 +727,11 @@ pre.code-block {
  &quot;, factorial(5));           // 120</pre>
 <pre class="code-block"> Warning Recursive calls consume stack space. For large inputs, a loop is safer.</pre>
 <h2 class="section" id="sec-3-5">3.5 Declaration order and forward declarations</h2>
-<p>Definition order does not matter. A function may call another that is defined later in the same file, and two functions may call each other. You can also write a body-less forward declaration — a signature ending in a semicolon — when you prefer to state the signature up front:</p>
+<p>Definition order does not matter. A function may call another that is defined later in the same file, and two functions may call each other. You can also write a body-less forward declaration (a signature ending in a semicolon) when you prefer to state the signature up front:</p>
 <pre class="code-block"> int is_odd(int n);         // forward declaration (optional)</pre>
 <pre class="code-block"> int is_even(int n) {
        if (n == 0) return 1;
-       return is_odd(n - 1);          // defined below — works
+       return is_odd(n - 1);          // defined below, works
  }</pre>
 <pre class="code-block"> int is_odd(int n) {
        if (n == 0) return 0;
@@ -765,7 +765,7 @@ pre.code-block {
  }
  printf(&quot;%d
  &quot;, sumv(3, 10, 20, 30));     // 60</pre>
-<p>C default promotions apply: <code>float</code> args arrive as <code>double</code> — read with va_arg&lt;double&gt;. At least one fixed parameter is required.</p>
+<p>C default promotions apply: <code>float</code> args arrive as <code>double</code>. Read with va_arg&lt;double&gt;. At least one fixed parameter is required.</p>
 <div class="chapter-start" id="chapter-4"><span class="chapter-label">Chapter 4</span>
 <h1 class="chapter-title">Control Flow</h1><hr class="chapter-rule"></div>
 <p>A program that executes every statement exactly once in order is not very useful. Real programs make decisions, repeat actions, and skip sections. Control flow is the set of tools that makes this possible.</p>
@@ -860,10 +860,10 @@ pre.code-block {
  int lo = 2;        int hi = 6;
  for (j in lo..hi) { printf(&quot;%d           &quot;, j); }
  // Output: 2           3   4    5</pre>
-<p>The loop variable — v, n, or i above — is a copy. Modifying it does not affect the collection or the range. continue correctly advances the index.</p>
+<p>The loop variable (v, n, or i above) is a copy. Modifying it does not affect the collection or the range. continue correctly advances the index.</p>
 <div class="chapter-start" id="chapter-5"><span class="chapter-label">Chapter 5</span>
 <h1 class="chapter-title">Structs and Methods</h1><hr class="chapter-rule"></div>
-<p>A variable holds one value. A struct holds many — each with its own name and type — grouped under a single name. Methods attach behaviour to that data, so a struct carries both what it is and what it can do.</p>
+<p>A variable holds one value. A struct holds many, each with its own name and type, grouped under a single name. Methods attach behaviour to that data, so a struct carries both what it is and what it can do.</p>
 <h2 class="section" id="sec-5-1">5.1 Your first struct</h2>
 <p>A struct declaration introduces a new type. Fields are declared inside the braces:</p>
 <pre class="code-block"> struct Point {
@@ -921,12 +921,12 @@ pre.code-block {
 <h2 class="section" id="sec-5-6">5.6 Bitfields</h2>
 <p>A bitfield is a struct field with a width in bits written after a colon. Multiple bitfields pack into the same underlying integer word. This lets you represent hardware registers, protocol headers, or compact flags without manual bit manipulation:</p>
 <pre class="code-block"> struct Flags {
-       uint32 a : 1;       // 1-bit field — values 0 or 1
-       uint32 b : 3;       // 3-bit field — values 0-7
-       uint32 c : 4;       // 4-bit field — values 0-15
-       int       tag;      // normal field — mixed freely
+       uint32 a : 1;       // 1-bit field: values 0 or 1
+       uint32 b : 3;       // 3-bit field: values 0-7
+       uint32 c : 4;       // 4-bit field: values 0-15
+       int       tag;      // normal field: mixed freely
  }</pre>
-<p>Assignment and access use the same dot syntax as normal fields. The compiler generates read-modify-write automatically — updating one field never disturbs its neighbours:</p>
+<p>Assignment and access use the same dot syntax as normal fields. The compiler generates read-modify-write automatically, updating one field never disturbs its neighbours:</p>
 <pre class="code-block"> Flags f;
  f.a = 1;       f.b = 5;   f.c = 9;    f.tag = 42;
  printf(&quot;%d %d %d %d
@@ -940,7 +940,7 @@ pre.code-block {
  printf(&quot;%d %d %d
  &quot;, g.a, g.b, g.c);        // 1 7 15</pre>
 <h2 class="section" id="sec-5-7">5.7 packed struct</h2>
-<p>By default the compiler inserts padding between struct fields to satisfy alignment requirements — a <code>uint8</code> followed by a <code>uint32</code> occupies 8 bytes, not 5, because the compiler adds 3 padding bytes before the <code>uint32</code>. The <code>packed</code> qualifier removes all padding, giving you the exact on-wire layout. This is essential for hardware register maps, network protocols, and interop with C structs declared with __attribute__((<code>packed</code>)):</p>
+<p>By default the compiler inserts padding between struct fields to satisfy alignment requirements. A <code>uint8</code> followed by a <code>uint32</code> occupies 8 bytes, not 5, because the compiler adds 3 padding bytes before the <code>uint32</code>. The <code>packed</code> qualifier removes all padding, giving you the exact on-wire layout. This is essential for hardware register maps, network protocols, and interop with C structs declared with __attribute__((<code>packed</code>)):</p>
 <pre class="code-block"> struct Natural {            // default layout
        uint8    tag;         // 1 byte + 3 bytes padding
        uint32 value;         // 4 bytes
@@ -954,7 +954,7 @@ pre.code-block {
  printf(&quot;%lld
  &quot;, sizeof(Wire));           // 5</pre>
 <p class="output"><em>Output:</em> 8 5</p>
-<p>You can also apply packing to a group of structs using #pragma pack — covered in Chapter 12.5. Any struct declared while pack(1) is active is <code>packed</code>, regardless of whether <code>packed</code> appears on the struct itself.</p>
+<p>You can also apply packing to a group of structs using #pragma pack, covered in Chapter 12.5. Any struct declared while pack(1) is active is <code>packed</code>, regardless of whether <code>packed</code> appears on the struct itself.</p>
 <div class="chapter-start" id="chapter-6"><span class="chapter-label">Chapter 6</span>
 <h1 class="chapter-title">Pointers and Memory</h1><hr class="chapter-rule"></div>
 <p>A pointer is a variable that holds a memory address. Instead of containing a value directly, it points to where a value lives. Pointers are how Eskiu shares data between functions, manages heap memory, and interfaces with hardware. They are the most important concept in systems programming, and the one that trips up beginners most reliably. Take your time with this chapter.</p>
@@ -992,7 +992,7 @@ pre.code-block {
 <pre class="code-block"> Warning Forgetting free is a memory leak. Freeing twice is a double-free. Using memory after free is
  use-after-free. All three are undefined behaviour. Chapter 18 covers each in detail.</pre>
 <h2 class="section" id="sec-6-6">6.6 Typed pointer arithmetic</h2>
-<p>Adding an integer to a pointer advances it by n × sizeof(T) bytes — not n bytes. ptr + 1 moves to the next element, regardless of element size:</p>
+<p>Adding an integer to a pointer advances it by n × sizeof(T) bytes, not n bytes. ptr + 1 moves to the next element, regardless of element size:</p>
 <pre class="code-block"> *int arr = alloc&lt;int&gt;(4);
  arr[0]=10; arr[1]=20; arr[2]=30; arr[3]=40;</pre>
 <pre class="code-block"> *int p = arr + 2;             // advances 2 × sizeof(int) = 8 bytes
@@ -1007,32 +1007,32 @@ pre.code-block {
  &quot;, *p);        // safe
  }</pre>
 <h2 class="section" id="sec-6-8">6.8 Pointer constness</h2>
-<p><code>const</code> T* is a pointer to read-only data — you can read through it and rebind it, but cannot write through it. T* <code>const</code> is a read-only pointer — you can write through it but cannot rebind it. Adding <code>const</code> is always safe; removing it is a compile error:</p>
+<p><code>const</code> T* is a pointer to read-only data: you can read through it and rebind it, but cannot write through it. T* <code>const</code> is a read-only pointer: you can write through it but cannot rebind it. Adding <code>const</code> is always safe; removing it is a compile error:</p>
 <pre class="code-block"> int x = 10;        int y = 20;
  const int* r = &amp;x;         // pointer to const int
- // r[0] = 99;              // compile error — write through const pointer
- r = &amp;y;                    // ok — rebinding is allowed</pre>
+ // r[0] = 99;              // compile error: write through const pointer
+ r = &amp;y;                    // ok: rebinding is allowed</pre>
 <pre class="code-block"> int sum(const int* p, int n) {         // caller&#x27;s data is read-only
        int s = 0;
        for (i in 0..n) { s = s + p[i]; }
        return s;
  }</pre>
-<p>Use <code>const</code> T* parameters to communicate that a function will not modify the caller&#x27;s data — it is a contract enforced by the compiler.</p>
+<p>Use <code>const</code> T* parameters to communicate that a function will not modify the caller&#x27;s data. It is a contract enforced by the compiler.</p>
 <h2 class="section" id="sec-6-9">6.9 volatile</h2>
 <p>The <code>volatile</code> qualifier prevents the compiler from optimising away, caching, or reordering loads and stores to a pointer. Required for memory-mapped hardware registers, whose value can change independently of your program:</p>
 <pre class="code-block"> volatile let uart_dr: *uint8 = (uint8*) 0x09000000;
- *uart_dr = &#x27;A&#x27;;          // always emitted — never optimised away</pre>
+ *uart_dr = &#x27;A&#x27;;          // always emitted: never optimised away</pre>
 <pre class="code-block"> volatile let status: *uint8 = (uint8*) 0x09000018;
  while ((*status &amp; 0x20) == 0) {}        // re-reads the register every iteration</pre>
 <div class="chapter-start" id="chapter-7"><span class="chapter-label">Chapter 7</span>
 <h1 class="chapter-title">Interfaces</h1><hr class="chapter-rule"></div>
-<p>An interface describes what a type can do, not what it is. It names a set of methods that any conforming type must provide. Code written against an interface works with any type that satisfies it — today&#x27;s types and types not yet written. This is the cleanest form of extensibility in a systems language.</p>
+<p>An interface describes what a type can do, not what it is. It names a set of methods that any conforming type must provide. Code written against an interface works with any type that satisfies it: today&#x27;s types and types not yet written. This is the cleanest form of extensibility in a systems language.</p>
 <h2 class="section" id="sec-7-1">7.1 Declaring an interface</h2>
 <pre class="code-block"> interface Shape {
        float area();
        void     describe();
  }</pre>
-<p>Any struct that provides both methods satisfies Shape — no explicit declaration needed. This is called structural typing.</p>
+<p>Any struct that provides both methods satisfies Shape. No explicit declaration needed. This is called structural typing.</p>
 <h2 class="section" id="sec-7-2">7.2 Two structs, one interface</h2>
 <pre class="code-block"> struct Circle {
        float radius;</pre>
@@ -1066,7 +1066,7 @@ pre.code-block {
 <p class="output"><em>Output:</em> Circle r=5.00 area=78.54 Rect 4.0x6.0 area=24.00 total: 102.54</p>
 <div class="chapter-start" id="chapter-8"><span class="chapter-label">Chapter 8</span>
 <h1 class="chapter-title">Templates</h1><hr class="chapter-rule"></div>
-<p>A template is a blueprint the compiler fills in with a concrete type when you use it. You write the logic once, parameterised by a type placeholder, and the compiler generates a separate, fully optimised version for each type you actually use. There is no runtime overhead — templates are entirely a compile-time mechanism.</p>
+<p>A template is a blueprint the compiler fills in with a concrete type when you use it. You write the logic once, parameterised by a type placeholder, and the compiler generates a separate, fully optimised version for each type you actually use. There is no runtime overhead: templates are entirely a compile-time mechanism.</p>
 <h2 class="section" id="sec-8-1">8.1 A template function</h2>
 <p>Type parameters in angle brackets. The return type can also be T:</p>
 <pre class="code-block"> T identity&lt;T&gt;(T x) { return x; }</pre>
@@ -1080,9 +1080,9 @@ pre.code-block {
  printf(&quot;%d %d %.1f
  &quot;, same, big, fbig);</pre>
 <p class="output"><em>Output:</em> 42 20 2.5</p>
-<p>When a type parameter appears directly as a parameter type, the compiler can infer it from the arguments — the angle brackets become optional:</p>
+<p>When a type parameter appears directly as a parameter type, the compiler can infer it from the arguments; the angle brackets become optional:</p>
 <pre class="code-block"> printf(&quot;%d
- &quot;, max(3, 5));           // 5    — T inferred as int
+ &quot;, max(3, 5));           // 5   : T inferred as int
  printf(&quot;%d
  &quot;, identity(42));        // 42</pre>
 <h2 class="section" id="sec-8-2">8.2 A template struct</h2>
@@ -1109,7 +1109,7 @@ pre.code-block {
  &quot;, r2.error); }</pre>
 <p class="output"><em>Output:</em> 10 / 2 = 5 error: division by zero</p>
 <h2 class="section" id="sec-8-4">8.4 Bounded type parameters (constraints)</h2>
-<p>A type parameter may carry one or more interface constraints, written after a colon: T f&lt;T: Iface&gt;(...). The constraint requires that every concrete type argument satisfy the named interface. Multiple constraints use +: &lt;T: A + B&gt;. The check happens at the call site, not deep in codegen — so the error message names the constraint that failed, not an obscure method-missing error:</p>
+<p>A type parameter may carry one or more interface constraints, written after a colon: T f&lt;T: Iface&gt;(...). The constraint requires that every concrete type argument satisfy the named interface. Multiple constraints use +: &lt;T: A + B&gt;. The check happens at the call site, not deep in codegen, so the error message names the constraint that failed, not an obscure method-missing error:</p>
 <pre class="code-block"> interface Ord { int cmp(Ord* o); }</pre>
 <pre class="code-block"> T pick&lt;T: Ord&gt;(T* a, T* b) {
        if (a.cmp(b) &lt; 0) { return a[0]; }
@@ -1123,7 +1123,7 @@ pre.code-block {
             return 1;
        }
  }</pre>
-<pre class="code-block"> // Num satisfies Ord — it has cmp. int does not.
+<pre class="code-block"> // Num satisfies Ord: it has cmp. int does not.
  let x: Num;     x.v = 3;
  let y: Num;     y.v = 7;
  let lo: Num = pick&lt;Num&gt;(&amp;x, &amp;y);        // lo.v == 3
@@ -1132,7 +1132,7 @@ pre.code-block {
 <pre class="code-block"> interface Show { int show(); }
  interface Eq      { int eq(Eq* o); }</pre>
 <pre class="code-block"> int dump&lt;T: Show + Eq&gt;(T* x) { return x.show(); }</pre>
-<p>Structs satisfy a constraint by defining its methods. Primitives such as <code>int</code> have no methods — instead they satisfy a constraint via a <code>free</code> function named like the interface method, with the primitive as the first parameter. Inside the generic body, a constrained call t.cmp(x) on a primitive t lowers to cmp(t, x):</p>
+<p>Structs satisfy a constraint by defining its methods. Primitives such as <code>int</code> have no methods. Instead they satisfy a constraint via a <code>free</code> function named like the interface method, with the primitive as the first parameter. Inside the generic body, a constrained call t.cmp(x) on a primitive t lowers to cmp(t, x):</p>
 <pre class="code-block"> interface Ord { int cmp(Ord* o); }</pre>
 <pre class="code-block"> // Free function makes int satisfy Ord:
  int cmp(int a, int b) { if (a &lt; b) { return -1; } return 1; }</pre>
@@ -1148,7 +1148,7 @@ pre.code-block {
  explicitly without declaring an interface. Scalar primitives only; pointer types are not yet supported.</pre>
 <div class="chapter-start" id="chapter-9"><span class="chapter-label">Chapter 9</span>
 <h1 class="chapter-title">Closures and Lambdas</h1><hr class="chapter-rule"></div>
-<p>A lambda is a function without a name. You can store it in a variable, pass it to another function, or write it inline. A closure is a lambda that remembers variables from the scope where it was created — it closes over them, carrying its own small piece of state.</p>
+<p>A lambda is a function without a name. You can store it in a variable, pass it to another function, or write it inline. A closure is a lambda that remembers variables from the scope where it was created: it closes over them, carrying its own small piece of state.</p>
 <h2 class="section" id="sec-9-1">9.1 Your first lambda</h2>
 <pre class="code-block"> let double_it: fn(int)-&gt;int = int(int x) { return x * 2; };</pre>
 <pre class="code-block"> printf(&quot;%d
@@ -1189,7 +1189,7 @@ pre.code-block {
  let add10: fn(int)-&gt;int = adder(10);
  printf(&quot;%d
  &quot;, add10(5));     // 15</pre>
-<pre class="code-block"> // Struct with a fn field — call directly
+<pre class="code-block"> // Struct with a fn field: call directly
  struct Ops { fn(int,int)-&gt;int op; }
  int add(int a, int b) { return a + b; }
  let o: Ops;    o.op = add;
@@ -1206,7 +1206,7 @@ pre.code-block {
  // free_closure(cb) when done</pre>
 <p>Non-escaping closures have their environment on the stack and cost nothing. The escaping qualifier makes the lifetime contract explicit and compiler-enforced. Passing a non-escaping closure to an escaping parameter is a compile error.</p>
 <h2 class="section" id="sec-9-7">9.7 Closures inside generic functions</h2>
-<p>A lambda declared inside a generic function body captures correctly across all instantiations. The closure environment is monomorphized alongside the outer template — a field typed by the type parameter gets the concrete type at each instantiation:</p>
+<p>A lambda declared inside a generic function body captures correctly across all instantiations. The closure environment is monomorphized alongside the outer template: a field typed by the type parameter gets the concrete type at each instantiation:</p>
 <pre class="code-block"> int call_it(escaping fn()-&gt;int op) { return op(); }</pre>
 <pre class="code-block"> // box&lt;T&gt; captures a T-typed value and an int* in its closure
  int box&lt;T&gt;(T v, int bump) {
@@ -1267,7 +1267,7 @@ pre.code-block {
        if (b == 0) return Err&lt;int, string&gt;(&quot;division by zero&quot;);
        return Ok&lt;int, string&gt;(a / b);
  }</pre>
-<pre class="code-block"> // Without ? — verbose
+<pre class="code-block"> // Without ?, verbose
  Result&lt;int, string&gt; compute_verbose(int a, int b, int c) {
        let r1: Result&lt;int, string&gt; = divide(a, b);
        if (r1.ok == 0) return Err&lt;int, string&gt;(r1.error);
@@ -1275,7 +1275,7 @@ pre.code-block {
        if (r2.ok == 0) return Err&lt;int, string&gt;(r2.error);
        return Ok&lt;int, string&gt;(r2.value + 1);
  }</pre>
-<pre class="code-block"> // With ? — concise
+<pre class="code-block"> // With ?, concise
  Result&lt;int, string&gt; compute(int a, int b, int c) {
        let x: int = divide(a, b)?;     // unwrap or return Err
        let y: int = divide(x, c)?;
@@ -1295,7 +1295,7 @@ pre.code-block {
 <p>Use throw for bugs and impossible states: an assertion failed, a data structure is internally inconsistent.</p>
 <div class="chapter-start" id="chapter-11"><span class="chapter-label">Chapter 11</span>
 <h1 class="chapter-title">Concurrency</h1><hr class="chapter-rule"></div>
-<p>A thread is an independent sequence of execution. Your main function runs in one. Additional threads run in parallel — on separate CPU cores if available. Eskiu exposes threads as language primitives: thread_create and thread_join are keywords, not library calls.</p>
+<p>A thread is an independent sequence of execution. Your main function runs in one. Additional threads run in parallel, on separate CPU cores if available. Eskiu exposes threads as language primitives: thread_create and thread_join are keywords, not library calls.</p>
 <h2 class="section" id="sec-11-1">11.1 thread_create and thread_join</h2>
 <pre class="code-block"> int main() {
        *void t = thread_create(void() {
@@ -1309,7 +1309,7 @@ pre.code-block {
  }</pre>
 <p>The two lines may print in either order. thread_join blocks until the thread has finished. On Linux, link with -lpthread.</p>
 <h2 class="section" id="sec-11-2">11.2 Passing data via closures</h2>
-<p>Closures capture by value — each thread gets an independent copy, no shared state, no data race:</p>
+<p>Closures capture by value: each thread gets an independent copy, no shared state, no data race:</p>
 <pre class="code-block"> int id1 = 1;      int id2 = 2;</pre>
 <pre class="code-block"> let w1: fn()-&gt;void = void() { printf(&quot;thread %d
  &quot;, id1); };
@@ -1320,7 +1320,7 @@ pre.code-block {
  thread_join(t1);
  thread_join(t2);</pre>
 <h2 class="section" id="sec-11-3">11.3 Shared state</h2>
-<p>When threads share heap-allocated data through a pointer, you must coordinate access. Without synchronisation, concurrent reads and writes produce corrupted results — a data race.</p>
+<p>When threads share heap-allocated data through a pointer, you must coordinate access. Without synchronisation, concurrent reads and writes produce corrupted results: a data race.</p>
 <pre class="code-block"> Warning Shared heap memory from multiple threads without synchronisation is undefined behaviour.
  Prefer passing data by value through closures.</pre>
 <h2 class="section" id="sec-11-3">11.3 Function decay</h2>
@@ -1330,20 +1330,20 @@ pre.code-block {
        int fd = net_tcp_listen(54331);
        // ...
  }</pre>
-<pre class="code-block"> // Pass function name directly — no void() { echo_server(); } wrapper
+<pre class="code-block"> // Pass function name directly, no void() { echo_server(); } wrapper
  *void t = thread_create(echo_server);
  thread_join(t);</pre>
 <p>The compiler synthesises a thin thunk that ignores the environment pointer and forwards to the named       function.   Function   decay   works    with   any    fn(T,...)-&gt;R        context,    not     just thread_create.</p>
 <pre class="code-block"> Function decay applies to named top-level functions only. Methods and local functions do not decay.</pre>
 <div class="chapter-start" id="chapter-12"><span class="chapter-label">Chapter 12</span>
 <h1 class="chapter-title">Operators</h1><hr class="chapter-rule"></div>
-<p>Eskiu provides the full complement of operators expected from a systems language. Most will be familiar. The one that deserves attention is sizeof — a compile-time query that becomes essential when working with memory directly.</p>
+<p>Eskiu provides the full complement of operators expected from a systems language. Most will be familiar. The one that deserves attention is sizeof, a compile-time query that becomes essential when working with memory directly.</p>
 <h2 class="section" id="sec-12-1">12.1 Arithmetic</h2>
 <pre class="code-block"> int a = 17 + 5;         // 22
  int b = 17 - 5;         // 12
  int c = 17 * 5;         // 85
- int d = 17 / 5;         // 3        — integer division truncates toward zero
- int e = 17 % 5;         // 2        — remainder</pre>
+ int d = 17 / 5;         // 3       : integer division truncates toward zero
+ int e = 17 % 5;         // 2       : remainder</pre>
 <h2 class="section" id="sec-12-2">12.2 Bitwise</h2>
 <pre class="code-block"> uint8 x = 0xB3;                // 10110011
  uint8 a = x &amp; 0x0F;            // 00000011 = 3         AND: keep lower nibble
@@ -1367,7 +1367,7 @@ pre.code-block {
  x |= 1;        // 9
  x ^= 3;        // 10</pre>
 <h2 class="section" id="sec-12-3">12.3 sizeof</h2>
-<p>sizeof(T) returns the number of bytes a value of type T occupies in memory. The result is a compile-time <code>int64</code> constant — no runtime code is generated. Print it with %lld:</p>
+<p>sizeof(T) returns the number of bytes a value of type T occupies in memory. The result is a compile-time <code>int64</code> constant: no runtime code is generated. Print it with %lld:</p>
 <pre class="code-block"> printf(&quot;%lld
  &quot;, sizeof(int));                 // 4
  printf(&quot;%lld
@@ -1439,7 +1439,7 @@ pre.code-block {
        printf(&quot;debug off
  &quot;);
  #endif</pre>
-<p>Line numbers are preserved through macro expansion — error messages always point to the original source location.</p>
+<p>Line numbers are preserved through macro expansion: error messages always point to the original source location.</p>
 <p>A macro body can span multiple physical lines using a backslash continuation. Each consumed newline is replaced by a blank line so error messages still point to the right source location:</p>
 <pre class="code-block"> #define POLY(x)         \
        ((x) * (x)       \
@@ -1472,7 +1472,7 @@ pre.code-block {
        printf(&quot;Linux
  &quot;);
  #endif</pre>
-<p>This is how &lt;net&gt; selects the correct sockaddr_in layout — macOS has an extra sin_len field that Linux does not.</p>
+<p>This is how &lt;net&gt; selects the correct sockaddr_in layout: macOS has an extra sin_len field that Linux does not.</p>
 <p>__FILE__ expands to the current source file path; __LINE__ expands to the current line number. #error aborts compilation with a message, honoring #ifdef branches:</p>
 <pre class="code-block"> printf(&quot;%d
  &quot;, __LINE__);         // prints the line number
@@ -1523,14 +1523,14 @@ pre.code-block {
  ■eskiuc main.esk -o project -lpthread -lssl -lcrypto</pre>
 <div class="chapter-start" id="chapter-14"><span class="chapter-label">Chapter 14</span>
 <h1 class="chapter-title">C Interop</h1><hr class="chapter-rule"></div>
-<p>The entire C library ecosystem — OpenSSL, zlib, SQLite, libpng, the POSIX API — is available to Eskiu programs. Declare the function with <code>extern</code>, the compiler generates a standard C-ABI call, and the linker resolves it.</p>
+<p>The entire C library ecosystem (OpenSSL, zlib, SQLite, libpng, the POSIX API) is available to Eskiu programs. Declare the function with <code>extern</code>, the compiler generates a standard C-ABI call, and the linker resolves it.</p>
 <h2 class="section" id="sec-14-1">14.1 Declaring extern functions</h2>
 <pre class="code-block"> extern int     printf(string fmt, ...);
  extern int     strlen(string s);
  extern *void malloc(int size);
  extern *void memcpy(*void dst, *void src, int n);
  extern void    exit(int code);</pre>
-<h2 class="section" id="sec-14-2">14.2 Calling OpenSSL — a real example</h2>
+<h2 class="section" id="sec-14-2">14.2 Calling OpenSSL: a real example</h2>
 <pre class="code-block"> extern *void EVP_CIPHER_CTX_new();
  extern void    EVP_CIPHER_CTX_free(*void ctx);
  extern *void EVP_aes_256_cbc();
@@ -1540,7 +1540,7 @@ pre.code-block {
                                      *uint8 in,   int inl);
  extern int     EVP_DecryptFinal(*void ctx, *uint8 out, *int outl);</pre>
 <h2 class="section" id="sec-14-3">14.3 Linking</h2>
-<p>All library flags are passed directly to <code>eskiuc</code> — it forwards them to the system linker:</p>
+<p>All library flags are passed directly to <code>eskiuc</code>; it forwards them to the system linker:</p>
 <pre class="code-block"> eskiuc main.esk -o program -lssl -lcrypto        # OpenSSL
  eskiuc main.esk -o program -lm                   # libm
  eskiuc main.esk -o program -lpthread             # pthreads (Linux)
@@ -1568,10 +1568,10 @@ pre.code-block {
 <p>This works for top-level functions only. A closure or lambda still carries an environment and cannot be passed as a C callback.</p>
 <div class="chapter-start" id="chapter-15"><span class="chapter-label">Chapter 15</span>
 <h1 class="chapter-title">The Standard Library</h1><hr class="chapter-rule"></div>
-<p>Eskiu&#x27;s standard library ships as 35 plain .esk files with the compiler. There is no magic — they are Eskiu code, readable at lib/eskiu/stdlib/ in your installation. Import each module with an angle-bracket <code>import</code>.</p>
-<h2 class="section" id="sec-15-1">15.1 result — errors as values</h2>
+<p>Eskiu&#x27;s standard library ships as 35 plain .esk files with the compiler. There is no magic: they are Eskiu code, readable at lib/eskiu/stdlib/ in your installation. Import each module with an angle-bracket <code>import</code>.</p>
+<h2 class="section" id="sec-15-1">15.1 result: errors as values</h2>
 <p>The most important module. <code>Result</code>&lt;T,E&gt; is a struct with three fields: ok (1 = success, 0 = failure), value (holds T on success), and error (holds E on failure). Two constructor functions create instances:</p>
-<pre class="code-block"> // result.esk — the complete interface
+<pre class="code-block"> // result.esk: the complete interface
  struct Result&lt;T, E&gt; {
        int ok;       // 1 = success, 0 = failure
        T    value;
@@ -1593,15 +1593,15 @@ pre.code-block {
  &quot;, r.error);
  }</pre>
 <p class="output"><em>Output:</em> result: 5</p>
-<h2 class="section" id="sec-15-2">15.2 list — dynamic arrays</h2>
-<p><code>List</code>&lt;T&gt; is a growable array. Capacity doubles when full. The struct layout is { *T data; <code>int</code> size; <code>int</code> cap; } — all fields are public.</p>
-<pre class="code-block"> // list.esk — the complete interface
+<h2 class="section" id="sec-15-2">15.2 list: dynamic arrays</h2>
+<p><code>List</code>&lt;T&gt; is a growable array. Capacity doubles when full. The struct layout is { *T data; <code>int</code> size; <code>int</code> cap; }. All fields are public.</p>
+<pre class="code-block"> // list.esk: the complete interface
  void List_init&lt;T&gt;(List&lt;T&gt;* self, int cap)         // call before use
  void List_push&lt;T&gt;(List&lt;T&gt;* self, T item)          // append an element
  T      List_get&lt;T&gt;(List&lt;T&gt;* self, int i)          // read element i
  int    List_len&lt;T&gt;(List&lt;T&gt;* self)                 // returns self-&gt;size
  void List_free&lt;T&gt;(List&lt;T&gt;* self)                  // free the buffer</pre>
-<p>The compiler infers T from the <code>List</code>&lt;T&gt;* argument — no explicit type argument needed:</p>
+<p>The compiler infers T from the <code>List</code>&lt;T&gt;* argument; no explicit type argument needed:</p>
 <pre class="code-block"> import &lt;list&gt;;</pre>
 <pre class="code-block"> List&lt;int&gt; nums;
  List_init(&amp;nums, 4);           // T inferred as int
@@ -1624,9 +1624,9 @@ pre.code-block {
  &quot;);</pre>
 <pre class="code-block"> List_free(&amp;nums);</pre>
 <p class="output"><em>Output:</em> len: 3 10 20 30 10 20 30</p>
-<h2 class="section" id="sec-15-3">15.3 string — mutable text</h2>
-<p>The built-in <code>string</code> type is an immutable C-<code>string</code> literal. For text you need to build or modify at runtime, use <code>String</code> — a struct with an owned, growable buffer. v0.2.0 brings a richer standard library. The complete <code>String</code> API:</p>
-<pre class="code-block"> // string.esk — the complete interface
+<h2 class="section" id="sec-15-3">15.3 string: mutable text</h2>
+<p>The built-in <code>string</code> type is an immutable C-<code>string</code> literal. For text you need to build or modify at runtime, use <code>String</code>, a struct with an owned, growable buffer. v0.2.0 brings a richer standard library. The complete <code>String</code> API:</p>
+<pre class="code-block"> // string.esk: the complete interface
  void     String_init(String* self, int cap)           // initialise with capacity
  void     String_from(String* self, string s)          // initialise from a literal
  void     String_append(String* self, string s)        // append a string literal
@@ -1677,9 +1677,9 @@ pre.code-block {
  &quot;, String_cstr(&amp;num), String_to_int(&amp;num)); // -2026 -&gt; -2026</pre>
 <pre class="code-block"> String_free(&amp;s); String_free(&amp;sub); String_free(&amp;num);</pre>
 <p class="output"><em>Output:</em> Hello! (len=6) H 2 1 ello olle -2026 -&gt; -2026</p>
-<h2 class="section" id="sec-15-4">15.4 math — mathematical functions</h2>
+<h2 class="section" id="sec-15-4">15.4 math: mathematical functions</h2>
 <p>Thin wrappers over libm. Link with -lm. All functions take and return <code>double</code> except abs:</p>
-<pre class="code-block"> // math.esk — the complete interface
+<pre class="code-block"> // math.esk: the complete interface
  double sqrt(double x)                           // square root
  double fabs(double x)                           // absolute value (float)
  int       abs(int x)                            // absolute value (int)
@@ -1699,9 +1699,9 @@ pre.code-block {
  printf(&quot;fabs(-5.5) = %.1f
  &quot;,    fabs(-5.5));</pre>
 <p class="output"><em>Output:</em> sqrt(2) = 1.414214 pow(2, 10) = 1024 floor(3.7) = 3 ceil(3.2) = 4 fabs(-5.5) = 5.5</p>
-<h2 class="section" id="sec-15-5">15.5 io — standard input/output</h2>
-<p>Wrappers for libc stdio. <code>printf</code> is the most common — you have been using it since Chapter 1:</p>
-<pre class="code-block"> // io.esk — the complete interface
+<h2 class="section" id="sec-15-5">15.5 io: standard input/output</h2>
+<p>Wrappers for libc stdio. <code>printf</code> is the most common; you have been using it since Chapter 1:</p>
+<pre class="code-block"> // io.esk: the complete interface
  int printf(string fmt, ...)                         // print to stdout
  int fprintf(*void stream, string fmt, ...) // print to a file handle
  int sprintf(*char buf, string fmt, ...) // print to a buffer
@@ -1709,9 +1709,9 @@ pre.code-block {
  int puts(string s)                                  // print string + newline
  int getchar()                                       // read one character
  int putchar(int c)                                  // write one character</pre>
-<h2 class="section" id="sec-15-6">15.6 mem — memory operations</h2>
+<h2 class="section" id="sec-15-6">15.6 mem: memory operations</h2>
 <p>Wrappers for libc memory functions. Essential for working with raw byte buffers in systems code:</p>
-<pre class="code-block"> // mem.esk — the complete interface
+<pre class="code-block"> // mem.esk: the complete interface
  *void memcpy(*void dst, *void src, int n)                // copy n bytes
  *void memset(*void dst, int c, int n)                     // fill n bytes with c
  *void memmove(*void dst, *void src, int n)               // copy, handles overlap
@@ -1728,9 +1728,9 @@ pre.code-block {
  &quot;, strlen(&quot;Eskiu&quot;));          // 5
  free(buf);</pre>
 <p class="output"><em>Output:</em> 0 5</p>
-<h2 class="section" id="sec-15-7">15.7 fs — file I/O</h2>
+<h2 class="section" id="sec-15-7">15.7 fs: file I/O</h2>
 <p>fs wraps POSIX file operations. A file handle is a *<code>void</code> returned by fs_open. Always check for <code>null</code> before using the handle, and always close when done:</p>
-<pre class="code-block"> // fs.esk — the complete interface
+<pre class="code-block"> // fs.esk: the complete interface
  *void     fs_open(string path, string mode)         // &quot;r&quot;, &quot;w&quot;, &quot;rb&quot;, &quot;wb&quot;, &quot;a&quot;
  void      fs_close(*void fp)                        // close the handle
  void      fs_flush(*void fp)                        // flush write buffer</pre>
@@ -1763,7 +1763,7 @@ pre.code-block {
  }</pre>
 <p class="output"><em>Output:</em> read 17 bytes</p>
 <pre class="code-block"> fs_read_all returns a heap-allocated buffer. You must free it when done.</pre>
-<h2 class="section" id="sec-15-8">15.8 map — string-keyed hash map</h2>
+<h2 class="section" id="sec-15-8">15.8 map: string-keyed hash map</h2>
 <p>The &lt;map&gt; module provides <code>Map</code>&lt;V&gt;, a generic <code>string</code>-keyed hash map using open addressing with linear probing and 0.75 load-factor growth. Keys are strings; values are any type V:</p>
 <pre class="code-block"> import &lt;map&gt;;</pre>
 <pre class="code-block"> let m: Map&lt;int&gt;;
@@ -1780,7 +1780,7 @@ pre.code-block {
  &quot;, v);
  }</pre>
 <pre class="code-block"> Map_free&lt;int&gt;(&amp;m);</pre>
-<p>Keys are copied on insert; the map owns them. Map_at returns a stable *V pointer into the value array — valid until the next insert that triggers a grow. For file uploads and binary payloads, pair with &lt;multipart&gt;:</p>
+<p>Keys are copied on insert; the map owns them. Map_at returns a stable *V pointer into the value array, valid until the next insert that triggers a grow. For file uploads and binary payloads, pair with &lt;multipart&gt;:</p>
 <pre class="code-block"> import &lt;multipart&gt;;
  import &lt;string&gt;;</pre>
 <pre class="code-block"> // Extract a named part from a multipart/form-data body
@@ -1794,8 +1794,8 @@ pre.code-block {
        }
  }
  String_free(&amp;boundary);    String_free(&amp;ct);</pre>
-<h2 class="section" id="sec-15-8b">15.8b HashMap—generic key map</h2>
-<p><code>Map</code>&lt;V&gt; keys on strings. <code>HashMap</code>&lt;K,V&gt; keys on any type — you pass hash and eq function pointers at init, the same pattern as C&#x27;s qsort. Built-in helpers int_hash/int_eq cover integer keys:</p>
+<h2 class="section" id="sec-15-8b">15.8b HashMap: generic key map</h2>
+<p><code>Map</code>&lt;V&gt; keys on strings. <code>HashMap</code>&lt;K,V&gt; keys on any type: you pass hash and eq function pointers at init, the same pattern as C&#x27;s qsort. Built-in helpers int_hash/int_eq cover integer keys:</p>
 <pre class="code-block"> import &lt;map&gt;;</pre>
 <pre class="code-block"> let m: HashMap&lt;int, int&gt;;
  HashMap_init&lt;int,int&gt;(&amp;m, 16, int_hash, int_eq);</pre>
@@ -1809,8 +1809,8 @@ pre.code-block {
  &quot;, v);
  }
  HashMap_free&lt;int,int&gt;(&amp;m);</pre>
-<h2 class="section" id="sec-15-9">15.9 bytes — binary-safe byte buffer</h2>
-<p>The &lt;bytes&gt; module provides <code>Bytes</code>: a growable binary-safe buffer backed by *<code>uint8</code> and an explicit length. Unlike <code>String</code>, which is NUL-terminated, <code>Bytes</code> treats every byte as real data — essential for binary payloads and cryptographic output:</p>
+<h2 class="section" id="sec-15-9">15.9 bytes: binary-safe byte buffer</h2>
+<p>The &lt;bytes&gt; module provides <code>Bytes</code>: a growable binary-safe buffer backed by *<code>uint8</code> and an explicit length. Unlike <code>String</code>, which is NUL-terminated, <code>Bytes</code> treats every byte as real data, essential for binary payloads and cryptographic output:</p>
 <pre class="code-block"> import &lt;bytes&gt;;</pre>
 <pre class="code-block"> let b: Bytes;
  Bytes_init(&amp;b, 64);</pre>
@@ -1820,21 +1820,21 @@ pre.code-block {
 <pre class="code-block"> Bytes enc = Bytes_to_base64(&amp;b);
  Bytes_free(&amp;enc);   Bytes_free(&amp;b);</pre>
 <p>Use HttpReq_body(&amp;r;) to get a non-owning <code>Bytes</code> view of an HTTP request body without copying. A slice has cap = 0, so Bytes_free is safe to call on it.</p>
-<h2 class="section" id="sec-15-10">15.10 Additional stdlib — quick reference</h2>
-<pre class="code-block"> // net — TCP sockets (see Chapter 23)
+<h2 class="section" id="sec-15-10">15.10 Additional stdlib: quick reference</h2>
+<pre class="code-block"> // net: TCP sockets (see Chapter 23)
  import &lt;net&gt;;      net_tcp_listen      net_accept      net_tcp_connect
                   net_send     net_recv     net_close</pre>
-<pre class="code-block"> // threading — Mutex / Cond / Sem over pthread
+<pre class="code-block"> // threading: Mutex / Cond / Sem over pthread
  import &lt;threading&gt;;         Mutex   Cond   Sem   (init/lock/unlock/wait/signal/destroy)</pre>
-<pre class="code-block"> // http — HTTP/1.1 worker pool server
+<pre class="code-block"> // http: HTTP/1.1 worker pool server
  import &lt;http&gt;;     http_serve(port, workers, handler)</pre>
-<pre class="code-block"> // json — builder + parser
+<pre class="code-block"> // json: builder + parser
  import &lt;json&gt;;     Json_init/obj_begin/key/str/int/obj_end/cstr/free
                   json_parse/JsonValue_get/JsonValue_as_double/JsonValue_free</pre>
-<pre class="code-block"> // alloc — explicit allocators over a caller buffer (Zig model)
+<pre class="code-block"> // alloc: explicit allocators over a caller buffer (Zig model)
  import &lt;alloc&gt;;      Bump     Arena   Pool   FirstFit
      alloc_with(&amp;allocator, T, n) -&gt; *T</pre>
-<pre class="code-block"> // sysheap — OS-backed heap (no libc malloc)
+<pre class="code-block"> // sysheap: OS-backed heap (no libc malloc)
  import &lt;sysheap&gt;; heap_init(&amp;h, size) bool             heap_alloc(&amp;h, n) *void
      heap_free(&amp;h, p)   heap_destroy(&amp;h)</pre>
 <pre class="code-block"> // time / env / base64 / path
@@ -1854,14 +1854,14 @@ pre.code-block {
  import &lt;http2_server&gt;; http2_serve_async (same handler interface as &lt;http&gt;)
  import &lt;tls&gt;;            OpenSSL TLS + ALPN h2 negotiation</pre>
 <pre class="code-block"> // Data structures
- import &lt;map&gt;;   Map&lt;V&gt; — string-keyed hash map (open addressing, 0.75 load)
+ import &lt;map&gt;;   Map&lt;V&gt;: string-keyed hash map (open addressing, 0.75 load)
      Map_init&lt;V&gt;(&amp;m, cap)   Map_at&lt;V&gt;(&amp;m, key, &amp;created)    Map_get&lt;V&gt;    Map_free&lt;V&gt;</pre>
 <pre class="code-block"> // HTTP helpers
  import &lt;multipart&gt;;    multipart_boundary(ct, out) 1=ok
      multipart_part(body, blen, boundary, name, &amp;part_ptr, &amp;part_len) -&gt; int</pre>
 <div class="chapter-start" id="chapter-16"><span class="chapter-label">Chapter 16</span>
 <h1 class="chapter-title">Inline Assembly</h1><hr class="chapter-rule"></div>
-<p>Sometimes you need to speak to hardware directly — toggle a CPU flag, write to a memory-mapped register, execute a single privileged instruction. Eskiu&#x27;s asm(...) statement embeds assembly inline, lowering directly to LLVM inline asm nodes.</p>
+<p>Sometimes you need to speak to hardware directly: toggle a CPU flag, write to a memory-mapped register, execute a single privileged instruction. Eskiu&#x27;s asm(...) statement embeds assembly inline, lowering directly to LLVM inline asm nodes.</p>
 <h2 class="section" id="sec-16-1">16.1 Simple form</h2>
 <pre class="code-block"> asm(&quot;nop&quot;);     // no operation
  asm(&quot;wfi&quot;);     // ARM64: wait for interrupt
@@ -1872,7 +1872,7 @@ pre.code-block {
        int64 UART_DR = 0x09000000;
        asm(&quot;strb ${0:w}, [$1]&quot; :: &quot;r&quot;(c), &quot;r&quot;(UART_DR) : &quot;memory&quot;);
  }</pre>
-<h2 class="section" id="sec-16-3">16.3 volatile — a reminder</h2>
+<h2 class="section" id="sec-16-3">16.3 volatile: a reminder</h2>
 <p>Hardware registers accessed via inline assembly almost always need <code>volatile</code> (covered fully in</p>
 <p>Chapter 6.8). Without it, the compiler may eliminate a store it considers redundant:</p>
 <pre class="code-block"> volatile let uart_dr: *uint8 = (uint8*) 0x09000000;
@@ -1888,11 +1888,11 @@ pre.code-block {
 <pre class="code-block"> Triple                                     Use it for</pre>
 <pre class="code-block"> x86_64-pc-linux-gnu                        Linux on Intel/AMD 64-bit</pre>
 <pre class="code-block"> aarch64-unknown-linux-gnu                  Linux on ARM64 (Raspberry Pi, Graviton)</pre>
-<pre class="code-block"> aarch64-unknown-none-elf                   Bare-metal ARM64 — no OS, no libc</pre>
-<pre class="code-block"> x86_64-unknown-none                        Bare-metal x86-64 — no OS, no libc</pre>
+<pre class="code-block"> aarch64-unknown-none-elf                   Bare-metal ARM64, no OS, no libc</pre>
+<pre class="code-block"> x86_64-unknown-none                        Bare-metal x86-64, no OS, no libc</pre>
 <h2 class="section" id="sec-17-2">17.2 --freestanding</h2>
 <p>When targeting bare-metal there is no libc. --freestanding redirects <code>alloc</code> and <code>free</code> to your own esk_alloc and esk_free:</p>
-<pre class="code-block"> // alloc.esk — bump allocator
+<pre class="code-block"> // alloc.esk: bump allocator
  int64 _heap       = 0x40300000;
  int64 _heap_end    = 0x40400000;</pre>
 <pre class="code-block"> *uint8 esk_alloc(int64 size) {
@@ -1904,30 +1904,30 @@ pre.code-block {
 <pre class="code-block"> void esk_free(*uint8 ptr) { /* bump: free is a no-op */ }</pre>
 <div class="chapter-start" id="chapter-18"><span class="chapter-label">Chapter 18</span>
 <h1 class="chapter-title">Bare-metal Programming</h1><hr class="chapter-rule"></div>
-<p>Bare-metal means no operating system, no libc, no runtime — just your code and the hardware. The CPU starts at a known address and executes whatever is there. You set up the stack. You initialise the serial port. You write every byte of output yourself. This chapter walks through the Eskiu kernel that ships in the repository: a real ARM64 kernel that boots in QEMU, prints to the serial console, and allocates heap memory — without a single line of C.</p>
+<p>Bare-metal means no operating system, no libc, no runtime: just your code and the hardware. The CPU starts at a known address and executes whatever is there. You set up the stack. You initialise the serial port. You write every byte of output yourself. This chapter walks through the Eskiu kernel that ships in the repository: a real ARM64 kernel that boots in QEMU, prints to the serial console, and allocates heap memory, without a single line of C.</p>
 <h2 class="section" id="sec-18-1">18.1 Why bare-metal matters</h2>
-<p>Most systems languages claim to support bare-metal. Eskiu does not claim it — it ships a working kernel. The fact that the same language that decodes AES-256-CBC ciphertext also boots on raw ARM64 hardware is not a coincidence. It is a consequence of three design decisions: no implicit runtime, <code>alloc</code> as a language primitive that can be redirected, and inline assembly as a first-class statement.</p>
+<p>Most systems languages claim to support bare-metal. Eskiu does not claim it; it ships a working kernel. The fact that the same language that decodes AES-256-CBC ciphertext also boots on raw ARM64 hardware is not a coincidence. It is a consequence of three design decisions: no implicit runtime, <code>alloc</code> as a language primitive that can be redirected, and inline assembly as a first-class statement.</p>
 <h2 class="section" id="sec-18-2">18.2 What changes in freestanding mode</h2>
 <p>When you compile with --freestanding, two things change:</p>
-<p>First, <code>alloc</code>&lt;T&gt;(N) is now in &lt;mem&gt; — no longer calls <code>malloc</code> from libc. Instead it calls esk_alloc, a function you provide. Similarly, <code>free</code> calls esk_free. The compiler inserts these calls; you write the implementations.</p>
-<p>Second, the compiler targets a bare-metal ABI — no C runtime startup, no _start wrapper, no __libc_start_main. Your code is linked directly at the load address.</p>
+<p>First, <code>alloc</code>&lt;T&gt;(N) is now in &lt;mem&gt;. It no longer calls <code>malloc</code> from libc. Instead it calls esk_alloc, a function you provide. Similarly, <code>free</code> calls esk_free. The compiler inserts these calls; you write the implementations.</p>
+<p>Second, the compiler targets a bare-metal ABI: no C runtime startup, no _start wrapper, no __libc_start_main. Your code is linked directly at the load address.</p>
 <pre class="code-block"> # Everything needed to cross-compile for bare-metal ARM64
  eskiuc kernel.esk --target aarch64-unknown-none-elf --freestanding -o kernel.o</pre>
 <h2 class="section" id="sec-18-3">18.3 The memory map</h2>
 <p>QEMU&#x27;s -M virt machine puts DRAM starting at 0x40000000. The linker script divides it into four regions:</p>
 <pre class="code-block"> /* linker.ld */
  . = 0x40000000;      /* kernel code loads here */</pre>
-<pre class="code-block"> /* .text.boot — _start must be first */
+<pre class="code-block"> /* .text.boot: _start must be first */
  /* .text / .rodata / .data / .bss */</pre>
 <pre class="code-block"> . = 0x40200000;    __stack_bottom = .;
  . += 0x10000;      __stack_top = .;      /* 64 KB stack */</pre>
-<pre class="code-block"> /* 0x40300000 — heap start (1 MB) */
- /* 0x09000000 — UART data register (MMIO, not in DRAM) */</pre>
-<pre class="code-block"> The UART lives at 0x09000000 — a memory-mapped I/O address separate from DRAM. Writing a byte
+<pre class="code-block"> /* 0x40300000: heap start (1 MB) */
+ /* 0x09000000: UART data register (MMIO, not in DRAM) */</pre>
+<pre class="code-block"> The UART lives at 0x09000000, a memory-mapped I/O address separate from DRAM. Writing a byte
  there transmits it on the serial port.</pre>
 <h2 class="section" id="sec-18-4">18.4 The boot sequence</h2>
-<p>The CPU starts executing at _start in boot.s — the only assembly in the entire project. It does two things: sets up the stack pointer, then calls kernel_main. Everything after that is Eskiu:</p>
-<pre class="code-block"> // boot.s — ARM64 entry point
+<p>The CPU starts executing at _start in boot.s, the only assembly in the entire project. It does two things: sets up the stack pointer, then calls kernel_main. Everything after that is Eskiu:</p>
+<pre class="code-block"> // boot.s: ARM64 entry point
  .global _start
  .section .text.boot, &quot;ax&quot;
  _start:
@@ -1936,9 +1936,9 @@ pre.code-block {
        bl   kernel_main       // jump to Eskiu
  .hang:
        b    .hang             // should never return</pre>
-<p>The linker script places .text.boot first, so _start lands at 0x40000000 — exactly where QEMU starts executing.</p>
+<p>The linker script places .text.boot first, so _start lands at 0x40000000, exactly where QEMU starts executing.</p>
 <h2 class="section" id="sec-18-5">18.5 The UART driver</h2>
-<p>With no OS and no libc, printing to the screen means writing bytes directly to the hardware register at 0x09000000. The PL011 UART on QEMU&#x27;s virt machine transmits whatever byte you write there. This is the complete driver — 20 lines of Eskiu:</p>
+<p>With no OS and no libc, printing to the screen means writing bytes directly to the hardware register at 0x09000000. The PL011 UART on QEMU&#x27;s virt machine transmits whatever byte you write there. This is the complete driver, 20 lines of Eskiu:</p>
 <pre class="code-block"> // uart.esk
  int64 UART_DR = 0x09000000;</pre>
 <pre class="code-block"> void uart_putc(int c) {
@@ -1961,9 +1961,9 @@ pre.code-block {
             shift = shift - 4;
        }
  }</pre>
-<p>uart_putc uses inline asm to execute strb — store byte — directly to the UART data register. The &quot;memory&quot; clobber prevents the compiler from reordering or eliminating the store. uart_puts walks the <code>string</code> one character at a time until it hits the <code>null</code> terminator. <code>String</code> indexing (s[i]) returns a <code>char</code> — the same feature used in Chapter 2.</p>
+<p>uart_putc uses inline asm to execute strb (store byte) directly to the UART data register. The &quot;memory&quot; clobber prevents the compiler from reordering or eliminating the store. uart_puts walks the <code>string</code> one character at a time until it hits the <code>null</code> terminator. <code>String</code> indexing (s[i]) returns a <code>char</code>, the same feature used in Chapter 2.</p>
 <h2 class="section" id="sec-18-6">18.6 The bump allocator</h2>
-<p>With --freestanding, every <code>alloc</code>&lt;T&gt;(N) call in your program becomes a call to esk_alloc. You provide the implementation. The kernel uses the simplest possible allocator — a bump allocator that advances a pointer through a 1 MB heap:</p>
+<p>With --freestanding, every <code>alloc</code>&lt;T&gt;(N) call in your program becomes a call to esk_alloc. You provide the implementation. The kernel uses the simplest possible allocator, a bump allocator that advances a pointer through a 1 MB heap:</p>
 <pre class="code-block"> // alloc.esk
  int64 _heap_ptr = 0x40300000;     // heap start
  int64 _heap_end = 0x40400000;     // heap end (1 MB)</pre>
@@ -1974,12 +1974,12 @@ pre.code-block {
        return (*uint8) ptr;
  }</pre>
 <pre class="code-block"> void esk_free(*uint8 ptr) {
-       // Bump allocator — free is a no-op.
+       // Bump allocator, free is a no-op.
        // A real kernel would use a slab or buddy allocator here.
  }</pre>
-<p>Allocation is a pointer advance and a bounds check. Deallocation is a no-op — memory is never reclaimed. This is appropriate for a demo kernel. A production kernel would replace these two functions with a slab allocator or buddy system — the rest of the kernel code stays exactly the same.</p>
+<p>Allocation is a pointer advance and a bounds check. Deallocation is a no-op: memory is never reclaimed. This is appropriate for a demo kernel. A production kernel would replace these two functions with a slab allocator or buddy system; the rest of the kernel code stays exactly the same.</p>
 <h2 class="section" id="sec-18-7">18.7 kernel_main</h2>
-<p>With the UART and allocator in place, kernel_main can print, allocate, and halt — all in Eskiu:</p>
+<p>With the UART and allocator in place, kernel_main can print, allocate, and halt, all in Eskiu:</p>
 <pre class="code-block"> // kernel.esk
  import &quot;uart.esk&quot;;
  import &quot;alloc.esk&quot;;</pre>
@@ -2004,9 +2004,9 @@ pre.code-block {
 <pre class="code-block">       uart_puts(&quot;\r
  Kernel halted.\r
  &quot;);
-       while (1) { asm(&quot;wfi&quot;); }     // wait for interrupt — idle loop
+       while (1) { asm(&quot;wfi&quot;); }     // wait for interrupt, idle loop
  }</pre>
-<p>The while(1) { asm(&quot;wfi&quot;); } at the end is the idle loop. wfi — wait for interrupt — is an ARM64 instruction that suspends the CPU until an interrupt arrives. Without it, the CPU would spin at full speed consuming power. With it, QEMU&#x27;s CPU simulation goes idle.</p>
+<p>The while(1) { asm(&quot;wfi&quot;); } at the end is the idle loop. wfi (wait for interrupt) is an ARM64 instruction that suspends the CPU until an interrupt arrives. Without it, the CPU would spin at full speed consuming power. With it, QEMU&#x27;s CPU simulation goes idle.</p>
 <h2 class="section" id="sec-18-8">18.8 Building and running</h2>
 <p>The Makefile handles the full build pipeline:</p>
 <pre class="code-block"> # Prerequisites (macOS)
@@ -2020,7 +2020,7 @@ pre.code-block {
  eskiuc kernel.esk --target aarch64-unknown-none-elf --freestanding -o kernel.o</pre>
 <pre class="code-block"> # 2. Assemble the boot stub
  clang --target=aarch64-unknown-none-elf -c boot.s -o boot.o</pre>
-<pre class="code-block"> # 3. Link into a bare-metal ELF — no standard libraries
+<pre class="code-block"> # 3. Link into a bare-metal ELF, no standard libraries
  ld.lld -T linker.ld -nostdlib -static -o kernel.elf boot.o kernel.o</pre>
 <p>QEMU loads the ELF, sets the program counter to 0x40000000, and starts executing. Expected output on the serial console:</p>
 <pre class="code-block"> Eskiu v0.1 kernel
@@ -2032,8 +2032,8 @@ pre.code-block {
 <pre class="code-block"> Kernel halted.</pre>
 <p>Press Ctrl-A X to exit QEMU.</p>
 <h2 class="section" id="sec-18-9">18.9 What this demonstrates</h2>
-<p>The kernel uses seven features from this book in combination: multi-file imports (Ch13), inline assembly (Ch16), cross-compilation (Ch17), <code>volatile</code> and MMIO (Ch6.8), pointer casting (Ch6.3), <code>string</code> indexing (Ch2.4), and the freestanding allocator hook. None of these features exist in isolation — bare-metal programming is where they compose.</p>
-<p>The kernel is 130 lines of Eskiu and 7 lines of assembly. The assembly sets up the stack. Everything else — the UART driver, the allocator, the output, the idle loop — is plain Eskiu code that compiles to the same LLVM IR as any other Eskiu program.</p>
+<p>The kernel uses seven features from this book in combination: multi-file imports (Ch13), inline assembly (Ch16), cross-compilation (Ch17), <code>volatile</code> and MMIO (Ch6.8), pointer casting (Ch6.3), <code>string</code> indexing (Ch2.4), and the freestanding allocator hook. None of these features exist in isolation; bare-metal programming is where they compose.</p>
+<p>The kernel is 130 lines of Eskiu and 7 lines of assembly. The assembly sets up the stack. Everything else (the UART driver, the allocator, the output, the idle loop) is plain Eskiu code that compiles to the same LLVM IR as any other Eskiu program.</p>
 <div class="chapter-start" id="chapter-19"><span class="chapter-label">Chapter 19</span>
 <h1 class="chapter-title">Ownership and Resources</h1><hr class="chapter-rule"></div>
 <p>Eskiu has no garbage collector. No reference counter silently frees memory when you stop using it. You are responsible for every allocation, and that responsibility must be explicit in your code.</p>
@@ -2042,7 +2042,7 @@ pre.code-block {
 <pre class="code-block"> import &lt;mem&gt;;</pre>
 <pre class="code-block"> // Receiver does not own
  void process(*uint8 data, int len) {
-       // use data — do NOT free it here
+       // use data, do NOT free it here
  }</pre>
 <pre class="code-block"> // Caller must free the returned pointer
  *uint8 build_packet(int size) {
@@ -2063,7 +2063,7 @@ pre.code-block {
 <pre class="code-block"> Setting self.data = null after free causes a null dereference on double-free instead of silent heap
  corruption.</pre>
 <h2 class="section" id="sec-19-3">19.3 Early return cleanup</h2>
-<p>Every early return must <code>free</code> everything allocated so far. Initialise all pointers to <code>null</code> — freeing <code>null</code> is always safe:</p>
+<p>Every early return must <code>free</code> everything allocated so far. Initialise all pointers to <code>null</code>, freeing <code>null</code> is always safe:</p>
 <pre class="code-block"> import &lt;result&gt;;
  import &lt;mem&gt;;
  extern int read_data(*uint8 buf);
@@ -2113,7 +2113,7 @@ pre.code-block {
 <h2 class="section" id="sec-20-3">20.3 Memory leak detection</h2>
 <pre class="code-block"> # Linux
  valgrind --leak-check=full ./prog</pre>
-<pre class="code-block"> # macOS — LeakSanitizer is included in --asan
+<pre class="code-block"> # macOS: LeakSanitizer is included in --asan
  eskiuc leaky.esk --asan -o prog_asan
  ./prog_asan</pre>
 <h2 class="section" id="sec-20-4">20.4 Inspecting generated IR</h2>
@@ -2174,31 +2174,31 @@ pre.code-block {
  *p = 42;
  free((*void)p);
  printf(&quot;%d
- &quot;, *p);        // WRONG — p is no longer valid</pre>
-<p>Fix: Set the pointer to <code>null</code> after freeing. A <code>null</code> dereference crashes immediately and tells you where — instead of silently returning garbage:</p>
+ &quot;, *p);        // WRONG: p is no longer valid</pre>
+<p>Fix: Set the pointer to <code>null</code> after freeing. A <code>null</code> dereference crashes immediately and tells you where, instead of silently returning garbage:</p>
 <pre class="code-block"> free(p);
  p = null;</pre>
 <h2 class="section" id="sec-22-2">22.2 Double-free</h2>
 <p>You <code>free</code> the same pointer twice. The heap&#x27;s internal structures are corrupted, and the program crashes somewhere unpredictable:</p>
 <pre class="code-block"> free(p);
  free(p);        // WRONG</pre>
-<p>Fix: Same discipline — <code>null</code> after <code>free</code>. Freeing <code>null</code> is safe:</p>
+<p>Fix: Same discipline, <code>null</code> after <code>free</code>. Freeing <code>null</code> is safe:</p>
 <pre class="code-block"> if (p != null) { free(p); p = null; }</pre>
 <h2 class="section" id="sec-22-3">22.3 Null dereference</h2>
-<p>You dereference a pointer that is <code>null</code>. This always crashes immediately with a segfault — one of the more honest bugs:</p>
+<p>You dereference a pointer that is <code>null</code>. This always crashes immediately with a segfault, one of the more honest bugs:</p>
 <pre class="code-block"> *int p = null;
  printf(&quot;%d
- &quot;, *p);        // WRONG — immediate crash</pre>
+ &quot;, *p);        // WRONG: immediate crash</pre>
 <p>Fix: Check for <code>null</code> before any dereference:</p>
 <pre class="code-block"> if (p == null) { printf(&quot;no value
  &quot;); return; }
  printf(&quot;%d
  &quot;, *p);</pre>
 <h2 class="section" id="sec-22-4">22.4 Buffer overrun</h2>
-<p>You read or write past the end of an array. The memory beyond belongs to something else — another variable, heap metadata, or nothing. Writing past the end is a serious security vulnerability:</p>
+<p>You read or write past the end of an array. The memory beyond belongs to something else: another variable, heap metadata, or nothing. Writing past the end is a serious security vulnerability:</p>
 <pre class="code-block"> import &lt;mem&gt;;
  *int arr = alloc&lt;int&gt;(5);
- for (int i = 0; i &lt;= 5; i += 1) {        // WRONG — i == 5 is out of bounds
+ for (int i = 0; i &lt;= 5; i += 1) {        // WRONG: i == 5 is out of bounds
        arr[i] = i;
  }</pre>
 <pre class="code-block"> Warning Buffer overwrite is the mechanism behind most memory corruption attacks.</pre>
@@ -2208,20 +2208,20 @@ pre.code-block {
  for (int i = 0; i &lt; n; i += 1) { arr[i] = i; }
  free((*void)arr);</pre>
 <h2 class="section" id="sec-22-5">22.5 Integer overflow</h2>
-<p>A calculation produces a value that does not fit in the type. Signed integer overflow wraps silently — the result is wrong, no error is raised:</p>
+<p>A calculation produces a value that does not fit in the type. Signed integer overflow wraps silently. The result is wrong, no error is raised:</p>
 <pre class="code-block"> int x = 2147483647;        // INT_MAX
- int y = x + 1;             // WRONG — wraps to -2147483648
+ int y = x + 1;             // WRONG: wraps to -2147483648
  printf(&quot;%d
  &quot;, y);         // -2147483648</pre>
 <p>Fix: Use <code>int64</code> for large values:</p>
 <pre class="code-block"> int64 x = 2147483647;
- int64 y = x + 1;        // 2147483648 — correct</pre>
+ int64 y = x + 1;        // 2147483648, correct</pre>
 <h2 class="section" id="sec-22-6">22.6 Memory leak</h2>
 <p>You allocate memory and never <code>free</code> it. The program runs fine at first, but over time consumes all available memory:</p>
 <pre class="code-block"> void process() {
        *uint8 buf = alloc&lt;uint8&gt;(uint8)1024);
        doWork(buf);
-       // WRONG — forgot to free buf
+       // WRONG: forgot to free buf
  }</pre>
 <p>Fix: Every allocation has a corresponding <code>free</code>. The function that allocates owns the memory until it explicitly frees or transfers it:</p>
 <pre class="code-block"> void process() {
@@ -2231,13 +2231,13 @@ pre.code-block {
  }</pre>
 <h2 class="section" id="sec-22-7">22.7 Bugs the compiler now catches</h2>
 <p>v0.2.2 closes several cases that previously reached codegen and produced bad IR or crashes at runtime:</p>
-<pre class="code-block"> // Duplicate switch case values — now a compile-time error:
+<pre class="code-block"> // Duplicate switch case values, now a compile-time error:
  // error: duplicate case value 1 in switch
  switch (x) { case 1: ...; case 1: ...; }</pre>
-<pre class="code-block"> // Negative array dimension — now rejected clearly:
+<pre class="code-block"> // Negative array dimension, now rejected clearly:
  // error: array dimension must be positive
  int buf[-1];</pre>
-<pre class="code-block"> // Dead code after block terminator — silently dropped:
+<pre class="code-block"> // Dead code after block terminator, silently dropped:
  int f() { return 1; printf(&quot;unreachable&quot;); }
  // the printf is removed without error (dead code)</pre>
 <p>The duplicate-case and negative-dimension checks were added by the compiler fuzzer introduced in v0.2.2, which mutates the test corpus and uses the LLVM IR verifier and sanitizers as oracles.</p>
@@ -2291,7 +2291,7 @@ pre.code-block {
        return 0;
  }</pre>
 <h2 class="section" id="sec-23-3">23.3 Concurrent connections</h2>
-<p>Spawn a thread per accepted fd. The fd is captured by value — each thread has its own copy:</p>
+<p>Spawn a thread per accepted fd. The fd is captured by value. Each thread has its own copy:</p>
 <pre class="code-block"> import &lt;net&gt;;
  import &lt;mem&gt;;</pre>
 <pre class="code-block"> void handle(int c) {
@@ -2335,7 +2335,7 @@ pre.code-block {
        if (http_recv(fd, &amp;r, 10 * 1024 * 1024) != 0) {
             http_reply_error(fd, 413, &quot;&quot;, &quot;body too large&quot;);
        } else {
-            // r.body is *uint8 with r.body_len bytes — binary safe
+            // r.body is *uint8 with r.body_len bytes, binary safe
             String ct;   String_init(&amp;ct, 64);
             String_from_cstr(&amp;ct, HttpReq_header(&amp;r, &quot;Content-Type&quot;));
             String_free(&amp;ct);
@@ -2368,7 +2368,7 @@ pre.code-block {
 <h2 class="section" id="sec-19-3">19.3 Key data structures</h2>
 <pre class="code-block"> // types.esk
  struct QRPair {
-       uint8[858] left;         // fixed-size — no heap allocation
+       uint8[858] left;         // fixed-size, no heap allocation
        uint8[858] right;
        int         ok;
        char[256]   err;
@@ -2390,13 +2390,13 @@ pre.code-block {
 <pre class="code-block">      Crypto pipeline                               2.8 ms           2.9 ms</pre>
 <pre class="code-block">      Output decode                                 &lt; 1 ms           0.5 ms</pre>
 <pre class="code-block">      Total                                         74.4 ms          188.9 ms</pre>
-<p>2.5× faster than the reference C implementation on Apple Silicon. The crypto stage matches C within 0.1 ms — both call the same OpenSSL functions. The speedup comes from the QR extraction stage, where LLVM&#x27;s optimiser produces tighter code than the reference compiled without equivalent flags.</p>
+<p>2.5× faster than the reference C implementation on Apple Silicon. The crypto stage matches C within 0.1 ms. Both call the same OpenSSL functions. The speedup comes from the QR extraction stage, where LLVM&#x27;s optimiser produces tighter code than the reference compiled without equivalent flags.</p>
 <h2 class="section" id="sec-19-5">19.5 What it demonstrates</h2>
 <p>The decoder uses structs with fixed-size array fields, pointers and typed pointer arithmetic, heap allocation with explicit <code>free</code>, <code>extern</code> declarations for OpenSSL, <code>Result</code> for error propagation, multi-file imports, and <code>string</code> manipulation. Every feature in this book has a real use in that program.</p>
 <p>The decoder ships in the Eskiu repository under ine_decoder/. Reading it is the best way to see how a real Eskiu program is structured.</p>
 <div class="chapter-start" id="chapter-25"><span class="chapter-label">Chapter 25</span>
 <h1 class="chapter-title">Async and Await</h1><hr class="chapter-rule"></div>
-<p>Threads handle concurrency by running code simultaneously on multiple CPU cores. Async/await handles concurrency differently — many tasks share a single thread, and each task suspends when it is waiting for I/O rather than blocking the thread. The result: a server that handles thousands of concurrent connections with the same memory a handful of threads would use.</p>
+<p>Threads handle concurrency by running code simultaneously on multiple CPU cores. Async/await handles concurrency differently: many tasks share a single thread, and each task suspends when it is waiting for I/O rather than blocking the thread. The result: a server that handles thousands of concurrent connections with the same memory a handful of threads would use.</p>
 <h2 class="section" id="sec-25-1">25.1 The model</h2>
 <p>An async function returns a <code>Future</code>&lt;T&gt; instead of T directly. The future represents a value that does not exist yet. await suspends the current task until the future is ready, then unwraps the value:</p>
 <pre class="code-block"> import &lt;future&gt;;
@@ -2417,7 +2417,7 @@ pre.code-block {
        free_future&lt;int&gt;(r);
        return 0;
  }</pre>
-<p>The compiler transforms an async function into a state machine. Each await is a suspension point — the function can be paused there and resumed later without blocking any OS thread.</p>
+<p>The compiler transforms an async function into a state machine. Each await is a suspension point: the function can be paused there and resumed later without blocking any OS thread.</p>
 <h2 class="section" id="sec-25-2">25.2 The event loop</h2>
 <p>Async tasks need something to run them. The event loop is a reactor that watches file descriptors for readiness and resumes the tasks waiting on them:</p>
 <pre class="code-block"> import &lt;eventloop&gt;;
@@ -2444,7 +2444,7 @@ pre.code-block {
  }</pre>
 <p>el_new(n) creates an event loop that watches up to n file descriptors. el_run(lp) blocks until all registered callbacks complete. Internally it uses kqueue on macOS and epoll on Linux.</p>
 <h2 class="section" id="sec-25-3">25.3 Concurrent HTTP with http_serve_async</h2>
-<p>The simplest way to write a concurrent HTTP server — one event loop thread, many simultaneous connections:</p>
+<p>The simplest way to write a concurrent HTTP server (one event loop thread, many simultaneous connections):</p>
 <pre class="code-block"> import &lt;http_async&gt;;
  import &lt;http&gt;;
  import &lt;eventloop&gt;;
@@ -2466,21 +2466,21 @@ pre.code-block {
        el_free(lp);   net_close(fd);
        return 0;
  }</pre>
-<p>Each incoming connection is handled by a detached async task — a slow client never blocks others. The same handler function works with &lt;http&gt; (threaded) and &lt;http_async&gt; (event loop).</p>
+<p>Each incoming connection is handled by a detached async task: a slow client never blocks others. The same handler function works with &lt;http&gt; (threaded) and &lt;http_async&gt; (event loop).</p>
 <h2 class="section" id="sec-25-4">25.4 spawn, select2, and join2</h2>
 <p>Three combinators for composing concurrent tasks:</p>
 <pre class="code-block"> import &lt;future&gt;;
  import &lt;mem&gt;;</pre>
-<pre class="code-block"> // spawn&lt;T&gt; — fire and forget, returns the future
+<pre class="code-block"> // spawn&lt;T&gt;: fire and forget, returns the future
  Future&lt;int&gt;* f = spawn&lt;int&gt;(some_async_fn());</pre>
-<pre class="code-block"> // select2&lt;A,B&gt; — whichever finishes first
- // returns Either&lt;A,B&gt; — Left if a won, Right if b won
+<pre class="code-block"> // select2&lt;A,B&gt;: whichever finishes first
+ // returns Either&lt;A,B&gt;: Left if a won, Right if b won
  import &lt;either&gt;;
  Future&lt;Either&lt;int,int&gt;&gt;* race = select2&lt;int,int&gt;(fa, fb);</pre>
-<pre class="code-block"> // join2&lt;A,B&gt; — wait for both
+<pre class="code-block"> // join2&lt;A,B&gt;: wait for both
  // returns Pair&lt;A,B&gt;
  Future&lt;Pair&lt;int,int&gt;&gt;* both = join2&lt;int,int&gt;(fa, fb);</pre>
-<pre class="code-block"> select2 cancels the loser future automatically — its on_drop cascade cleans up any resources the losing
+<pre class="code-block"> select2 cancels the loser future automatically: its on_drop cascade cleans up any resources the losing
  task held.</pre>
 <h2 class="section" id="sec-25-5">25.5 Channels</h2>
 <p>A channel passes values between async tasks. chan_send enqueues a value; chan_recv returns a future that completes with the next value:</p>
@@ -2507,16 +2507,16 @@ pre.code-block {
  }</pre>
 <div class="chapter-start" id="chapter-26"><span class="chapter-label">Chapter 26</span>
 <h1 class="chapter-title">Sum Types and Match</h1><hr class="chapter-rule"></div>
-<p>A sum type is a type that can be one of several variants, each carrying its own data. They are the type system&#x27;s answer to the question: how do you represent a value that might be one of several different things? Eskiu has sum types as algebraic enums — integer enums extended with payload variants — and a match statement that dispatches on them exhaustively.</p>
+<p>A sum type is a type that can be one of several variants, each carrying its own data. They are the type system&#x27;s answer to the question: how do you represent a value that might be one of several different things? Eskiu has sum types as algebraic enums (integer enums extended with payload variants) and a match statement that dispatches on them exhaustively.</p>
 <h2 class="section" id="sec-26-1">26.1 Algebraic enums</h2>
-<p>An enum variant can carry a payload — one or more values of any type. The tag identifies which variant; the payload carries its data:</p>
+<p>An enum variant can carry a payload: one or more values of any type. The tag identifies which variant; the payload carries its data:</p>
 <pre class="code-block"> enum Expr {
        Lit(int),          // carries one int
        Add(int, int),     // carries two ints
        Neg(int),
-       Zero,              // no payload — like a classic enum variant
+       Zero,              // no payload, like a classic enum variant
  }</pre>
-<p>Classic integer enums still work unchanged — the two styles coexist freely in the same codebase.</p>
+<p>Classic integer enums still work unchanged. The two styles coexist freely in the same codebase.</p>
 <h2 class="section" id="sec-26-2">26.2 match</h2>
 <p>match dispatches on the variant and binds the payload fields to names:</p>
 <pre class="code-block"> int eval(Expr e) {
@@ -2547,10 +2547,10 @@ pre.code-block {
        }
        return k;
  }</pre>
-<h2 class="section" id="sec-26-3">26.3 Generic enums — Option and Either</h2>
+<h2 class="section" id="sec-26-3">26.3 Generic enums: Option and Either</h2>
 <p>Enums can have type parameters. The standard library provides two:</p>
 <pre class="code-block"> import &lt;either&gt;;</pre>
-<pre class="code-block"> // Option&lt;T&gt; — a value that may or may not exist
+<pre class="code-block"> // Option&lt;T&gt;: a value that may or may not exist
  Option&lt;int&gt; o = Some&lt;int&gt;(42);
  Option&lt;int&gt; n = None&lt;int&gt;();</pre>
 <pre class="code-block"> match o {
@@ -2559,7 +2559,7 @@ pre.code-block {
        None        -&gt; printf(&quot;nothing
  &quot;);
  }</pre>
-<pre class="code-block"> // Either&lt;A,B&gt; — one of two types
+<pre class="code-block"> // Either&lt;A,B&gt;: one of two types
  Either&lt;int, string&gt; ok           = Left&lt;int,string&gt;(100);
  Either&lt;int, string&gt; err = Right&lt;int,string&gt;(&quot;fail&quot;);</pre>
 <pre class="code-block"> match ok {
@@ -2570,7 +2570,7 @@ pre.code-block {
  }</pre>
 <p>Option&lt;T&gt; is the alternative to <code>null</code> pointer checks. Either&lt;T,E&gt; is an alternative to <code>Result</code>&lt;T,E&gt; when you want to handle both cases symmetrically in a match rather than checking .ok.</p>
 <h2 class="section" id="sec-26-4">26.4 Generic enum definitions</h2>
-<p>You can define your own generic enums. The compiler monomorphizes them — one concrete type per set of type arguments:</p>
+<p>You can define your own generic enums. The compiler monomorphizes them, one concrete type per set of type arguments:</p>
 <pre class="code-block"> enum Tree&lt;T&gt; {
        Leaf(T),
        Node(T, T),
@@ -2590,7 +2590,7 @@ pre.code-block {
 <h1 class="chapter-title">Lexical Elements</h1><hr class="chapter-rule"></div>
 <h3 class="subsection">Comments</h3>
 <pre class="code-block"> // single-line comment
- /* block comment — may span lines, does not nest */</pre>
+ /* block comment, may span lines, does not nest */</pre>
 <h3 class="subsection">Identifiers</h3>
 <p>Start with a letter or underscore, followed by letters, digits, or underscores. Case-sensitive.</p>
 <pre class="code-block"> my_var         _internal       Count          x1</pre>
@@ -2625,7 +2625,7 @@ pre.code-block {
 <pre class="code-block">            bool       i1          1 bit     true or false</pre>
 <pre class="code-block">            char       i8          8 bits    Unsigned; widens to int via zero-extend</pre>
 <pre class="code-block">            string     i8*         pointer   Immutable C-string literal</pre>
-<pre class="code-block">            void       void        —         No value; valid only as return type</pre>
+<pre class="code-block">            void       void        -         No value; valid only as return type</pre>
 <h3 class="subsection">Compound Types</h3>
 <pre class="code-block">        Type            Syntax               Notes</pre>
 <pre class="code-block">        Pointer         *T                   Both *T and T* accepted; canonical form is *T</pre>
@@ -2635,7 +2635,7 @@ pre.code-block {
         inst.</pre>
 <pre class="code-block">        Interface       Name                 Fat pointer {data_ptr, vtable_ptr} at call site</pre>
 <h3 class="subsection">Type Casting</h3>
-<pre class="code-block"> (int)x         // explicit cast — required for all type conversions
+<pre class="code-block"> (int)x         // explicit cast: required for all type conversions
  (uint8)n       // narrowing: must be explicit
  (double)i      // widening: must still be explicit
  (*uint8)ptr    // pointer reinterpretation</pre>
@@ -2660,7 +2660,7 @@ pre.code-block {
        (highest)</pre>
 <h3 class="subsection">Pointer Arithmetic</h3>
 <p>p + n on *T advances n × sizeof(T) bytes. Exception: *<code>void</code> and *<code>char</code> use byte stride (1 byte per step).</p>
-<p>sizeof sizeof(T) — compile-time <code>int64</code> constant. No runtime code generated.</p>
+<p>sizeof sizeof(T): compile-time <code>int64</code> constant. No runtime code generated.</p>
 <div class="chapter-start" id="ref-r4"><span class="chapter-label ref">Ref R4</span>
 <h1 class="chapter-title">Control Flow</h1><hr class="chapter-rule"></div>
 <pre class="code-block">        Statement   Syntax                                           Notes</pre>
@@ -2687,13 +2687,13 @@ pre.code-block {
 <pre class="code-block">        Form          Syntax                                         Notes</pre>
 <pre class="code-block">        Regular       RetType name(T p, ...) { }                     Parameters by value. Declaration order irrelevant.</pre>
 <pre class="code-block">        Void          void name(T p) { }                             return; or fall off end.</pre>
-<pre class="code-block">        Extern        extern RetType name(T p, ...);                 ... only in extern. free is a keyword — do not
+<pre class="code-block">        Extern        extern RetType name(T p, ...);                 ... only in extern. free is a keyword; do not
                                                                      extern-declare it.</pre>
 <pre class="code-block">        Lambda        RetType(T p) { return expr; }                  Type is fn(T)-&gt;R. Closures capture by value at
                                                                      creation.</pre>
 <pre class="code-block">        Template      T name(T a, T b) { }                           Monomorphic. Type args inferred from direct or
                                                                      composite params.</pre>
-<pre class="code-block">        Forward       RetType name(T p);                             Optional — declaration order is already irrelevant.
+<pre class="code-block">        Forward       RetType name(T p);                             Optional: declaration order is already irrelevant.
         decl</pre>
 <pre class="code-block">        Function      thread_create(myFunc) //                       Top-level named function decays to fn()-&gt;R.
         decay         myFunc: void myFunc() {}                       Compiler synthesises a thunk.</pre>
@@ -2718,13 +2718,13 @@ pre.code-block {
 <h1 class="chapter-title">Memory</h1><hr class="chapter-rule"></div>
 <pre class="code-block">        Operation           Syntax / Description</pre>
 <pre class="code-block">        Stack alloc         All local variables. Reclaimed on function return.</pre>
-<pre class="code-block">        Heap alloc          alloc(N) — import &lt;mem&gt;; returns *T. libc malloc hosted, esk_alloc in freestanding.</pre>
-<pre class="code-block">        Heap free           free(ptr) — calls free() or esk_free. Freeing null is safe.</pre>
-<pre class="code-block">        Address-of          &amp;x — yields *T where x: T</pre>
-<pre class="code-block">        Dereference         *ptr — yields T where ptr: *T</pre>
-<pre class="code-block">        Subscript           ptr[i] — equivalent to *(ptr + i)</pre>
-<pre class="code-block">        volatile            volatile let p: *T = ... — all loads/stores through p emitted as volatile IR</pre>
-<pre class="code-block">        Freestanding        --freestanding — redirects alloc/free to user-provided esk_alloc/esk_free</pre>
+<pre class="code-block">        Heap alloc          alloc(N): import &lt;mem&gt;; returns *T. libc malloc hosted, esk_alloc in freestanding.</pre>
+<pre class="code-block">        Heap free           free(ptr): calls free() or esk_free. Freeing null is safe.</pre>
+<pre class="code-block">        Address-of          &amp;x: yields *T where x: T</pre>
+<pre class="code-block">        Dereference         *ptr: yields T where ptr: *T</pre>
+<pre class="code-block">        Subscript           ptr[i]: equivalent to *(ptr + i)</pre>
+<pre class="code-block">        volatile            volatile let p: *T = ...; all loads/stores through p emitted as volatile IR</pre>
+<pre class="code-block">        Freestanding        --freestanding: redirects alloc/free to user-provided esk_alloc/esk_free</pre>
 <h3 class="subsection">Undefined Behaviour</h3>
 <pre class="code-block">        Behaviour                      Example</pre>
 <pre class="code-block">        Null dereference               *null</pre>
@@ -2759,7 +2759,7 @@ pre.code-block {
 <p>not re-expanded within its own expansion. The macro table is shared across all files in a multi-file build.</p>
 <div class="chapter-start" id="ref-r8"><span class="chapter-label ref">Ref R8</span>
 <h1 class="chapter-title">Standard Library</h1><hr class="chapter-rule"></div>
-<h3 class="subsection">net — import &lt;net&gt;</h3>
+<h3 class="subsection">net: import &lt;net&gt;</h3>
 <pre class="code-block">        Symbol             Signature                                          Notes</pre>
 <pre class="code-block">        net_tcp_listen     int net_tcp_listen(uint16 port)                    bind+listen; returns fd or -1</pre>
 <pre class="code-block">        net_accept         int net_accept(int listen_fd)                      accept; returns fd or -1</pre>
@@ -2769,11 +2769,11 @@ pre.code-block {
                                                                               0=closed, -1=error</pre>
 <pre class="code-block">        net_send_str       int64 net_send_str(int fd, string s)               send string literal</pre>
 <pre class="code-block">        net_close          void net_close(int fd)                             close connection or server fd</pre>
-<h3 class="subsection">threading — import &lt;threading&gt;</h3>
+<h3 class="subsection">threading: import &lt;threading&gt;</h3>
 <pre class="code-block"> Mutex: Mutex_init / Mutex_lock / Mutex_unlock / Mutex_destroy
  Cond:     Cond_init / Cond_wait / Cond_signal / Cond_broadcast / Cond_destroy
  Sem:      Sem_init(initial) / Sem_post / Sem_wait / Sem_destroy</pre>
-<h3 class="subsection">http — import &lt;http&gt;</h3>
+<h3 class="subsection">http: import &lt;http&gt;</h3>
 <pre class="code-block"> http_serve(port, workers, handler)              // threaded worker pool
  handler type: fn(HttpRequest*, HttpResponse*)-&gt;void
  HttpRequest:       method / path / version / headers / body (String fields)
@@ -2785,7 +2785,7 @@ pre.code-block {
  int http_recv(int fd, HttpReq* r, int64 max_body)                      // loop recv full body
  void http_reply(int fd, int status, string ctype, string extra, String* body)
  void http_reply_error(int fd, int status, string extra, string msg)</pre>
-<h3 class="subsection">json — import &lt;json&gt;</h3>
+<h3 class="subsection">json: import &lt;json&gt;</h3>
 <pre class="code-block"> // Builder
  Json_init / Json_obj_begin / Json_obj_end / Json_arr_begin / Json_arr_end
  Json_key / Json_str / Json_int / Json_float / Json_bool / Json_null
@@ -2795,36 +2795,36 @@ pre.code-block {
  *JsonValue JsonValue_get(*JsonValue obj, string key)
  double JsonValue_as_double / string JsonValue_as_cstr / int JsonValue_is_null
  void JsonValue_free(*JsonValue)</pre>
-<h3 class="subsection">alloc — import &lt;alloc&gt; (explicit allocators over a buffer you own)</h3>
+<h3 class="subsection">alloc: import &lt;alloc&gt; (explicit allocators over a buffer you own)</h3>
 <pre class="code-block"> // All allocators use: *void T_alloc(T* self, int64 n) -&gt; plugs into alloc_with
  Bump:     Bump_init(buf, cap) / Bump_alloc / Bump_reset
  Arena: Arena_init / Arena_alloc / Arena_save / Arena_restore / Arena_reset
  Pool:     Pool_init(buf, cap, blockSize) / Pool_alloc / Pool_free
  FirstFit: FirstFit_init(buf, cap) / FirstFit_alloc / FirstFit_free
  sysheap: heap_init / heap_alloc / heap_free / heap_destroy</pre>
-<h3 class="subsection">map — import &lt;map&gt;</h3>
-<pre class="code-block"> Map&lt;V&gt; — string-keyed hash map (open addressing, 0.75 load factor)
+<h3 class="subsection">map: import &lt;map&gt;</h3>
+<pre class="code-block"> Map&lt;V&gt;: string-keyed hash map (open addressing, 0.75 load factor)
  Map_init&lt;V&gt;(&amp;m, cap)                         // initialise
  *V Map_at&lt;V&gt;(&amp;m, key, *int created)          // get-or-insert; *created=1 if new
  int Map_get&lt;V&gt;(&amp;m, key, *V out) -&gt; 1/0       // lookup only
  Map_free&lt;V&gt;(&amp;m)                              // free keys and value array</pre>
-<p>multipart — <code>import</code></p>
+<p>multipart: <code>import</code></p>
 <pre class="code-block"> multipart_boundary(String* ctype, String* out) -&gt; int        // 1 = boundary found
  multipart_part(body, blen, boundary, name, &amp;ptr, &amp;plen) -&gt; int</pre>
-<h3 class="subsection">bytes — import &lt;bytes&gt;</h3>
+<h3 class="subsection">bytes: import &lt;bytes&gt;</h3>
 <pre class="code-block"> Bytes: binary-safe *uint8 + length buffer (unlike String: NUL-safe, length-authoritative)
  Bytes_init(&amp;b, cap)     Bytes_free(&amp;b)   Bytes_push(&amp;b, u8)
  Bytes_append_raw(&amp;b, *uint8 src, n)      Bytes_append(&amp;b, &amp;other)
  Bytes_slice(&amp;b, start, n) -&gt; Bytes       (cap=0, non-owning)
  Bytes_to_base64(&amp;b) -&gt; Bytes      Bytes_from_base64(s) -&gt; Bytes
  HttpReq_body(&amp;r) -&gt; Bytes                 (non-owning view of HTTP body)</pre>
-<h3 class="subsection">HashMap — generic key (also in &lt;map&gt;)</h3>
+<h3 class="subsection">HashMap: generic key (also in &lt;map&gt;)</h3>
 <pre class="code-block"> HashMap&lt;K,V&gt;: any-key map; you supply hash + eq fn pointers (like qsort)
  HashMap_init&lt;K,V&gt;(&amp;m, cap, hash_fn, eq_fn)       built-in: int_hash / int_eq
  *V HashMap_at&lt;K,V&gt;(&amp;m, key, *int created)        // get-or-insert
  int HashMap_get&lt;K,V&gt;(&amp;m, key, *V out) -&gt; 1/0 // lookup
  HashMap_free&lt;K,V&gt;(&amp;m)</pre>
-<h3 class="subsection">time / env / base64 / path — quick reference</h3>
+<h3 class="subsection">time / env / base64 / path: quick reference</h3>
 <pre class="code-block"> import &lt;time&gt;;     time_now_ms   time_now_s     time_monotonic_ms   sleep_ms(ms)
  import &lt;env&gt;;      env_get   env_has   env_get_or   env_get_int
  import &lt;base64&gt;;   base64_encode/decode(*uint8 src, int n, *uint8 out)
@@ -2837,7 +2837,7 @@ pre.code-block {
 <pre class="code-block">        eskiuc file.esk -o prog -lpthread        Link with library (flags forwarded to linker)</pre>
 <pre class="code-block">        eskiuc file.esk -o prog -L/path          Add library search path</pre>
 <pre class="code-block">        eskiuc file.esk -o prog --link-arg=X     Pass extra argument to linker</pre>
-<pre class="code-block">        eskiuc file.esk -c -o file.o             Compile only — no linking</pre>
+<pre class="code-block">        eskiuc file.esk -c -o file.o             Compile only: no linking</pre>
 <pre class="code-block">        eskiuc file.esk -o file.o                .o suffix implies -c</pre>
 <pre class="code-block">        eskiuc file.esk -Wall                    Unused vars/params/fns + assignment-in-condition</pre>
 <pre class="code-block">        eskiuc file.esk --target TRIPLE          Cross-compile for target triple</pre>
@@ -2853,8 +2853,8 @@ pre.code-block {
 <pre class="code-block">        Triple                                   Description</pre>
 <pre class="code-block">        x86_64-pc-linux-gnu                      Linux x86-64</pre>
 <pre class="code-block">        aarch64-unknown-linux-gnu                Linux ARM64 (Raspberry Pi, Graviton)</pre>
-<pre class="code-block">        aarch64-unknown-none-elf                 Bare-metal ARM64 — no OS, no libc</pre>
-<pre class="code-block">        x86_64-unknown-none                      Bare-metal x86-64 — no OS, no libc</pre>
+<pre class="code-block">        aarch64-unknown-none-elf                 Bare-metal ARM64: no OS, no libc</pre>
+<pre class="code-block">        x86_64-unknown-none                      Bare-metal x86-64: no OS, no libc</pre>
 <h3 class="subsection">Linker detection order</h3>
 <p><code>eskiuc</code> finds the system linker via: $CC → cc → clang → gcc. A C toolchain must be installed for linking. With --freestanding or a .o output, no linking occurs.</p>
 <div class="chapter-start" id="ref-r10"><span class="chapter-label ref">Ref R10</span>
@@ -2935,7 +2935,7 @@ pre.code-block {
  try     catch    finally     throw</pre>
 <pre class="code-block"> // Literals
  true     false    null</pre>
-<p>A.3 Standard library — quick reference</p>
+<p>A.3 Standard library: quick reference</p>
 <pre class="code-block"> // Core
  import &lt;result&gt;;       Result&lt;T,E&gt;       Ok&lt;T,E&gt;(v)       Err&lt;T,E&gt;(e)
  import &lt;list&gt;;         List&lt;T&gt;       List_init     List_push     List_get    List_len     List_free
@@ -2965,8 +2965,8 @@ pre.code-block {
  import &lt;timer&gt;;        timer_after(lp, ms) -&gt; *Future&lt;int&gt;
  import &lt;channel&gt;;      Chan&lt;T&gt;       chan_new    chan_send      chan_recv    chan_free</pre>
 <pre class="code-block"> // HTTP
- import &lt;http&gt;;         http_serve(port, workers, handler) — threaded
- import &lt;http_async&gt;; http_serve_async(lp, fd, handler, n) — event loop
+ import &lt;http&gt;;         http_serve(port, workers, handler): threaded
+ import &lt;http_async&gt;; http_serve_async(lp, fd, handler, n): event loop
  import &lt;http2&gt;;        HTTP/2 framing + streams (RFC 7540)
  import &lt;hpack&gt;;        HPACK header compression with Huffman (RFC 7541)
  import &lt;http2_server&gt;; http2_serve_async
@@ -2980,10 +2980,10 @@ pre.code-block {
  import &lt;multipart&gt;;    multipart_boundary       multipart_part(body, len, ...)</pre>
 <p>A.4 Memory patterns</p>
 <pre class="code-block"> import &lt;mem&gt;;</pre>
-<pre class="code-block"> // Stack — automatic, zero cost
+<pre class="code-block"> // Stack: automatic, zero cost
  int x = 5;
  Point p = Point { x: 1.0, y: 2.0 };</pre>
-<pre class="code-block"> // Heap — manual lifecycle
+<pre class="code-block"> // Heap: manual lifecycle
  *int arr = alloc&lt;int&gt;(100);        // allocate
  arr[0] = 42;
  free((*void)arr);                  // release
@@ -3002,7 +3002,7 @@ pre.code-block {
 <h3 class="subsection">ABI</h3>
 <p>Application Binary Interface. The binary-level contract between separately compiled code: how arguments are passed, where return values go, how structs are laid out. Eskiu uses the C ABI, which is why <code>extern</code> functions work transparently.</p>
 <h3 class="subsection">alloc&lt;T&gt;(N)</h3>
-<p>Heap-allocation stdlib function from <code>&lt;mem&gt;</code> — not a language keyword. Allocates N elements of type T on the heap and returns <code>*T</code>; calls <code>malloc</code> in hosted mode and <code>esk_alloc</code> in freestanding mode. Always paired with <code>free</code>.</p>
+<p>Heap-allocation stdlib function from <code>&lt;mem&gt;</code>, not a language keyword. Allocates N elements of type T on the heap and returns <code>*T</code>; calls <code>malloc</code> in hosted mode and <code>esk_alloc</code> in freestanding mode. Always paired with <code>free</code>.</p>
 <h3 class="subsection">AST</h3>
 <p>Abstract Syntax Tree. The tree-shaped data structure the parser builds from source code. Each node represents one language construct; the type checker and code generator both walk it.</p>
 <h3 class="subsection">async / await</h3>
@@ -3012,11 +3012,11 @@ pre.code-block {
 <h3 class="subsection">closure</h3>
 <p>A lambda that captures variables from its enclosing scope by value. Represented as a fat pointer <code>{fn_ptr, env_ptr}</code>, where <code>env_ptr</code> points to a heap-allocated copy of the captured variables.</p>
 <h3 class="subsection">constraint (bounded type parameter)</h3>
-<p>An interface requirement on a type parameter: <code>&lt;T: Ord&gt;</code> means the concrete type must provide every method declared by <code>Ord</code>. Multiple constraints are written <code>&lt;T: A + B&gt;</code>. Structs satisfy a constraint by defining the methods; primitives (<code>int</code>, <code>float</code>, …) satisfy it via a free function named like the method with the primitive as its first argument — <code>int cmp(int, int)</code> makes <code>int</code> satisfy <code>Ord</code>.</p>
+<p>An interface requirement on a type parameter: <code>&lt;T: Ord&gt;</code> means the concrete type must provide every method declared by <code>Ord</code>. Multiple constraints are written <code>&lt;T: A + B&gt;</code>. Structs satisfy a constraint by defining the methods; primitives (<code>int</code>, <code>float</code>, …) satisfy it via a free function named like the method with the primitive as its first argument: <code>int cmp(int, int)</code> makes <code>int</code> satisfy <code>Ord</code>.</p>
 <h3 class="subsection">cross-compilation</h3>
 <p>Building a binary for a different machine than the one running the compiler. Controlled with <code>--target TRIPLE</code>.</p>
 <h3 class="subsection">data race</h3>
-<p>Two threads accessing the same memory concurrently, at least one writing, with no synchronisation — undefined behaviour. Closures avoid data races by capturing variables by value.</p>
+<p>Two threads accessing the same memory concurrently, at least one writing, with no synchronisation: undefined behaviour. Closures avoid data races by capturing variables by value.</p>
 <h3 class="subsection">double-free</h3>
 <p>Calling <code>free</code> on the same pointer twice. Corrupts the heap. Prevented by setting pointers to <code>null</code> after <code>free</code>.</p>
 <h3 class="subsection">escaping closure</h3>
@@ -3032,13 +3032,13 @@ pre.code-block {
 <h3 class="subsection">Future</h3>
 <p>A handle to a value of type T that may not exist yet. Produced by async functions and leaf I/O primitives. Release with <code>free_future(f)</code>. Import from <code>&lt;future&gt;</code>.</p>
 <h3 class="subsection">GEP</h3>
-<p><code>getelementptr</code>. The LLVM IR instruction for pointer arithmetic — used to access struct fields and array elements without loading data.</p>
+<p><code>getelementptr</code>. The LLVM IR instruction for pointer arithmetic, used to access struct fields and array elements without loading data.</p>
 <h3 class="subsection">heap</h3>
 <p>A large pool of memory managed with <code>alloc</code> and <code>free</code>. Allocations persist until freed and outlive the function that created them.</p>
 <h3 class="subsection">interface</h3>
 <p>A named set of method signatures. Any struct that provides all the required methods satisfies the interface (structural typing); the compiler generates a vtable automatically.</p>
 <h3 class="subsection">LLVM IR</h3>
-<p>The intermediate representation used internally — platform-independent, strongly typed, SSA form. Inspect it with <code>--test-codegen</code>.</p>
+<p>The intermediate representation used internally: platform-independent, strongly typed, SSA form. Inspect it with <code>--test-codegen</code>.</p>
 <h3 class="subsection">memory leak</h3>
 <p>An allocation that is never freed. The program slowly consumes all available memory.</p>
 <h3 class="subsection">monomorphic template</h3>
@@ -3054,28 +3054,28 @@ pre.code-block {
 <h3 class="subsection">self</h3>
 <p>Implicit pointer to the struct instance inside a method body. Equivalent to <code>this</code> in C++ or Java.</p>
 <h3 class="subsection">stack</h3>
-<p>Memory automatically reclaimed as functions call and return. Local variables live here — fast, but limited in size.</p>
+<p>Memory automatically reclaimed as functions call and return. Local variables live here: fast, but limited in size.</p>
 <h3 class="subsection">struct</h3>
 <p>A composite type with named fields; can have methods. Created with a struct literal: <code>Point { x: 1.0, y: 2.0 }</code>.</p>
 <h3 class="subsection">structural typing</h3>
-<p>Interface-satisfaction rule: a struct satisfies an interface if it provides all the required methods — no explicit <code>implements</code> needed.</p>
+<p>Interface-satisfaction rule: a struct satisfies an interface if it provides all the required methods, no explicit <code>implements</code> needed.</p>
 <h3 class="subsection">thread_create / thread_join</h3>
 <p>Language keywords. <code>thread_create(fn)</code> spawns a thread and returns a handle; <code>thread_join(handle)</code> blocks until the thread finishes. Link with <code>-lpthread</code> on Linux.</p>
 <h3 class="subsection">union</h3>
-<p>Like a struct, but all fields share offset 0; size equals the largest field. Used for type punning — treating the same bits as different types.</p>
+<p>Like a struct, but all fields share offset 0; size equals the largest field. Used for type punning: treating the same bits as different types.</p>
 <h3 class="subsection">use-after-free</h3>
 <p>Reading or writing through a pointer after its memory was freed. Produces garbage or corrupts other allocations. Prevented by nulling after <code>free</code>.</p>
 <h3 class="subsection">volatile</h3>
 <p>Qualifier preventing the compiler from optimising away loads and stores to a pointer. Required for memory-mapped hardware registers.</p>
 <h3 class="subsection">vtable</h3>
-<p>Compiler-generated table of function pointers — one per interface method, for a specific struct. Part of the fat pointer used in interface dispatch.</p>
+<p>Compiler-generated table of function pointers, one per interface method, for a specific struct. Part of the fat pointer used in interface dispatch.</p>
 <p>The Book of Eskiu | Eduardo Dorantes | eskiu-lang.org | v0.3.1 | MIT License</p>
 
 </main>
 
 <script>
 // Mobile contents drawer: the menu button slides the sidebar in; it closes on
-// backdrop tap, Esc, or — the point — as soon as a chapter/section is chosen.
+// backdrop tap, Esc, or (the point) as soon as a chapter/section is chosen.
 (function () {
   var sb = document.getElementById('sidebar');
   var btn = document.getElementById('navToggle');

@@ -143,7 +143,7 @@ import extern intrinsic  sizeof alloc_with free_closure
 thread_create thread_join  asm  try catch finally throw
 null true false
 </code></pre>
-<p><code>type</code> is <strong>not</strong> reserved — it is a contextual keyword recognized only in the
+<p><code>type</code> is <strong>not</strong> reserved: it is a contextual keyword recognized only in the
 type-alias form <code>type NAME = …</code>.</p>
 <h3 id="operators-and-punctuation">Operators and punctuation</h3>
 <pre><code>+  -  *  /  %                          arithmetic
@@ -215,7 +215,8 @@ qualifier       = 'const' | 'volatile'
 type it qualifies the pointee (<code>const int*</code>) or pointer level (<code>int* const</code>).</p>
 <hr>
 <h2 id="types">Types</h2>
-<pre><code>type        = 'const'? ptr* base ( '*' 'const'? )* array*
+<pre><code>type        = 'const'? ptr* base suffix*
+suffix      = array | '*' 'const'?                   // arrays and trailing pointers, any order
 base        = scalar-type
             | IDENT ( '&lt;' type (',' type)* '&gt;' )?   // named type or template instance
             | 'fn' '(' (type (',' type)*)? ')' '-&gt;' type   // function-pointer type
@@ -227,7 +228,9 @@ scalar-type = 'int' | 'int8' | 'int16' | 'int32' | 'int64'
             | 'float' | 'double' | 'bool' | 'char' | 'string' | 'void'
 </code></pre>
 <p>Pointers may be written either C-style (<code>int*</code>) or leading (<code>*int</code>); both are
-equivalent. <code>va_list</code> is a built-in named type used by variadics.</p>
+equivalent. A trailing <code>[N]</code> binds outermost, so <code>*T[N]</code> is an array of N pointers
+(each element a <code>*T</code>), while a pointer to an array is written with the star after the
+brackets: <code>T[N]*</code>. <code>va_list</code> is a built-in named type used by variadics.</p>
 <hr>
 <h2 id="statements">Statements</h2>
 <pre><code>statement =
@@ -289,7 +292,7 @@ postfix-op      = '(' arg-list? ')'          // call
                 | '?'                        // error propagation (Result)
 arg-list        = expr (',' expr)*
 </code></pre>
-<p>Eskiu has no <code>a ? b : c</code> conditional operator — <code>?</code> is the postfix
+<p>Eskiu has no <code>a ? b : c</code> conditional operator. <code>?</code> is the postfix
 error-propagation operator applied to a <code>Result</code> (it returns early on the error
 variant). Assignment is the lowest-precedence, right-associative level.</p>
 <pre><code>primary =
@@ -311,13 +314,13 @@ field-init  = IDENT ':' expr        // named
 lambda      = type '(' lambda-params? ')' block        // e.g. int (int x) { return x; }
 lambda-params = ('escaping'? type IDENT) (',' 'escaping'? type IDENT)*
 </code></pre>
-<p>A struct literal is suppressed where a <code>{</code> would instead open a block — e.g. the
+<p>A struct literal is suppressed where a <code>{</code> would instead open a block, e.g. the
 subject of <code>match</code>/<code>switch</code>/<code>if</code>/<code>while</code>/<code>for</code> conditions.</p>
 <hr>
 <h2 id="see-also">See also</h2>
 <ul>
-<li><a href="spec.html">spec.md</a> — language semantics and the standard library.</li>
-<li><a href="abi.html">../dev/abi.md</a> — how these constructs lower to LLVM IR.</li>
+<li><a href="spec.html">spec.md</a>: language semantics and the standard library.</li>
+<li><a href="abi.html">../dev/abi.md</a>: how these constructs lower to LLVM IR.</li>
 </ul>
     </div>
     <div class="foot"><a href="../index.html">← Back to eskiu</a></div>

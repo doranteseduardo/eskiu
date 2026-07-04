@@ -33,7 +33,7 @@ Refresh it whenever you cut a new release:
 ./update-dist.sh v0.2.5     # a specific tag
 ```
 
-(The release binary statically links LLVM, so the image stays small — it only
+(The release binary statically links LLVM, so the image stays small: it only
 needs a few shared libs + `gcc` as the C linker for `eskiuc run`.)
 
 ## Build
@@ -61,7 +61,7 @@ docker run -d --name eskiu-playground --restart unless-stopped \
 ```
 
 Notes:
-- `--tmpfs /tmp:...,exec` is required — `eskiuc run` links and executes a
+- `--tmpfs /tmp:...,exec` is required: `eskiuc run` links and executes a
   temporary binary under `$TMPDIR`, which the app points at `/tmp`.
 - Bind to `127.0.0.1` and let your existing reverse proxy (nginx/Caddy/Traefik)
   terminate TLS and forward to it. Then set `PLAYGROUND_API` in
@@ -105,6 +105,6 @@ Runs as an unprivileged user (`uid 10001`), its own session/process group
 request. The `docker run` flags above add a read-only root FS, dropped
 capabilities, and `no-new-privileges`.
 
-The container does **not** block outbound network from user code on its own —
-if that matters to you, run it on an isolated Docker network with no egress, or
+The container does **not** block outbound network from user code on its own.
+If that matters to you, run it on an isolated Docker network with no egress, or
 front it with an nsjail/gVisor layer.
