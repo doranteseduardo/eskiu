@@ -85,6 +85,7 @@ postfix     f() a[i] a.b
 |---|---|
 | `-o prog` / `-o file.o`     | Link an executable / emit an object file (by suffix) |
 | `-c`                        | Compile to an object file only                  |
+| `-O0` / `-O1` / `-O2` / `-O3` | Optimization level (default `-O0`; `-O1`+ run the LLVM middle-end) |
 | `-l<lib>` / `-L<path>`      | Pass library / search-path flags to the linker  |
 | `eskiuc run file.esk`       | Compile to a temp executable and run it         |
 | `eskiuc fmt file.esk`       | Reformat source in place                        |

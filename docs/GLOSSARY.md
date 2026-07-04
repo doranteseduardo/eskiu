@@ -48,6 +48,9 @@ AST node representing a `{ ... }` block. Contains an ordered list of `BlockItem`
 **bounded generic / type-parameter constraint**
 A type parameter restricted to types that satisfy one or more interfaces, written `<T: Iface>` for a single bound or `<T: A + B>` for several. The constraint is checked at instantiation: every concrete type substituted for `T` must satisfy each named interface. A primitive type can satisfy a constraint via a free function that implements the required method set. Added in v0.2.2 (multi-bound `+`), with primitive satisfaction in v0.2.3. See also: interface, template / generic, monomorphization.
 
+**bootstrap fixpoint**
+The point at which a self-hosted compiler reproduces its own output. Eskiu's bootstrap builds the Eskiu-written compiler three times: the C++ `eskiuc` builds it (cc0), cc0 builds it (cc1), and cc1 builds it (cc2). cc1 and cc2 emit byte-identical IR for the compiler's own source, which proves the self-hosted compiler is a fixpoint. Reached in v0.3.0. See also: self-hosting.
+
 ## C
 
 **channel**
@@ -196,6 +199,9 @@ An expression whose value can be read but that does not itself designate a stora
 
 **scope**
 The region of source code in which a declared name is visible. Eskiu uses lexical (block) scoping: each `BlockStmt` introduces a new scope. The symbol table supports nested scopes via a scope stack; inner scopes can shadow outer ones. Names go out of scope when their enclosing block ends. See also: symbol table, BlockStmt.
+
+**self-hosting**
+A compiler written in the language it compiles. The whole Eskiu compiler (lexer, preprocessor, parser, type checker, and code generator) is reimplemented in Eskiu under `selfhost/`, validated for parity against the production C++ `eskiuc` and against itself through a 3-stage bootstrap fixpoint. Shipped in v0.3.0; the code generator is feature-complete against the C++ corpus. See also: bootstrap fixpoint, codegen.
 
 **semantic analysis**
 The compiler phase (Phase 4) that validates program meaning beyond syntactic correctness. In Eskiu this is the type checker: it verifies type compatibility, resolves identifiers, checks struct-field existence, validates function call arities and types, and enforces return-type consistency. See also: type checker, scope.

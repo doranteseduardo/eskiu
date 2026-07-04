@@ -4,7 +4,7 @@
 
 Authoritative status reference for Eskiu compiler contributors.
 
-Last updated: 2026-07-01.
+Last updated: 2026-07-04.
 
 ---
 
@@ -81,6 +81,10 @@ The project follows two phases:
 | Single-resolver type unification — type checker resolves every expression type; codegen consumes the table (v0.2.4) | ✅ |
 | Package manager | ❌ |
 | Self-hosting — lexer/parser/preprocessor/sema/codegen all in Eskiu; 3-stage bootstrap fixpoint, codegen feature-complete (v0.3.0, `selfhost/`) | ✅ |
+| Optimization levels: `-O0`/`-O1`/`-O2`/`-O3`; `-O1`+ run the LLVM middle-end before codegen (v0.3.1) | ✅ |
+| `*T[N]` = array of pointers; pointer-to-array is `T[N]*` (v0.3.1) | ✅ |
+| Incompatible `fn`-type assignments rejected; libc `size_t` externs use `int64` (v0.3.1) | ✅ |
+| `-O0`-vs-`-O2` behavioral differential CI gate (`tests/opt_differential.sh`) (v0.3.1) | ✅ |
 
 ---
 
@@ -230,6 +234,18 @@ not LLVM-C bindings — keeps the self-host dependency-free and is the standard 
   the C++-built codegen's IR byte-for-byte (a **bootstrap fixpoint**). All five drivers,
   self-compiled, match the C++-built ones. Gate `cg_selfhost.sh`, CI
 
+### v0.3.1: Correctness & optimization (SHIPPED)
+
+A hardening release over the self-hosting milestone. No new language surface.
+
+- [x] `-O0`/`-O1`/`-O2`/`-O3` optimization levels: `-O1`+ run the LLVM middle-end (mem2reg/SROA/instcombine/inlining/GVN) before code generation; `-O0` (default) unchanged.
+- [x] Fixed a float-closure `-O2` miscompile: sema reconciles a lambda's return type with its target `fn(...)->R` (a mismatched header returned `0.0` under `-O2`).
+- [x] Reject incompatible `fn`-type assignments (an `fn(P)->R1` value into an `fn(P)->R2` slot was a silent ABI miscompile; now a compile error).
+- [x] `*T[N]` parses as an array of pointers; a pointer to an array is `T[N]*`.
+- [x] libc `size_t` externs (`memcpy`/`memset`/`memmove`/`memcmp`/`memchr` size arg, `strlen` return) use `int64`.
+- [x] New CI gate `tests/opt_differential.sh`: a `-O0`-vs-`-O2` behavioral differential over the whole corpus, catching optimization-path miscompiles.
+- [x] Parser self-host parity widened to the full corpus (51 → 121 files).
+
 ### v1.0 — Production-ready
 
 - [~] `eskiuc` compiles itself (self-hosting) — **3-stage bootstrap fixpoint reached.**
@@ -239,9 +255,9 @@ not LLVM-C bindings — keeps the self-host dependency-free and is the standard 
   self-hosted codegen is also feature-complete against the C++ corpus (shipped in v0.3.0).
   Remaining for v1.0: a package manager, and promoting the Eskiu-written compiler to the
   primary build (it currently rides alongside the C++ `eskiuc`) — staged, parity-gated
-  plan in `selfhost/PROMOTION_PLAN.md` (folds in the three open self-host residuals:
-  async `for-in` element typing, parse-parity corpus expansion, and the keyword-as-
-  identifier diagnostic)
+  plan in `selfhost/PROMOTION_PLAN.md` (folds in the open self-host residuals: async `for-in`
+  element typing and the keyword-as-identifier diagnostic mirror; parse-parity corpus
+  expansion shipped in v0.3.1)
 - First-class types for high-throughput services
 
 ---

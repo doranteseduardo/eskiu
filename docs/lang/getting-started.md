@@ -97,6 +97,32 @@ Hello from Eskiu!
 Result: 8
 ```
 
+### Run it like a script
+
+You don't have to compile and link by hand while iterating. `eskiuc run` compiles to a
+temporary executable, runs it, and cleans up, forwarding any arguments after the script:
+
+```bash
+eskiuc run hello.esk
+```
+
+Add a shebang line and a `.esk` file becomes directly executable, the way a Python or Ruby
+script is:
+
+```eskiu
+#!/usr/bin/env eskiuc run
+extern int printf(string fmt, ...);
+int main() { printf("hello\n"); return 0; }
+```
+
+```bash
+chmod +x hello.esk
+./hello.esk
+```
+
+For an optimized build, pass `-O2` (or `-O1`/`-O3`), which runs the LLVM middle-end before
+code generation. The default is `-O0`, which emits naive IR straight to the backend.
+
 ### Peek at the generated IR
 
 Before producing an object file you can ask the compiler to print the LLVM IR it

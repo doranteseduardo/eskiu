@@ -56,8 +56,9 @@ Codegen checks: single alloca per var, every branch terminated, no undef, correc
 - [ ] Docs updated if behavior changed
 
 ## Current Focus
-v0.2.4 — the reinforce-the-language phase. The "backend services" release (v0.2.0) shipped and is tagged; since then the focus has been **hardening and type soundness**, not new language features (feature freeze):
-- Source modularization (the codegen/sema/parser splits), the asan/ubsan CI gate, and the generative fuzzer with its O0-vs-O2 differential oracle (0.2.1–0.2.2).
-- Bounded generics (`<T: Iface>` / `<T: A + B>`) and primitives-satisfy-constraints (0.2.2–0.2.3).
-- The structured `ty::Type` IR (0.2.3) and the type unification that made the type checker the **single resolver** (0.2.4): codegen consumes the resolved per-expression types, and `getTypeFromString` dispatches on `ty::Type::parse`. This closed the old two-evaluator miscompile risk and fixed three latent miscompiles (float-lit double, ptr-deref width, char zext).
-Genuinely deferred: a package manager and the tighter locals-across-await liveness optimization. (Self-hosting shipped in v0.3.0 — the compiler is reimplemented in Eskiu in `selfhost/`.) See docs/dev/phases.md for the full feature table and roadmap. New feature proposals require an issue.
+v0.3.1, over the v0.3.0 self-hosting milestone. The whole compiler is now reimplemented in Eskiu under `selfhost/`, parity-gated against the C++ `eskiuc`, reaching a 3-stage bootstrap fixpoint with a code generator feature-complete against the C++ corpus. The focus stays on hardening, not new language surface (feature freeze):
+- Recent 0.3.1 correctness work, mostly surfaced by the new `-O` optimization levels: a float-closure return-type miscompile (sema now reconciles a lambda's return type with its target), a rejected fn-type ABI mismatch, the `*T[N]` parse fix (array of pointers), and correct `size_t` externs.
+- A new `-O0`-vs-`-O2` behavioral differential (`tests/opt_differential.sh`) guards the whole corpus against optimization-path miscompiles.
+- Parser self-host parity was widened to the full corpus (51 to 121 files).
+
+The live track toward v1.0 is promoting the Eskiu-written compiler to the primary build; see `selfhost/PROMOTION_PLAN.md`. Genuinely deferred: a package manager. See docs/dev/phases.md for the full feature table and roadmap. New feature proposals require an issue.

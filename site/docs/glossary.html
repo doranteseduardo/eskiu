@@ -104,6 +104,8 @@ Union type used internally in the parser and AST to represent a single item insi
 AST node representing a <code>{ ... }</code> block. Contains an ordered list of <code>BlockItem</code> entries and introduces a new nested scope. Functions, if-branches, loops, and standalone braces all produce a <code>BlockStmt</code>. See also: scope, BlockItem.</p>
 <p><strong>bounded generic / type-parameter constraint</strong>
 A type parameter restricted to types that satisfy one or more interfaces, written <code>&lt;T: Iface&gt;</code> for a single bound or <code>&lt;T: A + B&gt;</code> for several. The constraint is checked at instantiation: every concrete type substituted for <code>T</code> must satisfy each named interface. A primitive type can satisfy a constraint via a free function that implements the required method set. Added in v0.2.2 (multi-bound <code>+</code>), with primitive satisfaction in v0.2.3. See also: interface, template / generic, monomorphization.</p>
+<p><strong>bootstrap fixpoint</strong>
+The point at which a self-hosted compiler reproduces its own output. Eskiu's bootstrap builds the Eskiu-written compiler three times: the C++ <code>eskiuc</code> builds it (cc0), cc0 builds it (cc1), and cc1 builds it (cc2). cc1 and cc2 emit byte-identical IR for the compiler's own source, which proves the self-hosted compiler is a fixpoint. Reached in v0.3.0. See also: self-hosting.</p>
 <h2 id="c">C</h2>
 <p><strong>channel</strong>
 An async message queue between tasks (<code>Chan&lt;T&gt;</code> in <code>&lt;channel&gt;</code>). <code>chan_recv</code> returns a <code>*Future&lt;T&gt;</code> that completes with the next item — immediately if one is buffered, otherwise when a <code>chan_send</code> hands a value off to the parked receiver. See also: Future, await.</p>
@@ -199,6 +201,8 @@ An expression whose value can be read but that does not itself designate a stora
 <h2 id="s">S</h2>
 <p><strong>scope</strong>
 The region of source code in which a declared name is visible. Eskiu uses lexical (block) scoping: each <code>BlockStmt</code> introduces a new scope. The symbol table supports nested scopes via a scope stack; inner scopes can shadow outer ones. Names go out of scope when their enclosing block ends. See also: symbol table, BlockStmt.</p>
+<p><strong>self-hosting</strong>
+A compiler written in the language it compiles. The whole Eskiu compiler (lexer, preprocessor, parser, type checker, and code generator) is reimplemented in Eskiu under <code>selfhost/</code>, validated for parity against the production C++ <code>eskiuc</code> and against itself through a 3-stage bootstrap fixpoint. Shipped in v0.3.0; the code generator is feature-complete against the C++ corpus. See also: bootstrap fixpoint, codegen.</p>
 <p><strong>semantic analysis</strong>
 The compiler phase (Phase 4) that validates program meaning beyond syntactic correctness. In Eskiu this is the type checker: it verifies type compatibility, resolves identifiers, checks struct-field existence, validates function call arities and types, and enforces return-type consistency. See also: type checker, scope.</p>
 <p><strong>sret (structure return)</strong>
