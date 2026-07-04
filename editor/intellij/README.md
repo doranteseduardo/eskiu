@@ -1,8 +1,8 @@
-# Eskiu Language — IntelliJ IDEA / JetBrains IDEs
+# Eskiu Language: IntelliJ IDEA / JetBrains IDEs
 
 Syntax highlighting for `.esk` files in IntelliJ IDEA (and other JetBrains IDEs:
 CLion, GoLand, PyCharm, RustRover, …) by **reusing the same TextMate grammar that
-powers the VS Code extension** — so the two never drift apart.
+powers the VS Code extension**, so the two never drift apart.
 
 JetBrains IDEs ship with a built-in TextMate engine, so no custom lexer/parser is
 needed: the grammar at `bundle/Syntaxes/eskiu.tmLanguage.json` (a copy of the
@@ -11,14 +11,14 @@ directly.
 
 ---
 
-## Option A — Import the bundle (works today, recommended)
+## Option A: Import the bundle (works today, recommended)
 
 The fastest path, no build required. In IntelliJ:
 
 1. **Settings/Preferences → Editor → TextMate Bundles**
 2. Click **+** and select this folder:
    `…/eskiu/editor/intellij/bundle`
-3. **Apply**. Open any `.esk` file — keywords, strings, comments, numbers, types,
+3. **Apply**. Open any `.esk` file: keywords, strings, comments, numbers, types,
    operators, and `#pragma`/preprocessor directives are now highlighted.
 
 To pick a color theme for the scopes: **Settings → Editor → Color Scheme → TextMate**.
@@ -28,7 +28,7 @@ This binds `.esk` to the `source.eskiu` scope automatically (the grammar's
 
 ---
 
-## Option B — Package as a distributable plugin
+## Option B: Package as a distributable plugin
 
 For a one-click install (and JetBrains Marketplace), `plugin/` is a Gradle project
 that wraps the same bundle as an installable plugin. It depends on the platform
@@ -60,7 +60,7 @@ gains or loses syntax. Refresh both with:
 make -C editor sync-grammar     # or: cp editor/vscode/syntaxes/eskiu.tmLanguage.json editor/intellij/bundle/Syntaxes/
 ```
 
-(No language-syntax change ⇒ nothing to sync — the same rule as the VS Code grammar.)
+(No language-syntax change ⇒ nothing to sync, the same rule as the VS Code grammar.)
 
 ## Scope: highlighting only
 
@@ -68,4 +68,4 @@ This integration gives **syntax highlighting + `.esk` file association**. It doe
 provide completion, go-to-definition, or inline error checking (the VS Code extension
 gets live `eskiuc --test-typechecker` diagnostics via its language server). A full
 JetBrains language plugin (Kotlin lexer/parser/PSI + an external annotator calling
-`eskiuc`) would add those — a larger, separate effort.
+`eskiuc`) would add those, a larger, separate effort.

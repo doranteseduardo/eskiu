@@ -78,7 +78,7 @@ is intended for developers embedding the compiler as a library or building
 additional analysis and transformation passes on the existing infrastructure.</p>
 <p>The compiler is built with C++17 and links against LLVM. All public headers live
 under the project root; include paths are relative to it. The pipeline is a chain
-of four passes — lex, parse, type-check, code-generate — with an async-lowering
+of four passes (lex, parse, type-check, code-generate) with an async-lowering
 pass between type checking and code generation. Each pass is an independent class
 that can be driven on its own.</p>
 <hr>
@@ -123,8 +123,8 @@ std::string tokenTypeToString(TokenType type);   // free function
 literals (<code>INT_LIT</code>, <code>FLOAT_LIT</code>, <code>STRING_LIT</code>, <code>CHAR_LIT</code>, <code>IDENT</code>), and the
 specials <code>PRAGMA</code>, <code>EOF_TOKEN</code>, <code>UNKNOWN</code>. Every <code>Token</code> carries its source
 location (1-based line and column).</p>
-<p>A <code>Macro</code> is the preprocessor's record of a <code>#define</code> — object-like or
-function-like — with its parameter names and body text.</p>
+<p>A <code>Macro</code> is the preprocessor's record of a <code>#define</code> (object-like or
+function-like) with its parameter names and body text.</p>
 <hr>
 <h2 id="parser">Parser</h2>
 <p>Header: <code>parser/parser.h</code></p>
@@ -217,8 +217,10 @@ public:
     bool freestanding = false;    // alloc/free → esk_alloc/esk_free instead of malloc/free
     bool asan  = false;           // AddressSanitizer instrumentation
     bool ubsan = false;           // trapping bounds checks
+    unsigned optLevel = 0;        // -O level; 1..3 run the LLVM middle-end (0 = none)
 
     void printIR() const;                            // print IR to stdout (--test-codegen)
+    void optimizeModule();                           // run the middle-end pipeline at optLevel
     bool emitObjectFile(const std::string&amp; filename); // write a native object file
 };
 </code></pre>
@@ -228,11 +230,12 @@ instance; <code>nullptr</code> on failure). <code>getModule()</code> returns the
 non-owningly.</p>
 <p>Configure the run before calling <code>generateCode()</code>:</p>
 <ul>
-<li><code>targetTriple</code> — set to cross-compile for a given triple; empty targets the host.</li>
-<li><code>freestanding</code> — predefines <code>__ESKIU_FREESTANDING__</code> and routes heap allocation
+<li><code>targetTriple</code>: set to cross-compile for a given triple; empty targets the host.</li>
+<li><code>freestanding</code>: predefines <code>__ESKIU_FREESTANDING__</code> and routes heap allocation
   to user-supplied <code>esk_alloc</code>/<code>esk_free</code>.</li>
-<li><code>asan</code> / <code>ubsan</code> — apply the corresponding LLVM instrumentation pass to the
+<li><code>asan</code> / <code>ubsan</code>: apply the corresponding LLVM instrumentation pass to the
   module before object emission.</li>
+<li><code>optLevel</code> / <code>optimizeModule()</code>: <code>-O1</code>..<code>-O3</code> run the LLVM middle-end (mem2reg, SROA, inlining, GVN) over the module before object emission; <code>0</code> skips it (the default, naive IR straight to the backend).</li>
 </ul>
 <p><code>printIR()</code> prints the module's IR to stdout (valid before the module's ownership
 is transferred away). <code>emitObjectFile(filename)</code> lowers the module to a native

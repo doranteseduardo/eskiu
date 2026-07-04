@@ -119,7 +119,7 @@ declarations. There is no separate Eskiu calling convention.</p>
 <tr>
 <td><code>bool</code></td>
 <td><code>i1</code></td>
-<td>—</td>
+<td>n/a</td>
 <td></td>
 </tr>
 <tr>
@@ -131,25 +131,25 @@ declarations. There is no separate Eskiu calling convention.</p>
 <tr>
 <td><code>float</code></td>
 <td><code>float</code></td>
-<td>—</td>
+<td>n/a</td>
 <td>IEEE-754 single</td>
 </tr>
 <tr>
 <td><code>double</code></td>
 <td><code>double</code></td>
-<td>—</td>
+<td>n/a</td>
 <td>IEEE-754 double</td>
 </tr>
 <tr>
 <td><code>string</code></td>
 <td><code>ptr</code></td>
-<td>—</td>
+<td>n/a</td>
 <td>pointer to a NUL-terminated byte buffer</td>
 </tr>
 <tr>
 <td><code>void</code></td>
 <td><code>void</code></td>
-<td>—</td>
+<td>n/a</td>
 <td>return type only</td>
 </tr>
 </tbody>
@@ -164,6 +164,11 @@ sign-extend. Narrowing truncates. <code>int</code>↔float uses signed conversio
 <p>All pointers lower to LLVM's opaque <code>ptr</code> (address space 0), regardless of
 pointee type or spelling (<code>int*</code> and <code>*int</code> are identical). Pointer-to-pointer,
 casts between pointer types, and <code>string</code> are all just <code>ptr</code>.</p>
+<p>A leading <code>*</code> and a trailing <code>[N]</code> follow the source rule that the array binds
+outermost: <code>*T[N]</code> is an array of N <code>ptr</code> elements, while a pointer to an array is
+spelled <code>T[N]*</code> (a single <code>ptr</code>). For C interop, libc <code>size_t</code> parameters and returns
+(<code>strlen</code>, the size argument of <code>memcpy</code>/<code>memset</code>/<code>memmove</code>/<code>memcmp</code>/<code>memchr</code>) are
+declared <code>int64</code> so the extern signatures match the C ABI on 64-bit targets.</p>
 <p><code>const</code> has <strong>no ABI effect</strong>. Every <code>const</code> qualifier (base/pointee <code>const T</code>,
 pointer-level <code>T* const</code>) is stripped before lowering, so a <code>const int*</code> and an
 <code>int*</code> are the same at the IR/object level. const is purely a compile-time
@@ -176,7 +181,7 @@ types in declaration order, with the target's <strong>natural alignment</strong>
 inserts padding). This matches a C <code>struct</code> with the same fields.</p>
 <h3 id="packed-structs">Packed structs</h3>
 <p><code>packed struct</code> (equivalently <code>#pragma pack(1)</code>) lowers to an LLVM <em>packed</em>
-struct — no padding, fields back-to-back.</p>
+struct: no padding, fields back-to-back.</p>
 <p><code>#pragma pack(N)</code> for <code>N &gt; 1</code> uses an explicit manual layout that caps each
 field's alignment at <code>N</code>: a field is placed at the next offset that is a
 multiple of <code>min(natural-align, N)</code>, with <code>[k x i8]</code> padding inserted as needed,
@@ -211,7 +216,7 @@ struct), where <code>N</code> is the size of the largest member. All members sha
   area (coercing the value to the field type). <code>match</code> reads the tag, branches,
   and reads payload fields per arm.</li>
 </ul>
-<p>Generic ADTs (<code>Option&lt;T&gt;</code>, <code>Either&lt;A,B&gt;</code>) are monomorphized per instantiation —
+<p>Generic ADTs (<code>Option&lt;T&gt;</code>, <code>Either&lt;A,B&gt;</code>) are monomorphized per instantiation:
 each concrete instance (<code>Option_int</code>) gets its own <code>{i32, [N x i64]}</code> sized for
 that instance, exactly like template structs.</p>
 <hr>
@@ -224,7 +229,7 @@ parameter; the caller allocates the result buffer and passes its address.
 Structs ≤ 16 bytes are returned by value (the target ABI splits them into
 registers as usual). This is the System V / AArch64 rule and is C-compatible.</p>
 <p><strong>Variadics.</strong> A <code>...</code> parameter makes the LLVM function <code>isVarArg</code>. The built-in
-<code>va_list</code> is the struct <code>{ ptr, ptr, ptr, i32, i32 }</code> (32 B, 8-aligned) — a
+<code>va_list</code> is the struct <code>{ ptr, ptr, ptr, i32, i32 }</code> (32 B, 8-aligned), a
 superset of the x86-64 (24 B) and AArch64 (32 B) layouts, so one type serves
 both; <code>va_start</code>/<code>va_arg&lt;T&gt;</code>/<code>va_end</code> lower to the corresponding LLVM
 intrinsics/instruction. Variadic arguments follow C default promotions:
@@ -232,7 +237,7 @@ integers narrower than 32 bits widen to <code>i32</code> (sign- or zero-extended
 zero-extends, and <code>float</code> widens to <code>double</code>.</p>
 <hr>
 <h2 id="function-pointers-closures-and-interfaces">Function pointers, closures and interfaces</h2>
-<p>These use <strong>fat pointers</strong> — a two-<code>ptr</code> struct <code>{ ptr, ptr }</code>.</p>
+<p>These use <strong>fat pointers</strong>: a two-<code>ptr</code> struct <code>{ ptr, ptr }</code>.</p>
 <p><strong>Function values / closures.</strong> A <code>fn(A,B)-&gt;R</code> value is <code>{ fn, env }</code>: a code
 pointer plus an environment pointer. A lambda compiles to a function whose first
 parameter is the <code>env*</code>, followed by the declared parameters; captured variables
@@ -279,7 +284,7 @@ mangling: in the instance type, spaces are removed and <code>&lt;</code>, <code>
 <p>Struct methods are emitted as <code>Struct_method</code>; interface vtable entries as
 <code>Interface_method</code>. Non-template top-level functions keep their source names
 (Eskiu does not overload, so no signature mangling is needed). <code>extern</code> and
-<code>intrinsic</code> declarations use their exact C symbol names — that is how Eskiu
+<code>intrinsic</code> declarations use their exact C symbol names: that is how Eskiu
 calls into C.</p>
 <hr>
 <h2 id="async-frames">Async frames</h2>
@@ -292,9 +297,9 @@ contract for the runtime side.</p>
 <hr>
 <h2 id="see-also">See also</h2>
 <ul>
-<li><a href="grammar.html">../lang/grammar.md</a> — the surface syntax these rules lower.</li>
-<li><a href="async-design.html">async-design.md</a> — the <code>Future&lt;T&gt;</code> ABI and scheduler contract.</li>
-<li><a href="architecture.html">architecture.md</a> — the compiler pipeline overview.</li>
+<li><a href="grammar.html">../lang/grammar.md</a>: the surface syntax these rules lower.</li>
+<li><a href="async-design.html">async-design.md</a>: the <code>Future&lt;T&gt;</code> ABI and scheduler contract.</li>
+<li><a href="architecture.html">architecture.md</a>: the compiler pipeline overview.</li>
 </ul>
     </div>
     <div class="foot"><a href="../index.html">← Back to eskiu</a></div>

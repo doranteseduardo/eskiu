@@ -6,7 +6,7 @@ additional analysis and transformation passes on the existing infrastructure.
 
 The compiler is built with C++17 and links against LLVM. All public headers live
 under the project root; include paths are relative to it. The pipeline is a chain
-of four passes — lex, parse, type-check, code-generate — with an async-lowering
+of four passes (lex, parse, type-check, code-generate) with an async-lowering
 pass between type checking and code generation. Each pass is an independent class
 that can be driven on its own.
 
@@ -63,8 +63,8 @@ literals (`INT_LIT`, `FLOAT_LIT`, `STRING_LIT`, `CHAR_LIT`, `IDENT`), and the
 specials `PRAGMA`, `EOF_TOKEN`, `UNKNOWN`. Every `Token` carries its source
 location (1-based line and column).
 
-A `Macro` is the preprocessor's record of a `#define` — object-like or
-function-like — with its parameter names and body text.
+A `Macro` is the preprocessor's record of a `#define` (object-like or
+function-like) with its parameter names and body text.
 
 ---
 
@@ -183,8 +183,10 @@ public:
     bool freestanding = false;    // alloc/free → esk_alloc/esk_free instead of malloc/free
     bool asan  = false;           // AddressSanitizer instrumentation
     bool ubsan = false;           // trapping bounds checks
+    unsigned optLevel = 0;        // -O level; 1..3 run the LLVM middle-end (0 = none)
 
     void printIR() const;                            // print IR to stdout (--test-codegen)
+    void optimizeModule();                           // run the middle-end pipeline at optLevel
     bool emitObjectFile(const std::string& filename); // write a native object file
 };
 ```
@@ -196,11 +198,12 @@ non-owningly.
 
 Configure the run before calling `generateCode()`:
 
-- `targetTriple` — set to cross-compile for a given triple; empty targets the host.
-- `freestanding` — predefines `__ESKIU_FREESTANDING__` and routes heap allocation
+- `targetTriple`: set to cross-compile for a given triple; empty targets the host.
+- `freestanding`: predefines `__ESKIU_FREESTANDING__` and routes heap allocation
   to user-supplied `esk_alloc`/`esk_free`.
-- `asan` / `ubsan` — apply the corresponding LLVM instrumentation pass to the
+- `asan` / `ubsan`: apply the corresponding LLVM instrumentation pass to the
   module before object emission.
+- `optLevel` / `optimizeModule()`: `-O1`..`-O3` run the LLVM middle-end (mem2reg, SROA, inlining, GVN) over the module before object emission; `0` skips it (the default, naive IR straight to the backend).
 
 `printIR()` prints the module's IR to stdout (valid before the module's ownership
 is transferred away). `emitObjectFile(filename)` lowers the module to a native

@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Documentation · Eskiu docs</title>
-  <meta name="description" content="Eskiu is a statically typed systems language built to replace a familiar stack: the C you reach for to go fast, the Go for concurrency, the C++ for librari" />
+  <meta name="description" content="Eskiu is a statically typed systems language with the power of C and the immediacy of a scripting language: it compiles to native code through LLVM, and es" />
   <link rel="canonical" href="https://eskiu-lang.org/docs/index.html" />
   <link rel="icon" type="image/png" href="../../assets/logo.png" />
   <style>*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -73,9 +73,8 @@ body { background: var(--bg); color: var(--ink); font-family: var(--sans);
     <nav class="docnav"><a href="index.html" class="active">Overview</a><a href="getting-started.html">Getting started</a><a href="spec.html">Spec</a><a href="grammar.html">Grammar</a><a href="build.html">Tooling</a><a href="glossary.html">Glossary</a><a href="internals.html">Internals →</a></nav>
     <div class="content">
 <h1 id="eskiu-language-reference">Eskiu Language Reference</h1>
-<p>Eskiu is a statically typed systems language built to replace a familiar stack: the C you reach for to go fast, the Go for concurrency, the C++ for libraries, and the Python that glues it together — each with its own toolchain and interop cost.</p>
-<p>The goal is one language for all of it — native performance, explicit memory (<code>alloc&lt;T&gt;</code> / <code>free</code>), and direct access to any C library, in deliberately C-style syntax with modern conveniences on top: bounded generics (<code>&lt;T: Iface&gt;</code>), structural interfaces, sum types with <code>match</code>, lambdas, and <code>async</code>/<code>await</code>.</p>
-<p><strong>Current version: v0.3.1</strong> — the self-hosting milestone: the compiler is reimplemented in
+<p>Eskiu is a statically typed systems language with the power of C and the immediacy of a scripting language: it compiles to native code through LLVM, and <code>eskiuc run file.esk</code> runs a source file directly, like Python or Ruby. This is the full language reference. New to Eskiu? Start with the <a href="getting-started.html">tutorial</a>.</p>
+<p><strong>Current version: v0.3.1.</strong> The self-hosting milestone: the compiler is reimplemented in
 Eskiu itself (<code>selfhost/</code>), reaching a 3-stage bootstrap fixpoint and a code generator
 feature-complete against the reference C++ compiler.</p>
 <hr>
@@ -91,7 +90,7 @@ feature-complete against the reference C++ compiler.</p>
 <tbody>
 <tr>
 <td><a href="getting-started.html">getting-started.md</a></td>
-<td>Hands-on tutorial — build, hello world, all features</td>
+<td>Hands-on tutorial: build, hello world, all features</td>
 <td>You're new to Eskiu</td>
 </tr>
 <tr>
@@ -148,15 +147,15 @@ feature-complete against the reference C++ compiler.</p>
 </tr>
 <tr>
 <td><strong>Lambdas / Closures</strong></td>
-<td><code>int(int x) { return x * 2; }</code> — anonymous functions; <code>fn(T,...)-&gt;R</code> fat-pointer types; closure capture by value; higher-order functions</td>
+<td><code>int(int x) { return x * 2; }</code>: anonymous functions; <code>fn(T,...)-&gt;R</code> fat-pointer types; closure capture by value; higher-order functions</td>
 </tr>
 <tr>
 <td><strong>Threads</strong></td>
-<td><code>thread_create(fn()-&gt;void)</code> / <code>thread_join(*void)</code> — OS thread keywords; closure fat pointer maps directly to pthread ABI</td>
+<td><code>thread_create(fn()-&gt;void)</code> / <code>thread_join(*void)</code>: OS thread keywords; closure fat pointer maps directly to pthread ABI</td>
 </tr>
 <tr>
 <td><strong>Exceptions</strong></td>
-<td><code>try</code>/<code>catch</code>/<code>finally</code>/<code>throw</code> — LLVM <code>invoke</code>/<code>landingpad</code>, Itanium ABI; multiple <code>catch</code> clauses; link <code>-lc++</code> (macOS) or <code>-lstdc++</code> (Linux)</td>
+<td><code>try</code>/<code>catch</code>/<code>finally</code>/<code>throw</code>: LLVM <code>invoke</code>/<code>landingpad</code>, Itanium ABI; multiple <code>catch</code> clauses; link <code>-lc++</code> (macOS) or <code>-lstdc++</code> (Linux)</td>
 </tr>
 <tr>
 <td><strong>Async / await</strong></td>
@@ -172,7 +171,7 @@ feature-complete against the reference C++ compiler.</p>
 </tr>
 <tr>
 <td><strong>Templates</strong></td>
-<td><code>struct Result&lt;T,E&gt;</code>, <code>fn Ok&lt;T,E&gt;(T v)</code> — monomorphic instantiation; bounded generics <code>&lt;T: Iface&gt;</code> / <code>&lt;T: A + B&gt;</code> (a primitive satisfies a constraint via a free function)</td>
+<td><code>struct Result&lt;T,E&gt;</code>, <code>fn Ok&lt;T,E&gt;(T v)</code>: monomorphic instantiation; bounded generics <code>&lt;T: Iface&gt;</code> / <code>&lt;T: A + B&gt;</code> (a primitive satisfies a constraint via a free function)</td>
 </tr>
 <tr>
 <td><strong>Collections</strong></td>
@@ -180,7 +179,7 @@ feature-complete against the reference C++ compiler.</p>
 </tr>
 <tr>
 <td><strong>Interfaces</strong></td>
-<td><code>interface Drawable { void draw(); }</code> — structural typing, vtable dispatch</td>
+<td><code>interface Drawable { void draw(); }</code>: structural typing, vtable dispatch</td>
 </tr>
 <tr>
 <td><strong>Memory</strong></td>
@@ -188,7 +187,7 @@ feature-complete against the reference C++ compiler.</p>
 </tr>
 <tr>
 <td><strong>volatile</strong></td>
-<td><code>volatile let reg: *uint8 = (uint8*) 0x3F8;</code> — MMIO-safe loads/stores</td>
+<td><code>volatile let reg: *uint8 = (uint8*) 0x3F8;</code>: MMIO-safe loads/stores</td>
 </tr>
 <tr>
 <td><strong>Inline asm</strong></td>
@@ -196,11 +195,11 @@ feature-complete against the reference C++ compiler.</p>
 </tr>
 <tr>
 <td><strong>Freestanding</strong></td>
-<td><code>--freestanding</code> flag — <code>&lt;mem&gt;</code> <code>alloc&lt;T&gt;</code>/<code>free</code> call <code>esk_alloc</code>/<code>esk_free</code>; user-supplied in kernel</td>
+<td><code>--freestanding</code> flag: <code>&lt;mem&gt;</code> <code>alloc&lt;T&gt;</code>/<code>free</code> call <code>esk_alloc</code>/<code>esk_free</code>; user-supplied in kernel</td>
 </tr>
 <tr>
 <td><strong>Cross-compile</strong></td>
-<td><code>--target TRIPLE</code> — AArch64 and X86 backends included</td>
+<td><code>--target TRIPLE</code>: AArch64 and X86 backends included</td>
 </tr>
 <tr>
 <td><strong>Multi-file</strong></td>
@@ -208,11 +207,11 @@ feature-complete against the reference C++ compiler.</p>
 </tr>
 <tr>
 <td><strong>Errors</strong></td>
-<td><code>file.esk:8:22: message</code> — real line/col from parser</td>
+<td><code>file.esk:8:22: message</code>: real line/col from parser</td>
 </tr>
 <tr>
 <td><strong>HTTP/2</strong></td>
-<td><code>&lt;http2&gt;</code> frame codec + connection/stream state machine, <code>&lt;hpack&gt;</code> header compression, <code>&lt;tls&gt;</code> (h2 over OpenSSL with ALPN), <code>&lt;http2_server&gt;</code> (h2c) — full multiplexed HTTP/2 stack</td>
+<td><code>&lt;http2&gt;</code> frame codec + connection/stream state machine, <code>&lt;hpack&gt;</code> header compression, <code>&lt;tls&gt;</code> (h2 over OpenSSL with ALPN), <code>&lt;http2_server&gt;</code> (h2c): full multiplexed HTTP/2 stack</td>
 </tr>
 <tr>
 <td><strong>Stdlib</strong></td>
@@ -305,6 +304,10 @@ postfix     f() a[i] a.b
 <tr>
 <td><code>-c</code></td>
 <td>Compile to an object file only</td>
+</tr>
+<tr>
+<td><code>-O0</code> / <code>-O1</code> / <code>-O2</code> / <code>-O3</code></td>
+<td>Optimization level (default <code>-O0</code>; <code>-O1</code>+ run the LLVM middle-end)</td>
 </tr>
 <tr>
 <td><code>-l&lt;lib&gt;</code> / <code>-L&lt;path&gt;</code></td>

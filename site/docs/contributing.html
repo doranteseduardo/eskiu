@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Contributing · Eskiu docs</title>
-  <meta name="description" content="Read architecture.md(architecture.md) before diving in. Understanding the pipeline — lexer → parser → type checker → async transform → type checker re-run " />
+  <meta name="description" content="Read architecture.md(architecture.md) before diving in. Understanding the pipeline (lexer → parser → type checker → async transform → type checker re-run (" />
   <link rel="canonical" href="https://eskiu-lang.org/docs/contributing.html" />
   <link rel="icon" type="image/png" href="../../assets/logo.png" />
   <style>*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -73,7 +73,7 @@ body { background: var(--bg); color: var(--ink); font-family: var(--sans);
     <nav class="docnav"><a href="index.html">← Language docs</a><a href="internals.html">Overview</a><a href="architecture.html">Architecture</a><a href="design.html">Design</a><a href="abi.html">ABI</a><a href="async-design.html">Async</a><a href="self-hosting.html">Self-hosting</a><a href="http2-design.html">HTTP/2</a><a href="api.html">C++ API</a><a href="debugging.html">Debugging</a><a href="contributing.html" class="active">Contributing</a></nav>
     <div class="content">
 <h1 id="contributing-to-eskiu">Contributing to Eskiu</h1>
-<p>Read <a href="architecture.html">architecture.md</a> before diving in. Understanding the pipeline — lexer → parser → type checker → async transform → type checker re-run (single resolver) → codegen — is the prerequisite for any meaningful contribution.</p>
+<p>Read <a href="architecture.html">architecture.md</a> before diving in. Understanding the pipeline (lexer → parser → type checker → async transform → type checker re-run (single resolver) → codegen) is the prerequisite for any meaningful contribution.</p>
 <h2 id="getting-started">Getting Started</h2>
 <h3 id="clone-build-verify">Clone, build, verify</h3>
 <p>...
@@ -102,10 +102,10 @@ No comments unless WHY is non-obvious
 shared_ptr for all AST nodes via ExprPtr/StmtPtr/DeclPtr aliases
 No RTTI except existing dynamic_cast sites</p>
 <h2 id="testing">Testing</h2>
-<p>There IS an automated suite — run it before any PR.
-- <code>tests/run.sh</code> — the regression harness over the <code>.esk</code> test corpus (the four <code>--test-*</code> modes plus end-to-end compile/run).
-- Generative + mutation fuzzer <code>tests/fuzz/eskiu_fuzz.py</code> with an <strong>O0-vs-O2 differential oracle</strong>: it compiles each generated program at <code>-O0</code> and <code>-O2</code> and flags any divergence in output — this is how miscompiles are caught.
-- Golden-IR oracle <code>tests/type_zoo/snapshot.sh</code> + <code>tests/type_zoo/golden/</code> — captures/checks the emitted IR for the type zoo; the codegen-regression guard.
+<p>There IS an automated suite: run it before any PR.
+- <code>tests/run.sh</code>: the regression harness over the <code>.esk</code> test corpus (the four <code>--test-*</code> modes plus end-to-end compile/run).
+- Generative + mutation fuzzer <code>tests/fuzz/eskiu_fuzz.py</code> with an <strong>O0-vs-O2 differential oracle</strong>: it compiles each generated program at <code>-O0</code> and <code>-O2</code> and flags any divergence in output. This is how miscompiles are caught.
+- Golden-IR oracle <code>tests/type_zoo/snapshot.sh</code> + <code>tests/type_zoo/golden/</code>: captures/checks the emitted IR for the type zoo; the codegen-regression guard.
 - <code>--asan</code> / <code>--ubsan</code> gates in CI for runtime memory errors and undefined behavior.
 - A formatter-idempotency pass (<code>eskiuc fmt --check</code>) over every test.
 Manual checks still apply per feature:
@@ -121,11 +121,11 @@ Codegen checks: single alloca per var, every branch terminated, no undef, correc
 <li>[ ] Docs updated if behavior changed</li>
 </ul>
 <h2 id="current-focus">Current Focus</h2>
-<p>v0.2.4 — the reinforce-the-language phase. The "backend services" release (v0.2.0) shipped and is tagged; since then the focus has been <strong>hardening and type soundness</strong>, not new language features (feature freeze):
-- Source modularization (the codegen/sema/parser splits), the asan/ubsan CI gate, and the generative fuzzer with its O0-vs-O2 differential oracle (0.2.1–0.2.2).
-- Bounded generics (<code>&lt;T: Iface&gt;</code> / <code>&lt;T: A + B&gt;</code>) and primitives-satisfy-constraints (0.2.2–0.2.3).
-- The structured <code>ty::Type</code> IR (0.2.3) and the type unification that made the type checker the <strong>single resolver</strong> (0.2.4): codegen consumes the resolved per-expression types, and <code>getTypeFromString</code> dispatches on <code>ty::Type::parse</code>. This closed the old two-evaluator miscompile risk and fixed three latent miscompiles (float-lit double, ptr-deref width, char zext).
-Genuinely deferred: a package manager and the tighter locals-across-await liveness optimization. (Self-hosting shipped in v0.3.0 — the compiler is reimplemented in Eskiu in <code>selfhost/</code>.) See docs/dev/phases.md for the full feature table and roadmap. New feature proposals require an issue.</p>
+<p>v0.3.1, over the v0.3.0 self-hosting milestone. The whole compiler is now reimplemented in Eskiu under <code>selfhost/</code>, parity-gated against the C++ <code>eskiuc</code>, reaching a 3-stage bootstrap fixpoint with a code generator feature-complete against the C++ corpus. The focus stays on hardening, not new language surface (feature freeze):
+- Recent 0.3.1 correctness work, mostly surfaced by the new <code>-O</code> optimization levels: a float-closure return-type miscompile (sema now reconciles a lambda's return type with its target), a rejected fn-type ABI mismatch, the <code>*T[N]</code> parse fix (array of pointers), and correct <code>size_t</code> externs.
+- A new <code>-O0</code>-vs-<code>-O2</code> behavioral differential (<code>tests/opt_differential.sh</code>) guards the whole corpus against optimization-path miscompiles.
+- Parser self-host parity was widened to the full corpus (51 to 121 files).</p>
+<p>The live track toward v1.0 is promoting the Eskiu-written compiler to the primary build; see <code>selfhost/PROMOTION_PLAN.md</code>. Genuinely deferred: a package manager. See docs/dev/phases.md for the full feature table and roadmap. New feature proposals require an issue.</p>
     </div>
     <div class="foot"><a href="../index.html">← Back to eskiu</a></div>
   </div>

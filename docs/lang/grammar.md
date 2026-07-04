@@ -51,7 +51,7 @@ thread_create thread_join  asm  try catch finally throw
 null true false
 ```
 
-`type` is **not** reserved — it is a contextual keyword recognized only in the
+`type` is **not** reserved: it is a contextual keyword recognized only in the
 type-alias form `type NAME = …`.
 
 ### Operators and punctuation
@@ -145,7 +145,8 @@ type it qualifies the pointee (`const int*`) or pointer level (`int* const`).
 ## Types
 
 ```
-type        = 'const'? ptr* base ( '*' 'const'? )* array*
+type        = 'const'? ptr* base suffix*
+suffix      = array | '*' 'const'?                   // arrays and trailing pointers, any order
 base        = scalar-type
             | IDENT ( '<' type (',' type)* '>' )?   // named type or template instance
             | 'fn' '(' (type (',' type)*)? ')' '->' type   // function-pointer type
@@ -158,7 +159,9 @@ scalar-type = 'int' | 'int8' | 'int16' | 'int32' | 'int64'
 ```
 
 Pointers may be written either C-style (`int*`) or leading (`*int`); both are
-equivalent. `va_list` is a built-in named type used by variadics.
+equivalent. A trailing `[N]` binds outermost, so `*T[N]` is an array of N pointers
+(each element a `*T`), while a pointer to an array is written with the star after the
+brackets: `T[N]*`. `va_list` is a built-in named type used by variadics.
 
 ---
 
@@ -231,7 +234,7 @@ postfix-op      = '(' arg-list? ')'          // call
 arg-list        = expr (',' expr)*
 ```
 
-Eskiu has no `a ? b : c` conditional operator — `?` is the postfix
+Eskiu has no `a ? b : c` conditional operator. `?` is the postfix
 error-propagation operator applied to a `Result` (it returns early on the error
 variant). Assignment is the lowest-precedence, right-associative level.
 
@@ -256,12 +259,12 @@ lambda      = type '(' lambda-params? ')' block        // e.g. int (int x) { ret
 lambda-params = ('escaping'? type IDENT) (',' 'escaping'? type IDENT)*
 ```
 
-A struct literal is suppressed where a `{` would instead open a block — e.g. the
+A struct literal is suppressed where a `{` would instead open a block, e.g. the
 subject of `match`/`switch`/`if`/`while`/`for` conditions.
 
 ---
 
 ## See also
 
-- [spec.md](spec.md) — language semantics and the standard library.
-- [../dev/abi.md](../dev/abi.md) — how these constructs lower to LLVM IR.
+- [spec.md](spec.md): language semantics and the standard library.
+- [../dev/abi.md](../dev/abi.md): how these constructs lower to LLVM IR.

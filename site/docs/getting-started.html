@@ -127,7 +127,7 @@ cmake --build build -j$(nproc)
 </code></pre>
 <h3 id="verify">Verify</h3>
 <pre><code class="language-bash">./build/eskiuc --version
-# Eskiu 0.3.1 (LLVM 22.1.6)   — exact LLVM version depends on your install
+# Eskiu 0.3.1 (LLVM 22.1.6)   (exact LLVM version depends on your install)
 </code></pre>
 <p>Add <code>./build</code> to your <code>PATH</code> so you can type <code>eskiuc</code> from any directory.</p>
 <hr>
@@ -152,7 +152,7 @@ hood, exactly as <code>rustc</code> does):</p>
 <pre><code class="language-bash">eskiuc hello.esk -o hello
 ./hello
 </code></pre>
-<p>Prefer the two steps — for example to inspect or reuse the object file? Give the
+<p>Prefer the two steps, for example to inspect or reuse the object file? Give the
 output a <code>.o</code> name (or pass <code>-c</code>) and link it yourself:</p>
 <pre><code class="language-bash">eskiuc hello.esk -o hello.o   # object only
 clang hello.o -o hello        # link
@@ -162,6 +162,22 @@ clang hello.o -o hello        # link
 <pre><code>Hello from Eskiu!
 Result: 8
 </code></pre>
+<h3 id="run-it-like-a-script">Run it like a script</h3>
+<p>You don't have to compile and link by hand while iterating. <code>eskiuc run</code> compiles to a
+temporary executable, runs it, and cleans up, forwarding any arguments after the script:</p>
+<pre><code class="language-bash">eskiuc run hello.esk
+</code></pre>
+<p>Add a shebang line and a <code>.esk</code> file becomes directly executable, the way a Python or Ruby
+script is:</p>
+<pre><code class="language-eskiu">#!/usr/bin/env eskiuc run
+extern int printf(string fmt, ...);
+int main() { printf(&quot;hello\n&quot;); return 0; }
+</code></pre>
+<pre><code class="language-bash">chmod +x hello.esk
+./hello.esk
+</code></pre>
+<p>For an optimized build, pass <code>-O2</code> (or <code>-O1</code>/<code>-O3</code>), which runs the LLVM middle-end before
+code generation. The default is <code>-O0</code>, which emits naive IR straight to the backend.</p>
 <h3 id="peek-at-the-generated-ir">Peek at the generated IR</h3>
 <p>Before producing an object file you can ask the compiler to print the LLVM IR it
 would emit:</p>
@@ -292,14 +308,14 @@ let flag: bool = true;
 </tr>
 <tr>
 <td><code>void</code></td>
-<td>—</td>
+<td>n/a</td>
 <td>Used as function return type</td>
 </tr>
 </tbody>
 </table></div>
 <h3 id="integer-and-hex-literals">Integer and hex literals</h3>
 <pre><code class="language-eskiu">int a = 255;
-int b = 0xFF;    // same value — hex prefix supported
+int b = 0xFF;    // same value, hex prefix supported
 uint8 mask = 0x0F;
 int64 big = 1000000;
 int neg = -42;   // negative literals work anywhere, including global scope
@@ -380,7 +396,7 @@ int main() {
     return 0;
 }
 </code></pre>
-<p><code>ptr + n</code> advances by <code>n * sizeof(*ptr)</code> bytes — typed arithmetic. Adding <code>1</code> to a <code>*uint8</code> moves one byte; adding <code>1</code> to a <code>*int</code> moves four bytes. <code>*void</code> and <code>*char</code> are the exceptions: they always use byte-level stride.</p>
+<p><code>ptr + n</code> advances by <code>n * sizeof(*ptr)</code> bytes: typed arithmetic. Adding <code>1</code> to a <code>*uint8</code> moves one byte; adding <code>1</code> to a <code>*int</code> moves four bytes. <code>*void</code> and <code>*char</code> are the exceptions: they always use byte-level stride.</p>
 <h3 id="cast">Cast</h3>
 <pre><code class="language-eskiu">float f = 3.99;
 int   i = (int)f;      // truncates → 3
@@ -492,14 +508,14 @@ LLVM <code>declare</code> and the linker resolves it:</p>
 extern int puts(string s);
 extern double sqrt(double x);
 </code></pre>
-<p>The <code>...</code> marks a variadic function — required for <code>printf</code>, <code>scanf</code>, etc.</p>
+<p>The <code>...</code> marks a variadic function, required for <code>printf</code>, <code>scanf</code>, etc.</p>
 <h3 id="declaration-order">Declaration order</h3>
 <p>Definition order doesn't matter: a function can call another that's defined later in the file, and mutual recursion works out of the box. You can also write a body-less forward declaration if you prefer to state a signature up front:</p>
 <pre><code class="language-eskiu">int is_odd(int n);                  // forward declaration (optional)
 
 int is_even(int n) {
     if (n == 0) { return 1; }
-    return is_odd(n - 1);           // defined below — works
+    return is_odd(n - 1);           // defined below, works
 }
 
 int is_odd(int n) {
@@ -552,7 +568,7 @@ int main() {
     return 0;
 }
 </code></pre>
-<p>The compiler lowers <code>r.area()</code> to <code>Rect_area(ptr %r)</code> — the receiver is passed
+<p>The compiler lowers <code>r.area()</code> to <code>Rect_area(ptr %r)</code>: the receiver is passed
 as the first argument.</p>
 <h3 id="fixed-size-array-fields">Fixed-size array fields</h3>
 <p>A struct field can be a fixed-size array:</p>
@@ -562,7 +578,7 @@ as the first argument.</p>
     int        len;
 }
 </code></pre>
-<p>In LLVM IR this becomes <code>[858 x i8]</code> — no heap allocation required.</p>
+<p>In LLVM IR this becomes <code>[858 x i8]</code>, no heap allocation required.</p>
 <hr>
 <h2 id="enums-and-match">Enums and <code>match</code></h2>
 <p>A plain <code>enum</code> is a set of named integer constants, like C:</p>
@@ -571,7 +587,7 @@ enum Status { Ok = 0, Err = 2, Pending }    // 0, 2, 3
 
 let c: Color = Green;            // c == 1
 </code></pre>
-<p>When one or more variants carry a <strong>payload</strong>, the enum becomes an algebraic data type — a tagged union. Variants are constructed by name and destructured with <code>match</code>:</p>
+<p>When one or more variants carry a <strong>payload</strong>, the enum becomes an algebraic data type, a tagged union. Variants are constructed by name and destructured with <code>match</code>:</p>
 <pre><code class="language-eskiu">extern int printf(string fmt, ...);
 
 enum Shape {
@@ -635,7 +651,7 @@ int main() {
     return 0;
 }
 </code></pre>
-<p>The return type is <code>T</code> — the function returns the same type it is instantiated with. The type argument can be explicit (<code>max&lt;int&gt;(3, 5)</code>) or inferred from the arguments (<code>max(7, 2)</code>) when the type parameter appears directly as a parameter type.</p>
+<p>The return type is <code>T</code>: the function returns the same type it is instantiated with. The type argument can be explicit (<code>max&lt;int&gt;(3, 5)</code>) or inferred from the arguments (<code>max(7, 2)</code>) when the type parameter appears directly as a parameter type.</p>
 <h3 id="result-from-stdlib">Result<T, E> from stdlib</h3>
 <p><code>&lt;result&gt;</code> provides an error-as-value type ready to use:</p>
 <pre><code class="language-eskiu">import &lt;result&gt;;
@@ -670,11 +686,11 @@ T max&lt;T: Ord&gt;(T a, T b) {
     return b;
 }
 </code></pre>
-<p>Use <code>+</code> to require several interfaces at once (<code>&lt;K: Hashable + Eq, V&gt;</code>). A struct satisfies a constraint by defining the interface's methods. A primitive type has no methods, so it satisfies a constraint through a <strong>free function</strong> named like the interface method whose first parameter is that primitive — e.g. <code>int cmp(int, int)</code> makes <code>int</code> satisfy <code>Ord</code>. See spec §10.6 for the full rules.</p>
+<p>Use <code>+</code> to require several interfaces at once (<code>&lt;K: Hashable + Eq, V&gt;</code>). A struct satisfies a constraint by defining the interface's methods. A primitive type has no methods, so it satisfies a constraint through a <strong>free function</strong> named like the interface method whose first parameter is that primitive, e.g. <code>int cmp(int, int)</code> makes <code>int</code> satisfy <code>Ord</code>. See spec §10.6 for the full rules.</p>
 <hr>
 <h2 id="interfaces">Interfaces</h2>
 <p>Interfaces declare a set of method signatures. Any struct that provides matching
-methods satisfies the interface — no <code>implements</code> keyword is needed.</p>
+methods satisfies the interface. No <code>implements</code> keyword is needed.</p>
 <h3 id="declaring-an-interface">Declaring an interface</h3>
 <pre><code class="language-eskiu">interface Drawable {
     void draw();
@@ -769,13 +785,13 @@ int main() {
 <pre><code class="language-eskiu">int n = 100;
 let ptr: *int = &amp;n;
 *ptr = 200;       // write through pointer
-int val = *ptr;   // read through pointer — val == 200
+int val = *ptr;   // read through pointer, val == 200
 </code></pre>
 <hr>
 <h2 id="multi-file-projects">Multi-file Projects</h2>
 <p>Eskiu has two import forms:</p>
-<pre><code class="language-eskiu">import &lt;result&gt;       // stdlib module — resolved by the compiler
-import &quot;utils.esk&quot;    // local file — relative to the current file
+<pre><code class="language-eskiu">import &lt;result&gt;       // stdlib module, resolved by the compiler
+import &quot;utils.esk&quot;    // local file, relative to the current file
 </code></pre>
 <p><code>import &lt;name&gt;</code> looks up the module in the Eskiu installation's stdlib directory. No path required. <code>import "path"</code> is relative to the importing file, as before.</p>
 <p>Each file is parsed only once regardless of how many times it is imported.</p>
@@ -806,12 +822,12 @@ int main() {
     return 0;
 }
 </code></pre>
-<p>Compile the entry point only — the compiler follows imports automatically:</p>
+<p>Compile the entry point only; the compiler follows imports automatically:</p>
 <pre><code class="language-bash">eskiuc main.esk -o main
 ./main
 </code></pre>
 <h3 id="using-stdlib-modules">Using stdlib modules</h3>
-<p>Import stdlib modules with angle brackets — no path needed:</p>
+<p>Import stdlib modules with angle brackets, no path needed:</p>
 <pre><code class="language-eskiu">import &lt;result&gt;;
 import &lt;io&gt;;
 import &lt;math&gt;;
@@ -831,19 +847,19 @@ import &lt;math&gt;;
 </tr>
 <tr>
 <td><code>&lt;list&gt;</code></td>
-<td><code>List&lt;T&gt;</code> — <code>List_init</code>, <code>push</code>, <code>get</code>, <code>len</code>, <code>free</code></td>
+<td><code>List&lt;T&gt;</code>: <code>List_init</code>, <code>push</code>, <code>get</code>, <code>len</code>, <code>free</code></td>
 </tr>
 <tr>
 <td><code>&lt;map&gt;</code></td>
-<td><code>Map&lt;V&gt;</code> — string-keyed hash map (<code>Map_init</code>/<code>_at</code>/<code>_get</code>/<code>_free</code>); <code>HashMap&lt;K,V&gt;</code> — keyed on any type via <code>hash</code>/<code>eq</code> function pointers</td>
+<td><code>Map&lt;V&gt;</code>: string-keyed hash map (<code>Map_init</code>/<code>_at</code>/<code>_get</code>/<code>_free</code>); <code>HashMap&lt;K,V&gt;</code>: keyed on any type via <code>hash</code>/<code>eq</code> function pointers</td>
 </tr>
 <tr>
 <td><code>&lt;bytes&gt;</code></td>
-<td><code>Bytes</code> — growable, binary-safe byte buffer (<code>_init</code>/<code>_push</code>/<code>_append</code>/<code>_slice</code>/<code>_eq</code>/<code>_from_str</code>, plus base64 round-trip)</td>
+<td><code>Bytes</code>: growable, binary-safe byte buffer (<code>_init</code>/<code>_push</code>/<code>_append</code>/<code>_slice</code>/<code>_eq</code>/<code>_from_str</code>, plus base64 round-trip)</td>
 </tr>
 <tr>
 <td><code>&lt;string&gt;</code></td>
-<td><code>String</code> — <code>init</code>, <code>from</code>, <code>append</code>, <code>concat</code>, <code>cstr</code>, <code>len</code>, <code>free</code>, <code>starts_with</code>, <code>ends_with</code>, <code>trim</code>, <code>split</code>, <code>next_token</code></td>
+<td><code>String</code>: <code>init</code>, <code>from</code>, <code>append</code>, <code>concat</code>, <code>cstr</code>, <code>len</code>, <code>free</code>, <code>starts_with</code>, <code>ends_with</code>, <code>trim</code>, <code>split</code>, <code>next_token</code></td>
 </tr>
 <tr>
 <td><code>&lt;math&gt;</code></td>
@@ -859,35 +875,35 @@ import &lt;math&gt;;
 </tr>
 <tr>
 <td><code>&lt;alloc&gt;</code></td>
-<td><code>Bump</code>, <code>Arena</code>, <code>Pool</code>, <code>FirstFit</code> — explicit allocators over a buffer you own (the Zig model; not a <code>malloc</code> replacement)</td>
+<td><code>Bump</code>, <code>Arena</code>, <code>Pool</code>, <code>FirstFit</code>: explicit allocators over a buffer you own (the Zig model; not a <code>malloc</code> replacement)</td>
 </tr>
 <tr>
 <td><code>&lt;either&gt;</code></td>
-<td>sum types — <code>Option&lt;T&gt;</code>, <code>Either&lt;A,B&gt;</code> + helpers (built on generic algebraic enums)</td>
+<td>sum types: <code>Option&lt;T&gt;</code>, <code>Either&lt;A,B&gt;</code> + helpers (built on generic algebraic enums)</td>
 </tr>
 <tr>
 <td><code>&lt;futureval&gt;</code></td>
-<td>value-returning combinators — <code>select2v</code> -&gt; <code>Either</code>, <code>join2v</code> -&gt; <code>Pair</code></td>
+<td>value-returning combinators: <code>select2v</code> -&gt; <code>Either</code>, <code>join2v</code> -&gt; <code>Pair</code></td>
 </tr>
 <tr>
 <td><code>&lt;http2&gt;</code></td>
-<td>HTTP/2 (RFC 7540) wire layer — frame-header codec + constants, connection lifecycle (<code>H2Conn</code>), per-stream state machine + flow control (<code>H2Stream</code>), and async frame I/O</td>
+<td>HTTP/2 (RFC 7540) wire layer: frame-header codec + constants, connection lifecycle (<code>H2Conn</code>), per-stream state machine + flow control (<code>H2Stream</code>), and async frame I/O</td>
 </tr>
 <tr>
 <td><code>&lt;hpack&gt;</code></td>
-<td>HPACK (RFC 7541) header compression — static + dynamic tables, prefix-integer / string coding, Huffman</td>
+<td>HPACK (RFC 7541) header compression: static + dynamic tables, prefix-integer / string coding, Huffman</td>
 </tr>
 <tr>
 <td><code>&lt;http2_server&gt;</code></td>
-<td>HTTP/2 (h2c, cleartext) server over the event loop — <code>http2_serve_async</code>, multiplexed streams, same handler interface as <code>&lt;http&gt;</code></td>
+<td>HTTP/2 (h2c, cleartext) server over the event loop: <code>http2_serve_async</code>, multiplexed streams, same handler interface as <code>&lt;http&gt;</code></td>
 </tr>
 <tr>
 <td><code>&lt;tls&gt;</code></td>
-<td>h2 over TLS via OpenSSL with ALPN <code>"h2"</code> — <code>http2_tls_serve_conn</code> (blocking) / <code>http2_tls_serve_async</code></td>
+<td>h2 over TLS via OpenSSL with ALPN <code>"h2"</code>: <code>http2_tls_serve_conn</code> (blocking) / <code>http2_tls_serve_async</code></td>
 </tr>
 <tr>
 <td><code>&lt;sysheap&gt;</code></td>
-<td><code>Heap</code> — a general heap that <code>mmap</code>s OS pages and runs <code>FirstFit</code> on them (no libc <code>malloc</code>)</td>
+<td><code>Heap</code>: a general heap that <code>mmap</code>s OS pages and runs <code>FirstFit</code> on them (no libc <code>malloc</code>)</td>
 </tr>
 <tr>
 <td><code>&lt;fs&gt;</code></td>
@@ -895,11 +911,11 @@ import &lt;math&gt;;
 </tr>
 <tr>
 <td><code>&lt;net&gt;</code></td>
-<td>TCP sockets — <code>net_tcp_listen</code>, <code>net_accept</code>, <code>net_tcp_connect</code>, <code>net_send</code>, <code>net_recv</code>, <code>net_close</code></td>
+<td>TCP sockets: <code>net_tcp_listen</code>, <code>net_accept</code>, <code>net_tcp_connect</code>, <code>net_send</code>, <code>net_recv</code>, <code>net_close</code></td>
 </tr>
 <tr>
 <td><code>&lt;http&gt;</code></td>
-<td>HTTP/1.1 — <code>HttpRequest</code>/<code>HttpResponse</code>, threaded <code>http_serve(port, workers, handler)</code></td>
+<td>HTTP/1.1: <code>HttpRequest</code>/<code>HttpResponse</code>, threaded <code>http_serve(port, workers, handler)</code></td>
 </tr>
 <tr>
 <td><code>&lt;json&gt;</code></td>
@@ -907,7 +923,7 @@ import &lt;math&gt;;
 </tr>
 <tr>
 <td><code>&lt;multipart&gt;</code></td>
-<td>extract a named part from a <code>multipart/form-data</code> body — <code>multipart_boundary</code>, <code>multipart_part</code></td>
+<td>extract a named part from a <code>multipart/form-data</code> body: <code>multipart_boundary</code>, <code>multipart_part</code></td>
 </tr>
 <tr>
 <td><code>&lt;base64&gt;</code></td>
@@ -931,35 +947,35 @@ import &lt;math&gt;;
 </tr>
 <tr>
 <td><code>&lt;eventloop&gt;</code></td>
-<td>readiness reactor over kqueue/epoll — <code>el_new</code>/<code>el_add_read</code>/<code>el_run</code>/<code>el_stop</code>/<code>el_add_timer</code></td>
+<td>readiness reactor over kqueue/epoll: <code>el_new</code>/<code>el_add_read</code>/<code>el_run</code>/<code>el_stop</code>/<code>el_add_timer</code></td>
 </tr>
 <tr>
 <td><code>&lt;atomic&gt;</code></td>
-<td>atomic <code>int</code> cell — <code>atomic_load</code>/<code>atomic_store</code>/<code>atomic_swap</code>/<code>atomic_cas</code></td>
+<td>atomic <code>int</code> cell: <code>atomic_load</code>/<code>atomic_store</code>/<code>atomic_swap</code>/<code>atomic_cas</code></td>
 </tr>
 <tr>
 <td><code>&lt;future&gt;</code></td>
-<td>the <code>async</code>/<code>await</code> runtime — <code>Future&lt;T&gt;</code>, <code>future_poll</code>/<code>complete</code>/<code>drop</code>, <code>spawn</code>/<code>select2</code>/<code>join2</code></td>
+<td>the <code>async</code>/<code>await</code> runtime: <code>Future&lt;T&gt;</code>, <code>future_poll</code>/<code>complete</code>/<code>drop</code>, <code>spawn</code>/<code>select2</code>/<code>join2</code></td>
 </tr>
 <tr>
 <td><code>&lt;executor&gt;</code></td>
-<td><code>Executor</code> — event loop + thread-safe ready-queue + self-pipe wakeup</td>
+<td><code>Executor</code>: event loop + thread-safe ready-queue + self-pipe wakeup</td>
 </tr>
 <tr>
 <td><code>&lt;net_async&gt;</code></td>
-<td>async leaf futures — <code>net_read_async</code>, <code>net_accept_async</code></td>
+<td>async leaf futures: <code>net_read_async</code>, <code>net_accept_async</code></td>
 </tr>
 <tr>
 <td><code>&lt;timer&gt;</code></td>
-<td><code>timer_after(lp, ms)</code> — a <code>*Future&lt;int&gt;</code> that completes after a delay (timeouts)</td>
+<td><code>timer_after(lp, ms)</code>: a <code>*Future&lt;int&gt;</code> that completes after a delay (timeouts)</td>
 </tr>
 <tr>
 <td><code>&lt;channel&gt;</code></td>
-<td>async message channel — <code>chan_new</code>/<code>chan_send</code>/<code>chan_recv</code> (a <code>*Future&lt;T&gt;</code>)</td>
+<td>async message channel: <code>chan_new</code>/<code>chan_send</code>/<code>chan_recv</code> (a <code>*Future&lt;T&gt;</code>)</td>
 </tr>
 <tr>
 <td><code>&lt;http_async&gt;</code></td>
-<td>non-blocking concurrent HTTP/1.1 server — <code>http_serve_async</code></td>
+<td>non-blocking concurrent HTTP/1.1 server: <code>http_serve_async</code></td>
 </tr>
 </tbody>
 </table></div>
@@ -967,9 +983,9 @@ import &lt;math&gt;;
 through to the linker, so the one-command form works too:</p>
 <pre><code class="language-bash">eskiuc file.esk -o file -lm
 </code></pre>
-<h3 id="standard-library-highlights-v030">Standard library highlights (v0.3.0)</h3>
+<h3 id="standard-library-highlights">Standard library highlights</h3>
 <p>A few of the newer modules. See the language spec §14 for the full reference.</p>
-<p><strong><code>&lt;alloc&gt;</code> — allocators over a caller buffer.</strong> <code>alloc_with(&amp;a, T, n)</code> carves a
+<p><strong><code>&lt;alloc&gt;</code>: allocators over a caller buffer.</strong> <code>alloc_with(&amp;a, T, n)</code> carves a
 typed <code>*T</code> out of any struct that exposes a <code>_alloc</code> method. Bump is the
 simplest: individual frees are no-ops; one <code>free</code> of the backing buffer releases
 everything.</p>
@@ -980,14 +996,14 @@ extern int printf(string fmt, ...);
 int main() {
     *uint8 backing = alloc&lt;uint8&gt;(4096);
     let a: Bump;  Bump_init(&amp;a, backing, 4096);
-    *int xs = alloc_with(&amp;a, int, 16);     // 16 ints from the slab — no per-object malloc
+    *int xs = alloc_with(&amp;a, int, 16);     // 16 ints from the slab, no per-object malloc
     xs[0] = 7;  xs[15] = 9;
     printf(&quot;%d %d\n&quot;, xs[0], xs[15]);
     free(backing);                          // frees xs too
     return 0;
 }
 </code></pre>
-<p><strong><code>&lt;json&gt;</code> — build and parse.</strong> The builder inserts separators automatically;
+<p><strong><code>&lt;json&gt;</code>: build and parse.</strong> The builder inserts separators automatically;
 <code>json_parse</code> returns a <code>*JsonValue</code> tree.</p>
 <pre><code class="language-eskiu">import &lt;json&gt;;
 extern int printf(string fmt, ...);
@@ -1005,7 +1021,7 @@ int main() {
     return 0;
 }
 </code></pre>
-<p><strong><code>&lt;http&gt;</code> — a concurrent server in a few lines.</strong> The handler fills the
+<p><strong><code>&lt;http&gt;</code>: a concurrent server in a few lines.</strong> The handler fills the
 response; <code>http_serve</code> runs a pool of worker threads over <code>&lt;net&gt;</code> + <code>&lt;threading&gt;</code>.</p>
 <pre><code class="language-eskiu">import &lt;http&gt;;
 
@@ -1048,7 +1064,7 @@ int main() {
     return 0;
 }
 </code></pre>
-<h3 id="closures-capturing-from-the-enclosing-scope">Closures — capturing from the enclosing scope</h3>
+<h3 id="closures-capturing-from-the-enclosing-scope">Closures: capturing from the enclosing scope</h3>
 <p>A lambda can reference variables declared in the surrounding scope. Those variables are captured by value at the point the lambda is created.</p>
 <pre><code class="language-eskiu">extern int printf(string fmt, ...);
 
@@ -1060,7 +1076,7 @@ int main() {
     return 0;
 }
 </code></pre>
-<p>Closures can be passed to higher-order functions exactly like plain lambdas — the <code>fn(T)-&gt;R</code> type is the same in both cases.</p>
+<p>Closures can be passed to higher-order functions exactly like plain lambdas: the <code>fn(T)-&gt;R</code> type is the same in both cases.</p>
 <pre><code class="language-eskiu">int apply(fn(int)-&gt;int f, int x) { return f(x); }
 
 int main() {
@@ -1073,7 +1089,7 @@ int main() {
 <p>Under the hood, <code>fn(T)-&gt;R</code> is a fat pointer <code>{fn_ptr, env_ptr}</code>. Non-capturing lambdas have <code>env_ptr = null</code> and behave identically to before.</p>
 <hr>
 <h2 id="threads">Threads</h2>
-<p><code>thread_create</code> and <code>thread_join</code> are language keywords. Pass any <code>fn()-&gt;void</code> value — including a closure — to spawn a thread.</p>
+<p><code>thread_create</code> and <code>thread_join</code> are language keywords. Pass any <code>fn()-&gt;void</code> value, including a closure, to spawn a thread.</p>
 <h3 id="basic-usage">Basic usage</h3>
 <pre><code class="language-eskiu">extern int printf(string fmt, ...);
 
@@ -1094,7 +1110,7 @@ int main() {
     return 0;
 }
 </code></pre>
-<p>The closure fat pointer maps directly to pthread's <code>(start_routine, arg)</code> pair — no trampoline is generated. On Linux, link with <code>-lpthread</code>:</p>
+<p>The closure fat pointer maps directly to pthread's <code>(start_routine, arg)</code> pair: no trampoline is generated. On Linux, link with <code>-lpthread</code>:</p>
 <pre><code class="language-bash">eskiuc threads.esk -o threads -lpthread
 ./threads
 </code></pre>
@@ -1274,18 +1290,18 @@ operation, or pointer dereference lowered the way you intended.</p>
 <p>Mark a pointer variable <code>volatile</code> to prevent the compiler from optimising away loads and stores through it. This is essential for memory-mapped I/O (MMIO) registers:</p>
 <pre><code class="language-eskiu">volatile let uart: *uint8 = (uint8*) 0x3F8;
 
-// Both the read and the write are always emitted — never cached or removed
+// Both the read and the write are always emitted, never cached or removed
 uint8 status = *uart;
 *uart = 'A';
 </code></pre>
 <p>Without <code>volatile</code>, the compiler may eliminate or reorder accesses to addresses it considers side-effect-free.</p>
-<h3 id="inline-assembly-simple-form">Inline assembly — simple form</h3>
+<h3 id="inline-assembly-simple-form">Inline assembly: simple form</h3>
 <pre><code class="language-eskiu">asm(&quot;cli&quot;);   // disable interrupts
 asm(&quot;sti&quot;);   // enable interrupts
 asm(&quot;nop&quot;);
 </code></pre>
 <p>The string is passed verbatim to the assembler. Use this form for instructions that take no operands.</p>
-<h3 id="inline-assembly-extended-form">Inline assembly — extended form</h3>
+<h3 id="inline-assembly-extended-form">Inline assembly: extended form</h3>
 <p>The extended form passes values in and out of the asm template using GCC-compatible constraints:</p>
 <pre><code class="language-eskiu">// Write a byte to an x86 I/O port
 void outb(uint8 val, uint16 port) {
@@ -1303,7 +1319,7 @@ void outb(uint8 val, uint16 port) {
 <pre><code class="language-bash">eskiuc kernel.esk --target x86_64-pc-linux-gnu --freestanding -o kernel.o
 </code></pre>
 <p>You must provide <code>esk_alloc</code> and <code>esk_free</code> in your own source or a C shim:</p>
-<pre><code class="language-eskiu">// kernel_alloc.esk — linked together with kernel.esk
+<pre><code class="language-eskiu">// kernel_alloc.esk, linked together with kernel.esk
 *void esk_alloc(int size) { return bump_alloc(size); }
 void  esk_free(*void ptr)  { bump_free(ptr); }
 </code></pre>
@@ -1339,7 +1355,7 @@ union Value {
 int main() {
     let v: Value;
     v.i = 0x3F800000;            // IEEE 754 bit pattern for 1.0
-    printf(&quot;%f\n&quot;, v.f);         // 1.000000 — same bytes, read as float
+    printf(&quot;%f\n&quot;, v.f);         // 1.000000, same bytes, read as float
     v.f = 3.14;
     printf(&quot;%d\n&quot;, v.i);         // raw integer bits of 3.14
     return 0;
