@@ -12,7 +12,7 @@ Override the compiler or C linker with `ESKIUC=...` / `CC=...`.
 
 ## How a test is judged
 
-The runner classifies every file automatically — there is no list to maintain.
+The runner classifies every file automatically. There is no list to maintain.
 
 | Kind  | Files | Pass condition |
 |-------|-------|----------------|
@@ -23,7 +23,7 @@ The runner classifies every file automatically — there is no list to maintain.
 These are *honest* tests: a `run` test fails the moment the generated program
 prints anything different, and an `error` test fails if the compiler ever starts
 **accepting** code it should reject. (Verified by deliberately corrupting an
-expected file and by adding a compilable file under `errors/` — both make
+expected file and by adding a compilable file under `errors/`: both make
 `run.sh` exit 1.)
 
 ## Coverage
@@ -52,21 +52,21 @@ when you add a test.
 | `question_op` | `?` postfix error-propagation operator |
 | `volatile` | `volatile let` pointer load/store marked volatile in IR |
 | `inline_asm` | `asm(...)` simple + extended compiles, links, runs |
-| `variadic` | user-defined variadic fn — `...` + `va_list`/`va_start`/`va_arg<T>`/`va_end` (int + double) |
+| `variadic` | user-defined variadic fn: `...` + `va_list`/`va_start`/`va_arg<T>`/`va_end` (int + double) |
 | `http2_frame` | `<http2>` 9-byte frame-header encode/decode round-trip (incl. 31-bit stream id) |
 | `http2_conn` | `<http2>` stage 2 codecs: SETTINGS write/apply, ACK, PING/PONG, GOAWAY round-trips |
 | `http2_handshake` | `<http2>` async server opening handshake over a socketpair (preface + SETTINGS exchange + ACK) |
-| `hpack` | `<hpack>` HPACK (RFC 7541): integer/string codecs, static + dynamic tables, §6 decode/encode, Huffman — RFC vectors |
+| `hpack` | `<hpack>` HPACK (RFC 7541): integer/string codecs, static + dynamic tables, §6 decode/encode, Huffman: RFC vectors |
 | `http2_stream` | `<http2>` stage 4: stream state machine, flow-control accounting, HEADERS/DATA/WINDOW_UPDATE/RST_STREAM codecs |
 | `http2_server` | `<http2_server>` stage 6: the h2c server end-to-end over a socketpair (request → handler → response) |
 | `http2_chunking` | response bodies > 16384 split into MAX_FRAME_SIZE DATA frames (last has END_STREAM) |
 | `async_elseif` | async `if/else-if/else` with `await` in branches + terminating `else` (transform regression) |
-| `http2_multiplex` | interleaved two-stream multiplexing — per-stream request assembly, each routed + answered |
+| `http2_multiplex` | interleaved two-stream multiplexing: per-stream request assembly, each routed + answered |
 | `const` | immutable bindings, usable as array sizes |
 | `param_reassign` | reassigning scalar/pointer parameters; method call through a pointer parameter |
 | `c_callback` | passing a top-level Eskiu function to a C API as a raw callback (drives libc `qsort`) |
 | `pointer_const` | `const T*` (pointee read-only) vs `T* const` (binding read-only); read/rebind allowed, write-through and const-drop rejected |
-| `pack_n` | `#pragma pack(N)` for N > 1 — field-alignment cap, padding, size matches the C ABI |
+| `pack_n` | `#pragma pack(N)` for N > 1: field-alignment cap, padding, size matches the C ABI |
 | `sizeof_union_ptr` | `sizeof`, `union` (incl. float member), typed pointer arithmetic |
 | `os_macros` | exactly one host-OS macro (`__APPLE__`/`__linux__`) is defined |
 | `preprocessor` | object-like and function-like `#define`, `#ifdef` |
@@ -76,8 +76,8 @@ when you add a test.
 | `structs_methods` | named initializers, field access, method calls, `self` mutation |
 | `interfaces` | structural interfaces, vtable fat-pointer dispatch |
 | `enums` | enum members as int constants, usable in `switch`/comparisons |
-| `enum_adt` | algebraic enums + `match` — payload variants, multiple bindings, `_` default, classic enum coexisting |
-| `enum_generic` | generic algebraic enums `Option<T>`/`Either<A,B>` — turbofish construction, per-instance monomorphization, `match` |
+| `enum_adt` | algebraic enums + `match`: payload variants, multiple bindings, `_` default, classic enum coexisting |
+| `enum_generic` | generic algebraic enums `Option<T>`/`Either<A,B>`: turbofish construction, per-instance monomorphization, `match` |
 | `either_stdlib` | `<either>` `Option`/`Either` helpers (`opt_is_some`, `opt_unwrap_or`) |
 | `type_alias` | `type u8 = uint8;` resolves to the underlying type |
 | `bitfields` | bitfield assignment + masked read; signed fields sign-extend |
@@ -102,7 +102,7 @@ when you add a test.
 | `sret` | a struct larger than 16 bytes is returned via sret (arm64) |
 | `alloc` | `<mem>` `alloc<T>(n)`/`free`; `<alloc>` Bump/Arena/Pool/FirstFit |
 | `alloc_with` | `alloc_with(&a, T, n)` over a caller-provided buffer |
-| `sysheap` | `<sysheap>` mmap-backed `FirstFit` heap — allocate/free/reuse with no libc `malloc` |
+| `sysheap` | `<sysheap>` mmap-backed `FirstFit` heap: allocate/free/reuse with no libc `malloc` |
 | `atomic` | `<atomic>` `atomic_load`/`store`/`swap`/`cas` → LLVM atomics |
 | `base64` | `<base64>` encode/decode over buffers |
 | `env` | `<env>` `env_get`/`has`/`get_or`/`get_int` |
@@ -116,7 +116,7 @@ when you add a test.
 | `string_ops` | `<string>` `split` (e.g. `"a,b,,c"` on `','`) |
 | `threading` | `<threading>` `Mutex`/`Cond`/`Sem`; shared state captured by pointer |
 | `time` | `<time>` wall clock / monotonic / `sleep_ms` |
-| `executor` | async `Executor` — scheduled wakers run on the loop thread in FIFO order |
+| `executor` | async `Executor`: scheduled wakers run on the loop thread in FIFO order |
 | `net_async` | leaf future: a coroutine awaits `net_read_async` over the reactor |
 | `async_basic` | `async`/`await` transform: one await of an already-ready future (fast path) |
 | `async_io` | suspending await over a real reactor read; params live across the await |
@@ -132,12 +132,12 @@ when you add a test.
 | `async_for_in` | `for-in` containing an await, over a fixed-size array and a `List`-like struct (suspending) |
 | `async_timer` | `<timer>` `timer_after` leaf future: a delayed await + read-with-timeout via `select2(read, timer)` |
 | `async_frame_expr` | frame-hoisted locals used in a struct literal / index / call after an await are renamed to `fr.x` (shared child-enumeration) |
-| `select_value` | `<futureval>` `select2v` — winner's value as `Either<A,B>` over the reactor (timer-wins / data-wins) |
-| `join_value` | `<futureval>` `join2v` — both values as a `Pair<A,B>` |
-| `async_channel` | `<channel>` `chan_send`/`chan_recv` — buffered fast path + parked handoff; also guards the cast-after-deduplicated-import parser fix |
+| `select_value` | `<futureval>` `select2v`: winner's value as `Either<A,B>` over the reactor (timer-wins / data-wins) |
+| `join_value` | `<futureval>` `join2v`: both values as a `Pair<A,B>` |
+| `async_channel` | `<channel>` `chan_send`/`chan_recv`: buffered fast path + parked handoff; also guards the cast-after-deduplicated-import parser fix |
 | `async_spawn` | detached generic `spawn<T>` of async tasks (ready + suspending), leak-free |
-| `async_select` | generic `select2<A,B>` — await the first of two futures; loser dropped (A-wins + B-wins) |
-| `async_join` | generic `join2<A,B>` — await both futures, then read both values |
+| `async_select` | generic `select2<A,B>`: await the first of two futures; loser dropped (A-wins + B-wins) |
+| `async_join` | generic `join2<A,B>`: await both futures, then read both values |
 
 ### `smoke` tests (compile + link + exit 0)
 
@@ -147,7 +147,7 @@ when you add a test.
 | `http_roundtrip` | worker-pool server + client round trip |
 | `http_async` | non-blocking async HTTP server (`<http_async>`) + client round trip |
 | `http_async_concurrent` | concurrent async HTTP server: 3 simultaneous clients, channel wait-group shutdown |
-| `threads` | `thread_create`/`thread_join` — output order is non-deterministic |
+| `threads` | `thread_create`/`thread_join`: output order is non-deterministic |
 | `test_struct` | minimal struct field access |
 
 ### `error` tests (must be rejected)
@@ -181,12 +181,12 @@ when you add a test.
 Two real compiler bugs were found while building this suite. Both are now fixed and
 covered by exact-match `run` tests, so a regression would fail `run.sh`.
 
-1. **`union` float member store** — *fixed.* `v.f = 3.14` stored the full 8-byte
+1. **`union` float member store**: *fixed.* `v.f = 3.14` stored the full 8-byte
    double into the union's offset-0 storage without truncating to `float`, so a
    later read got garbage (`126443839488.0`). The assignment path now coerces the
    RHS to the LHS member's declared scalar type. Guarded by `sizeof_union_ptr.esk`.
 
-2. **No forward function resolution** — *fixed.* Codegen emitted functions in source
+2. **No forward function resolution**: *fixed.* Codegen emitted functions in source
    order, so a call to a function defined later (or a `int b(int n);` forward
    declaration) failed with `Undefined variable or function`. Codegen now declares
    all prototypes in a pre-pass before emitting bodies, enabling call-before-define
