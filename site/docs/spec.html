@@ -76,7 +76,7 @@ body { background: var(--bg); color: var(--ink); font-family: var(--sans);
 <p><strong>Version:</strong> v0.3.1</p>
 <hr>
 <h2 id="1-overview">1. Overview</h2>
-<p>Eskiu is a statically typed systems language with the power of C and the immediacy of a scripting language. It compiles to native code through LLVM, so you get native performance, explicit memory, and direct C interop. But you can also run a <code>.esk</code> file on the spot: <code>eskiuc run file.esk</code> compiles and runs it in one step, and with a <code>#!/usr/bin/env eskiuc run</code> shebang the file becomes an executable script, like Python or Ruby. On that C foundation it adds bounded generics, structural interfaces, sum types with <code>match</code>, and <code>async</code>/<code>await</code>.</p>
+<p>Eskiu is a statically typed, compiled systems language. It lowers to native code through LLVM, manages memory explicitly (no garbage collector), and interoperates directly with C. A <code>.esk</code> file can also be run on the spot with <code>eskiuc run</code> (or a <code>#!/usr/bin/env eskiuc run</code> shebang), so the same source is both a compiled artifact and a runnable script. This document is the language reference: syntax, type system, semantics, and ABI.</p>
 <p>Core properties:</p>
 <ul>
 <li>Statically typed with explicit type annotations</li>
