@@ -1,4 +1,4 @@
-# Eskiu Language — VS Code Extension
+# Eskiu Language: VS Code Extension
 
 Syntax highlighting **and real-time error checking** for `.esk` files in Visual Studio Code.
 
@@ -6,14 +6,14 @@ Errors from `eskiuc --test-typechecker` appear as red underlines as you save.
 
 ## Install
 
-**Option A — symlink (development, updates automatically):**
+**Option A: symlink (development, updates automatically):**
 
 ```bash
 ln -s /path/to/eskiu/editor/vscode \
       ~/.vscode/extensions/eskiu-language
 ```
 
-**Option B — copy:**
+**Option B: copy:**
 
 ```bash
 cp -r /path/to/eskiu/editor/vscode \
@@ -62,7 +62,7 @@ On every file open and save, `extension.js` runs:
 eskiuc <file.esk> --test-typechecker
 ```
 and parses `file:line:col: message` output into VS Code diagnostics.
-No npm packages required — pure VS Code extension API.
+No npm packages required; pure VS Code extension API.
 
 `server.js` is an alternative standalone JSON-RPC LSP server for editors
 that support LSP natively (Neovim, Helix, etc.).
