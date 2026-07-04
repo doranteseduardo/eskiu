@@ -26,25 +26,25 @@ keeps only the **durable lessons** and the **follow-ups still worth acting on**.
   port) hit byte-identical parity on its first run over the whole corpus, a sign the language
   and stdlib are mature.
 
-- **IR attributes are UNSOUND to emit without dedicated analysis — even `sret`.** A reviewer
+- **IR attributes are UNSOUND to emit without dedicated analysis, even `sret`.** A reviewer
   asked for richer LLVM metadata (`nonnull`/`noundef`/`nocapture`/TBAA/...). Most is unsound
-  here: pointers are nullable (so a parameter — including a method receiver, since `p.m()`
+  here: pointers are nullable (so a parameter, including a method receiver, since `p.m()`
   passes a possibly-null `p`) can't be `nonnull`; locals can be uninitialized, so params/
   returns can't be `noundef`; `nocapture`/TBAA need escape/alias analysis the front-end
   doesn't have. The `sret` pointer *looked* safe (a fresh dedicated alloca per call site) and
-  passed the full macOS/arm64 suite + 800 O0-vs-O2 fuzz iterations — **but `noalias`/`nonnull`
+  passed the full macOS/arm64 suite + 800 O0-vs-O2 fuzz iterations. **But `noalias`/`nonnull`
   on it crashed three HTTP/2 tests with SIGILL on Linux/x86-64 CI** (the `currentSretParam`
-  forwarding path — `x = x.method()` style — can make the slot alias, and the x86-64 backend
+  forwarding path, the `x = x.method()` style, can make the slot alias, and the x86-64 backend
   exploited it into an `unreachable`/`ud2`). Reverted. Lessons: (1) an attribute needs a
   *soundness proof over every path that produces the value*, not just the common one; (2) the
-  macOS arm64 suite + fuzzer is **not** sufficient — a wrong attribute can pass there and
+  macOS arm64 suite + fuzzer is **not** sufficient: a wrong attribute can pass there and
   still miscompile on Linux/x86-64, so attribute work must be gated on the Linux CI before
   shipping. Attributes are a real analysis task (tracked in `PROMOTION_PLAN.md`), not a quick
   add.
 
 ## Open follow-ups (worth doing, not yet done)
 
-- **Keyword-as-identifier diagnostic — DONE in the C++ parser (v0.3.0).** `fn`/`in`/`match`
+- **Keyword-as-identifier diagnostic: DONE in the C++ parser (v0.3.0).** `fn`/`in`/`match`
   (and type names) used as a variable/param/field name now report `expected a name, found
   keyword 'fn'` at the cause instead of a downstream `Expected ';'`/`Expected expression`.
   This was the single most recurring papercut of the self-host (~13 strikes). The fix lives
