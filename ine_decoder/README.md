@@ -11,12 +11,12 @@ for calling a C++ QR detection library. All pipeline logic is in Eskiu.
 
 Three sequential stages:
 
-1. **QR extraction** — load an image (HEIC/JPEG/PNG) via CoreGraphics, detect
+1. **QR extraction**: load an image (HEIC/JPEG/PNG) via CoreGraphics, detect
    two QR codes using zxing-cpp, yield two raw 858-byte buffers.
-2. **Crypto** — 3-round AES-256-CBC + RSA-8192 decryption; all cryptographic
+2. **Crypto**: 3-round AES-256-CBC + RSA-8192 decryption; all cryptographic
    constants extracted from the original binary (no key file needed). Implemented
    in Eskiu calling OpenSSL via `extern`.
-3. **Structured output** — parse pipe-delimited biographical text + WebP image
+3. **Structured output**: parse pipe-delimited biographical text + WebP image
    blob, generate JSON. Implemented entirely in Eskiu.
 
 Status: **COMPLETE.** Runs at 74.4 ms on Apple Silicon.
@@ -40,13 +40,13 @@ Measured on Apple Silicon (macOS arm64) against a real credential image.
 |---|---|---|
 | `types.esk` | Eskiu | `QRPair`, `BNPair`, `DecodePayload`, `DecodeOutput`, `PipelineTiming` |
 | `extern.esk` | Eskiu | C function declarations (libc, OpenSSL EVP + BN, QR shim) |
-| `crypto.esk` | **Eskiu** | AES + RSA pipeline — hex decode, base64, PKCS#1, 6-bit decode, `run_no_so_pipeline` |
+| `crypto.esk` | **Eskiu** | AES + RSA pipeline: hex decode, base64, PKCS#1, 6-bit decode, `run_no_so_pipeline` |
 | `output.esk` | **Eskiu** | Character table, field splitter, JSON builder, `decode_to_buffers` |
-| `pipeline.esk` | Eskiu | `stage_extract`, `stage_crypto`, `stage_decode` — each returns `Result<int,string>` |
+| `pipeline.esk` | Eskiu | `stage_extract`, `stage_crypto`, `stage_decode`: each returns `Result<int,string>` |
 | `main.esk` | Eskiu | Entry point: orchestration, timing, file I/O |
 | `qr_extract.c` | C | 12-line shim: `ine_qr_extract(path, *QRPair)` → `ine_qr_extract_impl()` |
 | `qr_extract_impl.cpp` | C++ | CoreGraphics image loading + zxing-cpp 3.x QR detection |
-| `Makefile` | — | Build instructions |
+| `Makefile` | (n/a) | Build instructions |
 
 ## Architecture
 
@@ -67,9 +67,9 @@ JSON + WebP
 ```
 
 **External dependencies (system libraries only):**
-- OpenSSL `libcrypto` — AES-256-CBC and BigNum for RSA
-- zxing-cpp — QR code detection
-- CoreFoundation / CoreGraphics / ImageIO — HEIC/JPEG image loading (macOS)
+- OpenSSL `libcrypto`: AES-256-CBC and BigNum for RSA
+- zxing-cpp: QR code detection
+- CoreFoundation / CoreGraphics / ImageIO: HEIC/JPEG image loading (macOS)
 
 ## Build
 
