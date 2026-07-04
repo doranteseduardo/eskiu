@@ -6,9 +6,7 @@
 
 ## 1. Overview
 
-Eskiu is a systems programming language built to address the fragmentation of compute-intensive services. Services in this space commonly reach for C when performance matters, Go for concurrency, C++ for libraries, and Python for glue — each with its own toolchain and interop cost.
-
-Eskiu's goal is to replace that stack with a single language. Phase one establishes a solid systems foundation: native performance, explicit memory, direct C interop. Phase two, once the foundation is stable, will introduce first-class support for the domain types that high-throughput services actually work with, without giving up general systems capability.
+Eskiu is a statically typed systems language with the power of C and the immediacy of a scripting language. It compiles to native code through LLVM, so you get native performance, explicit memory, and direct C interop. But you can also run a `.esk` file on the spot: `eskiuc run file.esk` compiles and runs it in one step, and with a `#!/usr/bin/env eskiuc run` shebang the file becomes an executable script, like Python or Ruby. On that C foundation it adds bounded generics, structural interfaces, sum types with `match`, and `async`/`await`.
 
 Core properties:
 

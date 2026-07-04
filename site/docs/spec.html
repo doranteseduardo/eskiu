@@ -76,8 +76,7 @@ body { background: var(--bg); color: var(--ink); font-family: var(--sans);
 <p><strong>Version:</strong> v0.3.1</p>
 <hr>
 <h2 id="1-overview">1. Overview</h2>
-<p>Eskiu is a systems programming language built to address the fragmentation of compute-intensive services. Services in this space commonly reach for C when performance matters, Go for concurrency, C++ for libraries, and Python for glue — each with its own toolchain and interop cost.</p>
-<p>Eskiu's goal is to replace that stack with a single language. Phase one establishes a solid systems foundation: native performance, explicit memory, direct C interop. Phase two, once the foundation is stable, will introduce first-class support for the domain types that high-throughput services actually work with, without giving up general systems capability.</p>
+<p>Eskiu is a statically typed systems language with the power of C and the immediacy of a scripting language. It compiles to native code through LLVM, so you get native performance, explicit memory, and direct C interop. But you can also run a <code>.esk</code> file on the spot: <code>eskiuc run file.esk</code> compiles and runs it in one step, and with a <code>#!/usr/bin/env eskiuc run</code> shebang the file becomes an executable script, like Python or Ruby. On that C foundation it adds bounded generics, structural interfaces, sum types with <code>match</code>, and <code>async</code>/<code>await</code>.</p>
 <p>Core properties:</p>
 <ul>
 <li>Statically typed with explicit type annotations</li>
