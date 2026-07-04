@@ -35,10 +35,10 @@ Link to related discussions or issues
 ---
 
 **Note:** Before opening a feature request, check:
-1. [Language specification](../../docs/lang/spec.md) — Is this already documented?
-2. [Design decisions](../../docs/dev/design.md) — Does it align with the language's goals?
-3. [Phase roadmap](../../docs/dev/phases.md) — Is this already planned?
-4. Existing issues — Has someone suggested this?
+1. [Language specification](../../docs/lang/spec.md): Is this already documented?
+2. [Design decisions](../../docs/dev/design.md): Does it align with the language's goals?
+3. [Phase roadmap](../../docs/dev/phases.md): Is this already planned?
+4. Existing issues: Has someone suggested this?
 
 Feature requests are prioritized based on:
 - Alignment with the design decisions in `docs/dev/design.md`
