@@ -61,7 +61,7 @@ void CodeGen::visit(BinaryExpr* node) {
             if (rhs->getType()->isIntegerTy() && elemType->isIntegerTy()) {
                 rhs = coerceInt(rhs, elemType, eskiuUnsigned(getExprEskiuType(node->right)));
             } else if (rhs->getType()->isIntegerTy() && elemType->isFloatingPointTy()) {
-                rhs = builder->CreateSIToFP(rhs, elemType);
+                rhs = intToFloat(rhs, elemType, eskiuUnsigned(getExprEskiuType(node->right)));
             } else if (rhs->getType()->isFloatingPointTy() && elemType->isIntegerTy()) {
                 rhs = builder->CreateFPToSI(rhs, elemType);
             } else if (rhs->getType()->isFloatingPointTy() && elemType->isFloatingPointTy()) {
@@ -134,9 +134,9 @@ void CodeGen::visit(BinaryExpr* node) {
     // Promote to common type: int→float, float→double
     auto promoteToFloat = [&]() {
         if (left->getType()->isFloatingPointTy() && right->getType()->isIntegerTy())
-            right = builder->CreateSIToFP(right, left->getType());
+            right = intToFloat(right, left->getType(), rUns);
         else if (right->getType()->isFloatingPointTy() && left->getType()->isIntegerTy())
-            left = builder->CreateSIToFP(left, right->getType());
+            left = intToFloat(left, right->getType(), lUns);
         // float × double: widen float → double
         else if (left->getType()->isFloatingPointTy() && right->getType()->isFloatingPointTy()
                  && left->getType() != right->getType()) {
@@ -569,7 +569,7 @@ void CodeGen::visit(CastExpr* node) {
             result = builder->CreateTrunc(val, targetType);
         }
     } else if (val->getType()->isIntegerTy() && targetType->isFloatingPointTy()) {
-        result = builder->CreateSIToFP(val, targetType);
+        result = intToFloat(val, targetType, eskiuUnsigned(getExprEskiuType(node->expr)));
     } else if (val->getType()->isFloatingPointTy() && targetType->isIntegerTy()) {
         result = builder->CreateFPToSI(val, targetType);
     } else if (val->getType()->isFloatingPointTy() && targetType->isFloatingPointTy()) {
@@ -593,13 +593,16 @@ void CodeGen::visit(LiteralExpr* node) {
     switch (node->kind) {
         case LiteralExpr::Kind::INT: {
             // base 0 = auto (dec/hex/oct). Materialize as i64 when the value
-            // doesn't fit in 32 bits, so large literals aren't truncated.
+            // does not fit in a *signed* 32-bit int, so large literals are not
+            // truncated. A literal in [2^31, 2^32) fits u32 but not i32; keeping
+            // it i32 would set the high bit and then sign-extend to a negative
+            // i64 on assignment, so it must be i64 (matches the self-host).
             unsigned long long uval;
             bool wide;
             try {
                 long long sval = std::stoll(node->value, nullptr, 0);
                 uval = (unsigned long long)sval;
-                wide = (sval < -2147483648LL || sval > 4294967295LL);
+                wide = (sval < -2147483648LL || sval > 2147483647LL);
             } catch (const std::out_of_range&) {
                 uval = std::stoull(node->value, nullptr, 0); // e.g. large uint64 literal
                 wide = true;

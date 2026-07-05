@@ -767,7 +767,10 @@ string cg_coerce(Codegen* g, CgVal val, string target) {
     if (tf == 0 && sf == 0 && tw == 0 && sw == 0) { return val.op; }   // non-scalar (struct)
     string t = cg_tmp(g);
     cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = ");
-    if (tf == 1 && sw > 0) { cg_emit(g, "sitofp "); cg_emit(g, val.ty); cg_emit(g, " "); cg_emit(g, val.op); cg_emit(g, " to "); cg_emit(g, target); }
+    if (tf == 1 && sw > 0) {                              // int→float: unsigned source uses uitofp
+        if (cg_is_unsigned(val.ety) == 1) { cg_emit(g, "uitofp "); } else { cg_emit(g, "sitofp "); }
+        cg_emit(g, val.ty); cg_emit(g, " "); cg_emit(g, val.op); cg_emit(g, " to "); cg_emit(g, target);
+    }
     else if (tw > 0 && sf == 1) { cg_emit(g, "fptosi "); cg_emit(g, val.ty); cg_emit(g, " "); cg_emit(g, val.op); cg_emit(g, " to "); cg_emit(g, target); }
     else if (tf == 1 && sf == 1) {                        // float<->double
         if (cg_streq(target, "double") == 1) { cg_emit(g, "fpext "); } else { cg_emit(g, "fptrunc "); }

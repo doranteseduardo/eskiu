@@ -205,7 +205,7 @@ entry:
   %1 = getelementptr i32, ptr %0, i32 0
   %2 = load i32, ptr %1, align 4
   %3 = sext i32 %2 to i64
-  %4 = mul i64 %3, -1640531535
+  %4 = mul i64 %3, 2654435761
   ret i64 %4
 }
 

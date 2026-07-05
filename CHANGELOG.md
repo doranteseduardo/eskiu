@@ -7,6 +7,40 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
+## [Unreleased]
+
+### Fixed
+- **Integer literals in [2^31, 2^32) were truncated to i32 and sign-extended.** A
+  decimal literal such as `3000000000` assigned to an `int64` materialized as a
+  32-bit constant (high bit set), then sign-extended to a negative value
+  (`-1294967296`). The codegen now widens any literal that does not fit a *signed*
+  i32 to i64 (matching the self-host), so large literals keep their value.
+- **`unsigned -> float` conversions used signed `SIToFP`.** A high-bit-set unsigned
+  value (for example `uint32 4000000000`) converted to a negative float. Integer to
+  float conversion now selects `UIToFP` vs `SIToFP` by the source's signedness, in
+  both back-ends (routed through a single `intToFloat` helper on the C++ side).
+- **A generic (template) function could fall off the end without returning.** The
+  missing-return analysis skipped template bodies, so a generic like
+  `T pick<T>(T a, int c) { if (c > 0) { return a; } }` compiled (returning a synthesized
+  zero under the C++ back-end, crashing under the self-host). The definite-return check
+  now runs on template bodies too.
+
+### Changed
+- **Falling off the end of a non-void function is now a compile error.** A non-void
+  function that returned on no path still compiled before: the C++ back-end
+  synthesized an implicit `ret 0`/`ret null`, so `int add(int a, int b) { int r = a
+  + b; }` silently returned 0 rather than the computed value, and the last
+  expression was never the result. The self-hosted back-end emitted `unreachable`
+  for the same code, so the two compilers disagreed and the self-host build crashed
+  (SIGILL) on a program the C++ build ran cleanly. Both now reject it in sema with
+  `missing return in non-void function`, via a definite-return analysis. `void`
+  functions may still fall off the end, `async` functions complete their future
+  implicitly, and a body that provably cannot fall through needs no trailing
+  `return` (an `if`/`else` where both branches return, an exhaustive `switch`/`match`
+  where every arm returns, or an infinite `while (1)` with no `break`).
+
+---
+
 ## [0.3.1], 2026-07-01
 
 ### Fixed
