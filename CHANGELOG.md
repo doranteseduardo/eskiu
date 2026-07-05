@@ -104,6 +104,9 @@ promotion track.
   caller memory, are still fine).
 - **Redefining a function is a compile error.** Two definitions of the same name are
   rejected (a body-less forward declaration alongside one definition is still allowed).
+- **`main` must return `int`.** Its return value is the process exit code, so `void
+  main()` (which left the exit code as an undefined, platform-dependent register value) is
+  rejected; write `int main() { ... }`.
 - **Falling off the end of a non-void function is now a compile error.** A non-void
   function that returned on no path still compiled before: the C++ back-end
   synthesized an implicit `ret 0`/`ret null`, so `int add(int a, int b) { int r = a
