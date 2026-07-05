@@ -113,6 +113,15 @@ void TypeChecker::visit(UnaryExpr* node) {
 
     std::string resultType = inferUnaryExprType(node->op, operandType);
 
+    // Address-of a const location yields a pointer *to const*, so writing through
+    // it (or assigning it to a mutable pointer) is caught by the const checks.
+    // Without this, `const int N; *int p = &N; *p = 99;` would silently mutate N.
+    if (node->op == "&" && resultType != "error") {
+        std::string dummy;
+        if (assignsToConst(node->operand.get(), dummy))
+            resultType = "const " + resultType;
+    }
+
     if (resultType == "error") {
         errorAt(node,"invalid operand for unary operator: " + operandType);
         expressionTypes[node] = "unknown";

@@ -25,7 +25,22 @@ std::string TypeChecker::inferBinaryExprType(const std::string& leftType, const 
         return isValidAssignment(leftType, rightType) ? leftType : "error";
     }
     if (op == "==" || op == "!=" || op == "<" || op == ">" || op == "<=" || op == ">=") {
-        return "bool";
+        // Operands must be mutually comparable: both numeric, both pointer-like
+        // (including `null`), or the same non-aggregate type. Rejecting the rest
+        // keeps codegen from emitting an `icmp`/`fcmp` on mismatched types (an
+        // assertion / miscompile) or a meaningless comparison of aggregates.
+        std::string l = normalizeType(leftType), r = normalizeType(rightType);
+        if (l == "error" || r == "error" || l == "unknown" || r == "unknown")
+            return "bool";                       // do not cascade a prior error
+        auto ptrish = [&](const std::string& t) { return isPointerType(t) || t == "null"; };
+        auto isAgg  = [&](const std::string& t) {
+            return t.rfind("struct:", 0) == 0 || t.rfind("interface:", 0) == 0 ||
+                   adtEnums.count(t) > 0;
+        };
+        bool ok = (isNumericType(l) && isNumericType(r)) ||
+                  (ptrish(l) && ptrish(r)) ||
+                  (l == r && !isAgg(l));
+        return ok ? "bool" : "error";
     }
     if (op == "&&" || op == "||") {
         return "bool";

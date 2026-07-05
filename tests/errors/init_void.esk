@@ -1,0 +1,7 @@
+// EXPECT-ERROR: incompatible type
+// A void call has no value to initialize an int from.
+void f() {}
+int main() {
+    int x = f();
+    return x;
+}
