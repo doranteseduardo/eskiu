@@ -127,6 +127,103 @@ struct TemplateCapturePass {
         astwalk::forEachChildExpr(e, [&](ExprPtr& c) { walkExpr(c.get()); });
     }
 };
+
+// --- Definite-return analysis --------------------------------------------
+// A non-void function must return (or throw, or provably diverge) on every
+// path; falling off the end is an error, not an implicit zero return.
+
+bool stmtAlwaysReturns(Stmt* s);
+
+// Is `cond` a literal that is always true? (`while(1)`, `while(true)`, or a
+// `for(;;)` whose condition is null.)
+bool condAlwaysTrue(Expr* cond) {
+    if (!cond) return true;  // for(;;)
+    auto* lit = dynamic_cast<LiteralExpr*>(cond);
+    if (!lit) return false;
+    if (lit->kind == LiteralExpr::Kind::BOOL) return lit->value == "true";
+    if (lit->kind == LiteralExpr::Kind::INT)  return lit->value != "0";
+    return false;
+}
+
+// Does `s` contain a `break` that would exit the *enclosing* loop, i.e. a
+// break not swallowed by a nested loop or switch? Used to tell whether an
+// otherwise-infinite loop can still fall through.
+bool hasBreakAtThisLevel(Stmt* s) {
+    if (!s) return false;
+    if (dynamic_cast<BreakStmt*>(s)) return true;
+    if (auto* b = dynamic_cast<BlockStmt*>(s)) {
+        for (auto& it : b->items)
+            if (std::holds_alternative<StmtPtr>(it) &&
+                hasBreakAtThisLevel(std::get<StmtPtr>(it).get())) return true;
+        return false;
+    }
+    if (auto* i = dynamic_cast<IfStmt*>(s))
+        return hasBreakAtThisLevel(i->thenBranch.get()) ||
+               hasBreakAtThisLevel(i->elseBranch.get());
+    // Nested loops and switch capture their own `break` — do not descend.
+    if (dynamic_cast<WhileStmt*>(s) || dynamic_cast<ForStmt*>(s) ||
+        dynamic_cast<ForInStmt*>(s) || dynamic_cast<SwitchStmt*>(s)) return false;
+    if (auto* m = dynamic_cast<MatchStmt*>(s)) {   // match is not a loop
+        for (auto& arm : m->arms)
+            if (hasBreakAtThisLevel(arm.body.get())) return true;
+        return false;
+    }
+    if (auto* t = dynamic_cast<TryStmt*>(s)) {
+        if (hasBreakAtThisLevel(t->body.get())) return true;
+        for (auto& c : t->catches)
+            if (hasBreakAtThisLevel(c.body.get())) return true;
+        return hasBreakAtThisLevel(t->finally.get());
+    }
+    return false;
+}
+
+// Does executing `s` guarantee control does not fall through to the following
+// statement (it returns, throws, or provably diverges)? Conservative: any case
+// it cannot prove returns false, which at worst asks for an explicit return.
+bool stmtAlwaysReturns(Stmt* s) {
+    if (!s) return false;
+    if (dynamic_cast<ReturnStmt*>(s)) return true;
+    if (dynamic_cast<ThrowStmt*>(s))  return true;
+    if (auto* b = dynamic_cast<BlockStmt*>(s)) {
+        for (auto& it : b->items)
+            if (std::holds_alternative<StmtPtr>(it) &&
+                stmtAlwaysReturns(std::get<StmtPtr>(it).get())) return true;
+        return false;
+    }
+    if (auto* i = dynamic_cast<IfStmt*>(s))
+        return i->elseBranch && stmtAlwaysReturns(i->thenBranch.get()) &&
+               stmtAlwaysReturns(i->elseBranch.get());
+    if (auto* w = dynamic_cast<WhileStmt*>(s))
+        return condAlwaysTrue(w->condition.get()) && !hasBreakAtThisLevel(w->body.get());
+    if (auto* f = dynamic_cast<ForStmt*>(s))
+        return condAlwaysTrue(f->condition.get()) && !hasBreakAtThisLevel(f->body.get());
+    // for-in iterates a possibly-empty collection: never guarantees a return.
+    if (dynamic_cast<ForInStmt*>(s)) return false;
+    if (auto* sw = dynamic_cast<SwitchStmt*>(s)) {
+        bool hasDefault = false;
+        for (auto& c : sw->cases) {
+            if (!c.value) hasDefault = true;
+            bool caseReturns = false;
+            for (auto& st : c.stmts) if (stmtAlwaysReturns(st.get())) { caseReturns = true; break; }
+            if (!caseReturns) return false;
+        }
+        return hasDefault;
+    }
+    // A `match` is verified exhaustive earlier, so it always returns iff every
+    // arm does.
+    if (auto* m = dynamic_cast<MatchStmt*>(s)) {
+        if (m->arms.empty()) return false;
+        for (auto& arm : m->arms) if (!stmtAlwaysReturns(arm.body.get())) return false;
+        return true;
+    }
+    if (auto* t = dynamic_cast<TryStmt*>(s)) {
+        if (t->finally && stmtAlwaysReturns(t->finally.get())) return true;
+        if (!stmtAlwaysReturns(t->body.get())) return false;
+        for (auto& c : t->catches) if (!stmtAlwaysReturns(c.body.get())) return false;
+        return true;
+    }
+    return false;
+}
 } // namespace
 
 void TypeChecker::visit(FunctionDecl* node) {
@@ -135,6 +232,17 @@ void TypeChecker::visit(FunctionDecl* node) {
         // captures must be resolved now (codegen has no equivalent pass). See
         // TemplateCapturePass — purely additive, type-independent.
         if (node->body) { TemplateCapturePass p; p.run(node); }
+        // The definite-return check is structural (control-flow only), so it
+        // applies to a template body too: a generic function declared to return
+        // a value must return on every path regardless of the type argument.
+        // (Instantiation reuses this body and never re-runs visit(FunctionDecl),
+        // so this is the only place the template is checked.)
+        if (node->body && !node->isAsync && node->returnType != "void" &&
+            !stmtAlwaysReturns(node->body.get())) {
+            errorAt(node, "missing return in non-void function '" + node->name +
+                          "' (control can reach the end without returning a " +
+                          node->returnType + ")");
+        }
         return;
     }
 
@@ -176,6 +284,16 @@ void TypeChecker::visit(FunctionDecl* node) {
     // Type check body
     if (node->body) {
         node->body->accept(this);
+    }
+
+    // A non-void function must return on every path; falling off the end is an
+    // error (there is no implicit zero return). `void` may fall off; `async`
+    // functions complete their future implicitly and are exempt.
+    if (node->body && !node->isAsync && node->returnType != "void" &&
+        !stmtAlwaysReturns(node->body.get())) {
+        errorAt(node, "missing return in non-void function '" + node->name +
+                      "' (control can reach the end without returning a " +
+                      node->returnType + ")");
     }
 
     // An `async fn` must contain at least one `await` — the state-machine

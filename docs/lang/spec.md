@@ -560,6 +560,25 @@ int is_odd(int n) {
 }
 ```
 
+**A non-void function must return a value on every path.** Letting control fall
+off the end of the body is a compile error (`missing return in non-void
+function`). There is no implicit zero return, and the last expression in the body
+is not treated as the result. A function whose body provably cannot fall through
+satisfies the rule without a trailing `return`: for example one that ends in an
+`if`/`else` where both branches return, an exhaustive `switch`/`match` where every
+arm returns, or an infinite `while (1)` loop with no `break`.
+
+```eskiu
+int classify(int x) {
+    if (x < 0) { return 0; }
+    else       { return 1; }
+}                              // ok: every path returns
+
+int bad(int x) {
+    if (x < 0) { return 0; }
+}                              // error: missing return (x >= 0 falls through)
+```
+
 ### 6.2 Void Functions
 
 ```eskiu
