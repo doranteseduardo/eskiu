@@ -2498,6 +2498,20 @@ string cg_throw_typename(Codegen* g, *ExprNode e) {
     return t;
 }
 
+// Map an LLVM scalar type back to its Eskiu type name, for naming a thrown
+// value whose Eskiu type could not be resolved structurally (e.g. `throw c + 1`,
+// where the binary result carries only its LLVM type). "" if no clean mapping.
+string cg_llty_eskiu_name(string llty) {
+    if (cg_streq(llty, "i1") == 1)     { return "bool"; }
+    if (cg_streq(llty, "i8") == 1)     { return "char"; }
+    if (cg_streq(llty, "i16") == 1)    { return "int16"; }
+    if (cg_streq(llty, "i32") == 1)    { return "int"; }
+    if (cg_streq(llty, "i64") == 1)    { return "int64"; }
+    if (cg_streq(llty, "float") == 1)  { return "float"; }
+    if (cg_streq(llty, "double") == 1) { return "double"; }
+    return "";
+}
+
 // Does a statement subtree contain a `try`? (→ the function needs an EH personality.)
 // Kind-aware: only recurses into the nested-statement fields each kind populates (alloc
 // doesn't zero, so the other fields hold garbage). Doesn't descend into expressions.
@@ -2766,7 +2780,12 @@ void cg_stmt(Codegen* g, *StmtNode st) {
         cg_emit(g, "  "); cg_emit(g, ex); cg_emit(g, " = call ptr @__cxa_allocate_exception(i64 16)\n");
         string ival = cg_coerce(g, val, "i64");           // value as i64 (ptrtoint / sext)
         cg_emit(g, "  store i64 "); cg_emit(g, ival); cg_emit(g, ", ptr "); cg_emit(g, ex); cg_emit(g, "\n");
-        string tnameg = cg_string_global(g, cg_throw_typename(g, st.expr));
+        string tname = cg_throw_typename(g, st.expr);
+        if (cg_streq(tname, "unknown") == 1) {            // fall back to the value's LLVM type
+            string mapped = cg_llty_eskiu_name(val.ty);
+            if (cg_streq(mapped, "") == 0) { tname = mapped; }
+        }
+        string tnameg = cg_string_global(g, tname);
         string tslot = cg_tmp(g);
         cg_emit(g, "  "); cg_emit(g, tslot); cg_emit(g, " = getelementptr i8, ptr "); cg_emit(g, ex); cg_emit(g, ", i64 8\n");
         cg_emit(g, "  store ptr "); cg_emit(g, tnameg); cg_emit(g, ", ptr "); cg_emit(g, tslot); cg_emit(g, "\n");
@@ -2828,10 +2847,23 @@ void cg_stmt(Codegen* g, *StmtNode st) {
             cg_label(g, nbl);
             ci = ci + 1;
         }
-        cg_emit(g, "  call void @__cxa_end_catch()\n");    // no clause matched — swallow
-        cg_br(g, ldone);
+        // No catch clause matched: run finally on the exceptional path, then
+        // re-raise the in-flight exception (do NOT swallow it). __cxa_rethrow is
+        // an invoke to the enclosing landingpad when inside another try, else a call.
+        if (st.s2 != null) { cg_stmt(g, st.s2); }          // finally (exceptional path)
+        if (saved[0] != 0) {
+            string ru = cg_lbl(g);
+            cg_emit(g, "  invoke void @__cxa_rethrow() to label %"); cg_emit(g, ru);
+            cg_emit(g, " unwind label %"); cg_emit(g, saved); cg_emit(g, "\n");
+            cg_label(g, ru);
+            cg_emit(g, "  unreachable\n");
+        } else {
+            cg_emit(g, "  call void @__cxa_rethrow()\n");
+            cg_emit(g, "  unreachable\n");
+        }
+        g.terminated = 1;
         cg_label(g, ldone);
-        if (st.s2 != null) { cg_stmt(g, st.s2); }          // finally
+        if (st.s2 != null) { cg_stmt(g, st.s2); }          // finally (normal / handled path)
         return;
     }
     if (st.kind == SK_RETURN) {
@@ -3424,6 +3456,7 @@ void cg_program(Codegen* g, *Program prog) {
         String_append(&g.globals, "declare void @__cxa_throw(ptr, ptr, ptr)\n");
         String_append(&g.globals, "declare ptr @__cxa_begin_catch(ptr)\n");
         String_append(&g.globals, "declare void @__cxa_end_catch()\n");
+        String_append(&g.globals, "declare void @__cxa_rethrow()\n");
         String_append(&g.globals, "declare i32 @strcmp(ptr, ptr)\n");
     }
 }
