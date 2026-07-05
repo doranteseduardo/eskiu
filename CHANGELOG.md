@@ -29,6 +29,12 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   i32; and an array sized by a named `const` (`int[CAP]`) copied the name into the LLVM
   array type instead of the value. All now match the C++ back-end. (The C++ compiler was
   already correct on these.)
+- **Self-hosted back-end: exceptions were mishandled.** A catch-less `try`/`finally`
+  swallowed an in-flight exception (running cleanup but then continuing as if caught), and
+  a `throw` from inside a catch handler that had to cross a function boundary was lost
+  (the runtime terminated). The self-host now runs `finally` and re-raises via
+  `__cxa_rethrow` on the exceptional path, and names a rethrown value's type from its LLVM
+  type when it cannot be resolved structurally, matching the C++ back-end.
 - **Comparison operators did not type-check their operands.** `==`, `!=`, `<`, `>`,
   `<=`, `>=` were accepted for any pair of types (pointer vs int, struct vs struct,
   string vs int), so the checker reported success and codegen emitted a malformed
