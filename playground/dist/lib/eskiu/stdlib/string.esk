@@ -6,11 +6,11 @@ import <list>;   // String_split collects parts into a List<String>
 
 struct String {
     *char data;
-    int   len;
-    int   cap;
+    int64 len;
+    int64 cap;
 }
 
-void String_init(String* self, int initial_cap) {
+void String_init(String* self, int64 initial_cap) {
     self.data = alloc<char>(initial_cap);
     self.len  = 0;
     self.cap  = initial_cap;
@@ -18,7 +18,7 @@ void String_init(String* self, int initial_cap) {
 }
 
 void String_from(String* self, string s) {
-    int n = strlen(s);
+    int64 n = strlen(s);
     self.data = alloc<char>(n + 1);
     memcpy(self.data, s, n + 1);
     self.len = n;
@@ -29,21 +29,22 @@ void String_from(String* self, string s) {
     return self.data;
 }
 
-int String_len(String* self) {
+int64 String_len(String* self) {
     return self.len;
 }
 
 void String_free(String* self) {
     free(self.data);
+    self.data = null;   // guard against double-free if the String is reused
     self.len = 0;
     self.cap = 0;
 }
 
 void String_append(String* self, string s) {
-    int slen   = strlen(s);
-    int newlen = self.len + slen;
+    int64 slen   = strlen(s);
+    int64 newlen = self.len + slen;
     if (newlen >= self.cap) {
-        int newcap = newlen * 2 + 1;
+        int64 newcap = newlen * 2 + 1;
         let newbuf: *char = alloc<char>(newcap);
         memcpy(newbuf, self.data, self.len);
         free(self.data);
@@ -62,7 +63,7 @@ void String_concat(String* self, String* other) {
 // trailing NUL so the buffer stays a valid C string.
 void String_push(String* self, char c) {
     if (self.len + 1 >= self.cap) {
-        int newcap = self.cap * 2 + 2;
+        int64 newcap = self.cap * 2 + 2;
         let newbuf: *char = alloc<char>(newcap);
         memcpy(newbuf, self.data, self.len);
         free(self.data);
@@ -75,12 +76,12 @@ void String_push(String* self, char c) {
 }
 
 // Read the i-th character (no bounds check).
-char String_char_at(String* self, int i) {
+char String_char_at(String* self, int64 i) {
     return self.data[i];
 }
 
 // Overwrite the i-th character in place (no bounds check, no length change).
-void String_set(String* self, int i, char c) {
+void String_set(String* self, int64 i, char c) {
     self.data[i] = c;
 }
 
@@ -91,8 +92,8 @@ void String_clear(String* self) {
 }
 
 // First index of c, or -1 if absent.
-int String_index_of(String* self, char c) {
-    int i = 0;
+int64 String_index_of(String* self, char c) {
+    int64 i = 0;
     while (i < self.len) {
         if (self.data[i] == c) { return i; }
         i = i + 1;
@@ -103,7 +104,7 @@ int String_index_of(String* self, char c) {
 // 1 if the two Strings hold the same bytes, else 0.
 int String_eq(String* self, String* other) {
     if (self.len != other.len) { return 0; }
-    int i = 0;
+    int64 i = 0;
     while (i < self.len) {
         if (self.data[i] != other.data[i]) { return 0; }
         i = i + 1;
@@ -113,9 +114,9 @@ int String_eq(String* self, String* other) {
 
 // 1 if this String equals the C string s, else 0.
 int String_eq_cstr(String* self, string s) {
-    int n = strlen(s);
+    int64 n = strlen(s);
     if (self.len != n) { return 0; }
-    int i = 0;
+    int64 i = 0;
     while (i < n) {
         if (self.data[i] != s[i]) { return 0; }
         i = i + 1;
@@ -125,8 +126,8 @@ int String_eq_cstr(String* self, string s) {
 
 // Reverse the characters in place.
 void String_reverse(String* self) {
-    int i = 0;
-    int j = self.len - 1;
+    int64 i = 0;
+    int64 j = self.len - 1;
     while (i < j) {
         char t = self.data[i];
         self.data[i] = self.data[j];
@@ -138,9 +139,9 @@ void String_reverse(String* self) {
 
 // Copy up to `count` characters starting at `start` from self into out.
 // out must already be initialised; it is cleared first.
-void String_substring(String* self, String* out, int start, int count) {
+void String_substring(String* self, String* out, int64 start, int64 count) {
     String_clear(out);
-    int i = 0;
+    int64 i = 0;
     while (i < count) {
         if (start + i >= self.len) { return; }
         String_push(out, self.data[start + i]);
@@ -173,7 +174,7 @@ void String_from_int(String* self, int n) {
 // non-digit. Returns 0 for an empty or non-numeric string.
 int String_to_int(String* self) {
     int result = 0;
-    int i = 0;
+    int64 i = 0;
     int neg = 0;
     int done = 0;
     if (self.len > 0 && self.data[0] == '-') {
@@ -195,7 +196,7 @@ int String_to_int(String* self) {
 
 // 1 if this String begins with the C string `prefix`, else 0.
 int String_starts_with(String* self, string prefix) {
-    int i = 0;
+    int64 i = 0;
     while (prefix[i] != 0) {
         if (i >= self.len || self.data[i] != prefix[i]) { return 0; }
         i = i + 1;
@@ -205,10 +206,10 @@ int String_starts_with(String* self, string prefix) {
 
 // 1 if this String ends with the C string `suffix`, else 0.
 int String_ends_with(String* self, string suffix) {
-    int slen = strlen(suffix);
+    int64 slen = strlen(suffix);
     if (slen > self.len) { return 0; }
-    int off = self.len - slen;
-    int i = 0;
+    int64 off = self.len - slen;
+    int64 i = 0;
     while (i < slen) {
         if (self.data[off + i] != suffix[i]) { return 0; }
         i = i + 1;
@@ -224,13 +225,13 @@ int String_is_space(char c) {
 
 // Remove leading and trailing ASCII whitespace, in place.
 void String_trim(String* self) {
-    int start = 0;
+    int64 start = 0;
     while (start < self.len && String_is_space(self.data[start]) == 1) { start = start + 1; }
-    int end = self.len;
+    int64 end = self.len;
     while (end > start && String_is_space(self.data[end - 1]) == 1) { end = end - 1; }
-    int n = end - start;
+    int64 n = end - start;
     if (start > 0) {
-        int i = 0;
+        int64 i = 0;
         while (i < n) { self.data[i] = self.data[start + i]; i = i + 1; }
     }
     self.len = n;
@@ -248,7 +249,7 @@ void String_trim(String* self) {
 //   String_free(&tok);
 int String_next_token(String* self, char sep, *int pos, String* out) {
     String_clear(out);
-    int p = *pos;
+    int64 p = *pos;
     if (p > self.len) { return 0; }
     while (p < self.len && self.data[p] != sep) {
         String_push(out, self.data[p]);
