@@ -243,7 +243,7 @@ void CodeGen::visit(ReturnStmt* node) {
             return uns ? builder->CreateZExt(v, ft) : builder->CreateSExt(v, ft);
         }
         if (v->getType()->isIntegerTy() && ft->isFloatingPointTy())
-            return builder->CreateSIToFP(v, ft);
+            return intToFloat(v, ft, node->value && eskiuUnsigned(getExprEskiuType(node->value)));
         if (v->getType()->isFloatingPointTy() && ft->isIntegerTy())
             return builder->CreateFPToSI(v, ft);
         if (v->getType()->isFloatingPointTy() && ft->isFloatingPointTy())

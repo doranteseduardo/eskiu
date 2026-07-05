@@ -330,13 +330,29 @@ void CodeGen::visit(TryStmt* node) {
         builder->SetInsertPoint(nextBB);
     }
 
-    // Unhandled: end catch + resume (rethrow)
+    // No catch clause matched (or there were none, e.g. a catch-less try/finally):
+    // run the finally body on this exceptional path too, then re-raise the in-flight
+    // exception with __cxa_rethrow. (end_catch + resume here double-freed the
+    // exception and aborted; and the finally was skipped entirely.) The rethrow is an
+    // invoke when an enclosing try can catch it, so its landingpad fires.
     if (!builder->GetInsertBlock()->getTerminator()) {
-        builder->CreateCall(endCatch, {});
-        builder->CreateResume(lp);
+        if (node->finally) node->finally->accept(this);
+        if (!builder->GetInsertBlock()->getTerminator()) {
+            llvm::Function* rethrow = getOrDeclareFunc("__cxa_rethrow",
+                llvm::Type::getVoidTy(*context), {});
+            if (savedUnwind) {
+                auto* rethrowUnreach = llvm::BasicBlock::Create(*context, "rethrow.unreach", fn);
+                builder->CreateInvoke(rethrow->getFunctionType(), rethrow,
+                                      rethrowUnreach, savedUnwind, {});
+                builder->SetInsertPoint(rethrowUnreach);
+            } else {
+                builder->CreateCall(rethrow, {});
+            }
+            builder->CreateUnreachable();
+        }
     }
 
-    // ── finally ───────────────────────────────────────────────────────────
+    // ── finally (normal, non-exceptional path) ─────────────────────────────
     builder->SetInsertPoint(finallyBB);
     if (node->finally) node->finally->accept(this);
     if (!builder->GetInsertBlock()->getTerminator())

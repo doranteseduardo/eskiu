@@ -33,6 +33,14 @@ void TypeChecker::visit(BinaryExpr* node) {
         std::string rt = getExpressionType(node->right.get());
         if (tyq::dropsConst(lt, rt))
             errorAt(node, "assignment discards a const qualifier ('" + rt + "' to '" + lt + "')");
+        else if (lt != "unknown" && rt != "unknown") {
+            // Type compatibility incl. narrowing (a literal that fits the target
+            // stays valid). Handled here so `=` gets the same rules as init/return.
+            std::string e = assignabilityError(lt, rt, node->right.get());
+            if (!e.empty()) errorAt(node, "assignment: " + e);
+        }
+        expressionTypes[node] = lt;
+        return;
     }
 
     std::string leftType = getExpressionType(node->left.get());
@@ -57,6 +65,18 @@ void TypeChecker::visit(BinaryExpr* node) {
         if ((isUns(l) && isSgn(r)) || (isSgn(l) && isUns(r)))
             warning(node->line, node->col, "comparison between signed and unsigned integers ('" +
                     leftType + "' and '" + rightType + "')");
+    }
+
+    // Division or remainder by a literal zero is a guaranteed runtime trap; reject
+    // it at compile time (the value is statically known).
+    if ((node->op == "/" || node->op == "%")) {
+        if (auto* l = dynamic_cast<LiteralExpr*>(node->right.get());
+            l && l->kind == LiteralExpr::Kind::INT) {
+            bool zero = true;
+            for (char c : l->value) if (c != '0' && c != '-' && c != '+') { zero = false; break; }
+            if (zero) errorAt(node, std::string(node->op == "/" ? "division" : "remainder") +
+                                    " by zero");
+        }
     }
 
     std::string resultType = inferBinaryExprType(leftType, node->op, rightType);
@@ -112,6 +132,15 @@ void TypeChecker::visit(UnaryExpr* node) {
     }
 
     std::string resultType = inferUnaryExprType(node->op, operandType);
+
+    // Address-of a const location yields a pointer *to const*, so writing through
+    // it (or assigning it to a mutable pointer) is caught by the const checks.
+    // Without this, `const int N; *int p = &N; *p = 99;` would silently mutate N.
+    if (node->op == "&" && resultType != "error") {
+        std::string dummy;
+        if (assignsToConst(node->operand.get(), dummy))
+            resultType = "const " + resultType;
+    }
 
     if (resultType == "error") {
         errorAt(node,"invalid operand for unary operator: " + operandType);
@@ -353,10 +382,10 @@ void TypeChecker::visit(CallExpr* node) {
         }
         if (i < fixedCount) {
             std::string argType = getExpressionType(node->args[i].get());
-            if (argType != "unknown" && !isValidAssignment(expectedParamTypes[i], argType)) {
+            std::string e = assignabilityError(expectedParamTypes[i], argType, node->args[i].get());
+            if (!e.empty())
                 errorAt(node,"argument " + std::to_string(i + 1) + " type mismatch: expected " +
-                            expectedParamTypes[i] + ", got " + argType);
-            }
+                            expectedParamTypes[i] + ", got " + argType + " (" + e + ")");
         }
     }
 
@@ -380,6 +409,22 @@ void TypeChecker::visit(IndexExpr* node) {
     // Array type T[N]: element is T
     size_t lb = baseType.rfind('[');
     if (lb != std::string::npos && baseType.back() == ']') {
+        // A constant index is bounds-checkable at compile time: a negative index is
+        // always out of bounds, and a literal one is checked against a numeric N.
+        if (auto* ix = dynamic_cast<LiteralExpr*>(node->index.get());
+            ix && ix->kind == LiteralExpr::Kind::INT) {
+            std::string dim = baseType.substr(lb + 1, baseType.size() - lb - 2);
+            try {
+                long long idx = std::stoll(ix->value, nullptr, 0);
+                bool dimNum = !dim.empty() &&
+                    std::all_of(dim.begin(), dim.end(), [](unsigned char c){ return std::isdigit(c); });
+                if (idx < 0)
+                    errorAt(node, "array index " + ix->value + " is out of bounds");
+                else if (dimNum && idx >= std::stoll(dim))
+                    errorAt(node, "array index " + ix->value +
+                                  " is out of bounds for array of size " + dim);
+            } catch (...) { /* unparized literal — skip */ }
+        }
         expressionTypes[node] = baseType.substr(0, lb);
         return;
     }
@@ -531,16 +576,23 @@ void TypeChecker::visit(IdentExpr* node) {
     // the variable's defining scope index, NOT functionSignatures — a param or
     // local that shadows a same-named top-level function must still be captured.
     if (!captureStack.empty() && !type.empty()) {
-        int boundary = captureBoundary.back();
         int defIdx = -1;
         for (int si = (int)scopes.size() - 1; si >= 0; --si) {
             if (scopes[si].count(node->name)) { defIdx = si; break; }
         }
         // Capture only enclosing-function scopes: index >= 1 (the global scope
-        // at 0 is module-level and accessed directly, not captured by value)
-        // and below the lambda's own boundary.
-        if (defIdx >= 1 && defIdx < boundary) {
-            captureStack.back()[node->name] = type;
+        // at 0 is module-level and accessed directly, not captured by value).
+        // A variable must be captured by EVERY enclosing lambda it is outer to,
+        // not just the innermost one, so a nested lambda's use is threaded
+        // through each intervening lambda's environment (transitive capture).
+        // Without this, an inner lambda that references a variable two scopes up
+        // would read the enclosing lambda's non-captured value and miscompile
+        // ("Referring to an instruction in another function").
+        if (defIdx >= 1) {
+            for (size_t k = 0; k < captureStack.size(); ++k) {
+                if (defIdx < captureBoundary[k])
+                    captureStack[k][node->name] = type;
+            }
         }
     }
 }
@@ -692,8 +744,10 @@ void TypeChecker::visit(TemplateCallExpr* node) {
         node->args[i]->accept(this);
         std::string expected = substType(fd->params[i].first, subs);
         std::string got      = getExpressionType(node->args[i].get());
-        if (got != "unknown" && !isValidAssignment(expected, got))
-            errorAt(node,"argument " + std::to_string(i+1) + ": expected " + expected + ", got " + got);
+        std::string e = assignabilityError(expected, got, node->args[i].get());
+        if (!e.empty())
+            errorAt(node,"argument " + std::to_string(i+1) + ": expected " + expected +
+                        ", got " + got + " (" + e + ")");
     }
 
     std::string retType = normalizeType(substType(fd->returnType, subs));

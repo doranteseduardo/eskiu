@@ -1,9 +1,9 @@
-# Eskiu 0.3.1
+# Eskiu 0.4.0
 
-A correctness and hardening release over the 0.3.0 self-hosting milestone. It fixes
-three real miscompiles (two of them exposed by the new `-O` optimization levels), adds
-a permanent gate to catch that whole class, and widens self-host test coverage. No new
-language surface.
+A correctness and type-strictness release. A four-front bug hunt across the C++ and
+self-hosted compilers found a batch of miscompiles, crashes, and soundness holes; this
+release fixes them and tightens the type system. The shipped compiler is the C++
+`eskiuc`, which carries every fix here.
 
 ---
 
@@ -34,26 +34,37 @@ cd eskiu && cmake -S . -B build && cmake --build build
 
 ## What's new
 
-**Fixed: `*T[N]` now parses as an array of pointers.** The type parser peeled a leading
-`*` before the trailing `[N]`, so `*Node[7]` became a *pointer to* `Node[7]` and lowered
-to a single opaque pointer, while indexing it assumed an array. The two disagreed and
-indexing corrupted memory (and crashed the compiler outright on a module-level array).
-`[N]` now binds outermost; a pointer *to* an array stays spellable as `Node[7]*`.
+### Miscompiles fixed
 
-**Fixed: a float-returning closure no longer miscompiles under `-O2`.** A lambda whose
-header return type disagreed with its target `fn(...)->R` type (for example an
-`int`-returning lambda assigned to `fn(int)->float`) emitted a function whose return type
-disagreed with the closure's call ABI. It was correct at `-O0` by luck and returned `0.0`
-under `-O2`. The lambda's return type is now reconciled with its target.
+- **Integer literals in [2^31, 2^32) were truncated** to 32 bits and sign-extended
+  (`int64 a = 3000000000` gave a negative value); they are now materialized as i64.
+- **`unsigned -> float` used a signed conversion**, turning a high-bit-set unsigned value
+  negative; it now uses the unsigned conversion.
+- **A catch-less `try`/`finally` aborted** when an exception passed through it (the
+  cleanup was skipped); it now runs the `finally` and propagates.
+- **A lambda nested in another lambda miscompiled** when it captured a variable two
+  scopes up; captures are now threaded through every enclosing closure.
 
-**Fixed: incompatible function-type assignments are rejected.** Assigning a function to a
-`fn(...)` slot with a different signature (say an `int`-returning function to a
-`fn(int)->float`) was silently accepted and miscompiled. It is now a compile error.
+### Compiler no longer crashes or rejects valid code
 
-**Hardening.** A new `-O0`-vs-`-O2` behavioral differential runs the whole test corpus at
-both optimization levels in CI and fails on any divergence, guarding against
-optimization-path miscompiles. Self-hosted parser parity was extended to the full corpus
-(51 to 121 files), and the event loop now initializes every fd slot's callback defensively.
+- Comparison operators now type-check their operands (a pointer-vs-int or struct-vs-struct
+  comparison used to reach codegen and assert or miscompile).
+- A `void` or `string` value assigned to an `int` (which hung or crashed) is now a clean
+  compile error.
+- `float` compared against `double`/`int` now compiles (operands are promoted).
+- `&x` of a `const` now yields a pointer to const, so writing through it is caught.
+
+### Type system tightened
+
+- **Floating-point to integer needs an explicit cast.** `int x = 3.9;` is an error; write
+  `int x = (int)3.9;`. Integer-width narrowing (`int n = strlen(s);`) and float-width
+  narrowing stay implicit, matching C.
+- **Out-of-range integer literals** (`int8 x = 300;`) and **division/remainder by a literal
+  zero** are compile errors.
+- **A constant array index proven out of bounds** is a compile error.
+- **Reading an uninitialized local**, **returning the address of a local** (a dangling
+  pointer), **redefining a function**, and **falling off the end of a non-void function**
+  are all compile errors.
 
 The full log is in [CHANGELOG.md](CHANGELOG.md).
 
@@ -61,6 +72,10 @@ The full log is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Upgrade
 
-Drop-in over 0.3.0. The one source-level change is stricter: assigning a function to a
-differently-typed `fn(...)` slot (an ABI mismatch that previously miscompiled) is now a
-compile error. Correct programs are unaffected.
+This release is stricter and may reject code that previously compiled. The likely fixes:
+
+- `int x = 3.9;` -> `int x = (int)3.9;` (floating-point to integer now needs the cast).
+- A function that falls off the end without returning, an uninitialized local read, a
+  returned address of a local, or a duplicate function definition: fix the code (these
+  were latent bugs).
+- Integer-width narrowing (`int n = strlen(s)`) still compiles unchanged.

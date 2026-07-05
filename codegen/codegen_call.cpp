@@ -652,7 +652,7 @@ void CodeGen::visit(TemplateCallExpr* node) {
         else if (v->getType()->isIntegerTy() && pt->isIntegerTy())
             args[i] = coerceInt(v, pt, i < node->args.size() && eskiuUnsigned(getExprEskiuType(node->args[i])));
         else if (v->getType()->isIntegerTy() && pt->isFloatingPointTy())
-            args[i] = builder->CreateSIToFP(v, pt);
+            args[i] = intToFloat(v, pt, i < node->args.size() && eskiuUnsigned(getExprEskiuType(node->args[i])));
         else if (v->getType()->isFloatingPointTy() && pt->isIntegerTy())
             args[i] = builder->CreateFPToSI(v, pt);
     }

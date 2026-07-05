@@ -1,0 +1,9 @@
+// EXPECT-ERROR: const
+// Taking the address of a const yields a pointer to const; writing through a
+// plain pointer obtained from it must be rejected.
+int main() {
+    const int N = 3;
+    *int p = &N;
+    *p = 99;
+    return N;
+}

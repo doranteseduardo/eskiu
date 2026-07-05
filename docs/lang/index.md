@@ -2,9 +2,12 @@
 
 Eskiu is a statically typed systems language with the power of C and the immediacy of a scripting language: it compiles to native code through LLVM, and `eskiuc run file.esk` runs a source file directly, like Python or Ruby. This is the full language reference. New to Eskiu? Start with the [tutorial](getting-started.md).
 
-**Current version: v0.3.1.** The self-hosting milestone: the compiler is reimplemented in
-Eskiu itself (`selfhost/`), reaching a 3-stage bootstrap fixpoint and a code generator
-feature-complete against the reference C++ compiler.
+**Current version: v0.4.0.** A correctness and type-strictness release: a batch of
+compiler fixes plus a tighter type system (a floating-point value needs an explicit cast
+to become an integer, out-of-range literals and division by a literal zero are errors,
+reading an uninitialized local or returning the address of one is rejected). It builds on
+the v0.3 self-hosting milestone, where the compiler is reimplemented in Eskiu itself
+(`selfhost/`), reaching a 3-stage bootstrap fixpoint.
 
 ---
 
