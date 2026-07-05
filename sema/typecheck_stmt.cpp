@@ -157,10 +157,12 @@ void TypeChecker::visit(ReturnStmt* node) {
     if (node->value) {
         node->value->accept(this);
         std::string valueType = getExpressionType(node->value.get());
-        if (valueType != "unknown" && !isValidAssignment(currentFunctionReturnType, valueType)) {
-            errorAt(node,"return type mismatch: expected " + currentFunctionReturnType +
-                        ", got " + valueType);
-        }
+        // A returned integer literal that fits the return type stays valid; other
+        // narrowing needs an explicit cast (same rule as init / assignment).
+        std::string e = assignabilityError(currentFunctionReturnType, valueType, node->value.get());
+        if (!e.empty())
+            errorAt(node, "return type mismatch: expected " + currentFunctionReturnType +
+                          ", got " + valueType + " (" + e + ")");
     } else if (currentFunctionReturnType != "void") {
         errorAt(node,"return type mismatch: expected " + currentFunctionReturnType +
                     ", got void");

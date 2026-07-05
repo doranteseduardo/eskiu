@@ -198,7 +198,11 @@ bool TypeChecker::isValidAssignment(const std::string& lhsType, const std::strin
     std::string rhs = normalizeType(rhsType);
 
     if (lhs == rhs) return true;
-    if (isNumericType(lhs) && isNumericType(rhs)) return true;
+    // Numeric: widening and same-width (incl. signedness changes) are fine; a
+    // narrowing conversion (float->int, or wider->narrower) loses information and
+    // must be an explicit cast. A literal small enough for the target is handled at
+    // the call site (it stays valid), so this type-level rule can be strict.
+    if (isNumericType(lhs) && isNumericType(rhs)) return !isNarrowingNumeric(lhs, rhs);
     if (lhs == "null" || rhs == "null") return isPointerType(lhs) || isPointerType(rhs);
 
     // Function/closure types carry a fixed call ABI (which registers hold the
@@ -228,6 +232,71 @@ bool TypeChecker::isValidAssignment(const std::string& lhsType, const std::strin
 
 bool TypeChecker::isNumericType(const std::string& type) {
     return isIntType(type) || isFloatType(type);
+}
+
+// Numeric "rank" for narrowing detection: int widths 8/16/32/64; floats sit above
+// all ints (132/164) so int->float widens and float->int narrows.
+static int numericRank(const std::string& raw) {
+    std::string t = tyq::strip(raw);
+    if (t=="bool"||t=="int8"||t=="uint8"||t=="char") return 8;
+    if (t=="int16"||t=="uint16") return 16;
+    if (t=="int"||t=="int32"||t=="uint"||t=="uint32") return 32;
+    if (t=="int64"||t=="uint64") return 64;
+    if (t=="float") return 132;
+    if (t=="double") return 164;
+    return 0;
+}
+
+bool TypeChecker::isNarrowingNumeric(const std::string& lhsType, const std::string& rhsType) {
+    if (!isNumericType(lhsType) || !isNumericType(rhsType)) return false;
+    bool lf = isFloatType(lhsType), rf = isFloatType(rhsType);
+    if (rf && !lf) return true;    // float/double -> int: truncates
+    if (!rf && lf) return false;   // int -> float/double: widening
+    return numericRank(lhsType) < numericRank(rhsType);
+}
+
+std::string TypeChecker::assignabilityError(const std::string& targetType,
+                                            const std::string& srcType, Expr* srcExpr) {
+    if (srcType == "unknown" || targetType.empty() || targetType == "unknown") return "";
+    if (isValidAssignment(targetType, srcType)) return "";
+    std::string nt = normalizeType(targetType), ns = normalizeType(srcType);
+    ty::Type lt = ty::Type::parse(nt);
+    ty::Type rt = ty::Type::parse(ns);
+    if (lt.isFn() || rt.isFn())
+        return "incompatible function type '" + srcType + "' for '" + targetType + "'";
+    if (isNumericType(nt) && isNumericType(ns)) {
+        if (srcExpr && intLiteralFits(nt, srcExpr)) return "";
+        // A float literal is polymorphic (its `double` default is only for lack of
+        // context): it adopts a float/double target without a cast.
+        if (auto* fl = dynamic_cast<LiteralExpr*>(srcExpr);
+            fl && fl->kind == LiteralExpr::Kind::FLOAT && isFloatType(nt)) return "";
+        if (auto* l = dynamic_cast<LiteralExpr*>(srcExpr); l && l->kind == LiteralExpr::Kind::INT)
+            return "integer literal " + l->value + " is out of range for '" + targetType + "'";
+        return "narrowing conversion from '" + srcType + "' to '" + targetType +
+               "' loses information; use an explicit cast";
+    }
+    if (tyq::dropsConst(targetType, srcType)) return "";   // reported by the caller's const check
+    return "cannot convert '" + srcType + "' to '" + targetType + "'";
+}
+
+bool TypeChecker::intLiteralFits(const std::string& targetType, Expr* e) {
+    auto* lit = dynamic_cast<LiteralExpr*>(e);
+    if (!lit || lit->kind != LiteralExpr::Kind::INT) return false;
+    std::string t = tyq::strip(targetType);
+    bool neg = !lit->value.empty() && lit->value[0] == '-';
+    unsigned long long mag = 0;
+    try { mag = std::stoull(neg ? lit->value.substr(1) : lit->value, nullptr, 0); }
+    catch (...) { return false; }
+    if (t == "int64" || t == "uint64") return true;      // holds any literal we parse
+    // Unsigned targets take no negative literal.
+    if (t=="bool")   return !neg && mag <= 1ULL;
+    if (t=="uint8"||t=="char") return !neg && mag <= 255ULL;
+    if (t=="uint16") return !neg && mag <= 65535ULL;
+    if (t=="uint"||t=="uint32") return !neg && mag <= 4294967295ULL;
+    if (t=="int8")   return neg ? mag <= 128ULL       : mag <= 127ULL;
+    if (t=="int16")  return neg ? mag <= 32768ULL     : mag <= 32767ULL;
+    if (t=="int"||t=="int32") return neg ? mag <= 2147483648ULL : mag <= 2147483647ULL;
+    return false;
 }
 
 bool TypeChecker::isIntType(const std::string& rawType) {

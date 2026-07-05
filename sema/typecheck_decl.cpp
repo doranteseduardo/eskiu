@@ -346,21 +346,10 @@ void TypeChecker::visit(VarDecl* node) {
         if (initType != "unknown") {
             if (tyq::dropsConst(node->type, initType))
                 errorAt(node, "cannot initialize '" + node->type + "' from '" + initType +
-                              "' — conversion discards a const qualifier");
-            else if (!isValidAssignment(node->type, initType)) {
-                // A function-type mismatch is never a valid implicit conversion (an
-                // fn value has a fixed call ABI); reject it instead of warning, or it
-                // silently miscompiles under -O2. Numeric narrowing stays a warning.
-                if (ty::Type::parse(node->type).isFn() || ty::Type::parse(initType).isFn())
-                    errorAt(node, "cannot initialize '" + node->type +
-                                  "' from incompatible function type '" + initType + "'");
-                else
-                    // An incompatible non-numeric conversion (e.g. void/string/pointer
-                    // to int) is never valid: a warning let a nonsensical value into
-                    // codegen (void->int hung the backend; string->int crashed at run
-                    // time). Match the assignment path, which already errors here.
-                    errorAt(node, "cannot initialize '" + node->type +
-                                  "' from incompatible type '" + initType + "'");
+                              "': conversion discards a const qualifier");
+            else {
+                std::string e = assignabilityError(node->type, initType, node->initializer.get());
+                if (!e.empty()) errorAt(node, "initializing '" + node->name + "': " + e);
             }
         }
     }

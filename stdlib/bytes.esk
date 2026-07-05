@@ -99,7 +99,7 @@ Bytes Bytes_slice(Bytes* self, int64 start, int64 n) {
 // Decode a base64 string into a fresh owned Bytes.
 Bytes Bytes_from_base64(string s) {
     let out: Bytes;
-    int n = strlen(s);
+    int n = (int)strlen(s);
     Bytes_init(&out, (int64)(base64_decoded_len(n) + 1));
     int got = base64_decode((*uint8)s, n, out.data);
     if (got < 0) { got = 0; }

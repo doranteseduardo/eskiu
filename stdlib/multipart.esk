@@ -30,8 +30,8 @@ int64 mp_find(*uint8 hay, int64 hlen, int64 from, *uint8 needle, int64 nlen) {
 int multipart_boundary(String* ctype, String* out) {
     String_clear(out);
     string key = "boundary=";
-    int n = ctype.len;
-    int klen = strlen(key);
+    int n = (int)ctype.len;
+    int klen = (int)strlen(key);
     int i = 0;
     while (i + klen <= n) {
         int j = 0;
@@ -61,14 +61,14 @@ int multipart_boundary(String* ctype, String* out) {
 // *out_ptr / *out_len to a slice INTO `body` (no copy). 0 if absent.
 int multipart_part(*uint8 body, int64 blen, String* boundary, string name,
                    **uint8 out_ptr, *int64 out_len) {
-    int bl = boundary.len;
+    int bl = (int)boundary.len;
     int dlen = bl + 2;
     *uint8 delim = alloc<uint8>(dlen);
     delim[0] = 45;  delim[1] = 45;
     int i = 0;  while (i < bl) { delim[2 + i] = (uint8)boundary.data[i]; i = i + 1; }
 
     // Build the "name=\"<name>\"" needle.
-    int nlen = strlen(name);
+    int nlen = (int)strlen(name);
     int needle_len = nlen + 7;                       // name="" → 6 chars + the name
     *uint8 needle = alloc<uint8>(needle_len);
     string pre = "name=\"";

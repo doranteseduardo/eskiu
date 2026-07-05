@@ -1,4 +1,4 @@
-// EXPECT-ERROR: incompatible type
+// EXPECT-ERROR: cannot convert
 // A void call has no value to initialize an int from.
 void f() {}
 int main() {

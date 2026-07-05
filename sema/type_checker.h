@@ -203,6 +203,20 @@ private:
     bool isNumericType(const std::string& type);
     bool isIntType(const std::string& type);
     bool isFloatType(const std::string& type);
+    // A numeric assignment `lhs = rhs` loses information: float/double into an int,
+    // or a wider numeric into a narrower one. Same-width signedness changes are not
+    // narrowing; int into float is widening.
+    bool isNarrowingNumeric(const std::string& lhsType, const std::string& rhsType);
+    // If `e` is an integer literal, whether its value fits `targetType`'s range
+    // (so a narrowing assignment from a literal that fits is still allowed).
+    bool intLiteralFits(const std::string& targetType, Expr* e);
+    // Central assignability check for init / `=` / return / call-argument sites.
+    // Returns "" when `srcExpr` (of type `srcType`) may be assigned to `targetType`,
+    // else a diagnostic message. A narrowing numeric conversion is rejected unless
+    // `srcExpr` is an integer literal that fits the target. (const-drop is reported
+    // by the caller's own const-specific check, so it is not repeated here.)
+    std::string assignabilityError(const std::string& targetType,
+                                   const std::string& srcType, Expr* srcExpr);
     bool isPrimitiveType(const std::string& type);
     bool isPointerType(const std::string& type);
     std::string getPointeeType(const std::string& pointerType);

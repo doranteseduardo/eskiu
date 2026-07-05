@@ -62,7 +62,7 @@ int main() {
 
     // --- Huffman encode then decode back (exercises many symbols).
     string sample = "Mozilla/5.0 (custom-agent) text/html; q=0.9";
-    int slen = strlen(sample);
+    int slen = (int)strlen(sample);
     int he = hpack_huff_encode(buf, 0, (*uint8)sample, slen);
     *uint8 dout = alloc<uint8>(128);
     let huff: HpackHuff;  hpack_huff_build(&huff);
