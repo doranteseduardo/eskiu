@@ -1,0 +1,12 @@
+// Regression: hex/octal integer literals must be normalized (LLVM IR takes only
+// decimal), and huge (> 2^63) literals must not overflow width detection.
+extern int printf(string fmt, ...);
+int main() {
+    int a = 0xFF;      // 255
+    int b = 010;       // 8 (octal)
+    int c = 0x10;      // 16
+    printf("%d %d %d\n", a, b, c);
+    uint64 big = 18000000000000000000;
+    printf("%llu\n", big);
+    return 0;
+}

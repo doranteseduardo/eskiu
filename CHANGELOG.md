@@ -10,6 +10,14 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 ## [Unreleased]
 
 ### Fixed
+- **Self-hosted back-end: several codegen bugs on edges the corpus never exercised.**
+  Logical-not (`!`) and bitwise-not (`~`) were emitted as no-ops (returning the operand
+  unchanged), silently inverting control flow; hexadecimal and octal integer literals
+  were passed through as raw source text (invalid LLVM IR for hex, wrong value for octal);
+  an integer literal above 2^63 overflowed the width scan and was emitted as a truncated
+  i32; and an array sized by a named `const` (`int[CAP]`) copied the name into the LLVM
+  array type instead of the value. All now match the C++ back-end. (The C++ compiler was
+  already correct on these.)
 - **Comparison operators did not type-check their operands.** `==`, `!=`, `<`, `>`,
   `<=`, `>=` were accepted for any pair of types (pointer vs int, struct vs struct,
   string vs int), so the checker reported success and codegen emitted a malformed

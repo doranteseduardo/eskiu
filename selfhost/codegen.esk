@@ -122,6 +122,53 @@ string cg_itoa(int n) {
     return (string)buf;
 }
 
+// Is `s` a non-empty run of decimal digits?
+int cg_all_digits(string s) {
+    if (s[0] == 0) { return 0; }
+    int i = 0;
+    while (s[i] != 0) { if ((int)s[i] < 48 || (int)s[i] > 57) { return 0; } i = i + 1; }
+    return 1;
+}
+
+// Format a uint64 as a decimal string (cg_itoa is i32-only).
+string cg_u64toa(uint64 n) {
+    if (n == 0) { return "0"; }
+    *uint8 tmp = alloc<uint8>(24);
+    int len = 0;
+    while (n > 0) { tmp[len] = (uint8)(48 + (int)(n % 10)); n = n / 10; len = len + 1; }
+    *uint8 buf = alloc<uint8>(len + 1);
+    int i = 0; while (i < len) { buf[i] = tmp[len - 1 - i]; i = i + 1; }
+    buf[len] = 0;
+    return (string)buf;
+}
+
+// Parse an integer literal (decimal, 0x/0X hex, or leading-0 octal) to its
+// uint64 magnitude, ignoring any leading '-'. LLVM textual IR only accepts
+// decimal integer constants, so callers re-render this via cg_u64toa.
+uint64 cg_int_lit_mag(string s) {
+    int k = 0;
+    if (s[k] == 45) { k = 1; }                          // skip '-'
+    let mag: uint64 = 0;
+    if (s[k] == 48 && (s[k + 1] == 120 || s[k + 1] == 88)) {   // 0x / 0X hex
+        k = k + 2;
+        while (s[k] != 0) {
+            int c = (int)s[k]; int d = 0;
+            if (c >= 48 && c <= 57) { d = c - 48; }
+            else if (c >= 97 && c <= 102) { d = c - 97 + 10; }
+            else if (c >= 65 && c <= 70) { d = c - 65 + 10; }
+            mag = mag * 16 + (uint64)d; k = k + 1;
+        }
+        return mag;
+    }
+    if (s[k] == 48 && s[k + 1] != 0) {                  // leading 0 -> octal
+        k = k + 1;
+        while (s[k] != 0) { mag = mag * 8 + (uint64)((int)s[k] - 48); k = k + 1; }
+        return mag;
+    }
+    while (s[k] != 0) { mag = mag * 10 + (uint64)((int)s[k] - 48); k = k + 1; }   // decimal
+    return mag;
+}
+
 void cg_init(Codegen* g) {
     String_init(&g.out, 1024);
     String_init(&g.globals, 256);
@@ -1073,7 +1120,12 @@ string cg_lltype(Codegen* g, string t) {
     t = cg_apply_sub(g, t);               // T -> concrete during instantiation
     t = cg_dealias(g, t);                 // type alias -> underlying type
     if (cg_is_array(t) == 1) {            // "T[N]" -> [N x <T>]
-        return cg_cat("[", cg_cat(cg_array_count(t), cg_cat(" x ",
+        string cnt = cg_array_count(t);
+        if (cg_all_digits(cnt) == 0) {    // named dimension: resolve a const/enum value
+            string rv = cg_enum_val(g, cnt);
+            if (cg_streq(rv, "") == 0) { cnt = rv; }
+        }
+        return cg_cat("[", cg_cat(cnt, cg_cat(" x ",
                        cg_cat(cg_lltype(g, cg_array_elem(t)), "]"))));
     }
     if (cg_is_ptr_ty(t) == 1) { return "ptr"; }   // top-level '*' (not one inside <...>)
@@ -1469,12 +1521,15 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
         if (e.lit_kind == LIT_BOOL) { v.ty = "i1"; }
         else if (e.lit_kind == LIT_NULL) { v.op = "null"; v.ty = "ptr"; }
         else if (e.lit_kind == LIT_FLOAT) { v.ty = "double"; }   // float literal defaults to double
-        else {                            // integer literal: i64 if it doesn't fit in 32 bits
+        else {                            // integer literal: normalize base, i64 if it won't fit signed i32
+            int neg = 0; if (e.sval[0] == 45) { neg = 1; }
+            let mag: uint64 = cg_int_lit_mag(e.sval);
+            string dec = cg_u64toa(mag);
+            if (neg == 1) { v.op = cg_cat("-", dec); } else { v.op = dec; }
             v.ty = "i32";
-            int k = 0; if (e.sval[0] == 45) { k = 1; }       // skip leading '-'
-            let mag: int64 = 0;
-            while (e.sval[k] != 0) { mag = mag * 10 + (int64)((int)e.sval[k] - 48); k = k + 1; }
-            if (mag > 2147483647) { v.ty = "i64"; }
+            let lim: uint64 = 2147483647;                 // INT32_MAX; INT32_MIN is one larger in magnitude
+            if (neg == 1) { lim = 2147483648; }
+            if (mag > lim) { v.ty = "i64"; }
         }
         return v;
     }
@@ -1548,6 +1603,20 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
                 cg_emit(g, " 0, "); cg_emit(g, a.op); cg_emit(g, "\n");
             }
             v.op = t; v.ty = a.ty; return v;
+        }
+        if (cg_streq(e.sval, "!") == 1) {                // logical not: (x == 0) -> i1
+            CgVal a = cg_expr(g, e.a);
+            string t = cg_tmp(g);
+            cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = icmp eq "); cg_emit(g, a.ty);
+            cg_emit(g, " "); cg_emit(g, a.op); cg_emit(g, ", 0\n");
+            v.op = t; v.ty = "i1"; v.ety = "bool"; return v;
+        }
+        if (cg_streq(e.sval, "~") == 1) {                // bitwise not: xor with all-ones
+            CgVal a = cg_expr(g, e.a);
+            string t = cg_tmp(g);
+            cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = xor "); cg_emit(g, a.ty);
+            cg_emit(g, " "); cg_emit(g, a.op); cg_emit(g, ", -1\n");
+            v.op = t; v.ty = a.ty; v.ety = a.ety; return v;
         }
         return cg_expr(g, e.a);
     }
@@ -3236,6 +3305,15 @@ void cg_program(Codegen* g, *Program prog) {
     while (si < n) {
         *DeclNode d = List_get<*DeclNode>(&prog.decls, si);
         if (d.kind == DK_VARDECL) {
+            // Register a `const int` initialized by a literal so a later array
+            // dimension (`int[CAP]`) and constant references can resolve its value.
+            if (d.is_const == 1 && d.init != null && d.init.kind == EK_LITERAL
+                && d.init.lit_kind == LIT_INT) {
+                let ec: CgEnumC;
+                ec.name = d.name;
+                ec.val = cg_u64toa(cg_int_lit_mag(d.init.sval));
+                List_push<CgEnumC>(&g.econsts, ec);
+            }
             string llty = cg_lltype(g, d.ret_type);
             cg_add_global(g, d.name, cg_cat("@", d.name), llty, d.ret_type);
             String_append(&g.globals, "@"); String_append(&g.globals, d.name);

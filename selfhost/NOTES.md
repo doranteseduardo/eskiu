@@ -59,6 +59,14 @@ keeps only the **durable lessons** and the **follow-ups still worth acting on**.
 
 ## Open follow-ups (worth doing, not yet done)
 
+- **Self-host codegen: `List<T>` (and generic structs) instantiated over a
+  function-pointer element type (`List<fn()->int>`) emits invalid IR.** The method
+  self-parameter is declared as the by-value struct type instead of `ptr` (a mangling /
+  by-value-vs-pointer confusion specific to a fn-ptr type argument), so clang rejects the
+  call. The C++ back-end handles it. Niche (closures are the idiom for stored callables),
+  so deferred; fix in the self-host generic-instantiation mangling. Found in the 0.4.0
+  correctness sweep.
+
 - **Keyword-as-identifier diagnostic: DONE in the C++ parser (v0.3.0).** `fn`/`in`/`match`
   (and type names) used as a variable/param/field name now report `expected a name, found
   keyword 'fn'` at the cause instead of a downstream `Expected ';'`/`Expected expression`.
