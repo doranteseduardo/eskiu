@@ -33,7 +33,7 @@ extern int64 strlen(string s);
 
 // True if a decoded header's name equals the cstring `name`.
 int h2_name_eq(HpackHeader* h, string name) {
-    int n = (int)strlen(name);
+    int n = strlen(name);
     if (h.nlen != n) { return 0; }
     return memcmp((*void)h.name, (*void)name, n) == 0;
 }
@@ -73,7 +73,7 @@ void h2_fill_request(HttpRequest* req, HpackHeader* hs, int64 n) {
 // `block` at *off, lowercasing each key (HTTP/2 requires lowercase names).
 void h2_encode_resp_headers(*uint8 block, int* off, HttpResponse* res) {
     *char data = String_cstr(&res.headers);
-    int len = (int)String_len(&res.headers);
+    int len = String_len(&res.headers);
     int i = 0;
     while (i < len) {
         int ks = i;
@@ -111,12 +111,12 @@ int h2_build_headers(*uint8 out, int stream_id, HttpResponse* res) {
 
     let st: String;  String_init(&st, 8);  String_from_int(&st, res.status);
     off = hpack_encode_header(block, off, (*uint8)":status", 7,
-                              (*uint8)String_cstr(&st), (int)String_len(&st));
+                              (*uint8)String_cstr(&st), String_len(&st));
     String_free(&st);
 
-    let cl: String;  String_init(&cl, 16);  String_from_int(&cl, (int)String_len(&res.body));
+    let cl: String;  String_init(&cl, 16);  String_from_int(&cl, String_len(&res.body));
     off = hpack_encode_header(block, off, (*uint8)"content-length", 14,
-                              (*uint8)String_cstr(&cl), (int)String_len(&cl));
+                              (*uint8)String_cstr(&cl), String_len(&cl));
     String_free(&cl);
 
     h2_encode_resp_headers(block, &off, res);
@@ -136,7 +136,7 @@ int h2_build_response(*uint8 out, int stream_id, HttpResponse* res) {
     // Body as DATA frames, each no larger than the default SETTINGS_MAX_FRAME_SIZE
     // (16384) — a single frame may not exceed it. Only the final frame carries
     // END_STREAM; an empty body still sends one empty END_STREAM frame.
-    int blen = (int)String_len(&res.body);
+    int blen = String_len(&res.body);
     *uint8 body = (*uint8)String_cstr(&res.body);
     int sent = 0;
     int more = 1;
@@ -168,7 +168,7 @@ async int h2_respond_async(EventLoop* lp, H2Conn* conn, int sid, HttpResponse* r
 
     let stream: H2Stream;
     h2_stream_init(&stream, sid, (int)conn.remote.initial_window_size, 65535);
-    int blen = (int)String_len(&res.body);
+    int blen = String_len(&res.body);
     *uint8 body = (*uint8)String_cstr(&res.body);
     *uint8 df = alloc<uint8>(16384 + 9);
     int sent = 0;
@@ -209,7 +209,7 @@ async int h2_respond_async(EventLoop* lp, H2Conn* conn, int sid, HttpResponse* r
 // Upper bound on the encoded size of a response: header block + body + a 9-byte
 // frame header per DATA chunk + slack. Callers size their buffer with this.
 int h2_response_bufsize(HttpResponse* res) {
-    int blen = (int)String_len(&res.body);
+    int blen = String_len(&res.body);
     int chunks = blen / 16384 + 2;
     return 8192 + blen + 9 * chunks + 64;
 }

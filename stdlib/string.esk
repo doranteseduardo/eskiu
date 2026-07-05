@@ -255,8 +255,8 @@ int String_next_token(String* self, char sep, *int pos, String* out) {
         String_push(out, self.data[p]);
         p = p + 1;
     }
-    if (p < self.len) { *pos = (int)(p + 1); }          // skip the separator
-    else              { *pos = (int)(self.len + 1); }   // last token; stop next call
+    if (p < self.len) { *pos = p + 1; }          // skip the separator
+    else              { *pos = self.len + 1; }   // last token; stop next call
     return 1;
 }
 

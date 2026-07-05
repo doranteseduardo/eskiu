@@ -19,7 +19,7 @@ void List_init<T>(List<T>* self, int initial_cap) {
 
 void List_push<T>(List<T>* self, T item) {
     if (self.size >= self.cap) {
-        int new_cap = (int)self.cap * 2;
+        int new_cap = self.cap * 2;
         if (new_cap < 4) new_cap = 4;
         let new_data: *T = alloc<T>(new_cap);
         int i = 0;

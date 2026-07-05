@@ -234,47 +234,36 @@ bool TypeChecker::isNumericType(const std::string& type) {
     return isIntType(type) || isFloatType(type);
 }
 
-// Numeric "rank" for narrowing detection: int widths 8/16/32/64; floats sit above
-// all ints (132/164) so int->float widens and float->int narrows.
-static int numericRank(const std::string& raw) {
-    std::string t = tyq::strip(raw);
-    if (t=="bool"||t=="int8"||t=="uint8"||t=="char") return 8;
-    if (t=="int16"||t=="uint16") return 16;
-    if (t=="int"||t=="int32"||t=="uint"||t=="uint32") return 32;
-    if (t=="int64"||t=="uint64") return 64;
-    if (t=="float") return 132;
-    if (t=="double") return 164;
-    return 0;
-}
-
 bool TypeChecker::isNarrowingNumeric(const std::string& lhsType, const std::string& rhsType) {
-    if (!isNumericType(lhsType) || !isNumericType(rhsType)) return false;
-    bool lf = isFloatType(lhsType), rf = isFloatType(rhsType);
-    if (rf && !lf) return true;    // float/double -> int: truncates
-    if (!rf && lf) return false;   // int -> float/double: widening
-    return numericRank(lhsType) < numericRank(rhsType);
+    // C-aligned: integer-width narrowing (int64 -> int, int -> uint8) and float-width
+    // narrowing (double -> float) are implicit, as in C. The one conversion Eskiu
+    // rejects is float/double -> integer, which silently drops the fractional part
+    // (`int x = 3.9` giving 3) -- the case C itself flags under -Wall. An out-of-range
+    // integer *literal* is caught separately at the assignment sites.
+    return isFloatType(rhsType) && isIntType(lhsType);
 }
 
 std::string TypeChecker::assignabilityError(const std::string& targetType,
                                             const std::string& srcType, Expr* srcExpr) {
     if (srcType == "unknown" || targetType.empty() || targetType == "unknown") return "";
-    if (isValidAssignment(targetType, srcType)) return "";
     std::string nt = normalizeType(targetType), ns = normalizeType(srcType);
+    // An integer literal that provably does not fit the target is rejected even though
+    // integer-width narrowing is otherwise implicit (its value is statically known).
+    if (isIntType(nt))
+        if (auto* l = dynamic_cast<LiteralExpr*>(srcExpr);
+            l && l->kind == LiteralExpr::Kind::INT && !intLiteralFits(nt, srcExpr))
+            return "integer literal " + l->value + " is out of range for '" + targetType + "'";
+    if (isValidAssignment(targetType, srcType)) return "";
     ty::Type lt = ty::Type::parse(nt);
     ty::Type rt = ty::Type::parse(ns);
     if (lt.isFn() || rt.isFn())
         return "incompatible function type '" + srcType + "' for '" + targetType + "'";
-    if (isNumericType(nt) && isNumericType(ns)) {
-        if (srcExpr && intLiteralFits(nt, srcExpr)) return "";
-        // A float literal is polymorphic (its `double` default is only for lack of
-        // context): it adopts a float/double target without a cast.
-        if (auto* fl = dynamic_cast<LiteralExpr*>(srcExpr);
-            fl && fl->kind == LiteralExpr::Kind::FLOAT && isFloatType(nt)) return "";
-        if (auto* l = dynamic_cast<LiteralExpr*>(srcExpr); l && l->kind == LiteralExpr::Kind::INT)
-            return "integer literal " + l->value + " is out of range for '" + targetType + "'";
-        return "narrowing conversion from '" + srcType + "' to '" + targetType +
-               "' loses information; use an explicit cast";
-    }
+    // The only remaining numeric mismatch is float/double -> integer: it drops the
+    // fractional part, so require an explicit cast (integer/float-width narrowing is
+    // allowed by isValidAssignment above, C-style).
+    if (isNumericType(nt) && isNumericType(ns))
+        return "cannot assign a floating-point value ('" + srcType + "') to integer type '" +
+               targetType + "' without an explicit cast (it drops the fraction)";
     if (tyq::dropsConst(targetType, srcType)) return "";   // reported by the caller's const check
     return "cannot convert '" + srcType + "' to '" + targetType + "'";
 }
