@@ -23,6 +23,7 @@ bool TypeChecker::check(Program* program) {
     errors.clear();
 
     // First pass: register all struct declarations and function signatures
+    std::set<std::string> definedFnBodies;   // names of functions WITH a body, for redefinition
     for (const auto& decl : program->declarations) {
         if (auto enumDecl = dynamic_cast<EnumDecl*>(decl.get())) {
             enumTypes.insert(enumDecl->name);
@@ -95,6 +96,13 @@ bool TypeChecker::check(Program* program) {
             if (funcDecl->isAsync)
                 sigRet = "*Future<" + (funcDecl->returnType == "void" ? std::string("uint8")
                                                                       : funcDecl->returnType) + ">";
+            // A second *definition* (body) of the same name is a redefinition; a
+            // body-less forward declaration alongside one definition is fine.
+            if (funcDecl->body) {
+                if (definedFnBodies.count(funcDecl->name))
+                    errorAt(funcDecl, "redefinition of function '" + funcDecl->name + "'");
+                definedFnBodies.insert(funcDecl->name);
+            }
             defineFunction(funcDecl->name, sigRet, paramTypes);
             functionParamEscaping[funcDecl->name] = funcDecl->paramEscaping;
         } else if (auto externDecl = dynamic_cast<ExternDecl*>(decl.get())) {
