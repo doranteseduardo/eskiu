@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Language spec · Eskiu docs</title>
-  <meta name="description" content="Version: v0.3.1" />
+  <meta name="description" content="Version: v0.4.0" />
   <link rel="canonical" href="https://eskiu-lang.org/docs/spec.html" />
   <link rel="icon" type="image/png" href="../../assets/logo.png" />
   <style>*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -73,7 +73,7 @@ body { background: var(--bg); color: var(--ink); font-family: var(--sans);
     <nav class="docnav"><a href="index.html">Overview</a><a href="getting-started.html">Getting started</a><a href="spec.html" class="active">Spec</a><a href="grammar.html">Grammar</a><a href="build.html">Tooling</a><a href="glossary.html">Glossary</a><a href="internals.html">Internals →</a></nav>
     <div class="content">
 <h1 id="eskiu-language-specification">Eskiu Language Specification</h1>
-<p><strong>Version:</strong> v0.3.1</p>
+<p><strong>Version:</strong> v0.4.0</p>
 <hr>
 <h2 id="1-overview">1. Overview</h2>
 <p>Eskiu is a statically typed, compiled systems language. It lowers to native code through LLVM, manages memory explicitly (no garbage collector), and interoperates directly with C. A <code>.esk</code> file can also be run on the spot with <code>eskiuc run</code> (or a <code>#!/usr/bin/env eskiuc run</code> shebang), so the same source is both a compiled artifact and a runnable script. This document is the language reference: syntax, type system, semantics, and ABI.</p>
@@ -362,7 +362,33 @@ int n = (int)x;        // truncates to 3
 uint8 b = (uint8)n;
 float f = (float)n;
 </code></pre>
-<p>No implicit narrowing or widening conversions are performed. An explicit cast is required when the source and destination types differ.</p>
+<h3 id="39-numeric-conversions">3.9 Numeric Conversions</h3>
+<p>Numeric conversions in assignment, initialization, <code>return</code>, and call arguments follow
+C, with one exception. Implicit (no cast needed):</p>
+<ul>
+<li><strong>Widening</strong>: <code>int8</code> to <code>int</code>, <code>int</code> to <code>int64</code>, <code>int</code> to <code>float</code>, and so on.</li>
+<li><strong>Integer-width narrowing</strong>: <code>int64</code> to <code>int</code>, <code>int</code> to <code>uint8</code>. The value is truncated
+  (as in C); write a cast when the truncation is not what you want.</li>
+<li><strong>Float-width narrowing</strong>: <code>double</code> to <code>float</code>.</li>
+</ul>
+<p>The one conversion that requires an explicit cast:</p>
+<ul>
+<li><strong>Floating-point to integer</strong> (<code>double</code>/<code>float</code> to any integer). It drops the
+  fractional part, so it must be written out: <code>int n = (int)3.9;</code> gives <code>3</code>; <code>int n =
+  3.9;</code> is a compile error.</li>
+</ul>
+<p>Two statically-known mistakes are also compile errors:</p>
+<ul>
+<li>An <strong>integer literal that does not fit</strong> its target type: <code>int8 x = 300;</code> (300 is
+  outside <code>int8</code>'s range). A literal that fits is fine: <code>uint8 c = 255;</code>.</li>
+<li><strong>Division or remainder by a literal zero</strong>: <code>x / 0</code>, <code>x % 0</code>.</li>
+</ul>
+<pre><code class="language-eskiu">int64 big = strlen(s);   // ok: no cast needed for the length
+int   n   = strlen(s);   // ok: int64 to int truncates, as in C
+int   x   = (int)3.9;    // ok: explicit
+int   y   = 3.9;         // error: floating-point to integer needs a cast
+int8  z   = 300;         // error: literal out of range for int8
+</code></pre>
 <hr>
 <h2 id="4-variables">4. Variables</h2>
 <h3 id="41-let-style-declaration">4.1 let-style Declaration</h3>
@@ -804,6 +830,22 @@ int is_odd(int n) {
     if (n == 0) { return 0; }
     return is_even(n - 1);
 }
+</code></pre>
+<p><strong>A non-void function must return a value on every path.</strong> Letting control fall
+off the end of the body is a compile error (<code>missing return in non-void
+function</code>). There is no implicit zero return, and the last expression in the body
+is not treated as the result. A function whose body provably cannot fall through
+satisfies the rule without a trailing <code>return</code>: for example one that ends in an
+<code>if</code>/<code>else</code> where both branches return, an exhaustive <code>switch</code>/<code>match</code> where every
+arm returns, or an infinite <code>while (1)</code> loop with no <code>break</code>.</p>
+<pre><code class="language-eskiu">int classify(int x) {
+    if (x &lt; 0) { return 0; }
+    else       { return 1; }
+}                              // ok: every path returns
+
+int bad(int x) {
+    if (x &lt; 0) { return 0; }
+}                              // error: missing return (x &gt;= 0 falls through)
 </code></pre>
 <h3 id="62-void-functions">6.2 Void Functions</h3>
 <pre><code class="language-eskiu">void log_event(string msg) {
