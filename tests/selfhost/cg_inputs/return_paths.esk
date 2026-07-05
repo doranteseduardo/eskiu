@@ -1,0 +1,28 @@
+// Definite-return analysis: functions that return on every path must be
+// accepted by both compilers and behave identically. Exercises if/else,
+// an infinite loop that returns from inside, and a switch with a default.
+
+int classify(int x) {
+    if (x < 0) { return 0; }
+    else       { return 1; }
+}
+
+int first_hit(int start) {
+    int i = start;
+    while (1) {
+        if (i > 3) { return i; }
+        i = i + 1;
+    }
+}
+
+int pick(int k) {
+    switch (k) {
+        case 1:  { return 10; }
+        case 2:  { return 20; }
+        default: { return 30; }
+    }
+}
+
+int main() {
+    return classify(-5) + classify(9) + first_hit(0) + pick(2);
+}

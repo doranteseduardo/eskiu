@@ -31,12 +31,15 @@ each gated against the C++ oracle that v0.3.0 established.
 These are the known soft spots from self-hosting. They become *user-facing* the
 moment the Eskiu compiler is primary, so they are prerequisites, not afterthoughts.
 
-- **R1: async `for-in` element typing.** `async_lower.esk` currently resolves the
-  loop element type with a local heuristic (array `T[N]` → `xs[i]`; list-like →
-  `xs.data[i]`) rather than a sema-stamped type. Before the flip, have sema stamp
-  the iterable's element type and have the lowering consume it, so an unusual
-  iterable can't miscompile a coroutine. Gate: the async corpus (19/19) stays green
-  with the heuristic removed.
+- **R1: async `for-in` element typing. Miscompile FIXED (0.4.0); refactor still open.**
+  `async_lower.esk` resolves the loop element type structurally (array `T[N]` → `xs[i]`;
+  list-like → `xs.data[i]`). The bug was that a generic container (`List<T>`, T != int)
+  fell through to a default of `int`, truncating elements or emitting invalid IR; the
+  desugar now substitutes the container's type argument (`al_generic_data_elem`), matching
+  the C++ back-end (verified via `cg_inputs/async_forin_generic.esk`). The cleaner
+  end-state, still open, is for sema to STAMP the element type (as the C++
+  `resolvedElemType` does) and the lowering to consume it, removing the structural
+  heuristic entirely. Not a correctness blocker anymore, but a maintainability item.
 - **R2: parse-parity corpus coverage. DONE (v0.3.1).** `parse_main` now preprocesses
   the top-level file (matching the C++ `--test-parser`, which folds preprocessing into
   the lexer), with `g_pp_os=""` and an empty `__FILE__` to mirror `loadProgram` exactly.

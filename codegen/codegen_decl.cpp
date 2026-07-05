@@ -290,7 +290,7 @@ void CodeGen::visit(VarDecl* node) {
                 if (val->getType()->isIntegerTy() && declType->isIntegerTy()) {
                     val = coerceInt(val, declType, eskiuUnsigned(getExprEskiuType(node->initializer)));
                 } else if (val->getType()->isIntegerTy() && declType->isFloatingPointTy()) {
-                    val = builder->CreateSIToFP(val, declType);
+                    val = intToFloat(val, declType, eskiuUnsigned(getExprEskiuType(node->initializer)));
                 } else if (val->getType()->isFloatingPointTy() && declType->isIntegerTy()) {
                     val = builder->CreateFPToSI(val, declType);
                 } else if (val->getType()->isFloatingPointTy() && declType->isFloatingPointTy()) {

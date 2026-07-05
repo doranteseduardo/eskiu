@@ -1,0 +1,13 @@
+// EXPECT-ERROR: missing return in non-void function
+// An `if` with no `else` can fall through, so a function that ends in one does
+// not return on every path.
+
+int sign(int x) {
+    if (x > 0) { return 1; }
+    if (x < 0) { return -1; }
+    // falls through when x == 0
+}
+
+int main() {
+    return sign(0);
+}

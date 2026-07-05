@@ -199,6 +199,44 @@ string al_deref(string t) {
     return null;
 }
 
+// For a generic container instantiation like "List<double>", resolve the element
+// type of its `data` field (`*T`) by substituting the type argument for the
+// template's type parameter. Returns "" when `sn` is not a resolvable generic.
+// Without this, an async `for (v in xs)` over a `List<T>` (T != int) defaulted the
+// element type to `int` and miscompiled the loop body.
+string al_generic_data_elem(*Program prog, string sn) {
+    int lt = 0; while (sn[lt] != 0 && (int)sn[lt] != 60) { lt = lt + 1; }   // find '<'
+    if (sn[lt] == 0) { return ""; }                                        // not generic
+    string base = al_substr(sn, 0, lt);
+    List<string> args; List_init<string>(&args, 2);
+    int i = lt + 1; int start = i; int depth = 1;
+    while (sn[i] != 0 && depth > 0) {
+        int ch = (int)sn[i];
+        if (ch == 60) { depth = depth + 1; }
+        else if (ch == 62) { depth = depth - 1; if (depth == 0) { List_push<string>(&args, al_substr(sn, start, i)); } }
+        else if (ch == 44 && depth == 1) { List_push<string>(&args, al_substr(sn, start, i)); start = i + 1; }
+        i = i + 1;
+    }
+    *DeclNode sd = al_find_struct(prog, base);
+    if (sd == null) { return ""; }
+    string dft = "";
+    int k = 0; while (k < List_len<Param>(&sd.params)) {
+        Param p = List_get<Param>(&sd.params, k);
+        if (str_eq(p.name, "data") == 1) { dft = p.ty; }
+        k = k + 1;
+    }
+    if (dft[0] == 0) { return ""; }
+    string elem = al_deref(dft);                                           // "*T" -> "T"
+    int tpi = 0; while (tpi < List_len<TypeParam>(&sd.type_params)) {
+        TypeParam tp = List_get<TypeParam>(&sd.type_params, tpi);
+        if (str_eq(tp.name, elem) == 1 && tpi < List_len<string>(&args)) {
+            return List_get<string>(&args, tpi);
+        }
+        tpi = tpi + 1;
+    }
+    return elem;                                                           // concrete data element
+}
+
 // ── The transform ─────────────────────────────────────────────────────────────
 // Shared state-graph context, threaded by pointer through the recursive lowering.
 struct AlCtx {
@@ -526,9 +564,14 @@ void al_desugar_items(*AlCtx c, List<*StmtNode>* inp, List<*StmtNode>* out) {
             elemE = al_index(mk_ident(itname), mk_ident(fi));
         } else {                                       // list-like struct (data/size)
             string sn = al_deref(ty);
-            *DeclNode sd = al_find_struct(c.prog, sn);
-            if (sd != null) {
-                int k = 0; while (k < List_len<Param>(&sd.params)) { Param p = List_get<Param>(&sd.params, k); if (str_eq(p.name, "data") == 1) { elemTy = al_deref(p.ty); } k = k + 1; }
+            string gelem = al_generic_data_elem(c.prog, sn);   // generic List<T>: substitute T
+            if (gelem[0] != 0) {
+                elemTy = gelem;
+            } else {
+                *DeclNode sd = al_find_struct(c.prog, sn);
+                if (sd != null) {
+                    int k = 0; while (k < List_len<Param>(&sd.params)) { Param p = List_get<Param>(&sd.params, k); if (str_eq(p.name, "data") == 1) { elemTy = al_deref(p.ty); } k = k + 1; }
+                }
             }
             lengthE = al_member(mk_ident(itname), "size");
             elemE = al_index(al_member(mk_ident(itname), "data"), mk_ident(fi));

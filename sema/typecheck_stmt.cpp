@@ -156,11 +156,27 @@ void TypeChecker::visit(ForStmt* node) {
 void TypeChecker::visit(ReturnStmt* node) {
     if (node->value) {
         node->value->accept(this);
-        std::string valueType = getExpressionType(node->value.get());
-        if (valueType != "unknown" && !isValidAssignment(currentFunctionReturnType, valueType)) {
-            errorAt(node,"return type mismatch: expected " + currentFunctionReturnType +
-                        ", got " + valueType);
+        // Returning the address of a local or parameter yields a dangling pointer
+        // (its stack frame is gone on return). Flag the clear case `return &x` where
+        // x is a local/param; `&(*ptr)` or `&ptrParam.field` point into caller memory
+        // and are fine, so they are not flagged.
+        if (auto* u = dynamic_cast<UnaryExpr*>(node->value.get()); u && u->op == "&") {
+            if (auto* id = dynamic_cast<IdentExpr*>(u->operand.get())) {
+                int defIdx = -1;
+                for (int si = (int)scopes.size() - 1; si >= 0; --si)
+                    if (scopes[si].count(id->name)) { defIdx = si; break; }
+                if (defIdx >= 1)   // a function-scope local/param, not a global (index 0)
+                    errorAt(node, "returning the address of local '" + id->name +
+                                  "' (dangling pointer)");
+            }
         }
+        std::string valueType = getExpressionType(node->value.get());
+        // A returned integer literal that fits the return type stays valid; other
+        // narrowing needs an explicit cast (same rule as init / assignment).
+        std::string e = assignabilityError(currentFunctionReturnType, valueType, node->value.get());
+        if (!e.empty())
+            errorAt(node, "return type mismatch: expected " + currentFunctionReturnType +
+                          ", got " + valueType + " (" + e + ")");
     } else if (currentFunctionReturnType != "void") {
         errorAt(node,"return type mismatch: expected " + currentFunctionReturnType +
                     ", got void");

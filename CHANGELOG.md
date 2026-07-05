@@ -1,9 +1,124 @@
+
 # Changelog
 
 All notable changes to Eskiu are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
+
+---
+
+## [0.4.0], 2026-07-05
+
+A correctness and type-strictness release. A four-front bug hunt (behavioral
+differential, sema soundness, synthesized-default audit, feature edges) across the C++
+and self-hosted compilers found a batch of miscompiles, crashes, and soundness holes;
+this release fixes them and tightens the type system. The shipped (C++) compiler carries
+every fix below; the self-hosted compiler's matching sema checks are tracked for the
+promotion track.
+
+### Fixed
+- **A catch-less `try`/`finally` aborted when an exception passed through it.** With an
+  in-flight exception, the `finally` block was skipped and the runtime aborted
+  (`std::terminate`) instead of running the cleanup and propagating the exception. The
+  exceptional path now runs `finally` and re-raises via `__cxa_rethrow` (as an invoke
+  when an enclosing `try` can catch it), so `try { throw } finally { cleanup }` inside a
+  caller's `try`/`catch` runs the cleanup and is caught.
+- **A lambda nested inside another lambda miscompiled when it captured a variable two
+  scopes up.** The capture was recorded only on the innermost lambda, so the enclosing
+  lambda did not thread it through its environment and codegen referenced a value from
+  another function (`Referring to an instruction in another function`). Captures are now
+  propagated to every enclosing lambda they are outer to.
+- **Self-hosted back-end: several codegen bugs on edges the corpus never exercised.**
+  Logical-not (`!`) and bitwise-not (`~`) were emitted as no-ops (returning the operand
+  unchanged), silently inverting control flow; hexadecimal and octal integer literals
+  were passed through as raw source text (invalid LLVM IR for hex, wrong value for octal);
+  an integer literal above 2^63 overflowed the width scan and was emitted as a truncated
+  i32; and an array sized by a named `const` (`int[CAP]`) copied the name into the LLVM
+  array type instead of the value. All now match the C++ back-end. (The C++ compiler was
+  already correct on these.)
+- **Self-hosted back-end: an async `for-in` over a generic `List<T>` (T != int)
+  miscompiled.** The loop-desugar defaulted the element type to `int` when the iterable
+  was a generic container, so `for (v in xs)` over a `List<double>`/`List<int64>`
+  truncated each element (and emitted invalid IR for `List<Struct>`). The desugar now
+  resolves the element type by substituting the container's type argument, matching the
+  C++ back-end. (Residual R1 in `PROMOTION_PLAN.md`.)
+- **Self-hosted back-end: exceptions were mishandled.** A catch-less `try`/`finally`
+  swallowed an in-flight exception (running cleanup but then continuing as if caught), and
+  a `throw` from inside a catch handler that had to cross a function boundary was lost
+  (the runtime terminated). The self-host now runs `finally` and re-raises via
+  `__cxa_rethrow` on the exceptional path, and names a rethrown value's type from its LLVM
+  type when it cannot be resolved structurally, matching the C++ back-end.
+- **Comparison operators did not type-check their operands.** `==`, `!=`, `<`, `>`,
+  `<=`, `>=` were accepted for any pair of types (pointer vs int, struct vs struct,
+  string vs int), so the checker reported success and codegen emitted a malformed
+  comparison (an assertion under an assertions build, a miscompile otherwise). They
+  now require mutually comparable operands: both numeric, both pointer-like (including
+  `null`), or the same non-aggregate type. Enum, pointer, and `null` comparisons are
+  unaffected.
+- **Incompatible non-numeric variable initializers were only a warning.** `int x =
+  f();` where `f` returns `void` let a non-value into codegen and hung the back-end;
+  `int x = "hello";` crashed at run time. Both are now compile errors, matching the
+  assignment path.
+- **Taking the address of a `const` produced a mutable pointer.** `const int N; *int
+  p = &N; *p = 99;` silently mutated `N`. `&` of a const location now yields a pointer
+  to const, so writing through it (or assigning it to a plain pointer) is rejected.
+- **`float` compared against `double` or `int` failed to compile.** The comparison
+  operators did not promote a mixed float/int (or float/double) pair to a common
+  float type, so LLVM rejected the `fcmp`. They now promote like the arithmetic
+  operators do.
+- **Integer literals in [2^31, 2^32) were truncated to i32 and sign-extended.** A
+  decimal literal such as `3000000000` assigned to an `int64` materialized as a
+  32-bit constant (high bit set), then sign-extended to a negative value
+  (`-1294967296`). The codegen now widens any literal that does not fit a *signed*
+  i32 to i64 (matching the self-host), so large literals keep their value.
+- **`unsigned -> float` conversions used signed `SIToFP`.** A high-bit-set unsigned
+  value (for example `uint32 4000000000`) converted to a negative float. Integer to
+  float conversion now selects `UIToFP` vs `SIToFP` by the source's signedness, in
+  both back-ends (routed through a single `intToFloat` helper on the C++ side).
+- **A generic (template) function could fall off the end without returning.** The
+  missing-return analysis skipped template bodies, so a generic like
+  `T pick<T>(T a, int c) { if (c > 0) { return a; } }` compiled (returning a synthesized
+  zero under the C++ back-end, crashing under the self-host). The definite-return check
+  now runs on template bodies too.
+
+### Changed
+- **Assigning a floating-point value to an integer needs an explicit cast.** `int x =
+  3.9;` (or any `float`/`double` into an integer) is rejected, because it silently drops
+  the fraction. Write the cast to keep it: `int x = (int)3.9;`. Integer-width narrowing
+  (`int n = strlen(s);`, `int64` into `int`, `int` into `uint8`) and float-width
+  narrowing (`float f = aDouble;`) stay implicit, matching C. This is the one numeric
+  conversion C itself flags under `-Wall`.
+- **An integer literal that does not fit its target type is a compile error.** `int8 x
+  = 300;` (out of `int8`'s range) is rejected rather than silently wrapping to 44.
+- **Division or remainder by a literal zero is a compile error.** `x / 0` and `x % 0`
+  are rejected at compile time instead of trapping at run time.
+- **A constant array index proven out of bounds is a compile error.** `int[3] a; a[5]`
+  (or a negative constant index) is rejected.
+- **Reading an uninitialized scalar local is a compile error.** `int x; return x;` (and
+  calling a fn-pointer that was never assigned) is rejected by a conservative
+  definite-assignment check over the function's straight-line prefix; taking `&x` or
+  assigning `x` first clears it, and branchy code is never a false positive.
+- **Returning the address of a local is a compile error.** `*int f() { int x; return &x; }`
+  is a dangling pointer and is rejected (`&(*ptr)`/`&ptrParam.field`, which point into
+  caller memory, are still fine).
+- **Redefining a function is a compile error.** Two definitions of the same name are
+  rejected (a body-less forward declaration alongside one definition is still allowed).
+- **`main` must return `int`.** Its return value is the process exit code, so `void
+  main()` (which left the exit code as an undefined, platform-dependent register value) is
+  rejected; write `int main() { ... }`.
+- **Falling off the end of a non-void function is now a compile error.** A non-void
+  function that returned on no path still compiled before: the C++ back-end
+  synthesized an implicit `ret 0`/`ret null`, so `int add(int a, int b) { int r = a
+  + b; }` silently returned 0 rather than the computed value, and the last
+  expression was never the result. The self-hosted back-end emitted `unreachable`
+  for the same code, so the two compilers disagreed and the self-host build crashed
+  (SIGILL) on a program the C++ build ran cleanly. Both now reject it in sema with
+  `missing return in non-void function`, via a definite-return analysis. `void`
+  functions may still fall off the end, `async` functions complete their future
+  implicitly, and a body that provably cannot fall through needs no trailing
+  `return` (an `if`/`else` where both branches return, an exhaustive `switch`/`match`
+  where every arm returns, or an infinite `while (1)` with no `break`).
 
 ---
 

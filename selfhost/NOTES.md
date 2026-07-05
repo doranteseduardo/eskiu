@@ -42,7 +42,30 @@ keeps only the **durable lessons** and the **follow-ups still worth acting on**.
   shipping. Attributes are a real analysis task (tracked in `PROMOTION_PLAN.md`), not a quick
   add.
 
+- **The two back-ends can silently disagree on a synthesized default, and the corpus sweep
+  will not catch it.** A non-void function that fell off the end compiled under both, but the
+  C++ back-end synthesized `ret 0`/`ret null` (so it ran, returning zero) while the self-host
+  emitted `unreachable` (so it crashed with SIGILL). The feature-complete `cg_parity` sweep
+  stayed green because every corpus program had explicit returns, so nothing exercised the
+  fall-through terminator. The fix was to make the *language* define the case (missing return
+  in a non-void function is now a sema error in both compilers, via a definite-return
+  analysis) rather than leave each back-end to invent a default. Lessons: (1) any
+  compiler-synthesized construct (a default terminator, an implicit conversion, a zero-init)
+  is a place the two implementations can drift, so pin the semantic in a *shared front-end
+  pass*, not in each back-end; (2) a clean whole-corpus sweep proves parity only for inputs
+  the corpus contains: it says nothing about the edges (fall-through, empty match, zero-trip
+  loop) no program happens to hit, which is exactly where P3 needs adversarial inputs, not
+  just the existing files.
+
 ## Open follow-ups (worth doing, not yet done)
+
+- **Self-host codegen: `List<T>` (and generic structs) instantiated over a
+  function-pointer element type (`List<fn()->int>`) emits invalid IR.** The method
+  self-parameter is declared as the by-value struct type instead of `ptr` (a mangling /
+  by-value-vs-pointer confusion specific to a fn-ptr type argument), so clang rejects the
+  call. The C++ back-end handles it. Niche (closures are the idiom for stored callables),
+  so deferred; fix in the self-host generic-instantiation mangling. Found in the 0.4.0
+  correctness sweep.
 
 - **Keyword-as-identifier diagnostic: DONE in the C++ parser (v0.3.0).** `fn`/`in`/`match`
   (and type names) used as a variable/param/field name now report `expected a name, found

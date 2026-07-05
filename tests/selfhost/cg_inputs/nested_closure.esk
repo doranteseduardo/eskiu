@@ -1,0 +1,12 @@
+// A lambda nested inside another lambda may capture a variable two scopes up;
+// the capture must be threaded through the intermediate lambda's environment.
+extern int printf(string fmt, ...);
+int main() {
+    int a = 10;
+    let outer: fn(int)->int = int (int x) {
+        let inner: fn(int)->int = int (int y) { return a + x + y; };
+        return inner(3);
+    };
+    printf("%d\n", outer(5));   // 10 + 5 + 3 = 18
+    return 0;
+}

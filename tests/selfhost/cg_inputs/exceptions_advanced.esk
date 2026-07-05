@@ -1,0 +1,22 @@
+// Regression: a catch-less try/finally must run cleanup then propagate; a throw
+// from inside a catch handler must cross the function boundary to an outer catch.
+extern int printf(string fmt, ...);
+
+void inner() {
+    try { throw 5; }
+    finally { printf("cleanup\n"); }
+}
+
+void mid() {
+    try { throw 7; }
+    catch (int c) { printf("caught %d\n", c); throw c + 1; }
+}
+
+int main() {
+    try { inner(); }
+    catch (int c) { printf("caught %d\n", c); }
+    try { mid(); }
+    catch (int c) { printf("outer %d\n", c); }
+    printf("done\n");
+    return 0;
+}

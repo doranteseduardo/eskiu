@@ -27,7 +27,8 @@ fi
 # Grows per slice; the rest are reported as skipped.
 HANDLED="undefined_var arg_count undefined_type await_outside_async async_no_await switch_dup_case unknown_intrinsic undefined_field match_duplicate match_nonexhaustive
          const_reassign const_no_init const_field const_ptr_write const_ptr_drop
-         trait_unsatisfied trait_primitive_unsat question_bad_return escaping_param"
+         trait_unsatisfied trait_primitive_unsat question_bad_return escaping_param
+         missing_return missing_return_if"
 HANDLED="$(echo $HANDLED)"   # collapse the multi-line list to single spaces for matching
 
 DRIVER=selfhost/tc_main.esk

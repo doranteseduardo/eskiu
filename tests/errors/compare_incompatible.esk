@@ -1,0 +1,8 @@
+// EXPECT-ERROR: invalid operands
+// Comparing a pointer to an integer is not allowed.
+int main() {
+    int a = 3;
+    *int p = &a;
+    if (p == 3) { return 1; }
+    return 0;
+}

@@ -1,6 +1,6 @@
 # Eskiu Language Specification
 
-**Version:** v0.3.1
+**Version:** v0.4.0
 
 ---
 
@@ -269,7 +269,35 @@ uint8 b = (uint8)n;
 float f = (float)n;
 ```
 
-No implicit narrowing or widening conversions are performed. An explicit cast is required when the source and destination types differ.
+### 3.9 Numeric Conversions
+
+Numeric conversions in assignment, initialization, `return`, and call arguments follow
+C, with one exception. Implicit (no cast needed):
+
+- **Widening**: `int8` to `int`, `int` to `int64`, `int` to `float`, and so on.
+- **Integer-width narrowing**: `int64` to `int`, `int` to `uint8`. The value is truncated
+  (as in C); write a cast when the truncation is not what you want.
+- **Float-width narrowing**: `double` to `float`.
+
+The one conversion that requires an explicit cast:
+
+- **Floating-point to integer** (`double`/`float` to any integer). It drops the
+  fractional part, so it must be written out: `int n = (int)3.9;` gives `3`; `int n =
+  3.9;` is a compile error.
+
+Two statically-known mistakes are also compile errors:
+
+- An **integer literal that does not fit** its target type: `int8 x = 300;` (300 is
+  outside `int8`'s range). A literal that fits is fine: `uint8 c = 255;`.
+- **Division or remainder by a literal zero**: `x / 0`, `x % 0`.
+
+```eskiu
+int64 big = strlen(s);   // ok: no cast needed for the length
+int   n   = strlen(s);   // ok: int64 to int truncates, as in C
+int   x   = (int)3.9;    // ok: explicit
+int   y   = 3.9;         // error: floating-point to integer needs a cast
+int8  z   = 300;         // error: literal out of range for int8
+```
 
 ---
 
@@ -560,6 +588,25 @@ int is_odd(int n) {
 }
 ```
 
+**A non-void function must return a value on every path.** Letting control fall
+off the end of the body is a compile error (`missing return in non-void
+function`). There is no implicit zero return, and the last expression in the body
+is not treated as the result. A function whose body provably cannot fall through
+satisfies the rule without a trailing `return`: for example one that ends in an
+`if`/`else` where both branches return, an exhaustive `switch`/`match` where every
+arm returns, or an infinite `while (1)` loop with no `break`.
+
+```eskiu
+int classify(int x) {
+    if (x < 0) { return 0; }
+    else       { return 1; }
+}                              // ok: every path returns
+
+int bad(int x) {
+    if (x < 0) { return 0; }
+}                              // error: missing return (x >= 0 falls through)
+```
+
 ### 6.2 Void Functions
 
 ```eskiu
@@ -569,6 +616,10 @@ void log_event(string msg) {
 ```
 
 A `void` function may use `return;` with no operand or allow control to fall off the end of the body.
+
+The one function that may not be `void` is `main`: its return value is the process exit
+code, so it must return `int` (`int main()` or `int main(int argc, string* argv)`). A
+`void main()` is a compile error.
 
 ### 6.3 Variadic Functions
 

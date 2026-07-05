@@ -113,7 +113,7 @@ Everything in the feature table above ships in v0.1.0: the full systems language
 
 The theme is making Eskiu a practical language for concurrent backend services:
 real async I/O, an HTTP stack, and the everyday stdlib + tooling that adoption
-needs. v0.1.0 is frozen at its tag; v0.2.0 shipped the items below. The current release is **v0.3.1**: the self-hosting milestone (see the v0.3 section below).
+needs. v0.1.0 is frozen at its tag; v0.2.0 shipped the items below. The current release is **v0.4.0**: a correctness + type-strictness release over the v0.3 self-hosting milestone (see the sections below).
 
 Tracking checklist (checked = landed on `develop`).
 
@@ -245,6 +245,18 @@ A hardening release over the self-hosting milestone. No new language surface.
 - [x] libc `size_t` externs (`memcpy`/`memset`/`memmove`/`memcmp`/`memchr` size arg, `strlen` return) use `int64`.
 - [x] New CI gate `tests/opt_differential.sh`: a `-O0`-vs-`-O2` behavioral differential over the whole corpus, catching optimization-path miscompiles.
 - [x] Parser self-host parity widened to the full corpus (51 → 121 files).
+
+### v0.4.0: Correctness & type-strictness (SHIPPED)
+
+A four-front bug hunt (behavioral differential, sema soundness, synthesized-default audit,
+feature edges) across the C++ and self-hosted compilers, plus a tighter type system.
+
+- [x] Miscompiles: integer literal in [2^31, 2^32) truncated to i32; `unsigned`→`float` used a signed conversion; a template (generic) function could fall off the end; a catch-less `try`/`finally` aborted on an in-flight exception; a lambda capturing a variable two scopes up referenced another function's value.
+- [x] Crash/reject-valid: comparison operators now type-check operands; `void`/`string`→`int` init is an error (was a warning that hung/crashed); `float` vs `double`/`int` comparison compiles (operands promoted); `&const` yields a pointer to const.
+- [x] Type strictness: floating-point→integer needs an explicit cast (integer/float-width narrowing stays implicit, C-style); out-of-range integer literal, division/remainder by a literal zero, and a proven-out-of-bounds constant array index are errors.
+- [x] Flow analysis: reading an uninitialized scalar local, returning the address of a local (dangling), a function redefinition, and falling off the end of a non-void function are errors.
+- [x] Self-hosted back-end fixes: `!`/`~` (were no-ops); hex/octal + `>2^63` literals; named-const array dims; exception propagation through catch-less `finally` and cross-function rethrow; async `for-in` over a generic `List<T>`.
+- [ ] Self-host sema parity for the new checks (comparison typing, narrowing, flow analysis): deferred to the promotion track (`selfhost/PROMOTION_PLAN.md`). The shipped C++ compiler carries all checks.
 
 ### v1.0: Production-ready
 
