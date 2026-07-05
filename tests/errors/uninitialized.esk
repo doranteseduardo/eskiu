@@ -1,0 +1,2 @@
+// EXPECT-ERROR: uninitialized
+int main() { int x; return x; }

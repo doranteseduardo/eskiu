@@ -1,4 +1,5 @@
 #include "type_checker.h"
+#include <functional>
 #include <iostream>
 #include <sstream>
 #include <algorithm>
@@ -286,6 +287,10 @@ void TypeChecker::visit(FunctionDecl* node) {
         node->body->accept(this);
     }
 
+    // Flag reads of uninitialized scalar locals (conservative straight-line scan).
+    if (node->body && !node->isAsync)
+        checkUninitPrefix(dynamic_cast<BlockStmt*>(node->body.get()));
+
     // A non-void function must return on every path; falling off the end is an
     // error (there is no implicit zero return). `void` may fall off; `async`
     // functions complete their future implicitly and are exempt.
@@ -323,6 +328,53 @@ void TypeChecker::visit(FunctionDecl* node) {
     currentFunctionReturnType = "";
     inAsyncFn = prevInAsync;
     awaitSeenInFn = prevAwaitSeen;
+}
+
+void TypeChecker::checkUninitPrefix(BlockStmt* body) {
+    if (!body) return;
+    std::set<std::string> uninit;   // scalar locals declared without init, not yet assigned
+    std::function<void(Expr*)> scan = [&](Expr* e) {
+        if (!e) return;
+        // &x initializes x (its address may be written through) — not a read.
+        if (auto* u = dynamic_cast<UnaryExpr*>(e); u && u->op == "&")
+            if (auto* id = dynamic_cast<IdentExpr*>(u->operand.get())) { uninit.erase(id->name); return; }
+        if (auto* id = dynamic_cast<IdentExpr*>(e)) {
+            if (uninit.count(id->name)) {
+                errorAt(id, "use of uninitialized variable '" + id->name + "'");
+                uninit.erase(id->name);   // report once
+            }
+            return;
+        }
+        astwalk::forEachChildExpr(e, [&](ExprPtr& c){ scan(c.get()); });
+    };
+    for (auto& item : body->items) {
+        if (std::holds_alternative<DeclPtr>(item)) {
+            if (auto* vd = dynamic_cast<VarDecl*>(std::get<DeclPtr>(item).get())) {
+                if (vd->initializer) { scan(vd->initializer.get()); uninit.erase(vd->name); }
+                else {
+                    std::string t = normalizeType(vd->type);
+                    // Only genuine scalars: an array (`T[N]`, incl. `*Node[3]`) ends in
+                    // ']' and is excluded — element writes initialize it piecewise.
+                    bool scalar = (!t.empty() && t.back() != ']') &&
+                                  (isNumericType(t) || isPointerType(t) || t == "string" ||
+                                   ty::Type::parse(t).isFn());
+                    if (scalar) uninit.insert(vd->name);
+                }
+            }
+            continue;
+        }
+        Stmt* s = std::get<StmtPtr>(item).get();
+        if (auto* es = dynamic_cast<ExprStmt*>(s)) {
+            if (auto* b = dynamic_cast<BinaryExpr*>(es->expr.get()); b && b->op == "=") {
+                scan(b->right.get());
+                if (auto* id = dynamic_cast<IdentExpr*>(b->left.get())) uninit.erase(id->name);
+                else scan(b->left.get());   // e.g. `arr[x] = …` reads x
+            } else scan(es->expr.get());
+            continue;
+        }
+        if (auto* rs = dynamic_cast<ReturnStmt*>(s)) { if (rs->value) scan(rs->value.get()); continue; }
+        break;   // control-flow or anything else: stop (stay conservative)
+    }
 }
 
 void TypeChecker::visit(VarDecl* node) {

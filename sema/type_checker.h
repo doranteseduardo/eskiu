@@ -217,6 +217,11 @@ private:
     // by the caller's own const-specific check, so it is not repeated here.)
     std::string assignabilityError(const std::string& targetType,
                                    const std::string& srcType, Expr* srcExpr);
+    // Conservative definite-assignment over a function body's straight-line prefix:
+    // flags a read of a scalar local declared without an initializer and not yet
+    // assigned (`int x; return x;`, calling an unassigned fn-pointer). Stops at the
+    // first control-flow statement, so branchy code is never a false positive.
+    void checkUninitPrefix(class BlockStmt* body);
     bool isPrimitiveType(const std::string& type);
     bool isPointerType(const std::string& type);
     std::string getPointeeType(const std::string& pointerType);

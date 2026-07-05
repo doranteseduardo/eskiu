@@ -88,6 +88,15 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   are rejected at compile time instead of trapping at run time.
 - **A constant array index proven out of bounds is a compile error.** `int[3] a; a[5]`
   (or a negative constant index) is rejected.
+- **Reading an uninitialized scalar local is a compile error.** `int x; return x;` (and
+  calling a fn-pointer that was never assigned) is rejected by a conservative
+  definite-assignment check over the function's straight-line prefix; taking `&x` or
+  assigning `x` first clears it, and branchy code is never a false positive.
+- **Returning the address of a local is a compile error.** `*int f() { int x; return &x; }`
+  is a dangling pointer and is rejected (`&(*ptr)`/`&ptrParam.field`, which point into
+  caller memory, are still fine).
+- **Redefining a function is a compile error.** Two definitions of the same name are
+  rejected (a body-less forward declaration alongside one definition is still allowed).
 - **Falling off the end of a non-void function is now a compile error.** A non-void
   function that returned on no path still compiled before: the C++ back-end
   synthesized an implicit `ret 0`/`ret null`, so `int add(int a, int b) { int r = a
