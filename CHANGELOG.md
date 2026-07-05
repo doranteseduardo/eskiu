@@ -29,6 +29,12 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   i32; and an array sized by a named `const` (`int[CAP]`) copied the name into the LLVM
   array type instead of the value. All now match the C++ back-end. (The C++ compiler was
   already correct on these.)
+- **Self-hosted back-end: an async `for-in` over a generic `List<T>` (T != int)
+  miscompiled.** The loop-desugar defaulted the element type to `int` when the iterable
+  was a generic container, so `for (v in xs)` over a `List<double>`/`List<int64>`
+  truncated each element (and emitted invalid IR for `List<Struct>`). The desugar now
+  resolves the element type by substituting the container's type argument, matching the
+  C++ back-end. (Residual R1 in `PROMOTION_PLAN.md`.)
 - **Self-hosted back-end: exceptions were mishandled.** A catch-less `try`/`finally`
   swallowed an in-flight exception (running cleanup but then continuing as if caught), and
   a `throw` from inside a catch handler that had to cross a function boundary was lost

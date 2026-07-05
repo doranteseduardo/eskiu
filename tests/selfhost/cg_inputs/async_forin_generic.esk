@@ -1,0 +1,17 @@
+import <list>;
+import <future>;
+extern int printf(string fmt, ...);
+Future<int>* produce(int v) { Future<int>* f = future_new<int>(); future_complete<int>(f, v); return f; }
+async double summ(List<double>* xs) {
+    double total = 0.0;
+    for (v in xs) { int got = await produce(1); total = total + v * (double)got; }
+    return total;
+}
+int main() {
+    let xs: List<double>; List_init<double>(&xs, 4);
+    List_push<double>(&xs, 1.5); List_push<double>(&xs, 2.25); List_push<double>(&xs, 0.25);
+    Future<double>* a = summ(&xs);
+    future_poll<double>(a, void() {});
+    printf("%.2f\n", a.value);
+    return 0;
+}
