@@ -1,3 +1,4 @@
+
 # Changelog
 
 All notable changes to Eskiu are documented in this file.
@@ -75,6 +76,21 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   now runs on template bodies too.
 
 ### Changed
+- **A narrowing numeric conversion is now a compile error; it needs an explicit cast.**
+  Assigning (or initializing, returning, or passing) a wider numeric value to a
+  narrower type loses information, so it is rejected: `float`/`double` into any integer,
+  a wider integer into a narrower one (`int64` into `int`, `int` into `uint8`), or
+  `double` into `float`. Write the cast to keep it: `int n = (int)strlen(s);`,
+  `int8 b = (int8)x;`. Exceptions that stay implicit: an integer literal that fits the
+  target (`uint8 c = 255;`), a float literal into a float type (`float f = 1.5;`), and
+  widening (`int64 w = anInt;`). This surfaced no bug in the corpus but tightens the
+  type system; the standard library and tests were updated with explicit casts.
+- **An integer literal that does not fit its target type is a compile error.** `int8 x
+  = 300;` (out of `int8`'s range) is rejected rather than silently wrapping to 44.
+- **Division or remainder by a literal zero is a compile error.** `x / 0` and `x % 0`
+  are rejected at compile time instead of trapping at run time.
+- **A constant array index proven out of bounds is a compile error.** `int[3] a; a[5]`
+  (or a negative constant index) is rejected.
 - **Falling off the end of a non-void function is now a compile error.** A non-void
   function that returned on no path still compiled before: the C++ back-end
   synthesized an implicit `ret 0`/`ret null`, so `int add(int a, int b) { int r = a

@@ -1,0 +1,2 @@
+// EXPECT-ERROR: division by zero
+int main() { return 5 / 0; }

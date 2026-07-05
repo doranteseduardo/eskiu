@@ -1,0 +1,2 @@
+// EXPECT-ERROR: narrowing
+int main() { int64 b = 5; int8 x = b; return x; }

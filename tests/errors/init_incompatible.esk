@@ -1,4 +1,4 @@
-// EXPECT-ERROR: incompatible type
+// EXPECT-ERROR: cannot convert
 // A string cannot initialize an int.
 int main() {
     int x = "hello";

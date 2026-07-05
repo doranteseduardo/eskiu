@@ -365,7 +365,7 @@ string pp_run(string src, int len, string filename, *int had_err) {
         first = 0;
 
         string ls = (string)String_cstr(&line);
-        int ln = String_len(&line);
+        int ln = (int)String_len(&line);
         int active = pp_active(&stack);
 
         // Leading non-space char.
