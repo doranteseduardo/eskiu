@@ -199,6 +199,14 @@ llvm::Value* CodeGen::coerceInt(llvm::Value* val, llvm::Type* ty, bool unsignedS
     return val;
 }
 
+llvm::Value* CodeGen::intToFloat(llvm::Value* val, llvm::Type* ty, bool unsignedSrc) {
+    // The single place integer->float conversion happens. An unsigned source
+    // must use UIToFP, not SIToFP: a high-bit-set unsigned value (e.g. uint32
+    // 4000000000) would otherwise convert to a negative float.
+    return unsignedSrc ? builder->CreateUIToFP(val, ty)
+                       : builder->CreateSIToFP(val, ty);
+}
+
 std::string CodeGen::expandAlias(const std::string& raw) const {
     // const is checked only by the type checker; codegen works on stripped types.
     std::string t = tyq::strip(raw);

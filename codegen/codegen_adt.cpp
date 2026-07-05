@@ -114,7 +114,7 @@ llvm::Value* CodeGen::buildEnumValue(llvm::StructType* et, int tag,
                 if (val->getType()->isIntegerTy() && ft->isIntegerTy())
                     val = coerceInt(val, ft, eskiuUnsigned(getExprEskiuType(args[i])));
                 else if (val->getType()->isIntegerTy() && ft->isFloatingPointTy())
-                    val = builder->CreateSIToFP(val, ft);
+                    val = intToFloat(val, ft, eskiuUnsigned(getExprEskiuType(args[i])));
                 else if (val->getType()->isFloatingPointTy() && ft->isIntegerTy())
                     val = builder->CreateFPToSI(val, ft);
                 else if (val->getType()->isFloatingPointTy() && ft->isFloatingPointTy())
@@ -160,7 +160,7 @@ void CodeGen::emitStructInitInto(llvm::Value* dest, StructInitExpr* init) {
             if (val->getType()->isIntegerTy() && fieldType->isIntegerTy()) {
                 val = coerceInt(val, fieldType, unsignedSrc);
             } else if (val->getType()->isIntegerTy() && fieldType->isFloatingPointTy()) {
-                val = builder->CreateSIToFP(val, fieldType);
+                val = intToFloat(val, fieldType, unsignedSrc);
             } else if (val->getType()->isFloatingPointTy() && fieldType->isIntegerTy()) {
                 val = builder->CreateFPToSI(val, fieldType);
             } else if (val->getType()->isFloatingPointTy() && fieldType->isFloatingPointTy()) {
