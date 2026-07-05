@@ -540,16 +540,23 @@ void TypeChecker::visit(IdentExpr* node) {
     // the variable's defining scope index, NOT functionSignatures — a param or
     // local that shadows a same-named top-level function must still be captured.
     if (!captureStack.empty() && !type.empty()) {
-        int boundary = captureBoundary.back();
         int defIdx = -1;
         for (int si = (int)scopes.size() - 1; si >= 0; --si) {
             if (scopes[si].count(node->name)) { defIdx = si; break; }
         }
         // Capture only enclosing-function scopes: index >= 1 (the global scope
-        // at 0 is module-level and accessed directly, not captured by value)
-        // and below the lambda's own boundary.
-        if (defIdx >= 1 && defIdx < boundary) {
-            captureStack.back()[node->name] = type;
+        // at 0 is module-level and accessed directly, not captured by value).
+        // A variable must be captured by EVERY enclosing lambda it is outer to,
+        // not just the innermost one, so a nested lambda's use is threaded
+        // through each intervening lambda's environment (transitive capture).
+        // Without this, an inner lambda that references a variable two scopes up
+        // would read the enclosing lambda's non-captured value and miscompile
+        // ("Referring to an instruction in another function").
+        if (defIdx >= 1) {
+            for (size_t k = 0; k < captureStack.size(); ++k) {
+                if (defIdx < captureBoundary[k])
+                    captureStack[k][node->name] = type;
+            }
         }
     }
 }

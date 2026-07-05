@@ -1,0 +1,15 @@
+// A catch-less try/finally must run the finally block and then propagate the
+// in-flight exception to an enclosing catch (regression: it used to abort).
+extern int printf(string fmt, ...);
+
+void inner() {
+    try { throw 5; }
+    finally { printf("cleanup\n"); }
+}
+
+int main() {
+    try { inner(); }
+    catch (int c) { printf("caught %d\n", c); }
+    printf("done\n");
+    return 0;
+}

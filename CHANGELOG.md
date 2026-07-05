@@ -10,6 +10,17 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 ## [Unreleased]
 
 ### Fixed
+- **A catch-less `try`/`finally` aborted when an exception passed through it.** With an
+  in-flight exception, the `finally` block was skipped and the runtime aborted
+  (`std::terminate`) instead of running the cleanup and propagating the exception. The
+  exceptional path now runs `finally` and re-raises via `__cxa_rethrow` (as an invoke
+  when an enclosing `try` can catch it), so `try { throw } finally { cleanup }` inside a
+  caller's `try`/`catch` runs the cleanup and is caught.
+- **A lambda nested inside another lambda miscompiled when it captured a variable two
+  scopes up.** The capture was recorded only on the innermost lambda, so the enclosing
+  lambda did not thread it through its environment and codegen referenced a value from
+  another function (`Referring to an instruction in another function`). Captures are now
+  propagated to every enclosing lambda they are outer to.
 - **Self-hosted back-end: several codegen bugs on edges the corpus never exercised.**
   Logical-not (`!`) and bitwise-not (`~`) were emitted as no-ops (returning the operand
   unchanged), silently inverting control flow; hexadecimal and octal integer literals
