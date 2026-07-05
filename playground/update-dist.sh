@@ -11,7 +11,7 @@ cd "$(dirname "$0")"
 TAG="${1:-$(gh release list --limit 1 --json tagName -q '.[0].tagName')}"
 ASSET="eskiuc-linux-x86_64.tar.gz"
 
-echo "Fetching $ASSET from release $TAG…"
+echo "Fetching $ASSET from release $TAG..."
 gh release download "$TAG" -p "$ASSET" -O /tmp/eskiuc-linux.tar.gz --clobber
 
 rm -rf dist && mkdir -p dist
