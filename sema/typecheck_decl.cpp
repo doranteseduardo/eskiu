@@ -355,7 +355,12 @@ void TypeChecker::visit(VarDecl* node) {
                     errorAt(node, "cannot initialize '" + node->type +
                                   "' from incompatible function type '" + initType + "'");
                 else
-                    warning(0, 0, "implicit conversion from " + initType + " to " + node->type);
+                    // An incompatible non-numeric conversion (e.g. void/string/pointer
+                    // to int) is never valid: a warning let a nonsensical value into
+                    // codegen (void->int hung the backend; string->int crashed at run
+                    // time). Match the assignment path, which already errors here.
+                    errorAt(node, "cannot initialize '" + node->type +
+                                  "' from incompatible type '" + initType + "'");
             }
         }
     }

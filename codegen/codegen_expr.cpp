@@ -222,6 +222,7 @@ void CodeGen::visit(BinaryExpr* node) {
             : (opUnsigned ? builder->CreateURem(left, right)
                           : builder->CreateSRem(left, right));
     } else if (node->op == "==") {
+        promoteToFloat();   // mixed float/int or float/double: bring both to a common float type
         if (left->getType()->isFloatingPointTy())
             result = builder->CreateFCmpOEQ(left, right);
         else {
@@ -230,6 +231,7 @@ void CodeGen::visit(BinaryExpr* node) {
         }
     } else if (node->op == "!=" || node->op == "<" || node->op == ">" ||
                node->op == "<=" || node->op == ">=") {
+        promoteToFloat();   // mixed float/int or float/double: bring both to a common float type
         bool isFloat = left->getType()->isFloatingPointTy();
         if (!isFloat) widenInts();
         if (node->op == "!=") {

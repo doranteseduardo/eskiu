@@ -1,0 +1,9 @@
+// EXPECT-ERROR: invalid operands
+// Structs are not comparable with ==.
+struct A { int x; }
+int main() {
+    A a;
+    A b;
+    if (a == b) { return 1; }
+    return 0;
+}

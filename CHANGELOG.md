@@ -10,6 +10,24 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 ## [Unreleased]
 
 ### Fixed
+- **Comparison operators did not type-check their operands.** `==`, `!=`, `<`, `>`,
+  `<=`, `>=` were accepted for any pair of types (pointer vs int, struct vs struct,
+  string vs int), so the checker reported success and codegen emitted a malformed
+  comparison (an assertion under an assertions build, a miscompile otherwise). They
+  now require mutually comparable operands: both numeric, both pointer-like (including
+  `null`), or the same non-aggregate type. Enum, pointer, and `null` comparisons are
+  unaffected.
+- **Incompatible non-numeric variable initializers were only a warning.** `int x =
+  f();` where `f` returns `void` let a non-value into codegen and hung the back-end;
+  `int x = "hello";` crashed at run time. Both are now compile errors, matching the
+  assignment path.
+- **Taking the address of a `const` produced a mutable pointer.** `const int N; *int
+  p = &N; *p = 99;` silently mutated `N`. `&` of a const location now yields a pointer
+  to const, so writing through it (or assigning it to a plain pointer) is rejected.
+- **`float` compared against `double` or `int` failed to compile.** The comparison
+  operators did not promote a mixed float/int (or float/double) pair to a common
+  float type, so LLVM rejected the `fcmp`. They now promote like the arithmetic
+  operators do.
 - **Integer literals in [2^31, 2^32) were truncated to i32 and sign-extended.** A
   decimal literal such as `3000000000` assigned to an `int64` materialized as a
   32-bit constant (high bit set), then sign-extended to a negative value
