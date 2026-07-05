@@ -760,6 +760,113 @@ void sema_register_globals(Sema* s, *Program prog) {
     }
 }
 
+// ── Definite-return analysis (mirrors sema/typecheck_decl.cpp) ───────────────
+// A non-void function must return, throw, or provably diverge on every path;
+// falling off the end is an error, not an implicit zero return.
+
+// Is `c` a literal that is always true? (`while(1)`, `while(true)`, `for(;;)`)
+int sema_cond_true(*ExprNode c) {
+    if (c == null) { return 1; }                       // for(;;)
+    if (c.kind != EK_LITERAL) { return 0; }
+    if (c.lit_kind == LIT_BOOL) { return sema_streq(c.sval, "true"); }
+    if (c.lit_kind == LIT_INT)  { if (sema_streq(c.sval, "0") == 1) { return 0; } return 1; }
+    return 0;
+}
+
+int sema_always_returns(*StmtNode s);
+
+// Does `s` hold a `break` that exits the enclosing loop (not one swallowed by a
+// nested loop or switch)?
+int sema_has_break(*StmtNode s) {
+    if (s == null) { return 0; }
+    if (s.kind == SK_BREAK) { return 1; }
+    if (s.kind == SK_BLOCK) {
+        int i = 0; int n = List_len<*StmtNode>(&s.items);
+        while (i < n) { if (sema_has_break(List_get<*StmtNode>(&s.items, i)) == 1) { return 1; } i = i + 1; }
+        return 0;
+    }
+    if (s.kind == SK_IF) {
+        if (sema_has_break(s.s1) == 1) { return 1; }
+        return sema_has_break(s.s2);
+    }
+    // Nested loops and switch capture their own break — do not descend.
+    if (s.kind == SK_WHILE) { return 0; }
+    if (s.kind == SK_FOR)   { return 0; }
+    if (s.kind == SK_FORIN) { return 0; }
+    if (s.kind == SK_SWITCH){ return 0; }
+    if (s.kind == SK_MATCH) {                           // match is not a loop
+        int i = 0; int n = List_len<*StmtNode>(&s.items);
+        while (i < n) { if (sema_has_break(List_get<*StmtNode>(&s.items, i).s1) == 1) { return 1; } i = i + 1; }
+        return 0;
+    }
+    if (s.kind == SK_TRY) {
+        if (sema_has_break(s.s1) == 1) { return 1; }
+        int i = 0; int n = List_len<*StmtNode>(&s.items);
+        while (i < n) { if (sema_has_break(List_get<*StmtNode>(&s.items, i).s1) == 1) { return 1; } i = i + 1; }
+        return sema_has_break(s.s2);
+    }
+    return 0;
+}
+
+// Does executing `s` guarantee control does not fall through (returns, throws,
+// or provably diverges)? Conservative: anything it cannot prove returns 0.
+int sema_always_returns(*StmtNode s) {
+    if (s == null) { return 0; }
+    if (s.kind == SK_RETURN) { return 1; }
+    if (s.kind == SK_THROW)  { return 1; }
+    if (s.kind == SK_BLOCK) {
+        int i = 0; int n = List_len<*StmtNode>(&s.items);
+        while (i < n) { if (sema_always_returns(List_get<*StmtNode>(&s.items, i)) == 1) { return 1; } i = i + 1; }
+        return 0;
+    }
+    if (s.kind == SK_IF) {
+        if (s.s2 == null) { return 0; }
+        if (sema_always_returns(s.s1) == 0) { return 0; }
+        return sema_always_returns(s.s2);
+    }
+    if (s.kind == SK_WHILE) {
+        if (sema_cond_true(s.expr) == 1 && sema_has_break(s.s1) == 0) { return 1; }
+        return 0;
+    }
+    if (s.kind == SK_FOR) {                             // body is s2 (s1 is init)
+        if (sema_cond_true(s.expr) == 1 && sema_has_break(s.s2) == 0) { return 1; }
+        return 0;
+    }
+    if (s.kind == SK_FORIN) { return 0; }               // may iterate zero times
+    if (s.kind == SK_SWITCH) {
+        int has_default = 0;
+        int i = 0; int n = List_len<*StmtNode>(&s.items);
+        while (i < n) {
+            *StmtNode c = List_get<*StmtNode>(&s.items, i);
+            if (c.expr == null) { has_default = 1; }
+            int case_ret = 0;
+            int j = 0; int cn = List_len<*StmtNode>(&c.items);
+            while (j < cn) { if (sema_always_returns(List_get<*StmtNode>(&c.items, j)) == 1) { case_ret = 1; } j = j + 1; }
+            if (case_ret == 0) { return 0; }
+            i = i + 1;
+        }
+        return has_default;
+    }
+    if (s.kind == SK_MATCH) {                           // exhaustiveness checked earlier
+        int n = List_len<*StmtNode>(&s.items);
+        if (n == 0) { return 0; }
+        int i = 0;
+        while (i < n) {
+            if (sema_always_returns(List_get<*StmtNode>(&s.items, i).s1) == 0) { return 0; }
+            i = i + 1;
+        }
+        return 1;
+    }
+    if (s.kind == SK_TRY) {
+        if (s.s2 != null && sema_always_returns(s.s2) == 1) { return 1; }
+        if (sema_always_returns(s.s1) == 0) { return 0; }
+        int i = 0; int n = List_len<*StmtNode>(&s.items);
+        while (i < n) { if (sema_always_returns(List_get<*StmtNode>(&s.items, i).s1) == 0) { return 0; } i = i + 1; }
+        return 1;
+    }
+    return 0;
+}
+
 // Check a function/method body: a fresh scope with the params (and `self` for
 // methods) defined, then walk the body.
 void sema_check_fn(Sema* s, *DeclNode f, string self_type) {
@@ -791,6 +898,14 @@ void sema_check_fn(Sema* s, *DeclNode f, string self_type) {
     }
     sema_stmt(s, f.body);
     sema_pop(s);
+    // A non-void function must return on every path (no implicit zero return);
+    // void may fall off, and async completes its future implicitly.
+    if (f.is_async == 0 && sema_streq(f.ret_type, "void") == 0
+        && sema_always_returns(f.body) == 0) {
+        s.had_error = 1;
+        printf("error: %s:0:0: missing return in non-void function '%s' (control can reach the end without returning a %s)\n",
+               s.filename, f.name, f.ret_type);
+    }
     if (f.is_async == 1 && s.await_seen == 0) {
         s.had_error = 1;
         printf("error: %s:0:0: async function '%s' has no `await`\n", s.filename, f.name);
