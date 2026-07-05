@@ -1,0 +1,10 @@
+// Regression: an array sized by a named const must resolve the dimension in the
+// emitted LLVM type, not copy the const's name verbatim.
+extern int printf(string fmt, ...);
+const int CAP = 4;
+int main() {
+    int[CAP] xs;
+    xs[0] = 7; xs[3] = 9;
+    printf("%d %d\n", xs[0], xs[3]);
+    return 0;
+}
