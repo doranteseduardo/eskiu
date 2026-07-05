@@ -853,6 +853,9 @@ int bad(int x) {
 }
 </code></pre>
 <p>A <code>void</code> function may use <code>return;</code> with no operand or allow control to fall off the end of the body.</p>
+<p>The one function that may not be <code>void</code> is <code>main</code>: its return value is the process exit
+code, so it must return <code>int</code> (<code>int main()</code> or <code>int main(int argc, string* argv)</code>). A
+<code>void main()</code> is a compile error.</p>
 <h3 id="63-variadic-functions">6.3 Variadic Functions</h3>
 <p>The ellipsis <code>...</code> marks a variadic parameter list; at least one fixed parameter
 must precede it. It is valid in both <code>extern</code> declarations and user functions:</p>

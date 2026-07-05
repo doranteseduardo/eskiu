@@ -617,6 +617,10 @@ void log_event(string msg) {
 
 A `void` function may use `return;` with no operand or allow control to fall off the end of the body.
 
+The one function that may not be `void` is `main`: its return value is the process exit
+code, so it must return `int` (`int main()` or `int main(int argc, string* argv)`). A
+`void main()` is a compile error.
+
 ### 6.3 Variadic Functions
 
 The ellipsis `...` marks a variadic parameter list; at least one fixed parameter

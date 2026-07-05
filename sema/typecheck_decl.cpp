@@ -247,6 +247,13 @@ void TypeChecker::visit(FunctionDecl* node) {
         return;
     }
 
+    // `main` is the program entry point: its return value is the process exit code,
+    // so it must return `int`. A `void main()` leaves the exit code as whatever garbage
+    // is in the return register (undefined, and platform-dependent).
+    if (node->name == "main" && normalizeType(node->returnType) != "int")
+        errorAt(node, "'main' must return int (its return value is the process exit code); "
+                      "got '" + node->returnType + "'");
+
     // Record definition location
     definitionLocations[node->name] = {node->line, node->col, sourceFile};
     // -Wall: track top-level functions for unused-function reporting (skip main).
