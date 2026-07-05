@@ -56,9 +56,9 @@ Codegen checks: single alloca per var, every branch terminated, no undef, correc
 - [ ] Docs updated if behavior changed
 
 ## Current Focus
-v0.3.1, over the v0.3.0 self-hosting milestone. The whole compiler is now reimplemented in Eskiu under `selfhost/`, parity-gated against the C++ `eskiuc`, reaching a 3-stage bootstrap fixpoint with a code generator feature-complete against the C++ corpus. The focus stays on hardening, not new language surface (feature freeze):
-- Recent 0.3.1 correctness work, mostly surfaced by the new `-O` optimization levels: a float-closure return-type miscompile (sema now reconciles a lambda's return type with its target), a rejected fn-type ABI mismatch, the `*T[N]` parse fix (array of pointers), and correct `size_t` externs.
-- A new `-O0`-vs-`-O2` behavioral differential (`tests/opt_differential.sh`) guards the whole corpus against optimization-path miscompiles.
-- Parser self-host parity was widened to the full corpus (51 to 121 files).
+v0.4.0, over the v0.3 self-hosting milestone. The whole compiler is reimplemented in Eskiu under `selfhost/`, parity-gated against the C++ `eskiuc`, reaching a 3-stage bootstrap fixpoint with a code generator feature-complete against the C++ corpus. The focus stays on hardening and correctness, not new language surface (feature freeze):
+- v0.4.0 was a four-front bug hunt (behavioral differential, sema soundness, synthesized-default audit, feature edges) that fixed a batch of miscompiles and crashes across both compilers and tightened the type system (floating-point to integer needs an explicit cast; out-of-range literals, division by a literal zero, uninitialized reads, dangling `&local`, function redefinition, and non-void fall-through are errors). The self-host sema's matching checks are deferred to the promotion track.
+- Earlier 0.3.1 correctness work (via the `-O` optimization levels): a float-closure return-type miscompile, a rejected fn-type ABI mismatch, the `*T[N]` parse fix, and correct `size_t` externs.
+- A `-O0`-vs-`-O2` behavioral differential (`tests/opt_differential.sh`) guards the whole corpus against optimization-path miscompiles.
 
 The live track toward v1.0 is promoting the Eskiu-written compiler to the primary build; see `selfhost/PROMOTION_PLAN.md`. Genuinely deferred: a package manager. See docs/dev/phases.md for the full feature table and roadmap. New feature proposals require an issue.

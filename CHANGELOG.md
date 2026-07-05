@@ -8,7 +8,14 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
-## [Unreleased]
+## [0.4.0], 2026-07-05
+
+A correctness and type-strictness release. A four-front bug hunt (behavioral
+differential, sema soundness, synthesized-default audit, feature edges) across the C++
+and self-hosted compilers found a batch of miscompiles, crashes, and soundness holes;
+this release fixes them and tightens the type system. The shipped (C++) compiler carries
+every fix below; the self-hosted compiler's matching sema checks are tracked for the
+promotion track.
 
 ### Fixed
 - **A catch-less `try`/`finally` aborted when an exception passed through it.** With an

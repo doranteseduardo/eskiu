@@ -1,6 +1,6 @@
 # Eskiu Language Specification
 
-**Version:** v0.3.1
+**Version:** v0.4.0
 
 ---
 
@@ -269,7 +269,35 @@ uint8 b = (uint8)n;
 float f = (float)n;
 ```
 
-No implicit narrowing or widening conversions are performed. An explicit cast is required when the source and destination types differ.
+### 3.9 Numeric Conversions
+
+Numeric conversions in assignment, initialization, `return`, and call arguments follow
+C, with one exception. Implicit (no cast needed):
+
+- **Widening**: `int8` to `int`, `int` to `int64`, `int` to `float`, and so on.
+- **Integer-width narrowing**: `int64` to `int`, `int` to `uint8`. The value is truncated
+  (as in C); write a cast when the truncation is not what you want.
+- **Float-width narrowing**: `double` to `float`.
+
+The one conversion that requires an explicit cast:
+
+- **Floating-point to integer** (`double`/`float` to any integer). It drops the
+  fractional part, so it must be written out: `int n = (int)3.9;` gives `3`; `int n =
+  3.9;` is a compile error.
+
+Two statically-known mistakes are also compile errors:
+
+- An **integer literal that does not fit** its target type: `int8 x = 300;` (300 is
+  outside `int8`'s range). A literal that fits is fine: `uint8 c = 255;`.
+- **Division or remainder by a literal zero**: `x / 0`, `x % 0`.
+
+```eskiu
+int64 big = strlen(s);   // ok: no cast needed for the length
+int   n   = strlen(s);   // ok: int64 to int truncates, as in C
+int   x   = (int)3.9;    // ok: explicit
+int   y   = 3.9;         // error: floating-point to integer needs a cast
+int8  z   = 300;         // error: literal out of range for int8
+```
 
 ---
 
