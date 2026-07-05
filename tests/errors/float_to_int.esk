@@ -1,2 +1,2 @@
-// EXPECT-ERROR: narrowing
-int main() { int x = 3.9; return x; }
+// EXPECT-ERROR: floating-point
+int main() { int len = 3.9; return len; }

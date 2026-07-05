@@ -31,7 +31,7 @@ void Json_free(Json* self)  { String_free(&self.buf); }
 
 // Insert a separating comma unless the last byte is an opener or a key colon.
 void Json_sep(Json* self) {
-    int n = (int)self.buf.len;
+    int n = self.buf.len;
     if (n == 0) { return; }
     char last = self.buf.data[n - 1];
     if (last == 123 || last == 91 || last == 58 || last == 44) { return; } // { [ : ,

@@ -19,8 +19,8 @@ int path_is_absolute(string p) {
 // leading slash on `b`. An empty component is dropped.
 void path_join(String* out, string a, string b) {
     String_clear(out);
-    int alen = (int)strlen(a);
-    int blen = (int)strlen(b);
+    int alen = strlen(a);
+    int blen = strlen(b);
     if (alen == 0) { String_append(out, b); return; }
     if (blen == 0) { String_append(out, a); return; }
     int ae = alen;
@@ -37,7 +37,7 @@ void path_join(String* out, string a, string b) {
 // The final component (trailing slashes ignored). "/usr/bin/" -> "bin".
 void path_basename(String* out, string p) {
     String_clear(out);
-    int n = (int)strlen(p);
+    int n = strlen(p);
     int end = n;
     while (end > 0 && p[end - 1] == '/') { end = end - 1; }
     int start = end;
@@ -49,7 +49,7 @@ void path_basename(String* out, string p) {
 // Everything before the final component: "/usr/bin" -> "/usr", "foo" -> ".".
 void path_dirname(String* out, string p) {
     String_clear(out);
-    int n = (int)strlen(p);
+    int n = strlen(p);
     int end = n;
     while (end > 0 && p[end - 1] == '/') { end = end - 1; }
     int slash = -1;
@@ -68,7 +68,7 @@ void path_dirname(String* out, string p) {
 // a leading-dot name (".bashrc").
 void path_extension(String* out, string p) {
     String_clear(out);
-    int n = (int)strlen(p);
+    int n = strlen(p);
     int end = n;
     while (end > 0 && p[end - 1] == '/') { end = end - 1; }
     int bstart = end;

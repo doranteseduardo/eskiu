@@ -5,7 +5,7 @@ int main() {
     uint32 u = 3000000000;       printf("%u\n", u / 3);      // unsigned division
     uint32 uu = 4000000000;      printf("%u\n", uu >> 1);    // logical (unsigned) shift
     if (uu > 1) { printf("ucmp\n"); }                        // unsigned compare (high bit set)
-    int64 b = 256; int8 x = (int8)b;   printf("%d\n", x);          // narrowing truncates -> 0
+    int64 b = 256; int8 x = b;   printf("%d\n", x);          // narrowing truncates -> 0
     int8 n = -1; int64 m = 0;    printf("%lld\n", n + m);    // signed widening -> -1
     int8 c = -5;                 printf("%d\n", c);          // variadic promote (sign) -> -5
     uint8 d = 200;               printf("%d\n", d);          // variadic promote (zero) -> 200

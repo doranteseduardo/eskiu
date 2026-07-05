@@ -26,8 +26,8 @@ void echo_path(HttpRequest* req, HttpResponse* res) {
 // Encode a request HEADERS frame for `method`/`path` on `sid` into `b`; returns size.
 int req_headers(*uint8 b, int sid, string method, string path, int end_stream) {
     *uint8 blk = alloc<uint8>(256);  int off = 0;
-    off = hpack_encode_header(blk, off, (*uint8)":method", 7, (*uint8)method, (int)strlen(method));
-    off = hpack_encode_header(blk, off, (*uint8)":path", 5, (*uint8)path, (int)strlen(path));
+    off = hpack_encode_header(blk, off, (*uint8)":method", 7, (*uint8)method, strlen(method));
+    off = hpack_encode_header(blk, off, (*uint8)":path", 5, (*uint8)path, strlen(path));
     off = hpack_encode_header(blk, off, (*uint8)":scheme", 7, (*uint8)"http", 4);
     off = hpack_encode_header(blk, off, (*uint8)":authority", 10, (*uint8)"localhost", 9);
     int n = h2_write_headers(b, sid, blk, off, end_stream, 1);

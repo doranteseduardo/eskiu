@@ -43,7 +43,7 @@ int map_streq(*char a, string b) {
 }
 
 *char map_dup(string s) {
-    int n = (int)strlen(s);
+    int n = strlen(s);
     *char d = alloc<char>(n + 1);
     int i = 0;  while (i < n) { d[i] = s[i]; i = i + 1; }
     d[n] = 0;
@@ -69,7 +69,7 @@ void Map_free<V>(Map<V>* m) {
 
 // Double the table and rehash. Keys are moved (not re-duplicated).
 void Map_grow<V>(Map<V>* m) {
-    int oldcap = (int)m.cap;
+    int oldcap = m.cap;
     **char oldk = m.keys;
     *V     oldv = m.vals;
     int newcap = oldcap * 2;
@@ -167,7 +167,7 @@ void HashMap_free<K, V>(HashMap<K, V>* m) {
 }
 
 void HashMap_grow<K, V>(HashMap<K, V>* m) {
-    int oldcap = (int)m.cap;
+    int oldcap = m.cap;
     *K     ok = m.keys;
     *V     ov = m.vals;
     *uint8 ou = m.used;
