@@ -1,0 +1,10 @@
+extern int printf(string fmt, ...);
+int max(int a, int b) { return a > b ? a : b; }
+int main() {
+    int x = 5; int y = 9;
+    int g = 85;
+    string s = g >= 90 ? "A" : g >= 80 ? "B" : "C";   // right-assoc chain
+    double d = x > 0 ? 1 : 2.5;                        // int/double arms -> double
+    printf("%d %d %s %.1f %d\n", x > y ? x : y, max(3, 7), s, d, 1 + (x > y ? 10 : 20));
+    return 0;
+}

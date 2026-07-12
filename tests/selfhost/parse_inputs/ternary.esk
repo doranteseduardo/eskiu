@@ -1,0 +1,7 @@
+int simple() { return a ? b : c; }
+int nested() { return a ? b : c ? d : e; }
+int unary_arm() { return n < 0 ? -n : n; }
+int inexpr() { return 1 + (x > y ? 10 : 20); }
+int callarm() { return good ? f(1) : g(2); }
+int prop() { return may_fail()?; }
+int propinarm() { return good ? (ok()?) : (err()?); }

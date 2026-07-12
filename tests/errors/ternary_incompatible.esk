@@ -1,0 +1,7 @@
+// EXPECT-ERROR: incompatible
+// The two arms of a ternary must share a common type; a string and an int do not.
+int main() {
+    int x = 1;
+    let v: int = x > 0 ? "yes" : 3;
+    return v;
+}

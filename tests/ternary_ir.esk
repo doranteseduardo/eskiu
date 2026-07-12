@@ -1,0 +1,12 @@
+// Ternary lowering: branch + result slot, arms coerced to the common type.
+int pick(int a, int b) {
+    return a > b ? a : b;           // both arms int
+}
+
+double promote(int flag, int a, double b) {
+    return flag != 0 ? a : b;       // int/double arms -> double
+}
+
+int main() {
+    return pick(3, 7) - 7;          // 0 when correct
+}

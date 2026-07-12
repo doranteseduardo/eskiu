@@ -313,6 +313,15 @@ void ASTPrinter::visit(QuestionExpr* node) {
     indentLevel--;
 }
 
+void ASTPrinter::visit(TernaryExpr* node) {
+    println("TernaryExpr (?:)");
+    indentLevel++;
+    node->condition->accept(this);
+    node->thenExpr->accept(this);
+    node->elseExpr->accept(this);
+    indentLevel--;
+}
+
 void ASTPrinter::visit(CallExpr* node) {
     println("CallExpr");
     indentLevel++;

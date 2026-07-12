@@ -37,8 +37,42 @@ ExprPtr Parser::parseExpression() {
     return parseAssignment();
 }
 
+// True if the `?` at `current` opens a ternary — a matching `:` follows at the same
+// bracket nesting before a statement/argument terminator — rather than the postfix
+// Result-propagation operator (`expr?`). Propagation `?` is never followed by a
+// same-level `:`, so the colon reliably signals a ternary.
+bool Parser::ternaryColonAhead() const {
+    int depth = 0;
+    for (size_t i = current + 1; i < tokens.size(); ++i) {
+        TokenType t = tokens[i].type;
+        if (t == TokenType::LPAREN || t == TokenType::LBRACKET || t == TokenType::LBRACE)
+            depth++;
+        else if (t == TokenType::RPAREN || t == TokenType::RBRACKET || t == TokenType::RBRACE) {
+            if (depth == 0) return false;   // closed the enclosing group before any ':'
+            depth--;
+        } else if (depth == 0) {
+            if (t == TokenType::COLON) return true;
+            if (t == TokenType::SEMICOLON || t == TokenType::COMMA ||
+                t == TokenType::EOF_TOKEN) return false;
+        }
+    }
+    return false;
+}
+
+ExprPtr Parser::parseTernary() {
+    ExprPtr cond = parseLogicalOr();
+    if (check(TokenType::QUESTION) && ternaryColonAhead()) {
+        Token qTok = advance();                       // consume '?'
+        ExprPtr thenE = parseAssignment();            // then-arm: a full expression
+        consume(TokenType::COLON, "Expected ':' in ternary expression");
+        ExprPtr elseE = parseTernary();               // else-arm: right-associative
+        return withPos(std::make_shared<TernaryExpr>(cond, thenE, elseE), qTok);
+    }
+    return cond;
+}
+
 ExprPtr Parser::parseAssignment() {
-    ExprPtr expr = parseLogicalOr();
+    ExprPtr expr = parseTernary();
 
     // Compound assignments: desugar x += y  →  x = x + y
     static const std::unordered_map<TokenType, std::string> compound = {
@@ -303,8 +337,10 @@ ExprPtr Parser::parsePostfix() {
             Token dotTok = tokens[current - 1];
             std::string member = consume(TokenType::IDENT, "Expected member name").value;
             expr = withPos(std::make_shared<MemberExpr>(expr, member), dotTok);
-        } else if (match(TokenType::QUESTION)) {
-            Token qTok = tokens[current - 1];
+        } else if (check(TokenType::QUESTION) && !ternaryColonAhead()) {
+            // Postfix Result-propagation `expr?` — but only when this `?` does not open
+            // a ternary (no same-level `:` ahead); the ternary is handled lower down.
+            Token qTok = advance();
             expr = withPos(std::make_shared<QuestionExpr>(expr), qTok);
         } else if (match({TokenType::PLUS_PLUS, TokenType::MINUS_MINUS})) {
             Token pTok = tokens[current - 1];

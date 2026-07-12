@@ -276,9 +276,10 @@ thread-join-stmt = 'thread_join' '(' expr ')' ';'
 <h2 id="expressions">Expressions</h2>
 <p>Precedence, lowest to highest. Each level is left-associative unless noted.</p>
 <pre><code>expr            = assignment
-assignment      = logical-or ( assign-op assignment )?            // right-assoc
+assignment      = ternary ( assign-op assignment )?              // right-assoc
 assign-op       = '=' | '+=' | '-=' | '*=' | '/=' | '%='
                 | '&amp;=' | '|=' | '^=' | '&lt;&lt;=' | '&gt;&gt;='              // compound forms desugar
+ternary         = logical-or ( '?' expr ':' ternary )?           // right-assoc
 logical-or      = logical-and ( '||' logical-and )*
 logical-and     = bitwise-or  ( '&amp;&amp;' bitwise-or  )*
 bitwise-or      = bitwise-xor ( '|'  bitwise-xor )*
@@ -301,9 +302,11 @@ postfix-op      = '(' arg-list? ')'          // call
                 | '++' | '--'                // post-increment / decrement
 arg-list        = expr (',' expr)*
 </code></pre>
-<p>Eskiu has no <code>a ? b : c</code> conditional operator. <code>?</code> is the postfix
-error-propagation operator applied to a <code>Result</code> (it returns early on the error
-variant). Assignment is the lowest-precedence, right-associative level.</p>
+<p><code>?</code> is overloaded: <code>cond ? a : b</code> is the conditional (ternary) operator, while a
+postfix <code>expr?</code> (with no matching <code>:</code> ahead) is the Result error-propagation operator
+(it returns early on the error variant). The parser disambiguates by scanning for a
+same-level <code>:</code> after the <code>?</code>. Assignment is the lowest-precedence, right-associative
+level; the ternary sits just above it, also right-associative.</p>
 <pre><code>primary =
     INT_LIT | FLOAT_LIT | STRING_LIT | CHAR_LIT | 'true' | 'false' | 'null'
   | IDENT
