@@ -394,6 +394,19 @@ void CodeGen::visit(SwitchStmt* node) {
     if (!subj->getType()->isIntegerTy())
         throw std::runtime_error("switch subject must be integer");
 
+    // LLVM requires the switch value and every case constant to share one integer
+    // type. Widen to the widest of the subject and the cases (C promotes the
+    // controlling expression; the cases may be wider, e.g. an int64 switch), so a
+    // `switch (aChar)` (i8 subject, i32 case constants) is well-formed.
+    unsigned swW = subj->getType()->getIntegerBitWidth();
+    for (auto* ci : caseVals) if (ci) swW = std::max(swW, ci->getType()->getIntegerBitWidth());
+    llvm::Type* swTy = llvm::Type::getIntNTy(*context, swW);
+    if (subj->getType() != swTy)
+        subj = coerceInt(subj, swTy, eskiuUnsigned(getExprEskiuType(node->subject)));
+    for (auto& ci : caseVals)
+        if (ci && ci->getType() != swTy)
+            ci = llvm::ConstantInt::get(*context, ci->getValue().sextOrTrunc(swW));
+
     llvm::BasicBlock* endBlock = llvm::BasicBlock::Create(*context, "switch.end", currentFunction);
 
     std::vector<llvm::BasicBlock*> caseBlocks(node->cases.size());
