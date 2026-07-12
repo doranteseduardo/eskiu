@@ -33,6 +33,7 @@ enum class TokenType {
     FN,
     ASM,
     VOLATILE,
+    STATIC,
     ESCAPING,
     ASYNC,
     AWAIT,

@@ -392,6 +392,15 @@ void TypeChecker::checkUninitPrefix(BlockStmt* body) {
 }
 
 void TypeChecker::visit(VarDecl* node) {
+    // `static` is a local-only qualifier whose initializer must be a compile-time
+    // constant (it runs once, at load time), as in C.
+    if (node->isStatic) {
+        if (scopes.size() <= 1)
+            errorAt(node, "'static' is only allowed on a local variable");
+        if (node->initializer && !dynamic_cast<LiteralExpr*>(node->initializer.get()))
+            errorAt(node, "a 'static' local's initializer must be a constant");
+    }
+
     // Record definition location
     if (node->line > 0)
         definitionLocations[node->name] = {node->line, node->col, sourceFile};

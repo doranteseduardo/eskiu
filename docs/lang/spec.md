@@ -69,11 +69,11 @@ let  int  int8  int16  int32  int64
 uint  uint8  uint16  uint32  uint64
 float  double  bool  char  string  void
 struct  packed  interface  fn  extern  intrinsic  import
-if  else  for  while  in  switch  case  default  match
+if  else  for  while  do  in  switch  case  default  match
 return  break  continue
 true  false  null
 alloc_with
-const  volatile  escaping  asm
+const  volatile  static  escaping  asm
 thread_create  thread_join
 try  catch  finally  throw
 async  await
@@ -423,6 +423,24 @@ c = &w;     // error: cannot assign to read-only location 'c'  (binding is const
 ```
 
 Const-correctness is enforced on conversions: adding const (`int*` → `const int*`) is always allowed, but any conversion that would **drop** a const qualifier (in an initializer, assignment, call argument, or return) is a compile error. `const` has no ABI effect; it is stripped before code generation. It applies uniformly to locals, parameters, struct fields and return types.
+
+### 4.7 Static Locals (`static`)
+
+The `static` qualifier gives a **local** variable a single instance that persists across calls, exactly as in C. Its storage lives for the whole program, not the enclosing call, so it retains its value between invocations:
+
+```eskiu
+int next() {
+    static int c = 0;   // initialised once, at load time
+    c = c + 1;
+    return c;
+}
+
+next();   // 1
+next();   // 2
+next();   // 3
+```
+
+A `static` local's initializer must be a **compile-time constant** (a literal); a runtime expression is rejected. An uninitialised `static` local is zero-initialised. Two `static` locals in different functions never alias, even if they share a name. `static` on a global is rejected, since a global already has static storage.
 
 ---
 

@@ -141,6 +141,7 @@ StmtPtr Parser::parseBlockStatement() {
         // Check if this looks like a declaration
         if (check(TokenType::CONST) ||
             check(TokenType::VOLATILE) ||
+            check(TokenType::STATIC) ||
             check(TokenType::LET) ||
             check(TokenType::INT) || check(TokenType::FLOAT) ||
             check(TokenType::DOUBLE) || check(TokenType::BOOL) ||

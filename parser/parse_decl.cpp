@@ -128,9 +128,14 @@ DeclPtr Parser::parseDeclaration() {
             return std::make_shared<TypeAliasDecl>(name, underlying);
         }
 
-        // Optional leading qualifiers, in either order: `volatile let`,
-        // `let volatile`, `volatile T x`, `const let`, etc.
-        bool leadingVol = match(TokenType::VOLATILE);
+        // Optional leading qualifiers, in any order: `volatile let`, `static int x`,
+        // `let volatile`, `const let`, etc.
+        bool leadingVol = false, leadingStatic = false;
+        while (true) {
+            if (match(TokenType::VOLATILE)) { leadingVol = true; continue; }
+            if (match(TokenType::STATIC))   { leadingStatic = true; continue; }
+            break;
+        }
 
         // A `const` immediately before a `let` binding is a *binding* qualifier
         // (const binding). A `const` before a *type* (`const int x`,
@@ -174,6 +179,7 @@ DeclPtr Parser::parseDeclaration() {
             vd->line = letNameTok.line; vd->col = letNameTok.column;
             vd->isVolatile = isVol;
             vd->isConst = isConst;
+            vd->isStatic = leadingStatic;
             return vd;
         }
 
@@ -215,6 +221,7 @@ DeclPtr Parser::parseDeclaration() {
                     vd->line = nameTok2.line; vd->col = nameTok2.column;
                     vd->isVolatile = declIsVolatile;
                     vd->isConst = isConst;
+                    vd->isStatic = leadingStatic;
                     return vd;
                 }
             } else {

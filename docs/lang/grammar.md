@@ -41,7 +41,7 @@ Comments: `// … end-of-line` and `/* … */` (block comments do not nest).
 ### Keywords (reserved)
 
 ```
-let  const  volatile  async  await  escaping
+let  const  volatile  static  async  await  escaping
 int int8 int16 int32 int64  uint uint8 uint16 uint32 uint64
 float double bool char string void
 struct packed union interface enum fn
@@ -135,11 +135,16 @@ type-alias      = 'type' IDENT '=' type ';'
 
 var-decl        = qualifier* 'let' IDENT ':' type ( '=' expr )? ';'
                 | qualifier* type IDENT ( '=' expr )? ';'
-qualifier       = 'const' | 'volatile'
+qualifier       = 'const' | 'volatile' | 'static'
 ```
 
 `const` placement follows C: before a `let` it qualifies the binding; within a
 type it qualifies the pointee (`const int*`) or pointer level (`int* const`).
+
+`static` is a storage qualifier valid only on a **local** variable: the variable
+has a single instance that persists across calls (like C). Its initializer must
+be a compile-time constant. Applying `static` to a global is rejected (a global
+already has static storage).
 
 ---
 

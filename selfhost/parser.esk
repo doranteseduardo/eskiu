@@ -815,6 +815,7 @@ string lambda_sig(string ret, *DeclNode d) {
 *StmtNode mk_vardecl(string nm, string ty, *ExprNode init, int is_const) {
     *StmtNode s = alloc<StmtNode>(1);
     s.kind = SK_VARDECL; s.name = nm; s.type = ty; s.expr = init; s.is_const = is_const;
+    s.is_static = 0;
     return s;
 }
 
@@ -982,13 +983,20 @@ string strip_binding_const(string t) {
 *StmtNode try_var_decl(Parser* p) {
     int save = p.pos;
     int is_const = 0;
-    if (p_at(p) == VOLATILE) { p_adv(p); }
+    int is_static = 0;
+    while (p_at(p) == VOLATILE || p_at(p) == STATIC) {
+        if (p_at(p) == STATIC) { is_static = 1; }
+        p_adv(p);
+    }
     if (p_at(p) == CONST) {                          // const-let binding (const before let)
         int k = 1;
         if (p_peek_k(p, 1).type == VOLATILE) { k = 2; }
         if (p_peek_k(p, k).type == LET) { is_const = 1; p_adv(p); }
     }
-    if (p_at(p) == VOLATILE) { p_adv(p); }
+    while (p_at(p) == VOLATILE || p_at(p) == STATIC) {
+        if (p_at(p) == STATIC) { is_static = 1; }
+        p_adv(p);
+    }
     if (p_at(p) == LET) {
         p_adv(p);
         if (p_at(p) != IDENT) { p.pos = save; return null; }
@@ -1002,7 +1010,9 @@ string strip_binding_const(string t) {
         if (p_at(p) == EQ) { p_adv(p); init = parse_expr(p); }
         if (p_at(p) != SEMICOLON) { p.pos = save; return null; }
         p_adv(p);
-        return mk_vardecl(nm, ty, init, is_const);
+        *StmtNode d = mk_vardecl(nm, ty, init, is_const);
+        d.is_static = is_static;
+        return d;
     }
     // typed: Type name [= expr] ;
     string raw = parse_type(p);
@@ -1015,9 +1025,16 @@ string strip_binding_const(string t) {
         *ExprNode init = parse_expr(p);
         if (p_at(p) != SEMICOLON) { p.pos = save; return null; }
         p_adv(p);
-        return mk_vardecl(nm, ty, init, is_const);
+        *StmtNode d = mk_vardecl(nm, ty, init, is_const);
+        d.is_static = is_static;
+        return d;
     }
-    if (p_at(p) == SEMICOLON) { p_adv(p); return mk_vardecl(nm, ty, null, is_const); }
+    if (p_at(p) == SEMICOLON) {
+        p_adv(p);
+        *StmtNode d = mk_vardecl(nm, ty, null, is_const);
+        d.is_static = is_static;
+        return d;
+    }
     p.pos = save;
     return null;
 }
@@ -1181,7 +1198,7 @@ string strip_binding_const(string t) {
 // looking lead token, speculatively parse a var-decl and back out on failure.
 *StmtNode parse_block_item(Parser* p) {
     int t = p_at(p);
-    if (t == LET || t == CONST || t == VOLATILE || t == STAR || t == IDENT
+    if (t == LET || t == CONST || t == VOLATILE || t == STATIC || t == STAR || t == IDENT
         || t == FN || is_type_kw(t) == 1) {
         int save = p.pos;
         *StmtNode d = try_var_decl(p);

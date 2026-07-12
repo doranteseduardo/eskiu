@@ -549,6 +549,10 @@ void sema_stmt(Sema* s, *StmtNode st) {
     }
     if (k == SK_VARDECL) {
         sema_expr(s, st.expr);             // initializer (can't reference itself)
+        if (st.is_static == 1 && st.expr != null && st.expr.kind != EK_LITERAL) {
+            s.had_error = 1;
+            printf("error: %s:0:0: a 'static' local's initializer must be a constant\n", s.filename);
+        }
         if (st.is_const == 1 && st.expr == null) {
             s.had_error = 1;
             printf("error: %s:0:0: const '%s' must be initialized\n", s.filename, st.name);

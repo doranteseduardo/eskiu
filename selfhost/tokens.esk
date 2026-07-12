@@ -6,7 +6,7 @@
 enum TokenType {
     // Keywords
     LET, INT, FLOAT, DOUBLE, BOOL, CHAR, STRING, VOID, STRUCT, PACKED, UNION,
-    INTERFACE, ENUM, FN, ASM, VOLATILE, ESCAPING, ASYNC, AWAIT, CONST,
+    INTERFACE, ENUM, FN, ASM, VOLATILE, STATIC, ESCAPING, ASYNC, AWAIT, CONST,
     THREAD_CREATE, THREAD_JOIN, FOR, IN, WHILE, DO, IF, ELSE, SWITCH, MATCH, CASE,
     DEFAULT, BREAK, RETURN, IMPORT, EXTERN, INTRINSIC, ALLOC_WITH, NULL_KW,
     TRUE, FALSE, SIZEOF, FREE_CLOSURE, TRY, CATCH, FINALLY, THROW, CONTINUE,
@@ -59,6 +59,7 @@ string token_name(int t) {
     if (t == FN) { return "FN"; }
     if (t == ASM) { return "ASM"; }
     if (t == VOLATILE) { return "VOLATILE"; }
+    if (t == STATIC) { return "STATIC"; }
     if (t == ESCAPING) { return "ESCAPING"; }
     if (t == ASYNC) { return "ASYNC"; }
     if (t == AWAIT) { return "AWAIT"; }

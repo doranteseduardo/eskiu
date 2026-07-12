@@ -53,6 +53,7 @@ struct StmtNode {
     string name;           // var-decl name / for-in variable
     string type;           // var-decl type
     int is_const;          // SK_VARDECL: declared value-const (read-only binding)
+    int is_static;         // SK_VARDECL: `static` local (one instance, persists across calls)
 }
 
 // A generic type parameter with its (possibly empty) interface constraints, e.g.
