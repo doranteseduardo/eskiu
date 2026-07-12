@@ -626,6 +626,12 @@ string lambda_sig(string ret, *DeclNode d) {
             *ExprNode q = alloc<ExprNode>(1);
             q.kind = EK_QUESTION; q.a = e;
             e = q;
+        } else if (t == PLUS_PLUS || t == MINUS_MINUS) {
+            p_adv(p);
+            *ExprNode id = alloc<ExprNode>(1);
+            id.kind = EK_INCDEC; id.a = e;
+            if (t == PLUS_PLUS) { id.sval = "post++"; } else { id.sval = "post--"; }
+            e = id;
         } else {
             return e;
         }
@@ -660,6 +666,13 @@ string lambda_sig(string ret, *DeclNode d) {
         }
     }
     int t = p_at(p);
+    if (t == PLUS_PLUS || t == MINUS_MINUS) {        // prefix ++x / --x
+        p_adv(p);
+        *ExprNode e = alloc<ExprNode>(1);
+        e.kind = EK_INCDEC; e.a = parse_unary(p);
+        if (t == PLUS_PLUS) { e.sval = "pre++"; } else { e.sval = "pre--"; }
+        return e;
+    }
     if (t == NOT || t == MINUS || t == PLUS || t == AMPERSAND || t == STAR || t == TILDE) {
         p_adv(p);
         return mk_un(op_str(t), parse_unary(p));
@@ -878,6 +891,19 @@ string strip_binding_const(string t) {
     p_adv(p);                              // ')'
     *StmtNode s = alloc<StmtNode>(1);
     s.kind = SK_WHILE; s.expr = cond; s.s1 = parse_stmt(p);
+    return s;
+}
+
+*StmtNode parse_do(Parser* p) {
+    p_adv(p);                              // 'do'
+    *StmtNode body = parse_stmt(p);
+    p_adv(p);                              // 'while'
+    p_adv(p);                              // '('
+    *ExprNode cond = parse_expr(p);
+    p_adv(p);                              // ')'
+    p_adv(p);                              // ';'
+    *StmtNode s = alloc<StmtNode>(1);
+    s.kind = SK_DOWHILE; s.s1 = body; s.expr = cond;
     return s;
 }
 
@@ -1112,6 +1138,7 @@ string strip_binding_const(string t) {
     if (t == IF) { return parse_if(p); }
     if (t == FOR) { return parse_for(p); }
     if (t == WHILE) { return parse_while(p); }
+    if (t == DO) { return parse_do(p); }
     if (t == SWITCH) { return parse_switch(p); }
     if (t == MATCH) { return parse_match(p); }
     if (t == TRY) { return parse_try(p); }

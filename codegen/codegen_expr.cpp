@@ -373,6 +373,30 @@ void CodeGen::visit(UnaryExpr* node) {
     exprValueStack.push(result);
 }
 
+void CodeGen::visit(IncDecExpr* node) {
+    llvm::Value* ptr = evaluateLValue(node->operand);
+    std::string ety = getExprEskiuType(node->operand);
+    bool isPtr = !ety.empty() && (ety.front() == '*' || ety.back() == '*');
+    llvm::Type* ty = isPtr ? (llvm::Type*)llvm::PointerType::get(*context, 0)
+                           : getTypeFromString(ety.empty() ? "int" : ety);
+    llvm::Value* old = builder->CreateLoad(ty, ptr);
+    llvm::Value* nw;
+    if (isPtr) {
+        // pointer step by one element
+        std::string elemStr = ety.front() == '*' ? ety.substr(1) : ety.substr(0, ety.size() - 1);
+        llvm::Type* elemTy = (elemStr.empty() || elemStr == "void")
+            ? (llvm::Type*)llvm::Type::getInt8Ty(*context) : getTypeFromString(elemStr);
+        llvm::Value* step = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context),
+                                                   node->decrement ? -1 : 1, true);
+        nw = builder->CreateGEP(elemTy, old, step);
+    } else {
+        llvm::Value* one = llvm::ConstantInt::get(ty, 1);
+        nw = node->decrement ? builder->CreateSub(old, one) : builder->CreateAdd(old, one);
+    }
+    builder->CreateStore(nw, ptr);
+    exprValueStack.push(node->prefix ? nw : old);
+}
+
 void CodeGen::visit(IndexExpr* node) {
     llvm::Value* idx = evaluateExpr(node->index);
     std::string baseType = getExprEskiuType(node->base);

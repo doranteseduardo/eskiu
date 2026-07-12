@@ -27,6 +27,7 @@ inline void forEachChildExpr(Expr* e, const std::function<void(ExprPtr&)>& f) {
     if (!e) return;
     if (auto* b = dynamic_cast<BinaryExpr*>(e))        { f(b->left); f(b->right); }
     else if (auto* u = dynamic_cast<UnaryExpr*>(e))    { f(u->operand); }
+    else if (auto* id = dynamic_cast<IncDecExpr*>(e))  { f(id->operand); }
     else if (auto* m = dynamic_cast<MemberExpr*>(e))   { f(m->base); }
     else if (auto* ix = dynamic_cast<IndexExpr*>(e))   { f(ix->base); f(ix->index); }
     else if (auto* c = dynamic_cast<CastExpr*>(e))     { f(c->expr); }

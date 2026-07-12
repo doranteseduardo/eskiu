@@ -35,6 +35,7 @@ std::unordered_map<std::string, TokenType> Lexer::keywords = {
     {"for", TokenType::FOR},
     {"in", TokenType::IN},
     {"while", TokenType::WHILE},
+    {"do", TokenType::DO},
     {"if", TokenType::IF},
     {"else", TokenType::ELSE},
     {"switch", TokenType::SWITCH},
@@ -323,9 +324,11 @@ Token Lexer::next_token() {
 
     switch (c) {
         case '+':
+            if (!is_at_end() && peek() == '+') { advance(); return Token(TokenType::PLUS_PLUS,   "++", start_line, start_col); }
             if (!is_at_end() && peek() == '=') { advance(); return Token(TokenType::PLUS_EQ,    "+=", start_line, start_col); }
             return Token(TokenType::PLUS, "+", start_line, start_col);
         case '-':
+            if (!is_at_end() && peek() == '-') { advance(); return Token(TokenType::MINUS_MINUS, "--", start_line, start_col); }
             if (!is_at_end() && peek() == '=') { advance(); return Token(TokenType::MINUS_EQ,   "-=", start_line, start_col); }
             if (!is_at_end() && peek() == '>') { advance(); return Token(TokenType::ARROW,       "->", start_line, start_col); }
             return Token(TokenType::MINUS, "-", start_line, start_col);

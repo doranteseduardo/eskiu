@@ -40,6 +40,7 @@ public:
     void visit(BlockStmt* node) override;
     void visit(IfStmt* node) override;
     void visit(WhileStmt* node) override;
+    void visit(DoWhileStmt* node) override;
     void visit(ForStmt* node) override;
     void visit(ForInStmt* node) override;
     void visit(ReturnStmt* node) override;
@@ -48,6 +49,7 @@ public:
 
     void visit(BinaryExpr* node) override;
     void visit(UnaryExpr* node) override;
+    void visit(IncDecExpr* node) override;
     void visit(QuestionExpr* node) override;
     void visit(CallExpr* node) override;
     void visit(IndexExpr* node) override;

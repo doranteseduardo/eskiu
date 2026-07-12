@@ -486,6 +486,20 @@ The compound bitwise/shift operators are desugared by the parser: `x op= e` is e
 
 The left-hand side must be an lvalue: a named variable, a pointer dereference (`*ptr = value`), or a field access. Assigning through a dereferenced pointer parameter works correctly. `*ptr = value` stores through the pointer as expected.
 
+### 5.5.1 Increment and Decrement
+
+`++` and `--` add or subtract one from an integer or pointer lvalue, in place. Both prefix
+and postfix forms are supported: `++x`/`--x` yield the new value, `x++`/`x--` yield the old
+value. On a pointer, the step is one element (like pointer arithmetic).
+
+```eskiu
+for (int i = 0; i < n; i++) { ... }   // postfix, value discarded
+int a = i++;   // a = old i, then i incremented
+int b = ++j;   // j incremented, then b = new j
+```
+
+The operand must be a modifiable lvalue (a `const` or a non-lvalue like `5++` is an error).
+
 ### 5.6 Address-of and Dereference
 
 | Operator | Description                                  |
@@ -991,6 +1005,18 @@ while (condition) {
 ```
 
 The body executes repeatedly while `condition` is true.
+
+### 7.3.1 do / while
+
+```eskiu
+do {
+    // body
+} while (condition);
+```
+
+Like `while`, but the condition is tested *after* the body, so the body always runs at
+least once. `break` and `continue` work as in the other loops (`continue` re-tests the
+condition).
 
 ### 7.4 switch / case / default / break
 

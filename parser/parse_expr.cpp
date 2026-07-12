@@ -197,6 +197,13 @@ ExprPtr Parser::parseUnary() {
         }
     }
 
+    // Prefix ++x / --x
+    if (match({TokenType::PLUS_PLUS, TokenType::MINUS_MINUS})) {
+        bool dec = tokens[current - 1].type == TokenType::MINUS_MINUS;
+        ExprPtr operand = parseUnary();
+        return std::make_shared<IncDecExpr>(operand, dec, /*prefix=*/true);
+    }
+
     if (match({TokenType::NOT, TokenType::MINUS, TokenType::PLUS, TokenType::AMPERSAND, TokenType::STAR, TokenType::TILDE})) {
         Token opToken = tokens[current - 1];
         ExprPtr expr = parseUnary();
@@ -299,6 +306,10 @@ ExprPtr Parser::parsePostfix() {
         } else if (match(TokenType::QUESTION)) {
             Token qTok = tokens[current - 1];
             expr = withPos(std::make_shared<QuestionExpr>(expr), qTok);
+        } else if (match({TokenType::PLUS_PLUS, TokenType::MINUS_MINUS})) {
+            Token pTok = tokens[current - 1];
+            bool dec = pTok.type == TokenType::MINUS_MINUS;
+            expr = withPos(std::make_shared<IncDecExpr>(expr, dec, /*prefix=*/false), pTok);
         } else {
             break;
         }

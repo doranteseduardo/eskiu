@@ -150,6 +150,23 @@ void TypeChecker::visit(UnaryExpr* node) {
     }
 }
 
+void TypeChecker::visit(IncDecExpr* node) {
+    node->operand->accept(this);
+    Expr* op = node->operand.get();
+    bool isLval = dynamic_cast<IdentExpr*>(op) || dynamic_cast<MemberExpr*>(op) ||
+                  dynamic_cast<IndexExpr*>(op) ||
+                  (dynamic_cast<UnaryExpr*>(op) && static_cast<UnaryExpr*>(op)->op == "*");
+    if (!isLval)
+        errorAt(node, "'++'/'--' requires a modifiable variable");
+    std::string cname;
+    if (assignsToConst(op, cname))
+        errorAt(node, "cannot modify read-only location '" + cname + "'");
+    std::string t = getExpressionType(op);
+    if (t != "unknown" && !isIntType(t) && !isPointerType(t))
+        errorAt(node, "'++'/'--' requires an integer or pointer, got '" + t + "'");
+    expressionTypes[node] = t;
+}
+
 void TypeChecker::visit(CallExpr* node) {
     // Variadic access builtins: va_start(ap) / va_end(ap) — void.
     if (auto* bid = dynamic_cast<IdentExpr*>(node->callee.get())) {
