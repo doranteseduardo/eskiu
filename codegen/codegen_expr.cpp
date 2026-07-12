@@ -409,17 +409,19 @@ void CodeGen::visit(IndexExpr* node) {
         return;
     }
 
-    // Fixed-size array: T[N]
-    size_t lb = baseType.rfind('[');
-    if (lb != std::string::npos && baseType.back() == ']') {
-        std::string elemStr = baseType.substr(0, lb);
-        llvm::Type* arrType  = getTypeFromString(baseType);
-        llvm::Type* elemType = getTypeFromString(elemStr);
-        llvm::Value* basePtr = evaluateLValue(node->base);
-        llvm::Value* zero    = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0);
-        llvm::Value* gep     = builder->CreateGEP(arrType, basePtr, {zero, idx});
-        exprValueStack.push(builder->CreateLoad(elemType, gep));
-        return;
+    // Fixed-size array: T[N] (for T[N][M], indexing peels the outer dimension → T[M])
+    {
+        ty::Type bt = ty::Type::parse(baseType);
+        if (bt.kind == ty::Type::Kind::Array) {
+            std::string elemStr  = bt.elem->str();
+            llvm::Type* arrType  = getTypeFromString(baseType);
+            llvm::Type* elemType = getTypeFromString(elemStr);
+            llvm::Value* basePtr = evaluateLValue(node->base);
+            llvm::Value* zero    = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0);
+            llvm::Value* gep     = builder->CreateGEP(arrType, basePtr, {zero, idx});
+            exprValueStack.push(builder->CreateLoad(elemType, gep));
+            return;
+        }
     }
 
     // Pointer: *T or T*

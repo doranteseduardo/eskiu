@@ -203,12 +203,12 @@ void CodeGen::visit(ForInStmt* node) {
     std::string elemType;
     ExprPtr lengthExpr, elemExpr;
 
-    size_t lb = itType.rfind('[');
-    if (lb != std::string::npos && !itType.empty() && itType.back() == ']') {
-        // Fixed-size array T[N] — resolve N (literal, enum, or const int).
-        elemType   = itType.substr(0, lb);
+    ty::Type itT = ty::Type::parse(itType);
+    if (itT.kind == ty::Type::Kind::Array) {
+        // Fixed-size array T[N] — resolve the outer dimension N (literal, enum, const int).
+        elemType   = itT.elem->str();
         uint64_t len = 0;
-        resolveArrayDim(itType.substr(lb + 1, itType.size() - lb - 2), len);
+        resolveArrayDim(itT.dim, len);
         lengthExpr = intLit(std::to_string(len));
         elemExpr   = std::make_shared<IndexExpr>(node->iterable, idx());
     } else {

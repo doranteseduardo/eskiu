@@ -214,6 +214,20 @@ int[4] b = {7, 8};         // b = 7, 8, 0, 0
 int[3] c = {};             // c = 0, 0, 0
 ```
 
+**Multidimensional arrays** chain the suffix: `T[N][M]` is `N` arrays of `M` elements,
+following C order, so the **leftmost bracket is the outer dimension**. Indexing peels one
+dimension at a time (`a[i]` is a row of type `T[M]`, `a[i][j]` is a `T`), and each index
+is bounds-checked against its own dimension. A nested brace list initializes it, with the
+same zero-fill rule at every level:
+
+```eskiu
+int[2][3] a = { {1, 2, 3}, {4, 5, 6} };   // 2 rows of 3
+int[2][2] b = { {7, 8} };                 // second row zero-filled: {7,8},{0,0}
+a[1][2];                                    // 6  (row 1, column 2)
+```
+
+`int[2][3]` lowers to `[2 x [3 x i32]]` in LLVM IR.
+
 ### 3.4 Struct Types
 
 A struct type is named by its declaration (see §8). Variables of struct type are declared using the struct name as the type annotation:

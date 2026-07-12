@@ -420,25 +420,40 @@ void TypeChecker::visit(VarDecl* node) {
         // Array literal `= {..}`: the target must be a fixed-size array; check the
         // element count (fewer than the size zero-fill, C-style) and element types.
         if (auto* arr = dynamic_cast<ArrayLitExpr*>(node->initializer.get())) {
-            std::string t = node->type;
-            size_t lb = t.rfind('[');
-            if (lb == std::string::npos || t.back() != ']' || tyq::isPtr(t))
-                errorAt(node, "an array literal '{...}' can only initialize an array type, not '" +
-                              node->type + "'");
-            else {
-                std::string elemT = t.substr(0, lb);
-                std::string dim = t.substr(lb + 1, t.size() - lb - 2);
-                bool dimNum = !dim.empty() &&
-                    std::all_of(dim.begin(), dim.end(), [](unsigned char c){ return std::isdigit(c); });
-                if (dimNum && arr->elements.size() > (size_t)std::stoull(dim))
-                    errorAt(node, "array literal has " + std::to_string(arr->elements.size()) +
-                                  " elements but '" + node->type + "' holds " + dim);
-                for (auto& el : arr->elements) {
-                    std::string et = getExpressionType(el.get());
-                    std::string e = assignabilityError(elemT, et, el.get());
-                    if (!e.empty()) errorAt(node, "array element: " + e);
-                }
-            }
+            // Recursively check a (possibly nested) array literal against a
+            // (possibly multi-dimensional) array type: `int[2][3]` expects two rows,
+            // each itself a `{...}` of up to three ints. A short list zero-fills.
+            std::function<void(const std::string&, ArrayLitExpr*)> checkArr =
+                [&](const std::string& arrT, ArrayLitExpr* a) {
+                    ty::Type at = ty::Type::parse(arrT);
+                    if (at.kind != ty::Type::Kind::Array) {
+                        errorAt(node, "an array literal '{...}' can only initialize an array type, not '" +
+                                      arrT + "'");
+                        return;
+                    }
+                    std::string elemT = at.elem->str();
+                    const std::string& dim = at.dim;
+                    bool dimNum = !dim.empty() &&
+                        std::all_of(dim.begin(), dim.end(), [](unsigned char c){ return std::isdigit(c); });
+                    if (dimNum && a->elements.size() > (size_t)std::stoull(dim))
+                        errorAt(node, "array literal has " + std::to_string(a->elements.size()) +
+                                      " elements but '" + arrT + "' holds " + dim);
+                    bool elemIsArray = (at.elem->kind == ty::Type::Kind::Array);
+                    for (auto& el : a->elements) {
+                        if (elemIsArray) {
+                            if (auto* sub = dynamic_cast<ArrayLitExpr*>(el.get()))
+                                checkArr(elemT, sub);
+                            else
+                                errorAt(node, "nested array initializer expected '{...}' for element type '" +
+                                              elemT + "'");
+                        } else {
+                            std::string et = getExpressionType(el.get());
+                            std::string e = assignabilityError(elemT, et, el.get());
+                            if (!e.empty()) errorAt(node, "array element: " + e);
+                        }
+                    }
+                };
+            checkArr(node->type, arr);
         } else {
             std::string initType = getExpressionType(node->initializer.get());
             if (initType != "unknown") {

@@ -329,6 +329,16 @@ more than the size is an error.</p>
 int[4] b = {7, 8};         // b = 7, 8, 0, 0
 int[3] c = {};             // c = 0, 0, 0
 </code></pre>
+<p><strong>Multidimensional arrays</strong> chain the suffix: <code>T[N][M]</code> is <code>N</code> arrays of <code>M</code> elements,
+following C order, so the <strong>leftmost bracket is the outer dimension</strong>. Indexing peels one
+dimension at a time (<code>a[i]</code> is a row of type <code>T[M]</code>, <code>a[i][j]</code> is a <code>T</code>), and each index
+is bounds-checked against its own dimension. A nested brace list initializes it, with the
+same zero-fill rule at every level:</p>
+<pre><code class="language-eskiu">int[2][3] a = { {1, 2, 3}, {4, 5, 6} };   // 2 rows of 3
+int[2][2] b = { {7, 8} };                 // second row zero-filled: {7,8},{0,0}
+a[1][2];                                    // 6  (row 1, column 2)
+</code></pre>
+<p><code>int[2][3]</code> lowers to <code>[2 x [3 x i32]]</code> in LLVM IR.</p>
 <h3 id="34-struct-types">3.4 Struct Types</h3>
 <p>A struct type is named by its declaration (see §8). Variables of struct type are declared using the struct name as the type annotation:</p>
 <pre><code class="language-eskiu">let p: Point;
