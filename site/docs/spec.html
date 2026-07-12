@@ -322,6 +322,13 @@ int main() {
 array</em> is written with a trailing star instead: <code>T[N]*</code>. For example <code>*Node[7]</code> is seven
 <code>Node</code> pointers, while <code>Node[7]*</code> points at a seven-<code>Node</code> array.</p>
 <p><code>uint8[858]</code> lowers to <code>[858 x i8]</code> in LLVM IR.</p>
+<p>An array may be initialized with a brace list <code>{ e0, e1, ... }</code>. As in C, listing fewer
+elements than the size zero-fills the rest, and <code>{}</code> zero-fills the whole array; listing
+more than the size is an error.</p>
+<pre><code class="language-eskiu">int[3] a = {10, 20, 30};   // a = 10, 20, 30
+int[4] b = {7, 8};         // b = 7, 8, 0, 0
+int[3] c = {};             // c = 0, 0, 0
+</code></pre>
 <h3 id="34-struct-types">3.4 Struct Types</h3>
 <p>A struct type is named by its declaration (see §8). Variables of struct type are declared using the struct name as the type annotation:</p>
 <pre><code class="language-eskiu">let p: Point;

@@ -418,6 +418,11 @@ void sema_expr(Sema* s, *ExprNode e) {
         }
         sema_expr(s, e.a); return;
     }
+    if (k == EK_ARRAYLIT) {                            // { e0, e1, ... }
+        int i = 0; int n = List_len<*ExprNode>(&e.kids);
+        while (i < n) { sema_expr(s, List_get<*ExprNode>(&e.kids, i)); i = i + 1; }
+        return;
+    }
     if (k == EK_AWAIT) {
         if (s.in_async == 0) {
             s.had_error = 1;

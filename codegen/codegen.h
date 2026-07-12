@@ -236,6 +236,7 @@ private:
     void visit(SwitchStmt* node) override;
     void visit(MatchStmt* node) override;
     void visit(StructInitExpr* node) override;
+    void visit(ArrayLitExpr* node) override;
     void visit(AllocWithExpr* node) override;
     void visit(TemplateCallExpr* node) override;
     void visit(LambdaExpr* node) override;
@@ -289,6 +290,9 @@ private:
     std::map<std::string, std::string> typeAliases;
 
     void emitStructInitInto(llvm::Value* dest, StructInitExpr* init);
+    // Fill an array alloca `dest` (of type `arrType`, e.g. "int[3]") from an array
+    // literal: store each element, then zero-fill the remaining slots (C-style).
+    void emitArrayInitInto(llvm::Value* dest, ArrayLitExpr* lit, const std::string& arrType);
     // Resolve a struct-initializer name to a concrete struct type name, instantiating
     // the template if the name is of the form Name<Arg,...> (e.g. Pair<int,float>).
     std::string resolveStructInitName(const std::string& name);

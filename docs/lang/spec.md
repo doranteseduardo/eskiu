@@ -204,6 +204,16 @@ array* is written with a trailing star instead: `T[N]*`. For example `*Node[7]` 
 
 `uint8[858]` lowers to `[858 x i8]` in LLVM IR.
 
+An array may be initialized with a brace list `{ e0, e1, ... }`. As in C, listing fewer
+elements than the size zero-fills the rest, and `{}` zero-fills the whole array; listing
+more than the size is an error.
+
+```eskiu
+int[3] a = {10, 20, 30};   // a = 10, 20, 30
+int[4] b = {7, 8};         // b = 7, 8, 0, 0
+int[3] c = {};             // c = 0, 0, 0
+```
+
 ### 3.4 Struct Types
 
 A struct type is named by its declaration (see §8). Variables of struct type are declared using the struct name as the type annotation:

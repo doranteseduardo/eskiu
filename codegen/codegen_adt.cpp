@@ -146,6 +146,36 @@ std::string CodeGen::resolveStructInitName(const std::string& name) {
     return mangled;
 }
 
+void CodeGen::emitArrayInitInto(llvm::Value* dest, ArrayLitExpr* lit, const std::string& arrType) {
+    size_t lb = arrType.rfind('[');
+    if (lb == std::string::npos) return;
+    std::string elemStr = arrType.substr(0, lb);
+    std::string dim = arrType.substr(lb + 1, arrType.size() - lb - 2);
+    uint64_t n = 0;
+    if (!resolveArrayDim(dim, n)) n = lit->elements.size();
+    llvm::Type* elemTy = getTypeFromString(elemStr);
+    llvm::Type* arrTy = llvm::ArrayType::get(elemTy, n);
+    llvm::Type* i32 = llvm::Type::getInt32Ty(*context);
+
+    for (uint64_t i = 0; i < n; ++i) {
+        llvm::Value* slot = builder->CreateGEP(arrTy, dest,
+            {llvm::ConstantInt::get(i32, 0), llvm::ConstantInt::get(i32, i)});
+        llvm::Value* val;
+        if (i < lit->elements.size()) {
+            val = evaluateExpr(lit->elements[i]);
+            if (val->getType() != elemTy) {
+                bool uns = eskiuUnsigned(getExprEskiuType(lit->elements[i]));
+                if (val->getType()->isIntegerTy() && elemTy->isIntegerTy())         val = coerceInt(val, elemTy, uns);
+                else if (val->getType()->isIntegerTy() && elemTy->isFloatingPointTy()) val = intToFloat(val, elemTy, uns);
+                else if (val->getType()->isFloatingPointTy() && elemTy->isFloatingPointTy()) val = builder->CreateFPCast(val, elemTy);
+            }
+        } else {
+            val = llvm::Constant::getNullValue(elemTy);   // zero-fill the rest (C-style)
+        }
+        builder->CreateStore(val, slot);
+    }
+}
+
 void CodeGen::emitStructInitInto(llvm::Value* dest, StructInitExpr* init) {
     std::string sname = resolveStructInitName(init->structName);
     auto fit = structFields.find(sname);
@@ -199,6 +229,11 @@ void CodeGen::emitStructInitInto(llvm::Value* dest, StructInitExpr* init) {
             storeField(i, init->fieldInits[i].second);
         }
     }
+}
+
+void CodeGen::visit(ArrayLitExpr* node) {
+    (void)node;
+    throw std::runtime_error("an array literal '{...}' is only valid as a variable initializer");
 }
 
 void CodeGen::visit(StructInitExpr* node) {

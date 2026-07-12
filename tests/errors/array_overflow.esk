@@ -1,0 +1,2 @@
+// EXPECT-ERROR: holds
+int main() { int[2] a = {1, 2, 3}; return a[0]; }

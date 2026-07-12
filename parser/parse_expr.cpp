@@ -321,6 +321,21 @@ ExprPtr Parser::parsePostfix() {
 ExprPtr Parser::parsePrimary() {
     Token tok = peek();
 
+    // Array literal `{ e0, e1, ... }` (untyped; target-typed at the declaration).
+    if (check(TokenType::LBRACE)) {
+        advance();  // '{'
+        std::vector<ExprPtr> elems;
+        if (!check(TokenType::RBRACE)) {
+            elems.push_back(parseExpression());
+            while (match(TokenType::COMMA)) {
+                if (check(TokenType::RBRACE)) break;   // trailing comma
+                elems.push_back(parseExpression());
+            }
+        }
+        consume(TokenType::RBRACE, "Expected '}' after array literal");
+        return withPos(std::make_shared<ArrayLitExpr>(std::move(elems)), tok);
+    }
+
     if (match(TokenType::TRUE)) {
         return withPos(std::make_shared<LiteralExpr>(LiteralExpr::Kind::BOOL, "true"), tok);
     }

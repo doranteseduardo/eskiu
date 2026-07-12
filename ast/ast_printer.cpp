@@ -474,6 +474,13 @@ void ASTPrinter::visit(StructInitExpr* node) {
     indentLevel--;
 }
 
+void ASTPrinter::visit(ArrayLitExpr* node) {
+    println("ArrayLitExpr");
+    indentLevel++;
+    for (const auto& el : node->elements) el->accept(this);
+    indentLevel--;
+}
+
 void ASTPrinter::visit(LambdaExpr* node) {
     std::string sig = node->returnType + "(";
     for (size_t i = 0; i < node->params.size(); ++i) {
