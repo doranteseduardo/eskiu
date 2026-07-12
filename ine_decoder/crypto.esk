@@ -253,14 +253,6 @@ string CT_R2_BLOB =
 
 
 
-// WebP header bytes (23 entries, positions that come from the constant table)
-uint8 WEBP_HDR_0  = 0x52;  uint8 WEBP_HDR_1  = 0x49;  uint8 WEBP_HDR_2  = 0x46;
-uint8 WEBP_HDR_3  = 0x46;  uint8 WEBP_HDR_6  = 0x57;  uint8 WEBP_HDR_7  = 0x45;
-uint8 WEBP_HDR_8  = 0x42;  uint8 WEBP_HDR_9  = 0x50;  uint8 WEBP_HDR_10 = 0x56;
-uint8 WEBP_HDR_11 = 0x50;  uint8 WEBP_HDR_12 = 0x38;  uint8 WEBP_HDR_13 = 0x20;
-uint8 WEBP_HDR_14 = 0x00;  uint8 WEBP_HDR_15 = 0x00;  uint8 WEBP_HDR_18 = 0x01;
-uint8 WEBP_HDR_19 = 0x2A;  uint8 WEBP_HDR_22 = 0x9D;
-
 // BNPair: output container for an RSA public key
 struct BNPair {
     *void n;
@@ -289,7 +281,7 @@ int hex_digit(uint8 c) {
         int hi = hex_digit(hex[i * 2]);
         int lo = hex_digit(hex[i * 2 + 1]);
         buf[i] = (uint8)((hi << 4) | lo);
-        i += 1;
+        i++;
     }
     return buf;
 }
@@ -301,7 +293,7 @@ void hex_key(string hex, *uint8 out, int nbytes) {
         int hi = hex_digit(hex[i * 2]);
         int lo = hex_digit(hex[i * 2 + 1]);
         out[i] = (uint8)((hi << 4) | lo);
-        i += 1;
+        i++;
     }
 }
 
@@ -317,10 +309,10 @@ int64 find_bytes(*uint8 hay, int64 hlen, string needle) {
         int64 j = 0;
         while (j < nlen) {
             if (hay[i + j] != needle[j]) { matched = 0; j = nlen; }
-            j += 1;
+            j++;
         }
         if (matched != 0) return i;
-        i += 1;
+        i++;
     }
     return -1;
 }
@@ -333,7 +325,7 @@ int64 b64_trim_len(*uint8 data, int64 len) {
         if (!((c >= 65 && c <= 90) || (c >= 97 && c <= 122) ||
               (c >= 48 && c <= 57) || c == 43 || c == 47 || c == 61))
             break;
-        i += 1;
+        i++;
     }
     return i;
 }
@@ -347,7 +339,7 @@ int strip_pkcs1(*uint8 raw, int64 ks, **uint8 out, *int64 out_len) {
     int64 i = 2;
     while (i < ks) {
         if (raw[i] == 0) { sep = i; i = ks; }
-        i += 1;
+        i++;
     }
     if (sep < 10) return 0;
     int64 mlen = ks - sep - 1;
@@ -449,7 +441,7 @@ int rsa_multiblock(*void n, *void e, int ks, *uint8 ct, int64 ct_len,
         int j = 2;
         while (j < ks) {
             if (raw[j] == 0) { sep = j; j = ks; }
-            j += 1;
+            j++;
         }
         if (sep < 0) {
             free(raw); free(result); BN_free(c_bn); BN_free(m_bn); return 0;
@@ -457,7 +449,7 @@ int rsa_multiblock(*void n, *void e, int ks, *uint8 ct, int64 ct_len,
         int64 sz = (int64)(ks - sep - 1);
         memcpy(result + total, raw + sep + 1, (int)sz);
         total += sz;
-        i += 1;
+        i++;
     }
     free(raw); BN_free(c_bn); BN_free(m_bn);
     out[0]     = result;
@@ -485,18 +477,18 @@ int64 decode_6bit(*uint8 in_buf, int64 n, *uint8 out) {
     int64 i     = 0;
     while (i < n) {
         int s = 7;
-        while (s >= 0) {
+        do {                                  // s starts at 7 → body always runs
             bit_buf = (bit_buf << 1) | ((in_buf[i] >> s) & 1);
-            bits += 1;
+            bits++;
             if (bits == 6) {
                 out[op] = (uint8)bit_buf;
-                op   += 1;
+                op++;
                 bit_buf = 0;
                 bits    = 0;
             }
-            s -= 1;
-        }
-        i += 1;
+            s--;
+        } while (s >= 0);
+        i++;
     }
     return op;
 }
@@ -510,6 +502,12 @@ int64 reconstruct_webp(*uint8 input, int64 image_count, *uint8 out) {
     int64 ii = 0;
     int64 pos = 0;
 
+    // WebP header bytes, indexed by table position (0..16); out-of-range → 0.
+    uint8[17] WEBP_HDR = {
+        0x52, 0x49, 0x46, 0x46, 0x57, 0x45, 0x42, 0x50, 0x56,
+        0x50, 0x38, 0x20, 0x00, 0x00, 0x01, 0x2A, 0x9D
+    };
+
     while (pos < total) {
         int from_input = 0;
         if      (pos > 29)                             from_input = 1;
@@ -518,34 +516,13 @@ int64 reconstruct_webp(*uint8 input, int64 image_count, *uint8 out) {
         else if ((pos & 0x7FFFFFFE) == 0x10)           from_input = 1;
 
         if (from_input != 0) {
-            out[pos] = input[ii]; ii += 1;
+            out[pos] = input[ii]; ii++;
         } else {
-            // Select from WEBP_HDR table by table index
-            uint8 hval = 0;
-            switch ((int)ti) {
-                case 0:  hval = WEBP_HDR_0;  break;
-                case 1:  hval = WEBP_HDR_1;  break;
-                case 2:  hval = WEBP_HDR_2;  break;
-                case 3:  hval = WEBP_HDR_3;  break;
-                case 4:  hval = WEBP_HDR_6;  break;
-                case 5:  hval = WEBP_HDR_7;  break;
-                case 6:  hval = WEBP_HDR_8;  break;
-                case 7:  hval = WEBP_HDR_9;  break;
-                case 8:  hval = WEBP_HDR_10; break;
-                case 9:  hval = WEBP_HDR_11; break;
-                case 10: hval = WEBP_HDR_12; break;
-                case 11: hval = WEBP_HDR_13; break;
-                case 12: hval = WEBP_HDR_14; break;
-                case 13: hval = WEBP_HDR_15; break;
-                case 14: hval = WEBP_HDR_18; break;
-                case 15: hval = WEBP_HDR_19; break;
-                case 16: hval = WEBP_HDR_22; break;
-                default: hval = 0;           break;
-            }
-            out[pos] = hval;
-            ti += 1;
+            // Select from the WebP header table by index (out-of-range → 0).
+            out[pos] = ti < 17 ? WEBP_HDR[ti] : 0;
+            ti++;
         }
-        pos += 1;
+        pos++;
     }
     return total;
 }
@@ -723,7 +700,7 @@ int run_no_so_pipeline(*uint8 combined, int64 combined_len,
     int64 img_count = ((int64)work[w25 + 6] << 8) | work[w25 + 7];
     int64 img_off   = w25 + 8;
     if (img_off + img_count > work_len)
-        if (work_len > img_off) { img_count = work_len - img_off; } else { img_count = 0; }
+        img_count = work_len > img_off ? work_len - img_off : 0;
 
     int64 img_len = img_count + 23;
     let img: *uint8 = alloc<uint8>(img_len);

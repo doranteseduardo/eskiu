@@ -1081,6 +1081,7 @@
           </button>
           <div class="pg-examples">
             <button class="pg-ex" onclick="loadExample('hello')">hello</button>
+            <button class="pg-ex" onclick="loadExample('basics')">basics</button>
             <button class="pg-ex" onclick="loadExample('match')">match</button>
             <button class="pg-ex" onclick="loadExample('generics')">
               generics
@@ -1194,6 +1195,35 @@ int add(int a, int b) {
 int main() {
     printf("Hello from Eskiu!\\n");
     printf("2 + 3 = %d\\n", add(2, 3));
+    return 0;
+}
+`,
+        basics: `extern int printf(string fmt, ...);
+
+// A counter that remembers its state across calls (static local).
+int next_id() {
+    static int id = 0;
+    id++;                        // increment operator
+    return id;
+}
+
+int main() {
+    // Array-literal init; a short list zero-fills the rest.
+    int[5] fib = {0, 1, 1, 2, 3};
+
+    // do/while runs the body at least once.
+    int i = 0;
+    do {
+        int even = fib[i] % 2 == 0 ? 1 : 0;      // ternary
+        printf("fib[%d]=%d (%s)\\n", i, fib[i], even ? "even" : "odd");
+        i++;
+    } while (i < 5);
+
+    // Multidimensional array in C order: rows of columns.
+    int[2][3] grid = { {1, 2, 3}, {4, 5, 6} };
+    printf("grid[1][2] = %d\\n", grid[1][2]);     // 6
+
+    printf("ids: %d %d %d\\n", next_id(), next_id(), next_id());  // 1 2 3
     return 0;
 }
 `,

@@ -77,7 +77,7 @@ int decode_to_buffers(*uint8 payload, int64 pay_len,
     let tdata: *uint8 = payload + 2;
     int64 ioff = 2 + tlen;
     int64 ilen = ((int64)payload[ioff] << 8) | payload[ioff + 1];
-    if (ioff + 2 + ilen > pay_len) if (pay_len > ioff + 2) { ilen = pay_len - ioff - 2; } else { ilen = 0; }
+    if (ioff + 2 + ilen > pay_len) ilen = pay_len > ioff + 2 ? pay_len - ioff - 2 : 0;
     let idata: *uint8 = payload + ioff + 2;
 
     // Decode text bytes through the character table → a UTF-8 String.
@@ -89,7 +89,7 @@ int decode_to_buffers(*uint8 payload, int64 pay_len,
             string ch = char_lookup(bv);
             if (ch[0] != 0) { String_append(&text, ch); }
         }
-        i += 1;
+        i++;
     }
 
     // Split on '|' (streaming) and build the JSON object with <json>.
@@ -101,7 +101,7 @@ int decode_to_buffers(*uint8 payload, int64 pay_len,
     while (String_next_token(&text, '|', &pos, &fld) == 1 && nf < 22) {
         Json_key(&j, field_label(nf));
         Json_str(&j, String_cstr(&fld));   // escapes " and \ automatically
-        nf = nf + 1;
+        nf++;
     }
     Json_obj_end(&j);
 
