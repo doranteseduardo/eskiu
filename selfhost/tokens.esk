@@ -7,13 +7,13 @@ enum TokenType {
     // Keywords
     LET, INT, FLOAT, DOUBLE, BOOL, CHAR, STRING, VOID, STRUCT, PACKED, UNION,
     INTERFACE, ENUM, FN, ASM, VOLATILE, ESCAPING, ASYNC, AWAIT, CONST,
-    THREAD_CREATE, THREAD_JOIN, FOR, IN, WHILE, IF, ELSE, SWITCH, MATCH, CASE,
+    THREAD_CREATE, THREAD_JOIN, FOR, IN, WHILE, DO, IF, ELSE, SWITCH, MATCH, CASE,
     DEFAULT, BREAK, RETURN, IMPORT, EXTERN, INTRINSIC, ALLOC_WITH, NULL_KW,
     TRUE, FALSE, SIZEOF, FREE_CLOSURE, TRY, CATCH, FINALLY, THROW, CONTINUE,
     INT8, INT16, INT32, INT64, UINT, UINT8, UINT16, UINT32, UINT64,
 
     // Operators
-    PLUS, MINUS, STAR, SLASH, PERCENT, PLUS_EQ, MINUS_EQ, STAR_EQ, SLASH_EQ,
+    PLUS, MINUS, STAR, SLASH, PERCENT, PLUS_PLUS, MINUS_MINUS, PLUS_EQ, MINUS_EQ, STAR_EQ, SLASH_EQ,
     PERCENT_EQ, EQ, EQEQ, NE, LT, GT, LE, GE, AND, OR, NOT, AMPERSAND, PIPE,
     CARET, TILDE, LSHIFT, RSHIFT, AMP_EQ, PIPE_EQ, CARET_EQ, LSHIFT_EQ, RSHIFT_EQ,
 
@@ -68,6 +68,7 @@ string token_name(int t) {
     if (t == FOR) { return "FOR"; }
     if (t == IN) { return "IN"; }
     if (t == WHILE) { return "WHILE"; }
+    if (t == DO) { return "DO"; }
     if (t == IF) { return "IF"; }
     if (t == ELSE) { return "ELSE"; }
     if (t == SWITCH) { return "SWITCH"; }
@@ -104,6 +105,8 @@ string token_name(int t) {
     if (t == STAR) { return "STAR"; }
     if (t == SLASH) { return "SLASH"; }
     if (t == PERCENT) { return "PERCENT"; }
+    if (t == PLUS_PLUS) { return "PLUS_PLUS"; }
+    if (t == MINUS_MINUS) { return "MINUS_MINUS"; }
     if (t == PLUS_EQ) { return "PLUS_EQ"; }
     if (t == MINUS_EQ) { return "MINUS_EQ"; }
     if (t == STAR_EQ) { return "STAR_EQ"; }

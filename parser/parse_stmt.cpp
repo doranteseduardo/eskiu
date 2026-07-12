@@ -28,6 +28,9 @@ StmtPtr Parser::parseStatement() {
     if (check(TokenType::WHILE)) {
         return parseWhileStatement();
     }
+    if (check(TokenType::DO)) {
+        return parseDoWhileStatement();
+    }
     if (check(TokenType::SWITCH)) {
         return parseSwitchStatement();
     }
@@ -273,6 +276,17 @@ StmtPtr Parser::parseWhileStatement() {
     StmtPtr body = parseStatement();
 
     return std::make_shared<WhileStmt>(condition, body);
+}
+
+StmtPtr Parser::parseDoWhileStatement() {
+    consume(TokenType::DO, "Expected 'do'");
+    StmtPtr body = parseStatement();
+    consume(TokenType::WHILE, "Expected 'while' after do-body");
+    consume(TokenType::LPAREN, "Expected '('");
+    ExprPtr condition = parseExpression();
+    consume(TokenType::RPAREN, "Expected ')'");
+    consume(TokenType::SEMICOLON, "Expected ';' after do-while");
+    return std::make_shared<DoWhileStmt>(body, condition);
 }
 
 StmtPtr Parser::parseReturnStatement() {

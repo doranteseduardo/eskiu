@@ -684,6 +684,15 @@ c = &amp;w;     // error: cannot assign to read-only location 'c'  (binding is c
 </table></div>
 <p>The compound bitwise/shift operators are desugared by the parser: <code>x op= e</code> is equivalent to <code>x = x op e</code>.</p>
 <p>The left-hand side must be an lvalue: a named variable, a pointer dereference (<code>*ptr = value</code>), or a field access. Assigning through a dereferenced pointer parameter works correctly. <code>*ptr = value</code> stores through the pointer as expected.</p>
+<h3 id="551-increment-and-decrement">5.5.1 Increment and Decrement</h3>
+<p><code>++</code> and <code>--</code> add or subtract one from an integer or pointer lvalue, in place. Both prefix
+and postfix forms are supported: <code>++x</code>/<code>--x</code> yield the new value, <code>x++</code>/<code>x--</code> yield the old
+value. On a pointer, the step is one element (like pointer arithmetic).</p>
+<pre><code class="language-eskiu">for (int i = 0; i &lt; n; i++) { ... }   // postfix, value discarded
+int a = i++;   // a = old i, then i incremented
+int b = ++j;   // j incremented, then b = new j
+</code></pre>
+<p>The operand must be a modifiable lvalue (a <code>const</code> or a non-lvalue like <code>5++</code> is an error).</p>
 <h3 id="56-address-of-and-dereference">5.6 Address-of and Dereference</h3>
 <div class="tablewrap"><table>
 <thead>
@@ -1120,6 +1129,14 @@ each element is read through <code>data[i]</code>.</p>
 }
 </code></pre>
 <p>The body executes repeatedly while <code>condition</code> is true.</p>
+<h3 id="731-do-while">7.3.1 do / while</h3>
+<pre><code class="language-eskiu">do {
+    // body
+} while (condition);
+</code></pre>
+<p>Like <code>while</code>, but the condition is tested <em>after</em> the body, so the body always runs at
+least once. <code>break</code> and <code>continue</code> work as in the other loops (<code>continue</code> re-tests the
+condition).</p>
 <h3 id="74-switch-case-default-break">7.4 switch / case / default / break</h3>
 <pre><code class="language-eskiu">switch (x) {
     case 1:

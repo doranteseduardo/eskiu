@@ -279,6 +279,18 @@ public:
     void accept(class ASTVisitor* visitor) override;
 };
 
+// do { body } while (cond); — the body runs at least once, then repeats while cond.
+class DoWhileStmt : public Stmt {
+public:
+    StmtPtr body;
+    ExprPtr condition;
+
+    DoWhileStmt(StmtPtr body, ExprPtr cond)
+        : body(std::move(body)), condition(std::move(cond)) {}
+
+    void accept(class ASTVisitor* visitor) override;
+};
+
 class ReturnStmt : public Stmt {
 public:
     ExprPtr value;
@@ -424,6 +436,20 @@ public:
 
     UnaryExpr(const std::string& op, ExprPtr operand)
         : op(op), operand(std::move(operand)) {}
+
+    void accept(class ASTVisitor* visitor) override;
+};
+
+// `x++` / `x--` (postfix) and `++x` / `--x` (prefix). The operand is an lvalue;
+// the expression value is the old value (postfix) or the new value (prefix).
+class IncDecExpr : public Expr {
+public:
+    ExprPtr operand;
+    bool    decrement;   // false = ++, true = --
+    bool    prefix;      // true = ++x/--x, false = x++/x--
+
+    IncDecExpr(ExprPtr operand, bool decrement, bool prefix)
+        : operand(std::move(operand)), decrement(decrement), prefix(prefix) {}
 
     void accept(class ASTVisitor* visitor) override;
 };
@@ -639,6 +665,7 @@ public:
     virtual void visit(ForStmt* node) = 0;
     virtual void visit(ForInStmt* node) = 0;
     virtual void visit(WhileStmt* node) = 0;
+    virtual void visit(DoWhileStmt* node) = 0;
     virtual void visit(ReturnStmt* node) = 0;
     virtual void visit(BreakStmt* node) = 0;
     virtual void visit(ContinueStmt* node) = 0;
@@ -647,6 +674,7 @@ public:
     virtual void visit(ExprStmt* node) = 0;
     virtual void visit(BinaryExpr* node) = 0;
     virtual void visit(UnaryExpr* node) = 0;
+    virtual void visit(IncDecExpr* node) = 0;
     virtual void visit(QuestionExpr* node) = 0;
     virtual void visit(CallExpr* node) = 0;
     virtual void visit(IndexExpr* node) = 0;

@@ -45,7 +45,7 @@ let  const  volatile  async  await  escaping
 int int8 int16 int32 int64  uint uint8 uint16 uint32 uint64
 float double bool char string void
 struct packed union interface enum fn
-if else while for in switch match case default break continue return
+if else while do for in switch match case default break continue return
 import extern intrinsic  sizeof alloc_with free_closure
 thread_create thread_join  asm  try catch finally throw
 null true false
@@ -58,6 +58,7 @@ type-alias form `type NAME = …`.
 
 ```
 +  -  *  /  %                          arithmetic
+++  --                                 increment / decrement (prefix or postfix)
 =  +=  -=  *=  /=  %=  &=  |=  ^=  <<=  >>=   assignment (compound forms desugar)
 ==  !=  <  >  <=  >=                   comparison
 &&  ||  !                             logical
@@ -170,12 +171,13 @@ brackets: `T[N]*`. `va_list` is a built-in named type used by variadics.
 ```
 statement =
     block | if-stmt | while-stmt | for-stmt | switch-stmt | match-stmt
-  | return-stmt | break-stmt | continue-stmt | throw-stmt | try-stmt
+  | do-while-stmt  | return-stmt | break-stmt | continue-stmt | throw-stmt | try-stmt
   | asm-stmt | thread-join-stmt | var-decl | expr-stmt
 
 block         = '{' ( declaration | statement )* '}'
 if-stmt       = 'if' '(' expr ')' statement ( 'else' statement )?
 while-stmt    = 'while' '(' expr ')' statement
+do-while-stmt = 'do' statement 'while' '(' expr ')' ';'
 for-stmt      = 'for' '(' ( var-decl | expr )? ';' expr? ';' expr? ')' statement
               | 'for' '(' IDENT 'in' expr ( '..' expr )? ')' statement   // iterate / half-open range
 return-stmt   = 'return' expr? ';'
@@ -222,7 +224,7 @@ comparison      = shift       ( ('<' | '>' | '<=' | '>=') shift )*
 shift           = additive    ( ('<<' | '>>') additive )*
 additive        = multiplicative ( ('+' | '-') multiplicative )*
 multiplicative  = unary       ( ('*' | '/' | '%') unary )*
-unary           = ('!' | '-' | '+' | '&' | '*' | '~' | 'await') unary   // right-assoc
+unary           = ('!' | '-' | '+' | '&' | '*' | '~' | '++' | '--' | 'await') unary   // right-assoc
                 | cast
 cast            = '(' type ')' unary
                 | postfix
@@ -231,6 +233,7 @@ postfix-op      = '(' arg-list? ')'          // call
                 | '[' expr ']'               // index
                 | '.' IDENT                  // member
                 | '?'                        // error propagation (Result)
+                | '++' | '--'                // post-increment / decrement
 arg-list        = expr (',' expr)*
 ```
 

@@ -115,6 +115,33 @@ void CodeGen::visit(WhileStmt* node) {
     builder->SetInsertPoint(exitBlock);
 }
 
+void CodeGen::visit(DoWhileStmt* node) {
+    llvm::BasicBlock* bodyBlock = llvm::BasicBlock::Create(*context, "do_body", currentFunction);
+    llvm::BasicBlock* condBlock = llvm::BasicBlock::Create(*context, "do_cond", currentFunction);
+    llvm::BasicBlock* exitBlock = llvm::BasicBlock::Create(*context, "do_exit", currentFunction);
+
+    builder->CreateBr(bodyBlock);
+    builder->SetInsertPoint(bodyBlock);
+
+    llvm::BasicBlock* prevBreak    = breakTarget;
+    llvm::BasicBlock* prevContinue = continueTarget;
+    breakTarget    = exitBlock;
+    continueTarget = condBlock;   // `continue` re-tests the condition
+    node->body->accept(this);
+    breakTarget    = prevBreak;
+    continueTarget = prevContinue;
+    if (!builder->GetInsertBlock()->getTerminator())
+        builder->CreateBr(condBlock);
+
+    builder->SetInsertPoint(condBlock);
+    llvm::Value* cond = evaluateExpr(node->condition);
+    if (!cond->getType()->isIntegerTy(1))
+        cond = builder->CreateICmpNE(cond, llvm::ConstantInt::get(cond->getType(), 0));
+    builder->CreateCondBr(cond, bodyBlock, exitBlock);
+
+    builder->SetInsertPoint(exitBlock);
+}
+
 void CodeGen::visit(ForStmt* node) {
     llvm::BasicBlock* loopBlock = llvm::BasicBlock::Create(*context, "for", currentFunction);
     llvm::BasicBlock* bodyBlock = llvm::BasicBlock::Create(*context, "for_body", currentFunction);

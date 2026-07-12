@@ -240,6 +240,20 @@ void ASTPrinter::visit(WhileStmt* node) {
     indentLevel--;
 }
 
+void ASTPrinter::visit(DoWhileStmt* node) {
+    println("DoWhileStmt");
+    indentLevel++;
+    println("Body:");
+    indentLevel++;
+    node->body->accept(this);
+    indentLevel--;
+    println("Condition:");
+    indentLevel++;
+    node->condition->accept(this);
+    indentLevel--;
+    indentLevel--;
+}
+
 void ASTPrinter::visit(ReturnStmt* node) {
     println("ReturnStmt");
     if (node->value) {
@@ -279,6 +293,14 @@ void ASTPrinter::visit(BinaryExpr* node) {
 
 void ASTPrinter::visit(UnaryExpr* node) {
     println("UnaryExpr: " + node->op);
+    indentLevel++;
+    node->operand->accept(this);
+    indentLevel--;
+}
+
+void ASTPrinter::visit(IncDecExpr* node) {
+    std::string tag = std::string(node->prefix ? "pre" : "post") + (node->decrement ? "--" : "++");
+    println("IncDecExpr: " + tag);
     indentLevel++;
     node->operand->accept(this);
     indentLevel--;

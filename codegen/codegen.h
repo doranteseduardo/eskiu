@@ -217,11 +217,13 @@ private:
     void visit(ForStmt* node) override;
     void visit(ForInStmt* node) override;
     void visit(WhileStmt* node) override;
+    void visit(DoWhileStmt* node) override;
     void visit(ReturnStmt* node) override;
     void visit(BreakStmt* node) override;
     void visit(ExprStmt* node) override;
     void visit(BinaryExpr* node) override;
     void visit(UnaryExpr* node) override;
+    void visit(IncDecExpr* node) override;
     void visit(QuestionExpr* node) override;
     void visit(CallExpr* node) override;
     void visit(IndexExpr* node) override;

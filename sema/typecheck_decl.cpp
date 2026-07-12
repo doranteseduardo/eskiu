@@ -72,6 +72,7 @@ struct TemplateCapturePass {
             walkExpr(i->condition.get()); walkStmt(i->thenBranch.get()); walkStmt(i->elseBranch.get()); return;
         }
         if (auto* w = dynamic_cast<WhileStmt*>(s)) { walkExpr(w->condition.get()); walkStmt(w->body.get()); return; }
+        if (auto* dw = dynamic_cast<DoWhileStmt*>(s)) { walkStmt(dw->body.get()); walkExpr(dw->condition.get()); return; }
         if (auto* f = dynamic_cast<ForStmt*>(s)) {
             scopes.push_back({});
             walkStmt(f->init.get()); walkExpr(f->condition.get()); walkExpr(f->step.get()); walkStmt(f->body.get());
@@ -163,6 +164,7 @@ bool hasBreakAtThisLevel(Stmt* s) {
                hasBreakAtThisLevel(i->elseBranch.get());
     // Nested loops and switch capture their own `break` — do not descend.
     if (dynamic_cast<WhileStmt*>(s) || dynamic_cast<ForStmt*>(s) ||
+        dynamic_cast<DoWhileStmt*>(s) ||
         dynamic_cast<ForInStmt*>(s) || dynamic_cast<SwitchStmt*>(s)) return false;
     if (auto* m = dynamic_cast<MatchStmt*>(s)) {   // match is not a loop
         for (auto& arm : m->arms)
@@ -196,6 +198,11 @@ bool stmtAlwaysReturns(Stmt* s) {
                stmtAlwaysReturns(i->elseBranch.get());
     if (auto* w = dynamic_cast<WhileStmt*>(s))
         return condAlwaysTrue(w->condition.get()) && !hasBreakAtThisLevel(w->body.get());
+    if (auto* dw = dynamic_cast<DoWhileStmt*>(s)) {
+        // The body runs at least once: if it always returns, so does the loop.
+        if (stmtAlwaysReturns(dw->body.get())) return true;
+        return condAlwaysTrue(dw->condition.get()) && !hasBreakAtThisLevel(dw->body.get());
+    }
     if (auto* f = dynamic_cast<ForStmt*>(s))
         return condAlwaysTrue(f->condition.get()) && !hasBreakAtThisLevel(f->body.get());
     // for-in iterates a possibly-empty collection: never guarantees a return.
