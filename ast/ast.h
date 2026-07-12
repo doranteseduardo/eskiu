@@ -571,6 +571,16 @@ public:
     void accept(class ASTVisitor* visitor) override;
 };
 
+// Array literal `{ e0, e1, ... }` — untyped; the target array type gives the
+// element type and size. Fewer elements than the size zero-fill the rest.
+class ArrayLitExpr : public Expr {
+public:
+    std::vector<ExprPtr> elements;
+    explicit ArrayLitExpr(std::vector<ExprPtr> elements)
+        : elements(std::move(elements)) {}
+    void accept(class ASTVisitor* visitor) override;
+};
+
 // Lambda / anonymous function: fn(int x) -> int { return x * 2; }
 class LambdaExpr : public Expr {
 public:
@@ -683,6 +693,7 @@ public:
     virtual void visit(LiteralExpr* node) = 0;
     virtual void visit(IdentExpr* node) = 0;
     virtual void visit(StructInitExpr* node) = 0;
+    virtual void visit(ArrayLitExpr* node) = 0;
     virtual void visit(AllocWithExpr* node) = 0;
     virtual void visit(TemplateCallExpr* node) = 0;
     virtual void visit(LambdaExpr* node) = 0;

@@ -472,6 +472,22 @@ string lambda_sig(string ret, *DeclNode d) {
 
 *ExprNode parse_primary(Parser* p) {
     int t = p_at(p);
+    if (t == LBRACE) {                                 // array literal { e0, e1, ... }
+        p_adv(p);
+        *ExprNode e = alloc<ExprNode>(1);
+        e.kind = EK_ARRAYLIT;
+        List_init<*ExprNode>(&e.kids, 4);
+        if (p_at(p) != RBRACE) {
+            List_push<*ExprNode>(&e.kids, parse_expr(p));
+            while (p_at(p) == COMMA) {
+                p_adv(p);
+                if (p_at(p) == RBRACE) { break; }      // trailing comma
+                List_push<*ExprNode>(&e.kids, parse_expr(p));
+            }
+        }
+        p_adv(p);                                      // '}'
+        return e;
+    }
     if (t == TRUE)  { p_adv(p); return mk_lit(LIT_BOOL, "true"); }
     if (t == FALSE) { p_adv(p); return mk_lit(LIT_BOOL, "false"); }
     if (t == NULL_KW) { p_adv(p); return mk_lit(LIT_NULL, "null"); }

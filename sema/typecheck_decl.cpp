@@ -408,14 +408,38 @@ void TypeChecker::visit(VarDecl* node) {
                 lam->returnType = dt.ret->str();
         }
         node->initializer->accept(this);
-        std::string initType = getExpressionType(node->initializer.get());
-        if (initType != "unknown") {
-            if (tyq::dropsConst(node->type, initType))
-                errorAt(node, "cannot initialize '" + node->type + "' from '" + initType +
-                              "': conversion discards a const qualifier");
+        // Array literal `= {..}`: the target must be a fixed-size array; check the
+        // element count (fewer than the size zero-fill, C-style) and element types.
+        if (auto* arr = dynamic_cast<ArrayLitExpr*>(node->initializer.get())) {
+            std::string t = node->type;
+            size_t lb = t.rfind('[');
+            if (lb == std::string::npos || t.back() != ']' || tyq::isPtr(t))
+                errorAt(node, "an array literal '{...}' can only initialize an array type, not '" +
+                              node->type + "'");
             else {
-                std::string e = assignabilityError(node->type, initType, node->initializer.get());
-                if (!e.empty()) errorAt(node, "initializing '" + node->name + "': " + e);
+                std::string elemT = t.substr(0, lb);
+                std::string dim = t.substr(lb + 1, t.size() - lb - 2);
+                bool dimNum = !dim.empty() &&
+                    std::all_of(dim.begin(), dim.end(), [](unsigned char c){ return std::isdigit(c); });
+                if (dimNum && arr->elements.size() > (size_t)std::stoull(dim))
+                    errorAt(node, "array literal has " + std::to_string(arr->elements.size()) +
+                                  " elements but '" + node->type + "' holds " + dim);
+                for (auto& el : arr->elements) {
+                    std::string et = getExpressionType(el.get());
+                    std::string e = assignabilityError(elemT, et, el.get());
+                    if (!e.empty()) errorAt(node, "array element: " + e);
+                }
+            }
+        } else {
+            std::string initType = getExpressionType(node->initializer.get());
+            if (initType != "unknown") {
+                if (tyq::dropsConst(node->type, initType))
+                    errorAt(node, "cannot initialize '" + node->type + "' from '" + initType +
+                                  "': conversion discards a const qualifier");
+                else {
+                    std::string e = assignabilityError(node->type, initType, node->initializer.get());
+                    if (!e.empty()) errorAt(node, "initializing '" + node->name + "': " + e);
+                }
             }
         }
     }

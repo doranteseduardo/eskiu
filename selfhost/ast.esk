@@ -23,7 +23,7 @@ enum ExprKind {
     EK_LITERAL, EK_IDENT, EK_BINARY, EK_UNARY,
     EK_CALL, EK_INDEX, EK_MEMBER, EK_QUESTION, EK_CAST, EK_SIZEOF,
     EK_STRUCTINIT, EK_TEMPLATECALL,
-    EK_AWAIT, EK_LAMBDA, EK_ALLOCWITH, EK_FREECLOSURE, EK_THREADCREATE, EK_INCDEC
+    EK_AWAIT, EK_LAMBDA, EK_ALLOCWITH, EK_FREECLOSURE, EK_THREADCREATE, EK_INCDEC, EK_ARRAYLIT
 }
 
 // Literal kinds, in the C++ LiteralExpr::Kind order; lit_name maps to the
@@ -135,6 +135,12 @@ void print_expr(*ExprNode e, int d) {
         pind(d);
         printf("IncDecExpr: %s\n", e.sval);
         print_expr(e.a, d + 1);
+        return;
+    }
+    if (e.kind == EK_ARRAYLIT) {
+        pline(d, "ArrayLitExpr");
+        int i = 0; int n = List_len<*ExprNode>(&e.kids);
+        while (i < n) { print_expr(List_get<*ExprNode>(&e.kids, i), d + 1); i = i + 1; }
         return;
     }
     if (e.kind == EK_CALL) {

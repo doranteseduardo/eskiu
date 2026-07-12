@@ -245,6 +245,7 @@ variant). Assignment is the lowest-precedence, right-associative level.
 primary =
     INT_LIT | FLOAT_LIT | STRING_LIT | CHAR_LIT | 'true' | 'false' | 'null'
   | IDENT
+  | array-lit                                          // { e0, e1, … }  (initializes an array)
   | IDENT struct-init                                  // Name { … }
   | IDENT '<' type (',' type)* '>' ( '(' arg-list? ')' | struct-init )  // turbofish call / templated literal
   | '(' expr ')'
@@ -254,6 +255,7 @@ primary =
   | 'free_closure' '(' expr ')'
   | 'thread_create' '(' expr ')'
 
+array-lit   = '{' ( expr (',' expr)* ','? )? '}'       // fewer elements than the size zero-fill
 struct-init = '{' ( field-init (',' field-init)* )? '}'
 field-init  = IDENT ':' expr        // named
             | expr                  // positional

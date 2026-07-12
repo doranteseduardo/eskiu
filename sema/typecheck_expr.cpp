@@ -780,6 +780,13 @@ void TypeChecker::visit(AllocWithExpr* node) {
     expressionTypes[node] = "*" + node->elemType;
 }
 
+void TypeChecker::visit(ArrayLitExpr* node) {
+    // Untyped: the element type / size come from the target at the declaration
+    // site (checked in visit(VarDecl)). Here we just walk the elements.
+    for (auto& el : node->elements) el->accept(this);
+    expressionTypes[node] = "array-literal";
+}
+
 void TypeChecker::visit(StructInitExpr* node) {
     // A template literal (Pair<int,float> { ... }) names an instantiation; run it
     // through normalizeType so the concrete struct gets registered, then resolve.

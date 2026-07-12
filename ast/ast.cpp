@@ -36,6 +36,7 @@ void SwitchStmt::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void MatchStmt::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void TemplateCallExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void StructInitExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
+void ArrayLitExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
 
 void LambdaExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void AsmStmt::accept(ASTVisitor* visitor)        { visitor->visit(this); }

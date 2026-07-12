@@ -284,6 +284,8 @@ void CodeGen::visit(VarDecl* node) {
         if (auto structInit = dynamic_cast<StructInitExpr*>(node->initializer.get())) {
             // Fill the alloca directly — no temporary needed
             emitStructInitInto(alloca, structInit);
+        } else if (auto arrLit = dynamic_cast<ArrayLitExpr*>(node->initializer.get())) {
+            emitArrayInitInto(alloca, arrLit, varType);
         } else {
             llvm::Value* val = evaluateExpr(node->initializer);
             if (val && val->getType() != declType) {

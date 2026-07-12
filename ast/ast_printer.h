@@ -51,6 +51,7 @@ private:
     void visit(SwitchStmt* node) override;
     void visit(MatchStmt* node) override;
     void visit(StructInitExpr* node) override;
+    void visit(ArrayLitExpr* node) override;
     void visit(AllocWithExpr* node) override;
     void visit(TemplateCallExpr* node) override;
     void visit(LambdaExpr* node) override;
