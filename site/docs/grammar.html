@@ -233,9 +233,11 @@ scalar-type = 'int' | 'int8' | 'int16' | 'int32' | 'int64'
             | 'float' | 'double' | 'bool' | 'char' | 'string' | 'void'
 </code></pre>
 <p>Pointers may be written either C-style (<code>int*</code>) or leading (<code>*int</code>); both are
-equivalent. A trailing <code>[N]</code> binds outermost, so <code>*T[N]</code> is an array of N pointers
-(each element a <code>*T</code>), while a pointer to an array is written with the star after the
-brackets: <code>T[N]*</code>. <code>va_list</code> is a built-in named type used by variadics.</p>
+equivalent. An array suffix binds tighter than a leading pointer, so <code>*T[N]</code> is an array
+of N pointers (each element a <code>*T</code>), while a pointer to an array is written with the star
+after the brackets: <code>T[N]*</code>. Suffixes chain for multidimensional arrays: <code>T[N][M]</code> is N
+arrays of M (C order, leftmost bracket outermost). <code>va_list</code> is a built-in named type
+used by variadics.</p>
 <hr>
 <h2 id="statements">Statements</h2>
 <pre><code>statement =

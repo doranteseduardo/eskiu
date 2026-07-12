@@ -423,27 +423,30 @@ void TypeChecker::visit(IndexExpr* node) {
     // string[i] → char
     if (baseType == "string") { expressionTypes[node] = "char"; return; }
 
-    // Array type T[N]: element is T
-    size_t lb = baseType.rfind('[');
-    if (lb != std::string::npos && baseType.back() == ']') {
-        // A constant index is bounds-checkable at compile time: a negative index is
-        // always out of bounds, and a literal one is checked against a numeric N.
-        if (auto* ix = dynamic_cast<LiteralExpr*>(node->index.get());
-            ix && ix->kind == LiteralExpr::Kind::INT) {
-            std::string dim = baseType.substr(lb + 1, baseType.size() - lb - 2);
-            try {
-                long long idx = std::stoll(ix->value, nullptr, 0);
-                bool dimNum = !dim.empty() &&
-                    std::all_of(dim.begin(), dim.end(), [](unsigned char c){ return std::isdigit(c); });
-                if (idx < 0)
-                    errorAt(node, "array index " + ix->value + " is out of bounds");
-                else if (dimNum && idx >= std::stoll(dim))
-                    errorAt(node, "array index " + ix->value +
-                                  " is out of bounds for array of size " + dim);
-            } catch (...) { /* unparized literal — skip */ }
+    // Array type T[N]: indexing peels the outer (leftmost) dimension, yielding T.
+    // For `int[N][M]`, a[i] is `int[M]`; a[i][j] is `int`.
+    {
+        ty::Type bt = ty::Type::parse(baseType);
+        if (bt.kind == ty::Type::Kind::Array) {
+            // A constant index is bounds-checkable at compile time: a negative index is
+            // always out of bounds, and a literal one is checked against a numeric N.
+            if (auto* ix = dynamic_cast<LiteralExpr*>(node->index.get());
+                ix && ix->kind == LiteralExpr::Kind::INT) {
+                const std::string& dim = bt.dim;
+                try {
+                    long long idx = std::stoll(ix->value, nullptr, 0);
+                    bool dimNum = !dim.empty() &&
+                        std::all_of(dim.begin(), dim.end(), [](unsigned char c){ return std::isdigit(c); });
+                    if (idx < 0)
+                        errorAt(node, "array index " + ix->value + " is out of bounds");
+                    else if (dimNum && idx >= std::stoll(dim))
+                        errorAt(node, "array index " + ix->value +
+                                      " is out of bounds for array of size " + dim);
+                } catch (...) { /* unparized literal — skip */ }
+            }
+            expressionTypes[node] = bt.elem->str();
+            return;
         }
-        expressionTypes[node] = baseType.substr(0, lb);
-        return;
     }
 
     // Pointer: *T → T

@@ -295,8 +295,8 @@ std::string CodeGen::deriveExprEskiuType(const ExprPtr& expr) const {
     }
     if (auto index = dynamic_cast<IndexExpr*>(expr.get())) {
         std::string base = getExprEskiuType(index->base);
-        size_t lb = base.rfind('[');
-        if (lb != std::string::npos) return base.substr(0, lb);
+        ty::Type bt = ty::Type::parse(base);
+        if (bt.kind == ty::Type::Kind::Array) return bt.elem->str();   // peel outer dim
         if (!base.empty() && base.front() == '*') return base.substr(1);
         if (!base.empty() && base.back()  == '*') return base.substr(0, base.size() - 1);
     }

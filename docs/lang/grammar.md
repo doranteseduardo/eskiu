@@ -165,9 +165,11 @@ scalar-type = 'int' | 'int8' | 'int16' | 'int32' | 'int64'
 ```
 
 Pointers may be written either C-style (`int*`) or leading (`*int`); both are
-equivalent. A trailing `[N]` binds outermost, so `*T[N]` is an array of N pointers
-(each element a `*T`), while a pointer to an array is written with the star after the
-brackets: `T[N]*`. `va_list` is a built-in named type used by variadics.
+equivalent. An array suffix binds tighter than a leading pointer, so `*T[N]` is an array
+of N pointers (each element a `*T`), while a pointer to an array is written with the star
+after the brackets: `T[N]*`. Suffixes chain for multidimensional arrays: `T[N][M]` is N
+arrays of M (C order, leftmost bracket outermost). `va_list` is a built-in named type
+used by variadics.
 
 ---
 

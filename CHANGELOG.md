@@ -26,6 +26,10 @@ compilers and follows C semantics.
 - **`static` local variables.** A `static` local has a single instance that persists
   across calls (C storage semantics). Its initializer must be a compile-time constant;
   `static` on a global is rejected.
+- **Multidimensional arrays.** `T[N][M]` is N arrays of M in C order (the leftmost
+  bracket is the outer dimension). Indexing peels one dimension at a time and each index
+  is bounds-checked against its own dimension. Nested brace initializers
+  (`int[2][3] a = { {1,2,3}, {4,5,6} }`) zero-fill at every level.
 
 ### Fixed
 - **`switch` on a sub-`int` subject.** A `switch` over a `char` (or other narrow integer)
