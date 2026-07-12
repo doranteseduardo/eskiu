@@ -113,7 +113,7 @@ Everything in the feature table above ships in v0.1.0: the full systems language
 
 The theme is making Eskiu a practical language for concurrent backend services:
 real async I/O, an HTTP stack, and the everyday stdlib + tooling that adoption
-needs. v0.1.0 is frozen at its tag; v0.2.0 shipped the items below. The current release is **v0.4.0**: a correctness + type-strictness release over the v0.3 self-hosting milestone (see the sections below).
+needs. v0.1.0 is frozen at its tag; v0.2.0 shipped the items below. The current release is **v0.5.0**: a basic-C surface release (`do`/`while`, `++`/`--`, array initializers, `static` locals, multidimensional arrays, the ternary `?:`) over the v0.4 correctness release and the v0.3 self-hosting milestone (see the sections below).
 
 Tracking checklist (checked = landed on `develop`).
 
@@ -257,6 +257,20 @@ feature edges) across the C++ and self-hosted compilers, plus a tighter type sys
 - [x] Flow analysis: reading an uninitialized scalar local, returning the address of a local (dangling), a function redefinition, and falling off the end of a non-void function are errors.
 - [x] Self-hosted back-end fixes: `!`/`~` (were no-ops); hex/octal + `>2^63` literals; named-const array dims; exception propagation through catch-less `finally` and cross-function rethrow; async `for-in` over a generic `List<T>`.
 - [ ] Self-host sema parity for the new checks (comparison typing, narrowing, flow analysis): deferred to the promotion track (`selfhost/PROMOTION_PLAN.md`). The shipped C++ compiler carries all checks.
+
+### v0.5.0: Basic-C surface completion (SHIPPED)
+
+Fills the last common C constructs the language was missing, so idiomatic C ports compile
+without workarounds. Each landed in lockstep across the C++ and self-hosted compilers,
+with parity gates (behavioral + byte-exact printer) green including the bootstrap fixpoint.
+
+- [x] `do`/`while` loops (`DoWhileStmt`): body runs once before the condition is tested.
+- [x] Prefix and postfix `++`/`--` (`IncDecExpr`) on integer and pointer lvalues.
+- [x] Array-literal initializers `int[N] a = { ... }` (`ArrayLitExpr`): C-style zero-fill for a short list, over-long list rejected.
+- [x] `static` locals: one instance persisting across calls, emitted as a private module global; initializer must be constant, `static` on a global rejected.
+- [x] Multidimensional arrays `T[N][M]` in C order (leftmost bracket outermost) with nested initializers; each index bounds-checked against its own dimension.
+- [x] Ternary conditional `cond ? a : b` (`TernaryExpr`): one arm evaluated, arms take a common type; disambiguated from postfix `?` propagation by a same-level `:` scan.
+- [x] Fix: `switch` on a sub-`int` subject (widen subject + case constants to a common type).
 
 ### v1.0: Production-ready
 

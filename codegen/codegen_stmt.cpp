@@ -115,6 +115,33 @@ void CodeGen::visit(WhileStmt* node) {
     builder->SetInsertPoint(exitBlock);
 }
 
+void CodeGen::visit(DoWhileStmt* node) {
+    llvm::BasicBlock* bodyBlock = llvm::BasicBlock::Create(*context, "do_body", currentFunction);
+    llvm::BasicBlock* condBlock = llvm::BasicBlock::Create(*context, "do_cond", currentFunction);
+    llvm::BasicBlock* exitBlock = llvm::BasicBlock::Create(*context, "do_exit", currentFunction);
+
+    builder->CreateBr(bodyBlock);
+    builder->SetInsertPoint(bodyBlock);
+
+    llvm::BasicBlock* prevBreak    = breakTarget;
+    llvm::BasicBlock* prevContinue = continueTarget;
+    breakTarget    = exitBlock;
+    continueTarget = condBlock;   // `continue` re-tests the condition
+    node->body->accept(this);
+    breakTarget    = prevBreak;
+    continueTarget = prevContinue;
+    if (!builder->GetInsertBlock()->getTerminator())
+        builder->CreateBr(condBlock);
+
+    builder->SetInsertPoint(condBlock);
+    llvm::Value* cond = evaluateExpr(node->condition);
+    if (!cond->getType()->isIntegerTy(1))
+        cond = builder->CreateICmpNE(cond, llvm::ConstantInt::get(cond->getType(), 0));
+    builder->CreateCondBr(cond, bodyBlock, exitBlock);
+
+    builder->SetInsertPoint(exitBlock);
+}
+
 void CodeGen::visit(ForStmt* node) {
     llvm::BasicBlock* loopBlock = llvm::BasicBlock::Create(*context, "for", currentFunction);
     llvm::BasicBlock* bodyBlock = llvm::BasicBlock::Create(*context, "for_body", currentFunction);
@@ -176,12 +203,12 @@ void CodeGen::visit(ForInStmt* node) {
     std::string elemType;
     ExprPtr lengthExpr, elemExpr;
 
-    size_t lb = itType.rfind('[');
-    if (lb != std::string::npos && !itType.empty() && itType.back() == ']') {
-        // Fixed-size array T[N] — resolve N (literal, enum, or const int).
-        elemType   = itType.substr(0, lb);
+    ty::Type itT = ty::Type::parse(itType);
+    if (itT.kind == ty::Type::Kind::Array) {
+        // Fixed-size array T[N] — resolve the outer dimension N (literal, enum, const int).
+        elemType   = itT.elem->str();
         uint64_t len = 0;
-        resolveArrayDim(itType.substr(lb + 1, itType.size() - lb - 2), len);
+        resolveArrayDim(itT.dim, len);
         lengthExpr = intLit(std::to_string(len));
         elemExpr   = std::make_shared<IndexExpr>(node->iterable, idx());
     } else {
@@ -393,6 +420,19 @@ void CodeGen::visit(SwitchStmt* node) {
     llvm::Value* subj = evaluateExpr(node->subject);
     if (!subj->getType()->isIntegerTy())
         throw std::runtime_error("switch subject must be integer");
+
+    // LLVM requires the switch value and every case constant to share one integer
+    // type. Widen to the widest of the subject and the cases (C promotes the
+    // controlling expression; the cases may be wider, e.g. an int64 switch), so a
+    // `switch (aChar)` (i8 subject, i32 case constants) is well-formed.
+    unsigned swW = subj->getType()->getIntegerBitWidth();
+    for (auto* ci : caseVals) if (ci) swW = std::max(swW, ci->getType()->getIntegerBitWidth());
+    llvm::Type* swTy = llvm::Type::getIntNTy(*context, swW);
+    if (subj->getType() != swTy)
+        subj = coerceInt(subj, swTy, eskiuUnsigned(getExprEskiuType(node->subject)));
+    for (auto& ci : caseVals)
+        if (ci && ci->getType() != swTy)
+            ci = llvm::ConstantInt::get(*context, ci->getValue().sextOrTrunc(swW));
 
     llvm::BasicBlock* endBlock = llvm::BasicBlock::Create(*context, "switch.end", currentFunction);
 

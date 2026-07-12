@@ -117,6 +117,7 @@ int keyword_type(*uint8 src, int start, int len) {
     if (lexeme_eq(src, start, len, "fn") == 1) { return FN; }
     if (lexeme_eq(src, start, len, "asm") == 1) { return ASM; }
     if (lexeme_eq(src, start, len, "volatile") == 1) { return VOLATILE; }
+    if (lexeme_eq(src, start, len, "static") == 1) { return STATIC; }
     if (lexeme_eq(src, start, len, "escaping") == 1) { return ESCAPING; }
     if (lexeme_eq(src, start, len, "async") == 1) { return ASYNC; }
     if (lexeme_eq(src, start, len, "await") == 1) { return AWAIT; }
@@ -128,6 +129,7 @@ int keyword_type(*uint8 src, int start, int len) {
     if (lexeme_eq(src, start, len, "for") == 1) { return FOR; }
     if (lexeme_eq(src, start, len, "in") == 1) { return IN; }
     if (lexeme_eq(src, start, len, "while") == 1) { return WHILE; }
+    if (lexeme_eq(src, start, len, "do") == 1) { return DO; }
     if (lexeme_eq(src, start, len, "if") == 1) { return IF; }
     if (lexeme_eq(src, start, len, "else") == 1) { return ELSE; }
     if (lexeme_eq(src, start, len, "switch") == 1) { return SWITCH; }
@@ -301,12 +303,14 @@ Token lx_next(Lexer* lx) {
     lx_advance(lx);
 
     if (c == 43) {                                   // '+'
-        if (lx_at_end(lx) == 0 && lx_peek(lx) == 61) { lx_advance(lx); t.type = PLUS_EQ; }
+        if (lx_at_end(lx) == 0 && lx_peek(lx) == 43) { lx_advance(lx); t.type = PLUS_PLUS; }
+        else if (lx_at_end(lx) == 0 && lx_peek(lx) == 61) { lx_advance(lx); t.type = PLUS_EQ; }
         else { t.type = PLUS; }
         return lx_finish(t, sp, lx.pos, sl, sc);
     }
     if (c == 45) {                                   // '-'
-        if (lx_at_end(lx) == 0 && lx_peek(lx) == 61) { lx_advance(lx); t.type = MINUS_EQ; }
+        if (lx_at_end(lx) == 0 && lx_peek(lx) == 45) { lx_advance(lx); t.type = MINUS_MINUS; }
+        else if (lx_at_end(lx) == 0 && lx_peek(lx) == 61) { lx_advance(lx); t.type = MINUS_EQ; }
         else if (lx_at_end(lx) == 0 && lx_peek(lx) == 62) { lx_advance(lx); t.type = ARROW; }
         else { t.type = MINUS; }
         return lx_finish(t, sp, lx.pos, sl, sc);

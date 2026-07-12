@@ -1,0 +1,22 @@
+extern int printf(string fmt, ...);
+
+// A `static` local keeps a single instance across calls (C storage semantics).
+int next() {
+    static int c = 0;
+    c = c + 1;
+    return c;
+}
+
+// Distinct static locals in different functions don't alias.
+int tick() {
+    static int t = 100;
+    t = t + 10;
+    return t;
+}
+
+int main() {
+    printf("%d %d %d\n", next(), next(), next());   // 1 2 3
+    printf("%d %d\n", tick(), tick());              // 110 120
+    printf("%d\n", next());                          // 4
+    return 0;
+}

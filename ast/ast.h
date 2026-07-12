@@ -77,6 +77,7 @@ public:
     ExprPtr initializer;
     bool isVolatile = false;
     bool isConst = false;
+    bool isStatic = false;   // `static` local: one instance, persists across calls
 
     VarDecl(const std::string& name, const std::string& type, ExprPtr init = nullptr)
         : Decl(name), type(type), initializer(std::move(init)) {}
@@ -279,6 +280,18 @@ public:
     void accept(class ASTVisitor* visitor) override;
 };
 
+// do { body } while (cond); — the body runs at least once, then repeats while cond.
+class DoWhileStmt : public Stmt {
+public:
+    StmtPtr body;
+    ExprPtr condition;
+
+    DoWhileStmt(StmtPtr body, ExprPtr cond)
+        : body(std::move(body)), condition(std::move(cond)) {}
+
+    void accept(class ASTVisitor* visitor) override;
+};
+
 class ReturnStmt : public Stmt {
 public:
     ExprPtr value;
@@ -428,6 +441,20 @@ public:
     void accept(class ASTVisitor* visitor) override;
 };
 
+// `x++` / `x--` (postfix) and `++x` / `--x` (prefix). The operand is an lvalue;
+// the expression value is the old value (postfix) or the new value (prefix).
+class IncDecExpr : public Expr {
+public:
+    ExprPtr operand;
+    bool    decrement;   // false = ++, true = --
+    bool    prefix;      // true = ++x/--x, false = x++/x--
+
+    IncDecExpr(ExprPtr operand, bool decrement, bool prefix)
+        : operand(std::move(operand)), decrement(decrement), prefix(prefix) {}
+
+    void accept(class ASTVisitor* visitor) override;
+};
+
 // Postfix `?` error-propagation operator: `expr?` on a Result<T,E>.
 // If the result is Err, returns it from the enclosing function; otherwise the
 // expression evaluates to the unwrapped success value (the Result's T).
@@ -436,6 +463,21 @@ public:
     ExprPtr operand;
 
     explicit QuestionExpr(ExprPtr operand) : operand(std::move(operand)) {}
+
+    void accept(class ASTVisitor* visitor) override;
+};
+
+// Ternary conditional `cond ? thenExpr : elseExpr`. Exactly one arm is evaluated;
+// the arms must share a common type, which is the expression's type.
+class TernaryExpr : public Expr {
+public:
+    ExprPtr condition;
+    ExprPtr thenExpr;
+    ExprPtr elseExpr;
+
+    TernaryExpr(ExprPtr condition, ExprPtr thenExpr, ExprPtr elseExpr)
+        : condition(std::move(condition)), thenExpr(std::move(thenExpr)),
+          elseExpr(std::move(elseExpr)) {}
 
     void accept(class ASTVisitor* visitor) override;
 };
@@ -545,6 +587,16 @@ public:
     void accept(class ASTVisitor* visitor) override;
 };
 
+// Array literal `{ e0, e1, ... }` — untyped; the target array type gives the
+// element type and size. Fewer elements than the size zero-fill the rest.
+class ArrayLitExpr : public Expr {
+public:
+    std::vector<ExprPtr> elements;
+    explicit ArrayLitExpr(std::vector<ExprPtr> elements)
+        : elements(std::move(elements)) {}
+    void accept(class ASTVisitor* visitor) override;
+};
+
 // Lambda / anonymous function: fn(int x) -> int { return x * 2; }
 class LambdaExpr : public Expr {
 public:
@@ -639,6 +691,7 @@ public:
     virtual void visit(ForStmt* node) = 0;
     virtual void visit(ForInStmt* node) = 0;
     virtual void visit(WhileStmt* node) = 0;
+    virtual void visit(DoWhileStmt* node) = 0;
     virtual void visit(ReturnStmt* node) = 0;
     virtual void visit(BreakStmt* node) = 0;
     virtual void visit(ContinueStmt* node) = 0;
@@ -647,7 +700,9 @@ public:
     virtual void visit(ExprStmt* node) = 0;
     virtual void visit(BinaryExpr* node) = 0;
     virtual void visit(UnaryExpr* node) = 0;
+    virtual void visit(IncDecExpr* node) = 0;
     virtual void visit(QuestionExpr* node) = 0;
+    virtual void visit(TernaryExpr* node) = 0;
     virtual void visit(CallExpr* node) = 0;
     virtual void visit(IndexExpr* node) = 0;
     virtual void visit(MemberExpr* node) = 0;
@@ -655,6 +710,7 @@ public:
     virtual void visit(LiteralExpr* node) = 0;
     virtual void visit(IdentExpr* node) = 0;
     virtual void visit(StructInitExpr* node) = 0;
+    virtual void visit(ArrayLitExpr* node) = 0;
     virtual void visit(AllocWithExpr* node) = 0;
     virtual void visit(TemplateCallExpr* node) = 0;
     virtual void visit(LambdaExpr* node) = 0;

@@ -13,6 +13,7 @@ void IfStmt::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void ForStmt::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void ForInStmt::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void WhileStmt::accept(ASTVisitor* visitor) { visitor->visit(this); }
+void DoWhileStmt::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void ReturnStmt::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void BreakStmt::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void ExprStmt::accept(ASTVisitor* visitor) { visitor->visit(this); }
@@ -20,7 +21,9 @@ void ExprStmt::accept(ASTVisitor* visitor) { visitor->visit(this); }
 // Expressions
 void BinaryExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void UnaryExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
+void IncDecExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void QuestionExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
+void TernaryExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void CallExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void IndexExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void MemberExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
@@ -34,6 +37,7 @@ void SwitchStmt::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void MatchStmt::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void TemplateCallExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void StructInitExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
+void ArrayLitExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
 
 void LambdaExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void AsmStmt::accept(ASTVisitor* visitor)        { visitor->visit(this); }

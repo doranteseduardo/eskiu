@@ -62,7 +62,7 @@ Source (.esk)
 
 ### Why all passes implement ASTVisitor
 
-Every analysis or code generation pass implements `ASTVisitor`. This keeps traversal logic out of the AST nodes themselves and allows passes (type checker, codegen, AST printer) to be added without modifying `ast/ast.h`. The base class declares one pure-virtual `visit()` overload per concrete node type (42 today), so a new node type forces every pass to handle it or fail to compile.
+Every analysis or code generation pass implements `ASTVisitor`. This keeps traversal logic out of the AST nodes themselves and allows passes (type checker, codegen, AST printer) to be added without modifying `ast/ast.h`. The base class declares one pure-virtual `visit()` overload per concrete node type (46 today), so a new node type forces every pass to handle it or fail to compile.
 
 ### How accept()/visit() dispatch works
 
@@ -109,13 +109,13 @@ The caller drives the lexer by calling `next_token()` in a loop until `TokenType
 | Category | Tokens |
 |---|---|
 | Type keywords | `INT`, `INT8`, `INT16`, `INT32`, `INT64`, `UINT`, `UINT8`, `UINT16`, `UINT32`, `UINT64`, `FLOAT`, `DOUBLE`, `BOOL`, `CHAR`, `STRING`, `VOID` |
-| Control keywords | `FOR`, `WHILE`, `IF`, `ELSE`, `SWITCH`, `CASE`, `DEFAULT`, `BREAK`, `CONTINUE`, `RETURN` |
+| Control keywords | `FOR`, `WHILE`, `DO`, `IF`, `ELSE`, `SWITCH`, `CASE`, `DEFAULT`, `BREAK`, `CONTINUE`, `RETURN` |
 | Declaration keywords | `LET`, `STRUCT`, `INTERFACE`, `EXTERN`, `FN`, `IMPORT`, `ENUM` |
 | Memory keywords | `ALLOC`, `FREE` |
 | Literal keywords | `TRUE`, `FALSE`, `NULL_KW` |
 | Exception keywords | `TRY`, `CATCH`, `FINALLY`, `THROW` |
 | Concurrency keywords | `THREAD_CREATE`, `THREAD_JOIN` |
-| Other keywords | `SIZEOF`, `VOLATILE`, `ASM` |
+| Other keywords | `SIZEOF`, `VOLATILE`, `STATIC`, `ASM` |
 | Reserved (future) | `THREAD`, `SPAWN`, `MUTEX`, `IN` |
 | Arithmetic operators | `PLUS`, `MINUS`, `STAR`, `SLASH`, `PERCENT` |
 | Compound assignments | `PLUS_EQ`, `MINUS_EQ`, `STAR_EQ`, `SLASH_EQ`, `PERCENT_EQ`, `AMP_EQ`, `PIPE_EQ`, `CARET_EQ`, `LSHIFT_EQ`, `RSHIFT_EQ` |
@@ -191,20 +191,21 @@ Both forms produce `StructInitExpr` with `vector<pair<string, ExprPtr>>`.
 From lowest to highest:
 
 ```
-parseAssignment      =  +=  -=  *=  /=  %=     (right-associative; compound ops desugar)
-  parseLogicalOr     ||
-    parseLogicalAnd  &&
-      parseBitwiseOr     |
-        parseBitwiseXor  ^
-          parseBitwiseAnd    &
-            parseEquality    ==  !=
-              parseComparison    <  >  <=  >=
-                parseShift       <<  >>
-                  parseAddition  +  -
-                    parseMultiplication  *  /  %
-                      parseUnary         -  ~  !  &  *  (TYPE)
-                        parsePostfix     ()  []  .  <T>(args)
-                          parsePrimary
+parseAssignment        =  +=  -=  *=  /=  %=     (right-associative; compound ops desugar)
+  parseTernary         ?:                        (right-associative; `:`-scan disambiguates from postfix `?`)
+    parseLogicalOr     ||
+      parseLogicalAnd  &&
+        parseBitwiseOr     |
+          parseBitwiseXor  ^
+            parseBitwiseAnd    &
+              parseEquality    ==  !=
+                parseComparison    <  >  <=  >=
+                  parseShift       <<  >>
+                    parseAddition  +  -
+                      parseMultiplication  *  /  %
+                        parseUnary         -  ~  !  &  *  ++  --  (TYPE)
+                          parsePostfix     ()  []  .  ?  ++  --  <T>(args)
+                            parsePrimary
 ```
 
 Compound assignment operators (`+=`, `-=`, `*=`, `/=`, `%=`) are desugared in `parseAssignment()` into `BinaryExpr(lhs, "=", BinaryExpr(lhs, op, rhs))`.
@@ -247,6 +248,7 @@ ASTNode                    (line:int, col:int)
 │   ├── ForStmt            (init:StmtPtr?, condition:ExprPtr?, step:ExprPtr?, body)
 │   ├── ForInStmt          (var, iterable, body)  (for-each / range; desugared to ForStmt)
 │   ├── WhileStmt          (condition, body)
+│   ├── DoWhileStmt        (body, condition)  (runs the body once before testing)
 │   ├── ReturnStmt         (value:ExprPtr?)
 │   ├── BreakStmt
 │   ├── ContinueStmt
@@ -260,7 +262,9 @@ ASTNode                    (line:int, col:int)
 └── Expr
     ├── BinaryExpr         (left, op:string, right)
     ├── UnaryExpr          (op:string, operand)
+    ├── IncDecExpr         (operand, decrement:bool, prefix:bool)  (`++`/`--`)
     ├── QuestionExpr       (operand)  (`?` error-propagation for Result<T,E>)
+    ├── TernaryExpr        (condition, thenExpr, elseExpr)  (`cond ? a : b`)
     ├── CallExpr           (callee:ExprPtr, args[ExprPtr])
     ├── IndexExpr          (base, index)
     ├── MemberExpr         (base, member:string)
@@ -268,6 +272,7 @@ ASTNode                    (line:int, col:int)
     ├── LiteralExpr        (kind:{INT,FLOAT,STRING,CHAR,BOOL,NULL_VAL}, value:string)
     ├── IdentExpr          (name:string)
     ├── StructInitExpr     (structName, fieldInits[(name,ExprPtr)])
+    ├── ArrayLitExpr       (elements[ExprPtr])  (`{ e0, e1, ... }` array initializer)
     ├── AllocWithExpr      (allocator:ExprPtr, elemType:string, count:ExprPtr)
     ├── TemplateCallExpr   (templateName, typeArgs[], args[])
     ├── LambdaExpr         (returnType:string, params[(type,name)], body:StmtPtr, escapes, captures[])
@@ -279,7 +284,7 @@ ASTNode                    (line:int, col:int)
 Program                    (declarations: vector<DeclPtr>)  (root node)
 ```
 
-`ASTVisitor` declares 42 pure-virtual `visit()` overloads (one per concrete class: `Program`, 9 `Decl` subtypes, 15 `Stmt` subtypes, 17 `Expr` subtypes). The `alloc<T>(n)` / `free` primitives are stdlib generic functions (`<mem>`), not AST nodes; the explicit-allocator form `alloc_with(&a, T, n)` is the `AllocWithExpr` node.
+`ASTVisitor` declares 46 pure-virtual `visit()` overloads (one per concrete class: `Program`, 9 `Decl` subtypes, 16 `Stmt` subtypes, 20 `Expr` subtypes). The `alloc<T>(n)` / `free` primitives are stdlib generic functions (`<mem>`), not AST nodes; the explicit-allocator form `alloc_with(&a, T, n)` is the `AllocWithExpr` node.
 
 `LambdaExpr` carries the full function signature and body inline. During codegen, `visit(LambdaExpr*)` saves the current insert point, emits a new private `llvm::Function` with a synthesized unique name (e.g. `__lambda_0`, `__lambda_1`), restores the insert point, and pushes the `llvm::Function*` onto `exprValueStack` as the expression value. The `fn(T,...)->R` type is stored in `expressionTypes` for that node so the type checker can validate assignments and call sites.
 

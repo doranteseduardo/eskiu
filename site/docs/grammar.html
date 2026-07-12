@@ -134,11 +134,11 @@ escape     = '\' ( 'n' | 't' | 'r' | '\' | '&quot;' | &quot;'&quot; | '0' )
 </code></pre>
 <p>Comments: <code>// … end-of-line</code> and <code>/* … */</code> (block comments do not nest).</p>
 <h3 id="keywords-reserved">Keywords (reserved)</h3>
-<pre><code>let  const  volatile  async  await  escaping
+<pre><code>let  const  volatile  static  async  await  escaping
 int int8 int16 int32 int64  uint uint8 uint16 uint32 uint64
 float double bool char string void
 struct packed union interface enum fn
-if else while for in switch match case default break continue return
+if else while do for in switch match case default break continue return
 import extern intrinsic  sizeof alloc_with free_closure
 thread_create thread_join  asm  try catch finally throw
 null true false
@@ -147,6 +147,7 @@ null true false
 type-alias form <code>type NAME = …</code>.</p>
 <h3 id="operators-and-punctuation">Operators and punctuation</h3>
 <pre><code>+  -  *  /  %                          arithmetic
+++  --                                 increment / decrement (prefix or postfix)
 =  +=  -=  *=  /=  %=  &amp;=  |=  ^=  &lt;&lt;=  &gt;&gt;=   assignment (compound forms desugar)
 ==  !=  &lt;  &gt;  &lt;=  &gt;=                   comparison
 &amp;&amp;  ||  !                             logical
@@ -209,10 +210,14 @@ type-alias      = 'type' IDENT '=' type ';'
 
 var-decl        = qualifier* 'let' IDENT ':' type ( '=' expr )? ';'
                 | qualifier* type IDENT ( '=' expr )? ';'
-qualifier       = 'const' | 'volatile'
+qualifier       = 'const' | 'volatile' | 'static'
 </code></pre>
 <p><code>const</code> placement follows C: before a <code>let</code> it qualifies the binding; within a
 type it qualifies the pointee (<code>const int*</code>) or pointer level (<code>int* const</code>).</p>
+<p><code>static</code> is a storage qualifier valid only on a <strong>local</strong> variable: the variable
+has a single instance that persists across calls (like C). Its initializer must
+be a compile-time constant. Applying <code>static</code> to a global is rejected (a global
+already has static storage).</p>
 <hr>
 <h2 id="types">Types</h2>
 <pre><code>type        = 'const'? ptr* base suffix*
@@ -228,19 +233,22 @@ scalar-type = 'int' | 'int8' | 'int16' | 'int32' | 'int64'
             | 'float' | 'double' | 'bool' | 'char' | 'string' | 'void'
 </code></pre>
 <p>Pointers may be written either C-style (<code>int*</code>) or leading (<code>*int</code>); both are
-equivalent. A trailing <code>[N]</code> binds outermost, so <code>*T[N]</code> is an array of N pointers
-(each element a <code>*T</code>), while a pointer to an array is written with the star after the
-brackets: <code>T[N]*</code>. <code>va_list</code> is a built-in named type used by variadics.</p>
+equivalent. An array suffix binds tighter than a leading pointer, so <code>*T[N]</code> is an array
+of N pointers (each element a <code>*T</code>), while a pointer to an array is written with the star
+after the brackets: <code>T[N]*</code>. Suffixes chain for multidimensional arrays: <code>T[N][M]</code> is N
+arrays of M (C order, leftmost bracket outermost). <code>va_list</code> is a built-in named type
+used by variadics.</p>
 <hr>
 <h2 id="statements">Statements</h2>
 <pre><code>statement =
     block | if-stmt | while-stmt | for-stmt | switch-stmt | match-stmt
-  | return-stmt | break-stmt | continue-stmt | throw-stmt | try-stmt
+  | do-while-stmt  | return-stmt | break-stmt | continue-stmt | throw-stmt | try-stmt
   | asm-stmt | thread-join-stmt | var-decl | expr-stmt
 
 block         = '{' ( declaration | statement )* '}'
 if-stmt       = 'if' '(' expr ')' statement ( 'else' statement )?
 while-stmt    = 'while' '(' expr ')' statement
+do-while-stmt = 'do' statement 'while' '(' expr ')' ';'
 for-stmt      = 'for' '(' ( var-decl | expr )? ';' expr? ';' expr? ')' statement
               | 'for' '(' IDENT 'in' expr ( '..' expr )? ')' statement   // iterate / half-open range
 return-stmt   = 'return' expr? ';'
@@ -268,9 +276,10 @@ thread-join-stmt = 'thread_join' '(' expr ')' ';'
 <h2 id="expressions">Expressions</h2>
 <p>Precedence, lowest to highest. Each level is left-associative unless noted.</p>
 <pre><code>expr            = assignment
-assignment      = logical-or ( assign-op assignment )?            // right-assoc
+assignment      = ternary ( assign-op assignment )?              // right-assoc
 assign-op       = '=' | '+=' | '-=' | '*=' | '/=' | '%='
                 | '&amp;=' | '|=' | '^=' | '&lt;&lt;=' | '&gt;&gt;='              // compound forms desugar
+ternary         = logical-or ( '?' expr ':' ternary )?           // right-assoc
 logical-or      = logical-and ( '||' logical-and )*
 logical-and     = bitwise-or  ( '&amp;&amp;' bitwise-or  )*
 bitwise-or      = bitwise-xor ( '|'  bitwise-xor )*
@@ -281,7 +290,7 @@ comparison      = shift       ( ('&lt;' | '&gt;' | '&lt;=' | '&gt;=') shift )*
 shift           = additive    ( ('&lt;&lt;' | '&gt;&gt;') additive )*
 additive        = multiplicative ( ('+' | '-') multiplicative )*
 multiplicative  = unary       ( ('*' | '/' | '%') unary )*
-unary           = ('!' | '-' | '+' | '&amp;' | '*' | '~' | 'await') unary   // right-assoc
+unary           = ('!' | '-' | '+' | '&amp;' | '*' | '~' | '++' | '--' | 'await') unary   // right-assoc
                 | cast
 cast            = '(' type ')' unary
                 | postfix
@@ -290,14 +299,18 @@ postfix-op      = '(' arg-list? ')'          // call
                 | '[' expr ']'               // index
                 | '.' IDENT                  // member
                 | '?'                        // error propagation (Result)
+                | '++' | '--'                // post-increment / decrement
 arg-list        = expr (',' expr)*
 </code></pre>
-<p>Eskiu has no <code>a ? b : c</code> conditional operator. <code>?</code> is the postfix
-error-propagation operator applied to a <code>Result</code> (it returns early on the error
-variant). Assignment is the lowest-precedence, right-associative level.</p>
+<p><code>?</code> is overloaded: <code>cond ? a : b</code> is the conditional (ternary) operator, while a
+postfix <code>expr?</code> (with no matching <code>:</code> ahead) is the Result error-propagation operator
+(it returns early on the error variant). The parser disambiguates by scanning for a
+same-level <code>:</code> after the <code>?</code>. Assignment is the lowest-precedence, right-associative
+level; the ternary sits just above it, also right-associative.</p>
 <pre><code>primary =
     INT_LIT | FLOAT_LIT | STRING_LIT | CHAR_LIT | 'true' | 'false' | 'null'
   | IDENT
+  | array-lit                                          // { e0, e1, … }  (initializes an array)
   | IDENT struct-init                                  // Name { … }
   | IDENT '&lt;' type (',' type)* '&gt;' ( '(' arg-list? ')' | struct-init )  // turbofish call / templated literal
   | '(' expr ')'
@@ -307,6 +320,7 @@ variant). Assignment is the lowest-precedence, right-associative level.</p>
   | 'free_closure' '(' expr ')'
   | 'thread_create' '(' expr ')'
 
+array-lit   = '{' ( expr (',' expr)* ','? )? '}'       // fewer elements than the size zero-fill
 struct-init = '{' ( field-init (',' field-init)* )? '}'
 field-init  = IDENT ':' expr        // named
             | expr                  // positional

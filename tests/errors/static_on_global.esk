@@ -1,0 +1,5 @@
+// EXPECT-ERROR: static
+// `static` is a storage qualifier for locals only; a global already has static
+// storage, so the qualifier is meaningless there and must be rejected.
+static int g = 5;
+int main() { return g; }

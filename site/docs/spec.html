@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Language spec · Eskiu docs</title>
-  <meta name="description" content="Version: v0.4.0" />
+  <meta name="description" content="Version: v0.5.0" />
   <link rel="canonical" href="https://eskiu-lang.org/docs/spec.html" />
   <link rel="icon" type="image/png" href="../../assets/logo.png" />
   <style>*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -73,7 +73,7 @@ body { background: var(--bg); color: var(--ink); font-family: var(--sans);
     <nav class="docnav"><a href="index.html">Overview</a><a href="getting-started.html">Getting started</a><a href="spec.html" class="active">Spec</a><a href="grammar.html">Grammar</a><a href="build.html">Tooling</a><a href="glossary.html">Glossary</a><a href="internals.html">Internals →</a></nav>
     <div class="content">
 <h1 id="eskiu-language-specification">Eskiu Language Specification</h1>
-<p><strong>Version:</strong> v0.4.0</p>
+<p><strong>Version:</strong> v0.5.0</p>
 <hr>
 <h2 id="1-overview">1. Overview</h2>
 <p>Eskiu is a statically typed, compiled systems language. It lowers to native code through LLVM, manages memory explicitly (no garbage collector), and interoperates directly with C. A <code>.esk</code> file can also be run on the spot with <code>eskiuc run</code> (or a <code>#!/usr/bin/env eskiuc run</code> shebang), so the same source is both a compiled artifact and a runnable script. This document is the language reference: syntax, type system, semantics, and ABI.</p>
@@ -119,11 +119,11 @@ clang file.o -o file        # link it yourself
 uint  uint8  uint16  uint32  uint64
 float  double  bool  char  string  void
 struct  packed  interface  fn  extern  intrinsic  import
-if  else  for  while  in  switch  case  default  match
+if  else  for  while  do  in  switch  case  default  match
 return  break  continue
 true  false  null
 alloc_with
-const  volatile  escaping  asm
+const  volatile  static  escaping  asm
 thread_create  thread_join
 try  catch  finally  throw
 async  await
@@ -322,6 +322,23 @@ int main() {
 array</em> is written with a trailing star instead: <code>T[N]*</code>. For example <code>*Node[7]</code> is seven
 <code>Node</code> pointers, while <code>Node[7]*</code> points at a seven-<code>Node</code> array.</p>
 <p><code>uint8[858]</code> lowers to <code>[858 x i8]</code> in LLVM IR.</p>
+<p>An array may be initialized with a brace list <code>{ e0, e1, ... }</code>. As in C, listing fewer
+elements than the size zero-fills the rest, and <code>{}</code> zero-fills the whole array; listing
+more than the size is an error.</p>
+<pre><code class="language-eskiu">int[3] a = {10, 20, 30};   // a = 10, 20, 30
+int[4] b = {7, 8};         // b = 7, 8, 0, 0
+int[3] c = {};             // c = 0, 0, 0
+</code></pre>
+<p><strong>Multidimensional arrays</strong> chain the suffix: <code>T[N][M]</code> is <code>N</code> arrays of <code>M</code> elements,
+following C order, so the <strong>leftmost bracket is the outer dimension</strong>. Indexing peels one
+dimension at a time (<code>a[i]</code> is a row of type <code>T[M]</code>, <code>a[i][j]</code> is a <code>T</code>), and each index
+is bounds-checked against its own dimension. A nested brace list initializes it, with the
+same zero-fill rule at every level:</p>
+<pre><code class="language-eskiu">int[2][3] a = { {1, 2, 3}, {4, 5, 6} };   // 2 rows of 3
+int[2][2] b = { {7, 8} };                 // second row zero-filled: {7,8},{0,0}
+a[1][2];                                    // 6  (row 1, column 2)
+</code></pre>
+<p><code>int[2][3]</code> lowers to <code>[2 x [3 x i32]]</code> in LLVM IR.</p>
 <h3 id="34-struct-types">3.4 Struct Types</h3>
 <p>A struct type is named by its declaration (see §8). Variables of struct type are declared using the struct name as the type annotation:</p>
 <pre><code class="language-eskiu">let p: Point;
@@ -497,6 +514,19 @@ c = &amp;w;     // error: cannot assign to read-only location 'c'  (binding is c
 *c = 10;    // allowed: the pointee is writable
 </code></pre>
 <p>Const-correctness is enforced on conversions: adding const (<code>int*</code> → <code>const int*</code>) is always allowed, but any conversion that would <strong>drop</strong> a const qualifier (in an initializer, assignment, call argument, or return) is a compile error. <code>const</code> has no ABI effect; it is stripped before code generation. It applies uniformly to locals, parameters, struct fields and return types.</p>
+<h3 id="47-static-locals-static">4.7 Static Locals (<code>static</code>)</h3>
+<p>The <code>static</code> qualifier gives a <strong>local</strong> variable a single instance that persists across calls, exactly as in C. Its storage lives for the whole program, not the enclosing call, so it retains its value between invocations:</p>
+<pre><code class="language-eskiu">int next() {
+    static int c = 0;   // initialised once, at load time
+    c = c + 1;
+    return c;
+}
+
+next();   // 1
+next();   // 2
+next();   // 3
+</code></pre>
+<p>A <code>static</code> local's initializer must be a <strong>compile-time constant</strong> (a literal); a runtime expression is rejected. An uninitialised <code>static</code> local is zero-initialised. Two <code>static</code> locals in different functions never alias, even if they share a name. <code>static</code> on a global is rejected, since a global already has static storage.</p>
 <hr>
 <h2 id="5-operators">5. Operators</h2>
 <h3 id="51-arithmetic">5.1 Arithmetic</h3>
@@ -684,6 +714,15 @@ c = &amp;w;     // error: cannot assign to read-only location 'c'  (binding is c
 </table></div>
 <p>The compound bitwise/shift operators are desugared by the parser: <code>x op= e</code> is equivalent to <code>x = x op e</code>.</p>
 <p>The left-hand side must be an lvalue: a named variable, a pointer dereference (<code>*ptr = value</code>), or a field access. Assigning through a dereferenced pointer parameter works correctly. <code>*ptr = value</code> stores through the pointer as expected.</p>
+<h3 id="551-increment-and-decrement">5.5.1 Increment and Decrement</h3>
+<p><code>++</code> and <code>--</code> add or subtract one from an integer or pointer lvalue, in place. Both prefix
+and postfix forms are supported: <code>++x</code>/<code>--x</code> yield the new value, <code>x++</code>/<code>x--</code> yield the old
+value. On a pointer, the step is one element (like pointer arithmetic).</p>
+<pre><code class="language-eskiu">for (int i = 0; i &lt; n; i++) { ... }   // postfix, value discarded
+int a = i++;   // a = old i, then i incremented
+int b = ++j;   // j incremented, then b = new j
+</code></pre>
+<p>The operand must be a modifiable lvalue (a <code>const</code> or a non-lvalue like <code>5++</code> is an error).</p>
 <h3 id="56-address-of-and-dereference">5.6 Address-of and Dereference</h3>
 <div class="tablewrap"><table>
 <thead>
@@ -727,7 +766,22 @@ sizeof(double) // 8
 sizeof(Grid)   // 12  (3 float fields)
 </code></pre>
 <p><code>sizeof</code> is resolved entirely at compile time and produces no runtime code.</p>
-<h3 id="59-operator-precedence">5.9 Operator Precedence</h3>
+<h3 id="59-conditional-ternary">5.9 Conditional (ternary)</h3>
+<p><code>cond ? a : b</code> evaluates <code>cond</code>, then evaluates and yields <strong>exactly one</strong> of the two
+arms (so side effects in the unused arm never run). The condition may be a bool,
+integer, or pointer (non-zero / non-null is true). The two arms must share a common
+type: identical types pass through, two numerics promote to the wider (C-style, e.g.
+<code>int</code> and <code>double</code> yield <code>double</code>), and otherwise the arms must be mutually assignable.
+The operator is right-associative, so <code>a ? b : c ? d : e</code> parses as <code>a ? b : (c ? d : e)</code>.</p>
+<pre><code class="language-eskiu">int m = a &gt; b ? a : b;                       // max
+char g = s &gt;= 90 ? 'A' : s &gt;= 80 ? 'B' : 'C';  // right-associative chain
+double d = flag ? 1 : 2.5;                   // arms promote to double
+</code></pre>
+<p>Eskiu also uses <code>?</code> as the postfix Result-propagation operator (§10.5). The two are
+disambiguated by the following <code>:</code>: a <code>?</code> with a matching <code>:</code> at the same bracket
+nesting is a ternary, otherwise it is propagation. To propagate inside a ternary arm,
+parenthesize it: <code>cond ? (may_fail()?) : fallback</code>.</p>
+<h3 id="510-operator-precedence">5.10 Operator Precedence</h3>
 <p>Listed from lowest precedence (loosest binding) to highest (tightest binding):</p>
 <div class="tablewrap"><table>
 <thead>
@@ -745,61 +799,66 @@ sizeof(Grid)   // 12  (3 float fields)
 </tr>
 <tr>
 <td>2</td>
+<td><code>?:</code> (ternary)</td>
+<td>Right to left</td>
+</tr>
+<tr>
+<td>3</td>
 <td><code>\|\|</code></td>
 <td>Left to right</td>
 </tr>
 <tr>
-<td>3</td>
+<td>4</td>
 <td><code>&amp;&amp;</code></td>
 <td>Left to right</td>
 </tr>
 <tr>
-<td>4</td>
+<td>5</td>
 <td><code>\|</code> (bitwise)</td>
 <td>Left to right</td>
 </tr>
 <tr>
-<td>5</td>
+<td>6</td>
 <td><code>^</code></td>
 <td>Left to right</td>
 </tr>
 <tr>
-<td>6</td>
+<td>7</td>
 <td><code>&amp;</code> (bitwise)</td>
 <td>Left to right</td>
 </tr>
 <tr>
-<td>7</td>
+<td>8</td>
 <td><code>==</code> <code>!=</code></td>
 <td>Left to right</td>
 </tr>
 <tr>
-<td>8</td>
+<td>9</td>
 <td><code>&lt;</code> <code>&gt;</code> <code>&lt;=</code> <code>&gt;=</code></td>
 <td>Left to right</td>
 </tr>
 <tr>
-<td>9</td>
+<td>10</td>
 <td><code>&lt;&lt;</code> <code>&gt;&gt;</code></td>
 <td>Left to right</td>
 </tr>
 <tr>
-<td>10</td>
+<td>11</td>
 <td><code>+</code> <code>-</code></td>
 <td>Left to right</td>
 </tr>
 <tr>
-<td>11</td>
+<td>12</td>
 <td><code>*</code> <code>/</code> <code>%</code></td>
 <td>Left to right</td>
 </tr>
 <tr>
-<td>12</td>
+<td>13</td>
 <td>Unary <code>!</code> <code>-</code> <code>+</code> <code>~</code> <code>&amp;</code> <code>*</code> <code>(TYPE)</code></td>
 <td>Right to left</td>
 </tr>
 <tr>
-<td>13</td>
+<td>14</td>
 <td><code>()</code> <code>[]</code> <code>.</code> <code>?</code> (postfix)</td>
 <td>Left to right</td>
 </tr>
@@ -1120,6 +1179,14 @@ each element is read through <code>data[i]</code>.</p>
 }
 </code></pre>
 <p>The body executes repeatedly while <code>condition</code> is true.</p>
+<h3 id="731-do-while">7.3.1 do / while</h3>
+<pre><code class="language-eskiu">do {
+    // body
+} while (condition);
+</code></pre>
+<p>Like <code>while</code>, but the condition is tested <em>after</em> the body, so the body always runs at
+least once. <code>break</code> and <code>continue</code> work as in the other loops (<code>continue</code> re-tests the
+condition).</p>
 <h3 id="74-switch-case-default-break">7.4 switch / case / default / break</h3>
 <pre><code class="language-eskiu">switch (x) {
     case 1:

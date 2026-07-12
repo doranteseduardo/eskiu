@@ -328,6 +328,66 @@ void CodeGen::visit(QuestionExpr* node) {
     exprValueStack.push(builder->CreateLoad(valTy, valPtr, "try.value"));
 }
 
+void CodeGen::visit(TernaryExpr* node) {
+    // `cond ? a : b` — branch on the condition and evaluate exactly one arm, then phi
+    // the results. Both arms are coerced to their common type (see the type checker).
+    llvm::Value* cond = evaluateExpr(node->condition);
+    if (!cond->getType()->isIntegerTy(1)) {
+        if (cond->getType()->isPointerTy())
+            cond = builder->CreateICmpNE(
+                cond, llvm::ConstantPointerNull::get(
+                          llvm::cast<llvm::PointerType>(cond->getType())));
+        else
+            cond = builder->CreateICmpNE(cond, llvm::ConstantInt::get(cond->getType(), 0));
+    }
+
+    std::string thenTy = getExprEskiuType(node->thenExpr);
+    std::string elseTy = getExprEskiuType(node->elseExpr);
+    llvm::Type* tLL = getTypeFromString(thenTy);
+    llvm::Type* eLL = getTypeFromString(elseTy);
+    llvm::Type* resTy;
+    if (tLL == eLL)
+        resTy = tLL;
+    else if (tLL->isFloatingPointTy() || eLL->isFloatingPointTy())
+        resTy = (tLL->isDoubleTy() || eLL->isDoubleTy())
+                    ? llvm::Type::getDoubleTy(*context)
+                    : llvm::Type::getFloatTy(*context);
+    else if (tLL->isIntegerTy() && eLL->isIntegerTy())
+        resTy = tLL->getIntegerBitWidth() >= eLL->getIntegerBitWidth() ? tLL : eLL;
+    else
+        resTy = tLL;
+
+    auto coerce = [&](llvm::Value* v, const std::string& srcEskiu) -> llvm::Value* {
+        if (v->getType() == resTy) return v;
+        bool uns = eskiuUnsigned(srcEskiu);
+        if (v->getType()->isIntegerTy() && resTy->isIntegerTy())             return coerceInt(v, resTy, uns);
+        if (v->getType()->isIntegerTy() && resTy->isFloatingPointTy())       return intToFloat(v, resTy, uns);
+        if (v->getType()->isFloatingPointTy() && resTy->isFloatingPointTy()) return builder->CreateFPCast(v, resTy);
+        return v;
+    };
+
+    llvm::BasicBlock* thenBB = llvm::BasicBlock::Create(*context, "tern.then", currentFunction);
+    llvm::BasicBlock* elseBB = llvm::BasicBlock::Create(*context, "tern.else", currentFunction);
+    llvm::BasicBlock* contBB = llvm::BasicBlock::Create(*context, "tern.cont", currentFunction);
+    builder->CreateCondBr(cond, thenBB, elseBB);
+
+    builder->SetInsertPoint(thenBB);
+    llvm::Value* tv = coerce(evaluateExpr(node->thenExpr), thenTy);
+    llvm::BasicBlock* thenEnd = builder->GetInsertBlock();   // arm may have added blocks
+    builder->CreateBr(contBB);
+
+    builder->SetInsertPoint(elseBB);
+    llvm::Value* ev = coerce(evaluateExpr(node->elseExpr), elseTy);
+    llvm::BasicBlock* elseEnd = builder->GetInsertBlock();
+    builder->CreateBr(contBB);
+
+    builder->SetInsertPoint(contBB);
+    llvm::PHINode* phi = builder->CreatePHI(resTy, 2);
+    phi->addIncoming(tv, thenEnd);
+    phi->addIncoming(ev, elseEnd);
+    exprValueStack.push(phi);
+}
+
 void CodeGen::visit(UnaryExpr* node) {
     llvm::Value* val = evaluateExpr(node->operand);
 
@@ -373,6 +433,30 @@ void CodeGen::visit(UnaryExpr* node) {
     exprValueStack.push(result);
 }
 
+void CodeGen::visit(IncDecExpr* node) {
+    llvm::Value* ptr = evaluateLValue(node->operand);
+    std::string ety = getExprEskiuType(node->operand);
+    bool isPtr = !ety.empty() && (ety.front() == '*' || ety.back() == '*');
+    llvm::Type* ty = isPtr ? (llvm::Type*)llvm::PointerType::get(*context, 0)
+                           : getTypeFromString(ety.empty() ? "int" : ety);
+    llvm::Value* old = builder->CreateLoad(ty, ptr);
+    llvm::Value* nw;
+    if (isPtr) {
+        // pointer step by one element
+        std::string elemStr = ety.front() == '*' ? ety.substr(1) : ety.substr(0, ety.size() - 1);
+        llvm::Type* elemTy = (elemStr.empty() || elemStr == "void")
+            ? (llvm::Type*)llvm::Type::getInt8Ty(*context) : getTypeFromString(elemStr);
+        llvm::Value* step = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context),
+                                                   node->decrement ? -1 : 1, true);
+        nw = builder->CreateGEP(elemTy, old, step);
+    } else {
+        llvm::Value* one = llvm::ConstantInt::get(ty, 1);
+        nw = node->decrement ? builder->CreateSub(old, one) : builder->CreateAdd(old, one);
+    }
+    builder->CreateStore(nw, ptr);
+    exprValueStack.push(node->prefix ? nw : old);
+}
+
 void CodeGen::visit(IndexExpr* node) {
     llvm::Value* idx = evaluateExpr(node->index);
     std::string baseType = getExprEskiuType(node->base);
@@ -385,17 +469,19 @@ void CodeGen::visit(IndexExpr* node) {
         return;
     }
 
-    // Fixed-size array: T[N]
-    size_t lb = baseType.rfind('[');
-    if (lb != std::string::npos && baseType.back() == ']') {
-        std::string elemStr = baseType.substr(0, lb);
-        llvm::Type* arrType  = getTypeFromString(baseType);
-        llvm::Type* elemType = getTypeFromString(elemStr);
-        llvm::Value* basePtr = evaluateLValue(node->base);
-        llvm::Value* zero    = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0);
-        llvm::Value* gep     = builder->CreateGEP(arrType, basePtr, {zero, idx});
-        exprValueStack.push(builder->CreateLoad(elemType, gep));
-        return;
+    // Fixed-size array: T[N] (for T[N][M], indexing peels the outer dimension → T[M])
+    {
+        ty::Type bt = ty::Type::parse(baseType);
+        if (bt.kind == ty::Type::Kind::Array) {
+            std::string elemStr  = bt.elem->str();
+            llvm::Type* arrType  = getTypeFromString(baseType);
+            llvm::Type* elemType = getTypeFromString(elemStr);
+            llvm::Value* basePtr = evaluateLValue(node->base);
+            llvm::Value* zero    = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0);
+            llvm::Value* gep     = builder->CreateGEP(arrType, basePtr, {zero, idx});
+            exprValueStack.push(builder->CreateLoad(elemType, gep));
+            return;
+        }
     }
 
     // Pointer: *T or T*

@@ -47,12 +47,28 @@ size_t topLevelAngle(const std::string& s) {
     return std::string::npos;
 }
 
-// Matching '[' for a string that ends in ']'.
-size_t matchOpenBracket(const std::string& s) {
+// The first top-level '[' that begins an array suffix, ignoring brackets nested
+// inside template `<>` or fn `()`. For `int[N][M]` this is the '[' before N, so the
+// leftmost dimension binds outermost (C order: `int[N][M]` is N arrays of M).
+size_t firstArraySuffixBracket(const std::string& s) {
+    int angle = 0, paren = 0;
+    for (size_t i = 0; i < s.size(); ++i) {
+        char c = s[i];
+        if (c == '<') ++angle;
+        else if (c == '>') { if (angle) --angle; }
+        else if (c == '(') ++paren;
+        else if (c == ')') { if (paren) --paren; }
+        else if (c == '[' && angle == 0 && paren == 0) return i;
+    }
+    return std::string::npos;
+}
+
+// Matching ']' for the '[' at index `open`, respecting nested brackets.
+size_t matchCloseBracket(const std::string& s, size_t open) {
     int depth = 0;
-    for (size_t i = s.size(); i-- > 0;) {
-        if (s[i] == ']') ++depth;
-        else if (s[i] == '[') { if (--depth == 0) return i; }
+    for (size_t i = open; i < s.size(); ++i) {
+        if (s[i] == '[') ++depth;
+        else if (s[i] == ']') { if (--depth == 0) return i; }
     }
     return std::string::npos;
 }
@@ -108,17 +124,21 @@ Type parseCore(const std::string& in, const std::set<std::string>& tps) {
         }
     }
 
-    // Array `T[N]` — the trailing `[N]` binds outermost, so `*Node[3]` is an
-    // array of 3 pointers (matching the postfix-array grammar and codegen's
-    // IndexExpr lowering), NOT a pointer to an array. A pointer to an array is
-    // still spellable with a trailing star (`Node[3]*`). Checked before the
-    // pointer suffixes for that reason.
+    // Array `T[N]` — an array suffix `[N]` binds tighter than a leading pointer, so
+    // `*Node[3]` is an array of 3 pointers (matching the postfix-array grammar and
+    // codegen's IndexExpr lowering), NOT a pointer to an array. A pointer to an array
+    // is still spellable with a trailing star (`Node[3]*`). For a chain `T[N][M]` the
+    // *leftmost* bracket is the outer dimension (C order: N arrays of M), so the elem
+    // is `T[M]`. Checked before the pointer suffixes for that reason.
     if (s.back() == ']') {
-        size_t open = matchOpenBracket(s);
-        if (open != std::string::npos) {
+        size_t open = firstArraySuffixBracket(s);
+        size_t close = open == std::string::npos ? std::string::npos
+                                                 : matchCloseBracket(s, open);
+        if (open != std::string::npos && close != std::string::npos) {
             r.kind = Type::Kind::Array;
-            r.elem = std::make_shared<Type>(Type::parse(s.substr(0, open), tps));
-            r.dim  = s.substr(open + 1, s.size() - open - 2);
+            r.dim  = s.substr(open + 1, close - open - 1);
+            r.elem = std::make_shared<Type>(
+                Type::parse(s.substr(0, open) + s.substr(close + 1), tps));
             return r;
         }
     }

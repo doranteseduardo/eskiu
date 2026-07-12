@@ -1,9 +1,8 @@
-# Eskiu 0.4.0
+# Eskiu 0.5.0
 
-A correctness and type-strictness release. A four-front bug hunt across the C++ and
-self-hosted compilers found a batch of miscompiles, crashes, and soundness holes; this
-release fixes them and tightens the type system. The shipped compiler is the C++
-`eskiuc`, which carries every fix here.
+A basic-C surface release. It fills the last common C constructs the language was
+missing, so idiomatic C ports compile without workarounds. Every feature landed in
+lockstep across the C++ `eskiuc` and the self-hosted compiler, and follows C semantics.
 
 ---
 
@@ -34,37 +33,34 @@ cd eskiu && cmake -S . -B build && cmake --build build
 
 ## What's new
 
-### Miscompiles fixed
+### New language constructs
 
-- **Integer literals in [2^31, 2^32) were truncated** to 32 bits and sign-extended
-  (`int64 a = 3000000000` gave a negative value); they are now materialized as i64.
-- **`unsigned -> float` used a signed conversion**, turning a high-bit-set unsigned value
-  negative; it now uses the unsigned conversion.
-- **A catch-less `try`/`finally` aborted** when an exception passed through it (the
-  cleanup was skipped); it now runs the `finally` and propagates.
-- **A lambda nested in another lambda miscompiled** when it captured a variable two
-  scopes up; captures are now threaded through every enclosing closure.
+- **`do`/`while` loops.** `do { ... } while (cond);` runs the body once before testing
+  the condition, as in C.
+- **Increment and decrement.** Prefix and postfix `++`/`--` on integer and pointer
+  lvalues: postfix yields the old value, prefix the new, and a pointer steps by one
+  element.
+- **Array-literal initializers.** `int[N] a = { e0, e1, ... };` initializes an array in
+  place. As in C, a short list zero-fills the rest and `{}` zero-fills the whole array;
+  an over-long list is a compile error.
+- **`static` locals.** A `static` local has a single instance that persists across calls
+  (C storage). Its initializer must be a compile-time constant; `static` on a global is
+  rejected.
+- **Multidimensional arrays.** `T[N][M]` is N arrays of M in C order (the leftmost
+  bracket is the outer dimension). `a[i]` is a row, `a[i][j]` an element, and each index
+  is bounds-checked against its own dimension. Nested brace initializers
+  (`int[2][3] a = { {1,2,3}, {4,5,6} }`) zero-fill at every level.
+- **Ternary conditional `cond ? a : b`.** Evaluates exactly one arm; the arms take a
+  common type (two numerics promote C-style, e.g. `int` and `double` yield `double`).
+  Right-associative, so `a ? b : c ? d : e` chains. It coexists with the postfix `?`
+  Result-propagation operator: a `?` with a matching same-level `:` ahead is a ternary,
+  otherwise it is propagation (parenthesize to propagate inside a ternary arm).
 
-### Compiler no longer crashes or rejects valid code
+### Fixed
 
-- Comparison operators now type-check their operands (a pointer-vs-int or struct-vs-struct
-  comparison used to reach codegen and assert or miscompile).
-- A `void` or `string` value assigned to an `int` (which hung or crashed) is now a clean
-  compile error.
-- `float` compared against `double`/`int` now compiles (operands are promoted).
-- `&x` of a `const` now yields a pointer to const, so writing through it is caught.
-
-### Type system tightened
-
-- **Floating-point to integer needs an explicit cast.** `int x = 3.9;` is an error; write
-  `int x = (int)3.9;`. Integer-width narrowing (`int n = strlen(s);`) and float-width
-  narrowing stay implicit, matching C.
-- **Out-of-range integer literals** (`int8 x = 300;`) and **division/remainder by a literal
-  zero** are compile errors.
-- **A constant array index proven out of bounds** is a compile error.
-- **Reading an uninitialized local**, **returning the address of a local** (a dangling
-  pointer), **redefining a function**, and **falling off the end of a non-void function**
-  are all compile errors.
+- **`switch` on a sub-`int` subject.** A `switch` over a `char` (or other narrow integer)
+  with wider case constants failed LLVM verification; the subject and case constants are
+  now widened to a common type before lowering.
 
 The full log is in [CHANGELOG.md](CHANGELOG.md).
 
@@ -72,10 +68,8 @@ The full log is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Upgrade
 
-This release is stricter and may reject code that previously compiled. The likely fixes:
-
-- `int x = 3.9;` -> `int x = (int)3.9;` (floating-point to integer now needs the cast).
-- A function that falls off the end without returning, an uninitialized local read, a
-  returned address of a local, or a duplicate function definition: fix the code (these
-  were latent bugs).
-- Integer-width narrowing (`int n = strlen(s)`) still compiles unchanged.
+This release only adds constructs; existing code compiles unchanged. `static`, `do`, and
+the ternary `?:` reuse existing keywords/operators, so the one thing to know is the
+disambiguation between the ternary `?` and the postfix Result-propagation `?`: a `?` with
+a matching same-level `:` ahead is a ternary. To propagate inside a ternary arm,
+parenthesize it: `cond ? (may_fail()?) : fallback`.

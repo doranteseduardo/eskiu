@@ -122,6 +122,36 @@ void TypeChecker::visit(QuestionExpr* node) {
     expressionTypes[node] = valueType;
 }
 
+void TypeChecker::visit(TernaryExpr* node) {
+    node->condition->accept(this);
+    node->thenExpr->accept(this);
+    node->elseExpr->accept(this);
+
+    std::string ct = getExpressionType(node->condition.get());
+    if (ct != "unknown" && !isNumericType(ct) && !isPointerType(ct) &&
+        normalizeType(ct) != "bool")
+        errorAt(node, "ternary condition must be a bool, integer, or pointer, got " + ct);
+
+    std::string tt = getExpressionType(node->thenExpr.get());
+    std::string et = getExpressionType(node->elseExpr.get());
+
+    // The result type is the arms' common type: identical types pass through, two
+    // numerics promote to the wider (C-style), and otherwise the arms must be mutually
+    // assignable (else it is a type error).
+    std::string result = tt;
+    if (tt == "unknown")       result = et;
+    else if (et == "unknown")  result = tt;
+    else if (tt == et)         result = tt;
+    else if (isNumericType(tt) && isNumericType(et)) result = promoteType(tt, et);
+    else if (assignabilityError(tt, et, node->elseExpr.get()).empty()) result = tt;
+    else if (assignabilityError(et, tt, node->thenExpr.get()).empty()) result = et;
+    else {
+        errorAt(node, "ternary branches have incompatible types '" + tt + "' and '" + et + "'");
+        result = tt;
+    }
+    expressionTypes[node] = result;
+}
+
 void TypeChecker::visit(UnaryExpr* node) {
     node->operand->accept(this);
     std::string operandType = getExpressionType(node->operand.get());
@@ -148,6 +178,23 @@ void TypeChecker::visit(UnaryExpr* node) {
     } else {
         expressionTypes[node] = resultType;
     }
+}
+
+void TypeChecker::visit(IncDecExpr* node) {
+    node->operand->accept(this);
+    Expr* op = node->operand.get();
+    bool isLval = dynamic_cast<IdentExpr*>(op) || dynamic_cast<MemberExpr*>(op) ||
+                  dynamic_cast<IndexExpr*>(op) ||
+                  (dynamic_cast<UnaryExpr*>(op) && static_cast<UnaryExpr*>(op)->op == "*");
+    if (!isLval)
+        errorAt(node, "'++'/'--' requires a modifiable variable");
+    std::string cname;
+    if (assignsToConst(op, cname))
+        errorAt(node, "cannot modify read-only location '" + cname + "'");
+    std::string t = getExpressionType(op);
+    if (t != "unknown" && !isIntType(t) && !isPointerType(t))
+        errorAt(node, "'++'/'--' requires an integer or pointer, got '" + t + "'");
+    expressionTypes[node] = t;
 }
 
 void TypeChecker::visit(CallExpr* node) {
@@ -406,27 +453,30 @@ void TypeChecker::visit(IndexExpr* node) {
     // string[i] → char
     if (baseType == "string") { expressionTypes[node] = "char"; return; }
 
-    // Array type T[N]: element is T
-    size_t lb = baseType.rfind('[');
-    if (lb != std::string::npos && baseType.back() == ']') {
-        // A constant index is bounds-checkable at compile time: a negative index is
-        // always out of bounds, and a literal one is checked against a numeric N.
-        if (auto* ix = dynamic_cast<LiteralExpr*>(node->index.get());
-            ix && ix->kind == LiteralExpr::Kind::INT) {
-            std::string dim = baseType.substr(lb + 1, baseType.size() - lb - 2);
-            try {
-                long long idx = std::stoll(ix->value, nullptr, 0);
-                bool dimNum = !dim.empty() &&
-                    std::all_of(dim.begin(), dim.end(), [](unsigned char c){ return std::isdigit(c); });
-                if (idx < 0)
-                    errorAt(node, "array index " + ix->value + " is out of bounds");
-                else if (dimNum && idx >= std::stoll(dim))
-                    errorAt(node, "array index " + ix->value +
-                                  " is out of bounds for array of size " + dim);
-            } catch (...) { /* unparized literal — skip */ }
+    // Array type T[N]: indexing peels the outer (leftmost) dimension, yielding T.
+    // For `int[N][M]`, a[i] is `int[M]`; a[i][j] is `int`.
+    {
+        ty::Type bt = ty::Type::parse(baseType);
+        if (bt.kind == ty::Type::Kind::Array) {
+            // A constant index is bounds-checkable at compile time: a negative index is
+            // always out of bounds, and a literal one is checked against a numeric N.
+            if (auto* ix = dynamic_cast<LiteralExpr*>(node->index.get());
+                ix && ix->kind == LiteralExpr::Kind::INT) {
+                const std::string& dim = bt.dim;
+                try {
+                    long long idx = std::stoll(ix->value, nullptr, 0);
+                    bool dimNum = !dim.empty() &&
+                        std::all_of(dim.begin(), dim.end(), [](unsigned char c){ return std::isdigit(c); });
+                    if (idx < 0)
+                        errorAt(node, "array index " + ix->value + " is out of bounds");
+                    else if (dimNum && idx >= std::stoll(dim))
+                        errorAt(node, "array index " + ix->value +
+                                      " is out of bounds for array of size " + dim);
+                } catch (...) { /* unparized literal — skip */ }
+            }
+            expressionTypes[node] = bt.elem->str();
+            return;
         }
-        expressionTypes[node] = baseType.substr(0, lb);
-        return;
     }
 
     // Pointer: *T → T
@@ -761,6 +811,13 @@ void TypeChecker::visit(AllocWithExpr* node) {
     if (countType != "unknown" && !isIntType(countType))
         errorAt(node,"alloc_with count must be integer, got " + countType);
     expressionTypes[node] = "*" + node->elemType;
+}
+
+void TypeChecker::visit(ArrayLitExpr* node) {
+    // Untyped: the element type / size come from the target at the declaration
+    // site (checked in visit(VarDecl)). Here we just walk the elements.
+    for (auto& el : node->elements) el->accept(this);
+    expressionTypes[node] = "array-literal";
 }
 
 void TypeChecker::visit(StructInitExpr* node) {

@@ -92,11 +92,12 @@ void TypeChecker::validateStructType(const std::string& type) {
     // Function pointer types are always valid
     if (type.size() > 3 && type.substr(0, 3) == "fn(") return;
     std::string baseType = type;
-    // Strip a fixed-size array suffix (T[N]) — the element type is what matters
-    // here; the dimension (a literal, enum, or const) is resolved in codegen.
-    if (!baseType.empty() && baseType.back() == ']') {
-        size_t lb = baseType.rfind('[');
-        if (lb != std::string::npos) baseType = baseType.substr(0, lb);
+    // Strip fixed-size array suffixes (T[N], T[N][M], ...) — the element type is what
+    // matters here; each dimension (a literal, enum, or const) is resolved in codegen.
+    while (!baseType.empty() && baseType.back() == ']') {
+        ty::Type t = ty::Type::parse(baseType);
+        if (t.kind != ty::Type::Kind::Array) break;
+        baseType = t.elem->str();
     }
     // Strip ALL pointer decorators (*T, T*, **T, etc.)
     bool stripped = true;

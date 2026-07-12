@@ -72,6 +72,7 @@ struct TemplateCapturePass {
             walkExpr(i->condition.get()); walkStmt(i->thenBranch.get()); walkStmt(i->elseBranch.get()); return;
         }
         if (auto* w = dynamic_cast<WhileStmt*>(s)) { walkExpr(w->condition.get()); walkStmt(w->body.get()); return; }
+        if (auto* dw = dynamic_cast<DoWhileStmt*>(s)) { walkStmt(dw->body.get()); walkExpr(dw->condition.get()); return; }
         if (auto* f = dynamic_cast<ForStmt*>(s)) {
             scopes.push_back({});
             walkStmt(f->init.get()); walkExpr(f->condition.get()); walkExpr(f->step.get()); walkStmt(f->body.get());
@@ -163,6 +164,7 @@ bool hasBreakAtThisLevel(Stmt* s) {
                hasBreakAtThisLevel(i->elseBranch.get());
     // Nested loops and switch capture their own `break` — do not descend.
     if (dynamic_cast<WhileStmt*>(s) || dynamic_cast<ForStmt*>(s) ||
+        dynamic_cast<DoWhileStmt*>(s) ||
         dynamic_cast<ForInStmt*>(s) || dynamic_cast<SwitchStmt*>(s)) return false;
     if (auto* m = dynamic_cast<MatchStmt*>(s)) {   // match is not a loop
         for (auto& arm : m->arms)
@@ -196,6 +198,11 @@ bool stmtAlwaysReturns(Stmt* s) {
                stmtAlwaysReturns(i->elseBranch.get());
     if (auto* w = dynamic_cast<WhileStmt*>(s))
         return condAlwaysTrue(w->condition.get()) && !hasBreakAtThisLevel(w->body.get());
+    if (auto* dw = dynamic_cast<DoWhileStmt*>(s)) {
+        // The body runs at least once: if it always returns, so does the loop.
+        if (stmtAlwaysReturns(dw->body.get())) return true;
+        return condAlwaysTrue(dw->condition.get()) && !hasBreakAtThisLevel(dw->body.get());
+    }
     if (auto* f = dynamic_cast<ForStmt*>(s))
         return condAlwaysTrue(f->condition.get()) && !hasBreakAtThisLevel(f->body.get());
     // for-in iterates a possibly-empty collection: never guarantees a return.
@@ -385,6 +392,15 @@ void TypeChecker::checkUninitPrefix(BlockStmt* body) {
 }
 
 void TypeChecker::visit(VarDecl* node) {
+    // `static` is a local-only qualifier whose initializer must be a compile-time
+    // constant (it runs once, at load time), as in C.
+    if (node->isStatic) {
+        if (scopes.size() <= 1)
+            errorAt(node, "'static' is only allowed on a local variable");
+        if (node->initializer && !dynamic_cast<LiteralExpr*>(node->initializer.get()))
+            errorAt(node, "a 'static' local's initializer must be a constant");
+    }
+
     // Record definition location
     if (node->line > 0)
         definitionLocations[node->name] = {node->line, node->col, sourceFile};
@@ -401,14 +417,53 @@ void TypeChecker::visit(VarDecl* node) {
                 lam->returnType = dt.ret->str();
         }
         node->initializer->accept(this);
-        std::string initType = getExpressionType(node->initializer.get());
-        if (initType != "unknown") {
-            if (tyq::dropsConst(node->type, initType))
-                errorAt(node, "cannot initialize '" + node->type + "' from '" + initType +
-                              "': conversion discards a const qualifier");
-            else {
-                std::string e = assignabilityError(node->type, initType, node->initializer.get());
-                if (!e.empty()) errorAt(node, "initializing '" + node->name + "': " + e);
+        // Array literal `= {..}`: the target must be a fixed-size array; check the
+        // element count (fewer than the size zero-fill, C-style) and element types.
+        if (auto* arr = dynamic_cast<ArrayLitExpr*>(node->initializer.get())) {
+            // Recursively check a (possibly nested) array literal against a
+            // (possibly multi-dimensional) array type: `int[2][3]` expects two rows,
+            // each itself a `{...}` of up to three ints. A short list zero-fills.
+            std::function<void(const std::string&, ArrayLitExpr*)> checkArr =
+                [&](const std::string& arrT, ArrayLitExpr* a) {
+                    ty::Type at = ty::Type::parse(arrT);
+                    if (at.kind != ty::Type::Kind::Array) {
+                        errorAt(node, "an array literal '{...}' can only initialize an array type, not '" +
+                                      arrT + "'");
+                        return;
+                    }
+                    std::string elemT = at.elem->str();
+                    const std::string& dim = at.dim;
+                    bool dimNum = !dim.empty() &&
+                        std::all_of(dim.begin(), dim.end(), [](unsigned char c){ return std::isdigit(c); });
+                    if (dimNum && a->elements.size() > (size_t)std::stoull(dim))
+                        errorAt(node, "array literal has " + std::to_string(a->elements.size()) +
+                                      " elements but '" + arrT + "' holds " + dim);
+                    bool elemIsArray = (at.elem->kind == ty::Type::Kind::Array);
+                    for (auto& el : a->elements) {
+                        if (elemIsArray) {
+                            if (auto* sub = dynamic_cast<ArrayLitExpr*>(el.get()))
+                                checkArr(elemT, sub);
+                            else
+                                errorAt(node, "nested array initializer expected '{...}' for element type '" +
+                                              elemT + "'");
+                        } else {
+                            std::string et = getExpressionType(el.get());
+                            std::string e = assignabilityError(elemT, et, el.get());
+                            if (!e.empty()) errorAt(node, "array element: " + e);
+                        }
+                    }
+                };
+            checkArr(node->type, arr);
+        } else {
+            std::string initType = getExpressionType(node->initializer.get());
+            if (initType != "unknown") {
+                if (tyq::dropsConst(node->type, initType))
+                    errorAt(node, "cannot initialize '" + node->type + "' from '" + initType +
+                                  "': conversion discards a const qualifier");
+                else {
+                    std::string e = assignabilityError(node->type, initType, node->initializer.get());
+                    if (!e.empty()) errorAt(node, "initializing '" + node->name + "': " + e);
+                }
             }
         }
     }

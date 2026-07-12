@@ -1,0 +1,8 @@
+// EXPECT-ERROR: constant
+// A static local is initialized once at load time, so its initializer must be a
+// compile-time constant; a runtime call is not allowed.
+int f() { return 7; }
+int main() {
+    static int x = f();
+    return x;
+}

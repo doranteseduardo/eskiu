@@ -17,13 +17,14 @@ enum StmtKind {
     SK_BLOCK, SK_RETURN, SK_IF, SK_WHILE, SK_FOR, SK_FORIN,
     SK_BREAK, SK_CONTINUE, SK_EXPR, SK_VARDECL,
     SK_SWITCH, SK_CASE, SK_MATCH, SK_ARM, SK_TRY, SK_CATCH,
-    SK_THROW, SK_THREADJOIN, SK_ASM, SK_ASMINPUT
+    SK_THROW, SK_THREADJOIN, SK_ASM, SK_ASMINPUT, SK_DOWHILE
 }
 enum ExprKind {
     EK_LITERAL, EK_IDENT, EK_BINARY, EK_UNARY,
     EK_CALL, EK_INDEX, EK_MEMBER, EK_QUESTION, EK_CAST, EK_SIZEOF,
     EK_STRUCTINIT, EK_TEMPLATECALL,
-    EK_AWAIT, EK_LAMBDA, EK_ALLOCWITH, EK_FREECLOSURE, EK_THREADCREATE
+    EK_AWAIT, EK_LAMBDA, EK_ALLOCWITH, EK_FREECLOSURE, EK_THREADCREATE, EK_INCDEC, EK_ARRAYLIT,
+    EK_TERNARY
 }
 
 // Literal kinds, in the C++ LiteralExpr::Kind order; lit_name maps to the
@@ -53,6 +54,7 @@ struct StmtNode {
     string name;           // var-decl name / for-in variable
     string type;           // var-decl type
     int is_const;          // SK_VARDECL: declared value-const (read-only binding)
+    int is_static;         // SK_VARDECL: `static` local (one instance, persists across calls)
 }
 
 // A generic type parameter with its (possibly empty) interface constraints, e.g.
@@ -131,6 +133,18 @@ void print_expr(*ExprNode e, int d) {
         print_expr(e.a, d + 1);
         return;
     }
+    if (e.kind == EK_INCDEC) {
+        pind(d);
+        printf("IncDecExpr: %s\n", e.sval);
+        print_expr(e.a, d + 1);
+        return;
+    }
+    if (e.kind == EK_ARRAYLIT) {
+        pline(d, "ArrayLitExpr");
+        int i = 0; int n = List_len<*ExprNode>(&e.kids);
+        while (i < n) { print_expr(List_get<*ExprNode>(&e.kids, i), d + 1); i = i + 1; }
+        return;
+    }
     if (e.kind == EK_CALL) {
         pline(d, "CallExpr");
         pline(d + 1, "Callee:");
@@ -158,6 +172,13 @@ void print_expr(*ExprNode e, int d) {
     if (e.kind == EK_QUESTION) {
         pline(d, "QuestionExpr (?)");
         print_expr(e.a, d + 1);
+        return;
+    }
+    if (e.kind == EK_TERNARY) {
+        pline(d, "TernaryExpr (?:)");
+        print_expr(e.a, d + 1);                          // condition
+        print_expr(e.b, d + 1);                          // then
+        print_expr(List_get<*ExprNode>(&e.kids, 0), d + 1);   // else
         return;
     }
     if (e.kind == EK_CAST) {
@@ -262,6 +283,14 @@ void print_stmt(*StmtNode s, int d) {
         print_expr(s.expr, d + 2);
         pline(d + 1, "Body:");
         print_stmt(s.s1, d + 2);
+        return;
+    }
+    if (s.kind == SK_DOWHILE) {
+        pline(d, "DoWhileStmt");
+        pline(d + 1, "Body:");
+        print_stmt(s.s1, d + 2);
+        pline(d + 1, "Condition:");
+        print_expr(s.expr, d + 2);
         return;
     }
     if (s.kind == SK_FOR) {

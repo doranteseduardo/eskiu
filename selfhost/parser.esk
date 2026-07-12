@@ -143,6 +143,7 @@ void consume_tclose(Parser* p) {
 *ExprNode parse_assignment(Parser* p);
 *ExprNode parse_expr(Parser* p);
 *ExprNode parse_postfix(Parser* p);
+int ternary_colon_ahead(Parser* p);
 string parse_type(Parser* p);
 *ExprNode parse_struct_init(Parser* p, string name);
 *StmtNode parse_stmt(Parser* p);
@@ -472,6 +473,22 @@ string lambda_sig(string ret, *DeclNode d) {
 
 *ExprNode parse_primary(Parser* p) {
     int t = p_at(p);
+    if (t == LBRACE) {                                 // array literal { e0, e1, ... }
+        p_adv(p);
+        *ExprNode e = alloc<ExprNode>(1);
+        e.kind = EK_ARRAYLIT;
+        List_init<*ExprNode>(&e.kids, 4);
+        if (p_at(p) != RBRACE) {
+            List_push<*ExprNode>(&e.kids, parse_expr(p));
+            while (p_at(p) == COMMA) {
+                p_adv(p);
+                if (p_at(p) == RBRACE) { break; }      // trailing comma
+                List_push<*ExprNode>(&e.kids, parse_expr(p));
+            }
+        }
+        p_adv(p);                                      // '}'
+        return e;
+    }
     if (t == TRUE)  { p_adv(p); return mk_lit(LIT_BOOL, "true"); }
     if (t == FALSE) { p_adv(p); return mk_lit(LIT_BOOL, "false"); }
     if (t == NULL_KW) { p_adv(p); return mk_lit(LIT_NULL, "null"); }
@@ -621,11 +638,18 @@ string lambda_sig(string ret, *DeclNode d) {
             *ExprNode mb = alloc<ExprNode>(1);
             mb.kind = EK_MEMBER; mb.a = e; mb.sval = tok_text(p.src, m);
             e = mb;
-        } else if (t == QUESTION) {
+        } else if (t == QUESTION && ternary_colon_ahead(p) == 0) {
+            // Postfix propagation `expr?` — only when this `?` doesn't open a ternary.
             p_adv(p);
             *ExprNode q = alloc<ExprNode>(1);
             q.kind = EK_QUESTION; q.a = e;
             e = q;
+        } else if (t == PLUS_PLUS || t == MINUS_MINUS) {
+            p_adv(p);
+            *ExprNode id = alloc<ExprNode>(1);
+            id.kind = EK_INCDEC; id.a = e;
+            if (t == PLUS_PLUS) { id.sval = "post++"; } else { id.sval = "post--"; }
+            e = id;
         } else {
             return e;
         }
@@ -660,6 +684,13 @@ string lambda_sig(string ret, *DeclNode d) {
         }
     }
     int t = p_at(p);
+    if (t == PLUS_PLUS || t == MINUS_MINUS) {        // prefix ++x / --x
+        p_adv(p);
+        *ExprNode e = alloc<ExprNode>(1);
+        e.kind = EK_INCDEC; e.a = parse_unary(p);
+        if (t == PLUS_PLUS) { e.sval = "pre++"; } else { e.sval = "pre--"; }
+        return e;
+    }
     if (t == NOT || t == MINUS || t == PLUS || t == AMPERSAND || t == STAR || t == TILDE) {
         p_adv(p);
         return mk_un(op_str(t), parse_unary(p));
@@ -755,8 +786,45 @@ string lambda_sig(string ret, *DeclNode d) {
     return e;
 }
 
+// True if the `?` at the current position opens a ternary (a matching `:` follows at
+// the same bracket nesting before a terminator) rather than postfix propagation.
+int ternary_colon_ahead(Parser* p) {
+    int depth = 0;
+    int i = p.pos + 1;
+    int n = List_len<Token>(&p.toks);
+    while (i < n) {
+        int t = List_get<Token>(&p.toks, i).type;
+        if (t == LPAREN || t == LBRACKET || t == LBRACE) { depth = depth + 1; }
+        else if (t == RPAREN || t == RBRACKET || t == RBRACE) {
+            if (depth == 0) { return 0; }
+            depth = depth - 1;
+        } else if (depth == 0) {
+            if (t == COLON) { return 1; }
+            if (t == SEMICOLON || t == COMMA || t == EOF_TOKEN) { return 0; }
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+*ExprNode parse_ternary(Parser* p) {
+    *ExprNode cond = parse_or(p);
+    if (p_at(p) == QUESTION && ternary_colon_ahead(p) == 1) {
+        p_adv(p);                                      // '?'
+        *ExprNode thenE = parse_assignment(p);         // then-arm: a full expression
+        p_adv(p);                                      // ':'
+        *ExprNode elseE = parse_ternary(p);            // else-arm: right-associative
+        *ExprNode t = alloc<ExprNode>(1);
+        t.kind = EK_TERNARY; t.a = cond; t.b = thenE;
+        List_init<*ExprNode>(&t.kids, 1);
+        List_push<*ExprNode>(&t.kids, elseE);
+        return t;
+    }
+    return cond;
+}
+
 *ExprNode parse_assignment(Parser* p) {
-    *ExprNode left = parse_or(p);
+    *ExprNode left = parse_ternary(p);
     int t = p_at(p);
     if (is_compound(t) == 1) {
         string base = compound_base(t);
@@ -786,6 +854,7 @@ string lambda_sig(string ret, *DeclNode d) {
 *StmtNode mk_vardecl(string nm, string ty, *ExprNode init, int is_const) {
     *StmtNode s = alloc<StmtNode>(1);
     s.kind = SK_VARDECL; s.name = nm; s.type = ty; s.expr = init; s.is_const = is_const;
+    s.is_static = 0;
     return s;
 }
 
@@ -881,6 +950,19 @@ string strip_binding_const(string t) {
     return s;
 }
 
+*StmtNode parse_do(Parser* p) {
+    p_adv(p);                              // 'do'
+    *StmtNode body = parse_stmt(p);
+    p_adv(p);                              // 'while'
+    p_adv(p);                              // '('
+    *ExprNode cond = parse_expr(p);
+    p_adv(p);                              // ')'
+    p_adv(p);                              // ';'
+    *StmtNode s = alloc<StmtNode>(1);
+    s.kind = SK_DOWHILE; s.s1 = body; s.expr = cond;
+    return s;
+}
+
 // `for (x in A..B)` desugars (at parse time, like the C++) into a counted ForStmt:
 //   for (int x = A; x < B; x = x + 1) body
 *StmtNode desugar_range(string var, *ExprNode lo, *ExprNode hi, *StmtNode body) {
@@ -940,13 +1022,20 @@ string strip_binding_const(string t) {
 *StmtNode try_var_decl(Parser* p) {
     int save = p.pos;
     int is_const = 0;
-    if (p_at(p) == VOLATILE) { p_adv(p); }
+    int is_static = 0;
+    while (p_at(p) == VOLATILE || p_at(p) == STATIC) {
+        if (p_at(p) == STATIC) { is_static = 1; }
+        p_adv(p);
+    }
     if (p_at(p) == CONST) {                          // const-let binding (const before let)
         int k = 1;
         if (p_peek_k(p, 1).type == VOLATILE) { k = 2; }
         if (p_peek_k(p, k).type == LET) { is_const = 1; p_adv(p); }
     }
-    if (p_at(p) == VOLATILE) { p_adv(p); }
+    while (p_at(p) == VOLATILE || p_at(p) == STATIC) {
+        if (p_at(p) == STATIC) { is_static = 1; }
+        p_adv(p);
+    }
     if (p_at(p) == LET) {
         p_adv(p);
         if (p_at(p) != IDENT) { p.pos = save; return null; }
@@ -960,7 +1049,9 @@ string strip_binding_const(string t) {
         if (p_at(p) == EQ) { p_adv(p); init = parse_expr(p); }
         if (p_at(p) != SEMICOLON) { p.pos = save; return null; }
         p_adv(p);
-        return mk_vardecl(nm, ty, init, is_const);
+        *StmtNode d = mk_vardecl(nm, ty, init, is_const);
+        d.is_static = is_static;
+        return d;
     }
     // typed: Type name [= expr] ;
     string raw = parse_type(p);
@@ -973,9 +1064,16 @@ string strip_binding_const(string t) {
         *ExprNode init = parse_expr(p);
         if (p_at(p) != SEMICOLON) { p.pos = save; return null; }
         p_adv(p);
-        return mk_vardecl(nm, ty, init, is_const);
+        *StmtNode d = mk_vardecl(nm, ty, init, is_const);
+        d.is_static = is_static;
+        return d;
     }
-    if (p_at(p) == SEMICOLON) { p_adv(p); return mk_vardecl(nm, ty, null, is_const); }
+    if (p_at(p) == SEMICOLON) {
+        p_adv(p);
+        *StmtNode d = mk_vardecl(nm, ty, null, is_const);
+        d.is_static = is_static;
+        return d;
+    }
     p.pos = save;
     return null;
 }
@@ -1112,6 +1210,7 @@ string strip_binding_const(string t) {
     if (t == IF) { return parse_if(p); }
     if (t == FOR) { return parse_for(p); }
     if (t == WHILE) { return parse_while(p); }
+    if (t == DO) { return parse_do(p); }
     if (t == SWITCH) { return parse_switch(p); }
     if (t == MATCH) { return parse_match(p); }
     if (t == TRY) { return parse_try(p); }
@@ -1138,7 +1237,7 @@ string strip_binding_const(string t) {
 // looking lead token, speculatively parse a var-decl and back out on failure.
 *StmtNode parse_block_item(Parser* p) {
     int t = p_at(p);
-    if (t == LET || t == CONST || t == VOLATILE || t == STAR || t == IDENT
+    if (t == LET || t == CONST || t == VOLATILE || t == STATIC || t == STAR || t == IDENT
         || t == FN || is_type_kw(t) == 1) {
         int save = p.pos;
         *StmtNode d = try_var_decl(p);

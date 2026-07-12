@@ -8,6 +8,41 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
+## [0.5.0], 2026-07-12
+
+Fills a set of basic C constructs the language was missing, so idiomatic C ports
+compile without workarounds. Each lands in lockstep across the C++ and self-hosted
+compilers and follows C semantics.
+
+### Added
+- **`do`/`while` loops.** `do { ... } while (cond);` runs the body once before testing
+  the condition, as in C.
+- **Increment and decrement operators.** Prefix and postfix `++`/`--` on integer and
+  pointer lvalues; postfix yields the old value, prefix the new, and a pointer steps by
+  one element.
+- **Array-literal initializers.** `int[N] a = { e0, e1, ... };` initializes an array in
+  place; a short list zero-fills the remaining elements, and an over-long list is
+  rejected.
+- **`static` local variables.** A `static` local has a single instance that persists
+  across calls (C storage semantics). Its initializer must be a compile-time constant;
+  `static` on a global is rejected.
+- **Multidimensional arrays.** `T[N][M]` is N arrays of M in C order (the leftmost
+  bracket is the outer dimension). Indexing peels one dimension at a time and each index
+  is bounds-checked against its own dimension. Nested brace initializers
+  (`int[2][3] a = { {1,2,3}, {4,5,6} }`) zero-fill at every level.
+- **Ternary conditional `cond ? a : b`.** Evaluates exactly one arm; the arms take a
+  common type (two numerics promote C-style). Right-associative, so `a ? b : c ? d : e`
+  chains. It coexists with the postfix `?` Result-propagation operator: a `?` with a
+  matching same-level `:` ahead is a ternary, otherwise propagation (parenthesize to
+  propagate inside a ternary arm).
+
+### Fixed
+- **`switch` on a sub-`int` subject.** A `switch` over a `char` (or other narrow integer)
+  with wider case constants failed LLVM verification; the subject and case constants are
+  now widened to a common type before lowering.
+
+---
+
 ## [0.4.0], 2026-07-05
 
 A correctness and type-strictness release. A four-front bug hunt (behavioral

@@ -41,11 +41,11 @@ Comments: `// … end-of-line` and `/* … */` (block comments do not nest).
 ### Keywords (reserved)
 
 ```
-let  const  volatile  async  await  escaping
+let  const  volatile  static  async  await  escaping
 int int8 int16 int32 int64  uint uint8 uint16 uint32 uint64
 float double bool char string void
 struct packed union interface enum fn
-if else while for in switch match case default break continue return
+if else while do for in switch match case default break continue return
 import extern intrinsic  sizeof alloc_with free_closure
 thread_create thread_join  asm  try catch finally throw
 null true false
@@ -58,6 +58,7 @@ type-alias form `type NAME = …`.
 
 ```
 +  -  *  /  %                          arithmetic
+++  --                                 increment / decrement (prefix or postfix)
 =  +=  -=  *=  /=  %=  &=  |=  ^=  <<=  >>=   assignment (compound forms desugar)
 ==  !=  <  >  <=  >=                   comparison
 &&  ||  !                             logical
@@ -134,11 +135,16 @@ type-alias      = 'type' IDENT '=' type ';'
 
 var-decl        = qualifier* 'let' IDENT ':' type ( '=' expr )? ';'
                 | qualifier* type IDENT ( '=' expr )? ';'
-qualifier       = 'const' | 'volatile'
+qualifier       = 'const' | 'volatile' | 'static'
 ```
 
 `const` placement follows C: before a `let` it qualifies the binding; within a
 type it qualifies the pointee (`const int*`) or pointer level (`int* const`).
+
+`static` is a storage qualifier valid only on a **local** variable: the variable
+has a single instance that persists across calls (like C). Its initializer must
+be a compile-time constant. Applying `static` to a global is rejected (a global
+already has static storage).
 
 ---
 
@@ -159,9 +165,11 @@ scalar-type = 'int' | 'int8' | 'int16' | 'int32' | 'int64'
 ```
 
 Pointers may be written either C-style (`int*`) or leading (`*int`); both are
-equivalent. A trailing `[N]` binds outermost, so `*T[N]` is an array of N pointers
-(each element a `*T`), while a pointer to an array is written with the star after the
-brackets: `T[N]*`. `va_list` is a built-in named type used by variadics.
+equivalent. An array suffix binds tighter than a leading pointer, so `*T[N]` is an array
+of N pointers (each element a `*T`), while a pointer to an array is written with the star
+after the brackets: `T[N]*`. Suffixes chain for multidimensional arrays: `T[N][M]` is N
+arrays of M (C order, leftmost bracket outermost). `va_list` is a built-in named type
+used by variadics.
 
 ---
 
@@ -170,12 +178,13 @@ brackets: `T[N]*`. `va_list` is a built-in named type used by variadics.
 ```
 statement =
     block | if-stmt | while-stmt | for-stmt | switch-stmt | match-stmt
-  | return-stmt | break-stmt | continue-stmt | throw-stmt | try-stmt
+  | do-while-stmt  | return-stmt | break-stmt | continue-stmt | throw-stmt | try-stmt
   | asm-stmt | thread-join-stmt | var-decl | expr-stmt
 
 block         = '{' ( declaration | statement )* '}'
 if-stmt       = 'if' '(' expr ')' statement ( 'else' statement )?
 while-stmt    = 'while' '(' expr ')' statement
+do-while-stmt = 'do' statement 'while' '(' expr ')' ';'
 for-stmt      = 'for' '(' ( var-decl | expr )? ';' expr? ';' expr? ')' statement
               | 'for' '(' IDENT 'in' expr ( '..' expr )? ')' statement   // iterate / half-open range
 return-stmt   = 'return' expr? ';'
@@ -209,9 +218,10 @@ Precedence, lowest to highest. Each level is left-associative unless noted.
 
 ```
 expr            = assignment
-assignment      = logical-or ( assign-op assignment )?            // right-assoc
+assignment      = ternary ( assign-op assignment )?              // right-assoc
 assign-op       = '=' | '+=' | '-=' | '*=' | '/=' | '%='
                 | '&=' | '|=' | '^=' | '<<=' | '>>='              // compound forms desugar
+ternary         = logical-or ( '?' expr ':' ternary )?           // right-assoc
 logical-or      = logical-and ( '||' logical-and )*
 logical-and     = bitwise-or  ( '&&' bitwise-or  )*
 bitwise-or      = bitwise-xor ( '|'  bitwise-xor )*
@@ -222,7 +232,7 @@ comparison      = shift       ( ('<' | '>' | '<=' | '>=') shift )*
 shift           = additive    ( ('<<' | '>>') additive )*
 additive        = multiplicative ( ('+' | '-') multiplicative )*
 multiplicative  = unary       ( ('*' | '/' | '%') unary )*
-unary           = ('!' | '-' | '+' | '&' | '*' | '~' | 'await') unary   // right-assoc
+unary           = ('!' | '-' | '+' | '&' | '*' | '~' | '++' | '--' | 'await') unary   // right-assoc
                 | cast
 cast            = '(' type ')' unary
                 | postfix
@@ -231,17 +241,21 @@ postfix-op      = '(' arg-list? ')'          // call
                 | '[' expr ']'               // index
                 | '.' IDENT                  // member
                 | '?'                        // error propagation (Result)
+                | '++' | '--'                // post-increment / decrement
 arg-list        = expr (',' expr)*
 ```
 
-Eskiu has no `a ? b : c` conditional operator. `?` is the postfix
-error-propagation operator applied to a `Result` (it returns early on the error
-variant). Assignment is the lowest-precedence, right-associative level.
+`?` is overloaded: `cond ? a : b` is the conditional (ternary) operator, while a
+postfix `expr?` (with no matching `:` ahead) is the Result error-propagation operator
+(it returns early on the error variant). The parser disambiguates by scanning for a
+same-level `:` after the `?`. Assignment is the lowest-precedence, right-associative
+level; the ternary sits just above it, also right-associative.
 
 ```
 primary =
     INT_LIT | FLOAT_LIT | STRING_LIT | CHAR_LIT | 'true' | 'false' | 'null'
   | IDENT
+  | array-lit                                          // { e0, e1, … }  (initializes an array)
   | IDENT struct-init                                  // Name { … }
   | IDENT '<' type (',' type)* '>' ( '(' arg-list? ')' | struct-init )  // turbofish call / templated literal
   | '(' expr ')'
@@ -251,6 +265,7 @@ primary =
   | 'free_closure' '(' expr ')'
   | 'thread_create' '(' expr ')'
 
+array-lit   = '{' ( expr (',' expr)* ','? )? '}'       // fewer elements than the size zero-fill
 struct-init = '{' ( field-init (',' field-init)* )? '}'
 field-init  = IDENT ':' expr        // named
             | expr                  // positional

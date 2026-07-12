@@ -1,0 +1,7 @@
+// EXPECT-ERROR: out of bounds
+// Each dimension of a multidimensional array is bounds-checked independently; the
+// inner index here exceeds its dimension (3).
+int main() {
+    int[2][3] a;
+    return a[1][3];
+}

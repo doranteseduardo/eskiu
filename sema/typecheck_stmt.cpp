@@ -112,6 +112,17 @@ void TypeChecker::visit(WhileStmt* node) {
     }
 }
 
+void TypeChecker::visit(DoWhileStmt* node) {
+    if (node->body) node->body->accept(this);
+    if (node->condition) {
+        warnAssignInCondition(node->condition.get());
+        node->condition->accept(this);
+        std::string condType = getExpressionType(node->condition.get());
+        if (condType != "unknown" && condType != "bool" && !isNumericType(condType))
+            errorAt(node,"condition must be boolean or numeric, got " + condType);
+    }
+}
+
 void TypeChecker::visit(ForStmt* node) {
     pushScope();
 

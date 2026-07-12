@@ -32,10 +32,10 @@ Restart VS Code after installing.
 | `0xFF`, `3.14`, `42` numbers | constant.numeric |
 | `true`, `false`, `null`, `__FILE__`, `__LINE__` | constant.language |
 | `#define #undef #ifdef #ifndef #else #endif #pragma #error` directives | keyword.control.directive |
-| `if else for while switch case break continue return in await match` | keyword.control |
+| `if else for while do switch case break continue return in await match` | keyword.control |
 | `try catch finally throw` | keyword.control.exception |
 | `let struct packed union interface enum fn extern intrinsic import` | keyword.declaration |
-| `const volatile escaping async` | storage.modifier |
+| `const volatile static escaping async` | storage.modifier |
 | `sizeof asm alloc_with thread_create thread_join va_start va_arg va_end` | keyword.other |
 | `import <mem>;` stdlib imports and `type Alias = …` | namespace / declaration |
 | `int uint8 float double bool char string void` … | support.type |
