@@ -1,6 +1,6 @@
 # Eskiu Language Specification
 
-**Version:** v0.4.0
+**Version:** v0.5.0
 
 ---
 
@@ -69,11 +69,11 @@ let  int  int8  int16  int32  int64
 uint  uint8  uint16  uint32  uint64
 float  double  bool  char  string  void
 struct  packed  interface  fn  extern  intrinsic  import
-if  else  for  while  in  switch  case  default  match
+if  else  for  while  do  in  switch  case  default  match
 return  break  continue
 true  false  null
 alloc_with
-const  volatile  escaping  asm
+const  volatile  static  escaping  asm
 thread_create  thread_join
 try  catch  finally  throw
 async  await
@@ -203,6 +203,30 @@ array* is written with a trailing star instead: `T[N]*`. For example `*Node[7]` 
 `Node` pointers, while `Node[7]*` points at a seven-`Node` array.
 
 `uint8[858]` lowers to `[858 x i8]` in LLVM IR.
+
+An array may be initialized with a brace list `{ e0, e1, ... }`. As in C, listing fewer
+elements than the size zero-fills the rest, and `{}` zero-fills the whole array; listing
+more than the size is an error.
+
+```eskiu
+int[3] a = {10, 20, 30};   // a = 10, 20, 30
+int[4] b = {7, 8};         // b = 7, 8, 0, 0
+int[3] c = {};             // c = 0, 0, 0
+```
+
+**Multidimensional arrays** chain the suffix: `T[N][M]` is `N` arrays of `M` elements,
+following C order, so the **leftmost bracket is the outer dimension**. Indexing peels one
+dimension at a time (`a[i]` is a row of type `T[M]`, `a[i][j]` is a `T`), and each index
+is bounds-checked against its own dimension. A nested brace list initializes it, with the
+same zero-fill rule at every level:
+
+```eskiu
+int[2][3] a = { {1, 2, 3}, {4, 5, 6} };   // 2 rows of 3
+int[2][2] b = { {7, 8} };                 // second row zero-filled: {7,8},{0,0}
+a[1][2];                                    // 6  (row 1, column 2)
+```
+
+`int[2][3]` lowers to `[2 x [3 x i32]]` in LLVM IR.
 
 ### 3.4 Struct Types
 
@@ -414,6 +438,24 @@ c = &w;     // error: cannot assign to read-only location 'c'  (binding is const
 
 Const-correctness is enforced on conversions: adding const (`int*` → `const int*`) is always allowed, but any conversion that would **drop** a const qualifier (in an initializer, assignment, call argument, or return) is a compile error. `const` has no ABI effect; it is stripped before code generation. It applies uniformly to locals, parameters, struct fields and return types.
 
+### 4.7 Static Locals (`static`)
+
+The `static` qualifier gives a **local** variable a single instance that persists across calls, exactly as in C. Its storage lives for the whole program, not the enclosing call, so it retains its value between invocations:
+
+```eskiu
+int next() {
+    static int c = 0;   // initialised once, at load time
+    c = c + 1;
+    return c;
+}
+
+next();   // 1
+next();   // 2
+next();   // 3
+```
+
+A `static` local's initializer must be a **compile-time constant** (a literal); a runtime expression is rejected. An uninitialised `static` local is zero-initialised. Two `static` locals in different functions never alias, even if they share a name. `static` on a global is rejected, since a global already has static storage.
+
 ---
 
 ## 5. Operators
@@ -486,6 +528,20 @@ The compound bitwise/shift operators are desugared by the parser: `x op= e` is e
 
 The left-hand side must be an lvalue: a named variable, a pointer dereference (`*ptr = value`), or a field access. Assigning through a dereferenced pointer parameter works correctly. `*ptr = value` stores through the pointer as expected.
 
+### 5.5.1 Increment and Decrement
+
+`++` and `--` add or subtract one from an integer or pointer lvalue, in place. Both prefix
+and postfix forms are supported: `++x`/`--x` yield the new value, `x++`/`x--` yield the old
+value. On a pointer, the step is one element (like pointer arithmetic).
+
+```eskiu
+for (int i = 0; i < n; i++) { ... }   // postfix, value discarded
+int a = i++;   // a = old i, then i incremented
+int b = ++j;   // j incremented, then b = new j
+```
+
+The operand must be a modifiable lvalue (a `const` or a non-lvalue like `5++` is an error).
+
 ### 5.6 Address-of and Dereference
 
 | Operator | Description                                  |
@@ -532,25 +588,46 @@ sizeof(Grid)   // 12  (3 float fields)
 
 `sizeof` is resolved entirely at compile time and produces no runtime code.
 
-### 5.9 Operator Precedence
+### 5.9 Conditional (ternary)
+
+`cond ? a : b` evaluates `cond`, then evaluates and yields **exactly one** of the two
+arms (so side effects in the unused arm never run). The condition may be a bool,
+integer, or pointer (non-zero / non-null is true). The two arms must share a common
+type: identical types pass through, two numerics promote to the wider (C-style, e.g.
+`int` and `double` yield `double`), and otherwise the arms must be mutually assignable.
+The operator is right-associative, so `a ? b : c ? d : e` parses as `a ? b : (c ? d : e)`.
+
+```eskiu
+int m = a > b ? a : b;                       // max
+char g = s >= 90 ? 'A' : s >= 80 ? 'B' : 'C';  // right-associative chain
+double d = flag ? 1 : 2.5;                   // arms promote to double
+```
+
+Eskiu also uses `?` as the postfix Result-propagation operator (§10.5). The two are
+disambiguated by the following `:`: a `?` with a matching `:` at the same bracket
+nesting is a ternary, otherwise it is propagation. To propagate inside a ternary arm,
+parenthesize it: `cond ? (may_fail()?) : fallback`.
+
+### 5.10 Operator Precedence
 
 Listed from lowest precedence (loosest binding) to highest (tightest binding):
 
 | Level | Operators                                    | Associativity |
 |-------|----------------------------------------------|---------------|
 | 1     | `=` `+=` `-=` `*=` `/=` `%=` `&=` `\|=` `^=` `<<=` `>>=` | Right to left |
-| 2     | `\|\|`                                       | Left to right |
-| 3     | `&&`                                         | Left to right |
-| 4     | `\|` (bitwise)                               | Left to right |
-| 5     | `^`                                          | Left to right |
-| 6     | `&` (bitwise)                                | Left to right |
-| 7     | `==` `!=`                                    | Left to right |
-| 8     | `<` `>` `<=` `>=`                            | Left to right |
-| 9     | `<<` `>>`                                    | Left to right |
-| 10    | `+` `-`                                      | Left to right |
-| 11    | `*` `/` `%`                                  | Left to right |
-| 12    | Unary `!` `-` `+` `~` `&` `*` `(TYPE)`      | Right to left |
-| 13    | `()` `[]` `.` `?` (postfix)                  | Left to right |
+| 2     | `?:` (ternary)                               | Right to left |
+| 3     | `\|\|`                                       | Left to right |
+| 4     | `&&`                                         | Left to right |
+| 5     | `\|` (bitwise)                               | Left to right |
+| 6     | `^`                                          | Left to right |
+| 7     | `&` (bitwise)                                | Left to right |
+| 8     | `==` `!=`                                    | Left to right |
+| 9     | `<` `>` `<=` `>=`                            | Left to right |
+| 10    | `<<` `>>`                                    | Left to right |
+| 11    | `+` `-`                                      | Left to right |
+| 12    | `*` `/` `%`                                  | Left to right |
+| 13    | Unary `!` `-` `+` `~` `&` `*` `(TYPE)`      | Right to left |
+| 14    | `()` `[]` `.` `?` (postfix)                  | Left to right |
 
 Use parentheses to override precedence explicitly.
 
@@ -991,6 +1068,18 @@ while (condition) {
 ```
 
 The body executes repeatedly while `condition` is true.
+
+### 7.3.1 do / while
+
+```eskiu
+do {
+    // body
+} while (condition);
+```
+
+Like `while`, but the condition is tested *after* the body, so the body always runs at
+least once. `break` and `continue` work as in the other loops (`continue` re-tests the
+condition).
 
 ### 7.4 switch / case / default / break
 

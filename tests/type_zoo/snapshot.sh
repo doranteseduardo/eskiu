@@ -33,7 +33,7 @@ corpus=(
   template_inference templates_result template_struct_literal
   enum_generic enum_adt either_stdlib enums
   interfaces structs_methods traits_ok traits_multi traits_primitive
-  pointers pointer_const
+  pointers pointer_const arrays_md ternary_ir
   closures fn_pointer generic_closure closure_coerce
   sret variadic
   async_basic async_channel

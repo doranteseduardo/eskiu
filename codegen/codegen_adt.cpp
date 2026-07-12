@@ -146,6 +146,45 @@ std::string CodeGen::resolveStructInitName(const std::string& name) {
     return mangled;
 }
 
+void CodeGen::emitArrayInitInto(llvm::Value* dest, ArrayLitExpr* lit, const std::string& arrType) {
+    // Peel the outer (leftmost) dimension: `int[2][3]` → dim 2, element `int[3]`.
+    ty::Type bt = ty::Type::parse(arrType);
+    if (bt.kind != ty::Type::Kind::Array) return;
+    std::string elemStr = bt.elem->str();
+    uint64_t n = 0;
+    if (!resolveArrayDim(bt.dim, n)) n = lit->elements.size();
+    llvm::Type* elemTy = getTypeFromString(elemStr);
+    llvm::Type* arrTy = llvm::ArrayType::get(elemTy, n);
+    llvm::Type* i32 = llvm::Type::getInt32Ty(*context);
+    bool elemIsArray = (bt.elem->kind == ty::Type::Kind::Array);
+
+    for (uint64_t i = 0; i < n; ++i) {
+        llvm::Value* slot = builder->CreateGEP(arrTy, dest,
+            {llvm::ConstantInt::get(i32, 0), llvm::ConstantInt::get(i32, i)});
+        if (i < lit->elements.size()) {
+            // A nested initializer for a sub-array recurses into the row; a scalar
+            // element is evaluated and coerced to the element type.
+            if (elemIsArray) {
+                if (auto* sub = dynamic_cast<ArrayLitExpr*>(lit->elements[i].get()))
+                    emitArrayInitInto(slot, sub, elemStr);
+                else
+                    builder->CreateStore(evaluateExpr(lit->elements[i]), slot);
+                continue;
+            }
+            llvm::Value* val = evaluateExpr(lit->elements[i]);
+            if (val->getType() != elemTy) {
+                bool uns = eskiuUnsigned(getExprEskiuType(lit->elements[i]));
+                if (val->getType()->isIntegerTy() && elemTy->isIntegerTy())         val = coerceInt(val, elemTy, uns);
+                else if (val->getType()->isIntegerTy() && elemTy->isFloatingPointTy()) val = intToFloat(val, elemTy, uns);
+                else if (val->getType()->isFloatingPointTy() && elemTy->isFloatingPointTy()) val = builder->CreateFPCast(val, elemTy);
+            }
+            builder->CreateStore(val, slot);
+        } else {
+            builder->CreateStore(llvm::Constant::getNullValue(elemTy), slot);   // zero-fill (C-style)
+        }
+    }
+}
+
 void CodeGen::emitStructInitInto(llvm::Value* dest, StructInitExpr* init) {
     std::string sname = resolveStructInitName(init->structName);
     auto fit = structFields.find(sname);
@@ -199,6 +238,11 @@ void CodeGen::emitStructInitInto(llvm::Value* dest, StructInitExpr* init) {
             storeField(i, init->fieldInits[i].second);
         }
     }
+}
+
+void CodeGen::visit(ArrayLitExpr* node) {
+    (void)node;
+    throw std::runtime_error("an array literal '{...}' is only valid as a variable initializer");
 }
 
 void CodeGen::visit(StructInitExpr* node) {

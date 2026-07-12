@@ -273,6 +273,7 @@ std::string tokenTypeToString(TokenType type) {
         case TokenType::FN: return "FN";
         case TokenType::ASM: return "ASM";
         case TokenType::VOLATILE:      return "VOLATILE";
+        case TokenType::STATIC:        return "STATIC";
         case TokenType::ESCAPING:      return "ESCAPING";
         case TokenType::ASYNC:         return "ASYNC";
         case TokenType::AWAIT:         return "AWAIT";
@@ -282,6 +283,7 @@ std::string tokenTypeToString(TokenType type) {
         case TokenType::FOR: return "FOR";
         case TokenType::IN: return "IN";
         case TokenType::WHILE: return "WHILE";
+        case TokenType::DO: return "DO";
         case TokenType::IF: return "IF";
         case TokenType::ELSE: return "ELSE";
         case TokenType::SWITCH: return "SWITCH";
@@ -319,6 +321,8 @@ std::string tokenTypeToString(TokenType type) {
         case TokenType::STAR: return "STAR";
         case TokenType::SLASH: return "SLASH";
         case TokenType::PERCENT: return "PERCENT";
+        case TokenType::PLUS_PLUS: return "PLUS_PLUS";
+        case TokenType::MINUS_MINUS: return "MINUS_MINUS";
         case TokenType::PLUS_EQ: return "PLUS_EQ";
         case TokenType::MINUS_EQ: return "MINUS_EQ";
         case TokenType::STAR_EQ: return "STAR_EQ";

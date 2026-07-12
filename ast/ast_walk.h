@@ -27,10 +27,13 @@ inline void forEachChildExpr(Expr* e, const std::function<void(ExprPtr&)>& f) {
     if (!e) return;
     if (auto* b = dynamic_cast<BinaryExpr*>(e))        { f(b->left); f(b->right); }
     else if (auto* u = dynamic_cast<UnaryExpr*>(e))    { f(u->operand); }
+    else if (auto* id = dynamic_cast<IncDecExpr*>(e))  { f(id->operand); }
+    else if (auto* al = dynamic_cast<ArrayLitExpr*>(e)){ for (auto& el : al->elements) f(el); }
     else if (auto* m = dynamic_cast<MemberExpr*>(e))   { f(m->base); }
     else if (auto* ix = dynamic_cast<IndexExpr*>(e))   { f(ix->base); f(ix->index); }
     else if (auto* c = dynamic_cast<CastExpr*>(e))     { f(c->expr); }
     else if (auto* q = dynamic_cast<QuestionExpr*>(e)) { f(q->operand); }
+    else if (auto* te = dynamic_cast<TernaryExpr*>(e)) { f(te->condition); f(te->thenExpr); f(te->elseExpr); }
     else if (auto* a = dynamic_cast<AwaitExpr*>(e))    { f(a->operand); }
     else if (auto* call = dynamic_cast<CallExpr*>(e))  { f(call->callee); for (auto& arg : call->args) f(arg); }
     else if (auto* tc = dynamic_cast<TemplateCallExpr*>(e)) { for (auto& arg : tc->args) f(arg); }

@@ -17,7 +17,7 @@ void uart_puts(string s) {
     int i = 0;
     while (s[i] != 0) {
         uart_putc((int) s[i]);
-        i = i + 1;
+        i++;
     }
 }
 
@@ -26,11 +26,7 @@ void uart_puthex(int64 n) {
     int shift = 60;
     while (shift >= 0) {
         int nibble = (int)((n >> shift) & 0xF);
-        if (nibble < 10) {
-            uart_putc(nibble + 48);
-        } else {
-            uart_putc(nibble - 10 + 65);
-        }
+        uart_putc(nibble < 10 ? nibble + 48 : nibble - 10 + 65);
         shift = shift - 4;
     }
 }

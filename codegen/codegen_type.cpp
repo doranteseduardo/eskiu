@@ -295,10 +295,19 @@ std::string CodeGen::deriveExprEskiuType(const ExprPtr& expr) const {
     }
     if (auto index = dynamic_cast<IndexExpr*>(expr.get())) {
         std::string base = getExprEskiuType(index->base);
-        size_t lb = base.rfind('[');
-        if (lb != std::string::npos) return base.substr(0, lb);
+        ty::Type bt = ty::Type::parse(base);
+        if (bt.kind == ty::Type::Kind::Array) return bt.elem->str();   // peel outer dim
         if (!base.empty() && base.front() == '*') return base.substr(1);
         if (!base.empty() && base.back()  == '*') return base.substr(0, base.size() - 1);
+    }
+    // A ternary's static type is the common type of its arms (the type checker's
+    // resolver table usually supplies it; this is the structural fallback).
+    if (auto tern = dynamic_cast<TernaryExpr*>(expr.get())) {
+        std::string tt = getExprEskiuType(tern->thenExpr);
+        std::string et = getExprEskiuType(tern->elseExpr);
+        if (tt == et || et.empty() || et == "unknown") return tt;
+        if (tt.empty() || tt == "unknown") return et;
+        return tt;
     }
     // A call's static type is its function's return type — needed so member
     // access on a temporary (e.g. make().x) can resolve the struct.

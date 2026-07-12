@@ -1,0 +1,2 @@
+// EXPECT-ERROR: modifiable
+int main() { 5++; return 0; }

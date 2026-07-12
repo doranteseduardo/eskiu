@@ -77,6 +77,7 @@ private:
     StmtPtr parseIfStatement();
     StmtPtr parseForStatement();
     StmtPtr parseWhileStatement();
+    StmtPtr parseDoWhileStatement();
     StmtPtr parseReturnStatement();
     StmtPtr parseBreakStatement();
     StmtPtr parseContinueStatement();
@@ -94,6 +95,8 @@ private:
     ExprPtr parseBitwiseAnd();
     ExprPtr parseShift();
     ExprPtr parseAssignment();
+    ExprPtr parseTernary();
+    bool ternaryColonAhead() const;   // disambiguate `cond ? a : b` from postfix `expr?`
     ExprPtr parseLogicalOr();
     ExprPtr parseLogicalAnd();
     ExprPtr parseEquality();

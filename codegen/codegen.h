@@ -217,12 +217,15 @@ private:
     void visit(ForStmt* node) override;
     void visit(ForInStmt* node) override;
     void visit(WhileStmt* node) override;
+    void visit(DoWhileStmt* node) override;
     void visit(ReturnStmt* node) override;
     void visit(BreakStmt* node) override;
     void visit(ExprStmt* node) override;
     void visit(BinaryExpr* node) override;
     void visit(UnaryExpr* node) override;
+    void visit(IncDecExpr* node) override;
     void visit(QuestionExpr* node) override;
+    void visit(TernaryExpr* node) override;
     void visit(CallExpr* node) override;
     void visit(IndexExpr* node) override;
     void visit(MemberExpr* node) override;
@@ -234,6 +237,7 @@ private:
     void visit(SwitchStmt* node) override;
     void visit(MatchStmt* node) override;
     void visit(StructInitExpr* node) override;
+    void visit(ArrayLitExpr* node) override;
     void visit(AllocWithExpr* node) override;
     void visit(TemplateCallExpr* node) override;
     void visit(LambdaExpr* node) override;
@@ -287,6 +291,9 @@ private:
     std::map<std::string, std::string> typeAliases;
 
     void emitStructInitInto(llvm::Value* dest, StructInitExpr* init);
+    // Fill an array alloca `dest` (of type `arrType`, e.g. "int[3]") from an array
+    // literal: store each element, then zero-fill the remaining slots (C-style).
+    void emitArrayInitInto(llvm::Value* dest, ArrayLitExpr* lit, const std::string& arrType);
     // Resolve a struct-initializer name to a concrete struct type name, instantiating
     // the template if the name is of the form Name<Arg,...> (e.g. Pair<int,float>).
     std::string resolveStructInitName(const std::string& name);

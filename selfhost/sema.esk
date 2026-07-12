@@ -411,6 +411,24 @@ void sema_expr(Sema* s, *ExprNode e) {
         }
         sema_expr(s, e.a); sema_expr(s, e.b); return;
     }
+    if (k == EK_INCDEC) {                              // ++x / x++ etc.
+        if (sema_is_readonly_lvalue(s, e.a) == 1) {
+            s.had_error = 1;
+            printf("error: %s:0:0: cannot modify read-only location\n", s.filename);
+        }
+        sema_expr(s, e.a); return;
+    }
+    if (k == EK_ARRAYLIT) {                            // { e0, e1, ... }
+        int i = 0; int n = List_len<*ExprNode>(&e.kids);
+        while (i < n) { sema_expr(s, List_get<*ExprNode>(&e.kids, i)); i = i + 1; }
+        return;
+    }
+    if (k == EK_TERNARY) {                             // cond ? then : else
+        sema_expr(s, e.a);
+        sema_expr(s, e.b);
+        sema_expr(s, List_get<*ExprNode>(&e.kids, 0));
+        return;
+    }
     if (k == EK_AWAIT) {
         if (s.in_async == 0) {
             s.had_error = 1;
@@ -537,6 +555,10 @@ void sema_stmt(Sema* s, *StmtNode st) {
     }
     if (k == SK_VARDECL) {
         sema_expr(s, st.expr);             // initializer (can't reference itself)
+        if (st.is_static == 1 && st.expr != null && st.expr.kind != EK_LITERAL) {
+            s.had_error = 1;
+            printf("error: %s:0:0: a 'static' local's initializer must be a constant\n", s.filename);
+        }
         if (st.is_const == 1 && st.expr == null) {
             s.had_error = 1;
             printf("error: %s:0:0: const '%s' must be initialized\n", s.filename, st.name);
@@ -560,6 +582,7 @@ void sema_stmt(Sema* s, *StmtNode st) {
         return;
     }
     if (k == SK_WHILE) { sema_expr(s, st.expr); sema_stmt(s, st.s1); return; }
+    if (k == SK_DOWHILE) { sema_stmt(s, st.s1); sema_expr(s, st.expr); return; }
     if (k == SK_FOR) {
         sema_push(s);                      // init var stays in scope for cond/step/body
         // The init is wrapped in a BlockStmt; walk its items in the FOR scope rather
@@ -791,6 +814,7 @@ int sema_has_break(*StmtNode s) {
     }
     // Nested loops and switch capture their own break — do not descend.
     if (s.kind == SK_WHILE) { return 0; }
+    if (s.kind == SK_DOWHILE) { return 0; }
     if (s.kind == SK_FOR)   { return 0; }
     if (s.kind == SK_FORIN) { return 0; }
     if (s.kind == SK_SWITCH){ return 0; }
@@ -825,6 +849,11 @@ int sema_always_returns(*StmtNode s) {
         return sema_always_returns(s.s2);
     }
     if (s.kind == SK_WHILE) {
+        if (sema_cond_true(s.expr) == 1 && sema_has_break(s.s1) == 0) { return 1; }
+        return 0;
+    }
+    if (s.kind == SK_DOWHILE) {                         // body runs at least once
+        if (sema_always_returns(s.s1) == 1) { return 1; }
         if (sema_cond_true(s.expr) == 1 && sema_has_break(s.s1) == 0) { return 1; }
         return 0;
     }

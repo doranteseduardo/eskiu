@@ -240,6 +240,20 @@ void ASTPrinter::visit(WhileStmt* node) {
     indentLevel--;
 }
 
+void ASTPrinter::visit(DoWhileStmt* node) {
+    println("DoWhileStmt");
+    indentLevel++;
+    println("Body:");
+    indentLevel++;
+    node->body->accept(this);
+    indentLevel--;
+    println("Condition:");
+    indentLevel++;
+    node->condition->accept(this);
+    indentLevel--;
+    indentLevel--;
+}
+
 void ASTPrinter::visit(ReturnStmt* node) {
     println("ReturnStmt");
     if (node->value) {
@@ -284,10 +298,27 @@ void ASTPrinter::visit(UnaryExpr* node) {
     indentLevel--;
 }
 
+void ASTPrinter::visit(IncDecExpr* node) {
+    std::string tag = std::string(node->prefix ? "pre" : "post") + (node->decrement ? "--" : "++");
+    println("IncDecExpr: " + tag);
+    indentLevel++;
+    node->operand->accept(this);
+    indentLevel--;
+}
+
 void ASTPrinter::visit(QuestionExpr* node) {
     println("QuestionExpr (?)");
     indentLevel++;
     node->operand->accept(this);
+    indentLevel--;
+}
+
+void ASTPrinter::visit(TernaryExpr* node) {
+    println("TernaryExpr (?:)");
+    indentLevel++;
+    node->condition->accept(this);
+    node->thenExpr->accept(this);
+    node->elseExpr->accept(this);
     indentLevel--;
 }
 
@@ -449,6 +480,13 @@ void ASTPrinter::visit(StructInitExpr* node) {
         expr->accept(this);
         indentLevel--;
     }
+    indentLevel--;
+}
+
+void ASTPrinter::visit(ArrayLitExpr* node) {
+    println("ArrayLitExpr");
+    indentLevel++;
+    for (const auto& el : node->elements) el->accept(this);
     indentLevel--;
 }
 

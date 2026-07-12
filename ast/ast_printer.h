@@ -32,12 +32,15 @@ private:
     void visit(ForStmt* node) override;
     void visit(ForInStmt* node) override;
     void visit(WhileStmt* node) override;
+    void visit(DoWhileStmt* node) override;
     void visit(ReturnStmt* node) override;
     void visit(BreakStmt* node) override;
     void visit(ExprStmt* node) override;
     void visit(BinaryExpr* node) override;
     void visit(UnaryExpr* node) override;
+    void visit(IncDecExpr* node) override;
     void visit(QuestionExpr* node) override;
+    void visit(TernaryExpr* node) override;
     void visit(CallExpr* node) override;
     void visit(IndexExpr* node) override;
     void visit(MemberExpr* node) override;
@@ -49,6 +52,7 @@ private:
     void visit(SwitchStmt* node) override;
     void visit(MatchStmt* node) override;
     void visit(StructInitExpr* node) override;
+    void visit(ArrayLitExpr* node) override;
     void visit(AllocWithExpr* node) override;
     void visit(TemplateCallExpr* node) override;
     void visit(LambdaExpr* node) override;

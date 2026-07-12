@@ -980,22 +980,28 @@ void cg_collect_idents_e(*ExprNode e, List<string>* out) {
     // Recurse only into the sub-expr fields each kind populates (unset fields are garbage).
     if (e.kind == EK_BINARY || e.kind == EK_INDEX) { cg_collect_idents_e(e.a, out); cg_collect_idents_e(e.b, out); }
     else if (e.kind == EK_UNARY || e.kind == EK_MEMBER || e.kind == EK_CAST
-             || e.kind == EK_QUESTION || e.kind == EK_AWAIT || e.kind == EK_CALL) { cg_collect_idents_e(e.a, out); }
-    if (e.kind == EK_CALL || e.kind == EK_TEMPLATECALL || e.kind == EK_STRUCTINIT) {
+             || e.kind == EK_QUESTION || e.kind == EK_AWAIT || e.kind == EK_CALL
+             || e.kind == EK_INCDEC) { cg_collect_idents_e(e.a, out); }
+    if (e.kind == EK_CALL || e.kind == EK_TEMPLATECALL || e.kind == EK_STRUCTINIT
+        || e.kind == EK_ARRAYLIT) {
         int i = 0; int n = List_len<*ExprNode>(&e.kids);
         while (i < n) { cg_collect_idents_e(List_get<*ExprNode>(&e.kids, i), out); i = i + 1; }
+    }
+    if (e.kind == EK_TERNARY) {                        // cond (a) + then (b) + else (kids[0])
+        cg_collect_idents_e(e.a, out); cg_collect_idents_e(e.b, out);
+        cg_collect_idents_e(List_get<*ExprNode>(&e.kids, 0), out);
     }
     if (e.kind == EK_LAMBDA) { cg_collect_idents_s(e.stmt, out); }
 }
 void cg_collect_idents_s(*StmtNode s, List<string>* out) {
     if (s == null) { return; }
     if (s.kind == SK_RETURN || s.kind == SK_EXPR || s.kind == SK_THROW || s.kind == SK_VARDECL
-        || s.kind == SK_IF || s.kind == SK_WHILE || s.kind == SK_FOR || s.kind == SK_FORIN
+        || s.kind == SK_IF || s.kind == SK_WHILE || s.kind == SK_DOWHILE || s.kind == SK_FOR || s.kind == SK_FORIN
         || s.kind == SK_SWITCH || s.kind == SK_CASE || s.kind == SK_MATCH) {
         cg_collect_idents_e(s.expr, out);
     }
     if (s.kind == SK_FOR) { cg_collect_idents_e(s.expr2, out); }
-    if (s.kind == SK_IF || s.kind == SK_WHILE || s.kind == SK_FOR || s.kind == SK_FORIN
+    if (s.kind == SK_IF || s.kind == SK_WHILE || s.kind == SK_DOWHILE || s.kind == SK_FOR || s.kind == SK_FORIN
         || s.kind == SK_ARM || s.kind == SK_CATCH) { cg_collect_idents_s(s.s1, out); }
     if (s.kind == SK_IF || s.kind == SK_FOR) { cg_collect_idents_s(s.s2, out); }
     if (s.kind == SK_BLOCK || s.kind == SK_SWITCH || s.kind == SK_CASE || s.kind == SK_MATCH
@@ -1223,13 +1229,20 @@ int cg_is_array(string t) {
     return 0;
 }
 
-// "int[4]" -> element "int".
+// Peel the outer (leftmost) array dimension: "int[4]" -> "int", "int[2][3]" -> "int[3]".
 string cg_array_elem(string t) {
-    int n = 0;
-    while (t[n] != 0 && (int)t[n] != 91) { n = n + 1; }   // up to '['
-    *uint8 buf = alloc<uint8>(n + 1);
-    int k = 0; while (k < n) { buf[k] = (uint8)t[k]; k = k + 1; }
-    buf[n] = 0;
+    int open = 0;
+    while (t[open] != 0 && (int)t[open] != 91) { open = open + 1; }   // first '['
+    if (t[open] == 0) { return t; }
+    int close = open;
+    while (t[close] != 0 && (int)t[close] != 93) { close = close + 1; }   // its ']'
+    int tn = 0; while (t[tn] != 0) { tn = tn + 1; }
+    // element = prefix before '[' + suffix after ']'
+    int suflen = tn - (close + 1);
+    *uint8 buf = alloc<uint8>(open + suflen + 1);
+    int k = 0; while (k < open) { buf[k] = (uint8)t[k]; k = k + 1; }
+    int j = 0; while (j < suflen) { buf[open + j] = (uint8)t[close + 1 + j]; j = j + 1; }
+    buf[open + suflen] = 0;
     return (string)buf;
 }
 
@@ -1434,6 +1447,21 @@ string cg_etype(Codegen* g, *ExprNode e) {
         return "";
     }
     if (e.kind == EK_CAST) { return cg_apply_sub(g, e.sval); }
+    if (e.kind == EK_TERNARY) {                        // common type of the two arms
+        string tt = cg_etype(g, e.b);
+        string et = cg_etype(g, List_get<*ExprNode>(&e.kids, 0));
+        if (cg_streq(tt, et) == 1) { return tt; }
+        if (tt[0] == 0) { return et; }
+        if (et[0] == 0) { return tt; }
+        string tl = cg_lltype(g, tt);
+        string el = cg_lltype(g, et);
+        if (cg_is_float(tl) == 1 || cg_is_float(el) == 1) {
+            if (cg_streq(tl, "double") == 1 || cg_streq(el, "double") == 1) { return "double"; }
+            return "float";
+        }
+        if (cg_int_w(tl) >= cg_int_w(el)) { return tt; }
+        return et;
+    }
     return "";
 }
 
@@ -1557,6 +1585,34 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
             v.op = cg_cat("@", e.sval); v.ty = "ptr"; v.ety = ""; return v;   // raw fn ptr; → closure via cg_coerce
         }
         v.op = e.sval; v.ty = "i32"; return v;         // fallback
+    }
+
+    if (e.kind == EK_INCDEC) {                          // ++x / x++ / --x / x--
+        CgVal lv = cg_lval(g, e.a);
+        string ety = lv.ety;
+        string llty = cg_lltype(g, ety);
+        string old = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, old); cg_emit(g, " = load "); cg_emit(g, llty);
+        cg_emit(g, ", ptr "); cg_emit(g, lv.op); cg_emit(g, "\n");
+        int L = cg_strlen(e.sval);
+        int dec = 0; if ((int)e.sval[L - 1] == 45) { dec = 1; }   // last char '-'
+        int pre = 0; if ((int)e.sval[1] == 114) { pre = 1; }      // "pre..." (index 1 is 'r')
+        string nw = cg_tmp(g);
+        if (cg_is_ptr_ty(ety) == 1) {                   // pointer: step one element
+            string elem = cg_strip_ptr(ety);
+            cg_emit(g, "  "); cg_emit(g, nw); cg_emit(g, " = getelementptr ");
+            cg_emit(g, cg_lltype(g, elem)); cg_emit(g, ", ptr "); cg_emit(g, old);
+            cg_emit(g, ", i64 "); if (dec == 1) { cg_emit(g, "-1"); } else { cg_emit(g, "1"); }
+            cg_emit(g, "\n");
+        } else {
+            cg_emit(g, "  "); cg_emit(g, nw); cg_emit(g, " = ");
+            if (dec == 1) { cg_emit(g, "sub "); } else { cg_emit(g, "add "); }
+            cg_emit(g, llty); cg_emit(g, " "); cg_emit(g, old); cg_emit(g, ", 1\n");
+        }
+        cg_emit(g, "  store "); cg_emit(g, llty); cg_emit(g, " "); cg_emit(g, nw);
+        cg_emit(g, ", ptr "); cg_emit(g, lv.op); cg_emit(g, "\n");
+        if (pre == 1) { v.op = nw; } else { v.op = old; }
+        v.ty = llty; v.ety = ety; return v;
     }
 
     if (e.kind == EK_MEMBER) {                          // a bitfield member read masks/shifts
@@ -1934,6 +1990,35 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
         CgVal src = cg_expr(g, e.a);
         v.op = cg_coerce(g, src, dll);    // int/float/ptr conversions (sitofp/fptosi/…)
         v.ty = dll; v.ety = dstety; return v;
+    }
+
+    if (e.kind == EK_TERNARY) {
+        // `cond ? then : else` — branch and evaluate exactly one arm into a result slot,
+        // each arm coerced to the common type (mirrors the short-circuit && lowering).
+        string rty = cg_lltype(g, cg_etype(g, e));
+        string res = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, res); cg_emit(g, " = alloca "); cg_emit(g, rty); cg_emit(g, "\n");
+        CgVal c = cg_cond(g, e.a);
+        string lthen = cg_lbl(g);
+        string lelse = cg_lbl(g);
+        string lend = cg_lbl(g);
+        cg_emit(g, "  br i1 "); cg_emit(g, c.op); cg_emit(g, ", label %"); cg_emit(g, lthen);
+        cg_emit(g, ", label %"); cg_emit(g, lelse); cg_emit(g, "\n");
+        g.terminated = 1;
+        cg_label(g, lthen);
+        CgVal tv = cg_expr(g, e.b);
+        string top = cg_coerce(g, tv, rty);
+        cg_emit(g, "  store "); cg_emit(g, rty); cg_emit(g, " "); cg_emit(g, top); cg_emit(g, ", ptr "); cg_emit(g, res); cg_emit(g, "\n");
+        cg_br(g, lend);
+        cg_label(g, lelse);
+        CgVal ev = cg_expr(g, List_get<*ExprNode>(&e.kids, 0));
+        string eop = cg_coerce(g, ev, rty);
+        cg_emit(g, "  store "); cg_emit(g, rty); cg_emit(g, " "); cg_emit(g, eop); cg_emit(g, ", ptr "); cg_emit(g, res); cg_emit(g, "\n");
+        cg_br(g, lend);
+        cg_label(g, lend);
+        string t = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = load "); cg_emit(g, rty); cg_emit(g, ", ptr "); cg_emit(g, res); cg_emit(g, "\n");
+        v.op = t; v.ty = rty; v.ety = cg_etype(g, e); return v;
     }
 
     if (e.kind == EK_QUESTION) {
@@ -2533,6 +2618,36 @@ int cg_has_try_s(*StmtNode s) {
     return 0;
 }
 
+// Emit a (possibly nested) array-literal initializer into `slot` of type `arrType`.
+// `int[2][3] a = {{1,2,3},{4,5,6}}` recurses one dimension per `{...}` level; a short
+// list zero-fills the rest. `do_zero` clears the whole aggregate once at the top level.
+void cg_array_init(Codegen* g, string slot, string arrType, *ExprNode lit, int do_zero) {
+    string ty = cg_lltype(g, arrType);
+    string elemStr = cg_array_elem(arrType);
+    string elemLl = cg_lltype(g, elemStr);
+    int elemIsArr = cg_is_array(elemStr);
+    if (do_zero == 1) {
+        cg_emit(g, "  store "); cg_emit(g, ty); cg_emit(g, " zeroinitializer, ptr ");
+        cg_emit(g, slot); cg_emit(g, "\n");
+    }
+    int i = 0; int n = List_len<*ExprNode>(&lit.kids);
+    while (i < n) {
+        *ExprNode el = List_get<*ExprNode>(&lit.kids, i);
+        string gp = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, gp); cg_emit(g, " = getelementptr "); cg_emit(g, ty);
+        cg_emit(g, ", ptr "); cg_emit(g, slot); cg_emit(g, ", i32 0, i32 "); cg_emit(g, cg_itoa(i)); cg_emit(g, "\n");
+        if (elemIsArr == 1 && el.kind == EK_ARRAYLIT) {
+            cg_array_init(g, gp, elemStr, el, 0);       // outer zeroinit already covers this row
+        } else {
+            CgVal ev = cg_expr(g, el);
+            string eop = cg_coerce(g, ev, elemLl);
+            cg_emit(g, "  store "); cg_emit(g, elemLl); cg_emit(g, " "); cg_emit(g, eop);
+            cg_emit(g, ", ptr "); cg_emit(g, gp); cg_emit(g, "\n");
+        }
+        i = i + 1;
+    }
+}
+
 void cg_stmt(Codegen* g, *StmtNode st) {
     if (st == null) { return; }
     if (st.kind == SK_BLOCK) {
@@ -2579,6 +2694,26 @@ void cg_stmt(Codegen* g, *StmtNode st) {
         cg_label(g, l_end);
         return;
     }
+    if (st.kind == SK_DOWHILE) {
+        string l_body = cg_lbl(g);
+        string l_cond = cg_lbl(g);
+        string l_end = cg_lbl(g);
+        cg_br(g, l_body);
+        cg_label(g, l_body);
+        List_push<string>(&g.loop_cont, l_cond);       // `continue` re-tests the condition
+        List_push<string>(&g.loop_end, l_end);
+        cg_stmt(g, st.s1);
+        List_remove<string>(&g.loop_cont, List_len<string>(&g.loop_cont) - 1);
+        List_remove<string>(&g.loop_end, List_len<string>(&g.loop_end) - 1);
+        cg_br(g, l_cond);
+        cg_label(g, l_cond);
+        CgVal c = cg_cond(g, st.expr);
+        cg_emit(g, "  br i1 "); cg_emit(g, c.op); cg_emit(g, ", label %"); cg_emit(g, l_body);
+        cg_emit(g, ", label %"); cg_emit(g, l_end); cg_emit(g, "\n");
+        g.terminated = 1;
+        cg_label(g, l_end);
+        return;
+    }
     if (st.kind == SK_FOR) {
         string l_cond = cg_lbl(g);
         string l_body = cg_lbl(g);
@@ -2620,11 +2755,28 @@ void cg_stmt(Codegen* g, *StmtNode st) {
     }
     if (st.kind == SK_VARDECL) {
         string ty = cg_lltype(g, st.type);
+        if (st.is_static == 1) {
+            // A `static` local: one instance at module scope, persists across calls.
+            // Its storage is a private global; the slot is that global's pointer, so
+            // ordinary load/store on the local read/write the persistent cell.
+            string gname = cg_cat("@.static.", cg_itoa(g.strcount));
+            g.strcount = g.strcount + 1;
+            String_append(&g.globals, gname);
+            String_append(&g.globals, " = internal global ");
+            String_append(&g.globals, ty);
+            String_append(&g.globals, " ");
+            String_append(&g.globals, cg_global_init(g, st.expr, ty));
+            String_append(&g.globals, "\n");
+            cg_add_local(g, st.name, gname, ty, cg_apply_sub(g, st.type));
+            return;
+        }
         string slot = cg_tmp(g);
         cg_emit(g, "  "); cg_emit(g, slot); cg_emit(g, " = alloca "); cg_emit(g, ty); cg_emit(g, "\n");
         cg_add_local(g, st.name, slot, ty, cg_apply_sub(g, st.type));
         if (st.expr != null) {
-            if (st.expr.kind == EK_STRUCTINIT) {        // P { f: v, ... } → store fields via GEP
+            if (st.expr.kind == EK_ARRAYLIT) {          // { ... } (nested for T[N][M]) → zero-fill + store
+                cg_array_init(g, slot, st.type, st.expr, 1);
+            } else if (st.expr.kind == EK_STRUCTINIT) { // P { f: v, ... } → store fields via GEP
                 cg_struct_init(g, slot, st.type, st.expr);
             } else {
                 if (cg_is_fnty(st.type) == 1) { g.lam_expret = cg_fnty_ret(st.type); }   // thread fn-type return into a lambda init

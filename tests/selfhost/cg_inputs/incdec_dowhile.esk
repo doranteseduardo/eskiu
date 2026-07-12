@@ -1,0 +1,10 @@
+extern int printf(string fmt, ...);
+int main() {
+    int s = 0;
+    for (int i = 0; i < 4; i++) { s = s + i; }
+    int i = 5; printf("%d %d ", i++, i);
+    int j = 5; printf("%d %d ", ++j, j);
+    int n = 0; do { n++; } while (n < 3);
+    printf("%d %d\n", s, n);
+    return 0;
+}
