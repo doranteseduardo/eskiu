@@ -2670,6 +2670,21 @@ void cg_stmt(Codegen* g, *StmtNode st) {
     }
     if (st.kind == SK_VARDECL) {
         string ty = cg_lltype(g, st.type);
+        if (st.is_static == 1) {
+            // A `static` local: one instance at module scope, persists across calls.
+            // Its storage is a private global; the slot is that global's pointer, so
+            // ordinary load/store on the local read/write the persistent cell.
+            string gname = cg_cat("@.static.", cg_itoa(g.strcount));
+            g.strcount = g.strcount + 1;
+            String_append(&g.globals, gname);
+            String_append(&g.globals, " = internal global ");
+            String_append(&g.globals, ty);
+            String_append(&g.globals, " ");
+            String_append(&g.globals, cg_global_init(g, st.expr, ty));
+            String_append(&g.globals, "\n");
+            cg_add_local(g, st.name, gname, ty, cg_apply_sub(g, st.type));
+            return;
+        }
         string slot = cg_tmp(g);
         cg_emit(g, "  "); cg_emit(g, slot); cg_emit(g, " = alloca "); cg_emit(g, ty); cg_emit(g, "\n");
         cg_add_local(g, st.name, slot, ty, cg_apply_sub(g, st.type));

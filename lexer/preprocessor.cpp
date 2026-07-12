@@ -273,6 +273,7 @@ std::string tokenTypeToString(TokenType type) {
         case TokenType::FN: return "FN";
         case TokenType::ASM: return "ASM";
         case TokenType::VOLATILE:      return "VOLATILE";
+        case TokenType::STATIC:        return "STATIC";
         case TokenType::ESCAPING:      return "ESCAPING";
         case TokenType::ASYNC:         return "ASYNC";
         case TokenType::AWAIT:         return "AWAIT";

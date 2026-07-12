@@ -262,6 +262,30 @@ void CodeGen::visit(VarDecl* node) {
         defineVarType(node->name, node->type);
         return;
     }
+    // Static local: one instance in module scope, persists across calls.
+    if (node->isStatic) {
+        llvm::Constant* init = node->initializer
+            ? evaluateConstantExpr(node->initializer)
+            : nullptr;
+        if (init && init->getType() != declType) {
+            if (init->getType()->isIntegerTy() && declType->isIntegerTy())
+                init = llvm::ConstantInt::get(
+                    declType, llvm::cast<llvm::ConstantInt>(init)->getZExtValue());
+            else if (init->getType()->isFloatingPointTy() && declType->isFloatingPointTy())
+                init = llvm::ConstantFP::get(
+                    declType,
+                    llvm::cast<llvm::ConstantFP>(init)->getValueAPF().convertToDouble());
+        }
+        if (!init) init = llvm::Constant::getNullValue(declType);
+        std::string gname = currentFunction->getName().str() + "." + node->name;
+        auto* gv = new llvm::GlobalVariable(
+            *module, declType, /*isConstant=*/false,
+            llvm::GlobalValue::PrivateLinkage, init, gname);
+        defineSymbol(node->name, gv);
+        defineVarType(node->name, node->type);
+        return;
+    }
+
     llvm::AllocaInst* alloca = entryAlloca(declType, nullptr, node->name);
     if (node->isVolatile) volatileVars.insert(node->name);
     defineSymbol(node->name, alloca);

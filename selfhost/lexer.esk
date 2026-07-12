@@ -117,6 +117,7 @@ int keyword_type(*uint8 src, int start, int len) {
     if (lexeme_eq(src, start, len, "fn") == 1) { return FN; }
     if (lexeme_eq(src, start, len, "asm") == 1) { return ASM; }
     if (lexeme_eq(src, start, len, "volatile") == 1) { return VOLATILE; }
+    if (lexeme_eq(src, start, len, "static") == 1) { return STATIC; }
     if (lexeme_eq(src, start, len, "escaping") == 1) { return ESCAPING; }
     if (lexeme_eq(src, start, len, "async") == 1) { return ASYNC; }
     if (lexeme_eq(src, start, len, "await") == 1) { return AWAIT; }
