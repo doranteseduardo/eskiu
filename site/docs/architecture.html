@@ -164,7 +164,7 @@ body { background: var(--bg); color: var(--ink); font-family: var(--sans);
 <hr>
 <h2 id="visitor-pattern">Visitor Pattern</h2>
 <h3 id="why-all-passes-implement-astvisitor">Why all passes implement ASTVisitor</h3>
-<p>Every analysis or code generation pass implements <code>ASTVisitor</code>. This keeps traversal logic out of the AST nodes themselves and allows passes (type checker, codegen, AST printer) to be added without modifying <code>ast/ast.h</code>. The base class declares one pure-virtual <code>visit()</code> overload per concrete node type (42 today), so a new node type forces every pass to handle it or fail to compile.</p>
+<p>Every analysis or code generation pass implements <code>ASTVisitor</code>. This keeps traversal logic out of the AST nodes themselves and allows passes (type checker, codegen, AST printer) to be added without modifying <code>ast/ast.h</code>. The base class declares one pure-virtual <code>visit()</code> overload per concrete node type (46 today), so a new node type forces every pass to handle it or fail to compile.</p>
 <h3 id="how-acceptvisit-dispatch-works">How accept()/visit() dispatch works</h3>
 <p>Each concrete AST node overrides <code>accept(ASTVisitor* v)</code> and calls <code>v-&gt;visit(this)</code>. This is classic double-dispatch: the node's static type selects the <code>visit()</code> overload at compile time via the node's own <code>accept</code> implementation.</p>
 <pre><code class="language-cpp">// Every node follows this pattern in ast/ast.cpp:
@@ -208,7 +208,7 @@ void BinaryExpr::accept(ASTVisitor* visitor) {
 </tr>
 <tr>
 <td>Control keywords</td>
-<td><code>FOR</code>, <code>WHILE</code>, <code>IF</code>, <code>ELSE</code>, <code>SWITCH</code>, <code>CASE</code>, <code>DEFAULT</code>, <code>BREAK</code>, <code>CONTINUE</code>, <code>RETURN</code></td>
+<td><code>FOR</code>, <code>WHILE</code>, <code>DO</code>, <code>IF</code>, <code>ELSE</code>, <code>SWITCH</code>, <code>CASE</code>, <code>DEFAULT</code>, <code>BREAK</code>, <code>CONTINUE</code>, <code>RETURN</code></td>
 </tr>
 <tr>
 <td>Declaration keywords</td>
@@ -232,7 +232,7 @@ void BinaryExpr::accept(ASTVisitor* visitor) {
 </tr>
 <tr>
 <td>Other keywords</td>
-<td><code>SIZEOF</code>, <code>VOLATILE</code>, <code>ASM</code></td>
+<td><code>SIZEOF</code>, <code>VOLATILE</code>, <code>STATIC</code>, <code>ASM</code></td>
 </tr>
 <tr>
 <td>Reserved (future)</td>
@@ -323,20 +323,21 @@ void BinaryExpr::accept(ASTVisitor* visitor) {
 <p>Both forms produce <code>StructInitExpr</code> with <code>vector&lt;pair&lt;string, ExprPtr&gt;&gt;</code>.</p>
 <h3 id="operator-precedence-chain">Operator precedence chain</h3>
 <p>From lowest to highest:</p>
-<pre><code>parseAssignment      =  +=  -=  *=  /=  %=     (right-associative; compound ops desugar)
-  parseLogicalOr     ||
-    parseLogicalAnd  &amp;&amp;
-      parseBitwiseOr     |
-        parseBitwiseXor  ^
-          parseBitwiseAnd    &amp;
-            parseEquality    ==  !=
-              parseComparison    &lt;  &gt;  &lt;=  &gt;=
-                parseShift       &lt;&lt;  &gt;&gt;
-                  parseAddition  +  -
-                    parseMultiplication  *  /  %
-                      parseUnary         -  ~  !  &amp;  *  (TYPE)
-                        parsePostfix     ()  []  .  &lt;T&gt;(args)
-                          parsePrimary
+<pre><code>parseAssignment        =  +=  -=  *=  /=  %=     (right-associative; compound ops desugar)
+  parseTernary         ?:                        (right-associative; `:`-scan disambiguates from postfix `?`)
+    parseLogicalOr     ||
+      parseLogicalAnd  &amp;&amp;
+        parseBitwiseOr     |
+          parseBitwiseXor  ^
+            parseBitwiseAnd    &amp;
+              parseEquality    ==  !=
+                parseComparison    &lt;  &gt;  &lt;=  &gt;=
+                  parseShift       &lt;&lt;  &gt;&gt;
+                    parseAddition  +  -
+                      parseMultiplication  *  /  %
+                        parseUnary         -  ~  !  &amp;  *  ++  --  (TYPE)
+                          parsePostfix     ()  []  .  ?  ++  --  &lt;T&gt;(args)
+                            parsePrimary
 </code></pre>
 <p>Compound assignment operators (<code>+=</code>, <code>-=</code>, <code>*=</code>, <code>/=</code>, <code>%=</code>) are desugared in <code>parseAssignment()</code> into <code>BinaryExpr(lhs, "=", BinaryExpr(lhs, op, rhs))</code>.</p>
 <h3 id="import-handling-inline-parsing-in-parseprogram"><code>import</code> handling: inline parsing in <code>parseProgram()</code></h3>
@@ -368,6 +369,7 @@ void BinaryExpr::accept(ASTVisitor* visitor) {
 │   ├── ForStmt            (init:StmtPtr?, condition:ExprPtr?, step:ExprPtr?, body)
 │   ├── ForInStmt          (var, iterable, body)  (for-each / range; desugared to ForStmt)
 │   ├── WhileStmt          (condition, body)
+│   ├── DoWhileStmt        (body, condition)  (runs the body once before testing)
 │   ├── ReturnStmt         (value:ExprPtr?)
 │   ├── BreakStmt
 │   ├── ContinueStmt
@@ -381,7 +383,9 @@ void BinaryExpr::accept(ASTVisitor* visitor) {
 └── Expr
     ├── BinaryExpr         (left, op:string, right)
     ├── UnaryExpr          (op:string, operand)
+    ├── IncDecExpr         (operand, decrement:bool, prefix:bool)  (`++`/`--`)
     ├── QuestionExpr       (operand)  (`?` error-propagation for Result&lt;T,E&gt;)
+    ├── TernaryExpr        (condition, thenExpr, elseExpr)  (`cond ? a : b`)
     ├── CallExpr           (callee:ExprPtr, args[ExprPtr])
     ├── IndexExpr          (base, index)
     ├── MemberExpr         (base, member:string)
@@ -389,6 +393,7 @@ void BinaryExpr::accept(ASTVisitor* visitor) {
     ├── LiteralExpr        (kind:{INT,FLOAT,STRING,CHAR,BOOL,NULL_VAL}, value:string)
     ├── IdentExpr          (name:string)
     ├── StructInitExpr     (structName, fieldInits[(name,ExprPtr)])
+    ├── ArrayLitExpr       (elements[ExprPtr])  (`{ e0, e1, ... }` array initializer)
     ├── AllocWithExpr      (allocator:ExprPtr, elemType:string, count:ExprPtr)
     ├── TemplateCallExpr   (templateName, typeArgs[], args[])
     ├── LambdaExpr         (returnType:string, params[(type,name)], body:StmtPtr, escapes, captures[])
@@ -399,7 +404,7 @@ void BinaryExpr::accept(ASTVisitor* visitor) {
 
 Program                    (declarations: vector&lt;DeclPtr&gt;)  (root node)
 </code></pre>
-<p><code>ASTVisitor</code> declares 42 pure-virtual <code>visit()</code> overloads (one per concrete class: <code>Program</code>, 9 <code>Decl</code> subtypes, 15 <code>Stmt</code> subtypes, 17 <code>Expr</code> subtypes). The <code>alloc&lt;T&gt;(n)</code> / <code>free</code> primitives are stdlib generic functions (<code>&lt;mem&gt;</code>), not AST nodes; the explicit-allocator form <code>alloc_with(&amp;a, T, n)</code> is the <code>AllocWithExpr</code> node.</p>
+<p><code>ASTVisitor</code> declares 46 pure-virtual <code>visit()</code> overloads (one per concrete class: <code>Program</code>, 9 <code>Decl</code> subtypes, 16 <code>Stmt</code> subtypes, 20 <code>Expr</code> subtypes). The <code>alloc&lt;T&gt;(n)</code> / <code>free</code> primitives are stdlib generic functions (<code>&lt;mem&gt;</code>), not AST nodes; the explicit-allocator form <code>alloc_with(&amp;a, T, n)</code> is the <code>AllocWithExpr</code> node.</p>
 <p><code>LambdaExpr</code> carries the full function signature and body inline. During codegen, <code>visit(LambdaExpr*)</code> saves the current insert point, emits a new private <code>llvm::Function</code> with a synthesized unique name (e.g. <code>__lambda_0</code>, <code>__lambda_1</code>), restores the insert point, and pushes the <code>llvm::Function*</code> onto <code>exprValueStack</code> as the expression value. The <code>fn(T,...)-&gt;R</code> type is stored in <code>expressionTypes</code> for that node so the type checker can validate assignments and call sites.</p>
 <h3 id="blockitem-stdvariantdeclptr-stmtptr-why-unified"><code>BlockItem = std::variant&lt;DeclPtr, StmtPtr&gt;</code>: why unified</h3>
 <p>C allows variables to be declared at any point in a block, not just at the top. Rather than forcing declarations to precede statements (Pascal-style) or treating <code>VarDecl</code> as a <code>Stmt</code> subtype, <code>BlockStmt</code> uses <code>std::variant&lt;DeclPtr, StmtPtr&gt;</code>. Visitors iterate over items and dispatch with <code>std::holds_alternative</code> / <code>std::get</code>. This preserves the semantic distinction between declarations and statements throughout all passes.</p>
