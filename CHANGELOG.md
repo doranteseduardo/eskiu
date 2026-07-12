@@ -8,7 +8,7 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
-## [Unreleased]
+## [0.5.0], 2026-07-12
 
 Fills a set of basic C constructs the language was missing, so idiomatic C ports
 compile without workarounds. Each lands in lockstep across the C++ and self-hosted
@@ -40,6 +40,10 @@ compilers and follows C semantics.
 - **`switch` on a sub-`int` subject.** A `switch` over a `char` (or other narrow integer)
   with wider case constants failed LLVM verification; the subject and case constants are
   now widened to a common type before lowering.
+
+---
+
+## [0.4.0], 2026-07-05
 
 A correctness and type-strictness release. A four-front bug hunt (behavioral
 differential, sema soundness, synthesized-default audit, feature edges) across the C++
