@@ -23,7 +23,8 @@ enum ExprKind {
     EK_LITERAL, EK_IDENT, EK_BINARY, EK_UNARY,
     EK_CALL, EK_INDEX, EK_MEMBER, EK_QUESTION, EK_CAST, EK_SIZEOF,
     EK_STRUCTINIT, EK_TEMPLATECALL,
-    EK_AWAIT, EK_LAMBDA, EK_ALLOCWITH, EK_FREECLOSURE, EK_THREADCREATE, EK_INCDEC, EK_ARRAYLIT
+    EK_AWAIT, EK_LAMBDA, EK_ALLOCWITH, EK_FREECLOSURE, EK_THREADCREATE, EK_INCDEC, EK_ARRAYLIT,
+    EK_TERNARY
 }
 
 // Literal kinds, in the C++ LiteralExpr::Kind order; lit_name maps to the
@@ -171,6 +172,13 @@ void print_expr(*ExprNode e, int d) {
     if (e.kind == EK_QUESTION) {
         pline(d, "QuestionExpr (?)");
         print_expr(e.a, d + 1);
+        return;
+    }
+    if (e.kind == EK_TERNARY) {
+        pline(d, "TernaryExpr (?:)");
+        print_expr(e.a, d + 1);                          // condition
+        print_expr(e.b, d + 1);                          // then
+        print_expr(List_get<*ExprNode>(&e.kids, 0), d + 1);   // else
         return;
     }
     if (e.kind == EK_CAST) {

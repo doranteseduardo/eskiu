@@ -30,6 +30,11 @@ compilers and follows C semantics.
   bracket is the outer dimension). Indexing peels one dimension at a time and each index
   is bounds-checked against its own dimension. Nested brace initializers
   (`int[2][3] a = { {1,2,3}, {4,5,6} }`) zero-fill at every level.
+- **Ternary conditional `cond ? a : b`.** Evaluates exactly one arm; the arms take a
+  common type (two numerics promote C-style). Right-associative, so `a ? b : c ? d : e`
+  chains. It coexists with the postfix `?` Result-propagation operator: a `?` with a
+  matching same-level `:` ahead is a ternary, otherwise propagation (parenthesize to
+  propagate inside a ternary arm).
 
 ### Fixed
 - **`switch` on a sub-`int` subject.** A `switch` over a `char` (or other narrow integer)

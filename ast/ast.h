@@ -467,6 +467,21 @@ public:
     void accept(class ASTVisitor* visitor) override;
 };
 
+// Ternary conditional `cond ? thenExpr : elseExpr`. Exactly one arm is evaluated;
+// the arms must share a common type, which is the expression's type.
+class TernaryExpr : public Expr {
+public:
+    ExprPtr condition;
+    ExprPtr thenExpr;
+    ExprPtr elseExpr;
+
+    TernaryExpr(ExprPtr condition, ExprPtr thenExpr, ExprPtr elseExpr)
+        : condition(std::move(condition)), thenExpr(std::move(thenExpr)),
+          elseExpr(std::move(elseExpr)) {}
+
+    void accept(class ASTVisitor* visitor) override;
+};
+
 class CallExpr : public Expr {
 public:
     ExprPtr callee;
@@ -687,6 +702,7 @@ public:
     virtual void visit(UnaryExpr* node) = 0;
     virtual void visit(IncDecExpr* node) = 0;
     virtual void visit(QuestionExpr* node) = 0;
+    virtual void visit(TernaryExpr* node) = 0;
     virtual void visit(CallExpr* node) = 0;
     virtual void visit(IndexExpr* node) = 0;
     virtual void visit(MemberExpr* node) = 0;

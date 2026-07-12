@@ -588,25 +588,46 @@ sizeof(Grid)   // 12  (3 float fields)
 
 `sizeof` is resolved entirely at compile time and produces no runtime code.
 
-### 5.9 Operator Precedence
+### 5.9 Conditional (ternary)
+
+`cond ? a : b` evaluates `cond`, then evaluates and yields **exactly one** of the two
+arms (so side effects in the unused arm never run). The condition may be a bool,
+integer, or pointer (non-zero / non-null is true). The two arms must share a common
+type: identical types pass through, two numerics promote to the wider (C-style, e.g.
+`int` and `double` yield `double`), and otherwise the arms must be mutually assignable.
+The operator is right-associative, so `a ? b : c ? d : e` parses as `a ? b : (c ? d : e)`.
+
+```eskiu
+int m = a > b ? a : b;                       // max
+char g = s >= 90 ? 'A' : s >= 80 ? 'B' : 'C';  // right-associative chain
+double d = flag ? 1 : 2.5;                   // arms promote to double
+```
+
+Eskiu also uses `?` as the postfix Result-propagation operator (§10.5). The two are
+disambiguated by the following `:`: a `?` with a matching `:` at the same bracket
+nesting is a ternary, otherwise it is propagation. To propagate inside a ternary arm,
+parenthesize it: `cond ? (may_fail()?) : fallback`.
+
+### 5.10 Operator Precedence
 
 Listed from lowest precedence (loosest binding) to highest (tightest binding):
 
 | Level | Operators                                    | Associativity |
 |-------|----------------------------------------------|---------------|
 | 1     | `=` `+=` `-=` `*=` `/=` `%=` `&=` `\|=` `^=` `<<=` `>>=` | Right to left |
-| 2     | `\|\|`                                       | Left to right |
-| 3     | `&&`                                         | Left to right |
-| 4     | `\|` (bitwise)                               | Left to right |
-| 5     | `^`                                          | Left to right |
-| 6     | `&` (bitwise)                                | Left to right |
-| 7     | `==` `!=`                                    | Left to right |
-| 8     | `<` `>` `<=` `>=`                            | Left to right |
-| 9     | `<<` `>>`                                    | Left to right |
-| 10    | `+` `-`                                      | Left to right |
-| 11    | `*` `/` `%`                                  | Left to right |
-| 12    | Unary `!` `-` `+` `~` `&` `*` `(TYPE)`      | Right to left |
-| 13    | `()` `[]` `.` `?` (postfix)                  | Left to right |
+| 2     | `?:` (ternary)                               | Right to left |
+| 3     | `\|\|`                                       | Left to right |
+| 4     | `&&`                                         | Left to right |
+| 5     | `\|` (bitwise)                               | Left to right |
+| 6     | `^`                                          | Left to right |
+| 7     | `&` (bitwise)                                | Left to right |
+| 8     | `==` `!=`                                    | Left to right |
+| 9     | `<` `>` `<=` `>=`                            | Left to right |
+| 10    | `<<` `>>`                                    | Left to right |
+| 11    | `+` `-`                                      | Left to right |
+| 12    | `*` `/` `%`                                  | Left to right |
+| 13    | Unary `!` `-` `+` `~` `&` `*` `(TYPE)`      | Right to left |
+| 14    | `()` `[]` `.` `?` (postfix)                  | Left to right |
 
 Use parentheses to override precedence explicitly.
 

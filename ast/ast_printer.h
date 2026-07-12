@@ -40,6 +40,7 @@ private:
     void visit(UnaryExpr* node) override;
     void visit(IncDecExpr* node) override;
     void visit(QuestionExpr* node) override;
+    void visit(TernaryExpr* node) override;
     void visit(CallExpr* node) override;
     void visit(IndexExpr* node) override;
     void visit(MemberExpr* node) override;

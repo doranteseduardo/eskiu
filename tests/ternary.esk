@@ -1,0 +1,27 @@
+extern int printf(string fmt, ...);
+
+// The `?:` ternary evaluates exactly one arm. It coexists with the postfix `?`
+// Result-propagation operator: a `?` with a same-level `:` ahead is a ternary.
+int max(int a, int b) { return a > b ? a : b; }
+
+char grade(int score) {
+    return score >= 90 ? 'A' : score >= 80 ? 'B' : score >= 70 ? 'C' : 'F';
+}
+
+int main() {
+    int x = 5; int y = 9;
+    printf("%d\n", x > y ? x : y);           // 9
+    printf("%d\n", max(3, 7));               // 7
+    printf("%d\n", x < 0 ? 0 - x : x);       // 5
+    printf("%c %c %c\n", grade(95), grade(83), grade(50));   // A B F
+
+    // int vs double arms promote to double
+    double d = x > 0 ? 1 : 2.5;
+    printf("%.1f\n", d);                      // 1.0
+
+    // only one arm runs (side effects)
+    int calls = 0;
+    int r = (x > 0) ? (calls = calls + 1) : (calls = calls + 100);
+    printf("%d %d\n", r, calls);             // 1 1
+    return 0;
+}

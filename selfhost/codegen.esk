@@ -987,6 +987,10 @@ void cg_collect_idents_e(*ExprNode e, List<string>* out) {
         int i = 0; int n = List_len<*ExprNode>(&e.kids);
         while (i < n) { cg_collect_idents_e(List_get<*ExprNode>(&e.kids, i), out); i = i + 1; }
     }
+    if (e.kind == EK_TERNARY) {                        // cond (a) + then (b) + else (kids[0])
+        cg_collect_idents_e(e.a, out); cg_collect_idents_e(e.b, out);
+        cg_collect_idents_e(List_get<*ExprNode>(&e.kids, 0), out);
+    }
     if (e.kind == EK_LAMBDA) { cg_collect_idents_s(e.stmt, out); }
 }
 void cg_collect_idents_s(*StmtNode s, List<string>* out) {
@@ -1443,6 +1447,21 @@ string cg_etype(Codegen* g, *ExprNode e) {
         return "";
     }
     if (e.kind == EK_CAST) { return cg_apply_sub(g, e.sval); }
+    if (e.kind == EK_TERNARY) {                        // common type of the two arms
+        string tt = cg_etype(g, e.b);
+        string et = cg_etype(g, List_get<*ExprNode>(&e.kids, 0));
+        if (cg_streq(tt, et) == 1) { return tt; }
+        if (tt[0] == 0) { return et; }
+        if (et[0] == 0) { return tt; }
+        string tl = cg_lltype(g, tt);
+        string el = cg_lltype(g, et);
+        if (cg_is_float(tl) == 1 || cg_is_float(el) == 1) {
+            if (cg_streq(tl, "double") == 1 || cg_streq(el, "double") == 1) { return "double"; }
+            return "float";
+        }
+        if (cg_int_w(tl) >= cg_int_w(el)) { return tt; }
+        return et;
+    }
     return "";
 }
 
@@ -1971,6 +1990,35 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
         CgVal src = cg_expr(g, e.a);
         v.op = cg_coerce(g, src, dll);    // int/float/ptr conversions (sitofp/fptosi/…)
         v.ty = dll; v.ety = dstety; return v;
+    }
+
+    if (e.kind == EK_TERNARY) {
+        // `cond ? then : else` — branch and evaluate exactly one arm into a result slot,
+        // each arm coerced to the common type (mirrors the short-circuit && lowering).
+        string rty = cg_lltype(g, cg_etype(g, e));
+        string res = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, res); cg_emit(g, " = alloca "); cg_emit(g, rty); cg_emit(g, "\n");
+        CgVal c = cg_cond(g, e.a);
+        string lthen = cg_lbl(g);
+        string lelse = cg_lbl(g);
+        string lend = cg_lbl(g);
+        cg_emit(g, "  br i1 "); cg_emit(g, c.op); cg_emit(g, ", label %"); cg_emit(g, lthen);
+        cg_emit(g, ", label %"); cg_emit(g, lelse); cg_emit(g, "\n");
+        g.terminated = 1;
+        cg_label(g, lthen);
+        CgVal tv = cg_expr(g, e.b);
+        string top = cg_coerce(g, tv, rty);
+        cg_emit(g, "  store "); cg_emit(g, rty); cg_emit(g, " "); cg_emit(g, top); cg_emit(g, ", ptr "); cg_emit(g, res); cg_emit(g, "\n");
+        cg_br(g, lend);
+        cg_label(g, lelse);
+        CgVal ev = cg_expr(g, List_get<*ExprNode>(&e.kids, 0));
+        string eop = cg_coerce(g, ev, rty);
+        cg_emit(g, "  store "); cg_emit(g, rty); cg_emit(g, " "); cg_emit(g, eop); cg_emit(g, ", ptr "); cg_emit(g, res); cg_emit(g, "\n");
+        cg_br(g, lend);
+        cg_label(g, lend);
+        string t = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = load "); cg_emit(g, rty); cg_emit(g, ", ptr "); cg_emit(g, res); cg_emit(g, "\n");
+        v.op = t; v.ty = rty; v.ety = cg_etype(g, e); return v;
     }
 
     if (e.kind == EK_QUESTION) {

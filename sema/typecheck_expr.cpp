@@ -122,6 +122,36 @@ void TypeChecker::visit(QuestionExpr* node) {
     expressionTypes[node] = valueType;
 }
 
+void TypeChecker::visit(TernaryExpr* node) {
+    node->condition->accept(this);
+    node->thenExpr->accept(this);
+    node->elseExpr->accept(this);
+
+    std::string ct = getExpressionType(node->condition.get());
+    if (ct != "unknown" && !isNumericType(ct) && !isPointerType(ct) &&
+        normalizeType(ct) != "bool")
+        errorAt(node, "ternary condition must be a bool, integer, or pointer, got " + ct);
+
+    std::string tt = getExpressionType(node->thenExpr.get());
+    std::string et = getExpressionType(node->elseExpr.get());
+
+    // The result type is the arms' common type: identical types pass through, two
+    // numerics promote to the wider (C-style), and otherwise the arms must be mutually
+    // assignable (else it is a type error).
+    std::string result = tt;
+    if (tt == "unknown")       result = et;
+    else if (et == "unknown")  result = tt;
+    else if (tt == et)         result = tt;
+    else if (isNumericType(tt) && isNumericType(et)) result = promoteType(tt, et);
+    else if (assignabilityError(tt, et, node->elseExpr.get()).empty()) result = tt;
+    else if (assignabilityError(et, tt, node->thenExpr.get()).empty()) result = et;
+    else {
+        errorAt(node, "ternary branches have incompatible types '" + tt + "' and '" + et + "'");
+        result = tt;
+    }
+    expressionTypes[node] = result;
+}
+
 void TypeChecker::visit(UnaryExpr* node) {
     node->operand->accept(this);
     std::string operandType = getExpressionType(node->operand.get());

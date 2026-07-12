@@ -766,7 +766,22 @@ sizeof(double) // 8
 sizeof(Grid)   // 12  (3 float fields)
 </code></pre>
 <p><code>sizeof</code> is resolved entirely at compile time and produces no runtime code.</p>
-<h3 id="59-operator-precedence">5.9 Operator Precedence</h3>
+<h3 id="59-conditional-ternary">5.9 Conditional (ternary)</h3>
+<p><code>cond ? a : b</code> evaluates <code>cond</code>, then evaluates and yields <strong>exactly one</strong> of the two
+arms (so side effects in the unused arm never run). The condition may be a bool,
+integer, or pointer (non-zero / non-null is true). The two arms must share a common
+type: identical types pass through, two numerics promote to the wider (C-style, e.g.
+<code>int</code> and <code>double</code> yield <code>double</code>), and otherwise the arms must be mutually assignable.
+The operator is right-associative, so <code>a ? b : c ? d : e</code> parses as <code>a ? b : (c ? d : e)</code>.</p>
+<pre><code class="language-eskiu">int m = a &gt; b ? a : b;                       // max
+char g = s &gt;= 90 ? 'A' : s &gt;= 80 ? 'B' : 'C';  // right-associative chain
+double d = flag ? 1 : 2.5;                   // arms promote to double
+</code></pre>
+<p>Eskiu also uses <code>?</code> as the postfix Result-propagation operator (§10.5). The two are
+disambiguated by the following <code>:</code>: a <code>?</code> with a matching <code>:</code> at the same bracket
+nesting is a ternary, otherwise it is propagation. To propagate inside a ternary arm,
+parenthesize it: <code>cond ? (may_fail()?) : fallback</code>.</p>
+<h3 id="510-operator-precedence">5.10 Operator Precedence</h3>
 <p>Listed from lowest precedence (loosest binding) to highest (tightest binding):</p>
 <div class="tablewrap"><table>
 <thead>
@@ -784,61 +799,66 @@ sizeof(Grid)   // 12  (3 float fields)
 </tr>
 <tr>
 <td>2</td>
+<td><code>?:</code> (ternary)</td>
+<td>Right to left</td>
+</tr>
+<tr>
+<td>3</td>
 <td><code>\|\|</code></td>
 <td>Left to right</td>
 </tr>
 <tr>
-<td>3</td>
+<td>4</td>
 <td><code>&amp;&amp;</code></td>
 <td>Left to right</td>
 </tr>
 <tr>
-<td>4</td>
+<td>5</td>
 <td><code>\|</code> (bitwise)</td>
 <td>Left to right</td>
 </tr>
 <tr>
-<td>5</td>
+<td>6</td>
 <td><code>^</code></td>
 <td>Left to right</td>
 </tr>
 <tr>
-<td>6</td>
+<td>7</td>
 <td><code>&amp;</code> (bitwise)</td>
 <td>Left to right</td>
 </tr>
 <tr>
-<td>7</td>
+<td>8</td>
 <td><code>==</code> <code>!=</code></td>
 <td>Left to right</td>
 </tr>
 <tr>
-<td>8</td>
+<td>9</td>
 <td><code>&lt;</code> <code>&gt;</code> <code>&lt;=</code> <code>&gt;=</code></td>
 <td>Left to right</td>
 </tr>
 <tr>
-<td>9</td>
+<td>10</td>
 <td><code>&lt;&lt;</code> <code>&gt;&gt;</code></td>
 <td>Left to right</td>
 </tr>
 <tr>
-<td>10</td>
+<td>11</td>
 <td><code>+</code> <code>-</code></td>
 <td>Left to right</td>
 </tr>
 <tr>
-<td>11</td>
+<td>12</td>
 <td><code>*</code> <code>/</code> <code>%</code></td>
 <td>Left to right</td>
 </tr>
 <tr>
-<td>12</td>
+<td>13</td>
 <td>Unary <code>!</code> <code>-</code> <code>+</code> <code>~</code> <code>&amp;</code> <code>*</code> <code>(TYPE)</code></td>
 <td>Right to left</td>
 </tr>
 <tr>
-<td>13</td>
+<td>14</td>
 <td><code>()</code> <code>[]</code> <code>.</code> <code>?</code> (postfix)</td>
 <td>Left to right</td>
 </tr>

@@ -23,6 +23,7 @@ void BinaryExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void UnaryExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void IncDecExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void QuestionExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
+void TernaryExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void CallExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void IndexExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void MemberExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }

@@ -218,9 +218,10 @@ Precedence, lowest to highest. Each level is left-associative unless noted.
 
 ```
 expr            = assignment
-assignment      = logical-or ( assign-op assignment )?            // right-assoc
+assignment      = ternary ( assign-op assignment )?              // right-assoc
 assign-op       = '=' | '+=' | '-=' | '*=' | '/=' | '%='
                 | '&=' | '|=' | '^=' | '<<=' | '>>='              // compound forms desugar
+ternary         = logical-or ( '?' expr ':' ternary )?           // right-assoc
 logical-or      = logical-and ( '||' logical-and )*
 logical-and     = bitwise-or  ( '&&' bitwise-or  )*
 bitwise-or      = bitwise-xor ( '|'  bitwise-xor )*
@@ -244,9 +245,11 @@ postfix-op      = '(' arg-list? ')'          // call
 arg-list        = expr (',' expr)*
 ```
 
-Eskiu has no `a ? b : c` conditional operator. `?` is the postfix
-error-propagation operator applied to a `Result` (it returns early on the error
-variant). Assignment is the lowest-precedence, right-associative level.
+`?` is overloaded: `cond ? a : b` is the conditional (ternary) operator, while a
+postfix `expr?` (with no matching `:` ahead) is the Result error-propagation operator
+(it returns early on the error variant). The parser disambiguates by scanning for a
+same-level `:` after the `?`. Assignment is the lowest-precedence, right-associative
+level; the ternary sits just above it, also right-associative.
 
 ```
 primary =

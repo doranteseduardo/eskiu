@@ -143,6 +143,7 @@ void consume_tclose(Parser* p) {
 *ExprNode parse_assignment(Parser* p);
 *ExprNode parse_expr(Parser* p);
 *ExprNode parse_postfix(Parser* p);
+int ternary_colon_ahead(Parser* p);
 string parse_type(Parser* p);
 *ExprNode parse_struct_init(Parser* p, string name);
 *StmtNode parse_stmt(Parser* p);
@@ -637,7 +638,8 @@ string lambda_sig(string ret, *DeclNode d) {
             *ExprNode mb = alloc<ExprNode>(1);
             mb.kind = EK_MEMBER; mb.a = e; mb.sval = tok_text(p.src, m);
             e = mb;
-        } else if (t == QUESTION) {
+        } else if (t == QUESTION && ternary_colon_ahead(p) == 0) {
+            // Postfix propagation `expr?` — only when this `?` doesn't open a ternary.
             p_adv(p);
             *ExprNode q = alloc<ExprNode>(1);
             q.kind = EK_QUESTION; q.a = e;
@@ -784,8 +786,45 @@ string lambda_sig(string ret, *DeclNode d) {
     return e;
 }
 
+// True if the `?` at the current position opens a ternary (a matching `:` follows at
+// the same bracket nesting before a terminator) rather than postfix propagation.
+int ternary_colon_ahead(Parser* p) {
+    int depth = 0;
+    int i = p.pos + 1;
+    int n = List_len<Token>(&p.toks);
+    while (i < n) {
+        int t = List_get<Token>(&p.toks, i).type;
+        if (t == LPAREN || t == LBRACKET || t == LBRACE) { depth = depth + 1; }
+        else if (t == RPAREN || t == RBRACKET || t == RBRACE) {
+            if (depth == 0) { return 0; }
+            depth = depth - 1;
+        } else if (depth == 0) {
+            if (t == COLON) { return 1; }
+            if (t == SEMICOLON || t == COMMA || t == EOF_TOKEN) { return 0; }
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+*ExprNode parse_ternary(Parser* p) {
+    *ExprNode cond = parse_or(p);
+    if (p_at(p) == QUESTION && ternary_colon_ahead(p) == 1) {
+        p_adv(p);                                      // '?'
+        *ExprNode thenE = parse_assignment(p);         // then-arm: a full expression
+        p_adv(p);                                      // ':'
+        *ExprNode elseE = parse_ternary(p);            // else-arm: right-associative
+        *ExprNode t = alloc<ExprNode>(1);
+        t.kind = EK_TERNARY; t.a = cond; t.b = thenE;
+        List_init<*ExprNode>(&t.kids, 1);
+        List_push<*ExprNode>(&t.kids, elseE);
+        return t;
+    }
+    return cond;
+}
+
 *ExprNode parse_assignment(Parser* p) {
-    *ExprNode left = parse_or(p);
+    *ExprNode left = parse_ternary(p);
     int t = p_at(p);
     if (is_compound(t) == 1) {
         string base = compound_base(t);
