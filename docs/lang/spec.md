@@ -73,7 +73,7 @@ if  else  for  while  do  in  switch  case  default  match
 return  break  continue
 true  false  null
 alloc_with
-const  volatile  static  escaping  asm
+const  volatile  static  escaping  must_use  asm
 thread_create  thread_join
 try  catch  finally  throw  defer  errdefer
 async  await
@@ -720,6 +720,24 @@ int bad(int x) {
     if (x < 0) { return 0; }
 }                              // error: missing return (x >= 0 falls through)
 ```
+
+### 6.1.1 must_use
+
+Prefixing a function with `must_use` makes discarding its result a compile error. It
+catches the "called for a value, then dropped it" bug, most importantly a leaked
+allocation. The standard library marks `alloc` this way:
+
+```eskiu
+must_use *T dup<T>(T* p) { ... }
+
+dup(&x);              // error: result of 'dup' must be used (it is marked must_use)
+let y = dup(&x);      // ok
+
+alloc<uint8>(64);     // error: the allocation is leaked (alloc is must_use)
+```
+
+A call is "used" if its result is assigned, passed as an argument, returned, or otherwise
+consumed; only a bare call statement discards it.
 
 ### 6.2 Void Functions
 

@@ -128,7 +128,7 @@
         },
         {
           "name": "storage.modifier.eskiu",
-          "match": "\\b(const|volatile|static|escaping|async)\\b"
+          "match": "\\b(const|volatile|static|escaping|must_use|async)\\b"
         },
         {
           "name": "keyword.other.eskiu",

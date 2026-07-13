@@ -1,0 +1,8 @@
+// EXPECT-ERROR: must be used
+// A `must_use` function's result may not be discarded: `alloc<T>` is marked must_use,
+// so calling it as a bare statement (a leaked allocation) is an error.
+import <mem>;
+int main() {
+    alloc<uint8>(64);
+    return 0;
+}
