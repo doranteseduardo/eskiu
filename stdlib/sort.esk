@@ -1,0 +1,63 @@
+// sort.esk: generic in-place sort and binary search over a *T array.
+//
+//   import <sort>;
+//   int cmp_int(*int a, *int b) { if (*a < *b) { return -1; } if (*a > *b) { return 1; } return 0; }
+//   sort<int>(data, n, cmp_int);
+//   int i = bsearch<int>(data, n, 42, cmp_int);   // index, or -1
+//
+// The comparison function is called as cmp(&x, &y) and must return a negative
+// value when x sorts before y, zero when they are equal, and a positive value
+// when x sorts after y (the C qsort/bsearch convention). It works on List<T>
+// data too: pass the list's `.data` pointer and `.size`.
+//
+// The algorithm is heapsort: in place, no extra allocation, and a guaranteed
+// O(n log n) worst case (no quicksort pathological input). It is not stable.
+
+import <mem>;
+
+// Restore the max-heap property at `root` within the first `n` elements.
+void heap_sift<T>(*T a, int root, int n, fn(*T, *T)->int cmp) {
+    while (1) {
+        int child = 2 * root + 1;
+        if (child >= n) { return; }
+        if (child + 1 < n && cmp(&a[child], &a[child + 1]) < 0) { child = child + 1; }
+        if (cmp(&a[root], &a[child]) >= 0) { return; }
+        T tmp = a[root];
+        a[root] = a[child];
+        a[child] = tmp;
+        root = child;
+    }
+}
+
+// Sort the first `n` elements of `a` ascending by `cmp`.
+void sort<T>(*T a, int n, fn(*T, *T)->int cmp) {
+    if (n < 2) { return; }
+    int i = n / 2;
+    while (i > 0) {
+        i = i - 1;
+        heap_sift<T>(a, i, n, cmp);
+    }
+    int end = n;
+    while (end > 1) {
+        end = end - 1;
+        T tmp = a[0];
+        a[0] = a[end];
+        a[end] = tmp;
+        heap_sift<T>(a, 0, end, cmp);
+    }
+}
+
+// Find `key` in the first `n` elements of `a`, which must already be sorted by
+// the same `cmp`. Returns the index of a matching element, or -1 if not found.
+int bsearch<T>(*T a, int n, T key, fn(*T, *T)->int cmp) {
+    int lo = 0;
+    int hi = n;
+    while (lo < hi) {
+        int mid = lo + (hi - lo) / 2;
+        int c = cmp(&a[mid], &key);
+        if (c == 0) { return mid; }
+        if (c < 0) { lo = mid + 1; }
+        else { hi = mid; }
+    }
+    return -1;
+}
