@@ -62,6 +62,8 @@ public:
     // resumable state machine by the async transform. Declared return type stays
     // in `returnType` (the inner T).
     bool isAsync = false;
+    // `must_use`: discarding a call to this function (a bare call statement) is an error.
+    bool mustUse = false;
 
     FunctionDecl(const std::string& name, const std::string& returnType,
                  const std::vector<std::pair<std::string, std::string>>& params,

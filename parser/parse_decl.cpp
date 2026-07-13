@@ -25,6 +25,12 @@ DeclPtr Parser::parseDeclaration() {
             if (auto* fd = dynamic_cast<FunctionDecl*>(decl.get())) fd->isAsync = true;
             return decl;
         }
+        // `must_use T f(...) { ... }` — discarding a call to f is an error.
+        if (match(TokenType::MUST_USE)) {
+            auto decl = parseFunctionDecl();
+            if (auto* fd = dynamic_cast<FunctionDecl*>(decl.get())) fd->mustUse = true;
+            return decl;
+        }
         if (match(TokenType::STRUCT)) {
             return parseStructDecl();
         }

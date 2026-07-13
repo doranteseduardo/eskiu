@@ -50,7 +50,7 @@ void ASTPrinter::printTypeParams(const std::vector<std::string>& typeParams,
 
 void ASTPrinter::visit(FunctionDecl* node) {
     println("FunctionDecl: " + node->name + " -> " + node->returnType +
-            (node->isAsync ? " (async)" : ""));
+            (node->isAsync ? " (async)" : "") + (node->mustUse ? " (must_use)" : ""));
     indentLevel++;
 
     printTypeParams(node->typeParams, node->constraints);
