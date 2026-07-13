@@ -1,9 +1,13 @@
-// time.esk — wall-clock and monotonic time, plus sleep.
+// time.esk: wall-clock and monotonic time, sleep, and the UTC civil calendar.
 //
 //   import <time>;
 //   int64 t0 = time_monotonic_ms();
 //   sleep_ms(50);
 //   int64 dt = time_monotonic_ms() - t0;   // ~50
+
+// The calendar helpers at the bottom build ISO 8601 strings, so <time> pulls in
+// <string>; the clock functions above have no such dependency.
+import <string>;
 
 // POSIX timespec. On 64-bit macOS and Linux both fields are 64-bit.
 struct timespec {
@@ -49,4 +53,101 @@ void sleep_ms(int64 ms) {
     req.tv_sec  = ms / 1000;
     req.tv_nsec = (ms % 1000) * 1000000;
     nanosleep(&req, (*timespec)0);
+}
+
+// ── Civil calendar (UTC) ────────────────────────────────────────────────────
+//
+//   import <time>; import <string>;
+//   let dt: DateTime; time_to_utc(time_now_s(), &dt);
+//   let s: String; String_init(&s, 24);
+//   time_format_iso(&dt, &s);        // "2026-07-13T18:30:00Z"
+//
+// Conversions use Howard Hinnant's days<->civil algorithm, which is exact for
+// the proleptic Gregorian calendar over the whole int64 range. UTC only; there
+// is no timezone or leap-second handling.
+
+struct DateTime {
+    int year;
+    int month;      // 1..12
+    int day;        // 1..31
+    int hour;       // 0..23
+    int min;        // 0..59
+    int sec;        // 0..59
+    int wday;       // 0=Sunday .. 6=Saturday
+    int yday;       // 0..365, days since Jan 1
+}
+
+// Days since the Unix epoch for a civil (y, m, d). Inverse of the split below.
+int64 time_days_from_civil(int64 y, int m, int d) {
+    if (m <= 2) { y = y - 1; }
+    int64 era;
+    if (y >= 0) { era = y / 400; } else { era = (y - 399) / 400; }
+    int64 yoe = y - era * 400;
+    int64 mp;
+    if (m > 2) { mp = m - 3; } else { mp = m + 9; }
+    int64 doy = (153 * mp + 2) / 5 + d - 1;
+    int64 doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    return era * 146097 + doe - 719468;
+}
+
+// Split an epoch-seconds timestamp (UTC) into its calendar fields.
+void time_to_utc(int64 t, DateTime* dt) {
+    int64 days = t / 86400;
+    int64 secs = t % 86400;
+    if (secs < 0) { secs = secs + 86400; days = days - 1; }
+    dt.hour = (int)(secs / 3600);
+    dt.min = (int)((secs % 3600) / 60);
+    dt.sec = (int)(secs % 60);
+
+    int64 wd = (days % 7 + 4) % 7;          // 1970-01-01 was a Thursday
+    if (wd < 0) { wd = wd + 7; }
+    dt.wday = (int)wd;
+
+    int64 z = days + 719468;
+    int64 era;
+    if (z >= 0) { era = z / 146097; } else { era = (z - 146096) / 146097; }
+    int64 doe = z - era * 146097;
+    int64 yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    int64 y = yoe + era * 400;
+    int64 doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    int64 mp = (5 * doy + 2) / 153;
+    dt.day = (int)(doy - (153 * mp + 2) / 5 + 1);
+    if (mp < 10) { dt.month = (int)(mp + 3); } else { dt.month = (int)(mp - 9); }
+    if (dt.month <= 2) { dt.year = (int)(y + 1); } else { dt.year = (int)y; }
+
+    dt.yday = (int)(days - time_days_from_civil(dt.year, 1, 1));
+}
+
+// The epoch-seconds timestamp (UTC) for a DateTime's y/m/d/h/m/s fields.
+int64 time_from_utc(DateTime* dt) {
+    int64 days = time_days_from_civil(dt.year, dt.month, dt.day);
+    return days * 86400 + dt.hour * 3600 + dt.min * 60 + dt.sec;
+}
+
+// Append `v` as `width` zero-padded decimal digits to `out` (helper).
+void time_pad(String* out, int v, int width) {
+    let tmp: String;
+    String_init(&tmp, 8);
+    String_from_int(&tmp, v);
+    int64 have = String_len(&tmp);
+    int64 pad = (int64)width - have;
+    while (pad > 0) { String_push(out, '0'); pad = pad - 1; }
+    String_concat(out, &tmp);
+    String_free(&tmp);
+}
+
+// Append the ISO 8601 UTC form "YYYY-MM-DDTHH:MM:SSZ" to `out`.
+void time_format_iso(DateTime* dt, String* out) {
+    time_pad(out, dt.year, 4);
+    String_push(out, '-');
+    time_pad(out, dt.month, 2);
+    String_push(out, '-');
+    time_pad(out, dt.day, 2);
+    String_push(out, 'T');
+    time_pad(out, dt.hour, 2);
+    String_push(out, ':');
+    time_pad(out, dt.min, 2);
+    String_push(out, ':');
+    time_pad(out, dt.sec, 2);
+    String_push(out, 'Z');
 }
