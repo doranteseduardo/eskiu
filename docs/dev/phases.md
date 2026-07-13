@@ -113,7 +113,7 @@ Everything in the feature table above ships in v0.1.0: the full systems language
 
 The theme is making Eskiu a practical language for concurrent backend services:
 real async I/O, an HTTP stack, and the everyday stdlib + tooling that adoption
-needs. v0.1.0 is frozen at its tag; v0.2.0 shipped the items below. The current release is **v0.5.0**: a basic-C surface release (`do`/`while`, `++`/`--`, array initializers, `static` locals, multidimensional arrays, the ternary `?:`) over the v0.4 correctness release and the v0.3 self-hosting milestone (see the sections below).
+needs. v0.1.0 is frozen at its tag; v0.2.0 shipped the items below. The current release is **v0.6.0**: a memory-safety + stdlib release (`defer`/`errdefer`, slices `T[]`, `must_use`, `--safe`, `?*T`, plus the `<random>`/`<regex>`/`<sort>`/`<url>`/`<uuid>` modules and a UTC calendar in `<time>`) over the v0.5 basic-C surface release and the v0.3 self-hosting milestone (see the sections below).
 
 Tracking checklist (checked = landed on `develop`).
 
@@ -272,11 +272,11 @@ with parity gates (behavioral + byte-exact printer) green including the bootstra
 - [x] Ternary conditional `cond ? a : b` (`TernaryExpr`): one arm evaluated, arms take a common type; disambiguated from postfix `?` propagation by a same-level `:` scan.
 - [x] Fix: `switch` on a sub-`int` subject (widen subject + case constants to a common type).
 
-### v0.6.0: Memory safety (on develop, queued for release)
+### v0.6.0: Memory safety + standard library (SHIPPED)
 
 A Zig-flavored safety pass: compile-time checks and opt-in runtime guards that fit the
-C-faithful, arena-first model (no borrow checker, ownership, or GC). Each landed as
-granular per-layer commits on `develop` and is queued in CHANGELOG `[Unreleased]`.
+C-faithful, arena-first model (no borrow checker, ownership, or GC), plus a batch of
+practical stdlib modules. Each landed as granular per-layer commits.
 
 - [x] `defer` (`DeferStmt`): run a statement at enclosing-block exit, LIFO, on every path out (fall-through, `return`, `break`, `continue`, propagated `?`). Codegen cleanup-stack mechanism (not a desugar); also fixed a latent `finally`-skipped-on-early-return bug. Both compilers.
 - [x] `errdefer`: the error-only variant, runs only when the function exits through a propagated `?`. Both compilers.
@@ -284,6 +284,7 @@ granular per-layer commits on `develop` and is queued in CHANGELOG `[Unreleased]
 - [x] `must_use` function qualifier: the compiler rejects a call whose result is discarded; `stdlib` `alloc` is marked `must_use` so a forgotten allocation is a compile error. Both compilers.
 - [x] `--safe` build mode (C++ only): opt-in runtime bounds check on array and slice indexing, trapping on violation; off by default so release builds pay nothing. Self-host mirror on the promotion track.
 - [x] Checked nullable pointer `?*T` (C++ only): bare `*T` stays C-nullable, `?*T` cannot be dereferenced/indexed/membered until proven non-null; `if (q != null)` narrows it; `*T` widens to `?*T` but not the reverse. Lowered as a bare pointer (zero runtime cost). Self-host mirror on the promotion track.
+- [x] Stdlib: `<random>` (xoshiro256\*\* PRNG), `<regex>` (Thompson-NFA / Pike VM with capture groups, linear-time), `<sort>` (generic heapsort + binary search), `<url>` (RFC 3986 percent-encoding + query parsing), `<uuid>` (RFC 4122 v4), and a UTC civil calendar in `<time>` (`DateTime`, `time_to_utc`/`time_from_utc`, ISO 8601 formatting).
 
 ### v1.0: Production-ready
 

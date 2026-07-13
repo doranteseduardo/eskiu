@@ -8,7 +8,7 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
-## [Unreleased]
+## [0.6.0], 2026-07-13
 
 ### Added
 - **`<sort>` stdlib module.** Generic in-place `sort<T>(a, n, cmp)` (heapsort, a
