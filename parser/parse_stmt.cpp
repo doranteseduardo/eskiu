@@ -153,6 +153,7 @@ StmtPtr Parser::parseBlockStatement() {
         if (check(TokenType::CONST) ||
             check(TokenType::VOLATILE) ||
             check(TokenType::STATIC) ||
+            check(TokenType::QUESTION) ||   // `?*T q = ...` nullable-pointer local
             check(TokenType::LET) ||
             check(TokenType::INT) || check(TokenType::FLOAT) ||
             check(TokenType::DOUBLE) || check(TokenType::BOOL) ||

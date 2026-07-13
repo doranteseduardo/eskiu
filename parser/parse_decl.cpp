@@ -198,7 +198,7 @@ DeclPtr Parser::parseDeclaration() {
             check(TokenType::INT) || check(TokenType::FLOAT) || check(TokenType::DOUBLE) ||
             check(TokenType::BOOL) || check(TokenType::CHAR) || check(TokenType::STRING) ||
             check(TokenType::VOID) || check(TokenType::STAR) || check(TokenType::IDENT) ||
-            check(TokenType::FN) ||
+            check(TokenType::FN) || check(TokenType::QUESTION) ||   // `?*T` nullable pointer
             check(TokenType::INT8) || check(TokenType::INT16) || check(TokenType::INT32) ||
             check(TokenType::INT64) || check(TokenType::UINT) || check(TokenType::UINT8) ||
             check(TokenType::UINT16) || check(TokenType::UINT32) || check(TokenType::UINT64)) {
