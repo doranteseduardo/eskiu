@@ -71,6 +71,7 @@ public:
     void visit(ThreadJoinStmt* node) override;
     void visit(ThrowStmt* node) override;
     void visit(TryStmt* node) override;
+    void visit(DeferStmt* node) override;
     void visit(EnumDecl* node) override;
     void visit(TypeAliasDecl* node) override;
 

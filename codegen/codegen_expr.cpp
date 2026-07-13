@@ -312,12 +312,15 @@ void CodeGen::visit(QuestionExpr* node) {
     builder->CreateCondBr(isErr, errBB, contBB);
 
     // Error path: propagate the Result unchanged out of the enclosing function.
+    // This is an early function exit, so run pending defers/finally first.
     builder->SetInsertPoint(errBB);
     llvm::Value* whole = builder->CreateLoad(st, tmp, "try.whole");
     if (currentSretParam != nullptr) {
         builder->CreateStore(whole, currentSretParam);
+        runCleanupsToDepth(0);
         builder->CreateRetVoid();
     } else {
+        runCleanupsToDepth(0);
         builder->CreateRet(whole);
     }
 

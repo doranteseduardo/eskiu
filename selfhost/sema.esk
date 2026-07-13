@@ -719,6 +719,10 @@ void sema_stmt(Sema* s, *StmtNode st) {
         sema_stmt(s, st.s2);               // finally
         return;
     }
+    if (k == SK_DEFER) {
+        sema_stmt(s, st.s1);               // deferred body
+        return;
+    }
     if (k == SK_ASM) {
         int i = 0;
         int n = List_len<*StmtNode>(&st.items);

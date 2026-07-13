@@ -17,7 +17,7 @@ enum StmtKind {
     SK_BLOCK, SK_RETURN, SK_IF, SK_WHILE, SK_FOR, SK_FORIN,
     SK_BREAK, SK_CONTINUE, SK_EXPR, SK_VARDECL,
     SK_SWITCH, SK_CASE, SK_MATCH, SK_ARM, SK_TRY, SK_CATCH,
-    SK_THROW, SK_THREADJOIN, SK_ASM, SK_ASMINPUT, SK_DOWHILE
+    SK_THROW, SK_THREADJOIN, SK_ASM, SK_ASMINPUT, SK_DOWHILE, SK_DEFER
 }
 enum ExprKind {
     EK_LITERAL, EK_IDENT, EK_BINARY, EK_UNARY,
@@ -387,6 +387,11 @@ void print_stmt(*StmtNode s, int d) {
     if (s.kind == SK_CATCH) {
         pind(d);
         printf("CatchClause: %s\n", s.name);
+        print_stmt(s.s1, d + 1);
+        return;
+    }
+    if (s.kind == SK_DEFER) {
+        pline(d, "DeferStmt");
         print_stmt(s.s1, d + 1);
         return;
     }

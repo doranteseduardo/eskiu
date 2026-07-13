@@ -21,25 +21,49 @@
 // are shared with the type checker; see template_utils.h.
 #include "../template_utils.h"
 
+bool CodeGen::blockTerminated() {
+    return builder->GetInsertBlock() && builder->GetInsertBlock()->getTerminator();
+}
+
+void CodeGen::runCleanupsToDepth(size_t depth) {
+    // Emit each pending cleanup body, innermost frame first and LIFO within a frame.
+    for (size_t i = cleanupScopes.size(); i-- > depth; ) {
+        auto& frame = cleanupScopes[i];
+        for (size_t j = frame.size(); j-- > 0; ) {
+            if (blockTerminated()) return;
+            frame[j]->accept(this);
+        }
+    }
+}
+
 void CodeGen::visit(BlockStmt* node) {
-    // Generate code for items in the order they appear in the block
+    cleanupScopes.emplace_back();                    // this block's cleanup frame
     for (auto& item : node->items) {
         // Once this block has a terminator (a return/break/continue/throw was
         // emitted), the rest is unreachable. Emitting into a terminated block
         // yields invalid IR ("terminator in the middle of a basic block"), so
-        // stop here — the dead code is simply dropped.
-        if (builder->GetInsertBlock() && builder->GetInsertBlock()->getTerminator())
+        // stop here — the dead code is simply dropped. (An early exit already ran
+        // this frame's cleanups via runCleanupsToDepth before terminating.)
+        if (blockTerminated())
             break;
         if (std::holds_alternative<DeclPtr>(item)) {
-            // Extract declaration and visit it
             auto decl = std::get<DeclPtr>(item);
             decl->accept(this);
         } else if (std::holds_alternative<StmtPtr>(item)) {
-            // Extract statement and visit it
             auto stmt = std::get<StmtPtr>(item);
             stmt->accept(this);
         }
     }
+    // Normal fall-through: run this block's deferred cleanups (LIFO).
+    if (!blockTerminated())
+        runCleanupsToDepth(cleanupScopes.size() - 1);
+    cleanupScopes.pop_back();
+}
+
+void CodeGen::visit(DeferStmt* node) {
+    // Register the body to run at scope exit; emitted by runCleanupsToDepth.
+    if (node->body && !cleanupScopes.empty())
+        cleanupScopes.back().push_back(node->body.get());
 }
 
 void CodeGen::visit(IfStmt* node) {
@@ -104,11 +128,14 @@ void CodeGen::visit(WhileStmt* node) {
     builder->SetInsertPoint(bodyBlock);
     llvm::BasicBlock* prevBreak    = breakTarget;
     llvm::BasicBlock* prevContinue = continueTarget;
+    size_t prevBreakCD = breakCleanupDepth, prevContinueCD = continueCleanupDepth;
     breakTarget    = exitBlock;
     continueTarget = loopBlock;
+    breakCleanupDepth = continueCleanupDepth = cleanupScopes.size();
     node->body->accept(this);
     breakTarget    = prevBreak;
     continueTarget = prevContinue;
+    breakCleanupDepth = prevBreakCD; continueCleanupDepth = prevContinueCD;
     if (!builder->GetInsertBlock()->getTerminator())
         builder->CreateBr(loopBlock);
 
@@ -125,11 +152,14 @@ void CodeGen::visit(DoWhileStmt* node) {
 
     llvm::BasicBlock* prevBreak    = breakTarget;
     llvm::BasicBlock* prevContinue = continueTarget;
+    size_t prevBreakCD = breakCleanupDepth, prevContinueCD = continueCleanupDepth;
     breakTarget    = exitBlock;
     continueTarget = condBlock;   // `continue` re-tests the condition
+    breakCleanupDepth = continueCleanupDepth = cleanupScopes.size();
     node->body->accept(this);
     breakTarget    = prevBreak;
     continueTarget = prevContinue;
+    breakCleanupDepth = prevBreakCD; continueCleanupDepth = prevContinueCD;
     if (!builder->GetInsertBlock()->getTerminator())
         builder->CreateBr(condBlock);
 
@@ -170,11 +200,14 @@ void CodeGen::visit(ForStmt* node) {
     builder->SetInsertPoint(bodyBlock);
     llvm::BasicBlock* prevBreak    = breakTarget;
     llvm::BasicBlock* prevContinue = continueTarget;
+    size_t prevBreakCD = breakCleanupDepth, prevContinueCD = continueCleanupDepth;
     breakTarget    = exitBlock;
     continueTarget = stepBlock;   // continue jumps to the step
+    breakCleanupDepth = continueCleanupDepth = cleanupScopes.size();
     node->body->accept(this);
     breakTarget    = prevBreak;
     continueTarget = prevContinue;
+    breakCleanupDepth = prevBreakCD; continueCleanupDepth = prevContinueCD;
     if (!builder->GetInsertBlock()->getTerminator())
         builder->CreateBr(stepBlock);
 
@@ -284,11 +317,15 @@ void CodeGen::visit(ReturnStmt* node) {
             llvm::Value* retValue = evaluateExpr(node->value);
             builder->CreateStore(retValue, currentSretParam);
         }
+        runCleanupsToDepth(0);          // run pending defers/finally before leaving
         builder->CreateRetVoid();
     } else if (node->value) {
+        // Evaluate the return value first, THEN run cleanups (C defer order), then ret.
         llvm::Value* retValue = coerceRetVal(evaluateExpr(node->value));
+        runCleanupsToDepth(0);
         builder->CreateRet(retValue);
     } else {
+        runCleanupsToDepth(0);
         builder->CreateRetVoid();
     }
 }
@@ -296,6 +333,7 @@ void CodeGen::visit(ReturnStmt* node) {
 void CodeGen::visit(BreakStmt* node) {
     if (!breakTarget)
         throw std::runtime_error("break used outside of a loop");
+    runCleanupsToDepth(breakCleanupDepth);   // defers inside the loop body run
     builder->CreateBr(breakTarget);
 }
 
@@ -306,6 +344,7 @@ void CodeGen::visit(ExprStmt* node) {
 void CodeGen::visit(ContinueStmt* node) {
     if (!continueTarget)
         throw std::runtime_error("continue used outside of a loop");
+    runCleanupsToDepth(continueCleanupDepth);
     builder->CreateBr(continueTarget);
 }
 

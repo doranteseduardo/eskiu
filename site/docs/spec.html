@@ -125,7 +125,7 @@ true  false  null
 alloc_with
 const  volatile  static  escaping  asm
 thread_create  thread_join
-try  catch  finally  throw
+try  catch  finally  throw  defer
 async  await
 sizeof  free_closure  union  enum
 </code></pre>
@@ -1222,6 +1222,33 @@ condition).</p>
     printf(&quot;%d\n&quot;, i);   // prints odd numbers only
 }
 </code></pre>
+<h3 id="78-defer">7.8 defer</h3>
+<p><code>defer stmt;</code> schedules <code>stmt</code> (a single statement or a <code>{ ... }</code> block) to run when the
+enclosing block is left. It is the ergonomic way to pair a resource acquisition with its
+release: write the cleanup right next to the thing it cleans up, and it runs on <strong>every</strong>
+path out of the block, so you never leak on an early return or a propagated error.</p>
+<pre><code class="language-eskiu">int process(string path) {
+    *uint8 buf = alloc&lt;uint8&gt;(4096);
+    defer free(buf);                 // runs however this function exits
+
+    if (path[0] == 0) { return -1; } // buf freed
+    int n = read_into(buf)?;         // buf freed if the `?` propagates an error
+    return n;                        // buf freed
+}
+</code></pre>
+<p>Rules:</p>
+<ul>
+<li>Deferred statements run in <strong>LIFO</strong> order: the last one registered runs first.</li>
+<li><code>defer</code> runs on fall-through, <code>return</code>, <code>break</code>, <code>continue</code>, and <code>?</code>-propagation. It is
+  block-scoped, so a <code>defer</code> in a loop body runs at the end of <strong>each iteration</strong>.</li>
+<li>The deferred statement is evaluated when the block is left (it reads variables' values
+  at exit time), after any <code>return</code> value has been computed.</li>
+<li>A defer body may not <code>return</code>, or <code>break</code>/<code>continue</code> out of itself (that would jump out
+  of the cleanup); doing so is a compile error.</li>
+</ul>
+<p><code>defer</code> complements <code>try</code>/<code>finally</code> (§10): <code>finally</code> is for catch-and-cleanup around a
+block, while <code>defer</code> colocates a one-off release with its acquisition. For cleanup that
+must also run when an exception unwinds past the scope, use <code>try</code>/<code>finally</code>.</p>
 <hr>
 <h2 id="8-structs">8. Structs</h2>
 <h3 id="81-declaration-with-fields">8.1 Declaration with Fields</h3>

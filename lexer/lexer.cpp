@@ -56,6 +56,7 @@ std::unordered_map<std::string, TokenType> Lexer::keywords = {
     {"catch", TokenType::CATCH},
     {"finally", TokenType::FINALLY},
     {"throw",    TokenType::THROW},
+    {"defer",    TokenType::DEFER},
     {"continue", TokenType::CONTINUE},
     {"int8",   TokenType::INT8},
     {"int16",  TokenType::INT16},

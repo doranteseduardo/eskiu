@@ -49,6 +49,7 @@ void ThreadCreateExpr::accept(ASTVisitor* v)     { v->visit(this); }
 void ThreadJoinStmt::accept(ASTVisitor* v)       { v->visit(this); }
 void ThrowStmt::accept(ASTVisitor* v)            { v->visit(this); }
 void TryStmt::accept(ASTVisitor* v)              { v->visit(this); }
+void DeferStmt::accept(ASTVisitor* v)            { v->visit(this); }
 void EnumDecl::accept(ASTVisitor* v)             { v->visit(this); }
 void TypeAliasDecl::accept(ASTVisitor* v)        { v->visit(this); }
 

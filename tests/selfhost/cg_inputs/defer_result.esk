@@ -1,0 +1,18 @@
+import <result>;
+import <mem>;
+extern int printf(string fmt, ...);
+
+// defer with a template/sret return: the cleanup must be emitted in this function,
+// not in the instantiated Ok/Err body (regression for the nested-function fix).
+Result<int, string> f(int x) {
+    *uint8 buf = alloc<uint8>(64);
+    defer free((*void)buf);
+    if (x < 0) { return Err<int, string>("neg"); }
+    return Ok<int, string>(x + 1);
+}
+int main() {
+    Result<int, string> a = f(4);
+    Result<int, string> b = f(-1);
+    printf("%d %d %d\n", a.ok, a.value, b.ok);   // 1 5 0
+    return 0;
+}

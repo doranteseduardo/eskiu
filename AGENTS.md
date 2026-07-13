@@ -91,7 +91,8 @@ corpus). v0.3.1 added `-O0`/`-O1`/`-O2`/`-O3` optimization levels plus correctne
 | Predefined macros | `main.cpp` seeds the shared macro table with `__APPLE__`/`__linux__` (host OS) for `#ifdef` portability |
 | `<net>` sockets | `stdlib/net.esk`: POSIX socket `extern`s + portable `packed sockaddr_in` (`#ifdef __APPLE__`) + `net_*` helpers (incl. `net_accept_addr` → peer IPv4). No compiler support needed beyond FFI |
 | `thread_create` / `thread_join` | Language keywords; fat-pointer maps to `pthread_create(fn, env)` |
-| `try` / `catch` / `finally` / `throw` | LLVM `invoke`/`landingpad` + `__gxx_personality_v0`; link `-lc++` |
+| `try` / `catch` / `finally` / `throw` | LLVM `invoke`/`landingpad` + `__gxx_personality_v0`; link `-lc++`. `finally` runs on fall-through, exception unwind, AND early `return`/`break`/`continue`/`?` from the body (via the cleanup stack, fixed alongside `defer`) |
+| `defer` | `defer stmt;` (`DeferStmt`): runs at enclosing-block exit, LIFO, on fall-through/`return`/`break`/`continue`/`?`. Codegen **cleanup stack** (`cleanupScopes` C++ / `cleanups`+`loop_cldepth` self-host): each block pushes a frame, exits emit pending frames before the branch/ret; a `try`'s `finally` registers as a cleanup for its body. Sema rejects control-flow escaping a defer body. NOT run on an uncaught throw unwinding past a bare defer (use `try`/`finally`) |
 | Inline assembly | `asm("cli")` simple; `asm("op" :: "r"(x) : "mem")` extended |
 | `volatile` | `volatile let reg: *uint8 = addr;`: MMIO-safe |
 | `static` | `static int c = 0;`: a local with one instance that persists across calls (C storage). Codegen emits a private module global instead of an alloca (`VarDecl::isStatic`). Sema requires a constant initializer and rejects `static` on a global |

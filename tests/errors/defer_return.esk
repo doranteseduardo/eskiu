@@ -1,0 +1,7 @@
+// EXPECT-ERROR: 'return' is not allowed inside a defer body
+// A defer body runs during scope-exit cleanup, so it cannot itself return.
+int f() {
+    defer { return 1; }
+    return 0;
+}
+int main() { return f(); }

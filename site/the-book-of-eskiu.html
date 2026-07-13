@@ -390,6 +390,7 @@ pre.code-block {
 <a href="#sec-19-1" class="toc-sec">19.1 The ownership principle</a>
 <a href="#sec-19-2" class="toc-sec">19.2 Struct ownership</a>
 <a href="#sec-19-3" class="toc-sec">19.3 Early return cleanup</a>
+<a href="#sec-19-4" class="toc-sec">19.4 defer: automatic cleanup</a>
 <a href="#chapter-20" class="toc-ch">Chapter 20</a>
 <a href="#sec-20-1" class="toc-sec">20.1 Reading a segfault</a>
 <a href="#sec-20-2" class="toc-sec">20.2 AddressSanitizer</a>
@@ -2140,6 +2141,23 @@ pre.code-block {
        free((*void)buf);    free((*void)out);
        return Ok&lt;int, string&gt;(1);
  }</pre>
+<h2 class="section" id="sec-19-4">19.4 defer: automatic cleanup</h2>
+<p>Repeating every <code>free</code> on every exit path is exactly how leaks creep in: add a new early return and forget one. <code>defer stmt;</code> schedules a statement to run when the enclosing block is left (on fall-through, <code>return</code>, <code>break</code>, <code>continue</code>, or a propagated <code>?</code> error). Write the cleanup once, next to the allocation, and it runs on every path out:</p>
+<pre class="code-block"> Result&lt;int, string&gt; process() {
+       *uint8 buf = alloc&lt;uint8&gt;(4096);
+       defer free((*void)buf);              // freed however we leave
+
+       if (read_data(buf) != 0) { return Err&lt;int, string&gt;(&quot;read failed&quot;); }
+
+       *uint8 out = alloc&lt;uint8&gt;(4096);
+       defer free((*void)out);              // freed however we leave
+
+       if (transform(buf, out) != 0) { return Err&lt;int, string&gt;(&quot;transform failed&quot;); }
+       write_result(out);
+       return Ok&lt;int, string&gt;(1);
+ }</pre>
+<p>The two versions do the same thing, but the second cannot leak: every exit, including a propagated <code>?</code> error, runs both defers. Deferred statements run in <strong>LIFO</strong> order (here <code>out</code> is freed before <code>buf</code>), and a <code>defer</code> inside a loop body runs at the end of each iteration. A defer body may not <code>return</code> or <code>break</code>/<code>continue</code> out of itself.</p>
+<p>Use <code>defer</code> for the common acquire-then-release pattern; reach for <code>try</code>/<code>finally</code> (10.2) when cleanup must also run as an exception unwinds past the scope.</p>
 <div class="chapter-start" id="chapter-20"><span class="chapter-label">Chapter 20</span>
 <h1 class="chapter-title">Debugging</h1><hr class="chapter-rule"></div>
 <p>Systems programs fail in ways that higher-level languages protect you from. A <code>null</code> dereference crashes with a segfault. A buffer overrun silently corrupts memory three functions away from the bug. This chapter covers the tools that find these bugs quickly.</p>

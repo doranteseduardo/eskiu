@@ -264,7 +264,14 @@ void CodeGen::visit(TryStmt* node) {
     // ── try body — all calls become invokes ───────────────────────────────
     llvm::BasicBlock* savedUnwind = unwindTarget;
     unwindTarget = lpadBB;
+    // Register `finally` as a cleanup for the body's duration, so an early exit
+    // (return/break/continue/`?`) from inside the body runs it — the normal
+    // fall-through and exception paths still emit it via finallyBB / the landingpad
+    // below, so we pop this frame WITHOUT running it here.
+    cleanupScopes.emplace_back();
+    if (node->finally) cleanupScopes.back().push_back(node->finally.get());
     if (node->body) node->body->accept(this);
+    cleanupScopes.pop_back();
     unwindTarget = savedUnwind;
     if (!builder->GetInsertBlock()->getTerminator())
         builder->CreateBr(finallyBB);
