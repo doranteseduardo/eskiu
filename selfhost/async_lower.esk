@@ -649,8 +649,7 @@ void al_transform(*Program prog, *DeclNode d, List<*DeclNode>* out) {
     int entry = al_newst(&c);                  // state 0
     int exit = al_lower_seq(&c, &dbody, entry);
     if (exit != 0 - 1) {
-        if (str_eq(d.ret_type, "void") == 1) { al_complete(&c, exit, al_int(0)); }
-        else { al_complete(&c, exit, al_int(0)); }
+        al_complete(&c, exit, al_int(0));
     }
 
     // resume fn: while (1) { if (fr.st==0){…} else if (fr.st==1){…} … else return; }

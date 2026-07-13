@@ -522,12 +522,6 @@ string cg_enum_val(Codegen* g, string name) {
     return "";
 }
 
-int cg_is_enum(Codegen* g, string name) {
-    int i = 0; int n = List_len<string>(&g.enum_names);
-    while (i < n) { if (cg_streq(List_get<string>(&g.enum_names, i), name) == 1) { return 1; } i = i + 1; }
-    return 0;
-}
-
 // Variant name of a match-arm label "Circle(r)" -> "Circle" (or the whole label if no '(').
 string cg_arm_var(string label) {
     int n = 0;
@@ -1360,7 +1354,7 @@ string cg_global_init(Codegen* g, *ExprNode e, string llty) {
     if (e.kind == EK_LITERAL) {
         if (e.lit_kind == LIT_NULL) { return "null"; }
         if (e.lit_kind == LIT_CHAR) { return cg_itoa((int)e.sval[0]); }
-        if (e.lit_kind == LIT_BOOL) { return e.sval; }      // "true"/"false"? -> below
+        if (e.lit_kind == LIT_BOOL) { return e.sval; }      // e.sval is "true"/"false"
         if (e.lit_kind == LIT_STRING) { return "zeroinitializer"; }   // ptr global; rare, defer
         return e.sval;                                       // integer literal
     }
@@ -2308,8 +2302,6 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
     v.op = "0"; v.ty = "i32"; return v;
 }
 
-// Initialize the struct at `slot` (a ptr) from a `Name { field: val, ... }` literal:
-// GEP to each field and store its value.
 // Construct an ADT enum value: alloca the `{ i32, [N x i64] }` tagged union, store the
 // variant tag, then write each payload field by viewing the storage as the variant's
 // field struct. `call` is the EK_CALL node carrying the argument exprs (null for a
