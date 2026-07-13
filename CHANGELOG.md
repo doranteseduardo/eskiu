@@ -26,6 +26,12 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   backing array. Supports `s[i]` (read/write), `s.len` (`int64`), passing by value, and
   `for (x in s)`. Because the length travels with the slice, a function taking `T[]` needs
   no separate count argument. Lowers to `{ ptr, i64 }`.
+- **Checked nullable pointers (`?*T`).** Opt-in null safety: a `?*T` cannot be
+  dereferenced, indexed, or member-accessed until it is proven non-null, and
+  `if (x != null) { ... }` narrows it to non-null in that branch. A `*T` widens to `?*T`;
+  the reverse needs a check. `*T` stays nullable (C-faithful), so nothing existing
+  changes. Same representation as `*T`, checked entirely at compile time. (Self-host
+  mirror is on the promotion track.)
 - **`must_use` function qualifier.** Prefixing a function with `must_use` makes
   discarding its result a compile error, catching leaked allocations and dropped return
   values. The stdlib's `alloc` is now `must_use`, so a bare `alloc<T>(n);` is rejected.
