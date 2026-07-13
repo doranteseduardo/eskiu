@@ -57,10 +57,8 @@ bool TypeChecker::check(Program* program) {
             if (!funcDecl->typeParams.empty()) {
                 funcTemplateDecls[funcDecl->name] = funcDecl;
                 if (funcDecl->mustUse) mustUseFuncs.insert(funcDecl->name);
-                // skip normal registration — will be registered on instantiation
-                std::vector<std::string> paramTypes;
-                for (const auto& p : funcDecl->params) paramTypes.push_back(p.first);
-                // Don't register yet — template params are not real types
+                // Don't register yet — template params are not real types,
+                // the function is registered on instantiation.
                 continue;
             }
         }
