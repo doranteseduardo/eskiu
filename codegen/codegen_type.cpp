@@ -250,13 +250,17 @@ std::string CodeGen::getExprEskiuType(const ExprPtr& expr) const {
                     fprintf(stderr, "[resolver-disagree] table=%s derive=%s %s\n",
                             it->second.c_str(), d.c_str(), typeid(*expr).name());
             }
-            return it->second;
+            // Codegen treats a nullable `?*T` exactly like `*T` (same repr); the `?`
+            // only governs sema deref-safety, so strip it here.
+            const std::string& r = it->second;
+            return (!r.empty() && r[0] == '?') ? r.substr(1) : r;
         }
         // A table miss is by design — the resolver doesn't annotate every expr, so
         // the structural derivation below legitimately carries the rest. (Only a
         // table/derivation *disagreement* above is a bug.)
     }
-    return deriveExprEskiuType(expr);
+    std::string r = deriveExprEskiuType(expr);
+    return (!r.empty() && r[0] == '?') ? r.substr(1) : r;   // `?*T` codegens as `*T`
 }
 
 std::string CodeGen::deriveExprEskiuType(const ExprPtr& expr) const {
