@@ -236,8 +236,9 @@ scalar-type = 'int' | 'int8' | 'int16' | 'int32' | 'int64'
 equivalent. An array suffix binds tighter than a leading pointer, so <code>*T[N]</code> is an array
 of N pointers (each element a <code>*T</code>), while a pointer to an array is written with the star
 after the brackets: <code>T[N]*</code>. Suffixes chain for multidimensional arrays: <code>T[N][M]</code> is N
-arrays of M (C order, leftmost bracket outermost). <code>va_list</code> is a built-in named type
-used by variadics.</p>
+arrays of M (C order, leftmost bracket outermost). Empty brackets make a <strong>slice</strong>: <code>T[]</code>
+is a fat pointer (data + length), constructed by slicing an array (<code>a[lo..hi]</code>). <code>va_list</code>
+is a built-in named type used by variadics.</p>
 <hr>
 <h2 id="statements">Statements</h2>
 <pre><code>statement =
@@ -298,6 +299,7 @@ cast            = '(' type ')' unary
 postfix         = primary postfix-op*
 postfix-op      = '(' arg-list? ')'          // call
                 | '[' expr ']'               // index
+                | '[' expr '..' expr ']'     // slice (half-open) → a `T[]` fat pointer
                 | '.' IDENT                  // member
                 | '?'                        // error propagation (Result)
                 | '++' | '--'                // post-increment / decrement

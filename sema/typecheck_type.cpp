@@ -96,7 +96,7 @@ void TypeChecker::validateStructType(const std::string& type) {
     // matters here; each dimension (a literal, enum, or const) is resolved in codegen.
     while (!baseType.empty() && baseType.back() == ']') {
         ty::Type t = ty::Type::parse(baseType);
-        if (t.kind != ty::Type::Kind::Array) break;
+        if (t.kind != ty::Type::Kind::Array && t.kind != ty::Type::Kind::Slice) break;
         baseType = t.elem->str();
     }
     // Strip ALL pointer decorators (*T, T*, **T, etc.)

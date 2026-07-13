@@ -989,7 +989,7 @@ void cg_collect_idents_e(*ExprNode e, List<string>* out) {
              || e.kind == EK_QUESTION || e.kind == EK_AWAIT || e.kind == EK_CALL
              || e.kind == EK_INCDEC) { cg_collect_idents_e(e.a, out); }
     if (e.kind == EK_CALL || e.kind == EK_TEMPLATECALL || e.kind == EK_STRUCTINIT
-        || e.kind == EK_ARRAYLIT) {
+        || e.kind == EK_ARRAYLIT || e.kind == EK_INDEX) {   // EK_INDEX kids = a slice's hi bound
         int i = 0; int n = List_len<*ExprNode>(&e.kids);
         while (i < n) { cg_collect_idents_e(List_get<*ExprNode>(&e.kids, i), out); i = i + 1; }
     }
@@ -1154,6 +1154,7 @@ int cg_is_struct(Codegen* g, string name) {
 string cg_lltype(Codegen* g, string t) {
     t = cg_apply_sub(g, t);               // T -> concrete during instantiation
     t = cg_dealias(g, t);                 // type alias -> underlying type
+    if (cg_is_slice(t) == 1) { return "{ ptr, i64 }"; }   // "T[]" -> fat pointer { data, len }
     if (cg_is_array(t) == 1) {            // "T[N]" -> [N x <T>]
         string cnt = cg_array_count(t);
         if (cg_all_digits(cnt) == 0) {    // named dimension: resolve a const/enum value
@@ -1255,6 +1256,16 @@ int cg_is_fnty(string t) {
 int cg_is_array(string t) {
     int i = 0;
     while (t[i] != 0) { if ((int)t[i] == 91) { return 1; } i = i + 1; }   // '['
+    return 0;
+}
+
+// A slice type `T[]` — an array suffix with empty brackets (`[` immediately `]`).
+int cg_is_slice(string t) {
+    int i = 0;
+    while (t[i] != 0) {
+        if ((int)t[i] == 91 && (int)t[i + 1] == 93) { return 1; }   // '[' then ']'
+        i = i + 1;
+    }
     return 0;
 }
 
@@ -1457,9 +1468,15 @@ string cg_etype(Codegen* g, *ExprNode e) {
     }
     if (e.kind == EK_INDEX) {
         string bet = cg_etype(g, e.a);
-        if (cg_is_array(bet) == 1) { return cg_array_elem(bet); }
-        if (cg_is_ptr_ty(bet) == 1 || cg_streq(bet, "string") == 1) { return cg_deref_ty(bet); }
-        return "";
+        string elem = "";
+        if (cg_streq(bet, "string") == 1) { elem = "char"; }
+        else if (cg_is_slice(bet) == 1) { elem = cg_array_elem(bet); }
+        else if (cg_is_array(bet) == 1) { elem = cg_array_elem(bet); }
+        else if (cg_is_ptr_ty(bet) == 1) { elem = cg_deref_ty(bet); }
+        else { return ""; }
+        // `base[lo..hi]` (kids has the hi bound) is a slice of the element type.
+        if (List_len<*ExprNode>(&e.kids) > 0) { return cg_cat(elem, "[]"); }
+        return elem;
     }
     if (e.kind == EK_UNARY) {
         if (cg_streq(e.sval, "*") == 1) { return cg_deref_ty(cg_etype(g, e.a)); }
@@ -1514,6 +1531,17 @@ CgVal cg_lval(Codegen* g, *ExprNode e) {
         string t = cg_tmp(g);
         string ity = idx.ty;                            // index keeps its own width (i32/i64)
         if (cg_int_w(ity) == 0) { ity = "i32"; }         // non-int (shouldn't happen) → i32
+        if (cg_is_slice(bet) == 1) {                    // slice: load .data, then GEP elem
+            CgVal fat = cg_expr(g, e.a);
+            string data = cg_tmp(g);
+            cg_emit(g, "  "); cg_emit(g, data); cg_emit(g, " = extractvalue { ptr, i64 } ");
+            cg_emit(g, fat.op); cg_emit(g, ", 0\n");
+            string elem = cg_array_elem(bet);
+            cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = getelementptr inbounds ");
+            cg_emit(g, cg_lltype(g, elem)); cg_emit(g, ", ptr "); cg_emit(g, data);
+            cg_emit(g, ", "); cg_emit(g, ity); cg_emit(g, " "); cg_emit(g, idx.op); cg_emit(g, "\n");
+            v.op = t; v.ety = elem; return v;
+        }
         if (cg_is_array(bet) == 1) {                    // array: GEP [N x T], ptr, 0, idx
             string slot = cg_lval(g, e.a).op;
             cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = getelementptr inbounds ");
@@ -1564,6 +1592,38 @@ CgVal cg_lval(Codegen* g, *ExprNode e) {
         return v;
     }
     return v;
+}
+
+// Address of element `idx_op` (already evaluated, type `ity`) of an indexable base
+// (slice / fixed array / string / pointer). Used by slice construction so the low
+// bound is evaluated exactly once (matching the C++ back-end).
+string cg_slice_elem_addr(Codegen* g, *ExprNode base, string idx_op, string ity) {
+    string bet = cg_etype(g, base);
+    string t = cg_tmp(g);
+    if (cg_is_slice(bet) == 1) {
+        CgVal fat = cg_expr(g, base);
+        string data = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, data); cg_emit(g, " = extractvalue { ptr, i64 } ");
+        cg_emit(g, fat.op); cg_emit(g, ", 0\n");
+        cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = getelementptr inbounds ");
+        cg_emit(g, cg_lltype(g, cg_array_elem(bet))); cg_emit(g, ", ptr "); cg_emit(g, data);
+        cg_emit(g, ", "); cg_emit(g, ity); cg_emit(g, " "); cg_emit(g, idx_op); cg_emit(g, "\n");
+        return t;
+    }
+    if (cg_is_array(bet) == 1) {
+        string slot = cg_lval(g, base).op;
+        cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = getelementptr inbounds ");
+        cg_emit(g, cg_lltype(g, bet)); cg_emit(g, ", ptr "); cg_emit(g, slot);
+        cg_emit(g, ", i32 0, "); cg_emit(g, ity); cg_emit(g, " "); cg_emit(g, idx_op); cg_emit(g, "\n");
+        return t;
+    }
+    string elem = "i8";
+    if (cg_streq(bet, "string") == 0) { elem = cg_lltype(g, cg_deref_ty(bet)); }
+    string pval = cg_expr(g, base).op;
+    cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = getelementptr inbounds ");
+    cg_emit(g, elem); cg_emit(g, ", ptr "); cg_emit(g, pval);
+    cg_emit(g, ", "); cg_emit(g, ity); cg_emit(g, " "); cg_emit(g, idx_op); cg_emit(g, "\n");
+    return t;
 }
 
 CgVal cg_expr(Codegen* g, *ExprNode e) {
@@ -1653,6 +1713,30 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
             string baseptr = cg_member_baseptr(g, e.a, &sn2);
             return cg_bf_read(g, baseptr, sn2, slot);
         }
+    }
+    // Slice construction: base[lo..hi] → a fat pointer { &base[lo], hi - lo }.
+    if (e.kind == EK_INDEX && List_len<*ExprNode>(&e.kids) > 0) {
+        string lo = cg_coerce(g, cg_expr(g, e.b), "i64");
+        string data = cg_slice_elem_addr(g, e.a, lo, "i64");
+        string hi = cg_coerce(g, cg_expr(g, List_get<*ExprNode>(&e.kids, 0)), "i64");
+        string len = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, len); cg_emit(g, " = sub i64 "); cg_emit(g, hi);
+        cg_emit(g, ", "); cg_emit(g, lo); cg_emit(g, "\n");
+        string s0 = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, s0); cg_emit(g, " = insertvalue { ptr, i64 } undef, ptr ");
+        cg_emit(g, data); cg_emit(g, ", 0\n");
+        string s1 = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, s1); cg_emit(g, " = insertvalue { ptr, i64 } ");
+        cg_emit(g, s0); cg_emit(g, ", i64 "); cg_emit(g, len); cg_emit(g, ", 1\n");
+        v.op = s1; v.ty = "{ ptr, i64 }"; v.ety = cg_etype(g, e); return v;
+    }
+    // Slice `.len` → the fat pointer's length field (i64).
+    if (e.kind == EK_MEMBER && cg_streq(e.sval, "len") == 1 && cg_is_slice(cg_etype(g, e.a)) == 1) {
+        CgVal fat = cg_expr(g, e.a);
+        string t = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = extractvalue { ptr, i64 } ");
+        cg_emit(g, fat.op); cg_emit(g, ", 1\n");
+        v.op = t; v.ty = "i64"; v.ety = "int64"; return v;
     }
     if (e.kind == EK_MEMBER || e.kind == EK_INDEX) {    // field/element read: GEP + load
         CgVal lv = cg_lval(g, e);

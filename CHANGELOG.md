@@ -21,6 +21,12 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   the function leaves via `?`-propagation), not on a normal `return` or fall-through. For
   undoing partial work when a fallible step fails while keeping it on success
   (`Conn c = open()?; errdefer close(c); handshake(c)?;`).
+- **Slice type `T[]`.** A fat pointer (data + length) that views a contiguous run of `T`.
+  Construct by slicing a fixed array with a half-open range (`a[lo..hi]`); it aliases the
+  backing array. Supports `s[i]` (read/write), `s.len` (`int64`), passing by value, and
+  `for (x in s)`. Because the length travels with the slice, a function taking `T[]` needs
+  no separate count argument. Lowers to `{ ptr, i64 }`. (Bounds-checking arrives with the
+  safe build mode.)
 
 ### Fixed
 - **`finally` was skipped on an early `return`/`break`/`continue` from inside a `try`

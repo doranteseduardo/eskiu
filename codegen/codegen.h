@@ -157,6 +157,9 @@ private:
     // passes errorPath=true so both run. Does not pop — the owning scope pops when it ends.
     void runCleanupsToDepth(size_t depth, bool errorPath);
     bool blockTerminated();   // is the current basic block already terminated?
+    // Address of element `idx` of an indexable base (fixed array / slice / pointer /
+    // string). Shared by index-read, index-write (lvalue), and slice construction.
+    llvm::Value* indexElemAddr(const ExprPtr& base, llvm::Value* idx);
 
     // Exception handling: set when inside a try body
     llvm::BasicBlock* unwindTarget = nullptr;

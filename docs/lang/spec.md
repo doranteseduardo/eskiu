@@ -228,6 +228,41 @@ a[1][2];                                    // 6  (row 1, column 2)
 
 `int[2][3]` lowers to `[2 x [3 x i32]]` in LLVM IR.
 
+### 3.3.1 Slice Types
+
+A **slice** `T[]` (empty brackets) is a view into a contiguous run of `T`: a fat pointer
+carrying both a data pointer and a length. Unlike a fixed array, a slice's length travels
+with it, so a function that takes a `T[]` never needs a separate count argument, killing
+the classic "pointer without its length" bug.
+
+Create a slice by **slicing** a fixed array with a half-open range (reusing the `..`
+operator): `a[lo..hi]` is a view of elements `lo` through `hi-1`. The slice **aliases** the
+backing array; writing through it writes to the array.
+
+```eskiu
+int[6] a = {10, 20, 30, 40, 50, 60};
+
+int[] mid = a[1..4];     // view of {20, 30, 40}
+mid[1] = 99;             // writes through: a[2] is now 99
+```
+
+A slice supports indexing (`s[i]`, read and write), its length via `s.len` (an `int64`),
+and iteration with `for (x in s)`. Pass it by value: the fat pointer (data + length) is
+copied, but it still refers to the same backing storage.
+
+```eskiu
+int sum(int[] s) {
+    int total = 0;
+    for (x in s) { total = total + x; }   // length-driven, no count argument
+    return total;
+}
+
+sum(a[0..6]);            // the whole array as a slice
+```
+
+`int[]` lowers to `{ ptr, i64 }` in LLVM IR. (Bounds-checked slice indexing arrives with
+the forthcoming safe build mode; today an out-of-range slice index is undefined, as in C.)
+
 ### 3.4 Struct Types
 
 A struct type is named by its declaration (see §8). Variables of struct type are declared using the struct name as the type annotation:

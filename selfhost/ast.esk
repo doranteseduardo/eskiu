@@ -157,11 +157,16 @@ void print_expr(*ExprNode e, int d) {
         return;
     }
     if (e.kind == EK_INDEX) {
-        pline(d, "IndexExpr");
+        if (List_len<*ExprNode>(&e.kids) > 0) { pline(d, "IndexExpr (slice)"); }
+        else { pline(d, "IndexExpr"); }
         pline(d + 1, "Base:");
         print_expr(e.a, d + 2);
         pline(d + 1, "Index:");
         print_expr(e.b, d + 2);
+        if (List_len<*ExprNode>(&e.kids) > 0) {
+            pline(d + 1, "High:");
+            print_expr(List_get<*ExprNode>(&e.kids, 0), d + 2);
+        }
         return;
     }
     if (e.kind == EK_MEMBER) {
