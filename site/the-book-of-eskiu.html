@@ -1917,7 +1917,8 @@ pre.code-block {
  import &lt;sysheap&gt;; heap_init(&amp;h, size) bool             heap_alloc(&amp;h, n) *void
      heap_free(&amp;h, p)   heap_destroy(&amp;h)</pre>
 <pre class="code-block"> // time / env / base64 / path
- import &lt;time&gt;;       time_now_ms      time_now_s      time_monotonic_ms   sleep_ms(ms)
+ import &lt;time&gt;;       time_now_ms   time_now_s   time_monotonic_ms   sleep_ms(ms)
+                      DateTime   time_to_utc/time_from_utc   time_format_iso   // UTC civil calendar
  import &lt;env&gt;;        env_get    env_has      env_get_or   env_get_int
  import &lt;base64&gt;;     base64_encode/decode(*uint8 src, int n, *uint8 out)
                       base64_encoded_len(n)        base64_decoded_len(n)
@@ -1931,6 +1932,14 @@ pre.code-block {
      Regex re = regex_compile(pat);   regex_search(&amp;re, text, &amp;m) 1/0
      match_group(&amp;m, text, i, &amp;out)      match_free(&amp;m)   regex_free(&amp;re)
      // . [a-z] [^..] \d \w \s  * + ? {m,n}  |  ( ) captures  ^ $  (append ? for lazy)</pre>
+<pre class="code-block"> // sort: generic heapsort + binary search over a *T array (O(n log n) worst case)
+ import &lt;sort&gt;;       sort&lt;T&gt;(a, n, cmp)        bsearch&lt;T&gt;(a, n, key, cmp)
+     // cmp(&amp;x, &amp;y) returns &lt;0 / 0 / &gt;0, like C qsort; works on a List's .data too</pre>
+<pre class="code-block"> // url: RFC 3986 percent-encoding + form-query lookup
+ import &lt;url&gt;;        url_encode(s, &amp;out)      url_decode(s, &amp;out)
+     url_query_get(query, key, &amp;out) 1/0      // "a=1&amp;msg=hi+there" -> "hi there"</pre>
+<pre class="code-block"> // uuid: RFC 4122 version-4, built on <random> (not crypto-secure)
+ import &lt;uuid&gt;;       let r: Rng; rng_seed(&amp;r, seed);   uuid_v4(&amp;r, &amp;out)</pre>
 <pre class="code-block"> // async runtime
  import &lt;atomic&gt;;     atomic_load   atomic_store   atomic_swap   atomic_cas
  import &lt;executor&gt;; Executor (event loop + thread-safe queue)
