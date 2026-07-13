@@ -504,9 +504,7 @@ void CodeGen::visit(UnionDecl* node) {
     llvm::Type* unionTy = llvm::ArrayType::get(
         llvm::Type::getInt8Ty(*context), maxSize);
     std::string mangledName = node->name;
-    structTypes[mangledName] = llvm::cast<llvm::StructType>(
-        llvm::StructType::get(*context, {unionTy}, /*isPacked=*/false));
-    // Actually use a named struct wrapping the byte array for cleaner IR
+    // Named struct wrapping the byte array for cleaner IR
     auto* namedTy = llvm::StructType::create(*context, {unionTy}, mangledName + ".union");
     structTypes[mangledName] = namedTy;
 

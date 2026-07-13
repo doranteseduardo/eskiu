@@ -163,24 +163,6 @@ bool CodeGen::isPointerType(const std::string& typeStr) const {
     return typeStr.front() == '*' || typeStr.back() == '*' || typeStr == "string";
 }
 
-bool CodeGen::isIntType(const std::string& typeStr) const {
-    // Remove pointer suffix before checking
-    std::string baseType = typeStr;
-    if (!baseType.empty() && baseType.back() == '*') {
-        baseType = baseType.substr(0, baseType.length() - 1);
-    }
-    return baseType.find("int") != std::string::npos || baseType == "bool" || baseType == "char";
-}
-
-bool CodeGen::isFloatType(const std::string& typeStr) const {
-    // Remove pointer suffix before checking
-    std::string baseType = typeStr;
-    if (!baseType.empty() && baseType.back() == '*') {
-        baseType = baseType.substr(0, baseType.length() - 1);
-    }
-    return baseType == "float" || baseType == "double";
-}
-
 bool CodeGen::eskiuUnsigned(const std::string& t) const {
     std::string s = tyq::strip(expandAlias(t));
     return s == "uint" || s == "uint8" || s == "uint16" || s == "uint32" ||
