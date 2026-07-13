@@ -238,6 +238,20 @@ popScope()
 
 ---
 
+## 15. Opt-In Memory Safety (Zig-Flavored)
+
+**Decision:** Make the language safer with compile-time checks and *opt-in* runtime guards, on the Zig side of the line, not the Rust side. Bare `*T` stays C-nullable and existing code compiles unchanged; the new safety surface is reached for deliberately. The batch: `defer` / `errdefer` for cleanup that runs on every exit path (a codegen cleanup-stack, LIFO); the slice type `T[]`, a fat pointer that carries its length so bounds are knowable; the `must_use` qualifier that rejects a discarded result (the stdlib's `alloc` is marked, so a forgotten allocation is a compile error); `--safe`, an off-by-default build mode that bounds-checks array and slice indexing and traps on a violation; and the checked nullable pointer `?*T`, which cannot be dereferenced until proven non-null (`if (x != null)` narrows it) and lowers to a bare pointer, so the safety is entirely at compile time.
+
+**Alternatives considered:**
+
+- *A borrow checker / ownership + lifetimes (the Rust model)*: Rejected. It fights the two things Eskiu is built on: C-faithfulness (a borrow checker changes how you write and pass pointers) and scripting immediacy (lifetime annotations are a real cognitive tax). Arenas already cover most use-after-free in the target workloads; ownership would be a large, ill-fitting mechanism for a marginal additional gain.
+- *A garbage collector*: Rejected for the same reason as decision #2 (no GC): it breaks predictable, C-comparable performance and complicates the C ABI.
+- *Making the checks mandatory (non-null by default, always-on bounds checks)*: Rejected as breaking. Flipping `*T` to non-null would reject working C-style code, and always-on bounds checks would cost every release build. Opt-in keeps the zero-cost default and lets a codebase adopt safety incrementally.
+
+**Why opt-in compile-time safety:** It composes with the existing model instead of replacing it. `defer` / `errdefer` / `must_use` / `?*T` are all resolved at compile time with no runtime cost, and `--safe` is the one runtime guard, off by default. This continues the v0.4 correctness arc (tightening the type system) rather than introducing a new ownership discipline, so a C programmer can pick up each feature independently without relearning how to hold a pointer.
+
+---
+
 ## Summary
 
 The decisions above form a consistent position: Eskiu is an explicit-control systems language that targets programmers who already think in C, need to call C libraries, and want near-C performance without writing C. The compiler is designed to be read and modified by one to three people, so implementation simplicity (hand-written parser, recursive-descent, visitor pattern, no parser generator) is a real constraint. LLVM handles the hard parts of code generation; the front end's job is to produce correct IR quickly.
