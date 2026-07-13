@@ -1,0 +1,2 @@
+ok:  [open close] 
+err: [open ROLLBACK close] 

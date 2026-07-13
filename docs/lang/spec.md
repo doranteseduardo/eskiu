@@ -75,7 +75,7 @@ true  false  null
 alloc_with
 const  volatile  static  escaping  asm
 thread_create  thread_join
-try  catch  finally  throw  defer
+try  catch  finally  throw  defer  errdefer
 async  await
 sizeof  free_closure  union  enum
 ```
@@ -1163,6 +1163,24 @@ Rules:
 `defer` complements `try`/`finally` (§10): `finally` is for catch-and-cleanup around a
 block, while `defer` colocates a one-off release with its acquisition. For cleanup that
 must also run when an exception unwinds past the scope, use `try`/`finally`.
+
+**`errdefer`** is a variant that runs its statement only on the **error exit** path,
+namely when the function leaves through `?`-propagation (an `Err` is returned early). It
+does not run on a normal `return`, on fall-through, or on `break`/`continue`. This is the
+tool for undoing partial work when a fallible step fails partway through, while keeping it
+on success:
+
+```eskiu
+Connection open_ready(string host) {
+    Connection c = connect(host)?;
+    errdefer close(c);        // closed only if a later `?` fails; kept on success
+    handshake(c)?;            // if this errors, close(c) runs and the Err propagates
+    return c;                 // success: c survives, errdefer does not run
+}
+```
+
+On the error path both kinds run in LIFO order (an `errdefer` registered after a `defer`
+runs first). All the defer-body restrictions above apply to `errdefer` as well.
 
 ---
 

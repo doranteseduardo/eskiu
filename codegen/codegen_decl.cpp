@@ -169,7 +169,7 @@ void CodeGen::visit(FunctionDecl* node) {
     // A nested function body (e.g. a template instantiated mid-expression) is a fresh
     // scope-exit context: save and reset the cleanup stack + loop targets so this body
     // never runs the enclosing function's defers/finally or branches to its loops.
-    std::vector<std::vector<Stmt*>> prevCleanups = std::move(cleanupScopes);
+    std::vector<std::vector<Cleanup>> prevCleanups = std::move(cleanupScopes);
     size_t prevBreakCD = breakCleanupDepth, prevContinueCD = continueCleanupDepth;
     llvm::BasicBlock* prevBreakT = breakTarget, *prevContinueT = continueTarget;
     cleanupScopes.clear();

@@ -150,6 +150,7 @@ int keyword_type(*uint8 src, int start, int len) {
     if (lexeme_eq(src, start, len, "finally") == 1) { return FINALLY; }
     if (lexeme_eq(src, start, len, "throw") == 1) { return THROW; }
     if (lexeme_eq(src, start, len, "defer") == 1) { return DEFER; }
+    if (lexeme_eq(src, start, len, "errdefer") == 1) { return ERRDEFER; }
     if (lexeme_eq(src, start, len, "continue") == 1) { return CONTINUE; }
     if (lexeme_eq(src, start, len, "int8") == 1) { return INT8; }
     if (lexeme_eq(src, start, len, "int16") == 1) { return INT16; }

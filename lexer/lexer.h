@@ -66,6 +66,7 @@ enum class TokenType {
     FINALLY,
     THROW,
     DEFER,
+    ERRDEFER,
     CONTINUE,
     INT8,
     INT16,

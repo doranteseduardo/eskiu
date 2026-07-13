@@ -317,10 +317,10 @@ void CodeGen::visit(QuestionExpr* node) {
     llvm::Value* whole = builder->CreateLoad(st, tmp, "try.whole");
     if (currentSretParam != nullptr) {
         builder->CreateStore(whole, currentSretParam);
-        runCleanupsToDepth(0);
+        runCleanupsToDepth(0, /*errorPath=*/true);      // ? error exit: defers + errdefers
         builder->CreateRetVoid();
     } else {
-        runCleanupsToDepth(0);
+        runCleanupsToDepth(0, /*errorPath=*/true);
         builder->CreateRet(whole);
     }
 

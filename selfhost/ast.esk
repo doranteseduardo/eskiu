@@ -55,6 +55,7 @@ struct StmtNode {
     string type;           // var-decl type
     int is_const;          // SK_VARDECL: declared value-const (read-only binding)
     int is_static;         // SK_VARDECL: `static` local (one instance, persists across calls)
+    int is_err;            // SK_DEFER: errdefer (runs only on the error path) vs plain defer
 }
 
 // A generic type parameter with its (possibly empty) interface constraints, e.g.
@@ -391,7 +392,7 @@ void print_stmt(*StmtNode s, int d) {
         return;
     }
     if (s.kind == SK_DEFER) {
-        pline(d, "DeferStmt");
+        if (s.is_err == 1) { pline(d, "DeferStmt (err)"); } else { pline(d, "DeferStmt"); }
         print_stmt(s.s1, d + 1);
         return;
     }

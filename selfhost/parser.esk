@@ -1214,9 +1214,10 @@ string strip_binding_const(string t) {
     if (t == SWITCH) { return parse_switch(p); }
     if (t == MATCH) { return parse_match(p); }
     if (t == TRY) { return parse_try(p); }
-    if (t == DEFER) {                          // defer stmt;  (runs at scope exit)
+    if (t == DEFER || t == ERRDEFER) {         // defer / errdefer stmt;  (run at scope exit)
         p_adv(p);
         *StmtNode s = alloc<StmtNode>(1); s.kind = SK_DEFER; s.s1 = parse_stmt(p);
+        if (t == ERRDEFER) { s.is_err = 1; } else { s.is_err = 0; }
         return s;
     }
     if (t == ASM) { return parse_asm(p); }
