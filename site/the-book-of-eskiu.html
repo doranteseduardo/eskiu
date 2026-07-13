@@ -528,8 +528,7 @@ pre.code-block {
 <p> This book teaches Eskiu from zero. You do not need to know any other programming language. You need a computer, a terminal, and the willingness to type things and see what happens.</p>
 <p>Programming is not a subject you read about and then understand. It is something you do. Every example in this book is short enough to type by hand. Type them. Run them. Change a number and see what breaks. That is how the knowledge becomes yours.</p>
 <p>Eskiu is a systems language with the power of C and the immediacy of a scripting language. It compiles to native code through LLVM, giving you native performance, explicit memory, and direct access to any C library, so it does the work you would normally reach for C to do. But it spares you C's ceremony for small things: <code>eskiuc run file.esk</code> compiles and runs in a single step, and a <code>#!/usr/bin/env eskiuc run</code> shebang turns a <code>.esk</code> file into an executable script, the way Python or Ruby would. One compiler, one build command, and a mental model small enough to hold in your head.</p>
-<p>The language has no garbage collector. Memory is yours to manage. You ask for it when you need it and give it back when you are done. This sounds more intimidating than it is. By the end of</p>
-<p>Chapter 6 you will do it without thinking.</p>
+<p>The language has no garbage collector. Memory is yours to manage. You ask for it when you need it and give it back when you are done. This sounds more intimidating than it is. By the end of Chapter 6 you will do it without thinking.</p>
 <p>Every chapter follows the same pattern. A concept is explained in plain language. Then shown in code. Each chapter ends with a summary and exercises. Do the exercises, even the easy ones, especially the easy ones.</p>
 <p>By the end you will have read the complete language, managed memory explicitly, called C libraries directly, spawned threads, and read through a real cryptographic pipeline that runs 2.5× faster than the hand-written C it replaced.</p>
 <p>Eskiu is named after a cat.</p>
@@ -595,8 +594,7 @@ pre.code-block {
 <pre class="code-block">           char        8 bits      &#x27;A&#x27;, &#x27;\n&#x27;     Single byte, unsigned (0–255)</pre>
 <pre class="code-block">           string      pointer     &quot;hello&quot;       Immutable text literals</pre>
 <p>Eskiu also has <code>int8</code>, <code>int16</code>, <code>int32</code>, <code>uint16</code>, <code>uint64</code>. For most code, <code>int</code> and <code>uint8</code> cover the majority of cases.</p>
-<p>Integer literals can be written in hexadecimal with a 0x prefix. Character literals use single quotes and support escape sequences. <code>char</code> is an unsigned 8-bit type (0–255); when widened to <code>int</code> it</p>
-<p>zero-extends, not sign-extends:</p>
+<p>Integer literals can be written in hexadecimal with a 0x prefix. Character literals use single quotes and support escape sequences. <code>char</code> is an unsigned 8-bit type (0–255); when widened to <code>int</code> it zero-extends, not sign-extends:</p>
 <pre class="code-block"> int flags = 0xFF;                    // hex literal = 255
  uint32 mask = 0xDEAD_BEEF; // larger hex</pre>
 <pre class="code-block"> char a = &#x27;A&#x27;;                        // character literal
@@ -712,7 +710,7 @@ pre.code-block {
 <p class="output"><em>Output:</em> 200 65 66 7</p>
 <div class="chapter-start" id="chapter-3"><span class="chapter-label">Chapter 3</span>
 <h1 class="chapter-title">Functions</h1><hr class="chapter-rule"></div>
-<p>A function is a named, reusable block of code. You define it once and call it as many times as you need. Functions are the primary tool for breaking a program into manageable pieces. Each function does one thing, does it well, and can be understood in isolation.</p>
+<p>A function is a named, reusable block of code. You define it once and call it as many times as you need. Functions are the primary tool for breaking a program into manageable pieces. A good function does one job and can be understood on its own.</p>
 <h2 class="section" id="sec-3-1">3.1 Defining a function</h2>
 <p>Return type first, then name, then parameters, then body:</p>
 <pre class="code-block"> int add(int a, int b) {
@@ -1087,7 +1085,7 @@ pre.code-block {
  while ((*status &amp; 0x20) == 0) {}        // re-reads the register every iteration</pre>
 <div class="chapter-start" id="chapter-7"><span class="chapter-label">Chapter 7</span>
 <h1 class="chapter-title">Interfaces</h1><hr class="chapter-rule"></div>
-<p>An interface describes what a type can do, not what it is. It names a set of methods that any conforming type must provide. Code written against an interface works with any type that satisfies it: today&#x27;s types and types not yet written. This is the cleanest form of extensibility in a systems language.</p>
+<p>An interface describes what a type can do, not what it is. It names a set of methods that any conforming type must provide. Code written against an interface works with any type that satisfies it: today&#x27;s types and types not yet written. You can add a type years later and old code will accept it, unchanged.</p>
 <h2 class="section" id="sec-7-1">7.1 Declaring an interface</h2>
 <pre class="code-block"> interface Shape {
        float area();
@@ -1265,7 +1263,7 @@ pre.code-block {
  on_ready(fd, void(int n) { printf(&quot;%d %d
  &quot;, x, n); });
  // free_closure(cb) when done</pre>
-<p>Non-escaping closures have their environment on the stack and cost nothing. The escaping qualifier makes the lifetime contract explicit and compiler-enforced. Passing a non-escaping closure to an escaping parameter is a compile error.</p>
+<p>The escaping qualifier states, and the compiler enforces, that the closure may outlive its creator. Pass a non-escaping closure to an escaping parameter and you get a compile error.</p>
 <h2 class="section" id="sec-9-7">9.7 Closures inside generic functions</h2>
 <p>A lambda declared inside a generic function body captures correctly across all instantiations. The closure environment is monomorphized alongside the outer template: a field typed by the type parameter gets the concrete type at each instantiation:</p>
 <pre class="code-block"> int call_it(escaping fn()-&gt;int op) { return op(); }</pre>
@@ -1286,7 +1284,7 @@ pre.code-block {
  &quot;, box&lt;int&gt;(10, 1));       // 23 (11+12)</pre>
 <div class="chapter-start" id="chapter-10"><span class="chapter-label">Chapter 10</span>
 <h1 class="chapter-title">Error Handling</h1><hr class="chapter-rule"></div>
-<p>Programs fail. Files do not exist. Numbers fall outside valid ranges. Network connections drop mid-request. Good error handling makes failures visible, explicit, and manageable rather than silent and catastrophic. Eskiu provides two tools: <code>Result</code> for expected failures, and try/catch for exceptional ones.</p>
+<p>Programs fail. Files do not exist. Numbers fall outside valid ranges. Network connections drop mid-request. Good error handling makes failures visible and recoverable rather than silent and catastrophic. Eskiu provides two tools: <code>Result</code> for expected failures, and try/catch for exceptional ones.</p>
 <h2 class="section" id="sec-10-1">10.1 Result</h2>
 <pre class="code-block"> import &lt;result&gt;;</pre>
 <pre class="code-block"> Result&lt;int, string&gt; safeSqrt(int n) {
@@ -1399,7 +1397,7 @@ pre.code-block {
 <pre class="code-block"> Function decay applies to named top-level functions only. Methods and local functions do not decay.</pre>
 <div class="chapter-start" id="chapter-12"><span class="chapter-label">Chapter 12</span>
 <h1 class="chapter-title">Operators</h1><hr class="chapter-rule"></div>
-<p>Eskiu provides the full complement of operators expected from a systems language. Most will be familiar. The one that deserves attention is sizeof, a compile-time query that becomes essential when working with memory directly.</p>
+<p>Eskiu has the operators you would expect from a systems language, and most will be familiar. The one that deserves attention is sizeof, a compile-time query that becomes essential when working with memory directly.</p>
 <h2 class="section" id="sec-12-1">12.1 Arithmetic</h2>
 <pre class="code-block"> int a = 17 + 5;         // 22
  int b = 17 - 5;         // 12
@@ -1910,9 +1908,9 @@ pre.code-block {
  int64  d = rng_range(&amp;r, 1, 7);   // a die: uniform in [1, 7)
  double u = rng_double(&amp;r);        // uniform in [0.0, 1.0)
  int    b = rng_bool(&amp;r);          // 0 or 1</pre>
-<p><code>rng_range</code> and <code>rng_below</code> are unbiased: they reject the handful of values a plain modulo would skew and redraw, so every outcome is equally likely. <code>rng_fill(&amp;r, buf, n)</code> fills a byte buffer. For a nondeterministic stream, seed from the clock: <code>import &lt;time&gt;; rng_seed(&amp;r, (uint64)time_now_ms());</code></p>
+<p><code>rng_range</code> and <code>rng_below</code> are unbiased: they redraw whenever they land on the handful of values a plain modulo would skew, so every outcome is equally likely. <code>rng_fill(&amp;r, buf, n)</code> fills a byte buffer. For a nondeterministic stream, seed from the clock: <code>import &lt;time&gt;; rng_seed(&amp;r, (uint64)time_now_ms());</code></p>
 <h2 class="section" id="sec-15-11">15.11 regex: pattern matching</h2>
-<p>The &lt;regex&gt; module is a regular-expression engine built as a Thompson NFA, run as a Pike VM. It explores every path in lockstep, so matching is linear in the length of the input with no catastrophic backtracking: the pathological patterns that hang backtracking engines (a ReDoS) cannot occur here.</p>
+<p>The &lt;regex&gt; module is a regular-expression engine built as a Thompson NFA, run as a Pike VM. It explores every path in lockstep, so matching is linear in the length of the input with no catastrophic backtracking: the pathological patterns that hang backtracking engines (the basis of a ReDoS attack) cannot occur here.</p>
 <p>For a quick yes/no, <code>regex_match</code> compiles the pattern and searches the text for you:</p>
 <pre class="code-block"> import &lt;regex&gt;;</pre>
 <pre class="code-block"> if (regex_match("\\d+-\\d+", "order 12-34") == 1) { /* found */ }</pre>
@@ -2274,7 +2272,7 @@ pre.code-block {
 <p>By default array and slice indexing is unchecked, matching C: an out-of-range index reads or writes whatever is at that address. Compiling with <code>--safe</code> inserts a bounds check on every array and slice index, so a violation traps immediately instead of corrupting memory:</p>
 <pre class="code-block"> eskiuc prog.esk --safe -o prog
  ./prog                     # traps at the first out-of-bounds index</pre>
-<p><code>--safe</code> is off by default, so release builds pay nothing for it. Turn it on during development and testing to turn silent memory corruption into a clean, immediate failure, then ship without it (or keep it on where a trap is preferable to undefined behaviour).</p>
+<p><code>--safe</code> is off by default, so release builds pay nothing for it. Turn it on during development and testing so silent memory corruption becomes a clean, immediate failure, then ship without it (or keep it on where a trap is preferable to undefined behaviour).</p>
 <div class="chapter-start" id="chapter-21"><span class="chapter-label">Chapter 21</span>
 <h1 class="chapter-title">Testing</h1><hr class="chapter-rule"></div>
 <p>Eskiu has no built-in test framework. The language gives you functions, return values, and <code>printf</code>. That is all you need. The pattern described here is the one used by Eskiu&#x27;s own 238-test suite.</p>
@@ -2551,7 +2549,7 @@ pre.code-block {
 <p>The decoder ships in the Eskiu repository under ine_decoder/. Reading it is the best way to see how a real Eskiu program is structured.</p>
 <div class="chapter-start" id="chapter-25"><span class="chapter-label">Chapter 25</span>
 <h1 class="chapter-title">Async and Await</h1><hr class="chapter-rule"></div>
-<p>Threads handle concurrency by running code simultaneously on multiple CPU cores. Async/await handles concurrency differently: many tasks share a single thread, and each task suspends when it is waiting for I/O rather than blocking the thread. The result: a server that handles thousands of concurrent connections with the same memory a handful of threads would use.</p>
+<p>Threads get concurrency by running code on multiple CPU cores at once. Async/await takes a different route: many tasks share a single thread, and each task suspends when it is waiting for I/O rather than blocking the thread. The result: a server that handles thousands of concurrent connections with the same memory a handful of threads would use.</p>
 <h2 class="section" id="sec-25-1">25.1 The model</h2>
 <p>An async function returns a <code>Future</code>&lt;T&gt; instead of T directly. The future represents a value that does not exist yet. await suspends the current task until the future is ready, then unwraps the value:</p>
 <pre class="code-block"> import &lt;future&gt;;
@@ -3041,7 +3039,7 @@ pre.code-block {
 <p>There is a moment in a language's life when it grows up: the day its compiler is written in itself. Until then the language depends on another: Eskiu's reference compiler, <code>eskiuc</code>, is written in C++. A self-hosted compiler is one the language can build on its own, and reaching it proves something concrete: the language is expressive enough, and the compiler correct enough, to take on a program as demanding as a compiler. As of v0.3.0, Eskiu is there.</p>
 <p>The whole pipeline is reimplemented in Eskiu, under <code>selfhost/</code>: a lexer, a preprocessor, a parser, a type checker, and a code generator, each a faithful translation of its C++ counterpart. They chain together exactly as the reference compiler does:</p>
 <pre class="code-block"> lexer → preprocessor → parser → type checker → code generator → LLVM IR</pre>
-<p>The code generator is the interesting one. It does not link against the LLVM libraries. Instead it writes LLVM IR out as plain text, which <code>clang</code> then assembles and links. That choice keeps the self-hosted compiler dependency-free and is the well-trodden path every bootstrapping compiler walks.</p>
+<p>The code generator is the interesting one. It does not link against the LLVM libraries. Instead it writes LLVM IR out as plain text, which <code>clang</code> then assembles and links. That choice keeps the self-hosted compiler dependency-free, and it is how most bootstrapping compilers do it.</p>
 <h2 class="section" id="sec-27-1">27.1 Trust, but verify</h2>
 <p>A compiler that is subtly wrong is worse than no compiler at all, so every pass is checked against the reference. The method changes with what can be observed. For the lexer, parser, and preprocessor there is an exact answer to compare against: their output is diffed <em>byte-for-byte</em> against <code>eskiuc</code>'s debug dumps. For the type checker, the ground truth is a verdict: does it accept the same programs and reject the same mistakes, with the same error messages? For the code generator, the generated IR can't be compared character by character (LLVM renumbers values and folds constants), so the test is <em>behavioural</em>: compile the program both ways, run both binaries, and check that they print the same thing and exit the same way. Every one of these comparisons runs in continuous integration; a divergence fails the build.</p>
 <h2 class="section" id="sec-27-2">27.2 The fixpoint</h2>
