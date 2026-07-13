@@ -55,11 +55,13 @@ StmtPtr Parser::parseStatement() {
         return s;
     }
 
-    // defer stmt;   (runs stmt at enclosing-block exit, LIFO, on every path out)
-    if (check(TokenType::DEFER)) {
+    // defer stmt;    (runs stmt at block exit on every path out)
+    // errdefer stmt; (runs only on the error path: `?`-propagation)
+    if (check(TokenType::DEFER) || check(TokenType::ERRDEFER)) {
+        bool isErr = check(TokenType::ERRDEFER);
         Token dTok = advance();
         StmtPtr body = parseStatement();
-        auto s = std::make_shared<DeferStmt>(body, /*isErr=*/false);
+        auto s = std::make_shared<DeferStmt>(body, isErr);
         s->line = dTok.line; s->col = dTok.column;
         return s;
     }

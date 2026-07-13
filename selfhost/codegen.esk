@@ -54,6 +54,7 @@ struct Codegen {
     List<string> loop_cont;  // continue targets (innermost last)
     List<string> loop_end;   // break targets
     List<*StmtNode> cleanups; // scope-exit cleanup bodies (defer + a try's finally), LIFO
+    List<int> cl_err;        // parallel to cleanups: 1 = errdefer (error-path only), 0 = defer/finally
     List<int> loop_cldepth;  // cleanups-stack length at each loop entry (parallel to loop_end)
     List<CgFn> fns;          // function → return type / variadic signature
     List<CgStruct> structs;  // struct name → field layout
@@ -182,6 +183,7 @@ void cg_init(Codegen* g) {
     List_init<string>(&g.loop_cont, 4);
     List_init<string>(&g.loop_end, 4);
     List_init<*StmtNode>(&g.cleanups, 4);
+    List_init<int>(&g.cl_err, 4);
     List_init<int>(&g.loop_cldepth, 4);
     List_init<CgFn>(&g.fns, 32);
     List_init<CgStruct>(&g.structs, 16);
@@ -1121,14 +1123,15 @@ void cg_br(Codegen* g, string target) {
 
 void cg_stmt(Codegen* g, *StmtNode st);
 
-// Emit each pending cleanup body (defer / finally) in frames at index >= depth,
-// LIFO. Does not shrink the stack — the owning scope truncates when it ends.
-void cg_run_cleanups(Codegen* g, int depth) {
+// Emit each pending cleanup body in frames at index >= depth, LIFO. On a normal exit
+// (error_path 0) errdefer bodies are skipped; the `?`-propagation error path passes 1
+// so both run. Does not shrink the stack — the owning scope truncates when it ends.
+void cg_run_cleanups(Codegen* g, int depth, int error_path) {
     int i = List_len<*StmtNode>(&g.cleanups) - 1;
     while (i >= depth) {
         if (g.terminated == 1) { return; }
-        cg_stmt(g, List_get<*StmtNode>(&g.cleanups, i));
-        i = i - 1;
+        if (List_get<int>(&g.cl_err, i) == 1 && error_path == 0) { i = i - 1; }
+        else { cg_stmt(g, List_get<*StmtNode>(&g.cleanups, i)); i = i - 1; }
     }
 }
 
@@ -1136,6 +1139,7 @@ void cg_run_cleanups(Codegen* g, int depth) {
 void cg_cleanups_trunc(Codegen* g, int mark) {
     while (List_len<*StmtNode>(&g.cleanups) > mark) {
         List_remove<*StmtNode>(&g.cleanups, List_len<*StmtNode>(&g.cleanups) - 1);
+        List_remove<int>(&g.cl_err, List_len<int>(&g.cl_err) - 1);
     }
 }
 
@@ -2074,7 +2078,7 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
         cg_label(g, errl);                               // propagate the Err out of the function
         string whole = cg_tmp(g);
         cg_emit(g, "  "); cg_emit(g, whole); cg_emit(g, " = load "); cg_emit(g, llty); cg_emit(g, ", ptr "); cg_emit(g, tmp); cg_emit(g, "\n");
-        cg_run_cleanups(g, 0);                           // early exit: run defers/finally first
+        cg_run_cleanups(g, 0, 1);                        // ? error exit: defers + errdefers
         cg_emit(g, "  ret "); cg_emit(g, g.cur_ret); cg_emit(g, " "); cg_emit(g, whole); cg_emit(g, "\n");
         g.terminated = 1;
         cg_label(g, contl);                              // success: unwrap .value
@@ -2684,12 +2688,13 @@ void cg_stmt(Codegen* g, *StmtNode st) {
             if (g.terminated == 1) { i = n; }          // rest of the block is unreachable
             else { cg_stmt(g, List_get<*StmtNode>(&st.items, i)); i = i + 1; }
         }
-        if (g.terminated == 0) { cg_run_cleanups(g, mark); }   // fall-through: run defers
+        if (g.terminated == 0) { cg_run_cleanups(g, mark, 0); }   // fall-through: defers only
         cg_cleanups_trunc(g, mark);
         return;
     }
     if (st.kind == SK_DEFER) {
         List_push<*StmtNode>(&g.cleanups, st.s1);      // registered; emitted at scope exit
+        List_push<int>(&g.cl_err, st.is_err);          // errdefer runs only on the error path
         return;
     }
     if (st.kind == SK_IF) {
@@ -2784,7 +2789,7 @@ void cg_stmt(Codegen* g, *StmtNode st) {
     if (st.kind == SK_BREAK) {
         int n = List_len<string>(&g.loop_end);
         if (n > 0) {
-            cg_run_cleanups(g, List_get<int>(&g.loop_cldepth, n - 1));   // run loop-body defers
+            cg_run_cleanups(g, List_get<int>(&g.loop_cldepth, n - 1), 0);   // run loop-body defers
             cg_br(g, List_get<string>(&g.loop_end, n - 1));
         }
         return;
@@ -2792,7 +2797,7 @@ void cg_stmt(Codegen* g, *StmtNode st) {
     if (st.kind == SK_CONTINUE) {
         int n = List_len<string>(&g.loop_cont);
         if (n > 0) {
-            cg_run_cleanups(g, List_get<int>(&g.loop_cldepth, n - 1));
+            cg_run_cleanups(g, List_get<int>(&g.loop_cldepth, n - 1), 0);
             cg_br(g, List_get<string>(&g.loop_cont, n - 1));
         }
         return;
@@ -3004,7 +3009,7 @@ void cg_stmt(Codegen* g, *StmtNode st) {
         // (return/break/continue/`?`) inside the body runs it. Fall-through and the
         // exceptional path still emit it below, so truncate WITHOUT running here.
         int trymark = List_len<*StmtNode>(&g.cleanups);
-        if (st.s2 != null) { List_push<*StmtNode>(&g.cleanups, st.s2); }
+        if (st.s2 != null) { List_push<*StmtNode>(&g.cleanups, st.s2); List_push<int>(&g.cl_err, 0); }
         cg_stmt(g, st.s1);                                // try body
         cg_cleanups_trunc(g, trymark);
         g.cur_unwind = saved;
@@ -3074,10 +3079,10 @@ void cg_stmt(Codegen* g, *StmtNode st) {
         if (st.expr != null) {
             CgVal r = cg_expr(g, st.expr);
             string rop = cg_coerce(g, r, g.cur_ret);     // widen/convert to the return type (bool→int, etc.)
-            cg_run_cleanups(g, 0);                       // run defers/finally before leaving
+            cg_run_cleanups(g, 0, 0);                     // normal exit: defers/finally, not errdefer
             cg_emit(g, "  ret "); cg_emit(g, g.cur_ret); cg_emit(g, " "); cg_emit(g, rop); cg_emit(g, "\n");
         } else {
-            cg_run_cleanups(g, 0);
+            cg_run_cleanups(g, 0, 0);
             cg_emit(g, "  ret void\n");
         }
         g.terminated = 1;
@@ -3102,6 +3107,7 @@ void cg_emit_fn(Codegen* g, *DeclNode d, string llname, string self_struct) {
     g.cur_ret = rt;
     List_init<CgLocal>(&g.locals, 8);
     List_init<*StmtNode>(&g.cleanups, 4);   // fresh scope-exit state per function body
+    List_init<int>(&g.cl_err, 4);
     List_init<int>(&g.loop_cldepth, 4);
     g.terminated = 0;
     int base = 0;

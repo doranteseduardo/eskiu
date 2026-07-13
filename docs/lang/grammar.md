@@ -47,7 +47,7 @@ float double bool char string void
 struct packed union interface enum fn
 if else while do for in switch match case default break continue return
 import extern intrinsic  sizeof alloc_with free_closure
-thread_create thread_join  asm  try catch finally throw  defer
+thread_create thread_join  asm  try catch finally throw  defer errdefer
 null true false
 ```
 
@@ -202,7 +202,7 @@ match-arm     = IDENT ( '(' IDENT (',' IDENT)* ')' )? '->' statement   // varian
               | '_' '->' statement                                     // default
 
 try-stmt      = 'try' block ( 'catch' '(' type IDENT ')' block )* ( 'finally' block )?
-defer-stmt    = 'defer' statement                 // runs at block exit, LIFO, on every path out
+defer-stmt    = ( 'defer' | 'errdefer' ) statement   // block-exit cleanup, LIFO; errdefer runs only on the `?`-error path
 asm-stmt      = 'asm' '(' STRING_LIT ( ':' ':' asm-operand (',' asm-operand)*
                               ( ':' STRING_LIT (',' STRING_LIT)* )? )? ')' ';'
 asm-operand   = STRING_LIT '(' expr ')'

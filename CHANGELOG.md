@@ -17,6 +17,10 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   runs each iteration. It is the ergonomic way to pair an acquisition with its release
   (`*uint8 b = alloc<uint8>(n); defer free(b);`) without leaking on early exits. A defer
   body may not `return` or `break`/`continue` out of itself.
+- **`errdefer` statement.** Like `defer`, but runs only on the **error exit** path (when
+  the function leaves via `?`-propagation), not on a normal `return` or fall-through. For
+  undoing partial work when a fallible step fails while keeping it on success
+  (`Conn c = open()?; errdefer close(c); handshake(c)?;`).
 
 ### Fixed
 - **`finally` was skipped on an early `return`/`break`/`continue` from inside a `try`

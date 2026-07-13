@@ -1,0 +1,21 @@
+extern int printf(string fmt, ...);
+
+struct R { bool ok; int value; }
+R okr(int v) { let r: R; r.ok = true;  r.value = v; return r; }
+R err()      { let r: R; r.ok = false; r.value = 0; return r; }
+
+// `errdefer stmt;` runs stmt only when the function exits via `?`-propagation
+// (an error), never on a normal success return. Plain `defer` always runs.
+R step(bool good) {
+    printf("[open ");
+    defer printf("close] ");           // always runs, on any exit
+    errdefer printf("ROLLBACK ");      // only when the `?` below propagates an Err
+    int v = good ? (okr(5)?) : (err()?);
+    return okr(v);                      // success path: errdefer must NOT fire
+}
+
+int main() {
+    printf("ok:  "); step(true);  printf("\n");   // [open close]
+    printf("err: "); step(false); printf("\n");   // [open ROLLBACK close]  (LIFO on the ? path)
+    return 0;
+}

@@ -2158,6 +2158,14 @@ pre.code-block {
  }</pre>
 <p>The two versions do the same thing, but the second cannot leak: every exit, including a propagated <code>?</code> error, runs both defers. Deferred statements run in <strong>LIFO</strong> order (here <code>out</code> is freed before <code>buf</code>), and a <code>defer</code> inside a loop body runs at the end of each iteration. A defer body may not <code>return</code> or <code>break</code>/<code>continue</code> out of itself.</p>
 <p>Use <code>defer</code> for the common acquire-then-release pattern; reach for <code>try</code>/<code>finally</code> (10.2) when cleanup must also run as an exception unwinds past the scope.</p>
+<p><code>errdefer</code> is a variant that runs <strong>only on the error path</strong>: when the function exits through a propagated <code>?</code> error, not on a normal <code>return</code>. It is exactly what you want for undoing half-finished work when a later step fails, while keeping it when everything succeeds:</p>
+<pre class="code-block"> Connection open_ready(string host) {
+       Connection c = connect(host)?;
+       errdefer close(c);        // closed only if a later ? fails; kept on success
+       handshake(c)?;            // if this errors, close(c) runs, then the Err propagates
+       return c;                 // success: c survives, errdefer does not run
+ }</pre>
+<p>On the error path a <code>defer</code> and an <code>errdefer</code> both run, LIFO. On the success path only the <code>defer</code> runs.</p>
 <div class="chapter-start" id="chapter-20"><span class="chapter-label">Chapter 20</span>
 <h1 class="chapter-title">Debugging</h1><hr class="chapter-rule"></div>
 <p>Systems programs fail in ways that higher-level languages protect you from. A <code>null</code> dereference crashes with a segfault. A buffer overrun silently corrupts memory three functions away from the bug. This chapter covers the tools that find these bugs quickly.</p>

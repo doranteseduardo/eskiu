@@ -125,7 +125,7 @@ true  false  null
 alloc_with
 const  volatile  static  escaping  asm
 thread_create  thread_join
-try  catch  finally  throw  defer
+try  catch  finally  throw  defer  errdefer
 async  await
 sizeof  free_closure  union  enum
 </code></pre>
@@ -1249,6 +1249,20 @@ path out of the block, so you never leak on an early return or a propagated erro
 <p><code>defer</code> complements <code>try</code>/<code>finally</code> (§10): <code>finally</code> is for catch-and-cleanup around a
 block, while <code>defer</code> colocates a one-off release with its acquisition. For cleanup that
 must also run when an exception unwinds past the scope, use <code>try</code>/<code>finally</code>.</p>
+<p><strong><code>errdefer</code></strong> is a variant that runs its statement only on the <strong>error exit</strong> path,
+namely when the function leaves through <code>?</code>-propagation (an <code>Err</code> is returned early). It
+does not run on a normal <code>return</code>, on fall-through, or on <code>break</code>/<code>continue</code>. This is the
+tool for undoing partial work when a fallible step fails partway through, while keeping it
+on success:</p>
+<pre><code class="language-eskiu">Connection open_ready(string host) {
+    Connection c = connect(host)?;
+    errdefer close(c);        // closed only if a later `?` fails; kept on success
+    handshake(c)?;            // if this errors, close(c) runs and the Err propagates
+    return c;                 // success: c survives, errdefer does not run
+}
+</code></pre>
+<p>On the error path both kinds run in LIFO order (an <code>errdefer</code> registered after a <code>defer</code>
+runs first). All the defer-body restrictions above apply to <code>errdefer</code> as well.</p>
 <hr>
 <h2 id="8-structs">8. Structs</h2>
 <h3 id="81-declaration-with-fields">8.1 Declaration with Fields</h3>

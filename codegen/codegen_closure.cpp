@@ -269,7 +269,7 @@ void CodeGen::visit(TryStmt* node) {
     // fall-through and exception paths still emit it via finallyBB / the landingpad
     // below, so we pop this frame WITHOUT running it here.
     cleanupScopes.emplace_back();
-    if (node->finally) cleanupScopes.back().push_back(node->finally.get());
+    if (node->finally) cleanupScopes.back().push_back({node->finally.get(), /*isErr=*/false});
     if (node->body) node->body->accept(this);
     cleanupScopes.pop_back();
     unwindTarget = savedUnwind;

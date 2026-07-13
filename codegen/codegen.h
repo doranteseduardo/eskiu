@@ -145,15 +145,17 @@ private:
     llvm::BasicBlock* continueTarget = nullptr;
 
     // Scope-exit cleanup stack: one frame per active block/try scope, holding the
-    // `defer` bodies (and a try's `finally`) to run LIFO when the scope is left.
-    // Normal control-flow exits (return / break / continue / `?`) emit the frames
+    // `defer`/`errdefer` bodies (and a try's `finally`) to run LIFO when the scope is
+    // left. Normal control-flow exits (return / break / continue / `?`) emit the frames
     // they leave before branching; block fall-through runs its own frame.
-    std::vector<std::vector<Stmt*>> cleanupScopes;
+    struct Cleanup { Stmt* body; bool isErr; };   // isErr = errdefer (error-path only)
+    std::vector<std::vector<Cleanup>> cleanupScopes;
     size_t breakCleanupDepth    = 0;   // frame depth to unwind to on break
     size_t continueCleanupDepth = 0;   // frame depth to unwind to on continue
-    // Emit (in LIFO order) every cleanup body in frames at index >= depth. Does not
-    // pop — the owning scope pops when it ends.
-    void runCleanupsToDepth(size_t depth);
+    // Emit (in LIFO order) every cleanup body in frames at index >= depth. On a normal
+    // exit (errorPath=false) errdefer bodies are skipped; the `?`-propagation error path
+    // passes errorPath=true so both run. Does not pop — the owning scope pops when it ends.
+    void runCleanupsToDepth(size_t depth, bool errorPath);
     bool blockTerminated();   // is the current basic block already terminated?
 
     // Exception handling: set when inside a try body
