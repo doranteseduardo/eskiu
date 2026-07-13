@@ -151,7 +151,7 @@ already has static storage).
 ## Types
 
 ```
-type        = 'const'? ptr* base suffix*
+type        = '?'? 'const'? ptr* base suffix*      // leading '?' = checked nullable pointer `?*T`
 suffix      = array | '*' 'const'?                   // arrays and trailing pointers, any order
 base        = scalar-type
             | IDENT ( '<' type (',' type)* '>' )?   // named type or template instance

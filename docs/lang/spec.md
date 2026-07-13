@@ -180,6 +180,25 @@ let ptr: *int = null;
 let buf: *uint8 = null;
 ```
 
+#### Checked nullable pointers (`?*T`)
+
+A plain `*T` may hold `null` (as in C), and dereferencing a null one is undefined. For
+opt-in null safety, write `?*T`, a **checked nullable pointer**. The compiler will not let
+you dereference, index, or take a member of a `?*T` until you have proven it non-null with
+a null-check; inside `if (x != null) { ... }` the pointer is treated as non-null:
+
+```eskiu
+?*int q = maybe();
+*q;                        // error: q may be null; check it first
+if (q != null) {
+    printf("%d\n", *q);    // ok: narrowed to non-null here
+}
+```
+
+A non-null `*T` converts to `?*T` implicitly (widening); going the other way (`?*T` to
+`*T`) drops the check and so requires narrowing (or an explicit cast). `?*T` has the same
+representation as `*T` (a bare pointer); the checking is entirely at compile time.
+
 ### 3.3 Array Types
 
 Fixed-size arrays use the form `T[N]` where `N` is a compile-time integer constant: a decimal literal, an `enum` member, or a `const int` (see §4.6). Array types are supported both as struct fields and as local variables:

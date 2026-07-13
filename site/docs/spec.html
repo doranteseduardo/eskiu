@@ -304,6 +304,20 @@ cast). Integer literals are <code>int</code> (i32), widening to <code>int64</cod
 <pre><code class="language-eskiu">let ptr: *int = null;
 let buf: *uint8 = null;
 </code></pre>
+<h4 id="checked-nullable-pointers-t">Checked nullable pointers (<code>?*T</code>)</h4>
+<p>A plain <code>*T</code> may hold <code>null</code> (as in C), and dereferencing a null one is undefined. For
+opt-in null safety, write <code>?*T</code>, a <strong>checked nullable pointer</strong>. The compiler will not let
+you dereference, index, or take a member of a <code>?*T</code> until you have proven it non-null with
+a null-check; inside <code>if (x != null) { ... }</code> the pointer is treated as non-null:</p>
+<pre><code class="language-eskiu">?*int q = maybe();
+*q;                        // error: q may be null; check it first
+if (q != null) {
+    printf(&quot;%d\n&quot;, *q);    // ok: narrowed to non-null here
+}
+</code></pre>
+<p>A non-null <code>*T</code> converts to <code>?*T</code> implicitly (widening); going the other way (<code>?*T</code> to
+<code>*T</code>) drops the check and so requires narrowing (or an explicit cast). <code>?*T</code> has the same
+representation as <code>*T</code> (a bare pointer); the checking is entirely at compile time.</p>
 <h3 id="33-array-types">3.3 Array Types</h3>
 <p>Fixed-size arrays use the form <code>T[N]</code> where <code>N</code> is a compile-time integer constant: a decimal literal, an <code>enum</code> member, or a <code>const int</code> (see §4.6). Array types are supported both as struct fields and as local variables:</p>
 <pre><code class="language-eskiu">struct QRBuffer {
