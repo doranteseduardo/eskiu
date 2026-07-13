@@ -48,18 +48,22 @@ void ASTPrinter::printTypeParams(const std::vector<std::string>& typeParams,
     indentLevel--;
 }
 
+void ASTPrinter::printParams(const std::vector<std::pair<std::string, std::string>>& params) {
+    println("Parameters:");
+    indentLevel++;
+    for (auto& param : params) {
+        println(param.first + " " + param.second);
+    }
+    indentLevel--;
+}
+
 void ASTPrinter::visit(FunctionDecl* node) {
     println("FunctionDecl: " + node->name + " -> " + node->returnType +
             (node->isAsync ? " (async)" : "") + (node->mustUse ? " (must_use)" : ""));
     indentLevel++;
 
     printTypeParams(node->typeParams, node->constraints);
-    println("Parameters:");
-    indentLevel++;
-    for (auto& param : node->params) {
-        println(param.first + " " + param.second);
-    }
-    indentLevel--;
+    printParams(node->params);
 
     // A forward declaration (prototype) has no body — omit the section rather than
     // dereferencing a null body (cf. ReturnStmt skipping a null value).
@@ -113,12 +117,7 @@ void ASTPrinter::visit(ExternDecl* node) {
     println("ExternDecl: " + node->name + " -> " + node->returnType);
     indentLevel++;
 
-    println("Parameters:");
-    indentLevel++;
-    for (auto& param : node->params) {
-        println(param.first + " " + param.second);
-    }
-    indentLevel--;
+    printParams(node->params);
 
     indentLevel--;
 }
@@ -127,12 +126,7 @@ void ASTPrinter::visit(IntrinsicDecl* node) {
     println("IntrinsicDecl: " + node->name + " -> " + node->returnType);
     indentLevel++;
 
-    println("Parameters:");
-    indentLevel++;
-    for (auto& param : node->params) {
-        println(param.first + " " + param.second);
-    }
-    indentLevel--;
+    printParams(node->params);
 
     indentLevel--;
 }

@@ -254,7 +254,6 @@ DeclPtr Parser::parseDeclaration() {
 }
 
 DeclPtr Parser::parseFunctionDecl() {
-    Token startTok = peek(); // capture position before parsing return type
     std::string returnType = parseType();
     Token nameTok = peek();
     std::string name = consume(TokenType::IDENT, "Expected function name").value;

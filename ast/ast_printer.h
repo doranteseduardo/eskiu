@@ -20,6 +20,10 @@ private:
     void printTypeParams(const std::vector<std::string>& typeParams,
                          const std::map<std::string, std::vector<std::string>>& constraints);
 
+    // Print a `Parameters:` section: each param as `type name`. Shared by
+    // FunctionDecl / ExternDecl / IntrinsicDecl.
+    void printParams(const std::vector<std::pair<std::string, std::string>>& params);
+
     // Visitor methods
     void visit(Program* node) override;
     void visit(FunctionDecl* node) override;
