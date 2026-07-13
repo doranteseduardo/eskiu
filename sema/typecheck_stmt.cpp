@@ -49,11 +49,40 @@ void TypeChecker::visit(IfStmt* node) {
             errorAt(node,"condition must be boolean or numeric, got " + condType);
         }
     }
+    // Null-narrowing: `if (q != null)` proves `q` non-null in the then-branch (and
+    // `if (q == null)` in the else-branch), so a `?*T` may be dereferenced there.
+    std::string narrowVar;
+    bool narrowThen = true;
+    if (auto* b = dynamic_cast<BinaryExpr*>(node->condition.get())) {
+        if (b->op == "!=" || b->op == "==") {
+            auto isNull = [](Expr* e) {
+                auto* l = dynamic_cast<LiteralExpr*>(e);
+                return l && l->kind == LiteralExpr::Kind::NULL_VAL;
+            };
+            IdentExpr* id = nullptr;
+            if ((id = dynamic_cast<IdentExpr*>(b->left.get())) && isNull(b->right.get())) {}
+            else if ((id = dynamic_cast<IdentExpr*>(b->right.get())) && isNull(b->left.get())) {}
+            else id = nullptr;
+            if (id) {
+                std::string t = getExpressionType(id);
+                if (!t.empty() && t[0] == '?') { narrowVar = id->name; narrowThen = (b->op == "!="); }
+            }
+        }
+    }
+    auto narrow = [&](bool active) -> bool {   // returns whether we inserted (to restore)
+        if (narrowVar.empty() || !active || narrowedNonNull.count(narrowVar)) return false;
+        narrowedNonNull.insert(narrowVar); return true;
+    };
+
     if (node->thenBranch) {
+        bool ins = narrow(!narrowVar.empty() && narrowThen);
         node->thenBranch->accept(this);
+        if (ins) narrowedNonNull.erase(narrowVar);
     }
     if (node->elseBranch) {
+        bool ins = narrow(!narrowVar.empty() && !narrowThen);
         node->elseBranch->accept(this);
+        if (ins) narrowedNonNull.erase(narrowVar);
     }
 }
 

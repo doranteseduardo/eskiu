@@ -152,9 +152,20 @@ void TypeChecker::visit(TernaryExpr* node) {
     expressionTypes[node] = result;
 }
 
+void TypeChecker::checkNullableDeref(Expr* operand, const char* how) {
+    std::string t = getExpressionType(operand);
+    if (t.empty() || t[0] != '?') return;                 // not a checked-nullable pointer
+    if (auto* id = dynamic_cast<IdentExpr*>(operand))      // narrowed non-null in this branch?
+        if (narrowedNonNull.count(id->name)) return;
+    errorAt(operand, std::string("cannot ") + how + " a possibly-null pointer of type '" + t +
+                     "'; check it first (e.g. `if (x != null)`)");
+}
+
 void TypeChecker::visit(UnaryExpr* node) {
     node->operand->accept(this);
     std::string operandType = getExpressionType(node->operand.get());
+
+    if (node->op == "*") checkNullableDeref(node->operand.get(), "dereference");
 
     if (operandType == "unknown") {
         expressionTypes[node] = "unknown";
@@ -443,6 +454,7 @@ void TypeChecker::visit(IndexExpr* node) {
     node->base->accept(this);
     node->index->accept(this);
     if (node->highIndex) node->highIndex->accept(this);
+    checkNullableDeref(node->base.get(), "index");
 
     std::string baseType = getExpressionType(node->base.get());
     std::string indexType = getExpressionType(node->index.get());
@@ -493,8 +505,10 @@ void TypeChecker::visit(IndexExpr* node) {
 
 void TypeChecker::visit(MemberExpr* node) {
     node->base->accept(this);
+    checkNullableDeref(node->base.get(), "access a member of");
 
     std::string baseType = getExpressionType(node->base.get());
+    if (!baseType.empty() && baseType[0] == '?') baseType = baseType.substr(1);   // `?*T` derefs like `*T`
 
     // Slice `.len` → int64 (the fat pointer's length field).
     if (node->member == "len" && ty::Type::parse(baseType).kind == ty::Type::Kind::Slice) {
