@@ -694,8 +694,6 @@ void TypeChecker::visit(LambdaExpr* node) {
     std::set<std::string> paramNames;
     for (const auto& p : node->params) paramNames.insert(p.second);
 
-    // Store param set temporarily so IdentExpr can consult it
-    // We use a simple approach: after defining params, record the scope depth
     if (node->body) node->body->accept(this);
     currentFunctionReturnType = savedReturn;
     popScope();
