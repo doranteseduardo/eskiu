@@ -11,6 +11,19 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 ## [Unreleased]
 
 ### Added
+- **`<sort>` stdlib module.** Generic in-place `sort<T>(a, n, cmp)` (heapsort, a
+  guaranteed O(n log n) worst case) and `bsearch<T>(a, n, key, cmp)` over a `*T` array,
+  driven by a `cmp(&x, &y)` function in the C qsort/bsearch convention. Works directly on
+  a `List<T>`'s backing data.
+- **`<url>` stdlib module.** RFC 3986 percent-encoding (`url_encode` / `url_decode`) and
+  form-query lookup (`url_query_get`, decoding `+` as space), all writing into a caller's
+  `String`.
+- **`<uuid>` stdlib module.** RFC 4122 version-4 UUIDs (`uuid_v4`), formatted in the
+  canonical 8-4-4-4-12 hex form. Built on `<random>`, so it is not cryptographically secure.
+- **UTC civil calendar in `<time>`.** `DateTime` plus `time_to_utc` / `time_from_utc`
+  (exact days<->civil conversion over the whole int64 range) and `time_format_iso` for
+  ISO 8601 `YYYY-MM-DDTHH:MM:SSZ` output. `<time>` now imports `<string>` for the
+  formatting helpers.
 - **`<random>` stdlib module.** A seedable pseudo-random generator (xoshiro256\*\*)
   with no global mutable state: `rng_seed`, `rng_next` (raw 64-bit), `rng_below` and
   `rng_range` (unbiased bounded integers), `rng_double` (`[0.0, 1.0)`), `rng_bool`, and

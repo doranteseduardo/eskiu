@@ -938,8 +938,20 @@ import &lt;math&gt;;
 <td>linear-time regex (Thompson NFA): <code>regex_match</code>, <code>regex_compile</code>/<code>regex_search</code> with capture groups (<code>match_group</code>), <code>\d \w \s</code>, <code>* + ? {m,n}</code>, <code>|</code>, <code>( )</code>, <code>^ $</code></td>
 </tr>
 <tr>
+<td><code>&lt;sort&gt;</code></td>
+<td>generic in-place heapsort <code>sort&lt;T&gt;</code> + <code>bsearch&lt;T&gt;</code> over a <code>*T</code> array, via a <code>cmp(&amp;x, &amp;y)</code> function</td>
+</tr>
+<tr>
+<td><code>&lt;url&gt;</code></td>
+<td>RFC 3986 percent-encoding: <code>url_encode</code>, <code>url_decode</code>, and form-query lookup <code>url_query_get</code></td>
+</tr>
+<tr>
+<td><code>&lt;uuid&gt;</code></td>
+<td>RFC 4122 v4 UUIDs: <code>uuid_v4(&amp;rng, &amp;out)</code> (built on <code>&lt;random&gt;</code>)</td>
+</tr>
+<tr>
 <td><code>&lt;time&gt;</code></td>
-<td><code>time_now_ms</code>, <code>time_now_s</code>, <code>time_monotonic_ms</code>, <code>sleep_ms</code></td>
+<td><code>time_now_ms</code>, <code>time_now_s</code>, <code>time_monotonic_ms</code>, <code>sleep_ms</code>; UTC civil calendar (<code>DateTime</code>, <code>time_to_utc</code>/<code>time_from_utc</code>, <code>time_format_iso</code>)</td>
 </tr>
 <tr>
 <td><code>&lt;env&gt;</code></td>

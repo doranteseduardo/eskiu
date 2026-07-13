@@ -926,7 +926,10 @@ Available modules:
 | `<base64>`   | `base64_encode` / `base64_decode` over byte buffers |
 | `<random>`   | seedable PRNG (xoshiro256\*\*): `rng_seed`, `rng_next`, `rng_below`, `rng_range`, `rng_double`, `rng_bool`, `rng_fill` |
 | `<regex>`    | linear-time regex (Thompson NFA): `regex_match`, `regex_compile`/`regex_search` with capture groups (`match_group`), `\d \w \s`, `* + ? {m,n}`, `|`, `( )`, `^ $` |
-| `<time>`     | `time_now_ms`, `time_now_s`, `time_monotonic_ms`, `sleep_ms` |
+| `<sort>`     | generic in-place heapsort `sort<T>` + `bsearch<T>` over a `*T` array, via a `cmp(&x, &y)` function |
+| `<url>`      | RFC 3986 percent-encoding: `url_encode`, `url_decode`, and form-query lookup `url_query_get` |
+| `<uuid>`     | RFC 4122 v4 UUIDs: `uuid_v4(&rng, &out)` (built on `<random>`) |
+| `<time>`     | `time_now_ms`, `time_now_s`, `time_monotonic_ms`, `sleep_ms`; UTC civil calendar (`DateTime`, `time_to_utc`/`time_from_utc`, `time_format_iso`) |
 | `<env>`      | `env_get`, `env_has`, `env_get_or`, `env_get_int` |
 | `<path>`     | `path_join`, `path_basename`, `path_dirname`, `path_extension`, `path_is_absolute` |
 | `<threading>`| `Mutex`, `Cond`, `Sem` over pthread (pairs with `thread_create`/`thread_join`) |
