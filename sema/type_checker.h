@@ -71,6 +71,7 @@ public:
     void visit(ThreadJoinStmt* node) override;
     void visit(ThrowStmt* node) override;
     void visit(TryStmt* node) override;
+    void visit(DeferStmt* node) override;
     void visit(EnumDecl* node) override;
     void visit(TypeAliasDecl* node) override;
 
@@ -156,6 +157,10 @@ private:
     std::map<std::string, std::pair<std::string, std::vector<std::string>>> functionSignatures;
     // Per-function `escaping` flags for each parameter (closure-retention).
     std::map<std::string, std::vector<bool>> functionParamEscaping;
+    std::set<std::string> mustUseFuncs;   // functions whose result may not be discarded
+    std::set<std::string> narrowedNonNull; // `?*T` vars currently known non-null (via if-narrowing)
+    // Reject deref/index/member of a nullable `?*T` that hasn't been null-checked.
+    void checkNullableDeref(Expr* operand, const char* how);
     // Escape-soundness state for the function currently being checked: the names
     // of its non-escaping fn-typed params, those found to escape, and the name
     // currently in callee position (a call of the param does NOT make it escape).

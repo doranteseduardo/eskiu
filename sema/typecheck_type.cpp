@@ -19,8 +19,12 @@
 // Part of the type_checker.cpp split; see type_checker.h.
 
 // Type inference
-std::string TypeChecker::inferBinaryExprType(const std::string& leftType, const std::string& op,
-                                             const std::string& rightType) {
+std::string TypeChecker::inferBinaryExprType(const std::string& leftIn, const std::string& op,
+                                             const std::string& rightIn) {
+    // A nullable `?*T` compares/operates like `*T` (the `?` only governs deref-safety),
+    // so strip a leading `?` from either operand before inference.
+    std::string leftType  = (!leftIn.empty()  && leftIn[0]  == '?') ? leftIn.substr(1)  : leftIn;
+    std::string rightType = (!rightIn.empty() && rightIn[0] == '?') ? rightIn.substr(1) : rightIn;
     if (op == "=") {
         return isValidAssignment(leftType, rightType) ? leftType : "error";
     }
@@ -61,7 +65,9 @@ std::string TypeChecker::inferBinaryExprType(const std::string& leftType, const 
     return promoteType(leftType, rightType);
 }
 
-std::string TypeChecker::inferUnaryExprType(const std::string& op, const std::string& operandType) {
+std::string TypeChecker::inferUnaryExprType(const std::string& op, const std::string& operandIn) {
+    // A `?*T` derefs like `*T` (deref-safety is enforced separately by checkNullableDeref).
+    std::string operandType = (!operandIn.empty() && operandIn[0] == '?') ? operandIn.substr(1) : operandIn;
     if (op == "!") {
         return "bool";
     }
@@ -92,11 +98,12 @@ void TypeChecker::validateStructType(const std::string& type) {
     // Function pointer types are always valid
     if (type.size() > 3 && type.substr(0, 3) == "fn(") return;
     std::string baseType = type;
+    if (!baseType.empty() && baseType.front() == '?') baseType = baseType.substr(1);   // nullable `?*T`
     // Strip fixed-size array suffixes (T[N], T[N][M], ...) — the element type is what
     // matters here; each dimension (a literal, enum, or const) is resolved in codegen.
     while (!baseType.empty() && baseType.back() == ']') {
         ty::Type t = ty::Type::parse(baseType);
-        if (t.kind != ty::Type::Kind::Array) break;
+        if (t.kind != ty::Type::Kind::Array && t.kind != ty::Type::Kind::Slice) break;
         baseType = t.elem->str();
     }
     // Strip ALL pointer decorators (*T, T*, **T, etc.)
@@ -247,6 +254,21 @@ bool TypeChecker::isNarrowingNumeric(const std::string& lhsType, const std::stri
 std::string TypeChecker::assignabilityError(const std::string& targetType,
                                             const std::string& srcType, Expr* srcExpr) {
     if (srcType == "unknown" || targetType.empty() || targetType == "unknown") return "";
+    // Nullable-pointer rules (opt-in null safety): a `?*T` behaves like `*T` for
+    // assignment except that assigning a nullable pointer to a non-null one drops the
+    // check, so it requires an explicit narrowing (or cast). `*T`/`null` -> `?*T` is fine.
+    {
+        bool tNull = !targetType.empty() && targetType[0] == '?';
+        bool sNull = !srcType.empty()    && srcType[0]    == '?';
+        if (tNull || sNull) {
+            std::string t2 = tNull ? targetType.substr(1) : targetType;
+            std::string s2 = sNull ? srcType.substr(1)    : srcType;
+            if (sNull && !tNull && isPointerType(t2))
+                return "assigning a nullable pointer '" + srcType + "' to non-null '" +
+                       targetType + "' requires a null-check (e.g. `if (x != null)`)";
+            return assignabilityError(t2, s2, srcExpr);
+        }
+    }
     std::string nt = normalizeType(targetType), ns = normalizeType(srcType);
     // An integer literal that provably does not fit the target is rejected even though
     // integer-width narrowing is otherwise implicit (its value is statically known).

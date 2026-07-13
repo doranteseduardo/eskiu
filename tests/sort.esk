@@ -1,0 +1,56 @@
+// <sort> — generic heapsort + binary search.
+import <sort>;
+import <mem>;
+extern int printf(string fmt, ...);
+
+int cmp_int(*int a, *int b) {
+    if (*a < *b) { return -1; }
+    if (*a > *b) { return 1; }
+    return 0;
+}
+
+struct Item { int key; int seq; }
+
+int cmp_item(*Item a, *Item b) {
+    if (a.key < b.key) { return -1; }
+    if (a.key > b.key) { return 1; }
+    return 0;
+}
+
+int main() {
+    // ints
+    int n = 9;
+    *int a = alloc<int>(n);
+    a[0] = 5; a[1] = 1; a[2] = 9; a[3] = 3; a[4] = 3; a[5] = 7; a[6] = 0; a[7] = 8; a[8] = 2;
+    sort<int>(a, n, cmp_int);
+    int i = 0;
+    int sorted = 1;
+    while (i < n - 1) { if (a[i] > a[i + 1]) { sorted = 0; } i = i + 1; }
+    printf("ints:");
+    i = 0;
+    while (i < n) { printf(" %d", a[i]); i = i + 1; }
+    printf("  sorted=%d\n", sorted);
+
+    // binary search
+    printf("find 7=%d find 4=%d find 0=%d\n",
+           bsearch<int>(a, n, 7, cmp_int),
+           bsearch<int>(a, n, 4, cmp_int),
+           bsearch<int>(a, n, 0, cmp_int));
+
+    // struct sort
+    int m = 4;
+    *Item it = alloc<Item>(m);
+    it[0].key = 3; it[0].seq = 0;
+    it[1].key = 1; it[1].seq = 1;
+    it[2].key = 2; it[2].seq = 2;
+    it[3].key = 1; it[3].seq = 3;
+    sort<Item>(it, m, cmp_item);
+    printf("items:");
+    i = 0;
+    while (i < m) { printf(" %d", it[i].key); i = i + 1; }
+    printf("\n");
+
+    free(a);
+    free(it);
+    return 0;
+}

@@ -23,6 +23,18 @@ static std::string ppTrim(const std::string& s) {
     return s.substr(a, s.find_last_not_of(" \t") - a + 1);
 }
 
+// Copy a quoted string/char literal from s starting at s[i] (the opening quote)
+// into out, advancing i past the closing quote. Backslash escapes are copied
+// verbatim so a quote inside them does not end the literal.
+static void ppCopyLiteral(const std::string& s, size_t& i, std::string& out) {
+    size_t n = s.size();
+    char q = s[i]; out += s[i]; i++;
+    while (i < n) {
+        if (s[i]=='\\'&&i+1<n){out+=s[i];out+=s[i+1];i+=2;continue;}
+        out += s[i]; if (s[i]==q){i++;break;} i++;
+    }
+}
+
 // Replace each parameter name in a function-like macro body with its argument.
 static std::string ppSubstParams(const std::string& body,
                                  const std::vector<std::string>& params,
@@ -33,11 +45,7 @@ static std::string ppSubstParams(const std::string& body,
     while (i < n) {
         char c = body[i];
         if (c == '"' || c == '\'') {
-            char q = c; out += c; i++;
-            while (i < n) {
-                if (body[i]=='\\'&&i+1<n){out+=body[i];out+=body[i+1];i+=2;continue;}
-                out += body[i]; if (body[i]==q){i++;break;} i++;
-            }
+            ppCopyLiteral(body, i, out);
             continue;
         }
         if (std::isalpha((unsigned char)c) || c == '_') {
@@ -62,11 +70,7 @@ static std::string ppExpand(const std::string& text,
     while (i < n) {
         char c = text[i];
         if (c == '"' || c == '\'') {
-            char q = c; out += c; i++;
-            while (i < n) {
-                if (text[i]=='\\'&&i+1<n){out+=text[i];out+=text[i+1];i+=2;continue;}
-                out += text[i]; if (text[i]==q){i++;break;} i++;
-            }
+            ppCopyLiteral(text, i, out);
             continue;
         }
         if (c == '/' && i+1<n && text[i+1]=='/') { out += text.substr(i); break; }
@@ -275,6 +279,7 @@ std::string tokenTypeToString(TokenType type) {
         case TokenType::VOLATILE:      return "VOLATILE";
         case TokenType::STATIC:        return "STATIC";
         case TokenType::ESCAPING:      return "ESCAPING";
+        case TokenType::MUST_USE:      return "MUST_USE";
         case TokenType::ASYNC:         return "ASYNC";
         case TokenType::AWAIT:         return "AWAIT";
         case TokenType::CONST:         return "CONST";
@@ -305,6 +310,8 @@ std::string tokenTypeToString(TokenType type) {
         case TokenType::CATCH: return "CATCH";
         case TokenType::FINALLY: return "FINALLY";
         case TokenType::THROW: return "THROW";
+        case TokenType::DEFER: return "DEFER";
+        case TokenType::ERRDEFER: return "ERRDEFER";
         case TokenType::CONTINUE: return "CONTINUE";
         case TokenType::INT8: return "INT8";
         case TokenType::INT16: return "INT16";

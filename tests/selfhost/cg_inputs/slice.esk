@@ -1,0 +1,15 @@
+extern int printf(string fmt, ...);
+
+int sum(int[] s) {
+    int total = 0;
+    int i = 0;
+    while (i < (int)s.len) { total = total + s[i]; i = i + 1; }
+    return total;
+}
+int main() {
+    int[6] a = {10, 20, 30, 40, 50, 60};
+    int[] mid = a[1..4];              // {20,30,40}
+    mid[0] = 99;                       // writes through to a[1]
+    printf("%lld %d %d %d\n", mid.len, mid[0], a[1], sum(mid));   // 3 99 99 169
+    return 0;
+}

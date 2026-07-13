@@ -17,7 +17,7 @@ enum StmtKind {
     SK_BLOCK, SK_RETURN, SK_IF, SK_WHILE, SK_FOR, SK_FORIN,
     SK_BREAK, SK_CONTINUE, SK_EXPR, SK_VARDECL,
     SK_SWITCH, SK_CASE, SK_MATCH, SK_ARM, SK_TRY, SK_CATCH,
-    SK_THROW, SK_THREADJOIN, SK_ASM, SK_ASMINPUT, SK_DOWHILE
+    SK_THROW, SK_THREADJOIN, SK_ASM, SK_ASMINPUT, SK_DOWHILE, SK_DEFER
 }
 enum ExprKind {
     EK_LITERAL, EK_IDENT, EK_BINARY, EK_UNARY,
@@ -55,6 +55,7 @@ struct StmtNode {
     string type;           // var-decl type
     int is_const;          // SK_VARDECL: declared value-const (read-only binding)
     int is_static;         // SK_VARDECL: `static` local (one instance, persists across calls)
+    int is_err;            // SK_DEFER: errdefer (runs only on the error path) vs plain defer
 }
 
 // A generic type parameter with its (possibly empty) interface constraints, e.g.
@@ -76,6 +77,7 @@ struct DeclNode {
     List<List<string>> payloads;   // enum ADT payload types per member (parallel to params)
     List<int> field_bits;          // struct field bitfield widths (parallel to params; 0 = none)
     int is_async;                  // function declared `async` (1) or not (0)
+    int is_mustuse;                  // function declared `must_use` (discarding result is an error)
     int is_const;                  // DK_VARDECL: declared value-const global
     List<int> param_escaping;      // per-param `escaping` flag (parallel to params)
     int is_packed;                 // struct: `packed` qualifier / `#pragma pack(1)` (align 1)
@@ -156,11 +158,16 @@ void print_expr(*ExprNode e, int d) {
         return;
     }
     if (e.kind == EK_INDEX) {
-        pline(d, "IndexExpr");
+        if (List_len<*ExprNode>(&e.kids) > 0) { pline(d, "IndexExpr (slice)"); }
+        else { pline(d, "IndexExpr"); }
         pline(d + 1, "Base:");
         print_expr(e.a, d + 2);
         pline(d + 1, "Index:");
         print_expr(e.b, d + 2);
+        if (List_len<*ExprNode>(&e.kids) > 0) {
+            pline(d + 1, "High:");
+            print_expr(List_get<*ExprNode>(&e.kids, 0), d + 2);
+        }
         return;
     }
     if (e.kind == EK_MEMBER) {
@@ -390,6 +397,11 @@ void print_stmt(*StmtNode s, int d) {
         print_stmt(s.s1, d + 1);
         return;
     }
+    if (s.kind == SK_DEFER) {
+        if (s.is_err == 1) { pline(d, "DeferStmt (err)"); } else { pline(d, "DeferStmt"); }
+        print_stmt(s.s1, d + 1);
+        return;
+    }
     if (s.kind == SK_THROW) {
         pline(d, "ThrowStmt");
         if (s.expr != null) { print_expr(s.expr, d + 1); }
@@ -460,6 +472,7 @@ void print_decl(*DeclNode dn, int d) {
         pind(d);
         printf("FunctionDecl: %s -> %s", dn.name, dn.ret_type);
         if (dn.is_async == 1) { printf(" (async)"); }
+        if (dn.is_mustuse == 1) { printf(" (must_use)"); }
         printf("\n");
         print_type_params(dn, d + 1);
         pline(d + 1, "Parameters:");

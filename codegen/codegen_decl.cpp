@@ -166,6 +166,16 @@ void CodeGen::visit(FunctionDecl* node) {
     currentFunction = func;
     currentSretParam = sret ? &*func->arg_begin() : nullptr;
 
+    // A nested function body (e.g. a template instantiated mid-expression) is a fresh
+    // scope-exit context: save and reset the cleanup stack + loop targets so this body
+    // never runs the enclosing function's defers/finally or branches to its loops.
+    std::vector<std::vector<Cleanup>> prevCleanups = std::move(cleanupScopes);
+    size_t prevBreakCD = breakCleanupDepth, prevContinueCD = continueCleanupDepth;
+    llvm::BasicBlock* prevBreakT = breakTarget, *prevContinueT = continueTarget;
+    cleanupScopes.clear();
+    breakCleanupDepth = continueCleanupDepth = 0;
+    breakTarget = continueTarget = nullptr;
+
     // Push scope for function parameters
     pushScope();
     // (Eskiu param types for interface boxing were registered by declareFunction.)
@@ -224,6 +234,9 @@ void CodeGen::visit(FunctionDecl* node) {
     popScope();
     currentFunction  = prevFunc;
     currentSretParam = prevSretParam;
+    cleanupScopes = std::move(prevCleanups);
+    breakCleanupDepth = prevBreakCD; continueCleanupDepth = prevContinueCD;
+    breakTarget = prevBreakT; continueTarget = prevContinueT;
 }
 
 void CodeGen::visit(VarDecl* node) {
@@ -491,9 +504,7 @@ void CodeGen::visit(UnionDecl* node) {
     llvm::Type* unionTy = llvm::ArrayType::get(
         llvm::Type::getInt8Ty(*context), maxSize);
     std::string mangledName = node->name;
-    structTypes[mangledName] = llvm::cast<llvm::StructType>(
-        llvm::StructType::get(*context, {unionTy}, /*isPacked=*/false));
-    // Actually use a named struct wrapping the byte array for cleaner IR
+    // Named struct wrapping the byte array for cleaner IR
     auto* namedTy = llvm::StructType::create(*context, {unionTy}, mangledName + ".union");
     structTypes[mangledName] = namedTy;
 

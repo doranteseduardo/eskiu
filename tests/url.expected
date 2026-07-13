@@ -1,0 +1,8 @@
+ok    encode = a%20b%26c%3Dd%2Fe
+ok    encode-unreserved = keep-_.~09AZ
+ok    decode = a b+c
+ok    decode-plus-literal = plus+kept
+ok    query-msg = hi there
+ok    query-decoded = @home
+found: msg=1 y=1 missing=0
+fails=0

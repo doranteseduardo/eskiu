@@ -8,6 +8,70 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
+## [0.6.0], 2026-07-13
+
+### Added
+- **`<sort>` stdlib module.** Generic in-place `sort<T>(a, n, cmp)` (heapsort, a
+  guaranteed O(n log n) worst case) and `bsearch<T>(a, n, key, cmp)` over a `*T` array,
+  driven by a `cmp(&x, &y)` function in the C qsort/bsearch convention. Works directly on
+  a `List<T>`'s backing data.
+- **`<url>` stdlib module.** RFC 3986 percent-encoding (`url_encode` / `url_decode`) and
+  form-query lookup (`url_query_get`, decoding `+` as space), all writing into a caller's
+  `String`.
+- **`<uuid>` stdlib module.** RFC 4122 version-4 UUIDs (`uuid_v4`), formatted in the
+  canonical 8-4-4-4-12 hex form. Built on `<random>`, so it is not cryptographically secure.
+- **UTC civil calendar in `<time>`.** `DateTime` plus `time_to_utc` / `time_from_utc`
+  (exact days<->civil conversion over the whole int64 range) and `time_format_iso` for
+  ISO 8601 `YYYY-MM-DDTHH:MM:SSZ` output. `<time>` now imports `<string>` for the
+  formatting helpers.
+- **`<random>` stdlib module.** A seedable pseudo-random generator (xoshiro256\*\*)
+  with no global mutable state: `rng_seed`, `rng_next` (raw 64-bit), `rng_below` and
+  `rng_range` (unbiased bounded integers), `rng_double` (`[0.0, 1.0)`), `rng_bool`, and
+  `rng_fill`. A given seed always reproduces the same stream. Not cryptographically secure.
+- **`<regex>` stdlib module.** A regular-expression engine built as a Thompson NFA run
+  as a Pike VM, so matching is linear in the input with no catastrophic backtracking.
+  Supports literals, `.`, classes `[a-z]` / `[^...]`, the shorthands `\d \w \s` (and
+  `\D \W \S`), quantifiers `* + ? {m} {m,} {m,n}` (greedy or, with a trailing `?`, lazy),
+  alternation `|`, capturing groups `( )`, and the anchors `^ $`. API: `regex_match` for a
+  quick yes/no, or `regex_compile` + `regex_search` + `match_group` to extract captures.
+- **`defer` statement.** `defer stmt;` runs `stmt` (a statement or block) when the
+  enclosing block is left, in LIFO order, on every path out: fall-through, `return`,
+  `break`, `continue`, and `?`-propagation. Block-scoped, so a `defer` in a loop body
+  runs each iteration. It is the ergonomic way to pair an acquisition with its release
+  (`*uint8 b = alloc<uint8>(n); defer free(b);`) without leaking on early exits. A defer
+  body may not `return` or `break`/`continue` out of itself.
+- **`errdefer` statement.** Like `defer`, but runs only on the **error exit** path (when
+  the function leaves via `?`-propagation), not on a normal `return` or fall-through. For
+  undoing partial work when a fallible step fails while keeping it on success
+  (`Conn c = open()?; errdefer close(c); handshake(c)?;`).
+- **Slice type `T[]`.** A fat pointer (data + length) that views a contiguous run of `T`.
+  Construct by slicing a fixed array with a half-open range (`a[lo..hi]`); it aliases the
+  backing array. Supports `s[i]` (read/write), `s.len` (`int64`), passing by value, and
+  `for (x in s)`. Because the length travels with the slice, a function taking `T[]` needs
+  no separate count argument. Lowers to `{ ptr, i64 }`.
+- **Checked nullable pointers (`?*T`).** Opt-in null safety: a `?*T` cannot be
+  dereferenced, indexed, or member-accessed until it is proven non-null, and
+  `if (x != null) { ... }` narrows it to non-null in that branch. A `*T` widens to `?*T`;
+  the reverse needs a check. `*T` stays nullable (C-faithful), so nothing existing
+  changes. Same representation as `*T`, checked entirely at compile time. (Self-host
+  mirror is on the promotion track.)
+- **`must_use` function qualifier.** Prefixing a function with `must_use` makes
+  discarding its result a compile error, catching leaked allocations and dropped return
+  values. The stdlib's `alloc` is now `must_use`, so a bare `alloc<T>(n);` is rejected.
+- **`--safe` mode.** A new compiler flag that inserts runtime safety checks: slice and
+  fixed-array indexing is bounds-checked, and an out-of-range index traps (aborts via
+  `@llvm.trap`) instead of reading or writing past the end. Off by default, so release
+  builds are unaffected. (Self-host mirror of `--safe` is deferred to the promotion
+  track; the shipped C++ compiler carries it.)
+
+### Fixed
+- **`finally` was skipped on an early `return`/`break`/`continue` from inside a `try`
+  body.** The cleanup only ran on fall-through and exception unwind; an early exit jumped
+  straight out, leaking whatever the `finally` was meant to release. It now runs on those
+  paths too (the same scope-exit cleanup mechanism that powers `defer`).
+
+---
+
 ## [0.5.0], 2026-07-12
 
 Fills a set of basic C constructs the language was missing, so idiomatic C ports

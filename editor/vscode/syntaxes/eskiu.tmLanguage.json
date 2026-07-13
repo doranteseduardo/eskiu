@@ -120,7 +120,7 @@
         },
         {
           "name": "keyword.control.exception.eskiu",
-          "match": "\\b(try|catch|finally|throw)\\b"
+          "match": "\\b(try|catch|finally|throw|defer|errdefer)\\b"
         },
         {
           "name": "keyword.declaration.eskiu",
@@ -128,7 +128,7 @@
         },
         {
           "name": "storage.modifier.eskiu",
-          "match": "\\b(const|volatile|static|escaping|async)\\b"
+          "match": "\\b(const|volatile|static|escaping|must_use|async)\\b"
         },
         {
           "name": "keyword.other.eskiu",

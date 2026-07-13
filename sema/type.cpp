@@ -107,6 +107,14 @@ Type parseCore(const std::string& in, const std::set<std::string>& tps) {
     std::string s = trim(in);
     if (s.empty()) { r.kind = Type::Kind::Unknown; r.name = ""; return r; }
 
+    // Nullable pointer `?*T` — a checked nullable pointer (deref requires a null-check).
+    // The `?` applies to the pointer that follows; it is preserved as the `nullable` flag.
+    if (s[0] == '?') {
+        Type inner = parseCore(trim(s.substr(1)), tps);
+        inner.nullable = true;
+        return inner;
+    }
+
     // fn(params)->ret  — checked before pointer suffixes, since `ret` can end in '*'.
     if (s.rfind("fn(", 0) == 0) {
         int depth = 0; size_t close = std::string::npos;
@@ -135,8 +143,9 @@ Type parseCore(const std::string& in, const std::set<std::string>& tps) {
         size_t close = open == std::string::npos ? std::string::npos
                                                  : matchCloseBracket(s, open);
         if (open != std::string::npos && close != std::string::npos) {
-            r.kind = Type::Kind::Array;
             r.dim  = s.substr(open + 1, close - open - 1);
+            // Empty brackets `T[]` = a slice (fat pointer); `T[N]` = a fixed array.
+            r.kind = r.dim.empty() ? Type::Kind::Slice : Type::Kind::Array;
             r.elem = std::make_shared<Type>(
                 Type::parse(s.substr(0, open) + s.substr(close + 1), tps));
             return r;
@@ -205,6 +214,9 @@ std::string Type::str() const {
         case Kind::Array:
             body = elem->str() + "[" + dim + "]";
             break;
+        case Kind::Slice:
+            body = elem->str() + "[]";
+            break;
         case Kind::Fn: {
             body = "fn(";
             for (size_t i = 0; i < params.size(); ++i) {
@@ -227,6 +239,7 @@ std::string Type::str() const {
         case Kind::Interface: body = "interface:" + name; break;
         default:              body = name; break;   // Int/Float/.../Named/Param/sentinels
     }
+    if (nullable) body = "?" + body;                 // checked nullable pointer `?*T`
     return leadingQuals + body;
 }
 
@@ -242,6 +255,7 @@ Type Type::substitute(const std::map<std::string, std::string>& subs) const {
             r.pointee = std::make_shared<Type>(pointee->substitute(subs));
             break;
         case Kind::Array:
+        case Kind::Slice:
             r.elem = std::make_shared<Type>(elem->substitute(subs));
             break;            // dim is opaque text — never substituted
         case Kind::Fn:

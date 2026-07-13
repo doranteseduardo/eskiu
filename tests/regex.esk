@@ -1,0 +1,74 @@
+// <regex> — Thompson NFA / Pike VM. Exercises the syntax and capture groups.
+import <regex>;
+import <string>;
+extern int printf(string fmt, ...);
+
+int fails = 0;
+
+void chk(string name, int got, int want) {
+    if (got == want) { printf("ok    %s\n", name); }
+    else { printf("FAIL  %s (got %d want %d)\n", name, got, want); fails = fails + 1; }
+}
+
+// Extract group `g` of the leftmost match of `pat` in `text` and compare to `want`.
+void chk_grp(string name, string pat, string text, int g, string want) {
+    Regex re = regex_compile(pat);
+    let m: Match;
+    let out: String;
+    String_init(&out, 8);
+    if (regex_search(&re, text, &m) == 1) { match_group(&m, text, g, &out); }
+    int eq = String_eq_cstr(&out, want);
+    if (eq == 1) { printf("ok    %s\n", name); }
+    else { printf("FAIL  %s (want \"%s\")\n", name, want); fails = fails + 1; }
+    String_free(&out);
+    match_free(&m);
+    regex_free(&re);
+}
+
+int main() {
+    chk("literal", regex_match("cat", "the cat sat"), 1);
+    chk("literal-miss", regex_match("dog", "the cat sat"), 0);
+    chk("dot", regex_match("c.t", "cot"), 1);
+    chk("dot-nl", regex_match("a.b", "a\nb"), 0);
+
+    chk("digits", regex_match("\\d+", "abc123"), 1);
+    chk("digits-none", regex_match("\\d+", "abc"), 0);
+    chk("word", regex_match("\\w+", "  hi_5 "), 1);
+    chk("space", regex_match("a\\sb", "a b"), 1);
+    chk("not-digit", regex_match("\\D", "5x"), 1);
+
+    chk("class", regex_match("[a-f]+", "deadXbeef"), 1);
+    chk("class-neg", regex_match("[^0-9]", "42a"), 1);
+    chk("class-neg-miss", regex_match("^[^0-9]+$", "42"), 0);
+
+    chk("star", regex_match("^ab*c$", "ac"), 1);
+    chk("plus", regex_match("^ab+c$", "ac"), 0);
+    chk("quest", regex_match("^colou?r$", "color"), 1);
+    chk("repeat-mn", regex_match("^a{2,3}$", "aa"), 1);
+    chk("repeat-mn-over", regex_match("^a{2,3}$", "aaaa"), 0);
+    chk("repeat-exact", regex_match("^a{3}$", "aaa"), 1);
+
+    chk("alt", regex_match("^(cat|dog|bird)$", "dog"), 1);
+    chk("alt-miss", regex_match("^(cat|dog)$", "fish"), 0);
+
+    chk("anchor-start", regex_match("^cat", "cat food"), 1);
+    chk("anchor-start-miss", regex_match("^cat", "a cat"), 0);
+    chk("anchor-end", regex_match("cat$", "the cat"), 1);
+
+    chk("escape-dot", regex_match("^3\\.14$", "3.14"), 1);
+    chk("escape-dot-lit", regex_match("^3\\.14$", "3x14"), 0);
+
+    // capture groups
+    chk_grp("cap-whole", "\\d+", "id=1234;", 0, "1234");
+    chk_grp("cap-1", "(\\w+)@(\\w+)", "a@b", 1, "a");
+    chk_grp("cap-2", "(\\w+)@(\\w+)", "user@host", 2, "host");
+    chk_grp("cap-date-y", "(\\d{4})-(\\d{2})-(\\d{2})", "2026-07-13", 1, "2026");
+    chk_grp("cap-date-d", "(\\d{4})-(\\d{2})-(\\d{2})", "2026-07-13", 3, "13");
+
+    // greedy vs lazy
+    chk_grp("greedy", "<(.+)>", "<a><b>", 1, "a><b");
+    chk_grp("lazy", "<(.+?)>", "<a><b>", 1, "a");
+
+    printf("fails=%d\n", fails);
+    return 0;
+}

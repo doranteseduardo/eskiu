@@ -152,9 +152,20 @@ void TypeChecker::visit(TernaryExpr* node) {
     expressionTypes[node] = result;
 }
 
+void TypeChecker::checkNullableDeref(Expr* operand, const char* how) {
+    std::string t = getExpressionType(operand);
+    if (t.empty() || t[0] != '?') return;                 // not a checked-nullable pointer
+    if (auto* id = dynamic_cast<IdentExpr*>(operand))      // narrowed non-null in this branch?
+        if (narrowedNonNull.count(id->name)) return;
+    errorAt(operand, std::string("cannot ") + how + " a possibly-null pointer of type '" + t +
+                     "'; check it first (e.g. `if (x != null)`)");
+}
+
 void TypeChecker::visit(UnaryExpr* node) {
     node->operand->accept(this);
     std::string operandType = getExpressionType(node->operand.get());
+
+    if (node->op == "*") checkNullableDeref(node->operand.get(), "dereference");
 
     if (operandType == "unknown") {
         expressionTypes[node] = "unknown";
@@ -442,6 +453,8 @@ void TypeChecker::visit(CallExpr* node) {
 void TypeChecker::visit(IndexExpr* node) {
     node->base->accept(this);
     node->index->accept(this);
+    if (node->highIndex) node->highIndex->accept(this);
+    checkNullableDeref(node->base.get(), "index");
 
     std::string baseType = getExpressionType(node->base.get());
     std::string indexType = getExpressionType(node->index.get());
@@ -449,17 +462,22 @@ void TypeChecker::visit(IndexExpr* node) {
     if (indexType != "unknown" && !isIntType(indexType)) {
         errorAt(node,"array index must be integer, got " + indexType);
     }
+    if (node->highIndex) {
+        std::string hiType = getExpressionType(node->highIndex.get());
+        if (hiType != "unknown" && !isIntType(hiType))
+            errorAt(node, "slice bound must be integer, got " + hiType);
+    }
 
-    // string[i] → char
-    if (baseType == "string") { expressionTypes[node] = "char"; return; }
-
-    // Array type T[N]: indexing peels the outer (leftmost) dimension, yielding T.
-    // For `int[N][M]`, a[i] is `int[M]`; a[i][j] is `int`.
-    {
-        ty::Type bt = ty::Type::parse(baseType);
-        if (bt.kind == ty::Type::Kind::Array) {
-            // A constant index is bounds-checkable at compile time: a negative index is
-            // always out of bounds, and a literal one is checked against a numeric N.
+    // Determine the element type of the base (array / slice / pointer / string).
+    ty::Type bt = ty::Type::parse(baseType);
+    std::string elem;
+    bool haveElem = false;
+    if (baseType == "string") { elem = "char"; haveElem = true; }
+    else if (bt.kind == ty::Type::Kind::Array || bt.kind == ty::Type::Kind::Slice) {
+        elem = bt.elem->str(); haveElem = true;
+        // Constant-index bounds check: only a plain index into a fixed array with a
+        // numeric dimension is checkable at compile time.
+        if (!node->highIndex && bt.kind == ty::Type::Kind::Array) {
             if (auto* ix = dynamic_cast<LiteralExpr*>(node->index.get());
                 ix && ix->kind == LiteralExpr::Kind::INT) {
                 const std::string& dim = bt.dim;
@@ -474,23 +492,29 @@ void TypeChecker::visit(IndexExpr* node) {
                                       " is out of bounds for array of size " + dim);
                 } catch (...) { /* unparized literal — skip */ }
             }
-            expressionTypes[node] = bt.elem->str();
-            return;
         }
+    } else if (isPointerType(baseType)) {
+        elem = getPointeeType(baseType); haveElem = true;
     }
 
-    // Pointer: *T → T
-    if (isPointerType(baseType)) {
-        expressionTypes[node] = getPointeeType(baseType);
-    } else {
-        expressionTypes[node] = "unknown";
-    }
+    if (!haveElem) { expressionTypes[node] = "unknown"; return; }
+
+    // `base[lo..hi]` yields a slice of the element type; `base[i]` yields the element.
+    expressionTypes[node] = node->highIndex ? (elem + "[]") : elem;
 }
 
 void TypeChecker::visit(MemberExpr* node) {
     node->base->accept(this);
+    checkNullableDeref(node->base.get(), "access a member of");
 
     std::string baseType = getExpressionType(node->base.get());
+    if (!baseType.empty() && baseType[0] == '?') baseType = baseType.substr(1);   // `?*T` derefs like `*T`
+
+    // Slice `.len` → int64 (the fat pointer's length field).
+    if (node->member == "len" && ty::Type::parse(baseType).kind == ty::Type::Kind::Slice) {
+        expressionTypes[node] = "int64";
+        return;
+    }
 
     // Auto-deref pointer-to-struct: *Point, struct:Point*, Point* → struct:Point
     if (hasPointerSuffix(baseType)) {
@@ -670,8 +694,6 @@ void TypeChecker::visit(LambdaExpr* node) {
     std::set<std::string> paramNames;
     for (const auto& p : node->params) paramNames.insert(p.second);
 
-    // Store param set temporarily so IdentExpr can consult it
-    // We use a simple approach: after defining params, record the scope depth
     if (node->body) node->body->accept(this);
     currentFunctionReturnType = savedReturn;
     popScope();

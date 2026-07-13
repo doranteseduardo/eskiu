@@ -70,6 +70,9 @@ A function whose execution can suspend and later resume. Each Eskiu `async` func
 **declaration**
 A language construct that introduces a new named entity into the current scope. Eskiu declaration forms are: `FunctionDecl`, `VarDecl`, `StructDecl`, `UnionDecl`, `EnumDecl`, `InterfaceDecl`, `TypeAliasDecl`, `IntrinsicDecl`, and `ExternDecl`. Declarations are distinct from statements in that they bind a name; statements execute logic. See also: statement, scope.
 
+**defer / errdefer**
+Statements that schedule cleanup to run when the enclosing block is left. `defer stmt;` runs on every exit path (fall-through, `return`, `break`, `continue`, and `?`-propagation), in LIFO order; `errdefer` runs only on the error exit (a propagated `?`), for undoing partial work when a later step fails. Both are lowered by a codegen cleanup stack rather than desugared, so the cleanup rides every branch out of the scope. See also: Result.
+
 ## E
 
 **enum**
@@ -162,6 +165,14 @@ The top-level LLVM IR container (`llvm::Module`) that holds all function definit
 **monomorphization**
 The compilation strategy by which a generic definition is specialized into a separate concrete copy for each distinct set of type arguments it is instantiated with. Eskiu templates and generic enums are monomorphic: instead of boxing or runtime dispatch, the compiler emits one stamped-out version per instantiation, each with a mangled name. See also: template / generic, monomorphic.
 
+**must_use**
+A function qualifier (`must_use *uint8 grab() { ... }`) that makes discarding the call's result a compile error, catching a leaked allocation or an ignored status at compile time. The stdlib's `alloc` is `must_use`, so a bare `alloc<T>(n);` is rejected. See also: Result.
+
+## N
+
+**nullable pointer (`?*T`)**
+A checked pointer type that may hold `null`. Unlike a bare `*T` (C-nullable but unchecked), a `?*T` cannot be dereferenced, indexed, or member-accessed until it is proven non-null; `if (x != null) { ... }` narrows it to non-null in that branch. A `*T` widens to `?*T` implicitly; the reverse needs a check. It lowers to a bare pointer, so the safety is entirely at compile time. See also: pointer, narrowing.
+
 ## O
 
 **opaque pointer**
@@ -197,6 +208,9 @@ An expression whose value can be read but that does not itself designate a stora
 
 ## S
 
+**safe mode (`--safe`)**
+An opt-in build mode that inserts a runtime bounds check on every array and slice index; an out-of-range access traps (`@llvm.trap`) instead of reading or writing past the end. Off by default, so release builds pay nothing. See also: slice, sanitizer.
+
 **scope**
 The region of source code in which a declared name is visible. Eskiu uses lexical (block) scoping: each `BlockStmt` introduces a new scope. The symbol table supports nested scopes via a scope stack; inner scopes can shadow outer ones. Names go out of scope when their enclosing block ends. See also: symbol table, BlockStmt.
 
@@ -205,6 +219,9 @@ A compiler written in the language it compiles. The whole Eskiu compiler (lexer,
 
 **semantic analysis**
 The compiler phase (Phase 4) that validates program meaning beyond syntactic correctness. In Eskiu this is the type checker: it verifies type compatibility, resolves identifiers, checks struct-field existence, validates function call arities and types, and enforces return-type consistency. See also: type checker, scope.
+
+**slice (`T[]`)**
+A fat pointer (data pointer + length) that views a contiguous run of `T` without owning it. Built by slicing a fixed array with a half-open range (`a[lo..hi]`); it supports `s[i]`, `s.len`, and `for (x in s)`. Because the length travels with the slice, a function taking `T[]` needs no separate count argument. Lowers to `{ ptr, i64 }`. See also: fat pointer, array, safe mode.
 
 **sret (structure return)**
 The calling convention for returning a struct too large to fit in registers: the caller passes a hidden pointer to a result slot, the LLVM function itself returns `void`, and the body writes the result through that pointer. The code generator applies sret automatically to large aggregate return types. See also: codegen, struct.

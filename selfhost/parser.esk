@@ -630,6 +630,11 @@ string lambda_sig(string ret, *DeclNode d) {
             p_adv(p);
             *ExprNode ix = alloc<ExprNode>(1);
             ix.kind = EK_INDEX; ix.a = e; ix.b = parse_expr(p);
+            List_init<*ExprNode>(&ix.kids, 1);
+            if (p_at(p) == RANGE) {            // base[lo..hi] slice expression
+                p_adv(p);
+                List_push<*ExprNode>(&ix.kids, parse_expr(p));   // hi bound
+            }
             p_adv(p);                          // ']'
             e = ix;
         } else if (t == DOT) {
@@ -1214,6 +1219,12 @@ string strip_binding_const(string t) {
     if (t == SWITCH) { return parse_switch(p); }
     if (t == MATCH) { return parse_match(p); }
     if (t == TRY) { return parse_try(p); }
+    if (t == DEFER || t == ERRDEFER) {         // defer / errdefer stmt;  (run at scope exit)
+        p_adv(p);
+        *StmtNode s = alloc<StmtNode>(1); s.kind = SK_DEFER; s.s1 = parse_stmt(p);
+        if (t == ERRDEFER) { s.is_err = 1; } else { s.is_err = 0; }
+        return s;
+    }
     if (t == ASM) { return parse_asm(p); }
     if (t == RETURN) { return parse_return(p); }
     if (t == BREAK) { p_adv(p); p_adv(p); return mk_simple(SK_BREAK); }
@@ -1275,6 +1286,7 @@ string strip_binding_const(string t) {
     List_init<int>(&d.field_bits, 4);
     List_init<int>(&d.param_escaping, 4);
     d.is_async = 0;
+    d.is_mustuse = 0;
     d.is_const = 0;
     d.is_packed = 0;
     d.pack_align = 0;
@@ -1572,6 +1584,7 @@ int str_to_int(string s) {
     if (t == EXTERN) { p_adv(p); return parse_proto(p, DK_EXTERN); }
     if (t == INTRINSIC) { p_adv(p); return parse_proto(p, DK_INTRINSIC); }
     if (t == ASYNC) { p_adv(p); d = parse_function(p); d.is_async = 1; return d; }   // async fn
+    if (t == MUST_USE) { p_adv(p); d = parse_function(p); d.is_mustuse = 1; return d; }   // must_use fn
     if (t == STRUCT) { p_adv(p); d = parse_struct(p); register_type(p, d.name); return d; }
     if (t == PACKED) { p_adv(p); p_adv(p); d = parse_struct(p); d.is_packed = 1; d.pack_align = 1; register_type(p, d.name); return d; }
     if (t == UNION) { p_adv(p); d = parse_union(p); register_type(p, d.name); return d; }

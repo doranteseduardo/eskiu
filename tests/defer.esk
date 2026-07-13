@@ -1,0 +1,60 @@
+extern int printf(string fmt, ...);
+
+// `defer stmt;` runs stmt at enclosing-block exit, LIFO, on every path out:
+// fall-through, return, break, continue, and `?`-propagation.
+
+int fallthrough() {
+    defer printf("A ");
+    printf("body ");
+    return 0;
+}
+
+int early_return(int x) {
+    defer printf("B ");
+    if (x > 0) { return 1; }   // defer still runs
+    return 2;
+}
+
+int lifo() {
+    defer printf("1 ");
+    defer printf("2 ");
+    defer printf("3 ");        // LIFO: 3 2 1
+    return 0;
+}
+
+int in_loop() {
+    for (int i = 0; i < 3; i++) {
+        defer printf("d%d ", i);   // runs each iteration, incl. on continue
+        if (i == 1) { continue; }
+        printf("i%d ", i);
+    }
+    return 0;
+}
+
+int with_break() {
+    for (int i = 0; i < 5; i++) {
+        defer printf("x%d ", i);
+        if (i == 2) { break; }     // defer for i=2 runs before break
+    }
+    return 0;
+}
+
+// Regression: finally must run on an early return from inside the try body.
+int finally_early() {
+    try {
+        return 7;
+    } finally {
+        printf("fin ");
+    }
+    return 0;
+}
+
+int main() {
+    printf("fallthrough: "); fallthrough(); printf("\n");
+    printf("early_return: "); early_return(1); printf("\n");
+    printf("lifo: "); lifo(); printf("\n");
+    printf("in_loop: "); in_loop(); printf("\n");
+    printf("with_break: "); with_break(); printf("\n");
+    printf("finally_early(=%d): ", finally_early()); printf("\n");
+    return 0;
+}

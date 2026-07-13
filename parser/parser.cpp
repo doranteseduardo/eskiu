@@ -117,6 +117,9 @@ void Parser::consumeTemplateClose(const char* ctx) {
 std::string Parser::parseType() {
     std::string type;
 
+    // Leading `?` marks a checked nullable pointer `?*T`; re-attached as a `?` prefix.
+    bool nullable = match(TokenType::QUESTION);
+
     // Optional leading `const` qualifies the base/pointee: `const int*` is a
     // pointer to const int. Re-attached as a `const ` prefix after the type is
     // assembled. (A `const` before a `let`/decl binding is handled by the
@@ -205,6 +208,7 @@ std::string Parser::parseType() {
         type += "[" + sizeStr + "]";
     }
 
+    if (nullable) type = "?" + type;   // `?*T` checked nullable pointer
     return type;
 }
 
@@ -253,6 +257,15 @@ std::vector<DeclPtr> Parser::parseProgram() {
     if (!importedFiles) importedFiles = &ownedSet;
     // The root parser owns the shared type-name set; sub-parsers point at it.
     if (!sharedTypeNames) sharedTypeNames = &declaredTypeNames;
+
+    // Panic-mode recovery shared by both parse paths: report, then skip to the
+    // next ';' so one bad declaration doesn't abort the whole file.
+    auto recover = [&](const std::exception& e) {
+        std::cerr << "error: " << e.what() << std::endl;
+        hadError = true;
+        while (!is_at_end() && !check(TokenType::SEMICOLON)) advance();
+        if (check(TokenType::SEMICOLON)) advance();
+    };
 
     while (!is_at_end()) {
         // Compiler directive (e.g. #pragma pack) — updates parser state, emits no decl.
@@ -335,10 +348,7 @@ std::vector<DeclPtr> Parser::parseProgram() {
                     }
                 }
             } catch (const std::exception& e) {
-                std::cerr << "error: " << e.what() << std::endl;
-                hadError = true;
-                while (!is_at_end() && !check(TokenType::SEMICOLON)) advance();
-                if (check(TokenType::SEMICOLON)) advance();
+                recover(e);
             }
             continue;
         }
@@ -347,10 +357,7 @@ std::vector<DeclPtr> Parser::parseProgram() {
             DeclPtr decl = parseDeclaration();
             if (decl) declarations.push_back(decl);
         } catch (const std::exception& e) {
-            std::cerr << "error: " << e.what() << std::endl;
-            hadError = true;
-            while (!is_at_end() && !check(TokenType::SEMICOLON)) advance();
-            if (check(TokenType::SEMICOLON)) advance();
+            recover(e);
         }
     }
 

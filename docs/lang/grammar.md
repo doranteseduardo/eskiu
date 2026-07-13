@@ -41,13 +41,13 @@ Comments: `// … end-of-line` and `/* … */` (block comments do not nest).
 ### Keywords (reserved)
 
 ```
-let  const  volatile  static  async  await  escaping
+let  const  volatile  static  async  await  escaping  must_use
 int int8 int16 int32 int64  uint uint8 uint16 uint32 uint64
 float double bool char string void
 struct packed union interface enum fn
 if else while do for in switch match case default break continue return
 import extern intrinsic  sizeof alloc_with free_closure
-thread_create thread_join  asm  try catch finally throw
+thread_create thread_join  asm  try catch finally throw  defer errdefer
 null true false
 ```
 
@@ -109,7 +109,7 @@ declaration =
     function-decl | struct-decl | union-decl | interface-decl | enum-decl
   | type-alias  | extern-decl  | intrinsic-decl | var-decl
 
-function-decl   = 'async'? type IDENT type-params? '(' param-list? ')' ( block | ';' )
+function-decl   = ('async' | 'must_use')? type IDENT type-params? '(' param-list? ')' ( block | ';' )
 extern-decl     = 'extern'    type IDENT '(' param-list? ')' ';'
 intrinsic-decl  = 'intrinsic' type IDENT '(' param-list? ')' ';'
 
@@ -151,7 +151,7 @@ already has static storage).
 ## Types
 
 ```
-type        = 'const'? ptr* base suffix*
+type        = '?'? 'const'? ptr* base suffix*      // leading '?' = checked nullable pointer `?*T`
 suffix      = array | '*' 'const'?                   // arrays and trailing pointers, any order
 base        = scalar-type
             | IDENT ( '<' type (',' type)* '>' )?   // named type or template instance
@@ -168,8 +168,9 @@ Pointers may be written either C-style (`int*`) or leading (`*int`); both are
 equivalent. An array suffix binds tighter than a leading pointer, so `*T[N]` is an array
 of N pointers (each element a `*T`), while a pointer to an array is written with the star
 after the brackets: `T[N]*`. Suffixes chain for multidimensional arrays: `T[N][M]` is N
-arrays of M (C order, leftmost bracket outermost). `va_list` is a built-in named type
-used by variadics.
+arrays of M (C order, leftmost bracket outermost). Empty brackets make a **slice**: `T[]`
+is a fat pointer (data + length), constructed by slicing an array (`a[lo..hi]`). `va_list`
+is a built-in named type used by variadics.
 
 ---
 
@@ -179,7 +180,7 @@ used by variadics.
 statement =
     block | if-stmt | while-stmt | for-stmt | switch-stmt | match-stmt
   | do-while-stmt  | return-stmt | break-stmt | continue-stmt | throw-stmt | try-stmt
-  | asm-stmt | thread-join-stmt | var-decl | expr-stmt
+  | defer-stmt | asm-stmt | thread-join-stmt | var-decl | expr-stmt
 
 block         = '{' ( declaration | statement )* '}'
 if-stmt       = 'if' '(' expr ')' statement ( 'else' statement )?
@@ -202,6 +203,7 @@ match-arm     = IDENT ( '(' IDENT (',' IDENT)* ')' )? '->' statement   // varian
               | '_' '->' statement                                     // default
 
 try-stmt      = 'try' block ( 'catch' '(' type IDENT ')' block )* ( 'finally' block )?
+defer-stmt    = ( 'defer' | 'errdefer' ) statement   // block-exit cleanup, LIFO; errdefer runs only on the `?`-error path
 asm-stmt      = 'asm' '(' STRING_LIT ( ':' ':' asm-operand (',' asm-operand)*
                               ( ':' STRING_LIT (',' STRING_LIT)* )? )? ')' ';'
 asm-operand   = STRING_LIT '(' expr ')'
@@ -239,6 +241,7 @@ cast            = '(' type ')' unary
 postfix         = primary postfix-op*
 postfix-op      = '(' arg-list? ')'          // call
                 | '[' expr ']'               // index
+                | '[' expr '..' expr ']'     // slice (half-open) → a `T[]` fat pointer
                 | '.' IDENT                  // member
                 | '?'                        // error propagation (Result)
                 | '++' | '--'                // post-increment / decrement

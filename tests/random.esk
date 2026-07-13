@@ -1,0 +1,57 @@
+// <random> — xoshiro256** PRNG. A fixed seed makes the whole stream
+// deterministic, so these values are a regression golden: any change to the
+// algorithm changes them.
+import <random>;
+extern int printf(string fmt, ...);
+
+int main() {
+    let r: Rng;
+    rng_seed(&r, 12345);
+
+    // First three raw draws pin the exact stream.
+    printf("%llu %llu %llu\n", rng_next(&r), rng_next(&r), rng_next(&r));
+
+    // Bounded range [1,7): a die. Track the min and max seen (expect 1 and 6).
+    let d: Rng;
+    rng_seed(&d, 99);
+    int64 lo = 99;
+    int64 hi = -1;
+    int oor = 0;                 // out-of-range count (expect 0)
+    int i = 0;
+    while (i < 100000) {
+        int64 v = rng_range(&d, 1, 7);
+        if (v < lo) { lo = v; }
+        if (v > hi) { hi = v; }
+        if (v < 1 || v >= 7) { oor = oor + 1; }
+        i = i + 1;
+    }
+    printf("die lo=%lld hi=%lld oor=%d\n", lo, hi, oor);
+
+    // rng_double in [0,1): count any escapes (expect 0), and heads from rng_bool.
+    let f: Rng;
+    rng_seed(&f, 7);
+    int dbad = 0;
+    int heads = 0;
+    i = 0;
+    while (i < 100000) {
+        double u = rng_double(&f);
+        if (u < 0.0 || u >= 1.0) { dbad = dbad + 1; }
+        if (rng_bool(&f) == 1) { heads = heads + 1; }
+        i = i + 1;
+    }
+    printf("double_oor=%d heads=%d\n", dbad, heads);
+
+    // Determinism: two generators with the same seed agree.
+    let a: Rng;
+    let b: Rng;
+    rng_seed(&a, 42);
+    rng_seed(&b, 42);
+    int same = 1;
+    i = 0;
+    while (i < 1000) {
+        if (rng_next(&a) != rng_next(&b)) { same = 0; }
+        i = i + 1;
+    }
+    printf("deterministic=%d\n", same);
+    return 0;
+}
