@@ -53,6 +53,9 @@ static llvm::cl::opt<std::string> TargetTriple("target",
 static llvm::cl::opt<bool> Freestanding("freestanding",
     llvm::cl::desc("Compile without libc — alloc/free use esk_alloc/esk_free"));
 
+static llvm::cl::opt<bool> Safe("safe",
+    llvm::cl::desc("Insert runtime safety checks (slice bounds); traps on violation"));
+
 static llvm::cl::opt<bool> Wall("Wall",
     llvm::cl::desc("Enable lint-style warnings: unused variables, parameters, "
                    "and functions, and assignment used as a condition"));
@@ -187,6 +190,7 @@ static void testCodegen(const std::string& filename) {
         codegen.resolvedExprTypes = &postTc.expressionTypeMap();
         if (!TargetTriple.empty()) codegen.targetTriple = std::string(TargetTriple);
         codegen.freestanding = Freestanding;
+        codegen.safe = Safe;
         codegen.optLevel = OptLevel;
         llvm::Module* module = codegen.generateCode(program);
 
@@ -412,6 +416,7 @@ int main(int argc, char** argv) {
         codegen.resolvedExprTypes = &postTc.expressionTypeMap();
         if (!TargetTriple.empty()) codegen.targetTriple = std::string(TargetTriple);
         codegen.freestanding = Freestanding;
+        codegen.safe = Safe;
         codegen.asan = Asan;
         codegen.ubsan = Ubsan;
         codegen.optLevel = OptLevel;

@@ -363,8 +363,10 @@ copied, but it still refers to the same backing storage.</p>
 
 sum(a[0..6]);            // the whole array as a slice
 </code></pre>
-<p><code>int[]</code> lowers to <code>{ ptr, i64 }</code> in LLVM IR. (Bounds-checked slice indexing arrives with
-the forthcoming safe build mode; today an out-of-range slice index is undefined, as in C.)</p>
+<p><code>int[]</code> lowers to <code>{ ptr, i64 }</code> in LLVM IR. By default an out-of-range slice or array
+index is undefined, as in C; compile with <code>--safe</code> to bounds-check every index at runtime
+(an out-of-range access aborts instead of corrupting memory). <code>--safe</code> is opt-in, so
+release builds carry no overhead.</p>
 <h3 id="34-struct-types">3.4 Struct Types</h3>
 <p>A struct type is named by its declaration (see §8). Variables of struct type are declared using the struct name as the type annotation:</p>
 <pre><code class="language-eskiu">let p: Point;

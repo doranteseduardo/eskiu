@@ -460,6 +460,22 @@ void CodeGen::visit(IncDecExpr* node) {
     exprValueStack.push(node->prefix ? nw : old);
 }
 
+void CodeGen::emitBoundsCheck(llvm::Value* idx, llvm::Value* len) {
+    llvm::Type* i64 = llvm::Type::getInt64Ty(*context);
+    llvm::Value* idx64 = idx->getType()->isIntegerTy(64) ? idx : builder->CreateSExt(idx, i64);
+    llvm::Value* lo  = builder->CreateICmpSLT(idx64, llvm::ConstantInt::get(i64, 0));
+    llvm::Value* hi  = builder->CreateICmpSGE(idx64, len);
+    llvm::Value* oob = builder->CreateOr(lo, hi);
+    llvm::Function* fn = builder->GetInsertBlock()->getParent();
+    auto* trapBB = llvm::BasicBlock::Create(*context, "bounds.fail", fn);
+    auto* contBB = llvm::BasicBlock::Create(*context, "bounds.ok",   fn);
+    builder->CreateCondBr(oob, trapBB, contBB);
+    builder->SetInsertPoint(trapBB);
+    builder->CreateCall(llvm::Intrinsic::getOrInsertDeclaration(module.get(), llvm::Intrinsic::trap));
+    builder->CreateUnreachable();
+    builder->SetInsertPoint(contBB);
+}
+
 llvm::Value* CodeGen::indexElemAddr(const ExprPtr& base, llvm::Value* idx) {
     std::string baseType = getExprEskiuType(base);
     ty::Type bt = ty::Type::parse(baseType);
@@ -467,10 +483,15 @@ llvm::Value* CodeGen::indexElemAddr(const ExprPtr& base, llvm::Value* idx) {
         return builder->CreateGEP(llvm::Type::getInt8Ty(*context), evaluateExpr(base), idx);
     if (bt.kind == ty::Type::Kind::Array) {
         llvm::Value* zero = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0);
+        uint64_t n = 0;
+        if (safe && resolveArrayDim(bt.dim, n))   // bounds-check against the static length
+            emitBoundsCheck(idx, llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), n));
         return builder->CreateGEP(getTypeFromString(baseType), evaluateLValue(base), {zero, idx});
     }
     if (bt.kind == ty::Type::Kind::Slice) {
-        llvm::Value* data = builder->CreateExtractValue(evaluateExpr(base), {0});   // fat.ptr
+        llvm::Value* fat  = evaluateExpr(base);                     // evaluate the slice once
+        llvm::Value* data = builder->CreateExtractValue(fat, {0});  // fat.ptr
+        if (safe) emitBoundsCheck(idx, builder->CreateExtractValue(fat, {1}));   // vs fat.len
         return builder->CreateGEP(getTypeFromString(bt.elem->str()), data, idx);
     }
     if (isPointerType(baseType)) {
