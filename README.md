@@ -13,14 +13,14 @@
 
 <p align="center">
   <a href="https://github.com/doranteseduardo/eskiu/actions/workflows/ci.yml"><img src="https://github.com/doranteseduardo/eskiu/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.3.1-6448d4" alt="Version 0.3.1"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.6.0-6448d4" alt="Version 0.6.0"></a>
   <img src="https://img.shields.io/badge/LLVM-17%2B-orange" alt="LLVM 17+">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License: MIT"></a>
 </p>
 
 ---
 
-Eskiu is a statically typed systems language with the power of C and the immediacy of a scripting language. It compiles to native code through LLVM (native performance, explicit memory, direct C interop), but `eskiuc run file.esk` and a `#!/usr/bin/env eskiuc run` shebang run a `.esk` file directly, like a Python or Ruby script. One language from a bare-metal ARM64 kernel to an HTTP/2 server with TLS, in C-style syntax with bounded generics, structural interfaces, sum types with `match`, and `async`/`await`.
+Eskiu is a statically typed systems language with the power of C and the immediacy of a scripting language. It compiles to native code through LLVM (native performance, explicit memory, direct C interop), but `eskiuc run file.esk` and a `#!/usr/bin/env eskiuc run` shebang run a `.esk` file directly, like a Python or Ruby script. One language from a bare-metal ARM64 kernel to an HTTP/2 server with TLS, in C-style syntax with bounded generics, structural interfaces, sum types with `match`, `async`/`await`, and opt-in memory safety (`defer`, slices, checked nullable pointers).
 
 The compiler is **self-hosted**: the whole pipeline (lexer, preprocessor, parser, type checker, and code generator) is written in Eskiu itself (`selfhost/`) and reproduces its own output through a 3-stage bootstrap fixpoint, with its code generator feature-complete against the reference C++ compiler.
 
