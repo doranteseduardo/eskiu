@@ -188,8 +188,6 @@ private:
     // Type system: map Eskiu types to LLVM types
     llvm::Type* getTypeFromString(const std::string& typeStr);
     bool isPointerType(const std::string& typeStr) const;
-    bool isIntType(const std::string& typeStr) const;
-    bool isFloatType(const std::string& typeStr) const;
 
     // Resolve the Eskiu type string of an expression (for struct/array access)
     std::string getExprEskiuType(const ExprPtr& expr) const;

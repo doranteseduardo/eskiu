@@ -120,9 +120,7 @@ void CodeGen::visit(BinaryExpr* node) {
     // Integer signedness of each operand, from its Eskiu type. Drives sign- vs
     // zero-extension when widening, and signed vs unsigned div/rem/shr/compare.
     auto isUnsignedEsk = [&](const ExprPtr& e) -> bool {
-        std::string t = expandAlias(getExprEskiuType(e));
-        return t == "uint" || t == "uint8" || t == "uint16" || t == "uint32" ||
-               t == "uint64" || t == "char" || t == "bool";
+        return eskiuUnsigned(getExprEskiuType(e));
     };
     bool lUns = isUnsignedEsk(node->left);
     bool rUns = isUnsignedEsk(node->right);
@@ -714,9 +712,7 @@ void CodeGen::visit(CastExpr* node) {
         if (srcWidth < dstWidth) {
             // Widen per the SOURCE's signedness: an unsigned source (uint*/char/bool)
             // zero-extends — e.g. (int)(uint8)255 is 255, not -1.
-            std::string st = expandAlias(getExprEskiuType(node->expr));
-            bool uns = st == "uint" || st == "uint8" || st == "uint16" || st == "uint32" ||
-                       st == "uint64" || st == "char" || st == "bool";
+            bool uns = eskiuUnsigned(getExprEskiuType(node->expr));
             result = uns ? builder->CreateZExt(val, targetType)
                          : builder->CreateSExt(val, targetType);
         } else {
