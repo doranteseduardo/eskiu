@@ -1,0 +1,107 @@
+// random.esk: a seedable pseudo-random generator (xoshiro256**).
+//
+//   import <random>;
+//   let r: Rng;
+//   rng_seed(&r, 12345);                 // deterministic
+//   uint64 x   = rng_next(&r);           // raw 64-bit
+//   int64  d   = rng_range(&r, 1, 7);    // a die: [1, 7)
+//   double u   = rng_double(&r);         // [0.0, 1.0)
+//
+// The generator holds all its state in the Rng struct: no global mutable state,
+// no libc rand(). A given seed always produces the same stream, which is what
+// you want for tests and reproducible runs. For a nondeterministic stream, seed
+// from the clock: `import <time>; rng_seed(&r, (uint64)time_now_ms());`.
+//
+// xoshiro256** is fast, passes the standard statistical test suites, and has a
+// 2^256 period. It is NOT cryptographically secure: do not use it for keys,
+// tokens, or nonces.
+
+struct Rng {
+    uint64 s0;
+    uint64 s1;
+    uint64 s2;
+    uint64 s3;
+}
+
+// Rotate-left, the engine's mixing primitive.
+uint64 rng_rotl(uint64 x, int k) {
+    return (x << k) | (x >> (64 - k));
+}
+
+// SplitMix64: expands one seed word into the four well-mixed state words, so a
+// small or zero seed still gives a good starting state (all-zero state is fatal
+// for xoshiro, and SplitMix never returns all-zero from a stepping counter).
+uint64 rng_splitmix(uint64* st) {
+    *st = *st + 0x9E3779B97F4A7C15;
+    uint64 z = *st;
+    z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9;
+    z = (z ^ (z >> 27)) * 0x94D049BB133111EB;
+    return z ^ (z >> 31);
+}
+
+// Seed a generator from a single 64-bit value.
+void rng_seed(Rng* r, uint64 seed) {
+    uint64 sm = seed;
+    r.s0 = rng_splitmix(&sm);
+    r.s1 = rng_splitmix(&sm);
+    r.s2 = rng_splitmix(&sm);
+    r.s3 = rng_splitmix(&sm);
+}
+
+// The next raw 64-bit value. All the bounded helpers build on this.
+uint64 rng_next(Rng* r) {
+    uint64 result = rng_rotl(r.s1 * 5, 7) * 9;
+    uint64 t = r.s1 << 17;
+    r.s2 = r.s2 ^ r.s0;
+    r.s3 = r.s3 ^ r.s1;
+    r.s1 = r.s1 ^ r.s2;
+    r.s0 = r.s0 ^ r.s3;
+    r.s2 = r.s2 ^ t;
+    r.s3 = rng_rotl(r.s3, 45);
+    return result;
+}
+
+// Uniform in [0, n). Unbiased: values in the short tail that would skew a plain
+// modulo are rejected and redrawn. Returns 0 when n < 2.
+uint64 rng_below(Rng* r, uint64 n) {
+    if (n < 2) { return 0; }
+    // threshold = 2^64 mod n, computed without overflowing 64 bits.
+    uint64 t = ((18446744073709551615 - n) + 1) % n;
+    while (1) {
+        uint64 x = rng_next(r);
+        if (x >= t) { return x % n; }
+    }
+}
+
+// Uniform integer in [lo, hi). Returns lo when the range is empty.
+int64 rng_range(Rng* r, int64 lo, int64 hi) {
+    if (hi <= lo) { return lo; }
+    uint64 span = (uint64)(hi - lo);
+    return lo + (int64)rng_below(r, span);
+}
+
+// A coin flip: 0 or 1.
+int rng_bool(Rng* r) {
+    return (int)(rng_next(r) & 1);
+}
+
+// Uniform double in [0.0, 1.0), using the top 53 bits (full mantissa precision).
+double rng_double(Rng* r) {
+    uint64 x = rng_next(r) >> 11;
+    return (double)x * (1.0 / 9007199254740992.0);   // divide by 2^53
+}
+
+// Fill n bytes of buf with random data.
+void rng_fill(Rng* r, *uint8 buf, int64 n) {
+    int64 i = 0;
+    while (i < n) {
+        uint64 word = rng_next(r);
+        int64 j = 0;
+        while (j < 8 && i < n) {
+            buf[i] = (uint8)(word & 255);
+            word = word >> 8;
+            i = i + 1;
+            j = j + 1;
+        }
+    }
+}
