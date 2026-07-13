@@ -164,7 +164,7 @@ body { background: var(--bg); color: var(--ink); font-family: var(--sans);
 <hr>
 <h2 id="visitor-pattern">Visitor Pattern</h2>
 <h3 id="why-all-passes-implement-astvisitor">Why all passes implement ASTVisitor</h3>
-<p>Every analysis or code generation pass implements <code>ASTVisitor</code>. This keeps traversal logic out of the AST nodes themselves and allows passes (type checker, codegen, AST printer) to be added without modifying <code>ast/ast.h</code>. The base class declares one pure-virtual <code>visit()</code> overload per concrete node type (46 today), so a new node type forces every pass to handle it or fail to compile.</p>
+<p>Every analysis or code generation pass implements <code>ASTVisitor</code>. This keeps traversal logic out of the AST nodes themselves and allows passes (type checker, codegen, AST printer) to be added without modifying <code>ast/ast.h</code>. The base class declares one pure-virtual <code>visit()</code> overload per concrete node type (47 today), so a new node type forces every pass to handle it or fail to compile.</p>
 <h3 id="how-acceptvisit-dispatch-works">How accept()/visit() dispatch works</h3>
 <p>Each concrete AST node overrides <code>accept(ASTVisitor* v)</code> and calls <code>v-&gt;visit(this)</code>. This is classic double-dispatch: the node's static type selects the <code>visit()</code> overload at compile time via the node's own <code>accept</code> implementation.</p>
 <pre><code class="language-cpp">// Every node follows this pattern in ast/ast.cpp:

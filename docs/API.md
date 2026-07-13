@@ -183,6 +183,7 @@ public:
     bool freestanding = false;    // alloc/free → esk_alloc/esk_free instead of malloc/free
     bool asan  = false;           // AddressSanitizer instrumentation
     bool ubsan = false;           // trapping bounds checks
+    bool safe  = false;           // --safe: runtime slice/array bounds checks (trap on OOB)
     unsigned optLevel = 0;        // -O level; 1..3 run the LLVM middle-end (0 = none)
 
     void printIR() const;                            // print IR to stdout (--test-codegen)
@@ -203,6 +204,9 @@ Configure the run before calling `generateCode()`:
   to user-supplied `esk_alloc`/`esk_free`.
 - `asan` / `ubsan`: apply the corresponding LLVM instrumentation pass to the
   module before object emission.
+- `safe`: inject a bounds check on every slice and fixed-array index; an
+  out-of-range access traps (`@llvm.trap`) instead of reading or writing past the
+  end. Off by default, so release builds are unaffected.
 - `optLevel` / `optimizeModule()`: `-O1`..`-O3` run the LLVM middle-end (mem2reg, SROA, inlining, GVN) over the module before object emission; `0` skips it (the default, naive IR straight to the backend).
 
 `printIR()` prints the module's IR to stdout (valid before the module's ownership
