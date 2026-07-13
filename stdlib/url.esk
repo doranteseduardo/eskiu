@@ -100,7 +100,7 @@ int url_query_get(string query, string key, String* out) {
             hit = 1;
             int64 k = 0;
             while (k < klen) {
-                if (query[i + k] != key[k]) { hit = 0; }
+                if (query[i + k] != key[k]) { hit = 0; break; }
                 k = k + 1;
             }
         }

@@ -13,8 +13,6 @@
 // The algorithm is heapsort: in place, no extra allocation, and a guaranteed
 // O(n log n) worst case (no quicksort pathological input). It is not stable.
 
-import <mem>;
-
 // Restore the max-heap property at `root` within the first `n` elements.
 void heap_sift<T>(*T a, int root, int n, fn(*T, *T)->int cmp) {
     while (1) {

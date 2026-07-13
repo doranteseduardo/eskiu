@@ -22,8 +22,6 @@ declare i64 @strlen(ptr)
 
 declare ptr @memchr(ptr, i32, i64)
 
-declare i64 @strlen.1(ptr)
-
 declare i32 @printf(ptr, ...)
 
 define i32 @map_hash(ptr %s) {

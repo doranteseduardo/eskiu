@@ -691,7 +691,6 @@ int regex_search(Regex* re, string text, Match* m) {
 
     int matched = 0;
     int cur = 0;
-    vm.nA = 0;
     int glob = 1;
     int curgen = glob;
 
