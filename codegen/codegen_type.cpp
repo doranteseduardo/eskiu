@@ -126,6 +126,11 @@ llvm::Type* CodeGen::getTypeFromString(const std::string& typeStr) {
                                          + t.dim + "'");
             return llvm::PointerType::get(*context, 0);     // unsized → pointer
         }
+        case ty::Type::Kind::Slice: {                      // "T[]" → fat pointer { data, len }
+            return llvm::StructType::get(*context, {
+                llvm::PointerType::get(*context, 0),
+                llvm::Type::getInt64Ty(*context)});
+        }
         case ty::Type::Kind::Named: {                      // bare nominal: enum/struct/iface
             if (enumTypes.count(t.name)) {                 // classic enum → i32; ADT → struct
                 auto st = structTypes.find(t.name);
@@ -156,24 +161,6 @@ bool CodeGen::needsSret(llvm::Type* retType) const {
 bool CodeGen::isPointerType(const std::string& typeStr) const {
     if (typeStr.empty()) return false;
     return typeStr.front() == '*' || typeStr.back() == '*' || typeStr == "string";
-}
-
-bool CodeGen::isIntType(const std::string& typeStr) const {
-    // Remove pointer suffix before checking
-    std::string baseType = typeStr;
-    if (!baseType.empty() && baseType.back() == '*') {
-        baseType = baseType.substr(0, baseType.length() - 1);
-    }
-    return baseType.find("int") != std::string::npos || baseType == "bool" || baseType == "char";
-}
-
-bool CodeGen::isFloatType(const std::string& typeStr) const {
-    // Remove pointer suffix before checking
-    std::string baseType = typeStr;
-    if (!baseType.empty() && baseType.back() == '*') {
-        baseType = baseType.substr(0, baseType.length() - 1);
-    }
-    return baseType == "float" || baseType == "double";
 }
 
 bool CodeGen::eskiuUnsigned(const std::string& t) const {
@@ -245,13 +232,17 @@ std::string CodeGen::getExprEskiuType(const ExprPtr& expr) const {
                     fprintf(stderr, "[resolver-disagree] table=%s derive=%s %s\n",
                             it->second.c_str(), d.c_str(), typeid(*expr).name());
             }
-            return it->second;
+            // Codegen treats a nullable `?*T` exactly like `*T` (same repr); the `?`
+            // only governs sema deref-safety, so strip it here.
+            const std::string& r = it->second;
+            return (!r.empty() && r[0] == '?') ? r.substr(1) : r;
         }
         // A table miss is by design — the resolver doesn't annotate every expr, so
         // the structural derivation below legitimately carries the rest. (Only a
         // table/derivation *disagreement* above is a bug.)
     }
-    return deriveExprEskiuType(expr);
+    std::string r = deriveExprEskiuType(expr);
+    return (!r.empty() && r[0] == '?') ? r.substr(1) : r;   // `?*T` codegens as `*T`
 }
 
 std::string CodeGen::deriveExprEskiuType(const ExprPtr& expr) const {
@@ -275,6 +266,8 @@ std::string CodeGen::deriveExprEskiuType(const ExprPtr& expr) const {
     }
     if (auto member = dynamic_cast<MemberExpr*>(expr.get())) {
         std::string base = getExprEskiuType(member->base);
+        if (member->member == "len" && ty::Type::parse(base).kind == ty::Type::Kind::Slice)
+            return "int64";                                   // slice length field
         if (base.size() > 7 && base.substr(0, 7) == "struct:") base = base.substr(7);
         if (!base.empty() && base.front() == '*') base = base.substr(1);
         while (!base.empty() && base.back()  == '*') base.pop_back();
@@ -296,9 +289,12 @@ std::string CodeGen::deriveExprEskiuType(const ExprPtr& expr) const {
     if (auto index = dynamic_cast<IndexExpr*>(expr.get())) {
         std::string base = getExprEskiuType(index->base);
         ty::Type bt = ty::Type::parse(base);
-        if (bt.kind == ty::Type::Kind::Array) return bt.elem->str();   // peel outer dim
-        if (!base.empty() && base.front() == '*') return base.substr(1);
-        if (!base.empty() && base.back()  == '*') return base.substr(0, base.size() - 1);
+        std::string elem;
+        if (base == "string") elem = "char";
+        else if (bt.kind == ty::Type::Kind::Array || bt.kind == ty::Type::Kind::Slice) elem = bt.elem->str();
+        else if (!base.empty() && base.front() == '*') elem = base.substr(1);
+        else if (!base.empty() && base.back()  == '*') elem = base.substr(0, base.size() - 1);
+        if (!elem.empty()) return index->highIndex ? (elem + "[]") : elem;   // slice vs element
     }
     // A ternary's static type is the common type of its arms (the type checker's
     // resolver table usually supplies it; this is the structural fallback).

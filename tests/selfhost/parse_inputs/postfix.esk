@@ -7,3 +7,4 @@ int sz() { return sizeof(int) + sizeof(*Foo) + sizeof(int[8]); }
 int strs() { return puts("hello\nworld"); }
 int chars() { return 'a' + '\n'; }
 int adj() { return cat("ab" "cd" "ef"); }
+int slicing() { return a[lo..hi]; }

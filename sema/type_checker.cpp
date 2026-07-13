@@ -56,10 +56,9 @@ bool TypeChecker::check(Program* program) {
         if (auto funcDecl = dynamic_cast<FunctionDecl*>(decl.get())) {
             if (!funcDecl->typeParams.empty()) {
                 funcTemplateDecls[funcDecl->name] = funcDecl;
-                // skip normal registration — will be registered on instantiation
-                std::vector<std::string> paramTypes;
-                for (const auto& p : funcDecl->params) paramTypes.push_back(p.first);
-                // Don't register yet — template params are not real types
+                if (funcDecl->mustUse) mustUseFuncs.insert(funcDecl->name);
+                // Don't register yet — template params are not real types,
+                // the function is registered on instantiation.
                 continue;
             }
         }
@@ -105,6 +104,7 @@ bool TypeChecker::check(Program* program) {
             }
             defineFunction(funcDecl->name, sigRet, paramTypes);
             functionParamEscaping[funcDecl->name] = funcDecl->paramEscaping;
+            if (funcDecl->mustUse) mustUseFuncs.insert(funcDecl->name);
         } else if (auto externDecl = dynamic_cast<ExternDecl*>(decl.get())) {
             std::vector<std::string> paramTypes;
             for (const auto& param : externDecl->params) {

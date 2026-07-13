@@ -48,18 +48,22 @@ void ASTPrinter::printTypeParams(const std::vector<std::string>& typeParams,
     indentLevel--;
 }
 
-void ASTPrinter::visit(FunctionDecl* node) {
-    println("FunctionDecl: " + node->name + " -> " + node->returnType +
-            (node->isAsync ? " (async)" : ""));
-    indentLevel++;
-
-    printTypeParams(node->typeParams, node->constraints);
+void ASTPrinter::printParams(const std::vector<std::pair<std::string, std::string>>& params) {
     println("Parameters:");
     indentLevel++;
-    for (auto& param : node->params) {
+    for (auto& param : params) {
         println(param.first + " " + param.second);
     }
     indentLevel--;
+}
+
+void ASTPrinter::visit(FunctionDecl* node) {
+    println("FunctionDecl: " + node->name + " -> " + node->returnType +
+            (node->isAsync ? " (async)" : "") + (node->mustUse ? " (must_use)" : ""));
+    indentLevel++;
+
+    printTypeParams(node->typeParams, node->constraints);
+    printParams(node->params);
 
     // A forward declaration (prototype) has no body — omit the section rather than
     // dereferencing a null body (cf. ReturnStmt skipping a null value).
@@ -113,12 +117,7 @@ void ASTPrinter::visit(ExternDecl* node) {
     println("ExternDecl: " + node->name + " -> " + node->returnType);
     indentLevel++;
 
-    println("Parameters:");
-    indentLevel++;
-    for (auto& param : node->params) {
-        println(param.first + " " + param.second);
-    }
-    indentLevel--;
+    printParams(node->params);
 
     indentLevel--;
 }
@@ -127,12 +126,7 @@ void ASTPrinter::visit(IntrinsicDecl* node) {
     println("IntrinsicDecl: " + node->name + " -> " + node->returnType);
     indentLevel++;
 
-    println("Parameters:");
-    indentLevel++;
-    for (auto& param : node->params) {
-        println(param.first + " " + param.second);
-    }
-    indentLevel--;
+    printParams(node->params);
 
     indentLevel--;
 }
@@ -342,7 +336,7 @@ void ASTPrinter::visit(CallExpr* node) {
 }
 
 void ASTPrinter::visit(IndexExpr* node) {
-    println("IndexExpr");
+    println(node->highIndex ? "IndexExpr (slice)" : "IndexExpr");
     indentLevel++;
 
     println("Base:");
@@ -354,6 +348,13 @@ void ASTPrinter::visit(IndexExpr* node) {
     indentLevel++;
     node->index->accept(this);
     indentLevel--;
+
+    if (node->highIndex) {
+        println("High:");
+        indentLevel++;
+        node->highIndex->accept(this);
+        indentLevel--;
+    }
 
     indentLevel--;
 }
@@ -539,6 +540,13 @@ void ASTPrinter::visit(TryStmt* node) {
         indentLevel--;
     }
     if (node->finally) { println("Finally"); indentLevel++; node->finally->accept(this); indentLevel--; }
+    indentLevel--;
+}
+
+void ASTPrinter::visit(DeferStmt* node) {
+    println(node->isErr ? "DeferStmt (err)" : "DeferStmt");
+    indentLevel++;
+    if (node->body) node->body->accept(this);
     indentLevel--;
 }
 

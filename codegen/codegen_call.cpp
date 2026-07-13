@@ -284,7 +284,7 @@ void CodeGen::visit(CallExpr* node) {
             llvm::Value* sretBuf = nullptr;
             if (iSret) {
                 sretBuf = entryAlloca(retType, nullptr, "iface.sret");
-                iargs.insert(iargs.begin() + 0, sretBuf); // sret after self? actually: sret first
+                iargs.insert(iargs.begin(), sretBuf); // sret pointer goes first
                 paramLLVM.insert(paramLLVM.begin(), llvm::PointerType::get(*context, 0));
                 retType = llvm::Type::getVoidTy(*context);
             }
@@ -450,9 +450,7 @@ void CodeGen::visit(CallExpr* node) {
     if (func->getFunctionType()->isVarArg()) {
         auto argUnsigned = [&](size_t i) -> bool {
             if (i >= node->args.size()) return false;
-            std::string t = expandAlias(getExprEskiuType(node->args[i]));
-            return t == "uint" || t == "uint8" || t == "uint16" || t == "uint32" ||
-                   t == "uint64" || t == "char" || t == "bool";
+            return eskiuUnsigned(getExprEskiuType(node->args[i]));
         };
         unsigned fixed = func->getFunctionType()->getNumParams();
         llvm::Type* i32 = llvm::Type::getInt32Ty(*context);

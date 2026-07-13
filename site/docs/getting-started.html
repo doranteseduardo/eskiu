@@ -76,7 +76,7 @@ body { background: var(--bg); color: var(--ink); font-family: var(--sans);
 <h1 id="getting-started-with-eskiu">Getting Started with Eskiu</h1>
 <p>A hands-on introduction to the Eskiu language. You will go from zero to writing
 and inspecting real compiled programs in about 30 minutes.</p>
-<h2 id="all-code-blocks-in-this-document-compile-and-run-with-eskiu-v050">All code blocks in this document compile and run with <strong>Eskiu v0.5.0</strong>.</h2>
+<h2 id="all-code-blocks-in-this-document-compile-and-run-with-eskiu-v060">All code blocks in this document compile and run with <strong>Eskiu v0.6.0</strong>.</h2>
 <h2 id="installation">Installation</h2>
 <h3 id="prerequisites">Prerequisites</h3>
 <div class="tablewrap"><table>
@@ -127,7 +127,7 @@ cmake --build build -j$(nproc)
 </code></pre>
 <h3 id="verify">Verify</h3>
 <pre><code class="language-bash">./build/eskiuc --version
-# Eskiu 0.5.0 (LLVM 22.1.6)   (exact LLVM version depends on your install)
+# Eskiu 0.6.0 (LLVM 22.1.6)   (exact LLVM version depends on your install)
 </code></pre>
 <p>Add <code>./build</code> to your <code>PATH</code> so you can type <code>eskiuc</code> from any directory.</p>
 <hr>
@@ -930,8 +930,28 @@ import &lt;math&gt;;
 <td><code>base64_encode</code> / <code>base64_decode</code> over byte buffers</td>
 </tr>
 <tr>
+<td><code>&lt;random&gt;</code></td>
+<td>seedable PRNG (xoshiro256**): <code>rng_seed</code>, <code>rng_next</code>, <code>rng_below</code>, <code>rng_range</code>, <code>rng_double</code>, <code>rng_bool</code>, <code>rng_fill</code></td>
+</tr>
+<tr>
+<td><code>&lt;regex&gt;</code></td>
+<td>linear-time regex (Thompson NFA): <code>regex_match</code>, <code>regex_compile</code>/<code>regex_search</code> with capture groups (<code>match_group</code>), <code>\d \w \s</code>, <code>* + ? {m,n}</code>, <code>|</code>, <code>( )</code>, <code>^ $</code></td>
+</tr>
+<tr>
+<td><code>&lt;sort&gt;</code></td>
+<td>generic in-place heapsort <code>sort&lt;T&gt;</code> + <code>bsearch&lt;T&gt;</code> over a <code>*T</code> array, via a <code>cmp(&amp;x, &amp;y)</code> function</td>
+</tr>
+<tr>
+<td><code>&lt;url&gt;</code></td>
+<td>RFC 3986 percent-encoding: <code>url_encode</code>, <code>url_decode</code>, and form-query lookup <code>url_query_get</code></td>
+</tr>
+<tr>
+<td><code>&lt;uuid&gt;</code></td>
+<td>RFC 4122 v4 UUIDs: <code>uuid_v4(&amp;rng, &amp;out)</code> (built on <code>&lt;random&gt;</code>)</td>
+</tr>
+<tr>
 <td><code>&lt;time&gt;</code></td>
-<td><code>time_now_ms</code>, <code>time_now_s</code>, <code>time_monotonic_ms</code>, <code>sleep_ms</code></td>
+<td><code>time_now_ms</code>, <code>time_now_s</code>, <code>time_monotonic_ms</code>, <code>sleep_ms</code>; UTC civil calendar (<code>DateTime</code>, <code>time_to_utc</code>/<code>time_from_utc</code>, <code>time_format_iso</code>)</td>
 </tr>
 <tr>
 <td><code>&lt;env&gt;</code></td>
@@ -1322,6 +1342,17 @@ void outb(uint8 val, uint16 port) {
 <pre><code class="language-eskiu">// kernel_alloc.esk, linked together with kernel.esk
 *void esk_alloc(int size) { return bump_alloc(size); }
 void  esk_free(*void ptr)  { bump_free(ptr); }
+</code></pre>
+<h3 id="safe-mode">Safe mode</h3>
+<p>Pass <code>--safe</code> to insert runtime safety checks. Today it bounds-checks slice and
+fixed-array indexing: an out-of-range index traps (aborts) instead of reading or writing
+past the end. The checks are <strong>off by default</strong>, so release builds carry no overhead;
+turn them on for development and test runs.</p>
+<pre><code class="language-bash">eskiuc app.esk --safe -o app     # a[i] / s[i] out of range now aborts instead of corrupting memory
+</code></pre>
+<pre><code class="language-eskiu">int[5] a = {1, 2, 3, 4, 5};
+int[] s = a[1..4];               // length 3
+int x = s[9];                    // under --safe: aborts here; without it: reads garbage (as in C)
 </code></pre>
 <hr>
 <h2 id="sizeof">sizeof</h2>

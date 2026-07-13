@@ -38,7 +38,10 @@ sign-extend. Narrowing truncates. `int`↔float uses signed conversions
 
 All pointers lower to LLVM's opaque `ptr` (address space 0), regardless of
 pointee type or spelling (`int*` and `*int` are identical). Pointer-to-pointer,
-casts between pointer types, and `string` are all just `ptr`.
+casts between pointer types, and `string` are all just `ptr`. A checked nullable
+pointer `?*T` has the identical representation to `*T` (a bare `ptr`); its
+non-null requirement is enforced by the type checker at compile time and adds no
+runtime cost or storage.
 
 A leading `*` and a trailing `[N]` follow the source rule that the array binds
 outermost: `*T[N]` is an array of N `ptr` elements, while a pointer to an array is
@@ -162,6 +165,12 @@ The vtable is an array of function pointers, one per interface method in
 declaration order. A method call loads `data` and `vtable`, indexes the vtable
 by method position, and calls the function pointer with `data` as the first
 argument.
+
+**Slices.** A slice `T[]` is also a fat pointer, but `{ ptr, i64 }`: a pointer to
+the first element plus an element count. `s[i]` indexes through the pointer,
+`s.len` reads field 1, and the slice is passed and returned by value like any
+small struct. A slice aliases its backing storage (it is built by slicing an
+array with `a[lo..hi]`), so it neither owns nor copies the data.
 
 ---
 

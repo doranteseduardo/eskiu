@@ -1,0 +1,47 @@
+// <url> — percent-encoding and query parsing.
+import <url>;
+import <string>;
+extern int printf(string fmt, ...);
+
+int fails = 0;
+
+void chk(string name, String* got, string want) {
+    if (String_eq_cstr(got, want) == 1) { printf("ok    %s = %s\n", name, want); }
+    else { printf("FAIL  %s (want %s)\n", name, want); fails = fails + 1; }
+}
+
+int main() {
+    let s: String;
+    String_init(&s, 16);
+
+    url_encode("a b&c=d/e", &s);
+    chk("encode", &s, "a%20b%26c%3Dd%2Fe");
+    String_clear(&s);
+
+    url_encode("keep-_.~09AZ", &s);
+    chk("encode-unreserved", &s, "keep-_.~09AZ");
+    String_clear(&s);
+
+    url_decode("a%20b%2Bc", &s);
+    chk("decode", &s, "a b+c");
+    String_clear(&s);
+
+    url_decode("plus+kept", &s);
+    chk("decode-plus-literal", &s, "plus+kept");
+    String_clear(&s);
+
+    int f1 = url_query_get("x=1&msg=hi+there&z=9", "msg", &s);
+    chk("query-msg", &s, "hi there");
+    String_clear(&s);
+
+    int f2 = url_query_get("x=1&y=%40home", "y", &s);
+    chk("query-decoded", &s, "@home");
+    String_clear(&s);
+
+    int f3 = url_query_get("a=1&b=2", "missing", &s);
+    printf("found: msg=%d y=%d missing=%d\n", f1, f2, f3);
+
+    String_free(&s);
+    printf("fails=%d\n", fails);
+    return 0;
+}

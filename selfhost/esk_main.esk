@@ -16,6 +16,7 @@ import <fs>;
 import "preprocessor.esk";
 import "parser.esk";
 import "sema.esk";
+import "async_lower.esk";
 import "codegen.esk";
 
 extern int64 write(int fd, *void buf, int64 n);
@@ -69,6 +70,8 @@ int main(int argc, string* argv) {
         eprint((string)&eb[0]);
         return 1;
     }
+
+    async_lower(prog);                 // lower async fns → frame + resume + ctor (after sema)
 
     let g: Codegen;
     cg_init(&g);

@@ -4,7 +4,7 @@
 A hands-on introduction to the Eskiu language. You will go from zero to writing
 and inspecting real compiled programs in about 30 minutes.
 
-All code blocks in this document compile and run with **Eskiu v0.5.0**.
+All code blocks in this document compile and run with **Eskiu v0.6.0**.
 ---
 
 ## Installation
@@ -46,7 +46,7 @@ cmake --build build -j$(nproc)
 
 ```bash
 ./build/eskiuc --version
-# Eskiu 0.5.0 (LLVM 22.1.6)   (exact LLVM version depends on your install)
+# Eskiu 0.6.0 (LLVM 22.1.6)   (exact LLVM version depends on your install)
 ```
 
 Add `./build` to your `PATH` so you can type `eskiuc` from any directory.
@@ -924,7 +924,12 @@ Available modules:
 | `<json>`     | `Json` builder + `json_parse` → `JsonValue` tree |
 | `<multipart>`| extract a named part from a `multipart/form-data` body: `multipart_boundary`, `multipart_part` |
 | `<base64>`   | `base64_encode` / `base64_decode` over byte buffers |
-| `<time>`     | `time_now_ms`, `time_now_s`, `time_monotonic_ms`, `sleep_ms` |
+| `<random>`   | seedable PRNG (xoshiro256\*\*): `rng_seed`, `rng_next`, `rng_below`, `rng_range`, `rng_double`, `rng_bool`, `rng_fill` |
+| `<regex>`    | linear-time regex (Thompson NFA): `regex_match`, `regex_compile`/`regex_search` with capture groups (`match_group`), `\d \w \s`, `* + ? {m,n}`, `|`, `( )`, `^ $` |
+| `<sort>`     | generic in-place heapsort `sort<T>` + `bsearch<T>` over a `*T` array, via a `cmp(&x, &y)` function |
+| `<url>`      | RFC 3986 percent-encoding: `url_encode`, `url_decode`, and form-query lookup `url_query_get` |
+| `<uuid>`     | RFC 4122 v4 UUIDs: `uuid_v4(&rng, &out)` (built on `<random>`) |
+| `<time>`     | `time_now_ms`, `time_now_s`, `time_monotonic_ms`, `sleep_ms`; UTC civil calendar (`DateTime`, `time_to_utc`/`time_from_utc`, `time_format_iso`) |
 | `<env>`      | `env_get`, `env_has`, `env_get_or`, `env_get_int` |
 | `<path>`     | `path_join`, `path_basename`, `path_dirname`, `path_extension`, `path_is_absolute` |
 | `<threading>`| `Mutex`, `Cond`, `Sem` over pthread (pairs with `thread_create`/`thread_join`) |
@@ -1341,6 +1346,23 @@ You must provide `esk_alloc` and `esk_free` in your own source or a C shim:
 // kernel_alloc.esk, linked together with kernel.esk
 *void esk_alloc(int size) { return bump_alloc(size); }
 void  esk_free(*void ptr)  { bump_free(ptr); }
+```
+
+### Safe mode
+
+Pass `--safe` to insert runtime safety checks. Today it bounds-checks slice and
+fixed-array indexing: an out-of-range index traps (aborts) instead of reading or writing
+past the end. The checks are **off by default**, so release builds carry no overhead;
+turn them on for development and test runs.
+
+```bash
+eskiuc app.esk --safe -o app     # a[i] / s[i] out of range now aborts instead of corrupting memory
+```
+
+```eskiu
+int[5] a = {1, 2, 3, 4, 5};
+int[] s = a[1..4];               // length 3
+int x = s[9];                    // under --safe: aborts here; without it: reads garbage (as in C)
 ```
 
 ---

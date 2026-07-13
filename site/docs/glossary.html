@@ -118,6 +118,8 @@ A function whose execution can suspend and later resume. Each Eskiu <code>async<
 <h2 id="d">D</h2>
 <p><strong>declaration</strong>
 A language construct that introduces a new named entity into the current scope. Eskiu declaration forms are: <code>FunctionDecl</code>, <code>VarDecl</code>, <code>StructDecl</code>, <code>UnionDecl</code>, <code>EnumDecl</code>, <code>InterfaceDecl</code>, <code>TypeAliasDecl</code>, <code>IntrinsicDecl</code>, and <code>ExternDecl</code>. Declarations are distinct from statements in that they bind a name; statements execute logic. See also: statement, scope.</p>
+<p><strong>defer / errdefer</strong>
+Statements that schedule cleanup to run when the enclosing block is left. <code>defer stmt;</code> runs on every exit path (fall-through, <code>return</code>, <code>break</code>, <code>continue</code>, and <code>?</code>-propagation), in LIFO order; <code>errdefer</code> runs only on the error exit (a propagated <code>?</code>), for undoing partial work when a later step fails. Both are lowered by a codegen cleanup stack rather than desugared, so the cleanup rides every branch out of the scope. See also: Result.</p>
 <h2 id="e">E</h2>
 <p><strong>enum</strong>
 A declaration of named constants. A plain <code>enum</code> defines integer constants (the type behaves as <code>int</code>); an <code>enum</code> with one or more payload-bearing variants is an algebraic data type laid out as <code>{ tag, payload }</code> and destructured with <code>match</code>. Enums may be generic (e.g. <code>Option&lt;T&gt;</code>) and are monomorphized per instantiation. See also: algebraic data type, match, tagged union.</p>
@@ -177,6 +179,11 @@ A control construct that destructures an algebraic-enum value by variant, bindin
 The top-level LLVM IR container (<code>llvm::Module</code>) that holds all function definitions, global variables, and external declarations produced for a single compilation unit. The code generator creates one module per <code>.esk</code> file. The module is printed as LLVM IR text when <code>--test-codegen</code> is passed.</p>
 <p><strong>monomorphization</strong>
 The compilation strategy by which a generic definition is specialized into a separate concrete copy for each distinct set of type arguments it is instantiated with. Eskiu templates and generic enums are monomorphic: instead of boxing or runtime dispatch, the compiler emits one stamped-out version per instantiation, each with a mangled name. See also: template / generic, monomorphic.</p>
+<p><strong>must_use</strong>
+A function qualifier (<code>must_use *uint8 grab() { ... }</code>) that makes discarding the call's result a compile error, catching a leaked allocation or an ignored status at compile time. The stdlib's <code>alloc</code> is <code>must_use</code>, so a bare <code>alloc&lt;T&gt;(n);</code> is rejected. See also: Result.</p>
+<h2 id="n">N</h2>
+<p><strong>nullable pointer (<code>?*T</code>)</strong>
+A checked pointer type that may hold <code>null</code>. Unlike a bare <code>*T</code> (C-nullable but unchecked), a <code>?*T</code> cannot be dereferenced, indexed, or member-accessed until it is proven non-null; <code>if (x != null) { ... }</code> narrows it to non-null in that branch. A <code>*T</code> widens to <code>?*T</code> implicitly; the reverse needs a check. It lowers to a bare pointer, so the safety is entirely at compile time. See also: pointer, narrowing.</p>
 <h2 id="o">O</h2>
 <p><strong>opaque pointer</strong>
 LLVM pointer type in LLVM 15+ (<code>ptr</code>) that carries no element-type information; replaced typed pointers (<code>i32*</code>, <code>i8*</code>, etc.). Eskiu targets opaque-pointer mode and uses GEP with explicit type hints to navigate aggregate structures. See also: GEP, pointer type.</p>
@@ -199,12 +206,16 @@ Parsing strategy in which each grammar rule is implemented as a mutually recursi
 <p><strong>rvalue</strong>
 An expression whose value can be read but that does not itself designate a storage location. Literals, arithmetic results, and function-call results are rvalues in Eskiu. The code generator evaluates rvalues with <code>load</code> instructions (when reading a variable) or directly as IR values (for computed results). See also: lvalue.</p>
 <h2 id="s">S</h2>
+<p><strong>safe mode (<code>--safe</code>)</strong>
+An opt-in build mode that inserts a runtime bounds check on every array and slice index; an out-of-range access traps (<code>@llvm.trap</code>) instead of reading or writing past the end. Off by default, so release builds pay nothing. See also: slice, sanitizer.</p>
 <p><strong>scope</strong>
 The region of source code in which a declared name is visible. Eskiu uses lexical (block) scoping: each <code>BlockStmt</code> introduces a new scope. The symbol table supports nested scopes via a scope stack; inner scopes can shadow outer ones. Names go out of scope when their enclosing block ends. See also: symbol table, BlockStmt.</p>
 <p><strong>self-hosting</strong>
 A compiler written in the language it compiles. The whole Eskiu compiler (lexer, preprocessor, parser, type checker, and code generator) is reimplemented in Eskiu under <code>selfhost/</code>, validated for parity against the production C++ <code>eskiuc</code> and against itself through a 3-stage bootstrap fixpoint. Shipped in v0.3.0; the code generator is feature-complete against the C++ corpus. See also: bootstrap fixpoint, codegen.</p>
 <p><strong>semantic analysis</strong>
 The compiler phase (Phase 4) that validates program meaning beyond syntactic correctness. In Eskiu this is the type checker: it verifies type compatibility, resolves identifiers, checks struct-field existence, validates function call arities and types, and enforces return-type consistency. See also: type checker, scope.</p>
+<p><strong>slice (<code>T[]</code>)</strong>
+A fat pointer (data pointer + length) that views a contiguous run of <code>T</code> without owning it. Built by slicing a fixed array with a half-open range (<code>a[lo..hi]</code>); it supports <code>s[i]</code>, <code>s.len</code>, and <code>for (x in s)</code>. Because the length travels with the slice, a function taking <code>T[]</code> needs no separate count argument. Lowers to <code>{ ptr, i64 }</code>. See also: fat pointer, array, safe mode.</p>
 <p><strong>sret (structure return)</strong>
 The calling convention for returning a struct too large to fit in registers: the caller passes a hidden pointer to a result slot, the LLVM function itself returns <code>void</code>, and the body writes the result through that pointer. The code generator applies sret automatically to large aggregate return types. See also: codegen, struct.</p>
 <p><strong>statement</strong>

@@ -163,7 +163,10 @@ sign-extend. Narrowing truncates. <code>int</code>↔float uses signed conversio
 <h2 id="pointers-and-const">Pointers and <code>const</code></h2>
 <p>All pointers lower to LLVM's opaque <code>ptr</code> (address space 0), regardless of
 pointee type or spelling (<code>int*</code> and <code>*int</code> are identical). Pointer-to-pointer,
-casts between pointer types, and <code>string</code> are all just <code>ptr</code>.</p>
+casts between pointer types, and <code>string</code> are all just <code>ptr</code>. A checked nullable
+pointer <code>?*T</code> has the identical representation to <code>*T</code> (a bare <code>ptr</code>); its
+non-null requirement is enforced by the type checker at compile time and adds no
+runtime cost or storage.</p>
 <p>A leading <code>*</code> and a trailing <code>[N]</code> follow the source rule that the array binds
 outermost: <code>*T[N]</code> is an array of N <code>ptr</code> elements, while a pointer to an array is
 spelled <code>T[N]*</code> (a single <code>ptr</code>). For C interop, libc <code>size_t</code> parameters and returns
@@ -255,6 +258,11 @@ The vtable is an array of function pointers, one per interface method in
 declaration order. A method call loads <code>data</code> and <code>vtable</code>, indexes the vtable
 by method position, and calls the function pointer with <code>data</code> as the first
 argument.</p>
+<p><strong>Slices.</strong> A slice <code>T[]</code> is also a fat pointer, but <code>{ ptr, i64 }</code>: a pointer to
+the first element plus an element count. <code>s[i]</code> indexes through the pointer,
+<code>s.len</code> reads field 1, and the slice is passed and returned by value like any
+small struct. A slice aliases its backing storage (it is built by slicing an
+array with <code>a[lo..hi]</code>), so it neither owns nor copies the data.</p>
 <hr>
 <h2 id="name-mangling">Name mangling</h2>
 <p>Template and generic-enum instances are monomorphized with a deterministic

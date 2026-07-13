@@ -1,0 +1,24 @@
+extern int printf(string fmt, ...);
+
+int early(int x) {
+    defer printf("B");
+    if (x > 0) { return 1; }
+    return 2;
+}
+int lifo() { defer printf("1"); defer printf("2"); defer printf("3"); return 0; }
+int loop_break() {
+    for (int i = 0; i < 5; i++) { defer printf("%d", i); if (i == 2) { break; } }
+    return 0;
+}
+int fin_early() {
+    try { printf("t"); return 7; } finally { printf("f"); }
+    return 0;
+}
+int main() {
+    early(1); printf(" ");           // B
+    lifo(); printf(" ");             // 321
+    loop_break(); printf(" ");       // 012
+    printf("%d", fin_early());       // f7
+    printf("\n");
+    return 0;
+}

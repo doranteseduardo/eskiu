@@ -55,6 +55,17 @@ StmtPtr Parser::parseStatement() {
         return s;
     }
 
+    // defer stmt;    (runs stmt at block exit on every path out)
+    // errdefer stmt; (runs only on the error path: `?`-propagation)
+    if (check(TokenType::DEFER) || check(TokenType::ERRDEFER)) {
+        bool isErr = check(TokenType::ERRDEFER);
+        Token dTok = advance();
+        StmtPtr body = parseStatement();
+        auto s = std::make_shared<DeferStmt>(body, isErr);
+        s->line = dTok.line; s->col = dTok.column;
+        return s;
+    }
+
     // try { } catch (Type name) { } finally { }
     if (check(TokenType::TRY)) {
         Token tryTok = advance();
@@ -142,6 +153,7 @@ StmtPtr Parser::parseBlockStatement() {
         if (check(TokenType::CONST) ||
             check(TokenType::VOLATILE) ||
             check(TokenType::STATIC) ||
+            check(TokenType::QUESTION) ||   // `?*T q = ...` nullable-pointer local
             check(TokenType::LET) ||
             check(TokenType::INT) || check(TokenType::FLOAT) ||
             check(TokenType::DOUBLE) || check(TokenType::BOOL) ||

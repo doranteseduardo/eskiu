@@ -1,0 +1,6 @@
+fallthrough: body A 
+early_return: B 
+lifo: 3 2 1 
+in_loop: i0 d0 d1 i2 d2 
+with_break: x0 x1 x2 
+fin finally_early(=7): 

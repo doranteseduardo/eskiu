@@ -1,0 +1,8 @@
+// EXPECT-ERROR: may not escape
+// A break/continue inside a defer body may not escape the defer.
+int main() {
+    for (int i = 0; i < 3; i++) {
+        defer { break; }
+    }
+    return 0;
+}

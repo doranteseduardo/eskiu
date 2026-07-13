@@ -1,0 +1,45 @@
+// <time> — UTC civil calendar: split, format, and round-trip.
+import <time>;
+import <string>;
+extern int printf(string fmt, ...);
+
+int fails = 0;
+
+void chk_iso(int64 epoch, string want) {
+    let dt: DateTime;
+    time_to_utc(epoch, &dt);
+    let s: String;
+    String_init(&s, 24);
+    time_format_iso(&dt, &s);
+    if (String_eq_cstr(&s, want) == 1) { printf("ok    %lld = %s\n", epoch, want); }
+    else { printf("FAIL  %lld (want %s)\n", epoch, want); fails = fails + 1; }
+    String_free(&s);
+}
+
+int main() {
+    chk_iso(0, "1970-01-01T00:00:00Z");
+    chk_iso(1500000000, "2017-07-14T02:40:00Z");
+    chk_iso(1752431400, "2025-07-13T18:30:00Z");
+    chk_iso(951782400, "2000-02-29T00:00:00Z");        // leap day
+    chk_iso(-1, "1969-12-31T23:59:59Z");               // before the epoch
+
+    // weekday: 1970-01-01 was a Thursday (4)
+    let dt: DateTime;
+    time_to_utc(0, &dt);
+    printf("epoch wday=%d yday=%d\n", dt.wday, dt.yday);
+
+    // round-trip a handful of timestamps
+    int rt = 1;
+    int64 t = 1000000000;
+    int i = 0;
+    while (i < 5) {
+        let d: DateTime;
+        time_to_utc(t, &d);
+        if (time_from_utc(&d) != t) { rt = 0; }
+        t = t + 88888888;
+        i = i + 1;
+    }
+    printf("roundtrip=%d\n", rt);
+    printf("fails=%d\n", fails);
+    return 0;
+}

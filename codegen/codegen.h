@@ -27,6 +27,11 @@ public:
     std::string targetTriple;
     // Freestanding mode: alloc/free use esk_alloc/esk_free instead of malloc/free
     bool freestanding = false;
+    // Safe mode (--safe): insert runtime safety checks (slice bounds). Off by default,
+    // so release builds carry no overhead. On a violation the check calls @llvm.trap.
+    bool safe = false;
+    // Emit a trap (via @llvm.trap) when `idx` (sext to i64) is < 0 or >= `len`.
+    void emitBoundsCheck(llvm::Value* idx, llvm::Value* len);
     // Sanitizer instrumentation, applied to the module before object emission.
     bool asan = false;   // AddressSanitizer (memory errors); needs the asan runtime
     bool ubsan = false;  // bounds checking; traps on out-of-bounds (no runtime)
@@ -144,6 +149,23 @@ private:
     llvm::BasicBlock* breakTarget    = nullptr;
     llvm::BasicBlock* continueTarget = nullptr;
 
+    // Scope-exit cleanup stack: one frame per active block/try scope, holding the
+    // `defer`/`errdefer` bodies (and a try's `finally`) to run LIFO when the scope is
+    // left. Normal control-flow exits (return / break / continue / `?`) emit the frames
+    // they leave before branching; block fall-through runs its own frame.
+    struct Cleanup { Stmt* body; bool isErr; };   // isErr = errdefer (error-path only)
+    std::vector<std::vector<Cleanup>> cleanupScopes;
+    size_t breakCleanupDepth    = 0;   // frame depth to unwind to on break
+    size_t continueCleanupDepth = 0;   // frame depth to unwind to on continue
+    // Emit (in LIFO order) every cleanup body in frames at index >= depth. On a normal
+    // exit (errorPath=false) errdefer bodies are skipped; the `?`-propagation error path
+    // passes errorPath=true so both run. Does not pop — the owning scope pops when it ends.
+    void runCleanupsToDepth(size_t depth, bool errorPath);
+    bool blockTerminated();   // is the current basic block already terminated?
+    // Address of element `idx` of an indexable base (fixed array / slice / pointer /
+    // string). Shared by index-read, index-write (lvalue), and slice construction.
+    llvm::Value* indexElemAddr(const ExprPtr& base, llvm::Value* idx);
+
     // Exception handling: set when inside a try body
     llvm::BasicBlock* unwindTarget = nullptr;
 
@@ -166,8 +188,6 @@ private:
     // Type system: map Eskiu types to LLVM types
     llvm::Type* getTypeFromString(const std::string& typeStr);
     bool isPointerType(const std::string& typeStr) const;
-    bool isIntType(const std::string& typeStr) const;
-    bool isFloatType(const std::string& typeStr) const;
 
     // Resolve the Eskiu type string of an expression (for struct/array access)
     std::string getExprEskiuType(const ExprPtr& expr) const;
@@ -253,6 +273,7 @@ private:
     void visit(ThreadJoinStmt* node) override;
     void visit(ThrowStmt* node) override;
     void visit(TryStmt* node) override;
+    void visit(DeferStmt* node) override;
     void visit(EnumDecl* node) override;
     void visit(TypeAliasDecl* node) override;
 

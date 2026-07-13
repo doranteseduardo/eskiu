@@ -1,0 +1,16 @@
+extern int printf(string fmt, ...);
+struct R { bool ok; int value; }
+R okr(int v){ let r: R; r.ok = true; r.value = v; return r; }
+R err(){ let r: R; r.ok = false; r.value = 0; return r; }
+
+R step(bool good) {
+    defer printf("close ");           // always runs
+    errdefer printf("rollback ");     // only on the ?-error path
+    int v = good ? (okr(5)?) : (err()?);
+    return okr(v);
+}
+int main() {
+    step(true);  printf("| ");        // close
+    step(false); printf("\n");        // rollback close
+    return 0;
+}

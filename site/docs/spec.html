@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Language spec · Eskiu docs</title>
-  <meta name="description" content="Version: v0.5.0" />
+  <meta name="description" content="Version: v0.6.0" />
   <link rel="canonical" href="https://eskiu-lang.org/docs/spec.html" />
   <link rel="icon" type="image/png" href="../../assets/logo.png" />
   <style>*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -73,7 +73,7 @@ body { background: var(--bg); color: var(--ink); font-family: var(--sans);
     <nav class="docnav"><a href="index.html">Overview</a><a href="getting-started.html">Getting started</a><a href="spec.html" class="active">Spec</a><a href="grammar.html">Grammar</a><a href="build.html">Tooling</a><a href="glossary.html">Glossary</a><a href="internals.html">Internals →</a></nav>
     <div class="content">
 <h1 id="eskiu-language-specification">Eskiu Language Specification</h1>
-<p><strong>Version:</strong> v0.5.0</p>
+<p><strong>Version:</strong> v0.6.0</p>
 <hr>
 <h2 id="1-overview">1. Overview</h2>
 <p>Eskiu is a statically typed, compiled systems language. It lowers to native code through LLVM, manages memory explicitly (no garbage collector), and interoperates directly with C. A <code>.esk</code> file can also be run on the spot with <code>eskiuc run</code> (or a <code>#!/usr/bin/env eskiuc run</code> shebang), so the same source is both a compiled artifact and a runnable script. This document is the language reference: syntax, type system, semantics, and ABI.</p>
@@ -123,9 +123,9 @@ if  else  for  while  do  in  switch  case  default  match
 return  break  continue
 true  false  null
 alloc_with
-const  volatile  static  escaping  asm
+const  volatile  static  escaping  must_use  asm
 thread_create  thread_join
-try  catch  finally  throw
+try  catch  finally  throw  defer  errdefer
 async  await
 sizeof  free_closure  union  enum
 </code></pre>
@@ -304,6 +304,20 @@ cast). Integer literals are <code>int</code> (i32), widening to <code>int64</cod
 <pre><code class="language-eskiu">let ptr: *int = null;
 let buf: *uint8 = null;
 </code></pre>
+<h4 id="checked-nullable-pointers-t">Checked nullable pointers (<code>?*T</code>)</h4>
+<p>A plain <code>*T</code> may hold <code>null</code> (as in C), and dereferencing a null one is undefined. For
+opt-in null safety, write <code>?*T</code>, a <strong>checked nullable pointer</strong>. The compiler will not let
+you dereference, index, or take a member of a <code>?*T</code> until you have proven it non-null with
+a null-check; inside <code>if (x != null) { ... }</code> the pointer is treated as non-null:</p>
+<pre><code class="language-eskiu">?*int q = maybe();
+*q;                        // error: q may be null; check it first
+if (q != null) {
+    printf(&quot;%d\n&quot;, *q);    // ok: narrowed to non-null here
+}
+</code></pre>
+<p>A non-null <code>*T</code> converts to <code>?*T</code> implicitly (widening); going the other way (<code>?*T</code> to
+<code>*T</code>) drops the check and so requires narrowing (or an explicit cast). <code>?*T</code> has the same
+representation as <code>*T</code> (a bare pointer); the checking is entirely at compile time.</p>
 <h3 id="33-array-types">3.3 Array Types</h3>
 <p>Fixed-size arrays use the form <code>T[N]</code> where <code>N</code> is a compile-time integer constant: a decimal literal, an <code>enum</code> member, or a <code>const int</code> (see §4.6). Array types are supported both as struct fields and as local variables:</p>
 <pre><code class="language-eskiu">struct QRBuffer {
@@ -339,6 +353,34 @@ int[2][2] b = { {7, 8} };                 // second row zero-filled: {7,8},{0,0}
 a[1][2];                                    // 6  (row 1, column 2)
 </code></pre>
 <p><code>int[2][3]</code> lowers to <code>[2 x [3 x i32]]</code> in LLVM IR.</p>
+<h3 id="331-slice-types">3.3.1 Slice Types</h3>
+<p>A <strong>slice</strong> <code>T[]</code> (empty brackets) is a view into a contiguous run of <code>T</code>: a fat pointer
+carrying both a data pointer and a length. Unlike a fixed array, a slice's length travels
+with it, so a function that takes a <code>T[]</code> never needs a separate count argument, killing
+the classic "pointer without its length" bug.</p>
+<p>Create a slice by <strong>slicing</strong> a fixed array with a half-open range (reusing the <code>..</code>
+operator): <code>a[lo..hi]</code> is a view of elements <code>lo</code> through <code>hi-1</code>. The slice <strong>aliases</strong> the
+backing array; writing through it writes to the array.</p>
+<pre><code class="language-eskiu">int[6] a = {10, 20, 30, 40, 50, 60};
+
+int[] mid = a[1..4];     // view of {20, 30, 40}
+mid[1] = 99;             // writes through: a[2] is now 99
+</code></pre>
+<p>A slice supports indexing (<code>s[i]</code>, read and write), its length via <code>s.len</code> (an <code>int64</code>),
+and iteration with <code>for (x in s)</code>. Pass it by value: the fat pointer (data + length) is
+copied, but it still refers to the same backing storage.</p>
+<pre><code class="language-eskiu">int sum(int[] s) {
+    int total = 0;
+    for (x in s) { total = total + x; }   // length-driven, no count argument
+    return total;
+}
+
+sum(a[0..6]);            // the whole array as a slice
+</code></pre>
+<p><code>int[]</code> lowers to <code>{ ptr, i64 }</code> in LLVM IR. By default an out-of-range slice or array
+index is undefined, as in C; compile with <code>--safe</code> to bounds-check every index at runtime
+(an out-of-range access aborts instead of corrupting memory). <code>--safe</code> is opt-in, so
+release builds carry no overhead.</p>
 <h3 id="34-struct-types">3.4 Struct Types</h3>
 <p>A struct type is named by its declaration (see §8). Variables of struct type are declared using the struct name as the type annotation:</p>
 <pre><code class="language-eskiu">let p: Point;
@@ -906,6 +948,19 @@ int bad(int x) {
     if (x &lt; 0) { return 0; }
 }                              // error: missing return (x &gt;= 0 falls through)
 </code></pre>
+<h3 id="611-must_use">6.1.1 must_use</h3>
+<p>Prefixing a function with <code>must_use</code> makes discarding its result a compile error. It
+catches the "called for a value, then dropped it" bug, most importantly a leaked
+allocation. The standard library marks <code>alloc</code> this way:</p>
+<pre><code class="language-eskiu">must_use *T dup&lt;T&gt;(T* p) { ... }
+
+dup(&amp;x);              // error: result of 'dup' must be used (it is marked must_use)
+let y = dup(&amp;x);      // ok
+
+alloc&lt;uint8&gt;(64);     // error: the allocation is leaked (alloc is must_use)
+</code></pre>
+<p>A call is "used" if its result is assigned, passed as an argument, returned, or otherwise
+consumed; only a bare call statement discards it.</p>
 <h3 id="62-void-functions">6.2 Void Functions</h3>
 <pre><code class="language-eskiu">void log_event(string msg) {
     printf(&quot;%s\n&quot;, msg);
@@ -1222,6 +1277,47 @@ condition).</p>
     printf(&quot;%d\n&quot;, i);   // prints odd numbers only
 }
 </code></pre>
+<h3 id="78-defer">7.8 defer</h3>
+<p><code>defer stmt;</code> schedules <code>stmt</code> (a single statement or a <code>{ ... }</code> block) to run when the
+enclosing block is left. It is the ergonomic way to pair a resource acquisition with its
+release: write the cleanup right next to the thing it cleans up, and it runs on <strong>every</strong>
+path out of the block, so you never leak on an early return or a propagated error.</p>
+<pre><code class="language-eskiu">int process(string path) {
+    *uint8 buf = alloc&lt;uint8&gt;(4096);
+    defer free(buf);                 // runs however this function exits
+
+    if (path[0] == 0) { return -1; } // buf freed
+    int n = read_into(buf)?;         // buf freed if the `?` propagates an error
+    return n;                        // buf freed
+}
+</code></pre>
+<p>Rules:</p>
+<ul>
+<li>Deferred statements run in <strong>LIFO</strong> order: the last one registered runs first.</li>
+<li><code>defer</code> runs on fall-through, <code>return</code>, <code>break</code>, <code>continue</code>, and <code>?</code>-propagation. It is
+  block-scoped, so a <code>defer</code> in a loop body runs at the end of <strong>each iteration</strong>.</li>
+<li>The deferred statement is evaluated when the block is left (it reads variables' values
+  at exit time), after any <code>return</code> value has been computed.</li>
+<li>A defer body may not <code>return</code>, or <code>break</code>/<code>continue</code> out of itself (that would jump out
+  of the cleanup); doing so is a compile error.</li>
+</ul>
+<p><code>defer</code> complements <code>try</code>/<code>finally</code> (§10): <code>finally</code> is for catch-and-cleanup around a
+block, while <code>defer</code> colocates a one-off release with its acquisition. For cleanup that
+must also run when an exception unwinds past the scope, use <code>try</code>/<code>finally</code>.</p>
+<p><strong><code>errdefer</code></strong> is a variant that runs its statement only on the <strong>error exit</strong> path,
+namely when the function leaves through <code>?</code>-propagation (an <code>Err</code> is returned early). It
+does not run on a normal <code>return</code>, on fall-through, or on <code>break</code>/<code>continue</code>. This is the
+tool for undoing partial work when a fallible step fails partway through, while keeping it
+on success:</p>
+<pre><code class="language-eskiu">Connection open_ready(string host) {
+    Connection c = connect(host)?;
+    errdefer close(c);        // closed only if a later `?` fails; kept on success
+    handshake(c)?;            // if this errors, close(c) runs and the Err propagates
+    return c;                 // success: c survives, errdefer does not run
+}
+</code></pre>
+<p>On the error path both kinds run in LIFO order (an <code>errdefer</code> registered after a <code>defer</code>
+runs first). All the defer-body restrictions above apply to <code>errdefer</code> as well.</p>
 <hr>
 <h2 id="8-structs">8. Structs</h2>
 <h3 id="81-declaration-with-fields">8.1 Declaration with Fields</h3>

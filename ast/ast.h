@@ -62,6 +62,8 @@ public:
     // resumable state machine by the async transform. Declared return type stays
     // in `returnType` (the inner T).
     bool isAsync = false;
+    // `must_use`: discarding a call to this function (a bare call statement) is an error.
+    bool mustUse = false;
 
     FunctionDecl(const std::string& name, const std::string& returnType,
                  const std::vector<std::pair<std::string, std::string>>& params,
@@ -374,6 +376,19 @@ public:
     void accept(class ASTVisitor* visitor) override;
 };
 
+// `defer stmt;` runs stmt at exit of the enclosing block, in LIFO order, on every
+// path out (fall-through, return, break, continue, `?`-propagation, exception).
+// `isErr` (errdefer, Slice 2) restricts it to the error-exit paths.
+class DeferStmt : public Stmt {
+public:
+    StmtPtr body;
+    bool    isErr = false;
+
+    DeferStmt(StmtPtr body, bool isErr) : body(std::move(body)), isErr(isErr) {}
+
+    void accept(class ASTVisitor* visitor) override;
+};
+
 // thread_join(*void tid)
 class ThreadJoinStmt : public Stmt {
 public:
@@ -497,9 +512,12 @@ class IndexExpr : public Expr {
 public:
     ExprPtr base;
     ExprPtr index;
+    ExprPtr highIndex;   // set for a slice expression `base[index..highIndex]`; else null
 
-    IndexExpr(ExprPtr base, ExprPtr index)
-        : base(std::move(base)), index(std::move(index)) {}
+    IndexExpr(ExprPtr base, ExprPtr index, ExprPtr highIndex = nullptr)
+        : base(std::move(base)), index(std::move(index)), highIndex(std::move(highIndex)) {}
+
+    bool isSlice() const { return highIndex != nullptr; }
 
     void accept(class ASTVisitor* visitor) override;
 };
@@ -723,4 +741,5 @@ public:
     virtual void visit(ThreadJoinStmt* node) = 0;
     virtual void visit(ThrowStmt* node) = 0;
     virtual void visit(TryStmt* node) = 0;
+    virtual void visit(DeferStmt* node) = 0;
 };

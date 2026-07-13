@@ -1,0 +1,40 @@
+// <uuid> — RFC 4122 v4. A fixed seed makes the value deterministic.
+import <uuid>;
+import <random>;
+import <string>;
+extern int printf(string fmt, ...);
+
+int main() {
+    let r: Rng;
+    rng_seed(&r, 0xABCDEF);
+    let s: String;
+    String_init(&s, 40);
+    uuid_v4(&r, &s);
+
+    *char cs = String_cstr(&s);
+    printf("uuid=%s\n", cs);
+    printf("len=%lld\n", String_len(&s));
+
+    // Structural checks: dashes at 8,13,18,23; version '4' at 14; variant in 8/9/a/b at 19.
+    int dashes = 1;
+    if (cs[8] != '-' || cs[13] != '-' || cs[18] != '-' || cs[23] != '-') { dashes = 0; }
+    int ver = 0;
+    if (cs[14] == '4') { ver = 1; }
+    int variant = 0;
+    if (cs[19] == '8' || cs[19] == '9' || cs[19] == 'a' || cs[19] == 'b') { variant = 1; }
+    printf("dashes=%d version=%d variant=%d\n", dashes, ver, variant);
+
+    // Two draws from the same generator differ.
+    let a: String; String_init(&a, 40);
+    let b: String; String_init(&b, 40);
+    uuid_v4(&r, &a);
+    uuid_v4(&r, &b);
+    int distinct = 0;
+    if (String_eq(&a, &b) == 0) { distinct = 1; }
+    printf("distinct=%d\n", distinct);
+
+    String_free(&s);
+    String_free(&a);
+    String_free(&b);
+    return 0;
+}

@@ -120,9 +120,7 @@ void CodeGen::visit(BinaryExpr* node) {
     // Integer signedness of each operand, from its Eskiu type. Drives sign- vs
     // zero-extension when widening, and signed vs unsigned div/rem/shr/compare.
     auto isUnsignedEsk = [&](const ExprPtr& e) -> bool {
-        std::string t = expandAlias(getExprEskiuType(e));
-        return t == "uint" || t == "uint8" || t == "uint16" || t == "uint32" ||
-               t == "uint64" || t == "char" || t == "bool";
+        return eskiuUnsigned(getExprEskiuType(e));
     };
     bool lUns = isUnsignedEsk(node->left);
     bool rUns = isUnsignedEsk(node->right);
@@ -312,12 +310,15 @@ void CodeGen::visit(QuestionExpr* node) {
     builder->CreateCondBr(isErr, errBB, contBB);
 
     // Error path: propagate the Result unchanged out of the enclosing function.
+    // This is an early function exit, so run pending defers/finally first.
     builder->SetInsertPoint(errBB);
     llvm::Value* whole = builder->CreateLoad(st, tmp, "try.whole");
     if (currentSretParam != nullptr) {
         builder->CreateStore(whole, currentSretParam);
+        runCleanupsToDepth(0, /*errorPath=*/true);      // ? error exit: defers + errdefers
         builder->CreateRetVoid();
     } else {
+        runCleanupsToDepth(0, /*errorPath=*/true);
         builder->CreateRet(whole);
     }
 
@@ -457,42 +458,99 @@ void CodeGen::visit(IncDecExpr* node) {
     exprValueStack.push(node->prefix ? nw : old);
 }
 
-void CodeGen::visit(IndexExpr* node) {
-    llvm::Value* idx = evaluateExpr(node->index);
-    std::string baseType = getExprEskiuType(node->base);
+void CodeGen::emitBoundsCheck(llvm::Value* idx, llvm::Value* len) {
+    llvm::Type* i64 = llvm::Type::getInt64Ty(*context);
+    llvm::Value* idx64 = idx->getType()->isIntegerTy(64) ? idx : builder->CreateSExt(idx, i64);
+    llvm::Value* lo  = builder->CreateICmpSLT(idx64, llvm::ConstantInt::get(i64, 0));
+    llvm::Value* hi  = builder->CreateICmpSGE(idx64, len);
+    llvm::Value* oob = builder->CreateOr(lo, hi);
+    llvm::Function* fn = builder->GetInsertBlock()->getParent();
+    auto* trapBB = llvm::BasicBlock::Create(*context, "bounds.fail", fn);
+    auto* contBB = llvm::BasicBlock::Create(*context, "bounds.ok",   fn);
+    builder->CreateCondBr(oob, trapBB, contBB);
+    builder->SetInsertPoint(trapBB);
+    builder->CreateCall(llvm::Intrinsic::getOrInsertDeclaration(module.get(), llvm::Intrinsic::trap));
+    builder->CreateUnreachable();
+    builder->SetInsertPoint(contBB);
+}
 
-    // String indexing: string[i] → char element
-    if (baseType == "string") {
-        llvm::Value* ptr = evaluateExpr(node->base);
-        llvm::Value* gep = builder->CreateGEP(llvm::Type::getInt8Ty(*context), ptr, idx);
-        exprValueStack.push(builder->CreateLoad(llvm::Type::getInt8Ty(*context), gep));
+llvm::Value* CodeGen::indexElemAddr(const ExprPtr& base, llvm::Value* idx) {
+    std::string baseType = getExprEskiuType(base);
+    ty::Type bt = ty::Type::parse(baseType);
+    if (baseType == "string")
+        return builder->CreateGEP(llvm::Type::getInt8Ty(*context), evaluateExpr(base), idx);
+    if (bt.kind == ty::Type::Kind::Array) {
+        llvm::Value* zero = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0);
+        uint64_t n = 0;
+        if (safe && resolveArrayDim(bt.dim, n))   // bounds-check against the static length
+            emitBoundsCheck(idx, llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), n));
+        return builder->CreateGEP(getTypeFromString(baseType), evaluateLValue(base), {zero, idx});
+    }
+    if (bt.kind == ty::Type::Kind::Slice) {
+        llvm::Value* fat  = evaluateExpr(base);                     // evaluate the slice once
+        llvm::Value* data = builder->CreateExtractValue(fat, {0});  // fat.ptr
+        if (safe) emitBoundsCheck(idx, builder->CreateExtractValue(fat, {1}));   // vs fat.len
+        return builder->CreateGEP(getTypeFromString(bt.elem->str()), data, idx);
+    }
+    if (isPointerType(baseType)) {
+        std::string elemStr = (!baseType.empty() && baseType.front() == '*')
+            ? baseType.substr(1) : baseType.substr(0, baseType.size() - 1);
+        return builder->CreateGEP(getTypeFromString(elemStr), evaluateExpr(base), idx);
+    }
+    throw std::runtime_error("Cannot index into type: " + baseType);
+}
+
+void CodeGen::visit(IndexExpr* node) {
+    std::string baseType = getExprEskiuType(node->base);
+    ty::Type bt = ty::Type::parse(baseType);
+    llvm::Type* i64 = llvm::Type::getInt64Ty(*context);
+    auto toI64 = [&](llvm::Value* v) -> llvm::Value* {
+        if (v->getType()->isIntegerTy(64)) return v;
+        return builder->CreateSExt(v, i64);
+    };
+
+    // Slice construction: base[lo..hi] → a fat pointer { &base[lo], hi - lo }.
+    if (node->highIndex) {
+        llvm::Value* lo = toI64(evaluateExpr(node->index));
+        llvm::Value* hi = toI64(evaluateExpr(node->highIndex));
+        llvm::Value* data = indexElemAddr(node->base, lo);
+        llvm::Value* len  = builder->CreateSub(hi, lo);
+        std::string elemStr = (baseType == "string") ? "char" : bt.elem->str();
+        llvm::Type* sliceTy = getTypeFromString(elemStr + "[]");
+        llvm::Value* s = llvm::UndefValue::get(sliceTy);
+        s = builder->CreateInsertValue(s, data, {0});
+        s = builder->CreateInsertValue(s, len,  {1});
+        exprValueStack.push(s);
         return;
     }
 
-    // Fixed-size array: T[N] (for T[N][M], indexing peels the outer dimension → T[M])
-    {
-        ty::Type bt = ty::Type::parse(baseType);
-        if (bt.kind == ty::Type::Kind::Array) {
-            std::string elemStr  = bt.elem->str();
-            llvm::Type* arrType  = getTypeFromString(baseType);
-            llvm::Type* elemType = getTypeFromString(elemStr);
-            llvm::Value* basePtr = evaluateLValue(node->base);
-            llvm::Value* zero    = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0);
-            llvm::Value* gep     = builder->CreateGEP(arrType, basePtr, {zero, idx});
-            exprValueStack.push(builder->CreateLoad(elemType, gep));
-            return;
-        }
-    }
+    llvm::Value* idx = evaluateExpr(node->index);
 
-    // Pointer: *T or T*
+    // Slice element: s[i] → load from the fat pointer's data at i.
+    if (bt.kind == ty::Type::Kind::Slice) {
+        llvm::Type* elemType = getTypeFromString(bt.elem->str());
+        exprValueStack.push(builder->CreateLoad(elemType, indexElemAddr(node->base, idx)));
+        return;
+    }
+    // String: string[i] → char.
+    if (baseType == "string") {
+        exprValueStack.push(builder->CreateLoad(
+            llvm::Type::getInt8Ty(*context), indexElemAddr(node->base, idx)));
+        return;
+    }
+    // Fixed-size array: T[N] (for T[N][M], indexing peels the outer dimension → T[M]).
+    if (bt.kind == ty::Type::Kind::Array) {
+        llvm::Type* elemType = getTypeFromString(bt.elem->str());
+        exprValueStack.push(builder->CreateLoad(elemType, indexElemAddr(node->base, idx)));
+        return;
+    }
+    // Pointer: *T or T*.
     if (isPointerType(baseType)) {
         std::string elemStr = (!baseType.empty() && baseType.front() == '*')
             ? baseType.substr(1)
             : baseType.substr(0, baseType.size() - 1);
-        llvm::Type* elemType = getTypeFromString(elemStr);
-        llvm::Value* ptr     = evaluateExpr(node->base);
-        llvm::Value* gep     = builder->CreateGEP(elemType, ptr, idx);
-        exprValueStack.push(builder->CreateLoad(elemType, gep));
+        exprValueStack.push(builder->CreateLoad(
+            getTypeFromString(elemStr), indexElemAddr(node->base, idx)));
         return;
     }
 
@@ -513,6 +571,12 @@ std::string CodeGen::structBaseTypeOf(const ExprPtr& base) {
 }
 
 void CodeGen::visit(MemberExpr* node) {
+    // Slice `.len`: read the fat pointer's length field (i64).
+    if (node->member == "len" && ty::Type::parse(getExprEskiuType(node->base)).kind == ty::Type::Kind::Slice) {
+        exprValueStack.push(builder->CreateExtractValue(evaluateExpr(node->base), {1}));
+        return;
+    }
+
     std::string baseType = structBaseTypeOf(node->base);
 
     // A pointer-to-struct base is dereferenced via its value; a value-struct
@@ -648,9 +712,7 @@ void CodeGen::visit(CastExpr* node) {
         if (srcWidth < dstWidth) {
             // Widen per the SOURCE's signedness: an unsigned source (uint*/char/bool)
             // zero-extends — e.g. (int)(uint8)255 is 255, not -1.
-            std::string st = expandAlias(getExprEskiuType(node->expr));
-            bool uns = st == "uint" || st == "uint8" || st == "uint16" || st == "uint32" ||
-                       st == "uint64" || st == "char" || st == "bool";
+            bool uns = eskiuUnsigned(getExprEskiuType(node->expr));
             result = uns ? builder->CreateZExt(val, targetType)
                          : builder->CreateSExt(val, targetType);
         } else {
@@ -857,22 +919,9 @@ llvm::Value* CodeGen::evaluateLValue(const ExprPtr& expr) {
     }
 
     if (auto index = dynamic_cast<IndexExpr*>(expr.get())) {
-        llvm::Value* idx      = evaluateExpr(index->index);
-        std::string baseType  = getExprEskiuType(index->base);
-        size_t lb = baseType.rfind('[');
-        if (lb != std::string::npos && baseType.back() == ']') {
-            llvm::Type* arrType = getTypeFromString(baseType);
-            llvm::Value* base   = evaluateLValue(index->base);
-            llvm::Value* zero   = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0);
-            return builder->CreateGEP(arrType, base, {zero, idx});
-        }
-        if (isPointerType(baseType)) {
-            std::string elemStr = (baseType.front() == '*')
-                ? baseType.substr(1) : baseType.substr(0, baseType.size() - 1);
-            llvm::Value* ptr = evaluateExpr(index->base);
-            return builder->CreateGEP(getTypeFromString(elemStr), ptr, idx);
-        }
-        throw std::runtime_error("Cannot take lvalue index of type: " + baseType);
+        // `a[i] = x` — element address for array / slice / pointer / string bases.
+        llvm::Value* idx = evaluateExpr(index->index);
+        return indexElemAddr(index->base, idx);
     }
 
     throw std::runtime_error("Left-hand side of assignment is not an lvalue");

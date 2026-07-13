@@ -1,6 +1,6 @@
 # Eskiu Language Specification
 
-**Version:** v0.5.0
+**Version:** v0.6.0
 
 ---
 
@@ -73,9 +73,9 @@ if  else  for  while  do  in  switch  case  default  match
 return  break  continue
 true  false  null
 alloc_with
-const  volatile  static  escaping  asm
+const  volatile  static  escaping  must_use  asm
 thread_create  thread_join
-try  catch  finally  throw
+try  catch  finally  throw  defer  errdefer
 async  await
 sizeof  free_closure  union  enum
 ```
@@ -180,6 +180,25 @@ let ptr: *int = null;
 let buf: *uint8 = null;
 ```
 
+#### Checked nullable pointers (`?*T`)
+
+A plain `*T` may hold `null` (as in C), and dereferencing a null one is undefined. For
+opt-in null safety, write `?*T`, a **checked nullable pointer**. The compiler will not let
+you dereference, index, or take a member of a `?*T` until you have proven it non-null with
+a null-check; inside `if (x != null) { ... }` the pointer is treated as non-null:
+
+```eskiu
+?*int q = maybe();
+*q;                        // error: q may be null; check it first
+if (q != null) {
+    printf("%d\n", *q);    // ok: narrowed to non-null here
+}
+```
+
+A non-null `*T` converts to `?*T` implicitly (widening); going the other way (`?*T` to
+`*T`) drops the check and so requires narrowing (or an explicit cast). `?*T` has the same
+representation as `*T` (a bare pointer); the checking is entirely at compile time.
+
 ### 3.3 Array Types
 
 Fixed-size arrays use the form `T[N]` where `N` is a compile-time integer constant: a decimal literal, an `enum` member, or a `const int` (see §4.6). Array types are supported both as struct fields and as local variables:
@@ -227,6 +246,43 @@ a[1][2];                                    // 6  (row 1, column 2)
 ```
 
 `int[2][3]` lowers to `[2 x [3 x i32]]` in LLVM IR.
+
+### 3.3.1 Slice Types
+
+A **slice** `T[]` (empty brackets) is a view into a contiguous run of `T`: a fat pointer
+carrying both a data pointer and a length. Unlike a fixed array, a slice's length travels
+with it, so a function that takes a `T[]` never needs a separate count argument, killing
+the classic "pointer without its length" bug.
+
+Create a slice by **slicing** a fixed array with a half-open range (reusing the `..`
+operator): `a[lo..hi]` is a view of elements `lo` through `hi-1`. The slice **aliases** the
+backing array; writing through it writes to the array.
+
+```eskiu
+int[6] a = {10, 20, 30, 40, 50, 60};
+
+int[] mid = a[1..4];     // view of {20, 30, 40}
+mid[1] = 99;             // writes through: a[2] is now 99
+```
+
+A slice supports indexing (`s[i]`, read and write), its length via `s.len` (an `int64`),
+and iteration with `for (x in s)`. Pass it by value: the fat pointer (data + length) is
+copied, but it still refers to the same backing storage.
+
+```eskiu
+int sum(int[] s) {
+    int total = 0;
+    for (x in s) { total = total + x; }   // length-driven, no count argument
+    return total;
+}
+
+sum(a[0..6]);            // the whole array as a slice
+```
+
+`int[]` lowers to `{ ptr, i64 }` in LLVM IR. By default an out-of-range slice or array
+index is undefined, as in C; compile with `--safe` to bounds-check every index at runtime
+(an out-of-range access aborts instead of corrupting memory). `--safe` is opt-in, so
+release builds carry no overhead.
 
 ### 3.4 Struct Types
 
@@ -684,6 +740,24 @@ int bad(int x) {
 }                              // error: missing return (x >= 0 falls through)
 ```
 
+### 6.1.1 must_use
+
+Prefixing a function with `must_use` makes discarding its result a compile error. It
+catches the "called for a value, then dropped it" bug, most importantly a leaked
+allocation. The standard library marks `alloc` this way:
+
+```eskiu
+must_use *T dup<T>(T* p) { ... }
+
+dup(&x);              // error: result of 'dup' must be used (it is marked must_use)
+let y = dup(&x);      // ok
+
+alloc<uint8>(64);     // error: the allocation is leaked (alloc is must_use)
+```
+
+A call is "used" if its result is assigned, passed as an argument, returned, or otherwise
+consumed; only a bare call statement discards it.
+
 ### 6.2 Void Functions
 
 ```eskiu
@@ -1131,6 +1205,56 @@ for (int i = 0; i < 10; i += 1) {
     printf("%d\n", i);   // prints odd numbers only
 }
 ```
+
+### 7.8 defer
+
+`defer stmt;` schedules `stmt` (a single statement or a `{ ... }` block) to run when the
+enclosing block is left. It is the ergonomic way to pair a resource acquisition with its
+release: write the cleanup right next to the thing it cleans up, and it runs on **every**
+path out of the block, so you never leak on an early return or a propagated error.
+
+```eskiu
+int process(string path) {
+    *uint8 buf = alloc<uint8>(4096);
+    defer free(buf);                 // runs however this function exits
+
+    if (path[0] == 0) { return -1; } // buf freed
+    int n = read_into(buf)?;         // buf freed if the `?` propagates an error
+    return n;                        // buf freed
+}
+```
+
+Rules:
+
+- Deferred statements run in **LIFO** order: the last one registered runs first.
+- `defer` runs on fall-through, `return`, `break`, `continue`, and `?`-propagation. It is
+  block-scoped, so a `defer` in a loop body runs at the end of **each iteration**.
+- The deferred statement is evaluated when the block is left (it reads variables' values
+  at exit time), after any `return` value has been computed.
+- A defer body may not `return`, or `break`/`continue` out of itself (that would jump out
+  of the cleanup); doing so is a compile error.
+
+`defer` complements `try`/`finally` (§10): `finally` is for catch-and-cleanup around a
+block, while `defer` colocates a one-off release with its acquisition. For cleanup that
+must also run when an exception unwinds past the scope, use `try`/`finally`.
+
+**`errdefer`** is a variant that runs its statement only on the **error exit** path,
+namely when the function leaves through `?`-propagation (an `Err` is returned early). It
+does not run on a normal `return`, on fall-through, or on `break`/`continue`. This is the
+tool for undoing partial work when a fallible step fails partway through, while keeping it
+on success:
+
+```eskiu
+Connection open_ready(string host) {
+    Connection c = connect(host)?;
+    errdefer close(c);        // closed only if a later `?` fails; kept on success
+    handshake(c)?;            // if this errors, close(c) runs and the Err propagates
+    return c;                 // success: c survives, errdefer does not run
+}
+```
+
+On the error path both kinds run in LIFO order (an `errdefer` registered after a `defer`
+runs first). All the defer-body restrictions above apply to `errdefer` as well.
 
 ---
 
