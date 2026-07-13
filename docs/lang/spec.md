@@ -260,8 +260,10 @@ int sum(int[] s) {
 sum(a[0..6]);            // the whole array as a slice
 ```
 
-`int[]` lowers to `{ ptr, i64 }` in LLVM IR. (Bounds-checked slice indexing arrives with
-the forthcoming safe build mode; today an out-of-range slice index is undefined, as in C.)
+`int[]` lowers to `{ ptr, i64 }` in LLVM IR. By default an out-of-range slice or array
+index is undefined, as in C; compile with `--safe` to bounds-check every index at runtime
+(an out-of-range access aborts instead of corrupting memory). `--safe` is opt-in, so
+release builds carry no overhead.
 
 ### 3.4 Struct Types
 

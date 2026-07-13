@@ -27,6 +27,11 @@ public:
     std::string targetTriple;
     // Freestanding mode: alloc/free use esk_alloc/esk_free instead of malloc/free
     bool freestanding = false;
+    // Safe mode (--safe): insert runtime safety checks (slice bounds). Off by default,
+    // so release builds carry no overhead. On a violation the check calls @llvm.trap.
+    bool safe = false;
+    // Emit a trap (via @llvm.trap) when `idx` (sext to i64) is < 0 or >= `len`.
+    void emitBoundsCheck(llvm::Value* idx, llvm::Value* len);
     // Sanitizer instrumentation, applied to the module before object emission.
     bool asan = false;   // AddressSanitizer (memory errors); needs the asan runtime
     bool ubsan = false;  // bounds checking; traps on out-of-bounds (no runtime)

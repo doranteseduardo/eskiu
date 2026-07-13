@@ -56,6 +56,11 @@ jobs:
       - name: Optimization differential (-O0 vs -O2)
         run: CC=clang-22 tests/opt_differential.sh
 
+      # `--safe` inserts runtime slice/array bounds checks that trap on a violation,
+      # are off by default (opt-in, zero release cost), and leave in-bounds code alone.
+      - name: Safe mode (bounds checks)
+        run: CC=clang-22 tests/safe_mode.sh
+
       # Self-hosted lexer (selfhost/) must stay byte-identical to the C++ lexer
       # over the whole preprocessor-free corpus. The driver is compiled once to a
       # native binary, so this is ~seconds. A divergence means the Eskiu lexer (or

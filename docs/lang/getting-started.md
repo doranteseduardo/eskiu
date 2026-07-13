@@ -1343,6 +1343,23 @@ You must provide `esk_alloc` and `esk_free` in your own source or a C shim:
 void  esk_free(*void ptr)  { bump_free(ptr); }
 ```
 
+### Safe mode
+
+Pass `--safe` to insert runtime safety checks. Today it bounds-checks slice and
+fixed-array indexing: an out-of-range index traps (aborts) instead of reading or writing
+past the end. The checks are **off by default**, so release builds carry no overhead;
+turn them on for development and test runs.
+
+```bash
+eskiuc app.esk --safe -o app     # a[i] / s[i] out of range now aborts instead of corrupting memory
+```
+
+```eskiu
+int[5] a = {1, 2, 3, 4, 5};
+int[] s = a[1..4];               // length 3
+int x = s[9];                    // under --safe: aborts here; without it: reads garbage (as in C)
+```
+
 ---
 
 ## sizeof
