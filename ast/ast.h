@@ -510,9 +510,12 @@ class IndexExpr : public Expr {
 public:
     ExprPtr base;
     ExprPtr index;
+    ExprPtr highIndex;   // set for a slice expression `base[index..highIndex]`; else null
 
-    IndexExpr(ExprPtr base, ExprPtr index)
-        : base(std::move(base)), index(std::move(index)) {}
+    IndexExpr(ExprPtr base, ExprPtr index, ExprPtr highIndex = nullptr)
+        : base(std::move(base)), index(std::move(index)), highIndex(std::move(highIndex)) {}
+
+    bool isSlice() const { return highIndex != nullptr; }
 
     void accept(class ASTVisitor* visitor) override;
 };

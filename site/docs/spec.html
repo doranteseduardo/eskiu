@@ -339,6 +339,32 @@ int[2][2] b = { {7, 8} };                 // second row zero-filled: {7,8},{0,0}
 a[1][2];                                    // 6  (row 1, column 2)
 </code></pre>
 <p><code>int[2][3]</code> lowers to <code>[2 x [3 x i32]]</code> in LLVM IR.</p>
+<h3 id="331-slice-types">3.3.1 Slice Types</h3>
+<p>A <strong>slice</strong> <code>T[]</code> (empty brackets) is a view into a contiguous run of <code>T</code>: a fat pointer
+carrying both a data pointer and a length. Unlike a fixed array, a slice's length travels
+with it, so a function that takes a <code>T[]</code> never needs a separate count argument, killing
+the classic "pointer without its length" bug.</p>
+<p>Create a slice by <strong>slicing</strong> a fixed array with a half-open range (reusing the <code>..</code>
+operator): <code>a[lo..hi]</code> is a view of elements <code>lo</code> through <code>hi-1</code>. The slice <strong>aliases</strong> the
+backing array; writing through it writes to the array.</p>
+<pre><code class="language-eskiu">int[6] a = {10, 20, 30, 40, 50, 60};
+
+int[] mid = a[1..4];     // view of {20, 30, 40}
+mid[1] = 99;             // writes through: a[2] is now 99
+</code></pre>
+<p>A slice supports indexing (<code>s[i]</code>, read and write), its length via <code>s.len</code> (an <code>int64</code>),
+and iteration with <code>for (x in s)</code>. Pass it by value: the fat pointer (data + length) is
+copied, but it still refers to the same backing storage.</p>
+<pre><code class="language-eskiu">int sum(int[] s) {
+    int total = 0;
+    for (x in s) { total = total + x; }   // length-driven, no count argument
+    return total;
+}
+
+sum(a[0..6]);            // the whole array as a slice
+</code></pre>
+<p><code>int[]</code> lowers to <code>{ ptr, i64 }</code> in LLVM IR. (Bounds-checked slice indexing arrives with
+the forthcoming safe build mode; today an out-of-range slice index is undefined, as in C.)</p>
 <h3 id="34-struct-types">3.4 Struct Types</h3>
 <p>A struct type is named by its declaration (see §8). Variables of struct type are declared using the struct name as the type annotation:</p>
 <pre><code class="language-eskiu">let p: Point;

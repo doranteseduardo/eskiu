@@ -630,6 +630,11 @@ string lambda_sig(string ret, *DeclNode d) {
             p_adv(p);
             *ExprNode ix = alloc<ExprNode>(1);
             ix.kind = EK_INDEX; ix.a = e; ix.b = parse_expr(p);
+            List_init<*ExprNode>(&ix.kids, 1);
+            if (p_at(p) == RANGE) {            // base[lo..hi] slice expression
+                p_adv(p);
+                List_push<*ExprNode>(&ix.kids, parse_expr(p));   // hi bound
+            }
             p_adv(p);                          // ']'
             e = ix;
         } else if (t == DOT) {

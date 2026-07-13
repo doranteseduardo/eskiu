@@ -168,8 +168,9 @@ Pointers may be written either C-style (`int*`) or leading (`*int`); both are
 equivalent. An array suffix binds tighter than a leading pointer, so `*T[N]` is an array
 of N pointers (each element a `*T`), while a pointer to an array is written with the star
 after the brackets: `T[N]*`. Suffixes chain for multidimensional arrays: `T[N][M]` is N
-arrays of M (C order, leftmost bracket outermost). `va_list` is a built-in named type
-used by variadics.
+arrays of M (C order, leftmost bracket outermost). Empty brackets make a **slice**: `T[]`
+is a fat pointer (data + length), constructed by slicing an array (`a[lo..hi]`). `va_list`
+is a built-in named type used by variadics.
 
 ---
 
@@ -240,6 +241,7 @@ cast            = '(' type ')' unary
 postfix         = primary postfix-op*
 postfix-op      = '(' arg-list? ')'          // call
                 | '[' expr ']'               // index
+                | '[' expr '..' expr ']'     // slice (half-open) → a `T[]` fat pointer
                 | '.' IDENT                  // member
                 | '?'                        // error propagation (Result)
                 | '++' | '--'                // post-increment / decrement

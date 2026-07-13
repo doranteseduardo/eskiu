@@ -246,6 +246,11 @@ void CodeGen::visit(ForInStmt* node) {
         resolveArrayDim(itT.dim, len);
         lengthExpr = intLit(std::to_string(len));
         elemExpr   = std::make_shared<IndexExpr>(node->iterable, idx());
+    } else if (itT.kind == ty::Type::Kind::Slice) {
+        // Slice T[] — length is the fat pointer's `.len` field.
+        elemType   = itT.elem->str();
+        lengthExpr = std::make_shared<MemberExpr>(node->iterable, "len");
+        elemExpr   = std::make_shared<IndexExpr>(node->iterable, idx());
     } else {
         // List-like struct: needs `data` (pointer) and `size` (int) fields.
         // Strip the struct:/pointer decoration to the bare registry key (the

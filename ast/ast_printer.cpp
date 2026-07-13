@@ -342,7 +342,7 @@ void ASTPrinter::visit(CallExpr* node) {
 }
 
 void ASTPrinter::visit(IndexExpr* node) {
-    println("IndexExpr");
+    println(node->highIndex ? "IndexExpr (slice)" : "IndexExpr");
     indentLevel++;
 
     println("Base:");
@@ -354,6 +354,13 @@ void ASTPrinter::visit(IndexExpr* node) {
     indentLevel++;
     node->index->accept(this);
     indentLevel--;
+
+    if (node->highIndex) {
+        println("High:");
+        indentLevel++;
+        node->highIndex->accept(this);
+        indentLevel--;
+    }
 
     indentLevel--;
 }

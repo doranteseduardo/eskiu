@@ -298,6 +298,7 @@ pre.code-block {
 <a href="#sec-5-2" class="toc-sec">5.2 Creating and using a struct</a>
 <a href="#sec-5-3" class="toc-sec">5.3 Methods</a>
 <a href="#sec-5-4" class="toc-sec">5.4 Fixed-size array fields</a>
+<a href="#sec-5-4b" class="toc-sec">5.4b Slices</a>
 <a href="#sec-5-5" class="toc-sec">5.5 union</a>
 <a href="#sec-5-6" class="toc-sec">5.6 Bitfields</a>
 <a href="#sec-5-7" class="toc-sec">5.7 packed struct</a>
@@ -941,6 +942,22 @@ pre.code-block {
  printf(&quot;%d %d %d
  &quot;, grid[0][0], grid[1][2], part[1][0]);   // 1 6 0</pre>
 <p class="output"><em>Output:</em> 1 6 0</p>
+<h2 class="section" id="sec-5-4b">5.4b Slices</h2>
+<p>A fixed array knows its size at compile time, but a function that takes one has to be told the length separately, the classic C footgun where the pointer and its count drift apart. A <strong>slice</strong>, written <code>T[]</code> (empty brackets), fixes that: it is a fat pointer carrying both the data pointer <em>and</em> the length, so the length always travels with the data.</p>
+<p>You make a slice by <em>slicing</em> an array with a half-open range (the same <code>..</code> used by for-in). The slice is a view: it aliases the backing array, so writing through it writes to the array.</p>
+<pre class="code-block"> int[6] a = {10, 20, 30, 40, 50, 60};
+ int[] mid = a[1..4];          // view of {20, 30, 40}
+ mid[1] = 99;                   // writes through: a[2] is now 99
+ printf(&quot;%lld %d
+ &quot;, mid.len, a[2]);            // 3 99</pre>
+<p class="output"><em>Output:</em> 3 99</p>
+<p>A slice supports indexing (<code>s[i]</code>), its length via <code>s.len</code>, iteration with <code>for (x in s)</code>, and is passed by value (the pointer + length are copied; the backing storage is shared). A function that sums any run of ints needs no count argument:</p>
+<pre class="code-block"> int sum(int[] s) {
+       int total = 0;
+       for (x in s) { total = total + x; }
+       return total;
+ }
+ sum(a[0..6]);                  // the whole array as a slice</pre>
 <h2 class="section" id="sec-5-5">5.5 union</h2>
 <p>A union looks like a struct but all fields share the same memory location at offset 0. The union&#x27;s size equals the size of its largest field. Writing one field and reading another reinterprets the underlying bits:</p>
 <pre class="code-block"> union Value {

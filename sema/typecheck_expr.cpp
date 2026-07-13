@@ -442,6 +442,7 @@ void TypeChecker::visit(CallExpr* node) {
 void TypeChecker::visit(IndexExpr* node) {
     node->base->accept(this);
     node->index->accept(this);
+    if (node->highIndex) node->highIndex->accept(this);
 
     std::string baseType = getExpressionType(node->base.get());
     std::string indexType = getExpressionType(node->index.get());
@@ -449,17 +450,22 @@ void TypeChecker::visit(IndexExpr* node) {
     if (indexType != "unknown" && !isIntType(indexType)) {
         errorAt(node,"array index must be integer, got " + indexType);
     }
+    if (node->highIndex) {
+        std::string hiType = getExpressionType(node->highIndex.get());
+        if (hiType != "unknown" && !isIntType(hiType))
+            errorAt(node, "slice bound must be integer, got " + hiType);
+    }
 
-    // string[i] → char
-    if (baseType == "string") { expressionTypes[node] = "char"; return; }
-
-    // Array type T[N]: indexing peels the outer (leftmost) dimension, yielding T.
-    // For `int[N][M]`, a[i] is `int[M]`; a[i][j] is `int`.
-    {
-        ty::Type bt = ty::Type::parse(baseType);
-        if (bt.kind == ty::Type::Kind::Array) {
-            // A constant index is bounds-checkable at compile time: a negative index is
-            // always out of bounds, and a literal one is checked against a numeric N.
+    // Determine the element type of the base (array / slice / pointer / string).
+    ty::Type bt = ty::Type::parse(baseType);
+    std::string elem;
+    bool haveElem = false;
+    if (baseType == "string") { elem = "char"; haveElem = true; }
+    else if (bt.kind == ty::Type::Kind::Array || bt.kind == ty::Type::Kind::Slice) {
+        elem = bt.elem->str(); haveElem = true;
+        // Constant-index bounds check: only a plain index into a fixed array with a
+        // numeric dimension is checkable at compile time.
+        if (!node->highIndex && bt.kind == ty::Type::Kind::Array) {
             if (auto* ix = dynamic_cast<LiteralExpr*>(node->index.get());
                 ix && ix->kind == LiteralExpr::Kind::INT) {
                 const std::string& dim = bt.dim;
@@ -474,23 +480,27 @@ void TypeChecker::visit(IndexExpr* node) {
                                       " is out of bounds for array of size " + dim);
                 } catch (...) { /* unparized literal — skip */ }
             }
-            expressionTypes[node] = bt.elem->str();
-            return;
         }
+    } else if (isPointerType(baseType)) {
+        elem = getPointeeType(baseType); haveElem = true;
     }
 
-    // Pointer: *T → T
-    if (isPointerType(baseType)) {
-        expressionTypes[node] = getPointeeType(baseType);
-    } else {
-        expressionTypes[node] = "unknown";
-    }
+    if (!haveElem) { expressionTypes[node] = "unknown"; return; }
+
+    // `base[lo..hi]` yields a slice of the element type; `base[i]` yields the element.
+    expressionTypes[node] = node->highIndex ? (elem + "[]") : elem;
 }
 
 void TypeChecker::visit(MemberExpr* node) {
     node->base->accept(this);
 
     std::string baseType = getExpressionType(node->base.get());
+
+    // Slice `.len` → int64 (the fat pointer's length field).
+    if (node->member == "len" && ty::Type::parse(baseType).kind == ty::Type::Kind::Slice) {
+        expressionTypes[node] = "int64";
+        return;
+    }
 
     // Auto-deref pointer-to-struct: *Point, struct:Point*, Point* → struct:Point
     if (hasPointerSuffix(baseType)) {

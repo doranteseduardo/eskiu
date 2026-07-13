@@ -331,8 +331,11 @@ ExprPtr Parser::parsePostfix() {
         } else if (match(TokenType::LBRACKET)) {
             Token idxTok = tokens[current - 1];
             ExprPtr index = parseExpression();
+            // `base[lo..hi]` is a slice expression (half-open); `base[i]` a plain index.
+            ExprPtr highIndex = nullptr;
+            if (match(TokenType::RANGE)) highIndex = parseExpression();
             consume(TokenType::RBRACKET, "Expected ']'");
-            expr = withPos(std::make_shared<IndexExpr>(expr, index), idxTok);
+            expr = withPos(std::make_shared<IndexExpr>(expr, index, highIndex), idxTok);
         } else if (match(TokenType::DOT)) {
             Token dotTok = tokens[current - 1];
             std::string member = consume(TokenType::IDENT, "Expected member name").value;

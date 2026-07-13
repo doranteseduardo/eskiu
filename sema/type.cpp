@@ -135,8 +135,9 @@ Type parseCore(const std::string& in, const std::set<std::string>& tps) {
         size_t close = open == std::string::npos ? std::string::npos
                                                  : matchCloseBracket(s, open);
         if (open != std::string::npos && close != std::string::npos) {
-            r.kind = Type::Kind::Array;
             r.dim  = s.substr(open + 1, close - open - 1);
+            // Empty brackets `T[]` = a slice (fat pointer); `T[N]` = a fixed array.
+            r.kind = r.dim.empty() ? Type::Kind::Slice : Type::Kind::Array;
             r.elem = std::make_shared<Type>(
                 Type::parse(s.substr(0, open) + s.substr(close + 1), tps));
             return r;
@@ -205,6 +206,9 @@ std::string Type::str() const {
         case Kind::Array:
             body = elem->str() + "[" + dim + "]";
             break;
+        case Kind::Slice:
+            body = elem->str() + "[]";
+            break;
         case Kind::Fn: {
             body = "fn(";
             for (size_t i = 0; i < params.size(); ++i) {
@@ -242,6 +246,7 @@ Type Type::substitute(const std::map<std::string, std::string>& subs) const {
             r.pointee = std::make_shared<Type>(pointee->substitute(subs));
             break;
         case Kind::Array:
+        case Kind::Slice:
             r.elem = std::make_shared<Type>(elem->substitute(subs));
             break;            // dim is opaque text — never substituted
         case Kind::Fn:

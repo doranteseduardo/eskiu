@@ -126,6 +126,11 @@ llvm::Type* CodeGen::getTypeFromString(const std::string& typeStr) {
                                          + t.dim + "'");
             return llvm::PointerType::get(*context, 0);     // unsized → pointer
         }
+        case ty::Type::Kind::Slice: {                      // "T[]" → fat pointer { data, len }
+            return llvm::StructType::get(*context, {
+                llvm::PointerType::get(*context, 0),
+                llvm::Type::getInt64Ty(*context)});
+        }
         case ty::Type::Kind::Named: {                      // bare nominal: enum/struct/iface
             if (enumTypes.count(t.name)) {                 // classic enum → i32; ADT → struct
                 auto st = structTypes.find(t.name);
@@ -275,6 +280,8 @@ std::string CodeGen::deriveExprEskiuType(const ExprPtr& expr) const {
     }
     if (auto member = dynamic_cast<MemberExpr*>(expr.get())) {
         std::string base = getExprEskiuType(member->base);
+        if (member->member == "len" && ty::Type::parse(base).kind == ty::Type::Kind::Slice)
+            return "int64";                                   // slice length field
         if (base.size() > 7 && base.substr(0, 7) == "struct:") base = base.substr(7);
         if (!base.empty() && base.front() == '*') base = base.substr(1);
         while (!base.empty() && base.back()  == '*') base.pop_back();
@@ -296,9 +303,12 @@ std::string CodeGen::deriveExprEskiuType(const ExprPtr& expr) const {
     if (auto index = dynamic_cast<IndexExpr*>(expr.get())) {
         std::string base = getExprEskiuType(index->base);
         ty::Type bt = ty::Type::parse(base);
-        if (bt.kind == ty::Type::Kind::Array) return bt.elem->str();   // peel outer dim
-        if (!base.empty() && base.front() == '*') return base.substr(1);
-        if (!base.empty() && base.back()  == '*') return base.substr(0, base.size() - 1);
+        std::string elem;
+        if (base == "string") elem = "char";
+        else if (bt.kind == ty::Type::Kind::Array || bt.kind == ty::Type::Kind::Slice) elem = bt.elem->str();
+        else if (!base.empty() && base.front() == '*') elem = base.substr(1);
+        else if (!base.empty() && base.back()  == '*') elem = base.substr(0, base.size() - 1);
+        if (!elem.empty()) return index->highIndex ? (elem + "[]") : elem;   // slice vs element
     }
     // A ternary's static type is the common type of its arms (the type checker's
     // resolver table usually supplies it; this is the structural fallback).

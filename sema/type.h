@@ -28,7 +28,7 @@ namespace ty {
 struct Type {
     enum class Kind {
         Void, Int, Float, Bool, Char, String,   // primitives (Int/Float carry spelling)
-        Pointer, Array, Fn,                      // composites
+        Pointer, Array, Slice, Fn,               // composites (Slice = `T[]`, a {ptr,len} fat pointer)
         Struct, Interface, Template,             // nominal / generic (decorated spellings)
         Named, Param,                            // unresolved bare name / type parameter (T)
         VaList, Null, Unknown, Error             // builtins + in-band sentinels
@@ -71,6 +71,7 @@ struct Type {
     bool isTemplate()  const { return kind == Kind::Template; }
     bool isFn()        const { return kind == Kind::Fn; }
     bool isArray()     const { return kind == Kind::Array; }
+    bool isSlice()     const { return kind == Kind::Slice; }
     bool isParam()     const { return kind == Kind::Param; }
     // The undecorated nominal name: strips pointers and the struct:/interface:
     // decoration to the bare name used for method-mangling / registry lookups.
