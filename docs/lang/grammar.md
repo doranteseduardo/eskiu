@@ -47,7 +47,7 @@ float double bool char string void
 struct packed union interface enum fn
 if else while do for in switch match case default break continue return
 import extern intrinsic  sizeof alloc_with free_closure
-thread_create thread_join  asm  try catch finally throw
+thread_create thread_join  asm  try catch finally throw  defer
 null true false
 ```
 
@@ -179,7 +179,7 @@ used by variadics.
 statement =
     block | if-stmt | while-stmt | for-stmt | switch-stmt | match-stmt
   | do-while-stmt  | return-stmt | break-stmt | continue-stmt | throw-stmt | try-stmt
-  | asm-stmt | thread-join-stmt | var-decl | expr-stmt
+  | defer-stmt | asm-stmt | thread-join-stmt | var-decl | expr-stmt
 
 block         = '{' ( declaration | statement )* '}'
 if-stmt       = 'if' '(' expr ')' statement ( 'else' statement )?
@@ -202,6 +202,7 @@ match-arm     = IDENT ( '(' IDENT (',' IDENT)* ')' )? '->' statement   // varian
               | '_' '->' statement                                     // default
 
 try-stmt      = 'try' block ( 'catch' '(' type IDENT ')' block )* ( 'finally' block )?
+defer-stmt    = 'defer' statement                 // runs at block exit, LIFO, on every path out
 asm-stmt      = 'asm' '(' STRING_LIT ( ':' ':' asm-operand (',' asm-operand)*
                               ( ':' STRING_LIT (',' STRING_LIT)* )? )? ')' ';'
 asm-operand   = STRING_LIT '(' expr ')'

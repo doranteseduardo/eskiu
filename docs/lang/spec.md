@@ -75,7 +75,7 @@ true  false  null
 alloc_with
 const  volatile  static  escaping  asm
 thread_create  thread_join
-try  catch  finally  throw
+try  catch  finally  throw  defer
 async  await
 sizeof  free_closure  union  enum
 ```
@@ -1131,6 +1131,38 @@ for (int i = 0; i < 10; i += 1) {
     printf("%d\n", i);   // prints odd numbers only
 }
 ```
+
+### 7.8 defer
+
+`defer stmt;` schedules `stmt` (a single statement or a `{ ... }` block) to run when the
+enclosing block is left. It is the ergonomic way to pair a resource acquisition with its
+release: write the cleanup right next to the thing it cleans up, and it runs on **every**
+path out of the block, so you never leak on an early return or a propagated error.
+
+```eskiu
+int process(string path) {
+    *uint8 buf = alloc<uint8>(4096);
+    defer free(buf);                 // runs however this function exits
+
+    if (path[0] == 0) { return -1; } // buf freed
+    int n = read_into(buf)?;         // buf freed if the `?` propagates an error
+    return n;                        // buf freed
+}
+```
+
+Rules:
+
+- Deferred statements run in **LIFO** order: the last one registered runs first.
+- `defer` runs on fall-through, `return`, `break`, `continue`, and `?`-propagation. It is
+  block-scoped, so a `defer` in a loop body runs at the end of **each iteration**.
+- The deferred statement is evaluated when the block is left (it reads variables' values
+  at exit time), after any `return` value has been computed.
+- A defer body may not `return`, or `break`/`continue` out of itself (that would jump out
+  of the cleanup); doing so is a compile error.
+
+`defer` complements `try`/`finally` (§10): `finally` is for catch-and-cleanup around a
+block, while `defer` colocates a one-off release with its acquisition. For cleanup that
+must also run when an exception unwinds past the scope, use `try`/`finally`.
 
 ---
 

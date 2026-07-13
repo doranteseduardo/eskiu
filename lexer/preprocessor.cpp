@@ -305,6 +305,7 @@ std::string tokenTypeToString(TokenType type) {
         case TokenType::CATCH: return "CATCH";
         case TokenType::FINALLY: return "FINALLY";
         case TokenType::THROW: return "THROW";
+        case TokenType::DEFER: return "DEFER";
         case TokenType::CONTINUE: return "CONTINUE";
         case TokenType::INT8: return "INT8";
         case TokenType::INT16: return "INT16";

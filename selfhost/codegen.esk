@@ -53,6 +53,8 @@ struct Codegen {
     int terminated;      // is the current basic block already terminated?
     List<string> loop_cont;  // continue targets (innermost last)
     List<string> loop_end;   // break targets
+    List<*StmtNode> cleanups; // scope-exit cleanup bodies (defer + a try's finally), LIFO
+    List<int> loop_cldepth;  // cleanups-stack length at each loop entry (parallel to loop_end)
     List<CgFn> fns;          // function → return type / variadic signature
     List<CgStruct> structs;  // struct name → field layout
     List<CgEnumC> econsts;   // plain-enum constants → value
@@ -179,6 +181,8 @@ void cg_init(Codegen* g) {
     g.terminated = 0;
     List_init<string>(&g.loop_cont, 4);
     List_init<string>(&g.loop_end, 4);
+    List_init<*StmtNode>(&g.cleanups, 4);
+    List_init<int>(&g.loop_cldepth, 4);
     List_init<CgFn>(&g.fns, 32);
     List_init<CgStruct>(&g.structs, 16);
     List_init<CgEnumC>(&g.econsts, 32);
@@ -1010,6 +1014,7 @@ void cg_collect_idents_s(*StmtNode s, List<string>* out) {
         while (i < n) { cg_collect_idents_s(List_get<*StmtNode>(&s.items, i), out); i = i + 1; }
     }
     if (s.kind == SK_TRY) { cg_collect_idents_s(s.s1, out); cg_collect_idents_s(s.s2, out); }
+    if (s.kind == SK_DEFER) { cg_collect_idents_s(s.s1, out); }
 }
 
 // The LLVM literal struct type holding a closure's captured variables, e.g. "{ i32, double }".
@@ -1112,6 +1117,26 @@ void cg_br(Codegen* g, string target) {
     if (g.terminated == 1) { return; }
     cg_emit(g, "  br label %"); cg_emit(g, target); cg_emit(g, "\n");
     g.terminated = 1;
+}
+
+void cg_stmt(Codegen* g, *StmtNode st);
+
+// Emit each pending cleanup body (defer / finally) in frames at index >= depth,
+// LIFO. Does not shrink the stack — the owning scope truncates when it ends.
+void cg_run_cleanups(Codegen* g, int depth) {
+    int i = List_len<*StmtNode>(&g.cleanups) - 1;
+    while (i >= depth) {
+        if (g.terminated == 1) { return; }
+        cg_stmt(g, List_get<*StmtNode>(&g.cleanups, i));
+        i = i - 1;
+    }
+}
+
+// Drop cleanup entries down to length `mark` (called on scope exit).
+void cg_cleanups_trunc(Codegen* g, int mark) {
+    while (List_len<*StmtNode>(&g.cleanups) > mark) {
+        List_remove<*StmtNode>(&g.cleanups, List_len<*StmtNode>(&g.cleanups) - 1);
+    }
 }
 
 int cg_is_struct(Codegen* g, string name) {
@@ -2049,6 +2074,7 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
         cg_label(g, errl);                               // propagate the Err out of the function
         string whole = cg_tmp(g);
         cg_emit(g, "  "); cg_emit(g, whole); cg_emit(g, " = load "); cg_emit(g, llty); cg_emit(g, ", ptr "); cg_emit(g, tmp); cg_emit(g, "\n");
+        cg_run_cleanups(g, 0);                           // early exit: run defers/finally first
         cg_emit(g, "  ret "); cg_emit(g, g.cur_ret); cg_emit(g, " "); cg_emit(g, whole); cg_emit(g, "\n");
         g.terminated = 1;
         cg_label(g, contl);                              // success: unwrap .value
@@ -2609,7 +2635,7 @@ int cg_has_try_s(*StmtNode s) {
         while (i < n) { if (cg_has_try_s(List_get<*StmtNode>(&s.items, i)) == 1) { return 1; } i = i + 1; }
     }
     if (s.kind == SK_IF || s.kind == SK_WHILE || s.kind == SK_FOR || s.kind == SK_FORIN
-        || s.kind == SK_ARM || s.kind == SK_CATCH) {
+        || s.kind == SK_ARM || s.kind == SK_CATCH || s.kind == SK_DEFER) {
         if (cg_has_try_s(s.s1) == 1) { return 1; }
     }
     if (s.kind == SK_IF || s.kind == SK_FOR) {
@@ -2651,13 +2677,19 @@ void cg_array_init(Codegen* g, string slot, string arrType, *ExprNode lit, int d
 void cg_stmt(Codegen* g, *StmtNode st) {
     if (st == null) { return; }
     if (st.kind == SK_BLOCK) {
+        int mark = List_len<*StmtNode>(&g.cleanups);   // this block's cleanup frame
         int i = 0;
         int n = List_len<*StmtNode>(&st.items);
         while (i < n) {
-            if (g.terminated == 1) { return; }       // rest of the block is unreachable
-            cg_stmt(g, List_get<*StmtNode>(&st.items, i));
-            i = i + 1;
+            if (g.terminated == 1) { i = n; }          // rest of the block is unreachable
+            else { cg_stmt(g, List_get<*StmtNode>(&st.items, i)); i = i + 1; }
         }
+        if (g.terminated == 0) { cg_run_cleanups(g, mark); }   // fall-through: run defers
+        cg_cleanups_trunc(g, mark);
+        return;
+    }
+    if (st.kind == SK_DEFER) {
+        List_push<*StmtNode>(&g.cleanups, st.s1);      // registered; emitted at scope exit
         return;
     }
     if (st.kind == SK_IF) {
@@ -2687,9 +2719,11 @@ void cg_stmt(Codegen* g, *StmtNode st) {
         cg_label(g, l_body);
         List_push<string>(&g.loop_cont, l_cond);
         List_push<string>(&g.loop_end, l_end);
+        List_push<int>(&g.loop_cldepth, List_len<*StmtNode>(&g.cleanups));
         cg_stmt(g, st.s1);
         List_remove<string>(&g.loop_cont, List_len<string>(&g.loop_cont) - 1);
         List_remove<string>(&g.loop_end, List_len<string>(&g.loop_end) - 1);
+        List_remove<int>(&g.loop_cldepth, List_len<int>(&g.loop_cldepth) - 1);
         cg_br(g, l_cond);
         cg_label(g, l_end);
         return;
@@ -2702,9 +2736,11 @@ void cg_stmt(Codegen* g, *StmtNode st) {
         cg_label(g, l_body);
         List_push<string>(&g.loop_cont, l_cond);       // `continue` re-tests the condition
         List_push<string>(&g.loop_end, l_end);
+        List_push<int>(&g.loop_cldepth, List_len<*StmtNode>(&g.cleanups));
         cg_stmt(g, st.s1);
         List_remove<string>(&g.loop_cont, List_len<string>(&g.loop_cont) - 1);
         List_remove<string>(&g.loop_end, List_len<string>(&g.loop_end) - 1);
+        List_remove<int>(&g.loop_cldepth, List_len<int>(&g.loop_cldepth) - 1);
         cg_br(g, l_cond);
         cg_label(g, l_cond);
         CgVal c = cg_cond(g, st.expr);
@@ -2733,9 +2769,11 @@ void cg_stmt(Codegen* g, *StmtNode st) {
         cg_label(g, l_body);
         List_push<string>(&g.loop_cont, l_step);
         List_push<string>(&g.loop_end, l_end);
+        List_push<int>(&g.loop_cldepth, List_len<*StmtNode>(&g.cleanups));
         cg_stmt(g, st.s2);
         List_remove<string>(&g.loop_cont, List_len<string>(&g.loop_cont) - 1);
         List_remove<string>(&g.loop_end, List_len<string>(&g.loop_end) - 1);
+        List_remove<int>(&g.loop_cldepth, List_len<int>(&g.loop_cldepth) - 1);
         cg_br(g, l_step);
         cg_label(g, l_step);
         if (st.expr2 != null) { cg_expr(g, st.expr2); }
@@ -2745,12 +2783,18 @@ void cg_stmt(Codegen* g, *StmtNode st) {
     }
     if (st.kind == SK_BREAK) {
         int n = List_len<string>(&g.loop_end);
-        if (n > 0) { cg_br(g, List_get<string>(&g.loop_end, n - 1)); }
+        if (n > 0) {
+            cg_run_cleanups(g, List_get<int>(&g.loop_cldepth, n - 1));   // run loop-body defers
+            cg_br(g, List_get<string>(&g.loop_end, n - 1));
+        }
         return;
     }
     if (st.kind == SK_CONTINUE) {
         int n = List_len<string>(&g.loop_cont);
-        if (n > 0) { cg_br(g, List_get<string>(&g.loop_cont, n - 1)); }
+        if (n > 0) {
+            cg_run_cleanups(g, List_get<int>(&g.loop_cldepth, n - 1));
+            cg_br(g, List_get<string>(&g.loop_cont, n - 1));
+        }
         return;
     }
     if (st.kind == SK_VARDECL) {
@@ -2820,7 +2864,8 @@ void cg_stmt(Codegen* g, *StmtNode st) {
         }
         cg_emit(g, "]\n");
         g.terminated = 1;
-        List_push<string>(&g.loop_end, l_end);            // break → end
+        List_push<string>(&g.loop_end, l_end);
+        List_push<int>(&g.loop_cldepth, List_len<*StmtNode>(&g.cleanups));            // break → end
         i = 0;
         while (i < nc) {
             cg_label(g, List_get<string>(&labels, i));
@@ -2832,6 +2877,7 @@ void cg_stmt(Codegen* g, *StmtNode st) {
             i = i + 1;
         }
         List_remove<string>(&g.loop_end, List_len<string>(&g.loop_end) - 1);
+        List_remove<int>(&g.loop_cldepth, List_len<int>(&g.loop_cldepth) - 1);
         cg_label(g, l_end);
         return;
     }
@@ -2954,7 +3000,13 @@ void cg_stmt(Codegen* g, *StmtNode st) {
         string ldone = cg_lbl(g);
         string saved = g.cur_unwind;
         g.cur_unwind = lpad;
+        // Register finally as a cleanup for the body's duration, so an early exit
+        // (return/break/continue/`?`) inside the body runs it. Fall-through and the
+        // exceptional path still emit it below, so truncate WITHOUT running here.
+        int trymark = List_len<*StmtNode>(&g.cleanups);
+        if (st.s2 != null) { List_push<*StmtNode>(&g.cleanups, st.s2); }
         cg_stmt(g, st.s1);                                // try body
+        cg_cleanups_trunc(g, trymark);
         g.cur_unwind = saved;
         cg_br(g, ldone);
         cg_label(g, lpad);
@@ -3022,8 +3074,10 @@ void cg_stmt(Codegen* g, *StmtNode st) {
         if (st.expr != null) {
             CgVal r = cg_expr(g, st.expr);
             string rop = cg_coerce(g, r, g.cur_ret);     // widen/convert to the return type (bool→int, etc.)
+            cg_run_cleanups(g, 0);                       // run defers/finally before leaving
             cg_emit(g, "  ret "); cg_emit(g, g.cur_ret); cg_emit(g, " "); cg_emit(g, rop); cg_emit(g, "\n");
         } else {
+            cg_run_cleanups(g, 0);
             cg_emit(g, "  ret void\n");
         }
         g.terminated = 1;
@@ -3047,6 +3101,8 @@ void cg_emit_fn(Codegen* g, *DeclNode d, string llname, string self_struct) {
     string rt = cg_lltype(g, d.ret_type);
     g.cur_ret = rt;
     List_init<CgLocal>(&g.locals, 8);
+    List_init<*StmtNode>(&g.cleanups, 4);   // fresh scope-exit state per function body
+    List_init<int>(&g.loop_cldepth, 4);
     g.terminated = 0;
     int base = 0;
     if (self_struct[0] != 0) { base = 1; }

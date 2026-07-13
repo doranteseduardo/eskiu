@@ -144,6 +144,18 @@ private:
     llvm::BasicBlock* breakTarget    = nullptr;
     llvm::BasicBlock* continueTarget = nullptr;
 
+    // Scope-exit cleanup stack: one frame per active block/try scope, holding the
+    // `defer` bodies (and a try's `finally`) to run LIFO when the scope is left.
+    // Normal control-flow exits (return / break / continue / `?`) emit the frames
+    // they leave before branching; block fall-through runs its own frame.
+    std::vector<std::vector<Stmt*>> cleanupScopes;
+    size_t breakCleanupDepth    = 0;   // frame depth to unwind to on break
+    size_t continueCleanupDepth = 0;   // frame depth to unwind to on continue
+    // Emit (in LIFO order) every cleanup body in frames at index >= depth. Does not
+    // pop — the owning scope pops when it ends.
+    void runCleanupsToDepth(size_t depth);
+    bool blockTerminated();   // is the current basic block already terminated?
+
     // Exception handling: set when inside a try body
     llvm::BasicBlock* unwindTarget = nullptr;
 
@@ -253,6 +265,7 @@ private:
     void visit(ThreadJoinStmt* node) override;
     void visit(ThrowStmt* node) override;
     void visit(TryStmt* node) override;
+    void visit(DeferStmt* node) override;
     void visit(EnumDecl* node) override;
     void visit(TypeAliasDecl* node) override;
 

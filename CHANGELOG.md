@@ -8,6 +8,24 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
+## [Unreleased]
+
+### Added
+- **`defer` statement.** `defer stmt;` runs `stmt` (a statement or block) when the
+  enclosing block is left, in LIFO order, on every path out: fall-through, `return`,
+  `break`, `continue`, and `?`-propagation. Block-scoped, so a `defer` in a loop body
+  runs each iteration. It is the ergonomic way to pair an acquisition with its release
+  (`*uint8 b = alloc<uint8>(n); defer free(b);`) without leaking on early exits. A defer
+  body may not `return` or `break`/`continue` out of itself.
+
+### Fixed
+- **`finally` was skipped on an early `return`/`break`/`continue` from inside a `try`
+  body.** The cleanup only ran on fall-through and exception unwind; an early exit jumped
+  straight out, leaking whatever the `finally` was meant to release. It now runs on those
+  paths too (the same scope-exit cleanup mechanism that powers `defer`).
+
+---
+
 ## [0.5.0], 2026-07-12
 
 Fills a set of basic C constructs the language was missing, so idiomatic C ports

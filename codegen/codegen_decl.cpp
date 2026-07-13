@@ -166,6 +166,16 @@ void CodeGen::visit(FunctionDecl* node) {
     currentFunction = func;
     currentSretParam = sret ? &*func->arg_begin() : nullptr;
 
+    // A nested function body (e.g. a template instantiated mid-expression) is a fresh
+    // scope-exit context: save and reset the cleanup stack + loop targets so this body
+    // never runs the enclosing function's defers/finally or branches to its loops.
+    std::vector<std::vector<Stmt*>> prevCleanups = std::move(cleanupScopes);
+    size_t prevBreakCD = breakCleanupDepth, prevContinueCD = continueCleanupDepth;
+    llvm::BasicBlock* prevBreakT = breakTarget, *prevContinueT = continueTarget;
+    cleanupScopes.clear();
+    breakCleanupDepth = continueCleanupDepth = 0;
+    breakTarget = continueTarget = nullptr;
+
     // Push scope for function parameters
     pushScope();
     // (Eskiu param types for interface boxing were registered by declareFunction.)
@@ -224,6 +234,9 @@ void CodeGen::visit(FunctionDecl* node) {
     popScope();
     currentFunction  = prevFunc;
     currentSretParam = prevSretParam;
+    cleanupScopes = std::move(prevCleanups);
+    breakCleanupDepth = prevBreakCD; continueCleanupDepth = prevContinueCD;
+    breakTarget = prevBreakT; continueTarget = prevContinueT;
 }
 
 void CodeGen::visit(VarDecl* node) {

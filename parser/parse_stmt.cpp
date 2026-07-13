@@ -55,6 +55,15 @@ StmtPtr Parser::parseStatement() {
         return s;
     }
 
+    // defer stmt;   (runs stmt at enclosing-block exit, LIFO, on every path out)
+    if (check(TokenType::DEFER)) {
+        Token dTok = advance();
+        StmtPtr body = parseStatement();
+        auto s = std::make_shared<DeferStmt>(body, /*isErr=*/false);
+        s->line = dTok.line; s->col = dTok.column;
+        return s;
+    }
+
     // try { } catch (Type name) { } finally { }
     if (check(TokenType::TRY)) {
         Token tryTok = advance();

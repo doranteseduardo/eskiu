@@ -235,6 +235,49 @@ void TypeChecker::visit(TryStmt* node) {
     if (node->finally) node->finally->accept(this);
 }
 
+void TypeChecker::visit(DeferStmt* node) {
+    // Type-check the deferred body in its own scope.
+    pushScope();
+    if (node->body) node->body->accept(this);
+    popScope();
+
+    // A defer body runs during scope-exit cleanup, so it may not transfer control
+    // out of itself: a `return`, or a `break`/`continue` not enclosed by a loop or
+    // switch *within* the body, would jump to a target that is no longer valid.
+    std::function<void(Stmt*, int)> check = [&](Stmt* s, int loopDepth) {
+        if (!s) return;
+        if (dynamic_cast<ReturnStmt*>(s)) {
+            errorAt(s, "'return' is not allowed inside a defer body");
+        } else if (loopDepth == 0 &&
+                   (dynamic_cast<BreakStmt*>(s) || dynamic_cast<ContinueStmt*>(s))) {
+            errorAt(s, "'break'/'continue' inside a defer body may not escape it");
+        } else if (auto* b = dynamic_cast<BlockStmt*>(s)) {
+            for (auto& it : b->items)
+                if (auto* st = std::get_if<StmtPtr>(&it)) check(st->get(), loopDepth);
+        } else if (auto* i = dynamic_cast<IfStmt*>(s)) {
+            check(i->thenBranch.get(), loopDepth);
+            check(i->elseBranch.get(), loopDepth);
+        } else if (auto* w = dynamic_cast<WhileStmt*>(s)) {
+            check(w->body.get(), loopDepth + 1);
+        } else if (auto* dw = dynamic_cast<DoWhileStmt*>(s)) {
+            check(dw->body.get(), loopDepth + 1);
+        } else if (auto* f = dynamic_cast<ForStmt*>(s)) {
+            check(f->body.get(), loopDepth + 1);
+        } else if (auto* fi = dynamic_cast<ForInStmt*>(s)) {
+            check(fi->body.get(), loopDepth + 1);
+        } else if (auto* sw = dynamic_cast<SwitchStmt*>(s)) {
+            for (auto& c : sw->cases) for (auto& st : c.stmts) check(st.get(), loopDepth + 1);
+        } else if (auto* t = dynamic_cast<TryStmt*>(s)) {
+            check(t->body.get(), loopDepth);
+            for (auto& c : t->catches) check(c.body.get(), loopDepth);
+            check(t->finally.get(), loopDepth);
+        } else if (auto* d = dynamic_cast<DeferStmt*>(s)) {
+            check(d->body.get(), loopDepth);
+        }
+    };
+    if (node->body) check(node->body.get(), 0);
+}
+
 void TypeChecker::visit(MatchStmt* node) {
     node->subject->accept(this);
     std::string st = normalizeType(getExpressionType(node->subject.get()));

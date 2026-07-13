@@ -374,6 +374,19 @@ public:
     void accept(class ASTVisitor* visitor) override;
 };
 
+// `defer stmt;` runs stmt at exit of the enclosing block, in LIFO order, on every
+// path out (fall-through, return, break, continue, `?`-propagation, exception).
+// `isErr` (errdefer, Slice 2) restricts it to the error-exit paths.
+class DeferStmt : public Stmt {
+public:
+    StmtPtr body;
+    bool    isErr = false;
+
+    DeferStmt(StmtPtr body, bool isErr) : body(std::move(body)), isErr(isErr) {}
+
+    void accept(class ASTVisitor* visitor) override;
+};
+
 // thread_join(*void tid)
 class ThreadJoinStmt : public Stmt {
 public:
@@ -723,4 +736,5 @@ public:
     virtual void visit(ThreadJoinStmt* node) = 0;
     virtual void visit(ThrowStmt* node) = 0;
     virtual void visit(TryStmt* node) = 0;
+    virtual void visit(DeferStmt* node) = 0;
 };
