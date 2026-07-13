@@ -1,0 +1,794 @@
+// regex.esk: a small regular-expression engine.
+//
+//   import <regex>;
+//   if (regex_match("\\d+-\\d+", "12-34") == 1) { ... }      // search, 1/0
+//
+//   Regex re = regex_compile("(\\w+)@(\\w+)");
+//   let m: Match;
+//   if (regex_search(&re, "a@b", &m) == 1) {
+//       String u; String_init(&u, 8);
+//       match_group(&m, "a@b", 1, &u);        // "a"  (group 1)
+//       // ... use u ...
+//       String_free(&u);
+//   }
+//   match_free(&m);
+//   regex_free(&re);
+//
+// Supported syntax: literals, `.` (any byte but newline), character classes
+// `[a-z]` / `[^...]`, the shorthands `\d \w \s` (and `\D \W \S` outside a class),
+// the escapes `\n \t \r \f \v \0`, quantifiers `* + ? {m} {m,} {m,n}` (append `?`
+// for the lazy form), alternation `|`, capturing groups `( )`, and the anchors
+// `^` (start of text) and `$` (end of text).
+//
+// The matcher is a Thompson NFA run as a Pike VM: it explores all paths in
+// lockstep, so matching is linear in the input length with no catastrophic
+// backtracking (no ReDoS). It reports capture groups for the leftmost match,
+// preferring greedy quantifiers unless they are marked lazy.
+
+import <mem>;
+import <string>;
+
+// ---- limits (fixed, so no reallocation during compile) --------------------
+#define RE_MAX_INST  4096
+#define RE_MAX_RANGE 1024
+#define RE_MAX_CLASS 256
+#define RE_MAX_NODES 4096
+
+// ---- instruction opcodes --------------------------------------------------
+#define OP_CHAR  1
+#define OP_ANY   2
+#define OP_CLASS 3
+#define OP_MATCH 4
+#define OP_JMP   5
+#define OP_SPLIT 6
+#define OP_SAVE  7
+#define OP_BOL   8
+#define OP_EOL   9
+
+// ---- AST node kinds -------------------------------------------------------
+#define N_EMPTY  0
+#define N_LIT    1
+#define N_ANY    2
+#define N_CLASS  3
+#define N_CONCAT 4
+#define N_ALT    5
+#define N_GROUP  6
+#define N_REPEAT 7
+#define N_BOL    8
+#define N_EOL    9
+
+struct Inst {
+    int op;
+    int a;      // char / class id / save slot / jump target x
+    int b;      // second jump target (SPLIT)
+}
+
+struct Range {
+    int lo;
+    int hi;
+}
+
+struct ClassInfo {
+    int start;      // index into the ranges array
+    int count;
+    int negate;
+}
+
+struct Node {
+    int kind;
+    int ch;         // N_LIT
+    int cls;        // N_CLASS
+    int grp;        // N_GROUP capture index (1-based)
+    int rmin;       // N_REPEAT
+    int rmax;       // N_REPEAT (-1 = unbounded)
+    int greedy;
+    Node* left;     // child / left operand
+    Node* right;    // right operand (concat, alt)
+}
+
+struct Regex {
+    *Inst      inst;
+    int        ninst;
+    *ClassInfo classes;
+    int        nclass;
+    *Range     ranges;
+    int        nrange;
+    int        ngroup;      // number of capturing groups (group 0 is the whole match)
+    int        ok;
+    string     err;         // null when ok
+}
+
+struct ReComp {
+    string pat;
+    int    len;
+    int    pos;
+    int    ngroup;
+    string err;
+    Regex* re;
+    *Node  nodes;
+    int    nnode;
+}
+
+struct Match {
+    int  ok;
+    int  ngroup;
+    int  start;     // group 0 start (== cap[0])
+    int  end;       // group 0 end   (== cap[1])
+    *int cap;       // 2*(ngroup+1) ints: [start,end] per group, -1 if unset
+}
+
+struct Thread {
+    int  pc;
+    *int caps;
+}
+
+struct Vm {
+    Regex*   prog;
+    string   text;
+    int      len;
+    int      ncap;
+    *int     visited;       // ninst ints, holds the generation each pc was last added under
+    *Thread  la;
+    *Thread  lb;
+    int      nA;
+    int      nB;
+    // Capture arrays live in one arena for the whole search: a thread carries a
+    // caps pointer across many positions (between two SAVEs it just consumes
+    // input), so the storage must stay put and must not be recycled per step.
+    *int     arena;
+    int      arenacap;
+    int      arenaoff;
+    int      err;
+}
+
+// =========================== parsing =======================================
+
+int re_peek(ReComp* c) {
+    if (c.pos >= c.len) { return -1; }
+    return (int)((uint8)c.pat[c.pos]);
+}
+
+int re_peek_at(ReComp* c, int off) {
+    int p = c.pos + off;
+    if (p >= c.len) { return -1; }
+    return (int)((uint8)c.pat[p]);
+}
+
+Node* re_node(ReComp* c, int kind) {
+    if (c.nnode >= RE_MAX_NODES) {
+        if (c.err == null) { c.err = "regex pattern too complex"; }
+        return &c.nodes[0];
+    }
+    Node* n = &c.nodes[c.nnode];
+    c.nnode = c.nnode + 1;
+    n.kind = kind;
+    n.ch = 0;
+    n.cls = 0;
+    n.grp = 0;
+    n.rmin = 0;
+    n.rmax = 0;
+    n.greedy = 1;
+    n.left = null;
+    n.right = null;
+    return n;
+}
+
+// Add a class to the current program; returns its id. Fill ranges after.
+int re_class_begin(ReComp* c, int negate) {
+    Regex* re = c.re;
+    if (re.nclass >= RE_MAX_CLASS) {
+        if (c.err == null) { c.err = "too many character classes"; }
+        return 0;
+    }
+    int id = re.nclass;
+    re.classes[id].start = re.nrange;
+    re.classes[id].count = 0;
+    re.classes[id].negate = negate;
+    re.nclass = id + 1;
+    return id;
+}
+
+void re_range(ReComp* c, int id, int lo, int hi) {
+    Regex* re = c.re;
+    if (re.nrange >= RE_MAX_RANGE) {
+        if (c.err == null) { c.err = "too many class ranges"; }
+        return;
+    }
+    re.ranges[re.nrange].lo = lo;
+    re.ranges[re.nrange].hi = hi;
+    re.nrange = re.nrange + 1;
+    re.classes[id].count = re.classes[id].count + 1;
+}
+
+// Add the ranges for a \d \w \s shorthand to class `id`.
+void re_shorthand(ReComp* c, int id, int kind) {
+    if (kind == 'd') {
+        re_range(c, id, 48, 57);
+    } else if (kind == 'w') {
+        re_range(c, id, 48, 57);
+        re_range(c, id, 65, 90);
+        re_range(c, id, 97, 122);
+        re_range(c, id, 95, 95);
+    } else if (kind == 's') {
+        re_range(c, id, 9, 13);
+        re_range(c, id, 32, 32);
+    }
+}
+
+// Decode a backslash escape to its literal byte (\n, \t, ...); default is the
+// character itself (so \. is '.', \\ is '\').
+int re_escape_char(int e) {
+    if (e == 'n') { return 10; }
+    if (e == 't') { return 9; }
+    if (e == 'r') { return 13; }
+    if (e == 'f') { return 12; }
+    if (e == 'v') { return 11; }
+    if (e == '0') { return 0; }
+    return e;
+}
+
+// [ ... ] returns a N_CLASS node.
+Node* re_parse_class(ReComp* c) {
+    c.pos = c.pos + 1;              // consume '['
+    int negate = 0;
+    if (re_peek(c) == '^') { c.pos = c.pos + 1; negate = 1; }
+    int id = re_class_begin(c, negate);
+
+    while (re_peek(c) != ']') {
+        if (re_peek(c) == -1) {
+            if (c.err == null) { c.err = "unterminated character class"; }
+            return re_node(c, N_CLASS);
+        }
+        int lo;
+        if (re_peek(c) == '\\') {
+            c.pos = c.pos + 1;
+            int e = re_peek(c);
+            c.pos = c.pos + 1;
+            if (e == 'd' || e == 'w' || e == 's') {
+                re_shorthand(c, id, e);
+                continue;
+            }
+            lo = re_escape_char(e);
+        } else {
+            lo = re_peek(c);
+            c.pos = c.pos + 1;
+        }
+        // range 'a-z'?  ('-' not immediately before the closing ']')
+        if (re_peek(c) == '-' && re_peek_at(c, 1) != ']' && re_peek_at(c, 1) != -1) {
+            c.pos = c.pos + 1;         // consume '-'
+            int hi;
+            if (re_peek(c) == '\\') {
+                c.pos = c.pos + 1;
+                int e2 = re_peek(c);
+                c.pos = c.pos + 1;
+                hi = re_escape_char(e2);
+            } else {
+                hi = re_peek(c);
+                c.pos = c.pos + 1;
+            }
+            re_range(c, id, lo, hi);
+        } else {
+            re_range(c, id, lo, lo);
+        }
+    }
+    c.pos = c.pos + 1;                 // consume ']'
+    Node* n = re_node(c, N_CLASS);
+    n.cls = id;
+    return n;
+}
+
+// A backslash escape as an atom: \d \w \s \D \W \S become classes, the rest a literal.
+Node* re_parse_escape(ReComp* c) {
+    c.pos = c.pos + 1;                 // consume '\'
+    int e = re_peek(c);
+    if (e == -1) {
+        if (c.err == null) { c.err = "trailing backslash"; }
+        return re_node(c, N_EMPTY);
+    }
+    c.pos = c.pos + 1;
+    if (e == 'd' || e == 'w' || e == 's') {
+        int id = re_class_begin(c, 0);
+        re_shorthand(c, id, e);
+        Node* n = re_node(c, N_CLASS);
+        n.cls = id;
+        return n;
+    }
+    if (e == 'D' || e == 'W' || e == 'S') {
+        int id = re_class_begin(c, 1);
+        re_shorthand(c, id, e + 32);    // lowercase the kind
+        Node* n = re_node(c, N_CLASS);
+        n.cls = id;
+        return n;
+    }
+    Node* n = re_node(c, N_LIT);
+    n.ch = re_escape_char(e);
+    return n;
+}
+
+Node* re_parse_alt(ReComp* c);
+
+Node* re_parse_atom(ReComp* c) {
+    int pk = re_peek(c);
+    if (pk == '(') {
+        c.pos = c.pos + 1;
+        c.ngroup = c.ngroup + 1;
+        int g = c.ngroup;
+        Node* inner = re_parse_alt(c);
+        if (re_peek(c) != ')') {
+            if (c.err == null) { c.err = "missing )"; }
+            return re_node(c, N_EMPTY);
+        }
+        c.pos = c.pos + 1;
+        Node* n = re_node(c, N_GROUP);
+        n.grp = g;
+        n.left = inner;
+        return n;
+    }
+    if (pk == '[') { return re_parse_class(c); }
+    if (pk == '.') { c.pos = c.pos + 1; return re_node(c, N_ANY); }
+    if (pk == '^') { c.pos = c.pos + 1; return re_node(c, N_BOL); }
+    if (pk == '$') { c.pos = c.pos + 1; return re_node(c, N_EOL); }
+    if (pk == '\\') { return re_parse_escape(c); }
+    if (pk == '*' || pk == '+' || pk == '?' || pk == '{') {
+        if (c.err == null) { c.err = "nothing to repeat"; }
+        return re_node(c, N_EMPTY);
+    }
+    if (pk == -1) {
+        if (c.err == null) { c.err = "unexpected end of pattern"; }
+        return re_node(c, N_EMPTY);
+    }
+    // ordinary literal
+    c.pos = c.pos + 1;
+    Node* n = re_node(c, N_LIT);
+    n.ch = pk;
+    return n;
+}
+
+int re_read_int(ReComp* c) {
+    int v = 0;
+    int any = 0;
+    while (re_peek(c) >= 48 && re_peek(c) <= 57) {
+        v = v * 10 + (re_peek(c) - 48);
+        c.pos = c.pos + 1;
+        any = 1;
+    }
+    if (any == 0) { return -1; }
+    return v;
+}
+
+Node* re_parse_repeat(ReComp* c) {
+    Node* a = re_parse_atom(c);
+    if (c.err != null) { return a; }
+    int pk = re_peek(c);
+    int rmin = 0;
+    int rmax = 0;
+    int isrep = 0;
+    if (pk == '*') { c.pos = c.pos + 1; rmin = 0; rmax = -1; isrep = 1; }
+    else if (pk == '+') { c.pos = c.pos + 1; rmin = 1; rmax = -1; isrep = 1; }
+    else if (pk == '?') { c.pos = c.pos + 1; rmin = 0; rmax = 1; isrep = 1; }
+    else if (pk == '{') {
+        c.pos = c.pos + 1;
+        int m1 = re_read_int(c);
+        if (m1 < 0) {
+            if (c.err == null) { c.err = "invalid {n,m}"; }
+            return a;
+        }
+        rmin = m1;
+        if (re_peek(c) == ',') {
+            c.pos = c.pos + 1;
+            if (re_peek(c) == '}') { rmax = -1; }
+            else {
+                int m2 = re_read_int(c);
+                if (m2 < 0) {
+                    if (c.err == null) { c.err = "invalid {n,m}"; }
+                    return a;
+                }
+                rmax = m2;
+            }
+        } else {
+            rmax = rmin;
+        }
+        if (re_peek(c) != '}') {
+            if (c.err == null) { c.err = "expected }"; }
+            return a;
+        }
+        c.pos = c.pos + 1;
+        isrep = 1;
+    }
+    if (isrep == 0) { return a; }
+    int greedy = 1;
+    if (re_peek(c) == '?') { c.pos = c.pos + 1; greedy = 0; }
+    Node* n = re_node(c, N_REPEAT);
+    n.left = a;
+    n.rmin = rmin;
+    n.rmax = rmax;
+    n.greedy = greedy;
+    return n;
+}
+
+Node* re_parse_concat(ReComp* c) {
+    Node* left = null;
+    while (c.err == null) {
+        int pk = re_peek(c);
+        if (pk == -1 || pk == '|' || pk == ')') { break; }
+        Node* atom = re_parse_repeat(c);
+        if (left == null) { left = atom; }
+        else {
+            Node* n = re_node(c, N_CONCAT);
+            n.left = left;
+            n.right = atom;
+            left = n;
+        }
+    }
+    if (left == null) { return re_node(c, N_EMPTY); }
+    return left;
+}
+
+Node* re_parse_alt(ReComp* c) {
+    Node* left = re_parse_concat(c);
+    while (re_peek(c) == '|' && c.err == null) {
+        c.pos = c.pos + 1;
+        Node* right = re_parse_concat(c);
+        Node* n = re_node(c, N_ALT);
+        n.left = left;
+        n.right = right;
+        left = n;
+    }
+    return left;
+}
+
+// =========================== compilation ===================================
+
+int re_emit(ReComp* c, int op, int a, int b) {
+    if (c.err != null) { return 0; }
+    Regex* re = c.re;
+    if (re.ninst >= RE_MAX_INST) {
+        c.err = "regex program too large";
+        return 0;
+    }
+    int idx = re.ninst;
+    re.inst[idx].op = op;
+    re.inst[idx].a = a;
+    re.inst[idx].b = b;
+    re.ninst = idx + 1;
+    return idx;
+}
+
+void re_compile_node(ReComp* c, Node* n);
+
+void re_compile_repeat(ReComp* c, Node* n) {
+    int rmin = n.rmin;
+    int rmax = n.rmax;
+    int greedy = n.greedy;
+    Node* child = n.left;
+
+    int i = 0;
+    while (i < rmin && c.err == null) {
+        re_compile_node(c, child);
+        i = i + 1;
+    }
+    if (c.err != null) { return; }
+
+    if (rmax == -1) {
+        // zero-or-more: L: split(body,end); body: child; jmp L; end:
+        int lsplit = re_emit(c, OP_SPLIT, 0, 0);
+        int body = c.re.ninst;
+        re_compile_node(c, child);
+        re_emit(c, OP_JMP, lsplit, 0);
+        int end = c.re.ninst;
+        if (greedy == 1) { c.re.inst[lsplit].a = body; c.re.inst[lsplit].b = end; }
+        else { c.re.inst[lsplit].a = end; c.re.inst[lsplit].b = body; }
+        return;
+    }
+
+    int reps = rmax - rmin;
+    if (reps <= 0) { return; }
+    if (reps > RE_MAX_INST) { c.err = "regex program too large"; return; }
+    *int splits = alloc<int>(reps);
+    i = 0;
+    while (i < reps && c.err == null) {
+        int s = re_emit(c, OP_SPLIT, 0, 0);
+        splits[i] = s;
+        int body = c.re.ninst;
+        re_compile_node(c, child);
+        if (greedy == 1) { c.re.inst[s].a = body; }
+        else { c.re.inst[s].b = body; }
+        i = i + 1;
+    }
+    int end = c.re.ninst;
+    i = 0;
+    while (i < reps) {
+        int s = splits[i];
+        if (greedy == 1) { c.re.inst[s].b = end; }
+        else { c.re.inst[s].a = end; }
+        i = i + 1;
+    }
+    free(splits);
+}
+
+void re_compile_node(ReComp* c, Node* n) {
+    if (n == null || c.err != null) { return; }
+    int k = n.kind;
+    if (k == N_EMPTY) { return; }
+    if (k == N_LIT) { re_emit(c, OP_CHAR, n.ch, 0); return; }
+    if (k == N_ANY) { re_emit(c, OP_ANY, 0, 0); return; }
+    if (k == N_CLASS) { re_emit(c, OP_CLASS, n.cls, 0); return; }
+    if (k == N_BOL) { re_emit(c, OP_BOL, 0, 0); return; }
+    if (k == N_EOL) { re_emit(c, OP_EOL, 0, 0); return; }
+    if (k == N_CONCAT) { re_compile_node(c, n.left); re_compile_node(c, n.right); return; }
+    if (k == N_GROUP) {
+        re_emit(c, OP_SAVE, 2 * n.grp, 0);
+        re_compile_node(c, n.left);
+        re_emit(c, OP_SAVE, 2 * n.grp + 1, 0);
+        return;
+    }
+    if (k == N_ALT) {
+        int s = re_emit(c, OP_SPLIT, 0, 0);
+        int a = c.re.ninst;
+        re_compile_node(c, n.left);
+        int j = re_emit(c, OP_JMP, 0, 0);
+        int b = c.re.ninst;
+        re_compile_node(c, n.right);
+        int end = c.re.ninst;
+        c.re.inst[s].a = a;
+        c.re.inst[s].b = b;
+        c.re.inst[j].a = end;
+        return;
+    }
+    if (k == N_REPEAT) { re_compile_repeat(c, n); return; }
+}
+
+// Compile a pattern. Check the returned Regex.ok before matching; on failure
+// Regex.err holds the reason. Free with regex_free either way.
+Regex regex_compile(string pattern) {
+    let re: Regex;
+    re.inst = alloc<Inst>(RE_MAX_INST);
+    re.ninst = 0;
+    re.classes = alloc<ClassInfo>(RE_MAX_CLASS);
+    re.nclass = 0;
+    re.ranges = alloc<Range>(RE_MAX_RANGE);
+    re.nrange = 0;
+    re.ngroup = 0;
+    re.ok = 0;
+    re.err = null;
+
+    let c: ReComp;
+    c.pat = pattern;
+    c.len = (int)strlen(pattern);
+    c.pos = 0;
+    c.ngroup = 0;
+    c.err = null;
+    c.re = &re;
+    c.nodes = alloc<Node>(RE_MAX_NODES);
+    c.nnode = 0;
+
+    Node* ast = re_parse_alt(&c);
+    if (c.err == null && c.pos != c.len) { c.err = "unexpected trailing characters"; }
+    if (c.err != null) {
+        re.err = c.err;
+        free(c.nodes);
+        return re;
+    }
+    re.ngroup = c.ngroup;
+
+    re_emit(&c, OP_SAVE, 0, 0);
+    re_compile_node(&c, ast);
+    re_emit(&c, OP_SAVE, 1, 0);
+    re_emit(&c, OP_MATCH, 0, 0);
+    free(c.nodes);
+
+    if (c.err != null) { re.err = c.err; return re; }
+    re.ok = 1;
+    return re;
+}
+
+void regex_free(Regex* re) {
+    free(re.inst);
+    free(re.classes);
+    free(re.ranges);
+    re.inst = null;
+    re.classes = null;
+    re.ranges = null;
+}
+
+// =========================== matching (Pike VM) ============================
+
+int re_in_class(Regex* re, int id, int ch) {
+    ClassInfo ci = re.classes[id];
+    int found = 0;
+    int i = ci.start;
+    int endr = ci.start + ci.count;
+    while (i < endr) {
+        if (ch >= re.ranges[i].lo && ch <= re.ranges[i].hi) { found = 1; }
+        i = i + 1;
+    }
+    if (ci.negate == 1) {
+        if (found == 1) { return 0; }
+        return 1;
+    }
+    return found;
+}
+
+// Copy `src` into fresh capture storage in the arena.
+*int re_newcaps(Vm* vm, *int src) {
+    if (vm.arenaoff + vm.ncap > vm.arenacap) { vm.err = 1; return src; }
+    *int dst = &vm.arena[vm.arenaoff];
+    int i = 0;
+    while (i < vm.ncap) { dst[i] = src[i]; i = i + 1; }
+    vm.arenaoff = vm.arenaoff + vm.ncap;
+    return dst;
+}
+
+// Epsilon-closure add of pc (and its reachable pcs) into list `which`.
+void re_addthread(Vm* vm, int which, int gen, int pc, *int caps, int sp) {
+    if (vm.err == 1) { return; }
+    if (vm.visited[pc] == gen) { return; }
+    vm.visited[pc] = gen;
+    Inst* ins = &vm.prog.inst[pc];
+    int op = ins.op;
+    if (op == OP_JMP) {
+        re_addthread(vm, which, gen, ins.a, caps, sp);
+    } else if (op == OP_SPLIT) {
+        re_addthread(vm, which, gen, ins.a, caps, sp);
+        re_addthread(vm, which, gen, ins.b, caps, sp);
+    } else if (op == OP_SAVE) {
+        *int nc = re_newcaps(vm, caps);
+        nc[ins.a] = sp;
+        re_addthread(vm, which, gen, pc + 1, nc, sp);
+    } else if (op == OP_BOL) {
+        if (sp == 0) { re_addthread(vm, which, gen, pc + 1, caps, sp); }
+    } else if (op == OP_EOL) {
+        if (sp == vm.len) { re_addthread(vm, which, gen, pc + 1, caps, sp); }
+    } else {
+        // CHAR / ANY / CLASS / MATCH: a thread that consumes (or accepts)
+        if (which == 0) {
+            vm.la[vm.nA].pc = pc;
+            vm.la[vm.nA].caps = caps;
+            vm.nA = vm.nA + 1;
+        } else {
+            vm.lb[vm.nB].pc = pc;
+            vm.lb[vm.nB].caps = caps;
+            vm.nB = vm.nB + 1;
+        }
+    }
+}
+
+// Search `text` for the leftmost match of `re`. On success fills `m` and
+// returns 1; otherwise returns 0. `m` must be freed with match_free.
+int regex_search(Regex* re, string text, Match* m) {
+    m.ok = 0;
+    m.ngroup = re.ngroup;
+    m.start = -1;
+    m.end = -1;
+    m.cap = null;
+    if (re.ok == 0) { return 0; }
+
+    let vm: Vm;
+    vm.prog = re;
+    vm.text = text;
+    vm.len = (int)strlen(text);
+    vm.ncap = 2 * (re.ngroup + 1);
+    int ninst = re.ninst;
+    vm.visited = alloc<int>(ninst);
+    int i = 0;
+    while (i < ninst) { vm.visited[i] = -1; i = i + 1; }
+    vm.la = alloc<Thread>(ninst + 2);
+    vm.lb = alloc<Thread>(ninst + 2);
+    vm.nA = 0;
+    vm.nB = 0;
+    // Upper bound on capture allocations: each of the ncap SAVE instructions is
+    // visited at most once per generation (deduped), with two generations per
+    // input position, so at most (len+2)*2*ncap arrays of ncap ints each.
+    vm.arenacap = (vm.len + 2) * 2 * vm.ncap * vm.ncap + 64;
+    vm.arena = alloc<int>(vm.arenacap);
+    vm.arenaoff = 0;
+    vm.err = 0;
+
+    *int emptycaps = alloc<int>(vm.ncap);
+    i = 0;
+    while (i < vm.ncap) { emptycaps[i] = -1; i = i + 1; }
+    *int bestcaps = alloc<int>(vm.ncap);
+
+    int matched = 0;
+    int cur = 0;
+    int glob = 1;
+    int curgen = glob;
+
+    int sp = 0;
+    while (sp <= vm.len) {
+        if (matched == 0) {
+            *int ic = re_newcaps(&vm, emptycaps);
+            re_addthread(&vm, cur, curgen, 0, ic, sp);
+        }
+        int cn;
+        if (cur == 0) { cn = vm.nA; } else { cn = vm.nB; }
+        if (cn == 0 && matched == 1) { sp = vm.len + 1; }
+        else {
+            int oth = 1 - cur;
+            glob = glob + 1;
+            int nextgen = glob;
+            if (oth == 0) { vm.nA = 0; } else { vm.nB = 0; }
+
+            int ci = 0;
+            while (ci < cn) {
+                int tpc;
+                *int tcaps;
+                if (cur == 0) { tpc = vm.la[ci].pc; tcaps = vm.la[ci].caps; }
+                else { tpc = vm.lb[ci].pc; tcaps = vm.lb[ci].caps; }
+                Inst* ins = &re.inst[tpc];
+                int op = ins.op;
+                if (op == OP_CHAR) {
+                    if (sp < vm.len && (int)((uint8)text[sp]) == ins.a) {
+                        re_addthread(&vm, oth, nextgen, tpc + 1, tcaps, sp + 1);
+                    }
+                } else if (op == OP_ANY) {
+                    if (sp < vm.len && (int)((uint8)text[sp]) != 10) {
+                        re_addthread(&vm, oth, nextgen, tpc + 1, tcaps, sp + 1);
+                    }
+                } else if (op == OP_CLASS) {
+                    if (sp < vm.len && re_in_class(re, ins.a, (int)((uint8)text[sp])) == 1) {
+                        re_addthread(&vm, oth, nextgen, tpc + 1, tcaps, sp + 1);
+                    }
+                } else if (op == OP_MATCH) {
+                    int j = 0;
+                    while (j < vm.ncap) { bestcaps[j] = tcaps[j]; j = j + 1; }
+                    matched = 1;
+                    ci = cn;                   // cut lower-priority threads
+                }
+                ci = ci + 1;
+            }
+            cur = oth;
+            curgen = nextgen;
+            sp = sp + 1;
+        }
+    }
+
+    if (matched == 1 && vm.err == 0) {
+        m.ok = 1;
+        m.cap = alloc<int>(vm.ncap);
+        int j = 0;
+        while (j < vm.ncap) { m.cap[j] = bestcaps[j]; j = j + 1; }
+        m.start = m.cap[0];
+        m.end = m.cap[1];
+    }
+
+    free(emptycaps);
+    free(bestcaps);
+    free(vm.visited);
+    free(vm.la);
+    free(vm.lb);
+    free(vm.arena);
+    if (m.ok == 1) { return 1; }
+    return 0;
+}
+
+void match_free(Match* m) {
+    if (m.cap != null) { free(m.cap); m.cap = null; }
+}
+
+// Append capture group `i` (0 = whole match) of the last search into `out`,
+// which must already be String_init'd. Does nothing if the group is unset.
+void match_group(Match* m, string text, int i, String* out) {
+    if (m.ok == 0) { return; }
+    if (i < 0 || i > m.ngroup) { return; }
+    int s = m.cap[2 * i];
+    int e = m.cap[2 * i + 1];
+    if (s < 0 || e < 0 || e < s) { return; }
+    int k = s;
+    while (k < e) {
+        String_push(out, text[k]);
+        k = k + 1;
+    }
+}
+
+// Convenience: does `pattern` match anywhere in `text`? Returns 1/0. Compiles
+// and frees internally, so for repeated use prefer regex_compile + regex_search.
+int regex_match(string pattern, string text) {
+    Regex re = regex_compile(pattern);
+    if (re.ok == 0) { regex_free(&re); return 0; }
+    let m: Match;
+    int r = regex_search(&re, text, &m);
+    match_free(&m);
+    regex_free(&re);
+    return r;
+}

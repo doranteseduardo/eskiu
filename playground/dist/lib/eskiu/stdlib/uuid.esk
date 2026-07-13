@@ -1,0 +1,36 @@
+// uuid.esk: RFC 4122 version-4 (random) UUIDs.
+//
+//   import <uuid>;
+//   import <random>;
+//   let r: Rng; rng_seed(&r, seed);
+//   let s: String; String_init(&s, 40);
+//   uuid_v4(&r, &s);        // e.g. "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+//
+// The generator comes from <random>, which is not cryptographically secure, so
+// these UUIDs are fine as identifiers but must not be used as security tokens.
+// Seed the Rng from the clock (see <random>) for distinct values across runs.
+
+import <random>;
+import <string>;
+
+uint8 uuid_hex(int v) {
+    if (v < 10) { return (uint8)(48 + v); }
+    return (uint8)(97 + v - 10);
+}
+
+// Append a v4 UUID in the canonical 8-4-4-4-12 lowercase-hex form to `out`.
+void uuid_v4(Rng* r, String* out) {
+    *uint8 b = alloc<uint8>(16);
+    rng_fill(r, b, 16);
+    b[6] = (uint8)(((int)b[6] & 15) | 64);      // version 4 in the high nibble
+    b[8] = (uint8)(((int)b[8] & 63) | 128);     // variant 10xx in the top bits
+    int i = 0;
+    while (i < 16) {
+        if (i == 4 || i == 6 || i == 8 || i == 10) { String_push(out, '-'); }
+        int v = (int)b[i];
+        String_push(out, (char)uuid_hex(v / 16));
+        String_push(out, (char)uuid_hex(v % 16));
+        i = i + 1;
+    }
+    free(b);
+}
