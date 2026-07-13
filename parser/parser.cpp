@@ -117,6 +117,9 @@ void Parser::consumeTemplateClose(const char* ctx) {
 std::string Parser::parseType() {
     std::string type;
 
+    // Leading `?` marks a checked nullable pointer `?*T`; re-attached as a `?` prefix.
+    bool nullable = match(TokenType::QUESTION);
+
     // Optional leading `const` qualifies the base/pointee: `const int*` is a
     // pointer to const int. Re-attached as a `const ` prefix after the type is
     // assembled. (A `const` before a `let`/decl binding is handled by the
@@ -205,6 +208,7 @@ std::string Parser::parseType() {
         type += "[" + sizeStr + "]";
     }
 
+    if (nullable) type = "?" + type;   // `?*T` checked nullable pointer
     return type;
 }
 

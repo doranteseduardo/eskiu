@@ -107,6 +107,14 @@ Type parseCore(const std::string& in, const std::set<std::string>& tps) {
     std::string s = trim(in);
     if (s.empty()) { r.kind = Type::Kind::Unknown; r.name = ""; return r; }
 
+    // Nullable pointer `?*T` — a checked nullable pointer (deref requires a null-check).
+    // The `?` applies to the pointer that follows; it is preserved as the `nullable` flag.
+    if (s[0] == '?') {
+        Type inner = parseCore(trim(s.substr(1)), tps);
+        inner.nullable = true;
+        return inner;
+    }
+
     // fn(params)->ret  — checked before pointer suffixes, since `ret` can end in '*'.
     if (s.rfind("fn(", 0) == 0) {
         int depth = 0; size_t close = std::string::npos;
@@ -231,6 +239,7 @@ std::string Type::str() const {
         case Kind::Interface: body = "interface:" + name; break;
         default:              body = name; break;   // Int/Float/.../Named/Param/sentinels
     }
+    if (nullable) body = "?" + body;                 // checked nullable pointer `?*T`
     return leadingQuals + body;
 }
 

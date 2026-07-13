@@ -42,6 +42,7 @@ struct Type {
     std::shared_ptr<Type> pointee;
     bool ptrLeading  = false;    // `*T` (true) vs `T*` (false) — spelling preserved
     bool bindingConst = false;   // `T*const`
+    bool nullable    = false;    // `?*T` — a checked nullable pointer (deref requires a null-check)
 
     // Template
     std::vector<Type> args;
