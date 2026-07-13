@@ -6,12 +6,12 @@
 #ifdef __ESKIU_FREESTANDING__
 extern *void esk_alloc(int64 nbytes);
 extern void  esk_free(*void p);
-*T   alloc<T>(int64 n) { return (*T)esk_alloc(n * sizeof(T)); }
+must_use *T alloc<T>(int64 n) { return (*T)esk_alloc(n * sizeof(T)); }
 void free(*void p)     { esk_free(p); }
 #else
 extern *void malloc(int64 nbytes);
 extern void  free(*void p);
-*T   alloc<T>(int64 n) { return (*T)malloc(n * sizeof(T)); }
+must_use *T alloc<T>(int64 n) { return (*T)malloc(n * sizeof(T)); }
 #endif
 
 extern *void memcpy(*void dst, *void src, int64 n);

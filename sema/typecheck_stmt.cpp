@@ -202,6 +202,17 @@ void TypeChecker::visit(ExprStmt* node) {
     if (node->expr) {
         node->expr->accept(this);
     }
+    // A bare call to a `must_use` function discards its result — reject it.
+    if (!mustUseFuncs.empty() && node->expr) {
+        std::string fn;
+        if (auto* c = dynamic_cast<CallExpr*>(node->expr.get())) {
+            if (auto* id = dynamic_cast<IdentExpr*>(c->callee.get())) fn = id->name;
+        } else if (auto* tc = dynamic_cast<TemplateCallExpr*>(node->expr.get())) {
+            fn = tc->templateName;
+        }
+        if (!fn.empty() && mustUseFuncs.count(fn))
+            errorAt(node, "result of '" + fn + "' must be used (it is marked must_use)");
+    }
 }
 
 void TypeChecker::visit(ContinueStmt* node) {
