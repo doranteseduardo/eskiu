@@ -41,7 +41,7 @@ Comments: `// … end-of-line` and `/* … */` (block comments do not nest).
 ### Keywords (reserved)
 
 ```
-let  const  volatile  static  async  await  escaping
+let  const  volatile  static  async  await  escaping  must_use
 int int8 int16 int32 int64  uint uint8 uint16 uint32 uint64
 float double bool char string void
 struct packed union interface enum fn
@@ -109,7 +109,7 @@ declaration =
     function-decl | struct-decl | union-decl | interface-decl | enum-decl
   | type-alias  | extern-decl  | intrinsic-decl | var-decl
 
-function-decl   = 'async'? type IDENT type-params? '(' param-list? ')' ( block | ';' )
+function-decl   = ('async' | 'must_use')? type IDENT type-params? '(' param-list? ')' ( block | ';' )
 extern-decl     = 'extern'    type IDENT '(' param-list? ')' ';'
 intrinsic-decl  = 'intrinsic' type IDENT '(' param-list? ')' ';'
 

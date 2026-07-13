@@ -134,7 +134,7 @@ escape     = '\' ( 'n' | 't' | 'r' | '\' | '&quot;' | &quot;'&quot; | '0' )
 </code></pre>
 <p>Comments: <code>// … end-of-line</code> and <code>/* … */</code> (block comments do not nest).</p>
 <h3 id="keywords-reserved">Keywords (reserved)</h3>
-<pre><code>let  const  volatile  static  async  await  escaping
+<pre><code>let  const  volatile  static  async  await  escaping  must_use
 int int8 int16 int32 int64  uint uint8 uint16 uint32 uint64
 float double bool char string void
 struct packed union interface enum fn
@@ -184,7 +184,7 @@ import      = 'import' STRING_LIT ';'           // relative path
     function-decl | struct-decl | union-decl | interface-decl | enum-decl
   | type-alias  | extern-decl  | intrinsic-decl | var-decl
 
-function-decl   = 'async'? type IDENT type-params? '(' param-list? ')' ( block | ';' )
+function-decl   = ('async' | 'must_use')? type IDENT type-params? '(' param-list? ')' ( block | ';' )
 extern-decl     = 'extern'    type IDENT '(' param-list? ')' ';'
 intrinsic-decl  = 'intrinsic' type IDENT '(' param-list? ')' ';'
 

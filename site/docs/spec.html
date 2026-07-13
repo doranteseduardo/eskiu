@@ -123,7 +123,7 @@ if  else  for  while  do  in  switch  case  default  match
 return  break  continue
 true  false  null
 alloc_with
-const  volatile  static  escaping  asm
+const  volatile  static  escaping  must_use  asm
 thread_create  thread_join
 try  catch  finally  throw  defer  errdefer
 async  await
@@ -934,6 +934,19 @@ int bad(int x) {
     if (x &lt; 0) { return 0; }
 }                              // error: missing return (x &gt;= 0 falls through)
 </code></pre>
+<h3 id="611-must_use">6.1.1 must_use</h3>
+<p>Prefixing a function with <code>must_use</code> makes discarding its result a compile error. It
+catches the "called for a value, then dropped it" bug, most importantly a leaked
+allocation. The standard library marks <code>alloc</code> this way:</p>
+<pre><code class="language-eskiu">must_use *T dup&lt;T&gt;(T* p) { ... }
+
+dup(&amp;x);              // error: result of 'dup' must be used (it is marked must_use)
+let y = dup(&amp;x);      // ok
+
+alloc&lt;uint8&gt;(64);     // error: the allocation is leaked (alloc is must_use)
+</code></pre>
+<p>A call is "used" if its result is assigned, passed as an argument, returned, or otherwise
+consumed; only a bare call statement discards it.</p>
 <h3 id="62-void-functions">6.2 Void Functions</h3>
 <pre><code class="language-eskiu">void log_event(string msg) {
     printf(&quot;%s\n&quot;, msg);
