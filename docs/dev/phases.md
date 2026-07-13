@@ -272,6 +272,19 @@ with parity gates (behavioral + byte-exact printer) green including the bootstra
 - [x] Ternary conditional `cond ? a : b` (`TernaryExpr`): one arm evaluated, arms take a common type; disambiguated from postfix `?` propagation by a same-level `:` scan.
 - [x] Fix: `switch` on a sub-`int` subject (widen subject + case constants to a common type).
 
+### v0.6.0: Memory safety (on develop, queued for release)
+
+A Zig-flavored safety pass: compile-time checks and opt-in runtime guards that fit the
+C-faithful, arena-first model (no borrow checker, ownership, or GC). Each landed as
+granular per-layer commits on `develop` and is queued in CHANGELOG `[Unreleased]`.
+
+- [x] `defer` (`DeferStmt`): run a statement at enclosing-block exit, LIFO, on every path out (fall-through, `return`, `break`, `continue`, propagated `?`). Codegen cleanup-stack mechanism (not a desugar); also fixed a latent `finally`-skipped-on-early-return bug. Both compilers.
+- [x] `errdefer`: the error-only variant, runs only when the function exits through a propagated `?`. Both compilers.
+- [x] Slice type `T[]` (fat pointer `{ptr, i64}`): `a[lo..hi]` construction over an array, `s[i]` read/write aliasing the backing store, `s.len`, and slice `for-in` (C++ only; self-host has no collection `for-in` yet). Remaining slices: slice-of-slice, returning slices across functions, string interop.
+- [x] `must_use` function qualifier: the compiler rejects a call whose result is discarded; `stdlib` `alloc` is marked `must_use` so a forgotten allocation is a compile error. Both compilers.
+- [x] `--safe` build mode (C++ only): opt-in runtime bounds check on array and slice indexing, trapping on violation; off by default so release builds pay nothing. Self-host mirror on the promotion track.
+- [x] Checked nullable pointer `?*T` (C++ only): bare `*T` stays C-nullable, `?*T` cannot be dereferenced/indexed/membered until proven non-null; `if (q != null)` narrows it; `*T` widens to `?*T` but not the reverse. Lowered as a bare pointer (zero runtime cost). Self-host mirror on the promotion track.
+
 ### v1.0: Production-ready
 
 - [~] `eskiuc` compiles itself (self-hosting): **3-stage bootstrap fixpoint reached.**

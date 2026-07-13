@@ -309,7 +309,7 @@ pre.code-block {
 <a href="#sec-6-4" class="toc-sec">6.4 Heap allocation</a>
 <a href="#sec-6-5" class="toc-sec">6.5 The golden rule</a>
 <a href="#sec-6-6" class="toc-sec">6.6 Typed pointer arithmetic</a>
-<a href="#sec-6-7" class="toc-sec">6.7 Null</a>
+<a href="#sec-6-7" class="toc-sec">6.7 Null and checked nullable pointers</a>
 <a href="#sec-6-8" class="toc-sec">6.8 Pointer constness</a>
 <a href="#sec-6-9" class="toc-sec">6.9 volatile</a>
 <a href="#chapter-7" class="toc-ch">Chapter 7</a>
@@ -392,11 +392,13 @@ pre.code-block {
 <a href="#sec-19-2" class="toc-sec">19.2 Struct ownership</a>
 <a href="#sec-19-3" class="toc-sec">19.3 Early return cleanup</a>
 <a href="#sec-19-4" class="toc-sec">19.4 defer: automatic cleanup</a>
+<a href="#sec-19-5" class="toc-sec">19.5 must_use: results you cannot ignore</a>
 <a href="#chapter-20" class="toc-ch">Chapter 20</a>
 <a href="#sec-20-1" class="toc-sec">20.1 Reading a segfault</a>
 <a href="#sec-20-2" class="toc-sec">20.2 AddressSanitizer</a>
 <a href="#sec-20-3" class="toc-sec">20.3 Memory leak detection</a>
 <a href="#sec-20-4" class="toc-sec">20.4 Inspecting generated IR</a>
+<a href="#sec-20-5" class="toc-sec">20.5 Bounds checking with --safe</a>
 <a href="#chapter-21" class="toc-ch">Chapter 21</a>
 <a href="#sec-21-1" class="toc-sec">21.1 Test functions</a>
 <a href="#sec-21-2" class="toc-sec">21.2 The .esk + .expected pattern</a>
@@ -1052,12 +1054,17 @@ pre.code-block {
  &quot;, *p);        // 30</pre>
 <pre class="code-block"> free(arr);</pre>
 <pre class="code-block"> Exception: *void and *char always use byte stride (1 byte per step), for C interop compatibility.</pre>
-<h2 class="section" id="sec-6-7">6.7 Null</h2>
-<pre class="code-block"> *int p = null;</pre>
-<pre class="code-block"> if (p != null) {
-       printf(&quot;%d
- &quot;, *p);        // safe
+<h2 class="section" id="sec-6-7">6.7 Null and checked nullable pointers</h2>
+<p>A plain <code>*T</code> may hold <code>null</code>, exactly as in C. Dereferencing a null pointer is undefined, so you guard it by hand:</p>
+<pre class="code-block"> *int p = null;
+ if (p != null) { printf(&quot;%d&quot;, *p); }        // checked by hand</pre>
+<p>When you want the compiler to enforce that check, declare the pointer <code>?*T</code>, a <strong>checked nullable pointer</strong>. You cannot dereference, index, or take a member of a <code>?*T</code> until you have proven it non-null; inside an <code>if (q != null)</code> block the compiler narrows it to non-null and the dereference is allowed:</p>
+<pre class="code-block"> ?*int q = maybe();
+ // *q;                     // compile error: q may be null; check it first
+ if (q != null) {
+       printf(&quot;%d&quot;, *q);    // ok: narrowed to non-null here
  }</pre>
+<p>A non-null <code>*T</code> converts to <code>?*T</code> freely (it is always safe to forget non-nullness); going the other way requires a null-check. <code>?*T</code> has the same representation as a bare pointer, so the safety is entirely at compile time with no runtime cost. Use <code>?*T</code> at the boundaries where <code>null</code> is a real possibility (a lookup that can miss, an optional field) and keep <code>*T</code> where the value is always present.</p>
 <h2 class="section" id="sec-6-8">6.8 Pointer constness</h2>
 <p><code>const</code> T* is a pointer to read-only data: you can read through it and rebind it, but cannot write through it. T* <code>const</code> is a read-only pointer: you can write through it but cannot rebind it. Adding <code>const</code> is always safe; removing it is a compile error:</p>
 <pre class="code-block"> int x = 10;        int y = 20;
@@ -2183,6 +2190,14 @@ pre.code-block {
        return c;                 // success: c survives, errdefer does not run
  }</pre>
 <p>On the error path a <code>defer</code> and an <code>errdefer</code> both run, LIFO. On the success path only the <code>defer</code> runs.</p>
+<h2 class="section" id="sec-19-5">19.5 must_use: results you cannot ignore</h2>
+<p>Some return values are dangerous to drop. The result of <code>alloc</code> is the only handle to a heap block: discard it and the memory leaks immediately. Marking a function <code>must_use</code> makes the compiler reject any call whose result is thrown away:</p>
+<pre class="code-block"> must_use *uint8 grab() { return alloc&lt;uint8&gt;(64); }
+
+ grab();                    // compile error: result of a must_use function is discarded
+ *uint8 p = grab();         // ok: the handle is kept
+ defer free((*void)p);</pre>
+<p><code>alloc</code> in the standard library is already <code>must_use</code>, so a forgotten allocation is caught at compile time rather than leaking at run time. Apply <code>must_use</code> to your own functions that hand back an owned resource, an error code that must be inspected, or any value whose whole point is to be used.</p>
 <div class="chapter-start" id="chapter-20"><span class="chapter-label">Chapter 20</span>
 <h1 class="chapter-title">Debugging</h1><hr class="chapter-rule"></div>
 <p>Systems programs fail in ways that higher-level languages protect you from. A <code>null</code> dereference crashes with a segfault. A buffer overrun silently corrupts memory three functions away from the bug. This chapter covers the tools that find these bugs quickly.</p>
@@ -2217,6 +2232,11 @@ pre.code-block {
 <p>When output is wrong and the source looks correct, inspect what the compiler actually generated:</p>
 <pre class="code-block"> eskiuc suspect.esk --test-codegen    # dumps LLVM IR to stdout
  # Verify that types, loads, and stores are what you expect</pre>
+<h2 class="section" id="sec-20-5">20.5 Bounds checking with --safe</h2>
+<p>By default array and slice indexing is unchecked, matching C: an out-of-range index reads or writes whatever is at that address. Compiling with <code>--safe</code> inserts a bounds check on every array and slice index, so a violation traps immediately instead of corrupting memory:</p>
+<pre class="code-block"> eskiuc prog.esk --safe -o prog
+ ./prog                     # traps at the first out-of-bounds index</pre>
+<p><code>--safe</code> is off by default, so release builds pay nothing for it. Turn it on during development and testing to turn silent memory corruption into a clean, immediate failure, then ship without it (or keep it on where a trap is preferable to undefined behaviour).</p>
 <div class="chapter-start" id="chapter-21"><span class="chapter-label">Chapter 21</span>
 <h1 class="chapter-title">Testing</h1><hr class="chapter-rule"></div>
 <p>Eskiu has no built-in test framework. The language gives you functions, return values, and <code>printf</code>. That is all you need. The pattern described here is the one used by Eskiu&#x27;s own 238-test suite.</p>
