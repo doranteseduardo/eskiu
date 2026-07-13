@@ -35,6 +35,7 @@ enum class TokenType {
     VOLATILE,
     STATIC,
     ESCAPING,
+    MUST_USE,
     ASYNC,
     AWAIT,
     CONST,

@@ -26,6 +26,7 @@ std::unordered_map<std::string, TokenType> Lexer::keywords = {
     {"volatile",       TokenType::VOLATILE},
     {"static",         TokenType::STATIC},
     {"escaping",       TokenType::ESCAPING},
+    {"must_use",       TokenType::MUST_USE},
     {"async",          TokenType::ASYNC},
     {"await",          TokenType::AWAIT},
     {"const",          TokenType::CONST},
