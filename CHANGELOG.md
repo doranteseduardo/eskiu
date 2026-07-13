@@ -11,6 +11,16 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 ## [Unreleased]
 
 ### Added
+- **`<random>` stdlib module.** A seedable pseudo-random generator (xoshiro256\*\*)
+  with no global mutable state: `rng_seed`, `rng_next` (raw 64-bit), `rng_below` and
+  `rng_range` (unbiased bounded integers), `rng_double` (`[0.0, 1.0)`), `rng_bool`, and
+  `rng_fill`. A given seed always reproduces the same stream. Not cryptographically secure.
+- **`<regex>` stdlib module.** A regular-expression engine built as a Thompson NFA run
+  as a Pike VM, so matching is linear in the input with no catastrophic backtracking.
+  Supports literals, `.`, classes `[a-z]` / `[^...]`, the shorthands `\d \w \s` (and
+  `\D \W \S`), quantifiers `* + ? {m} {m,} {m,n}` (greedy or, with a trailing `?`, lazy),
+  alternation `|`, capturing groups `( )`, and the anchors `^ $`. API: `regex_match` for a
+  quick yes/no, or `regex_compile` + `regex_search` + `match_group` to extract captures.
 - **`defer` statement.** `defer stmt;` runs `stmt` (a statement or block) when the
   enclosing block is left, in LIFO order, on every path out: fall-through, `return`,
   `break`, `continue`, and `?`-propagation. Block-scoped, so a `defer` in a loop body

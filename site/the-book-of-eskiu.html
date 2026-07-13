@@ -1922,6 +1922,15 @@ pre.code-block {
  import &lt;base64&gt;;     base64_encode/decode(*uint8 src, int n, *uint8 out)
                       base64_encoded_len(n)        base64_decoded_len(n)
  import &lt;path&gt;;       path_join      path_basename      path_dirname   path_extension</pre>
+<pre class="code-block"> // random: seedable PRNG (xoshiro256**), no global state, not crypto-secure
+ import &lt;random&gt;;     let r: Rng; rng_seed(&amp;r, seed)
+     rng_next(&amp;r) uint64        rng_range(&amp;r, lo, hi)      rng_below(&amp;r, n)
+     rng_double(&amp;r) [0,1)       rng_bool(&amp;r)              rng_fill(&amp;r, buf, n)</pre>
+<pre class="code-block"> // regex: linear-time Thompson NFA (no catastrophic backtracking)
+ import &lt;regex&gt;;      regex_match(pat, text) 1/0
+     Regex re = regex_compile(pat);   regex_search(&amp;re, text, &amp;m) 1/0
+     match_group(&amp;m, text, i, &amp;out)      match_free(&amp;m)   regex_free(&amp;re)
+     // . [a-z] [^..] \d \w \s  * + ? {m,n}  |  ( ) captures  ^ $  (append ? for lazy)</pre>
 <pre class="code-block"> // async runtime
  import &lt;atomic&gt;;     atomic_load   atomic_store   atomic_swap   atomic_cas
  import &lt;executor&gt;; Executor (event loop + thread-safe queue)

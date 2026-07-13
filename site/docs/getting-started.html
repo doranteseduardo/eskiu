@@ -930,6 +930,14 @@ import &lt;math&gt;;
 <td><code>base64_encode</code> / <code>base64_decode</code> over byte buffers</td>
 </tr>
 <tr>
+<td><code>&lt;random&gt;</code></td>
+<td>seedable PRNG (xoshiro256**): <code>rng_seed</code>, <code>rng_next</code>, <code>rng_below</code>, <code>rng_range</code>, <code>rng_double</code>, <code>rng_bool</code>, <code>rng_fill</code></td>
+</tr>
+<tr>
+<td><code>&lt;regex&gt;</code></td>
+<td>linear-time regex (Thompson NFA): <code>regex_match</code>, <code>regex_compile</code>/<code>regex_search</code> with capture groups (<code>match_group</code>), <code>\d \w \s</code>, <code>* + ? {m,n}</code>, <code>|</code>, <code>( )</code>, <code>^ $</code></td>
+</tr>
+<tr>
 <td><code>&lt;time&gt;</code></td>
 <td><code>time_now_ms</code>, <code>time_now_s</code>, <code>time_monotonic_ms</code>, <code>sleep_ms</code></td>
 </tr>
