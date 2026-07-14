@@ -837,8 +837,8 @@ int val = *ptr;   // read through pointer, val == 200
 Eskiu has two import forms:
 
 ```eskiu
-import <result>       // stdlib module, resolved by the compiler
-import "utils.esk"    // local file, relative to the current file
+import <result>;      // stdlib module, resolved by the compiler
+import "utils.esk";   // local file, relative to the current file
 ```
 
 `import <name>` looks up the module in the Eskiu installation's stdlib directory. No path required. `import "path"` is relative to the importing file, as before.
@@ -1322,7 +1322,7 @@ The extended form passes values in and out of the asm template using GCC-compati
 ```eskiu
 // Write a byte to an x86 I/O port
 void outb(uint8 val, uint16 port) {
-    asm("outb %0, %1" :: "a"(val), "Nd"(port) : "memory");
+    asm("outb ${0:b}, $1" :: "a"(val), "Nd"(port) : "memory");
 }
 ```
 

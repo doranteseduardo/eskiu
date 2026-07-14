@@ -199,7 +199,7 @@ cmake --build build -- -j$(nproc)
 source_filename = &quot;eskiu_module&quot;
 
 @0 = private unnamed_addr constant [19 x i8] c&quot;Hello from Eskiu!\0A\00&quot;
-@1 = private unnamed_addr constant [13 x i8] c&quot;Result: %d\0A\00&quot;
+@1 = private unnamed_addr constant [12 x i8] c&quot;Result: %d\0A\00&quot;
 
 declare i32 @printf(ptr, ...)
 
@@ -284,27 +284,42 @@ golden-IR oracle guards against unintended codegen changes.</p>
 <pre><code class="language-bash">./build/eskiuc examples/hello.esk --test-lexer
 </code></pre>
 <p>Expected output (truncated):</p>
-<pre><code>Token[EXTERN] 'extern' at 1:1
-Token[IDENT] 'int' at 1:8
-Token[IDENT] 'printf' at 1:12
-Token[LPAREN] '(' at 1:18
-...
-Token[EOF] '' at 11:1
+<pre><code>Tokenizing: examples/hello.esk
+========================================================
+  Line   1, Col   1           EXTERN  'extern'
+  Line   1, Col   8              INT  'int'
+  Line   1, Col  12            IDENT  'printf'
+  Line   1, Col  18           LPAREN  '('
+  Line   1, Col  19           STRING  'string'
+  ...
+========================================================
+Total tokens: 57
 </code></pre>
 <h3 id="-test-parser"><code>--test-parser</code></h3>
 <p>Parses the token stream and prints the AST in indented form.</p>
 <pre><code class="language-bash">./build/eskiuc examples/hello.esk --test-parser
 </code></pre>
 <p>Expected output (truncated):</p>
-<pre><code>FunctionDecl: main
-  Body:
-    VarDecl: result (int)
-      CallExpr: add
-        IntLiteral: 5
-        IntLiteral: 3
-    ExprStmt:
-      CallExpr: printf
-        StringLiteral: &quot;Hello from Eskiu!\n&quot;
+<pre><code>Parsing: examples/hello.esk
+========================================================
+Program
+  ExternDecl: printf -&gt; int
+    Parameters:
+      string fmt
+      ... ...
+  FunctionDecl: add -&gt; int
+    Parameters:
+      int a
+      int b
+    Body:
+      BlockStmt
+        ReturnStmt
+          BinaryExpr: +
+            Left:
+              IdentExpr: a
+            Right:
+              IdentExpr: b
+  FunctionDecl: main -&gt; int
     ...
 </code></pre>
 <h3 id="-test-typechecker"><code>--test-typechecker</code></h3>

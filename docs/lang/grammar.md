@@ -30,7 +30,7 @@ comments separate tokens and are otherwise insignificant.
 ```
 IDENT      = [A-Za-z_] [A-Za-z0-9_]*
 INT_LIT    = [0-9]+  |  '0x' [0-9A-Fa-f]+
-FLOAT_LIT  = [0-9]+ '.' [0-9]+  |  '.' [0-9]+
+FLOAT_LIT  = [0-9]+ '.' [0-9]+
 STRING_LIT = '"' ( escape | not('"') )* '"'        // adjacent literals concatenate: "a" "b" == "ab"
 CHAR_LIT   = "'" ( escape | not("'") ) "'"
 escape     = '\' ( 'n' | 't' | 'r' | '\' | '"' | "'" | '0' )

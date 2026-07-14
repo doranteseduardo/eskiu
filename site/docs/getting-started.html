@@ -790,8 +790,8 @@ int val = *ptr;   // read through pointer, val == 200
 <hr>
 <h2 id="multi-file-projects">Multi-file Projects</h2>
 <p>Eskiu has two import forms:</p>
-<pre><code class="language-eskiu">import &lt;result&gt;       // stdlib module, resolved by the compiler
-import &quot;utils.esk&quot;    // local file, relative to the current file
+<pre><code class="language-eskiu">import &lt;result&gt;;      // stdlib module, resolved by the compiler
+import &quot;utils.esk&quot;;   // local file, relative to the current file
 </code></pre>
 <p><code>import &lt;name&gt;</code> looks up the module in the Eskiu installation's stdlib directory. No path required. <code>import "path"</code> is relative to the importing file, as before.</p>
 <p>Each file is parsed only once regardless of how many times it is imported.</p>
@@ -1325,7 +1325,7 @@ asm(&quot;nop&quot;);
 <p>The extended form passes values in and out of the asm template using GCC-compatible constraints:</p>
 <pre><code class="language-eskiu">// Write a byte to an x86 I/O port
 void outb(uint8 val, uint16 port) {
-    asm(&quot;outb %0, %1&quot; :: &quot;a&quot;(val), &quot;Nd&quot;(port) : &quot;memory&quot;);
+    asm(&quot;outb ${0:b}, $1&quot; :: &quot;a&quot;(val), &quot;Nd&quot;(port) : &quot;memory&quot;);
 }
 </code></pre>
 <p>Syntax: <code>asm("template" : outputs : inputs : clobbers);</code></p>

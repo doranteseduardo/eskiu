@@ -127,7 +127,7 @@ then declarations, types, statements, and expressions (lowest precedence first).
 comments separate tokens and are otherwise insignificant.</p>
 <pre><code>IDENT      = [A-Za-z_] [A-Za-z0-9_]*
 INT_LIT    = [0-9]+  |  '0x' [0-9A-Fa-f]+
-FLOAT_LIT  = [0-9]+ '.' [0-9]+  |  '.' [0-9]+
+FLOAT_LIT  = [0-9]+ '.' [0-9]+
 STRING_LIT = '&quot;' ( escape | not('&quot;') )* '&quot;'        // adjacent literals concatenate: &quot;a&quot; &quot;b&quot; == &quot;ab&quot;
 CHAR_LIT   = &quot;'&quot; ( escape | not(&quot;'&quot;) ) &quot;'&quot;
 escape     = '\' ( 'n' | 't' | 'r' | '\' | '&quot;' | &quot;'&quot; | '0' )
