@@ -1,6 +1,6 @@
 # Eskiu Language Specification
 
-**Version:** v0.6.0
+**Version:** v0.6.1
 
 ---
 
@@ -111,14 +111,21 @@ cast). Integer literals are `int` (i32), widening to `int64` when they exceed 32
 3.14    2.0    0.5
 ```
 
-**String literals** are sequences of characters enclosed in double quotes. The following escape sequences are recognized:
+**String literals** are sequences of characters enclosed in double quotes. The same escape sequences are recognized in string and character literals:
 
-| Escape | Meaning        |
-|--------|----------------|
-| `\n`   | Newline        |
-| `\t`   | Horizontal tab |
-| `\\`   | Backslash      |
-| `\"`   | Double quote   |
+| Escape | Meaning          |
+|--------|------------------|
+| `\n`   | Newline          |
+| `\t`   | Horizontal tab   |
+| `\r`   | Carriage return  |
+| `\f`   | Form feed        |
+| `\v`   | Vertical tab     |
+| `\0`   | NUL byte         |
+| `\\`   | Backslash        |
+| `\"`   | Double quote     |
+| `\'`   | Single quote     |
+
+An unrecognized escape (`\q`) yields the character itself (`q`).
 
 ```eskiu
 "Hello, world!\n"

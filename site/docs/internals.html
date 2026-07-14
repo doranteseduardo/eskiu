@@ -145,6 +145,10 @@ clang hello.o -o hello
 <td><a href="api.html"><code>../../docs/API.md</code></a></td>
 <td>C++ public API reference for the lexer, parser, type checker, and codegen modules</td>
 </tr>
+<tr>
+<td><a href="https://github.com/doranteseduardo/eskiu/blob/main/kernel/README.md"><code>../../kernel/README.md</code></a></td>
+<td>The freestanding bare-metal ARM64 kernel demo (no libc; boots in QEMU), a worked example of <code>--freestanding</code> + inline asm</td>
+</tr>
 </tbody>
 </table></div>
 <hr>
@@ -196,7 +200,7 @@ clang hello.o -o hello
 <tr>
 <td>Entry point</td>
 <td><code>main.cpp</code> + <code>main_support.cpp</code></td>
-<td>CLI dispatch; routes <code>--test-*</code> flags to the appropriate pass and drives object emission</td>
+<td><code>main.cpp</code>: CLI dispatch, routing <code>--test-*</code> flags to the right pass and driving object emission. <code>main_support.cpp</code>: the surrounding machinery, stdlib-path resolution (from the executable's own path), linking objects into an executable, <code>eskiuc run</code> (compile to a temp binary, exec, clean up), and <code>eskiuc fmt</code> (the source formatter)</td>
 </tr>
 </tbody>
 </table></div>

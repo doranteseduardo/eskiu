@@ -33,7 +33,7 @@ INT_LIT    = [0-9]+  |  '0x' [0-9A-Fa-f]+
 FLOAT_LIT  = [0-9]+ '.' [0-9]+
 STRING_LIT = '"' ( escape | not('"') )* '"'        // adjacent literals concatenate: "a" "b" == "ab"
 CHAR_LIT   = "'" ( escape | not("'") ) "'"
-escape     = '\' ( 'n' | 't' | 'r' | '\' | '"' | "'" | '0' )
+escape     = '\' ( 'n' | 't' | 'r' | 'f' | 'v' | '\' | '"' | "'" | '0' )  // string and char share the set
 ```
 
 Comments: `// … end-of-line` and `/* … */` (block comments do not nest).
@@ -127,9 +127,9 @@ union-decl      = 'union' IDENT '{' ( type IDENT ';' )* '}'
 
 interface-decl  = 'interface' IDENT '{' ( type IDENT '(' param-list? ')' ';' )* '}'
 
-enum-decl       = 'enum' IDENT type-params? '{' enum-variant (',' enum-variant)* ','? '}'
+enum-decl       = 'enum' IDENT type-params? '{' enum-variant (',' enum-variant)* ','? '}'   // enum type-params are names only (no constraints)
 enum-variant    = IDENT ( '(' type (',' type)* ')' )?           // ADT payload
-                | IDENT ( '=' expr )?                            // classic, optional value
+                | IDENT ( '=' '-'? INT_LIT )?                    // classic, optional integer value
 
 type-alias      = 'type' IDENT '=' type ';'
 
@@ -157,7 +157,7 @@ base        = scalar-type
             | IDENT ( '<' type (',' type)* '>' )?   // named type or template instance
             | 'fn' '(' (type (',' type)*)? ')' '->' type   // function-pointer type
 ptr         = '*'                                    // leading-pointer (spec) spelling
-array       = '[' INT_LIT? ']'
+array       = '[' (INT_LIT | IDENT)? ']'             // IDENT = a named const dim; empty = slice `T[]`
 
 scalar-type = 'int' | 'int8' | 'int16' | 'int32' | 'int64'
             | 'uint' | 'uint8' | 'uint16' | 'uint32' | 'uint64'
@@ -194,7 +194,7 @@ continue-stmt = 'continue' ';'
 throw-stmt    = 'throw' expr ';'
 expr-stmt     = expr ';'
 
-switch-stmt   = 'switch' '(' expr ')' '{' switch-case* default-case? '}'
+switch-stmt   = 'switch' '(' expr ')' '{' (switch-case | default-case)* '}'   // any order, `default` may repeat
 switch-case   = 'case' expr ':' statement*
 default-case  = 'default' ':' statement*
 

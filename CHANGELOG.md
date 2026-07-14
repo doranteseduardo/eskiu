@@ -8,6 +8,22 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
+## [0.6.1], 2026-07-14
+
+### Fixed
+- **Escape sequences in string and character literals.** `\0` now decodes to a NUL
+  byte instead of the character `'0'` (a silent trap), character literals accept `\r`
+  (and `\f`, `\v`), and string and character literals share one escape set
+  (`\n \t \r \f \v \0 \\ \" \'`); an unrecognized escape still yields the character
+  itself. Fixed in lockstep across the C++ and self-hosted lexers.
+
+### Changed
+- Documentation accuracy pass (from an internal audit): corrected AST node counts and
+  added the `defer` cleanup-stack to the internals docs, regenerated the real
+  `--test-lexer` / `--test-parser` sample output, fixed inline-asm operand syntax
+  (`$0`, not `%0`) and noted that output operands are unsupported, added an `intrinsic`
+  spec section and a `--safe` flag row, and corrected glossary token-type names.
+
 ## [0.6.0], 2026-07-13
 
 ### Added
