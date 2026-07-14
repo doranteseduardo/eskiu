@@ -77,7 +77,7 @@ body { background: var(--bg); color: var(--ink); font-family: var(--sans);
 <p>The format is based on <a href="https://keepachangelog.com/en/1.1.0/">Keep a Changelog</a>.
 Versions follow <code>MAJOR.MINOR.PATCH-stage</code> (e.g. <code>0.0.9-alpha</code>).</p>
 <hr>
-<h2 id="061-2026-07-14">[0.6.1], 2026-07-14</h2>
+<h2 id="061">[0.6.1]</h2>
 <h3 id="fixed">Fixed</h3>
 <ul>
 <li><strong>Escape sequences in string and character literals.</strong> <code>\0</code> now decodes to a NUL
@@ -94,7 +94,7 @@ Versions follow <code>MAJOR.MINOR.PATCH-stage</code> (e.g. <code>0.0.9-alpha</co
   (<code>$0</code>, not <code>%0</code>) and noted that output operands are unsupported, added an <code>intrinsic</code>
   spec section and a <code>--safe</code> flag row, and corrected glossary token-type names.</li>
 </ul>
-<h2 id="060-2026-07-13">[0.6.0], 2026-07-13</h2>
+<h2 id="060">[0.6.0]</h2>
 <h3 id="added">Added</h3>
 <ul>
 <li><strong><code>&lt;sort&gt;</code> stdlib module.</strong> Generic in-place <code>sort&lt;T&gt;(a, n, cmp)</code> (heapsort, a
@@ -158,7 +158,7 @@ Versions follow <code>MAJOR.MINOR.PATCH-stage</code> (e.g. <code>0.0.9-alpha</co
   paths too (the same scope-exit cleanup mechanism that powers <code>defer</code>).</li>
 </ul>
 <hr>
-<h2 id="050-2026-07-12">[0.5.0], 2026-07-12</h2>
+<h2 id="050">[0.5.0]</h2>
 <p>Fills a set of basic C constructs the language was missing, so idiomatic C ports
 compile without workarounds. Each lands in lockstep across the C++ and self-hosted
 compilers and follows C semantics.</p>
@@ -192,7 +192,7 @@ compilers and follows C semantics.</p>
   now widened to a common type before lowering.</li>
 </ul>
 <hr>
-<h2 id="040-2026-07-05">[0.4.0], 2026-07-05</h2>
+<h2 id="040">[0.4.0]</h2>
 <p>A correctness and type-strictness release. A four-front bug hunt (behavioral
 differential, sema soundness, synthesized-default audit, feature edges) across the C++
 and self-hosted compilers found a batch of miscompiles, crashes, and soundness holes;
@@ -300,7 +300,7 @@ promotion track.</p>
   implicitly, and a body that provably cannot fall through needs no trailing</code>return<code>(an</code>if<code>/</code>else<code>where both branches return, an exhaustive</code>switch<code>/</code>match<code>where every arm returns, or an infinite</code>while (1)<code>with no</code>break`).</li>
 </ul>
 <hr>
-<h2 id="031-2026-07-01">[0.3.1], 2026-07-01</h2>
+<h2 id="031">[0.3.1]</h2>
 <h3 id="fixed_4">Fixed</h3>
 <ul>
 <li><strong><code>*T[N]</code> now parses as an array of pointers, not a pointer to an array.</strong> The
@@ -357,7 +357,7 @@ promotion track.</p>
   (see <code>selfhost/PROMOTION_PLAN.md</code>, R2).</li>
 </ul>
 <hr>
-<h2 id="030-2026-06-29">[0.3.0], 2026-06-29</h2>
+<h2 id="030">[0.3.0]</h2>
 <p>The self-hosting milestone: the whole compiler (lexer, preprocessor, parser, semantic
 analyzer, and code generator) is reimplemented in Eskiu (<code>selfhost/</code>), reaches a 3-stage
 bootstrap fixpoint, and the self-hosted codegen is <strong>feature-complete against the C++
@@ -564,7 +564,7 @@ corpus</strong> (a full feature sweep is clean). All parity/self-host/bootstrap 
   the preprocessor is self-hosted. The harness computes the closure to gate inclusion.</li>
 </ul>
 <hr>
-<h2 id="025-2026-06-17">[0.2.5], 2026-06-17</h2>
+<h2 id="025">[0.2.5]</h2>
 <h3 id="added_3">Added</h3>
 <ul>
 <li><strong><code>&lt;ctype&gt;</code> stdlib module.</strong> Pure-Eskiu ASCII character classification (no libc,
@@ -610,7 +610,7 @@ corpus</strong> (a full feature sweep is clean). All parity/self-host/bootstrap 
   Regression test: <code>tests/comment_backslash_continuation.esk</code>.</li>
 </ul>
 <hr>
-<h2 id="024-2026-06-14">[0.2.4], 2026-06-14</h2>
+<h2 id="024">[0.2.4]</h2>
 <p>Type unification: making the type checker the single resolver, so codegen stops
 re-deriving types independently (closing the two-evaluator risk). Internal
 soundness work; the only user-visible effect is three latent miscompiles it
@@ -639,7 +639,7 @@ surfaced and fixed.</p>
   quirks preserved).</li>
 </ul>
 <hr>
-<h2 id="023-2026-06-14">[0.2.3], 2026-06-14</h2>
+<h2 id="023">[0.2.3]</h2>
 <p>Completing bounded generics, plus a typed internal type representation that
 replaces ad-hoc type-string surgery: the foundation for keeping the compiler
 sound as it grows.</p>
@@ -674,7 +674,7 @@ sound as it grows.</p>
   strings) are intentionally left for a later step: they are not string surgery.</li>
 </ul>
 <hr>
-<h2 id="022-2026-06-13">[0.2.2], 2026-06-13</h2>
+<h2 id="022">[0.2.2]</h2>
 <p>Exclusively hardening + traits, no new stdlib surface. The goal: make the
 compiler trustworthy and close the generics gap before the self-hosting arc.</p>
 <h3 id="compiler-hardening">Compiler hardening</h3>
@@ -723,7 +723,7 @@ compiler trustworthy and close the generics gap before the self-hosting arc.</p>
   No source file exceeds ~760 lines.</li>
 </ul>
 <hr>
-<h2 id="021-2026-06-13">[0.2.1], 2026-06-13</h2>
+<h2 id="021">[0.2.1]</h2>
 <p>Hardening and ergonomics, shaken out by building a real service (an INE-QR HTTP
 API) on 0.2.0.</p>
 <h3 id="compiler">Compiler</h3>
@@ -739,7 +739,7 @@ API) on 0.2.0.</p>
 <li><strong><code>HashMap&lt;K,V&gt;</code></strong> (<code>&lt;map&gt;</code>): a hash map over any value-type key: you pass <code>hash</code>/<code>eq</code> function pointers at init (Eskiu has no trait system to synthesise them, the systems-language answer, like C's <code>qsort</code> comparator), with built-in <code>int_hash</code>/<code>int_eq</code>. The string-keyed, key-owning <code>Map&lt;V&gt;</code> is unchanged.</li>
 </ul>
 <hr>
-<h2 id="020-2026-06-11">[0.2.0], 2026-06-11</h2>
+<h2 id="020">[0.2.0]</h2>
 <p>Backend-services phase: async/await, the full HTTP/2 stack (framing, HPACK with
 Huffman, streams and flow control, a multiplexed server, and TLS/ALPN), sum types
 with <code>match</code>, and a broad async/networking standard library, built on the v0.1.0
