@@ -993,6 +993,12 @@ arrive as <code>int</code>. There is no automatic count of the arguments: pass i
 (as <code>n</code> above) or use a sentinel.</p>
 <h3 id="64-extern-declarations">6.4 Extern Declarations</h3>
 <p><code>extern</code> declares a C function available to Eskiu code. See §13 for details.</p>
+<h3 id="641-intrinsic-declarations">6.4.1 Intrinsic Declarations</h3>
+<p><code>intrinsic</code> declares a function whose implementation the compiler supplies directly, rather than one defined in Eskiu or linked from C. The form is a prototype with no body:</p>
+<pre><code class="language-eskiu">intrinsic int  atomic_load(*int cell);
+intrinsic void atomic_store(*int cell, int v);
+</code></pre>
+<p>A call to an intrinsic lowers to a specific instruction sequence chosen by codegen (the <code>&lt;atomic&gt;</code> intrinsics lower to LLVM atomic loads/stores/<code>cmpxchg</code> with fixed acquire/release ordering) instead of an ordinary <code>call</code>. Intrinsics are how the standard library exposes operations that have no portable C spelling; application code rarely declares its own.</p>
 <h3 id="65-lambdas-and-closures">6.5 Lambdas and Closures</h3>
 <p>An anonymous function (lambda) is written with a C-style function body and no name. The syntax is identical to a named function declaration without the name:</p>
 <pre><code class="language-eskiu">int(int x) { return x * 2; }
@@ -1192,7 +1198,7 @@ eskiuc file.esk -o file -lstdc++   # Linux
 <p>The <code>for (x in iterable)</code> form binds <code>x</code> to each element of <code>iterable</code> in turn.
 The loop variable is a fresh copy each iteration; assigning to it does not modify
 the underlying collection. <code>break</code> and <code>continue</code> work as in any loop.</p>
-<p>Three kinds of iterable are supported:</p>
+<p>Four kinds of iterable are supported:</p>
 <ul>
 <li><strong>Half-open integer ranges</strong> <code>A..B</code>: iterate <code>A, A+1, …, B-1</code> (the upper bound
   is exclusive). <code>A</code> and <code>B</code> are any integer expressions:</li>
@@ -1213,6 +1219,17 @@ the underlying collection. <code>break</code> and <code>continue</code> work as 
       printf("%d\n", v);
   }</code></p>
 <ul>
+<li><strong>Slices</strong> (<code>T[]</code>): a fat pointer that carries its length, iterated element by
+  element through its data pointer:</li>
+</ul>
+<p><code>eskiu
+  int[4] xs;
+  xs[0] = 10; xs[1] = 20; xs[2] = 30; xs[3] = 40;
+  int[] s = xs[1..3];       // a view of xs[1], xs[2]
+  for (v in s) {
+      printf("%d\n", v);    // 20, 30
+  }</code></p>
+<ul>
 <li><strong>List-like structs</strong>: any struct with an <code>int size</code> field and a <code>data</code>
   pointer field, which includes <code>List&lt;T&gt;</code> from the standard library:</li>
 </ul>
@@ -1226,8 +1243,8 @@ the underlying collection. <code>break</code> and <code>continue</code> work as 
       printf("%d\n", n);
   }</code></p>
 <p>The form desugars to an index-counted loop: for an array the bound is its
-compile-time length; for a List-like value the bound is its <code>size</code> field and
-each element is read through <code>data[i]</code>.</p>
+compile-time length; for a slice the bound is its <code>.len</code>; for a List-like value
+the bound is its <code>size</code> field, and each element is read through <code>data[i]</code>.</p>
 <h3 id="73-while">7.3 while</h3>
 <pre><code class="language-eskiu">while (condition) {
     // body
@@ -2117,17 +2134,17 @@ asm(&quot;nop&quot;);
 <p>The string is passed verbatim to the assembler. No inputs, outputs, or clobbers are specified.</p>
 <h3 id="152-extended-form">15.2 Extended Form</h3>
 <p>The extended form follows GCC-compatible inline assembly syntax:</p>
-<pre><code>asm(&quot;template&quot; : outputs : inputs : clobbers);
+<pre><code>asm(&quot;template&quot; :: inputs : clobbers);
 </code></pre>
-<pre><code class="language-eskiu">asm(&quot;outb %0, %1&quot; :: &quot;a&quot;(val), &quot;Nd&quot;(port) : &quot;memory&quot;);
+<pre><code class="language-eskiu">asm(&quot;outb ${0:b}, $1&quot; :: &quot;a&quot;(val), &quot;Nd&quot;(port) : &quot;memory&quot;);
 </code></pre>
 <ul>
-<li><strong>Template</strong>: the assembly instruction string; <code>%0</code>, <code>%1</code>, … reference operands by index.</li>
-<li><strong>Outputs</strong>: list of <code>"constraint"(lvalue)</code> pairs; empty in the example above (omitted with <code>:</code>).</li>
+<li><strong>Template</strong>: the assembly instruction string; operands are referenced LLVM-style by <code>$0</code>, <code>$1</code>, … (with modifiers like <code>${0:b}</code> for a sub-register), not <code>%0</code>/<code>%1</code>.</li>
+<li><strong>Outputs</strong>: not yet supported. The output section must be empty, so the extended form always begins with <code>::</code> (the parser has no output-operand rule and <code>AsmStmt</code> has no output field). Return results through a clobbered register or memory instead.</li>
 <li><strong>Inputs</strong>: list of <code>"constraint"(expr)</code> pairs. Common constraints: <code>"a"</code> (eax/rax), <code>"Nd"</code> (8-bit immediate or dx), <code>"r"</code> (any register), <code>"m"</code> (memory).</li>
 <li><strong>Clobbers</strong>: comma-separated list of clobbered resources. <code>"memory"</code> tells the compiler that the asm may read or write arbitrary memory (acts as a compiler barrier).</li>
 </ul>
-<p>All four sections are separated by <code>:</code>. Trailing sections may be omitted if empty.</p>
+<p>Sections are separated by <code>:</code>. Trailing sections may be omitted if empty.</p>
 <h3 id="153-notes">15.3 Notes</h3>
 <ul>
 <li>Inline assembly is only meaningful when targeting a platform whose assembler understands the instructions. Use <code>--target</code> to select the appropriate triple (see §16).</li>
@@ -2179,6 +2196,10 @@ asm(&quot;nop&quot;);
 <tr>
 <td><code>eskiuc file.esk --ubsan -o prog</code></td>
 <td>Insert trapping bounds checks (traps on out-of-bounds; no runtime)</td>
+</tr>
+<tr>
+<td><code>eskiuc file.esk --safe -o prog</code></td>
+<td>Bounds-check every array and slice index at runtime (trap on out-of-range); off by default</td>
 </tr>
 <tr>
 <td><code>eskiuc file.esk -Wall -o prog</code></td>

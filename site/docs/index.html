@@ -197,7 +197,7 @@ reimplemented in Eskiu itself (<code>selfhost/</code>), reaching a 3-stage boots
 </tr>
 <tr>
 <td><strong>Inline asm</strong></td>
-<td><code>asm("cli");</code> simple form; <code>asm("outb %0, %1" :: "a"(v), "Nd"(p) : "memory");</code> extended form</td>
+<td><code>asm("cli");</code> simple form; <code>asm("outb ${0:b}, $1" :: "a"(v), "Nd"(p) : "memory");</code> extended form (LLVM operands are <code>$0</code>/<code>$1</code>)</td>
 </tr>
 <tr>
 <td><strong>Freestanding</strong></td>
@@ -276,7 +276,7 @@ reimplemented in Eskiu itself (<code>selfhost/</code>), reaching a 3-stage boots
 </tr>
 <tr>
 <td><code>string</code></td>
-<td><code>i8*</code></td>
+<td><code>ptr</code></td>
 <td><code>*T</code> / <code>T*</code></td>
 <td><code>ptr</code></td>
 </tr>

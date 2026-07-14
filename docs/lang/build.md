@@ -166,7 +166,7 @@ Expected output (LLVM IR for `hello.esk`):
 source_filename = "eskiu_module"
 
 @0 = private unnamed_addr constant [19 x i8] c"Hello from Eskiu!\0A\00"
-@1 = private unnamed_addr constant [13 x i8] c"Result: %d\0A\00"
+@1 = private unnamed_addr constant [12 x i8] c"Result: %d\0A\00"
 
 declare i32 @printf(ptr, ...)
 
@@ -264,12 +264,16 @@ Tokenizes the input and prints every token with its type, value, and source loca
 Expected output (truncated):
 
 ```
-Token[EXTERN] 'extern' at 1:1
-Token[IDENT] 'int' at 1:8
-Token[IDENT] 'printf' at 1:12
-Token[LPAREN] '(' at 1:18
-...
-Token[EOF] '' at 11:1
+Tokenizing: examples/hello.esk
+========================================================
+  Line   1, Col   1           EXTERN  'extern'
+  Line   1, Col   8              INT  'int'
+  Line   1, Col  12            IDENT  'printf'
+  Line   1, Col  18           LPAREN  '('
+  Line   1, Col  19           STRING  'string'
+  ...
+========================================================
+Total tokens: 57
 ```
 
 ### `--test-parser`
@@ -283,15 +287,26 @@ Parses the token stream and prints the AST in indented form.
 Expected output (truncated):
 
 ```
-FunctionDecl: main
-  Body:
-    VarDecl: result (int)
-      CallExpr: add
-        IntLiteral: 5
-        IntLiteral: 3
-    ExprStmt:
-      CallExpr: printf
-        StringLiteral: "Hello from Eskiu!\n"
+Parsing: examples/hello.esk
+========================================================
+Program
+  ExternDecl: printf -> int
+    Parameters:
+      string fmt
+      ... ...
+  FunctionDecl: add -> int
+    Parameters:
+      int a
+      int b
+    Body:
+      BlockStmt
+        ReturnStmt
+          BinaryExpr: +
+            Left:
+              IdentExpr: a
+            Right:
+              IdentExpr: b
+  FunctionDecl: main -> int
     ...
 ```
 
