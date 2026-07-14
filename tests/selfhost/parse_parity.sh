@@ -51,7 +51,15 @@ if [ "$#" -eq 1 ] && [ "$1" = "--full" ]; then
     # preprocessing into the lexer), so the WHOLE corpus is comparable now — no
     # preprocessor-closure exclusion. Files where the C++ ASTPrinter itself crashes
     # (body-less top-level prototype) are still skipped per-file below.
-    files=(tests/*.esk)
+    # tests/escapes.esk holds a string with an embedded NUL: the C++ std::string
+    # AST printer preserves the NUL while the self-host C-string printer truncates
+    # at it, so the dumps differ on a printer quirk, not a parse divergence. The
+    # escape decoding itself is gated by lex_parity + the escapes.esk runtime golden.
+    files=()
+    for _f in tests/*.esk; do
+        [ "$_f" = "tests/escapes.esk" ] && continue
+        files+=("$_f")
+    done
     echo "corpus: ${#files[@]} files (full tests/*.esk)"
     echo "----"
 elif [ "$#" -gt 0 ]; then

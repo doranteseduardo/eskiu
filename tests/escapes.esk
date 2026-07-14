@@ -1,0 +1,20 @@
+// Escape sequences in string and char literals decode to the right bytes.
+// Regression for the 0.6.1 lexer fix: `\0` now yields NUL (not '0'), char
+// literals accept `\r`, and both string and char share one escape set
+// (`\n \t \r \f \v \0 \\ \" \'`).
+extern int printf(string fmt, ...);
+
+int main() {
+    // Char literals: the newly-accepted escapes.
+    printf("%d %d %d %d %d\n",
+           (int)'\0', (int)'\r', (int)'\f', (int)'\v', (int)'\'');
+
+    // String with an embedded NUL: the byte is 0, and later bytes still follow.
+    string s = "a\0b";
+    printf("%d %d %d\n", (int)s[0], (int)s[1], (int)s[2]);   // 97 0 98
+
+    // String with the shared escapes: \r \f \v decode to 13 12 11.
+    string e = "\r\f\v";
+    printf("%d %d %d\n", (int)e[0], (int)e[1], (int)e[2]);   // 13 12 11
+    return 0;
+}

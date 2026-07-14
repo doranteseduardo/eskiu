@@ -180,6 +180,24 @@ void Lexer::lexError(int errLine, int errCol, const std::string& msg) {
     hadError = true;
 }
 
+// Decode a backslash escape to the byte it denotes. Shared by string and char
+// literals so both accept the same set. An unrecognized escape yields the char
+// itself (so `\q` is `q`), matching C's lenient handling.
+static char decodeEscape(char e) {
+    switch (e) {
+        case 'n':  return '\n';
+        case 't':  return '\t';
+        case 'r':  return '\r';
+        case 'f':  return '\f';
+        case 'v':  return '\v';
+        case '0':  return '\0';
+        case '\\': return '\\';
+        case '"':  return '"';
+        case '\'': return '\'';
+        default:   return e;
+    }
+}
+
 Token Lexer::read_string() {
     int start_line = line;
     int start_col = column;
@@ -190,16 +208,7 @@ Token Lexer::read_string() {
     while (!is_at_end() && peek() != '"') {
         if (peek() == '\\' && peek_next() != '\0') {
             advance();
-            char escaped = advance();
-            // Handle escape sequences
-            switch (escaped) {
-                case 'n': str += '\n'; break;
-                case 't': str += '\t'; break;
-                case 'r': str += '\r'; break;
-                case '\\': str += '\\'; break;
-                case '"': str += '"'; break;
-                default: str += escaped;
-            }
+            str += decodeEscape(advance());
         } else {
             str += advance();
         }
@@ -231,13 +240,7 @@ Token Lexer::read_char() {
     }
     if (peek() == '\\') {
         advance();
-        char escaped = advance();
-        switch (escaped) {
-            case 'n': ch += '\n'; break;
-            case 't': ch += '\t'; break;
-            case '\\': ch += '\\'; break;
-            default: ch += escaped;
-        }
+        ch += decodeEscape(advance());
     } else {
         ch += advance();
     }
