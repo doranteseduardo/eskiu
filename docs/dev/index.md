@@ -44,6 +44,7 @@ Each test mode exits 0 on success and prints a human-readable dump to stdout. A 
 | [`http2-design.md`](http2-design.md) | The HTTP/2 stack: framing, HPACK, streams and flow control, the multiplexed server |
 | [`debugging.md`](debugging.md)      | How each `--test-*` mode works, error message format, common failure patterns                  |
 | [`../../docs/API.md`](../../docs/API.md) | C++ public API reference for the lexer, parser, type checker, and codegen modules              |
+| [`../../kernel/README.md`](../../kernel/README.md) | The freestanding bare-metal ARM64 kernel demo (no libc; boots in QEMU), a worked example of `--freestanding` + inline asm |
 
 ---
 
@@ -67,7 +68,7 @@ The VS Code extension provides real-time error squiggles, hover type info, and g
 | Type checker   | `sema/type_checker.cpp` + `typecheck_{decl,stmt,expr,type}.cpp`; the `ty::Type` IR in `sema/type.{h,cpp}` | Scope resolution, type inference, struct registry, interface satisfaction, signatures; the **single type resolver** that produces a per-expression `ty::Type` table that codegen consumes |
 | Async transform | `sema/async_transform.cpp` | Rewrites each `async fn` into a frame struct + resume function + `*Future<T>` constructor (ordinary AST that normal codegen handles) |
 | Code generator | `codegen/codegen_{module,type,scope,decl,stmt,expr,call,closure,adt}.cpp`, `codegen.h` (no single `codegen/codegen.cpp`) | Walks the AST via visitor, emits LLVM IR using `llvm::IRBuilder<>`; handles GEP, vtable dispatch, and monomorphic template instantiation; consumes the type checker's resolved type table |
-| Entry point    | `main.cpp` + `main_support.cpp` | CLI dispatch; routes `--test-*` flags to the appropriate pass and drives object emission |
+| Entry point    | `main.cpp` + `main_support.cpp` | `main.cpp`: CLI dispatch, routing `--test-*` flags to the right pass and driving object emission. `main_support.cpp`: the surrounding machinery, stdlib-path resolution (from the executable's own path), linking objects into an executable, `eskiuc run` (compile to a temp binary, exec, clean up), and `eskiuc fmt` (the source formatter) |
 
 **Pipeline.** lexer → parser → type checker → async transform → **type checker RE-RUN on the transformed AST (the single resolver, producing a per-expression `ty::Type` table)** → codegen (consumes that table; `getTypeFromString` dispatches on `ty::Type::parse`, the one grammar interpreter; codegen does not re-derive expression types).
 

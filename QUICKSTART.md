@@ -18,7 +18,7 @@ tar -xzf eskiuc-linux-x86_64.tar.gz -C /usr/local
 eskiuc --version
 ```
 
-Expected output: `Eskiu 0.6.0 (LLVM ...)`
+Expected output: `Eskiu 0.6.1 (LLVM ...)`
 
 The tarball installs:
 - `bin/eskiuc`: the compiler
@@ -38,7 +38,7 @@ cmake --build build
 ./build/eskiuc --version
 ```
 
-Expected output: `Eskiu 0.6.0 (LLVM ...)`
+Expected output: `Eskiu 0.6.1 (LLVM ...)`
 
 ## Hello, Eskiu
 

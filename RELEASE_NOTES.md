@@ -1,11 +1,8 @@
-# Eskiu 0.6.0
+# Eskiu 0.6.1
 
-A memory-safety and standard-library release, in the Zig spirit: compile-time checks and
-opt-in runtime guards rather than a borrow checker, so C-faithful code keeps compiling
-unchanged while new tools make it safer when you want them. The language features landed
-in lockstep across the C++ `eskiuc` and the self-hosted compiler; the two runtime-guard
-features (`--safe`, `?*T`) ship in the C++ compiler with self-host mirrors on the
-promotion track.
+A patch release. It fixes escape-sequence decoding in string and character literals
+and lands a documentation-accuracy pass; no language features change, and existing code
+keeps compiling unchanged.
 
 ---
 
@@ -34,50 +31,20 @@ cd eskiu && cmake -S . -B build && cmake --build build
 
 ---
 
-## What's new
+## What's fixed
 
-### Memory safety
+- **Escape sequences in string and character literals.** `\0` now decodes to a NUL byte
+  instead of the character `'0'` (previously a silent trap), character literals accept
+  `\r` (and `\f`, `\v`), and string and character literals now share one escape set:
+  `\n \t \r \f \v \0 \\ \" \'`. An unrecognized escape still yields the character itself
+  (`\q` is `q`). The fix landed in lockstep across the C++ and self-hosted lexers, so both
+  decode identically.
 
-- **`defer` and `errdefer`.** `defer stmt;` runs a statement (or block) when the enclosing
-  block is left, in LIFO order, on *every* path out: fall-through, `return`, `break`,
-  `continue`, and `?`-propagation. It is the ergonomic way to pair an acquisition with its
-  release without leaking on early exits. `errdefer` is the error-only variant, running
-  only when the function leaves through a propagated `?` (for undoing partial work when a
-  later step fails). Implementing this also fixed a latent bug where `finally` was skipped
-  on an early return from inside a `try`.
-- **Slice type `T[]`.** A fat pointer (data + length) that views a contiguous run of `T`.
-  Build one by slicing a fixed array with a half-open range (`a[lo..hi]`); it supports
-  `s[i]`, `s.len`, `for (x in s)`, and passing by value. Because the length travels with
-  the slice, a function taking `T[]` needs no separate count argument.
-- **`must_use` qualifier.** Prefixing a function with `must_use` makes discarding its
-  result a compile error, catching leaked allocations and dropped return values. The
-  stdlib's `alloc` is now `must_use`, so a bare `alloc<T>(n);` is rejected.
-- **`--safe` build mode.** A new flag that inserts runtime bounds checks on slice and
-  array indexing; an out-of-range index traps instead of reading or writing past the end.
-  Off by default, so release builds are unaffected.
-- **Checked nullable pointers `?*T`.** Opt-in null safety: a `?*T` cannot be dereferenced,
-  indexed, or member-accessed until it is proven non-null, and `if (x != null) { ... }`
-  narrows it in that branch. A `*T` widens to `?*T`; the reverse needs a check. Bare `*T`
-  stays nullable (C-faithful), so existing code is unaffected, and `?*T` has the same
-  representation as a bare pointer, so the safety is entirely at compile time.
-
-### Standard library
-
-- **`<random>`.** A seedable xoshiro256\*\* generator with no global state: `rng_seed`,
-  `rng_next`, `rng_below` / `rng_range` (unbiased bounded integers), `rng_double`,
-  `rng_bool`, `rng_fill`. Not cryptographically secure.
-- **`<regex>`.** A regular-expression engine built as a Thompson NFA (Pike VM), so
-  matching is linear in the input with no catastrophic backtracking. Supports `.`, classes
-  `[a-z]` / `[^...]`, `\d \w \s`, quantifiers `* + ? {m,n}` (greedy or lazy), alternation,
-  capturing groups, and the anchors `^ $`. Use `regex_match` for a quick yes/no, or
-  `regex_compile` + `regex_search` + `match_group` to extract captures.
-- **`<sort>`.** Generic in-place `sort<T>` (heapsort, a guaranteed O(n log n) worst case)
-  and `bsearch<T>` over a `*T` array, driven by a `cmp(&x, &y)` function.
-- **`<url>`.** RFC 3986 percent-encoding (`url_encode` / `url_decode`) and form-query
-  lookup (`url_query_get`).
-- **`<uuid>`.** RFC 4122 version-4 UUIDs (`uuid_v4`), built on `<random>`.
-- **UTC civil calendar in `<time>`.** `DateTime` plus `time_to_utc` / `time_from_utc` and
-  ISO 8601 formatting (`time_format_iso`).
+- **Documentation accuracy** (from an internal audit): corrected AST node counts and
+  documented the `defer` cleanup-stack in the internals docs; regenerated the real
+  `--test-lexer` / `--test-parser` sample output; fixed the inline-asm operand syntax
+  (`$0`, not `%0`) and noted that output operands are unsupported; added an `intrinsic`
+  spec section and a `--safe` flag row; and corrected glossary token-type names.
 
 The full log is in [CHANGELOG.md](CHANGELOG.md).
 
@@ -85,7 +52,6 @@ The full log is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Upgrade
 
-Existing code compiles unchanged. Every safety feature is opt-in: bare `*T` stays
-nullable, `--safe` is off by default, and `defer` / `errdefer` / `must_use` / `T[]` are
-new surface you reach for deliberately. The one thing to know is that `must_use` is now a
-keyword, so a variable or field named `must_use` must be renamed.
+Drop-in. The only behavioral change is that `\0` in a literal now produces a NUL byte, as
+documented; code that relied on the previous (incorrect) behavior of `\0` yielding `'0'`
+should use a literal `0` character instead.
