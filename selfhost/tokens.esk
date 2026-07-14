@@ -165,17 +165,20 @@ string token_name(int t) {
 // Escape decoding for string/char literal lexemes, mirroring the C++
 // read_string / read_char switches (the stored LiteralExpr value is decoded,
 // quotes stripped). Shared by the lexer driver and the parser. Return the byte.
-int decode_str_escape(int e) {     // string: n, t, r, backslash, double-quote
-    if (e == 110) { return 10; }
-    if (e == 116) { return 9; }
-    if (e == 114) { return 13; }
-    if (e == 92) { return 92; }
-    if (e == 34) { return 34; }
+// Decode one backslash escape (mirrors the C++ lexer's decodeEscape); strings
+// and chars share the same set. Unknown escapes yield the char itself.
+int decode_str_escape(int e) {
+    if (e == 110) { return 10; }   // \n
+    if (e == 116) { return 9; }    // \t
+    if (e == 114) { return 13; }   // \r
+    if (e == 102) { return 12; }   // \f
+    if (e == 118) { return 11; }   // \v
+    if (e == 48) { return 0; }     // \0  -> NUL
+    if (e == 92) { return 92; }    // backslash
+    if (e == 34) { return 34; }    // "
+    if (e == 39) { return 39; }    // '
     return e;
 }
-int decode_chr_escape(int e) {     // char: narrower — only n, t, backslash
-    if (e == 110) { return 10; }
-    if (e == 116) { return 9; }
-    if (e == 92) { return 92; }
-    return e;
+int decode_chr_escape(int e) {     // identical set to decode_str_escape
+    return decode_str_escape(e);
 }
