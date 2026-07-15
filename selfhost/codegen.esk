@@ -1358,6 +1358,35 @@ string cg_global_init(Codegen* g, *ExprNode e, string llty) {
         if (e.lit_kind == LIT_STRING) { return "zeroinitializer"; }   // ptr global; rare, defer
         return e.sval;                                       // integer literal
     }
+    if (e.kind == EK_LAMBDA) {
+        // A non-capturing lambda is a compile-time-constant closure { @lambdaN, null }:
+        // queue its body for emission and fold to the constant fat pointer, so a global
+        // (or static) initializer holds a real callable, not a null closure. A capturing
+        // closure needs a live frame, so it can't be a global constant (rare; deferred).
+        List<string> pp; List_init<string>(&pp, 4); cg_paren_list(e.sval, &pp);
+        List<string> ids; List_init<string>(&ids, 16); cg_collect_idents_s(e.stmt, &ids);
+        int ci = 0;
+        while (ci < List_len<string>(&ids)) {
+            string nm = List_get<string>(&ids, ci);
+            ci = ci + 1;
+            int isparam = 0; int pj = 0;
+            while (pj < List_len<string>(&pp)) {
+                if (cg_streq(cg_last_word(List_get<string>(&pp, pj)), nm) == 1) { isparam = 1; }
+                pj = pj + 1;
+            }
+            if (isparam == 1) { continue; }
+            CgLocal l = cg_find_local(g, nm);
+            if (l.slot[0] != 0) { return "zeroinitializer"; }   // captures a local: can't fold
+        }
+        string lname = cg_cat("__lambda", cg_itoa(g.lam_seq));
+        g.lam_seq = g.lam_seq + 1;
+        List<string> capn; List_init<string>(&capn, 1);
+        List<string> capt; List_init<string>(&capt, 1);
+        let lam: CgLambda; lam.name = lname; lam.node = e; lam.capn = capn; lam.capt = capt;
+        if (g.lam_expret[0] != 0) { lam.rety = g.lam_expret; } else { lam.rety = cg_arm_var(e.sval); }
+        List_push<CgLambda>(&g.lambdas, lam);
+        return cg_cat(cg_cat("{ ptr @", lname), ", ptr null }");
+    }
     return "zeroinitializer";
 }
 
@@ -1952,6 +1981,16 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
                 string cval = cg_tmp(g);
                 cg_emit(g, "  "); cg_emit(g, cval); cg_emit(g, " = load %closure, ptr "); cg_emit(g, lf.slot); cg_emit(g, "\n");
                 return cg_indirect_call(g, cval, lf.ety, e);
+            }
+        }
+        // Same, but the callee is a GLOBAL variable of fn type (`let f: fn(int)->int = ...`
+        // at module scope, then `f(x)`): load the %closure from the global's address.
+        if (e.a != null && e.a.kind == EK_IDENT) {
+            CgLocal gf = cg_find_global(g, e.a.sval);
+            if (gf.slot[0] != 0 && cg_is_fnty(gf.ety) == 1) {
+                string cval = cg_tmp(g);
+                cg_emit(g, "  "); cg_emit(g, cval); cg_emit(g, " = load %closure, ptr "); cg_emit(g, gf.slot); cg_emit(g, "\n");
+                return cg_indirect_call(g, cval, gf.ety, e);
             }
         }
         // A call through a closure-typed FIELD (e.g. `fr.ret.waker()`): not a method.
@@ -2890,7 +2929,9 @@ void cg_stmt(Codegen* g, *StmtNode st) {
             String_append(&g.globals, " = internal global ");
             String_append(&g.globals, ty);
             String_append(&g.globals, " ");
+            if (cg_is_fnty(st.type) == 1) { g.lam_expret = cg_fnty_ret(st.type); }  // thread fn-type return into a lambda init
             String_append(&g.globals, cg_global_init(g, st.expr, ty));
+            g.lam_expret = "";
             String_append(&g.globals, "\n");
             cg_add_local(g, st.name, gname, ty, cg_apply_sub(g, st.type));
             return;
@@ -3640,7 +3681,9 @@ void cg_program(Codegen* g, *Program prog) {
             cg_add_global(g, d.name, cg_cat("@", d.name), llty, d.ret_type);
             String_append(&g.globals, "@"); String_append(&g.globals, d.name);
             String_append(&g.globals, " = global "); String_append(&g.globals, llty);
+            if (cg_is_fnty(d.ret_type) == 1) { g.lam_expret = cg_fnty_ret(d.ret_type); }  // thread fn-type return into a lambda init
             String_append(&g.globals, " "); String_append(&g.globals, cg_global_init(g, d.init, llty));
+            g.lam_expret = "";
             String_append(&g.globals, "\n");
         }
         si = si + 1;

@@ -57,6 +57,20 @@ std::string CodeGen::lookupVarType(const std::string& name) const {
 }
 
 llvm::Constant* CodeGen::evaluateConstantExpr(const ExprPtr& expr) {
+    // A non-capturing lambda is a compile-time-constant closure {fn_ptr, null}:
+    // emit its function and fold to the constant fat pointer, so a global/static
+    // initializer holds a real callable instead of a null closure. (A capturing
+    // lambda needs a live frame, so it can't be a global constant.)
+    if (auto* lam = dynamic_cast<LambdaExpr*>(expr.get())) {
+        if (!lam->captures.empty()) return nullptr;
+        std::string lambdaName = "__lambda" + std::to_string(lambdaSeq++);
+        llvm::Function* func = emitLambdaFunction(lam, lambdaName, nullptr);
+        auto* fatTy = llvm::cast<llvm::StructType>(getTypeFromString("fn()->void"));
+        return llvm::ConstantStruct::get(fatTy,
+            {func, llvm::ConstantPointerNull::get(
+                       llvm::PointerType::get(*context, 0))});
+    }
+
     // Fold unary minus on a numeric literal: -(N) → negative constant
     if (auto* unary = dynamic_cast<UnaryExpr*>(expr.get())) {
         if (unary->op == "-") {
