@@ -180,9 +180,18 @@ void Lexer::lexError(int errLine, int errCol, const std::string& msg) {
     hadError = true;
 }
 
+// Hex value of a digit, or -1 if it is not a hex digit. For `\xNN` escapes.
+static int hexDigit(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
 // Decode a backslash escape to the byte it denotes. Shared by string and char
 // literals so both accept the same set. An unrecognized escape yields the char
-// itself (so `\q` is `q`), matching C's lenient handling.
+// itself (so `\q` is `q`), matching C's lenient handling. `\xNN` (one or two hex
+// digits) is handled separately by the readers, since it consumes extra chars.
 static char decodeEscape(char e) {
     switch (e) {
         case 'n':  return '\n';
@@ -207,8 +216,15 @@ Token Lexer::read_string() {
 
     while (!is_at_end() && peek() != '"') {
         if (peek() == '\\' && peek_next() != '\0') {
-            advance();
-            str += decodeEscape(advance());
+            advance();                       // consume '\'
+            char e = advance();
+            if (e == 'x' && hexDigit(peek()) >= 0) {
+                int b = hexDigit(advance());
+                if (hexDigit(peek()) >= 0) b = b * 16 + hexDigit(advance());
+                str += (char)b;
+            } else {
+                str += decodeEscape(e);
+            }
         } else {
             str += advance();
         }
@@ -239,8 +255,15 @@ Token Lexer::read_char() {
         return Token(TokenType::CHAR_LIT, ch, start_line, start_col);
     }
     if (peek() == '\\') {
-        advance();
-        ch += decodeEscape(advance());
+        advance();                           // consume '\'
+        char e = advance();
+        if (e == 'x' && hexDigit(peek()) >= 0) {
+            int b = hexDigit(advance());
+            if (hexDigit(peek()) >= 0) b = b * 16 + hexDigit(advance());
+            ch += (char)b;
+        } else {
+            ch += decodeEscape(e);
+        }
     } else {
         ch += advance();
     }
