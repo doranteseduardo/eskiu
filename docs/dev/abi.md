@@ -169,8 +169,8 @@ argument.
 **Slices.** A slice `T[]` is also a fat pointer, but `{ ptr, i64 }`: a pointer to
 the first element plus an element count. `s[i]` indexes through the pointer,
 `s.len` reads field 1, and the slice is passed and returned by value like any
-small struct. A slice aliases its backing storage (it is built by slicing an
-array with `a[lo..hi]`), so it neither owns nor copies the data.
+small struct. A slice aliases its backing storage (it is built by slicing a fixed
+array or a raw pointer with `a[lo..hi]`), so it neither owns nor copies the data.
 
 ---
 

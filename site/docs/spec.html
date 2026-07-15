@@ -191,6 +191,10 @@ cast). Integer literals are <code>int</code> (i32), widening to <code>int64</cod
 <td><code>\'</code></td>
 <td>Single quote</td>
 </tr>
+<tr>
+<td><code>\xNN</code></td>
+<td>Raw byte from one or two hex digits (e.g. <code>\xC3</code> is byte <code>0xC3</code>)</td>
+</tr>
 </tbody>
 </table></div>
 <p>An unrecognized escape (<code>\q</code>) yields the character itself (<code>q</code>).</p>
@@ -379,9 +383,11 @@ a[1][2];                                    // 6  (row 1, column 2)
 carrying both a data pointer and a length. Unlike a fixed array, a slice's length travels
 with it, so a function that takes a <code>T[]</code> never needs a separate count argument, killing
 the classic "pointer without its length" bug.</p>
-<p>Create a slice by <strong>slicing</strong> a fixed array with a half-open range (reusing the <code>..</code>
-operator): <code>a[lo..hi]</code> is a view of elements <code>lo</code> through <code>hi-1</code>. The slice <strong>aliases</strong> the
-backing array; writing through it writes to the array.</p>
+<p>Create a slice by <strong>slicing</strong> a fixed array <em>or a raw pointer</em> with a half-open range
+(reusing the <code>..</code> operator): <code>a[lo..hi]</code> is a view of elements <code>lo</code> through <code>hi-1</code>.
+Slicing a <code>*T</code> (for example a heap buffer from <code>alloc&lt;T&gt;(n)</code>) yields a <code>T[]</code> over that
+memory, so slices are not limited to fixed arrays. The slice <strong>aliases</strong> the backing
+storage; writing through it writes to the array or buffer.</p>
 <pre><code class="language-eskiu">int[6] a = {10, 20, 30, 40, 50, 60};
 
 int[] mid = a[1..4];     // view of {20, 30, 40}
