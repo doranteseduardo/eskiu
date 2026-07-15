@@ -1,0 +1,114 @@
+// url.esk: percent-encoding (RFC 3986) and form-query parsing.
+//
+//   import <url>;
+//   let out: String; String_init(&out, 16);
+//   url_encode("a b&c", &out);              // "a%20b%26c"
+//   String_clear(&out);
+//   url_decode("a%20b", &out);              // "a b"
+//   String_clear(&out);
+//   if (url_query_get("x=1&msg=hi+there", "msg", &out) == 1) { ... }   // "hi there"
+//
+// All outputs are appended to a String the caller owns (init it first). Bytes
+// outside the unreserved set A-Z a-z 0-9 - _ . ~ are percent-encoded.
+
+import <mem>;
+import <string>;
+
+uint8 url_hex(int v) {
+    if (v < 10) { return (uint8)(48 + v); }
+    return (uint8)(65 + v - 10);        // uppercase A-F (RFC 3986 normal form)
+}
+
+int url_unhex(int c) {
+    if (c >= 48 && c <= 57) { return c - 48; }
+    if (c >= 97 && c <= 102) { return c - 97 + 10; }
+    if (c >= 65 && c <= 70) { return c - 65 + 10; }
+    return -1;
+}
+
+// Unreserved per RFC 3986: A-Z a-z 0-9 - _ . ~
+int url_is_unreserved(int c) {
+    if (c >= 48 && c <= 57) { return 1; }
+    if (c >= 65 && c <= 90) { return 1; }
+    if (c >= 97 && c <= 122) { return 1; }
+    if (c == 45 || c == 95 || c == 46 || c == 126) { return 1; }
+    return 0;
+}
+
+// Percent-encode `s` into `out`. Every non-unreserved byte becomes %XX (so a
+// space becomes %20, not +).
+void url_encode(string s, String* out) {
+    int64 n = strlen(s);
+    int64 i = 0;
+    while (i < n) {
+        int c = (int)((uint8)s[i]);
+        if (url_is_unreserved(c) == 1) {
+            String_push(out, (char)c);
+        } else {
+            String_push(out, '%');
+            String_push(out, (char)url_hex(c / 16));
+            String_push(out, (char)url_hex(c % 16));
+        }
+        i = i + 1;
+    }
+}
+
+// Decode the byte range [start, end) of `s` into `out`. `plus_as_space` turns
+// '+' into a space (the application/x-www-form-urlencoded rule).
+void url_decode_range(string s, int64 start, int64 end, String* out, int plus_as_space) {
+    int64 i = start;
+    while (i < end) {
+        int c = (int)((uint8)s[i]);
+        if (c == 37 && i + 2 < end) {           // '%'
+            int hi = url_unhex((int)((uint8)s[i + 1]));
+            int lo = url_unhex((int)((uint8)s[i + 2]));
+            if (hi >= 0 && lo >= 0) {
+                String_push(out, (char)(hi * 16 + lo));
+                i = i + 3;
+                continue;
+            }
+        }
+        if (c == 43 && plus_as_space == 1) {     // '+'
+            String_push(out, ' ');
+            i = i + 1;
+            continue;
+        }
+        String_push(out, (char)c);
+        i = i + 1;
+    }
+}
+
+// Percent-decode `s` into `out`. A literal '+' is kept as '+' (use the query
+// helpers for form data, where '+' means space).
+void url_decode(string s, String* out) {
+    url_decode_range(s, 0, strlen(s), out, 0);
+}
+
+// Look up `key` in a query string like "a=1&msg=hi+there". On a hit, appends the
+// decoded value (with '+' as space) to `out` and returns 1; otherwise returns 0.
+int url_query_get(string query, string key, String* out) {
+    int64 n = strlen(query);
+    int64 klen = strlen(key);
+    int64 i = 0;
+    while (i < n) {
+        int64 j = i;
+        while (j < n && query[j] != '&') { j = j + 1; }
+        int64 eq = i;
+        while (eq < j && query[eq] != '=') { eq = eq + 1; }
+        int hit = 0;
+        if (eq - i == klen) {
+            hit = 1;
+            int64 k = 0;
+            while (k < klen) {
+                if (query[i + k] != key[k]) { hit = 0; break; }
+                k = k + 1;
+            }
+        }
+        if (hit == 1) {
+            if (eq < j) { url_decode_range(query, eq + 1, j, out, 1); }
+            return 1;
+        }
+        i = j + 1;
+    }
+    return 0;
+}

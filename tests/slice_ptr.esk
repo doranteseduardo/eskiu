@@ -1,0 +1,29 @@
+// Slice construction from a raw (heap) pointer: `ptr[lo..hi]` yields a `T[]`
+// fat pointer over the pointer's memory, so heap buffers can become slices.
+import <mem>;
+extern int printf(string fmt, ...);
+
+int sum(int[] s) {
+    int t = 0;
+    for (x in s) { t = t + x; }
+    return t;
+}
+
+int main() {
+    *int p = alloc<int>(6);
+    int i = 0;
+    while (i < 6) { p[i] = i * i; i = i + 1; }   // 0 1 4 9 16 25
+
+    int[] mid = p[1..5];                          // view of p[1..4] = 1 4 9 16
+    printf("len=%lld first=%d last=%d\n", mid.len, mid[0], mid[3]);   // 4 1 16
+    printf("sum=%d\n", sum(mid));                 // 1+4+9+16 = 30
+
+    mid[0] = 100;                                 // write aliases the backing buffer
+    printf("p[1]=%d\n", p[1]);                    // 100
+
+    int[] all = p[0..6];                          // whole-buffer slice
+    printf("all.len=%lld all[5]=%d\n", all.len, all[5]);   // 6 25
+
+    free(p);
+    return 0;
+}

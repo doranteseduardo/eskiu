@@ -1,0 +1,13 @@
+// \xNN hex escapes in string and char literals (0.6.1 re-cut). Decode to the
+// exact byte(s); `\xC3\x91` is Ñ in UTF-8, `\x41` is 'A'. Both compilers must
+// decode identically (gated by lex_parity).
+extern int printf(string fmt, ...);
+int main() {
+    string n = "\xC3\x91";
+    printf("%d %d %d\n", (int)(uint8)n[0], (int)(uint8)n[1], (int)(uint8)n[2]);  // 195 145 0
+    char a = '\x41';
+    printf("%d\n", (int)a);                                                       // 65
+    string one = "z\xAy";                                                         // single hex digit
+    printf("%d %d %d\n", (int)(uint8)one[0], (int)(uint8)one[1], (int)(uint8)one[2]); // 122 10 121
+    return 0;
+}

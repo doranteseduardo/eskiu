@@ -36,7 +36,7 @@ Each test mode exits 0 on success and prints a human-readable dump to stdout. A 
 | ------------------- | ---------------------------------------------------------------------------------------------- |
 | [`architecture.md`](architecture.md)   | Pipeline stages, AST node hierarchy, visitor pattern, type mappings (Eskiu → LLVM)             |
 | [`abi.md`](abi.md)            | Type lowering, calling convention (sret, varargs), fat pointers, name mangling: the C-ABI contract |
-| [`phases.md`](phases.md)         | Current language status, feature table, and roadmap (v0.1 → v0.2.x hardening → v0.3.x self-hosting → v1.0)  |
+| [`phases.md`](phases.md)         | Current language status, feature table, and roadmap (v0.1 → v0.2.x hardening → v0.3.x self-hosting → v0.4 correctness → v0.5 basic-C → v0.6 memory-safety → v1.0)  |
 | [`self-hosting.md`](self-hosting.md) | How the compiler is written in Eskiu (`selfhost/`) and how parity/bootstrap keep it honest |
 | [`contributing.md`](contributing.md)   | Branch workflow, code style, commit conventions, testing checklist                             |
 | [`design.md`](design.md)         | Rationale for key decisions: C-style syntax, no GC, implicit interfaces, monomorphic templates |
@@ -44,6 +44,7 @@ Each test mode exits 0 on success and prints a human-readable dump to stdout. A 
 | [`http2-design.md`](http2-design.md) | The HTTP/2 stack: framing, HPACK, streams and flow control, the multiplexed server |
 | [`debugging.md`](debugging.md)      | How each `--test-*` mode works, error message format, common failure patterns                  |
 | [`../../docs/API.md`](../../docs/API.md) | C++ public API reference for the lexer, parser, type checker, and codegen modules              |
+| [`../../kernel/README.md`](../../kernel/README.md) | The freestanding bare-metal ARM64 kernel demo (no libc; boots in QEMU), a worked example of `--freestanding` + inline asm |
 
 ---
 
@@ -51,7 +52,7 @@ Each test mode exits 0 on success and prints a human-readable dump to stdout. A 
 
 All compiler phases and editor tooling are complete and tested end-to-end. The language covers async/await, the full HTTP/2 stack (framing, HPACK with Huffman, streams and flow control, the multiplexed server, and TLS/ALPN), sum types with `match`, monomorphic and bounded generics (`<T: Iface>` / `<T: A + B>`), and a broad stdlib (allocators, threading, sockets, the async runtime, JSON, and more). The type checker is the single type resolver, and codegen consumes its resolved expression types.
 
-As of v0.3.0 the compiler is also **self-hosted**: the whole pipeline is reimplemented in Eskiu under `selfhost/`, reaching a 3-stage bootstrap fixpoint with a code generator feature-complete against the C++ corpus (see [`self-hosting.md`](self-hosting.md)). v0.3.1 added `-O0`/`-O1`/`-O2`/`-O3` optimization levels and a `-O0`-vs-`-O2` CI differential.
+As of v0.3.0 the compiler is also **self-hosted**: the whole pipeline is reimplemented in Eskiu under `selfhost/`, reaching a 3-stage bootstrap fixpoint with a code generator feature-complete against the C++ corpus (see [`self-hosting.md`](self-hosting.md)). v0.3.1 added `-O0`/`-O1`/`-O2`/`-O3` optimization levels and a `-O0`-vs-`-O2` CI differential. v0.4.0 was a correctness bug-hunt that also tightened the type system; v0.5.0 filled the last basic-C constructs (`do`/`while`, `++`/`--`, array initializers, `static` locals, multidimensional arrays, the ternary `?:`); and v0.6.0 added opt-in memory safety (`defer`/`errdefer`, slices `T[]`, `must_use`, `--safe`, checked nullable pointers `?*T`) plus the `<random>`/`<regex>`/`<sort>`/`<url>`/`<uuid>` stdlib modules and a UTC civil calendar in `<time>`.
 
 The VS Code extension provides real-time error squiggles, hover type info, and go-to-definition via two CLI flags (`--hover-at`, `--definition-at`). See `phases.md` for the full feature table and roadmap.
 
@@ -67,7 +68,7 @@ The VS Code extension provides real-time error squiggles, hover type info, and g
 | Type checker   | `sema/type_checker.cpp` + `typecheck_{decl,stmt,expr,type}.cpp`; the `ty::Type` IR in `sema/type.{h,cpp}` | Scope resolution, type inference, struct registry, interface satisfaction, signatures; the **single type resolver** that produces a per-expression `ty::Type` table that codegen consumes |
 | Async transform | `sema/async_transform.cpp` | Rewrites each `async fn` into a frame struct + resume function + `*Future<T>` constructor (ordinary AST that normal codegen handles) |
 | Code generator | `codegen/codegen_{module,type,scope,decl,stmt,expr,call,closure,adt}.cpp`, `codegen.h` (no single `codegen/codegen.cpp`) | Walks the AST via visitor, emits LLVM IR using `llvm::IRBuilder<>`; handles GEP, vtable dispatch, and monomorphic template instantiation; consumes the type checker's resolved type table |
-| Entry point    | `main.cpp` + `main_support.cpp` | CLI dispatch; routes `--test-*` flags to the appropriate pass and drives object emission |
+| Entry point    | `main.cpp` + `main_support.cpp` | `main.cpp`: CLI dispatch, routing `--test-*` flags to the right pass and driving object emission. `main_support.cpp`: the surrounding machinery, stdlib-path resolution (from the executable's own path), linking objects into an executable, `eskiuc run` (compile to a temp binary, exec, clean up), and `eskiuc fmt` (the source formatter) |
 
 **Pipeline.** lexer → parser → type checker → async transform → **type checker RE-RUN on the transformed AST (the single resolver, producing a per-expression `ty::Type` table)** → codegen (consumes that table; `getTypeFromString` dispatches on `ty::Type::parse`, the one grammar interpreter; codegen does not re-derive expression types).
 

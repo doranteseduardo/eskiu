@@ -115,7 +115,7 @@ clang hello.o -o hello
 </tr>
 <tr>
 <td><a href="https://github.com/doranteseduardo/eskiu/blob/main/docs/dev/phases.md"><code>phases.md</code></a></td>
-<td>Current language status, feature table, and roadmap (v0.1 → v0.2.x hardening → v0.3.x self-hosting → v1.0)</td>
+<td>Current language status, feature table, and roadmap (v0.1 → v0.2.x hardening → v0.3.x self-hosting → v0.4 correctness → v0.5 basic-C → v0.6 memory-safety → v1.0)</td>
 </tr>
 <tr>
 <td><a href="self-hosting.html"><code>self-hosting.md</code></a></td>
@@ -145,12 +145,16 @@ clang hello.o -o hello
 <td><a href="api.html"><code>../../docs/API.md</code></a></td>
 <td>C++ public API reference for the lexer, parser, type checker, and codegen modules</td>
 </tr>
+<tr>
+<td><a href="https://github.com/doranteseduardo/eskiu/blob/main/kernel/README.md"><code>../../kernel/README.md</code></a></td>
+<td>The freestanding bare-metal ARM64 kernel demo (no libc; boots in QEMU), a worked example of <code>--freestanding</code> + inline asm</td>
+</tr>
 </tbody>
 </table></div>
 <hr>
 <h2 id="current-state">Current State</h2>
 <p>All compiler phases and editor tooling are complete and tested end-to-end. The language covers async/await, the full HTTP/2 stack (framing, HPACK with Huffman, streams and flow control, the multiplexed server, and TLS/ALPN), sum types with <code>match</code>, monomorphic and bounded generics (<code>&lt;T: Iface&gt;</code> / <code>&lt;T: A + B&gt;</code>), and a broad stdlib (allocators, threading, sockets, the async runtime, JSON, and more). The type checker is the single type resolver, and codegen consumes its resolved expression types.</p>
-<p>As of v0.3.0 the compiler is also <strong>self-hosted</strong>: the whole pipeline is reimplemented in Eskiu under <code>selfhost/</code>, reaching a 3-stage bootstrap fixpoint with a code generator feature-complete against the C++ corpus (see <a href="self-hosting.html"><code>self-hosting.md</code></a>). v0.3.1 added <code>-O0</code>/<code>-O1</code>/<code>-O2</code>/<code>-O3</code> optimization levels and a <code>-O0</code>-vs-<code>-O2</code> CI differential.</p>
+<p>As of v0.3.0 the compiler is also <strong>self-hosted</strong>: the whole pipeline is reimplemented in Eskiu under <code>selfhost/</code>, reaching a 3-stage bootstrap fixpoint with a code generator feature-complete against the C++ corpus (see <a href="self-hosting.html"><code>self-hosting.md</code></a>). v0.3.1 added <code>-O0</code>/<code>-O1</code>/<code>-O2</code>/<code>-O3</code> optimization levels and a <code>-O0</code>-vs-<code>-O2</code> CI differential. v0.4.0 was a correctness bug-hunt that also tightened the type system; v0.5.0 filled the last basic-C constructs (<code>do</code>/<code>while</code>, <code>++</code>/<code>--</code>, array initializers, <code>static</code> locals, multidimensional arrays, the ternary <code>?:</code>); and v0.6.0 added opt-in memory safety (<code>defer</code>/<code>errdefer</code>, slices <code>T[]</code>, <code>must_use</code>, <code>--safe</code>, checked nullable pointers <code>?*T</code>) plus the <code>&lt;random&gt;</code>/<code>&lt;regex&gt;</code>/<code>&lt;sort&gt;</code>/<code>&lt;url&gt;</code>/<code>&lt;uuid&gt;</code> stdlib modules and a UTC civil calendar in <code>&lt;time&gt;</code>.</p>
 <p>The VS Code extension provides real-time error squiggles, hover type info, and go-to-definition via two CLI flags (<code>--hover-at</code>, <code>--definition-at</code>). See <code>phases.md</code> for the full feature table and roadmap.</p>
 <hr>
 <h2 id="architecture-at-a-glance">Architecture at a Glance</h2>
@@ -196,7 +200,7 @@ clang hello.o -o hello
 <tr>
 <td>Entry point</td>
 <td><code>main.cpp</code> + <code>main_support.cpp</code></td>
-<td>CLI dispatch; routes <code>--test-*</code> flags to the appropriate pass and drives object emission</td>
+<td><code>main.cpp</code>: CLI dispatch, routing <code>--test-*</code> flags to the right pass and driving object emission. <code>main_support.cpp</code>: the surrounding machinery, stdlib-path resolution (from the executable's own path), linking objects into an executable, <code>eskiuc run</code> (compile to a temp binary, exec, clean up), and <code>eskiuc fmt</code> (the source formatter)</td>
 </tr>
 </tbody>
 </table></div>

@@ -180,6 +180,33 @@ void Lexer::lexError(int errLine, int errCol, const std::string& msg) {
     hadError = true;
 }
 
+// Hex value of a digit, or -1 if it is not a hex digit. For `\xNN` escapes.
+static int hexDigit(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+// Decode a backslash escape to the byte it denotes. Shared by string and char
+// literals so both accept the same set. An unrecognized escape yields the char
+// itself (so `\q` is `q`), matching C's lenient handling. `\xNN` (one or two hex
+// digits) is handled separately by the readers, since it consumes extra chars.
+static char decodeEscape(char e) {
+    switch (e) {
+        case 'n':  return '\n';
+        case 't':  return '\t';
+        case 'r':  return '\r';
+        case 'f':  return '\f';
+        case 'v':  return '\v';
+        case '0':  return '\0';
+        case '\\': return '\\';
+        case '"':  return '"';
+        case '\'': return '\'';
+        default:   return e;
+    }
+}
+
 Token Lexer::read_string() {
     int start_line = line;
     int start_col = column;
@@ -189,16 +216,14 @@ Token Lexer::read_string() {
 
     while (!is_at_end() && peek() != '"') {
         if (peek() == '\\' && peek_next() != '\0') {
-            advance();
-            char escaped = advance();
-            // Handle escape sequences
-            switch (escaped) {
-                case 'n': str += '\n'; break;
-                case 't': str += '\t'; break;
-                case 'r': str += '\r'; break;
-                case '\\': str += '\\'; break;
-                case '"': str += '"'; break;
-                default: str += escaped;
+            advance();                       // consume '\'
+            char e = advance();
+            if (e == 'x' && hexDigit(peek()) >= 0) {
+                int b = hexDigit(advance());
+                if (hexDigit(peek()) >= 0) b = b * 16 + hexDigit(advance());
+                str += (char)b;
+            } else {
+                str += decodeEscape(e);
             }
         } else {
             str += advance();
@@ -230,13 +255,14 @@ Token Lexer::read_char() {
         return Token(TokenType::CHAR_LIT, ch, start_line, start_col);
     }
     if (peek() == '\\') {
-        advance();
-        char escaped = advance();
-        switch (escaped) {
-            case 'n': ch += '\n'; break;
-            case 't': ch += '\t'; break;
-            case '\\': ch += '\\'; break;
-            default: ch += escaped;
+        advance();                           // consume '\'
+        char e = advance();
+        if (e == 'x' && hexDigit(peek()) >= 0) {
+            int b = hexDigit(advance());
+            if (hexDigit(peek()) >= 0) b = b * 16 + hexDigit(advance());
+            ch += (char)b;
+        } else {
+            ch += decodeEscape(e);
         }
     } else {
         ch += advance();

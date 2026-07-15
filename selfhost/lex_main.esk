@@ -24,7 +24,9 @@ void emit_value(*uint8 src, int type, int start, int len) {
             int ch = (int)src[i];
             if (ch == 92 && i + 1 < endp) { // '\' with a char after it
                 i = i + 1;
-                putchar(decode_str_escape((int)src[i]));
+                int adv = 0;
+                putchar(decode_escape_span(src, i, endp, &adv));
+                i = i + adv;
             } else {
                 putchar(ch);
             }
@@ -39,7 +41,8 @@ void emit_value(*uint8 src, int type, int start, int len) {
             int ch = (int)src[i];
             if (ch == 92 && i + 1 < endp) {
                 i = i + 1;
-                putchar(decode_chr_escape((int)src[i]));
+                int adv = 0;
+                putchar(decode_escape_span(src, i, endp, &adv));
             } else {
                 putchar(ch);
             }

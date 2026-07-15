@@ -261,8 +261,8 @@ argument.</p>
 <p><strong>Slices.</strong> A slice <code>T[]</code> is also a fat pointer, but <code>{ ptr, i64 }</code>: a pointer to
 the first element plus an element count. <code>s[i]</code> indexes through the pointer,
 <code>s.len</code> reads field 1, and the slice is passed and returned by value like any
-small struct. A slice aliases its backing storage (it is built by slicing an
-array with <code>a[lo..hi]</code>), so it neither owns nor copies the data.</p>
+small struct. A slice aliases its backing storage (it is built by slicing a fixed
+array or a raw pointer with <code>a[lo..hi]</code>), so it neither owns nor copies the data.</p>
 <hr>
 <h2 id="name-mangling">Name mangling</h2>
 <p>Template and generic-enum instances are monomorphized with a deterministic

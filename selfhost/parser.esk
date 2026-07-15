@@ -259,7 +259,9 @@ string tok_str_value(*uint8 src, Token t) {
         int ch = (int)src[i];
         if (ch == 92 && i + 1 < endp) {
             i = i + 1;
-            buf[off] = (uint8)decode_str_escape((int)src[i]);
+            int adv = 0;
+            buf[off] = (uint8)decode_escape_span(src, i, endp, &adv);
+            i = i + adv;
         } else {
             buf[off] = (uint8)ch;
         }
@@ -278,7 +280,8 @@ string tok_char_value(*uint8 src, Token t) {
     if (i < endp) {
         int ch = (int)src[i];
         if (ch == 92 && i + 1 < endp) {
-            buf[off] = (uint8)decode_chr_escape((int)src[i + 1]);
+            int adv = 0;
+            buf[off] = (uint8)decode_escape_span(src, i + 1, endp, &adv);
         } else {
             buf[off] = (uint8)ch;
         }

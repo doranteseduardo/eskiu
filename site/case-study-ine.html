@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Case study: INE QR decoder · Eskiu</title>
+  <meta name="description" content="A real cryptographic pipeline in Eskiu: the INE credential-QR decoder (multi-round AES-256 + RSA-8192, QR image extraction) reimplemented in Eskiu, bit-identical to five other implementations and 2.5x faster than the reference C." />
+  <link rel="canonical" href="https://eskiu-lang.org/case-study-ine.html" />
+  <link rel="icon" type="image/png" href="../assets/logo.png" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #ffffff; --surface: #f6f7f9; --border: #e6e8ec;
+      --ink: #16181d; --ink2: #4f555f; --purple: #4c31bb; --purple-lt: #6448d4;
+      --sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      --mono: ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+    }
+    html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+    body { background: var(--bg); color: var(--ink); font-family: var(--sans);
+           line-height: 1.65; -webkit-font-smoothing: antialiased; }
+    .wrap { max-width: 720px; margin: 0 auto; padding: 2.5rem 1.25rem 5rem; }
+    .top { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 2.5rem; }
+    .top img { width: 30px; height: 30px; }
+    .top a { color: var(--ink2); text-decoration: none; font-size: 0.85rem; }
+    .top a:hover { color: var(--purple); }
+    .eyebrow { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.12em;
+               text-transform: uppercase; color: var(--purple); margin-bottom: 0.6rem; }
+    h1 { font-size: clamp(1.8rem, 5vw, 2.6rem); letter-spacing: -0.03em;
+         line-height: 1.1; margin-bottom: 1.5rem; }
+    h2 { font-size: 1.25rem; letter-spacing: -0.02em; margin: 2.5rem 0 0.75rem; }
+    p { margin: 0 0 1rem; }
+    a { color: var(--purple); }
+    .pull { border-left: 3px solid var(--purple); background: var(--surface);
+            padding: 1.1rem 1.25rem; border-radius: 0 8px 8px 0; margin: 0 0 1.5rem;
+            font-size: 1.05rem; }
+    .pull .stat { display: block; margin-top: 0.6rem; font-weight: 600; color: var(--purple); }
+    table { width: 100%; border-collapse: collapse; margin: 0 0 1.5rem; font-size: 0.92rem; }
+    th, td { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border); }
+    th { color: var(--ink2); font-weight: 600; }
+    td.n { font-variant-numeric: tabular-nums; white-space: nowrap; }
+    ul { margin: 0 0 1rem 1.1rem; }
+    li { margin-bottom: 0.5rem; }
+    code { font-family: var(--mono); font-size: 0.88em; background: var(--surface);
+           padding: 0.1em 0.35em; border-radius: 4px; }
+    strong { font-weight: 600; }
+    .foot { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--border);
+            font-size: 0.9rem; color: var(--ink2); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <img src="../assets/logo.png" alt="Eskiu" />
+      <a href="index.html">← eskiu</a>
+    </div>
+
+    <div class="eyebrow">Case study</div>
+    <h1>A real cryptographic pipeline in Eskiu</h1>
+
+    <div class="pull">
+      The INE credential-QR decoder, a multi-round AES-256 + RSA-8192 pipeline with
+      QR image extraction, reimplemented in Eskiu and served as an HTTP API, on a
+      stack built entirely from the standard library.
+      <span class="stat">2.5× faster than the reference C, bit-identical to five other implementations.</span>
+    </div>
+
+    <h2>The workload</h2>
+    <p>
+      Mexico's INE voter credential carries two QR codes that pack 18 biographical
+      fields plus the credential photo behind a <strong>seven-layer cryptographic
+      pipeline</strong>: multiple rounds of AES-256-CBC keyed off values derived at
+      runtime, RSA-8192 block decryption, a base64 stage, and a 6-bit text unpacker.
+      Decoding one starts from a <strong>photo of the card</strong>: detect and read
+      the two QR payloads, then run the whole pipeline to recover the fields and
+      rebuild the photo. It is a compact but unforgiving mix of image handling,
+      real cryptography, and byte-exact bit manipulation, exactly the kind of code
+      that is normally C's and nobody else's.
+    </p>
+
+    <h2>Why Eskiu fit</h2>
+    <ul>
+      <li><strong>C libraries, directly.</strong> The pipeline leans on OpenSSL for
+        AES/RSA and <code>zxing-cpp</code> for the QR reader. Eskiu speaks the C ABI
+        natively, so it calls both through plain <code>extern</code> declarations,
+        no wrapper layer.</li>
+      <li><strong>Memory you account for.</strong> Every intermediate buffer is an
+        explicit <code>alloc&lt;T&gt;(n)</code> / <code>free</code>. The whole
+        allocation pattern is visible in the source, which matters when a single
+        dropped free leaks a decrypted buffer.</li>
+      <li><strong>A service without a framework.</strong> The decoder is wrapped in
+        an HTTP API (<code>POST /decode</code>, multipart or JSON, with API-key auth
+        and rate limiting) built entirely on Eskiu's standard library
+        (<code>&lt;http&gt;</code>, <code>&lt;json&gt;</code>,
+        <code>&lt;base64&gt;</code>, threading), with no external dependency.</li>
+      <li><strong>Native, no runtime.</strong> It compiles straight to a small
+        native binary through LLVM, so it drops onto a Linux host with only the two
+        C libraries it links.</li>
+    </ul>
+
+    <h2>Bit-identical across the stack</h2>
+    <p>
+      The decoder exists in <strong>six implementations</strong>, kept in lockstep
+      so a change to the algorithm is caught everywhere: pure C and Python,
+      WebAssembly (in the browser), an Android AAR, an iOS XCFramework, and the
+      Eskiu path. All six produce <strong>byte-for-byte identical output</strong>
+      from the same credential. The Eskiu implementation is a full peer in that set,
+      not a toy port, and its crypto pipeline runs <strong>2.5× faster than the
+      reference C</strong> it was measured against.
+    </p>
+
+    <h2>Dogfooding made the language better</h2>
+    <p>
+      Moving the decoder onto the current compiler was itself a test of the
+      language. The crypto code is dense with acquire-then-release patterns, so
+      <code>defer</code> / <code>errdefer</code> collapsed roughly fifteen manual
+      cleanup calls, and eight error-path cleanup cascades, into a single line each,
+      making a whole class of buffer leak impossible (verified leak-free under
+      AddressSanitizer). A <code>--safe</code> build adds bounds checks for parsing
+      untrusted images.
+    </p>
+    <p>
+      More telling: exercising real code surfaced two concrete improvements that
+      shipped straight back into the compiler in <strong>v0.6.1</strong>. Slicing a
+      raw heap pointer (<code>ptr[lo..hi]</code>) had crashed code generation; it now
+      builds a proper slice, so heap buffers, not just fixed arrays, can be sliced.
+      And a <code>\xNN</code> hex escape was added to string and character literals
+      for byte-precise data. The decoder needed both; the language grew to meet it.
+    </p>
+
+    <p>
+      So the same language that boots a bare-metal ARM64 kernel, and drops a
+      memory-tight module into a C++ rendering engine (see the
+      <a href="case-study-reactvision.html">ReactVision case study</a>), also decodes
+      a real cryptographic format at native speed and serves it over HTTP. One
+      language across the stack, used where it pays.
+    </p>
+
+    <div class="foot">
+      <a href="index.html">← Back to eskiu</a>
+    </div>
+  </div>
+</body>
+</html>

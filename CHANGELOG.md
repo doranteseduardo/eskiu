@@ -8,8 +8,41 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
-## [0.6.0], 2026-07-13
+## [0.6.1]
+### Added
+- **`\xNN` hex escape** in string and character literals: one or two hex digits decode
+  to a raw byte, so byte-precise strings are possible (e.g. `"\xC3\x91"` is `Ñ` in UTF-8,
+  `'\x41'` is `'A'`). `\x` with no following hex digit falls back to a literal `x`. In
+  lockstep across both lexers.
+- **Slices from a raw pointer.** `ptr[lo..hi]` on a `*T` now yields a `T[]` slice over
+  the pointer's memory, so heap buffers (`alloc<T>(n)`) can become slices, not just
+  fixed arrays. Write-through the slice aliases the backing buffer, and `.len` /
+  indexing / `for-in` work as on any slice.
 
+### Fixed
+- **Escape sequences in string and character literals.** `\0` now decodes to a NUL
+  byte instead of the character `'0'` (a silent trap), character literals accept `\r`
+  (and `\f`, `\v`), and string and character literals share one escape set
+  (`\n \t \r \f \v \0 \\ \" \' \xNN`); an unrecognized escape still yields the character
+  itself. Fixed in lockstep across the C++ and self-hosted lexers.
+- **Compiler crash slicing a raw pointer.** `ptr[lo..hi]` on a pointer base crashed
+  code generation (a null element type in the slice-construction path); it now builds
+  the slice correctly (see the slice-from-pointer support above).
+- **Global lambda crashed when called.** A non-capturing lambda assigned to a global
+  (`let f: fn(int)->int = int(int x){ return x*2; };`) compiled to a null closure, so
+  calling it (`f(6)`) segfaulted; it now folds to a constant closure `{ @lambda, null }`
+  and works, matching a lambda written inside a function. Fixed in lockstep across the
+  C++ and self-hosted code generators (the self-host also gained direct calls through a
+  global closure variable).
+
+### Changed
+- Documentation accuracy pass (from an internal audit): corrected AST node counts and
+  added the `defer` cleanup-stack to the internals docs, regenerated the real
+  `--test-lexer` / `--test-parser` sample output, fixed inline-asm operand syntax
+  (`$0`, not `%0`) and noted that output operands are unsupported, added an `intrinsic`
+  spec section and a `--safe` flag row, and corrected glossary token-type names.
+
+## [0.6.0]
 ### Added
 - **`<sort>` stdlib module.** Generic in-place `sort<T>(a, n, cmp)` (heapsort, a
   guaranteed O(n log n) worst case) and `bsearch<T>(a, n, key, cmp)` over a `*T` array,
@@ -72,8 +105,7 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
-## [0.5.0], 2026-07-12
-
+## [0.5.0]
 Fills a set of basic C constructs the language was missing, so idiomatic C ports
 compile without workarounds. Each lands in lockstep across the C++ and self-hosted
 compilers and follows C semantics.
@@ -107,8 +139,7 @@ compilers and follows C semantics.
 
 ---
 
-## [0.4.0], 2026-07-05
-
+## [0.4.0]
 A correctness and type-strictness release. A four-front bug hunt (behavioral
 differential, sema soundness, synthesized-default audit, feature edges) across the C++
 and self-hosted compilers found a batch of miscompiles, crashes, and soundness holes;
@@ -221,8 +252,7 @@ promotion track.
 
 ---
 
-## [0.3.1], 2026-07-01
-
+## [0.3.1]
 ### Fixed
 - **`*T[N]` now parses as an array of pointers, not a pointer to an array.** The
   type-string parser (`ty::Type::parse`) peeled a leading `*` before the trailing
@@ -275,8 +305,7 @@ promotion track.
 
 ---
 
-## [0.3.0], 2026-06-29
-
+## [0.3.0]
 The self-hosting milestone: the whole compiler (lexer, preprocessor, parser, semantic
 analyzer, and code generator) is reimplemented in Eskiu (`selfhost/`), reaches a 3-stage
 bootstrap fixpoint, and the self-hosted codegen is **feature-complete against the C++
@@ -483,8 +512,7 @@ corpus** (a full feature sweep is clean). All parity/self-host/bootstrap gates a
 
 ---
 
-## [0.2.5], 2026-06-17
-
+## [0.2.5]
 ### Added
 - **`<ctype>` stdlib module.** Pure-Eskiu ASCII character classification (no libc,
   freestanding-safe): `is_space`, `is_digit`, `is_hex`, `is_alpha`, `is_alnum`,
@@ -528,8 +556,7 @@ corpus** (a full feature sweep is clean). All parity/self-host/bootstrap gates a
 
 ---
 
-## [0.2.4], 2026-06-14
-
+## [0.2.4]
 Type unification: making the type checker the single resolver, so codegen stops
 re-deriving types independently (closing the two-evaluator risk). Internal
 soundness work; the only user-visible effect is three latent miscompiles it
@@ -559,8 +586,7 @@ surfaced and fixed.
 
 ---
 
-## [0.2.3], 2026-06-14
-
+## [0.2.3]
 Completing bounded generics, plus a typed internal type representation that
 replaces ad-hoc type-string surgery: the foundation for keeping the compiler
 sound as it grows.
@@ -595,8 +621,7 @@ sound as it grows.
 
 ---
 
-## [0.2.2], 2026-06-13
-
+## [0.2.2]
 Exclusively hardening + traits, no new stdlib surface. The goal: make the
 compiler trustworthy and close the generics gap before the self-hosting arc.
 
@@ -644,8 +669,7 @@ compiler trustworthy and close the generics gap before the self-hosting arc.
 
 ---
 
-## [0.2.1], 2026-06-13
-
+## [0.2.1]
 Hardening and ergonomics, shaken out by building a real service (an INE-QR HTTP
 API) on 0.2.0.
 
@@ -661,8 +685,7 @@ API) on 0.2.0.
 
 ---
 
-## [0.2.0], 2026-06-11
-
+## [0.2.0]
 Backend-services phase: async/await, the full HTTP/2 stack (framing, HPACK with
 Huffman, streams and flow control, a multiplexed server, and TLS/ALPN), sum types
 with `match`, and a broad async/networking standard library, built on the v0.1.0

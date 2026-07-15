@@ -1,0 +1,14 @@
+// Regression: a non-capturing lambda assigned to a GLOBAL must fold to a constant
+// closure { @lambda, null } (not a null closure), so calling it directly works.
+// Before the fix the global was zeroinitializer and `doble(6)` segfaulted.
+extern int printf(string fmt, ...);
+
+let doble: fn(int)->int = int(int x) { return x * 2; };
+let inc:   fn(int)->int = int(int x) { return x + 1; };
+
+int apply(fn(int)->int f, int v) { return f(v); }
+
+int main() {
+    printf("%d %d %d\n", doble(6), inc(41), apply(doble, 10));
+    return 0;
+}
