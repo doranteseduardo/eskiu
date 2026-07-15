@@ -9,12 +9,25 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 ---
 
 ## [0.6.1]
+### Added
+- **`\xNN` hex escape** in string and character literals: one or two hex digits decode
+  to a raw byte, so byte-precise strings are possible (e.g. `"\xC3\x91"` is `Ñ` in UTF-8,
+  `'\x41'` is `'A'`). `\x` with no following hex digit falls back to a literal `x`. In
+  lockstep across both lexers.
+- **Slices from a raw pointer.** `ptr[lo..hi]` on a `*T` now yields a `T[]` slice over
+  the pointer's memory, so heap buffers (`alloc<T>(n)`) can become slices, not just
+  fixed arrays. Write-through the slice aliases the backing buffer, and `.len` /
+  indexing / `for-in` work as on any slice.
+
 ### Fixed
 - **Escape sequences in string and character literals.** `\0` now decodes to a NUL
   byte instead of the character `'0'` (a silent trap), character literals accept `\r`
   (and `\f`, `\v`), and string and character literals share one escape set
-  (`\n \t \r \f \v \0 \\ \" \'`); an unrecognized escape still yields the character
+  (`\n \t \r \f \v \0 \\ \" \' \xNN`); an unrecognized escape still yields the character
   itself. Fixed in lockstep across the C++ and self-hosted lexers.
+- **Compiler crash slicing a raw pointer.** `ptr[lo..hi]` on a pointer base crashed
+  code generation (a null element type in the slice-construction path); it now builds
+  the slice correctly (see the slice-from-pointer support above).
 
 ### Changed
 - Documentation accuracy pass (from an internal audit): corrected AST node counts and

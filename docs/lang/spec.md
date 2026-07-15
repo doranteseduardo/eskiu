@@ -124,6 +124,7 @@ cast). Integer literals are `int` (i32), widening to `int64` when they exceed 32
 | `\\`   | Backslash        |
 | `\"`   | Double quote     |
 | `\'`   | Single quote     |
+| `\xNN` | Raw byte from one or two hex digits (e.g. `\xC3` is byte `0xC3`) |
 
 An unrecognized escape (`\q`) yields the character itself (`q`).
 
@@ -261,9 +262,11 @@ carrying both a data pointer and a length. Unlike a fixed array, a slice's lengt
 with it, so a function that takes a `T[]` never needs a separate count argument, killing
 the classic "pointer without its length" bug.
 
-Create a slice by **slicing** a fixed array with a half-open range (reusing the `..`
-operator): `a[lo..hi]` is a view of elements `lo` through `hi-1`. The slice **aliases** the
-backing array; writing through it writes to the array.
+Create a slice by **slicing** a fixed array *or a raw pointer* with a half-open range
+(reusing the `..` operator): `a[lo..hi]` is a view of elements `lo` through `hi-1`.
+Slicing a `*T` (for example a heap buffer from `alloc<T>(n)`) yields a `T[]` over that
+memory, so slices are not limited to fixed arrays. The slice **aliases** the backing
+storage; writing through it writes to the array or buffer.
 
 ```eskiu
 int[6] a = {10, 20, 30, 40, 50, 60};

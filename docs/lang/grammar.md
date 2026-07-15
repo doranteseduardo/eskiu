@@ -33,7 +33,8 @@ INT_LIT    = [0-9]+  |  '0x' [0-9A-Fa-f]+
 FLOAT_LIT  = [0-9]+ '.' [0-9]+
 STRING_LIT = '"' ( escape | not('"') )* '"'        // adjacent literals concatenate: "a" "b" == "ab"
 CHAR_LIT   = "'" ( escape | not("'") ) "'"
-escape     = '\' ( 'n' | 't' | 'r' | 'f' | 'v' | '\' | '"' | "'" | '0' )  // string and char share the set
+escape     = '\' ( 'n' | 't' | 'r' | 'f' | 'v' | '\' | '"' | "'" | '0'    // string and char share the set
+                 | 'x' HEX HEX? )                                        // raw byte, 1-2 hex digits
 ```
 
 Comments: `// … end-of-line` and `/* … */` (block comments do not nest).

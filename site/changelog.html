@@ -78,13 +78,27 @@ body { background: var(--bg); color: var(--ink); font-family: var(--sans);
 Versions follow <code>MAJOR.MINOR.PATCH-stage</code> (e.g. <code>0.0.9-alpha</code>).</p>
 <hr>
 <h2 id="061">[0.6.1]</h2>
+<h3 id="added">Added</h3>
+<ul>
+<li><strong><code>\xNN</code> hex escape</strong> in string and character literals: one or two hex digits decode
+  to a raw byte, so byte-precise strings are possible (e.g. <code>"\xC3\x91"</code> is <code>Ñ</code> in UTF-8,
+  <code>'\x41'</code> is <code>'A'</code>). <code>\x</code> with no following hex digit falls back to a literal <code>x</code>. In
+  lockstep across both lexers.</li>
+<li><strong>Slices from a raw pointer.</strong> <code>ptr[lo..hi]</code> on a <code>*T</code> now yields a <code>T[]</code> slice over
+  the pointer's memory, so heap buffers (<code>alloc&lt;T&gt;(n)</code>) can become slices, not just
+  fixed arrays. Write-through the slice aliases the backing buffer, and <code>.len</code> /
+  indexing / <code>for-in</code> work as on any slice.</li>
+</ul>
 <h3 id="fixed">Fixed</h3>
 <ul>
 <li><strong>Escape sequences in string and character literals.</strong> <code>\0</code> now decodes to a NUL
   byte instead of the character <code>'0'</code> (a silent trap), character literals accept <code>\r</code>
   (and <code>\f</code>, <code>\v</code>), and string and character literals share one escape set
-  (<code>\n \t \r \f \v \0 \\ \" \'</code>); an unrecognized escape still yields the character
+  (<code>\n \t \r \f \v \0 \\ \" \' \xNN</code>); an unrecognized escape still yields the character
   itself. Fixed in lockstep across the C++ and self-hosted lexers.</li>
+<li><strong>Compiler crash slicing a raw pointer.</strong> <code>ptr[lo..hi]</code> on a pointer base crashed
+  code generation (a null element type in the slice-construction path); it now builds
+  the slice correctly (see the slice-from-pointer support above).</li>
 </ul>
 <h3 id="changed">Changed</h3>
 <ul>
@@ -95,7 +109,7 @@ Versions follow <code>MAJOR.MINOR.PATCH-stage</code> (e.g. <code>0.0.9-alpha</co
   spec section and a <code>--safe</code> flag row, and corrected glossary token-type names.</li>
 </ul>
 <h2 id="060">[0.6.0]</h2>
-<h3 id="added">Added</h3>
+<h3 id="added_1">Added</h3>
 <ul>
 <li><strong><code>&lt;sort&gt;</code> stdlib module.</strong> Generic in-place <code>sort&lt;T&gt;(a, n, cmp)</code> (heapsort, a
   guaranteed O(n log n) worst case) and <code>bsearch&lt;T&gt;(a, n, key, cmp)</code> over a <code>*T</code> array,
@@ -162,7 +176,7 @@ Versions follow <code>MAJOR.MINOR.PATCH-stage</code> (e.g. <code>0.0.9-alpha</co
 <p>Fills a set of basic C constructs the language was missing, so idiomatic C ports
 compile without workarounds. Each lands in lockstep across the C++ and self-hosted
 compilers and follows C semantics.</p>
-<h3 id="added_1">Added</h3>
+<h3 id="added_2">Added</h3>
 <ul>
 <li><strong><code>do</code>/<code>while</code> loops.</strong> <code>do { ... } while (cond);</code> runs the body once before testing
   the condition, as in C.</li>
@@ -380,7 +394,7 @@ corpus</strong> (a full feature sweep is clean). All parity/self-host/bootstrap 
   4 GB. They are now <code>int64</code>, matching <code>size_t</code>. Behavior is unchanged for the common
   sub-4 GB case (the value zero-extends into the argument register either way).</li>
 </ul>
-<h3 id="added_2">Added</h3>
+<h3 id="added_3">Added</h3>
 <ul>
 <li><strong><code>-O</code> optimization levels.</strong> <code>eskiuc -O1</code>/<code>-O2</code>/<code>-O3</code> now runs the LLVM middle-end
   pipeline (mem2reg/SROA/instcombine/inlining/GVN/...) over the module before code
@@ -565,7 +579,7 @@ corpus</strong> (a full feature sweep is clean). All parity/self-host/bootstrap 
 </ul>
 <hr>
 <h2 id="025">[0.2.5]</h2>
-<h3 id="added_3">Added</h3>
+<h3 id="added_4">Added</h3>
 <ul>
 <li><strong><code>&lt;ctype&gt;</code> stdlib module.</strong> Pure-Eskiu ASCII character classification (no libc,
   freestanding-safe): <code>is_space</code>, <code>is_digit</code>, <code>is_hex</code>, <code>is_alpha</code>, <code>is_alnum</code>,
@@ -935,7 +949,7 @@ thread_join(t);
 <li><code>volatile</code> MMIO, <code>asm(...)</code> with GCC-compatible constraints</li>
 </ul>
 <h2 id="0014-alpha">[0.0.14-alpha]</h2>
-<h3 id="added_4">Added</h3>
+<h3 id="added_5">Added</h3>
 <p><strong>Inline assembly</strong>
 - <code>asm("cli");</code>: simple form; passes the string verbatim to the assembler with no inputs, outputs, or clobbers
 - <code>asm("outb %0, %1" :: "a"(val), "Nd"(port) : "memory");</code>: extended form with GCC-compatible constraint syntax; supports input operands, output operands, and clobber lists
@@ -958,7 +972,7 @@ thread_join(t);
 </ul>
 <hr>
 <h2 id="0012-alpha">[0.0.12-alpha]</h2>
-<h3 id="added_5">Added</h3>
+<h3 id="added_6">Added</h3>
 <p><strong>Lambdas and function pointer types</strong>
 - <code>fn(T,...)-&gt;R</code> function pointer type syntax: first-class function types usable in variable declarations, struct fields, and parameter lists
 - Anonymous function expressions: <code>int(int x) { return x * 2; }</code>, C-like syntax producing a function pointer value
@@ -974,7 +988,7 @@ thread_join(t);
 <p><strong>switch/case type checking</strong>
 - The type checker now validates that each <code>case</code> value is compatible with the <code>switch</code> subject expression type; mismatched case types are reported as errors at the <code>case</code> token position</p>
 <h2 id="0011-alpha">[0.0.11-alpha]</h2>
-<h3 id="added_6">Added</h3>
+<h3 id="added_7">Added</h3>
 <p><strong>Decoder rewritten in Eskiu (no C pipeline code)</strong>
 - <code>ine_decoder/crypto.esk</code> (541 lines): AES-256-CBC + RSA-8192 pipeline, hex/base64 decoders, PKCS#1 stripper, 6-bit decoder, WebP reconstruction, <code>run_no_so_pipeline()</code>; all in Eskiu calling OpenSSL via <code>extern</code>
 - <code>ine_decoder/output.esk</code> (186 lines): Spanish character table, field splitter, growable JSON buffer, <code>decode_to_buffers()</code>; pure Eskiu
@@ -995,7 +1009,7 @@ thread_join(t);
 </ul>
 <hr>
 <h2 id="0010-alpha">[0.0.10-alpha]</h2>
-<h3 id="added_7">Added</h3>
+<h3 id="added_8">Added</h3>
 <p><strong>Global variables</strong>
 - <code>VarDecl</code> at module scope now emits <code>llvm::GlobalVariable</code> instead of <code>alloca</code>
 - Constant initializers folded at compile time: <code>int</code>, <code>float</code>, <code>double</code>, <code>bool</code>, <code>char</code>, <code>string</code>, <code>null</code>
@@ -1024,7 +1038,7 @@ thread_join(t);
 </ul>
 <hr>
 <h2 id="009-alpha">[0.0.9-alpha]</h2>
-<h3 id="added_8">Added</h3>
+<h3 id="added_9">Added</h3>
 <ul>
 <li><strong><code>ine_decoder/</code>, INE QR decoder port</strong>: full pipeline running at <strong>74.4 ms</strong> total
   (QR: 71.7 ms + crypto: 2.8 ms + output decode: &lt;1 ms) vs. 188.9 ms reference C and 3–5 s original target; 2.5× faster than hand-written C</li>
@@ -1044,7 +1058,7 @@ thread_join(t);
 </ul>
 <hr>
 <h2 id="008-alpha">[0.0.8-alpha]</h2>
-<h3 id="added_9">Added</h3>
+<h3 id="added_10">Added</h3>
 <ul>
 <li><strong><code>import "file.esk"</code></strong>: multi-file support with paths resolved relative to the importing file's directory; recursive imports with deduplication (a file imported more than once is parsed only once); <code>Parser.basedir</code> + <code>importedFiles</code> set propagated to sub-parsers</li>
 <li><strong>Interface vtable dispatch</strong>: <code>interface I { void method(); }</code> generates <code>%I_vtable = type { ptr, ... }</code> and <code>%I_fat = type { ptr data, ptr vtable }</code> LLVM types; structs are auto-boxed at call sites via <code>boxAsInterface()</code>; method dispatch loads the vtable pointer from the fat pointer and calls indirectly; <code>getExprEskiuType</code> extended to handle <code>UnaryExpr("&amp;", ...)</code> and <code>UnaryExpr("*", ...)</code> for boxing detection</li>
@@ -1057,7 +1071,7 @@ thread_join(t);
 </ul>
 <hr>
 <h2 id="007-alpha">[0.0.7-alpha]</h2>
-<h3 id="added_10">Added</h3>
+<h3 id="added_11">Added</h3>
 <ul>
 <li><strong>Bitwise operators</strong></li>
 <li>Binary: <code>&amp;</code>, <code>|</code>, <code>^</code>, <code>&lt;&lt;</code>, <code>&gt;&gt;</code>, new precedence levels in parser (bitwiseOr → bitwiseXor → bitwiseAnd → equality → shift → comparison → additive)</li>
@@ -1081,7 +1095,7 @@ thread_join(t);
 </ul>
 <hr>
 <h2 id="006-alpha">[0.0.6-alpha]</h2>
-<h3 id="added_11">Added</h3>
+<h3 id="added_12">Added</h3>
 <ul>
 <li><strong>Source locations in errors</strong>: <code>ASTNode</code> now carries <code>line</code>/<code>col</code>; parser stamps all expression and statement nodes; errors now report <code>file.esk:line:col:</code> instead of <code>file.esk:0:0:</code>; filename taken from the CLI input path</li>
 <li><strong><code>&amp;</code> address-of operator</strong>: correctly returns the lvalue pointer (alloca), enabling <code>fn(&amp;localVar)</code> patterns and template method calls via <code>self</code> pointer</li>
@@ -1099,7 +1113,7 @@ thread_join(t);
 </ul>
 <hr>
 <h2 id="005-alpha">[0.0.5-alpha]</h2>
-<h3 id="added_12">Added</h3>
+<h3 id="added_13">Added</h3>
 <ul>
 <li><strong><code>switch</code>/<code>case</code></strong>: <code>SwitchStmt</code> AST node with <code>Case { value, stmts }</code> list; full visitor chain; parser handles <code>switch (expr) { case val: stmts break; default: stmts }</code> with fallthrough support; codegen emits LLVM <code>switch</code> instruction with <code>ConstantInt</code> case values; <code>break</code> branches to <code>switch.end</code> via existing <code>breakTarget</code> mechanism</li>
 <li><strong>Function templates</strong>: <code>fn Name&lt;T, E&gt;(T x) -&gt; RetType&lt;T,E&gt; { ... }</code>; <code>FunctionDecl.typeParams</code> field; <code>TemplateCallExpr</code> AST node parsed in <code>parsePostfix()</code>; lazy instantiation via <code>typeParamOverride</code> map that intercepts all type lookups during template body emission; context save/restore preserves insert point and <code>currentFunction</code> when instantiating inside another function's body; <code>substType</code> handles <code>Name&lt;T,E&gt;</code> nested substitution recursively</li>
@@ -1118,7 +1132,7 @@ thread_join(t);
 </ul>
 <hr>
 <h2 id="004-alpha">[0.0.4-alpha]</h2>
-<h3 id="added_13">Added</h3>
+<h3 id="added_14">Added</h3>
 <ul>
 <li><strong>Template struct declaration</strong>: <code>struct Result&lt;T, E&gt; { ... }</code>; <code>StructDecl</code> gains <code>typeParams</code> field; template declarations are stored in a separate registry and not emitted to LLVM until first use</li>
 <li><strong>Template type references</strong>: <code>Result&lt;int, string&gt;</code> parsed in <code>parseType()</code> via <code>IDENT &lt; TYPE, ... &gt;</code> lookahead; stored as <code>"Result&lt;int,string&gt;"</code> in the AST</li>
@@ -1135,7 +1149,7 @@ thread_join(t);
 </ul>
 <hr>
 <h2 id="003-alpha">[0.0.3-alpha]</h2>
-<h3 id="added_14">Added</h3>
+<h3 id="added_15">Added</h3>
 <ul>
 <li><strong><code>alloc(T, N)</code></strong>: new <code>AllocExpr</code> AST node; emits <code>call @malloc(i64 N * sizeof(T))</code>; <code>sizeof(T)</code> resolved via <code>DataLayout</code> initialized at the start of <code>generateCode()</code></li>
 <li><strong><code>free(ptr)</code></strong>: parsed as a regular call; <code>free</code> pre-registered in the type checker as variadic; auto-declared in the LLVM module on first use, no explicit <code>extern</code> required</li>
@@ -1149,7 +1163,7 @@ thread_join(t);
 </ul>
 <hr>
 <h2 id="002-alpha">[0.0.2-alpha]</h2>
-<h3 id="added_15">Added</h3>
+<h3 id="added_16">Added</h3>
 <ul>
 <li><strong>Struct codegen</strong>: <code>llvm::StructType::create</code> per <code>StructDecl</code>; <code>alloca %StructType</code> for locals; field read/write via <code>getelementptr</code></li>
 <li><strong>Fixed-size array fields</strong>: <code>uint8[858]</code> → <code>[858 x i8]</code>; parser now captures the array size (was previously discarded); <code>IndexExpr</code> codegen via GEP for both <code>T[N]</code> and <code>*T</code></li>
@@ -1171,7 +1185,7 @@ thread_join(t);
 </ul>
 <hr>
 <h2 id="001-alpha">[0.0.1-alpha]</h2>
-<h3 id="added_16">Added</h3>
+<h3 id="added_17">Added</h3>
 <ul>
 <li><strong>Phase 0: Build system and CLI</strong>. CMake build with LLVM 17+ integration; <code>--version</code> flag; <code>--test-lexer</code>, <code>--test-parser</code>, <code>--test-typechecker</code>, <code>--test-codegen</code> modes; <code>file:line:col</code> error reporting</li>
 <li><strong>Phase 1: Lexer</strong>. Complete tokenizer with line/col tracking; all Eskiu keywords (<code>int</code>, <code>float</code>, <code>uint8</code>–<code>uint64</code>, <code>int8</code>–<code>int64</code>, <code>struct</code>, <code>interface</code>, <code>enum</code>, <code>alloc</code>, <code>free</code>, <code>extern</code>, <code>thread</code>, <code>try</code>/<code>catch</code>/<code>finally</code>, and more); <code>COLON</code> token for type annotations</li>

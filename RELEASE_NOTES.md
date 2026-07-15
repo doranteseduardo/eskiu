@@ -31,14 +31,23 @@ cd eskiu && cmake -S . -B build && cmake --build build
 
 ---
 
+## What's new
+
+- **`\xNN` hex escape** in string and character literals: one or two hex digits decode to
+  a raw byte, so byte-precise strings work (`"\xC3\x91"` is `Ñ` in UTF-8, `'\x41'` is
+  `'A'`). Lockstep in both lexers.
+- **Slices from a raw pointer.** `ptr[lo..hi]` on a `*T` now yields a `T[]` slice over the
+  pointer's memory, so a heap buffer (`alloc<T>(n)`) can become a slice, not just a fixed
+  array. (This also fixes a compiler crash that occurred when slicing a pointer.)
+
 ## What's fixed
 
 - **Escape sequences in string and character literals.** `\0` now decodes to a NUL byte
   instead of the character `'0'` (previously a silent trap), character literals accept
   `\r` (and `\f`, `\v`), and string and character literals now share one escape set:
-  `\n \t \r \f \v \0 \\ \" \'`. An unrecognized escape still yields the character itself
-  (`\q` is `q`). The fix landed in lockstep across the C++ and self-hosted lexers, so both
-  decode identically.
+  `\n \t \r \f \v \0 \\ \" \' \xNN`. An unrecognized escape still yields the character
+  itself (`\q` is `q`). The fix landed in lockstep across the C++ and self-hosted lexers,
+  so both decode identically.
 
 - **Documentation accuracy** (from an internal audit): corrected AST node counts and
   documented the `defer` cleanup-stack in the internals docs; regenerated the real
