@@ -515,7 +515,20 @@ void CodeGen::visit(IndexExpr* node) {
         llvm::Value* hi = toI64(evaluateExpr(node->highIndex));
         llvm::Value* data = indexElemAddr(node->base, lo);
         llvm::Value* len  = builder->CreateSub(hi, lo);
-        std::string elemStr = (baseType == "string") ? "char" : bt.elem->str();
+        // Element type of the base: string→char, array/slice→elem, pointer→pointee.
+        // Slicing a raw pointer (`*T`) yields `T[]`, so heap buffers can become slices.
+        std::string elemStr;
+        if (baseType == "string") {
+            elemStr = "char";
+        } else if ((bt.kind == ty::Type::Kind::Array || bt.kind == ty::Type::Kind::Slice) && bt.elem) {
+            elemStr = bt.elem->str();
+        } else if (isPointerType(baseType)) {
+            elemStr = (!baseType.empty() && baseType.front() == '*')
+                ? baseType.substr(1)
+                : baseType.substr(0, baseType.size() - 1);
+        } else {
+            elemStr = "uint8";  // unreachable: sema rejects non-indexable slice bases
+        }
         llvm::Type* sliceTy = getTypeFromString(elemStr + "[]");
         llvm::Value* s = llvm::UndefValue::get(sliceTy);
         s = builder->CreateInsertValue(s, data, {0});
