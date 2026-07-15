@@ -1,8 +1,9 @@
 # Eskiu 0.6.1
 
-A patch release. It fixes escape-sequence decoding in string and character literals
-and lands a documentation-accuracy pass; no language features change, and existing code
-keeps compiling unchanged.
+A patch release. It adds a `\xNN` hex escape and slices over a raw pointer, fixes
+escape-sequence decoding and a couple of code-generation crashes (slicing a pointer, a
+global lambda), and lands a documentation-accuracy pass. Existing code keeps compiling
+unchanged.
 
 ---
 
@@ -48,6 +49,11 @@ cd eskiu && cmake -S . -B build && cmake --build build
   `\n \t \r \f \v \0 \\ \" \' \xNN`. An unrecognized escape still yields the character
   itself (`\q` is `q`). The fix landed in lockstep across the C++ and self-hosted lexers,
   so both decode identically.
+
+- **Global lambda crashed when called.** A non-capturing lambda assigned to a global
+  (`let f: fn(int)->int = int(int x){ return x*2; };`) compiled to a null closure, so
+  calling it segfaulted. It now folds to a constant closure and works, exactly like a
+  lambda written inside a function. Fixed in lockstep in both code generators.
 
 - **Documentation accuracy** (from an internal audit): corrected AST node counts and
   documented the `defer` cleanup-stack in the internals docs; regenerated the real

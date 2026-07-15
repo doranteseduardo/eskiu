@@ -28,6 +28,12 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 - **Compiler crash slicing a raw pointer.** `ptr[lo..hi]` on a pointer base crashed
   code generation (a null element type in the slice-construction path); it now builds
   the slice correctly (see the slice-from-pointer support above).
+- **Global lambda crashed when called.** A non-capturing lambda assigned to a global
+  (`let f: fn(int)->int = int(int x){ return x*2; };`) compiled to a null closure, so
+  calling it (`f(6)`) segfaulted; it now folds to a constant closure `{ @lambda, null }`
+  and works, matching a lambda written inside a function. Fixed in lockstep across the
+  C++ and self-hosted code generators (the self-host also gained direct calls through a
+  global closure variable).
 
 ### Changed
 - Documentation accuracy pass (from an internal audit): corrected AST node counts and
