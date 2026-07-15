@@ -271,6 +271,11 @@ if (!checker.check(program.get())) return 1;   // raw pointer; checker does not 
 // 4. Lower async → state machine
 AsyncTransform().run(program.get());
 
+// 4b. Re-run the type checker on the transformed AST: codegen consumes its
+//     resolved per-expression types (the type checker is the single resolver).
+TypeChecker postCheck;
+postCheck.check(program.get());
+
 // 5. Code-generate
 CodeGen codegen;
 codegen.targetTriple = ...;          // optional

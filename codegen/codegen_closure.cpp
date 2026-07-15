@@ -25,57 +25,15 @@
 // threads, await, and inline asm.
 // Part of the codegen_expr.cpp split; see codegen.h.
 
-void CodeGen::visit(LambdaExpr* node) {
-    static int lambdaSeq = 0;
-    std::string lambdaName = "__lambda" + std::to_string(lambdaSeq++);
+// Emit the lambda's underlying LLVM function (params: env* first, then the
+// declared params) and compile its body. `envTy` is the capture-env struct type
+// (null for a non-capturing lambda). Saves/restores the caller's insert point, so
+// this is safe to call from a global (builder-less) context. Returns the function.
+llvm::Function* CodeGen::emitLambdaFunction(LambdaExpr* node,
+                                            const std::string& lambdaName,
+                                            llvm::StructType* envTy) {
     bool hasCaptures = !node->captures.empty();
-
     llvm::Type* ptrTy = llvm::PointerType::get(*context, 0);
-
-    // ── Build env struct type (one field per captured variable) ──────────
-    llvm::StructType* envTy = nullptr;
-    llvm::Value*      envAlloca = nullptr;
-    if (hasCaptures) {
-        std::vector<llvm::Type*> envFields;
-        for (const auto& [name, type] : node->captures)
-            envFields.push_back(getTypeFromString(type));
-        envTy = llvm::StructType::create(*context, envFields,
-                                         lambdaName + ".env");
-        if (node->escapes) {
-            // Escaping closure (returned, stored, or passed to an `escaping`
-            // parameter): heap-allocate the env so it outlives this function.
-            // Freed via free_closure (the async transform emits it at the owner
-            // boundary; otherwise the owner frees it explicitly).
-            uint64_t envSize = module->getDataLayout().getTypeAllocSize(envTy);
-            llvm::Function* mallocFn = getOrDeclareFunc(
-                "malloc", ptrTy, {llvm::Type::getInt64Ty(*context)}, false);
-            envAlloca = builder->CreateCall(mallocFn,
-                {llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), envSize)},
-                lambdaName + ".env.heap");
-        } else {
-            // Non-escaping closure: the env dies with this frame — stack-allocate
-            // it. Zero cost, no leak. (The common map/filter/apply case.)
-            envAlloca = entryAlloca(envTy, nullptr, lambdaName + ".env");
-        }
-        for (size_t ci = 0; ci < node->captures.size(); ++ci) {
-            llvm::Value* capturedVal = nullptr;
-            llvm::Value* sym = lookupSymbol(node->captures[ci].first);
-            if (sym) {
-                // Load the current value from the outer alloca/variable
-                if (llvm::isa<llvm::AllocaInst>(sym)) {
-                    auto* alloca = llvm::cast<llvm::AllocaInst>(sym);
-                    capturedVal = builder->CreateLoad(
-                        alloca->getAllocatedType(), sym, node->captures[ci].first);
-                } else {
-                    capturedVal = sym;
-                }
-            }
-            if (capturedVal) {
-                auto* gep = builder->CreateStructGEP(envTy, envAlloca, ci);
-                builder->CreateStore(capturedVal, gep);
-            }
-        }
-    }
 
     // ── Build lambda function: env* always first param ───────────────────
     std::vector<llvm::Type*> paramTypes = {ptrTy}; // env* (null if no captures)
@@ -145,6 +103,61 @@ void CodeGen::visit(LambdaExpr* node) {
     currentFunction  = prevFunc;
     currentSretParam = prevSret;
     if (prevInsert) builder->SetInsertPoint(prevInsert);
+    return func;
+}
+
+void CodeGen::visit(LambdaExpr* node) {
+    std::string lambdaName = "__lambda" + std::to_string(lambdaSeq++);
+    bool hasCaptures = !node->captures.empty();
+
+    llvm::Type* ptrTy = llvm::PointerType::get(*context, 0);
+
+    // ── Build env struct type (one field per captured variable) ──────────
+    llvm::StructType* envTy = nullptr;
+    llvm::Value*      envAlloca = nullptr;
+    if (hasCaptures) {
+        std::vector<llvm::Type*> envFields;
+        for (const auto& [name, type] : node->captures)
+            envFields.push_back(getTypeFromString(type));
+        envTy = llvm::StructType::create(*context, envFields,
+                                         lambdaName + ".env");
+        if (node->escapes) {
+            // Escaping closure (returned, stored, or passed to an `escaping`
+            // parameter): heap-allocate the env so it outlives this function.
+            // Freed via free_closure (the async transform emits it at the owner
+            // boundary; otherwise the owner frees it explicitly).
+            uint64_t envSize = module->getDataLayout().getTypeAllocSize(envTy);
+            llvm::Function* mallocFn = getOrDeclareFunc(
+                "malloc", ptrTy, {llvm::Type::getInt64Ty(*context)}, false);
+            envAlloca = builder->CreateCall(mallocFn,
+                {llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), envSize)},
+                lambdaName + ".env.heap");
+        } else {
+            // Non-escaping closure: the env dies with this frame — stack-allocate
+            // it. Zero cost, no leak. (The common map/filter/apply case.)
+            envAlloca = entryAlloca(envTy, nullptr, lambdaName + ".env");
+        }
+        for (size_t ci = 0; ci < node->captures.size(); ++ci) {
+            llvm::Value* capturedVal = nullptr;
+            llvm::Value* sym = lookupSymbol(node->captures[ci].first);
+            if (sym) {
+                // Load the current value from the outer alloca/variable
+                if (llvm::isa<llvm::AllocaInst>(sym)) {
+                    auto* alloca = llvm::cast<llvm::AllocaInst>(sym);
+                    capturedVal = builder->CreateLoad(
+                        alloca->getAllocatedType(), sym, node->captures[ci].first);
+                } else {
+                    capturedVal = sym;
+                }
+            }
+            if (capturedVal) {
+                auto* gep = builder->CreateStructGEP(envTy, envAlloca, ci);
+                builder->CreateStore(capturedVal, gep);
+            }
+        }
+    }
+
+    llvm::Function* func = emitLambdaFunction(node, lambdaName, envTy);
 
     // ── Build fat pointer {fn_ptr, env_ptr} ──────────────────────────────
     llvm::StructType* fatTy = llvm::cast<llvm::StructType>(

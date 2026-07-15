@@ -4,7 +4,7 @@
 A hands-on introduction to the Eskiu language. You will go from zero to writing
 and inspecting real compiled programs in about 30 minutes.
 
-All code blocks in this document compile and run with **Eskiu v0.6.0**.
+All code blocks in this document compile and run with **Eskiu v0.6.1**.
 ---
 
 ## Installation
@@ -46,7 +46,7 @@ cmake --build build -j$(nproc)
 
 ```bash
 ./build/eskiuc --version
-# Eskiu 0.6.0 (LLVM 22.1.6)   (exact LLVM version depends on your install)
+# Eskiu 0.6.1 (LLVM 22.1.6)   (exact LLVM version depends on your install)
 ```
 
 Add `./build` to your `PATH` so you can type `eskiuc` from any directory.
@@ -837,8 +837,8 @@ int val = *ptr;   // read through pointer, val == 200
 Eskiu has two import forms:
 
 ```eskiu
-import <result>       // stdlib module, resolved by the compiler
-import "utils.esk"    // local file, relative to the current file
+import <result>;      // stdlib module, resolved by the compiler
+import "utils.esk";   // local file, relative to the current file
 ```
 
 `import <name>` looks up the module in the Eskiu installation's stdlib directory. No path required. `import "path"` is relative to the importing file, as before.
@@ -1322,7 +1322,7 @@ The extended form passes values in and out of the asm template using GCC-compati
 ```eskiu
 // Write a byte to an x86 I/O port
 void outb(uint8 val, uint16 port) {
-    asm("outb %0, %1" :: "a"(val), "Nd"(port) : "memory");
+    asm("outb ${0:b}, $1" :: "a"(val), "Nd"(port) : "memory");
 }
 ```
 

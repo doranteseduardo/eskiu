@@ -1,6 +1,6 @@
 # Eskiu Language Specification
 
-**Version:** v0.6.0
+**Version:** v0.6.1
 
 ---
 
@@ -111,14 +111,22 @@ cast). Integer literals are `int` (i32), widening to `int64` when they exceed 32
 3.14    2.0    0.5
 ```
 
-**String literals** are sequences of characters enclosed in double quotes. The following escape sequences are recognized:
+**String literals** are sequences of characters enclosed in double quotes. The same escape sequences are recognized in string and character literals:
 
-| Escape | Meaning        |
-|--------|----------------|
-| `\n`   | Newline        |
-| `\t`   | Horizontal tab |
-| `\\`   | Backslash      |
-| `\"`   | Double quote   |
+| Escape | Meaning          |
+|--------|------------------|
+| `\n`   | Newline          |
+| `\t`   | Horizontal tab   |
+| `\r`   | Carriage return  |
+| `\f`   | Form feed        |
+| `\v`   | Vertical tab     |
+| `\0`   | NUL byte         |
+| `\\`   | Backslash        |
+| `\"`   | Double quote     |
+| `\'`   | Single quote     |
+| `\xNN` | Raw byte from one or two hex digits (e.g. `\xC3` is byte `0xC3`) |
+
+An unrecognized escape (`\q`) yields the character itself (`q`).
 
 ```eskiu
 "Hello, world!\n"
@@ -254,9 +262,11 @@ carrying both a data pointer and a length. Unlike a fixed array, a slice's lengt
 with it, so a function that takes a `T[]` never needs a separate count argument, killing
 the classic "pointer without its length" bug.
 
-Create a slice by **slicing** a fixed array with a half-open range (reusing the `..`
-operator): `a[lo..hi]` is a view of elements `lo` through `hi-1`. The slice **aliases** the
-backing array; writing through it writes to the array.
+Create a slice by **slicing** a fixed array *or a raw pointer* with a half-open range
+(reusing the `..` operator): `a[lo..hi]` is a view of elements `lo` through `hi-1`.
+Slicing a `*T` (for example a heap buffer from `alloc<T>(n)`) yields a `T[]` over that
+memory, so slices are not limited to fixed arrays. The slice **aliases** the backing
+storage; writing through it writes to the array or buffer.
 
 ```eskiu
 int[6] a = {10, 20, 30, 40, 50, 60};
@@ -805,6 +815,17 @@ arrive as `int`. There is no automatic count of the arguments: pass it explicitl
 
 `extern` declares a C function available to Eskiu code. See §13 for details.
 
+### 6.4.1 Intrinsic Declarations
+
+`intrinsic` declares a function whose implementation the compiler supplies directly, rather than one defined in Eskiu or linked from C. The form is a prototype with no body:
+
+```eskiu
+intrinsic int  atomic_load(*int cell);
+intrinsic void atomic_store(*int cell, int v);
+```
+
+A call to an intrinsic lowers to a specific instruction sequence chosen by codegen (the `<atomic>` intrinsics lower to LLVM atomic loads/stores/`cmpxchg` with fixed acquire/release ordering) instead of an ordinary `call`. Intrinsics are how the standard library exposes operations that have no portable C spelling; application code rarely declares its own.
+
 ### 6.5 Lambdas and Closures
 
 An anonymous function (lambda) is written with a C-style function body and no name. The syntax is identical to a named function declaration without the name:
@@ -1091,7 +1112,7 @@ The `for (x in iterable)` form binds `x` to each element of `iterable` in turn.
 The loop variable is a fresh copy each iteration; assigning to it does not modify
 the underlying collection. `break` and `continue` work as in any loop.
 
-Three kinds of iterable are supported:
+Four kinds of iterable are supported:
 
 - **Half-open integer ranges** `A..B`: iterate `A, A+1, …, B-1` (the upper bound
   is exclusive). `A` and `B` are any integer expressions:
@@ -1115,6 +1136,18 @@ Three kinds of iterable are supported:
   }
   ```
 
+- **Slices** (`T[]`): a fat pointer that carries its length, iterated element by
+  element through its data pointer:
+
+  ```eskiu
+  int[4] xs;
+  xs[0] = 10; xs[1] = 20; xs[2] = 30; xs[3] = 40;
+  int[] s = xs[1..3];       // a view of xs[1], xs[2]
+  for (v in s) {
+      printf("%d\n", v);    // 20, 30
+  }
+  ```
+
 - **List-like structs**: any struct with an `int size` field and a `data`
   pointer field, which includes `List<T>` from the standard library:
 
@@ -1130,8 +1163,8 @@ Three kinds of iterable are supported:
   ```
 
 The form desugars to an index-counted loop: for an array the bound is its
-compile-time length; for a List-like value the bound is its `size` field and
-each element is read through `data[i]`.
+compile-time length; for a slice the bound is its `.len`; for a List-like value
+the bound is its `size` field, and each element is read through `data[i]`.
 
 ### 7.3 while
 
@@ -2101,19 +2134,19 @@ The string is passed verbatim to the assembler. No inputs, outputs, or clobbers 
 The extended form follows GCC-compatible inline assembly syntax:
 
 ```
-asm("template" : outputs : inputs : clobbers);
+asm("template" :: inputs : clobbers);
 ```
 
 ```eskiu
-asm("outb %0, %1" :: "a"(val), "Nd"(port) : "memory");
+asm("outb ${0:b}, $1" :: "a"(val), "Nd"(port) : "memory");
 ```
 
-- **Template**: the assembly instruction string; `%0`, `%1`, … reference operands by index.
-- **Outputs**: list of `"constraint"(lvalue)` pairs; empty in the example above (omitted with `:`).
+- **Template**: the assembly instruction string; operands are referenced LLVM-style by `$0`, `$1`, … (with modifiers like `${0:b}` for a sub-register), not `%0`/`%1`.
+- **Outputs**: not yet supported. The output section must be empty, so the extended form always begins with `::` (the parser has no output-operand rule and `AsmStmt` has no output field). Return results through a clobbered register or memory instead.
 - **Inputs**: list of `"constraint"(expr)` pairs. Common constraints: `"a"` (eax/rax), `"Nd"` (8-bit immediate or dx), `"r"` (any register), `"m"` (memory).
 - **Clobbers**: comma-separated list of clobbered resources. `"memory"` tells the compiler that the asm may read or write arbitrary memory (acts as a compiler barrier).
 
-All four sections are separated by `:`. Trailing sections may be omitted if empty.
+Sections are separated by `:`. Trailing sections may be omitted if empty.
 
 ### 15.3 Notes
 
@@ -2136,6 +2169,7 @@ All four sections are separated by `:`. Trailing sections may be omitted if empt
 | `eskiuc fmt --check file.esk …` | Report files that are not formatted (exit non-zero); write nothing |
 | `eskiuc file.esk --asan -o prog` | Instrument with AddressSanitizer (memory errors) and link its runtime |
 | `eskiuc file.esk --ubsan -o prog` | Insert trapping bounds checks (traps on out-of-bounds; no runtime) |
+| `eskiuc file.esk --safe -o prog` | Bounds-check every array and slice index at runtime (trap on out-of-range); off by default |
 | `eskiuc file.esk -Wall -o prog` | Enable lint warnings: unused vars/params/functions, assignment-in-condition |
 | `eskiuc file.esk -Wextra -o prog` | Extra warnings on top of `-Wall`: signed/unsigned comparison mismatches |
 | `eskiuc file.esk -O2 -o prog` | Optimize: run the LLVM middle-end (`-O1`/`-O2`/`-O3`). `-O0` (default) emits naive IR straight to the backend |

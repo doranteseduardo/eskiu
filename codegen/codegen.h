@@ -261,6 +261,12 @@ private:
     void visit(AllocWithExpr* node) override;
     void visit(TemplateCallExpr* node) override;
     void visit(LambdaExpr* node) override;
+    // Emit the lambda's underlying LLVM function (shared by the runtime path in
+    // visit(LambdaExpr) and the constant-closure path for global initializers).
+    llvm::Function* emitLambdaFunction(LambdaExpr* node,
+                                       const std::string& lambdaName,
+                                       llvm::StructType* envTy);
+    int lambdaSeq = 0;
     void visit(AsmStmt* node) override;
     void visit(UnionDecl* node) override;
     void visit(SizeofExpr* node) override;

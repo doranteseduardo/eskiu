@@ -165,17 +165,49 @@ string token_name(int t) {
 // Escape decoding for string/char literal lexemes, mirroring the C++
 // read_string / read_char switches (the stored LiteralExpr value is decoded,
 // quotes stripped). Shared by the lexer driver and the parser. Return the byte.
-int decode_str_escape(int e) {     // string: n, t, r, backslash, double-quote
-    if (e == 110) { return 10; }
-    if (e == 116) { return 9; }
-    if (e == 114) { return 13; }
-    if (e == 92) { return 92; }
-    if (e == 34) { return 34; }
+// Decode one backslash escape (mirrors the C++ lexer's decodeEscape); strings
+// and chars share the same set. Unknown escapes yield the char itself.
+int decode_str_escape(int e) {
+    if (e == 110) { return 10; }   // \n
+    if (e == 116) { return 9; }    // \t
+    if (e == 114) { return 13; }   // \r
+    if (e == 102) { return 12; }   // \f
+    if (e == 118) { return 11; }   // \v
+    if (e == 48) { return 0; }     // \0  -> NUL
+    if (e == 92) { return 92; }    // backslash
+    if (e == 34) { return 34; }    // "
+    if (e == 39) { return 39; }    // '
     return e;
 }
-int decode_chr_escape(int e) {     // char: narrower — only n, t, backslash
-    if (e == 110) { return 10; }
-    if (e == 116) { return 9; }
-    if (e == 92) { return 92; }
-    return e;
+int decode_chr_escape(int e) {     // identical set to decode_str_escape
+    return decode_str_escape(e);
+}
+
+// Hex value of a byte, or -1 if not a hex digit. For `\xNN` escapes.
+int hex_val(int c) {
+    if (c >= 48 && c <= 57) { return c - 48; }        // 0-9
+    if (c >= 97 && c <= 102) { return c - 97 + 10; }  // a-f
+    if (c >= 65 && c <= 70) { return c - 65 + 10; }   // A-F
+    return -1;
+}
+
+// Decode one escape. `src[i]` is the char right after the backslash; `hi` bounds
+// the literal (exclusive) so we never read past it. Returns the byte and sets
+// `adv` to how many chars beyond src[i] were consumed (0 for a simple escape,
+// 1 or 2 for `\xN` / `\xNN`). Mirrors the C++ lexer's read_string/read_char.
+int decode_escape_span(*uint8 src, int i, int hi, *int adv) {
+    adv[0] = 0;
+    int e = (int)src[i];
+    if (e == 120) {                         // 'x'
+        int h1 = -1;
+        if (i + 1 < hi) { h1 = hex_val((int)src[i + 1]); }
+        if (h1 >= 0) {
+            int h2 = -1;
+            if (i + 2 < hi) { h2 = hex_val((int)src[i + 2]); }
+            if (h2 >= 0) { adv[0] = 2; return h1 * 16 + h2; }
+            adv[0] = 1; return h1;
+        }
+        return 120;                         // `\x` with no hex digit → literal 'x'
+    }
+    return decode_str_escape(e);
 }

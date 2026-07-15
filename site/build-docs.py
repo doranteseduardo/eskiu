@@ -161,6 +161,44 @@ PAGE = """<!doctype html>
 """
 
 
+# Top-level standalone pages (siblings of index.html, not under docs/). The repo
+# is private, so the site can't link the CHANGELOG on GitHub; this mirrors it.
+PAGE_TOP = """<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{title} · Eskiu</title>
+  <meta name="description" content="{desc}" />
+  <link rel="canonical" href="https://eskiu-lang.org/{out}" />
+  <link rel="icon" type="image/png" href="assets/logo.png" />
+  <style>{css}</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <img src="assets/logo.png" alt="Eskiu" />
+      <a href="index.html">← eskiu</a>
+    </div>
+    <nav class="docnav">{nav}</nav>
+    <div class="content">
+{body}
+    </div>
+    <div class="foot"><a href="index.html">← Back to eskiu</a></div>
+  </div>
+</body>
+</html>
+"""
+
+TOP_NAV = [
+    ("index.html", "Home"),
+    ("docs/index.html", "Docs"),
+    ("the-book-of-eskiu.html", "Book"),
+    ("quickstart.html", "Quickstart"),
+    ("changelog.html", "Changelog"),
+]
+
+
 def make_rewriter(srcdir):
     """Return a regex callback that rewrites .md hrefs relative to srcdir."""
 
@@ -188,6 +226,14 @@ def make_rewriter(srcdir):
 def build_nav(section, active):
     out = []
     for href, label in NAVS[section]:
+        cls = ' class="active"' if href == active else ""
+        out.append(f'<a href="{href}"{cls}>{html.escape(label)}</a>')
+    return "".join(out)
+
+
+def build_top_nav(active):
+    out = []
+    for href, label in TOP_NAV:
         cls = ' class="active"' if href == active else ""
         out.append(f'<a href="{href}"{cls}>{html.escape(label)}</a>')
     return "".join(out)
@@ -228,7 +274,28 @@ def main():
         with open(os.path.join(OUT, out), "w", encoding="utf-8") as f:
             f.write(page)
         print(f"  {src}  ->  site/docs/{out}")
-    print(f"Done. {len(PAGES)} pages in site/docs/")
+
+    # Top-level: mirror the CHANGELOG so the site never links the (private) GitHub.
+    with open(os.path.join(ROOT, "CHANGELOG.md"), encoding="utf-8") as f:
+        cl_text = f.read()
+    md.reset()
+    cl_body = md.convert(cl_text)
+    cl_body = cl_body.replace("<table>", '<div class="tablewrap"><table>').replace(
+        "</table>", "</table></div>"
+    )
+    cl_page = PAGE_TOP.format(
+        title="Changelog",
+        desc=html.escape(first_paragraph(cl_text)),
+        out="changelog.html",
+        css=CSS,
+        nav=build_top_nav("changelog.html"),
+        body=cl_body,
+    )
+    with open(os.path.join(ROOT, "site", "changelog.html"), "w", encoding="utf-8") as f:
+        f.write(cl_page)
+    print("  CHANGELOG.md  ->  site/changelog.html")
+
+    print(f"Done. {len(PAGES)} docs pages + changelog.html")
 
 
 if __name__ == "__main__":

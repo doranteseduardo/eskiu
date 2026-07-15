@@ -126,7 +126,7 @@ The unit of the HTTP/2 wire protocol (RFC 7540): a 9-byte binary header (length,
 ## I
 
 **identifier**
-A name chosen by the programmer to label a variable, function, struct, or parameter. In Eskiu, identifiers must begin with a letter or underscore and may contain letters, digits, and underscores. The lexer emits an `IDENTIFIER` token; the parser stores the raw string in `IdentExpr` or declaration nodes.
+A name chosen by the programmer to label a variable, function, struct, or parameter. In Eskiu, identifiers must begin with a letter or underscore and may contain letters, digits, and underscores. The lexer emits an `IDENT` token; the parser stores the raw string in `IdentExpr` or declaration nodes.
 
 **interface**
 A structurally typed contract defined by a method set (`interface Drawable { void draw(); }`). A concrete type satisfies an interface implicitly whenever it provides all the named methods: no explicit `implements` declaration is required. An interface value is a fat pointer `{data_ptr, vtable_ptr}`, and method calls dispatch dynamically through the vtable. See also: vtable, fat pointer, bounded generic / type-parameter constraint.
@@ -196,7 +196,7 @@ A type that holds the memory address of a value of another type. Eskiu accepts b
 The binding strength of an operator relative to others. Higher-precedence operators bind their operands before lower-precedence ones. Eskiu follows C operator precedence: multiplicative (`*`, `/`, `%`) before additive (`+`, `-`), which is before relational, then equality, then logical-and, then logical-or. The parser implements precedence via recursive descent helper functions. See also: binary operator, parser.
 
 **program**
-A complete Eskiu source file (`.esk`) that defines or declares all entities needed for compilation. At the AST level a program is a `ProgramNode` containing a list of top-level declarations. See also: declaration, module.
+A complete Eskiu source file (`.esk`) that defines or declares all entities needed for compilation. At the AST level a program is a `Program` node containing a list of top-level declarations. See also: declaration, module.
 
 ## R
 
@@ -256,7 +256,7 @@ Transport Layer Security, the encryption layer HTTP/2 typically runs over in bro
 The smallest meaningful unit produced by the lexer. Each token carries a `TokenType`, its raw lexeme string, and a source location (line, column). Examples: keyword `int`, identifier `result`, punctuation `{`, integer literal `42`, string literal `"hello"`. See also: TokenType, lexer.
 
 **TokenType**
-Enumeration of all token categories recognized by the Eskiu lexer. Includes keywords (`INT`, `RETURN`, `IF`, `WHILE`, ...), literals (`INTEGER_LITERAL`, `FLOAT_LITERAL`, `STRING_LITERAL`), identifiers (`IDENTIFIER`), operators, punctuation, and `END_OF_FILE`. Used in the parser's `expect()` and `match()` helpers to drive grammar rules. See also: token, lexer.
+Enumeration of all token categories recognized by the Eskiu lexer. Includes keywords (`INT`, `RETURN`, `IF`, `WHILE`, ...), literals (`INT_LIT`, `FLOAT_LIT`, `STRING_LIT`, `CHAR_LIT`), identifiers (`IDENT`), operators, punctuation, and `EOF_TOKEN`. Used in the parser's `expect()` and `match()` helpers to drive grammar rules. See also: token, lexer.
 
 **`ty::Type` IR**
 The compiler's structured, in-memory representation of types (`sema/type.{h,cpp}`), replacing earlier reliance on raw type-name strings. Each `ty::Type` describes a type by kind (primitive, pointer, struct, interface, generic instantiation, function, and so on) and its components, so the type checker compares and resolves types by structure rather than by string matching. Introduced in v0.2.3; since v0.2.4 it is the single resolver, with type unification performed against it. See also: type checker, type unification, type normalization.
@@ -290,7 +290,7 @@ A function that accepts a variable number of arguments after a fixed parameter l
 AST node representing the declaration of a local or global variable. Stores the variable's name, declared type (may be inferred), and optional initializer expression. The type checker validates that the initializer type matches the declared type; the code generator emits an `alloca` and an optional `store`. Supports both C-style (`int x = 5;`) and `let`-style (`let x: int = 5;`) syntax. See also: alloca, declaration, type inference.
 
 **visitor pattern**
-Object-oriented design pattern in which an external object (the visitor) defines operations on the nodes of a data structure without modifying those nodes. Eskiu's AST nodes expose an `accept(ASTVisitor&)` method; the type checker and code generator each implement `ASTVisitor` to walk the tree. This separates compiler passes from AST node definitions. See also: ASTVisitor, AST.
+Object-oriented design pattern in which an external object (the visitor) defines operations on the nodes of a data structure without modifying those nodes. Eskiu's AST nodes expose an `accept(ASTVisitor*)` method; the type checker and code generator each implement `ASTVisitor` to walk the tree. This separates compiler passes from AST node definitions. See also: ASTVisitor, AST.
 
 **vtable**
 A table of function pointers, one per method of an interface, shared by all values of a given concrete type. It is the second word of an interface fat pointer `{data_ptr, vtable_ptr}`: a method call loads the target function from the vtable at a fixed slot and invokes it with the data pointer as the receiver, giving dynamic dispatch. See also: interface, fat pointer.

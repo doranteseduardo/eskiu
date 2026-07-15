@@ -255,10 +255,11 @@ ASTNode                    (line:int, col:int)
 │   ├── SwitchStmt         (subject:ExprPtr, cases[{value:ExprPtr?,stmts[StmtPtr]}])
 │   ├── MatchStmt          (subject:ExprPtr, arms[{variant,bindings,body}], default?)
 │   ├── ExprStmt           (expr)
-│   ├── AsmStmt            (template, outputs, inputs, clobbers)
+│   ├── AsmStmt            (asmString, inputs[(constraint,expr)], clobbers)  (no outputs; `::` form only)
 │   ├── ThreadJoinStmt     (handle:ExprPtr)
 │   ├── ThrowStmt          (value:ExprPtr)
-│   └── TryStmt            (body, catches[{type,name,body}], finallyBody?)
+│   ├── TryStmt            (body, catches[{type,name,body}], finallyBody?)
+│   └── DeferStmt          (body:StmtPtr, isErr:bool)  (defer/errdefer; cleanup on scope exit)
 └── Expr
     ├── BinaryExpr         (left, op:string, right)
     ├── UnaryExpr          (op:string, operand)
@@ -284,7 +285,7 @@ ASTNode                    (line:int, col:int)
 Program                    (declarations: vector<DeclPtr>)  (root node)
 ```
 
-`ASTVisitor` declares 46 pure-virtual `visit()` overloads (one per concrete class: `Program`, 9 `Decl` subtypes, 16 `Stmt` subtypes, 20 `Expr` subtypes). The `alloc<T>(n)` / `free` primitives are stdlib generic functions (`<mem>`), not AST nodes; the explicit-allocator form `alloc_with(&a, T, n)` is the `AllocWithExpr` node.
+`ASTVisitor` declares 47 pure-virtual `visit()` overloads (one per concrete class: `Program`, 9 `Decl` subtypes, 17 `Stmt` subtypes, 20 `Expr` subtypes). The `alloc<T>(n)` / `free` primitives are stdlib generic functions (`<mem>`), not AST nodes; the explicit-allocator form `alloc_with(&a, T, n)` is the `AllocWithExpr` node.
 
 `LambdaExpr` carries the full function signature and body inline. During codegen, `visit(LambdaExpr*)` saves the current insert point, emits a new private `llvm::Function` with a synthesized unique name (e.g. `__lambda_0`, `__lambda_1`), restores the insert point, and pushes the `llvm::Function*` onto `exprValueStack` as the expression value. The `fn(T,...)->R` type is stored in `expressionTypes` for that node so the type checker can validate assignments and call sites.
 
@@ -472,6 +473,10 @@ The GEP uses the *pointee* type (`ptrElemType()`), so `±n` advances by `n` elem
 ### Exception lowering
 
 `try`/`catch`/`throw` lower to the Itanium C++ ABI. Every call inside a `try` body is emitted as `invoke` (not `call`) so it can branch to a `landingpad`; `throw` calls `__cxa_throw` (via `invoke` when inside a try) and the catch dispatch uses `__cxa_begin_catch`/`__cxa_end_catch`. The module gets a `__gxx_personality_v0` declaration. Unhandled exceptions are re-thrown with `resume`. Because this uses the C++ runtime, the final binary must link `-lc++` (macOS) / `-lstdc++` (Linux), surfaced to users in the language spec, with the mechanics kept here.
+
+### Cleanup stack: `defer` / `errdefer` lowering
+
+`defer` and `errdefer` (both `DeferStmt`, with `isErr` distinguishing them) are lowered by a **codegen cleanup stack**, not desugared into the AST. Codegen keeps a stack of scopes, each a list of `{body, isErr}` cleanup entries: entering a block pushes a frame, `visit(DeferStmt*)` registers the statement's body on the current frame, and leaving the block pops it. Every exit path emits the pending cleanups in **LIFO** order *before* the branch or return: fall-through, `return` (`runCleanupsToDepth(0, ...)`), `break`/`continue` (down to the loop's captured depth), and the `?`-propagation error path. `runCleanupsToDepth(depth, errorPath)` skips `errdefer` entries unless `errorPath` is set, so a bare `defer` runs on every exit while `errdefer` runs only on the `?`-error exit. `try`/`finally` registers its `finally` as a cleanup frame around the body, which is what makes `finally` run on an early `return`/`break` out of the `try` (a bug the mechanism fixed). Cleanup-stack state is saved and reset at each function-body boundary (`visit(FunctionDecl*)`), so a nested function emitted mid-expression (e.g. a template instantiated inside a `return`) does not run the outer function's defers.
 
 ### Bitfield layout
 

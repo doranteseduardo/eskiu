@@ -2,7 +2,7 @@
 
 Eskiu is a statically typed systems language with the power of C and the immediacy of a scripting language: it compiles to native code through LLVM, and `eskiuc run file.esk` runs a source file directly, like Python or Ruby. This is the full language reference. New to Eskiu? Start with the [tutorial](getting-started.md).
 
-**Current version: v0.6.0.** A memory-safety and standard-library release, in the
+**Current version: v0.6.1.** A memory-safety and standard-library release, in the
 Zig spirit: compile-time checks and opt-in runtime guards, not a borrow checker.
 It adds `defer` / `errdefer` for leak-proof cleanup on every exit path, the slice type
 `T[]` (a fat pointer that carries its length), the `must_use` qualifier that rejects a
@@ -46,7 +46,7 @@ reimplemented in Eskiu itself (`selfhost/`), reaching a 3-stage bootstrap fixpoi
 | **Interfaces** | `interface Drawable { void draw(); }`: structural typing, vtable dispatch |
 | **Memory** | Stack default; heap via `<mem>` `alloc<T>(n)` / `free`; explicit allocators `<alloc>` via `alloc_with`; typed pointer arithmetic |
 | **volatile** | `volatile let reg: *uint8 = (uint8*) 0x3F8;`: MMIO-safe loads/stores |
-| **Inline asm** | `asm("cli");` simple form; `asm("outb %0, %1" :: "a"(v), "Nd"(p) : "memory");` extended form |
+| **Inline asm** | `asm("cli");` simple form; `asm("outb ${0:b}, $1" :: "a"(v), "Nd"(p) : "memory");` extended form (LLVM operands are `$0`/`$1`) |
 | **Freestanding** | `--freestanding` flag: `<mem>` `alloc<T>`/`free` call `esk_alloc`/`esk_free`; user-supplied in kernel |
 | **Cross-compile** | `--target TRIPLE`: AArch64 and X86 backends included |
 | **Multi-file** | `import <result>` stdlib modules · `import "file.esk"` relative local files |
@@ -68,7 +68,7 @@ reimplemented in Eskiu itself (`selfhost/`), reaching a 3-stage bootstrap fixpoi
 | `int64` | `i64` | `uint64` | `i64` |
 | `float` | `float` | `double` | `double` |
 | `bool` | `i1` | `char` | `i8` |
-| `string` | `i8*` | `*T` / `T*` | `ptr` |
+| `string` | `ptr` | `*T` / `T*` | `ptr` |
 
 ### Operator precedence (lowest → highest)
 
