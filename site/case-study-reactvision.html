@@ -121,11 +121,11 @@
 
     <h2>The same language in the cloud</h2>
     <p>
-      The other end of the stack validated the same toolchain. Eduardo's INE
-      credential-QR decoder, a personal side project, a real image-plus-crypto
-      pipeline (QR extraction,
+      The other end of the stack validated the same toolchain. Eduardo's
+      <a href="case-study-ine.html">INE credential-QR decoder</a>, a personal side
+      project, a real image-plus-crypto pipeline (QR extraction,
       then multi-round AES-256-CBC + RSA-8192), was reimplemented in Eskiu and
-      is served as an HTTP/2 API. On the cryptographic pipeline it runs
+      is served as an HTTP API. On the cryptographic pipeline it runs
       <strong>2.5× faster than the reference C implementation</strong>, on a
       stack built entirely from Eskiu's standard library (<code>&lt;http&gt;</code>,
       <code>&lt;json&gt;</code>, <code>&lt;base64&gt;</code>, threading), with no
