@@ -194,6 +194,38 @@
         text-decoration: none;
       }
 
+      /* Case-studies dropdown (hover + keyboard focus, no JS) */
+      .nav-dd { position: relative; display: none; }
+      @media (min-width: 680px) { .nav-dd { display: inline-flex; align-items: center; } }
+      .nav-dd-trigger {
+        color: var(--ink2); font-weight: 500; font-size: 0.88rem;
+        background: none; border: none; padding: 0; cursor: pointer;
+        font-family: inherit; display: inline-flex; align-items: center; gap: 0.28rem;
+        transition: color 0.12s;
+      }
+      .nav-dd:hover .nav-dd-trigger,
+      .nav-dd:focus-within .nav-dd-trigger { color: var(--ink); }
+      .nav-dd-trigger svg { opacity: 0.55; transition: transform 0.12s; }
+      .nav-dd:hover .nav-dd-trigger svg,
+      .nav-dd:focus-within .nav-dd-trigger svg { transform: rotate(180deg); }
+      .nav-dd-menu {
+        position: absolute; top: 100%; right: 0; margin-top: 0.6rem;
+        background: #fff; border: 1px solid var(--border); border-radius: 8px;
+        box-shadow: 0 10px 30px rgba(20, 24, 29, 0.10); padding: 0.3rem;
+        min-width: 190px; z-index: 30; display: flex; flex-direction: column;
+        opacity: 0; visibility: hidden; transform: translateY(-4px);
+        transition: opacity 0.12s, transform 0.12s, visibility 0.12s;
+      }
+      .nav-dd:hover .nav-dd-menu,
+      .nav-dd:focus-within .nav-dd-menu {
+        opacity: 1; visibility: visible; transform: translateY(0);
+      }
+      .nav-links .nav-dd-menu a:not(.nav-gh) {
+        display: block; padding: 0.5rem 0.7rem; border-radius: 6px;
+        font-size: 0.85rem; color: var(--ink2); white-space: nowrap;
+      }
+      .nav-links .nav-dd-menu a:hover { background: var(--surface); color: var(--purple); }
+
       /* ── Hero ─────────────────────────────────────────────────────── */
       .hero {
         background: var(--bg);
@@ -992,7 +1024,16 @@
           <a href="the-book-of-eskiu.html">Book</a>
           <a href="#examples">Examples</a>
           <a href="docs/self-hosting.html">Self-hosting</a>
-          <a href="case-study-reactvision.html">Case study</a>
+          <div class="nav-dd">
+            <button class="nav-dd-trigger" aria-haspopup="true">
+              Case studies
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 10l5 5 5-5z"></path></svg>
+            </button>
+            <div class="nav-dd-menu">
+              <a href="case-study-reactvision.html">ReactVision</a>
+              <a href="case-study-ine.html">INE QR decoder</a>
+            </div>
+          </div>
           <a class="nav-gh" href="https://github.com/doranteseduardo/eskiu">
             <svg
               width="14"
