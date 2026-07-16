@@ -218,14 +218,7 @@ void CodeGen::visit(CallExpr* node) {
         // (Mirrors the field-access logic; robust to parameters now living in a
         // stack slot.)
         bool baseIsPtr = (!baseType.empty() && (baseType.front() == '*' || baseType.back() == '*'));
-        if (baseType.size() > 7 && baseType.substr(0, 7) == "struct:") baseType = baseType.substr(7);
-        if (!baseType.empty() && baseType.front() == '*') baseType = baseType.substr(1);
-        while (!baseType.empty() && baseType.back() == '*') baseType.pop_back();
-        if (baseType.find('<') != std::string::npos) {
-            auto [tn2, a2] = splitTemplateType(baseType);
-            ensureTemplateInstantiated(mangleTemplate(baseType), tn2, a2);
-            baseType = mangleTemplate(baseType);
-        }
+        baseType = stripToStructKey(baseType);
 
         // Interface vtable dispatch
         auto ifIt = ifaceMethodOrder.find(baseType);

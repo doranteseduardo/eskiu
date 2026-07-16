@@ -81,6 +81,9 @@ private:
     };
     std::map<std::string, std::map<std::string, BitfieldSlot>> structLayout;
     std::string structBaseTypeOf(const ExprPtr& base);  // resolve a member base to a struct name
+    // Normalize a resolved type string to its bare struct/registry key: drop the
+    // `struct:` tag and pointer decoration, and mangle+instantiate a template type.
+    std::string stripToStructKey(std::string t);
     void storeBitfield(MemberExpr* m, llvm::Value* val); // read-modify-write a bitfield
     // Masked read-modify-write of a bitfield given the storage-word pointer.
     void storeBitfieldInto(llvm::Value* wordPtr, const BitfieldSlot& slot, llvm::Value* val);
