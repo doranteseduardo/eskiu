@@ -629,14 +629,7 @@ void CodeGen::visit(TemplateCallExpr* node) {
         llvm::Type* pt = fty->getParamType(pidx);
         llvm::Value* v = args[i];
         if (!v || v->getType() == pt) continue;
-        if (v->getType()->isFloatingPointTy() && pt->isFloatingPointTy())
-            args[i] = builder->CreateFPCast(v, pt);
-        else if (v->getType()->isIntegerTy() && pt->isIntegerTy())
-            args[i] = coerceInt(v, pt, i < node->args.size() && eskiuUnsigned(getExprEskiuType(node->args[i])));
-        else if (v->getType()->isIntegerTy() && pt->isFloatingPointTy())
-            args[i] = intToFloat(v, pt, i < node->args.size() && eskiuUnsigned(getExprEskiuType(node->args[i])));
-        else if (v->getType()->isFloatingPointTy() && pt->isIntegerTy())
-            args[i] = builder->CreateFPToSI(v, pt);
+        args[i] = coerceValue(v, pt, i < node->args.size() && eskiuUnsigned(getExprEskiuType(node->args[i])));
     }
 
     auto sretIt = funcSretTypes.find(mangledName);

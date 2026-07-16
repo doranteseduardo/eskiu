@@ -280,26 +280,11 @@ void CodeGen::visit(ReturnStmt* node) {
     auto coerceRetVal = [&](llvm::Value* v) -> llvm::Value* {
         if (!currentFunction) return v;
         llvm::Type* ft = currentFunction->getReturnType();
-        if (v->getType() == ft) return v;
-        if (v->getType()->isIntegerTy() && ft->isIntegerTy()) {
-            unsigned vw = llvm::cast<llvm::IntegerType>(v->getType())->getBitWidth();
-            unsigned fw = llvm::cast<llvm::IntegerType>(ft)->getBitWidth();
-            if (vw >= fw) return builder->CreateTrunc(v, ft);
-            // Widen by the source's signedness: a bool/comparison result (i1) or
-            // an unsigned source zero-extends — e.g. `return a < b;` from an int
-            // function is 1, not -1.
-            std::string st = node->value ? expandAlias(getExprEskiuType(node->value)) : "";
-            bool uns = vw == 1 || st == "uint" || st == "uint8" || st == "uint16" ||
-                       st == "uint32" || st == "uint64" || st == "char" || st == "bool";
-            return uns ? builder->CreateZExt(v, ft) : builder->CreateSExt(v, ft);
-        }
-        if (v->getType()->isIntegerTy() && ft->isFloatingPointTy())
-            return intToFloat(v, ft, node->value && eskiuUnsigned(getExprEskiuType(node->value)));
-        if (v->getType()->isFloatingPointTy() && ft->isIntegerTy())
-            return builder->CreateFPToSI(v, ft);
-        if (v->getType()->isFloatingPointTy() && ft->isFloatingPointTy())
-            return builder->CreateFPCast(v, ft);  // double→float or float→double
-        return v;
+        // A bool/comparison result (i1) or an unsigned source zero-extends — e.g.
+        // `return a < b;` from an int function is 1, not -1.
+        bool uns = v->getType()->isIntegerTy(1) ||
+                   (node->value && eskiuUnsigned(getExprEskiuType(node->value)));
+        return coerceValue(v, ft, uns);
     };
 
     if (currentSretParam != nullptr) {

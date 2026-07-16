@@ -210,6 +210,10 @@ private:
     // Integer->float conversion, choosing UIToFP vs SIToFP by source signedness.
     llvm::Value* intToFloat(llvm::Value* val, llvm::Type* ty, bool unsignedSrc);
 
+    // Implicit numeric coercion of `val` to `target` (int/float widen/trunc/convert),
+    // shared by every implicit-conversion site. Non-numeric values pass through.
+    llvm::Value* coerceValue(llvm::Value* val, llvm::Type* target, bool unsignedSrc);
+
     // Reserve a stack slot in the *entry* block of the current function. All
     // allocas must live in the entry block: an alloca emitted inside a loop body
     // is re-run every iteration and its slot is not reclaimed until the function

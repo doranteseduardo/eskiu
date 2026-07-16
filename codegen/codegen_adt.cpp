@@ -93,16 +93,7 @@ llvm::Value* CodeGen::buildEnumValue(llvm::StructType* et, int tag,
             llvm::Value* fp = builder->CreateStructGEP(vt, pay, i);
             llvm::Value* val = evaluateExpr(args[i]);
             llvm::Type* ft = fieldTypes[i];
-            if (val && val->getType() != ft) {       // coerce arg to the field type
-                if (val->getType()->isIntegerTy() && ft->isIntegerTy())
-                    val = coerceInt(val, ft, eskiuUnsigned(getExprEskiuType(args[i])));
-                else if (val->getType()->isIntegerTy() && ft->isFloatingPointTy())
-                    val = intToFloat(val, ft, eskiuUnsigned(getExprEskiuType(args[i])));
-                else if (val->getType()->isFloatingPointTy() && ft->isIntegerTy())
-                    val = builder->CreateFPToSI(val, ft);
-                else if (val->getType()->isFloatingPointTy() && ft->isFloatingPointTy())
-                    val = builder->CreateFPCast(val, ft);
-            }
+            val = coerceValue(val, ft, eskiuUnsigned(getExprEskiuType(args[i])));  // arg to field type
             builder->CreateStore(val, fp);
         }
     }
@@ -156,10 +147,7 @@ void CodeGen::emitArrayInitInto(llvm::Value* dest, ArrayLitExpr* lit, const std:
             }
             llvm::Value* val = evaluateExpr(lit->elements[i]);
             if (val->getType() != elemTy) {
-                bool uns = eskiuUnsigned(getExprEskiuType(lit->elements[i]));
-                if (val->getType()->isIntegerTy() && elemTy->isIntegerTy())         val = coerceInt(val, elemTy, uns);
-                else if (val->getType()->isIntegerTy() && elemTy->isFloatingPointTy()) val = intToFloat(val, elemTy, uns);
-                else if (val->getType()->isFloatingPointTy() && elemTy->isFloatingPointTy()) val = builder->CreateFPCast(val, elemTy);
+                val = coerceValue(val, elemTy, eskiuUnsigned(getExprEskiuType(lit->elements[i])));
             }
             builder->CreateStore(val, slot);
         } else {
@@ -178,18 +166,7 @@ void CodeGen::emitStructInitInto(llvm::Value* dest, StructInitExpr* init) {
     bool named = !init->fieldInits.empty() && !init->fieldInits[0].first.empty();
 
     auto coerce = [&](llvm::Value* val, llvm::Type* fieldType, bool unsignedSrc) -> llvm::Value* {
-        if (val && val->getType() != fieldType) {
-            if (val->getType()->isIntegerTy() && fieldType->isIntegerTy()) {
-                val = coerceInt(val, fieldType, unsignedSrc);
-            } else if (val->getType()->isIntegerTy() && fieldType->isFloatingPointTy()) {
-                val = intToFloat(val, fieldType, unsignedSrc);
-            } else if (val->getType()->isFloatingPointTy() && fieldType->isIntegerTy()) {
-                val = builder->CreateFPToSI(val, fieldType);
-            } else if (val->getType()->isFloatingPointTy() && fieldType->isFloatingPointTy()) {
-                val = builder->CreateFPCast(val, fieldType);
-            }
-        }
-        return val;
+        return coerceValue(val, fieldType, unsignedSrc);
     };
 
     auto storeField = [&](size_t idx, ExprPtr expr) {
