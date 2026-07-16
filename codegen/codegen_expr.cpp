@@ -540,8 +540,7 @@ void CodeGen::visit(IndexExpr* node) {
     throw std::runtime_error("Cannot index into type: " + baseType);
 }
 
-std::string CodeGen::structBaseTypeOf(const ExprPtr& base) {
-    std::string baseType = getExprEskiuType(base);
+std::string CodeGen::stripToStructKey(std::string baseType) {
     if (baseType.size() > 7 && baseType.substr(0, 7) == "struct:") baseType = baseType.substr(7);
     if (!baseType.empty() && baseType.front() == '*') baseType = baseType.substr(1);
     while (!baseType.empty() && baseType.back()  == '*') baseType.pop_back();
@@ -551,6 +550,10 @@ std::string CodeGen::structBaseTypeOf(const ExprPtr& base) {
         baseType = mangleTemplate(baseType);
     }
     return baseType;
+}
+
+std::string CodeGen::structBaseTypeOf(const ExprPtr& base) {
+    return stripToStructKey(getExprEskiuType(base));
 }
 
 void CodeGen::visit(MemberExpr* node) {
@@ -864,14 +867,7 @@ llvm::Value* CodeGen::evaluateLValue(const ExprPtr& expr) {
         auto baseAddr = [&]() -> llvm::Value* {
             return baseIsPtr ? evaluateExpr(member->base) : evaluateLValue(member->base);
         };
-        if (baseType.size() > 7 && baseType.substr(0, 7) == "struct:") baseType = baseType.substr(7);
-    if (!baseType.empty() && baseType.front() == '*') baseType = baseType.substr(1);
-    while (!baseType.empty() && baseType.back()  == '*') baseType.pop_back();
-    if (baseType.find('<') != std::string::npos) {
-        auto [tn, args] = splitTemplateType(baseType);
-        ensureTemplateInstantiated(mangleTemplate(baseType), tn, args);
-        baseType = mangleTemplate(baseType);
-    }
+        baseType = stripToStructKey(baseType);
         auto fit = structFields.find(baseType);
         if (fit == structFields.end())
             throw std::runtime_error("Unknown struct type: " + baseType);
