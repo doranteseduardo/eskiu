@@ -61,7 +61,6 @@ void CodeGen::visit(EnumDecl* node) {
             genericVariants[node->members[v].first] = {node->name, (int)v};
         return;
     }
-    adtEnums.insert(node->name);
     adtEnumDecls[node->name] = node;
     std::vector<std::vector<llvm::Type*>> vf;
     for (size_t v = 0; v < node->members.size(); ++v) {
