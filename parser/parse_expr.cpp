@@ -1,10 +1,6 @@
 #include "parser.h"
 #include "../lexer/lexer.h"
-#include "../ast/type_qual.h"
 #include <stdexcept>
-#include <iostream>
-#include <fstream>
-#include <sstream>
 #include "parser_internal.h"
 
 // Parser — expression parsing: the precedence ladder, unary/postfix/primary,

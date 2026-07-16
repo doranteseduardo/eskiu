@@ -8,8 +8,6 @@
 // Template type-name utilities (mangleTemplate / splitTemplateType / substType)
 // are shared with codegen; see template_utils.h.
 #include "../template_utils.h"
-#include "../intrinsics.h"
-#include "../ast/ast_walk.h"
 #include "../ast/type_qual.h"
 
 // ============================================================================

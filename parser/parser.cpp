@@ -1,6 +1,5 @@
 #include "parser.h"
 #include "../lexer/lexer.h"
-#include "../ast/type_qual.h"
 #include <stdexcept>
 #include <iostream>
 #include <fstream>

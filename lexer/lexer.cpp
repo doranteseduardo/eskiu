@@ -1,10 +1,7 @@
 #include "lexer.h"
 #include <iostream>
 #include <cctype>
-#include <sstream>
 #include <map>
-#include <vector>
-#include <set>
 #include "preprocessor.h"
 
 std::unordered_map<std::string, TokenType> Lexer::keywords = {
