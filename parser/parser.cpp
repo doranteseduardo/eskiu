@@ -85,9 +85,6 @@ bool Parser::is_at_end() const {
     if (current >= tokens.size()) {
         return true;
     }
-    if (tokens.empty()) {
-        return true;
-    }
     // The lexer appends a sentinel EOF token; treat reaching it as end-of-input
     // so the declaration loop does not try to parse EOF as a declaration.
     return tokens[current].type == TokenType::EOF_TOKEN;

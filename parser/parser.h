@@ -62,7 +62,6 @@ private:
 
     DeclPtr parseDeclaration();
     DeclPtr parseFunctionDecl();
-    DeclPtr parseVarDecl();
     DeclPtr parseStructDecl();
     DeclPtr parseExternDecl();
     DeclPtr parseIntrinsicDecl();

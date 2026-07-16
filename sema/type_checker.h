@@ -266,5 +266,4 @@ private:
     // is captured when it resolves to a scope index below this boundary (i.e. an
     // enclosing function's param/local), regardless of any same-named global.
     std::vector<int> captureBoundary;
-    int lambdaScopeDepth = 0; // how many scopes the lambda itself pushed
 };
