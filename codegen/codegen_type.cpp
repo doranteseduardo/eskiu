@@ -179,6 +179,22 @@ llvm::Value* CodeGen::intToFloat(llvm::Value* val, llvm::Type* ty, bool unsigned
                        : builder->CreateSIToFP(val, ty);
 }
 
+llvm::Value* CodeGen::coerceValue(llvm::Value* val, llvm::Type* target, bool unsignedSrc) {
+    // The single home for implicit numeric coercion: int/int -> coerceInt,
+    // int/float -> intToFloat, float/int -> FPToSI, float/float -> FPCast.
+    // This ladder was copy-pasted at every implicit-conversion site (assignment,
+    // return, var-decl, ternary, ADT field, template arg); some copies had drifted
+    // (the ternary omitted float->int). Non-numeric or already-matching values pass
+    // through; explicit `as` casts (pointer conversions) stay in visit(CastExpr).
+    if (!val || val->getType() == target) return val;
+    llvm::Type* src = val->getType();
+    if (src->isIntegerTy() && target->isIntegerTy())             return coerceInt(val, target, unsignedSrc);
+    if (src->isIntegerTy() && target->isFloatingPointTy())       return intToFloat(val, target, unsignedSrc);
+    if (src->isFloatingPointTy() && target->isIntegerTy())       return builder->CreateFPToSI(val, target);
+    if (src->isFloatingPointTy() && target->isFloatingPointTy()) return builder->CreateFPCast(val, target);
+    return val;
+}
+
 std::string CodeGen::expandAlias(const std::string& raw) const {
     // const is checked only by the type checker; codegen works on stripped types.
     std::string t = tyq::strip(raw);

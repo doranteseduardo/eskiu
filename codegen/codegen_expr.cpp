@@ -41,17 +41,8 @@ void CodeGen::visit(BinaryExpr* node) {
             else if (auto* gep = llvm::dyn_cast<llvm::GetElementPtrInst>(lhs))
                 elemType = gep->getResultElementType();
         }
-        if (elemType && rhs->getType() != elemType) {
-            if (rhs->getType()->isIntegerTy() && elemType->isIntegerTy()) {
-                rhs = coerceInt(rhs, elemType, eskiuUnsigned(getExprEskiuType(node->right)));
-            } else if (rhs->getType()->isIntegerTy() && elemType->isFloatingPointTy()) {
-                rhs = intToFloat(rhs, elemType, eskiuUnsigned(getExprEskiuType(node->right)));
-            } else if (rhs->getType()->isFloatingPointTy() && elemType->isIntegerTy()) {
-                rhs = builder->CreateFPToSI(rhs, elemType);
-            } else if (rhs->getType()->isFloatingPointTy() && elemType->isFloatingPointTy()) {
-                rhs = builder->CreateFPCast(rhs, elemType);  // e.g. double→float
-            }
-        }
+        if (elemType)
+            rhs = coerceValue(rhs, elemType, eskiuUnsigned(getExprEskiuType(node->right)));
         bool storeVol = false;
         if (auto* ident = llvm::dyn_cast<llvm::AllocaInst>(lhs)) {
             storeVol = volatileVars.count(ident->getName().str()) > 0;
@@ -343,12 +334,7 @@ void CodeGen::visit(TernaryExpr* node) {
         resTy = tLL;
 
     auto coerce = [&](llvm::Value* v, const std::string& srcEskiu) -> llvm::Value* {
-        if (v->getType() == resTy) return v;
-        bool uns = eskiuUnsigned(srcEskiu);
-        if (v->getType()->isIntegerTy() && resTy->isIntegerTy())             return coerceInt(v, resTy, uns);
-        if (v->getType()->isIntegerTy() && resTy->isFloatingPointTy())       return intToFloat(v, resTy, uns);
-        if (v->getType()->isFloatingPointTy() && resTy->isFloatingPointTy()) return builder->CreateFPCast(v, resTy);
-        return v;
+        return coerceValue(v, resTy, eskiuUnsigned(srcEskiu));
     };
 
     llvm::BasicBlock* thenBB = llvm::BasicBlock::Create(*context, "tern.then", currentFunction);

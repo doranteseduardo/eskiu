@@ -309,17 +309,7 @@ void CodeGen::visit(VarDecl* node) {
             emitArrayInitInto(alloca, arrLit, varType);
         } else {
             llvm::Value* val = evaluateExpr(node->initializer);
-            if (val && val->getType() != declType) {
-                if (val->getType()->isIntegerTy() && declType->isIntegerTy()) {
-                    val = coerceInt(val, declType, eskiuUnsigned(getExprEskiuType(node->initializer)));
-                } else if (val->getType()->isIntegerTy() && declType->isFloatingPointTy()) {
-                    val = intToFloat(val, declType, eskiuUnsigned(getExprEskiuType(node->initializer)));
-                } else if (val->getType()->isFloatingPointTy() && declType->isIntegerTy()) {
-                    val = builder->CreateFPToSI(val, declType);
-                } else if (val->getType()->isFloatingPointTy() && declType->isFloatingPointTy()) {
-                    val = builder->CreateFPCast(val, declType);
-                }
-            }
+            val = coerceValue(val, declType, eskiuUnsigned(getExprEskiuType(node->initializer)));
             if (val) builder->CreateStore(val, alloca);
         }
     }
