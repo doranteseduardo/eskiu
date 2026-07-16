@@ -1,6 +1,5 @@
 #include "codegen.h"
 #include "../ast/type_qual.h"
-#include "llvm/IR/InlineAsm.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/IR/Type.h"
 #include "llvm/IR/Constants.h"

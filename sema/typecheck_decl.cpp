@@ -1,9 +1,6 @@
 #include "type_checker.h"
 #include <functional>
-#include <iostream>
-#include <sstream>
 #include <algorithm>
-#include <climits>
 #include <set>
 
 // Template type-name utilities (mangleTemplate / splitTemplateType / substType)
