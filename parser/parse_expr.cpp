@@ -158,15 +158,7 @@ ExprPtr Parser::parseUnary() {
     // Only trigger on unambiguous type keywords to avoid conflict with (expr).
     if (check(TokenType::LPAREN)) {
         TokenType inner = peek_ahead(1).type;
-        bool isTypeKeyword = (inner == TokenType::INT    || inner == TokenType::FLOAT  ||
-                              inner == TokenType::DOUBLE  || inner == TokenType::BOOL   ||
-                              inner == TokenType::CHAR    || inner == TokenType::STRING  ||
-                              inner == TokenType::VOID    || inner == TokenType::STAR    ||
-                              inner == TokenType::INT8    || inner == TokenType::INT16   ||
-                              inner == TokenType::INT32   || inner == TokenType::INT64   ||
-                              inner == TokenType::UINT    || inner == TokenType::UINT8   ||
-                              inner == TokenType::UINT16  || inner == TokenType::UINT32  ||
-                              inner == TokenType::UINT64);
+        bool isTypeKeyword = isPrimitiveTypeToken(inner) || inner == TokenType::STAR;
         // Also a cast when the inner token names a declared type — a struct,
         // enum, union, or alias — as `(Name)x`, `(Name*)x`, or `(Name<...>)x`.
         if (!isTypeKeyword && inner == TokenType::IDENT &&
@@ -352,14 +344,7 @@ ExprPtr Parser::parsePrimary() {
     // Lambda: int(int a, int b) { return a + b; }
     // Detected when a type keyword is followed by '(' and the content looks like params + '{'
     {
-        bool isTypeKw = (tok.type == TokenType::INT    || tok.type == TokenType::FLOAT  ||
-                         tok.type == TokenType::DOUBLE  || tok.type == TokenType::BOOL   ||
-                         tok.type == TokenType::CHAR    || tok.type == TokenType::STRING  ||
-                         tok.type == TokenType::VOID    || tok.type == TokenType::UINT   ||
-                         tok.type == TokenType::INT8    || tok.type == TokenType::INT16  ||
-                         tok.type == TokenType::INT32   || tok.type == TokenType::INT64  ||
-                         tok.type == TokenType::UINT8   || tok.type == TokenType::UINT16 ||
-                         tok.type == TokenType::UINT32  || tok.type == TokenType::UINT64);
+        bool isTypeKw = isPrimitiveTypeToken(tok.type);
         if (isTypeKw && peek_ahead(1).type == TokenType::LPAREN) {
             // Disambiguate from a cast-like usage: try to parse as lambda, backtrack on failure
             size_t savePos = current;

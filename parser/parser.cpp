@@ -152,11 +152,8 @@ std::string Parser::parseType() {
         if (baseIsConst) type = "const " + type;
         return type;
     }
-    if (match({TokenType::INT, TokenType::FLOAT, TokenType::DOUBLE,
-               TokenType::BOOL, TokenType::CHAR, TokenType::STRING, TokenType::VOID,
-               TokenType::INT8, TokenType::INT16, TokenType::INT32, TokenType::INT64,
-               TokenType::UINT, TokenType::UINT8, TokenType::UINT16,
-               TokenType::UINT32, TokenType::UINT64})) {
+    if (isPrimitiveTypeToken(typeToken.type)) {
+        advance();
         type = typeToken.value;
     } else if (check(TokenType::IDENT)) {
         type = advance().value;
