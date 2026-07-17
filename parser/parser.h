@@ -96,6 +96,10 @@ private:
     ExprPtr parseAssignment();
     ExprPtr parseTernary();
     bool ternaryColonAhead() const;   // disambiguate `cond ? a : b` from postfix `expr?`
+    // One left-associative binary-precedence level: parse a `next`-level operand,
+    // then fold while the next token is one of `ops`. Every precedence rung below
+    // is a one-line call to this.
+    ExprPtr parseBinaryLevel(ExprPtr (Parser::*next)(), const std::vector<TokenType>& ops);
     ExprPtr parseLogicalOr();
     ExprPtr parseLogicalAnd();
     ExprPtr parseEquality();
