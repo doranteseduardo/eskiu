@@ -10,7 +10,7 @@ import <io>;
 import <fs>;
 import "lexer.esk";
 
-// decode_str_escape / decode_chr_escape now live in tokens.esk (shared with the
+// decode_str_escape / decode_escape_span now live in tokens.esk (shared with the
 // parser), reached transitively via lexer.esk.
 
 // Print a token's value exactly as the C++ lexer stores it: STRING_LIT/CHAR_LIT
