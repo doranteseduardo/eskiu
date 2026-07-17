@@ -368,3 +368,10 @@ void TypeChecker::warnAssignInCondition(Expr* cond) {
         warning(b->line, b->col,
                 "assignment used as a condition — did you mean '=='?");
 }
+
+void TypeChecker::checkCondition(ASTNode* node, Expr* cond) {
+    cond->accept(this);
+    std::string condType = getExpressionType(cond);
+    if (condType != "unknown" && condType != "bool" && !isNumericType(condType))
+        errorAt(node, "condition must be boolean or numeric, got " + condType);
+}
