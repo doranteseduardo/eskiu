@@ -2800,6 +2800,20 @@ void cg_array_init(Codegen* g, string slot, string arrType, *ExprNode lit, int d
     }
 }
 
+// Enter/leave a loop: push (or pop) this loop's continue target, break target, and the
+// cleanup-stack depth at entry, keeping the three parallel lists in sync. `break` and
+// `continue` read the innermost (last) entry.
+void cg_loop_push(Codegen* g, string cont, string end) {
+    List_push<string>(&g.loop_cont, cont);
+    List_push<string>(&g.loop_end, end);
+    List_push<int>(&g.loop_cldepth, List_len<*StmtNode>(&g.cleanups));
+}
+void cg_loop_pop(Codegen* g) {
+    List_remove<string>(&g.loop_cont, List_len<string>(&g.loop_cont) - 1);
+    List_remove<string>(&g.loop_end, List_len<string>(&g.loop_end) - 1);
+    List_remove<int>(&g.loop_cldepth, List_len<int>(&g.loop_cldepth) - 1);
+}
+
 void cg_stmt(Codegen* g, *StmtNode st) {
     if (st == null) { return; }
     if (st.kind == SK_BLOCK) {
@@ -2844,13 +2858,9 @@ void cg_stmt(Codegen* g, *StmtNode st) {
         cg_emit(g, ", label %"); cg_emit(g, l_end); cg_emit(g, "\n");
         g.terminated = 1;
         cg_label(g, l_body);
-        List_push<string>(&g.loop_cont, l_cond);
-        List_push<string>(&g.loop_end, l_end);
-        List_push<int>(&g.loop_cldepth, List_len<*StmtNode>(&g.cleanups));
+        cg_loop_push(g, l_cond, l_end);
         cg_stmt(g, st.s1);
-        List_remove<string>(&g.loop_cont, List_len<string>(&g.loop_cont) - 1);
-        List_remove<string>(&g.loop_end, List_len<string>(&g.loop_end) - 1);
-        List_remove<int>(&g.loop_cldepth, List_len<int>(&g.loop_cldepth) - 1);
+        cg_loop_pop(g);
         cg_br(g, l_cond);
         cg_label(g, l_end);
         return;
@@ -2861,13 +2871,9 @@ void cg_stmt(Codegen* g, *StmtNode st) {
         string l_end = cg_lbl(g);
         cg_br(g, l_body);
         cg_label(g, l_body);
-        List_push<string>(&g.loop_cont, l_cond);       // `continue` re-tests the condition
-        List_push<string>(&g.loop_end, l_end);
-        List_push<int>(&g.loop_cldepth, List_len<*StmtNode>(&g.cleanups));
+        cg_loop_push(g, l_cond, l_end);       // `continue` re-tests the condition
         cg_stmt(g, st.s1);
-        List_remove<string>(&g.loop_cont, List_len<string>(&g.loop_cont) - 1);
-        List_remove<string>(&g.loop_end, List_len<string>(&g.loop_end) - 1);
-        List_remove<int>(&g.loop_cldepth, List_len<int>(&g.loop_cldepth) - 1);
+        cg_loop_pop(g);
         cg_br(g, l_cond);
         cg_label(g, l_cond);
         CgVal c = cg_cond(g, st.expr);
@@ -2894,13 +2900,9 @@ void cg_stmt(Codegen* g, *StmtNode st) {
             cg_br(g, l_body);
         }
         cg_label(g, l_body);
-        List_push<string>(&g.loop_cont, l_step);
-        List_push<string>(&g.loop_end, l_end);
-        List_push<int>(&g.loop_cldepth, List_len<*StmtNode>(&g.cleanups));
+        cg_loop_push(g, l_step, l_end);
         cg_stmt(g, st.s2);
-        List_remove<string>(&g.loop_cont, List_len<string>(&g.loop_cont) - 1);
-        List_remove<string>(&g.loop_end, List_len<string>(&g.loop_end) - 1);
-        List_remove<int>(&g.loop_cldepth, List_len<int>(&g.loop_cldepth) - 1);
+        cg_loop_pop(g);
         cg_br(g, l_step);
         cg_label(g, l_step);
         if (st.expr2 != null) { cg_expr(g, st.expr2); }
