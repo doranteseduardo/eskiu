@@ -8,6 +8,18 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
+## [Unreleased]
+### Fixed
+- **Interface (vtable) dispatch now coerces arguments.** Calling an interface method
+  with an argument that needs widening (e.g. an `int32` where the method declares
+  `int64`) emitted a call whose argument type did not match the vtable slot's signature.
+  The reference compiler rejected it at LLVM verification (`code generation failed`); the
+  self-hosted compiler emitted mistyped IR. Both now widen the argument to the method's
+  declared parameter type, exactly like a direct call. Fixed in lockstep across both
+  code generators.
+
+---
+
 ## [0.6.1]
 ### Added
 - **`\xNN` hex escape** in string and character literals: one or two hex digits decode
