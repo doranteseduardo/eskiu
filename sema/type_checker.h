@@ -250,6 +250,10 @@ private:
     void error(int line, int col, const std::string& message);
     void warning(int line, int col, const std::string& message);
     void warnAssignInCondition(Expr* cond);  // -Wall: `if (x = 0)`
+    // Type-check a loop/if condition: must resolve to bool or numeric. Shared by
+    // if/while/do-while/for (the assign-in-condition warning stays at the call site,
+    // since `for` intentionally omits it).
+    void checkCondition(ASTNode* node, Expr* cond);
     // Convenience: report error at an AST node's position
     void errorAt(ASTNode* node, const std::string& message) {
         error(node->line, node->col, message);

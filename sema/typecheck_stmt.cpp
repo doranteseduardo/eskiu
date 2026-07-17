@@ -38,11 +38,7 @@ void TypeChecker::visit(BlockStmt* node) {
 void TypeChecker::visit(IfStmt* node) {
     if (node->condition) {
         warnAssignInCondition(node->condition.get());
-        node->condition->accept(this);
-        std::string condType = getExpressionType(node->condition.get());
-        if (condType != "unknown" && condType != "bool" && !isNumericType(condType)) {
-            errorAt(node,"condition must be boolean or numeric, got " + condType);
-        }
+        checkCondition(node, node->condition.get());
     }
     // Null-narrowing: `if (q != null)` proves `q` non-null in the then-branch (and
     // `if (q == null)` in the else-branch), so a `?*T` may be dereferenced there.
@@ -125,11 +121,7 @@ void TypeChecker::visit(ForInStmt* node) {
 void TypeChecker::visit(WhileStmt* node) {
     if (node->condition) {
         warnAssignInCondition(node->condition.get());
-        node->condition->accept(this);
-        std::string condType = getExpressionType(node->condition.get());
-        if (condType != "unknown" && condType != "bool" && !isNumericType(condType)) {
-            errorAt(node,"condition must be boolean or numeric, got " + condType);
-        }
+        checkCondition(node, node->condition.get());
     }
     if (node->body) {
         node->body->accept(this);
@@ -140,10 +132,7 @@ void TypeChecker::visit(DoWhileStmt* node) {
     if (node->body) node->body->accept(this);
     if (node->condition) {
         warnAssignInCondition(node->condition.get());
-        node->condition->accept(this);
-        std::string condType = getExpressionType(node->condition.get());
-        if (condType != "unknown" && condType != "bool" && !isNumericType(condType))
-            errorAt(node,"condition must be boolean or numeric, got " + condType);
+        checkCondition(node, node->condition.get());
     }
 }
 
@@ -166,13 +155,9 @@ void TypeChecker::visit(ForStmt* node) {
         }
     }
 
-    // Type check condition
+    // Type check condition (for intentionally omits the assign-in-condition warning)
     if (node->condition) {
-        node->condition->accept(this);
-        std::string condType = getExpressionType(node->condition.get());
-        if (condType != "unknown" && condType != "bool" && !isNumericType(condType)) {
-            errorAt(node,"condition must be boolean or numeric, got " + condType);
-        }
+        checkCondition(node, node->condition.get());
     }
 
     // Type check step
