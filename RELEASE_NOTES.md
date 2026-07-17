@@ -1,9 +1,10 @@
-# Eskiu 0.6.1
+# Eskiu 0.6.2
 
-A patch release. It adds a `\xNN` hex escape and slices over a raw pointer, fixes
-escape-sequence decoding and a couple of code-generation crashes (slicing a pointer, a
-global lambda), and lands a documentation-accuracy pass. Existing code keeps compiling
-unchanged.
+A patch release focused on the async runtime and CI stability. It removes the last
+uninitialized function pointer from the event loop (the shape of an intermittent Linux
+CI `SIGILL` in the HTTP/2 tests), fixes a soundness gap in the async transform, corrects
+interface (vtable) argument coercion, and makes `--target` cross-compilation select the
+right platform. Existing code keeps compiling unchanged.
 
 ---
 
@@ -34,32 +35,31 @@ cd eskiu && cmake -S . -B build && cmake --build build
 
 ## What's new
 
-- **`\xNN` hex escape** in string and character literals: one or two hex digits decode to
-  a raw byte, so byte-precise strings work (`"\xC3\x91"` is `Ñ` in UTF-8, `'\x41'` is
-  `'A'`). Lockstep in both lexers.
-- **Slices from a raw pointer.** `ptr[lo..hi]` on a `*T` now yields a `T[]` slice over the
-  pointer's memory, so a heap buffer (`alloc<T>(n)`) can become a slice, not just a fixed
-  array. (This also fixes a compiler crash that occurred when slicing a pointer.)
+- **Cross-compilation targets the right platform.** The `--target` triple now drives the
+  predefined platform macro (`__APPLE__` / `__linux__`), so `eskiuc --target x86_64-linux-gnu`
+  on macOS selects the Linux stdlib paths (epoll, Linux `sockaddr_in`) instead of emitting
+  unresolved BSD symbols. With no `--target` it still follows the build host.
 
 ## What's fixed
 
-- **Escape sequences in string and character literals.** `\0` now decodes to a NUL byte
-  instead of the character `'0'` (previously a silent trap), character literals accept
-  `\r` (and `\f`, `\v`), and string and character literals now share one escape set:
-  `\n \t \r \f \v \0 \\ \" \' \xNN`. An unrecognized escape still yields the character
-  itself (`\q` is `q`). The fix landed in lockstep across the C++ and self-hosted lexers,
-  so both decode identically.
+- **Event-loop timer callbacks are initialized.** `el_new` allocated the timer array but
+  only zeroed each timer's `active` flag, leaving the `on_fire` closure as heap garbage
+  (`alloc` does not zero). Firing is guarded by `active`, but an uninitialized function
+  pointer is exactly the shape of the intermittent Linux CI `SIGILL` in the HTTP/2 tests.
+  It now initializes every field, completing the equivalent `on_read` fix from v0.3.1, so
+  the event loop holds no uninitialized function pointer.
 
-- **Global lambda crashed when called.** A non-capturing lambda assigned to a global
-  (`let f: fn(int)->int = int(int x){ return x*2; };`) compiled to a null closure, so
-  calling it segfaulted. It now folds to a constant closure and works, exactly like a
-  lambda written inside a function. Fixed in lockstep in both code generators.
+- **The async transform preserves `escaping` parameters.** Lowering an `async fn` to its
+  coroutine constructor dropped the per-parameter `escaping` flags. Because the constructor
+  stores each parameter into the heap coroutine frame (which outlives the call), an escaping
+  closure argument could then be stack-allocated at the call site, leaving the frame with a
+  dangling env. The lowered constructor now carries the original flags.
 
-- **Documentation accuracy** (from an internal audit): corrected AST node counts and
-  documented the `defer` cleanup-stack in the internals docs; regenerated the real
-  `--test-lexer` / `--test-parser` sample output; fixed the inline-asm operand syntax
-  (`$0`, not `%0`) and noted that output operands are unsupported; added an `intrinsic`
-  spec section and a `--safe` flag row; and corrected glossary token-type names.
+- **Interface (vtable) dispatch coerces arguments.** Calling an interface method with an
+  argument that needs widening (e.g. an `int32` where the method declares `int64`) emitted a
+  call whose argument type did not match the vtable slot's signature: the reference compiler
+  rejected it at LLVM verification, and the self-hosted compiler emitted mistyped IR. Both
+  now widen the argument to the method's declared parameter type, exactly like a direct call.
 
 The full log is in [CHANGELOG.md](CHANGELOG.md).
 
@@ -67,6 +67,4 @@ The full log is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Upgrade
 
-Drop-in. The only behavioral change is that `\0` in a literal now produces a NUL byte, as
-documented; code that relied on the previous (incorrect) behavior of `\0` yielding `'0'`
-should use a literal `0` character instead.
+Drop-in. No language or standard-library API changes; recompiling picks up the fixes.
