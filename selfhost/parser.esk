@@ -248,8 +248,8 @@ int is_type_kw(int t) {
 }
 
 // String/char literal value (decoded, quotes stripped — the C++ stores the decoded
-// value in LiteralExpr.value). The byte-level escape decode (decode_str_escape /
-// decode_chr_escape) is shared from tokens.esk.
+// value in LiteralExpr.value). The byte-level escape decode (decode_escape_span,
+// backed by decode_str_escape) is shared from tokens.esk.
 string tok_str_value(*uint8 src, Token t) {
     *uint8 buf = alloc<uint8>(t.len + 1);
     int off = 0;
@@ -1275,8 +1275,6 @@ string strip_binding_const(string t) {
 
 // ── Declarations ────────────────────────────────────────────────────────────
 
-// Consume a type-parameter list `<T, U: Iface + B>` if present (fn/struct/enum).
-// The AST printer doesn't emit type params, so we just skip them.
 // Allocate a DeclNode and initialize the fields that aren't otherwise set by the
 // caller (alloc<T> does NOT zero memory). Centralizes init of the enrichment fields
 // added for sema/codegen so each is set once, not at every creation site.

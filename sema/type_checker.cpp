@@ -8,8 +8,6 @@
 // Template type-name utilities (mangleTemplate / splitTemplateType / substType)
 // are shared with codegen; see template_utils.h.
 #include "../template_utils.h"
-#include "../intrinsics.h"
-#include "../ast/ast_walk.h"
 #include "../ast/type_qual.h"
 
 // ============================================================================
@@ -369,4 +367,11 @@ void TypeChecker::warnAssignInCondition(Expr* cond) {
     if (auto* b = dynamic_cast<BinaryExpr*>(cond); b && b->op == "=")
         warning(b->line, b->col,
                 "assignment used as a condition — did you mean '=='?");
+}
+
+void TypeChecker::checkCondition(ASTNode* node, Expr* cond) {
+    cond->accept(this);
+    std::string condType = getExpressionType(cond);
+    if (condType != "unknown" && condType != "bool" && !isNumericType(condType))
+        errorAt(node, "condition must be boolean or numeric, got " + condType);
 }

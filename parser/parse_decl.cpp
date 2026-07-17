@@ -2,14 +2,28 @@
 #include "../lexer/lexer.h"
 #include "../ast/type_qual.h"
 #include <stdexcept>
-#include <iostream>
-#include <fstream>
-#include <sstream>
 #include "parser_internal.h"
 
 // Parser — declaration parsing (functions, externs, intrinsics, structs,
 // pragmas).
 // Part of the parser.cpp split; all methods are Parser members (parser.h).
+
+void Parser::parseTypeParams(std::vector<std::string>& typeParams,
+                             std::map<std::string, std::vector<std::string>>& typeConstraints) {
+    if (!match(TokenType::LT)) return;
+    do {
+        std::string tp = consume(TokenType::IDENT, "Expected type parameter name").value;
+        typeParams.push_back(tp);
+        // Optional constraint(s): `<T: Iface>` or `<T: A + B>`.
+        if (match(TokenType::COLON)) {
+            do {
+                typeConstraints[tp].push_back(
+                    consume(TokenType::IDENT, "Expected constraint interface name").value);
+            } while (match(TokenType::PLUS));
+        }
+    } while (match(TokenType::COMMA));
+    consume(TokenType::GT, "Expected '>'");
+}
 
 DeclPtr Parser::parseDeclaration() {
     try {
@@ -194,14 +208,9 @@ DeclPtr Parser::parseDeclaration() {
         bool declIsVolatile = leadingVol;
         if (check(TokenType::VOLATILE)) { declIsVolatile = true; advance(); }
 
-        if (check(TokenType::CONST) ||
-            check(TokenType::INT) || check(TokenType::FLOAT) || check(TokenType::DOUBLE) ||
-            check(TokenType::BOOL) || check(TokenType::CHAR) || check(TokenType::STRING) ||
-            check(TokenType::VOID) || check(TokenType::STAR) || check(TokenType::IDENT) ||
-            check(TokenType::FN) || check(TokenType::QUESTION) ||   // `?*T` nullable pointer
-            check(TokenType::INT8) || check(TokenType::INT16) || check(TokenType::INT32) ||
-            check(TokenType::INT64) || check(TokenType::UINT) || check(TokenType::UINT8) ||
-            check(TokenType::UINT16) || check(TokenType::UINT32) || check(TokenType::UINT64)) {
+        if (check(TokenType::CONST) || isPrimitiveTypeToken(peek().type) ||
+            check(TokenType::STAR) || check(TokenType::IDENT) ||
+            check(TokenType::FN) || check(TokenType::QUESTION)) {   // `?*T` nullable pointer
 
             size_t savePos = current;
             std::string type = parseType();
@@ -261,20 +270,7 @@ DeclPtr Parser::parseFunctionDecl() {
     // Optional type parameters: int max<T>(T a, T b) { ... }
     std::vector<std::string> typeParams;
     std::map<std::string, std::vector<std::string>> typeConstraints;
-    if (match(TokenType::LT)) {
-        do {
-            std::string tp = consume(TokenType::IDENT, "Expected type parameter").value;
-            typeParams.push_back(tp);
-            // Optional constraint(s): `<T: Iface>` or `<T: A + B>`.
-            if (match(TokenType::COLON)) {
-                do {
-                    typeConstraints[tp].push_back(
-                        consume(TokenType::IDENT, "Expected constraint interface name").value);
-                } while (match(TokenType::PLUS));
-            }
-        } while (match(TokenType::COMMA));
-        consume(TokenType::GT, "Expected '>'");
-    }
+    parseTypeParams(typeParams, typeConstraints);
 
     consume(TokenType::LPAREN, "Expected '('");
     std::vector<bool> esc;
@@ -334,19 +330,7 @@ DeclPtr Parser::parseStructDecl() {
     // Optional type parameters: struct List<T>  or  struct Result<T, E>
     std::vector<std::string> typeParams;
     std::map<std::string, std::vector<std::string>> typeConstraints;
-    if (match(TokenType::LT)) {
-        do {
-            std::string tp = consume(TokenType::IDENT, "Expected type parameter name").value;
-            typeParams.push_back(tp);
-            if (match(TokenType::COLON)) {     // `<K: Hashable>` / `<K: A + B>`
-                do {
-                    typeConstraints[tp].push_back(
-                        consume(TokenType::IDENT, "Expected constraint interface name").value);
-                } while (match(TokenType::PLUS));
-            }
-        } while (match(TokenType::COMMA));
-        consume(TokenType::GT, "Expected '>'");
-    }
+    parseTypeParams(typeParams, typeConstraints);
 
     consume(TokenType::LBRACE, "Expected '{'");
 

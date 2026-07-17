@@ -81,6 +81,9 @@ private:
     };
     std::map<std::string, std::map<std::string, BitfieldSlot>> structLayout;
     std::string structBaseTypeOf(const ExprPtr& base);  // resolve a member base to a struct name
+    // Normalize a resolved type string to its bare struct/registry key: drop the
+    // `struct:` tag and pointer decoration, and mangle+instantiate a template type.
+    std::string stripToStructKey(std::string t);
     void storeBitfield(MemberExpr* m, llvm::Value* val); // read-modify-write a bitfield
     // Masked read-modify-write of a bitfield given the storage-word pointer.
     void storeBitfieldInto(llvm::Value* wordPtr, const BitfieldSlot& slot, llvm::Value* val);
@@ -157,6 +160,23 @@ private:
     std::vector<std::vector<Cleanup>> cleanupScopes;
     size_t breakCleanupDepth    = 0;   // frame depth to unwind to on break
     size_t continueCleanupDepth = 0;   // frame depth to unwind to on continue
+
+    // RAII: install a loop's break/continue targets and cleanup-unwind depth for the
+    // duration of its body, restoring the enclosing loop's values on scope exit.
+    struct LoopContext {
+        CodeGen* cg;
+        llvm::BasicBlock* pb; llvm::BasicBlock* pc; size_t pbd, pcd;
+        LoopContext(CodeGen* c, llvm::BasicBlock* brk, llvm::BasicBlock* cont)
+            : cg(c), pb(c->breakTarget), pc(c->continueTarget),
+              pbd(c->breakCleanupDepth), pcd(c->continueCleanupDepth) {
+            cg->breakTarget = brk; cg->continueTarget = cont;
+            cg->breakCleanupDepth = cg->continueCleanupDepth = cg->cleanupScopes.size();
+        }
+        ~LoopContext() {
+            cg->breakTarget = pb; cg->continueTarget = pc;
+            cg->breakCleanupDepth = pbd; cg->continueCleanupDepth = pcd;
+        }
+    };
     // Emit (in LIFO order) every cleanup body in frames at index >= depth. On a normal
     // exit (errorPath=false) errdefer bodies are skipped; the `?`-propagation error path
     // passes errorPath=true so both run. Does not pop — the owning scope pops when it ends.
@@ -209,6 +229,10 @@ private:
 
     // Integer->float conversion, choosing UIToFP vs SIToFP by source signedness.
     llvm::Value* intToFloat(llvm::Value* val, llvm::Type* ty, bool unsignedSrc);
+
+    // Implicit numeric coercion of `val` to `target` (int/float widen/trunc/convert),
+    // shared by every implicit-conversion site. Non-numeric values pass through.
+    llvm::Value* coerceValue(llvm::Value* val, llvm::Type* target, bool unsignedSrc);
 
     // Reserve a stack slot in the *entry* block of the current function. All
     // allocas must live in the entry block: an alloca emitted inside a loop body
@@ -294,7 +318,6 @@ private:
     std::set<std::string> enumTypes;
     // Algebraic enums: name -> decl (payloads) and variant -> (enum, tag). The
     // LLVM type lives in structTypes[enumName] as { i32 tag, [N x i64] payload }.
-    std::set<std::string> adtEnums;
     std::map<std::string, EnumDecl*> adtEnumDecls;
     std::map<std::string, std::pair<std::string, int>> adtVariants;
     // Generic algebraic enums (Option<T>): template decl + variant->(enum,tag), and

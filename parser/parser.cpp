@@ -1,6 +1,5 @@
 #include "parser.h"
 #include "../lexer/lexer.h"
-#include "../ast/type_qual.h"
 #include <stdexcept>
 #include <iostream>
 #include <fstream>
@@ -85,9 +84,6 @@ bool Parser::is_at_end() const {
     if (current >= tokens.size()) {
         return true;
     }
-    if (tokens.empty()) {
-        return true;
-    }
     // The lexer appends a sentinel EOF token; treat reaching it as end-of-input
     // so the declaration loop does not try to parse EOF as a declaration.
     return tokens[current].type == TokenType::EOF_TOKEN;
@@ -156,11 +152,8 @@ std::string Parser::parseType() {
         if (baseIsConst) type = "const " + type;
         return type;
     }
-    if (match({TokenType::INT, TokenType::FLOAT, TokenType::DOUBLE,
-               TokenType::BOOL, TokenType::CHAR, TokenType::STRING, TokenType::VOID,
-               TokenType::INT8, TokenType::INT16, TokenType::INT32, TokenType::INT64,
-               TokenType::UINT, TokenType::UINT8, TokenType::UINT16,
-               TokenType::UINT32, TokenType::UINT64})) {
+    if (isPrimitiveTypeToken(typeToken.type)) {
+        advance();
         type = typeToken.value;
     } else if (check(TokenType::IDENT)) {
         type = advance().value;

@@ -1,21 +1,5 @@
 #include "codegen.h"
 #include "../ast/type_qual.h"
-#include "llvm/IR/InlineAsm.h"
-#include "llvm/IR/Verifier.h"
-#include "llvm/IR/Type.h"
-#include "llvm/IR/Constants.h"
-#include "llvm/IR/LegacyPassManager.h"
-#include "llvm/Support/TargetSelect.h"
-#include "llvm/Support/FileSystem.h"
-#include "llvm/Target/TargetMachine.h"
-#include "llvm/MC/TargetRegistry.h"
-#include "llvm/Passes/PassBuilder.h"
-#include "llvm/Transforms/Instrumentation/AddressSanitizer.h"
-#include "llvm/Transforms/Instrumentation/BoundsChecking.h"
-#include "llvm/TargetParser/Host.h"
-#include "llvm/TargetParser/Triple.h"
-#include "llvm/Support/raw_os_ostream.h"
-#include <iostream>
 
 // Template type-name utilities (mangleTemplate / splitTemplateType / substType)
 // are shared with the type checker; see template_utils.h.
@@ -234,14 +218,7 @@ void CodeGen::visit(CallExpr* node) {
         // (Mirrors the field-access logic; robust to parameters now living in a
         // stack slot.)
         bool baseIsPtr = (!baseType.empty() && (baseType.front() == '*' || baseType.back() == '*'));
-        if (baseType.size() > 7 && baseType.substr(0, 7) == "struct:") baseType = baseType.substr(7);
-        if (!baseType.empty() && baseType.front() == '*') baseType = baseType.substr(1);
-        while (!baseType.empty() && baseType.back() == '*') baseType.pop_back();
-        if (baseType.find('<') != std::string::npos) {
-            auto [tn2, a2] = splitTemplateType(baseType);
-            ensureTemplateInstantiated(mangleTemplate(baseType), tn2, a2);
-            baseType = mangleTemplate(baseType);
-        }
+        baseType = stripToStructKey(baseType);
 
         // Interface vtable dispatch
         auto ifIt = ifaceMethodOrder.find(baseType);
@@ -262,13 +239,24 @@ void CodeGen::visit(CallExpr* node) {
             llvm::StructType* vtType = ifaceVtableTypes[baseType];
             llvm::Value* fnGEP = builder->CreateStructGEP(vtType, vtPtr, idx);
             llvm::Value* fnPtr = builder->CreateLoad(llvm::PointerType::get(*context, 0), fnGEP);
-            std::vector<llvm::Value*> iargs = {dataPtr};
-            for (auto& arg : node->args) iargs.push_back(evaluateExpr(arg));
-
             // Build the correct function type from stored method signature
             llvm::Type* retType = llvm::Type::getVoidTy(*context);
             auto& retTypes  = ifaceMethodReturnTypes[baseType];
             auto& paramLists = ifaceMethodParamEskiuTypes[baseType];
+
+            // Evaluate args, coercing each to the method's declared param type — a vtable
+            // call needs the same widening as a direct call, else the value (e.g. an i32)
+            // won't match the vtable slot's signature (e.g. i64) and LLVM rejects the call.
+            const std::vector<std::string>* iParams =
+                (idx < paramLists.size()) ? &paramLists[idx] : nullptr;
+            std::vector<llvm::Value*> iargs = {dataPtr};
+            for (size_t ai = 0; ai < node->args.size(); ++ai) {
+                llvm::Value* av = evaluateExpr(node->args[ai]);
+                if (iParams && ai < iParams->size())
+                    av = coerceValue(av, getTypeFromString((*iParams)[ai]),
+                                     eskiuUnsigned(getExprEskiuType(node->args[ai])));
+                iargs.push_back(av);
+            }
             if (idx < retTypes.size()) retType = getTypeFromString(retTypes[idx]);
 
             std::vector<llvm::Type*> paramLLVM = {llvm::PointerType::get(*context, 0)}; // self
@@ -645,14 +633,7 @@ void CodeGen::visit(TemplateCallExpr* node) {
         llvm::Type* pt = fty->getParamType(pidx);
         llvm::Value* v = args[i];
         if (!v || v->getType() == pt) continue;
-        if (v->getType()->isFloatingPointTy() && pt->isFloatingPointTy())
-            args[i] = builder->CreateFPCast(v, pt);
-        else if (v->getType()->isIntegerTy() && pt->isIntegerTy())
-            args[i] = coerceInt(v, pt, i < node->args.size() && eskiuUnsigned(getExprEskiuType(node->args[i])));
-        else if (v->getType()->isIntegerTy() && pt->isFloatingPointTy())
-            args[i] = intToFloat(v, pt, i < node->args.size() && eskiuUnsigned(getExprEskiuType(node->args[i])));
-        else if (v->getType()->isFloatingPointTy() && pt->isIntegerTy())
-            args[i] = builder->CreateFPToSI(v, pt);
+        args[i] = coerceValue(v, pt, i < node->args.size() && eskiuUnsigned(getExprEskiuType(node->args[i])));
     }
 
     auto sretIt = funcSretTypes.find(mangledName);

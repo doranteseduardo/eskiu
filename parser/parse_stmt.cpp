@@ -1,10 +1,6 @@
 #include "parser.h"
 #include "../lexer/lexer.h"
-#include "../ast/type_qual.h"
 #include <stdexcept>
-#include <iostream>
-#include <fstream>
-#include <sstream>
 #include "parser_internal.h"
 
 // Parser — statement parsing (blocks, control flow, match/switch, returns).
@@ -155,14 +151,8 @@ StmtPtr Parser::parseBlockStatement() {
             check(TokenType::STATIC) ||
             check(TokenType::QUESTION) ||   // `?*T q = ...` nullable-pointer local
             check(TokenType::LET) ||
-            check(TokenType::INT) || check(TokenType::FLOAT) ||
-            check(TokenType::DOUBLE) || check(TokenType::BOOL) ||
-            check(TokenType::CHAR) || check(TokenType::STRING) ||
-            check(TokenType::VOID) || check(TokenType::STAR) ||
-            check(TokenType::IDENT) ||
-            check(TokenType::INT8) || check(TokenType::INT16) || check(TokenType::INT32) ||
-            check(TokenType::INT64) || check(TokenType::UINT) || check(TokenType::UINT8) ||
-            check(TokenType::UINT16) || check(TokenType::UINT32) || check(TokenType::UINT64)) {
+            check(TokenType::STAR) || check(TokenType::IDENT) ||
+            isPrimitiveTypeToken(peek().type)) {
 
             size_t savePos = current;
             try {

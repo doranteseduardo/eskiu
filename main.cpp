@@ -96,7 +96,7 @@ static llvm::cl::opt<unsigned> OptLevel("O", llvm::cl::Prefix,
     llvm::cl::desc("Optimization level: -O0 (default), -O1, -O2, -O3"),
     llvm::cl::init(0));
 
-const char* VERSION = "0.6.1";
+const char* VERSION = "0.6.2";
 
 // `eskiuc run`: set when argv[1] == "run". The program is compiled to a
 // temporary executable, run with g_runArgs, then deleted (see main()).
@@ -356,15 +356,27 @@ int main(int argc, char** argv) {
         std::set<std::string> importedFiles;     // shared: a common import is parsed once
         std::map<std::string, Macro> macros;     // shared: #defines propagate across files
 
-        // Predefine a host-OS macro so stdlib can #ifdef per platform (e.g. the
-        // sockaddr_in layout differs between macOS and Linux).
+        // Predefine a platform macro so stdlib can #ifdef per OS (the event-loop
+        // backend and sockaddr_in layout differ between macOS and Linux). It follows
+        // the --target triple when cross-compiling, else the build host — otherwise a
+        // `--target x86_64-linux-gnu` build on macOS would still select the kqueue
+        // path and emit unresolved BSD symbols.
         {
             Macro os; os.body = "1";
+            std::string tt = std::string(TargetTriple);
+            bool tgtLinux = tt.find("linux") != std::string::npos;
+            bool tgtApple = tt.find("apple") != std::string::npos ||
+                            tt.find("darwin") != std::string::npos ||
+                            tt.find("macos") != std::string::npos;
+            if (tgtLinux)      { macros["__linux__"] = os; }
+            else if (tgtApple) { macros["__APPLE__"] = os; }
+            else {
 #if defined(__APPLE__)
-            macros["__APPLE__"] = os;
+                macros["__APPLE__"] = os;
 #elif defined(__linux__)
-            macros["__linux__"] = os;
+                macros["__linux__"] = os;
 #endif
+            }
         }
         // Predefine __ESKIU_FREESTANDING__ under --freestanding so stdlib (e.g.
         // <mem>'s alloc/free) can target esk_alloc/esk_free instead of libc.

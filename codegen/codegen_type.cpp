@@ -3,21 +3,6 @@
 #include <typeinfo>
 #include <cstdlib>
 #include <cstdio>
-#include "llvm/IR/InlineAsm.h"
-#include "llvm/IR/Verifier.h"
-#include "llvm/IR/Type.h"
-#include "llvm/IR/Constants.h"
-#include "llvm/IR/LegacyPassManager.h"
-#include "llvm/Support/TargetSelect.h"
-#include "llvm/Support/FileSystem.h"
-#include "llvm/Target/TargetMachine.h"
-#include "llvm/MC/TargetRegistry.h"
-#include "llvm/Passes/PassBuilder.h"
-#include "llvm/Transforms/Instrumentation/AddressSanitizer.h"
-#include "llvm/Transforms/Instrumentation/BoundsChecking.h"
-#include "llvm/TargetParser/Host.h"
-#include "llvm/TargetParser/Triple.h"
-#include "llvm/Support/raw_os_ostream.h"
 #include <iostream>
 
 // Template type-name utilities (mangleTemplate / splitTemplateType / substType)
@@ -192,6 +177,22 @@ llvm::Value* CodeGen::intToFloat(llvm::Value* val, llvm::Type* ty, bool unsigned
     // 4000000000) would otherwise convert to a negative float.
     return unsignedSrc ? builder->CreateUIToFP(val, ty)
                        : builder->CreateSIToFP(val, ty);
+}
+
+llvm::Value* CodeGen::coerceValue(llvm::Value* val, llvm::Type* target, bool unsignedSrc) {
+    // The single home for implicit numeric coercion: int/int -> coerceInt,
+    // int/float -> intToFloat, float/int -> FPToSI, float/float -> FPCast.
+    // This ladder was copy-pasted at every implicit-conversion site (assignment,
+    // return, var-decl, ternary, ADT field, template arg); some copies had drifted
+    // (the ternary omitted float->int). Non-numeric or already-matching values pass
+    // through; explicit `as` casts (pointer conversions) stay in visit(CastExpr).
+    if (!val || val->getType() == target) return val;
+    llvm::Type* src = val->getType();
+    if (src->isIntegerTy() && target->isIntegerTy())             return coerceInt(val, target, unsignedSrc);
+    if (src->isIntegerTy() && target->isFloatingPointTy())       return intToFloat(val, target, unsignedSrc);
+    if (src->isFloatingPointTy() && target->isIntegerTy())       return builder->CreateFPToSI(val, target);
+    if (src->isFloatingPointTy() && target->isFloatingPointTy()) return builder->CreateFPCast(val, target);
+    return val;
 }
 
 std::string CodeGen::expandAlias(const std::string& raw) const {

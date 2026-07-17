@@ -1,10 +1,6 @@
 #include "parser.h"
 #include "../lexer/lexer.h"
-#include "../ast/type_qual.h"
 #include <stdexcept>
-#include <iostream>
-#include <fstream>
-#include <sstream>
 #include "parser_internal.h"
 
 // Parser — expression parsing: the precedence ladder, unary/postfix/primary,
@@ -101,113 +97,27 @@ ExprPtr Parser::parseAssignment() {
     return expr;
 }
 
-ExprPtr Parser::parseLogicalOr() {
-    ExprPtr expr = parseLogicalAnd();
-
-    while (match(TokenType::OR)) {
+ExprPtr Parser::parseBinaryLevel(ExprPtr (Parser::*next)(), const std::vector<TokenType>& ops) {
+    ExprPtr expr = (this->*next)();
+    while (match(ops)) {
         Token opTok = tokens[current - 1];
-        ExprPtr right = parseLogicalAnd();
-        expr = withPos(std::make_shared<BinaryExpr>(expr, opTok.value, right), opTok);
-    }
-
-    return expr;
-}
-
-ExprPtr Parser::parseLogicalAnd() {
-    ExprPtr expr = parseBitwiseOr();
-
-    while (match(TokenType::AND)) {
-        Token opTok = tokens[current - 1];
-        ExprPtr right = parseBitwiseOr();
-        expr = withPos(std::make_shared<BinaryExpr>(expr, opTok.value, right), opTok);
-    }
-
-    return expr;
-}
-
-ExprPtr Parser::parseBitwiseOr() {
-    ExprPtr expr = parseBitwiseXor();
-    while (match(TokenType::PIPE)) {
-        Token opTok = tokens[current - 1];
-        expr = withPos(std::make_shared<BinaryExpr>(expr, "|", parseBitwiseXor()), opTok);
+        expr = withPos(std::make_shared<BinaryExpr>(expr, opTok.value, (this->*next)()), opTok);
     }
     return expr;
 }
 
-ExprPtr Parser::parseBitwiseXor() {
-    ExprPtr expr = parseBitwiseAnd();
-    while (match(TokenType::CARET)) {
-        Token opTok = tokens[current - 1];
-        expr = withPos(std::make_shared<BinaryExpr>(expr, "^", parseBitwiseAnd()), opTok);
-    }
-    return expr;
-}
-
-ExprPtr Parser::parseBitwiseAnd() {
-    ExprPtr expr = parseEquality();
-    while (match(TokenType::AMPERSAND)) {
-        Token opTok = tokens[current - 1];
-        expr = withPos(std::make_shared<BinaryExpr>(expr, "&", parseEquality()), opTok);
-    }
-    return expr;
-}
-
-ExprPtr Parser::parseEquality() {
-    ExprPtr expr = parseComparison();
-
-    while (match({TokenType::EQEQ, TokenType::NE})) {
-        Token opTok = tokens[current - 1];
-        ExprPtr right = parseComparison();
-        expr = withPos(std::make_shared<BinaryExpr>(expr, opTok.value, right), opTok);
-    }
-
-    return expr;
-}
-
-ExprPtr Parser::parseShift() {
-    ExprPtr expr = parseAddition();
-    while (match({TokenType::LSHIFT, TokenType::RSHIFT})) {
-        Token opTok = tokens[current - 1];
-        expr = withPos(std::make_shared<BinaryExpr>(expr, opTok.value, parseAddition()), opTok);
-    }
-    return expr;
-}
-
-ExprPtr Parser::parseComparison() {
-    ExprPtr expr = parseShift();
-
-    while (match({TokenType::LT, TokenType::GT, TokenType::LE, TokenType::GE})) {
-        Token opTok = tokens[current - 1];
-        ExprPtr right = parseShift();
-        expr = withPos(std::make_shared<BinaryExpr>(expr, opTok.value, right), opTok);
-    }
-
-    return expr;
-}
-
-ExprPtr Parser::parseAddition() {
-    ExprPtr expr = parseMultiplication();
-
-    while (match({TokenType::PLUS, TokenType::MINUS})) {
-        Token opTok = tokens[current - 1];
-        ExprPtr right = parseMultiplication();
-        expr = withPos(std::make_shared<BinaryExpr>(expr, opTok.value, right), opTok);
-    }
-
-    return expr;
-}
-
-ExprPtr Parser::parseMultiplication() {
-    ExprPtr expr = parseUnary();
-
-    while (match({TokenType::STAR, TokenType::SLASH, TokenType::PERCENT})) {
-        Token opTok = tokens[current - 1];
-        ExprPtr right = parseUnary();
-        expr = withPos(std::make_shared<BinaryExpr>(expr, opTok.value, right), opTok);
-    }
-
-    return expr;
-}
+// The precedence ladder, lowest-binding first: each rung folds left-associatively
+// over its operators, then defers to the next-tighter rung.
+ExprPtr Parser::parseLogicalOr()      { return parseBinaryLevel(&Parser::parseLogicalAnd,     {TokenType::OR}); }
+ExprPtr Parser::parseLogicalAnd()     { return parseBinaryLevel(&Parser::parseBitwiseOr,      {TokenType::AND}); }
+ExprPtr Parser::parseBitwiseOr()      { return parseBinaryLevel(&Parser::parseBitwiseXor,     {TokenType::PIPE}); }
+ExprPtr Parser::parseBitwiseXor()     { return parseBinaryLevel(&Parser::parseBitwiseAnd,     {TokenType::CARET}); }
+ExprPtr Parser::parseBitwiseAnd()     { return parseBinaryLevel(&Parser::parseEquality,       {TokenType::AMPERSAND}); }
+ExprPtr Parser::parseEquality()       { return parseBinaryLevel(&Parser::parseComparison,     {TokenType::EQEQ, TokenType::NE}); }
+ExprPtr Parser::parseShift()          { return parseBinaryLevel(&Parser::parseAddition,       {TokenType::LSHIFT, TokenType::RSHIFT}); }
+ExprPtr Parser::parseComparison()     { return parseBinaryLevel(&Parser::parseShift,          {TokenType::LT, TokenType::GT, TokenType::LE, TokenType::GE}); }
+ExprPtr Parser::parseAddition()       { return parseBinaryLevel(&Parser::parseMultiplication, {TokenType::PLUS, TokenType::MINUS}); }
+ExprPtr Parser::parseMultiplication() { return parseBinaryLevel(&Parser::parseUnary,          {TokenType::STAR, TokenType::SLASH, TokenType::PERCENT}); }
 
 ExprPtr Parser::parseUnary() {
     // await E — prefix operator; binds like a unary operator.
@@ -248,15 +158,7 @@ ExprPtr Parser::parseUnary() {
     // Only trigger on unambiguous type keywords to avoid conflict with (expr).
     if (check(TokenType::LPAREN)) {
         TokenType inner = peek_ahead(1).type;
-        bool isTypeKeyword = (inner == TokenType::INT    || inner == TokenType::FLOAT  ||
-                              inner == TokenType::DOUBLE  || inner == TokenType::BOOL   ||
-                              inner == TokenType::CHAR    || inner == TokenType::STRING  ||
-                              inner == TokenType::VOID    || inner == TokenType::STAR    ||
-                              inner == TokenType::INT8    || inner == TokenType::INT16   ||
-                              inner == TokenType::INT32   || inner == TokenType::INT64   ||
-                              inner == TokenType::UINT    || inner == TokenType::UINT8   ||
-                              inner == TokenType::UINT16  || inner == TokenType::UINT32  ||
-                              inner == TokenType::UINT64);
+        bool isTypeKeyword = isPrimitiveTypeToken(inner) || inner == TokenType::STAR;
         // Also a cast when the inner token names a declared type — a struct,
         // enum, union, or alias — as `(Name)x`, `(Name*)x`, or `(Name<...>)x`.
         if (!isTypeKeyword && inner == TokenType::IDENT &&
@@ -442,14 +344,7 @@ ExprPtr Parser::parsePrimary() {
     // Lambda: int(int a, int b) { return a + b; }
     // Detected when a type keyword is followed by '(' and the content looks like params + '{'
     {
-        bool isTypeKw = (tok.type == TokenType::INT    || tok.type == TokenType::FLOAT  ||
-                         tok.type == TokenType::DOUBLE  || tok.type == TokenType::BOOL   ||
-                         tok.type == TokenType::CHAR    || tok.type == TokenType::STRING  ||
-                         tok.type == TokenType::VOID    || tok.type == TokenType::UINT   ||
-                         tok.type == TokenType::INT8    || tok.type == TokenType::INT16  ||
-                         tok.type == TokenType::INT32   || tok.type == TokenType::INT64  ||
-                         tok.type == TokenType::UINT8   || tok.type == TokenType::UINT16 ||
-                         tok.type == TokenType::UINT32  || tok.type == TokenType::UINT64);
+        bool isTypeKw = isPrimitiveTypeToken(tok.type);
         if (isTypeKw && peek_ahead(1).type == TokenType::LPAREN) {
             // Disambiguate from a cast-like usage: try to parse as lambda, backtrack on failure
             size_t savePos = current;

@@ -1,21 +1,5 @@
 #include "codegen.h"
 #include "../ast/type_qual.h"
-#include "llvm/IR/InlineAsm.h"
-#include "llvm/IR/Verifier.h"
-#include "llvm/IR/Type.h"
-#include "llvm/IR/Constants.h"
-#include "llvm/IR/LegacyPassManager.h"
-#include "llvm/Support/TargetSelect.h"
-#include "llvm/Support/FileSystem.h"
-#include "llvm/Target/TargetMachine.h"
-#include "llvm/MC/TargetRegistry.h"
-#include "llvm/Passes/PassBuilder.h"
-#include "llvm/Transforms/Instrumentation/AddressSanitizer.h"
-#include "llvm/Transforms/Instrumentation/BoundsChecking.h"
-#include "llvm/TargetParser/Host.h"
-#include "llvm/TargetParser/Triple.h"
-#include "llvm/Support/raw_os_ostream.h"
-#include <iostream>
 
 // Template type-name utilities (mangleTemplate / splitTemplateType / substType)
 // are shared with the type checker; see template_utils.h.
@@ -128,16 +112,7 @@ void CodeGen::visit(WhileStmt* node) {
     builder->CreateCondBr(cond, bodyBlock, exitBlock);
 
     builder->SetInsertPoint(bodyBlock);
-    llvm::BasicBlock* prevBreak    = breakTarget;
-    llvm::BasicBlock* prevContinue = continueTarget;
-    size_t prevBreakCD = breakCleanupDepth, prevContinueCD = continueCleanupDepth;
-    breakTarget    = exitBlock;
-    continueTarget = loopBlock;
-    breakCleanupDepth = continueCleanupDepth = cleanupScopes.size();
-    node->body->accept(this);
-    breakTarget    = prevBreak;
-    continueTarget = prevContinue;
-    breakCleanupDepth = prevBreakCD; continueCleanupDepth = prevContinueCD;
+    { LoopContext lc(this, exitBlock, loopBlock); node->body->accept(this); }
     if (!builder->GetInsertBlock()->getTerminator())
         builder->CreateBr(loopBlock);
 
@@ -152,16 +127,8 @@ void CodeGen::visit(DoWhileStmt* node) {
     builder->CreateBr(bodyBlock);
     builder->SetInsertPoint(bodyBlock);
 
-    llvm::BasicBlock* prevBreak    = breakTarget;
-    llvm::BasicBlock* prevContinue = continueTarget;
-    size_t prevBreakCD = breakCleanupDepth, prevContinueCD = continueCleanupDepth;
-    breakTarget    = exitBlock;
-    continueTarget = condBlock;   // `continue` re-tests the condition
-    breakCleanupDepth = continueCleanupDepth = cleanupScopes.size();
-    node->body->accept(this);
-    breakTarget    = prevBreak;
-    continueTarget = prevContinue;
-    breakCleanupDepth = prevBreakCD; continueCleanupDepth = prevContinueCD;
+    // `continue` re-tests the condition (jumps to condBlock)
+    { LoopContext lc(this, exitBlock, condBlock); node->body->accept(this); }
     if (!builder->GetInsertBlock()->getTerminator())
         builder->CreateBr(condBlock);
 
@@ -200,16 +167,8 @@ void CodeGen::visit(ForStmt* node) {
 
     // Body
     builder->SetInsertPoint(bodyBlock);
-    llvm::BasicBlock* prevBreak    = breakTarget;
-    llvm::BasicBlock* prevContinue = continueTarget;
-    size_t prevBreakCD = breakCleanupDepth, prevContinueCD = continueCleanupDepth;
-    breakTarget    = exitBlock;
-    continueTarget = stepBlock;   // continue jumps to the step
-    breakCleanupDepth = continueCleanupDepth = cleanupScopes.size();
-    node->body->accept(this);
-    breakTarget    = prevBreak;
-    continueTarget = prevContinue;
-    breakCleanupDepth = prevBreakCD; continueCleanupDepth = prevContinueCD;
+    // continue jumps to the step block
+    { LoopContext lc(this, exitBlock, stepBlock); node->body->accept(this); }
     if (!builder->GetInsertBlock()->getTerminator())
         builder->CreateBr(stepBlock);
 
@@ -296,26 +255,11 @@ void CodeGen::visit(ReturnStmt* node) {
     auto coerceRetVal = [&](llvm::Value* v) -> llvm::Value* {
         if (!currentFunction) return v;
         llvm::Type* ft = currentFunction->getReturnType();
-        if (v->getType() == ft) return v;
-        if (v->getType()->isIntegerTy() && ft->isIntegerTy()) {
-            unsigned vw = llvm::cast<llvm::IntegerType>(v->getType())->getBitWidth();
-            unsigned fw = llvm::cast<llvm::IntegerType>(ft)->getBitWidth();
-            if (vw >= fw) return builder->CreateTrunc(v, ft);
-            // Widen by the source's signedness: a bool/comparison result (i1) or
-            // an unsigned source zero-extends — e.g. `return a < b;` from an int
-            // function is 1, not -1.
-            std::string st = node->value ? expandAlias(getExprEskiuType(node->value)) : "";
-            bool uns = vw == 1 || st == "uint" || st == "uint8" || st == "uint16" ||
-                       st == "uint32" || st == "uint64" || st == "char" || st == "bool";
-            return uns ? builder->CreateZExt(v, ft) : builder->CreateSExt(v, ft);
-        }
-        if (v->getType()->isIntegerTy() && ft->isFloatingPointTy())
-            return intToFloat(v, ft, node->value && eskiuUnsigned(getExprEskiuType(node->value)));
-        if (v->getType()->isFloatingPointTy() && ft->isIntegerTy())
-            return builder->CreateFPToSI(v, ft);
-        if (v->getType()->isFloatingPointTy() && ft->isFloatingPointTy())
-            return builder->CreateFPCast(v, ft);  // double→float or float→double
-        return v;
+        // A bool/comparison result (i1) or an unsigned source zero-extends — e.g.
+        // `return a < b;` from an int function is 1, not -1.
+        bool uns = v->getType()->isIntegerTy(1) ||
+                   (node->value && eskiuUnsigned(getExprEskiuType(node->value)));
+        return coerceValue(v, ft, uns);
     };
 
     if (currentSretParam != nullptr) {

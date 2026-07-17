@@ -274,6 +274,24 @@ void al_push(*AlCtx c, int st, *StmtNode s) {
 }
 void al_goto(*AlCtx c, int st, int target) { al_push(c, st, al_assign(al_fr("st"), al_int(target))); }
 
+// A two-way state dispatch: `if (cond) fr.st = thenE; else fr.st = elseE;` as one stmt.
+// Shared by the if/while/for lowerings, whose only difference is the target states.
+*StmtNode al_dispatch2(*ExprNode cond, int thenE, int elseE) {
+    List<*StmtNode> tb; List_init<*StmtNode>(&tb, 1); List_push<*StmtNode>(&tb, al_assign(al_fr("st"), al_int(thenE)));
+    List<*StmtNode> eb; List_init<*StmtNode>(&eb, 1); List_push<*StmtNode>(&eb, al_assign(al_fr("st"), al_int(elseE)));
+    return al_if(cond, al_block(&tb), al_block(&eb));
+}
+
+// Enter/leave a loop for break/continue lowering: push (pop) this loop's break and
+// continue target states, kept in sync on the two parallel stacks.
+void al_enter_loop(*AlCtx c, int brk, int cont) {
+    List_push<int>(&c.brk, brk); List_push<int>(&c.cont, cont);
+}
+void al_leave_loop(*AlCtx c) {
+    List_remove<int>(&c.brk, List_len<int>(&c.brk) - 1);
+    List_remove<int>(&c.cont, List_len<int>(&c.cont) - 1);
+}
+
 // The completion sequence (fr.ret.value = v; if(atomic_swap(&fr.ret.state,2)==1) fr.ret.waker(); return;)
 void al_completion_items(*ExprNode v, List<*StmtNode>* out) {
     List_push<*StmtNode>(out, al_assign(al_member(al_fr("ret"), "value"), v));
@@ -426,9 +444,7 @@ int al_lower_stmt(*AlCtx c, *StmtNode s, int cur) {
     if (s.kind == SK_IF) {
         al_rewrite(s.expr, &c.vars);
         int thenE = al_newst(c); int elseE = al_newst(c); int join = al_newst(c);
-        List<*StmtNode> tb; List_init<*StmtNode>(&tb, 1); List_push<*StmtNode>(&tb, al_assign(al_fr("st"), al_int(thenE)));
-        List<*StmtNode> eb; List_init<*StmtNode>(&eb, 1); List_push<*StmtNode>(&eb, al_assign(al_fr("st"), al_int(elseE)));
-        al_push(c, cur, al_if(s.expr, al_block(&tb), al_block(&eb)));
+        al_push(c, cur, al_dispatch2(s.expr, thenE, elseE));
         int te = al_lower_stmt(c, s.s1, thenE);
         int ee = elseE; if (s.s2 != null) { ee = al_lower_stmt(c, s.s2, elseE); }
         if (te != 0 - 1) { al_goto(c, te, join); }
@@ -440,12 +456,10 @@ int al_lower_stmt(*AlCtx c, *StmtNode s, int cur) {
         al_rewrite(s.expr, &c.vars);
         int header = al_newst(c); int bodyE = al_newst(c); int after = al_newst(c);
         al_goto(c, cur, header);
-        List<*StmtNode> tb; List_init<*StmtNode>(&tb, 1); List_push<*StmtNode>(&tb, al_assign(al_fr("st"), al_int(bodyE)));
-        List<*StmtNode> eb; List_init<*StmtNode>(&eb, 1); List_push<*StmtNode>(&eb, al_assign(al_fr("st"), al_int(after)));
-        al_push(c, header, al_if(s.expr, al_block(&tb), al_block(&eb)));
-        List_push<int>(&c.brk, after); List_push<int>(&c.cont, header);
+        al_push(c, header, al_dispatch2(s.expr, bodyE, after));
+        al_enter_loop(c, after, header);
         int be = al_lower_stmt(c, s.s1, bodyE);
-        List_remove<int>(&c.brk, List_len<int>(&c.brk) - 1); List_remove<int>(&c.cont, List_len<int>(&c.cont) - 1);
+        al_leave_loop(c);
         if (be != 0 - 1) { al_goto(c, be, header); }
         return after;
     }
@@ -455,15 +469,13 @@ int al_lower_stmt(*AlCtx c, *StmtNode s, int cur) {
         al_goto(c, cur, header);
         if (s.expr != null) {
             al_rewrite(s.expr, &c.vars);
-            List<*StmtNode> tb; List_init<*StmtNode>(&tb, 1); List_push<*StmtNode>(&tb, al_assign(al_fr("st"), al_int(bodyE)));
-            List<*StmtNode> eb; List_init<*StmtNode>(&eb, 1); List_push<*StmtNode>(&eb, al_assign(al_fr("st"), al_int(after)));
-            al_push(c, header, al_if(s.expr, al_block(&tb), al_block(&eb)));
+            al_push(c, header, al_dispatch2(s.expr, bodyE, after));
         } else { al_goto(c, header, bodyE); }
         if (s.expr2 != null) { al_rewrite(s.expr2, &c.vars); al_push(c, step, al_exprstmt(s.expr2)); }
         al_goto(c, step, header);
-        List_push<int>(&c.brk, after); List_push<int>(&c.cont, step);
+        al_enter_loop(c, after, step);
         int be = al_lower_stmt(c, s.s2, bodyE);
-        List_remove<int>(&c.brk, List_len<int>(&c.brk) - 1); List_remove<int>(&c.cont, List_len<int>(&c.cont) - 1);
+        al_leave_loop(c);
         if (be != 0 - 1) { al_goto(c, be, step); }
         return after;
     }

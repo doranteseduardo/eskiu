@@ -25,7 +25,7 @@ struct CgFn { string name; string retty; string rety; int variadic; string fixed
 // An interface: method order (names) + each method's Eskiu return type, parallel by index.
 // An interface value is a fat pointer {data, vtable}; dispatch loads the method ptr from
 // the vtable slot at the method's index.
-struct CgIface { string name; List<string> mnames; List<string> mrets; }
+struct CgIface { string name; List<string> mnames; List<string> mrets; List<List<string>> mparams; }
 // A struct's field layout: parallel field names + Eskiu types (index = GEP index).
 struct CgStruct { string name; List<string> fnames; List<string> fetys; }
 // A plain (integer) enum constant: name → its integer value as a string.
@@ -668,6 +668,13 @@ int cg_layout_size(Codegen* g, List<string>* fields) {
     return cg_align_up(bytes, maxal);
 }
 
+// The "not found" sentinel returned by the variant lookups below (.ename == "").
+CgVariant cg_variant_none(string vname) {
+    let none: CgVariant; none.vname = vname; none.ename = ""; none.tag = 0;
+    List_init<string>(&none.ptys, 1);
+    return none;
+}
+
 // Find an ADT variant by name; sentinel with .ename == "" if not a known variant.
 CgVariant cg_find_variant(Codegen* g, string vname) {
     int i = 0; int n = List_len<CgVariant>(&g.variants);
@@ -676,9 +683,7 @@ CgVariant cg_find_variant(Codegen* g, string vname) {
         if (cg_streq(v.vname, vname) == 1) { return v; }
         i = i + 1;
     }
-    let none: CgVariant; none.vname = vname; none.ename = ""; none.tag = 0;
-    List_init<string>(&none.ptys, 1);
-    return none;
+    return cg_variant_none(vname);
 }
 
 // Find a variant by name WITHIN a specific (mangled) enum — disambiguates same-named
@@ -690,9 +695,7 @@ CgVariant cg_find_variant_in(Codegen* g, string vname, string enumName) {
         if (cg_streq(v.vname, vname) == 1 && cg_streq(v.ename, enumName) == 1) { return v; }
         i = i + 1;
     }
-    let none: CgVariant; none.vname = vname; none.ename = ""; none.tag = 0;
-    List_init<string>(&none.ptys, 1);
-    return none;
+    return cg_variant_none(vname);
 }
 
 // A generic ADT variant pattern (e.g. Option's `Some(T)`), by variant name.
@@ -703,9 +706,7 @@ CgVariant cg_find_gvariant(Codegen* g, string vname) {
         if (cg_streq(v.vname, vname) == 1) { return v; }
         i = i + 1;
     }
-    let none: CgVariant; none.vname = vname; none.ename = ""; none.tag = 0;
-    List_init<string>(&none.ptys, 1);
-    return none;
+    return cg_variant_none(vname);
 }
 
 *DeclNode cg_find_genum(Codegen* g, string name) {
@@ -863,6 +864,7 @@ CgIface cg_find_iface(Codegen* g, string name) {
         i = i + 1;
     }
     let e: CgIface; e.name = ""; List_init<string>(&e.mnames, 1); List_init<string>(&e.mrets, 1);
+    List_init<List<string>>(&e.mparams, 1);
     return e;
 }
 
@@ -2494,10 +2496,16 @@ CgVal cg_dispatch_iface(Codegen* g, string ifaceName, string fatop, string metho
     string rety = List_get<string>(&f.mrets, idx);
     string rt = cg_lltype(g, rety);
     string args = cg_cat("ptr ", data);                 // self/data is the first argument
+    List<string> ptys = List_get<List<string>>(&f.mparams, idx);
     int i = 0; int nn = List_len<*ExprNode>(&e.kids);
     while (i < nn) {
         CgVal a = cg_expr(g, List_get<*ExprNode>(&e.kids, i));
-        args = cg_cat(args, cg_cat(", ", cg_cat(a.ty, cg_cat(" ", a.op))));
+        string aop = a.op; string aty = a.ty;
+        if (i < List_len<string>(&ptys)) {              // coerce to the method's param type
+            string pty = cg_lltype(g, List_get<string>(&ptys, i));
+            if (pty[0] != 0) { aop = cg_coerce(g, a, pty); aty = pty; }
+        }
+        args = cg_cat(args, cg_cat(", ", cg_cat(aty, cg_cat(" ", aop))));
         i = i + 1;
     }
     int isvoid = cg_streq(rt, "void");
@@ -2793,6 +2801,20 @@ void cg_array_init(Codegen* g, string slot, string arrType, *ExprNode lit, int d
     }
 }
 
+// Enter/leave a loop: push (or pop) this loop's continue target, break target, and the
+// cleanup-stack depth at entry, keeping the three parallel lists in sync. `break` and
+// `continue` read the innermost (last) entry.
+void cg_loop_push(Codegen* g, string cont, string end) {
+    List_push<string>(&g.loop_cont, cont);
+    List_push<string>(&g.loop_end, end);
+    List_push<int>(&g.loop_cldepth, List_len<*StmtNode>(&g.cleanups));
+}
+void cg_loop_pop(Codegen* g) {
+    List_remove<string>(&g.loop_cont, List_len<string>(&g.loop_cont) - 1);
+    List_remove<string>(&g.loop_end, List_len<string>(&g.loop_end) - 1);
+    List_remove<int>(&g.loop_cldepth, List_len<int>(&g.loop_cldepth) - 1);
+}
+
 void cg_stmt(Codegen* g, *StmtNode st) {
     if (st == null) { return; }
     if (st.kind == SK_BLOCK) {
@@ -2837,13 +2859,9 @@ void cg_stmt(Codegen* g, *StmtNode st) {
         cg_emit(g, ", label %"); cg_emit(g, l_end); cg_emit(g, "\n");
         g.terminated = 1;
         cg_label(g, l_body);
-        List_push<string>(&g.loop_cont, l_cond);
-        List_push<string>(&g.loop_end, l_end);
-        List_push<int>(&g.loop_cldepth, List_len<*StmtNode>(&g.cleanups));
+        cg_loop_push(g, l_cond, l_end);
         cg_stmt(g, st.s1);
-        List_remove<string>(&g.loop_cont, List_len<string>(&g.loop_cont) - 1);
-        List_remove<string>(&g.loop_end, List_len<string>(&g.loop_end) - 1);
-        List_remove<int>(&g.loop_cldepth, List_len<int>(&g.loop_cldepth) - 1);
+        cg_loop_pop(g);
         cg_br(g, l_cond);
         cg_label(g, l_end);
         return;
@@ -2854,13 +2872,9 @@ void cg_stmt(Codegen* g, *StmtNode st) {
         string l_end = cg_lbl(g);
         cg_br(g, l_body);
         cg_label(g, l_body);
-        List_push<string>(&g.loop_cont, l_cond);       // `continue` re-tests the condition
-        List_push<string>(&g.loop_end, l_end);
-        List_push<int>(&g.loop_cldepth, List_len<*StmtNode>(&g.cleanups));
+        cg_loop_push(g, l_cond, l_end);       // `continue` re-tests the condition
         cg_stmt(g, st.s1);
-        List_remove<string>(&g.loop_cont, List_len<string>(&g.loop_cont) - 1);
-        List_remove<string>(&g.loop_end, List_len<string>(&g.loop_end) - 1);
-        List_remove<int>(&g.loop_cldepth, List_len<int>(&g.loop_cldepth) - 1);
+        cg_loop_pop(g);
         cg_br(g, l_cond);
         cg_label(g, l_cond);
         CgVal c = cg_cond(g, st.expr);
@@ -2887,13 +2901,9 @@ void cg_stmt(Codegen* g, *StmtNode st) {
             cg_br(g, l_body);
         }
         cg_label(g, l_body);
-        List_push<string>(&g.loop_cont, l_step);
-        List_push<string>(&g.loop_end, l_end);
-        List_push<int>(&g.loop_cldepth, List_len<*StmtNode>(&g.cleanups));
+        cg_loop_push(g, l_step, l_end);
         cg_stmt(g, st.s2);
-        List_remove<string>(&g.loop_cont, List_len<string>(&g.loop_cont) - 1);
-        List_remove<string>(&g.loop_end, List_len<string>(&g.loop_end) - 1);
-        List_remove<int>(&g.loop_cldepth, List_len<int>(&g.loop_cldepth) - 1);
+        cg_loop_pop(g);
         cg_br(g, l_step);
         cg_label(g, l_step);
         if (st.expr2 != null) { cg_expr(g, st.expr2); }
@@ -3498,6 +3508,7 @@ void cg_program(Codegen* g, *Program prog) {
             int mn = List_len<*DeclNode>(&d.methods);
             List_init<string>(&iface.mnames, mn);
             List_init<string>(&iface.mrets, mn);
+            List_init<List<string>>(&iface.mparams, mn);
             String_append(&g.globals, "%"); String_append(&g.globals, d.name);
             String_append(&g.globals, "_vtable = type { ");
             int mi = 0;
@@ -3505,6 +3516,15 @@ void cg_program(Codegen* g, *Program prog) {
                 *DeclNode m = List_get<*DeclNode>(&d.methods, mi);
                 List_push<string>(&iface.mnames, m.name);
                 List_push<string>(&iface.mrets, m.ret_type);
+                // Record each method's declared param Eskiu types so dispatch can coerce
+                // args to them (a vtable call needs the same widening as a direct call).
+                List<string> ptys; List_init<string>(&ptys, List_len<Param>(&m.params));
+                int pj = 0;
+                while (pj < List_len<Param>(&m.params)) {
+                    List_push<string>(&ptys, List_get<Param>(&m.params, pj).ty);
+                    pj = pj + 1;
+                }
+                List_push<List<string>>(&iface.mparams, ptys);
                 if (mi > 0) { String_append(&g.globals, ", "); }
                 String_append(&g.globals, "ptr");
                 mi = mi + 1;
