@@ -112,16 +112,7 @@ void CodeGen::visit(WhileStmt* node) {
     builder->CreateCondBr(cond, bodyBlock, exitBlock);
 
     builder->SetInsertPoint(bodyBlock);
-    llvm::BasicBlock* prevBreak    = breakTarget;
-    llvm::BasicBlock* prevContinue = continueTarget;
-    size_t prevBreakCD = breakCleanupDepth, prevContinueCD = continueCleanupDepth;
-    breakTarget    = exitBlock;
-    continueTarget = loopBlock;
-    breakCleanupDepth = continueCleanupDepth = cleanupScopes.size();
-    node->body->accept(this);
-    breakTarget    = prevBreak;
-    continueTarget = prevContinue;
-    breakCleanupDepth = prevBreakCD; continueCleanupDepth = prevContinueCD;
+    { LoopContext lc(this, exitBlock, loopBlock); node->body->accept(this); }
     if (!builder->GetInsertBlock()->getTerminator())
         builder->CreateBr(loopBlock);
 
@@ -136,16 +127,8 @@ void CodeGen::visit(DoWhileStmt* node) {
     builder->CreateBr(bodyBlock);
     builder->SetInsertPoint(bodyBlock);
 
-    llvm::BasicBlock* prevBreak    = breakTarget;
-    llvm::BasicBlock* prevContinue = continueTarget;
-    size_t prevBreakCD = breakCleanupDepth, prevContinueCD = continueCleanupDepth;
-    breakTarget    = exitBlock;
-    continueTarget = condBlock;   // `continue` re-tests the condition
-    breakCleanupDepth = continueCleanupDepth = cleanupScopes.size();
-    node->body->accept(this);
-    breakTarget    = prevBreak;
-    continueTarget = prevContinue;
-    breakCleanupDepth = prevBreakCD; continueCleanupDepth = prevContinueCD;
+    // `continue` re-tests the condition (jumps to condBlock)
+    { LoopContext lc(this, exitBlock, condBlock); node->body->accept(this); }
     if (!builder->GetInsertBlock()->getTerminator())
         builder->CreateBr(condBlock);
 
@@ -184,16 +167,8 @@ void CodeGen::visit(ForStmt* node) {
 
     // Body
     builder->SetInsertPoint(bodyBlock);
-    llvm::BasicBlock* prevBreak    = breakTarget;
-    llvm::BasicBlock* prevContinue = continueTarget;
-    size_t prevBreakCD = breakCleanupDepth, prevContinueCD = continueCleanupDepth;
-    breakTarget    = exitBlock;
-    continueTarget = stepBlock;   // continue jumps to the step
-    breakCleanupDepth = continueCleanupDepth = cleanupScopes.size();
-    node->body->accept(this);
-    breakTarget    = prevBreak;
-    continueTarget = prevContinue;
-    breakCleanupDepth = prevBreakCD; continueCleanupDepth = prevContinueCD;
+    // continue jumps to the step block
+    { LoopContext lc(this, exitBlock, stepBlock); node->body->accept(this); }
     if (!builder->GetInsertBlock()->getTerminator())
         builder->CreateBr(stepBlock);
 

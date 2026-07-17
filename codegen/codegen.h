@@ -160,6 +160,23 @@ private:
     std::vector<std::vector<Cleanup>> cleanupScopes;
     size_t breakCleanupDepth    = 0;   // frame depth to unwind to on break
     size_t continueCleanupDepth = 0;   // frame depth to unwind to on continue
+
+    // RAII: install a loop's break/continue targets and cleanup-unwind depth for the
+    // duration of its body, restoring the enclosing loop's values on scope exit.
+    struct LoopContext {
+        CodeGen* cg;
+        llvm::BasicBlock* pb; llvm::BasicBlock* pc; size_t pbd, pcd;
+        LoopContext(CodeGen* c, llvm::BasicBlock* brk, llvm::BasicBlock* cont)
+            : cg(c), pb(c->breakTarget), pc(c->continueTarget),
+              pbd(c->breakCleanupDepth), pcd(c->continueCleanupDepth) {
+            cg->breakTarget = brk; cg->continueTarget = cont;
+            cg->breakCleanupDepth = cg->continueCleanupDepth = cg->cleanupScopes.size();
+        }
+        ~LoopContext() {
+            cg->breakTarget = pb; cg->continueTarget = pc;
+            cg->breakCleanupDepth = pbd; cg->continueCleanupDepth = pcd;
+        }
+    };
     // Emit (in LIFO order) every cleanup body in frames at index >= depth. On a normal
     // exit (errorPath=false) errdefer bodies are skipped; the `?`-propagation error path
     // passes errorPath=true so both run. Does not pop — the owning scope pops when it ends.
