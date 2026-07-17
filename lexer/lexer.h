@@ -192,6 +192,7 @@ private:
     Token read_number();
     Token read_string();
     Token read_char();
+    char readEscape();  // decode one escape (leading '\' already consumed)
     Token read_identifier();
 
     static std::unordered_map<std::string, TokenType> keywords;

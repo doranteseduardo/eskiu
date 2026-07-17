@@ -204,6 +204,19 @@ static char decodeEscape(char e) {
     }
 }
 
+// Decode one escape sequence, assuming the leading '\' has already been consumed:
+// \xNN (one or two hex digits) yields that byte; a single-char escape resolves via
+// decodeEscape (an unknown escape is the character itself).
+char Lexer::readEscape() {
+    char e = advance();
+    if (e == 'x' && hexDigit(peek()) >= 0) {
+        int b = hexDigit(advance());
+        if (hexDigit(peek()) >= 0) b = b * 16 + hexDigit(advance());
+        return (char)b;
+    }
+    return decodeEscape(e);
+}
+
 Token Lexer::read_string() {
     int start_line = line;
     int start_col = column;
@@ -214,14 +227,7 @@ Token Lexer::read_string() {
     while (!is_at_end() && peek() != '"') {
         if (peek() == '\\' && peek_next() != '\0') {
             advance();                       // consume '\'
-            char e = advance();
-            if (e == 'x' && hexDigit(peek()) >= 0) {
-                int b = hexDigit(advance());
-                if (hexDigit(peek()) >= 0) b = b * 16 + hexDigit(advance());
-                str += (char)b;
-            } else {
-                str += decodeEscape(e);
-            }
+            str += readEscape();
         } else {
             str += advance();
         }
@@ -253,14 +259,7 @@ Token Lexer::read_char() {
     }
     if (peek() == '\\') {
         advance();                           // consume '\'
-        char e = advance();
-        if (e == 'x' && hexDigit(peek()) >= 0) {
-            int b = hexDigit(advance());
-            if (hexDigit(peek()) >= 0) b = b * 16 + hexDigit(advance());
-            ch += (char)b;
-        } else {
-            ch += decodeEscape(e);
-        }
+        ch += readEscape();
     } else {
         ch += advance();
     }
