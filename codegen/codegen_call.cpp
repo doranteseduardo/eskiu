@@ -239,13 +239,24 @@ void CodeGen::visit(CallExpr* node) {
             llvm::StructType* vtType = ifaceVtableTypes[baseType];
             llvm::Value* fnGEP = builder->CreateStructGEP(vtType, vtPtr, idx);
             llvm::Value* fnPtr = builder->CreateLoad(llvm::PointerType::get(*context, 0), fnGEP);
-            std::vector<llvm::Value*> iargs = {dataPtr};
-            for (auto& arg : node->args) iargs.push_back(evaluateExpr(arg));
-
             // Build the correct function type from stored method signature
             llvm::Type* retType = llvm::Type::getVoidTy(*context);
             auto& retTypes  = ifaceMethodReturnTypes[baseType];
             auto& paramLists = ifaceMethodParamEskiuTypes[baseType];
+
+            // Evaluate args, coercing each to the method's declared param type — a vtable
+            // call needs the same widening as a direct call, else the value (e.g. an i32)
+            // won't match the vtable slot's signature (e.g. i64) and LLVM rejects the call.
+            const std::vector<std::string>* iParams =
+                (idx < paramLists.size()) ? &paramLists[idx] : nullptr;
+            std::vector<llvm::Value*> iargs = {dataPtr};
+            for (size_t ai = 0; ai < node->args.size(); ++ai) {
+                llvm::Value* av = evaluateExpr(node->args[ai]);
+                if (iParams && ai < iParams->size())
+                    av = coerceValue(av, getTypeFromString((*iParams)[ai]),
+                                     eskiuUnsigned(getExprEskiuType(node->args[ai])));
+                iargs.push_back(av);
+            }
             if (idx < retTypes.size()) retType = getTypeFromString(retTypes[idx]);
 
             std::vector<llvm::Type*> paramLLVM = {llvm::PointerType::get(*context, 0)}; // self

@@ -25,7 +25,7 @@ struct CgFn { string name; string retty; string rety; int variadic; string fixed
 // An interface: method order (names) + each method's Eskiu return type, parallel by index.
 // An interface value is a fat pointer {data, vtable}; dispatch loads the method ptr from
 // the vtable slot at the method's index.
-struct CgIface { string name; List<string> mnames; List<string> mrets; }
+struct CgIface { string name; List<string> mnames; List<string> mrets; List<List<string>> mparams; }
 // A struct's field layout: parallel field names + Eskiu types (index = GEP index).
 struct CgStruct { string name; List<string> fnames; List<string> fetys; }
 // A plain (integer) enum constant: name → its integer value as a string.
@@ -863,6 +863,7 @@ CgIface cg_find_iface(Codegen* g, string name) {
         i = i + 1;
     }
     let e: CgIface; e.name = ""; List_init<string>(&e.mnames, 1); List_init<string>(&e.mrets, 1);
+    List_init<List<string>>(&e.mparams, 1);
     return e;
 }
 
@@ -2494,10 +2495,16 @@ CgVal cg_dispatch_iface(Codegen* g, string ifaceName, string fatop, string metho
     string rety = List_get<string>(&f.mrets, idx);
     string rt = cg_lltype(g, rety);
     string args = cg_cat("ptr ", data);                 // self/data is the first argument
+    List<string> ptys = List_get<List<string>>(&f.mparams, idx);
     int i = 0; int nn = List_len<*ExprNode>(&e.kids);
     while (i < nn) {
         CgVal a = cg_expr(g, List_get<*ExprNode>(&e.kids, i));
-        args = cg_cat(args, cg_cat(", ", cg_cat(a.ty, cg_cat(" ", a.op))));
+        string aop = a.op; string aty = a.ty;
+        if (i < List_len<string>(&ptys)) {              // coerce to the method's param type
+            string pty = cg_lltype(g, List_get<string>(&ptys, i));
+            if (pty[0] != 0) { aop = cg_coerce(g, a, pty); aty = pty; }
+        }
+        args = cg_cat(args, cg_cat(", ", cg_cat(aty, cg_cat(" ", aop))));
         i = i + 1;
     }
     int isvoid = cg_streq(rt, "void");
@@ -3498,6 +3505,7 @@ void cg_program(Codegen* g, *Program prog) {
             int mn = List_len<*DeclNode>(&d.methods);
             List_init<string>(&iface.mnames, mn);
             List_init<string>(&iface.mrets, mn);
+            List_init<List<string>>(&iface.mparams, mn);
             String_append(&g.globals, "%"); String_append(&g.globals, d.name);
             String_append(&g.globals, "_vtable = type { ");
             int mi = 0;
@@ -3505,6 +3513,15 @@ void cg_program(Codegen* g, *Program prog) {
                 *DeclNode m = List_get<*DeclNode>(&d.methods, mi);
                 List_push<string>(&iface.mnames, m.name);
                 List_push<string>(&iface.mrets, m.ret_type);
+                // Record each method's declared param Eskiu types so dispatch can coerce
+                // args to them (a vtable call needs the same widening as a direct call).
+                List<string> ptys; List_init<string>(&ptys, List_len<Param>(&m.params));
+                int pj = 0;
+                while (pj < List_len<Param>(&m.params)) {
+                    List_push<string>(&ptys, List_get<Param>(&m.params, pj).ty);
+                    pj = pj + 1;
+                }
+                List_push<List<string>>(&iface.mparams, ptys);
                 if (mi > 0) { String_append(&g.globals, ", "); }
                 String_append(&g.globals, "ptr");
                 mi = mi + 1;

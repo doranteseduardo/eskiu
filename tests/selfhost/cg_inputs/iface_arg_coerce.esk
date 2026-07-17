@@ -1,0 +1,21 @@
+// Regression: an interface (vtable) dispatch must coerce each argument to the
+// method's declared param type, exactly like a direct call. Here an int32 value is
+// passed where the method wants int64; without widening the emitted call's arg type
+// mismatches the vtable slot's signature and LLVM rejects it (both compilers had this).
+extern int printf(string fmt, ...);
+interface Adder {
+    int64 combine(int64 x);
+}
+struct Base {
+    int64 n;
+    int64 combine(int64 x) { return self.n + x; }
+}
+int64 run(Adder a, int32 small) {
+    return a.combine(small);   // int32 -> int64 param: needs widening
+}
+int main() {
+    let b: Base = Base { n: 100 };
+    int32 small = 7;
+    printf("%lld\n", run(&b, small));
+    return 0;
+}
