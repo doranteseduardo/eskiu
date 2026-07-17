@@ -1275,8 +1275,6 @@ string strip_binding_const(string t) {
 
 // ── Declarations ────────────────────────────────────────────────────────────
 
-// Consume a type-parameter list `<T, U: Iface + B>` if present (fn/struct/enum).
-// The AST printer doesn't emit type params, so we just skip them.
 // Allocate a DeclNode and initialize the fields that aren't otherwise set by the
 // caller (alloc<T> does NOT zero memory). Centralizes init of the enrichment fields
 // added for sema/codegen so each is set once, not at every creation site.

@@ -82,6 +82,13 @@ int sema_in_list(List<string>* l, string name) {
     return 0;
 }
 
+// Emit a semantic error with a fixed message (the port doesn't track positions, hence
+// the `:0:0:`) and mark the check failed. Shared by diagnostics that carry no extra args.
+void sema_error(Sema* s, string msg) {
+    s.had_error = 1;
+    printf("error: %s:0:0: %s\n", s.filename, msg);
+}
+
 void sema_init(Sema* s, string filename) {
     List_init<Sym>(&s.syms, 64);
     List_init<FnSig>(&s.fns, 32);
@@ -407,15 +414,13 @@ void sema_expr(Sema* s, *ExprNode e) {
     if (k == EK_LITERAL || k == EK_SIZEOF) { return; }
     if (k == EK_BINARY) {
         if (sema_is_assign(e.sval) == 1 && sema_is_readonly_lvalue(s, e.a) == 1) {
-            s.had_error = 1;
-            printf("error: %s:0:0: cannot assign to read-only location\n", s.filename);
+            sema_error(s, "cannot assign to read-only location");
         }
         sema_expr(s, e.a); sema_expr(s, e.b); return;
     }
     if (k == EK_INCDEC) {                              // ++x / x++ etc.
         if (sema_is_readonly_lvalue(s, e.a) == 1) {
-            s.had_error = 1;
-            printf("error: %s:0:0: cannot modify read-only location\n", s.filename);
+            sema_error(s, "cannot modify read-only location");
         }
         sema_expr(s, e.a); return;
     }
@@ -432,8 +437,7 @@ void sema_expr(Sema* s, *ExprNode e) {
     }
     if (k == EK_AWAIT) {
         if (s.in_async == 0) {
-            s.had_error = 1;
-            printf("error: %s:0:0: await is only allowed inside an async function\n", s.filename);
+            sema_error(s, "await is only allowed inside an async function");
         }
         s.await_seen = 1;
         sema_expr(s, e.a);
@@ -453,8 +457,7 @@ void sema_expr(Sema* s, *ExprNode e) {
     }
     if (k == EK_QUESTION) {            // `expr?` propagates an Err — fn must return a Result
         if (sema_streq(sema_base_name(s.cur_ret), "Result") == 0) {
-            s.had_error = 1;
-            printf("error: %s:0:0: `?` can only be used in a function returning the same Result type\n", s.filename);
+            sema_error(s, "`?` can only be used in a function returning the same Result type");
         }
         sema_expr(s, e.a);
         return;
@@ -557,8 +560,7 @@ void sema_stmt(Sema* s, *StmtNode st) {
     if (k == SK_VARDECL) {
         sema_expr(s, st.expr);             // initializer (can't reference itself)
         if (st.is_static == 1 && st.expr != null && st.expr.kind != EK_LITERAL) {
-            s.had_error = 1;
-            printf("error: %s:0:0: a 'static' local's initializer must be a constant\n", s.filename);
+            sema_error(s, "a 'static' local's initializer must be a constant");
         }
         if (st.is_const == 1 && st.expr == null) {
             s.had_error = 1;
@@ -567,8 +569,7 @@ void sema_stmt(Sema* s, *StmtNode st) {
         // Initializing a non-const pointer from a pointer-to-const drops const.
         if (st.expr != null && sema_has_star(st.type) == 1 && sema_pointee_const(st.type) == 0) {
             if (sema_pointee_const(sema_infer_type(s, st.expr)) == 1) {
-                s.had_error = 1;
-                printf("error: %s:0:0: initialization discards a const qualifier\n", s.filename);
+                sema_error(s, "initialization discards a const qualifier");
             }
         }
         sema_define(s, st.name, st.type, st.is_const);
@@ -643,8 +644,7 @@ void sema_stmt(Sema* s, *StmtNode st) {
                     string key = c.expr.sval;
                     int found = sema_in_list(&seen, key);
                     if (found == 1) {
-                        s.had_error = 1;
-                        printf("error: %s:0:0: duplicate case value in switch\n", s.filename);
+                        sema_error(s, "duplicate case value in switch");
                     } else {
                         List_push<string>(&seen, key);
                     }
