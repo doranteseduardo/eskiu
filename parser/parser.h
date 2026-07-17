@@ -100,6 +100,10 @@ private:
     // then fold while the next token is one of `ops`. Every precedence rung below
     // is a one-line call to this.
     ExprPtr parseBinaryLevel(ExprPtr (Parser::*next)(), const std::vector<TokenType>& ops);
+    // Parse an optional `<T, U: Iface + Other>` type-parameter list (shared by fn and
+    // struct decls); fills the params and per-param constraints, a no-op with no '<'.
+    void parseTypeParams(std::vector<std::string>& typeParams,
+                         std::map<std::string, std::vector<std::string>>& typeConstraints);
     ExprPtr parseLogicalOr();
     ExprPtr parseLogicalAnd();
     ExprPtr parseEquality();

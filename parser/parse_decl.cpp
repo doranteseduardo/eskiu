@@ -8,6 +8,23 @@
 // pragmas).
 // Part of the parser.cpp split; all methods are Parser members (parser.h).
 
+void Parser::parseTypeParams(std::vector<std::string>& typeParams,
+                             std::map<std::string, std::vector<std::string>>& typeConstraints) {
+    if (!match(TokenType::LT)) return;
+    do {
+        std::string tp = consume(TokenType::IDENT, "Expected type parameter name").value;
+        typeParams.push_back(tp);
+        // Optional constraint(s): `<T: Iface>` or `<T: A + B>`.
+        if (match(TokenType::COLON)) {
+            do {
+                typeConstraints[tp].push_back(
+                    consume(TokenType::IDENT, "Expected constraint interface name").value);
+            } while (match(TokenType::PLUS));
+        }
+    } while (match(TokenType::COMMA));
+    consume(TokenType::GT, "Expected '>'");
+}
+
 DeclPtr Parser::parseDeclaration() {
     try {
         if (match(TokenType::EXTERN)) {
@@ -258,20 +275,7 @@ DeclPtr Parser::parseFunctionDecl() {
     // Optional type parameters: int max<T>(T a, T b) { ... }
     std::vector<std::string> typeParams;
     std::map<std::string, std::vector<std::string>> typeConstraints;
-    if (match(TokenType::LT)) {
-        do {
-            std::string tp = consume(TokenType::IDENT, "Expected type parameter").value;
-            typeParams.push_back(tp);
-            // Optional constraint(s): `<T: Iface>` or `<T: A + B>`.
-            if (match(TokenType::COLON)) {
-                do {
-                    typeConstraints[tp].push_back(
-                        consume(TokenType::IDENT, "Expected constraint interface name").value);
-                } while (match(TokenType::PLUS));
-            }
-        } while (match(TokenType::COMMA));
-        consume(TokenType::GT, "Expected '>'");
-    }
+    parseTypeParams(typeParams, typeConstraints);
 
     consume(TokenType::LPAREN, "Expected '('");
     std::vector<bool> esc;
@@ -331,19 +335,7 @@ DeclPtr Parser::parseStructDecl() {
     // Optional type parameters: struct List<T>  or  struct Result<T, E>
     std::vector<std::string> typeParams;
     std::map<std::string, std::vector<std::string>> typeConstraints;
-    if (match(TokenType::LT)) {
-        do {
-            std::string tp = consume(TokenType::IDENT, "Expected type parameter name").value;
-            typeParams.push_back(tp);
-            if (match(TokenType::COLON)) {     // `<K: Hashable>` / `<K: A + B>`
-                do {
-                    typeConstraints[tp].push_back(
-                        consume(TokenType::IDENT, "Expected constraint interface name").value);
-                } while (match(TokenType::PLUS));
-            }
-        } while (match(TokenType::COMMA));
-        consume(TokenType::GT, "Expected '>'");
-    }
+    parseTypeParams(typeParams, typeConstraints);
 
     consume(TokenType::LBRACE, "Expected '{'");
 
