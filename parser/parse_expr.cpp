@@ -97,113 +97,27 @@ ExprPtr Parser::parseAssignment() {
     return expr;
 }
 
-ExprPtr Parser::parseLogicalOr() {
-    ExprPtr expr = parseLogicalAnd();
-
-    while (match(TokenType::OR)) {
+ExprPtr Parser::parseBinaryLevel(ExprPtr (Parser::*next)(), const std::vector<TokenType>& ops) {
+    ExprPtr expr = (this->*next)();
+    while (match(ops)) {
         Token opTok = tokens[current - 1];
-        ExprPtr right = parseLogicalAnd();
-        expr = withPos(std::make_shared<BinaryExpr>(expr, opTok.value, right), opTok);
-    }
-
-    return expr;
-}
-
-ExprPtr Parser::parseLogicalAnd() {
-    ExprPtr expr = parseBitwiseOr();
-
-    while (match(TokenType::AND)) {
-        Token opTok = tokens[current - 1];
-        ExprPtr right = parseBitwiseOr();
-        expr = withPos(std::make_shared<BinaryExpr>(expr, opTok.value, right), opTok);
-    }
-
-    return expr;
-}
-
-ExprPtr Parser::parseBitwiseOr() {
-    ExprPtr expr = parseBitwiseXor();
-    while (match(TokenType::PIPE)) {
-        Token opTok = tokens[current - 1];
-        expr = withPos(std::make_shared<BinaryExpr>(expr, "|", parseBitwiseXor()), opTok);
+        expr = withPos(std::make_shared<BinaryExpr>(expr, opTok.value, (this->*next)()), opTok);
     }
     return expr;
 }
 
-ExprPtr Parser::parseBitwiseXor() {
-    ExprPtr expr = parseBitwiseAnd();
-    while (match(TokenType::CARET)) {
-        Token opTok = tokens[current - 1];
-        expr = withPos(std::make_shared<BinaryExpr>(expr, "^", parseBitwiseAnd()), opTok);
-    }
-    return expr;
-}
-
-ExprPtr Parser::parseBitwiseAnd() {
-    ExprPtr expr = parseEquality();
-    while (match(TokenType::AMPERSAND)) {
-        Token opTok = tokens[current - 1];
-        expr = withPos(std::make_shared<BinaryExpr>(expr, "&", parseEquality()), opTok);
-    }
-    return expr;
-}
-
-ExprPtr Parser::parseEquality() {
-    ExprPtr expr = parseComparison();
-
-    while (match({TokenType::EQEQ, TokenType::NE})) {
-        Token opTok = tokens[current - 1];
-        ExprPtr right = parseComparison();
-        expr = withPos(std::make_shared<BinaryExpr>(expr, opTok.value, right), opTok);
-    }
-
-    return expr;
-}
-
-ExprPtr Parser::parseShift() {
-    ExprPtr expr = parseAddition();
-    while (match({TokenType::LSHIFT, TokenType::RSHIFT})) {
-        Token opTok = tokens[current - 1];
-        expr = withPos(std::make_shared<BinaryExpr>(expr, opTok.value, parseAddition()), opTok);
-    }
-    return expr;
-}
-
-ExprPtr Parser::parseComparison() {
-    ExprPtr expr = parseShift();
-
-    while (match({TokenType::LT, TokenType::GT, TokenType::LE, TokenType::GE})) {
-        Token opTok = tokens[current - 1];
-        ExprPtr right = parseShift();
-        expr = withPos(std::make_shared<BinaryExpr>(expr, opTok.value, right), opTok);
-    }
-
-    return expr;
-}
-
-ExprPtr Parser::parseAddition() {
-    ExprPtr expr = parseMultiplication();
-
-    while (match({TokenType::PLUS, TokenType::MINUS})) {
-        Token opTok = tokens[current - 1];
-        ExprPtr right = parseMultiplication();
-        expr = withPos(std::make_shared<BinaryExpr>(expr, opTok.value, right), opTok);
-    }
-
-    return expr;
-}
-
-ExprPtr Parser::parseMultiplication() {
-    ExprPtr expr = parseUnary();
-
-    while (match({TokenType::STAR, TokenType::SLASH, TokenType::PERCENT})) {
-        Token opTok = tokens[current - 1];
-        ExprPtr right = parseUnary();
-        expr = withPos(std::make_shared<BinaryExpr>(expr, opTok.value, right), opTok);
-    }
-
-    return expr;
-}
+// The precedence ladder, lowest-binding first: each rung folds left-associatively
+// over its operators, then defers to the next-tighter rung.
+ExprPtr Parser::parseLogicalOr()      { return parseBinaryLevel(&Parser::parseLogicalAnd,     {TokenType::OR}); }
+ExprPtr Parser::parseLogicalAnd()     { return parseBinaryLevel(&Parser::parseBitwiseOr,      {TokenType::AND}); }
+ExprPtr Parser::parseBitwiseOr()      { return parseBinaryLevel(&Parser::parseBitwiseXor,     {TokenType::PIPE}); }
+ExprPtr Parser::parseBitwiseXor()     { return parseBinaryLevel(&Parser::parseBitwiseAnd,     {TokenType::CARET}); }
+ExprPtr Parser::parseBitwiseAnd()     { return parseBinaryLevel(&Parser::parseEquality,       {TokenType::AMPERSAND}); }
+ExprPtr Parser::parseEquality()       { return parseBinaryLevel(&Parser::parseComparison,     {TokenType::EQEQ, TokenType::NE}); }
+ExprPtr Parser::parseShift()          { return parseBinaryLevel(&Parser::parseAddition,       {TokenType::LSHIFT, TokenType::RSHIFT}); }
+ExprPtr Parser::parseComparison()     { return parseBinaryLevel(&Parser::parseShift,          {TokenType::LT, TokenType::GT, TokenType::LE, TokenType::GE}); }
+ExprPtr Parser::parseAddition()       { return parseBinaryLevel(&Parser::parseMultiplication, {TokenType::PLUS, TokenType::MINUS}); }
+ExprPtr Parser::parseMultiplication() { return parseBinaryLevel(&Parser::parseUnary,          {TokenType::STAR, TokenType::SLASH, TokenType::PERCENT}); }
 
 ExprPtr Parser::parseUnary() {
     // await E — prefix operator; binds like a unary operator.
