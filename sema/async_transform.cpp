@@ -25,11 +25,10 @@ StmtPtr assign(ExprPtr lhs, ExprPtr rhs) { return exprStmt(binop(std::move(lhs),
 StmtPtr ret(ExprPtr v) { return std::make_shared<ReturnStmt>(std::move(v)); }
 
 
-// Recursively rewrite references to frame variables (params + body locals) into
-// `fr.<name>` member accesses, in place.
-// Rename frame-hoisted locals to `fr.<name>` throughout an expression. Recurses
-// via the shared child enumeration (astwalk::forEachChildExpr), so every
-// expression node — struct literals, alloc_with, etc. — is covered.
+// Rename frame-hoisted locals (params + body locals) to `fr.<name>` member accesses
+// throughout an expression, in place. Recurses via the shared child enumeration
+// (astwalk::forEachChildExpr), so every expression node (struct literals, alloc_with,
+// etc.) is covered.
 void rewrite(ExprPtr& e, const std::set<std::string>& vars) {
     if (!e) return;
     if (auto* id = dynamic_cast<IdentExpr*>(e.get())) {
