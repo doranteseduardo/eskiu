@@ -2,7 +2,7 @@
 
 Eskiu is a statically typed systems language with the power of C and the immediacy of a scripting language: it compiles to native code through LLVM, and `eskiuc run file.esk` runs a source file directly, like Python or Ruby. This is the full language reference. New to Eskiu? Start with the [tutorial](getting-started.md).
 
-**Current version: v0.6.1.** A memory-safety and standard-library release, in the
+**Current version: v0.6.2.** A memory-safety and standard-library release, in the
 Zig spirit: compile-time checks and opt-in runtime guards, not a borrow checker.
 It adds `defer` / `errdefer` for leak-proof cleanup on every exit path, the slice type
 `T[]` (a fat pointer that carries its length), the `must_use` qualifier that rejects a

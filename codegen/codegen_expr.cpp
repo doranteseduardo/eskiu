@@ -1,21 +1,5 @@
 #include "codegen.h"
 #include "../ast/type_qual.h"
-#include "llvm/IR/InlineAsm.h"
-#include "llvm/IR/Verifier.h"
-#include "llvm/IR/Type.h"
-#include "llvm/IR/Constants.h"
-#include "llvm/IR/LegacyPassManager.h"
-#include "llvm/Support/TargetSelect.h"
-#include "llvm/Support/FileSystem.h"
-#include "llvm/Target/TargetMachine.h"
-#include "llvm/MC/TargetRegistry.h"
-#include "llvm/Passes/PassBuilder.h"
-#include "llvm/Transforms/Instrumentation/AddressSanitizer.h"
-#include "llvm/Transforms/Instrumentation/BoundsChecking.h"
-#include "llvm/TargetParser/Host.h"
-#include "llvm/TargetParser/Triple.h"
-#include "llvm/Support/raw_os_ostream.h"
-#include <iostream>
 
 // Template type-name utilities (mangleTemplate / splitTemplateType / substType)
 // are shared with the type checker; see template_utils.h.
@@ -57,17 +41,8 @@ void CodeGen::visit(BinaryExpr* node) {
             else if (auto* gep = llvm::dyn_cast<llvm::GetElementPtrInst>(lhs))
                 elemType = gep->getResultElementType();
         }
-        if (elemType && rhs->getType() != elemType) {
-            if (rhs->getType()->isIntegerTy() && elemType->isIntegerTy()) {
-                rhs = coerceInt(rhs, elemType, eskiuUnsigned(getExprEskiuType(node->right)));
-            } else if (rhs->getType()->isIntegerTy() && elemType->isFloatingPointTy()) {
-                rhs = intToFloat(rhs, elemType, eskiuUnsigned(getExprEskiuType(node->right)));
-            } else if (rhs->getType()->isFloatingPointTy() && elemType->isIntegerTy()) {
-                rhs = builder->CreateFPToSI(rhs, elemType);
-            } else if (rhs->getType()->isFloatingPointTy() && elemType->isFloatingPointTy()) {
-                rhs = builder->CreateFPCast(rhs, elemType);  // e.g. double→float
-            }
-        }
+        if (elemType)
+            rhs = coerceValue(rhs, elemType, eskiuUnsigned(getExprEskiuType(node->right)));
         bool storeVol = false;
         if (auto* ident = llvm::dyn_cast<llvm::AllocaInst>(lhs)) {
             storeVol = volatileVars.count(ident->getName().str()) > 0;
@@ -359,12 +334,7 @@ void CodeGen::visit(TernaryExpr* node) {
         resTy = tLL;
 
     auto coerce = [&](llvm::Value* v, const std::string& srcEskiu) -> llvm::Value* {
-        if (v->getType() == resTy) return v;
-        bool uns = eskiuUnsigned(srcEskiu);
-        if (v->getType()->isIntegerTy() && resTy->isIntegerTy())             return coerceInt(v, resTy, uns);
-        if (v->getType()->isIntegerTy() && resTy->isFloatingPointTy())       return intToFloat(v, resTy, uns);
-        if (v->getType()->isFloatingPointTy() && resTy->isFloatingPointTy()) return builder->CreateFPCast(v, resTy);
-        return v;
+        return coerceValue(v, resTy, eskiuUnsigned(srcEskiu));
     };
 
     llvm::BasicBlock* thenBB = llvm::BasicBlock::Create(*context, "tern.then", currentFunction);
@@ -570,8 +540,7 @@ void CodeGen::visit(IndexExpr* node) {
     throw std::runtime_error("Cannot index into type: " + baseType);
 }
 
-std::string CodeGen::structBaseTypeOf(const ExprPtr& base) {
-    std::string baseType = getExprEskiuType(base);
+std::string CodeGen::stripToStructKey(std::string baseType) {
     if (baseType.size() > 7 && baseType.substr(0, 7) == "struct:") baseType = baseType.substr(7);
     if (!baseType.empty() && baseType.front() == '*') baseType = baseType.substr(1);
     while (!baseType.empty() && baseType.back()  == '*') baseType.pop_back();
@@ -581,6 +550,10 @@ std::string CodeGen::structBaseTypeOf(const ExprPtr& base) {
         baseType = mangleTemplate(baseType);
     }
     return baseType;
+}
+
+std::string CodeGen::structBaseTypeOf(const ExprPtr& base) {
+    return stripToStructKey(getExprEskiuType(base));
 }
 
 void CodeGen::visit(MemberExpr* node) {
@@ -894,14 +867,7 @@ llvm::Value* CodeGen::evaluateLValue(const ExprPtr& expr) {
         auto baseAddr = [&]() -> llvm::Value* {
             return baseIsPtr ? evaluateExpr(member->base) : evaluateLValue(member->base);
         };
-        if (baseType.size() > 7 && baseType.substr(0, 7) == "struct:") baseType = baseType.substr(7);
-    if (!baseType.empty() && baseType.front() == '*') baseType = baseType.substr(1);
-    while (!baseType.empty() && baseType.back()  == '*') baseType.pop_back();
-    if (baseType.find('<') != std::string::npos) {
-        auto [tn, args] = splitTemplateType(baseType);
-        ensureTemplateInstantiated(mangleTemplate(baseType), tn, args);
-        baseType = mangleTemplate(baseType);
-    }
+        baseType = stripToStructKey(baseType);
         auto fit = structFields.find(baseType);
         if (fit == structFields.end())
             throw std::runtime_error("Unknown struct type: " + baseType);

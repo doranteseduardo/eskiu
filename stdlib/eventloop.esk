@@ -164,7 +164,16 @@ EventLoop* el_new(int max_fds) {
     lp.tcap    = max_fds;
     lp.timers  = alloc<EvTimer>(max_fds);
     int t = 0;
-    while (t < max_fds) { lp.timers[t].active = 0; t = t + 1; }
+    // Same as the slots above: `alloc` does not zero, so initialize EVERY field —
+    // including the `on_fire` closure. Firing is guarded by `active`, but leaving
+    // `on_fire` as heap garbage means a stray fire would invoke a garbage function
+    // pointer (the Linux SIGILL signature). (v0.3.1 fixed on_read but missed this.)
+    while (t < max_fds) {
+        lp.timers[t].active   = 0;
+        lp.timers[t].deadline = (int64)0;
+        lp.timers[t].on_fire  = void() {};
+        t = t + 1;
+    }
     return lp;
 }
 

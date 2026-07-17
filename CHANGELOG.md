@@ -8,6 +8,37 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
+## [0.6.2]
+### Added
+- **Cross-compilation targets the right platform.** The `--target` triple now drives the
+  predefined platform macro (`__APPLE__` / `__linux__`), so `eskiuc --target x86_64-linux-gnu`
+  on macOS selects the Linux stdlib paths (epoll, Linux `sockaddr_in`) instead of emitting
+  unresolved BSD symbols. With no `--target` it still follows the build host.
+
+### Fixed
+- **Event-loop timer callbacks are initialized.** `el_new` allocated the timer array but
+  only zeroed each timer's `active` flag, leaving the `on_fire` closure as heap garbage
+  (`alloc` does not zero). Firing is guarded by `active`, but an uninitialized function
+  pointer is exactly the shape of the intermittent Linux CI `SIGILL` in the HTTP/2 tests
+  (a garbage closure invoked on a fresh, non-zero heap). It now initializes every field,
+  completing the equivalent `on_read` fix from v0.3.1, so the event loop holds no
+  uninitialized function pointer.
+- **The async transform preserves `escaping` parameters.** Lowering an `async fn` to its
+  coroutine constructor dropped the per-parameter `escaping` flags. Because the ctor stores
+  each parameter into the heap coroutine frame (which outlives the call), an escaping
+  closure argument could then be stack-allocated at the call site, leaving the frame with a
+  dangling env. The lowered constructor now carries the original flags, and the post-lowering
+  soundness check no longer spuriously flags the frame-stored callback.
+- **Interface (vtable) dispatch now coerces arguments.** Calling an interface method
+  with an argument that needs widening (e.g. an `int32` where the method declares
+  `int64`) emitted a call whose argument type did not match the vtable slot's signature.
+  The reference compiler rejected it at LLVM verification (`code generation failed`); the
+  self-hosted compiler emitted mistyped IR. Both now widen the argument to the method's
+  declared parameter type, exactly like a direct call. Fixed in lockstep across both
+  code generators.
+
+---
+
 ## [0.6.1]
 ### Added
 - **`\xNN` hex escape** in string and character literals: one or two hex digits decode

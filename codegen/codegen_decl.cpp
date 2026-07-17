@@ -1,21 +1,5 @@
 #include "codegen.h"
 #include "../ast/type_qual.h"
-#include "llvm/IR/InlineAsm.h"
-#include "llvm/IR/Verifier.h"
-#include "llvm/IR/Type.h"
-#include "llvm/IR/Constants.h"
-#include "llvm/IR/LegacyPassManager.h"
-#include "llvm/Support/TargetSelect.h"
-#include "llvm/Support/FileSystem.h"
-#include "llvm/Target/TargetMachine.h"
-#include "llvm/MC/TargetRegistry.h"
-#include "llvm/Passes/PassBuilder.h"
-#include "llvm/Transforms/Instrumentation/AddressSanitizer.h"
-#include "llvm/Transforms/Instrumentation/BoundsChecking.h"
-#include "llvm/TargetParser/Host.h"
-#include "llvm/TargetParser/Triple.h"
-#include "llvm/Support/raw_os_ostream.h"
-#include <iostream>
 
 // Template type-name utilities (mangleTemplate / splitTemplateType / substType)
 // are shared with the type checker; see template_utils.h.
@@ -325,17 +309,7 @@ void CodeGen::visit(VarDecl* node) {
             emitArrayInitInto(alloca, arrLit, varType);
         } else {
             llvm::Value* val = evaluateExpr(node->initializer);
-            if (val && val->getType() != declType) {
-                if (val->getType()->isIntegerTy() && declType->isIntegerTy()) {
-                    val = coerceInt(val, declType, eskiuUnsigned(getExprEskiuType(node->initializer)));
-                } else if (val->getType()->isIntegerTy() && declType->isFloatingPointTy()) {
-                    val = intToFloat(val, declType, eskiuUnsigned(getExprEskiuType(node->initializer)));
-                } else if (val->getType()->isFloatingPointTy() && declType->isIntegerTy()) {
-                    val = builder->CreateFPToSI(val, declType);
-                } else if (val->getType()->isFloatingPointTy() && declType->isFloatingPointTy()) {
-                    val = builder->CreateFPCast(val, declType);
-                }
-            }
+            val = coerceValue(val, declType, eskiuUnsigned(getExprEskiuType(node->initializer)));
             if (val) builder->CreateStore(val, alloca);
         }
     }

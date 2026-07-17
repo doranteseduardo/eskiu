@@ -82,6 +82,13 @@ int sema_in_list(List<string>* l, string name) {
     return 0;
 }
 
+// Emit a semantic error with a fixed message (the port doesn't track positions, hence
+// the `:0:0:`) and mark the check failed. Shared by diagnostics that carry no extra args.
+void sema_error(Sema* s, string msg) {
+    s.had_error = 1;
+    printf("error: %s:0:0: %s\n", s.filename, msg);
+}
+
 void sema_init(Sema* s, string filename) {
     List_init<Sym>(&s.syms, 64);
     List_init<FnSig>(&s.fns, 32);
@@ -124,50 +131,43 @@ void sema_define(Sema* s, string name, string type, int is_const) {
     List_push<Sym>(&s.syms, sym);
 }
 
-// Is `name` a read-only (const) binding?
-int sema_sym_const(Sema* s, string name) {
+// Index of the innermost binding of `name` in the symbol stack, or -1 if unbound.
+// The one reverse scan the symbol-table queries below share.
+int sema_sym_index(Sema* s, string name) {
     int i = List_len<Sym>(&s.syms) - 1;
     while (i >= 0) {
-        Sym sym = List_get<Sym>(&s.syms, i);
-        if (sema_streq(sym.name, name) == 1) { return sym.is_const; }
+        if (sema_streq(List_get<Sym>(&s.syms, i).name, name) == 1) { return i; }
         i = i - 1;
     }
-    return 0;
+    return -1;
+}
+
+// Is `name` a read-only (const) binding?
+int sema_sym_const(Sema* s, string name) {
+    int i = sema_sym_index(s, name);
+    if (i < 0) { return 0; }
+    return List_get<Sym>(&s.syms, i).is_const;
 }
 
 int sema_lookup(Sema* s, string name) {
-    int i = List_len<Sym>(&s.syms) - 1;
-    while (i >= 0) {
-        if (sema_streq(List_get<Sym>(&s.syms, i).name, name) == 1) { return 1; }
-        i = i - 1;
-    }
+    if (sema_sym_index(s, name) >= 0) { return 1; }
     return 0;
 }
 
 // Declared type of `name` (innermost binding), or "" if unbound / untyped.
 string sema_lookup_type(Sema* s, string name) {
-    int i = List_len<Sym>(&s.syms) - 1;
-    while (i >= 0) {
-        Sym sym = List_get<Sym>(&s.syms, i);
-        if (sema_streq(sym.name, name) == 1) { return sym.type; }
-        i = i - 1;
-    }
-    return "";
+    int i = sema_sym_index(s, name);
+    if (i < 0) { return ""; }
+    return List_get<Sym>(&s.syms, i).type;
 }
 
 // Is `name` bound in a local (non-global) scope? The innermost binding wins, so a
 // local shadow of a global function means a call should NOT be arg-count-checked
 // against the function signature (it could be a fn-pointer variable).
 int sema_local_bound(Sema* s, string name) {
-    int i = List_len<Sym>(&s.syms) - 1;
-    while (i >= 0) {
-        Sym sym = List_get<Sym>(&s.syms, i);
-        if (sema_streq(sym.name, name) == 1) {
-            if (sym.depth > 0) { return 1; }
-            return 0;
-        }
-        i = i - 1;
-    }
+    int i = sema_sym_index(s, name);
+    if (i < 0) { return 0; }
+    if (List_get<Sym>(&s.syms, i).depth > 0) { return 1; }
     return 0;
 }
 
@@ -213,13 +213,7 @@ int sema_find_fn(Sema* s, string name) {
 }
 
 int sema_is_type(Sema* s, string name) {
-    int i = 0;
-    int n = List_len<string>(&s.types);
-    while (i < n) {
-        if (sema_streq(List_get<string>(&s.types, i), name) == 1) { return 1; }
-        i = i + 1;
-    }
-    return 0;
+    return sema_in_list(&s.types, name);
 }
 
 // Leading name of a spelling, up to a generic '<' or payload '(':
@@ -260,21 +254,15 @@ string sema_struct_of_type(string t) {
 }
 
 int sema_is_struct(Sema* s, string name) {
-    int i = 0; int n = List_len<string>(&s.structs);
-    while (i < n) { if (sema_streq(List_get<string>(&s.structs, i), name) == 1) { return 1; } i = i + 1; }
-    return 0;
+    return sema_in_list(&s.structs, name);
 }
 
 int sema_has_member(Sema* s, string key) {   // key = "Struct.member"
-    int i = 0; int n = List_len<string>(&s.members);
-    while (i < n) { if (sema_streq(List_get<string>(&s.members, i), key) == 1) { return 1; } i = i + 1; }
-    return 0;
+    return sema_in_list(&s.members, key);
 }
 
 int sema_is_enum(Sema* s, string name) {
-    int i = 0; int n = List_len<string>(&s.enums);
-    while (i < n) { if (sema_streq(List_get<string>(&s.enums, i), name) == 1) { return 1; } i = i + 1; }
-    return 0;
+    return sema_in_list(&s.enums, name);
 }
 
 // Best-effort string type of an expression ("" = unknown). Grows per slice; for now
@@ -426,15 +414,13 @@ void sema_expr(Sema* s, *ExprNode e) {
     if (k == EK_LITERAL || k == EK_SIZEOF) { return; }
     if (k == EK_BINARY) {
         if (sema_is_assign(e.sval) == 1 && sema_is_readonly_lvalue(s, e.a) == 1) {
-            s.had_error = 1;
-            printf("error: %s:0:0: cannot assign to read-only location\n", s.filename);
+            sema_error(s, "cannot assign to read-only location");
         }
         sema_expr(s, e.a); sema_expr(s, e.b); return;
     }
     if (k == EK_INCDEC) {                              // ++x / x++ etc.
         if (sema_is_readonly_lvalue(s, e.a) == 1) {
-            s.had_error = 1;
-            printf("error: %s:0:0: cannot modify read-only location\n", s.filename);
+            sema_error(s, "cannot modify read-only location");
         }
         sema_expr(s, e.a); return;
     }
@@ -451,8 +437,7 @@ void sema_expr(Sema* s, *ExprNode e) {
     }
     if (k == EK_AWAIT) {
         if (s.in_async == 0) {
-            s.had_error = 1;
-            printf("error: %s:0:0: await is only allowed inside an async function\n", s.filename);
+            sema_error(s, "await is only allowed inside an async function");
         }
         s.await_seen = 1;
         sema_expr(s, e.a);
@@ -472,8 +457,7 @@ void sema_expr(Sema* s, *ExprNode e) {
     }
     if (k == EK_QUESTION) {            // `expr?` propagates an Err — fn must return a Result
         if (sema_streq(sema_base_name(s.cur_ret), "Result") == 0) {
-            s.had_error = 1;
-            printf("error: %s:0:0: `?` can only be used in a function returning the same Result type\n", s.filename);
+            sema_error(s, "`?` can only be used in a function returning the same Result type");
         }
         sema_expr(s, e.a);
         return;
@@ -576,8 +560,7 @@ void sema_stmt(Sema* s, *StmtNode st) {
     if (k == SK_VARDECL) {
         sema_expr(s, st.expr);             // initializer (can't reference itself)
         if (st.is_static == 1 && st.expr != null && st.expr.kind != EK_LITERAL) {
-            s.had_error = 1;
-            printf("error: %s:0:0: a 'static' local's initializer must be a constant\n", s.filename);
+            sema_error(s, "a 'static' local's initializer must be a constant");
         }
         if (st.is_const == 1 && st.expr == null) {
             s.had_error = 1;
@@ -586,8 +569,7 @@ void sema_stmt(Sema* s, *StmtNode st) {
         // Initializing a non-const pointer from a pointer-to-const drops const.
         if (st.expr != null && sema_has_star(st.type) == 1 && sema_pointee_const(st.type) == 0) {
             if (sema_pointee_const(sema_infer_type(s, st.expr)) == 1) {
-                s.had_error = 1;
-                printf("error: %s:0:0: initialization discards a const qualifier\n", s.filename);
+                sema_error(s, "initialization discards a const qualifier");
             }
         }
         sema_define(s, st.name, st.type, st.is_const);
@@ -660,16 +642,9 @@ void sema_stmt(Sema* s, *StmtNode st) {
                 if (c.kind == SK_CASE && c.expr != null
                     && (c.expr.kind == EK_LITERAL || c.expr.kind == EK_IDENT)) {
                     string key = c.expr.sval;
-                    int j = 0;
-                    int found = 0;
-                    int sn = List_len<string>(&seen);
-                    while (j < sn) {
-                        if (sema_streq(List_get<string>(&seen, j), key) == 1) { found = 1; }
-                        j = j + 1;
-                    }
+                    int found = sema_in_list(&seen, key);
                     if (found == 1) {
-                        s.had_error = 1;
-                        printf("error: %s:0:0: duplicate case value in switch\n", s.filename);
+                        sema_error(s, "duplicate case value in switch");
                     } else {
                         List_push<string>(&seen, key);
                     }
@@ -690,13 +665,7 @@ void sema_stmt(Sema* s, *StmtNode st) {
                 if (arm.kind == SK_ARM) {
                     string v = sema_base_name(arm.name);
                     if (sema_streq(v, "_") == 1) { has_wild = 1; }
-                    int j = 0;
-                    int found = 0;
-                    int sn = List_len<string>(&seen);
-                    while (j < sn) {
-                        if (sema_streq(List_get<string>(&seen, j), v) == 1) { found = 1; }
-                        j = j + 1;
-                    }
+                    int found = sema_in_list(&seen, v);
                     if (found == 1) {
                         s.had_error = 1;
                         printf("error: %s:0:0: duplicate match arm for variant '%s'\n", s.filename, v);
@@ -717,13 +686,7 @@ void sema_stmt(Sema* s, *StmtNode st) {
                     while (ei < en) {
                         EVar ev = List_get<EVar>(&s.evars, ei);
                         if (reported == 0 && sema_streq(ev.en, sty) == 1) {
-                            int j = 0;
-                            int covered = 0;
-                            int sn = List_len<string>(&seen);
-                            while (j < sn) {
-                                if (sema_streq(List_get<string>(&seen, j), ev.variant) == 1) { covered = 1; }
-                                j = j + 1;
-                            }
+                            int covered = sema_in_list(&seen, ev.variant);
                             if (covered == 0) {
                                 s.had_error = 1;
                                 printf("error: %s:0:0: non-exhaustive match on '%s': missing '%s'\n",
