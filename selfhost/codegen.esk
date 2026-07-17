@@ -668,6 +668,13 @@ int cg_layout_size(Codegen* g, List<string>* fields) {
     return cg_align_up(bytes, maxal);
 }
 
+// The "not found" sentinel returned by the variant lookups below (.ename == "").
+CgVariant cg_variant_none(string vname) {
+    let none: CgVariant; none.vname = vname; none.ename = ""; none.tag = 0;
+    List_init<string>(&none.ptys, 1);
+    return none;
+}
+
 // Find an ADT variant by name; sentinel with .ename == "" if not a known variant.
 CgVariant cg_find_variant(Codegen* g, string vname) {
     int i = 0; int n = List_len<CgVariant>(&g.variants);
@@ -676,9 +683,7 @@ CgVariant cg_find_variant(Codegen* g, string vname) {
         if (cg_streq(v.vname, vname) == 1) { return v; }
         i = i + 1;
     }
-    let none: CgVariant; none.vname = vname; none.ename = ""; none.tag = 0;
-    List_init<string>(&none.ptys, 1);
-    return none;
+    return cg_variant_none(vname);
 }
 
 // Find a variant by name WITHIN a specific (mangled) enum — disambiguates same-named
@@ -690,9 +695,7 @@ CgVariant cg_find_variant_in(Codegen* g, string vname, string enumName) {
         if (cg_streq(v.vname, vname) == 1 && cg_streq(v.ename, enumName) == 1) { return v; }
         i = i + 1;
     }
-    let none: CgVariant; none.vname = vname; none.ename = ""; none.tag = 0;
-    List_init<string>(&none.ptys, 1);
-    return none;
+    return cg_variant_none(vname);
 }
 
 // A generic ADT variant pattern (e.g. Option's `Some(T)`), by variant name.
@@ -703,9 +706,7 @@ CgVariant cg_find_gvariant(Codegen* g, string vname) {
         if (cg_streq(v.vname, vname) == 1) { return v; }
         i = i + 1;
     }
-    let none: CgVariant; none.vname = vname; none.ename = ""; none.tag = 0;
-    List_init<string>(&none.ptys, 1);
-    return none;
+    return cg_variant_none(vname);
 }
 
 *DeclNode cg_find_genum(Codegen* g, string name) {
