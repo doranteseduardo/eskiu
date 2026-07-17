@@ -622,6 +622,12 @@ void AsyncTransform::run(Program* program) {
             std::make_shared<MemberExpr>(ident("fr"), "ret"))));
         auto ctorFn = std::make_shared<FunctionDecl>(
             name, "*Future<" + Tret + ">", fn->params, std::make_shared<BlockStmt>(ctor));
+        // Preserve the original async fn's per-parameter `escaping` flags. The ctor
+        // stores each param into the heap coroutine frame (it outlives the call), so an
+        // escaping closure param must keep that flag or codegen would stack-allocate its
+        // env at the call site and the frame would hold a dangling pointer (a UAF that
+        // surfaced as an intermittent SIGILL calling a garbage closure on Linux).
+        ctorFn->paramEscaping = fn->paramEscaping;
 
         // ── Emit frame struct + resume + constructor in place of the async fn ─
         out.push_back(std::make_shared<StructDecl>(frameT, fields));
