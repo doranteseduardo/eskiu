@@ -179,9 +179,6 @@ int decode_str_escape(int e) {
     if (e == 39) { return 39; }    // '
     return e;
 }
-int decode_chr_escape(int e) {     // identical set to decode_str_escape
-    return decode_str_escape(e);
-}
 
 // Hex value of a byte, or -1 if not a hex digit. For `\xNN` escapes.
 int hex_val(int c) {
