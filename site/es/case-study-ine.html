@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Caso de estudio: decodificador QR del INE · Eskiu</title>
+  <meta name="description" content="Un pipeline criptográfico real en Eskiu: el decodificador de QR de credencial del INE (AES-256 multironda + RSA-8192, extracción de imagen QR), idéntico bit a bit a otras cinco implementaciones y 2.5× más rápido que el C de referencia." />
+  <link rel="canonical" href="https://eskiu-lang.org/es/case-study-ine.html" />
+  <link rel="alternate" hreflang="en" href="https://eskiu-lang.org/case-study-ine.html" />
+  <link rel="alternate" hreflang="es" href="https://eskiu-lang.org/es/case-study-ine.html" />
+  <link rel="icon" type="image/png" href="../assets/logo.png" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #ffffff; --surface: #f6f8fa; --border: #d0d7de; --border-mut: #e4e8ed;
+      --ink: #1f2328; --ink2: #424a53; --muted: #6e7781;
+      --accent: #4c31bb; --accent-lt: #6448d4;
+      --inline: rgba(120, 110, 180, 0.12);
+      --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+      --mono: ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+    }
+    html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+    body { background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 16px;
+           line-height: 1.7; -webkit-font-smoothing: antialiased; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* Top bar (shared with the homepage) */
+    header.top { border-bottom: 1px solid var(--border); background: var(--bg); position: sticky; top: 0; z-index: 30; }
+    .top-in { max-width: 720px; margin: 0 auto; padding: 0 1.25rem; height: 54px; display: flex; align-items: center; gap: 0.55rem; }
+    .brand { display: flex; align-items: center; gap: 0.5rem; font-family: var(--mono); font-weight: 700; font-size: 1.02rem; color: var(--ink); }
+    .brand:hover { text-decoration: none; }
+    .brand img { width: 24px; height: 24px; }
+    .brand .v { font-family: var(--mono); font-size: 0.68rem; color: var(--muted); font-weight: 500; }
+    .top-links { margin-left: auto; display: flex; align-items: center; gap: 1.25rem; font-family: var(--mono); font-size: 0.82rem; }
+    .top-links a { color: var(--ink2); }
+    .top-links a:hover { color: var(--accent); text-decoration: none; }
+    .lang { display: inline-flex; align-items: center; gap: 0.35rem; font-family: var(--mono); font-size: 0.82rem; }
+    .lang .sep { color: var(--border); }
+    .lang a { color: var(--muted); cursor: pointer; }
+    .lang a:hover { color: var(--accent); text-decoration: none; }
+    .lang a.active { color: var(--ink); font-weight: 700; cursor: default; }
+
+    .wrap { max-width: 720px; margin: 0 auto; padding: 2.75rem 1.25rem 4rem; }
+    .eyebrow { font-family: var(--mono); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.12em;
+               text-transform: uppercase; color: var(--accent); margin-bottom: 0.6rem; }
+    h1 { font-family: var(--mono); font-size: clamp(1.8rem, 5vw, 2.6rem); font-weight: 700;
+         letter-spacing: -0.03em; line-height: 1.1; margin-bottom: 1.5rem; }
+    h2 { font-family: var(--mono); font-size: 1.3rem; font-weight: 700; letter-spacing: -0.01em; margin: 2.5rem 0 0.75rem; }
+    p { margin: 0 0 1rem; }
+    .pull { border-left: 3px solid var(--accent); background: var(--surface); padding: 1.1rem 1.25rem;
+            border-radius: 0 8px 8px 0; margin: 0 0 1.5rem; font-size: 1.05rem; }
+    .pull .stat { display: block; margin-top: 0.6rem; font-weight: 600; color: var(--accent); }
+    .tablewrap { overflow-x: auto; margin: 0 0 1.5rem; border: 1px solid var(--border); border-radius: 8px; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    th, td { text-align: left; padding: 0.6rem 0.85rem; border-bottom: 1px solid var(--border-mut); vertical-align: top; }
+    th { font-family: var(--mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em;
+         color: var(--muted); background: var(--surface); }
+    tbody tr:last-child td { border-bottom: none; }
+    td.n { font-variant-numeric: tabular-nums; white-space: nowrap; }
+    ul { margin: 0 0 1rem 1.1rem; }
+    li { margin-bottom: 0.5rem; color: var(--ink2); }
+    code { font-family: var(--mono); font-size: 0.86em; background: var(--inline); padding: 0.15em 0.4em; border-radius: 4px; }
+    strong { font-weight: 600; }
+
+    /* Footer (shared with the homepage) */
+    footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
+    .footer-in { max-width: 720px; margin: 0 auto; padding: 1.5rem 1.25rem; display: flex; align-items: center;
+                 gap: 1.25rem; flex-wrap: wrap; font-family: var(--mono); font-size: 0.78rem; }
+    .footer-in .fl { display: flex; gap: 1.1rem; flex-wrap: wrap; }
+    .footer-in a { color: var(--ink2); }
+    .footer-in a:hover { color: var(--accent); text-decoration: none; }
+    .footer-in .cp { margin-left: auto; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <header class="top">
+    <div class="top-in">
+      <a class="brand" href="index.html"><img src="../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.6.2</span></a>
+      <nav class="top-links">
+        <a href="../docs/index.html">docs</a>
+        <a href="../the-book-of-eskiu.html">libro</a>
+        <a href="https://github.com/doranteseduardo/eskiu">github</a>
+        <span class="lang"><a href="../case-study-ine.html" onclick="try{localStorage.setItem('eskiu-lang','en')}catch(e){}">EN</a><span class="sep">·</span><a class="active" aria-current="page">ES</a></span>
+      </nav>
+    </div>
+  </header>
+  <div class="wrap">
+    <div class="eyebrow">Caso de estudio</div>
+    <h1>Un pipeline criptográfico real en Eskiu</h1>
+
+    <div class="pull">
+      El decodificador de QR de credencial del INE, un pipeline de AES-256 multironda + RSA-8192 con
+      extracción de imagen QR, reimplementado en Eskiu y servido como una API HTTP, sobre un
+      stack construido enteramente con la biblioteca estándar.
+      <span class="stat">2.5× más rápido que el C de referencia, idéntico bit a bit a otras cinco implementaciones.</span>
+    </div>
+
+    <h2>La carga de trabajo</h2>
+    <p>
+      La credencial de elector del INE de México lleva dos códigos QR que empacan 18 campos
+      biográficos más la foto de la credencial detrás de un <strong>pipeline criptográfico
+      de siete capas</strong>: múltiples rondas de AES-256-CBC con llaves derivadas en
+      tiempo de ejecución, descifrado de bloques RSA-8192, una etapa base64 y un desempacador de texto de 6 bits.
+      Decodificar una empieza desde una <strong>foto de la tarjeta</strong>: detectar y leer
+      los dos payloads QR, luego correr todo el pipeline para recuperar los campos y
+      reconstruir la foto. Es una mezcla compacta pero implacable de manejo de imagen,
+      criptografía de verdad y manipulación de bits byte a byte: justo el tipo de código
+      que normalmente le toca a C y a nadie más.
+    </p>
+
+    <h2>Por qué encajó Eskiu</h2>
+    <ul>
+      <li><strong>Bibliotecas de C, directo.</strong> El pipeline se apoya en OpenSSL para
+        AES/RSA y <code>zxing-cpp</code> para el lector de QR. Eskiu habla el ABI de C
+        nativamente, así que llama a ambas con simples declaraciones <code>extern</code>,
+        sin capa de wrappers.</li>
+      <li><strong>Memoria que administras.</strong> Cada buffer intermedio es un
+        <code>alloc&lt;T&gt;(n)</code> / <code>free</code> explícito. Todo el
+        patrón de asignación es visible en el código, lo que importa cuando un solo
+        free olvidado filtra un buffer descifrado.</li>
+      <li><strong>Un servicio sin framework.</strong> El decodificador se envuelve en
+        una API HTTP (<code>POST /decode</code>, multipart o JSON, con auth por API-key
+        y rate limiting) construida enteramente sobre la biblioteca estándar de Eskiu
+        (<code>&lt;http&gt;</code>, <code>&lt;json&gt;</code>,
+        <code>&lt;base64&gt;</code>, hilos), sin dependencia externa.</li>
+      <li><strong>Nativo, sin runtime.</strong> Compila directo a un binario nativo
+        pequeño vía LLVM, así que aterriza en un host Linux con solo las dos
+        bibliotecas de C que enlaza.</li>
+    </ul>
+
+    <h2>Idéntico bit a bit en todo el stack</h2>
+    <p>
+      El decodificador existe en <strong>seis implementaciones</strong>, mantenidas en sincronía
+      para que un cambio al algoritmo se detecte en todas: C puro y Python,
+      WebAssembly (en el navegador), un AAR de Android, un XCFramework de iOS y la
+      ruta de Eskiu. Las seis producen <strong>salida idéntica byte por byte</strong>
+      desde la misma credencial. La implementación en Eskiu es un par completo de ese conjunto,
+      no un port de juguete, y su pipeline cripto corre <strong>2.5× más rápido que el
+      C de referencia</strong> contra el que se midió.
+    </p>
+
+    <h2>El dogfooding mejoró el lenguaje</h2>
+    <p>
+      Mover el decodificador al compilador actual fue en sí mismo una prueba del
+      lenguaje. El código cripto está lleno de patrones de adquirir-luego-liberar, así que
+      <code>defer</code> / <code>errdefer</code> colapsaron unas quince llamadas manuales
+      de limpieza, y ocho cascadas de limpieza en rutas de error, en una sola línea cada una,
+      volviendo imposible toda una clase de fugas de buffer (verificado sin fugas bajo
+      AddressSanitizer). Un build <code>--safe</code> agrega chequeos de límites para parsear
+      imágenes no confiables.
+    </p>
+    <p>
+      Más revelador: ejercitar código real sacó a la luz dos mejoras concretas que
+      entraron de vuelta al compilador en la <strong>v0.6.1</strong>. Rebanar un
+      puntero crudo de heap (<code>ptr[lo..hi]</code>) crasheaba la generación de código; ahora
+      construye un slice apropiado, así que los buffers de heap, no solo los arreglos fijos, se pueden rebanar.
+      Y se agregó un escape hex <code>\xNN</code> a los literales de string y de carácter
+      para datos byte-precisos. El decodificador necesitaba ambos; el lenguaje creció para cumplir.
+    </p>
+
+    <p>
+      Así que el mismo lenguaje que arranca un kernel ARM64 bare-metal, y mete un
+      módulo ajustado en memoria dentro de un motor de renderizado C++ (ve el
+      <a href="case-study-reactvision.html">caso de estudio de ReactVision</a>), también decodifica
+      un formato criptográfico real a velocidad nativa y lo sirve por HTTP. Un solo
+      lenguaje a lo largo del stack, usado donde conviene.
+    </p>
+  </div>
+  <footer>
+    <div class="footer-in">
+      <div class="fl">
+        <a href="index.html">inicio</a>
+        <a href="../docs/index.html">docs</a>
+        <a href="../the-book-of-eskiu.html">libro</a>
+        <a href="../changelog.html">changelog</a>
+        <a href="https://github.com/doranteseduardo/eskiu">github</a>
+      </div>
+      <span class="cp">MIT · Eduardo Dorantes</span>
+    </div>
+  </footer>
+<script>try{localStorage.setItem("eskiu-lang","es");}catch(e){}</script>
+</body>
+</html>
