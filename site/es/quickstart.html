@@ -1,13 +1,13 @@
 <!doctype html>
-<html lang="en">
+<html lang="es">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <script>try{if(localStorage.getItem("eskiu-lang")==="es")location.replace("es/quickstart.html"+location.hash);}catch(e){}</script>
-  <title>Quickstart · Eskiu</title>
-  <meta name="description" content="Download Eskiu, write your first program, and run it. Hello world, structs with methods, manual alloc/free, and lambdas: the essentials in a few minutes." />
+  <title>Inicio rápido · Eskiu</title>
+  <meta name="description" content="Descarga Eskiu, escribe tu primer programa y ejecútalo en minutos. Instalación, hola mundo, structs, alloc/free y lambdas." />
   <link rel="canonical" href="https://eskiu-lang.org/quickstart.html" />
   <link rel="icon" type="image/png" href="../assets/logo.png" />
+    <link rel="canonical" href="https://eskiu-lang.org/es/quickstart.html" />
     <link rel="alternate" hreflang="en" href="https://eskiu-lang.org/quickstart.html" />
     <link rel="alternate" hreflang="es" href="https://eskiu-lang.org/es/quickstart.html" />
   <style>
@@ -82,31 +82,31 @@
     <div class="top-in">
       <a class="brand" href="index.html"><img src="../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.6.2</span></a>
       <nav class="top-links">
-        <a href="docs/index.html">docs</a>
-        <a href="the-book-of-eskiu.html">book</a>
+        <a href="../docs/index.html">docs</a>
+        <a href="../the-book-of-eskiu.html">libro</a>
         <a href="https://github.com/doranteseduardo/eskiu">github</a>
-        <span class="lang"><a class="active" aria-current="page">EN</a><span class="sep">·</span><a href="es/quickstart.html" onclick="try{localStorage.setItem('eskiu-lang','es')}catch(e){}">ES</a></span>
+        <span class="lang"><a href="../quickstart.html" onclick="try{localStorage.setItem('eskiu-lang','en')}catch(e){}">EN</a><span class="sep">·</span><a class="active" aria-current="page">ES</a></span>
       </nav>
     </div>
   </header>
   <div class="wrap">
-    <div class="eyebrow">Quickstart</div>
-    <h1>Get Eskiu running</h1>
+    <div class="eyebrow">Inicio rápido</div>
+    <h1>Pon Eskiu a correr</h1>
     <p class="lede">
-      Download a prebuilt binary, write your first program, and run it. A few
-      minutes start to finish, with no toolchain to assemble.
+      Descarga un binario precompilado, escribe tu primer programa y córrelo. Unos cuantos
+      minutos de principio a fin, sin toolchain que armar.
     </p>
 
-    <h2>Install</h2>
+    <h2>Instalación</h2>
     <p>
-      Grab the build for your platform. The standard library ships inside the
-      tarball, so imports work the moment it's unpacked.
+      Descarga el build de tu plataforma. La biblioteca estándar viene dentro del
+      tarball, así que los imports jalan en cuanto lo descomprimes.
     </p>
     <div class="btns">
       <a class="btn-w" href="https://github.com/doranteseduardo/eskiu/releases/latest/download/eskiuc-linux-x86_64.tar.gz">↓ Linux (x86-64)</a>
       <a class="btn-w" href="https://github.com/doranteseduardo/eskiu/releases/latest/download/eskiuc-macos-arm64.tar.gz">↓ macOS (Apple Silicon)</a>
     </div>
-    <p>Unpack it into <code>/usr/local</code> and check the version:</p>
+    <p>Descomprímelo en <code>/usr/local</code> y verifica la versión:</p>
     <pre><code><span class="c"># macOS (Apple Silicon)</span>
 tar -xzf eskiuc-macos-arm64.tar.gz -C /usr/local
 
@@ -115,20 +115,20 @@ tar -xzf eskiuc-linux-x86_64.tar.gz -C /usr/local
 
 eskiuc --version
 <span class="o">Eskiu 0.6.2 (LLVM ...)</span></code></pre>
-    <p>The tarball installs:</p>
+    <p>El tarball instala:</p>
     <ul>
-      <li><code>bin/eskiuc</code>: the compiler</li>
-      <li><code>lib/eskiu/stdlib/</code>: the standard library</li>
+      <li><code>bin/eskiuc</code>: el compilador</li>
+      <li><code>lib/eskiu/stdlib/</code>: la biblioteca estándar</li>
     </ul>
     <p class="note">
-      Linking needs a C toolchain on your machine (<code>clang</code> or
-      <code>gcc</code>), the same one Rust and Clang call to produce a binary.
-      macOS has it via the Xcode command-line tools; on Linux, install
-      <code>build-essential</code> (or <code>gcc</code>).
+      El enlazado necesita un toolchain de C en tu equipo (<code>clang</code> o
+      <code>gcc</code>), el mismo que invocan Rust y Clang para producir un binario.
+      macOS lo trae con las herramientas de línea de comandos de Xcode; en Linux, instala
+      <code>build-essential</code> (o <code>gcc</code>).
     </p>
 
-    <h2>Hello, Eskiu</h2>
-    <p>Create <code>hello.esk</code>:</p>
+    <h2>Hola, Eskiu</h2>
+    <p>Crea <code>hello.esk</code>:</p>
     <pre><code>extern int printf(string fmt, ...);
 
 int add(int a, int b) {
@@ -142,24 +142,24 @@ int main() {
     return 0;
 }</code></pre>
     <p>
-      Compile and run it in one step. <code>eskiuc run</code> builds a temporary
-      native binary, runs it, and cleans up:
+      Compílalo y córrelo de una vez. <code>eskiuc run</code> arma un binario
+      nativo temporal, lo ejecuta y limpia todo al final:
     </p>
     <pre><code>eskiuc run hello.esk
 <span class="o">Hello from Eskiu!
 Result: 8</span></code></pre>
     <p>
-      Or keep the binary. When the <code>-o</code> name has no <code>.o</code>
-      extension, <code>eskiuc</code> links it into an executable for you:
+      O quédate con el binario. Cuando el nombre de <code>-o</code> no termina en
+      <code>.o</code>, <code>eskiuc</code> te lo enlaza como ejecutable:
     </p>
     <pre><code>eskiuc hello.esk -o hello && ./hello</code></pre>
-    <p>Want just the object file? Use a <code>.o</code> name, then link it yourself:</p>
+    <p>¿Quieres solo el archivo objeto? Usa un nombre <code>.o</code> y enlázalo tú:</p>
     <pre><code>eskiuc hello.esk -o hello.o && clang hello.o -o hello && ./hello</code></pre>
 
-    <h2>A struct with a method</h2>
+    <h2>Un struct con un método</h2>
     <p>
-      Structs hold data. Methods are plain functions that take a pointer to the
-      struct as their first argument.
+      Los structs guardan datos. Los métodos son funciones normales que reciben un puntero
+      al struct como primer argumento.
     </p>
     <pre><code>extern int printf(string fmt, ...);
 
@@ -181,11 +181,11 @@ int main() {
     return 0;
 }</code></pre>
 
-    <h2>alloc / free with pointer arithmetic</h2>
+    <h2>alloc / free con aritmética de punteros</h2>
     <p>
-      <code>alloc&lt;T&gt;(n)</code> (from the <code>&lt;mem&gt;</code> stdlib)
-      allocates <code>n</code> elements of type <code>T</code> and returns a typed
-      pointer. Index with <code>[]</code>. Call <code>free</code> when you're done. The memory is yours to account for.
+      <code>alloc&lt;T&gt;(n)</code> (de la stdlib <code>&lt;mem&gt;</code>)
+      reserva <code>n</code> elementos de tipo <code>T</code> y devuelve un puntero
+      tipado. Indexa con <code>[]</code>. Llama a <code>free</code> cuando termines: la memoria corre por tu cuenta.
     </p>
     <pre><code>import &lt;mem&gt;;
 extern int printf(string fmt, ...);
@@ -204,8 +204,8 @@ int main() {
 
     <h2>Lambdas</h2>
     <p>
-      Functions are first-class values. Write a lambda with the same syntax as a
-      regular function, minus the name:
+      Las funciones son valores de primera clase. Una lambda se escribe con la misma sintaxis
+      que una función normal, solo que sin nombre:
     </p>
     <pre><code>extern int printf(string fmt, ...);
 
@@ -220,28 +220,29 @@ int main() {
     return 0;
 }</code></pre>
     <p>
-      <code>fn(int)-&gt;int</code> is the function-pointer type. The lambda
-      <code>int(int x) { ... }</code> produces a value of that type.
+      <code>fn(int)-&gt;int</code> es el tipo de puntero a función. La lambda
+      <code>int(int x) { ... }</code> produce un valor de ese tipo.
     </p>
 
-    <h2>What's next</h2>
+    <h2>Qué sigue</h2>
     <ul>
-      <li><a href="index.html#try">Try Eskiu in your browser</a>: no install needed.</li>
-      <li><a href="the-book-of-eskiu.html">The Book of Eskiu</a>: the full language guide.</li>
-      <li><a href="index.html#examples">More examples</a>: async, sum types, generics, servers.</li>
+      <li><a href="index.html#toolchain">Prueba Eskiu en tu navegador</a>: sin instalar nada.</li>
+      <li><a href="../the-book-of-eskiu.html">El Libro de Eskiu</a>: la guía completa del lenguaje.</li>
+      <li><a href="index.html#toolchain">Más ejemplos</a>: async, tipos suma, genéricos, servidores.</li>
     </ul>
   </div>
   <footer>
     <div class="footer-in">
       <div class="fl">
         <a href="index.html">home</a>
-        <a href="docs/index.html">docs</a>
-        <a href="the-book-of-eskiu.html">book</a>
-        <a href="changelog.html">changelog</a>
+        <a href="../docs/index.html">docs</a>
+        <a href="../the-book-of-eskiu.html">libro</a>
+        <a href="../changelog.html">changelog</a>
         <a href="https://github.com/doranteseduardo/eskiu">github</a>
       </div>
       <span class="cp">MIT · Eduardo Dorantes</span>
     </div>
   </footer>
+<script>try{localStorage.setItem("eskiu-lang","es");}catch(e){}</script>
 </body>
 </html>

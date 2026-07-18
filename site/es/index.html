@@ -1,13 +1,13 @@
 <!doctype html>
-<html lang="en">
+<html lang="es">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <script>try{if(localStorage.getItem("eskiu-lang")==="es")location.replace("es/index.html"+location.hash);}catch(e){}</script>
-    <title>Eskiu: a self-hosting systems language</title>
-    <meta name="description" content="Eskiu is a compiled systems language with async/await, sum types, generics, HTTP/2, and atomics. LLVM backend, manual memory, compiles to a standalone binary. Self-hosting as of v0.3.0." />
+    <title>Eskiu: un lenguaje de sistemas auto-hospedado</title>
+    <meta name="description" content="Eskiu es un lenguaje de sistemas compilado con async/await, tipos suma, genéricos, HTTP/2 y atómicos. Backend LLVM, memoria manual, compila a un binario independiente. Auto-hospedado desde la v0.3.0." />
     <meta name="theme-color" content="#ffffff" />
     <link rel="icon" type="image/png" href="../assets/logo.png" />
+    <link rel="canonical" href="https://eskiu-lang.org/es/index.html" />
     <link rel="alternate" hreflang="en" href="https://eskiu-lang.org/index.html" />
     <link rel="alternate" hreflang="es" href="https://eskiu-lang.org/es/index.html" />
     <link rel="alternate" hreflang="x-default" href="https://eskiu-lang.org/index.html" />
@@ -160,10 +160,10 @@
       <div class="top-in">
         <a class="brand" href="#"><img src="../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.6.2</span></a>
         <nav class="top-links">
-          <a href="docs/index.html">docs</a>
-          <a href="the-book-of-eskiu.html">book</a>
+          <a href="../docs/index.html">docs</a>
+          <a href="../the-book-of-eskiu.html">libro</a>
           <a href="https://github.com/doranteseduardo/eskiu">github</a>
-          <span class="lang"><a class="active" aria-current="page">EN</a><span class="sep">·</span><a href="es/index.html" onclick="try{localStorage.setItem('eskiu-lang','es')}catch(e){}">ES</a></span>
+          <span class="lang"><a href="../index.html" onclick="try{localStorage.setItem('eskiu-lang','en')}catch(e){}">EN</a><span class="sep">·</span><a class="active" aria-current="page">ES</a></span>
         </nav>
       </div>
     </header>
@@ -171,15 +171,15 @@
     <div class="shell">
       <!-- TOC -->
       <aside class="toc">
-        <div class="toc-title">Contents</div>
+        <div class="toc-title">Contenido</div>
         <ol id="toc-list">
-          <li><a href="#overview"><span class="n">1</span>Overview</a></li>
-          <li><a href="#types"><span class="n">2</span>Types &amp; matching</a></li>
-          <li><a href="#generics"><span class="n">3</span>Generics</a></li>
-          <li><a href="#concurrency"><span class="n">4</span>Concurrency</a></li>
-          <li><a href="#toolchain"><span class="n">5</span>Toolchain</a></li>
-          <li><a href="#production"><span class="n">6</span>In production</a></li>
-          <li><a href="#install"><span class="n">7</span>Install</a></li>
+          <li><a href="#overview"><span class="n">1</span>Vista general</a></li>
+          <li><a href="#types"><span class="n">2</span>Tipos y matching</a></li>
+          <li><a href="#generics"><span class="n">3</span>Genéricos</a></li>
+          <li><a href="#concurrency"><span class="n">4</span>Concurrencia</a></li>
+          <li><a href="#toolchain"><span class="n">5</span>Herramientas</a></li>
+          <li><a href="#production"><span class="n">6</span>En producción</a></li>
+          <li><a href="#install"><span class="n">7</span>Instalación</a></li>
         </ol>
       </aside>
 
@@ -188,15 +188,15 @@
         <div class="intro">
           <div class="intro-txt">
             <h1>eskiu</h1>
-            <p class="tagline">a self-hosting systems language</p>
+            <p class="tagline">un lenguaje de sistemas que se compila a sí mismo</p>
             <p>
-              Eskiu is a statically typed, compiled systems language. It has the power of C
-              (explicit memory, direct C interop, native output via LLVM) with the immediacy
-              of a scripting language: <code>eskiuc run file.esk</code> compiles and executes
-              in one step. Self-hosting since v0.3.0.
+              Eskiu es un lenguaje de sistemas compilado y con tipado estático. Te da el poder de C
+              (memoria explícita, interoperabilidad directa con C, código nativo con LLVM) con la
+              agilidad de un lenguaje de scripting: <code>eskiuc run file.esk</code> compila y
+              ejecuta de una sola vez. Se compila a sí mismo desde la v0.3.0.
             </p>
           </div>
-          <div class="intro-fig"><img src="../assets/eskiu_round.jpg" alt="Eskiu mascot" /></div>
+          <div class="intro-fig"><img src="../assets/eskiu_round.jpg" alt="Mascota de Eskiu" /></div>
         </div>
 
         <div class="btnrow">
@@ -204,19 +204,20 @@
           <a class="btn btn-primary" href="https://github.com/doranteseduardo/eskiu/releases/latest/download/eskiuc-macos-arm64.tar.gz">↓ macOS arm64</a>
         </div>
         <div class="btnrow">
-          <a class="btn" href="quickstart.html">Quickstart</a>
-          <a class="btn" href="#toolchain">Try it in the browser</a>
-          <a class="btn" href="docs/index.html">Documentation</a>
+          <a class="btn" href="quickstart.html">Inicio rápido</a>
+          <a class="btn" href="#toolchain">Pruébalo en el navegador</a>
+          <a class="btn" href="../docs/index.html">Documentación</a>
         </div>
 
         <!-- 1 -->
         <section id="overview">
-          <h2><span class="num">1.</span>Overview</h2>
+          <h2><span class="num">1.</span>Vista general</h2>
           <p>
-            Eskiu compiles through LLVM to a standalone native binary: no runtime, no garbage
-            collector, no VM to ship. The surface syntax is C-style, so the basics are familiar;
-            the semantics add sum types, generics with bounds, <code>async</code>/await, channels,
-            atomics, and an HTTP/2 stdlib. The compiler is written in Eskiu.
+            Eskiu compila con LLVM a un binario nativo independiente: sin runtime, sin recolector
+            de basura, sin máquina virtual que distribuir. La sintaxis es de estilo C, así que lo
+            básico se siente familiar; a eso la semántica le suma tipos suma, genéricos con
+            restricciones, <code>async</code>/await, canales, atómicos y una biblioteca estándar de
+            HTTP/2. El compilador está escrito en el propio Eskiu.
           </p>
           <p class="fname">hello.esk</p>
 <pre><span class="kw">extern</span> <span class="ty">int</span> <span class="fn">printf</span>(<span class="ty">string</span> fmt, ...);
@@ -237,11 +238,11 @@ Hello from Eskiu!
 
         <!-- 2 -->
         <section id="types">
-          <h2><span class="num">2.</span>Types &amp; matching</h2>
+          <h2><span class="num">2.</span>Tipos y matching</h2>
           <p>
-            Sum types (<code>enum</code>) carry data per variant, and <code>match</code> is
-            checked for exhaustiveness at compile time, so the compiler rejects a match that
-            forgets a case.
+            Los tipos suma (<code>enum</code>) llevan datos en cada variante, y el <code>match</code>
+            se verifica por exhaustividad en tiempo de compilación: el compilador rechaza un
+            <code>match</code> al que se le olvida un caso.
           </p>
           <p class="fname">parse_port.esk</p>
 <pre><span class="kw">enum</span> <span class="ty">ParseResult</span> {
@@ -266,11 +267,11 @@ Hello from Eskiu!
 
         <!-- 3 -->
         <section id="generics">
-          <h2><span class="num">3.</span>Generics</h2>
+          <h2><span class="num">3.</span>Genéricos</h2>
           <p>
-            Functions and types are parameterised over types, with interface bounds. A bound
-            like <code>&lt;T: Ord&gt;</code> requires <code>T</code> to implement the interface,
-            so calls are checked and monomorphised at compile time.
+            Las funciones y los tipos se parametrizan por tipo, con restricciones de interfaz. Una
+            restricción como <code>&lt;T: Ord&gt;</code> obliga a que <code>T</code> implemente la
+            interfaz, así que las llamadas se verifican y se monomorfizan en tiempo de compilación.
           </p>
           <p class="fname">max.esk</p>
 <pre><span class="kw">interface</span> <span class="ty">Ord</span> { <span class="ty">int</span> <span class="fn">cmp</span>(<span class="ty">Ord</span>* o); }
@@ -290,11 +291,11 @@ Hello from Eskiu!
 
         <!-- 4 -->
         <section id="concurrency">
-          <h2><span class="num">4.</span>Concurrency</h2>
+          <h2><span class="num">4.</span>Concurrencia</h2>
           <p>
-            <code>async</code> functions return a <code>Future</code>; <code>await</code>
-            suspends until a value is ready. Typed channels (<code>Chan&lt;T&gt;</code>) move
-            values between tasks.
+            Las funciones <code>async</code> devuelven un <code>Future</code>; <code>await</code>
+            suspende la ejecución hasta que haya un valor listo. Los canales tipados
+            (<code>Chan&lt;T&gt;</code>) pasan valores entre tareas.
           </p>
           <p class="fname">sum_squares.esk</p>
 <pre><span class="kw">import</span> &lt;future&gt;;
@@ -313,17 +314,17 @@ Hello from Eskiu!
 
         <!-- 5 -->
         <section id="toolchain">
-          <h2><span class="num">5.</span>Toolchain</h2>
+          <h2><span class="num">5.</span>Herramientas</h2>
           <p>
-            One binary, <code>eskiuc</code>, drives everything. <code>eskiuc run</code> compiles
-            and executes in a step; <code>eskiuc build</code> emits a native binary. The stdlib
-            is bundled, so imports resolve out of the box.
+            Un solo binario, <code>eskiuc</code>, se encarga de todo. <code>eskiuc run</code> compila
+            y ejecuta de una vez; <code>eskiuc build</code> genera un binario nativo. La biblioteca
+            estándar viene incluida, así que los imports funcionan sin configurar nada.
           </p>
-<pre><span class="cm">$ eskiuc run app.esk</span>          <span class="cm"># compile + run in one step</span>
-<span class="cm">$ eskiuc build app.esk -o app</span>  <span class="cm"># emit a standalone native binary</span>
+<pre><span class="cm">$ eskiuc run app.esk</span>          <span class="cm"># compila + ejecuta en un paso</span>
+<span class="cm">$ eskiuc build app.esk -o app</span>  <span class="cm"># emite un binario nativo independiente</span>
 <span class="cm">$ eskiuc --version</span></pre>
-          <h3>Try it</h3>
-          <p>Edit the program below and run it. The server compiles it with LLVM and runs it through the same <code>eskiuc run</code>.</p>
+          <h3>Pruébalo</h3>
+          <p>Edita el programa de abajo y córrelo. El servidor lo compila con LLVM y lo ejecuta con el mismo <code>eskiuc run</code>.</p>
           <div class="pg">
             <div class="pg-grid">
               <div class="pg-panel">
@@ -331,12 +332,12 @@ Hello from Eskiu!
                 <textarea id="pg-code" class="pg-editor" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" aria-label="Eskiu code editor"></textarea>
               </div>
               <div class="pg-panel">
-                <div class="pg-bar"><span>output</span><span>stdout</span></div>
-                <pre id="pg-out" class="pg-out"><span class="hint">Output appears here. Press Run (or ⌘/Ctrl + Enter).</span></pre>
+                <div class="pg-bar"><span>salida</span><span>stdout</span></div>
+                <pre id="pg-out" class="pg-out"><span class="hint">La salida aparece aquí. Presiona Ejecutar (o ⌘/Ctrl + Enter).</span></pre>
               </div>
             </div>
             <div class="pg-controls">
-              <button id="pg-run" class="pg-run" onclick="runEskiu()"><span id="pg-run-label">▶ Run</span></button>
+              <button id="pg-run" class="pg-run" onclick="runEskiu()"><span id="pg-run-label">▶ Ejecutar</span></button>
               <div class="pg-examples">
                 <button class="pg-ex" onclick="loadExample('hello')">hello</button>
                 <button class="pg-ex" onclick="loadExample('basics')">basics</button>
@@ -345,46 +346,46 @@ Hello from Eskiu!
                 <button class="pg-ex" onclick="loadExample('async')">async</button>
               </div>
             </div>
-            <p class="pg-note">sandboxed: no network, time- and memory-limited, output capped.</p>
+            <p class="pg-note">aislado (sandbox): sin red, con límites de tiempo y memoria, salida acotada.</p>
           </div>
         </section>
 
         <!-- 6 -->
         <section id="production">
-          <h2><span class="num">6.</span>In production</h2>
-          <p>Eskiu is already used to replace memory-sensitive native code and cryptographic pipelines in shipping software.</p>
+          <h2><span class="num">6.</span>En producción</h2>
+          <p>Eskiu ya se usa para reemplazar código nativo sensible a la memoria y pipelines criptográficos en software que ya está en producción.</p>
           <div class="tablewrap">
             <table>
-              <thead><tr><th>Project</th><th>Result</th><th>Detail</th><th></th></tr></thead>
+              <thead><tr><th>Proyecto</th><th>Resultado</th><th>Detalle</th><th></th></tr></thead>
               <tbody>
                 <tr>
                   <td>ReactVision</td>
-                  <td><span class="metric">≈85%</span> less memory</td>
-                  <td>AR/VR rendering modules migrated from C++, preserving C ABI interop.</td>
-                  <td><a href="case-study-reactvision.html">case study</a></td>
+                  <td><span class="metric">≈85%</span> menos memoria</td>
+                  <td>Módulos de renderizado AR/VR migrados desde C++, preservando la interoperabilidad con el ABI de C.</td>
+                  <td><a href="case-study-reactvision.html">caso de estudio</a></td>
                 </tr>
                 <tr>
                   <td>INE decoder</td>
-                  <td><span class="metric">2.5×</span> faster than C</td>
-                  <td>Credential-QR pipeline (AES-256 + RSA-8192), bit-identical to five other implementations.</td>
-                  <td><a href="case-study-ine.html">case study</a></td>
+                  <td><span class="metric">2.5×</span> más rápido que C</td>
+                  <td>Pipeline de QR de credencial (AES-256 + RSA-8192), idéntico bit a bit a otras cinco implementaciones.</td>
+                  <td><a href="case-study-ine.html">caso de estudio</a></td>
                 </tr>
               </tbody>
             </table>
           </div>
-          <p>Early adopters: <a href="https://reactvision.xyz" target="_blank" rel="noopener">ReactVision</a>, <a href="https://themorrow.digital" target="_blank" rel="noopener">The Morrow Digital</a>.</p>
+          <p>Ya lo usan: <a href="https://reactvision.xyz" target="_blank" rel="noopener">ReactVision</a>, <a href="https://themorrow.digital" target="_blank" rel="noopener">The Morrow Digital</a>.</p>
         </section>
 
         <!-- 7 -->
         <section id="install">
-          <h2><span class="num">7.</span>Install</h2>
-          <p>Grab a prebuilt binary, untar it into <code>/usr/local</code>, and run <code>eskiuc --version</code>.</p>
+          <h2><span class="num">7.</span>Instalación</h2>
+          <p>Descarga un binario precompilado, descomprímelo en <code>/usr/local</code> y ejecuta <code>eskiuc --version</code>.</p>
           <div class="btnrow">
             <a class="btn btn-primary" href="https://github.com/doranteseduardo/eskiu/releases/latest/download/eskiuc-linux-x86_64.tar.gz">↓ Linux x86-64</a>
             <a class="btn btn-primary" href="https://github.com/doranteseduardo/eskiu/releases/latest/download/eskiuc-macos-arm64.tar.gz">↓ macOS arm64</a>
-            <a class="btn" href="quickstart.html">Quickstart →</a>
+            <a class="btn" href="quickstart.html">Inicio rápido →</a>
           </div>
-<pre><span class="cm"># or build from source</span>
+<pre><span class="cm"># o compila desde el código fuente</span>
 <span class="cm">$ git clone https://github.com/doranteseduardo/eskiu</span>
 <span class="cm">$ cd eskiu &amp;&amp; make</span></pre>
         </section>
@@ -394,10 +395,10 @@ Hello from Eskiu!
     <footer>
       <div class="footer-in">
         <div class="fl">
-          <a href="the-book-of-eskiu.html">book</a>
-          <a href="docs/index.html">docs</a>
-          <a href="docs/internals.html">internals</a>
-          <a href="changelog.html">changelog</a>
+          <a href="../the-book-of-eskiu.html">libro</a>
+          <a href="../docs/index.html">docs</a>
+          <a href="../docs/internals.html">internos</a>
+          <a href="../changelog.html">changelog</a>
           <a href="https://github.com/doranteseduardo/eskiu">github</a>
         </div>
         <span class="cp">MIT · Eduardo Dorantes</span>
@@ -405,6 +406,7 @@ Hello from Eskiu!
     </footer>
 
     <script>
+      try { localStorage.setItem('eskiu-lang', 'es'); } catch (e) {}
       /* Active-section highlight in TOC */
       (function () {
         var links = Array.prototype.slice.call(document.querySelectorAll("#toc-list a"));
@@ -541,29 +543,29 @@ int main() {
         const label = document.getElementById("pg-run-label");
         const out = document.getElementById("pg-out");
         const code = document.getElementById("pg-code").value;
-        if (!code.trim()) { out.innerHTML = '<span class="err">Nothing to run. Write some code first.</span>'; return; }
+        if (!code.trim()) { out.innerHTML = '<span class="err">Nada que ejecutar. Escribe código primero.</span>'; return; }
         btn.disabled = true;
-        label.innerHTML = '<span class="spin"></span> Running';
-        out.innerHTML = '<span class="meta">Compiling &amp; running…</span>';
+        label.innerHTML = '<span class="spin"></span> Ejecutando';
+        out.innerHTML = '<span class="meta">Compilando y ejecutando…</span>';
         try {
           const res = await fetch(PLAYGROUND_API + "/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code }) });
           const data = await res.json();
-          if (!data.ok) { out.innerHTML = '<span class="err">' + esc(data.error || "Request failed.") + "</span>"; return; }
+          if (!data.ok) { out.innerHTML = '<span class="err">' + esc(data.error || "La solicitud falló.") + "</span>"; return; }
           let html = "";
           if (data.stdout) html += esc(data.stdout);
           if (data.stderr) html += '<span class="err">' + esc(data.stderr) + "</span>";
-          if (!data.stdout && !data.stderr) html += '<span class="meta">(no output)</span>';
+          if (!data.stdout && !data.stderr) html += '<span class="meta">(sin salida)</span>';
           const parts = [];
-          if (data.timed_out) parts.push('<span class="err">timed out</span>');
+          if (data.timed_out) parts.push('<span class="err">tiempo agotado</span>');
           else if (data.exit_code === 0) parts.push('<span class="ok">exit 0</span>');
           else parts.push('<span class="err">exit ' + data.exit_code + "</span>");
           if (typeof data.duration_ms === "number") parts.push(data.duration_ms + "ms");
-          if (data.truncated) parts.push("output truncated");
+          if (data.truncated) parts.push("salida truncada");
           html += '\n\n<span class="meta">' + parts.join(" · ") + "</span>";
           out.innerHTML = html;
         } catch (e) {
-          out.innerHTML = '<span class="err">Could not reach the playground server.</span>\n<span class="hint">The live runner may be offline. Run locally instead; see the quickstart.</span>';
-        } finally { btn.disabled = false; label.textContent = "▶ Run"; }
+          out.innerHTML = '<span class="err">No se pudo contactar el servidor del playground.</span>\n<span class="hint">El runner en vivo podría estar offline. Ejecuta localmente; ve el inicio rápido.</span>';
+        } finally { btn.disabled = false; label.textContent = "▶ Ejecutar"; }
       }
       (function () {
         const ta = document.getElementById("pg-code");
