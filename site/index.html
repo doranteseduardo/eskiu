@@ -213,8 +213,9 @@
         <section id="overview">
           <h2><span class="num">1.</span>Overview</h2>
           <p>
-            Eskiu compiles through LLVM to a standalone native binary: no runtime, no garbage
-            collector, no VM to ship. The surface syntax is C-style, so the basics are familiar;
+            Eskiu compiles through LLVM to a standalone native binary. There is no garbage
+            collector or managed runtime, so what you deploy is just that binary. The surface
+            syntax is C-style, so the basics are familiar;
             the semantics add sum types, generics with bounds, <code>async</code>/await, channels,
             atomics, and an HTTP/2 stdlib. The compiler is written in Eskiu.
           </p>
