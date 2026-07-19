@@ -143,6 +143,16 @@ jobs:
           # Zip via PowerShell so the archive is a native Windows .zip.
           powershell -Command "Compress-Archive -Path dist/bin,dist/lib -DestinationPath eskiuc-windows-x86_64.zip -Force"
 
+      - name: Smoke test the packaged .exe
+        shell: pwsh
+        run: |
+          # Native PowerShell (no MSYS2 on PATH): proves the zip is self-contained
+          # and eskiuc.exe resolves its stdlib from its own path.
+          Expand-Archive eskiuc-windows-x86_64.zip -DestinationPath smoke -Force
+          .\smoke\bin\eskiuc.exe --version
+          .\smoke\bin\eskiuc.exe examples\hello.esk -o hello.obj -c
+          if (!(Test-Path hello.obj)) { throw "eskiuc.exe did not produce an object file" }
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
