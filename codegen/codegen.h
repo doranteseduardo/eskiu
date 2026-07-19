@@ -25,6 +25,15 @@ public:
 
     // Optional target triple override (empty = native)
     std::string targetTriple;
+    // Optional target CPU override (empty = "generic" when cross, host CPU when native).
+    // e.g. "mpcore" for the 3DS ARM11 (armv6k + VFPv2).
+    std::string targetCPU;
+    // Optional target feature string (LLVM -mattr syntax, e.g. "+vfp2").
+    std::string targetFeatures;
+    // Relocation model: "pic" (default), "static", or "dynamic-no-pic".
+    // The 3DS .3dsx loader applies static relocations and has no dynamic loader to
+    // populate a GOT, so 3dsx targets must use "static".
+    std::string relocModel;
     // Freestanding mode: alloc/free use esk_alloc/esk_free instead of malloc/free
     bool freestanding = false;
     // Safe mode (--safe): insert runtime safety checks (slice bounds). Off by default,

@@ -86,7 +86,7 @@ footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
 <body>
   <header class="top">
     <div class="top-in">
-      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.6.2</span></a>
+      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.7.0</span></a>
       <nav class="top-links">
         <a href="index.html">docs</a>
         <a href="../the-book-of-eskiu.html">book</a>
@@ -99,15 +99,11 @@ footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
     <div class="content">
 <h1 id="eskiu-language-reference">Eskiu Language Reference</h1>
 <p>Eskiu is a statically typed systems language with the power of C and the immediacy of a scripting language: it compiles to native code through LLVM, and <code>eskiuc run file.esk</code> runs a source file directly, like Python or Ruby. This is the full language reference. New to Eskiu? Start with the <a href="getting-started.html">tutorial</a>.</p>
-<p><strong>Current version: v0.6.2.</strong> A memory-safety and standard-library release, in the
-Zig spirit: compile-time checks and opt-in runtime guards, not a borrow checker.
-It adds <code>defer</code> / <code>errdefer</code> for leak-proof cleanup on every exit path, the slice type
-<code>T[]</code> (a fat pointer that carries its length), the <code>must_use</code> qualifier that rejects a
-discarded result, the <code>--safe</code> build mode that bounds-checks indexing, and the checked
-nullable pointer <code>?*T</code>. It also grows the standard library: <code>&lt;random&gt;</code>, <code>&lt;regex&gt;</code>,
-<code>&lt;sort&gt;</code>, <code>&lt;url&gt;</code>, <code>&lt;uuid&gt;</code>, and a UTC civil calendar in <code>&lt;time&gt;</code>. It builds on the v0.5
-basic-C surface release and the v0.3 self-hosting milestone, where the compiler is
-reimplemented in Eskiu itself (<code>selfhost/</code>), reaching a 3-stage bootstrap fixpoint.</p>
+<p><strong>Current version: v0.7.0.</strong> A cross-compilation and C-interop release: Eskiu now targets
+32-bit ARM (a camera-and-gyroscope demo verified on real Nintendo 3DS hardware) and emits
+Windows x86-64 objects, driven by <code>--target</code> plus <code>--mcpu</code> / <code>--mattr</code> / <code>--reloc</code>, and
+<code>extern</code> declarations now reach C global <strong>variables</strong>, not just functions. Full history
+is in the <a href="https://github.com/doranteseduardo/eskiu/blob/main/CHANGELOG.md">changelog</a>.</p>
 <hr>
 <h2 id="documentation-map">Documentation Map</h2>
 <div class="tablewrap"><table>
@@ -174,7 +170,7 @@ reimplemented in Eskiu itself (<code>selfhost/</code>), reaching a 3-stage boots
 </tr>
 <tr>
 <td><strong>Functions</strong></td>
-<td>C-style, <code>extern</code> C ABI, variadic, template <code>fn&lt;T&gt;(T x)</code></td>
+<td>C-style, <code>extern</code> C ABI (functions and global variables), variadic, template <code>fn&lt;T&gt;(T x)</code></td>
 </tr>
 <tr>
 <td><strong>Lambdas / Closures</strong></td>
@@ -230,7 +226,7 @@ reimplemented in Eskiu itself (<code>selfhost/</code>), reaching a 3-stage boots
 </tr>
 <tr>
 <td><strong>Cross-compile</strong></td>
-<td><code>--target TRIPLE</code>: AArch64 and X86 backends included</td>
+<td><code>--target TRIPLE</code> (AArch64, x86-64, 32-bit ARM), plus <code>--mcpu</code> / <code>--mattr</code> / <code>--reloc</code>; hard-float ARM for the 3DS, COFF for Windows. See <a href="https://github.com/doranteseduardo/eskiu/blob/main/docs/dev/cross-compile.md">cross-compile.md</a></td>
 </tr>
 <tr>
 <td><strong>Multi-file</strong></td>

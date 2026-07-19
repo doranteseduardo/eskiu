@@ -1,0 +1,71 @@
+name: Windows build
+
+# Manual Windows x86-64 build of eskiuc, on demand. Used to iterate the MSYS2/MinGW
+# build and to produce a .zip that can be attached to a release. Kept separate from
+# release.yml so it can run without cutting a release.
+on:
+  workflow_dispatch:
+  push:
+    branches: [ci/windows]
+
+jobs:
+  build-windows-x86_64:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up MSYS2 + LLVM
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-llvm
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+
+      - name: Configure
+        run: |
+          # MSYS2 ships LLVM as libLLVM.dll (no usable static component libs), so link
+          # LLVM dynamically and bundle the DLLs. The gcc runtime is static-linked.
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DLLVM_DIR="$MINGW_PREFIX/lib/cmake/llvm" \
+            -DCMAKE_CXX_COMPILER=g++ \
+            -DCMAKE_EXE_LINKER_FLAGS="-static-libgcc -static-libstdc++"
+
+      - name: Build
+        run: cmake --build build --target eskiuc -j"$(nproc)"
+
+      - name: Package
+        run: |
+          mkdir -p dist/bin dist/lib/eskiu
+          cp build/eskiuc.exe dist/bin/eskiuc.exe
+          strip dist/bin/eskiuc.exe
+          # Bundle the MinGW DLLs eskiuc.exe needs (libLLVM, zlib, zstd, ...).
+          ldd dist/bin/eskiuc.exe | grep -i '/mingw64/bin/' | awk '{print $3}' \
+            | while read -r dll; do cp "$dll" dist/bin/; done
+          cp -r stdlib dist/lib/eskiu/stdlib
+          powershell -Command "Compress-Archive -Path dist/bin,dist/lib -DestinationPath eskiuc-windows-x86_64.zip -Force"
+
+      - name: Smoke test the packaged .exe
+        shell: pwsh
+        run: |
+          # Native PowerShell (no MSYS2 on PATH): proves the zip is self-contained
+          # (bundled DLLs) and that eskiuc.exe resolves its stdlib from its own path.
+          Expand-Archive eskiuc-windows-x86_64.zip -DestinationPath smoke -Force
+          .\smoke\bin\eskiuc.exe --version
+          .\smoke\bin\eskiuc.exe examples\hello.esk -o hello.obj -c
+          if (!(Test-Path hello.obj)) { throw "eskiuc.exe did not produce an object file" }
+          Write-Host "smoke OK: eskiuc.exe runs and emits an object"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: eskiuc-windows-x86_64
+          path: eskiuc-windows-x86_64.zip
+          retention-days: 7
