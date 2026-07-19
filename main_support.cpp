@@ -8,6 +8,8 @@
   #include <mach-o/dyld.h>
 #elif defined(__linux__)
   #include <unistd.h>
+#elif defined(_WIN32)
+  #include <windows.h>
 #endif
 #include "llvm/Support/raw_os_ostream.h"
 #include "llvm/Support/Program.h"
@@ -35,15 +37,18 @@ std::string resolveStdlibPath() {
     if (_NSGetExecutablePath(buf, &size) == 0) {
 #elif defined(__linux__)
     if (readlink("/proc/self/exe", buf, sizeof(buf) - 1) > 0) {
+#elif defined(_WIN32)
+    if (GetModuleFileNameA(nullptr, buf, sizeof(buf)) > 0) {
 #else
     if (false) {
 #endif
         std::string binPath(buf);
-        size_t slash = binPath.rfind('/');
+        // Accept either separator: GetModuleFileNameA returns backslashes.
+        size_t slash = binPath.find_last_of("/\\");
         if (slash != std::string::npos) {
             // binary is at <prefix>/bin/eskiuc → look for <prefix>/lib/eskiu
             std::string binDir = binPath.substr(0, slash);
-            size_t parentSlash = binDir.rfind('/');
+            size_t parentSlash = binDir.find_last_of("/\\");
             if (parentSlash != std::string::npos) {
                 std::string prefix = binDir.substr(0, parentSlash);
                 std::string candidate = prefix + "/lib/eskiu";
