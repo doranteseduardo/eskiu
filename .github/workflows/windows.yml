@@ -1,0 +1,54 @@
+name: Windows build
+
+# Manual Windows x86-64 build of eskiuc, on demand. Used to iterate the MSYS2/MinGW
+# build and to produce a .zip that can be attached to a release. Kept separate from
+# release.yml so it can run without cutting a release.
+on:
+  workflow_dispatch:
+
+jobs:
+  build-windows-x86_64:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up MSYS2 + LLVM
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-llvm
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+
+      - name: Configure
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DESKIU_STATIC=ON \
+            -DLLVM_DIR="$MINGW_PREFIX/lib/cmake/llvm" \
+            -DCMAKE_CXX_COMPILER=g++ \
+            -DCMAKE_EXE_LINKER_FLAGS="-static -static-libgcc -static-libstdc++"
+
+      - name: Build
+        run: cmake --build build --target eskiuc -j"$(nproc)"
+
+      - name: Package
+        run: |
+          mkdir -p dist/bin dist/lib/eskiu
+          cp build/eskiuc.exe dist/bin/eskiuc.exe
+          strip dist/bin/eskiuc.exe
+          cp -r stdlib dist/lib/eskiu/stdlib
+          powershell -Command "Compress-Archive -Path dist/bin,dist/lib -DestinationPath eskiuc-windows-x86_64.zip -Force"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: eskiuc-windows-x86_64
+          path: eskiuc-windows-x86_64.zip
+          retention-days: 7
