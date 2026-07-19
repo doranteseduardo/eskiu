@@ -113,17 +113,19 @@ jobs:
           install: >-
             mingw-w64-x86_64-toolchain
             mingw-w64-x86_64-llvm
-            mingw-w64-x86_64-clang
             mingw-w64-x86_64-cmake
             mingw-w64-x86_64-ninja
 
       - name: Configure
         run: |
+          # Build with MinGW g++ (not clang++): clang cannot parse the newer
+          # libstdc++ 16 preprocessor headers this toolchain ships, and the MSYS2
+          # LLVM libs are built with this same g++, so the ABI matches.
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DESKIU_STATIC=ON \
             -DLLVM_DIR="$MINGW_PREFIX/lib/cmake/llvm" \
-            -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_CXX_COMPILER=g++ \
             -DCMAKE_EXE_LINKER_FLAGS="-static -static-libgcc -static-libstdc++"
 
       - name: Build
