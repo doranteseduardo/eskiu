@@ -8,6 +8,17 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
+## [Unreleased]
+### Fixed
+- **Float arguments narrow at the call site.** A `double` literal (Eskiu's default float
+  literal type) passed to a `float` parameter was left as `double`, so the argument type
+  disagreed with the callee's signature and the reference compiler rejected the call at
+  LLVM verification. Direct and method calls now run every argument through the shared
+  numeric-coercion path, matching assignment and return (the self-hosted compiler already
+  did). This unblocks calling C float APIs, common in 3DS graphics code.
+
+---
+
 ## [0.6.2]
 ### Added
 - **Cross-compilation targets the right platform.** The `--target` triple now drives the
