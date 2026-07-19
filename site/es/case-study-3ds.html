@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Caso de estudio: Nintendo 3DS · Eskiu</title>
+  <meta name="description" content="Cómo Eskiu llegó al ARM11 de la Nintendo 3DS: un backend de ARM de 32 bits y tres banderas, bindings generados de libctru/citro3d, y un demo de realidad aumentada con cámara y giroscopio renderizado con ViroCore sobre citro3d, con su lógica en Eskiu y verificado en la consola." />
+  <link rel="canonical" href="https://eskiu-lang.org/es/case-study-3ds.html" />
+  <link rel="alternate" hreflang="en" href="https://eskiu-lang.org/case-study-3ds.html" />
+  <link rel="alternate" hreflang="es" href="https://eskiu-lang.org/es/case-study-3ds.html" />
+  <link rel="icon" type="image/png" href="../assets/logo.png" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #ffffff; --surface: #f6f8fa; --border: #d0d7de; --border-mut: #e4e8ed;
+      --ink: #1f2328; --ink2: #424a53; --muted: #6e7781;
+      --accent: #4c31bb; --accent-lt: #6448d4;
+      --inline: rgba(120, 110, 180, 0.12);
+      --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+      --mono: ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+    }
+    html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+    body { background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 16px;
+           line-height: 1.7; -webkit-font-smoothing: antialiased; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* Barra superior (compartida con la portada) */
+    header.top { border-bottom: 1px solid var(--border); background: var(--bg); position: sticky; top: 0; z-index: 30; }
+    .top-in { max-width: 720px; margin: 0 auto; padding: 0 1.25rem; height: 54px; display: flex; align-items: center; gap: 0.55rem; }
+    .brand { display: flex; align-items: center; gap: 0.5rem; font-family: var(--mono); font-weight: 700; font-size: 1.02rem; color: var(--ink); }
+    .brand:hover { text-decoration: none; }
+    .brand img { width: 24px; height: 24px; }
+    .brand .v { font-family: var(--mono); font-size: 0.68rem; color: var(--muted); font-weight: 500; }
+    .top-links { margin-left: auto; display: flex; align-items: center; gap: 1.25rem; font-family: var(--mono); font-size: 0.82rem; }
+    .top-links a { color: var(--ink2); }
+    .top-links a:hover { color: var(--accent); text-decoration: none; }
+    .lang { display: inline-flex; align-items: center; gap: 0.35rem; font-family: var(--mono); font-size: 0.82rem; }
+    .lang .sep { color: var(--border); }
+    .lang a { color: var(--muted); cursor: pointer; }
+    .lang a:hover { color: var(--accent); text-decoration: none; }
+    .lang a.active { color: var(--ink); font-weight: 700; cursor: default; }
+
+    .wrap { max-width: 720px; margin: 0 auto; padding: 2.75rem 1.25rem 4rem; }
+    .eyebrow { font-family: var(--mono); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.12em;
+               text-transform: uppercase; color: var(--accent); margin-bottom: 0.6rem; }
+    h1 { font-family: var(--mono); font-size: clamp(1.8rem, 5vw, 2.6rem); font-weight: 700;
+         letter-spacing: -0.03em; line-height: 1.1; margin-bottom: 1.5rem; }
+    h2 { font-family: var(--mono); font-size: 1.3rem; font-weight: 700; letter-spacing: -0.01em; margin: 2.5rem 0 0.75rem; }
+    p { margin: 0 0 1rem; }
+    .pull { border-left: 3px solid var(--accent); background: var(--surface); padding: 1.1rem 1.25rem;
+            border-radius: 0 8px 8px 0; margin: 0 0 1.5rem; font-size: 1.05rem; }
+    .pull .stat { display: block; margin-top: 0.6rem; font-weight: 600; color: var(--accent); }
+    figure { margin: 0 0 1.75rem; }
+    figure img { width: 100%; height: auto; display: block; border: 1px solid var(--border); border-radius: 10px; }
+    figcaption { font-family: var(--mono); font-size: 0.8rem; color: var(--muted); margin-top: 0.55rem; line-height: 1.5; }
+    .tablewrap { overflow-x: auto; margin: 0 0 1.5rem; border: 1px solid var(--border); border-radius: 8px; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    th, td { text-align: left; padding: 0.6rem 0.85rem; border-bottom: 1px solid var(--border-mut); vertical-align: top; }
+    th { font-family: var(--mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em;
+         color: var(--muted); background: var(--surface); }
+    tbody tr:last-child td { border-bottom: none; }
+    td.n { font-variant-numeric: tabular-nums; white-space: nowrap; }
+    ul { margin: 0 0 1rem 1.1rem; }
+    li { margin-bottom: 0.5rem; color: var(--ink2); }
+    code { font-family: var(--mono); font-size: 0.86em; background: var(--inline); padding: 0.15em 0.4em; border-radius: 4px; }
+    strong { font-weight: 600; }
+
+    /* Pie (compartido con la portada) */
+    footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
+    .footer-in { max-width: 720px; margin: 0 auto; padding: 1.5rem 1.25rem; display: flex; align-items: center;
+                 gap: 1.25rem; flex-wrap: wrap; font-family: var(--mono); font-size: 0.78rem; }
+    .footer-in .fl { display: flex; gap: 1.1rem; flex-wrap: wrap; }
+    .footer-in a { color: var(--ink2); }
+    .footer-in a:hover { color: var(--accent); text-decoration: none; }
+    .footer-in .cp { margin-left: auto; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <header class="top">
+    <div class="top-in">
+      <a class="brand" href="index.html"><img src="../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.6.2</span></a>
+      <nav class="top-links">
+        <a href="../docs/index.html">docs</a>
+        <a href="../the-book-of-eskiu.html">libro</a>
+        <a href="https://github.com/doranteseduardo/eskiu">github</a>
+        <span class="lang"><a href="../case-study-3ds.html" onclick="try{localStorage.setItem('eskiu-lang','en')}catch(e){}">EN</a><span class="sep">·</span><a class="active" aria-current="page">ES</a></span>
+      </nav>
+    </div>
+  </header>
+  <div class="wrap">
+    <div class="eyebrow">Caso de estudio</div>
+    <h1>Eskiu en la Nintendo 3DS</h1>
+
+    <div class="pull">
+      Un demo de realidad aumentada con cámara y giroscopio: un modelo 3D que se
+      queda fijo sobre el video en vivo de la cámara, corriendo en una Nintendo 3DS
+      con su lógica escrita en Eskiu y el render a cargo de ViroCore.
+      <span class="stat">Verificado corriendo en una 3DS real.</span>
+    </div>
+
+    <figure>
+      <img src="../assets/case-study-3ds.jpg" alt="Una New Nintendo 3DS corriendo el demo de ReactVision y Eskiu: un modelo 3D low-poly de un shiba montado sobre el video en vivo de la cámara exterior en la pantalla de arriba, con los controles y diagnósticos por frame del demo en la pantalla de abajo." />
+      <figcaption>El demo en una New Nintendo 3DS: el shiba montado sobre el video de la cámara exterior, con la interfaz que maneja Eskiu y los diagnósticos por frame (frames de cámara, unidad de transferencia, estado de la GPU) abajo.</figcaption>
+    </figure>
+
+    <h2>La consola</h2>
+    <p>
+      La Nintendo 3DS monta un <strong>ARM11 (ARMv6k, 32 bits)</strong> como procesador
+      principal y una GPU <strong>PICA200</strong> de pipeline casi fijo. El homebrew
+      para ella está muy maduro: <code>devkitARM</code> (un toolchain de GCC),
+      <strong>libctru</strong> para el hardware, y <strong>citro3d / citro2d</strong>
+      para la GPU. Los programas se distribuyen como un <code>.3dsx</code> reubicable
+      que el Homebrew Launcher carga en cualquier dirección.
+    </p>
+    <p>
+      Todo ese ecosistema da por hecho C. La idea era volver a <strong>Eskiu</strong>,
+      un lenguaje de sistemas nativo basado en LLVM, un ciudadano de primera en la
+      consola: compilar Eskiu al ARM11, enlazarlo contra libctru, y manejar la cámara y
+      la GPU desde código Eskiu.
+    </p>
+
+    <h2>Lo que faltaba</h2>
+    <p>
+      Eskiu ya cross-compila (su kernel de ejemplo arranca en ARM64 bajo QEMU), pero la
+      3DS dejó ver un hueco concreto: el compilador solo registraba los backends de LLVM
+      <strong>AArch64</strong> y <strong>x86</strong>. La 3DS es <strong>ARM de 32
+      bits</strong>, un backend totalmente distinto. Tres cosas se atravesaban entre
+      "compila" y "arranca", y cada una daba una falla diferente:
+    </p>
+    <ul>
+      <li><strong>El backend mismo.</strong> <code>lookupTarget("armv6k-...")</code> no
+        devolvía nada, porque el target de ARM de 32 bits nunca se inicializaba. Agregar
+        las llamadas <code>LLVMInitializeARM*</code> y enlazar las librerías del backend
+        de ARM fue el costo de entrada.</li>
+      <li><strong>El ABI de punto flotante.</strong> libctru viene compilado en
+        hard-float (los argumentos van en registros VFP). Los primeros objetos de Eskiu
+        salían marcados como soft-float, y el linker se negaba a mezclarlos:
+        <em>"uses VFP register arguments, ... does not."</em> Ahora Eskiu detecta el
+        sufijo hard-float <code>hf</code> en el triple (<code>armv6k-none-eabihf</code>)
+        y activa el ABI hard-float, de modo que el objeto lleva el atributo
+        <code>Tag_ABI_VFP_args</code>; <code>--mcpu mpcore</code> elige el VFPv2 del
+        ARM11.</li>
+      <li><strong>El modelo de reubicación.</strong> El primer binario que enlazó limpio
+        de todos modos tronaba al arrancar: <em>"undefined instruction, process:
+        loader."</em> Eskiu emitía código independiente de posición con un GOT, pero a un
+        <code>.3dsx</code> lo reubica el loader de forma estática, y no hay enlazador
+        dinámico que llene ese GOT, así que cada acceso a una variable global leía
+        basura. Un modelo de reubicación <strong>estático</strong> (<code>--reloc
+        static</code>) generó las reubicaciones <code>R_ARM_ABS32</code> que emite
+        devkitARM, y la caída se fue.</li>
+    </ul>
+    <p>
+      Cada una terminó siendo una capacidad de verdad, y general, del compilador: un
+      <strong>backend de ARM de 32 bits</strong>, y las banderas <code>--mcpu</code>,
+      <code>--mattr</code> y <code>--reloc</code>. Con ellas, un "hola mundo" escrito en
+      Eskiu enlaza contra libctru y arma un <code>.3dsx</code>.
+    </p>
+
+    <h2>Hablar con el hardware</h2>
+    <p>
+      Un programa necesita el SDK. Solo libctru son cientos de funciones y decenas de
+      structs, y citro3d/citro2d suman cientos más. Escribir a mano las declaraciones
+      <code>extern</code> es tedioso y una fuente de errores silenciosos y peligrosos: el
+      orden equivocado de un campo o un valor de enum mal puesto corrompe la memoria sin
+      avisar.
+    </p>
+    <p>
+      Por eso los bindings se <strong>generan</strong>, al estilo bindgen, a partir del
+      <strong>AST en JSON</strong> que clang saca de los headers del SDK. Las funciones
+      se vuelven declaraciones <code>extern</code>, los structs y unions se copian campo
+      por campo, los valores de enum se leen ya evaluados, y lo que no se puede mapear
+      con seguridad se salta con un <code>// TODO</code> en lugar de adivinarlo. Una sola
+      corrida sacó bindings tipados de Eskiu para libctru (gráficos, entrada, eventos de
+      GPU, consola), la <strong>cámara</strong>, <strong>citro3d</strong> (~140
+      funciones, 17 structs) y <strong>citro2d</strong>, del orden de <strong>360
+      bindings tipados</strong>. El generador reprodujo por su cuenta, y bien, justo los
+      detalles que a mano es fácil equivocar: el orden raro <code>{x, z, y}</code> del
+      struct del giroscopio, un enum de eventos con valores implícitos, layouts
+      empaquetados.
+    </p>
+    <p>
+      Lo que el AST no alcanza a expresar, los muchos <code>static inline</code> y macros
+      de libctru que no dejan un símbolo enlazable, lo cubre una capa delgada hecha a
+      mano, igual que los usuarios de <code>bindgen</code> agregan un shim chico.
+    </p>
+
+    <h2>El demo</h2>
+    <p>
+      La app es una pieza compacta de realidad aumentada: el video de la cámara exterior
+      de fondo, y un <strong>modelo glTF</strong> (un shiba low-poly, ~4,300 triángulos)
+      dibujado encima para que se quede quieto en el mundo mientras inclinas la consola.
+      Las dos mitades del stack de AR son de ReactVision. <strong>ViroCore</strong>, el
+      motor del <a href="case-study-reactvision.html">caso de estudio de ReactVision</a>,
+      hace el render: carga y maneja el <code>.glb</code> igual que en las plataformas
+      donde ya corre, y en la 3DS lo único que cambia es el backend del renderizador, que
+      aquí apunta al PICA200 vía <strong>citro3d</strong>. El tracking usa el
+      <strong>motor de SLAM</strong> propio de ReactVision, el mismo que va a impulsar su
+      Web AR sin las APIs de WebXR, alimentado en la 3DS por el giroscopio de la consola.
+      La cámara se captura con doble buffer y se sube a una textura de la GPU en cada
+      frame, y el modelo se ilumina y se dibuja encima. Corre en <strong>hardware real de
+      3DS</strong>.
+    </p>
+    <p>
+      Su lógica se reescribió después en <strong>Eskiu</strong>: el bucle principal,
+      pasar del giroscopio a la rotación, la secuencia de render por frame, las matrices
+      del modelo y el manejo de memoria están todos en Eskiu, llamando a libctru, citro3d
+      y el backend de render de ViroCore directo para cada símbolo real, y pasando por el
+      shim solo para las llamadas de GPU llenas de <code>static inline</code>. El build
+      de Eskiu genera el mismo <code>.3dsx</code>, y también se verificó corriendo en la
+      consola.
+    </p>
+
+    <h2>El dogfooding mejoró el toolchain</h2>
+    <p>
+      Manejar hardware real es el tipo de presión que saca cosas a la luz. Cada uno de
+      los tres bloqueos de arranque terminó siendo una capacidad del compilador que va
+      más allá de la 3DS: ARM de 32 bits es un target soportado, y el modelo de
+      reubicación, el CPU y las features se pueden elegir. El trabajo de cámara, hecho
+      primero en C sobre la consola, dejó una referencia reutilizable y ya depurada: un
+      bug en el tamaño de la unidad de transferencia, una ruta de error de buffer sin
+      manejar, y una interacción de escritura de profundidad entre el fondo 2D y el
+      modelo 3D, todo arreglado ahí antes del port.
+    </p>
+    <p>
+      El port también sacó dos huecos del lenguaje, y los dos ya están arreglados en el
+      compilador. <code>extern</code> cubría funciones pero no símbolos de datos, así que
+      un global de C como un handle de libctru no se podía usar directo; se agregaron las
+      <strong>variables extern</strong>, y ahora un <code>extern int x;</code> enlaza un
+      global de C. Y los literales float de Eskiu son <code>double</code>, algo que la
+      frontera con C rechazaba al enlazar; ahora el compilador
+      <strong>convierte el argumento float</strong> al tipo exacto del parámetro en la
+      llamada. Restricciones chicas y concretas, de las que solo se aprenden subiendo
+      código a un dispositivo real.
+    </p>
+
+    <hr style="border: none; border-top: 1px solid var(--border-mut); margin: 2.5rem 0;" />
+    <p>
+      Así, el mismo lenguaje que arranca un kernel bare-metal en ARM64, incrusta un
+      módulo de memoria ajustada en un motor de renderizado en C++ (ve el
+      <a href="case-study-reactvision.html">caso de estudio de ReactVision</a>) y
+      decodifica un formato criptográfico real sobre HTTP (ve el
+      <a href="case-study-ine.html">caso de estudio del INE</a>) ahora compila al ARM11
+      de una consola de hace 12 años y maneja su cámara y su GPU, corriendo el mismo
+      motor ViroCore sobre citro3d.
+    </p>
+  </div>
+  <footer>
+    <div class="footer-in">
+      <div class="fl">
+        <a href="index.html">inicio</a>
+        <a href="../docs/index.html">docs</a>
+        <a href="../the-book-of-eskiu.html">libro</a>
+        <a href="../changelog.html">changelog</a>
+        <a href="https://github.com/doranteseduardo/eskiu">github</a>
+      </div>
+      <span class="cp">MIT · Eduardo Dorantes</span>
+    </div>
+  </footer>
+</body>
+</html>
