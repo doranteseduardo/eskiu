@@ -1289,6 +1289,7 @@ string strip_binding_const(string t) {
     d.is_async = 0;
     d.is_mustuse = 0;
     d.is_const = 0;
+    d.is_extern = 0;
     d.is_packed = 0;
     d.pack_align = 0;
     return d;
@@ -1409,6 +1410,14 @@ int str_to_int(string s) {
     *DeclNode d = new_decl(kind);
     d.ret_type = parse_type(p);
     d.name = tok_text(p.src, p_adv(p));
+    // `extern <type> <name>;` (no parens) is a variable defined in another
+    // translation unit (a C global), not a function prototype.
+    if (kind == DK_EXTERN && p_at(p) != LPAREN) {
+        d.kind = DK_VARDECL;
+        d.is_extern = 1;
+        p_adv(p);                          // ';'
+        return d;
+    }
     p_adv(p);                              // '('
     parse_params(p, d);
     p_adv(p);                              // ')'

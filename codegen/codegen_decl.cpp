@@ -235,6 +235,17 @@ void CodeGen::visit(VarDecl* node) {
 
     // Global scope (no active function) → emit as llvm::GlobalVariable
     if (currentFunction == nullptr) {
+        // `extern <type> <name>;` — the variable is defined in another translation
+        // unit (a C global). Emit an external declaration: external linkage, no
+        // initializer. References resolve at link time.
+        if (node->isExtern) {
+            auto* gv = new llvm::GlobalVariable(
+                *module, declType, /*isConstant=*/node->isConst,
+                llvm::GlobalValue::ExternalLinkage, /*init=*/nullptr, node->name);
+            defineSymbol(node->name, gv);
+            defineVarType(node->name, node->type);
+            return;
+        }
         llvm::Constant* init = node->initializer
             ? evaluateConstantExpr(node->initializer)
             : nullptr;

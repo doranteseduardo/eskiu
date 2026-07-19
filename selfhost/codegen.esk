@@ -3688,6 +3688,17 @@ void cg_program(Codegen* g, *Program prog) {
     while (si < n) {
         *DeclNode d = List_get<*DeclNode>(&prog.decls, si);
         if (d.kind == DK_VARDECL) {
+            // `extern <type> <name>;` — defined in another translation unit (a C
+            // global). Emit an external declaration (external linkage, no init).
+            if (d.is_extern == 1) {
+                string ellty = cg_lltype(g, d.ret_type);
+                cg_add_global(g, d.name, cg_cat("@", d.name), ellty, d.ret_type);
+                String_append(&g.globals, "@"); String_append(&g.globals, d.name);
+                String_append(&g.globals, " = external global "); String_append(&g.globals, ellty);
+                String_append(&g.globals, "\n");
+                si = si + 1;
+                continue;
+            }
             // Register a `const int` initialized by a literal so a later array
             // dimension (`int[CAP]`) and constant references can resolve its value.
             if (d.is_const == 1 && d.init != null && d.init.kind == EK_LITERAL

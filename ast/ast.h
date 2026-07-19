@@ -80,6 +80,8 @@ public:
     bool isVolatile = false;
     bool isConst = false;
     bool isStatic = false;   // `static` local: one instance, persists across calls
+    bool isExtern = false;   // `extern <type> <name>;` — a global defined in another
+                             // translation unit (C interop); external linkage, no init
 
     VarDecl(const std::string& name, const std::string& type, ExprPtr init = nullptr)
         : Decl(name), type(type), initializer(std::move(init)) {}

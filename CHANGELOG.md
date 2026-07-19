@@ -9,6 +9,13 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 ---
 
 ## [Unreleased]
+### Added
+- **`extern` variables.** `extern <type> <name>;` declares a global defined in another
+  translation unit (a C global), emitting an external-linkage declaration with no
+  initializer. Reads and writes resolve at link time, so Eskiu can share state with C
+  libraries (e.g. a libctru global). Previously `extern` accepted only function
+  prototypes. Landed in lockstep across both compilers.
+
 ### Fixed
 - **Float arguments narrow at the call site.** A `double` literal (Eskiu's default float
   literal type) passed to a `float` parameter was left as `double`, so the argument type

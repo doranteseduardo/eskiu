@@ -813,7 +813,7 @@ arrive as `int`. There is no automatic count of the arguments: pass it explicitl
 
 ### 6.4 Extern Declarations
 
-`extern` declares a C function available to Eskiu code. See §13 for details.
+`extern` declares a C function or global variable available to Eskiu code. See §13 for details.
 
 ### 6.4.1 Intrinsic Declarations
 
@@ -1907,7 +1907,25 @@ extern int open(string path, int flags);
 extern void exit(int code);
 ```
 
-### 13.2 Calling Extern Functions
+### 13.2 Extern Variables
+
+An `extern` declaration with no parameter list (a type, a name, and a semicolon) names a global variable defined in another translation unit. It emits an external-linkage global with no initializer; reads and writes resolve at link time.
+
+```eskiu
+extern int   errno;
+extern float g_volume;
+
+void clear_error() {
+    errno = 0;              // assign a C global
+}
+int last_error() {
+    return errno;           // read a C global
+}
+```
+
+An extern variable lives at the top level and carries no initializer (its definition, and value, live in the other object). `extern const <type> <name>;` declares a read-only C global.
+
+### 13.3 Calling Extern Functions
 
 `extern` functions are called exactly like Eskiu functions:
 
@@ -1920,7 +1938,7 @@ int main() {
 }
 ```
 
-### 13.3 C ABI Compatibility
+### 13.4 C ABI Compatibility
 
 `extern` declarations emit standard C-ABI-compatible LLVM IR `call` instructions. Any function exported from a C library, including system libraries, OpenSSL, zxing-cpp, or any other C-compatible library, may be called this way.
 
