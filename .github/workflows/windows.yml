@@ -5,6 +5,8 @@ name: Windows build
 # release.yml so it can run without cutting a release.
 on:
   workflow_dispatch:
+  push:
+    branches: [ci/windows]
 
 jobs:
   build-windows-x86_64:
