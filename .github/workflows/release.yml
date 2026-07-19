@@ -118,15 +118,15 @@ jobs:
 
       - name: Configure
         run: |
-          # Build with MinGW g++ (not clang++): clang cannot parse the newer
-          # libstdc++ 16 preprocessor headers this toolchain ships, and the MSYS2
-          # LLVM libs are built with this same g++, so the ABI matches.
+          # Build with MinGW g++ (not clang++): clang cannot parse the newer libstdc++
+          # 16 preprocessor headers this toolchain ships. MSYS2 ships LLVM as libLLVM.dll
+          # (no usable static component libs), so link LLVM dynamically and bundle the
+          # DLLs; the gcc runtime is static-linked.
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DESKIU_STATIC=ON \
             -DLLVM_DIR="$MINGW_PREFIX/lib/cmake/llvm" \
             -DCMAKE_CXX_COMPILER=g++ \
-            -DCMAKE_EXE_LINKER_FLAGS="-static -static-libgcc -static-libstdc++"
+            -DCMAKE_EXE_LINKER_FLAGS="-static-libgcc -static-libstdc++"
 
       - name: Build
         run: cmake --build build --target eskiuc -j"$(nproc)"
@@ -136,6 +136,9 @@ jobs:
           mkdir -p dist/bin dist/lib/eskiu
           cp build/eskiuc.exe dist/bin/eskiuc.exe
           strip dist/bin/eskiuc.exe
+          # Bundle the MinGW DLLs eskiuc.exe needs (libLLVM, zlib, zstd, ...).
+          ldd dist/bin/eskiuc.exe | grep -i '/mingw64/bin/' | awk '{print $3}' \
+            | while read -r dll; do cp "$dll" dist/bin/; done
           cp -r stdlib dist/lib/eskiu/stdlib
           # Zip via PowerShell so the archive is a native Windows .zip.
           powershell -Command "Compress-Archive -Path dist/bin,dist/lib -DestinationPath eskiuc-windows-x86_64.zip -Force"
