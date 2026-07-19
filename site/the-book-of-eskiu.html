@@ -550,8 +550,7 @@ pre.code-block {
 <p>Create a file called hello.esk:</p>
 <pre class="code-block"> extern int printf(string fmt, ...);</pre>
 <pre class="code-block"> int main() {
-       printf(&quot;Hello, Eskiu!
- &quot;);
+       printf(&quot;Hello, Eskiu!\n&quot;);
        return 0;
  }</pre>
 <p>Compile and run:</p>
@@ -570,8 +569,7 @@ pre.code-block {
 <p>Inside main, <code>printf</code> prints the format <code>string</code>. \n is a newline. It moves the cursor to the next line after printing.</p>
 <h2 class="section" id="sec-1-5">1.5 Making a change</h2>
 <p>The best way to understand code is to change it. Try printing a number:</p>
-<pre class="code-block"> printf(&quot;The answer is %d
- &quot;, 42);</pre>
+<pre class="code-block"> printf(&quot;The answer is %d\n&quot;, 42);</pre>
 <p>Recompile and run. The %d placeholder is replaced by 42.</p>
 <div class="chapter-start" id="chapter-2"><span class="chapter-label">Chapter 2</span>
 <h1 class="chapter-title">Variables and Types</h1><hr class="chapter-rule"></div>
@@ -598,17 +596,14 @@ pre.code-block {
 <pre class="code-block"> int flags = 0xFF;                    // hex literal = 255
  uint32 mask = 0xDEAD_BEEF; // larger hex</pre>
 <pre class="code-block"> char a = &#x27;A&#x27;;                        // character literal
- char nl = &#x27;
- &#x27;;                 // newline escape
+ char nl = &#x27;\n&#x27;;                 // newline escape
  char bs = &#x27;\\&#x27;;                  // backslash
  char sq = &#x27;\&#x27;&#x27;;                  // single quote</pre>
 <p>A <code>string</code> can be indexed to read individual characters: s[0] is the first <code>char</code>. Adjacent <code>string</code> literals are joined automatically, which keeps long text readable:</p>
 <pre class="code-block"> string s = &quot;Eskiu&quot;;
- printf(&quot;%c%c
- &quot;, s[0], s[4]);              // Eu</pre>
+ printf(&quot;%c%c\n&quot;, s[0], s[4]);              // Eu</pre>
 <pre class="code-block"> string msg = &quot;Hello, &quot; &quot;world!&quot;;             // adjacent literals concatenate
- printf(&quot;%s
- &quot;, msg);                       // Hello, world!</pre>
+ printf(&quot;%s\n&quot;, msg);                       // Hello, world!</pre>
 <h2 class="section" id="sec-2-3">2.3 Explicit casting</h2>
 <p>Eskiu never silently converts one type to another. When types differ, you cast explicitly, making the potential data loss visible in the code:</p>
 <pre class="code-block"> double x = 3.99;
@@ -623,16 +618,11 @@ pre.code-block {
        bool      active = true;
        char      grade    = &#x27;A&#x27;;
        string name        = &quot;Eduardo&quot;;</pre>
-<pre class="code-block">       printf(&quot;Name:          %s
- &quot;,      name);
-       printf(&quot;Age:           %d
- &quot;,      age);
-       printf(&quot;Height: %.2f
- &quot;, height);
-       printf(&quot;Grade:         %c
- &quot;,      grade);
-       printf(&quot;Active: %d
- &quot;,      active);
+<pre class="code-block">       printf(&quot;Name:          %s\n&quot;,      name);
+       printf(&quot;Age:           %d\n&quot;,      age);
+       printf(&quot;Height: %.2f\n&quot;, height);
+       printf(&quot;Grade:         %c\n&quot;,      grade);
+       printf(&quot;Active: %d\n&quot;,      active);
        return 0;
  }</pre>
 <p class="output"><em>Output:</em> Name: Eduardo Age: 28 Height: 1.75 Grade: A Active: 1</p>
@@ -645,8 +635,7 @@ pre.code-block {
        bump();
        bump();
        bump();
-       printf(&quot;%d
- &quot;, counter);          // 3
+       printf(&quot;%d\n&quot;, counter);          // 3
        return 0;
  }</pre>
 <p class="output"><em>Output:</em> 3</p>
@@ -669,8 +658,7 @@ pre.code-block {
        c += 1;
        return c;
  }
- printf(&quot;%d %d %d
- &quot;, next(), next(), next());   // 1 2 3</pre>
+ printf(&quot;%d %d %d\n&quot;, next(), next(), next());   // 1 2 3</pre>
 <p class="output"><em>Output:</em> 1 2 3</p>
 <p>Two <code>static</code> locals in different functions never share storage, even with the same name. <code>static</code> on a global is rejected, since a global already persists for the whole program.</p>
 <h2 class="section" id="sec-2-7">2.7 enum: named integer constants</h2>
@@ -679,15 +667,11 @@ pre.code-block {
  enum Status { Ok = 0, Err = 2, Pending }            // 0, 2, 3</pre>
 <p>Enum members are global integer constants used directly by name:</p>
 <pre class="code-block"> Color c = Green;
- printf(&quot;%d
- &quot;, c);         // 1</pre>
+ printf(&quot;%d\n&quot;, c);         // 1</pre>
 <pre class="code-block"> switch (c) {
-       case Red:       printf(&quot;red
- &quot;);      break;
-       case Green: printf(&quot;green
- &quot;); break;
-       default:        printf(&quot;other
- &quot;); break;
+       case Red:       printf(&quot;red\n&quot;);      break;
+       case Green: printf(&quot;green\n&quot;); break;
+       default:        printf(&quot;other\n&quot;); break;
  }</pre>
 <p class="output"><em>Output:</em> 1 green</p>
 <h2 class="section" id="sec-2-8">2.8 type: aliases</h2>
@@ -698,15 +682,12 @@ pre.code-block {
 <p>Once defined, the alias can be used anywhere the original type can, including variable declarations, function parameters, return types, and <code>alloc</code>:</p>
 <pre class="code-block"> Int add(Int a, Int b) { return a + b; }</pre>
 <pre class="code-block"> u8 b = 200;
- printf(&quot;%d
- &quot;, b);              // 200</pre>
+ printf(&quot;%d\n&quot;, b);              // 200</pre>
 <pre class="code-block"> Bytes buf = alloc&lt;u8&gt;(4);
  buf[0] = 65;      buf[1] = 66;
- printf(&quot;%d %d
- &quot;, buf[0], buf[1]);       // 65 66
+ printf(&quot;%d %d\n&quot;, buf[0], buf[1]);       // 65 66
  free(buf);
- printf(&quot;%d
- &quot;, add(3, 4));      // 7</pre>
+ printf(&quot;%d\n&quot;, add(3, 4));      // 7</pre>
 <p class="output"><em>Output:</em> 200 65 66 7</p>
 <div class="chapter-start" id="chapter-3"><span class="chapter-label">Chapter 3</span>
 <h1 class="chapter-title">Functions</h1><hr class="chapter-rule"></div>
@@ -720,21 +701,18 @@ pre.code-block {
 <h2 class="section" id="sec-3-2">3.2 Void functions</h2>
 <p>Functions with no return value use <code>void</code>:</p>
 <pre class="code-block"> void greet(string name) {
-       printf(&quot;Hello, %s!
- &quot;, name);
+       printf(&quot;Hello, %s!\n&quot;, name);
  }</pre>
 <pre class="code-block"> greet(&quot;world&quot;);       // Hello, world!</pre>
 <h2 class="section" id="sec-3-3">3.3 Parameters are copies</h2>
 <p>When you pass a value, the function gets its own copy. Changes to the copy stay inside the function. Pointers (Chapter 6) are how you <code>let</code> a function modify the caller&#x27;s data:</p>
 <pre class="code-block"> void try_to_double(int x) {
        x = x * 2;
-       printf(&quot;inside: %d
- &quot;, x);
+       printf(&quot;inside: %d\n&quot;, x);
  }</pre>
 <pre class="code-block"> int n = 5;
  try_to_double(n);
- printf(&quot;outside: %d
- &quot;, n);     // still 5</pre>
+ printf(&quot;outside: %d\n&quot;, n);     // still 5</pre>
 <p class="output"><em>Output:</em> inside: 10 outside: 5</p>
 <h2 class="section" id="sec-3-4">3.4 Recursion</h2>
 <p>A function can call itself. Useful when a problem is naturally defined in terms of a smaller version of itself:</p>
@@ -742,8 +720,7 @@ pre.code-block {
        if (n &lt;= 1) return 1;
        return n * factorial(n - 1);
  }</pre>
-<pre class="code-block"> printf(&quot;%d
- &quot;, factorial(5));           // 120</pre>
+<pre class="code-block"> printf(&quot;%d\n&quot;, factorial(5));           // 120</pre>
 <pre class="code-block"> Warning Recursive calls consume stack space. For large inputs, a loop is safer.</pre>
 <h2 class="section" id="sec-3-5">3.5 Declaration order and forward declarations</h2>
 <p>Definition order does not matter. A function may call another that is defined later in the same file, and two functions may call each other. You can also write a body-less forward declaration (a signature ending in a semicolon) when you prefer to state the signature up front:</p>
@@ -756,18 +733,15 @@ pre.code-block {
        if (n == 0) return 0;
        return is_even(n - 1);
  }</pre>
-<pre class="code-block"> printf(&quot;%d %d
- &quot;, is_even(10), is_odd(10));             // 1 0</pre>
+<pre class="code-block"> printf(&quot;%d %d\n&quot;, is_even(10), is_odd(10));             // 1 0</pre>
 <p class="output"><em>Output:</em> 1 0</p>
 <h2 class="section" id="sec-3-6">3.6 Command-line arguments</h2>
 <p>To read what the user typed on the command line, give main two parameters: <code>argc</code>, the number of arguments, and <code>argv</code>, an array of strings. <code>argv</code>[0] is always the program&#x27;s own name, so the first real argument is <code>argv</code>[1]:</p>
 <pre class="code-block"> extern int printf(string fmt, ...);</pre>
 <pre class="code-block"> int main(int argc, string* argv) {
-       printf(&quot;argc = %d
- &quot;, argc);
+       printf(&quot;argc = %d\n&quot;, argc);
        for (int i = 0; i &lt; argc; i += 1) {
-            printf(&quot;argv[%d] = %s
- &quot;, i, argv[i]);
+            printf(&quot;argv[%d] = %s\n&quot;, i, argv[i]);
        }
        return 0;
  }</pre>
@@ -782,8 +756,7 @@ pre.code-block {
        va_end(ap);
        return total;
  }
- printf(&quot;%d
- &quot;, sumv(3, 10, 20, 30));     // 60</pre>
+ printf(&quot;%d\n&quot;, sumv(3, 10, 20, 30));     // 60</pre>
 <p>C default promotions apply: <code>float</code> args arrive as <code>double</code>. Read with va_arg&lt;double&gt;. At least one fixed parameter is required.</p>
 <div class="chapter-start" id="chapter-4"><span class="chapter-label">Chapter 4</span>
 <h1 class="chapter-title">Control Flow</h1><hr class="chapter-rule"></div>
@@ -791,17 +764,13 @@ pre.code-block {
 <h2 class="section" id="sec-4-1">4.1 if / else if / else</h2>
 <pre class="code-block"> int score = 74;</pre>
 <pre class="code-block"> if (score &gt;= 90) {
-       printf(&quot;A
- &quot;);
+       printf(&quot;A\n&quot;);
  } else if (score &gt;= 80) {
-       printf(&quot;B
- &quot;);
+       printf(&quot;B\n&quot;);
  } else if (score &gt;= 70) {
-       printf(&quot;C
- &quot;);
+       printf(&quot;C\n&quot;);
  } else {
-       printf(&quot;F
- &quot;);
+       printf(&quot;F\n&quot;);
  }</pre>
 <p class="output"><em>Output:</em> C</p>
 <h2 class="section" id="sec-4-2">4.2 while</h2>
@@ -823,8 +792,7 @@ pre.code-block {
 <pre class="code-block"> // Find first multiple of both 3 and 7
  for (int i = 1; i &lt;= 100; i += 1) {
        if (i % 3 == 0 &amp;&amp; i % 7 == 0) {
-            printf(&quot;found: %d
- &quot;, i);     // 21
+            printf(&quot;found: %d\n&quot;, i);     // 21
             break;
        }
  }</pre>
@@ -837,14 +805,10 @@ pre.code-block {
 <p>Cleaner than a chain of else-if when dispatching on specific integer values. Always end each case with break:</p>
 <pre class="code-block"> int day = 3;
  switch (day) {
-       case 1: printf(&quot;Monday
- &quot;);       break;
-       case 2: printf(&quot;Tuesday
- &quot;);       break;
-       case 3: printf(&quot;Wednesday
- &quot;); break;
-       default: printf(&quot;Other
- &quot;);       break;
+       case 1: printf(&quot;Monday\n&quot;);       break;
+       case 2: printf(&quot;Tuesday\n&quot;);       break;
+       case 3: printf(&quot;Wednesday\n&quot;); break;
+       default: printf(&quot;Other\n&quot;);       break;
  }</pre>
 <p class="output"><em>Output:</em> Wednesday</p>
 <h2 class="section" id="sec-4-6">4.6 for-in</h2>
@@ -865,16 +829,14 @@ pre.code-block {
        if (n == 2) { continue; }          // continue correctly advances the index
        total += n;
  }
- printf(&quot;%d
- &quot;, total);         // 4        (1 + 3)
+ printf(&quot;%d\n&quot;, total);         // 4        (1 + 3)
  List_free(&amp;nums);</pre>
 <p class="output"><em>Output:</em> 10 20 30 40 4</p>
 <p>For-in also works on half-open integer ranges A..B, iterating A, A+1, … B-1. The upper bound is exclusive. An empty range (A ≥ B) runs zero times:</p>
 <pre class="code-block"> // Range: 0, 1, 2, 3, 4
  int s = 0;
  for (i in 0..5) { s += i; }
- printf(&quot;%d
- &quot;, s);         // 10</pre>
+ printf(&quot;%d\n&quot;, s);         // 10</pre>
 <pre class="code-block"> // Variable bounds
  int lo = 2;        int hi = 6;
  for (j in lo..hi) { printf(&quot;%d           &quot;, j); }
@@ -903,8 +865,7 @@ pre.code-block {
 <p>A struct literal initialises all fields at once. The named form uses field names explicitly; the positional form assigns fields in declaration order:</p>
 <pre class="code-block"> // Named
  Point p = Point { x: 1.5, y: 2.5 };
- printf(&quot;%0.1f %0.1f
- &quot;, p.x, p.y);</pre>
+ printf(&quot;%0.1f %0.1f\n&quot;, p.x, p.y);</pre>
 <pre class="code-block"> // Positional (declaration order)
  Point q = Point { 3.0, 4.0 };         // same as { x: 3.0, y: 4.0 }</pre>
 <pre class="code-block"> // Field-by-field
@@ -917,8 +878,7 @@ pre.code-block {
 <pre class="code-block">       float area()           { return self.w * self.h; }
        float perimeter() { return (self.w + self.h) * 2.0; }</pre>
 <pre class="code-block">       void print() {
-             printf(&quot;Rect(%.1f x %.1f)      area=%.1f   perim=%.1f
- &quot;,
+             printf(&quot;Rect(%.1f x %.1f)      area=%.1f   perim=%.1f\n&quot;,
                     self.w, self.h, self.area(), self.perimeter());
        }
  }</pre>
@@ -941,8 +901,7 @@ pre.code-block {
 <p>Arrays can be multidimensional. <code>T[N][M]</code> is N arrays of M, in C order: the leftmost bracket is the outer dimension, so <code>a[i]</code> is a row and <code>a[i][j]</code> is an element. Each index is bounds-checked against its own dimension, and a nested brace list initialises it (zero-filling at every level):</p>
 <pre class="code-block"> int[2][3] grid = { {1, 2, 3}, {4, 5, 6} };
  int[2][2] part = { {7, 8} };          // second row zero-filled
- printf(&quot;%d %d %d
- &quot;, grid[0][0], grid[1][2], part[1][0]);   // 1 6 0</pre>
+ printf(&quot;%d %d %d\n&quot;, grid[0][0], grid[1][2], part[1][0]);   // 1 6 0</pre>
 <p class="output"><em>Output:</em> 1 6 0</p>
 <h2 class="section" id="sec-5-4b">5.4b Slices</h2>
 <p>A fixed array knows its size at compile time, but a function that takes one has to be told the length separately, the classic C footgun where the pointer and its count drift apart. A <strong>slice</strong>, written <code>T[]</code> (empty brackets), fixes that: it is a fat pointer carrying both the data pointer <em>and</em> the length, so the length always travels with the data.</p>
@@ -950,8 +909,7 @@ pre.code-block {
 <pre class="code-block"> int[6] a = {10, 20, 30, 40, 50, 60};
  int[] mid = a[1..4];          // view of {20, 30, 40}
  mid[1] = 99;                   // writes through: a[2] is now 99
- printf(&quot;%lld %d
- &quot;, mid.len, a[2]);            // 3 99</pre>
+ printf(&quot;%lld %d\n&quot;, mid.len, a[2]);            // 3 99</pre>
 <p class="output"><em>Output:</em> 3 99</p>
 <p>A slice supports indexing (<code>s[i]</code>), its length via <code>s.len</code>, iteration with <code>for (x in s)</code>, and is passed by value (the pointer + length are copied; the backing storage is shared). A function that sums any run of ints needs no count argument:</p>
 <pre class="code-block"> int sum(int[] s) {
@@ -969,8 +927,7 @@ pre.code-block {
  }</pre>
 <pre class="code-block"> let v: Value;
  v.i = 0x3F800000;             // bit pattern for 1.0f
- printf(&quot;%f
- &quot;, v.f);        // 1.000000</pre>
+ printf(&quot;%f\n&quot;, v.f);        // 1.000000</pre>
 <p class="output"><em>Output:</em> 1.000000</p>
 <h2 class="section" id="sec-5-6">5.6 Bitfields</h2>
 <p>A bitfield is a struct field with a width in bits written after a colon. Multiple bitfields pack into the same underlying integer word. This lets you represent hardware registers, protocol headers, or compact flags without manual bit manipulation:</p>
@@ -983,16 +940,13 @@ pre.code-block {
 <p>Assignment and access use the same dot syntax as normal fields. The compiler generates read-modify-write automatically, updating one field never disturbs its neighbours:</p>
 <pre class="code-block"> Flags f;
  f.a = 1;       f.b = 5;   f.c = 9;    f.tag = 42;
- printf(&quot;%d %d %d %d
- &quot;, f.a, f.b, f.c, f.tag);        // 1 5 9 42</pre>
+ printf(&quot;%d %d %d %d\n&quot;, f.a, f.b, f.c, f.tag);        // 1 5 9 42</pre>
 <pre class="code-block"> f.b = 2;        // a and c are untouched
- printf(&quot;%d %d %d
- &quot;, f.a, f.b, f.c);                    // 1 2 9</pre>
+ printf(&quot;%d %d %d\n&quot;, f.a, f.b, f.c);                    // 1 2 9</pre>
 <p class="output"><em>Output:</em> 1 5 9 42 1 2 9</p>
 <p>Struct literals work with bitfields the same as with normal fields:</p>
 <pre class="code-block"> Flags g = Flags { a: 1, b: 7, c: 15 };
- printf(&quot;%d %d %d
- &quot;, g.a, g.b, g.c);        // 1 7 15</pre>
+ printf(&quot;%d %d %d\n&quot;, g.a, g.b, g.c);        // 1 7 15</pre>
 <h2 class="section" id="sec-5-7">5.7 packed struct</h2>
 <p>By default the compiler inserts padding between struct fields to satisfy alignment requirements. A <code>uint8</code> followed by a <code>uint32</code> occupies 8 bytes, not 5, because the compiler adds 3 padding bytes before the <code>uint32</code>. The <code>packed</code> qualifier removes all padding, giving you the exact on-wire layout. This is essential for hardware register maps, network protocols, and interop with C structs declared with __attribute__((<code>packed</code>)):</p>
 <pre class="code-block"> struct Natural {            // default layout
@@ -1003,10 +957,8 @@ pre.code-block {
        uint8    tag;         // 1 byte, no padding
        uint32 value;         // 4 bytes immediately after
  }                           // sizeof = 5</pre>
-<pre class="code-block"> printf(&quot;%lld
- &quot;, sizeof(Natural));        // 8
- printf(&quot;%lld
- &quot;, sizeof(Wire));           // 5</pre>
+<pre class="code-block"> printf(&quot;%lld\n&quot;, sizeof(Natural));        // 8
+ printf(&quot;%lld\n&quot;, sizeof(Wire));           // 5</pre>
 <p class="output"><em>Output:</em> 8 5</p>
 <p>You can also apply packing to a group of structs using #pragma pack, covered in Chapter 12.5. Any struct declared while pack(1) is active is <code>packed</code>, regardless of whether <code>packed</code> appears on the struct itself.</p>
 <div class="chapter-start" id="chapter-6"><span class="chapter-label">Chapter 6</span>
@@ -1018,19 +970,16 @@ pre.code-block {
 <h2 class="section" id="sec-6-2">6.2 Address-of and dereference</h2>
 <pre class="code-block"> int x = 42;
  *int ptr = &amp;x;              // ptr holds the address of x
- printf(&quot;%d
- &quot;, *ptr);      // 42</pre>
+ printf(&quot;%d\n&quot;, *ptr);      // 42</pre>
 <pre class="code-block"> *ptr = 100;                 // write through the pointer
- printf(&quot;%d
- &quot;, x);         // 100</pre>
+ printf(&quot;%d\n&quot;, x);         // 100</pre>
 <p class="output"><em>Output:</em> 42 100</p>
 <h2 class="section" id="sec-6-3">6.3 Passing pointers to functions</h2>
 <p>This is the primary use of pointers in everyday code. A function that receives a pointer can modify the caller&#x27;s variable:</p>
 <pre class="code-block"> void set_to_zero(*int p) { *p = 0; }</pre>
 <pre class="code-block"> int x = 99;
  set_to_zero(&amp;x);
- printf(&quot;%d
- &quot;, x);     // 0</pre>
+ printf(&quot;%d\n&quot;, x);     // 0</pre>
 <h2 class="section" id="sec-6-4">6.4 Heap allocation</h2>
 <p>Heap allocation is provided by the standard library module &lt;mem&gt;, not the language core. <code>alloc</code>&lt;T&gt;(n) allocates n elements of type T and returns a *T. <code>free</code>(p) releases it:</p>
 <pre class="code-block"> import &lt;mem&gt;;</pre>
@@ -1038,8 +987,7 @@ pre.code-block {
 <pre class="code-block"> for (int i = 0; i &lt; 8; i += 1) {
        arr[i] = i * i;
  }
- printf(&quot;%d %d %d
- &quot;, arr[0], arr[1], arr[4]);         // 0 1 16</pre>
+ printf(&quot;%d %d %d\n&quot;, arr[0], arr[1], arr[4]);         // 0 1 16</pre>
 <pre class="code-block"> free((*void)arr);</pre>
 <h2 class="section" id="sec-6-5">6.5 The golden rule</h2>
 <p>Every <code>alloc</code> must be paired with exactly one <code>free</code>. Not zero. Not two. One.</p>
@@ -1050,8 +998,7 @@ pre.code-block {
 <pre class="code-block"> *int arr = alloc&lt;int&gt;(4);
  arr[0]=10; arr[1]=20; arr[2]=30; arr[3]=40;</pre>
 <pre class="code-block"> *int p = arr + 2;             // advances 2 × sizeof(int) = 8 bytes
- printf(&quot;%d
- &quot;, *p);        // 30</pre>
+ printf(&quot;%d\n&quot;, *p);        // 30</pre>
 <pre class="code-block"> free(arr);</pre>
 <pre class="code-block"> Exception: *void and *char always use byte stride (1 byte per step), for C interop compatibility.</pre>
 <h2 class="section" id="sec-6-7">6.7 Null and checked nullable pointers</h2>
@@ -1097,8 +1044,7 @@ pre.code-block {
        float radius;</pre>
 <pre class="code-block">       float area() { return self.radius * self.radius * 3.14159; }</pre>
 <pre class="code-block">       void describe() {
-            printf(&quot;Circle r=%.2f area=%.2f
- &quot;, self.radius, self.area());
+            printf(&quot;Circle r=%.2f area=%.2f\n&quot;, self.radius, self.area());
        }
  }</pre>
 <pre class="code-block"> struct Rectangle {
@@ -1106,8 +1052,7 @@ pre.code-block {
        float h;</pre>
 <pre class="code-block">       float area() { return self.w * self.h; }</pre>
 <pre class="code-block">       void describe() {
-            printf(&quot;Rect %.1fx%.1f area=%.2f
- &quot;, self.w, self.h, self.area());
+            printf(&quot;Rect %.1fx%.1f area=%.2f\n&quot;, self.w, self.h, self.area());
        }
  }</pre>
 <h2 class="section" id="sec-7-3">7.3 Using the interface</h2>
@@ -1118,8 +1063,7 @@ pre.code-block {
        Rectangle r = Rectangle { w: 4.0, h: 6.0 };</pre>
 <pre class="code-block">       printShape(&amp;c);
        printShape(&amp;r);
-       printf(&quot;total: %.2f
- &quot;, totalArea(&amp;c, &amp;r));
+       printf(&quot;total: %.2f\n&quot;, totalArea(&amp;c, &amp;r));
        return 0;
  }</pre>
 <p class="output"><em>Output:</em> Circle r=5.00 area=78.54 Rect 4.0x6.0 area=24.00 total: 102.54</p>
@@ -1136,22 +1080,18 @@ pre.code-block {
 <pre class="code-block"> int      same = identity&lt;int&gt;(42);            // 42
  int      big    = max&lt;int&gt;(10, 20);           // 20
  float fbig = max&lt;float&gt;(1.5, 2.5);          // 2.5
- printf(&quot;%d %d %.1f
- &quot;, same, big, fbig);</pre>
+ printf(&quot;%d %d %.1f\n&quot;, same, big, fbig);</pre>
 <p class="output"><em>Output:</em> 42 20 2.5</p>
 <p>When a type parameter appears directly as a parameter type, the compiler can infer it from the arguments; the angle brackets become optional:</p>
-<pre class="code-block"> printf(&quot;%d
- &quot;, max(3, 5));           // 5   : T inferred as int
- printf(&quot;%d
- &quot;, identity(42));        // 42</pre>
+<pre class="code-block"> printf(&quot;%d\n&quot;, max(3, 5));           // 5   : T inferred as int
+ printf(&quot;%d\n&quot;, identity(42));        // 42</pre>
 <h2 class="section" id="sec-8-2">8.2 A template struct</h2>
 <pre class="code-block"> struct Pair&lt;A, B&gt; {
        A first;
        B second;
  }</pre>
 <pre class="code-block"> Pair&lt;int, string&gt; p = Pair&lt;int, string&gt; { first: 1, second: &quot;one&quot; };
- printf(&quot;%d %s
- &quot;, p.first, p.second);          // 1 one</pre>
+ printf(&quot;%d %s\n&quot;, p.first, p.second);          // 1 one</pre>
 <h2 class="section" id="sec-8-3">8.3 Result</h2>
 <p>The standard way to return a value or an error. Import from the standard library:</p>
 <pre class="code-block"> import &lt;result&gt;;</pre>
@@ -1161,11 +1101,9 @@ pre.code-block {
        return Ok&lt;int, string&gt;(a / b);
  }</pre>
 <pre class="code-block"> let r1: Result&lt;int, string&gt; = divide(10, 2);
- if (r1.ok == 1) { printf(&quot;10 / 2 = %d
- &quot;, r1.value); }</pre>
+ if (r1.ok == 1) { printf(&quot;10 / 2 = %d\n&quot;, r1.value); }</pre>
 <pre class="code-block"> let r2: Result&lt;int, string&gt; = divide(7, 0);
- if (r2.ok == 0) { printf(&quot;error: %s
- &quot;, r2.error); }</pre>
+ if (r2.ok == 0) { printf(&quot;error: %s\n&quot;, r2.error); }</pre>
 <p class="output"><em>Output:</em> 10 / 2 = 5 error: division by zero</p>
 <h2 class="section" id="sec-8-4">8.4 Bounded type parameters (constraints)</h2>
 <p>A type parameter may carry one or more interface constraints, written after a colon: T f&lt;T: Iface&gt;(...). The constraint requires that every concrete type argument satisfy the named interface. Multiple constraints use +: &lt;T: A + B&gt;. The check happens at the call site, not deep in codegen, so the error message names the constraint that failed, not an obscure method-missing error:</p>
@@ -1199,10 +1137,8 @@ pre.code-block {
        if (a.cmp(b) &lt; 0) { return a; }         // lowers to cmp(a, b)
        return b;
  }</pre>
-<pre class="code-block"> printf(&quot;%d
- &quot;, pick&lt;int&gt;(3, 7));         // 3
- printf(&quot;%d
- &quot;, pick&lt;Num&gt;(&amp;x, &amp;y)); // also works</pre>
+<pre class="code-block"> printf(&quot;%d\n&quot;, pick&lt;int&gt;(3, 7));         // 3
+ printf(&quot;%d\n&quot;, pick&lt;Num&gt;(&amp;x, &amp;y)); // also works</pre>
 <pre class="code-block"> The function-pointer HashMap&lt;K,V&gt; from &lt;map&gt; remains useful when you want to thread hash/eq
  explicitly without declaring an interface. Scalar primitives only; pointer types are not yet supported.</pre>
 <div class="chapter-start" id="chapter-9"><span class="chapter-label">Chapter 9</span>
@@ -1210,34 +1146,26 @@ pre.code-block {
 <p>A lambda is a function without a name. You can store it in a variable, pass it to another function, or write it inline. A closure is a lambda that remembers variables from the scope where it was created: it closes over them, carrying its own small piece of state.</p>
 <h2 class="section" id="sec-9-1">9.1 Your first lambda</h2>
 <pre class="code-block"> let double_it: fn(int)-&gt;int = int(int x) { return x * 2; };</pre>
-<pre class="code-block"> printf(&quot;%d
- &quot;, double_it(5));      // 10
- printf(&quot;%d
- &quot;, double_it(21));     // 42</pre>
+<pre class="code-block"> printf(&quot;%d\n&quot;, double_it(5));      // 10
+ printf(&quot;%d\n&quot;, double_it(21));     // 42</pre>
 <p>fn(<code>int</code>)-&gt;<code>int</code> means: a function that takes one integer and returns one integer.</p>
 <h2 class="section" id="sec-9-2">9.2 Higher-order functions</h2>
 <pre class="code-block"> int apply(fn(int)-&gt;int f, int x) { return f(x); }</pre>
 <pre class="code-block"> let square: fn(int)-&gt;int = int(int n) { return n * n; };
- printf(&quot;%d
- &quot;, apply(square, 6));                            // 36
- printf(&quot;%d
- &quot;, apply(int(int x) { return x + 1; }, 9)); // 10</pre>
+ printf(&quot;%d\n&quot;, apply(square, 6));                            // 36
+ printf(&quot;%d\n&quot;, apply(int(int x) { return x + 1; }, 9)); // 10</pre>
 <h2 class="section" id="sec-9-3">9.3 Closures</h2>
 <p>A lambda that references outer variables captures them by value at the moment of creation. Changing the original afterwards does not affect the closure:</p>
 <pre class="code-block"> int base = 10;
  let add_base: fn(int)-&gt;int = int(int x) { return x + base; };
- printf(&quot;%d
- &quot;, add_base(5));     // 15
- printf(&quot;%d
- &quot;, add_base(32));    // 42</pre>
+ printf(&quot;%d\n&quot;, add_base(5));     // 15
+ printf(&quot;%d\n&quot;, add_base(32));    // 42</pre>
 <pre class="code-block"> base = 999;      // does not affect the closure
- printf(&quot;%d
- &quot;, add_base(0));     // still 10</pre>
+ printf(&quot;%d\n&quot;, add_base(0));     // still 10</pre>
 <p class="output"><em>Output:</em> 15 42 10</p>
 <h2 class="section" id="sec-9-4">9.4 Void lambdas</h2>
 <pre class="code-block"> let greet: fn()-&gt;void = void() {
-       printf(&quot;hello from a lambda
- &quot;);
+       printf(&quot;hello from a lambda\n&quot;);
  };
  greet();</pre>
 <h2 class="section" id="sec-9-5">9.5 Function pointers as return types and struct fields</h2>
@@ -1246,22 +1174,19 @@ pre.code-block {
        return int(int x) { return x + base; };      // returns a lambda
  }
  let add10: fn(int)-&gt;int = adder(10);
- printf(&quot;%d
- &quot;, add10(5));     // 15</pre>
+ printf(&quot;%d\n&quot;, add10(5));     // 15</pre>
 <pre class="code-block"> // Struct with a fn field: call directly
  struct Ops { fn(int,int)-&gt;int op; }
  int add(int a, int b) { return a + b; }
  let o: Ops;    o.op = add;
- printf(&quot;%d
- &quot;, o.op(3, 4));     // 7</pre>
+ printf(&quot;%d\n&quot;, o.op(3, 4));     // 7</pre>
 <h2 class="section" id="sec-9-5">9.5 Escaping closures</h2>
 <p>By default a closure environment lives on the stack. Zero allocation cost, but it cannot outlive the function that created it. When a closure must outlive its creator the parameter that receives it must be marked escaping:</p>
 <pre class="code-block"> void on_ready(int fd, escaping fn(int)-&gt;void cb) {
        handlers[fd] = cb;     // stored: parameter must be escaping
  }</pre>
 <pre class="code-block"> int x = 42;
- on_ready(fd, void(int n) { printf(&quot;%d %d
- &quot;, x, n); });
+ on_ready(fd, void(int n) { printf(&quot;%d %d\n&quot;, x, n); });
  // free_closure(cb) when done</pre>
 <p>The escaping qualifier states, and the compiler enforces, that the closure may outlive its creator. Pass a non-escaping closure to an escaping parameter and you get a compile error.</p>
 <h2 class="section" id="sec-9-7">9.7 Closures inside generic functions</h2>
@@ -1280,8 +1205,7 @@ pre.code-block {
        free((*void)hits);
        return r1 + r2;
  }
- printf(&quot;%d
- &quot;, box&lt;int&gt;(10, 1));       // 23 (11+12)</pre>
+ printf(&quot;%d\n&quot;, box&lt;int&gt;(10, 1));       // 23 (11+12)</pre>
 <div class="chapter-start" id="chapter-10"><span class="chapter-label">Chapter 10</span>
 <h1 class="chapter-title">Error Handling</h1><hr class="chapter-rule"></div>
 <p>Programs fail. Files do not exist. Numbers fall outside valid ranges. Network connections drop mid-request. Good error handling makes failures visible and recoverable rather than silent and catastrophic. Eskiu provides two tools: <code>Result</code> for expected failures, and try/catch for exceptional ones.</p>
@@ -1295,11 +1219,9 @@ pre.code-block {
        return Ok&lt;int, string&gt;(i - 1);
  }</pre>
 <pre class="code-block"> let r1: Result&lt;int, string&gt; = safeSqrt(25);
- if (r1.ok == 1) { printf(&quot;sqrt(25) ~ %d
- &quot;, r1.value); }</pre>
+ if (r1.ok == 1) { printf(&quot;sqrt(25) ~ %d\n&quot;, r1.value); }</pre>
 <pre class="code-block"> let r2: Result&lt;int, string&gt; = safeSqrt(-4);
- if (r2.ok == 0) { printf(&quot;error: %s
- &quot;, r2.error); }</pre>
+ if (r2.ok == 0) { printf(&quot;error: %s\n&quot;, r2.error); }</pre>
 <p class="output"><em>Output:</em> sqrt(25) ~ 5 error: negative input</p>
 <h2 class="section" id="sec-10-2">10.2 try / catch / finally</h2>
 <pre class="code-block"> int divide(int a, int b) {
@@ -1308,14 +1230,11 @@ pre.code-block {
  }</pre>
 <pre class="code-block"> try {
        int r = divide(10, 0);
-       printf(&quot;result: %d
- &quot;, r);         // never reached
+       printf(&quot;result: %d\n&quot;, r);         // never reached
  } catch (string e) {
-       printf(&quot;caught: %s
- &quot;, e);         // division by zero
+       printf(&quot;caught: %s\n&quot;, e);         // division by zero
  } finally {
-       printf(&quot;done
- &quot;);                  // always runs
+       printf(&quot;done\n&quot;);                  // always runs
  }</pre>
 <p class="output"><em>Output:</em> caught: division by zero done</p>
 <pre class="code-block"> Link with -lc++ (macOS) or -lstdc++ (Linux) when using exceptions.</pre>
@@ -1343,11 +1262,9 @@ pre.code-block {
 <p>The two functions are semantically identical. expr? on a <code>Result</code>&lt;T,E&gt; is syntactic sugar for the explicit check-and-return pattern. The type checker enforces that ? is only used inside a function that returns a compatible <code>Result</code>&lt;T,E&gt;.</p>
 <p>This postfix <code>?</code> is distinct from the ternary <code>cond ? a : b</code> (see 12.2b). The parser tells them apart by the <code>:</code>: a <code>?</code> with a matching <code>:</code> ahead is a ternary, otherwise it is Result propagation. To propagate inside a ternary arm, parenthesise it: <code>cond ? (divide(a, b)?) : fallback</code>.</p>
 <pre class="code-block"> let good: Result&lt;int, string&gt; = compute(100, 5, 2);
- if (good.ok == 1) { printf(&quot;ok=%d
- &quot;, good.value); }       // ok=11</pre>
+ if (good.ok == 1) { printf(&quot;ok=%d\n&quot;, good.value); }       // ok=11</pre>
 <pre class="code-block"> let bad: Result&lt;int, string&gt; = compute(100, 0, 2);
- if (bad.ok == 0) { printf(&quot;err=%s
- &quot;, bad.error); }       // err=division by zero</pre>
+ if (bad.ok == 0) { printf(&quot;err=%s\n&quot;, bad.error); }       // err=division by zero</pre>
 <p class="output"><em>Output:</em> ok=11 err=division by zero</p>
 <h2 class="section" id="sec-10-4">10.4 When to use which</h2>
 <p>Use <code>Result</code> for expected, recoverable failures: file not found, invalid input, network timeout.</p>
@@ -1359,11 +1276,9 @@ pre.code-block {
 <h2 class="section" id="sec-11-1">11.1 thread_create and thread_join</h2>
 <pre class="code-block"> int main() {
        *void t = thread_create(void() {
-             printf(&quot;hello from the thread
- &quot;);
+             printf(&quot;hello from the thread\n&quot;);
        });</pre>
-<pre class="code-block">       printf(&quot;hello from main
- &quot;);
+<pre class="code-block">       printf(&quot;hello from main\n&quot;);
        thread_join(t);
        return 0;
  }</pre>
@@ -1371,10 +1286,8 @@ pre.code-block {
 <h2 class="section" id="sec-11-2">11.2 Passing data via closures</h2>
 <p>Closures capture by value: each thread gets an independent copy, no shared state, no data race:</p>
 <pre class="code-block"> int id1 = 1;      int id2 = 2;</pre>
-<pre class="code-block"> let w1: fn()-&gt;void = void() { printf(&quot;thread %d
- &quot;, id1); };
- let w2: fn()-&gt;void = void() { printf(&quot;thread %d
- &quot;, id2); };</pre>
+<pre class="code-block"> let w1: fn()-&gt;void = void() { printf(&quot;thread %d\n&quot;, id1); };
+ let w2: fn()-&gt;void = void() { printf(&quot;thread %d\n&quot;, id2); };</pre>
 <pre class="code-block"> *void t1 = thread_create(w1);
  *void t2 = thread_create(w2);
  thread_join(t1);
@@ -1409,8 +1322,7 @@ pre.code-block {
 <pre class="code-block"> int i = 5;
  int a = i++;        // a = 5, then i = 6   (postfix: old value)
  int b = ++i;        // i = 7, then b = 7   (prefix: new value)
- printf(&quot;%d %d %d
- &quot;, a, b, i);   // 5 7 7</pre>
+ printf(&quot;%d %d %d\n&quot;, a, b, i);   // 5 7 7</pre>
 <p class="output"><em>Output:</em> 5 7 7</p>
 <h2 class="section" id="sec-12-2">12.2 Bitwise</h2>
 <pre class="code-block"> uint8 x = 0xB3;                // 10110011
@@ -1446,15 +1358,11 @@ pre.code-block {
 <p>Eskiu also uses <code>?</code> as the postfix Result-propagation operator (Chapter 10). The two never collide: a <code>?</code> with a matching <code>:</code> ahead is a ternary; otherwise it propagates. To propagate inside a ternary arm, wrap it in parentheses: <code>cond ? (may_fail()?) : fallback</code>.</p>
 <h2 class="section" id="sec-12-3">12.3 sizeof</h2>
 <p>sizeof(T) returns the number of bytes a value of type T occupies in memory. The result is a compile-time <code>int64</code> constant: no runtime code is generated. Print it with %lld:</p>
-<pre class="code-block"> printf(&quot;%lld
- &quot;, sizeof(int));                 // 4
- printf(&quot;%lld
- &quot;, sizeof(int64));               // 8
- printf(&quot;%lld
- &quot;, sizeof(double)); // 8</pre>
+<pre class="code-block"> printf(&quot;%lld\n&quot;, sizeof(int));                 // 4
+ printf(&quot;%lld\n&quot;, sizeof(int64));               // 8
+ printf(&quot;%lld\n&quot;, sizeof(double)); // 8</pre>
 <pre class="code-block"> struct Vec3 { float x; float y; float z; }
- printf(&quot;%lld
- &quot;, sizeof(Vec3));                // 12</pre>
+ printf(&quot;%lld\n&quot;, sizeof(Vec3));                // 12</pre>
 <h2 class="section" id="sec-12-4">12.4 Operator precedence</h2>
 <p>From lowest to highest. When in doubt, add parentheses:</p>
 <pre class="code-block"> =    +=    -=         *=   /=   %=       assignment (right to left)
@@ -1484,39 +1392,29 @@ pre.code-block {
 <pre class="code-block"> #define MAX         100
  #define GREETING &quot;hello&quot;
  #define DEBUG</pre>
-<pre class="code-block"> printf(&quot;%d
- &quot;, MAX);            // 100
- printf(&quot;%s
- &quot;, GREETING);       // hello
- printf(&quot;%d
- &quot;, MAX * 2);        // 200</pre>
+<pre class="code-block"> printf(&quot;%d\n&quot;, MAX);            // 100
+ printf(&quot;%s\n&quot;, GREETING);       // hello
+ printf(&quot;%d\n&quot;, MAX * 2);        // 200</pre>
 <p class="output"><em>Output:</em> 100 hello 200</p>
 <p>Function-like macros take parameters. The call must fit on one line:</p>
 <pre class="code-block"> #define SQ(x)       ((x) * (x))
  #define DOUBLE(n) ((n) + (n))
  #define LIMIT       (MAX + 1)       // macro expanding another macro</pre>
-<pre class="code-block"> printf(&quot;%d
- &quot;, SQ(5));                // 25
- printf(&quot;%d
- &quot;, DOUBLE(SQ(3)));        // 18
- printf(&quot;%d
- &quot;, LIMIT);                // 101</pre>
+<pre class="code-block"> printf(&quot;%d\n&quot;, SQ(5));                // 25
+ printf(&quot;%d\n&quot;, DOUBLE(SQ(3)));        // 18
+ printf(&quot;%d\n&quot;, LIMIT);                // 101</pre>
 <p class="output"><em>Output:</em> 25 18 101</p>
 <p>Conditional compilation includes or excludes blocks at compile time:</p>
 <pre class="code-block"> #ifdef DEBUG
-       printf(&quot;debug
- &quot;);
+       printf(&quot;debug\n&quot;);
  #else
-       printf(&quot;release
- &quot;);
+       printf(&quot;release\n&quot;);
  #endif</pre>
 <pre class="code-block"> #undef DEBUG
  #ifdef DEBUG
-       printf(&quot;still debug
- &quot;);
+       printf(&quot;still debug\n&quot;);
  #else
-       printf(&quot;debug off
- &quot;);
+       printf(&quot;debug off\n&quot;);
  #endif</pre>
 <p>Line numbers are preserved through macro expansion: error messages always point to the original source location.</p>
 <p>A macro body can span multiple physical lines using a backslash continuation. Each consumed newline is replaced by a blank line so error messages still point to the right source location:</p>
@@ -1524,10 +1422,8 @@ pre.code-block {
        ((x) * (x)       \
          + 2 * (x)      \
          + 1)</pre>
-<pre class="code-block"> printf(&quot;%d
- &quot;, POLY(3));        // 16
- printf(&quot;%d
- &quot;, POLY(0));        // 1</pre>
+<pre class="code-block"> printf(&quot;%d\n&quot;, POLY(3));        // 16
+ printf(&quot;%d\n&quot;, POLY(0));        // 1</pre>
 <p class="output"><em>Output:</em> 16 1</p>
 <p>#pragma pack controls struct padding for all structs declared while it is active. Use push and pop to save and restore the current packing:</p>
 <pre class="code-block"> #pragma pack(push, 1)         // save current packing, switch to 1-byte
@@ -1540,23 +1436,18 @@ pre.code-block {
        uint8    tag;            // 3 bytes padding before value
        uint32 value;
  }                              // sizeof = 8</pre>
-<pre class="code-block"> printf(&quot;%lld %lld
- &quot;, sizeof(Wire), sizeof(Natural));           // 5 8</pre>
+<pre class="code-block"> printf(&quot;%lld %lld\n&quot;, sizeof(Wire), sizeof(Natural));           // 5 8</pre>
 <p class="output"><em>Output:</em> 5 8</p>
 <p>The compiler predefines one macro for the host OS: __APPLE__ on macOS, __linux__ on Linux. Use them to write portable code that compiles correctly on both platforms:</p>
 <pre class="code-block"> #ifdef __APPLE__
-       printf(&quot;macOS
- &quot;);
+       printf(&quot;macOS\n&quot;);
  #else
-       printf(&quot;Linux
- &quot;);
+       printf(&quot;Linux\n&quot;);
  #endif</pre>
 <p>This is how &lt;net&gt; selects the correct sockaddr_in layout: macOS has an extra sin_len field that Linux does not.</p>
 <p>__FILE__ expands to the current source file path; __LINE__ expands to the current line number. #error aborts compilation with a message, honoring #ifdef branches:</p>
-<pre class="code-block"> printf(&quot;%d
- &quot;, __LINE__);         // prints the line number
- printf(&quot;%s
- &quot;, __FILE__);         // prints the file path</pre>
+<pre class="code-block"> printf(&quot;%d\n&quot;, __LINE__);         // prints the line number
+ printf(&quot;%s\n&quot;, __FILE__);         // prints the file path</pre>
 <pre class="code-block"> #ifdef DEBUG
  #error DEBUG builds are not supported in this file
  #endif</pre>
@@ -1574,8 +1465,7 @@ pre.code-block {
  import &quot;utils.esk&quot;;
  extern int printf(string fmt, ...);</pre>
 <pre class="code-block"> int main() {
-       printf(&quot;%.4f
- &quot;, hypotenuse(3.0, 4.0));    // 5.0000
+       printf(&quot;%.4f\n&quot;, hypotenuse(3.0, 4.0));    // 5.0000
        return 0;
  }</pre>
 <h2 class="section" id="sec-13-2">13.2 Standard library imports</h2>
@@ -1665,11 +1555,9 @@ pre.code-block {
  }</pre>
 <pre class="code-block"> let r: Result&lt;int, string&gt; = divide(10, 2);
  if (r.ok == 1) {
-       printf(&quot;result: %d
- &quot;, r.value);
+       printf(&quot;result: %d\n&quot;, r.value);
  } else {
-       printf(&quot;error: %s
- &quot;, r.error);
+       printf(&quot;error: %s\n&quot;, r.error);
  }</pre>
 <p class="output"><em>Output:</em> result: 5</p>
 <h2 class="section" id="sec-15-2">15.2 list: dynamic arrays</h2>
@@ -1687,20 +1575,17 @@ pre.code-block {
  List_push(&amp;nums, 10);
  List_push(&amp;nums, 20);
  List_push(&amp;nums, 30);</pre>
-<pre class="code-block"> printf(&quot;len: %d
- &quot;, List_len(&amp;nums));        // 3</pre>
+<pre class="code-block"> printf(&quot;len: %d\n&quot;, List_len(&amp;nums));        // 3</pre>
 <pre class="code-block"> // for-in iterates a List directly
  for (x in nums) {
        printf(&quot;%d   &quot;, x);
  }
- printf(&quot;
- &quot;);</pre>
+ printf(&quot;\n&quot;);</pre>
 <pre class="code-block"> // Classic index loop also works
  for (int i = 0; i &lt; nums.size; i += 1) {
        printf(&quot;%d   &quot;, nums.data[i]);     // direct field access
  }
- printf(&quot;
- &quot;);</pre>
+ printf(&quot;\n&quot;);</pre>
 <pre class="code-block"> List_free(&amp;nums);</pre>
 <p class="output"><em>Output:</em> len: 3 10 20 30 10 20 30</p>
 <h2 class="section" id="sec-15-3">15.3 string: mutable text</h2>
@@ -1735,25 +1620,19 @@ pre.code-block {
  String_from(&amp;s, &quot;hello&quot;);
  String_push(&amp;s, &#x27;!&#x27;);                                      // hello!
  String_set(&amp;s, 0, &#x27;H&#x27;);                                    // Hello!
- printf(&quot;%s (len=%d)
- &quot;, String_cstr(&amp;s), String_len(&amp;s));
- printf(&quot;%c
- &quot;, String_char_at(&amp;s, 0));                   // H
- printf(&quot;%d
- &quot;, String_index_of(&amp;s, &#x27;l&#x27;));                // 2
- printf(&quot;%d
- &quot;, String_eq_cstr(&amp;s, &quot;Hello!&quot;)); // 1</pre>
+ printf(&quot;%s (len=%d)\n&quot;, String_cstr(&amp;s), String_len(&amp;s));
+ printf(&quot;%c\n&quot;, String_char_at(&amp;s, 0));                   // H
+ printf(&quot;%d\n&quot;, String_index_of(&amp;s, &#x27;l&#x27;));                // 2
+ printf(&quot;%d\n&quot;, String_eq_cstr(&amp;s, &quot;Hello!&quot;)); // 1</pre>
 <pre class="code-block"> let sub: String;
  String_init(&amp;sub, 8);
  String_substring(&amp;s, &amp;sub, 1, 4);                          // ello
  String_reverse(&amp;sub);
- printf(&quot;%s
- &quot;, String_cstr(&amp;sub));                       // olle</pre>
+ printf(&quot;%s\n&quot;, String_cstr(&amp;sub));                       // olle</pre>
 <pre class="code-block"> let num: String;
  String_init(&amp;num, 8);
  String_from_int(&amp;num, -2026);
- printf(&quot;%s -&gt; %d
- &quot;, String_cstr(&amp;num), String_to_int(&amp;num)); // -2026 -&gt; -2026</pre>
+ printf(&quot;%s -&gt; %d\n&quot;, String_cstr(&amp;num), String_to_int(&amp;num)); // -2026 -&gt; -2026</pre>
 <pre class="code-block"> String_free(&amp;s); String_free(&amp;sub); String_free(&amp;num);</pre>
 <p class="output"><em>Output:</em> Hello! (len=6) H 2 1 ello olle -2026 -&gt; -2026</p>
 <h2 class="section" id="sec-15-4">15.4 math: mathematical functions</h2>
@@ -1767,16 +1646,11 @@ pre.code-block {
  double ceil(double x)                           // round up
  double fmod(double x, double y)                 // floating-point remainder</pre>
 <pre class="code-block"> import &lt;math&gt;;</pre>
-<pre class="code-block"> printf(&quot;sqrt(2)         = %.6f
- &quot;, sqrt(2.0));
- printf(&quot;pow(2, 10) = %.0f
- &quot;,    pow(2.0, 10.0));
- printf(&quot;floor(3.7) = %.0f
- &quot;,    floor(3.7));
- printf(&quot;ceil(3.2)       = %.0f
- &quot;,    ceil(3.2));
- printf(&quot;fabs(-5.5) = %.1f
- &quot;,    fabs(-5.5));</pre>
+<pre class="code-block"> printf(&quot;sqrt(2)         = %.6f\n&quot;, sqrt(2.0));
+ printf(&quot;pow(2, 10) = %.0f\n&quot;,    pow(2.0, 10.0));
+ printf(&quot;floor(3.7) = %.0f\n&quot;,    floor(3.7));
+ printf(&quot;ceil(3.2)       = %.0f\n&quot;,    ceil(3.2));
+ printf(&quot;fabs(-5.5) = %.1f\n&quot;,    fabs(-5.5));</pre>
 <p class="output"><em>Output:</em> sqrt(2) = 1.414214 pow(2, 10) = 1024 floor(3.7) = 3 ceil(3.2) = 4 fabs(-5.5) = 5.5</p>
 <h2 class="section" id="sec-15-5">15.5 io: standard input/output</h2>
 <p>Wrappers for libc stdio. <code>printf</code> is the most common; you have been using it since Chapter 1:</p>
@@ -1801,10 +1675,8 @@ pre.code-block {
 <pre class="code-block"> *uint8 buf = alloc&lt;uint8&gt;(uint8)16);
  memset(buf, 0, 16);                        // zero the buffer
  memcpy(buf, &quot;Hello&quot;, 5);                   // copy 5 bytes
- printf(&quot;%d
- &quot;, memcmp(buf, &quot;Hello&quot;, 5));         // 0 = equal
- printf(&quot;%d
- &quot;, strlen(&quot;Eskiu&quot;));          // 5
+ printf(&quot;%d\n&quot;, memcmp(buf, &quot;Hello&quot;, 5));         // 0 = equal
+ printf(&quot;%d\n&quot;, strlen(&quot;Eskiu&quot;));          // 5
  free(buf);</pre>
 <p class="output"><em>Output:</em> 0 5</p>
 <h2 class="section" id="sec-15-7">15.7 fs: file I/O</h2>
@@ -1828,16 +1700,14 @@ pre.code-block {
 <pre class="code-block"> // Write a file
  *void f = fs_open(&quot;hello.txt&quot;, &quot;w&quot;);
  if (f != null) {
-       fs_puts(f, &quot;Hello from Eskiu
- &quot;);
+       fs_puts(f, &quot;Hello from Eskiu\n&quot;);
        fs_close(f);
  }</pre>
 <pre class="code-block"> // Read entire file at once
  int64 size = 0;
  *uint8 data = fs_read_all(&quot;hello.txt&quot;, &amp;size);
  if (data != null) {
-       printf(&quot;read %lld bytes
- &quot;, size);
+       printf(&quot;read %lld bytes\n&quot;, size);
        free(data);
  }</pre>
 <p class="output"><em>Output:</em> read 17 bytes</p>
@@ -1855,8 +1725,7 @@ pre.code-block {
 <pre class="code-block"> // lookup only
  int v = 0;
  if (Map_get&lt;int&gt;(&amp;m, &quot;hits&quot;, &amp;v) == 1) {
-       printf(&quot;%d
- &quot;, v);
+       printf(&quot;%d\n&quot;, v);
  }</pre>
 <pre class="code-block"> Map_free&lt;int&gt;(&amp;m);</pre>
 <p>Keys are copied on insert; the map owns them. Map_at returns a stable *V pointer into the value array, valid until the next insert that triggers a grow. For file uploads and binary payloads, pair with &lt;multipart&gt;:</p>
@@ -1884,8 +1753,7 @@ pre.code-block {
  slot[0] += 1;</pre>
 <pre class="code-block"> int v = 0;
  if (HashMap_get&lt;int,int&gt;(&amp;m, 42, &amp;v) == 1) {
-       printf(&quot;%d
- &quot;, v);
+       printf(&quot;%d\n&quot;, v);
  }
  HashMap_free&lt;int,int&gt;(&amp;m);</pre>
 <h2 class="section" id="sec-15-9">15.9 bytes: binary-safe byte buffer</h2>
@@ -2099,26 +1967,18 @@ pre.code-block {
  import &quot;uart.esk&quot;;
  import &quot;alloc.esk&quot;;</pre>
 <pre class="code-block"> void kernel_main() {
-       uart_puts(&quot;Eskiu v0.1 kernel\r
- &quot;);
-       uart_puts(&quot;No libc. No runtime. Just Eskiu.\r
- &quot;);</pre>
-<pre class="code-block">       uart_puts(&quot;UART base:   &quot;); uart_puthex(0x09000000); uart_puts(&quot;\r
- &quot;);
-       uart_puts(&quot;Heap start: &quot;); uart_puthex(0x40300000); uart_puts(&quot;\r
- &quot;);</pre>
+       uart_puts(&quot;Eskiu v0.1 kernel\r\n&quot;);
+       uart_puts(&quot;No libc. No runtime. Just Eskiu.\r\n&quot;);</pre>
+<pre class="code-block">       uart_puts(&quot;UART base:   &quot;); uart_puthex(0x09000000); uart_puts(&quot;\r\n&quot;);
+       uart_puts(&quot;Heap start: &quot;); uart_puthex(0x40300000); uart_puts(&quot;\r\n&quot;);</pre>
 <pre class="code-block">       *uint8 buf = alloc&lt;uint8&gt;(uint8)64);
        if (buf == null) {
-            uart_puts(&quot;alloc failed\r
- &quot;);
+            uart_puts(&quot;alloc failed\r\n&quot;);
        } else {
-            uart_puts(&quot;alloc(64):   &quot;); uart_puthex((int64) buf); uart_puts(&quot; ok\r
- &quot;);
+            uart_puts(&quot;alloc(64):   &quot;); uart_puthex((int64) buf); uart_puts(&quot; ok\r\n&quot;);
             free(buf);
        }</pre>
-<pre class="code-block">       uart_puts(&quot;\r
- Kernel halted.\r
- &quot;);
+<pre class="code-block">       uart_puts(&quot;\r\nKernel halted.\r\n&quot;);
        while (1) { asm(&quot;wfi&quot;); }     // wait for interrupt, idle loop
  }</pre>
 <p>The while(1) { asm(&quot;wfi&quot;); } at the end is the idle loop. wfi (wait for interrupt) is an ARM64 instruction that suspends the CPU until an interrupt arrives. Without it, the CPU would spin at full speed consuming power. With it, QEMU&#x27;s CPU simulation goes idle.</p>
@@ -2326,8 +2186,7 @@ pre.code-block {
  *int p = alloc&lt;int&gt;(1);
  *p = 42;
  free((*void)p);
- printf(&quot;%d
- &quot;, *p);        // WRONG: p is no longer valid</pre>
+ printf(&quot;%d\n&quot;, *p);        // WRONG: p is no longer valid</pre>
 <p>Fix: Set the pointer to <code>null</code> after freeing. A <code>null</code> dereference crashes immediately and tells you where, instead of silently returning garbage:</p>
 <pre class="code-block"> free(p);
  p = null;</pre>
@@ -2340,13 +2199,10 @@ pre.code-block {
 <h2 class="section" id="sec-22-3">22.3 Null dereference</h2>
 <p>You dereference a pointer that is <code>null</code>. This always crashes immediately with a segfault, one of the more honest bugs:</p>
 <pre class="code-block"> *int p = null;
- printf(&quot;%d
- &quot;, *p);        // WRONG: immediate crash</pre>
+ printf(&quot;%d\n&quot;, *p);        // WRONG: immediate crash</pre>
 <p>Fix: Check for <code>null</code> before any dereference:</p>
-<pre class="code-block"> if (p == null) { printf(&quot;no value
- &quot;); return; }
- printf(&quot;%d
- &quot;, *p);</pre>
+<pre class="code-block"> if (p == null) { printf(&quot;no value\n&quot;); return; }
+ printf(&quot;%d\n&quot;, *p);</pre>
 <h2 class="section" id="sec-22-4">22.4 Buffer overrun</h2>
 <p>You read or write past the end of an array. The memory beyond belongs to something else: another variable, heap metadata, or nothing. Writing past the end is a serious security vulnerability:</p>
 <pre class="code-block"> import &lt;mem&gt;;
@@ -2364,8 +2220,7 @@ pre.code-block {
 <p>A calculation produces a value that does not fit in the type. Signed integer overflow wraps silently. The result is wrong, no error is raised:</p>
 <pre class="code-block"> int x = 2147483647;        // INT_MAX
  int y = x + 1;             // WRONG: wraps to -2147483648
- printf(&quot;%d
- &quot;, y);         // -2147483648</pre>
+ printf(&quot;%d\n&quot;, y);         // -2147483648</pre>
 <p>Fix: Use <code>int64</code> for large values:</p>
 <pre class="code-block"> int64 x = 2147483647;
  int64 y = x + 1;        // 2147483648, correct</pre>
@@ -2607,8 +2462,7 @@ pre.code-block {
  extern int printf(string fmt, ...);</pre>
 <pre class="code-block"> void hello(HttpRequest* req, HttpResponse* res) {
        HttpResponse_header(res, &quot;Content-Type&quot;, &quot;text/plain&quot;);
-       HttpResponse_set_body(res, &quot;Hello from Eskiu async
- &quot;);
+       HttpResponse_set_body(res, &quot;Hello from Eskiu async\n&quot;);
  }</pre>
 <pre class="code-block"> int main() {
        int fd = net_tcp_listen(8080);
@@ -2652,8 +2506,7 @@ pre.code-block {
        chan_send&lt;int&gt;(ch, 20);
        Future&lt;int&gt;* f = consume(ch);
        // drive on event loop or poll directly
-       printf(&quot;%d
- &quot;, f.value);       // 30
+       printf(&quot;%d\n&quot;, f.value);       // 30
        free_future&lt;int&gt;(f);
        chan_free&lt;int&gt;(ch);
        return 0;
@@ -2681,14 +2534,10 @@ pre.code-block {
        }
        return -1;
  }</pre>
-<pre class="code-block"> printf(&quot;%d
- &quot;, eval(Lit(7)));            // 7
- printf(&quot;%d
- &quot;, eval(Add(3, 4)));         // 7
- printf(&quot;%d
- &quot;, eval(Neg(9)));            // -9
- printf(&quot;%d
- &quot;, eval(Zero));              // 0</pre>
+<pre class="code-block"> printf(&quot;%d\n&quot;, eval(Lit(7)));            // 7
+ printf(&quot;%d\n&quot;, eval(Add(3, 4)));         // 7
+ printf(&quot;%d\n&quot;, eval(Neg(9)));            // -9
+ printf(&quot;%d\n&quot;, eval(Zero));              // 0</pre>
 <p class="output"><em>Output:</em> 7 7 -9 0</p>
 <p>The compiler checks that every variant is covered. A missing arm is a compile error. A _ arm catches anything not listed above it:</p>
 <pre class="code-block"> int kind(Expr e) {
@@ -2707,19 +2556,15 @@ pre.code-block {
  Option&lt;int&gt; o = Some&lt;int&gt;(42);
  Option&lt;int&gt; n = None&lt;int&gt;();</pre>
 <pre class="code-block"> match o {
-       Some(v) -&gt; printf(&quot;got %d
- &quot;, v);         // got 42
-       None        -&gt; printf(&quot;nothing
- &quot;);
+       Some(v) -&gt; printf(&quot;got %d\n&quot;, v);         // got 42
+       None        -&gt; printf(&quot;nothing\n&quot;);
  }</pre>
 <pre class="code-block"> // Either&lt;A,B&gt;: one of two types
  Either&lt;int, string&gt; ok           = Left&lt;int,string&gt;(100);
  Either&lt;int, string&gt; err = Right&lt;int,string&gt;(&quot;fail&quot;);</pre>
 <pre class="code-block"> match ok {
-       Left(v)      -&gt; printf(&quot;value: %d
- &quot;, v);          // value: 100
-       Right(s) -&gt; printf(&quot;error: %s
- &quot;, s);
+       Left(v)      -&gt; printf(&quot;value: %d\n&quot;, v);          // value: 100
+       Right(s) -&gt; printf(&quot;error: %s\n&quot;, s);
  }</pre>
 <p>Option&lt;T&gt; is the alternative to <code>null</code> pointer checks. Either&lt;T,E&gt; is an alternative to <code>Result</code>&lt;T,E&gt; when you want to handle both cases symmetrically in a match rather than checking .ok.</p>
 <h2 class="section" id="sec-26-4">26.4 Generic enum definitions</h2>
@@ -2731,12 +2576,9 @@ pre.code-block {
  }</pre>
 <pre class="code-block"> Tree&lt;int&gt; t = Node&lt;int&gt;(3, 7);</pre>
 <pre class="code-block"> match t {
-       Leaf(v)     -&gt; printf(&quot;leaf %d
- &quot;, v);
-       Node(a, b) -&gt; printf(&quot;node %d %d
- &quot;, a, b);       // node 3 7
-       Empty       -&gt; printf(&quot;empty
- &quot;);
+       Leaf(v)     -&gt; printf(&quot;leaf %d\n&quot;, v);
+       Node(a, b) -&gt; printf(&quot;node %d %d\n&quot;, a, b);       // node 3 7
+       Empty       -&gt; printf(&quot;empty\n&quot;);
  }</pre>
 <pre class="code-block">        Complete specification of syntax, types, operators, stdlib, and CLI</pre>
 <div class="chapter-start" id="ref-r1"><span class="chapter-label ref">Ref R1</span>
