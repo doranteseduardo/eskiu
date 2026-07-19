@@ -22,6 +22,71 @@
 
 // ============================================================================
 
+// Map the --reloc string to an LLVM relocation model. 3DS .3dsx targets need
+// "static": the loader applies static relocations and has no dynamic loader to
+// populate a GOT, so PIC (GOT/PLT) code reads garbage and faults.
+static std::optional<llvm::Reloc::Model> parseRelocModel(const std::string& s) {
+    if (s == "static")         return llvm::Reloc::Static;
+    if (s == "dynamic-no-pic") return llvm::Reloc::DynamicNoPIC;
+    return llvm::Reloc::PIC_;   // default (empty or "pic")
+}
+
+// Register the code-emission backends eskiuc supports: AArch64 and 32-bit ARM
+// always, X86 only when the build links it (dynamic LLVM, or a non-Apple static
+// build; the static Apple release ships without X86 libs). `withAsm` also pulls in
+// the assembly printer/parser, which the object-emitting paths need.
+static void initCodegenTargets(bool withAsm) {
+    LLVMInitializeAArch64Target();
+    LLVMInitializeAArch64TargetInfo();
+    LLVMInitializeAArch64TargetMC();
+    LLVMInitializeARMTarget();
+    LLVMInitializeARMTargetInfo();
+    LLVMInitializeARMTargetMC();
+#ifdef ESKIU_HAS_X86
+    LLVMInitializeX86Target();
+    LLVMInitializeX86TargetInfo();
+    LLVMInitializeX86TargetMC();
+#endif
+    if (withAsm) {
+        LLVMInitializeAArch64AsmPrinter();
+        LLVMInitializeAArch64AsmParser();
+        LLVMInitializeARMAsmPrinter();
+        LLVMInitializeARMAsmParser();
+#ifdef ESKIU_HAS_X86
+        LLVMInitializeX86AsmPrinter();
+        LLVMInitializeX86AsmParser();
+#endif
+    }
+}
+
+// Build a TargetMachine for `triple`, applying the CPU, feature, relocation, and
+// float-ABI selection shared by every code-emitting path (returns nullptr when the
+// triple has no registered target). Centralizing this keeps the three call sites
+// from drifting: an earlier version set the hard-float ABI in module-gen and the
+// optimizer but not the object emitter, so the emitted object dropped the
+// Tag_ABI_VFP_args attribute that hard-float libraries like libctru require.
+static std::unique_ptr<llvm::TargetMachine> makeTargetMachine(
+        const CodeGen& cg, const llvm::Triple& triple, const std::string& tripleStr) {
+    std::string err;
+    const llvm::Target* target = llvm::TargetRegistry::lookupTarget(tripleStr, err);
+    if (!target) return nullptr;
+    bool isCross = !cg.targetTriple.empty() &&
+        cg.targetTriple != llvm::sys::getDefaultTargetTriple();
+    llvm::StringRef cpu = !cg.targetCPU.empty() ? llvm::StringRef(cg.targetCPU)
+        : (isCross ? llvm::StringRef("generic") : llvm::sys::getHostCPUName());
+    llvm::TargetOptions opt;
+    // Hard-float ABI for hard-float ARM triples (those ending in "hf", e.g. the
+    // 3DS's armv6k-none-eabihf). LLVM parses "eabihf" into the OS field, not the
+    // environment, so match the triple string directly. This makes LLVM emit the
+    // Tag_ABI_VFP_args "VFP registers" build attribute, required to link against
+    // hard-float libraries like libctru.
+    if (tripleStr.size() >= 2 && tripleStr.compare(tripleStr.size() - 2, 2, "hf") == 0)
+        opt.FloatABIType = llvm::FloatABI::Hard;
+    return std::unique_ptr<llvm::TargetMachine>(
+        target->createTargetMachine(triple, cpu, cg.targetFeatures, opt,
+                                    parseRelocModel(cg.relocModel)));
+}
+
 CodeGen::CodeGen()
     : context(std::make_unique<llvm::LLVMContext>()),
       module(std::make_unique<llvm::Module>("eskiu", *context)),
@@ -31,33 +96,13 @@ CodeGen::~CodeGen() = default;
 
 llvm::Module* CodeGen::generateCode(std::shared_ptr<Program> program) {
     // Set target triple + data layout early so sizeof queries work in alloc()
-    LLVMInitializeAArch64Target();
-    LLVMInitializeAArch64TargetInfo();
-    LLVMInitializeAArch64TargetMC();
-    LLVMInitializeAArch64AsmPrinter();
-    LLVMInitializeAArch64AsmParser();
-#ifdef ESKIU_HAS_X86
-    LLVMInitializeX86Target();
-    LLVMInitializeX86TargetInfo();
-    LLVMInitializeX86TargetMC();
-    LLVMInitializeX86AsmPrinter();
-    LLVMInitializeX86AsmParser();
-#endif
+    initCodegenTargets(/*withAsm=*/true);
     std::string tripleStr = targetTriple.empty()
         ? llvm::sys::getDefaultTargetTriple() : targetTriple;
     llvm::Triple triple(tripleStr);
     module->setTargetTriple(triple);
-    std::string terr;
-    const llvm::Target* target = llvm::TargetRegistry::lookupTarget(tripleStr, terr);
-    if (target) {
-        bool isCross = !targetTriple.empty() &&
-            targetTriple != llvm::sys::getDefaultTargetTriple();
-        auto cpu = isCross ? llvm::StringRef("generic") : llvm::sys::getHostCPUName();
-        llvm::TargetOptions opt;
-        std::unique_ptr<llvm::TargetMachine> tm(
-            target->createTargetMachine(triple, cpu, "", opt, llvm::Reloc::PIC_));
+    if (auto tm = makeTargetMachine(*this, triple, tripleStr))
         module->setDataLayout(tm->createDataLayout());
-    }
 
     program->accept(this);
 
@@ -85,12 +130,7 @@ void CodeGen::printIR() const {
 void CodeGen::optimizeModule() {
     if (optLevel == 0) return;
 
-    LLVMInitializeAArch64Target();
-    LLVMInitializeAArch64TargetInfo();
-    LLVMInitializeAArch64TargetMC();
-    LLVMInitializeX86Target();
-    LLVMInitializeX86TargetInfo();
-    LLVMInitializeX86TargetMC();
+    initCodegenTargets(/*withAsm=*/false);
 
     // Target-aware pipeline: give the PassBuilder a TargetMachine + DataLayout so
     // target heuristics (and the data layout the optimizer needs for, e.g., SROA)
@@ -100,17 +140,8 @@ void CodeGen::optimizeModule() {
     llvm::Triple triple(tripleStr);
     module->setTargetTriple(triple);
 
-    std::string err;
-    const llvm::Target* target = llvm::TargetRegistry::lookupTarget(tripleStr, err);
-    std::unique_ptr<llvm::TargetMachine> tm;
-    if (target) {
-        bool isCross = !targetTriple.empty() &&
-            targetTriple != llvm::sys::getDefaultTargetTriple();
-        auto cpu = isCross ? llvm::StringRef("generic") : llvm::sys::getHostCPUName();
-        llvm::TargetOptions opt;
-        tm.reset(target->createTargetMachine(triple, cpu, "", opt, llvm::Reloc::PIC_));
-        if (tm) module->setDataLayout(tm->createDataLayout());
-    }
+    std::unique_ptr<llvm::TargetMachine> tm = makeTargetMachine(*this, triple, tripleStr);
+    if (tm) module->setDataLayout(tm->createDataLayout());
 
     llvm::OptimizationLevel lvl;
     switch (optLevel) {
@@ -135,36 +166,18 @@ void CodeGen::optimizeModule() {
 }
 
 bool CodeGen::emitObjectFile(const std::string& filename) {
-    LLVMInitializeAArch64Target();
-    LLVMInitializeAArch64TargetInfo();
-    LLVMInitializeAArch64TargetMC();
-    LLVMInitializeAArch64AsmPrinter();
-    LLVMInitializeAArch64AsmParser();
-    LLVMInitializeX86Target();
-    LLVMInitializeX86TargetInfo();
-    LLVMInitializeX86TargetMC();
-    LLVMInitializeX86AsmPrinter();
-    LLVMInitializeX86AsmParser();
+    initCodegenTargets(/*withAsm=*/true);
 
     std::string tripleStr = targetTriple.empty()
         ? llvm::sys::getDefaultTargetTriple() : targetTriple;
     llvm::Triple triple(tripleStr);
     module->setTargetTriple(triple);
 
-    std::string err;
-    const llvm::Target* target = llvm::TargetRegistry::lookupTarget(tripleStr, err);
-    if (!target) {
-        std::cerr << "error: " << err << std::endl;
+    std::unique_ptr<llvm::TargetMachine> tm = makeTargetMachine(*this, triple, tripleStr);
+    if (!tm) {
+        std::cerr << "error: no registered target for triple '" << tripleStr << "'" << std::endl;
         return false;
     }
-
-    // Use native CPU for native compilation; generic CPU when cross-compiling
-    bool isCross = !targetTriple.empty() &&
-        targetTriple != llvm::sys::getDefaultTargetTriple();
-    auto cpu = isCross ? llvm::StringRef("generic") : llvm::sys::getHostCPUName();
-    llvm::TargetOptions opt;
-    std::unique_ptr<llvm::TargetMachine> tm(
-        target->createTargetMachine(triple, cpu, "", opt, llvm::Reloc::PIC_));
     module->setDataLayout(tm->createDataLayout());
 
     // Sanitizer instrumentation (new pass manager), run over the whole module

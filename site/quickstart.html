@@ -3,10 +3,13 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script>try{if(localStorage.getItem("eskiu-lang")==="es")location.replace("es/quickstart.html"+location.hash);}catch(e){}</script>
   <title>Quickstart · Eskiu</title>
   <meta name="description" content="Download Eskiu, write your first program, and run it. Hello world, structs with methods, manual alloc/free, and lambdas: the essentials in a few minutes." />
   <link rel="canonical" href="https://eskiu-lang.org/quickstart.html" />
   <link rel="icon" type="image/png" href="../assets/logo.png" />
+    <link rel="alternate" hreflang="en" href="https://eskiu-lang.org/quickstart.html" />
+    <link rel="alternate" hreflang="es" href="https://eskiu-lang.org/es/quickstart.html" />
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
@@ -33,6 +36,11 @@
     .top-links { margin-left: auto; display: flex; align-items: center; gap: 1.25rem; font-family: var(--mono); font-size: 0.82rem; }
     .top-links a { color: var(--ink2); }
     .top-links a:hover { color: var(--accent); text-decoration: none; }
+    .lang { display: inline-flex; align-items: center; gap: 0.35rem; font-family: var(--mono); font-size: 0.82rem; }
+    .lang .sep { color: var(--border); }
+    .lang a { color: var(--muted); cursor: pointer; }
+    .lang a:hover { color: var(--accent); text-decoration: none; }
+    .lang a.active { color: var(--ink); font-weight: 700; cursor: default; }
 
     .wrap { max-width: 720px; margin: 0 auto; padding: 2.75rem 1.25rem 4rem; }
     .eyebrow { font-family: var(--mono); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.12em;
@@ -72,11 +80,12 @@
 <body>
   <header class="top">
     <div class="top-in">
-      <a class="brand" href="index.html"><img src="../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.6.2</span></a>
+      <a class="brand" href="index.html"><img src="../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.7.0</span></a>
       <nav class="top-links">
         <a href="docs/index.html">docs</a>
         <a href="the-book-of-eskiu.html">book</a>
         <a href="https://github.com/doranteseduardo/eskiu">github</a>
+        <span class="lang"><a class="active" aria-current="page">EN</a><span class="sep">·</span><a href="es/quickstart.html" onclick="try{localStorage.setItem('eskiu-lang','es')}catch(e){}">ES</a></span>
       </nav>
     </div>
   </header>
@@ -94,8 +103,9 @@
       tarball, so imports work the moment it's unpacked.
     </p>
     <div class="btns">
-      <a class="btn-w" href="https://github.com/doranteseduardo/eskiu/releases/latest/download/eskiuc-linux-x86_64.tar.gz">↓ Linux (x86-64)</a>
-      <a class="btn-w" href="https://github.com/doranteseduardo/eskiu/releases/latest/download/eskiuc-macos-arm64.tar.gz">↓ macOS (Apple Silicon)</a>
+      <a class="btn-w" href="../assets/eskiuc-linux-x86_64.tar.gz">↓ Linux (x86-64)</a>
+      <a class="btn-w" href="../assets/eskiuc-macos-arm64.tar.gz">↓ macOS (Apple Silicon)</a>
+      <a class="btn-w" href="../assets/eskiuc-windows-x86_64.zip">↓ Windows (x86-64)</a>
     </div>
     <p>Unpack it into <code>/usr/local</code> and check the version:</p>
     <pre><code><span class="c"># macOS (Apple Silicon)</span>
@@ -104,8 +114,11 @@ tar -xzf eskiuc-macos-arm64.tar.gz -C /usr/local
 <span class="c"># Linux (x86-64)</span>
 tar -xzf eskiuc-linux-x86_64.tar.gz -C /usr/local
 
+<span class="c"># Windows (x86-64): unzip, then add the bin\ folder to PATH</span>
+Expand-Archive eskiuc-windows-x86_64.zip -DestinationPath C:\eskiu
+
 eskiuc --version
-<span class="o">Eskiu 0.6.1 (LLVM ...)</span></code></pre>
+<span class="o">Eskiu 0.7.0 (LLVM ...)</span></code></pre>
     <p>The tarball installs:</p>
     <ul>
       <li><code>bin/eskiuc</code>: the compiler</li>

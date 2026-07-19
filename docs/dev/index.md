@@ -38,6 +38,7 @@ Each test mode exits 0 on success and prints a human-readable dump to stdout. A 
 | [`abi.md`](abi.md)            | Type lowering, calling convention (sret, varargs), fat pointers, name mangling: the C-ABI contract |
 | [`phases.md`](phases.md)         | Current language status, feature table, and roadmap (v0.1 → v0.2.x hardening → v0.3.x self-hosting → v0.4 correctness → v0.5 basic-C → v0.6 memory-safety → v1.0)  |
 | [`self-hosting.md`](self-hosting.md) | How the compiler is written in Eskiu (`selfhost/`) and how parity/bootstrap keep it honest |
+| [`cross-compile.md`](cross-compile.md) | Cross-compiling with `--target`/`--mcpu`/`--mattr`/`--reloc`; hard-float ARM + 3DS `.3dsx`, and Windows x86-64 COFF/PE |
 | [`contributing.md`](contributing.md)   | Branch workflow, code style, commit conventions, testing checklist                             |
 | [`design.md`](design.md)         | Rationale for key decisions: C-style syntax, no GC, implicit interfaces, monomorphic templates |
 | [`async-design.md`](async-design.md) | The async/await lowering: `Future`, the event loop, and the coroutine state machine |

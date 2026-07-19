@@ -389,6 +389,15 @@ void TypeChecker::checkUninitPrefix(BlockStmt* body) {
 }
 
 void TypeChecker::visit(VarDecl* node) {
+    // `extern <type> <name>;` names a variable defined in another translation unit
+    // (a C global). It lives at top level and carries no initializer.
+    if (node->isExtern) {
+        if (scopes.size() > 1)
+            errorAt(node, "'extern' is only allowed on a top-level variable");
+        if (node->initializer)
+            errorAt(node, "an 'extern' variable cannot have an initializer");
+    }
+
     // `static` is a local-only qualifier whose initializer must be a compile-time
     // constant (it runs once, at load time), as in C.
     if (node->isStatic) {
@@ -464,8 +473,9 @@ void TypeChecker::visit(VarDecl* node) {
             }
         }
     }
-    // A const must be initialized — there is no later point to assign it.
-    if (node->isConst && !node->initializer) {
+    // A const must be initialized — there is no later point to assign it. An
+    // `extern const` is the exception: its definition (and value) lives elsewhere.
+    if (node->isConst && !node->initializer && !node->isExtern) {
         errorAt(node, "const '" + node->name + "' must be initialized");
     }
 

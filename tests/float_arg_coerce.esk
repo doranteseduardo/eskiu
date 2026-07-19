@@ -1,0 +1,13 @@
+extern int printf(string fmt, ...);
+
+float scale(float x, float k) { return x * k; }
+int   addf(float a, float b, float c) { return (int)(a + b + c); }
+
+int main() {
+    // double literals passed to float parameters must narrow at the call site
+    // (previously the reference compiler emitted mistyped IR and failed verification).
+    float r = scale(3.5, 2.0);
+    printf("%.1f\n", (double)r);
+    printf("%d\n", addf(1.5, 2.5, 3.0));
+    return 0;
+}

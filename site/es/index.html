@@ -1,0 +1,587 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Eskiu: un lenguaje de sistemas auto-hospedado</title>
+    <meta name="description" content="Eskiu es un lenguaje de sistemas compilado con async/await, tipos suma, genéricos, HTTP/2 y atómicos. Backend LLVM, memoria manual, compila a un binario independiente. Auto-hospedado desde la v0.3.0." />
+    <meta name="theme-color" content="#ffffff" />
+    <link rel="icon" type="image/png" href="../assets/logo.png" />
+    <link rel="canonical" href="https://eskiu-lang.org/es/index.html" />
+    <link rel="alternate" hreflang="en" href="https://eskiu-lang.org/index.html" />
+    <link rel="alternate" hreflang="es" href="https://eskiu-lang.org/es/index.html" />
+    <link rel="alternate" hreflang="x-default" href="https://eskiu-lang.org/index.html" />
+    <style>
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+      :root {
+        --bg: #ffffff;
+        --surface: #f6f8fa;
+        --border: #d0d7de;
+        --border-mut: #e4e8ed;
+        --ink: #1f2328;
+        --ink2: #424a53;
+        --muted: #6e7781;
+        --accent: #4c31bb;
+        --accent-lt: #6448d4;
+        --inline: rgba(120, 110, 180, 0.12);
+        --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+        --mono: ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+      }
+      html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+      body { background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 16px; line-height: 1.7; -webkit-font-smoothing: antialiased; }
+      a { color: var(--accent); text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      p { margin: 0 0 1rem; }
+      h1, h2, h3 { line-height: 1.25; letter-spacing: -0.01em; }
+      code {
+        font-family: var(--mono); font-size: 0.86em;
+        background: var(--inline); padding: 0.15em 0.4em; border-radius: 4px;
+      }
+
+      /* Top bar */
+      header.top { border-bottom: 1px solid var(--border); background: var(--bg); position: sticky; top: 0; z-index: 30; }
+      .top-in { max-width: 1080px; margin: 0 auto; padding: 0 1.25rem; height: 54px; display: flex; align-items: center; gap: 0.55rem; }
+      .brand { display: flex; align-items: center; gap: 0.5rem; font-family: var(--mono); font-weight: 700; font-size: 1.02rem; color: var(--ink); }
+      .brand:hover { text-decoration: none; }
+      .brand img { width: 24px; height: 24px; }
+      .brand .v { font-family: var(--mono); font-size: 0.68rem; color: var(--muted); font-weight: 500; }
+      .top-links { margin-left: auto; display: flex; align-items: center; gap: 1.25rem; font-family: var(--mono); font-size: 0.82rem; }
+      .top-links a { color: var(--ink2); }
+      .top-links a:hover { color: var(--accent); text-decoration: none; }
+      .lang { display: inline-flex; align-items: center; gap: 0.35rem; font-family: var(--mono); font-size: 0.82rem; }
+      .lang .sep { color: var(--border); }
+      .lang a { color: var(--muted); cursor: pointer; }
+      .lang a:hover { color: var(--accent); text-decoration: none; }
+      .lang a.active { color: var(--ink); font-weight: 700; cursor: default; }
+
+      /* Layout */
+      .shell { max-width: 1080px; margin: 0 auto; padding: 0 1.25rem; display: flex; gap: 2.5rem; align-items: flex-start; }
+      .toc { display: none; }
+      @media (min-width: 940px) {
+        .toc {
+          display: block; position: sticky; top: 54px; width: 210px; flex-shrink: 0;
+          padding: 2.5rem 0; max-height: calc(100vh - 54px); overflow: auto;
+        }
+      }
+      .toc-title { font-family: var(--mono); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 0.7rem; }
+      .toc ol { list-style: none; }
+      .toc li { margin: 0; }
+      .toc a { display: block; font-family: var(--mono); font-size: 0.8rem; color: var(--ink2); padding: 0.28rem 0.6rem; border-left: 2px solid var(--border-mut); }
+      .toc a:hover { color: var(--accent); text-decoration: none; border-left-color: var(--accent-lt); }
+      .toc a.active { color: var(--accent); border-left-color: var(--accent); font-weight: 600; }
+      .toc a .n { color: var(--muted); margin-right: 0.5rem; }
+      .toc a.active .n { color: var(--accent); }
+
+      .content { flex: 1 1 auto; min-width: 0; max-width: 780px; padding: 2.5rem 0 4rem; }
+      @media (min-width: 940px) { .content { padding-top: 3rem; } }
+
+      /* Intro */
+      .intro { display: flex; flex-direction: column-reverse; gap: 1.5rem; padding-bottom: 2rem; border-bottom: 1px solid var(--border); margin-bottom: 2.25rem; }
+      @media (min-width: 620px) { .intro { flex-direction: row; align-items: center; gap: 2rem; } }
+      .intro-txt { flex: 1 1 auto; min-width: 0; }
+      .intro h1 { font-size: clamp(1.7rem, 4.5vw, 2.3rem); font-weight: 700; margin-bottom: 0.5rem; font-family: var(--mono); letter-spacing: -0.03em; }
+      .intro .tagline { color: var(--muted); font-family: var(--mono); font-size: 0.9rem; margin-bottom: 1rem; }
+      .intro p { color: var(--ink2); font-size: 1.02rem; margin-bottom: 0; }
+      .intro-fig { flex-shrink: 0; align-self: center; }
+      .intro-fig img { width: 132px; height: auto; border-radius: 50%; display: block; }
+      @media (min-width: 620px) { .intro-fig img { width: 176px; } }
+
+      /* Install */
+      .btnrow { display: flex; gap: 0.6rem; flex-wrap: wrap; margin: 0.6rem 0 1.35rem; }
+      .btnrow:first-of-type { margin-top: 1.4rem; }
+      .btn { display: inline-flex; align-items: center; gap: 0.35rem; font-family: var(--mono); font-weight: 600; font-size: 0.83rem; padding: 0.5rem 1rem; border-radius: 7px; border: 1px solid var(--border); background: var(--bg); color: var(--ink); cursor: pointer; transition: all 0.12s; }
+      .btn:hover { border-color: var(--accent); color: var(--accent); text-decoration: none; }
+      .btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+      .btn-primary:hover { background: var(--accent-lt); border-color: var(--accent-lt); color: #fff; }
+
+      /* Sections */
+      section { scroll-margin-top: 68px; padding-top: 1.5rem; }
+      h2 { font-size: 1.5rem; font-weight: 700; margin: 0 0 1rem; padding-bottom: 0.4rem; border-bottom: 1px solid var(--border); font-family: var(--mono); }
+      h2 .num { color: var(--muted); font-weight: 500; margin-right: 0.55rem; }
+      h3 { font-size: 1.08rem; font-weight: 600; margin: 1.75rem 0 0.6rem; font-family: var(--mono); }
+      .content ul { margin: 0 0 1rem 1.3rem; }
+      .content li { margin-bottom: 0.35rem; color: var(--ink2); }
+      .content li code { font-size: 0.86em; }
+
+      /* Code blocks */
+      pre { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 0.9rem 1.1rem; margin: 0 0 1.35rem; overflow-x: auto; font-family: var(--mono); font-size: 0.82rem; line-height: 1.7; color: var(--ink); }
+      pre code { background: none; padding: 0; font-size: inherit; }
+      .fname { font-family: var(--mono); font-size: 0.72rem; color: var(--muted); margin: 0 0 0.4rem; }
+      .fname::before { content: "// "; }
+      .kw { color: #cf222e; }
+      .ty { color: #953800; }
+      .fn { color: #8250df; }
+      .st { color: #0a3069; }
+      .cm { color: #6e7781; font-style: italic; }
+      .nu { color: #0550ae; }
+      .aw { color: #cf222e; font-weight: 600; }
+      .op { color: #0550ae; }
+
+      /* Table */
+      .tablewrap { overflow-x: auto; margin: 0 0 1.35rem; border: 1px solid var(--border); border-radius: 8px; }
+      table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+      th, td { text-align: left; padding: 0.65rem 0.9rem; border-bottom: 1px solid var(--border-mut); vertical-align: top; }
+      thead th { font-family: var(--mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); background: var(--surface); }
+      tbody tr:last-child td { border-bottom: none; }
+      td .metric { font-family: var(--mono); font-weight: 700; color: var(--accent); }
+
+      /* Playground */
+      .pg { margin: 1rem 0 0.5rem; }
+      .pg-grid { display: grid; grid-template-columns: 1fr; gap: 0.85rem; }
+      @media (min-width: 760px) { .pg-grid { grid-template-columns: 1fr 1fr; } }
+      .pg-panel { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; min-height: 300px; background: var(--surface); }
+      .pg-bar { border-bottom: 1px solid var(--border); padding: 0.4rem 0.75rem; font-family: var(--mono); font-size: 0.7rem; color: var(--muted); display: flex; justify-content: space-between; background: var(--bg); }
+      .pg-editor { flex: 1; width: 100%; border: none; outline: none; resize: vertical; background: var(--surface); color: var(--ink); font-family: var(--mono); font-size: 0.8rem; line-height: 1.7; padding: 0.8rem 0.95rem; tab-size: 4; white-space: pre; overflow-x: auto; min-height: 260px; }
+      .pg-out { flex: 1; margin: 0; padding: 0.8rem 0.95rem; font-family: var(--mono); font-size: 0.8rem; line-height: 1.7; color: var(--ink2); overflow: auto; white-space: pre-wrap; word-break: break-word; background: var(--surface); }
+      .pg-out .ok { color: #1a7f37; } .pg-out .err { color: #cf222e; } .pg-out .meta, .pg-out .hint { color: var(--muted); }
+      .pg-controls { display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap; margin-top: 0.85rem; }
+      .pg-run { display: inline-flex; align-items: center; gap: 0.4rem; background: var(--accent); color: #fff; font-family: var(--mono); font-weight: 600; font-size: 0.82rem; border: 1px solid var(--accent); padding: 0.45rem 1rem; border-radius: 7px; cursor: pointer; transition: background 0.12s; }
+      .pg-run:hover:not(:disabled) { background: var(--accent-lt); }
+      .pg-run:disabled { opacity: 0.6; cursor: progress; }
+      .pg-examples { display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap; margin-left: auto; }
+      .pg-ex { background: var(--bg); border: 1px solid var(--border); color: var(--ink2); font-family: var(--mono); font-size: 0.72rem; padding: 0.28rem 0.55rem; border-radius: 6px; cursor: pointer; transition: all 0.12s; }
+      .pg-ex:hover { border-color: var(--accent); color: var(--accent); }
+      .pg-note { font-family: var(--mono); font-size: 0.76rem; color: var(--muted); margin-top: 0.85rem; }
+      .spin { width: 12px; height: 12px; border: 2px solid rgba(255, 255, 255, 0.4); border-top-color: #fff; border-radius: 50%; animation: pg-spin 0.6s linear infinite; }
+      @keyframes pg-spin { to { transform: rotate(360deg); } }
+
+      /* Footer */
+      footer { border-top: 1px solid var(--border); }
+      .footer-in { max-width: 1080px; margin: 0 auto; padding: 1.5rem 1.25rem; display: flex; align-items: center; gap: 1.25rem; flex-wrap: wrap; font-family: var(--mono); font-size: 0.78rem; }
+      .footer-in .fl { display: flex; gap: 1.1rem; flex-wrap: wrap; }
+      .footer-in a { color: var(--ink2); }
+      .footer-in a:hover { color: var(--accent); text-decoration: none; }
+      .footer-in .cp { margin-left: auto; color: var(--muted); }
+
+    </style>
+  </head>
+  <body>
+    <header class="top">
+      <div class="top-in">
+        <a class="brand" href="#"><img src="../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.7.0</span></a>
+        <nav class="top-links">
+          <a href="../docs/index.html">docs</a>
+          <a href="../the-book-of-eskiu.html">libro</a>
+          <a href="https://github.com/doranteseduardo/eskiu">github</a>
+          <span class="lang"><a href="../index.html" onclick="try{localStorage.setItem('eskiu-lang','en')}catch(e){}">EN</a><span class="sep">·</span><a class="active" aria-current="page">ES</a></span>
+        </nav>
+      </div>
+    </header>
+
+    <div class="shell">
+      <!-- TOC -->
+      <aside class="toc">
+        <div class="toc-title">Contenido</div>
+        <ol id="toc-list">
+          <li><a href="#overview"><span class="n">1</span>Vista general</a></li>
+          <li><a href="#types"><span class="n">2</span>Tipos y matching</a></li>
+          <li><a href="#generics"><span class="n">3</span>Genéricos</a></li>
+          <li><a href="#concurrency"><span class="n">4</span>Concurrencia</a></li>
+          <li><a href="#toolchain"><span class="n">5</span>Herramientas</a></li>
+          <li><a href="#production"><span class="n">6</span>En producción</a></li>
+          <li><a href="#install"><span class="n">7</span>Instalación</a></li>
+        </ol>
+      </aside>
+
+      <!-- Content -->
+      <main class="content">
+        <div class="intro">
+          <div class="intro-txt">
+            <h1>eskiu</h1>
+            <p class="tagline">un lenguaje de sistemas que se compila a sí mismo</p>
+            <p>
+              Eskiu es un lenguaje de sistemas compilado y con tipado estático. Te da el poder de C
+              (memoria explícita, interoperabilidad directa con C, código nativo con LLVM) con la
+              agilidad de un lenguaje de scripting: <code>eskiuc run file.esk</code> compila y
+              ejecuta de una sola vez. Se compila a sí mismo desde la v0.3.0.
+            </p>
+          </div>
+          <div class="intro-fig"><img src="../assets/eskiu_round.jpg" alt="Mascota de Eskiu" /></div>
+        </div>
+
+        <div class="btnrow">
+          <a class="btn btn-primary" href="../assets/eskiuc-linux-x86_64.tar.gz">↓ Linux x86-64</a>
+          <a class="btn btn-primary" href="../assets/eskiuc-macos-arm64.tar.gz">↓ macOS arm64</a>
+          <a class="btn btn-primary" href="../assets/eskiuc-windows-x86_64.zip">↓ Windows x86-64</a>
+        </div>
+        <div class="btnrow">
+          <a class="btn" href="quickstart.html">Inicio rápido</a>
+          <a class="btn" href="#toolchain">Pruébalo en el navegador</a>
+          <a class="btn" href="../docs/index.html">Documentación</a>
+        </div>
+
+        <!-- 1 -->
+        <section id="overview">
+          <h2><span class="num">1.</span>Vista general</h2>
+          <p>
+            Eskiu compila con LLVM a un binario nativo independiente. No trae recolector de
+            basura ni un runtime administrado, así que lo único que despliegas es ese binario. La
+            sintaxis es de estilo C, así que lo básico se siente familiar; a eso la semántica le suma tipos suma, genéricos con
+            restricciones, <code>async</code>/await, canales, atómicos y una biblioteca estándar de
+            HTTP/2. El compilador está escrito en el propio Eskiu.
+          </p>
+          <p class="fname">hello.esk</p>
+<pre><span class="kw">extern</span> <span class="ty">int</span> <span class="fn">printf</span>(<span class="ty">string</span> fmt, ...);
+
+<span class="ty">int</span> <span class="fn">add</span>(<span class="ty">int</span> a, <span class="ty">int</span> b) {
+    <span class="kw">return</span> a + b;
+}
+
+<span class="ty">int</span> <span class="fn">main</span>() {
+    <span class="fn">printf</span>(<span class="st">"Hello from Eskiu!\n"</span>);
+    <span class="fn">printf</span>(<span class="st">"2 + 3 = %d\n"</span>, <span class="fn">add</span>(<span class="nu">2</span>, <span class="nu">3</span>));
+    <span class="kw">return</span> <span class="nu">0</span>;
+}</pre>
+<pre><span class="cm">$ eskiuc run hello.esk</span>
+Hello from Eskiu!
+2 + 3 = 5</pre>
+        </section>
+
+        <!-- 2 -->
+        <section id="types">
+          <h2><span class="num">2.</span>Tipos y matching</h2>
+          <p>
+            Los tipos suma (<code>enum</code>) llevan datos en cada variante, y el <code>match</code>
+            se verifica por exhaustividad en tiempo de compilación: el compilador rechaza un
+            <code>match</code> al que se le olvida un caso.
+          </p>
+          <p class="fname">parse_port.esk</p>
+<pre><span class="kw">enum</span> <span class="ty">ParseResult</span> {
+    <span class="ty">Port</span>(<span class="ty">int</span>),
+    <span class="ty">InvalidRange</span>(<span class="ty">int</span>),
+    <span class="ty">NotANumber</span>,
+}
+
+<span class="ty">ParseResult</span> <span class="fn">parse_port</span>(<span class="ty">string</span> s) {
+    <span class="kw">let</span> n: <span class="ty">int</span> = <span class="fn">atoi</span>(s);
+    <span class="kw">if</span> (n == <span class="nu">0</span>) { <span class="kw">return</span> <span class="ty">NotANumber</span>; }
+    <span class="kw">if</span> (n &lt; <span class="nu">1</span> || n &gt; <span class="nu">65535</span>) { <span class="kw">return</span> <span class="ty">InvalidRange</span>(n); }
+    <span class="kw">return</span> <span class="ty">Port</span>(n);
+}
+
+<span class="kw">match</span> <span class="fn">parse_port</span>(<span class="st">"8080"</span>) {
+    <span class="ty">Port</span>(p)         <span class="op">-&gt;</span> <span class="fn">printf</span>(<span class="st">"listening on :%d\n"</span>, p);
+    <span class="ty">InvalidRange</span>(n) <span class="op">-&gt;</span> <span class="fn">printf</span>(<span class="st">"%d out of range\n"</span>, n);
+    <span class="ty">NotANumber</span>      <span class="op">-&gt;</span> <span class="fn">printf</span>(<span class="st">"not a number\n"</span>);
+}</pre>
+        </section>
+
+        <!-- 3 -->
+        <section id="generics">
+          <h2><span class="num">3.</span>Genéricos</h2>
+          <p>
+            Las funciones y los tipos se parametrizan por tipo, con restricciones de interfaz. Una
+            restricción como <code>&lt;T: Ord&gt;</code> obliga a que <code>T</code> implemente la
+            interfaz, así que las llamadas se verifican y se monomorfizan en tiempo de compilación.
+          </p>
+          <p class="fname">max.esk</p>
+<pre><span class="kw">interface</span> <span class="ty">Ord</span> { <span class="ty">int</span> <span class="fn">cmp</span>(<span class="ty">Ord</span>* o); }
+
+<span class="kw">struct</span> <span class="ty">Coin</span> {
+    <span class="ty">int</span> value;
+    <span class="ty">int</span> <span class="fn">cmp</span>(<span class="ty">Coin</span>* o) { <span class="kw">if</span> (<span class="kw">self</span>.value &lt; o.value) { <span class="kw">return</span> <span class="op">-</span><span class="nu">1</span>; } <span class="kw">return</span> <span class="nu">1</span>; }
+}
+
+<span class="ty">T</span> <span class="fn">max</span>&lt;<span class="ty">T</span>: <span class="ty">Ord</span>&gt;(<span class="ty">T</span>* a, <span class="ty">T</span>* b) {
+    <span class="kw">if</span> (a.<span class="fn">cmp</span>(b) &gt; <span class="nu">0</span>) { <span class="kw">return</span> a[<span class="nu">0</span>]; }
+    <span class="kw">return</span> b[<span class="nu">0</span>];
+}
+
+<span class="kw">let</span> hi: <span class="ty">Coin</span> = <span class="fn">max</span>&lt;<span class="ty">Coin</span>&gt;(&amp;x, &amp;y);   <span class="cm">// hi.value == 7</span></pre>
+        </section>
+
+        <!-- 4 -->
+        <section id="concurrency">
+          <h2><span class="num">4.</span>Concurrencia</h2>
+          <p>
+            Las funciones <code>async</code> devuelven un <code>Future</code>; <code>await</code>
+            suspende la ejecución hasta que haya un valor listo. Los canales tipados
+            (<code>Chan&lt;T&gt;</code>) pasan valores entre tareas.
+          </p>
+          <p class="fname">sum_squares.esk</p>
+<pre><span class="kw">import</span> &lt;future&gt;;
+<span class="kw">import</span> &lt;channel&gt;;
+
+<span class="aw">async</span> <span class="ty">int</span> <span class="fn">sum_squares</span>(<span class="ty">Chan</span>&lt;<span class="ty">int</span>&gt;* ch) {
+    <span class="kw">let</span> a: <span class="ty">int</span> = <span class="aw">await</span> <span class="fn">chan_recv</span>(ch);
+    <span class="kw">let</span> b: <span class="ty">int</span> = <span class="aw">await</span> <span class="fn">chan_recv</span>(ch);
+    <span class="kw">let</span> c: <span class="ty">int</span> = <span class="aw">await</span> <span class="fn">chan_recv</span>(ch);
+    <span class="kw">return</span> a + b + c;
+}
+
+<span class="ty">Chan</span>&lt;<span class="ty">int</span>&gt;* ch = <span class="fn">chan_new</span>&lt;<span class="ty">int</span>&gt;(<span class="nu">8</span>);
+<span class="kw">for</span> (i <span class="kw">in</span> <span class="nu">1</span>..<span class="nu">4</span>) { <span class="fn">chan_send</span>(ch, i * i); }   <span class="cm">// 1, 4, 9 -> 14</span></pre>
+        </section>
+
+        <!-- 5 -->
+        <section id="toolchain">
+          <h2><span class="num">5.</span>Herramientas</h2>
+          <p>
+            Un solo binario, <code>eskiuc</code>, se encarga de todo. <code>eskiuc run</code> compila
+            y ejecuta de una vez; <code>eskiuc build</code> genera un binario nativo. La biblioteca
+            estándar viene incluida, así que los imports funcionan sin configurar nada.
+          </p>
+<pre><span class="cm">$ eskiuc run app.esk</span>          <span class="cm"># compila + ejecuta en un paso</span>
+<span class="cm">$ eskiuc build app.esk -o app</span>  <span class="cm"># emite un binario nativo independiente</span>
+<span class="cm">$ eskiuc --version</span></pre>
+          <h3>Pruébalo</h3>
+          <p>Edita el programa de abajo y córrelo. El servidor lo compila con LLVM y lo ejecuta con el mismo <code>eskiuc run</code>.</p>
+          <div class="pg">
+            <div class="pg-grid">
+              <div class="pg-panel">
+                <div class="pg-bar"><span>main.esk</span><span>editor</span></div>
+                <textarea id="pg-code" class="pg-editor" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" aria-label="Eskiu code editor"></textarea>
+              </div>
+              <div class="pg-panel">
+                <div class="pg-bar"><span>salida</span><span>stdout</span></div>
+                <pre id="pg-out" class="pg-out"><span class="hint">La salida aparece aquí. Presiona Ejecutar (o ⌘/Ctrl + Enter).</span></pre>
+              </div>
+            </div>
+            <div class="pg-controls">
+              <button id="pg-run" class="pg-run" onclick="runEskiu()"><span id="pg-run-label">▶ Ejecutar</span></button>
+              <div class="pg-examples">
+                <button class="pg-ex" onclick="loadExample('hello')">hello</button>
+                <button class="pg-ex" onclick="loadExample('basics')">basics</button>
+                <button class="pg-ex" onclick="loadExample('match')">match</button>
+                <button class="pg-ex" onclick="loadExample('generics')">generics</button>
+                <button class="pg-ex" onclick="loadExample('async')">async</button>
+              </div>
+            </div>
+            <p class="pg-note">aislado (sandbox): sin red, con límites de tiempo y memoria, salida acotada.</p>
+          </div>
+        </section>
+
+        <!-- 6 -->
+        <section id="production">
+          <h2><span class="num">6.</span>En producción</h2>
+          <p>Eskiu ya se usa para reemplazar código nativo sensible a la memoria y pipelines criptográficos en software que ya está en producción, y para llegar a hardware que un lenguaje de sistemas joven rara vez toca.</p>
+          <div class="tablewrap">
+            <table>
+              <thead><tr><th>Proyecto</th><th>Resultado</th><th>Detalle</th><th></th></tr></thead>
+              <tbody>
+                <tr>
+                  <td>ReactVision</td>
+                  <td><span class="metric">≈85%</span> menos memoria</td>
+                  <td>Módulos de renderizado AR/VR migrados desde C++, preservando la interoperabilidad con el ABI de C.</td>
+                  <td><a href="case-study-reactvision.html">caso de estudio</a></td>
+                </tr>
+                <tr>
+                  <td>INE decoder</td>
+                  <td><span class="metric">2.5×</span> más rápido que C</td>
+                  <td>Pipeline de QR de credencial (AES-256 + RSA-8192), idéntico bit a bit a otras cinco implementaciones.</td>
+                  <td><a href="case-study-ine.html">caso de estudio</a></td>
+                </tr>
+                <tr>
+                  <td>Nintendo 3DS</td>
+                  <td><span class="metric">en hardware</span> demo de AR</td>
+                  <td>AR con cámara y giroscopio renderizada con ViroCore sobre citro3d, su lógica en Eskiu sobre el ARM11.</td>
+                  <td><a href="case-study-3ds.html">caso de estudio</a></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>Ya lo usan: <a href="https://reactvision.xyz" target="_blank" rel="noopener">ReactVision</a>, <a href="https://themorrow.digital" target="_blank" rel="noopener">The Morrow Digital</a>.</p>
+        </section>
+
+        <!-- 7 -->
+        <section id="install">
+          <h2><span class="num">7.</span>Instalación</h2>
+          <p>Descarga un binario precompilado, descomprímelo en <code>/usr/local</code> y ejecuta <code>eskiuc --version</code>.</p>
+          <div class="btnrow">
+            <a class="btn btn-primary" href="../assets/eskiuc-linux-x86_64.tar.gz">↓ Linux x86-64</a>
+            <a class="btn btn-primary" href="../assets/eskiuc-macos-arm64.tar.gz">↓ macOS arm64</a>
+            <a class="btn btn-primary" href="../assets/eskiuc-windows-x86_64.zip">↓ Windows x86-64</a>
+            <a class="btn" href="quickstart.html">Inicio rápido →</a>
+          </div>
+<pre><span class="cm"># o compila desde el código fuente</span>
+<span class="cm">$ git clone https://github.com/doranteseduardo/eskiu</span>
+<span class="cm">$ cd eskiu &amp;&amp; make</span></pre>
+        </section>
+      </main>
+    </div>
+
+    <footer>
+      <div class="footer-in">
+        <div class="fl">
+          <a href="../the-book-of-eskiu.html">libro</a>
+          <a href="../docs/index.html">docs</a>
+          <a href="../docs/internals.html">internos</a>
+          <a href="../changelog.html">changelog</a>
+          <a href="https://github.com/doranteseduardo/eskiu">github</a>
+        </div>
+        <span class="cp">MIT · Eduardo Dorantes</span>
+      </div>
+    </footer>
+
+    <script>
+      try { localStorage.setItem('eskiu-lang', 'es'); } catch (e) {}
+      /* Active-section highlight in TOC */
+      (function () {
+        var links = Array.prototype.slice.call(document.querySelectorAll("#toc-list a"));
+        var map = {};
+        links.forEach(function (a) { map[a.getAttribute("href").slice(1)] = a; });
+        var obs = new IntersectionObserver(function (entries) {
+          entries.forEach(function (e) {
+            if (e.isIntersecting) {
+              links.forEach(function (l) { l.classList.remove("active"); });
+              if (map[e.target.id]) map[e.target.id].classList.add("active");
+            }
+          });
+        }, { rootMargin: "-64px 0px -70% 0px" });
+        document.querySelectorAll("main section[id]").forEach(function (s) { obs.observe(s); });
+      })();
+
+      /* ── Playground ──────────────────────────────────────────────── */
+      const PLAYGROUND_API = "https://eskiu-playground-4cb1.orvex.cloud";
+      const EXAMPLES = {
+        hello: `extern int printf(string fmt, ...);
+
+int add(int a, int b) {
+    return a + b;
+}
+
+int main() {
+    printf("Hello from Eskiu!\\n");
+    printf("2 + 3 = %d\\n", add(2, 3));
+    return 0;
+}
+`,
+        basics: `extern int printf(string fmt, ...);
+
+// A counter that remembers its state across calls (static local).
+int next_id() {
+    static int id = 0;
+    id++;                        // increment operator
+    return id;
+}
+
+int main() {
+    // Array-literal init; a short list zero-fills the rest.
+    int[5] fib = {0, 1, 1, 2, 3};
+
+    // do/while runs the body at least once.
+    int i = 0;
+    do {
+        int even = fib[i] % 2 == 0 ? 1 : 0;      // ternary
+        printf("fib[%d]=%d (%s)\\n", i, fib[i], even ? "even" : "odd");
+        i++;
+    } while (i < 5);
+
+    // Multidimensional array in C order: rows of columns.
+    int[2][3] grid = { {1, 2, 3}, {4, 5, 6} };
+    printf("grid[1][2] = %d\\n", grid[1][2]);     // 6
+
+    printf("ids: %d %d %d\\n", next_id(), next_id(), next_id());  // 1 2 3
+    return 0;
+}
+`,
+        match: `extern int printf(string fmt, ...);
+extern int atoi(string s);
+
+enum ParseResult {
+    Port(int),
+    InvalidRange(int),
+    NotANumber,
+}
+
+ParseResult parse_port(string s) {
+    let n: int = atoi(s);
+    if (n == 0) { return NotANumber; }
+    if (n < 1 || n > 65535) { return InvalidRange(n); }
+    return Port(n);
+}
+
+int main() {
+    match parse_port("8080") {
+        Port(p)         -> printf("Listening on :%d\\n", p);
+        InvalidRange(n) -> printf("%d out of range\\n", n);
+        NotANumber      -> printf("not a number\\n");
+    }
+    return 0;
+}
+`,
+        generics: `extern int printf(string fmt, ...);
+
+interface Ord { int cmp(Ord* o); }
+
+struct Coin {
+    int value;
+    int cmp(Coin* o) { if (self.value < o.value) { return -1; } return 1; }
+}
+
+T max<T: Ord>(T* a, T* b) {
+    if (a.cmp(b) > 0) { return a[0]; }
+    return b[0];
+}
+
+int main() {
+    let x: Coin;  x.value = 7;
+    let y: Coin;  y.value = 3;
+    let hi: Coin = max<Coin>(&x, &y);
+    printf("max = %d\\n", hi.value);   // max = 7
+    return 0;
+}
+`,
+        async: `extern int printf(string fmt, ...);
+import <future>;
+import <channel>;
+
+async int sum_squares(Chan<int>* ch) {
+    let a: int = await chan_recv(ch);
+    let b: int = await chan_recv(ch);
+    let c: int = await chan_recv(ch);
+    return a + b + c;
+}
+
+int main() {
+    Chan<int>* ch = chan_new<int>(8);
+    for (i in 1..4) { chan_send(ch, i * i); }   // 1, 4, 9
+    Future<int>* f = sum_squares(ch);
+    future_poll<int>(f, void() {});
+    printf("sum of squares = %d\\n", f.value);   // 14
+    free_future<int>(f);  chan_free<int>(ch);
+    return 0;
+}
+`,
+      };
+      function loadExample(name) { document.getElementById("pg-code").value = EXAMPLES[name]; }
+      function esc(s) { return s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]); }
+      async function runEskiu() {
+        const btn = document.getElementById("pg-run");
+        const label = document.getElementById("pg-run-label");
+        const out = document.getElementById("pg-out");
+        const code = document.getElementById("pg-code").value;
+        if (!code.trim()) { out.innerHTML = '<span class="err">Nada que ejecutar. Escribe código primero.</span>'; return; }
+        btn.disabled = true;
+        label.innerHTML = '<span class="spin"></span> Ejecutando';
+        out.innerHTML = '<span class="meta">Compilando y ejecutando…</span>';
+        try {
+          const res = await fetch(PLAYGROUND_API + "/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code }) });
+          const data = await res.json();
+          if (!data.ok) { out.innerHTML = '<span class="err">' + esc(data.error || "La solicitud falló.") + "</span>"; return; }
+          let html = "";
+          if (data.stdout) html += esc(data.stdout);
+          if (data.stderr) html += '<span class="err">' + esc(data.stderr) + "</span>";
+          if (!data.stdout && !data.stderr) html += '<span class="meta">(sin salida)</span>';
+          const parts = [];
+          if (data.timed_out) parts.push('<span class="err">tiempo agotado</span>');
+          else if (data.exit_code === 0) parts.push('<span class="ok">exit 0</span>');
+          else parts.push('<span class="err">exit ' + data.exit_code + "</span>");
+          if (typeof data.duration_ms === "number") parts.push(data.duration_ms + "ms");
+          if (data.truncated) parts.push("salida truncada");
+          html += '\n\n<span class="meta">' + parts.join(" · ") + "</span>";
+          out.innerHTML = html;
+        } catch (e) {
+          out.innerHTML = '<span class="err">No se pudo contactar el servidor del playground.</span>\n<span class="hint">El runner en vivo podría estar offline. Ejecuta localmente; ve el inicio rápido.</span>';
+        } finally { btn.disabled = false; label.textContent = "▶ Ejecutar"; }
+      }
+      (function () {
+        const ta = document.getElementById("pg-code");
+        if (ta) {
+          ta.value = EXAMPLES.hello;
+          ta.addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); runEskiu(); } });
+        }
+      })();
+    </script>
+  </body>
+</html>

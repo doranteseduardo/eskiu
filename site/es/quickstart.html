@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Inicio rápido · Eskiu</title>
+  <meta name="description" content="Descarga Eskiu, escribe tu primer programa y ejecútalo en minutos. Instalación, hola mundo, structs, alloc/free y lambdas." />
+  <link rel="canonical" href="https://eskiu-lang.org/quickstart.html" />
+  <link rel="icon" type="image/png" href="../assets/logo.png" />
+    <link rel="canonical" href="https://eskiu-lang.org/es/quickstart.html" />
+    <link rel="alternate" hreflang="en" href="https://eskiu-lang.org/quickstart.html" />
+    <link rel="alternate" hreflang="es" href="https://eskiu-lang.org/es/quickstart.html" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #ffffff; --surface: #f6f8fa; --border: #d0d7de; --border-mut: #e4e8ed;
+      --ink: #1f2328; --ink2: #424a53; --muted: #6e7781;
+      --accent: #4c31bb; --accent-lt: #6448d4;
+      --inline: rgba(120, 110, 180, 0.12);
+      --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+      --mono: ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+    }
+    html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+    body { background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 16px;
+           line-height: 1.7; -webkit-font-smoothing: antialiased; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* Top bar (shared with the homepage) */
+    header.top { border-bottom: 1px solid var(--border); background: var(--bg); position: sticky; top: 0; z-index: 30; }
+    .top-in { max-width: 720px; margin: 0 auto; padding: 0 1.25rem; height: 54px; display: flex; align-items: center; gap: 0.55rem; }
+    .brand { display: flex; align-items: center; gap: 0.5rem; font-family: var(--mono); font-weight: 700; font-size: 1.02rem; color: var(--ink); }
+    .brand:hover { text-decoration: none; }
+    .brand img { width: 24px; height: 24px; }
+    .brand .v { font-family: var(--mono); font-size: 0.68rem; color: var(--muted); font-weight: 500; }
+    .top-links { margin-left: auto; display: flex; align-items: center; gap: 1.25rem; font-family: var(--mono); font-size: 0.82rem; }
+    .top-links a { color: var(--ink2); }
+    .top-links a:hover { color: var(--accent); text-decoration: none; }
+    .lang { display: inline-flex; align-items: center; gap: 0.35rem; font-family: var(--mono); font-size: 0.82rem; }
+    .lang .sep { color: var(--border); }
+    .lang a { color: var(--muted); cursor: pointer; }
+    .lang a:hover { color: var(--accent); text-decoration: none; }
+    .lang a.active { color: var(--ink); font-weight: 700; cursor: default; }
+
+    .wrap { max-width: 720px; margin: 0 auto; padding: 2.75rem 1.25rem 4rem; }
+    .eyebrow { font-family: var(--mono); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.12em;
+               text-transform: uppercase; color: var(--accent); margin-bottom: 0.6rem; }
+    h1 { font-family: var(--mono); font-size: clamp(1.8rem, 5vw, 2.6rem); font-weight: 700;
+         letter-spacing: -0.03em; line-height: 1.1; margin-bottom: 1rem; }
+    .lede { font-size: 1.1rem; color: var(--ink2); margin-bottom: 1.75rem; }
+    h2 { font-family: var(--mono); font-size: 1.3rem; font-weight: 700; letter-spacing: -0.01em; margin: 2.75rem 0 0.75rem; }
+    p { margin: 0 0 1rem; }
+    ul { margin: 0 0 1rem 1.1rem; }
+    li { margin-bottom: 0.4rem; color: var(--ink2); }
+    strong { font-weight: 600; }
+    code { font-family: var(--mono); font-size: 0.86em; background: var(--inline); padding: 0.15em 0.4em; border-radius: 4px; }
+    pre { background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+          padding: 0.9rem 1.1rem; margin: 0 0 1.5rem; overflow-x: auto;
+          font-family: var(--mono); font-size: 0.8rem; line-height: 1.75; color: var(--ink); }
+    pre code { background: none; padding: 0; font-size: inherit; color: inherit; }
+    pre .c { color: var(--muted); }        /* comment / prompt */
+    pre .o { color: #1a7f37; }             /* output */
+    .btns { display: flex; gap: 0.6rem; flex-wrap: wrap; margin: 0 0 1rem; }
+    .btn-w { display: inline-flex; align-items: center; gap: 0.35rem; font-family: var(--mono); font-weight: 600;
+             font-size: 0.83rem; background: var(--accent); color: #fff; border: 1px solid var(--accent);
+             padding: 0.5rem 1rem; border-radius: 7px; text-decoration: none; transition: background 0.12s; }
+    .btn-w:hover { background: var(--accent-lt); text-decoration: none; }
+    .note { font-size: 0.88rem; color: var(--muted); }
+
+    /* Footer (shared with the homepage) */
+    footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
+    .footer-in { max-width: 720px; margin: 0 auto; padding: 1.5rem 1.25rem; display: flex; align-items: center;
+                 gap: 1.25rem; flex-wrap: wrap; font-family: var(--mono); font-size: 0.78rem; }
+    .footer-in .fl { display: flex; gap: 1.1rem; flex-wrap: wrap; }
+    .footer-in a { color: var(--ink2); }
+    .footer-in a:hover { color: var(--accent); text-decoration: none; }
+    .footer-in .cp { margin-left: auto; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <header class="top">
+    <div class="top-in">
+      <a class="brand" href="index.html"><img src="../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.7.0</span></a>
+      <nav class="top-links">
+        <a href="../docs/index.html">docs</a>
+        <a href="../the-book-of-eskiu.html">libro</a>
+        <a href="https://github.com/doranteseduardo/eskiu">github</a>
+        <span class="lang"><a href="../quickstart.html" onclick="try{localStorage.setItem('eskiu-lang','en')}catch(e){}">EN</a><span class="sep">·</span><a class="active" aria-current="page">ES</a></span>
+      </nav>
+    </div>
+  </header>
+  <div class="wrap">
+    <div class="eyebrow">Inicio rápido</div>
+    <h1>Pon Eskiu a correr</h1>
+    <p class="lede">
+      Descarga un binario precompilado, escribe tu primer programa y córrelo. Unos cuantos
+      minutos de principio a fin, sin toolchain que armar.
+    </p>
+
+    <h2>Instalación</h2>
+    <p>
+      Descarga el build de tu plataforma. La biblioteca estándar viene dentro del
+      tarball, así que los imports jalan en cuanto lo descomprimes.
+    </p>
+    <div class="btns">
+      <a class="btn-w" href="../assets/eskiuc-linux-x86_64.tar.gz">↓ Linux (x86-64)</a>
+      <a class="btn-w" href="../assets/eskiuc-macos-arm64.tar.gz">↓ macOS (Apple Silicon)</a>
+      <a class="btn-w" href="../assets/eskiuc-windows-x86_64.zip">↓ Windows (x86-64)</a>
+    </div>
+    <p>Descomprímelo en <code>/usr/local</code> y verifica la versión:</p>
+    <pre><code><span class="c"># macOS (Apple Silicon)</span>
+tar -xzf eskiuc-macos-arm64.tar.gz -C /usr/local
+
+<span class="c"># Linux (x86-64)</span>
+tar -xzf eskiuc-linux-x86_64.tar.gz -C /usr/local
+
+<span class="c"># Windows (x86-64): descomprime y agrega la carpeta bin\ al PATH</span>
+Expand-Archive eskiuc-windows-x86_64.zip -DestinationPath C:\eskiu
+
+eskiuc --version
+<span class="o">Eskiu 0.7.0 (LLVM ...)</span></code></pre>
+    <p>El tarball instala:</p>
+    <ul>
+      <li><code>bin/eskiuc</code>: el compilador</li>
+      <li><code>lib/eskiu/stdlib/</code>: la biblioteca estándar</li>
+    </ul>
+    <p class="note">
+      El enlazado necesita un toolchain de C en tu equipo (<code>clang</code> o
+      <code>gcc</code>), el mismo que invocan Rust y Clang para producir un binario.
+      macOS lo trae con las herramientas de línea de comandos de Xcode; en Linux, instala
+      <code>build-essential</code> (o <code>gcc</code>).
+    </p>
+
+    <h2>Hola, Eskiu</h2>
+    <p>Crea <code>hello.esk</code>:</p>
+    <pre><code>extern int printf(string fmt, ...);
+
+int add(int a, int b) {
+    return a + b;
+}
+
+int main() {
+    int result = add(5, 3);
+    printf("Hello from Eskiu!\n");
+    printf("Result: %d\n", result);
+    return 0;
+}</code></pre>
+    <p>
+      Compílalo y córrelo de una vez. <code>eskiuc run</code> arma un binario
+      nativo temporal, lo ejecuta y limpia todo al final:
+    </p>
+    <pre><code>eskiuc run hello.esk
+<span class="o">Hello from Eskiu!
+Result: 8</span></code></pre>
+    <p>
+      O quédate con el binario. Cuando el nombre de <code>-o</code> no termina en
+      <code>.o</code>, <code>eskiuc</code> te lo enlaza como ejecutable:
+    </p>
+    <pre><code>eskiuc hello.esk -o hello && ./hello</code></pre>
+    <p>¿Quieres solo el archivo objeto? Usa un nombre <code>.o</code> y enlázalo tú:</p>
+    <pre><code>eskiuc hello.esk -o hello.o && clang hello.o -o hello && ./hello</code></pre>
+
+    <h2>Un struct con un método</h2>
+    <p>
+      Los structs guardan datos. Los métodos son funciones normales que reciben un puntero
+      al struct como primer argumento.
+    </p>
+    <pre><code>extern int printf(string fmt, ...);
+
+struct Point {
+    int x;
+    int y;
+}
+
+int Point_sum(Point* self) {
+    return self.x + self.y;
+}
+
+int main() {
+    let p: Point;
+    p.x = 3;
+    p.y = 7;
+    int s = Point_sum(&p);
+    printf("sum = %d\n", s);   <span class="c">// sum = 10</span>
+    return 0;
+}</code></pre>
+
+    <h2>alloc / free con aritmética de punteros</h2>
+    <p>
+      <code>alloc&lt;T&gt;(n)</code> (de la stdlib <code>&lt;mem&gt;</code>)
+      reserva <code>n</code> elementos de tipo <code>T</code> y devuelve un puntero
+      tipado. Indexa con <code>[]</code>. Llama a <code>free</code> cuando termines: la memoria corre por tu cuenta.
+    </p>
+    <pre><code>import &lt;mem&gt;;
+extern int printf(string fmt, ...);
+
+int main() {
+    *int buf = alloc&lt;int&gt;(4);
+    buf[0] = 10;
+    buf[1] = 20;
+    buf[2] = 30;
+    buf[3] = 40;
+    int sum = buf[0] + buf[1] + buf[2] + buf[3];
+    printf("sum = %d\n", sum);   <span class="c">// sum = 100</span>
+    free(buf);
+    return 0;
+}</code></pre>
+
+    <h2>Lambdas</h2>
+    <p>
+      Las funciones son valores de primera clase. Una lambda se escribe con la misma sintaxis
+      que una función normal, solo que sin nombre:
+    </p>
+    <pre><code>extern int printf(string fmt, ...);
+
+int apply(fn(int)->int f, int x) {
+    return f(x);
+}
+
+int main() {
+    let double_it: fn(int)->int = int(int x) { return x * 2; };
+    printf("%d\n", double_it(5));          <span class="c">// 10</span>
+    printf("%d\n", apply(double_it, 4));   <span class="c">// 8</span>
+    return 0;
+}</code></pre>
+    <p>
+      <code>fn(int)-&gt;int</code> es el tipo de puntero a función. La lambda
+      <code>int(int x) { ... }</code> produce un valor de ese tipo.
+    </p>
+
+    <h2>Qué sigue</h2>
+    <ul>
+      <li><a href="index.html#toolchain">Prueba Eskiu en tu navegador</a>: sin instalar nada.</li>
+      <li><a href="../the-book-of-eskiu.html">El Libro de Eskiu</a>: la guía completa del lenguaje.</li>
+      <li><a href="index.html#toolchain">Más ejemplos</a>: async, tipos suma, genéricos, servidores.</li>
+    </ul>
+  </div>
+  <footer>
+    <div class="footer-in">
+      <div class="fl">
+        <a href="index.html">home</a>
+        <a href="../docs/index.html">docs</a>
+        <a href="../the-book-of-eskiu.html">libro</a>
+        <a href="../changelog.html">changelog</a>
+        <a href="https://github.com/doranteseduardo/eskiu">github</a>
+      </div>
+      <span class="cp">MIT · Eduardo Dorantes</span>
+    </div>
+  </footer>
+<script>try{localStorage.setItem("eskiu-lang","es");}catch(e){}</script>
+</body>
+</html>

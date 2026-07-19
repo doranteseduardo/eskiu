@@ -10,7 +10,12 @@ option(ESKIU_STATIC "Link LLVM libraries statically" OFF)
 find_package(LLVM REQUIRED CONFIG)
 
 include_directories(${LLVM_INCLUDE_DIRS})
-add_definitions(${LLVM_DEFINITIONS})
+# LLVM_DEFINITIONS is a single space-separated string. Split it into a list so a
+# define carrying a value (e.g. MinGW's `-D_GLIBCXX_USE_CXX11_ABI=1`) stays one
+# token instead of being mangled with the defs that follow (which made the compiler
+# choke on `=` in a preprocessor expression). No-op where LLVM_DEFINITIONS is simple.
+separate_arguments(LLVM_DEFINITIONS_LIST NATIVE_COMMAND "${LLVM_DEFINITIONS}")
+add_definitions(${LLVM_DEFINITIONS_LIST})
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
 set(SOURCES
@@ -53,9 +58,9 @@ if(ESKIU_STATIC)
     # Static LLVM — release binaries.
     # On Apple Silicon, X86 static libs are not available in Homebrew LLVM.
     if(APPLE)
-        set(STATIC_BACKENDS "aarch64codegen aarch64asmparser aarch64desc aarch64info")
+        set(STATIC_BACKENDS "aarch64codegen aarch64asmparser aarch64desc aarch64info armcodegen armasmparser armdesc arminfo")
     else()
-        set(STATIC_BACKENDS "aarch64codegen aarch64asmparser aarch64desc aarch64info x86codegen x86asmparser x86desc x86info")
+        set(STATIC_BACKENDS "aarch64codegen aarch64asmparser aarch64desc aarch64info x86codegen x86asmparser x86desc x86info armcodegen armasmparser armdesc arminfo")
     endif()
     execute_process(
         COMMAND ${LLVM_TOOLS_BINARY_DIR}/llvm-config --link-static --libs
@@ -77,7 +82,8 @@ else()
         support core irreader
         nativecodegen
         aarch64codegen aarch64asmparser aarch64desc aarch64info
-        x86codegen x86asmparser x86desc x86info)
+        x86codegen x86asmparser x86desc x86info
+        armcodegen armasmparser armdesc arminfo)
     target_link_libraries(eskiuc ${llvm_libs})
 endif()
 

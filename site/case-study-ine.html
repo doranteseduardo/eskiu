@@ -3,9 +3,12 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script>try{if(localStorage.getItem("eskiu-lang")==="es")location.replace("es/case-study-ine.html"+location.hash);}catch(e){}</script>
   <title>Case study: INE QR decoder · Eskiu</title>
   <meta name="description" content="A real cryptographic pipeline in Eskiu: the INE credential-QR decoder (multi-round AES-256 + RSA-8192, QR image extraction) reimplemented in Eskiu, bit-identical to five other implementations and 2.5x faster than the reference C." />
   <link rel="canonical" href="https://eskiu-lang.org/case-study-ine.html" />
+  <link rel="alternate" hreflang="en" href="https://eskiu-lang.org/case-study-ine.html" />
+  <link rel="alternate" hreflang="es" href="https://eskiu-lang.org/es/case-study-ine.html" />
   <link rel="icon" type="image/png" href="../assets/logo.png" />
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -33,6 +36,11 @@
     .top-links { margin-left: auto; display: flex; align-items: center; gap: 1.25rem; font-family: var(--mono); font-size: 0.82rem; }
     .top-links a { color: var(--ink2); }
     .top-links a:hover { color: var(--accent); text-decoration: none; }
+    .lang { display: inline-flex; align-items: center; gap: 0.35rem; font-family: var(--mono); font-size: 0.82rem; }
+    .lang .sep { color: var(--border); }
+    .lang a { color: var(--muted); cursor: pointer; }
+    .lang a:hover { color: var(--accent); text-decoration: none; }
+    .lang a.active { color: var(--ink); font-weight: 700; cursor: default; }
 
     .wrap { max-width: 720px; margin: 0 auto; padding: 2.75rem 1.25rem 4rem; }
     .eyebrow { font-family: var(--mono); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.12em;
@@ -69,11 +77,12 @@
 <body>
   <header class="top">
     <div class="top-in">
-      <a class="brand" href="index.html"><img src="../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.6.2</span></a>
+      <a class="brand" href="index.html"><img src="../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.7.0</span></a>
       <nav class="top-links">
         <a href="docs/index.html">docs</a>
         <a href="the-book-of-eskiu.html">book</a>
         <a href="https://github.com/doranteseduardo/eskiu">github</a>
+        <span class="lang"><a class="active" aria-current="page">EN</a><span class="sep">·</span><a href="es/case-study-ine.html" onclick="try{localStorage.setItem('eskiu-lang','es')}catch(e){}">ES</a></span>
       </nav>
     </div>
   </header>

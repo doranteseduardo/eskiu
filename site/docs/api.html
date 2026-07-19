@@ -86,7 +86,7 @@ footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
 <body>
   <header class="top">
     <div class="top-in">
-      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.6.2</span></a>
+      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.7.0</span></a>
       <nav class="top-links">
         <a href="index.html">docs</a>
         <a href="../the-book-of-eskiu.html">book</a>
@@ -239,6 +239,9 @@ public:
     llvm::Module* getModule() const;                               // non-owning
 
     std::string targetTriple;     // target triple override (empty = native)
+    std::string targetCPU;        // --mcpu (empty = &quot;generic&quot; when cross, host CPU when native)
+    std::string targetFeatures;   // --mattr feature string (LLVM -mattr syntax, e.g. &quot;+vfp2&quot;)
+    std::string relocModel;       // --reloc: &quot;static&quot; | &quot;dynamic-no-pic&quot; | &quot;&quot; (&quot;pic&quot;, default)
     bool freestanding = false;    // alloc/free → esk_alloc/esk_free instead of malloc/free
     bool asan  = false;           // AddressSanitizer instrumentation
     bool ubsan = false;           // trapping bounds checks
@@ -256,7 +259,17 @@ instance; <code>nullptr</code> on failure). <code>getModule()</code> returns the
 non-owningly.</p>
 <p>Configure the run before calling <code>generateCode()</code>:</p>
 <ul>
-<li><code>targetTriple</code>: set to cross-compile for a given triple; empty targets the host.</li>
+<li><code>targetTriple</code>: set to cross-compile for a given triple; empty targets the host.
+  A hard-float ARM triple (one ending in <code>hf</code>, e.g. <code>armv6k-none-eabihf</code>) selects the
+  hard-float ABI so the object carries the <code>Tag_ABI_VFP_args</code> build attribute needed to
+  link against hard-float libraries. A non-hosted triple (OS <code>none</code>) predefines neither
+  <code>__APPLE__</code> nor <code>__linux__</code>.</li>
+<li><code>targetCPU</code> / <code>targetFeatures</code>: <code>--mcpu</code> / <code>--mattr</code> overrides, forwarded to the
+  <code>TargetMachine</code> (e.g. <code>mpcore</code> + <code>+vfp2</code> for the 3DS's ARM11). Empty CPU means
+  <code>generic</code> when cross-compiling, the host CPU when native.</li>
+<li><code>relocModel</code>: <code>--reloc</code> selects the relocation model. <code>static</code> (or <code>dynamic-no-pic</code>)
+  instead of the default PIC; the 3DS <code>.3dsx</code> loader applies static relocations and has
+  no dynamic loader to populate a GOT.</li>
 <li><code>freestanding</code>: predefines <code>__ESKIU_FREESTANDING__</code> and routes heap allocation
   to user-supplied <code>esk_alloc</code>/<code>esk_free</code>.</li>
 <li><code>asan</code> / <code>ubsan</code>: apply the corresponding LLVM instrumentation pass to the

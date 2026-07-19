@@ -89,9 +89,80 @@ jobs:
           # the GitHub Release. Expire fast so they don't pile up in Actions storage.
           retention-days: 7
 
+  # ── Windows x86_64 ─────────────────────────────────────────────────────
+  # Built under MSYS2/MinGW, whose LLVM package ships the dev libraries + CMake
+  # config the tool links against. ESKIU_STATIC pulls LLVM in statically, and the
+  # static libgcc/libstdc++/winpthread flags keep the .exe free of MSYS runtime DLLs.
+  build-windows-x86_64:
+    runs-on: windows-latest
+    # Unverified until this runs on CI: don't let a Windows build failure block the
+    # macOS/Linux release. If it succeeds, the .zip is attached; if not, the release
+    # still publishes (action-gh-release skips a missing file in `files:`).
+    continue-on-error: true
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up MSYS2 + LLVM
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-llvm
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+
+      - name: Configure
+        run: |
+          # Build with MinGW g++ (not clang++): clang cannot parse the newer libstdc++
+          # 16 preprocessor headers this toolchain ships. MSYS2 ships LLVM as libLLVM.dll
+          # (no usable static component libs), so link LLVM dynamically and bundle the
+          # DLLs; the gcc runtime is static-linked.
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DLLVM_DIR="$MINGW_PREFIX/lib/cmake/llvm" \
+            -DCMAKE_CXX_COMPILER=g++ \
+            -DCMAKE_EXE_LINKER_FLAGS="-static-libgcc -static-libstdc++"
+
+      - name: Build
+        run: cmake --build build --target eskiuc -j"$(nproc)"
+
+      - name: Package
+        run: |
+          mkdir -p dist/bin dist/lib/eskiu
+          cp build/eskiuc.exe dist/bin/eskiuc.exe
+          strip dist/bin/eskiuc.exe
+          # Bundle the MinGW DLLs eskiuc.exe needs (libLLVM, zlib, zstd, ...).
+          ldd dist/bin/eskiuc.exe | grep -i '/mingw64/bin/' | awk '{print $3}' \
+            | while read -r dll; do cp "$dll" dist/bin/; done
+          cp -r stdlib dist/lib/eskiu/stdlib
+          # Zip via PowerShell so the archive is a native Windows .zip.
+          powershell -Command "Compress-Archive -Path dist/bin,dist/lib -DestinationPath eskiuc-windows-x86_64.zip -Force"
+
+      - name: Smoke test the packaged .exe
+        shell: pwsh
+        run: |
+          # Native PowerShell (no MSYS2 on PATH): proves the zip is self-contained
+          # and eskiuc.exe resolves its stdlib from its own path.
+          Expand-Archive eskiuc-windows-x86_64.zip -DestinationPath smoke -Force
+          .\smoke\bin\eskiuc.exe --version
+          .\smoke\bin\eskiuc.exe examples\hello.esk -o hello.obj -c
+          if (!(Test-Path hello.obj)) { throw "eskiuc.exe did not produce an object file" }
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: eskiuc-windows-x86_64
+          path: eskiuc-windows-x86_64.zip
+          retention-days: 7
+
   # ── GitHub Release ─────────────────────────────────────────────────────
   release:
-    needs: [build-macos-arm64, build-linux-x86_64]
+    needs: [build-macos-arm64, build-linux-x86_64, build-windows-x86_64]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -110,5 +181,6 @@ jobs:
           files: |
             eskiuc-macos-arm64.tar.gz
             eskiuc-linux-x86_64.tar.gz
+            eskiuc-windows-x86_64.zip
           draft: false
           prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') }}
