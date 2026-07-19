@@ -105,6 +105,7 @@
     <div class="btns">
       <a class="btn-w" href="../assets/eskiuc-linux-x86_64.tar.gz">↓ Linux (x86-64)</a>
       <a class="btn-w" href="../assets/eskiuc-macos-arm64.tar.gz">↓ macOS (Apple Silicon)</a>
+      <a class="btn-w" href="../assets/eskiuc-windows-x86_64.zip">↓ Windows (x86-64)</a>
     </div>
     <p>Descomprímelo en <code>/usr/local</code> y verifica la versión:</p>
     <pre><code><span class="c"># macOS (Apple Silicon)</span>
@@ -113,8 +114,11 @@ tar -xzf eskiuc-macos-arm64.tar.gz -C /usr/local
 <span class="c"># Linux (x86-64)</span>
 tar -xzf eskiuc-linux-x86_64.tar.gz -C /usr/local
 
+<span class="c"># Windows (x86-64): descomprime y agrega la carpeta bin\ al PATH</span>
+Expand-Archive eskiuc-windows-x86_64.zip -DestinationPath C:\eskiu
+
 eskiuc --version
-<span class="o">Eskiu 0.6.2 (LLVM ...)</span></code></pre>
+<span class="o">Eskiu 0.7.0 (LLVM ...)</span></code></pre>
     <p>El tarball instala:</p>
     <ul>
       <li><code>bin/eskiuc</code>: el compilador</li>
