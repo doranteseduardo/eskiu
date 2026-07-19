@@ -86,7 +86,7 @@ footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
 <body>
   <header class="top">
     <div class="top-in">
-      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.6.2</span></a>
+      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.7.0</span></a>
       <nav class="top-links">
         <a href="index.html">docs</a>
         <a href="../the-book-of-eskiu.html">book</a>
@@ -534,6 +534,16 @@ extern int puts(string s);
 extern double sqrt(double x);
 </code></pre>
 <p>The <code>...</code> marks a variadic function, required for <code>printf</code>, <code>scanf</code>, etc.</p>
+<p><code>extern</code> also declares a <strong>global variable</strong> defined in another translation unit.
+Drop the parentheses and end with a semicolon; the variable resolves at link time,
+so Eskiu can read and write state shared with a C library:</p>
+<pre><code class="language-eskiu">extern int   errno;        // a C global; read and assign it like any variable
+extern float g_volume;
+
+void reset() {
+    errno = 0;
+}
+</code></pre>
 <h3 id="declaration-order">Declaration order</h3>
 <p>Definition order doesn't matter: a function can call another that's defined later in the file, and mutual recursion works out of the box. You can also write a body-less forward declaration if you prefer to state a signature up front:</p>
 <pre><code class="language-eskiu">int is_odd(int n);                  // forward declaration (optional)
