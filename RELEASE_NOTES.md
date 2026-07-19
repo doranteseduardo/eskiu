@@ -1,10 +1,10 @@
-# Eskiu 0.6.2
+# Eskiu 0.7.0
 
-A patch release focused on the async runtime and CI stability. It removes the last
-uninitialized function pointer from the event loop (the shape of an intermittent Linux
-CI `SIGILL` in the HTTP/2 tests), fixes a soundness gap in the async transform, corrects
-interface (vtable) argument coercion, and makes `--target` cross-compilation select the
-right platform. Existing code keeps compiling unchanged.
+A feature release focused on cross-compilation and C interop. Eskiu now targets
+32-bit ARM (with a camera-and-gyroscope demo verified on real Nintendo 3DS hardware)
+and emits Windows x86-64 objects, `extern` declarations reach C global variables, and
+a `double` literal passed to a `float` parameter narrows correctly at the call site.
+Existing code keeps compiling unchanged.
 
 ---
 
@@ -35,31 +35,43 @@ cd eskiu && cmake -S . -B build && cmake --build build
 
 ## What's new
 
-- **Cross-compilation targets the right platform.** The `--target` triple now drives the
-  predefined platform macro (`__APPLE__` / `__linux__`), so `eskiuc --target x86_64-linux-gnu`
-  on macOS selects the Linux stdlib paths (epoll, Linux `sockaddr_in`) instead of emitting
-  unresolved BSD symbols. With no `--target` it still follows the build host.
+- **`extern` variables.** `extern <type> <name>;` declares a global defined in another
+  translation unit, so Eskiu can read and write state shared with a C library. It emits
+  an external-linkage declaration with no initializer, resolved at link time. Previously
+  `extern` accepted only function prototypes. Landed in lockstep across both compilers.
+
+- **32-bit ARM backend, cross-compile to the Nintendo 3DS.** The ARM target is now
+  registered alongside AArch64 and x86, driven by three new flags: `--mcpu` (e.g.
+  `mpcore` for the 3DS's ARM11), `--mattr` (LLVM feature string, e.g. `+vfp2`), and
+  `--reloc` (`static` for the `.3dsx` loader). A hard-float ARM triple (ending in `hf`,
+  e.g. `armv6k-none-eabihf`) selects the hard-float ABI, so the object carries the
+  `Tag_ABI_VFP_args` attribute and links against hard-float libraries like libctru. An
+  object built this way links cleanly into a `.3dsx` homebrew via the devkitARM toolchain.
+
+- **Cross-compile to Windows (x86-64).** `--target x86_64-pc-windows-gnu` emits a COFF
+  object with the Microsoft x64 calling convention, and the preprocessor predefines
+  `_WIN32` (plus `_WIN64` on a 64-bit arch). Link it with `lld-link` and an import library
+  from `llvm-dlltool` (both ship with LLVM, so no Windows SDK is needed to link).
+
+See [`docs/dev/cross-compile.md`](docs/dev/cross-compile.md) for the flags, the platform
+macros, and the 3DS and Windows recipes.
 
 ## What's fixed
 
-- **Event-loop timer callbacks are initialized.** `el_new` allocated the timer array but
-  only zeroed each timer's `active` flag, leaving the `on_fire` closure as heap garbage
-  (`alloc` does not zero). Firing is guarded by `active`, but an uninitialized function
-  pointer is exactly the shape of the intermittent Linux CI `SIGILL` in the HTTP/2 tests.
-  It now initializes every field, completing the equivalent `on_read` fix from v0.3.1, so
-  the event loop holds no uninitialized function pointer.
+- **Float arguments narrow at the call site.** A `double` literal (Eskiu's default float
+  literal type) passed to a `float` parameter was left as `double`, so the argument type
+  disagreed with the callee's signature and the reference compiler rejected the call at
+  LLVM verification. Direct and method calls now run every argument through the shared
+  numeric-coercion path, matching assignment and return.
 
-- **The async transform preserves `escaping` parameters.** Lowering an `async fn` to its
-  coroutine constructor dropped the per-parameter `escaping` flags. Because the constructor
-  stores each parameter into the heap coroutine frame (which outlives the call), an escaping
-  closure argument could then be stack-allocated at the call site, leaving the frame with a
-  dangling env. The lowered constructor now carries the original flags.
+- **Bare-metal targets no longer inherit the host platform macro.** An explicit
+  non-hosted triple (OS `none`, e.g. the 3DS's `armv6k-none-eabihf`) predefines neither
+  `__APPLE__` nor `__linux__`; previously it fell through to the build host's macro.
 
-- **Interface (vtable) dispatch coerces arguments.** Calling an interface method with an
-  argument that needs widening (e.g. an `int32` where the method declares `int64`) emitted a
-  call whose argument type did not match the vtable slot's signature: the reference compiler
-  rejected it at LLVM verification, and the self-hosted compiler emitted mistyped IR. Both
-  now widen the argument to the method's declared parameter type, exactly like a direct call.
+- **Hard-float ABI reached the object emitter.** The `--target …hf` hard-float ABI was
+  applied when building the module and running the optimizer but not in the object-emitting
+  path, so the written object dropped `Tag_ABI_VFP_args`. The three code-emitting paths now
+  share one `TargetMachine` builder.
 
 The full log is in [CHANGELOG.md](CHANGELOG.md).
 
@@ -67,4 +79,5 @@ The full log is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Upgrade
 
-Drop-in. No language or standard-library API changes; recompiling picks up the fixes.
+Drop-in. No breaking language or standard-library changes; recompiling picks up the fixes,
+and the new targets and `extern` variables are opt-in.

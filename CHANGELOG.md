@@ -8,7 +8,7 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
-## [Unreleased]
+## [0.7.0]
 ### Added
 - **`extern` variables.** `extern <type> <name>;` declares a global defined in another
   translation unit (a C global), emitting an external-linkage declaration with no
