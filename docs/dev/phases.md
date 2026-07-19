@@ -304,16 +304,18 @@ practical stdlib modules. Each landed as granular per-layer commits.
 
 ## Platform support (future track, not scheduled)
 
-Eskiu targets **macOS arm64** and **Linux x86-64** today. Broadening to Windows,
-Android, and iOS is a separate long-horizon track, independent of the version
-milestones above and not scheduled into v0.2.0. The LLVM backends already cover
-these targets, so the real work is linking, per-platform stdlib branches, and
-toolchain/distribution integration, not codegen.
+Eskiu runs natively on **macOS arm64** and **Linux x86-64**, and as of **v0.7.0**
+cross-compiles to **32-bit ARM** (hard-float `armv6k` for the Nintendo 3DS, verified on
+device) and emits **Windows x86-64** COFF objects (see
+[`cross-compile.md`](cross-compile.md)). Broadening the *host* toolchain to Windows, and
+reaching Android and iOS, is a separate long-horizon track, independent of the version
+milestones above. The LLVM backends already cover these targets, so the real work is
+linking, per-platform stdlib branches, and toolchain/distribution integration, not codegen.
 
 **Cross-cutting (shared by all platforms)**
-- [ ] COFF object emission for Windows targets (Mach-O and ELF already work)
+- [x] COFF object emission for Windows targets (shipped v0.7.0; Mach-O and ELF already worked)
 - [ ] Per-target linking: emit `.o`/`.a`/`.so` and hand off to the platform's native linker/SDK (the Unix `cc`/`clang` auto-link does not cross platforms)
-- [ ] Predefined OS macros (`_WIN32`, `__ANDROID__`, iOS), extending the existing `__APPLE__`/`__linux__`
+- [x] Predefined OS macros: `_WIN32` / `_WIN64` ship in v0.7.0 (`--target …-windows-…`); `__ANDROID__` and iOS still pending, extending the existing `__APPLE__` / `__linux__`
 - [ ] stdlib platform branches where the API differs (sockets, threads)
 - [ ] CI runners: Windows, plus NDK and Xcode for mobile
 

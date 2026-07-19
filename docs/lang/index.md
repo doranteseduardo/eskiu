@@ -2,15 +2,11 @@
 
 Eskiu is a statically typed systems language with the power of C and the immediacy of a scripting language: it compiles to native code through LLVM, and `eskiuc run file.esk` runs a source file directly, like Python or Ruby. This is the full language reference. New to Eskiu? Start with the [tutorial](getting-started.md).
 
-**Current version: v0.6.2.** A memory-safety and standard-library release, in the
-Zig spirit: compile-time checks and opt-in runtime guards, not a borrow checker.
-It adds `defer` / `errdefer` for leak-proof cleanup on every exit path, the slice type
-`T[]` (a fat pointer that carries its length), the `must_use` qualifier that rejects a
-discarded result, the `--safe` build mode that bounds-checks indexing, and the checked
-nullable pointer `?*T`. It also grows the standard library: `<random>`, `<regex>`,
-`<sort>`, `<url>`, `<uuid>`, and a UTC civil calendar in `<time>`. It builds on the v0.5
-basic-C surface release and the v0.3 self-hosting milestone, where the compiler is
-reimplemented in Eskiu itself (`selfhost/`), reaching a 3-stage bootstrap fixpoint.
+**Current version: v0.7.0.** A cross-compilation and C-interop release: Eskiu now targets
+32-bit ARM (a camera-and-gyroscope demo verified on real Nintendo 3DS hardware) and emits
+Windows x86-64 objects, driven by `--target` plus `--mcpu` / `--mattr` / `--reloc`, and
+`extern` declarations now reach C global **variables**, not just functions. Full history
+is in the [changelog](../../CHANGELOG.md).
 
 ---
 
@@ -34,7 +30,7 @@ reimplemented in Eskiu itself (`selfhost/`), reaching a 3-stage bootstrap fixpoi
 | **Literals** | Decimal, hex `0xFF`, float, string (with adjacent concat), char, bool, null |
 | **Operators** | Arithmetic `+ - * / %`, bitwise `& \| ^ ~ << >>`, comparison, logical, compound `+= -=` etc., typed pointer arith `ptr+n` (advances by `sizeof(*ptr)`), `sizeof(T)` |
 | **Control flow** | `if`/`else`, `for` (with decl init), `while`, `switch`/`case`, `break`, `continue`, `return` |
-| **Functions** | C-style, `extern` C ABI, variadic, template `fn<T>(T x)` |
+| **Functions** | C-style, `extern` C ABI (functions and global variables), variadic, template `fn<T>(T x)` |
 | **Lambdas / Closures** | `int(int x) { return x * 2; }`: anonymous functions; `fn(T,...)->R` fat-pointer types; closure capture by value; higher-order functions |
 | **Threads** | `thread_create(fn()->void)` / `thread_join(*void)`: OS thread keywords; closure fat pointer maps directly to pthread ABI |
 | **Exceptions** | `try`/`catch`/`finally`/`throw`: LLVM `invoke`/`landingpad`, Itanium ABI; multiple `catch` clauses; link `-lc++` (macOS) or `-lstdc++` (Linux) |
@@ -48,7 +44,7 @@ reimplemented in Eskiu itself (`selfhost/`), reaching a 3-stage bootstrap fixpoi
 | **volatile** | `volatile let reg: *uint8 = (uint8*) 0x3F8;`: MMIO-safe loads/stores |
 | **Inline asm** | `asm("cli");` simple form; `asm("outb ${0:b}, $1" :: "a"(v), "Nd"(p) : "memory");` extended form (LLVM operands are `$0`/`$1`) |
 | **Freestanding** | `--freestanding` flag: `<mem>` `alloc<T>`/`free` call `esk_alloc`/`esk_free`; user-supplied in kernel |
-| **Cross-compile** | `--target TRIPLE`: AArch64 and X86 backends included |
+| **Cross-compile** | `--target TRIPLE` (AArch64, x86-64, 32-bit ARM), plus `--mcpu` / `--mattr` / `--reloc`; hard-float ARM for the 3DS, COFF for Windows. See [cross-compile.md](../dev/cross-compile.md) |
 | **Multi-file** | `import <result>` stdlib modules · `import "file.esk"` relative local files |
 | **Errors** | `file.esk:8:22: message`: real line/col from parser |
 | **HTTP/2** | `<http2>` frame codec + connection/stream state machine, `<hpack>` header compression, `<tls>` (h2 over OpenSSL with ALPN), `<http2_server>` (h2c): full multiplexed HTTP/2 stack |
