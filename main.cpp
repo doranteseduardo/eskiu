@@ -50,6 +50,19 @@ static llvm::cl::opt<std::string> TargetTriple("target",
     llvm::cl::desc("Override target triple (e.g. x86_64-pc-none, aarch64-unknown-none)"),
     llvm::cl::value_desc("triple"));
 
+static llvm::cl::opt<std::string> TargetCPU("mcpu",
+    llvm::cl::desc("Override target CPU (e.g. mpcore for the 3DS ARM11)"),
+    llvm::cl::value_desc("cpu"));
+
+static llvm::cl::opt<std::string> TargetFeatures("mattr",
+    llvm::cl::desc("Target feature string, LLVM -mattr syntax (e.g. +vfp2)"),
+    llvm::cl::value_desc("features"));
+
+static llvm::cl::opt<std::string> RelocModel("reloc",
+    llvm::cl::desc("Relocation model: pic (default), static, dynamic-no-pic. "
+                   "3DS .3dsx targets need 'static'."),
+    llvm::cl::value_desc("model"));
+
 static llvm::cl::opt<bool> Freestanding("freestanding",
     llvm::cl::desc("Compile without libc — alloc/free use esk_alloc/esk_free"));
 
@@ -189,6 +202,9 @@ static void testCodegen(const std::string& filename) {
         CodeGen codegen;
         codegen.resolvedExprTypes = &postTc.expressionTypeMap();
         if (!TargetTriple.empty()) codegen.targetTriple = std::string(TargetTriple);
+        if (!TargetCPU.empty()) codegen.targetCPU = std::string(TargetCPU);
+        if (!TargetFeatures.empty()) codegen.targetFeatures = std::string(TargetFeatures);
+        if (!RelocModel.empty()) codegen.relocModel = std::string(RelocModel);
         codegen.freestanding = Freestanding;
         codegen.safe = Safe;
         codegen.optLevel = OptLevel;
@@ -368,15 +384,37 @@ int main(int argc, char** argv) {
             bool tgtApple = tt.find("apple") != std::string::npos ||
                             tt.find("darwin") != std::string::npos ||
                             tt.find("macos") != std::string::npos;
-            if (tgtLinux)      { macros["__linux__"] = os; }
-            else if (tgtApple) { macros["__APPLE__"] = os; }
-            else {
-#if defined(__APPLE__)
+            bool tgtWindows = tt.find("windows") != std::string::npos ||
+                              tt.find("win32") != std::string::npos ||
+                              tt.find("mingw") != std::string::npos;
+            // _WIN64 accompanies _WIN32 on 64-bit Windows (MSVC keeps _WIN32 defined
+            // for both widths and adds _WIN64 only when 64-bit).
+            bool tgt64 = tt.find("x86_64") != std::string::npos ||
+                         tt.find("amd64") != std::string::npos ||
+                         tt.find("aarch64") != std::string::npos;
+            if (tgtLinux)        { macros["__linux__"] = os; }
+            else if (tgtApple)   { macros["__APPLE__"] = os; }
+            else if (tgtWindows) {
+                macros["_WIN32"] = os;
+                if (tgt64) macros["_WIN64"] = os;
+            }
+            else if (tt.empty()) {
+                // Native build: follow the build host.
+#if defined(_WIN32)
+                macros["_WIN32"] = os;
+#if defined(_WIN64)
+                macros["_WIN64"] = os;
+#endif
+#elif defined(__APPLE__)
                 macros["__APPLE__"] = os;
 #elif defined(__linux__)
                 macros["__linux__"] = os;
 #endif
             }
+            // else: an explicit bare-metal or otherwise non-hosted triple (e.g. the
+            // 3DS's armv6k-none-eabihf) defines no OS macro. Bare metal has no host OS,
+            // so portable code guards that path explicitly rather than falling through
+            // to the build host's.
         }
         // Predefine __ESKIU_FREESTANDING__ under --freestanding so stdlib (e.g.
         // <mem>'s alloc/free) can target esk_alloc/esk_free instead of libc.
@@ -427,6 +465,9 @@ int main(int argc, char** argv) {
         CodeGen codegen;
         codegen.resolvedExprTypes = &postTc.expressionTypeMap();
         if (!TargetTriple.empty()) codegen.targetTriple = std::string(TargetTriple);
+        if (!TargetCPU.empty()) codegen.targetCPU = std::string(TargetCPU);
+        if (!TargetFeatures.empty()) codegen.targetFeatures = std::string(TargetFeatures);
+        if (!RelocModel.empty()) codegen.relocModel = std::string(RelocModel);
         codegen.freestanding = Freestanding;
         codegen.safe = Safe;
         codegen.asan = Asan;
