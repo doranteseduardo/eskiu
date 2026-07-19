@@ -9,7 +9,11 @@
 #elif defined(__linux__)
   #include <unistd.h>
 #elif defined(_WIN32)
-  #include <windows.h>
+  // Declare just GetModuleFileNameA instead of including <windows.h>, whose macros
+  // (VOID, CONST, TRUE, FALSE, FLOAT, IN, INTERFACE, ...) collide with our TokenType
+  // enum. Plain types: HMODULE = void*, LPSTR = char*, DWORD = unsigned long.
+  extern "C" __declspec(dllimport) unsigned long __stdcall
+      GetModuleFileNameA(void* hModule, char* lpFilename, unsigned long nSize);
 #endif
 #include "llvm/Support/raw_os_ostream.h"
 #include "llvm/Support/Program.h"
@@ -38,7 +42,7 @@ std::string resolveStdlibPath() {
 #elif defined(__linux__)
     if (readlink("/proc/self/exe", buf, sizeof(buf) - 1) > 0) {
 #elif defined(_WIN32)
-    if (GetModuleFileNameA(nullptr, buf, sizeof(buf)) > 0) {
+    if (GetModuleFileNameA(nullptr, buf, (unsigned long)sizeof(buf)) > 0) {
 #else
     if (false) {
 #endif
