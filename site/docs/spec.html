@@ -86,7 +86,7 @@ footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
 <body>
   <header class="top">
     <div class="top-in">
-      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.6.2</span></a>
+      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.7.0</span></a>
       <nav class="top-links">
         <a href="index.html">docs</a>
         <a href="../the-book-of-eskiu.html">book</a>
@@ -1044,7 +1044,7 @@ as <code>double</code> (read it with <code>va_arg&lt;double&gt;</code>), and int
 arrive as <code>int</code>. There is no automatic count of the arguments: pass it explicitly
 (as <code>n</code> above) or use a sentinel.</p>
 <h3 id="64-extern-declarations">6.4 Extern Declarations</h3>
-<p><code>extern</code> declares a C function available to Eskiu code. See §13 for details.</p>
+<p><code>extern</code> declares a C function or global variable available to Eskiu code. See §13 for details.</p>
 <h3 id="641-intrinsic-declarations">6.4.1 Intrinsic Declarations</h3>
 <p><code>intrinsic</code> declares a function whose implementation the compiler supplies directly, rather than one defined in Eskiu or linked from C. The form is a prototype with no body:</p>
 <pre><code class="language-eskiu">intrinsic int  atomic_load(*int cell);
@@ -1864,7 +1864,20 @@ extern *void memcpy(*void dst, *void src, int64 n);
 extern int open(string path, int flags);
 extern void exit(int code);
 </code></pre>
-<h3 id="132-calling-extern-functions">13.2 Calling Extern Functions</h3>
+<h3 id="132-extern-variables">13.2 Extern Variables</h3>
+<p>An <code>extern</code> declaration with no parameter list (a type, a name, and a semicolon) names a global variable defined in another translation unit. It emits an external-linkage global with no initializer; reads and writes resolve at link time.</p>
+<pre><code class="language-eskiu">extern int   errno;
+extern float g_volume;
+
+void clear_error() {
+    errno = 0;              // assign a C global
+}
+int last_error() {
+    return errno;           // read a C global
+}
+</code></pre>
+<p>An extern variable lives at the top level and carries no initializer (its definition, and value, live in the other object). <code>extern const &lt;type&gt; &lt;name&gt;;</code> declares a read-only C global.</p>
+<h3 id="133-calling-extern-functions">13.3 Calling Extern Functions</h3>
 <p><code>extern</code> functions are called exactly like Eskiu functions:</p>
 <pre><code class="language-eskiu">extern int printf(string fmt, ...);
 
@@ -1873,7 +1886,7 @@ int main() {
     return 0;
 }
 </code></pre>
-<h3 id="133-c-abi-compatibility">13.3 C ABI Compatibility</h3>
+<h3 id="134-c-abi-compatibility">13.4 C ABI Compatibility</h3>
 <p><code>extern</code> declarations emit standard C-ABI-compatible LLVM IR <code>call</code> instructions. Any function exported from a C library, including system libraries, OpenSSL, zxing-cpp, or any other C-compatible library, may be called this way.</p>
 <p>For functions that accept or return <code>void*</code>, use <code>*void</code> on the Eskiu side:</p>
 <pre><code class="language-eskiu">extern *void malloc(int64 size);
