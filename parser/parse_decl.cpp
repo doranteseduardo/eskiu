@@ -292,8 +292,17 @@ DeclPtr Parser::parseFunctionDecl() {
 }
 
 DeclPtr Parser::parseExternDecl() {
-    std::string returnType = parseType();
-    std::string name = consume(TokenType::IDENT, "Expected function name").value;
+    std::string type = parseType();
+    std::string name = consume(TokenType::IDENT, "Expected function or variable name").value;
+
+    // `extern <type> <name>;` (no parens) declares a variable defined in another
+    // translation unit — a C global. `extern <type> <name>(...)` is a function.
+    if (!check(TokenType::LPAREN)) {
+        consume(TokenType::SEMICOLON, "Expected ';' after extern variable");
+        auto v = std::make_shared<VarDecl>(name, type);
+        v->isExtern = true;
+        return v;
+    }
 
     consume(TokenType::LPAREN, "Expected '('");
     std::vector<bool> esc;
@@ -301,7 +310,7 @@ DeclPtr Parser::parseExternDecl() {
     consume(TokenType::RPAREN, "Expected ')'");
     consume(TokenType::SEMICOLON, "Expected ';'");
 
-    auto d = std::make_shared<ExternDecl>(name, returnType, params);
+    auto d = std::make_shared<ExternDecl>(name, type, params);
     d->paramEscaping = esc;
     return d;
 }

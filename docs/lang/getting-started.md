@@ -465,6 +465,19 @@ extern double sqrt(double x);
 
 The `...` marks a variadic function, required for `printf`, `scanf`, etc.
 
+`extern` also declares a **global variable** defined in another translation unit.
+Drop the parentheses and end with a semicolon; the variable resolves at link time,
+so Eskiu can read and write state shared with a C library:
+
+```eskiu
+extern int   errno;        // a C global; read and assign it like any variable
+extern float g_volume;
+
+void reset() {
+    errno = 0;
+}
+```
+
 ### Declaration order
 
 Definition order doesn't matter: a function can call another that's defined later in the file, and mutual recursion works out of the box. You can also write a body-less forward declaration if you prefer to state a signature up front:
