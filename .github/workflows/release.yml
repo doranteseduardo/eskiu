@@ -95,6 +95,10 @@ jobs:
   # static libgcc/libstdc++/winpthread flags keep the .exe free of MSYS runtime DLLs.
   build-windows-x86_64:
     runs-on: windows-latest
+    # Unverified until this runs on CI: don't let a Windows build failure block the
+    # macOS/Linux release. If it succeeds, the .zip is attached; if not, the release
+    # still publishes (action-gh-release skips a missing file in `files:`).
+    continue-on-error: true
     defaults:
       run:
         shell: msys2 {0}
