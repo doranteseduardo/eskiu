@@ -142,13 +142,13 @@
         <code>Tag_ABI_VFP_args</code>; <code>--mcpu mpcore</code> elige el VFPv2 del
         ARM11.</li>
       <li><strong>El modelo de reubicación.</strong> El primer binario que enlazó limpio
-        de todos modos tronaba al arrancar: <em>"undefined instruction, process:
+        de todos modos crasheaba al arrancar: <em>"undefined instruction, process:
         loader."</em> Eskiu emitía código independiente de posición con un GOT, pero a un
         <code>.3dsx</code> lo reubica el loader de forma estática, y no hay enlazador
         dinámico que llene ese GOT, así que cada acceso a una variable global leía
         basura. Un modelo de reubicación <strong>estático</strong> (<code>--reloc
         static</code>) generó las reubicaciones <code>R_ARM_ABS32</code> que emite
-        devkitARM, y la caída se fue.</li>
+        devkitARM, y el crash desapareció.</li>
     </ul>
     <p>
       Cada una terminó siendo una capacidad de verdad, y general, del compilador: un
