@@ -315,11 +315,10 @@ void CodeGen::visit(CallExpr* node) {
                 llvm::FunctionType* fty = ffunc->getFunctionType();
                 for (size_t i = 0; i < fargs.size() && i < fty->getNumParams(); ++i) {
                     llvm::Type* pt = fty->getParamType(i);
-                    if (fargs[i]->getType()->isIntegerTy() && pt->isIntegerTy() &&
-                        fargs[i]->getType() != pt) {
+                    if (fargs[i]->getType() != pt) {
                         std::string srcTy = (i == 0) ? baseType
                                                      : getExprEskiuType(node->args[i - 1]);
-                        fargs[i] = coerceInt(fargs[i], pt, eskiuUnsigned(srcTy));
+                        fargs[i] = coerceValue(fargs[i], pt, eskiuUnsigned(srcTy));
                     }
                 }
                 exprValueStack.push(builder->CreateCall(ffunc, fargs));
@@ -423,10 +422,13 @@ void CodeGen::visit(CallExpr* node) {
         unsigned pbase = funcSretTypes.count(func->getName().str()) ? 1u : 0u;
         for (size_t i = 0; i < args.size() && i + pbase < fparams.size(); ++i) {
             llvm::Type* pt = fparams[i + pbase];
-            if (args[i]->getType()->isIntegerTy() && pt->isIntegerTy()
-                    && args[i]->getType() != pt) {
+            if (args[i]->getType() != pt) {
+                // Full numeric coercion (int/float widen or narrow), not just int:
+                // a `double` literal passed to a `float` parameter must narrow, else
+                // the argument type mismatches the signature and the IR verifier
+                // rejects the call. Non-numeric values pass through unchanged.
                 bool uns = i < node->args.size() && eskiuUnsigned(getExprEskiuType(node->args[i]));
-                args[i] = coerceInt(args[i], pt, uns);
+                args[i] = coerceValue(args[i], pt, uns);
             }
         }
     }

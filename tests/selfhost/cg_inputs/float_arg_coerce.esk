@@ -1,0 +1,2 @@
+float scale(float x, float k) { return x * k; }
+int main() { return (int)scale(3.5, 2.0); }   // 7
