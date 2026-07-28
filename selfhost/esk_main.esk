@@ -20,6 +20,9 @@ import "async_lower.esk";
 import "codegen.esk";
 
 extern int64 write(int fd, *void buf, int64 n);
+extern int    system(string cmd);   // shell out to clang for the -o native-binary path
+extern int    remove(string path);  // delete the temp .ll after linking
+extern string getenv(string name);  // $CLANG selects the clang binary (default "clang")
 
 // Diagnostics go to stderr (fd 2), never stdout — stdout carries only the emitted .ll.
 void eprint(string s) {
@@ -29,15 +32,30 @@ void eprint(string s) {
 }
 
 int main(int argc, string* argv) {
-    if (argc < 2) {
-        eprint("usage: esk_main <file.esk>\n");
+    // CLI: esk_main [-o <out>] <file.esk>. With -o, produce a native binary (write
+    // the IR to a temp .ll and invoke clang); without it, emit the .ll to stdout —
+    // the form the bootstrap harness pipes to clang.
+    string infile = null;
+    string outfile = null;
+    int ai = 1;
+    while (ai < argc) {
+        if (cg_streq(argv[ai], "-o") == 1) {
+            ai = ai + 1;
+            if (ai < argc) { outfile = argv[ai]; }
+        } else {
+            infile = argv[ai];
+        }
+        ai = ai + 1;
+    }
+    if (infile == null) {
+        eprint("usage: esk_main [-o <out>] <file.esk>\n");
         return 1;
     }
     let n: int64 = 0;
-    *uint8 raw = fs_read_all(argv[1], &n);
+    *uint8 raw = fs_read_all(infile, &n);
     if (raw == null) {
         uint8[512] eb;
-        sprintf((string)&eb[0], "error: cannot read %s\n", argv[1]);
+        sprintf((string)&eb[0], "error: cannot read %s\n", infile);
         eprint((string)&eb[0]);
         return 1;
     }
@@ -48,7 +66,7 @@ int main(int argc, string* argv) {
     g_pp_os = "__linux__";
 #endif
     let pperr: int = 0;
-    string pp = pp_run((string)raw, (int)n, argv[1], &pperr);
+    string pp = pp_run((string)raw, (int)n, infile, &pperr);
     *uint8 src = (*uint8)pp;
     int plen = 0;
     while (src[plen] != 0) { plen = plen + 1; }
@@ -56,17 +74,17 @@ int main(int argc, string* argv) {
     parser_session_init();
     let p: Parser;
     p_init(&p, src, plen);
-    p.basedir = str_dir(argv[1]);
+    p.basedir = str_dir(infile);
     *Program prog = parse_program(&p);
 
     // Semantic analysis: reject ill-typed input (diagnostics go to stdout via sema's
     // printf — see tc_main). A failed check must NOT emit IR.
     let sm: Sema;
-    sema_init(&sm, argv[1]);
+    sema_init(&sm, infile);
     int ok = sema_check(&sm, prog);
     if (ok == 0) {
         uint8[512] eb;
-        sprintf((string)&eb[0], "error: %s: type checking failed\n", argv[1]);
+        sprintf((string)&eb[0], "error: %s: type checking failed\n", infile);
         eprint((string)&eb[0]);
         return 1;
     }
@@ -76,8 +94,35 @@ int main(int argc, string* argv) {
     let g: Codegen;
     cg_init(&g);
     cg_program(&g, prog);
-    printf("%s", (string)String_cstr(&g.globals));   // declares + string constants
-    printf("\n");
-    printf("%s", (string)String_cstr(&g.out));        // function definitions
+    if (outfile == null) {
+        // No -o: emit the .ll to stdout (the bootstrap harness pipes it to clang).
+        printf("%s", (string)String_cstr(&g.globals));   // declares + string constants
+        printf("\n");
+        printf("%s", (string)String_cstr(&g.out));        // function definitions
+        return 0;
+    }
+
+    // -o: assemble the full IR, write it to a temp .ll next to the output, and invoke
+    // clang to link a native binary end to end.
+    let ir: String;
+    String_init(&ir, 8192);
+    String_append(&ir, (string)String_cstr(&g.globals));
+    String_append(&ir, "\n");
+    String_append(&ir, (string)String_cstr(&g.out));
+    string tmp = cg_cat(outfile, ".ll");
+    if (fs_write_all(tmp, (*uint8)String_cstr(&ir), String_len(&ir)) == 0) {
+        eprint("error: cannot write temporary IR\n");
+        return 1;
+    }
+    string cc = getenv("CLANG");        // clang emits from .ll; cc/gcc can't, so no findCDriver ladder
+    if (cc == null) { cc = "clang"; }
+    uint8[2048] cmd;
+    sprintf((string)&cmd[0], "%s %s -o %s", cc, tmp, outfile);
+    int rc = system((string)&cmd[0]);
+    remove(tmp);
+    if (rc != 0) {
+        eprint("error: clang failed to link the output\n");
+        return 1;
+    }
     return 0;
 }

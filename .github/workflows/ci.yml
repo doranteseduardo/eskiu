@@ -114,3 +114,9 @@ jobs:
       # and cc2 must compile a runnable program.
       - name: Compiler bootstrap (3-stage fixpoint)
         run: CLANG=clang-22 tests/selfhost/cg_bootstrap.sh
+
+      # Self-hosted driver end to end: esk_main.esk parses/checks/codegens AND invokes
+      # clang to link a native binary. Compare the resulting binaries' exit + stdout to
+      # the C++ eskiuc's over a small corpus (promotion P0).
+      - name: Driver self-host parity
+        run: CLANG=clang-22 tests/selfhost/driver_parity.sh

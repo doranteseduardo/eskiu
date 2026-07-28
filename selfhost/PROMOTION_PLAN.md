@@ -61,12 +61,15 @@ moment the Eskiu compiler is primary, so they are prerequisites, not afterthough
 
 ## Stages (each parity-gated, built in order)
 
-- **P0: Driver parity scaffold.** Grow `esk_main.esk` into a real CLI: argument
-  parsing, `-o <out>`, and **invoking clang** (spawn `clang file.ll -o out` via the
-  existing process/exec extern path the `thread_*`/builtins already exercise) so the
-  Eskiu compiler produces a *native binary* end to end, not just IR. Gate: a new
-  `tests/selfhost/driver_parity.sh` compiles a sample with both compilers and asserts
-  identical exit code + stdout from the resulting binaries.
+- **P0: Driver parity scaffold. DONE.** `esk_main.esk` is now a real CLI: it parses
+  `[-o <out>] <file.esk>`, and with `-o` it assembles the IR, writes a temp `.ll`, and
+  invokes clang (via a new `system()` extern) to link a *native binary* end to end. No
+  process/exec extern existed yet, so `system()` was added. Without `-o` it still emits
+  `.ll` to stdout (the bootstrap harness relies on that, unchanged). Gate:
+  `tests/selfhost/driver_parity.sh` builds a sample with both compilers and asserts
+  identical exit code + stdout from the resulting binaries (corpus in
+  `tests/selfhost/driver_inputs/`; 4/4 green). Bootstrap fixpoint still holds. The corpus
+  is plain-clang-linkable programs; sanitizer/thread/exception link flags are P1.
 - **P1: Flag + mode parity.** Port the rest of the C++ CLI surface to the Eskiu
   driver: `--version`, `--test-{lexer,parser,typechecker,codegen}` (the drivers
   already exist as `lex_main`/`parse_main`/`tc_main`/`cg_main`; unify them behind
