@@ -49,9 +49,15 @@ moment the Eskiu compiler is primary, so they are prerequisites, not afterthough
   far from the cause (`Expected ';'`, etc.), the single most recurring self-host
   papercut. **The C++ parser is done (v0.3.0):** `expected a name, found keyword 'fn'`
   at the cause (`Parser::consume`, the typed-local-decl path, and the speculative
-  decl-vs-expression fallback). **Still pending:** mirror it in `selfhost/parser.esk` so
-  the message is identical whichever binary is primary. (Parser error text is not in any
-  byte-exact gate, so the mirror is a consistency task, not a correctness one.)
+  decl-vs-expression fallback). **DONE:** mirrored in `selfhost/parser.esk` via
+  `check_name_not_keyword` (called at the var-decl name sites in `try_var_decl` and
+  `parse_decl_fallback`); the self-host previously accepted `int fn;` silently (it had no
+  parser error path at all), now it prints `expected a name, found keyword 'fn'` at the
+  cause and exits 1. This also gave the self-host its first parser-error mechanism (a
+  building block for P0+). The core message matches C++; the C++'s "Error parsing
+  declaration:" prefix (a driver-level recovery wrapper) and multi-error recovery are not
+  mirrored (single error + exit for now). Negative test: `tests/errors/keyword_as_name.esk`.
+  (Parser error text is not in any byte-exact gate, so this is a consistency task.)
 
 ## Stages (each parity-gated, built in order)
 
