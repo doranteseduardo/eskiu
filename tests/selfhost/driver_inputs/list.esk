@@ -1,0 +1,10 @@
+import <list>;
+extern int printf(string fmt, ...);
+int main() {
+    List<int> xs; List_init<int>(&xs, 4);
+    List_push<int>(&xs, 10); List_push<int>(&xs, 20); List_push<int>(&xs, 30);
+    int s = 0;
+    for (i in 0..List_len<int>(&xs)) { s = s + List_get<int>(&xs, i); }
+    printf("count=%d sum=%d\n", List_len<int>(&xs), s);
+    return 0;
+}
