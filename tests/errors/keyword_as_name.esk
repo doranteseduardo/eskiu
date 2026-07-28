@@ -1,0 +1,7 @@
+// Using a reserved keyword as a variable name is reported at the cause, not far
+// downstream ("Expected ';'"). Mirrored in the self-host parser (promotion R3).
+// EXPECT-ERROR: expected a name, found keyword 'fn'
+int main() {
+    int fn = 3;
+    return fn;
+}
