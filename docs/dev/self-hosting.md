@@ -19,8 +19,11 @@ with drivers `lex_main`, `pp_main`, `parse_main`, `tc_main`, `cg_main`, and the 
 `selfhost/PROMOTION_PLAN.md`) `esk_main` has grown into the full user-facing CLI: it
 dispatches every `--test-*` debug mode plus `--version`, takes multiple input files, and
 with `-o` assembles the IR and invokes `clang` to link a native binary (threading
-`--asan`/`--ubsan` into the link). The four per-pass parity gates now drive *through*
-`esk_main --test-*`. The code generator emits **LLVM IR as text** (no LLVM library is
+`--asan`/`--ubsan` into the link). It also owns the two subcommands: `run script.esk
+[args...]` compiles to a temp exe, execs it forwarding argv, and propagates the exit code;
+`fmt [--check] file …` reindents in place via `fmt.esk`. The four per-pass parity gates
+drive *through* `esk_main --test-*`, and `run`/`fmt` have their own parity gates
+(`run_parity.sh`, `fmt_parity.sh`). The code generator emits **LLVM IR as text** (no LLVM library is
 linked), which `clang` then assembles and links. This keeps the self-hosted compiler
 dependency-free and is the standard bootstrap path.
 
