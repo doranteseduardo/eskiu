@@ -70,7 +70,7 @@ moment the Eskiu compiler is primary, so they are prerequisites, not afterthough
   identical exit code + stdout from the resulting binaries (corpus in
   `tests/selfhost/driver_inputs/`; 4/4 green). Bootstrap fixpoint still holds. The corpus
   is plain-clang-linkable programs; sanitizer/thread/exception link flags are P1.
-- **P1: Flag + mode parity. IN PROGRESS.** Port the rest of the C++ CLI surface to the
+- **P1: Flag + mode parity. DONE.** Port the rest of the C++ CLI surface to the
   Eskiu driver. **DONE (slice 1):** `esk_main` now dispatches `--version`,
   `--test-parser`, `--test-typechecker`, and `--test-codegen`, and the `parse_parity`,
   `tc_parity`, and `cg_parity` gates were switched to drive through it (`esk_main
@@ -83,9 +83,15 @@ moment the Eskiu compiler is primary, so they are prerequisites, not afterthough
   `pp_main`'s own `emit_value`), and `lex_parity` was switched to `esk_main --test-lexer`
   (137/137). So all four `--test-*` modes plus `--version` now dispatch through `esk_main`,
   and all four parity gates drive through it; bootstrap fixpoint holds.
-  **PENDING:** `-Wall`/`-Wextra`, `--asan`/`--ubsan` (clang `-fsanitize` flags in the `-o`
-  path), and multi-file input. `--version` prints `Eskiu X.Y.Z` (the C++ appends
-  `(LLVM …)`, which the self-host does not link).
+  **DONE (slice 3):** the remaining `-o`-path surface. `esk_main` now accepts multiple
+  input files (parses each into one shared `*Program` via `parse_into`, so the shared
+  import/type-name session dedups across files like the C++ driver), threads `--asan`/
+  `--ubsan` into the clang link as `-fsanitize=address`/`-fsanitize=undefined`, and
+  accepts (and ignores) unknown `-flags` like `-Wall`/`-Wextra` so the CLI shape matches.
+  `--version` prints `Eskiu X.Y.Z` (the C++ appends `(LLVM …)`, which the self-host does
+  not link). All four `--test-*` modes, `--version`, `-o` native linking, sanitizers, and
+  multi-file input now dispatch through `esk_main`; every parity gate + bootstrap fixpoint
+  holds.
 - **P2: `run` + `fmt` parity.** Port `eskiuc run script.esk [args...]` (compile to a
   temp exe, exec, propagate exit code, clean up) and `eskiuc fmt [--check]` (the
   conservative reindenter). Gate: `run` over the runnable corpus matches; `fmt` stays
