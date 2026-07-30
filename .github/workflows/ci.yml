@@ -125,3 +125,8 @@ jobs:
       # Compare the self-host `run` to the C++ `run` over the same corpus (promotion P2).
       - name: Run self-host parity
         run: CLANG=clang-22 tests/selfhost/run_parity.sh
+
+      # `eskiuc fmt`: the self-host reformatter must be byte-identical to the C++ one
+      # over the whole in-repo corpus (implies idempotency; promotion P2).
+      - name: Fmt self-host parity
+        run: CLANG=clang-22 tests/selfhost/fmt_parity.sh
