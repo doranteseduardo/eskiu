@@ -37,18 +37,28 @@ int main(int argc, string* argv) {
     // the form the bootstrap harness pipes to clang.
     string infile = null;
     string outfile = null;
+    string mode = "";        // "" = compile; else --version / --test-{parser,typechecker,codegen}
     int ai = 1;
     while (ai < argc) {
         if (cg_streq(argv[ai], "-o") == 1) {
             ai = ai + 1;
             if (ai < argc) { outfile = argv[ai]; }
+        } else if (cg_streq(argv[ai], "--version") == 1
+                || cg_streq(argv[ai], "--test-parser") == 1
+                || cg_streq(argv[ai], "--test-typechecker") == 1
+                || cg_streq(argv[ai], "--test-codegen") == 1) {
+            mode = argv[ai];
         } else {
             infile = argv[ai];
         }
         ai = ai + 1;
     }
+    if (cg_streq(mode, "--version") == 1) {
+        printf("Eskiu 0.7.0\n");
+        return 0;
+    }
     if (infile == null) {
-        eprint("usage: esk_main [-o <out>] <file.esk>\n");
+        eprint("usage: esk_main [-o <out>] [--test-parser|--test-typechecker|--test-codegen] <file.esk>\n");
         return 1;
     }
     let n: int64 = 0;
@@ -60,16 +70,34 @@ int main(int argc, string* argv) {
         return 1;
     }
 
+    // The C++ `--test-parser`/`--test-typechecker` return before the compile path, so
+    // they never predefine the platform macro; match that (empty) so the token stream
+    // and AST are identical. A real compile and `--test-codegen` need the host OS to
+    // pick the right stdlib platform branch (kqueue vs epoll, sockaddr layout).
+    if (cg_streq(mode, "--test-parser") == 1 || cg_streq(mode, "--test-typechecker") == 1) {
+        g_pp_os = "";
+    } else {
 #ifdef __APPLE__
-    g_pp_os = "__APPLE__";       // host OS for stdlib platform #ifdefs (resolved at our build)
+        g_pp_os = "__APPLE__";
 #else
-    g_pp_os = "__linux__";
+        g_pp_os = "__linux__";
 #endif
+    }
+    // --test-parser matches the C++ parse test, which leaves __FILE__ empty; a real
+    // compile and the other modes expand it to the actual path.
+    string ppfile = infile;
+    if (cg_streq(mode, "--test-parser") == 1) { ppfile = ""; }
     let pperr: int = 0;
-    string pp = pp_run((string)raw, (int)n, infile, &pperr);
+    string pp = pp_run((string)raw, (int)n, ppfile, &pperr);
     *uint8 src = (*uint8)pp;
     int plen = 0;
     while (src[plen] != 0) { plen = plen + 1; }
+
+    // --test-typechecker prints its banner before parsing (matches tc_main).
+    if (cg_streq(mode, "--test-typechecker") == 1) {
+        printf("Type checking: %s\n", infile);
+        printf("========================================================\n");
+    }
 
     parser_session_init();
     let p: Parser;
@@ -77,16 +105,27 @@ int main(int argc, string* argv) {
     p.basedir = str_dir(infile);
     *Program prog = parse_program(&p);
 
-    // Semantic analysis: reject ill-typed input (diagnostics go to stdout via sema's
-    // printf — see tc_main). A failed check must NOT emit IR.
-    let sm: Sema;
-    sema_init(&sm, infile);
-    int ok = sema_check(&sm, prog);
-    if (ok == 0) {
-        uint8[512] eb;
-        sprintf((string)&eb[0], "error: %s: type checking failed\n", infile);
-        eprint((string)&eb[0]);
-        return 1;
+    if (cg_streq(mode, "--test-parser") == 1) { print_program(prog); return 0; }
+
+    // Semantic analysis: run for a real compile and for --test-typechecker; skip it for
+    // --test-codegen (matches cg_main, whose IR the cg gate compares behaviorally). A
+    // failed check must NOT emit IR.
+    if (cg_streq(mode, "--test-codegen") == 0) {
+        let sm: Sema;
+        sema_init(&sm, infile);
+        int ok = sema_check(&sm, prog);
+        if (cg_streq(mode, "--test-typechecker") == 1) {
+            printf("========================================================\n");
+            if (ok == 1) { printf("Type checking succeeded!\n"); return 0; }
+            printf("Type checking failed!\n");
+            return 1;
+        }
+        if (ok == 0) {
+            uint8[512] eb;
+            sprintf((string)&eb[0], "error: %s: type checking failed\n", infile);
+            eprint((string)&eb[0]);
+            return 1;
+        }
     }
 
     async_lower(prog);                 // lower async fns → frame + resume + ctor (after sema)
@@ -94,8 +133,8 @@ int main(int argc, string* argv) {
     let g: Codegen;
     cg_init(&g);
     cg_program(&g, prog);
-    if (outfile == null) {
-        // No -o: emit the .ll to stdout (the bootstrap harness pipes it to clang).
+    if (outfile == null || cg_streq(mode, "--test-codegen") == 1) {
+        // No -o (or --test-codegen): emit the .ll to stdout (the bootstrap harness pipes it to clang).
         printf("%s", (string)String_cstr(&g.globals));   // declares + string constants
         printf("\n");
         printf("%s", (string)String_cstr(&g.out));        // function definitions

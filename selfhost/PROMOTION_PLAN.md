@@ -70,13 +70,18 @@ moment the Eskiu compiler is primary, so they are prerequisites, not afterthough
   identical exit code + stdout from the resulting binaries (corpus in
   `tests/selfhost/driver_inputs/`; 4/4 green). Bootstrap fixpoint still holds. The corpus
   is plain-clang-linkable programs; sanitizer/thread/exception link flags are P1.
-- **P1: Flag + mode parity.** Port the rest of the C++ CLI surface to the Eskiu
-  driver: `--version`, `--test-{lexer,parser,typechecker,codegen}` (the drivers
-  already exist as `lex_main`/`parse_main`/`tc_main`/`cg_main`; unify them behind
-  `esk_main` dispatch), `-Wall`/`-Wextra`, `--asan`/`--ubsan` (add the same clang
-  `-fsanitize` flags), and multi-file input. Gate: each mode's output matches the
-  C++ binary over the corpus (reuses the existing `*_parity.sh` oracles, now driven
-  through the unified binary).
+- **P1: Flag + mode parity. IN PROGRESS.** Port the rest of the C++ CLI surface to the
+  Eskiu driver. **DONE (slice 1):** `esk_main` now dispatches `--version`,
+  `--test-parser`, `--test-typechecker`, and `--test-codegen`, and the `parse_parity`,
+  `tc_parity`, and `cg_parity` gates were switched to drive through it (`esk_main
+  --test-X`), all green (parse 142/142, tc OK, cg 97/97). Two mode-specific subtleties
+  had to match the C++ test path: it leaves the platform macro unset for
+  `--test-parser`/`--test-typechecker` (so `esk_main` sets `g_pp_os=""` there, host macro
+  otherwise), and `--test-parser` leaves `__FILE__` empty (pass "" as the pp filename).
+  **PENDING:** `--test-lexer` (needs the token-dump helper extracted from `lex_main`),
+  `-Wall`/`-Wextra`, `--asan`/`--ubsan` (clang `-fsanitize` flags in the `-o` path), and
+  multi-file input. `--version` prints `Eskiu X.Y.Z` (the C++ appends `(LLVM …)`, which
+  the self-host does not link).
 - **P2: `run` + `fmt` parity.** Port `eskiuc run script.esk [args...]` (compile to a
   temp exe, exec, propagate exit code, clean up) and `eskiuc fmt [--check]` (the
   conservative reindenter). Gate: `run` over the runnable corpus matches; `fmt` stays
