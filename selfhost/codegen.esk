@@ -85,6 +85,7 @@ struct Codegen {
     int wl_i;                // persistent drain cursors: worklist / lambdas / thunks
     int lam_i;
     int thk_i;
+    String entry_buf;        // local allocas for the fn/lambda being emitted, hoisted to entry
 }
 
 int cg_streq(string a, string b) {
@@ -215,6 +216,18 @@ void cg_init(Codegen* g) {
     List_init<string>(&g.inst_seen, 16);
     List_init<CgInst>(&g.worklist, 16);
     g.wl_i = 0; g.lam_i = 0; g.thk_i = 0;
+    String_init(&g.entry_buf, 128);
+}
+
+// Reserve a local `alloca <ty>` in the entry block (not inline), so a variable declared in
+// a loop body allocates ONCE, not every iteration (a long loop would otherwise overflow the
+// stack). Returns the slot name. Mirrors the C++ back-end's entryAlloca.
+string cg_entry_alloca(Codegen* g, string ty) {
+    string slot = cg_tmp(g);
+    String_append(&g.entry_buf, "  "); String_append(&g.entry_buf, slot);
+    String_append(&g.entry_buf, " = alloca "); String_append(&g.entry_buf, ty);
+    String_append(&g.entry_buf, "\n");
+    return slot;
 }
 
 // Snapshot the active type-parameter substitution, so a deferred emission (a queued
@@ -3012,8 +3025,7 @@ void cg_stmt(Codegen* g, *StmtNode st) {
             cg_add_local(g, st.name, gname, ty, cg_apply_sub(g, st.type));
             return;
         }
-        string slot = cg_tmp(g);
-        cg_emit(g, "  "); cg_emit(g, slot); cg_emit(g, " = alloca "); cg_emit(g, ty); cg_emit(g, "\n");
+        string slot = cg_entry_alloca(g, ty);   // hoisted to the entry block, not re-run per loop iteration
         cg_add_local(g, st.name, slot, ty, cg_apply_sub(g, st.type));
         if (st.expr != null) {
             if (st.expr.kind == EK_ARRAYLIT) {          // { ... } (nested for T[N][M]) → zero-fill + store
@@ -3319,11 +3331,16 @@ void cg_emit_fn(Codegen* g, *DeclNode d, string llname, string self_struct) {
     }
     cg_emit(g, ")");
     if (cg_has_try_s(d.body) == 1) { cg_emit(g, " personality ptr @__gxx_personality_v0"); g.uses_eh = 1; }
-    cg_emit(g, " {\nentry:\n");
+    cg_emit(g, " {\n");
+    // Emit the body into a fresh buffer while `alloca`s accumulate in entry_buf, then
+    // assemble `entry:` + hoisted allocas + body. This keeps loop-body locals from
+    // allocating every iteration (which overflows the stack on a long loop).
+    String_init(&g.entry_buf, 128);
+    String saved = g.out;
+    String_init(&g.out, 512);
 
     if (base == 1) {                                    // spill self (a pointer to the struct)
-        string sslot = cg_tmp(g);
-        cg_emit(g, "  "); cg_emit(g, sslot); cg_emit(g, " = alloca ptr\n");
+        string sslot = cg_entry_alloca(g, "ptr");
         cg_emit(g, "  store ptr %p0, ptr "); cg_emit(g, sslot); cg_emit(g, "\n");
         cg_add_local(g, "self", sslot, "ptr", cg_cat("*", self_struct));
     }
@@ -3332,8 +3349,7 @@ void cg_emit_fn(Codegen* g, *DeclNode d, string llname, string self_struct) {
         Param pm = List_get<Param>(&d.params, pi);
         if (cg_streq(pm.ty, "...") == 1) { pi = pi + 1; continue; }   // variadic marker: no slot
         string pty = cg_lltype(g, pm.ty);
-        string slot = cg_tmp(g);
-        cg_emit(g, "  "); cg_emit(g, slot); cg_emit(g, " = alloca "); cg_emit(g, pty); cg_emit(g, "\n");
+        string slot = cg_entry_alloca(g, pty);
         cg_emit(g, "  store "); cg_emit(g, pty); cg_emit(g, " %p"); cg_emit(g, cg_itoa(pi + base));
         cg_emit(g, ", ptr "); cg_emit(g, slot); cg_emit(g, "\n");
         cg_add_local(g, pm.name, slot, pty, cg_apply_sub(g, pm.ty));
@@ -3345,6 +3361,12 @@ void cg_emit_fn(Codegen* g, *DeclNode d, string llname, string self_struct) {
         if (cg_streq(rt, "void") == 1) { cg_emit(g, "  ret void\n"); }
         else { cg_emit(g, "  unreachable\n"); }
     }
+    // Assemble: entry: label, hoisted allocas, then the body; restore the module buffer.
+    string bodytext = (string)String_cstr(&g.out);
+    g.out = saved;
+    cg_emit(g, "entry:\n");
+    cg_emit(g, (string)String_cstr(&g.entry_buf));
+    cg_emit(g, bodytext);
     cg_emit(g, "}\n\n");
 }
 
@@ -3380,7 +3402,10 @@ void cg_emit_lambda(Codegen* g, CgLambda lam) {
         cg_emit(g, " %p"); cg_emit(g, cg_itoa(k + 1));
         k = k + 1;
     }
-    cg_emit(g, ") {\nentry:\n");
+    cg_emit(g, ") {\n");
+    String_init(&g.entry_buf, 128);            // hoist body allocas to the entry block (see cg_emit_fn)
+    String saved = g.out;
+    String_init(&g.out, 512);
     int nc = List_len<string>(&lam.capn);
     if (nc > 0) {                                          // unpack captures from %p0 (env)
         string envty = cg_env_lltype(g, &lam.capt);
@@ -3392,8 +3417,7 @@ void cg_emit_lambda(Codegen* g, CgLambda lam) {
             cg_emit(g, "  "); cg_emit(g, fp); cg_emit(g, " = getelementptr "); cg_emit(g, envty); cg_emit(g, ", ptr %p0, i32 0, i32 "); cg_emit(g, cg_itoa(j)); cg_emit(g, "\n");
             string ld = cg_tmp(g);
             cg_emit(g, "  "); cg_emit(g, ld); cg_emit(g, " = load "); cg_emit(g, fty); cg_emit(g, ", ptr "); cg_emit(g, fp); cg_emit(g, "\n");
-            string slot = cg_tmp(g);
-            cg_emit(g, "  "); cg_emit(g, slot); cg_emit(g, " = alloca "); cg_emit(g, fty); cg_emit(g, "\n");
+            string slot = cg_entry_alloca(g, fty);
             cg_emit(g, "  store "); cg_emit(g, fty); cg_emit(g, " "); cg_emit(g, ld); cg_emit(g, ", ptr "); cg_emit(g, slot); cg_emit(g, "\n");
             cg_add_local(g, List_get<string>(&lam.capn, j), slot, fty, fety);
             j = j + 1;
@@ -3405,8 +3429,7 @@ void cg_emit_lambda(Codegen* g, CgLambda lam) {
         string pname = cg_last_word(piece);
         string pety = cg_drop_last_word(piece);
         string pty = cg_lltype(g, pety);
-        string slot = cg_tmp(g);
-        cg_emit(g, "  "); cg_emit(g, slot); cg_emit(g, " = alloca "); cg_emit(g, pty); cg_emit(g, "\n");
+        string slot = cg_entry_alloca(g, pty);
         cg_emit(g, "  store "); cg_emit(g, pty); cg_emit(g, " %p"); cg_emit(g, cg_itoa(k + 1));
         cg_emit(g, ", ptr "); cg_emit(g, slot); cg_emit(g, "\n");
         cg_add_local(g, pname, slot, pty, pety);
@@ -3416,6 +3439,11 @@ void cg_emit_lambda(Codegen* g, CgLambda lam) {
     if (g.terminated == 0) {
         if (cg_streq(rt, "void") == 1) { cg_emit(g, "  ret void\n"); } else { cg_emit(g, "  unreachable\n"); }
     }
+    string bodytext = (string)String_cstr(&g.out);
+    g.out = saved;
+    cg_emit(g, "entry:\n");
+    cg_emit(g, (string)String_cstr(&g.entry_buf));
+    cg_emit(g, bodytext);
     cg_emit(g, "}\n\n");
     g.cursub = oldsub;
 }
