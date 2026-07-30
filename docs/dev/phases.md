@@ -296,11 +296,12 @@ practical stdlib modules. Each landed as granular per-layer commits.
   Remaining for v1.0: a package manager, and promoting the Eskiu-written compiler to the
   primary build (it currently rides alongside the C++ `eskiuc`): staged, parity-gated
   plan in `selfhost/PROMOTION_PLAN.md`. Progress: the keyword-as-identifier diagnostic
-  mirror (R3) and the driver stages P0 (native `-o` link via clang) and P1 (full CLI
-  parity: all `--test-*` modes, `--version`, `--asan`/`--ubsan`, and multi-file input
-  dispatch through `esk_main`) are done; every parity gate drives through the unified
-  driver. Open: `run`/`fmt` parity (P2), whole-corpus behavioral equivalence (P3), the
-  flip (P4), and the async `for-in` element-typing refactor (R1). Parse-parity corpus
+  mirror (R3) and the driver stages P0 (native `-o` link via clang), P1 (full CLI
+  parity: all `--test-*` modes, `--version`, `--asan`/`--ubsan`, multi-file input), and
+  P2 (`run` execs a temp exe forwarding argv and propagates the exit code; `fmt` reindents
+  byte-identically to the C++ formatter over the whole corpus) are done; every parity gate
+  drives through the unified `esk_main`. Open: whole-corpus behavioral equivalence (P3),
+  the flip (P4), and the async `for-in` element-typing refactor (R1). Parse-parity corpus
   expansion shipped in v0.3.1.
 - First-class types for high-throughput services
 

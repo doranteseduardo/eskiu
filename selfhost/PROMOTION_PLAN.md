@@ -92,11 +92,19 @@ moment the Eskiu compiler is primary, so they are prerequisites, not afterthough
   not link). All four `--test-*` modes, `--version`, `-o` native linking, sanitizers, and
   multi-file input now dispatch through `esk_main`; every parity gate + bootstrap fixpoint
   holds.
-- **P2: `run` + `fmt` parity.** Port `eskiuc run script.esk [args...]` (compile to a
-  temp exe, exec, propagate exit code, clean up) and `eskiuc fmt [--check]` (the
-  conservative reindenter). Gate: `run` over the runnable corpus matches; `fmt` stays
-  idempotent and byte-identical to the C++ formatter over every test (the existing
-  formatter-idempotency pass, now run through the Eskiu binary).
+- **P2: `run` + `fmt` parity. DONE.** `esk_main run script.esk [args...]` compiles to a
+  unique `/tmp` exe (reusing the P0 clang link path), execs it forwarding the program's
+  argv, propagates the child's exit code (`WEXITSTATUS`), and deletes the temp; flags
+  before the script go to the compiler, everything after it is the program's argv, exactly
+  like the C++. `esk_main fmt [--check] file …` reindents in place: the reformatter is a
+  new module `selfhost/fmt.esk` (`format_source`), a byte-for-byte mirror of the C++
+  `formatSource` (4-space nesting, one blank line between blocks, trailing whitespace
+  stripped, verbatim inside strings/chars/comments), driven by a self-host `run_fmt` that
+  mirrors the C++ (`--check` prints unformatted files and exits 1). Gates:
+  `tests/selfhost/run_parity.sh` (self-host `run` vs C++ `run`, exit + stdout, 4/4) and
+  `tests/selfhost/fmt_parity.sh` (self-host `fmt` byte-identical to C++ `fmt` over the
+  whole in-repo corpus, 392/392, which implies idempotency since the C++ formatter is).
+  `fmt.esk` joined the `cg_selfhost` module set (110/110); bootstrap fixpoint holds.
 - **P3: Whole-corpus behavioral equivalence.** Promote the parity oracle from the
   self-host input set to the **entire** `tests/` + `stdlib/` corpus on every CI run:
   for each program, the Eskiu-built compiler and the C++ compiler must produce
