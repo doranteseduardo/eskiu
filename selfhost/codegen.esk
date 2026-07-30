@@ -37,9 +37,9 @@ struct CgVariant { string vname; string ename; int tag; List<string> ptys; }
 struct CgBF { string sname; string fname; int fidx; int boff; int bw; int sgn; }
 // A queued lambda: its unique name, the AST node (signature in .sval, body in .stmt),
 // and its captured outer variables (parallel name/Eskiu-type lists).
-struct CgLambda { string name; *ExprNode node; string rety; List<string> capn; List<string> capt; }
 // One active type-parameter substitution (T → concrete) during instantiation.
 struct CgSub { string param; string arg; }
+struct CgLambda { string name; *ExprNode node; string rety; List<string> capn; List<string> capt; List<CgSub> sub; }
 // A pending monomorphization: the generic decl + concrete type args + mangled name.
 struct CgInst { *DeclNode decl; string mangled; int is_struct; List<string> args; }
 
@@ -82,6 +82,9 @@ struct Codegen {
     List<CgSub> cursub;      // active T→concrete substitution during instantiation
     List<string> inst_seen;  // mangled names already queued/emitted (dedup)
     List<CgInst> worklist;   // pending monomorphizations
+    int wl_i;                // persistent drain cursors: worklist / lambdas / thunks
+    int lam_i;
+    int thk_i;
 }
 
 int cg_streq(string a, string b) {
@@ -211,6 +214,16 @@ void cg_init(Codegen* g) {
     List_init<CgSub>(&g.cursub, 4);
     List_init<string>(&g.inst_seen, 16);
     List_init<CgInst>(&g.worklist, 16);
+    g.wl_i = 0; g.lam_i = 0; g.thk_i = 0;
+}
+
+// Snapshot the active type-parameter substitution, so a deferred emission (a queued
+// lambda body) can restore the exact substitution that was live where it was written.
+List<CgSub> cg_copy_sub(List<CgSub>* src) {
+    List<CgSub> r; List_init<CgSub>(&r, List_len<CgSub>(src) + 1);
+    int i = 0; int n = List_len<CgSub>(src);
+    while (i < n) { List_push<CgSub>(&r, List_get<CgSub>(src, i)); i = i + 1; }
+    return r;
 }
 
 // Mangle a generic type/call spelling into an LLVM-safe name: "Box<int>" -> "Box_int",
@@ -499,15 +512,15 @@ string cg_ensure_fn_inst(Codegen* g, string spelling) {
 // Emit every queued generic-function instantiation. Bodies may queue further
 // instantiations (transitive generics), so iterate until the worklist is exhausted.
 void cg_drain_worklist(Codegen* g) {
-    int wi = 0;
-    while (wi < List_len<CgInst>(&g.worklist)) {
+    while (g.wl_i < List_len<CgInst>(&g.worklist)) {
+        int wi = g.wl_i;
         CgInst inst = List_get<CgInst>(&g.worklist, wi);
         if (inst.is_struct == 0) {
             List<CgSub> oldsub = cg_push_sub(g, inst.decl, &inst.args);
             cg_emit_fn(g, inst.decl, inst.mangled, "");
             g.cursub = oldsub;
         }
-        wi = wi + 1;
+        g.wl_i = g.wl_i + 1;
     }
 }
 
@@ -937,8 +950,7 @@ void cg_emit_thunk(Codegen* g, string fnname) {
 }
 
 void cg_drain_thunks(Codegen* g) {
-    int i = 0;
-    while (i < List_len<string>(&g.fnthunks)) { cg_emit_thunk(g, List_get<string>(&g.fnthunks, i)); i = i + 1; }
+    while (g.thk_i < List_len<string>(&g.fnthunks)) { cg_emit_thunk(g, List_get<string>(&g.fnthunks, g.thk_i)); g.thk_i = g.thk_i + 1; }
 }
 
 // Emit a runtime `declare` once for a libc/pthread symbol the codegen calls directly
@@ -1385,6 +1397,7 @@ string cg_global_init(Codegen* g, *ExprNode e, string llty) {
         List<string> capn; List_init<string>(&capn, 1);
         List<string> capt; List_init<string>(&capt, 1);
         let lam: CgLambda; lam.name = lname; lam.node = e; lam.capn = capn; lam.capt = capt;
+        lam.sub = cg_copy_sub(&g.cursub);   // freeze the generic substitution for deferred emission
         if (g.lam_expret[0] != 0) { lam.rety = g.lam_expret; } else { lam.rety = cg_arm_var(e.sval); }
         List_push<CgLambda>(&g.lambdas, lam);
         return cg_cat(cg_cat("{ ptr @", lname), ", ptr null }");
@@ -2297,6 +2310,7 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
             if (l.slot[0] != 0) { List_push<string>(&capn, nm); List_push<string>(&capt, l.ety); }
         }
         let lam: CgLambda; lam.name = lname; lam.node = e; lam.capn = capn; lam.capt = capt;
+        lam.sub = cg_copy_sub(&g.cursub);   // freeze the generic substitution for deferred emission
         // Return type: the fn-type from the assignment context wins over the written one
         // (e.g. a lambda written `int(int x)` assigned to `fn(int)->float` returns float).
         if (g.lam_expret[0] != 0) { lam.rety = g.lam_expret; } else { lam.rety = cg_arm_var(e.sval); }
@@ -3302,6 +3316,8 @@ void cg_decl(Codegen* g, *DeclNode d) {
 void cg_emit_lambda(Codegen* g, CgLambda lam) {
     List_init<CgLocal>(&g.locals, 8);
     g.terminated = 0;
+    List<CgSub> oldsub = g.cursub;                         // restore the substitution live where this lambda was written
+    g.cursub = lam.sub;                                    // so type-params in the body (Pair<A,B> → Pair<int,int>) resolve
     string rt = cg_lltype(g, lam.rety);                    // resolved return type (context or written)
     g.cur_ret = rt;
     List<string> pp; List_init<string>(&pp, 4); cg_paren_list(lam.node.sval, &pp);
@@ -3349,13 +3365,13 @@ void cg_emit_lambda(Codegen* g, CgLambda lam) {
         if (cg_streq(rt, "void") == 1) { cg_emit(g, "  ret void\n"); } else { cg_emit(g, "  unreachable\n"); }
     }
     cg_emit(g, "}\n\n");
+    g.cursub = oldsub;
 }
 
 void cg_drain_lambdas(Codegen* g) {
-    int wi = 0;
-    while (wi < List_len<CgLambda>(&g.lambdas)) {
-        cg_emit_lambda(g, List_get<CgLambda>(&g.lambdas, wi));
-        wi = wi + 1;
+    while (g.lam_i < List_len<CgLambda>(&g.lambdas)) {
+        cg_emit_lambda(g, List_get<CgLambda>(&g.lambdas, g.lam_i));
+        g.lam_i = g.lam_i + 1;
     }
 }
 
@@ -3804,9 +3820,20 @@ void cg_program(Codegen* g, *Program prog) {
     i = 0;
     while (i < n) { cg_decl(g, List_get<*DeclNode>(&prog.decls, i)); i = i + 1; }
 
-    cg_drain_worklist(g);   // emit all generic-function instantiations (transitively)
-    cg_drain_lambdas(g);    // emit all queued lambda bodies
-    cg_drain_thunks(g);     // emit all queued __fnptr_<name> thunks (fn-as-closure-value)
+    // Emit generic instantiations, lambda bodies, and fn-ptr thunks. A lambda body can
+    // queue fresh instantiations (a generic call under a captured type-param) and an
+    // instantiation can queue fresh lambdas, so alternate to a fixpoint (persistent
+    // cursors make each drain resume where it left off, never re-emitting).
+    cg_drain_worklist(g);
+    cg_drain_lambdas(g);
+    cg_drain_thunks(g);
+    while (g.wl_i < List_len<CgInst>(&g.worklist)
+        || g.lam_i < List_len<CgLambda>(&g.lambdas)
+        || g.thk_i < List_len<string>(&g.fnthunks)) {
+        cg_drain_worklist(g);
+        cg_drain_lambdas(g);
+        cg_drain_thunks(g);
+    }
 
     if (g.uses_heap_env == 1 && cg_seen_inst(g, "fn:malloc") == 0) {   // closures' env malloc
         String_append(&g.globals, "declare ptr @malloc(i64)\n");
