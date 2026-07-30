@@ -78,7 +78,7 @@ moment the Eskiu compiler is primary, so they are prerequisites, not afterthough
   had to match the C++ test path: it leaves the platform macro unset for
   `--test-parser`/`--test-typechecker` (so `esk_main` sets `g_pp_os=""` there, host macro
   otherwise), and `--test-parser` leaves `__FILE__` empty (pass "" as the pp filename).
-  **DONE (slice 2):** `--test-lexer` too — the token dump was extracted from `lex_main`
+  **DONE (slice 2):** `--test-lexer` too. The token dump was extracted from `lex_main`
   into `lexer.esk` (`lex_dump` + `lex_emit_value`, renamed to avoid a clash with
   `pp_main`'s own `emit_value`), and `lex_parity` was switched to `esk_main --test-lexer`
   (137/137). So all four `--test-*` modes plus `--version` now dispatch through `esk_main`,
