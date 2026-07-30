@@ -79,16 +79,17 @@ progress (each fix in lockstep, bootstrap fixpoint held throughout):
   path (only async fns got for-in desugared), so sync for-in emitted nothing → 0. Added an
   inline desugar to a counted for (array / slice / list-like), testing slice before array
   since `T[]` also matches `cg_is_array`.
+- **DONE** loop_locals (segfault): local `alloca`s were emitted inline at the vardecl, so a
+  local in a loop body allocated every iteration and a long loop overflowed the stack. Added
+  `cg_entry_alloca` + an `entry_buf`; `cg_emit_fn`/`cg_emit_lambda` now emit the body to a
+  temp buffer and assemble `entry:` + hoisted allocas + body (mirrors C++ `entryAlloca`).
 
-Remaining codegen deltas (not yet done):
+After these, the positive corpus is 136/138 through the Eskiu-built compiler. Remaining
+codegen deltas (not yet done):
 - **escapes**: a string literal with an embedded `\0` (`"a\0b"`) is truncated. String values
   flow through the lexer/parser/codegen as C strings, so bytes after the NUL are lost. Needs
   an explicit byte length threaded from the lexer through the AST (`ExprNode`) to
   `cg_string_global` (which currently does `cg_strlen`). Niche; deferred.
-- **loop_locals**: local `alloca`s are emitted inline at the vardecl, not hoisted to the
-  function entry block, so a local declared in a loop body allocates every iteration and a
-  long loop overflows the stack (segfault). The C++ back-end hoists via `entryAlloca`. Fix:
-  buffer local allocas and emit them in the entry block.
 - **multipart**: emits `sub ptr 0, %p` (pointer negation) → invalid IR. A pointer-difference
   / negative-offset codegen path needs to compute the offset in an integer type.
 
