@@ -22,7 +22,7 @@ fi
 CLANG="${CLANG:-clang}"   # CI installs clang as clang-22; override via $CLANG
 command -v "$CLANG" >/dev/null 2>&1 || { echo "cg_parity: $CLANG not found (set CLANG)"; exit 2; }
 
-DRIVER=selfhost/cg_main.esk
+DRIVER=selfhost/esk_main.esk
 CGBIN="$(mktemp -t cg_main.XXXXXX)"
 WORK="$(mktemp -d)"
 trap 'rm -f "$CGBIN"; rm -rf "$WORK"' EXIT
@@ -40,7 +40,7 @@ for f in "${files[@]}"; do
     base="$(basename "$f" .esk)"
 
     # Self-hosted: emit .ll, compile with clang, run.
-    if ! "$CGBIN" "$f" > "$WORK/$base.ll" 2>"$WORK/$base.emit.err"; then
+    if ! ESKIU_ROOT="$(pwd)" "$CGBIN" --test-codegen "$f" > "$WORK/$base.ll" 2>"$WORK/$base.emit.err"; then
         echo "FAIL  $base  (self-host codegen errored)"; sed 's/^/      /' "$WORK/$base.emit.err" | head; fail=1; continue
     fi
     if ! "$CLANG" "$WORK/$base.ll" -lc++abi -o "$WORK/$base.self" 2>"$WORK/$base.clang.err"; then

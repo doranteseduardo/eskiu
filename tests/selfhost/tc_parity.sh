@@ -31,7 +31,7 @@ HANDLED="undefined_var arg_count undefined_type await_outside_async async_no_awa
          missing_return missing_return_if"
 HANDLED="$(echo $HANDLED)"   # collapse the multi-line list to single spaces for matching
 
-DRIVER=selfhost/tc_main.esk
+DRIVER=selfhost/esk_main.esk
 TCBIN="$(mktemp -t tc_main.XXXXXX)"
 trap 'rm -f "$TCBIN"' EXIT
 if ! "$BIN" "$DRIVER" -o "$TCBIN" >/dev/null 2>/tmp/tcbuild.$$; then
@@ -47,7 +47,7 @@ echo "Positive corpus (verdict must match --test-typechecker):"
 for f in tests/*.esk; do
     [ -f "$f" ] || continue
     "$BIN" --test-typechecker "$f" >/dev/null 2>&1; cref=0; [ $? -ne 0 ] && cref=1
-    "$TCBIN" "$f" >/dev/null 2>&1; cgot=0; [ $? -ne 0 ] && cgot=1
+    ESKIU_ROOT="$(pwd)" "$TCBIN" --test-typechecker "$f" >/dev/null 2>&1; cgot=0; [ $? -ne 0 ] && cgot=1
     if [ "$cref" -eq "$cgot" ]; then
         pos=$((pos + 1))
     else
@@ -74,7 +74,7 @@ for esk in tests/errors/*.esk; do
            continue ;;
     esac
     want="$(grep -m1 'EXPECT-ERROR:' "$esk" | sed 's/.*EXPECT-ERROR:[[:space:]]*//')"
-    out="$("$TCBIN" "$esk" 2>&1)"; code=$?
+    out="$(ESKIU_ROOT="$(pwd)" "$TCBIN" --test-typechecker "$esk" 2>&1)"; code=$?
     if [ "$code" -eq 0 ]; then
         echo "  FAIL  errors/$base  (accepted code that should be rejected)"; fail=1
     elif [ -n "$want" ] && ! printf '%s' "$out" | grep -qF "$want"; then
