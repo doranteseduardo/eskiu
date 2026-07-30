@@ -78,10 +78,14 @@ moment the Eskiu compiler is primary, so they are prerequisites, not afterthough
   had to match the C++ test path: it leaves the platform macro unset for
   `--test-parser`/`--test-typechecker` (so `esk_main` sets `g_pp_os=""` there, host macro
   otherwise), and `--test-parser` leaves `__FILE__` empty (pass "" as the pp filename).
-  **PENDING:** `--test-lexer` (needs the token-dump helper extracted from `lex_main`),
-  `-Wall`/`-Wextra`, `--asan`/`--ubsan` (clang `-fsanitize` flags in the `-o` path), and
-  multi-file input. `--version` prints `Eskiu X.Y.Z` (the C++ appends `(LLVM …)`, which
-  the self-host does not link).
+  **DONE (slice 2):** `--test-lexer` too — the token dump was extracted from `lex_main`
+  into `lexer.esk` (`lex_dump` + `lex_emit_value`, renamed to avoid a clash with
+  `pp_main`'s own `emit_value`), and `lex_parity` was switched to `esk_main --test-lexer`
+  (137/137). So all four `--test-*` modes plus `--version` now dispatch through `esk_main`,
+  and all four parity gates drive through it; bootstrap fixpoint holds.
+  **PENDING:** `-Wall`/`-Wextra`, `--asan`/`--ubsan` (clang `-fsanitize` flags in the `-o`
+  path), and multi-file input. `--version` prints `Eskiu X.Y.Z` (the C++ appends
+  `(LLVM …)`, which the self-host does not link).
 - **P2: `run` + `fmt` parity.** Port `eskiuc run script.esk [args...]` (compile to a
   temp exe, exec, propagate exit code, clean up) and `eskiuc fmt [--check]` (the
   conservative reindenter). Gate: `run` over the runnable corpus matches; `fmt` stays
