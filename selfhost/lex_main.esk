@@ -2,86 +2,25 @@
 // in the EXACT format of the C++ `--test-lexer` token lines (main.cpp testLexer):
 //   "  Line %3d, Col %3d  %15s  '<value>'"
 // where <value> is the DECODED lexeme (string/char escapes applied, quotes
-// stripped — mirroring read_string/read_char). EOF is not printed. The parity
-// harness strips the C++ banner/trailer and raw-diffs the two token streams, so
-// byte-identical = parity (embedded newlines in string values match on both sides).
+// stripped). EOF is not printed. The parity harness strips the C++ banner/trailer
+// and raw-diffs the two token streams. The dump itself lives in lexer.esk
+// (`lex_dump`), shared with `esk_main --test-lexer`.
 
 import <io>;
 import <fs>;
 import "lexer.esk";
-
-// decode_str_escape / decode_escape_span now live in tokens.esk (shared with the
-// parser), reached transitively via lexer.esk.
-
-// Print a token's value exactly as the C++ lexer stores it: STRING_LIT/CHAR_LIT
-// are decoded (escapes applied, surrounding quotes dropped); everything else is
-// the raw lexeme bytes [start, start+len).
-void emit_value(*uint8 src, int type, int start, int len) {
-    if (type == STRING_LIT) {
-        int i = start + 1;                  // skip opening "
-        int endp = start + len - 1;         // index of closing "
-        while (i < endp) {
-            int ch = (int)src[i];
-            if (ch == 92 && i + 1 < endp) { // '\' with a char after it
-                i = i + 1;
-                int adv = 0;
-                putchar(decode_escape_span(src, i, endp, &adv));
-                i = i + adv;
-            } else {
-                putchar(ch);
-            }
-            i = i + 1;
-        }
-        return;
-    }
-    if (type == CHAR_LIT) {
-        int i = start + 1;                  // skip opening '
-        int endp = start + len - 1;         // index of closing '
-        if (i < endp) {                     // read_char keeps only the first char
-            int ch = (int)src[i];
-            if (ch == 92 && i + 1 < endp) {
-                i = i + 1;
-                int adv = 0;
-                putchar(decode_escape_span(src, i, endp, &adv));
-            } else {
-                putchar(ch);
-            }
-        }
-        return;
-    }
-    int i = 0;
-    while (i < len) {
-        putchar((int)src[start + i]);
-        i = i + 1;
-    }
-}
 
 int main(int argc, string* argv) {
     if (argc < 2) {
         printf("usage: lex_main <file.esk>\n");
         return 1;
     }
-
     let n: int64 = 0;
     *uint8 src = fs_read_all(argv[1], &n);
     if (src == null) {
         printf("error: cannot read %s\n", argv[1]);
         return 1;
     }
-
-    let lx: Lexer;
-    lx.src = src;
-    lx.len = (int)n;
-    lx.pos = 0;
-    lx.line = 1;
-    lx.col = 1;
-
-    Token t = lx_next(&lx);
-    while (t.type != EOF_TOKEN) {
-        printf("  Line %3d, Col %3d  %15s  '", t.line, t.col, token_name(t.type));
-        emit_value(src, t.type, t.start, t.len);
-        printf("'\n");
-        t = lx_next(&lx);
-    }
+    lex_dump(src, (int)n);
     return 0;
 }

@@ -44,6 +44,7 @@ int main(int argc, string* argv) {
             ai = ai + 1;
             if (ai < argc) { outfile = argv[ai]; }
         } else if (cg_streq(argv[ai], "--version") == 1
+                || cg_streq(argv[ai], "--test-lexer") == 1
                 || cg_streq(argv[ai], "--test-parser") == 1
                 || cg_streq(argv[ai], "--test-typechecker") == 1
                 || cg_streq(argv[ai], "--test-codegen") == 1) {
@@ -68,6 +69,12 @@ int main(int argc, string* argv) {
         sprintf((string)&eb[0], "error: cannot read %s\n", infile);
         eprint((string)&eb[0]);
         return 1;
+    }
+
+    // --test-lexer runs the lexer on the raw file (no preprocessing), matching lex_main.
+    if (cg_streq(mode, "--test-lexer") == 1) {
+        lex_dump(raw, (int)n);
+        return 0;
     }
 
     // The C++ `--test-parser`/`--test-typechecker` return before the compile path, so
