@@ -15,9 +15,14 @@ lexer.esk → preprocessor.esk → parser.esk → sema.esk → async_lower.esk �
 ```
 
 with drivers `lex_main`, `pp_main`, `parse_main`, `tc_main`, `cg_main`, and the unified
-`esk_main` (preprocess → parse → type-check → generate). The code generator emits **LLVM IR
-as text** (no LLVM library is linked), which `clang` then assembles and links. This keeps
-the self-hosted compiler dependency-free and is the standard bootstrap path.
+`esk_main` (preprocess → parse → type-check → generate). On the promotion track (see
+`selfhost/PROMOTION_PLAN.md`) `esk_main` has grown into the full user-facing CLI: it
+dispatches every `--test-*` debug mode plus `--version`, takes multiple input files, and
+with `-o` assembles the IR and invokes `clang` to link a native binary (threading
+`--asan`/`--ubsan` into the link). The four per-pass parity gates now drive *through*
+`esk_main --test-*`. The code generator emits **LLVM IR as text** (no LLVM library is
+linked), which `clang` then assembles and links. This keeps the self-hosted compiler
+dependency-free and is the standard bootstrap path.
 
 The endgame (v1.0): `eskiuc` compiles its own source. v0.3.0 reaches the key milestones on
 the way there: a 3-stage bootstrap fixpoint and feature-completeness against the C++ corpus.

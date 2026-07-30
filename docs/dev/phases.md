@@ -295,9 +295,13 @@ practical stdlib modules. Each landed as granular per-layer commits.
   self-hosted codegen is also feature-complete against the C++ corpus (shipped in v0.3.0).
   Remaining for v1.0: a package manager, and promoting the Eskiu-written compiler to the
   primary build (it currently rides alongside the C++ `eskiuc`): staged, parity-gated
-  plan in `selfhost/PROMOTION_PLAN.md` (folds in the open self-host residuals: async `for-in`
-  element typing and the keyword-as-identifier diagnostic mirror; parse-parity corpus
-  expansion shipped in v0.3.1)
+  plan in `selfhost/PROMOTION_PLAN.md`. Progress: the keyword-as-identifier diagnostic
+  mirror (R3) and the driver stages P0 (native `-o` link via clang) and P1 (full CLI
+  parity: all `--test-*` modes, `--version`, `--asan`/`--ubsan`, and multi-file input
+  dispatch through `esk_main`) are done; every parity gate drives through the unified
+  driver. Open: `run`/`fmt` parity (P2), whole-corpus behavioral equivalence (P3), the
+  flip (P4), and the async `for-in` element-typing refactor (R1). Parse-parity corpus
+  expansion shipped in v0.3.1.
 - First-class types for high-throughput services
 
 ---
