@@ -57,6 +57,46 @@ keeps only the **durable lessons** and the **follow-ups still worth acting on**.
   loop) no program happens to hit, which is exactly where P3 needs adversarial inputs, not
   just the existing files.
 
+## Promotion P3: whole-corpus behavioral equivalence (in progress)
+
+Running the WHOLE `tests/` corpus through the Eskiu-built compiler (emit `.ll` → clang →
+run, compare to `.expected`) is the P3 acceptance gate. First sweep: 118/138 positive tests
+passed; the deltas are the real self-host-vs-C++ divergences P3 must close. Codegen bucket
+progress (each fix in lockstep, bootstrap fixpoint held throughout):
+
+- **DONE** http2 (7): a stdlib name collision (`H2_STREAM_CLOSED`); renamed the stream-state
+  enum to `H2_STATE_*`. See the codegen note above.
+- **DONE** async-generic futures (3: join_value, net_async, select_value): a lambda queued
+  inside a generic function lost the type-param substitution when emitted later, so
+  `future_complete<Pair<A,B>>` never monomorphized. `CgLambda` now snapshots `cursub`, and
+  the drain loop runs to a fixpoint (lambdas/instantiations can queue each other).
+- **DONE** bare-fn-as-closure (3: net_echo, http_async[_concurrent]): `thread_create`/
+  `free_closure` did `extractvalue %closure @fn` on a raw fn pointer; now coerced to a
+  `{@__fnptr, null}` closure first.
+- **DONE** const array dims (const): a named-const struct-field dimension (`int[CAP]`) wasn't
+  folded before the struct type was emitted; added a Pass 0b that registers const-ints first.
+- **DONE** synchronous for-in (for_in, const, slice, slice_ptr): `cg_stmt` had NO `SK_FORIN`
+  path (only async fns got for-in desugared), so sync for-in emitted nothing → 0. Added an
+  inline desugar to a counted for (array / slice / list-like), testing slice before array
+  since `T[]` also matches `cg_is_array`.
+
+Remaining codegen deltas (not yet done):
+- **escapes**: a string literal with an embedded `\0` (`"a\0b"`) is truncated. String values
+  flow through the lexer/parser/codegen as C strings, so bytes after the NUL are lost. Needs
+  an explicit byte length threaded from the lexer through the AST (`ExprNode`) to
+  `cg_string_global` (which currently does `cg_strlen`). Niche; deferred.
+- **loop_locals**: local `alloca`s are emitted inline at the vardecl, not hoisted to the
+  function entry block, so a local declared in a loop body allocates every iteration and a
+  long loop overflows the stack (segfault). The C++ back-end hoists via `entryAlloca`. Fix:
+  buffer local allocas and emit them in the entry block.
+- **multipart**: emits `sub ptr 0, %p` (pointer negation) → invalid IR. A pointer-difference
+  / negative-offset codegen path needs to compute the offset in an integer type.
+
+Sema bucket (separate, larger): 26/51 negative tests are not rejected by the self-host sema
+(missing checks: bounds, compare-typing, div-by-zero, float→int, redefinition, uninitialized,
+main-void, …), and 5 valid programs are wrongly REJECTED (errdefer + the generics map/
+map_generic/sort/variadic). This is the deferred "self-host sema parity" residual.
+
 ## Open follow-ups (worth doing, not yet done)
 
 - **Self-host codegen does not unique duplicate top-level global names, and folds const
