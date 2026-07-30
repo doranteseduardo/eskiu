@@ -59,6 +59,19 @@ keeps only the **durable lessons** and the **follow-ups still worth acting on**.
 
 ## Open follow-ups (worth doing, not yet done)
 
+- **Self-host codegen does not unique duplicate top-level global names, and folds const
+  ints first-wins where C++ loads last-wins.** Two module-level `const int`s with the same
+  name emit two `@name` globals (clang: `redefinition of global`), while the C++ back-end
+  relies on LLVM auto-uniquing (`@name.2`) + `defineSymbol` last-wins, so it stays valid and
+  resolves references to the *later* definition. The self-host also folds a const-int
+  reference through `econsts` (first-wins) instead of loading the global, so even absent the
+  redefinition the value would differ. Surfaced by the only real collision in the corpus
+  (`H2_STREAM_CLOSED` in `stdlib/http2.esk`, an RFC error code that shadowed a stream state),
+  fixed at the root by renaming the stream-state enum to `H2_STATE_*` (promotion P3, codegen
+  slice 1). No other post-preprocess collision exists in-tree, so this is a latent robustness
+  gap, not a corpus blocker: if one ever appears, teach `cg_add_global` to unique the name
+  and make the `econsts`/global lookup last-wins to match C++.
+
 - **Self-host codegen: `List<T>` (and generic structs) instantiated over a
   function-pointer element type (`List<fn()->int>`) emits invalid IR.** The method
   self-parameter is declared as the by-value struct type instead of `ptr` (a mangling /
