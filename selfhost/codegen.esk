@@ -226,6 +226,24 @@ List<CgSub> cg_copy_sub(List<CgSub>* src) {
     return r;
 }
 
+// Minimal AST constructors, used to desugar `for-in` into a counted for. Local copies of
+// the parser/async_lower builders so codegen.esk stays self-contained (it compiles as a
+// standalone module in cg_selfhost.sh, without those modules merged in).
+*ExprNode cgb_ident(string nm) { *ExprNode e = alloc<ExprNode>(1); e.kind = EK_IDENT; e.sval = nm; return e; }
+*ExprNode cgb_lit(int lk, string v) { *ExprNode e = alloc<ExprNode>(1); e.kind = EK_LITERAL; e.lit_kind = lk; e.sval = v; return e; }
+*ExprNode cgb_bin(string op, *ExprNode l, *ExprNode r) { *ExprNode e = alloc<ExprNode>(1); e.kind = EK_BINARY; e.sval = op; e.a = l; e.b = r; return e; }
+*ExprNode cgb_member(*ExprNode base, string field) { *ExprNode e = alloc<ExprNode>(1); e.kind = EK_MEMBER; e.a = base; e.sval = field; return e; }
+*ExprNode cgb_index(*ExprNode base, *ExprNode idx) { *ExprNode e = alloc<ExprNode>(1); e.kind = EK_INDEX; e.a = base; e.b = idx; return e; }
+*StmtNode cgb_vardecl(string nm, string ty, *ExprNode init) { *StmtNode s = alloc<StmtNode>(1); s.kind = SK_VARDECL; s.name = nm; s.type = ty; s.expr = init; s.is_const = 0; s.is_static = 0; return s; }
+*StmtNode cgb_for(*StmtNode init, *ExprNode cond, *ExprNode step, *StmtNode body) { *StmtNode s = alloc<StmtNode>(1); s.kind = SK_FOR; s.s1 = init; s.expr = cond; s.expr2 = step; s.s2 = body; return s; }
+*StmtNode cgb_block2(*StmtNode a, *StmtNode b) {
+    *StmtNode s = alloc<StmtNode>(1); s.kind = SK_BLOCK;
+    List_init<*StmtNode>(&s.items, 2);
+    List_push<*StmtNode>(&s.items, a);
+    if (b != null) { List_push<*StmtNode>(&s.items, b); }
+    return s;
+}
+
 // Mangle a generic type/call spelling into an LLVM-safe name: "Box<int>" -> "Box_int",
 // "Map<string, int>" -> "Map_string__int", "List<*int>" -> "List_pint". Internally
 // consistent (defs and refs agree), which is all clang needs.
@@ -2925,6 +2943,38 @@ void cg_stmt(Codegen* g, *StmtNode st) {
         if (st.expr2 != null) { cg_expr(g, st.expr2); }
         cg_br(g, l_cond);
         cg_label(g, l_end);
+        return;
+    }
+    if (st.kind == SK_FORIN) {
+        // `for (v in it)` has no direct IR form: desugar to a counted for over the
+        // iterable's elements, then reuse the SK_FOR path (break/continue, defers). Array
+        // `T[N]` → it[i], length N; slice `T[]` → it[i], length it.len; list-like struct →
+        // it.data[i], length it.size. `it` is the real iterable expression, so a field
+        // (`b.vals`) works, not just a bare identifier. (Async fns get this via async_lower;
+        // this is the synchronous path.)
+        string itty = cg_etype(g, st.expr);
+        string fi = cg_cat("__fi", cg_itoa(g.lam_seq)); g.lam_seq = g.lam_seq + 1;
+        *ExprNode lengthE = cgb_lit(LIT_INT, "0");
+        *ExprNode elemE = cgb_lit(LIT_INT, "0");
+        // A slice `T[]` also matches cg_is_array (both spell "T[...]"), so test slice first.
+        if (cg_is_slice(itty) == 1) {
+            lengthE = cgb_member(st.expr, "len");
+            elemE = cgb_index(st.expr, cgb_ident(fi));
+        } else if (cg_is_array(itty) == 1) {
+            string cnt = cg_array_count(itty);
+            if (cg_all_digits(cnt) == 0) { string rv = cg_enum_val(g, cnt); if (rv[0] != 0) { cnt = rv; } }
+            lengthE = cgb_lit(LIT_INT, cnt);
+            elemE = cgb_index(st.expr, cgb_ident(fi));
+        } else {
+            lengthE = cgb_member(st.expr, "size");
+            elemE = cgb_index(cgb_member(st.expr, "data"), cgb_ident(fi));
+        }
+        string elemTy = cg_etype(g, elemE);
+        *StmtNode initS = cgb_vardecl(fi, "int", cgb_lit(LIT_INT, "0"));
+        *ExprNode cond = cgb_bin("<", cgb_ident(fi), lengthE);
+        *ExprNode step = cgb_bin("=", cgb_ident(fi), cgb_bin("+", cgb_ident(fi), cgb_lit(LIT_INT, "1")));
+        *StmtNode bodyS = cgb_block2(cgb_vardecl(st.name, elemTy, elemE), st.s1);
+        cg_stmt(g, cgb_for(initS, cond, step, bodyS));
         return;
     }
     if (st.kind == SK_BREAK) {
