@@ -120,3 +120,8 @@ jobs:
       # the C++ eskiuc's over a small corpus (promotion P0).
       - name: Driver self-host parity
         run: CLANG=clang-22 tests/selfhost/driver_parity.sh
+
+      # `eskiuc run script.esk`: compile to a temp exe, execute, propagate exit code.
+      # Compare the self-host `run` to the C++ `run` over the same corpus (promotion P2).
+      - name: Run self-host parity
+        run: CLANG=clang-22 tests/selfhost/run_parity.sh
