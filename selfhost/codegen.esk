@@ -3510,6 +3510,22 @@ void cg_program(Codegen* g, *Program prog) {
         ai = ai + 1;
     }
 
+    // Pass 0b: fold top-level `const int`s into econsts NOW, before any struct type is
+    // emitted, so a struct field's array dimension (`int[CAP]`) resolves to its value.
+    // (Mirrors the C++ pre-pass; the global-var pass below reuses these, not re-registers.)
+    int ci = 0;
+    while (ci < n) {
+        *DeclNode d = List_get<*DeclNode>(&prog.decls, ci);
+        if (d.kind == DK_VARDECL && d.is_const == 1 && d.init != null
+            && d.init.kind == EK_LITERAL && d.init.lit_kind == LIT_INT) {
+            let ec: CgEnumC;
+            ec.name = d.name;
+            ec.val = cg_u64toa(cg_int_lit_mag(d.init.sval));
+            List_push<CgEnumC>(&g.econsts, ec);
+        }
+        ci = ci + 1;
+    }
+
     // Pass 1-iface: register interfaces (method order + return types) and emit each
     // vtable struct type `%I_vtable = type { ptr, ... }`. Runs first so cg_lltype lowers
     // an interface-typed param/field to `ptr` everywhere downstream. The shared fat-ptr
@@ -3717,15 +3733,7 @@ void cg_program(Codegen* g, *Program prog) {
                 si = si + 1;
                 continue;
             }
-            // Register a `const int` initialized by a literal so a later array
-            // dimension (`int[CAP]`) and constant references can resolve its value.
-            if (d.is_const == 1 && d.init != null && d.init.kind == EK_LITERAL
-                && d.init.lit_kind == LIT_INT) {
-                let ec: CgEnumC;
-                ec.name = d.name;
-                ec.val = cg_u64toa(cg_int_lit_mag(d.init.sval));
-                List_push<CgEnumC>(&g.econsts, ec);
-            }
+            // (const-int values were already folded into econsts in Pass 0b.)
             string llty = cg_lltype(g, d.ret_type);
             cg_add_global(g, d.name, cg_cat("@", d.name), llty, d.ret_type);
             String_append(&g.globals, "@"); String_append(&g.globals, d.name);
