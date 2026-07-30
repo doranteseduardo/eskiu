@@ -35,22 +35,28 @@ int main(int argc, string* argv) {
     // CLI: esk_main [-o <out>] <file.esk>. With -o, produce a native binary (write
     // the IR to a temp .ll and invoke clang); without it, emit the .ll to stdout —
     // the form the bootstrap harness pipes to clang.
-    string infile = null;
+    List<string> infiles;
+    List_init<string>(&infiles, 2);
     string outfile = null;
-    string mode = "";        // "" = compile; else --version / --test-{parser,typechecker,codegen}
+    string mode = "";        // "" = compile; else --version / --test-{lexer,parser,typechecker,codegen}
+    int san = 0;             // 0 = none, 1 = address, 2 = undefined
     int ai = 1;
     while (ai < argc) {
         if (cg_streq(argv[ai], "-o") == 1) {
             ai = ai + 1;
             if (ai < argc) { outfile = argv[ai]; }
+        } else if (cg_streq(argv[ai], "--asan") == 1) {
+            san = 1;
+        } else if (cg_streq(argv[ai], "--ubsan") == 1) {
+            san = 2;
         } else if (cg_streq(argv[ai], "--version") == 1
                 || cg_streq(argv[ai], "--test-lexer") == 1
                 || cg_streq(argv[ai], "--test-parser") == 1
                 || cg_streq(argv[ai], "--test-typechecker") == 1
                 || cg_streq(argv[ai], "--test-codegen") == 1) {
             mode = argv[ai];
-        } else {
-            infile = argv[ai];
+        } else if (argv[ai][0] != 45) {   // not a flag ('-') → input file; unknown flags like -Wall/-Wextra are accepted and ignored
+            List_push<string>(&infiles, argv[ai]);
         }
         ai = ai + 1;
     }
@@ -58,22 +64,23 @@ int main(int argc, string* argv) {
         printf("Eskiu 0.7.0\n");
         return 0;
     }
-    if (infile == null) {
-        eprint("usage: esk_main [-o <out>] [--test-parser|--test-typechecker|--test-codegen] <file.esk>\n");
+    if (List_len<string>(&infiles) == 0) {
+        eprint("usage: esk_main [-o <out>] [--asan|--ubsan] [--test-*] <file.esk> [more.esk ...]\n");
         return 1;
     }
-    let n: int64 = 0;
-    *uint8 raw = fs_read_all(infile, &n);
-    if (raw == null) {
-        uint8[512] eb;
-        sprintf((string)&eb[0], "error: cannot read %s\n", infile);
-        eprint((string)&eb[0]);
-        return 1;
-    }
+    string infile = List_get<string>(&infiles, 0);   // primary file: test modes + diagnostics
 
     // --test-lexer runs the lexer on the raw file (no preprocessing), matching lex_main.
     if (cg_streq(mode, "--test-lexer") == 1) {
-        lex_dump(raw, (int)n);
+        let ln: int64 = 0;
+        *uint8 lraw = fs_read_all(infile, &ln);
+        if (lraw == null) {
+            uint8[512] eb;
+            sprintf((string)&eb[0], "error: cannot read %s\n", infile);
+            eprint((string)&eb[0]);
+            return 1;
+        }
+        lex_dump(lraw, (int)ln);
         return 0;
     }
 
@@ -90,16 +97,6 @@ int main(int argc, string* argv) {
         g_pp_os = "__linux__";
 #endif
     }
-    // --test-parser matches the C++ parse test, which leaves __FILE__ empty; a real
-    // compile and the other modes expand it to the actual path.
-    string ppfile = infile;
-    if (cg_streq(mode, "--test-parser") == 1) { ppfile = ""; }
-    let pperr: int = 0;
-    string pp = pp_run((string)raw, (int)n, ppfile, &pperr);
-    *uint8 src = (*uint8)pp;
-    int plen = 0;
-    while (src[plen] != 0) { plen = plen + 1; }
-
     // --test-typechecker prints its banner before parsing (matches tc_main).
     if (cg_streq(mode, "--test-typechecker") == 1) {
         printf("Type checking: %s\n", infile);
@@ -107,10 +104,36 @@ int main(int argc, string* argv) {
     }
 
     parser_session_init();
-    let p: Parser;
-    p_init(&p, src, plen);
-    p.basedir = str_dir(infile);
-    *Program prog = parse_program(&p);
+    *Program prog = alloc<Program>(1);
+    List_init<*DeclNode>(&prog.decls, 4);
+    // Parse every input file into the one shared program (multi-file merge; the shared
+    // import/type-name session dedups across files, like the C++ driver).
+    int fi = 0;
+    while (fi < List_len<string>(&infiles)) {
+        string f = List_get<string>(&infiles, fi);
+        let flen: int64 = 0;
+        *uint8 raw = fs_read_all(f, &flen);
+        if (raw == null) {
+            uint8[512] eb;
+            sprintf((string)&eb[0], "error: cannot read %s\n", f);
+            eprint((string)&eb[0]);
+            return 1;
+        }
+        // --test-parser matches the C++ parse test, which leaves __FILE__ empty; a real
+        // compile and the other modes expand it to the actual path.
+        string ppfile = f;
+        if (cg_streq(mode, "--test-parser") == 1) { ppfile = ""; }
+        let pperr: int = 0;
+        string pp = pp_run((string)raw, (int)flen, ppfile, &pperr);
+        *uint8 src = (*uint8)pp;
+        int plen = 0;
+        while (src[plen] != 0) { plen = plen + 1; }
+        let p: Parser;
+        p_init(&p, src, plen);
+        p.basedir = str_dir(f);
+        parse_into(&p, prog);
+        fi = fi + 1;
+    }
 
     if (cg_streq(mode, "--test-parser") == 1) { print_program(prog); return 0; }
 
@@ -162,8 +185,11 @@ int main(int argc, string* argv) {
     }
     string cc = getenv("CLANG");        // clang emits from .ll; cc/gcc can't, so no findCDriver ladder
     if (cc == null) { cc = "clang"; }
+    string sanflag = "";
+    if (san == 1) { sanflag = " -fsanitize=address"; }
+    else if (san == 2) { sanflag = " -fsanitize=undefined"; }
     uint8[2048] cmd;
-    sprintf((string)&cmd[0], "%s %s -o %s", cc, tmp, outfile);
+    sprintf((string)&cmd[0], "%s%s %s -o %s", cc, sanflag, tmp, outfile);
     int rc = system((string)&cmd[0]);
     remove(tmp);
     if (rc != 0) {
