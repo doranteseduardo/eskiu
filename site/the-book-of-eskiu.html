@@ -327,7 +327,7 @@ pre.code-block {
 <a href="#sec-9-3" class="toc-sec">9.3 Closures</a>
 <a href="#sec-9-4" class="toc-sec">9.4 Void lambdas</a>
 <a href="#sec-9-5" class="toc-sec">9.5 Function pointers as return types and struct fields</a>
-<a href="#sec-9-5" class="toc-sec">9.5 Escaping closures</a>
+<a href="#sec-9-6" class="toc-sec">9.6 Escaping closures</a>
 <a href="#sec-9-7" class="toc-sec">9.7 Closures inside generic functions</a>
 <a href="#chapter-10" class="toc-ch">Chapter 10</a>
 <a href="#sec-10-1" class="toc-sec">10.1 Result</a>
@@ -338,7 +338,7 @@ pre.code-block {
 <a href="#sec-11-1" class="toc-sec">11.1 thread_create and thread_join</a>
 <a href="#sec-11-2" class="toc-sec">11.2 Passing data via closures</a>
 <a href="#sec-11-3" class="toc-sec">11.3 Shared state</a>
-<a href="#sec-11-3" class="toc-sec">11.3 Function decay</a>
+<a href="#sec-11-4" class="toc-sec">11.4 Function decay</a>
 <a href="#chapter-12" class="toc-ch">Chapter 12</a>
 <a href="#sec-12-1" class="toc-sec">12.1 Arithmetic</a>
 <a href="#sec-12-1b" class="toc-sec">12.1b Increment and decrement</a>
@@ -419,12 +419,11 @@ pre.code-block {
 <a href="#sec-23-4" class="toc-sec">23.4 TCP client</a>
 <a href="#sec-23-5" class="toc-sec">23.5 net_accept_addr and binary uploads</a>
 <a href="#chapter-24" class="toc-ch">Chapter 24</a>
-<a href="#sec-19-1" class="toc-sec">19.1 Background</a>
-<a href="#sec-4-6" class="toc-sec">4.6 MB, Chilkat 9.5 statically linked) and reimplemented entirely in Eskiu, calling OpenSSL via</a>
-<a href="#sec-19-2" class="toc-sec">19.2 The pipeline</a>
-<a href="#sec-19-3" class="toc-sec">19.3 Key data structures</a>
-<a href="#sec-19-4" class="toc-sec">19.4 Performance</a>
-<a href="#sec-19-5" class="toc-sec">19.5 What it demonstrates</a>
+<a href="#sec-24-1" class="toc-sec">24.1 Background</a>
+<a href="#sec-24-2" class="toc-sec">24.2 The pipeline</a>
+<a href="#sec-24-3" class="toc-sec">24.3 Key data structures</a>
+<a href="#sec-24-4" class="toc-sec">24.4 Performance</a>
+<a href="#sec-24-5" class="toc-sec">24.5 What it demonstrates</a>
 <a href="#chapter-25" class="toc-ch">Chapter 25</a>
 <a href="#sec-25-1" class="toc-sec">25.1 The model</a>
 <a href="#sec-25-2" class="toc-sec">25.2 The event loop</a>
@@ -1180,7 +1179,7 @@ pre.code-block {
  int add(int a, int b) { return a + b; }
  let o: Ops;    o.op = add;
  printf(&quot;%d\n&quot;, o.op(3, 4));     // 7</pre>
-<h2 class="section" id="sec-9-5">9.5 Escaping closures</h2>
+<h2 class="section" id="sec-9-6">9.6 Escaping closures</h2>
 <p>By default a closure environment lives on the stack. Zero allocation cost, but it cannot outlive the function that created it. When a closure must outlive its creator the parameter that receives it must be marked escaping:</p>
 <pre class="code-block"> void on_ready(int fd, escaping fn(int)-&gt;void cb) {
        handlers[fd] = cb;     // stored: parameter must be escaping
@@ -1296,7 +1295,7 @@ pre.code-block {
 <p>When threads share heap-allocated data through a pointer, you must coordinate access. Without synchronisation, concurrent reads and writes produce corrupted results: a data race.</p>
 <pre class="code-block"> Warning Shared heap memory from multiple threads without synchronisation is undefined behaviour.
  Prefer passing data by value through closures.</pre>
-<h2 class="section" id="sec-11-3">11.3 Function decay</h2>
+<h2 class="section" id="sec-11-4">11.4 Function decay</h2>
 <p>A named top-level function used as a value decays to a fn()-&gt;<code>void</code> pointer automatically. You can pass it directly to thread_create or any other higher-order function without wrapping it in a lambda:</p>
 <pre class="code-block"> void echo_server() {
        // no captures needed
@@ -2365,15 +2364,13 @@ pre.code-block {
 <div class="chapter-start" id="chapter-24"><span class="chapter-label">Chapter 24</span>
 <h1 class="chapter-title">Real World: INE QR Decoder</h1><hr class="chapter-rule"></div>
 <p>This chapter walks through the program that validated Eskiu: a production decoder for the cryptographic QR codes on Mexican voter ID cards. It uses nearly every feature covered in this book, and it runs 2.5× faster than the hand-written C reference it replaced.</p>
-<h2 class="section" id="sec-19-1">19.1 Background</h2>
-<p>Every Mexican INE credential has two QR codes on the back. Together they encode the cardholder&#x27;s biographical data and photo, encrypted with AES-256-CBC and RSA-8192. The encryption was reverse-engineered from a proprietary native ARM64 library (libPersonalCode.so,</p>
-<h2 class="section" id="sec-4-6">4.6 MB, Chilkat 9.5 statically linked) and reimplemented entirely in Eskiu, calling OpenSSL via</h2>
-<p><code>extern</code>.</p>
-<h2 class="section" id="sec-19-2">19.2 The pipeline</h2>
+<h2 class="section" id="sec-24-1">24.1 Background</h2>
+<p>Every Mexican INE credential has two QR codes on the back. Together they encode the cardholder&#x27;s biographical data and photo, encrypted with AES-256-CBC and RSA-8192. The encryption was reverse-engineered from a proprietary native ARM64 library (libPersonalCode.so, 4.6 MB, Chilkat 9.5 statically linked) and reimplemented entirely in Eskiu, calling OpenSSL via <code>extern</code>.</p>
+<h2 class="section" id="sec-24-2">24.2 The pipeline</h2>
 <p>Stage 1 (qr_extract.c, 12 lines of C): zxing-cpp extracts two 858-byte payloads from the QR codes. The only C code in the project.</p>
 <p>Stage 2 (crypto.esk, 541 lines): six AES-256-CBC decryptions and one RSA-8192 modular exponentiation, all via OpenSSL <code>extern</code> calls. Manages intermediate buffers with <code>alloc</code>/<code>free</code>.</p>
 <p>Stage 3 (output.esk, 186 lines): parses the pipe-delimited plaintext into 18 biographical fields and extracts the embedded WebP photo. Pure Eskiu, no <code>extern</code>.</p>
-<h2 class="section" id="sec-19-3">19.3 Key data structures</h2>
+<h2 class="section" id="sec-24-3">24.3 Key data structures</h2>
 <pre class="code-block"> // types.esk
  struct QRPair {
        uint8[858] left;         // fixed-size, no heap allocation
@@ -2392,14 +2389,14 @@ pre.code-block {
        double      crypto_ms;
        double      decode_ms;
  }</pre>
-<h2 class="section" id="sec-19-4">19.4 Performance</h2>
+<h2 class="section" id="sec-24-4">24.4 Performance</h2>
 <pre class="code-block">      Stage                                         Eskiu            Reference C</pre>
 <pre class="code-block">      QR extraction                                 71.7 ms          185.5 ms</pre>
 <pre class="code-block">      Crypto pipeline                               2.8 ms           2.9 ms</pre>
 <pre class="code-block">      Output decode                                 &lt; 1 ms           0.5 ms</pre>
 <pre class="code-block">      Total                                         74.4 ms          188.9 ms</pre>
 <p>2.5× faster than the reference C implementation on Apple Silicon. The crypto stage matches C within 0.1 ms. Both call the same OpenSSL functions. The speedup comes from the QR extraction stage, where LLVM&#x27;s optimiser produces tighter code than the reference compiled without equivalent flags.</p>
-<h2 class="section" id="sec-19-5">19.5 What it demonstrates</h2>
+<h2 class="section" id="sec-24-5">24.5 What it demonstrates</h2>
 <p>The decoder uses structs with fixed-size array fields, pointers and typed pointer arithmetic, heap allocation with explicit <code>free</code>, <code>extern</code> declarations for OpenSSL, <code>Result</code> for error propagation, multi-file imports, and <code>string</code> manipulation. Every feature in this book has a real use in that program.</p>
 <p>The decoder ships in the Eskiu repository under ine_decoder/. Reading it is the best way to see how a real Eskiu program is structured.</p>
 <div class="chapter-start" id="chapter-25"><span class="chapter-label">Chapter 25</span>
