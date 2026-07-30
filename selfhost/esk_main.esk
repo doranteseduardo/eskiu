@@ -18,6 +18,7 @@ import "parser.esk";
 import "sema.esk";
 import "async_lower.esk";
 import "codegen.esk";
+import "fmt.esk";
 
 extern int64 write(int fd, *void buf, int64 n);
 extern int    system(string cmd);   // shell out to clang for the -o native-binary path
@@ -32,10 +33,69 @@ void eprint(string s) {
     write(2, (*void)s, n);
 }
 
+int bytes_eq(*uint8 a, int an, *uint8 b, int bn) {
+    if (an != bn) { return 0; }
+    int i = 0;
+    while (i < an) { if (a[i] != b[i]) { return 0; } i = i + 1; }
+    return 1;
+}
+
+// `eskiuc fmt [--check] file.esk …` — reformat each file in place. With --check, don't
+// write; exit non-zero if any file is not already formatted. Mirrors the C++ runFmt.
+int run_fmt(List<string>* files, int check) {
+    if (List_len<string>(files) == 0) { eprint("error: fmt: no input files\n"); return 1; }
+    int changed = 0;
+    int failed = 0;
+    int i = 0;
+    while (i < List_len<string>(files)) {
+        string f = List_get<string>(files, i);
+        i = i + 1;
+        let flen: int64 = 0;
+        *uint8 raw = fs_read_all(f, &flen);
+        if (raw == null) {
+            uint8[512] eb;
+            sprintf((string)&eb[0], "error: fmt: cannot open '%s'\n", f);
+            eprint((string)&eb[0]);
+            failed = failed + 1;
+            continue;
+        }
+        let formatted: String = format_source(raw, (int)flen);
+        *uint8 fb = (*uint8)String_cstr(&formatted);
+        int fl = (int)String_len(&formatted);
+        if (bytes_eq(fb, fl, raw, (int)flen) == 1) { continue; }
+        changed = changed + 1;
+        if (check == 1) { printf("%s\n", f); continue; }
+        if (fs_write_all(f, fb, (int64)fl) == 0) {
+            uint8[512] eb;
+            sprintf((string)&eb[0], "error: fmt: cannot write '%s'\n", f);
+            eprint((string)&eb[0]);
+            failed = failed + 1;
+            continue;
+        }
+    }
+    if (failed > 0) { return 1; }
+    if (check == 1 && changed > 0) { return 1; }   // CI signal: files need formatting
+    return 0;
+}
+
 int main(int argc, string* argv) {
     // CLI: esk_main [-o <out>] <file.esk>. With -o, produce a native binary (write
     // the IR to a temp .ll and invoke clang); without it, emit the .ll to stdout —
     // the form the bootstrap harness pipes to clang.
+    // `eskiuc fmt [--check] file.esk …` — reindent files in place, no compile pipeline.
+    if (argc >= 2 && cg_streq(argv[1], "fmt") == 1) {
+        int check = 0;
+        List<string> ffiles;
+        List_init<string>(&ffiles, 2);
+        int fj = 2;
+        while (fj < argc) {
+            if (cg_streq(argv[fj], "--check") == 1) { check = 1; }
+            else { List_push<string>(&ffiles, argv[fj]); }
+            fj = fj + 1;
+        }
+        return run_fmt(&ffiles, check);
+    }
+
     List<string> infiles;
     List_init<string>(&infiles, 2);
     string outfile = null;
