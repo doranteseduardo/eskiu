@@ -110,26 +110,31 @@ Sema bucket (the deferred "self-host sema parity" residual). Two sides:
   the operand's Result-like struct type (rewrote it + taught `sema_infer_type` to infer a
   direct call's return type, keeping `question_bad_return` rejected); and `va_start`/`va_end`
   are now recognized as declaration-less builtins (fixing variadic).
-- **Missing checks: 34/51 rejected (was 25).** Ported the checks that need no new
-  infrastructure: `main` must return int, redefinition of a function, `return`/escaping
-  `break`|`continue` in a defer body (one walk, `sema_defer_walk`), division/remainder by a
-  literal zero, and `++`/`--` on a non-lvalue. The remaining 17 each need a foundational
-  capability the self-host sema does not have yet, so they cluster:
-  - **Type compatibility (8)**: compare_incompatible, compare_struct, float_to_int,
-    fn_return_mismatch, init_incompatible, init_void, ternary_incompatible,
-    literal_out_of_range. These need real expression-type inference (`sema_infer_type` only
-    handles idents and direct calls today) plus a type-compatibility/conversion check.
-  - **Constant bounds (4)**: index_oob, array_overflow, array_2d_oob, array_2d_init_overflow.
-    Need constant-index evaluation and array-size lookup at the index/init sites.
-  - **const_addr_of (1)**: `&const` yields a pointer-to-const; discarding it on assignment
-    needs the same init-type-compatibility path as the type-compat cluster.
-  - **Flow (2)**: uninitialized (straight-line uninitialized-read scan) and dangling_local
-    (returning a pointer to a local) need dataflow/escape analysis.
-  - **Lexer/pp (2)**: unterminated_char (a char literal must hold one char) and pp_error
-    (`#error` directive) need error paths in the self-host lexer and preprocessor.
-  Building `sema_infer_type` out to full parity is the highest-leverage next step (unblocks
-  the 8-test type cluster plus const_addr_of). This is the tail of P3 before whole-corpus
-  equivalence is fully green.
+- **Missing checks: DONE. 51/51 negative tests rejected, 138/138 positive still pass.**
+  All ported in lockstep with the C++ checker, each verified to not falsely reject a valid
+  program (the whole positive corpus was re-run after every rule). What went in:
+  - **Structural**: `main` must return int, function redefinition, `return`/escaping
+    `break`|`continue` in a defer body (`sema_defer_walk`), div/rem by a literal zero,
+    `++`/`--` on a non-lvalue.
+  - **Type inference + compatibility**: `sema_infer_type` grew to cover literals, `&x`
+    (const-tracking), direct-call returns (async calls yield a Future, so they infer to
+    unknown, not the inner type), a bare function used as a value (its `fn(...)->R`
+    spelling), and array indexing. On top of it: an init-type check (float→int, string→num,
+    void, int-literal out of range, fn-type mismatch, and the pre-existing const-discard now
+    fires because `&const` infers to pointer-to-const), a comparison-operand check, and a
+    ternary-arm check. The rules only flag conversions the C++ `assignabilityError` also
+    rejects and default to OK when a type is unknown, so nothing valid is falsely rejected.
+  - **Constant bounds**: `arr[N]` past a numeric dimension, and an array literal with more
+    elements than a fixed size (recursive for `int[2][3]`).
+  - **Flow**: `return &local` (dangling), and a straight-line uninitialized-scalar read scan
+    (`sema_check_uninit`, stops at the first control-flow statement, like C++).
+  - **Lexer/pp**: a multi-char char literal `'ab'` (in `tok_char_value`), and a `#error`
+    directive (`esk_main` now checks the preprocessor's error flag after `pp_run`).
+
+  Verdict parity is complete; three negatives (`parse_error`, `unterminated_comment`,
+  `unterminated_string`) still reject with different *text* than the C++ lexer/parser. That
+  is a diagnostic-string consistency item, not a behavioral one (tc_parity compares the
+  accept/reject verdict, which matches), tracked from R3.
 
 ## Open follow-ups (worth doing, not yet done)
 
