@@ -303,8 +303,13 @@ practical stdlib modules. Each landed as granular per-layer commits.
   behavioral equivalence: every positive test compiled by the Eskiu-built compiler produces
   the same exit + stdout as C++, and the self-host checker rejects every error class with
   the same verdict, both CI-gated) are done; every parity gate drives through the unified
-  `esk_main`. Open: the flip (P4) and the async `for-in` element-typing refactor (R1).
-  Parse-parity corpus expansion shipped in v0.3.1.
+  `esk_main`. P4 landed as a **dual-build**: CMake builds the Eskiu-written compiler as
+  `eskiuc-esk` alongside the C++ seed (CI-built and behavior-gated), but the self-contained
+  C++ binary stays the *shipped* artifact, because the self-host links via clang (no LLVM
+  bindings) and shipping it would add a clang runtime requirement. Remaining for v1.0: a
+  package manager, an eventual shipped flip (gated on object emission or accepting the clang
+  dependency), and the async `for-in` element-typing refactor (R1). Parse-parity corpus
+  expansion shipped in v0.3.1.
 - First-class types for high-throughput services
 
 ---

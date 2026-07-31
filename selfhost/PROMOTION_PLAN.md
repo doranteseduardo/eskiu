@@ -128,13 +128,25 @@ moment the Eskiu compiler is primary, so they are prerequisites, not afterthough
     char char literal, `#error`). 51/51 negatives now reject; three still differ only in
     lexer/parser diagnostic *text* (a consistency item, tracked in `NOTES.md`, not a
     behavioral divergence). Detailed method + rules in `NOTES.md`.
-- **P4: The flip (dual-build, Eskiu primary).** Make the build produce the
-  Eskiu-built binary as `eskiuc` and install/dist it; keep the C++ compiler buildable
-  as the bootstrap seed (`eskiuc-cxx`) and as the CI equivalence oracle. Concretely:
-  CMake (or a thin bootstrap script) builds the C++ seed, the seed builds the Eskiu
-  compiler, and the Eskiu binary is the shipped artifact. The Release workflow
-  packages the Eskiu-built `eskiuc`. The C++ compiler is retained, not deleted; it
-  is the reproducible bootstrap root and the differential oracle.
+- **P4: The flip. DONE as a dual-build; the C++ binary stays the shipped artifact.**
+  CMake now builds both: the C++ `eskiuc` (bootstrap seed + differential oracle) and,
+  with it, the Eskiu-written compiler from `selfhost/esk_main.esk` as `eskiuc-esk`
+  (`add_custom_target(eskiuc-selfhost ALL ...)`, guarded on clang being present). CI builds
+  the `eskiuc-selfhost` target on every run, and its behavior is gated by the bootstrap +
+  `corpus_parity`/`tc_parity` suites. So the self-hosted compiler is a first-class, verified
+  build artifact.
+
+  **What was deliberately NOT flipped: the distributed binary.** The plan's original intent
+  was to *ship* the Eskiu-built binary. The blocker is fundamental, not incidental: the
+  self-host has no LLVM bindings by design (it emits LLVM IR *text* to stay dependency-free),
+  so `eskiuc-esk` shells out to `clang` to assemble + link, i.e. it needs clang installed at
+  runtime. The C++ `eskiuc` bundles LLVM and emits objects itself, so it only needs any C
+  linker. Shipping the Eskiu-built binary would therefore *add* a clang runtime requirement
+  for users, a real regression. The decision (see the P4 discussion) is to keep shipping the
+  self-contained C++ binary and treat `eskiuc-esk` as the dogfood/verification artifact. A
+  true shipped flip is deferred until either the clang dependency is accepted or the
+  self-host gains direct object emission (which would mean LLVM bindings, a large project
+  that trades away the self-host's dependency-free property).
 
 ## What stays true throughout
 
