@@ -250,6 +250,14 @@ int sema_sym_const(Sema* s, string name) {
     return List_get<Sym>(&s.syms, i).is_const;
 }
 
+// Scope depth of the innermost binding of `name`, or -1. Depth 0 = a global; a
+// function-scope local or parameter is at depth >= 1.
+int sema_sym_depth(Sema* s, string name) {
+    int i = sema_sym_index(s, name);
+    if (i < 0) { return -1; }
+    return List_get<Sym>(&s.syms, i).depth;
+}
+
 int sema_lookup(Sema* s, string name) {
     if (sema_sym_index(s, name) >= 0) { return 1; }
     return 0;
@@ -879,7 +887,19 @@ void sema_stmt(Sema* s, *StmtNode st) {
         sema_define(s, st.name, st.type, st.is_const);
         return;
     }
-    if (k == SK_RETURN || k == SK_THROW) { sema_expr(s, st.expr); return; }
+    if (k == SK_RETURN) {
+        sema_expr(s, st.expr);
+        // Returning `&local`/`&param` yields a dangling pointer (its frame is gone). Only
+        // the clear bare-ident case is flagged; `&arr[i]`/`&p.field` point into other memory.
+        if (st.expr != null && st.expr.kind == EK_UNARY && sema_streq(st.expr.sval, "&") == 1
+            && st.expr.a != null && st.expr.a.kind == EK_IDENT
+            && sema_sym_depth(s, st.expr.a.sval) >= 1) {
+            s.had_error = 1;
+            printf("error: %s:0:0: returning the address of local '%s' (dangling pointer)\n", s.filename, st.expr.a.sval);
+        }
+        return;
+    }
+    if (k == SK_THROW) { sema_expr(s, st.expr); return; }
     if (k == SK_THREADJOIN) { sema_expr(s, st.expr); return; }
     if (k == SK_EXPR) {
         sema_expr(s, st.expr);
@@ -1207,6 +1227,69 @@ int sema_always_returns(*StmtNode s) {
 
 // Check a function/method body: a fresh scope with the params (and `self` for
 // methods) defined, then walk the body.
+// Remove the first occurrence of `name` from a string list (used by the uninit scan).
+void sema_list_erase(List<string>* l, string name) {
+    int i = 0; int n = List_len<string>(l);
+    while (i < n) {
+        if (sema_streq(List_get<string>(l, i), name) == 1) { List_remove<string>(l, i); return; }
+        i = i + 1;
+    }
+}
+
+// Scan an expression for a read of a still-uninitialized scalar. `&x` counts as
+// initializing x (its address may be written through), not a read.
+void sema_uninit_scan(Sema* s, *ExprNode e, List<string>* uninit) {
+    if (e == null) { return; }
+    if (e.kind == EK_UNARY && sema_streq(e.sval, "&") == 1 && e.a != null && e.a.kind == EK_IDENT) {
+        sema_list_erase(uninit, e.a.sval);
+        return;
+    }
+    if (e.kind == EK_IDENT) {
+        if (sema_in_list(uninit, e.sval) == 1) {
+            s.had_error = 1;
+            printf("error: %s:0:0: use of uninitialized variable '%s'\n", s.filename, e.sval);
+            sema_list_erase(uninit, e.sval);       // report once
+        }
+        return;
+    }
+    sema_uninit_scan(s, e.a, uninit);
+    sema_uninit_scan(s, e.b, uninit);
+    int i = 0; int n = List_len<*ExprNode>(&e.kids);
+    while (i < n) { sema_uninit_scan(s, List_get<*ExprNode>(&e.kids, i), uninit); i = i + 1; }
+}
+
+// Conservative straight-line scan of a function body for reads of an uninitialized scalar
+// local, stopping at the first control-flow statement (mirrors C++ checkUninitPrefix).
+void sema_check_uninit(Sema* s, *StmtNode body) {
+    if (body == null || body.kind != SK_BLOCK) { return; }
+    List<string> uninit; List_init<string>(&uninit, 4);
+    int i = 0; int n = List_len<*StmtNode>(&body.items);
+    while (i < n) {
+        *StmtNode it = List_get<*StmtNode>(&body.items, i);
+        i = i + 1;
+        if (it.kind == SK_VARDECL) {
+            if (it.expr != null) { sema_uninit_scan(s, it.expr, &uninit); sema_list_erase(&uninit, it.name); }
+            else {
+                string t = it.type;                // only genuine scalars (arrays init piecewise)
+                if (sema_is_arr_ty(t) == 0 && (sema_is_numeric_ty(t) == 1 || sema_is_ptrish(t) == 1 || sema_is_fn_type(t) == 1)) {
+                    List_push<string>(&uninit, it.name);
+                }
+            }
+        } else if (it.kind == SK_EXPR) {
+            *ExprNode e = it.expr;
+            if (e != null && e.kind == EK_BINARY && sema_streq(e.sval, "=") == 1) {
+                sema_uninit_scan(s, e.b, &uninit);
+                if (e.a != null && e.a.kind == EK_IDENT) { sema_list_erase(&uninit, e.a.sval); }
+                else { sema_uninit_scan(s, e.a, &uninit); }
+            } else { sema_uninit_scan(s, e, &uninit); }
+        } else if (it.kind == SK_RETURN) {
+            if (it.expr != null) { sema_uninit_scan(s, it.expr, &uninit); }
+        } else {
+            i = n;                                 // control flow / anything else: stop (conservative)
+        }
+    }
+}
+
 void sema_check_fn(Sema* s, *DeclNode f, string self_type) {
     if (f.body == null) { return; }
     // Template body: full type-checking (escape soundness, `?`, uninitialized reads,
@@ -1255,6 +1338,7 @@ void sema_check_fn(Sema* s, *DeclNode f, string self_type) {
     }
     sema_stmt(s, f.body);
     sema_pop(s);
+    if (f.is_async == 0) { sema_check_uninit(s, f.body); }   // reads of an uninitialized scalar local
     // A non-void function must return on every path (no implicit zero return);
     // void may fall off, and async completes its future implicitly.
     if (f.is_async == 0 && sema_streq(f.ret_type, "void") == 0
