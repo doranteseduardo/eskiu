@@ -100,6 +100,24 @@ int sema_is_float_ty(string t0) {
     return sema_streq(t, "float") == 1 || sema_streq(t, "double") == 1;
 }
 
+int sema_is_numeric_ty(string t) { return sema_is_int_ty(t) == 1 || sema_is_float_ty(t) == 1; }
+
+// Pointer-like for comparison: leading/trailing `*`, `string`, or `null` (mirrors C++).
+int sema_is_ptrish(string t0) {
+    string t = sema_strip_const(t0);
+    int n = 0; while (t[n] != 0) { n = n + 1; }
+    if (n == 0) { return 0; }
+    if (t[0] == 42 || t[n - 1] == 42) { return 1; }   // '*'
+    return sema_streq(t, "string") == 1 || sema_streq(t, "null") == 1;
+}
+
+// A comparison operator (==, !=, <, >, <=, >=)?
+int sema_is_cmp_op(string op) {
+    return sema_streq(op, "==") == 1 || sema_streq(op, "!=") == 1
+        || sema_streq(op, "<") == 1 || sema_streq(op, ">") == 1
+        || sema_streq(op, "<=") == 1 || sema_streq(op, ">=") == 1;
+}
+
 // Does a plain decimal integer literal `v` fit target int type `t0`? Mirrors the C++
 // intLiteralFits. Conservative: a hex/binary/suffixed literal is treated as fitting (skip).
 int sema_int_lit_fits(string t0, string v) {
@@ -512,6 +530,20 @@ void sema_expr(Sema* s, *ExprNode e) {
             if (sema_streq(e.sval, "/") == 1) { sema_error(s, "division by zero"); }
             else { sema_error(s, "remainder by zero"); }
         }
+        // Comparison operands must be mutually comparable: both numeric, both pointer-like
+        // (incl. null), or the same non-aggregate type. Conservative: only flag when both
+        // operand types are known (unknown → skip, never falsely reject).
+        if (sema_is_cmp_op(e.sval) == 1) {
+            string lt = sema_infer_type(s, e.a);
+            string rt = sema_infer_type(s, e.b);
+            if (lt[0] != 0 && rt[0] != 0 && sema_streq(lt, "unknown") == 0 && sema_streq(rt, "unknown") == 0) {
+                int ok = 0;
+                if (sema_is_numeric_ty(lt) == 1 && sema_is_numeric_ty(rt) == 1) { ok = 1; }
+                else if (sema_is_ptrish(lt) == 1 && sema_is_ptrish(rt) == 1) { ok = 1; }
+                else if (sema_streq(lt, rt) == 1 && sema_is_struct(s, sema_base_name(lt)) == 0) { ok = 1; }
+                if (ok == 0) { sema_error(s, "invalid operands for operator"); }
+            }
+        }
         sema_expr(s, e.a); sema_expr(s, e.b); return;
     }
     if (k == EK_INCDEC) {                              // ++x / x++ etc.
@@ -533,7 +565,19 @@ void sema_expr(Sema* s, *ExprNode e) {
     if (k == EK_TERNARY) {                             // cond ? then : else
         sema_expr(s, e.a);
         sema_expr(s, e.b);
-        sema_expr(s, List_get<*ExprNode>(&e.kids, 0));
+        *ExprNode elseE = List_get<*ExprNode>(&e.kids, 0);
+        sema_expr(s, elseE);
+        // The two arms need a common type: same, both numeric, or both pointer-like.
+        // Conservative: only flag when both arm types are known.
+        string tt = sema_infer_type(s, e.b);
+        string et = sema_infer_type(s, elseE);
+        if (tt[0] != 0 && et[0] != 0 && sema_streq(tt, "unknown") == 0 && sema_streq(et, "unknown") == 0) {
+            int ok = 0;
+            if (sema_streq(tt, et) == 1) { ok = 1; }
+            else if (sema_is_numeric_ty(tt) == 1 && sema_is_numeric_ty(et) == 1) { ok = 1; }
+            else if (sema_is_ptrish(tt) == 1 && sema_is_ptrish(et) == 1) { ok = 1; }
+            if (ok == 0) { sema_error(s, "ternary branches have incompatible types"); }
+        }
         return;
     }
     if (k == EK_AWAIT) {
