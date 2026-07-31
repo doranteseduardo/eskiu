@@ -84,14 +84,19 @@ progress (each fix in lockstep, bootstrap fixpoint held throughout):
   `cg_entry_alloca` + an `entry_buf`; `cg_emit_fn`/`cg_emit_lambda` now emit the body to a
   temp buffer and assemble `entry:` + hoisted allocas + body (mirrors C++ `entryAlloca`).
 
-After these, the positive corpus is 136/138 through the Eskiu-built compiler. Remaining
-codegen deltas (not yet done):
-- **escapes**: a string literal with an embedded `\0` (`"a\0b"`) is truncated. String values
-  flow through the lexer/parser/codegen as C strings, so bytes after the NUL are lost. Needs
-  an explicit byte length threaded from the lexer through the AST (`ExprNode`) to
-  `cg_string_global` (which currently does `cg_strlen`). Niche; deferred.
-- **multipart**: emits `sub ptr 0, %p` (pointer negation) → invalid IR. A pointer-difference
-  / negative-offset codegen path needs to compute the offset in an integer type.
+- **DONE** multipart (invalid IR): `p - q` between two pointers emitted `sub ptr 0, %q` +
+  a GEP with a `ptr` index. Added a pointer-difference branch: `ptrtoint` both, `sub i64`,
+  then `sdiv` by `sizeof(elem)` (skipped for size-1 elements), matching C++.
+- **DONE** escapes (embedded NUL): a string literal `"a\0b"` was truncated because values
+  flowed as C strings. `ExprNode` now carries a `slen` byte length (`tok_str_value` reports
+  it, `str_concat_n` preserves it across adjacent-string concat), and `cg_string_global_n`
+  emits exactly `slen` bytes. The decoded buffer already held the bytes; only the length was
+  being lost to `cg_strlen`.
+
+**The codegen bucket is closed.** All 138 positive tests now emit valid IR and produce
+byte-identical output to `.expected` through the Eskiu-built compiler, EXCEPT 5 that the
+self-host SEMA wrongly rejects before codegen (errdefer + the generics map/map_generic/sort/
+variadic) - those are sema false-rejects, tracked in the sema bucket below, not codegen.
 
 Sema bucket (separate, larger): 26/51 negative tests are not rejected by the self-host sema
 (missing checks: bounds, compare-typing, div-by-zero, float→int, redefinition, uninitialized,
