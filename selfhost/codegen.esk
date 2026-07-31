@@ -1105,8 +1105,11 @@ string cg_hex2(int b) {
 
 // Emit a private string-literal constant for `s` and return its global name (a `ptr`).
 // Bytes are LLVM-escaped: printables verbatim, `"`/`\`/non-printables as \NN, + a NUL.
-string cg_string_global(Codegen* g, string s) {
-    int len = cg_strlen(s);
+string cg_string_global(Codegen* g, string s) { return cg_string_global_n(g, s, cg_strlen(s)); }
+
+// As cg_string_global, but with an explicit byte length so a literal with an embedded
+// NUL (`"a\0b"`) emits all its bytes instead of truncating at the first zero.
+string cg_string_global_n(Codegen* g, string s, int len) {
     string name = cg_cat("@.str", cg_itoa(g.strcount));
     g.strcount = g.strcount + 1;
     String_append(&g.globals, name);
@@ -1701,7 +1704,7 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
     if (e == null) { v.op = "0"; v.ty = "i32"; return v; }
 
     if (e.kind == EK_LITERAL) {
-        if (e.lit_kind == LIT_STRING) { v.op = cg_string_global(g, e.sval); v.ty = "ptr"; return v; }
+        if (e.lit_kind == LIT_STRING) { v.op = cg_string_global_n(g, e.sval, e.slen); v.ty = "ptr"; return v; }
         if (e.lit_kind == LIT_CHAR) { v.op = cg_itoa((int)e.sval[0]); v.ty = "i8"; return v; }
         v.op = e.sval;
         if (e.lit_kind == LIT_BOOL) { v.ty = "i1"; }

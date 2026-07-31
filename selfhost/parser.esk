@@ -254,7 +254,7 @@ int is_type_kw(int t) {
 // String/char literal value (decoded, quotes stripped — the C++ stores the decoded
 // value in LiteralExpr.value). The byte-level escape decode (decode_escape_span,
 // backed by decode_str_escape) is shared from tokens.esk.
-string tok_str_value(*uint8 src, Token t) {
+string tok_str_value(*uint8 src, Token t, *int out_len) {
     *uint8 buf = alloc<uint8>(t.len + 1);
     int off = 0;
     int i = t.start + 1;
@@ -273,6 +273,18 @@ string tok_str_value(*uint8 src, Token t) {
         i = i + 1;
     }
     buf[off] = 0;
+    out_len[0] = off;   // exact byte count; the value may contain embedded NULs
+    return (string)buf;
+}
+
+// Concatenate two byte spans (length-aware, so embedded NULs survive adjacent-string concat).
+string str_concat_n(string a, int alen, string b, int blen) {
+    *uint8 buf = alloc<uint8>(alen + blen + 1);
+    int i = 0;
+    while (i < alen) { buf[i] = (uint8)a[i]; i = i + 1; }
+    int j = 0;
+    while (j < blen) { buf[alen + j] = (uint8)b[j]; j = j + 1; }
+    buf[alen + blen] = 0;
     return (string)buf;
 }
 
@@ -366,6 +378,8 @@ string parse_type(Parser* p) {
 *ExprNode mk_lit(int lk, string v) {
     *ExprNode e = alloc<ExprNode>(1);
     e.kind = EK_LITERAL; e.lit_kind = lk; e.sval = v;
+    e.slen = 0;
+    if (lk == LIT_STRING) { e.slen = cstr_len(v); }   // safe default; the parser overrides with the exact byte length (embedded NULs)
     return e;
 }
 *ExprNode mk_ident(string nm) {
@@ -503,12 +517,18 @@ string lambda_sig(string ret, *DeclNode d) {
     if (t == FLOAT_LIT) { Token tok = p_adv(p); return mk_lit(LIT_FLOAT, tok_text(p.src, tok)); }
     if (t == STRING_LIT) {
         Token first = p_adv(p);
-        string v = tok_str_value(p.src, first);
+        int vlen = 0;
+        string v = tok_str_value(p.src, first, &vlen);
         while (p_at(p) == STRING_LIT) {        // adjacent string concatenation
             Token nx = p_adv(p);
-            v = str_concat(v, tok_str_value(p.src, nx));
+            int nlen = 0;
+            string nv = tok_str_value(p.src, nx, &nlen);
+            v = str_concat_n(v, vlen, nv, nlen);
+            vlen = vlen + nlen;
         }
-        return mk_lit(LIT_STRING, v);
+        *ExprNode e = mk_lit(LIT_STRING, v);
+        e.slen = vlen;                          // exact length (embedded NULs preserved)
+        return e;
     }
     if (t == CHAR_LIT) { Token tok = p_adv(p); return mk_lit(LIT_CHAR, tok_char_value(p.src, tok)); }
     if (t == SIZEOF) {
@@ -1199,7 +1219,7 @@ void check_name_not_keyword(Parser* p) {
     p_adv(p);                              // '('
     *StmtNode s = alloc<StmtNode>(1);
     s.kind = SK_ASM;
-    s.name = tok_str_value(p.src, p_adv(p));   // the asm string (decoded)
+    int _dl0 = 0; s.name = tok_str_value(p.src, p_adv(p), &_dl0);   // the asm string (decoded)
     List_init<*StmtNode>(&s.items, 2);
     if (p_at(p) == COLON) {                // outputs (skipped) : inputs : clobbers
         p_adv(p);
@@ -1210,7 +1230,7 @@ void check_name_not_keyword(Parser* p) {
                 p_adv(p);                  // '('
                 *StmtNode inp = alloc<StmtNode>(1);
                 inp.kind = SK_ASMINPUT;
-                inp.name = tok_str_value(p.src, ct);
+                int _dl1 = 0; inp.name = tok_str_value(p.src, ct, &_dl1);
                 inp.expr = parse_expr(p);
                 p_adv(p);                  // ')'
                 List_push<*StmtNode>(&s.items, inp);
@@ -1638,7 +1658,7 @@ void do_import(Parser* p, *Program prog) {
     string path = "";
     int is_std = 0;
     if (p_at(p) == STRING_LIT) {
-        path = tok_str_value(p.src, p_peek(p));
+        int _dl2 = 0; path = tok_str_value(p.src, p_peek(p), &_dl2);
         p_adv(p);
     } else if (p_at(p) == LT) {
         p_adv(p);

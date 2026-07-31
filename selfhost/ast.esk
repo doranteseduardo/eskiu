@@ -36,6 +36,7 @@ struct Param { string ty; string name; }
 struct ExprNode {
     int kind;
     int lit_kind;          // for EK_LITERAL
+    int slen;              // byte length of a LIT_STRING value (may hold embedded NULs)
     string sval;           // literal text / operator / name / member / struct or template sig
     *ExprNode a;
     *ExprNode b;
