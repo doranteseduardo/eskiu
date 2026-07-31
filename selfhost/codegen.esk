@@ -1968,6 +1968,29 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
             cg_emit(g, ", "); cg_emit(g, rop); cg_emit(g, "\n");
             v.op = t; v.ty = "i1"; return v;
         }
+        // Pointer difference: `p - q` (both pointers) → (ptrtoint p - ptrtoint q) / sizeof(elem),
+        // a signed count of elements (an integer, not a `ptr`). Must precede the ptr±int case.
+        if (cg_streq(e.sval, "-") == 1
+            && cg_streq(l.ty, "ptr") == 1 && cg_streq(r.ty, "ptr") == 1) {
+            string li = cg_tmp(g);
+            cg_emit(g, "  "); cg_emit(g, li); cg_emit(g, " = ptrtoint ptr "); cg_emit(g, l.op); cg_emit(g, " to i64\n");
+            string ri = cg_tmp(g);
+            cg_emit(g, "  "); cg_emit(g, ri); cg_emit(g, " = ptrtoint ptr "); cg_emit(g, r.op); cg_emit(g, " to i64\n");
+            string d = cg_tmp(g);
+            cg_emit(g, "  "); cg_emit(g, d); cg_emit(g, " = sub i64 "); cg_emit(g, li); cg_emit(g, ", "); cg_emit(g, ri); cg_emit(g, "\n");
+            string elem = cg_deref_ty(l.ety);
+            string ell = cg_lltype(g, elem);
+            if (cg_streq(ell, "i8") == 1 || cg_streq(ell, "void") == 1) {   // element size 1: byte diff is the count
+                v.op = d; v.ty = "i64"; v.ety = "int64"; return v;
+            }
+            string szg = cg_tmp(g);
+            cg_emit(g, "  "); cg_emit(g, szg); cg_emit(g, " = getelementptr "); cg_emit(g, ell); cg_emit(g, ", ptr null, i32 1\n");
+            string szi = cg_tmp(g);
+            cg_emit(g, "  "); cg_emit(g, szi); cg_emit(g, " = ptrtoint ptr "); cg_emit(g, szg); cg_emit(g, " to i64\n");
+            string res = cg_tmp(g);
+            cg_emit(g, "  "); cg_emit(g, res); cg_emit(g, " = sdiv i64 "); cg_emit(g, d); cg_emit(g, ", "); cg_emit(g, szi); cg_emit(g, "\n");
+            v.op = res; v.ty = "i64"; v.ety = "int64"; return v;
+        }
         // Pointer arithmetic: `p + n` / `n + p` / `p - n` lower to getelementptr over the
         // pointee, not an integer add on a `ptr` (which is invalid IR).
         if ((cg_streq(e.sval, "+") == 1 || cg_streq(e.sval, "-") == 1)
