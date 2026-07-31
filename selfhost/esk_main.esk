@@ -208,6 +208,12 @@ int main(int argc, string* argv) {
         if (cg_streq(mode, "--test-parser") == 1) { ppfile = ""; }
         let pperr: int = 0;
         string pp = pp_run((string)raw, (int)flen, ppfile, &pperr);
+        if (pperr != 0) {                   // an active `#error` directive aborts the build
+            uint8[512] eb;
+            sprintf((string)&eb[0], "error: %s: #error directive\n", f);
+            eprint((string)&eb[0]);
+            return 1;
+        }
         *uint8 src = (*uint8)pp;
         int plen = 0;
         while (src[plen] != 0) { plen = plen + 1; }
