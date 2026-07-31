@@ -98,10 +98,25 @@ byte-identical output to `.expected` through the Eskiu-built compiler, EXCEPT 5 
 self-host SEMA wrongly rejects before codegen (errdefer + the generics map/map_generic/sort/
 variadic) - those are sema false-rejects, tracked in the sema bucket below, not codegen.
 
-Sema bucket (separate, larger): 26/51 negative tests are not rejected by the self-host sema
-(missing checks: bounds, compare-typing, div-by-zero, float→int, redefinition, uninitialized,
-main-void, …), and 5 valid programs are wrongly REJECTED (errdefer + the generics map/
-map_generic/sort/variadic). This is the deferred "self-host sema parity" residual.
+Sema bucket (the deferred "self-host sema parity" residual). Two sides:
+
+- **False-rejects: DONE.** The 5 valid programs the self-host wrongly rejected now compile,
+  so the WHOLE positive corpus (138/138) passes through the Eskiu-built compiler. Root cause
+  was mostly one thing: the self-host type-checked generic function BODIES, while C++ defers
+  that to instantiation (only the structural definite-return check runs on a template). Now
+  `sema_check_fn` returns early for generic functions (fixing the escape false-positives in
+  the generic stdlib `HashMap_init`/`sort`, i.e. map/map_generic/sort). Two smaller fixes:
+  the `?` operator check compared the return type's name to a literal "Result" instead of to
+  the operand's Result-like struct type (rewrote it + taught `sema_infer_type` to infer a
+  direct call's return type, keeping `question_bad_return` rejected); and `va_start`/`va_end`
+  are now recognized as declaration-less builtins (fixing variadic).
+- **Missing checks: open.** 23 negative tests still aren't rejected (self-host accepts code
+  C++ rejects): array bounds (array_2d_init_overflow, array_2d_oob, array_overflow, index_oob),
+  compare typing (compare_incompatible, compare_struct), const_addr_of, dangling_local,
+  defer_break, defer_return, div_by_zero, float_to_int, fn_return_mismatch, incdec_nonlvalue,
+  init_incompatible, init_void, literal_out_of_range, main_void, pp_error, redefinition,
+  ternary_incompatible, uninitialized, unterminated_char. Each is a separate check to port
+  from the C++ checker, the last work before P3's whole-corpus equivalence is fully green.
 
 ## Open follow-ups (worth doing, not yet done)
 
