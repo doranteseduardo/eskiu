@@ -560,6 +560,43 @@ void sema_expr(Sema* s, *ExprNode e) {
 
 // ── statement walk ──
 
+// A defer body runs during scope-exit cleanup, so it may not transfer control out of
+// itself: a `return`, or a `break`/`continue` not enclosed by a loop/switch *within* the
+// body, would jump to a target that is gone. `depth` counts loops/switches inside the body.
+void sema_defer_walk(Sema* s, *StmtNode st, int depth) {
+    if (st == null) { return; }
+    int k = st.kind;
+    if (k == SK_RETURN) {
+        s.had_error = 1;
+        printf("error: %s:0:0: 'return' is not allowed inside a defer body\n", s.filename);
+        return;
+    }
+    if ((k == SK_BREAK || k == SK_CONTINUE) && depth == 0) {
+        s.had_error = 1;
+        printf("error: %s:0:0: 'break'/'continue' inside a defer body may not escape it\n", s.filename);
+        return;
+    }
+    if (k == SK_BLOCK) {
+        int i = 0; int n = List_len<*StmtNode>(&st.items);
+        while (i < n) { sema_defer_walk(s, List_get<*StmtNode>(&st.items, i), depth); i = i + 1; }
+        return;
+    }
+    if (k == SK_IF) { sema_defer_walk(s, st.s1, depth); sema_defer_walk(s, st.s2, depth); return; }
+    if (k == SK_WHILE || k == SK_DOWHILE || k == SK_FORIN) { sema_defer_walk(s, st.s1, depth + 1); return; }
+    if (k == SK_FOR) { sema_defer_walk(s, st.s2, depth + 1); return; }   // s2 = for body
+    if (k == SK_SWITCH) {
+        int i = 0; int n = List_len<*StmtNode>(&st.items);
+        while (i < n) {
+            *StmtNode c = List_get<*StmtNode>(&st.items, i);
+            int j = 0; int m = List_len<*StmtNode>(&c.items);
+            while (j < m) { sema_defer_walk(s, List_get<*StmtNode>(&c.items, j), depth + 1); j = j + 1; }
+            i = i + 1;
+        }
+        return;
+    }
+    if (k == SK_DEFER) { sema_defer_walk(s, st.s1, depth); return; }
+}
+
 void sema_stmt(Sema* s, *StmtNode st) {
     if (st == null) { return; }
     int k = st.kind;
@@ -734,6 +771,7 @@ void sema_stmt(Sema* s, *StmtNode st) {
         return;
     }
     if (k == SK_DEFER) {
+        sema_defer_walk(s, st.s1, 0);      // no return / escaping break|continue in a defer body
         sema_stmt(s, st.s1);               // deferred body
         return;
     }
@@ -931,6 +969,12 @@ void sema_check_fn(Sema* s, *DeclNode f, string self_type) {
         }
         return;
     }
+    // `main` is the entry point; its return value is the process exit code, so it must be int.
+    if (sema_streq(f.name, "main") == 1 && sema_streq(f.ret_type, "int") == 0) {
+        s.had_error = 1;
+        printf("error: %s:0:0: 'main' must return int (its return value is the process exit code); got '%s'\n",
+               s.filename, f.ret_type);
+    }
     s.in_async = f.is_async;
     s.await_seen = 0;
     s.cur_ret = f.ret_type;
@@ -987,10 +1031,18 @@ void sema_check_fn(Sema* s, *DeclNode f, string self_type) {
 // Returns 1 if the program type-checks (no errors), 0 otherwise.
 int sema_check(Sema* s, *Program prog) {
     sema_register_globals(s, prog);
+    List<string> defined_fns;   // top-level functions WITH a body, to catch a redefinition
+    List_init<string>(&defined_fns, 32);
     int i = 0;
     int n = List_len<*DeclNode>(&prog.decls);
     while (i < n) {
         *DeclNode d = List_get<*DeclNode>(&prog.decls, i);
+        if (d.kind == DK_FUNCTION && d.body != null) {
+            if (sema_in_list(&defined_fns, d.name) == 1) {
+                s.had_error = 1;
+                printf("error: %s:0:0: redefinition of function '%s'\n", s.filename, d.name);
+            } else { List_push<string>(&defined_fns, d.name); }
+        }
         if (d.kind == DK_INTRINSIC) {
             if (sema_streq(d.name, "atomic_load") == 0 && sema_streq(d.name, "atomic_store") == 0
                 && sema_streq(d.name, "atomic_swap") == 0 && sema_streq(d.name, "atomic_cas") == 0) {
