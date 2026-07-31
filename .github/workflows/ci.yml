@@ -130,3 +130,9 @@ jobs:
       # over the whole in-repo corpus (implies idempotency; promotion P2).
       - name: Fmt self-host parity
         run: CLANG=clang-22 tests/selfhost/fmt_parity.sh
+
+      # Whole-corpus behavioral equivalence: every positive test compiled by the
+      # Eskiu-built compiler produces the same exit + stdout as the C++ one (promotion P3;
+      # the negative-corpus verdict + diagnostic side is covered by tc_parity above).
+      - name: Corpus behavioral parity
+        run: CLANG=clang-22 tests/selfhost/corpus_parity.sh
