@@ -1259,10 +1259,23 @@ void sema_uninit_scan(Sema* s, *ExprNode e, List<string>* uninit) {
         }
         return;
     }
-    sema_uninit_scan(s, e.a, uninit);
-    sema_uninit_scan(s, e.b, uninit);
-    int i = 0; int n = List_len<*ExprNode>(&e.kids);
-    while (i < n) { sema_uninit_scan(s, List_get<*ExprNode>(&e.kids, i), uninit); i = i + 1; }
+    // Recurse ONLY into the child fields each kind populates (unset fields are garbage,
+    // since `alloc` does not zero — a Linux-only crash otherwise). Mirrors the proven
+    // kind-aware walker `cg_collect_idents_e`; note EK_TEMPLATECALL keeps its callee in
+    // `sval`, not `a`, so `a` must NOT be read for it.
+    if (e.kind == EK_BINARY || e.kind == EK_INDEX) { sema_uninit_scan(s, e.a, uninit); sema_uninit_scan(s, e.b, uninit); }
+    else if (e.kind == EK_UNARY || e.kind == EK_MEMBER || e.kind == EK_CAST
+             || e.kind == EK_QUESTION || e.kind == EK_AWAIT || e.kind == EK_CALL
+             || e.kind == EK_INCDEC) { sema_uninit_scan(s, e.a, uninit); }
+    if (e.kind == EK_CALL || e.kind == EK_TEMPLATECALL || e.kind == EK_STRUCTINIT
+        || e.kind == EK_ARRAYLIT || e.kind == EK_INDEX) {
+        int i = 0; int n = List_len<*ExprNode>(&e.kids);
+        while (i < n) { sema_uninit_scan(s, List_get<*ExprNode>(&e.kids, i), uninit); i = i + 1; }
+    }
+    if (e.kind == EK_TERNARY) {
+        sema_uninit_scan(s, e.a, uninit); sema_uninit_scan(s, e.b, uninit);
+        sema_uninit_scan(s, List_get<*ExprNode>(&e.kids, 0), uninit);
+    }
 }
 
 // Conservative straight-line scan of a function body for reads of an uninitialized scalar
