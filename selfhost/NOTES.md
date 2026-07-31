@@ -110,13 +110,26 @@ Sema bucket (the deferred "self-host sema parity" residual). Two sides:
   the operand's Result-like struct type (rewrote it + taught `sema_infer_type` to infer a
   direct call's return type, keeping `question_bad_return` rejected); and `va_start`/`va_end`
   are now recognized as declaration-less builtins (fixing variadic).
-- **Missing checks: open.** 23 negative tests still aren't rejected (self-host accepts code
-  C++ rejects): array bounds (array_2d_init_overflow, array_2d_oob, array_overflow, index_oob),
-  compare typing (compare_incompatible, compare_struct), const_addr_of, dangling_local,
-  defer_break, defer_return, div_by_zero, float_to_int, fn_return_mismatch, incdec_nonlvalue,
-  init_incompatible, init_void, literal_out_of_range, main_void, pp_error, redefinition,
-  ternary_incompatible, uninitialized, unterminated_char. Each is a separate check to port
-  from the C++ checker, the last work before P3's whole-corpus equivalence is fully green.
+- **Missing checks: 34/51 rejected (was 25).** Ported the checks that need no new
+  infrastructure: `main` must return int, redefinition of a function, `return`/escaping
+  `break`|`continue` in a defer body (one walk, `sema_defer_walk`), division/remainder by a
+  literal zero, and `++`/`--` on a non-lvalue. The remaining 17 each need a foundational
+  capability the self-host sema does not have yet, so they cluster:
+  - **Type compatibility (8)**: compare_incompatible, compare_struct, float_to_int,
+    fn_return_mismatch, init_incompatible, init_void, ternary_incompatible,
+    literal_out_of_range. These need real expression-type inference (`sema_infer_type` only
+    handles idents and direct calls today) plus a type-compatibility/conversion check.
+  - **Constant bounds (4)**: index_oob, array_overflow, array_2d_oob, array_2d_init_overflow.
+    Need constant-index evaluation and array-size lookup at the index/init sites.
+  - **const_addr_of (1)**: `&const` yields a pointer-to-const; discarding it on assignment
+    needs the same init-type-compatibility path as the type-compat cluster.
+  - **Flow (2)**: uninitialized (straight-line uninitialized-read scan) and dangling_local
+    (returning a pointer to a local) need dataflow/escape analysis.
+  - **Lexer/pp (2)**: unterminated_char (a char literal must hold one char) and pp_error
+    (`#error` directive) need error paths in the self-host lexer and preprocessor.
+  Building `sema_infer_type` out to full parity is the highest-leverage next step (unblocks
+  the 8-test type cluster plus const_addr_of). This is the tail of P3 before whole-corpus
+  equivalence is fully green.
 
 ## Open follow-ups (worth doing, not yet done)
 
