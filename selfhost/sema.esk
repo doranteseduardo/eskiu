@@ -291,6 +291,18 @@ int sema_pointee_const(string t) {
     return sema_has_star(t);
 }
 
+// An integer-literal spelling that denotes zero (only sign chars and '0' digits).
+int sema_lit_is_zero(string v) {
+    int i = 0;
+    if (v[0] == 0) { return 0; }
+    while (v[i] != 0) {
+        int c = (int)v[i];
+        if (c != 48 && c != 43 && c != 45) { return 0; }   // not '0' / '+' / '-'
+        i = i + 1;
+    }
+    return 1;
+}
+
 int sema_is_assign(string op) {
     if (sema_streq(op, "=") == 1) { return 1; }
     if (sema_streq(op, "+=") == 1 || sema_streq(op, "-=") == 1 || sema_streq(op, "*=") == 1
@@ -424,10 +436,22 @@ void sema_expr(Sema* s, *ExprNode e) {
         if (sema_is_assign(e.sval) == 1 && sema_is_readonly_lvalue(s, e.a) == 1) {
             sema_error(s, "cannot assign to read-only location");
         }
+        // Division / remainder by a literal zero is a guaranteed runtime trap.
+        if ((sema_streq(e.sval, "/") == 1 || sema_streq(e.sval, "%") == 1)
+            && e.b != null && e.b.kind == EK_LITERAL && e.b.lit_kind == LIT_INT
+            && sema_lit_is_zero(e.b.sval) == 1) {
+            if (sema_streq(e.sval, "/") == 1) { sema_error(s, "division by zero"); }
+            else { sema_error(s, "remainder by zero"); }
+        }
         sema_expr(s, e.a); sema_expr(s, e.b); return;
     }
     if (k == EK_INCDEC) {                              // ++x / x++ etc.
-        if (sema_is_readonly_lvalue(s, e.a) == 1) {
+        // The operand must be a modifiable lvalue: an ident, field, element, or deref
+        // (not a literal or other rvalue like `5++`).
+        if (e.a == null || (e.a.kind != EK_IDENT && e.a.kind != EK_MEMBER && e.a.kind != EK_INDEX
+            && (e.a.kind != EK_UNARY || sema_streq(e.a.sval, "*") == 0))) {
+            sema_error(s, "'++'/'--' requires a modifiable variable");
+        } else if (sema_is_readonly_lvalue(s, e.a) == 1) {
             sema_error(s, "cannot modify read-only location");
         }
         sema_expr(s, e.a); return;
