@@ -57,6 +57,7 @@ struct StmtNode {
     int is_const;          // SK_VARDECL: declared value-const (read-only binding)
     int is_static;         // SK_VARDECL: `static` local (one instance, persists across calls)
     int is_err;            // SK_DEFER: errdefer (runs only on the error path) vs plain defer
+    string resolved_elem;  // SK_FORIN: element type stamped by sema (mirrors C++ resolvedElemType); "" = fall back to structural resolution at lowering
 }
 
 // A generic type parameter with its (possibly empty) interface constraints, e.g.

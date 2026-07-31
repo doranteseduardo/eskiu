@@ -592,6 +592,7 @@ void al_desugar_items(*AlCtx c, List<*StmtNode>* inp, List<*StmtNode>* out) {
         List_push<*StmtNode>(&initb, mk_vardecl(fi, "int", al_int(0), 0));
         *ExprNode cond = mk_bin("<", mk_ident(fi), lengthE);
         *ExprNode step = mk_bin("=", mk_ident(fi), mk_bin("+", mk_ident(fi), al_int(1)));
+        if (s.resolved_elem[0] != 0) { elemTy = s.resolved_elem; }   // prefer the sema-stamped type (R1)
         List<*StmtNode> body; List_init<*StmtNode>(&body, 2);
         List_push<*StmtNode>(&body, mk_vardecl(s.name, elemTy, elemE, 0));
         List_push<*StmtNode>(&body, al_desugar_stmt(c, s.s1));
