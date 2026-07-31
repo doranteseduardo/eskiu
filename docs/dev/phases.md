@@ -299,10 +299,12 @@ practical stdlib modules. Each landed as granular per-layer commits.
   mirror (R3) and the driver stages P0 (native `-o` link via clang), P1 (full CLI
   parity: all `--test-*` modes, `--version`, `--asan`/`--ubsan`, multi-file input), and
   P2 (`run` execs a temp exe forwarding argv and propagates the exit code; `fmt` reindents
-  byte-identically to the C++ formatter over the whole corpus) are done; every parity gate
-  drives through the unified `esk_main`. Open: whole-corpus behavioral equivalence (P3),
-  the flip (P4), and the async `for-in` element-typing refactor (R1). Parse-parity corpus
-  expansion shipped in v0.3.1.
+  byte-identically to the C++ formatter over the whole corpus), and P3 (whole-corpus
+  behavioral equivalence: every positive test compiled by the Eskiu-built compiler produces
+  the same exit + stdout as C++, and the self-host checker rejects every error class with
+  the same verdict, both CI-gated) are done; every parity gate drives through the unified
+  `esk_main`. Open: the flip (P4) and the async `for-in` element-typing refactor (R1).
+  Parse-parity corpus expansion shipped in v0.3.1.
 - First-class types for high-throughput services
 
 ---
