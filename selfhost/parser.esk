@@ -295,13 +295,19 @@ string tok_char_value(*uint8 src, Token t) {
     int endp = t.start + t.len - 1;
     if (i < endp) {
         int ch = (int)src[i];
+        int consumed = 1;
         if (ch == 92 && i + 1 < endp) {
             int adv = 0;
             buf[off] = (uint8)decode_escape_span(src, i + 1, endp, &adv);
+            consumed = 2 + adv;             // backslash + escape char + extra (e.g. \x41's two hex digits)
         } else {
             buf[off] = (uint8)ch;
         }
         off = off + 1;
+        if (i + consumed < endp) {          // more source chars remain: `'ab'` is not one character
+            printf("error: character literal must contain a single character\n");
+            exit(1);
+        }
     }
     buf[off] = 0;
     return (string)buf;
