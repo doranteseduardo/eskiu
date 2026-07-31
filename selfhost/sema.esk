@@ -51,6 +51,7 @@ struct Sema {
 // Mutually-recursive walk.
 void sema_expr(Sema* s, *ExprNode e);
 void sema_stmt(Sema* s, *StmtNode st);
+*DeclNode sema_find_fndecl(Sema* s, string name);   // used by sema_infer_type before its definition
 
 // Substring [a, b) of s (b exclusive), heap-allocated and NUL-terminated.
 string sema_sub_str(string s, int a, int b) {
@@ -270,6 +271,10 @@ int sema_is_enum(Sema* s, string name) {
 string sema_infer_type(Sema* s, *ExprNode e) {
     if (e == null) { return ""; }
     if (e.kind == EK_IDENT) { return sema_lookup_type(s, e.sval); }
+    if (e.kind == EK_CALL && e.a != null && e.a.kind == EK_IDENT) {   // direct call → callee's return type
+        *DeclNode fd = sema_find_fndecl(s, e.a.sval);
+        if (fd != null) { return fd.ret_type; }
+    }
     return "";
 }
 
@@ -400,7 +405,10 @@ void sema_expr(Sema* s, *ExprNode e) {
     if (e == null) { return; }
     int k = e.kind;
     if (k == EK_IDENT) {
-        if (sema_lookup(s, e.sval) == 0) {
+        // va_start/va_end are variadic-access builtins with no declaration (va_arg<T> is a
+        // template call). Treat them as defined, matching the C++ checker.
+        if (sema_lookup(s, e.sval) == 0
+            && sema_streq(e.sval, "va_start") == 0 && sema_streq(e.sval, "va_end") == 0) {
             s.had_error = 1;
             printf("error: %s:0:0: undefined variable '%s'\n", s.filename, e.sval);
         }
@@ -455,11 +463,17 @@ void sema_expr(Sema* s, *ExprNode e) {
         }
         return;
     }
-    if (k == EK_QUESTION) {            // `expr?` propagates an Err — fn must return a Result
-        if (sema_streq(sema_base_name(s.cur_ret), "Result") == 0) {
+    if (k == EK_QUESTION) {            // `expr?` propagates an Err into the enclosing function
+        sema_expr(s, e.a);
+        // The enclosing function must return the SAME Result-like type as the operand
+        // (a struct with `ok`/`value` fields; the type name, not a literal "Result"). The
+        // self-host tracks struct names but not fields, so it compares the struct names and
+        // skips when either is unknown (matching C++'s ret == operand-type check).
+        string opn = sema_struct_of_type(sema_infer_type(s, e.a));
+        string retn = sema_struct_of_type(s.cur_ret);
+        if (opn[0] != 0 && retn[0] != 0 && sema_streq(opn, retn) == 0) {
             sema_error(s, "`?` can only be used in a function returning the same Result type");
         }
-        sema_expr(s, e.a);
         return;
     }
     if (k == EK_UNARY || k == EK_CAST
@@ -904,6 +918,19 @@ int sema_always_returns(*StmtNode s) {
 // methods) defined, then walk the body.
 void sema_check_fn(Sema* s, *DeclNode f, string self_type) {
     if (f.body == null) { return; }
+    // Template body: full type-checking (escape soundness, `?`, uninitialized reads,
+    // undefined-variable) is deferred to instantiation, exactly as the C++ checker does,
+    // because the param types are still abstract. Only the definite-return check is
+    // structural (control-flow, type-independent), so it still applies here.
+    if (List_len<TypeParam>(&f.type_params) > 0) {
+        if (f.is_async == 0 && sema_streq(f.ret_type, "void") == 0
+            && sema_always_returns(f.body) == 0) {
+            s.had_error = 1;
+            printf("error: %s:0:0: missing return in non-void function '%s' (control can reach the end without returning a %s)\n",
+                   s.filename, f.name, f.ret_type);
+        }
+        return;
+    }
     s.in_async = f.is_async;
     s.await_seen = 0;
     s.cur_ret = f.ret_type;
