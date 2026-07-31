@@ -97,3 +97,29 @@ if(MSVC)
 else()
     target_compile_options(eskiuc PRIVATE -Wall -Wextra -Wpedantic)
 endif()
+
+# ── Dual-build: the Eskiu-written compiler (promotion P4) ────────────────────────────
+# The C++ `eskiuc` above is the bootstrap SEED and the differential ORACLE. It also builds
+# the Eskiu-WRITTEN compiler from selfhost/esk_main.esk as `eskiuc-esk`, so the self-hosted
+# binary is a first-class build artifact (its behavior is dogfood-verified in CI by the
+# bootstrap and corpus-parity gates). It is deliberately NOT the shipped artifact: it emits
+# LLVM IR text and shells out to clang to link (no LLVM bindings, by design), so it needs
+# clang at runtime, whereas the C++ eskiuc bundles LLVM and is self-contained. The
+# distribution keeps shipping the C++ binary. See selfhost/PROMOTION_PLAN.md (P4).
+find_program(ESKIU_SELFHOST_CLANG NAMES clang clang-22 clang-19 clang-18 clang-17)
+file(GLOB ESKIU_SELFHOST_SRC CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/selfhost/*.esk")
+if(ESKIU_SELFHOST_CLANG AND NOT MSVC)
+    add_custom_command(
+        OUTPUT "${CMAKE_BINARY_DIR}/eskiuc-esk"
+        COMMAND "${CMAKE_COMMAND}" -E env
+                "ESKIU_ROOT=${CMAKE_SOURCE_DIR}" "CLANG=${ESKIU_SELFHOST_CLANG}"
+                "$<TARGET_FILE:eskiuc>" "${CMAKE_SOURCE_DIR}/selfhost/esk_main.esk"
+                -o "${CMAKE_BINARY_DIR}/eskiuc-esk"
+        DEPENDS eskiuc ${ESKIU_SELFHOST_SRC}
+        COMMENT "Building the Eskiu-written compiler (eskiuc-esk) with the C++ seed"
+        VERBATIM)
+    # Target name differs from the output basename to avoid a self-referential dependency.
+    add_custom_target(eskiuc-selfhost ALL DEPENDS "${CMAKE_BINARY_DIR}/eskiuc-esk")
+else()
+    message(STATUS "eskiuc-esk (self-hosted compiler) skipped: clang not found or MSVC")
+endif()

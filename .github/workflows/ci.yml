@@ -28,6 +28,8 @@ jobs:
             -DLLVM_DIR=$LLVM_DIR \
             -DCMAKE_CXX_COMPILER=clang++-22
           cmake --build build --target eskiuc -j"$(nproc)"
+          # Dual-build (promotion P4): the C++ seed builds the Eskiu-written compiler too.
+          cmake --build build --target eskiuc-selfhost -j"$(nproc)"
 
       # The full test suite, three ways. The sanitizer runs are the hardening
       # gate: a class of codegen bug (e.g. allocas leaking stack inside loops)
