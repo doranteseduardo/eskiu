@@ -336,7 +336,22 @@ int sema_is_enum(Sema* s, string name) {
 // only identifiers (via the symbol table) resolve — enough to validate `ident.field`.
 string sema_infer_type(Sema* s, *ExprNode e) {
     if (e == null) { return ""; }
-    if (e.kind == EK_IDENT) { return sema_lookup_type(s, e.sval); }
+    if (e.kind == EK_IDENT) {
+        string vt = sema_lookup_type(s, e.sval);
+        if (vt[0] != 0) { return vt; }                      // a variable / param with a known type
+        *DeclNode ff = sema_find_fndecl(s, e.sval);         // else maybe a bare function used as a value
+        if (ff != null && ff.is_async == 0) {               // build its "fn(params)->ret" spelling (parser form)
+            string ft = "fn(";
+            int i = 0; int np = List_len<Param>(&ff.params);
+            while (i < np) {
+                if (i > 0) { ft = sema_cat(ft, ","); }
+                ft = sema_cat(ft, List_get<Param>(&ff.params, i).ty);
+                i = i + 1;
+            }
+            return sema_cat(sema_cat(ft, ")->"), ff.ret_type);
+        }
+        return "";
+    }
     if (e.kind == EK_LITERAL) {
         if (e.lit_kind == LIT_INT) { return "int"; }
         if (e.lit_kind == LIT_FLOAT) { return "double"; }
@@ -777,6 +792,8 @@ void sema_stmt(Sema* s, *StmtNode st) {
                         sema_error(s, "cannot convert 'string' to a numeric type");
                     } else if (sema_streq(src, "void") == 1 && sema_streq(st.type, "void") == 0) {
                         sema_error(s, "cannot convert a 'void' value");
+                    } else if (sema_is_fn_type(st.type) == 1 && sema_is_fn_type(src) == 1) {
+                        sema_error(s, "incompatible function type");   // src != st.type (guarded above)
                     }
                 }
             }
