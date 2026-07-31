@@ -946,7 +946,14 @@ void sema_stmt(Sema* s, *StmtNode st) {
     if (k == SK_FORIN) {
         sema_push(s);
         sema_expr(s, st.expr);             // iterable (loop var not yet in scope)
-        sema_define(s, st.name, "", 0);       // element type not inferred yet
+        // Stamp the loop-variable (element) type for the lowering to consume, mirroring the
+        // C++ resolvedElemType. Arrays `T[N]` and slices `T[]` resolve from the iterable's
+        // type; a list-like container stays "" and is resolved structurally at lowering.
+        string itt = sema_infer_type(s, st.expr);
+        string elem = "";
+        if (sema_is_arr_ty(itt) == 1) { elem = sema_arr_elem(itt); }
+        st.resolved_elem = elem;
+        sema_define(s, st.name, elem, 0);
         sema_stmt(s, st.s1);
         sema_pop(s);
         return;

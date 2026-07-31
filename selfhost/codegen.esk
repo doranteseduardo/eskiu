@@ -3008,7 +3008,8 @@ void cg_stmt(Codegen* g, *StmtNode st) {
             lengthE = cgb_member(st.expr, "size");
             elemE = cgb_index(cgb_member(st.expr, "data"), cgb_ident(fi));
         }
-        string elemTy = cg_etype(g, elemE);
+        string elemTy = st.resolved_elem;                 // sema-stamped element type (R1)
+        if (elemTy[0] == 0) { elemTy = cg_etype(g, elemE); }   // fall back structurally (e.g. the no-sema path)
         *StmtNode initS = cgb_vardecl(fi, "int", cgb_lit(LIT_INT, "0"));
         *ExprNode cond = cgb_bin("<", cgb_ident(fi), lengthE);
         *ExprNode step = cgb_bin("=", cgb_ident(fi), cgb_bin("+", cgb_ident(fi), cgb_lit(LIT_INT, "1")));

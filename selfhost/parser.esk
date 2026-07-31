@@ -1031,6 +1031,7 @@ string strip_binding_const(string t) {
         p_adv(p);                          // ')'
         *StmtNode s = alloc<StmtNode>(1);
         s.kind = SK_FORIN; s.name = var; s.expr = first; s.s1 = parse_stmt(p);
+        s.resolved_elem = "";              // sema stamps this; "" until then (and on the no-sema path)
         return s;
     }
 
