@@ -360,3 +360,29 @@ Not scheduled, and gated on `<http2>` landing first. In practice it is rarely
 needed at the application layer: a reverse proxy (nginx, Caddy, Cloudflare)
 terminates HTTP/2 and HTTP/3 at the edge and speaks HTTP/1.1 (or HTTP/2) to an
 Eskiu backend, so the `<http>` we have already benefits from h2/h3 on the wire.
+
+## Compile-time type introspection / `derive` (future track, not scheduled)
+
+Eskiu has no reflection, and runtime reflection (RTTI, dynamic field enumeration) is a
+non-goal: it would add type metadata to every binary and a runtime type table, which
+breaks the zero-runtime, pay-for-what-you-use contract that is the point of the language.
+Most of what people reach for reflection to do is already covered without it: generics
+(monomorphized) handle "generic over any type", and structural interfaces handle "call a
+method on anything that has it".
+
+The one genuine gap is deriving code from a type's shape (serialization to JSON/binary, a
+generic struct printer, ORM-style mapping). The idiomatic systems-language answer is
+**compile-time** introspection feeding code generation, not runtime RTTI, the way Zig's
+`@typeInfo`/comptime and Rust's `derive` macros work. It is zero cost: the compiler walks
+the fields at compile time and emits the `serialize`/`print` body, with no metadata left in
+the binary.
+
+- [ ] A `derive`-style mechanism: the compiler enumerates a struct's fields at compile time
+  and generates a method body from them. Most of the machinery already exists (`CgStruct`
+  carries the field names and types the codegen would iterate), so this is a front-end +
+  codegen feature, not a runtime one.
+
+Not scheduled, and explicitly post-1.0: it adds new language surface, which is on hold while
+the self-hosting promotion (road to v1.0) closes out. Revisit only if a concrete need
+(serialization is the likely one) makes the `derive` worth its complexity; runtime
+reflection stays off the table regardless.
