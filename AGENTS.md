@@ -70,6 +70,11 @@ backend-services stack: async/await, the full HTTP/2 + HPACK + TLS stack, sum ty
 with `match`, and the concurrent stdlib. v0.3.0 reimplemented the whole compiler in Eskiu
 (self-hosting, a 3-stage bootstrap fixpoint, codegen feature-complete against the C++
 corpus). v0.3.1 added `-O0`/`-O1`/`-O2`/`-O3` optimization levels plus correctness fixes.
+v0.4-v0.7 followed (correctness/type-strictness, basic-C completion, memory safety + stdlib,
+cross-compilation; see the version table). The self-hosting **promotion** has since finished
+(`selfhost/PROMOTION_PLAN.md`): the Eskiu-written compiler is behaviorally equivalent to the
+C++ one over the whole corpus, CI-gated, and dual-built by CMake as `eskiuc-esk`; the C++
+binary stays the shipped artifact (it bundles LLVM; the self-host links via clang).
 
 | Feature | Notes |
 |---|---|

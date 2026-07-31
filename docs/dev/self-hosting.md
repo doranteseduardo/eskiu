@@ -27,8 +27,14 @@ drive *through* `esk_main --test-*`, and `run`/`fmt` have their own parity gates
 linked), which `clang` then assembles and links. This keeps the self-hosted compiler
 dependency-free and is the standard bootstrap path.
 
-The endgame (v1.0): `eskiuc` compiles its own source. v0.3.0 reaches the key milestones on
-the way there: a 3-stage bootstrap fixpoint and feature-completeness against the C++ corpus.
+The endgame (v1.0): `eskiuc` compiles its own source. v0.3.0 reached the key milestones (a
+3-stage bootstrap fixpoint and feature-completeness against the C++ corpus), and the
+promotion track (`selfhost/PROMOTION_PLAN.md`) has since finished it: `esk_main` is the full
+CLI, and the Eskiu-written compiler is now *behaviorally equivalent* to the C++ one over the
+whole corpus (positive output + negative verdict/diagnostic, CI-gated) and is dual-built by
+CMake as `eskiuc-esk`. The C++ binary stays the shipped artifact (the self-host links via
+clang, so shipping it would add a runtime clang requirement); it is the bootstrap seed and
+the differential oracle.
 
 ## Validation: parity oracles, not faith
 
@@ -41,7 +47,12 @@ phase, because the available ground truth differs:
 | Semantic analysis | **Verdict + diagnostic**: same accept/reject as `--test-typechecker`, every error class caught with the right message |
 | Code generation | **Behavioral**: emit `.ll` → `clang` → run, compare exit code + stdout to the C++-built binary (LLVM renumbers SSA values and constant-folds, so IR can't be matched byte-for-byte) |
 
-These run as CI gates: `tests/selfhost/{lex,parse,pp,tc,cg}_parity.sh`.
+These run as CI gates: `tests/selfhost/{lex,parse,pp,tc,cg}_parity.sh`, plus the
+promotion-track gates that exercise the whole driver end to end: `cg_bootstrap.sh` (the
+3-stage self-host fixpoint), `driver_parity.sh` / `run_parity.sh` / `fmt_parity.sh` (the
+`-o` / `run` / `fmt` CLI paths), and `corpus_parity.sh` (P3: every positive test compiled by
+the Eskiu-built compiler produces the same exit + stdout as C++). The negative-corpus
+verdict + diagnostic parity is part of `tc_parity.sh`.
 
 ## The bootstrap fixpoint
 
