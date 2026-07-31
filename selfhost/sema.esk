@@ -102,6 +102,40 @@ int sema_is_float_ty(string t0) {
 
 int sema_is_numeric_ty(string t) { return sema_is_int_ty(t) == 1 || sema_is_float_ty(t) == 1; }
 
+// Array-type helpers (mirror the codegen versions; sema does not import codegen).
+int sema_is_arr_ty(string t) {
+    int i = 0; while (t[i] != 0) { if ((int)t[i] == 91) { return 1; } i = i + 1; }   // '['
+    return 0;
+}
+int sema_all_digits(string v) {
+    if (v[0] == 0) { return 0; }
+    int i = 0; while (v[i] != 0) { int c = (int)v[i]; if (c < 48 || c > 57) { return 0; } i = i + 1; }
+    return 1;
+}
+int sema_atoi(string v) {
+    int i = 0; int r = 0;
+    while (v[i] != 0) { int c = (int)v[i]; if (c < 48 || c > 57) { return r; } r = r * 10 + (c - 48); i = i + 1; }
+    return r;
+}
+// The first `[N]` dimension of an array type ("int[2][3]" → "2"), or "0" if none.
+string sema_arr_count(string t) {
+    int i = 0; while (t[i] != 0 && (int)t[i] != 91) { i = i + 1; }
+    if (t[i] == 0) { return "0"; }
+    i = i + 1; int st = i;
+    while (t[i] != 0 && (int)t[i] != 93) { i = i + 1; }
+    return sema_sub_str(t, st, i);
+}
+// The element type of an array ("int[2][3]" → "int[3]"): prefix before '[' + suffix after ']'.
+string sema_arr_elem(string t) {
+    int open = 0; while (t[open] != 0 && (int)t[open] != 91) { open = open + 1; }
+    if (t[open] == 0) { return t; }
+    int close = open; while (t[close] != 0 && (int)t[close] != 93) { close = close + 1; }
+    int tn = 0; while (t[tn] != 0) { tn = tn + 1; }
+    string pre = sema_sub_str(t, 0, open);
+    string suf = sema_sub_str(t, close + 1, tn);
+    return sema_cat(pre, suf);
+}
+
 // Pointer-like for comparison: leading/trailing `*`, `string`, or `null` (mirrors C++).
 int sema_is_ptrish(string t0) {
     string t = sema_strip_const(t0);
@@ -377,7 +411,34 @@ string sema_infer_type(Sema* s, *ExprNode e) {
         }
         if (sema_streq(e.sval, "!") == 1) { return "bool"; }
     }
+    if (e.kind == EK_INDEX) {                            // arr[i] → element type (arrays only for now)
+        string bt = sema_infer_type(s, e.a);
+        if (sema_is_arr_ty(bt) == 1) { return sema_arr_elem(bt); }
+    }
     return "";
+}
+
+// Recursively check an array literal against a (possibly multi-dimensional) array type:
+// too many elements for a numeric dimension is an error; a short list zero-fills (C-style).
+void sema_check_arr_init(Sema* s, string arrT, *ExprNode a) {
+    if (sema_is_arr_ty(arrT) == 0) { return; }
+    string dim = sema_arr_count(arrT);
+    if (sema_all_digits(dim) == 1) {
+        int cnt = List_len<*ExprNode>(&a.kids);
+        if (cnt > sema_atoi(dim)) {
+            s.had_error = 1;
+            printf("error: %s:0:0: array literal has %d elements but '%s' holds %s\n", s.filename, cnt, arrT, dim);
+        }
+    }
+    string elemT = sema_arr_elem(arrT);
+    if (sema_is_arr_ty(elemT) == 1) {                   // nested rows: each element is itself an array literal
+        int i = 0; int n = List_len<*ExprNode>(&a.kids);
+        while (i < n) {
+            *ExprNode el = List_get<*ExprNode>(&a.kids, i);
+            if (el.kind == EK_ARRAYLIT) { sema_check_arr_init(s, elemT, el); }
+            i = i + 1;
+        }
+    }
 }
 
 int sema_has_star(string t) {
@@ -633,7 +694,21 @@ void sema_expr(Sema* s, *ExprNode e) {
         sema_expr(s, e.a);
         return;
     }
-    if (k == EK_INDEX || k == EK_ALLOCWITH) { sema_expr(s, e.a); sema_expr(s, e.b); return; }
+    if (k == EK_INDEX || k == EK_ALLOCWITH) {
+        // Constant-index bounds check on a fixed array with a numeric dimension.
+        if (k == EK_INDEX && e.b != null && e.b.kind == EK_LITERAL && e.b.lit_kind == LIT_INT
+            && sema_all_digits(e.b.sval) == 1) {
+            string bt = sema_infer_type(s, e.a);
+            if (sema_is_arr_ty(bt) == 1) {
+                string dim = sema_arr_count(bt);
+                if (sema_all_digits(dim) == 1 && sema_atoi(e.b.sval) >= sema_atoi(dim)) {
+                    s.had_error = 1;
+                    printf("error: %s:0:0: array index %s is out of bounds for array of size %s\n", s.filename, e.b.sval, dim);
+                }
+            }
+        }
+        sema_expr(s, e.a); sema_expr(s, e.b); return;
+    }
     if (k == EK_CALL) {
         // arg-count check: only when the callee is a bare global function (not a local
         // fn-pointer var, not an ADT variant, not a generic — those resolve elsewhere).
@@ -762,6 +837,9 @@ void sema_stmt(Sema* s, *StmtNode st) {
     }
     if (k == SK_VARDECL) {
         sema_expr(s, st.expr);             // initializer (can't reference itself)
+        if (st.expr != null && st.expr.kind == EK_ARRAYLIT && sema_is_arr_ty(st.type) == 1) {
+            sema_check_arr_init(s, st.type, st.expr);   // too many elements for the fixed size
+        }
         if (st.is_static == 1 && st.expr != null && st.expr.kind != EK_LITERAL) {
             sema_error(s, "a 'static' local's initializer must be a constant");
         }
