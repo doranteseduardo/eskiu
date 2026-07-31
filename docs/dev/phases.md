@@ -306,10 +306,12 @@ practical stdlib modules. Each landed as granular per-layer commits.
   `esk_main`. P4 landed as a **dual-build**: CMake builds the Eskiu-written compiler as
   `eskiuc-esk` alongside the C++ seed (CI-built and behavior-gated), but the self-contained
   C++ binary stays the *shipped* artifact, because the self-host links via clang (no LLVM
-  bindings) and shipping it would add a clang runtime requirement. Remaining for v1.0: a
-  package manager, an eventual shipped flip (gated on object emission or accepting the clang
-  dependency), and the async `for-in` element-typing refactor (R1). Parse-parity corpus
-  expansion shipped in v0.3.1.
+  bindings) and shipping it would add a clang runtime requirement. The `for-in`
+  element-typing refactor (R1) also landed: sema stamps the loop-variable type and the
+  lowering consumes it with a structural fallback, matching the C++ `resolvedElemType`
+  shape. The whole promotion (R1-R3 -> P0-P4) is complete. Remaining for v1.0: a package
+  manager and an eventual shipped flip (gated on object emission or accepting the clang
+  dependency). Parse-parity corpus expansion shipped in v0.3.1.
 - First-class types for high-throughput services
 
 ---

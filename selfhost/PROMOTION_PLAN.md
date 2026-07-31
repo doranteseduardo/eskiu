@@ -31,15 +31,22 @@ each gated against the C++ oracle that v0.3.0 established.
 These are the known soft spots from self-hosting. They become *user-facing* the
 moment the Eskiu compiler is primary, so they are prerequisites, not afterthoughts.
 
-- **R1: async `for-in` element typing. Miscompile FIXED (0.4.0); refactor still open.**
-  `async_lower.esk` resolves the loop element type structurally (array `T[N]` → `xs[i]`;
-  list-like → `xs.data[i]`). The bug was that a generic container (`List<T>`, T != int)
-  fell through to a default of `int`, truncating elements or emitting invalid IR; the
-  desugar now substitutes the container's type argument (`al_generic_data_elem`), matching
-  the C++ back-end (verified via `cg_inputs/async_forin_generic.esk`). The cleaner
-  end-state, still open, is for sema to STAMP the element type (as the C++
-  `resolvedElemType` does) and the lowering to consume it, removing the structural
-  heuristic entirely. Not a correctness blocker anymore, but a maintainability item.
+- **R1: `for-in` element typing. DONE (stamp + fallback, matching C++).** Sema now stamps
+  the loop-variable (element) type onto the `SK_FORIN` node (`resolved_elem`, mirroring the
+  C++ `resolvedElemType`): arrays `T[N]` and slices `T[]` resolve from the iterable's
+  inferred type, and the loop variable is typed accordingly instead of the old untyped `""`.
+  Both consumers (the async desugar in `async_lower.esk` and the synchronous `for-in`
+  lowering in `codegen.esk`, added in P3) prefer the stamped type and fall back to the
+  structural resolution only when it is absent (a list-like container, or the no-sema
+  `--test-codegen` path). This is exactly the C++ architecture: `typecheck_stmt` stamps,
+  the lowering consumes with an empty-string fallback (`async_transform`). Fully removing
+  the structural resolver is deliberately NOT pursued: the self-host sema has no struct
+  field-type table or generic substitution (list-like element typing lives at the lowering
+  layer, where `al_generic_data_elem` already resolves it correctly), so a full removal
+  would mean expanding the self-host type system for no correctness gain. The original
+  generic-container miscompile was fixed back in 0.4.0; this closes the maintainability
+  item by matching C++'s stamp-and-consume shape. All gates green (bootstrap, tc/cg/parse/
+  corpus parity).
 - **R2: parse-parity corpus coverage. DONE (v0.3.1).** `parse_main` now preprocesses
   the top-level file (matching the C++ `--test-parser`, which folds preprocessing into
   the lexer), with `g_pp_os=""` and an empty `__FILE__` to mirror `loadProgram` exactly.
@@ -164,6 +171,10 @@ moment the Eskiu compiler is primary, so they are prerequisites, not afterthough
 
 ## Sequencing
 
-R1–R3 (prerequisites) → P0 → P1 → P2 → P3 → P4, strictly (each unblocks the next).
-Multi-session. Update `docs/dev/phases.md` (the v1.0 item), `CHANGELOG`, `STATUS.md`,
-and `NOTES.md` as each stage lands (the docs-before-next-step rule).
+R1–R3 (prerequisites) → P0 → P1 → P2 → P3 → P4: **all landed.** The Eskiu-written compiler
+is behaviorally equivalent to the C++ one over the whole corpus (CI-gated) and is a
+first-class build artifact (`eskiuc-esk`, dual-built by CMake). What remains outside this
+plan for v1.0 is product surface (a package manager) and, if ever desired, a *shipped*
+flip (deferred: the self-host links via clang, so shipping it would add a runtime clang
+requirement; see P4). Update `docs/dev/phases.md`, `CHANGELOG`, and `NOTES.md` as any
+follow-up lands (the docs-before-next-step rule).
