@@ -73,6 +73,8 @@ struct Codegen {
     string lam_expret;       // return type expected from a lambda's assignment context ("" = none)
     int uses_eh;             // program uses try/throw → declare the Itanium EH runtime
     int uses_heap_env;       // a closure heap-allocated its env → ensure malloc is declared
+    int safe;                // --safe: emit runtime slice/array index bounds checks (opt-in)
+    int uses_trap;           // a bounds check was emitted → declare @llvm.trap once
     string cur_unwind;       // active landingpad label inside a try body ("" = plain calls)
     List<CgLocal> gvars;     // global variables (slot = "@name", a pointer to storage)
     List<*DeclNode> gstructs; // generic struct decls (by name, type_params non-empty)
@@ -206,6 +208,8 @@ void cg_init(Codegen* g) {
     g.lam_expret = "";
     g.uses_eh = 0;
     g.uses_heap_env = 0;
+    g.safe = 0;
+    g.uses_trap = 0;
     g.cur_unwind = "";
     List_init<CgLocal>(&g.gvars, 8);
     List_init<*DeclNode>(&g.gstructs, 8);
@@ -1624,6 +1628,7 @@ CgVal cg_lval(Codegen* g, *ExprNode e) {
             string data = cg_tmp(g);
             cg_emit(g, "  "); cg_emit(g, data); cg_emit(g, " = extractvalue { ptr, i64 } ");
             cg_emit(g, fat.op); cg_emit(g, ", 0\n");
+            if (g.safe == 1) { cg_bounds_check(g, idx.op, ity, cg_slice_len(g, fat.op)); }
             string elem = cg_array_elem(bet);
             cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = getelementptr inbounds ");
             cg_emit(g, cg_lltype(g, elem)); cg_emit(g, ", ptr "); cg_emit(g, data);
@@ -1632,6 +1637,10 @@ CgVal cg_lval(Codegen* g, *ExprNode e) {
         }
         if (cg_is_array(bet) == 1) {                    // array: GEP [N x T], ptr, 0, idx
             string slot = cg_lval(g, e.a).op;
+            if (g.safe == 1) {
+                string alen = cg_array_len_const(g, bet);
+                if (cg_streq(alen, "") == 0) { cg_bounds_check(g, idx.op, ity, alen); }
+            }
             cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = getelementptr inbounds ");
             cg_emit(g, cg_lltype(g, bet)); cg_emit(g, ", ptr "); cg_emit(g, slot);
             cg_emit(g, ", i32 0, "); cg_emit(g, ity); cg_emit(g, " "); cg_emit(g, idx.op); cg_emit(g, "\n");
@@ -1682,6 +1691,53 @@ CgVal cg_lval(Codegen* g, *ExprNode e) {
     return v;
 }
 
+// --safe bounds check: trap when `idx_op` (type `ity`) is < 0 or >= `len_op` (an i64
+// value or integer literal). Mirrors the C++ `emitBoundsCheck`: sext to i64, OR the two
+// comparisons, cond-branch to a trap block (`@llvm.trap` + unreachable) or continue.
+void cg_bounds_check(Codegen* g, string idx_op, string ity, string len_op) {
+    g.uses_trap = 1;
+    string idx64 = idx_op;
+    if (cg_streq(ity, "i64") == 0) {                       // widen the index to i64 first
+        idx64 = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, idx64); cg_emit(g, " = sext "); cg_emit(g, ity);
+        cg_emit(g, " "); cg_emit(g, idx_op); cg_emit(g, " to i64\n");
+    }
+    string lo = cg_tmp(g);
+    cg_emit(g, "  "); cg_emit(g, lo); cg_emit(g, " = icmp slt i64 "); cg_emit(g, idx64); cg_emit(g, ", 0\n");
+    string hi = cg_tmp(g);
+    cg_emit(g, "  "); cg_emit(g, hi); cg_emit(g, " = icmp sge i64 "); cg_emit(g, idx64);
+    cg_emit(g, ", "); cg_emit(g, len_op); cg_emit(g, "\n");
+    string oob = cg_tmp(g);
+    cg_emit(g, "  "); cg_emit(g, oob); cg_emit(g, " = or i1 "); cg_emit(g, lo); cg_emit(g, ", "); cg_emit(g, hi); cg_emit(g, "\n");
+    string fail = cg_lbl(g); string ok = cg_lbl(g);
+    cg_emit(g, "  br i1 "); cg_emit(g, oob); cg_emit(g, ", label %"); cg_emit(g, fail);
+    cg_emit(g, ", label %"); cg_emit(g, ok); cg_emit(g, "\n");
+    g.terminated = 1;
+    cg_label(g, fail);
+    cg_emit(g, "  call void @llvm.trap()\n");
+    cg_emit(g, "  unreachable\n");
+    g.terminated = 1;
+    cg_label(g, ok);
+}
+
+// Extract the length (field 1) of an already-evaluated slice fat pointer `fat_op`.
+string cg_slice_len(Codegen* g, string fat_op) {
+    string lenv = cg_tmp(g);
+    cg_emit(g, "  "); cg_emit(g, lenv); cg_emit(g, " = extractvalue { ptr, i64 } ");
+    cg_emit(g, fat_op); cg_emit(g, ", 1\n");
+    return lenv;
+}
+
+// The static element count of a fixed-array type, resolved through a named const/enum, or
+// "" if it isn't a compile-time constant (then --safe skips the array check, as C++ does).
+string cg_array_len_const(Codegen* g, string bet) {
+    string cnt = cg_array_count(bet);
+    if (cg_all_digits(cnt) == 1) { return cnt; }
+    string rv = cg_enum_val(g, cnt);
+    if (cg_streq(rv, "") == 0 && cg_all_digits(rv) == 1) { return rv; }
+    return "";
+}
+
 // Address of element `idx_op` (already evaluated, type `ity`) of an indexable base
 // (slice / fixed array / string / pointer). Used by slice construction so the low
 // bound is evaluated exactly once (matching the C++ back-end).
@@ -1693,6 +1749,7 @@ string cg_slice_elem_addr(Codegen* g, *ExprNode base, string idx_op, string ity)
         string data = cg_tmp(g);
         cg_emit(g, "  "); cg_emit(g, data); cg_emit(g, " = extractvalue { ptr, i64 } ");
         cg_emit(g, fat.op); cg_emit(g, ", 0\n");
+        if (g.safe == 1) { cg_bounds_check(g, idx_op, ity, cg_slice_len(g, fat.op)); }
         cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = getelementptr inbounds ");
         cg_emit(g, cg_lltype(g, cg_array_elem(bet))); cg_emit(g, ", ptr "); cg_emit(g, data);
         cg_emit(g, ", "); cg_emit(g, ity); cg_emit(g, " "); cg_emit(g, idx_op); cg_emit(g, "\n");
@@ -1700,6 +1757,10 @@ string cg_slice_elem_addr(Codegen* g, *ExprNode base, string idx_op, string ity)
     }
     if (cg_is_array(bet) == 1) {
         string slot = cg_lval(g, base).op;
+        if (g.safe == 1) {
+            string alen = cg_array_len_const(g, bet);
+            if (cg_streq(alen, "") == 0) { cg_bounds_check(g, idx_op, ity, alen); }
+        }
         cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = getelementptr inbounds ");
         cg_emit(g, cg_lltype(g, bet)); cg_emit(g, ", ptr "); cg_emit(g, slot);
         cg_emit(g, ", i32 0, "); cg_emit(g, ity); cg_emit(g, " "); cg_emit(g, idx_op); cg_emit(g, "\n");
@@ -3976,6 +4037,11 @@ void cg_program(Codegen* g, *Program prog) {
     if (g.uses_heap_env == 1 && cg_seen_inst(g, "fn:malloc") == 0) {   // closures' env malloc
         String_append(&g.globals, "declare ptr @malloc(i64)\n");
         List_push<string>(&g.inst_seen, "fn:malloc");
+    }
+
+    if (g.uses_trap == 1 && cg_seen_inst(g, "fn:trap") == 0) {         // --safe bounds-check trap
+        String_append(&g.globals, "declare void @llvm.trap()\n");
+        List_push<string>(&g.inst_seen, "fn:trap");
     }
 
     if (g.uses_eh == 1) {   // Itanium EH runtime (declared once, only when used)
