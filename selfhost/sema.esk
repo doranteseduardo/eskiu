@@ -1263,10 +1263,10 @@ void sema_uninit_scan(Sema* s, *ExprNode e, List<string>* uninit) {
         }
         return;
     }
-    // Recurse ONLY into the child fields each kind populates (unset fields are garbage,
-    // since `alloc` does not zero — a Linux-only crash otherwise). Mirrors the proven
-    // kind-aware walker `cg_collect_idents_e`; note EK_TEMPLATECALL keeps its callee in
-    // `sval`, not `a`, so `a` must NOT be read for it.
+    // Recurse ONLY into the child fields each kind populates. alloc zeroes, so an unset
+    // field is null (not garbage), but reading a child a kind never sets is still a wrong
+    // answer. Mirrors the proven kind-aware walker `cg_collect_idents_e`; note
+    // EK_TEMPLATECALL keeps its callee in `sval`, not `a`, so `a` must NOT be read for it.
     if (e.kind == EK_BINARY || e.kind == EK_INDEX) { sema_uninit_scan(s, e.a, uninit); sema_uninit_scan(s, e.b, uninit); }
     else if (e.kind == EK_UNARY || e.kind == EK_MEMBER || e.kind == EK_CAST
              || e.kind == EK_QUESTION || e.kind == EK_AWAIT || e.kind == EK_CALL

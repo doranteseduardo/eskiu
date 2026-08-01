@@ -150,27 +150,19 @@ EventLoop* el_new(int max_fds) {
     lp.cap     = max_fds;
     lp.slots   = alloc<EvHandler>(max_fds);
     int i = 0;
-    // `alloc` does not zero: initialize EVERY field, including the `on_read`
-    // closure. Dispatch is guarded by `active`, but leaving `on_read` as heap
-    // garbage means any stray read invokes a garbage function pointer (a SIGILL
-    // on Linux, where fresh allocations aren't zero as they happen to be on macOS).
+    // alloc zeroes the slot (active/gen/isWrite = 0, on_read = null). A null on_read is
+    // never dispatched (the loop guards on `active == 0`), but install a no-op closure so
+    // that even a stray dispatch is a safe no-op rather than a null-function-pointer call.
     while (i < max_fds) {
-        lp.slots[i].active  = 0;
-        lp.slots[i].gen     = 0;
-        lp.slots[i].isWrite = 0;
         lp.slots[i].on_read = void(EventLoop* e, int fd) {};
         i = i + 1;
     }
     lp.tcap    = max_fds;
     lp.timers  = alloc<EvTimer>(max_fds);
     int t = 0;
-    // Same as the slots above: `alloc` does not zero, so initialize EVERY field —
-    // including the `on_fire` closure. Firing is guarded by `active`, but leaving
-    // `on_fire` as heap garbage means a stray fire would invoke a garbage function
-    // pointer (the Linux SIGILL signature). (v0.3.1 fixed on_read but missed this.)
+    // Same as the slots: alloc zeroes the timer (active = 0, on_fire = null); install a
+    // no-op so a stray fire is safe rather than a null call.
     while (t < max_fds) {
-        lp.timers[t].active   = 0;
-        lp.timers[t].deadline = (int64)0;
         lp.timers[t].on_fire  = void() {};
         t = t + 1;
     }

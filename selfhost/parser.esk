@@ -971,8 +971,7 @@ string strip_binding_const(string t) {
     *ExprNode cond = parse_expr(p);
     p_adv(p);                              // ')'
     *StmtNode s = alloc<StmtNode>(1);
-    s.kind = SK_IF; s.expr = cond;
-    s.s2 = null;                           // alloc doesn't zero — null the optional else
+    s.kind = SK_IF; s.expr = cond;         // alloc zeroes, so s.s2 (optional else) is null
     s.s1 = parse_stmt(p);                  // then
     if (p_at(p) == ELSE) { p_adv(p); s.s2 = parse_stmt(p); }
     return s;
@@ -1320,9 +1319,9 @@ void check_name_not_keyword(Parser* p) {
 
 // ── Declarations ────────────────────────────────────────────────────────────
 
-// Allocate a DeclNode and initialize the fields that aren't otherwise set by the
-// caller (alloc<T> does NOT zero memory). Centralizes init of the enrichment fields
-// added for sema/codegen so each is set once, not at every creation site.
+// Allocate a DeclNode. alloc zeroes, so the flag fields (is_async/is_mustuse/is_const/
+// is_extern/is_packed/pack_align) start 0 and need no explicit init; the lists are still
+// pre-sized here (a cap hint, and one central place to size the enrichment fields).
 *DeclNode new_decl(int kind) {
     *DeclNode d = alloc<DeclNode>(1);
     d.kind = kind;
@@ -1331,12 +1330,6 @@ void check_name_not_keyword(Parser* p) {
     List_init<List<string>>(&d.payloads, 2);
     List_init<int>(&d.field_bits, 4);
     List_init<int>(&d.param_escaping, 4);
-    d.is_async = 0;
-    d.is_mustuse = 0;
-    d.is_const = 0;
-    d.is_extern = 0;
-    d.is_packed = 0;
-    d.pack_align = 0;
     return d;
 }
 
