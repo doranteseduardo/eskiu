@@ -2,7 +2,8 @@
 # nullable.sh — verify the checked nullable pointer `?*T`: a `?*T` can't be
 # dereferenced without a null-check, `if (x != null)` narrows it, `*T` widens to
 # `?*T` but not vice-versa, and a narrowed deref produces the right value.
-# (Self-host mirror is deferred to the promotion track; this gates the C++ compiler.)
+# (This gates the C++ compiler; the self-host mirror is gated by
+# tests/selfhost/nullable_parity.sh.)
 set -u
 cd "$(dirname "$0")/.." || exit 2
 
