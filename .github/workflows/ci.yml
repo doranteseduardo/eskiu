@@ -138,3 +138,8 @@ jobs:
       # the negative-corpus verdict + diagnostic side is covered by tc_parity above).
       - name: Corpus behavioral parity
         run: CLANG=clang-22 tests/selfhost/corpus_parity.sh
+
+      # `--safe` bounds-check mirror: the self-host emits the same runtime slice/array
+      # bounds checks as the C++ back-end (OOB traps, in-bounds does not, off by default).
+      - name: Safe-mode self-host parity
+        run: CC=clang-22 tests/selfhost/safe_parity.sh
