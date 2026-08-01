@@ -147,7 +147,7 @@ Sema bucket (the deferred "self-host sema parity" residual). Two sides:
   Linux hands back garbage, a garbage fn-pointer called → SIGILL); one instance still lurks
   (likely an async-frame closure field, or a construction path that skips a closure init).
   It does NOT reproduce even in a native-Linux docker build that matches CI exactly (llvm-22,
-  clang-22, cmake Release, 90 runs under randomized `MALLOC_PERTURB_`, 0 crashes) — it needs
+  clang-22, cmake Release, 90 runs under randomized `MALLOC_PERTURB_`, 0 crashes); it needs
   the actual GitHub runner's kernel/glibc/timing. Mitigation: `tests/run.sh` retries a smoke
   test up to 5 times before failing (a real break still fails all attempts). The proper fix
   needs a reliable repro, i.e. the CI runner environment or a heavier MSan setup. History:
