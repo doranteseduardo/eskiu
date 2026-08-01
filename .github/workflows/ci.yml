@@ -143,3 +143,9 @@ jobs:
       # bounds checks as the C++ back-end (OOB traps, in-bounds does not, off by default).
       - name: Safe-mode self-host parity
         run: CC=clang-22 tests/selfhost/safe_parity.sh
+
+      # `?*T` nullable-pointer mirror: the self-host front-end enforces the same checked
+      # nullable rules as the C++ compiler (unchecked deref rejected, `if (x != null)`
+      # narrows, `?*T`->`*T` needs a check, `*T`->`?*T` widens).
+      - name: Nullable self-host parity
+        run: CC=clang-22 tests/selfhost/nullable_parity.sh
