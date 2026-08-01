@@ -138,26 +138,24 @@ Sema bucket (the deferred "self-host sema parity" residual). Two sides:
 
 ## Open follow-ups (worth doing, not yet done)
 
-- **Self-host codegen does not unique duplicate top-level global names, and folds const
-  ints first-wins where C++ loads last-wins.** Two module-level `const int`s with the same
-  name emit two `@name` globals (clang: `redefinition of global`), while the C++ back-end
-  relies on LLVM auto-uniquing (`@name.2`) + `defineSymbol` last-wins, so it stays valid and
-  resolves references to the *later* definition. The self-host also folds a const-int
-  reference through `econsts` (first-wins) instead of loading the global, so even absent the
-  redefinition the value would differ. Surfaced by the only real collision in the corpus
-  (`H2_STREAM_CLOSED` in `stdlib/http2.esk`, an RFC error code that shadowed a stream state),
-  fixed at the root by renaming the stream-state enum to `H2_STATE_*` (promotion P3, codegen
-  slice 1). No other post-preprocess collision exists in-tree, so this is a latent robustness
-  gap, not a corpus blocker: if one ever appears, teach `cg_add_global` to unique the name
-  and make the `econsts`/global lookup last-wins to match C++.
+- **DONE. Duplicate top-level global names + const-int fold order.** Two module-level
+  `const int`s with the same name emitted two `@name` globals (clang: `redefinition`), and
+  the self-host folded const-int reads through `econsts` first-wins where C++ loads the
+  later global. Fixed: the global emission now uniquifies a duplicate name (`@X`, `@X.1`,
+  via `cg_count_global`), and `cg_enum_val` scans to the LAST match (last-wins), matching
+  the C++ back-end. Regression test `cg_inputs/dup_const_global.esk` (folds to the later
+  value, valid IR). The one real in-tree collision (`H2_STREAM_CLOSED` in `stdlib/http2.esk`)
+  was already fixed at the root during P3.
 
-- **Self-host codegen: `List<T>` (and generic structs) instantiated over a
-  function-pointer element type (`List<fn()->int>`) emits invalid IR.** The method
-  self-parameter is declared as the by-value struct type instead of `ptr` (a mangling /
-  by-value-vs-pointer confusion specific to a fn-ptr type argument), so clang rejects the
-  call. The C++ back-end handles it. Niche (closures are the idiom for stored callables),
-  so deferred; fix in the self-host generic-instantiation mangling. Found in the 0.4.0
-  correctness sweep.
+- **DONE. `List<fn()->int>` (generic over a function-pointer element type) emitted invalid
+  IR.** Root cause was not the by-value/ptr confusion per se: the type-argument splitters
+  (`cg_gen_args`, `sema_parse_targs`, `al_generic_data_elem`) treated the `>` in the `->`
+  arrow of `fn()->int` as the closing `>` of the generic, truncating the type arg to `fn()-`.
+  That corrupted the substitution (`List<T>*` became the malformed `List<fn()->*`, whose
+  trailing `*` was no longer top-level, so the method self-param lowered to the by-value
+  struct instead of `ptr`). All three splitters now skip a `>` preceded by `-` and track
+  `(`/`)` depth (so a `,` inside fn params is not a top-level separator). Regression test
+  `cg_inputs/generic_fn_elem.esk` (indexed access + for-in over `List<fn()->int>`).
 
 - **Keyword-as-identifier diagnostic: DONE in both parsers (C++ v0.3.0, self-host R3).**
   `fn`/`in`/`match` (and type names) used as a variable/param/field name now report
