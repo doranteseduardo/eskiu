@@ -1751,7 +1751,7 @@ int main() {
 
 Heap allocation lives in the standard library, not the language core: `import <mem>` brings in `alloc<T>` and `free`.
 
-`alloc<T>(N)` allocates space for `N` elements of type `T` and returns a `*T`. In hosted mode (the default) it calls `malloc(N * sizeof(T))`. Under `--freestanding` (see §11.5) it calls the user-provided `esk_alloc` instead; the same source, selected at compile time via the `__ESKIU_FREESTANDING__` macro.
+`alloc<T>(N)` allocates space for `N` elements of type `T` and returns a `*T`. The memory is **zero-initialized**: a freshly allocated `*T` is null, an `int` is `0`, a `List` is a valid empty list, so reading a field before you assign it is defined behavior, not a garbage read (the same guarantee C++'s `new T()` gives). In hosted mode (the default) it calls `calloc(N, sizeof(T))`. Under `--freestanding` (see §11.5) it calls the user-provided `esk_alloc` instead, whose contract is likewise to return zeroed memory; the same source, selected at compile time via the `__ESKIU_FREESTANDING__` macro.
 
 `free(ptr)` releases a heap-allocated pointer (libc `free` hosted, `esk_free` freestanding). It takes a `*void`; any pointer type coerces.
 
@@ -1803,10 +1803,10 @@ Passing `--freestanding` predefines the macro `__ESKIU_FREESTANDING__`, which `<
 
 | `<mem>` function | Hosted (default) | Freestanding (`--freestanding`) |
 |------------------|------------------|---------------------------------|
-| `alloc<T>(n)`    | `malloc`         | `esk_alloc`                     |
+| `alloc<T>(n)`    | `calloc`         | `esk_alloc` (must zero)          |
 | `free(p)`        | `free`           | `esk_free`                      |
 
-In freestanding mode the user must provide `esk_alloc` and `esk_free` in their own code (typically in a kernel or bare-metal runtime); `<mem>` declares them `extern` and the linker resolves them from the user-supplied object file. Code that needs heap allocation still just writes `import <mem>` and calls `alloc<T>`/`free`. The same source compiles for both modes.
+In freestanding mode the user must provide `esk_alloc` and `esk_free` in their own code (typically in a kernel or bare-metal runtime); `<mem>` declares them `extern` and the linker resolves them from the user-supplied object file. To keep `alloc<T>`'s zero-initialization guarantee, `esk_alloc` must return zeroed memory (the in-repo `kernel/alloc.esk` bump allocator does this). Code that needs heap allocation still just writes `import <mem>` and calls `alloc<T>`/`free`. The same source compiles for both modes.
 
 ```eskiu
 // user-provided in kernel.esk or a C shim

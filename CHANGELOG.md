@@ -8,6 +8,16 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
+## [Unreleased]
+### Changed
+- **`alloc<T>` now zero-initializes.** `<mem>`'s `alloc<T>(n)` returns memory that is
+  zeroed (hosted mode calls `calloc` instead of `malloc`; the `--freestanding` `esk_alloc`
+  contract is now "return zeroed memory", honored by `kernel/alloc.esk`). A freshly
+  allocated `*T` is null, an `int` is `0`, a `List` is a valid empty list, so reading a
+  field before assigning it is defined rather than a garbage read. This matches C++'s
+  `new T()` and removes an uninitialized-read crash class that only surfaced on platforms
+  whose raw heap is not already zero (Linux), while working on those whose is (macOS).
+
 ## [0.7.0]
 ### Added
 - **`extern` variables.** `extern <type> <name>;` declares a global defined in another
