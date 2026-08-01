@@ -318,6 +318,8 @@ string tok_char_value(*uint8 src, Token t) {
 string parse_type(Parser* p) {
     int is_const = 0;
     if (p_at(p) == CONST) { p_adv(p); is_const = 1; }
+    int nullable = 0;
+    if (p_at(p) == QUESTION) { p_adv(p); nullable = 1; }   // `?*T`: checked nullable pointer
     int leading = 0;
     while (p_at(p) == STAR) { p_adv(p); leading = leading + 1; }
 
@@ -338,6 +340,7 @@ string parse_type(Parser* p) {
         int li = 0;
         while (li < leading) { ft = str_concat("*", ft); li = li + 1; }
         if (is_const == 1) { ft = str_concat("const ", ft); }
+        if (nullable == 1) { ft = str_concat("?", ft); }
         return ft;
     }
 
@@ -376,6 +379,7 @@ string parse_type(Parser* p) {
         p_adv(p);                          // ']'
         ty = str_concat(ty, str_concat("[", str_concat(sz, "]")));
     }
+    if (nullable == 1) { ty = str_concat("?", ty); }   // preserve `?` as the outermost prefix
     return ty;
 }
 
@@ -1296,7 +1300,7 @@ void check_name_not_keyword(Parser* p) {
 *StmtNode parse_block_item(Parser* p) {
     int t = p_at(p);
     if (t == LET || t == CONST || t == VOLATILE || t == STATIC || t == STAR || t == IDENT
-        || t == FN || is_type_kw(t) == 1) {
+        || t == FN || t == QUESTION || is_type_kw(t) == 1) {   // QUESTION: a `?*T` nullable decl
         int save = p.pos;
         *StmtNode d = try_var_decl(p);
         if (d != null) { return d; }
