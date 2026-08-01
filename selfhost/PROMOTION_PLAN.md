@@ -186,4 +186,16 @@ value-initialized `new`). Both are now fixed with all gates green in CI:
 - `List<fn()->int>` instantiation: the `for-in` desugar builders left `kids`/`names` as
   garbage `List` headers, so `cg_etype` dereferenced a junk pointer (Linux-only crash);
   fixed with a `cgb_new` constructor that initializes every `ExprNode` field.
-Details in `NOTES.md`. No open items remain in this plan.
+Details in `NOTES.md`.
+
+**Safety-feature mirrors (closed).** The two safety features that shipped C++-only (their
+self-host mirrors were deferred here) now have self-host mirrors, each parity-gated:
+- `--safe` slice/array bounds checks: `codegen.esk` `cg_bounds_check` (trap on OOB, guarded
+  by `g.safe`), `--safe` threaded through `esk_main`; gate `tests/selfhost/safe_parity.sh`.
+- `?*T` checked nullable pointer: `parse_type` parses the `?`, `sema.esk` enforces the
+  unchecked-deref rejection + `if (x != null)` narrowing + the nullable assignability rule,
+  `codegen.esk` lowers `?*T` as `*T` (`cg_strip_nullable`); gate
+  `tests/selfhost/nullable_parity.sh`.
+With these, the self-host and C++ compilers are at full feature parity (no known divergence
+beyond a few lexer/parser diagnostic-text differences tracked in `NOTES.md`). No open items
+remain in this plan.

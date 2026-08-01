@@ -9,6 +9,16 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 ---
 
 ## [Unreleased]
+### Added
+- **Self-host mirrors of the two safety features.** The Eskiu-written compiler now
+  implements the two features that had shipped C++-only, reaching full feature parity:
+  - `--safe` runtime bounds checks (self-host `codegen.esk` emits the same slice/array
+    index trap-on-out-of-range as the C++ back-end; off by default, opt-in via `--safe`).
+  - the `?*T` checked nullable pointer (self-host `parser.esk`/`sema.esk` reject an
+    unchecked deref, narrow through `if (x != null)`, allow `*T` -> `?*T` widening and
+    reject `?*T` -> `*T` without a check; `codegen.esk` lowers `?*T` exactly like `*T`).
+  Each is gated in CI (`tests/selfhost/safe_parity.sh`, `tests/selfhost/nullable_parity.sh`).
+
 ### Changed
 - **`alloc<T>` now zero-initializes.** `<mem>`'s `alloc<T>(n)` returns memory that is
   zeroed (hosted mode calls `calloc` instead of `malloc`; the `--freestanding` `esk_alloc`
