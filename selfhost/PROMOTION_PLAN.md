@@ -178,3 +178,12 @@ plan for v1.0 is product surface (a package manager) and, if ever desired, a *sh
 flip (deferred: the self-host links via clang, so shipping it would add a runtime clang
 requirement; see P4). Update `docs/dev/phases.md`, `CHANGELOG`, and `NOTES.md` as any
 follow-up lands (the docs-before-next-step rule).
+
+**Post-promotion follow-ups (closed).** The whole-corpus P3 work left two latent
+self-host-only defects, both the `alloc`-does-not-zero class (the C++ path is immune via
+value-initialized `new`). Both are now fixed with all gates green in CI:
+- duplicate top-level global names + const-int fold order (uniquify + last-wins), and
+- `List<fn()->int>` instantiation: the `for-in` desugar builders left `kids`/`names` as
+  garbage `List` headers, so `cg_etype` dereferenced a junk pointer (Linux-only crash);
+  fixed with a `cgb_new` constructor that initializes every `ExprNode` field.
+Details in `NOTES.md`. No open items remain in this plan.
