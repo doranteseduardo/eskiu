@@ -183,7 +183,7 @@ public:
     std::string targetCPU;        // --mcpu (empty = "generic" when cross, host CPU when native)
     std::string targetFeatures;   // --mattr feature string (LLVM -mattr syntax, e.g. "+vfp2")
     std::string relocModel;       // --reloc: "static" | "dynamic-no-pic" | "" ("pic", default)
-    bool freestanding = false;    // alloc/free → esk_alloc/esk_free instead of malloc/free
+    bool freestanding = false;    // alloc/free → esk_alloc/esk_free instead of calloc/free
     bool asan  = false;           // AddressSanitizer instrumentation
     bool ubsan = false;           // trapping bounds checks
     bool safe  = false;           // --safe: runtime slice/array bounds checks (trap on OOB)

@@ -6,12 +6,17 @@ keeps only the **durable lessons** and the **follow-ups still worth acting on**.
 
 ## Lessons that still apply
 
-- **`alloc` doesn't zero; never read a field a node kind doesn't set.** Several AST walkers
-  recursed into `s1`/`s2`/`a`/`b`/`kids` for *every* node kind and dereferenced garbage from
-  fields the parser never set for that kind, a Linux-only crash (the macOS heap happened to
-  be zero). Make every traversal kind-aware. Surface it before CI with macOS **guard malloc**
-  (`MallocPreScribble=1 MALLOC_PROTECT_BEFORE=1` fills fresh allocations with `0xAA`, giving a
-  deterministic fault at `0xaaaa…`).
+- **`alloc` now zero-initializes (`calloc`), which closed the garbage-read crash class; a
+  traversal must still be kind-aware.** Historically `alloc` wrapped `malloc` and returned
+  garbage; several AST walkers recursed into `s1`/`s2`/`a`/`b`/`kids` for *every* node kind
+  and dereferenced a field the parser never set, a Linux-only crash (the macOS heap happened
+  to be zero). As of the `alloc`-zeroing change those fields read as zero (a null child, an
+  empty list), so the crash is gone. But zero is not always *correct*: a walker that reads a
+  child a node kind never sets now gets `null` instead of a real subtree, which can be a
+  silent wrong answer rather than a crash. So keep every traversal kind-aware and mirror the
+  reference walker (`cg_collect_idents_e`). To surface a *reliance on garbage* before CI,
+  macOS **guard malloc** (`MallocPreScribble=1 MALLOC_PROTECT_BEFORE=1`, `0xAA` fill) still
+  works on any raw `malloc`/`esk_alloc` path.
 
 - **Never claim "feature-complete" from the bootstrap fixpoint.** It only exercises the slice
   of the language the compiler's own source uses. It says nothing about floats, unions, the
