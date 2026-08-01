@@ -96,7 +96,7 @@ for esk in "$here"/*.esk; do
         # Smoke test (non-deterministic output, e.g. threads/timing): exit 0 is enough.
         # A few of these (the http2 tests) intermittently flake with a Linux-only SIGILL
         # from a latent uninitialized-fn-pointer that ONLY the CI runner's environment
-        # triggers — not a regression (the binaries are byte-identical to green releases and
+        # triggers (not a regression: the binaries are byte-identical to green releases and
         # it does not reproduce in a CI-matching native-Linux docker build; see
         # selfhost/NOTES.md). Retry a few times so an intermittent crash does not red the
         # build; the test still must run to completion at least once (a real break fails all
