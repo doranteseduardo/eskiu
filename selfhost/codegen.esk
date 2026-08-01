@@ -561,12 +561,21 @@ void cg_drain_worklist(Codegen* g) {
 // Value of a plain-enum constant, or "" if `name` isn't one.
 string cg_enum_val(Codegen* g, string name) {
     int i = 0; int n = List_len<CgEnumC>(&g.econsts);
-    while (i < n) {
-        CgEnumC c = List_get<CgEnumC>(&g.econsts, i);
-        if (cg_streq(c.name, name) == 1) { return c.val; }
+    string rv = "";
+    while (i < n) {                                        // scan all → LAST definition wins,
+        CgEnumC c = List_get<CgEnumC>(&g.econsts, i);     // matching the C++ back-end (a later
+        if (cg_streq(c.name, name) == 1) { rv = c.val; }  // `const int X` shadows an earlier one)
         i = i + 1;
     }
-    return "";
+    return rv;
+}
+
+// How many top-level globals with base name `name` have already been registered — used to
+// give a duplicate a unique emitted name (@X, @X.1, …) so clang does not reject a redefinition.
+int cg_count_global(Codegen* g, string name) {
+    int i = 0; int n = List_len<CgLocal>(&g.gvars); int c = 0;
+    while (i < n) { if (cg_streq(List_get<CgLocal>(&g.gvars, i).name, name) == 1) { c = c + 1; } i = i + 1; }
+    return c;
 }
 
 // Variant name of a match-arm label "Circle(r)" -> "Circle" (or the whole label if no '(').
@@ -3843,8 +3852,14 @@ void cg_program(Codegen* g, *Program prog) {
             }
             // (const-int values were already folded into econsts in Pass 0b.)
             string llty = cg_lltype(g, d.ret_type);
-            cg_add_global(g, d.name, cg_cat("@", d.name), llty, d.ret_type);
-            String_append(&g.globals, "@"); String_append(&g.globals, d.name);
+            // Duplicate top-level name (e.g. two `const int X`): emit a uniquely-named global
+            // (@X.1) so clang does not reject a redefinition. Const-int reads fold via econsts
+            // (last-wins), so the global itself is unused; this just keeps the IR valid.
+            string gsym = cg_cat("@", d.name);
+            int dupn = cg_count_global(g, d.name);
+            if (dupn > 0) { gsym = cg_cat(gsym, cg_cat(".", cg_itoa(dupn))); }
+            cg_add_global(g, d.name, gsym, llty, d.ret_type);
+            String_append(&g.globals, gsym);
             String_append(&g.globals, " = global "); String_append(&g.globals, llty);
             if (cg_is_fnty(d.ret_type) == 1) { g.lam_expret = cg_fnty_ret(d.ret_type); }  // thread fn-type return into a lambda init
             String_append(&g.globals, " "); String_append(&g.globals, cg_global_init(g, d.init, llty));
