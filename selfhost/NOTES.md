@@ -171,6 +171,16 @@ Sema bucket (the deferred "self-host sema parity" residual). Two sides:
   struct instead of `ptr`). All three splitters now skip a `>` preceded by `-` and track
   `(`/`)` depth (so a `,` inside fn params is not a top-level separator). Regression test
   `cg_inputs/generic_fn_elem.esk` (indexed access + for-in over `List<fn()->int>`).
+  That test then flushed out a SECOND, independent bug on the same input: the local AST
+  builders (`cgb_ident`/`cgb_lit`/`cgb_bin`/`cgb_member`/`cgb_index`) that desugar `for-in`
+  into a counted loop `alloc`ated an `ExprNode` and set only a couple of fields, leaving
+  `kids`/`names` as garbage `List` headers (the footgun again: `alloc` does not zero; the
+  C++ back-end never hit this because `new ExprNode()` value-initializes). `cg_etype` on the
+  index node read the bogus `kids.size` and dereferenced a junk data pointer, a Linux-only
+  crash (macOS heap happened to come back zero). Fixed with a shared `cgb_new(kind)`
+  constructor that initializes every field (`List_init`s `kids`/`names`); all builders route
+  through it. Found with valgrind `--track-origins` (gdb/ASan perturb the heap enough to hide
+  it; a print breadcrumb did too, a classic heisenbug).
 
 - **Keyword-as-identifier diagnostic: DONE in both parsers (C++ v0.3.0, self-host R3).**
   `fn`/`in`/`match` (and type names) used as a variable/param/field name now report
