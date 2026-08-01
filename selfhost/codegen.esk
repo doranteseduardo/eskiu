@@ -1213,7 +1213,15 @@ int cg_is_struct(Codegen* g, string name) {
 
 // Eskiu type spelling → LLVM type. Pointers (anything with `*`) lower to opaque `ptr`;
 // a registered struct name → its named type `%Name`.
+// Drop a leading `?` (the checked-nullable marker on `?*T`). It is a sema-only concept:
+// `?*T` lowers exactly like `*T`, so every type-inspection entry normalizes it away.
+string cg_strip_nullable(string t) {
+    if ((int)t[0] == 63) { return cg_sub_str(t, 1, cg_strlen(t)); }   // '?'
+    return t;
+}
+
 string cg_lltype(Codegen* g, string t) {
+    t = cg_strip_nullable(t);             // `?*T` lowers as `*T`
     t = cg_apply_sub(g, t);               // T -> concrete during instantiation
     t = cg_dealias(g, t);                 // type alias -> underlying type
     if (cg_is_slice(t) == 1) { return "{ ptr, i64 }"; }   // "T[]" -> fat pointer { data, len }
@@ -1256,6 +1264,7 @@ string cg_lltype(Codegen* g, string t) {
 // The pointee/base name of a pointer type, stripping '*' and spaces from BOTH ends
 // (Eskiu writes pointers either way: "*P" and "P*"). "*P"/"P*" -> "P".
 string cg_strip_ptr(string t) {
+    t = cg_strip_nullable(t);
     int a = 0;
     while ((int)t[a] == 42 || (int)t[a] == 32) { a = a + 1; }
     int b = 0; while (t[b] != 0) { b = b + 1; }
@@ -1283,6 +1292,7 @@ int cg_int_w(string t) {
 // indexing/deref: `**ExprNode`→`*ExprNode`, `*int`→`int`, `int*`→`int`. Distinct from
 // cg_strip_ptr, which strips ALL '*' to recover a struct's base name.
 string cg_deref_ty(string t) {
+    t = cg_strip_nullable(t);                             // `?*T` derefs like `*T`
     if (cg_streq(t, "string") == 1) { return "char"; }    // string = *char → element is a char
     int b = 0; while (t[b] != 0) { b = b + 1; }
     if (b > 0 && (int)t[b - 1] == 42) { return cg_sub_str(t, 0, b - 1); }   // trailing '*'
@@ -1298,6 +1308,7 @@ string cg_deref_ty(string t) {
 // args (`List<*ExprNode>`) belongs to a type argument, not the outer type, which is a
 // generic struct (value), not a pointer.
 int cg_is_ptr_ty(string t) {
+    t = cg_strip_nullable(t);
     int depth = 0; int i = 0;
     while (t[i] != 0) {
         int c = (int)t[i];
