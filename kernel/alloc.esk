@@ -21,7 +21,12 @@ int64 _heap_end = 0x40400000;
     }
     int64 ptr = _heap_ptr;
     _heap_ptr = _heap_ptr + n;
-    return (*uint8) ptr;
+    // <mem>'s alloc<T> contract: return zeroed memory (fresh RAM here is not
+    // guaranteed zero). A byte loop, not memset, since this is a -nostdlib target.
+    *uint8 p = (*uint8) ptr;
+    int64 i = 0;
+    while (i < n) { p[i] = 0; i = i + 1; }
+    return p;
 }
 
 void esk_free(*uint8 ptr) {
