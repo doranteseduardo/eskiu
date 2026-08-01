@@ -242,11 +242,24 @@ List<CgSub> cg_copy_sub(List<CgSub>* src) {
 // Minimal AST constructors, used to desugar `for-in` into a counted for. Local copies of
 // the parser/async_lower builders so codegen.esk stays self-contained (it compiles as a
 // standalone module in cg_selfhost.sh, without those modules merged in).
-*ExprNode cgb_ident(string nm) { *ExprNode e = alloc<ExprNode>(1); e.kind = EK_IDENT; e.sval = nm; return e; }
-*ExprNode cgb_lit(int lk, string v) { *ExprNode e = alloc<ExprNode>(1); e.kind = EK_LITERAL; e.lit_kind = lk; e.sval = v; return e; }
-*ExprNode cgb_bin(string op, *ExprNode l, *ExprNode r) { *ExprNode e = alloc<ExprNode>(1); e.kind = EK_BINARY; e.sval = op; e.a = l; e.b = r; return e; }
-*ExprNode cgb_member(*ExprNode base, string field) { *ExprNode e = alloc<ExprNode>(1); e.kind = EK_MEMBER; e.a = base; e.sval = field; return e; }
-*ExprNode cgb_index(*ExprNode base, *ExprNode idx) { *ExprNode e = alloc<ExprNode>(1); e.kind = EK_INDEX; e.a = base; e.b = idx; return e; }
+// alloc does NOT zero, so every field an ExprNode consumer may read must be set here;
+// the C++ back-end gets this free from value-initialized `new ExprNode()`. Leaving
+// `kids`/`names` as garbage List headers made cg_etype read a bogus size and deref a
+// junk data pointer (a Linux-only crash on `List<fn()->int>`, where the index node's
+// element type is queried during for-in/indexed lowering).
+*ExprNode cgb_new(int k) {
+    *ExprNode e = alloc<ExprNode>(1);
+    e.kind = k; e.lit_kind = 0; e.slen = 0; e.sval = "";
+    e.a = null; e.b = null; e.stmt = null;
+    List_init<*ExprNode>(&e.kids, 0);
+    List_init<string>(&e.names, 0);
+    return e;
+}
+*ExprNode cgb_ident(string nm) { *ExprNode e = cgb_new(EK_IDENT); e.sval = nm; return e; }
+*ExprNode cgb_lit(int lk, string v) { *ExprNode e = cgb_new(EK_LITERAL); e.lit_kind = lk; e.sval = v; return e; }
+*ExprNode cgb_bin(string op, *ExprNode l, *ExprNode r) { *ExprNode e = cgb_new(EK_BINARY); e.sval = op; e.a = l; e.b = r; return e; }
+*ExprNode cgb_member(*ExprNode base, string field) { *ExprNode e = cgb_new(EK_MEMBER); e.a = base; e.sval = field; return e; }
+*ExprNode cgb_index(*ExprNode base, *ExprNode idx) { *ExprNode e = cgb_new(EK_INDEX); e.a = base; e.b = idx; return e; }
 *StmtNode cgb_vardecl(string nm, string ty, *ExprNode init) { *StmtNode s = alloc<StmtNode>(1); s.kind = SK_VARDECL; s.name = nm; s.type = ty; s.expr = init; s.is_const = 0; s.is_static = 0; return s; }
 *StmtNode cgb_for(*StmtNode init, *ExprNode cond, *ExprNode step, *StmtNode body) { *StmtNode s = alloc<StmtNode>(1); s.kind = SK_FOR; s.s1 = init; s.expr = cond; s.expr2 = step; s.s2 = body; return s; }
 *StmtNode cgb_block2(*StmtNode a, *StmtNode b) {
