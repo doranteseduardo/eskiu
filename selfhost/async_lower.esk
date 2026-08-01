@@ -212,8 +212,11 @@ string al_generic_data_elem(*Program prog, string sn) {
     int i = lt + 1; int start = i; int depth = 1;
     while (sn[i] != 0 && depth > 0) {
         int ch = (int)sn[i];
-        if (ch == 60) { depth = depth + 1; }
-        else if (ch == 62) { depth = depth - 1; if (depth == 0) { List_push<string>(&args, al_substr(sn, start, i)); } }
+        if (ch == 60 || ch == 40) { depth = depth + 1; }             // '<' or '(' (nested generic / fn params)
+        else if (ch == 41) { if (depth > 0) { depth = depth - 1; } }   // ')'
+        else if (ch == 62 && (i == 0 || (int)sn[i - 1] != 45)) {      // '>' closing a generic, NOT the "->" arrow
+            depth = depth - 1; if (depth == 0) { List_push<string>(&args, al_substr(sn, start, i)); }
+        }
         else if (ch == 44 && depth == 1) { List_push<string>(&args, al_substr(sn, start, i)); start = i + 1; }
         i = i + 1;
     }

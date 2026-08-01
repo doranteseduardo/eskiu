@@ -377,9 +377,12 @@ void cg_gen_args(string s, List<string>* out) {
     int start = i;
     while (s[i] != 0 && depth > 0) {
         int c = (int)s[i];
-        if (c == 60) { depth = depth + 1; }
-        else if (c == 62) { depth = depth - 1; if (depth == 0) { break; } }
-        else if (c == 44 && depth == 1) {                 // top-level ','
+        if (c == 60 || c == 40) { depth = depth + 1; }             // '<' or '(' (nested generic / fn params)
+        else if (c == 41) { if (depth > 0) { depth = depth - 1; } }   // ')'
+        else if (c == 62 && (i == 0 || (int)s[i - 1] != 45)) {      // '>' closing a generic, NOT the "->" arrow
+            depth = depth - 1; if (depth == 0) { break; }
+        }
+        else if (c == 44 && depth == 1) {                          // top-level ','
             string a = cg_sub_str(s, start, i);
             List_push<string>(out, cg_trim(a));
             i = i + 1; start = i; continue;
