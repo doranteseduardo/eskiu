@@ -124,7 +124,7 @@
         },
         {
           "name": "keyword.declaration.eskiu",
-          "match": "\\b(let|struct|packed|union|interface|enum|fn|extern|intrinsic|import)\\b"
+          "match": "\\b(let|struct|packed|union|interface|enum|fn|operator|extern|intrinsic|import)\\b"
         },
         {
           "name": "storage.modifier.eskiu",

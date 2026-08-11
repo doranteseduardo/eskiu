@@ -27,6 +27,7 @@ The project follows two phases:
 | Primitive types (int/8/16/32/64, uint, float, double, bool, char, string, void) | ✅ |
 | Pointers and pointer arithmetic | ✅ |
 | Structs with methods | ✅ |
+| Operator overloading (`operator +/-/*//%/==/.../[]`, static + structural, zero-cost; lockstep both compilers) | ✅ |
 | Interfaces with vtable dispatch (fat pointer) | ✅ |
 | Templates: structs and functions, monomorphic instantiation | ✅ |
 | Control flow: if/else, while, for, switch/case (with type checking) | ✅ |
