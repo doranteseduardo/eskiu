@@ -7,6 +7,50 @@
 #include <utility>
 #include <map>
 
+// Operator overloading: an `operator <op>(...)` decl compiles to a normal function under a
+// canonical mangled name, and a binary/unary expression whose operands are not built-in
+// numeric/pointer types resolves to that function by the same name. The op is spelled as a
+// word so the name stays a valid identifier (`+`->`add`, `[]`->`index`, unary `-`->`neg`).
+inline std::string eskiuOpWord(const std::string& op) {
+    if (op == "+")  return "add";   if (op == "-")  return "sub";
+    if (op == "*")  return "mul";   if (op == "/")  return "div";
+    if (op == "%")  return "mod";   if (op == "==") return "eq";
+    if (op == "!=") return "ne";    if (op == "<")  return "lt";
+    if (op == ">")  return "gt";    if (op == "<=") return "le";
+    if (op == ">=") return "ge";    if (op == "&")  return "band";
+    if (op == "|")  return "bor";   if (op == "^")  return "bxor";
+    if (op == "<<") return "shl";   if (op == ">>") return "shr";
+    if (op == "[]") return "index"; if (op == "u-") return "neg";
+    if (op == "!")  return "lnot";  if (op == "~")  return "bnot";
+    return "";
+}
+// Make a type spelling safe to embed in a symbol name (`*V3`->`p_V3`, `List<int>`->`List_int`).
+// A `struct:`/`union:`/`enum:`/`interface:` prefix (how sema spells a nominal expr type) is
+// stripped first, so a decl's written param type `V3` and a call operand's `struct:V3` mangle
+// identically.
+inline std::string eskiuTyMangle(const std::string& tin) {
+    std::string t = tin;
+    for (const char* pfx : {"struct:", "union:", "enum:", "interface:"}) {
+        std::string p = pfx;
+        if (t.rfind(p, 0) == 0) { t = t.substr(p.size()); break; }
+    }
+    std::string r;
+    for (char c : t) {
+        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_') r += c;
+        else if (c == '*') r += "p_";
+        // '<', '>', ' ', ',' etc. are dropped
+    }
+    return r;
+}
+// Canonical function name for an operator over the given operand type spellings.
+inline std::string eskiuOpName(const std::string& op, const std::vector<std::string>& tys) {
+    std::string w = eskiuOpWord(op);
+    if (w.empty()) return "";
+    std::string n = "__op_" + w;
+    for (const auto& t : tys) n += "_" + eskiuTyMangle(t);
+    return n;
+}
+
 // Forward declarations
 class ASTNode;
 class Expr;
@@ -64,6 +108,9 @@ public:
     bool isAsync = false;
     // `must_use`: discarding a call to this function (a bare call statement) is an error.
     bool mustUse = false;
+    // Operator overload: the op this `operator <op>(...)` implements ("+","[]","u-",...);
+    // empty for a normal function. Sema registers it so `a op b` resolves here by operands.
+    std::string operatorSym;
 
     FunctionDecl(const std::string& name, const std::string& returnType,
                  const std::vector<std::pair<std::string, std::string>>& params,
@@ -440,6 +487,7 @@ public:
     ExprPtr left;
     std::string op;
     ExprPtr right;
+    std::string opFunc;   // set by sema when this resolves to a user operator overload ("" = built-in)
 
     BinaryExpr(ExprPtr left, const std::string& op, ExprPtr right)
         : left(std::move(left)), op(op), right(std::move(right)) {}

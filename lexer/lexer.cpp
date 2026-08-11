@@ -19,6 +19,7 @@ std::unordered_map<std::string, TokenType> Lexer::keywords = {
     {"interface", TokenType::INTERFACE},
     {"enum", TokenType::ENUM},
     {"fn", TokenType::FN},
+    {"operator", TokenType::OPERATOR},
     {"asm", TokenType::ASM},
     {"volatile",       TokenType::VOLATILE},
     {"static",         TokenType::STATIC},

@@ -215,6 +215,13 @@ DeclPtr Parser::parseDeclaration() {
             size_t savePos = current;
             std::string type = parseType();
 
+            // `V3 operator +(...)` — an operator overload: rewind and let parseFunctionDecl
+            // handle the `operator` form (return type already parsed above, re-parsed there).
+            if (check(TokenType::OPERATOR)) {
+                current = savePos;
+                return parseFunctionDecl();
+            }
+
             if (check(TokenType::IDENT)) {
                 Token nameTok2 = peek();
                 std::string name = advance().value;
@@ -262,20 +269,72 @@ DeclPtr Parser::parseDeclaration() {
     throw std::runtime_error("Expected declaration");
 }
 
+// Read the operator token(s) after `operator`. Returns its spelling ("+", "==", "[]", ...),
+// or "" if the token is not an overloadable operator. `[]` is the two-token subscript form.
+std::string Parser::parseOperatorToken() {
+    Token t = advance();
+    switch (t.type) {
+        case TokenType::PLUS:      return "+";
+        case TokenType::MINUS:     return "-";
+        case TokenType::STAR:      return "*";
+        case TokenType::SLASH:     return "/";
+        case TokenType::PERCENT:   return "%";
+        case TokenType::EQEQ:      return "==";
+        case TokenType::NE:        return "!=";
+        case TokenType::LT:        return "<";
+        case TokenType::GT:        return ">";
+        case TokenType::LE:        return "<=";
+        case TokenType::GE:        return ">=";
+        case TokenType::AMPERSAND: return "&";
+        case TokenType::PIPE:      return "|";
+        case TokenType::CARET:     return "^";
+        case TokenType::LSHIFT:    return "<<";
+        case TokenType::RSHIFT:    return ">>";
+        case TokenType::NOT:       return "!";
+        case TokenType::TILDE:     return "~";
+        case TokenType::LBRACKET:  consume(TokenType::RBRACKET, "Expected ']' for operator []"); return "[]";
+        default:                   return "";
+    }
+}
+
 DeclPtr Parser::parseFunctionDecl() {
     std::string returnType = parseType();
     Token nameTok = peek();
-    std::string name = consume(TokenType::IDENT, "Expected function name").value;
 
-    // Optional type parameters: int max<T>(T a, T b) { ... }
+    // Operator overload: `V3 operator +(V3 a, V3 b) { ... }`. The op is spelled after the
+    // `operator` keyword; the decl becomes a normal function under a canonical mangled name
+    // (built once the param types are known), which the call site resolves to by operands.
+    bool isOperator = false;
+    std::string opSpelling;
+    if (check(TokenType::OPERATOR)) {
+        advance();                       // 'operator'
+        isOperator = true;
+        opSpelling = parseOperatorToken();   // "+", "[]", "u-", ... ("" = not overloadable)
+    }
+
+    std::string name;
     std::vector<std::string> typeParams;
     std::map<std::string, std::vector<std::string>> typeConstraints;
-    parseTypeParams(typeParams, typeConstraints);
+    if (!isOperator) {
+        name = consume(TokenType::IDENT, "Expected function name").value;
+        // Optional type parameters: int max<T>(T a, T b) { ... }
+        parseTypeParams(typeParams, typeConstraints);
+    }
 
     consume(TokenType::LPAREN, "Expected '('");
     std::vector<bool> esc;
     auto params = parseParameterList(&esc);
     consume(TokenType::RPAREN, "Expected ')'");
+
+    if (isOperator) {
+        std::vector<std::string> ptys;
+        for (const auto& p : params) ptys.push_back(p.first);
+        // A single-operand `-`/`+` is the unary form (distinct mangling: neg/pos).
+        if (params.size() == 1 && opSpelling == "-") opSpelling = "u-";
+        name = eskiuOpName(opSpelling, ptys);
+        if (name.empty())
+            throw std::runtime_error("operator '" + opSpelling + "' cannot be overloaded");
+    }
 
     // A bare ';' marks a forward declaration (prototype only, no body).
     StmtPtr body = nullptr;
@@ -284,6 +343,7 @@ DeclPtr Parser::parseFunctionDecl() {
     }
 
     auto decl = std::make_shared<FunctionDecl>(name, returnType, params, body);
+    if (isOperator) decl->operatorSym = opSpelling;
     decl->typeParams = typeParams;
     decl->constraints = typeConstraints;
     decl->paramEscaping = esc;

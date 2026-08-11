@@ -83,6 +83,16 @@ void CodeGen::visit(BinaryExpr* node) {
         return;
     }
 
+    // Operator overload: sema resolved this to a user `operator op(...)`. Lower it as a call
+    // to that function (reusing the struct-by-value call ABI) instead of a built-in op.
+    if (!node->opFunc.empty()) {
+        auto call = std::make_shared<CallExpr>(
+            std::make_shared<IdentExpr>(node->opFunc),
+            std::vector<ExprPtr>{node->left, node->right});
+        call->accept(this);
+        return;
+    }
+
     llvm::Value* left = evaluateExpr(node->left);
     llvm::Value* right = evaluateExpr(node->right);
 
