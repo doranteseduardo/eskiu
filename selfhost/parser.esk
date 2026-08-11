@@ -1392,16 +1392,47 @@ void parse_params(Parser* p, *DeclNode d) {
     }
 }
 
+// Read the operator token(s) after `operator`. Returns its spelling ("+","==","[]",...),
+// or "" if not overloadable. `[]` is the two-token subscript.
+string parse_operator_token(Parser* p) {
+    int t = p_at(p); p_adv(p);
+    if (t == PLUS) { return "+"; }        if (t == MINUS) { return "-"; }
+    if (t == STAR) { return "*"; }        if (t == SLASH) { return "/"; }
+    if (t == PERCENT) { return "%"; }     if (t == EQEQ) { return "=="; }
+    if (t == NE) { return "!="; }         if (t == LT) { return "<"; }
+    if (t == GT) { return ">"; }          if (t == LE) { return "<="; }
+    if (t == GE) { return ">="; }         if (t == AMPERSAND) { return "&"; }
+    if (t == PIPE) { return "|"; }        if (t == CARET) { return "^"; }
+    if (t == LSHIFT) { return "<<"; }     if (t == RSHIFT) { return ">>"; }
+    if (t == NOT) { return "!"; }         if (t == TILDE) { return "~"; }
+    if (t == LBRACKET) { p_adv(p); return "[]"; }   // consume ']'
+    return "";
+}
+
 *DeclNode parse_function(Parser* p) {
     string rty = parse_type(p);            // return type (may be *T, List<T>, …)
-    Token nm = p_adv(p);                   // function name
     *DeclNode d = new_decl(DK_FUNCTION);
-    d.name = tok_text(p.src, nm);
     d.ret_type = rty;
-    parse_type_params(p, &d.type_params, 1);   // optional <T, U: Iface>
+    string opsym = "";
+    if (p_at(p) == OPERATOR) {             // `V3 operator +(V3 a, V3 b) { ... }`
+        p_adv(p);
+        opsym = parse_operator_token(p);
+    } else {
+        Token nm = p_adv(p);               // function name
+        d.name = tok_text(p.src, nm);
+        parse_type_params(p, &d.type_params, 1);   // optional <T, U: Iface>
+    }
     p_adv(p);                              // '('
     parse_params(p, d);                    // fills d.params, stops at ')'
     p_adv(p);                              // ')'
+    if (opsym[0] != 0) {                   // build the canonical name from op + param types
+        let ptys: List<string>; List_init<string>(&ptys, 4);
+        int i = 0; int np = List_len<Param>(&d.params);
+        while (i < np) { List_push<string>(&ptys, List_get<Param>(&d.params, i).ty); i = i + 1; }
+        if (np == 1 && ast_streq(opsym, "-") == 1) { opsym = "u-"; }   // unary minus
+        d.name = ast_op_name(opsym, &ptys);
+        d.operator_sym = opsym;
+    }
     if (p_at(p) == LBRACE) { d.body = parse_block(p); }
     else { d.body = null; p_adv(p); }      // forward declaration: ';' (no body)
     return d;
@@ -1618,6 +1649,10 @@ int str_to_int(string s) {
     string raw = parse_type(p);
     if (is_value_const(raw) == 1) { is_const = 1; }
     string ty = strip_binding_const(raw);
+    if (p_at(p) == OPERATOR) {             // `V3 operator +(...)` — an operator overload
+        p.pos = save;
+        return parse_function(p);
+    }
     check_name_not_keyword(p);
     Token nm = p_adv(p);                   // name
     if (p_at(p) == LPAREN || p_at(p) == LT) {
