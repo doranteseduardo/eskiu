@@ -103,6 +103,10 @@ bool TypeChecker::check(Program* program) {
             defineFunction(funcDecl->name, sigRet, paramTypes);
             functionParamEscaping[funcDecl->name] = funcDecl->paramEscaping;
             if (funcDecl->mustUse) mustUseFuncs.insert(funcDecl->name);
+            // Operator overload: index it by op so `a op b` resolves by operand types
+            // (with the usual numeric coercions), not by an exact mangled-name match.
+            if (!funcDecl->operatorSym.empty())
+                operatorOverloads[funcDecl->operatorSym].push_back({paramTypes, funcDecl->returnType, funcDecl->name});
         } else if (auto externDecl = dynamic_cast<ExternDecl*>(decl.get())) {
             std::vector<std::string> paramTypes;
             for (const auto& param : externDecl->params) {

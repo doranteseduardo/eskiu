@@ -31,6 +31,7 @@ enum class TokenType {
     INTERFACE,
     ENUM,
     FN,
+    OPERATOR,
     ASM,
     VOLATILE,
     STATIC,

@@ -62,6 +62,7 @@ private:
 
     DeclPtr parseDeclaration();
     DeclPtr parseFunctionDecl();
+    std::string parseOperatorToken();   // reads the op after `operator` → "+", "[]", "u-", ...
     DeclPtr parseStructDecl();
     DeclPtr parseExternDecl();
     DeclPtr parseIntrinsicDecl();

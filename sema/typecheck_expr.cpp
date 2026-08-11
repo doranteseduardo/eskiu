@@ -77,8 +77,17 @@ void TypeChecker::visit(BinaryExpr* node) {
     std::string resultType = inferBinaryExprType(leftType, node->op, rightType);
 
     if (resultType == "error") {
-        errorAt(node,"invalid operands for operator: " + leftType + " and " + rightType);
-        expressionTypes[node] = "unknown";
+        // Operator overloading: `a op b` on non-built-in operands resolves to a user
+        // `operator op(L, R)` declared for these operand types (with numeric coercion).
+        // Not found → the operands really are invalid.
+        std::string ret, opFn = resolveOperator(node->op, {leftType, rightType}, ret);
+        if (!opFn.empty()) {
+            node->opFunc = opFn;
+            expressionTypes[node] = ret;   // the operator's declared return type
+        } else {
+            errorAt(node,"invalid operands for operator: " + leftType + " and " + rightType);
+            expressionTypes[node] = "unknown";
+        }
     } else {
         expressionTypes[node] = resultType;
     }
