@@ -1344,6 +1344,28 @@ struct Counter {
 
 Methods are lowered to regular functions with a leading pointer parameter, e.g., `Counter_increment(*Counter self)`.
 
+### 8.2a Operator Overloading
+
+A type can give meaning to an operator by declaring `operator <op>`, so `a + b` reads as algebra instead of a nested call. This is aimed at value types like vectors and matrices, where the notation carries the meaning.
+
+```eskiu
+struct V3 { float x; float y; float z; }
+
+V3 operator +(V3 a, V3 b)     { let r: V3; r.x = a.x + b.x; r.y = a.y + b.y; r.z = a.z + b.z; return r; }
+V3 operator *(V3 a, double s) { let r: V3; r.x = a.x * (float)s; r.y = a.y * (float)s; r.z = a.z * (float)s; return r; }
+V3 operator -(V3 a)           { let r: V3; r.x = 0.0 - a.x; r.y = 0.0 - a.y; r.z = 0.0 - a.z; return r; }
+
+V3 p = (q - t) * 2.0;   // resolves to the two operators above
+```
+
+Overloadable: the binary operators `+ - * / % == != < > <= >= & | ^ << >>`, the unary operators `- ! ~`, and subscript `[]`. Compound assignment (`v += w`) is defined as `v = v + w`, using the overloaded `+`. The short-circuit operators `&&` / `||`, the pointer operators `*` / `&`, and `=` / `.` are structural and cannot be overloaded.
+
+Resolution is entirely static and structural:
+
+- A type gets an operator simply by declaring one for it. There is no trait or `impl` block to register; if an `operator` exists for the operand types, the operator resolves to it, otherwise the operands must be built-in.
+- Overloads coexist by operand type: `operator *(V3, V3)` (component-wise) and `operator *(V3, double)` (scale) are distinct, selected by the right operand.
+- An `operator` declaration compiles to a normal function, and `a op b` lowers to a direct call to it. There is no dynamic dispatch and no boxing; the cost is exactly that of writing the call by hand, so it is suitable for hot numeric code.
+
 ### 8.3 Struct Initialization
 
 **Named initialization:**
