@@ -1543,6 +1543,42 @@ string cg_cmp_pred_s(string s, int uns) {
     return cg_cmp_pred(s);
 }
 
+int cg_fn_exists(Codegen* g, string name) {
+    int i = 0; int n = List_len<CgFn>(&g.fns);
+    while (i < n) { if (cg_streq(List_get<CgFn>(&g.fns, i).name, name) == 1) { return 1; } i = i + 1; }
+    return 0;
+}
+// Resolve a binary/index `op` over operand types to its overload fn name (exact mangled-name
+// match), or "". Operand numeric coercion is not mirrored (a C++-only nicety): declare the
+// operator with the operand's exact type.
+string cg_op_resolve(Codegen* g, string op, string ta, string tb) {
+    if (ta[0] == 0 || tb[0] == 0) { return ""; }
+    let tys: List<string>; List_init<string>(&tys, 2);
+    List_push<string>(&tys, ta); List_push<string>(&tys, tb);
+    string nm = ast_op_name(op, &tys);
+    if (nm[0] != 0 && cg_fn_exists(g, nm) == 1) { return nm; }
+    return "";
+}
+string cg_op_resolve1(Codegen* g, string op, string ta) {
+    if (ta[0] == 0) { return ""; }
+    let tys: List<string>; List_init<string>(&tys, 1);
+    List_push<string>(&tys, ta);
+    string nm = ast_op_name(op, &tys);
+    if (nm[0] != 0 && cg_fn_exists(g, nm) == 1) { return nm; }
+    return "";
+}
+// Emit a call to a resolved operator function with 1 or 2 operand exprs (a2 null = unary),
+// reusing the normal EK_CALL lowering (arg coercion + struct-by-value ABI).
+CgVal cg_op_call(Codegen* g, string fnname, *ExprNode a1, *ExprNode a2) {
+    *ExprNode c = alloc<ExprNode>(1);
+    c.kind = EK_CALL;
+    c.a = cgb_ident(fnname);
+    List_init<*ExprNode>(&c.kids, 2);
+    List_push<*ExprNode>(&c.kids, a1);
+    if (a2 != null) { List_push<*ExprNode>(&c.kids, a2); }
+    return cg_expr(g, c);
+}
+
 // The Eskiu type of an expression ("" if unknown). Enough to resolve struct member
 // access and pointer depth.
 string cg_etype(Codegen* g, *ExprNode e) {
@@ -1576,7 +1612,13 @@ string cg_etype(Codegen* g, *ExprNode e) {
         else if (cg_is_slice(bet) == 1) { elem = cg_array_elem(bet); }
         else if (cg_is_array(bet) == 1) { elem = cg_array_elem(bet); }
         else if (cg_is_ptr_ty(bet) == 1) { elem = cg_deref_ty(bet); }
-        else { return ""; }
+        else {
+            if (List_len<*ExprNode>(&e.kids) == 0) {       // overloaded subscript `base[i]`
+                string opn = cg_op_resolve(g, "[]", bet, cg_etype(g, e.b));
+                if (opn[0] != 0) { return cg_find_fn(g, opn).rety; }
+            }
+            return "";
+        }
         // `base[lo..hi]` (kids has the hi bound) is a slice of the element type.
         if (List_len<*ExprNode>(&e.kids) > 0) { return cg_cat(elem, "[]"); }
         return elem;
@@ -1584,7 +1626,15 @@ string cg_etype(Codegen* g, *ExprNode e) {
     if (e.kind == EK_UNARY) {
         if (cg_streq(e.sval, "*") == 1) { return cg_deref_ty(cg_etype(g, e.a)); }
         if (cg_streq(e.sval, "&") == 1) { return cg_cat("*", cg_etype(g, e.a)); }
+        string uop = e.sval; if (cg_streq(uop, "-") == 1) { uop = "u-"; }
+        string uopn = cg_op_resolve1(g, uop, cg_etype(g, e.a));
+        if (uopn[0] != 0) { return cg_find_fn(g, uopn).rety; }
         return cg_etype(g, e.a);
+    }
+    if (e.kind == EK_BINARY) {                              // overloaded binary → its ret type
+        string bopn = cg_op_resolve(g, e.sval, cg_etype(g, e.a), cg_etype(g, e.b));
+        if (bopn[0] != 0) { return cg_find_fn(g, bopn).rety; }
+        return "";
     }
     if (e.kind == EK_TEMPLATECALL) { return cg_find_fn(g, cg_mangle(cg_apply_sub(g, e.sval))).rety; }
     if (e.kind == EK_CALL) {
@@ -1898,6 +1948,10 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
         cg_emit(g, fat.op); cg_emit(g, ", 1\n");
         v.op = t; v.ty = "i64"; v.ety = "int64"; return v;
     }
+    if (e.kind == EK_INDEX && List_len<*ExprNode>(&e.kids) == 0) {   // overloaded subscript `base[i]`
+        string iopn = cg_op_resolve(g, "[]", cg_etype(g, e.a), cg_etype(g, e.b));
+        if (iopn[0] != 0) { return cg_op_call(g, iopn, e.a, e.b); }
+    }
     if (e.kind == EK_MEMBER || e.kind == EK_INDEX) {    // field/element read: GEP + load
         CgVal lv = cg_lval(g, e);
         string llty = cg_lltype(g, lv.ety);
@@ -1920,6 +1974,11 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
             cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = load "); cg_emit(g, llty);
             cg_emit(g, ", ptr "); cg_emit(g, p.op); cg_emit(g, "\n");
             v.op = t; v.ty = llty; v.ety = ety; return v;
+        }
+        if (cg_streq(e.sval, "-") == 1 || cg_streq(e.sval, "!") == 1 || cg_streq(e.sval, "~") == 1) {
+            string uop = e.sval; if (cg_streq(uop, "-") == 1) { uop = "u-"; }
+            string uopn = cg_op_resolve1(g, uop, cg_etype(g, e.a));   // unary operator overload
+            if (uopn[0] != 0) { return cg_op_call(g, uopn, e.a, null); }
         }
         if (cg_streq(e.sval, "-") == 1) {
             CgVal a = cg_expr(g, e.a);
@@ -1981,6 +2040,8 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
             }
             return rhs;
         }
+        string bopn = cg_op_resolve(g, e.sval, cg_etype(g, e.a), cg_etype(g, e.b));   // binary overload
+        if (bopn[0] != 0) { return cg_op_call(g, bopn, e.a, e.b); }
         if (cg_streq(e.sval, "&&") == 1 || cg_streq(e.sval, "||") == 1) {
             // Short-circuit via a result slot: store the LHS, branch over the RHS when
             // the result is already decided (&& false / || true), else evaluate the RHS.

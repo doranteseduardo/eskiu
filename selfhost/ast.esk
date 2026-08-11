@@ -7,6 +7,66 @@
 import <io>;
 import <mem>;
 import <list>;
+import <string>;
+
+// ── operator-overload name mangling (shared by parser + sema) ─────────────────
+// An `operator <op>(...)` decl compiles to a normal function under a canonical mangled
+// name (`+`->`add`, `[]`->`index`, unary `-`->`neg`); `a op b` resolves to it by operands.
+int ast_streq(string a, string b) {
+    int i = 0;
+    while (a[i] != 0 && b[i] != 0) { if (a[i] != b[i]) { return 0; } i = i + 1; }
+    if (a[i] == 0 && b[i] == 0) { return 1; }
+    return 0;
+}
+string ast_op_word(string op) {
+    if (ast_streq(op, "+") == 1)  { return "add"; }   if (ast_streq(op, "-") == 1)  { return "sub"; }
+    if (ast_streq(op, "*") == 1)  { return "mul"; }   if (ast_streq(op, "/") == 1)  { return "div"; }
+    if (ast_streq(op, "%") == 1)  { return "mod"; }   if (ast_streq(op, "==") == 1) { return "eq"; }
+    if (ast_streq(op, "!=") == 1) { return "ne"; }    if (ast_streq(op, "<") == 1)  { return "lt"; }
+    if (ast_streq(op, ">") == 1)  { return "gt"; }    if (ast_streq(op, "<=") == 1) { return "le"; }
+    if (ast_streq(op, ">=") == 1) { return "ge"; }    if (ast_streq(op, "&") == 1)  { return "band"; }
+    if (ast_streq(op, "|") == 1)  { return "bor"; }   if (ast_streq(op, "^") == 1)  { return "bxor"; }
+    if (ast_streq(op, "<<") == 1) { return "shl"; }   if (ast_streq(op, ">>") == 1) { return "shr"; }
+    if (ast_streq(op, "[]") == 1) { return "index"; } if (ast_streq(op, "u-") == 1) { return "neg"; }
+    if (ast_streq(op, "!") == 1)  { return "lnot"; }  if (ast_streq(op, "~") == 1)  { return "bnot"; }
+    return "";
+}
+int ast_has_prefix(string s, string pfx) {
+    int i = 0;
+    while (pfx[i] != 0) { if (s[i] != pfx[i]) { return 0; } i = i + 1; }
+    return 1;
+}
+// Type spelling → symbol-safe fragment: a `struct:`/`union:`/`enum:`/`interface:` prefix
+// (how sema spells a nominal type) is dropped, `*`->`p_`, other non-ident chars dropped.
+string ast_ty_mangle(string tin) {
+    string t = tin;
+    if (ast_has_prefix(t, "struct:") == 1)    { t = (string)((*uint8)t + 7); }
+    else if (ast_has_prefix(t, "union:") == 1)     { t = (string)((*uint8)t + 6); }
+    else if (ast_has_prefix(t, "enum:") == 1)      { t = (string)((*uint8)t + 5); }
+    else if (ast_has_prefix(t, "interface:") == 1) { t = (string)((*uint8)t + 10); }
+    let out: String; String_init(&out, 16);
+    int i = 0;
+    while (t[i] != 0) {
+        int c = (int)t[i];
+        if ((c >= 97 && c <= 122) || (c >= 65 && c <= 90) || (c >= 48 && c <= 57) || c == 95) { String_push(&out, (char)c); }
+        else if (c == 42) { String_append(&out, "p_"); }
+        i = i + 1;
+    }
+    return (string)String_cstr(&out);
+}
+string ast_op_name(string op, List<string>* tys) {
+    string w = ast_op_word(op);
+    if (w[0] == 0) { return ""; }
+    let out: String; String_init(&out, 24);
+    String_append(&out, "__op_"); String_append(&out, w);
+    int i = 0; int n = List_len<string>(tys);
+    while (i < n) {
+        String_push(&out, '_');
+        String_append(&out, ast_ty_mangle(List_get<string>(tys, i)));
+        i = i + 1;
+    }
+    return (string)String_cstr(&out);
+}
 
 // Node kind tags (mirror the C++ node set; extended as slices land).
 enum DeclKind {
@@ -43,6 +103,7 @@ struct ExprNode {
     List<*ExprNode> kids;  // call/template args, struct-init values
     List<string> names;    // struct-init field names (parallel to kids; "" = positional)
     *StmtNode stmt;        // lambda body
+    string op_fn;          // EK_BINARY/EK_UNARY/EK_INDEX: resolved operator-overload fn ("" = built-in)
 }
 
 struct StmtNode {
@@ -85,6 +146,7 @@ struct DeclNode {
     List<int> param_escaping;      // per-param `escaping` flag (parallel to params)
     int is_packed;                 // struct: `packed` qualifier / `#pragma pack(1)` (align 1)
     int pack_align;                // struct: `#pragma pack(N)` alignment cap (0 = natural)
+    string operator_sym;           // `operator <op>(...)`: the op ("+","[]","u-"); "" = normal fn
 }
 
 struct Program {
