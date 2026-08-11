@@ -499,6 +499,7 @@ class UnaryExpr : public Expr {
 public:
     std::string op;
     ExprPtr operand;
+    std::string opFunc;   // set by sema when this resolves to a user unary operator overload
 
     UnaryExpr(const std::string& op, ExprPtr operand)
         : op(op), operand(std::move(operand)) {}
@@ -563,6 +564,7 @@ public:
     ExprPtr base;
     ExprPtr index;
     ExprPtr highIndex;   // set for a slice expression `base[index..highIndex]`; else null
+    std::string opFunc;  // set by sema when `base[index]` resolves to a user `operator [](B, I)`
 
     IndexExpr(ExprPtr base, ExprPtr index, ExprPtr highIndex = nullptr)
         : base(std::move(base)), index(std::move(index)), highIndex(std::move(highIndex)) {}

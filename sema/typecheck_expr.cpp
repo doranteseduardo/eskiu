@@ -188,8 +188,19 @@ void TypeChecker::visit(UnaryExpr* node) {
     }
 
     if (resultType == "error") {
-        errorAt(node,"invalid operand for unary operator: " + operandType);
-        expressionTypes[node] = "unknown";
+        // Unary operator overloading: `-v`/`!v`/`~v` on a non-built-in operand resolves to a
+        // user `operator -/!/~(V)`. Deref `*` and address-of `&` are structural, not overloadable.
+        std::string lookupOp = (node->op == "-") ? "u-" : node->op;
+        std::string ret, opFn;
+        if (node->op == "-" || node->op == "!" || node->op == "~")
+            opFn = resolveOperator(lookupOp, {operandType}, ret);
+        if (!opFn.empty()) {
+            node->opFunc = opFn;
+            expressionTypes[node] = ret;
+        } else {
+            errorAt(node,"invalid operand for unary operator: " + operandType);
+            expressionTypes[node] = "unknown";
+        }
     } else {
         expressionTypes[node] = resultType;
     }
@@ -499,6 +510,13 @@ void TypeChecker::visit(IndexExpr* node) {
         }
     } else if (isPointerType(baseType)) {
         elem = getPointeeType(baseType); haveElem = true;
+    }
+
+    // Overloaded subscript: `base[i]` on a non-built-in indexable resolves to a user
+    // `operator [](Base, Index)` (read/rvalue form; a slice `base[lo..hi]` is not overloaded).
+    if (!haveElem && !node->highIndex) {
+        std::string ret, opFn = resolveOperator("[]", {baseType, indexType}, ret);
+        if (!opFn.empty()) { node->opFunc = opFn; expressionTypes[node] = ret; return; }
     }
 
     if (!haveElem) { expressionTypes[node] = "unknown"; return; }

@@ -370,6 +370,16 @@ void CodeGen::visit(TernaryExpr* node) {
 }
 
 void CodeGen::visit(UnaryExpr* node) {
+    // Unary operator overload: sema resolved this to a user `operator -/!/~(V)`. Lower it
+    // as a one-arg call to that function.
+    if (!node->opFunc.empty()) {
+        auto call = std::make_shared<CallExpr>(
+            std::make_shared<IdentExpr>(node->opFunc),
+            std::vector<ExprPtr>{node->operand});
+        call->accept(this);
+        return;
+    }
+
     llvm::Value* val = evaluateExpr(node->operand);
 
     if (!val) {
@@ -481,6 +491,14 @@ llvm::Value* CodeGen::indexElemAddr(const ExprPtr& base, llvm::Value* idx) {
 }
 
 void CodeGen::visit(IndexExpr* node) {
+    // Overloaded subscript: sema resolved `base[i]` to a user `operator [](B, I)`.
+    if (!node->opFunc.empty()) {
+        auto call = std::make_shared<CallExpr>(
+            std::make_shared<IdentExpr>(node->opFunc),
+            std::vector<ExprPtr>{node->base, node->index});
+        call->accept(this);
+        return;
+    }
     std::string baseType = getExprEskiuType(node->base);
     ty::Type bt = ty::Type::parse(baseType);
     llvm::Type* i64 = llvm::Type::getInt64Ty(*context);
