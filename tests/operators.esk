@@ -1,0 +1,35 @@
+// operators.esk — operator overloading: a struct declares `operator <op>(...)` and the op
+// resolves to it statically by operand types (zero runtime cost). Covers binary arithmetic,
+// coexisting overloads by operand type (V3*V3 vs V3*double), comparison returning bool,
+// unary negation, subscript, and compound-assign (which desugars to the binary op).
+extern int printf(string fmt, ...);
+
+struct V3 { float x; float y; float z; }
+
+V3 operator +(V3 a, V3 b)     { let r: V3; r.x=a.x+b.x; r.y=a.y+b.y; r.z=a.z+b.z; return r; }
+V3 operator -(V3 a, V3 b)     { let r: V3; r.x=a.x-b.x; r.y=a.y-b.y; r.z=a.z-b.z; return r; }
+V3 operator *(V3 a, V3 b)     { let r: V3; r.x=a.x*b.x; r.y=a.y*b.y; r.z=a.z*b.z; return r; }
+V3 operator *(V3 a, double s) { let r: V3; r.x=a.x*(float)s; r.y=a.y*(float)s; r.z=a.z*(float)s; return r; }
+V3 operator -(V3 a)           { let r: V3; r.x=0.0-a.x; r.y=0.0-a.y; r.z=0.0-a.z; return r; }
+bool operator ==(V3 a, V3 b)  { return a.x==b.x && a.y==b.y && a.z==b.z; }
+float operator [](V3 v, int i){ if (i==0){return v.x;} if (i==1){return v.y;} return v.z; }
+
+int main() {
+    let q: V3; q.x=10.0; q.y=20.0; q.z=30.0;
+    let t: V3; t.x=1.0;  t.y=2.0;  t.z=3.0;
+
+    V3 p = (q - t) * 2.0;              // chain: V3-V3, then V3*double
+    printf("p=%.0f %.0f %.0f\n", (double)p.x, (double)p.y, (double)p.z);   // 18 36 54
+
+    V3 h = q * t;                      // V3*V3 (coexists with V3*double)
+    printf("had=%.0f %.0f %.0f\n", (double)h.x, (double)h.y, (double)h.z); // 10 40 90
+
+    V3 n = -p;                         // unary negation
+    printf("neg=%.0f %.0f %.0f\n", (double)n.x, (double)n.y, (double)n.z); // -18 -36 -54
+
+    q += t;                            // compound-assign -> operator+
+    printf("acc=%.0f %.0f %.0f\n", (double)q.x, (double)q.y, (double)q.z); // 11 22 33
+
+    printf("eq=%d idx=%.0f\n", q == q, (double)p[1]);                      // eq=1 idx=36
+    return 0;
+}
