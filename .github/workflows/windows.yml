@@ -61,6 +61,37 @@ jobs:
           echo "program output: $out"
           test "$out" = "caught 42"
 
+      - name: Stdlib platform shims E2E (sysheap / threading / time)
+        run: |
+          # Exercise the POSIX-shimmed stdlib on native Windows: <sysheap> (VirtualAlloc page
+          # backend), <threading> (pthread mutex via winpthreads) and <time> (clock_gettime /
+          # nanosleep via winpthreads). Links with -lpthread; VirtualAlloc/Free is in kernel32.
+          cat > shims.esk <<'EOF'
+          import <sysheap>;
+          import <threading>;
+          import <time>;
+          extern int printf(string fmt, ...);
+          int main() {
+              let h: Heap;
+              if (heap_init(&h, 65536) == 0) { printf("heap fail\n"); return 1; }
+              *int xs = (*int)heap_alloc(&h, sizeof(int) * 4);
+              xs[0] = 7;
+              let m: Mutex;  Mutex_init(&m);  Mutex_lock(&m);  Mutex_unlock(&m);  Mutex_destroy(&m);
+              int64 t0 = time_monotonic_ms();
+              sleep_ms(1);
+              int elapsed_ok = 0;
+              if (time_monotonic_ms() - t0 >= 0) { elapsed_ok = 1; }
+              printf("ok %d %d\n", xs[0], elapsed_ok);
+              heap_destroy(&h);
+              return 0;
+          }
+          EOF
+          ESKIU_ROOT="$PWD" ./build/eskiuc.exe shims.esk -o shims.obj -c
+          g++ shims.obj -o shims.exe -lpthread
+          out=$(./shims.exe)
+          echo "program output: $out"
+          test "$out" = "ok 7 1"
+
       - name: Package
         run: |
           mkdir -p dist/bin dist/lib/eskiu
