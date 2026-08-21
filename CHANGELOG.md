@@ -12,6 +12,12 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ## [0.8.0] - 2026-08-21
 ### Fixed
+- **The macOS release binary is self-contained.** `eskiuc` linked z3 and zstd from versioned
+  Homebrew paths (`/opt/homebrew/opt/z3/...`), so the shipped tarball failed to load on any Mac
+  without those exact libraries at those paths. The release now bundles them into `lib/deps`
+  and rewrites the load paths to `@loader_path/../lib/deps`, and a guard fails the build if any
+  Homebrew path remains. (The compiler still shells out to `clang` to link native output, so a
+  C toolchain is a runtime requirement, as before.)
 - **The async stack runs on Windows.** `<eventloop>` gained a `WSAPoll` reactor (a user-space
   pollfd set rebuilt each wait, since `WSAPoll` keeps no kernel state) alongside kqueue/epoll,
   and `<net_async>` gained a Winsock backend (`ioctlsocket(FIONBIO)` for non-blocking mode,
