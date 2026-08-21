@@ -80,7 +80,7 @@
 <body>
   <header class="top">
     <div class="top-in">
-      <a class="brand" href="index.html"><img src="../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.7.0</span></a>
+      <a class="brand" href="index.html"><img src="../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.8.0</span></a>
       <nav class="top-links">
         <a href="docs/index.html">docs</a>
         <a href="the-book-of-eskiu.html">book</a>
@@ -107,7 +107,7 @@
       <a class="btn-w" href="../assets/eskiuc-macos-arm64.tar.gz">↓ macOS (Apple Silicon)</a>
       <a class="btn-w" href="../assets/eskiuc-windows-x86_64.zip">↓ Windows (x86-64) (experimental)</a>
     </div>
-    <p class="note">Windows is <strong>experimental</strong>: the compiler runs and emits object files, but end-to-end linking, exceptions, and networking are still being ported across the 0.7.x releases.</p>
+    <p class="note">Windows is validated on a native CI runner: the compiler builds and links, and exceptions plus the blocking and async networking stacks pass end to end. It is not yet gated on releases, so the download is still marked experimental.</p>
     <p>Unpack it into <code>/usr/local</code> and check the version:</p>
     <pre><code><span class="c"># macOS (Apple Silicon)</span>
 tar -xzf eskiuc-macos-arm64.tar.gz -C /usr/local
@@ -119,7 +119,7 @@ tar -xzf eskiuc-linux-x86_64.tar.gz -C /usr/local
 Expand-Archive eskiuc-windows-x86_64.zip -DestinationPath C:\eskiu
 
 eskiuc --version
-<span class="o">Eskiu 0.7.0 (LLVM ...)</span></code></pre>
+<span class="o">Eskiu 0.8.0 (LLVM ...)</span></code></pre>
     <p>The tarball installs:</p>
     <ul>
       <li><code>bin/eskiuc</code>: the compiler</li>
