@@ -9,6 +9,16 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 ---
 
 ## [Unreleased]
+### Fixed
+- **Exceptions work on Windows (mingw).** `try`/`throw`/`catch` previously emitted the
+  Itanium/DWARF EH personality (`__gxx_personality_v0`) unconditionally, so a Windows object
+  failed to link. The personality is now selected by target: mingw x86-64 uses the SEH
+  personality (`__gxx_personality_seh0`); Linux/macOS keep `__gxx_personality_v0`. A native
+  build with no `--target` follows its host. The rest of the EH lowering (landingpad IR, the
+  `__cxa_*` runtime, `_ZTIPv`) is unchanged. Validated end to end on a native Windows runner
+  (`windows.yml`): a `try`/`catch` program compiles, links with the mingw C++ runtime, and
+  catches the throw.
+
 ### Added
 - **`match` on classic (payload-less) enums.** A plain `enum Dir { N, E, S, W }` can now be
   `match`ed with exhaustiveness checking, the same guarantee algebraic enums already had:

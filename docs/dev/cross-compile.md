@@ -99,3 +99,9 @@ lld-link /entry:mainCRTStartup /subsystem:console app.obj kernel32.lib /out:app.
 A freestanding program provides its own entry point (`/entry:`) and calls Win32 directly.
 A hosted program instead links the MinGW or MSVC C runtime and uses the ordinary `main`.
 The resulting `.exe` runs on Windows, or under `wine` for local testing.
+
+Exceptions (`try`/`throw`/`catch`) work on a mingw target: the compiler emits the SEH EH
+personality (`__gxx_personality_seh0`) there instead of the Itanium `__gxx_personality_v0`,
+so linking with a mingw `g++` (which supplies the `__cxa_*` runtime and the SEH unwinder)
+produces a working `.exe`. This is exercised end to end on a native Windows runner in
+`.github/workflows/windows.yml`.
