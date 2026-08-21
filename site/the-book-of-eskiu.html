@@ -674,6 +674,12 @@ pre.code-block {
        default:        printf(&quot;other\n&quot;); break;
  }</pre>
 <p class="output"><em>Output:</em> 1 green</p>
+<p>You can also <code>match</code> an enum, which the compiler checks is <em>exhaustive</em>: every variant must be handled (or a <code>_</code> default). Add a fourth colour later and every <code>match</code> that forgot it fails to compile, which a <code>switch</code> would let slide.</p>
+<pre class="code-block"> match c {
+       Red   -&gt; { printf(&quot;red\n&quot;);   }
+       Green -&gt; { printf(&quot;green\n&quot;); }
+       Blue  -&gt; { printf(&quot;blue\n&quot;); }
+ }</pre>
 <h2 class="section" id="sec-2-8">2.8 type: aliases</h2>
 <p>A type alias gives an existing type a new name. The alias and the original are interchangeable. This is Eskiu&#x27;s equivalent of C&#x27;s typedef:</p>
 <pre class="code-block"> type u8        = uint8;

@@ -1450,6 +1450,19 @@ if (c == Red) { /* ... */ }
 
 Members are unscoped. `Red` is used directly, as in C. The enum name may be used anywhere a type is expected (it behaves as `int`).
 
+A classic enum may also be consumed with `match`, which checks the dispatch is exhaustive (every variant covered, or a `_` default), so adding a variant turns every unhandled `match` into a compile error. This is the same guarantee algebraic enums get; `switch` stays available for a non-exhaustive dispatch.
+
+```eskiu
+int dx(Color c) {
+    match c {
+        Red   -> { return -1; }
+        Green -> { return  0; }
+        Blue  -> { return  1; }
+    }
+    return 0;
+}
+```
+
 #### 8.7.1 Algebraic enums (tagged unions)
 
 When one or more variants carry a **payload**, the enum becomes an algebraic data type: a tagged union, not an integer. Each variant is constructed by name (with arguments for its payload), and a value is destructured with `match`:

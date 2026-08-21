@@ -105,6 +105,13 @@ Versions follow <code>MAJOR.MINOR.PATCH-stage</code> (e.g. <code>0.0.9-alpha</co
 <h2 id="unreleased">[Unreleased]</h2>
 <h3 id="added">Added</h3>
 <ul>
+<li><strong><code>match</code> on classic (payload-less) enums.</strong> A plain <code>enum Dir { N, E, S, W }</code> can now be
+  <code>match</code>ed with exhaustiveness checking, the same guarantee algebraic enums already had:
+  every variant must be covered (or a <code>_</code> default), and adding a variant turns every
+  unhandled <code>match</code> into a compile error. It lowers to a switch on the enum's int value
+  (cases respect explicit <code>= N</code>). Previously <code>match</code> was ADT-only and a plain enum could only
+  be dispatched with a non-exhaustive <code>if</code>/<code>switch</code>. Landed lockstep in both compilers. Test:
+  <code>tests/enum_match.esk</code>.</li>
 <li><strong>Operator overloading.</strong> A struct can define <code>V3 operator +(V3 a, V3 b) { ... }</code> (and the
   same for <code>- * / % == != &lt; &gt; &lt;= &gt;= &amp; | ^ &lt;&lt; &gt;&gt;</code>, unary <code>- ! ~</code>, and subscript <code>[]</code>), so
   <code>a + b</code> reads as algebra instead of <code>v3_add(a, b)</code>. Resolution is fully static: an operator
