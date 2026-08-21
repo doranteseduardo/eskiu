@@ -130,15 +130,20 @@ jobs:
           import <net_async>;
           import <net>;
           extern int printf(string fmt, ...);
+          extern int fflush(*void stream);
           uint8[64] g_buf;
           int main() {
               int ls = net_tcp_listen(54322);
               int c  = net_tcp_connect("127.0.0.1", 54322);
               int s  = net_accept(ls);
+              // Windows SOCKET handles are not small sequential fds; print them so the slot
+              // sizing can be verified. el_new must exceed the largest socket value.
+              printf("fds ls=%d c=%d s=%d\n", ls, c, s); fflush((*void)0);
               net_send_str(c, "hello");
-              EventLoop* lp = el_new(64);
+              EventLoop* lp = el_new(65536);
               net_set_nonblocking(s);
               Future<int>* f = net_read_async(lp, s, &g_buf[0], (int64)64);
+              printf("loop starting\n"); fflush((*void)0);
               future_poll<int>(f, void() { free_future<int>(f); el_stop(lp); });
               el_run(lp);
               printf("read %c%c%c\n", (char)g_buf[0], (char)g_buf[1], (char)g_buf[4]);
@@ -149,9 +154,9 @@ jobs:
           EOF
           ESKIU_ROOT="$PWD" ./build/eskiuc.exe async.esk -o async.obj -c
           g++ async.obj -o async.exe -lws2_32
-          out=$(./async.exe)
+          out=$(timeout 20 ./async.exe || echo "[exit $?]")
           echo "program output: $out"
-          test "$out" = "read heo"
+          echo "$out" | grep -q "read heo"
 
       - name: Package
         run: |
