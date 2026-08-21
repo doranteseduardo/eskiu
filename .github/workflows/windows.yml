@@ -41,6 +41,26 @@ jobs:
       - name: Build
         run: cmake --build build --target eskiuc -j"$(nproc)"
 
+      - name: Exception unwinding E2E (SEH personality)
+        run: |
+          # Prove try/throw/catch actually unwinds on native Windows. eskiuc.exe emits a COFF
+          # object whose EH uses the mingw SEH personality (__gxx_personality_seh0); g++ links
+          # libstdc++/libsupc++ (the __cxa_* runtime + the SEH unwinder) and the CRT entry, and
+          # the program must catch and print. A wrong personality would abort at throw.
+          cat > eh.esk <<'EOF'
+          extern int printf(string fmt, ...);
+          int main() {
+              try { throw 42; }
+              catch (int e) { printf("caught %d\n", e); }
+              return 0;
+          }
+          EOF
+          ./build/eskiuc.exe eh.esk -o eh.obj -c
+          g++ eh.obj -o eh.exe
+          out=$(./eh.exe)
+          echo "program output: $out"
+          test "$out" = "caught 42"
+
       - name: Package
         run: |
           mkdir -p dist/bin dist/lib/eskiu
