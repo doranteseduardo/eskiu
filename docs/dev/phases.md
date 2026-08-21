@@ -332,14 +332,17 @@ linking, per-platform stdlib branches, and toolchain/distribution integration, n
 - [x] COFF object emission for Windows targets (shipped v0.7.0; Mach-O and ELF already worked)
 - [ ] Per-target linking: emit `.o`/`.a`/`.so` and hand off to the platform's native linker/SDK (the Unix `cc`/`clang` auto-link does not cross platforms)
 - [x] Predefined OS macros: `_WIN32` / `_WIN64` ship in v0.7.0 (`--target …-windows-…`); `__ANDROID__` and iOS still pending, extending the existing `__APPLE__` / `__linux__`
-- [ ] stdlib platform branches where the API differs (sockets, threads)
-- [ ] CI runners: Windows, plus NDK and Xcode for mobile
+- [x] stdlib platform branches where the API differs (sockets, threads, page alloc, clocks)
+- [x] CI runner: Windows (`windows.yml`, native runner); NDK and Xcode for mobile still pending
 
 **Windows (host + target)**
-- [ ] Build `eskiuc` on Windows (LLVM + CMake, MSVC or MinGW)
-- [ ] Windows linker integration (`link.exe` / `lld-link`)
-- [ ] `<net>` over Winsock2 (`WSAStartup`, `closesocket`, link `ws2_32`)
-- [ ] `thread_create`/`thread_join` over Win32 threads (no native pthreads)
+- [x] Build `eskiuc` on Windows (LLVM + CMake, MinGW via MSYS2)
+- [x] Windows linker integration (mingw `g++` for hosted; `lld-link` + `llvm-dlltool` for freestanding)
+- [x] Exceptions: mingw SEH EH personality (`__gxx_personality_seh0`)
+- [x] `<sysheap>` over `VirtualAlloc`/`VirtualFree` (no `mmap`); `<time>` over the Win32 clocks
+- [x] `<net>` over Winsock2 (`WSAStartup`, `closesocket`, link `ws2_32`)
+- [x] `thread_create`/`thread_join` over Win32 threads (winpthreads)
+- [x] Async: `<eventloop>` WSAPoll reactor + `<net_async>` (`ioctlsocket`/`recv`/`send`)
 
 **Android (native library via JNI)**
 - [ ] Cross-compile to `aarch64-linux-android` against the NDK (bionic libc)
