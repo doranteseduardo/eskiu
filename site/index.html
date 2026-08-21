@@ -393,7 +393,7 @@ Hello from Eskiu!
             <a class="btn btn-primary" href="../assets/eskiuc-windows-x86_64.zip">↓ Windows x86-64 (experimental)</a>
             <a class="btn" href="quickstart.html">Quickstart →</a>
           </div>
-          <p style="font-size: 0.85rem; color: var(--muted); margin: -0.6rem 0 1.35rem;">Windows is <strong>experimental</strong>: the compiler runs and emits object files; end-to-end linking, exceptions, and networking are still being ported across 0.7.x.</p>
+          <p style="font-size: 0.85rem; color: var(--muted); margin: -0.6rem 0 1.35rem;">Windows is validated on a native CI runner: the compiler builds and links, and exceptions plus the blocking and async networking stacks pass end to end. It is not yet gated on releases, so the download is still marked experimental.</p>
 <pre><span class="cm"># or build from source</span>
 <span class="cm">$ git clone https://github.com/doranteseduardo/eskiu</span>
 <span class="cm">$ cd eskiu &amp;&amp; make</span></pre>

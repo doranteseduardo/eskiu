@@ -37,6 +37,7 @@ PAGES = [
     ("docs/dev/design.md",           "design.html",          "Design",               "dev"),
     ("docs/dev/abi.md",              "abi.html",             "ABI",                  "dev"),
     ("docs/dev/async-design.md",     "async-design.html",    "Async design",         "dev"),
+    ("docs/dev/cross-compile.md",    "cross-compile.html",   "Cross-compiling",      "dev"),
     ("docs/dev/self-hosting.md",     "self-hosting.html",    "Self-hosting",         "dev"),
     ("docs/dev/http2-design.md",     "http2-design.html",    "HTTP/2 design",        "dev"),
     ("docs/dev/debugging.md",        "debugging.html",       "Debugging",            "dev"),
