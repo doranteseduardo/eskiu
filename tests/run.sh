@@ -94,18 +94,9 @@ for esk in "$here"/*.esk; do
         fi
     else
         # Smoke test (non-deterministic output, e.g. threads/timing): exit 0 is enough.
-        # A few of these (the http2 tests) intermittently flake with a Linux-only SIGILL
-        # from a latent uninitialized-fn-pointer that ONLY the CI runner's environment
-        # triggers (not a regression: the binaries are byte-identical to green releases and
-        # it does not reproduce in a CI-matching native-Linux docker build; see
-        # selfhost/NOTES.md). Retry a few times so an intermittent crash does not red the
-        # build; the test still must run to completion at least once (a real break fails all
-        # attempts).
-        for _ in 2 3 4 5; do
-            [[ $code -eq 0 ]] && break
-            "$bin" >"$work/out" 2>&1
-            code=$?
-        done
+        # (The http2 tests once flaked with a Linux-only SIGILL from an uninitialized
+        # fn-pointer; that class was fixed at the root when `alloc<T>` began zero-initializing,
+        # so the earlier retry mitigation is gone and a crash now reds the build directly.)
         if [[ $code -eq 0 ]]; then
             ok "$name (smoke)"
         else
