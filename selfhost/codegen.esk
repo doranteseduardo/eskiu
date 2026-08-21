@@ -1551,12 +1551,39 @@ int cg_fn_exists(Codegen* g, string name) {
 // Resolve a binary/index `op` over operand types to its overload fn name (exact mangled-name
 // match), or "". Operand numeric coercion is not mirrored (a C++-only nicety): declare the
 // operator with the operand's exact type.
-string cg_op_resolve(Codegen* g, string op, string ta, string tb) {
-    if (ta[0] == 0 || tb[0] == 0) { return ""; }
+int cg_is_num_ty(Codegen* g, string t) {
+    string ll = cg_lltype(g, t);
+    if (cg_is_float(ll) == 1) { return 1; }
+    if (cg_int_w(ll) > 0) { return 1; }
+    return 0;
+}
+// Is a binary `op` declared for the exact operand types (a, b)? Returns its fn name or "".
+string cg_op_try(Codegen* g, string op, string a, string b) {
     let tys: List<string>; List_init<string>(&tys, 2);
-    List_push<string>(&tys, ta); List_push<string>(&tys, tb);
+    List_push<string>(&tys, a); List_push<string>(&tys, b);
     string nm = ast_op_name(op, &tys);
     if (nm[0] != 0 && cg_fn_exists(g, nm) == 1) { return nm; }
+    return "";
+}
+string cg_op_resolve(Codegen* g, string op, string ta, string tb) {
+    if (ta[0] == 0 || tb[0] == 0) { return ""; }
+    string r = cg_op_try(g, op, ta, tb);              // exact operand types
+    if (r[0] != 0) { return r; }
+    // Numeric coercion (mirrors the C++ resolver's assignability): a numeric operand may
+    // match an operator declared with another numeric param type, so `V3 * 2.0` (double)
+    // finds `operator *(V3, float)`. Try the standard numeric param spellings.
+    if (cg_is_num_ty(g, tb) == 1) {
+        r = cg_op_try(g, op, ta, "double"); if (r[0] != 0) { return r; }
+        r = cg_op_try(g, op, ta, "float");  if (r[0] != 0) { return r; }
+        r = cg_op_try(g, op, ta, "int");    if (r[0] != 0) { return r; }
+        r = cg_op_try(g, op, ta, "int64");  if (r[0] != 0) { return r; }
+    }
+    if (cg_is_num_ty(g, ta) == 1) {
+        r = cg_op_try(g, op, "double", tb); if (r[0] != 0) { return r; }
+        r = cg_op_try(g, op, "float", tb);  if (r[0] != 0) { return r; }
+        r = cg_op_try(g, op, "int", tb);    if (r[0] != 0) { return r; }
+        r = cg_op_try(g, op, "int64", tb);  if (r[0] != 0) { return r; }
+    }
     return "";
 }
 string cg_op_resolve1(Codegen* g, string op, string ta) {
