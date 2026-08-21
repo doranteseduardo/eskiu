@@ -108,6 +108,15 @@ produces a working `.exe`. This is exercised end to end on a native Windows runn
 
 The OS-level stdlib modules carry Windows backends: `<sysheap>` maps pages with
 `VirtualAlloc`/`VirtualFree` (no `mmap`), `<time>` uses the Win32 clocks (`GetTickCount64`,
-`GetSystemTimeAsFileTime`, `Sleep`), and `<threading>` links against winpthreads. Link a
-program that uses them with a mingw `g++ ... -lpthread`. The async/networking stack
-(`<eventloop>`/`<net>`, built on epoll/kqueue) is not yet ported to Windows IOCP.
+`GetSystemTimeAsFileTime`, `Sleep`), `<threading>` links against winpthreads, and `<net>`
+(blocking TCP: listen/accept/connect/send/recv) uses the Winsock backend (`WSAStartup` +
+`closesocket`, link `-lws2_32`). A blocking, thread-per-connection server works on Windows
+with these. Each has an end-to-end check on a native Windows runner in
+`.github/workflows/windows.yml`.
+
+Still POSIX-only: the **async** stack. `<eventloop>` is a readiness reactor over
+epoll/kqueue, and `<net_async>` uses `fcntl(O_NONBLOCK)` + `read`/`write` + errno. A Windows
+port would swap the reactor to `WSAPoll` (with a user-space fd set, since it is stateless)
+and `<net_async>` to `ioctlsocket(FIONBIO)` + `recv`/`send` + `WSAGetLastError`. That is a
+focused port on its own, not a shim, so the async server and `<http_async>`/`<http2>` do not
+run on Windows yet.
