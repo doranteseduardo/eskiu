@@ -66,7 +66,7 @@ jobs:
       - name: Install LLVM 22
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake build-essential
+          sudo apt-get install -y cmake build-essential patchelf
           wget https://apt.llvm.org/llvm.sh
           chmod +x llvm.sh
           sudo ./llvm.sh 22
@@ -89,9 +89,20 @@ jobs:
           cp build/eskiuc dist/bin/eskiuc
           strip dist/bin/eskiuc
           cp -r stdlib dist/lib/eskiu/stdlib
-          # Diagnostic: surface the runtime shared-lib deps so we can tell whether the Linux
-          # binary needs the same bundling the macOS one does (non-fatal).
-          echo "== ldd eskiuc =="; ldd dist/bin/eskiuc || true
+          # LLVM pulls in z3 and zstd as shared libs; z3 in particular is not present on a stock
+          # machine, so the bare binary fails to start without it. Bundle those into lib/deps and
+          # point an $ORIGIN-relative RUNPATH at them so the tarball is self-contained. zlib, libc,
+          # libstdc++ and libgcc are assumed present on any Linux and left to the system.
+          mkdir -p dist/lib/deps
+          for name in libz3 libzstd; do
+            so=$(ldd dist/bin/eskiuc | awk -v n="$name" '$0 ~ n {print $3; exit}')
+            if [ -n "$so" ]; then cp -L "$so" dist/lib/deps/; echo "bundled $(basename "$so")"; fi
+          done
+          patchelf --set-rpath '$ORIGIN/../lib/deps' dist/bin/eskiuc
+          # Guard: z3 must now resolve to the bundled copy, not a system path.
+          if ! ldd dist/bin/eskiuc | grep libz3 | grep -q 'lib/deps'; then
+            echo "error: libz3 was not bundled / RUNPATH not taking effect"; ldd dist/bin/eskiuc; exit 1
+          fi
           tar -czf eskiuc-linux-x86_64.tar.gz -C dist bin lib
 
       - name: Upload artifact
