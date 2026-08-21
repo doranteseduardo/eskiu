@@ -9,7 +9,7 @@ struct V3 { float x; float y; float z; }
 V3 operator +(V3 a, V3 b)     { let r: V3; r.x=a.x+b.x; r.y=a.y+b.y; r.z=a.z+b.z; return r; }
 V3 operator -(V3 a, V3 b)     { let r: V3; r.x=a.x-b.x; r.y=a.y-b.y; r.z=a.z-b.z; return r; }
 V3 operator *(V3 a, V3 b)     { let r: V3; r.x=a.x*b.x; r.y=a.y*b.y; r.z=a.z*b.z; return r; }
-V3 operator *(V3 a, double s) { let r: V3; r.x=a.x*(float)s; r.y=a.y*(float)s; r.z=a.z*(float)s; return r; }
+V3 operator *(V3 a, float s)  { let r: V3; r.x=a.x*s; r.y=a.y*s; r.z=a.z*s; return r; }   // `V3 * 2.0` coerces double->float
 V3 operator -(V3 a)           { let r: V3; r.x=0.0-a.x; r.y=0.0-a.y; r.z=0.0-a.z; return r; }
 bool operator ==(V3 a, V3 b)  { return a.x==b.x && a.y==b.y && a.z==b.z; }
 float operator [](V3 v, int i){ if (i==0){return v.x;} if (i==1){return v.y;} return v.z; }
