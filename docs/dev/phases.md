@@ -1,5 +1,3 @@
----
-
 # Compiler Development Phases
 
 Authoritative status reference for Eskiu compiler contributors.
