@@ -1498,6 +1498,16 @@ let c: Color = Green;            // c == 1
 if (c == Red) { /* ... */ }
 </code></pre>
 <p>Members are unscoped. <code>Red</code> is used directly, as in C. The enum name may be used anywhere a type is expected (it behaves as <code>int</code>).</p>
+<p>A classic enum may also be consumed with <code>match</code>, which checks the dispatch is exhaustive (every variant covered, or a <code>_</code> default), so adding a variant turns every unhandled <code>match</code> into a compile error. This is the same guarantee algebraic enums get; <code>switch</code> stays available for a non-exhaustive dispatch.</p>
+<pre><code class="language-eskiu">int dx(Color c) {
+    match c {
+        Red   -&gt; { return -1; }
+        Green -&gt; { return  0; }
+        Blue  -&gt; { return  1; }
+    }
+    return 0;
+}
+</code></pre>
 <h4 id="871-algebraic-enums-tagged-unions">8.7.1 Algebraic enums (tagged unions)</h4>
 <p>When one or more variants carry a <strong>payload</strong>, the enum becomes an algebraic data type: a tagged union, not an integer. Each variant is constructed by name (with arguments for its payload), and a value is destructured with <code>match</code>:</p>
 <pre><code class="language-eskiu">enum Shape {

@@ -10,6 +10,13 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ## [Unreleased]
 ### Added
+- **`match` on classic (payload-less) enums.** A plain `enum Dir { N, E, S, W }` can now be
+  `match`ed with exhaustiveness checking, the same guarantee algebraic enums already had:
+  every variant must be covered (or a `_` default), and adding a variant turns every
+  unhandled `match` into a compile error. It lowers to a switch on the enum's int value
+  (cases respect explicit `= N`). Previously `match` was ADT-only and a plain enum could only
+  be dispatched with a non-exhaustive `if`/`switch`. Landed lockstep in both compilers. Test:
+  `tests/enum_match.esk`.
 - **Operator overloading.** A struct can define `V3 operator +(V3 a, V3 b) { ... }` (and the
   same for `- * / % == != < > <= >= & | ^ << >>`, unary `- ! ~`, and subscript `[]`), so
   `a + b` reads as algebra instead of `v3_add(a, b)`. Resolution is fully static: an operator
