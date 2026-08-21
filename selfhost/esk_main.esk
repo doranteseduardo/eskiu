@@ -147,7 +147,7 @@ int main(int argc, string* argv) {
         outfile = (string)&runexe[0];
     }
     if (cg_streq(mode, "--version") == 1) {
-        printf("Eskiu 0.7.0\n");
+        printf("Eskiu 0.8.0\n");
         return 0;
     }
     if (List_len<string>(&infiles) == 0) {
