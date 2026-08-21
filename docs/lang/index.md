@@ -2,11 +2,10 @@
 
 Eskiu is a statically typed systems language with the power of C and the immediacy of a scripting language: it compiles to native code through LLVM, and `eskiuc run file.esk` runs a source file directly, like Python or Ruby. This is the full language reference. New to Eskiu? Start with the [tutorial](getting-started.md).
 
-**Current version: v0.7.0.** A cross-compilation and C-interop release: Eskiu now targets
-32-bit ARM (a camera-and-gyroscope demo verified on real Nintendo 3DS hardware) and emits
-Windows x86-64 objects, driven by `--target` plus `--mcpu` / `--mattr` / `--reloc`, and
-`extern` declarations now reach C global **variables**, not just functions. Full history
-is in the [changelog](../../CHANGELOG.md).
+**Current version: v0.8.0.** A Windows-parity and language-surface release: the full stdlib
+and both networking stacks (blocking and async) now run on a native Windows runner, operator
+overloading covers every operator, and `match` is exhaustive over payload-less enums. Full
+history is in the [changelog](../../CHANGELOG.md).
 
 ---
 

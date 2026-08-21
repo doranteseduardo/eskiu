@@ -1,6 +1,6 @@
 # Eskiu Language Specification
 
-**Version:** v0.6.2
+**Version:** v0.8.0
 
 ---
 
