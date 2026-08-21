@@ -119,9 +119,9 @@ Versions follow <code>MAJOR.MINOR.PATCH-stage</code> (e.g. <code>0.0.9-alpha</co
   operands resolves to it by operand types at compile time (zero runtime cost, no vtable), so
   overloads coexist by operand type (<code>V3 * V3</code> and <code>V3 * double</code>). Compound assignment
   (<code>v += w</code>) desugars to the overloaded binary op. Structural: a type gets <code>+</code> simply by
-  declaring <code>operator +</code>, no <code>impl</code> block. Landed lockstep in both compilers (the self-host
-  resolves by exact operand type; numeric-argument coercion at the call site is C++-only for
-  now). Test: <code>tests/operators.esk</code>.</li>
+  declaring <code>operator +</code>, no <code>impl</code> block. Landed lockstep in both compilers, including the
+  numeric-argument coercion at the call site (<code>V3 * 2.0</code> finds <code>operator *(V3, float)</code>).
+  Test: <code>tests/operators.esk</code>.</li>
 <li><strong>Self-host mirrors of the two safety features.</strong> The Eskiu-written compiler now
   implements the two features that had shipped C++-only, reaching full feature parity:</li>
 <li><code>--safe</code> runtime bounds checks (self-host <code>codegen.esk</code> emits the same slice/array

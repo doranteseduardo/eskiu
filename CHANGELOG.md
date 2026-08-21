@@ -24,9 +24,9 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   operands resolves to it by operand types at compile time (zero runtime cost, no vtable), so
   overloads coexist by operand type (`V3 * V3` and `V3 * double`). Compound assignment
   (`v += w`) desugars to the overloaded binary op. Structural: a type gets `+` simply by
-  declaring `operator +`, no `impl` block. Landed lockstep in both compilers (the self-host
-  resolves by exact operand type; numeric-argument coercion at the call site is C++-only for
-  now). Test: `tests/operators.esk`.
+  declaring `operator +`, no `impl` block. Landed lockstep in both compilers, including the
+  numeric-argument coercion at the call site (`V3 * 2.0` finds `operator *(V3, float)`).
+  Test: `tests/operators.esk`.
 - **Self-host mirrors of the two safety features.** The Eskiu-written compiler now
   implements the two features that had shipped C++-only, reaching full feature parity:
   - `--safe` runtime bounds checks (self-host `codegen.esk` emits the same slice/array
