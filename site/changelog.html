@@ -106,11 +106,12 @@ Versions follow <code>MAJOR.MINOR.PATCH-stage</code> (e.g. <code>0.0.9-alpha</co
 <h2 id="080-2026-08-21">[0.8.0] - 2026-08-21</h2>
 <h3 id="fixed">Fixed</h3>
 <ul>
-<li><strong>The macOS release binary is self-contained.</strong> <code>eskiuc</code> linked z3 and zstd from versioned
-  Homebrew paths (<code>/opt/homebrew/opt/z3/...</code>), so the shipped tarball failed to load on any Mac
-  without those exact libraries at those paths. The release now bundles them into <code>lib/deps</code>
-  and rewrites the load paths to <code>@loader_path/../lib/deps</code>, and a guard fails the build if any
-  Homebrew path remains. (The compiler still shells out to <code>clang</code> to link native output, so a
+<li><strong>The release binaries are self-contained.</strong> <code>eskiuc</code> picked up z3 and zstd as dynamic
+  libraries from the build machine (versioned <code>/opt/homebrew/...</code> paths on macOS; <code>libz3.so</code>,
+  absent on a stock Linux, on Linux), so the shipped tarballs failed to load elsewhere. Both
+  platforms now bundle those libs into <code>lib/deps</code> and reference them relatively (macOS via
+  <code>@loader_path</code>, Linux via an <code>$ORIGIN</code> RUNPATH), with a build guard that fails if the
+  rewrite did not take. (The compiler still shells out to <code>clang</code> to link native output, so a
   C toolchain is a runtime requirement, as before.)</li>
 <li><strong>The async stack runs on Windows.</strong> <code>&lt;eventloop&gt;</code> gained a <code>WSAPoll</code> reactor (a user-space
   pollfd set rebuilt each wait, since <code>WSAPoll</code> keeps no kernel state) alongside kqueue/epoll,
