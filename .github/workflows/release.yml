@@ -17,7 +17,7 @@ jobs:
 
       - name: Install LLVM
         run: |
-          brew install llvm cmake
+          brew install llvm cmake dylibbundler
           echo "LLVM_DIR=$(brew --prefix llvm)/lib/cmake/llvm" >> $GITHUB_ENV
 
       - name: Configure
@@ -35,6 +35,17 @@ jobs:
           cp build/eskiuc dist/bin/eskiuc
           strip dist/bin/eskiuc
           cp -r stdlib dist/lib/eskiu/stdlib
+          # Homebrew LLVM pulls in z3 and zstd as dynamic libs at versioned /opt/homebrew paths,
+          # so a bare binary fails to load on any Mac without those exact libs (the shipped
+          # v0.7.0 binary did not run on a clean machine). Bundle them into lib/deps and rewrite
+          # the load paths to @loader_path/../lib/deps so the tarball is self-contained;
+          # dylibbundler re-signs the modified binary, which arm64 requires.
+          dylibbundler -cd -of -b -x dist/bin/eskiuc -d dist/lib/deps -p "@loader_path/../lib/deps/"
+          # Fail loudly if any Homebrew-pathed dependency slipped through (e.g. a new LLVM dep).
+          if otool -L dist/bin/eskiuc | grep -q '/opt/homebrew'; then
+            echo "error: eskiuc still references a Homebrew path after bundling"; otool -L dist/bin/eskiuc; exit 1
+          fi
+          ( cd dist && ./bin/eskiuc --version )   # sanity: the packaged binary runs
           tar -czf eskiuc-macos-arm64.tar.gz -C dist bin lib
 
       - name: Upload artifact
@@ -78,6 +89,9 @@ jobs:
           cp build/eskiuc dist/bin/eskiuc
           strip dist/bin/eskiuc
           cp -r stdlib dist/lib/eskiu/stdlib
+          # Diagnostic: surface the runtime shared-lib deps so we can tell whether the Linux
+          # binary needs the same bundling the macOS one does (non-fatal).
+          echo "== ldd eskiuc =="; ldd dist/bin/eskiuc || true
           tar -czf eskiuc-linux-x86_64.tar.gz -C dist bin lib
 
       - name: Upload artifact
