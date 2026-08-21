@@ -9,6 +9,8 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 ---
 
 ## [Unreleased]
+
+## [0.8.0] - 2026-08-21
 ### Fixed
 - **The async stack runs on Windows.** `<eventloop>` gained a `WSAPoll` reactor (a user-space
   pollfd set rebuilt each wait, since `WSAPoll` keeps no kernel state) alongside kqueue/epoll,
