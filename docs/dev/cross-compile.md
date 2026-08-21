@@ -114,9 +114,10 @@ The OS-level stdlib modules carry Windows backends: `<sysheap>` maps pages with
 with these. Each has an end-to-end check on a native Windows runner in
 `.github/workflows/windows.yml`.
 
-Still POSIX-only: the **async** stack. `<eventloop>` is a readiness reactor over
-epoll/kqueue, and `<net_async>` uses `fcntl(O_NONBLOCK)` + `read`/`write` + errno. A Windows
-port would swap the reactor to `WSAPoll` (with a user-space fd set, since it is stateless)
-and `<net_async>` to `ioctlsocket(FIONBIO)` + `recv`/`send` + `WSAGetLastError`. That is a
-focused port on its own, not a shim, so the async server and `<http_async>`/`<http2>` do not
-run on Windows yet.
+The **async** stack runs on Windows too. `<eventloop>` swaps its epoll/kqueue reactor for
+`WSAPoll` over a user-space pollfd set (rebuilt each wait, since `WSAPoll` is stateless), and
+`<net_async>` uses `ioctlsocket(FIONBIO)` + `recv`/`send` + `WSAGetLastError` in place of
+`fcntl(O_NONBLOCK)` + `read`/`write` + errno. One Windows subtlety: a `SOCKET` is not a small
+sequential fd (handles like 236 are normal), so the loop's fd-indexed slot table grows to fit
+the largest handle rather than assuming a dense `[0, max_fds)` range. A non-blocking socket
+round-trip over the reactor is checked end to end on the native Windows runner.
