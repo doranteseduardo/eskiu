@@ -198,6 +198,11 @@ private:
     // Exception handling: set when inside a try body
     llvm::BasicBlock* unwindTarget = nullptr;
 
+    // The C++ EH personality routine to reference for this target. mingw x86-64 unwinds via
+    // SEH (`__gxx_personality_seh0`); Linux/macOS use the DWARF/Itanium `__gxx_personality_v0`.
+    // Everything else about the EH lowering (landingpad IR + the `__cxa_*` runtime) is the same.
+    std::string ehPersonalityName() const;
+
     // Helper: creates call or invoke depending on whether we are in a try body.
     // When in a try body, returns the invoke result and advances the insert point
     // to a fresh "normal continuation" block.
