@@ -1887,6 +1887,8 @@ pre.code-block {
 <pre class="code-block"> aarch64-unknown-linux-gnu                  Linux on ARM64 (Raspberry Pi, Graviton)</pre>
 <pre class="code-block"> aarch64-unknown-none-elf                   Bare-metal ARM64, no OS, no libc</pre>
 <pre class="code-block"> x86_64-unknown-none                        Bare-metal x86-64, no OS, no libc</pre>
+<pre class="code-block"> x86_64-pc-windows-gnu                      Windows on Intel/AMD 64-bit (COFF object)</pre>
+<p>Windows is a hosted target, not a bare-metal one. The compiler emits a COFF object with the Microsoft x64 calling convention, and the preprocessor predefines <code>_WIN32</code> and <code>_WIN64</code> so the standard library takes its Windows branches. Link the object with a mingw <code>g++</code> and the whole stdlib runs there: exceptions unwind through the SEH personality, <code>&lt;sysheap&gt;</code> maps pages with <code>VirtualAlloc</code>, <code>&lt;net&gt;</code> talks to Winsock, and the async reactor in <code>&lt;eventloop&gt;</code> runs on <code>WSAPoll</code>. So both a blocking and an async server build and run on Windows the same as on Linux or macOS.</p>
 <h2 class="section" id="sec-17-2">17.2 --freestanding</h2>
 <p>When targeting bare-metal there is no libc. --freestanding redirects <code>alloc</code> and <code>free</code> to your own esk_alloc and esk_free:</p>
 <pre class="code-block"> // alloc.esk: bump allocator
@@ -2862,6 +2864,7 @@ pre.code-block {
 <pre class="code-block">        aarch64-unknown-linux-gnu                Linux ARM64 (Raspberry Pi, Graviton)</pre>
 <pre class="code-block">        aarch64-unknown-none-elf                 Bare-metal ARM64: no OS, no libc</pre>
 <pre class="code-block">        x86_64-unknown-none                      Bare-metal x86-64: no OS, no libc</pre>
+<pre class="code-block">        x86_64-pc-windows-gnu                    Windows x86-64 (COFF, mingw runtime)</pre>
 <h3 class="subsection">Linker detection order</h3>
 <p><code>eskiuc</code> finds the system linker via: $CC → cc → clang → gcc. A C toolchain must be installed for linking. With --freestanding or a .o output, no linking occurs.</p>
 <div class="chapter-start" id="ref-r10"><span class="chapter-label ref">Ref R10</span>
