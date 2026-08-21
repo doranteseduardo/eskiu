@@ -162,9 +162,19 @@ void CodeGen::visit(LambdaExpr* node) {
 
 std::string CodeGen::ehPersonalityName() const {
     const std::string& tt = targetTriple;
-    bool win = tt.find("windows") != std::string::npos ||
-               tt.find("win32")   != std::string::npos ||
-               tt.find("mingw")   != std::string::npos;
+    bool win;
+    if (tt.empty()) {
+        // Native build (no --target): follow the host, as main.cpp does for the OS macro.
+#if defined(_WIN32)
+        win = true;
+#else
+        win = false;
+#endif
+    } else {
+        win = tt.find("windows") != std::string::npos ||
+              tt.find("win32")   != std::string::npos ||
+              tt.find("mingw")   != std::string::npos;
+    }
     return win ? "__gxx_personality_seh0" : "__gxx_personality_v0";
 }
 
