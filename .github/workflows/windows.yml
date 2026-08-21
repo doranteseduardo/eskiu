@@ -92,6 +92,34 @@ jobs:
           echo "program output: $out"
           test "$out" = "ok 7 1"
 
+      - name: Sockets E2E (Winsock)
+        run: |
+          # A loopback TCP round-trip via <net>'s Winsock backend (WSAStartup + socket/bind/
+          # listen/accept/connect/send/recv/closesocket). Links against ws2_32.
+          cat > net.esk <<'EOF'
+          import <net>;
+          extern int printf(string fmt, ...);
+          int main() {
+              int ls = net_tcp_listen(54321);
+              if (ls < 0) { printf("listen fail\n"); return 1; }
+              int c = net_tcp_connect("127.0.0.1", 54321);
+              if (c < 0) { printf("connect fail\n"); return 1; }
+              int s = net_accept(ls);
+              if (s < 0) { printf("accept fail\n"); return 1; }
+              net_send_str(c, "hi");
+              uint8[8] buf;
+              int64 n = net_recv(s, (*void)&buf[0], 8);
+              printf("got %d %c%c\n", (int)n, (char)buf[0], (char)buf[1]);
+              net_close(c); net_close(s); net_close(ls);
+              return 0;
+          }
+          EOF
+          ESKIU_ROOT="$PWD" ./build/eskiuc.exe net.esk -o net.obj -c
+          g++ net.obj -o net.exe -lws2_32
+          out=$(./net.exe)
+          echo "program output: $out"
+          test "$out" = "got 2 hi"
+
       - name: Package
         run: |
           mkdir -p dist/bin dist/lib/eskiu
