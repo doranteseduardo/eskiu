@@ -287,10 +287,23 @@
           <p class="fname">vec.esk</p>
 <pre><span class="kw">struct</span> <span class="ty">V3</span> { <span class="ty">float</span> x; <span class="ty">float</span> y; <span class="ty">float</span> z; }
 
-<span class="ty">V3</span> <span class="kw">operator</span> <span class="op">+</span>(<span class="ty">V3</span> a, <span class="ty">V3</span> b)    { <span class="kw">let</span> r: <span class="ty">V3</span>; r.x = a.x <span class="op">+</span> b.x; r.y = a.y <span class="op">+</span> b.y; r.z = a.z <span class="op">+</span> b.z; <span class="kw">return</span> r; }
-<span class="ty">V3</span> <span class="kw">operator</span> <span class="op">*</span>(<span class="ty">V3</span> v, <span class="ty">float</span> s) { <span class="kw">let</span> r: <span class="ty">V3</span>; r.x = v.x <span class="op">*</span> s; r.y = v.y <span class="op">*</span> s; r.z = v.z <span class="op">*</span> s; <span class="kw">return</span> r; }
+<span class="ty">V3</span> <span class="kw">operator</span> <span class="op">+</span>(<span class="ty">V3</span> a, <span class="ty">V3</span> b) {
+    <span class="kw">let</span> r: <span class="ty">V3</span>;
+    r.x = a.x <span class="op">+</span> b.x;
+    r.y = a.y <span class="op">+</span> b.y;
+    r.z = a.z <span class="op">+</span> b.z;
+    <span class="kw">return</span> r;
+}
 
-<span class="kw">let</span> mid: <span class="ty">V3</span> = (a <span class="op">+</span> b) <span class="op">*</span> <span class="nu">0.5</span>;   <span class="cm">// + y * resuelven a las sobrecargas de arriba</span></pre>
+<span class="ty">V3</span> <span class="kw">operator</span> <span class="op">*</span>(<span class="ty">V3</span> v, <span class="ty">float</span> s) {
+    <span class="kw">let</span> r: <span class="ty">V3</span>;
+    r.x = v.x <span class="op">*</span> s;
+    r.y = v.y <span class="op">*</span> s;
+    r.z = v.z <span class="op">*</span> s;
+    <span class="kw">return</span> r;
+}
+
+<span class="kw">let</span> mid: <span class="ty">V3</span> = (a <span class="op">+</span> b) <span class="op">*</span> <span class="nu">0.5</span>;   <span class="cm">// + y * resuelven a las sobrecargas</span></pre>
 
           <h3>Async y canales</h3>
           <p>
@@ -356,7 +369,9 @@
         <!-- 4 -->
         <section id="install">
           <h2><span class="num">4.</span>Instalación</h2>
-          <p>Descarga un binario precompilado, descomprímelo en <code>/usr/local</code> y ejecuta <code>eskiuc --version</code>.</p>
+          <p>En macOS o Linux, instala el último release con un comando:</p>
+<pre><span class="cm">$ curl -fsSL https://eskiu-lang.org/install.sh | sh</span></pre>
+          <p>Descarga el binario para tu plataforma, verifica su checksum y lo instala. O baja un binario directamente y descomprímelo en <code>/usr/local</code>:</p>
           <div class="btnrow">
             <a class="btn btn-primary" href="../assets/eskiuc-linux-x86_64.tar.gz">↓ Linux x86-64</a>
             <a class="btn btn-primary" href="../assets/eskiuc-macos-arm64.tar.gz">↓ macOS arm64</a>
@@ -497,9 +512,25 @@ int main() {
 
 struct V3 { float x; float y; float z; }
 
-V3 operator +(V3 a, V3 b)     { let r: V3; r.x = a.x + b.x; r.y = a.y + b.y; r.z = a.z + b.z; return r; }
-V3 operator *(V3 v, float s)  { let r: V3; r.x = v.x * s; r.y = v.y * s; r.z = v.z * s; return r; }
-bool operator ==(V3 a, V3 b)  { return a.x == b.x && a.y == b.y && a.z == b.z; }
+V3 operator +(V3 a, V3 b) {
+    let r: V3;
+    r.x = a.x + b.x;
+    r.y = a.y + b.y;
+    r.z = a.z + b.z;
+    return r;
+}
+
+V3 operator *(V3 v, float s) {
+    let r: V3;
+    r.x = v.x * s;
+    r.y = v.y * s;
+    r.z = v.z * s;
+    return r;
+}
+
+bool operator ==(V3 a, V3 b) {
+    return a.x == b.x && a.y == b.y && a.z == b.z;
+}
 
 int main() {
     let a: V3; a.x = 1.0; a.y = 2.0; a.z = 3.0;
