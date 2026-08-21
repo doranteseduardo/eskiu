@@ -186,6 +186,15 @@ jobs:
         with:
           merge-multiple: true
 
+      - name: Checksums
+        run: |
+          # One SHA256SUMS over whatever assets built (the Windows zip may be absent). The
+          # installer and the Homebrew formula verify downloads against this file.
+          for f in eskiuc-*.tar.gz eskiuc-*.zip; do
+            [ -f "$f" ] && sha256sum "$f"
+          done > SHA256SUMS
+          cat SHA256SUMS
+
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
@@ -196,5 +205,6 @@ jobs:
             eskiuc-macos-arm64.tar.gz
             eskiuc-linux-x86_64.tar.gz
             eskiuc-windows-x86_64.zip
+            SHA256SUMS
           draft: false
           prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') }}
