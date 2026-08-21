@@ -10,6 +10,26 @@
 import <string>;
 
 // POSIX timespec. On 64-bit macOS and Linux both fields are 64-bit.
+#ifdef _WIN32
+// Windows (kernel32). It has no `clock_gettime`/`nanosleep`, and its `struct timespec`'s
+// `tv_nsec` is a 32-bit `long` (LLP64) that would not match a 64-bit field, so use the Win32
+// clocks directly. FILETIME is 100ns ticks since 1601-01-01; the offset to the Unix epoch
+// (1970) is 116444736000000000 of them.
+extern int64 GetTickCount64();
+extern void  Sleep(int ms);
+extern void  GetSystemTimeAsFileTime(*int64 ft);
+
+int64 time_now_ms() {
+    let ft: int64 = 0;  GetSystemTimeAsFileTime(&ft);
+    return (ft - 116444736000000000) / 10000;      // 100ns -> ms
+}
+int64 time_now_s() {
+    let ft: int64 = 0;  GetSystemTimeAsFileTime(&ft);
+    return (ft - 116444736000000000) / 10000000;   // 100ns -> s
+}
+int64 time_monotonic_ms() { return GetTickCount64(); }   // ms since boot, monotonic
+void  sleep_ms(int64 ms)  { Sleep((int)ms); }
+#else
 struct timespec {
     int64 tv_sec;
     int64 tv_nsec;
@@ -54,6 +74,7 @@ void sleep_ms(int64 ms) {
     req.tv_nsec = (ms % 1000) * 1000000;
     nanosleep(&req, (*timespec)0);
 }
+#endif
 
 // ── Civil calendar (UTC) ────────────────────────────────────────────────────
 //
