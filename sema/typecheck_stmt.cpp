@@ -300,7 +300,12 @@ void TypeChecker::visit(DeferStmt* node) {
 
 void TypeChecker::visit(MatchStmt* node) {
     node->subject->accept(this);
-    std::string st = normalizeType(getExpressionType(node->subject.get()));
+    std::string rawSt = getExpressionType(node->subject.get());
+    std::string st = normalizeType(rawSt);
+    // A classic (payload-less) enum normalizes to `int`, so keep its declared name for a
+    // `match`: that is the only place the variant set (for exhaustiveness) is recoverable.
+    if (!enumDecls.count(st) && !templateInstanceArgs.count(st) && plainEnumDecls.count(rawSt))
+        st = rawSt;
     // Resolve the enum decl + (for a generic instance like Option_int) the type-
     // parameter substitutions, so payload types come out concrete.
     EnumDecl* ed = nullptr;
@@ -315,9 +320,11 @@ void TypeChecker::visit(MatchStmt* node) {
             for (size_t i = 0; i < ed->typeParams.size() && i < inst.second.size(); ++i)
                 subs[ed->typeParams[i]] = inst.second[i];
         }
+    } else if (plainEnumDecls.count(st)) {                   // classic int enum (no payloads)
+        ed = plainEnumDecls[st];
     }
     if (!ed && st != "unknown")
-        errorAt(node, "match subject must be an algebraic enum, got " + st);
+        errorAt(node, "match subject must be an enum, got " + st);
     node->enumName = st;
     // Index of a variant within `ed` by name (-1 if absent).
     auto variantIndex = [&](const std::string& v) -> int {
@@ -343,7 +350,8 @@ void TypeChecker::visit(MatchStmt* node) {
             if (vi < 0) {
                 errorAt(node, "'" + arm.variant + "' is not a variant of " + st);
             } else {
-                const auto& payload = ed->payloads[vi];
+                static const std::vector<std::string> noPayload;   // classic enums carry none
+                const auto& payload = (vi < (int)ed->payloads.size()) ? ed->payloads[vi] : noPayload;
                 if (arm.bindings.size() != payload.size())
                     errorAt(node, "variant '" + arm.variant + "' binds " +
                         std::to_string(payload.size()) + " field(s), got " +
@@ -370,7 +378,7 @@ void TypeChecker::visit(MatchStmt* node) {
 void TypeChecker::visit(SwitchStmt* node) {
     node->subject->accept(this);
     std::string subjType = getExpressionType(node->subject.get());
-    if (subjType != "unknown" && !isIntType(subjType))
+    if (subjType != "unknown" && !isIntType(normalizeType(subjType)))   // a classic enum counts as int
         errorAt(node,"switch subject must be integer type, got " + subjType);
     std::set<long long> seenCases;   // detect duplicate case values (else codegen
                                      // emits a switch the IR verifier rejects)

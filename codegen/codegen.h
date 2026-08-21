@@ -328,6 +328,7 @@ private:
     // Algebraic enums: name -> decl (payloads) and variant -> (enum, tag). The
     // LLVM type lives in structTypes[enumName] as { i32 tag, [N x i64] payload }.
     std::map<std::string, EnumDecl*> adtEnumDecls;
+    std::map<std::string, EnumDecl*> plainEnumDecls;   // classic int enums, for `match` on them
     std::map<std::string, std::pair<std::string, int>> adtVariants;
     // Generic algebraic enums (Option<T>): template decl + variant->(enum,tag), and
     // per-instance (Option_int) -> (generic name, concrete type args) for resolution.

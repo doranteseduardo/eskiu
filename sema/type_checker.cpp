@@ -40,6 +40,7 @@ bool TypeChecker::check(Program* program) {
                     adtVariants[enumDecl->members[i].first] = {enumDecl->name, (int)i};
             } else {
                 for (const auto& m : enumDecl->members) enumConstants[m.first] = m.second;
+                plainEnumDecls[enumDecl->name] = enumDecl;   // for exhaustiveness-checked `match`
             }
             continue;
         }
