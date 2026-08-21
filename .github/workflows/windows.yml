@@ -120,6 +120,39 @@ jobs:
           echo "program output: $out"
           test "$out" = "got 2 hi"
 
+      - name: Async reactor E2E (WSAPoll)
+        run: |
+          # An async socket round-trip over the reactor: a non-blocking socket is registered
+          # with the event loop (WSAPoll backend), a peer sends 5 bytes, and net_read_async
+          # completes on the first dispatch. Exercises <eventloop> (WSAPoll) + <net_async>
+          # (ioctlsocket non-blocking + recv + WSAGetLastError). Links ws2_32.
+          cat > async.esk <<'EOF'
+          import <net_async>;
+          import <net>;
+          extern int printf(string fmt, ...);
+          uint8[64] g_buf;
+          int main() {
+              int ls = net_tcp_listen(54322);
+              int c  = net_tcp_connect("127.0.0.1", 54322);
+              int s  = net_accept(ls);
+              net_send_str(c, "hello");
+              EventLoop* lp = el_new(64);
+              net_set_nonblocking(s);
+              Future<int>* f = net_read_async(lp, s, &g_buf[0], (int64)64);
+              future_poll<int>(f, void() { free_future<int>(f); el_stop(lp); });
+              el_run(lp);
+              printf("read %c%c%c\n", (char)g_buf[0], (char)g_buf[1], (char)g_buf[4]);
+              el_free(lp);
+              net_close(c); net_close(s); net_close(ls);
+              return 0;
+          }
+          EOF
+          ESKIU_ROOT="$PWD" ./build/eskiuc.exe async.esk -o async.obj -c
+          g++ async.obj -o async.exe -lws2_32
+          out=$(./async.exe)
+          echo "program output: $out"
+          test "$out" = "read heo"
+
       - name: Package
         run: |
           mkdir -p dist/bin dist/lib/eskiu
