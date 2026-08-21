@@ -77,8 +77,17 @@ void TypeChecker::visit(BinaryExpr* node) {
     std::string resultType = inferBinaryExprType(leftType, node->op, rightType);
 
     if (resultType == "error") {
-        errorAt(node,"invalid operands for operator: " + leftType + " and " + rightType);
-        expressionTypes[node] = "unknown";
+        // Operator overloading: `a op b` on non-built-in operands resolves to a user
+        // `operator op(L, R)` declared for these operand types (with numeric coercion).
+        // Not found → the operands really are invalid.
+        std::string ret, opFn = resolveOperator(node->op, {leftType, rightType}, ret);
+        if (!opFn.empty()) {
+            node->opFunc = opFn;
+            expressionTypes[node] = ret;   // the operator's declared return type
+        } else {
+            errorAt(node,"invalid operands for operator: " + leftType + " and " + rightType);
+            expressionTypes[node] = "unknown";
+        }
     } else {
         expressionTypes[node] = resultType;
     }
@@ -179,8 +188,19 @@ void TypeChecker::visit(UnaryExpr* node) {
     }
 
     if (resultType == "error") {
-        errorAt(node,"invalid operand for unary operator: " + operandType);
-        expressionTypes[node] = "unknown";
+        // Unary operator overloading: `-v`/`!v`/`~v` on a non-built-in operand resolves to a
+        // user `operator -/!/~(V)`. Deref `*` and address-of `&` are structural, not overloadable.
+        std::string lookupOp = (node->op == "-") ? "u-" : node->op;
+        std::string ret, opFn;
+        if (node->op == "-" || node->op == "!" || node->op == "~")
+            opFn = resolveOperator(lookupOp, {operandType}, ret);
+        if (!opFn.empty()) {
+            node->opFunc = opFn;
+            expressionTypes[node] = ret;
+        } else {
+            errorAt(node,"invalid operand for unary operator: " + operandType);
+            expressionTypes[node] = "unknown";
+        }
     } else {
         expressionTypes[node] = resultType;
     }
@@ -490,6 +510,13 @@ void TypeChecker::visit(IndexExpr* node) {
         }
     } else if (isPointerType(baseType)) {
         elem = getPointeeType(baseType); haveElem = true;
+    }
+
+    // Overloaded subscript: `base[i]` on a non-built-in indexable resolves to a user
+    // `operator [](Base, Index)` (read/rvalue form; a slice `base[lo..hi]` is not overloaded).
+    if (!haveElem && !node->highIndex) {
+        std::string ret, opFn = resolveOperator("[]", {baseType, indexType}, ret);
+        if (!opFn.empty()) { node->opFunc = opFn; expressionTypes[node] = ret; return; }
     }
 
     if (!haveElem) { expressionTypes[node] = "unknown"; return; }

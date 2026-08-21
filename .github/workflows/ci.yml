@@ -28,6 +28,8 @@ jobs:
             -DLLVM_DIR=$LLVM_DIR \
             -DCMAKE_CXX_COMPILER=clang++-22
           cmake --build build --target eskiuc -j"$(nproc)"
+          # Dual-build (promotion P4): the C++ seed builds the Eskiu-written compiler too.
+          cmake --build build --target eskiuc-selfhost -j"$(nproc)"
 
       # The full test suite, three ways. The sanitizer runs are the hardening
       # gate: a class of codegen bug (e.g. allocas leaking stack inside loops)
@@ -114,3 +116,36 @@ jobs:
       # and cc2 must compile a runnable program.
       - name: Compiler bootstrap (3-stage fixpoint)
         run: CLANG=clang-22 tests/selfhost/cg_bootstrap.sh
+
+      # Self-hosted driver end to end: esk_main.esk parses/checks/codegens AND invokes
+      # clang to link a native binary. Compare the resulting binaries' exit + stdout to
+      # the C++ eskiuc's over a small corpus (promotion P0).
+      - name: Driver self-host parity
+        run: CLANG=clang-22 tests/selfhost/driver_parity.sh
+
+      # `eskiuc run script.esk`: compile to a temp exe, execute, propagate exit code.
+      # Compare the self-host `run` to the C++ `run` over the same corpus (promotion P2).
+      - name: Run self-host parity
+        run: CLANG=clang-22 tests/selfhost/run_parity.sh
+
+      # `eskiuc fmt`: the self-host reformatter must be byte-identical to the C++ one
+      # over the whole in-repo corpus (implies idempotency; promotion P2).
+      - name: Fmt self-host parity
+        run: CLANG=clang-22 tests/selfhost/fmt_parity.sh
+
+      # Whole-corpus behavioral equivalence: every positive test compiled by the
+      # Eskiu-built compiler produces the same exit + stdout as the C++ one (promotion P3;
+      # the negative-corpus verdict + diagnostic side is covered by tc_parity above).
+      - name: Corpus behavioral parity
+        run: CLANG=clang-22 tests/selfhost/corpus_parity.sh
+
+      # `--safe` bounds-check mirror: the self-host emits the same runtime slice/array
+      # bounds checks as the C++ back-end (OOB traps, in-bounds does not, off by default).
+      - name: Safe-mode self-host parity
+        run: CC=clang-22 tests/selfhost/safe_parity.sh
+
+      # `?*T` nullable-pointer mirror: the self-host front-end enforces the same checked
+      # nullable rules as the C++ compiler (unchecked deref rejected, `if (x != null)`
+      # narrows, `?*T`->`*T` needs a check, `*T`->`?*T` widens).
+      - name: Nullable self-host parity
+        run: CC=clang-22 tests/selfhost/nullable_parity.sh

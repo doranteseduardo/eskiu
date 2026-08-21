@@ -285,6 +285,26 @@ std::string TypeChecker::assignabilityError(const std::string& targetType,
     return "cannot convert '" + srcType + "' to '" + targetType + "'";
 }
 
+// Resolve `op` (a binary/unary/index op spelling) over the given operand types to a user
+// `operator` overload. A candidate matches when the arity agrees and every operand is
+// assignable to the matching param (so `V3 * 2.0` picks `operator *(V3, float)` via the
+// usual double->float coercion). Returns the operator function's name and sets `outRet` to
+// its return type, or "" if no overload matches.
+std::string TypeChecker::resolveOperator(const std::string& op,
+                                         const std::vector<std::string>& argTypes,
+                                         std::string& outRet) {
+    auto it = operatorOverloads.find(op);
+    if (it == operatorOverloads.end()) return "";
+    for (const auto& c : it->second) {
+        if (c.params.size() != argTypes.size()) continue;
+        bool ok = true;
+        for (size_t i = 0; i < argTypes.size(); ++i)
+            if (!assignabilityError(c.params[i], argTypes[i], nullptr).empty()) { ok = false; break; }
+        if (ok) { outRet = c.retType; return c.fnName; }
+    }
+    return "";
+}
+
 bool TypeChecker::intLiteralFits(const std::string& targetType, Expr* e) {
     auto* lit = dynamic_cast<LiteralExpr*>(e);
     if (!lit || lit->kind != LiteralExpr::Kind::INT) return false;

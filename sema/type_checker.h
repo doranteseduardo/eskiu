@@ -143,6 +143,7 @@ private:
     // Algebraic (payload-bearing) enums: distinct value types, not ints.
     std::set<std::string> adtEnums;                              // ADT enum names
     std::map<std::string, EnumDecl*> enumDecls;                  // name -> decl (for payloads)
+    std::map<std::string, EnumDecl*> plainEnumDecls;             // name -> decl for classic int enums (match exhaustiveness)
     // Variant name -> (enum name, tag index). Concrete (non-generic) ADT enums.
     std::map<std::string, std::pair<std::string, int>> adtVariants;
     // Generic ADT enums (e.g. Option<T>): name -> decl, and variant -> (enum, tag).
@@ -155,6 +156,12 @@ private:
 
     // Function signatures: name -> (return type, parameter types)
     std::map<std::string, std::pair<std::string, std::vector<std::string>>> functionSignatures;
+    // Operator overloads, indexed by op ("+","[]","u-",...). Each candidate keeps its param
+    // type spellings so `a op b` resolves by operand types (with the usual numeric coercions).
+    struct OperatorOverload { std::vector<std::string> params; std::string retType; std::string fnName; };
+    std::map<std::string, std::vector<OperatorOverload>> operatorOverloads;
+    // Resolve `op` over operand types to a user overload; returns its fn name (+ret via outRet), or "".
+    std::string resolveOperator(const std::string& op, const std::vector<std::string>& argTypes, std::string& outRet);
     // Per-function `escaping` flags for each parameter (closure-retention).
     std::map<std::string, std::vector<bool>> functionParamEscaping;
     std::set<std::string> mustUseFuncs;   // functions whose result may not be discarded

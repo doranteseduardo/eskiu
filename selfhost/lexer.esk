@@ -9,6 +9,7 @@
 // itself is a separate (future) self-host target — see selfhost/README.md.
 
 import <ctype>;
+import <io>;
 import "tokens.esk";
 
 struct Lexer {
@@ -115,6 +116,7 @@ int keyword_type(*uint8 src, int start, int len) {
     if (lexeme_eq(src, start, len, "interface") == 1) { return INTERFACE; }
     if (lexeme_eq(src, start, len, "enum") == 1) { return ENUM; }
     if (lexeme_eq(src, start, len, "fn") == 1) { return FN; }
+    if (lexeme_eq(src, start, len, "operator") == 1) { return OPERATOR; }
     if (lexeme_eq(src, start, len, "asm") == 1) { return ASM; }
     if (lexeme_eq(src, start, len, "volatile") == 1) { return VOLATILE; }
     if (lexeme_eq(src, start, len, "static") == 1) { return STATIC; }
@@ -403,4 +405,66 @@ Token lx_next(Lexer* lx) {
     // Anything else: a single-byte UNKNOWN token (matches the switch default).
     t.type = UNKNOWN;
     return lx_finish(t, sp, lx.pos, sl, sc);
+}
+
+// ── token dump (shared by the lex_main driver and esk_main --test-lexer) ─────
+// Print a token's value exactly as the C++ lexer stores it: STRING_LIT/CHAR_LIT are
+// decoded (escapes applied, surrounding quotes dropped); everything else is the raw
+// lexeme bytes [start, start+len).
+void lex_emit_value(*uint8 src, int type, int start, int len) {
+    if (type == STRING_LIT) {
+        int i = start + 1;                  // skip opening "
+        int endp = start + len - 1;         // index of closing "
+        while (i < endp) {
+            int ch = (int)src[i];
+            if (ch == 92 && i + 1 < endp) { // '\' with a char after it
+                i = i + 1;
+                int adv = 0;
+                putchar(decode_escape_span(src, i, endp, &adv));
+                i = i + adv;
+            } else {
+                putchar(ch);
+            }
+            i = i + 1;
+        }
+        return;
+    }
+    if (type == CHAR_LIT) {
+        int i = start + 1;                  // skip opening '
+        int endp = start + len - 1;         // index of closing '
+        if (i < endp) {                     // read_char keeps only the first char
+            int ch = (int)src[i];
+            if (ch == 92 && i + 1 < endp) {
+                i = i + 1;
+                int adv = 0;
+                putchar(decode_escape_span(src, i, endp, &adv));
+            } else {
+                putchar(ch);
+            }
+        }
+        return;
+    }
+    int i = 0;
+    while (i < len) {
+        putchar((int)src[start + i]);
+        i = i + 1;
+    }
+}
+
+// Lex `src` (raw bytes, no preprocessing) and print each token in the C++
+// `--test-lexer` format: "  Line %3d, Col %3d  %15s  '<value>'". EOF is not printed.
+void lex_dump(*uint8 src, int len) {
+    let lx: Lexer;
+    lx.src = src;
+    lx.len = len;
+    lx.pos = 0;
+    lx.line = 1;
+    lx.col = 1;
+    Token t = lx_next(&lx);
+    while (t.type != EOF_TOKEN) {
+        printf("  Line %3d, Col %3d  %15s  '", t.line, t.col, token_name(t.type));
+        lex_emit_value(src, t.type, t.start, t.len);
+        printf("'\n");
+        t = lx_next(&lx);
+    }
 }

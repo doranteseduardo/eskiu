@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cross-compiling · Eskiu docs</title>
+  <meta name="description" content="eskiuc emits objects for a target other than the build host. Set the triple with" />
+  <link rel="canonical" href="https://eskiu-lang.org/docs/cross-compile.html" />
+  <link rel="icon" type="image/png" href="../../assets/logo.png" />
+  <style>*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #ffffff; --surface: #f6f8fa; --border: #d0d7de; --border-mut: #e4e8ed;
+  --ink: #1f2328; --ink2: #424a53; --muted: #6e7781;
+  --accent: #4c31bb; --accent-lt: #6448d4;
+  --inline: rgba(120, 110, 180, 0.12);
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+}
+html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+body { background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 16px;
+       line-height: 1.7; -webkit-font-smoothing: antialiased; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* Top bar (shared with the homepage) */
+header.top { border-bottom: 1px solid var(--border); background: var(--bg); position: sticky; top: 0; z-index: 30; }
+.top-in { max-width: 860px; margin: 0 auto; padding: 0 1.25rem; height: 54px; display: flex; align-items: center; gap: 0.55rem; }
+.brand { display: flex; align-items: center; gap: 0.5rem; font-family: var(--mono); font-weight: 700; font-size: 1.02rem; color: var(--ink); }
+.brand:hover { text-decoration: none; }
+.brand img { width: 24px; height: 24px; }
+.brand .v { font-family: var(--mono); font-size: 0.68rem; color: var(--muted); font-weight: 500; }
+.top-links { margin-left: auto; display: flex; align-items: center; gap: 1.25rem; font-family: var(--mono); font-size: 0.82rem; }
+.top-links a { color: var(--ink2); }
+.top-links a:hover { color: var(--accent); text-decoration: none; }
+
+.wrap { max-width: 860px; margin: 0 auto; padding: 2.5rem 1.25rem 4rem; }
+.docnav { display: flex; flex-wrap: wrap; gap: 0.35rem 0.4rem; margin-bottom: 2.5rem;
+          padding-bottom: 1.25rem; border-bottom: 1px solid var(--border); }
+.docnav a { font-family: var(--mono); font-size: 0.78rem; color: var(--ink2);
+            padding: 0.25rem 0.6rem; border-radius: 6px; border: 1px solid transparent; }
+.docnav a:hover { color: var(--accent); background: var(--surface); text-decoration: none; }
+.docnav a.active { color: var(--accent); border-color: var(--border); background: var(--surface); font-weight: 600; }
+.content h1 { font-family: var(--mono); font-size: clamp(1.6rem, 4.5vw, 2.2rem); font-weight: 700;
+              letter-spacing: -0.03em; line-height: 1.15; margin: 0 0 1.25rem; }
+.content h2 { font-family: var(--mono); font-size: 1.4rem; font-weight: 700; letter-spacing: -0.01em;
+              margin: 2.75rem 0 1rem; padding-bottom: 0.4rem; border-bottom: 1px solid var(--border); }
+.content h3 { font-family: var(--mono); font-size: 1.08rem; font-weight: 600; margin: 1.9rem 0 0.6rem; }
+.content h4 { font-family: var(--mono); font-size: 0.95rem; margin: 1.4rem 0 0.5rem; color: var(--ink2); }
+.content p { margin: 0 0 1rem; }
+.content ul, .content ol { margin: 0 0 1rem 1.3rem; }
+.content li { margin-bottom: 0.4rem; color: var(--ink2); }
+.content strong { font-weight: 600; color: var(--ink); }
+.content hr { border: none; border-top: 1px solid var(--border); margin: 2.25rem 0; }
+.content blockquote { border-left: 3px solid var(--accent); background: var(--surface);
+                      padding: 0.8rem 1.1rem; border-radius: 0 8px 8px 0; margin: 0 0 1.25rem;
+                      color: var(--ink2); }
+.content blockquote p:last-child { margin-bottom: 0; }
+.content code { font-family: var(--mono); font-size: 0.86em; background: var(--inline);
+                padding: 0.15em 0.4em; border-radius: 4px; }
+.content pre { background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+               padding: 0.9rem 1.1rem; margin: 0 0 1.5rem; overflow-x: auto;
+               font-family: var(--mono); font-size: 0.8rem; line-height: 1.7; color: var(--ink); }
+.content pre code { background: none; padding: 0; font-size: inherit; color: inherit; }
+.tablewrap { overflow-x: auto; margin: 0 0 1.5rem; border: 1px solid var(--border); border-radius: 8px; }
+.content table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+.content th, .content td { text-align: left; padding: 0.55rem 0.85rem;
+                          border-bottom: 1px solid var(--border-mut); vertical-align: top; }
+.content th { font-family: var(--mono); font-size: 0.72rem; text-transform: uppercase;
+              letter-spacing: 0.05em; color: var(--muted); background: var(--surface); white-space: nowrap; }
+.content tbody tr:last-child td { border-bottom: none; }
+.content td code { white-space: nowrap; }
+
+/* Footer (shared with the homepage) */
+footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
+.footer-in { max-width: 860px; margin: 0 auto; padding: 1.5rem 1.25rem; display: flex; align-items: center;
+             gap: 1.25rem; flex-wrap: wrap; font-family: var(--mono); font-size: 0.78rem; }
+.footer-in .fl { display: flex; gap: 1.1rem; flex-wrap: wrap; }
+.footer-in a { color: var(--ink2); }
+.footer-in a:hover { color: var(--accent); text-decoration: none; }
+.footer-in .cp { margin-left: auto; color: var(--muted); }
+@media (max-width: 600px) {
+  .content table { font-size: 0.8rem; }
+  .content th, .content td { padding: 0.4rem 0.55rem; white-space: normal; }
+}</style>
+</head>
+<body>
+  <header class="top">
+    <div class="top-in">
+      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.8.0</span></a>
+      <nav class="top-links">
+        <a href="index.html">docs</a>
+        <a href="../the-book-of-eskiu.html">book</a>
+        <a href="https://github.com/doranteseduardo/eskiu">github</a>
+      </nav>
+    </div>
+  </header>
+  <div class="wrap">
+    <nav class="docnav"><a href="index.html">← Language docs</a><a href="internals.html">Overview</a><a href="architecture.html">Architecture</a><a href="design.html">Design</a><a href="abi.html">ABI</a><a href="async-design.html">Async</a><a href="self-hosting.html">Self-hosting</a><a href="http2-design.html">HTTP/2</a><a href="api.html">C++ API</a><a href="debugging.html">Debugging</a><a href="contributing.html">Contributing</a></nav>
+    <div class="content">
+<h1 id="cross-compiling">Cross-Compiling</h1>
+<p><code>eskiuc</code> emits objects for a target other than the build host. Set the triple with
+<code>--target</code>; three companion flags tune the machine and ABI:</p>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--target</code></td>
+<td>Target triple (e.g. <code>x86_64-linux-gnu</code>, <code>armv6k-none-eabihf</code>). Empty = host.</td>
+</tr>
+<tr>
+<td><code>--mcpu</code></td>
+<td>Target CPU passed to LLVM (e.g. <code>mpcore</code>). Empty = <code>generic</code> when cross, host CPU when native.</td>
+</tr>
+<tr>
+<td><code>--mattr</code></td>
+<td>LLVM feature string, <code>-mattr</code> syntax (e.g. <code>+vfp2</code>).</td>
+</tr>
+<tr>
+<td><code>--reloc</code></td>
+<td>Relocation model: <code>pic</code> (default), <code>static</code>, or <code>dynamic-no-pic</code>.</td>
+</tr>
+</tbody>
+</table></div>
+<p>The registered backends are AArch64, x86-64, and 32-bit ARM. <code>eskiuc</code> only produces the
+object file; link it with a cross toolchain that targets the same platform.</p>
+<h2 id="platform-macros">Platform macros</h2>
+<p>The preprocessor predefines a platform macro so <code>import</code>ed stdlib code can branch per OS:</p>
+<ul>
+<li>An explicit <code>--target</code> containing <code>linux</code> defines <code>__linux__</code>; one containing <code>apple</code>,
+  <code>darwin</code>, or <code>macos</code> defines <code>__APPLE__</code>; one containing <code>windows</code>, <code>win32</code>, or <code>mingw</code>
+  defines <code>_WIN32</code> (plus <code>_WIN64</code> for a 64-bit arch).</li>
+<li>A <strong>non-hosted</strong> triple (OS <code>none</code>, such as <code>armv6k-none-eabihf</code>) defines neither. Bare
+  metal has no host OS, so portable code guards that path explicitly.</li>
+<li>With no <code>--target</code>, the macro follows the build host.</li>
+</ul>
+<p><code>--freestanding</code> additionally predefines <code>__ESKIU_FREESTANDING__</code> and routes <code>alloc</code>/<code>free</code>
+to caller-supplied <code>esk_alloc</code>/<code>esk_free</code> instead of libc.</p>
+<h2 id="hard-float-arm">Hard-float ARM</h2>
+<p>A triple ending in <code>hf</code> (e.g. <code>armv6k-none-eabihf</code>) selects the hard-float ABI. LLVM then
+stamps the <code>Tag_ABI_VFP_args</code> build attribute on the object, which a hard-float linker
+requires to mix the object with hard-float libraries. Float arguments pass in VFP
+registers (<code>s0</code>, <code>s1</code>, ...) rather than core registers.</p>
+<p>Verify it on an emitted object:</p>
+<pre><code class="language-bash">llvm-readobj -A out.o | grep -A1 'VFP_args'
+#   TagName: ABI_VFP_args
+#   Description: AAPCS VFP
+</code></pre>
+<h2 id="example-nintendo-3ds">Example: Nintendo 3DS</h2>
+<p>The 3DS is an ARM11 MPCore (<code>armv6k</code>) with VFPv2, hard-float, and a homebrew loader that
+applies static relocations. Compile an Eskiu source to a 3DS object:</p>
+<pre><code class="language-bash">eskiuc lib.esk -o lib.o \
+    --target armv6k-none-eabihf --mcpu mpcore --mattr +vfp2 \
+    --reloc static --freestanding
+</code></pre>
+<p>Then link it with the <a href="https://devkitpro.org/">devkitARM</a> toolchain, alongside a C entry
+point and libctru, and package the result:</p>
+<pre><code class="language-bash"># C side (entry point + libctru calls), same arch flags:
+arm-none-eabi-gcc -march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft \
+    -I$DEVKITPRO/libctru/include -c main.c -o main.o
+
+# Link the C object + the Eskiu object into a 3DS ELF, then wrap it as .3dsx:
+arm-none-eabi-gcc -specs=3dsx.specs -march=armv6k -mtune=mpcore -mfloat-abi=hard \
+    main.o lib.o -L$DEVKITPRO/libctru/lib -lctru -lm -o app.elf
+3dsxtool app.elf app.3dsx
+</code></pre>
+<p>The link succeeds only when both objects agree on the float ABI, which is why the <code>hf</code>
+triple (and the resulting <code>Tag_ABI_VFP_args</code>) matters: without it the linker rejects the
+Eskiu object against hard-float libctru.</p>
+<p>Eskiu declarations compile to C-ABI symbols, so a <code>main.c</code> can call an Eskiu function by
+declaring it <code>extern</code>. The self-hosted compiler does not yet forward <code>--mcpu</code>/<code>--mattr</code>/
+<code>--reloc</code>, so 3DS builds use the reference <code>eskiuc</code>.</p>
+<h2 id="example-windows-x86-64">Example: Windows (x86-64)</h2>
+<p>The x86 backend emits COFF objects for a Windows triple with no extra flags; LLVM lowers
+the Microsoft x64 calling convention (first integer arguments in <code>rcx</code>/<code>rdx</code>/<code>r8</code>/<code>r9</code>)
+from the triple:</p>
+<pre><code class="language-bash">eskiuc app.esk -o app.obj --target x86_64-pc-windows-gnu --freestanding
+file app.obj    # Intel amd64 COFF object file
+</code></pre>
+<p>Link with a Windows linker. LLVM's <code>lld-link</code> needs an import library for any DLL the
+program calls; generate one from a <code>.def</code> with <code>llvm-dlltool</code> (both ship with LLVM), so no
+Windows SDK is required to link:</p>
+<pre><code class="language-bash">printf 'LIBRARY kernel32.dll\nEXPORTS\nExitProcess\nGetStdHandle\nWriteFile\n' &gt; kernel32.def
+llvm-dlltool -m i386:x86-64 -d kernel32.def -l kernel32.lib
+lld-link /entry:mainCRTStartup /subsystem:console app.obj kernel32.lib /out:app.exe
+</code></pre>
+<p>A freestanding program provides its own entry point (<code>/entry:</code>) and calls Win32 directly.
+A hosted program instead links the MinGW or MSVC C runtime and uses the ordinary <code>main</code>.
+The resulting <code>.exe</code> runs on Windows, or under <code>wine</code> for local testing.</p>
+<p>Exceptions (<code>try</code>/<code>throw</code>/<code>catch</code>) work on a mingw target: the compiler emits the SEH EH
+personality (<code>__gxx_personality_seh0</code>) there instead of the Itanium <code>__gxx_personality_v0</code>,
+so linking with a mingw <code>g++</code> (which supplies the <code>__cxa_*</code> runtime and the SEH unwinder)
+produces a working <code>.exe</code>. This is exercised end to end on a native Windows runner in
+<code>.github/workflows/windows.yml</code>.</p>
+<p>The OS-level stdlib modules carry Windows backends: <code>&lt;sysheap&gt;</code> maps pages with
+<code>VirtualAlloc</code>/<code>VirtualFree</code> (no <code>mmap</code>), <code>&lt;time&gt;</code> uses the Win32 clocks (<code>GetTickCount64</code>,
+<code>GetSystemTimeAsFileTime</code>, <code>Sleep</code>), <code>&lt;threading&gt;</code> links against winpthreads, and <code>&lt;net&gt;</code>
+(blocking TCP: listen/accept/connect/send/recv) uses the Winsock backend (<code>WSAStartup</code> +
+<code>closesocket</code>, link <code>-lws2_32</code>). A blocking, thread-per-connection server works on Windows
+with these. Each has an end-to-end check on a native Windows runner in
+<code>.github/workflows/windows.yml</code>.</p>
+<p>The <strong>async</strong> stack runs on Windows too. <code>&lt;eventloop&gt;</code> swaps its epoll/kqueue reactor for
+<code>WSAPoll</code> over a user-space pollfd set (rebuilt each wait, since <code>WSAPoll</code> is stateless), and
+<code>&lt;net_async&gt;</code> uses <code>ioctlsocket(FIONBIO)</code> + <code>recv</code>/<code>send</code> + <code>WSAGetLastError</code> in place of
+<code>fcntl(O_NONBLOCK)</code> + <code>read</code>/<code>write</code> + errno. One Windows subtlety: a <code>SOCKET</code> is not a small
+sequential fd (handles like 236 are normal), so the loop's fd-indexed slot table grows to fit
+the largest handle rather than assuming a dense <code>[0, max_fds)</code> range. A non-blocking socket
+round-trip over the reactor is checked end to end on the native Windows runner.</p>
+    </div>
+  </div>
+  <footer>
+    <div class="footer-in">
+      <div class="fl">
+        <a href="../the-book-of-eskiu.html">book</a>
+        <a href="index.html">docs</a>
+        <a href="internals.html">internals</a>
+        <a href="../changelog.html">changelog</a>
+        <a href="https://github.com/doranteseduardo/eskiu">github</a>
+      </div>
+      <span class="cp">MIT · Eduardo Dorantes</span>
+    </div>
+  </footer>
+</body>
+</html>

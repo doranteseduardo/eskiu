@@ -8,6 +8,78 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
+## [Unreleased]
+
+## [0.8.0] - 2026-08-21
+### Fixed
+- **The release binaries are self-contained.** `eskiuc` picked up z3 and zstd as dynamic
+  libraries from the build machine (versioned `/opt/homebrew/...` paths on macOS; `libz3.so`,
+  absent on a stock Linux, on Linux), so the shipped tarballs failed to load elsewhere. Both
+  platforms now bundle those libs into `lib/deps` and reference them relatively (macOS via
+  `@loader_path`, Linux via an `$ORIGIN` RUNPATH), with a build guard that fails if the
+  rewrite did not take. (The compiler still shells out to `clang` to link native output, so a
+  C toolchain is a runtime requirement, as before.)
+- **The async stack runs on Windows.** `<eventloop>` gained a `WSAPoll` reactor (a user-space
+  pollfd set rebuilt each wait, since `WSAPoll` keeps no kernel state) alongside kqueue/epoll,
+  and `<net_async>` gained a Winsock backend (`ioctlsocket(FIONBIO)` for non-blocking mode,
+  `recv`/`send`, `WSAGetLastError` with `WSAEWOULDBLOCK`) beside the `fcntl`/`read`/`write`
+  path. A Windows `SOCKET` is not a small sequential fd (handle values in the hundreds are
+  normal), so the loop's fd-indexed slot table now grows to fit the largest handle instead of
+  silently dropping registrations past a fixed `max_fds`. Validated end to end on a native
+  Windows runner: a non-blocking socket round-trip completes over the reactor. POSIX behavior
+  is unchanged (small dense fds never trigger a grow).
+- **Windows platform shims for the OS-level stdlib.** `<sysheap>` now carves pages with
+  `VirtualAlloc`/`VirtualFree` on Windows (it has no `mmap`), and `<time>` uses the Win32
+  clocks (`GetTickCount64` for the monotonic clock, `GetSystemTimeAsFileTime` for wall time,
+  `Sleep` for `sleep_ms`) instead of `clock_gettime`/`nanosleep` (whose `timespec.tv_nsec` is
+  a 32-bit `long` on LLP64 Windows and would not match). `<threading>` already links against
+  winpthreads. Validated end to end on a native Windows runner (`sysheap` + a `Mutex` + the
+  monotonic clock in one program). Linux/macOS behavior is unchanged.
+- **Exceptions work on Windows (mingw).** `try`/`throw`/`catch` previously emitted the
+  Itanium/DWARF EH personality (`__gxx_personality_v0`) unconditionally, so a Windows object
+  failed to link. The personality is now selected by target: mingw x86-64 uses the SEH
+  personality (`__gxx_personality_seh0`); Linux/macOS keep `__gxx_personality_v0`. A native
+  build with no `--target` follows its host. The rest of the EH lowering (landingpad IR, the
+  `__cxa_*` runtime, `_ZTIPv`) is unchanged. Validated end to end on a native Windows runner
+  (`windows.yml`): a `try`/`catch` program compiles, links with the mingw C++ runtime, and
+  catches the throw.
+
+### Added
+- **`match` on classic (payload-less) enums.** A plain `enum Dir { N, E, S, W }` can now be
+  `match`ed with exhaustiveness checking, the same guarantee algebraic enums already had:
+  every variant must be covered (or a `_` default), and adding a variant turns every
+  unhandled `match` into a compile error. It lowers to a switch on the enum's int value
+  (cases respect explicit `= N`). Previously `match` was ADT-only and a plain enum could only
+  be dispatched with a non-exhaustive `if`/`switch`. Landed lockstep in both compilers. Test:
+  `tests/enum_match.esk`.
+- **Operator overloading.** A struct can define `V3 operator +(V3 a, V3 b) { ... }` (and the
+  same for `- * / % == != < > <= >= & | ^ << >>`, unary `- ! ~`, and subscript `[]`), so
+  `a + b` reads as algebra instead of `v3_add(a, b)`. Resolution is fully static: an operator
+  compiles to a normal function under a canonical mangled name, and `a op b` on non-built-in
+  operands resolves to it by operand types at compile time (zero runtime cost, no vtable), so
+  overloads coexist by operand type (`V3 * V3` and `V3 * double`). Compound assignment
+  (`v += w`) desugars to the overloaded binary op. Structural: a type gets `+` simply by
+  declaring `operator +`, no `impl` block. Landed lockstep in both compilers, including the
+  numeric-argument coercion at the call site (`V3 * 2.0` finds `operator *(V3, float)`).
+  Test: `tests/operators.esk`.
+- **Self-host mirrors of the two safety features.** The Eskiu-written compiler now
+  implements the two features that had shipped C++-only, reaching full feature parity:
+  - `--safe` runtime bounds checks (self-host `codegen.esk` emits the same slice/array
+    index trap-on-out-of-range as the C++ back-end; off by default, opt-in via `--safe`).
+  - the `?*T` checked nullable pointer (self-host `parser.esk`/`sema.esk` reject an
+    unchecked deref, narrow through `if (x != null)`, allow `*T` -> `?*T` widening and
+    reject `?*T` -> `*T` without a check; `codegen.esk` lowers `?*T` exactly like `*T`).
+  Each is gated in CI (`tests/selfhost/safe_parity.sh`, `tests/selfhost/nullable_parity.sh`).
+
+### Changed
+- **`alloc<T>` now zero-initializes.** `<mem>`'s `alloc<T>(n)` returns memory that is
+  zeroed (hosted mode calls `calloc` instead of `malloc`; the `--freestanding` `esk_alloc`
+  contract is now "return zeroed memory", honored by `kernel/alloc.esk`). A freshly
+  allocated `*T` is null, an `int` is `0`, a `List` is a valid empty list, so reading a
+  field before assigning it is defined rather than a garbage read. This matches C++'s
+  `new T()` and removes an uninitialized-read crash class that only surfaced on platforms
+  whose raw heap is not already zero (Linux), while working on those whose is (macOS).
+
 ## [0.7.0]
 ### Added
 - **`extern` variables.** `extern <type> <name>;` declares a global defined in another

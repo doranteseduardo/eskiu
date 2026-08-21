@@ -93,7 +93,10 @@ for esk in "$here"/*.esk; do
             sed 's/^/        /' "$work/diff"
         fi
     else
-        # smoke test: exit 0 is enough
+        # Smoke test (non-deterministic output, e.g. threads/timing): exit 0 is enough.
+        # (The http2 tests once flaked with a Linux-only SIGILL from an uninitialized
+        # fn-pointer; that class was fixed at the root when `alloc<T>` began zero-initializing,
+        # so the earlier retry mitigation is gone and a crash now reds the build directly.)
         if [[ $code -eq 0 ]]; then
             ok "$name (smoke)"
         else

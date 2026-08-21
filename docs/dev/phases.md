@@ -1,5 +1,3 @@
----
-
 # Compiler Development Phases
 
 Authoritative status reference for Eskiu compiler contributors.
@@ -27,6 +25,7 @@ The project follows two phases:
 | Primitive types (int/8/16/32/64, uint, float, double, bool, char, string, void) | ✅ |
 | Pointers and pointer arithmetic | ✅ |
 | Structs with methods | ✅ |
+| Operator overloading (`operator +/-/*//%/==/.../[]`, static + structural, zero-cost; lockstep both compilers) | ✅ |
 | Interfaces with vtable dispatch (fat pointer) | ✅ |
 | Templates: structs and functions, monomorphic instantiation | ✅ |
 | Control flow: if/else, while, for, switch/case (with type checking) | ✅ |
@@ -113,7 +112,7 @@ Everything in the feature table above ships in v0.1.0: the full systems language
 
 The theme is making Eskiu a practical language for concurrent backend services:
 real async I/O, an HTTP stack, and the everyday stdlib + tooling that adoption
-needs. v0.1.0 is frozen at its tag; v0.2.0 shipped the items below. The current release is **v0.6.0**: a memory-safety + stdlib release (`defer`/`errdefer`, slices `T[]`, `must_use`, `--safe`, `?*T`, plus the `<random>`/`<regex>`/`<sort>`/`<url>`/`<uuid>` modules and a UTC calendar in `<time>`) over the v0.5 basic-C surface release and the v0.3 self-hosting milestone (see the sections below).
+needs. v0.1.0 is frozen at its tag; v0.2.0 shipped the items below. The current release is **v0.8.0** (Windows parity, operator overloading, and exhaustive `match` on plain enums), over the v0.7.0 cross-compilation release and the v0.6.0 memory-safety + stdlib release, on top of the v0.5 basic-C surface release and the v0.3 self-hosting milestone (see the sections below).
 
 Tracking checklist (checked = landed on `develop`).
 
@@ -146,6 +145,7 @@ Phase 3 rounds out ergonomics and tooling.
   - [ ] **Tighter locals-across-await liveness** *(deferred: optimization, not a fix)*. Only hoist a local to the frame struct if it is live across an `await`; non-crossing locals could stay stack temporaries (smaller frames). Deliberately deferred: the current "hoist all locals" is correct and leak-free; the optimization needs a sound dataflow liveness pass over branches/loops where any error miscompiles a coroutine (a crossing local left on the stack), for a marginal frame-size win. Worth doing only with a proper liveness pass + fuzzing, not speculatively.
 - [x] **Channels** (`<channel>`): an async, bounded message channel integrated with the `Future` model: `chan_recv(ch)` is a `*Future<T>` that completes when an item is available, `chan_send(ch, v)` enqueues or hands off directly to a parked receiver. v1: bounded ring, single outstanding receiver, non-blocking send; generic and leak-free. (Multi-consumer / async backpressure-send and cross-thread atomics are later additions.)
 - [x] **Sum types (algebraic enums + `match`)**: payload-bearing `enum` variants make the enum a tagged union; variants are constructed by name and destructured with `match` (binds payload fields per arm). **Complete**: concrete + **generic** payload variants (`Option<T>`/`Either<A,B>`, monomorphized per instantiation; generic construction via explicit type args `Some<int>(5)`), `match` with payload binding + `_` default + **exhaustiveness** (missing-variant / duplicate-arm errors); classic int enums unchanged. Tests: `enum_adt`, `enum_generic`, `errors/match_nonexhaustive`.
+- [x] **Exhaustiveness for classic (payload-less) enums (DONE).** `match` now accepts a plain `enum { V1, V2 }` and checks it exhaustively (missing-variant / duplicate-arm errors, `_` default), the same guarantee ADT enums already had: adding a variant turns every unhandled `match` into a compile error. Lowered as a switch on the enum's int value (cases keyed by each variant's constant, so explicit `= N` is respected); a classic enum keeps its nominal name on a variable/param so `match` can recover the variant set, and still behaves as an int everywhere else. Landed lockstep in both compilers (the self-host sema already checked exhaustiveness; only its codegen needed the value-switch). Surfaced dogfooding the ine-qr decoder (a `QRFormat { V1, V2 }` dispatch that could only be `if`-chained). Tests: `enum_match`, `errors/match_plain_nonexhaustive`.
 - [x] **Generic value-returning `select`/`join`** (`<futureval>`): `select2v<A,B>` resolves with the winner's value as `Either<A,B>` (loser dropped); `join2v<A,B>` resolves with both as a `Pair<A,B>`. Built on generic algebraic enums; leak-free. Tests: `select_value`, `join_value`.
 - [x] `<http2>`: HTTP/2 (RFC 7540) over the event loop (see `docs/dev/http2-design.md`). Complete: the 9-byte frame-header codec, frame-type + flag constants, and connection preface; the connection lifecycle (SETTINGS/ACK, PING/PONG, GOAWAY) over async reads; HPACK (`<hpack>` + `<hpack_huffman>`, RFC 7541: static + dynamic table, prefix integers, string literals, and RFC-generated Huffman); the per-stream state machine with credit-based flow control and the HEADERS/DATA/WINDOW_UPDATE/RST_STREAM codecs; the multiplexed server API (`<http2_server>`, `http2_serve_async`) reusing `<http>`'s request/response types; and TLS/ALPN (`<tls>`, libssl by FFI) selecting `h2`, in both blocking thread-per-connection and async single-thread server flavours. Verified end-to-end against `curl --http2`. Depends on `<eventloop>` for non-blocking multiplexing
 - [x] `<string>`: `split` (List + streaming token iterator), `trim`, `starts_with`, `ends_with`
@@ -295,9 +295,23 @@ practical stdlib modules. Each landed as granular per-layer commits.
   self-hosted codegen is also feature-complete against the C++ corpus (shipped in v0.3.0).
   Remaining for v1.0: a package manager, and promoting the Eskiu-written compiler to the
   primary build (it currently rides alongside the C++ `eskiuc`): staged, parity-gated
-  plan in `selfhost/PROMOTION_PLAN.md` (folds in the open self-host residuals: async `for-in`
-  element typing and the keyword-as-identifier diagnostic mirror; parse-parity corpus
-  expansion shipped in v0.3.1)
+  plan in `selfhost/PROMOTION_PLAN.md`. Progress: the keyword-as-identifier diagnostic
+  mirror (R3) and the driver stages P0 (native `-o` link via clang), P1 (full CLI
+  parity: all `--test-*` modes, `--version`, `--asan`/`--ubsan`, multi-file input), and
+  P2 (`run` execs a temp exe forwarding argv and propagates the exit code; `fmt` reindents
+  byte-identically to the C++ formatter over the whole corpus), and P3 (whole-corpus
+  behavioral equivalence: every positive test compiled by the Eskiu-built compiler produces
+  the same exit + stdout as C++, and the self-host checker rejects every error class with
+  the same verdict, both CI-gated) are done; every parity gate drives through the unified
+  `esk_main`. P4 landed as a **dual-build**: CMake builds the Eskiu-written compiler as
+  `eskiuc-esk` alongside the C++ seed (CI-built and behavior-gated), but the self-contained
+  C++ binary stays the *shipped* artifact, because the self-host links via clang (no LLVM
+  bindings) and shipping it would add a clang runtime requirement. The `for-in`
+  element-typing refactor (R1) also landed: sema stamps the loop-variable type and the
+  lowering consumes it with a structural fallback, matching the C++ `resolvedElemType`
+  shape. The whole promotion (R1-R3 -> P0-P4) is complete. Remaining for v1.0: a package
+  manager and an eventual shipped flip (gated on object emission or accepting the clang
+  dependency). Parse-parity corpus expansion shipped in v0.3.1.
 - First-class types for high-throughput services
 
 ---
@@ -316,14 +330,17 @@ linking, per-platform stdlib branches, and toolchain/distribution integration, n
 - [x] COFF object emission for Windows targets (shipped v0.7.0; Mach-O and ELF already worked)
 - [ ] Per-target linking: emit `.o`/`.a`/`.so` and hand off to the platform's native linker/SDK (the Unix `cc`/`clang` auto-link does not cross platforms)
 - [x] Predefined OS macros: `_WIN32` / `_WIN64` ship in v0.7.0 (`--target …-windows-…`); `__ANDROID__` and iOS still pending, extending the existing `__APPLE__` / `__linux__`
-- [ ] stdlib platform branches where the API differs (sockets, threads)
-- [ ] CI runners: Windows, plus NDK and Xcode for mobile
+- [x] stdlib platform branches where the API differs (sockets, threads, page alloc, clocks)
+- [x] CI runner: Windows (`windows.yml`, native runner); NDK and Xcode for mobile still pending
 
 **Windows (host + target)**
-- [ ] Build `eskiuc` on Windows (LLVM + CMake, MSVC or MinGW)
-- [ ] Windows linker integration (`link.exe` / `lld-link`)
-- [ ] `<net>` over Winsock2 (`WSAStartup`, `closesocket`, link `ws2_32`)
-- [ ] `thread_create`/`thread_join` over Win32 threads (no native pthreads)
+- [x] Build `eskiuc` on Windows (LLVM + CMake, MinGW via MSYS2)
+- [x] Windows linker integration (mingw `g++` for hosted; `lld-link` + `llvm-dlltool` for freestanding)
+- [x] Exceptions: mingw SEH EH personality (`__gxx_personality_seh0`)
+- [x] `<sysheap>` over `VirtualAlloc`/`VirtualFree` (no `mmap`); `<time>` over the Win32 clocks
+- [x] `<net>` over Winsock2 (`WSAStartup`, `closesocket`, link `ws2_32`)
+- [x] `thread_create`/`thread_join` over Win32 threads (winpthreads)
+- [x] Async: `<eventloop>` WSAPoll reactor + `<net_async>` (`ioctlsocket`/`recv`/`send`)
 
 **Android (native library via JNI)**
 - [ ] Cross-compile to `aarch64-linux-android` against the NDK (bionic libc)
@@ -355,3 +372,29 @@ Not scheduled, and gated on `<http2>` landing first. In practice it is rarely
 needed at the application layer: a reverse proxy (nginx, Caddy, Cloudflare)
 terminates HTTP/2 and HTTP/3 at the edge and speaks HTTP/1.1 (or HTTP/2) to an
 Eskiu backend, so the `<http>` we have already benefits from h2/h3 on the wire.
+
+## Compile-time type introspection / `derive` (future track, not scheduled)
+
+Eskiu has no reflection, and runtime reflection (RTTI, dynamic field enumeration) is a
+non-goal: it would add type metadata to every binary and a runtime type table, which
+breaks the zero-runtime, pay-for-what-you-use contract that is the point of the language.
+Most of what people reach for reflection to do is already covered without it: generics
+(monomorphized) handle "generic over any type", and structural interfaces handle "call a
+method on anything that has it".
+
+The one genuine gap is deriving code from a type's shape (serialization to JSON/binary, a
+generic struct printer, ORM-style mapping). The idiomatic systems-language answer is
+**compile-time** introspection feeding code generation, not runtime RTTI, the way Zig's
+`@typeInfo`/comptime and Rust's `derive` macros work. It is zero cost: the compiler walks
+the fields at compile time and emits the `serialize`/`print` body, with no metadata left in
+the binary.
+
+- [ ] A `derive`-style mechanism: the compiler enumerates a struct's fields at compile time
+  and generates a method body from them. Most of the machinery already exists (`CgStruct`
+  carries the field names and types the codegen would iterate), so this is a front-end +
+  codegen feature, not a runtime one.
+
+Not scheduled, and explicitly post-1.0: it adds new language surface, which is on hold while
+the self-hosting promotion (road to v1.0) closes out. Revisit only if a concrete need
+(serialization is the likely one) makes the `derive` worth its complexity; runtime
+reflection stays off the table regardless.

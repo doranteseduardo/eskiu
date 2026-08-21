@@ -27,7 +27,7 @@ if [ -z "$BIN" ]; then
     else echo "parse_parity: cannot find eskiuc (set ESKIUC or build it)"; exit 2; fi
 fi
 
-DRIVER=selfhost/parse_main.esk
+DRIVER=selfhost/esk_main.esk
 
 # Compile the Eskiu driver ONCE to a native binary and run that per file — far
 # faster than `eskiuc run DRIVER FILE` (which recompiles the driver every time),
@@ -83,7 +83,7 @@ for f in "${files[@]}"; do
     esac
     total=$((total + 1))
     ref=$(printf '%s' "$rawref" | strip_banner)
-    got=$("$PBIN" "$f" 2>/dev/null)
+    got=$(ESKIU_ROOT="$(pwd)" "$PBIN" --test-parser "$f" 2>/dev/null)
     if [ "$ref" = "$got" ]; then
         echo "ok    $f"
     else

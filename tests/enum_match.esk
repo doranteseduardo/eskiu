@@ -1,0 +1,29 @@
+// match on a classic (payload-less) enum: exhaustiveness-checked dispatch over the variant
+// set, cases keyed by each variant's constant (respecting explicit `= N`), and a `_` default.
+extern int printf(string fmt, ...);
+
+enum Dir    { N, E, S, W }
+enum Status { Ok = 0, Err = 2, Pending }   // 0, 2, 3
+
+int dx(Dir d) {
+    match d {
+        N -> { return 0; }
+        E -> { return 1; }
+        S -> { return 0; }
+        W -> { return 0 - 1; }
+    }
+    return 99;
+}
+int code(Status s) {
+    match s {
+        Ok  -> { return 200; }
+        Err -> { return 500; }
+        _   -> { return 0; }               // covers Pending
+    }
+    return -1;
+}
+int main() {
+    printf("%d %d %d %d\n", dx(N), dx(E), dx(S), dx(W));        // 0 1 0 -1
+    printf("%d %d %d\n", code(Ok), code(Err), code(Pending));  // 200 500 0
+    return 0;
+}

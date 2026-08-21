@@ -15,11 +15,24 @@ import <future>;
 import <eventloop>;
 import <net>;
 
+// Socket I/O + non-blocking mode + the "would block" errno, all platform-specific. On
+// Windows a socket is not a file descriptor, so read/write/fcntl/errno do not apply: use
+// recv/send, ioctlsocket, and WSAGetLastError. `_net_read`/`_net_write` unify the two so the
+// async bodies below stay platform-agnostic.
+#ifdef _WIN32
+extern int WSAGetLastError();
+extern int ioctlsocket(int fd, int cmd, *int argp);
+int _net_errno() { return WSAGetLastError(); }
+const int _NET_EAGAIN = 10035;   // WSAEWOULDBLOCK
+// FIONBIO = 0x8004667E as a signed 32-bit value (its top bit is set).
+void net_set_nonblocking(int fd) { int one = 1; ioctlsocket(fd, 0 - 2147195266, &one); }
+int64 _net_read(int fd, *void buf, int64 n)  { return recv(fd, buf, n, 0); }
+int64 _net_write(int fd, *void buf, int64 n) { return send(fd, buf, n, 0); }
+#else
 extern int64 read(int fd, *void buf, int64 n);
 extern int64 write(int fd, *void buf, int64 n);
 extern int   fcntl(int fd, int cmd, int arg);
 
-// errno (for EAGAIN/EWOULDBLOCK detection) + O_NONBLOCK, both platform-specific.
 #ifdef __APPLE__
 extern *int __error();
 int _net_errno() { return *__error(); }
@@ -38,6 +51,9 @@ void net_set_nonblocking(int fd) {
     int fl = fcntl(fd, 3, 0);
     fcntl(fd, 4, fl | _NET_NONBLOCK);
 }
+int64 _net_read(int fd, *void buf, int64 n)  { return read(fd, buf, n); }
+int64 _net_write(int fd, *void buf, int64 n) { return write(fd, buf, n); }
+#endif
 
 // Write all `len` bytes of `buf` to `fd` without blocking the loop: write what
 // the socket buffer accepts, then park on writability and resume when it drains,
@@ -50,7 +66,7 @@ Future<int>* net_write_async(EventLoop* lp, int fd, *uint8 buf, int64 len) {
     f.on_drop = void() { el_del_free(lp, fd); free((*void)sent); };
     el_add_write(lp, fd, void(EventLoop* l, int wfd) {
         while (*sent < len) {
-            int64 w = write(wfd, (*void)(buf + *sent), len - *sent);
+            int64 w = _net_write(wfd, (*void)(buf + *sent), len - *sent);
             if (w > (int64)0) { *sent = *sent + w; }
             else if (w < (int64)0 && _net_errno() == _NET_EAGAIN) { return; }  // buffer full: wait
             else { el_del(l, wfd); future_complete<int>(f, -1); return; }       // hard error / 0
@@ -85,7 +101,7 @@ Future<int>* net_read_async(EventLoop* lp, int fd, *uint8 buf, int64 cap) {
     // and its callback env. future_drop frees the future struct itself.
     f.on_drop = void() { el_del_free(lp, fd); };
     el_add_read(lp, fd, void(EventLoop* l, int rfd) {
-        int64 n = read(rfd, (*void)buf, cap);
+        int64 n = _net_read(rfd, (*void)buf, cap);
         el_del(l, rfd);                          // one-shot; el_run frees this env on return
         future_complete<int>(f, (int)n);         // resumes the awaiter (loop thread)
     });

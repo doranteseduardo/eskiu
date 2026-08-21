@@ -1,17 +1,21 @@
 // mem stdlib — heap allocation and the libc memory functions.
 
-// Heap allocation. `alloc<T>(n)` returns a `*T` for n elements; `free(p)`
-// releases it. Under --freestanding these target the user-provided
-// esk_alloc/esk_free (no libc); otherwise they use libc malloc/free.
+// Heap allocation. `alloc<T>(n)` returns a `*T` for n zero-initialized elements;
+// `free(p)` releases it. Memory comes back ZEROED (a null pointer is null, an int is
+// 0, a List is a valid empty list): reading a field before you set it is defined, not
+// a garbage read. This matches C++'s `new T()` and removes the whole uninitialized-read
+// crash class that only bit on platforms whose raw heap is not already zero.
+// Under --freestanding these target the user-provided esk_alloc/esk_free (no libc),
+// whose contract is likewise "return zeroed memory"; otherwise they use libc calloc/free.
 #ifdef __ESKIU_FREESTANDING__
 extern *void esk_alloc(int64 nbytes);
 extern void  esk_free(*void p);
 must_use *T alloc<T>(int64 n) { return (*T)esk_alloc(n * sizeof(T)); }
 void free(*void p)     { esk_free(p); }
 #else
-extern *void malloc(int64 nbytes);
+extern *void calloc(int64 count, int64 size);
 extern void  free(*void p);
-must_use *T alloc<T>(int64 n) { return (*T)malloc(n * sizeof(T)); }
+must_use *T alloc<T>(int64 n) { return (*T)calloc(n, sizeof(T)); }
 #endif
 
 extern *void memcpy(*void dst, *void src, int64 n);

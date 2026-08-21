@@ -86,7 +86,7 @@ footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
 <body>
   <header class="top">
     <div class="top-in">
-      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.7.0</span></a>
+      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.8.0</span></a>
       <nav class="top-links">
         <a href="index.html">docs</a>
         <a href="../the-book-of-eskiu.html">book</a>
@@ -146,7 +146,7 @@ Codegen checks: single alloca per var, every branch terminated, no undef, correc
 <li>[ ] Docs updated if behavior changed</li>
 </ul>
 <h2 id="current-focus">Current Focus</h2>
-<p>v0.6.0, over the v0.5 basic-C surface release and the v0.3 self-hosting milestone. The whole compiler is reimplemented in Eskiu under <code>selfhost/</code>, parity-gated against the C++ <code>eskiuc</code>, reaching a 3-stage bootstrap fixpoint with a code generator feature-complete against the C++ corpus. The focus stays on correctness and completing the C surface, not open-ended language growth:
+<p>v0.8.0 (Windows parity, operator overloading, exhaustive plain-enum <code>match</code>), over the v0.7.0 cross-compilation release, the v0.6.0 memory-safety + stdlib release, the v0.5 basic-C surface release, and the v0.3 self-hosting milestone. The whole compiler is reimplemented in Eskiu under <code>selfhost/</code>, parity-gated against the C++ <code>eskiuc</code>, reaching a 3-stage bootstrap fixpoint with a code generator feature-complete against the C++ corpus. The focus stays on correctness and completing the C surface, not open-ended language growth:
 - v0.6.0 is a memory-safety + stdlib release, in the Zig spirit (compile-time checks and opt-in runtime guards, no borrow checker): <code>defer</code>/<code>errdefer</code> for leak-proof cleanup, the slice type <code>T[]</code>, the <code>must_use</code> qualifier, the <code>--safe</code> bounds-checking build mode, and the checked nullable pointer <code>?*T</code>; plus the <code>&lt;random&gt;</code>, <code>&lt;regex&gt;</code>, <code>&lt;sort&gt;</code>, <code>&lt;url&gt;</code>, and <code>&lt;uuid&gt;</code> stdlib modules and a UTC civil calendar in <code>&lt;time&gt;</code>.
 - v0.5.0 filled the last common C constructs the language was missing (<code>do</code>/<code>while</code>, prefix/postfix <code>++</code>/<code>--</code>, array-literal initializers, <code>static</code> locals, multidimensional arrays <code>T[N][M]</code>, and the ternary <code>cond ? a : b</code>), each landed in lockstep across both compilers so idiomatic C ports compile without workarounds.
 - v0.4.0 was a four-front bug hunt (behavioral differential, sema soundness, synthesized-default audit, feature edges) that fixed a batch of miscompiles and crashes across both compilers and tightened the type system (floating-point to integer needs an explicit cast; out-of-range literals, division by a literal zero, uninitialized reads, dangling <code>&amp;local</code>, function redefinition, and non-void fall-through are errors). The self-host sema's matching checks are deferred to the promotion track.

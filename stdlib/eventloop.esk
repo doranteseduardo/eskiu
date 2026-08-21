@@ -105,6 +105,67 @@ int _el_wait(int kq, *EvNative evs, *int fds, int max, int64 timeout_ms) {
     return n;
 }
 
+#else
+#ifdef _WIN32  // Windows: WSAPoll
+
+// Unlike epoll/kqueue (kernel-side interest state), WSAPoll is stateless: it takes the whole
+// pollfd array each call. So the interest set lives in a user-space table, rebuilt in place by
+// _el_ctl and handed to WSAPoll by _el_wait. One event loop is assumed (a single global set).
+extern int WSAPoll(*void fdarray, int nfds, int timeout);
+
+// WSAPOLLFD: { SOCKET fd; SHORT events; SHORT revents; }. On x64 SOCKET is 8 bytes and forces
+// 8-byte alignment, so the record is 16 bytes: fd@0, events@8, revents@10, then 4 pad.
+packed struct EvNative {
+    int64 fd;
+    int16 events;
+    int16 revents;
+    int32 _pad;
+}
+
+// POLLRDNORM = 0x0100, POLLWRNORM = 0x0010 (the readiness bits WSAPoll reports/accepts).
+const int _EL_POLLRD = 256;
+const int _EL_POLLWR = 16;
+
+struct _ElPollSet { EvNative[4096] pfds; int n; }
+_ElPollSet _el_wsa;
+
+int _el_backend_new() { _el_wsa.n = 0; return 0; }   // state is the global set; the id is unused
+
+int _el_wsa_find(int fd) {
+    int i = 0;
+    while (i < _el_wsa.n) { if (_el_wsa.pfds[i].fd == (int64)fd) { return i; } i = i + 1; }
+    return -1;
+}
+
+// Set fd's interest: mode 0 = none (drop), 1 = readable, 2 = writable.
+void _el_ctl(int backend, int fd, int mode, int wasActive) {
+    int idx = _el_wsa_find(fd);
+    if (mode == 0) {                                   // remove: swap with the last entry
+        if (idx >= 0) { _el_wsa.pfds[idx] = _el_wsa.pfds[_el_wsa.n - 1]; _el_wsa.n = _el_wsa.n - 1; }
+        return;
+    }
+    int16 ev = (int16)_EL_POLLRD;
+    if (mode == 2) { ev = (int16)_EL_POLLWR; }
+    if (idx < 0) {                                     // first registration
+        idx = _el_wsa.n;  _el_wsa.n = _el_wsa.n + 1;
+        _el_wsa.pfds[idx].fd = (int64)fd;
+    }
+    _el_wsa.pfds[idx].events  = ev;
+    _el_wsa.pfds[idx].revents = 0;
+}
+
+int _el_wait(int backend, *EvNative evs, *int fds, int max, int64 timeout_ms) {
+    if (_el_wsa.n == 0) { return 0; }                  // WSAPoll rejects a 0-length set
+    int r = WSAPoll((*void)&_el_wsa.pfds[0], _el_wsa.n, (int)timeout_ms);
+    if (r <= 0) { return 0; }                          // 0 = timeout, <0 = error
+    int cnt = 0;  int i = 0;
+    while (i < _el_wsa.n && cnt < max) {
+        if (_el_wsa.pfds[i].revents != 0) { fds[cnt] = (int)_el_wsa.pfds[i].fd; cnt = cnt + 1; }
+        i = i + 1;
+    }
+    return cnt;
+}
+
 #else  // Linux: epoll
 
 extern int epoll_create1(int flags);
@@ -139,6 +200,7 @@ int _el_wait(int ep, *EvNative evs, *int fds, int max, int64 timeout_ms) {
 }
 
 #endif
+#endif
 
 // ── Public API ───────────────────────────────────────────────────────────────
 
@@ -150,27 +212,19 @@ EventLoop* el_new(int max_fds) {
     lp.cap     = max_fds;
     lp.slots   = alloc<EvHandler>(max_fds);
     int i = 0;
-    // `alloc` does not zero: initialize EVERY field, including the `on_read`
-    // closure. Dispatch is guarded by `active`, but leaving `on_read` as heap
-    // garbage means any stray read invokes a garbage function pointer (a SIGILL
-    // on Linux, where fresh allocations aren't zero as they happen to be on macOS).
+    // alloc zeroes the slot (active/gen/isWrite = 0, on_read = null). A null on_read is
+    // never dispatched (the loop guards on `active == 0`), but install a no-op closure so
+    // that even a stray dispatch is a safe no-op rather than a null-function-pointer call.
     while (i < max_fds) {
-        lp.slots[i].active  = 0;
-        lp.slots[i].gen     = 0;
-        lp.slots[i].isWrite = 0;
         lp.slots[i].on_read = void(EventLoop* e, int fd) {};
         i = i + 1;
     }
     lp.tcap    = max_fds;
     lp.timers  = alloc<EvTimer>(max_fds);
     int t = 0;
-    // Same as the slots above: `alloc` does not zero, so initialize EVERY field —
-    // including the `on_fire` closure. Firing is guarded by `active`, but leaving
-    // `on_fire` as heap garbage means a stray fire would invoke a garbage function
-    // pointer (the Linux SIGILL signature). (v0.3.1 fixed on_read but missed this.)
+    // Same as the slots: alloc zeroes the timer (active = 0, on_fire = null); install a
+    // no-op so a stray fire is safe rather than a null call.
     while (t < max_fds) {
-        lp.timers[t].active   = 0;
-        lp.timers[t].deadline = (int64)0;
         lp.timers[t].on_fire  = void() {};
         t = t + 1;
     }
@@ -203,9 +257,27 @@ void el_del_timer(EventLoop* lp, int id) {
     }
 }
 
+// Grow the fd-indexed slot table so `slots[fd]` is valid. POSIX fds are small and dense, so
+// this rarely fires; Windows SOCKET handles are large and sparse (e.g. 236), so a fixed
+// `el_new(max)` would silently drop their registration. Doubling keeps the table valid for
+// any fd while staying O(fds) overall.
+void _el_ensure_slots(EventLoop* lp, int fd) {
+    if (fd < lp.cap) { return; }
+    int newcap = lp.cap * 2;
+    while (newcap <= fd) { newcap = newcap * 2; }
+    EvHandler* ns = alloc<EvHandler>(newcap);
+    int i = 0;
+    while (i < lp.cap) { ns[i] = lp.slots[i]; i = i + 1; }               // keep existing registrations
+    while (i < newcap) { ns[i].on_read = void(EventLoop* e, int fd) {}; i = i + 1; }   // no-op the rest
+    free((*void)lp.slots);
+    lp.slots = ns;
+    lp.cap   = newcap;
+}
+
 // Register `fd` for read-readiness; `cb` fires each time it is readable.
 void el_add_read(EventLoop* lp, int fd, escaping fn(EventLoop*, int)->void cb) {
-    if (fd < 0 || fd >= lp.cap) { return; }
+    if (fd < 0) { return; }
+    _el_ensure_slots(lp, fd);
     int was = lp.slots[fd].active;
     lp.slots[fd].on_read = cb;
     lp.slots[fd].active  = 1;
@@ -218,7 +290,8 @@ void el_add_read(EventLoop* lp, int fd, escaping fn(EventLoop*, int)->void cb) {
 // async write path and the non-blocking TLS pump. A fd waits for read OR write
 // at a time; this replaces any prior read interest on the fd.
 void el_add_write(EventLoop* lp, int fd, escaping fn(EventLoop*, int)->void cb) {
-    if (fd < 0 || fd >= lp.cap) { return; }
+    if (fd < 0) { return; }
+    _el_ensure_slots(lp, fd);
     int was = lp.slots[fd].active;
     lp.slots[fd].on_read = cb;
     lp.slots[fd].active  = 1;

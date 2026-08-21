@@ -1,0 +1,7 @@
+// Two module-level `const int`s with the same name: the reference must fold to the LATER
+// definition (last-wins, like the C++ back-end), and the emitted globals must be uniquely
+// named so clang does not reject a redefinition of `@X`.
+import <io>;
+const int X = 5;
+const int X = 4;
+int main() { printf("%d\n", X); return 0; }   // 4

@@ -86,7 +86,7 @@ footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
 <body>
   <header class="top">
     <div class="top-in">
-      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.7.0</span></a>
+      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.8.0</span></a>
       <nav class="top-links">
         <a href="index.html">docs</a>
         <a href="../the-book-of-eskiu.html">book</a>
@@ -107,11 +107,25 @@ pipeline is <strong>reimplemented in Eskiu</strong> under <code>selfhost/</code>
 <pre><code>lexer.esk → preprocessor.esk → parser.esk → sema.esk → async_lower.esk → codegen.esk
 </code></pre>
 <p>with drivers <code>lex_main</code>, <code>pp_main</code>, <code>parse_main</code>, <code>tc_main</code>, <code>cg_main</code>, and the unified
-<code>esk_main</code> (preprocess → parse → type-check → generate). The code generator emits <strong>LLVM IR
-as text</strong> (no LLVM library is linked), which <code>clang</code> then assembles and links. This keeps
-the self-hosted compiler dependency-free and is the standard bootstrap path.</p>
-<p>The endgame (v1.0): <code>eskiuc</code> compiles its own source. v0.3.0 reaches the key milestones on
-the way there: a 3-stage bootstrap fixpoint and feature-completeness against the C++ corpus.</p>
+<code>esk_main</code> (preprocess → parse → type-check → generate). On the promotion track (see
+<code>selfhost/PROMOTION_PLAN.md</code>) <code>esk_main</code> has grown into the full user-facing CLI: it
+dispatches every <code>--test-*</code> debug mode plus <code>--version</code>, takes multiple input files, and
+with <code>-o</code> assembles the IR and invokes <code>clang</code> to link a native binary (threading
+<code>--asan</code>/<code>--ubsan</code> into the link). It also owns the two subcommands: <code>run script.esk
+[args...]</code> compiles to a temp exe, execs it forwarding argv, and propagates the exit code;
+<code>fmt [--check] file …</code> reindents in place via <code>fmt.esk</code>. The four per-pass parity gates
+drive <em>through</em> <code>esk_main --test-*</code>, and <code>run</code>/<code>fmt</code> have their own parity gates
+(<code>run_parity.sh</code>, <code>fmt_parity.sh</code>). The code generator emits <strong>LLVM IR as text</strong> (no LLVM library is
+linked), which <code>clang</code> then assembles and links. This keeps the self-hosted compiler
+dependency-free and is the standard bootstrap path.</p>
+<p>The endgame (v1.0): <code>eskiuc</code> compiles its own source. v0.3.0 reached the key milestones (a
+3-stage bootstrap fixpoint and feature-completeness against the C++ corpus), and the
+promotion track (<code>selfhost/PROMOTION_PLAN.md</code>) has since finished it: <code>esk_main</code> is the full
+CLI, and the Eskiu-written compiler is now <em>behaviorally equivalent</em> to the C++ one over the
+whole corpus (positive output + negative verdict/diagnostic, CI-gated) and is dual-built by
+CMake as <code>eskiuc-esk</code>. The C++ binary stays the shipped artifact (the self-host links via
+clang, so shipping it would add a runtime clang requirement); it is the bootstrap seed and
+the differential oracle.</p>
 <h2 id="validation-parity-oracles-not-faith">Validation: parity oracles, not faith</h2>
 <p>Each pass is validated against the C++ <code>eskiuc</code>, which is the oracle. The method differs by
 phase, because the available ground truth differs:</p>
@@ -137,7 +151,12 @@ phase, because the available ground truth differs:</p>
 </tr>
 </tbody>
 </table></div>
-<p>These run as CI gates: <code>tests/selfhost/{lex,parse,pp,tc,cg}_parity.sh</code>.</p>
+<p>These run as CI gates: <code>tests/selfhost/{lex,parse,pp,tc,cg}_parity.sh</code>, plus the
+promotion-track gates that exercise the whole driver end to end: <code>cg_bootstrap.sh</code> (the
+3-stage self-host fixpoint), <code>driver_parity.sh</code> / <code>run_parity.sh</code> / <code>fmt_parity.sh</code> (the
+<code>-o</code> / <code>run</code> / <code>fmt</code> CLI paths), and <code>corpus_parity.sh</code> (P3: every positive test compiled by
+the Eskiu-built compiler produces the same exit + stdout as C++). The negative-corpus
+verdict + diagnostic parity is part of <code>tc_parity.sh</code>.</p>
 <h2 id="the-bootstrap-fixpoint">The bootstrap fixpoint</h2>
 <p>Beyond per-pass parity, the self-hosted compiler is validated <strong>against itself</strong>:</p>
 <ul>

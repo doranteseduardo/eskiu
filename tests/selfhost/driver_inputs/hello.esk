@@ -1,0 +1,2 @@
+extern int printf(string fmt, ...);
+int main() { printf("Hello from Eskiu!\n"); return 0; }

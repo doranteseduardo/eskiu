@@ -99,3 +99,25 @@ lld-link /entry:mainCRTStartup /subsystem:console app.obj kernel32.lib /out:app.
 A freestanding program provides its own entry point (`/entry:`) and calls Win32 directly.
 A hosted program instead links the MinGW or MSVC C runtime and uses the ordinary `main`.
 The resulting `.exe` runs on Windows, or under `wine` for local testing.
+
+Exceptions (`try`/`throw`/`catch`) work on a mingw target: the compiler emits the SEH EH
+personality (`__gxx_personality_seh0`) there instead of the Itanium `__gxx_personality_v0`,
+so linking with a mingw `g++` (which supplies the `__cxa_*` runtime and the SEH unwinder)
+produces a working `.exe`. This is exercised end to end on a native Windows runner in
+`.github/workflows/windows.yml`.
+
+The OS-level stdlib modules carry Windows backends: `<sysheap>` maps pages with
+`VirtualAlloc`/`VirtualFree` (no `mmap`), `<time>` uses the Win32 clocks (`GetTickCount64`,
+`GetSystemTimeAsFileTime`, `Sleep`), `<threading>` links against winpthreads, and `<net>`
+(blocking TCP: listen/accept/connect/send/recv) uses the Winsock backend (`WSAStartup` +
+`closesocket`, link `-lws2_32`). A blocking, thread-per-connection server works on Windows
+with these. Each has an end-to-end check on a native Windows runner in
+`.github/workflows/windows.yml`.
+
+The **async** stack runs on Windows too. `<eventloop>` swaps its epoll/kqueue reactor for
+`WSAPoll` over a user-space pollfd set (rebuilt each wait, since `WSAPoll` is stateless), and
+`<net_async>` uses `ioctlsocket(FIONBIO)` + `recv`/`send` + `WSAGetLastError` in place of
+`fcntl(O_NONBLOCK)` + `read`/`write` + errno. One Windows subtlety: a `SOCKET` is not a small
+sequential fd (handles like 236 are normal), so the loop's fd-indexed slot table grows to fit
+the largest handle rather than assuming a dense `[0, max_fds)` range. A non-blocking socket
+round-trip over the reactor is checked end to end on the native Windows runner.

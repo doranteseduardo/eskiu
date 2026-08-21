@@ -1,0 +1,8 @@
+extern int printf(string fmt, ...);
+struct P { int x; int y; }
+int P_sum(P* self) { return self.x + self.y; }
+int main() {
+    P p = P{3, 4};
+    printf("sum=%d area=%d\n", P_sum(&p), p.x * p.y);
+    return 0;
+}
