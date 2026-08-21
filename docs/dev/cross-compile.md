@@ -105,3 +105,9 @@ personality (`__gxx_personality_seh0`) there instead of the Itanium `__gxx_perso
 so linking with a mingw `g++` (which supplies the `__cxa_*` runtime and the SEH unwinder)
 produces a working `.exe`. This is exercised end to end on a native Windows runner in
 `.github/workflows/windows.yml`.
+
+The OS-level stdlib modules carry Windows backends: `<sysheap>` maps pages with
+`VirtualAlloc`/`VirtualFree` (no `mmap`), `<time>` uses the Win32 clocks (`GetTickCount64`,
+`GetSystemTimeAsFileTime`, `Sleep`), and `<threading>` links against winpthreads. Link a
+program that uses them with a mingw `g++ ... -lpthread`. The async/networking stack
+(`<eventloop>`/`<net>`, built on epoll/kqueue) is not yet ported to Windows IOCP.
