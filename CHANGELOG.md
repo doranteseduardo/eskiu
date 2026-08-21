@@ -10,6 +10,15 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ## [Unreleased]
 ### Fixed
+- **The async stack runs on Windows.** `<eventloop>` gained a `WSAPoll` reactor (a user-space
+  pollfd set rebuilt each wait, since `WSAPoll` keeps no kernel state) alongside kqueue/epoll,
+  and `<net_async>` gained a Winsock backend (`ioctlsocket(FIONBIO)` for non-blocking mode,
+  `recv`/`send`, `WSAGetLastError` with `WSAEWOULDBLOCK`) beside the `fcntl`/`read`/`write`
+  path. A Windows `SOCKET` is not a small sequential fd (handle values in the hundreds are
+  normal), so the loop's fd-indexed slot table now grows to fit the largest handle instead of
+  silently dropping registrations past a fixed `max_fds`. Validated end to end on a native
+  Windows runner: a non-blocking socket round-trip completes over the reactor. POSIX behavior
+  is unchanged (small dense fds never trigger a grow).
 - **Windows platform shims for the OS-level stdlib.** `<sysheap>` now carves pages with
   `VirtualAlloc`/`VirtualFree` on Windows (it has no `mmap`), and `<time>` uses the Win32
   clocks (`GetTickCount64` for the monotonic clock, `GetSystemTimeAsFileTime` for wall time,
