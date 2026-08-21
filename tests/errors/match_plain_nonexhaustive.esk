@@ -1,0 +1,4 @@
+// EXPECT-ERROR: non-exhaustive match
+enum Dir { N, E, S, W }
+int f(Dir d) { match d { N -> {} E -> {} } return 0; }
+int main() { return f(N); }

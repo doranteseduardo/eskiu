@@ -275,6 +275,7 @@ std::string tokenTypeToString(TokenType type) {
         case TokenType::INTERFACE: return "INTERFACE";
         case TokenType::ENUM: return "ENUM";
         case TokenType::FN: return "FN";
+        case TokenType::OPERATOR: return "OPERATOR";
         case TokenType::ASM: return "ASM";
         case TokenType::VOLATILE:      return "VOLATILE";
         case TokenType::STATIC:        return "STATIC";

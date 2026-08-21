@@ -212,8 +212,11 @@ string al_generic_data_elem(*Program prog, string sn) {
     int i = lt + 1; int start = i; int depth = 1;
     while (sn[i] != 0 && depth > 0) {
         int ch = (int)sn[i];
-        if (ch == 60) { depth = depth + 1; }
-        else if (ch == 62) { depth = depth - 1; if (depth == 0) { List_push<string>(&args, al_substr(sn, start, i)); } }
+        if (ch == 60 || ch == 40) { depth = depth + 1; }             // '<' or '(' (nested generic / fn params)
+        else if (ch == 41) { if (depth > 0) { depth = depth - 1; } }   // ')'
+        else if (ch == 62 && (i == 0 || (int)sn[i - 1] != 45)) {      // '>' closing a generic, NOT the "->" arrow
+            depth = depth - 1; if (depth == 0) { List_push<string>(&args, al_substr(sn, start, i)); }
+        }
         else if (ch == 44 && depth == 1) { List_push<string>(&args, al_substr(sn, start, i)); start = i + 1; }
         i = i + 1;
     }
@@ -592,6 +595,7 @@ void al_desugar_items(*AlCtx c, List<*StmtNode>* inp, List<*StmtNode>* out) {
         List_push<*StmtNode>(&initb, mk_vardecl(fi, "int", al_int(0), 0));
         *ExprNode cond = mk_bin("<", mk_ident(fi), lengthE);
         *ExprNode step = mk_bin("=", mk_ident(fi), mk_bin("+", mk_ident(fi), al_int(1)));
+        if (s.resolved_elem[0] != 0) { elemTy = s.resolved_elem; }   // prefer the sema-stamped type (R1)
         List<*StmtNode> body; List_init<*StmtNode>(&body, 2);
         List_push<*StmtNode>(&body, mk_vardecl(s.name, elemTy, elemE, 0));
         List_push<*StmtNode>(&body, al_desugar_stmt(c, s.s1));

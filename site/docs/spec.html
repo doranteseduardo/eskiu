@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Language spec · Eskiu docs</title>
-  <meta name="description" content="Version: v0.6.2" />
+  <meta name="description" content="Version: v0.8.0" />
   <link rel="canonical" href="https://eskiu-lang.org/docs/spec.html" />
   <link rel="icon" type="image/png" href="../../assets/logo.png" />
   <style>*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -86,7 +86,7 @@ footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
 <body>
   <header class="top">
     <div class="top-in">
-      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.7.0</span></a>
+      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.8.0</span></a>
       <nav class="top-links">
         <a href="index.html">docs</a>
         <a href="../the-book-of-eskiu.html">book</a>
@@ -98,7 +98,7 @@ footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
     <nav class="docnav"><a href="index.html">Overview</a><a href="getting-started.html">Getting started</a><a href="spec.html" class="active">Spec</a><a href="grammar.html">Grammar</a><a href="build.html">Tooling</a><a href="glossary.html">Glossary</a><a href="internals.html">Internals →</a></nav>
     <div class="content">
 <h1 id="eskiu-language-specification">Eskiu Language Specification</h1>
-<p><strong>Version:</strong> v0.6.2</p>
+<p><strong>Version:</strong> v0.8.0</p>
 <hr>
 <h2 id="1-overview">1. Overview</h2>
 <p>Eskiu is a statically typed, compiled systems language. It lowers to native code through LLVM, manages memory explicitly (no garbage collector), and interoperates directly with C. A <code>.esk</code> file can also be run on the spot with <code>eskiuc run</code> (or a <code>#!/usr/bin/env eskiuc run</code> shebang), so the same source is both a compiled artifact and a runnable script. This document is the language reference: syntax, type system, semantics, and ABI.</p>
@@ -1428,6 +1428,23 @@ f.mode = 2;   // leaves ready and weight untouched
 }
 </code></pre>
 <p>Methods are lowered to regular functions with a leading pointer parameter, e.g., <code>Counter_increment(*Counter self)</code>.</p>
+<h3 id="82a-operator-overloading">8.2a Operator Overloading</h3>
+<p>A type can give meaning to an operator by declaring <code>operator &lt;op&gt;</code>, so <code>a + b</code> reads as algebra instead of a nested call. This is aimed at value types like vectors and matrices, where the notation carries the meaning.</p>
+<pre><code class="language-eskiu">struct V3 { float x; float y; float z; }
+
+V3 operator +(V3 a, V3 b)     { let r: V3; r.x = a.x + b.x; r.y = a.y + b.y; r.z = a.z + b.z; return r; }
+V3 operator *(V3 a, double s) { let r: V3; r.x = a.x * (float)s; r.y = a.y * (float)s; r.z = a.z * (float)s; return r; }
+V3 operator -(V3 a)           { let r: V3; r.x = 0.0 - a.x; r.y = 0.0 - a.y; r.z = 0.0 - a.z; return r; }
+
+V3 p = (q - t) * 2.0;   // resolves to the two operators above
+</code></pre>
+<p>Overloadable: the binary operators <code>+ - * / % == != &lt; &gt; &lt;= &gt;= &amp; | ^ &lt;&lt; &gt;&gt;</code>, the unary operators <code>- ! ~</code>, and subscript <code>[]</code>. Compound assignment (<code>v += w</code>) is defined as <code>v = v + w</code>, using the overloaded <code>+</code>. The short-circuit operators <code>&amp;&amp;</code> / <code>||</code>, the pointer operators <code>*</code> / <code>&amp;</code>, and <code>=</code> / <code>.</code> are structural and cannot be overloaded.</p>
+<p>Resolution is entirely static and structural:</p>
+<ul>
+<li>A type gets an operator simply by declaring one for it. There is no trait or <code>impl</code> block to register; if an <code>operator</code> exists for the operand types, the operator resolves to it, otherwise the operands must be built-in.</li>
+<li>Overloads coexist by operand type: <code>operator *(V3, V3)</code> (component-wise) and <code>operator *(V3, double)</code> (scale) are distinct, selected by the right operand.</li>
+<li>An <code>operator</code> declaration compiles to a normal function, and <code>a op b</code> lowers to a direct call to it. There is no dynamic dispatch and no boxing; the cost is exactly that of writing the call by hand, so it is suitable for hot numeric code.</li>
+</ul>
 <h3 id="83-struct-initialization">8.3 Struct Initialization</h3>
 <p><strong>Named initialization:</strong></p>
 <pre><code class="language-eskiu">Point p = Point { x: 1.5, y: 2.5 };
@@ -1481,6 +1498,16 @@ let c: Color = Green;            // c == 1
 if (c == Red) { /* ... */ }
 </code></pre>
 <p>Members are unscoped. <code>Red</code> is used directly, as in C. The enum name may be used anywhere a type is expected (it behaves as <code>int</code>).</p>
+<p>A classic enum may also be consumed with <code>match</code>, which checks the dispatch is exhaustive (every variant covered, or a <code>_</code> default), so adding a variant turns every unhandled <code>match</code> into a compile error. This is the same guarantee algebraic enums get; <code>switch</code> stays available for a non-exhaustive dispatch.</p>
+<pre><code class="language-eskiu">int dx(Color c) {
+    match c {
+        Red   -&gt; { return -1; }
+        Green -&gt; { return  0; }
+        Blue  -&gt; { return  1; }
+    }
+    return 0;
+}
+</code></pre>
 <h4 id="871-algebraic-enums-tagged-unions">8.7.1 Algebraic enums (tagged unions)</h4>
 <p>When one or more variants carry a <strong>payload</strong>, the enum becomes an algebraic data type: a tagged union, not an integer. Each variant is constructed by name (with arguments for its payload), and a value is destructured with <code>match</code>:</p>
 <pre><code class="language-eskiu">enum Shape {
@@ -1720,7 +1747,7 @@ library remains for cases where you want to thread <code>hash</code>/<code>eq</c
 </code></pre>
 <h3 id="112-heap-allocation">11.2 Heap Allocation</h3>
 <p>Heap allocation lives in the standard library, not the language core: <code>import &lt;mem&gt;</code> brings in <code>alloc&lt;T&gt;</code> and <code>free</code>.</p>
-<p><code>alloc&lt;T&gt;(N)</code> allocates space for <code>N</code> elements of type <code>T</code> and returns a <code>*T</code>. In hosted mode (the default) it calls <code>malloc(N * sizeof(T))</code>. Under <code>--freestanding</code> (see §11.5) it calls the user-provided <code>esk_alloc</code> instead; the same source, selected at compile time via the <code>__ESKIU_FREESTANDING__</code> macro.</p>
+<p><code>alloc&lt;T&gt;(N)</code> allocates space for <code>N</code> elements of type <code>T</code> and returns a <code>*T</code>. The memory is <strong>zero-initialized</strong>: a freshly allocated <code>*T</code> is null, an <code>int</code> is <code>0</code>, a <code>List</code> is a valid empty list, so reading a field before you assign it is defined behavior, not a garbage read (the same guarantee C++'s <code>new T()</code> gives). In hosted mode (the default) it calls <code>calloc(N, sizeof(T))</code>. Under <code>--freestanding</code> (see §11.5) it calls the user-provided <code>esk_alloc</code> instead, whose contract is likewise to return zeroed memory; the same source, selected at compile time via the <code>__ESKIU_FREESTANDING__</code> macro.</p>
 <p><code>free(ptr)</code> releases a heap-allocated pointer (libc <code>free</code> hosted, <code>esk_free</code> freestanding). It takes a <code>*void</code>; any pointer type coerces.</p>
 <pre><code class="language-eskiu">import &lt;mem&gt;;
 
@@ -1763,8 +1790,8 @@ if (p != null) {
 <tbody>
 <tr>
 <td><code>alloc&lt;T&gt;(n)</code></td>
-<td><code>malloc</code></td>
-<td><code>esk_alloc</code></td>
+<td><code>calloc</code></td>
+<td><code>esk_alloc</code> (must zero)</td>
 </tr>
 <tr>
 <td><code>free(p)</code></td>
@@ -1773,7 +1800,7 @@ if (p != null) {
 </tr>
 </tbody>
 </table></div>
-<p>In freestanding mode the user must provide <code>esk_alloc</code> and <code>esk_free</code> in their own code (typically in a kernel or bare-metal runtime); <code>&lt;mem&gt;</code> declares them <code>extern</code> and the linker resolves them from the user-supplied object file. Code that needs heap allocation still just writes <code>import &lt;mem&gt;</code> and calls <code>alloc&lt;T&gt;</code>/<code>free</code>. The same source compiles for both modes.</p>
+<p>In freestanding mode the user must provide <code>esk_alloc</code> and <code>esk_free</code> in their own code (typically in a kernel or bare-metal runtime); <code>&lt;mem&gt;</code> declares them <code>extern</code> and the linker resolves them from the user-supplied object file. To keep <code>alloc&lt;T&gt;</code>'s zero-initialization guarantee, <code>esk_alloc</code> must return zeroed memory (the in-repo <code>kernel/alloc.esk</code> bump allocator does this). Code that needs heap allocation still just writes <code>import &lt;mem&gt;</code> and calls <code>alloc&lt;T&gt;</code>/<code>free</code>. The same source compiles for both modes.</p>
 <pre><code class="language-eskiu">// user-provided in kernel.esk or a C shim
 *void esk_alloc(int size) { return buddy_alloc(size); }
 void  esk_free(*void ptr)  { buddy_free(ptr); }

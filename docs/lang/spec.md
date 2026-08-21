@@ -1,6 +1,6 @@
 # Eskiu Language Specification
 
-**Version:** v0.6.2
+**Version:** v0.8.0
 
 ---
 
@@ -1344,6 +1344,28 @@ struct Counter {
 
 Methods are lowered to regular functions with a leading pointer parameter, e.g., `Counter_increment(*Counter self)`.
 
+### 8.2a Operator Overloading
+
+A type can give meaning to an operator by declaring `operator <op>`, so `a + b` reads as algebra instead of a nested call. This is aimed at value types like vectors and matrices, where the notation carries the meaning.
+
+```eskiu
+struct V3 { float x; float y; float z; }
+
+V3 operator +(V3 a, V3 b)     { let r: V3; r.x = a.x + b.x; r.y = a.y + b.y; r.z = a.z + b.z; return r; }
+V3 operator *(V3 a, double s) { let r: V3; r.x = a.x * (float)s; r.y = a.y * (float)s; r.z = a.z * (float)s; return r; }
+V3 operator -(V3 a)           { let r: V3; r.x = 0.0 - a.x; r.y = 0.0 - a.y; r.z = 0.0 - a.z; return r; }
+
+V3 p = (q - t) * 2.0;   // resolves to the two operators above
+```
+
+Overloadable: the binary operators `+ - * / % == != < > <= >= & | ^ << >>`, the unary operators `- ! ~`, and subscript `[]`. Compound assignment (`v += w`) is defined as `v = v + w`, using the overloaded `+`. The short-circuit operators `&&` / `||`, the pointer operators `*` / `&`, and `=` / `.` are structural and cannot be overloaded.
+
+Resolution is entirely static and structural:
+
+- A type gets an operator simply by declaring one for it. There is no trait or `impl` block to register; if an `operator` exists for the operand types, the operator resolves to it, otherwise the operands must be built-in.
+- Overloads coexist by operand type: `operator *(V3, V3)` (component-wise) and `operator *(V3, double)` (scale) are distinct, selected by the right operand.
+- An `operator` declaration compiles to a normal function, and `a op b` lowers to a direct call to it. There is no dynamic dispatch and no boxing; the cost is exactly that of writing the call by hand, so it is suitable for hot numeric code.
+
 ### 8.3 Struct Initialization
 
 **Named initialization:**
@@ -1427,6 +1449,19 @@ if (c == Red) { /* ... */ }
 ```
 
 Members are unscoped. `Red` is used directly, as in C. The enum name may be used anywhere a type is expected (it behaves as `int`).
+
+A classic enum may also be consumed with `match`, which checks the dispatch is exhaustive (every variant covered, or a `_` default), so adding a variant turns every unhandled `match` into a compile error. This is the same guarantee algebraic enums get; `switch` stays available for a non-exhaustive dispatch.
+
+```eskiu
+int dx(Color c) {
+    match c {
+        Red   -> { return -1; }
+        Green -> { return  0; }
+        Blue  -> { return  1; }
+    }
+    return 0;
+}
+```
 
 #### 8.7.1 Algebraic enums (tagged unions)
 
@@ -1751,7 +1786,7 @@ int main() {
 
 Heap allocation lives in the standard library, not the language core: `import <mem>` brings in `alloc<T>` and `free`.
 
-`alloc<T>(N)` allocates space for `N` elements of type `T` and returns a `*T`. In hosted mode (the default) it calls `malloc(N * sizeof(T))`. Under `--freestanding` (see §11.5) it calls the user-provided `esk_alloc` instead; the same source, selected at compile time via the `__ESKIU_FREESTANDING__` macro.
+`alloc<T>(N)` allocates space for `N` elements of type `T` and returns a `*T`. The memory is **zero-initialized**: a freshly allocated `*T` is null, an `int` is `0`, a `List` is a valid empty list, so reading a field before you assign it is defined behavior, not a garbage read (the same guarantee C++'s `new T()` gives). In hosted mode (the default) it calls `calloc(N, sizeof(T))`. Under `--freestanding` (see §11.5) it calls the user-provided `esk_alloc` instead, whose contract is likewise to return zeroed memory; the same source, selected at compile time via the `__ESKIU_FREESTANDING__` macro.
 
 `free(ptr)` releases a heap-allocated pointer (libc `free` hosted, `esk_free` freestanding). It takes a `*void`; any pointer type coerces.
 
@@ -1803,10 +1838,10 @@ Passing `--freestanding` predefines the macro `__ESKIU_FREESTANDING__`, which `<
 
 | `<mem>` function | Hosted (default) | Freestanding (`--freestanding`) |
 |------------------|------------------|---------------------------------|
-| `alloc<T>(n)`    | `malloc`         | `esk_alloc`                     |
+| `alloc<T>(n)`    | `calloc`         | `esk_alloc` (must zero)          |
 | `free(p)`        | `free`           | `esk_free`                      |
 
-In freestanding mode the user must provide `esk_alloc` and `esk_free` in their own code (typically in a kernel or bare-metal runtime); `<mem>` declares them `extern` and the linker resolves them from the user-supplied object file. Code that needs heap allocation still just writes `import <mem>` and calls `alloc<T>`/`free`. The same source compiles for both modes.
+In freestanding mode the user must provide `esk_alloc` and `esk_free` in their own code (typically in a kernel or bare-metal runtime); `<mem>` declares them `extern` and the linker resolves them from the user-supplied object file. To keep `alloc<T>`'s zero-initialization guarantee, `esk_alloc` must return zeroed memory (the in-repo `kernel/alloc.esk` bump allocator does this). Code that needs heap allocation still just writes `import <mem>` and calls `alloc<T>`/`free`. The same source compiles for both modes.
 
 ```eskiu
 // user-provided in kernel.esk or a C shim

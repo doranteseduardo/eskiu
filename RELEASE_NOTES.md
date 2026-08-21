@@ -1,9 +1,8 @@
-# Eskiu 0.7.0
+# Eskiu 0.8.0
 
-A feature release focused on cross-compilation and C interop. Eskiu now targets
-32-bit ARM (with a camera-and-gyroscope demo verified on real Nintendo 3DS hardware)
-and emits Windows x86-64 objects, `extern` declarations reach C global variables, and
-a `double` literal passed to a `float` parameter narrows correctly at the call site.
+A release focused on Windows parity and language surface. The whole standard library and
+both networking stacks (blocking and async) now run on a native Windows runner, operator
+overloading covers every operator, and `match` is exhaustive over payload-less enums.
 Existing code keeps compiling unchanged.
 
 ---
@@ -35,49 +34,42 @@ cd eskiu && cmake -S . -B build && cmake --build build
 
 ## What's new
 
-- **`extern` variables.** `extern <type> <name>;` declares a global defined in another
-  translation unit, so Eskiu can read and write state shared with a C library. It emits
-  an external-linkage declaration with no initializer, resolved at link time. Previously
-  `extern` accepted only function prototypes. Landed in lockstep across both compilers.
+- **Operator overloading.** A type can define `operator +`, `operator ==`, `operator []`,
+  and the rest (binary, unary, comparison, subscript) as ordinary static methods resolved
+  by operand type. The dispatch is structural and zero-cost: an overloaded operator lowers
+  to a direct call, with the same numeric coercion the built-in operators use. Landed in
+  lockstep across both compilers.
 
-- **32-bit ARM backend, cross-compile to the Nintendo 3DS.** The ARM target is now
-  registered alongside AArch64 and x86, driven by three new flags: `--mcpu` (e.g.
-  `mpcore` for the 3DS's ARM11), `--mattr` (LLVM feature string, e.g. `+vfp2`), and
-  `--reloc` (`static` for the `.3dsx` loader). A hard-float ARM triple (ending in `hf`,
-  e.g. `armv6k-none-eabihf`) selects the hard-float ABI, so the object carries the
-  `Tag_ABI_VFP_args` attribute and links against hard-float libraries like libctru. An
-  object built this way links cleanly into a `.3dsx` homebrew via the devkitARM toolchain.
+- **`match` on classic (payload-less) enums.** A plain `enum Dir { N, E, S, W }` can be
+  matched arm by arm, and the compiler checks the match is exhaustive (a missing variant is
+  an error, unless a `_` arm is present). The enum still behaves as an integer everywhere
+  else; the nominal name is kept on variables and parameters so exhaustiveness is
+  recoverable.
 
-- **Cross-compile to Windows (x86-64).** `--target x86_64-pc-windows-gnu` emits a COFF
-  object with the Microsoft x64 calling convention, and the preprocessor predefines
-  `_WIN32` (plus `_WIN64` on a 64-bit arch). Link it with `lld-link` and an import library
-  from `llvm-dlltool` (both ship with LLVM, so no Windows SDK is needed to link).
+## Windows
 
-See [`docs/dev/cross-compile.md`](docs/dev/cross-compile.md) for the flags, the platform
-macros, and the 3DS and Windows recipes.
+The compiler already emitted Windows COFF objects (v0.7.0); this release brings the runtime
+and standard library up to parity, validated end to end on a native Windows runner
+(`.github/workflows/windows.yml`):
 
-## What's fixed
+- **Exceptions** use the mingw SEH EH personality (`__gxx_personality_seh0`) instead of the
+  Itanium `__gxx_personality_v0`, so `try`/`throw`/`catch` links and unwinds under the mingw
+  C++ runtime.
+- **Platform shims:** `<sysheap>` maps pages with `VirtualAlloc`/`VirtualFree` (no `mmap`),
+  `<time>` uses the Win32 clocks (`GetTickCount64`, `GetSystemTimeAsFileTime`, `Sleep`), and
+  `<threading>` links against winpthreads.
+- **Blocking sockets:** `<net>` runs on Winsock (`WSAStartup`, `closesocket`, `send`/`recv`,
+  link `-lws2_32`), so a thread-per-connection server works.
+- **Async:** `<eventloop>` gained a `WSAPoll` reactor and `<net_async>` a Winsock backend
+  (`ioctlsocket(FIONBIO)`, `recv`/`send`, `WSAGetLastError`). A Windows `SOCKET` is not a
+  small sequential fd, so the loop's fd-indexed slot table grows to fit large handles.
 
-- **Float arguments narrow at the call site.** A `double` literal (Eskiu's default float
-  literal type) passed to a `float` parameter was left as `double`, so the argument type
-  disagreed with the callee's signature and the reference compiler rejected the call at
-  LLVM verification. Direct and method calls now run every argument through the shared
-  numeric-coercion path, matching assignment and return.
-
-- **Bare-metal targets no longer inherit the host platform macro.** An explicit
-  non-hosted triple (OS `none`, e.g. the 3DS's `armv6k-none-eabihf`) predefines neither
-  `__APPLE__` nor `__linux__`; previously it fell through to the build host's macro.
-
-- **Hard-float ABI reached the object emitter.** The `--target …hf` hard-float ABI was
-  applied when building the module and running the optimizer but not in the object-emitting
-  path, so the written object dropped `Tag_ABI_VFP_args`. The three code-emitting paths now
-  share one `TargetMachine` builder.
-
-The full log is in [CHANGELOG.md](CHANGELOG.md).
+See [`docs/dev/cross-compile.md`](docs/dev/cross-compile.md) for the platform macros and the
+Windows recipe. The full log is in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
 ## Upgrade
 
 Drop-in. No breaking language or standard-library changes; recompiling picks up the fixes,
-and the new targets and `extern` variables are opt-in.
+and the new operators, plain-enum matching, and Windows backends are all additive.

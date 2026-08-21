@@ -160,15 +160,34 @@ void CodeGen::visit(LambdaExpr* node) {
 
 // ── Exception helpers (invoke/landingpad) ─────────────────────────────────
 
+std::string CodeGen::ehPersonalityName() const {
+    const std::string& tt = targetTriple;
+    bool win;
+    if (tt.empty()) {
+        // Native build (no --target): follow the host, as main.cpp does for the OS macro.
+#if defined(_WIN32)
+        win = true;
+#else
+        win = false;
+#endif
+    } else {
+        win = tt.find("windows") != std::string::npos ||
+              tt.find("win32")   != std::string::npos ||
+              tt.find("mingw")   != std::string::npos;
+    }
+    return win ? "__gxx_personality_seh0" : "__gxx_personality_v0";
+}
+
 // Ensure personality function and _ZTIPv type_info are declared in the module.
-static void ensureEHDecls(llvm::Module* mod, llvm::LLVMContext& ctx) {
-    if (mod->getFunction("__gxx_personality_v0")) return;
+static void ensureEHDecls(llvm::Module* mod, llvm::LLVMContext& ctx,
+                          const std::string& personalityName) {
+    if (mod->getFunction(personalityName)) return;
     llvm::Type* i32  = llvm::Type::getInt32Ty(ctx);
     llvm::Type* ptrTy = llvm::PointerType::get(ctx, 0);
     // Personality function
     llvm::FunctionType* persType = llvm::FunctionType::get(i32, true);
     llvm::Function::Create(persType, llvm::Function::ExternalLinkage,
-        "__gxx_personality_v0", mod);
+        personalityName, mod);
     // _ZTIPv — void* type_info (from libc++)
     if (!mod->getNamedGlobal("_ZTIPv"))
         new llvm::GlobalVariable(*mod, ptrTy, true,
@@ -191,7 +210,7 @@ llvm::Value* CodeGen::createMaybeInvoke(
 }
 
 void CodeGen::visit(ThrowStmt* node) {
-    ensureEHDecls(module.get(), *context);
+    ensureEHDecls(module.get(), *context, ehPersonalityName());
     llvm::Type* ptrTy = llvm::PointerType::get(*context, 0);
     llvm::Type* i64   = llvm::Type::getInt64Ty(*context);
 
@@ -242,7 +261,7 @@ void CodeGen::visit(ThrowStmt* node) {
 }
 
 void CodeGen::visit(TryStmt* node) {
-    ensureEHDecls(module.get(), *context);
+    ensureEHDecls(module.get(), *context, ehPersonalityName());
     llvm::Type* ptrTy = llvm::PointerType::get(*context, 0);
     llvm::Type* i64   = llvm::Type::getInt64Ty(*context);
     llvm::Type* i32   = llvm::Type::getInt32Ty(*context);
@@ -251,7 +270,7 @@ void CodeGen::visit(TryStmt* node) {
 
     // Set personality on the enclosing function if not already set
     if (!fn->hasPersonalityFn()) {
-        auto* pers = module->getFunction("__gxx_personality_v0");
+        auto* pers = module->getFunction(ehPersonalityName());
         fn->setPersonalityFn(pers);
     }
 

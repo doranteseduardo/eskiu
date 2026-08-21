@@ -86,7 +86,7 @@ footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
 <body>
   <header class="top">
     <div class="top-in">
-      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.7.0</span></a>
+      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.8.0</span></a>
       <nav class="top-links">
         <a href="index.html">docs</a>
         <a href="../the-book-of-eskiu.html">book</a>
@@ -242,7 +242,7 @@ public:
     std::string targetCPU;        // --mcpu (empty = &quot;generic&quot; when cross, host CPU when native)
     std::string targetFeatures;   // --mattr feature string (LLVM -mattr syntax, e.g. &quot;+vfp2&quot;)
     std::string relocModel;       // --reloc: &quot;static&quot; | &quot;dynamic-no-pic&quot; | &quot;&quot; (&quot;pic&quot;, default)
-    bool freestanding = false;    // alloc/free → esk_alloc/esk_free instead of malloc/free
+    bool freestanding = false;    // alloc/free → esk_alloc/esk_free instead of calloc/free
     bool asan  = false;           // AddressSanitizer instrumentation
     bool ubsan = false;           // trapping bounds checks
     bool safe  = false;           // --safe: runtime slice/array bounds checks (trap on OOB)

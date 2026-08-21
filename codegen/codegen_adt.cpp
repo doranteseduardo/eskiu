@@ -36,6 +36,7 @@ void CodeGen::visit(EnumDecl* node) {
     enumTypes.insert(node->name);
     if (!node->isADT()) {
         for (const auto& m : node->members) enumConstants[m.first] = m.second;
+        plainEnumDecls[node->name] = node;   // classic int enum: `match` lowers to a value switch
         return;
     }
     if (!node->typeParams.empty()) {

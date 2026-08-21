@@ -1,0 +1,31 @@
+// Generic struct/List instantiated over a function-pointer element type. The type-arg
+// parsers must not mistake the `>` in the `->` arrow of `fn()->int` for the closing `>`
+// of the generic (which truncated the arg and made the method self-param a by-value
+// struct instead of `ptr`). Exercises indexed access AND for-in over List<fn()->int>.
+import <io>;
+import <list>;
+
+int one()   { return 1; }
+int two()   { return 2; }
+int three() { return 3; }
+
+int main() {
+    let fs: List<fn()->int>;
+    List_init<fn()->int>(&fs, 3);
+    List_push<fn()->int>(&fs, one);
+    List_push<fn()->int>(&fs, two);
+    List_push<fn()->int>(&fs, three);
+
+    int viaIndex = 0;
+    let i: int = 0;
+    while (i < List_len<fn()->int>(&fs)) {
+        let f: fn()->int = List_get<fn()->int>(&fs, i);
+        viaIndex = viaIndex + f();
+        i = i + 1;
+    }
+    int viaForIn = 0;
+    for (g in fs) { viaForIn = viaForIn + g(); }
+
+    printf("%d %d\n", viaIndex, viaForIn);   // 6 6
+    return 0;
+}

@@ -158,7 +158,7 @@
   <body>
     <header class="top">
       <div class="top-in">
-        <a class="brand" href="#"><img src="../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.7.0</span></a>
+        <a class="brand" href="#"><img src="../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.8.0</span></a>
         <nav class="top-links">
           <a href="../docs/index.html">docs</a>
           <a href="../the-book-of-eskiu.html">libro</a>
@@ -173,13 +173,10 @@
       <aside class="toc">
         <div class="toc-title">Contenido</div>
         <ol id="toc-list">
-          <li><a href="#overview"><span class="n">1</span>Vista general</a></li>
-          <li><a href="#types"><span class="n">2</span>Tipos y matching</a></li>
-          <li><a href="#generics"><span class="n">3</span>Genéricos</a></li>
-          <li><a href="#concurrency"><span class="n">4</span>Concurrencia</a></li>
-          <li><a href="#toolchain"><span class="n">5</span>Herramientas</a></li>
-          <li><a href="#production"><span class="n">6</span>En producción</a></li>
-          <li><a href="#install"><span class="n">7</span>Instalación</a></li>
+          <li><a href="#production"><span class="n">1</span>En producción</a></li>
+          <li><a href="#language"><span class="n">2</span>El lenguaje</a></li>
+          <li><a href="#toolchain"><span class="n">3</span>Herramientas</a></li>
+          <li><a href="#install"><span class="n">4</span>Instalación</a></li>
         </ol>
       </aside>
 
@@ -193,7 +190,9 @@
               Eskiu es un lenguaje de sistemas compilado y con tipado estático. Te da el poder de C
               (memoria explícita, interoperabilidad directa con C, código nativo con LLVM) con la
               agilidad de un lenguaje de scripting: <code>eskiuc run file.esk</code> compila y
-              ejecuta de una sola vez. Se compila a sí mismo desde la v0.3.0.
+              ejecuta de una sola vez. Ya corre en software en producción, desde renderizado AR/VR
+              hasta una Nintendo 3DS, y compila igual en Linux, macOS y Windows. Se compila a sí
+              mismo desde la v0.3.0.
             </p>
           </div>
           <div class="intro-fig"><img src="../assets/eskiu_round.jpg" alt="Mascota de Eskiu" /></div>
@@ -211,39 +210,52 @@
         </div>
 
         <!-- 1 -->
-        <section id="overview">
-          <h2><span class="num">1.</span>Vista general</h2>
+        <section id="production">
+          <h2><span class="num">1.</span>En producción</h2>
           <p>
-            Eskiu compila con LLVM a un binario nativo independiente. No trae recolector de
-            basura ni un runtime administrado, así que lo único que despliegas es ese binario. La
-            sintaxis es de estilo C, así que lo básico se siente familiar; a eso la semántica le suma tipos suma, genéricos con
-            restricciones, <code>async</code>/await, canales, atómicos y una biblioteca estándar de
-            HTTP/2. El compilador está escrito en el propio Eskiu.
+            Eskiu ya corre en software en producción. Reemplaza código nativo sensible a la
+            memoria sin recolector de basura, mantiene un ABI de C para entrar directo en una base
+            de código C o C++ existente, y llega a hardware que un lenguaje de sistemas joven rara
+            vez toca. El mismo código compila en Linux, macOS y Windows, incluida la pila de red
+            async.
           </p>
-          <p class="fname">hello.esk</p>
-<pre><span class="kw">extern</span> <span class="ty">int</span> <span class="fn">printf</span>(<span class="ty">string</span> fmt, ...);
-
-<span class="ty">int</span> <span class="fn">add</span>(<span class="ty">int</span> a, <span class="ty">int</span> b) {
-    <span class="kw">return</span> a + b;
-}
-
-<span class="ty">int</span> <span class="fn">main</span>() {
-    <span class="fn">printf</span>(<span class="st">"Hello from Eskiu!\n"</span>);
-    <span class="fn">printf</span>(<span class="st">"2 + 3 = %d\n"</span>, <span class="fn">add</span>(<span class="nu">2</span>, <span class="nu">3</span>));
-    <span class="kw">return</span> <span class="nu">0</span>;
-}</pre>
-<pre><span class="cm">$ eskiuc run hello.esk</span>
-Hello from Eskiu!
-2 + 3 = 5</pre>
+          <div class="tablewrap">
+            <table>
+              <thead><tr><th>Proyecto</th><th>Resultado</th><th>Detalle</th><th></th></tr></thead>
+              <tbody>
+                <tr>
+                  <td>ReactVision</td>
+                  <td><span class="metric">≈85%</span> menos memoria</td>
+                  <td>Módulos de renderizado AR/VR migrados desde C++, preservando la interoperabilidad con el ABI de C.</td>
+                  <td><a href="case-study-reactvision.html">caso de estudio</a></td>
+                </tr>
+                <tr>
+                  <td>Nintendo 3DS</td>
+                  <td><span class="metric">en hardware</span> demo de AR</td>
+                  <td>AR con cámara y giroscopio renderizada con ViroCore sobre citro3d, su lógica en Eskiu sobre el ARM11.</td>
+                  <td><a href="case-study-3ds.html">caso de estudio</a></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>Ya lo usan: <a href="https://reactvision.xyz" target="_blank" rel="noopener">ReactVision</a>, <a href="https://themorrow.digital" target="_blank" rel="noopener">The Morrow Digital</a>.</p>
         </section>
 
         <!-- 2 -->
-        <section id="types">
-          <h2><span class="num">2.</span>Tipos y matching</h2>
+        <section id="language">
+          <h2><span class="num">2.</span>El lenguaje</h2>
           <p>
-            Los tipos suma (<code>enum</code>) llevan datos en cada variante, y el <code>match</code>
-            se verifica por exhaustividad en tiempo de compilación: el compilador rechaza un
-            <code>match</code> al que se le olvida un caso.
+            Eskiu compila con LLVM a un binario nativo independiente, sin recolector de basura ni
+            runtime administrado. La sintaxis es de estilo C, así que lo básico se siente familiar;
+            a eso la semántica le suma tipos suma, genéricos con restricciones, sobrecarga de
+            operadores, <code>async</code>/await, canales y atómicos. El compilador está escrito en
+            el propio Eskiu.
+          </p>
+
+          <h3>Tipos suma y match exhaustivo</h3>
+          <p>
+            Un <code>enum</code> lleva datos por variante, y el <code>match</code> se verifica por
+            exhaustividad en tiempo de compilación, así que un caso olvidado no compila.
           </p>
           <p class="fname">parse_port.esk</p>
 <pre><span class="kw">enum</span> <span class="ty">ParseResult</span> {
@@ -264,39 +276,41 @@ Hello from Eskiu!
     <span class="ty">InvalidRange</span>(n) <span class="op">-&gt;</span> <span class="fn">printf</span>(<span class="st">"%d out of range\n"</span>, n);
     <span class="ty">NotANumber</span>      <span class="op">-&gt;</span> <span class="fn">printf</span>(<span class="st">"not a number\n"</span>);
 }</pre>
-        </section>
 
-        <!-- 3 -->
-        <section id="generics">
-          <h2><span class="num">3.</span>Genéricos</h2>
+          <h3>Genéricos y operadores</h3>
           <p>
-            Las funciones y los tipos se parametrizan por tipo, con restricciones de interfaz. Una
-            restricción como <code>&lt;T: Ord&gt;</code> obliga a que <code>T</code> implemente la
-            interfaz, así que las llamadas se verifican y se monomorfizan en tiempo de compilación.
+            Los tipos se parametrizan con restricciones de interfaz y se monomorfizan en tiempo de
+            compilación. Un tipo también puede sobrecargar operadores como métodos ordinarios,
+            resueltos por el tipo de los operandos, así que la matemática de vectores se lee como
+            aritmética y baja a una llamada directa sin costo en runtime.
           </p>
-          <p class="fname">max.esk</p>
-<pre><span class="kw">interface</span> <span class="ty">Ord</span> { <span class="ty">int</span> <span class="fn">cmp</span>(<span class="ty">Ord</span>* o); }
+          <p class="fname">vec.esk</p>
+<pre><span class="kw">struct</span> <span class="ty">V3</span> { <span class="ty">float</span> x; <span class="ty">float</span> y; <span class="ty">float</span> z; }
 
-<span class="kw">struct</span> <span class="ty">Coin</span> {
-    <span class="ty">int</span> value;
-    <span class="ty">int</span> <span class="fn">cmp</span>(<span class="ty">Coin</span>* o) { <span class="kw">if</span> (<span class="kw">self</span>.value &lt; o.value) { <span class="kw">return</span> <span class="op">-</span><span class="nu">1</span>; } <span class="kw">return</span> <span class="nu">1</span>; }
+<span class="ty">V3</span> <span class="kw">operator</span> <span class="op">+</span>(<span class="ty">V3</span> a, <span class="ty">V3</span> b) {
+    <span class="kw">let</span> r: <span class="ty">V3</span>;
+    r.x = a.x <span class="op">+</span> b.x;
+    r.y = a.y <span class="op">+</span> b.y;
+    r.z = a.z <span class="op">+</span> b.z;
+    <span class="kw">return</span> r;
 }
 
-<span class="ty">T</span> <span class="fn">max</span>&lt;<span class="ty">T</span>: <span class="ty">Ord</span>&gt;(<span class="ty">T</span>* a, <span class="ty">T</span>* b) {
-    <span class="kw">if</span> (a.<span class="fn">cmp</span>(b) &gt; <span class="nu">0</span>) { <span class="kw">return</span> a[<span class="nu">0</span>]; }
-    <span class="kw">return</span> b[<span class="nu">0</span>];
+<span class="ty">V3</span> <span class="kw">operator</span> <span class="op">*</span>(<span class="ty">V3</span> v, <span class="ty">float</span> s) {
+    <span class="kw">let</span> r: <span class="ty">V3</span>;
+    r.x = v.x <span class="op">*</span> s;
+    r.y = v.y <span class="op">*</span> s;
+    r.z = v.z <span class="op">*</span> s;
+    <span class="kw">return</span> r;
 }
 
-<span class="kw">let</span> hi: <span class="ty">Coin</span> = <span class="fn">max</span>&lt;<span class="ty">Coin</span>&gt;(&amp;x, &amp;y);   <span class="cm">// hi.value == 7</span></pre>
-        </section>
+<span class="kw">let</span> mid: <span class="ty">V3</span> = (a <span class="op">+</span> b) <span class="op">*</span> <span class="nu">0.5</span>;   <span class="cm">// + y * resuelven a las sobrecargas</span></pre>
 
-        <!-- 4 -->
-        <section id="concurrency">
-          <h2><span class="num">4.</span>Concurrencia</h2>
+          <h3>Async y canales</h3>
           <p>
             Las funciones <code>async</code> devuelven un <code>Future</code>; <code>await</code>
             suspende la ejecución hasta que haya un valor listo. Los canales tipados
-            (<code>Chan&lt;T&gt;</code>) pasan valores entre tareas.
+            (<code>Chan&lt;T&gt;</code>) pasan valores entre tareas. El reactor corre sobre kqueue,
+            epoll o WSAPoll, así que el mismo código maneja Linux, macOS y Windows.
           </p>
           <p class="fname">sum_squares.esk</p>
 <pre><span class="kw">import</span> &lt;future&gt;;
@@ -313,9 +327,9 @@ Hello from Eskiu!
 <span class="kw">for</span> (i <span class="kw">in</span> <span class="nu">1</span>..<span class="nu">4</span>) { <span class="fn">chan_send</span>(ch, i * i); }   <span class="cm">// 1, 4, 9 -> 14</span></pre>
         </section>
 
-        <!-- 5 -->
+        <!-- 3 -->
         <section id="toolchain">
-          <h2><span class="num">5.</span>Herramientas</h2>
+          <h2><span class="num">3.</span>Herramientas</h2>
           <p>
             Un solo binario, <code>eskiuc</code>, se encarga de todo. <code>eskiuc run</code> compila
             y ejecuta de una vez; <code>eskiuc build</code> genera un binario nativo. La biblioteca
@@ -344,6 +358,7 @@ Hello from Eskiu!
                 <button class="pg-ex" onclick="loadExample('basics')">basics</button>
                 <button class="pg-ex" onclick="loadExample('match')">match</button>
                 <button class="pg-ex" onclick="loadExample('generics')">generics</button>
+                <button class="pg-ex" onclick="loadExample('operators')">operators</button>
                 <button class="pg-ex" onclick="loadExample('async')">async</button>
               </div>
             </div>
@@ -351,48 +366,19 @@ Hello from Eskiu!
           </div>
         </section>
 
-        <!-- 6 -->
-        <section id="production">
-          <h2><span class="num">6.</span>En producción</h2>
-          <p>Eskiu ya se usa para reemplazar código nativo sensible a la memoria y pipelines criptográficos en software que ya está en producción, y para llegar a hardware que un lenguaje de sistemas joven rara vez toca.</p>
-          <div class="tablewrap">
-            <table>
-              <thead><tr><th>Proyecto</th><th>Resultado</th><th>Detalle</th><th></th></tr></thead>
-              <tbody>
-                <tr>
-                  <td>ReactVision</td>
-                  <td><span class="metric">≈85%</span> menos memoria</td>
-                  <td>Módulos de renderizado AR/VR migrados desde C++, preservando la interoperabilidad con el ABI de C.</td>
-                  <td><a href="case-study-reactvision.html">caso de estudio</a></td>
-                </tr>
-                <tr>
-                  <td>INE decoder</td>
-                  <td><span class="metric">2.5×</span> más rápido que C</td>
-                  <td>Pipeline de QR de credencial (AES-256 + RSA-8192), idéntico bit a bit a otras cinco implementaciones.</td>
-                  <td><a href="case-study-ine.html">caso de estudio</a></td>
-                </tr>
-                <tr>
-                  <td>Nintendo 3DS</td>
-                  <td><span class="metric">en hardware</span> demo de AR</td>
-                  <td>AR con cámara y giroscopio renderizada con ViroCore sobre citro3d, su lógica en Eskiu sobre el ARM11.</td>
-                  <td><a href="case-study-3ds.html">caso de estudio</a></td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <p>Ya lo usan: <a href="https://reactvision.xyz" target="_blank" rel="noopener">ReactVision</a>, <a href="https://themorrow.digital" target="_blank" rel="noopener">The Morrow Digital</a>.</p>
-        </section>
-
-        <!-- 7 -->
+        <!-- 4 -->
         <section id="install">
-          <h2><span class="num">7.</span>Instalación</h2>
-          <p>Descarga un binario precompilado, descomprímelo en <code>/usr/local</code> y ejecuta <code>eskiuc --version</code>.</p>
+          <h2><span class="num">4.</span>Instalación</h2>
+          <p>En macOS o Linux, instala el último release con un comando:</p>
+<pre><span class="cm">$ curl -fsSL https://eskiu-lang.org/install.sh | sh</span></pre>
+          <p>Descarga el binario para tu plataforma, verifica su checksum y lo instala. O baja un binario directamente y descomprímelo en <code>/usr/local</code>:</p>
           <div class="btnrow">
             <a class="btn btn-primary" href="../assets/eskiuc-linux-x86_64.tar.gz">↓ Linux x86-64</a>
             <a class="btn btn-primary" href="../assets/eskiuc-macos-arm64.tar.gz">↓ macOS arm64</a>
             <a class="btn btn-primary" href="../assets/eskiuc-windows-x86_64.zip">↓ Windows x86-64</a>
             <a class="btn" href="quickstart.html">Inicio rápido →</a>
           </div>
+          <p style="font-size: 0.85rem; color: var(--muted); margin: -0.6rem 0 1.35rem;">Windows está validado de punta a punta en un runner nativo de CI: el compilador compila y enlaza, y las excepciones junto con las pilas de red bloqueante y async pasan todas. Todavía no es parte del gate de releases, así que el build de Windows va un poco adelante de los de Linux y macOS.</p>
 <pre><span class="cm"># o compila desde el código fuente</span>
 <span class="cm">$ git clone https://github.com/doranteseduardo/eskiu</span>
 <span class="cm">$ cd eskiu &amp;&amp; make</span></pre>
@@ -519,6 +505,41 @@ int main() {
     let y: Coin;  y.value = 3;
     let hi: Coin = max<Coin>(&x, &y);
     printf("max = %d\\n", hi.value);   // max = 7
+    return 0;
+}
+`,
+        operators: `extern int printf(string fmt, ...);
+
+struct V3 { float x; float y; float z; }
+
+V3 operator +(V3 a, V3 b) {
+    let r: V3;
+    r.x = a.x + b.x;
+    r.y = a.y + b.y;
+    r.z = a.z + b.z;
+    return r;
+}
+
+V3 operator *(V3 v, float s) {
+    let r: V3;
+    r.x = v.x * s;
+    r.y = v.y * s;
+    r.z = v.z * s;
+    return r;
+}
+
+bool operator ==(V3 a, V3 b) {
+    return a.x == b.x && a.y == b.y && a.z == b.z;
+}
+
+int main() {
+    let a: V3; a.x = 1.0; a.y = 2.0; a.z = 3.0;
+    let b: V3; b.x = 3.0; b.y = 4.0; b.z = 5.0;
+
+    let mid: V3 = (a + b) * 0.5;                 // + and * resolve to the overloads
+    printf("mid = %.0f %.0f %.0f\\n", (double)mid.x, (double)mid.y, (double)mid.z);
+
+    printf("mid == a? %d\\n", mid == a);          // 0
     return 0;
 }
 `,

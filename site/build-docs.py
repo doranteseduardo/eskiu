@@ -37,6 +37,7 @@ PAGES = [
     ("docs/dev/design.md",           "design.html",          "Design",               "dev"),
     ("docs/dev/abi.md",              "abi.html",             "ABI",                  "dev"),
     ("docs/dev/async-design.md",     "async-design.html",    "Async design",         "dev"),
+    ("docs/dev/cross-compile.md",    "cross-compile.html",   "Cross-compiling",      "dev"),
     ("docs/dev/self-hosting.md",     "self-hosting.html",    "Self-hosting",         "dev"),
     ("docs/dev/http2-design.md",     "http2-design.html",    "HTTP/2 design",        "dev"),
     ("docs/dev/debugging.md",        "debugging.html",       "Debugging",            "dev"),
@@ -75,7 +76,7 @@ NAVS = {"lang": NAV_LANG, "dev": NAV_DEV}
 GH_BLOB = "https://github.com/doranteseduardo/eskiu/blob/main/"
 
 # Shown in the shared top bar (kept in step with the homepage). Bump per release.
-VERSION = "v0.7.0"
+VERSION = "v0.8.0"
 GH = "https://github.com/doranteseduardo/eskiu"
 
 CSS = """

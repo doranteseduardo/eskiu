@@ -198,6 +198,11 @@ private:
     // Exception handling: set when inside a try body
     llvm::BasicBlock* unwindTarget = nullptr;
 
+    // The C++ EH personality routine to reference for this target. mingw x86-64 unwinds via
+    // SEH (`__gxx_personality_seh0`); Linux/macOS use the DWARF/Itanium `__gxx_personality_v0`.
+    // Everything else about the EH lowering (landingpad IR + the `__cxa_*` runtime) is the same.
+    std::string ehPersonalityName() const;
+
     // Helper: creates call or invoke depending on whether we are in a try body.
     // When in a try body, returns the invoke result and advances the insert point
     // to a fresh "normal continuation" block.
@@ -328,6 +333,7 @@ private:
     // Algebraic enums: name -> decl (payloads) and variant -> (enum, tag). The
     // LLVM type lives in structTypes[enumName] as { i32 tag, [N x i64] payload }.
     std::map<std::string, EnumDecl*> adtEnumDecls;
+    std::map<std::string, EnumDecl*> plainEnumDecls;   // classic int enums, for `match` on them
     std::map<std::string, std::pair<std::string, int>> adtVariants;
     // Generic algebraic enums (Option<T>): template decl + variant->(enum,tag), and
     // per-instance (Option_int) -> (generic name, concrete type args) for resolution.

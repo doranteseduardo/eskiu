@@ -86,7 +86,7 @@ footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
 <body>
   <header class="top">
     <div class="top-in">
-      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.7.0</span></a>
+      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.8.0</span></a>
       <nav class="top-links">
         <a href="index.html">docs</a>
         <a href="../the-book-of-eskiu.html">book</a>
@@ -99,11 +99,10 @@ footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
     <div class="content">
 <h1 id="eskiu-language-reference">Eskiu Language Reference</h1>
 <p>Eskiu is a statically typed systems language with the power of C and the immediacy of a scripting language: it compiles to native code through LLVM, and <code>eskiuc run file.esk</code> runs a source file directly, like Python or Ruby. This is the full language reference. New to Eskiu? Start with the <a href="getting-started.html">tutorial</a>.</p>
-<p><strong>Current version: v0.7.0.</strong> A cross-compilation and C-interop release: Eskiu now targets
-32-bit ARM (a camera-and-gyroscope demo verified on real Nintendo 3DS hardware) and emits
-Windows x86-64 objects, driven by <code>--target</code> plus <code>--mcpu</code> / <code>--mattr</code> / <code>--reloc</code>, and
-<code>extern</code> declarations now reach C global <strong>variables</strong>, not just functions. Full history
-is in the <a href="https://github.com/doranteseduardo/eskiu/blob/main/CHANGELOG.md">changelog</a>.</p>
+<p><strong>Current version: v0.8.0.</strong> A Windows-parity and language-surface release: the full stdlib
+and both networking stacks (blocking and async) now run on a native Windows runner, operator
+overloading covers every operator, and <code>match</code> is exhaustive over payload-less enums. Full
+history is in the <a href="https://github.com/doranteseduardo/eskiu/blob/main/CHANGELOG.md">changelog</a>.</p>
 <hr>
 <h2 id="documentation-map">Documentation Map</h2>
 <div class="tablewrap"><table>
@@ -226,7 +225,7 @@ is in the <a href="https://github.com/doranteseduardo/eskiu/blob/main/CHANGELOG.
 </tr>
 <tr>
 <td><strong>Cross-compile</strong></td>
-<td><code>--target TRIPLE</code> (AArch64, x86-64, 32-bit ARM), plus <code>--mcpu</code> / <code>--mattr</code> / <code>--reloc</code>; hard-float ARM for the 3DS, COFF for Windows. See <a href="https://github.com/doranteseduardo/eskiu/blob/main/docs/dev/cross-compile.md">cross-compile.md</a></td>
+<td><code>--target TRIPLE</code> (AArch64, x86-64, 32-bit ARM), plus <code>--mcpu</code> / <code>--mattr</code> / <code>--reloc</code>; hard-float ARM for the 3DS, COFF for Windows. See <a href="cross-compile.html">cross-compile.md</a></td>
 </tr>
 <tr>
 <td><strong>Multi-file</strong></td>

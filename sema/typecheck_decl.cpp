@@ -274,6 +274,7 @@ void TypeChecker::visit(FunctionDecl* node) {
     // a `const T*` parameter is caught; normalization otherwise strips const).
     for (const auto& param : node->params) {
         std::string pt = normalizeType(param.first);
+        if (pt == "int" && plainEnumDecls.count(param.first)) pt = param.first;   // keep enum name for `match`
         if (tyq::baseConst(param.first) && tyq::isPtr(param.first)) pt = "const " + pt;
         defineSymbol(param.second, pt, node->line, node->col, /*isParam=*/true);
     }
@@ -481,6 +482,11 @@ void TypeChecker::visit(VarDecl* node) {
 
     // Normalize the type (e.g., "Point" -> "struct:Point")
     std::string normalizedType = normalizeType(node->type);
+    // A classic (payload-less) enum collapses to `int` in normalizeType, but keep its
+    // nominal name on the variable so `match` can recover the variant set. It still behaves
+    // as an int everywhere else (every other check runs the type back through normalizeType).
+    if (normalizedType == "int" && plainEnumDecls.count(node->type))
+        normalizedType = node->type;
 
     // Validate that struct types exist before use
     validateStructType(normalizedType);

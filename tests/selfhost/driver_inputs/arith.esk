@@ -1,0 +1,2 @@
+int sq(int n) { return n * n; }
+int main() { return sq(7) - 7; }   // exit 42

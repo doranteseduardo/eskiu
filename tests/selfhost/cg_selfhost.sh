@@ -37,7 +37,7 @@ if ! "$CLANG" "$WORK/cg_main.ll" -o "$WORK/cg_main.self" 2>"$WORK/c.log"; then
 fi
 
 MODULES="selfhost/tokens.esk selfhost/ast.esk selfhost/lexer.esk selfhost/preprocessor.esk \
-         selfhost/parser.esk selfhost/sema.esk selfhost/codegen.esk selfhost/cg_main.esk \
+         selfhost/parser.esk selfhost/sema.esk selfhost/codegen.esk selfhost/fmt.esk selfhost/cg_main.esk \
          selfhost/lex_main.esk selfhost/pp_main.esk selfhost/parse_main.esk selfhost/tc_main.esk"
 INPUTS="$MODULES tests/selfhost/cg_inputs/*.esk"
 

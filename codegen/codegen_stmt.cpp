@@ -323,6 +323,37 @@ void CodeGen::visit(MatchStmt* node) {
             enumName = st;
         }
     }
+    // Classic int enum: the subject IS the enum's int value (no tag / no payload). Lower to
+    // a switch on that value, one case per variant's constant. `_` is the default arm.
+    if (plainEnumDecls.count(enumName)) {
+        EnumDecl* ped = plainEnumDecls[enumName];
+        auto valueOf = [&](const std::string& v) -> long long {
+            for (auto& m : ped->members) if (m.first == v) return m.second;
+            return 0;
+        };
+        llvm::Value* subj = evaluateExpr(node->subject);
+        if (subj->getType() != i32) subj = builder->CreateIntCast(subj, i32, true);
+        llvm::BasicBlock* endBlock = llvm::BasicBlock::Create(*context, "match.end", currentFunction);
+        std::vector<llvm::BasicBlock*> armBlocks(node->arms.size());
+        llvm::BasicBlock* defaultBlock = endBlock;
+        for (size_t i = 0; i < node->arms.size(); ++i) {
+            armBlocks[i] = llvm::BasicBlock::Create(*context, "match.arm", currentFunction);
+            if (node->arms[i].variant.empty()) defaultBlock = armBlocks[i];
+        }
+        llvm::SwitchInst* sw = builder->CreateSwitch(subj, defaultBlock);
+        for (size_t i = 0; i < node->arms.size(); ++i)
+            if (!node->arms[i].variant.empty())
+                sw->addCase(llvm::cast<llvm::ConstantInt>(llvm::ConstantInt::get(i32, valueOf(node->arms[i].variant))), armBlocks[i]);
+        for (size_t i = 0; i < node->arms.size(); ++i) {
+            builder->SetInsertPoint(armBlocks[i]);
+            if (node->arms[i].body) node->arms[i].body->accept(this);
+            if (!builder->GetInsertBlock()->getTerminator())
+                builder->CreateBr(endBlock);
+        }
+        builder->SetInsertPoint(endBlock);
+        return;
+    }
+
     // Resolve the enum decl + (for a generic instance) the type-arg substitutions,
     // so each variant's payload field types come out concrete.
     EnumDecl* ed = nullptr;

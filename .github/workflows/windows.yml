@@ -41,6 +41,120 @@ jobs:
       - name: Build
         run: cmake --build build --target eskiuc -j"$(nproc)"
 
+      - name: Exception unwinding E2E (SEH personality)
+        run: |
+          # Prove try/throw/catch actually unwinds on native Windows. eskiuc.exe emits a COFF
+          # object whose EH uses the mingw SEH personality (__gxx_personality_seh0); g++ links
+          # libstdc++/libsupc++ (the __cxa_* runtime + the SEH unwinder) and the CRT entry, and
+          # the program must catch and print. A wrong personality would abort at throw.
+          cat > eh.esk <<'EOF'
+          extern int printf(string fmt, ...);
+          int main() {
+              try { throw 42; }
+              catch (int e) { printf("caught %d\n", e); }
+              return 0;
+          }
+          EOF
+          ./build/eskiuc.exe eh.esk -o eh.obj -c
+          g++ eh.obj -o eh.exe
+          out=$(./eh.exe)
+          echo "program output: $out"
+          test "$out" = "caught 42"
+
+      - name: Stdlib platform shims E2E (sysheap / threading / time)
+        run: |
+          # Exercise the POSIX-shimmed stdlib on native Windows: <sysheap> (VirtualAlloc page
+          # backend), <threading> (pthread mutex via winpthreads) and <time> (clock_gettime /
+          # nanosleep via winpthreads). Links with -lpthread; VirtualAlloc/Free is in kernel32.
+          cat > shims.esk <<'EOF'
+          import <sysheap>;
+          import <threading>;
+          import <time>;
+          extern int printf(string fmt, ...);
+          int main() {
+              let h: Heap;
+              if (heap_init(&h, 65536) == 0) { printf("heap fail\n"); return 1; }
+              *int xs = (*int)heap_alloc(&h, sizeof(int) * 4);
+              xs[0] = 7;
+              let m: Mutex;  Mutex_init(&m);  Mutex_lock(&m);  Mutex_unlock(&m);  Mutex_destroy(&m);
+              int64 t0 = time_monotonic_ms();
+              sleep_ms(1);
+              int elapsed_ok = 0;
+              if (time_monotonic_ms() - t0 >= 0) { elapsed_ok = 1; }
+              printf("ok %d %d\n", xs[0], elapsed_ok);
+              heap_destroy(&h);
+              return 0;
+          }
+          EOF
+          ESKIU_ROOT="$PWD" ./build/eskiuc.exe shims.esk -o shims.obj -c
+          g++ shims.obj -o shims.exe -lpthread
+          out=$(./shims.exe)
+          echo "program output: $out"
+          test "$out" = "ok 7 1"
+
+      - name: Sockets E2E (Winsock)
+        run: |
+          # A loopback TCP round-trip via <net>'s Winsock backend (WSAStartup + socket/bind/
+          # listen/accept/connect/send/recv/closesocket). Links against ws2_32.
+          cat > net.esk <<'EOF'
+          import <net>;
+          extern int printf(string fmt, ...);
+          int main() {
+              int ls = net_tcp_listen(54321);
+              if (ls < 0) { printf("listen fail\n"); return 1; }
+              int c = net_tcp_connect("127.0.0.1", 54321);
+              if (c < 0) { printf("connect fail\n"); return 1; }
+              int s = net_accept(ls);
+              if (s < 0) { printf("accept fail\n"); return 1; }
+              net_send_str(c, "hi");
+              uint8[8] buf;
+              int64 n = net_recv(s, (*void)&buf[0], 8);
+              printf("got %d %c%c\n", (int)n, (char)buf[0], (char)buf[1]);
+              net_close(c); net_close(s); net_close(ls);
+              return 0;
+          }
+          EOF
+          ESKIU_ROOT="$PWD" ./build/eskiuc.exe net.esk -o net.obj -c
+          g++ net.obj -o net.exe -lws2_32
+          out=$(./net.exe)
+          echo "program output: $out"
+          test "$out" = "got 2 hi"
+
+      - name: Async reactor E2E (WSAPoll)
+        run: |
+          # An async socket round-trip over the reactor: a non-blocking socket is registered
+          # with the event loop (WSAPoll backend), a peer sends 5 bytes, and net_read_async
+          # completes on the first dispatch. Exercises <eventloop> (WSAPoll + fd-indexed slots
+          # that grow to fit Windows' large SOCKET handles) + <net_async> (ioctlsocket
+          # non-blocking + recv + WSAGetLastError). Links ws2_32. A timeout guards against a
+          # reactor hang so a regression fails fast instead of running to the job limit.
+          cat > async.esk <<'EOF'
+          import <net_async>;
+          import <net>;
+          extern int printf(string fmt, ...);
+          uint8[64] g_buf;
+          int main() {
+              int ls = net_tcp_listen(54322);
+              int c  = net_tcp_connect("127.0.0.1", 54322);
+              int s  = net_accept(ls);
+              net_send_str(c, "hello");
+              EventLoop* lp = el_new(64);
+              net_set_nonblocking(s);
+              Future<int>* f = net_read_async(lp, s, &g_buf[0], (int64)64);
+              future_poll<int>(f, void() { free_future<int>(f); el_stop(lp); });
+              el_run(lp);
+              printf("read %c%c%c\n", (char)g_buf[0], (char)g_buf[1], (char)g_buf[4]);
+              el_free(lp);
+              net_close(c); net_close(s); net_close(ls);
+              return 0;
+          }
+          EOF
+          ESKIU_ROOT="$PWD" ./build/eskiuc.exe async.esk -o async.obj -c
+          g++ async.obj -o async.exe -lws2_32
+          out=$(timeout 20 ./async.exe)
+          echo "program output: $out"
+          test "$out" = "read heo"
+
       - name: Package
         run: |
           mkdir -p dist/bin dist/lib/eskiu
