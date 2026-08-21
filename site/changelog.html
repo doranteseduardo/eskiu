@@ -105,6 +105,13 @@ Versions follow <code>MAJOR.MINOR.PATCH-stage</code> (e.g. <code>0.0.9-alpha</co
 <h2 id="unreleased">[Unreleased]</h2>
 <h3 id="fixed">Fixed</h3>
 <ul>
+<li><strong>Windows platform shims for the OS-level stdlib.</strong> <code>&lt;sysheap&gt;</code> now carves pages with
+  <code>VirtualAlloc</code>/<code>VirtualFree</code> on Windows (it has no <code>mmap</code>), and <code>&lt;time&gt;</code> uses the Win32
+  clocks (<code>GetTickCount64</code> for the monotonic clock, <code>GetSystemTimeAsFileTime</code> for wall time,
+  <code>Sleep</code> for <code>sleep_ms</code>) instead of <code>clock_gettime</code>/<code>nanosleep</code> (whose <code>timespec.tv_nsec</code> is
+  a 32-bit <code>long</code> on LLP64 Windows and would not match). <code>&lt;threading&gt;</code> already links against
+  winpthreads. Validated end to end on a native Windows runner (<code>sysheap</code> + a <code>Mutex</code> + the
+  monotonic clock in one program). Linux/macOS behavior is unchanged.</li>
 <li><strong>Exceptions work on Windows (mingw).</strong> <code>try</code>/<code>throw</code>/<code>catch</code> previously emitted the
   Itanium/DWARF EH personality (<code>__gxx_personality_v0</code>) unconditionally, so a Windows object
   failed to link. The personality is now selected by target: mingw x86-64 uses the SEH
