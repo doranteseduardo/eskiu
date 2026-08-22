@@ -1902,13 +1902,17 @@ pre.code-block {
 <h2 class="section" id="sec-17-2">17.2 --freestanding</h2>
 <p>When targeting bare-metal there is no libc. --freestanding redirects <code>alloc</code> and <code>free</code> to your own esk_alloc and esk_free:</p>
 <pre class="code-block"> // alloc.esk: bump allocator
- int64 _heap       = 0x40300000;
- int64 _heap_end    = 0x40400000;</pre>
+ int64 _heap_ptr = 0x40300000;
+ int64 _heap_end = 0x40400000;</pre>
 <pre class="code-block"> *uint8 esk_alloc(int64 size) {
-       if (_heap + size &gt; _heap_end) return null;
-       int64 ptr = _heap;
-       _heap     = _heap + size;
-       return (*uint8) ptr;
+       if (_heap_ptr + size &gt; _heap_end) return null;
+       int64 ptr = _heap_ptr;
+       _heap_ptr = _heap_ptr + size;
+       // esk_alloc must return zeroed memory (alloc&lt;T&gt;'s contract):
+       *uint8 p = (*uint8) ptr;
+       int64 i = 0;
+       while (i &lt; size) { p[i] = 0; i = i + 1; }
+       return p;
  }</pre>
 <pre class="code-block"> void esk_free(*uint8 ptr) { /* bump: free is a no-op */ }</pre>
 <div class="chapter-start" id="chapter-18"><span class="chapter-label">Chapter 18</span>
@@ -1980,7 +1984,11 @@ pre.code-block {
        if (_heap_ptr + size &gt; _heap_end) { return null; }
        int64 ptr = _heap_ptr;
        _heap_ptr = _heap_ptr + size;
-       return (*uint8) ptr;
+       // esk_alloc must return zeroed memory (alloc&lt;T&gt;'s contract):
+       *uint8 p = (*uint8) ptr;
+       int64 i = 0;
+       while (i &lt; size) { p[i] = 0; i = i + 1; }
+       return p;
  }</pre>
 <pre class="code-block"> void esk_free(*uint8 ptr) {
        // Bump allocator, free is a no-op.
