@@ -497,7 +497,7 @@ pre.code-block {
   <div class="toc-entry"><a href="#chapter-14"><strong>Chapter 14: C Interop</strong> <span class="toc-entry-desc">(Calling any C library from Eskiu)</span></a></div>
   <div class="toc-entry"><a href="#chapter-15"><strong>Chapter 15: The Standard Library</strong> <span class="toc-entry-desc">(result, list, string, math, io, mem, fs, net)</span></a></div>
   <div class="toc-entry"><a href="#chapter-16"><strong>Chapter 16: Inline Assembly</strong> <span class="toc-entry-desc">(Talking directly to hardware)</span></a></div>
-  <div class="toc-entry"><a href="#chapter-17"><strong>Chapter 17: Cross-compilation</strong> <span class="toc-entry-desc">(Building for ARM64, x86-64, and bare-metal)</span></a></div>
+  <div class="toc-entry"><a href="#chapter-17"><strong>Chapter 17: Cross-compilation</strong> <span class="toc-entry-desc">(Building for ARM, x86-64, Windows, and bare-metal)</span></a></div>
   <div class="toc-entry"><a href="#chapter-18"><strong>Chapter 18: Bare-metal Programming</strong> <span class="toc-entry-desc">(A kernel in Eskiu: no libc, no OS)</span></a></div>
   <div class="toc-entry"><a href="#chapter-19"><strong>Chapter 19: Ownership and Resources</strong> <span class="toc-entry-desc">(Designing safe code with alloc and free)</span></a></div>
   <div class="toc-entry"><a href="#chapter-20"><strong>Chapter 20: Debugging</strong> <span class="toc-entry-desc">(Segfaults, leaks, and diagnostic strategies)</span></a></div>
@@ -508,8 +508,6 @@ pre.code-block {
   <div class="toc-entry"><a href="#chapter-25"><strong>Chapter 25: Async and Await</strong> <span class="toc-entry-desc">(Concurrent I/O without threads)</span></a></div>
   <div class="toc-entry"><a href="#chapter-26"><strong>Chapter 26: Sum Types and Match</strong> <span class="toc-entry-desc">(Algebraic enums, Option, Either)</span></a></div>
   <div class="toc-entry"><a href="#chapter-27"><strong>Chapter 27: Self-Hosting</strong> <span class="toc-entry-desc">(The compiler written in Eskiu, the bootstrap fixpoint, feature-completeness)</span></a></div>
-  <div class="toc-entry"><a href="#appendix-a"><strong>Appendix A: Quick Reference</strong> <span class="toc-entry-desc">(CLI flags, keywords, stdlib at a glance)</span></a></div>
-  <div class="toc-entry"><a href="#appendix-b"><strong>Appendix B: Glossary</strong> <span class="toc-entry-desc">(Terms used throughout this book)</span></a></div>
   <p class="toc-part" style="margin-top:28px">Part II: Language Reference</p>
   <div class="toc-entry"><a href="#ref-r1"><strong>Ref R1: Lexical Elements</strong> <span class="toc-entry-desc">(Comments, identifiers, keywords, literals)</span></a></div>
   <div class="toc-entry"><a href="#ref-r2"><strong>Ref R2: Types</strong> <span class="toc-entry-desc">(Primitives, pointers, arrays, structs, templates)</span></a></div>
@@ -518,16 +516,18 @@ pre.code-block {
   <div class="toc-entry"><a href="#ref-r5"><strong>Ref R5: Functions</strong> <span class="toc-entry-desc">(Regular, lambda, closure, template, thread primitives)</span></a></div>
   <div class="toc-entry"><a href="#ref-r6"><strong>Ref R6: Memory</strong> <span class="toc-entry-desc">(Stack, heap, alloc/free, volatile, freestanding)</span></a></div>
   <div class="toc-entry"><a href="#ref-r7"><strong>Ref R7: Preprocessor</strong> <span class="toc-entry-desc">(#define, #ifdef, #pragma pack, multi-line macros)</span></a></div>
-  <div class="toc-entry"><a href="#ref-r8"><strong>Ref R8: Standard Library</strong> <span class="toc-entry-desc">(Complete API for result, list, string, math, io, mem, fs, net)</span></a></div>
+  <div class="toc-entry"><a href="#ref-r8"><strong>Ref R8: Standard Library</strong> <span class="toc-entry-desc">(reference for the core, networking, and system modules)</span></a></div>
   <div class="toc-entry"><a href="#ref-r9"><strong>Ref R9: CLI Reference</strong> <span class="toc-entry-desc">(All compiler flags, linking, cross-compilation)</span></a></div>
   <div class="toc-entry"><a href="#ref-r10"><strong>Ref R10: Undefined Behaviour</strong> <span class="toc-entry-desc">(What the compiler does not guarantee)</span></a></div>
+  <div class="toc-entry"><a href="#appendix-a"><strong>Appendix A: Quick Reference</strong> <span class="toc-entry-desc">(CLI flags, keywords, stdlib at a glance)</span></a></div>
+  <div class="toc-entry"><a href="#appendix-b"><strong>Appendix B: Glossary</strong> <span class="toc-entry-desc">(Terms used throughout this book)</span></a></div>
 </section>
 
 <!-- BOOK BODY -->
 <section id="preface" class="chapter-start"><span class="chapter-label">Preface</span><h1 class="chapter-title">Why this book exists</h1><hr class="chapter-rule"></section>
 <p> This book teaches Eskiu from zero. You do not need to know any other programming language. You need a computer, a terminal, and the willingness to type things and see what happens.</p>
 <p>Programming is not a subject you read about and then understand. It is something you do. Every example in this book is short enough to type by hand. Type them. Run them. Change a number and see what breaks. That is how the knowledge becomes yours.</p>
-<p>Eskiu is a systems language with the power of C and the immediacy of a scripting language. It compiles to native code through LLVM, giving you native performance, explicit memory, and direct access to any C library, so it does the work you would normally reach for C to do. But it spares you C's ceremony for small things: <code>eskiuc run file.esk</code> compiles and runs in a single step, and a <code>#!/usr/bin/env eskiuc run</code> shebang turns a <code>.esk</code> file into an executable script, the way Python or Ruby would. One compiler, one build command, and a mental model small enough to hold in your head.</p>
+<p>Eskiu is a systems language with the power of C and the immediacy of a scripting language. It compiles to native code through LLVM, giving you native performance, explicit memory, and direct access to any C library, so it does the work you would normally reach for C to do. But it spares you C's ceremony for small things: <code>eskiuc run file.esk</code> compiles and runs in a single step, and a <code>#!/usr/bin/env eskiuc run</code> shebang turns a <code>.esk</code> file into an executable script, the way Python or Ruby would. The whole toolchain is a single compiler driven by a single build command, and the language stays small enough to keep in your head.</p>
 <p>The language has no garbage collector. Memory is yours to manage. You ask for it when you need it and give it back when you are done. This sounds more intimidating than it is. By the end of Chapter 6 you will do it without thinking.</p>
 <p>Every chapter follows the same pattern. A concept is explained in plain language. Then shown in code. Each chapter ends with a summary and exercises. Do the exercises, even the easy ones, especially the easy ones.</p>
 <p>By the end you will have read the complete language, managed memory explicitly, called C libraries directly, spawned threads, and read through a real cryptographic pipeline that runs 2.5× faster than the hand-written C it replaced.</p>
@@ -594,7 +594,7 @@ pre.code-block {
 <p>Eskiu also has <code>int8</code>, <code>int16</code>, <code>int32</code>, <code>uint16</code>, <code>uint64</code>. For most code, <code>int</code> and <code>uint8</code> cover the majority of cases.</p>
 <p>Integer literals can be written in hexadecimal with a 0x prefix. Character and string literals support the usual escapes (<code>\n \t \r \f \v \0 \\ \" \'</code>) plus <code>\xNN</code>, which writes a raw byte from one or two hex digits (so <code>"\xC3\x91"</code> is <code>Ñ</code> in UTF-8). <code>char</code> is an unsigned 8-bit type (0–255); when widened to <code>int</code> it zero-extends, not sign-extends:</p>
 <pre class="code-block"> int flags = 0xFF;                    // hex literal = 255
- uint32 mask = 0xDEAD_BEEF; // larger hex</pre>
+ uint32 mask = 0xDEADBEEF; // larger hex</pre>
 <pre class="code-block"> char a = &#x27;A&#x27;;                        // character literal
  char nl = &#x27;\n&#x27;;                 // newline escape
  char bs = &#x27;\\&#x27;;                  // backslash
@@ -605,7 +605,7 @@ pre.code-block {
 <pre class="code-block"> string msg = &quot;Hello, &quot; &quot;world!&quot;;             // adjacent literals concatenate
  printf(&quot;%s\n&quot;, msg);                       // Hello, world!</pre>
 <h2 class="section" id="sec-2-3">2.3 Explicit casting</h2>
-<p>Eskiu never silently converts one type to another. When types differ, you cast explicitly, making the potential data loss visible in the code:</p>
+<p>Numeric conversions are mostly implicit: Eskiu widens and narrows between integer and float widths on its own. The one numeric conversion that needs an explicit cast is float to integer, which discards the fractional part. Pointer reinterpretation is always explicit too:</p>
 <pre class="code-block"> double x = 3.99;
  int n          = (int)x;         // 3: fractional part discarded
  uint8 b        = (uint8)n;       // fine if n fits in 0–255
@@ -896,8 +896,8 @@ pre.code-block {
 <pre class="code-block"> struct V3 { float x; float y; float z; }</pre>
 <pre class="code-block"> V3 operator +(V3 a, V3 b)     { let r: V3; r.x = a.x+b.x; r.y = a.y+b.y; r.z = a.z+b.z; return r; }
  V3 operator *(V3 a, double s) { let r: V3; r.x = a.x*(float)s; r.y = a.y*(float)s; r.z = a.z*(float)s; return r; }</pre>
-<pre class="code-block"> V3 p = (q - t) * 2.0;          // uses operator - then operator *</pre>
-<p>You can overload the binary operators (<code>+ - * / % == != &lt; &gt; &lt;= &gt;= &amp; | ^ &lt;&lt; &gt;&gt;</code>), the unary <code>- ! ~</code>, and subscript <code>[]</code>. Compound assignment (<code>v += w</code>) reuses your <code>operator +</code>. Overloads coexist by operand type, so <code>V3 * V3</code> and <code>V3 * double</code> are different operators selected by the right-hand side.</p>
+<pre class="code-block"> V3 p = (a + b) * 2.0;          // uses operator + then operator *</pre>
+<p>You can overload the binary operators (<code>+ - * / % == != &lt; &gt; &lt;= &gt;= &amp; | ^ &lt;&lt; &gt;&gt;</code>), the unary <code>- ! ~</code>, and subscript <code>[]</code>. Compound assignment (<code>v += w</code>) reuses your <code>operator +</code>. Overloads coexist by operand type, so <code>V3 * V3</code> and <code>V3 * double</code> are different operators selected by the right-hand side. The short-circuit <code>&amp;&amp;</code> and <code>||</code>, pointer <code>*</code>/<code>&amp;</code>, assignment <code>=</code>, and member access <code>.</code> cannot be overloaded.</p>
 <p>Resolution is fully static: an <code>operator</code> is an ordinary function, and <code>a op b</code> compiles to a direct call to it. There is no dynamic dispatch and no boxing, so the cost is exactly that of writing the call by hand, which keeps it fit for hot numeric code.</p>
 <h2 class="section" id="sec-5-4">5.4 Fixed-size array fields</h2>
 <pre class="code-block"> struct Packet {
@@ -1004,9 +1004,9 @@ pre.code-block {
  printf(&quot;%d %d %d\n&quot;, arr[0], arr[1], arr[4]);         // 0 1 16</pre>
 <pre class="code-block"> free((*void)arr);</pre>
 <h2 class="section" id="sec-6-5">6.5 The golden rule</h2>
-<p>Every <code>alloc</code> must be paired with exactly one <code>free</code>. Not zero. Not two. One.</p>
+<p>Every <code>alloc</code> must be paired with exactly one <code>free</code>, never zero and never twice.</p>
 <pre class="code-block"> Warning Forgetting free is a memory leak. Freeing twice is a double-free. Using memory after free is
- use-after-free. All three are undefined behaviour. Chapter 18 covers each in detail.</pre>
+ use-after-free. All three are undefined behaviour. Chapters 20 and 22 cover each in detail.</pre>
 <h2 class="section" id="sec-6-6">6.6 Typed pointer arithmetic</h2>
 <p>Adding an integer to a pointer advances it by n × sizeof(T) bytes, not n bytes. ptr + 1 moves to the next element, regardless of element size:</p>
 <pre class="code-block"> *int arr = alloc&lt;int&gt;(4);
@@ -1048,7 +1048,9 @@ pre.code-block {
 <h1 class="chapter-title">Interfaces</h1><hr class="chapter-rule"></div>
 <p>An interface describes what a type can do, not what it is. It names a set of methods that any conforming type must provide. Code written against an interface works with any type that satisfies it: today&#x27;s types and types not yet written. You can add a type years later and old code will accept it, unchanged.</p>
 <h2 class="section" id="sec-7-1">7.1 Declaring an interface</h2>
-<pre class="code-block"> interface Shape {
+<pre class="code-block"> extern int printf(string fmt, ...);
+
+ interface Shape {
        float area();
        void     describe();
  }</pre>
@@ -1251,7 +1253,7 @@ pre.code-block {
        printf(&quot;done\n&quot;);                  // always runs
  }</pre>
 <p class="output"><em>Output:</em> caught: division by zero done</p>
-<pre class="code-block"> Link with -lc++ (macOS) or -lstdc++ (Linux) when using exceptions.</pre>
+<pre class="code-block"> Link with -lc++ (macOS) or -lstdc++ (Linux) when using exceptions; on Windows a mingw g++ supplies the runtime and the SEH unwinder.</pre>
 <h2 class="section" id="sec-10-3">10.3 The ? operator</h2>
 <p>Chaining multiple <code>Result</code>-returning calls with explicit if (r.ok == 0) return <code>Err</code> checks gets verbose quickly. The postfix ? operator shortens this: applied to a <code>Result</code>&lt;T,E&gt; expression, it either unwraps the value on success or immediately returns the <code>Err</code> to the caller:</p>
 <pre class="code-block"> import &lt;result&gt;;</pre>
@@ -1288,7 +1290,9 @@ pre.code-block {
 <h1 class="chapter-title">Concurrency</h1><hr class="chapter-rule"></div>
 <p>A thread is an independent sequence of execution. Your main function runs in one. Additional threads run in parallel, on separate CPU cores if available. Eskiu exposes threads as language primitives: thread_create and thread_join are keywords, not library calls.</p>
 <h2 class="section" id="sec-11-1">11.1 thread_create and thread_join</h2>
-<pre class="code-block"> int main() {
+<pre class="code-block"> extern int printf(string fmt, ...);
+
+ int main() {
        *void t = thread_create(void() {
              printf(&quot;hello from the thread\n&quot;);
        });</pre>
@@ -1296,7 +1300,7 @@ pre.code-block {
        thread_join(t);
        return 0;
  }</pre>
-<p>The two lines may print in either order. thread_join blocks until the thread has finished. On Linux, link with -lpthread.</p>
+<p>The two lines may print in either order. thread_join blocks until the thread has finished. On Linux, link with -lpthread; on Windows, threading runs on winpthreads.</p>
 <h2 class="section" id="sec-11-2">11.2 Passing data via closures</h2>
 <p>Closures capture by value: each thread gets an independent copy, no shared state, no data race:</p>
 <pre class="code-block"> int id1 = 1;      int id2 = 2;</pre>
@@ -1398,8 +1402,8 @@ pre.code-block {
 <pre class="code-block"> for (i in 0..5)             { /* 0 1 2 3 4 */ }
  for (i in lo..hi){ /* lo to hi-1 */ }
  for (i in 5..5)             { /* never runs */ }</pre>
-<pre class="code-block"> .. is only meaningful inside for (x in A..B). It is not a standalone expression and has no value outside a
- for-in head.</pre>
+<pre class="code-block"> .. appears in a for-in head (for (x in A..B)) and in a slice (a[lo..hi], ptr[lo..hi]).
+ It is not a standalone expression with a value of its own.</pre>
 <h2 class="section" id="sec-12-5">12.5 Preprocessor</h2>
 <p>Eskiu has a preprocessor that runs before the lexer. It supports object-like macros, function-like macros with parameter substitution, recursive expansion, and conditional compilation. Macros are shared across all files in a multi-file build.</p>
 <p>Object-like macros substitute a name with a value everywhere it appears:</p>
@@ -1452,7 +1456,7 @@ pre.code-block {
  }                              // sizeof = 8</pre>
 <pre class="code-block"> printf(&quot;%lld %lld\n&quot;, sizeof(Wire), sizeof(Natural));           // 5 8</pre>
 <p class="output"><em>Output:</em> 5 8</p>
-<p>The compiler predefines one macro for the host OS: __APPLE__ on macOS, __linux__ on Linux. Use them to write portable code that compiles correctly on both platforms:</p>
+<p>The compiler predefines a macro for the host OS: __APPLE__ on macOS, __linux__ on Linux, and _WIN32 (plus _WIN64 on a 64-bit arch) on Windows. A bare-metal (none) target predefines none of them. Use them to write portable code that compiles correctly on both platforms:</p>
 <pre class="code-block"> #ifdef __APPLE__
        printf(&quot;macOS\n&quot;);
  #else
@@ -1466,8 +1470,8 @@ pre.code-block {
  #error DEBUG builds are not supported in this file
  #endif</pre>
 <pre class="code-block"> Supported directives: #define (object-like and function-like, including multi-line with \), #undef, #ifdef,
- #ifndef, #else, #endif, #error, #pragma pack. Predefined: __APPLE__, __linux__, __FILE__, __LINE__,
- __ESKIU_FREESTANDING__. pack(N) with any N ≥ 1 is fully supported in v0.2.0.</pre>
+ #ifndef, #else, #endif, #error, #pragma pack. Predefined: __APPLE__, __linux__, _WIN32, _WIN64, __FILE__, __LINE__,
+ __ESKIU_FREESTANDING__. pack(N) with any N ≥ 1 is fully supported.</pre>
 <div class="chapter-start" id="chapter-13"><span class="chapter-label">Chapter 13</span>
 <h1 class="chapter-title">Multi-file Programs</h1><hr class="chapter-rule"></div>
 <p>Every program in this book so far has lived in a single file. Real programs grow. When a file exceeds a few hundred lines, it becomes hard to navigate. The <code>import</code> statement lets you split code across as many files as you like.</p>
@@ -1509,10 +1513,16 @@ pre.code-block {
 <p>The entire C library ecosystem (OpenSSL, zlib, SQLite, libpng, the POSIX API) is available to Eskiu programs. Declare the function with <code>extern</code>, the compiler generates a standard C-ABI call, and the linker resolves it.</p>
 <h2 class="section" id="sec-14-1">14.1 Declaring extern functions</h2>
 <pre class="code-block"> extern int     printf(string fmt, ...);
- extern int     strlen(string s);
- extern *void malloc(int size);
- extern *void memcpy(*void dst, *void src, int n);
+ extern int64   strlen(string s);
+ extern *void malloc(int64 size);
+ extern *void memcpy(*void dst, *void src, int64 n);
  extern void    exit(int code);</pre>
+<h2 class="section" id="sec-14-1b">14.1b Declaring extern variables</h2>
+<p>An <code>extern</code> declaration also reaches C global <em>variables</em>, not just functions. Write <code>extern &lt;type&gt; &lt;name&gt;;</code> to read and write a global that lives in another translation unit:</p>
+<pre class="code-block"> extern int shared_counter;        // an int defined in a linked C file
+ shared_counter = shared_counter + 1;
+ printf(&quot;%d\n&quot;, shared_counter);   // read and write the C global</pre>
+<p>The compiler emits an external-linkage declaration with no initializer; the linker resolves it against the real definition. This is how Eskiu shares mutable state with a C library, not only calls into it.</p>
 <h2 class="section" id="sec-14-2">14.2 Calling OpenSSL: a real example</h2>
 <pre class="code-block"> extern *void EVP_CIPHER_CTX_new();
  extern void    EVP_CIPHER_CTX_free(*void ctx);
@@ -1551,7 +1561,7 @@ pre.code-block {
 <p>This works for top-level functions only. A closure or lambda still carries an environment and cannot be passed as a C callback.</p>
 <div class="chapter-start" id="chapter-15"><span class="chapter-label">Chapter 15</span>
 <h1 class="chapter-title">The Standard Library</h1><hr class="chapter-rule"></div>
-<p>Eskiu&#x27;s standard library ships as 35 plain .esk files with the compiler. There is no magic: they are Eskiu code, readable at lib/eskiu/stdlib/ in your installation. Import each module with an angle-bracket <code>import</code>.</p>
+<p>Eskiu&#x27;s standard library ships as 41 plain .esk files with the compiler. There is no magic: they are Eskiu code, readable at lib/eskiu/stdlib/ in your installation. Import each module with an angle-bracket <code>import</code>.</p>
 <h2 class="section" id="sec-15-1">15.1 result: errors as values</h2>
 <p>The most important module. <code>Result</code>&lt;T,E&gt; is a struct with three fields: ok (1 = success, 0 = failure), value (holds T on success), and error (holds E on failure). Two constructor functions create instances:</p>
 <pre class="code-block"> // result.esk: the complete interface
@@ -1603,7 +1613,7 @@ pre.code-block {
 <pre class="code-block"> List_free(&amp;nums);</pre>
 <p class="output"><em>Output:</em> len: 3 10 20 30 10 20 30</p>
 <h2 class="section" id="sec-15-3">15.3 string: mutable text</h2>
-<p>The built-in <code>string</code> type is an immutable C-<code>string</code> literal. For text you need to build or modify at runtime, use <code>String</code>, a struct with an owned, growable buffer. v0.2.0 brings a richer standard library. The complete <code>String</code> API:</p>
+<p>The built-in <code>string</code> type is an immutable C-<code>string</code> literal. For text you need to build or modify at runtime, use <code>String</code>, a struct with an owned, growable buffer. The standard library is broad. The complete <code>String</code> API:</p>
 <pre class="code-block"> // string.esk: the complete interface
  void     String_init(String* self, int cap)           // initialise with capacity
  void     String_from(String* self, string s)          // initialise from a literal
@@ -1679,14 +1689,14 @@ pre.code-block {
 <h2 class="section" id="sec-15-6">15.6 mem: memory operations</h2>
 <p>Wrappers for libc memory functions. Essential for working with raw byte buffers in systems code:</p>
 <pre class="code-block"> // mem.esk: the complete interface
- *void memcpy(*void dst, *void src, int n)                // copy n bytes
- *void memset(*void dst, int c, int n)                     // fill n bytes with c
- *void memmove(*void dst, *void src, int n)               // copy, handles overlap
- int      memcmp(*void a, *void b, int n)                 // compare n bytes
- int      strlen(string s)                                // length of C string
- *void memchr(*void s, int c, int n)                      // find byte in buffer</pre>
+ *void memcpy(*void dst, *void src, int64 n)              // copy n bytes
+ *void memset(*void dst, int c, int64 n)                  // fill n bytes with c
+ *void memmove(*void dst, *void src, int64 n)             // copy, handles overlap
+ int      memcmp(*void a, *void b, int64 n)               // compare n bytes
+ int64    strlen(string s)                                // length of C string
+ *void memchr(*void s, int c, int64 n)                    // find byte in buffer</pre>
 <pre class="code-block"> import &lt;mem&gt;;</pre>
-<pre class="code-block"> *uint8 buf = alloc&lt;uint8&gt;(uint8)16);
+<pre class="code-block"> *uint8 buf = alloc&lt;uint8&gt;(16);
  memset(buf, 0, 16);                        // zero the buffer
  memcpy(buf, &quot;Hello&quot;, 5);                   // copy 5 bytes
  printf(&quot;%d\n&quot;, memcmp(buf, &quot;Hello&quot;, 5));         // 0 = equal
@@ -1746,7 +1756,7 @@ pre.code-block {
 <pre class="code-block"> import &lt;multipart&gt;;
  import &lt;string&gt;;</pre>
 <pre class="code-block"> // Extract a named part from a multipart/form-data body
- String ct;     String_from_cstr(&amp;ct, req.headers);   // Content-Type header value
+ String ct;   String_init(&amp;ct, 64);   HttpReq_header(&amp;req, &quot;Content-Type&quot;, &amp;ct);   // Content-Type header value
  String boundary;     String_init(&amp;boundary, 64);
  if (multipart_boundary(&amp;ct, &amp;boundary) == 1) {
        *uint8 part;   int64 plen;
@@ -1775,7 +1785,7 @@ pre.code-block {
 <pre class="code-block"> import &lt;bytes&gt;;</pre>
 <pre class="code-block"> let b: Bytes;
  Bytes_init(&amp;b, 64);</pre>
-<pre class="code-block"> uint8 buf[4] = {0xDE, 0xAD, 0x00, 0xBE};       // embedded NUL is fine
+<pre class="code-block"> uint8[4] buf = {0xDE, 0xAD, 0x00, 0xBE};       // embedded NUL is fine
  Bytes_append_raw(&amp;b, buf, 4);</pre>
 <pre class="code-block"> Bytes view = Bytes_slice(&amp;b, 0, 2);    // non-owning, no alloc</pre>
 <pre class="code-block"> Bytes enc = Bytes_to_base64(&amp;b);
@@ -1870,14 +1880,12 @@ pre.code-block {
        asm(&quot;strb ${0:w}, [$1]&quot; :: &quot;r&quot;(c), &quot;r&quot;(UART_DR) : &quot;memory&quot;);
  }</pre>
 <h2 class="section" id="sec-16-3">16.3 volatile: a reminder</h2>
-<p>Hardware registers accessed via inline assembly almost always need <code>volatile</code> (covered fully in</p>
-<p>Chapter 6.8). Without it, the compiler may eliminate a store it considers redundant:</p>
+<p>Hardware registers accessed via inline assembly almost always need <code>volatile</code> (covered fully in section 6.9). Without it, the compiler may eliminate a store it considers redundant:</p>
 <pre class="code-block"> volatile let uart_dr: *uint8 = (uint8*) 0x09000000;
  *uart_dr = &#x27;A&#x27;;     // always emitted</pre>
 <div class="chapter-start" id="chapter-17"><span class="chapter-label">Chapter 17</span>
 <h1 class="chapter-title">Cross-compilation</h1><hr class="chapter-rule"></div>
-<h3 class="subsection">Cross-compilation means building a binary for a different machine than the one you are compiling</h3>
-<p>on. You might develop on an x86-64 laptop but deploy to an ARM64 server, or write a kernel that runs on bare metal with no OS. Eskiu handles this with two flags.</p>
+<p>Cross-compilation means building a binary for a different machine than the one you are compiling on. You might develop on an x86-64 laptop but deploy to an ARM64 server, or write a kernel that runs on bare metal with no OS. Eskiu handles this with a target triple and a few tuning flags.</p>
 <h2 class="section" id="sec-17-1">17.1 --target</h2>
 <pre class="code-block"> eskiuc program.esk --target x86_64-pc-linux-gnu         -o prog.o
  eskiuc kernel.esk     --target aarch64-unknown-none-elf \
@@ -1888,6 +1896,8 @@ pre.code-block {
 <pre class="code-block"> aarch64-unknown-none-elf                   Bare-metal ARM64, no OS, no libc</pre>
 <pre class="code-block"> x86_64-unknown-none                        Bare-metal x86-64, no OS, no libc</pre>
 <pre class="code-block"> x86_64-pc-windows-gnu                      Windows on Intel/AMD 64-bit (COFF object)</pre>
+<pre class="code-block"> armv6k-none-eabihf                         32-bit ARM (Nintendo 3DS), hard-float</pre>
+<p>A 32-bit ARM triple reaches smaller and older hardware. Three flags tune the machine: <code>--mcpu</code> (for example <code>mpcore</code> for the 3DS's ARM11), <code>--mattr</code> (an LLVM feature string like <code>+vfp2</code>), and <code>--reloc</code> (<code>static</code> for a loader that applies fixed relocations). A triple ending in <code>hf</code> (like <code>armv6k-none-eabihf</code>) selects the hard-float ABI, so the object carries the <code>Tag_ABI_VFP_args</code> attribute and links against hard-float libraries. An object built this way links into a Nintendo 3DS <code>.3dsx</code> homebrew through the devkitARM toolchain, with its logic in Eskiu running on the ARM11.</p>
 <p>Windows is a hosted target, not a bare-metal one. The compiler emits a COFF object with the Microsoft x64 calling convention, and the preprocessor predefines <code>_WIN32</code> and <code>_WIN64</code> so the standard library takes its Windows branches. Link the object with a mingw <code>g++</code> and the whole stdlib runs there: exceptions unwind through the SEH personality, <code>&lt;sysheap&gt;</code> maps pages with <code>VirtualAlloc</code>, <code>&lt;net&gt;</code> talks to Winsock, and the async reactor in <code>&lt;eventloop&gt;</code> runs on <code>WSAPoll</code>. So both a blocking and an async server build and run on Windows the same as on Linux or macOS.</p>
 <h2 class="section" id="sec-17-2">17.2 --freestanding</h2>
 <p>When targeting bare-metal there is no libc. --freestanding redirects <code>alloc</code> and <code>free</code> to your own esk_alloc and esk_free:</p>
@@ -1903,9 +1913,9 @@ pre.code-block {
 <pre class="code-block"> void esk_free(*uint8 ptr) { /* bump: free is a no-op */ }</pre>
 <div class="chapter-start" id="chapter-18"><span class="chapter-label">Chapter 18</span>
 <h1 class="chapter-title">Bare-metal Programming</h1><hr class="chapter-rule"></div>
-<p>Bare-metal means no operating system, no libc, no runtime: just your code and the hardware. The CPU starts at a known address and executes whatever is there. You set up the stack. You initialise the serial port. You write every byte of output yourself. This chapter walks through the Eskiu kernel that ships in the repository: a real ARM64 kernel that boots in QEMU, prints to the serial console, and allocates heap memory, without a single line of C.</p>
+<p>Bare-metal means the program runs directly on the hardware, with no operating system, libc, or runtime beneath it. The CPU starts at a known address and executes whatever is there. You set up the stack. You initialise the serial port. You write every byte of output yourself. This chapter walks through the Eskiu kernel that ships in the repository: a real ARM64 kernel that boots in QEMU, prints to the serial console, and allocates heap memory, without a single line of C.</p>
 <h2 class="section" id="sec-18-1">18.1 Why bare-metal matters</h2>
-<p>Most systems languages claim to support bare-metal. Eskiu does not claim it; it ships a working kernel. The fact that the same language that decodes AES-256-CBC ciphertext also boots on raw ARM64 hardware is not a coincidence. It is a consequence of three design decisions: no implicit runtime, <code>alloc</code> as a language primitive that can be redirected, and inline assembly as a first-class statement.</p>
+<p>Most systems languages claim to support bare-metal. Eskiu does not claim it; it ships a working kernel. The fact that the same language that decodes AES-256-CBC ciphertext also boots on raw ARM64 hardware is not a coincidence. It is a consequence of three design decisions: no implicit runtime, a redirectable <code>alloc</code>/<code>free</code> (from <code>&lt;mem&gt;</code>, switched by <code>#ifdef __ESKIU_FREESTANDING__</code>), and inline assembly as a first-class statement.</p>
 <h2 class="section" id="sec-18-2">18.2 What changes in freestanding mode</h2>
 <p>When you compile with --freestanding, two things change:</p>
 <p>First, <code>alloc</code>&lt;T&gt;(N) is now in &lt;mem&gt;. It no longer calls <code>malloc</code> from libc. Instead it calls esk_alloc, a function you provide. Similarly, <code>free</code> calls esk_free. The compiler inserts these calls; you write the implementations.</p>
@@ -1984,10 +1994,10 @@ pre.code-block {
  import &quot;alloc.esk&quot;;</pre>
 <pre class="code-block"> void kernel_main() {
        uart_puts(&quot;Eskiu v0.1 kernel\r\n&quot;);
-       uart_puts(&quot;No libc. No runtime. Just Eskiu.\r\n&quot;);</pre>
+       uart_puts(&quot;Running on QEMU -M virt (ARM64)\r\n&quot;);</pre>
 <pre class="code-block">       uart_puts(&quot;UART base:   &quot;); uart_puthex(0x09000000); uart_puts(&quot;\r\n&quot;);
        uart_puts(&quot;Heap start: &quot;); uart_puthex(0x40300000); uart_puts(&quot;\r\n&quot;);</pre>
-<pre class="code-block">       *uint8 buf = alloc&lt;uint8&gt;(uint8)64);
+<pre class="code-block">       *uint8 buf = alloc&lt;uint8&gt;(64);
        if (buf == null) {
             uart_puts(&quot;alloc failed\r\n&quot;);
        } else {
@@ -2015,15 +2025,14 @@ pre.code-block {
  ld.lld -T linker.ld -nostdlib -static -o kernel.elf boot.o kernel.o</pre>
 <p>QEMU loads the ELF, sets the program counter to 0x40000000, and starts executing. Expected output on the serial console:</p>
 <pre class="code-block"> Eskiu v0.1 kernel
- Running on QEMU -M virt (ARM64)
- No libc. No runtime. Just Eskiu.</pre>
+ Running on QEMU -M virt (ARM64)</pre>
 <pre class="code-block"> UART base:     0x0000000009000000
  Heap start: 0x0000000040300000
  alloc(64):     0x0000000040300000 ok</pre>
 <pre class="code-block"> Kernel halted.</pre>
 <p>Press Ctrl-A X to exit QEMU.</p>
 <h2 class="section" id="sec-18-9">18.9 What this demonstrates</h2>
-<p>The kernel uses seven features from this book in combination: multi-file imports (Ch13), inline assembly (Ch16), cross-compilation (Ch17), <code>volatile</code> and MMIO (Ch6.8), pointer casting (Ch6.3), <code>string</code> indexing (Ch2.4), and the freestanding allocator hook. None of these features exist in isolation; bare-metal programming is where they compose.</p>
+<p>The kernel uses seven features from this book in combination: multi-file imports (Ch13), inline assembly (Ch16), cross-compilation (Ch17), <code>volatile</code> and MMIO (Ch6.9), pointer casting (Ch6.3), <code>string</code> indexing (Ch2.2), and the freestanding allocator hook. None of these features exist in isolation; bare-metal programming is where they compose.</p>
 <p>The kernel is 130 lines of Eskiu and 7 lines of assembly. The assembly sets up the stack. Everything else (the UART driver, the allocator, the output, the idle loop) is plain Eskiu code that compiles to the same LLVM IR as any other Eskiu program.</p>
 <div class="chapter-start" id="chapter-19"><span class="chapter-label">Chapter 19</span>
 <h1 class="chapter-title">Ownership and Resources</h1><hr class="chapter-rule"></div>
@@ -2066,12 +2075,12 @@ pre.code-block {
        buf = alloc&lt;uint8&gt;(4096);
        if (read_data(buf) != 0) {
             free((*void)buf);
-            return Err&lt;int, string&gt;(\&quot;read failed\&quot;);
+            return Err&lt;int, string&gt;(&quot;read failed&quot;);
        }
        out = alloc&lt;uint8&gt;(4096);
        if (transform(buf, out) != 0) {
             free((*void)buf);   free((*void)out);
-            return Err&lt;int, string&gt;(\&quot;transform failed\&quot;);
+            return Err&lt;int, string&gt;(&quot;transform failed&quot;);
        }
        write_result(out);
        free((*void)buf);    free((*void)out);
@@ -2155,22 +2164,22 @@ pre.code-block {
 <h2 class="section" id="sec-21-1">21.1 Test functions</h2>
 <pre class="code-block"> extern int printf(string fmt, ...);</pre>
 <pre class="code-block"> int check(string name, int got, int want) {
-       if (got == want) { printf(\&quot;    PASS   %s\n\&quot;, name); return 0; }
-       printf(\&quot;    FAIL   %s: got %d want %d\n\&quot;, name, got, want);
+       if (got == want) { printf(&quot;    PASS   %s\n&quot;, name); return 0; }
+       printf(&quot;    FAIL   %s: got %d want %d\n&quot;, name, got, want);
        return 1;
  }</pre>
 <pre class="code-block"> int add(int a, int b) { return a + b; }</pre>
 <pre class="code-block"> int test_add() {
        int f = 0;
-       f += check(\&quot;2+3\&quot;, add(2, 3), 5);
-       f += check(\&quot;0+0\&quot;, add(0, 0), 0);
-       f += check(\&quot;neg\&quot;, add(-1, -2), -3);
+       f += check(&quot;2+3&quot;, add(2, 3), 5);
+       f += check(&quot;0+0&quot;, add(0, 0), 0);
+       f += check(&quot;neg&quot;, add(-1, -2), -3);
        return f;
  }</pre>
 <pre class="code-block"> int main() {
        int failures = test_add();
-       if (failures == 0) printf(\&quot;All passed.\n\&quot;);
-       else printf(\&quot;%d failed.\n\&quot;, failures);
+       if (failures == 0) printf(&quot;All passed.\n&quot;);
+       else printf(&quot;%d failed.\n&quot;, failures);
        return failures;
  }</pre>
 <p class="output"><em>Output:</em> All passed.</p>
@@ -2179,18 +2188,18 @@ pre.code-block {
 <pre class="code-block"> #!/bin/sh
  PASS=0; FAIL=0
  for esk in tests/*.esk; do
-       exp=\&quot;${esk%.esk}.expected\&quot;
-       [ -f \&quot;$exp\&quot; ] || continue
-       actual=$(eskiuc run \&quot;$esk\&quot; 2&gt;&amp;1)
-       if diff -q &lt;(echo \&quot;$actual\&quot;) \&quot;$exp\&quot; &gt;/dev/null 2&gt;&amp;1; then
+       exp=&quot;${esk%.esk}.expected&quot;
+       [ -f &quot;$exp&quot; ] || continue
+       actual=$(eskiuc run &quot;$esk&quot; 2&gt;&amp;1)
+       if diff -q &lt;(echo &quot;$actual&quot;) &quot;$exp&quot; &gt;/dev/null 2&gt;&amp;1; then
             PASS=$((PASS+1))
        else
-            echo \&quot;FAIL $esk\&quot;
-            diff &lt;(echo \&quot;$actual\&quot;) \&quot;$exp\&quot;
+            echo &quot;FAIL $esk&quot;
+            diff &lt;(echo &quot;$actual&quot;) &quot;$exp&quot;
             FAIL=$((FAIL+1))
        fi
  done
- echo \&quot;$PASS passed, $FAIL failed\&quot;</pre>
+ echo &quot;$PASS passed, $FAIL failed&quot;</pre>
 <pre class="code-block"> eskiuc run compiles to a temp binary, runs it, and deletes it. No Makefile step needed for running
  individual tests.</pre>
 <div class="chapter-start" id="chapter-22"><span class="chapter-label">Chapter 22</span>
@@ -2243,28 +2252,37 @@ pre.code-block {
 <h2 class="section" id="sec-22-6">22.6 Memory leak</h2>
 <p>You allocate memory and never <code>free</code> it. The program runs fine at first, but over time consumes all available memory:</p>
 <pre class="code-block"> void process() {
-       *uint8 buf = alloc&lt;uint8&gt;(uint8)1024);
+       *uint8 buf = alloc&lt;uint8&gt;(1024);
        doWork(buf);
        // WRONG: forgot to free buf
  }</pre>
 <p>Fix: Every allocation has a corresponding <code>free</code>. The function that allocates owns the memory until it explicitly frees or transfers it:</p>
 <pre class="code-block"> void process() {
-       *uint8 buf = alloc&lt;uint8&gt;(uint8)1024);
+       *uint8 buf = alloc&lt;uint8&gt;(1024);
        doWork(buf);
        free(buf);     // correct
  }</pre>
 <h2 class="section" id="sec-22-7">22.7 Bugs the compiler now catches</h2>
-<p>v0.2.2 closes several cases that previously reached codegen and produced bad IR or crashes at runtime:</p>
+<p>The compiler rejects a growing class of mistakes before they reach codegen. The v0.2.2 fuzzer added checks for duplicate switch cases, negative array dimensions, and dead code:</p>
 <pre class="code-block"> // Duplicate switch case values, now a compile-time error:
  // error: duplicate case value 1 in switch
  switch (x) { case 1: ...; case 1: ...; }</pre>
 <pre class="code-block"> // Negative array dimension, now rejected clearly:
  // error: array dimension must be positive
- int buf[-1];</pre>
+ int[-1] buf;</pre>
 <pre class="code-block"> // Dead code after block terminator, silently dropped:
  int f() { return 1; printf(&quot;unreachable&quot;); }
  // the printf is removed without error (dead code)</pre>
-<p>The duplicate-case and negative-dimension checks were added by the compiler fuzzer introduced in v0.2.2, which mutates the test corpus and uses the LLVM IR verifier and sanitizers as oracles.</p>
+<p>v0.4.0 turned a whole class of latent runtime bugs into compile-time errors, so unsafe code fails to build instead of misbehaving at runtime:</p>
+<pre class="code-block"> float f = 3.9;  int n = f;              // error: float to int needs an explicit cast
+ uint8 b = 300;                          // error: integer literal out of range for uint8
+ int q = x / 0;                          // error: division by literal zero
+ int[3] a;  int v = a[5];                // error: constant index out of bounds
+ int x;  printf(&quot;%d&quot;, x);                // error: x read before it is assigned
+ *int p() { int y = 1; return &amp;y; }      // error: returns the address of a local
+ int g(int a) { }                        // error: missing return in a non-void function
+ void main() { }                         // error: main must return int</pre>
+<p>These checks come from the v0.2.2 compiler fuzzer (duplicate cases, dimensions) and the v0.4.0 correctness pass (the conversion, flow, and bounds checks above), both using the LLVM IR verifier and the sanitizers as oracles. Note that <em>narrowing a variable</em> still truncates silently (<code>int</code> to <code>uint8</code>); the error is reserved for a literal that cannot fit its type.</p>
 <div class="chapter-start" id="chapter-23"><span class="chapter-label">Chapter 23</span>
 <h1 class="chapter-title">Networking</h1><hr class="chapter-rule"></div>
 <p>Network programming in Eskiu is POSIX sockets via the stdlib module. No framework required for basic use. A TCP server is a file descriptor you accept connections on. A TCP client is a file descriptor you write bytes to.</p>
@@ -2274,8 +2292,8 @@ pre.code-block {
  extern int printf(string fmt, ...);</pre>
 <pre class="code-block"> int main() {
        int fd = net_tcp_listen(7000);
-       if (fd &lt; 0) { printf(\&quot;bind failed\n\&quot;); return 1; }
-       printf(\&quot;listening on :7000\n\&quot;);
+       if (fd &lt; 0) { printf(&quot;bind failed\n&quot;); return 1; }
+       printf(&quot;listening on :7000\n&quot;);
        *uint8 buf = alloc&lt;uint8&gt;(1024);
        while (1) {
             int c = net_accept(fd);
@@ -2297,12 +2315,12 @@ pre.code-block {
  extern int printf(string fmt, ...);</pre>
 <pre class="code-block"> int main() {
        int fd = net_tcp_listen(8080);
-       printf(\&quot;http://127.0.0.1:8080\n\&quot;);
+       printf(&quot;http://127.0.0.1:8080\n&quot;);
        string resp =
-            \&quot;HTTP/1.1 200 OK\\r\n\&quot;
-            \&quot;Content-Type: text/plain\\r\n\&quot;
-            \&quot;Connection: close\\r\n\\r\n\&quot;
-            \&quot;Hello from Eskiu.\n\&quot;;
+            &quot;HTTP/1.1 200 OK\r\n&quot;
+            &quot;Content-Type: text/plain\r\n&quot;
+            &quot;Connection: close\r\n\r\n&quot;
+            &quot;Hello from Eskiu.\n&quot;;
        *uint8 req = alloc&lt;uint8&gt;(4096);
        while (1) {
             int c = net_accept(fd);
@@ -2338,13 +2356,13 @@ pre.code-block {
  import &lt;mem&gt;;
  extern int printf(string fmt, ...);</pre>
 <pre class="code-block"> int main() {
-       int fd = net_tcp_connect(\&quot;127.0.0.1\&quot;, 7000);
-       if (fd &lt; 0) { printf(\&quot;connect failed\n\&quot;); return 1; }
-       net_send_str(fd, \&quot;ping\&quot;);
+       int fd = net_tcp_connect(&quot;127.0.0.1&quot;, 7000);
+       if (fd &lt; 0) { printf(&quot;connect failed\n&quot;); return 1; }
+       net_send_str(fd, &quot;ping&quot;);
        *uint8 buf = alloc&lt;uint8&gt;(256);
        int64 n = net_recv(fd, (*void)buf, 256);
        buf[n] = 0;
-       printf(\&quot;got: %s\n\&quot;, (string)buf);
+       printf(&quot;got: %s\n&quot;, (string)buf);
        net_close(fd);     free((*void)buf);
        return 0;
  }</pre>
@@ -2361,7 +2379,7 @@ pre.code-block {
        } else {
             // r.body is *uint8 with r.body_len bytes, binary safe
             String ct;   String_init(&amp;ct, 64);
-            String_from_cstr(&amp;ct, HttpReq_header(&amp;r, &quot;Content-Type&quot;));
+            HttpReq_header(&amp;r, &quot;Content-Type&quot;, &amp;ct);
             String_free(&amp;ct);
             http_reply(fd, 200, &quot;text/plain&quot;, &quot;&quot;, null);
        }
@@ -2384,9 +2402,10 @@ pre.code-block {
 <h2 class="section" id="sec-24-1">24.1 Background</h2>
 <p>Every Mexican INE credential has two QR codes on the back. Together they encode the cardholder&#x27;s biographical data and photo, encrypted with AES-256-CBC and RSA-8192. The encryption was reverse-engineered from a proprietary native ARM64 library (libPersonalCode.so, 4.6 MB, Chilkat 9.5 statically linked) and reimplemented entirely in Eskiu, calling OpenSSL via <code>extern</code>.</p>
 <h2 class="section" id="sec-24-2">24.2 The pipeline</h2>
-<p>Stage 1 (qr_extract.c, 12 lines of C): zxing-cpp extracts two 858-byte payloads from the QR codes. The only C code in the project.</p>
-<p>Stage 2 (crypto.esk, 541 lines): six AES-256-CBC decryptions and one RSA-8192 modular exponentiation, all via OpenSSL <code>extern</code> calls. Manages intermediate buffers with <code>alloc</code>/<code>free</code>.</p>
-<p>Stage 3 (output.esk, 186 lines): parses the pipe-delimited plaintext into 18 biographical fields and extracts the embedded WebP photo. Pure Eskiu, no <code>extern</code>.</p>
+<p>Stage 1 (qr_extract.c, 37 lines of C): zxing-cpp extracts two 858-byte payloads from the QR codes. The only C code in the project.</p>
+<p>Stage 2 (crypto.esk, 724 lines): six AES-256-CBC decryptions and one RSA-8192 modular exponentiation, all via OpenSSL <code>extern</code> calls. Manages intermediate buffers with <code>alloc</code>/<code>free</code>.</p>
+<p>Stage 3 (output.esk, 127 lines): parses the pipe-delimited plaintext into 18 biographical fields and extracts the embedded WebP photo. Pure Eskiu, no <code>extern</code>.</p>
+<p>The three stages (<code>stage_extract</code>, <code>stage_crypto</code>, <code>stage_decode</code>) live in <code>pipeline.esk</code> and are wired together by <code>main.esk</code>, with the shared types in <code>types.esk</code> and the OpenSSL declarations in <code>extern.esk</code>.</p>
 <h2 class="section" id="sec-24-3">24.3 Key data structures</h2>
 <pre class="code-block"> // types.esk
  struct QRPair {
@@ -2395,16 +2414,19 @@ pre.code-block {
        int         ok;
        char[256]   err;
  }</pre>
-<pre class="code-block"> struct IneResult {
-       int         ok;
-       char[256] err;
-       *char       json;         // heap-allocated by stage 3
-       int         json_len;
-       *uint8      webp;         // heap-allocated by stage 3
-       int         webp_len;
-       double      qr_ms;
-       double      crypto_ms;
-       double      decode_ms;
+<pre class="code-block"> // types.esk: parsed output (both pointers heap-allocated; free each)
+ struct DecodeOutput {
+       *char  json;
+       int    json_len;
+       *uint8 webp;              // the embedded photo
+       int    webp_len;
+ }</pre>
+<pre class="code-block"> // per-stage wall-clock timing, in milliseconds
+ struct PipelineTiming {
+       double qr_ms;
+       double crypto_ms;
+       double decode_ms;
+       double total_ms;
  }</pre>
 <h2 class="section" id="sec-24-4">24.4 Performance</h2>
 <pre class="code-block">      Stage                                         Eskiu            Reference C</pre>
@@ -2448,23 +2470,24 @@ pre.code-block {
  import &lt;future&gt;;
  import &lt;mem&gt;;
  extern int printf(string fmt, ...);</pre>
-<pre class="code-block"> async void read_line(EventLoop* lp, int fd) {
+<pre class="code-block"> async int read_line(EventLoop* lp, int fd) {
        *uint8 buf = alloc&lt;uint8&gt;(256);
        int n = await net_read_async(lp, fd, buf, 255);
        buf[n] = 0;
        printf(&quot;%s&quot;, (string)buf);
        free((*void)buf);
+       return n;
  }</pre>
 <pre class="code-block"> int main() {
        EventLoop* lp = el_new(64);
        int fd = net_tcp_connect(&quot;127.0.0.1&quot;, 7000);
-       Future&lt;void&gt;* f = read_line(lp, fd);
+       Future&lt;int&gt;* f = read_line(lp, fd);
        el_run(lp);    // drives the event loop until all tasks complete
-       free_future&lt;uint8&gt;((*Future&lt;uint8&gt;*)f);
+       free_future&lt;int&gt;(f);
        el_free(lp);   net_close(fd);
        return 0;
  }</pre>
-<p>el_new(n) creates an event loop that watches up to n file descriptors. el_run(lp) blocks until all registered callbacks complete. Internally it uses kqueue on macOS and epoll on Linux.</p>
+<p>el_new(n) creates an event loop that watches up to n file descriptors. el_run(lp) blocks until all registered callbacks complete. Internally it uses kqueue on macOS, epoll on Linux, and WSAPoll on Windows.</p>
 <h2 class="section" id="sec-25-3">25.3 Concurrent HTTP with http_serve_async</h2>
 <p>The simplest way to write a concurrent HTTP server (one event loop thread, many simultaneous connections):</p>
 <pre class="code-block"> import &lt;http_async&gt;;
@@ -2594,7 +2617,21 @@ pre.code-block {
        Node(a, b) -&gt; printf(&quot;node %d %d\n&quot;, a, b);       // node 3 7
        Empty       -&gt; printf(&quot;empty\n&quot;);
  }</pre>
-<pre class="code-block">        Complete specification of syntax, types, operators, stdlib, and CLI</pre>
+<p>The chapters above are the tutorial. What follows is the reference: a complete specification of the syntax, types, operators, standard library, and CLI.</p>
+<div class="chapter-start" id="chapter-27"><span class="chapter-label">Chapter 27</span>
+<h1 class="chapter-title">Self-Hosting</h1><hr class="chapter-rule"></div>
+<p>There is a moment in a language's life when it grows up: the day its compiler is written in itself. Until then the language depends on another: Eskiu's reference compiler, <code>eskiuc</code>, is written in C++. A self-hosted compiler is one the language can build on its own, and reaching it proves something concrete: the language is expressive enough, and the compiler correct enough, to take on a program as demanding as a compiler. As of v0.3.0, Eskiu is there.</p>
+<p>The whole pipeline is reimplemented in Eskiu, under <code>selfhost/</code>: a lexer, a preprocessor, a parser, a type checker, and a code generator, each a faithful translation of its C++ counterpart. They chain together exactly as the reference compiler does:</p>
+<pre class="code-block"> lexer → preprocessor → parser → type checker → code generator → LLVM IR</pre>
+<p>The code generator is the interesting one. It does not link against the LLVM libraries. Instead it writes LLVM IR out as plain text, which <code>clang</code> then assembles and links. That choice keeps the self-hosted compiler dependency-free, and it is how most bootstrapping compilers do it.</p>
+<h2 class="section" id="sec-27-1">27.1 Trust, but verify</h2>
+<p>A compiler that is subtly wrong is worse than no compiler at all, so every pass is checked against the reference. The method changes with what can be observed. For the lexer, parser, and preprocessor there is an exact answer to compare against: their output is diffed <em>byte-for-byte</em> against <code>eskiuc</code>'s debug dumps. For the type checker, the ground truth is a verdict: does it accept the same programs and reject the same mistakes, with the same error messages? For the code generator, the generated IR can't be compared character by character (LLVM renumbers values and folds constants), so the test is <em>behavioural</em>: compile the program both ways, run both binaries, and check that they print the same thing and exit the same way. Every one of these comparisons runs in continuous integration; a divergence fails the build.</p>
+<h2 class="section" id="sec-27-2">27.2 The fixpoint</h2>
+<p>Per-pass parity is necessary but not sufficient. The real test of self-hosting is whether the compiler can reproduce <em>itself</em>. So the self-hosted compiler is built three times: the C++ <code>eskiuc</code> builds it once (call the result cc0); cc0 builds it again (cc1); cc1 builds it a third time (cc2). If the project is sound, cc1 and cc2 must emit identical IR for the compiler's own source: a compiler built by itself reproducing its own output. That equality is the <em>bootstrap fixpoint</em>, and Eskiu reaches it.</p>
+<h2 class="section" id="sec-27-3">27.3 Earning the word "complete"</h2>
+<p>There is a trap here worth naming, because it caught the author more than once. The bootstrap fixpoint only exercises the slice of the language the compiler's <em>own</em> source happens to use. It says nothing about features the compiler doesn't use: floating point, say, or unions, or the <code>?</code> operator. It is tempting to declare the code generator complete once the fixpoint holds, but that would be wrong. The only way to know a feature works is to compile a program that uses it and run it. So feature-completeness is measured by pushing the entire reference test corpus through the behavioural oracle and demanding a clean sweep, with every program, compiled by the Eskiu-written code generator, behaving exactly as the C++ build does. v0.3.0 passes that sweep: floats, <code>switch</code>, sum types and <code>match</code>, closures, exceptions, atomics, generics with inference, async/await, unions, bitfields, interfaces, packed structs, variadics, and the <code>?</code> operator all generate correct code.</p>
+<p>The lesson generalises beyond compilers: a system that checks itself can only ever confirm the paths it walks. To claim coverage, you have to walk every path on purpose, and watch what happens.</p>
+<p>Since v0.3.0 the self-hosting has been taken to completion. The Eskiu-written compiler is behaviorally equivalent to the C++ one across the whole corpus, gated on every commit, and dual-built as <code>eskiuc-esk</code>. It stays a co-equal build rather than the shipped artifact for one practical reason: the self-hosted driver links its output by shelling out to clang, so shipping it as the default would add a clang dependency at run time. The C++ binary remains the shipped compiler, and the parity gates keep the two equivalent.</p>
 <div class="chapter-start" id="ref-r1"><span class="chapter-label ref">Ref R1</span>
 <h1 class="chapter-title">Lexical Elements</h1><hr class="chapter-rule"></div>
 <h3 class="subsection">Comments</h3>
@@ -2608,12 +2645,12 @@ pre.code-block {
  uint     uint8    uint16     uint32       uint64
  float     double     bool    char     string       void</pre>
 <pre class="code-block"> struct     packed     union    enum       type     interface
- fn    extern     intrinsic     import</pre>
-<pre class="code-block"> if    else     for   while    in     switch      case     default
+ fn    extern     intrinsic     import     static     must_use</pre>
+<pre class="code-block"> if    else     for   while    do     in     switch      case     default
  return     break     continue      match</pre>
 <pre class="code-block"> alloc_with       free_closure        sizeof      asm</pre>
-<pre class="code-block"> thread_create        thread_join       async       await        spawn      escaping</pre>
-<pre class="code-block"> try     catch    finally     throw</pre>
+<pre class="code-block"> thread_create        thread_join       async       await        escaping</pre>
+<pre class="code-block"> try     catch    finally     throw     defer     errdefer</pre>
 <pre class="code-block"> true     false    null</pre>
 <div class="chapter-start" id="ref-r2"><span class="chapter-label ref">Ref R2</span>
 <h1 class="chapter-title">Types</h1><hr class="chapter-rule"></div>
@@ -2644,16 +2681,17 @@ pre.code-block {
         inst.</pre>
 <pre class="code-block">        Interface       Name                 Fat pointer {data_ptr, vtable_ptr} at call site</pre>
 <h3 class="subsection">Type Casting</h3>
-<pre class="code-block"> (int)x         // explicit cast: required for all type conversions
- (uint8)n       // narrowing: must be explicit
- (double)i      // widening: must still be explicit
- (*uint8)ptr    // pointer reinterpretation</pre>
-<p>No implicit conversions. Signedness is tracked; signed and unsigned variants of the same width share the same LLVM integer type.</p>
+<pre class="code-block"> (int)x         // float to int: the one numeric cast the compiler requires
+ (uint8)n       // integer narrowing: implicit; cast only to document intent
+ (double)i      // widening: implicit; the cast is optional
+ (*uint8)ptr    // pointer reinterpretation: always explicit</pre>
+<p>Numeric widening and narrowing are implicit; only float-to-int and pointer reinterpretation need a cast. Signedness is tracked; signed and unsigned variants of the same width share the same LLVM integer type.</p>
 <div class="chapter-start" id="ref-r3"><span class="chapter-label ref">Ref R3</span>
 <h1 class="chapter-title">Operators</h1><hr class="chapter-rule"></div>
 <pre class="code-block">       Precedence   Operators             Associativit   Notes
                                           y</pre>
 <pre class="code-block">       1 (lowest)   = += -= *= /= %=      Right          Assignment</pre>
+<pre class="code-block">       (ternary)    ?:                    Right          cond ? a : b</pre>
 <pre class="code-block">       2            ||                    Left           Logical OR (short-circuit)</pre>
 <pre class="code-block">       3            &amp;&amp;                    Left           Logical AND (short-circuit)</pre>
 <pre class="code-block">       4            | (bitwise)           Left</pre>
@@ -2664,8 +2702,8 @@ pre.code-block {
 <pre class="code-block">       9            &lt;&lt; &gt;&gt;                 Left           &gt;&gt; is arithmetic on signed</pre>
 <pre class="code-block">       10           +-                    Left</pre>
 <pre class="code-block">       11           */%                   Left           Integer / truncates toward 0</pre>
-<pre class="code-block">       12 (unary)   ! - + ~ &amp; * (TYPE)    Right</pre>
-<pre class="code-block">       13           () [] . ? (postfix)   Left           ? on Result only
+<pre class="code-block">       12 (unary)   ! - + ~ &amp; * ++ -- (TYPE)  Right      ++ -- prefix and postfix</pre>
+<pre class="code-block">       13           () [] . ? (postfix)   Left           postfix ? propagates a Result
        (highest)</pre>
 <h3 class="subsection">Pointer Arithmetic</h3>
 <p>p + n on *T advances n × sizeof(T) bytes. Exception: *<code>void</code> and *<code>char</code> use byte stride (1 byte per step).</p>
@@ -2682,7 +2720,7 @@ pre.code-block {
 <pre class="code-block">        while       while (cond) { }                                 Condition checked before each iteration.</pre>
 <pre class="code-block">        switch      switch (x) { case N: ... break; default:         Integer dispatch. No break = fallthrough.
                     ... }</pre>
-<pre class="code-block">        match       match e { Variant(x) -&gt; ...; _ -&gt; ...; }         Dispatch on algebraic enum variant. Exhaustive.
+<pre class="code-block">        match       match e { Variant(x) -&gt; ...; _ -&gt; ...; }         Dispatch on an algebraic enum variant, or a plain enum's values. Exhaustive.
                                                                      Binds payload fields.</pre>
 <pre class="code-block">        break       break;                                           Exits innermost for/while/switch/match.</pre>
 <pre class="code-block">        continue    continue;                                        Skips to next iteration. In for-in, correctly
@@ -2696,7 +2734,7 @@ pre.code-block {
 <pre class="code-block">        Form          Syntax                                         Notes</pre>
 <pre class="code-block">        Regular       RetType name(T p, ...) { }                     Parameters by value. Declaration order irrelevant.</pre>
 <pre class="code-block">        Void          void name(T p) { }                             return; or fall off end.</pre>
-<pre class="code-block">        Extern        extern RetType name(T p, ...);                 ... only in extern. free is a keyword; do not
+<pre class="code-block">        Extern        extern RetType name(T p, ...);                 ... only in extern. free is a &lt;mem&gt; function; do not
                                                                      extern-declare it.</pre>
 <pre class="code-block">        Lambda        RetType(T p) { return expr; }                  Type is fn(T)-&gt;R. Closures capture by value at
                                                                      creation.</pre>
@@ -2716,7 +2754,7 @@ pre.code-block {
 <pre class="code-block">        free_closur   free_closure(f)                                Release escaping closure heap env.
         e</pre>
 <pre class="code-block">        variadic      int f(int n, ...) { va_list ap;                User-defined variadic. C promotions: float arrives as
-                      va_start(ap); va_arg(ap);                      double.
+                      va_start(ap); va_arg&lt;T&gt;(ap);                   double.
                       va_end(ap); }</pre>
 <pre class="code-block">        constraint    T f(...) or T f(...) or struct S {...}         Structs: define the interface methods. Primitives:
                                                                      provide a free fn named like the method. int
@@ -2727,7 +2765,7 @@ pre.code-block {
 <h1 class="chapter-title">Memory</h1><hr class="chapter-rule"></div>
 <pre class="code-block">        Operation           Syntax / Description</pre>
 <pre class="code-block">        Stack alloc         All local variables. Reclaimed on function return.</pre>
-<pre class="code-block">        Heap alloc          alloc(N): import &lt;mem&gt;; returns *T. libc malloc hosted, esk_alloc in freestanding.</pre>
+<pre class="code-block">        Heap alloc          alloc(N): import &lt;mem&gt;; returns *T. calloc hosted (zero-initialized), esk_alloc in freestanding.</pre>
 <pre class="code-block">        Heap free           free(ptr): calls free() or esk_free. Freeing null is safe.</pre>
 <pre class="code-block">        Address-of          &amp;x: yields *T where x: T</pre>
 <pre class="code-block">        Dereference         *ptr: yields T where ptr: *T</pre>
@@ -2760,12 +2798,13 @@ pre.code-block {
 <pre class="code-block">        other #pragma            Silently ignored</pre>
 <pre class="code-block">        __APPLE__                Predefined by compiler on macOS</pre>
 <pre class="code-block">        __linux__                Predefined by compiler on Linux</pre>
+<pre class="code-block">        _WIN32 / _WIN64          Predefined by compiler on Windows (_WIN64 on 64-bit)</pre>
 <pre class="code-block">        __FILE__                 Current source file path (string literal)</pre>
 <pre class="code-block">        __LINE__                 Current source line number (integer)</pre>
 <pre class="code-block">        __ESKIU_FREESTANDING__   Predefined when --freestanding is passed</pre>
 <pre class="code-block">        #error message           Abort compilation with message (honors #ifdef)</pre>
-<h3 class="subsection">Macro bodies may span multiple lines using \ continuation. Macros expand recursively; a macro is</h3>
-<p>not re-expanded within its own expansion. The macro table is shared across all files in a multi-file build.</p>
+<h3 class="subsection">Macro expansion</h3>
+<p>Macro bodies may span multiple lines using \ continuation. Macros expand recursively; a macro is not re-expanded within its own expansion. The macro table is shared across all files in a multi-file build.</p>
 <div class="chapter-start" id="ref-r8"><span class="chapter-label ref">Ref R8</span>
 <h1 class="chapter-title">Standard Library</h1><hr class="chapter-rule"></div>
 <h3 class="subsection">net: import &lt;net&gt;</h3>
@@ -2797,7 +2836,7 @@ pre.code-block {
 <h3 class="subsection">json: import &lt;json&gt;</h3>
 <pre class="code-block"> // Builder
  Json_init / Json_obj_begin / Json_obj_end / Json_arr_begin / Json_arr_end
- Json_key / Json_str / Json_int / Json_float / Json_bool / Json_null
+ Json_key / Json_str / Json_int / Json_bool / Json_null / Json_raw_str
  Json_cstr / Json_free
  // Parser
  *JsonValue json_parse(string text)
@@ -2838,6 +2877,8 @@ pre.code-block {
  import &lt;env&gt;;      env_get   env_has   env_get_or   env_get_int
  import &lt;base64&gt;;   base64_encode/decode(*uint8 src, int n, *uint8 out)
  import &lt;path&gt;;     path_join   path_basename     path_dirname   path_extension</pre>
+<h3 class="subsection">the rest of the library</h3>
+<p>The full standard library is 41 modules; the ones above are the most-referenced. Each of the rest is importable by name and readable at <code>lib/eskiu/stdlib/</code>: <code>&lt;result&gt;</code>, <code>&lt;list&gt;</code>, <code>&lt;string&gt;</code>, <code>&lt;math&gt;</code>, <code>&lt;io&gt;</code>, <code>&lt;mem&gt;</code>, <code>&lt;fs&gt;</code>, <code>&lt;random&gt;</code>, <code>&lt;regex&gt;</code>, <code>&lt;sort&gt;</code>, <code>&lt;url&gt;</code>, <code>&lt;uuid&gt;</code>, <code>&lt;ctype&gt;</code>, <code>&lt;json&gt;</code>, <code>&lt;http&gt;</code>, <code>&lt;http_async&gt;</code>, <code>&lt;http2&gt;</code>, <code>&lt;hpack&gt;</code>, <code>&lt;tls&gt;</code>, <code>&lt;net_async&gt;</code>, <code>&lt;eventloop&gt;</code>, <code>&lt;future&gt;</code>, <code>&lt;channel&gt;</code>, <code>&lt;executor&gt;</code>, <code>&lt;sysheap&gt;</code>, and <code>&lt;multipart&gt;</code>.</p>
 <div class="chapter-start" id="ref-r9"><span class="chapter-label ref">Ref R9</span>
 <h1 class="chapter-title">CLI Reference</h1><hr class="chapter-rule"></div>
 <pre class="code-block">        Flag                                     Effect</pre>
@@ -2849,7 +2890,15 @@ pre.code-block {
 <pre class="code-block">        eskiuc file.esk -c -o file.o             Compile only: no linking</pre>
 <pre class="code-block">        eskiuc file.esk -o file.o                .o suffix implies -c</pre>
 <pre class="code-block">        eskiuc file.esk -Wall                    Unused vars/params/fns + assignment-in-condition</pre>
+<pre class="code-block">        eskiuc file.esk -Wextra                  Signed/unsigned comparison warnings</pre>
+<pre class="code-block">        eskiuc file.esk -O2                      Optimization level (-O0 through -O3)</pre>
+<pre class="code-block">        eskiuc file.esk --safe                   Runtime slice-bounds checks (traps on violation)</pre>
+<pre class="code-block">        eskiuc file.esk --asan                   AddressSanitizer instrumentation</pre>
+<pre class="code-block">        eskiuc file.esk --ubsan                  Trapping bounds checks</pre>
+<pre class="code-block">        eskiuc run file.esk [args...]            Compile to a temp exe, run it, delete it</pre>
+<pre class="code-block">        eskiuc fmt file.esk [--check]            Reformat in place, or --check formatting</pre>
 <pre class="code-block">        eskiuc file.esk --target TRIPLE          Cross-compile for target triple</pre>
+<pre class="code-block">        eskiuc ... --mcpu CPU --mattr F --reloc R   Tune the cross target (CPU, features, relocation)</pre>
 <pre class="code-block">        eskiuc file.esk --freestanding           No libc; alloc/free → esk_alloc/esk_free</pre>
 <pre class="code-block">        eskiuc file.esk --test-lexer             Dump token stream</pre>
 <pre class="code-block">        eskiuc file.esk --test-parser            Dump AST</pre>
@@ -2865,11 +2914,12 @@ pre.code-block {
 <pre class="code-block">        aarch64-unknown-none-elf                 Bare-metal ARM64: no OS, no libc</pre>
 <pre class="code-block">        x86_64-unknown-none                      Bare-metal x86-64: no OS, no libc</pre>
 <pre class="code-block">        x86_64-pc-windows-gnu                    Windows x86-64 (COFF, mingw runtime)</pre>
+<pre class="code-block">        armv6k-none-eabihf                       32-bit ARM, hard-float (Nintendo 3DS)</pre>
 <h3 class="subsection">Linker detection order</h3>
 <p><code>eskiuc</code> finds the system linker via: $CC → cc → clang → gcc. A C toolchain must be installed for linking. With --freestanding or a .o output, no linking occurs.</p>
 <div class="chapter-start" id="ref-r10"><span class="chapter-label ref">Ref R10</span>
 <h1 class="chapter-title">Undefined Behaviour</h1><hr class="chapter-rule"></div>
-<p>The following operations have undefined behaviour in Eskiu v0.2.0. The compiler makes no guarantees about what the generated code does when these occur. Bugs in these categories may crash, produce wrong results, corrupt memory, or appear to work correctly under some conditions and fail under others.</p>
+<p>The following operations have undefined behaviour in Eskiu. The compiler makes no guarantees about what the generated code does when these occur. Bugs in these categories may crash, produce wrong results, corrupt memory, or appear to work correctly under some conditions and fail under others.</p>
 <pre class="code-block">        Category            Description                                    Detection</pre>
 <pre class="code-block">        Null dereference    Reading or writing through a null pointer.     Crashes with SIGSEGV. ASan
                                                                            reports immediately.</pre>
@@ -2891,19 +2941,6 @@ pre.code-block {
                             concurrently with at least one write and no    reports. Silent otherwise.
                             synchronisation.</pre>
 <p>Compile with AddressSanitizer to catch the first four categories: <code>eskiuc</code> file.esk -c -o file.o &amp;&amp; clang -fsanitize=address file.o -o file_asan</p>
-<div class="chapter-start" id="chapter-27"><span class="chapter-label">Chapter 27</span>
-<h1 class="chapter-title">Self-Hosting</h1><hr class="chapter-rule"></div>
-<p>There is a moment in a language's life when it grows up: the day its compiler is written in itself. Until then the language depends on another: Eskiu's reference compiler, <code>eskiuc</code>, is written in C++. A self-hosted compiler is one the language can build on its own, and reaching it proves something concrete: the language is expressive enough, and the compiler correct enough, to take on a program as demanding as a compiler. As of v0.3.0, Eskiu is there.</p>
-<p>The whole pipeline is reimplemented in Eskiu, under <code>selfhost/</code>: a lexer, a preprocessor, a parser, a type checker, and a code generator, each a faithful translation of its C++ counterpart. They chain together exactly as the reference compiler does:</p>
-<pre class="code-block"> lexer → preprocessor → parser → type checker → code generator → LLVM IR</pre>
-<p>The code generator is the interesting one. It does not link against the LLVM libraries. Instead it writes LLVM IR out as plain text, which <code>clang</code> then assembles and links. That choice keeps the self-hosted compiler dependency-free, and it is how most bootstrapping compilers do it.</p>
-<h2 class="section" id="sec-27-1">27.1 Trust, but verify</h2>
-<p>A compiler that is subtly wrong is worse than no compiler at all, so every pass is checked against the reference. The method changes with what can be observed. For the lexer, parser, and preprocessor there is an exact answer to compare against: their output is diffed <em>byte-for-byte</em> against <code>eskiuc</code>'s debug dumps. For the type checker, the ground truth is a verdict: does it accept the same programs and reject the same mistakes, with the same error messages? For the code generator, the generated IR can't be compared character by character (LLVM renumbers values and folds constants), so the test is <em>behavioural</em>: compile the program both ways, run both binaries, and check that they print the same thing and exit the same way. Every one of these comparisons runs in continuous integration; a divergence fails the build.</p>
-<h2 class="section" id="sec-27-2">27.2 The fixpoint</h2>
-<p>Per-pass parity is necessary but not sufficient. The real test of self-hosting is whether the compiler can reproduce <em>itself</em>. So the self-hosted compiler is built three times: the C++ <code>eskiuc</code> builds it once (call the result cc0); cc0 builds it again (cc1); cc1 builds it a third time (cc2). If the project is sound, cc1 and cc2 must emit identical IR for the compiler's own source: a compiler built by itself reproducing its own output. That equality is the <em>bootstrap fixpoint</em>, and Eskiu reaches it.</p>
-<h2 class="section" id="sec-27-3">27.3 Earning the word "complete"</h2>
-<p>There is a trap here worth naming, because it caught the author more than once. The bootstrap fixpoint only exercises the slice of the language the compiler's <em>own</em> source happens to use. It says nothing about features the compiler doesn't use: floating point, say, or unions, or the <code>?</code> operator. It is tempting to declare the code generator "complete" once the fixpoint holds. It is also wrong. The only way to know a feature works is to compile a program that uses it and run it. So feature-completeness is measured by pushing the entire reference test corpus through the behavioural oracle and demanding a clean sweep, with every program, compiled by the Eskiu-written code generator, behaving exactly as the C++ build does. v0.3.0 passes that sweep: floats, <code>switch</code>, sum types and <code>match</code>, closures, exceptions, atomics, generics with inference, async/await, unions, bitfields, interfaces, packed structs, variadics, and the <code>?</code> operator all generate correct code.</p>
-<p>The lesson generalises beyond compilers: a system that checks itself can only ever confirm the paths it walks. To claim coverage, you have to walk every path on purpose, and watch what happens.</p>
 <div class="chapter-start" id="appendix-a"><span class="chapter-label app">Appendix A</span>
 <h1 class="chapter-title">Quick Reference</h1><hr class="chapter-rule"></div>
 <p>A.1 CLI flags</p>
@@ -2918,7 +2955,10 @@ pre.code-block {
  eskiuc file.esk -Wextra             # signed/unsigned warnings
  eskiuc file.esk --asan -o prog      # AddressSanitizer
  eskiuc file.esk --ubsan -o prog     # trapping bounds checks
+ eskiuc file.esk --safe -o prog      # runtime slice-bounds checks (traps on violation)
+ eskiuc file.esk -O2 -o prog         # optimization level (-O0 through -O3)
  eskiuc file.esk --target TRIPLE     # cross-compile
+ eskiuc file.esk --target T --mcpu CPU --mattr FEAT --reloc static   # tune the cross target
  eskiuc file.esk --freestanding      # esk_alloc/esk_free, no libc
  eskiuc file.esk --test-lexer        # dump token stream
  eskiuc file.esk --test-parser       # dump AST
@@ -2932,17 +2972,17 @@ pre.code-block {
  uint     uint8    uint16     uint32    uint64
  float     double     bool    char    string    void</pre>
 <pre class="code-block"> // Declarations
- let     const    volatile     struct       packed    union    enum   type
+ let     const    volatile     static    must_use    struct       packed    union    enum   type
  interface       fn   extern    intrinsic       import</pre>
 <pre class="code-block"> // Control flow
- if    else     for   while    in     switch    case   default
+ if    else     for   while    do    in     switch    case   default
  return     break     continue      match</pre>
 <pre class="code-block"> // Memory
  alloc_with       free_closure        sizeof    asm</pre>
 <pre class="code-block"> // Concurrency and async
- thread_create        thread_join       async   await        spawn   escaping</pre>
+ thread_create        thread_join       async   await        escaping</pre>
 <pre class="code-block"> // Error handling
- try     catch    finally     throw</pre>
+ try     catch    finally     throw     defer     errdefer</pre>
 <pre class="code-block"> // Literals
  true     false    null</pre>
 <p>A.3 Standard library: quick reference</p>
@@ -3012,7 +3052,7 @@ pre.code-block {
 <h3 class="subsection">ABI</h3>
 <p>Application Binary Interface. The binary-level contract between separately compiled code: how arguments are passed, where return values go, how structs are laid out. Eskiu uses the C ABI, which is why <code>extern</code> functions work transparently.</p>
 <h3 class="subsection">alloc&lt;T&gt;(N)</h3>
-<p>Heap-allocation stdlib function from <code>&lt;mem&gt;</code>, not a language keyword. Allocates N elements of type T on the heap and returns <code>*T</code>; calls <code>malloc</code> in hosted mode and <code>esk_alloc</code> in freestanding mode. Always paired with <code>free</code>.</p>
+<p>Heap-allocation stdlib function from <code>&lt;mem&gt;</code>, not a language keyword. Allocates N elements of type T on the heap and returns <code>*T</code>; calls <code>calloc</code> (zero-initialized) in hosted mode and <code>esk_alloc</code> in freestanding mode. Always paired with <code>free</code>.</p>
 <h3 class="subsection">AST</h3>
 <p>Abstract Syntax Tree. The tree-shaped data structure the parser builds from source code. Each node represents one language construct; the type checker and code generator both walk it.</p>
 <h3 class="subsection">async / await</h3>
@@ -3020,7 +3060,7 @@ pre.code-block {
 <h3 class="subsection">bump allocator</h3>
 <p>The simplest heap allocator. Keeps a pointer to the next free byte; allocation advances the pointer and free is a no-op. Used in the Eskiu kernel.</p>
 <h3 class="subsection">closure</h3>
-<p>A lambda that captures variables from its enclosing scope by value. Represented as a fat pointer <code>{fn_ptr, env_ptr}</code>, where <code>env_ptr</code> points to a heap-allocated copy of the captured variables.</p>
+<p>A lambda that captures variables from its enclosing scope by value. Represented as a fat pointer <code>{fn_ptr, env_ptr}</code>, where <code>env_ptr</code> points to the captured variables. A non-escaping closure keeps its environment on the stack; an <code>escaping</code> one gets a heap-allocated copy.</p>
 <h3 class="subsection">constraint (bounded type parameter)</h3>
 <p>An interface requirement on a type parameter: <code>&lt;T: Ord&gt;</code> means the concrete type must provide every method declared by <code>Ord</code>. Multiple constraints are written <code>&lt;T: A + B&gt;</code>. Structs satisfy a constraint by defining the methods; primitives (<code>int</code>, <code>float</code>, …) satisfy it via a free function named like the method with the primitive as its first argument: <code>int cmp(int, int)</code> makes <code>int</code> satisfy <code>Ord</code>.</p>
 <h3 class="subsection">cross-compilation</h3>
