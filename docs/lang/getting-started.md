@@ -1038,6 +1038,8 @@ let f: fn(int)->int;
 let g: fn(int, int)->bool;
 ```
 
+`fn` names a *type* only. It is not how you define a function (Eskiu has no `fn name(...)` form): functions are defined C-style, return type first, as in `int add(int a, int b) { ... }`.
+
 ### Writing a lambda
 
 ```eskiu

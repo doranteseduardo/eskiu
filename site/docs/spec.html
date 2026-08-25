@@ -455,6 +455,13 @@ let items: List&lt;float&gt;;
 fn(int, int)-&gt;bool    // function taking two ints, returning bool
 fn()-&gt;void            // function taking no arguments, returning void
 </code></pre>
+<blockquote>
+<p><strong><code>fn</code> names a type, never a definition.</strong> Unlike Rust, Swift, or Kotlin, Eskiu does
+not use <code>fn</code> to <em>define</em> functions. A function is defined C-style, with the return type
+before the name: <code>int add(int a, int b) { ... }</code> (see §6.1). The <code>fn(...)-&gt;R</code> form appears
+only where a <em>type</em> is expected: a variable's type, a struct field, or a parameter. There
+is no <code>fn name(...)</code> definition syntax.</p>
+</blockquote>
 <p>Function pointer types can be used anywhere a type annotation is expected: variable declarations, struct fields, and function parameters.</p>
 <pre><code class="language-eskiu">let callback: fn(int)-&gt;int = int(int x) { return x * 2; };
 int apply(fn(int)-&gt;int f, int x) { return f(x); }
@@ -970,7 +977,7 @@ int get_magic() {
     return 42;
 }
 </code></pre>
-<p>Parameters are passed by value. The return type is declared before the function name.</p>
+<p>Parameters are passed by value. The return type is declared before the function name. This is the only function-definition form; Eskiu has no <code>fn name(...)</code> definition syntax (the <code>fn</code> keyword names a function-pointer <em>type</em>, see §3.7).</p>
 <p><strong>Declaration order is irrelevant.</strong> A function may call any other function regardless of where it appears in the file, so call-before-definition and mutual recursion both work without ceremony. A body-less <em>forward declaration</em> is also permitted (and optional):</p>
 <pre><code class="language-eskiu">int is_odd(int n);                              // forward declaration
 
