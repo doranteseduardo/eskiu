@@ -333,6 +333,12 @@ fn(int, int)->bool    // function taking two ints, returning bool
 fn()->void            // function taking no arguments, returning void
 ```
 
+> **`fn` names a type, never a definition.** Unlike Rust, Swift, or Kotlin, Eskiu does
+> not use `fn` to *define* functions. A function is defined C-style, with the return type
+> before the name: `int add(int a, int b) { ... }` (see §6.1). The `fn(...)->R` form appears
+> only where a *type* is expected: a variable's type, a struct field, or a parameter. There
+> is no `fn name(...)` definition syntax.
+
 Function pointer types can be used anywhere a type annotation is expected: variable declarations, struct fields, and function parameters.
 
 ```eskiu
@@ -713,7 +719,7 @@ int get_magic() {
 }
 ```
 
-Parameters are passed by value. The return type is declared before the function name.
+Parameters are passed by value. The return type is declared before the function name. This is the only function-definition form; Eskiu has no `fn name(...)` definition syntax (the `fn` keyword names a function-pointer *type*, see §3.7).
 
 **Declaration order is irrelevant.** A function may call any other function regardless of where it appears in the file, so call-before-definition and mutual recursion both work without ceremony. A body-less *forward declaration* is also permitted (and optional):
 

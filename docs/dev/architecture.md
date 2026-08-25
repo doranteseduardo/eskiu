@@ -26,7 +26,7 @@ Source (.esk)
                                                                                   │ validated AST
                                                                                   ▼
                                                                           ┌────────────────┐
-                                                                          │ Async transform │  async fn → frame + resume + Future ctor
+                                                                          │ Async transform │  async function → frame + resume + Future ctor
                                                                           └────────────────┘
                                                                           sema/async_transform.cpp
                                                                                   │ transformed AST

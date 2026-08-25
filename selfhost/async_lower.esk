@@ -1,5 +1,5 @@
 // async_lower.esk — the async/await lowering pass (a port of sema/async_transform.cpp),
-// run on the parsed Program between parse and codegen. Each `async fn name() -> T` is
+// run on the parsed Program between parse and codegen. Each `async T name()` function is
 // rewritten into three ordinary decls:
 //
 //   struct __name_frame { Future<T> ret; int st; *FutureHdr awaiting; <params>; <locals>;
@@ -252,7 +252,7 @@ struct AlCtx {
     List<int> cont;                // continue-target states
     int awcount;                   // await counter → __aw0, __aw1, …
     int tmpn;                      // desugar temp counter → __awt0, …
-    *DeclNode curfn;                  // the async fn being lowered (for iterable type lookup)
+    *DeclNode curfn;                  // the async function being lowered (for iterable type lookup)
 }
 int al_lower_seq(*AlCtx c, List<*StmtNode>* items, int entry);
 int al_lower_stmt(*AlCtx c, *StmtNode s, int cur);
@@ -730,7 +730,7 @@ void al_transform(*Program prog, *DeclNode d, List<*DeclNode>* out) {
 }
 
 // The cancellation closure: `void() { if (fr.awaiting != (*FutureHdr)0) future_drop(fr.awaiting); }`
-// (captures fr). Run by future_drop when a suspended async fn is cancelled — it cascade-drops
+// (captures fr). Run by future_drop when a suspended async function is cancelled — it cascade-drops
 // the future being awaited; future_drop then frees the frame (== &fr.ret) and this env.
 *ExprNode al_ondrop() {
     List<*ExprNode> da; List_init<*ExprNode>(&da, 1); List_push<*ExprNode>(&da, al_fr("awaiting"));

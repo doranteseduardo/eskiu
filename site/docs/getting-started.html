@@ -1096,6 +1096,7 @@ mirrors a regular function declaration without a name.</p>
 <pre><code class="language-eskiu">let f: fn(int)-&gt;int;
 let g: fn(int, int)-&gt;bool;
 </code></pre>
+<p><code>fn</code> names a <em>type</em> only. It is not how you define a function (Eskiu has no <code>fn name(...)</code> form): functions are defined C-style, return type first, as in <code>int add(int a, int b) { ... }</code>.</p>
 <h3 id="writing-a-lambda">Writing a lambda</h3>
 <pre><code class="language-eskiu">extern int printf(string fmt, ...);
 

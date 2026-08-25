@@ -1164,7 +1164,7 @@ pre.code-block {
 <pre class="code-block"> let double_it: fn(int)-&gt;int = int(int x) { return x * 2; };</pre>
 <pre class="code-block"> printf(&quot;%d\n&quot;, double_it(5));      // 10
  printf(&quot;%d\n&quot;, double_it(21));     // 42</pre>
-<p>fn(<code>int</code>)-&gt;<code>int</code> means: a function that takes one integer and returns one integer.</p>
+<p>fn(<code>int</code>)-&gt;<code>int</code> means: a function that takes one integer and returns one integer. Here <code>fn</code> names a function-pointer <em>type</em>; it is not how you <em>define</em> a function. Functions are defined C-style, with the return type first (<code>int add(int a, int b) { ... }</code>), just like the lambda's own <code>int(int x)</code> body. Eskiu has no <code>fn name(...)</code> definition form, unlike Rust or Swift.</p>
 <h2 class="section" id="sec-9-2">9.2 Higher-order functions</h2>
 <pre class="code-block"> int apply(fn(int)-&gt;int f, int x) { return f(x); }</pre>
 <pre class="code-block"> let square: fn(int)-&gt;int = int(int n) { return n * n; };
