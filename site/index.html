@@ -163,6 +163,7 @@
           <a href="docs/index.html">docs</a>
           <a href="the-book-of-eskiu.html">book</a>
           <a href="https://github.com/doranteseduardo/eskiu">github</a>
+          <a href="https://reactvision.xyz">reactvision ↗</a>
           <span class="lang"><a class="active" aria-current="page">EN</a><span class="sep">·</span><a href="es/index.html" onclick="try{localStorage.setItem('eskiu-lang','es')}catch(e){}">ES</a></span>
         </nav>
       </div>
@@ -185,13 +186,14 @@
         <div class="intro">
           <div class="intro-txt">
             <h1>eskiu</h1>
-            <p class="tagline">a self-hosting systems language</p>
+            <p class="tagline">a self-hosting systems language · <a href="https://reactvision.xyz" style="color: inherit; text-decoration: underline;">a ReactVision project</a></p>
             <p>
               Eskiu is a statically typed, compiled systems language with the power of C
               (explicit memory, direct C interop, native output via LLVM) and the immediacy of a
               scripting language: <code>eskiuc run file.esk</code> compiles and executes in one
-              step. It already runs in shipping software, from AR/VR rendering to a Nintendo 3DS,
-              and builds the same on Linux, macOS, and Windows. Self-hosting since v0.3.0.
+              step. It already runs in shipping software, from ReactVision's ViroReact renderer to
+              a Nintendo 3DS, and builds the same on Linux, macOS, and Windows. Self-hosting since
+              v0.3.0.
             </p>
           </div>
           <div class="intro-fig"><img src="../assets/eskiu_round.jpg" alt="Eskiu mascot" /></div>
@@ -215,16 +217,18 @@
             Eskiu already runs in shipping software. It replaces memory-sensitive native code
             with no garbage collector, keeps a C ABI so it drops straight into an existing C or
             C++ codebase, and reaches hardware a young systems language rarely meets. The same
-            source builds on Linux, macOS, and Windows, including the async networking stack.
+            source builds on Linux, macOS, and Windows, including the async networking stack. It
+            is the systems language of <a href="https://reactvision.xyz">ReactVision</a>, and the
+            first place it shipped is the family's own XR renderer.
           </p>
           <div class="tablewrap">
             <table>
               <thead><tr><th>Project</th><th>Result</th><th>Detail</th><th></th></tr></thead>
               <tbody>
                 <tr>
-                  <td>ReactVision</td>
+                  <td>ViroReact</td>
                   <td><span class="metric">≈85%</span> less memory</td>
-                  <td>AR/VR rendering modules migrated from C++, preserving C ABI interop.</td>
+                  <td>ReactVision's AR/VR renderer: rendering modules migrated from C++, preserving C ABI interop.</td>
                   <td><a href="case-study-reactvision.html">case study</a></td>
                 </tr>
                 <tr>
@@ -390,8 +394,9 @@
           <a href="docs/internals.html">internals</a>
           <a href="changelog.html">changelog</a>
           <a href="https://github.com/doranteseduardo/eskiu">github</a>
+          <a href="https://reactvision.xyz">reactvision ↗</a>
         </div>
-        <span class="cp">MIT · Eduardo Dorantes</span>
+        <span class="cp">Part of the <a href="https://reactvision.xyz">ReactVision</a> family · MIT</span>
       </div>
     </footer>
 
