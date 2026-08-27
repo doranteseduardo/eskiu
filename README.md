@@ -4,6 +4,7 @@
 
 <h2 align="center">eskiu</h2>
 <p align="center">A self-hosting systems language with the power of C and the immediacy of a scripting language.</p>
+<p align="center"><sub>Part of the <a href="https://reactvision.xyz">ReactVision</a> family</sub></p>
 <p align="center">
   <a href="https://eskiu-lang.org">eskiu-lang.org</a> &nbsp;&middot;&nbsp;
   <a href="docs/lang/getting-started.md">Documentation</a> &nbsp;&middot;&nbsp;
@@ -24,7 +25,7 @@ Eskiu compiles to native code through LLVM, with explicit memory, direct C inter
 
 The compiler is **self-hosted**: the whole pipeline (lexer, preprocessor, parser, type checker, and code generator) is written in Eskiu itself (`selfhost/`) and reproduces its own output through a 3-stage bootstrap fixpoint, with its code generator feature-complete against the reference C++ compiler.
 
-Eskiu already runs in shipping software: [ReactVision](https://eskiu-lang.org/case-study-reactvision.html) migrated AR/VR rendering modules from C++ for roughly 85% less memory, and a [Nintendo 3DS](https://eskiu-lang.org/case-study-3ds.html) runs an on-device AR demo with its logic in Eskiu on the ARM11.
+Eskiu is the systems language of [ReactVision](https://reactvision.xyz): its [ViroReact](https://eskiu-lang.org/case-study-reactvision.html) renderer migrated AR/VR rendering modules from C++ for roughly 85% less memory, and a [Nintendo 3DS](https://eskiu-lang.org/case-study-3ds.html) runs an on-device AR demo with its logic in Eskiu on the ARM11.
 
 <p align="center">
   <img src="assets/kernel.png" alt="Eskiu kernel running in QEMU" width="320">
@@ -95,4 +96,4 @@ Installing a release needs no toolchain, but building the compiler does:
 
 ## Licence
 
-MIT. See [LICENSE](LICENSE)
+MIT. See [LICENSE](LICENSE). A [ReactVision](https://reactvision.xyz) project.
