@@ -1262,6 +1262,22 @@ void check_name_not_keyword(Parser* p) {
 
 *StmtNode parse_stmt(Parser* p) {
     int t = p_at(p);
+    // Labeled loop: IDENT ':' <for|while|do>. Only a loop keyword after the ':' makes it a
+    // label; a bare `IDENT:` has no other statement-level meaning.
+    if (t == IDENT && p_peek2(p).type == COLON) {
+        int after = p_peek_k(p, 2).type;
+        if (after == FOR || after == WHILE || after == DO) {
+            string lbl = tok_text(p.src, p_peek(p));   // IDENT text
+            p_adv(p);                                   // IDENT
+            p_adv(p);                                   // ':'
+            *StmtNode loop = null;
+            if (p_at(p) == FOR) { loop = parse_for(p); }
+            else if (p_at(p) == WHILE) { loop = parse_while(p); }
+            else { loop = parse_do(p); }
+            loop.label = lbl;
+            return loop;
+        }
+    }
     if (t == LBRACE) { return parse_block(p); }
     if (t == IF) { return parse_if(p); }
     if (t == FOR) { return parse_for(p); }
@@ -1278,8 +1294,20 @@ void check_name_not_keyword(Parser* p) {
     }
     if (t == ASM) { return parse_asm(p); }
     if (t == RETURN) { return parse_return(p); }
-    if (t == BREAK) { p_adv(p); p_adv(p); return mk_simple(SK_BREAK); }
-    if (t == CONTINUE) { p_adv(p); p_adv(p); return mk_simple(SK_CONTINUE); }
+    if (t == BREAK) {
+        p_adv(p);                                       // 'break'
+        string lbl = "";
+        if (p_at(p) == IDENT) { lbl = tok_text(p.src, p_peek(p)); p_adv(p); }
+        p_adv(p);                                       // ';'
+        *StmtNode s = mk_simple(SK_BREAK); s.label = lbl; return s;
+    }
+    if (t == CONTINUE) {
+        p_adv(p);                                       // 'continue'
+        string lbl = "";
+        if (p_at(p) == IDENT) { lbl = tok_text(p.src, p_peek(p)); p_adv(p); }
+        p_adv(p);                                       // ';'
+        *StmtNode s = mk_simple(SK_CONTINUE); s.label = lbl; return s;
+    }
     if (t == THROW) {
         p_adv(p);
         *StmtNode s = alloc<StmtNode>(1); s.kind = SK_THROW; s.expr = parse_expr(p);
