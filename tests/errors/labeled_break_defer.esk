@@ -1,0 +1,12 @@
+// EXPECT-ERROR: may not escape it
+// A labeled `break`/`continue` may not escape a `defer` body, even when it names a
+// loop that encloses the defer.
+int main() {
+    outer: for (int i = 0; i < 3; i = i + 1) {
+        defer { break outer; }
+        for (int j = 0; j < 3; j = j + 1) {
+            continue outer;
+        }
+    }
+    return 0;
+}
