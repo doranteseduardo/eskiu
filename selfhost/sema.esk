@@ -46,6 +46,7 @@ struct Sema {
     List<string> escaped;   // watched params seen used beyond a direct call
     string callee_ctx;      // name being called right now (a watched param here is OK)
     List<string> narrowed;  // `?*T` vars proven non-null in the current branch (`if (x != null)`)
+    List<string> loop_lbls; // enclosing loop labels ("" for unlabeled), for labeled break/continue
     string filename;
 }
 
@@ -219,6 +220,7 @@ void sema_init(Sema* s, string filename) {
     List_init<string>(&s.watched, 4);
     List_init<string>(&s.escaped, 4);
     List_init<string>(&s.narrowed, 4);
+    List_init<string>(&s.loop_lbls, 4);
     s.callee_ctx = "";
     s.filename = filename;
 }
@@ -605,6 +607,16 @@ int sema_is_narrowed(Sema* s, string name) {
     return sema_in_list(&s.narrowed, name);
 }
 
+// Loop-label stack for labeled break/continue (mirrors C++ loopLabelStack).
+void sema_lbl_push(Sema* s, string lbl) {
+    if (lbl == null) { lbl = ""; }
+    List_push<string>(&s.loop_lbls, lbl);
+}
+void sema_lbl_pop(Sema* s) {
+    int n = List_len<string>(&s.loop_lbls);
+    if (n > 0) { List_remove<string>(&s.loop_lbls, n - 1); }
+}
+
 // Remove the first `narrowed` entry for `name` (restoring on branch exit).
 void sema_narrow_drop(Sema* s, string name) {
     int i = 0; int n = List_len<string>(&s.narrowed);
@@ -864,9 +876,16 @@ void sema_defer_walk(Sema* s, *StmtNode st, int depth) {
         printf("error: %s:0:0: 'return' is not allowed inside a defer body\n", s.filename);
         return;
     }
-    if ((k == SK_BREAK || k == SK_CONTINUE) && depth == 0) {
-        s.had_error = 1;
-        printf("error: %s:0:0: 'break'/'continue' inside a defer body may not escape it\n", s.filename);
+    if (k == SK_BREAK || k == SK_CONTINUE) {
+        // Unlabeled break/continue is fine only when a loop is nested inside the defer body
+        // (depth > 0). A labeled one always names a loop that could sit outside the defer,
+        // so it may never escape, regardless of depth.
+        int labeled = 0;
+        if (st.label != null && st.label[0] != 0) { labeled = 1; }
+        if (depth == 0 || labeled == 1) {
+            s.had_error = 1;
+            printf("error: %s:0:0: 'break'/'continue' inside a defer body may not escape it\n", s.filename);
+        }
         return;
     }
     if (k == SK_BLOCK) {
@@ -1018,8 +1037,8 @@ void sema_stmt(Sema* s, *StmtNode st) {
         if (ins2 == 1) { sema_narrow_drop(s, nvar); }
         return;
     }
-    if (k == SK_WHILE) { sema_expr(s, st.expr); sema_stmt(s, st.s1); return; }
-    if (k == SK_DOWHILE) { sema_stmt(s, st.s1); sema_expr(s, st.expr); return; }
+    if (k == SK_WHILE) { sema_expr(s, st.expr); sema_lbl_push(s, st.label); sema_stmt(s, st.s1); sema_lbl_pop(s); return; }
+    if (k == SK_DOWHILE) { sema_lbl_push(s, st.label); sema_stmt(s, st.s1); sema_lbl_pop(s); sema_expr(s, st.expr); return; }
     if (k == SK_FOR) {
         sema_push(s);                      // init var stays in scope for cond/step/body
         // The init is wrapped in a BlockStmt; walk its items in the FOR scope rather
@@ -1033,7 +1052,9 @@ void sema_stmt(Sema* s, *StmtNode st) {
         }
         sema_expr(s, st.expr);
         sema_expr(s, st.expr2);
+        sema_lbl_push(s, st.label);
         sema_stmt(s, st.s2);
+        sema_lbl_pop(s);
         sema_pop(s);
         return;
     }
@@ -1048,11 +1069,22 @@ void sema_stmt(Sema* s, *StmtNode st) {
         if (sema_is_arr_ty(itt) == 1) { elem = sema_arr_elem(itt); }
         st.resolved_elem = elem;
         sema_define(s, st.name, elem, 0);
+        sema_lbl_push(s, st.label);
         sema_stmt(s, st.s1);
+        sema_lbl_pop(s);
         sema_pop(s);
         return;
     }
-    if (k == SK_BREAK || k == SK_CONTINUE) { return; }
+    if (k == SK_BREAK || k == SK_CONTINUE) {
+        if (st.label != null && st.label[0] != 0 && sema_in_list(&s.loop_lbls, st.label) == 0) {
+            string kw = "break";
+            if (k == SK_CONTINUE) { kw = "continue"; }
+            s.had_error = 1;
+            printf("error: %s:0:0: labeled '%s %s' has no enclosing loop labeled '%s'\n",
+                   s.filename, kw, st.label, st.label);
+        }
+        return;
+    }
     if (k == SK_SWITCH || k == SK_MATCH) {
         sema_expr(s, st.expr);             // subject
         if (k == SK_SWITCH) {
@@ -1432,6 +1464,7 @@ void sema_check_fn(Sema* s, *DeclNode f, string self_type) {
     List_init<string>(&s.watched, 4);
     List_init<string>(&s.escaped, 4);
     List_init<string>(&s.narrowed, 4);
+    List_init<string>(&s.loop_lbls, 4);
     s.callee_ctx = "";
     int pe = 0;
     int pn = List_len<Param>(&f.params);
