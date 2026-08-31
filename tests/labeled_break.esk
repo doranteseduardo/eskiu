@@ -1,0 +1,51 @@
+// Labeled break/continue: `break label` / `continue label` target a named enclosing
+// loop, unwinding the loop-body defers they leave (like an unlabeled break/continue).
+extern int printf(string fmt, ...);
+
+// `break outer` leaves both loops; the inner body's defer still runs first.
+void break_outer() {
+    printf("break_outer: ");
+    outer: for (int i = 0; i < 3; i = i + 1) {
+        for (int j = 0; j < 3; j = j + 1) {
+            defer printf("d%d%d ", i, j);
+            if (i == 1 && j == 1) { break outer; }
+            printf("b%d%d ", i, j);
+        }
+    }
+    printf("\n");
+}
+
+// `continue outer` skips the rest of the inner loop and everything after it in the
+// outer body, resuming at the outer loop's step.
+void continue_outer() {
+    printf("continue_outer: ");
+    outer: for (int i = 0; i < 3; i = i + 1) {
+        for (int j = 0; j < 3; j = j + 1) {
+            if (j == 1) { continue outer; }
+            printf("c%d%d ", i, j);
+        }
+        printf("tail%d ", i);
+    }
+    printf("\n");
+}
+
+// A labeled while, targeted from a nested for.
+void labeled_while() {
+    printf("labeled_while: ");
+    int i = 0;
+    top: while (i < 4) {
+        for (int j = 0; j < 4; j = j + 1) {
+            if (j == 2) { i = i + 1; continue top; }
+            if (i == 2) { break top; }
+            printf("w%d%d ", i, j);
+        }
+    }
+    printf("\n");
+}
+
+int main() {
+    break_outer();
+    continue_outer();
+    labeled_while();
+    return 0;
+}
