@@ -179,19 +179,20 @@ is a built-in named type used by variadics.
 
 ```
 statement =
-    block | if-stmt | while-stmt | for-stmt | switch-stmt | match-stmt
+    block | if-stmt | labeled-loop | while-stmt | for-stmt | switch-stmt | match-stmt
   | do-while-stmt  | return-stmt | break-stmt | continue-stmt | throw-stmt | try-stmt
   | defer-stmt | asm-stmt | thread-join-stmt | var-decl | expr-stmt
 
 block         = '{' ( declaration | statement )* '}'
 if-stmt       = 'if' '(' expr ')' statement ( 'else' statement )?
+labeled-loop  = IDENT ':' ( while-stmt | do-while-stmt | for-stmt )   // names a loop for break/continue
 while-stmt    = 'while' '(' expr ')' statement
 do-while-stmt = 'do' statement 'while' '(' expr ')' ';'
 for-stmt      = 'for' '(' ( var-decl | expr )? ';' expr? ';' expr? ')' statement
               | 'for' '(' IDENT 'in' expr ( '..' expr )? ')' statement   // iterate / half-open range
 return-stmt   = 'return' expr? ';'
-break-stmt    = 'break' ';'
-continue-stmt = 'continue' ';'
+break-stmt    = 'break' IDENT? ';'      // IDENT = a labeled enclosing loop (default: innermost)
+continue-stmt = 'continue' IDENT? ';'   // IDENT = a labeled enclosing loop (default: innermost)
 throw-stmt    = 'throw' expr ';'
 expr-stmt     = expr ';'
 

@@ -9,6 +9,15 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 ---
 
 ## [Unreleased]
+### Added
+- **Labeled `break` and `continue`.** A loop can be named with a leading label
+  (`outer: for (...) { ... }`), and `break outer` / `continue outer` act on that loop
+  from inside a nested one, instead of only the innermost. The label must name an
+  enclosing `while`, `do`/`while`, `for`, or `for ... in` loop, otherwise the program is
+  rejected at compile time. A labeled jump runs the same `defer`/`errdefer` cleanups as
+  the unlabeled forms (every deferred statement between the jump and the target loop runs,
+  innermost first), may not escape a `defer` body, and is not supported inside an
+  `async fn`. Implemented lockstep in both the C++ and the self-hosted compiler.
 
 ## [0.8.0] - 2026-08-21
 ### Fixed
