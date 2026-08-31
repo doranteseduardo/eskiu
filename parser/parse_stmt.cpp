@@ -11,6 +11,25 @@
 // ============================================================================
 
 StmtPtr Parser::parseStatement() {
+    // Labeled loop: IDENT ':' <for|while|do>. A bare `IDENT:` at statement level has no
+    // other meaning, and we only treat it as a label when a loop keyword follows.
+    if (check(TokenType::IDENT) && peek_ahead(1).type == TokenType::COLON) {
+        TokenType after = peek_ahead(2).type;
+        if (after == TokenType::FOR || after == TokenType::WHILE || after == TokenType::DO) {
+            std::string label = advance().value;   // IDENT
+            advance();                              // ':'
+            StmtPtr loop;
+            if (check(TokenType::FOR))        loop = parseForStatement();
+            else if (check(TokenType::WHILE)) loop = parseWhileStatement();
+            else                              loop = parseDoWhileStatement();
+            // parseForStatement yields a ForStmt or a ForInStmt; stamp the label on whichever.
+            if (auto* f = dynamic_cast<ForStmt*>(loop.get()))          f->label = label;
+            else if (auto* fi = dynamic_cast<ForInStmt*>(loop.get()))  fi->label = label;
+            else if (auto* w = dynamic_cast<WhileStmt*>(loop.get()))   w->label = label;
+            else if (auto* d = dynamic_cast<DoWhileStmt*>(loop.get())) d->label = label;
+            return loop;
+        }
+    }
     if (match(TokenType::LBRACE)) {
         current--;
         return parseBlockStatement();
@@ -305,14 +324,23 @@ StmtPtr Parser::parseReturnStatement() {
 }
 
 StmtPtr Parser::parseBreakStatement() {
+    Token tok = tokens[current - 1]; // the 'break' token
+    std::string label;
+    if (check(TokenType::IDENT)) label = advance().value;   // break label;
     consume(TokenType::SEMICOLON, "Expected ';'");
-    return std::make_shared<BreakStmt>();
+    auto stmt = std::make_shared<BreakStmt>();
+    stmt->label = label;
+    stmt->line = tok.line; stmt->col = tok.column;
+    return stmt;
 }
 
 StmtPtr Parser::parseContinueStatement() {
     Token tok = tokens[current - 1]; // the 'continue' token
+    std::string label;
+    if (check(TokenType::IDENT)) label = advance().value;   // continue label;
     consume(TokenType::SEMICOLON, "Expected ';'");
     auto stmt = std::make_shared<ContinueStmt>();
+    stmt->label = label;
     stmt->line = tok.line; stmt->col = tok.column;
     return stmt;
 }
