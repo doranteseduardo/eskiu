@@ -56,6 +56,13 @@ struct Codegen {
     List<*StmtNode> cleanups; // scope-exit cleanup bodies (defer + a try's finally), LIFO
     List<int> cl_err;        // parallel to cleanups: 1 = errdefer (error-path only), 0 = defer/finally
     List<int> loop_cldepth;  // cleanups-stack length at each loop entry (parallel to loop_end)
+    // Loops-only frame stack for labeled break/continue (a `switch` never pushes here, unlike
+    // loop_end above). The four lists are parallel: label / break block / continue block /
+    // cleanup depth. `break label` / `continue label` scan loop_lbls top-down for the name.
+    List<string> loop_lbls;    // label for each real loop ("" = unlabeled)
+    List<string> loop_lbl_end;
+    List<string> loop_lbl_cont;
+    List<int> loop_lbl_cld;
     List<CgFn> fns;          // function → return type / variadic signature
     List<CgStruct> structs;  // struct name → field layout
     List<CgEnumC> econsts;   // plain-enum constants → value
@@ -191,6 +198,10 @@ void cg_init(Codegen* g) {
     List_init<*StmtNode>(&g.cleanups, 4);
     List_init<int>(&g.cl_err, 4);
     List_init<int>(&g.loop_cldepth, 4);
+    List_init<string>(&g.loop_lbls, 4);
+    List_init<string>(&g.loop_lbl_end, 4);
+    List_init<string>(&g.loop_lbl_cont, 4);
+    List_init<int>(&g.loop_lbl_cld, 4);
     List_init<CgFn>(&g.fns, 32);
     List_init<CgStruct>(&g.structs, 16);
     List_init<CgEnumC>(&g.econsts, 32);
@@ -3054,15 +3065,26 @@ void cg_array_init(Codegen* g, string slot, string arrType, *ExprNode lit, int d
 // Enter/leave a loop: push (or pop) this loop's continue target, break target, and the
 // cleanup-stack depth at entry, keeping the three parallel lists in sync. `break` and
 // `continue` read the innermost (last) entry.
-void cg_loop_push(Codegen* g, string cont, string end) {
+void cg_loop_push(Codegen* g, string cont, string end, string label) {
     List_push<string>(&g.loop_cont, cont);
     List_push<string>(&g.loop_end, end);
     List_push<int>(&g.loop_cldepth, List_len<*StmtNode>(&g.cleanups));
+    // Mirror onto the loops-only stack for labeled break/continue.
+    string lbl = label;
+    if (lbl == null) { lbl = ""; }
+    List_push<string>(&g.loop_lbls, lbl);
+    List_push<string>(&g.loop_lbl_end, end);
+    List_push<string>(&g.loop_lbl_cont, cont);
+    List_push<int>(&g.loop_lbl_cld, List_len<*StmtNode>(&g.cleanups));
 }
 void cg_loop_pop(Codegen* g) {
     List_remove<string>(&g.loop_cont, List_len<string>(&g.loop_cont) - 1);
     List_remove<string>(&g.loop_end, List_len<string>(&g.loop_end) - 1);
     List_remove<int>(&g.loop_cldepth, List_len<int>(&g.loop_cldepth) - 1);
+    List_remove<string>(&g.loop_lbls, List_len<string>(&g.loop_lbls) - 1);
+    List_remove<string>(&g.loop_lbl_end, List_len<string>(&g.loop_lbl_end) - 1);
+    List_remove<string>(&g.loop_lbl_cont, List_len<string>(&g.loop_lbl_cont) - 1);
+    List_remove<int>(&g.loop_lbl_cld, List_len<int>(&g.loop_lbl_cld) - 1);
 }
 
 void cg_stmt(Codegen* g, *StmtNode st) {
@@ -3109,7 +3131,7 @@ void cg_stmt(Codegen* g, *StmtNode st) {
         cg_emit(g, ", label %"); cg_emit(g, l_end); cg_emit(g, "\n");
         g.terminated = 1;
         cg_label(g, l_body);
-        cg_loop_push(g, l_cond, l_end);
+        cg_loop_push(g, l_cond, l_end, st.label);
         cg_stmt(g, st.s1);
         cg_loop_pop(g);
         cg_br(g, l_cond);
@@ -3122,7 +3144,7 @@ void cg_stmt(Codegen* g, *StmtNode st) {
         string l_end = cg_lbl(g);
         cg_br(g, l_body);
         cg_label(g, l_body);
-        cg_loop_push(g, l_cond, l_end);       // `continue` re-tests the condition
+        cg_loop_push(g, l_cond, l_end, st.label);       // `continue` re-tests the condition
         cg_stmt(g, st.s1);
         cg_loop_pop(g);
         cg_br(g, l_cond);
@@ -3151,7 +3173,7 @@ void cg_stmt(Codegen* g, *StmtNode st) {
             cg_br(g, l_body);
         }
         cg_label(g, l_body);
-        cg_loop_push(g, l_step, l_end);
+        cg_loop_push(g, l_step, l_end, st.label);
         cg_stmt(g, st.s2);
         cg_loop_pop(g);
         cg_br(g, l_step);
@@ -3191,10 +3213,25 @@ void cg_stmt(Codegen* g, *StmtNode st) {
         *ExprNode cond = cgb_bin("<", cgb_ident(fi), lengthE);
         *ExprNode step = cgb_bin("=", cgb_ident(fi), cgb_bin("+", cgb_ident(fi), cgb_lit(LIT_INT, "1")));
         *StmtNode bodyS = cgb_block2(cgb_vardecl(st.name, elemTy, elemE), st.s1);
-        cg_stmt(g, cgb_for(initS, cond, step, bodyS));
+        *StmtNode forS = cgb_for(initS, cond, step, bodyS);
+        forS.label = st.label;                            // carry the for-in's label onto the desugared loop
+        cg_stmt(g, forS);
         return;
     }
     if (st.kind == SK_BREAK) {
+        if (st.label != null && st.label[0] != 0) {
+            // `break label`: scan the loops-only stack from innermost out for the named loop.
+            int i = List_len<string>(&g.loop_lbls);
+            while (i > 0) {
+                i = i - 1;
+                if (cg_streq(List_get<string>(&g.loop_lbls, i), st.label) == 1) {
+                    cg_run_cleanups(g, List_get<int>(&g.loop_lbl_cld, i), 0);
+                    cg_br(g, List_get<string>(&g.loop_lbl_end, i));
+                    return;
+                }
+            }
+            return;
+        }
         int n = List_len<string>(&g.loop_end);
         if (n > 0) {
             cg_run_cleanups(g, List_get<int>(&g.loop_cldepth, n - 1), 0);   // run loop-body defers
@@ -3203,6 +3240,18 @@ void cg_stmt(Codegen* g, *StmtNode st) {
         return;
     }
     if (st.kind == SK_CONTINUE) {
+        if (st.label != null && st.label[0] != 0) {
+            int i = List_len<string>(&g.loop_lbls);
+            while (i > 0) {
+                i = i - 1;
+                if (cg_streq(List_get<string>(&g.loop_lbls, i), st.label) == 1) {
+                    cg_run_cleanups(g, List_get<int>(&g.loop_lbl_cld, i), 0);
+                    cg_br(g, List_get<string>(&g.loop_lbl_cont, i));
+                    return;
+                }
+            }
+            return;
+        }
         int n = List_len<string>(&g.loop_cont);
         if (n > 0) {
             cg_run_cleanups(g, List_get<int>(&g.loop_cldepth, n - 1), 0);
@@ -3558,6 +3607,10 @@ void cg_emit_fn(Codegen* g, *DeclNode d, string llname, string self_struct) {
     List_init<*StmtNode>(&g.cleanups, 4);   // fresh scope-exit state per function body
     List_init<int>(&g.cl_err, 4);
     List_init<int>(&g.loop_cldepth, 4);
+    List_init<string>(&g.loop_lbls, 4);       // fresh loops-only label stack per function body
+    List_init<string>(&g.loop_lbl_end, 4);
+    List_init<string>(&g.loop_lbl_cont, 4);
+    List_init<int>(&g.loop_lbl_cld, 4);
     g.terminated = 0;
     int base = 0;
     if (self_struct[0] != 0) { base = 1; }

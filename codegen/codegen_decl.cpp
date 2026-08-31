@@ -156,9 +156,11 @@ void CodeGen::visit(FunctionDecl* node) {
     std::vector<std::vector<Cleanup>> prevCleanups = std::move(cleanupScopes);
     size_t prevBreakCD = breakCleanupDepth, prevContinueCD = continueCleanupDepth;
     llvm::BasicBlock* prevBreakT = breakTarget, *prevContinueT = continueTarget;
+    std::vector<LoopFrame> prevLoopStack = std::move(loopStack);
     cleanupScopes.clear();
     breakCleanupDepth = continueCleanupDepth = 0;
     breakTarget = continueTarget = nullptr;
+    loopStack.clear();
 
     // Push scope for function parameters
     pushScope();
@@ -221,6 +223,7 @@ void CodeGen::visit(FunctionDecl* node) {
     cleanupScopes = std::move(prevCleanups);
     breakCleanupDepth = prevBreakCD; continueCleanupDepth = prevContinueCD;
     breakTarget = prevBreakT; continueTarget = prevContinueT;
+    loopStack = std::move(prevLoopStack);
 }
 
 void CodeGen::visit(VarDecl* node) {
