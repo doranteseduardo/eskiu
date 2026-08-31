@@ -35,6 +35,7 @@ The project follows two phases:
 | `alloc<T>(n)` / `free` via `import <mem>` (stdlib, not keywords as of v0.2.0), rich mutable `String` (push, char access, eq, index_of, substring, reverse, int conversion) | ✅ |
 | List\<T\> with auto-resize | ✅ |
 | for-in / for-each: `for (x in arr)` and `for (x in list)` | ✅ |
+| labeled `break` / `continue`: `outer: for (...) { break outer; }` | ✅ |
 | `?` error-propagation operator for `Result<T,E>` | ✅ |
 | argv/argc: `int main(int argc, string* argv)` | ✅ |
 | VS Code: inline errors, hover types, go-to-definition | ✅ |

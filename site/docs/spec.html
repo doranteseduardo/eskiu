@@ -1319,6 +1319,26 @@ the bound is its <code>size</code> field, and each element is read through <code
 <p>Like <code>while</code>, but the condition is tested <em>after</em> the body, so the body always runs at
 least once. <code>break</code> and <code>continue</code> work as in the other loops (<code>continue</code> re-tests the
 condition).</p>
+<h3 id="732-labeled-break-continue">7.3.2 Labeled break / continue</h3>
+<p>A plain <code>break</code> or <code>continue</code> acts on the innermost enclosing loop. To act on an outer
+loop from inside a nested one, give the outer loop a label and name it:</p>
+<pre><code class="language-eskiu">outer: for (int i = 0; i &lt; rows; i = i + 1) {
+    for (int j = 0; j &lt; cols; j = j + 1) {
+        if (grid[i][j] == target) {
+            found = 1;
+            break outer;        // leave both loops
+        }
+    }
+}
+</code></pre>
+<p>A label is an identifier followed by <code>:</code> directly before a <code>while</code>, <code>do</code>/<code>while</code>, <code>for</code>,
+or <code>for ... in</code> loop. <code>break label</code> leaves that loop; <code>continue label</code> skips to its next
+iteration (for a <code>for</code>, its step runs first, as with an unlabeled <code>continue</code>). The label
+must name an enclosing loop, otherwise the program is rejected at compile time.</p>
+<p>Labeled <code>break</code> and <code>continue</code> run the same <code>defer</code>/<code>errdefer</code> cleanups as the unlabeled
+forms: every deferred statement between the jump and the target loop runs, innermost
+first, before control leaves. A labeled jump may not escape a <code>defer</code> body, and labeled
+<code>break</code>/<code>continue</code> is not supported inside an <code>async fn</code>.</p>
 <h3 id="74-switch-case-default-break">7.4 switch / case / default / break</h3>
 <pre><code class="language-eskiu">switch (x) {
     case 1:

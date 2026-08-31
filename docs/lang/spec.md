@@ -1194,6 +1194,32 @@ Like `while`, but the condition is tested *after* the body, so the body always r
 least once. `break` and `continue` work as in the other loops (`continue` re-tests the
 condition).
 
+### 7.3.2 Labeled break / continue
+
+A plain `break` or `continue` acts on the innermost enclosing loop. To act on an outer
+loop from inside a nested one, give the outer loop a label and name it:
+
+```eskiu
+outer: for (int i = 0; i < rows; i = i + 1) {
+    for (int j = 0; j < cols; j = j + 1) {
+        if (grid[i][j] == target) {
+            found = 1;
+            break outer;        // leave both loops
+        }
+    }
+}
+```
+
+A label is an identifier followed by `:` directly before a `while`, `do`/`while`, `for`,
+or `for ... in` loop. `break label` leaves that loop; `continue label` skips to its next
+iteration (for a `for`, its step runs first, as with an unlabeled `continue`). The label
+must name an enclosing loop, otherwise the program is rejected at compile time.
+
+Labeled `break` and `continue` run the same `defer`/`errdefer` cleanups as the unlabeled
+forms: every deferred statement between the jump and the target loop runs, innermost
+first, before control leaves. A labeled jump may not escape a `defer` body, and labeled
+`break`/`continue` is not supported inside an `async fn`.
+
 ### 7.4 switch / case / default / break
 
 ```eskiu
