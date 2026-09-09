@@ -109,7 +109,21 @@ void CodeGen::visit(BinaryExpr* node) {
     };
     bool lUns = isUnsignedEsk(node->left);
     bool rUns = isUnsignedEsk(node->right);
-    bool opUnsigned = lUns || rUns;   // C-style: unsigned wins in a mixed op
+    // Signedness of a signed-vs-unsigned op, by C's usual arithmetic conversions: after
+    // both operands widen to a common width, the op is unsigned only when the unsigned
+    // operand's rank (width) is at least the signed one's. A wider signed type represents
+    // every value of a narrower unsigned one, so there the op stays signed. (Same-rank
+    // mixed → unsigned, as in C.)
+    bool opUnsigned;
+    if (lUns == rUns) {
+        opUnsigned = lUns;
+    } else if (left->getType()->isIntegerTy() && right->getType()->isIntegerTy()) {
+        unsigned lw = left->getType()->getIntegerBitWidth();
+        unsigned rw = right->getType()->getIntegerBitWidth();
+        opUnsigned = lUns ? (lw >= rw) : (rw >= lw);
+    } else {
+        opUnsigned = lUns || rUns;   // a float is involved: signedness is irrelevant here
+    }
     auto extTo = [&](llvm::Value* v, llvm::Type* ty, bool uns) {
         return uns ? builder->CreateZExt(v, ty) : builder->CreateSExt(v, ty);
     };
@@ -252,8 +266,10 @@ void CodeGen::visit(BinaryExpr* node) {
         widenForBitwise(); result = builder->CreateShl(left, right);
     } else if (node->op == ">>") {
         widenForBitwise();
-        result = opUnsigned ? builder->CreateLShr(left, right)
-                            : builder->CreateAShr(left, right);
+        // The shift kind follows the value being shifted (the left operand) only; the
+        // count's signedness is irrelevant, so a signed value keeps an arithmetic shift.
+        result = lUns ? builder->CreateLShr(left, right)
+                      : builder->CreateAShr(left, right);
     } else {
         throw std::runtime_error("Unknown binary operator: " + node->op);
     }
@@ -735,7 +751,11 @@ void CodeGen::visit(CastExpr* node) {
     } else if (val->getType()->isIntegerTy() && targetType->isFloatingPointTy()) {
         result = intToFloat(val, targetType, eskiuUnsigned(getExprEskiuType(node->expr)));
     } else if (val->getType()->isFloatingPointTy() && targetType->isIntegerTy()) {
-        result = builder->CreateFPToSI(val, targetType);
+        // float→int: an unsigned target needs FPToUI, else a value above the signed max
+        // (e.g. (uint32)3e9) saturates to the signed max instead of the true value.
+        result = eskiuUnsigned(node->targetType)
+            ? builder->CreateFPToUI(val, targetType)
+            : builder->CreateFPToSI(val, targetType);
     } else if (val->getType()->isFloatingPointTy() && targetType->isFloatingPointTy()) {
         result = builder->CreateFPCast(val, targetType);
     } else if (val->getType()->isPointerTy() && targetType->isIntegerTy()) {

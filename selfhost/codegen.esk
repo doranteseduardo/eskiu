@@ -2304,7 +2304,13 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
             if (rw > lw) { icty = r.ty; } else { icty = l.ty; }
             ilop = cg_coerce(g, l, icty);
             irop = cg_coerce(g, r, icty);
-            if (cg_is_unsigned(l.ety) == 1 || cg_is_unsigned(r.ety) == 1) { uns = 1; }
+            // C usual arithmetic conversions: an op mixing signed and unsigned is unsigned
+            // only when the unsigned operand's width is at least the signed one's; a wider
+            // signed type represents every value of a narrower unsigned one (then signed).
+            int lu = cg_is_unsigned(l.ety); int ru = cg_is_unsigned(r.ety);
+            if (lu == ru) { uns = lu; }
+            else if (lu == 1) { if (lw >= rw) { uns = 1; } }
+            else { if (rw >= lw) { uns = 1; } }
         }
         string pred = cg_cmp_pred_s(e.sval, uns);
         if (pred[0] != 0) {
@@ -2365,7 +2371,11 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
             cg_emit(g, ", "); cg_emit(g, off.ty); cg_emit(g, " "); cg_emit(g, offop); cg_emit(g, "\n");
             v.op = t; v.ty = "ptr"; v.ety = base.ety; return v;
         }
-        string op = cg_arith_op_s(e.sval, uns);
+        // A right shift's kind (arithmetic vs logical) follows the value being shifted
+        // (the left operand) only, independent of the count's signedness.
+        int op_uns = uns;
+        if (cg_streq(e.sval, ">>") == 1) { op_uns = cg_is_unsigned(l.ety); }
+        string op = cg_arith_op_s(e.sval, op_uns);
         if (op[0] != 0) {
             string t = cg_tmp(g);
             cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = "); cg_emit(g, op);
@@ -2557,6 +2567,14 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
         string dstety = cg_apply_sub(g, e.sval);
         string dll = cg_lltype(g, dstety);
         CgVal src = cg_expr(g, e.a);
+        // float → unsigned int needs fptoui; cg_coerce emits signed fptosi, which saturates
+        // a value above the signed max (e.g. (uint32)3e9 → 2147483647 instead of 3e9).
+        if (cg_is_float(src.ty) == 1 && cg_int_w(dll) > 0 && cg_is_unsigned(dstety) == 1) {
+            string t = cg_tmp(g);
+            cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = fptoui "); cg_emit(g, src.ty);
+            cg_emit(g, " "); cg_emit(g, src.op); cg_emit(g, " to "); cg_emit(g, dll); cg_emit(g, "\n");
+            v.op = t; v.ty = dll; v.ety = dstety; return v;
+        }
         v.op = cg_coerce(g, src, dll);    // int/float/ptr conversions (sitofp/fptosi/…)
         v.ty = dll; v.ety = dstety; return v;
     }
