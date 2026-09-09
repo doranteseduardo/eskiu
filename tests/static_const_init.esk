@@ -1,0 +1,10 @@
+extern int printf(string fmt, ...);
+int bump() {
+    static int[3] t = {10, 20, 30};
+    static uint8 x = (uint8)10;
+    static int y = -5;
+    t[0] = t[0] + 1;
+    printf("%d %d %d | %d | %d\n", t[0], t[1], t[2], x, y);
+    return 0;
+}
+int main() { bump(); bump(); return 0; }
