@@ -1,0 +1,19 @@
+// Global (and static-local scalar) initializers must survive to load time. A global
+// array literal used to be silently dropped and zero-filled; this pins the fix.
+extern int printf(string fmt, ...);
+
+int[3]    GI = {10, 20, 30};
+double[3] GD = {1.5, 2.5, 3.5};
+int[3]    GP = {7};                  // partial: {7, 0, 0}
+int[2][3] GM = {{1, 2, 3}, {4, 5, 6}};
+double    GS = 1.5;                   // scalar globals already worked
+
+int main() {
+    printf("GI: %d %d %d\n", GI[0], GI[1], GI[2]);
+    printf("GD: %.1f %.1f %.1f\n", GD[0], GD[1], GD[2]);
+    printf("GP: %d %d %d\n", GP[0], GP[1], GP[2]);
+    printf("GM: %d %d %d | %d %d %d\n",
+           GM[0][0], GM[0][1], GM[0][2], GM[1][0], GM[1][1], GM[1][2]);
+    printf("GS: %.1f\n", GS);
+    return 0;
+}
