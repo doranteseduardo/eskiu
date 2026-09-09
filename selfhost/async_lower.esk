@@ -393,7 +393,12 @@ int al_lower_item(*AlCtx c, *StmtNode s, int cur) {
         if (s.expr.kind == EK_AWAIT) {
             int idx = c.awcount; c.awcount = idx + 1;
             string awf = str_concat("__aw", int_to_str(idx));
-            string Ti = al_await_type(c.prog, s.expr.a);
+            // The awaited value's type is exactly the declared type of the let variable
+            // (`let x: T = await E` yields T). Prefer it: al_await_type only resolves a bare
+            // `name(...)` future, so a method call / variable / template-call future would
+            // otherwise fall back to "int" and read the value through a wrong overlay.
+            string Ti = s.type;
+            if (Ti == null || Ti[0] == 0) { Ti = al_await_type(c.prog, s.expr.a); }
             let af: Param; af.name = awf; af.ty = str_concat("*Future<", str_concat(Ti, ">")); List_push<Param>(&c.fields, af);
             *ExprNode callE = s.expr.a; al_rewrite(callE, &c.vars);
             al_push(c, cur, al_assign(al_fr(awf), callE));
@@ -818,9 +823,17 @@ int al_can_lower(*StmtNode s) {
             && s.expr.b != null && s.expr.b.kind == EK_AWAIT) { return 1; }   // `x = await E`
         return al_expr_has_await(s.expr) == 0;
     }
-    if (s.kind == SK_IF) { return al_can_lower(s.s1) == 1 && al_can_lower(s.s2) == 1; }
-    if (s.kind == SK_WHILE || s.kind == SK_FORIN) { return al_can_lower(s.s1) == 1; }
-    if (s.kind == SK_FOR) { return al_can_lower(s.s1) == 1 && al_can_lower(s.s2) == 1; }
+    // await in a condition / iterable / step is not state-split — reject (don't miscompile).
+    if (s.kind == SK_IF) {
+        return al_expr_has_await(s.expr) == 0 && al_can_lower(s.s1) == 1 && al_can_lower(s.s2) == 1;
+    }
+    if (s.kind == SK_WHILE || s.kind == SK_FORIN) {
+        return al_expr_has_await(s.expr) == 0 && al_can_lower(s.s1) == 1;
+    }
+    if (s.kind == SK_FOR) {
+        return al_expr_has_await(s.expr) == 0 && al_expr_has_await(s.expr2) == 0
+            && al_can_lower(s.s1) == 1 && al_can_lower(s.s2) == 1;
+    }
     if (s.kind == SK_BLOCK || s.kind == SK_SWITCH || s.kind == SK_CASE) {
         int i = 0; while (i < List_len<*StmtNode>(&s.items)) { if (al_can_lower(List_get<*StmtNode>(&s.items, i)) == 0) { return 0; } i = i + 1; }
         return 1;
@@ -839,6 +852,14 @@ void async_lower(*Program prog) {
         if (d.kind == DK_FUNCTION && d.is_async == 1 && d.body != null
             && al_stmt_has_labeled_break(d.body) == 1) {
             printf("error: async function '%s': labeled 'break'/'continue' is not supported inside an async function\n", d.name);
+            exit(1);
+        }
+        // An await the transform can't place (in a condition, a larger expression, or an
+        // unsupported construct) must be a clean error, not left untransformed — a raw
+        // `await` reaching codegen crashes or silently miscompiles.
+        if (d.kind == DK_FUNCTION && d.is_async == 1 && d.body != null
+            && al_can_lower(d.body) == 0 && al_stmt_has_await_deep(d.body) == 1) {
+            printf("error: async function '%s': 'await' is only supported as the whole initializer of a 'let', a 'return', or an assignment — not in a condition or a larger expression\n", d.name);
             exit(1);
         }
         if (d.kind == DK_FUNCTION && d.is_async == 1 && d.body != null && al_can_lower(d.body) == 1) {
