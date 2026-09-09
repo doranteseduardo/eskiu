@@ -1,0 +1,7 @@
+// float→unsigned, shift-by-unsigned-count, mixed-rank div — exit code encodes the checks.
+int main() {
+    double d = 300.0; uint32 u = (uint32)d;    // 300
+    int64 x = -8; uint8 c = 1; int64 sh = x >> c;  // -4
+    int64 num = -100; uint8 den = 7; int64 q = num / den;  // -14
+    return (int)u + (int)(sh + 4) + (int)(q + 14);  // 300 + 0 + 0 = 300 -> but exit is 8-bit: 300&255=44
+}
