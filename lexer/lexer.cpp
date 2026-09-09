@@ -161,16 +161,21 @@ Token Lexer::read_number() {
         return Token(TokenType::INT_LIT, num, start_line, start_col);
     }
 
-    // Check for decimal point or exponent
+    // Fractional part and/or exponent make it a float: 3.14, 1e10, 3.4e38, 2.5e-3.
+    bool isFloat = false;
     if (!is_at_end() && peek() == '.' && std::isdigit(peek_next())) {
+        isFloat = true;
         num += advance(); // .
-        while (!is_at_end() && std::isdigit(peek())) {
-            num += advance();
-        }
-        return Token(TokenType::FLOAT_LIT, num, start_line, start_col);
+        while (!is_at_end() && std::isdigit(peek())) num += advance();
     }
-
-    return Token(TokenType::INT_LIT, num, start_line, start_col);
+    if (!is_at_end() && (peek() == 'e' || peek() == 'E')
+        && (std::isdigit(peek_next()) || peek_next() == '+' || peek_next() == '-')) {
+        isFloat = true;
+        num += advance();                                    // e / E
+        if (!is_at_end() && (peek() == '+' || peek() == '-')) num += advance();
+        while (!is_at_end() && std::isdigit(peek())) num += advance();
+    }
+    return Token(isFloat ? TokenType::FLOAT_LIT : TokenType::INT_LIT, num, start_line, start_col);
 }
 
 void Lexer::lexError(int errLine, int errCol, const std::string& msg) {

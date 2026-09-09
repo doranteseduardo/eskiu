@@ -1481,12 +1481,29 @@ int cg_has_float_mark(string s) {
 // Emit `text` (a numeric literal) as a valid LLVM constant for slot type `llty`:
 // float → hex form; double → ensure a decimal point (LLVM rejects `double 1`);
 // integer types → as-is.
+// Normalize a double literal for LLVM textual IR, which requires a decimal point:
+// an exponent-only form like "1e6" becomes "1.0e6"; a bare "5" becomes "5.0".
+string cg_double_lit(string text) {
+    int i = 0; int has_dot = 0; int ei = 0 - 1;
+    while (text[i] != 0) {
+        int c = (int)text[i];
+        if (c == 46) { has_dot = 1; }                            // '.'
+        if ((c == 101 || c == 69) && ei == (0 - 1)) { ei = i; }  // first 'e'/'E'
+        i = i + 1;
+    }
+    if (has_dot == 1) { return text; }
+    if (ei == (0 - 1)) { return cg_cat(text, ".0"); }
+    let out: String; String_init(&out, 16);
+    int j = 0;
+    while (j < ei) { String_push(&out, (char)text[j]); j = j + 1; }
+    String_append(&out, ".0");
+    while (text[j] != 0) { String_push(&out, (char)text[j]); j = j + 1; }
+    return (string)String_cstr(&out);
+}
+
 string cg_num_const(string llty, string text) {
     if (cg_streq(llty, "float") == 1) { return cg_float_hex(text); }
-    if (cg_streq(llty, "double") == 1) {
-        if (cg_has_float_mark(text) == 0) { return cg_cat(text, ".0"); }
-        return text;
-    }
+    if (cg_streq(llty, "double") == 1) { return cg_double_lit(text); }
     // Integer slot: LLVM textual IR only accepts decimal, so always normalize the literal
     // (hex `0xFF` / octal `0NN` / decimal) to a decimal magnitude, preserving the sign.
     string dec = cg_u64toa(cg_int_lit_mag(text));
@@ -2049,7 +2066,7 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
         v.op = e.sval;
         if (e.lit_kind == LIT_BOOL) { v.ty = "i1"; }
         else if (e.lit_kind == LIT_NULL) { v.op = "null"; v.ty = "ptr"; }
-        else if (e.lit_kind == LIT_FLOAT) { v.ty = "double"; }   // float literal defaults to double
+        else if (e.lit_kind == LIT_FLOAT) { v.op = cg_double_lit(e.sval); v.ty = "double"; }   // float literal defaults to double
         else {                            // integer literal: normalize base, i64 if it won't fit signed i32
             int neg = 0; if (e.sval[0] == 45) { neg = 1; }
             let mag: uint64 = cg_int_lit_mag(e.sval);
