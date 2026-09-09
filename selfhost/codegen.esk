@@ -1478,6 +1478,40 @@ string cg_global_init(Codegen* g, *ExprNode e, string llty) {
         List_push<CgLambda>(&g.lambdas, lam);
         return cg_cat(cg_cat("{ ptr @", lname), ", ptr null }");
     }
+    if (e.kind == EK_ARRAYLIT) {
+        // Fixed-size array literal `{...}`: llty is "[N x T]". Emit an LLVM array constant
+        // "[T v0, T v1, ...]", folding each element to T and zero-filling any tail (C
+        // semantics: `int[3] = {7}` -> {7,0,0}), recursing for nested arrays.
+        if ((int)llty[0] != 91) { return "zeroinitializer"; }    // 91 = '[' ; not an array type
+        int L = cg_strlen(llty);
+        int i = 1;                                               // past '['
+        int cnt = 0;
+        while (llty[i] != 0 && (int)llty[i] >= 48 && (int)llty[i] <= 57) {
+            cnt = cnt * 10 + ((int)llty[i] - 48); i = i + 1;
+        }
+        int es = i + 3;                                          // skip " x " to the element type
+        int ee = L - 1;                                          // drop the trailing ']'
+        *uint8 buf = alloc<uint8>(ee - es + 1);
+        int k = 0; while (k < ee - es) { buf[k] = (uint8)llty[es + k]; k = k + 1; }
+        buf[ee - es] = 0;
+        string elemty = (string)buf;
+        let out: String; String_init(&out, 64);
+        String_push(&out, '[');
+        int nk = List_len<*ExprNode>(&e.kids);
+        int idx = 0;
+        while (idx < cnt) {
+            if (idx > 0) { String_append(&out, ", "); }
+            String_append(&out, elemty); String_push(&out, ' ');
+            if (idx < nk) {
+                String_append(&out, cg_global_init(g, List_get<*ExprNode>(&e.kids, idx), elemty));
+            } else {
+                String_append(&out, "zeroinitializer");
+            }
+            idx = idx + 1;
+        }
+        String_push(&out, ']');
+        return (string)String_cstr(&out);
+    }
     return "zeroinitializer";
 }
 

@@ -112,6 +112,41 @@ llvm::Constant* CodeGen::evaluateConstantExpr(const ExprPtr& expr) {
     }
 }
 
+// Coerce a folded scalar constant to `ty` (int<->int width, fp<->fp width, int->fp).
+static llvm::Constant* coerceConst(llvm::Constant* c, llvm::Type* ty) {
+    if (!c || c->getType() == ty) return c;
+    if (c->getType()->isIntegerTy() && ty->isIntegerTy())
+        return llvm::ConstantInt::get(ty, llvm::cast<llvm::ConstantInt>(c)->getZExtValue());
+    if (c->getType()->isFloatingPointTy() && ty->isFloatingPointTy())
+        return llvm::ConstantFP::get(ty,
+            llvm::cast<llvm::ConstantFP>(c)->getValueAPF().convertToDouble());
+    if (c->getType()->isIntegerTy() && ty->isFloatingPointTy())
+        return llvm::ConstantFP::get(ty,
+            (double)llvm::cast<llvm::ConstantInt>(c)->getSExtValue());
+    return nullptr;   // no constant coercion available (e.g. pointer/aggregate mismatch)
+}
+
+llvm::Constant* CodeGen::constInitializer(const ExprPtr& expr, llvm::Type* declType) {
+    // Array literal `{...}` against a fixed-size array type: fold each element to the
+    // array's element type and zero-fill any tail (C semantics: `int[3] = {1}` → {1,0,0}).
+    if (auto* arr = dynamic_cast<ArrayLitExpr*>(expr.get())) {
+        auto* arrTy = llvm::dyn_cast<llvm::ArrayType>(declType);
+        if (!arrTy) return nullptr;
+        llvm::Type* elemTy = arrTy->getElementType();
+        uint64_t n = arrTy->getNumElements();
+        std::vector<llvm::Constant*> elems;
+        for (auto& e : arr->elements) {
+            if (elems.size() >= n) break;        // extra elements ignored
+            llvm::Constant* c = constInitializer(e, elemTy);   // recurse (nested arrays)
+            if (!c) return nullptr;              // a non-constant element: not foldable
+            elems.push_back(c);
+        }
+        while (elems.size() < n) elems.push_back(llvm::Constant::getNullValue(elemTy));
+        return llvm::ConstantArray::get(arrTy, elems);
+    }
+    return coerceConst(evaluateConstantExpr(expr), declType);
+}
+
 llvm::Value* CodeGen::lookupSymbol(const std::string& name) {
     auto it = symbolTable.find(name);
     if (it != symbolTable.end()) {
