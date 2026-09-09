@@ -132,6 +132,10 @@ private:
     // Evaluate an expression as an LLVM Constant (for global variable initializers).
     // Returns nullptr for expressions that cannot be folded to a constant.
     llvm::Constant* evaluateConstantExpr(const ExprPtr& expr);
+    // Fold an initializer to a constant of `declType`, handling array literals
+    // (`{...}`) element-wise with C-style zero-fill. Falls back to scalar folding +
+    // coercion. Returns nullptr when the initializer isn't a compile-time constant.
+    llvm::Constant* constInitializer(const ExprPtr& expr, llvm::Type* declType);
 
     // Helpers
     llvm::Value* boxAsInterface(const std::string& ifaceName,
