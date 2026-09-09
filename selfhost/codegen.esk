@@ -15,6 +15,9 @@ import <list>;
 import <mem>;
 import "ast.esk";
 
+// libc: parse a decimal string to double, for f32 constant-folding in global inits.
+extern double atof(string s);
+
 // An evaluated expression: LLVM operand text, LLVM type, and the Eskiu type spelling
 // (needed to resolve struct layouts / pointer depth, which the LLVM type loses).
 struct CgVal { string op; string ty; string ety; }
@@ -1439,6 +1442,51 @@ CgLocal cg_find_global(Codegen* g, string name) {
 // Constant initializer text for a global of LLVM type `llty`. Literal scalars fold to a
 // constant; everything else (incl. a missing/non-constant init) is zeroinitializer —
 // such a global must be set up at runtime (e.g. List_init in a session-init function).
+// 64-bit value → "HHHHHHHHHHHHHHHH" (16 uppercase hex digits, MSB first).
+string cg_hex16(uint64 bits) {
+    *uint8 buf = alloc<uint8>(17);
+    int i = 0;
+    while (i < 16) {
+        int shift = (15 - i) * 4;
+        int nib = (int)((bits >> (uint64)shift) & (uint64)15);
+        buf[i] = (uint8)cg_hexd(nib);
+        i = i + 1;
+    }
+    buf[16] = 0;
+    return (string)buf;
+}
+
+// LLVM constant text for a float (f32) slot: always the hex form `0x<double-bits>`
+// of the value rounded to f32, since a plain decimal is rejected when it is not
+// exactly representable in f32 (LLVM: "floating point constant invalid for type").
+string cg_float_hex(string dec) {
+    double d = atof(dec);
+    float f = (float)d;             // round to f32
+    double d2 = (double)f;          // widen back — LLVM's hex form is these double bits
+    *uint64 pb = (*uint64)(&d2);
+    return cg_cat("0x", cg_hex16(*pb));
+}
+
+// Does `s` already look like a floating literal (has '.', exponent, or hex marker)?
+int cg_has_float_mark(string s) {
+    int i = 0;
+    while (s[i] != 0) {
+        int c = (int)s[i];
+        if (c == 46 || c == 101 || c == 69 || c == 120 || c == 88) { return 1; }   // . e E x X
+        i = i + 1;
+    }
+    return 0;
+}
+
+// Emit `text` (a numeric literal) as a valid LLVM constant for slot type `llty`:
+// float → hex form; double → ensure a decimal point (LLVM rejects `double 1`);
+// integer types → as-is.
+string cg_num_const(string llty, string text) {
+    if (cg_streq(llty, "float") == 1) { return cg_float_hex(text); }
+    if (cg_streq(llty, "double") == 1 && cg_has_float_mark(text) == 0) { return cg_cat(text, ".0"); }
+    return text;
+}
+
 string cg_global_init(Codegen* g, *ExprNode e, string llty) {
     if (e == null) { return "zeroinitializer"; }
     if (e.kind == EK_LITERAL) {
@@ -1446,7 +1494,13 @@ string cg_global_init(Codegen* g, *ExprNode e, string llty) {
         if (e.lit_kind == LIT_CHAR) { return cg_itoa((int)e.sval[0]); }
         if (e.lit_kind == LIT_BOOL) { return e.sval; }      // e.sval is "true"/"false"
         if (e.lit_kind == LIT_STRING) { return "zeroinitializer"; }   // ptr global; rare, defer
-        return e.sval;                                       // integer literal
+        return cg_num_const(llty, e.sval);                   // integer / float literal, slot-typed
+    }
+    if (e.kind == EK_CAST) {
+        // Fold a numeric cast in a constant initializer: emit the operand as the cast's
+        // LLVM target type (float → hex form, double → decimal, integer → as-is).
+        string dll = cg_lltype(g, cg_apply_sub(g, e.sval));
+        return cg_global_init(g, e.a, dll);
     }
     if (e.kind == EK_LAMBDA) {
         // A non-capturing lambda is a compile-time-constant closure { @lambdaN, null }:
