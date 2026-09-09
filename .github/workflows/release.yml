@@ -17,8 +17,10 @@ jobs:
 
       - name: Install LLVM
         run: |
-          brew install llvm cmake dylibbundler
-          echo "LLVM_DIR=$(brew --prefix llvm)/lib/cmake/llvm" >> $GITHUB_ENV
+          # Pin to LLVM 22 (bare `llvm` now resolves to 23, whose TargetRegistry API
+          # differs), matching the Linux job's `llvm-22-dev` pin.
+          brew install llvm@22 cmake dylibbundler
+          echo "LLVM_DIR=$(brew --prefix llvm@22)/lib/cmake/llvm" >> $GITHUB_ENV
 
       - name: Configure
         run: |
