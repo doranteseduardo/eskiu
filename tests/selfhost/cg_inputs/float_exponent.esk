@@ -1,0 +1,2 @@
+// Scientific-notation float literals lex and codegen (incl. no-dot form 1e6).
+int main() { double a = 1e6; double b = 2.5e-3; return (int)(a * b); }  // 1e6*2.5e-3 = 2500

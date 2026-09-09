@@ -1,0 +1,6 @@
+extern int printf(string fmt, ...);
+int main() {
+    double a = 3.4e38; double b = 2.5e-3; double c = 1e6; double d = 6.022e+23;
+    printf("%.3e %.4f %.0f %.3e\n", a, b, c, d);
+    return 0;
+}
