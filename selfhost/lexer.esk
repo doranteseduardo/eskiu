@@ -220,17 +220,27 @@ Token lx_next(Lexer* lx) {
                 return t;
             }
         }
-        // Float: '.' immediately followed by a digit.
-        if (lx_at_end(lx) == 0 && lx_peek(lx) == 46 && is_digit(lx_peek_next(lx)) == 1) {
-            lx_advance(lx);                                  // '.'
-            while (lx_at_end(lx) == 0 && is_digit(lx_peek(lx)) == 1) {
-                lx_advance(lx);
-            }
-            t.type = FLOAT_LIT; t.start = sp; t.len = lx.pos - sp;
-            t.line = sl; t.col = sc;
-            return t;
+        // Fractional part and/or exponent make it a float (3.14, 1e10, 3.4e38, 2.5e-3).
+        int isfloat = 0;
+        if (lx_at_end(lx) == 0 && lx_peek(lx) == 46 && is_digit(lx_peek_next(lx)) == 1) {   // '.'
+            isfloat = 1;
+            lx_advance(lx);
+            while (lx_at_end(lx) == 0 && is_digit(lx_peek(lx)) == 1) { lx_advance(lx); }
         }
-        t.type = INT_LIT; t.start = sp; t.len = lx.pos - sp;
+        if (lx_at_end(lx) == 0) {
+            int pe = lx_peek(lx);
+            if (pe == 101 || pe == 69) {                     // 'e' / 'E'
+                int pn = lx_peek_next(lx);
+                if (is_digit(pn) == 1 || pn == 43 || pn == 45) {   // digit / '+' / '-'
+                    isfloat = 1;
+                    lx_advance(lx);                          // e / E
+                    if (lx_at_end(lx) == 0 && (lx_peek(lx) == 43 || lx_peek(lx) == 45)) { lx_advance(lx); }
+                    while (lx_at_end(lx) == 0 && is_digit(lx_peek(lx)) == 1) { lx_advance(lx); }
+                }
+            }
+        }
+        if (isfloat == 1) { t.type = FLOAT_LIT; } else { t.type = INT_LIT; }
+        t.start = sp; t.len = lx.pos - sp;
         t.line = sl; t.col = sc;
         return t;
     }
