@@ -8,7 +8,7 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
-## [Unreleased]
+## [0.9.0] - 2026-09-08
 ### Added
 - **Labeled `break` and `continue`.** A loop can be named with a leading label
   (`outer: for (...) { ... }`), and `break outer` / `continue outer` act on that loop

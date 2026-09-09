@@ -4,20 +4,20 @@
 class Eskiu < Formula
   desc "Self-hosting systems language with a C-style surface and an LLVM backend"
   homepage "https://eskiu-lang.org"
-  version "0.8.0"
+  version "0.9.0"
   license "MIT"
 
   on_macos do
     on_arm do
-      url "https://github.com/doranteseduardo/eskiu/releases/download/v0.8.0/eskiuc-macos-arm64.tar.gz"
-      sha256 "a90c9d65b363e55135c86695b86d9df64eb5eeee302dbdf19a8007e8da38371b"
+      url "https://github.com/doranteseduardo/eskiu/releases/download/v0.9.0/eskiuc-macos-arm64.tar.gz"
+      sha256 "REPLACE_WITH_SHA256_FROM_v0.9.0_SHA256SUMS"
     end
   end
 
   on_linux do
     on_intel do
-      url "https://github.com/doranteseduardo/eskiu/releases/download/v0.8.0/eskiuc-linux-x86_64.tar.gz"
-      sha256 "762654a3f2ce6fe7f6aa5010c1315721afd22508ca820f226273b37e984122b0"
+      url "https://github.com/doranteseduardo/eskiu/releases/download/v0.9.0/eskiuc-linux-x86_64.tar.gz"
+      sha256 "REPLACE_WITH_SHA256_FROM_v0.9.0_SHA256SUMS"
     end
   end
 
