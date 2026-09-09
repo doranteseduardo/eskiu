@@ -41,6 +41,9 @@ public:
     bool safe = false;
     // Emit a trap (via @llvm.trap) when `idx` (sext to i64) is < 0 or >= `len`.
     void emitBoundsCheck(llvm::Value* idx, llvm::Value* len);
+    // --safe check for a slice construction `base[lo..hi]`: 0 <= lo <= hi <= len. A null
+    // len (a raw-pointer base, whose length is unknown here) checks only 0 <= lo <= hi.
+    void emitSliceBoundsCheck(llvm::Value* lo, llvm::Value* hi, llvm::Value* len);
     // Sanitizer instrumentation, applied to the module before object emission.
     bool asan = false;   // AddressSanitizer (memory errors); needs the asan runtime
     bool ubsan = false;  // bounds checking; traps on out-of-bounds (no runtime)
@@ -212,7 +215,7 @@ private:
     bool blockTerminated();   // is the current basic block already terminated?
     // Address of element `idx` of an indexable base (fixed array / slice / pointer /
     // string). Shared by index-read, index-write (lvalue), and slice construction.
-    llvm::Value* indexElemAddr(const ExprPtr& base, llvm::Value* idx);
+    llvm::Value* indexElemAddr(const ExprPtr& base, llvm::Value* idx, bool doCheck = true);
 
     // Exception handling: set when inside a try body
     llvm::BasicBlock* unwindTarget = nullptr;
