@@ -1483,8 +1483,50 @@ int cg_has_float_mark(string s) {
 // integer types → as-is.
 string cg_num_const(string llty, string text) {
     if (cg_streq(llty, "float") == 1) { return cg_float_hex(text); }
-    if (cg_streq(llty, "double") == 1 && cg_has_float_mark(text) == 0) { return cg_cat(text, ".0"); }
-    return text;
+    if (cg_streq(llty, "double") == 1) {
+        if (cg_has_float_mark(text) == 0) { return cg_cat(text, ".0"); }
+        return text;
+    }
+    // Integer slot: LLVM textual IR only accepts decimal, so always normalize the literal
+    // (hex `0xFF` / octal `0NN` / decimal) to a decimal magnitude, preserving the sign.
+    string dec = cg_u64toa(cg_int_lit_mag(text));
+    if (text[0] == 45) { return cg_cat("-", dec); }
+    return dec;
+}
+
+// Constant struct-literal text "{ ty v, ty v, ... }" for a global initializer; returns
+// "" to signal a fall back to zeroinitializer (a bitfield-packed struct, whose physical
+// layout differs — a documented limitation). Named + positional fields; missing → zero.
+string cg_const_struct(Codegen* g, string sname, *ExprNode e) {
+    CgStruct s = cg_find_struct(g, sname);
+    int nf = List_len<string>(&s.fnames);
+    if (nf == 0) { return ""; }
+    let out: String; String_init(&out, 64);
+    String_append(&out, "{ ");
+    int nk = List_len<*ExprNode>(&e.kids);
+    int i = 0;
+    while (i < nf) {
+        string fname_i = List_get<string>(&s.fnames, i);
+        CgBF bf = cg_bf(g, sname, fname_i);
+        if (bf.bw > 0) { return ""; }                     // bitfield struct: not folded here
+        if (i > 0) { String_append(&out, ", "); }
+        string flty = cg_lltype(g, List_get<string>(&s.fetys, i));
+        String_append(&out, flty); String_push(&out, ' ');
+        *ExprNode fe = null;                              // the init provided for field i, if any
+        int k = 0;
+        while (k < nk) {
+            string fname = List_get<string>(&e.names, k);
+            int idx = k;                                  // positional by default
+            if (fname[0] != 0) { idx = cg_field_idx(&s, fname); }
+            if (idx == i) { fe = List_get<*ExprNode>(&e.kids, k); }
+            k = k + 1;
+        }
+        if (fe != null) { String_append(&out, cg_global_init(g, fe, flty)); }
+        else { String_append(&out, "zeroinitializer"); }
+        i = i + 1;
+    }
+    String_append(&out, " }");
+    return (string)String_cstr(&out);
 }
 
 string cg_global_init(Codegen* g, *ExprNode e, string llty) {
@@ -1493,7 +1535,7 @@ string cg_global_init(Codegen* g, *ExprNode e, string llty) {
         if (e.lit_kind == LIT_NULL) { return "null"; }
         if (e.lit_kind == LIT_CHAR) { return cg_itoa((int)e.sval[0]); }
         if (e.lit_kind == LIT_BOOL) { return e.sval; }      // e.sval is "true"/"false"
-        if (e.lit_kind == LIT_STRING) { return "zeroinitializer"; }   // ptr global; rare, defer
+        if (e.lit_kind == LIT_STRING) { return cg_string_global(g, e.sval); }   // ptr to a real constant
         return cg_num_const(llty, e.sval);                   // integer / float literal, slot-typed
     }
     if (e.kind == EK_CAST) {
@@ -1501,6 +1543,40 @@ string cg_global_init(Codegen* g, *ExprNode e, string llty) {
         // LLVM target type (float → hex form, double → decimal, integer → as-is).
         string dll = cg_lltype(g, cg_apply_sub(g, e.sval));
         return cg_global_init(g, e.a, dll);
+    }
+    if (e.kind == EK_IDENT) {
+        // An enum constant or a folded top-level `const int` (both live in econsts).
+        string v = cg_enum_val(g, e.sval);
+        if (v[0] != 0) { return cg_num_const(llty, v); }
+        return "zeroinitializer";
+    }
+    if (e.kind == EK_SIZEOF) {
+        return cg_itoa(cg_size(g, cg_apply_sub(g, e.sval)));   // static byte size
+    }
+    if (e.kind == EK_UNARY) {
+        // `-` reaches here rarely (negatives are single literal tokens); `~`/`!` need folding.
+        if (cg_streq(e.sval, "!") == 1) {
+            string inner = cg_global_init(g, e.a, "i64");
+            if (cg_streq(inner, "0") == 1 || cg_streq(inner, "false") == 1) { return "true"; }
+            return "false";
+        }
+        if (cg_streq(e.sval, "~") == 1) {
+            // ~x == -x - 1. Fold the operand's magnitude and render the complement.
+            string inner = cg_global_init(g, e.a, "i64");
+            uint64 m = cg_int_lit_mag(inner);
+            if (inner[0] == 45) { return cg_u64toa(m - (uint64)1); }        // ~(-m) = m-1
+            return cg_cat("-", cg_u64toa(m + (uint64)1));                   // ~m = -(m+1)
+        }
+        if (cg_streq(e.sval, "-") == 1) {
+            return cg_cat("-", cg_global_init(g, e.a, llty));
+        }
+        return "zeroinitializer";
+    }
+    if (e.kind == EK_STRUCTINIT) {
+        string sname = cg_apply_sub(g, e.sval);
+        string cs = cg_const_struct(g, sname, e);
+        if (cs[0] != 0) { return cs; }
+        return "zeroinitializer";                             // bitfield struct: fall back
     }
     if (e.kind == EK_LAMBDA) {
         // A non-capturing lambda is a compile-time-constant closure { @lambdaN, null }:
@@ -3355,13 +3431,16 @@ void cg_stmt(Codegen* g, *StmtNode st) {
             // ordinary load/store on the local read/write the persistent cell.
             string gname = cg_cat("@.static.", cg_itoa(g.strcount));
             g.strcount = g.strcount + 1;
+            if (cg_is_fnty(st.type) == 1) { g.lam_expret = cg_fnty_ret(st.type); }  // thread fn-type return into a lambda init
+            // Compute the initializer first (a string literal appends its constant to
+            // g.globals; that must not land mid-line — see the module-global path).
+            string sinit = cg_global_init(g, st.expr, ty);
+            g.lam_expret = "";
             String_append(&g.globals, gname);
             String_append(&g.globals, " = internal global ");
             String_append(&g.globals, ty);
             String_append(&g.globals, " ");
-            if (cg_is_fnty(st.type) == 1) { g.lam_expret = cg_fnty_ret(st.type); }  // thread fn-type return into a lambda init
-            String_append(&g.globals, cg_global_init(g, st.expr, ty));
-            g.lam_expret = "";
+            String_append(&g.globals, sinit);
             String_append(&g.globals, "\n");
             cg_add_local(g, st.name, gname, ty, cg_apply_sub(g, st.type));
             return;
@@ -4205,11 +4284,15 @@ void cg_program(Codegen* g, *Program prog) {
             int dupn = cg_count_global(g, d.name);
             if (dupn > 0) { gsym = cg_cat(gsym, cg_cat(".", cg_itoa(dupn))); }
             cg_add_global(g, d.name, gsym, llty, d.ret_type);
+            if (cg_is_fnty(d.ret_type) == 1) { g.lam_expret = cg_fnty_ret(d.ret_type); }  // thread fn-type return into a lambda init
+            // Compute the initializer FIRST: a string literal folds via cg_string_global,
+            // which appends its constant to g.globals — that must land before this line, not
+            // in the middle of it.
+            string initstr = cg_global_init(g, d.init, llty);
+            g.lam_expret = "";
             String_append(&g.globals, gsym);
             String_append(&g.globals, " = global "); String_append(&g.globals, llty);
-            if (cg_is_fnty(d.ret_type) == 1) { g.lam_expret = cg_fnty_ret(d.ret_type); }  // thread fn-type return into a lambda init
-            String_append(&g.globals, " "); String_append(&g.globals, cg_global_init(g, d.init, llty));
-            g.lam_expret = "";
+            String_append(&g.globals, " "); String_append(&g.globals, initstr);
             String_append(&g.globals, "\n");
         }
         si = si + 1;
