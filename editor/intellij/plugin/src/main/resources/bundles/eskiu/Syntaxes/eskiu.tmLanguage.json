@@ -115,12 +115,19 @@
     "keywords": {
       "patterns": [
         {
+          "match": "\\b([A-Za-z_][A-Za-z0-9_]*)\\s*(:)(?=\\s*\\b(for|while|do)\\b)",
+          "captures": {
+            "1": { "name": "entity.name.label.eskiu" },
+            "2": { "name": "punctuation.separator.label.eskiu" }
+          }
+        },
+        {
           "name": "keyword.control.eskiu",
-          "match": "\\b(if|else|for|while|switch|case|default|break|continue|return|in|await|match)\\b"
+          "match": "\\b(if|else|for|while|do|switch|case|default|break|continue|return|in|await|match)\\b"
         },
         {
           "name": "keyword.control.exception.eskiu",
-          "match": "\\b(try|catch|finally|throw)\\b"
+          "match": "\\b(try|catch|finally|throw|defer|errdefer)\\b"
         },
         {
           "name": "keyword.declaration.eskiu",
@@ -128,7 +135,7 @@
         },
         {
           "name": "storage.modifier.eskiu",
-          "match": "\\b(const|volatile|escaping|async)\\b"
+          "match": "\\b(const|volatile|static|escaping|must_use|async)\\b"
         },
         {
           "name": "keyword.other.eskiu",
