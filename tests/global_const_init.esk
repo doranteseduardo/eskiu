@@ -1,0 +1,30 @@
+// Global / static initializers must fold every constant form, not just plain literals.
+// Regressions fixed: 64-bit literal truncation, struct globals, const/enum/sizeof folding,
+// `~`/`!`, string globals (self-host was null), and hex (self-host emitted invalid IR).
+extern int printf(string fmt, ...);
+
+struct Point { int x; int y; }
+const int N = 5;
+enum Color { RED, GREEN, BLUE }
+
+int64  big  = 5000000000;          // must not truncate to 32 bits
+Point  p    = Point{ x: 3, y: 7 };
+int    fc   = N;                    // const fold
+int    fe   = GREEN;               // enum fold
+int    fsz  = sizeof(int);         // sizeof fold
+int    inv  = ~0;                  // -1
+bool   notf = !false;              // true
+string s    = "hello";
+int    hx   = 0xFF;                // 255
+int[3] harr = {0x10, 0xA, 0x1};    // 16 10 1
+
+int main() {
+    printf("%lld\n", big);
+    printf("%d %d\n", p.x, p.y);
+    printf("%d %d %d\n", fc, fe, fsz);
+    printf("%d %d\n", inv, (int)notf);
+    printf("%s\n", s);
+    printf("%d\n", hx);
+    printf("%d %d %d\n", harr[0], harr[1], harr[2]);
+    return 0;
+}
