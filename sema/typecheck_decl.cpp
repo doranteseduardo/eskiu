@@ -389,6 +389,28 @@ void TypeChecker::checkUninitPrefix(BlockStmt* body) {
     }
 }
 
+// Is `e` a compile-time constant initializer codegen can fold? A literal, `sizeof`, a
+// numeric unary/cast of a constant, or an array/struct literal built from constants. A
+// bare identifier is deliberately excluded: it could be a runtime local, which codegen
+// would silently zero, so `static` requires the value be written out.
+static bool isConstInit(const ExprPtr& e) {
+    if (!e) return true;
+    if (dynamic_cast<LiteralExpr*>(e.get())) return true;
+    if (dynamic_cast<SizeofExpr*>(e.get())) return true;
+    if (auto* u = dynamic_cast<UnaryExpr*>(e.get()))
+        return (u->op == "-" || u->op == "~" || u->op == "!") && isConstInit(u->operand);
+    if (auto* c = dynamic_cast<CastExpr*>(e.get())) return isConstInit(c->expr);
+    if (auto* a = dynamic_cast<ArrayLitExpr*>(e.get())) {
+        for (auto& el : a->elements) if (!isConstInit(el)) return false;
+        return true;
+    }
+    if (auto* s = dynamic_cast<StructInitExpr*>(e.get())) {
+        for (auto& fi : s->fieldInits) if (!isConstInit(fi.second)) return false;
+        return true;
+    }
+    return false;
+}
+
 void TypeChecker::visit(VarDecl* node) {
     // `extern <type> <name>;` names a variable defined in another translation unit
     // (a C global). It lives at top level and carries no initializer.
@@ -400,11 +422,13 @@ void TypeChecker::visit(VarDecl* node) {
     }
 
     // `static` is a local-only qualifier whose initializer must be a compile-time
-    // constant (it runs once, at load time), as in C.
+    // constant (it runs once, at load time), as in C. Accept every form codegen's
+    // constant folder can emit — a literal, a numeric unary/cast of one, or an
+    // array/struct literal (or sizeof) built from those — not just a bare literal.
     if (node->isStatic) {
         if (scopes.size() <= 1)
             errorAt(node, "'static' is only allowed on a local variable");
-        if (node->initializer && !dynamic_cast<LiteralExpr*>(node->initializer.get()))
+        if (node->initializer && !isConstInit(node->initializer))
             errorAt(node, "a 'static' local's initializer must be a constant");
     }
 
