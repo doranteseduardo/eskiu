@@ -189,6 +189,7 @@ private:
 
     // Error tracking
     std::vector<std::string> errors;
+    std::vector<std::string> loopLabelStack;   // enclosing loop labels ("" for unlabeled), for labeled break/continue validation
     bool hasErrors = false;
 
     // Helper methods

@@ -8,7 +8,25 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
-## [Unreleased]
+## [0.9.0] - 2026-09-08
+### Added
+- **Labeled `break` and `continue`.** A loop can be named with a leading label
+  (`outer: for (...) { ... }`), and `break outer` / `continue outer` act on that loop
+  from inside a nested one, instead of only the innermost. The label must name an
+  enclosing `while`, `do`/`while`, `for`, or `for ... in` loop, otherwise the program is
+  rejected at compile time. A labeled jump runs the same `defer`/`errdefer` cleanups as
+  the unlabeled forms (every deferred statement between the jump and the target loop runs,
+  innermost first), may not escape a `defer` body, and is not supported inside an
+  `async fn`. Implemented lockstep in both the C++ and the self-hosted compiler.
+
+### Fixed
+- **Global array initializers are no longer dropped.** A global (or `static` local) array
+  literal such as `int[3] G = {10, 20, 30};` was silently zero-filled: only scalar globals
+  kept their value, and an array came out all zeros with no warning. The constant folder
+  now builds the array constant from the initializer, with C-style zero-fill for a partial
+  list (`int[3] = {7}` gives `{7, 0, 0}`), nested arrays, and numeric **casts** inside the
+  initializer (`float[3] = {(float)0.485, …}`, which also emit the correct LLVM f32
+  constant form). Fixed in both compilers. Locals were unaffected.
 
 ## [0.8.0] - 2026-08-21
 ### Fixed

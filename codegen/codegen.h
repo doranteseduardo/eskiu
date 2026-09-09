@@ -132,6 +132,10 @@ private:
     // Evaluate an expression as an LLVM Constant (for global variable initializers).
     // Returns nullptr for expressions that cannot be folded to a constant.
     llvm::Constant* evaluateConstantExpr(const ExprPtr& expr);
+    // Fold an initializer to a constant of `declType`, handling array literals
+    // (`{...}`) element-wise with C-style zero-fill. Falls back to scalar folding +
+    // coercion. Returns nullptr when the initializer isn't a compile-time constant.
+    llvm::Constant* constInitializer(const ExprPtr& expr, llvm::Type* declType);
 
     // Helpers
     llvm::Value* boxAsInterface(const std::string& ifaceName,
@@ -170,20 +174,35 @@ private:
     size_t breakCleanupDepth    = 0;   // frame depth to unwind to on break
     size_t continueCleanupDepth = 0;   // frame depth to unwind to on continue
 
+    // Loops-only frame stack for labeled break/continue. Unlike breakTarget above (which a
+    // `switch` also installs), this holds only real loops, so `break label` / `continue label`
+    // can scan it top-down for the named loop and unwind to that loop's cleanup depth. Both
+    // exits unwind to the same depth (the frame count at loop entry, before the body frame).
+    struct LoopFrame {
+        std::string label;                 // "" = unlabeled
+        llvm::BasicBlock* breakBlock;
+        llvm::BasicBlock* continueBlock;
+        size_t cleanupDepth;
+    };
+    std::vector<LoopFrame> loopStack;
+
     // RAII: install a loop's break/continue targets and cleanup-unwind depth for the
     // duration of its body, restoring the enclosing loop's values on scope exit.
     struct LoopContext {
         CodeGen* cg;
         llvm::BasicBlock* pb; llvm::BasicBlock* pc; size_t pbd, pcd;
-        LoopContext(CodeGen* c, llvm::BasicBlock* brk, llvm::BasicBlock* cont)
+        LoopContext(CodeGen* c, llvm::BasicBlock* brk, llvm::BasicBlock* cont,
+                    const std::string& label = "")
             : cg(c), pb(c->breakTarget), pc(c->continueTarget),
               pbd(c->breakCleanupDepth), pcd(c->continueCleanupDepth) {
             cg->breakTarget = brk; cg->continueTarget = cont;
             cg->breakCleanupDepth = cg->continueCleanupDepth = cg->cleanupScopes.size();
+            cg->loopStack.push_back({label, brk, cont, cg->cleanupScopes.size()});
         }
         ~LoopContext() {
             cg->breakTarget = pb; cg->continueTarget = pc;
             cg->breakCleanupDepth = pbd; cg->continueCleanupDepth = pcd;
+            cg->loopStack.pop_back();
         }
     };
     // Emit (in LIFO order) every cleanup body in frames at index >= depth. On a normal

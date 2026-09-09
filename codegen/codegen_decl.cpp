@@ -156,9 +156,11 @@ void CodeGen::visit(FunctionDecl* node) {
     std::vector<std::vector<Cleanup>> prevCleanups = std::move(cleanupScopes);
     size_t prevBreakCD = breakCleanupDepth, prevContinueCD = continueCleanupDepth;
     llvm::BasicBlock* prevBreakT = breakTarget, *prevContinueT = continueTarget;
+    std::vector<LoopFrame> prevLoopStack = std::move(loopStack);
     cleanupScopes.clear();
     breakCleanupDepth = continueCleanupDepth = 0;
     breakTarget = continueTarget = nullptr;
+    loopStack.clear();
 
     // Push scope for function parameters
     pushScope();
@@ -221,6 +223,7 @@ void CodeGen::visit(FunctionDecl* node) {
     cleanupScopes = std::move(prevCleanups);
     breakCleanupDepth = prevBreakCD; continueCleanupDepth = prevContinueCD;
     breakTarget = prevBreakT; continueTarget = prevContinueT;
+    loopStack = std::move(prevLoopStack);
 }
 
 void CodeGen::visit(VarDecl* node) {
@@ -247,19 +250,8 @@ void CodeGen::visit(VarDecl* node) {
             return;
         }
         llvm::Constant* init = node->initializer
-            ? evaluateConstantExpr(node->initializer)
+            ? constInitializer(node->initializer, declType)
             : nullptr;
-        // Coerce initializer to match declared type
-        if (init && init->getType() != declType) {
-            if (init->getType()->isIntegerTy() && declType->isIntegerTy()) {
-                // Use ConstantInt directly
-                uint64_t v = llvm::cast<llvm::ConstantInt>(init)->getZExtValue();
-                init = llvm::ConstantInt::get(declType, v);
-            } else if (init->getType()->isFloatingPointTy() && declType->isFloatingPointTy()) {
-                double v = llvm::cast<llvm::ConstantFP>(init)->getValueAPF().convertToDouble();
-                init = llvm::ConstantFP::get(declType, v);
-            }
-        }
         if (!init) init = llvm::Constant::getNullValue(declType);
 
         auto* gv = new llvm::GlobalVariable(
@@ -273,17 +265,8 @@ void CodeGen::visit(VarDecl* node) {
     // Static local: one instance in module scope, persists across calls.
     if (node->isStatic) {
         llvm::Constant* init = node->initializer
-            ? evaluateConstantExpr(node->initializer)
+            ? constInitializer(node->initializer, declType)
             : nullptr;
-        if (init && init->getType() != declType) {
-            if (init->getType()->isIntegerTy() && declType->isIntegerTy())
-                init = llvm::ConstantInt::get(
-                    declType, llvm::cast<llvm::ConstantInt>(init)->getZExtValue());
-            else if (init->getType()->isFloatingPointTy() && declType->isFloatingPointTy())
-                init = llvm::ConstantFP::get(
-                    declType,
-                    llvm::cast<llvm::ConstantFP>(init)->getValueAPF().convertToDouble());
-        }
         if (!init) init = llvm::Constant::getNullValue(declType);
         std::string gname = currentFunction->getName().str() + "." + node->name;
         auto* gv = new llvm::GlobalVariable(

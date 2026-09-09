@@ -86,11 +86,12 @@ footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
 <body>
   <header class="top">
     <div class="top-in">
-      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.8.0</span></a>
+      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.9.0</span></a>
       <nav class="top-links">
         <a href="index.html">docs</a>
         <a href="../the-book-of-eskiu.html">book</a>
         <a href="https://github.com/doranteseduardo/eskiu">github</a>
+        <a href="https://reactvision.xyz">reactvision ↗</a>
       </nav>
     </div>
   </header>
@@ -100,7 +101,7 @@ footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
 <h1 id="getting-started-with-eskiu">Getting Started with Eskiu</h1>
 <p>A hands-on introduction to the Eskiu language. You will go from zero to writing
 and inspecting real compiled programs in about 30 minutes.</p>
-<p>All code blocks in this document compile and run with <strong>Eskiu v0.8.0</strong>.</p>
+<p>All code blocks in this document compile and run with <strong>Eskiu v0.9.0</strong>.</p>
 <hr>
 <h2 id="installation">Installation</h2>
 <h3 id="prerequisites">Prerequisites</h3>
@@ -152,7 +153,7 @@ cmake --build build -j$(nproc)
 </code></pre>
 <h3 id="verify">Verify</h3>
 <pre><code class="language-bash">./build/eskiuc --version
-# Eskiu 0.8.0 (LLVM 22.1.6)   (exact LLVM version depends on your install)
+# Eskiu 0.9.0 (LLVM 22.1.6)   (exact LLVM version depends on your install)
 </code></pre>
 <p>Add <code>./build</code> to your <code>PATH</code> so you can type <code>eskiuc</code> from any directory.</p>
 <hr>
@@ -1096,6 +1097,7 @@ mirrors a regular function declaration without a name.</p>
 <pre><code class="language-eskiu">let f: fn(int)-&gt;int;
 let g: fn(int, int)-&gt;bool;
 </code></pre>
+<p><code>fn</code> names a <em>type</em> only. It is not how you define a function (Eskiu has no <code>fn name(...)</code> form): functions are defined C-style, return type first, as in <code>int add(int a, int b) { ... }</code>.</p>
 <h3 id="writing-a-lambda">Writing a lambda</h3>
 <pre><code class="language-eskiu">extern int printf(string fmt, ...);
 
@@ -1465,8 +1467,9 @@ int main() {
         <a href="internals.html">internals</a>
         <a href="../changelog.html">changelog</a>
         <a href="https://github.com/doranteseduardo/eskiu">github</a>
+        <a href="https://reactvision.xyz">reactvision ↗</a>
       </div>
-      <span class="cp">MIT · Eduardo Dorantes</span>
+      <span class="cp">Part of the <a href="https://reactvision.xyz">ReactVision</a> family · MIT</span>
     </div>
   </footer>
 </body>

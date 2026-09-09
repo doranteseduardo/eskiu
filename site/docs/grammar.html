@@ -86,11 +86,12 @@ footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
 <body>
   <header class="top">
     <div class="top-in">
-      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.8.0</span></a>
+      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.9.0</span></a>
       <nav class="top-links">
         <a href="index.html">docs</a>
         <a href="../the-book-of-eskiu.html">book</a>
         <a href="https://github.com/doranteseduardo/eskiu">github</a>
+        <a href="https://reactvision.xyz">reactvision ↗</a>
       </nav>
     </div>
   </header>
@@ -268,19 +269,20 @@ is a built-in named type used by variadics.</p>
 <hr>
 <h2 id="statements">Statements</h2>
 <pre><code>statement =
-    block | if-stmt | while-stmt | for-stmt | switch-stmt | match-stmt
+    block | if-stmt | labeled-loop | while-stmt | for-stmt | switch-stmt | match-stmt
   | do-while-stmt  | return-stmt | break-stmt | continue-stmt | throw-stmt | try-stmt
   | defer-stmt | asm-stmt | thread-join-stmt | var-decl | expr-stmt
 
 block         = '{' ( declaration | statement )* '}'
 if-stmt       = 'if' '(' expr ')' statement ( 'else' statement )?
+labeled-loop  = IDENT ':' ( while-stmt | do-while-stmt | for-stmt )   // names a loop for break/continue
 while-stmt    = 'while' '(' expr ')' statement
 do-while-stmt = 'do' statement 'while' '(' expr ')' ';'
 for-stmt      = 'for' '(' ( var-decl | expr )? ';' expr? ';' expr? ')' statement
               | 'for' '(' IDENT 'in' expr ( '..' expr )? ')' statement   // iterate / half-open range
 return-stmt   = 'return' expr? ';'
-break-stmt    = 'break' ';'
-continue-stmt = 'continue' ';'
+break-stmt    = 'break' IDENT? ';'      // IDENT = a labeled enclosing loop (default: innermost)
+continue-stmt = 'continue' IDENT? ';'   // IDENT = a labeled enclosing loop (default: innermost)
 throw-stmt    = 'throw' expr ';'
 expr-stmt     = expr ';'
 
@@ -375,8 +377,9 @@ subject of <code>match</code>/<code>switch</code>/<code>if</code>/<code>while</c
         <a href="internals.html">internals</a>
         <a href="../changelog.html">changelog</a>
         <a href="https://github.com/doranteseduardo/eskiu">github</a>
+        <a href="https://reactvision.xyz">reactvision ↗</a>
       </div>
-      <span class="cp">MIT · Eduardo Dorantes</span>
+      <span class="cp">Part of the <a href="https://reactvision.xyz">ReactVision</a> family · MIT</span>
     </div>
   </footer>
 </body>

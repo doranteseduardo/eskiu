@@ -119,6 +119,7 @@ struct StmtNode {
     int is_static;         // SK_VARDECL: `static` local (one instance, persists across calls)
     int is_err;            // SK_DEFER: errdefer (runs only on the error path) vs plain defer
     string resolved_elem;  // SK_FORIN: element type stamped by sema (mirrors C++ resolvedElemType); "" = fall back to structural resolution at lowering
+    string label;          // loop's own label (SK_FOR/WHILE/DOWHILE/FORIN) or target label (SK_BREAK/CONTINUE); null/"" = unlabeled
 }
 
 // A generic type parameter with its (possibly empty) interface constraints, e.g.
@@ -350,7 +351,8 @@ void print_stmt(*StmtNode s, int d) {
         return;
     }
     if (s.kind == SK_WHILE) {
-        pline(d, "WhileStmt");
+        if (s.label != null && s.label[0] != 0) { pind(d); printf("WhileStmt (label: %s)\n", s.label); }
+        else { pline(d, "WhileStmt"); }
         pline(d + 1, "Condition:");
         print_expr(s.expr, d + 2);
         pline(d + 1, "Body:");
@@ -358,7 +360,8 @@ void print_stmt(*StmtNode s, int d) {
         return;
     }
     if (s.kind == SK_DOWHILE) {
-        pline(d, "DoWhileStmt");
+        if (s.label != null && s.label[0] != 0) { pind(d); printf("DoWhileStmt (label: %s)\n", s.label); }
+        else { pline(d, "DoWhileStmt"); }
         pline(d + 1, "Body:");
         print_stmt(s.s1, d + 2);
         pline(d + 1, "Condition:");
@@ -366,7 +369,8 @@ void print_stmt(*StmtNode s, int d) {
         return;
     }
     if (s.kind == SK_FOR) {
-        pline(d, "ForStmt");
+        if (s.label != null && s.label[0] != 0) { pind(d); printf("ForStmt (label: %s)\n", s.label); }
+        else { pline(d, "ForStmt"); }
         if (s.s1 != null) {
             pline(d + 1, "Init:");
             print_stmt(s.s1, d + 2);
@@ -385,15 +389,24 @@ void print_stmt(*StmtNode s, int d) {
     }
     if (s.kind == SK_FORIN) {
         pind(d);
-        printf("ForInStmt (%s in ...)\n", s.name);
+        if (s.label != null && s.label[0] != 0) { printf("ForInStmt (%s in ...) (label: %s)\n", s.name, s.label); }
+        else { printf("ForInStmt (%s in ...)\n", s.name); }
         pline(d + 1, "Iterable:");
         print_expr(s.expr, d + 2);
         pline(d + 1, "Body:");
         print_stmt(s.s1, d + 2);
         return;
     }
-    if (s.kind == SK_BREAK) { pline(d, "BreakStmt"); return; }
-    if (s.kind == SK_CONTINUE) { pline(d, "ContinueStmt"); return; }
+    if (s.kind == SK_BREAK) {
+        if (s.label != null && s.label[0] != 0) { pind(d); printf("BreakStmt %s\n", s.label); }
+        else { pline(d, "BreakStmt"); }
+        return;
+    }
+    if (s.kind == SK_CONTINUE) {
+        if (s.label != null && s.label[0] != 0) { pind(d); printf("ContinueStmt %s\n", s.label); }
+        else { pline(d, "ContinueStmt"); }
+        return;
+    }
     if (s.kind == SK_EXPR) {
         pline(d, "ExprStmt");
         print_expr(s.expr, d + 1);

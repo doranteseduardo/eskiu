@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Language spec · Eskiu docs</title>
-  <meta name="description" content="Version: v0.8.0" />
+  <meta name="description" content="Version: v0.9.0" />
   <link rel="canonical" href="https://eskiu-lang.org/docs/spec.html" />
   <link rel="icon" type="image/png" href="../../assets/logo.png" />
   <style>*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -86,11 +86,12 @@ footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
 <body>
   <header class="top">
     <div class="top-in">
-      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.8.0</span></a>
+      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.9.0</span></a>
       <nav class="top-links">
         <a href="index.html">docs</a>
         <a href="../the-book-of-eskiu.html">book</a>
         <a href="https://github.com/doranteseduardo/eskiu">github</a>
+        <a href="https://reactvision.xyz">reactvision ↗</a>
       </nav>
     </div>
   </header>
@@ -98,7 +99,7 @@ footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
     <nav class="docnav"><a href="index.html">Overview</a><a href="getting-started.html">Getting started</a><a href="spec.html" class="active">Spec</a><a href="grammar.html">Grammar</a><a href="build.html">Tooling</a><a href="glossary.html">Glossary</a><a href="internals.html">Internals →</a></nav>
     <div class="content">
 <h1 id="eskiu-language-specification">Eskiu Language Specification</h1>
-<p><strong>Version:</strong> v0.8.0</p>
+<p><strong>Version:</strong> v0.9.0</p>
 <hr>
 <h2 id="1-overview">1. Overview</h2>
 <p>Eskiu is a statically typed, compiled systems language. It lowers to native code through LLVM, manages memory explicitly (no garbage collector), and interoperates directly with C. A <code>.esk</code> file can also be run on the spot with <code>eskiuc run</code> (or a <code>#!/usr/bin/env eskiuc run</code> shebang), so the same source is both a compiled artifact and a runnable script. This document is the language reference: syntax, type system, semantics, and ABI.</p>
@@ -455,6 +456,13 @@ let items: List&lt;float&gt;;
 fn(int, int)-&gt;bool    // function taking two ints, returning bool
 fn()-&gt;void            // function taking no arguments, returning void
 </code></pre>
+<blockquote>
+<p><strong><code>fn</code> names a type, never a definition.</strong> Unlike Rust, Swift, or Kotlin, Eskiu does
+not use <code>fn</code> to <em>define</em> functions. A function is defined C-style, with the return type
+before the name: <code>int add(int a, int b) { ... }</code> (see §6.1). The <code>fn(...)-&gt;R</code> form appears
+only where a <em>type</em> is expected: a variable's type, a struct field, or a parameter. There
+is no <code>fn name(...)</code> definition syntax.</p>
+</blockquote>
 <p>Function pointer types can be used anywhere a type annotation is expected: variable declarations, struct fields, and function parameters.</p>
 <pre><code class="language-eskiu">let callback: fn(int)-&gt;int = int(int x) { return x * 2; };
 int apply(fn(int)-&gt;int f, int x) { return f(x); }
@@ -970,7 +978,7 @@ int get_magic() {
     return 42;
 }
 </code></pre>
-<p>Parameters are passed by value. The return type is declared before the function name.</p>
+<p>Parameters are passed by value. The return type is declared before the function name. This is the only function-definition form; Eskiu has no <code>fn name(...)</code> definition syntax (the <code>fn</code> keyword names a function-pointer <em>type</em>, see §3.7).</p>
 <p><strong>Declaration order is irrelevant.</strong> A function may call any other function regardless of where it appears in the file, so call-before-definition and mutual recursion both work without ceremony. A body-less <em>forward declaration</em> is also permitted (and optional):</p>
 <pre><code class="language-eskiu">int is_odd(int n);                              // forward declaration
 
@@ -1311,6 +1319,26 @@ the bound is its <code>size</code> field, and each element is read through <code
 <p>Like <code>while</code>, but the condition is tested <em>after</em> the body, so the body always runs at
 least once. <code>break</code> and <code>continue</code> work as in the other loops (<code>continue</code> re-tests the
 condition).</p>
+<h3 id="732-labeled-break-continue">7.3.2 Labeled break / continue</h3>
+<p>A plain <code>break</code> or <code>continue</code> acts on the innermost enclosing loop. To act on an outer
+loop from inside a nested one, give the outer loop a label and name it:</p>
+<pre><code class="language-eskiu">outer: for (int i = 0; i &lt; rows; i = i + 1) {
+    for (int j = 0; j &lt; cols; j = j + 1) {
+        if (grid[i][j] == target) {
+            found = 1;
+            break outer;        // leave both loops
+        }
+    }
+}
+</code></pre>
+<p>A label is an identifier followed by <code>:</code> directly before a <code>while</code>, <code>do</code>/<code>while</code>, <code>for</code>,
+or <code>for ... in</code> loop. <code>break label</code> leaves that loop; <code>continue label</code> skips to its next
+iteration (for a <code>for</code>, its step runs first, as with an unlabeled <code>continue</code>). The label
+must name an enclosing loop, otherwise the program is rejected at compile time.</p>
+<p>Labeled <code>break</code> and <code>continue</code> run the same <code>defer</code>/<code>errdefer</code> cleanups as the unlabeled
+forms: every deferred statement between the jump and the target loop runs, innermost
+first, before control leaves. A labeled jump may not escape a <code>defer</code> body, and labeled
+<code>break</code>/<code>continue</code> is not supported inside an <code>async fn</code>.</p>
 <h3 id="74-switch-case-default-break">7.4 switch / case / default / break</h3>
 <pre><code class="language-eskiu">switch (x) {
     case 1:
@@ -2552,8 +2580,9 @@ preserving line numbers. This lets a <code>.esk</code> file be marked executable
         <a href="internals.html">internals</a>
         <a href="../changelog.html">changelog</a>
         <a href="https://github.com/doranteseduardo/eskiu">github</a>
+        <a href="https://reactvision.xyz">reactvision ↗</a>
       </div>
-      <span class="cp">MIT · Eduardo Dorantes</span>
+      <span class="cp">Part of the <a href="https://reactvision.xyz">ReactVision</a> family · MIT</span>
     </div>
   </footer>
 </body>

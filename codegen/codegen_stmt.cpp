@@ -112,7 +112,7 @@ void CodeGen::visit(WhileStmt* node) {
     builder->CreateCondBr(cond, bodyBlock, exitBlock);
 
     builder->SetInsertPoint(bodyBlock);
-    { LoopContext lc(this, exitBlock, loopBlock); node->body->accept(this); }
+    { LoopContext lc(this, exitBlock, loopBlock, node->label); node->body->accept(this); }
     if (!builder->GetInsertBlock()->getTerminator())
         builder->CreateBr(loopBlock);
 
@@ -128,7 +128,7 @@ void CodeGen::visit(DoWhileStmt* node) {
     builder->SetInsertPoint(bodyBlock);
 
     // `continue` re-tests the condition (jumps to condBlock)
-    { LoopContext lc(this, exitBlock, condBlock); node->body->accept(this); }
+    { LoopContext lc(this, exitBlock, condBlock, node->label); node->body->accept(this); }
     if (!builder->GetInsertBlock()->getTerminator())
         builder->CreateBr(condBlock);
 
@@ -168,7 +168,7 @@ void CodeGen::visit(ForStmt* node) {
     // Body
     builder->SetInsertPoint(bodyBlock);
     // continue jumps to the step block
-    { LoopContext lc(this, exitBlock, stepBlock); node->body->accept(this); }
+    { LoopContext lc(this, exitBlock, stepBlock, node->label); node->body->accept(this); }
     if (!builder->GetInsertBlock()->getTerminator())
         builder->CreateBr(stepBlock);
 
@@ -247,6 +247,7 @@ void CodeGen::visit(ForInStmt* node) {
         DeclPtr(elemDecl), StmtPtr(node->body)});
 
     ForStmt loop(init, cond, step, body);
+    loop.label = node->label;   // carry the for-in's label onto the desugared loop
     visit(&loop);
 }
 
@@ -282,6 +283,18 @@ void CodeGen::visit(ReturnStmt* node) {
 }
 
 void CodeGen::visit(BreakStmt* node) {
+    if (!node->label.empty()) {
+        // `break label` targets a named enclosing loop. Scan the loop frames from the
+        // innermost out, unwind the body defers between here and that loop, then branch.
+        for (size_t i = loopStack.size(); i-- > 0; ) {
+            if (loopStack[i].label == node->label) {
+                runCleanupsToDepth(loopStack[i].cleanupDepth, false);
+                builder->CreateBr(loopStack[i].breakBlock);
+                return;
+            }
+        }
+        throw std::runtime_error("break: no enclosing loop labeled '" + node->label + "'");
+    }
     if (!breakTarget)
         throw std::runtime_error("break used outside of a loop");
     runCleanupsToDepth(breakCleanupDepth, false);   // defers inside the loop body run
@@ -293,6 +306,16 @@ void CodeGen::visit(ExprStmt* node) {
 }
 
 void CodeGen::visit(ContinueStmt* node) {
+    if (!node->label.empty()) {
+        for (size_t i = loopStack.size(); i-- > 0; ) {
+            if (loopStack[i].label == node->label) {
+                runCleanupsToDepth(loopStack[i].cleanupDepth, false);
+                builder->CreateBr(loopStack[i].continueBlock);
+                return;
+            }
+        }
+        throw std::runtime_error("continue: no enclosing loop labeled '" + node->label + "'");
+    }
     if (!continueTarget)
         throw std::runtime_error("continue used outside of a loop");
     runCleanupsToDepth(continueCleanupDepth, false);

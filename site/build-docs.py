@@ -76,7 +76,7 @@ NAVS = {"lang": NAV_LANG, "dev": NAV_DEV}
 GH_BLOB = "https://github.com/doranteseduardo/eskiu/blob/main/"
 
 # Shown in the shared top bar (kept in step with the homepage). Bump per release.
-VERSION = "v0.8.0"
+VERSION = "v0.9.0"
 GH = "https://github.com/doranteseduardo/eskiu"
 
 CSS = """
@@ -176,6 +176,7 @@ PAGE = """<!doctype html>
         <a href="index.html">docs</a>
         <a href="../the-book-of-eskiu.html">book</a>
         <a href="{gh}">github</a>
+        <a href="https://reactvision.xyz">reactvision ↗</a>
       </nav>
     </div>
   </header>
@@ -193,8 +194,9 @@ PAGE = """<!doctype html>
         <a href="internals.html">internals</a>
         <a href="../changelog.html">changelog</a>
         <a href="{gh}">github</a>
+        <a href="https://reactvision.xyz">reactvision ↗</a>
       </div>
-      <span class="cp">MIT · Eduardo Dorantes</span>
+      <span class="cp">Part of the <a href="https://reactvision.xyz">ReactVision</a> family · MIT</span>
     </div>
   </footer>
 </body>
@@ -223,6 +225,7 @@ PAGE_TOP = """<!doctype html>
         <a href="docs/index.html">docs</a>
         <a href="the-book-of-eskiu.html">book</a>
         <a href="{gh}">github</a>
+        <a href="https://reactvision.xyz">reactvision ↗</a>
       </nav>
     </div>
   </header>
@@ -240,8 +243,9 @@ PAGE_TOP = """<!doctype html>
         <a href="docs/internals.html">internals</a>
         <a href="changelog.html">changelog</a>
         <a href="{gh}">github</a>
+        <a href="https://reactvision.xyz">reactvision ↗</a>
       </div>
-      <span class="cp">MIT · Eduardo Dorantes</span>
+      <span class="cp">Part of the <a href="https://reactvision.xyz">ReactVision</a> family · MIT</span>
     </div>
   </footer>
 </body>

@@ -1,0 +1,27 @@
+// Global (and static-local scalar) initializers must survive to load time. A global
+// array literal used to be silently dropped and zero-filled; this pins the fix.
+extern int printf(string fmt, ...);
+
+int[3]    GI = {10, 20, 30};
+double[3] GD = {1.5, 2.5, 3.5};
+int[3]    GP = {7};                  // partial: {7, 0, 0}
+int[2][3] GM = {{1, 2, 3}, {4, 5, 6}};
+double    GS = 1.5;                   // scalar globals already worked
+// Casts inside the initializer must fold too (were also zeroed). The float case
+// needs LLVM's hex constant form, since these values aren't exact in f32.
+float[3]  FC = {(float)0.485, (float)0.456, (float)0.406};
+uint8[3]  UC = {(uint8)10, (uint8)20, (uint8)30};
+int[2]    NC = {(int)5, -7};
+
+int main() {
+    printf("GI: %d %d %d\n", GI[0], GI[1], GI[2]);
+    printf("GD: %.1f %.1f %.1f\n", GD[0], GD[1], GD[2]);
+    printf("GP: %d %d %d\n", GP[0], GP[1], GP[2]);
+    printf("GM: %d %d %d | %d %d %d\n",
+           GM[0][0], GM[0][1], GM[0][2], GM[1][0], GM[1][1], GM[1][2]);
+    printf("GS: %.1f\n", GS);
+    printf("FC: %.3f %.3f %.3f\n", (double)FC[0], (double)FC[1], (double)FC[2]);
+    printf("UC: %d %d %d\n", UC[0], UC[1], UC[2]);
+    printf("NC: %d %d\n", NC[0], NC[1]);
+    return 0;
+}

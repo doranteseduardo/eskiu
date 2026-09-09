@@ -1,5 +1,5 @@
 // Smoke test (no .expected -> exit 0 = pass): a non-blocking HTTP server built
-// on the async core. http_serve_async is one async fn (accept loop, awaiting
+// on the async core. http_serve_async is one async function (accept loop, awaiting
 // accept + read, suspending the loop instead of blocking). A client thread sends
 // a GET and verifies the response body; main exits non-zero if the round-trip failed.
 import <http_async>;

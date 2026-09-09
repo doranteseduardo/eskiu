@@ -40,6 +40,8 @@ std::string CodeGen::lookupVarType(const std::string& name) const {
     return g != globalVarTypes.end() ? g->second : "";
 }
 
+static llvm::Constant* coerceConst(llvm::Constant* c, llvm::Type* ty);   // defined below
+
 llvm::Constant* CodeGen::evaluateConstantExpr(const ExprPtr& expr) {
     // A non-capturing lambda is a compile-time-constant closure {fn_ptr, null}:
     // emit its function and fold to the constant fat pointer, so a global/static
@@ -68,6 +70,17 @@ llvm::Constant* CodeGen::evaluateConstantExpr(const ExprPtr& expr) {
                     -cf->getValueAPF().convertToDouble());
         }
         return nullptr;
+    }
+
+    // Fold a numeric cast `(T)expr` on a constant operand: fold the operand, then
+    // convert it to the target type (so `(uint8)10` / `(float)0.5` in a global array
+    // initializer are real constants, not zero).
+    if (auto* cast = dynamic_cast<CastExpr*>(expr.get())) {
+        llvm::Constant* inner = evaluateConstantExpr(cast->expr);
+        if (!inner) return nullptr;
+        llvm::Type* ty = getTypeFromString(cast->targetType);
+        if (!ty) return nullptr;
+        return coerceConst(inner, ty);
     }
 
     auto* lit = dynamic_cast<LiteralExpr*>(expr.get());
@@ -110,6 +123,46 @@ llvm::Constant* CodeGen::evaluateConstantExpr(const ExprPtr& expr) {
         default:
             return nullptr;
     }
+}
+
+// Coerce a folded scalar constant to `ty` (int<->int width, fp<->fp width, int->fp,
+// fp->int). Also what a numeric `(T)expr` cast folds to inside a constant initializer.
+static llvm::Constant* coerceConst(llvm::Constant* c, llvm::Type* ty) {
+    if (!c || c->getType() == ty) return c;
+    if (c->getType()->isIntegerTy() && ty->isIntegerTy())
+        return llvm::ConstantInt::get(ty, llvm::cast<llvm::ConstantInt>(c)->getZExtValue());
+    if (c->getType()->isFloatingPointTy() && ty->isFloatingPointTy())
+        return llvm::ConstantFP::get(ty,
+            llvm::cast<llvm::ConstantFP>(c)->getValueAPF().convertToDouble());
+    if (c->getType()->isIntegerTy() && ty->isFloatingPointTy())
+        return llvm::ConstantFP::get(ty,
+            (double)llvm::cast<llvm::ConstantInt>(c)->getSExtValue());
+    if (c->getType()->isFloatingPointTy() && ty->isIntegerTy())
+        return llvm::ConstantInt::get(ty,
+            (uint64_t)(int64_t)llvm::cast<llvm::ConstantFP>(c)->getValueAPF().convertToDouble(),
+            /*isSigned=*/true);
+    return nullptr;   // no constant coercion available (e.g. pointer/aggregate mismatch)
+}
+
+llvm::Constant* CodeGen::constInitializer(const ExprPtr& expr, llvm::Type* declType) {
+    // Array literal `{...}` against a fixed-size array type: fold each element to the
+    // array's element type and zero-fill any tail (C semantics: `int[3] = {1}` → {1,0,0}).
+    if (auto* arr = dynamic_cast<ArrayLitExpr*>(expr.get())) {
+        auto* arrTy = llvm::dyn_cast<llvm::ArrayType>(declType);
+        if (!arrTy) return nullptr;
+        llvm::Type* elemTy = arrTy->getElementType();
+        uint64_t n = arrTy->getNumElements();
+        std::vector<llvm::Constant*> elems;
+        for (auto& e : arr->elements) {
+            if (elems.size() >= n) break;        // extra elements ignored
+            llvm::Constant* c = constInitializer(e, elemTy);   // recurse (nested arrays)
+            if (!c) return nullptr;              // a non-constant element: not foldable
+            elems.push_back(c);
+        }
+        while (elems.size() < n) elems.push_back(llvm::Constant::getNullValue(elemTy));
+        return llvm::ConstantArray::get(arrTy, elems);
+    }
+    return coerceConst(evaluateConstantExpr(expr), declType);
 }
 
 llvm::Value* CodeGen::lookupSymbol(const std::string& name) {

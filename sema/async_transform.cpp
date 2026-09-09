@@ -83,6 +83,35 @@ bool stmtHasAwait(const StmtPtr& s) {
     return false;
 }
 
+// True if a statement contains a labeled `break`/`continue` anywhere. Async bodies are
+// always state-split, and a labeled jump can't be threaded through the resume state
+// machine (it may target a loop that no longer exists as a real loop), so we reject it.
+bool stmtHasLabeledBreak(const StmtPtr& s) {
+    if (!s) return false;
+    if (auto* bs = dynamic_cast<BreakStmt*>(s.get()))    return !bs->label.empty();
+    if (auto* cs = dynamic_cast<ContinueStmt*>(s.get())) return !cs->label.empty();
+    if (auto* b = dynamic_cast<BlockStmt*>(s.get())) {
+        for (auto& it : b->items)
+            if (std::holds_alternative<StmtPtr>(it) && stmtHasLabeledBreak(std::get<StmtPtr>(it))) return true;
+        return false;
+    }
+    if (auto* i = dynamic_cast<IfStmt*>(s.get()))
+        return stmtHasLabeledBreak(i->thenBranch) || stmtHasLabeledBreak(i->elseBranch);
+    if (auto* w = dynamic_cast<WhileStmt*>(s.get()))    return stmtHasLabeledBreak(w->body);
+    if (auto* d = dynamic_cast<DoWhileStmt*>(s.get()))  return stmtHasLabeledBreak(d->body);
+    if (auto* f = dynamic_cast<ForStmt*>(s.get()))      return stmtHasLabeledBreak(f->body);
+    if (auto* fi = dynamic_cast<ForInStmt*>(s.get()))   return stmtHasLabeledBreak(fi->body);
+    if (auto* sw = dynamic_cast<SwitchStmt*>(s.get())) {
+        for (auto& c : sw->cases) for (auto& st : c.stmts) if (stmtHasLabeledBreak(st)) return true;
+        return false;
+    }
+    if (auto* m = dynamic_cast<MatchStmt*>(s.get())) {
+        for (auto& arm : m->arms) if (stmtHasLabeledBreak(arm.body)) return true;
+        return false;
+    }
+    return false;
+}
+
 // The closure  void() { fr.st = <state>; __<name>_resume(fr); }  used as a waker.
 // Captures the frame pointer `fr` by value. Because this AST is synthesized after
 // the type checker runs, we populate `captures` ourselves (sema would otherwise).
@@ -118,6 +147,9 @@ void AsyncTransform::run(Program* program) {
         auto* block = dynamic_cast<BlockStmt*>(fn->body.get());
         if (!block)
             throw std::runtime_error("async function '" + name + "': missing body");
+        if (stmtHasLabeledBreak(fn->body))
+            throw std::runtime_error("async function '" + name + "': labeled 'break'/'continue' "
+                "is not supported inside an async function");
 
         // ── Desugar awaits not already bound in a `let`, recursing into control
         //    flow, so afterwards every await is the direct initializer of a let:

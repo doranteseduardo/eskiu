@@ -33,6 +33,7 @@ Restart VS Code after installing.
 | `true`, `false`, `null`, `__FILE__`, `__LINE__` | constant.language |
 | `#define #undef #ifdef #ifndef #else #endif #pragma #error` directives | keyword.control.directive |
 | `if else for while do switch case break continue return in await match` | keyword.control |
+| Loop labels `outer:` before a `for`/`while`/`do` (for `break outer` / `continue outer`) | entity.name.label |
 | `try catch finally throw defer errdefer` | keyword.control.exception |
 | `let struct packed union interface enum fn operator extern intrinsic import` | keyword.declaration |
 | `const volatile static escaping must_use async` | storage.modifier |
