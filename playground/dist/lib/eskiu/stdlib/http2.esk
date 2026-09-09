@@ -264,11 +264,11 @@ void h2_conn_init(H2Conn* c, int fd) {
 
 // Stream states (§5.1). The RESERVED states are omitted — server push is not
 // implemented (we advertise SETTINGS_ENABLE_PUSH = 0).
-const int H2_STREAM_IDLE               = 0;
-const int H2_STREAM_OPEN               = 1;
-const int H2_STREAM_HALF_CLOSED_LOCAL  = 2;
-const int H2_STREAM_HALF_CLOSED_REMOTE = 3;
-const int H2_STREAM_CLOSED             = 4;
+const int H2_STATE_IDLE               = 0;
+const int H2_STATE_OPEN               = 1;
+const int H2_STATE_HALF_CLOSED_LOCAL  = 2;
+const int H2_STATE_HALF_CLOSED_REMOTE = 3;
+const int H2_STATE_CLOSED             = 4;
 
 struct H2Stream {
     int id;
@@ -279,46 +279,46 @@ struct H2Stream {
 
 void h2_stream_init(H2Stream* s, int id, int init_send, int init_recv) {
     s.id = id;
-    s.state = H2_STREAM_IDLE;
+    s.state = H2_STATE_IDLE;
     s.send_window = init_send;
     s.recv_window = init_recv;
 }
 
 // Advance the stream state on *receiving* a frame (server perspective).
 void h2_stream_on_recv(H2Stream* s, int type, int flags) {
-    if (type == H2_RST_STREAM) { s.state = H2_STREAM_CLOSED; return; }
+    if (type == H2_RST_STREAM) { s.state = H2_STATE_CLOSED; return; }
     int end = (flags & H2_FLAG_END_STREAM) != 0;
     if (type == H2_HEADERS) {
-        if (s.state == H2_STREAM_IDLE) {
-            if (end != 0) { s.state = H2_STREAM_HALF_CLOSED_REMOTE; } else { s.state = H2_STREAM_OPEN; }
-        } else if (end != 0 && s.state == H2_STREAM_OPEN) {
-            s.state = H2_STREAM_HALF_CLOSED_REMOTE;
+        if (s.state == H2_STATE_IDLE) {
+            if (end != 0) { s.state = H2_STATE_HALF_CLOSED_REMOTE; } else { s.state = H2_STATE_OPEN; }
+        } else if (end != 0 && s.state == H2_STATE_OPEN) {
+            s.state = H2_STATE_HALF_CLOSED_REMOTE;
         }
         return;
     }
     if (type == H2_DATA && end != 0) {
-        if (s.state == H2_STREAM_OPEN) { s.state = H2_STREAM_HALF_CLOSED_REMOTE; }
-        else if (s.state == H2_STREAM_HALF_CLOSED_LOCAL) { s.state = H2_STREAM_CLOSED; }
+        if (s.state == H2_STATE_OPEN) { s.state = H2_STATE_HALF_CLOSED_REMOTE; }
+        else if (s.state == H2_STATE_HALF_CLOSED_LOCAL) { s.state = H2_STATE_CLOSED; }
     }
 }
 
 // Advance the stream state on *sending* a frame.
 void h2_stream_on_send(H2Stream* s, int type, int flags) {
-    if (type == H2_RST_STREAM) { s.state = H2_STREAM_CLOSED; return; }
+    if (type == H2_RST_STREAM) { s.state = H2_STATE_CLOSED; return; }
     int end = (flags & H2_FLAG_END_STREAM) != 0;
     if (type == H2_HEADERS) {
-        if (s.state == H2_STREAM_IDLE) {
-            if (end != 0) { s.state = H2_STREAM_HALF_CLOSED_LOCAL; } else { s.state = H2_STREAM_OPEN; }
-        } else if (end != 0 && s.state == H2_STREAM_OPEN) {
-            s.state = H2_STREAM_HALF_CLOSED_LOCAL;
-        } else if (end != 0 && s.state == H2_STREAM_HALF_CLOSED_REMOTE) {
-            s.state = H2_STREAM_CLOSED;
+        if (s.state == H2_STATE_IDLE) {
+            if (end != 0) { s.state = H2_STATE_HALF_CLOSED_LOCAL; } else { s.state = H2_STATE_OPEN; }
+        } else if (end != 0 && s.state == H2_STATE_OPEN) {
+            s.state = H2_STATE_HALF_CLOSED_LOCAL;
+        } else if (end != 0 && s.state == H2_STATE_HALF_CLOSED_REMOTE) {
+            s.state = H2_STATE_CLOSED;
         }
         return;
     }
     if (type == H2_DATA && end != 0) {
-        if (s.state == H2_STREAM_OPEN) { s.state = H2_STREAM_HALF_CLOSED_LOCAL; }
-        else if (s.state == H2_STREAM_HALF_CLOSED_REMOTE) { s.state = H2_STREAM_CLOSED; }
+        if (s.state == H2_STATE_OPEN) { s.state = H2_STATE_HALF_CLOSED_LOCAL; }
+        else if (s.state == H2_STATE_HALF_CLOSED_REMOTE) { s.state = H2_STATE_CLOSED; }
     }
 }
 

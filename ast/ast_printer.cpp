@@ -171,7 +171,7 @@ void ASTPrinter::visit(IfStmt* node) {
 }
 
 void ASTPrinter::visit(ForStmt* node) {
-    println("ForStmt");
+    println(node->label.empty() ? "ForStmt" : "ForStmt (label: " + node->label + ")");
     indentLevel++;
 
     if (node->init) {
@@ -204,7 +204,7 @@ void ASTPrinter::visit(ForStmt* node) {
 }
 
 void ASTPrinter::visit(ForInStmt* node) {
-    println("ForInStmt (" + node->varName + " in ...)");
+    println("ForInStmt (" + node->varName + " in ...)" + (node->label.empty() ? "" : " (label: " + node->label + ")"));
     indentLevel++;
     println("Iterable:");
     indentLevel++;
@@ -218,7 +218,7 @@ void ASTPrinter::visit(ForInStmt* node) {
 }
 
 void ASTPrinter::visit(WhileStmt* node) {
-    println("WhileStmt");
+    println(node->label.empty() ? "WhileStmt" : "WhileStmt (label: " + node->label + ")");
     indentLevel++;
 
     println("Condition:");
@@ -235,7 +235,7 @@ void ASTPrinter::visit(WhileStmt* node) {
 }
 
 void ASTPrinter::visit(DoWhileStmt* node) {
-    println("DoWhileStmt");
+    println(node->label.empty() ? "DoWhileStmt" : "DoWhileStmt (label: " + node->label + ")");
     indentLevel++;
     println("Body:");
     indentLevel++;
@@ -258,7 +258,7 @@ void ASTPrinter::visit(ReturnStmt* node) {
 }
 
 void ASTPrinter::visit(BreakStmt* node) {
-    println("BreakStmt");
+    println(node->label.empty() ? "BreakStmt" : "BreakStmt " + node->label);
 }
 
 void ASTPrinter::visit(ExprStmt* node) {
@@ -405,7 +405,7 @@ void ASTPrinter::visit(InterfaceDecl* node) {
     indentLevel--;
 }
 
-void ASTPrinter::visit(ContinueStmt* node) { println("ContinueStmt"); }
+void ASTPrinter::visit(ContinueStmt* node) { println(node->label.empty() ? "ContinueStmt" : "ContinueStmt " + node->label); }
 
 void ASTPrinter::visit(MatchStmt* node) {
     println("MatchStmt");

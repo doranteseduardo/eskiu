@@ -2,10 +2,9 @@
 
 Eskiu is a statically typed systems language with the power of C and the immediacy of a scripting language: it compiles to native code through LLVM, and `eskiuc run file.esk` runs a source file directly, like Python or Ruby. This is the full language reference. New to Eskiu? Start with the [tutorial](getting-started.md).
 
-**Current version: v0.8.0.** A Windows-parity and language-surface release: the full stdlib
-and both networking stacks (blocking and async) now run on a native Windows runner, operator
-overloading covers every operator, and `match` is exhaustive over payload-less enums. Full
-history is in the [changelog](../../CHANGELOG.md).
+**Current version: v0.9.0.** A control-flow release: loops can carry a label so `break` and
+`continue` can target an outer loop from inside a nested one, and a bug that silently zeroed
+global array initializers is fixed. Full history is in the [changelog](../../CHANGELOG.md).
 
 ---
 

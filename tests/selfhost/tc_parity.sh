@@ -30,6 +30,7 @@ HANDLED="undefined_var arg_count undefined_type await_outside_async async_no_awa
          trait_unsatisfied trait_primitive_unsat question_bad_return escaping_param
          missing_return missing_return_if
          main_void redefinition defer_return defer_break div_by_zero incdec_nonlvalue
+         labeled_break_unknown labeled_break_defer
          const_addr_of init_incompatible init_void float_to_int literal_out_of_range
          compare_incompatible compare_struct ternary_incompatible fn_return_mismatch
          index_oob array_overflow array_2d_oob array_2d_init_overflow

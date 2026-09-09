@@ -3,7 +3,7 @@
 A hands-on introduction to the Eskiu language. You will go from zero to writing
 and inspecting real compiled programs in about 30 minutes.
 
-All code blocks in this document compile and run with **Eskiu v0.8.0**.
+All code blocks in this document compile and run with **Eskiu v0.9.0**.
 
 ---
 
@@ -46,7 +46,7 @@ cmake --build build -j$(nproc)
 
 ```bash
 ./build/eskiuc --version
-# Eskiu 0.8.0 (LLVM 22.1.6)   (exact LLVM version depends on your install)
+# Eskiu 0.9.0 (LLVM 22.1.6)   (exact LLVM version depends on your install)
 ```
 
 Add `./build` to your `PATH` so you can type `eskiuc` from any directory.
@@ -1037,6 +1037,8 @@ Use the `fn(T,...)->R` syntax to declare a function pointer type:
 let f: fn(int)->int;
 let g: fn(int, int)->bool;
 ```
+
+`fn` names a *type* only. It is not how you define a function (Eskiu has no `fn name(...)` form): functions are defined C-style, return type first, as in `int add(int a, int b) { ... }`.
 
 ### Writing a lambda
 

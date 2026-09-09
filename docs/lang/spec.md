@@ -1,6 +1,6 @@
 # Eskiu Language Specification
 
-**Version:** v0.8.0
+**Version:** v0.9.0
 
 ---
 
@@ -332,6 +332,12 @@ fn(int)->int          // function taking one int, returning int
 fn(int, int)->bool    // function taking two ints, returning bool
 fn()->void            // function taking no arguments, returning void
 ```
+
+> **`fn` names a type, never a definition.** Unlike Rust, Swift, or Kotlin, Eskiu does
+> not use `fn` to *define* functions. A function is defined C-style, with the return type
+> before the name: `int add(int a, int b) { ... }` (see §6.1). The `fn(...)->R` form appears
+> only where a *type* is expected: a variable's type, a struct field, or a parameter. There
+> is no `fn name(...)` definition syntax.
 
 Function pointer types can be used anywhere a type annotation is expected: variable declarations, struct fields, and function parameters.
 
@@ -713,7 +719,7 @@ int get_magic() {
 }
 ```
 
-Parameters are passed by value. The return type is declared before the function name.
+Parameters are passed by value. The return type is declared before the function name. This is the only function-definition form; Eskiu has no `fn name(...)` definition syntax (the `fn` keyword names a function-pointer *type*, see §3.7).
 
 **Declaration order is irrelevant.** A function may call any other function regardless of where it appears in the file, so call-before-definition and mutual recursion both work without ceremony. A body-less *forward declaration* is also permitted (and optional):
 
@@ -1187,6 +1193,32 @@ do {
 Like `while`, but the condition is tested *after* the body, so the body always runs at
 least once. `break` and `continue` work as in the other loops (`continue` re-tests the
 condition).
+
+### 7.3.2 Labeled break / continue
+
+A plain `break` or `continue` acts on the innermost enclosing loop. To act on an outer
+loop from inside a nested one, give the outer loop a label and name it:
+
+```eskiu
+outer: for (int i = 0; i < rows; i = i + 1) {
+    for (int j = 0; j < cols; j = j + 1) {
+        if (grid[i][j] == target) {
+            found = 1;
+            break outer;        // leave both loops
+        }
+    }
+}
+```
+
+A label is an identifier followed by `:` directly before a `while`, `do`/`while`, `for`,
+or `for ... in` loop. `break label` leaves that loop; `continue label` skips to its next
+iteration (for a `for`, its step runs first, as with an unlabeled `continue`). The label
+must name an enclosing loop, otherwise the program is rejected at compile time.
+
+Labeled `break` and `continue` run the same `defer`/`errdefer` cleanups as the unlabeled
+forms: every deferred statement between the jump and the target loop runs, innermost
+first, before control leaves. A labeled jump may not escape a `defer` body, and labeled
+`break`/`continue` is not supported inside an `async fn`.
 
 ### 7.4 switch / case / default / break
 

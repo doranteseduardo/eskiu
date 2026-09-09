@@ -35,6 +35,7 @@ The project follows two phases:
 | `alloc<T>(n)` / `free` via `import <mem>` (stdlib, not keywords as of v0.2.0), rich mutable `String` (push, char access, eq, index_of, substring, reverse, int conversion) | ✅ |
 | List\<T\> with auto-resize | ✅ |
 | for-in / for-each: `for (x in arr)` and `for (x in list)` | ✅ |
+| labeled `break` / `continue`: `outer: for (...) { break outer; }` | ✅ |
 | `?` error-propagation operator for `Result<T,E>` | ✅ |
 | argv/argc: `int main(int argc, string* argv)` | ✅ |
 | VS Code: inline errors, hover types, go-to-definition | ✅ |
@@ -112,7 +113,7 @@ Everything in the feature table above ships in v0.1.0: the full systems language
 
 The theme is making Eskiu a practical language for concurrent backend services:
 real async I/O, an HTTP stack, and the everyday stdlib + tooling that adoption
-needs. v0.1.0 is frozen at its tag; v0.2.0 shipped the items below. The current release is **v0.8.0** (Windows parity, operator overloading, and exhaustive `match` on plain enums), over the v0.7.0 cross-compilation release and the v0.6.0 memory-safety + stdlib release, on top of the v0.5 basic-C surface release and the v0.3 self-hosting milestone (see the sections below).
+needs. v0.1.0 is frozen at its tag; v0.2.0 shipped the items below. The current release is **v0.9.0** (labeled `break`/`continue` and a global-array-initializer fix), over the v0.8.0 Windows-parity and language-surface release (operator overloading, exhaustive `match` on plain enums), the v0.7.0 cross-compilation release and the v0.6.0 memory-safety + stdlib release, on top of the v0.5 basic-C surface release and the v0.3 self-hosting milestone (see the sections below).
 
 Tracking checklist (checked = landed on `develop`).
 

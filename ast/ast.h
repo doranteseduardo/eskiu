@@ -292,6 +292,7 @@ public:
     ExprPtr condition;
     ExprPtr step;
     StmtPtr body;
+    std::string label;   // labeled-loop name ("" = unlabeled); target of `break label` / `continue label`
 
     ForStmt(StmtPtr init, ExprPtr cond, ExprPtr step, StmtPtr body)
         : init(std::move(init)), condition(std::move(cond)), step(std::move(step)), body(std::move(body)) {}
@@ -313,6 +314,7 @@ public:
     std::string resolvedElemType;
     bool        isArrayIter = false;
     std::string arrayDim;
+    std::string label;   // labeled-loop name ("" = unlabeled)
 
     ForInStmt(std::string varName, ExprPtr iterable, StmtPtr body)
         : varName(std::move(varName)), iterable(std::move(iterable)), body(std::move(body)) {}
@@ -324,6 +326,7 @@ class WhileStmt : public Stmt {
 public:
     ExprPtr condition;
     StmtPtr body;
+    std::string label;   // labeled-loop name ("" = unlabeled)
 
     WhileStmt(ExprPtr cond, StmtPtr body)
         : condition(std::move(cond)), body(std::move(body)) {}
@@ -336,6 +339,7 @@ class DoWhileStmt : public Stmt {
 public:
     StmtPtr body;
     ExprPtr condition;
+    std::string label;   // labeled-loop name ("" = unlabeled)
 
     DoWhileStmt(StmtPtr body, ExprPtr cond)
         : body(std::move(body)), condition(std::move(cond)) {}
@@ -354,11 +358,13 @@ public:
 
 class BreakStmt : public Stmt {
 public:
+    std::string label;   // target loop label ("" = innermost loop)
     void accept(class ASTVisitor* visitor) override;
 };
 
 class ContinueStmt : public Stmt {
 public:
+    std::string label;   // target loop label ("" = innermost loop)
     void accept(class ASTVisitor* visitor) override;
 };
 

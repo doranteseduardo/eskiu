@@ -17,6 +17,23 @@
 
 import <alloc>;
 
+#ifdef _WIN32
+// Windows has no mmap; carve pages straight from the OS with VirtualAlloc / VirtualFree
+// (kernel32). VirtualAlloc with MEM_COMMIT hands back zeroed memory, like an anonymous mmap.
+extern *void VirtualAlloc(*void addr, int64 size, int alloc_type, int protect);
+extern int   VirtualFree(*void addr, int64 size, int free_type);
+
+// Map `length` bytes of fresh zeroed read/write memory from the kernel, or null.
+*uint8 sys_pages(int64 length) {
+    // MEM_COMMIT|MEM_RESERVE = 0x1000|0x2000 = 12288; PAGE_READWRITE = 4.
+    *void p = VirtualAlloc((*void)0, length, 12288, 4);
+    if ((int64)p == 0) { return (*uint8)0; }
+    return (*uint8)p;
+}
+
+// MEM_RELEASE = 0x8000 = 32768; the size must be 0 for a full release.
+void sys_unpages(*uint8 p, int64 length) { VirtualFree((*void)p, (int64)0, 32768); }
+#else
 extern *void mmap(*void addr, int64 length, int prot, int flags, int fd, int64 offset);
 extern int   munmap(*void addr, int64 length);
 
@@ -38,6 +55,7 @@ int _sys_map_flags = 34;       // 0x0022
 }
 
 void sys_unpages(*uint8 p, int64 length) { munmap((*void)p, length); }
+#endif
 
 // A general-purpose heap: one OS mapping with FirstFit allocation over it.
 struct Heap {

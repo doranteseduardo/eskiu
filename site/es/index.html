@@ -158,11 +158,12 @@
   <body>
     <header class="top">
       <div class="top-in">
-        <a class="brand" href="#"><img src="../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.8.0</span></a>
+        <a class="brand" href="#"><img src="../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.9.0</span></a>
         <nav class="top-links">
           <a href="../docs/index.html">docs</a>
           <a href="../the-book-of-eskiu.html">libro</a>
           <a href="https://github.com/doranteseduardo/eskiu">github</a>
+          <a href="https://reactvision.xyz">reactvision ↗</a>
           <span class="lang"><a href="../index.html" onclick="try{localStorage.setItem('eskiu-lang','en')}catch(e){}">EN</a><span class="sep">·</span><a class="active" aria-current="page">ES</a></span>
         </nav>
       </div>
@@ -185,23 +186,24 @@
         <div class="intro">
           <div class="intro-txt">
             <h1>eskiu</h1>
-            <p class="tagline">un lenguaje de sistemas que se compila a sí mismo</p>
+            <p class="tagline">un lenguaje de sistemas que se compila a sí mismo · <a href="https://reactvision.xyz" style="color: inherit; text-decoration: underline;">un proyecto de ReactVision</a></p>
             <p>
               Eskiu es un lenguaje de sistemas compilado y con tipado estático. Te da el poder de C
               (memoria explícita, interoperabilidad directa con C, código nativo con LLVM) con la
               agilidad de un lenguaje de scripting: <code>eskiuc run file.esk</code> compila y
-              ejecuta de una sola vez. Ya corre en software en producción, desde renderizado AR/VR
-              hasta una Nintendo 3DS, y compila igual en Linux, macOS y Windows. Se compila a sí
-              mismo desde la v0.3.0.
+              ejecuta de una sola vez. Ya corre en software en producción, desde el renderer ViroReact
+              de ReactVision hasta una Nintendo 3DS, y compila igual en Linux, macOS y Windows. Se
+              compila a sí mismo desde la v0.3.0.
             </p>
           </div>
           <div class="intro-fig"><img src="../assets/eskiu_round.jpg" alt="Mascota de Eskiu" /></div>
         </div>
 
         <div class="btnrow">
-          <a class="btn btn-primary" href="../assets/eskiuc-linux-x86_64.tar.gz">↓ Linux x86-64</a>
-          <a class="btn btn-primary" href="../assets/eskiuc-macos-arm64.tar.gz">↓ macOS arm64</a>
-          <a class="btn btn-primary" href="../assets/eskiuc-windows-x86_64.zip">↓ Windows x86-64</a>
+          <a class="btn btn-primary" href="https://github.com/doranteseduardo/eskiu/releases/latest/download/eskiuc-linux-x86_64.tar.gz">↓ Linux x86-64</a>
+          <a class="btn btn-primary" href="https://github.com/doranteseduardo/eskiu/releases/latest/download/eskiuc-linux-arm64.tar.gz">↓ Linux arm64</a>
+          <a class="btn btn-primary" href="https://github.com/doranteseduardo/eskiu/releases/latest/download/eskiuc-macos-arm64.tar.gz">↓ macOS arm64</a>
+          <a class="btn btn-primary" href="https://github.com/doranteseduardo/eskiu/releases/latest/download/eskiuc-windows-x86_64.zip">↓ Windows x86-64</a>
         </div>
         <div class="btnrow">
           <a class="btn" href="quickstart.html">Inicio rápido</a>
@@ -217,16 +219,17 @@
             memoria sin recolector de basura, mantiene un ABI de C para entrar directo en una base
             de código C o C++ existente, y llega a hardware que un lenguaje de sistemas joven rara
             vez toca. El mismo código compila en Linux, macOS y Windows, incluida la pila de red
-            async.
+            async. Es el lenguaje de sistemas de <a href="https://reactvision.xyz">ReactVision</a>,
+            y el primer lugar donde se envió es el propio renderer XR de la familia.
           </p>
           <div class="tablewrap">
             <table>
               <thead><tr><th>Proyecto</th><th>Resultado</th><th>Detalle</th><th></th></tr></thead>
               <tbody>
                 <tr>
-                  <td>ReactVision</td>
+                  <td>ViroReact</td>
                   <td><span class="metric">≈85%</span> menos memoria</td>
-                  <td>Módulos de renderizado AR/VR migrados desde C++, preservando la interoperabilidad con el ABI de C.</td>
+                  <td>El renderer AR/VR de ReactVision: módulos de renderizado migrados desde C++, preservando la interoperabilidad con el ABI de C.</td>
                   <td><a href="case-study-reactvision.html">caso de estudio</a></td>
                 </tr>
                 <tr>
@@ -373,9 +376,10 @@
 <pre><span class="cm">$ curl -fsSL https://eskiu-lang.org/install.sh | sh</span></pre>
           <p>Descarga el binario para tu plataforma, verifica su checksum y lo instala. O baja un binario directamente y descomprímelo en <code>/usr/local</code>:</p>
           <div class="btnrow">
-            <a class="btn btn-primary" href="../assets/eskiuc-linux-x86_64.tar.gz">↓ Linux x86-64</a>
-            <a class="btn btn-primary" href="../assets/eskiuc-macos-arm64.tar.gz">↓ macOS arm64</a>
-            <a class="btn btn-primary" href="../assets/eskiuc-windows-x86_64.zip">↓ Windows x86-64</a>
+            <a class="btn btn-primary" href="https://github.com/doranteseduardo/eskiu/releases/latest/download/eskiuc-linux-x86_64.tar.gz">↓ Linux x86-64</a>
+            <a class="btn btn-primary" href="https://github.com/doranteseduardo/eskiu/releases/latest/download/eskiuc-linux-arm64.tar.gz">↓ Linux arm64</a>
+            <a class="btn btn-primary" href="https://github.com/doranteseduardo/eskiu/releases/latest/download/eskiuc-macos-arm64.tar.gz">↓ macOS arm64</a>
+            <a class="btn btn-primary" href="https://github.com/doranteseduardo/eskiu/releases/latest/download/eskiuc-windows-x86_64.zip">↓ Windows x86-64</a>
             <a class="btn" href="quickstart.html">Inicio rápido →</a>
           </div>
           <p style="font-size: 0.85rem; color: var(--muted); margin: -0.6rem 0 1.35rem;">Windows está validado de punta a punta en un runner nativo de CI: el compilador compila y enlaza, y las excepciones junto con las pilas de red bloqueante y async pasan todas. Todavía no es parte del gate de releases, así que el build de Windows va un poco adelante de los de Linux y macOS.</p>
@@ -394,8 +398,9 @@
           <a href="../docs/internals.html">internos</a>
           <a href="../changelog.html">changelog</a>
           <a href="https://github.com/doranteseduardo/eskiu">github</a>
+          <a href="https://reactvision.xyz">reactvision ↗</a>
         </div>
-        <span class="cp">MIT · Eduardo Dorantes</span>
+        <span class="cp">Parte de la familia <a href="https://reactvision.xyz">ReactVision</a> · MIT</span>
       </div>
     </footer>
 

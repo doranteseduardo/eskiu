@@ -15,7 +15,14 @@ extern int   bind(int fd, *void addr, int len);
 extern int   listen(int fd, int backlog);
 extern int   accept(int fd, *void addr, *int len);
 extern int   connect(int fd, *void addr, int len);
-extern int   close(int fd);
+#ifdef _WIN32
+// Winsock (ws2_32): sockets are closed with closesocket, not the CRT close, and the library
+// must be started once before any socket call. WSADATA is ~400 bytes; 512 is a safe buffer.
+extern int closesocket(int fd);
+extern int WSAStartup(int version, *void data);
+#else
+extern int close(int fd);
+#endif
 extern int   setsockopt(int fd, int level, int opt, *void val, int len);
 extern int64 send(int fd, *void buf, int64 n, int flags);
 extern int64 recv(int fd, *void buf, int64 n, int flags);
@@ -46,16 +53,33 @@ packed struct sockaddr_in {
 }
 #endif
 
-// AF_INET / SOCK_STREAM match across macOS and Linux; SOL_SOCKET and
-// SO_REUSEADDR do not, so they are selected per platform.
+// AF_INET / SOCK_STREAM match everywhere; SOL_SOCKET and SO_REUSEADDR do not. macOS and
+// Windows share the same values (0xffff / 4); only Linux differs (1 / 2).
 #define AF_INET     2
 #define SOCK_STREAM 1
-#ifdef __APPLE__
-#define SOL_SOCKET    65535
-#define SO_REUSEADDR  4
-#else
+#ifdef __linux__
 #define SOL_SOCKET    1
 #define SO_REUSEADDR  2
+#else
+#define SOL_SOCKET    65535
+#define SO_REUSEADDR  4
+#endif
+
+// Start Winsock once before any socket call (a no-op elsewhere). Not thread-safe on its
+// own; the servers call it from their single setup path before spawning workers.
+#ifdef _WIN32
+int _net_wsa_ready = 0;
+void net_wsa_init() {
+    if (_net_wsa_ready == 0) {
+        uint8[512] wsadata;
+        WSAStartup(514, (*void)&wsadata);   // 514 = 0x0202, Winsock 2.2
+        _net_wsa_ready = 1;
+    }
+}
+int net_close_fd(int fd) { return closesocket(fd); }
+#else
+void net_wsa_init() { }
+int net_close_fd(int fd) { return close(fd); }
 #endif
 
 // Fill a sockaddr_in with a network-order address and a host-order port.
@@ -70,14 +94,15 @@ void net_fill_addr(sockaddr_in* a, uint32 net_ip, uint16 port) {
 
 // Open a listening TCP socket on 0.0.0.0:port. Returns the fd, or -1 on error.
 int net_tcp_listen(uint16 port) {
+    net_wsa_init();
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) { return -1; }
     int one = 1;
     setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (*void)&one, 4);
     let a: sockaddr_in;
     net_fill_addr(&a, 0, port);              // INADDR_ANY
-    if (bind(fd, (*void)&a, 16) != 0) { close(fd); return -1; }
-    if (listen(fd, 16) != 0)          { close(fd); return -1; }
+    if (bind(fd, (*void)&a, 16) != 0) { net_close_fd(fd); return -1; }
+    if (listen(fd, 16) != 0)          { net_close_fd(fd); return -1; }
     return fd;
 }
 
@@ -100,15 +125,16 @@ int net_accept_addr(int listen_fd, *uint32 peer_ip) {
 
 // Connect to a dotted-quad host (e.g. "127.0.0.1") and port. Returns fd, or -1.
 int net_tcp_connect(string host, uint16 port) {
+    net_wsa_init();
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) { return -1; }
     let a: sockaddr_in;
     net_fill_addr(&a, inet_addr(host), port);
-    if (connect(fd, (*void)&a, 16) != 0) { close(fd); return -1; }
+    if (connect(fd, (*void)&a, 16) != 0) { net_close_fd(fd); return -1; }
     return fd;
 }
 
 int64 net_send(int fd, *void buf, int64 n) { return send(fd, buf, n, 0); }
 int64 net_recv(int fd, *void buf, int64 n) { return recv(fd, buf, n, 0); }
 int64 net_send_str(int fd, string s)       { return send(fd, (*void)s, strlen(s), 0); }
-void  net_close(int fd)                    { close(fd); }
+void  net_close(int fd)                    { net_close_fd(fd); }

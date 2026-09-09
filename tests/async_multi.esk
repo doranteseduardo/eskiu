@@ -1,4 +1,4 @@
-// Multiple awaits in one async fn (fast path: ready futures). Values thread
+// Multiple awaits in one async function (fast path: ready futures). Values thread
 // through the frame across each state.
 import <future>;
 extern int printf(string fmt, ...);

@@ -17,8 +17,10 @@ jobs:
 
       - name: Install LLVM
         run: |
-          brew install llvm cmake dylibbundler
-          echo "LLVM_DIR=$(brew --prefix llvm)/lib/cmake/llvm" >> $GITHUB_ENV
+          # Pin to LLVM 22 (bare `llvm` now resolves to 23, whose TargetRegistry API
+          # differs), matching the Linux job's `llvm-22-dev` pin.
+          brew install llvm@22 cmake dylibbundler
+          echo "LLVM_DIR=$(brew --prefix llvm@22)/lib/cmake/llvm" >> $GITHUB_ENV
 
       - name: Configure
         run: |
@@ -114,6 +116,60 @@ jobs:
           # the GitHub Release. Expire fast so they don't pile up in Actions storage.
           retention-days: 7
 
+  # ── Linux arm64 (aarch64) ──────────────────────────────────────────────
+  # Native build on GitHub's hosted arm64 Linux runner (no cross-compile). Same
+  # LLVM 22 pin and self-contained packaging as the x86_64 job.
+  build-linux-arm64:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install LLVM 22
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake build-essential patchelf
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 22
+          sudo apt-get install -y llvm-22-dev
+          echo "LLVM_DIR=/usr/lib/llvm-22/lib/cmake/llvm" >> $GITHUB_ENV
+
+      - name: Configure
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DLLVM_DIR=$LLVM_DIR \
+            -DCMAKE_CXX_COMPILER=clang++-22
+
+      - name: Build
+        run: cmake --build build --target eskiuc -j$(nproc)
+
+      - name: Package
+        run: |
+          mkdir -p dist/bin dist/lib/eskiu
+          cp build/eskiuc dist/bin/eskiuc
+          strip dist/bin/eskiuc
+          cp -r stdlib dist/lib/eskiu/stdlib
+          # Bundle z3/zstd (not present on a stock machine) and point an $ORIGIN-relative
+          # RUNPATH at them so the tarball is self-contained. See the x86_64 job for detail.
+          mkdir -p dist/lib/deps
+          for name in libz3 libzstd; do
+            so=$(ldd dist/bin/eskiuc | awk -v n="$name" '$0 ~ n {print $3; exit}')
+            if [ -n "$so" ]; then cp -L "$so" dist/lib/deps/; echo "bundled $(basename "$so")"; fi
+          done
+          patchelf --set-rpath '$ORIGIN/../lib/deps' dist/bin/eskiuc
+          if ! ldd dist/bin/eskiuc | grep libz3 | grep -q 'lib/deps'; then
+            echo "error: libz3 was not bundled / RUNPATH not taking effect"; ldd dist/bin/eskiuc; exit 1
+          fi
+          tar -czf eskiuc-linux-arm64.tar.gz -C dist bin lib
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: eskiuc-linux-arm64
+          path: eskiuc-linux-arm64.tar.gz
+          retention-days: 7
+
   # ── Windows x86_64 ─────────────────────────────────────────────────────
   # Built under MSYS2/MinGW, whose LLVM package ships the dev libraries + CMake
   # config the tool links against. ESKIU_STATIC pulls LLVM in statically, and the
@@ -187,7 +243,7 @@ jobs:
 
   # ── GitHub Release ─────────────────────────────────────────────────────
   release:
-    needs: [build-macos-arm64, build-linux-x86_64, build-windows-x86_64]
+    needs: [build-macos-arm64, build-linux-x86_64, build-linux-arm64, build-windows-x86_64]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -215,6 +271,7 @@ jobs:
           files: |
             eskiuc-macos-arm64.tar.gz
             eskiuc-linux-x86_64.tar.gz
+            eskiuc-linux-arm64.tar.gz
             eskiuc-windows-x86_64.zip
             SHA256SUMS
           draft: false

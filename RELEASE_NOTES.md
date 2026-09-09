@@ -1,9 +1,9 @@
-# Eskiu 0.8.0
+# Eskiu 0.9.0
 
-A release focused on Windows parity and language surface. The whole standard library and
-both networking stacks (blocking and async) now run on a native Windows runner, operator
-overloading covers every operator, and `match` is exhaustive over payload-less enums.
-Existing code keeps compiling unchanged.
+A small release that fills a control-flow gap and fixes a global-initializer bug. Loops can
+now carry a label so `break` and `continue` can target an outer loop, and global array
+initializers keep their values instead of being zeroed. Existing code keeps compiling
+unchanged.
 
 ---
 
@@ -34,42 +34,38 @@ cd eskiu && cmake -S . -B build && cmake --build build
 
 ## What's new
 
-- **Operator overloading.** A type can define `operator +`, `operator ==`, `operator []`,
-  and the rest (binary, unary, comparison, subscript) as ordinary static methods resolved
-  by operand type. The dispatch is structural and zero-cost: an overloaded operator lowers
-  to a direct call, with the same numeric coercion the built-in operators use. Landed in
-  lockstep across both compilers.
+- **Labeled `break` and `continue`.** A loop can be named with a leading label, and
+  `break label` / `continue label` act on that loop from inside a nested one:
 
-- **`match` on classic (payload-less) enums.** A plain `enum Dir { N, E, S, W }` can be
-  matched arm by arm, and the compiler checks the match is exhaustive (a missing variant is
-  an error, unless a `_` arm is present). The enum still behaves as an integer everywhere
-  else; the nominal name is kept on variables and parameters so exhaustiveness is
-  recoverable.
+  ```eskiu
+  outer: for (int i = 0; i < rows; i = i + 1) {
+      for (int j = 0; j < cols; j = j + 1) {
+          if (grid[i][j] == target) { break outer; }
+      }
+  }
+  ```
 
-## Windows
+  The label must name an enclosing `while`, `do`/`while`, `for`, or `for ... in` loop,
+  otherwise the program is rejected at compile time. A labeled jump runs the same
+  `defer`/`errdefer` cleanups as an unlabeled one (every deferred statement between the jump
+  and the target loop runs, innermost first), may not escape a `defer` body, and is not
+  supported inside an `async fn`. Eskiu has no `goto`; this closes the one case where the
+  cleanup-driven `defer` and early-return patterns could not express an outer-loop exit
+  directly. Landed in lockstep across both compilers.
 
-The compiler already emitted Windows COFF objects (v0.7.0); this release brings the runtime
-and standard library up to parity, validated end to end on a native Windows runner
-(`.github/workflows/windows.yml`):
+## Fixed
 
-- **Exceptions** use the mingw SEH EH personality (`__gxx_personality_seh0`) instead of the
-  Itanium `__gxx_personality_v0`, so `try`/`throw`/`catch` links and unwinds under the mingw
-  C++ runtime.
-- **Platform shims:** `<sysheap>` maps pages with `VirtualAlloc`/`VirtualFree` (no `mmap`),
-  `<time>` uses the Win32 clocks (`GetTickCount64`, `GetSystemTimeAsFileTime`, `Sleep`), and
-  `<threading>` links against winpthreads.
-- **Blocking sockets:** `<net>` runs on Winsock (`WSAStartup`, `closesocket`, `send`/`recv`,
-  link `-lws2_32`), so a thread-per-connection server works.
-- **Async:** `<eventloop>` gained a `WSAPoll` reactor and `<net_async>` a Winsock backend
-  (`ioctlsocket(FIONBIO)`, `recv`/`send`, `WSAGetLastError`). A Windows `SOCKET` is not a
-  small sequential fd, so the loop's fd-indexed slot table grows to fit large handles.
+- **Global array initializers are no longer dropped.** A global (or `static` local) array
+  literal such as `int[3] G = {10, 20, 30};` was silently zero-filled: only scalar globals
+  kept their value. The constant folder now builds the array from the initializer, with
+  C-style zero-fill for a partial list (`int[3] = {7}` gives `{7, 0, 0}`) and support for
+  nested arrays. Fixed in both compilers; locals were never affected.
 
-See [`docs/dev/cross-compile.md`](docs/dev/cross-compile.md) for the platform macros and the
-Windows recipe. The full log is in [CHANGELOG.md](CHANGELOG.md).
+See the full log in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
 ## Upgrade
 
-Drop-in. No breaking language or standard-library changes; recompiling picks up the fixes,
-and the new operators, plain-enum matching, and Windows backends are all additive.
+Drop-in. No breaking language or standard-library changes; recompiling picks up the fix, and
+labeled `break`/`continue` is additive.

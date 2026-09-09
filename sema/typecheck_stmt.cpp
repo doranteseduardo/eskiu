@@ -114,7 +114,9 @@ void TypeChecker::visit(ForInStmt* node) {
     } else {
         defineSymbol(node->varName, elemType, node->line, node->col, /*isParam=*/false);
     }
+    loopLabelStack.push_back(node->label);
     if (node->body) node->body->accept(this);
+    loopLabelStack.pop_back();
     popScope();
 }
 
@@ -123,13 +125,17 @@ void TypeChecker::visit(WhileStmt* node) {
         warnAssignInCondition(node->condition.get());
         checkCondition(node, node->condition.get());
     }
+    loopLabelStack.push_back(node->label);
     if (node->body) {
         node->body->accept(this);
     }
+    loopLabelStack.pop_back();
 }
 
 void TypeChecker::visit(DoWhileStmt* node) {
+    loopLabelStack.push_back(node->label);
     if (node->body) node->body->accept(this);
+    loopLabelStack.pop_back();
     if (node->condition) {
         warnAssignInCondition(node->condition.get());
         checkCondition(node, node->condition.get());
@@ -166,9 +172,11 @@ void TypeChecker::visit(ForStmt* node) {
     }
 
     // Type check body
+    loopLabelStack.push_back(node->label);
     if (node->body) {
         node->body->accept(this);
     }
+    loopLabelStack.pop_back();
 
     popScope();
 }
@@ -204,7 +212,13 @@ void TypeChecker::visit(ReturnStmt* node) {
 }
 
 void TypeChecker::visit(BreakStmt* node) {
-    // Break statements are valid in loops (checked at parse time)
+    // Break statements are valid in loops (bare break checked at parse/codegen time).
+    // A labeled break must name an enclosing loop label.
+    if (!node->label.empty()) {
+        bool found = false;
+        for (auto& l : loopLabelStack) if (l == node->label) { found = true; break; }
+        if (!found) errorAt(node, "labeled 'break " + node->label + "' has no enclosing loop labeled '" + node->label + "'");
+    }
 }
 
 void TypeChecker::visit(ExprStmt* node) {
@@ -225,7 +239,12 @@ void TypeChecker::visit(ExprStmt* node) {
 }
 
 void TypeChecker::visit(ContinueStmt* node) {
-    // Valid inside loops — no type checking needed
+    // Valid inside loops. A labeled continue must name an enclosing loop label.
+    if (!node->label.empty()) {
+        bool found = false;
+        for (auto& l : loopLabelStack) if (l == node->label) { found = true; break; }
+        if (!found) errorAt(node, "labeled 'continue " + node->label + "' has no enclosing loop labeled '" + node->label + "'");
+    }
 }
 
 void TypeChecker::visit(AsmStmt* node) {
@@ -268,9 +287,15 @@ void TypeChecker::visit(DeferStmt* node) {
         if (!s) return;
         if (dynamic_cast<ReturnStmt*>(s)) {
             errorAt(s, "'return' is not allowed inside a defer body");
-        } else if (loopDepth == 0 &&
-                   (dynamic_cast<BreakStmt*>(s) || dynamic_cast<ContinueStmt*>(s))) {
-            errorAt(s, "'break'/'continue' inside a defer body may not escape it");
+        } else if (dynamic_cast<BreakStmt*>(s) || dynamic_cast<ContinueStmt*>(s)) {
+            // A bare break/continue is fine if a loop/switch *inside* the defer body encloses
+            // it (loopDepth>0). A *labeled* one may target a loop outside the defer body, so it
+            // is rejected regardless of depth.
+            std::string lbl;
+            if (auto* bs = dynamic_cast<BreakStmt*>(s)) lbl = bs->label;
+            else if (auto* cs = dynamic_cast<ContinueStmt*>(s)) lbl = cs->label;
+            if (loopDepth == 0 || !lbl.empty())
+                errorAt(s, "'break'/'continue' inside a defer body may not escape it");
         } else if (auto* b = dynamic_cast<BlockStmt*>(s)) {
             for (auto& it : b->items)
                 if (auto* st = std::get_if<StmtPtr>(&it)) check(st->get(), loopDepth);
