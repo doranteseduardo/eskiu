@@ -24,8 +24,9 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   literal such as `int[3] G = {10, 20, 30};` was silently zero-filled: only scalar globals
   kept their value, and an array came out all zeros with no warning. The constant folder
   now builds the array constant from the initializer, with C-style zero-fill for a partial
-  list (`int[3] = {7}` gives `{7, 0, 0}`) and support for nested arrays. Fixed in both
-  compilers. Locals were unaffected.
+  list (`int[3] = {7}` gives `{7, 0, 0}`), nested arrays, and numeric **casts** inside the
+  initializer (`float[3] = {(float)0.485, …}`, which also emit the correct LLVM f32
+  constant form). Fixed in both compilers. Locals were unaffected.
 
 ## [0.8.0] - 2026-08-21
 ### Fixed
