@@ -35,7 +35,8 @@ case "$os" in
   Linux)
     case "$arch" in
       x86_64|amd64) asset="eskiuc-linux-x86_64.tar.gz" ;;
-      *) err "No prebuilt Linux binary for $arch (x86_64 only). Build from source: https://github.com/$REPO" ;;
+      arm64|aarch64) asset="eskiuc-linux-arm64.tar.gz" ;;
+      *) err "No prebuilt Linux binary for $arch (x86_64/arm64 only). Build from source: https://github.com/$REPO" ;;
     esac ;;
   *)
     err "Unsupported OS: $os. On Windows, download the .zip from https://github.com/$REPO/releases." ;;
