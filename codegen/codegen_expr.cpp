@@ -706,7 +706,13 @@ void CodeGen::storeBitfieldInto(llvm::Value* wordPtr, const BitfieldSlot& slot,
 void CodeGen::storeBitfield(MemberExpr* m, llvm::Value* val) {
     std::string baseType = structBaseTypeOf(m->base);
     const BitfieldSlot& slot = structLayout[baseType][m->member];
-    llvm::Value* basePtr = evaluateLValue(m->base);
+    // A pointer-to-struct base's address is the pointer's VALUE (evaluateExpr), not the
+    // lvalue slot holding the pointer — mirrors the read path's baseAddr. The old code
+    // used evaluateLValue for both, so a `*Struct` bitfield write hit the pointer's own
+    // stack slot instead of the pointee.
+    std::string rawBaseTy = getExprEskiuType(m->base);
+    bool baseIsPtr = (!rawBaseTy.empty() && (rawBaseTy.front() == '*' || rawBaseTy.back() == '*'));
+    llvm::Value* basePtr = baseIsPtr ? evaluateExpr(m->base) : evaluateLValue(m->base);
     llvm::Value* gep = builder->CreateStructGEP(structTypes[baseType], basePtr, slot.physIndex);
     storeBitfieldInto(gep, slot, val);
 }
