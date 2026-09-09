@@ -1,0 +1,7 @@
+// Global array initializers must reach load time (regression: were zero-filled).
+int[4] G = {2, 4, 6, 8};
+int[3] P = {5};                 // partial -> {5,0,0}
+int[2][2] M = {{1, 2}, {3, 4}};
+int main() {
+    return G[0] + G[3] + P[0] + P[2] + M[0][1] + M[1][0];   // 2+8+5+0+2+3 = 20
+}
