@@ -1,0 +1,13 @@
+// The awaited value's type comes from the `let` variable's declared type, so awaiting a
+// future held in a variable (not a bare call) resolves correctly in the self-host too.
+import <future>;
+extern int printf(string fmt, ...);
+Future<double>* mk(double v) {
+    Future<double>* f = future_new<double>(); future_complete<double>(f, v * 7.0); return f;
+}
+async double compute() {
+    Future<double>* fut = mk(1.5);
+    double x = await fut;
+    return x + 0.25;
+}
+int main() { Future<double>* r = compute(); printf("%.2f\n", r.value); return 0; }

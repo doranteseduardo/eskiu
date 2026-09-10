@@ -8,6 +8,33 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
+## [0.9.1] - 2026-09-09
+### Fixed
+A correctness campaign (a multi-front bug hunt) closed a set of latent miscompiles and
+type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unless noted.
+
+- **Global and `static`-local constant initializers.** These were silently mis-folded in
+  several forms: a 64-bit literal was truncated to 32 bits (C++), a `struct` global came
+  out zeroed, and a `const`/`enum`/`sizeof`/`~`/`!` value folded to `0`; a `string` global
+  came out `null` and a hex literal produced invalid IR (self-host). The constant folder
+  now handles all of these. `static` locals also accept any of those constant forms (they
+  previously required a bare literal), and an over-full global array literal is rejected.
+- **Signed/unsigned integer semantics now follow C.** `float`→unsigned casts use `fptoui`
+  (a value above the signed max no longer saturates); a right shift's kind follows the
+  value shifted, not the count's signedness; and a mixed-rank signed/unsigned op is
+  unsigned only when the unsigned operand's rank is at least the signed one's.
+- **`switch` `break` no longer runs enclosing `defer`s twice** (it unwound to the wrong
+  cleanup depth), and a **bitfield write through a `*Struct`** now reaches the pointee
+  instead of the pointer's own slot (both C++).
+- **Scientific-notation float literals** (`3.4e38`, `1e6`, `2.5e-3`) now lex and compile.
+- **`--safe` slice construction** bounds-checks `0 <= lo <= hi <= len`: a valid empty
+  end-slice (`s[len..len]`) no longer traps, and an out-of-range upper bound is caught.
+- **Async (self-host):** the awaited value's type is taken from the `let` variable, so
+  awaiting a future from a method call, a variable, or a template call resolves correctly
+  (was read through a wrong `int` overlay); and an `await` the transform can't place (in a
+  condition or a larger expression) is a clean compile error instead of a crash or silent
+  miscompile.
+
 ## [0.9.0] - 2026-09-08
 ### Added
 - **Labeled `break` and `continue`.** A loop can be named with a leading label

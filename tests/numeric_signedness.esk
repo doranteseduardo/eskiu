@@ -1,0 +1,16 @@
+// Signed/unsigned codegen must follow C: float→unsigned uses fptoui; a right shift's kind
+// follows the value shifted (left operand) not the count; a mixed-rank op is unsigned only
+// when the unsigned operand's rank is >= the signed one's.
+extern int printf(string fmt, ...);
+int main() {
+    double d = 3000000000.0;
+    printf("%u\n", (uint32)d);                 // 3000000000 (was 2147483647)
+    int64 x = -8; uint8 c = 1;
+    printf("%lld\n", x >> c);                  // -4 (was a huge positive)
+    int64 num = -100; uint8 den = 7;
+    printf("%lld %lld\n", num / den, num % den);   // -14 -2
+    if ((uint8)5 < (int64)-1) { printf("T\n"); } else { printf("F\n"); }  // F
+    int32 a = -6; uint32 b = 3;
+    printf("%u\n", a / b);                      // 1431655763 (same-rank stays unsigned, C-style)
+    return 0;
+}

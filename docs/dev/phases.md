@@ -113,7 +113,7 @@ Everything in the feature table above ships in v0.1.0: the full systems language
 
 The theme is making Eskiu a practical language for concurrent backend services:
 real async I/O, an HTTP stack, and the everyday stdlib + tooling that adoption
-needs. v0.1.0 is frozen at its tag; v0.2.0 shipped the items below. The current release is **v0.9.0** (labeled `break`/`continue` and a global-array-initializer fix), over the v0.8.0 Windows-parity and language-surface release (operator overloading, exhaustive `match` on plain enums), the v0.7.0 cross-compilation release and the v0.6.0 memory-safety + stdlib release, on top of the v0.5 basic-C surface release and the v0.3 self-hosting milestone (see the sections below).
+needs. v0.1.0 is frozen at its tag; v0.2.0 shipped the items below. The current release is **v0.9.1** (a correctness campaign that closed a set of latent miscompiles), over the v0.9.0 labeled-`break`/`continue` release and the v0.8.0 Windows-parity and language-surface release (operator overloading, exhaustive `match` on plain enums), the v0.7.0 cross-compilation release and the v0.6.0 memory-safety + stdlib release, on top of the v0.5 basic-C surface release and the v0.3 self-hosting milestone (see the sections below).
 
 Tracking checklist (checked = landed on `develop`).
 

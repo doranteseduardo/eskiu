@@ -57,17 +57,21 @@ llvm::Constant* CodeGen::evaluateConstantExpr(const ExprPtr& expr) {
                        llvm::PointerType::get(*context, 0))});
     }
 
-    // Fold unary minus on a numeric literal: -(N) → negative constant
+    // Fold unary `-`, `~`, `!` on a constant operand.
     if (auto* unary = dynamic_cast<UnaryExpr*>(expr.get())) {
+        llvm::Constant* inner = evaluateConstantExpr(unary->operand);
+        if (!inner) return nullptr;
+        auto* ci = llvm::dyn_cast<llvm::ConstantInt>(inner);
+        auto* cf = llvm::dyn_cast<llvm::ConstantFP>(inner);
         if (unary->op == "-") {
-            llvm::Constant* inner = evaluateConstantExpr(unary->operand);
-            if (!inner) return nullptr;
-            if (auto* ci = llvm::dyn_cast<llvm::ConstantInt>(inner))
-                return llvm::ConstantInt::get(ci->getType(),
-                    static_cast<uint64_t>(-(int64_t)ci->getZExtValue()), true);
-            if (auto* cf = llvm::dyn_cast<llvm::ConstantFP>(inner))
-                return llvm::ConstantFP::get(cf->getType(),
-                    -cf->getValueAPF().convertToDouble());
+            if (ci) return llvm::ConstantInt::get(ci->getType(),
+                static_cast<uint64_t>(-(int64_t)ci->getZExtValue()), true);
+            if (cf) return llvm::ConstantFP::get(cf->getType(), -cf->getValueAPF().convertToDouble());
+        } else if (unary->op == "~") {
+            if (ci) return llvm::ConstantInt::get(ci->getType(), ~ci->getZExtValue());
+        } else if (unary->op == "!") {
+            if (ci) return llvm::ConstantInt::get(llvm::Type::getInt1Ty(*context),
+                ci->getZExtValue() == 0 ? 1 : 0);
         }
         return nullptr;
     }
@@ -83,13 +87,35 @@ llvm::Constant* CodeGen::evaluateConstantExpr(const ExprPtr& expr) {
         return coerceConst(inner, ty);
     }
 
+    // A bare identifier that names an enum constant or a folded top-level `const int`.
+    if (auto* id = dynamic_cast<IdentExpr*>(expr.get())) {
+        auto ec = enumConstants.find(id->name);
+        if (ec != enumConstants.end())
+            return llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), ec->second, true);
+        auto ci = constInts.find(id->name);
+        if (ci != constInts.end())
+            return llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), (uint64_t)ci->second, true);
+        return nullptr;
+    }
+    // sizeof(T) -> i64 byte size.
+    if (auto* so = dynamic_cast<SizeofExpr*>(expr.get())) {
+        llvm::Type* ty = getTypeFromString(so->typeName);
+        if (!ty) return nullptr;
+        return llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context),
+            module->getDataLayout().getTypeAllocSize(ty));
+    }
+
     auto* lit = dynamic_cast<LiteralExpr*>(expr.get());
     if (!lit) return nullptr;
 
     switch (lit->kind) {
         case LiteralExpr::Kind::INT: {
-            long long v = std::stoll(lit->value, nullptr, 0);
-            return llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), v);
+            // Fold as i64 so a value that needs more than 32 bits survives; the caller's
+            // coerceConst narrows to the declared slot width (C-style truncation).
+            uint64_t v;
+            try { v = (uint64_t)std::stoll(lit->value, nullptr, 0); }
+            catch (...) { v = std::stoull(lit->value, nullptr, 0); }
+            return llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), v);
         }
         case LiteralExpr::Kind::FLOAT: {
             return llvm::ConstantFP::get(llvm::Type::getDoubleTy(*context),
@@ -161,6 +187,38 @@ llvm::Constant* CodeGen::constInitializer(const ExprPtr& expr, llvm::Type* declT
         }
         while (elems.size() < n) elems.push_back(llvm::Constant::getNullValue(elemTy));
         return llvm::ConstantArray::get(arrTy, elems);
+    }
+    // Struct literal `S{ ... }` against a struct type: fold each named/positional field
+    // to a constant and zero-fill the rest. Bitfield-packed structs need physical-slot
+    // packing, so those fall through to a zero global (a documented limitation).
+    if (auto* si = dynamic_cast<StructInitExpr*>(expr.get())) {
+        std::string sname = resolveStructInitName(si->structName);
+        auto fit = structFields.find(sname);
+        auto stIt = structTypes.find(sname);
+        if (fit == structFields.end() || stIt == structTypes.end()) return nullptr;
+        if (structLayout.count(sname)) return nullptr;   // bitfield struct: not folded
+        const auto& fields = fit->second;
+        llvm::StructType* st = stIt->second;
+        std::vector<llvm::Constant*> vals(fields.size(), nullptr);
+        bool named = !si->fieldInits.empty() && !si->fieldInits[0].first.empty();
+        auto foldField = [&](size_t i, const ExprPtr& e) -> bool {
+            if (i >= fields.size()) return true;
+            llvm::Constant* c = constInitializer(e, st->getElementType((unsigned)i));
+            if (!c) return false;               // a provided field isn't constant → bail
+            vals[i] = c;
+            return true;
+        };
+        if (named) {
+            for (const auto& [fname, e] : si->fieldInits)
+                for (size_t i = 0; i < fields.size(); ++i)
+                    if (fields[i].name == fname) { if (!foldField(i, e)) return nullptr; break; }
+        } else {
+            for (size_t i = 0; i < si->fieldInits.size() && i < fields.size(); ++i)
+                if (!foldField(i, si->fieldInits[i].second)) return nullptr;
+        }
+        for (size_t i = 0; i < vals.size(); ++i)
+            if (!vals[i]) vals[i] = llvm::Constant::getNullValue(st->getElementType((unsigned)i));
+        return llvm::ConstantStruct::get(st, vals);
     }
     return coerceConst(evaluateConstantExpr(expr), declType);
 }

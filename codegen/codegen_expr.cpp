@@ -109,7 +109,21 @@ void CodeGen::visit(BinaryExpr* node) {
     };
     bool lUns = isUnsignedEsk(node->left);
     bool rUns = isUnsignedEsk(node->right);
-    bool opUnsigned = lUns || rUns;   // C-style: unsigned wins in a mixed op
+    // Signedness of a signed-vs-unsigned op, by C's usual arithmetic conversions: after
+    // both operands widen to a common width, the op is unsigned only when the unsigned
+    // operand's rank (width) is at least the signed one's. A wider signed type represents
+    // every value of a narrower unsigned one, so there the op stays signed. (Same-rank
+    // mixed → unsigned, as in C.)
+    bool opUnsigned;
+    if (lUns == rUns) {
+        opUnsigned = lUns;
+    } else if (left->getType()->isIntegerTy() && right->getType()->isIntegerTy()) {
+        unsigned lw = left->getType()->getIntegerBitWidth();
+        unsigned rw = right->getType()->getIntegerBitWidth();
+        opUnsigned = lUns ? (lw >= rw) : (rw >= lw);
+    } else {
+        opUnsigned = lUns || rUns;   // a float is involved: signedness is irrelevant here
+    }
     auto extTo = [&](llvm::Value* v, llvm::Type* ty, bool uns) {
         return uns ? builder->CreateZExt(v, ty) : builder->CreateSExt(v, ty);
     };
@@ -252,8 +266,10 @@ void CodeGen::visit(BinaryExpr* node) {
         widenForBitwise(); result = builder->CreateShl(left, right);
     } else if (node->op == ">>") {
         widenForBitwise();
-        result = opUnsigned ? builder->CreateLShr(left, right)
-                            : builder->CreateAShr(left, right);
+        // The shift kind follows the value being shifted (the left operand) only; the
+        // count's signedness is irrelevant, so a signed value keeps an arithmetic shift.
+        result = lUns ? builder->CreateLShr(left, right)
+                      : builder->CreateAShr(left, right);
     } else {
         throw std::runtime_error("Unknown binary operator: " + node->op);
     }
@@ -464,7 +480,25 @@ void CodeGen::emitBoundsCheck(llvm::Value* idx, llvm::Value* len) {
     builder->SetInsertPoint(contBB);
 }
 
-llvm::Value* CodeGen::indexElemAddr(const ExprPtr& base, llvm::Value* idx) {
+void CodeGen::emitSliceBoundsCheck(llvm::Value* lo, llvm::Value* hi, llvm::Value* len) {
+    llvm::Type* i64 = llvm::Type::getInt64Ty(*context);
+    // 0 <= lo <= hi (<= len). `lo == len` is a valid empty slice at the end, so the upper
+    // bound is `hi > len`, not `hi >= len` — this is what the element check got wrong.
+    llvm::Value* bad = builder->CreateOr(
+        builder->CreateICmpSLT(lo, llvm::ConstantInt::get(i64, 0)),
+        builder->CreateICmpSLT(hi, lo));
+    if (len) bad = builder->CreateOr(bad, builder->CreateICmpSGT(hi, len));
+    llvm::Function* fn = builder->GetInsertBlock()->getParent();
+    auto* trapBB = llvm::BasicBlock::Create(*context, "slice.fail", fn);
+    auto* contBB = llvm::BasicBlock::Create(*context, "slice.ok",   fn);
+    builder->CreateCondBr(bad, trapBB, contBB);
+    builder->SetInsertPoint(trapBB);
+    builder->CreateCall(llvm::Intrinsic::getOrInsertDeclaration(module.get(), llvm::Intrinsic::trap));
+    builder->CreateUnreachable();
+    builder->SetInsertPoint(contBB);
+}
+
+llvm::Value* CodeGen::indexElemAddr(const ExprPtr& base, llvm::Value* idx, bool doCheck) {
     std::string baseType = getExprEskiuType(base);
     ty::Type bt = ty::Type::parse(baseType);
     if (baseType == "string")
@@ -472,14 +506,14 @@ llvm::Value* CodeGen::indexElemAddr(const ExprPtr& base, llvm::Value* idx) {
     if (bt.kind == ty::Type::Kind::Array) {
         llvm::Value* zero = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0);
         uint64_t n = 0;
-        if (safe && resolveArrayDim(bt.dim, n))   // bounds-check against the static length
+        if (safe && doCheck && resolveArrayDim(bt.dim, n))   // bounds-check against the static length
             emitBoundsCheck(idx, llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), n));
         return builder->CreateGEP(getTypeFromString(baseType), evaluateLValue(base), {zero, idx});
     }
     if (bt.kind == ty::Type::Kind::Slice) {
         llvm::Value* fat  = evaluateExpr(base);                     // evaluate the slice once
         llvm::Value* data = builder->CreateExtractValue(fat, {0});  // fat.ptr
-        if (safe) emitBoundsCheck(idx, builder->CreateExtractValue(fat, {1}));   // vs fat.len
+        if (safe && doCheck) emitBoundsCheck(idx, builder->CreateExtractValue(fat, {1}));   // vs fat.len
         return builder->CreateGEP(getTypeFromString(bt.elem->str()), data, idx);
     }
     if (isPointerType(baseType)) {
@@ -511,8 +545,6 @@ void CodeGen::visit(IndexExpr* node) {
     if (node->highIndex) {
         llvm::Value* lo = toI64(evaluateExpr(node->index));
         llvm::Value* hi = toI64(evaluateExpr(node->highIndex));
-        llvm::Value* data = indexElemAddr(node->base, lo);
-        llvm::Value* len  = builder->CreateSub(hi, lo);
         // Element type of the base: string→char, array/slice→elem, pointer→pointee.
         // Slicing a raw pointer (`*T`) yields `T[]`, so heap buffers can become slices.
         std::string elemStr;
@@ -527,6 +559,24 @@ void CodeGen::visit(IndexExpr* node) {
         } else {
             elemStr = "uint8";  // unreachable: sema rejects non-indexable slice bases
         }
+        // Address of base[lo] WITHOUT the element bounds check (lo == len is a valid empty
+        // slice), plus the base length for a proper --safe slice check (null = unknown).
+        llvm::Value* data = nullptr;
+        llvm::Value* baseLen = nullptr;
+        if (bt.kind == ty::Type::Kind::Slice) {
+            llvm::Value* fat = evaluateExpr(node->base);            // evaluate once
+            data    = builder->CreateGEP(getTypeFromString(elemStr),
+                                         builder->CreateExtractValue(fat, {0}), lo);
+            baseLen = builder->CreateExtractValue(fat, {1});
+        } else if (bt.kind == ty::Type::Kind::Array) {
+            uint64_t n = 0;
+            if (resolveArrayDim(bt.dim, n)) baseLen = llvm::ConstantInt::get(i64, n);
+            data = indexElemAddr(node->base, lo, /*doCheck=*/false);
+        } else {
+            data = indexElemAddr(node->base, lo, /*doCheck=*/false);   // string / pointer: len unknown
+        }
+        if (safe) emitSliceBoundsCheck(lo, hi, baseLen);
+        llvm::Value* len = builder->CreateSub(hi, lo);
         llvm::Type* sliceTy = getTypeFromString(elemStr + "[]");
         llvm::Value* s = llvm::UndefValue::get(sliceTy);
         s = builder->CreateInsertValue(s, data, {0});
@@ -690,7 +740,13 @@ void CodeGen::storeBitfieldInto(llvm::Value* wordPtr, const BitfieldSlot& slot,
 void CodeGen::storeBitfield(MemberExpr* m, llvm::Value* val) {
     std::string baseType = structBaseTypeOf(m->base);
     const BitfieldSlot& slot = structLayout[baseType][m->member];
-    llvm::Value* basePtr = evaluateLValue(m->base);
+    // A pointer-to-struct base's address is the pointer's VALUE (evaluateExpr), not the
+    // lvalue slot holding the pointer — mirrors the read path's baseAddr. The old code
+    // used evaluateLValue for both, so a `*Struct` bitfield write hit the pointer's own
+    // stack slot instead of the pointee.
+    std::string rawBaseTy = getExprEskiuType(m->base);
+    bool baseIsPtr = (!rawBaseTy.empty() && (rawBaseTy.front() == '*' || rawBaseTy.back() == '*'));
+    llvm::Value* basePtr = baseIsPtr ? evaluateExpr(m->base) : evaluateLValue(m->base);
     llvm::Value* gep = builder->CreateStructGEP(structTypes[baseType], basePtr, slot.physIndex);
     storeBitfieldInto(gep, slot, val);
 }
@@ -735,7 +791,11 @@ void CodeGen::visit(CastExpr* node) {
     } else if (val->getType()->isIntegerTy() && targetType->isFloatingPointTy()) {
         result = intToFloat(val, targetType, eskiuUnsigned(getExprEskiuType(node->expr)));
     } else if (val->getType()->isFloatingPointTy() && targetType->isIntegerTy()) {
-        result = builder->CreateFPToSI(val, targetType);
+        // float→int: an unsigned target needs FPToUI, else a value above the signed max
+        // (e.g. (uint32)3e9) saturates to the signed max instead of the true value.
+        result = eskiuUnsigned(node->targetType)
+            ? builder->CreateFPToUI(val, targetType)
+            : builder->CreateFPToSI(val, targetType);
     } else if (val->getType()->isFloatingPointTy() && targetType->isFloatingPointTy()) {
         result = builder->CreateFPCast(val, targetType);
     } else if (val->getType()->isPointerTy() && targetType->isIntegerTy()) {
