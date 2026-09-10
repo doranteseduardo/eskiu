@@ -498,6 +498,11 @@ void CodeGen::visit(SwitchStmt* node) {
 
     llvm::BasicBlock* prevBreak = breakTarget;
     breakTarget = endBlock;
+    // A `switch` pushes no cleanup frame, so a `break` inside a case must unwind only to
+    // the switch's own depth. Without saving/restoring breakCleanupDepth, the break would
+    // run the enclosing loop's/function's defers early (and again on normal exit).
+    size_t prevBreakCleanupDepth = breakCleanupDepth;
+    breakCleanupDepth = cleanupScopes.size();
 
     for (size_t i = 0; i < node->cases.size(); ++i) {
         builder->SetInsertPoint(caseBlocks[i]);
@@ -512,5 +517,6 @@ void CodeGen::visit(SwitchStmt* node) {
     }
 
     breakTarget = prevBreak;
+    breakCleanupDepth = prevBreakCleanupDepth;
     builder->SetInsertPoint(endBlock);
 }

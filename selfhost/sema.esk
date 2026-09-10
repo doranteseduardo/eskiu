@@ -442,6 +442,28 @@ string sema_infer_type(Sema* s, *ExprNode e) {
 
 // Recursively check an array literal against a (possibly multi-dimensional) array type:
 // too many elements for a numeric dimension is an error; a short list zero-fills (C-style).
+// Is `e` a compile-time constant initializer codegen can fold? Mirrors the C++ isConstInit:
+// a literal / sizeof, a numeric unary/cast of one, or an array/struct literal of constants.
+// A bare identifier is excluded (it could be a runtime local codegen would silently zero).
+int sema_is_const_init(*ExprNode e) {
+    if (e == null) { return 1; }
+    if (e.kind == EK_LITERAL) { return 1; }
+    if (e.kind == EK_SIZEOF) { return 1; }
+    if (e.kind == EK_UNARY) {
+        if (sema_streq(e.sval, "-") == 1 || sema_streq(e.sval, "~") == 1 || sema_streq(e.sval, "!") == 1) {
+            return sema_is_const_init(e.a);
+        }
+        return 0;
+    }
+    if (e.kind == EK_CAST) { return sema_is_const_init(e.a); }
+    if (e.kind == EK_ARRAYLIT || e.kind == EK_STRUCTINIT) {
+        int i = 0; int n = List_len<*ExprNode>(&e.kids);
+        while (i < n) { if (sema_is_const_init(List_get<*ExprNode>(&e.kids, i)) == 0) { return 0; } i = i + 1; }
+        return 1;
+    }
+    return 0;
+}
+
 void sema_check_arr_init(Sema* s, string arrT, *ExprNode a) {
     if (sema_is_arr_ty(arrT) == 0) { return; }
     string dim = sema_arr_count(arrT);
@@ -925,7 +947,7 @@ void sema_stmt(Sema* s, *StmtNode st) {
         if (st.expr != null && st.expr.kind == EK_ARRAYLIT && sema_is_arr_ty(st.type) == 1) {
             sema_check_arr_init(s, st.type, st.expr);   // too many elements for the fixed size
         }
-        if (st.is_static == 1 && st.expr != null && st.expr.kind != EK_LITERAL) {
+        if (st.is_static == 1 && st.expr != null && sema_is_const_init(st.expr) == 0) {
             sema_error(s, "a 'static' local's initializer must be a constant");
         }
         if (st.is_const == 1 && st.expr == null) {
@@ -1204,6 +1226,11 @@ void sema_register_globals(Sema* s, *Program prog) {
             string gty = "";
             if (d.kind == DK_VARDECL) { gty = d.ret_type; }   // global var's type
             sema_define(s, d.name, gty, d.is_const);
+            // Global array literal must fit the fixed size (locals are checked in SK_VARDECL).
+            if (d.kind == DK_VARDECL && d.init != null && d.init.kind == EK_ARRAYLIT
+                && sema_is_arr_ty(d.ret_type) == 1) {
+                sema_check_arr_init(s, d.ret_type, d.init);
+            }
         }
         if (d.kind == DK_FUNCTION || d.kind == DK_EXTERN || d.kind == DK_INTRINSIC) {
             sema_register_fn(s, d);

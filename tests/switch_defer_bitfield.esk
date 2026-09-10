@@ -1,0 +1,19 @@
+// A `break` inside a `switch` must run only the switch's own cleanups, not the enclosing
+// defers (which used to fire on the break and again on normal exit). And a bitfield write
+// through a `*Struct` must reach the pointee, not the pointer's own slot.
+extern int printf(string fmt, ...);
+struct F { uint8 a:4; uint8 b:4; }
+void wr(*F f) { f.a = 15; f.b = 7; }
+int main() {
+    defer printf("outer defer\n");
+    int x = 1;
+    switch (x) {
+        case 1: printf("case1\n"); break;
+        default: printf("def\n"); break;
+    }
+    printf("after\n");
+    F v; v.a = 0; v.b = 0;
+    wr(&v);
+    printf("a=%d b=%d\n", v.a, v.b);
+    return 0;
+}
