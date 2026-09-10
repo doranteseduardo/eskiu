@@ -1,0 +1,4 @@
+// EXPECT-ERROR: keyword
+// A struct field (or method) name may not be a reserved word (e.g. the for-in `in`).
+struct S { int in; }
+int main() { S s; s.in = 5; return s.in; }
