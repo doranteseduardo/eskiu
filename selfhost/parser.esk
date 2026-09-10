@@ -1535,6 +1535,7 @@ int str_to_int(string s) {
     List_init<Param>(&d.params, 4);
     while (p_at(p) != RBRACE && p_at(p) != EOF_TOKEN) {
         string mty = parse_type(p);
+        check_name_not_keyword(p);         // a field/method name can't be a reserved word (e.g. `in`)
         Token mnm = p_adv(p);              // member name
         if (p_at(p) == LPAREN) {
             // Method — a FunctionDecl whose return type + name were already read.
