@@ -86,7 +86,7 @@ footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
 <body>
   <header class="top">
     <div class="top-in">
-      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.9.0</span></a>
+      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.9.1</span></a>
       <nav class="top-links">
         <a href="index.html">docs</a>
         <a href="../the-book-of-eskiu.html">book</a>
@@ -100,9 +100,10 @@ footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
     <div class="content">
 <h1 id="eskiu-language-reference">Eskiu Language Reference</h1>
 <p>Eskiu is a statically typed systems language with the power of C and the immediacy of a scripting language: it compiles to native code through LLVM, and <code>eskiuc run file.esk</code> runs a source file directly, like Python or Ruby. This is the full language reference. New to Eskiu? Start with the <a href="getting-started.html">tutorial</a>.</p>
-<p><strong>Current version: v0.9.0.</strong> A control-flow release: loops can carry a label so <code>break</code> and
-<code>continue</code> can target an outer loop from inside a nested one, and a bug that silently zeroed
-global array initializers is fixed. Full history is in the <a href="https://github.com/doranteseduardo/eskiu/blob/main/CHANGELOG.md">changelog</a>.</p>
+<p><strong>Current version: v0.9.1.</strong> A correctness release: a multi-front bug hunt closed a set of
+latent miscompiles (constant-initializer folding, C signed/unsigned rules, <code>switch</code> cleanup,
+pointer bitfield writes, async await typing) and lexer/<code>--safe</code> gaps. Full history is in the
+<a href="https://github.com/doranteseduardo/eskiu/blob/main/CHANGELOG.md">changelog</a>.</p>
 <hr>
 <h2 id="documentation-map">Documentation Map</h2>
 <div class="tablewrap"><table>

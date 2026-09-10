@@ -8,7 +8,7 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
-## [Unreleased]
+## [0.9.1] - 2026-09-09
 ### Fixed
 A correctness campaign (a multi-front bug hunt) closed a set of latent miscompiles and
 type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unless noted.
