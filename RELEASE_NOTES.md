@@ -1,9 +1,9 @@
-# Eskiu 0.9.0
+# Eskiu 0.9.1
 
-A small release that fills a control-flow gap and fixes a global-initializer bug. Loops can
-now carry a label so `break` and `continue` can target an outer loop, and global array
-initializers keep their values instead of being zeroed. Existing code keeps compiling
-unchanged.
+A correctness release. A multi-front bug hunt turned up a set of latent miscompiles and
+type-rule gaps that only bit specific patterns; all are now fixed, lockstep across the C++
+and self-hosted compilers. No language or standard-library changes, so recompiling picks up
+the fixes.
 
 ---
 
@@ -16,10 +16,10 @@ tar -xzf eskiuc-macos-arm64.tar.gz -C /usr/local
 eskiuc --version
 ```
 
-**Linux (x86-64)**
+**Linux (x86-64 / arm64)**
 
 ```bash
-tar -xzf eskiuc-linux-x86_64.tar.gz -C /usr/local
+tar -xzf eskiuc-linux-x86_64.tar.gz -C /usr/local   # or eskiuc-linux-arm64.tar.gz
 eskiuc --version
 ```
 
@@ -32,34 +32,25 @@ cd eskiu && cmake -S . -B build && cmake --build build
 
 ---
 
-## What's new
-
-- **Labeled `break` and `continue`.** A loop can be named with a leading label, and
-  `break label` / `continue label` act on that loop from inside a nested one:
-
-  ```eskiu
-  outer: for (int i = 0; i < rows; i = i + 1) {
-      for (int j = 0; j < cols; j = j + 1) {
-          if (grid[i][j] == target) { break outer; }
-      }
-  }
-  ```
-
-  The label must name an enclosing `while`, `do`/`while`, `for`, or `for ... in` loop,
-  otherwise the program is rejected at compile time. A labeled jump runs the same
-  `defer`/`errdefer` cleanups as an unlabeled one (every deferred statement between the jump
-  and the target loop runs, innermost first), may not escape a `defer` body, and is not
-  supported inside an `async fn`. Eskiu has no `goto`; this closes the one case where the
-  cleanup-driven `defer` and early-return patterns could not express an outer-loop exit
-  directly. Landed in lockstep across both compilers.
-
 ## Fixed
 
-- **Global array initializers are no longer dropped.** A global (or `static` local) array
-  literal such as `int[3] G = {10, 20, 30};` was silently zero-filled: only scalar globals
-  kept their value. The constant folder now builds the array from the initializer, with
-  C-style zero-fill for a partial list (`int[3] = {7}` gives `{7, 0, 0}`) and support for
-  nested arrays. Fixed in both compilers; locals were never affected.
+- **Global and `static`-local constant initializers.** A 64-bit literal was truncated to 32
+  bits, a `struct` global came out zeroed, and a `const`/`enum`/`sizeof`/`~`/`!` value folded
+  to `0`; a `string` global was `null` and a hex literal produced invalid IR in the
+  self-host. All of these now fold correctly. `static` locals also accept those constant
+  forms (not just a bare literal), and an over-full global array literal is rejected.
+- **Signed/unsigned integer semantics now follow C.** `float`→unsigned casts use `fptoui` (a
+  value above the signed max no longer saturates); a right shift's kind follows the value
+  shifted, not the count's signedness; and a mixed-rank signed/unsigned op is unsigned only
+  when the unsigned operand's rank is at least the signed one's.
+- **`switch` `break` no longer runs enclosing `defer`s twice**, and a **bitfield write
+  through a `*Struct`** now reaches the pointee instead of the pointer's own slot.
+- **Scientific-notation float literals** (`3.4e38`, `1e6`, `2.5e-3`) now lex and compile.
+- **`--safe` slice construction** bounds-checks `0 <= lo <= hi <= len`: a valid empty
+  end-slice no longer traps, and an out-of-range upper bound is caught.
+- **Async (self-host):** awaiting a future from a method call, a variable, or a template call
+  resolves to the right value type; and an `await` in a condition or larger expression is a
+  clean compile error instead of a crash or silent miscompile.
 
 See the full log in [CHANGELOG.md](CHANGELOG.md).
 
@@ -67,5 +58,4 @@ See the full log in [CHANGELOG.md](CHANGELOG.md).
 
 ## Upgrade
 
-Drop-in. No breaking language or standard-library changes; recompiling picks up the fix, and
-labeled `break`/`continue` is additive.
+Drop-in. No breaking changes; recompiling picks up the fixes.
