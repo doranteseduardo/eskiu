@@ -218,6 +218,12 @@ else
     bad "cli/help" "subcommands missing or LLVM options listed"
 fi
 
+# The editor's standalone LSP server (editor/vscode/server.js), when node exists.
+if command -v node >/dev/null 2>&1; then
+    lsp_out="$(node "$here/editor/lsp_server_test.js" 2>&1)"
+    if [[ "$lsp_out" == "ok" ]]; then ok "editor/lsp-server"; else bad "editor/lsp-server" "$lsp_out"; fi
+fi
+
 # ---- go-to-definition -------------------------------------------------------
 # tests/lsp/NAME.esk lists `// DEF L:C L2:C2` queries: --definition-at L:C must
 # resolve to L2:C2 in the same file (the symbol scope lookup picked, not a

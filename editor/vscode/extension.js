@@ -27,12 +27,16 @@ function findEskiuc() {
     return 'eskiuc';
 }
 
+// Only diagnostics located in this document's file belong to it (an error inside
+// an imported module names that module's file).
 function parseErrors(text, uri) {
     const diagnostics = [];
-    const re = /^(.+?):(\d+):(\d+):\s*(.+)$/gm;
+    const re = /^(?:error:\s*)?(.+?):(\d+):(\d+):\s*(.+)$/gm;
+    const want = path.resolve(uri.fsPath);
     let m;
     while ((m = re.exec(text)) !== null) {
-        const [, , line, col, msg] = m;
+        const [, file, line, col, msg] = m;
+        if (path.resolve(file) !== want) continue;
         const ln = Math.max(0, parseInt(line, 10) - 1);
         const ch = Math.max(0, parseInt(col,  10) - 1);
         const severity = msg.startsWith('warning')
