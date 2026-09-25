@@ -1873,8 +1873,8 @@ Result<int, string> compute(int a, int b, int c) {
 }
 ```
 
-A value is treated as Result-like if it has an `int ok` field and a `value`
-field; the standard library's `Result<T, E>` satisfies this. Applying `?` to an
+A value is treated as Result-like if it has an `ok` field of an integer type or
+`bool` (zero is the error) and a `value` field; the standard library's `Result<T, E>` satisfies this. Applying `?` to an
 expression of any other type is a compile error.
 
 ### 10.6 Bounded type parameters (constraints)
