@@ -1,0 +1,2 @@
+// EXPECT-ERROR: for-in expects a fixed-size array or a List-like value
+int main() { int n = 3; for (x in n) { } return 0; }

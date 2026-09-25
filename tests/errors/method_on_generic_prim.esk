@@ -1,0 +1,3 @@
+// EXPECT-ERROR: undefined method 'zz' on type 'int'
+T f<T>(T x) { return x.zz(); }
+int main() { return f<int>(1); }
