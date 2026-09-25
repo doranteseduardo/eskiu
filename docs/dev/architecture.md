@@ -45,7 +45,7 @@ Source (.esk)
 
 | Stage | File(s) | Responsibility | Status |
 |---|---|---|---|
-| Preprocessor | `lexer/preprocessor.cpp` (`preprocess`, declared in `preprocessor.h`) | Text pass run inside the `Lexer` constructor: object-/function-like `#define`, `#ifdef`/`#ifndef`/`#else`/`#endif`; shared macro table propagates across `import`/multi-file; blanks directive/skipped lines to preserve line numbers | Complete |
+| Preprocessor | `lexer/preprocessor.cpp` (`preprocess`, declared in `preprocessor.h`) | Text pass run inside the `Lexer` constructor: object-/function-like `#define`, `#ifdef`/`#ifndef`/`#if`/`#elif`/`#else`/`#endif` (the `#if` expression is a C integer constant expression with `defined`); unknown directives and `#include` are errors; shared macro table propagates across `import`/multi-file; blanks directive/skipped lines to preserve line numbers | Complete |
 | Lexer | `lexer/lexer.cpp`, `lexer/lexer.h` | Converts the preprocessed source into a flat `vector<Token>` stream with line/column positions | Complete |
 | Parser | `parser/`: `parser.cpp` (core) + `parse_{decl,stmt,expr}.cpp` | Recursive-descent; produces a `shared_ptr<Program>` AST; resolves `import` inline | Complete |
 | Type Checker | `sema/type_checker.cpp` + `typecheck_{decl,stmt,expr,type}.cpp`; the structured `ty::Type` IR in `sema/type.{h,cpp}` | Two-pass visitor; registers structs/interfaces/functions then validates types and scopes; resolves every expression's type into a table | Complete |
@@ -347,7 +347,7 @@ Template function instantiation happens in `visit(TemplateCallExpr*)`: type args
 
 ### Interface structural satisfaction check
 
-`isValidAssignment(lhs, rhs)` includes an interface check: if `lhs` is a registered interface name, it calls `structSatisfiesInterface(functionSignatures, structName, iface)` which verifies that for every method in the interface, a function named `structName_methodName` exists in `functionSignatures`. No `implements` keyword is required. This is purely structural.
+`isValidAssignment(lhs, rhs)` includes an interface check: if `lhs` is a registered interface name and `rhs` is a pointer to a struct, it calls `interfaceMismatch(structName, iface)` (`typecheck_type.cpp`), which requires, for every method in the interface, a function named `structName_methodName` in `functionSignatures` whose return type, parameter count and parameter types (after the receiver) match the interface's declaration; a type spelled with the interface's own name stands for the implementing type. It returns an empty string on success or the first mismatch, which becomes part of the diagnostic. A struct passed by value (not a pointer) is rejected with "cannot convert struct 'S' to interface 'I' by value; pass a pointer (&x)". No `implements` keyword is required. This is purely structural. The same check backs bounded generics (`checkConstraints`).
 
 ### Error format: `sourceFile:line:col: message`
 
@@ -360,7 +360,7 @@ void TypeChecker::error(int line, int col, const std::string& message) {
 }
 ```
 
-`sourceFile` is set by the caller (`main.cpp`) to the actual input filename before calling `check()`. Errors are accumulated and printed after the full second pass completes. When an error is reported via `errorAt(node, msg)`, it uses `node->line` and `node->col`, populated by the parser's `withPos()` stamp. Nodes without position stamps report `0:0`.
+`sourceFile` is set by the caller (`main.cpp`) to the actual input filename before calling `check()`. Errors are accumulated and printed after the full second pass completes, each with an `error: ` prefix. When an error is reported via `errorAt(node, msg)`, it uses `node->line` and `node->col`, populated by the parser's `withPos()` stamp. Nodes without position stamps report `0:0`.
 
 ### Pointer type conventions in the type checker
 
@@ -448,15 +448,16 @@ Called whenever a template type appears in codegen (in `getTypeFromString`, `vis
 - `ifaceMethodOrder[name]`: `vector<string>` of method names in declaration order (for index lookup)
 - `ifaceFatPtrTypes[name]`: `%I_fat = type { ptr, ptr }` (data pointer + vtable pointer)
 
-`boxAsInterface(ifaceName, structName, structPtr)` creates a fat pointer on the stack:
+`boxAsInterface(ifaceName, structName, structPtr)` builds the fat value:
 1. Looks up or creates a `private` global constant `%I_vtable_S` holding `{ &S_method1, &S_method2, ... }`.
-2. Allocates `%I_fat` on the stack.
-3. Stores `structPtr` in field 0 (data) and the vtable global in field 1.
-4. Returns the alloca pointer (pointer to the fat struct).
+2. Inserts `structPtr` into field 0 (data) and the vtable global into field 1 of an `%I_fat` value.
+3. Returns that first-class `{ ptr, ptr }` value.
+
+An interface value is held **by value** as `%I_fat` wherever it lives: a local's alloca, a struct field, a parameter, a return value. `evalForType(expr, targetType)` is the single conversion point used by initializers, assignments, call arguments, struct-literal fields and `return`: an interface value of the same interface passes through, `null` becomes the zero `{null, null}`, and a pointer to a conforming struct is boxed with `boxAsInterface`.
 
 Interface vtable dispatch in `visit(CallExpr*)`: loads `data_ptr` and `vtable_ptr` from the fat struct, computes the method index from `ifaceMethodOrder`, `CreateStructGEP` into the vtable, loads the function pointer, and calls it with a `FunctionType` of all-`ptr` parameters returning `void`. This correctly dispatches `void` methods. Methods with non-void return types share the same dispatch mechanism: the return value is pushed to `exprValueStack`.
 
-`funcEskiuParamTypes` stores the Eskiu parameter type strings per function name. At a call site, if a parameter's type matches an interface registered in `ifaceFatPtrTypes`, the argument is automatically boxed via `boxAsInterface()`.
+`funcEskiuParamTypes` stores the Eskiu parameter type strings per function name. At a call site, an argument whose parameter type is an interface registered in `ifaceFatPtrTypes` goes through `evalForType()`, so it is boxed when it is a struct pointer.
 
 ### Pointer arithmetic
 
@@ -574,7 +575,7 @@ The same coercion logic appears in `emitStructInitInto()` for struct field initi
 | `*T` or `T*` | `ptr` (opaque, addrspace 0) | All pointer types are opaque in LLVM 15+ |
 | `struct:Name` (concrete) | `%Name` (`llvm::StructType`) | Created by `visit(StructDecl*)` |
 | `struct:Result_int_string` (template instance) | `%Result_int_string` | Created lazily by `ensureTemplateInstantiated()` |
-| Interface name (e.g. `Greeter`) | `ptr` (opaque) | Interface values are `ptr` to `%Greeter_fat` |
+| Interface name (e.g. `Greeter`) | `%Greeter_fat` (`{ ptr, ptr }`) | An interface value is the fat struct itself (data pointer + vtable pointer), held by value |
 | `T[N]` (fixed-size array) | `[N x T]` (`llvm::ArrayType`) | e.g. `uint8[858]` → `[858 x i8]` |
 
 Integer literals are emitted as `i32` (64-bit literals widen to `i64` without truncation). Float literals are emitted as `double` (`f64`). A float literal assigned to a `float` (`f32`) variable is coerced down via `CreateFPCast`. Signedness is tracked through codegen from the Eskiu type: unsigned types use the unsigned LLVM instructions (`CreateUDiv`, `CreateURem`, `CreateLShr`, `CreateICmpULT`, etc.) while signed types use the signed forms, and integer widening picks `CreateZExt` vs `CreateSExt` from the source operand's signedness at every coercion site.
