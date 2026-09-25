@@ -193,22 +193,43 @@ From lowest to highest:
 ```
 parseAssignment        =  +=  -=  *=  /=  %=     (right-associative; compound ops desugar)
   parseTernary         ?:                        (right-associative; `:`-scan disambiguates from postfix `?`)
-    parseLogicalOr     ||
-      parseLogicalAnd  &&
-        parseBitwiseOr     |
-          parseBitwiseXor  ^
-            parseBitwiseAnd    &
-              parseEquality    ==  !=
-                parseComparison    <  >  <=  >=
-                  parseShift       <<  >>
-                    parseAddition  +  -
-                      parseMultiplication  *  /  %
-                        parseUnary         -  ~  !  &  *  ++  --  (TYPE)
-                          parsePostfix     ()  []  .  ?  ++  --  <T>(args)
-                            parsePrimary
+    parseBinary(1)     binary operators by precedence climbing, loosest first:
+                         1 ||   2 &&   3 |   4 ^   5 &   6 == !=   7 < > <= >=
+                         8 << >>   9 + -   10 * / %
+      parseUnary         -  ~  !  &  *  ++  --  (TYPE)
+        parsePostfix     ()  []  .  ?  ++  --  <T>(args)
+          parsePrimary
 ```
 
+`parseBinary(minPrec)` parses a unary operand, then folds every operator that binds at
+least `minPrec` in a loop, parsing each right operand with `parseBinary(prec + 1)`.
+Operators of equal precedence stay left-associative and cost no recursion, so a long
+`a + b + c ...` chain is parsed by the loop; a tighter operator on the right recurses at
+most once per precedence level. The self-hosted parser (`parse_binary` in
+`selfhost/parser.esk`) is the same algorithm.
+
 Compound assignment operators (`+=`, `-=`, `*=`, `/=`, `%=`) are desugared in `parseAssignment()` into `BinaryExpr(lhs, "=", BinaryExpr(lhs, op, rhs))`.
+
+### Deep and long input
+
+A left-leaning operator chain is as deep in the AST as it is long, so the passes that
+visit every expression walk a `BinaryExpr`'s left spine with a loop instead of one
+recursive call per operator: `ASTPrinter`, `TypeChecker::visit(BinaryExpr)` (including
+the `&&`/`||` narrowing), `CodeGen::visit(BinaryExpr)`, the constant folders, the
+`BinaryExpr` destructor, and the walkers built on `astwalk::forEachChildExprFlat`
+(capture analysis, the async transform's rewrites). An `else if` chain is likewise a
+loop in the parser, the printer, the type checker and codegen. The self-hosted compiler
+mirrors these (plus prefix-operator and ternary chains in its codegen, where each level
+used to re-derive the type of the whole chain below it).
+
+Genuinely nested input (parentheses, blocks, nested ifs and lambdas) still recurses once
+per level, so the compiler runs its pipeline on a thread with a 1 GB stack (`main()` in
+`main.cpp`; `selfhost/bigstack.esk` for the self-hosted drivers). The parser counts
+nesting (`Parser::kMaxNesting`, `P_MAX_NESTING` in the self-host) and rejects more than
+100000 levels with a located `nesting too deep` error, a safety net far above realistic
+code. The generated tests in `tests/deep/gen.sh` (run by `tests/run.sh` and
+`tests/selfhost/driver_parity.sh`) cover 100000-operand chains, 10000-deep nesting and
+the limit.
 
 ### `import` handling: inline parsing in `parseProgram()`
 
