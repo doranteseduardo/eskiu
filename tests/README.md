@@ -251,6 +251,58 @@ when you add a test.
 | `sizeof_mixed_sign` | `sizeof` is an `int64` in mixed-sign arithmetic. |
 | `ternary_narrow_arms` | Two different narrow ternary arms meet as `int`. |
 | `wide_literal_type` | An integer literal too wide for `int` is an `int64` and widens its operation. |
+| `array_2d` | multidimensional `int[N][M]` in C order: the leftmost bracket is the outer dimension |
+| `async_await_var` | awaiting a future held in a variable takes its type from the `let` declaration |
+| `bytes` | `<bytes>`: embedded NUL survives, append/eq/slice, base64 round trip |
+| `closure_coerce` | a closure call widens an argument narrower than its parameter |
+| `comment_backslash_continuation` | a `//` comment ending in `\` does not splice the next line into the comment |
+| `crlf_source` | CRLF line endings: backslash continuation, directives and `__LINE__` keep the right line numbers |
+| `datetime` | `<time>` UTC civil calendar: split, format and round trip |
+| `dead_code_return` | code after a `return` is dropped instead of emitted into a terminated block |
+| `defer` | `defer` runs LIFO at block exit on fall-through, `return`, `break`, `continue` and `?` |
+| `enum_match` | `match` on a payload-less enum: exhaustive dispatch, explicit `= N` values, `_` default |
+| `errdefer` | `errdefer` runs only on a `?`-propagation exit; plain `defer` always runs |
+| `escapes` | string and char escapes share one set; `\0` is NUL and char literals accept `\r` |
+| `escapes_hex` | `\xNN` hex escapes in string and char literals decode to the exact bytes |
+| `float_arg_coerce` | a `double` literal passed to a `float` parameter narrows at the call site |
+| `float_exponent` | scientific-notation float literals (`3.4e38`, `2.5e-3`, `1e6`, `6.022e+23`) |
+| `global_array_init` | global and static-local initializers, including array literals, survive to load time |
+| `global_const_init` | global and static initializers fold every constant form (64-bit, struct, const/enum/sizeof, `~`/`!`, string, hex) |
+| `global_lambda` | a non-capturing lambda assigned to a global folds to a constant closure |
+| `iface_arg_coerce` | interface (vtable) dispatch coerces each argument to the method's parameter type |
+| `import_dedup` | imports are deduplicated by canonical path, and an import cycle does not re-parse the root |
+| `labeled_break` | `break label` / `continue label` target a named loop and unwind the defers they leave |
+| `long_chain` | precedence climbing: equal-precedence operators fold left, long mixed chains follow C precedence |
+| `loop_locals` | a long loop with several locals does not grow the stack (allocas live in the entry block) |
+| `map` | `Map<V>` string-keyed hash map with growth and struct values |
+| `map_generic` | `HashMap<K,V>` with fn-pointer hash/eq, int keys (with growth) and struct keys |
+| `method_call_args` | a dot-call converts each argument, returns a large struct through sret, and throws through a `try` |
+| `multipart` | `multipart_part` extracts the "photo" part from a form-data body |
+| `numeric_signedness` | C signed/unsigned rules: `fptoui`, `>>` follows the left operand, mixed-rank ops |
+| `octal_literal` | leading-zero integer literals are octal (C rule) |
+| `operators` | operator overloading: binary, overloads by operand type, comparison, unary, subscript, compound assign |
+| `paren_deref` | `(*p)` is a dereference expression, not a cast; `(*T)x` stays a cast when T is a type |
+| `pointer_array` | `*T[N]` is an array of N pointers, at module scope and as a local |
+| `pp_macro_args` | function-like macro arguments: literals stay whole, nested calls expand first, block-comment apostrophes are ignored |
+| `random` | `<random>` xoshiro256** stream from a fixed seed (regression golden) |
+| `regex` | `<regex>` Thompson NFA / Pike VM syntax and capture groups |
+| `short_circuit` | `&&` / `\|\|` evaluate the right operand only when needed |
+| `slice` | slice `T[]` fat pointer: carries its length and aliases the backing array |
+| `slice_empty_end` | an empty slice `s[len..len]` at the end is valid; a mid slice reads the right element |
+| `slice_ptr` | `ptr[lo..hi]` builds a slice over heap memory |
+| `sort` | `<sort>` generic heapsort and binary search |
+| `static_const_init` | `static` locals accept array, cast and negative constant initializers and persist across calls |
+| `static_local` | a `static` local keeps one instance across calls |
+| `switch_defer_bitfield` | a `break` in a `switch` runs only the switch's cleanups; a bitfield write through `*Struct` reaches the pointee |
+| `template_rshift_backtrack` | `x < y >> 1` parses as `x < (y >> 1)` after the template-call attempt backtracks |
+| `ternary` | `?:` evaluates one arm and coexists with postfix `?` propagation |
+| `test_modes_macros` | the single-file `--test-*` modes predefine the same macros as a build |
+| `traits_multi` | multiple constraints `<T: Show + Eq>` |
+| `traits_ok` | a fn and a struct constrained to `Ord`, instantiated with a struct that satisfies it |
+| `traits_primitive` | a primitive satisfies a constraint through a free function (`int cmp(int,int)`) |
+| `try_finally` | a catch-less `try`/`finally` runs the finally block and propagates to an outer catch |
+| `url` | `<url>` percent-encoding and query parsing |
+| `uuid` | `<uuid>` RFC 4122 v4 from a fixed seed |
 
 ### `smoke` tests (compile + link + exit 0)
 
@@ -262,6 +314,9 @@ when you add a test.
 | `http_async_concurrent` | concurrent async HTTP server: 3 simultaneous clients, channel wait-group shutdown |
 | `threads` | `thread_create`/`thread_join`: output order is non-deterministic |
 | `test_struct` | minimal struct field access |
+| `arrays_md` | multidimensional array lowering, nested initializer, per-dimension index |
+| `pp_if` | `#if` / `#elif` with integer constant expressions and `defined(X)` |
+| `ternary_ir` | ternary lowering: branch plus result slot, arms coerced to the common type |
 
 ### `error` tests (must be rejected)
 
@@ -414,6 +469,68 @@ when you add a test.
 | `errors/switch_dup_folded` | rejected with "duplicate case value in switch" (folded labels) |
 | `errors/unary_struct` | rejected with "invalid operand for unary operator" |
 | `errors/unknown_global_type` | rejected with "unknown type 'NoType'" |
+| `errors/array_2d_init_overflow` | a nested initializer row longer than its inner dimension ("elements but") |
+| `errors/array_2d_oob` | an inner index past its own dimension ("out of bounds") |
+| `errors/array_overflow` | an array initializer with more elements than the array holds ("holds") |
+| `errors/compare_incompatible` | comparing a pointer to an integer ("invalid operands") |
+| `errors/compare_struct` | comparing structs with `==` ("invalid operands") |
+| `errors/const_addr_of` | writing through a plain pointer taken from the address of a const ("const") |
+| `errors/crlf_line` | a CRLF file with a line continuation reports the right line ("crlf_line.esk:6:") |
+| `errors/dangling_local` | returning the address of a local ("dangling") |
+| `errors/defer_break` | a `break`/`continue` escaping a defer body ("may not escape") |
+| `errors/defer_return` | a `return` inside a defer body |
+| `errors/diag_imported_file` | an error inside an imported file names that file ("diag_file/bad.esk:4:") |
+| `errors/div_by_zero` | division by a literal zero |
+| `errors/empty_char` | an empty character literal `''` |
+| `errors/float_to_int` | implicit floating-point to integer conversion ("floating-point") |
+| `errors/fn_return_mismatch` | assigning an int-returning function to a float-returning fn type ("incompatible function type") |
+| `errors/hex_no_digits` | a `0x` literal with no digits |
+| `errors/import_missing` | importing a file that does not exist ("Cannot open import") |
+| `errors/import_missing_std` | importing a stdlib module that does not exist ("Cannot open import") |
+| `errors/incdec_nonlvalue` | `5++` on a non-lvalue ("modifiable") |
+| `errors/index_oob` | a constant index past a fixed array's length ("out of bounds") |
+| `errors/init_incompatible` | a string initializing an int ("cannot convert") |
+| `errors/init_void` | a void call initializing an int ("cannot convert") |
+| `errors/keyword_as_name` | a reserved keyword as a variable name, reported at the cause ("expected a name, found keyword 'fn'") |
+| `errors/keyword_field` | a reserved word as a struct field or method name ("keyword") |
+| `errors/labeled_break_defer` | a labeled `break`/`continue` escaping a defer body ("may not escape it") |
+| `errors/labeled_break_unknown` | a label with no enclosing loop of that name ("has no enclosing loop labeled") |
+| `errors/literal_out_of_range` | `int8 x = 300` ("out of range") |
+| `errors/main_void` | `void main()` ("must return int") |
+| `errors/match_plain_nonexhaustive` | a `match` on a plain enum that misses variants ("non-exhaustive match") |
+| `errors/missing_return` | a non-void function that falls off the end |
+| `errors/missing_return_if` | a non-void function ending in an `if` without `else` |
+| `errors/must_use_discarded` | discarding the result of a `must_use` call (`alloc<T>`) ("must be used") |
+| `errors/number_suffix` | `0b101`: binary literals are not supported ("invalid suffix 'b101'") |
+| `errors/number_underscore` | `1_000`: digit separators are not supported ("invalid suffix '_000'") |
+| `errors/octal_bad_digit` | `08` ("invalid digit '8' in octal literal") |
+| `errors/octal_bad_digit2` | `019` ("invalid digit '9' in octal literal") |
+| `errors/operator_as_name` | the `operator` keyword as a variable name ("expected a name, found keyword 'operator'") |
+| `errors/parse_array_field` | a C-style `int arr[4];` field ("Expected ';' after field") |
+| `errors/parse_catch_colon` | `catch (e: string)` ("Expected variable name in catch") |
+| `errors/parse_error_located` | a syntax error is located and recovery resumes at the next declaration ("parse_error_located.esk:7:5: Expected ';'") |
+| `errors/parse_import_no_semi` | an `import` without `;` |
+| `errors/parse_leading_dot` | a float literal with a leading dot, `.5` ("Expected expression, got DOT") |
+| `errors/parse_missing_operand` | `3 +;` ("2:25: Expected expression, got SEMICOLON") |
+| `errors/parse_postdec_literal` | `x--1` ("Expected ';'") |
+| `errors/parse_return_no_semi` | `return 0 }` ("2:23: Expected ';'") |
+| `errors/pp_if_bad_expr` | a malformed `#if` expression ("in #if expression") |
+| `errors/pp_if_zero_div` | division by zero in an `#if` expression |
+| `errors/pp_include` | `#include` ("#include is not supported") |
+| `errors/pp_missing_endif` | an `#if` with no `#endif`, located at the `#if` ("unterminated conditional directive") |
+| `errors/pp_stray_else` | a second `#else` in one conditional ("#else after #else") |
+| `errors/pp_stray_endif` | an `#endif` with no `#if` |
+| `errors/pp_stringify` | the `#x` stringification operator ("stringification") |
+| `errors/pp_unknown_directive` | an unknown directive `#frobnicate`, located ("unknown preprocessor directive") |
+| `errors/redefinition` | defining the same function twice ("redefinition") |
+| `errors/static_nonconst_init` | a `static` local with a runtime initializer ("constant") |
+| `errors/static_on_global` | `static` on a global ("static") |
+| `errors/switch_dup_case` | two `case 1:` labels in one switch ("duplicate case value") |
+| `errors/ternary_incompatible` | ternary arms of type string and int ("incompatible") |
+| `errors/trait_primitive_unsat` | `float` has no `cmp` free function, so it does not satisfy `Ord` ("does not satisfy constraint") |
+| `errors/trait_unsatisfied` | `int` with no `cmp` free function used for a `<T: Ord>` param ("does not satisfy constraint") |
+| `errors/unexpected_char` | a stray `@` in an expression, located ("unexpected character '@'") |
+| `errors/uninitialized` | reading a local before it is assigned ("uninitialized") |
 
 ### `lint` tests (-Wall)
 
