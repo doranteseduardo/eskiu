@@ -9,6 +9,7 @@ import <executor>;
 import <channel>;
 import <hpack>;
 import <http2>;
+import <time>;
 extern int printf(string fmt, ...);
 extern int pipe(*int fds);
 extern int64 write(int fd, *void buf, int64 n);
@@ -86,5 +87,11 @@ int main() {
     let conn: H2Conn;  h2_conn_init(&conn, -1);
     let st: H2Stream;  h2_stream_init(&st, 1, 100, 100);
     printf("http2: %d %d\n", h2_can_send(&conn, &st, 50), h2_can_send(&conn, &st, 500));
+
+    let dt: DateTime;  time_to_utc((int64)86400, &dt);
+    let iso: String;  String_init(&iso, 24);
+    time_format_iso(&dt, &iso);
+    printf("time: %s %lld\n", String_cstr(&iso), time_from_utc(&dt));
+    String_free(&iso);
     return 0;
 }

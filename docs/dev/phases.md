@@ -285,7 +285,7 @@ practical stdlib modules. Each landed as granular per-layer commits.
 - [x] `must_use` function qualifier: the compiler rejects a call whose result is discarded; `stdlib` `alloc` is marked `must_use` so a forgotten allocation is a compile error. Both compilers.
 - [x] `--safe` build mode (C++ only): opt-in runtime bounds check on array and slice indexing, trapping on violation; off by default so release builds pay nothing. Self-host mirror on the promotion track.
 - [x] Checked nullable pointer `?*T` (C++ only): bare `*T` stays C-nullable, `?*T` cannot be dereferenced/indexed/membered until proven non-null; `if (q != null)` narrows it; `*T` widens to `?*T` but not the reverse. Lowered as a bare pointer (zero runtime cost). Self-host mirror on the promotion track.
-- [x] Stdlib: `<random>` (xoshiro256\*\* PRNG), `<regex>` (Thompson-NFA / Pike VM with capture groups, linear-time), `<sort>` (generic heapsort + binary search), `<url>` (RFC 3986 percent-encoding + query parsing), `<uuid>` (RFC 4122 v4), and a UTC civil calendar in `<time>` (`DateTime`, `time_to_utc`/`time_from_utc`, ISO 8601 formatting).
+- [x] Stdlib: `<random>` (xoshiro256\*\* PRNG), `<regex>` (Thompson-NFA / Pike VM with capture groups, linear-time), `<sort>` (generic heapsort + binary search), `<url>` (RFC 3986 percent-encoding + query parsing), `<uuid>` (RFC 4122 v4), and a UTC civil calendar in `<time>` (`DateTime`, `time_to_utc`/`DateTime_to_epoch`, ISO 8601 formatting).
 
 ### v1.0: Production-ready
 

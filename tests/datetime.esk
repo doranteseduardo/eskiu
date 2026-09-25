@@ -10,7 +10,7 @@ void chk_iso(int64 epoch, string want) {
     time_to_utc(epoch, &dt);
     let s: String;
     String_init(&s, 24);
-    time_format_iso(&dt, &s);
+    DateTime_format_iso(&dt, &s);
     if (String_eq_cstr(&s, want) == 1) { printf("ok    %lld = %s\n", epoch, want); }
     else { printf("FAIL  %lld (want %s)\n", epoch, want); fails = fails + 1; }
     String_free(&s);
@@ -35,7 +35,7 @@ int main() {
     while (i < 5) {
         let d: DateTime;
         time_to_utc(t, &d);
-        if (time_from_utc(&d) != t) { rt = 0; }
+        if (DateTime_to_epoch(&d) != t) { rt = 0; }
         t = t + 88888888;
         i = i + 1;
     }
