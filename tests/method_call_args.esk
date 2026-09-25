@@ -1,0 +1,22 @@
+// A dot-call method converts each argument to its parameter type, returns a large
+// struct through the hidden sret pointer, and throws through an enclosing try.
+extern int printf(string fmt, ...);
+struct R { uint64 s; }
+void R_set(R* self, uint64 v) { self.s = v; }
+struct Big { int64 a; int64 b; int64 c; int64 d; }
+struct M {
+    int64 k;
+    void set(int64 v) { self.k = v; }
+    Big mk(int64 x) { Big r = Big{x, self.k, x + self.k, 4}; return r; }
+    int boom(int x) { if (x > 0) { throw "bad"; } return x; }
+}
+int main() {
+    let r: R;
+    r.set(5);
+    let m: M;
+    m.set(10);
+    Big b = m.mk(5);
+    printf("%llu %lld %lld %lld %lld\n", r.s, b.a, b.b, b.c, b.d);
+    try { m.boom(1); printf("no\n"); } catch (string e) { printf("caught %s\n", e); }
+    return 0;
+}
