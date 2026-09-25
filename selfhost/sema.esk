@@ -3534,12 +3534,12 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         string retn = sema_struct_of_type(s.cur_ret);
         if (qt[0] != 0) {                  // the operand must be Result-like (`ok` + `value` fields)
             *DeclNode qd = sema_find_struct(s, opn);
-            int okf = 0; int valf = 0;
+            int okf = 0; int valf = 0; string okty = "";
             if (qd != null && sema_has_star(qt) == 0) {
                 int qi = 0; int qn = List_len<Param>(&qd.params);
                 while (qi < qn) {
                     string fnm = List_get<Param>(&qd.params, qi).name;
-                    if (sema_streq(fnm, "ok") == 1) { okf = 1; }
+                    if (sema_streq(fnm, "ok") == 1) { okf = 1; okty = List_get<Param>(&qd.params, qi).ty; }
                     if (sema_streq(fnm, "value") == 1) { valf = 1; }
                     qi = qi + 1;
                 }
@@ -3547,6 +3547,18 @@ void sema_expr_k(Sema* s, *ExprNode e) {
             if ((okf == 0 || valf == 0) && (qd != null || sema_is_numeric_ty(qt) == 1 || sema_is_ptrish(qt) == 1)) {
                 s.had_error = 1;
                 dprintf(2, "error: %s:%d:%d: `?` operator requires a Result-like value (with `ok` and `value` fields), got %s\n", s.filename, s.line, s.col, qt);
+            } else if (okf == 1 && valf == 1) {
+                // `?` tests `ok` as a flag (zero is the error): an integer or a bool.
+                if (List_len<TypeParam>(&qd.type_params) > 0) {
+                    List<string> qtargs; List_init<string>(&qtargs, 2);
+                    sema_parse_targs(qt, &qtargs);
+                    okty = sema_subst_params(okty, &qd.type_params, &qtargs);
+                }
+                string okc = sema_canon(s, okty);
+                if (sema_judgeable(s, okc) == 1 && sema_is_int_ty(okc) == 0 && sema_streq(okc, "bool") == 0) {
+                    s.had_error = 1;
+                    dprintf(2, "error: %s:%d:%d: `?` needs an integer or bool `ok` field, got '%s'\n", s.filename, s.line, s.col, okty);
+                }
             }
         }
         // Same base name but different type args (`Result<int,string>` in a function

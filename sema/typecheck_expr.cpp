@@ -232,16 +232,22 @@ void TypeChecker::visit(QuestionExpr* node) {
 
     auto it = structs.find(s);
     bool hasOk = false, hasValue = false;
-    std::string valueType = "unknown";
+    std::string valueType = "unknown", okType;
     if (it != structs.end())
         for (const auto& f : it->second.fields) {
-            if (f.name == "ok")    hasOk = true;
+            if (f.name == "ok")    { hasOk = true; okType = normalizeType(f.type); }
             if (f.name == "value") { hasValue = true; valueType = normalizeType(f.type); }
         }
 
     if (!hasOk || !hasValue) {
         errorAt(node, "`?` operator requires a Result-like value "
                       "(with `ok` and `value` fields), got " + opType);
+        expressionTypes[node] = "unknown";
+        return;
+    }
+    // `?` tests `ok` as a flag (zero is the error), so it must be an integer or a bool.
+    if (!isIntType(okType) && okType != "bool") {
+        errorAt(node, "`?` needs an integer or bool `ok` field, got '" + okType + "'");
         expressionTypes[node] = "unknown";
         return;
     }

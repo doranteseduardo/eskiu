@@ -393,6 +393,7 @@ when you add a test.
 | `errors/generic_void_field` | `Box<void>` makes a field a `void` value: "its field 'v' would be 'void'" |
 | `errors/void_slice` | a `void[]` slice has `void` elements: "variable 's' cannot have type 'void'" |
 | `errors/array_size_nonconst` | no variable-length arrays: "array size must be a compile-time constant, got 'n'" |
+| `errors/question_float_ok` | `?` tests `ok` as a flag: "needs an integer or bool `ok` field, got 'float'" |
 | `errors/union_two_members` | rejected with "a union literal initializes one member" |
 | `errors/break_outside` | rejected with "'break' outside of a loop or switch" |
 | `errors/call_non_fn` | rejected with "undefined function 'x'" |
