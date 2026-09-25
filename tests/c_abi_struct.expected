@@ -1,0 +1,32 @@
+sum 15
+mk 10 12 14
+sm 42
+mksm 9 7
+f2 6.0
+mkf2 2.0 4.0
+d3 321.0
+mkd3 5.0 6.0 7.0
+f4 4321.0
+mkf4 7.0 10.0
+mix 8.25
+mkmix 0.5 11
+p3 321
+mkp3 4 5 6
+c3 14
+mkc3 10 11 12
+dl 40.5
+mkdl 0.25 77
+fd 2.75
+mkfd 1.5 9.5
+tu 123456789012
+mktu 0 -5
+bf 1234093
+mkbf 5 17 4321
+pk 1000000000002
+mkpk 3 99
+nest 106
+mknest 6 2 18
+many 289
+mixed 385.50
+mkbig2 21 4 3 42 8
+fnval 12 7

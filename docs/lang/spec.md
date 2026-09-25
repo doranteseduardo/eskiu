@@ -1343,7 +1343,7 @@ struct Rect {
 
 Field types may be any primitive type, pointer type, another struct type, or a fixed-size array type.
 
-An integer field may declare a **bit width** with `: N`, making it a bitfield. Consecutive bitfields pack into storage words of their declared type; reads mask and shift out the field (signed fields sign-extend), and writes are read-modify-write. You cannot take the address of a bitfield.
+An integer field may declare a **bit width** with `: N`, making it a bitfield. Consecutive bitfields pack into storage words of their declared type; reads mask and shift out the field (signed fields sign-extend), and writes (including compound assignment and `++`/`--`, which wrap within the field's width) are read-modify-write. You cannot take the address of a bitfield.
 
 ```eskiu
 struct Flags {
@@ -1444,7 +1444,7 @@ struct QRFrame {
 
 ### 8.6 Union Types
 
-A `union` declaration is identical in syntax to `struct`, but all fields share offset 0. The size of the union equals the size of its largest field. Accessing a field reinterprets the underlying bytes as the field's type. No explicit cast is needed.
+A `union` declaration is identical in syntax to `struct`, but all fields share offset 0. The size of the union equals the size of its largest field, rounded up to the alignment of its most-aligned field, and the union is aligned like that field (the C layout). Accessing a field reinterprets the underlying bytes as the field's type. No explicit cast is needed.
 
 ```eskiu
 union Value {
@@ -2393,6 +2393,7 @@ The compiler predefines these:
 | `__linux__` | `1` (Linux targets) | |
 | `_WIN32` | `1` (Windows targets) | also defined for 64-bit Windows |
 | `_WIN64` | `1` (64-bit Windows targets) | |
+| `__aarch64__` / `__x86_64__` / `__arm__` | `1` | target-architecture macro, from `--target` or else the build host (at most one is defined) |
 
 At most one OS family is defined. A bare-metal triple (OS `none`, e.g. `aarch64-none-elf`) defines none of them.
 | `__ESKIU_FREESTANDING__` | `1` under `--freestanding` | lets stdlib target `esk_alloc`/`esk_free` instead of libc |

@@ -176,12 +176,14 @@ int main(int argc, string* argv) {
     // pick the right stdlib platform branch (kqueue vs epoll, sockaddr layout).
     if (cg_streq(mode, "--test-parser") == 1 || cg_streq(mode, "--test-typechecker") == 1) {
         g_pp_os = "";
+        g_pp_arch = "";
     } else {
 #ifdef __APPLE__
         g_pp_os = "__APPLE__";
 #else
         g_pp_os = "__linux__";
 #endif
+        g_pp_arch = cg_host_arch_macro();
     }
     // --test-typechecker prints its banner before parsing (matches tc_main).
     if (cg_streq(mode, "--test-typechecker") == 1) {

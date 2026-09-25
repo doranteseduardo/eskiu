@@ -40,6 +40,15 @@ struct CgVariant { string vname; string ename; int tag; List<string> ptys; }
 // the storage word's LLVM integer type (the field's declared type, e.g. "i8"), and the
 // field's Eskiu type (so a read carries its signedness).
 struct CgBF { string sname; string fname; int fidx; int boff; int bw; int sgn; string sty; string fety; }
+// C ABI lowering (see cg_abi_classify). A scalar leaf of a flattened aggregate: byte
+// offset + LLVM type. A classified param/return: kind 0 direct, 1 coerce (one value of
+// `ty`), 2 expand (two args `ty`, `ty2`), 3 indirect (pointer to a caller copy), 4 byval,
+// 5 sret; `ty` is the aggregate's LLVM type for 3-5, `align` their alignment, `salign`
+// an `alignstack` for a coerced arg (0 = none). A lowered extern: its classification plus
+// the lowered return / fixed-param types (the declared C signature).
+struct CgLeaf { int off; string ty; }
+struct CgAbi { int kind; string ty; string ty2; int align; int salign; }
+struct CgCabi { string name; CgAbi ret; List<CgAbi> params; string lowret; string lowfixed; }
 // A queued lambda: its unique name, the AST node (signature in .sval, body in .stmt),
 // and its captured outer variables (parallel name/Eskiu-type lists).
 // One active type-parameter substitution (T → concrete) during instantiation.
@@ -102,6 +111,8 @@ struct Codegen {
     String entry_buf;        // local allocas for the fn/lambda being emitted, hoisted to entry
     List<CgSub> tydefs;      // emitted named LLVM types: name (no '%') → body text ("{ i32, ptr }")
     List<*DeclNode> tydecls; // non-generic struct/union/ADT decls whose type line is emitted on demand
+    int abi;                 // host C ABI: 0 none, 1 AArch64 Darwin, 2 AArch64 AAPCS64, 3 x86-64 SysV
+    List<CgCabi> cabis;      // externs declared with a C-ABI-lowered signature
 }
 
 int cg_streq(string a, string b) {
@@ -234,6 +245,19 @@ void cg_init(Codegen* g) {
     List_init<*DeclNode>(&g.genums, 4);
     List_init<CgSub>(&g.tydefs, 16);
     List_init<*DeclNode>(&g.tydecls, 16);
+    List_init<CgCabi>(&g.cabis, 4);
+    // The host C ABI, fixed when this compiler was built (the build compiler predefines
+    // the architecture macro); the emitted IR is compiled by clang for the same host.
+    g.abi = 0;
+#ifdef __aarch64__
+    g.abi = 2;
+#ifdef __APPLE__
+    g.abi = 1;
+#endif
+#endif
+#ifdef __x86_64__
+    g.abi = 3;
+#endif
     List_init<CgVariant>(&g.gvariants, 8);
     List_init<*DeclNode>(&g.gfns, 16);
     List_init<CgSub>(&g.cursub, 4);
@@ -1100,6 +1124,38 @@ string cg_fn_to_closure(Codegen* g, string fnname) {
 void cg_emit_thunk(Codegen* g, string fnname) {
     CgFn f = cg_find_fn(g, fnname);
     int np = List_len<string>(&f.ptys);
+    CgCabi cab = cg_find_cabi(g, fnname);
+    if (cab.name[0] != 0) {                             // a C-ABI extern: lower inside the thunk
+        cg_emit(g, "define "); cg_emit(g, f.retty); cg_emit(g, " @__fnptr_"); cg_emit(g, fnname); cg_emit(g, "(ptr %e");
+        List<CgVal> targs; List_init<CgVal>(&targs, np);
+        int ti = 0;
+        while (ti < np) {
+            let ta: CgVal; ta.ty = List_get<string>(&f.ptys, ti); ta.op = cg_cat("%a", cg_itoa(ti)); ta.ety = "";
+            cg_emit(g, ", "); cg_emit(g, ta.ty); cg_emit(g, " "); cg_emit(g, ta.op);
+            List_push<CgVal>(&targs, ta);
+            ti = ti + 1;
+        }
+        cg_emit(g, ") {
+");
+        String_init(&g.entry_buf, 128);
+        String saved = g.out;
+        String_init(&g.out, 256);
+        CgVal r = cg_cabi_call(g, &cab, &f, &targs);
+        if (cg_streq(f.retty, "void") == 1) { cg_emit(g, "  ret void
+"); }
+        else { cg_emit(g, "  ret "); cg_emit(g, f.retty); cg_emit(g, " "); cg_emit(g, r.op); cg_emit(g, "
+"); }
+        string bodytext = (string)String_cstr(&g.out);
+        g.out = saved;
+        cg_emit(g, "entry:
+");
+        cg_emit(g, (string)String_cstr(&g.entry_buf));
+        cg_emit(g, bodytext);
+        cg_emit(g, "}
+
+");
+        return;
+    }
     cg_emit(g, "define "); cg_emit(g, f.retty); cg_emit(g, " @__fnptr_"); cg_emit(g, fnname); cg_emit(g, "(ptr %e");
     string args = "";
     int i = 0;
@@ -2648,6 +2704,24 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
             fname = e.a.sval;
         }
         CgFn f = cg_find_fn(g, fname);
+        if (pbase == 0 && List_len<CgCabi>(&g.cabis) > 0) {
+            CgCabi cab = cg_find_cabi(g, fname);
+            if (cab.name[0] != 0) {                     // a C-ABI-lowered extern
+                List<CgVal> cargs; List_init<CgVal>(&cargs, 4);
+                int ci = 0;
+                while (ci < List_len<*ExprNode>(&e.kids)) {
+                    CgVal a = cg_expr(g, List_get<*ExprNode>(&e.kids, ci));
+                    string cpty = cg_pty(&f, ci);
+                    let ca: CgVal; ca.op = a.op; ca.ty = a.ty; ca.ety = a.ety;
+                    if (cpty[0] != 0) { ca.op = cg_coerce(g, a, cpty); ca.ty = cpty; }
+                    else if (cg_streq(a.ty, "float") == 1) { ca.op = cg_coerce(g, a, "double"); ca.ty = "double"; }
+                    else if (cg_int_w(a.ty) > 0 && cg_int_w(a.ty) < 32) { ca.op = cg_coerce(g, a, "i32"); ca.ty = "i32"; }
+                    List_push<CgVal>(&cargs, ca);
+                    ci = ci + 1;
+                }
+                return cg_cabi_call(g, &cab, &f, &cargs);
+            }
+        }
         // Evaluate the declared args (left to right), coercing each to the callee's
         // declared parameter type (so e.g. an i32 count widens to an `int64` parameter).
         int i = 0;
@@ -4295,6 +4369,388 @@ void cg_emit_union(Codegen* g, *DeclNode d) {
     cg_deftype(g, d.name, cg_cat("{ ", cg_cat((string)String_cstr(&body), " }")));
 }
 
+// The architecture macro to predefine for programs this compiler builds (the host's, as
+// resolved when this compiler itself was built).
+string cg_host_arch_macro() {
+    string a = "";
+#ifdef __aarch64__
+    a = "__aarch64__";
+#endif
+#ifdef __x86_64__
+    a = "__x86_64__";
+#endif
+    return a;
+}
+
+// ---- C ABI lowering for externs --------------------------------------------------------
+// An `extern` that takes or returns an aggregate (struct/union) by value is declared with
+// the host C signature and its calls convert the Eskiu-level values to and from it, like
+// the C++ codegen (codegen_cabi.cpp): AArch64 AAPCS64 (Darwin + Linux) and x86-64 SysV.
+
+// Push the scalar leaves (offset, type) of the LLVM type at s[*pos] placed at `base`;
+// returns its size (*al = its alignment). A union contributes every member's leaves.
+int cg_ll_leaves(Codegen* g, string s, int* pos, int base, List<CgLeaf>* out, int* al) {
+    cg_ll_ws(s, pos);
+    int c = (int)s[pos[0]];
+    int pk = 0;
+    if (c == 60 && (int)s[pos[0] + 1] == 123) { pk = 1; pos[0] = pos[0] + 1; c = 123; }   // `<{`
+    if (c == 123) {                                                      // struct fields
+        pos[0] = pos[0] + 1;
+        int off = 0; int maxal = 1;
+        cg_ll_ws(s, pos);
+        while (s[pos[0]] != 0 && (int)s[pos[0]] != 125) {
+            int p1 = pos[0]; int fal = 1;
+            int fsz = cg_ll_layout(g, s, pos, &fal);
+            if (pk == 1) { fal = 1; }
+            if (fal > maxal) { maxal = fal; }
+            off = cg_align_up(off, fal);
+            int dal = 1; cg_ll_leaves(g, s, &p1, base + off, out, &dal);
+            off = off + fsz;
+            cg_ll_ws(s, pos);
+            if ((int)s[pos[0]] == 44) { pos[0] = pos[0] + 1; }
+            cg_ll_ws(s, pos);
+        }
+        if (s[pos[0]] != 0) { pos[0] = pos[0] + 1; }
+        if (pk == 1) { cg_ll_ws(s, pos); if ((int)s[pos[0]] == 62) { pos[0] = pos[0] + 1; } maxal = 1; }
+        al[0] = maxal;
+        return cg_align_up(off, maxal);
+    }
+    if (c == 91) {                                                       // [N x T]
+        pos[0] = pos[0] + 1; cg_ll_ws(s, pos);
+        int an = cg_ll_num(s, pos); cg_ll_ws(s, pos); cg_ll_kw(s, pos, "x");
+        int p1 = pos[0]; int eal = 1;
+        int esz = cg_ll_layout(g, s, pos, &eal);
+        int k = 0;
+        while (k < an) { int p2 = p1; int dal = 1; cg_ll_leaves(g, s, &p2, base + k * esz, out, &dal); k = k + 1; }
+        cg_ll_ws(s, pos); if ((int)s[pos[0]] == 93) { pos[0] = pos[0] + 1; }
+        al[0] = eal;
+        return an * esz;
+    }
+    if (c == 37) {                                                       // %name
+        int p1 = pos[0];
+        int sz = cg_ll_layout(g, s, pos, al);                            // ensures the body exists
+        string name = cg_sub_str(s, p1 + 1, pos[0]);
+        if (cg_is_union(g, name) == 1) {
+            CgStruct u = cg_find_struct(g, name);
+            int i = 0;
+            while (i < List_len<string>(&u.fetys)) {
+                string mt = cg_lltype(g, List_get<string>(&u.fetys, i));
+                int p2 = 0; int dal = 1; cg_ll_leaves(g, mt, &p2, base, out, &dal);
+                i = i + 1;
+            }
+            return sz;
+        }
+        string body = cg_tydef_body(g, name);
+        int p3 = 0; int dal2 = 1;
+        if (body[0] != 0) { cg_ll_leaves(g, body, &p3, base, out, &dal2); }
+        return sz;
+    }
+    int p1 = pos[0];
+    int sz = cg_ll_layout(g, s, pos, al);                                // a scalar
+    let lf: CgLeaf; lf.off = base; lf.ty = cg_trim(cg_sub_str(s, p1, pos[0]));
+    List_push<CgLeaf>(out, lf);
+    return sz;
+}
+
+int cg_ll_size_of(Codegen* g, string t) { int al = 1; int p = 0; return cg_ll_layout(g, t, &p, &al); }
+int cg_ll_align_of(Codegen* g, string t) { int al = 1; int p = 0; cg_ll_layout(g, t, &p, &al); return al; }
+int cg_ll_is_fp(string t) { return cg_streq(t, "float") | cg_streq(t, "double"); }
+
+// A by-value C aggregate: a named user struct/union type (not the closure / interface /
+// va_list fat values, which keep their first-class lowering).
+int cg_abi_is_agg(string lt) {
+    if ((int)lt[0] != 37) { return 0; }
+    if (cg_streq(lt, "%closure") == 1 || cg_streq(lt, "%iface_fat") == 1 || cg_streq(lt, "%__va_list") == 1) { return 0; }
+    return 1;
+}
+
+// A homogeneous FP aggregate (1..4 same-type FP leaves, densely packed) as `[N x fp]`
+// (asarr) or `{ fp, ... }`; "" if not one.
+string cg_abi_hfa(List<CgLeaf>* lv, int size, int asarr) {
+    int n = List_len<CgLeaf>(lv);
+    if (n == 0) { return ""; }
+    string base = List_get<CgLeaf>(lv, 0).ty;
+    if (cg_ll_is_fp(base) == 0) { return ""; }
+    int esz = 4; if (cg_streq(base, "double") == 1) { esz = 8; }
+    int distinct = 0; int i = 0;
+    while (i < n) {
+        CgLeaf l = List_get<CgLeaf>(lv, i);
+        if (cg_streq(l.ty, base) == 0 || l.off % esz != 0) { return ""; }
+        int seen = 0; int j = 0;
+        while (j < i) { if (List_get<CgLeaf>(lv, j).off == l.off) { seen = 1; } j = j + 1; }
+        if (seen == 0) { distinct = distinct + 1; }
+        i = i + 1;
+    }
+    if (distinct > 4 || size != distinct * esz) { return ""; }
+    if (asarr == 1) { return cg_cat("[", cg_cat(cg_itoa(distinct), cg_cat(" x ", cg_cat(base, "]")))); }
+    String t; String_init(&t, 32); String_append(&t, "{ ");
+    i = 0;
+    while (i < distinct) { if (i > 0) { String_append(&t, ", "); } String_append(&t, base); i = i + 1; }
+    String_append(&t, " }");
+    return (string)String_cstr(&t);
+}
+
+// The type of the first leaf exactly at `off` ("" if none).
+string cg_abi_leaf_at(List<CgLeaf>* lv, int off) {
+    int i = 0;
+    while (i < List_len<CgLeaf>(lv)) { CgLeaf l = List_get<CgLeaf>(lv, i); if (l.off == off) { return l.ty; } i = i + 1; }
+    return "";
+}
+
+// The IR type for SysV eightbyte `eb` of an aggregate (clang's GetSSE/INTEGERTypeAtOffset).
+string cg_abi_eb_type(Codegen* g, List<CgLeaf>* lv, int size, int eb, int sse) {
+    int o = eb * 8;
+    string t0 = cg_abi_leaf_at(lv, o);
+    if (sse == 1) {
+        if (t0[0] == 0 || cg_streq(t0, "double") == 1) { return "double"; }
+        if (size - o > 4 && cg_streq(cg_abi_leaf_at(lv, o + 4), "float") == 1) { return "<2 x float>"; }
+        return t0;
+    }
+    if (cg_streq(t0, "ptr") == 1 || cg_streq(t0, "i64") == 1) { return t0; }
+    int w = cg_int_w(t0);
+    if (w > 0) {
+        if (w < 8) { w = 8; }
+        int clean = 1; int i = 0;
+        while (i < List_len<CgLeaf>(lv)) {
+            CgLeaf l = List_get<CgLeaf>(lv, i);
+            if (l.off >= o + w / 8 && l.off < o + 8) { clean = 0; }
+            i = i + 1;
+        }
+        if (clean == 1 && w <= 32) { return cg_cat("i", cg_itoa(w)); }
+    }
+    int rem = size - o; if (rem > 8) { rem = 8; }
+    return cg_cat("i", cg_itoa(rem * 8));
+}
+
+CgAbi cg_abi_mem(CgAbi r, string lt, int isret, int al, int size, int* fint) {
+    if (isret == 0 && fint[0] == 0 && al <= 8 && size <= 8) { r.kind = 1; r.ty = cg_cat("i", cg_itoa(size * 8)); return r; }
+    r.ty = lt;
+    if (isret == 1) { r.kind = 5; r.align = al; return r; }
+    r.kind = 4; r.align = al; if (r.align < 8) { r.align = 8; }
+    return r;
+}
+
+// Classify one param/return of Eskiu type `ety` for the host C ABI. `fint`/`fsse` count
+// the free SysV argument registers (consumed as arguments are classified).
+CgAbi cg_abi_classify(Codegen* g, string ety, int isret, int* fint, int* fsse) {
+    let r: CgAbi; r.kind = 0; r.ty = ""; r.ty2 = ""; r.align = 0; r.salign = 0;
+    string lt = cg_lltype(g, ety);
+    List<CgLeaf> lv; List_init<CgLeaf>(&lv, 8);
+    int al = 1; int p = 0;
+    int size = cg_ll_leaves(g, lt, &p, 0, &lv, &al);
+    if (cg_abi_is_agg(lt) == 0) {
+        if (g.abi == 3 && isret == 0) {                // a scalar still takes a register
+            int i = 0;
+            while (i < List_len<CgLeaf>(&lv)) {
+                if (cg_ll_is_fp(List_get<CgLeaf>(&lv, i).ty) == 1) { if (fsse[0] > 0) { fsse[0] = fsse[0] - 1; } }
+                else if (fint[0] > 0) { fint[0] = fint[0] - 1; }
+                i = i + 1;
+            }
+        }
+        return r;
+    }
+    if (size == 0) { return r; }
+    if (g.abi == 1 || g.abi == 2) {                    // AArch64 AAPCS64
+        int asarr = 0; if (isret == 0) { asarr = 1; }
+        string h = cg_abi_hfa(&lv, size, asarr);
+        if (h[0] != 0) {
+            r.kind = 1; r.ty = h;
+            if (isret == 0 && g.abi == 2) { r.salign = 8; if (al >= 16) { r.salign = 16; } }
+            return r;
+        }
+        if (size > 16) {
+            r.ty = lt; r.align = al;
+            if (isret == 1) { r.kind = 5; } else { r.kind = 3; }
+            return r;
+        }
+        r.kind = 1;
+        if (size > 8) { r.ty = "[2 x i64]"; }
+        else if (isret == 1) { r.ty = cg_cat("i", cg_itoa(size * 8)); }
+        else { r.ty = "i64"; }
+        return r;
+    }
+    if (g.abi == 3) {                                  // x86-64 System V
+        if (size > 16) { return cg_abi_mem(r, lt, isret, al, size, fint); }
+        int c0 = 0; int c1 = 0;                        // 0 none, 1 INTEGER, 2 SSE
+        int i = 0;
+        while (i < List_len<CgLeaf>(&lv)) {
+            CgLeaf l = List_get<CgLeaf>(&lv, i);
+            int lsz = cg_ll_size_of(g, l.ty); int lal = cg_ll_align_of(g, l.ty);
+            if (l.off % lal != 0 || l.off / 8 != (l.off + lsz - 1) / 8) { return cg_abi_mem(r, lt, isret, al, size, fint); }
+            int cl = 1; if (cg_ll_is_fp(l.ty) == 1) { cl = 2; }
+            if (l.off / 8 == 0) { if (c0 == 0 || cl == 1) { c0 = cl; } }
+            else { if (c1 == 0 || cl == 1) { c1 = cl; } }
+            i = i + 1;
+        }
+        int neb = 1; if (size > 8) { neb = 2; }
+        int nint = 0; int nsse = 0;
+        if (c0 == 2) { nsse = nsse + 1; } else { nint = nint + 1; }
+        if (neb == 2) { if (c1 == 2) { nsse = nsse + 1; } else { nint = nint + 1; } }
+        if (isret == 0) {
+            if (nint > fint[0] || nsse > fsse[0]) { return cg_abi_mem(r, lt, isret, al, size, fint); }
+            fint[0] = fint[0] - nint; fsse[0] = fsse[0] - nsse;
+        }
+        int s0 = 0; if (c0 == 2) { s0 = 1; }
+        string lo = cg_abi_eb_type(g, &lv, size, 0, s0);
+        if (neb == 1) { r.kind = 1; r.ty = lo; return r; }
+        int s1 = 0; if (c1 == 2) { s1 = 1; }
+        string hi = cg_abi_eb_type(g, &lv, size, 1, s1);
+        if (cg_align_up(cg_ll_size_of(g, lo), cg_ll_align_of(g, hi)) != 8) {   // hi must start at 8
+            if (cg_streq(lo, "float") == 1) { lo = "double"; } else { lo = "i64"; }
+        }
+        if (isret == 1) { r.kind = 1; r.ty = cg_cat("{ ", cg_cat(lo, cg_cat(", ", cg_cat(hi, " }")))); return r; }
+        r.kind = 2; r.ty = lo; r.ty2 = hi;
+        return r;
+    }
+    return r;
+}
+
+CgCabi cg_find_cabi(Codegen* g, string name) {
+    int i = 0;
+    while (i < List_len<CgCabi>(&g.cabis)) {
+        CgCabi c = List_get<CgCabi>(&g.cabis, i);
+        if (cg_streq(c.name, name) == 1) { return c; }
+        i = i + 1;
+    }
+    let none: CgCabi; none.name = ""; none.lowret = ""; none.lowfixed = "";
+    none.ret.kind = 0; none.ret.ty = ""; none.ret.ty2 = ""; none.ret.align = 0; none.ret.salign = 0;
+    List_init<CgAbi>(&none.params, 1);
+    return none;
+}
+
+// An lowered param's type with its ABI attributes (`ptr byval(%T) align 8`, …).
+string cg_abi_param_decl(CgAbi a, string lty) {
+    if (a.kind == 1) {
+        if (a.salign > 0) { return cg_cat(a.ty, cg_cat(" alignstack(", cg_cat(cg_itoa(a.salign), ")"))); }
+        return a.ty;
+    }
+    if (a.kind == 2) { return cg_cat(a.ty, cg_cat(", ", a.ty2)); }
+    if (a.kind == 3) { return "ptr"; }
+    if (a.kind == 4) { return cg_cat("ptr byval(", cg_cat(a.ty, cg_cat(") align ", cg_itoa(a.align)))); }
+    return lty;
+}
+
+// Classify extern `d`; when it has a by-value aggregate, register it and return the
+// lowered `declare` line (else "" — the extern keeps its plain declaration).
+string cg_cabi_declare(Codegen* g, *DeclNode d) {
+    if (g.abi == 0) { return ""; }
+    int any = cg_abi_is_agg(cg_lltype(g, d.ret_type));
+    int np = List_len<Param>(&d.params);
+    int i = 0;
+    while (i < np) {
+        Param pm = List_get<Param>(&d.params, i);
+        if (cg_streq(pm.ty, "...") == 0 && cg_abi_is_agg(cg_lltype(g, pm.ty)) == 1) { any = 1; }
+        i = i + 1;
+    }
+    if (any == 0) { return ""; }
+    let c: CgCabi; c.name = d.name;
+    List_init<CgAbi>(&c.params, np);
+    int fint = 6; int fsse = 8;
+    c.ret.kind = 0; c.ret.ty = ""; c.ret.ty2 = ""; c.ret.align = 0; c.ret.salign = 0;
+    string lret = cg_lltype(g, d.ret_type);
+    if (cg_streq(lret, "void") == 0) { c.ret = cg_abi_classify(g, d.ret_type, 1, &fint, &fsse); }
+    if (c.ret.kind == 5 && fint > 0) { fint = fint - 1; }
+    String decl; String_init(&decl, 64);      // params with attributes (the declare line)
+    String fixed; String_init(&fixed, 64);    // bare lowered types (a variadic call's fn type)
+    int variadic = 0;
+    if (c.ret.kind == 5) {
+        String_append(&decl, cg_cat("ptr sret(", cg_cat(c.ret.ty, cg_cat(") align ", cg_itoa(c.ret.align)))));
+        String_append(&fixed, "ptr");
+    }
+    i = 0;
+    while (i < np) {
+        Param pm = List_get<Param>(&d.params, i);
+        if (cg_streq(pm.ty, "...") == 1) { variadic = 1; i = i + 1; continue; }
+        CgAbi a = cg_abi_classify(g, pm.ty, 0, &fint, &fsse);
+        List_push<CgAbi>(&c.params, a);
+        string lty = cg_lltype(g, pm.ty);
+        string bare = lty;
+        if (a.kind == 1) { bare = a.ty; }
+        else if (a.kind == 2) { bare = cg_cat(a.ty, cg_cat(", ", a.ty2)); }
+        else if (a.kind >= 3) { bare = "ptr"; }
+        if (String_len(&decl) > 0) { String_append(&decl, ", "); String_append(&fixed, ", "); }
+        String_append(&decl, cg_abi_param_decl(a, lty));
+        String_append(&fixed, bare);
+        i = i + 1;
+    }
+    c.lowret = lret;
+    if (c.ret.kind == 5) { c.lowret = "void"; }
+    else if (c.ret.kind == 1) { c.lowret = c.ret.ty; }
+    c.lowfixed = (string)String_cstr(&fixed);
+    List_push<CgCabi>(&g.cabis, c);
+    string params = (string)String_cstr(&decl);
+    if (variadic == 1) { params = cg_va(params); }
+    return cg_cat("declare ", cg_cat(c.lowret, cg_cat(" @", cg_cat(d.name, cg_cat("(", cg_cat(params, ")\n"))))));
+}
+
+// Reinterpret value `op` of LLVM type `from` as type `to` through a stack slot big and
+// aligned enough for both (clang's coerced load/store). Returns the new operand.
+string cg_abi_reinterp(Codegen* g, string op, string from, string to) {
+    if (cg_streq(from, to) == 1) { return op; }
+    int fs = cg_ll_size_of(g, from); int ts = cg_ll_size_of(g, to);
+    int a = cg_ll_align_of(g, from); int ta = cg_ll_align_of(g, to); if (ta > a) { a = ta; }
+    string big = from; if (ts > fs) { big = to; }
+    string slot = cg_entry_alloca(g, cg_cat(big, cg_cat(", align ", cg_itoa(a))));
+    if (fs < ts) { cg_emit(g, "  store "); cg_emit(g, to); cg_emit(g, " zeroinitializer, ptr "); cg_emit(g, slot); cg_emit(g, "\n"); }
+    cg_emit(g, "  store "); cg_emit(g, from); cg_emit(g, " "); cg_emit(g, op); cg_emit(g, ", ptr "); cg_emit(g, slot); cg_emit(g, "\n");
+    string t = cg_tmp(g);
+    cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = load "); cg_emit(g, to); cg_emit(g, ", ptr "); cg_emit(g, slot); cg_emit(g, "\n");
+    return t;
+}
+
+// Call the lowered extern `c` with logical argument values (already coerced to its Eskiu
+// parameter types; variadic extras promoted). `f` is its Eskiu-level signature. Returns
+// the logical result.
+CgVal cg_cabi_call(Codegen* g, CgCabi* c, CgFn* f, List<CgVal>* args) {
+    let v: CgVal; v.op = ""; v.ty = "void"; v.ety = f.rety;
+    String ir; String_init(&ir, 64);
+    string sslot = "";
+    if (c.ret.kind == 5) {
+        sslot = cg_entry_alloca(g, cg_cat(c.ret.ty, cg_cat(", align ", cg_itoa(c.ret.align))));
+        String_append(&ir, cg_cat("ptr sret(", cg_cat(c.ret.ty, cg_cat(") align ", cg_cat(cg_itoa(c.ret.align), cg_cat(" ", sslot))))));
+    }
+    int n = List_len<CgVal>(args);
+    int i = 0;
+    while (i < n) {
+        CgVal a = List_get<CgVal>(args, i);
+        string piece = cg_cat(a.ty, cg_cat(" ", a.op));
+        if (i < List_len<CgAbi>(&c.params)) {
+            CgAbi k = List_get<CgAbi>(&c.params, i);
+            if (k.kind == 1) {
+                piece = cg_cat(cg_abi_param_decl(k, a.ty), cg_cat(" ", cg_abi_reinterp(g, a.op, a.ty, k.ty)));
+            } else if (k.kind == 2) {
+                string pty = cg_cat("{ ", cg_cat(k.ty, cg_cat(", ", cg_cat(k.ty2, " }"))));
+                string pair = cg_abi_reinterp(g, a.op, a.ty, pty);
+                string e0 = cg_tmp(g);
+                cg_emit(g, "  "); cg_emit(g, e0); cg_emit(g, " = extractvalue "); cg_emit(g, pty); cg_emit(g, " "); cg_emit(g, pair); cg_emit(g, ", 0\n");
+                string e1 = cg_tmp(g);
+                cg_emit(g, "  "); cg_emit(g, e1); cg_emit(g, " = extractvalue "); cg_emit(g, pty); cg_emit(g, " "); cg_emit(g, pair); cg_emit(g, ", 1\n");
+                piece = cg_cat(k.ty, cg_cat(" ", cg_cat(e0, cg_cat(", ", cg_cat(k.ty2, cg_cat(" ", e1))))));
+            } else if (k.kind == 3 || k.kind == 4) {
+                int cal = cg_ll_align_of(g, a.ty); if (k.align > cal) { cal = k.align; }
+                string copy = cg_entry_alloca(g, cg_cat(a.ty, cg_cat(", align ", cg_itoa(cal))));
+                cg_emit(g, "  store "); cg_emit(g, a.ty); cg_emit(g, " "); cg_emit(g, a.op); cg_emit(g, ", ptr "); cg_emit(g, copy); cg_emit(g, "\n");
+                piece = cg_cat(cg_abi_param_decl(k, a.ty), cg_cat(" ", copy));
+            }
+        }
+        if (String_len(&ir) > 0) { String_append(&ir, ", "); }
+        String_append(&ir, piece);
+        i = i + 1;
+    }
+    string callty = c.lowret;
+    if (f.variadic == 1) { callty = cg_cat(c.lowret, cg_cat(" (", cg_cat(cg_va(c.lowfixed), ")"))); }
+    int isvoid = cg_streq(c.lowret, "void");
+    string t = cg_emit_callish(g, callty, cg_cat("@", c.name), (string)String_cstr(&ir), isvoid);
+    if (c.ret.kind == 5) {
+        string r = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, r); cg_emit(g, " = load "); cg_emit(g, f.retty); cg_emit(g, ", ptr "); cg_emit(g, sslot); cg_emit(g, "\n");
+        v.op = r; v.ty = f.retty; return v;
+    }
+    if (isvoid == 1) { return v; }
+    if (c.ret.kind == 1) { v.op = cg_abi_reinterp(g, t, c.ret.ty, f.retty); v.ty = f.retty; return v; }
+    v.op = t; v.ty = f.retty; return v;
+}
+
 // An enum is an ADT (tagged union) when some variant carries a payload.
 int cg_enum_is_adt(*DeclNode d) {
     int j = 0;
@@ -4613,7 +5069,11 @@ void cg_program(Codegen* g, *Program prog) {
             }
             f.fixedtypes = fixed;
             List_push<CgFn>(&g.fns, f);
-            if (d.kind == DK_EXTERN && cg_prog_defines(prog, d.name) == 0) {   // emit a declaration the calls can reference
+            string lowered = "";
+            if (d.kind == DK_EXTERN && cg_prog_defines(prog, d.name) == 0) { lowered = cg_cabi_declare(g, d); }   // by-value aggregates: C ABI
+            if (lowered[0] != 0) {
+                String_append(&g.globals, lowered);
+            } else if (d.kind == DK_EXTERN && cg_prog_defines(prog, d.name) == 0) {       // emit a declaration the calls can reference
                 String_append(&g.globals, "declare ");
                 String_append(&g.globals, f.retty);
                 String_append(&g.globals, " @");

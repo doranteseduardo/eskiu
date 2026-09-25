@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <string>
+#include <functional>
 #include <map>
 #include <set>
 #include <vector>
@@ -252,6 +253,40 @@ private:
     llvm::Value* createMaybeInvoke(llvm::FunctionType* fty, llvm::Value* callee,
                                     llvm::ArrayRef<llvm::Value*> args,
                                     const llvm::Twine& name = "");
+
+    // C ABI lowering for `extern` functions with by-value aggregate params/returns
+    // (codegen_cabi.cpp). Each param/return is classified for the target: Direct
+    // (unchanged), Coerce (one value of `ty`), Expand (the elements of the literal
+    // struct `ty` as separate args), Indirect (pointer to a caller copy), ByVal
+    // (pointer + byval), Sret (hidden result pointer).
+    enum class CAbiTarget { None, AArch64, SysV, Win64, ARM32 };
+    struct CAbiArg {
+        enum Kind { Direct, Coerce, Expand, Indirect, ByVal, Sret } kind = Direct;
+        llvm::Type* ty = nullptr;
+        unsigned align = 0;        // Indirect / ByVal / Sret alignment
+        unsigned stackAlign = 0;   // `alignstack` for a stack-passed coerced arg (0 = none)
+    };
+    struct CAbiSig {
+        llvm::FunctionType* logical = nullptr;   // Eskiu-level signature
+        llvm::FunctionType* lowered = nullptr;   // the declared C signature
+        CAbiArg ret;
+        std::vector<CAbiArg> params;
+    };
+    std::map<std::string, CAbiSig> externAbi;    // externs declared with a lowered signature
+    CAbiTarget cabiTarget() const;
+    void cabiLeaves(llvm::Type* ty, uint64_t base,
+                    std::vector<std::pair<uint64_t, llvm::Type*>>& out) const;
+    CAbiArg classifyCAbi(llvm::Type* ty, bool isReturn, CAbiTarget tgt,
+                         unsigned& freeInt, unsigned& freeSSE) const;
+    // Fill `sig` for `logical`; false when no lowering is needed (no aggregate / target).
+    bool buildCAbiSig(llvm::FunctionType* logical, CAbiSig& sig) const;
+    void addCAbiAttrs(const CAbiSig& sig,
+                      const std::function<void(unsigned, llvm::Attribute)>& add) const;
+    llvm::Function* declareCAbiExtern(const std::string& name, const CAbiSig& sig);
+    llvm::Value* cabiReinterpret(llvm::Value* v, llvm::Type* to);
+    // Call a lowered extern with logical argument values; returns the logical result.
+    llvm::Value* emitCAbiCall(llvm::Function* fn, const CAbiSig& sig,
+                              const std::vector<llvm::Value*>& args, bool allowInvoke = true);
 
     // sret (structure return) support for large struct returns
     // Maps function name → actual return struct type (the LLVM function itself returns void)

@@ -80,16 +80,22 @@ logical→physical index map (padding shifts indices).
 ### Bitfields
 
 Consecutive bitfields are packed into a storage word of the field's declared
-integer type; a non-bitfield field closes the current word. Each field records
-its physical slot, bit offset and width. Reads load the word, shift by the bit
-offset and mask (sign-extending for signed fields); writes are read-modify-write
-of the word.
+integer type (`uint8` fields share an `i8`, a `uint64` field lives in an `i64`);
+a new word opens when the declared width changes or the next field does not fit,
+and a non-bitfield field closes the current word. Each field records its
+physical slot, bit offset and width. Reads load the word, shift by the bit
+offset and mask (sign-extending for signed fields); writes, compound
+assignments and `++`/`--` are read-modify-write of the word. Unlike C, adjacent
+bitfields of different declared widths never share a storage unit.
 
 ### Unions
 
-A `union` lowers to a single byte array `[N x i8]` (wrapped in a one-field
-struct), where `N` is the size of the largest member. All members share offset
-0; a member access reinterprets the storage at that type.
+A `union` lowers to `{ M, [P x i8] }`, where `M` is its most-aligned member
+(ties go to the larger one) and the byte padding brings the size up to the
+largest member rounded to that alignment. So the union has C's size and
+alignment, and lands at the C offset inside a struct (`struct { int tag; union {
+int64 l; int i; } u; }` puts `u` at 8). All members share offset 0; a member
+access reinterprets the storage at that type.
 
 ---
 
@@ -130,7 +136,28 @@ lowered types. Scalars and pointers pass in registers per the target ABI.
 (`getTypeAllocSize > 16`) returns `void` and takes a hidden pointer as its first
 parameter; the caller allocates the result buffer and passes its address.
 Structs ≤ 16 bytes are returned by value (the target ABI splits them into
-registers as usual). This is the System V / AArch64 rule and is C-compatible.
+registers as usual). This is the convention between Eskiu functions; calls to
+`extern` C functions follow the C ABI lowering below.
+
+**Aggregates across `extern` (C ABI).** Between Eskiu functions a struct or
+union argument/result is a first-class LLVM value. An `extern` function that
+takes or returns one by value is instead declared with the lowered C signature
+(`codegen/codegen_cabi.cpp`, mirrored by the self-hosted codegen), and each call
+converts to and from it, so it links against C compiled by clang/gcc:
+
+| Target | Aggregate argument | Aggregate result |
+|---|---|---|
+| AArch64 (AAPCS64, Darwin + Linux) | HFA of 1-4 `float`/`double` → `[N x fp]` in FP registers (with `alignstack(8)` off Darwin); ≤ 8 bytes → `i64`; ≤ 16 → `[2 x i64]`; larger → pointer to a caller-made copy | HFA → `{ fp, ... }`; ≤ 8 bytes → `iN`; ≤ 16 → `[2 x i64]`; larger → `sret` (x8) |
+| x86-64 System V (Linux, macOS) | each eightbyte classified INTEGER/SSE → one or two register values (`i64`, `i32`, `double`, `<2 x float>`, `ptr`, ...); > 16 bytes, a misaligned field, or no free registers left → `byval` | the same classes as a `{ lo, hi }` pair or one value; > 16 bytes → `sret` |
+| Windows x64 | size 1/2/4/8 → `iN`; otherwise pointer to a caller-made copy | size 1/2/4/8 → `iN`; otherwise `sret` |
+| 32-bit ARM (AAPCS) | hard-float HFA → `{ fp, ... }`; ≤ 64 bytes → `[N x i32]` (`[N x i64]` if 8-aligned); larger → `byval` | hard-float HFA → `{ fp, ... }`; ≤ 4 bytes → `i32`; otherwise `sret` |
+
+The coerced types match what clang emits for the same C signature. Other
+targets keep the first-class lowering. Only calls to `extern` declarations are
+lowered: an Eskiu function whose address is handed to C as a callback still
+takes and returns aggregates as first-class values, so a C caller passing a
+struct by value to it is not supported. Fat values (closures, slices) and
+`va_list` are not C aggregates and keep their own layout.
 
 **Variadics.** A `...` parameter makes the LLVM function `isVarArg`. The built-in
 `va_list` is the struct `{ ptr, ptr, ptr, i32, i32 }` (32 B, 8-aligned), a

@@ -87,7 +87,8 @@ directive =
 ```
 
 Predefined macros: `__FILE__`, `__LINE__`, a host-OS macro
-(`__APPLE__`/`__linux__`), and `__ESKIU_FREESTANDING__` under `--freestanding`.
+(`__APPLE__`/`__linux__`), an architecture macro (`__aarch64__`/`__x86_64__`/`__arm__`),
+and `__ESKIU_FREESTANDING__` under `--freestanding`.
 
 ---
 

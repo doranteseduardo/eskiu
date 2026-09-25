@@ -1,0 +1,22 @@
+// C-ABI-lowered extern calls inside a `try` body (lowered to `invoke`), with the
+// externs declared before the structs they take by value.
+extern int printf(string fmt, ...);
+extern Sm c_mksm(int x);
+extern int64 c_sum(Big b);
+extern Big c_mk(int64 s);
+
+struct Sm { int x; int8 c; }
+struct Big { int64 a; int64 b; int64 c; int64 d; int64 e; }
+
+int main() {
+    try {
+        Sm t = c_mksm(13);
+        printf("try %d %d %lld\n", t.x, (int)t.c, c_sum(c_mk(1)));
+        throw 5;
+    } catch (int e) {
+        printf("caught %d\n", e);
+    }
+    Big b = c_mk(100);
+    printf("after %lld %lld\n", b.a, b.e);
+    return 0;
+}

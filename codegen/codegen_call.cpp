@@ -391,6 +391,30 @@ void CodeGen::visit(CallExpr* node) {
     }
     llvm::Function* func = llvm::cast<llvm::Function>(calleeVal);
 
+    // An extern with by-value aggregates: coerce the args to its Eskiu-level signature
+    // (variadic extras get the C default promotions), then lower to the C ABI.
+    auto abiIt = externAbi.find(func->getName().str());
+    if (abiIt != externAbi.end()) {
+        auto lparams = abiIt->second.logical->params();
+        std::vector<llvm::Value*> cargs;
+        for (size_t i = 0; i < node->args.size(); ++i) {
+            llvm::Value* v = evaluateExpr(node->args[i]);
+            bool uns = eskiuUnsigned(getExprEskiuType(node->args[i]));
+            if (i < lparams.size()) {
+                if (v->getType() != lparams[i]) v = coerceValue(v, lparams[i], uns);
+            } else if (v->getType()->isIntegerTy() && v->getType()->getIntegerBitWidth() < 32) {
+                llvm::Type* i32 = llvm::Type::getInt32Ty(*context);
+                v = (uns || v->getType()->isIntegerTy(1)) ? builder->CreateZExt(v, i32)
+                                                           : builder->CreateSExt(v, i32);
+            } else if (v->getType()->isFloatTy()) {
+                v = builder->CreateFPExt(v, llvm::Type::getDoubleTy(*context));
+            }
+            cargs.push_back(v);
+        }
+        exprValueStack.push(emitCAbiCall(func, abiIt->second, cargs));
+        return;
+    }
+
     // Evaluate args, boxing structs as interfaces where the param type demands it
     std::vector<llvm::Value*> args;
     auto ptIt = funcEskiuParamTypes.find(func->getName().str());
@@ -517,8 +541,11 @@ llvm::Value* CodeGen::makeFunctionPointer(llvm::Function* target) {
     std::string wname = "__fnptr_" + target->getName().str();
     llvm::Function* wrapper = module->getFunction(wname);
     if (!wrapper) {
-        // Thunk: (env*, params...) -> ret  that ignores env and calls target.
-        llvm::FunctionType* tfty = target->getFunctionType();
+        // Thunk: (env*, params...) -> ret  that ignores env and calls target. A
+        // C-ABI-lowered extern is wrapped at its Eskiu-level signature.
+        auto abiIt = externAbi.find(target->getName().str());
+        llvm::FunctionType* tfty = abiIt != externAbi.end() ? abiIt->second.logical
+                                                            : target->getFunctionType();
         std::vector<llvm::Type*> wparams;
         wparams.push_back(ptrTy);  // env (unused)
         for (llvm::Type* pt : tfty->params()) wparams.push_back(pt);
@@ -533,7 +560,9 @@ llvm::Value* CodeGen::makeFunctionPointer(llvm::Function* target) {
         std::vector<llvm::Value*> callArgs;
         auto ai = wrapper->arg_begin(); ++ai;  // skip env
         for (; ai != wrapper->arg_end(); ++ai) callArgs.push_back(&*ai);
-        llvm::Value* r = builder->CreateCall(target, callArgs);
+        llvm::Value* r = abiIt != externAbi.end()
+            ? emitCAbiCall(target, abiIt->second, callArgs, /*allowInvoke=*/false)
+            : builder->CreateCall(target, callArgs);
         if (tfty->getReturnType()->isVoidTy()) builder->CreateRetVoid();
         else builder->CreateRet(r);
         if (prev) builder->SetInsertPoint(prev);

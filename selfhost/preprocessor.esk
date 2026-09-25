@@ -17,6 +17,7 @@ import <mem>;
 // Host OS macro to predefine for real compilation (set by the compiler driver per host;
 // null/"" for the lexer-parity driver). See pp_run.
 string g_pp_os;
+string g_pp_arch;   // host architecture macro (__aarch64__ / __x86_64__), set like g_pp_os
 
 struct PPMacro {
     string name;
@@ -327,6 +328,10 @@ string pp_run(string src, int len, string filename, *int had_err) {
     if (g_pp_os != null) { if (g_pp_os[0] != 0) {
         PPMacro om; om.name = g_pp_os; om.is_function = 0; List_init<string>(&om.params, 1); om.body = "";
         pp_define(&tbl, om);
+    } }
+    if (g_pp_arch != null) { if (g_pp_arch[0] != 0) {
+        PPMacro am; am.name = g_pp_arch; am.is_function = 0; List_init<string>(&am.params, 1); am.body = "";
+        pp_define(&tbl, am);
     } }
 
     List<PPCond> stack;

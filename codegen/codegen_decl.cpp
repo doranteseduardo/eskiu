@@ -33,11 +33,14 @@ void CodeGen::visit(Program* node) {
                    dynamic_cast<InterfaceDecl*>(decl.get()) ||
                    dynamic_cast<EnumDecl*>(decl.get()) ||
                    dynamic_cast<TypeAliasDecl*>(decl.get()) ||
-                   dynamic_cast<ExternDecl*>(decl.get()) ||
                    dynamic_cast<IntrinsicDecl*>(decl.get())) {
             decl->accept(this);
         }
     }
+    // Externs after every type shell: a by-value struct parameter declared later in
+    // the source must already have its layout for the C-ABI signature.
+    for (auto& decl : node->declarations)
+        if (dynamic_cast<ExternDecl*>(decl.get())) decl->accept(this);
     for (auto& decl : node->declarations) {
         if (auto* f = dynamic_cast<FunctionDecl*>(decl.get())) {
             if (f->typeParams.empty())
@@ -442,6 +445,13 @@ void CodeGen::visit(ExternDecl* node) {
     // Create function type
     llvm::Type* returnType = getTypeFromString(node->returnType);
     llvm::FunctionType* funcType = llvm::FunctionType::get(returnType, paramTypes, hasVarargs);
+
+    // By-value aggregates: declare the C-ABI-lowered signature (see codegen_cabi.cpp).
+    CAbiSig sig;
+    if (buildCAbiSig(funcType, sig)) {
+        if (!module->getFunction(node->name)) declareCAbiExtern(node->name, sig);
+        return;
+    }
 
     // Create external function declaration
     llvm::Function::Create(funcType, llvm::Function::ExternalLinkage, node->name, module.get());

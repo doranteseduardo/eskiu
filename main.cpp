@@ -415,6 +415,24 @@ int main(int argc, char** argv) {
             // 3DS's armv6k-none-eabihf) defines no OS macro. Bare metal has no host OS,
             // so portable code guards that path explicitly rather than falling through
             // to the build host's.
+
+            // The architecture macro C compilers predefine (__aarch64__ / __x86_64__ /
+            // __arm__), from the --target triple or else the build host. The self-hosted
+            // compiler reads it at its own build to pick its C-ABI lowering.
+            std::string arch;
+            if (tt.rfind("aarch64", 0) == 0 || tt.rfind("arm64", 0) == 0) arch = "__aarch64__";
+            else if (tt.rfind("x86_64", 0) == 0 || tt.rfind("amd64", 0) == 0) arch = "__x86_64__";
+            else if (tt.rfind("arm", 0) == 0 || tt.rfind("thumb", 0) == 0) arch = "__arm__";
+            else if (tt.empty()) {
+#if defined(__aarch64__) || defined(_M_ARM64)
+                arch = "__aarch64__";
+#elif defined(__x86_64__) || defined(_M_X64)
+                arch = "__x86_64__";
+#elif defined(__arm__)
+                arch = "__arm__";
+#endif
+            }
+            if (!arch.empty()) macros[arch] = os;
         }
         // Predefine __ESKIU_FREESTANDING__ under --freestanding so stdlib (e.g.
         // <mem>'s alloc/free) can target esk_alloc/esk_free instead of libc.

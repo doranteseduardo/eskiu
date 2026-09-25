@@ -38,6 +38,7 @@ int main(int argc, string* argv) {
 #else
     g_pp_os = "__linux__";
 #endif
+    g_pp_arch = cg_host_arch_macro();
     let pperr: int = 0;
     string pp = pp_run((string)raw, (int)n, argv[1], &pperr);
     *uint8 src = (*uint8)pp;
