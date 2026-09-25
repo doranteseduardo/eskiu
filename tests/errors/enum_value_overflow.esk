@@ -1,0 +1,4 @@
+// EXPECT-ERROR: enum member 'B' of 'E' has value 2147483648, out of range for 'int'
+// A classic enum is an int: the implicit successor of INT_MAX used to wrap.
+enum E { A = 2147483647, B }
+int main() { return (int)B; }

@@ -1,0 +1,4 @@
+// EXPECT-ERROR: enum member 'C' of 'F' has value 5000000000, out of range for 'int'
+// An explicit value wider than int used to be truncated silently.
+enum F { C = 5000000000 }
+int main() { return (int)C; }

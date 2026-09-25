@@ -1,4 +1,5 @@
 #include "type_checker.h"
+#include <cstdint>
 #include <functional>
 #include <algorithm>
 #include <set>
@@ -738,6 +739,13 @@ void TypeChecker::visit(IntrinsicDecl* node) {
 void TypeChecker::visit(EnumDecl* node) {
     // Members and the enum type were registered in the first pass.
     definitionLocations[node->name] = {node->line, node->col, diagFile()};
+    // A classic enum is an `int`: every member value (explicit, or the previous one + 1)
+    // must fit it, instead of wrapping or being truncated.
+    if (!node->isADT())
+        for (const auto& m : node->members)
+            if (m.second < INT32_MIN || m.second > INT32_MAX)
+                errorAt(node, "enum member '" + m.first + "' of '" + node->name + "' has value " +
+                              std::to_string(m.second) + ", out of range for 'int'");
 }
 
 void TypeChecker::visit(TypeAliasDecl* node) {

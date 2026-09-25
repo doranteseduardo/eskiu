@@ -4955,7 +4955,25 @@ int sema_check(Sema* s, *Program prog) {
         // A global's initializer runs at compile time (no code runs before `main`), so it
         // must be a constant expression, as in C.
         if (d.kind == DK_VARDECL) { sema_check_decl_type(s, d.ret_type); }   // a global's type must exist
-        if (d.kind == DK_TYPEALIAS) { sema_check_decl_type(s, d.ret_type); }   // so must an alias's target
+        if (d.kind == DK_TYPEALIAS) { sema_check_decl_type(s, d.ret_type); }  // so must an alias's
+        if (d.kind == DK_ENUM) {           // a classic enum is an int: each member value must fit it
+            int adt = 0; int pj = 0;
+            while (pj < List_len<List<string>>(&d.payloads)) {
+                List<string> epl = List_get<List<string>>(&d.payloads, pj);
+                if (List_len<string>(&epl) > 0) { adt = 1; }
+                pj = pj + 1;
+            }
+            int ej = 0;
+            while (adt == 0 && List_len<TypeParam>(&d.type_params) == 0 && ej < List_len<Param>(&d.params)) {
+                Param em = List_get<Param>(&d.params, ej);
+                if (sema_int_lit_fits("int", em.ty) == 0) {
+                    s.had_error = 1;
+                    dprintf(2, "error: %s:%d:%d: enum member '%s' of '%s' has value %s, out of range for 'int'\n",
+                           s.filename, s.line, s.col, em.name, d.name, em.ty);
+                }
+                ej = ej + 1;
+            }
+        }
         if (d.kind == DK_VARDECL && d.is_extern == 0 && d.init != null && sema_is_const_init(s, d.init) == 0) {
             sema_error(s, sema_cat(sema_cat("initializer of global '", d.name), "' is not a compile-time constant"));
         }

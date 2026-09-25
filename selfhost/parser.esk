@@ -1934,6 +1934,32 @@ int str_to_int(string s) {
     return v;
 }
 
+// An integer literal lexeme (decimal, 0x hex, leading-0 octal, as C++ std::stoll base 0)
+// to int64: enum member values, which sema then range-checks against `int`.
+int64 str_to_i64(string s) {
+    int i = 0; int64 base = (int64)10;
+    if (s[0] == 48 && (s[1] == 120 || s[1] == 88)) { base = (int64)16; i = 2; }
+    else if (s[0] == 48 && s[1] != 0) { base = (int64)8; i = 1; }
+    int64 v = (int64)0;
+    while (s[i] != 0) {
+        int c = (int)s[i];
+        int64 dgt = (int64)0;
+        if (c >= 48 && c <= 57) { dgt = (int64)(c - 48); }
+        else if (c >= 97 && c <= 102) { dgt = (int64)(c - 87); }
+        else if (c >= 65 && c <= 70) { dgt = (int64)(c - 55); }
+        else { return v; }
+        v = v * base + dgt;
+        i = i + 1;
+    }
+    return v;
+}
+
+string i64_to_str(int64 n) {
+    *uint8 buf = alloc<uint8>(24);
+    sprintf((string)buf, "%lld", n);
+    return (string)buf;
+}
+
 // extern / intrinsic share the prototype shape: RetType name(params);
 *DeclNode parse_proto(Parser* p, int kind) {
     *DeclNode d = new_decl(kind);
@@ -2036,10 +2062,10 @@ int str_to_int(string s) {
     parse_type_params(p, &d.type_params, 0);   // optional <T> (enum: no constraints field)
     p_expect(p, LBRACE, "Expected '{'");
     List_init<Param>(&d.params, 4);
-    int next = 0;
+    int64 next = (int64)0;             // 64-bit, so sema can reject a value that does not fit int
     while (p_at(p) != RBRACE && p_at(p) != EOF_TOKEN) {
         string mname = tok_text(p.src, p_expect_ident(p, "Expected enum member name"));
-        int val = next;
+        int64 val = next;
         let pl: List<string>;
         List_init<string>(&pl, 2);
         if (p_at(p) == LPAREN) {           // ADT payload — capture variant field types
@@ -2053,15 +2079,15 @@ int str_to_int(string s) {
             p_adv(p);
             int neg = 0;
             if (p_at(p) == MINUS) { p_adv(p); neg = 1; }
-            val = str_to_int(tok_text(p.src, p_expect_tok(p, INT_LIT, "Expected integer value for enum member")));
-            if (neg == 1) { val = 0 - val; }
+            val = str_to_i64(tok_text(p.src, p_expect_tok(p, INT_LIT, "Expected integer value for enum member")));
+            if (neg == 1) { val = (int64)0 - val; }
         }
         let pm: Param;
         pm.name = mname;
-        pm.ty = int_to_str(val);
+        pm.ty = i64_to_str(val);
         List_push<Param>(&d.params, pm);
         List_push<List<string>>(&d.payloads, pl);
-        next = val + 1;
+        next = val + (int64)1;
         if (p_at(p) == COMMA) { p_adv(p); } else { break; }
     }
     p_expect(p, RBRACE, "Expected '}'");

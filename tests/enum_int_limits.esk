@@ -1,0 +1,8 @@
+// Enum members at the limits of int are accepted (and a hex/octal value is read in its base).
+extern int printf(string f, ...);
+enum E { Lo = -2147483648, Hi = 2147483647 }
+enum G { H = 0x10, O = 010, N }
+int main() {
+    printf("%d %d %d %d %d\n", (int)Lo, (int)Hi, (int)H, (int)O, (int)N);
+    return 0;
+}
