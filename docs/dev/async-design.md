@@ -15,8 +15,12 @@ AST→state-machine transform (`sema/async_transform.cpp`). Supported: single an
 multiple `await` (fast path + suspend over real reactor reads, values threaded
 through frame fields across N+1 states), `return await`, bare `await`, `async
 void`, cancellation, and all control flow around `await` (`if`/`while`/C-style
-`for`/`switch`/`for-in`, with `break`/`continue`), with full closure-env
-ownership, leak-free under `leaks`. Combinators (`spawn`/`select2`/`join2`,
+`for`/`do`-`while`/`switch`/`for-in`, with `break`/`continue`), with full closure-env
+ownership, leak-free under `leaks`. A `defer` in a block split by an await is kept
+by the transform and emitted at each exit of that block (fall-through, `return`,
+`break`/`continue`); an `await` inside a defer body is rejected. A lambda that
+captures a frame-hoisted local gets a block-local copy (`T x = fr.x;`) at its
+creation point, so the capture is still a by-value snapshot. Combinators (`spawn`/`select2`/`join2`,
 generic + cast-free) and a `<timer>` leaf future for deadline-based timeouts build
 on this shape.
 
