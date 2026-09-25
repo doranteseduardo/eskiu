@@ -467,7 +467,9 @@ bool TypeChecker::intLiteralFits(const std::string& targetType, Expr* e) {
     unsigned long long mag = 0;
     try { mag = std::stoull(neg ? lit->value.substr(1) : lit->value, nullptr, 0); }
     catch (...) { return false; }
-    if (t == "int64" || t == "uint64") return true;      // holds any literal we parse
+    // `mag` parsed, so it is at most 2^64-1: a uint64 holds it, an int64 only up to 2^63-1.
+    if (t == "uint64") return !neg;
+    if (t == "int64")  return neg ? mag <= 9223372036854775808ULL : mag <= 9223372036854775807ULL;
     // Unsigned targets take no negative literal.
     if (t=="bool")   return !neg && mag <= 1ULL;
     if (t=="uint8"||t=="char") return !neg && mag <= 255ULL;

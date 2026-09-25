@@ -237,7 +237,11 @@ int sema_int_lit_fits(string t0, string v) {
         mag = mag * base + (uint64)dv;
         i = i + 1;
     }
-    if (sema_streq(t, "int64") == 1 || sema_streq(t, "uint64") == 1) { return 1; }
+    if (sema_streq(t, "uint64") == 1) { if (neg == 1) { return 0; } return 1; }
+    if (sema_streq(t, "int64") == 1) {
+        if (neg == 1) { if (mag <= (uint64)9223372036854775808) { return 1; } return 0; }
+        if (mag <= (uint64)9223372036854775807) { return 1; } return 0;
+    }
     if (sema_streq(t, "bool") == 1) { if (neg == 1) { return 0; } if (mag <= (uint64)1) { return 1; } return 0; }
     if (sema_streq(t, "uint8") == 1 || sema_streq(t, "char") == 1) { if (neg == 1) { return 0; } if (mag <= (uint64)255) { return 1; } return 0; }
     if (sema_streq(t, "uint16") == 1) { if (neg == 1) { return 0; } if (mag <= (uint64)65535) { return 1; } return 0; }

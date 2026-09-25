@@ -1,0 +1,9 @@
+// The extreme 64-bit literals are accepted: INT64_MIN, INT64_MAX and UINT64_MAX.
+extern int printf(string f, ...);
+int main() {
+    int64 lo = -9223372036854775808;
+    int64 hi = 9223372036854775807;
+    uint64 top = 18446744073709551615;
+    printf("%lld %lld %llu\n", lo, hi, top);
+    return 0;
+}
