@@ -125,6 +125,7 @@ int p_at(Parser* p) {
 
 Token p_adv(Parser* p) {
     Token t = p_peek(p);
+    g_pos_line = t.line; g_pos_col = t.col;   // stamped onto the nodes built next
     if (p.pos + 1 < List_len<Token>(&p.toks)) { p.pos = p.pos + 1; }
     return t;
 }
@@ -386,24 +387,25 @@ string parse_type(Parser* p) {
 // ── AST node constructors ────────────────────────────────────────────────────
 
 *ExprNode mk_lit(int lk, string v) {
-    *ExprNode e = alloc<ExprNode>(1);
+    *ExprNode e = ast_new_expr();
     e.kind = EK_LITERAL; e.lit_kind = lk; e.sval = v;
     e.slen = 0;
     if (lk == LIT_STRING) { e.slen = cstr_len(v); }   // safe default; the parser overrides with the exact byte length (embedded NULs)
     return e;
 }
 *ExprNode mk_ident(string nm) {
-    *ExprNode e = alloc<ExprNode>(1);
+    *ExprNode e = ast_new_expr();
     e.kind = EK_IDENT; e.sval = nm;
     return e;
 }
 *ExprNode mk_bin(string op, *ExprNode l, *ExprNode r) {
-    *ExprNode e = alloc<ExprNode>(1);
+    *ExprNode e = ast_new_expr();
     e.kind = EK_BINARY; e.sval = op; e.a = l; e.b = r;
+    if (l != null && l.line > 0) { e.line = l.line; e.col = l.col; }   // an operation starts at its left operand
     return e;
 }
 *ExprNode mk_un(string op, *ExprNode operand) {
-    *ExprNode e = alloc<ExprNode>(1);
+    *ExprNode e = ast_new_expr();
     e.kind = EK_UNARY; e.sval = op; e.a = operand;
     return e;
 }
@@ -456,7 +458,7 @@ int is_compound(int t) {
 // ── Expression precedence chain (mirrors parse_expr.cpp) ──────────────────────
 
 *ExprNode mk_cast(string ty, *ExprNode inner) {
-    *ExprNode e = alloc<ExprNode>(1);
+    *ExprNode e = ast_new_expr();
     e.kind = EK_CAST; e.sval = ty; e.a = inner;
     return e;
 }
@@ -465,7 +467,7 @@ int is_compound(int t) {
 // `name` already parsed (may carry a <...> template suffix). At '{'.
 *ExprNode parse_struct_init(Parser* p, string name) {
     p_adv(p);                              // '{'
-    *ExprNode e = alloc<ExprNode>(1);
+    *ExprNode e = ast_new_expr();
     e.kind = EK_STRUCTINIT; e.sval = name;
     List_init<*ExprNode>(&e.kids, 4);
     List_init<string>(&e.names, 4);
@@ -506,7 +508,7 @@ string lambda_sig(string ret, *DeclNode d) {
     int t = p_at(p);
     if (t == LBRACE) {                                 // array literal { e0, e1, ... }
         p_adv(p);
-        *ExprNode e = alloc<ExprNode>(1);
+        *ExprNode e = ast_new_expr();
         e.kind = EK_ARRAYLIT;
         List_init<*ExprNode>(&e.kids, 4);
         if (p_at(p) != RBRACE) {
@@ -546,7 +548,7 @@ string lambda_sig(string ret, *DeclNode d) {
         p_adv(p);                              // '('
         string ty = parse_type(p);
         p_adv(p);                              // ')'
-        *ExprNode e = alloc<ExprNode>(1);
+        *ExprNode e = ast_new_expr();
         e.kind = EK_SIZEOF; e.sval = ty;
         return e;
     }
@@ -558,7 +560,7 @@ string lambda_sig(string ret, *DeclNode d) {
         p_adv(p);                              // ','
         *ExprNode cnt = parse_expr(p);
         p_adv(p);                              // ')'
-        *ExprNode e = alloc<ExprNode>(1);
+        *ExprNode e = ast_new_expr();
         e.kind = EK_ALLOCWITH; e.sval = ety; e.a = al; e.b = cnt;
         return e;
     }
@@ -566,7 +568,7 @@ string lambda_sig(string ret, *DeclNode d) {
         p_adv(p); p_adv(p);                    // 'free_closure' '('
         *ExprNode c = parse_expr(p);
         p_adv(p);                              // ')'
-        *ExprNode e = alloc<ExprNode>(1);
+        *ExprNode e = ast_new_expr();
         e.kind = EK_FREECLOSURE; e.a = c;
         return e;
     }
@@ -574,7 +576,7 @@ string lambda_sig(string ret, *DeclNode d) {
         p_adv(p); p_adv(p);                    // 'thread_create' '('
         *ExprNode w = parse_expr(p);
         p_adv(p);                              // ')'
-        *ExprNode e = alloc<ExprNode>(1);
+        *ExprNode e = ast_new_expr();
         e.kind = EK_THREADCREATE; e.a = w;
         return e;
     }
@@ -583,11 +585,11 @@ string lambda_sig(string ret, *DeclNode d) {
         int save = p.pos;
         string ret = parse_type(p);
         p_adv(p);                              // '('
-        *DeclNode tmp = alloc<DeclNode>(1);
+        *DeclNode tmp = ast_new_decl();
         parse_params(p, tmp);
         p_adv(p);                              // ')'
         if (p_at(p) == LBRACE) {
-            *ExprNode e = alloc<ExprNode>(1);
+            *ExprNode e = ast_new_expr();
             e.kind = EK_LAMBDA; e.sval = lambda_sig(ret, tmp); e.stmt = parse_block(p);
             return e;
         }
@@ -633,7 +635,7 @@ string lambda_sig(string ret, *DeclNode d) {
                 sig = str_concat(sig, ">");
                 if (p_at(p) == LPAREN) {
                     p_adv(p);
-                    *ExprNode tc = alloc<ExprNode>(1);
+                    *ExprNode tc = ast_new_expr();
                     tc.kind = EK_TEMPLATECALL; tc.sval = sig;
                     List_init<*ExprNode>(&tc.kids, 4);
                     if (p_at(p) != RPAREN) {
@@ -654,7 +656,7 @@ string lambda_sig(string ret, *DeclNode d) {
         int t = p_at(p);
         if (t == LPAREN) {
             p_adv(p);
-            *ExprNode c = alloc<ExprNode>(1);
+            *ExprNode c = ast_new_expr();
             c.kind = EK_CALL; c.a = e;
             List_init<*ExprNode>(&c.kids, 4);
             if (p_at(p) != RPAREN) {
@@ -665,7 +667,7 @@ string lambda_sig(string ret, *DeclNode d) {
             e = c;
         } else if (t == LBRACKET) {
             p_adv(p);
-            *ExprNode ix = alloc<ExprNode>(1);
+            *ExprNode ix = ast_new_expr();
             ix.kind = EK_INDEX; ix.a = e; ix.b = parse_expr(p);
             List_init<*ExprNode>(&ix.kids, 1);
             if (p_at(p) == RANGE) {            // base[lo..hi] slice expression
@@ -677,18 +679,18 @@ string lambda_sig(string ret, *DeclNode d) {
         } else if (t == DOT) {
             p_adv(p);
             Token m = p_adv(p);                // member name
-            *ExprNode mb = alloc<ExprNode>(1);
+            *ExprNode mb = ast_new_expr();
             mb.kind = EK_MEMBER; mb.a = e; mb.sval = tok_text(p.src, m);
             e = mb;
         } else if (t == QUESTION && ternary_colon_ahead(p) == 0) {
             // Postfix propagation `expr?` — only when this `?` doesn't open a ternary.
             p_adv(p);
-            *ExprNode q = alloc<ExprNode>(1);
+            *ExprNode q = ast_new_expr();
             q.kind = EK_QUESTION; q.a = e;
             e = q;
         } else if (t == PLUS_PLUS || t == MINUS_MINUS) {
             p_adv(p);
-            *ExprNode id = alloc<ExprNode>(1);
+            *ExprNode id = ast_new_expr();
             id.kind = EK_INCDEC; id.a = e;
             if (t == PLUS_PLUS) { id.sval = "post++"; } else { id.sval = "post--"; }
             e = id;
@@ -703,7 +705,7 @@ string lambda_sig(string ret, *DeclNode d) {
     // await E — prefix, binds like a unary operator.
     if (p_at(p) == AWAIT) {
         p_adv(p);
-        *ExprNode e = alloc<ExprNode>(1);
+        *ExprNode e = ast_new_expr();
         e.kind = EK_AWAIT; e.a = parse_unary(p);
         return e;
     }
@@ -728,7 +730,7 @@ string lambda_sig(string ret, *DeclNode d) {
     int t = p_at(p);
     if (t == PLUS_PLUS || t == MINUS_MINUS) {        // prefix ++x / --x
         p_adv(p);
-        *ExprNode e = alloc<ExprNode>(1);
+        *ExprNode e = ast_new_expr();
         e.kind = EK_INCDEC; e.a = parse_unary(p);
         if (t == PLUS_PLUS) { e.sval = "pre++"; } else { e.sval = "pre--"; }
         return e;
@@ -856,7 +858,7 @@ int ternary_colon_ahead(Parser* p) {
         *ExprNode thenE = parse_assignment(p);         // then-arm: a full expression
         p_adv(p);                                      // ':'
         *ExprNode elseE = parse_ternary(p);            // else-arm: right-associative
-        *ExprNode t = alloc<ExprNode>(1);
+        *ExprNode t = ast_new_expr();
         t.kind = EK_TERNARY; t.a = cond; t.b = thenE;
         List_init<*ExprNode>(&t.kids, 1);
         List_push<*ExprNode>(&t.kids, elseE);
@@ -888,13 +890,13 @@ int ternary_colon_ahead(Parser* p) {
 // ── Statements ────────────────────────────────────────────────────────────────
 
 *StmtNode mk_simple(int kind) {
-    *StmtNode s = alloc<StmtNode>(1);
+    *StmtNode s = ast_new_stmt();
     s.kind = kind;
     return s;
 }
 
 *StmtNode mk_vardecl(string nm, string ty, *ExprNode init, int is_const) {
-    *StmtNode s = alloc<StmtNode>(1);
+    *StmtNode s = ast_new_stmt();
     s.kind = SK_VARDECL; s.name = nm; s.type = ty; s.expr = init; s.is_const = is_const;
     s.is_static = 0;
     return s;
@@ -911,7 +913,7 @@ int is_value_const(string t) {
 }
 
 *StmtNode wrap_block(*StmtNode inner) {        // a BlockStmt holding one item
-    *StmtNode b = alloc<StmtNode>(1);
+    *StmtNode b = ast_new_stmt();
     b.kind = SK_BLOCK;
     List_init<*StmtNode>(&b.items, 1);
     List_push<*StmtNode>(&b.items, inner);
@@ -953,7 +955,7 @@ string strip_binding_const(string t) {
 
 *StmtNode parse_return(Parser* p) {
     p_adv(p);                              // 'return'
-    *StmtNode s = alloc<StmtNode>(1);
+    *StmtNode s = ast_new_stmt();
     s.kind = SK_RETURN;
     s.expr = null;
     if (p_at(p) != SEMICOLON) { s.expr = parse_expr(p); }
@@ -964,7 +966,7 @@ string strip_binding_const(string t) {
 *StmtNode parse_expr_stmt(Parser* p) {
     *ExprNode e = parse_expr(p);
     p_adv(p);                              // ';'
-    *StmtNode s = alloc<StmtNode>(1);
+    *StmtNode s = ast_new_stmt();
     s.kind = SK_EXPR; s.expr = e;
     return s;
 }
@@ -974,7 +976,7 @@ string strip_binding_const(string t) {
     p_adv(p);                              // '('
     *ExprNode cond = parse_expr(p);
     p_adv(p);                              // ')'
-    *StmtNode s = alloc<StmtNode>(1);
+    *StmtNode s = ast_new_stmt();
     s.kind = SK_IF; s.expr = cond;         // alloc zeroes, so s.s2 (optional else) is null
     s.s1 = parse_stmt(p);                  // then
     if (p_at(p) == ELSE) { p_adv(p); s.s2 = parse_stmt(p); }
@@ -986,7 +988,7 @@ string strip_binding_const(string t) {
     p_adv(p);                              // '('
     *ExprNode cond = parse_expr(p);
     p_adv(p);                              // ')'
-    *StmtNode s = alloc<StmtNode>(1);
+    *StmtNode s = ast_new_stmt();
     s.kind = SK_WHILE; s.expr = cond; s.s1 = parse_stmt(p);
     return s;
 }
@@ -999,7 +1001,7 @@ string strip_binding_const(string t) {
     *ExprNode cond = parse_expr(p);
     p_adv(p);                              // ')'
     p_adv(p);                              // ';'
-    *StmtNode s = alloc<StmtNode>(1);
+    *StmtNode s = ast_new_stmt();
     s.kind = SK_DOWHILE; s.s1 = body; s.expr = cond;
     return s;
 }
@@ -1008,7 +1010,7 @@ string strip_binding_const(string t) {
 //   for (int x = A, __end_x = B; x < __end_x; x = x + 1) body
 // so the bound B is evaluated once, before the first iteration.
 *StmtNode desugar_range(string var, *ExprNode lo, *ExprNode hi, *StmtNode body) {
-    *StmtNode s = alloc<StmtNode>(1);
+    *StmtNode s = ast_new_stmt();
     s.kind = SK_FOR;
     string endn = str_concat("__end_", var);
     *StmtNode init = wrap_block(mk_vardecl(var, "int", lo, 0));
@@ -1036,7 +1038,7 @@ string strip_binding_const(string t) {
             return desugar_range(var, first, hi, parse_stmt(p));
         }
         p_adv(p);                          // ')'
-        *StmtNode s = alloc<StmtNode>(1);
+        *StmtNode s = ast_new_stmt();
         s.kind = SK_FORIN; s.name = var; s.expr = first; s.s1 = parse_stmt(p);
         s.resolved_elem = "";              // sema stamps this; "" until then (and on the no-sema path)
         return s;
@@ -1058,7 +1060,7 @@ string strip_binding_const(string t) {
     *ExprNode step = null;
     if (p_at(p) != RPAREN) { step = parse_expr(p); }
     p_adv(p);                              // ')'
-    *StmtNode s = alloc<StmtNode>(1);
+    *StmtNode s = ast_new_stmt();
     s.kind = SK_FOR; s.s1 = init; s.expr = cond; s.expr2 = step; s.s2 = parse_stmt(p);
     return s;
 }
@@ -1145,14 +1147,14 @@ void check_name_not_keyword(Parser* p) {
 *StmtNode parse_switch(Parser* p) {
     p_adv(p);                              // 'switch'
     p_adv(p);                              // '('
-    *StmtNode s = alloc<StmtNode>(1);
+    *StmtNode s = ast_new_stmt();
     s.kind = SK_SWITCH;
     s.expr = parse_expr(p);                // subject
     p_adv(p);                              // ')'
     p_adv(p);                              // '{'
     List_init<*StmtNode>(&s.items, 4);
     while (p_at(p) != RBRACE && p_at(p) != EOF_TOKEN) {
-        *StmtNode c = alloc<StmtNode>(1);
+        *StmtNode c = ast_new_stmt();
         c.kind = SK_CASE;
         c.expr = null;
         if (p_at(p) == CASE) { p_adv(p); c.expr = parse_expr(p); p_adv(p); }   // 'case' val ':'
@@ -1175,7 +1177,7 @@ void check_name_not_keyword(Parser* p) {
     *ExprNode subj = parse_expr(p);
     p.no_struct_lit = saved;
     p_adv(p);                              // '{'
-    *StmtNode s = alloc<StmtNode>(1);
+    *StmtNode s = ast_new_stmt();
     s.kind = SK_MATCH; s.expr = subj;
     List_init<*StmtNode>(&s.items, 4);
     while (p_at(p) != RBRACE && p_at(p) != EOF_TOKEN) {
@@ -1201,7 +1203,7 @@ void check_name_not_keyword(Parser* p) {
             }
         }
         p_adv(p);                          // '->'
-        *StmtNode arm = alloc<StmtNode>(1);
+        *StmtNode arm = ast_new_stmt();
         arm.kind = SK_ARM; arm.name = label; arm.s1 = parse_stmt(p);
         List_push<*StmtNode>(&s.items, arm);
     }
@@ -1211,7 +1213,7 @@ void check_name_not_keyword(Parser* p) {
 
 *StmtNode parse_try(Parser* p) {
     p_adv(p);                              // 'try'
-    *StmtNode s = alloc<StmtNode>(1);
+    *StmtNode s = ast_new_stmt();
     s.kind = SK_TRY;
     s.s2 = null;                           // finally (optional)
     s.s1 = parse_block(p);                 // body
@@ -1222,7 +1224,7 @@ void check_name_not_keyword(Parser* p) {
         string cty = parse_type(p);
         string cnm = tok_text(p.src, p_adv(p));   // exception variable name
         p_adv(p);                          // ')'
-        *StmtNode cat = alloc<StmtNode>(1);
+        *StmtNode cat = ast_new_stmt();
         cat.kind = SK_CATCH;
         cat.name = str_concat(str_concat(cty, " "), cnm);
         cat.s1 = parse_block(p);
@@ -1235,7 +1237,7 @@ void check_name_not_keyword(Parser* p) {
 *StmtNode parse_asm(Parser* p) {
     p_adv(p);                              // 'asm'
     p_adv(p);                              // '('
-    *StmtNode s = alloc<StmtNode>(1);
+    *StmtNode s = ast_new_stmt();
     s.kind = SK_ASM;
     int _dl0 = 0; s.name = tok_str_value(p.src, p_adv(p), &_dl0);   // the asm string (decoded)
     List_init<*StmtNode>(&s.items, 2);
@@ -1246,7 +1248,7 @@ void check_name_not_keyword(Parser* p) {
             while (p_at(p) != RPAREN && p_at(p) != COLON && p_at(p) != EOF_TOKEN) {
                 Token ct = p_adv(p);       // constraint string
                 p_adv(p);                  // '('
-                *StmtNode inp = alloc<StmtNode>(1);
+                *StmtNode inp = ast_new_stmt();
                 inp.kind = SK_ASMINPUT;
                 int _dl1 = 0; inp.name = tok_str_value(p.src, ct, &_dl1);
                 inp.expr = parse_expr(p);
@@ -1296,7 +1298,7 @@ void check_name_not_keyword(Parser* p) {
     if (t == TRY) { return parse_try(p); }
     if (t == DEFER || t == ERRDEFER) {         // defer / errdefer stmt;  (run at scope exit)
         p_adv(p);
-        *StmtNode s = alloc<StmtNode>(1); s.kind = SK_DEFER; s.s1 = parse_stmt(p);
+        *StmtNode s = ast_new_stmt(); s.kind = SK_DEFER; s.s1 = parse_stmt(p);
         if (t == ERRDEFER) { s.is_err = 1; } else { s.is_err = 0; }
         return s;
     }
@@ -1318,13 +1320,13 @@ void check_name_not_keyword(Parser* p) {
     }
     if (t == THROW) {
         p_adv(p);
-        *StmtNode s = alloc<StmtNode>(1); s.kind = SK_THROW; s.expr = parse_expr(p);
+        *StmtNode s = ast_new_stmt(); s.kind = SK_THROW; s.expr = parse_expr(p);
         p_adv(p);                          // ';'
         return s;
     }
     if (t == THREAD_JOIN) {
         p_adv(p); p_adv(p);                // 'thread_join' '('
-        *StmtNode s = alloc<StmtNode>(1); s.kind = SK_THREADJOIN; s.expr = parse_expr(p);
+        *StmtNode s = ast_new_stmt(); s.kind = SK_THREADJOIN; s.expr = parse_expr(p);
         p_adv(p); p_adv(p);                // ')' ';'
         return s;
     }
@@ -1347,7 +1349,7 @@ void check_name_not_keyword(Parser* p) {
 
 *StmtNode parse_block(Parser* p) {
     p_adv(p);                              // '{'
-    *StmtNode b = alloc<StmtNode>(1);
+    *StmtNode b = ast_new_stmt();
     b.kind = SK_BLOCK;
     List_init<*StmtNode>(&b.items, 4);
     while (p_at(p) != RBRACE && p_at(p) != EOF_TOKEN) {
@@ -1363,7 +1365,7 @@ void check_name_not_keyword(Parser* p) {
 // is_extern/is_packed/pack_align) start 0 and need no explicit init; the lists are still
 // pre-sized here (a cap hint, and one central place to size the enrichment fields).
 *DeclNode new_decl(int kind) {
-    *DeclNode d = alloc<DeclNode>(1);
+    *DeclNode d = ast_new_decl();
     d.kind = kind;
     List_init<TypeParam>(&d.type_params, 2);
     List_init<*DeclNode>(&d.methods, 2);

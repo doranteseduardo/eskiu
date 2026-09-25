@@ -104,6 +104,8 @@ struct ExprNode {
     List<string> names;    // struct-init field names (parallel to kids; "" = positional)
     *StmtNode stmt;        // lambda body
     string op_fn;          // EK_BINARY/EK_UNARY/EK_INDEX: resolved operator-overload fn ("" = built-in)
+    int line;              // source position for diagnostics (0 = unknown, e.g. a synthesized node)
+    int col;
 }
 
 struct StmtNode {
@@ -120,6 +122,8 @@ struct StmtNode {
     int is_err;            // SK_DEFER: errdefer (runs only on the error path) vs plain defer
     string resolved_elem;  // SK_FORIN: element type stamped by sema (mirrors C++ resolvedElemType); "" = fall back to structural resolution at lowering
     string label;          // loop's own label (SK_FOR/WHILE/DOWHILE/FORIN) or target label (SK_BREAK/CONTINUE); null/"" = unlabeled
+    int line;              // source position for diagnostics (0 = unknown)
+    int col;
 }
 
 // A generic type parameter with its (possibly empty) interface constraints, e.g.
@@ -148,6 +152,29 @@ struct DeclNode {
     int is_packed;                 // struct: `packed` qualifier / `#pragma pack(1)` (align 1)
     int pack_align;                // struct: `#pragma pack(N)` alignment cap (0 = natural)
     string operator_sym;           // `operator <op>(...)`: the op ("+","[]","u-"); "" = normal fn
+    int line;                      // source position for diagnostics (0 = unknown)
+    int col;
+}
+
+// Position of the token the parser consumed last; each node the parser allocates is
+// stamped with it (a diagnostic position, near the construct).
+int g_pos_line = 0;
+int g_pos_col = 0;
+
+*ExprNode ast_new_expr() {
+    *ExprNode e = alloc<ExprNode>(1);
+    e.line = g_pos_line; e.col = g_pos_col;
+    return e;
+}
+*StmtNode ast_new_stmt() {
+    *StmtNode st = alloc<StmtNode>(1);
+    st.line = g_pos_line; st.col = g_pos_col;
+    return st;
+}
+*DeclNode ast_new_decl() {
+    *DeclNode d = alloc<DeclNode>(1);
+    d.line = g_pos_line; d.col = g_pos_col;
+    return d;
 }
 
 struct Program {
