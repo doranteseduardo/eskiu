@@ -429,8 +429,10 @@ string sema_cat(string a, string b) {
 }
 
 // Reduce a type spelling to its base struct name: strip leading '*'/spaces and any
-// generic '<...>' or pointer suffix. "*Point" -> "Point", "List<int>" -> "List".
-string sema_struct_of_type(string t) {
+// generic '<...>' or pointer suffix, and a `const` qualifier (`const P*` names P).
+// "*Point" -> "Point", "List<int>" -> "List".
+string sema_struct_of_type(string t0) {
+    string t = sema_strip_const(t0);
     int i = 0;
     while ((int)t[i] == 42 || (int)t[i] == 32) { i = i + 1; }       // skip '*' / ' '
     int j = i;

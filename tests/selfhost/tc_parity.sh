@@ -42,7 +42,7 @@ HANDLED="undefined_var arg_count undefined_type await_outside_async async_no_awa
          iface_return_mismatch iface_arity_mismatch arg_type_mismatch
          missing_return_labeled_break missing_return_dowhile_break missing_return_switch_break
          nullable_reassign nullable_shadow nullable_loop_reassign
-         const_method_call const_addr_arg const_struct_addr must_use_method
+         const_method_call const_ptr_method_call const_addr_arg const_struct_addr must_use_method
          fn_value_arg_count fn_value_arg_type fn_field_arg_count fn_chained_arg_count iface_call_arg_count
          generic_arg_count generic_explicit_arg_count generic_type_arg_count generic_arg_conflict generic_uninferable generic_infer_shape
          match_dup_value alias_cycle void_var void_param void_field bitfield_float bitfield_too_wide

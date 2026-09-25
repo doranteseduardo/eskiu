@@ -1,0 +1,18 @@
+// A method declared on `const P* self` is callable through a pointer to const; the
+// struct name is found through the `const` (a mutating method is rejected, see
+// tests/errors/const_ptr_method_call.esk).
+extern int printf(string fmt, ...);
+
+struct P { int v; }
+
+int P_get(const P* self) { return self.v; }
+void P_set(P* self, int x) { self.v = x; }
+
+int main() {
+    let p: P = P{ v: 1 };
+    const P* cp = &p;
+    int g = cp.get();
+    p.set(4);
+    printf("%d %d\n", g, cp.get());
+    return 0;
+}
