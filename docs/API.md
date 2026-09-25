@@ -32,7 +32,14 @@ public:
 
 The lexer runs a small preprocessor pass before tokenizing. The optional `macros`
 table is shared across files so `#define`s propagate through `import` and
-multi-file builds; `filename` is exposed to the preprocessor as `__FILE__`.
+multi-file builds; `filename` is exposed to the preprocessor as `__FILE__` and
+labels the lexer's diagnostics. The pass itself is a free function in
+`lexer/preprocessor.h`:
+
+```cpp
+void preprocess(const std::string& src, std::map<std::string, Macro>& defines,
+                std::string& result, const std::string& filename, bool& hadErr);
+```
 
 A streaming lexer: call `next_token()` until it returns a `Token` of type
 `TokenType::EOF_TOKEN`. Callers collect the tokens into a `std::vector<Token>` for
@@ -82,10 +89,13 @@ public:
     bool hadError = false;              // set when a declaration/import failed to parse
 
     std::string                basedir;             // dir of the current file (relative imports)
+    std::string                filename;            // current file; labels diagnostics
     std::string                stdlibPath;          // stdlib root (<module> imports)
-    std::set<std::string>*     importedFiles = nullptr;   // shared dedup set
+    std::set<std::string>*     importedFiles = nullptr;   // shared dedup set (canonical paths)
     std::map<std::string,Macro>* macros = nullptr;        // shared macro table
     std::set<std::string>*     sharedTypeNames = nullptr; // type names across all files
+
+    static std::string canonicalPath(const std::string& path);   // importedFiles key
 };
 ```
 
@@ -98,7 +108,12 @@ The public fields wire up multi-file compilation: `basedir` and `stdlibPath`
 resolve `import "file.esk"` and `import <module>` respectively; `importedFiles`,
 `macros`, and `sharedTypeNames` are shared with the sub-parsers spawned for
 imported files so deduplication, macros, and declared type names propagate across
-the whole compilation.
+the whole compilation. `importedFiles` holds canonical paths (`canonicalPath`:
+absolute, with `.`, `..` and symlinks resolved), and the driver seeds it with each
+root input so a file that imports its importer is parsed once. The libraries named
+by `#pragma link("name")` in the file and its imports end up in
+`Program::linkLibs`, deduplicated in first-seen order. Nesting deeper than 100000
+levels is a parse error (`nesting too deep`).
 
 ---
 
@@ -229,6 +244,37 @@ returning `true` on success.
 
 ---
 
+## Driver Support
+
+Header: `main_support.h` (the `cl::opt`-free half of the driver, in `main_support.cpp`)
+
+```cpp
+std::shared_ptr<Program> loadProgram(const std::string& filename, const std::string& triple,
+                                     bool freestanding);
+void seedPredefinedMacros(std::map<std::string, Macro>& macros, const std::string& triple,
+                          bool freestanding);
+std::vector<std::string> implicitLinkLibs(const std::map<std::string, Macro>& macros,
+                                          bool usesExceptions, bool usesThreads);
+bool linkExecutable(const std::string& obj, const std::string& out,
+                    const std::vector<std::string>& libs,
+                    const std::vector<std::string>& paths,
+                    const std::vector<std::string>& extra,
+                    bool sanitized = false);
+int runExecutable(const std::string& exe, const std::vector<std::string>& progArgs);
+```
+
+`loadProgram` reads, lexes and parses one file the way a build does (the macros
+`seedPredefinedMacros` puts in for `triple`, `__FILE__`, imports resolved against
+the stdlib root) and returns `nullptr` after printing a diagnostic. The `--test-*`,
+`--hover-at` and `--definition-at` modes use it. `implicitLinkLibs` returns the
+runtime libraries a program implies on the target the macros describe (`c++` or
+`stdc++` for exceptions, `pthread` for threads); `linkExecutable` invokes the C
+driver (`findCDriver`: `$CC`, then `cc`/`clang`/`gcc`) with `-l` libraries, `-L`
+paths and extra arguments. `runExecutable` backs `eskiuc run` and returns the
+program's status, or `128+N` when signal `N` killed it.
+
+---
+
 ## Pipeline Example
 
 The passes compose as the driver (`main.cpp`) uses them:
@@ -245,6 +291,7 @@ if (lexer.hadError) return 1;
 
 // 2. Parse
 Parser parser(tokens);
+parser.filename = filename;
 parser.basedir = ...; parser.stdlibPath = ...;
 std::shared_ptr<Program> program = parser.parse();
 if (!program) return 1;   // parse failure
