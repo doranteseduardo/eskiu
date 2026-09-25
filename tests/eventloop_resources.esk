@@ -1,0 +1,45 @@
+// el_free closes the kqueue/epoll descriptor (and executor_free its self-pipe),
+// so creating and freeing loops does not leak fds; and a full timer table grows
+// instead of dropping a timer (its future used to never fire).
+import <mem>;
+import <eventloop>;
+import <executor>;
+import <timer>;
+extern int printf(string fmt, ...);
+extern int dup(int fd);
+extern int close(int fd);
+
+EventLoop* g_lp;
+int g_fired = 0;
+Future<int>* g_t0;
+Future<int>* g_t1;
+Future<int>* g_t2;
+
+void done() {
+    g_fired = g_fired + 1;
+    if (g_fired == 3) { el_stop(g_lp); }
+}
+
+int main() {
+    int before = dup(0);
+    close(before);
+    int i = 0;
+    while (i < 200) { EventLoop* lp = el_new(8); el_free(lp); i = i + 1; }
+    i = 0;
+    while (i < 100) { Executor* ex = executor_new(el_new(8)); executor_free(ex); i = i + 1; }
+    int after = dup(0);
+    close(after);
+    printf("fds leaked: %d\n", after - before);
+
+    g_lp = el_new(2);
+    g_t0 = timer_after(g_lp, (int64)1);
+    g_t1 = timer_after(g_lp, (int64)2);
+    g_t2 = timer_after(g_lp, (int64)3);
+    future_poll<int>(g_t0, void() { free_future<int>(g_t0); done(); });
+    future_poll<int>(g_t1, void() { free_future<int>(g_t1); done(); });
+    future_poll<int>(g_t2, void() { free_future<int>(g_t2); done(); });
+    el_run(g_lp);
+    printf("timers fired: %d (tcap grew: %d)\n", g_fired, g_lp.tcap > 2);
+    el_free(g_lp);
+    return 0;
+}

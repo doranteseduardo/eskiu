@@ -64,7 +64,10 @@ struct EvNative {
     *void  udata;
 }
 
+extern int close(int fd);
+
 int _el_backend_new() { return kqueue(); }
+void _el_backend_free(int kq) { close(kq); }
 
 // One kevent change: filter (-1 = EVFILT_READ, -2 = EVFILT_WRITE), flag
 // (1 = EV_ADD, 2 = EV_DELETE).
@@ -130,6 +133,7 @@ struct _ElPollSet { EvNative[4096] pfds; int n; }
 _ElPollSet _el_wsa;
 
 int _el_backend_new() { _el_wsa.n = 0; return 0; }   // state is the global set; the id is unused
+void _el_backend_free(int backend) { _el_wsa.n = 0; }
 
 int _el_wsa_find(int fd) {
     int i = 0;
@@ -178,7 +182,10 @@ packed struct EvNative {
     uint64 data;
 }
 
+extern int close(int fd);
+
 int _el_backend_new() { return epoll_create1(0); }
+void _el_backend_free(int ep) { close(ep); }
 
 // Set fd's interest: mode 0 = none (DEL), 1 = readable (EPOLLIN), 2 = writable
 // (EPOLLOUT). epoll keeps one entry per fd, so switching read<->write is a MOD
@@ -231,20 +238,31 @@ EventLoop* el_new(int max_fds) {
     return lp;
 }
 
+// Double the timer table (a full table must not drop a timer: its future would
+// never fire). Existing ids are slot indices and stay valid.
+void _el_grow_timers(EventLoop* lp) {
+    int newcap = lp.tcap * 2;
+    if (newcap < 8) { newcap = 8; }
+    EvTimer* nt = alloc<EvTimer>(newcap);
+    int i = 0;
+    while (i < lp.tcap) { nt[i] = lp.timers[i]; i = i + 1; }
+    while (i < newcap) { nt[i].on_fire = void() {}; i = i + 1; }
+    free((*void)lp.timers);
+    lp.timers = nt;
+    lp.tcap   = newcap;
+}
+
 // Register a one-shot timer firing at monotonic `deadline` (ms). Returns a timer
-// id (slot index) or -1 if full. `el_run` fires it once, then frees `on_fire`.
+// id (slot index); the table grows when every slot is armed. `el_run` fires it
+// once, then frees `on_fire`.
 int el_add_timer(EventLoop* lp, int64 deadline, escaping fn()->void on_fire) {
     int t = 0;
-    while (t < lp.tcap) {
-        if (lp.timers[t].active == 0) {
-            lp.timers[t].deadline = deadline;
-            lp.timers[t].on_fire  = on_fire;
-            lp.timers[t].active   = 1;
-            return t;
-        }
-        t = t + 1;
-    }
-    return -1;
+    while (t < lp.tcap && lp.timers[t].active != 0) { t = t + 1; }
+    if (t == lp.tcap) { _el_grow_timers(lp); }
+    lp.timers[t].deadline = deadline;
+    lp.timers[t].on_fire  = on_fire;
+    lp.timers[t].active   = 1;
+    return t;
 }
 
 // Cancel a pending timer and free its env. Safe to call after it has fired
@@ -383,5 +401,6 @@ void el_free(EventLoop* lp) {
     }
     free((*void)lp.timers);
     free((*void)lp.slots);
+    _el_backend_free(lp.backend);    // close the kqueue / epoll descriptor
     free((*void)lp);
 }

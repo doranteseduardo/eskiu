@@ -18,6 +18,7 @@ import <threading>;
 extern int   pipe(*int fds);
 extern int64 read(int fd, *void buf, int64 n);
 extern int64 write(int fd, *void buf, int64 n);
+extern int   close(int fd);
 
 // A queued waker. Wakers are escaping closures (they outlive the call that
 // scheduled them), owned by the node until run, then released.
@@ -93,6 +94,15 @@ void executor_stop(Executor* ex) { el_stop(ex.lp); }
 
 void executor_free(Executor* ex) {
     el_del_free(ex.lp, ex.wake_r);   // free the drain-callback env too
+    close(ex.wake_r);                // the self-pipe
+    close(ex.wake_w);
+    *RQNode n = ex.head;             // wakers scheduled but never run
+    while (n != (*RQNode)0) {
+        *RQNode next = n.next;
+        free_closure(n.waker);
+        free((*void)n);
+        n = next;
+    }
     el_free(ex.lp);                  // the executor owns its event loop
     free((*void)ex);
 }
