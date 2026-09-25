@@ -1,0 +1,5 @@
+// Member access through a `const *T` (leading-star spelling) auto-derefs like `const T*`.
+extern int printf(string f, ...);
+struct Big { int a; int b; }
+int get(const *Big cb) { return cb.a + cb.b; }
+int main() { Big x = Big{a: 3, b: 4}; const *Big p = &x; printf("%d %d\n", p.a, get(&x)); return 0; }

@@ -1129,6 +1129,7 @@ void TypeChecker::visit(MemberExpr* node) {
 
     std::string baseType = getExpressionType(node->base.get());
     if (!baseType.empty() && baseType[0] == '?') baseType = baseType.substr(1);   // `?*T` derefs like `*T`
+    if (baseType.rfind("const ", 0) == 0) baseType = baseType.substr(6);         // `const *T` derefs like `*T`
 
     // Slice `.len` → int64 (the fat pointer's length field).
     if (node->member == "len" && ty::Type::parse(baseType).kind == ty::Type::Kind::Slice) {
