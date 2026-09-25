@@ -1,0 +1,20 @@
+// Content-Length digits are written from an int64, so values above INT_MAX and
+// the int64 extremes come out in full (they were truncated through int).
+import <http>;
+extern int printf(string fmt, ...);
+int main() {
+    let s: String;
+    s.init(64);
+    _http_append_int(&s, (int64)5000000000);
+    s.push(' ');
+    _http_append_int(&s, (int64)0);
+    s.push(' ');
+    _http_append_int(&s, (int64)-42);
+    s.push(' ');
+    _http_append_int(&s, (int64)9223372036854775807);
+    s.push(' ');
+    _http_append_int(&s, (int64)-9223372036854775807 - 1);
+    printf("%s\n", s.cstr());
+    s.free();
+    return 0;
+}
