@@ -1568,6 +1568,8 @@ printf("%f\n", u.f); // prints 1.0
 
 `sizeof(Value)` returns the size of the largest field: `sizeof(*uint8)` = 8 on a 64-bit target in this example.
 
+A union literal initializes exactly one member, named or positional (`Value{f: 1.5}`, `Value{7}` sets `i`); the remaining bytes are zero. Naming two members is an error. A union literal is a constant initializer for a global or `static` when its member value is constant.
+
 ### 8.7 Enums
 
 An `enum` declares a set of named integer constants. Members take consecutive values starting at 0; an explicit `= N` resets the running value, and the next member continues from there. The enum type itself is an `int` (`i32`), so enum values work in arithmetic, comparisons, and `switch`.

@@ -188,7 +188,8 @@ void CodeGen::emitStructInitInto(llvm::Value* dest, StructInitExpr* init) {
         }
         llvm::Type* fieldType = getTypeFromString(fields[idx].type);
         val = coerce(val, fieldType, uns);
-        llvm::Value* gep = builder->CreateStructGEP(st, dest, idx);
+        // A union's members all start at offset 0.
+        llvm::Value* gep = unionFields.count(sname) ? dest : builder->CreateStructGEP(st, dest, idx);
         if (val) builder->CreateStore(val, gep);
     };
 

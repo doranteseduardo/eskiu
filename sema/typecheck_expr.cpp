@@ -1628,6 +1628,10 @@ void TypeChecker::visit(StructInitExpr* node) {
                           node->structName + "' literal");
             break;
         }
+    // A union's members overlap: its literal initializes exactly one of them (C).
+    if (it->second.isUnion && node->fieldInits.size() > 1)
+        errorAt(node, "a union literal initializes one member ('" + node->structName +
+                      "' literal has " + std::to_string(node->fieldInits.size()) + ")");
 
     for (size_t i = 0; i < node->fieldInits.size(); ++i) {
         const auto& [fname, expr] = node->fieldInits[i];

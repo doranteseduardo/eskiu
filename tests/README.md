@@ -93,6 +93,7 @@ when you add a test.
 | `type_alias` | `type u8 = uint8;` resolves to the underlying type |
 | `bitfields` | bitfield assignment + masked read; signed fields sign-extend |
 | `bitfield_signed_store` | a narrower signed value stored into a wide bitfield sign-extends (assignment, struct literal, `+=`); an unsigned one zero-extends |
+| `const_bitfield_union` | global and `static` initializers of bitfield structs, unions (any member, nested in a struct), `packed` and `pack(2)` structs fold to their C byte image; local union literals |
 | `templates_result` | `Result<int,string>` monomorphization, `Ok`/`Err` |
 | `template_inference` | `T` inferred when it appears directly as a parameter type |
 | `template_inference_composite` | `T` inferred from a composite param type (`List<T>*`) |
@@ -378,6 +379,7 @@ when you add a test.
 | `errors/await_in_lambda` | rejected with "await is only allowed inside an async function" |
 | `errors/bitfield_float` | rejected with "must have an integer type" |
 | `errors/bitfield_too_wide` | rejected with "is 40 bits wide, more than its type 'uint32' holds" |
+| `errors/union_two_members` | rejected with "a union literal initializes one member" |
 | `errors/break_outside` | rejected with "'break' outside of a loop or switch" |
 | `errors/call_non_fn` | rejected with "undefined function 'x'" |
 | `errors/case_nonconst` | rejected with "switch case value must be a constant integer" |

@@ -1,0 +1,46 @@
+extern int printf(string fmt, ...);
+struct B { uint8 x : 3; uint8 y : 5; int z; }
+struct M { int64 a : 40; uint64 u : 20; int16 s : 10; float f; string name; double d; }
+union U { int64 i; double d; }
+union V { float f; uint8 b; int16 h; }
+union W { float f; int32 i; }
+struct Outer { int tag; U u; B b; }
+packed struct PK { uint8 a; int64 b; }
+#pragma pack(2)
+struct P2 { uint8 c; int32 k : 12; int32 j; }
+#pragma pack()
+
+B gb = B{x: 5, y: 9, z: 7};
+M gm = M{a: -5, u: 3, s: -2, f: 2.5, name: "hi", d: -0.75};
+M gpos = M{-1, 1048575, 511};
+U gu = U{i: 42};
+U gd = U{d: 1.5};
+V gv = V{h: -2};
+V gf = V{f: 0.5};
+W gw = W{i: -1};
+W gs = W{i: 2139095041};
+Outer go = Outer{tag: 3, u: U{d: 2.25}, b: B{x: 7, y: 31, z: -1}};
+PK gpk = PK{a: 1, b: 5000000000};
+P2 gp2 = P2{c: 9, k: -100, j: 70000};
+
+int f() {
+    static B s = B{x: 2, y: 3, z: 4};
+    s.z = s.z + 1;
+    return s.x * 100 + s.y * 10 + s.z;
+}
+
+int main() {
+    printf("%d %d %d\n", gb.x, gb.y, gb.z);
+    printf("%lld %llu %d %.2f %s %.2f\n", gm.a, gm.u, gm.s, gm.f, gm.name, gm.d);
+    printf("%lld %llu %d\n", gpos.a, gpos.u, gpos.s);
+    printf("%lld %.2f %d %.2f\n", gu.i, gd.d, gv.h, gf.f);
+    printf("%d %.2f %d %d %d\n", go.tag, go.u.d, go.b.x, go.b.y, go.b.z);
+    printf("%d %lld\n", gpk.a, gpk.b);
+    printf("%d %d %d\n", gp2.c, gp2.k, gp2.j);
+    printf("%d %d\n", f(), f());
+    printf("%d %d\n", gw.i, gs.i);
+    U lu = U{d: -3.5};
+    V lv = V{b: 200};
+    printf("%.2f %d\n", lu.d, lv.b);
+    return 0;
+}

@@ -143,6 +143,7 @@ private:
     struct StructInfo {
         std::string name;
         std::vector<StructDecl::Field> fields;
+        bool isUnion = false;
     };
 
     // Scope management

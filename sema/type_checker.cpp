@@ -68,6 +68,7 @@ bool TypeChecker::check(Program* program) {
             // A union is a struct to the type system (all fields at offset 0 in codegen).
             StructInfo info;
             info.name = unionDecl->name;
+            info.isUnion = true;
             for (const auto& f : unionDecl->fields) info.fields.push_back({f.type, f.name});
             structs[unionDecl->name] = info;
             continue;

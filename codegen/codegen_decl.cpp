@@ -278,7 +278,7 @@ void CodeGen::visit(VarDecl* node) {
         llvm::Constant* init = node->initializer
             ? constInitializer(node->initializer, declType)
             : nullptr;
-        if (!init && node->initializer && !isUnfoldableBitfieldInit(node->initializer))
+        if (!init && node->initializer)
             throw std::runtime_error("initializer of global '" + node->name +
                                      "' is not a compile-time constant");
         if (!init) init = llvm::Constant::getNullValue(declType);
@@ -306,7 +306,7 @@ void CodeGen::visit(VarDecl* node) {
         llvm::Constant* init = node->initializer
             ? constInitializer(node->initializer, declType)
             : nullptr;
-        if (!init && node->initializer && !isUnfoldableBitfieldInit(node->initializer))
+        if (!init && node->initializer)
             throw std::runtime_error("initializer of static '" + node->name +
                                      "' is not a compile-time constant");
         if (!init) init = llvm::Constant::getNullValue(declType);

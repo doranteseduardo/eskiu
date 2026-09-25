@@ -2305,6 +2305,11 @@ void sema_check_struct_init(Sema* s, *ExprNode e) {
         s.had_error = 1;
         dprintf(2, "error: %s:%d:%d: cannot mix positional and named field initializers in a '%s' literal\n", s.filename, s.line, s.col, e.sval);
     }
+    // A union's members overlap: its literal initializes exactly one of them (C).
+    if (d.kind == DK_UNION && n > 1) {
+        s.had_error = 1;
+        dprintf(2, "error: %s:%d:%d: a union literal initializes one member ('%s' literal has %d)\n", s.filename, s.line, s.col, e.sval, n);
+    }
     int i = 0;
     while (i < n) {
         *ExprNode v = List_get<*ExprNode>(&e.kids, i);

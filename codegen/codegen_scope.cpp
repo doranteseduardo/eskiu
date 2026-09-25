@@ -106,15 +106,15 @@ llvm::Constant* CodeGen::constInitializer(const ExprPtr& expr, llvm::Type* declT
         return llvm::ConstantArray::get(arrTy, elems);
     }
     // Struct literal `S{ ... }` against a struct type: fold each named/positional field
-    // to a constant and zero-fill the rest. Bitfield-packed structs need physical-slot
-    // packing, so those fall through to a zero global (a documented limitation).
+    // to a constant and zero-fill the rest. A bitfield struct or a union is folded
+    // through its byte image (constAggregateImage).
     if (auto* si = dynamic_cast<StructInitExpr*>(expr.get())) {
         std::string sname = resolveStructInitName(si->structName);
         auto fit = structFields.find(sname);
         auto stIt = structTypes.find(sname);
         if (fit == structFields.end() || stIt == structTypes.end()) return nullptr;
-        if (structLayout.count(sname)) return nullptr;   // bitfield struct: not folded
-        if (unionFields.count(sname)) return nullptr;    // union: members overlap, not folded
+        if (structLayout.count(sname) || unionFields.count(sname))
+            return constAggregateImage(si, sname);
         const auto& fields = fit->second;
         llvm::StructType* st = stIt->second;
         std::vector<llvm::Constant*> vals(fields.size(), nullptr);
@@ -145,9 +145,135 @@ llvm::Constant* CodeGen::constInitializer(const ExprPtr& expr, llvm::Type* declT
     return foldViaCodegen(expr, declType);
 }
 
-bool CodeGen::isUnfoldableBitfieldInit(const ExprPtr& expr) {
-    auto* si = dynamic_cast<StructInitExpr*>(expr.get());
-    return si && structLayout.count(resolveStructInitName(si->structName));
+namespace {
+// The bytes of a constant aggregate being assembled (little-endian targets): `opaque`
+// marks bytes held by a constant with no byte form (an address), which only the exact
+// element at that offset (`direct`) can carry.
+struct ConstImage {
+    std::vector<uint8_t> bytes;
+    std::vector<bool> opaque;
+    std::map<uint64_t, llvm::Constant*> direct;
+};
+
+bool writeConstBytes(const llvm::DataLayout& DL, llvm::Constant* c, ConstImage& img, uint64_t off) {
+    uint64_t size = DL.getTypeAllocSize(c->getType()).getFixedValue();
+    if (off + size > img.bytes.size()) return false;
+    if (c->isNullValue()) return true;
+    llvm::APInt bits;
+    if (auto* ci = llvm::dyn_cast<llvm::ConstantInt>(c)) bits = ci->getValue();
+    else if (auto* cf = llvm::dyn_cast<llvm::ConstantFP>(c)) bits = cf->getValueAPF().bitcastToAPInt();
+    else if (auto* st = llvm::dyn_cast<llvm::StructType>(c->getType())) {
+        const llvm::StructLayout* sl = DL.getStructLayout(st);
+        bool ok = true;
+        for (unsigned i = 0; i < st->getNumElements(); ++i)
+            ok &= writeConstBytes(DL, c->getAggregateElement(i), img, off + sl->getElementOffset(i));
+        return ok;
+    } else if (auto* at = llvm::dyn_cast<llvm::ArrayType>(c->getType())) {
+        uint64_t esz = DL.getTypeAllocSize(at->getElementType()).getFixedValue();
+        bool ok = true;
+        for (uint64_t i = 0; i < at->getNumElements(); ++i)
+            ok &= writeConstBytes(DL, c->getAggregateElement((unsigned)i), img, off + i * esz);
+        return ok;
+    } else {
+        for (uint64_t i = 0; i < size; ++i) img.opaque[off + i] = true;
+        return false;
+    }
+    unsigned nbits = bits.getBitWidth();
+    for (uint64_t i = 0; i < size && i * 8 < nbits; ++i)
+        img.bytes[off + i] = (uint8_t)bits.extractBitsAsZExtValue(std::min(8u, nbits - (unsigned)i * 8), (unsigned)i * 8);
+    return true;
+}
+
+llvm::Constant* constFromImage(const llvm::DataLayout& DL, llvm::Type* t, const ConstImage& img,
+                               uint64_t off) {
+    auto dit = img.direct.find(off);
+    if (dit != img.direct.end() && dit->second->getType() == t) return dit->second;
+    uint64_t size = DL.getTypeAllocSize(t).getFixedValue();
+    if (off + size > img.bytes.size()) return nullptr;
+    if (auto* st = llvm::dyn_cast<llvm::StructType>(t)) {
+        const llvm::StructLayout* sl = DL.getStructLayout(st);
+        std::vector<llvm::Constant*> vals;
+        for (unsigned i = 0; i < st->getNumElements(); ++i) {
+            llvm::Constant* e = constFromImage(DL, st->getElementType(i), img, off + sl->getElementOffset(i));
+            if (!e) return nullptr;
+            vals.push_back(e);
+        }
+        return llvm::ConstantStruct::get(st, vals);
+    }
+    if (auto* at = llvm::dyn_cast<llvm::ArrayType>(t)) {
+        uint64_t esz = DL.getTypeAllocSize(at->getElementType()).getFixedValue();
+        std::vector<llvm::Constant*> vals;
+        for (uint64_t i = 0; i < at->getNumElements(); ++i) {
+            llvm::Constant* e = constFromImage(DL, at->getElementType(), img, off + i * esz);
+            if (!e) return nullptr;
+            vals.push_back(e);
+        }
+        return llvm::ConstantArray::get(at, vals);
+    }
+    bool zero = true;
+    for (uint64_t i = 0; i < size; ++i) {
+        if (img.opaque[off + i]) return nullptr;
+        if (img.bytes[off + i]) zero = false;
+    }
+    if (zero) return llvm::Constant::getNullValue(t);
+    unsigned nbits = (unsigned)DL.getTypeSizeInBits(t).getFixedValue();
+    llvm::APInt bits(nbits, 0);
+    for (uint64_t i = 0; i < size && i * 8 < nbits; ++i)
+        bits.insertBits((uint64_t)img.bytes[off + i], (unsigned)i * 8, std::min(8u, nbits - (unsigned)i * 8));
+    if (t->isIntegerTy()) return llvm::ConstantInt::get(t, bits);
+    if (t->isFloatingPointTy()) return llvm::ConstantFP::get(t, llvm::APFloat(t->getFltSemantics(), bits));
+    return nullptr;
+}
+}  // namespace
+
+llvm::Constant* CodeGen::constAggregateImage(StructInitExpr* si, const std::string& sname) {
+    const llvm::DataLayout& DL = module->getDataLayout();
+    if (!DL.isLittleEndian()) return nullptr;
+    llvm::StructType* st = structTypes[sname];
+    const auto& fields = structFields[sname];
+    uint64_t size = DL.getTypeAllocSize(st).getFixedValue();
+    ConstImage img{std::vector<uint8_t>(size, 0), std::vector<bool>(size, false), {}};
+    bool isUnion = unionFields.count(sname) > 0;
+    auto lit = structLayout.find(sname);
+    bool named = !si->fieldInits.empty() && !si->fieldInits[0].first.empty();
+    for (size_t k = 0; k < si->fieldInits.size(); ++k) {
+        size_t idx = k;
+        if (named) {
+            idx = fields.size();
+            for (size_t i = 0; i < fields.size(); ++i)
+                if (fields[i].name == si->fieldInits[k].first) idx = i;
+        }
+        if (idx >= fields.size()) continue;
+        const ExprPtr& e = si->fieldInits[k].second;
+        if (isUnion) {
+            llvm::Constant* c = constInitializer(e, getTypeFromString(fields[idx].type));
+            if (!c) return nullptr;
+            img.direct[0] = c;
+            writeConstBytes(DL, c, img, 0);
+            continue;
+        }
+        const BitfieldSlot& slot = lit->second.at(fields[idx].name);
+        uint64_t base = slot.byOffset ? slot.byteOffset
+                                      : DL.getStructLayout(st)->getElementOffset(slot.physIndex);
+        llvm::Constant* c = constInitializer(e, slot.storageType);
+        if (!c) return nullptr;
+        if (!slot.isBitfield) {
+            img.direct[base] = c;
+            writeConstBytes(DL, c, img, base);
+            continue;
+        }
+        auto* ci = llvm::dyn_cast<llvm::ConstantInt>(c);
+        if (!ci) return nullptr;
+        const llvm::APInt& v = ci->getValue();
+        uint64_t bitpos = base * 8 + slot.bitOffset;
+        for (unsigned b = 0; b < slot.bitWidth && b < v.getBitWidth(); ++b) {
+            uint64_t p = bitpos + b;
+            if (p / 8 >= size) return nullptr;
+            if (v[b]) img.bytes[p / 8] |= (uint8_t)(1u << (p % 8));
+            else img.bytes[p / 8] &= (uint8_t)~(1u << (p % 8));
+        }
+    }
+    return constFromImage(DL, st, img, 0);
 }
 
 llvm::Value* CodeGen::lookupSymbol(const std::string& name) {

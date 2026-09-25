@@ -181,9 +181,9 @@ private:
     // (`{...}`) element-wise with C-style zero-fill. Falls back to scalar folding +
     // coercion. Returns nullptr when the initializer isn't a compile-time constant.
     llvm::Constant* constInitializer(const ExprPtr& expr, llvm::Type* declType);
-    // A struct literal of a bitfield-packed struct: the one constant form the folder
-    // leaves as a zero global (a documented limitation) instead of rejecting.
-    bool isUnfoldableBitfieldInit(const ExprPtr& expr);
+    // A bitfield-struct or union literal folded through its byte image (nullptr if a
+    // member is not constant or has no byte form where the layout needs one).
+    llvm::Constant* constAggregateImage(StructInitExpr* si, const std::string& sname);
 
     // Helpers
     llvm::Value* boxAsInterface(const std::string& ifaceName,

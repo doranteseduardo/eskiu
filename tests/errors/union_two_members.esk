@@ -1,0 +1,6 @@
+// EXPECT-ERROR: a union literal initializes one member
+union U { int64 i; double d; }
+int main() {
+    U u = U{i: 1, d: 2.0};
+    return (int)u.i;
+}
