@@ -19,7 +19,7 @@ void String_init(String* self, int64 initial_cap) {
 }
 
 void String_from(String* self, string s) {
-    int64 n = strlen(s);
+    const int64 n = strlen(s);
     self.data = alloc<char>(n + 1);
     memcpy(self.data, s, n + 1);
     self.len = n;
@@ -42,21 +42,20 @@ void String_free(String* self) {
 }
 
 void String_append(String* self, string s) {
-    int64 slen   = strlen(s);
-    int64 newlen = self.len + slen;
+    const int64 slen   = strlen(s);
+    const int64 newlen = self.len + slen;
     // `s` may point into our own buffer (String_concat(&s, &s)); growing frees
     // it, so re-derive the pointer from its offset after the copy.
-    int64 so = (int64)s - (int64)self.data;
-    int inside = 0;
-    if (self.data != null && so >= (int64)0 && so <= self.len) { inside = 1; }
+    const int64 so = (int64)s - (int64)self.data;
+    const bool inside = self.data != null && so >= 0 && so <= self.len;
     if (newlen >= self.cap) {
-        int64 newcap = newlen * 2 + 1;
+        const int64 newcap = newlen * 2 + 1;
         let newbuf: *char = alloc<char>(newcap);
         memcpy(newbuf, self.data, self.len);
         free(self.data);
         self.data = newbuf;
         self.cap  = newcap;
-        if (inside == 1) { s = (string)(self.data + so); }
+        if (inside) { s = (string)(self.data + so); }
     }
     memcpy(self.data + self.len, s, slen);
     self.data[newlen] = 0;
@@ -64,14 +63,14 @@ void String_append(String* self, string s) {
 }
 
 void String_concat(String* self, String* other) {
-    String_append(self, other.data);
+    self.append(other.data);
 }
 
 // Append a single character, growing the buffer if needed and keeping the
 // trailing NUL so the buffer stays a valid C string.
 void String_push(String* self, char c) {
     if (self.len + 1 >= self.cap) {
-        int64 newcap = self.cap * 2 + 2;
+        const int64 newcap = self.cap * 2 + 2;
         let newbuf: *char = alloc<char>(newcap);
         memcpy(newbuf, self.data, self.len);
         free(self.data);
@@ -79,7 +78,7 @@ void String_push(String* self, char c) {
         self.cap  = newcap;
     }
     self.data[self.len] = c;
-    self.len = self.len + 1;
+    self.len++;
     self.data[self.len] = 0;
 }
 
@@ -101,10 +100,8 @@ void String_clear(String* self) {
 
 // First index of c, or -1 if absent.
 int64 String_index_of(String* self, char c) {
-    int64 i = 0;
-    while (i < self.len) {
+    for (int64 i = 0; i < self.len; i++) {
         if (self.data[i] == c) { return i; }
-        i = i + 1;
     }
     return -1;
 }
@@ -112,22 +109,18 @@ int64 String_index_of(String* self, char c) {
 // 1 if the two Strings hold the same bytes, else 0.
 int String_eq(String* self, String* other) {
     if (self.len != other.len) { return 0; }
-    int64 i = 0;
-    while (i < self.len) {
+    for (int64 i = 0; i < self.len; i++) {
         if (self.data[i] != other.data[i]) { return 0; }
-        i = i + 1;
     }
     return 1;
 }
 
 // 1 if this String equals the C string s, else 0.
 int String_eq_cstr(String* self, string s) {
-    int64 n = strlen(s);
+    const int64 n = strlen(s);
     if (self.len != n) { return 0; }
-    int64 i = 0;
-    while (i < n) {
+    for (int64 i = 0; i < n; i++) {
         if (self.data[i] != s[i]) { return 0; }
-        i = i + 1;
     }
     return 1;
 }
@@ -137,45 +130,39 @@ void String_reverse(String* self) {
     int64 i = 0;
     int64 j = self.len - 1;
     while (i < j) {
-        char t = self.data[i];
+        const char t = self.data[i];
         self.data[i] = self.data[j];
         self.data[j] = t;
-        i = i + 1;
-        j = j - 1;
+        i++;
+        j--;
     }
 }
 
 // Copy up to `count` characters starting at `start` from self into out.
 // out must already be initialised; it is cleared first.
 void String_substring(String* self, String* out, int64 start, int64 count) {
-    String_clear(out);
-    int64 i = 0;
-    while (i < count) {
-        if (start + i >= self.len) { return; }
-        String_push(out, self.data[start + i]);
-        i = i + 1;
+    out.clear();
+    for (int64 i = 0; i < count && start + i < self.len; i++) {
+        out.push(self.data[start + i]);
     }
 }
 
 // Render an integer (with optional minus sign) into self.
 void String_from_int(String* self, int n) {
-    String_clear(self);
+    self.clear();
     if (n == 0) {
-        String_push(self, '0');
+        self.push('0');
         return;
     }
     int64 v = (int64)n;   // widened: -(-2147483648) does not fit in an int
-    int neg = 0;
-    if (v < 0) {
-        neg = 1;
-        v = -v;
-    }
+    const bool neg = v < 0;
+    if (neg) { v = -v; }
     while (v > 0) {
-        String_push(self, (char)((int)'0' + (int)(v % (int64)10)));
-        v = v / 10;
+        self.push((char)((int)'0' + (int)(v % 10)));
+        v /= 10;
     }
-    if (neg == 1) { String_push(self, '-'); }
-    String_reverse(self);
+    if (neg) { self.push('-'); }
+    self.reverse();
 }
 
 // Parse a leading (optionally signed, '+' or '-') decimal integer; stops at the first
@@ -184,56 +171,46 @@ void String_from_int(String* self, int n) {
 int String_to_int(String* self) {
     int64 result = 0;
     int64 i = 0;
-    int neg = 0;
-    int done = 0;
+    bool neg = false;
     if (self.len > 0 && self.data[0] == '-') {
-        neg = 1;
+        neg = true;
         i = 1;
     } else if (self.len > 0 && self.data[0] == '+') {
         i = 1;
     }
-    while (i < self.len && done == 0) {
-        char c = self.data[i];
-        if (c < '0' || c > '9') {
-            done = 1;
-        } else {
-            result = result * (int64)10 + (int64)((int)c - (int)'0');
-            if (result > (int64)2147483648) { result = (int64)2147483648; }   // saturate; no int64 overflow
-            i = i + 1;
-        }
+    for (; i < self.len; i++) {
+        const char c = self.data[i];
+        if (c < '0' || c > '9') { break; }
+        result = result * 10 + (int64)((int)c - (int)'0');
+        if (result > 2147483648) { result = 2147483648; }   // saturate; no int64 overflow
     }
-    if (neg == 1) { return (int)(0 - result); }
-    if (result > (int64)2147483647) { return 2147483647; }
+    if (neg) { return (int)(0 - result); }
+    if (result > 2147483647) { return 2147483647; }
     return (int)result;
 }
 
 // 1 if this String begins with the C string `prefix`, else 0.
 int String_starts_with(String* self, string prefix) {
-    int64 i = 0;
-    while (prefix[i] != 0) {
+    for (int64 i = 0; prefix[i] != 0; i++) {
         if (i >= self.len || self.data[i] != prefix[i]) { return 0; }
-        i = i + 1;
     }
     return 1;
 }
 
 // 1 if this String ends with the C string `suffix`, else 0.
 int String_ends_with(String* self, string suffix) {
-    int64 slen = strlen(suffix);
+    const int64 slen = strlen(suffix);
     if (slen > self.len) { return 0; }
-    int64 off = self.len - slen;
-    int64 i = 0;
-    while (i < slen) {
+    const int64 off = self.len - slen;
+    for (int64 i = 0; i < slen; i++) {
         if (self.data[off + i] != suffix[i]) { return 0; }
-        i = i + 1;
     }
     return 1;
 }
 
 // The whitespace String_trim strips: space, tab, newline, carriage return.
 int _string_ws(char c) {
-    if (c == 32 || c == 9 || c == 10 || c == 13) { return 1; }
-    return 0;
+    return (c == 32 || c == 9 || c == 10 || c == 13) ? 1 : 0;
 }
 
 // deprecated: use is_space from <ctype> (a character test, not a String method).
@@ -243,13 +220,12 @@ int String_is_space(char c) { return _string_ws(c); }
 // return), in place.
 void String_trim(String* self) {
     int64 start = 0;
-    while (start < self.len && _string_ws(self.data[start]) == 1) { start = start + 1; }
+    while (start < self.len && _string_ws(self.data[start]) == 1) { start++; }
     int64 end = self.len;
-    while (end > start && _string_ws(self.data[end - 1]) == 1) { end = end - 1; }
-    int64 n = end - start;
+    while (end > start && _string_ws(self.data[end - 1]) == 1) { end--; }
+    const int64 n = end - start;
     if (start > 0) {
-        int64 i = 0;
-        while (i < n) { self.data[i] = self.data[start + i]; i = i + 1; }
+        for (int64 i = 0; i < n; i++) { self.data[i] = self.data[start + i]; }
     }
     self.len = n;
     self.data[n] = 0;
@@ -265,15 +241,16 @@ void String_trim(String* self) {
 //   while (String_next_token(&s, ',', &pos, &tok) == 1) { /* use tok */ }
 //   String_free(&tok);
 int String_next_token(String* self, char sep, *int pos, String* out) {
-    String_clear(out);
+    out.clear();
     int64 p = *pos;
     if (p > self.len) { return 0; }
     while (p < self.len && self.data[p] != sep) {
-        String_push(out, self.data[p]);
-        p = p + 1;
+        out.push(self.data[p]);
+        p++;
     }
-    if (p < self.len) { *pos = p + 1; }          // skip the separator
-    else              { *pos = self.len + 1; }   // last token; stop next call
+    // Skip the separator; after the last token, move past the end so the next
+    // call stops.
+    *pos = p < self.len ? p + 1 : self.len + 1;
     return 1;
 }
 
@@ -281,23 +258,21 @@ int String_next_token(String* self, char sep, *int pos, String* out) {
 // has initialised). Each part is a freshly allocated String the list owns;
 // consecutive separators yield empty parts. Free with String_split_free.
 void String_split(String* self, char sep, List<String>* out) {
-    let tok: String;  String_init(&tok, 8);
+    let tok: String;  tok.init(8);
+    defer tok.free();
     int pos = 0;
-    while (String_next_token(self, sep, &pos, &tok) == 1) {
-        let copy: String;  String_init(&copy, 8);
-        String_append(&copy, String_cstr(&tok));
+    while (self.next_token(sep, &pos, &tok) == 1) {
+        let copy: String;  copy.init(8);
+        copy.append(tok.cstr());
         List_push<String>(out, copy);
     }
-    String_free(&tok);
 }
 
 // Free every part of a split result, then the list itself.
 void String_split_free(List<String>* parts) {
-    int i = 0;
-    while (i < List_len<String>(parts)) {
+    for (i in 0..List_len<String>(parts)) {
         let p: String = List_get<String>(parts, i);
-        String_free(&p);
-        i = i + 1;
+        p.free();
     }
     List_free<String>(parts);
 }
