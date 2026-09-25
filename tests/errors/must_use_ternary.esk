@@ -1,0 +1,4 @@
+// EXPECT-ERROR: result of 'f' must be used
+// Either arm of a discarded `?:` is a discarded result.
+must_use int f() { return 1; }
+int main() { true ? f() : f(); return 0; }

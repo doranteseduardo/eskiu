@@ -1,0 +1,4 @@
+// EXPECT-ERROR: duplicate method 'a' in interface 'S'
+// An interface lists each required method once.
+interface S { int a(); int a(); }
+int main() { return 0; }

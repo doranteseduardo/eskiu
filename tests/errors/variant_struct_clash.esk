@@ -1,0 +1,5 @@
+// EXPECT-ERROR: 'A' is declared as both a struct and a variant
+// A sum-type variant is a constructor: `A(1)` could not tell it from the struct.
+struct A { int x; }
+enum E { A(int), B }
+int main() { return 0; }

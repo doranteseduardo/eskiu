@@ -1965,6 +1965,7 @@ string i64_to_str(int64 n) {
     *DeclNode d = new_decl(kind);
     d.ret_type = parse_type(p);
     d.name = tok_text(p.src, p_expect_ident(p, "Expected function or variable name"));
+    d.line = g_pos_line; d.col = g_pos_col;   // the name token (as the C++ parser)
     // `extern <type> <name>;` (no parens) is a variable defined in another
     // translation unit (a C global), not a function prototype.
     if (kind == DK_EXTERN && p_at(p) != LPAREN) {

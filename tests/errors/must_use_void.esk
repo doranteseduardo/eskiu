@@ -1,0 +1,4 @@
+// EXPECT-ERROR: 'must_use' on 'f', which returns void
+// A void function has no result to use.
+must_use void f() { }
+int main() { return 0; }

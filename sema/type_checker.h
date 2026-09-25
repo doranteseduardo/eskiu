@@ -293,6 +293,7 @@ private:
     bool isLvalueExpr(Expr* e);
     bool isSliceLen(Expr* e);
     std::string localStorageRoot(Expr* e);
+    std::string discardedMustUse(Expr* e);
     void checkAssignment(class BinaryExpr* node);
     // Type one operator whose operands were already visited (see visit(BinaryExpr)).
     void finishBinary(class BinaryExpr* node);
@@ -321,6 +322,7 @@ private:
     // Type validation
     void validateStructType(const std::string& type, ASTNode* at = nullptr);
     void checkArrayDim(const std::string& dim, ASTNode* at);
+    void checkTypeParams(ASTNode* at, const std::string& owner, const std::vector<std::string>& tps);
     // A `void` (or array of void) value type: only a function result may be void.
     bool isVoidValueType(const std::string& type);
     bool isAggregateValue(const std::string& normalizedType);

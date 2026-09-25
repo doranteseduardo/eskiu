@@ -233,6 +233,7 @@ bool TypeChecker::check(Program* program) {
 void TypeChecker::checkTopLevelNames(Program* program) {
     struct Entry { std::string kind; Decl* decl; };
     std::map<std::string, Entry> seen;
+    std::map<std::string, std::string> externSigs;   // extern name -> its signature
     auto sameFields = [](const std::vector<StructDecl::Field>& a, const std::vector<StructDecl::Field>& b) {
         if (a.size() != b.size()) return false;
         for (size_t i = 0; i < a.size(); ++i)
@@ -319,7 +320,21 @@ void TypeChecker::checkTopLevelNames(Program* program) {
         else if (auto* u = dynamic_cast<UnionDecl*>(d)) declare(u->name, "union", u);
         else if (auto* e = dynamic_cast<EnumDecl*>(d)) {
             declare(e->name, "enum", e);
-            for (const auto& m : e->members) declare(m.first, "enum member", e);
+            // A classic member is an int constant, apart from type names; a sum type's
+            // variant is a constructor, so it may not share a name with a type either.
+            for (const auto& m : e->members) declare(m.first, e->isADT() ? "variant" : "enum member", e);
+        }
+        else if (auto* x = dynamic_cast<ExternDecl*>(d)) {
+            // An `extern` may be declared again (modules share C functions), but with the
+            // same signature: two different ones cannot both describe the C symbol.
+            std::string sig = normalizeType(x->returnType) + "(";
+            for (size_t i = 0; i < x->params.size(); ++i)
+                sig += (i ? ", " : "") + (x->params[i].first == "..." ? std::string("...") : normalizeType(x->params[i].first));
+            sig += ")";
+            auto [it, fresh] = externSigs.insert({x->name, sig});
+            if (!fresh && it->second != sig)
+                errorAtDecl(x, "conflicting declaration of extern '" + x->name + "' (" + sig +
+                               " vs the earlier " + it->second + ")");
         }
         else if (auto* i = dynamic_cast<InterfaceDecl*>(d)) declare(i->name, "interface", i);
         else if (auto* a = dynamic_cast<TypeAliasDecl*>(d)) {

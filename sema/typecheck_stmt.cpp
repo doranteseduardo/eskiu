@@ -216,9 +216,11 @@ void TypeChecker::visit(ForStmt* node) {
     }
     loopLabelStack.pop_back();
 
-    // Type check step
+    // Type check step (its value is discarded, like an expression statement's)
     if (node->step) {
         node->step->accept(this);
+        if (std::string fn = discardedMustUse(node->step.get()); !fn.empty())
+            errorAt(node->step.get(), "result of '" + fnDisplay(fn) + "' must be used (it is marked must_use)");
     }
     undoNarrowings(inserted);
 
@@ -299,25 +301,41 @@ void TypeChecker::visit(ExprStmt* node) {
     }
     // A bare call to a `must_use` function discards its result — reject it.
     if (!mustUseFuncs.empty() && node->expr) {
-        std::string fn;
-        if (auto* c = dynamic_cast<CallExpr*>(node->expr.get())) {
-            if (auto* id = dynamic_cast<IdentExpr*>(c->callee.get())) fn = id->name;
-            else if (auto* m = dynamic_cast<MemberExpr*>(c->callee.get())) {
-                // Method-call syntax `x.m()` resolves to `Type_m` (see visit(CallExpr)).
-                std::string bt = ty::Type::parse(getExpressionType(m->base.get())).nominalName();
-                if (mustUseFuncs.count(bt + "_" + m->member)) fn = bt + "_" + m->member;
-                else if (auto ti = templateInstanceArgs.find(
-                             ty::Type::parse(normalizeType(getExpressionType(m->base.get()))).nominalName());
-                         ti != templateInstanceArgs.end())
-                    fn = ti->second.first + "_" + m->member;   // a generic `S_m<T>` (checkGenericMethodCall)
-            }
-        } else if (auto* tc = dynamic_cast<TemplateCallExpr*>(node->expr.get())) {
-            fn = tc->templateName;
-        }
-        if (!fn.empty() && mustUseFuncs.count(fn))
+        std::string fn = discardedMustUse(node->expr.get());
+        if (!fn.empty())
             errorAt(node->line > 0 ? static_cast<ASTNode*>(node) : node->expr.get(),
-                    "result of '" + fn + "' must be used (it is marked must_use)");
+                    "result of '" + fnDisplay(fn) + "' must be used (it is marked must_use)");
     }
+}
+
+// The `must_use` function whose result `e`, evaluated for its side effects only, would
+// discard: a call (also through a method or an operator) or either arm of a `?:`. "" if none.
+std::string TypeChecker::discardedMustUse(Expr* e) {
+    std::string fn;
+    if (auto* c = dynamic_cast<CallExpr*>(e)) {
+        if (auto* id = dynamic_cast<IdentExpr*>(c->callee.get())) fn = id->name;
+        else if (auto* m = dynamic_cast<MemberExpr*>(c->callee.get())) {
+            // Method-call syntax `x.m()` resolves to `Type_m` (see visit(CallExpr)).
+            std::string bt = ty::Type::parse(getExpressionType(m->base.get())).nominalName();
+            if (mustUseFuncs.count(bt + "_" + m->member)) fn = bt + "_" + m->member;
+            else if (auto ti = templateInstanceArgs.find(
+                         ty::Type::parse(normalizeType(getExpressionType(m->base.get()))).nominalName());
+                     ti != templateInstanceArgs.end())
+                fn = ti->second.first + "_" + m->member;   // a generic `S_m<T>` (checkGenericMethodCall)
+        }
+    } else if (auto* tc = dynamic_cast<TemplateCallExpr*>(e)) {
+        fn = tc->templateName;
+    } else if (auto* t = dynamic_cast<TernaryExpr*>(e)) {
+        fn = discardedMustUse(t->thenExpr.get());
+        if (fn.empty()) fn = discardedMustUse(t->elseExpr.get());
+    } else if (auto* b = dynamic_cast<BinaryExpr*>(e)) {
+        fn = b->opFunc;
+    } else if (auto* u = dynamic_cast<UnaryExpr*>(e)) {
+        fn = u->opFunc;
+    } else if (auto* ix = dynamic_cast<IndexExpr*>(e)) {
+        fn = ix->opFunc;
+    }
+    return (!fn.empty() && mustUseFuncs.count(fn)) ? fn : "";
 }
 
 void TypeChecker::visit(ContinueStmt* node) {
@@ -502,6 +520,10 @@ void TypeChecker::visit(MatchStmt* node) {
                     errorAt(node, "variant '" + arm.variant + "' binds " +
                         std::to_string(payload.size()) + " field(s), got " +
                         std::to_string(arm.bindings.size()));
+                std::set<std::string> bound;
+                for (const auto& b : arm.bindings)
+                    if (b != "_" && !bound.insert(b).second)
+                        errorAt(node, "duplicate binding '" + b + "' in match arm '" + arm.variant + "'");
                 for (size_t i = 0; i < arm.bindings.size() && i < payload.size(); ++i)
                     defineSymbol(arm.bindings[i], normalizeType(substType(payload[i], subs)),
                                  node->line, node->col, /*isParam=*/false);

@@ -257,7 +257,20 @@ bool stmtAlwaysReturns(Stmt* s) { return !canCompleteNormally(s); }
 
 bool stmtCanCompleteNormally(Stmt* s) { return canCompleteNormally(s); }
 
+void TypeChecker::checkTypeParams(ASTNode* at, const std::string& owner, const std::vector<std::string>& tps) {
+    std::set<std::string> seen;
+    for (const auto& tp : tps)
+        if (!seen.insert(tp).second)
+            errorAt(at, "duplicate type parameter '" + tp + "' in '" + owner + "'");
+}
+
 void TypeChecker::visit(FunctionDecl* node) {
+    if (!inInstance) {
+        checkTypeParams(node, fnDisplay(node->name), node->typeParams);
+        // `must_use` asks the caller to use a result; a void function has none.
+        if (node->mustUse && tyq::strip(node->returnType) == "void")
+            errorAt(node, "'must_use' on '" + fnDisplay(node->name) + "', which returns void (there is no result to use)");
+    }
     if (!node->typeParams.empty()) {
         // Template body: type-checking is deferred to instantiation, but lambda
         // captures must be resolved now (codegen has no equivalent pass). See
@@ -299,6 +312,29 @@ void TypeChecker::visit(FunctionDecl* node) {
             errorAt(node, "'" + fnDisplay(node->name) + "' does not overload an operator for a user type: "
                           "an operand must be a struct, union, sum type or interface (built-in operands keep "
                           "their built-in meaning)");
+    }
+
+    // `main` is called by the C runtime as `main()` or `main(argc, argv[, envp])`.
+    if (node->name == "main" && !node->params.empty()) {
+        auto isArgv = [&](const std::string& t) {
+            std::string s = normalizeType(tyq::strip(t));
+            if (pointerDepth(s) == 1) {
+                std::string base = s.front() == '*' ? s.substr(1) : s.substr(0, s.size() - 1);
+                return base == "string";
+            }
+            if (pointerDepth(s) == 2) {
+                std::string base = s;
+                while (!base.empty() && base.front() == '*') base.erase(0, 1);
+                while (!base.empty() && base.back() == '*') base.pop_back();
+                return base == "char" || base == "uint8" || base == "int8";
+            }
+            return false;
+        };
+        std::string a0 = normalizeType(tyq::strip(node->params[0].first));
+        bool ok = (node->params.size() == 2 || node->params.size() == 3) && (a0 == "int" || a0 == "int32");
+        for (size_t i = 1; ok && i < node->params.size(); ++i) ok = isArgv(node->params[i].first);
+        if (!ok)
+            errorAt(node, "'main' must take no parameters or (int argc, string* argv): the C runtime calls it that way");
     }
 
     // Parameter and return types must name known types.
@@ -678,6 +714,7 @@ void TypeChecker::visit(VarDecl* node) {
 
 void TypeChecker::visit(StructDecl* node) {
     defineSymbol(node->name, "struct:" + node->name);
+    checkTypeParams(node, node->name, node->typeParams);
     {
         std::set<std::string> names;
         for (const auto& f : node->fields)
@@ -767,6 +804,7 @@ void TypeChecker::visit(IntrinsicDecl* node) {
 void TypeChecker::visit(EnumDecl* node) {
     // Members and the enum type were registered in the first pass.
     definitionLocations[node->name] = {node->line, node->col, diagFile()};
+    checkTypeParams(node, node->name, node->typeParams);
     // A classic enum is an `int`: every member value (explicit, or the previous one + 1)
     // must fit it, instead of wrapping or being truncated.
     if (!node->isADT())
@@ -782,7 +820,11 @@ void TypeChecker::visit(TypeAliasDecl* node) {
 }
 
 void TypeChecker::visit(InterfaceDecl* node) {
-    // Interface registered in first pass; no body to type-check
+    // Interface registered in first pass; no body to type-check. A method is required once.
+    std::set<std::string> names;
+    for (const auto& m : node->methods)
+        if (!names.insert(m.name).second)
+            errorAt(node, "duplicate method '" + m.name + "' in interface '" + node->name + "'");
 }
 
 void TypeChecker::visit(UnionDecl* node) {

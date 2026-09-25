@@ -3,7 +3,7 @@ import <mem>;
 import <string>;
 import <multipart>;
 extern int printf(string fmt, ...);
-extern int strlen(string s);
+extern int64 strlen(string s);
 int main() {
     string body = "--B\r\nContent-Disposition: form-data; name=\"photo\"; filename=\"x\"\r\n\r\nHELLO\r\n--B--\r\n";
     int64 n = (int64)strlen(body);
