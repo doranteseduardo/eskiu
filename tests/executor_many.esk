@@ -1,0 +1,29 @@
+// Executor_schedule coalesces wake-ups: one pending byte in the self-pipe covers
+// the whole queue, and the write end is non-blocking. Scheduling 100000 wakers
+// before the loop runs used to fill the pipe (~64 KB) and block the scheduler
+// forever; they now all run, in order, and a waker scheduled while draining
+// still wakes the loop.
+import <executor>;
+extern int printf(string fmt, ...);
+
+Executor* g_ex;
+int g_count = 0;
+int g_inorder = 1;
+
+int main() {
+    g_ex = executor_new(el_new(64));
+    for (int i = 0; i < 100000; i++) {
+        int want = i;
+        Executor_schedule(g_ex, void() {
+            if (g_count != want) { g_inorder = 0; }
+            g_count++;
+        });
+    }
+    Executor_schedule(g_ex, void() {
+        Executor_schedule(g_ex, void() { Executor_stop(g_ex); });   // re-wakes the loop
+    });
+    Executor_run(g_ex);
+    printf("ran=%d inorder=%d\n", g_count, g_inorder);
+    Executor_free(g_ex);
+    return 0;
+}

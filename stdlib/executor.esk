@@ -19,6 +19,9 @@ extern int   pipe(*int fds);
 extern int64 read(int fd, *void buf, int64 n);
 extern int64 write(int fd, *void buf, int64 n);
 extern int   close(int fd);
+#ifndef _WIN32
+extern int   fcntl(int fd, int cmd, int arg);
+#endif
 
 // A queued waker. Wakers are escaping closures (they outlive the call that
 // scheduled them), owned by the node until run, then released.
@@ -33,19 +36,21 @@ struct Executor {
     int        wake_w;     // self-pipe write end (written by schedulers)
     *RQNode    head;
     *RQNode    tail;
-    Mutex      lock;       // guards head/tail against cross-thread schedule
+    Mutex      lock;       // guards head/tail/signaled against cross-thread schedule
+    int        signaled;   // 1 while a wake byte is in the pipe and not yet drained
 }
 
 // Drain the ready-queue and run each waker on the loop thread. Wakers run with
 // the lock released, so a waker may schedule more work without deadlocking.
 void _ex_drain(Executor* ex, int fd) {
     uint8[64] sink;
-    read(fd, (*void)&sink[0], 64);            // best-effort drain of wake bytes
+    read(fd, (*void)&sink[0], 64);            // the (single, coalesced) wake byte
 
     ex.lock.lock();
     *RQNode n = ex.head;
     ex.head = null;
     ex.tail = null;
+    ex.signaled = 0;              // a schedule from here on writes a fresh byte
     ex.lock.unlock();
 
     while (n != null) {
@@ -68,6 +73,16 @@ Executor* executor_new(EventLoop* lp) {
     int[2] fds; pipe(&fds[0]);
     ex.wake_r = fds[0];
     ex.wake_w = fds[1];
+    ex.signaled = 0;
+#ifndef _WIN32
+    // The write end never blocks a scheduler (O_NONBLOCK; F_GETFL = 3, F_SETFL = 4).
+    // Wakes are coalesced to one pending byte anyway, so the pipe never fills.
+#ifdef __APPLE__
+    fcntl(ex.wake_w, 4, fcntl(ex.wake_w, 3, 0) | 4);
+#else
+    fcntl(ex.wake_w, 4, fcntl(ex.wake_w, 3, 0) | 2048);
+#endif
+#endif
     EventLoop_add_read(lp, ex.wake_r, void(EventLoop* l, int fd) { _ex_drain(ex, fd); });
     return ex;
 }
@@ -82,10 +97,14 @@ void Executor_schedule(Executor* ex, escaping fn()->void w) {
     ex.lock.lock();
     if (ex.tail == null) { ex.head = n; ex.tail = n; }
     else                 { ex.tail.next = n; ex.tail = n; }
+    const bool wake = ex.signaled == 0;       // one pending wake byte covers the whole queue
+    ex.signaled = 1;
     ex.lock.unlock();
 
-    uint8 one = 1;
-    write(ex.wake_w, (*void)&one, 1);          // wake the loop thread
+    if (wake) {
+        uint8 one = 1;
+        write(ex.wake_w, (*void)&one, 1);      // wake the loop thread
+    }
 }
 
 // Run until Executor_stop: dispatch I/O readiness and scheduled wakers.
