@@ -242,6 +242,7 @@ private:
     // Keys of the `?*T` variables proven non-null when `cond` evaluates to `whenTrue`
     // (`p != null`, `p == null` false, `p`, `!c`, `a && b` true, `a || b` false).
     void condNarrowings(Expr* cond, bool whenTrue, std::vector<std::string>& keys);
+    void assignedNames(Expr* e, std::set<std::string>& out);
     // Insert `keys` into narrowedNonNull; returns the ones newly inserted (to undo).
     std::vector<std::string> applyNarrowings(const std::vector<std::string>& keys);
     void undoNarrowings(const std::vector<std::string>& inserted);

@@ -904,6 +904,8 @@ string sema_binary_type(Sema* s, string op, string lt, string rt) {
     if (sema_is_cmp_op(op) == 1 || sema_streq(op, "&&") == 1 || sema_streq(op, "||") == 1) { return "bool"; }
     if (sema_is_valop(op) == 0) { return ""; }
     if (lt[0] == 0 || rt[0] == 0) { return ""; }
+    // Stepping a `?*T` does not prove it non-null: `p + n` is still a `?*T`.
+    if ((sema_streq(op, "+") == 1 || sema_streq(op, "-") == 1) && (int)lt[0] == 63 && sema_is_int_ty(sema_canon(s, rt)) == 1) { return lt; }
     string l = sema_canon(s, lt);
     string r = sema_canon(s, rt);
     if (sema_is_numeric_ty(l) == 1 && sema_is_numeric_ty(r) == 1) {
@@ -2479,6 +2481,7 @@ void sema_cond_narrow(Sema* s, *ExprNode c, int when_true, List<string>* out) {
     // operands are scanned afterwards, bottom-up, so the keys keep their source order.
     List<*ExprNode> rights; List_init<*ExprNode>(&rights, 4);
     List<int> senses; List_init<int>(&senses, 4);
+    *ExprNode whole = c;
     while (c != null) {
         if (c.kind == EK_UNARY && sema_streq(c.sval, "!") == 1) {
             if (when_true == 1) { when_true = 0; } else { when_true = 1; }
@@ -2502,6 +2505,36 @@ void sema_cond_narrow(Sema* s, *ExprNode c, int when_true, List<string>* out) {
     }
     List_free<*ExprNode>(&rights);
     List_free<int>(&senses);
+    // A variable the condition itself assigns, steps, or takes the address of is not
+    // proven by an earlier test in it (mirrors the C++ condNarrowings).
+    if (List_len<string>(out) > 0) {
+        List<string> asg; List_init<string>(&asg, 2);
+        sema_assigned_names(whole, &asg);
+        int k = List_len<string>(out) - 1;
+        while (k >= 0 && List_len<string>(&asg) > 0) {
+            string key = List_get<string>(out, k);
+            int at = 0; while (key[at] != 0 && (int)key[at] != 64) { at = at + 1; }   // '@'
+            if (sema_in_list(&asg, sema_sub_str(key, 0, at)) == 1) { List_remove<string>(out, k); }
+            k = k - 1;
+        }
+    }
+}
+
+// Names of the variables `e` assigns, increments/decrements, or takes the address of (not
+// inside a lambda body, whose captures are copies). Kind-aware, like sema_drop_assigned_e.
+void sema_assigned_names(*ExprNode e, List<string>* out) {
+    if (e == null) { return; }
+    if (e.kind == EK_BINARY && sema_streq(e.sval, "=") == 1 && e.a != null && e.a.kind == EK_IDENT) { List_push<string>(out, e.a.sval); }
+    if (e.kind == EK_UNARY && sema_streq(e.sval, "&") == 1 && e.a != null && e.a.kind == EK_IDENT) { List_push<string>(out, e.a.sval); }
+    if (e.kind == EK_INCDEC && e.a != null && e.a.kind == EK_IDENT) { List_push<string>(out, e.a.sval); }
+    if (e.kind == EK_BINARY || e.kind == EK_INDEX || e.kind == EK_TERNARY) { sema_assigned_names(e.a, out); sema_assigned_names(e.b, out); }
+    else if (e.kind == EK_UNARY || e.kind == EK_MEMBER || e.kind == EK_CAST || e.kind == EK_QUESTION
+             || e.kind == EK_AWAIT || e.kind == EK_CALL || e.kind == EK_INCDEC) { sema_assigned_names(e.a, out); }
+    if (e.kind == EK_CALL || e.kind == EK_TEMPLATECALL || e.kind == EK_STRUCTINIT
+        || e.kind == EK_ARRAYLIT || e.kind == EK_INDEX || e.kind == EK_TERNARY) {
+        int i = 0; int n = List_len<*ExprNode>(&e.kids);
+        while (i < n) { sema_assigned_names(List_get<*ExprNode>(&e.kids, i), out); i = i + 1; }
+    }
 }
 
 // sema_cond_narrow for an operand that is not itself `!`, or a `&&`/`||` run.

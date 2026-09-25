@@ -158,6 +158,10 @@ void TypeChecker::finishBinary(BinaryExpr* node) {
     }
 
     std::string resultType = inferBinaryExprType(leftType, node->op, rightType);
+    // Stepping a `?*T` does not prove it non-null: `p + n` is still a `?*T`.
+    if ((node->op == "+" || node->op == "-") && !leftType.empty() && leftType[0] == '?' &&
+        isPointerType(resultType) && resultType[0] != '?')
+        resultType = "?" + resultType;
 
     // A constant shift count must be less than the (promoted) left operand's width and
     // not negative; anything else is undefined behavior in C.
@@ -288,6 +292,7 @@ std::string TypeChecker::narrowKey(const std::string& name) const {
 }
 
 void TypeChecker::condNarrowings(Expr* cond, bool whenTrue, std::vector<std::string>& keys) {
+    Expr* whole = cond;
     auto nullableIdent = [&](Expr* e) -> std::string {
         auto* id = dynamic_cast<IdentExpr*>(e);
         if (!id) return "";
@@ -328,6 +333,30 @@ void TypeChecker::condNarrowings(Expr* cond, bool whenTrue, std::vector<std::str
         if (!k.empty()) keys.push_back(k);
     }
     for (size_t i = rights.size(); i-- > 0;) condNarrowings(rights[i].first, rights[i].second, keys);
+    // A variable the condition itself assigns (`p != null && (p = q) != x`), steps, or takes
+    // the address of is not proven by an earlier test in it.
+    if (!keys.empty()) {
+        std::set<std::string> assigned;
+        assignedNames(whole, assigned);
+        if (!assigned.empty())
+            keys.erase(std::remove_if(keys.begin(), keys.end(), [&](const std::string& k) {
+                return assigned.count(k.substr(0, k.rfind('@'))) > 0;
+            }), keys.end());
+    }
+}
+
+// Names of the variables `e` assigns, increments/decrements, or takes the address of (not
+// inside a lambda body, whose captures are copies).
+void TypeChecker::assignedNames(Expr* e, std::set<std::string>& out) {
+    if (!e) return;
+    if (auto* b = dynamic_cast<BinaryExpr*>(e); b && b->op == "=")
+        if (auto* id = dynamic_cast<IdentExpr*>(b->left.get())) out.insert(id->name);
+    if (auto* u = dynamic_cast<UnaryExpr*>(e); u && u->op == "&")
+        if (auto* id = dynamic_cast<IdentExpr*>(u->operand.get())) out.insert(id->name);
+    if (auto* ic = dynamic_cast<IncDecExpr*>(e))
+        if (auto* id = dynamic_cast<IdentExpr*>(ic->operand.get())) out.insert(id->name);
+    if (dynamic_cast<LambdaExpr*>(e)) return;
+    astwalk::forEachChildExprFlat(e, [&](ExprPtr& c) { assignedNames(c.get(), out); });
 }
 
 std::vector<std::string> TypeChecker::applyNarrowings(const std::vector<std::string>& keys) {
