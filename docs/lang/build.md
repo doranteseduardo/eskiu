@@ -240,7 +240,9 @@ The build links `support`, `core`, and `irreader`. If you see undefined symbols 
 
 The automated suite is driven by `tests/run.sh`, which compiles, links, and runs every
 `tests/*.esk` case (matching stdout against `*.expected`, smoke-running the rest, and
-checking that `tests/errors/*.esk` are rejected):
+checking that `tests/errors/*.esk` are rejected). `eskiuc` links each test itself with
+no `-l` flags, so the libraries programs imply (`#pragma link`, the C++ exception
+runtime, pthread) are exercised too:
 
 ```bash
 tests/run.sh                       # full suite against build/eskiuc

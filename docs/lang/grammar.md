@@ -83,7 +83,7 @@ directive =
   | '#undef'  IDENT
   | '#ifdef'  IDENT  |  '#ifndef' IDENT  |  '#if' const-expr  |  '#elif' const-expr
   | '#else'  |  '#endif'
-  | '#pragma' …                          // passed through to the compiler (e.g. pack)
+  | '#pragma' …                          // passed through to the compiler (pack, link)
   | '#error'  text                       // aborts compilation on an active branch
   | '#!' …                               // shebang: ignored (see __FILE__/__LINE__ ref)
 ```

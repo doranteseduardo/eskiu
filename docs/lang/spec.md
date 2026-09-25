@@ -986,7 +986,7 @@ let worker: fn()->void = void() { printf("thread %d\n", id); };
 thread_join(t);
 ```
 
-**Implementation detail.** The closure fat pointer `{fn_ptr, env_ptr}` maps directly to the `(start_routine, arg)` pair expected by `pthread_create`. No trampoline function is generated. On Linux, link the final binary with `-lpthread`.
+**Implementation detail.** The closure fat pointer `{fn_ptr, env_ptr}` maps directly to the `(start_routine, arg)` pair expected by `pthread_create`. No trampoline function is generated. When a program calls `thread_create`, the driver links `-lpthread` on Linux and Windows (mingw) by itself; macOS has pthread in libSystem.
 
 ### 6.8 Async Functions and `await`
 
@@ -1088,11 +1088,10 @@ If no `catch` clause matches the thrown value, the exception propagates up the c
 
 #### Linking
 
-Exceptions use the platform C++ runtime, so link the final program with `-lc++` on macOS or `-lstdc++` on Linux (library flags go straight through to the linker):
+Exceptions use the platform C++ runtime. When a program contains `throw` or `try`, the driver links that runtime by itself: `-lc++` on macOS and `-lstdc++` on Linux and Windows (mingw). A bare-metal target gets nothing, and `--no-default-libs` turns this off (see the Linking paragraph of §16).
 
 ```bash
-eskiuc file.esk -o file -lc++      # macOS
-eskiuc file.esk -o file -lstdc++   # Linux
+eskiuc file.esk -o file            # no -l flag needed
 ```
 
 ---
@@ -2312,7 +2311,8 @@ Sections are separated by `:`. Trailing sections may be omitted if empty.
 | `eskiuc file.esk -Wall -o prog` | Enable lint warnings: unused vars/params/functions, assignment-in-condition |
 | `eskiuc file.esk -Wextra -o prog` | Extra warnings on top of `-Wall`: signed/unsigned comparison mismatches |
 | `eskiuc file.esk -O2 -o prog` | Optimize: run the LLVM middle-end (`-O1`/`-O2`/`-O3`). `-O0` (default) emits naive IR straight to the backend. A level above 3 is rejected |
-| `eskiuc file.esk -o prog -lpthread` | Link, passing library flags through to the linker |
+| `eskiuc file.esk -o prog -lfoo` | Link, passing library flags through to the linker |
+| `eskiuc file.esk -o prog --no-default-libs` | Link only what `-l` names: skip `#pragma link` and the implied runtimes |
 | `eskiuc file.esk -o file.o` | Compile to an object file only (no link) |
 | `eskiuc file.esk -c -o name` | Compile to an object file only, any name |
 | `eskiuc file.esk` | Compile to `file.esk.o` (object only) |
@@ -2330,7 +2330,17 @@ is absent, `eskiuc` links the program into an executable by invoking the system
 C toolchain (`$CC`, then `cc`/`clang`/`gcc` on the `PATH`) exactly as `rustc`
 and `clang` do internally. `$CC` may include arguments (`CC="clang --target=..."`). `-l<lib>` and `-L<path>` flags, and any `--link-arg=<arg>`,
 are forwarded to the linker. A C toolchain must therefore be installed (it is the
-only build-time dependency besides LLVM). With `--freestanding` (or a `.o` output)
+only build-time dependency besides LLVM).
+
+The driver also adds the libraries the program itself implies, so the usual ones
+never need a flag. It links each `#pragma link("name")` library the program and
+its imports name (the stdlib uses this for `libm` on Linux, `pthread` on Linux and
+Windows, and `ws2_32` on Windows). It links the C++ exception runtime when the
+program throws or catches (`-lc++` on macOS, `-lstdc++` on Linux and Windows) and
+`-lpthread` when it calls `thread_create` (Linux and Windows). These come after
+every object and `--link-arg`, once each, and a library already given with `-l`
+is not repeated. `--no-default-libs` turns all of them off for custom linking.
+Nothing is added when no executable is linked. With `--freestanding` (or a `.o` output)
 no linking happens, so bare-metal targets are linked yourself (see the kernel's
 `ld.lld` invocation).
 
@@ -2392,6 +2402,7 @@ A small text pass runs before lexing. It supports **object-like and function-lik
 | `#else` / `#endif` | Else branch / end of a conditional |
 | `#error message` | Abort compilation with `message` (only on an active branch) |
 | `#pragma pack(...)` | Struct packing directive; see §8.9 |
+| `#pragma link("name")` | Link the executable with `-lname` (see below) |
 
 An `#if`/`#elif` expression is a C-style integer constant expression: integer and
 character literals, macros (expanded first), `defined NAME` / `defined(NAME)`, the
@@ -2442,7 +2453,24 @@ int main() {
 
 Substitution is identifier-aware and leaves string and character literals untouched. Expansion is **recursive**: a macro whose body references other macros is expanded fully (a macro is never re-expanded within its own expansion). The macro table is **shared across files**, so a `#define` propagates into files pulled in by `import` and into the other inputs of a multi-file compile. A function-like macro *invocation* must fit on a single (post-continuation) line.
 
-Unlike the other directives, `#pragma` is not consumed by the preprocessor. It is passed through to the compiler. Only `#pragma pack` is acted upon (§8.9); any other pragma is ignored.
+Unlike the other directives, `#pragma` is not consumed by the preprocessor. It is passed through to the compiler. `#pragma pack` (§8.9) and `#pragma link` are acted upon; any other pragma is ignored.
+
+`#pragma link("name")` asks the driver to link the executable with `-lname`. The
+name is what follows `-l` (letters, digits, `_ . + -`, not starting with `-`), in
+double quotes; any other form is an error. A pragma in an imported module counts
+like one in the main file, each library is linked once however many files name
+it, and the order of first appearance is kept. Because the preprocessor has
+already run, a pragma inside an inactive `#ifdef` branch has no effect, which is
+how a module links a library on one platform only:
+
+```eskiu
+#ifdef __linux__
+#pragma link("m")      // glibc keeps libm apart from libc
+#endif
+```
+
+The libraries are only used when `eskiuc` links an executable; `-c`, a `.o`
+output and `--freestanding` ignore them, and `--no-default-libs` drops them.
 
 ### Predefined macros
 

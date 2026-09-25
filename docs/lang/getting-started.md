@@ -1017,11 +1017,12 @@ Available modules:
 | `<channel>`  | async message channel: `chan_new`/`Chan_send`/`Chan_recv` (a `*Future<T>`) |
 | `<http_async>`| non-blocking concurrent HTTP/1.1 server: `http_serve_async` |
 
-Note: when using `<math>` link with `-lm`. Library flags are passed straight
-through to the linker, so the one-command form works too:
+Modules that need a system library link it themselves (`<math>` adds `-lm` on
+Linux through `#pragma link("m")`), so a program using them builds with no `-l`
+flag:
 
 ```bash
-eskiuc file.esk -o file -lm
+eskiuc file.esk -o file
 ```
 
 ### Standard library highlights
@@ -1196,10 +1197,10 @@ int main() {
 }
 ```
 
-The closure fat pointer maps directly to pthread's `(start_routine, arg)` pair: no trampoline is generated. On Linux, link with `-lpthread`:
+The closure fat pointer maps directly to pthread's `(start_routine, arg)` pair: no trampoline is generated. The driver links pthread by itself where the platform needs it:
 
 ```bash
-eskiuc threads.esk -o threads -lpthread
+eskiuc threads.esk -o threads
 ./threads
 ```
 
@@ -1263,11 +1264,10 @@ cleanup
 
 ### Linking
 
-Exception handling uses the Itanium C++ ABI personality function. Link with `-lc++` on macOS or `-lstdc++` on Linux:
+Exception handling uses the Itanium C++ ABI personality function, from the platform C++ runtime. The driver links it when the program uses `throw` or `try` (`-lc++` on macOS, `-lstdc++` on Linux and Windows), so no flag is needed:
 
 ```bash
-eskiuc file.esk -o file -lc++      # macOS
-eskiuc file.esk -o file -lstdc++   # Linux
+eskiuc file.esk -o file
 ./file
 ```
 

@@ -1344,7 +1344,7 @@ pre.code-block {
        }
        return 0;
  }</pre>
-<pre class="code-block"> Link with -lc++ (macOS) or -lstdc++ (Linux) when using exceptions; on Windows a mingw g++ supplies the runtime and the SEH unwinder.</pre>
+<p>No link flag is needed: when a program uses exceptions, eskiuc links the C++ runtime for the target (-lc++ on macOS, -lstdc++ on Linux and on Windows, where mingw also supplies the SEH unwinder).</p>
 <h2 class="section" id="sec-10-3">10.3 The ? operator</h2>
 <p>Chaining multiple <code>Result</code>-returning calls with explicit if (r.ok == 0) return <code>Err</code> checks gets verbose quickly. The postfix ? operator shortens this: applied to a <code>Result</code>&lt;T,E&gt; expression, it either unwraps the value on success or immediately returns the <code>Err</code> to the caller:</p>
 <pre class="code-block"> import &lt;result&gt;;</pre>
@@ -1391,7 +1391,7 @@ pre.code-block {
        thread_join(t);
        return 0;
  }</pre>
-<p>The two lines may print in either order. thread_join blocks until the thread has finished. On Linux, link with -lpthread; on Windows, threading runs on winpthreads.</p>
+<p>The two lines may print in either order. thread_join blocks until the thread has finished. eskiuc links pthread by itself where the platform keeps it outside libc (Linux, and Windows, where threading runs on winpthreads).</p>
 <h2 class="section" id="sec-11-2">11.2 Passing data via closures</h2>
 <p>Closures capture by value: each thread gets an independent copy, no shared state, no data race:</p>
 <pre class="code-block"> int id1 = 1;      int id2 = 2;</pre>
@@ -1613,7 +1613,7 @@ pre.code-block {
  build:
  ■eskiuc main.esk -o project</pre>
 <pre class="code-block"> # With libraries:
- ■eskiuc main.esk -o project -lpthread -lssl -lcrypto</pre>
+ ■eskiuc main.esk -o project -lssl -lcrypto</pre>
 <div class="chapter-start" id="chapter-14"><span class="chapter-label">Chapter 14</span>
 <h1 class="chapter-title">C Interop</h1><hr class="chapter-rule"></div>
 <p>The entire C library ecosystem (OpenSSL, zlib, SQLite, libpng, the POSIX API) is available to Eskiu programs. Declare the function with <code>extern</code>, the compiler generates a standard C-ABI call, and the linker resolves it.</p>
@@ -1648,11 +1648,12 @@ pre.code-block {
 <h2 class="section" id="sec-14-3">14.3 Linking</h2>
 <p>All library flags are passed directly to <code>eskiuc</code>; it forwards them to the system linker:</p>
 <pre class="code-block"> eskiuc main.esk -o program -lssl -lcrypto        # OpenSSL
- eskiuc main.esk -o program -lm                   # libm
- eskiuc main.esk -o program -lpthread             # pthreads (Linux)
- eskiuc main.esk -o program -lc++                 # C++ exceptions (macOS)
- eskiuc main.esk -o program -lstdc++              # C++ exceptions (Linux)
- eskiuc main.esk -o program -L/my/libs -lmylib      # custom path</pre>
+ eskiuc main.esk -o program -L/my/libs -lmylib    # custom path</pre>
+<p>The libraries a program implies are added without a flag. The C++ exception runtime is linked when the program throws or catches (-lc++ on macOS, -lstdc++ on Linux and Windows), and pthread when it calls thread_create (Linux and Windows). A module can name its own library with <code>#pragma link("name")</code>, which links <code>-lname</code>. The stdlib uses it for libm, pthread and ws2_32, guarded by <code>#ifdef</code> so each platform links only what it needs:</p>
+<pre class="code-block"> #ifdef __linux__
+ #pragma link("m")      // glibc keeps libm apart from libc
+ #endif</pre>
+<p>Each library is linked once, after the objects, and never when only an object file is produced. <code>--no-default-libs</code> turns all of this off for custom linking.</p>
 <p>To compile to an object file and link separately:</p>
 <pre class="code-block"> eskiuc main.esk -c -o main.o
  clang main.o other.o -lssl -o program</pre>
@@ -1773,7 +1774,7 @@ pre.code-block {
 <pre class="code-block"> String_free(&amp;s); String_free(&amp;sub); String_free(&amp;num);</pre>
 <p class="output"><em>Output:</em> Hello! (len=6) H 2 1 ello olle -2026 -&gt; -2026</p>
 <h2 class="section" id="sec-15-4">15.4 math: mathematical functions</h2>
-<p>Thin wrappers over libm. Link with -lm. All functions take and return <code>double</code> except abs:</p>
+<p>Thin wrappers over libm (linked automatically). All functions take and return <code>double</code> except abs:</p>
 <pre class="code-block"> // math.esk: the complete interface
  double sqrt(double x)                           // square root
  double fabs(double x)                           // absolute value (float)
@@ -2865,8 +2866,8 @@ pre.code-block {
                                                                      break/continue can target it. Runs the same
                                                                      defers as an unlabeled jump. Not inside async.</pre>
 <pre class="code-block">        return      return expr; or return;                          return; for void functions.</pre>
-<pre class="code-block">        try/catch   try { } catch (T e) { } finally { }              C++ EH. Link with -lc++ (macOS) or -lstdc++
-                                                                     (Linux).</pre>
+<pre class="code-block">        try/catch   try { } catch (T e) { } finally { }              C++ EH. The driver links the C++
+                                                                     runtime.</pre>
 <pre class="code-block">        throw       throw expr;                                      Any value type may be thrown.</pre>
 <div class="chapter-start" id="ref-r5"><span class="chapter-label ref">Ref R5</span>
 <h1 class="chapter-title">Functions</h1><hr class="chapter-rule"></div>
@@ -3030,7 +3031,7 @@ pre.code-block {
 <pre class="code-block">        Flag                                     Effect</pre>
 <pre class="code-block">        eskiuc file.esk -o prog                  Compile and link into executable</pre>
 <pre class="code-block">        eskiuc a.esk b.esk -o prog               Compile multiple files (declarations merged)</pre>
-<pre class="code-block">        eskiuc file.esk -o prog -lpthread        Link with library (flags forwarded to linker)</pre>
+<pre class="code-block">        eskiuc file.esk -o prog -lssl            Link with library (flags forwarded to linker)</pre>
 <pre class="code-block">        eskiuc file.esk -o prog -L/path          Add library search path</pre>
 <pre class="code-block">        eskiuc file.esk -o prog --link-arg=X     Pass extra argument to linker</pre>
 <pre class="code-block">        eskiuc file.esk -c -o file.o             Compile only: no linking</pre>
@@ -3093,7 +3094,7 @@ pre.code-block {
 <pre class="code-block"> eskiuc file.esk -o prog             # compile + link
  eskiuc a.esk b.esk -o prog          # multi-file
  eskiuc file.esk -c -o file.o        # compile only
- eskiuc file.esk -o prog -lpthread   # link library
+ eskiuc file.esk -o prog -lssl       # link library
  eskiuc run file.esk [args...]       # compile, run, delete
  eskiuc fmt file.esk                 # reformat in place
  eskiuc fmt --check file.esk         # check formatting
@@ -3136,7 +3137,7 @@ pre.code-block {
  import &lt;result&gt;;       Result&lt;T,E&gt;       Ok&lt;T,E&gt;(v)       Err&lt;T,E&gt;(e)
  import &lt;list&gt;;         List&lt;T&gt;       List_init     List_push     List_get    List_len     List_free
  import &lt;string&gt;;       String    String_from           String_append    String_split    String_trim
- import &lt;math&gt;;         sqrt    pow     floor    ceil     fabs   abs    (link -lm)
+ import &lt;math&gt;;         sqrt    pow     floor    ceil     fabs   abs
  import &lt;io&gt;;           printf    fprintf       sprintf     scanf   puts
  import &lt;mem&gt;;          alloc&lt;T&gt;(n)       free(p)       memcpy   memset    memmove   memcmp    strlen
  import &lt;fs&gt;;         fs_open   fs_close    fs_read_all          fs_write_all    fs_puts    fs_size
@@ -3256,7 +3257,7 @@ pre.code-block {
 <h3 class="subsection">structural typing</h3>
 <p>Interface-satisfaction rule: a struct satisfies an interface if it provides all the required methods, no explicit <code>implements</code> needed.</p>
 <h3 class="subsection">thread_create / thread_join</h3>
-<p>Language keywords. <code>thread_create(fn)</code> spawns a thread and returns a handle; <code>thread_join(handle)</code> blocks until the thread finishes. Link with <code>-lpthread</code> on Linux.</p>
+<p>Language keywords. <code>thread_create(fn)</code> spawns a thread and returns a handle; <code>thread_join(handle)</code> blocks until the thread finishes. The driver links pthread where the platform needs it.</p>
 <h3 class="subsection">union</h3>
 <p>Like a struct, but all fields share offset 0; size equals the largest field. Used for type punning: treating the same bits as different types.</p>
 <h3 class="subsection">use-after-free</h3>
