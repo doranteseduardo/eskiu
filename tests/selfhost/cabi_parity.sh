@@ -56,14 +56,14 @@ for src in $INPUTS; do
         sigs "$WORK/cpp.ll" >"$WORK/cpp.sig"
         sigs "$WORK/esk.ll" >"$WORK/esk.sig"
         # A function both compilers declare (or thunk) must have the same lowered
-        # signature, and both must emit the same set of thunks.
+        # signature, and both must emit the same set of thunks and the same EH personality.
         join -t "$TAB" "$WORK/cpp.sig" "$WORK/esk.sig" >"$WORK/both"
         diffs="$(awk -F"$TAB" '$2 != $3 { print $2 "  vs  " $3 }' "$WORK/both")"
-        extra="$( (grep -F '@__cabi_' "$WORK/cpp.sig" | cut -f1; grep -F '@__cabi_' "$WORK/esk.sig" | cut -f1) | sort | uniq -u)"
+        extra="$( (grep -E '@(__cabi_|__gxx_personality)' "$WORK/cpp.sig" | cut -f1; grep -E '@(__cabi_|__gxx_personality)' "$WORK/esk.sig" | cut -f1) | sort | uniq -u)"
         if [ -n "$diffs" ] || [ -n "$extra" ]; then
             echo "FAIL  $name"
             [ -n "$diffs" ] && echo "$diffs" | sed 's/^/  C++ vs self-host: /' | head -8
-            [ -n "$extra" ] && echo "$extra" | sed 's/^/  thunk in one compiler only: /' | head -8
+            [ -n "$extra" ] && echo "$extra" | sed 's/^/  thunk or personality in one compiler only: /' | head -8
             fail=1
         else
             echo "ok    $name  ($(wc -l <"$WORK/both" | tr -d ' ') signatures)"
