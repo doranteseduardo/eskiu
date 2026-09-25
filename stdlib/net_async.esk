@@ -16,6 +16,7 @@ import <mem>;
 import <future>;
 import <eventloop>;
 import <net>;
+import <timer>;
 
 // Socket I/O + non-blocking mode + the "would block" errno, all platform-specific. On
 // Windows a socket is not a file descriptor, so read/write/fcntl/errno do not apply: use
@@ -122,4 +123,21 @@ Future<int>* net_accept_async(EventLoop* lp, int listen_fd) {
         future_complete<int>(f, c);
     });
     return f;
+}
+
+// Accept one connection, retrying after a short backoff (1 ms doubling to
+// 128 ms) while accept fails, e.g. with EMFILE when the process is out of
+// descriptors. Never completes with a negative fd, so a server loop can hand the
+// result straight to a handler.
+async int net_accept_retry_async(EventLoop* lp, int listen_fd) {
+    int c = -1;
+    int64 backoff = 1;
+    while (c < 0) {
+        c = await net_accept_async(lp, listen_fd);
+        if (c < 0) {
+            int slept = await timer_after(lp, backoff);
+            if (backoff < 128) { backoff = backoff * 2; }
+        }
+    }
+    return c;
 }

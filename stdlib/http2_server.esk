@@ -375,7 +375,7 @@ async void http2_serve_async(EventLoop* lp, int listen_fd,
                              int max_conns) {
     Chan<int>* done = chan_new<int>(max_conns);
     for (int accepted = 0; accepted < max_conns; accepted++) {
-        int c = await net_accept_async(lp, listen_fd);
+        int c = await net_accept_retry_async(lp, listen_fd);   // a failed accept is retried, never served
         spawn(http2_serve_conn_async(lp, c, handler, done));
     }
     for (int finished = 0; finished < max_conns; finished++) {

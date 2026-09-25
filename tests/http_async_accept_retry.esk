@@ -1,0 +1,63 @@
+// An async server whose accept fails (EMFILE: the process is out of
+// descriptors) retries after a backoff instead of spawning a handler on fd -1.
+// That handler used to register -1 on the loop, never finish, and leave the
+// wait-group short, so the server never completed. The descriptor limit is
+// lowered so the first accept fails, then a timer raises it again and connects
+// a second client (what happens to the connection whose accept hit EMFILE is up
+// to the kernel), so the server can complete its one connection. The old code
+// hung here; the handler never runs on fd -1.
+import <mem>;
+import <future>;
+import <eventloop>;
+import <net>;
+import <http>;
+import <http_async>;
+import <time>;
+extern int printf(string fmt, ...);
+
+struct RLimit { uint64 cur; uint64 max; }
+extern int getrlimit(int res, RLimit* rl);
+extern int setrlimit(int res, RLimit* rl);
+#ifdef __APPLE__
+const int RLIMIT_NOFILE = 8;
+#else
+const int RLIMIT_NOFILE = 7;
+#endif
+
+EventLoop* g_lp;
+int g_c2 = -1;
+
+int g_bad_fd = 0;
+
+void hello(HttpRequest* req, HttpResponse* res) {
+    if (req.method.len == 0) { g_bad_fd = 1; }
+    HttpResponse_set_body(res, "after-retry");
+}
+
+int main() {
+    int fd = net_tcp_listen((uint16)18093);
+    g_lp = el_new(64);
+    int c = net_tcp_connect("127.0.0.1", (uint16)18093);
+    net_send_str(c, "GET / HTTP/1.1\r\nHost: x\r\n\r\n");
+
+    let saved: RLimit;  getrlimit(RLIMIT_NOFILE, &saved);
+    let low: RLimit;  low.cur = (uint64)(c + 1);  low.max = saved.max;
+    setrlimit(RLIMIT_NOFILE, &low);                 // no descriptor left for accept
+    *RLimit sp = &saved;
+    EventLoop_add_timer(g_lp, time_monotonic_ms() + 30, void() {
+        setrlimit(RLIMIT_NOFILE, sp);
+        g_c2 = net_tcp_connect("127.0.0.1", (uint16)18093);
+        net_send_str(g_c2, "GET / HTTP/1.1\r\nHost: x\r\n\r\n");
+    });
+
+    Future<uint8>* f = http_serve_async(g_lp, fd, hello, 1);
+    if (future_poll<uint8>(f, void() { EventLoop_stop(g_lp); }) == 0) { EventLoop_run(g_lp); }
+    free_future<uint8>(f);
+
+    printf("completed=1 bad=%d\n", g_bad_fd);
+    net_close(c);
+    net_close(g_c2);
+    EventLoop_free(g_lp);
+    net_close(fd);
+    return 0;
+}
