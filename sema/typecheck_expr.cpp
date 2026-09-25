@@ -1430,6 +1430,14 @@ void TypeChecker::visit(StructInitExpr* node) {
     const auto& fields = it->second.fields;
     bool named = !node->fieldInits.empty() && !node->fieldInits[0].first.empty();
     std::set<std::string> seenFields;
+    // A literal is either positional or named: mixed, a value would land in the field
+    // its position names and could initialize a field a name also sets (`P{1, a: 2}`).
+    for (const auto& fi : node->fieldInits)
+        if (fi.first.empty() == named) {
+            errorAt(node, "cannot mix positional and named field initializers in a '" +
+                          node->structName + "' literal");
+            break;
+        }
 
     for (size_t i = 0; i < node->fieldInits.size(); ++i) {
         const auto& [fname, expr] = node->fieldInits[i];

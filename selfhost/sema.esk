@@ -1982,6 +1982,18 @@ void sema_check_struct_init(Sema* s, *ExprNode e) {
     int nf = List_len<Param>(&d.params);
     int n = List_len<*ExprNode>(&e.kids);
     List<string> seen; List_init<string>(&seen, 4);
+    // A literal is either positional or named (mirrors the C++ StructInitExpr check).
+    int named0 = 0; int mixed = 0; int mi = 0;
+    while (mi < n) {
+        int isnamed = 0;
+        if (mi < List_len<string>(&e.names)) { if (List_get<string>(&e.names, mi)[0] != 0) { isnamed = 1; } }
+        if (mi == 0) { named0 = isnamed; } else if (isnamed != named0) { mixed = 1; }
+        mi = mi + 1;
+    }
+    if (mixed == 1) {
+        s.had_error = 1;
+        printf("error: %s:%d:%d: cannot mix positional and named field initializers in a '%s' literal\n", s.filename, s.line, s.col, e.sval);
+    }
     int i = 0;
     while (i < n) {
         *ExprNode v = List_get<*ExprNode>(&e.kids, i);
