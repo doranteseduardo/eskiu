@@ -1749,7 +1749,9 @@ string cg_global_init(Codegen* g, *ExprNode e, string llty) {
             return cg_cat("-", cg_u64toa(m + (uint64)1));                   // ~m = -(m+1)
         }
         if (cg_streq(e.sval, "-") == 1) {
-            return cg_cat("-", cg_global_init(g, e.a, llty));
+            string inner = cg_global_init(g, e.a, llty);
+            if (inner[0] == 45) { return cg_sub_str(inner, 1, cg_strlen(inner)); }   // -(-5) → 5
+            return cg_cat("-", inner);
         }
         return "zeroinitializer";
     }
@@ -4952,10 +4954,11 @@ void cg_program(Codegen* g, *Program prog) {
     while (ci < n) {
         *DeclNode d = List_get<*DeclNode>(&prog.decls, ci);
         if (d.kind == DK_VARDECL && d.is_const == 1 && d.init != null
-            && d.init.kind == EK_LITERAL && d.init.lit_kind == LIT_INT) {
+            && d.init.kind == EK_LITERAL && d.init.lit_kind == LIT_INT
+            && cg_streq(cg_lltype(g, d.ret_type), "i32") == 1) {   // folded reads are i32 operands
             let ec: CgEnumC;
             ec.name = d.name;
-            ec.val = cg_u64toa(cg_int_lit_mag(d.init.sval));
+            ec.val = cg_num_const("i32", d.init.sval);   // decimal, sign kept (`-5` stays -5)
             List_push<CgEnumC>(&g.econsts, ec);
         }
         ci = ci + 1;

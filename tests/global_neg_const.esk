@@ -1,0 +1,14 @@
+// Negative constants in global initializers keep their sign, and a doubly negated
+// literal folds to the positive value.
+import <io>;
+
+const int K = -5;
+const int64 BIG = -5000000000;
+int g = -(-5);
+int h = -(7);
+
+int main() {
+    printf("%d %lld %d %d\n", K, BIG, g, h);
+    printf("%d\n", K * 2);
+    return 0;
+}
