@@ -1,0 +1,11 @@
+1 1 0
+nan truthy
+zero falsy
+1 1 0
+1 0
+-1
+p set 7
+q null
+3 1 0
+narrowed 7
+7

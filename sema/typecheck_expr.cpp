@@ -257,8 +257,7 @@ void TypeChecker::visit(TernaryExpr* node) {
     }
 
     std::string ct = getExpressionType(node->condition.get());
-    if (ct != "unknown" && !isNumericType(ct) && !isPointerType(ct) &&
-        normalizeType(ct) != "bool")
+    if (!isConditionType(ct))
         errorAt(node, "ternary condition must be a bool, integer, or pointer, got " + ct);
 
     std::string tt = literalArmType(node->thenExpr.get(), getExpressionType(node->thenExpr.get()));

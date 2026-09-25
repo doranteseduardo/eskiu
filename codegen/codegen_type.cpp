@@ -165,6 +165,18 @@ llvm::AllocaInst* CodeGen::entryAlloca(llvm::Type* ty, llvm::Value* arrSize,
     return tmp.CreateAlloca(ty, arrSize, name);
 }
 
+// A value used as a condition: bool as is, int `!= 0`, float `une 0.0` (NaN is
+// true, as in C), pointer `!= null`.
+llvm::Value* CodeGen::emitTruthy(llvm::Value* val) {
+    llvm::Type* t = val->getType();
+    if (t->isIntegerTy(1)) return val;
+    if (t->isFloatingPointTy())
+        return builder->CreateFCmpUNE(val, llvm::ConstantFP::get(t, 0.0));
+    if (t->isPointerTy()) return builder->CreateIsNotNull(val);
+    if (t->isIntegerTy()) return builder->CreateICmpNE(val, llvm::ConstantInt::get(t, 0));
+    throw std::runtime_error("value cannot be used as a condition");
+}
+
 llvm::Value* CodeGen::coerceInt(llvm::Value* val, llvm::Type* ty, bool unsignedSrc) {
     if (!val || val->getType() == ty) return val;
     if (!val->getType()->isIntegerTy() || !ty->isIntegerTy()) return val;

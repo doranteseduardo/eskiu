@@ -2372,7 +2372,7 @@ string cg_farith_op(string s) {
 // Floating-point comparison predicate (ordered) → LLVM mnemonic ("" if not a comparison).
 string cg_fcmp_pred(string s) {
     if (cg_streq(s, "==") == 1) { return "oeq"; }
-    if (cg_streq(s, "!=") == 1) { return "one"; }
+    if (cg_streq(s, "!=") == 1) { return "une"; }
     if (cg_streq(s, "<") == 1) { return "olt"; }
     if (cg_streq(s, ">") == 1) { return "ogt"; }
     if (cg_streq(s, "<=") == 1) { return "ole"; }
@@ -4752,8 +4752,8 @@ CgVal cg_cond(Codegen* g, *ExprNode e) { return cg_cond_val(g, cg_expr(g, e)); }
 CgVal cg_cond_val(Codegen* g, CgVal c) {
     if (cg_streq(c.ty, "i1") == 1) { return c; }
     string t = cg_tmp(g);
-    if (cg_is_float(c.ty) == 1) {                          // float truthiness: != 0.0
-        cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = fcmp one "); cg_emit(g, c.ty);
+    if (cg_is_float(c.ty) == 1) {                          // float truthiness: une 0.0 (NaN is true)
+        cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = fcmp une "); cg_emit(g, c.ty);
         cg_emit(g, " "); cg_emit(g, c.op); cg_emit(g, ", 0.0\n");
         let rf: CgVal; rf.op = t; rf.ty = "i1"; return rf;
     }

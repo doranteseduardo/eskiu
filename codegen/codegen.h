@@ -427,6 +427,7 @@ private:
     // the source's signedness. The single place integer width coercion happens, so
     // an unsigned source never sign-extends (e.g. (int)(uint8)200 stays 200).
     llvm::Value* coerceInt(llvm::Value* val, llvm::Type* ty, bool unsignedSrc);
+    llvm::Value* emitTruthy(llvm::Value* val);
 
     // Integer->float conversion, choosing UIToFP vs SIToFP by source signedness.
     llvm::Value* intToFloat(llvm::Value* val, llvm::Type* ty, bool unsignedSrc);

@@ -1,0 +1,37 @@
+// Truthiness of floats (NaN is true, as in C) and pointers used as conditions,
+// and `!=` on floats as an unordered compare (NaN != NaN is true).
+extern int printf(string fmt, ...);
+
+struct N { int v; }
+
+int main() {
+    double z = 0.0;
+    double n = z / z;
+    float fz = 0.0;
+    float fnn = fz / fz;
+    printf("%d %d %d\n", n != n, fnn != fnn, n == n);
+    if (n) { printf("nan truthy\n"); } else { printf("nan falsy\n"); }
+    if (z) { printf("zero truthy\n"); } else { printf("zero falsy\n"); }
+    int w = 0;
+    while (n) { w++; break; }
+    printf("%d %d %d\n", w, n ? 1 : 0, !n);
+    printf("%d %d\n", n && true, z || false);
+    double d = 2.5;
+    do { d = d - 1.0; } while (d > 0.0 && d);
+    printf("%d\n", (int)(d * 2.0));
+
+    let s: N;
+    s.v = 7;
+    *N p = &s;
+    *N q = null;
+    if (p) { printf("p set %d\n", p.v); }
+    if (!q) { printf("q null\n"); }
+    int k = 0;
+    while (p && k < 3) { k++; }
+    printf("%d %d %d\n", k, p ? 1 : 0, q ? 1 : 0);
+    ?*N pq = p;
+    if (pq) { printf("narrowed %d\n", pq.v); }
+    printf("%d\n", pq ? pq.v : -1);
+    for (int i = 0; q; i++) { }
+    return 0;
+}

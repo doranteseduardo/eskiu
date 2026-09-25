@@ -378,6 +378,7 @@ private:
     void checkUninitPrefix(class BlockStmt* body);
     bool isPrimitiveType(const std::string& type);
     bool isPointerType(const std::string& type);
+    bool isConditionType(const std::string& type);
     std::string getPointeeType(const std::string& pointerType);
 
     // Type promotion

@@ -216,14 +216,12 @@ llvm::Value* CodeGen::emitBuiltinBinary(BinaryExpr* node, llvm::Value* left) {
     // was a correctness bug.
     if (node->op == "&&" || node->op == "||") {
         llvm::Value* l = left;
-        if (!l->getType()->isIntegerTy(1))
-            l = builder->CreateICmpNE(l, llvm::ConstantInt::get(l->getType(), 0));
+        l = emitTruthy(l);
         // A constant left operand decides statically (keeps a constant `a && b` constant).
         if (auto* lc = llvm::dyn_cast<llvm::ConstantInt>(l)) {
             if (lc->isZero() == (node->op == "&&")) return lc;
             llvm::Value* r = evaluateExpr(node->right);
-            if (!r->getType()->isIntegerTy(1))
-                r = builder->CreateICmpNE(r, llvm::ConstantInt::get(r->getType(), 0));
+            r = emitTruthy(r);
             return r;
         }
         llvm::BasicBlock* startBB = builder->GetInsertBlock();
@@ -235,8 +233,7 @@ llvm::Value* CodeGen::emitBuiltinBinary(BinaryExpr* node, llvm::Value* left) {
             builder->CreateCondBr(l, contBB, rhsBB);   // l true → result true; false → eval RHS
         builder->SetInsertPoint(rhsBB);
         llvm::Value* r = evaluateExpr(node->right);
-        if (!r->getType()->isIntegerTy(1))
-            r = builder->CreateICmpNE(r, llvm::ConstantInt::get(r->getType(), 0));
+        r = emitTruthy(r);
         llvm::BasicBlock* rhsEndBB = builder->GetInsertBlock();   // RHS may have added blocks
         builder->CreateBr(contBB);
         builder->SetInsertPoint(contBB);
@@ -397,7 +394,7 @@ llvm::Value* CodeGen::emitBuiltinBinary(BinaryExpr* node, llvm::Value* left) {
         bool isFloat = left->getType()->isFloatingPointTy();
         if (!isFloat) widenInts();
         if (node->op == "!=") {
-            result = isFloat ? builder->CreateFCmpONE(left, right)
+            result = isFloat ? builder->CreateFCmpUNE(left, right)
                              : builder->CreateICmpNE(left, right);
         } else if (node->op == "<") {
             result = isFloat ? builder->CreateFCmpOLT(left, right)
@@ -500,14 +497,7 @@ void CodeGen::visit(TernaryExpr* node) {
     // `cond ? a : b` — branch on the condition and evaluate exactly one arm, then phi
     // the results. Both arms are coerced to their common type (see the type checker).
     llvm::Value* cond = evaluateExpr(node->condition);
-    if (!cond->getType()->isIntegerTy(1)) {
-        if (cond->getType()->isPointerTy())
-            cond = builder->CreateICmpNE(
-                cond, llvm::ConstantPointerNull::get(
-                          llvm::cast<llvm::PointerType>(cond->getType())));
-        else
-            cond = builder->CreateICmpNE(cond, llvm::ConstantInt::get(cond->getType(), 0));
-    }
+    cond = emitTruthy(cond);
 
     std::string thenTy = getExprEskiuType(node->thenExpr);
     std::string elseTy = getExprEskiuType(node->elseExpr);
@@ -609,14 +599,7 @@ void CodeGen::visit(UnaryExpr* node) {
         result = builder->CreateNot(val); // bitwise NOT
     } else if (node->op == "!") {
         // Logical NOT: convert to bool
-        if (val->getType()->isIntegerTy(1))
-            result = builder->CreateNot(val);
-        else if (val->getType()->isPointerTy())
-            result = builder->CreateIsNull(val);
-        else if (val->getType()->isFloatingPointTy())
-            result = builder->CreateFCmpOEQ(val, llvm::ConstantFP::get(val->getType(), 0.0));
-        else
-            result = builder->CreateICmpEQ(val, llvm::ConstantInt::get(val->getType(), 0));
+        result = builder->CreateNot(emitTruthy(val));
     } else if (node->op == "&") {
         // Address-of: return the lvalue (alloca/GEP pointer), not the loaded value
         result = evaluateLValue(node->operand);
@@ -1019,12 +1002,9 @@ void CodeGen::visit(CastExpr* node) {
     } else if (targetType->isIntegerTy(1)) {
         // Conversion to bool is `!= 0` (C `_Bool`), never a truncation: (bool)2,
         // (bool)256 and (bool)0.5 are all true.
-        if (val->getType()->isFloatingPointTy())
-            result = builder->CreateFCmpUNE(val, llvm::ConstantFP::get(val->getType(), 0.0));
-        else if (val->getType()->isPointerTy())
-            result = builder->CreateIsNotNull(val);
-        else if (val->getType()->isIntegerTy())
-            result = builder->CreateICmpNE(val, llvm::ConstantInt::get(val->getType(), 0));
+        if (val->getType()->isFloatingPointTy() || val->getType()->isPointerTy() ||
+            val->getType()->isIntegerTy())
+            result = emitTruthy(val);
         else
             throw std::runtime_error("Cannot cast between these types");
     } else if (val->getType()->isIntegerTy() && targetType->isIntegerTy()) {

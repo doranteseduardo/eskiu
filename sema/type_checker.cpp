@@ -782,9 +782,15 @@ void TypeChecker::warnAssignInCondition(Expr* cond) {
                 "assignment used as a condition — did you mean '=='?");
 }
 
+// A condition may be a bool, a number (`!= 0`) or a pointer, nullable included (`!= null`).
+bool TypeChecker::isConditionType(const std::string& type) {
+    if (type == "unknown" || normalizeType(type) == "bool" || isNumericType(type)) return true;
+    return isPointerType((!type.empty() && type[0] == '?') ? type.substr(1) : type);
+}
+
 void TypeChecker::checkCondition(ASTNode* node, Expr* cond) {
     cond->accept(this);
     std::string condType = getExpressionType(cond);
-    if (condType != "unknown" && condType != "bool" && !isNumericType(condType))
-        errorAt(node, "condition must be boolean or numeric, got " + condType);
+    if (!isConditionType(condType))
+        errorAt(node, "condition must be boolean, numeric, or a pointer, got " + condType);
 }

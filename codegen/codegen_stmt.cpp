@@ -102,9 +102,7 @@ void CodeGen::visit(IfStmt* node) {
         }
 
         // Convert to i1
-        if (!cond->getType()->isIntegerTy(1)) {
-            cond = builder->CreateICmpNE(cond, llvm::ConstantInt::get(cond->getType(), 0));
-        }
+        cond = emitTruthy(cond);
 
         // Create blocks
         llvm::BasicBlock* thenBlock = llvm::BasicBlock::Create(*context, "then", currentFunction);
@@ -168,9 +166,7 @@ void CodeGen::visit(WhileStmt* node) {
 
     builder->SetInsertPoint(loopBlock);
     llvm::Value* cond = evaluateExpr(node->condition);
-    if (!cond->getType()->isIntegerTy(1)) {
-        cond = builder->CreateICmpNE(cond, llvm::ConstantInt::get(cond->getType(), 0));
-    }
+    cond = emitTruthy(cond);
     builder->CreateCondBr(cond, bodyBlock, exitBlock);
 
     builder->SetInsertPoint(bodyBlock);
@@ -196,8 +192,7 @@ void CodeGen::visit(DoWhileStmt* node) {
 
     builder->SetInsertPoint(condBlock);
     llvm::Value* cond = evaluateExpr(node->condition);
-    if (!cond->getType()->isIntegerTy(1))
-        cond = builder->CreateICmpNE(cond, llvm::ConstantInt::get(cond->getType(), 0));
+    cond = emitTruthy(cond);
     builder->CreateCondBr(cond, bodyBlock, exitBlock);
 
     builder->SetInsertPoint(exitBlock);
@@ -240,9 +235,7 @@ void CodeGen::visit(ForStmt* node) {
     builder->SetInsertPoint(loopBlock);
     if (node->condition) {
         llvm::Value* cond = evaluateExpr(node->condition);
-        if (!cond->getType()->isIntegerTy(1)) {
-            cond = builder->CreateICmpNE(cond, llvm::ConstantInt::get(cond->getType(), 0));
-        }
+        cond = emitTruthy(cond);
         builder->CreateCondBr(cond, bodyBlock, exitBlock);
     } else {
         builder->CreateBr(bodyBlock);
