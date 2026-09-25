@@ -38,7 +38,7 @@ FINDINGS = HERE / "findings"
 sys.path.insert(0, str(HERE))
 import c_oracle
 from c_oracle import Gen, E, Var, I32, BOOL, render
-from fuzz_util import run_limited, DEFAULT_JOBS
+from fuzz_util import run_limited, DEFAULT_JOBS, default_eskiuc_esk
 
 CRASH_MARKERS = ("Assertion", "terminate called", "Stack dump", "PLEASE submit",
                  "libc++abi", "LLVM verification failed", "AddressSanitizer",
@@ -333,7 +333,7 @@ def main():
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--jobs", type=int, default=DEFAULT_JOBS)
     ap.add_argument("--eskiuc", default=os.environ.get("ESKIUC", str(ROOT / "build" / "eskiuc")))
-    ap.add_argument("--eskiuc-esk", default=os.environ.get("ESKIUC_ESK", str(ROOT / "build" / "eskiuc-esk")))
+    ap.add_argument("--eskiuc-esk", default=default_eskiuc_esk())
     ap.add_argument("--repro", metavar="SEED:INDEX")
     args = ap.parse_args()
     if args.repro:

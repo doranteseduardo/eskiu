@@ -64,3 +64,15 @@ def run_limited(cmd, timeout, env=None, input=None, mem_mb=None):
                 break
     rc = p.returncode if status == "OK" else None
     return (status, rc, out.decode("utf-8", "replace"), err.decode("utf-8", "replace"))
+
+
+def default_eskiuc_esk():
+    # The self-hosted compiler to test against: $ESKIUC_ESK, else the eskiuc-esk next to
+    # $ESKIUC (so pointing ESKIUC at another build dir never pairs it with a stale
+    # self-host binary), else the repo's build/eskiuc-esk.
+    if os.environ.get("ESKIUC_ESK"):
+        return os.environ["ESKIUC_ESK"]
+    if os.environ.get("ESKIUC"):
+        return os.path.join(os.path.dirname(os.environ["ESKIUC"]), "eskiuc-esk")
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    return os.path.join(root, "build", "eskiuc-esk")

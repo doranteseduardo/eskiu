@@ -51,7 +51,7 @@ import argparse, os, random, re, subprocess, sys, glob, pathlib
 from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from fuzz_util import run_limited, DEFAULT_JOBS
+from fuzz_util import run_limited, DEFAULT_JOBS, default_eskiuc_esk
 
 HERE = pathlib.Path(__file__).resolve().parent
 TESTS = HERE.parent
@@ -543,7 +543,7 @@ def main():
     ap.add_argument("--eskiuc", default=os.environ.get("ESKIUC", str(ROOT / "build" / "eskiuc")))
     ap.add_argument("--no-differential", action="store_true",
                     help="skip the O0-vs-O2 runtime differential (auto-skipped if clang is absent)")
-    ap.add_argument("--eskiuc-esk", default=os.environ.get("ESKIUC_ESK", str(ROOT / "build" / "eskiuc-esk")),
+    ap.add_argument("--eskiuc-esk", default=default_eskiuc_esk(),
                     help="self-hosted compiler also checked by the C oracle (skipped if missing)")
     ap.add_argument("--oracle", type=int, default=0,
                     help="number of C-oracle programs to generate and check")
