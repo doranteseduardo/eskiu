@@ -197,6 +197,7 @@ when you add a test.
 | `int_promotion` | C integer promotions: operands narrower than `int` (bool, char, int8/16, uint8/16) become `int` before arithmetic, bitwise, shift, and comparison. |
 | `interface_values` | An interface value is a {data, vtable} fat pointer held by value: it can be a local, a struct field, a return value, or an argument, and it refers to a... |
 | `json_builder_escape` | The JSON builder escapes control bytes (so its output parses back) and writes a full int64 instead of truncating it to 32 bits. |
+| `json_depth` | json_parse rejects nesting past JSON_MAX_DEPTH (512) with null instead of overflowing the stack, and JsonValue_free frees a deep tree iteratively. |
 | `json_strict` | json_parse is strict (RFC 8259) and never reads past the input: truncated escapes and literals fail cleanly, malformed literals / numbers and trailing... |
 | `logical_not` | `!` on a pointer tests for null, on a float tests for 0.0, and a user `operator !(V)` resolves for a struct operand. |
 | `loop_temps` | Expression temporaries (short-circuit slots, ternary slots, struct/ADT/closure temps) inside a long loop must not allocate stack space per iteration. |

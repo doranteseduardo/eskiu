@@ -1,0 +1,42 @@
+// json_parse bounds nesting: 100000 nested `[` used to recurse until the stack
+// overflowed (a segfault); past JSON_MAX_DEPTH (512) the parse now fails with
+// null. Input at the limit still parses, and JsonValue_free walks a deep tree
+// iteratively (it used to recurse once per level).
+import <mem>;
+import <json>;
+extern int printf(string fmt, ...);
+
+// `depth` opening brackets, then the matching closers.
+*char nested(int depth) {
+    *char s = alloc<char>(depth * 2 + 1);
+    for (int i = 0; i < depth; i++) { s[i] = '['; s[depth * 2 - 1 - i] = ']'; }
+    return s;
+}
+
+int main() {
+    *char deep = nested(100000);
+    printf("100000 deep: %s\n", json_parse((string)deep) == null ? "null" : "parsed");
+    free((*void)deep);
+
+    *char open = alloc<char>(100001);
+    for (int i = 0; i < 100000; i++) { open[i] = '['; }
+    printf("100000 open: %s\n", json_parse((string)open) == null ? "null" : "parsed");
+    free((*void)open);
+
+    *char at = nested(512);
+    *JsonValue v = json_parse((string)at);
+    int levels = 0;
+    for (*JsonValue c = v; c != null; c = c.child) { levels++; }
+    printf("512 deep: levels=%d\n", levels);
+    JsonValue_free(v);
+    free((*void)at);
+
+    *char over = nested(513);
+    printf("513 deep: %s\n", json_parse((string)over) == null ? "null" : "parsed");
+    free((*void)over);
+
+    *JsonValue obj = json_parse("{\"a\":[1,{\"b\":[2,3]},4],\"c\":{\"d\":null}}");
+    printf("mixed: len=%d a.len=%d\n", JsonValue_len(obj), JsonValue_len(JsonValue_get(obj, "a")));
+    JsonValue_free(obj);
+    return 0;
+}

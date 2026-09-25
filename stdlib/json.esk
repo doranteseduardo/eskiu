@@ -123,12 +123,20 @@ struct JsonValue {
     return v;
 }
 
-// Free a value tree (safe on null). Siblings are walked iteratively, so a long
-// array does not recurse once per element.
+// Free a value tree (safe on null). Fully iterative, so neither a long array
+// nor deep nesting recurses: a node's children are spliced into the work list
+// in front of its siblings before the node is freed (each child chain is walked
+// once to find its tail, so the whole free is linear).
 void JsonValue_free(JsonValue* v) {
     while (v != null) {
+        if (v.child != null) {
+            *JsonValue last = v.child;
+            while (last.next != null) { last = last.next; }
+            last.next = v.next;
+            v.next = v.child;
+            v.child = null;
+        }
         *JsonValue nx = v.next;
-        JsonValue_free(v.child);
         if (v.str.data != null) { v.str.free(); }
         if (v.key.data != null) { v.key.free(); }
         free(v);
@@ -177,8 +185,13 @@ int    JsonValue_as_bool(JsonValue* v)   { return v.boolean; }
 struct JParser {
     string src;
     int    pos;
-    int    err;   // 0 = ok, 1 = malformed
+    int    err;     // 0 = ok, 1 = malformed
+    int    depth;   // arrays/objects currently open
 }
+
+// Nesting limit: deeper input is rejected (json_parse returns null) instead of
+// recursing until the stack overflows. 512 matches common parsers.
+const int JSON_MAX_DEPTH = 512;
 
 void JParser_ws(JParser* self) {
     while (true) {
@@ -370,8 +383,13 @@ void JParser_word(JParser* self, string word) {
 *JsonValue JParser_value(JParser* self) {
     JParser_ws(self);
     const char c = self.src[self.pos];
-    if (c == '{') { return JParser_object(self); }
-    if (c == '[') { return JParser_array(self); }
+    if (c == '{' || c == '[') {
+        if (self.depth >= JSON_MAX_DEPTH) { self.err = 1; return null; }
+        self.depth++;
+        *JsonValue r = c == '{' ? JParser_object(self) : JParser_array(self);
+        self.depth--;
+        return r;
+    }
     if (c == '"') {
         *JsonValue v = JsonValue_new(JString);
         v.str.init(8);
@@ -410,6 +428,7 @@ void JParser_word(JParser* self, string word) {
     p.src = src;
     p.pos = 0;
     p.err = 0;
+    p.depth = 0;
     *JsonValue v = JParser_value(&p);
     if (p.err == 0) {
         JParser_ws(&p);
