@@ -4927,10 +4927,13 @@ void cg_stmt(Codegen* g, *StmtNode st) {
             }
             return;
         }
-        int n = List_len<string>(&g.loop_cont);
+        // The innermost loop's depth comes from the loops-only stack: loop_cldepth also
+        // holds an entry per enclosing `switch` (for break), so indexing it by the loop
+        // count ran a switch case's defers on a `continue` of a loop inside that case.
+        int n = List_len<string>(&g.loop_lbl_cont);
         if (n > 0) {
-            cg_run_cleanups(g, List_get<int>(&g.loop_cldepth, n - 1), 0);
-            cg_br(g, List_get<string>(&g.loop_cont, n - 1));
+            cg_run_cleanups(g, List_get<int>(&g.loop_lbl_cld, n - 1), 0);
+            cg_br(g, List_get<string>(&g.loop_lbl_cont, n - 1));
         }
         return;
     }

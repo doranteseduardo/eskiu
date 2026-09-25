@@ -1,0 +1,34 @@
+// A `continue` of a loop nested in a switch case runs only the loop body's defers, not
+// the case's (the self-hosted back end ran the case's defer on every continue). Found
+// by the C oracle in tests/fuzz/eskiu_fuzz.py.
+extern int printf(string fmt, ...);
+
+int main() {
+    int32 x = 2;
+    switch (x) {
+    case 2:
+        {
+            defer printf("case defer\n");
+            for (int32 i = 0; i < 3; i++) {
+                defer printf("body %d\n", i);
+                if (i < 2) { continue; }
+                printf("last %d\n", i);
+            }
+        }
+        break;
+    }
+    int32 j = 0;
+    while (j < 2) {
+        j++;
+        switch (j) {
+        case 1:
+            {
+                defer printf("inner case %d\n", j);
+                continue;
+            }
+        default:
+            printf("default %d\n", j);
+        }
+    }
+    return 0;
+}

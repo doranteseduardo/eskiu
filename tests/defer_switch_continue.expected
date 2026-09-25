@@ -1,0 +1,7 @@
+body 0
+body 1
+last 2
+body 2
+case defer
+inner case 1
+default 2
