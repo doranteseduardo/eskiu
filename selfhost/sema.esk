@@ -56,6 +56,7 @@ struct Sema {
     int in_async;           // currently inside an `async` function body?
     int await_seen;         // has an `await` appeared in the current function?
     string cur_ret;         // current function's return type (for `?` propagation)
+    string match_ty;        // subject type of the `match` whose arms are being checked
     List<string> watched;   // non-escaping fn-type params of the current function
     List<string> escaped;   // watched params seen used beyond a direct call
     string callee_ctx;      // name being called right now (a watched param here is OK)
@@ -256,6 +257,7 @@ void sema_init(Sema* s, string filename) {
     s.in_async = 0;
     s.await_seen = 0;
     s.cur_ret = "";
+    s.match_ty = "";
     List_init<string>(&s.watched, 4);
     List_init<string>(&s.escaped, 4);
     List_init<string>(&s.narrowed, 4);
@@ -2316,6 +2318,10 @@ int sema_fold_int(Sema* s, *ExprNode e, int64* out) {
             // A `const` integer folds through its initializer (bounded against a
             // self-referential const).
             Sym sy = List_get<Sym>(&s.syms, si);
+            if (sy.is_const == 0 && sy.depth == 0 && sy.type[0] == 0) { si = -1; }   // an enum member
+        }
+        if (si >= 0) {
+            Sym sy = List_get<Sym>(&s.syms, si);
             if (sy.is_const == 0 || sy.init == null || sema_is_int_ty(sy.type) == 0) { return 0; }
             if (s.fold_depth > 64) { return 0; }
             s.fold_depth = s.fold_depth + 1;
@@ -3044,6 +3050,10 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         while (i < n) { sema_expr(s, List_get<*ExprNode>(&e.kids, i)); i = i + 1; }
         return;
     }
+    if (k == EK_CALL && e.a != null && e.a.kind == EK_IDENT && sema_local_bound(s, e.a.sval) == 0
+        && sema_find_fndecl(s, e.a.sval) == null && sema_variant_enum(s, e.a.sval) != null) {
+        sema_check_variant_args(s, e, e.a.sval, null);
+    }
     if (k == EK_CALL) {
         // arg-count check: only when the callee is a bare global function (not a local
         // fn-pointer var, not an ADT variant, not a generic — those resolve elsewhere).
@@ -3164,6 +3174,11 @@ void sema_expr_k(Sema* s, *ExprNode e) {
     if (k == EK_TEMPLATECALL) {        // Name<args>(...) — check bounded-generic constraints
         *DeclNode fd = sema_find_fndecl(s, sema_base_name(e.sval));
         string tbase = sema_base_name(e.sval);
+        if (fd == null && sema_is_variant_name(s, tbase) == 1) {
+            List<string> vtargs; List_init<string>(&vtargs, 2);
+            sema_parse_targs(e.sval, &vtargs);
+            sema_check_variant_args(s, e, tbase, &vtargs);
+        }
         if (fd == null && sema_streq(tbase, "va_arg") == 0 && sema_is_variant_name(s, tbase) == 0) {
             s.had_error = 1;
             printf("error: %s:%d:%d: undefined template function '%s'\n", s.filename, s.line, s.col, tbase);
@@ -3599,6 +3614,31 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
     if (k == SK_SWITCH || k == SK_MATCH) {
         sema_expr(s, st.expr);             // subject
         if (k == SK_SWITCH) {
+            // The subject is an integer (a classic enum counts); each case value must
+            // convert to it (mirrors the C++ visit(SwitchStmt)).
+            string swt = sema_infer_type(s, st.expr);
+            string swc = sema_canon(s, swt);
+            if (sema_judgeable(s, swc) == 1 && sema_is_int_ty(swc) == 0) {
+                s.had_error = 1;
+                printf("error: %s:%d:%d: switch subject must be integer type, got %s\n", s.filename, s.line, s.col, swt);
+            }
+            int cj = 0;
+            while (cj < List_len<*StmtNode>(&st.items)) {
+                *StmtNode cc = List_get<*StmtNode>(&st.items, cj);
+                if (cc.kind == SK_CASE && cc.expr != null && sema_judgeable(s, swc) == 1) {
+                    string cvt = sema_infer_type(s, cc.expr);
+                    string cvc = sema_canon(s, cvt);
+                    if (sema_judgeable(s, cvc) == 1 && (sema_is_int_ty(swc) == 0 || sema_is_int_ty(cvc) == 0)
+                        && sema_assign_strict(s, swt, cvt)[0] != 0) {
+                        int sl0 = s.line; int sc0 = s.col;
+                        if (cc.expr.line > 0) { s.line = cc.expr.line; s.col = cc.expr.col; }
+                        s.had_error = 1;
+                        printf("error: %s:%d:%d: case value type '%s' is incompatible with switch subject type '%s'\n", s.filename, s.line, s.col, cvt, swt);
+                        s.line = sl0; s.col = sc0;
+                    }
+                }
+                cj = cj + 1;
+            }
             // Duplicate case values: compare folded values (so `7` and `(4 * 2) - 1`
             // collide, as in C); a label that doesn't fold (a `const` name) by its text.
             List<string> seen;
@@ -3659,6 +3699,26 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
                 if (arm.kind == SK_ARM) {
                     string v = sema_base_name(arm.name);
                     if (sema_streq(v, "_") == 1) { has_wild = 1; }
+                    *DeclNode med = sema_find_tdecl(s, msty);
+                    if (sema_streq(v, "_") == 0 && med != null && med.kind == DK_ENUM) {
+                        int vi = sema_variant_index(med, v);
+                        if (vi < 0) {
+                            s.had_error = 1;
+                            printf("error: %s:%d:%d: '%s' is not a variant of %s\n", s.filename, s.line, s.col, v, msty);
+                        } else {
+                            List<string> binds; List_init<string>(&binds, 2);
+                            sema_arm_binds(arm.name, &binds);
+                            int want = 0;
+                            if (vi < List_len<List<string>>(&med.payloads)) {
+                                List<string> pl = List_get<List<string>>(&med.payloads, vi);
+                                want = List_len<string>(&pl);
+                            }
+                            if (want != List_len<string>(&binds)) {
+                                s.had_error = 1;
+                                printf("error: %s:%d:%d: variant '%s' binds %d field(s), got %d\n", s.filename, s.line, s.col, v, want, List_len<string>(&binds));
+                            }
+                        }
+                    }
                     int found = sema_in_list(&seen, v);
                     if (found == 1) {
                         s.had_error = 1;
@@ -3707,9 +3767,12 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
             }
         }
         if (k == SK_SWITCH) { s.sw_depth = s.sw_depth + 1; }
+        string saved_mty = s.match_ty;
+        if (k == SK_MATCH) { s.match_ty = sema_infer_type(s, st.expr); }
         int i = 0;
         int n = List_len<*StmtNode>(&st.items);
         while (i < n) { sema_stmt(s, List_get<*StmtNode>(&st.items, i)); i = i + 1; }
+        s.match_ty = saved_mty;
         if (k == SK_SWITCH) { s.sw_depth = s.sw_depth - 1; }
         return;
     }
@@ -3724,7 +3787,8 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
     }
     if (k == SK_TRY) {
         sema_stmt(s, st.s1);               // body
-        // catch clauses (items) bind names we don't extract yet → skip their bodies
+        int ci = 0;
+        while (ci < List_len<*StmtNode>(&st.items)) { sema_stmt(s, List_get<*StmtNode>(&st.items, ci)); ci = ci + 1; }
         sema_stmt(s, st.s2);               // finally
         return;
     }
@@ -3739,7 +3803,110 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
         while (i < n) { sema_expr(s, List_get<*StmtNode>(&st.items, i).expr); i = i + 1; }
         return;
     }
-    // SK_ARM / SK_CATCH bodies: not walked in S0 (bindings not yet extracted).
+    if (k == SK_ARM) {
+        // A match arm: its payload bindings take the variant's field types (the subject's
+        // type arguments substituted), in a scope of their own.
+        sema_push(s);
+        List<string> binds; List_init<string>(&binds, 2);
+        sema_arm_binds(st.name, &binds);
+        string v = sema_base_name(st.name);
+        string mty = s.match_ty; if (mty == null) { mty = ""; }
+        *DeclNode med = sema_find_tdecl(s, sema_struct_of_type(mty));
+        List<string> fts; List_init<string>(&fts, 2);
+        if (med != null && med.kind == DK_ENUM) {
+            int vi = sema_variant_index(med, v);
+            List<string> mtargs; List_init<string>(&mtargs, 2);
+            sema_parse_targs(sema_strip_ptr_sp(sema_strip_const(mty)), &mtargs);
+            if (vi >= 0 && vi < List_len<List<string>>(&med.payloads)
+                && List_len<string>(&mtargs) == List_len<TypeParam>(&med.type_params)) {
+                List<string> pl = List_get<List<string>>(&med.payloads, vi);
+                int pi = 0;
+                while (pi < List_len<string>(&pl)) {
+                    List_push<string>(&fts, sema_subst_params(List_get<string>(&pl, pi), &med.type_params, &mtargs));
+                    pi = pi + 1;
+                }
+            }
+        }
+        int bi = 0;
+        while (bi < List_len<string>(&binds)) {
+            string bt = "";
+            if (bi < List_len<string>(&fts)) { bt = List_get<string>(&fts, bi); }
+            sema_define(s, List_get<string>(&binds, bi), bt, 0);
+            bi = bi + 1;
+        }
+        sema_stmt(s, st.s1);
+        sema_pop(s);
+        return;
+    }
+    if (k == SK_CATCH) {
+        // `catch (T name) { ... }`: the body sees `name` of type T.
+        sema_push(s);
+        int sp = 0; int j = 0;
+        while (st.name[j] != 0) { if ((int)st.name[j] == 32) { sp = j; } j = j + 1; }
+        if (sp > 0) { sema_define(s, sema_sub_str(st.name, sp + 1, j), sema_sub_str(st.name, 0, sp), 0); }
+        sema_stmt(s, st.s1);
+        sema_pop(s);
+        return;
+    }
+}
+
+// A variant constructor call `V(args)` (`targs` = explicit type arguments of `V<..>(..)`,
+// or null): the argument count must match the payload, and for a non-generic enum (or
+// explicit type arguments) each argument must convert to its field type.
+void sema_check_variant_args(Sema* s, *ExprNode e, string v, List<string>* targs) {
+    *DeclNode ed = sema_variant_enum(s, v);
+    if (ed == null) { return; }
+    int vi = sema_variant_index(ed, v);
+    if (vi < 0 || vi >= List_len<List<string>>(&ed.payloads)) { return; }
+    List<string> pl = List_get<List<string>>(&ed.payloads, vi);
+    int want = List_len<string>(&pl);
+    int got = List_len<*ExprNode>(&e.kids);
+    if (want != got) {
+        s.had_error = 1;
+        printf("error: %s:%d:%d: variant '%s' expects %d argument(s), got %d\n", s.filename, s.line, s.col, v, want, got);
+        return;
+    }
+    int tn = List_len<TypeParam>(&ed.type_params);
+    List<string> subs; List_init<string>(&subs, 2);
+    if (targs != null) {
+        int ti = 0;
+        while (ti < List_len<string>(targs)) { List_push<string>(&subs, sema_isub(s, List_get<string>(targs, ti))); ti = ti + 1; }
+    }
+    if (tn > 0 && List_len<string>(&subs) != tn) { return; }
+    int i = 0;
+    while (i < want) {
+        string ft = sema_subst_params(List_get<string>(&pl, i), &ed.type_params, &subs);
+        string at = sema_infer_type(s, List_get<*ExprNode>(&e.kids, i));
+        if (sema_assign_strict(s, ft, at)[0] != 0) {
+            s.had_error = 1;
+            printf("error: %s:%d:%d: variant '%s' argument %d type mismatch\n", s.filename, s.line, s.col, v, i + 1);
+        }
+        i = i + 1;
+    }
+}
+
+// Index of variant `v` among enum `d`'s members, or -1.
+int sema_variant_index(*DeclNode d, string v) {
+    int i = 0;
+    while (i < List_len<Param>(&d.params)) { if (sema_streq(List_get<Param>(&d.params, i).name, v) == 1) { return i; } i = i + 1; }
+    return -1;
+}
+
+// The payload binding names of a match-arm label "Variant(a, b)" into `out`.
+void sema_arm_binds(string label, List<string>* out) {
+    int i = 0; while (label[i] != 0 && (int)label[i] != 40) { i = i + 1; }
+    if (label[i] == 0) { return; }
+    int n = sema_slen(label);
+    int close = n - 1; while (close > i && (int)label[close] != 41) { close = close - 1; }
+    int start = i + 1; int j = i + 1;
+    while (j <= close) {
+        if ((int)label[j] == 44 || j == close) {
+            string one = sema_trim_sub(label, start, j);
+            if (one[0] != 0) { List_push<string>(out, one); }
+            start = j + 1;
+        }
+        j = j + 1;
+    }
 }
 
 // ── entry ──
