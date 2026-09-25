@@ -1,0 +1,25 @@
+// Generic inference from a struct-literal argument, and calling a returned closure
+// directly (`pick()(3, 4)`).
+import <io>;
+
+struct P { int v; }
+
+T idt<T>(T x) { return x; }
+
+int add(int a, int b) { return a + b; }
+int mul(int a, int b) { return a * b; }
+
+fn(int, int)->int pick0() { return add; }
+fn(int, int)->int pick(int which) {
+    if (which == 0) { return add; }
+    return mul;
+}
+
+int main() {
+    P p = idt(P{3});
+    printf("%d\n", p.v);
+    printf("%d\n", idt(P{5}).v);
+    printf("%d\n", pick0()(3, 4));
+    printf("%d %d\n", pick(0)(3, 4), pick(1)(3, 4));
+    return 0;
+}

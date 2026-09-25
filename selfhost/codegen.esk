@@ -2793,6 +2793,15 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
             CgVal cv = cg_expr(g, e.a);                 // load the %closure field value
             return cg_indirect_call(g, cv.op, cg_etype(g, e.a), e);
         }
+        // Any other callee expression yielding a closure (a call returning a fn value,
+        // `pick(0)(3, 4)`, or an indexed/derefed closure): evaluate it, then call through it.
+        if (e.a != null && e.a.kind != EK_IDENT && e.a.kind != EK_MEMBER) {
+            string cft = cg_etype(g, e.a);
+            if (cg_is_fnty(cft) == 1) {
+                CgVal cv = cg_expr(g, e.a);
+                return cg_indirect_call(g, cg_coerce(g, cv, "%closure"), cft, e);
+            }
+        }
         // A generic free function called WITHOUT explicit type args (`chan_recv(ch)`):
         // infer `chan_recv<int>` from the argument types, then instantiate + call.
         if (e.a != null && e.a.kind == EK_IDENT) {
