@@ -1301,6 +1301,7 @@ pre.code-block {
 <pre class="code-block"> base = 999;      // does not affect the closure
  printf(&quot;%d\n&quot;, add_base(0));     // still 10</pre>
 <p class="output"><em>Output:</em> 15 42 10</p>
+<p>Because the closure holds a copy, it may not assign a captured variable: <code>base = 1;</code>, <code>base += 1;</code> or <code>base++;</code> inside the lambda is a compile error, since the write would change only the copy. To share state, write through a pointer (<code>*p = v</code>), or use a global or a <code>static</code> local, which are not captured. The lambda&#x27;s own parameters and locals can be assigned freely.</p>
 <h2 class="section" id="sec-9-4">9.4 Void lambdas</h2>
 <pre class="code-block"> let greet: fn()-&gt;void = void() {
        printf(&quot;hello from a lambda\n&quot;);
@@ -2908,7 +2909,7 @@ pre.code-block {
 <div class="chapter-start" id="ref-r4"><span class="chapter-label ref">Ref R4</span>
 <h1 class="chapter-title">Control Flow</h1><hr class="chapter-rule"></div>
 <pre class="code-block">        Statement   Syntax                                           Notes</pre>
-<pre class="code-block">        if/else     if (cond) { } else if (cond) { } else { }        Condition: bool or integer (non-zero = true).
+<pre class="code-block">        if/else     if (cond) { } else if (cond) { } else { }        Condition: bool, number or pointer (non-zero / non-null = true).
                                                                      Braces required.</pre>
 <pre class="code-block">        for         for (init; cond; step) { }                       Each part optional. Loop variable scoped to
                                                                      body.</pre>
