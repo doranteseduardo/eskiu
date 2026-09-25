@@ -983,7 +983,9 @@ void CodeGen::visit(LiteralExpr* node) {
             break;
         }
         case LiteralExpr::Kind::FLOAT: {
-            double val = std::stod(node->value);
+            // strtod (not stod): a denormal (1e-320) keeps its value and an overflow
+            // (1e400) is inf, as in C, instead of an out-of-range exception.
+            double val = std::strtod(node->value.c_str(), nullptr);
             result = llvm::ConstantFP::get(llvm::Type::getDoubleTy(*context), val);
             break;
         }

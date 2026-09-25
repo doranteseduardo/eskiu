@@ -147,7 +147,7 @@ llvm::Constant* CodeGen::evaluateConstantExpr(const ExprPtr& expr) {
         }
         case LiteralExpr::Kind::FLOAT: {
             return llvm::ConstantFP::get(llvm::Type::getDoubleTy(*context),
-                                          std::stod(lit->value));
+                                          std::strtod(lit->value.c_str(), nullptr));
         }
         case LiteralExpr::Kind::BOOL: {
             return llvm::ConstantInt::get(llvm::Type::getInt1Ty(*context),
