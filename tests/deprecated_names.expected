@@ -3,3 +3,4 @@ regex: 1 bb
 heap: 1 1
 eventloop: 11
 executor: 111
+channel: 1 5

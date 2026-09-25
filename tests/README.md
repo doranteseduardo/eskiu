@@ -134,7 +134,7 @@ when you add a test.
 | `async_frame_expr` | frame-hoisted locals used in a struct literal / index / call after an await are renamed to `fr.x` (shared child-enumeration) |
 | `select_value` | `<futureval>` `select2v`: winner's value as `Either<A,B>` over the reactor (timer-wins / data-wins) |
 | `join_value` | `<futureval>` `join2v`: both values as a `Pair<A,B>` |
-| `async_channel` | `<channel>` `chan_send`/`chan_recv`: buffered fast path + parked handoff; also guards the cast-after-deduplicated-import parser fix |
+| `async_channel` | `<channel>` `Chan_send`/`Chan_recv`: buffered fast path + parked handoff; also guards the cast-after-deduplicated-import parser fix |
 | `async_spawn` | detached generic `spawn<T>` of async tasks (ready + suspending), leak-free |
 | `async_select` | generic `select2<A,B>`: await the first of two futures; loser dropped (A-wins + B-wins) |
 | `async_join` | generic `join2<A,B>`: await both futures, then read both values |

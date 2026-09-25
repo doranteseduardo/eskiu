@@ -952,7 +952,7 @@ Available modules:
 | `<executor>` | `Executor`: event loop + thread-safe ready-queue + self-pipe wakeup |
 | `<net_async>`| async leaf futures: `net_read_async`, `net_accept_async` |
 | `<timer>`    | `timer_after(lp, ms)`: a `*Future<int>` that completes after a delay (timeouts) |
-| `<channel>`  | async message channel: `chan_new`/`chan_send`/`chan_recv` (a `*Future<T>`) |
+| `<channel>`  | async message channel: `chan_new`/`Chan_send`/`Chan_recv` (a `*Future<T>`) |
 | `<http_async>`| non-blocking concurrent HTTP/1.1 server: `http_serve_async` |
 
 Note: when using `<math>` link with `-lm`. Library flags are passed straight

@@ -386,7 +386,7 @@ async void http2_serve_conn_async(EventLoop* lp, int fd,
         hpack_decoder_free(&dec);
     }
     net_close(fd);
-    chan_send<int>(done, 1);
+    Chan_send<int>(done, 1);
 }
 
 // Accept and serve `max_conns` connections concurrently (each detached), then
@@ -403,8 +403,8 @@ async void http2_serve_async(EventLoop* lp, int listen_fd,
     }
     int finished = 0;
     while (finished < max_conns) {
-        int sig = await chan_recv(done);
+        int sig = await Chan_recv(done);
         finished = finished + 1;
     }
-    chan_free<int>(done);
+    Chan_free<int>(done);
 }

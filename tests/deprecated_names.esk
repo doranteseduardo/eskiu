@@ -6,6 +6,7 @@ import <string>;
 import <sysheap>;
 import <eventloop>;
 import <executor>;
+import <channel>;
 extern int printf(string fmt, ...);
 extern int pipe(*int fds);
 extern int64 write(int fd, *void buf, int64 n);
@@ -66,5 +67,12 @@ int main() {
     executor_run(ex);
     printf("executor: %d\n", g_ticks);
     executor_free(ex);
+
+    Chan<int>* ch = chan_new<int>(4);
+    chan_send(ch, 5);
+    Future<int>* rf = chan_recv(ch);
+    printf("channel: %d %d\n", rf.state == READY, rf.value);
+    free_future<int>(rf);
+    chan_free<int>(ch);
     return 0;
 }

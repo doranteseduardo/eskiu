@@ -54,7 +54,7 @@ The point at which a self-hosted compiler reproduces its own output. Eskiu's boo
 ## C
 
 **channel**
-An async message queue between tasks (`Chan<T>` in `<channel>`). `chan_recv` returns a `*Future<T>` that completes with the next item: immediately if one is buffered, otherwise when a `chan_send` hands a value off to the parked receiver. See also: Future, await.
+An async message queue between tasks (`Chan<T>` in `<channel>`). `Chan_recv` returns a `*Future<T>` that completes with the next item: immediately if one is buffered, otherwise when a `Chan_send` hands a value off to the parked receiver. See also: Future, await.
 
 **closure**
 A function value that captures variables from its enclosing scope. Represented as a two-word fat pointer `{fn_ptr, env_ptr}`: a non-capturing closure has a null environment, while a capturing one packages its captured variables into an environment struct. The type annotation is `fn(T,...)->R` in both cases. See also: escaping, fat pointer, lambda.

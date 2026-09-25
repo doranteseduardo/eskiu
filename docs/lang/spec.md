@@ -2073,7 +2073,7 @@ Eskiu ships a set of standard library files in the `stdlib/` directory. Import a
 | `stdlib/executor.esk` | `Executor`, a thread that owns an event loop plus a thread-safe ready-queue of wakers woken through a self-pipe, so a waker (a coroutine resume) always runs on the executor's own thread: `executor_new`, `Executor_schedule`, `Executor_run` |
 | `stdlib/net_async.esk`| Leaf futures for non-blocking network I/O over `<eventloop>`: `net_set_nonblocking`, `net_read_async`, `net_write_async`, `net_accept_async`, each registers an fd and completes its `*Future<int>` when ready |
 | `stdlib/timer.esk`    | `timer_after(lp, ms)`, a `*Future<int>` that completes once `ms` of monotonic time elapses, driven by the loop's timer wheel; combine with a read for a real timeout |
-| `stdlib/channel.esk`  | `Chan<T>`, an async message channel over the Future runtime: `chan_new<T>(cap)`, `chan_send`, and `chan_recv` (a `*Future<T>` that completes with the next item) |
+| `stdlib/channel.esk`  | `Chan<T>`, an async message channel over the Future runtime: `chan_new<T>(cap)`, `Chan_send`, and `Chan_recv` (a `*Future<T>` that completes with the next item) |
 | `stdlib/either.esk`   | The standard sum types `Option<T>` and `Either<A,B>` (generic algebraic enums) plus helpers (`opt_is_some`/`opt_unwrap_or`, …) |
 | `stdlib/futureval.esk`| Value-returning future combinators: `select2v<A,B>` resolves to the winner's value wrapped in `Either<A,B>`; `join2v<A,B>` resolves to a `Pair<A,B>` of both values |
 | `stdlib/http_async.esk`| Non-blocking concurrent HTTP/1.1 server built on the event loop's accept loop: `http_serve_async`, with the same `fn(HttpRequest*, HttpResponse*)->void` handler interface as `<http>` |

@@ -395,7 +395,7 @@ async void http2_tls_conn_async(EventLoop* lp, int fd, *void ctx,
     }
     if (ssl != (*void)0) { tls_close(ssl); }
     net_close(fd);
-    chan_send<int>(done, 1);
+    Chan_send<int>(done, 1);
 }
 
 // Accept and serve `max_conns` TLS connections concurrently over one event loop.
@@ -411,8 +411,8 @@ async void http2_tls_serve_async(EventLoop* lp, int listen_fd, *void ctx,
     }
     int finished = 0;
     while (finished < max_conns) {
-        int sig = await chan_recv(done);
+        int sig = await Chan_recv(done);
         finished = finished + 1;
     }
-    chan_free<int>(done);
+    Chan_free<int>(done);
 }

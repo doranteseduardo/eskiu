@@ -1,21 +1,21 @@
 // channel.esk — an async message channel over the Future runtime.
 //
-// A `Chan<T>` carries values between tasks. `chan_recv` is a `*Future<T>` that
+// A `Chan<T>` carries values between tasks. `Chan_recv` is a `*Future<T>` that
 // completes with the next item — immediately if one is buffered, otherwise it
-// parks until a `chan_send` arrives and hands the value off (waking the awaiter):
+// parks until a `Chan_send` arrives and hands the value off (waking the awaiter):
 //
 //   async int consume(Chan<int>* ch) {
-//       int a = await chan_recv(ch);
-//       int b = await chan_recv(ch);
+//       int a = await Chan_recv(ch);
+//       int b = await Chan_recv(ch);
 //       return a + b;
 //   }
 //   Chan<int>* ch = chan_new<int>(8);
-//   chan_send(ch, 10);  chan_send(ch, 20);   // values inferred
+//   Chan_send(ch, 10);  Chan_send(ch, 20);   // values inferred
 //   // ... drive consume(ch) on the event loop ...
 //
 // Model: a bounded ring buffer with a single outstanding receiver (one awaiter
 // at a time — the typical task-to-task / fan-in-to-one-consumer shape) and a
-// non-blocking `chan_send` (returns false when the buffer is full and no
+// non-blocking `Chan_send` (returns false when the buffer is full and no
 // receiver is parked). Single-threaded: a send hands off to a parked receiver
 // inline.
 
@@ -42,7 +42,7 @@ Chan<T>* chan_new<T>(int cap) {
 
 // Send `v`. If a receiver is parked, hand the value off directly (waking it);
 // otherwise buffer it. Returns false if the buffer is full and nobody is waiting.
-bool chan_send<T>(Chan<T>* ch, T v) {
+bool Chan_send<T>(Chan<T>* ch, T v) {
     if (ch.waiter != (Future<T>*)0) {
         Future<T>* w = ch.waiter;
         ch.waiter = (Future<T>*)0;          // clear first: completing may resume an
@@ -59,9 +59,9 @@ bool chan_send<T>(Chan<T>* ch, T v) {
 
 // Receive the next item as a `*Future<T>`. If one is buffered the future is
 // already complete (the awaiter takes it without suspending); otherwise it parks
-// and `chan_send` completes it later. Single consumer: at most one outstanding
+// and `Chan_send` completes it later. Single consumer: at most one outstanding
 // recv at a time (a second overwrites the first's parked slot).
-Future<T>* chan_recv<T>(Chan<T>* ch) {
+Future<T>* Chan_recv<T>(Chan<T>* ch) {
     Future<T>* f = future_new<T>();
     if (ch.count > 0) {
         T v = ch.buf[ch.head];
@@ -70,15 +70,23 @@ Future<T>* chan_recv<T>(Chan<T>* ch) {
         ch.count = ch.count - 1;
         future_complete<T>(f, v);           // ready immediately (fast path)
     } else {
-        ch.waiter = f;                      // park; a future chan_send hands off
+        ch.waiter = f;                      // park; a future Chan_send hands off
         // Cancel path (e.g. the losing side of a select2 timeout): unpark, so a
-        // later chan_send buffers its value instead of completing freed memory.
+        // later Chan_send buffers its value instead of completing freed memory.
         f.on_drop = void() { if (ch.waiter == f) { ch.waiter = (Future<T>*)0; } };
     }
     return f;
 }
 
-void chan_free<T>(Chan<T>* ch) {
+void Chan_free<T>(Chan<T>* ch) {
     free((*void)ch.buf);
     free((*void)ch);
 }
+
+// ── Deprecated names (kept so 0.9.1 code compiles; removed in a later release) ──
+// deprecated: use Chan_send
+bool chan_send<T>(Chan<T>* ch, T v) { return Chan_send<T>(ch, v); }
+// deprecated: use Chan_recv
+Future<T>* chan_recv<T>(Chan<T>* ch) { return Chan_recv<T>(ch); }
+// deprecated: use Chan_free
+void chan_free<T>(Chan<T>* ch) { Chan_free<T>(ch); }

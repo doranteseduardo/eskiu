@@ -45,7 +45,7 @@ async void http_conn_async(EventLoop* lp, int c,
     }
     net_close(c);
     free((*void)buf);
-    chan_send<int>(done, 1);            // wait-group: this connection is done
+    Chan_send<int>(done, 1);            // wait-group: this connection is done
 }
 
 // Accept and serve `max_conns` connections concurrently, then wait for every
@@ -63,8 +63,8 @@ async void http_serve_async(EventLoop* lp, int listen_fd,
     }
     int finished = 0;
     while (finished < max_conns) {
-        int sig = await chan_recv(done);                // wait-group join
+        int sig = await Chan_recv(done);                // wait-group join
         finished = finished + 1;
     }
-    chan_free<int>(done);
+    Chan_free<int>(done);
 }
