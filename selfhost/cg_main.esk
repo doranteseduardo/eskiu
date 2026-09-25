@@ -40,13 +40,13 @@ int cg_main(int argc, string* argv) {
     g_pp_os = "__linux__";
 #endif
     g_pp_arch = cg_host_arch_macro();
+    parser_session_init();
+    register_file(argv[1]);           // before preprocessing: its import prescan dedups against it
     let pperr: int = 0;
     string pp = pp_run((string)raw, (int)n, argv[1], &pperr);
     *uint8 src = (*uint8)pp;
     int plen = g_pp_out_len;
 
-    parser_session_init();
-    register_file(argv[1]);
     let p: Parser;
     g_lex_file = argv[1];
     p_init(&p, src, plen);

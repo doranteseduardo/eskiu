@@ -71,10 +71,18 @@ std::unordered_map<std::string, TokenType> Lexer::keywords = {
 };
 
 Lexer::Lexer(const std::string& source, std::map<std::string, Macro>* macros,
-             const std::string& filename)
+             const std::string& filename, const PPImportHook* importHook)
     : filename(filename), current(0), line(1), column(1) {
     std::map<std::string, Macro> local;
-    preprocess(source, macros ? *macros : local, this->source, filename, this->hadError);
+    preprocess(source, macros ? *macros : local, this->source, filename, this->hadError, importHook);
+}
+
+Lexer Lexer::fromPreprocessed(const std::string& text, const std::string& filename, bool ppErr) {
+    std::map<std::string, Macro> none;
+    Lexer lx("", &none, filename);
+    lx.source = text;
+    lx.hadError = ppErr;
+    return lx;
 }
 
 char Lexer::peek() const {

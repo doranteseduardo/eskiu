@@ -5,6 +5,7 @@
 #include <map>
 #include <vector>
 #include <memory>
+#include <functional>
 
 // A preprocessor macro: object-like (#define MAX 100) or function-like
 // (#define SQ(x) ((x)*(x))). The table is shared across files so that a
@@ -14,6 +15,13 @@ struct Macro {
     std::vector<std::string> params;
     std::string body;
 };
+
+// Called by the preprocessor for each `import` met on an active line, in textual
+// order, with the import's path (`"a.esk"` → a.esk, `<list>` → list) and whether it
+// is the `<name>` form. The driver preprocesses the imported file right there, so the
+// macro table it sees (and leaves behind for the importer's later lines) follows C's
+// textual #include order. See ImportCache in parser.h.
+using PPImportHook = std::function<void(const std::string& spec, bool isStdlib)>;
 
 enum class TokenType {
     // Keywords
@@ -166,9 +174,15 @@ public:
     // `macros` is an optional shared macro table: when provided, #defines from
     // earlier files persist so they propagate across import / multi-file builds.
     // `filename` (when known) is exposed to the preprocessor as `__FILE__`.
+    // `importHook`, when given, is called for each import in textual order (see
+    // PPImportHook).
     explicit Lexer(const std::string& source,
                    std::map<std::string, Macro>* macros = nullptr,
-                   const std::string& filename = "");
+                   const std::string& filename = "",
+                   const PPImportHook* importHook = nullptr);
+    // A lexer over text that has already been preprocessed (an import the
+    // preprocessor pass handled at its import line); `ppErr` is that pass's verdict.
+    static Lexer fromPreprocessed(const std::string& text, const std::string& filename, bool ppErr);
 
     Token next_token();
     void print_all_tokens();

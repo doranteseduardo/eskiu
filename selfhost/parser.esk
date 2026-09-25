@@ -64,7 +64,76 @@ int register_file(string path) {
     return 1;
 }
 
+// The import prescan (mirrors ImportCache): pp_run reports each import at its line,
+// and pre_import preprocesses the imported file right there, with the macro table as
+// it stands at that point, keeping the text until do_import reaches it. So a #define
+// before `import "x.esk"` reaches x.esk, one after it does not, and x.esk's own
+// #defines reach the importer's later lines (C's textual #include order).
+List<string> g_pre_keys;       // canonical paths preprocessed ahead (a key is claimed first)
+List<string> g_pre_text;       // their preprocessed text ("" while still being preprocessed)
+List<int> g_pre_err;           // their pp_run verdicts
+List<int> g_pre_len;           // their byte lengths (g_pp_out_len)
+
+int pre_find(string key) {
+    int i = 0;
+    while (i < List_len<string>(&g_pre_keys)) {
+        if (str_eq(List_get<string>(&g_pre_keys, i), key) == 1) { return i; }
+        i = i + 1;
+    }
+    return 0 - 1;
+}
+
+int is_registered(string key) {
+    int i = 0;
+    while (i < List_len<string>(&g_imported)) {
+        if (str_eq(List_get<string>(&g_imported, i), key) == 1) { return 1; }
+        i = i + 1;
+    }
+    return 0;
+}
+
+// Where an import resolves (mirrors Parser::resolveImport): `<name>` (no '/') is
+// stdlib/name.esk under the stdlib root (like the C++ stdlibPath: $ESKIU_ROOT or the
+// install layout; the cwd when neither is known), a relative "path" is under `basedir`.
+string resolve_import(string spec, int is_std, string basedir) {
+    string path = spec;
+    if (is_std == 1) {
+        if (str_has_char(path, 47) == 0) { path = str_concat("stdlib/", str_concat(path, ".esk")); }
+        if (g_stdlib_root != null) { if (g_stdlib_root[0] != 0) { return str_concat(g_stdlib_root, str_concat("/", path)); } }
+        return path;
+    }
+    if ((int)path[0] != 47) { return str_concat(basedir, str_concat("/", path)); }
+    return path;
+}
+
+// The pp_run import hook (see g_pp_import_hook): preprocess the import now, once.
+void pre_import(string spec, int is_std, string importer) {
+    if (spec[0] == 0) { return; }
+    string full = resolve_import(spec, is_std, str_dir(importer));
+    string key = canonical_path(full);
+    if (is_registered(key) == 1 || pre_find(key) >= 0) { return; }
+    let bytes: int64 = 0;
+    *uint8 isrc = fs_read_all(full, &bytes);
+    if (isrc == null) { return; }                // do_import reports it at the import
+    List_push<string>(&g_pre_keys, key);
+    List_push<string>(&g_pre_text, "");
+    List_push<int>(&g_pre_err, 0);
+    List_push<int>(&g_pre_len, 0);
+    int idx = List_len<string>(&g_pre_keys) - 1;
+    let pe: int = 0;
+    string psrc = pp_run((string)isrc, (int)bytes, full, &pe);
+    List_set<string>(&g_pre_text, idx, psrc);
+    List_set<int>(&g_pre_err, idx, pe);
+    List_set<int>(&g_pre_len, idx, g_pp_out_len);
+}
+
 void parser_session_init() {
+    List_init<string>(&g_pre_keys, 16);
+    List_init<string>(&g_pre_text, 16);
+    List_init<int>(&g_pre_err, 16);
+    List_init<int>(&g_pre_len, 16);
+    g_pp_import_hook = pre_import;
+    g_pp_hook_set = 1;
     List_init<string>(&g_imported, 16);
     List_init<string>(&g_typenames, 64);
     g_cur_pack = 0;
@@ -2080,9 +2149,6 @@ void do_import(Parser* p, *Program prog) {
             name = str_concat(name, tok_text(p.src, p_adv(p)));
         }
         p_expect(p, GT, "Expected '>' after stdlib name");
-        if (str_has_char(name, 47) == 0) {       // bare name → stdlib/<name>.esk
-            name = str_concat("stdlib/", str_concat(name, ".esk"));
-        }
         path = name;
         is_std = 1;
     } else {
@@ -2091,29 +2157,29 @@ void do_import(Parser* p, *Program prog) {
     }
     p_expect(p, SEMICOLON, "Expected ';' after import");
 
-    // Resolve full path: stdlib under the stdlib root (like the C++ stdlibPath: $ESKIU_ROOT
-    // or the install layout; the cwd when neither is known), otherwise relative to this
-    // file's dir.
-    string full;
-    if (is_std == 1) {
-        full = path;
-        if (g_stdlib_root != null) { if (g_stdlib_root[0] != 0) { full = str_concat(g_stdlib_root, str_concat("/", path)); } }
-    }
-    else if ((int)path[0] != 47) { full = str_concat(p.basedir, str_concat("/", path)); }
-    else { full = path; }
-
+    string full = resolve_import(path, is_std, p.basedir);
     if (register_file(full) == 0) { return; }   // dedup by canonical path — parse each file once
 
-    let bytes: int64 = 0;
-    *uint8 isrc = fs_read_all(full, &bytes);
-    if (isrc == null) {                          // a missing import is an error (like the C++)
-        p_report(p, path_tok, str_concat(str_concat("Cannot open import: '", full), "'"));
-    }
-    // Preprocess the import (the C++ folds preprocessing into the lexer per file); this
-    // evaluates its #ifdef/#define so e.g. mem.esk picks one branch, not both.
+    // The preprocessor already handled this import at its line (see pre_import);
+    // otherwise read and preprocess it now. Preprocessing evaluates its #ifdef/#define,
+    // so e.g. mem.esk picks one branch, not both.
     let pe: int = 0;
-    string psrc = pp_run((string)isrc, (int)bytes, full, &pe);
-    int plen = g_pp_out_len;
+    string psrc;
+    int plen = 0;
+    int ci = pre_find(canonical_path(full));
+    if (ci >= 0) {
+        psrc = List_get<string>(&g_pre_text, ci);
+        pe = List_get<int>(&g_pre_err, ci);
+        plen = List_get<int>(&g_pre_len, ci);
+    } else {
+        let bytes: int64 = 0;
+        *uint8 isrc = fs_read_all(full, &bytes);
+        if (isrc == null) {                      // a missing import is an error (like the C++)
+            p_report(p, path_tok, str_concat(str_concat("Cannot open import: '", full), "'"));
+        }
+        psrc = pp_run((string)isrc, (int)bytes, full, &pe);
+        plen = g_pp_out_len;
+    }
     if (pe != 0) { exit(1); }                    // directive error in the import (already reported)
     *uint8 ppsrc = (*uint8)psrc;
     let sub: Parser;

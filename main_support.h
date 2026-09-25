@@ -25,8 +25,10 @@ int runFmt(const std::vector<std::string>& files, bool check);
 // follows `triple` (or the build host when empty) and __ESKIU_FREESTANDING__.
 void seedPredefinedMacros(std::map<std::string, Macro>& macros, const std::string& triple,
                           bool freestanding);
-std::shared_ptr<Program> loadProgram(const std::string& filename, const std::string& triple,
-                                     bool freestanding);
+std::shared_ptr<Program> loadProgram(const std::vector<std::string>& inputs, const std::string& triple,
+                                     bool freestanding,
+                                     std::map<std::string, Macro>* macrosOut = nullptr,
+                                     bool* lexFailed = nullptr);
 bool endsWith(const std::string& s, const std::string& suffix);
 // `ccArgs` receives any extra words of $CC (e.g. "-m64" in CC="clang -m64").
 std::string findCDriver(bool sanitized = false, std::vector<std::string>* ccArgs = nullptr);

@@ -12,4 +12,5 @@ void preprocess(const std::string& src,
                 std::map<std::string, Macro>& defines,
                 std::string& result,
                 const std::string& filename,
-                bool& hadErr);
+                bool& hadErr,
+                const PPImportHook* importHook = nullptr);

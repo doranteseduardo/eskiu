@@ -6,6 +6,7 @@
 #include <sstream>
 #include <filesystem>
 #include "parser_internal.h"
+#include "../lexer/preprocessor.h"
 
 Parser::Parser(const std::vector<Token>& tok)
     : tokens(tok), current(0) {}
@@ -14,6 +15,37 @@ std::string Parser::canonicalPath(const std::string& path) {
     std::error_code ec;
     std::filesystem::path c = std::filesystem::weakly_canonical(std::filesystem::absolute(path, ec), ec);
     return ec ? path : c.string();
+}
+
+std::string Parser::resolveImport(const std::string& spec, bool isStdlib,
+                                  const std::string& basedir, const std::string& stdlibPath) {
+    std::string path = spec;
+    // Allow bare name or name with path separator
+    if (isStdlib && path.find('/') == std::string::npos) path = "stdlib/" + path + ".esk";
+    if (isStdlib && !stdlibPath.empty()) return stdlibPath + "/" + path;
+    if (!basedir.empty() && (path.empty() || path[0] != '/')) return basedir + "/" + path;
+    return path;
+}
+
+PPImportHook ImportCache::hookFor(const std::string& basedir) {
+    return [this, basedir](const std::string& spec, bool isStdlib) {
+        if (spec.empty()) return;
+        std::string full = Parser::resolveImport(spec, isStdlib, basedir, stdlibPath);
+        std::string canon = Parser::canonicalPath(full);
+        if (seen.count(canon)) return;
+        std::error_code ec;
+        if (!std::filesystem::is_regular_file(full, ec)) return;
+        std::ifstream file(full);
+        if (!file.is_open()) return;
+        seen.insert(canon);
+        std::ostringstream ss;
+        ss << file.rdbuf();
+        size_t slash = full.rfind('/');
+        PPImportHook sub = hookFor(slash != std::string::npos ? full.substr(0, slash) : ".");
+        Entry e;
+        preprocess(ss.str(), *macros, e.text, full, e.ppErr, &sub);
+        files[canon] = std::move(e);
+    };
 }
 
 // ============================================================================
@@ -330,53 +362,51 @@ std::vector<DeclPtr> Parser::parseProgram() {
         // Handle import "path/to/file.esk"  or  import <stdlib_name>
         if (match(TokenType::IMPORT)) {
             try {
-                std::string path;
+                std::string spec;
                 bool isStdlib = false;
 
                 Token pathTok = peek();
                 if (check(TokenType::STRING_LIT)) {
                     // import "relative/path.esk"
-                    path = advance().value;
+                    spec = advance().value;
                 } else if (check(TokenType::LT)) {
                     // import <name>  →  resolved against stdlibPath
                     advance(); // consume <
-                    std::string name;
                     while (!check(TokenType::GT) && !is_at_end())
-                        name += advance().value;
+                        spec += advance().value;
                     consume(TokenType::GT, "Expected '>' after stdlib name");
-                    // Allow bare name or name with path separator
-                    if (name.find('/') == std::string::npos)
-                        name = "stdlib/" + name + ".esk";
-                    path = name;
                     isStdlib = true;
                 } else {
                     fail("Expected filename or <name> after import");
                 }
                 consume(TokenType::SEMICOLON, "Expected ';' after import");
 
-                // Resolve full path
-                std::string fullPath;
-                if (isStdlib && !stdlibPath.empty()) {
-                    // stdlib path: ESKIU_ROOT/stdlib/name.esk
-                    fullPath = stdlibPath + "/" + path;
-                } else if (!basedir.empty() && path[0] != '/') {
-                    fullPath = basedir + "/" + path;
-                } else {
-                    fullPath = path;
-                }
-
+                std::string fullPath = resolveImport(spec, isStdlib, basedir, stdlibPath);
                 std::string canon = canonicalPath(fullPath);
                 if (!importedFiles->count(canon)) {
                     importedFiles->insert(canon);
 
-                    std::ifstream file(fullPath);
-                    if (!file.is_open())
-                        fail("Cannot open import: '" + fullPath + "'", pathTok);
-                    std::ostringstream ss;
-                    ss << file.rdbuf();
-                    std::string src = ss.str();
-
-                    Lexer lexer(src, macros, fullPath);  // share macros; fullPath = __FILE__
+                    // The preprocessor already handled this import at its line (see
+                    // ImportCache); otherwise read and preprocess it now.
+                    auto cached = importCache ? importCache->files.find(canon)
+                                              : std::map<std::string, ImportCache::Entry>::iterator();
+                    bool haveCached = importCache && cached != importCache->files.end();
+                    std::string src;
+                    if (!haveCached) {
+                        std::ifstream file(fullPath);
+                        if (!file.is_open())
+                            fail("Cannot open import: '" + fullPath + "'", pathTok);
+                        std::ostringstream ss;
+                        ss << file.rdbuf();
+                        src = ss.str();
+                    }
+                    size_t slash = fullPath.rfind('/');
+                    std::string subdir = (slash != std::string::npos) ? fullPath.substr(0, slash) : ".";
+                    PPImportHook hook;
+                    if (importCache) hook = importCache->hookFor(subdir);
+                    Lexer lexer = haveCached
+                        ? Lexer::fromPreprocessed(cached->second.text, fullPath, cached->second.ppErr)
+                        : Lexer(src, macros, fullPath, importCache ? &hook : nullptr);
                     std::vector<Token> itoks;
                     Token t = lexer.next_token();
                     while (t.type != TokenType::EOF_TOKEN) { itoks.push_back(t); t = lexer.next_token(); }
@@ -385,11 +415,11 @@ std::vector<DeclPtr> Parser::parseProgram() {
 
                     Parser sub(itoks);
                     sub.filename      = fullPath;
-                    size_t slash = fullPath.rfind('/');
-                    sub.basedir       = (slash != std::string::npos) ? fullPath.substr(0, slash) : ".";
+                    sub.basedir       = subdir;
                     sub.stdlibPath    = stdlibPath;
                     sub.importedFiles = importedFiles;
                     sub.macros        = macros;
+                    sub.importCache   = importCache;
                     sub.sharedTypeNames = sharedTypeNames;   // one set for all parsers
 
                     auto subProg = sub.parse();

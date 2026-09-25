@@ -7,6 +7,22 @@
 #include "../lexer/lexer.h"
 #include "../ast/ast.h"
 
+// The import prescan shared by one compilation. The preprocessor reports each import
+// at its line (PPImportHook); hookFor() preprocesses the imported file right there,
+// with the macro table as it stands at that point, and keeps the text here until the
+// parser reaches the import. So a #define before `import "x.esk"` reaches x.esk, one
+// after it does not, and x.esk's own #defines reach the importer's later lines (C's
+// textual #include order).
+struct ImportCache {
+    std::string stdlibPath;
+    std::map<std::string, Macro>* macros = nullptr;
+    struct Entry { std::string text; bool ppErr = false; };
+    std::map<std::string, Entry> files;   // canonical path → preprocessed text
+    std::set<std::string> seen;           // canonical paths preprocessed (incl. roots)
+    // The hook for a file whose relative imports resolve against `basedir`.
+    PPImportHook hookFor(const std::string& basedir);
+};
+
 class Parser {
 public:
     explicit Parser(const std::vector<Token>& tokens);
@@ -35,6 +51,13 @@ public:
     static std::string canonicalPath(const std::string& path);
     // Shared preprocessor macro table — lets #defines propagate into imports
     std::map<std::string, Macro>* macros = nullptr;
+    // Shared import prescan (see ImportCache); null → an import is preprocessed when
+    // the parser reaches it.
+    ImportCache* importCache = nullptr;
+    // Where an import resolves: `<name>` (no '/') is stdlib/name.esk under the stdlib
+    // root, a relative "path" is under `basedir`.
+    static std::string resolveImport(const std::string& spec, bool isStdlib,
+                                     const std::string& basedir, const std::string& stdlibPath);
     // Shared across all sub-parsers (like importedFiles): type names declared in
     // ANY file, so a cast to a type stays a cast even when that type's defining
     // import was deduplicated via a different path. Without sharing, a file that

@@ -287,35 +287,59 @@ void seedPredefinedMacros(std::map<std::string, Macro>& macros, const std::strin
     }
 }
 
-// Load → lex → parse a single source file. Returns the parsed Program, or
-// nullptr on a lexical or parse error (a diagnostic is printed by the lexer or
-// parser). Shared by every single-file pipeline mode (parse/typecheck/codegen,
-// --hover-at, --definition-at). It preprocesses exactly like a real build (same
-// predefined macros, shared across imports, __FILE__ = the path), so these modes
-// see the same program the compiler does.
-std::shared_ptr<Program> loadProgram(const std::string& filename, const std::string& triple,
-                                     bool freestanding) {
-    std::string source = readFile(filename);
-    std::map<std::string, Macro> macros;
+// Load → lex → parse every input file and merge their declarations into one Program,
+// or nullptr on a lexical or parse error (a diagnostic is printed by the lexer or
+// parser; `lexFailed` tells which). Shared by the build and every pipeline mode
+// (parse/typecheck/codegen, --hover-at, --definition-at), so they all preprocess alike
+// (same predefined macros, one macro table across files and imports, each import
+// preprocessed at its import line, __FILE__ = the path) and see the same program.
+// `macrosOut` receives the final macro table.
+std::shared_ptr<Program> loadProgram(const std::vector<std::string>& inputs, const std::string& triple,
+                                     bool freestanding, std::map<std::string, Macro>* macrosOut,
+                                     bool* lexFailed) {
+    std::map<std::string, Macro> macros;     // shared: #defines propagate across files
     seedPredefinedMacros(macros, triple, freestanding);
-    Lexer lexer(source, &macros, filename);
-    std::vector<Token> tokens;
-    Token tok = lexer.next_token();
-    while (tok.type != TokenType::EOF_TOKEN) {
+    std::set<std::string> importedFiles;     // shared: a common import is parsed once
+    ImportCache cache;                       // imports preprocessed at their import line
+    cache.stdlibPath = stdlibRoot;
+    cache.macros = &macros;
+    std::vector<DeclPtr> merged;
+    std::vector<std::string> linkLibs;       // `#pragma link` libraries of every input
+    if (lexFailed) *lexFailed = false;
+    for (const auto& fname : inputs) {
+        // Register the root file itself, so an import cycle back to it (or an
+        // input that an earlier input already imported) is not parsed twice.
+        std::string canon = Parser::canonicalPath(fname);
+        if (!importedFiles.insert(canon).second) continue;
+        cache.seen.insert(canon);
+        std::string source = readFile(fname);
+        PPImportHook hook = cache.hookFor(dirOf(fname));
+        Lexer lexer(source, &macros, fname, &hook);
+        std::vector<Token> tokens;
+        Token tok = lexer.next_token();
+        while (tok.type != TokenType::EOF_TOKEN) {
+            tokens.push_back(tok);
+            tok = lexer.next_token();
+        }
         tokens.push_back(tok);
-        tok = lexer.next_token();
-    }
-    tokens.push_back(tok);
-    if (lexer.hadError) return nullptr;
+        if (lexer.hadError) { if (lexFailed) *lexFailed = true; return nullptr; }
 
-    Parser parser(tokens);
-    parser.filename = filename;
-    parser.stdlibPath = stdlibRoot;
-    parser.basedir = dirOf(filename);
-    parser.macros = &macros;
-    std::set<std::string> imported = { Parser::canonicalPath(filename) };
-    parser.importedFiles = &imported;
-    return parser.parse();
+        Parser parser(tokens);
+        parser.filename = fname;
+        parser.stdlibPath = stdlibRoot;
+        parser.basedir = dirOf(fname);
+        parser.macros = &macros;
+        parser.importedFiles = &importedFiles;
+        parser.importCache = &cache;
+        auto prog = parser.parse();
+        if (!prog) return nullptr;
+        merged.insert(merged.end(), prog->declarations.begin(), prog->declarations.end());
+        linkLibs.insert(linkLibs.end(), prog->linkLibs.begin(), prog->linkLibs.end());
+    }
+    if (macrosOut) *macrosOut = macros;
+    auto program = std::make_shared<Program>(merged);
+    program->linkLibs = linkLibs;
+    return program;
 }
 
 bool endsWith(const std::string& s, const std::string& suffix) {

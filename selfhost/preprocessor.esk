@@ -940,6 +940,60 @@ string pp_strip_comments(string line, *int open_at_end) {
     return (string)String_cstr(&out);
 }
 
+// The import hook (mirrors PPImportHook): called for each `import` met on an active
+// line, in textual order, with the import's path, whether it is the `<name>` form, and
+// the importing file. The compiler driver sets it so an import is preprocessed right at
+// its import line (the macro state it sees follows C's textual #include order).
+fn(string, int, string)->void g_pp_import_hook;
+int g_pp_hook_set;
+
+// Report each `import "path"` / `import <name>` on an expanded active line to the hook
+// (mirrors ppScanImports). `blk` is whether a `/* */` comment is open at line start.
+void pp_scan_imports(string s, int blk, string filename) {
+    int n = pp_clen(s);
+    int i = 0;
+    while (i < n) {
+        if (blk == 1) {
+            int e = i;
+            while (e + 1 < n && ((int)s[e] != 42 || (int)s[e + 1] != 47)) { e = e + 1; }
+            if (e + 1 >= n) { return; }
+            i = e + 2; blk = 0; continue;
+        }
+        int c = (int)s[i];
+        if (c == 47 && i + 1 < n && (int)s[i + 1] == 42) { blk = 1; i = i + 2; continue; }
+        if (c == 47 && i + 1 < n && (int)s[i + 1] == 47) { return; }
+        if (c == 34 || c == 39) {
+            String lit;
+            String_init(&lit, 16);
+            i = pp_copy_lit(s, i, n, &lit);
+            continue;
+        }
+        if (pp_is_alpha(c) == 1) {
+            int j = i;
+            while (j < n && pp_is_alnum((int)s[j]) == 1) { j = j + 1; }
+            if (j - i == 6 && pp_eq(pp_sub(s, i, 6), "import") == 1) {
+                int k = pp_skip_blank(s, j, n);
+                if (k < n && (int)s[k] == 34) {
+                    int e = k + 1;
+                    while (e < n && (int)s[e] != 34 && (int)s[e] != 92) { e = e + 1; }
+                    if (e < n && (int)s[e] == 34) { g_pp_import_hook(pp_sub(s, k + 1, e - k - 1), 0, filename); }
+                } else if (k < n && (int)s[k] == 60) {
+                    int e = k + 1;
+                    String name;
+                    String_init(&name, 16);
+                    while (e < n && (int)s[e] != 62 && (int)s[e] != 59) {
+                        if (pp_is_sp((int)s[e]) == 0) { String_push(&name, s[e]); }
+                        e = e + 1;
+                    }
+                    if (e < n && (int)s[e] == 62) { g_pp_import_hook((string)String_cstr(&name), 1, filename); }
+                }
+            }
+            i = j; continue;
+        }
+        i = i + 1;
+    }
+}
+
 // `__FILE__`'s body: the path as a string literal with `\` and `"` escaped (mirrors
 // ppFileLiteral).
 string pp_file_literal(string path) {
@@ -961,9 +1015,40 @@ string pp_file_literal(string path) {
     return (string)String_cstr(&s);
 }
 
+// The macro table, shared by every pp_run of one compilation (mirrors the C++ driver's
+// one `macros` map): a #define reaches the files imported after it and the later
+// inputs of a multi-file build. Seeded with the predefined macros on first use.
+List<PPMacro> g_pp_tbl;
+int g_pp_tbl_ready;
+
 // Byte length of the text the last pp_run returned (it may hold a NUL byte from the
 // source, which the lexer then reports, so do not measure it with strlen).
 int g_pp_out_len;
+
+List<PPMacro>* pp_table() {
+    if (g_pp_tbl_ready == 1) { return &g_pp_tbl; }
+    g_pp_tbl_ready = 1;
+    List_init<PPMacro>(&g_pp_tbl, 16);
+    // Host OS macro (e.g. __APPLE__/__linux__), so platform `#ifdef`s in the stdlib pick
+    // the right branch (set by every driver; the C++ seeds it in every mode).
+    if (g_pp_os != null) { if (g_pp_os[0] != 0) {
+        PPMacro om; om.name = g_pp_os; om.is_function = 0; List_init<string>(&om.params, 1); om.body = "1";
+        pp_define(&g_pp_tbl, om);
+    } }
+    if (g_pp_arch == null) { g_pp_arch = pp_host_arch(); }   // unset: the host's, like the C++
+    if (g_pp_arch != null) { if (g_pp_arch[0] != 0) {
+        PPMacro am; am.name = g_pp_arch; am.is_function = 0; List_init<string>(&am.params, 1); am.body = "1";
+        pp_define(&g_pp_tbl, am);
+    } }
+    int pdi = 0;
+    while (pdi < List_len<string>(&g_pp_predef)) {
+        PPMacro xm; xm.name = List_get<string>(&g_pp_predef, pdi); xm.is_function = 0;
+        List_init<string>(&xm.params, 1); xm.body = "1";
+        pp_define(&g_pp_tbl, xm);
+        pdi = pdi + 1;
+    }
+    return &g_pp_tbl;
+}
 
 // Preprocess `src` (length `len`) into a returned NUL-terminated string. `filename`
 // becomes __FILE__ (quoted) and labels diagnostics. Sets `*had_err` to 1 after
@@ -971,34 +1056,13 @@ int g_pp_out_len;
 // conditional, an unknown directive, a malformed macro invocation).
 string pp_run(string src, int len, string filename, *int had_err) {
     had_err[0] = 0;
-    List<PPMacro> tbl;
-    List_init<PPMacro>(&tbl, 16);
+    List<PPMacro>* tblp = pp_table();
 
     // Predefined __FILE__ = "<filename>" (an ordinary object-like macro).
     PPMacro fm;
     fm.name = "__FILE__"; fm.is_function = 0; List_init<string>(&fm.params, 1);
     fm.body = pp_file_literal(filename);
-    pp_define(&tbl, fm);
-
-    // Host OS macro (e.g. __APPLE__/__linux__), so platform `#ifdef`s in the stdlib pick
-    // the right branch (set by every driver; the C++ seeds it in every mode).
-    if (g_pp_os != null) { if (g_pp_os[0] != 0) {
-        PPMacro om; om.name = g_pp_os; om.is_function = 0; List_init<string>(&om.params, 1); om.body = "1";
-        pp_define(&tbl, om);
-    } }
-    if (g_pp_arch == null) { g_pp_arch = pp_host_arch(); }   // unset: the host's, like the C++
-    if (g_pp_arch != null) { if (g_pp_arch[0] != 0) {
-        PPMacro am; am.name = g_pp_arch; am.is_function = 0; List_init<string>(&am.params, 1); am.body = "1";
-        pp_define(&tbl, am);
-    } }
-
-    int pdi = 0;
-    while (pdi < List_len<string>(&g_pp_predef)) {
-        PPMacro xm; xm.name = List_get<string>(&g_pp_predef, pdi); xm.is_function = 0;
-        List_init<string>(&xm.params, 1); xm.body = "1";
-        pp_define(&tbl, xm);
-        pdi = pdi + 1;
-    }
+    pp_define(tblp, fm);
 
     List<PPCond> stack;
     List_init<PPCond>(&stack, 8);
@@ -1100,23 +1164,23 @@ string pp_run(string src, int len, string filename, *int had_err) {
                         pp_error(filename, line_no, col, pp_cat(pp_cat("macro '", name),
                             "': '#' stringification and '##' token pasting are not supported"), had_err);
                     }
-                    else { pp_define(&tbl, mac); }
+                    else { pp_define(tblp, mac); }
                 }
             } else if (pp_eq(kw, "undef") == 1) {
-                if (active == 1) { pp_undef(&tbl, operand); }
+                if (active == 1) { pp_undef(tblp, operand); }
             } else if (pp_eq(kw, "ifdef") == 1 || pp_eq(kw, "ifndef") == 1) {
                 int on = 0;
                 if (active == 1) {
                     if (pp_clen(operand) == 0) { pp_error(filename, line_no, col, pp_cat("expected a macro name after #", kw), had_err); }
                     int want = pp_eq(kw, "ifdef");
-                    if (pp_defined(&tbl, operand) == want) { on = 1; }
+                    if (pp_defined(tblp, operand) == want) { on = 1; }
                 }
                 PPCond cnd; cnd.parent = active; cnd.branch = on; cnd.taken = on; cnd.saw_else = 0;
                 cnd.line = line_no; cnd.col = col;
                 List_push<PPCond>(&stack, cnd);
             } else if (pp_eq(kw, "if") == 1) {
                 int on = 0;
-                if (active == 1) { on = pp_cond_value(rest, &tbl, filename, line_no, col, had_err); }
+                if (active == 1) { on = pp_cond_value(rest, tblp, filename, line_no, col, had_err); }
                 PPCond cnd; cnd.parent = active; cnd.branch = on; cnd.taken = on; cnd.saw_else = 0;
                 cnd.line = line_no; cnd.col = col;
                 List_push<PPCond>(&stack, cnd);
@@ -1128,7 +1192,7 @@ string pp_run(string src, int len, string filename, *int had_err) {
                     if (cc.saw_else == 1) { pp_error(filename, line_no, col, "#elif after #else", had_err); }
                     else {
                         int on = 0;
-                        if (cc.parent == 1 && cc.taken == 0) { on = pp_cond_value(rest, &tbl, filename, line_no, col, had_err); }
+                        if (cc.parent == 1 && cc.taken == 0) { on = pp_cond_value(rest, tblp, filename, line_no, col, had_err); }
                         cc.branch = on;
                         if (on == 1) { cc.taken = 1; }
                         List_set<PPCond>(&stack, sn - 1, cc);
@@ -1176,7 +1240,7 @@ string pp_run(string src, int len, string filename, *int had_err) {
             PPMacro lm;
             lm.name = "__LINE__"; lm.is_function = 0; List_init<string>(&lm.params, 1);
             lm.body = (string)String_cstr(&nb);
-            pp_define(&tbl, lm);
+            pp_define(tblp, lm);
 
             List<string> expanding;
             List_init<string>(&expanding, 4);
@@ -1188,9 +1252,14 @@ string pp_run(string src, int len, string filename, *int had_err) {
             while (s0 <= ln) {
                 int e0 = s0;
                 while (e0 < ln && (int)ls[e0] != 0) { e0 = e0 + 1; }
-                string expanded = pp_expand(pp_sub(ls, s0, e0 - s0), &tbl, &expanding, &in_block, &ctx);
+                int blk_start = in_block;
+                string expanded = pp_expand(pp_sub(ls, s0, e0 - s0), tblp, &expanding, &in_block, &ctx);
                 String_append(&out, expanded);
                 if (e0 < ln) { String_push(&out, (char)0); }
+                if (g_pp_hook_set == 1) {
+                    pp_scan_imports(expanded, blk_start, filename);
+                    pp_define(tblp, fm);
+                }
                 s0 = e0 + 1;
             }
             if (ctx.err[0] != 0) { pp_error(filename, line_no, ctx.err_col, ctx.err, had_err); }

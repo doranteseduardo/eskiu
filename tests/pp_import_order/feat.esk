@@ -1,0 +1,10 @@
+// Imported by pp_import_order.esk.
+#ifdef FEATURE
+int feat() { return VAL; }
+#else
+int feat() { return -1; }
+#endif
+
+int helper(int v) { int k = v; return k * 2; }
+
+#define MODULE_VAL 5

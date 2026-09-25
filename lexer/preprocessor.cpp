@@ -12,7 +12,8 @@
 // and #ifdef/#ifndef/#else/#endif conditionals. Directive and skipped lines
 // become blank lines so source line numbers are preserved. The macro table is
 // supplied by the caller and shared across files, so #defines propagate through
-// import / multi-file compilation. Substitution is identifier-aware (skips
+// import / multi-file compilation; an import is preprocessed at its import line
+// (see PPImportHook), in C's textual order. Substitution is identifier-aware (skips
 // string/char literals and line comments) and recursive (a macro is not
 // re-expanded within its own expansion). Function-like macro calls must fit on
 // one line.
@@ -556,6 +557,41 @@ static std::string ppStripComments(const std::string& line, bool& openAtEnd) {
     return out;
 }
 
+// Report each `import "path"` / `import <name>` on an (expanded) active line to the
+// hook, in order. Comments and literals are skipped; `blk` is whether a `/* */`
+// comment is open at the start of the line.
+static void ppScanImports(const std::string& s, bool blk, const PPImportHook& hook) {
+    size_t i = 0, n = s.size();
+    while (i < n) {
+        if (blk) {
+            size_t e = s.find("*/", i);
+            if (e == std::string::npos) return;
+            i = e + 2; blk = false; continue;
+        }
+        char c = s[i];
+        if (c == '/' && i + 1 < n && s[i + 1] == '*') { blk = true; i += 2; continue; }
+        if (c == '/' && i + 1 < n && s[i + 1] == '/') return;
+        if (c == '"' || c == '\'') { std::string lit; ppCopyLiteral(s, i, lit); continue; }
+        if (ppIdentStart(c)) {
+            size_t j = i; while (j < n && ppIdentChar(s[j])) j++;
+            if (j - i == 6 && s.compare(i, 6, "import") == 0) {
+                size_t k = ppSkipBlank(s, j);
+                if (k < n && s[k] == '"') {
+                    size_t e = k + 1;
+                    while (e < n && s[e] != '"' && s[e] != '\\') e++;
+                    if (e < n && s[e] == '"') hook(s.substr(k + 1, e - k - 1), false);
+                } else if (k < n && s[k] == '<') {
+                    size_t e = k + 1; std::string name;
+                    while (e < n && s[e] != '>' && s[e] != ';') { if (s[e] != ' ' && s[e] != '\t') name += s[e]; e++; }
+                    if (e < n && s[e] == '>') hook(name, true);
+                }
+            }
+            i = j; continue;
+        }
+        i++;
+    }
+}
+
 // `__FILE__`'s body: the path as a string literal, with `\` and `"` escaped so a
 // Windows path or a quote in a file name stays one well-formed literal.
 static std::string ppFileLiteral(const std::string& path) {
@@ -574,7 +610,8 @@ void preprocess(const std::string& src,
                        std::map<std::string, Macro>& defines,
                        std::string& result,
                        const std::string& filename,
-                       bool& hadErr) {
+                       bool& hadErr,
+                       const PPImportHook* importHook) {
     // Predefined `__FILE__` (constant for this file). `__LINE__` is refreshed each
     // line below. Both are ordinary object-like macros so ppExpand handles them
     // with correct identifier boundaries.
@@ -731,9 +768,14 @@ void preprocess(const std::string& src,
             { Macro m; m.body = std::to_string(lineNo); defines["__LINE__"] = m; }
             std::set<std::string> expanding;
             PPExpandCtx ctx;
+            bool blkStart = inBlockComment;
             std::string expanded = ppExpand(line, defines, expanding, &inBlockComment, &ctx);
             if (!ctx.err.empty()) ppError(lineNo, (int)ctx.errCol, ctx.err);
             out << expanded;
+            if (importHook) {
+                ppScanImports(expanded, blkStart, *importHook);
+                defines["__FILE__"] = fileMacro;
+            }
         } else {
             // Inactive and directive lines emit blank. When one opens or closes a
             // `/* */` comment, emit just the delimiter so the lexer's view of the

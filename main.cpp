@@ -160,6 +160,14 @@ static bool g_runMode = false;
 static std::vector<std::string> g_runArgs;
 static bool sawSeparator = false;   // a `--` after the script separates program args
 
+// Every input file: the first positional plus the extra ones (`eskiuc a.esk b.esk`).
+// The build merges them.
+static std::vector<std::string> allInputs() {
+    std::vector<std::string> ins = { std::string(InputFilename) };
+    for (const auto& f : ExtraInputs) ins.push_back(f);
+    return ins;
+}
+
 // Test lexer: tokenize and print all tokens
 static int testLexer(const std::string& filename) {
     std::string source = readFile(filename);
@@ -193,7 +201,7 @@ static int testLexer(const std::string& filename) {
 
 // Test type checker: tokenize, parse, type check, and report errors
 static int testTypeChecker(const std::string& filename) {
-    auto program = loadProgram(filename, std::string(TargetTriple), Freestanding);
+    auto program = loadProgram({ filename }, std::string(TargetTriple), Freestanding);
     if (!program) {
         std::cerr << "Parse failed!" << std::endl;
         return 1;
@@ -226,7 +234,7 @@ static int testTypeChecker(const std::string& filename) {
 
 // Test codegen: tokenize, parse, generate LLVM IR, and print it
 static int testCodegen(const std::string& filename) {
-    auto program = loadProgram(filename, std::string(TargetTriple), Freestanding);
+    auto program = loadProgram({ filename }, std::string(TargetTriple), Freestanding);
     if (!program) {
         std::cerr << "Parse failed!" << std::endl;
         return 1;
@@ -282,7 +290,7 @@ static int testCodegen(const std::string& filename) {
 
 // Test parser: tokenize, parse, and print AST
 static int testParser(const std::string& filename) {
-    auto program = loadProgram(filename, std::string(TargetTriple), Freestanding);
+    auto program = loadProgram({ filename }, std::string(TargetTriple), Freestanding);
     if (!program) {
         std::cerr << "Parse failed!" << std::endl;
         return 1;
@@ -410,7 +418,7 @@ static int compilerMain(int argc, char** argv) {
         if (sscanf(HoverAt.c_str(), "%d:%d", &line, &col) != 2) {
             std::cerr << "error: --hover-at expects LINE:COL format\n"; return 1;
         }
-        auto program = loadProgram(std::string(InputFilename), std::string(TargetTriple), Freestanding);
+        auto program = loadProgram({ std::string(InputFilename) }, std::string(TargetTriple), Freestanding);
         if (!program) { std::cout << "(parse error)\n"; return 0; }
         try {
             TypeChecker tc;
@@ -429,7 +437,7 @@ static int compilerMain(int argc, char** argv) {
         if (sscanf(DefinitionAt.c_str(), "%d:%d", &line, &col) != 2) {
             std::cerr << "error: --definition-at expects LINE:COL format\n"; return 1;
         }
-        auto program = loadProgram(std::string(InputFilename), std::string(TargetTriple), Freestanding);
+        auto program = loadProgram({ std::string(InputFilename) }, std::string(TargetTriple), Freestanding);
         if (!program) { std::cout << "(parse error)\n"; return 0; }
         try {
             TypeChecker tc;
@@ -449,48 +457,16 @@ static int compilerMain(int argc, char** argv) {
 
     // Full compilation pipeline — parse every input file and merge their
     // top-level declarations into a single program (`eskiuc a.esk b.esk ...`).
-    std::vector<std::string> inputs = { std::string(InputFilename) };
-    for (const auto& f : ExtraInputs) inputs.push_back(f);
-
     try {
-        std::vector<DeclPtr> mergedDecls;
-        std::vector<std::string> pragmaLibs;     // `#pragma link` libraries of every input
-        std::set<std::string> importedFiles;     // shared: a common import is parsed once
-        std::map<std::string, Macro> macros;     // shared: #defines propagate across files
-
-        seedPredefinedMacros(macros, std::string(TargetTriple), Freestanding);
-
-        for (const auto& fname : inputs) {
-            // Register the root file itself, so an import cycle back to it (or an
-            // input that an earlier input already imported) is not parsed twice.
-            if (!importedFiles.insert(Parser::canonicalPath(fname)).second) continue;
-            std::string source = readFile(fname);
-            Lexer lexer(source, &macros, fname);
-            std::vector<Token> tokens;
-            Token tok = lexer.next_token();
-            while (tok.type != TokenType::EOF_TOKEN) {
-                tokens.push_back(tok);
-                tok = lexer.next_token();
-            }
-            tokens.push_back(tok);
-            if (lexer.hadError) return 1;
-
-            Parser parser(tokens);
-            parser.filename = fname;
-            parser.stdlibPath = stdlibRoot;
-            parser.basedir = dirOf(fname);
-            parser.importedFiles = &importedFiles;
-            parser.macros = &macros;
-            auto prog = parser.parse();
-            if (!prog) {
-                std::cerr << "error: parse failed" << std::endl;
-                return 1;
-            }
-            mergedDecls.insert(mergedDecls.end(),
-                               prog->declarations.begin(), prog->declarations.end());
-            pragmaLibs.insert(pragmaLibs.end(), prog->linkLibs.begin(), prog->linkLibs.end());
+        std::map<std::string, Macro> macros;
+        bool lexFailed = false;
+        auto program = loadProgram(allInputs(), std::string(TargetTriple), Freestanding,
+                                   &macros, &lexFailed);
+        if (!program) {
+            if (!lexFailed) std::cerr << "error: parse failed" << std::endl;
+            return 1;
         }
-        auto program = std::make_shared<Program>(mergedDecls);
+        const std::vector<std::string>& pragmaLibs = program->linkLibs;
 
         TypeChecker typeChecker;
         typeChecker.sourceFile = std::string(InputFilename);
