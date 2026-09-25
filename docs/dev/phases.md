@@ -26,7 +26,7 @@ The project follows two phases:
 | Pointers and pointer arithmetic | ✅ |
 | Structs with methods | ✅ |
 | Operator overloading (`operator +/-/*//%/==/.../[]`, static + structural, zero-cost; lockstep both compilers) | ✅ |
-| Interfaces with vtable dispatch (fat pointer) | ✅ |
+| Interfaces with vtable dispatch (fat pointer); interface values as locals, fields and returns, signature-checked conformance (v0.9.2) | ✅ |
 | Templates: structs and functions, monomorphic instantiation | ✅ |
 | Control flow: if/else, while, for, switch/case (with type checking) | ✅ |
 | Lambdas (`int(int x) { return x*2; }`) and `fn(T)->R` function pointer types | ✅ |
@@ -62,13 +62,14 @@ The project follows two phases:
 | `List<StructType>` through helper functions; `T*` (trailing-star) pointer deref: codegen/sema fixes (v0.2.0) | ✅ |
 | Consistency audit hardening (v0.2.0): unsigned div/rem/shift/compare; 64-bit int literals; sign/zero-extend by signedness; variadic arg promotion; closures don't capture globals; member access on a temporary; `(Type)`/`(Type*)`/alias/enum casts; alias as local pointer/array; `fn` return types; fn-pointer field calls; `>>` closing nested templates | ✅ |
 | Function-as-value: a named function decays to a `fn(...)->R` (no lambda wrapper) | ✅ |
-| Predefined OS macros: `__APPLE__` / `__linux__` for `#ifdef` portability | ✅ |
+| Predefined OS macros: `__APPLE__` / `__linux__` for `#ifdef` portability; architecture macros `__aarch64__` / `__x86_64__` / `__arm__` (v0.9.2) | ✅ |
 | Pointer dereference as lvalue: `*ptr = value` through pointer parameters | ✅ |
 | Forward declarations / call-before-define / mutual recursion | ✅ |
 | Enums: `enum Color { Red, Green = 5, Blue }` | ✅ |
 | Type aliases: `type u8 = uint8;` | ✅ |
 | Struct bitfields: `uint32 x : 1;` | ✅ |
-| Preprocessor: `#define` (object/function-like, multi-line via `\`), `#ifdef`/`#ifndef`/`#else`/`#endif` | ✅ |
+| Preprocessor: `#define` (object/function-like, multi-line via `\`), `#ifdef`/`#ifndef`/`#else`/`#endif`; `#if`/`#elif` with `defined`, located errors for unknown directives (v0.9.2) | ✅ |
+| C ABI for structs passed/returned by value across `extern` (AArch64, x86-64 SysV, Windows x64, 32-bit ARM) (v0.9.2) | ✅ |
 | Packed structs: `packed struct` and `#pragma pack(push/pop)` | ✅ |
 | Template type-argument inference: direct (`max(3, 5)`) and composite (`List_get(&nums, i)`) | ✅ |
 | One-step linking: `eskiuc -o prog` invokes the system C toolchain | ✅ |
