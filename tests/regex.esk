@@ -16,13 +16,13 @@ void chk_grp(string name, string pat, string text, int g, string want) {
     let m: Match;
     let out: String;
     String_init(&out, 8);
-    if (regex_search(&re, text, &m) == 1) { match_group(&m, text, g, &out); }
+    if (Regex_search(&re, text, &m) == 1) { Match_group(&m, text, g, &out); }
     int eq = String_eq_cstr(&out, want);
     if (eq == 1) { printf("ok    %s\n", name); }
     else { printf("FAIL  %s (want \"%s\")\n", name, want); fails = fails + 1; }
     String_free(&out);
-    match_free(&m);
-    regex_free(&re);
+    Match_free(&m);
+    Regex_free(&re);
 }
 
 int main() {

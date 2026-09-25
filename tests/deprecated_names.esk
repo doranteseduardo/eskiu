@@ -1,6 +1,8 @@
 // The pre-0.9.2 stdlib names (renamed to the Type_method convention) still
 // compile and behave as thin wrappers over the new names.
 import <random>;
+import <regex>;
+import <string>;
 extern int printf(string fmt, ...);
 
 int main() {
@@ -16,5 +18,15 @@ int main() {
     rng_fill(&a, &x[0], (int64)4);  Rng_fill(&b, &y[0], (int64)4);
     if (x[3] != y[3]) { same = 0; }
     printf("random: %d\n", same);
+
+    Regex re = regex_compile("(b+)");
+    let m: Match;
+    int hit = regex_search(&re, "abbc", &m);
+    let g: String;  String_init(&g, 8);
+    match_group(&m, "abbc", 1, &g);
+    printf("regex: %d %s\n", hit, String_cstr(&g));
+    String_free(&g);
+    match_free(&m);
+    regex_free(&re);
     return 0;
 }

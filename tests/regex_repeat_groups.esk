@@ -10,17 +10,17 @@ extern *void memset(*void d, int c, int64 n);
 
 void show(string p, string s) {
     Regex re = regex_compile(p);
-    if (re.ok == 0) { printf("%s: error %s\n", p, re.err); regex_free(&re); return; }
+    if (re.ok == 0) { printf("%s: error %s\n", p, re.err); Regex_free(&re); return; }
     let m: Match;
-    int r = regex_search(&re, s, &m);
+    int r = Regex_search(&re, s, &m);
     printf("%s: %d", p, r);
     if (r == 1) {
         int g = 0;
         while (g <= m.ngroup) { printf(" (%d,%d)", m.cap[2 * g], m.cap[2 * g + 1]); g = g + 1; }
     }
     printf("\n");
-    match_free(&m);
-    regex_free(&re);
+    Match_free(&m);
+    Regex_free(&re);
 }
 
 int main() {

@@ -5,14 +5,14 @@
 //
 //   Regex re = regex_compile("(\\w+)@(\\w+)");
 //   let m: Match;
-//   if (regex_search(&re, "a@b", &m) == 1) {
+//   if (Regex_search(&re, "a@b", &m) == 1) {
 //       String u; String_init(&u, 8);
-//       match_group(&m, "a@b", 1, &u);        // "a"  (group 1)
+//       Match_group(&m, "a@b", 1, &u);        // "a"  (group 1)
 //       // ... use u ...
 //       String_free(&u);
 //   }
-//   match_free(&m);
-//   regex_free(&re);
+//   Match_free(&m);
+//   Regex_free(&re);
 //
 // Supported syntax: literals, `.` (any byte but newline), character classes
 // `[a-z]` / `[^...]`, the shorthands `\d \w \s` (and `\D \W \S` outside a class),
@@ -544,7 +544,7 @@ void re_compile_node(ReComp* c, Node* n) {
 }
 
 // Compile a pattern. Check the returned Regex.ok before matching; on failure
-// Regex.err holds the reason. Free with regex_free either way.
+// Regex.err holds the reason. Free with Regex_free either way.
 Regex regex_compile(string pattern) {
     let re: Regex;
     re.inst = alloc<Inst>(RE_MAX_INST);
@@ -587,7 +587,7 @@ Regex regex_compile(string pattern) {
     return re;
 }
 
-void regex_free(Regex* re) {
+void Regex_free(Regex* re) {
     free(re.inst);
     free(re.classes);
     free(re.ranges);
@@ -660,8 +660,8 @@ void re_addthread(Vm* vm, int which, int gen, int pc, *int caps, int sp) {
 }
 
 // Search `text` for the leftmost match of `re`. On success fills `m` and
-// returns 1; otherwise returns 0. `m` must be freed with match_free.
-int regex_search(Regex* re, string text, Match* m) {
+// returns 1; otherwise returns 0. `m` must be freed with Match_free.
+int Regex_search(Regex* re, string text, Match* m) {
     m.ok = 0;
     m.ngroup = re.ngroup;
     m.start = -1;
@@ -770,13 +770,13 @@ int regex_search(Regex* re, string text, Match* m) {
     return 0;
 }
 
-void match_free(Match* m) {
+void Match_free(Match* m) {
     if (m.cap != null) { free(m.cap); m.cap = null; }
 }
 
 // Append capture group `i` (0 = whole match) of the last search into `out`,
 // which must already be String_init'd. Does nothing if the group is unset.
-void match_group(Match* m, string text, int i, String* out) {
+void Match_group(Match* m, string text, int i, String* out) {
     if (m.ok == 0) { return; }
     if (i < 0 || i > m.ngroup) { return; }
     int s = m.cap[2 * i];
@@ -790,13 +790,23 @@ void match_group(Match* m, string text, int i, String* out) {
 }
 
 // Convenience: does `pattern` match anywhere in `text`? Returns 1/0. Compiles
-// and frees internally, so for repeated use prefer regex_compile + regex_search.
+// and frees internally, so for repeated use prefer regex_compile + Regex_search.
 int regex_match(string pattern, string text) {
     Regex re = regex_compile(pattern);
-    if (re.ok == 0) { regex_free(&re); return 0; }
+    if (re.ok == 0) { Regex_free(&re); return 0; }
     let m: Match;
-    int r = regex_search(&re, text, &m);
-    match_free(&m);
-    regex_free(&re);
+    int r = Regex_search(&re, text, &m);
+    Match_free(&m);
+    Regex_free(&re);
     return r;
 }
+
+// ── Deprecated names (kept so 0.9.1 code compiles; removed in a later release) ──
+// deprecated: use Regex_search
+int regex_search(Regex* re, string text, Match* m) { return Regex_search(re, text, m); }
+// deprecated: use Regex_free
+void regex_free(Regex* re) { Regex_free(re); }
+// deprecated: use Match_group
+void match_group(Match* m, string text, int i, String* out) { Match_group(m, text, i, out); }
+// deprecated: use Match_free
+void match_free(Match* m) { Match_free(m); }
