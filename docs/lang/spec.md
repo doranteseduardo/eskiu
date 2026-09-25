@@ -1056,7 +1056,7 @@ Multiple `catch` clauses may be chained. The `finally` clause is optional. Eithe
 
 #### throw
 
-`throw expr` throws the value of `expr` as an exception. Any Eskiu value type may be thrown: `string`, `int`, a pointer, etc.
+`throw expr` throws the value of `expr` as an exception. Any Eskiu value type may be thrown: `string`, an integer of any width, `float`, `double`, a pointer, or a struct by value. The value is copied into the exception object with its own type, so a `catch` of the same type receives it unchanged. Inside a generic function the thrown type is the instance's type (`throw x` with `x: T` in `f<double>` is caught by `catch (double d)`).
 
 ```eskiu
 int divide(int a, int b) {
@@ -1069,7 +1069,7 @@ int divide(int a, int b) {
 
 #### Catching exceptions
 
-Each `catch` clause names a type and a variable. If the thrown value matches the declared type, control transfers to that clause and the variable holds the thrown value.
+Each `catch` clause names a type and a variable. If the thrown value's static type is the declared type (after aliases are resolved), control transfers to that clause and the variable holds the thrown value. There is no conversion: a thrown `int` is not caught by `catch (int64 e)`.
 
 ```eskiu
 try {
