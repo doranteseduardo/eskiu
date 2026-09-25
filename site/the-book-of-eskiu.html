@@ -2290,12 +2290,17 @@ pre.code-block {
 <p>A body without braces counts as its own block. In <code>if (owned) defer free(p);</code> the defer is registered only when the condition is true, and it runs as soon as that one-statement body ends, not at the end of the function. The same holds for an unbraced loop body, a <code>case</code> of a <code>switch</code> and a <code>match</code> arm. To tie a cleanup to the whole function, put the <code>defer</code> directly in the function body.</p>
 <p>Use <code>defer</code> for the common acquire-then-release pattern; reach for <code>try</code>/<code>finally</code> (10.2) when cleanup must also run as an exception unwinds past the scope.</p>
 <p><code>errdefer</code> is a variant that runs <strong>only on the error path</strong>: when the function exits through a propagated <code>?</code> error, not on a normal <code>return</code>. It is exactly what you want for undoing half-finished work when a later step fails, while keeping it when everything succeeds:</p>
-<pre class="code-block"> Connection open_ready(string host) {
-       Connection c = connect(host)?;
-       errdefer close(c);        // closed only if a later ? fails; kept on success
-       handshake(c)?;            // if this errors, close(c) runs, then the Err propagates
-       return c;                 // success: c survives, errdefer does not run
+<pre class="code-block"> Result&lt;int, string&gt; connect(string host);
+ Result&lt;int, string&gt; handshake(int fd);
+ extern int close(int fd);
+
+ Result&lt;int, string&gt; open_ready(string host) {
+       int fd = connect(host)?;
+       errdefer close(fd);             // closed only if a later ? fails; kept on success
+       handshake(fd)?;                 // if this errors, close(fd) runs, then the Err propagates
+       return Ok&lt;int, string&gt;(fd);     // success: fd stays open, errdefer does not run
  }</pre>
+<p>Like every use of <code>?</code>, this needs the function to return the same <code>Result</code> type as the calls it propagates from.</p>
 <p>On the error path a <code>defer</code> and an <code>errdefer</code> both run, LIFO. On the success path only the <code>defer</code> runs.</p>
 <h2 class="section" id="sec-19-5">19.5 must_use: results you cannot ignore</h2>
 <p>Some return values are dangerous to drop. The result of <code>alloc</code> is the only handle to a heap block: discard it and the memory leaks immediately. Marking a function <code>must_use</code> makes the compiler reject any call whose result is thrown away:</p>

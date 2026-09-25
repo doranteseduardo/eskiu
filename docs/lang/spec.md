@@ -1331,15 +1331,20 @@ release: write the cleanup right next to the thing it cleans up, and it runs on 
 path out of the block, so you never leak on an early return or a propagated error.
 
 ```eskiu
-int process(string path) {
-    *uint8 buf = alloc<uint8>(4096);
-    defer free(buf);                 // runs however this function exits
+Result<int, string> read_into(*uint8 buf, string path);
 
-    if (path[0] == 0) { return -1; } // buf freed
-    int n = read_into(buf)?;         // buf freed if the `?` propagates an error
-    return n;                        // buf freed
+Result<int, string> process(string path) {
+    *uint8 buf = alloc<uint8>(4096);
+    defer free(buf);                        // runs however this function exits
+
+    if (path[0] == 0) { return Err<int, string>("empty path"); }   // buf freed
+    int n = read_into(buf, path)?;          // buf freed if the `?` propagates an error
+    return Ok<int, string>(n);              // buf freed
 }
 ```
+
+`?` needs the enclosing function to return a `Result` (§10.5), so the example returns
+`Result<int, string>`.
 
 Rules:
 
@@ -1370,11 +1375,15 @@ tool for undoing partial work when a fallible step fails partway through, while 
 on success:
 
 ```eskiu
-Connection open_ready(string host) {
-    Connection c = connect(host)?;
-    errdefer close(c);        // closed only if a later `?` fails; kept on success
-    handshake(c)?;            // if this errors, close(c) runs and the Err propagates
-    return c;                 // success: c survives, errdefer does not run
+Result<int, string> connect(string host);
+Result<int, string> handshake(int fd);
+extern int close(int fd);
+
+Result<int, string> open_ready(string host) {
+    int fd = connect(host)?;
+    errdefer close(fd);             // closed only if a later `?` fails; kept on success
+    handshake(fd)?;                 // if this errors, close(fd) runs and the Err propagates
+    return Ok<int, string>(fd);     // success: fd stays open, errdefer does not run
 }
 ```
 
