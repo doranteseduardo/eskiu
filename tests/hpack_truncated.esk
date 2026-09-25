@@ -1,0 +1,45 @@
+// Malformed HPACK blocks must fail cleanly (-1) without reading past the block:
+// a string literal longer than the remaining bytes, a prefix integer whose
+// continuation bit runs off the end, and one with too many continuation bytes.
+import <mem>;
+import <hpack>;
+extern int printf(string fmt, ...);
+
+int main() {
+    *HpackHeader out = alloc<HpackHeader>(8);
+    let d: HpackDecoder;  hpack_decoder_init(&d, (int64)4096);
+
+    *uint8 a = alloc<uint8>(3);
+    a[0] = (uint8)0; a[1] = (uint8)100; a[2] = (uint8)97;
+    printf("long literal: %d\n", hpack_decode(&d, a, 3, out, 8));
+
+    *uint8 b = alloc<uint8>(2);
+    b[0] = (uint8)255; b[1] = (uint8)255;
+    printf("truncated int: %d\n", hpack_decode(&d, b, 2, out, 8));
+
+    *uint8 c = alloc<uint8>(12);
+    c[0] = (uint8)255;
+    int i = 1; while (i < 11) { c[i] = (uint8)128; i = i + 1; }
+    c[11] = (uint8)1;
+    printf("long int: %d\n", hpack_decode(&d, c, 12, out, 8));
+
+    *uint8 e = alloc<uint8>(2);
+    e[0] = (uint8)64; e[1] = (uint8)5;
+    printf("cut name: %d\n", hpack_decode(&d, e, 2, out, 8));
+
+    *uint8 f = alloc<uint8>(1);
+    f[0] = (uint8)64;
+    printf("no name: %d\n", hpack_decode(&d, f, 1, out, 8));
+
+    *uint8 g = alloc<uint8>(4);
+    g[0] = (uint8)130; g[1] = (uint8)134; g[2] = (uint8)132; g[3] = (uint8)135;
+    printf("valid: %d\n", hpack_decode(&d, g, 4, out, 8));
+
+    int nx = 0;
+    printf("int: %lld\n", hpack_decode_int_at(c, 0, 12, 8, &nx));
+
+    hpack_decoder_free(&d);
+    free((*void)a); free((*void)b); free((*void)c); free((*void)e); free((*void)f); free((*void)g);
+    free((*void)out);
+    return 0;
+}

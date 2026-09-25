@@ -38,21 +38,33 @@ int hpack_encode_int(*uint8 buf, int off, int n, int flags, int64 value) {
     return off + 1;
 }
 
-// Decode an N-bit-prefix integer at buf[off]; writes the next offset to *next.
-int64 hpack_decode_int(*uint8 buf, int off, int n, int* next) {
+// Decode an N-bit-prefix integer at buf[off], reading no byte at or past `end`;
+// writes the next offset to *next. Returns -1 on a truncated integer, more than
+// 5 continuation bytes, or a value above 2^31 - 1 (no field needs more).
+int64 hpack_decode_int_at(*uint8 buf, int off, int end, int n, int* next) {
+    if (off >= end) { return (int64)-1; }
     int maxp = (1 << n) - 1;
     int64 v = (int64)((int)buf[off] & maxp);
     off = off + 1;
     if (v < (int64)maxp) { *next = off; return v; }
     int64 m = (int64)0;
     int b = 128;
+    int cont = 0;
     while ((b & 128) != 0) {
+        if (off >= end || cont >= 5) { return (int64)-1; }
         b = (int)buf[off]; off = off + 1;
         v = v + ((int64)(b & 127) << m);
         m = m + (int64)7;
+        cont = cont + 1;
     }
+    if (v > (int64)2147483647) { return (int64)-1; }
     *next = off;
     return v;
+}
+
+// hpack_decode_int_at without an end bound (the continuation cap still applies).
+int64 hpack_decode_int(*uint8 buf, int off, int n, int* next) {
+    return hpack_decode_int_at(buf, off, 2147483647, n, next);
 }
 
 // ── §5.2 String literal (raw; Huffman variants below) ───────────────────────
@@ -300,13 +312,15 @@ void hpack_decoder_free(HpackDecoder* d) {
     d.dyn_count = 0;
 }
 
-// Read a (possibly Huffman-coded) string literal at buf[off]. On success fills
-// `out` (pointing into buf for raw strings, or the scratch arena for Huffman)
-// and returns the next offset; returns -1 on error.
-int hpack_read_str(HpackDecoder* d, *uint8 buf, int off, HpackStr* out) {
+// Read a (possibly Huffman-coded) string literal at buf[off], which must end at
+// or before `end`. On success fills `out` (pointing into buf for raw strings, or
+// the scratch arena for Huffman) and returns the next offset; returns -1 on error.
+int hpack_read_str(HpackDecoder* d, *uint8 buf, int off, int end, HpackStr* out) {
+    if (off >= end) { return -1; }
     int huff = ((int)buf[off] & 128) != 0;
     int nx = 0;
-    int64 len = hpack_decode_int(buf, off, 7, &nx);
+    int64 len = hpack_decode_int_at(buf, off, end, 7, &nx);
+    if (len < (int64)0 || (int64)nx + len > (int64)end) { return -1; }
     if (huff == 0) {
         out.ptr = buf + nx;  out.len = (int)len;
         return nx + (int)len;
@@ -411,10 +425,11 @@ int hpack_resolve(HpackDecoder* d, int idx, HpackHeader* h) {
 // Decode one literal representation (the prefix byte at buf[off] selects the
 // name-index prefix width and whether to index). Fills `h`; returns the next
 // offset, or -1 on error.
-int hpack_decode_literal(HpackDecoder* d, *uint8 buf, int off, int prefixBits,
+int hpack_decode_literal(HpackDecoder* d, *uint8 buf, int off, int end, int prefixBits,
                          HpackHeader* h, int doIndex) {
     int nx = 0;
-    int64 nameIdx = hpack_decode_int(buf, off, prefixBits, &nx);
+    int64 nameIdx = hpack_decode_int_at(buf, off, end, prefixBits, &nx);
+    if (nameIdx < (int64)0) { return -1; }
     off = nx;
     if ((int)nameIdx != 0) {
         let nh: HpackHeader;
@@ -422,12 +437,12 @@ int hpack_decode_literal(HpackDecoder* d, *uint8 buf, int off, int prefixBits,
         h.name = nh.name;  h.nlen = nh.nlen;
     } else {
         let ns: HpackStr;
-        off = hpack_read_str(d, buf, off, &ns);
+        off = hpack_read_str(d, buf, off, end, &ns);
         if (off < 0) { return -1; }
         h.name = ns.ptr;  h.nlen = ns.len;
     }
     let vs: HpackStr;
-    off = hpack_read_str(d, buf, off, &vs);
+    off = hpack_read_str(d, buf, off, end, &vs);
     if (off < 0) { return -1; }
     h.value = vs.ptr;  h.vlen = vs.len;
     if (doIndex != 0) { hpack_dyn_insert(d, h.name, h.nlen, h.value, h.vlen); }
@@ -445,22 +460,24 @@ int hpack_decode(HpackDecoder* d, *uint8 buf, int len, HpackHeader* out, int max
         int b = (int)buf[off];
         if ((b & 128) != 0) {                            // §6.1 indexed
             int nx = 0;
-            int64 idx = hpack_decode_int(buf, off, 7, &nx);
+            int64 idx = hpack_decode_int_at(buf, off, len, 7, &nx);
+            if (idx < (int64)0) { return -1; }
             off = nx;
             if (hpack_resolve(d, (int)idx, &out[count]) != 0) { return -1; }
             count = count + 1;
         } else if ((b & 64) != 0) {                      // §6.2.1 literal, incremental indexing
-            off = hpack_decode_literal(d, buf, off, 6, &out[count], 1);
+            off = hpack_decode_literal(d, buf, off, len, 6, &out[count], 1);
             if (off < 0) { return -1; }
             count = count + 1;
         } else if ((b & 32) != 0) {                      // §6.3 dynamic table size update
             int nx = 0;
-            int64 newmax = hpack_decode_int(buf, off, 5, &nx);
+            int64 newmax = hpack_decode_int_at(buf, off, len, 5, &nx);
+            if (newmax < (int64)0) { return -1; }
             off = nx;
             if (newmax > d.limit) { return -1; }        // above SETTINGS_HEADER_TABLE_SIZE: COMPRESSION_ERROR
             hpack_set_max(d, newmax);
         } else {                                         // §6.2.2 / §6.2.3 without / never indexed
-            off = hpack_decode_literal(d, buf, off, 4, &out[count], 0);
+            off = hpack_decode_literal(d, buf, off, len, 4, &out[count], 0);
             if (off < 0) { return -1; }
             count = count + 1;
         }
