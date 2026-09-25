@@ -101,6 +101,7 @@ when you add a test.
 | `struct_lit_array_field` | a struct literal's array field takes `{...}` (nested, zero-filled) in a local, an assignment, a bitfield struct and a global |
 | `type_order_fields` | a struct field of a struct, enum, union, interface, alias or generic instance declared later in the file gets that type's real layout |
 | `iface_ptr_array` | interface values in an array literal (local, global, `for-in`), a method call through `*I`, and a closure `fn(I)->int` boxing its `&s` argument |
+| `unary_plus` | unary `+` yields its (integer-promoted) operand, in code and in constant initializers |
 | `const_bitfield_union` | global and `static` initializers of bitfield structs, unions (any member, nested in a struct), `packed` and `pack(2)` structs fold to their C byte image; local union literals |
 | `templates_result` | `Result<int,string>` monomorphization, `Ok`/`Err` |
 | `template_inference` | `T` inferred when it appears directly as a parameter type |

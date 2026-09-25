@@ -94,7 +94,7 @@ std::string TypeChecker::inferUnaryExprType(const std::string& op, const std::st
     }
     if (op == "-" || op == "+") {
         if (isNumericType(operandType)) {
-            return op == "-" ? intPromoted(operandType) : operandType;
+            return intPromoted(operandType);   // C: unary `+` and `-` promote a narrow operand
         }
         return "error";
     }

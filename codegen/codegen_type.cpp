@@ -237,8 +237,8 @@ bool CodeGen::isIntPromotingOp(const std::string& op) {
 // an arithmetic/bitwise result so every consumer extends it as the signed int it is.
 static std::string promotedResultType(const ExprPtr& expr, const std::string& t) {
     static const std::set<std::string> narrow = {"bool","char","int8","uint8","int16","uint16"};
-    if (auto* u = dynamic_cast<UnaryExpr*>(expr.get()))     // `-x` / `~x` promote too
-        return (u->opFunc.empty() && (u->op == "-" || u->op == "~") && narrow.count(t)) ? "int" : t;
+    if (auto* u = dynamic_cast<UnaryExpr*>(expr.get()))     // `-x` / `~x` / `+x` promote too
+        return (u->opFunc.empty() && (u->op == "-" || u->op == "~" || u->op == "+") && narrow.count(t)) ? "int" : t;
     auto* b = dynamic_cast<BinaryExpr*>(expr.get());
     if (!b || !b->opFunc.empty()) return t;
     static const std::set<std::string> arith = {"+","-","*","/","%","&","|","^","<<",">>"};

@@ -580,14 +580,16 @@ void CodeGen::visit(UnaryExpr* node) {
 
     // C integer promotion: `-`/`~` on an operand narrower than int (bool, char, int8/16,
     // uint8/16) first widens it to int by its own signedness, so `~(uint8)255` is -256.
-    if ((node->op == "-" || node->op == "~") && val->getType()->isIntegerTy() &&
+    if ((node->op == "-" || node->op == "~" || node->op == "+") && val->getType()->isIntegerTy() &&
         val->getType()->getIntegerBitWidth() < 32) {
         llvm::Type* i32 = llvm::Type::getInt32Ty(*context);
         bool uns = val->getType()->isIntegerTy(1) || eskiuUnsigned(getExprEskiuType(node->operand));
         val = uns ? builder->CreateZExt(val, i32) : builder->CreateSExt(val, i32);
     }
 
-    if (node->op == "-") {
+    if (node->op == "+") {
+        result = val;   // unary plus: the (promoted) operand's value
+    } else if (node->op == "-") {
         result = val->getType()->isFloatingPointTy()
             ? builder->CreateFNeg(val)
             : builder->CreateNeg(val);
