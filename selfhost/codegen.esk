@@ -4097,6 +4097,18 @@ void cg_emit_pack2(Codegen* g, *DeclNode d) {
     String_append(&g.globals, " }>\n");
 }
 
+// 1 if the program also defines `name` with a body (an `extern` then a definition
+// of the same symbol, e.g. a test stubbing a C library): emit only the define.
+int cg_prog_defines(*Program prog, string name) {
+    int i = 0; int n = List_len<*DeclNode>(&prog.decls);
+    while (i < n) {
+        *DeclNode d = List_get<*DeclNode>(&prog.decls, i);
+        if (d.kind == DK_FUNCTION && d.body != null && cg_streq(d.name, name) == 1) { return 1; }
+        i = i + 1;
+    }
+    return 0;
+}
+
 void cg_program(Codegen* g, *Program prog) {
     int n = List_len<*DeclNode>(&prog.decls);
 
@@ -4396,7 +4408,7 @@ void cg_program(Codegen* g, *Program prog) {
             }
             f.fixedtypes = fixed;
             List_push<CgFn>(&g.fns, f);
-            if (d.kind == DK_EXTERN) {       // emit a declaration the calls can reference
+            if (d.kind == DK_EXTERN && cg_prog_defines(prog, d.name) == 0) {   // emit a declaration the calls can reference
                 String_append(&g.globals, "declare ");
                 String_append(&g.globals, f.retty);
                 String_append(&g.globals, " @");
