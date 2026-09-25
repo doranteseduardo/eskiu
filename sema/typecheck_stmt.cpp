@@ -7,6 +7,7 @@
 // are shared with codegen; see template_utils.h.
 #include "../template_utils.h"
 #include "../ast/type_qual.h"
+#include "../ast/ast_walk.h"
 
 // ============================================================================
 
@@ -338,9 +339,18 @@ void TypeChecker::visit(DeferStmt* node) {
 
     // A defer body runs during scope-exit cleanup, so it may not transfer control
     // out of itself: a `return`, or a `break`/`continue` not enclosed by a loop or
-    // switch *within* the body, would jump to a target that is no longer valid.
+    // switch *within* the body, would jump to a target that is no longer valid. A `?`
+    // is an early return too (a lambda in the body is its own function).
+    std::function<void(Expr*)> checkExpr = [&](Expr* e) {
+        if (!e || dynamic_cast<LambdaExpr*>(e)) return;
+        if (dynamic_cast<QuestionExpr*>(e))
+            errorAt(e, "'?' is not allowed inside a defer body (it would return from the function)");
+        astwalk::forEachChildExprFlat(e, [&](ExprPtr& c) { checkExpr(c.get()); });
+    };
     std::function<void(Stmt*, int)> check = [&](Stmt* s, int loopDepth) {
         if (!s) return;
+        if (auto* es = dynamic_cast<ExprStmt*>(s)) checkExpr(es->expr.get());
+        else if (auto* ts = dynamic_cast<ThrowStmt*>(s)) checkExpr(ts->value.get());
         if (dynamic_cast<ReturnStmt*>(s)) {
             errorAt(s, "'return' is not allowed inside a defer body");
         } else if (dynamic_cast<BreakStmt*>(s) || dynamic_cast<ContinueStmt*>(s)) {
@@ -353,21 +363,33 @@ void TypeChecker::visit(DeferStmt* node) {
             if (loopDepth == 0 || !lbl.empty())
                 errorAt(s, "'break'/'continue' inside a defer body may not escape it");
         } else if (auto* b = dynamic_cast<BlockStmt*>(s)) {
-            for (auto& it : b->items)
+            for (auto& it : b->items) {
                 if (auto* st = std::get_if<StmtPtr>(&it)) check(st->get(), loopDepth);
+                else if (auto* vd = dynamic_cast<VarDecl*>(std::get<DeclPtr>(it).get())) checkExpr(vd->initializer.get());
+            }
         } else if (auto* i = dynamic_cast<IfStmt*>(s)) {
+            checkExpr(i->condition.get());
             check(i->thenBranch.get(), loopDepth);
             check(i->elseBranch.get(), loopDepth);
         } else if (auto* w = dynamic_cast<WhileStmt*>(s)) {
+            checkExpr(w->condition.get());
             check(w->body.get(), loopDepth + 1);
         } else if (auto* dw = dynamic_cast<DoWhileStmt*>(s)) {
+            checkExpr(dw->condition.get());
             check(dw->body.get(), loopDepth + 1);
         } else if (auto* f = dynamic_cast<ForStmt*>(s)) {
+            check(f->init.get(), loopDepth);
+            checkExpr(f->condition.get()); checkExpr(f->step.get());
             check(f->body.get(), loopDepth + 1);
         } else if (auto* fi = dynamic_cast<ForInStmt*>(s)) {
+            checkExpr(fi->iterable.get());
             check(fi->body.get(), loopDepth + 1);
         } else if (auto* sw = dynamic_cast<SwitchStmt*>(s)) {
+            checkExpr(sw->subject.get());
             for (auto& c : sw->cases) for (auto& st : c.stmts) check(st.get(), loopDepth + 1);
+        } else if (auto* m = dynamic_cast<MatchStmt*>(s)) {
+            checkExpr(m->subject.get());
+            for (auto& a : m->arms) check(a.body.get(), loopDepth);
         } else if (auto* t = dynamic_cast<TryStmt*>(s)) {
             check(t->body.get(), loopDepth);
             for (auto& c : t->catches) check(c.body.get(), loopDepth);

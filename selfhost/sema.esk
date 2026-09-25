@@ -3501,12 +3501,28 @@ void sema_cond(Sema* s, *ExprNode c) {
     }
 }
 
+// A `?` in a defer body's expression `e` is an early return too (a lambda in the body is
+// its own function, so its `?` is fine).
+void sema_defer_expr(Sema* s, *ExprNode e) {
+    if (e == null || e.kind == EK_LAMBDA) { return; }
+    if (e.kind == EK_QUESTION) {
+        s.had_error = 1;
+        int l = s.line; int c = s.col;
+        if (e.line > 0) { l = e.line; c = e.col; }
+        printf("error: %s:%d:%d: '?' is not allowed inside a defer body (it would return from the function)\n", s.filename, l, c);
+    }
+    sema_defer_expr(s, e.a);
+    sema_defer_expr(s, e.b);
+    int i = 0; while (i < List_len<*ExprNode>(&e.kids)) { sema_defer_expr(s, List_get<*ExprNode>(&e.kids, i)); i = i + 1; }
+}
+
 // A defer body runs during scope-exit cleanup, so it may not transfer control out of
 // itself: a `return`, or a `break`/`continue` not enclosed by a loop/switch *within* the
 // body, would jump to a target that is gone. `depth` counts loops/switches inside the body.
 void sema_defer_walk(Sema* s, *StmtNode st, int depth) {
     if (st == null) { return; }
     int k = st.kind;
+    if (k != SK_RETURN) { sema_defer_expr(s, st.expr); sema_defer_expr(s, st.expr2); }
     if (k == SK_RETURN) {
         s.had_error = 1;
         printf("error: %s:%d:%d: 'return' is not allowed inside a defer body\n", s.filename, s.line, s.col);
@@ -3531,7 +3547,18 @@ void sema_defer_walk(Sema* s, *StmtNode st, int depth) {
     }
     if (k == SK_IF) { sema_defer_walk(s, st.s1, depth); sema_defer_walk(s, st.s2, depth); return; }
     if (k == SK_WHILE || k == SK_DOWHILE || k == SK_FORIN) { sema_defer_walk(s, st.s1, depth + 1); return; }
-    if (k == SK_FOR) { sema_defer_walk(s, st.s2, depth + 1); return; }   // s2 = for body
+    if (k == SK_FOR) { sema_defer_walk(s, st.s1, depth); sema_defer_walk(s, st.s2, depth + 1); return; }   // s1 init, s2 body
+    if (k == SK_TRY) {
+        sema_defer_walk(s, st.s1, depth);
+        int i = 0; while (i < List_len<*StmtNode>(&st.items)) { sema_defer_walk(s, List_get<*StmtNode>(&st.items, i), depth); i = i + 1; }
+        sema_defer_walk(s, st.s2, depth);
+        return;
+    }
+    if (k == SK_CATCH || k == SK_ARM) { sema_defer_walk(s, st.s1, depth); return; }
+    if (k == SK_MATCH) {
+        int i = 0; while (i < List_len<*StmtNode>(&st.items)) { sema_defer_walk(s, List_get<*StmtNode>(&st.items, i), depth); i = i + 1; }
+        return;
+    }
     if (k == SK_SWITCH) {
         int i = 0; int n = List_len<*StmtNode>(&st.items);
         while (i < n) {
