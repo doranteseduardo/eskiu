@@ -19,18 +19,8 @@ void CodeGen::visit(Program* node) {
     //   3. bodies / globals
     // Pre-pass: fold top-level `const` ints so they can be used as array sizes
     // in struct fields / globals declared anywhere (resolved during phase 1).
-    for (auto& decl : node->declarations) {
-        if (auto* v = dynamic_cast<VarDecl*>(decl.get())) {
-            if (v->isConst && v->initializer) {
-                if (auto* c = evaluateConstantExpr(v->initializer)) {
-                    if (auto* ci = llvm::dyn_cast<llvm::ConstantInt>(c))
-                        constInts[v->name] = ci->getSExtValue();
-                    else if (llvm::isa<llvm::ConstantFP>(c))
-                        constGlobalValues[v->name] = c;
-                }
-            }
-        }
-    }
+    for (auto& decl : node->declarations)
+        if (auto* v = dynamic_cast<VarDecl*>(decl.get())) foldConstDecl(v);
     for (auto& decl : node->declarations) {
         if (auto* s = dynamic_cast<StructDecl*>(decl.get())) {
             declareStructType(s); // registers template structs and creates concrete types
@@ -234,16 +224,25 @@ void CodeGen::visit(FunctionDecl* node) {
     currentSretParam = prevSretParam;
 }
 
+llvm::Constant* CodeGen::foldConstDecl(VarDecl* v) {
+    if (!v->isConst || !v->initializer || v->isExtern) return nullptr;
+    static const std::set<std::string> scalars = {
+        "int", "int8", "int16", "int32", "int64", "uint", "uint8", "uint16", "uint32",
+        "uint64", "bool", "char", "float", "double"};
+    std::string t = tyq::strip(expandAlias(v->type));
+    if (!scalars.count(t) && !enumTypes.count(t)) return nullptr;
+    llvm::Constant* c = foldViaCodegen(v->initializer, getTypeFromString(t));
+    if (!c) return nullptr;
+    if (auto* ci = llvm::dyn_cast<llvm::ConstantInt>(c))
+        constInts[v->name] = eskiuUnsigned(t) ? (long long)ci->getZExtValue() : ci->getSExtValue();
+    if (currentFunction == nullptr) constGlobalValues[v->name] = c;
+    return c;
+}
+
 void CodeGen::visit(VarDecl* node) {
-    // Register `const` ints so a later (local) array dimension can use them.
-    if (node->isConst && node->initializer && !constInts.count(node->name)) {
-        if (auto* c = evaluateConstantExpr(node->initializer)) {
-            if (auto* ci = llvm::dyn_cast<llvm::ConstantInt>(c))
-                constInts[node->name] = ci->getSExtValue();
-            else if (currentFunction == nullptr && llvm::isa<llvm::ConstantFP>(c))
-                constGlobalValues[node->name] = c;
-        }
-    }
+    // A numeric `const` folds to its value: array dimensions, case labels and later
+    // constant initializers use it, and reads of the variable yield the constant.
+    llvm::Constant* constVal = node->isStatic ? nullptr : foldConstDecl(node);
 
     llvm::Type* declType = getTypeFromString(node->type);
 
@@ -272,6 +271,7 @@ void CodeGen::visit(VarDecl* node) {
             *module, declType, /*isConstant=*/false,
             llvm::GlobalValue::PrivateLinkage, init, node->name);
 
+        if (constVal) constValueOf[gv] = constVal;
         defineSymbol(node->name, gv);
         defineVarType(node->name, node->type);
         return;
@@ -324,6 +324,7 @@ void CodeGen::visit(VarDecl* node) {
         }
     }
     if (node->isVolatile) volatileVars.insert(node->name);
+    if (constVal && !node->isVolatile) constValueOf[alloca] = constVal;
     defineSymbol(node->name, alloca);
     defineVarType(node->name, varType);
 }

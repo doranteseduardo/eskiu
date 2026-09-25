@@ -190,6 +190,14 @@ llvm::Value* CodeGen::emitBuiltinBinary(BinaryExpr* node, llvm::Value* left) {
         llvm::Value* l = left;
         if (!l->getType()->isIntegerTy(1))
             l = builder->CreateICmpNE(l, llvm::ConstantInt::get(l->getType(), 0));
+        // A constant left operand decides statically (keeps a constant `a && b` constant).
+        if (auto* lc = llvm::dyn_cast<llvm::ConstantInt>(l)) {
+            if (lc->isZero() == (node->op == "&&")) return lc;
+            llvm::Value* r = evaluateExpr(node->right);
+            if (!r->getType()->isIntegerTy(1))
+                r = builder->CreateICmpNE(r, llvm::ConstantInt::get(r->getType(), 0));
+            return r;
+        }
         llvm::BasicBlock* startBB = builder->GetInsertBlock();
         llvm::BasicBlock* rhsBB  = llvm::BasicBlock::Create(*context, "sc.rhs", currentFunction);
         llvm::BasicBlock* contBB = llvm::BasicBlock::Create(*context, "sc.cont", currentFunction);
@@ -502,6 +510,15 @@ void CodeGen::visit(TernaryExpr* node) {
     auto coerce = [&](llvm::Value* v, const std::string& srcEskiu) -> llvm::Value* {
         return coerceValue(v, resTy, eskiuUnsigned(srcEskiu));
     };
+
+    // A constant condition selects its arm statically (the other is never evaluated),
+    // which keeps a constant ternary a constant expression.
+    if (auto* cc = llvm::dyn_cast<llvm::ConstantInt>(cond)) {
+        bool pickThen = !cc->isZero();
+        exprValueStack.push(pickThen ? coerce(evaluateExpr(node->thenExpr), thenTy)
+                                     : coerce(evaluateExpr(node->elseExpr), elseTy));
+        return;
+    }
 
     llvm::BasicBlock* thenBB = llvm::BasicBlock::Create(*context, "tern.then", currentFunction);
     llvm::BasicBlock* elseBB = llvm::BasicBlock::Create(*context, "tern.else", currentFunction);
@@ -1085,6 +1102,16 @@ void CodeGen::visit(IdentExpr* node) {
 
     // Look up variable
     llvm::Value* val = lookupSymbol(node->name);
+
+    // A numeric `const` reads as its folded value (so it stays a constant expression).
+    if (val) {
+        auto cv = constValueOf.find(val);
+        if (cv != constValueOf.end()) { exprValueStack.push(cv->second); return; }
+    } else if (constEvalDepth > 0) {
+        // Folding a top-level constant before the globals are emitted: by name.
+        auto cg = constGlobalValues.find(node->name);
+        if (cg != constGlobalValues.end()) { exprValueStack.push(cg->second); return; }
+    }
 
     if (!val) {
         // A bare function name used as a value decays to a closure fat pointer.

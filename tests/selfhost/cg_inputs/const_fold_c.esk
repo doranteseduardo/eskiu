@@ -1,0 +1,29 @@
+// Constant initializers compute exactly what the same expression computes at run
+// time (C semantics): integer promotions, the usual arithmetic conversions, casts
+// that extend by the source's signedness, and wrapping to the result width. Each
+// value was checked against clang by the C oracle in tests/fuzz/eskiu_fuzz.py.
+extern int printf(string fmt, ...);
+
+const uint64 A = (uint64)(~('a' | 127) | ' ');       // an int -96, then to uint64
+const bool AB = (bool)A;                              // 1
+const uint32 B = (uint)((int16)(-129));               // sign-extends: 4294967167
+const uint32 C = (uint32)4294967295;                  // reads back unsigned
+const char D = (char)('Z' >= -32768);                 // 1
+const bool E = (bool)(((true | D) == D) ? D : D);     // 1
+uint8 F = (uint8)(-((true | -8) != ('z' < 'A')));     // -1 as uint8: 255
+int16[2] G = {(int16)(65535 % 7), (int16)(('A' >= -122) | 'z')};   // 1, 123
+uint64 H = (uint64)(-(int64)sizeof(int64));           // 18446744073709551608
+int32 I = (int32)((false ? 'Z' : 9223372036854775807) >> 60);   // 7
+uint32 J = (uint32)(-(uint32)(sizeof(uint8) & 32767) / 7);   // uint32 math
+int64 K = (int64)(3000000000 * 2);                    // int64 literal: 6000000000
+uint16 L = (uint16)((int8)-1);                        // 65535
+int32 M = (int32)((uint8)200 + (uint8)100);           // 300
+int32 N = ~(uint8)0;                                  // -1
+int64 O = (int64)(1 ? -1 : 4294967295);              // int64 arms: -1
+
+int main() {
+    printf("%llu %d %u %u %d %d\n", A, (int)AB, B, C, (int)D, (int)E);
+    printf("%d %d %d %llu %d %u\n", (int)F, (int)G[0], (int)G[1], H, I, J);
+    printf("%lld %d %d %d %lld\n", K, (int)L, M, N, O);
+    return 0;
+}

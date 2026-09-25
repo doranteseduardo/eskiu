@@ -507,12 +507,23 @@ private:
 
     // `const` integer values, by name — so a const can be used as an array size.
     std::map<std::string, long long> constInts;
-    // Folded values of top-level `const` scalars of any numeric type (a `const double`
-    // too), so a later constant initializer can reference them.
+    // Folded values (in the declared type) of top-level `const` scalars, by name, so a
+    // constant initializer evaluated before the globals exist can reference them.
     std::map<std::string, llvm::Constant*> constGlobalValues;
-    // Fold a built-in binary operator over two constant operands (nullptr if it can't).
-    llvm::Constant* foldConstBinary(const std::string& op, llvm::Constant* a, llvm::Constant* b,
-                                    bool isUnsigned);
+    // The folded value of each `const` scalar variable, keyed by its storage (alloca or
+    // global): reading the variable yields the constant, so it folds in initializers
+    // and case labels and is resolved through normal (shadowing-aware) name lookup.
+    std::map<llvm::Value*, llvm::Constant*> constValueOf;
+    // Nonzero while foldViaCodegen evaluates an expression for its constant value.
+    int constEvalDepth = 0;
+    // Evaluate `expr` with the ordinary expression codegen into a scratch function and
+    // return the value if it folded to a constant (converted to `targetTy` when given),
+    // else nullptr. So a constant initializer computes exactly what the same expression
+    // computes at run time (promotions, signedness, wrapping).
+    llvm::Constant* foldViaCodegen(const ExprPtr& expr, llvm::Type* targetTy);
+    // Fold a numeric `const` declaration's initializer in its declared type, recording
+    // it for array dimensions (constInts) and, at top level, by name. nullptr if not.
+    llvm::Constant* foldConstDecl(VarDecl* v);
     // Resolve an array-dimension string (a decimal literal, an enum constant, or
     // a const int) to its value. Returns false if it cannot be resolved.
     bool resolveArrayDim(const std::string& dim, uint64_t& out) const;
