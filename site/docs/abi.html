@@ -194,8 +194,9 @@ pointer <code>?*T</code> has the identical representation to <code>*T</code> (a 
 non-null requirement is enforced by the type checker at compile time and adds no
 runtime cost or storage.</p>
 <p>A leading <code>*</code> and a trailing <code>[N]</code> follow the source rule that the array binds
-outermost: <code>*T[N]</code> is an array of N <code>ptr</code> elements, while a pointer to an array is
-spelled <code>T[N]*</code> (a single <code>ptr</code>). For C interop, libc <code>size_t</code> parameters and returns
+outermost: <code>*T[N]</code> is an array of N <code>ptr</code> elements. There is no pointer-to-array
+spelling (<code>T[N]*</code> does not parse); a <code>*T</code> to the first element is the single <code>ptr</code> C
+code expects for a <code>T (*)[N]</code>. For C interop, libc <code>size_t</code> parameters and returns
 (<code>strlen</code>, the size argument of <code>memcpy</code>/<code>memset</code>/<code>memmove</code>/<code>memcmp</code>/<code>memchr</code>) are
 declared <code>int64</code> so the extern signatures match the C ABI on 64-bit targets.</p>
 <p><code>const</code> has <strong>no ABI effect</strong>. Every <code>const</code> qualifier (base/pointee <code>const T</code>,

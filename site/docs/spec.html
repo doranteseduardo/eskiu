@@ -396,9 +396,10 @@ int main() {
 }
 </code></pre>
 <p>When a leading <code>*</code> meets a trailing <code>[N]</code>, the <strong>array binds outermost</strong>: <code>*T[N]</code> is an
-<em>array of N pointers</em> (each element a <code>*T</code>), i.e. it reads as <code>(*T)[N]</code>. A <em>pointer to an
-array</em> is written with a trailing star instead: <code>T[N]*</code>. For example <code>*Node[7]</code> is seven
-<code>Node</code> pointers, while <code>Node[7]*</code> points at a seven-<code>Node</code> array.</p>
+<em>array of N pointers</em> (each element a <code>*T</code>), i.e. it reads as <code>(*T)[N]</code>. For example
+<code>*Node[7]</code> is seven <code>Node</code> pointers. There is no spelling for a pointer to a whole array
+(<code>T[N]*</code> does not parse); point at the first element instead, <code>*Node p = &amp;arr[0];</code>, and
+index through it (<code>p[i]</code>).</p>
 <p>The same rule applies to a function type: <code>fn(int)-&gt;int[2]</code> is an <em>array of 2 function
 values</em>, not a function returning an array (a function cannot return an array), so
 <code>fs[1](41)</code> calls the second element.</p>
@@ -1036,7 +1037,7 @@ allocation. The standard library marks <code>alloc</code> this way:</p>
 <pre><code class="language-eskiu">must_use *T dup&lt;T&gt;(T* p) { ... }
 
 dup(&amp;x);              // error: result of 'dup' must be used (it is marked must_use)
-let y = dup(&amp;x);      // ok
+*int y = dup(&amp;x);     // ok (x is an int)
 
 alloc&lt;uint8&gt;(64);     // error: the allocation is leaked (alloc is must_use)
 </code></pre>
@@ -1265,7 +1266,7 @@ leaf future for deadlines (so <code>select2(read, timer_after(...))</code> is a 
     printf(&quot;zero\n&quot;);
 }
 </code></pre>
-<p>The condition must evaluate to a <code>bool</code>, a number (non-zero is true; a float compares with <code>0.0</code>, so NaN is true) or a pointer, <code>string</code> and <code>?*T</code> included (non-null is true). A struct, array, slice, closure or interface value is not a condition. Braces are required around each branch body.</p>
+<p>The condition must evaluate to a <code>bool</code>, a number (non-zero is true; a float compares with <code>0.0</code>, so NaN is true) or a pointer, <code>string</code> and <code>?*T</code> included (non-null is true). A struct, array, slice, closure or interface value is not a condition. Braces around a branch body are optional: as in C, an unbraced body is a single statement (<code>if (x &gt; 0) n++; else n--;</code>), and it is its own scope (see §7.8 for what that means for <code>defer</code>).</p>
 <h3 id="72-for">7.2 for</h3>
 <p>C-style three-part form:</p>
 <pre><code class="language-eskiu">for (int i = 0; i &lt; 10; i += 1) {
@@ -1416,15 +1417,19 @@ first, before control leaves. A labeled jump may not escape a <code>defer</code>
 enclosing block is left. It is the ergonomic way to pair a resource acquisition with its
 release: write the cleanup right next to the thing it cleans up, and it runs on <strong>every</strong>
 path out of the block, so you never leak on an early return or a propagated error.</p>
-<pre><code class="language-eskiu">int process(string path) {
-    *uint8 buf = alloc&lt;uint8&gt;(4096);
-    defer free(buf);                 // runs however this function exits
+<pre><code class="language-eskiu">Result&lt;int, string&gt; read_into(*uint8 buf, string path);
 
-    if (path[0] == 0) { return -1; } // buf freed
-    int n = read_into(buf)?;         // buf freed if the `?` propagates an error
-    return n;                        // buf freed
+Result&lt;int, string&gt; process(string path) {
+    *uint8 buf = alloc&lt;uint8&gt;(4096);
+    defer free(buf);                        // runs however this function exits
+
+    if (path[0] == 0) { return Err&lt;int, string&gt;(&quot;empty path&quot;); }   // buf freed
+    int n = read_into(buf, path)?;          // buf freed if the `?` propagates an error
+    return Ok&lt;int, string&gt;(n);              // buf freed
 }
 </code></pre>
+<p><code>?</code> needs the enclosing function to return a <code>Result</code> (§10.5), so the example returns
+<code>Result&lt;int, string&gt;</code>.</p>
 <p>Rules:</p>
 <ul>
 <li>Deferred statements run in <strong>LIFO</strong> order: the last one registered runs first.</li>
@@ -1450,11 +1455,15 @@ namely when the function leaves through <code>?</code>-propagation (an <code>Err
 does not run on a normal <code>return</code>, on fall-through, or on <code>break</code>/<code>continue</code>. This is the
 tool for undoing partial work when a fallible step fails partway through, while keeping it
 on success:</p>
-<pre><code class="language-eskiu">Connection open_ready(string host) {
-    Connection c = connect(host)?;
-    errdefer close(c);        // closed only if a later `?` fails; kept on success
-    handshake(c)?;            // if this errors, close(c) runs and the Err propagates
-    return c;                 // success: c survives, errdefer does not run
+<pre><code class="language-eskiu">Result&lt;int, string&gt; connect(string host);
+Result&lt;int, string&gt; handshake(int fd);
+extern int close(int fd);
+
+Result&lt;int, string&gt; open_ready(string host) {
+    int fd = connect(host)?;
+    errdefer close(fd);             // closed only if a later `?` fails; kept on success
+    handshake(fd)?;                 // if this errors, close(fd) runs and the Err propagates
+    return Ok&lt;int, string&gt;(fd);     // success: fd stays open, errdefer does not run
 }
 </code></pre>
 <p>On the error path both kinds run in LIFO order (an <code>errdefer</code> registered after a <code>defer</code>
@@ -1518,7 +1527,8 @@ V3 operator +(V3 a, V3 b)     { let r: V3; r.x = a.x + b.x; r.y = a.y + b.y; r.z
 V3 operator *(V3 a, double s) { let r: V3; r.x = a.x * (float)s; r.y = a.y * (float)s; r.z = a.z * (float)s; return r; }
 V3 operator -(V3 a)           { let r: V3; r.x = 0.0 - a.x; r.y = 0.0 - a.y; r.z = 0.0 - a.z; return r; }
 
-V3 p = (q - t) * 2.0;   // resolves to the two operators above
+V3 p = (q + t) * 2.0;   // operator + and then operator *(V3, double)
+V3 n = -q;              // the unary operator -
 </code></pre>
 <p>Overloadable: the binary operators <code>+ - * / % == != &lt; &gt; &lt;= &gt;= &amp; | ^ &lt;&lt; &gt;&gt;</code>, the unary operators <code>- ! ~</code>, and subscript <code>[]</code>. Compound assignment (<code>v += w</code>) is defined as <code>v = v + w</code>, using the overloaded <code>+</code>. The short-circuit operators <code>&amp;&amp;</code> / <code>||</code>, the pointer operators <code>*</code> / <code>&amp;</code>, and <code>=</code> / <code>.</code> are structural and cannot be overloaded.</p>
 <p>Resolution is entirely static and structural:</p>
@@ -1732,7 +1742,7 @@ struct Box&lt;T&gt; {
 Cell&lt;int&gt; c = Cell&lt;int&gt;{ 21 };
 int n = c.twice();                // 42
 </code></pre>
-<p>A generic function in the <code>Type_method</code> form (<code>T Cell_peek&lt;T&gt;(Cell&lt;T&gt;* self)</code>) is also callable as <code>c.peek()</code>, with its type arguments taken from the receiver (§8.1).</p>
+<p>A generic function in the <code>Type_method</code> form (<code>T Cell_peek&lt;T&gt;(Cell&lt;T&gt;* self)</code>) is also callable as <code>c.peek()</code>, with its type arguments taken from the receiver (§8.2).</p>
 <h3 id="102-template-functions">10.2 Template Functions</h3>
 <pre><code class="language-eskiu">T identity&lt;T&gt;(T x) {
     return x;
@@ -1802,7 +1812,7 @@ parameter satisfy the named interface(s), the same structural match used for
 <code>interface</code> values (§9): the type must provide a method for each signature in the
 interface.</p>
 <pre><code class="language-eskiu">interface Ord {
-    int cmp(*Self other);
+    int cmp(*Ord other);    // `Ord` here stands for the implementing type
 }
 
 // `T` must satisfy `Ord`, checked at the call site, not deep in codegen.
@@ -1818,10 +1828,14 @@ struct Cache&lt;K: Hashable + Eq, V&gt; {
     int len;
 }
 </code></pre>
+<p>Inside an interface, a parameter type spelled with the interface's own name stands for
+the implementing type (§9), so <code>struct Num { int v; int cmp(*Num o) {...} }</code> satisfies
+<code>Ord</code> above. There is no <code>Self</code> keyword: <code>*Self</code> is an ordinary (unknown) type name and
+no struct matches it.</p>
 <p>The constraint is enforced when the template is instantiated. If the concrete
 type does not satisfy the interface, the compiler reports the error at the
 instantiation site:</p>
-<pre><code>error: type 'int' does not satisfy constraint 'Ord' (required by a bounded type parameter)
+<pre><code>error: main.esk:9:15: type 'int' does not satisfy constraint 'Ord' (required by a bounded type parameter): missing method 'cmp'
 </code></pre>
 <p>Constraints are checked for both explicit (<code>max&lt;Num&gt;(...)</code>) and inferred
 (<code>max(a, b)</code>) instantiations, and for template structs the moment a concrete
@@ -1831,7 +1845,7 @@ still keyed on the concrete type arguments (§10.3).</p>
 the interface's methods. A <em>primitive</em> type (<code>int</code>, <code>float</code>, …) has no methods, so
 it satisfies a constraint through a <strong>free function</strong> named like the interface
 method whose first parameter is that primitive, e.g. <code>int cmp(int, int)</code> makes
-<code>int</code> satisfy <code>interface Ord { int cmp(Self) }</code>. Inside a generic body a
+<code>int</code> satisfy <code>interface Ord { int cmp(Ord other); }</code>. Inside a generic body a
 constrained call <code>t.cmp(x)</code> on such a <code>t</code> lowers to <code>cmp(t, x)</code>. So both
 <code>max&lt;T: Ord&gt;(int…)</code> and a constraint-bounded <code>Map&lt;K: Hashable, V&gt;</code> over <code>int</code> keys
 type-check and compile. (The function-pointer <code>HashMap&lt;K, V&gt;</code> from the standard
@@ -2696,7 +2710,7 @@ output and <code>--freestanding</code> ignore them, and <code>--no-default-libs<
 <tr>
 <td><code>__LINE__</code></td>
 <td>current source line, an integer</td>
-<td>refreshed for every line; reflects the line of the <em>use</em>, after line-splicing</td>
+<td>refreshed for every logical line; on a <code>\</code>-continued line it is the line where that logical line starts</td>
 </tr>
 <tr>
 <td><code>__FILE__</code></td>
@@ -2739,8 +2753,9 @@ output and <code>--freestanding</code> ignore them, and <code>--no-default-libs<
 <p><code>__LINE__</code> and <code>__FILE__</code> are ordinary object-like macros (so substitution
 respects identifier boundaries and skips string/char literals) but their values
 are maintained by the compiler. <code>__LINE__</code> is re-set to the physical line number
-of each logical line before that line is expanded, so a <code>__LINE__</code> inside a
-multi-line continuation still reports the line where it textually appears.
+of each logical line before that line is expanded. Line splicing happens first, so
+a <code>__LINE__</code> on the second physical line of a <code>\</code>-continued line reports the line
+where the logical line starts, not the line where it textually appears.
 <code>__FILE__</code> is threaded from the file currently being compiled or imported, so in
 a multi-file or <code>import</code>-driven build each file sees its own path. Together with
 <code>#error</code> they support assertions, build guards, and <code>file:line</code> diagnostics:</p>
@@ -2757,7 +2772,7 @@ This is how <code>&lt;net&gt;</code> selects the correct <code>sockaddr_in</code
 <h3 id="shebang-lines">Shebang lines</h3>
 <p>If the first line of a file begins with <code>#!</code> (e.g. <code>#!/usr/bin/env eskiuc run</code>),
 the preprocessor ignores it and blanks it out, preserving line numbers. This lets a <code>.esk</code> file be marked executable
-(<code>chmod +x</code>) and run directly as a script; see <code>eskiuc run</code> in §17.</p>
+(<code>chmod +x</code>) and run directly as a script; see <code>eskiuc run</code> in §16.</p>
     </div>
   </div>
   <footer>

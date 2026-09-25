@@ -264,8 +264,8 @@ scalar-type = 'int' | 'int8' | 'int16' | 'int32' | 'int64'
 </code></pre>
 <p>Pointers may be written either C-style (<code>int*</code>) or leading (<code>*int</code>); both are
 equivalent. An array suffix binds tighter than a leading pointer, so <code>*T[N]</code> is an array
-of N pointers (each element a <code>*T</code>), while a pointer to an array is written with the star
-after the brackets: <code>T[N]*</code>. Suffixes chain for multidimensional arrays: <code>T[N][M]</code> is N
+of N pointers (each element a <code>*T</code>). There is no pointer-to-array type (<code>T[N]*</code> does not
+parse); use a <code>*T</code> to the first element. Suffixes chain for multidimensional arrays: <code>T[N][M]</code> is N
 arrays of M (C order, leftmost bracket outermost). Empty brackets make a <strong>slice</strong>: <code>T[]</code>
 is a fat pointer (data + length), constructed by slicing an array (<code>a[lo..hi]</code>). <code>va_list</code>
 is a built-in named type used by variadics.</p>

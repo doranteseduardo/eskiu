@@ -337,8 +337,8 @@ more, fixed the same way.</p>
   as an uninitialized read. A leading-star pointer to a generic instance (<code>*List&lt;int&gt;</code>)
   is accepted as a declared type.</li>
 <li><code>-Wall</code> no longer flags methods used through dot calls, interfaces or operators, or
-  the parameters of prototypes and lambdas; the unused-parameter warning points at the
-  parameter. Diagnostics spell operator functions as <code>operator +(V, V)</code>.</li>
+  the parameters of prototypes (an unused lambda parameter is still reported, like any
+  other parameter); the unused-parameter warning points at the parameter. Diagnostics spell operator functions as <code>operator +(V, V)</code>.</li>
 <li>Self-host: dot calls to free-function methods (<code>s.trim()</code>) are accepted; many invalid
   programs it used to accept (C-style array declarators, <code>++</code> on a float, a mismatched
   <code>?</code>, misplaced array literals) are rejected like the C++ compiler; its diagnostics
@@ -372,7 +372,8 @@ more, fixed the same way.</p>
   takes constant time at any scope depth.</li>
 <li><code>fmt</code> indents code after a closing <code>*/</code> and preserves CRLF line endings.</li>
 <li>Self-host driver: spawns clang without a shell (safe with any argument), accepts the
-  full flag set, finds the stdlib through <code>$ESKIU_ROOT</code>, and reports a missing import as
+  full flag set (<code>-Wall</code>/<code>-Wextra</code> are accepted and ignored: lint warnings come only from
+  the C++ compiler), finds the stdlib through <code>$ESKIU_ROOT</code>, and reports a missing import as
   an error.</li>
 <li>VS Code server: full-document sync, unsaved buffers resolve relative imports, and the
   version comes from <code>package.json</code> (extension 0.0.26).</li>
@@ -905,8 +906,9 @@ promotion track.</p>
   scalar pointer, silently corrupting locals and crashing the compiler outright on
   a module-level array (a constant-folded GEP tripped an LLVM assertion). The
   trailing <code>[N]</code> now binds outermost, so <code>*Node[7]</code> is an array of 7 pointers
-  consistently across the type checker and codegen; a pointer <em>to</em> an array stays
-  spellable with a trailing star (<code>Node[7]*</code>). Found porting a C program whose
+  consistently across the type checker and codegen. (This entry used to say a
+  pointer to an array is spelled <code>Node[7]*</code>; that form does not parse, so point at the
+  first element with a <code>*Node</code> instead.) Found porting a C program whose
   central data structure was a module-level <code>Actividad *agenda[7]</code>.</li>
 <li>
 <p><strong><code>&lt;eventloop&gt;</code>: initialize the <code>on_read</code> closure of every fd slot.</strong> <code>el_new</code>

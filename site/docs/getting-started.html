@@ -742,7 +742,7 @@ int main() {
 <h3 id="bounded-generics-constraints">Bounded generics (constraints)</h3>
 <p>A type parameter can require that its concrete type satisfy one or more interfaces, written after a colon. The constraint is checked at the instantiation site, not deep in codegen:</p>
 <pre><code class="language-eskiu">interface Ord {
-    int cmp(*Self other);
+    int cmp(*Ord other);    // `Ord` stands for the implementing type
 }
 
 T max&lt;T: Ord&gt;(T a, T b) {
@@ -750,7 +750,7 @@ T max&lt;T: Ord&gt;(T a, T b) {
     return b;
 }
 </code></pre>
-<p>Use <code>+</code> to require several interfaces at once (<code>&lt;K: Hashable + Eq, V&gt;</code>). A struct satisfies a constraint by defining the interface's methods. A primitive type has no methods, so it satisfies a constraint through a <strong>free function</strong> named like the interface method whose first parameter is that primitive, e.g. <code>int cmp(int, int)</code> makes <code>int</code> satisfy <code>Ord</code>. See spec §10.6 for the full rules.</p>
+<p>Inside an interface, a type spelled with the interface's own name stands for the implementing type, so a <code>struct Num</code> with <code>int cmp(*Num other)</code> satisfies <code>Ord</code>. Use <code>+</code> to require several interfaces at once (<code>&lt;K: Hashable + Eq, V&gt;</code>). A struct satisfies a constraint by defining the interface's methods. A primitive type has no methods, so it satisfies a constraint through a <strong>free function</strong> named like the interface method whose first parameter is that primitive, e.g. <code>int cmp(int a, *int b)</code> makes <code>int</code> satisfy the <code>Ord</code> above (the interface's <code>*Ord</code> becomes <code>*int</code>). See spec §10.6 for the full rules.</p>
 <hr>
 <h2 id="interfaces">Interfaces</h2>
 <p>Interfaces declare a set of method signatures. Any struct that provides matching
