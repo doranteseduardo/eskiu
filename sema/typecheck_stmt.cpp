@@ -497,7 +497,7 @@ bool TypeChecker::isLvalueExpr(Expr* e) {
 
 // Value of an integer constant expression built from literals, enum members, unary
 // and binary operators and casts. Returns false when the value is not known here
-// (a `const` variable, `sizeof`, division by zero), so callers never guess.
+// (`sizeof`, a non-constant name, division by zero), so callers never guess.
 bool TypeChecker::foldConstInt(Expr* e, long long& out) {
     if (auto* l = dynamic_cast<LiteralExpr*>(e)) {
         if (l->kind == LiteralExpr::Kind::INT) {
@@ -509,7 +509,16 @@ bool TypeChecker::foldConstInt(Expr* e, long long& out) {
         return false;
     }
     if (auto* id = dynamic_cast<IdentExpr*>(e)) {
-        if (!lookupSymbol(id->name).empty()) return false;
+        if (const Symbol* sym = findSymbol(id->name)) {
+            // A `const` integer folds through its initializer (bounded, so a
+            // self-referential const can't recurse forever).
+            if (!sym->isConst || !sym->constInit || !isIntType(normalizeType(sym->type))) return false;
+            if (foldDepth > 64) return false;
+            ++foldDepth;
+            bool ok = foldConstInt(sym->constInit, out);
+            --foldDepth;
+            return ok;
+        }
         auto it = enumConstants.find(id->name);
         if (it == enumConstants.end()) return false;
         out = it->second;

@@ -608,7 +608,10 @@ void TypeChecker::visit(VarDecl* node) {
     if (scopes.size() > 1 && scopes.back().count(node->name))
         errorAt(node, "redefinition of '" + node->name + "' in the same scope");
     defineSymbol(node->name, storedType, node->line, node->col, /*isParam=*/false);
-    if (node->isConst && !scopes.empty()) scopes.back()[node->name].isConst = true;
+    if (node->isConst && !scopes.empty()) {
+        scopes.back()[node->name].isConst = true;
+        scopes.back()[node->name].constInit = node->initializer.get();
+    }
     if (node->isStatic && !scopes.empty()) scopes.back()[node->name].isStatic = true;
 }
 

@@ -120,6 +120,7 @@ private:
         bool isParam = false;
         bool isConst = false;  // declared with `const` — reassignment is an error
         bool isStatic = false; // `static` local: one global cell, referenced (not captured) by lambdas
+        Expr* constInit = nullptr; // initializer of a `const` (lets case labels fold `const int K`)
     };
 
     // True if `name` resolves to a symbol declared `const` (searches scopes).
@@ -281,6 +282,7 @@ private:
     // A switch `case` label codegen can fold to an integer constant.
     bool isConstIntExpr(Expr* e);
     bool foldConstInt(Expr* e, long long& out);
+    int foldDepth = 0;
     bool hasErrors = false;
 
     // Helper methods
