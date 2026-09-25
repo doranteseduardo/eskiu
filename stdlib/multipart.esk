@@ -86,11 +86,21 @@ int multipart_part(*uint8 body, int64 blen, String* boundary, string name,
         if (next < 0) { break; }
         int64 he = mp_find(body, next, part_start, (*uint8)crlf2, 4);
         if (he >= 0) {
+            // The needle must be the `name` parameter itself: preceded by ';' or
+            // whitespace, so `filename="photo"` does not match name "photo".
+            int named = 0;
             int64 nh = mp_find(body, he, part_start, needle, needle_len);
-            if (nh >= 0) {
+            while (nh >= 0 && named == 0) {
+                if (nh > part_start) {
+                    uint8 pc = body[nh - 1];
+                    if (pc == (uint8)59 || pc == (uint8)32 || pc == (uint8)9) { named = 1; }
+                }
+                if (named == 0) { nh = mp_find(body, he, nh + 1, needle, needle_len); }
+            }
+            if (named == 1) {
                 int64 cstart = he + 4;
                 int64 cend   = next - 2;
-                if (cend > cstart) { out_ptr[0] = body + cstart;  out_len[0] = cend - cstart;  found = 1; }
+                if (cend >= cstart) { out_ptr[0] = body + cstart;  out_len[0] = cend - cstart;  found = 1; }
             }
         }
         pos = next;
