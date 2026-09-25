@@ -61,14 +61,24 @@ static std::string ppSubstParams(const std::string& body,
 }
 
 // Expand all macros in `text`, recursively. `expanding` guards against a macro
-// re-expanding within its own expansion (prevents infinite loops).
+// re-expanding within its own expansion (prevents infinite loops). `inBlock`, when
+// given, carries `/* ... */` comment state across source lines: comment text is
+// copied verbatim (an apostrophe in a comment must not open a char literal).
 static std::string ppExpand(const std::string& text,
                             const std::map<std::string, Macro>& defines,
-                            std::set<std::string>& expanding) {
-    if (defines.empty()) return text;
+                            std::set<std::string>& expanding,
+                            bool* inBlock = nullptr) {
+    bool blk = inBlock ? *inBlock : false;
     std::string out; size_t i = 0, n = text.size();
     while (i < n) {
         char c = text[i];
+        if (blk) {
+            size_t e = text.find("*/", i);
+            if (e == std::string::npos) { out += text.substr(i); i = n; break; }
+            out += text.substr(i, e + 2 - i); i = e + 2; blk = false;
+            continue;
+        }
+        if (c == '/' && i+1<n && text[i+1]=='*') { out += "/*"; i += 2; blk = true; continue; }
         if (c == '"' || c == '\'') {
             ppCopyLiteral(text, i, out);
             continue;
@@ -88,16 +98,24 @@ static std::string ppExpand(const std::string& text,
                 }
                 size_t k = j; while (k<n && (text[k]==' '||text[k]=='\t')) k++;
                 if (k < n && text[k] == '(') {           // function-like call
+                    // Split the arguments at top-level commas. String and char
+                    // literals are copied whole, so a ',' or ')' inside one does
+                    // not end an argument.
                     std::vector<std::string> args; std::string cur; int depth = 0;
                     bool sawAny = false; size_t p = k + 1;
-                    for (; p < n; ++p) {
+                    while (p < n) {
                         char d = text[p];
+                        if (d == '"' || d == '\'') { ppCopyLiteral(text, p, cur); sawAny = true; continue; }
                         if (d == '(') { depth++; cur += d; sawAny = true; }
                         else if (d == ')') { if (depth==0) { p++; break; } depth--; cur += d; }
                         else if (d == ',' && depth==0) { args.push_back(ppTrim(cur)); cur.clear(); }
                         else { cur += d; sawAny = true; }
+                        p++;
                     }
                     if (sawAny || !args.empty()) args.push_back(ppTrim(cur));
+                    // Arguments are fully macro-expanded before substitution (C
+                    // rule), so a nested call like F(F(3)) expands the inner one.
+                    for (auto& a : args) a = ppExpand(a, defines, expanding);
                     std::string sub = ppSubstParams(mac.body, mac.params, args);
                     expanding.insert(id);
                     out += ppExpand(sub, defines, expanding);
@@ -110,6 +128,7 @@ static std::string ppExpand(const std::string& text,
         }
         out += c; i++;
     }
+    if (inBlock) *inBlock = blk;
     return out;
 }
 
@@ -147,6 +166,28 @@ static bool backslashContinuesLine(const std::string& line) {
     return !inStr && !inChr && !inBlock;
 }
 
+// Scan `line` for comment state: starting inside a `/* */` comment when `inBlock`,
+// return whether the line ends inside one. String/char literals and `//` comments
+// are skipped, in the same order ppExpand applies.
+static bool endsInBlockComment(const std::string& line, bool inBlock) {
+    size_t n = line.size();
+    for (size_t i = 0; i < n; ++i) {
+        char c = line[i];
+        if (inBlock) {
+            if (c == '*' && i + 1 < n && line[i + 1] == '/') { inBlock = false; ++i; }
+            continue;
+        }
+        if (c == '/' && i + 1 < n && line[i + 1] == '*') { inBlock = true; ++i; continue; }
+        if (c == '"' || c == '\'') {
+            char q = c; ++i;
+            while (i < n && line[i] != q) { if (line[i] == '\\') ++i; ++i; }
+            continue;
+        }
+        if (c == '/' && i + 1 < n && line[i + 1] == '/') break;
+    }
+    return inBlock;
+}
+
 void preprocess(const std::string& src,
                        std::map<std::string, Macro>& defines,
                        std::string& result,
@@ -166,6 +207,7 @@ void preprocess(const std::string& src,
     std::ostringstream out;
     std::string line; bool first = true;
     int curLine = 0;
+    bool inBlockComment = false;     // a /* */ comment is open at the start of this line
     while (std::getline(in, line)) {
         curLine++;                       // physical line of this logical line
         int lineNo = curLine;            // __LINE__ for this logical line
@@ -188,7 +230,7 @@ void preprocess(const std::string& src,
 
         size_t h = line.find_first_not_of(" \t");
         bool handled = false;
-        if (h != std::string::npos && line[h] == '#') {
+        if (!inBlockComment && h != std::string::npos && line[h] == '#') {
             handled = true;
             std::istringstream ds(line.substr(h + 1));
             std::string kw; ds >> kw;
@@ -249,7 +291,9 @@ void preprocess(const std::string& src,
 
         if (!handled && active()) {
             { Macro m; m.body = std::to_string(lineNo); defines["__LINE__"] = m; }
-            std::set<std::string> expanding; out << ppExpand(line, defines, expanding);
+            std::set<std::string> expanding; out << ppExpand(line, defines, expanding, &inBlockComment);
+        } else {
+            inBlockComment = endsInBlockComment(line, inBlockComment);
         }
         // inactive / directive lines emit blank
 
