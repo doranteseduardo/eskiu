@@ -409,8 +409,10 @@ void CodeGen::visit(TernaryExpr* node) {
 
     std::string thenTy = getExprEskiuType(node->thenExpr);
     std::string elseTy = getExprEskiuType(node->elseExpr);
-    llvm::Type* tLL = getTypeFromString(thenTy);
-    llvm::Type* eLL = getTypeFromString(elseTy);
+    // A `null` arm is a pointer (`c ? null : &x`), whatever the other arm points to.
+    llvm::Type* ptrTy = llvm::PointerType::get(*context, 0);
+    llvm::Type* tLL = thenTy == "null" ? ptrTy : getTypeFromString(thenTy);
+    llvm::Type* eLL = elseTy == "null" ? ptrTy : getTypeFromString(elseTy);
     llvm::Type* resTy;
     if (tLL == eLL)
         resTy = tLL;

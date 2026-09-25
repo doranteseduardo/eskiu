@@ -1,0 +1,13 @@
+// A `null` ternary arm takes the other arm's pointer type.
+extern int printf(string fmt, ...);
+
+*int pick(bool c, *int p) { return c ? null : p; }
+
+int main() {
+    let x: int = 7;
+    let y: *int = (x > 0) ? null : &x;
+    let z: *int = (x < 0) ? null : &x;
+    *int w = pick(false, &x);
+    printf("%d %d %d %d\n", (int)(y == null), *z, *w, (int)(pick(true, &x) == null));
+    return 0;
+}

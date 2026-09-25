@@ -161,6 +161,8 @@ void TypeChecker::visit(TernaryExpr* node) {
     if (tt == "unknown")       result = et;
     else if (et == "unknown")  result = tt;
     else if (tt == et)         result = tt;
+    else if (tt == "null" && (isPointerType(et) || et[0] == '?')) result = et;   // `c ? null : &x`
+    else if (et == "null" && (isPointerType(tt) || tt[0] == '?')) result = tt;
     else if (isNumericType(tt) && isNumericType(et)) result = promoteType(tt, et);
     else if (assignabilityError(tt, et, node->elseExpr.get()).empty()) result = tt;
     else if (assignabilityError(et, tt, node->thenExpr.get()).empty()) result = et;
