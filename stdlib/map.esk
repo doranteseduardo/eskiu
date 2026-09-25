@@ -21,13 +21,17 @@ struct Map<V> {
     int    count;   // live entries
 }
 
-// djb2, forced non-negative (used only for bucketing).
+// djb2 in wrapping uint32 arithmetic, folded to a non-negative int (used only
+// for bucketing). A hash with the top bit set maps to its two's-complement
+// magnitude, as the signed version did, so bucket order is unchanged; the one
+// value whose magnitude does not fit (0x80000000) maps to 0 instead of staying
+// negative (a negative bucket index).
 int map_hash(string s) {
-    int h = 5381;
+    uint32 h = (uint32)5381;
     int i = 0;
-    while (s[i] != 0) { h = h * 33 + ((int)s[i] & 255); i = i + 1; }
-    if (h < 0) { h = 0 - h; }
-    return h;
+    while (s[i] != 0) { h = h * (uint32)33 + (uint32)((int)s[i] & 255); i = i + 1; }
+    if ((h & (uint32)2147483648) != (uint32)0) { h = (uint32)0 - h; }
+    return (int)(h & (uint32)2147483647);
 }
 
 int map_streq(*char a, string b) {

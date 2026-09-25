@@ -1,0 +1,21 @@
+// A key whose djb2 hash is exactly 0x80000000 ("ovuga,m") must still land in a
+// valid bucket: the signed `h = 0 - h` fold left INT_MIN negative, a negative
+// index into the table.
+import <map>;
+extern int printf(string fmt, ...);
+
+int main() {
+    printf("hash=%d\n", map_hash("ovuga,m"));
+    let m: Map<int>;  Map_init<int>(&m, 10);
+    int created = 0;
+    *int slot = Map_at<int>(&m, "ovuga,m", &created);
+    slot[0] = 7;
+    int v = 0;
+    int got = Map_get<int>(&m, "ovuga,m", &v);
+    int live = 0;
+    int i = 0;
+    while (i < m.cap) { if (m.keys[i] != null) { live = live + 1; } i = i + 1; }
+    printf("created=%d got=%d v=%d live=%d count=%d\n", created, got, v, live, m.count);
+    Map_free<int>(&m);
+    return 0;
+}
