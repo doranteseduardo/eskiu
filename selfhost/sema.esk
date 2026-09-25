@@ -1901,13 +1901,19 @@ void sema_check_arr_init(Sema* s, string arrT, *ExprNode a) {
         }
     }
     string elemT = sema_arr_elem(arrT);
-    if (sema_is_arr_ty(elemT) == 1) {                   // nested rows: each element is itself an array literal
-        int i = 0; int n = List_len<*ExprNode>(&a.kids);
-        while (i < n) {
-            *ExprNode el = List_get<*ExprNode>(&a.kids, i);
+    int i = 0; int n = List_len<*ExprNode>(&a.kids);
+    while (i < n) {
+        *ExprNode el = List_get<*ExprNode>(&a.kids, i);
+        if (sema_is_arr_ty(elemT) == 1) {               // nested rows: each element is itself an array literal
             if (el.kind == EK_ARRAYLIT) { sema_check_arr_init(s, elemT, el); }
-            i = i + 1;
+        } else {                                        // each element converts to the element type
+            string aerr = sema_assign_err(s, elemT, el);
+            if (aerr[0] != 0) {
+                s.had_error = 1;
+                printf("error: %s:%d:%d: array element: %s\n", s.filename, s.line, s.col, aerr);
+            }
         }
+        i = i + 1;
     }
 }
 
@@ -2760,7 +2766,11 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         sema_expr(s, e.a);                 // walk base (catches undefined vars in it)
         sema_check_nullable_deref(s, e.a, "access a member of");
         string bt = sema_infer_type(s, e.a);
-        if (sema_is_numeric_ty(sema_strip_const(bt)) == 1) {
+        // Only a struct or union (or a pointer to one) has members; a slice has `len`.
+        string mbc = sema_canon(s, bt);
+        if ((int)mbc[0] == 42) { mbc = sema_sub_str(mbc, 1, sema_slen(mbc)); }
+        if (sema_judgeable(s, mbc) == 1 && sema_is_struct(s, sema_base_name(mbc)) == 0
+            && (sema_slice_elem(mbc)[0] == 0 || sema_streq(e.sval, "len") == 0)) {
             s.had_error = 1;
             printf("error: %s:%d:%d: cannot access member '%s' on non-struct type '%s'\n", s.filename, s.line, s.col, e.sval, bt);
         }
@@ -2906,13 +2916,34 @@ void sema_expr_k(Sema* s, *ExprNode e) {
             }
             sema_expr(s, hiE);
         }
+        // The index (and a slice's upper bound) must be an integer.
+        if (k == EK_INDEX && e.b != null) {
+            string ixt = sema_infer_type(s, e.b);
+            string ixc = sema_canon(s, ixt);
+            if (sema_judgeable(s, ixc) == 1 && sema_is_int_ty(ixc) == 0) {
+                s.had_error = 1;
+                printf("error: %s:%d:%d: array index must be integer, got %s\n", s.filename, s.line, s.col, ixt);
+            }
+            if (List_len<*ExprNode>(&e.kids) > 0) {
+                string hxt = sema_infer_type(s, List_get<*ExprNode>(&e.kids, 0));
+                string hxc = sema_canon(s, hxt);
+                if (sema_judgeable(s, hxc) == 1 && sema_is_int_ty(hxc) == 0) {
+                    s.had_error = 1;
+                    printf("error: %s:%d:%d: slice bound must be integer, got %s\n", s.filename, s.line, s.col, hxt);
+                }
+            }
+        }
         // Constant-index bounds check on a fixed array with a numeric dimension.
         if (k == EK_INDEX && e.b != null && e.b.kind == EK_LITERAL && e.b.lit_kind == LIT_INT
-            && sema_all_digits(e.b.sval) == 1) {
-            string bt = sema_infer_type(s, e.a);
-            if (sema_is_arr_ty(bt) == 1) {
+            && List_len<*ExprNode>(&e.kids) == 0) {
+            string bt = sema_canon(s, sema_infer_type(s, e.a));
+            if (sema_arr_bracket(bt) > 0 && sema_slice_elem(bt)[0] == 0) {
                 string dim = sema_arr_count(bt);
-                if (sema_all_digits(dim) == 1 && sema_atoi(e.b.sval) >= sema_atoi(dim)) {
+                if ((int)e.b.sval[0] == 45 && sema_all_digits(sema_sub_str(e.b.sval, 1, sema_slen(e.b.sval))) == 1
+                    && sema_lit_is_zero(e.b.sval) == 0) {
+                    s.had_error = 1;
+                    printf("error: %s:%d:%d: array index %s is out of bounds\n", s.filename, s.line, s.col, e.b.sval);
+                } else if (sema_all_digits(e.b.sval) == 1 && sema_all_digits(dim) == 1 && sema_atoi(e.b.sval) >= sema_atoi(dim)) {
                     s.had_error = 1;
                     printf("error: %s:%d:%d: array index %s is out of bounds for array of size %s\n", s.filename, s.line, s.col, e.b.sval, dim);
                 }
@@ -3043,6 +3074,22 @@ void sema_expr_k(Sema* s, *ExprNode e) {
                     printf("error: %s:%d:%d: cannot call method '%s' on a read-only value: its self may modify it (declare it 'const %s* self' if it does not)\n",
                            s.filename, s.line, s.col, mem.sval, sn);
                 }
+            }
+        }
+        // A receiver that is not a struct, union or interface: only a free `Type_m`, or
+        // inside a generic instance a constrained call on a scalar primitive (lowered to
+        // the free function `m(x, ...)`), can serve the call.
+        string rbc = sema_canon(s, bt);
+        if (ifc == null && sema_judgeable(s, rbc) == 1 && sema_is_struct(s, sn) == 0) {
+            int served = 0;
+            if (sema_find_fndecl(s, sema_cat(sema_cat(sn, "_"), mem.sval)) != null) { served = 1; }
+            if (s.in_inst == 1 && sema_is_scalar_prim(rbc) == 1) {
+                *DeclNode pf = sema_find_fndecl(s, mem.sval);
+                if (pf != null && List_len<Param>(&pf.params) > 0) { served = 1; }
+            }
+            if (served == 0) {
+                s.had_error = 1;
+                printf("error: %s:%d:%d: undefined method '%s' on type '%s'\n", s.filename, s.line, s.col, mem.sval, bt);
             }
         }
         int i = 0;
@@ -3589,6 +3636,28 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
         string elem = "";
         if (sema_is_arr_ty(itt) == 1) { elem = sema_arr_elem(itt); }
         if (s.in_inst == 0) { st.resolved_elem = elem; }
+        // Anything but an array, a slice or a List-like struct (`data` + `size` fields)
+        // cannot be iterated (mirrors the C++ visit(ForInStmt)).
+        string itc = sema_canon(s, itt);
+        if (sema_judgeable(s, itc) == 1 && sema_arr_bracket(itc) < 0) {
+            *DeclNode lsd = sema_find_struct(s, sema_base_name(itc));
+            int listy = 0;
+            if (lsd != null && (int)itc[0] != 42) {
+                int hs = 0; int hd = 0; int fi = 0;
+                while (fi < List_len<Param>(&lsd.params)) {
+                    string fnm = List_get<Param>(&lsd.params, fi).name;
+                    if (sema_streq(fnm, "size") == 1) { hs = 1; }
+                    if (sema_streq(fnm, "data") == 1) { hd = 1; }
+                    fi = fi + 1;
+                }
+                if (hs == 1 && hd == 1) { listy = 1; }
+            }
+            if (listy == 0) {
+                s.had_error = 1;
+                printf("error: %s:%d:%d: for-in expects a fixed-size array or a List-like value (with `data` and `size` fields), got %s\n",
+                       s.filename, s.line, s.col, itt);
+            }
+        }
         sema_drop_assigned(s, st.s1);
         sema_define(s, st.name, elem, 0);
         sema_lbl_push(s, st.label);
