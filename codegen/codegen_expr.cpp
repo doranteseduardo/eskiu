@@ -176,7 +176,7 @@ void CodeGen::emitAssignment(BinaryExpr* node) {
                 const BitfieldSlot* slot = nullptr;
                 llvm::Value* gep = bitfieldWordPtr(mem, slot);
                 llvm::Value* rhs = evaluateExpr(node->right);
-                storeBitfieldInto(gep, *slot, rhs);
+                storeBitfieldInto(gep, *slot, rhs, eskiuUnsigned(getExprEskiuType(node->right)));
                 exprValueStack.push(rhs);
                 return;
             }
@@ -933,12 +933,13 @@ llvm::Value* CodeGen::loadBitfieldFrom(llvm::Value* wordPtr, const BitfieldSlot&
 }
 
 void CodeGen::storeBitfieldInto(llvm::Value* wordPtr, const BitfieldSlot& slot,
-                                llvm::Value* val) {
+                                llvm::Value* val, bool unsignedSrc) {
     llvm::Type* sty = slot.storageType;  // integer storage word
     if (val->getType() != sty) {
         if (val->getType()->isIntegerTy())
             val = val->getType()->getIntegerBitWidth() > sty->getIntegerBitWidth()
-                ? builder->CreateTrunc(val, sty) : builder->CreateZExt(val, sty);
+                ? builder->CreateTrunc(val, sty)
+                : unsignedSrc ? builder->CreateZExt(val, sty) : builder->CreateSExt(val, sty);
         else if (val->getType()->isFloatingPointTy())
             val = builder->CreateFPToSI(val, sty);
     }

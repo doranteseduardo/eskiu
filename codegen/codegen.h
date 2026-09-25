@@ -139,7 +139,8 @@ private:
     // Extract (shift, mask, sign-extend) a bitfield's value from its storage word.
     llvm::Value* loadBitfieldFrom(llvm::Value* wordPtr, const BitfieldSlot& slot);
     // Masked read-modify-write of a bitfield given the storage-word pointer.
-    void storeBitfieldInto(llvm::Value* wordPtr, const BitfieldSlot& slot, llvm::Value* val);
+    void storeBitfieldInto(llvm::Value* wordPtr, const BitfieldSlot& slot, llvm::Value* val,
+                           bool unsignedSrc = false);
 
     // Template struct registry
     std::map<std::string, StructDecl*> templateDecls;

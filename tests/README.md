@@ -92,6 +92,7 @@ when you add a test.
 | `either_stdlib` | `<either>` `Option`/`Either` helpers (`opt_is_some`, `opt_unwrap_or`) |
 | `type_alias` | `type u8 = uint8;` resolves to the underlying type |
 | `bitfields` | bitfield assignment + masked read; signed fields sign-extend |
+| `bitfield_signed_store` | a narrower signed value stored into a wide bitfield sign-extends (assignment, struct literal, `+=`); an unsigned one zero-extends |
 | `templates_result` | `Result<int,string>` monomorphization, `Ok`/`Err` |
 | `template_inference` | `T` inferred when it appears directly as a parameter type |
 | `template_inference_composite` | `T` inferred from a composite param type (`List<T>*`) |
