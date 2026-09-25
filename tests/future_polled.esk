@@ -1,0 +1,33 @@
+// free_future_polled releases the resume closure a caller passed to future_poll
+// along with the future. free_future leaves the waker alone (an `await` frees
+// its own), so a capturing resume passed by hand used to leak its env on every
+// poll. Covers an already-ready future, one parked then completed, and an async
+// function's future. The asan gate checks nothing is freed twice.
+import <mem>;
+import <future>;
+extern int printf(string fmt, ...);
+
+async int add1(Future<int>* f) { int x = await f; return x + 1; }
+
+int main() {
+    int hits = 0;  *int hp = &hits;
+    for (int i = 0; i < 100; i++) {
+        Future<int>* f = future_new<int>();  future_complete<int>(f, 1);
+        int r = future_poll<int>(f, void() { hp[0] = hp[0] + 1; });
+        free_future_polled<int>(f);
+    }
+    Future<int>* p = future_new<int>();
+    int parked = future_poll<int>(p, void() { hp[0] = hp[0] + 1000; });
+    future_complete<int>(p, 7);
+    printf("parked=%d value=%d\n", parked, p.value);
+    free_future_polled<int>(p);
+
+    Future<int>* src = future_new<int>();
+    Future<int>* g = add1(src);
+    int gp = future_poll<int>(g, void() { hp[0] = hp[0] + 1; });
+    future_complete<int>(src, 41);
+    printf("coroutine parked=%d value=%d\n", gp, g.value);
+    free_future_polled<int>(g);
+    printf("hits=%d\n", hits);
+    return 0;
+}

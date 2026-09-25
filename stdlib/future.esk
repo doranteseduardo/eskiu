@@ -55,6 +55,10 @@ Future<T>* future_new<T>() {
 // Awaiter side. Register `resume` and try to park (PENDING -> WAITING).
 // Returns 0 if parked (the producer will call `resume` on completion), or 1 if
 // the future was already READY — the caller should read `value` and not suspend.
+// The caller owns `resume` (it runs at most once and is never freed for you):
+// an `await` frees it itself, and code that drives a future by hand should end
+// with free_future_polled (frees `resume` too), not free_future, when `resume`
+// captures anything.
 int future_poll<T>(Future<T>* f, escaping fn()->void resume) {
     f.waker = resume;
     if (atomic_cas(&f.state, PENDING, WAITING)) {   // PENDING -> WAITING: parked
@@ -168,6 +172,16 @@ Future<int>* join2_hdr(FutureHdr* a, FutureHdr* b) {
 void free_future<T>(Future<T>* f) {
     free_closure(f.on_drop);   // release the producer's on_drop env
     free((*void)f);            // (== free the embedded frame for a coroutine future)
+}
+
+// Free a future that was driven by hand with future_poll: release the resume
+// closure passed to future_poll (the future's waker), then the future. Use this
+// instead of free_future when you called future_poll yourself; after an `await`
+// (which frees its own waker) or a select2/join2/spawn (whose wakers free
+// themselves) use free_future.
+void free_future_polled<T>(Future<T>* f) {
+    free_closure(f.waker);
+    free_future<T>(f);
 }
 
 // Cancel/drop, type-erased. Swap to CANCELLED; if it was already READY the

@@ -344,7 +344,9 @@ contract change), a deliberate later feature.
 - At the top level a future is driven by hand: `future_poll(f, waker)` installs a
   waker that calls `EventLoop_stop`, `EventLoop_run(lp)` runs the loop until then (skip it when
   `future_poll` returns 1, the future is already ready), and the caller reads
-  `f.value` and releases `f` with `free_future`. There is no `future_block` helper.
+  `f.value` and releases `f` with `free_future_polled`, which also frees the waker it
+  passed (`free_future` leaves the waker alone, since an `await` frees its own). There
+  is no `future_block` helper.
 
 ---
 

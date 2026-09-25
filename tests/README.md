@@ -187,6 +187,7 @@ when you add a test.
 | `float_literal_range` | Float literals follow C: a denormal keeps its (tiny, nonzero) value, and a literal too large for double is infinity. |
 | `forin_multidim` | for-in over a multidimensional array binds each row (an `int[3]` for `int[2][3]`). |
 | `fs_read_pipe` | fs_read_all on a stream that cannot seek (a pipe, like stdin) must read to end of file instead of trusting ftell (-1 there), growing past its first guess. |
+| `future_polled` | free_future_polled frees the resume closure a hand-driven future_poll installed along with the future (free_future leaves it, so a capturing resume leaked). |
 | `generic_operators` | Operator overloads resolve inside a generic body, per instantiation. |
 | `global_const_expr` | Global initializers are folded at compile time, operators included (C semantics). |
 | `global_neg_const` | Negative constants in global initializers keep their sign, and a doubly negated literal folds to the positive value. |
