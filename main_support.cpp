@@ -107,7 +107,8 @@ std::string dirOf(const std::string& path) {
 //     only blank lines at the end of the file are dropped
 //   * exactly one final newline
 // Each line's *content* (operators, inner spacing, comments, and every byte of a
-// string or char literal, including a stray `\r`) is preserved verbatim; only the
+// string or char literal, including a stray `\r` and every line of a string that
+// spans lines) is preserved verbatim; only the
 // `\r` of a CRLF line ending is taken off. Braces inside strings, char literals and
 // comments are ignored, so formatting is idempotent and safe. Preprocessor lines
 // (`#…`) sit at column 0 and do not affect nesting. The file's line ending (LF or
@@ -125,30 +126,34 @@ std::string formatSource(const std::string& src) {
       }
       lines.push_back(cur); }
 
-    auto trim = [](const std::string& s) {
-        size_t a = s.find_first_not_of(" \t");
-        if (a == std::string::npos) return std::string();
+    auto rtrim = [](const std::string& s) {
         size_t b = s.find_last_not_of(" \t");
+        if (b == std::string::npos) return std::string();
         if (s[b] == '\\') b = s.size() - 1;       // `\ ` must not become a continuation
-        return s.substr(a, b - a + 1);
+        return s.substr(0, b + 1);
     };
 
     std::string out;
     int depth = 0;            // current `{` nesting
     bool inBlock = false;     // inside a /* … */ block comment
     int pendingBlank = 0;     // blank lines buffered (dropped only at the end of the file)
+    bool inStr = false;       // a string literal continues onto the next line
 
     // Update nesting from t[from..] (code state), skipping strings/chars/comments.
-    // Strings are checked first, so a `/*` or `}` inside a literal is ignored.
+    // Strings are checked first, so a `/*` or `}` inside a literal is ignored. A
+    // string still open at the end of the line leaves inStr set.
     auto scanNesting = [&](const std::string& t, size_t from) {
         for (size_t i = from; i < t.size(); ++i) {
             char c = t[i];
-            if (c == '"' || c == '\'') {                                     // string / char literal
-                char q = c; ++i;
+            if (inStr || c == '"' || c == '\'') {                            // string / char literal
+                char q = inStr ? '"' : c;
+                if (!inStr) ++i;
+                inStr = false;
                 while (i < t.size() && t[i] != q) {
                     if (t[i] == '\\' && i + 1 < t.size()) { ++i; }           // skip the escaped char
                     ++i;
                 }
+                if (i >= t.size() && q == '"') inStr = true;
                 continue;
             }
             if (c == '/' && i + 1 < t.size() && t[i + 1] == '/') break;       // line comment
@@ -176,22 +181,31 @@ std::string formatSource(const std::string& src) {
                 }
             continue;
         }
-        std::string t = trim(raw);
-        if (t.empty()) { pendingBlank++; continue; }
+        if (inStr) {                         // inside a multi-line string: bytes verbatim
+            std::string t = raw;
+            scanNesting(t, 0);
+            if (!inStr) t = rtrim(t);
+            out += t; out += eol;
+            continue;
+        }
+        size_t a = raw.find_first_not_of(" \t");
+        if (a == std::string::npos) { pendingBlank++; continue; }
+        std::string t = raw.substr(a);
 
         for (; pendingBlank > 0; pendingBlank--) out += eol;   // keep every blank line
 
         if (t[0] == '#') {                   // preprocessor line: column 0, no nesting change
-            out += t; out += eol; continue;
+            out += rtrim(t); out += eol; continue;
         }
 
         // This line's indent dedents for each leading `}`.
         int lead = depth;
         for (char c : t) { if (c == '}') lead--; else break; }
         if (lead < 0) lead = 0;
+        scanNesting(t, 0);
+        if (!inStr) t = rtrim(t);            // trailing blanks inside an open string are its bytes
         out.append((size_t)lead * 4, ' ');
         out += t; out += eol;
-        scanNesting(t, 0);
     }
     return out;
 }

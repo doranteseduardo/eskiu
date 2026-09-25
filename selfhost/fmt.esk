@@ -14,17 +14,21 @@ import <string>;
 
 // Update the `{` nesting from tb[from, tlen) (code state), skipping strings, chars and
 // comments; a `/*` without its `*/` leaves *in_block set (mirrors the C++ scanNesting).
-void fmt_scan(*uint8 tb, int tlen, int from, *int depth, *int in_block) {
+// A string still open at the end of the line leaves *in_str set (and one open at
+// the start is continued).
+void fmt_scan(*uint8 tb, int tlen, int from, *int depth, *int in_block, *int in_str) {
     int j = from;
     while (j < tlen) {
         int c = (int)tb[j];
-        if (c == 34 || c == 39) {           // string / char literal
+        if (in_str[0] == 1 || c == 34 || c == 39) {           // string / char literal
             int q = c;
-            j = j + 1;
+            if (in_str[0] == 1) { q = 34; } else { j = j + 1; }
+            in_str[0] = 0;
             while (j < tlen && (int)tb[j] != q) {
                 if (tb[j] == 92 && j + 1 < tlen) { j = j + 1; }  // skip the escaped char
                 j = j + 1;
             }
+            if (j >= tlen && q == 34) { in_str[0] = 1; }
             j = j + 1;                      // move past the closing quote
             continue;
         }
@@ -47,6 +51,15 @@ void fmt_scan(*uint8 tb, int tlen, int from, *int depth, *int in_block) {
     if (depth[0] < 0) { depth[0] = 0; }
 }
 
+// The end of b[s, e) with trailing spaces and tabs dropped, unless that exposes a
+// trailing `\` (trimming there would create a continuation).
+int fmt_rtrim(*uint8 b, int s, int e) {
+    int te = e;
+    while (te > s && (b[te - 1] == 32 || b[te - 1] == 9)) { te = te - 1; }
+    if (te > s && b[te - 1] == 92) { te = e; }
+    return te;
+}
+
 // Append the line ending: CRLF when `crlf` is set, else LF.
 void fmt_eol(String* out, int crlf) {
     if (crlf == 1) { String_push(out, (char)13); }
@@ -62,6 +75,7 @@ String format_source(*uint8 src, int n) {
     String_init(&out, n + 64);
     let depth: int = 0;    // current `{` nesting
     let inBlock: int = 0;  // inside a /* … */ block comment
+    let inStr: int = 0;    // a string literal continues onto the next line
     int pendingBlank = 0;  // blank lines buffered (dropped only at the end of the file)
     int crlf = 0;
     int fnl = 0;
@@ -96,7 +110,7 @@ String format_source(*uint8 src, int n) {
             while (b + 1 < rlen) {
                 if (rb[b] == 42 && rb[b + 1] == 47) {
                     inBlock = 0;
-                    fmt_scan(rb, rlen, b + 2, &depth, &inBlock);   // code after the `*/` still nests
+                    fmt_scan(rb, rlen, b + 2, &depth, &inBlock, &inStr);   // code after the `*/` still nests
                     b = rlen;
                 }
                 else { b = b + 1; }
@@ -104,23 +118,30 @@ String format_source(*uint8 src, int n) {
             continue;
         }
 
-        // trim leading/trailing spaces and tabs into `t`
+        if (inStr == 1) {           // inside a multi-line string: bytes verbatim
+            fmt_scan(rb, rlen, 0, &depth, &inBlock, &inStr);
+            int ve = rlen;
+            if (inStr == 0) { ve = fmt_rtrim(rb, 0, rlen); }
+            int a = 0;
+            while (a < ve) { String_push(&out, (char)rb[a]); a = a + 1; }
+            fmt_eol(&out, crlf);
+            continue;
+        }
+
+        // drop leading spaces and tabs into `t` (trailing ones go after the scan)
         int ts = 0;
         while (ts < rlen && (rb[ts] == 32 || rb[ts] == 9)) { ts = ts + 1; }
-        int te = rlen;
-        while (te > ts && (rb[te - 1] == 32 || rb[te - 1] == 9)) { te = te - 1; }
-        if (te > ts && rb[te - 1] == 92) { te = rlen; }   // `\ ` must not become a continuation
+        if (ts == rlen) { pendingBlank = pendingBlank + 1; continue; }
         String_clear(&t);
         int cp = ts;
-        while (cp < te) { String_push(&t, (char)rb[cp]); cp = cp + 1; }
+        while (cp < rlen) { String_push(&t, (char)rb[cp]); cp = cp + 1; }
         int tlen = (int)String_len(&t);
         *uint8 tb = (*uint8)String_cstr(&t);
-
-        if (tlen == 0) { pendingBlank = pendingBlank + 1; continue; }
 
         while (pendingBlank > 0) { fmt_eol(&out, crlf); pendingBlank = pendingBlank - 1; }   // keep every blank line
 
         if (tb[0] == 35) {          // '#' preprocessor line: column 0, no nesting change
+            tlen = fmt_rtrim(tb, 0, tlen);
             int a = 0;
             while (a < tlen) { String_push(&out, (char)tb[a]); a = a + 1; }
             fmt_eol(&out, crlf);
@@ -135,13 +156,13 @@ String format_source(*uint8 src, int n) {
             else { k = tlen; }      // break at the first non-'}'
         }
         if (lead < 0) { lead = 0; }
+        fmt_scan(tb, tlen, 0, &depth, &inBlock, &inStr);   // update nesting from this line's code
+        if (inStr == 0) { tlen = fmt_rtrim(tb, 0, tlen); }  // blanks inside an open string are its bytes
         int sp = 0;
         while (sp < lead * 4) { String_push(&out, (char)32); sp = sp + 1; }
         int a = 0;
         while (a < tlen) { String_push(&out, (char)tb[a]); a = a + 1; }
         fmt_eol(&out, crlf);
-
-        fmt_scan(tb, tlen, 0, &depth, &inBlock);   // update nesting from this line's code
     }
     return out;
 }
