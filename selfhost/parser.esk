@@ -779,6 +779,65 @@ string lambda_sig(string ret, *DeclNode d) {
     return str_concat(sig, ")");
 }
 
+// Does a lambda whose return type is not a type keyword start here (`S() {`,
+// `*S(int k) {`, `Box<int>(T x) {`)? A token scan, no parse (mirrors lambdaAhead).
+int lambda_ahead(Parser* p) {
+    int n = List_len<Token>(&p.toks);
+    int i = p.pos;
+    if (i < n && List_get<Token>(&p.toks, i).type == QUESTION) { i = i + 1; }
+    while (i < n && List_get<Token>(&p.toks, i).type == STAR) { i = i + 1; }
+    if (i >= n) { return 0; }
+    int t0 = List_get<Token>(&p.toks, i).type;
+    if (t0 != IDENT && is_type_kw(t0) == 0) { return 0; }
+    i = i + 1;
+    if (i < n && List_get<Token>(&p.toks, i).type == LT) {
+        int d = 1;
+        i = i + 1;
+        while (i < n && d > 0) {
+            int t = List_get<Token>(&p.toks, i).type;
+            if (t == LT) { d = d + 1; }
+            else if (t == GT) { d = d - 1; }
+            else if (t == RSHIFT) { d = d - 2; }
+            else if (t != IDENT && is_type_kw(t) == 0 && t != COMMA && t != STAR && t != QUESTION) { return 0; }
+            i = i + 1;
+        }
+        if (d != 0) { return 0; }
+    }
+    while (i < n && List_get<Token>(&p.toks, i).type == STAR) { i = i + 1; }
+    if (i >= n || List_get<Token>(&p.toks, i).type != LPAREN) { return 0; }
+    int d = 0;
+    while (i < n) {
+        int t = List_get<Token>(&p.toks, i).type;
+        if (t == LPAREN) { d = d + 1; }
+        else if (t == RPAREN) { d = d - 1; if (d == 0) { break; } }
+        else if (t == LBRACE || t == SEMICOLON || t == EOF_TOKEN) { return 0; }
+        i = i + 1;
+    }
+    if (i + 1 < n && List_get<Token>(&p.toks, i + 1).type == LBRACE) { return 1; }
+    return 0;
+}
+
+// Lambda: RetType(params) { body }. Speculative: backs out (returns null) when the
+// tokens do not form one.
+*ExprNode try_parse_lambda(Parser* p) {
+    int save = p.pos;
+    p.spec = p.spec + 1;
+    string ret = parse_type(p);
+    p_expect(p, LPAREN, "Expected '('");
+    *DeclNode tmp = ast_new_decl();
+    parse_params(p, tmp);
+    p_expect(p, RPAREN, "Expected ')'");
+    p.spec = p.spec - 1;
+    if (p.failed == 0 && p_at(p) == LBRACE) {
+        *ExprNode e = ast_new_expr();
+        e.kind = EK_LAMBDA; e.sval = lambda_sig(ret, tmp); e.stmt = parse_block(p);
+        return e;
+    }
+    p.failed = 0;
+    p.pos = save;                          // not a lambda — back out
+    return null;
+}
+
 *ExprNode parse_primary(Parser* p) {
     int t = p_at(p);
     if (t == LBRACE) {                                 // array literal { e0, e1, ... }
@@ -857,21 +916,8 @@ string lambda_sig(string ret, *DeclNode d) {
     }
     // Lambda: RetType(params) { body } — a type keyword followed by '('.
     if (is_type_kw(t) == 1 && p_peek2(p).type == LPAREN && p.failed == 0) {
-        int save = p.pos;
-        p.spec = p.spec + 1;
-        string ret = parse_type(p);
-        p_expect(p, LPAREN, "Expected '('");
-        *DeclNode tmp = ast_new_decl();
-        parse_params(p, tmp);
-        p_expect(p, RPAREN, "Expected ')'");
-        p.spec = p.spec - 1;
-        if (p.failed == 0 && p_at(p) == LBRACE) {
-            *ExprNode e = ast_new_expr();
-            e.kind = EK_LAMBDA; e.sval = lambda_sig(ret, tmp); e.stmt = parse_block(p);
-            return e;
-        }
-        p.failed = 0;
-        p.pos = save;                          // not a lambda — back out
+        *ExprNode lam = try_parse_lambda(p);
+        if (lam != null) { return lam; }
     }
     if (t == IDENT) {
         Token tok = p_adv(p);
@@ -1005,6 +1051,12 @@ int star_paren_is_cast(Parser* p) {
     return r;
 }
 *ExprNode parse_unary_inner(Parser* p) {
+    // A lambda whose return type is a struct, pointer or generic type. Not in a
+    // match subject, where `f() {` is the call and the match body.
+    if ((p.no_struct_lit == 0 || is_type_kw(p_at(p)) == 1) && p.failed == 0 && lambda_ahead(p) == 1) {
+        *ExprNode lam = try_parse_lambda(p);
+        if (lam != null) { return lam; }
+    }
     // await E — prefix, binds like a unary operator.
     if (p_at(p) == AWAIT) {
         p_adv(p);

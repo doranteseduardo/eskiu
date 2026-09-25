@@ -152,6 +152,10 @@ private:
     // When set, a bare `Name {` is not parsed as a struct literal (so a match
     // subject's trailing `{` opens the match body). Restored after the subject.
     bool noStructLiteral = false;
+    // Does a lambda whose return type is not a type keyword start here
+    // (`S() {`, `*S(int k) {`, `Box<int>(T x) {`)? A token scan, no parse.
+    bool lambdaAhead() const;
+    ExprPtr tryParseLambda();
     StmtPtr parseExpressionStatement();
 
     ExprPtr parseStructInit(const std::string& structName);

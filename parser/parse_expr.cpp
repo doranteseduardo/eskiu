@@ -156,8 +156,67 @@ bool Parser::starParenIsCast() const {
     }
 }
 
+bool Parser::lambdaAhead() const {
+    size_t i = current, n = tokens.size();
+    auto at = [&](size_t k) { return k < n ? tokens[k].type : TokenType::EOF_TOKEN; };
+    if (at(i) == TokenType::QUESTION) i++;
+    while (at(i) == TokenType::STAR) i++;
+    if (at(i) != TokenType::IDENT && !isPrimitiveTypeToken(at(i))) return false;
+    i++;
+    if (at(i) == TokenType::LT) {
+        int d = 1;
+        for (i++; i < n && d > 0; i++) {
+            TokenType t = at(i);
+            if (t == TokenType::LT) d++;
+            else if (t == TokenType::GT) d--;
+            else if (t == TokenType::RSHIFT) d -= 2;
+            else if (t != TokenType::IDENT && !isPrimitiveTypeToken(t) && t != TokenType::COMMA &&
+                     t != TokenType::STAR && t != TokenType::QUESTION) return false;
+        }
+        if (d != 0) return false;
+    }
+    while (at(i) == TokenType::STAR) i++;
+    if (at(i) != TokenType::LPAREN) return false;
+    int d = 0;
+    for (; i < n; i++) {
+        TokenType t = at(i);
+        if (t == TokenType::LPAREN) d++;
+        else if (t == TokenType::RPAREN) { if (--d == 0) break; }
+        else if (t == TokenType::LBRACE || t == TokenType::SEMICOLON || t == TokenType::EOF_TOKEN) return false;
+    }
+    return at(i + 1) == TokenType::LBRACE;
+}
+
+// Lambda: RetType(params) { body }. Speculative: backs out (returns null) when the
+// tokens do not form one.
+ExprPtr Parser::tryParseLambda() {
+    Token tok = peek();
+    size_t savePos = current;
+    try {
+        std::string retType = parseType();
+        consume(TokenType::LPAREN, "");
+        std::vector<bool> esc;
+        auto params = parseParameterList(&esc);
+        consume(TokenType::RPAREN, "");
+        if (check(TokenType::LBRACE)) {
+            StmtPtr body = parseBlockStatement();
+            auto lambda = std::make_shared<LambdaExpr>(params, retType, body);
+            lambda->line = tok.line; lambda->col = tok.column;
+            lambda->paramEscaping = esc;
+            return lambda;
+        }
+    } catch (...) {}
+    rewindTo(savePos);
+    return nullptr;
+}
+
 ExprPtr Parser::parseUnary() {
     NestGuard guard(*this);
+    // A lambda whose return type is a struct, pointer or generic type. Not in a
+    // match subject, where `f() {` is the call and the match body.
+    if ((!noStructLiteral || isPrimitiveTypeToken(peek().type)) && lambdaAhead()) {
+        if (ExprPtr l = tryParseLambda()) return l;
+    }
     // await E — prefix operator; binds like a unary operator.
     if (check(TokenType::AWAIT)) {
         Token awaitTok = advance();
@@ -389,22 +448,7 @@ ExprPtr Parser::parsePrimary() {
         bool isTypeKw = isPrimitiveTypeToken(tok.type);
         if (isTypeKw && peek_ahead(1).type == TokenType::LPAREN) {
             // Disambiguate from a cast-like usage: try to parse as lambda, backtrack on failure
-            size_t savePos = current;
-            try {
-                std::string retType = parseType();           // consume return type
-                consume(TokenType::LPAREN, "");
-                std::vector<bool> esc;
-                auto params = parseParameterList(&esc);
-                consume(TokenType::RPAREN, "");
-                if (check(TokenType::LBRACE)) {              // confirmed: it's a lambda
-                    StmtPtr body = parseBlockStatement();
-                    auto lambda = std::make_shared<LambdaExpr>(params, retType, body);
-                    lambda->line = tok.line; lambda->col = tok.column;
-                    lambda->paramEscaping = esc;
-                    return lambda;
-                }
-            } catch (...) {}
-            rewindTo(savePos); // not a lambda, fall through
+            if (ExprPtr l = tryParseLambda()) return l;
         }
     }
 
