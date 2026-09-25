@@ -8,6 +8,191 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
+## [0.9.2] - 2026-09-25
+A full-project audit (codegen, type checker, self-host parity, stdlib, front end, driver
+and docs) found about a hundred latent bugs that the existing corpus did not reach. All
+are fixed lockstep in the C++ and self-hosted compilers unless noted, each with a
+regression test.
+
+### Added
+- **`#if` / `#elif`** with C integer constant expressions (`defined(X)`, `defined X`,
+  arithmetic, shifts, comparisons, `&&`, `||`, `?:`). An identifier left after macro
+  expansion counts as `0`, as in C.
+- **Interface values.** An interface is now a real `{data, vtable}` value, so an
+  interface-typed local, struct field, return value or assignment works (these compiled
+  and then crashed before). The value refers to a struct through `&x`.
+- **`const` receivers.** A method declared with `const T* self` can be called on a
+  `const` value.
+- **C ABI for structs passed or returned by value across `extern`**: AArch64, x86-64
+  SysV, Windows x64 and 32-bit ARM in the C++ compiler, AArch64 and x86-64 SysV in the
+  self-host. New predefined macros `__aarch64__`, `__x86_64__` and `__arm__` follow the
+  target.
+- **Test runner:** a `run` or smoke test may have a C companion `tests/NAME.c` that is
+  compiled and linked in; `tests/warnings/NAME.esk` is a new lint kind that asserts the
+  exact `-Wall` warnings (`// EXPECT-WARNING:` lines).
+- The compiler builds against LLVM 23 as well as LLVM 22. The minimum is now LLVM 21.
+
+### Changed (may reject or change the behavior of existing programs)
+- **A non-constant global initializer is a compile error.** `int g = f();`, or a read of
+  a non-`const` global, used to compile to a silent `0`. Constant expressions
+  (arithmetic, casts, ternaries, `sizeof`, enum members, `const` values, `&global`) fold
+  correctly.
+- **Narrow integer operands promote to `int` before arithmetic and comparison** (the C
+  integer promotions). `(uint8)200 + (uint8)100` is `300`, and `uint8 200 > int8 -1` is
+  true.
+- **Conversion to `bool` is `!= 0`** for integer, float and pointer sources. It used to
+  keep only the low bit, so `(bool)2` was false.
+- **`ptr - ptr` counts elements**, not bytes (C++; the self-host already did).
+- **Passing a struct by value where an interface is expected is an error**; pass `&x`.
+- **Interface conformance checks method signatures** (return type, arity, parameter
+  types), not only method names.
+- **Duplicate and conflicting declarations are errors**: same-scope locals, globals,
+  parameters, fields, enum members, structs with different fields, a second `default:`,
+  one name used for a function and a global (or a struct, or a method), and a prototype
+  whose signature differs from its definition.
+- **Struct literals are type-checked**: field types, literal ranges, too many
+  initializers, a field given twice. Omitted fields are zero-filled.
+- **`sizeof(variable)`** gives the size of the variable's type; an unknown name is an
+  error.
+- **Methods called on a `const` value** must declare `const T* self`, and `&` of a
+  `const` value no longer converts to a non-`const` pointer.
+- **`match` on a classic enum** whose members share a value rejects a second arm for the
+  same value.
+- **Preprocessor:** unknown directives, `#include` (use `import`), a stray or duplicate
+  `#else`/`#elif`/`#endif`, a conditional left open, and `#` or `##` in a macro body are
+  located errors instead of being silently dropped.
+- **Numeric literals:** an invalid digit in an octal literal (`08`, `019`) is an error
+  (it was read as decimal), as are `0x` with no digits and any suffix (`0b101`, `1_000`,
+  `3.5f`).
+- **Strict stdlib parsers:** `json_parse` follows RFC 8259 (exact literals, no trailing
+  garbage, `\uXXXX` decoding); `base64_decode` rejects bad padding and truncated input; a
+  malformed or overflowing `Content-Length` gets a 400; `String_to_int` saturates and
+  accepts a leading `+`; `http_reason` returns the class name (or an empty string) for
+  an unknown code instead of "OK".
+
+### Deprecated
+- Stdlib modules built around a struct now use `Type_method` names, as the naming
+  convention says: `Rng_*` (`<random>`), `Regex_search`/`Regex_free`/`Match_*`
+  (`<regex>`), `Heap_*` (`<sysheap>`), `EventLoop_*` (`<eventloop>`), `Executor_*`
+  (`<executor>`), `Chan_*` (`<channel>`), `HpackDecoder_*`/`HpackHuff_*` (`<hpack>`),
+  `H2Conn_*`/`H2Stream_*` (`<http2>`), `DateTime_to_epoch`/`DateTime_format_iso`
+  (`<time>`). Factories keep their names (`el_new`, `executor_new`, `chan_new`,
+  `regex_compile`). The old names remain as wrappers and will be removed in a later
+  release. `String_is_space` is deprecated in favor of `is_space` from `<ctype>`.
+
+### Fixed
+#### Miscompiles of valid code
+- A `let` in a nested block overwrote the outer variable of the same name for the rest of
+  the function (including inside `for` bodies and across `await`).
+- Compound assignment (`a[f()] += 1`, `a[i++] += 5`, `getf().lo += 2` on a bitfield)
+  evaluated its left side twice.
+- An unbraced `defer` (`if (c) defer ...;`, a `case` body, a loop body) ran even when it
+  was never reached; an unbraced body is now its own scope.
+- A ternary with a literal wider than 32 bits or an unsigned arm was truncated, and a
+  `null` arm crashed LLVM (the `null` arm in C++ only).
+- A lambda body inherited the enclosing function's defers, loop targets and unwind
+  block, and a generic first instantiated inside `try` produced invalid IR (C++).
+- `finally` now runs when a `catch` handler leaves by `return`, `break` or `continue`.
+- A `static` local captured by a closure is shared (not copied), and an uninitialized
+  `static` starts at zero.
+- A range loop's upper bound (`for (i in 0..n())`) is evaluated once.
+- Operator overloads inside generic bodies, `for (row in m)` over a 2D array, and
+  denormal or overflowing float literals (C++).
+- Member, index and method access on rvalues (`mk().a[1]`, `a.add(b).add(c)`); `!` on
+  pointers and floats and a unary `operator !` overload; `case K:` with a `const` or a
+  constant expression.
+- Unions have C alignment; bitfield `++`/`--` works, bitfields use C storage words, and
+  their signedness follows the dealiased type.
+- Async: `do`/`while`, `defer` and lambdas capturing locals work inside an `async fn`;
+  a local named `fr` no longer collides with the frame pointer, and shadowed names inside
+  lambda bodies are renamed correctly.
+- Self-host: expression temporaries no longer allocate stack on every loop iteration
+  (long loops overflowed the stack); pointer arithmetic, promotions and ternaries get the
+  right type; ADT payloads with arrays or nested enums, and bitfield structs, have the
+  same size as in the C++ compiler; negative and non-`i32` global constants keep their
+  value; calling a returned closure directly works; an `extern` followed by its
+  definition no longer emits two definitions; chained assignment yields the converted
+  value.
+
+#### Type checker
+- Missing-return analysis is sound for labeled `break`, `break` before a `return`, and
+  `switch` fall-through, and no longer flags a case that falls into a returning
+  `default`.
+- `?*T` narrowing is flow-sensitive (a reassignment or a shadowing declaration ends it)
+  and covers `&&`, `||`, `!`, early-exit guards (`if (p == null) return ...;`), loop
+  conditions and ternaries. A narrowed pointer can be passed or assigned as `*T`.
+- Calls through `fn` values, fields and interface methods, and generic calls, check the
+  argument count and types; a generic call also checks its type-argument count and
+  reports a type argument it cannot infer. `break`/`continue` escaping a lambda is
+  rejected.
+- Located errors instead of compiler crashes for cyclic type aliases, `void` variables,
+  parameters and fields, float, pointer or over-wide bitfields, a struct containing
+  itself by value, unknown types and wrong template argument counts. An unknown type no
+  longer triggers a cascade of conversion errors.
+- Errors that only codegen used to report (assigning to an rvalue, `&` of an rvalue or a
+  bitfield, invalid indexing and casts, a non-constant `case`, `break` outside a loop,
+  constant slice bounds out of range) now come from the type checker with a location.
+  Integer literals in compound assignments and ternary arms are range-checked.
+- `must_use` applies to method-call syntax. An assignment target is no longer reported
+  as an uninitialized read. A leading-star pointer to a generic instance (`*List<int>`)
+  is accepted as a declared type.
+- `-Wall` no longer flags methods used through dot calls, interfaces or operators, or
+  the parameters of prototypes and lambdas; the unused-parameter warning points at the
+  parameter. Diagnostics spell operator functions as `operator +(V, V)`.
+- Self-host: dot calls to free-function methods (`s.trim()`) are accepted; many invalid
+  programs it used to accept (C-style array declarators, `++` on a float, a mismatched
+  `?`, misplaced array literals) are rejected like the C++ compiler; its diagnostics
+  carry `line:col`.
+
+#### Front end, driver and tooling
+- `x < y >> 1` parses (a backtracked generic parse left `>>` split), and `(*p)` parses
+  as a dereference rather than a cast.
+- Macro arguments keep string and character literals whole, nested macro calls in
+  arguments expand, and an apostrophe in a comment no longer stops expansion. CRLF
+  sources and `\` continuations work.
+- Imports are deduplicated by canonical path, so diamond and circular imports work.
+- Every diagnostic is `file:line:col`, including parse and lexer errors; an error inside
+  an imported file names that file; parse errors recover at the next declaration.
+- The `--test-*` modes predefine the same macros as a real build and exit non-zero on
+  errors; `--definition-at` resolves by scope.
+- `run` exits with `128+signal` when the program is killed, drops a `--` separator and
+  accepts flags with values before the script. `-o` naming an input file, a directory
+  input and `-O4` are refused. `--help` lists the Eskiu options and subcommands without
+  LLVM's internal ones. `$CC` may carry arguments.
+- Nesting-depth and operator-chain limits replace stack overflows on pathological input.
+- `fmt` indents code after a closing `*/` and preserves CRLF line endings.
+- Self-host driver: spawns clang without a shell (safe with any argument), accepts the
+  full flag set, finds the stdlib through `$ESKIU_ROOT`, and reports a missing import as
+  an error.
+- VS Code server: full-document sync, unsaved buffers resolve relative imports, and the
+  version comes from `package.json` (extension 0.0.26).
+
+#### Standard library: memory safety
+- `tls_read_frame` / `tls_read_frame_async` check the peer's frame length (heap
+  overflow).
+- HPACK: a table-size update above the SETTINGS limit is rejected (heap overflow), a
+  literal naming an evicted entry no longer reads freed memory, and integer and string
+  decoding stay inside the header block.
+- A dropped `Chan_recv` future no longer leaves a dangling waiter.
+- `fs_read_all` works on pipes and stdin; `String_concat(&s, &s)` and
+  `Bytes_append(&b, &b)` no longer read freed memory; the `Map` hash can't go negative.
+- HTTP/2 response headers are sized to fit and split into CONTINUATION frames.
+
+#### Standard library: logic
+- Regex: repeated groups (`(a){8}`) match, capture memory is bounded, `a{3,1}` is an
+  error, and a leading `]` in a class is literal.
+- `Json_int` writes the full `int64`, the builder escapes control characters, and a
+  failed parse frees its partial tree.
+- HTTP: header values are trimmed of optional whitespace and error bodies are valid
+  JSON.
+- Multipart no longer matches `name=` inside `filename=` and handles empty fields;
+  `net_write_async` no longer leaks; `EventLoop`/`Executor` close their descriptors and
+  the timer table grows.
+- `FirstFit` (and so `<sysheap>`) coalesces adjacent free blocks; freeing `null` is a
+  no-op.
+- `String_from_int(INT_MIN)`, `String_init(&s, 0)`, POSIX `dirname`/`basename` edge
+  cases, negative ISO years and `env_get_int` fallbacks on non-numeric values.
+
 ## [0.9.1] - 2026-09-09
 ### Fixed
 A correctness campaign (a multi-front bug hunt) closed a set of latent miscompiles and
