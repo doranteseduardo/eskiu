@@ -2110,8 +2110,7 @@ CgVal cg_lval(Codegen* g, *ExprNode e) {
                 // struct by value) — materialize it into a fresh alloca, then GEP into that.
                 CgVal val = cg_expr(g, e.a);
                 if (val.ety[0] != 0) { sname = val.ety; }
-                string slot = cg_tmp(g);
-                cg_emit(g, "  "); cg_emit(g, slot); cg_emit(g, " = alloca "); cg_emit(g, val.ty); cg_emit(g, "\n");
+                string slot = cg_entry_alloca(g, val.ty);
                 cg_emit(g, "  store "); cg_emit(g, val.ty); cg_emit(g, " "); cg_emit(g, val.op);
                 cg_emit(g, ", ptr "); cg_emit(g, slot); cg_emit(g, "\n");
                 sptr = slot;
@@ -2476,8 +2475,7 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
             // Short-circuit via a result slot: store the LHS, branch over the RHS when
             // the result is already decided (&& false / || true), else evaluate the RHS.
             int is_and = cg_streq(e.sval, "&&");
-            string res = cg_tmp(g);
-            cg_emit(g, "  "); cg_emit(g, res); cg_emit(g, " = alloca i1\n");
+            string res = cg_entry_alloca(g, "i1");
             CgVal a = cg_cond(g, e.a);
             cg_emit(g, "  store i1 "); cg_emit(g, a.op); cg_emit(g, ", ptr "); cg_emit(g, res); cg_emit(g, "\n");
             string lrhs = cg_lbl(g);
@@ -2829,8 +2827,7 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
         // `cond ? then : else` — branch and evaluate exactly one arm into a result slot,
         // each arm coerced to the common type (mirrors the short-circuit && lowering).
         string rty = cg_lltype(g, cg_etype(g, e));
-        string res = cg_tmp(g);
-        cg_emit(g, "  "); cg_emit(g, res); cg_emit(g, " = alloca "); cg_emit(g, rty); cg_emit(g, "\n");
+        string res = cg_entry_alloca(g, rty);
         CgVal c = cg_cond(g, e.a);
         string lthen = cg_lbl(g);
         string lelse = cg_lbl(g);
@@ -2866,8 +2863,7 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
         string okllty = cg_lltype(g, List_get<string>(&s.fetys, okIdx));
         string valety = List_get<string>(&s.fetys, valIdx);
         string valllty = cg_lltype(g, valety);
-        string tmp = cg_tmp(g);
-        cg_emit(g, "  "); cg_emit(g, tmp); cg_emit(g, " = alloca "); cg_emit(g, llty); cg_emit(g, "\n");
+        string tmp = cg_entry_alloca(g, llty);
         cg_emit(g, "  store "); cg_emit(g, llty); cg_emit(g, " "); cg_emit(g, r.op); cg_emit(g, ", ptr "); cg_emit(g, tmp); cg_emit(g, "\n");
         string okp = cg_tmp(g);
         cg_emit(g, "  "); cg_emit(g, okp); cg_emit(g, " = getelementptr "); cg_emit(g, llty); cg_emit(g, ", ptr "); cg_emit(g, tmp);
@@ -2924,8 +2920,7 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
         cg_emit(g, "  "); cg_emit(g, fnp); cg_emit(g, " = extractvalue %closure "); cg_emit(g, fatop); cg_emit(g, ", 0\n");
         string env = cg_tmp(g);
         cg_emit(g, "  "); cg_emit(g, env); cg_emit(g, " = extractvalue %closure "); cg_emit(g, fatop); cg_emit(g, ", 1\n");
-        string tid = cg_tmp(g);
-        cg_emit(g, "  "); cg_emit(g, tid); cg_emit(g, " = alloca ptr\n");
+        string tid = cg_entry_alloca(g, "ptr");
         cg_ensure_extern(g, "pthread_create", "declare i32 @pthread_create(ptr, ptr, ptr, ptr)\n");
         cg_emit(g, "  call i32 @pthread_create(ptr "); cg_emit(g, tid); cg_emit(g, ", ptr null, ptr ");
         cg_emit(g, fnp); cg_emit(g, ", ptr "); cg_emit(g, env); cg_emit(g, ")\n");
@@ -2950,8 +2945,7 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
         // temp, fill its fields, and load the struct value. (Var-decls fill in place.)
         string sname = e.sval;
         string llty = cg_lltype(g, sname);
-        string slot = cg_tmp(g);
-        cg_emit(g, "  "); cg_emit(g, slot); cg_emit(g, " = alloca "); cg_emit(g, llty); cg_emit(g, "\n");
+        string slot = cg_entry_alloca(g, llty);
         cg_struct_init(g, slot, sname, e);
         string r = cg_tmp(g);
         cg_emit(g, "  "); cg_emit(g, r); cg_emit(g, " = load "); cg_emit(g, llty); cg_emit(g, ", ptr "); cg_emit(g, slot); cg_emit(g, "\n");
@@ -3015,8 +3009,7 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
                 j = j + 1;
             }
         }
-        string c = cg_tmp(g);
-        cg_emit(g, "  "); cg_emit(g, c); cg_emit(g, " = alloca %closure\n");
+        string c = cg_entry_alloca(g, "%closure");
         string c0 = cg_tmp(g);
         cg_emit(g, "  "); cg_emit(g, c0); cg_emit(g, " = getelementptr %closure, ptr "); cg_emit(g, c); cg_emit(g, ", i32 0, i32 0\n");
         cg_emit(g, "  store ptr @"); cg_emit(g, lname); cg_emit(g, ", ptr "); cg_emit(g, c0); cg_emit(g, "\n");
@@ -3038,8 +3031,7 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
 CgVal cg_build_variant(Codegen* g, CgVariant var, *ExprNode call) {
     let v: CgVal; v.ety = "";
     string llty = cg_cat("%", var.ename);
-    string slot = cg_tmp(g);
-    cg_emit(g, "  "); cg_emit(g, slot); cg_emit(g, " = alloca "); cg_emit(g, llty); cg_emit(g, "\n");
+    string slot = cg_entry_alloca(g, llty);
     string tp = cg_tmp(g);
     cg_emit(g, "  "); cg_emit(g, tp); cg_emit(g, " = getelementptr "); cg_emit(g, llty);
     cg_emit(g, ", ptr "); cg_emit(g, slot); cg_emit(g, ", i32 0, i32 0\n");
@@ -3150,8 +3142,7 @@ string cg_box_iface(Codegen* g, string ifaceName, string structName, string data
         }
         String_append(&g.globals, " }\n");
     }
-    string slot = cg_tmp(g);
-    cg_emit(g, "  "); cg_emit(g, slot); cg_emit(g, " = alloca %iface_fat\n");
+    string slot = cg_entry_alloca(g, "%iface_fat");
     string dg = cg_tmp(g);
     cg_emit(g, "  "); cg_emit(g, dg); cg_emit(g, " = getelementptr %iface_fat, ptr "); cg_emit(g, slot); cg_emit(g, ", i32 0, i32 0\n");
     cg_emit(g, "  store ptr "); cg_emit(g, dataop); cg_emit(g, ", ptr "); cg_emit(g, dg); cg_emit(g, "\n");
@@ -3312,8 +3303,7 @@ string cg_member_baseptr(Codegen* g, *ExprNode ea, *string out_sname) {
     if (lv.op[0] != 0) { out_sname[0] = bet; if (lv.ety[0] != 0) { out_sname[0] = lv.ety; } return lv.op; }
     CgVal val = cg_expr(g, ea);                       // rvalue → materialize
     if (val.ety[0] != 0) { out_sname[0] = val.ety; } else { out_sname[0] = bet; }
-    string slot = cg_tmp(g);
-    cg_emit(g, "  "); cg_emit(g, slot); cg_emit(g, " = alloca "); cg_emit(g, val.ty); cg_emit(g, "\n");
+    string slot = cg_entry_alloca(g, val.ty);
     cg_emit(g, "  store "); cg_emit(g, val.ty); cg_emit(g, " "); cg_emit(g, val.op); cg_emit(g, ", ptr "); cg_emit(g, slot); cg_emit(g, "\n");
     return slot;
 }
@@ -3856,8 +3846,7 @@ void cg_stmt(Codegen* g, *StmtNode st) {
         if (sptr[0] == 0) {                               // rvalue subject — materialize
             CgVal val = cg_expr(g, st.expr);
             sety = val.ety;
-            sptr = cg_tmp(g);
-            cg_emit(g, "  "); cg_emit(g, sptr); cg_emit(g, " = alloca "); cg_emit(g, val.ty); cg_emit(g, "\n");
+            sptr = cg_entry_alloca(g, val.ty);
             cg_emit(g, "  store "); cg_emit(g, val.ty); cg_emit(g, " "); cg_emit(g, val.op);
             cg_emit(g, ", ptr "); cg_emit(g, sptr); cg_emit(g, "\n");
         }
@@ -3920,8 +3909,7 @@ void cg_stmt(Codegen* g, *StmtNode st) {
                     cg_emit(g, ", ptr "); cg_emit(g, pp); cg_emit(g, ", i32 0, i32 "); cg_emit(g, cg_itoa(j)); cg_emit(g, "\n");
                     string ld = cg_tmp(g);
                     cg_emit(g, "  "); cg_emit(g, ld); cg_emit(g, " = load "); cg_emit(g, fty); cg_emit(g, ", ptr "); cg_emit(g, fp); cg_emit(g, "\n");
-                    string slot = cg_tmp(g);
-                    cg_emit(g, "  "); cg_emit(g, slot); cg_emit(g, " = alloca "); cg_emit(g, fty); cg_emit(g, "\n");
+                    string slot = cg_entry_alloca(g, fty);
                     cg_emit(g, "  store "); cg_emit(g, fty); cg_emit(g, " "); cg_emit(g, ld); cg_emit(g, ", ptr "); cg_emit(g, slot); cg_emit(g, "\n");
                     cg_add_local(g, List_get<string>(&binds, j), slot, fty, fety);
                     j = j + 1;
@@ -4006,8 +3994,7 @@ void cg_stmt(Codegen* g, *StmtNode st) {
             cg_emit(g, "  "); cg_emit(g, iv); cg_emit(g, " = load i64, ptr "); cg_emit(g, exdata); cg_emit(g, "\n");
             let ivv: CgVal; ivv.op = iv; ivv.ty = "i64"; ivv.ety = "";
             string cv = cg_coerce(g, ivv, cty);            // i64 → catch type (inttoptr / trunc)
-            string cslot = cg_tmp(g);
-            cg_emit(g, "  "); cg_emit(g, cslot); cg_emit(g, " = alloca "); cg_emit(g, cty); cg_emit(g, "\n");
+            string cslot = cg_entry_alloca(g, cty);
             cg_emit(g, "  store "); cg_emit(g, cty); cg_emit(g, " "); cg_emit(g, cv); cg_emit(g, ", ptr "); cg_emit(g, cslot); cg_emit(g, "\n");
             cg_add_local(g, cname, cslot, cty, ctype);
             cg_emit(g, "  call void @__cxa_end_catch()\n");

@@ -1,0 +1,32 @@
+// Expression temporaries (short-circuit slots, ternary slots, struct/ADT/closure
+// temps) inside a long loop must not allocate stack space per iteration.
+import <io>;
+
+struct P { int x; int y; }
+enum Sh { Circle(int), Sq(int) }
+
+P mk(int a) { return P{a, a + 1}; }
+
+int area(Sh s) {
+    match s {
+        Circle(r) -> return r;
+        Sq(w)     -> return w * 2;
+    }
+    return 0;
+}
+
+int main() {
+    int s = 0;
+    for (let i: int = 0; i < 1000000; i++) {
+        if (i % 2 == 0 && i % 3 == 0) { s += 1; }
+        if (i % 5 == 0 || i % 7 == 0) { s += 1; }
+        s += i > 10 ? 1 : 0;
+        s += mk(i).y - i;
+        s += P{i, 2}.y;
+        s += area(Circle(i % 3));
+        let f: fn(int)->int = int(int x) { return x + 1; };
+        s += f(0);
+    }
+    printf("%d\n", s);
+    return 0;
+}
