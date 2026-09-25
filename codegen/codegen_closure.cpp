@@ -413,6 +413,30 @@ void CodeGen::visit(FreeClosureExpr* node) {
     exprValueStack.push(llvm::UndefValue::get(llvm::Type::getVoidTy(*context)));
 }
 
+// `ptr __eskiu_thread_owned(ptr pack)`: the start routine of a thread that owns its
+// closure. `pack` is a malloc'd {fn, env}; run fn(env), then free env and pack.
+llvm::Function* CodeGen::ownedThreadTrampoline() {
+    const char* name = "__eskiu_thread_owned";
+    if (llvm::Function* f = module->getFunction(name)) return f;
+    llvm::Type* ptrTy = llvm::PointerType::get(*context, 0);
+    auto* fty = llvm::FunctionType::get(ptrTy, {ptrTy}, false);
+    auto* f = llvm::Function::Create(fty, llvm::Function::InternalLinkage, name, module.get());
+    llvm::BasicBlock* savedBB = builder->GetInsertBlock();
+    llvm::BasicBlock::iterator savedPt = builder->GetInsertPoint();
+    builder->SetInsertPoint(llvm::BasicBlock::Create(*context, "entry", f));
+    llvm::StructType* packTy = llvm::StructType::get(*context, {ptrTy, ptrTy});
+    llvm::Value* pack = f->getArg(0);
+    llvm::Value* fn  = builder->CreateLoad(ptrTy, builder->CreateStructGEP(packTy, pack, 0), "fn");
+    llvm::Value* env = builder->CreateLoad(ptrTy, builder->CreateStructGEP(packTy, pack, 1), "env");
+    llvm::Function* freeFn = getOrDeclareFunc("free", llvm::Type::getVoidTy(*context), {ptrTy}, false);
+    builder->CreateCall(freeFn, {pack});
+    builder->CreateCall(llvm::FunctionType::get(llvm::Type::getVoidTy(*context), {ptrTy}, false), fn, {env});
+    builder->CreateCall(freeFn, {env});
+    builder->CreateRet(llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(ptrTy)));
+    if (savedBB) builder->SetInsertPoint(savedBB, savedPt);
+    return f;
+}
+
 void CodeGen::visit(ThreadCreateExpr* node) {
     // Evaluate the closure — a fat pointer {fn_ptr, env_ptr}
     llvm::Value* fatPtr = evaluateExpr(node->worker);
@@ -429,6 +453,22 @@ void CodeGen::visit(ThreadCreateExpr* node) {
     llvm::Function* pthreadCreate = getOrDeclareFunc("pthread_create",
         llvm::Type::getInt32Ty(*context),
         {ptrTy, ptrTy, ptrTy, ptrTy});
+
+    // A lambda written in the call (`thread_create(void() { ... })`) has no other owner,
+    // so the thread owns it: start it through a trampoline that frees its env once the
+    // body returns. A closure value passed in stays its owner's (free_closure after
+    // thread_join), since the same closure may start several threads.
+    if (dynamic_cast<LambdaExpr*>(node->worker.get())) {
+        llvm::Function* mallocFn = getOrDeclareFunc("malloc", ptrTy, {llvm::Type::getInt64Ty(*context)}, false);
+        llvm::Value* pack = builder->CreateCall(mallocFn,
+            {llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 2 * module->getDataLayout().getPointerSize())},
+            "thr.pack");
+        llvm::StructType* packTy = llvm::StructType::get(*context, {ptrTy, ptrTy});
+        builder->CreateStore(fnPtr, builder->CreateStructGEP(packTy, pack, 0));
+        builder->CreateStore(envPtr, builder->CreateStructGEP(packTy, pack, 1));
+        fnPtr = ownedThreadTrampoline();
+        envPtr = pack;
+    }
 
     builder->CreateCall(pthreadCreate, {
         tidAlloca,

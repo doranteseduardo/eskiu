@@ -21,6 +21,8 @@ int main() {
 
     thread_join(t1);
     thread_join(t2);
+    free_closure(worker1);   // a closure value passed to thread_create stays its owner's
+    free_closure(worker2);
 
     printf("main: all threads done\n");
     return 0;

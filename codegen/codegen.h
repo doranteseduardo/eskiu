@@ -197,6 +197,8 @@ private:
     // function name can be passed where a fn(...)->R is expected. The synthesized
     // thunk ignores env and forwards to the target; cached per function.
     llvm::Value* makeFunctionPointer(llvm::Function* target);
+    // The start routine for a thread that owns its closure (see visit(ThreadCreateExpr)).
+    llvm::Function* ownedThreadTrampoline();
     void ensureTemplateInstantiated(const std::string& mangledName,
                                     const std::string& templateName,
                                     const std::vector<std::string>& args);

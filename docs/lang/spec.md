@@ -989,7 +989,9 @@ let worker: fn()->void = void() { printf("thread %d\n", id); };
 thread_join(t);
 ```
 
-**Implementation detail.** The closure fat pointer `{fn_ptr, env_ptr}` maps directly to the `(start_routine, arg)` pair expected by `pthread_create`. No trampoline function is generated. When a program calls `thread_create`, the driver links `-lpthread` on Linux and Windows (mingw) by itself; macOS has pthread in libSystem.
+**Ownership.** A lambda written in the call (`thread_create(void() { ... })`) belongs to the new thread: its environment is freed when the thread body returns. A closure value passed in (`thread_create(worker)`) stays its owner's, since one closure may start several threads; release it with `free_closure(worker)` after the last `thread_join`.
+
+**Implementation detail.** For a closure value, the fat pointer `{fn_ptr, env_ptr}` maps directly to the `(start_routine, arg)` pair expected by `pthread_create`. A lambda written in the call starts through a small trampoline that runs it and then frees its environment. When a program calls `thread_create`, the driver links `-lpthread` on Linux and Windows (mingw) by itself; macOS has pthread in libSystem.
 
 ### 6.8 Async Functions and `await`
 

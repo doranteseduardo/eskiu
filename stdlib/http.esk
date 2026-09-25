@@ -264,10 +264,9 @@ void http_worker_loop(int fd, fn(HttpRequest*, HttpResponse*)->void handler) {
 void http_serve(int port, int nworkers, escaping fn(HttpRequest*, HttpResponse*)->void handler) {
     const int fd = net_tcp_listen((uint16)port);
     if (fd < 0) { return; }
-    for (int spawned = 1; spawned < nworkers; spawned++) {
-        let w: fn()->void = void() { http_worker_loop(fd, handler); };
-        thread_create(w);
-    }
+    // Each worker's closure is written in the call, so its thread owns (and frees) it.
+    for (int spawned = 1; spawned < nworkers; spawned++)
+        thread_create(void() { http_worker_loop(fd, handler); });
     http_worker_loop(fd, handler);
 }
 

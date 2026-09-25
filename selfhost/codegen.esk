@@ -4096,6 +4096,32 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
         string tid = cg_entry_alloca(g, "ptr");
         cg_ensure_extern(g, "pthread_create", "declare i32 @pthread_create(ptr, ptr, ptr, ptr)\n");
         g.uses_threads = 1;
+        // A lambda written in the call has no other owner, so the thread owns it: start it
+        // through a trampoline that frees its env once the body returns. A closure value
+        // stays its owner's (the same closure may start several threads). Mirrors C++.
+        if (e.a != null && e.a.kind == EK_LAMBDA) {
+            g.uses_heap_env = 1;                          // declares malloc (as for a heap env)
+            cg_ensure_extern(g, "free", "declare void @free(ptr)\n");
+            if (cg_seen_inst(g, "fn:__eskiu_thread_owned") == 0) {
+                List_push<string>(&g.inst_seen, "fn:__eskiu_thread_owned");
+                String_append(&g.globals, "define internal ptr @__eskiu_thread_owned(ptr %pack) {\nentry:\n");
+                String_append(&g.globals, "  %fn = load ptr, ptr %pack\n");
+                String_append(&g.globals, "  %envp = getelementptr { ptr, ptr }, ptr %pack, i32 0, i32 1\n");
+                String_append(&g.globals, "  %env = load ptr, ptr %envp\n");
+                String_append(&g.globals, "  call void @free(ptr %pack)\n");
+                String_append(&g.globals, "  call void %fn(ptr %env)\n");
+                String_append(&g.globals, "  call void @free(ptr %env)\n");
+                String_append(&g.globals, "  ret ptr null\n}\n");
+            }
+            string pack = cg_tmp(g);
+            cg_emit(g, "  "); cg_emit(g, pack); cg_emit(g, " = call ptr @malloc(i64 "); cg_emit(g, cg_itoa(2 * g.ptrsz)); cg_emit(g, ")\n");
+            cg_emit(g, "  store ptr "); cg_emit(g, fnp); cg_emit(g, ", ptr "); cg_emit(g, pack); cg_emit(g, "\n");
+            string pe = cg_tmp(g);
+            cg_emit(g, "  "); cg_emit(g, pe); cg_emit(g, " = getelementptr { ptr, ptr }, ptr "); cg_emit(g, pack); cg_emit(g, ", i32 0, i32 1\n");
+            cg_emit(g, "  store ptr "); cg_emit(g, env); cg_emit(g, ", ptr "); cg_emit(g, pe); cg_emit(g, "\n");
+            fnp = "@__eskiu_thread_owned";
+            env = pack;
+        }
         cg_emit(g, "  call i32 @pthread_create(ptr "); cg_emit(g, tid); cg_emit(g, ", ptr null, ptr ");
         cg_emit(g, fnp); cg_emit(g, ", ptr "); cg_emit(g, env); cg_emit(g, ")\n");
         string h = cg_tmp(g);

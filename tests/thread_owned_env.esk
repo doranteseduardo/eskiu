@@ -1,0 +1,27 @@
+// A lambda written in the thread_create call is owned by the thread: its env is freed
+// when the body returns. A closure value stays its owner's: it may start several
+// threads and is released with free_closure after thread_join.
+import <threading>;
+extern int printf(string fmt, ...);
+
+int main() {
+    let m: Mutex;
+    Mutex_init(&m);
+    *Mutex pm = &m;
+    int total = 0;
+    *int pt = &total;
+    int k = 5;
+    *void a = thread_create(void() { Mutex_lock(pm); *pt = *pt + k; Mutex_unlock(pm); });
+    *void b = thread_create(void() { Mutex_lock(pm); *pt = *pt + 2 * k; Mutex_unlock(pm); });
+    let shared: fn()->void = void() { Mutex_lock(pm); *pt = *pt + 1; Mutex_unlock(pm); };
+    *void c = thread_create(shared);
+    *void d = thread_create(shared);
+    thread_join(a);
+    thread_join(b);
+    thread_join(c);
+    thread_join(d);
+    free_closure(shared);
+    printf("%d\n", total);
+    Mutex_destroy(&m);
+    return 0;
+}
