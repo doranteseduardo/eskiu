@@ -302,9 +302,18 @@ DeclPtr Parser::parseFunctionDecl() {
     bool isOperator = false;
     std::string opSpelling;
     if (check(TokenType::OPERATOR)) {
-        advance();                       // 'operator'
+        Token opKw = advance();          // 'operator'
         isOperator = true;
+        Token opTok = peek();
         opSpelling = parseOperatorToken();   // "+", "[]", "u-", ... ("" = not overloadable)
+        if (opSpelling.empty()) {
+            // `operator` followed by something that is not an overloadable operator:
+            // either an operator that can't be overloaded (`operator =(...)`) or the
+            // keyword used as a name (`int operator = 3;`).
+            if (check(TokenType::LPAREN))
+                fail("operator '" + opTok.value + "' cannot be overloaded", opTok);
+            fail("expected a name, found keyword 'operator'", opKw);
+        }
     }
 
     std::string name;

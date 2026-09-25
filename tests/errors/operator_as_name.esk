@@ -1,0 +1,4 @@
+// EXPECT-ERROR: 3:5: expected a name, found keyword 'operator'
+// The keyword used as a variable name gets the keyword message, not "Expected '('".
+int operator = 3;
+int main() { return 0; }

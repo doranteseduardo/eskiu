@@ -1612,8 +1612,15 @@ string parse_operator_token(Parser* p) {
     d.ret_type = rty;
     string opsym = "";
     if (p_at(p) == OPERATOR) {             // `V3 operator +(V3 a, V3 b) { ... }`
-        p_adv(p);
+        Token opkw = p_adv(p);
+        Token optok = p_peek(p);
         opsym = parse_operator_token(p);
+        if (opsym[0] == 0) {               // not an overloadable operator (mirrors the C++)
+            if (p_at(p) == LPAREN) {
+                p_report(p, optok, str_concat(str_concat("operator '", tok_text(p.src, optok)), "' cannot be overloaded"));
+            }
+            p_report(p, opkw, "expected a name, found keyword 'operator'");
+        }
     } else {
         Token nm = p_expect_ident(p, "Expected function name");               // function name
         d.name = tok_text(p.src, nm);
