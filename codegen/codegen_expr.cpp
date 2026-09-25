@@ -523,6 +523,10 @@ void CodeGen::visit(UnaryExpr* node) {
         // Logical NOT: convert to bool
         if (val->getType()->isIntegerTy(1))
             result = builder->CreateNot(val);
+        else if (val->getType()->isPointerTy())
+            result = builder->CreateIsNull(val);
+        else if (val->getType()->isFloatingPointTy())
+            result = builder->CreateFCmpOEQ(val, llvm::ConstantFP::get(val->getType(), 0.0));
         else
             result = builder->CreateICmpEQ(val, llvm::ConstantInt::get(val->getType(), 0));
     } else if (node->op == "&") {

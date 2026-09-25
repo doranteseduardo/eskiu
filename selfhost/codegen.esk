@@ -2831,8 +2831,15 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
         if (cg_streq(e.sval, "!") == 1) {                // logical not: (x == 0) -> i1
             CgVal a = cg_expr(g, e.a);
             string t = cg_tmp(g);
-            cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = icmp eq "); cg_emit(g, a.ty);
-            cg_emit(g, " "); cg_emit(g, a.op); cg_emit(g, ", 0\n");
+            if (cg_is_float(a.ty) == 1) {                  // !x on a float: x == 0.0
+                cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = fcmp oeq "); cg_emit(g, a.ty);
+                cg_emit(g, " "); cg_emit(g, a.op); cg_emit(g, ", 0.0\n");
+            } else {
+                string zero = "0";
+                if (cg_streq(a.ty, "ptr") == 1) { zero = "null"; }   // !p on a pointer: p == null
+                cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = icmp eq "); cg_emit(g, a.ty);
+                cg_emit(g, " "); cg_emit(g, a.op); cg_emit(g, ", "); cg_emit(g, zero); cg_emit(g, "\n");
+            }
             v.op = t; v.ty = "i1"; v.ety = "bool"; return v;
         }
         if (cg_streq(e.sval, "~") == 1) {                // bitwise not: xor with all-ones

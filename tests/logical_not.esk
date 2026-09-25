@@ -1,0 +1,21 @@
+// `!` on a pointer tests for null, on a float tests for 0.0, and a user
+// `operator !(V)` resolves for a struct operand.
+extern int printf(string fmt, ...);
+
+struct V { int x; }
+bool operator !(V v) { return v.x == 0; }
+
+int main() {
+    int n = 3;
+    *int p = &n;
+    *int q = null;
+    double z = 0.0;
+    double h = 0.5;
+    printf("%d %d\n", (int)!p, (int)!q);
+    printf("%d %d\n", (int)!z, (int)!h);
+    V a = V{ x: 0 };
+    V b = V{ x: 4 };
+    printf("%d %d\n", (int)!a, (int)!b);
+    if (!q) { printf("null\n"); }
+    return 0;
+}

@@ -63,6 +63,10 @@ std::string TypeChecker::inferUnaryExprType(const std::string& op, const std::st
     // A `?*T` derefs like `*T` (deref-safety is enforced separately by checkNullableDeref).
     std::string operandType = (!operandIn.empty() && operandIn[0] == '?') ? operandIn.substr(1) : operandIn;
     if (op == "!") {
+        // Logical not of a scalar (number, bool, pointer). A struct operand is not a
+        // truth value: "error" here lets a user `operator !(V)` resolve instead.
+        std::string n = normalizeType(operandType);
+        if (n.rfind("struct:", 0) == 0) return "error";
         return "bool";
     }
     if (op == "-" || op == "+") {
