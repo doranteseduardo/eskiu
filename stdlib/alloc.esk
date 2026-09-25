@@ -36,7 +36,7 @@ void Bump_init(Bump* self, *uint8 buf, int64 cap) {
 }
 *void Bump_alloc(Bump* self, int64 n) {
     const int64 start = alloc_align8(self.off);
-    if (start + n > self.cap) { return null; }
+    if (n < 0 || start > self.cap || n > self.cap - start) { return null; }   // no `start + n` wrap
     self.off = start + n;
     return (*void)(self.buf + start);
 }
@@ -53,7 +53,7 @@ void Arena_init(Arena* self, *uint8 buf, int64 cap) {
 }
 *void Arena_alloc(Arena* self, int64 n) {
     const int64 start = alloc_align8(self.off);
-    if (start + n > self.cap) { return null; }
+    if (n < 0 || start > self.cap || n > self.cap - start) { return null; }   // no `start + n` wrap
     self.off = start + n;
     return (*void)(self.buf + start);
 }
@@ -76,13 +76,13 @@ void Pool_init(Pool* self, *uint8 buf, int64 cap, int64 blockSize) {
     self.freeHead = null; self.highWater = 0;
 }
 *void Pool_alloc(Pool* self, int64 n) {
-    if (n > self.blockSize) { return null; }
+    if (n < 0 || n > self.blockSize) { return null; }
     if (self.freeHead != null) {             // reuse a freed block
         *PoolNode node = self.freeHead;
         self.freeHead = node.next;
         return (*void)node;
     }
-    if (self.highWater + self.blockSize > self.cap) { return null; }
+    if (self.blockSize > self.cap - self.highWater) { return null; }
     *void p = (*void)(self.buf + self.highWater);
     self.highWater += self.blockSize;
     return p;
@@ -113,14 +113,20 @@ struct FirstFit {
     int64     cap;
     *FFNode   freeHead;
 }
+// A buffer too small for one region header (cap < 16) holds nothing: the free
+// list starts empty, so every alloc returns null and nothing is written to `buf`.
 void FirstFit_init(FirstFit* self, *uint8 buf, int64 cap) {
     self.buf = buf; self.cap = cap;
+    if (cap < _FF_HDR) { self.freeHead = null; return; }
     *FFNode head = (*FFNode)buf;
     head.size = cap - _FF_HDR;
     head.next = null;
     self.freeHead = head;
 }
 *void FirstFit_alloc(FirstFit* self, int64 n) {
+    // No region is larger than the buffer, so a bigger (or negative) request can
+    // never fit; rejecting it first also keeps alloc_align8(n) from wrapping.
+    if (n < 0 || n > self.cap) { return null; }
     const int64 want = alloc_align8(n);
     *FFNode prev = null;
     *FFNode cur  = self.freeHead;

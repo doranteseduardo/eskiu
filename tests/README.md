@@ -160,6 +160,7 @@ when you add a test.
 | `sizeof_var` | sizeof(variable) measures the variable's type (C semantics). |
 | `uninit_chain_assign` | A chained or nested assignment initializes its targets; they are not read first. |
 | `adt_layout` | ADT enum payload sizing: array fields, nested enums and generic instances must get enough payload slots, and a struct holding an enum by value must be sized... |
+| `alloc_overflow` | Bump/Arena/Pool/FirstFit and the <sysheap> Heap reject huge or negative sizes instead of wrapping the size arithmetic, and a FirstFit buffer smaller than one region header holds nothing (no write past it). |
 | `async_dowhile_defer` | do/while, defer and capturing lambdas inside async functions, around awaits. |
 | `async_expr_rewrite` | Frame-hoisted locals used after an await inside every expression form: ++/--, a ternary, an array index, a struct literal, a slice, and a cast. |
 | `async_local_named_fr` | A user local named `fr` in an async function must not collide with the transform's internal frame pointer. |

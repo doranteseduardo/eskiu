@@ -1,0 +1,8 @@
+bump huge=null neg=null off=8
+bump rest=ptr full=null
+arena huge=null neg=null off=0
+pool neg=null
+ff huge=null huge2=null neg=null
+ff ok=ptr
+tiny head=null alloc=null
+heap huge=null small=ptr

@@ -1,0 +1,46 @@
+// The <alloc>/<sysheap> allocators reject requests that cannot fit instead of
+// letting the size arithmetic wrap: a huge or negative Bump/Arena size used to
+// pass `start + n > cap` after overflowing, and FirstFit's `alloc_align8(n)`
+// wrapped to a tiny size. A FirstFit buffer smaller than one region header
+// holds nothing (it used to write the header past the end).
+import <mem>;
+import <alloc>;
+import <sysheap>;
+extern int printf(string fmt, ...);
+
+string nz(*void p) { return p == null ? "null" : "ptr"; }
+
+int main() {
+    *uint8 back = alloc<uint8>(64);
+
+    let b: Bump;  Bump_init(&b, back, 64);
+    *void first = Bump_alloc(&b, 8);
+    printf("bump huge=%s neg=%s off=%lld\n", nz(Bump_alloc(&b, 9223372036854775807)),
+           nz(Bump_alloc(&b, -100)), b.off);
+    printf("bump rest=%s full=%s\n", nz(Bump_alloc(&b, 56)), nz(Bump_alloc(&b, 1)));
+
+    let ar: Arena;  Arena_init(&ar, back, 64);
+    printf("arena huge=%s neg=%s off=%lld\n", nz(Arena_alloc(&ar, 9223372036854775801)),
+           nz(Arena_alloc(&ar, -1)), ar.off);
+
+    let pl: Pool;  Pool_init(&pl, back, 64, 16);
+    printf("pool neg=%s\n", nz(Pool_alloc(&pl, -1)));
+
+    let ff: FirstFit;  FirstFit_init(&ff, back, 64);
+    printf("ff huge=%s huge2=%s neg=%s\n", nz(FirstFit_alloc(&ff, 9223372036854775807)),
+           nz(FirstFit_alloc(&ff, 9223372036854775801)), nz(FirstFit_alloc(&ff, -8)));
+    printf("ff ok=%s\n", nz(FirstFit_alloc(&ff, 48)));
+
+    *uint8 tiny = alloc<uint8>(8);
+    let ft: FirstFit;  FirstFit_init(&ft, tiny, 8);
+    printf("tiny head=%s alloc=%s\n", nz((*void)ft.freeHead), nz(FirstFit_alloc(&ft, 1)));
+    free(tiny);
+
+    let hp: Heap;
+    if (Heap_init(&hp, 65536)) {
+        printf("heap huge=%s small=%s\n", nz(Heap_alloc(&hp, 9223372036854775807)), nz(Heap_alloc(&hp, 64)));
+        Heap_destroy(&hp);
+    }
+    free(back);
+    return 0;
+}
