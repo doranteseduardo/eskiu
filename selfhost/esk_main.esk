@@ -29,6 +29,8 @@ extern int    waitpid(int pid, *int status, int options);
 extern void   _exit(int code);
 extern string getenv(string name);  // $CLANG selects the clang binary (default "clang")
 extern int    getpid();             // unique temp-exe name for `run`
+extern int    mkstemps(string tmpl, int suffixlen);   // the unique temp .ll (temp_ll_path)
+extern int    close(int fd);
 #ifdef __APPLE__
 extern int    _NSGetExecutablePath(*uint8 buf, *uint32 size);   // locate stdlib next to us
 #else
@@ -162,6 +164,24 @@ string find_stdlib_root() {
     string dev = cg_cat(bindir, "/..");
     if (file_exists(cg_cat(dev, "/stdlib/result.esk")) == 1) { return dev; }
     return null;
+}
+
+// A fresh, uniquely named `.ll` file in the temp dir ($TMPDIR, else /tmp), created
+// with mkstemps so it never names (or replaces) an existing file, such as a user's
+// `<out>.ll`. Returns its path, or null when it cannot be created.
+string temp_ll_path() {
+    string dir = getenv("TMPDIR");
+    if (dir == null) { dir = "/tmp"; }
+    else if (dir[0] == 0) { dir = "/tmp"; }
+    int dn = 0;
+    while (dir[dn] != 0) { dn = dn + 1; }
+    string sep = "/";
+    if (dn > 0 && (int)dir[dn - 1] == 47) { sep = ""; }
+    string path = cg_cat(dir, cg_cat(sep, "eskiu-XXXXXX.ll"));
+    int fd = mkstemps(path, 3);
+    if (fd < 0) { return null; }
+    close(fd);
+    return path;
 }
 
 int bytes_eq(*uint8 a, int an, *uint8 b, int bn) {
@@ -493,15 +513,15 @@ int esk_main(int argc, string* argv) {
         return 0;
     }
 
-    // -o: assemble the full IR, write it to a temp .ll next to the output, and invoke
+    // -o: assemble the full IR, write it to a fresh temp .ll (see temp_ll_path), and invoke
     // clang to link a native binary end to end.
     let ir: String;
     String_init(&ir, 8192);
     String_append(&ir, (string)String_cstr(&g.globals));
     String_append(&ir, "\n");
     String_append(&ir, (string)String_cstr(&g.out));
-    string tmp = cg_cat(outfile, ".ll");
-    if (fs_write_all(tmp, (*uint8)String_cstr(&ir), String_len(&ir)) == 0) {
+    string tmp = temp_ll_path();
+    if (tmp == null || fs_write_all(tmp, (*uint8)String_cstr(&ir), String_len(&ir)) == 0) {
         eprint("error: cannot write temporary IR\n");
         return 1;
     }

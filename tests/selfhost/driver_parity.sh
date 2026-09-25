@@ -171,6 +171,13 @@ ESKIU_ROOT="$ROOT" "$ESKMAIN" run -- tests/selfhost/driver_inputs/arith.esk >"$W
 if [ "$cc" = "$sc" ] && cmp -s "$WORK/r.cpp" "$WORK/r.self"; then echo "ok    flags/run-dashdash  (exit $sc)"
 else echo "FAIL  flags/run-dashdash  (cpp exit $cc, self exit $sc)"; fail=1; fi
 
+# The temporary IR never lands next to the output: a user's `<out>.ll` survives.
+total=$((total + 1))
+echo "user file" > "$WORK/keep.ll"
+ESKIU_ROOT="$ROOT" "$ESKMAIN" tests/selfhost/driver_inputs/hello.esk -o "$WORK/keep" >/dev/null 2>&1
+if [ -x "$WORK/keep" ] && [ "$(cat "$WORK/keep.ll")" = "user file" ]; then echo "ok    flags/temp-ll-unique"
+else echo "FAIL  flags/temp-ll-unique  (<out>.ll was replaced or deleted)"; fail=1; fi
+
 # Target macros: _WIN64 accompanies _WIN32 on every 64-bit Windows triple (x86_64,
 # aarch64 and arm64 spellings), and both drivers predefine the same set.
 for tgt in x86_64-pc-windows-msvc aarch64-pc-windows-msvc arm64-pc-windows-msvc i686-pc-windows-msvc; do
