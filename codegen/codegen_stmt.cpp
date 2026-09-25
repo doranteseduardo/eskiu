@@ -23,6 +23,9 @@ void CodeGen::runCleanupsToDepth(size_t depth, bool errorPath) {
 }
 
 void CodeGen::visit(BlockStmt* node) {
+    // A block is a lexical scope: a `let` inside it shadows (not overwrites) an
+    // outer variable of the same name, and the outer binding is back on exit.
+    pushScope();
     cleanupScopes.emplace_back();                    // this block's cleanup frame
     for (auto& item : node->items) {
         // Once this block has a terminator (a return/break/continue/throw was
@@ -44,6 +47,7 @@ void CodeGen::visit(BlockStmt* node) {
     if (!blockTerminated())
         runCleanupsToDepth(cleanupScopes.size() - 1, /*errorPath=*/false);
     cleanupScopes.pop_back();
+    popScope();
 }
 
 void CodeGen::visit(DeferStmt* node) {
@@ -147,8 +151,16 @@ void CodeGen::visit(ForStmt* node) {
     llvm::BasicBlock* stepBlock = llvm::BasicBlock::Create(*context, "for_step", currentFunction);
     llvm::BasicBlock* exitBlock = llvm::BasicBlock::Create(*context, "for_exit", currentFunction);
 
-    // Init
-    if (node->init) {
+    // The init declaration is scoped to the loop (C semantics). The parser wraps it
+    // in a BlockStmt; emit its items in the loop scope itself so the loop variable
+    // stays visible to the condition, step, and body.
+    pushScope();
+    if (auto* ib = dynamic_cast<BlockStmt*>(node->init.get())) {
+        for (auto& item : ib->items) {
+            if (std::holds_alternative<DeclPtr>(item)) std::get<DeclPtr>(item)->accept(this);
+            else std::get<StmtPtr>(item)->accept(this);
+        }
+    } else if (node->init) {
         node->init->accept(this);
     }
     builder->CreateBr(loopBlock);
@@ -178,6 +190,7 @@ void CodeGen::visit(ForStmt* node) {
         evaluateExpr(node->step);
     }
     builder->CreateBr(loopBlock);
+    popScope();
 
     // Exit
     builder->SetInsertPoint(exitBlock);

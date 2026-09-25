@@ -828,6 +828,98 @@ string al_field_type(*AlCtx c, string nm) {
     return al_block(&blk);
 }
 
+// Every local becomes a frame field keyed by its name, so two declarations of one name
+// (a nested-block `let x` shadowing an outer `x`, or two sibling blocks each declaring
+// `x`) would collapse into one field. Before hoisting, give every re-declaration a
+// unique name (`x__sN`) and rewrite the references in its lexical scope (mirrors the
+// C++ ShadowRenamer). keys/vals is a scope stack of name → current spelling.
+struct AlRen { List<string> keys; List<string> vals; List<string> seen; int seq; }
+
+string al_ren_lookup(AlRen* r, string n) {
+    int i = List_len<string>(&r.keys) - 1;
+    while (i >= 0) { if (str_eq(List_get<string>(&r.keys, i), n) == 1) { return List_get<string>(&r.vals, i); } i = i - 1; }
+    return n;
+}
+void al_ren_bind(AlRen* r, string n, string v) { List_push<string>(&r.keys, n); List_push<string>(&r.vals, v); }
+string al_ren_declare(AlRen* r, string n) {
+    string nn = n;
+    if (al_in(&r.seen, n) == 1) { nn = str_concat(n, str_concat("__s", int_to_str(r.seq))); r.seq = r.seq + 1; }
+    else { List_push<string>(&r.seen, n); }
+    al_ren_bind(r, n, nn);
+    return nn;
+}
+void al_ren_pop(AlRen* r, int mark) {
+    while (List_len<string>(&r.keys) > mark) {
+        List_remove<string>(&r.keys, List_len<string>(&r.keys) - 1);
+        List_remove<string>(&r.vals, List_len<string>(&r.vals) - 1);
+    }
+}
+void al_ren_expr(AlRen* r, *ExprNode e) {
+    if (e == null) { return; }
+    if (e.kind == EK_IDENT) { e.sval = al_ren_lookup(r, e.sval); return; }
+    if (e.kind == EK_LAMBDA) { return; }                 // a lambda has its own scope
+    if (e.kind == EK_MEMBER) { al_ren_expr(r, e.a); return; }   // sval is the field name
+    al_ren_expr(r, e.a); al_ren_expr(r, e.b);
+    int i = 0; while (i < List_len<*ExprNode>(&e.kids)) { al_ren_expr(r, List_get<*ExprNode>(&e.kids, i)); i = i + 1; }
+}
+void al_ren_stmt(AlRen* r, *StmtNode s);
+void al_ren_scoped(AlRen* r, *StmtNode s) {
+    int mark = List_len<string>(&r.keys); al_ren_stmt(r, s); al_ren_pop(r, mark);
+}
+void al_ren_items(AlRen* r, List<*StmtNode>* items) {
+    int i = 0; while (i < List_len<*StmtNode>(items)) { al_ren_stmt(r, List_get<*StmtNode>(items, i)); i = i + 1; }
+}
+void al_ren_stmt(AlRen* r, *StmtNode s) {
+    if (s == null) { return; }
+    int mark = List_len<string>(&r.keys);
+    if (s.kind == SK_VARDECL) {
+        al_ren_expr(r, s.expr);                          // the initializer sees the outer binding
+        s.name = al_ren_declare(r, s.name);
+        return;
+    }
+    if (s.kind == SK_FOR) {
+        if (s.s1 != null && s.s1.kind == SK_BLOCK) { al_ren_items(r, &s.s1.items); } else { al_ren_stmt(r, s.s1); }
+        al_ren_expr(r, s.expr); al_ren_expr(r, s.expr2); al_ren_scoped(r, s.s2);
+        al_ren_pop(r, mark);
+        return;
+    }
+    if (s.kind == SK_FORIN) {
+        al_ren_expr(r, s.expr);
+        s.name = al_ren_declare(r, s.name);
+        al_ren_scoped(r, s.s1);
+        al_ren_pop(r, mark);
+        return;
+    }
+    if (s.kind == SK_ARM) {                              // `V(a, b)`: the bindings shadow
+        string lb = s.name; int n = 0; while (lb[n] != 0) { n = n + 1; }
+        int i = 0; while (i < n && (int)lb[i] != 40) { i = i + 1; }
+        i = i + 1;
+        while (i < n) {
+            while (i < n && ((int)lb[i] == 32 || (int)lb[i] == 44)) { i = i + 1; }
+            int st = i;
+            while (i < n && (int)lb[i] != 44 && (int)lb[i] != 41 && (int)lb[i] != 32) { i = i + 1; }
+            if (i > st) { string bn = al_substr(lb, st, i); al_ren_bind(r, bn, bn); }
+            if (i < n && (int)lb[i] == 41) { i = n; }
+        }
+        al_ren_scoped(r, s.s1);
+        al_ren_pop(r, mark);
+        return;
+    }
+    if (s.kind == SK_CATCH) {                            // "Type name": the name shadows
+        string cn = s.name; int n = 0; while (cn[n] != 0) { n = n + 1; }
+        int i = n; while (i > 0 && (int)cn[i - 1] != 32) { i = i - 1; }
+        string bn = al_substr(cn, i, n); al_ren_bind(r, bn, bn);
+        al_ren_scoped(r, s.s1);
+        al_ren_pop(r, mark);
+        return;
+    }
+    if (s.kind == SK_BLOCK) { al_ren_items(r, &s.items); al_ren_pop(r, mark); return; }
+    al_ren_expr(r, s.expr); al_ren_expr(r, s.expr2);
+    al_ren_scoped(r, s.s1); al_ren_scoped(r, s.s2);
+    al_ren_items(r, &s.items);
+    al_ren_pop(r, mark);
+}
+
 // Lower one async function into [frame struct, resume fn, ctor fn], appended to `out`.
 void al_transform(*Program prog, *DeclNode d, List<*DeclNode>* out) {
     string name = d.name;
@@ -855,6 +947,15 @@ void al_transform(*Program prog, *DeclNode d, List<*DeclNode>* out) {
         List_push<string>(&c.vars, p.name); List_push<Param>(&c.fields, p);
         pi = pi + 1;
     }
+    let ren: AlRen;
+    List_init<string>(&ren.keys, 8); List_init<string>(&ren.vals, 8); List_init<string>(&ren.seen, 8); ren.seq = 0;
+    pi = 0;
+    while (pi < List_len<Param>(&d.params)) {
+        Param rp = List_get<Param>(&d.params, pi);
+        List_push<string>(&ren.seen, rp.name); al_ren_bind(&ren, rp.name, rp.name);
+        pi = pi + 1;
+    }
+    al_ren_items(&ren, &d.body.items);
     // Desugar awaits to let-bindings, then hoist all locals to frame fields.
     List<*StmtNode> dbody; List_init<*StmtNode>(&dbody, 8);
     al_desugar_items(&c, &d.body.items, &dbody);

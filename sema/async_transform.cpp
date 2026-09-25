@@ -134,6 +134,95 @@ ExprPtr resumeWaker(const std::string& resumeName, int state, const std::string&
     return lam;
 }
 
+// Every local of an async function becomes a frame field keyed by its name, so two
+// declarations of one name (a nested-block `let x` shadowing an outer `x`, or two
+// sibling blocks that each declare `x`) would collapse into one field. Before
+// hoisting, give every re-declaration a unique name (`x__sN`) and rewrite the
+// references in its lexical scope, so each binding gets its own field.
+struct ShadowRenamer {
+    std::set<std::string> seen;                              // names declared so far
+    std::vector<std::map<std::string, std::string>> scopes;  // name -> current spelling
+    int seq = 0;
+
+    std::string lookup(const std::string& n) const {
+        for (auto it = scopes.rbegin(); it != scopes.rend(); ++it) {
+            auto f = it->find(n);
+            if (f != it->end()) return f->second;
+        }
+        return n;
+    }
+    std::string declare(const std::string& n) {
+        std::string nn = n;
+        if (seen.count(n)) nn = n + "__s" + std::to_string(seq++);
+        seen.insert(n);
+        scopes.back()[n] = nn;
+        return nn;
+    }
+    void expr(ExprPtr& e) {
+        if (!e) return;
+        if (auto* id = dynamic_cast<IdentExpr*>(e.get())) { id->name = lookup(id->name); return; }
+        astwalk::forEachChildExpr(e.get(), [&](ExprPtr& c) { expr(c); });
+    }
+    void items(std::vector<BlockItem>& its) {
+        for (auto& it : its) {
+            if (std::holds_alternative<DeclPtr>(it)) {
+                if (auto* vd = dynamic_cast<VarDecl*>(std::get<DeclPtr>(it).get())) {
+                    expr(vd->initializer);           // the initializer sees the outer binding
+                    vd->name = declare(vd->name);
+                }
+            } else stmt(std::get<StmtPtr>(it));
+        }
+    }
+    void scoped(StmtPtr& s) { scopes.emplace_back(); stmt(s); scopes.pop_back(); }
+    void stmt(StmtPtr& s) {
+        if (!s) return;
+        if (auto* b = dynamic_cast<BlockStmt*>(s.get())) { scopes.emplace_back(); items(b->items); scopes.pop_back(); }
+        else if (auto* i = dynamic_cast<IfStmt*>(s.get())) { expr(i->condition); scoped(i->thenBranch); scoped(i->elseBranch); }
+        else if (auto* w = dynamic_cast<WhileStmt*>(s.get())) { expr(w->condition); scoped(w->body); }
+        else if (auto* d = dynamic_cast<DoWhileStmt*>(s.get())) { scoped(d->body); expr(d->condition); }
+        else if (auto* f = dynamic_cast<ForStmt*>(s.get())) {
+            scopes.emplace_back();
+            if (auto* ib = dynamic_cast<BlockStmt*>(f->init.get())) items(ib->items);
+            else stmt(f->init);
+            expr(f->condition); expr(f->step); scoped(f->body);
+            scopes.pop_back();
+        } else if (auto* fi = dynamic_cast<ForInStmt*>(s.get())) {
+            expr(fi->iterable);
+            scopes.emplace_back();
+            fi->varName = declare(fi->varName);
+            scoped(fi->body);
+            scopes.pop_back();
+        } else if (auto* sw = dynamic_cast<SwitchStmt*>(s.get())) {
+            expr(sw->subject);
+            scopes.emplace_back();
+            for (auto& c : sw->cases) { expr(c.value); for (auto& st : c.stmts) stmt(st); }
+            scopes.pop_back();
+        } else if (auto* m = dynamic_cast<MatchStmt*>(s.get())) {
+            expr(m->subject);
+            for (auto& arm : m->arms) {
+                scopes.emplace_back();
+                for (auto& bn : arm.bindings) scopes.back()[bn] = bn;
+                scoped(arm.body);
+                scopes.pop_back();
+            }
+        } else if (auto* t = dynamic_cast<TryStmt*>(s.get())) {
+            scoped(t->body);
+            for (auto& c : t->catches) {
+                scopes.emplace_back();
+                scopes.back()[c.name] = c.name;
+                scoped(c.body);
+                scopes.pop_back();
+            }
+            scoped(t->finally);
+        } else if (auto* r = dynamic_cast<ReturnStmt*>(s.get())) expr(r->value);
+        else if (auto* es = dynamic_cast<ExprStmt*>(s.get())) expr(es->expr);
+        else if (auto* th = dynamic_cast<ThrowStmt*>(s.get())) expr(th->value);
+        else if (auto* df = dynamic_cast<DeferStmt*>(s.get())) scoped(df->body);
+        else if (auto* tj = dynamic_cast<ThreadJoinStmt*>(s.get())) expr(tj->tid);
+        else if (auto* as = dynamic_cast<AsmStmt*>(s.get())) { for (auto& in : as->inputs) expr(in.second); }
+    }
+};
+
 } // namespace
 
 void AsyncTransform::run(Program* program) {
@@ -157,6 +246,12 @@ void AsyncTransform::run(Program* program) {
         if (stmtHasLabeledBreak(fn->body))
             throw std::runtime_error("async function '" + name + "': labeled 'break'/'continue' "
                 "is not supported inside an async function");
+        {
+            ShadowRenamer sr;
+            sr.scopes.emplace_back();
+            for (const auto& p : fn->params) { sr.seen.insert(p.second); sr.scopes.back()[p.second] = p.second; }
+            sr.items(block->items);
+        }
 
         // ── Desugar awaits not already bound in a `let`, recursing into control
         //    flow, so afterwards every await is the direct initializer of a let:

@@ -1384,6 +1384,12 @@ void cg_cleanups_trunc(Codegen* g, int mark) {
     }
 }
 
+// Drop local bindings down to length `mark` (a block/loop scope ends: an inner `let`
+// that shadowed an outer one goes away and the outer binding is visible again).
+void cg_locals_trunc(Codegen* g, int mark) {
+    while (List_len<CgLocal>(&g.locals) > mark) { List_remove<CgLocal>(&g.locals, List_len<CgLocal>(&g.locals) - 1); }
+}
+
 int cg_is_struct(Codegen* g, string name) {
     int i = 0; int n = List_len<CgStruct>(&g.structs);
     while (i < n) { if (cg_streq(List_get<CgStruct>(&g.structs, i).name, name) == 1) { return 1; } i = i + 1; }
@@ -3754,6 +3760,7 @@ void cg_stmt(Codegen* g, *StmtNode st) {
     if (st == null) { return; }
     if (st.kind == SK_BLOCK) {
         int mark = List_len<*StmtNode>(&g.cleanups);   // this block's cleanup frame
+        int lmark = List_len<CgLocal>(&g.locals);      // and its variable scope
         int i = 0;
         int n = List_len<*StmtNode>(&st.items);
         while (i < n) {
@@ -3762,6 +3769,7 @@ void cg_stmt(Codegen* g, *StmtNode st) {
         }
         if (g.terminated == 0) { cg_run_cleanups(g, mark, 0); }   // fall-through: defers only
         cg_cleanups_trunc(g, mark);
+        cg_locals_trunc(g, lmark);
         return;
     }
     if (st.kind == SK_DEFER) {
@@ -3824,7 +3832,15 @@ void cg_stmt(Codegen* g, *StmtNode st) {
         string l_body = cg_lbl(g);
         string l_step = cg_lbl(g);
         string l_end = cg_lbl(g);
-        if (st.s1 != null) { cg_stmt(g, st.s1); }     // init (a wrapping block)
+        // The init is scoped to the loop; its wrapping block's items are emitted in the
+        // loop scope itself so the loop variable stays visible to cond/step/body.
+        int lmark = List_len<CgLocal>(&g.locals);
+        if (st.s1 != null) {
+            if (st.s1.kind == SK_BLOCK) {
+                int ii = 0;
+                while (ii < List_len<*StmtNode>(&st.s1.items)) { cg_stmt(g, List_get<*StmtNode>(&st.s1.items, ii)); ii = ii + 1; }
+            } else { cg_stmt(g, st.s1); }
+        }
         cg_br(g, l_cond);
         cg_label(g, l_cond);
         if (st.expr != null) {
@@ -3844,6 +3860,7 @@ void cg_stmt(Codegen* g, *StmtNode st) {
         if (st.expr2 != null) { cg_expr(g, st.expr2); }
         cg_br(g, l_cond);
         cg_label(g, l_end);
+        cg_locals_trunc(g, lmark);
         return;
     }
     if (st.kind == SK_FORIN) {
