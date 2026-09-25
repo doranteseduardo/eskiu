@@ -126,6 +126,92 @@ string ast_op_name(string op, List<string>* tys) {
     return (string)String_cstr(&out);
 }
 
+// ── generic type-argument inference (shared by sema + codegen) ────────────────
+// `s[a..b)` as a fresh string.
+string ast_sub(string s, int a, int b) {
+    *uint8 buf = alloc<uint8>(b - a + 1);
+    int k = 0; while (a + k < b) { buf[k] = (uint8)s[a + k]; k = k + 1; }
+    buf[k] = 0;
+    return (string)buf;
+}
+// Canonical spelling for unification: `const` and a `struct:` tag dropped (neither
+// changes the shape) and trailing '*' moved to the front ("const Box<T>*" -> "*Box<T>"),
+// so declared and inferred spellings compare equal.
+string ast_unify_canon(string t) {
+    int a = 0; int stars = 0;
+    int more = 1;
+    while (more == 1) {
+        more = 0;
+        while ((int)t[a] == 42 || (int)t[a] == 32) { if ((int)t[a] == 42) { stars = stars + 1; } a = a + 1; }
+        if (ast_has_prefix((string)((*uint8)t + a), "const ") == 1) { a = a + 6; more = 1; }
+        if (ast_has_prefix((string)((*uint8)t + a), "struct:") == 1) { a = a + 7; more = 1; }
+    }
+    int b = a; while (t[b] != 0) { b = b + 1; }
+    more = 1;
+    while (more == 1) {
+        more = 0;
+        while (b > a && ((int)t[b - 1] == 42 || (int)t[b - 1] == 32)) { if ((int)t[b - 1] == 42) { stars = stars + 1; } b = b - 1; }
+        if (b - a >= 6 && ast_has_prefix((string)((*uint8)t + b - 6), "*const") == 1) { stars = stars + 1; b = b - 6; more = 1; }
+    }
+    let out: String; String_init(&out, b - a + stars + 1);
+    int i = 0; while (i < stars) { String_push(&out, '*'); i = i + 1; }
+    String_append(&out, ast_sub(t, a, b));
+    return (string)String_cstr(&out);
+}
+// The top-level comma-separated args inside the outermost <...> of `s` (nesting-aware,
+// the "->" of a fn type is not a closing '>').
+void ast_targs(string s, List<string>* out) {
+    int i = 0;
+    while (s[i] != 0 && (int)s[i] != 60) { i = i + 1; }
+    if (s[i] == 0) { return; }
+    i = i + 1;
+    int depth = 1; int start = i;
+    while (s[i] != 0 && depth > 0) {
+        int c = (int)s[i];
+        if (c == 60 || c == 40) { depth = depth + 1; }
+        else if (c == 41) { depth = depth - 1; }
+        else if (c == 62 && (int)s[i - 1] != 45) { depth = depth - 1; if (depth == 0) { break; } }
+        else if (c == 44 && depth == 1) {
+            int a = start; while ((int)s[a] == 32) { a = a + 1; }
+            int b = i; while (b > a && (int)s[b - 1] == 32) { b = b - 1; }
+            List_push<string>(out, ast_sub(s, a, b));
+            start = i + 1;
+        }
+        i = i + 1;
+    }
+    int a = start; while ((int)s[a] == 32) { a = a + 1; }
+    int b = i; while (b > a && (int)s[b - 1] == 32) { b = b - 1; }
+    if (b > a) { List_push<string>(out, ast_sub(s, a, b)); }
+}
+// The binding of type parameter `tp` from unifying a parameter type `pat` against a
+// concrete argument type `arg`: matching pointer levels peel off, a bare `tp` binds the
+// whole remaining type, and `G<P1, P2>` against `G<C1, C2>` recurses into every type
+// argument, so one parameter can bind several type parameters (`Pair<A, B> p`).
+// "" when `tp` does not occur or the shapes differ. Mirrors the C++ unifyTypeParam.
+string ast_unify_tparam(string pat0, string arg0, string tp) {
+    string pat = ast_unify_canon(pat0);
+    string arg = ast_unify_canon(arg0);
+    int i = 0;
+    while ((int)pat[i] == 42 && (int)arg[i] == 42) { i = i + 1; }
+    pat = (string)((*uint8)pat + i);
+    arg = ast_unify_canon((string)((*uint8)arg + i));
+    if (pat[0] == 0 || arg[0] == 0) { return ""; }
+    if (ast_streq(pat, tp) == 1) { return arg; }
+    int pl = 0; while (pat[pl] != 0 && (int)pat[pl] != 60) { pl = pl + 1; }
+    int al = 0; while (arg[al] != 0 && (int)arg[al] != 60) { al = al + 1; }
+    if (pat[pl] == 0 || arg[al] == 0 || pl != al || (int)pat[0] == 42) { return ""; }
+    int k = 0; while (k < pl) { if (pat[k] != arg[k]) { return ""; } k = k + 1; }
+    List<string> pa; List_init<string>(&pa, 2); ast_targs(pat, &pa);
+    List<string> aa; List_init<string>(&aa, 2); ast_targs(arg, &aa);
+    k = 0;
+    while (k < List_len<string>(&pa) && k < List_len<string>(&aa)) {
+        string b = ast_unify_tparam(List_get<string>(&pa, k), List_get<string>(&aa, k), tp);
+        if (b[0] != 0) { return b; }
+        k = k + 1;
+    }
+    return "";
+}
+
 // Node kind tags (mirror the C++ node set; extended as slices land).
 enum DeclKind {
     DK_FUNCTION, DK_EXTERN, DK_INTRINSIC, DK_STRUCT, DK_UNION,

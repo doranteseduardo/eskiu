@@ -1,0 +1,4 @@
+// EXPECT-ERROR: cannot infer type argument(s) A, B of generic function 'Pair_first'
+struct Pair<A, B> { A first; B second; }
+A Pair_first<A, B>(Pair<A, B> p) { return p.first; }
+int main() { int r = Pair_first(5); return r; }

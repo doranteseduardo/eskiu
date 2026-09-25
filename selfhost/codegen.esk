@@ -2696,7 +2696,7 @@ string cg_unary_ety(Codegen* g, *ExprNode e, string at) {
         int pi = 1; int np = List_len<Param>(&gd.params);
         while (binding[0] == 0 && pi < np && pi - 1 < List_len<*ExprNode>(&e.kids)) {
             string argty = cg_etype(g, List_get<*ExprNode>(&e.kids, pi - 1));
-            if (argty[0] != 0) { binding = cg_infer_one(List_get<Param>(&gd.params, pi).ty, tp, argty); }
+            if (argty[0] != 0) { binding = cg_infer_bind(List_get<Param>(&gd.params, pi).ty, tp, argty); }
             pi = pi + 1;
         }
         if (binding[0] == 0) { return null; }
@@ -3731,6 +3731,8 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
             if (gd != null) {
                 string spelling = cg_infer_generic(g, gd, e);
                 if (spelling[0] != 0) { return cg_call_mangled(g, cg_ensure_fn_inst(g, spelling), e); }
+                printf("error: cannot infer the type arguments of generic function '%s' from the call; write them explicitly, e.g. %s<...>(...)\n", gd.name, gd.name);
+                exit(1);
             }
         }
         // A method call whose receiver is an interface value → dynamic vtable dispatch.
@@ -4391,6 +4393,15 @@ string cg_infer_one(string pat0, string tp, string arg0) {
     return cg_sub_str(arg, pl, an - sl);
 }
 
+// The binding of `tp` from a param pattern against an argument type: structural
+// unification over nested type args first (`Pair<A, B>` binds A and B), then the
+// prefix/suffix match for other shapes (e.g. a fn type `fn(*K)->uint64`).
+string cg_infer_bind(string pat, string tp, string arg) {
+    string b = ast_unify_tparam(pat, arg, tp);
+    if (b[0] != 0) { return b; }
+    return cg_infer_one(pat, tp, arg);
+}
+
 // Build `name<arg0, arg1, …>` for a generic fn called without explicit type args, inferring
 // each type param from the first parameter whose pattern mentions it. "" if any is unsolved.
 string cg_infer_generic(Codegen* g, *DeclNode gd, *ExprNode e) {
@@ -4404,7 +4415,7 @@ string cg_infer_generic(Codegen* g, *DeclNode gd, *ExprNode e) {
         while (pi < np && binding[0] == 0) {
             if (pi < List_len<*ExprNode>(&e.kids)) {
                 string argty = cg_etype(g, List_get<*ExprNode>(&e.kids, pi));
-                if (argty[0] != 0) { binding = cg_infer_one(List_get<Param>(&gd.params, pi).ty, tp, argty); }
+                if (argty[0] != 0) { binding = cg_infer_bind(List_get<Param>(&gd.params, pi).ty, tp, argty); }
             }
             pi = pi + 1;
         }

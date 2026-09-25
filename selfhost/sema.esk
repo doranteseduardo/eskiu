@@ -1144,26 +1144,42 @@ int sema_any_op(Sema* s, string op) {
     return 0;
 }
 
-// The type arguments of an inferred generic call `f(x, y)`, from the parameters spelled
-// exactly as a type parameter (`T a`). 1 when every type parameter is bound.
+// 1 when every argument of the call `e` has a known type (so a failed inference is a
+// real error, not a gap in this checker's expression typing).
+int sema_args_typed(Sema* s, *ExprNode e) {
+    int i = 0;
+    while (i < List_len<*ExprNode>(&e.kids)) {
+        string at = sema_infer_type(s, List_get<*ExprNode>(&e.kids, i));
+        if (at[0] == 0 || sema_streq(at, "unknown") == 1) { return 0; }
+        i = i + 1;
+    }
+    return 1;
+}
+
+// The type arguments of an inferred generic call `f(x, y)`: a parameter spelled exactly
+// as a type parameter (`T a`) binds it to the argument's type, and any other parameter
+// type unifies structurally (`Pair<A, B> p`). 1 when every type parameter is bound; an
+// unbound one is left as "" in `out`.
 int sema_bind_targs(Sema* s, *DeclNode fd, *ExprNode e, List<string>* out) {
+    int ok = 1;
     int t = 0; int tn = List_len<TypeParam>(&fd.type_params);
     while (t < tn) {
         string tp = List_get<TypeParam>(&fd.type_params, t).name;
         string b = "";
         int i = 0; int n = List_len<*ExprNode>(&e.kids); int np = List_len<Param>(&fd.params);
         while (i < n && i < np && b[0] == 0) {
-            if (sema_streq(List_get<Param>(&fd.params, i).ty, tp) == 1) {
-                string at = sema_strip_const(sema_infer_type(s, List_get<*ExprNode>(&e.kids, i)));
-                if (at[0] != 0 && sema_streq(at, "null") == 0 && sema_streq(at, "unknown") == 0) { b = at; }
+            string at = sema_strip_const(sema_infer_type(s, List_get<*ExprNode>(&e.kids, i)));
+            if (at[0] != 0 && sema_streq(at, "null") == 0 && sema_streq(at, "unknown") == 0) {
+                string pty = List_get<Param>(&fd.params, i).ty;
+                if (sema_streq(pty, tp) == 1) { b = at; } else { b = ast_unify_tparam(pty, at, tp); }
             }
             i = i + 1;
         }
-        if (b[0] == 0) { return 0; }
+        if (b[0] == 0) { ok = 0; }
         List_push<string>(out, b);
         t = t + 1;
     }
-    return 1;
+    return ok;
 }
 
 // The type arguments of `x.m(...)` resolved to the generic free function `fd`
@@ -2536,6 +2552,20 @@ void sema_expr_k(Sema* s, *ExprNode e) {
                     sema_check_generic_binding(s, gfd, e);
                     List<string> btargs; List_init<string>(&btargs, 4);
                     if (sema_bind_targs(s, gfd, e, &btargs) == 1) { sema_queue_inst(s, gfd, null, &btargs, gfd.name, ""); }
+                    else if (sema_args_typed(s, e) == 1) {
+                        string unbound = "";
+                        int ui = 0;
+                        while (ui < List_len<string>(&btargs)) {
+                            if (List_get<string>(&btargs, ui)[0] == 0) {
+                                if (unbound[0] != 0) { unbound = sema_cat(unbound, ", "); }
+                                unbound = sema_cat(unbound, List_get<TypeParam>(&gfd.type_params, ui).name);
+                            }
+                            ui = ui + 1;
+                        }
+                        s.had_error = 1;
+                        printf("error: %s:%d:%d: cannot infer type argument(s) %s of generic function '%s' from the call; write them explicitly, e.g. %s<...>(...)\n",
+                               s.filename, s.line, s.col, unbound, gfd.name, gfd.name);
+                    }
                 }
             }
         }
