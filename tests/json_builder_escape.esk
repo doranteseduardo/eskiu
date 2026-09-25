@@ -1,0 +1,22 @@
+// The JSON builder escapes control bytes (so its output parses back) and
+// writes a full int64 instead of truncating it to 32 bits.
+import <json>;
+extern int printf(string fmt, ...);
+
+int main() {
+    let j: Json;  Json_init(&j);
+    Json_arr_begin(&j);
+    Json_str(&j, "a\nb\tc\rd\"e\\f");
+    Json_str(&j, "\x01\x1f\x08\f");
+    Json_int(&j, (int64)9007199254740993);
+    Json_int(&j, (int64)-5000000000);
+    Json_int(&j, (int64)0);
+    Json_int(&j, (int64)-9223372036854775807 - (int64)1);
+    Json_arr_end(&j);
+    printf("%s\n", Json_cstr(&j));
+    *JsonValue v = json_parse((string)Json_cstr(&j));
+    printf("round trip ok=%d len=%d s0.len=%lld\n", v != null, JsonValue_len(v), String_len(&JsonValue_at(v, 0).str));
+    JsonValue_free(v);
+    Json_free(&j);
+    return 0;
+}

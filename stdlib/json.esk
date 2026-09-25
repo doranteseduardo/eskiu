@@ -38,14 +38,26 @@ void Json_sep(Json* self) {
     String_push(&self.buf, ',');
 }
 
-// Append a JSON string literal with the minimal required escaping.
+// Append a JSON string literal: `"` and backslash are escaped, and every
+// control byte below 0x20 becomes \n \t \r \b \f or \u00XX (RFC 8259 §7).
 void Json_raw_str(Json* self, string s) {
     String_push(&self.buf, '"');
     let i: int = 0;
     while (s[i] != 0) {
         char c = s[i];
-        if (c == 34 || c == 92) { String_push(&self.buf, '\\'); }  // " or backslash
-        String_push(&self.buf, c);
+        int u = (int)(uint8)c;
+        if (c == 34 || c == 92) { String_push(&self.buf, '\\'); String_push(&self.buf, c); }  // " or backslash
+        else if (u == 10) { String_append(&self.buf, "\\n"); }
+        else if (u == 9)  { String_append(&self.buf, "\\t"); }
+        else if (u == 13) { String_append(&self.buf, "\\r"); }
+        else if (u == 8)  { String_append(&self.buf, "\\b"); }
+        else if (u == 12) { String_append(&self.buf, "\\f"); }
+        else if (u < 32) {
+            String_append(&self.buf, "\\u00");
+            String_push(&self.buf, "0123456789abcdef"[u >> 4]);
+            String_push(&self.buf, "0123456789abcdef"[u & 15]);
+        }
+        else { String_push(&self.buf, c); }
         i = i + 1;
     }
     String_push(&self.buf, '"');
@@ -65,12 +77,20 @@ void Json_key(Json* self, string k) {
 
 void Json_str(Json* self, string v) { Json_sep(self); Json_raw_str(self, v); }
 
+// Append the full int64 (no truncation to 32 bits; INT64_MIN included).
 void Json_int(Json* self, int64 v) {
     Json_sep(self);
-    let tmp: String;  String_init(&tmp, 24);
-    String_from_int(&tmp, (int)v);
-    String_append(&self.buf, String_cstr(&tmp));
-    String_free(&tmp);
+    uint64 mag = (uint64)v;
+    if (v < (int64)0) { String_push(&self.buf, '-'); mag = (uint64)0 - (uint64)v; }
+    let digits: char[20];
+    int n = 0;
+    if (mag == (uint64)0) { digits[0] = '0'; n = 1; }
+    while (mag > (uint64)0) {
+        digits[n] = (char)(48 + (int)(mag % (uint64)10));
+        mag = mag / (uint64)10;
+        n = n + 1;
+    }
+    while (n > 0) { n = n - 1; String_push(&self.buf, digits[n]); }
 }
 
 void Json_bool(Json* self, int b) {
