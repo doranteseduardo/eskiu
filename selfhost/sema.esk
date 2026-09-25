@@ -3001,6 +3001,7 @@ int sema_cast_class(Sema* s, string t0) {
     if (sema_is_arr_ty(t) == 1) { return 3; }
     *DeclNode d = sema_find_tdecl(s, sema_base_name(t));
     if (d != null && (d.kind == DK_STRUCT || d.kind == DK_UNION)) { return 3; }
+    if (sema_find_iface(s, t) != null) { return 3; }   // an interface value {data, vtable}
     return 0;
 }
 

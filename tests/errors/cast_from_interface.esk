@@ -1,0 +1,11 @@
+// EXPECT-ERROR: cannot cast 'I' to 'S'
+interface I { int f(); }
+struct S { int v; int f() { return self.v; } }
+int main() {
+    S s = S{v: 3};
+    I i = &s;
+    S t = (S)i;
+    *S q = (*S)i;
+    int k = (int)i;
+    return t.v + k;
+}
