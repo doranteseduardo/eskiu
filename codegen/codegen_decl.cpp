@@ -187,6 +187,7 @@ void CodeGen::visit(FunctionDecl* node) {
                 ? substType(node->params[paramIdx].first, typeParamOverride)
                 : node->params[paramIdx].first;
             if (ptype.find('<') != std::string::npos) {
+                ptype = tyq::strip(ptype);     // a `const Box<T>* self` names Box_int
                 std::string sfx;
                 while (!ptype.empty() && ptype.back() == '*') { sfx += '*'; ptype.pop_back(); }
                 // Instantiate the template instance's struct now, so member
@@ -301,7 +302,8 @@ void CodeGen::visit(VarDecl* node) {
                           ? substType(node->type, typeParamOverride)
                           : node->type;
     if (varType.find('<') != std::string::npos) {
-        // Strip trailing pointer stars, mangle the base, then re-append stars
+        // Strip const and trailing pointer stars, mangle the base, then re-append stars
+        varType = tyq::strip(varType);
         std::string suffix;
         while (!varType.empty() && varType.back() == '*') {
             suffix += '*'; varType.pop_back();

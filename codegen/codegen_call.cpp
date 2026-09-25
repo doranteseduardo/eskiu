@@ -21,8 +21,8 @@ void CodeGen::unifyTypeParam(std::string pattern, std::string concrete,
         while (!t.empty() && t.front() == '*') { t = t.substr(1); stars++; }
         return std::string(stars, '*') + t;
     };
-    pattern  = canon(stripStruct(pattern));
-    concrete = canon(stripStruct(concrete));
+    pattern  = canon(stripStruct(tyq::strip(pattern)));    // const does not change the shape
+    concrete = canon(stripStruct(tyq::strip(concrete)));
     // strip matching leading '*' from both
     size_t pi = 0, ci = 0;
     while (pi < pattern.size() && pattern[pi] == '*' &&

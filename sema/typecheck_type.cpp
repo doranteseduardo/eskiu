@@ -491,8 +491,10 @@ void TypeChecker::unifyTypeParam(std::string pattern, std::string concrete,
         while (!t.empty() && t.front() == '*') { t = t.substr(1); stars++; }
         return std::string(stars, '*') + t;
     };
-    pattern  = canon(stripStruct(pattern));
-    concrete = canon(stripStruct(concrete));
+    // const has no bearing on the shape (a `const Box<T>* self` binds T from a
+    // `const Box<int>*` receiver), so unify the stripped spellings.
+    pattern  = canon(stripStruct(tyq::strip(pattern)));
+    concrete = canon(stripStruct(tyq::strip(concrete)));
     size_t pi = 0, ci = 0;
     while (pi < pattern.size() && pattern[pi] == '*' &&
            ci < concrete.size() && concrete[ci] == '*') { pi++; ci++; }
