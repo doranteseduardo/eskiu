@@ -1128,7 +1128,7 @@ if (x > 0) {
 }
 ```
 
-The condition must evaluate to a `bool`, a number (non-zero is true; a float compares with `0.0`, so NaN is true) or a pointer, `string` and `?*T` included (non-null is true). A struct, array, slice, closure or interface value is not a condition. Braces are required around each branch body.
+The condition must evaluate to a `bool`, a number (non-zero is true; a float compares with `0.0`, so NaN is true) or a pointer, `string` and `?*T` included (non-null is true). A struct, array, slice, closure or interface value is not a condition. Braces around a branch body are optional: as in C, an unbraced body is a single statement (`if (x > 0) n++; else n--;`), and it is its own scope (see §7.8 for what that means for `defer`).
 
 ### 7.2 for
 
