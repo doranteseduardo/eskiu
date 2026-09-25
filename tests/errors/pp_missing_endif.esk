@@ -1,4 +1,4 @@
-// EXPECT-ERROR: 3:1: unterminated conditional directive (missing #endif)
+// EXPECT-ERROR: pp_missing_endif.esk:3:1: unterminated conditional directive (missing #endif)
 int main() { return 0; }
 #if 1
 int f() { return 1; }

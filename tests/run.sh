@@ -160,6 +160,23 @@ if [[ -d "$here/warnings" ]]; then
     done
 fi
 
+# ---- single-file test modes ------------------------------------------------
+# --test-lexer/--test-parser/--test-typechecker/--test-codegen must see the same
+# program a real build does (same predefined macros), and exit 0 on success. A
+# positive test marked `// TEST-MODES` on its first line runs through each mode.
+echo "Test modes (same preprocessing as a build):"
+for esk in "$here"/*.esk; do
+    head -1 "$esk" | grep -q 'TEST-MODES' || continue
+    name="$(basename "$esk" .esk)"
+    for mode in --test-lexer --test-parser --test-typechecker --test-codegen; do
+        if "$ESKIUC" "$esk" $mode >"$work/out" 2>&1; then
+            ok "$mode/$name"
+        else
+            bad "$mode/$name" "exited non-zero: $(grep -m1 error "$work/out")"
+        fi
+    done
+done
+
 # ---- formatter idempotency ------------------------------------------------
 # `eskiuc fmt` must be idempotent: formatting an already-formatted file is a
 # no-op. Format every positive test into a temp file, then assert `fmt --check`

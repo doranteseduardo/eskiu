@@ -156,7 +156,17 @@ int main(int argc, string* argv) {
     }
     string infile = List_get<string>(&infiles, 0);   // primary file: test modes + diagnostics
 
-    // --test-lexer runs the lexer on the raw file (no preprocessing), matching lex_main.
+    // Every mode preprocesses exactly like a real compile (the C++ test modes share the
+    // build's predefined macros): the host OS macro picks the stdlib platform branch
+    // (kqueue vs epoll, sockaddr layout) and __FILE__ is the real path.
+#ifdef __APPLE__
+    g_pp_os = "__APPLE__";
+#else
+    g_pp_os = "__linux__";
+#endif
+    g_pp_arch = cg_host_arch_macro();
+
+    // --test-lexer: preprocess, then print the token stream (C++ testLexer).
     if (cg_streq(mode, "--test-lexer") == 1) {
         let ln: int64 = 0;
         *uint8 lraw = fs_read_all(infile, &ln);
@@ -166,26 +176,17 @@ int main(int argc, string* argv) {
             eprint((string)&eb[0]);
             return 1;
         }
+        let lperr: int = 0;
+        string lpp = pp_run((string)lraw, (int)ln, infile, &lperr);
+        *uint8 lsrc = (*uint8)lpp;
+        int llen = 0;
+        while (lsrc[llen] != 0) { llen = llen + 1; }
         g_lex_file = infile;
-        lex_dump(lraw, (int)ln);
+        lex_dump(lsrc, llen);
+        if (lperr != 0 || g_lex_errs > 0) { return 1; }
         return 0;
     }
 
-    // The C++ `--test-parser`/`--test-typechecker` return before the compile path, so
-    // they never predefine the platform macro; match that (empty) so the token stream
-    // and AST are identical. A real compile and `--test-codegen` need the host OS to
-    // pick the right stdlib platform branch (kqueue vs epoll, sockaddr layout).
-    if (cg_streq(mode, "--test-parser") == 1 || cg_streq(mode, "--test-typechecker") == 1) {
-        g_pp_os = "";
-        g_pp_arch = "";
-    } else {
-#ifdef __APPLE__
-        g_pp_os = "__APPLE__";
-#else
-        g_pp_os = "__linux__";
-#endif
-        g_pp_arch = cg_host_arch_macro();
-    }
     // --test-typechecker prints its banner before parsing (matches tc_main).
     if (cg_streq(mode, "--test-typechecker") == 1) {
         printf("Type checking: %s\n", infile);
@@ -208,12 +209,8 @@ int main(int argc, string* argv) {
             eprint((string)&eb[0]);
             return 1;
         }
-        // --test-parser matches the C++ parse test, which leaves __FILE__ empty; a real
-        // compile and the other modes expand it to the actual path.
-        string ppfile = f;
-        if (cg_streq(mode, "--test-parser") == 1) { ppfile = ""; }
         let pperr: int = 0;
-        string pp = pp_run((string)raw, (int)flen, ppfile, &pperr);
+        string pp = pp_run((string)raw, (int)flen, f, &pperr);
         if (pperr != 0) { return 1; }       // a directive error (reported by pp_run) aborts the build
         *uint8 src = (*uint8)pp;
         int plen = 0;

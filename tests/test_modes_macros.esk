@@ -1,0 +1,18 @@
+// TEST-MODES: the single-file test modes predefine the same macros as a build,
+// so the dead branch below (which does not type-check) is skipped there too.
+extern int printf(string fmt, ...);
+
+#if defined(__APPLE__) || defined(__linux__) || defined(_WIN32)
+int host() { return 1; }
+#else
+int host() { return not_a_variable; }
+#endif
+
+int main() {
+    printf("%d\n", host());
+    string f = __FILE__;
+    int n = 0;
+    while (f[n] != 0) { n = n + 1; }
+    printf("%d\n", (int)(n > 0));
+    return 0;
+}

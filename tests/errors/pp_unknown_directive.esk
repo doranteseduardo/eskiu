@@ -1,3 +1,3 @@
-// EXPECT-ERROR: 2:1: unknown preprocessor directive '#frobnicate'
+// EXPECT-ERROR: pp_unknown_directive.esk:2:1: unknown preprocessor directive '#frobnicate'
 #frobnicate everything
 int main() { return 0; }

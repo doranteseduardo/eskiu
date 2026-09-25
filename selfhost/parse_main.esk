@@ -18,17 +18,16 @@ int main(int argc, string* argv) {
         printf("error: cannot read %s\n", argv[1]);
         return 1;
     }
-    // Preprocess the top-level file first so the parser sees the same token
-    // stream the C++ `--test-parser` does (it folds preprocessing into the lexer).
-    // Match that path exactly: it predefines NO OS macro (`loadProgram` builds a
-    // Lexer with no macro table), so leave `g_pp_os` empty — both `#ifdef __APPLE__`
-    // and `#ifdef __linux__` are then false, taking the same branch on either host.
-    // (The real compiler `esk_main` DOES set the host OS; this is a parity driver.)
-    g_pp_os = "";
+    // Preprocess the top-level file first so the parser sees the same token stream
+    // the C++ `--test-parser` does: it preprocesses like a real build (host OS macro,
+    // __FILE__ = the path).
+#ifdef __APPLE__
+    g_pp_os = "__APPLE__";
+#else
+    g_pp_os = "__linux__";
+#endif
     let pperr: int = 0;
-    // Empty filename ⇒ `__FILE__` expands to "" — matching `--test-parser`, whose
-    // Lexer is built with no filename. (Imports still resolve via `p.basedir`.)
-    string pp = pp_run((string)raw, (int)n, "", &pperr);
+    string pp = pp_run((string)raw, (int)n, argv[1], &pperr);
     *uint8 src = (*uint8)pp;
     int plen = 0;
     while (src[plen] != 0) { plen = plen + 1; }

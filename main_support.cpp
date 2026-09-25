@@ -194,13 +194,89 @@ int runFmt(const std::vector<std::string>& files, bool check) {
     return 0;
 }
 
+void seedPredefinedMacros(std::map<std::string, Macro>& macros, const std::string& triple,
+                          bool freestanding) {
+    // Predefine a platform macro so stdlib can #ifdef per OS (the event-loop
+    // backend and sockaddr_in layout differ between macOS and Linux). It follows
+    // the --target triple when cross-compiling, else the build host — otherwise a
+    // `--target x86_64-linux-gnu` build on macOS would still select the kqueue
+    // path and emit unresolved BSD symbols.
+    Macro os; os.body = "1";
+    const std::string& tt = triple;
+    bool tgtLinux = tt.find("linux") != std::string::npos;
+    bool tgtApple = tt.find("apple") != std::string::npos ||
+                    tt.find("darwin") != std::string::npos ||
+                    tt.find("macos") != std::string::npos;
+    bool tgtWindows = tt.find("windows") != std::string::npos ||
+                      tt.find("win32") != std::string::npos ||
+                      tt.find("mingw") != std::string::npos;
+    // _WIN64 accompanies _WIN32 on 64-bit Windows (MSVC keeps _WIN32 defined
+    // for both widths and adds _WIN64 only when 64-bit).
+    bool tgt64 = tt.find("x86_64") != std::string::npos ||
+                 tt.find("amd64") != std::string::npos ||
+                 tt.find("aarch64") != std::string::npos;
+    if (tgtLinux)        { macros["__linux__"] = os; }
+    else if (tgtApple)   { macros["__APPLE__"] = os; }
+    else if (tgtWindows) {
+        macros["_WIN32"] = os;
+        if (tgt64) macros["_WIN64"] = os;
+    }
+    else if (tt.empty()) {
+        // Native build: follow the build host.
+#if defined(_WIN32)
+        macros["_WIN32"] = os;
+#if defined(_WIN64)
+        macros["_WIN64"] = os;
+#endif
+#elif defined(__APPLE__)
+        macros["__APPLE__"] = os;
+#elif defined(__linux__)
+        macros["__linux__"] = os;
+#endif
+    }
+    // else: an explicit bare-metal or otherwise non-hosted triple (e.g. the
+    // 3DS's armv6k-none-eabihf) defines no OS macro. Bare metal has no host OS,
+    // so portable code guards that path explicitly rather than falling through
+    // to the build host's.
+
+    // The architecture macro C compilers predefine (__aarch64__ / __x86_64__ /
+    // __arm__), from the --target triple or else the build host. The self-hosted
+    // compiler reads it at its own build to pick its C-ABI lowering.
+    std::string arch;
+    if (tt.rfind("aarch64", 0) == 0 || tt.rfind("arm64", 0) == 0) arch = "__aarch64__";
+    else if (tt.rfind("x86_64", 0) == 0 || tt.rfind("amd64", 0) == 0) arch = "__x86_64__";
+    else if (tt.rfind("arm", 0) == 0 || tt.rfind("thumb", 0) == 0) arch = "__arm__";
+    else if (tt.empty()) {
+#if defined(__aarch64__) || defined(_M_ARM64)
+        arch = "__aarch64__";
+#elif defined(__x86_64__) || defined(_M_X64)
+        arch = "__x86_64__";
+#elif defined(__arm__)
+        arch = "__arm__";
+#endif
+    }
+    if (!arch.empty()) macros[arch] = os;
+
+    // Predefine __ESKIU_FREESTANDING__ under --freestanding so stdlib (e.g.
+    // <mem>'s alloc/free) can target esk_alloc/esk_free instead of libc.
+    if (freestanding) {
+        Macro fs; fs.body = "1";
+        macros["__ESKIU_FREESTANDING__"] = fs;
+    }
+}
+
 // Load → lex → parse a single source file. Returns the parsed Program, or
 // nullptr on a lexical or parse error (a diagnostic is printed by the lexer or
 // parser). Shared by every single-file pipeline mode (parse/typecheck/codegen,
-// --hover-at, --definition-at).
-std::shared_ptr<Program> loadProgram(const std::string& filename) {
+// --hover-at, --definition-at). It preprocesses exactly like a real build (same
+// predefined macros, shared across imports, __FILE__ = the path), so these modes
+// see the same program the compiler does.
+std::shared_ptr<Program> loadProgram(const std::string& filename, const std::string& triple,
+                                     bool freestanding) {
     std::string source = readFile(filename);
-    Lexer lexer(source);
+    std::map<std::string, Macro> macros;
+    seedPredefinedMacros(macros, triple, freestanding);
+    Lexer lexer(source, &macros, filename);
     std::vector<Token> tokens;
     Token tok = lexer.next_token();
     while (tok.type != TokenType::EOF_TOKEN) {
@@ -214,6 +290,7 @@ std::shared_ptr<Program> loadProgram(const std::string& filename) {
     parser.filename = filename;
     parser.stdlibPath = stdlibRoot;
     parser.basedir = dirOf(filename);
+    parser.macros = &macros;
     return parser.parse();
 }
 

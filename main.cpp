@@ -117,9 +117,11 @@ static bool g_runMode = false;
 static std::vector<std::string> g_runArgs;
 
 // Test lexer: tokenize and print all tokens
-static void testLexer(const std::string& filename) {
+static int testLexer(const std::string& filename) {
     std::string source = readFile(filename);
-    Lexer lexer(source);
+    std::map<std::string, Macro> macros;
+    seedPredefinedMacros(macros, std::string(TargetTriple), Freestanding);
+    Lexer lexer(source, &macros, filename);
 
     std::cout << "Tokenizing: " << filename << std::endl;
     std::cout << "========================================================" << std::endl;
@@ -139,11 +141,12 @@ static void testLexer(const std::string& filename) {
 
     std::cout << "========================================================" << std::endl;
     std::cout << "Total tokens: " << tokenCount << std::endl;
+    return lexer.hadError ? 1 : 0;
 }
 
 // Test type checker: tokenize, parse, type check, and report errors
 static int testTypeChecker(const std::string& filename) {
-    auto program = loadProgram(filename);
+    auto program = loadProgram(filename, std::string(TargetTriple), Freestanding);
     if (!program) {
         std::cerr << "Parse failed!" << std::endl;
         return 1;
@@ -175,11 +178,11 @@ static int testTypeChecker(const std::string& filename) {
 }
 
 // Test codegen: tokenize, parse, generate LLVM IR, and print it
-static void testCodegen(const std::string& filename) {
-    auto program = loadProgram(filename);
+static int testCodegen(const std::string& filename) {
+    auto program = loadProgram(filename, std::string(TargetTriple), Freestanding);
     if (!program) {
         std::cerr << "Parse failed!" << std::endl;
-        return;
+        return 1;
     }
 
     std::cout << "Generating LLVM IR: " << filename << std::endl;
@@ -192,7 +195,7 @@ static void testCodegen(const std::string& filename) {
         tc.sourceFile = filename;
         if (!tc.check(program.get())) {
             std::cerr << "Type checking failed!" << std::endl;
-            return;
+            return 1;
         }
         AsyncTransform().run(program.get());
         // Single resolver: re-resolve the post-transform AST; codegen consumes it.
@@ -212,7 +215,7 @@ static void testCodegen(const std::string& filename) {
 
         if (!module) {
             std::cerr << "Code generation failed!" << std::endl;
-            return;
+            return 1;
         }
 
         if (OptLevel) codegen.optimizeModule();
@@ -225,16 +228,17 @@ static void testCodegen(const std::string& filename) {
         std::cout << "Code generation succeeded!" << std::endl;
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;
-        return;
+        return 1;
     }
+    return 0;
 }
 
 // Test parser: tokenize, parse, and print AST
-static void testParser(const std::string& filename) {
-    auto program = loadProgram(filename);
+static int testParser(const std::string& filename) {
+    auto program = loadProgram(filename, std::string(TargetTriple), Freestanding);
     if (!program) {
         std::cerr << "Parse failed!" << std::endl;
-        return;
+        return 1;
     }
 
     std::cout << "Parsing: " << filename << std::endl;
@@ -245,6 +249,7 @@ static void testParser(const std::string& filename) {
 
     std::cout << "========================================================" << std::endl;
     std::cout << "Parse succeeded!" << std::endl;
+    return 0;
 }
 
 int main(int argc, char** argv) {
@@ -303,14 +308,12 @@ int main(int argc, char** argv) {
 
     // Handle --test-lexer
     if (TestLexer) {
-        testLexer(InputFilename);
-        return 0;
+        return testLexer(InputFilename);
     }
 
     // Handle --test-parser
     if (TestParser) {
-        testParser(InputFilename);
-        return 0;
+        return testParser(InputFilename);
     }
 
     // Handle --test-typechecker
@@ -324,7 +327,7 @@ int main(int argc, char** argv) {
         if (sscanf(HoverAt.c_str(), "%d:%d", &line, &col) != 2) {
             std::cerr << "error: --hover-at expects LINE:COL format\n"; return 1;
         }
-        auto program = loadProgram(std::string(InputFilename));
+        auto program = loadProgram(std::string(InputFilename), std::string(TargetTriple), Freestanding);
         if (!program) { std::cout << "(parse error)\n"; return 0; }
         try {
             TypeChecker tc;
@@ -343,7 +346,7 @@ int main(int argc, char** argv) {
         if (sscanf(DefinitionAt.c_str(), "%d:%d", &line, &col) != 2) {
             std::cerr << "error: --definition-at expects LINE:COL format\n"; return 1;
         }
-        auto program = loadProgram(std::string(InputFilename));
+        auto program = loadProgram(std::string(InputFilename), std::string(TargetTriple), Freestanding);
         if (!program) { std::cout << "(parse error)\n"; return 0; }
         try {
             TypeChecker tc;
@@ -358,8 +361,7 @@ int main(int argc, char** argv) {
 
     // Handle --test-codegen
     if (TestCodegen) {
-        testCodegen(InputFilename);
-        return 0;
+        return testCodegen(InputFilename);
     }
 
     // Full compilation pipeline — parse every input file and merge their
@@ -372,74 +374,7 @@ int main(int argc, char** argv) {
         std::set<std::string> importedFiles;     // shared: a common import is parsed once
         std::map<std::string, Macro> macros;     // shared: #defines propagate across files
 
-        // Predefine a platform macro so stdlib can #ifdef per OS (the event-loop
-        // backend and sockaddr_in layout differ between macOS and Linux). It follows
-        // the --target triple when cross-compiling, else the build host — otherwise a
-        // `--target x86_64-linux-gnu` build on macOS would still select the kqueue
-        // path and emit unresolved BSD symbols.
-        {
-            Macro os; os.body = "1";
-            std::string tt = std::string(TargetTriple);
-            bool tgtLinux = tt.find("linux") != std::string::npos;
-            bool tgtApple = tt.find("apple") != std::string::npos ||
-                            tt.find("darwin") != std::string::npos ||
-                            tt.find("macos") != std::string::npos;
-            bool tgtWindows = tt.find("windows") != std::string::npos ||
-                              tt.find("win32") != std::string::npos ||
-                              tt.find("mingw") != std::string::npos;
-            // _WIN64 accompanies _WIN32 on 64-bit Windows (MSVC keeps _WIN32 defined
-            // for both widths and adds _WIN64 only when 64-bit).
-            bool tgt64 = tt.find("x86_64") != std::string::npos ||
-                         tt.find("amd64") != std::string::npos ||
-                         tt.find("aarch64") != std::string::npos;
-            if (tgtLinux)        { macros["__linux__"] = os; }
-            else if (tgtApple)   { macros["__APPLE__"] = os; }
-            else if (tgtWindows) {
-                macros["_WIN32"] = os;
-                if (tgt64) macros["_WIN64"] = os;
-            }
-            else if (tt.empty()) {
-                // Native build: follow the build host.
-#if defined(_WIN32)
-                macros["_WIN32"] = os;
-#if defined(_WIN64)
-                macros["_WIN64"] = os;
-#endif
-#elif defined(__APPLE__)
-                macros["__APPLE__"] = os;
-#elif defined(__linux__)
-                macros["__linux__"] = os;
-#endif
-            }
-            // else: an explicit bare-metal or otherwise non-hosted triple (e.g. the
-            // 3DS's armv6k-none-eabihf) defines no OS macro. Bare metal has no host OS,
-            // so portable code guards that path explicitly rather than falling through
-            // to the build host's.
-
-            // The architecture macro C compilers predefine (__aarch64__ / __x86_64__ /
-            // __arm__), from the --target triple or else the build host. The self-hosted
-            // compiler reads it at its own build to pick its C-ABI lowering.
-            std::string arch;
-            if (tt.rfind("aarch64", 0) == 0 || tt.rfind("arm64", 0) == 0) arch = "__aarch64__";
-            else if (tt.rfind("x86_64", 0) == 0 || tt.rfind("amd64", 0) == 0) arch = "__x86_64__";
-            else if (tt.rfind("arm", 0) == 0 || tt.rfind("thumb", 0) == 0) arch = "__arm__";
-            else if (tt.empty()) {
-#if defined(__aarch64__) || defined(_M_ARM64)
-                arch = "__aarch64__";
-#elif defined(__x86_64__) || defined(_M_X64)
-                arch = "__x86_64__";
-#elif defined(__arm__)
-                arch = "__arm__";
-#endif
-            }
-            if (!arch.empty()) macros[arch] = os;
-        }
-        // Predefine __ESKIU_FREESTANDING__ under --freestanding so stdlib (e.g.
-        // <mem>'s alloc/free) can target esk_alloc/esk_free instead of libc.
-        if (Freestanding) {
-            Macro fs; fs.body = "1";
-            macros["__ESKIU_FREESTANDING__"] = fs;
-        }
+        seedPredefinedMacros(macros, std::string(TargetTriple), Freestanding);
 
         for (const auto& fname : inputs) {
             std::string source = readFile(fname);

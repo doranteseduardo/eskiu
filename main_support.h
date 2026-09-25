@@ -8,6 +8,8 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <map>
+#include "lexer/lexer.h"
 
 class Program;
 
@@ -19,7 +21,12 @@ std::string readFile(const std::string& filename);
 std::string dirOf(const std::string& path);
 std::string formatSource(const std::string& src);
 int runFmt(const std::vector<std::string>& files, bool check);
-std::shared_ptr<Program> loadProgram(const std::string& filename);
+// Seed the predefined macros every compile mode shares: the platform macro that
+// follows `triple` (or the build host when empty) and __ESKIU_FREESTANDING__.
+void seedPredefinedMacros(std::map<std::string, Macro>& macros, const std::string& triple,
+                          bool freestanding);
+std::shared_ptr<Program> loadProgram(const std::string& filename, const std::string& triple,
+                                     bool freestanding);
 bool endsWith(const std::string& s, const std::string& suffix);
 std::string findCDriver(bool sanitized = false);
 bool linkExecutable(const std::string& obj, const std::string& out,

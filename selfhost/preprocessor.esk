@@ -6,9 +6,8 @@
 // (skips string/char literals and // comments) and recursive (a macro is not
 // re-expanded within its own expansion).
 //
-// Parity target: the C++ `--test-lexer` builds `Lexer(source)` with an EMPTY
-// filename and NO predefined OS macros, so `__FILE__` -> `""` and __APPLE__/__linux__
-// are undefined. pp_run mirrors that exactly (caller passes filename "").
+// Parity target: the C++ `--test-lexer`, which preprocesses like a real build: the
+// predefined host OS macro (`__APPLE__`/`__linux__`, value 1) and `__FILE__` = the path.
 
 import <string>;
 import <list>;
@@ -690,6 +689,19 @@ void pp_strip_cr(String* s) {
     if (s.len > 0 && (int)s.data[s.len - 1] == 13) { pp_pop(s); }
 }
 
+// The architecture macro of the host this compiler was built for (mirrors the C++
+// seedPredefinedMacros default).
+string pp_host_arch() {
+    string a = "";
+#ifdef __aarch64__
+    a = "__aarch64__";
+#endif
+#ifdef __x86_64__
+    a = "__x86_64__";
+#endif
+    return a;
+}
+
 // Preprocess `src` (length `len`) into a returned NUL-terminated string. `filename`
 // becomes __FILE__ (quoted) and labels diagnostics. Sets `*had_err` to 1 after
 // reporting any directive error (an active #error, a bad #if, an unbalanced
@@ -710,15 +722,15 @@ string pp_run(string src, int len, string filename, *int had_err) {
     fm.body = (string)String_cstr(&fb);
     pp_define(&tbl, fm);
 
-    // Host OS macro (e.g. __APPLE__/__linux__) for real compilation, so platform `#ifdef`s
-    // in the stdlib pick the right branch. Left unset by the lexer-parity driver (pp_main),
-    // which passes filename "" and must match --test-lexer's macro-free environment.
+    // Host OS macro (e.g. __APPLE__/__linux__), so platform `#ifdef`s in the stdlib pick
+    // the right branch (set by every driver; the C++ seeds it in every mode).
     if (g_pp_os != null) { if (g_pp_os[0] != 0) {
-        PPMacro om; om.name = g_pp_os; om.is_function = 0; List_init<string>(&om.params, 1); om.body = "";
+        PPMacro om; om.name = g_pp_os; om.is_function = 0; List_init<string>(&om.params, 1); om.body = "1";
         pp_define(&tbl, om);
     } }
+    if (g_pp_arch == null) { g_pp_arch = pp_host_arch(); }   // unset: the host's, like the C++
     if (g_pp_arch != null) { if (g_pp_arch[0] != 0) {
-        PPMacro am; am.name = g_pp_arch; am.is_function = 0; List_init<string>(&am.params, 1); am.body = "";
+        PPMacro am; am.name = g_pp_arch; am.is_function = 0; List_init<string>(&am.params, 1); am.body = "1";
         pp_define(&tbl, am);
     } }
 
