@@ -4,6 +4,7 @@
 // Template type-name utilities (mangleTemplate / splitTemplateType / substType)
 // are shared with the type checker; see template_utils.h.
 #include "../template_utils.h"
+#include "../sema/type.h"
 
 // CodeGen — calls, template instantiation, intrinsics, function pointers,
 // and explicit-allocator construction.
@@ -479,40 +480,35 @@ void CodeGen::visit(CallExpr* node) {
     // Indirect call through a fat-pointer closure {fn_ptr, env_ptr}
     if (!llvm::isa<llvm::Function>(calleeVal)) {
         std::string eskiuType = getExprEskiuType(node->callee);
-        if (eskiuType.size() > 3 && eskiuType.substr(0, 3) == "fn(") {
-            // Extract params and return type from "fn(T,...)->R"
-            size_t rp = eskiuType.find(")->");
-            std::string paramStr = eskiuType.substr(3, rp - 3);
-            std::string retStr   = eskiuType.substr(rp + 3);
+        ty::Type fnTy = ty::Type::parse(expandAlias(eskiuType));
+        if (fnTy.isFn()) {
+            // The signature comes from the parsed fn type, so nested fn types and
+            // template args with commas (`fn(fn(int)->int, Pair<int,double>)->int`)
+            // split correctly.
+            std::vector<std::string> paramStrs;
+            for (const auto& p : fnTy.params) paramStrs.push_back(p.str());
             std::vector<llvm::Type*> pts;
             llvm::Type* ptrTy = llvm::PointerType::get(*context, 0);
             pts.push_back(ptrTy); // env* always first
-            if (!paramStr.empty()) {
-                size_t pos = 0;
-                while (pos < paramStr.size()) {
-                    size_t comma = paramStr.find(',', pos);
-                    if (comma == std::string::npos) comma = paramStr.size();
-                    pts.push_back(getTypeFromString(paramStr.substr(pos, comma - pos)));
-                    pos = comma + 1;
-                }
-            }
-            llvm::Type* retTy = getTypeFromString(retStr);
+            for (const auto& ps : paramStrs) pts.push_back(getTypeFromString(ps));
+            llvm::Type* retTy = getTypeFromString(fnTy.ret->str());
             llvm::FunctionType* fty = llvm::FunctionType::get(retTy, pts, false);
 
             // Extract fn_ptr and env_ptr from the fat pointer struct
-            llvm::StructType* fatTy = llvm::cast<llvm::StructType>(calleeVal->getType());
             llvm::Value* fnPtr  = builder->CreateExtractValue(calleeVal, {0}, "fn.ptr");
             llvm::Value* envPtr = builder->CreateExtractValue(calleeVal, {1}, "env.ptr");
 
+            // Each argument converts to its parameter type like a direct call's: an
+            // interface param boxes, and numbers get full coercion (int -> float,
+            // float <-> double), not just integer widening.
             std::vector<llvm::Value*> iargs = {envPtr};
             for (size_t i = 0; i < node->args.size(); ++i) {
-                llvm::Value* av = evaluateExpr(node->args[i]);
                 size_t pidx = i + 1;   // env pointer is param 0
-                if (pidx < pts.size() && av->getType()->isIntegerTy()
-                        && pts[pidx]->isIntegerTy() && av->getType() != pts[pidx]) {
-                    av = coerceInt(av, pts[pidx],
-                                   eskiuUnsigned(getExprEskiuType(node->args[i])));
-                }
+                llvm::Value* av = i < paramStrs.size() ? evalForType(node->args[i], paramStrs[i])
+                                                       : evaluateExpr(node->args[i]);
+                if (pidx < pts.size() && av->getType() != pts[pidx])
+                    av = coerceValue(av, pts[pidx],
+                                     eskiuUnsigned(getExprEskiuType(node->args[i])));
                 iargs.push_back(av);
             }
             // A void-returning call must not be given a name (LLVM forbids it).

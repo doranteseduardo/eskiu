@@ -55,7 +55,7 @@ size_t firstArraySuffixBracket(const std::string& s) {
     for (size_t i = 0; i < s.size(); ++i) {
         char c = s[i];
         if (c == '<') ++angle;
-        else if (c == '>') { if (angle) --angle; }
+        else if (c == '>' && !(i > 0 && s[i - 1] == '-')) { if (angle) --angle; }
         else if (c == '(') ++paren;
         else if (c == ')') { if (paren) --paren; }
         else if (c == '[' && angle == 0 && paren == 0) return i;
@@ -115,6 +115,27 @@ Type parseCore(const std::string& in, const std::set<std::string>& tps) {
         return inner;
     }
 
+    // Array `T[N]` — an array suffix `[N]` binds tighter than a leading pointer, so
+    // `*Node[3]` is an array of 3 pointers (matching the postfix-array grammar and
+    // codegen's IndexExpr lowering), NOT a pointer to an array. A pointer to an array
+    // is still spellable with a trailing star (`Node[3]*`). For a chain `T[N][M]` the
+    // *leftmost* bracket is the outer dimension (C order: N arrays of M), so the elem
+    // is `T[M]`. Checked before the pointer suffixes for that reason, and before a fn
+    // type for the same one: `fn(int)->int[2]` is an array of 2 fns (a function cannot
+    // return an array), like `*T[N]` is an array of pointers.
+    if (s.back() == ']') {
+        size_t open = firstArraySuffixBracket(s);
+        size_t close = open == std::string::npos ? std::string::npos
+                                                 : matchCloseBracket(s, open);
+        if (open != std::string::npos && close != std::string::npos) {
+            r.dim  = s.substr(open + 1, close - open - 1);
+            // Empty brackets `T[]` = a slice (fat pointer); `T[N]` = a fixed array.
+            r.kind = r.dim.empty() ? Type::Kind::Slice : Type::Kind::Array;
+            r.elem = std::make_shared<Type>(
+                Type::parse(s.substr(0, open) + s.substr(close + 1), tps));
+            return r;
+        }
+    }
     // fn(params)->ret  — checked before pointer suffixes, since `ret` can end in '*'.
     if (s.rfind("fn(", 0) == 0) {
         int depth = 0; size_t close = std::string::npos;
@@ -132,25 +153,6 @@ Type parseCore(const std::string& in, const std::set<std::string>& tps) {
         }
     }
 
-    // Array `T[N]` — an array suffix `[N]` binds tighter than a leading pointer, so
-    // `*Node[3]` is an array of 3 pointers (matching the postfix-array grammar and
-    // codegen's IndexExpr lowering), NOT a pointer to an array. A pointer to an array
-    // is still spellable with a trailing star (`Node[3]*`). For a chain `T[N][M]` the
-    // *leftmost* bracket is the outer dimension (C order: N arrays of M), so the elem
-    // is `T[M]`. Checked before the pointer suffixes for that reason.
-    if (s.back() == ']') {
-        size_t open = firstArraySuffixBracket(s);
-        size_t close = open == std::string::npos ? std::string::npos
-                                                 : matchCloseBracket(s, open);
-        if (open != std::string::npos && close != std::string::npos) {
-            r.dim  = s.substr(open + 1, close - open - 1);
-            // Empty brackets `T[]` = a slice (fat pointer); `T[N]` = a fixed array.
-            r.kind = r.dim.empty() ? Type::Kind::Slice : Type::Kind::Array;
-            r.elem = std::make_shared<Type>(
-                Type::parse(s.substr(0, open) + s.substr(close + 1), tps));
-            return r;
-        }
-    }
     // Leading-star pointer.
     if (s[0] == '*') {
         r.kind = Type::Kind::Pointer;
