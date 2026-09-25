@@ -214,6 +214,8 @@ private:
 
     // Type validation
     void validateStructType(const std::string& type, ASTNode* at = nullptr);
+    // Reject a struct/union that contains itself by value (no finite layout).
+    void checkValueCycles(Program* program);
 
     // Type checking utilities
     bool isValidAssignment(const std::string& lhsType, const std::string& rhsType);

@@ -112,6 +112,27 @@ void TypeChecker::validateStructType(const std::string& type, ASTNode* at) {
         else if (baseType.front() == '*') { baseType = baseType.substr(1); stripped = true; }
     }
 
+    // A template instance (Pair<int,float> -> struct:Pair_int_float, Option<T> -> Option_T)
+    // must supply exactly the template's type-parameter count, each a known type.
+    {
+        std::string inst = baseType.rfind("struct:", 0) == 0 ? baseType.substr(7) : baseType;
+        auto ti = templateInstanceArgs.find(inst);
+        if (ti != templateInstanceArgs.end()) {
+            const std::string& tname = ti->second.first;
+            const auto& args = ti->second.second;
+            size_t want = 0;
+            if (auto td = templateDecls.find(tname); td != templateDecls.end()) want = td->second->typeParams.size();
+            else if (auto ge = genericEnumDecls.find(tname); ge != genericEnumDecls.end()) want = ge->second->typeParams.size();
+            std::string msg;
+            if (want && args.size() != want)
+                msg = "'" + tname + "' expects " + std::to_string(want) + " type argument(s), got " +
+                      std::to_string(args.size());
+            if (!msg.empty()) { if (at) errorAt(at, msg); else error(0, 0, msg); return; }
+            for (const auto& a : args) validateStructType(normalizeType(a), at);
+            return;
+        }
+    }
+
     // Check if it's an explicit struct type (struct: prefix)
     if (baseType.find("struct:") == 0) {
         // Extract struct name (remove "struct:" prefix)

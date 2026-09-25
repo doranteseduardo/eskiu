@@ -258,6 +258,11 @@ void TypeChecker::visit(FunctionDecl* node) {
         errorAt(node, "'main' must return int (its return value is the process exit code); "
                       "got '" + node->returnType + "'");
 
+    // Parameter and return types must name known types.
+    for (const auto& param : node->params)
+        if (param.first != "...") validateStructType(normalizeType(param.first), node);
+    validateStructType(normalizeType(node->returnType), node);
+
     // Record definition location
     definitionLocations[node->name] = {node->line, node->col, sourceFile};
     // -Wall: track top-level functions for unused-function reporting (skip main).
@@ -562,6 +567,17 @@ void TypeChecker::visit(VarDecl* node) {
 
 void TypeChecker::visit(StructDecl* node) {
     defineSymbol(node->name, "struct:" + node->name);
+    // Field types must name known types (a template's fields mention its type params and
+    // are checked per instantiation through the instance's type arguments instead).
+    if (node->typeParams.empty()) {
+        for (const auto& f : node->fields)
+            validateStructType(normalizeType(f.type), node);
+        for (const auto& method : node->methods)
+            if (auto func = dynamic_cast<FunctionDecl*>(method.get())) {
+                for (const auto& p : func->params) validateStructType(normalizeType(p.first), func);
+                validateStructType(normalizeType(func->returnType), func);
+            }
+    }
     // Type-check method bodies
     for (const auto& method : node->methods) {
         if (auto func = dynamic_cast<FunctionDecl*>(method.get())) {
@@ -578,8 +594,10 @@ void TypeChecker::visit(StructDecl* node) {
 }
 
 void TypeChecker::visit(ExternDecl* node) {
-    // Extern functions are already registered in first pass
-    // Just verify they have valid signatures
+    // Extern functions are already registered in first pass; verify the signature's types.
+    for (const auto& param : node->params)
+        if (param.first != "...") validateStructType(normalizeType(param.first), node);
+    validateStructType(normalizeType(node->returnType), node);
 }
 
 void TypeChecker::visit(IntrinsicDecl* node) {
@@ -607,11 +625,8 @@ void TypeChecker::visit(InterfaceDecl* node) {
 }
 
 void TypeChecker::visit(UnionDecl* node) {
-    // Register the union as a struct in the type system so field access works.
-    // All fields are registered; the codegen handles the shared-offset layout.
-    StructInfo info;
-    info.name = node->name;
+    // Registered as a struct in the first pass (so field access works and a signature
+    // declared before it may name it); here only its field types are validated.
     for (const auto& f : node->fields)
-        info.fields.push_back({f.type, f.name});
-    structs[node->name] = info;
+        validateStructType(normalizeType(f.type), node);
 }

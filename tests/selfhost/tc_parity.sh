@@ -37,7 +37,8 @@ HANDLED="undefined_var arg_count undefined_type await_outside_async async_no_awa
          dangling_local uninitialized pp_error unterminated_char
          incdec_float question_type_args c_array_global c_array_local
          struct_init_field_type struct_init_too_many struct_init_dup_field struct_init_lit_range
-         struct_init_generic_field sizeof_unknown"
+         struct_init_generic_field sizeof_unknown
+         struct_value_cycle field_unknown_type param_unknown_type template_arg_count template_unknown_arg"
 HANDLED="$(echo $HANDLED)"   # collapse the multi-line list to single spaces for matching
 
 DRIVER=selfhost/esk_main.esk

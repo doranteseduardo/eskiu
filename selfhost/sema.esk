@@ -39,6 +39,7 @@ struct Sema {
     List<*DeclNode> ifaces;  // interface decls (their required methods)
     List<*DeclNode> sdecls;  // struct decls (field names + types, for struct literals)
     List<string> tparams;    // type parameters in scope (a generic struct's methods)
+    List<*DeclNode> tdecls;  // every type decl (struct/union/enum/interface/alias)
     int depth;
     int had_error;
     int in_async;           // currently inside an `async` function body?
@@ -216,6 +217,7 @@ void sema_init(Sema* s, string filename) {
     List_init<*DeclNode>(&s.ifaces, 16);
     List_init<*DeclNode>(&s.sdecls, 16);
     List_init<string>(&s.tparams, 4);
+    List_init<*DeclNode>(&s.tdecls, 16);
     s.depth = 0;                           // global scope
     s.had_error = 0;
     s.in_async = 0;
@@ -405,6 +407,98 @@ int sema_known_type(Sema* s, string t) {
         || sema_streq(b, "va_list") == 1) { return 1; }
     if (sema_in_list(&s.tparams, b) == 1) { return 1; }
     return sema_in_list(&s.types, b);
+}
+
+// The declaration of type `name` (struct/union/enum/interface/alias), or null.
+*DeclNode sema_find_tdecl(Sema* s, string name) {
+    int i = 0; int n = List_len<*DeclNode>(&s.tdecls);
+    while (i < n) {
+        *DeclNode d = List_get<*DeclNode>(&s.tdecls, i);
+        if (sema_streq(d.name, name) == 1) { return d; }
+        i = i + 1;
+    }
+    return null;
+}
+
+// A declared type spelling (field / parameter / return / variable) must name known types,
+// and a generic instance must supply exactly the template's type-parameter count
+// (mirrors the C++ validateStructType).
+void sema_check_decl_type(Sema* s, string t) {
+    if (t == null || t[0] == 0 || sema_streq(t, "...") == 1 || sema_is_fn_type(t) == 1) { return; }
+    if (sema_known_type(s, t) == 0) {
+        s.had_error = 1;
+        printf("error: %s:0:0: unknown type '%s'\n", s.filename, sema_base_name(sema_struct_of_type(t)));
+        return;
+    }
+    string b = sema_base_name(sema_struct_of_type(sema_strip_nullable(sema_strip_const(t))));
+    *DeclNode d = sema_find_tdecl(s, b);
+    List<string> targs; List_init<string>(&targs, 2);
+    sema_parse_targs(t, &targs);
+    int want = 0;
+    if (d != null) { want = List_len<TypeParam>(&d.type_params); }
+    int got = List_len<string>(&targs);
+    if (d != null && (want > 0 || got > 0) && want != got) {
+        s.had_error = 1;
+        printf("error: %s:0:0: '%s' expects %d type argument(s), got %d\n", s.filename, b, want, got);
+        return;
+    }
+    int k = 0;
+    while (k < got) { sema_check_decl_type(s, List_get<string>(&targs, k)); k = k + 1; }
+}
+
+// Name of the struct/union a field of type `ft` holds BY VALUE ("" for a pointer, slice,
+// fn, or non-struct): a fixed-size array of a struct still holds it by value.
+string sema_value_struct(Sema* s, string ft) {
+    if (sema_has_star(ft) == 1 || sema_is_fn_type(ft) == 1) { return ""; }
+    int i = 0; while (ft[i] != 0) { if ((int)ft[i] == 91 && (int)ft[i + 1] == 93) { return ""; } i = i + 1; }   // "[]" slice
+    string b0 = sema_strip_const(ft);
+    int n = 0; while (b0[n] != 0 && (int)b0[n] != 91) { n = n + 1; }
+    string b = sema_base_name(sema_sub_str(b0, 0, n));
+    *DeclNode d = sema_find_tdecl(s, b);
+    if (d == null || (d.kind != DK_STRUCT && d.kind != DK_UNION)) { return ""; }
+    if (List_len<TypeParam>(&d.type_params) > 0) { return ""; }
+    return b;
+}
+
+// DFS for a struct/union that contains itself by value (no finite layout). `onstack` holds
+// the current path, `done` the finished nodes, `reported` the already-diagnosed structs.
+void sema_cycle_dfs(Sema* s, *DeclNode d, List<string>* onstack, List<string>* done, List<string>* reported) {
+    List_push<string>(onstack, d.name);
+    int i = 0; int n = List_len<Param>(&d.params);
+    while (i < n) {
+        Param f = List_get<Param>(&d.params, i);
+        string m = sema_value_struct(s, f.ty);
+        if (m[0] != 0) {
+            if (sema_in_list(onstack, m) == 1) {
+                if (sema_in_list(reported, m) == 0) {
+                    List_push<string>(reported, m);
+                    s.had_error = 1;
+                    printf("error: %s:0:0: struct '%s' contains itself by value (through field '%s' of '%s'); use a pointer\n",
+                           s.filename, m, f.name, d.name);
+                }
+            } else if (sema_in_list(done, m) == 0) {
+                sema_cycle_dfs(s, sema_find_tdecl(s, m), onstack, done, reported);
+            }
+        }
+        i = i + 1;
+    }
+    sema_list_erase(onstack, d.name);
+    List_push<string>(done, d.name);
+}
+
+void sema_check_value_cycles(Sema* s) {
+    List<string> onstack; List_init<string>(&onstack, 4);
+    List<string> done; List_init<string>(&done, 8);
+    List<string> reported; List_init<string>(&reported, 2);
+    int i = 0; int n = List_len<*DeclNode>(&s.tdecls);
+    while (i < n) {
+        *DeclNode d = List_get<*DeclNode>(&s.tdecls, i);
+        if ((d.kind == DK_STRUCT || d.kind == DK_UNION) && List_len<TypeParam>(&d.type_params) == 0
+            && sema_in_list(&done, d.name) == 0) {
+            sema_cycle_dfs(s, d, &onstack, &done, &reported);
+        }
+        i = i + 1;
+    }
 }
 
 int sema_is_struct(Sema* s, string name) {
@@ -1267,6 +1361,7 @@ void sema_stmt(Sema* s, *StmtNode st) {
             }
         }
         sema_check_iface_value(s, st.type, st.expr);
+        sema_check_decl_type(s, st.type);
         sema_define(s, st.name, st.type, st.is_const);
         return;
     }
@@ -1514,6 +1609,7 @@ void sema_register_globals(Sema* s, *Program prog) {
         if (d.kind == DK_STRUCT || d.kind == DK_UNION || d.kind == DK_INTERFACE
             || d.kind == DK_ENUM || d.kind == DK_TYPEALIAS) {
             List_push<string>(&s.types, d.name);
+            List_push<*DeclNode>(&s.tdecls, d);
         }
         if (d.kind == DK_STRUCT) {
             List_push<string>(&s.structs, d.name);
@@ -1739,6 +1835,13 @@ void sema_check_uninit(Sema* s, *StmtNode body) {
     }
 }
 
+// A function's parameter and return types must name known types.
+void sema_check_sig_types(Sema* s, *DeclNode f) {
+    int i = 0; int n = List_len<Param>(&f.params);
+    while (i < n) { sema_check_decl_type(s, List_get<Param>(&f.params, i).ty); i = i + 1; }
+    sema_check_decl_type(s, f.ret_type);
+}
+
 void sema_check_fn(Sema* s, *DeclNode f, string self_type) {
     if (f.body == null) { return; }
     // Template body: full type-checking (escape soundness, `?`, uninitialized reads,
@@ -1838,23 +1941,33 @@ int sema_check(Sema* s, *Program prog) {
                 printf("error: %s:0:0: unknown intrinsic '%s'\n", s.filename, d.name);
             }
         }
+        if ((d.kind == DK_FUNCTION && List_len<TypeParam>(&d.type_params) == 0) || d.kind == DK_EXTERN) {
+            sema_check_sig_types(s, d);
+        }
         if (d.kind == DK_FUNCTION) { sema_check_fn(s, d, ""); }
         // A global's initializer runs at compile time (no code runs before `main`), so it
         // must be a constant expression, as in C.
         if (d.kind == DK_VARDECL && d.is_extern == 0 && d.init != null && sema_is_const_init(s, d.init) == 0) {
             sema_error(s, sema_cat(sema_cat("initializer of global '", d.name), "' is not a compile-time constant"));
         }
-        if (d.kind == DK_STRUCT) {
+        if (d.kind == DK_STRUCT || d.kind == DK_UNION) {
             List_init<string>(&s.tparams, 4);
             int ti = 0; int tn = List_len<TypeParam>(&d.type_params);
             while (ti < tn) { List_push<string>(&s.tparams, List_get<TypeParam>(&d.type_params, ti).name); ti = ti + 1; }
+            int fi = 0; int fn2 = List_len<Param>(&d.params);
+            while (fi < fn2) { sema_check_decl_type(s, List_get<Param>(&d.params, fi).ty); fi = fi + 1; }
             int k = 0;
             int mm = List_len<*DeclNode>(&d.methods);
-            while (k < mm) { sema_check_fn(s, List_get<*DeclNode>(&d.methods, k), d.name); k = k + 1; }
+            while (k < mm) {
+                sema_check_sig_types(s, List_get<*DeclNode>(&d.methods, k));
+                sema_check_fn(s, List_get<*DeclNode>(&d.methods, k), d.name);
+                k = k + 1;
+            }
             List_init<string>(&s.tparams, 4);
         }
         i = i + 1;
     }
+    sema_check_value_cycles(s);
     if (s.had_error == 1) { return 0; }
     return 1;
 }

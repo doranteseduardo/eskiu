@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <climits>
 #include <set>
+#include <functional>
 
 // Template type-name utilities (mangleTemplate / splitTemplateType / substType)
 // are shared with codegen; see template_utils.h.
@@ -50,6 +51,14 @@ bool TypeChecker::check(Program* program) {
         }
         if (auto ifaceDecl = dynamic_cast<InterfaceDecl*>(decl.get())) {
             interfaceDecls[ifaceDecl->name] = ifaceDecl;
+            continue;
+        }
+        if (auto unionDecl = dynamic_cast<UnionDecl*>(decl.get())) {
+            // A union is a struct to the type system (all fields at offset 0 in codegen).
+            StructInfo info;
+            info.name = unionDecl->name;
+            for (const auto& f : unionDecl->fields) info.fields.push_back({f.type, f.name});
+            structs[unionDecl->name] = info;
             continue;
         }
         if (auto funcDecl = dynamic_cast<FunctionDecl*>(decl.get())) {
@@ -132,6 +141,8 @@ bool TypeChecker::check(Program* program) {
         decl->accept(this);
     }
 
+    checkValueCycles(program);
+
     // -Wall: top-level functions defined but never referenced.
     if (warnAll) {
         for (const auto& [name, loc] : definedFns) {
@@ -146,6 +157,43 @@ bool TypeChecker::check(Program* program) {
     }
 
     return !hasErrors;
+}
+
+// A struct (or union) that contains itself by value, directly or through other by-value
+// fields, has no finite layout. Pointer and slice fields break the cycle; a fixed-size
+// array of a struct does not.
+void TypeChecker::checkValueCycles(Program* program) {
+    std::map<std::string, Decl*> decls;
+    for (const auto& decl : program->declarations)
+        if (auto* sd = dynamic_cast<StructDecl*>(decl.get()); sd && sd->typeParams.empty()) decls[sd->name] = sd;
+        else if (auto* ud = dynamic_cast<UnionDecl*>(decl.get())) decls[ud->name] = ud;
+    auto fieldsOf = [&](Decl* d) -> const std::vector<StructDecl::Field>& {
+        if (auto* sd = dynamic_cast<StructDecl*>(d)) return sd->fields;
+        return static_cast<UnionDecl*>(d)->fields;
+    };
+    auto byValueStruct = [&](const std::string& ft) -> std::string {
+        ty::Type t = ty::Type::parse(normalizeType(ft));
+        while (t.kind == ty::Type::Kind::Array && t.elem) { ty::Type e = *t.elem; t = e; }
+        if (t.kind != ty::Type::Kind::Struct) return "";
+        std::string n = t.nominalName();
+        return decls.count(n) ? n : "";
+    };
+    std::map<std::string, int> state;   // 0 = unvisited, 1 = on stack, 2 = done
+    std::set<std::string> reported;
+    std::function<void(const std::string&)> dfs = [&](const std::string& n) {
+        state[n] = 1;
+        for (const auto& f : fieldsOf(decls[n])) {
+            std::string m = byValueStruct(f.type);
+            if (m.empty()) continue;
+            if (state[m] == 1) {
+                if (reported.insert(m).second)
+                    errorAt(decls[m], "struct '" + m + "' contains itself by value (through field '" +
+                                      f.name + "' of '" + n + "'); use a pointer");
+            } else if (state[m] == 0) dfs(m);
+        }
+        state[n] = 2;
+    };
+    for (const auto& kv : decls) if (state[kv.first] == 0) dfs(kv.first);
 }
 
 std::string TypeChecker::getExpressionType(Expr* expr) {
