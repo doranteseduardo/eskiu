@@ -34,11 +34,10 @@ struct Pair<A, B> {
 //   free_future<int>(ra);  free_future<int>(rb);  free_future<Pair<int,int>>(j);
 Future<Pair<A, B>>* join2v<A, B>(Future<A>* a, Future<B>* b) {
     Future<Pair<A, B>>* j = future_new<Pair<A, B>>();
-    *int cnt = alloc<int>(1);
-    *cnt = 0;
+    *int cnt = alloc<int>(1);   // completions so far (alloc zeroes it)
     let onA: fn()->void = void() {
         let self: fn()->void = a.waker;
-        *cnt = *cnt + 1;
+        (*cnt)++;
         if (*cnt == 2) {
             free((*void)cnt);
             future_complete<Pair<A, B>>(j, Pair<A, B>{ first: a.value, second: b.value });
@@ -47,7 +46,7 @@ Future<Pair<A, B>>* join2v<A, B>(Future<A>* a, Future<B>* b) {
     };
     let onB: fn()->void = void() {
         let self: fn()->void = b.waker;
-        *cnt = *cnt + 1;
+        (*cnt)++;
         if (*cnt == 2) {
             free((*void)cnt);
             future_complete<Pair<A, B>>(j, Pair<A, B>{ first: a.value, second: b.value });
@@ -55,9 +54,9 @@ Future<Pair<A, B>>* join2v<A, B>(Future<A>* a, Future<B>* b) {
         free_closure(self);
     };
     a.waker = onA;
-    if (atomic_cas(&a.state, 0, 1) == false) { *cnt = *cnt + 1; free_closure(onA); }   // a already done
+    if (!atomic_cas(&a.state, PENDING, WAITING)) { (*cnt)++; free_closure(onA); }   // a already done
     b.waker = onB;
-    if (atomic_cas(&b.state, 0, 1) == false) { *cnt = *cnt + 1; free_closure(onB); }   // b already done
+    if (!atomic_cas(&b.state, PENDING, WAITING)) { (*cnt)++; free_closure(onB); }   // b already done
     if (*cnt == 2) {
         free((*void)cnt);
         future_complete<Pair<A, B>>(j, Pair<A, B>{ first: a.value, second: b.value });
@@ -86,9 +85,8 @@ Future<Either<A, B>>* select2v<A, B>(Future<A>* a, Future<B>* b) {
         free_closure(self);
     };
 
-    // Future states: PENDING = 0, WAITING = 1 (see future.esk).
     a.waker = onA;
-    if (atomic_cas(&a.state, 0, 1) == false) {            // a already READY -> a wins
+    if (!atomic_cas(&a.state, PENDING, WAITING)) {            // a already READY -> a wins
         free_closure(onA);                                // onA never fires
         free_closure(onB);                                // onB never armed
         A av = a.value;  free_future<A>(a);  future_drop((FutureHdr*)b);
@@ -96,7 +94,7 @@ Future<Either<A, B>>* select2v<A, B>(Future<A>* a, Future<B>* b) {
         return sel;
     }
     b.waker = onB;
-    if (atomic_cas(&b.state, 0, 1) == false) {            // b already READY -> b wins
+    if (!atomic_cas(&b.state, PENDING, WAITING)) {            // b already READY -> b wins
         free_closure(onB);                                // onB never fires
         future_drop((FutureHdr*)a);                       // a armed -> drop frees onA
         B bv = b.value;  free_future<B>(b);
