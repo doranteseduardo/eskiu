@@ -908,43 +908,39 @@ void TypeChecker::visit(IndexExpr* node) {
     if (baseType == "string") { elem = "char"; haveElem = true; }
     else if (bt.kind == ty::Type::Kind::Array || bt.kind == ty::Type::Kind::Slice) {
         elem = bt.elem->str(); haveElem = true;
+        // Constant indices and bounds (a literal, an enum member, a `const`, or an
+        // expression over them) into a fixed array are checked at compile time. The
+        // dimension is a number or an enum member; a `const` dimension is not resolved here.
+        long long dimV = -1;
+        {
+            const std::string& dim = bt.dim;
+            if (!dim.empty() && std::all_of(dim.begin(), dim.end(), [](unsigned char c){ return std::isdigit(c); })) {
+                try { dimV = std::stoll(dim); } catch (...) { dimV = -1; }
+            } else if (auto ec = enumConstants.find(dim); ec != enumConstants.end()) {
+                dimV = ec->second;
+            }
+        }
+        const std::string dimS = std::to_string(dimV);
         // Constant slice bounds `a[lo..hi]` into a fixed array: 0 <= lo <= hi <= N.
         if (node->highIndex && bt.kind == ty::Type::Kind::Array) {
-            auto litVal = [](Expr* e, long long& out) {
-                auto* l = dynamic_cast<LiteralExpr*>(e);
-                if (!l || l->kind != LiteralExpr::Kind::INT) return false;
-                try { out = std::stoll(l->value, nullptr, 0); } catch (...) { return false; }
-                return true;
-            };
-            const std::string& dim = bt.dim;
-            bool dimNum = !dim.empty() &&
-                std::all_of(dim.begin(), dim.end(), [](unsigned char c){ return std::isdigit(c); });
             long long lo = 0, hi = 0;
-            bool haveLo = litVal(node->index.get(), lo), haveHi = litVal(node->highIndex.get(), hi);
+            bool haveLo = foldConstInt(node->index.get(), lo), haveHi = foldConstInt(node->highIndex.get(), hi);
             if ((haveLo && lo < 0) || (haveHi && hi < 0))
                 errorAt(node, "slice bound is negative");
             else if (haveLo && haveHi && lo > hi)
                 errorAt(node, "slice bounds out of order: " + std::to_string(lo) + ".." + std::to_string(hi));
-            else if (dimNum && ((haveHi && hi > std::stoll(dim)) || (haveLo && lo > std::stoll(dim))))
-                errorAt(node, "slice bound " + std::to_string(haveHi && hi > std::stoll(dim) ? hi : lo) +
-                              " is out of bounds for array of size " + dim);
+            else if (dimV >= 0 && ((haveHi && hi > dimV) || (haveLo && lo > dimV)))
+                errorAt(node, "slice bound " + std::to_string(haveHi && hi > dimV ? hi : lo) +
+                              " is out of bounds for array of size " + dimS);
         }
-        // Constant-index bounds check: only a plain index into a fixed array with a
-        // numeric dimension is checkable at compile time.
         if (!node->highIndex && bt.kind == ty::Type::Kind::Array) {
-            if (auto* ix = dynamic_cast<LiteralExpr*>(node->index.get());
-                ix && ix->kind == LiteralExpr::Kind::INT) {
-                const std::string& dim = bt.dim;
-                try {
-                    long long idx = std::stoll(ix->value, nullptr, 0);
-                    bool dimNum = !dim.empty() &&
-                        std::all_of(dim.begin(), dim.end(), [](unsigned char c){ return std::isdigit(c); });
-                    if (idx < 0)
-                        errorAt(node, "array index " + ix->value + " is out of bounds");
-                    else if (dimNum && idx >= std::stoll(dim))
-                        errorAt(node, "array index " + ix->value +
-                                      " is out of bounds for array of size " + dim);
-                } catch (...) { /* unparized literal — skip */ }
+            long long idx = 0;
+            if (foldConstInt(node->index.get(), idx)) {
+                if (idx < 0)
+                    errorAt(node, "array index " + std::to_string(idx) + " is out of bounds");
+                else if (dimV >= 0 && idx >= dimV)
+                    errorAt(node, "array index " + std::to_string(idx) +
+                                  " is out of bounds for array of size " + dimS);
             }
         }
     } else if (isPointerType(baseType)) {

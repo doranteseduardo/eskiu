@@ -26,7 +26,7 @@ fi
 # Error classes (files under tests/errors/) that the current sema slice catches.
 # Grows per slice; the rest are reported as skipped.
 HANDLED="undefined_var arg_count undefined_type await_outside_async async_no_await switch_dup_case switch_dup_folded switch_dup_const unknown_intrinsic undefined_field match_duplicate match_nonexhaustive
-         dup_enum_member_located bitfield_located alias_unknown_type missing_return_located uninit_located undefined_fn_located struct_redef_located int64_literal_range enum_value_overflow enum_value_too_big switch_case_range switch_case_range_int shift_count_range shift_count_negative
+         dup_enum_member_located bitfield_located alias_unknown_type missing_return_located uninit_located undefined_fn_located struct_redef_located int64_literal_range enum_value_overflow enum_value_too_big switch_case_range switch_case_range_int shift_count_range shift_count_negative index_oob_expr index_oob_enum index_oob_const
          const_reassign const_no_init const_field const_ptr_write const_ptr_drop
          trait_unsatisfied trait_primitive_unsat question_bad_return escaping_param
          missing_return missing_return_if

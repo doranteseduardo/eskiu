@@ -269,6 +269,20 @@ int sema_case_fits(string t0, int64 v) {
     return 1;
 }
 
+int64 sema_parse_int(string t);
+// The value of an array dimension spelling: a number or a classic enum member (-1 when
+// unknown, e.g. a `const` name).
+int64 sema_dim_value(Sema* s, string dim) {
+    if (sema_all_digits(dim) == 1) { return sema_parse_int(dim); }
+    int i = 0; int n = List_len<EVar>(&s.evars);
+    while (i < n) {
+        EVar ev = List_get<EVar>(&s.evars, i);
+        if (ev.plain == 1 && sema_streq(ev.variant, dim) == 1) { return sema_parse_int(ev.val); }
+        i = i + 1;
+    }
+    return (int64)-1;
+}
+
 int sema_in_list(List<string>* l, string name) {
     int i = 0; int n = List_len<string>(l);
     while (i < n) { if (sema_streq(List_get<string>(l, i), name) == 1) { return 1; } i = i + 1; }
@@ -2513,6 +2527,8 @@ int sema_fold_int(Sema* s, *ExprNode e, int64* out) {
     }
     if (e.kind == EK_IDENT) {
         int si = sema_sym_index(s, e.sval);
+        // An enum member is registered as an untyped global; it folds to its value below.
+        if (si >= 0 && List_get<Sym>(&s.syms, si).depth == 0 && List_get<Sym>(&s.syms, si).type[0] == 0) { si = -1; }
         if (si >= 0) {
             // A `const` integer folds through its initializer (bounded against a
             // self-referential const).
@@ -3136,23 +3152,27 @@ void sema_expr_k(Sema* s, *ExprNode e) {
     }
     if (k == EK_INDEX || k == EK_ALLOCWITH) {
         // Constant slice bounds `a[lo..hi]` into a fixed array: 0 <= lo <= hi <= N.
+        // Constant indices and bounds (a literal, an enum member, a `const`, or an
+        // expression over them) into a fixed array are checked (mirrors the C++ IndexExpr).
         if (k == EK_INDEX && List_len<*ExprNode>(&e.kids) > 0) {
             *ExprNode hiE = List_get<*ExprNode>(&e.kids, 0);
             string abt = sema_infer_type(s, e.a);
-            int lo_ok = 0; int hi_ok = 0;
-            if (e.b != null && e.b.kind == EK_LITERAL && e.b.lit_kind == LIT_INT && sema_all_digits(e.b.sval) == 1) { lo_ok = 1; }
-            if (hiE != null && hiE.kind == EK_LITERAL && hiE.lit_kind == LIT_INT && sema_all_digits(hiE.sval) == 1) { hi_ok = 1; }
+            int64 lo = (int64)0; int64 hi = (int64)0;
+            int lo_ok = sema_fold_int(s, e.b, &lo);
+            int hi_ok = sema_fold_int(s, hiE, &hi);
             if (sema_is_arr_ty(abt) == 1) {
-                string sdim = sema_arr_count(abt);
-                if (lo_ok == 1 && hi_ok == 1 && sema_atoi(e.b.sval) > sema_atoi(hiE.sval)) {
+                int64 dv = sema_dim_value(s, sema_arr_count(abt));
+                if ((lo_ok == 1 && lo < (int64)0) || (hi_ok == 1 && hi < (int64)0)) {
+                    sema_error(s, "slice bound is negative");
+                } else if (lo_ok == 1 && hi_ok == 1 && lo > hi) {
                     s.had_error = 1;
-                    dprintf(2, "error: %s:%d:%d: slice bounds out of order: %s..%s\n", s.filename, s.line, s.col, e.b.sval, hiE.sval);
-                } else if (sema_all_digits(sdim) == 1 && hi_ok == 1 && sema_atoi(hiE.sval) > sema_atoi(sdim)) {
+                    dprintf(2, "error: %s:%d:%d: slice bounds out of order: %lld..%lld\n", s.filename, s.line, s.col, lo, hi);
+                } else if (dv >= (int64)0 && hi_ok == 1 && hi > dv) {
                     s.had_error = 1;
-                    dprintf(2, "error: %s:%d:%d: slice bound %s is out of bounds for array of size %s\n", s.filename, s.line, s.col, hiE.sval, sdim);
-                } else if (sema_all_digits(sdim) == 1 && lo_ok == 1 && sema_atoi(e.b.sval) > sema_atoi(sdim)) {
+                    dprintf(2, "error: %s:%d:%d: slice bound %lld is out of bounds for array of size %lld\n", s.filename, s.line, s.col, hi, dv);
+                } else if (dv >= (int64)0 && lo_ok == 1 && lo > dv) {
                     s.had_error = 1;
-                    dprintf(2, "error: %s:%d:%d: slice bound %s is out of bounds for array of size %s\n", s.filename, s.line, s.col, e.b.sval, sdim);
+                    dprintf(2, "error: %s:%d:%d: slice bound %lld is out of bounds for array of size %lld\n", s.filename, s.line, s.col, lo, dv);
                 }
             }
             sema_expr(s, hiE);
@@ -3174,19 +3194,18 @@ void sema_expr_k(Sema* s, *ExprNode e) {
                 }
             }
         }
-        // Constant-index bounds check on a fixed array with a numeric dimension.
-        if (k == EK_INDEX && e.b != null && e.b.kind == EK_LITERAL && e.b.lit_kind == LIT_INT
-            && List_len<*ExprNode>(&e.kids) == 0) {
+        // Constant-index bounds check on a fixed array (the index folds like a case label).
+        if (k == EK_INDEX && List_len<*ExprNode>(&e.kids) == 0 && e.b != null) {
             string bt = sema_canon(s, sema_infer_type(s, e.a));
-            if (sema_arr_bracket(bt) > 0 && sema_slice_elem(bt)[0] == 0) {
-                string dim = sema_arr_count(bt);
-                if ((int)e.b.sval[0] == 45 && sema_all_digits(sema_sub_str(e.b.sval, 1, sema_slen(e.b.sval))) == 1
-                    && sema_lit_is_zero(e.b.sval) == 0) {
+            int64 idx = (int64)0;
+            if (sema_is_arr_ty(bt) == 1 && sema_fold_int(s, e.b, &idx) == 1) {
+                int64 dim = sema_dim_value(s, sema_arr_count(bt));
+                if (idx < (int64)0) {
                     s.had_error = 1;
-                    dprintf(2, "error: %s:%d:%d: array index %s is out of bounds\n", s.filename, s.line, s.col, e.b.sval);
-                } else if (sema_all_digits(e.b.sval) == 1 && sema_all_digits(dim) == 1 && sema_atoi(e.b.sval) >= sema_atoi(dim)) {
+                    dprintf(2, "error: %s:%d:%d: array index %lld is out of bounds\n", s.filename, s.line, s.col, idx);
+                } else if (dim >= (int64)0 && idx >= dim) {
                     s.had_error = 1;
-                    dprintf(2, "error: %s:%d:%d: array index %s is out of bounds for array of size %s\n", s.filename, s.line, s.col, e.b.sval, dim);
+                    dprintf(2, "error: %s:%d:%d: array index %lld is out of bounds for array of size %lld\n", s.filename, s.line, s.col, idx, dim);
                 }
             }
         }
