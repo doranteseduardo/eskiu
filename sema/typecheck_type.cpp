@@ -235,10 +235,27 @@ void TypeChecker::checkConstraints(ASTNode* node,
     }
 }
 
+bool TypeChecker::dropsConstQual(const std::string& lhs, const std::string& rhs) {
+    if (!tyq::isPtr(lhs) || !tyq::isPtr(rhs)) return false;
+    if (!tyq::baseConst(tyq::pointee(rhs)) || tyq::baseConst(tyq::pointee(lhs))) return false;
+    // Compare the two pointer shapes with the base normalized (`*P` vs `*struct:P`) and the
+    // star count canonical (`P*` vs `*P`).
+    auto canon = [&](std::string t) {
+        t = tyq::strip(t);
+        int stars = 0;
+        while (!t.empty() && t.back() == '*')  { t.pop_back(); ++stars; }
+        while (!t.empty() && t.front() == '*') { t.erase(0, 1); ++stars; }
+        return std::string(stars, '*') + normalizeType(t);
+    };
+    std::string l = canon(lhs), r = canon(rhs);
+    // A pointer-to-const also may not silently become a plain `*void`.
+    return l == r || l == "*void";
+}
+
 bool TypeChecker::isValidAssignment(const std::string& lhsType, const std::string& rhsType) {
     // const-correctness: reject a conversion that would silently drop a pointee
     // const (`const int*` → `int*`). Adding const (`int*` → `const int*`) is fine.
-    if (tyq::dropsConst(lhsType, rhsType)) return false;
+    if (dropsConstQual(lhsType, rhsType)) return false;
 
     // Normalize both sides so "Point" == "struct:Point"
     std::string lhs = normalizeType(lhsType);
@@ -328,7 +345,8 @@ std::string TypeChecker::assignabilityError(const std::string& targetType,
     if (isNumericType(nt) && isNumericType(ns))
         return "cannot assign a floating-point value ('" + srcType + "') to integer type '" +
                targetType + "' without an explicit cast (it drops the fraction)";
-    if (tyq::dropsConst(targetType, srcType)) return "";   // reported by the caller's const check
+    if (dropsConstQual(targetType, srcType))
+        return "conversion discards a const qualifier ('" + srcType + "' to '" + targetType + "')";
     if (interfaceDecls.count(nt) && !isPointerType(ns) && structs.count(rt.nominalName()))
         return "cannot convert struct '" + rt.nominalName() + "' to interface '" + nt +
                "' by value; pass a pointer (&x)";

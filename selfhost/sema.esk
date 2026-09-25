@@ -623,7 +623,12 @@ string sema_assign_err(Sema* s, string t0, *ExprNode e) {
         && sema_int_lit_fits(t, e.sval) == 0) {
         return sema_cat(sema_cat(sema_cat(sema_cat("integer literal ", e.sval), " is out of range for '"), t), "'");
     }
-    string src = sema_strip_const(sema_infer_type(s, e));
+    string src0 = sema_infer_type(s, e);
+    if (sema_pointee_const(src0) == 1 && sema_has_star(t0) == 1 && sema_pointee_const(t0) == 0
+        && sema_is_fn_type(t0) == 0) {
+        return sema_cat(sema_cat(sema_cat(sema_cat("conversion discards a const qualifier ('", src0), "' to '"), t0), "')");
+    }
+    string src = sema_strip_const(src0);
     if (src[0] == 0 || sema_streq(src, "unknown") == 1 || sema_streq(src, t) == 1) { return ""; }
     string conv = sema_cat(sema_cat(sema_cat(sema_cat("cannot convert '", src), "' to '"), t), "'");
     if (sema_streq(src, "void") == 1) { return "cannot convert a 'void' value"; }
@@ -1340,6 +1345,50 @@ void sema_expr(Sema* s, *ExprNode e) {
         }
         sema_check_nullable_deref(s, e.a, "index");
         sema_expr(s, e.a); sema_expr(s, e.b); return;
+    }
+    if (k == EK_CALL && e.a != null && e.a.kind == EK_MEMBER) {
+        // Method-call syntax `x.m(...)`: `m` is an inline method, a field holding a fn
+        // pointer, or a free function `Type_m(self, ...)` (mirrors the C++ method path).
+        *ExprNode mem = e.a;
+        sema_expr(s, mem.a);
+        sema_check_nullable_deref(s, mem.a, "access a member of");
+        string bt = sema_infer_type(s, mem.a);
+        string sn = sema_struct_of_type(bt);
+        if (bt[0] != 0 && sema_is_struct(s, sn) == 1) {
+            int inline_m = 0;
+            *DeclNode sd = sema_find_struct(s, sn);
+            if (sd != null) {
+                int j = 0; int mn = List_len<*DeclNode>(&sd.methods);
+                while (j < mn) { if (sema_streq(List_get<*DeclNode>(&sd.methods, j).name, mem.sval) == 1) { inline_m = 1; } j = j + 1; }
+            }
+            *DeclNode ffn = sema_find_fndecl(s, sema_cat(sema_cat(sn, "_"), mem.sval));
+            int is_field = 0;
+            if (inline_m == 0 && sema_has_member(s, sema_cat(sema_cat(sn, "."), mem.sval)) == 1) { is_field = 1; }
+            if (inline_m == 0 && ffn == null && is_field == 0) {
+                s.had_error = 1;
+                printf("error: %s:0:0: undefined method '%s' on type '%s'\n", s.filename, mem.sval, sn);
+            }
+            // A method with a plain (mutable) `self` may write through it, so it cannot be
+            // called on a read-only receiver unless it declares `const T* self`.
+            int ro = 0;
+            if (sema_has_star(bt) == 1) { ro = sema_pointee_const(bt); }
+            else { ro = sema_is_readonly_lvalue(s, mem.a); }
+            if (ro == 1 && is_field == 0) {
+                int self_const = 0;
+                if (inline_m == 0 && ffn != null && List_len<Param>(&ffn.params) > 0) {
+                    self_const = sema_pointee_const(List_get<Param>(&ffn.params, 0).ty);
+                }
+                if (self_const == 0) {
+                    s.had_error = 1;
+                    printf("error: %s:0:0: cannot call method '%s' on a read-only value: its self may modify it (declare it 'const %s* self' if it does not)\n",
+                           s.filename, mem.sval, sn);
+                }
+            }
+        }
+        int i = 0;
+        int n = List_len<*ExprNode>(&e.kids);
+        while (i < n) { sema_expr(s, List_get<*ExprNode>(&e.kids, i)); i = i + 1; }
+        return;
     }
     if (k == EK_CALL) {
         // arg-count check: only when the callee is a bare global function (not a local

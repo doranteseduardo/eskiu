@@ -237,6 +237,9 @@ private:
 
     // Type checking utilities
     bool isValidAssignment(const std::string& lhsType, const std::string& rhsType);
+    // Would storing a `rhs` pointer into a `lhs` pointer drop the pointee's const
+    // (`const P*` into `*P`, or into `*void`)? Shapes are compared normalized.
+    bool dropsConstQual(const std::string& lhs, const std::string& rhs);
     // "" if `structName` structurally satisfies `iface` (names + signatures), else why not.
     std::string interfaceMismatch(const std::string& structName, InterfaceDecl* iface);
     // Bounded generics: check that each constrained type param's concrete arg

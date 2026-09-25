@@ -1,0 +1,3 @@
+// EXPECT-ERROR: discards a const qualifier
+void set(*int p) { *p = 9; }
+int main() { const int x = 1; set(&x); return x; }

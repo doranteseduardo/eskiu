@@ -551,7 +551,7 @@ void TypeChecker::visit(VarDecl* node) {
         } else {
             std::string initType = getExpressionType(node->initializer.get());
             if (initType != "unknown") {
-                if (tyq::dropsConst(node->type, initType))
+                if (dropsConstQual(node->type, initType))
                     errorAt(node, "cannot initialize '" + node->type + "' from '" + initType +
                                   "': conversion discards a const qualifier");
                 else {

@@ -1636,8 +1636,17 @@ CgLocal cg_find_local(Codegen* g, string name) {
     return none;
 }
 
+// Drop a leading pointee "const " (`const P*` -> `P*`): const has no representation, and
+// the type's consumers (member access, deref, method mangling) expect the bare spelling.
+string cg_strip_lead_const(string t) {
+    if (t[0] == 99 && t[1] == 111 && t[2] == 110 && t[3] == 115 && t[4] == 116 && t[5] == 32) {
+        return (string)((*uint8)t + 6);
+    }
+    return t;
+}
+
 void cg_add_local(Codegen* g, string name, string slot, string ty, string ety) {
-    let l: CgLocal; l.name = name; l.slot = slot; l.ty = ty; l.ety = cg_dealias(g, ety);
+    let l: CgLocal; l.name = name; l.slot = slot; l.ty = ty; l.ety = cg_dealias(g, cg_strip_lead_const(ety));
     List_push<CgLocal>(&g.locals, l);
 }
 

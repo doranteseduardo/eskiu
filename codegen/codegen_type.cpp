@@ -262,8 +262,9 @@ std::string CodeGen::getExprEskiuTypeRaw(const ExprPtr& expr) const {
                             it->second.c_str(), d.c_str(), typeid(*expr).name());
             }
             // Codegen treats a nullable `?*T` exactly like `*T` (same repr); the `?`
-            // only governs sema deref-safety, so strip it here.
-            const std::string& r = it->second;
+            // only governs sema deref-safety, so strip it here. Likewise const (a
+            // `const P*` parameter), which has no representation.
+            std::string r = tyq::strip(it->second);
             return (!r.empty() && r[0] == '?') ? r.substr(1) : r;
         }
         // A table miss is by design — the resolver doesn't annotate every expr, so

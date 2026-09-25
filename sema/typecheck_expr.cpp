@@ -48,7 +48,7 @@ void TypeChecker::visit(BinaryExpr* node) {
             }
         }
         std::string rt = getExpressionType(node->right.get());
-        if (tyq::dropsConst(lt, rt))
+        if (dropsConstQual(lt, rt))
             errorAt(node, "assignment discards a const qualifier ('" + rt + "' to '" + lt + "')");
         else if (lt != "unknown" && rt != "unknown") {
             // Type compatibility incl. narrowing (a literal that fits the target
@@ -452,6 +452,19 @@ void TypeChecker::visit(CallExpr* node) {
         if (mit != functionSignatures.end()) {
             const auto& sig = mit->second;
             const auto& paramTypes = sig.second; // first param is "self"
+            // A method whose `self` is a plain (mutable) pointer may write through it, so
+            // it cannot be called on a read-only receiver (a const value, or through a
+            // pointer to const) unless it declares `const T* self`.
+            {
+                std::string rt = getExpressionType(member->base.get());
+                std::string cname;
+                bool roRecv = tyq::isPtr(rt) ? tyq::baseConst(tyq::pointee(rt))
+                                             : assignsToConst(member->base.get(), cname);
+                if (roRecv && !paramTypes.empty() && !tyq::baseConst(tyq::pointee(paramTypes[0])))
+                    errorAt(node, "cannot call method '" + member->member + "' on a read-only value: its '" +
+                                  paramTypes[0] + " self' may modify it (declare it 'const " + baseType +
+                                  "* self' if it does not)");
+            }
             size_t selfSkip = 1;
             bool isVariadic = paramTypes.size() > selfSkip && paramTypes.back() == "...";
             size_t fixedCount = isVariadic ? paramTypes.size() - selfSkip - 1
@@ -1093,7 +1106,7 @@ void TypeChecker::visit(StructInitExpr* node) {
         if (!fieldType.empty()) {
             std::string valType = getExpressionType(expr.get());
             if (valType != "unknown") {
-                std::string e = tyq::dropsConst(fieldType, valType)
+                std::string e = dropsConstQual(fieldType, valType)
                     ? "conversion discards a const qualifier ('" + valType + "' to '" + fieldType + "')"
                     : assignabilityError(fieldType, valType, expr.get());
                 if (!e.empty()) errorAt(at, "field '" + shownName + "': " + e);
