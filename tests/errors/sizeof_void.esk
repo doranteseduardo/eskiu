@@ -1,0 +1,8 @@
+// EXPECT-ERROR: sizeof of 'void'
+type Nothing = void;
+int main() {
+    int64 a = sizeof(*void);
+    int64 n = sizeof(void);
+    int64 m = sizeof(Nothing);
+    return (int)(a + n + m);
+}

@@ -1224,6 +1224,8 @@ void TypeChecker::visit(SizeofExpr* node) {
     }
     if (!inInstance) node->typeName = resolved;   // a generic body's nodes are shared by its instances
     validateStructType(normalizeType(resolved), node);
+    if (isVoidValueType(resolved))
+        errorAt(node, "sizeof of 'void': a void value has no size");
     expressionTypes[node] = "int64";
 }
 

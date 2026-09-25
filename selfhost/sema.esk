@@ -2804,6 +2804,10 @@ void sema_expr_k(Sema* s, *ExprNode e) {
             s.had_error = 1;
             printf("error: %s:%d:%d: unknown type '%s'\n", s.filename, s.line, s.col, sema_base_name(sema_struct_of_type(e.sval)));
         }
+        if (sema_lookup(s, e.sval) == 0 && sema_is_void_value(sema_resolve_scalar(s, sema_isub(s, e.sval))) == 1) {
+            s.had_error = 1;
+            printf("error: %s:%d:%d: sizeof of 'void': a void value has no size\n", s.filename, s.line, s.col);
+        }
         return;
     }
     if (k == EK_LITERAL) { return; }
