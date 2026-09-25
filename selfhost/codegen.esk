@@ -5016,11 +5016,17 @@ void cg_program(Codegen* g, *Program prog) {
         ii0 = ii0 + 1;
     }
 
-    // Pass 1a: register struct layouts (field names + Eskiu types).
+    // Pass 1a: register struct layouts (field names + Eskiu types). A second declaration
+    // of an already-registered struct/union name (the same header-style struct in two
+    // inputs of a multi-file build) is skipped: the first one wins, as in the C++ back-end.
+    List<*DeclNode> dup_types; List_init<*DeclNode>(&dup_types, 2);
     int si = 0;
     while (si < n) {
         *DeclNode d = List_get<*DeclNode>(&prog.decls, si);
-        if (d.kind == DK_STRUCT && List_len<TypeParam>(&d.type_params) > 0) {
+        if ((d.kind == DK_STRUCT || d.kind == DK_UNION) && List_len<TypeParam>(&d.type_params) == 0
+            && cg_is_struct(g, d.name) == 1) {
+            List_push<*DeclNode>(&dup_types, d);
+        } else if (d.kind == DK_STRUCT && List_len<TypeParam>(&d.type_params) > 0) {
             List_push<*DeclNode>(&g.gstructs, d);          // generic — monomorphized on demand
         } else if (d.kind == DK_STRUCT) {
             List_push<*DeclNode>(&g.tydecls, d);
@@ -5066,7 +5072,9 @@ void cg_program(Codegen* g, *Program prog) {
     si = 0;
     while (si < n) {
         *DeclNode d = List_get<*DeclNode>(&prog.decls, si);
-        if ((d.kind == DK_STRUCT && List_len<TypeParam>(&d.type_params) == 0) || d.kind == DK_UNION) {
+        int is_dup = 0;
+        int dj = 0; while (dj < List_len<*DeclNode>(&dup_types)) { if (List_get<*DeclNode>(&dup_types, dj) == d) { is_dup = 1; } dj = dj + 1; }
+        if (is_dup == 0 && ((d.kind == DK_STRUCT && List_len<TypeParam>(&d.type_params) == 0) || d.kind == DK_UNION)) {
             cg_emit_tydecl(g, d);
         }
         si = si + 1;
