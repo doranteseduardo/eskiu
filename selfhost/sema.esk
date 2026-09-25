@@ -19,7 +19,7 @@ import <string>;
 import <mem>;
 import "ast.esk";
 
-struct Sym { string name; string type; int depth; int is_const; *ExprNode init; }   // init: a const's initializer (case-label folding)
+struct Sym { string name; string type; int depth; int is_const; *ExprNode init; int is_static; }   // init: a const's initializer (case-label folding)
 
 // Signature of a non-generic top-level function/extern/intrinsic, for arg-count
 // checking. `variadic` = trailing `...`; `fixed` = required arg count.
@@ -353,6 +353,7 @@ void sema_define(Sema* s, string name, string type, int is_const) {
     sym.depth = s.depth;
     sym.is_const = is_const;
     sym.init = null;
+    sym.is_static = 0;
     List_push<Sym>(&s.syms, sym);
 }
 
@@ -3809,6 +3810,29 @@ void sema_defer_expr(Sema* s, *ExprNode e) {
     int i = 0; while (i < List_len<*ExprNode>(&e.kids)) { sema_defer_expr(s, List_get<*ExprNode>(&e.kids, i)); i = i + 1; }
 }
 
+// The local (or parameter) whose own storage `e` denotes: a variable, or a field / element
+// of a value (not reached through a pointer). "" for anything else, a global, or a static
+// (mirrors the C++ localStorageRoot).
+string sema_local_root(Sema* s, *ExprNode e) {
+    while (e != null) {
+        if (e.kind == EK_IDENT) {
+            int i = sema_sym_index(s, e.sval);
+            if (i < 0) { return ""; }
+            Sym sy = List_get<Sym>(&s.syms, i);
+            if (sy.depth < 1 || sy.is_static == 1) { return ""; }
+            return e.sval;
+        }
+        if (e.kind == EK_MEMBER) {
+            if (sema_has_star(sema_infer_type(s, e.a)) == 1) { return ""; }
+            e = e.a;
+        } else if (e.kind == EK_INDEX && List_len<*ExprNode>(&e.kids) == 0) {
+            if (sema_is_arr_ty(sema_infer_type(s, e.a)) == 0) { return ""; }
+            e = e.a;
+        } else { return ""; }
+    }
+    return "";
+}
+
 // A defer body runs during scope-exit cleanup, so it may not transfer control out of
 // itself: a `return`, or a `break`/`continue` not enclosed by a loop/switch *within* the
 // body, would jump to a target that is gone. `depth` counts loops/switches inside the body.
@@ -3977,6 +4001,10 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
         }
         sema_define(s, st.name, vty, st.is_const);
         sema_set_const_init(s, st.expr);
+        if (st.is_static == 1) {           // static storage: its address outlives the call
+            int sn = List_len<Sym>(&s.syms) - 1;
+            Sym ssym = List_get<Sym>(&s.syms, sn); ssym.is_static = 1; List_set<Sym>(&s.syms, sn, ssym);
+        }
         return;
     }
     if (k == SK_RETURN) {
@@ -3998,13 +4026,23 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
                        sema_infer_type(s, st.expr), rerr);
             }
         }
-        // Returning `&local`/`&param` yields a dangling pointer (its frame is gone). Only
-        // the clear bare-ident case is flagged; `&arr[i]`/`&p.field` point into other memory.
-        if (st.expr != null && st.expr.kind == EK_UNARY && sema_streq(st.expr.sval, "&") == 1
-            && st.expr.a != null && st.expr.a.kind == EK_IDENT
-            && sema_sym_depth(s, st.expr.a.sval) >= 1) {
-            s.had_error = 1;
-            dprintf(2, "error: %s:%d:%d: returning the address of local '%s' (dangling pointer)\n", s.filename, s.line, s.col, st.expr.a.sval);
+        // Returning the address of a local or parameter, of a field or element of one, or a
+        // slice of a local array yields a dangling pointer (its frame is gone). A `static`
+        // local lives on, and a field or element reached through a pointer is elsewhere.
+        if (st.expr != null && st.expr.kind == EK_UNARY && sema_streq(st.expr.sval, "&") == 1) {
+            string root = sema_local_root(s, st.expr.a);
+            if (root[0] != 0) {
+                s.had_error = 1;
+                dprintf(2, "error: %s:%d:%d: returning the address of local '%s' (dangling pointer)\n", s.filename, s.line, s.col, root);
+            }
+        }
+        if (st.expr != null && st.expr.kind == EK_INDEX && List_len<*ExprNode>(&st.expr.kids) > 0
+            && sema_is_arr_ty(sema_infer_type(s, st.expr.a)) == 1) {
+            string root = sema_local_root(s, st.expr.a);
+            if (root[0] != 0) {
+                s.had_error = 1;
+                dprintf(2, "error: %s:%d:%d: returning a slice of local array '%s' (dangling)\n", s.filename, s.line, s.col, root);
+            }
         }
         return;
     }

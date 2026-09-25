@@ -232,13 +232,18 @@ void TypeChecker::visit(ReturnStmt* node) {
         // (its stack frame is gone on return). Flag the clear case `return &x` where
         // x is a local/param; `&(*ptr)` or `&ptrParam.field` point into caller memory
         // and are fine, so they are not flagged.
+        // A field or element of a local value (`&p.a`, `&arr[1]`) and a slice of a local
+        // array dangle the same way; a `static` local lives on.
         if (auto* u = dynamic_cast<UnaryExpr*>(node->value.get()); u && u->op == "&") {
-            if (auto* id = dynamic_cast<IdentExpr*>(u->operand.get())) {
-                int defIdx = scopeOf(id->name);
-                if (defIdx >= 1)   // a function-scope local/param, not a global (index 0)
-                    errorAt(node, "returning the address of local '" + id->name +
-                                  "' (dangling pointer)");
-            }
+            std::string root = localStorageRoot(u->operand.get());
+            if (!root.empty())
+                errorAt(node, "returning the address of local '" + root + "' (dangling pointer)");
+        }
+        if (auto* ix = dynamic_cast<IndexExpr*>(node->value.get());
+            ix && ix->highIndex && ty::Type::parse(getExpressionType(ix->base.get())).kind == ty::Type::Kind::Array) {
+            std::string root = localStorageRoot(ix->base.get());
+            if (!root.empty())
+                errorAt(node, "returning a slice of local array '" + root + "' (dangling)");
         }
         std::string valueType = getExpressionType(node->value.get());
         // A returned integer literal that fits the return type stays valid; other
@@ -251,6 +256,29 @@ void TypeChecker::visit(ReturnStmt* node) {
         errorAt(node,"return type mismatch: expected " + currentFunctionReturnType +
                     ", got void");
     }
+}
+
+// The local (or parameter) whose own storage `e` denotes: a variable, or a field / element
+// of a value (not one reached through a pointer). "" for anything else, a global, or a
+// `static` local.
+std::string TypeChecker::localStorageRoot(Expr* e) {
+    while (e) {
+        if (auto* id = dynamic_cast<IdentExpr*>(e)) {
+            int si = scopeOf(id->name);
+            if (si < 1 || scopes[si].find(id->name)->second.isStatic) return "";
+            return id->name;
+        }
+        if (auto* m = dynamic_cast<MemberExpr*>(e)) {
+            if (tyq::isPtr(getExpressionType(m->base.get()))) return "";
+            e = m->base.get();
+        } else if (auto* ix = dynamic_cast<IndexExpr*>(e); ix && !ix->highIndex) {
+            if (ty::Type::parse(getExpressionType(ix->base.get())).kind != ty::Type::Kind::Array) return "";
+            e = ix->base.get();
+        } else {
+            return "";
+        }
+    }
+    return "";
 }
 
 void TypeChecker::visit(BreakStmt* node) {

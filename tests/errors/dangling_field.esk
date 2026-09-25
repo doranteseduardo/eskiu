@@ -1,0 +1,5 @@
+// EXPECT-ERROR: returning the address of local 'p' (dangling pointer)
+// A field of a local struct value dies with the frame.
+struct P { int a; }
+*int f() { P p = P{a: 1}; return &p.a; }
+int main() { return 0; }

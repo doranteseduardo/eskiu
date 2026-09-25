@@ -1,0 +1,4 @@
+// EXPECT-ERROR: returning a slice of local array 'a' (dangling)
+// A slice aliases its backing array, which here is a local.
+int[] f() { int[3] a = {1, 2, 3}; return a[0..3]; }
+int main() { return 0; }

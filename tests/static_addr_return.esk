@@ -1,0 +1,12 @@
+// The address of a `static` local (and of a field reached through a pointer) may be
+// returned: that storage outlives the call.
+extern int printf(string f, ...);
+struct P { int a; }
+*int counter() { static int x = 1; x = x + 1; return &x; }
+*int field_of(*P p) { return &p.a; }
+int main() {
+    counter();
+    P q = P{a: 7};
+    printf("%d %d\n", *counter(), *field_of(&q));
+    return 0;
+}
