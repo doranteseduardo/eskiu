@@ -2,6 +2,7 @@
 #include "../lexer/lexer.h"
 #include "../ast/type_qual.h"
 #include <stdexcept>
+#include <cctype>
 #include "parser_internal.h"
 
 // Parser — declaration parsing (functions, externs, intrinsics, structs,
@@ -460,18 +461,52 @@ DeclPtr Parser::parseStructDecl() {
     return decl;
 }
 
-// Interpret a `#pragma ...` directive. Only `#pragma pack` affects compilation;
-// every other pragma is ignored. Supported forms:
+void Parser::addLinkLib(const std::string& name) {
+    for (const auto& l : linkLibs) if (l == name) return;
+    linkLibs.push_back(name);
+}
+
+// Is `c` allowed in a `#pragma link` library name (what follows -l)?
+static bool isLinkNameChar(char c) {
+    return std::isalnum((unsigned char)c) || c == '_' || c == '.' || c == '+' || c == '-';
+}
+
+// Interpret a `#pragma ...` directive. `#pragma pack` and `#pragma link` affect
+// compilation; every other pragma is ignored. Supported forms:
 //   #pragma pack(N)         cap field alignment at N for subsequent structs
 //   #pragma pack()          reset to default
 //   #pragma pack(push, N)   save current, then set to N
 //   #pragma pack(pop)       restore the last saved value
-void Parser::applyPragma(const std::string& text) {
+//   #pragma link("name")    link the executable with -lname
+void Parser::applyPragma(const Token& tok) {
+    const std::string& text = tok.value;
     auto trim = [](std::string s) {
         size_t a = s.find_first_not_of(" \t");
         if (a == std::string::npos) return std::string();
         return s.substr(a, s.find_last_not_of(" \t") - a + 1);
     };
+    // `pragma link("name")`: the directive word is the first word after `pragma`.
+    size_t w = text.find("pragma");
+    if (w != std::string::npos) {
+        size_t i = text.find_first_not_of(" \t", w + 6);
+        if (i != std::string::npos && text.compare(i, 4, "link") == 0 &&
+            (i + 4 == text.size() || !isLinkNameChar(text[i + 4]))) {
+            const std::string usage = "malformed #pragma link: expected #pragma link(\"name\")";
+            size_t j = text.find_first_not_of(" \t", i + 4);
+            if (j == std::string::npos || text[j] != '(') fail(usage, tok);
+            j = text.find_first_not_of(" \t", j + 1);
+            if (j == std::string::npos || text[j] != '"') fail(usage, tok);
+            size_t k = j + 1;
+            while (k < text.size() && isLinkNameChar(text[k])) k++;
+            std::string name = text.substr(j + 1, k - j - 1);
+            if (name.empty() || name[0] == '-' || k >= text.size() || text[k] != '"') fail(usage, tok);
+            k = text.find_first_not_of(" \t", k + 1);
+            if (k == std::string::npos || text[k] != ')') fail(usage, tok);
+            if (text.find_first_not_of(" \t", k + 1) != std::string::npos) fail(usage, tok);
+            addLinkLib(name);
+            return;
+        }
+    }
     // Must be `pragma pack...`; anything else is ignored.
     if (text.find("pragma") == std::string::npos) return;
     size_t pk = text.find("pack");

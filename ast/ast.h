@@ -744,6 +744,7 @@ public:
 class Program : public ASTNode {
 public:
     std::vector<DeclPtr> declarations;
+    std::vector<std::string> linkLibs;   // `#pragma link("name")`, deduped, in order
 
     explicit Program(const std::vector<DeclPtr>& decls = {})
         : declarations(decls) {}

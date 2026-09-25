@@ -38,6 +38,7 @@ List<string> g_imported;       // resolved import paths already parsed (dedup)
 List<string> g_typenames;      // declared type names → enables `(Foo)x` casts
 int g_cur_pack;                // active `#pragma pack(N)` alignment (0 = natural)
 List<int> g_pack_stack;        // saved pack values for `pack(push, N)` / `pack(pop)`
+List<string> g_link_libs;      // `#pragma link("name")` libraries, first-seen order, no dups
 List<string> g_tparams;        // type params of the generic fn/struct being parsed (`(*T)x`)
 string g_stdlib_root;          // root holding stdlib/ (the driver sets it; null → cwd)
 
@@ -68,6 +69,7 @@ void parser_session_init() {
     List_init<string>(&g_typenames, 64);
     g_cur_pack = 0;
     List_init<int>(&g_pack_stack, 8);
+    List_init<string>(&g_link_libs, 4);
     List_init<string>(&g_tparams, 8);
 }
 
@@ -112,6 +114,56 @@ void apply_pragma(string text) {
         return;
     }
     g_cur_pack = str_to_int(a0);                     // pack(N)
+}
+
+// Is `c` allowed in a `#pragma link` library name (what follows -l)?
+int link_name_char(int c) {
+    if (c >= 97 && c <= 122) { return 1; }
+    if (c >= 65 && c <= 90) { return 1; }
+    if (c >= 48 && c <= 57) { return 1; }
+    if (c == 95 || c == 46 || c == 43 || c == 45) { return 1; }
+    return 0;
+}
+
+int pragma_skip_ws(string s, int i, int n) {
+    while (i < n && ((int)s[i] == 32 || (int)s[i] == 9)) { i = i + 1; }
+    return i;
+}
+
+// `#pragma link("name")` (mirrors the C++ Parser::applyPragma): records `name` in
+// g_link_libs once and returns 1; returns 0 when the pragma is not `link`. A malformed
+// link pragma is a syntax error at the pragma token.
+int apply_link_pragma(Parser* p, Token t, string text) {
+    int n = 0; while (text[n] != 0) { n = n + 1; }
+    int w = -1; int i = 0;                           // find "pragma"
+    while (i + 6 <= n) {
+        if (text[i]==112 && text[i+1]==114 && text[i+2]==97 && text[i+3]==103 && text[i+4]==109 && text[i+5]==97) { w = i; break; }
+        i = i + 1;
+    }
+    if (w < 0) { return 0; }
+    i = pragma_skip_ws(text, w + 6, n);
+    if (i + 4 > n) { return 0; }
+    if (text[i] != 108 || text[i+1] != 105 || text[i+2] != 110 || text[i+3] != 107) { return 0; }   // "link"
+    if (i + 4 < n && link_name_char((int)text[i + 4]) == 1) { return 0; }
+    string usage = "malformed #pragma link: expected #pragma link(\"name\")";
+    int j = pragma_skip_ws(text, i + 4, n);
+    if (j >= n || (int)text[j] != 40) { p_report(p, t, usage); }
+    j = pragma_skip_ws(text, j + 1, n);
+    if (j >= n || (int)text[j] != 34) { p_report(p, t, usage); }
+    int k = j + 1;
+    while (k < n && link_name_char((int)text[k]) == 1) { k = k + 1; }
+    string name = p_sub(text, j + 1, k);
+    if (name[0] == 0 || (int)name[0] == 45 || k >= n || (int)text[k] != 34) { p_report(p, t, usage); }
+    k = pragma_skip_ws(text, k + 1, n);
+    if (k >= n || (int)text[k] != 41) { p_report(p, t, usage); }
+    if (pragma_skip_ws(text, k + 1, n) < n) { p_report(p, t, usage); }
+    int li = 0;
+    while (li < List_len<string>(&g_link_libs)) {
+        if (str_eq(List_get<string>(&g_link_libs, li), name) == 1) { return 1; }
+        li = li + 1;
+    }
+    List_push<string>(&g_link_libs, name);
+    return 1;
 }
 
 void p_init(Parser* p, *uint8 src, int len) {
@@ -2026,7 +2078,11 @@ void do_import(Parser* p, *Program prog) {
 // file and recursively for each import, so imported decls land in declaration order).
 void parse_into(Parser* p, *Program prog) {
     while (p_at(p) != EOF_TOKEN) {
-        if (p_at(p) == PRAGMA) { apply_pragma(tok_text(p.src, p_adv(p))); }   // #pragma pack state
+        if (p_at(p) == PRAGMA) {                    // #pragma link / pack state
+            Token pt = p_adv(p);
+            string ptext = tok_text(p.src, pt);
+            if (apply_link_pragma(p, pt, ptext) == 0) { apply_pragma(ptext); }
+        }
         else if (p_at(p) == IMPORT) { p_adv(p); do_import(p, prog); }
         else {
             *DeclNode d = parse_decl_top(p);

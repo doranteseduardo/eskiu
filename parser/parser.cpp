@@ -294,7 +294,9 @@ std::vector<std::pair<std::string, std::string>> Parser::parseParameterList(
 std::shared_ptr<Program> Parser::parse() {
     auto decls = parseProgram();
     if (hadError) return nullptr;
-    return std::make_shared<Program>(decls);
+    auto prog = std::make_shared<Program>(decls);
+    prog->linkLibs = linkLibs;
+    return prog;
 }
 
 std::vector<DeclPtr> Parser::parseProgram() {
@@ -319,9 +321,10 @@ std::vector<DeclPtr> Parser::parseProgram() {
 
     while (!is_at_end()) {
         declStart = current;
-        // Compiler directive (e.g. #pragma pack) — updates parser state, emits no decl.
+        // Compiler directive (#pragma pack / link): updates parser state, emits no decl.
         if (check(TokenType::PRAGMA)) {
-            applyPragma(advance().value);
+            Token pt = advance();
+            try { applyPragma(pt); } catch (const std::exception& e) { recover(e); }
             continue;
         }
         // Handle import "path/to/file.esk"  or  import <stdlib_name>
@@ -395,6 +398,7 @@ std::vector<DeclPtr> Parser::parseProgram() {
                     } else {
                         declarations.insert(declarations.end(),
                             subProg->declarations.begin(), subProg->declarations.end());
+                        for (const auto& l : subProg->linkLibs) addLinkLib(l);
                         // Type names are recorded directly into the shared set as
                         // each file is parsed, so a cast to an imported type —
                         // `(FutureHdr*)p` — parses correctly here regardless of

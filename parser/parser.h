@@ -107,7 +107,11 @@ private:
     // #pragma pack state: structs declared while currentPack==1 are packed.
     int currentPack = 0;
     std::vector<int> packStack;
-    void applyPragma(const std::string& text);
+    void applyPragma(const Token& tok);
+    // `#pragma link("name")` libraries, in first-seen order without duplicates
+    // (this file's plus its imports'); the driver links each as -l<name>.
+    std::vector<std::string> linkLibs;
+    void addLinkLib(const std::string& name);
 
     StmtPtr parseStatement();
     StmtPtr parseBlockStatement();
