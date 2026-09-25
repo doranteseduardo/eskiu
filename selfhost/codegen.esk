@@ -2865,16 +2865,30 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
             // `lv` has side effects (`a[f()] += 1`, `a[i++] += 1`): compute its address ONCE
             // into a temporary pointer, then run the ordinary `*p = *p op v` (mirrors
             // CodeGen::emitCompoundAssign), so overloads/coercions/--safe checks still apply.
-            if (is_bf == 0 && e.b != null && e.b.kind == EK_BINARY && e.b.a == e.a && cg_is_pure(e.a) == 0) {
-                CgVal clv = cg_lval(g, e.a);
-                string clety = clv.ety; if (clety[0] == 0) { clety = cg_etype(g, e.a); }
+            if (e.b != null && e.b.kind == EK_BINARY && e.b.a == e.a && cg_is_pure(e.a) == 0) {
                 string ctmp = cg_cat("__cmpd", cg_itoa(g.lam_seq)); g.lam_seq = g.lam_seq + 1;
                 string cslot = cg_entry_alloca(g, "ptr");
-                cg_emit(g, "  store ptr "); cg_emit(g, clv.op); cg_emit(g, ", ptr "); cg_emit(g, cslot); cg_emit(g, "\n");
                 int clmark = List_len<CgLocal>(&g.locals);
-                cg_add_local(g, ctmp, cslot, "ptr", cg_cat("*", clety));
                 *ExprNode cder = alloc<ExprNode>(1); cder.kind = EK_UNARY; cder.sval = "*"; cder.a = cgb_ident(ctmp);
-                CgVal crv = cg_expr(g, cgb_bin("=", cder, cgb_bin(e.b.sval, cder, e.b.b)));
+                *ExprNode ctarget = cder;
+                if (is_bf == 1) {
+                    // A bitfield has no address of its own: evaluate the struct's address
+                    // once instead, and read-modify-write `(*p).field`.
+                    string bbt = cg_etype(g, e.a.a);
+                    string bop = "";
+                    string bety = bbt;
+                    if (cg_is_ptr_ty(bbt) == 1) { bop = cg_expr(g, e.a.a).op; }
+                    else { bop = cg_addr(g, e.a.a).op; bety = cg_cat("*", bbt); }
+                    cg_emit(g, "  store ptr "); cg_emit(g, bop); cg_emit(g, ", ptr "); cg_emit(g, cslot); cg_emit(g, "\n");
+                    cg_add_local(g, ctmp, cslot, "ptr", bety);
+                    ctarget = cgb_member(cder, e.a.sval);
+                } else {
+                    CgVal clv = cg_lval(g, e.a);
+                    string clety = clv.ety; if (clety[0] == 0) { clety = cg_etype(g, e.a); }
+                    cg_emit(g, "  store ptr "); cg_emit(g, clv.op); cg_emit(g, ", ptr "); cg_emit(g, cslot); cg_emit(g, "\n");
+                    cg_add_local(g, ctmp, cslot, "ptr", cg_cat("*", clety));
+                }
+                CgVal crv = cg_expr(g, cgb_bin("=", ctarget, cgb_bin(e.b.sval, ctarget, e.b.b)));
                 cg_locals_trunc(g, clmark);
                 return crv;
             }

@@ -5,11 +5,14 @@ extern int printf(string fmt, ...);
 struct V { int x; int y; }
 V operator +(V a, V b) { return V{ x: a.x + b.x, y: a.y + b.y }; }
 struct Box { int[4] v; V p; }
+struct Flags { uint32 lo : 4; uint32 hi : 4; }
 
 int calls = 0;
 int idx() { calls = calls + 1; return 1; }
 Box gb;
 *Box getb() { calls = calls + 1; return &gb; }
+Flags gf;
+*Flags getf() { calls = calls + 1; return &gf; }
 
 int main() {
     int[4] a = {10, 20, 30, 40};
@@ -33,6 +36,11 @@ int main() {
     int j = 0;
     bs[j++] += 10;
     printf("%d %d\n", (int)bs[0], j);
+    calls = 0;
+    gf.lo = 3;
+    getf().lo += 2;
+    getf().hi |= 5;
+    printf("%d %d %d\n", (int)gf.lo, (int)gf.hi, calls);
     int x = 3;
     x <<= 2;
     x |= 1;

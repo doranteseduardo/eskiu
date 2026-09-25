@@ -26,14 +26,27 @@ void CodeGen::emitCompoundAssign(BinaryExpr* node, BinaryExpr* rhsOp) {
     // has side effects (`a[f()] += 1`, `a[i++] += 1`): compute the lvalue's address ONCE,
     // then run the ordinary `*p = *p op v` through a temporary pointer, so the operator
     // (built-in or overloaded), coercions and --safe checks are the usual ones.
-    std::string lt = getExprEskiuType(node->left);
-    llvm::Value* addr = evaluateLValue(node->left);
     std::string tmp = "__cmpd." + std::to_string(compoundSeq++);
     llvm::AllocaInst* slot = entryAlloca(llvm::PointerType::get(*context, 0), nullptr, tmp);
-    builder->CreateStore(addr, slot);
     defineSymbol(tmp, slot);
-    defineVarType(tmp, "*" + lt);
-    auto deref = std::make_shared<UnaryExpr>("*", std::make_shared<IdentExpr>(tmp));
+    ExprPtr target;
+    auto* mem = dynamic_cast<MemberExpr*>(node->left.get());
+    if (mem && structLayout.count(structBaseTypeOf(mem->base))) {
+        // A field of a bitfield-packed struct has no address of its own: evaluate the
+        // struct's address once instead, and read-modify-write `(*p).field`.
+        std::string bt = getExprEskiuType(mem->base);
+        bool baseIsPtr = !bt.empty() && (bt.front() == '*' || bt.back() == '*');
+        builder->CreateStore(baseIsPtr ? evaluateExpr(mem->base) : evaluateAddress(mem->base), slot);
+        defineVarType(tmp, baseIsPtr ? bt : "*" + bt);
+        target = std::make_shared<MemberExpr>(
+            std::make_shared<UnaryExpr>("*", std::make_shared<IdentExpr>(tmp)), mem->member);
+    } else {
+        std::string lt = getExprEskiuType(node->left);
+        builder->CreateStore(evaluateLValue(node->left), slot);
+        defineVarType(tmp, "*" + lt);
+        target = std::make_shared<UnaryExpr>("*", std::make_shared<IdentExpr>(tmp));
+    }
+    ExprPtr deref = target;
     auto bin = std::make_shared<BinaryExpr>(deref, rhsOp->op, rhsOp->right);
     bin->opFunc = rhsOp->opFunc;
     BinaryExpr assign(deref, "=", bin);
@@ -76,15 +89,8 @@ void CodeGen::visit(BinaryExpr* node) {
         // Compound assignment with a side-effecting lvalue: evaluate the lvalue once.
         if (auto* rb = dynamic_cast<BinaryExpr*>(node->right.get())) {
             if (rb->left.get() == node->left.get() && !isPureExpr(node->left)) {
-                bool bitfield = false;
-                if (auto* mem = dynamic_cast<MemberExpr*>(node->left.get())) {
-                    auto lit = structLayout.find(structBaseTypeOf(mem->base));
-                    if (lit != structLayout.end()) {
-                        auto sit = lit->second.find(mem->member);
-                        bitfield = sit != lit->second.end() && sit->second.isBitfield;
-                    }
-                }
-                if (!bitfield) { emitCompoundAssign(node, rb); return; }
+                emitCompoundAssign(node, rb);
+                return;
             }
         }
         // Bitfield assignment is a read-modify-write, not a plain store.
