@@ -1,0 +1,20 @@
+// Two different narrow ternary arms meet as int (C's usual arithmetic conversions),
+// so neither arm is squeezed into the other's type. Found by the C oracle in
+// tests/fuzz/eskiu_fuzz.py.
+extern int printf(string fmt, ...);
+
+uint8 G = (uint8)(((false ? true : ' ') ^ 'Z'));
+
+int main() {
+    bool f = false;
+    bool t = true;
+    int16 s = -1;
+    uint16 w = 65535;
+    int8 c = -3;
+    printf("%d\n", (int)((f ? true : ' ') ^ 'Z'));       // 122, not 1 ^ 90
+    printf("%lld\n", (int64)(f ? s : w));                  // 65535
+    printf("%lld\n", (int64)(t ? s : w));                  // -1
+    printf("%lld\n", (int64)(t ? c : 'a'));                // -3
+    printf("%d\n", (int)G);                                // 122
+    return 0;
+}

@@ -239,7 +239,9 @@ void TypeChecker::visit(TernaryExpr* node) {
     // A `null` arm takes the other arm's pointer type (`c ? null : &x`).
     else if (tt == "null" && (isPointerType(et) || et[0] == '?')) result = et;
     else if (et == "null" && (isPointerType(tt) || tt[0] == '?')) result = tt;
-    else if (isNumericType(tt) && isNumericType(et)) result = promoteType(tt, et);
+    // Two different numeric types: C's usual arithmetic conversions, so narrow arms
+    // (`c ? true : ' '`) meet as int.
+    else if (isNumericType(tt) && isNumericType(et)) result = promoteType(intPromoted(tt), intPromoted(et));
     else if (assignabilityError(tt, et, node->elseExpr.get()).empty()) result = tt;
     else if (assignabilityError(et, tt, node->thenExpr.get()).empty()) result = et;
     else {

@@ -2570,7 +2570,12 @@ string cg_arm_common(Codegen* g, string tt, string et) {
     if (cg_streq(tt, et) == 1) { return tt; }
     if (tt[0] == 0) { return et; }
     if (et[0] == 0) { return tt; }
-    if (cg_is_num_ety(g, tt) == 1 && cg_is_num_ety(g, et) == 1) { return cg_promote(g, tt, et); }
+    if (cg_is_num_ety(g, tt) == 1 && cg_is_num_ety(g, et) == 1) {
+        // Two different numeric types: C's usual arithmetic conversions (narrow arms meet as int).
+        if (cg_rank_w(g, tt) == 16) { tt = "int"; }
+        if (cg_rank_w(g, et) == 16) { et = "int"; }
+        return cg_promote(g, tt, et);
+    }
     return tt;
 }
 
