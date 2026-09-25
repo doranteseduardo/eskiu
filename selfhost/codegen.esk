@@ -17,6 +17,7 @@ import "ast.esk";
 
 // libc: parse a decimal string to double, for f32 constant-folding in global inits.
 extern double atof(string s);
+extern void exit(int code);
 
 // An evaluated expression: LLVM operand text, LLVM type, and the Eskiu type spelling
 // (needed to resolve struct layouts / pointer depth, which the LLVM type loses).
@@ -3087,6 +3088,12 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
         v.op = ""; v.ty = "void"; return v;
     }
 
+    if (e.kind == EK_ARRAYLIT) {
+        // Only a variable initializer takes `{...}` (cg_array_init / cg_global_init); as a
+        // value anywhere else (a struct-literal field, an argument) it is an error, as in C++.
+        printf("error: an array literal '{...}' is only valid as a variable initializer\n");
+        exit(1);
+    }
     if (e.kind == EK_STRUCTINIT) {
         // A struct literal `P{ … }` used as an rvalue (e.g. `x = P{…}`): materialize into a
         // temp, fill its fields, and load the struct value. (Var-decls fill in place.)
@@ -3659,6 +3666,65 @@ void cg_array_init(Codegen* g, string slot, string arrType, *ExprNode lit, int d
     }
 }
 
+// Decimal text of a signed 64-bit value.
+string cg_i64toa(int64 v) {
+    if (v < (int64)0) { return cg_cat("-", cg_u64toa((uint64)((int64)0 - v))); }
+    return cg_u64toa((uint64)v);
+}
+
+// Fold a `case` value to an integer constant, as the C++ back-end's IRBuilder does:
+// integer/char literals, enum members, casts, and unary/binary arithmetic over those.
+// A variable (including a `const` local or global, which C++ loads) is not constant:
+// `*ok` is cleared.
+int64 cg_case_fold(Codegen* g, *ExprNode e, *int ok) {
+    if (e == null) { ok[0] = 0; return (int64)0; }
+    if (e.kind == EK_LITERAL) {
+        if (e.lit_kind == LIT_CHAR) { return (int64)(int)e.sval[0]; }
+        if (e.lit_kind == LIT_INT) {
+            int64 m = (int64)cg_int_lit_mag(e.sval);
+            if (e.sval[0] == 45) { return (int64)0 - m; }
+            return m;
+        }
+        ok[0] = 0; return (int64)0;
+    }
+    if (e.kind == EK_IDENT) {
+        if (cg_find_local(g, e.sval).slot[0] == 0 && cg_find_global(g, e.sval).slot[0] == 0) {
+            string ev = cg_enum_val(g, e.sval);
+            if (ev[0] != 0) {
+                int64 m = (int64)cg_int_lit_mag(ev);
+                if (ev[0] == 45) { return (int64)0 - m; }
+                return m;
+            }
+        }
+        ok[0] = 0; return (int64)0;
+    }
+    if (e.kind == EK_CAST) { return cg_case_fold(g, e.a, ok); }
+    if (e.kind == EK_UNARY) {
+        int64 a = cg_case_fold(g, e.a, ok);
+        if (cg_streq(e.sval, "-") == 1) { return (int64)0 - a; }
+        if (cg_streq(e.sval, "~") == 1) { return (int64)(0 - 1) - a; }
+        ok[0] = 0; return (int64)0;
+    }
+    if (e.kind == EK_BINARY) {
+        int64 a = cg_case_fold(g, e.a, ok);
+        int64 b = cg_case_fold(g, e.b, ok);
+        if (ok[0] == 0) { return (int64)0; }
+        string op = e.sval;
+        if (cg_streq(op, "+") == 1) { return a + b; }
+        if (cg_streq(op, "-") == 1) { return a - b; }
+        if (cg_streq(op, "*") == 1) { return a * b; }
+        if (cg_streq(op, "/") == 1 && b != (int64)0) { return a / b; }
+        if (cg_streq(op, "%") == 1 && b != (int64)0) { return a % b; }
+        if (cg_streq(op, "&") == 1) { return a & b; }
+        if (cg_streq(op, "|") == 1) { return a | b; }
+        if (cg_streq(op, "^") == 1) { return a ^ b; }
+        if (cg_streq(op, "<<") == 1) { return a << b; }
+        if (cg_streq(op, ">>") == 1) { return a >> b; }
+        ok[0] = 0; return (int64)0;
+    }
+    ok[0] = 0; return (int64)0;
+}
+
 // Enter/leave a loop: push (or pop) this loop's continue target, break target, and the
 // cleanup-stack depth at entry, keeping the three parallel lists in sync. `break` and
 // `continue` read the innermost (last) entry.
@@ -3919,8 +3985,10 @@ void cg_stmt(Codegen* g, *StmtNode st) {
         while (i < nc) {
             *StmtNode c = List_get<*StmtNode>(&st.items, i);
             if (c.expr != null) {
-                CgVal cv = cg_expr(g, c.expr);            // constant operand
-                cg_emit(g, subj.ty); cg_emit(g, " "); cg_emit(g, cv.op);
+                int ok = 1;
+                int64 cvv = cg_case_fold(g, c.expr, &ok); // constant operand
+                if (ok == 0) { printf("error: switch case value must be a constant integer\n"); exit(1); }
+                cg_emit(g, subj.ty); cg_emit(g, " "); cg_emit(g, cg_i64toa(cvv));
                 cg_emit(g, ", label %"); cg_emit(g, List_get<string>(&labels, i)); cg_emit(g, " ");
             }
             i = i + 1;
