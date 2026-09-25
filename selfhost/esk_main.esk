@@ -21,8 +21,11 @@ import "codegen.esk";
 import "fmt.esk";
 
 extern int64 write(int fd, *void buf, int64 n);
-extern int    system(string cmd);   // shell out to clang for the -o native-binary path
 extern int    remove(string path);  // delete the temp .ll after linking
+extern int    fork();               // spawn clang / the `run` program without a shell
+extern int    execvp(string file, *string argv);
+extern int    waitpid(int pid, *int status, int options);
+extern void   _exit(int code);
 extern string getenv(string name);  // $CLANG selects the clang binary (default "clang")
 extern int    getpid();             // unique temp-exe name for `run`
 
@@ -31,6 +34,46 @@ void eprint(string s) {
     int64 n = 0;
     while (s[n] != 0) { n = n + 1; }
     write(2, (*void)s, n);
+}
+
+// Run args[0] with `args` as its argv (execvp: no shell, so spaces, quotes and `$`
+// in an argument reach the program verbatim). Returns its exit code, 128+N when it
+// was killed by signal N (the shell convention), or 127 if it could not be started.
+int spawn_wait(List<string>* args) {
+    int n = List_len<string>(args);
+    *string av = alloc<string>((int64)(n + 1));    // zeroed, so av[n] is the NULL terminator
+    int i = 0;
+    while (i < n) { av[i] = List_get<string>(args, i); i = i + 1; }
+    int pid = fork();
+    if (pid < 0) { eprint("error: fork failed\n"); return 127; }
+    if (pid == 0) {
+        execvp(av[0], av);
+        eprint("error: cannot run '"); eprint(av[0]); eprint("'\n");
+        _exit(127);
+    }
+    let st: int = 0;
+    if (waitpid(pid, &st, 0) < 0) { return 127; }
+    int sig = st & 127;
+    if (sig == 0) { return (st >> 8) & 255; }       // WIFEXITED → WEXITSTATUS
+    return 128 + sig;                               // WIFSIGNALED → 128 + WTERMSIG
+}
+
+// Append the words of a command such as $CLANG ("clang -m64") to `args`.
+void push_words(List<string>* args, string cmd) {
+    int n = 0;
+    while (cmd[n] != 0) { n = n + 1; }
+    int i = 0;
+    while (i < n) {
+        while (i < n && ((int)cmd[i] == 32 || (int)cmd[i] == 9)) { i = i + 1; }
+        int st = i;
+        while (i < n && (int)cmd[i] != 32 && (int)cmd[i] != 9) { i = i + 1; }
+        if (i > st) {
+            *uint8 w = alloc<uint8>((int64)(i - st + 1));
+            int k = 0;
+            while (k < i - st) { w[k] = (uint8)cmd[st + k]; k = k + 1; }
+            List_push<string>(args, (string)w);
+        }
+    }
 }
 
 int bytes_eq(*uint8 a, int an, *uint8 b, int bn) {
@@ -112,10 +155,14 @@ int main(int argc, string* argv) {
     int start = 1;
     if (argc >= 2 && cg_streq(argv[1], "run") == 1) { runmode = 1; start = 2; }
     int gotscript = 0;
+    int sawsep = 0;
     int ai = start;
     while (ai < argc) {
         if (runmode == 1 && gotscript == 1) {
-            List_push<string>(&runargs, argv[ai]);   // everything after the script is program argv
+            // Everything after the script is program argv; a `--` right after it only
+            // separates, so it is dropped (like the C++ `run`).
+            if (sawsep == 0 && List_len<string>(&runargs) == 0 && cg_streq(argv[ai], "--") == 1) { sawsep = 1; }
+            else { List_push<string>(&runargs, argv[ai]); }
             ai = ai + 1;
             continue;
         }
@@ -277,12 +324,15 @@ int main(int argc, string* argv) {
     }
     string cc = getenv("CLANG");        // clang emits from .ll; cc/gcc can't, so no findCDriver ladder
     if (cc == null) { cc = "clang"; }
-    string sanflag = "";
-    if (san == 1) { sanflag = " -fsanitize=address"; }
-    else if (san == 2) { sanflag = " -fsanitize=undefined"; }
-    uint8[2048] cmd;
-    sprintf((string)&cmd[0], "%s%s %s -o %s", cc, sanflag, tmp, outfile);
-    int rc = system((string)&cmd[0]);
+    List<string> cargs;
+    List_init<string>(&cargs, 8);
+    push_words(&cargs, cc);
+    if (san == 1) { List_push<string>(&cargs, "-fsanitize=address"); }
+    else if (san == 2) { List_push<string>(&cargs, "-fsanitize=undefined"); }
+    List_push<string>(&cargs, tmp);
+    List_push<string>(&cargs, "-o");
+    List_push<string>(&cargs, outfile);
+    int rc = spawn_wait(&cargs);
     remove(tmp);
     if (rc != 0) {
         eprint("error: clang failed to link the output\n");
@@ -290,18 +340,17 @@ int main(int argc, string* argv) {
     }
     if (runmode == 0) { return 0; }
 
-    // run: exec the temp binary, forwarding the program's argv, then delete it and
-    // return its exit code. Absolute /tmp path, so the shell runs it directly.
-    let cmdline: String;
-    String_init(&cmdline, 256);
-    String_append(&cmdline, outfile);
+    // run: exec the temp binary with the program's argv (no shell), then delete it and
+    // return its exit status (128+N if a signal killed it, like the C++ `run`).
+    List<string> pargs;
+    List_init<string>(&pargs, 4);
+    List_push<string>(&pargs, outfile);
     int k = 0;
     while (k < List_len<string>(&runargs)) {
-        String_append(&cmdline, " ");
-        String_append(&cmdline, List_get<string>(&runargs, k));
+        List_push<string>(&pargs, List_get<string>(&runargs, k));
         k = k + 1;
     }
-    int st = system((string)String_cstr(&cmdline));
+    int st = spawn_wait(&pargs);
     remove(outfile);
-    return (st / 256) % 256;   // WEXITSTATUS: the child's low-8-bit exit code
+    return st;
 }

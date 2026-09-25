@@ -1,0 +1,5 @@
+// A program killed by a signal: `run` must exit 128+SIGSEGV in both drivers.
+int main() {
+    *int p = null;
+    return *p;
+}
