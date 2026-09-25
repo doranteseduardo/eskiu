@@ -49,27 +49,35 @@ void TypeChecker::visit(BlockStmt* node) {
 }
 
 void TypeChecker::visit(IfStmt* node) {
-    if (node->condition) {
-        warnAssignInCondition(node->condition.get());
-        checkCondition(node, node->condition.get());
+    // An `else if` chain is walked with a loop; each link's else-narrowings stay in
+    // force for the links after it and are undone, innermost first, at the end.
+    std::vector<std::vector<std::string>> elseNarrowed;
+    for (IfStmt* n = node; n;) {
+        if (n->condition) {
+            warnAssignInCondition(n->condition.get());
+            checkCondition(n, n->condition.get());
+        }
+        // Null-narrowing: `if (q != null)` proves `q` non-null in the then-branch (and
+        // `if (q == null)` in the else-branch), so a `?*T` may be dereferenced there. An
+        // assignment to `q` inside the branch ends the narrowing (see visit(BinaryExpr)).
+        if (n->thenBranch) {
+            std::vector<std::string> keys;
+            condNarrowings(n->condition.get(), true, keys);
+            auto inserted = applyNarrowings(keys);
+            n->thenBranch->accept(this);
+            undoNarrowings(inserted);
+        }
+        IfStmt* next = nullptr;
+        if (n->elseBranch) {
+            std::vector<std::string> keys;
+            condNarrowings(n->condition.get(), false, keys);
+            elseNarrowed.push_back(applyNarrowings(keys));
+            next = dynamic_cast<IfStmt*>(n->elseBranch.get());
+            if (!next) n->elseBranch->accept(this);
+        }
+        n = next;
     }
-    // Null-narrowing: `if (q != null)` proves `q` non-null in the then-branch (and
-    // `if (q == null)` in the else-branch), so a `?*T` may be dereferenced there. An
-    // assignment to `q` inside the branch ends the narrowing (see visit(BinaryExpr)).
-    if (node->thenBranch) {
-        std::vector<std::string> keys;
-        condNarrowings(node->condition.get(), true, keys);
-        auto inserted = applyNarrowings(keys);
-        node->thenBranch->accept(this);
-        undoNarrowings(inserted);
-    }
-    if (node->elseBranch) {
-        std::vector<std::string> keys;
-        condNarrowings(node->condition.get(), false, keys);
-        auto inserted = applyNarrowings(keys);
-        node->elseBranch->accept(this);
-        undoNarrowings(inserted);
-    }
+    for (size_t i = elseNarrowed.size(); i-- > 0;) undoNarrowings(elseNarrowed[i]);
 }
 
 void TypeChecker::visit(ForInStmt* node) {
@@ -531,33 +539,47 @@ bool TypeChecker::foldConstInt(Expr* e, long long& out) {
         return false;
     }
     if (auto* b = dynamic_cast<BinaryExpr*>(e)) {
-        long long x, y;
-        if (!foldConstInt(b->left.get(), x) || !foldConstInt(b->right.get(), y)) return false;
-        unsigned long long ux = (unsigned long long)x, uy = (unsigned long long)y;
-        const std::string& op = b->op;
-        if (op == "+") out = (long long)(ux + uy);
-        else if (op == "-") out = (long long)(ux - uy);
-        else if (op == "*") out = (long long)(ux * uy);
-        else if (op == "/" || op == "%") {
-            if (y == 0 || (x == LLONG_MIN && y == -1)) return false;
-            out = op == "/" ? x / y : x % y;
+        // A left-leaning chain (`A + B + C ...`) is folded along its spine with a loop.
+        std::vector<BinaryExpr*> spine{b};
+        while (auto* l = dynamic_cast<BinaryExpr*>(spine.back()->left.get())) spine.push_back(l);
+        long long x;
+        if (!foldConstInt(spine.back()->left.get(), x)) return false;
+        for (size_t i = spine.size(); i-- > 0;) {
+            long long y;
+            if (!foldConstInt(spine[i]->right.get(), y)) return false;
+            if (!foldConstBinaryOp(spine[i]->op, x, y, x)) return false;
         }
-        else if (op == "&") out = x & y;
-        else if (op == "|") out = x | y;
-        else if (op == "^") out = x ^ y;
-        else if (op == "<<") { if (y < 0 || y > 63) return false; out = (long long)(ux << y); }
-        else if (op == ">>") { if (y < 0 || y > 63) return false; out = x >> y; }
-        else if (op == "==") out = x == y;
-        else if (op == "!=") out = x != y;
-        else if (op == "<") out = x < y;
-        else if (op == ">") out = x > y;
-        else if (op == "<=") out = x <= y;
-        else if (op == ">=") out = x >= y;
-        else return false;
+        out = x;
         return true;
     }
     if (auto* c = dynamic_cast<CastExpr*>(e)) return foldConstInt(c->expr.get(), out);
     return false;
+}
+
+// `x op y` over folded integer operands (two's-complement wrap); false when `op` does
+// not fold or the operation is undefined.
+bool TypeChecker::foldConstBinaryOp(const std::string& op, long long x, long long y, long long& out) {
+    unsigned long long ux = (unsigned long long)x, uy = (unsigned long long)y;
+    if (op == "+") out = (long long)(ux + uy);
+    else if (op == "-") out = (long long)(ux - uy);
+    else if (op == "*") out = (long long)(ux * uy);
+    else if (op == "/" || op == "%") {
+        if (y == 0 || (x == LLONG_MIN && y == -1)) return false;
+        out = op == "/" ? x / y : x % y;
+    }
+    else if (op == "&") out = x & y;
+    else if (op == "|") out = x | y;
+    else if (op == "^") out = x ^ y;
+    else if (op == "<<") { if (y < 0 || y > 63) return false; out = (long long)(ux << y); }
+    else if (op == ">>") { if (y < 0 || y > 63) return false; out = x >> y; }
+    else if (op == "==") out = x == y;
+    else if (op == "!=") out = x != y;
+    else if (op == "<") out = x < y;
+    else if (op == ">") out = x > y;
+    else if (op == "<=") out = x <= y;
+    else if (op == ">=") out = x >= y;
+    else return false;
+    return true;
 }
 
 bool TypeChecker::isConstIntExpr(Expr* e) {
@@ -571,9 +593,16 @@ bool TypeChecker::isConstIntExpr(Expr* e) {
     }
     if (auto* u = dynamic_cast<UnaryExpr*>(e))
         return (u->op == "-" || u->op == "~" || u->op == "!") && isConstIntExpr(u->operand.get());
-    if (auto* b = dynamic_cast<BinaryExpr*>(e))
-        return b->op != "=" && b->op != "&&" && b->op != "||" &&
-               isConstIntExpr(b->left.get()) && isConstIntExpr(b->right.get());
+    if (auto* b = dynamic_cast<BinaryExpr*>(e)) {
+        // Down the left spine with a loop (a long `A + B + C ...` is as deep as it is long).
+        for (;;) {
+            if (b->op == "=" || b->op == "&&" || b->op == "||") return false;
+            if (!isConstIntExpr(b->right.get())) return false;
+            auto* l = dynamic_cast<BinaryExpr*>(b->left.get());
+            if (!l) return isConstIntExpr(b->left.get());
+            b = l;
+        }
+    }
     if (auto* c = dynamic_cast<CastExpr*>(e)) return isConstIntExpr(c->expr.get());
     if (dynamic_cast<SizeofExpr*>(e)) return true;
     return false;

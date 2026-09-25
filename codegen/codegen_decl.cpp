@@ -139,6 +139,14 @@ void CodeGen::visit(FunctionDecl* node) {
         funcTemplateDecls[node->name] = node;
         return;
     }
+    // A body emitted in the middle of an expression (a template instantiation) has its
+    // own substitutions: an enclosing chain's memoized operand types do not apply.
+    struct MemoScope {
+        CodeGen& cg;
+        decltype(cg.chainTypeMemo) saved;
+        ~MemoScope() { cg.chainTypeMemo = saved; }
+    } memoScope{*this, chainTypeMemo};
+    chainTypeMemo = nullptr;
 
     // Declare (or reuse) the prototype, then emit the body.
     llvm::Function* func = declareFunction(node->name, node->returnType, node->params);

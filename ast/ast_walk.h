@@ -21,6 +21,7 @@
 #include <functional>
 #include <set>
 #include <string>
+#include <vector>
 #include "ast.h"
 
 namespace astwalk {
@@ -47,6 +48,24 @@ inline void forEachChildExpr(Expr* e, const std::function<void(ExprPtr&)>& f) {
     // LiteralExpr, IdentExpr, SizeofExpr, LambdaExpr.
 }
 
+// Like forEachChildExpr, but a long left-leaning operator chain (`a + b + c ...`, as
+// deep as it is long) costs no recursion: when `e` is a BinaryExpr, a left operand that
+// is itself a non-assignment BinaryExpr is not handed to `f`; its own operands are,
+// down the left spine by a loop. `f` sees the chain's operands in source order (the
+// leftmost first, then each right operand). Only for walkers that do nothing at a
+// non-assignment BinaryExpr except recurse into it.
+inline void forEachChildExprFlat(Expr* e, const std::function<void(ExprPtr&)>& f) {
+    auto* b = dynamic_cast<BinaryExpr*>(e);
+    if (!b) { forEachChildExpr(e, f); return; }
+    std::vector<BinaryExpr*> spine{b};
+    while (auto* l = dynamic_cast<BinaryExpr*>(spine.back()->left.get())) {
+        if (l->op == "=") break;
+        spine.push_back(l);
+    }
+    f(spine.back()->left);
+    for (size_t i = spine.size(); i-- > 0;) f(spine[i]->right);
+}
+
 // Every name spelled in a subtree: identifiers, declared locals/params (lambda bodies
 // included), loop/catch/match binders, and member names. A pass that synthesizes a
 // local (the async frame pointer, a range bound) picks a name outside this set, so it
@@ -63,7 +82,7 @@ inline void collectNames(Expr* e, std::set<std::string>& out) {
         collectNames(lam->body.get(), out);
         return;
     }
-    forEachChildExpr(e, [&](ExprPtr& c) { collectNames(c.get(), out); });
+    forEachChildExprFlat(e, [&](ExprPtr& c) { collectNames(c.get(), out); });
 }
 inline void collectNames(Stmt* s, std::set<std::string>& out) {
     if (!s) return;
@@ -75,7 +94,15 @@ inline void collectNames(Stmt* s, std::set<std::string>& out) {
             if (auto* vd = dynamic_cast<VarDecl*>(std::get<DeclPtr>(it).get())) { out.insert(vd->name); E(vd->initializer); }
         }
     }
-    else if (auto* i = dynamic_cast<IfStmt*>(s))        { E(i->condition); S(i->thenBranch); S(i->elseBranch); }
+    else if (auto* i = dynamic_cast<IfStmt*>(s)) {
+        // An `else if` chain is walked with a loop.
+        for (IfStmt* n = i; n;) {
+            E(n->condition); S(n->thenBranch);
+            auto* next = dynamic_cast<IfStmt*>(n->elseBranch.get());
+            if (!next) S(n->elseBranch);
+            n = next;
+        }
+    }
     else if (auto* f = dynamic_cast<ForStmt*>(s))       { S(f->init); E(f->condition); E(f->step); S(f->body); }
     else if (auto* fi = dynamic_cast<ForInStmt*>(s))    { out.insert(fi->varName); E(fi->iterable); S(fi->body); }
     else if (auto* w = dynamic_cast<WhileStmt*>(s))     { E(w->condition); S(w->body); }

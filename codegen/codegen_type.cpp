@@ -276,6 +276,21 @@ std::string CodeGen::getExprEskiuTypeRaw(const ExprPtr& expr) const {
 }
 
 std::string CodeGen::deriveExprEskiuType(const ExprPtr& expr) const {
+    if (chainTypeMemo) {
+        auto it = chainTypeMemo->find(expr.get());
+        if (it != chainTypeMemo->end()) {
+            if (!it->second) {
+                std::string t = deriveExprEskiuTypeUncached(expr);
+                (*chainTypeMemo)[expr.get()] = t;
+                return t;
+            }
+            return *it->second;
+        }
+    }
+    return deriveExprEskiuTypeUncached(expr);
+}
+
+std::string CodeGen::deriveExprEskiuTypeUncached(const ExprPtr& expr) const {
     if (auto ident = dynamic_cast<IdentExpr*>(expr.get())) {
         return expandAlias(lookupVarType(ident->name));
     }

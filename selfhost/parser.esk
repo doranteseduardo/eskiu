@@ -244,21 +244,13 @@ void p_fail(Parser* p, string msg) {
     p_report(p, p_peek(p), msg);
 }
 
-// Recursion guard (mirrors the C++ NestGuard): more than 1000 nested levels, or an
-// operator chain of more than 1000 operands, is an error rather than a stack overflow
-// here or in the later recursive passes.
+// Recursion guard (mirrors the C++ NestGuard): more than 1000 nested levels is an
+// error rather than a stack overflow here or in the later passes, which recurse once
+// per level. Operator chains and statement lists are loops and do not count.
 int P_MAX_NESTING = 1000;
-int P_MAX_CHAIN = 1000;
 void p_nest_enter(Parser* p) {
     p.nest = p.nest + 1;
     if (p.nest > P_MAX_NESTING) { p_fail(p, "nesting too deep (more than 1000 levels)"); }
-}
-// Count one more operand of an operator chain at the operator token; fail past the limit.
-int p_chain(Parser* p, int n) {
-    if (n + 1 > P_MAX_CHAIN) {
-        p_fail(p, "expression has more than 1000 operands in one operator chain; split it up");
-    }
-    return n + 1;
 }
 
 // Consume a token of type `t`, or fail with `msg`.
@@ -982,79 +974,36 @@ int star_paren_is_cast(Parser* p) {
     return parse_postfix(p);
 }
 
-*ExprNode parse_mul(Parser* p) {
+// Binding strength of a binary operator token, loosest first (0: not a binary
+// operator): || < && < | < ^ < & < == != < relational < shifts < + - < * / %.
+int bin_prec(int t) {
+    if (t == OR) { return 1; }
+    if (t == AND) { return 2; }
+    if (t == PIPE) { return 3; }
+    if (t == CARET) { return 4; }
+    if (t == AMPERSAND) { return 5; }
+    if (t == EQEQ || t == NE) { return 6; }
+    if (t == LT || t == GT || t == LE || t == GE) { return 7; }
+    if (t == LSHIFT || t == RSHIFT) { return 8; }
+    if (t == PLUS || t == MINUS) { return 9; }
+    if (t == STAR || t == SLASH || t == PERCENT) { return 10; }
+    return 0;
+}
+
+// Binary operators by precedence climbing (mirrors the C++ parseBinary): a unary
+// operand, then every operator binding at least `min_prec`. Same-precedence operators
+// fold in the loop, so a long `a + b + c ...` chain costs no recursion; a tighter
+// operator on the right recurses at most once per precedence level.
+*ExprNode parse_binary(Parser* p, int min_prec) {
     *ExprNode e = parse_unary(p);
-    int ops = 1;
-    while (p_at(p) == STAR || p_at(p) == SLASH || p_at(p) == PERCENT) {
-        int t = p_at(p); ops = p_chain(p, ops); p_adv(p);
-        e = mk_bin(op_str(t), e, parse_unary(p));
+    while (true) {
+        int t = p_at(p);
+        int prec = bin_prec(t);
+        if (prec == 0 || prec < min_prec) { return e; }
+        p_adv(p);
+        *ExprNode rhs = parse_binary(p, prec + 1);
+        e = mk_bin(op_str(t), e, rhs);
     }
-    return e;
-}
-*ExprNode parse_add(Parser* p) {
-    *ExprNode e = parse_mul(p);
-    int ops = 1;
-    while (p_at(p) == PLUS || p_at(p) == MINUS) {
-        int t = p_at(p); ops = p_chain(p, ops); p_adv(p);
-        e = mk_bin(op_str(t), e, parse_mul(p));
-    }
-    return e;
-}
-*ExprNode parse_shift(Parser* p) {
-    *ExprNode e = parse_add(p);
-    int ops = 1;
-    while (p_at(p) == LSHIFT || p_at(p) == RSHIFT) {
-        int t = p_at(p); ops = p_chain(p, ops); p_adv(p);
-        e = mk_bin(op_str(t), e, parse_add(p));
-    }
-    return e;
-}
-*ExprNode parse_cmp(Parser* p) {
-    *ExprNode e = parse_shift(p);
-    int ops = 1;
-    while (p_at(p) == LT || p_at(p) == GT || p_at(p) == LE || p_at(p) == GE) {
-        int t = p_at(p); ops = p_chain(p, ops); p_adv(p);
-        e = mk_bin(op_str(t), e, parse_shift(p));
-    }
-    return e;
-}
-*ExprNode parse_eq(Parser* p) {
-    *ExprNode e = parse_cmp(p);
-    int ops = 1;
-    while (p_at(p) == EQEQ || p_at(p) == NE) {
-        int t = p_at(p); ops = p_chain(p, ops); p_adv(p);
-        e = mk_bin(op_str(t), e, parse_cmp(p));
-    }
-    return e;
-}
-*ExprNode parse_band(Parser* p) {
-    *ExprNode e = parse_eq(p);
-    int ops = 1;
-    while (p_at(p) == AMPERSAND) { ops = p_chain(p, ops); p_adv(p); e = mk_bin("&", e, parse_eq(p)); }
-    return e;
-}
-*ExprNode parse_bxor(Parser* p) {
-    *ExprNode e = parse_band(p);
-    int ops = 1;
-    while (p_at(p) == CARET) { ops = p_chain(p, ops); p_adv(p); e = mk_bin("^", e, parse_band(p)); }
-    return e;
-}
-*ExprNode parse_bor(Parser* p) {
-    *ExprNode e = parse_bxor(p);
-    int ops = 1;
-    while (p_at(p) == PIPE) { ops = p_chain(p, ops); p_adv(p); e = mk_bin("|", e, parse_bxor(p)); }
-    return e;
-}
-*ExprNode parse_and(Parser* p) {
-    *ExprNode e = parse_bor(p);
-    int ops = 1;
-    while (p_at(p) == AND) { ops = p_chain(p, ops); p_adv(p); e = mk_bin("&&", e, parse_bor(p)); }
-    return e;
-}
-*ExprNode parse_or(Parser* p) {
-    *ExprNode e = parse_and(p);
-    int ops = 1;
-    while (p_at(p) == OR) { ops = p_chain(p, ops); p_adv(p); e = mk_bin("||", e, parse_and(p)); }
     return e;
 }
 
@@ -1087,7 +1036,7 @@ int ternary_colon_ahead(Parser* p) {
     return r;
 }
 *ExprNode parse_ternary_inner(Parser* p) {
-    *ExprNode cond = parse_or(p);
+    *ExprNode cond = parse_binary(p, 1);
     if (p_at(p) == QUESTION && ternary_colon_ahead(p) == 1) {
         p_adv(p);                                      // '?'
         *ExprNode thenE = parse_assignment(p);         // then-arm: a full expression
@@ -1213,16 +1162,30 @@ string strip_binding_const(string t) {
     return s;
 }
 
+// An `else if` chain is parsed with a loop (mirrors the C++ parseIfStatement): each
+// `else if` becomes the else branch of the one before, and still counts one nesting
+// level, since the chain is nested in the AST.
 *StmtNode parse_if(Parser* p) {
-    p_adv(p);                              // 'if'
-    p_expect(p, LPAREN, "Expected '('");
-    *ExprNode cond = parse_expr(p);
-    p_expect(p, RPAREN, "Expected ')'");
-    *StmtNode s = ast_new_stmt();
-    s.kind = SK_IF; s.expr = cond;         // alloc zeroes, so s.s2 (optional else) is null
-    s.s1 = parse_stmt(p);                  // then
-    if (p_at(p) == ELSE) { p_adv(p); s.s2 = parse_stmt(p); }
-    return s;
+    int saved = p.nest;
+    *StmtNode head = null;
+    *StmtNode tail = null;
+    while (true) {
+        p_adv(p);                              // 'if'
+        p_expect(p, LPAREN, "Expected '('");
+        *ExprNode cond = parse_expr(p);
+        p_expect(p, RPAREN, "Expected ')'");
+        *StmtNode s = ast_new_stmt();
+        s.kind = SK_IF; s.expr = cond;         // alloc zeroes, so s.s2 (optional else) is null
+        s.s1 = parse_stmt(p);                  // then
+        if (tail == null) { head = s; } else { tail.s2 = s; }
+        tail = s;
+        if (p_at(p) != ELSE) { break; }
+        p_adv(p);
+        if (p_at(p) != IF) { s.s2 = parse_stmt(p); break; }
+        p_nest_enter(p);
+    }
+    p.nest = saved;
+    return head;
 }
 
 *StmtNode parse_while(Parser* p) {
@@ -1274,19 +1237,25 @@ void names_add_text(string t, List<string>* out) {
     }
 }
 void collect_names_s(*StmtNode s, List<string>* out);
+// The first child (`a`, and an `else` branch `s2`) is followed with a loop, so a long
+// operator chain or `else if` chain costs no recursion (the set of names is the same).
 void collect_names_e(*ExprNode e, List<string>* out) {
-    if (e == null) { return; }
-    if (e.kind == EK_IDENT || e.kind == EK_MEMBER || e.kind == EK_SIZEOF || e.kind == EK_LAMBDA) { names_add_text(e.sval, out); }
-    collect_names_e(e.a, out); collect_names_e(e.b, out);
-    int i = 0; while (i < List_len<*ExprNode>(&e.kids)) { collect_names_e(List_get<*ExprNode>(&e.kids, i), out); i = i + 1; }
-    if (e.kind == EK_LAMBDA) { collect_names_s(e.stmt, out); }
+    while (e != null) {
+        if (e.kind == EK_IDENT || e.kind == EK_MEMBER || e.kind == EK_SIZEOF || e.kind == EK_LAMBDA) { names_add_text(e.sval, out); }
+        collect_names_e(e.b, out);
+        int i = 0; while (i < List_len<*ExprNode>(&e.kids)) { collect_names_e(List_get<*ExprNode>(&e.kids, i), out); i = i + 1; }
+        if (e.kind == EK_LAMBDA) { collect_names_s(e.stmt, out); }
+        e = e.a;
+    }
 }
 void collect_names_s(*StmtNode s, List<string>* out) {
-    if (s == null) { return; }
-    names_add_text(s.name, out);
-    collect_names_e(s.expr, out); collect_names_e(s.expr2, out);
-    collect_names_s(s.s1, out); collect_names_s(s.s2, out);
-    int i = 0; while (i < List_len<*StmtNode>(&s.items)) { collect_names_s(List_get<*StmtNode>(&s.items, i), out); i = i + 1; }
+    while (s != null) {
+        names_add_text(s.name, out);
+        collect_names_e(s.expr, out); collect_names_e(s.expr2, out);
+        collect_names_s(s.s1, out);
+        int i = 0; while (i < List_len<*StmtNode>(&s.items)) { collect_names_s(List_get<*StmtNode>(&s.items, i), out); i = i + 1; }
+        s = s.s2;
+    }
 }
 // `base` if it is not in `used`, else the first free `base_1`, `base_2`, ...; the chosen
 // name is added to `used`.

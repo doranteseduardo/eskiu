@@ -204,20 +204,30 @@ StmtPtr Parser::parseBlockStatement() {
     return withPos(std::make_shared<BlockStmt>(items), lbTok);
 }
 
+// An `else if` chain is parsed with a loop: each `else if` becomes the else branch of
+// the one before. Every link still counts as a nesting level (the chain is nested in
+// the AST, and passes that do not flatten it recurse once per link).
 StmtPtr Parser::parseIfStatement() {
-    Token ifTok = consume(TokenType::IF, "Expected 'if'");
-    consume(TokenType::LPAREN, "Expected '('");
-    ExprPtr condition = parseExpression();
-    consume(TokenType::RPAREN, "Expected ')'");
-
-    StmtPtr thenBranch = parseStatement();
-    StmtPtr elseBranch = nullptr;
-
-    if (match(TokenType::ELSE)) {
-        elseBranch = parseStatement();
+    struct RestoreNesting {
+        Parser& p;
+        int saved;
+        ~RestoreNesting() { p.nesting = saved; }
+    } restore{*this, nesting};
+    std::shared_ptr<IfStmt> head, tail;
+    for (;;) {
+        Token ifTok = consume(TokenType::IF, "Expected 'if'");
+        consume(TokenType::LPAREN, "Expected '('");
+        ExprPtr condition = parseExpression();
+        consume(TokenType::RPAREN, "Expected ')'");
+        StmtPtr thenBranch = parseStatement();
+        auto node = withPos(std::make_shared<IfStmt>(condition, thenBranch, nullptr), ifTok);
+        if (tail) tail->elseBranch = node; else head = node;
+        tail = node;
+        if (!match(TokenType::ELSE)) break;
+        if (!check(TokenType::IF)) { tail->elseBranch = parseStatement(); break; }
+        enterNesting();
     }
-
-    return withPos(std::make_shared<IfStmt>(condition, thenBranch, elseBranch), ifTok);
+    return head;
 }
 
 StmtPtr Parser::parseForStatement() {

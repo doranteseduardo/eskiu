@@ -587,6 +587,27 @@ int sema_is_enum(Sema* s, string name) {
     return sema_in_list(&s.enums, name);
 }
 
+// `+ - * / %`: the operators whose result type sema_infer_type derives from its operands.
+int sema_is_arith_op(string op) {
+    return sema_streq(op, "+") == 1 || sema_streq(op, "-") == 1 || sema_streq(op, "*") == 1
+        || sema_streq(op, "/") == 1 || sema_streq(op, "%") == 1;
+}
+
+// The inferred type of binary `op` over operand types `lt` and `rt` (as sema_infer_type
+// gives them): comparisons and `&&`/`||` are bool; for `+ - * / %` only the
+// floating-point promotion is inferred (an integer mix is left unknown).
+string sema_binary_type(string op, string lt, string rt) {
+    if (sema_is_cmp_op(op) == 1 || sema_streq(op, "&&") == 1 || sema_streq(op, "||") == 1) { return "bool"; }
+    if (sema_is_arith_op(op) == 0) { return ""; }
+    string l = sema_strip_const(lt);
+    string r = sema_strip_const(rt);
+    if (sema_is_numeric_ty(l) == 1 && sema_is_numeric_ty(r) == 1) {
+        if (sema_streq(l, "double") == 1 || sema_streq(r, "double") == 1) { return "double"; }
+        if (sema_streq(l, "float") == 1 || sema_streq(r, "float") == 1) { return "float"; }
+    }
+    return "";
+}
+
 // Best-effort string type of an expression ("" = unknown). Grows per slice; for now
 // only identifiers (via the symbol table) resolve — enough to validate `ident.field`.
 string sema_infer_type(Sema* s, *ExprNode e) {
@@ -634,17 +655,24 @@ string sema_infer_type(Sema* s, *ExprNode e) {
         if (sema_streq(e.sval, "!") == 1) { return "bool"; }
     }
     if (e.kind == EK_BINARY) {
-        if (sema_is_cmp_op(e.sval) == 1 || sema_streq(e.sval, "&&") == 1 || sema_streq(e.sval, "||") == 1) { return "bool"; }
-        if (sema_streq(e.sval, "+") == 1 || sema_streq(e.sval, "-") == 1 || sema_streq(e.sval, "*") == 1
-            || sema_streq(e.sval, "/") == 1 || sema_streq(e.sval, "%") == 1) {
-            // Only the floating-point promotion is inferred (an integer mix is left unknown).
-            string lt = sema_strip_const(sema_infer_type(s, e.a));
-            string rt = sema_strip_const(sema_infer_type(s, e.b));
-            if (sema_is_numeric_ty(lt) == 1 && sema_is_numeric_ty(rt) == 1) {
-                if (sema_streq(lt, "double") == 1 || sema_streq(rt, "double") == 1) { return "double"; }
-                if (sema_streq(lt, "float") == 1 || sema_streq(rt, "float") == 1) { return "float"; }
-            }
+        if (sema_is_arith_op(e.sval) == 0) { return sema_binary_type(e.sval, "", ""); }
+        // An arithmetic chain (`a + b + c ...`) is typed along its left spine with a loop:
+        // the leftmost operand, then each operator bottom-up over the running type.
+        List<*ExprNode> spine; List_init<*ExprNode>(&spine, 8);
+        *ExprNode b = e;
+        while (b != null && b.kind == EK_BINARY && sema_is_arith_op(b.sval) == 1) {
+            List_push<*ExprNode>(&spine, b);
+            b = b.a;
         }
+        string t = sema_infer_type(s, b);
+        int i = List_len<*ExprNode>(&spine) - 1;
+        while (i >= 0) {
+            *ExprNode n = List_get<*ExprNode>(&spine, i);
+            t = sema_binary_type(n.sval, t, sema_infer_type(s, n.b));
+            i = i - 1;
+        }
+        List_free<*ExprNode>(&spine);
+        return t;
     }
     if (e.kind == EK_MEMBER) {                           // s.f → the field's declared type (non-generic structs)
         string mbt = sema_infer_type(s, e.a);
@@ -1481,21 +1509,43 @@ void sema_narrow_kill(Sema* s, string name) {
     }
 }
 
+void sema_cond_narrow_leaf(Sema* s, *ExprNode c, int when_true, List<string>* out);
 // Keys of the `?*T` variables proven non-null when `c` evaluates to `when_true`
 // (`p != null`, `p == null` false, `p`, `!c`, `a && b` true, `a || b` false).
 void sema_cond_narrow(Sema* s, *ExprNode c, int when_true, List<string>* out) {
-    if (c == null) { return; }
-    if (c.kind == EK_UNARY && sema_streq(c.sval, "!") == 1) {
-        int flip = 1; if (when_true == 1) { flip = 0; }
-        sema_cond_narrow(s, c.a, flip, out);
-        return;
-    }
-    if (c.kind == EK_BINARY) {
-        if ((sema_streq(c.sval, "&&") == 1 && when_true == 1) || (sema_streq(c.sval, "||") == 1 && when_true == 0)) {
-            sema_cond_narrow(s, c.a, when_true, out);
-            sema_cond_narrow(s, c.b, when_true, out);
-            return;
+    // The left spine of a run of `&&` (or `||`) is followed with a loop; its right
+    // operands are scanned afterwards, bottom-up, so the keys keep their source order.
+    List<*ExprNode> rights; List_init<*ExprNode>(&rights, 4);
+    List<int> senses; List_init<int>(&senses, 4);
+    while (c != null) {
+        if (c.kind == EK_UNARY && sema_streq(c.sval, "!") == 1) {
+            if (when_true == 1) { when_true = 0; } else { when_true = 1; }
+            c = c.a;
+            continue;
         }
+        if (c.kind == EK_BINARY
+            && ((sema_streq(c.sval, "&&") == 1 && when_true == 1) || (sema_streq(c.sval, "||") == 1 && when_true == 0))) {
+            List_push<*ExprNode>(&rights, c.b);
+            List_push<int>(&senses, when_true);
+            c = c.a;
+            continue;
+        }
+        break;
+    }
+    sema_cond_narrow_leaf(s, c, when_true, out);
+    int i = List_len<*ExprNode>(&rights) - 1;
+    while (i >= 0) {
+        sema_cond_narrow(s, List_get<*ExprNode>(&rights, i), List_get<int>(&senses, i), out);
+        i = i - 1;
+    }
+    List_free<*ExprNode>(&rights);
+    List_free<int>(&senses);
+}
+
+// sema_cond_narrow for an operand that is not itself `!`, or a `&&`/`||` run.
+void sema_cond_narrow_leaf(Sema* s, *ExprNode c, int when_true, List<string>* out) {
+    if (c == null) { return; }
+    if (c.kind == EK_BINARY) {
         if (sema_streq(c.sval, "!=") == 1 || sema_streq(c.sval, "==") == 1) {
             *ExprNode idE = null;
             if (c.a != null && c.a.kind == EK_IDENT && c.b != null && c.b.kind == EK_LITERAL && c.b.lit_kind == LIT_NULL) { idE = c.a; }
@@ -1599,6 +1649,32 @@ int64 sema_parse_int(string t) {
     return sign * v;
 }
 
+// `x op y` over folded integer operands (mirrors TypeChecker::foldConstBinaryOp);
+// 0 when `op` does not fold or the operation is undefined.
+int sema_fold_op(string op, int64 x, int64 y, int64* out) {
+    if (sema_streq(op, "+") == 1) { out[0] = x + y; return 1; }
+    if (sema_streq(op, "-") == 1) { out[0] = x - y; return 1; }
+    if (sema_streq(op, "*") == 1) { out[0] = x * y; return 1; }
+    if (sema_streq(op, "/") == 1 || sema_streq(op, "%") == 1) {
+        if (y == (int64)0) { return 0; }
+        if (sema_streq(op, "/") == 1) { out[0] = x / y; } else { out[0] = x % y; }
+        return 1;
+    }
+    if (sema_streq(op, "&") == 1) { out[0] = x & y; return 1; }
+    if (sema_streq(op, "|") == 1) { out[0] = x | y; return 1; }
+    if (sema_streq(op, "^") == 1) { out[0] = x ^ y; return 1; }
+    if (sema_streq(op, "<<") == 1) { if (y < (int64)0 || y > (int64)63) { return 0; } out[0] = x << y; return 1; }
+    if (sema_streq(op, ">>") == 1) { if (y < (int64)0 || y > (int64)63) { return 0; } out[0] = x >> y; return 1; }
+    int64 r = (int64)0;
+    if (sema_streq(op, "==") == 1) { if (x == y) { r = (int64)1; } out[0] = r; return 1; }
+    if (sema_streq(op, "!=") == 1) { if (x != y) { r = (int64)1; } out[0] = r; return 1; }
+    if (sema_streq(op, "<") == 1) { if (x < y) { r = (int64)1; } out[0] = r; return 1; }
+    if (sema_streq(op, ">") == 1) { if (x > y) { r = (int64)1; } out[0] = r; return 1; }
+    if (sema_streq(op, "<=") == 1) { if (x <= y) { r = (int64)1; } out[0] = r; return 1; }
+    if (sema_streq(op, ">=") == 1) { if (x >= y) { r = (int64)1; } out[0] = r; return 1; }
+    return 0;
+}
+
 // Value of an integer constant expression built from literals, enum members, unary and
 // binary operators and casts (mirrors TypeChecker::foldConstInt). Returns 0 when the
 // value is not known here (`sizeof`, a non-constant name, division by zero).
@@ -1643,30 +1719,23 @@ int sema_fold_int(Sema* s, *ExprNode e, int64* out) {
         return 0;
     }
     if (e.kind == EK_BINARY) {
-        int64 x = (int64)0; int64 y = (int64)0;
-        if (sema_fold_int(s, e.a, &x) == 0 || sema_fold_int(s, e.b, &y) == 0) { return 0; }
-        string op = e.sval;
-        if (sema_streq(op, "+") == 1) { out[0] = x + y; return 1; }
-        if (sema_streq(op, "-") == 1) { out[0] = x - y; return 1; }
-        if (sema_streq(op, "*") == 1) { out[0] = x * y; return 1; }
-        if (sema_streq(op, "/") == 1 || sema_streq(op, "%") == 1) {
-            if (y == (int64)0) { return 0; }
-            if (sema_streq(op, "/") == 1) { out[0] = x / y; } else { out[0] = x % y; }
-            return 1;
+        // A left-leaning chain (`A + B + C ...`) is folded along its spine with a loop.
+        List<*ExprNode> spine; List_init<*ExprNode>(&spine, 4);
+        *ExprNode b = e;
+        while (b != null && b.kind == EK_BINARY) { List_push<*ExprNode>(&spine, b); b = b.a; }
+        int64 x = (int64)0;
+        if (sema_fold_int(s, b, &x) == 0) { return 0; }
+        int i = List_len<*ExprNode>(&spine) - 1;
+        while (i >= 0) {
+            *ExprNode n = List_get<*ExprNode>(&spine, i);
+            int64 y = (int64)0;
+            if (sema_fold_int(s, n.b, &y) == 0) { return 0; }
+            if (sema_fold_op(n.sval, x, y, &x) == 0) { return 0; }
+            i = i - 1;
         }
-        if (sema_streq(op, "&") == 1) { out[0] = x & y; return 1; }
-        if (sema_streq(op, "|") == 1) { out[0] = x | y; return 1; }
-        if (sema_streq(op, "^") == 1) { out[0] = x ^ y; return 1; }
-        if (sema_streq(op, "<<") == 1) { if (y < (int64)0 || y > (int64)63) { return 0; } out[0] = x << y; return 1; }
-        if (sema_streq(op, ">>") == 1) { if (y < (int64)0 || y > (int64)63) { return 0; } out[0] = x >> y; return 1; }
-        int64 r = (int64)0;
-        if (sema_streq(op, "==") == 1) { if (x == y) { r = (int64)1; } out[0] = r; return 1; }
-        if (sema_streq(op, "!=") == 1) { if (x != y) { r = (int64)1; } out[0] = r; return 1; }
-        if (sema_streq(op, "<") == 1) { if (x < y) { r = (int64)1; } out[0] = r; return 1; }
-        if (sema_streq(op, ">") == 1) { if (x > y) { r = (int64)1; } out[0] = r; return 1; }
-        if (sema_streq(op, "<=") == 1) { if (x <= y) { r = (int64)1; } out[0] = r; return 1; }
-        if (sema_streq(op, ">=") == 1) { if (x >= y) { r = (int64)1; } out[0] = r; return 1; }
-        return 0;
+        List_free<*ExprNode>(&spine);
+        out[0] = x;
+        return 1;
     }
     if (e.kind == EK_CAST) { return sema_fold_int(s, e.a, out); }
     return 0;
@@ -1750,6 +1819,7 @@ int sema_has_await_s(*StmtNode st) {
 
 // ── expression walk ──
 
+void sema_binary_chain(Sema* s, *ExprNode e);
 // Check `e` with its position as the current diagnostic location (restored afterwards so
 // the enclosing node's own checks report at the enclosing node).
 void sema_expr(Sema* s, *ExprNode e) {
@@ -1758,6 +1828,144 @@ void sema_expr(Sema* s, *ExprNode e) {
     if (e.line > 0) { s.line = e.line; s.col = e.col; }
     sema_expr_k(s, e);
     s.line = pl; s.col = pc;
+}
+
+// The checks of one non-assignment binary operator `e` whose operands have the inferred
+// types `lt0` and `rt0` (see sema_binary_chain).
+void sema_binary_checks(Sema* s, *ExprNode e, string lt0, string rt0) {
+    if (e.a != null && e.b != null) {
+        // Operand kinds the built-in operators reject (a user operator overload aside).
+        string olt = sema_strip_const(lt0);
+        string ort = sema_strip_const(rt0);
+        int bitop = 0;
+        if (sema_streq(e.sval, "&") == 1 || sema_streq(e.sval, "|") == 1 || sema_streq(e.sval, "^") == 1
+            || sema_streq(e.sval, "<<") == 1 || sema_streq(e.sval, ">>") == 1) { bitop = 1; }
+        int arith = 0;
+        if (sema_streq(e.sval, "+") == 1 || sema_streq(e.sval, "*") == 1 || sema_streq(e.sval, "/") == 1
+            || sema_streq(e.sval, "%") == 1) { arith = 1; }
+        int bad = 0;
+        if (bitop == 1 && (sema_is_float_ty(olt) == 1 || sema_is_float_ty(ort) == 1)
+            && (sema_is_numeric_ty(olt) == 1 && sema_is_numeric_ty(ort) == 1)) { bad = 1; }
+        if (arith == 1 && sema_is_ptrish(olt) == 1 && sema_is_ptrish(ort) == 1
+            && sema_streq(olt, "null") == 0 && sema_streq(ort, "null") == 0) { bad = 1; }
+        // A struct value has no built-in arithmetic/bitwise operator (only a user
+        // overload), and a pointer or string has no `*` `/` `%`.
+        if ((arith == 1 || bitop == 1 || sema_streq(e.sval, "-") == 1)
+            && (sema_is_struct(s, olt) == 1 || sema_is_struct(s, ort) == 1) && sema_any_op(s, e.sval) == 0) { bad = 1; }
+        if ((sema_streq(e.sval, "*") == 1 || sema_streq(e.sval, "/") == 1 || sema_streq(e.sval, "%") == 1)
+            && olt[0] != 0 && ort[0] != 0 && sema_any_op(s, e.sval) == 0
+            && ((sema_is_ptrish(olt) == 1 && sema_is_arr_ty(olt) == 0) || (sema_is_ptrish(ort) == 1 && sema_is_arr_ty(ort) == 0))) { bad = 1; }
+        if (bad == 1) {
+            s.had_error = 1;
+            printf("error: %s:%d:%d: invalid operands for operator: %s and %s\n", s.filename, s.line, s.col, olt, ort);
+        }
+    }
+    // Division / remainder by a literal zero is a guaranteed runtime trap.
+    if ((sema_streq(e.sval, "/") == 1 || sema_streq(e.sval, "%") == 1)
+        && e.b != null && e.b.kind == EK_LITERAL && e.b.lit_kind == LIT_INT
+        && sema_lit_is_zero(e.b.sval) == 1) {
+        if (sema_streq(e.sval, "/") == 1) { sema_error(s, "division by zero"); }
+        else { sema_error(s, "remainder by zero"); }
+    }
+    // Comparison operands must be mutually comparable: both numeric, both pointer-like
+    // (incl. null), or the same non-aggregate type. Conservative: only flag when both
+    // operand types are known (unknown → skip, never falsely reject).
+    if (sema_is_cmp_op(e.sval) == 1) {
+        string lt = lt0;
+        string rt = rt0;
+        if (lt[0] != 0 && rt[0] != 0 && sema_streq(lt, "unknown") == 0 && sema_streq(rt, "unknown") == 0) {
+            int ok = 0;
+            if (sema_is_numeric_ty(lt) == 1 && sema_is_numeric_ty(rt) == 1) { ok = 1; }
+            else if (sema_is_ptrish(lt) == 1 && sema_is_ptrish(rt) == 1) { ok = 1; }
+            else if (sema_streq(lt, rt) == 1 && sema_is_struct(s, sema_base_name(lt)) == 0) { ok = 1; }
+            if (ok == 0) {                                 // or a user `operator ==(L,R)` exists
+                let cty: List<string>; List_init<string>(&cty, 2);
+                List_push<string>(&cty, lt); List_push<string>(&cty, rt);
+                string copn = ast_op_name(e.sval, &cty);
+                if (copn[0] != 0 && sema_find_fn(s, copn) >= 0) { ok = 1; }
+            }
+            if (ok == 0) { sema_error(s, "invalid operands for operator"); }
+        }
+    }
+}
+
+// A non-assignment binary expression. A left-leaning chain (`a + b + c ...`) is as deep
+// as it is long, so its left spine is handled with loops, in the order a recursive walk
+// would take: the operand types are inferred bottom-up once, each operator's checks run
+// top-down, then the operands are visited in source order (the leftmost first), each
+// right operand at its operator's position and, under `&&`/`||`, with the left side's
+// narrowing in force.
+void sema_binary_chain(Sema* s, *ExprNode e) {
+    List<*ExprNode> spine; List_init<*ExprNode>(&spine, 8);
+    *ExprNode b = e;
+    while (b != null && b.kind == EK_BINARY && sema_is_assign(b.sval) == 0) {
+        List_push<*ExprNode>(&spine, b);
+        b = b.a;
+    }
+    int n = List_len<*ExprNode>(&spine);
+    List<string> lts; List_init<string>(&lts, n);
+    List<string> rts; List_init<string>(&rts, n);
+    List<int> pls; List_init<int>(&pls, n);
+    List<int> pcs; List_init<int>(&pcs, n);
+    int i = 0;
+    while (i < n) {
+        List_push<string>(&lts, ""); List_push<string>(&rts, "");
+        *ExprNode pn = List_get<*ExprNode>(&spine, i);
+        if (i > 0 && pn.line > 0) { List_push<int>(&pls, pn.line); List_push<int>(&pcs, pn.col); }
+        else if (i > 0) { List_push<int>(&pls, List_get<int>(&pls, i - 1)); List_push<int>(&pcs, List_get<int>(&pcs, i - 1)); }
+        else { List_push<int>(&pls, s.line); List_push<int>(&pcs, s.col); }
+        i = i + 1;
+    }
+    string t = sema_infer_type(s, b);
+    i = n - 1;
+    while (i >= 0) {
+        *ExprNode tn = List_get<*ExprNode>(&spine, i);
+        string rt = sema_infer_type(s, tn.b);
+        List_set<string>(&lts, i, t);
+        List_set<string>(&rts, i, rt);
+        t = sema_binary_type(tn.sval, t, rt);
+        i = i - 1;
+    }
+    i = 0;
+    while (i < n) {
+        s.line = List_get<int>(&pls, i); s.col = List_get<int>(&pcs, i);
+        sema_binary_checks(s, List_get<*ExprNode>(&spine, i), List_get<string>(&lts, i), List_get<string>(&rts, i));
+        i = i + 1;
+    }
+    s.line = List_get<int>(&pls, n - 1); s.col = List_get<int>(&pcs, n - 1);
+    sema_expr(s, b);
+    // Narrowing keys of the left operand of the operator just visited: in a run of the
+    // same `&&` (or `||`), the next operator's left narrows to those plus the previous
+    // right operand's, so each operand is scanned once instead of the whole prefix.
+    List<string> keys; List_init<string>(&keys, 2);
+    i = n - 1;
+    while (i >= 0) {
+        *ExprNode vn = List_get<*ExprNode>(&spine, i);
+        s.line = List_get<int>(&pls, i); s.col = List_get<int>(&pcs, i);
+        if (sema_streq(vn.sval, "&&") == 1 || sema_streq(vn.sval, "||") == 1) {
+            // Short-circuit narrowing: the right operand sees the left's outcome.
+            int wt = sema_streq(vn.sval, "&&");
+            int same = 0;
+            if (i + 1 < n) {
+                *ExprNode below = List_get<*ExprNode>(&spine, i + 1);
+                same = sema_streq(below.sval, vn.sval);
+                if (same == 1) { sema_cond_narrow(s, below.b, wt, &keys); }
+            }
+            if (same == 0) {
+                List_free<string>(&keys); List_init<string>(&keys, 2);
+                sema_cond_narrow(s, vn.a, wt, &keys);
+            }
+            List<string> ins; List_init<string>(&ins, 2);
+            sema_narrow_apply(s, &keys, &ins);
+            sema_expr(s, vn.b);
+            sema_narrow_undo(s, &ins);
+        } else {
+            sema_expr(s, vn.b);
+        }
+        i = i - 1;
+    }
+    s.line = List_get<int>(&pls, 0); s.col = List_get<int>(&pcs, 0);
+    List_free<*ExprNode>(&spine);
 }
 
 void sema_expr_k(Sema* s, *ExprNode e) {
@@ -1786,7 +1994,8 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         return;
     }
     if (k == EK_LITERAL) { return; }
-    if (k == EK_BINARY) {
+    if (k == EK_BINARY && sema_is_assign(e.sval) == 0) { sema_binary_chain(s, e); return; }
+    if (k == EK_BINARY) {                              // an assignment (`=` or compound)
         // A compound assignment `x op= lit` (desugared to `x = x op lit`, sharing the target
         // node) stores into x's type, so its literal operand must fit it, as for `x = lit`.
         if (sema_streq(e.sval, "=") == 1 && e.b != null && e.b.kind == EK_BINARY && e.b.a == e.a
@@ -1809,77 +2018,13 @@ void sema_expr_k(Sema* s, *ExprNode e) {
                 }
             }
         }
-        if (sema_is_assign(e.sval) == 0 && e.a != null && e.b != null) {
-            // Operand kinds the built-in operators reject (a user operator overload aside).
-            string olt = sema_strip_const(sema_infer_type(s, e.a));
-            string ort = sema_strip_const(sema_infer_type(s, e.b));
-            int bitop = 0;
-            if (sema_streq(e.sval, "&") == 1 || sema_streq(e.sval, "|") == 1 || sema_streq(e.sval, "^") == 1
-                || sema_streq(e.sval, "<<") == 1 || sema_streq(e.sval, ">>") == 1) { bitop = 1; }
-            int arith = 0;
-            if (sema_streq(e.sval, "+") == 1 || sema_streq(e.sval, "*") == 1 || sema_streq(e.sval, "/") == 1
-                || sema_streq(e.sval, "%") == 1) { arith = 1; }
-            int bad = 0;
-            if (bitop == 1 && (sema_is_float_ty(olt) == 1 || sema_is_float_ty(ort) == 1)
-                && (sema_is_numeric_ty(olt) == 1 && sema_is_numeric_ty(ort) == 1)) { bad = 1; }
-            if (arith == 1 && sema_is_ptrish(olt) == 1 && sema_is_ptrish(ort) == 1
-                && sema_streq(olt, "null") == 0 && sema_streq(ort, "null") == 0) { bad = 1; }
-            // A struct value has no built-in arithmetic/bitwise operator (only a user
-            // overload), and a pointer or string has no `*` `/` `%`.
-            if ((arith == 1 || bitop == 1 || sema_streq(e.sval, "-") == 1)
-                && (sema_is_struct(s, olt) == 1 || sema_is_struct(s, ort) == 1) && sema_any_op(s, e.sval) == 0) { bad = 1; }
-            if ((sema_streq(e.sval, "*") == 1 || sema_streq(e.sval, "/") == 1 || sema_streq(e.sval, "%") == 1)
-                && olt[0] != 0 && ort[0] != 0 && sema_any_op(s, e.sval) == 0
-                && ((sema_is_ptrish(olt) == 1 && sema_is_arr_ty(olt) == 0) || (sema_is_ptrish(ort) == 1 && sema_is_arr_ty(ort) == 0))) { bad = 1; }
-            if (bad == 1) {
-                s.had_error = 1;
-                printf("error: %s:%d:%d: invalid operands for operator: %s and %s\n", s.filename, s.line, s.col, olt, ort);
-            }
-        }
         if (sema_streq(e.sval, "=") == 1 && sema_is_lvalue(s, e.a) == 0) {
             sema_error(s, "cannot assign to this expression: it is not a variable, field, element, or dereference");
         }
         if (sema_is_assign(e.sval) == 1 && sema_is_readonly_lvalue(s, e.a) == 1) {
             sema_error(s, "cannot assign to read-only location");
         }
-        // Division / remainder by a literal zero is a guaranteed runtime trap.
-        if ((sema_streq(e.sval, "/") == 1 || sema_streq(e.sval, "%") == 1)
-            && e.b != null && e.b.kind == EK_LITERAL && e.b.lit_kind == LIT_INT
-            && sema_lit_is_zero(e.b.sval) == 1) {
-            if (sema_streq(e.sval, "/") == 1) { sema_error(s, "division by zero"); }
-            else { sema_error(s, "remainder by zero"); }
-        }
-        // Comparison operands must be mutually comparable: both numeric, both pointer-like
-        // (incl. null), or the same non-aggregate type. Conservative: only flag when both
-        // operand types are known (unknown → skip, never falsely reject).
-        if (sema_is_cmp_op(e.sval) == 1) {
-            string lt = sema_infer_type(s, e.a);
-            string rt = sema_infer_type(s, e.b);
-            if (lt[0] != 0 && rt[0] != 0 && sema_streq(lt, "unknown") == 0 && sema_streq(rt, "unknown") == 0) {
-                int ok = 0;
-                if (sema_is_numeric_ty(lt) == 1 && sema_is_numeric_ty(rt) == 1) { ok = 1; }
-                else if (sema_is_ptrish(lt) == 1 && sema_is_ptrish(rt) == 1) { ok = 1; }
-                else if (sema_streq(lt, rt) == 1 && sema_is_struct(s, sema_base_name(lt)) == 0) { ok = 1; }
-                if (ok == 0) {                                 // or a user `operator ==(L,R)` exists
-                    let cty: List<string>; List_init<string>(&cty, 2);
-                    List_push<string>(&cty, lt); List_push<string>(&cty, rt);
-                    string copn = ast_op_name(e.sval, &cty);
-                    if (copn[0] != 0 && sema_find_fn(s, copn) >= 0) { ok = 1; }
-                }
-                if (ok == 0) { sema_error(s, "invalid operands for operator"); }
-            }
-        }
         sema_expr(s, e.a);
-        if (sema_streq(e.sval, "&&") == 1 || sema_streq(e.sval, "||") == 1) {
-            // Short-circuit narrowing: the right operand sees the left's outcome.
-            List<string> keys; List_init<string>(&keys, 2);
-            List<string> ins; List_init<string>(&ins, 2);
-            sema_cond_narrow(s, e.a, sema_streq(e.sval, "&&"), &keys);
-            sema_narrow_apply(s, &keys, &ins);
-            sema_expr(s, e.b);
-            sema_narrow_undo(s, &ins);
-            return;
-        }
         sema_expr(s, e.b);
         // `p = ...` ends p's narrowing unless it stores an address `&x` or steps the pointer
         // itself (`p = p + k`, `p += k`).
@@ -2612,21 +2757,30 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
         return;
     }
     if (k == SK_IF) {
-        sema_expr(s, st.expr);
-        // Null-narrowing: `if (q != null)` proves `q` non-null in the then-branch (and
-        // `if (q == null)` in the else-branch), so a `?*T` may be dereferenced there.
-        List<string> tkeys; List_init<string>(&tkeys, 2);
-        List<string> tins; List_init<string>(&tins, 2);
-        sema_cond_narrow(s, st.expr, 1, &tkeys);
-        sema_narrow_apply(s, &tkeys, &tins);
-        sema_stmt(s, st.s1);
-        sema_narrow_undo(s, &tins);
-        List<string> fkeys; List_init<string>(&fkeys, 2);
+        // An `else if` chain is checked with a loop (mirrors the C++ visit(IfStmt)); each
+        // link's else-narrowings stay in force for the links after it, undone at the end.
         List<string> fins; List_init<string>(&fins, 2);
-        sema_cond_narrow(s, st.expr, 0, &fkeys);
-        sema_narrow_apply(s, &fkeys, &fins);
-        sema_stmt(s, st.s2);
+        int pl = s.line; int pc = s.col;
+        *StmtNode n = st;
+        while (n != null) {
+            if (n.line > 0) { s.line = n.line; s.col = n.col; }
+            sema_expr(s, n.expr);
+            // Null-narrowing: `if (q != null)` proves `q` non-null in the then-branch (and
+            // `if (q == null)` in the else-branch), so a `?*T` may be dereferenced there.
+            List<string> tkeys; List_init<string>(&tkeys, 2);
+            List<string> tins; List_init<string>(&tins, 2);
+            sema_cond_narrow(s, n.expr, 1, &tkeys);
+            sema_narrow_apply(s, &tkeys, &tins);
+            sema_stmt(s, n.s1);
+            sema_narrow_undo(s, &tins);
+            List<string> fkeys; List_init<string>(&fkeys, 2);
+            sema_cond_narrow(s, n.expr, 0, &fkeys);
+            sema_narrow_apply(s, &fkeys, &fins);
+            if (n.s2 != null && n.s2.kind == SK_IF) { n = n.s2; }
+            else { sema_stmt(s, n.s2); n = null; }
+        }
         sema_narrow_undo(s, &fins);
+        s.line = pl; s.col = pc;
         return;
     }
     if (k == SK_WHILE) {

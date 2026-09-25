@@ -66,13 +66,20 @@ llvm::Constant* CodeGen::evaluateConstantExpr(const ExprPtr& expr) {
     }
 
     // Fold a built-in binary operator over constant operands (`3 + 1`, `A * 2`, `1.0/4.0`).
+    // A left-leaning chain (`A + B + C ...`) is folded along its spine with a loop.
     if (auto* bin = dynamic_cast<BinaryExpr*>(expr.get())) {
-        if (!bin->opFunc.empty()) return nullptr;
-        llvm::Constant* l = evaluateConstantExpr(bin->left);
-        llvm::Constant* r = l ? evaluateConstantExpr(bin->right) : nullptr;
-        if (!l || !r) return nullptr;
-        bool uns = eskiuUnsigned(getExprEskiuType(bin->left)) || eskiuUnsigned(getExprEskiuType(bin->right));
-        return foldConstBinary(bin->op, l, r, uns);
+        std::vector<BinaryExpr*> spine{bin};
+        while (auto* l = dynamic_cast<BinaryExpr*>(spine.back()->left.get())) spine.push_back(l);
+        for (auto* b : spine) if (!b->opFunc.empty()) return nullptr;
+        llvm::Constant* value = evaluateConstantExpr(spine.back()->left);
+        for (size_t i = spine.size(); i-- > 0 && value;) {
+            BinaryExpr* b = spine[i];
+            llvm::Constant* r = evaluateConstantExpr(b->right);
+            if (!r) return nullptr;
+            bool uns = eskiuUnsigned(getExprEskiuType(b->left)) || eskiuUnsigned(getExprEskiuType(b->right));
+            value = foldConstBinary(b->op, value, r, uns);
+        }
+        return value;
     }
 
     // Fold `c ? a : b` with a constant condition to the chosen arm.

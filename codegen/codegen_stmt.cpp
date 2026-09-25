@@ -72,48 +72,74 @@ void CodeGen::visit(DeferStmt* node) {
 }
 
 void CodeGen::visit(IfStmt* node) {
-    // Evaluate condition
-    llvm::Value* cond = evaluateExpr(node->condition);
+    // An `else if` chain is emitted with a loop. Each link's else body is a scope of its
+    // own (as emitScopedBody would make it); those scopes and the branches to each
+    // link's merge block are closed innermost first once the chain ends.
+    std::vector<llvm::BasicBlock*> outerMerges;
+    for (IfStmt* n = node; n;) {
+        // Evaluate condition
+        llvm::Value* cond = evaluateExpr(n->condition);
 
-    if (!cond) {
-        throw std::runtime_error("If condition evaluation failed");
-    }
+        if (!cond) {
+            throw std::runtime_error("If condition evaluation failed");
+        }
 
-    // Convert to i1
-    if (!cond->getType()->isIntegerTy(1)) {
-        cond = builder->CreateICmpNE(cond, llvm::ConstantInt::get(cond->getType(), 0));
-    }
+        // Convert to i1
+        if (!cond->getType()->isIntegerTy(1)) {
+            cond = builder->CreateICmpNE(cond, llvm::ConstantInt::get(cond->getType(), 0));
+        }
 
-    // Create blocks
-    llvm::BasicBlock* thenBlock = llvm::BasicBlock::Create(*context, "then", currentFunction);
-    llvm::BasicBlock* elseBlock = nullptr;
-    llvm::BasicBlock* mergeBlock = llvm::BasicBlock::Create(*context, "merge", currentFunction);
+        // Create blocks
+        llvm::BasicBlock* thenBlock = llvm::BasicBlock::Create(*context, "then", currentFunction);
+        llvm::BasicBlock* elseBlock = nullptr;
+        llvm::BasicBlock* mergeBlock = llvm::BasicBlock::Create(*context, "merge", currentFunction);
 
-    if (node->elseBranch) {
-        elseBlock = llvm::BasicBlock::Create(*context, "else", currentFunction);
-        builder->CreateCondBr(cond, thenBlock, elseBlock);
-    } else {
-        builder->CreateCondBr(cond, thenBlock, mergeBlock);
-    }
+        if (n->elseBranch) {
+            elseBlock = llvm::BasicBlock::Create(*context, "else", currentFunction);
+            builder->CreateCondBr(cond, thenBlock, elseBlock);
+        } else {
+            builder->CreateCondBr(cond, thenBlock, mergeBlock);
+        }
 
-    // Then block
-    builder->SetInsertPoint(thenBlock);
-    emitScopedBody(node->thenBranch);
-    if (!hasTerminator(builder->GetInsertBlock())) {
-        builder->CreateBr(mergeBlock);
-    }
-
-    // Else block
-    if (node->elseBranch) {
-        builder->SetInsertPoint(elseBlock);
-        emitScopedBody(node->elseBranch);
+        // Then block
+        builder->SetInsertPoint(thenBlock);
+        emitScopedBody(n->thenBranch);
         if (!hasTerminator(builder->GetInsertBlock())) {
             builder->CreateBr(mergeBlock);
         }
-    }
 
-    // Merge block
-    builder->SetInsertPoint(mergeBlock);
+        // Else block
+        IfStmt* next = nullptr;
+        if (n->elseBranch) {
+            builder->SetInsertPoint(elseBlock);
+            next = dynamic_cast<IfStmt*>(n->elseBranch.get());
+            if (next) {
+                pushScope();
+                cleanupScopes.emplace_back();
+                outerMerges.push_back(mergeBlock);
+                n = next;
+                continue;
+            }
+            emitScopedBody(n->elseBranch);
+            if (!hasTerminator(builder->GetInsertBlock())) {
+                builder->CreateBr(mergeBlock);
+            }
+        }
+
+        // Merge block
+        builder->SetInsertPoint(mergeBlock);
+        n = nullptr;
+    }
+    for (size_t i = outerMerges.size(); i-- > 0;) {
+        if (!blockTerminated())
+            runCleanupsToDepth(cleanupScopes.size() - 1, /*errorPath=*/false);
+        cleanupScopes.pop_back();
+        popScope();
+        if (!hasTerminator(builder->GetInsertBlock())) {
+            builder->CreateBr(outerMerges[i]);
+        }
+        builder->SetInsertPoint(outerMerges[i]);
+    }
 }
 
 void CodeGen::visit(WhileStmt* node) {

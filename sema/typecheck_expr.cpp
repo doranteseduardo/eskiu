@@ -66,20 +66,40 @@
     expressionTypes[node] = lt;
 }
 
+// A left-leaning chain (`a + b + c ...`, `p && q && ...`) is as deep as it is long, so
+// its left spine is walked with a loop: the leftmost operand first, then each operator
+// bottom-up (its right operand, then its own type). Only right operands recurse.
 void TypeChecker::visit(BinaryExpr* node) {
-    node->left->accept(this);
-    // Short-circuit narrowing: in `p != null && *p`, the right operand only runs when
-    // the left is true (for `||`, when it is false), so it sees `p` as non-null.
-    if (node->op == "&&" || node->op == "||") {
-        std::vector<std::string> keys;
-        condNarrowings(node->left.get(), node->op == "&&", keys);
-        auto inserted = applyNarrowings(keys);
-        node->right->accept(this);
-        undoNarrowings(inserted);
-    } else {
-        node->right->accept(this);
+    std::vector<BinaryExpr*> spine;
+    for (BinaryExpr* b = node; b; b = dynamic_cast<BinaryExpr*>(b->left.get())) spine.push_back(b);
+    spine.back()->left->accept(this);
+    // Narrowing keys of the left operand of the operator just handled: in a run of the
+    // same `&&` (or `||`), the next operator's left narrows to those plus the previous
+    // right operand's, so each operand is scanned once instead of the whole prefix.
+    std::vector<std::string> keys;
+    for (size_t i = spine.size(); i-- > 0;) {
+        BinaryExpr* b = spine[i];
+        // Short-circuit narrowing: in `p != null && *p`, the right operand only runs when
+        // the left is true (for `||`, when it is false), so it sees `p` as non-null.
+        if (b->op == "&&" || b->op == "||") {
+            bool whenTrue = b->op == "&&";
+            if (i + 1 < spine.size() && spine[i + 1]->op == b->op) {
+                condNarrowings(spine[i + 1]->right.get(), whenTrue, keys);
+            } else {
+                keys.clear();
+                condNarrowings(b->left.get(), whenTrue, keys);
+            }
+            auto inserted = applyNarrowings(keys);
+            b->right->accept(this);
+            undoNarrowings(inserted);
+        } else {
+            b->right->accept(this);
+        }
+        finishBinary(b);
     }
+}
 
+void TypeChecker::finishBinary(BinaryExpr* node) {
     if (node->op == "=") { checkAssignment(node); return; }
 
     std::string leftType = getExpressionType(node->left.get());
@@ -241,16 +261,25 @@ void TypeChecker::condNarrowings(Expr* cond, bool whenTrue, std::vector<std::str
         std::string t = lookupSymbol(id->name);
         return (!t.empty() && t[0] == '?') ? narrowKey(id->name) : "";
     };
-    if (auto* u = dynamic_cast<UnaryExpr*>(cond); u && u->op == "!") {
-        condNarrowings(u->operand.get(), !whenTrue, keys);
-        return;
+    // `!c` flips the sense; `a && b` (when true) and `a || b` (when false) narrow by both
+    // operands. The left spine of such a run is followed with a loop; the right operands
+    // are scanned afterwards, bottom-up, so keys keep their left-to-right order.
+    std::vector<std::pair<Expr*, bool>> rights;
+    for (;;) {
+        if (auto* u = dynamic_cast<UnaryExpr*>(cond); u && u->op == "!") {
+            cond = u->operand.get();
+            whenTrue = !whenTrue;
+            continue;
+        }
+        auto* b = dynamic_cast<BinaryExpr*>(cond);
+        if (b && ((b->op == "&&" && whenTrue) || (b->op == "||" && !whenTrue))) {
+            rights.push_back({b->right.get(), whenTrue});
+            cond = b->left.get();
+            continue;
+        }
+        break;
     }
     if (auto* b = dynamic_cast<BinaryExpr*>(cond)) {
-        if ((b->op == "&&" && whenTrue) || (b->op == "||" && !whenTrue)) {
-            condNarrowings(b->left.get(), whenTrue, keys);
-            condNarrowings(b->right.get(), whenTrue, keys);
-            return;
-        }
         if (b->op == "!=" || b->op == "==") {
             auto isNull = [](Expr* e) {
                 auto* l = dynamic_cast<LiteralExpr*>(e);
@@ -261,12 +290,11 @@ void TypeChecker::condNarrowings(Expr* cond, bool whenTrue, std::vector<std::str
             else if (isNull(b->left.get())) k = nullableIdent(b->right.get());
             if (!k.empty() && (b->op == "!=") == whenTrue) keys.push_back(k);
         }
-        return;
-    }
-    if (whenTrue) {                                    // `if (p)`: a pointer tested for non-null
+    } else if (whenTrue) {                             // `if (p)`: a pointer tested for non-null
         std::string k = nullableIdent(cond);
         if (!k.empty()) keys.push_back(k);
     }
+    for (size_t i = rights.size(); i-- > 0;) condNarrowings(rights[i].first, rights[i].second, keys);
 }
 
 std::vector<std::string> TypeChecker::applyNarrowings(const std::vector<std::string>& keys) {
@@ -291,7 +319,7 @@ void TypeChecker::dropAssignedIn(Expr* e) {
     if (auto* u = dynamic_cast<UnaryExpr*>(e); u && u->op == "&")
         if (auto* id = dynamic_cast<IdentExpr*>(u->operand.get())) dropName(id->name);
     if (auto* lam = dynamic_cast<LambdaExpr*>(e)) { dropAssignedIn(lam->body.get()); return; }
-    astwalk::forEachChildExpr(e, [&](ExprPtr& c) { dropAssignedIn(c.get()); });
+    astwalk::forEachChildExprFlat(e, [&](ExprPtr& c) { dropAssignedIn(c.get()); });
 }
 
 void TypeChecker::dropAssignedIn(Stmt* s) {

@@ -43,7 +43,7 @@ void rewrite(ExprPtr& e, const std::set<std::string>& vars) {
         if (vars.count(id->name)) e = fr(id->name);
         return;
     }
-    astwalk::forEachChildExpr(e.get(), [&](ExprPtr& c) { rewrite(c, vars); });
+    astwalk::forEachChildExprFlat(e.get(), [&](ExprPtr& c) { rewrite(c, vars); });
 }
 
 // True if an expression contains an AwaitExpr anywhere (used to require `await`
@@ -52,7 +52,7 @@ bool hasAwait(const ExprPtr& e) {
     if (!e) return false;
     if (dynamic_cast<AwaitExpr*>(e.get())) return true;
     bool found = false;
-    astwalk::forEachChildExpr(e.get(), [&](ExprPtr& c) { if (hasAwait(c)) found = true; });
+    astwalk::forEachChildExprFlat(e.get(), [&](ExprPtr& c) { if (hasAwait(c)) found = true; });
     return found;
 }
 
@@ -178,7 +178,7 @@ struct ShadowRenamer {
             scopes.pop_back();
             return;
         }
-        astwalk::forEachChildExpr(e.get(), [&](ExprPtr& c) { expr(c); });
+        astwalk::forEachChildExprFlat(e.get(), [&](ExprPtr& c) { expr(c); });
     }
     void items(std::vector<BlockItem>& its) {
         for (auto& it : its) {
@@ -811,7 +811,7 @@ void AsyncTransform::run(Program* program) {
                             caps.push_back(c.first);
                     return;
                 }
-                astwalk::forEachChildExpr(e.get(), [&](ExprPtr& ch) { lambdaCaps(ch, caps); });
+                astwalk::forEachChildExprFlat(e.get(), [&](ExprPtr& ch) { lambdaCaps(ch, caps); });
             };
         std::function<StmtPtr(const StmtPtr&)> wrapCaps = [&](const StmtPtr& s) -> StmtPtr {
             if (!s) return s;

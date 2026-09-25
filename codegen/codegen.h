@@ -4,7 +4,9 @@
 #include <string>
 #include <functional>
 #include <map>
+#include <optional>
 #include <set>
+#include <unordered_map>
 #include <vector>
 #include <stack>
 #include "../ast/ast.h"
@@ -382,6 +384,11 @@ private:
     // the single-resolver table has no entry. Split out so getExprEskiuType can,
     // under ESKIU_RESOLVER_DEBUG, cross-check the table against this derivation.
     std::string deriveExprEskiuType(const ExprPtr& expr) const;
+    std::string deriveExprEskiuTypeUncached(const ExprPtr& expr) const;
+    // While visit(BinaryExpr) handles a chain inside a template body (where operand types
+    // are derived, and deriving a chain node derives the whole chain below it), the
+    // derived types of the chain's own nodes, each computed once. Null otherwise.
+    std::unordered_map<const Expr*, std::optional<std::string>>* chainTypeMemo = nullptr;
 
     // Expand a type alias to its underlying type string (peels pointers), so
     // downstream logic sees e.g. "*uint8" instead of an alias name like "Bytes".
@@ -443,6 +450,10 @@ private:
     // `lv op= v` with a side-effecting lvalue: evaluate lv's address once.
     void emitCompoundAssign(BinaryExpr* node, BinaryExpr* rhsOp);
     int compoundSeq = 0;
+    // The pieces of visit(BinaryExpr): `lhs = rhs`, and one built-in operator applied to
+    // an already evaluated left operand (the right one is evaluated here).
+    void emitAssignment(BinaryExpr* node);
+    llvm::Value* emitBuiltinBinary(BinaryExpr* node, llvm::Value* left);
     void visit(UnaryExpr* node) override;
     void visit(IncDecExpr* node) override;
     void visit(QuestionExpr* node) override;

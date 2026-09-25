@@ -104,6 +104,8 @@ struct ExprNode {
     List<string> names;    // struct-init field names (parallel to kids; "" = positional)
     *StmtNode stmt;        // lambda body
     string op_fn;          // EK_BINARY/EK_UNARY/EK_INDEX: resolved operator-overload fn ("" = built-in)
+    List<string> ids_memo; // EK_LAMBDA: identifiers of the body, collected once (cg_collect_idents_e)
+    int ids_done;          // EK_LAMBDA: ids_memo is filled
     int line;              // source position for diagnostics (0 = unknown, e.g. a synthesized node)
     int col;
 }
@@ -215,12 +217,28 @@ void print_expr(*ExprNode e, int d) {
         return;
     }
     if (e.kind == EK_BINARY) {
-        pind(d);
-        printf("BinaryExpr: %s\n", e.sval);
-        pline(d + 1, "Left:");
-        print_expr(e.a, d + 2);
-        pline(d + 1, "Right:");
-        print_expr(e.b, d + 2);
+        // A left-leaning chain (`a + b + c ...`) is printed along its left spine with a
+        // loop, not one recursive call per operator (mirrors the C++ printer).
+        let spine: List<*ExprNode>; List_init<*ExprNode>(&spine, 8);
+        *ExprNode b = e;
+        int k = 0;
+        while (b.kind == EK_BINARY) {
+            pind(d + 2 * k);
+            printf("BinaryExpr: %s\n", b.sval);
+            pline(d + 2 * k + 1, "Left:");
+            List_push<*ExprNode>(&spine, b);
+            b = b.a;
+            k = k + 1;
+        }
+        print_expr(b, d + 2 * k);
+        int i = k - 1;
+        while (i >= 0) {
+            pline(d + 2 * i + 1, "Right:");
+            *ExprNode op = List_get<*ExprNode>(&spine, i);
+            print_expr(op.b, d + 2 * i + 2);
+            i = i - 1;
+        }
+        List_free<*ExprNode>(&spine);
         return;
     }
     if (e.kind == EK_UNARY) {
@@ -367,14 +385,22 @@ void print_stmt(*StmtNode s, int d) {
         return;
     }
     if (s.kind == SK_IF) {
-        pline(d, "IfStmt");
-        pline(d + 1, "Condition:");
-        print_expr(s.expr, d + 2);
-        pline(d + 1, "Then:");
-        print_stmt(s.s1, d + 2);
-        if (s.s2 != null) {
-            pline(d + 1, "Else:");
-            print_stmt(s.s2, d + 2);
+        // An `else if` chain is printed with a loop, one level deeper per link.
+        *StmtNode n = s;
+        int k = d;
+        while (n != null) {
+            pline(k, "IfStmt");
+            pline(k + 1, "Condition:");
+            print_expr(n.expr, k + 2);
+            pline(k + 1, "Then:");
+            print_stmt(n.s1, k + 2);
+            *StmtNode next = null;
+            if (n.s2 != null) {
+                pline(k + 1, "Else:");
+                if (n.s2.kind == SK_IF) { next = n.s2; } else { print_stmt(n.s2, k + 2); }
+            }
+            n = next;
+            k = k + 2;
         }
         return;
     }

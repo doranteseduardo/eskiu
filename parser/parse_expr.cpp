@@ -59,7 +59,7 @@ bool Parser::ternaryColonAhead() const {
 
 ExprPtr Parser::parseTernary() {
     NestGuard guard(*this);
-    ExprPtr cond = parseLogicalOr();
+    ExprPtr cond = parseBinary(1);
     if (check(TokenType::QUESTION) && ternaryColonAhead()) {
         Token qTok = advance();                       // consume '?'
         ExprPtr thenE = parseAssignment();            // then-arm: a full expression
@@ -101,31 +101,34 @@ ExprPtr Parser::parseAssignment() {
     return expr;
 }
 
-ExprPtr Parser::parseBinaryLevel(ExprPtr (Parser::*next)(), const std::vector<TokenType>& ops) {
-    ExprPtr expr = (this->*next)();
-    int operands = 1;
-    while (match(ops)) {
-        Token opTok = tokens[current - 1];
-        if (++operands > kMaxChain)
-            fail("expression has more than " + std::to_string(kMaxChain) +
-                 " operands in one operator chain; split it up", opTok);
-        expr = withPos(std::make_shared<BinaryExpr>(expr, opTok.value, (this->*next)()), opTok);
+// Binding strength of a binary operator token, loosest first (0: not a binary
+// operator): || < && < | < ^ < & < == != < relational < shifts < + - < * / %.
+static int binaryPrecedence(TokenType t) {
+    switch (t) {
+        case TokenType::OR:        return 1;
+        case TokenType::AND:       return 2;
+        case TokenType::PIPE:      return 3;
+        case TokenType::CARET:     return 4;
+        case TokenType::AMPERSAND: return 5;
+        case TokenType::EQEQ: case TokenType::NE: return 6;
+        case TokenType::LT: case TokenType::GT: case TokenType::LE: case TokenType::GE: return 7;
+        case TokenType::LSHIFT: case TokenType::RSHIFT: return 8;
+        case TokenType::PLUS: case TokenType::MINUS: return 9;
+        case TokenType::STAR: case TokenType::SLASH: case TokenType::PERCENT: return 10;
+        default: return 0;
     }
-    return expr;
 }
 
-// The precedence ladder, lowest-binding first: each rung folds left-associatively
-// over its operators, then defers to the next-tighter rung.
-ExprPtr Parser::parseLogicalOr()      { return parseBinaryLevel(&Parser::parseLogicalAnd,     {TokenType::OR}); }
-ExprPtr Parser::parseLogicalAnd()     { return parseBinaryLevel(&Parser::parseBitwiseOr,      {TokenType::AND}); }
-ExprPtr Parser::parseBitwiseOr()      { return parseBinaryLevel(&Parser::parseBitwiseXor,     {TokenType::PIPE}); }
-ExprPtr Parser::parseBitwiseXor()     { return parseBinaryLevel(&Parser::parseBitwiseAnd,     {TokenType::CARET}); }
-ExprPtr Parser::parseBitwiseAnd()     { return parseBinaryLevel(&Parser::parseEquality,       {TokenType::AMPERSAND}); }
-ExprPtr Parser::parseEquality()       { return parseBinaryLevel(&Parser::parseComparison,     {TokenType::EQEQ, TokenType::NE}); }
-ExprPtr Parser::parseShift()          { return parseBinaryLevel(&Parser::parseAddition,       {TokenType::LSHIFT, TokenType::RSHIFT}); }
-ExprPtr Parser::parseComparison()     { return parseBinaryLevel(&Parser::parseShift,          {TokenType::LT, TokenType::GT, TokenType::LE, TokenType::GE}); }
-ExprPtr Parser::parseAddition()       { return parseBinaryLevel(&Parser::parseMultiplication, {TokenType::PLUS, TokenType::MINUS}); }
-ExprPtr Parser::parseMultiplication() { return parseBinaryLevel(&Parser::parseUnary,          {TokenType::STAR, TokenType::SLASH, TokenType::PERCENT}); }
+ExprPtr Parser::parseBinary(int minPrec) {
+    ExprPtr expr = parseUnary();
+    for (;;) {
+        int prec = is_at_end() ? 0 : binaryPrecedence(tokens[current].type);
+        if (prec == 0 || prec < minPrec) return expr;
+        Token opTok = advance();
+        ExprPtr rhs = parseBinary(prec + 1);
+        expr = withPos(std::make_shared<BinaryExpr>(expr, opTok.value, rhs), opTok);
+    }
+}
 
 bool Parser::isTypeName(const std::string& name) const {
     if (sharedTypeNames && sharedTypeNames->count(name)) return true;

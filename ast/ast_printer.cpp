@@ -147,27 +147,32 @@ void ASTPrinter::visit(BlockStmt* node) {
 }
 
 void ASTPrinter::visit(IfStmt* node) {
-    println("IfStmt");
-    indentLevel++;
-
-    println("Condition:");
-    indentLevel++;
-    node->condition->accept(this);
-    indentLevel--;
-
-    println("Then:");
-    indentLevel++;
-    node->thenBranch->accept(this);
-    indentLevel--;
-
-    if (node->elseBranch) {
-        println("Else:");
+    // An `else if` chain is printed with a loop, one level deeper per link.
+    int base = indentLevel;
+    for (IfStmt* n = node; n;) {
+        println("IfStmt");
         indentLevel++;
-        node->elseBranch->accept(this);
-        indentLevel--;
-    }
 
-    indentLevel--;
+        println("Condition:");
+        indentLevel++;
+        n->condition->accept(this);
+        indentLevel--;
+
+        println("Then:");
+        indentLevel++;
+        n->thenBranch->accept(this);
+        indentLevel--;
+
+        IfStmt* next = nullptr;
+        if (n->elseBranch) {
+            println("Else:");
+            indentLevel++;
+            next = dynamic_cast<IfStmt*>(n->elseBranch.get());
+            if (!next) n->elseBranch->accept(this);
+        }
+        n = next;
+    }
+    indentLevel = base;
 }
 
 void ASTPrinter::visit(ForStmt* node) {
@@ -269,20 +274,25 @@ void ASTPrinter::visit(ExprStmt* node) {
 }
 
 void ASTPrinter::visit(BinaryExpr* node) {
-    println("BinaryExpr: " + node->op);
-    indentLevel++;
-
-    println("Left:");
-    indentLevel++;
-    node->left->accept(this);
-    indentLevel--;
-
-    println("Right:");
-    indentLevel++;
-    node->right->accept(this);
-    indentLevel--;
-
-    indentLevel--;
+    // A left-leaning chain (`a + b + c ...`) is as deep as it is long: print its left
+    // spine with a loop instead of one recursive call per operator.
+    int base = indentLevel;
+    std::vector<BinaryExpr*> spine;
+    for (BinaryExpr* b = node; b; b = dynamic_cast<BinaryExpr*>(b->left.get())) {
+        println("BinaryExpr: " + b->op);
+        indentLevel++;
+        println("Left:");
+        indentLevel++;
+        spine.push_back(b);
+    }
+    spine.back()->left->accept(this);
+    for (size_t i = spine.size(); i-- > 0;) {
+        indentLevel = base + 2 * (int)i + 1;
+        println("Right:");
+        indentLevel++;
+        spine[i]->right->accept(this);
+    }
+    indentLevel = base;
 }
 
 void ASTPrinter::visit(UnaryExpr* node) {

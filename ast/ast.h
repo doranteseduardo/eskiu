@@ -503,6 +503,8 @@ public:
 
     BinaryExpr(ExprPtr left, const std::string& op, ExprPtr right)
         : left(std::move(left)), op(op), right(std::move(right)) {}
+    // Frees a long left-leaning chain with a loop, not one nested destructor per operator.
+    ~BinaryExpr() override;
 
     void accept(class ASTVisitor* visitor) override;
 };

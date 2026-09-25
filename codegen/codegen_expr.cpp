@@ -83,68 +83,111 @@ std::string CodeGen::resolveOpInTemplate(const std::string& op,
     return "";
 }
 
+// A left-leaning chain of built-in operators (`a + b + c ...`, `p && q && ...`) is as
+// deep as it is long, so its left spine is emitted with a loop: evaluate the leftmost
+// operand, then apply each operator bottom-up to the running value. An assignment or an
+// overloaded operator ends the spine (it is evaluated as an ordinary operand).
 void CodeGen::visit(BinaryExpr* node) {
-    // Assignment: evaluate left as lvalue (pointer), not rvalue
-    if (node->op == "=") {
-        // Compound assignment with a side-effecting lvalue: evaluate the lvalue once.
-        if (auto* rb = dynamic_cast<BinaryExpr*>(node->right.get())) {
-            if (rb->left.get() == node->left.get() && !isPureExpr(node->left)) {
-                emitCompoundAssign(node, rb);
+    if (node->op == "=") { emitAssignment(node); return; }
+    // In a template body the overload lookup derives operand types from the AST, so each
+    // chain node's type is derived once (see chainTypeMemo) instead of once per operator.
+    std::unordered_map<const Expr*, std::optional<std::string>> memo;
+    struct MemoScope {
+        CodeGen& cg;
+        decltype(cg.chainTypeMemo) saved;
+        ~MemoScope() { cg.chainTypeMemo = saved; }
+    } memoScope{*this, chainTypeMemo};
+    if (!typeParamOverride.empty()) {
+        for (Expr* b = node; auto* bin = dynamic_cast<BinaryExpr*>(b); b = bin->left.get()) {
+            if (bin->op == "=") break;
+            memo[bin];
+        }
+        chainTypeMemo = &memo;
+    }
+    auto overloadOf = [&](BinaryExpr* b) {
+        if (b->op == "&&" || b->op == "||") return std::string();
+        return b->opFunc.empty() ? resolveOpInTemplate(b->op, {b->left, b->right}) : b->opFunc;
+    };
+    // Operator overload: sema resolved this to a user `operator op(...)`. Lower it as a call
+    // to that function (reusing the struct-by-value call ABI) instead of a built-in op.
+    std::string opFn = overloadOf(node);
+    if (!opFn.empty()) {
+        auto call = std::make_shared<CallExpr>(
+            std::make_shared<IdentExpr>(opFn),
+            std::vector<ExprPtr>{node->left, node->right});
+        call->accept(this);
+        return;
+    }
+    std::vector<BinaryExpr*> spine{node};
+    while (auto* l = dynamic_cast<BinaryExpr*>(spine.back()->left.get())) {
+        if (l->op == "=" || !overloadOf(l).empty()) break;
+        spine.push_back(l);
+    }
+    llvm::Value* value = evaluateExpr(spine.back()->left);
+    for (size_t i = spine.size(); i-- > 0;) value = emitBuiltinBinary(spine[i], value);
+    exprValueStack.push(value);
+}
+
+void CodeGen::emitAssignment(BinaryExpr* node) {
+    // Compound assignment with a side-effecting lvalue: evaluate the lvalue once.
+    if (auto* rb = dynamic_cast<BinaryExpr*>(node->right.get())) {
+        if (rb->left.get() == node->left.get() && !isPureExpr(node->left)) {
+            emitCompoundAssign(node, rb);
+            return;
+        }
+    }
+    // Bitfield assignment is a read-modify-write, not a plain store.
+    if (auto* mem = dynamic_cast<MemberExpr*>(node->left.get())) {
+        auto lit = structLayout.find(structBaseTypeOf(mem->base));
+        if (lit != structLayout.end()) {
+            auto sit = lit->second.find(mem->member);
+            if (sit != lit->second.end() && sit->second.isBitfield) {
+                llvm::Value* rhs = evaluateExpr(node->right);
+                storeBitfield(mem, rhs);
+                exprValueStack.push(rhs);
                 return;
             }
         }
-        // Bitfield assignment is a read-modify-write, not a plain store.
-        if (auto* mem = dynamic_cast<MemberExpr*>(node->left.get())) {
-            auto lit = structLayout.find(structBaseTypeOf(mem->base));
-            if (lit != structLayout.end()) {
-                auto sit = lit->second.find(mem->member);
-                if (sit != lit->second.end() && sit->second.isBitfield) {
-                    llvm::Value* rhs = evaluateExpr(node->right);
-                    storeBitfield(mem, rhs);
-                    exprValueStack.push(rhs);
-                    return;
-                }
-            }
-        }
-        llvm::Value* lhs = evaluateLValue(node->left);
-        llvm::Value* rhs = evalForType(node->right, getExprEskiuType(node->left));
-        // Coerce RHS to match the lvalue's expected element type.
-        // Prefer the LHS's declared (static) scalar type: a union member lvalue
-        // collapses to the union's base pointer (all fields at offset 0), so the
-        // alloca/GEP type encodes the union storage, not the selected field — and
-        // a double would be stored whole into a float field without truncation.
-        llvm::Type* elemType = nullptr;
-        std::string lhsEskiu = getExprEskiuType(node->left);
-        if (!lhsEskiu.empty()) {
-            llvm::Type* st = getTypeFromString(lhsEskiu);
-            if (st && (st->isFloatingPointTy() || st->isIntegerTy()))
-                elemType = st;
-        }
-        if (!elemType) {
-            if (auto* alloca = llvm::dyn_cast<llvm::AllocaInst>(lhs))
-                elemType = alloca->getAllocatedType();
-            else if (auto* gep = llvm::dyn_cast<llvm::GetElementPtrInst>(lhs))
-                elemType = gep->getResultElementType();
-        }
-        if (elemType)
-            rhs = coerceValue(rhs, elemType, eskiuUnsigned(getExprEskiuType(node->right)));
-        bool storeVol = false;
-        if (auto* ident = llvm::dyn_cast<llvm::AllocaInst>(lhs)) {
-            storeVol = volatileVars.count(ident->getName().str()) > 0;
-        }
-        auto* si = builder->CreateStore(rhs, lhs);
-        si->setVolatile(storeVol);
-        exprValueStack.push(rhs);
-        return;
     }
+    llvm::Value* lhs = evaluateLValue(node->left);
+    llvm::Value* rhs = evalForType(node->right, getExprEskiuType(node->left));
+    // Coerce RHS to match the lvalue's expected element type.
+    // Prefer the LHS's declared (static) scalar type: a union member lvalue
+    // collapses to the union's base pointer (all fields at offset 0), so the
+    // alloca/GEP type encodes the union storage, not the selected field — and
+    // a double would be stored whole into a float field without truncation.
+    llvm::Type* elemType = nullptr;
+    std::string lhsEskiu = getExprEskiuType(node->left);
+    if (!lhsEskiu.empty()) {
+        llvm::Type* st = getTypeFromString(lhsEskiu);
+        if (st && (st->isFloatingPointTy() || st->isIntegerTy()))
+            elemType = st;
+    }
+    if (!elemType) {
+        if (auto* alloca = llvm::dyn_cast<llvm::AllocaInst>(lhs))
+            elemType = alloca->getAllocatedType();
+        else if (auto* gep = llvm::dyn_cast<llvm::GetElementPtrInst>(lhs))
+            elemType = gep->getResultElementType();
+    }
+    if (elemType)
+        rhs = coerceValue(rhs, elemType, eskiuUnsigned(getExprEskiuType(node->right)));
+    bool storeVol = false;
+    if (auto* ident = llvm::dyn_cast<llvm::AllocaInst>(lhs)) {
+        storeVol = volatileVars.count(ident->getName().str()) > 0;
+    }
+    auto* si = builder->CreateStore(rhs, lhs);
+    si->setVolatile(storeVol);
+    exprValueStack.push(rhs);
+}
 
+llvm::Value* CodeGen::emitBuiltinBinary(BinaryExpr* node, llvm::Value* left) {
     // Short-circuit logical operators: the RHS must be evaluated ONLY when the LHS
     // doesn't already decide the result, so a guarded expression like
     // `p != null && p.field` (or any RHS unsafe when the LHS is false/true) is not
     // executed. Evaluating both operands eagerly — as the plain path below does —
     // was a correctness bug.
     if (node->op == "&&" || node->op == "||") {
-        llvm::Value* l = evaluateExpr(node->left);
+        llvm::Value* l = left;
         if (!l->getType()->isIntegerTy(1))
             l = builder->CreateICmpNE(l, llvm::ConstantInt::get(l->getType(), 0));
         llvm::BasicBlock* startBB = builder->GetInsertBlock();
@@ -164,23 +207,9 @@ void CodeGen::visit(BinaryExpr* node) {
         llvm::PHINode* phi = builder->CreatePHI(llvm::Type::getInt1Ty(*context), 2);
         phi->addIncoming(builder->getInt1(node->op == "||"), startBB);  // short-circuit value
         phi->addIncoming(r, rhsEndBB);
-        exprValueStack.push(phi);
-        return;
+        return phi;
     }
 
-    // Operator overload: sema resolved this to a user `operator op(...)`. Lower it as a call
-    // to that function (reusing the struct-by-value call ABI) instead of a built-in op.
-    std::string opFn = node->opFunc;
-    if (opFn.empty()) opFn = resolveOpInTemplate(node->op, {node->left, node->right});
-    if (!opFn.empty()) {
-        auto call = std::make_shared<CallExpr>(
-            std::make_shared<IdentExpr>(opFn),
-            std::vector<ExprPtr>{node->left, node->right});
-        call->accept(this);
-        return;
-    }
-
-    llvm::Value* left = evaluateExpr(node->left);
     llvm::Value* right = evaluateExpr(node->right);
 
     if (!left || !right) {
@@ -374,7 +403,7 @@ void CodeGen::visit(BinaryExpr* node) {
         throw std::runtime_error("Unknown binary operator: " + node->op);
     }
 
-    exprValueStack.push(result);
+    return result;
 }
 
 void CodeGen::visit(QuestionExpr* node) {

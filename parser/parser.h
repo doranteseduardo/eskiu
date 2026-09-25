@@ -53,20 +53,21 @@ private:
     void consumeTemplateClose(const char* ctx);
     std::vector<Token> tokens;
     size_t current;
-    // Recursion guard: nested expressions/statements beyond kMaxNesting levels (and
-    // one operator chain longer than kMaxChain operands) are rejected with an error
-    // instead of overflowing the stack here or in the later recursive passes.
+    // Recursion guard: nested expressions/statements beyond kMaxNesting levels are
+    // rejected with an error instead of overflowing the stack here or in the later
+    // passes, which recurse once per level. Long operator chains and statement lists
+    // are loops and do not count.
     static constexpr int kMaxNesting = 1000;
-    static constexpr int kMaxChain = 1000;
     int nesting = 0;
+    void enterNesting() {
+        if (++nesting > kMaxNesting) {
+            --nesting;
+            fail("nesting too deep (more than " + std::to_string(kMaxNesting) + " levels)");
+        }
+    }
     struct NestGuard {
         Parser& p;
-        explicit NestGuard(Parser& parser) : p(parser) {
-            if (++p.nesting > kMaxNesting) {
-                --p.nesting;
-                p.fail("nesting too deep (more than " + std::to_string(kMaxNesting) + " levels)");
-            }
-        }
+        explicit NestGuard(Parser& parser) : p(parser) { p.enterNesting(); }
         ~NestGuard() { --p.nesting; }
     };
     // Indices where consumeTemplateClose split a `>>` into `> >`, in order. A
@@ -131,27 +132,18 @@ private:
 
     ExprPtr parseStructInit(const std::string& structName);
     ExprPtr parseExpression();
-    ExprPtr parseBitwiseOr();
-    ExprPtr parseBitwiseXor();
-    ExprPtr parseBitwiseAnd();
-    ExprPtr parseShift();
     ExprPtr parseAssignment();
     ExprPtr parseTernary();
     bool ternaryColonAhead() const;   // disambiguate `cond ? a : b` from postfix `expr?`
-    // One left-associative binary-precedence level: parse a `next`-level operand,
-    // then fold while the next token is one of `ops`. Every precedence rung below
-    // is a one-line call to this.
-    ExprPtr parseBinaryLevel(ExprPtr (Parser::*next)(), const std::vector<TokenType>& ops);
+    // Binary operators by precedence climbing: parse a unary operand, then fold every
+    // operator binding at least `minPrec` (same-precedence operators in a loop, so a
+    // long `a + b + c ...` chain costs no recursion; a tighter operator on the right
+    // recurses at most once per precedence level).
+    ExprPtr parseBinary(int minPrec);
     // Parse an optional `<T, U: Iface + Other>` type-parameter list (shared by fn and
     // struct decls); fills the params and per-param constraints, a no-op with no '<'.
     void parseTypeParams(std::vector<std::string>& typeParams,
                          std::map<std::string, std::vector<std::string>>& typeConstraints);
-    ExprPtr parseLogicalOr();
-    ExprPtr parseLogicalAnd();
-    ExprPtr parseEquality();
-    ExprPtr parseComparison();
-    ExprPtr parseAddition();
-    ExprPtr parseMultiplication();
     ExprPtr parseUnary();
     // At `(`: does a `*`-led parenthesized form open a cast? `(*T)x` is a cast, but
     // `(*p)`, `(*p) - 1`, `(*p)++` and `(*sp).a` dereference a variable.

@@ -124,7 +124,7 @@ struct TemplateCapturePass {
         // IdentExpr and LambdaExpr are handled above (capture recording / scope
         // boundary); every other expression just recurses into its children via
         // the shared enumeration, so this pass can never miss a node type.
-        astwalk::forEachChildExpr(e, [&](ExprPtr& c) { walkExpr(c.get()); });
+        astwalk::forEachChildExprFlat(e, [&](ExprPtr& c) { walkExpr(c.get()); });
     }
 };
 
@@ -410,7 +410,7 @@ void TypeChecker::checkUninitPrefix(BlockStmt* body) {
             }
             return;
         }
-        astwalk::forEachChildExpr(e, [&](ExprPtr& c){ scan(c.get()); });
+        astwalk::forEachChildExprFlat(e, [&](ExprPtr& c){ scan(c.get()); });
     };
     for (auto& item : body->items) {
         if (std::holds_alternative<DeclPtr>(item)) {
@@ -465,7 +465,13 @@ bool TypeChecker::isConstInit(const ExprPtr& e) const {
     if (auto* b = dynamic_cast<BinaryExpr*>(e.get())) {
         static const std::set<std::string> ops = {"+","-","*","/","%","&","|","^","<<",">>",
             "==","!=","<",">","<=",">=","&&","||"};
-        return ops.count(b->op) && !b->opFunc.size() && isConstInit(b->left) && isConstInit(b->right);
+        // Down the left spine with a loop (a long `A + B + C ...` is as deep as it is long).
+        for (;;) {
+            if (!ops.count(b->op) || b->opFunc.size() || !isConstInit(b->right)) return false;
+            auto* l = dynamic_cast<BinaryExpr*>(b->left.get());
+            if (!l) return isConstInit(b->left);
+            b = l;
+        }
     }
     if (auto* t = dynamic_cast<TernaryExpr*>(e.get()))
         return isConstInit(t->condition) && isConstInit(t->thenExpr) && isConstInit(t->elseExpr);
