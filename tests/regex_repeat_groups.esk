@@ -1,0 +1,55 @@
+// Counted or repeated groups duplicate SAVE instructions; the Pike VM must still
+// find the match (capture storage used to run out and report a silent no-match).
+// Also: an inverted `{m,n}` is a compile error and a leading `]` in a class is a
+// literal member.
+import <mem>;
+import <regex>;
+extern int printf(string fmt, ...);
+extern int sprintf(*char buf, string fmt, ...);
+extern *void memset(*void d, int c, int64 n);
+
+void show(string p, string s) {
+    Regex re = regex_compile(p);
+    if (re.ok == 0) { printf("%s: error %s\n", p, re.err); regex_free(&re); return; }
+    let m: Match;
+    int r = regex_search(&re, s, &m);
+    printf("%s: %d", p, r);
+    if (r == 1) {
+        int g = 0;
+        while (g <= m.ngroup) { printf(" (%d,%d)", m.cap[2 * g], m.cap[2 * g + 1]); g = g + 1; }
+    }
+    printf("\n");
+    match_free(&m);
+    regex_free(&re);
+}
+
+int main() {
+    int n = 1;
+    int all = 1;
+    while (n <= 24) {
+        *char text = alloc<char>(n + 1);
+        memset((*void)text, 97, (int64)n);
+        *char pat = alloc<char>(32);
+        sprintf(pat, "(a){%d}", n);
+        if (regex_match((string)pat, (string)text) != 1) { printf("miss %s\n", (string)pat); all = 0; }
+        free((*void)text);
+        free((*void)pat);
+        n = n + 1;
+    }
+    printf("counted groups: %d\n", all);
+    show("(a){20}", "aaaaaaaaaaaaaaaaaaaa");
+    show("(a?){10}a{10}", "aaaaaaaaaa");
+    show("((a)(b))+", "abababab");
+    show("(a|ab)(c|bcd)", "abcd");
+    show("a{3,1}", "aaa");
+    show("[]a]+", "x]a]");
+    show("[^]a]+", "]]bc");
+
+    int big = 5000;
+    *char t = alloc<char>(big + 1);
+    memset((*void)t, 98, (int64)big);
+    t[big - 1] = 'a';
+    show("(a)(b)?(c)?", (string)t);
+    free((*void)t);
+    return 0;
+}

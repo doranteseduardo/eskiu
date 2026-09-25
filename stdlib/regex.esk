@@ -132,13 +132,11 @@ struct Vm {
     *Thread  lb;
     int      nA;
     int      nB;
-    // Capture arrays live in one arena for the whole search: a thread carries a
-    // caps pointer across many positions (between two SAVEs it just consumes
-    // input), so the storage must stay put and must not be recycled per step.
-    *int     arena;
-    int      arenacap;
-    int      arenaoff;
-    int      err;
+    // Capture storage: thread slot i of list A owns capsA[i*ncap .. (i+1)*ncap),
+    // likewise for B. Enqueueing a thread copies its captures into its slot, so
+    // the storage is recycled every step: O(threads * ncap) for the whole search.
+    *int     capsA;
+    *int     capsB;
 }
 
 // =========================== parsing =======================================
@@ -234,7 +232,10 @@ Node* re_parse_class(ReComp* c) {
     if (re_peek(c) == '^') { c.pos = c.pos + 1; negate = 1; }
     int id = re_class_begin(c, negate);
 
-    while (re_peek(c) != ']') {
+    // A ']' right after '[' or '[^' is a literal member (POSIX), not the end.
+    int first = 1;
+    while (re_peek(c) != ']' || first == 1) {
+        first = 0;
         if (re_peek(c) == -1) {
             if (c.err == null) { c.err = "unterminated character class"; }
             return re_node(c, N_CLASS);
@@ -390,6 +391,10 @@ Node* re_parse_repeat(ReComp* c) {
         }
         if (re_peek(c) != '}') {
             if (c.err == null) { c.err = "expected }"; }
+            return a;
+        }
+        if (rmax != -1 && rmax < rmin) {
+            if (c.err == null) { c.err = "invalid {n,m}: max below min"; }
             return a;
         }
         c.pos = c.pos + 1;
@@ -609,19 +614,19 @@ int re_in_class(Regex* re, int id, int ch) {
     return found;
 }
 
-// Copy `src` into fresh capture storage in the arena.
-*int re_newcaps(Vm* vm, *int src) {
-    if (vm.arenaoff + vm.ncap > vm.arenacap) { vm.err = 1; return src; }
-    *int dst = &vm.arena[vm.arenaoff];
+// Copy `src` into the capture slot of thread `slot` in list `which`.
+*int re_slotcaps(Vm* vm, int which, int slot, *int src) {
+    *int dst;
+    if (which == 0) { dst = &vm.capsA[slot * vm.ncap]; } else { dst = &vm.capsB[slot * vm.ncap]; }
     int i = 0;
     while (i < vm.ncap) { dst[i] = src[i]; i = i + 1; }
-    vm.arenaoff = vm.arenaoff + vm.ncap;
     return dst;
 }
 
-// Epsilon-closure add of pc (and its reachable pcs) into list `which`.
+// Epsilon-closure add of pc (and its reachable pcs) into list `which`. `caps` is
+// a working array: SAVE writes it in place and restores it on the way back, and
+// only a thread that is enqueued gets its own copy.
 void re_addthread(Vm* vm, int which, int gen, int pc, *int caps, int sp) {
-    if (vm.err == 1) { return; }
     if (vm.visited[pc] == gen) { return; }
     vm.visited[pc] = gen;
     Inst* ins = &vm.prog.inst[pc];
@@ -632,9 +637,10 @@ void re_addthread(Vm* vm, int which, int gen, int pc, *int caps, int sp) {
         re_addthread(vm, which, gen, ins.a, caps, sp);
         re_addthread(vm, which, gen, ins.b, caps, sp);
     } else if (op == OP_SAVE) {
-        *int nc = re_newcaps(vm, caps);
-        nc[ins.a] = sp;
-        re_addthread(vm, which, gen, pc + 1, nc, sp);
+        int old = caps[ins.a];
+        caps[ins.a] = sp;
+        re_addthread(vm, which, gen, pc + 1, caps, sp);
+        caps[ins.a] = old;
     } else if (op == OP_BOL) {
         if (sp == 0) { re_addthread(vm, which, gen, pc + 1, caps, sp); }
     } else if (op == OP_EOL) {
@@ -643,11 +649,11 @@ void re_addthread(Vm* vm, int which, int gen, int pc, *int caps, int sp) {
         // CHAR / ANY / CLASS / MATCH: a thread that consumes (or accepts)
         if (which == 0) {
             vm.la[vm.nA].pc = pc;
-            vm.la[vm.nA].caps = caps;
+            vm.la[vm.nA].caps = re_slotcaps(vm, 0, vm.nA, caps);
             vm.nA = vm.nA + 1;
         } else {
             vm.lb[vm.nB].pc = pc;
-            vm.lb[vm.nB].caps = caps;
+            vm.lb[vm.nB].caps = re_slotcaps(vm, 1, vm.nB, caps);
             vm.nB = vm.nB + 1;
         }
     }
@@ -676,15 +682,14 @@ int regex_search(Regex* re, string text, Match* m) {
     vm.lb = alloc<Thread>(ninst + 2);
     vm.nA = 0;
     vm.nB = 0;
-    // Upper bound on capture allocations: each of the ncap SAVE instructions is
-    // visited at most once per generation (deduped), with two generations per
-    // input position, so at most (len+2)*2*ncap arrays of ncap ints each.
-    vm.arenacap = (vm.len + 2) * 2 * vm.ncap * vm.ncap + 64;
-    vm.arena = alloc<int>(vm.arenacap);
-    vm.arenaoff = 0;
-    vm.err = 0;
+    // Each list holds at most one thread per instruction (visited dedups a pc per
+    // generation), so ninst + 2 capture slots per list always suffice.
+    int64 slots = (int64)(ninst + 2) * (int64)vm.ncap;
+    vm.capsA = alloc<int>(slots);
+    vm.capsB = alloc<int>(slots);
 
     *int emptycaps = alloc<int>(vm.ncap);
+    *int workcaps = alloc<int>(vm.ncap);
     i = 0;
     while (i < vm.ncap) { emptycaps[i] = -1; i = i + 1; }
     *int bestcaps = alloc<int>(vm.ncap);
@@ -697,8 +702,9 @@ int regex_search(Regex* re, string text, Match* m) {
     int sp = 0;
     while (sp <= vm.len) {
         if (matched == 0) {
-            *int ic = re_newcaps(&vm, emptycaps);
-            re_addthread(&vm, cur, curgen, 0, ic, sp);
+            int w = 0;
+            while (w < vm.ncap) { workcaps[w] = emptycaps[w]; w = w + 1; }
+            re_addthread(&vm, cur, curgen, 0, workcaps, sp);
         }
         int cn;
         if (cur == 0) { cn = vm.nA; } else { cn = vm.nB; }
@@ -743,7 +749,7 @@ int regex_search(Regex* re, string text, Match* m) {
         }
     }
 
-    if (matched == 1 && vm.err == 0) {
+    if (matched == 1) {
         m.ok = 1;
         m.cap = alloc<int>(vm.ncap);
         int j = 0;
@@ -753,11 +759,13 @@ int regex_search(Regex* re, string text, Match* m) {
     }
 
     free(emptycaps);
+    free(workcaps);
     free(bestcaps);
     free(vm.visited);
     free(vm.la);
     free(vm.lb);
-    free(vm.arena);
+    free(vm.capsA);
+    free(vm.capsB);
     if (m.ok == 1) { return 1; }
     return 0;
 }
