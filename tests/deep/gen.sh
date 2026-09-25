@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+#
+# Generate the deep-input tests into OUTDIR: programs too large to check in, that
+# exercise long operator chains (handled by loops in every pass) and deep nesting
+# (handled on the compiler's large stack, up to the parser's nesting limit).
+#
+#   NAME.esk + NAME.expected   run test: compile, run, stdout must match
+#   NAME.esk                   error test: first line is `// EXPECT-ERROR: <text>`
+#
+# Used by tests/run.sh (C++ compiler) and tests/selfhost/driver_parity.sh (both).
+# Usage: tests/deep/gen.sh OUTDIR
+set -eu
+out="${1:?usage: gen.sh OUTDIR}"
+mkdir -p "$out"
+
+# rep STR N: STR repeated N times.
+rep() { awk -v s="$1" -v n="$2" 'BEGIN { for (i = 0; i < n; i++) printf "%s", s }'; }
+
+run_test() { # name expected-output < program
+    cat > "$out/$1.esk"
+    printf '%s\n' "$2" > "$out/$1.expected"
+}
+
+# A 100000-operand chain.
+{
+    echo 'extern int printf(string fmt, ...);'
+    echo 'int main() {'
+    printf '    int x = 1'; rep ' + 1' 99999; echo ';'
+    echo '    printf("%d\n", x);'
+    echo '    return 0;'
+    echo '}'
+} | run_test chain_100k 100000
+
+# A 20000-operand `&&` chain (each right operand short-circuits).
+{
+    echo 'extern int printf(string fmt, ...);'
+    echo 'int main() {'
+    echo '    int a = 1;'
+    printf '    bool b = a == 1'; rep ' && a == 1' 19999; echo ';'
+    echo '    if (b) { printf("yes\n"); }'
+    echo '    return 0;'
+    echo '}'
+} | run_test and_chain_20k yes
+
+# Long chains inside a generic body (operand types derived per instantiation) and an
+# async body (rewritten by the async transform).
+{
+    echo 'import <future>;'
+    echo 'extern int printf(string fmt, ...);'
+    printf 'T sum<T>(T a) { return a'; rep ' + a' 9999; echo '; }'
+    echo 'Future<int>* ready(int v) {'
+    echo '    Future<int>* f = future_new<int>();'
+    echo '    future_complete<int>(f, v);'
+    echo '    return f;'
+    echo '}'
+    echo 'async int twice(int k) {'
+    echo '    int n = await ready(k);'
+    printf '    return n'; rep ' + n - n' 5000; echo ' + n;'
+    echo '}'
+    echo 'int main() {'
+    echo '    Future<int>* r = twice(21);'
+    echo '    printf("%d %d\n", sum<int>(1), r.value);'
+    echo '    free_future<int>(r);'
+    echo '    return 0;'
+    echo '}'
+} | run_test generic_async_chain "10000 42"
+
+# A 10000-link `else if` chain.
+{
+    echo 'extern int printf(string fmt, ...);'
+    echo 'int main() {'
+    echo '    int x = 9999;'
+    echo '    int r = -1;'
+    awk 'BEGIN { printf "    if (x == 0) { r = 0; }"; for (i = 1; i < 10000; i++) printf " else if (x == %d) { r = %d; }", i, i; print "" }'
+    echo '    printf("%d\n", r);'
+    echo '    return 0;'
+    echo '}'
+} | run_test else_if_10k 9999
+
+# 10000 nested parentheses.
+{
+    echo 'extern int printf(string fmt, ...);'
+    echo 'int main() {'
+    printf '    int x = '; rep '(' 10000; printf '7'; rep ')' 10000; echo ';'
+    echo '    printf("%d\n", x);'
+    echo '    return 0;'
+    echo '}'
+} | run_test parens_10k 7
+
+# 10000 nested blocks, and 10000 nested ifs.
+{
+    echo 'extern int printf(string fmt, ...);'
+    echo 'int main() {'
+    echo '    int x = 0;'
+    printf '    '; rep '{ ' 10000; printf 'x = x + 1;'; rep ' }' 10000; echo
+    printf '    '; rep 'if (x == 1) { ' 10000; printf 'x = 5;'; rep ' }' 10000; echo
+    echo '    printf("%d\n", x);'
+    echo '    return 0;'
+    echo '}'
+} | run_test blocks_10k 5
+
+# Past the nesting limit: a clean error, not a stack overflow.
+{
+    echo '// EXPECT-ERROR: nesting too deep'
+    echo 'int main() {'
+    printf '    int x = '; rep '(' 34000; printf '1'; rep ')' 34000; echo ';'
+    echo '    return x;'
+    echo '}'
+} > "$out/nesting_too_deep.esk"
+{
+    echo '// EXPECT-ERROR: nesting too deep'
+    echo 'int main() {'
+    printf '    '; rep '{ ' 100001; rep ' }' 100001; echo
+    echo '    return 0;'
+    echo '}'
+} > "$out/blocks_too_deep.esk"

@@ -19,6 +19,7 @@ import "sema.esk";
 import "async_lower.esk";
 import "codegen.esk";
 import "fmt.esk";
+import "bigstack.esk";
 
 extern int64 write(int fd, *void buf, int64 n);
 extern int    remove(string path);  // delete the temp .ll after linking
@@ -208,7 +209,7 @@ int run_fmt(List<string>* files, int check) {
     return 0;
 }
 
-int main(int argc, string* argv) {
+int esk_main(int argc, string* argv) {
     // CLI: esk_main [-o <out>] <file.esk>. With -o, produce a native binary (write
     // the IR to a temp .ll and invoke clang); without it, emit the .ll to stdout —
     // the form the bootstrap harness pipes to clang.
@@ -574,4 +575,14 @@ int main(int argc, string* argv) {
     int st = spawn_wait(&pargs);
     remove(outfile);
     return st;
+}
+
+// Run the driver on a thread with a large stack, so deeply nested input reaches the
+// parser's nesting limit instead of overflowing the stack (see bigstack.esk).
+void main_body() { big_rc = esk_main(big_argc, big_argv); }
+int main(int argc, string* argv) {
+    big_argc = argc;
+    big_argv = argv;
+    run_on_big_stack(main_body);
+    return big_rc;
 }

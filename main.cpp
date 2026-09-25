@@ -11,6 +11,11 @@
 #endif
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/InitLLVM.h"
+#ifdef _WIN32
+  #include "llvm/Support/thread.h"
+#else
+  #include <pthread.h>
+#endif
 #include "llvm/Support/raw_os_ostream.h"
 #include "llvm/Support/Program.h"
 #include "llvm/Support/FileSystem.h"
@@ -294,7 +299,7 @@ static int testParser(const std::string& filename) {
     return 0;
 }
 
-int main(int argc, char** argv) {
+static int compilerMain(int argc, char** argv) {
     llvm::InitLLVM X(argc, argv);
 
     // Set version string for LLVM's built-in --version
@@ -590,4 +595,47 @@ int main(int argc, char** argv) {
         std::cerr << "error: " << e.what() << std::endl;
         return 1;
     }
+}
+
+// The parser, the type checker, the async transform and codegen recurse once per nesting
+// level of the source (parentheses, blocks, nested ifs and lambdas), so the pipeline runs
+// on a thread with a large stack: deep input then reaches the parser's nesting limit
+// (Parser::kMaxNesting) instead of overflowing a default 8 MB main-thread stack. The
+// stack is reserved address space; pages are only touched as deep input needs them. If
+// the thread cannot be created, the compiler runs on the current thread.
+static constexpr unsigned kPipelineStackBytes = 1u << 30;   // 1 GB
+
+#ifndef _WIN32
+namespace {
+struct MainArgs { int argc; char** argv; int rc; };
+void* runCompilerMain(void* p) {
+    auto* a = static_cast<MainArgs*>(p);
+    a->rc = compilerMain(a->argc, a->argv);
+    return nullptr;
+}
+}  // namespace
+#endif
+
+int main(int argc, char** argv) {
+#ifdef _WIN32
+    int rc = 1;
+    llvm::thread worker(std::optional<unsigned>(kPipelineStackBytes),
+                        [&] { rc = compilerMain(argc, argv); });
+    worker.join();
+    return rc;
+#else
+    MainArgs args{argc, argv, 1};
+    pthread_attr_t attr;
+    pthread_t tid;
+    if (pthread_attr_init(&attr) == 0) {
+        bool started = pthread_attr_setstacksize(&attr, kPipelineStackBytes) == 0 &&
+                       pthread_create(&tid, &attr, runCompilerMain, &args) == 0;
+        pthread_attr_destroy(&attr);
+        if (started) {
+            pthread_join(tid, nullptr);
+            return args.rc;
+        }
+    }
+    return compilerMain(argc, argv);
+#endif
 }

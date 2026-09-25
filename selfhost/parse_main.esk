@@ -6,8 +6,9 @@ import <io>;
 import <fs>;
 import "preprocessor.esk";
 import "parser.esk";
+import "bigstack.esk";
 
-int main(int argc, string* argv) {
+int parse_main(int argc, string* argv) {
     if (argc < 2) {
         printf("usage: parse_main <file.esk>\n");
         return 1;
@@ -41,4 +42,14 @@ int main(int argc, string* argv) {
     *Program prog = parse_program(&p);
     print_program(prog);
     return 0;
+}
+
+// Run the driver on a thread with a large stack, so deeply nested input reaches the
+// parser's nesting limit instead of overflowing the stack (see bigstack.esk).
+void main_body() { big_rc = parse_main(big_argc, big_argv); }
+int main(int argc, string* argv) {
+    big_argc = argc;
+    big_argv = argv;
+    run_on_big_stack(main_body);
+    return big_rc;
 }

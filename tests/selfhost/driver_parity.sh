@@ -36,20 +36,22 @@ if [ "$#" -gt 0 ]; then files=("$@"); else files=(tests/selfhost/driver_inputs/*
 
 fail=0
 total=0
-for f in "${files[@]}"; do
-    [ -f "$f" ] || { echo "MISS  $f"; fail=1; continue; }
+# Build FILE with both drivers, run both binaries, compare exit code + stdout.
+check_prog() {
+    local f="$1" base self_out self_code cpp_out cpp_code
+    [ -f "$f" ] || { echo "MISS  $f"; fail=1; return; }
     total=$((total + 1))
     base="$(basename "$f" .esk)"
 
     # Self-hosted driver: parse → sema → codegen → clang, all in the Eskiu binary.
     if ! ESKIU_ROOT="$ROOT" "$ESKMAIN" "$f" -o "$WORK/$base.self" 2>"$WORK/$base.self.err"; then
-        echo "FAIL  $base  (self-host driver errored)"; sed 's/^/      /' "$WORK/$base.self.err" | grep -v 'overriding the module' | head; fail=1; continue
+        echo "FAIL  $base  (self-host driver errored)"; sed 's/^/      /' "$WORK/$base.self.err" | grep -v 'overriding the module' | head; fail=1; return
     fi
     self_out="$("$WORK/$base.self" 2>/dev/null)"; self_code=$?
 
     # Reference: the C++ driver.
     if ! "$BIN" "$f" -o "$WORK/$base.cpp" >/dev/null 2>&1; then
-        echo "skip  $base  (C++ eskiuc could not build it)"; total=$((total - 1)); continue
+        echo "skip  $base  (C++ eskiuc could not build it)"; total=$((total - 1)); return
     fi
     cpp_out="$("$WORK/$base.cpp" 2>/dev/null)"; cpp_code=$?
 
@@ -58,7 +60,29 @@ for f in "${files[@]}"; do
     else
         echo "FAIL  $base  (self exit=$self_code out=$self_out | cpp exit=$cpp_code out=$cpp_out)"; fail=1
     fi
-done
+}
+for f in "${files[@]}"; do check_prog "$f"; done
+
+# Deep input (tests/deep/gen.sh): long operator chains and deep nesting compile to the
+# same program in both drivers, and nesting past the parser's limit is the same clean
+# error (exit 1, not a crash) in both.
+if bash tests/deep/gen.sh "$WORK/deep"; then
+    for f in "$WORK"/deep/*.esk; do
+        want="$(head -1 "$f" | grep 'EXPECT-ERROR:' | sed 's/.*EXPECT-ERROR:[[:space:]]*//')"
+        if [ -z "$want" ]; then check_prog "$f"; continue; fi
+        total=$((total + 1))
+        base="deep_$(basename "$f" .esk)"
+        c=0; "$BIN" "$f" -o "$WORK/$base.cpp" >"$WORK/$base.cpp.err" 2>&1 || c=$?
+        s=0; ESKIU_ROOT="$ROOT" "$ESKMAIN" "$f" -o "$WORK/$base.self" >"$WORK/$base.self.err" 2>&1 || s=$?
+        if [ "$c" = 1 ] && [ "$s" = 1 ] && grep -qF "$want" "$WORK/$base.cpp.err" && grep -qF "$want" "$WORK/$base.self.err"; then
+            echo "ok    $base  (rejected: $want)"
+        else
+            echo "FAIL  $base  (cpp exit=$c, self exit=$s; want exit 1 with \"$want\")"; fail=1
+        fi
+    done
+else
+    echo "FAIL  deep/gen"; fail=1
+fi
 
 # Flags: both drivers accept the same compile flags and reject unknown ones.
 ARGS_ESK=tests/run_cmd/args.esk

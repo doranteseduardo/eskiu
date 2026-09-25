@@ -53,11 +53,12 @@ private:
     void consumeTemplateClose(const char* ctx);
     std::vector<Token> tokens;
     size_t current;
-    // Recursion guard: nested expressions/statements beyond kMaxNesting levels are
-    // rejected with an error instead of overflowing the stack here or in the later
-    // passes, which recurse once per level. Long operator chains and statement lists
-    // are loops and do not count.
-    static constexpr int kMaxNesting = 1000;
+    // Safety net against pathological input: nested expressions/statements beyond
+    // kMaxNesting levels are rejected with an error instead of overflowing the stack
+    // here or in the later passes, which recurse once per level. The compiler runs on
+    // a large stack (see main.cpp), so the limit sits far above realistic code. Long
+    // operator chains and statement lists are loops and do not count.
+    static constexpr int kMaxNesting = 100000;
     int nesting = 0;
     void enterNesting() {
         if (++nesting > kMaxNesting) {

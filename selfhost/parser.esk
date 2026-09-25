@@ -244,13 +244,15 @@ void p_fail(Parser* p, string msg) {
     p_report(p, p_peek(p), msg);
 }
 
-// Recursion guard (mirrors the C++ NestGuard): more than 1000 nested levels is an
-// error rather than a stack overflow here or in the later passes, which recurse once
-// per level. Operator chains and statement lists are loops and do not count.
-int P_MAX_NESTING = 1000;
+// Safety net against pathological input (mirrors the C++ NestGuard): more than
+// 100000 nested levels is an error rather than a stack overflow here or in the later
+// passes, which recurse once per level. The drivers run the compiler on a large stack
+// (see bigstack.esk), so the limit sits far above realistic code. Operator chains and
+// statement lists are loops and do not count.
+int P_MAX_NESTING = 100000;
 void p_nest_enter(Parser* p) {
     p.nest = p.nest + 1;
-    if (p.nest > P_MAX_NESTING) { p_fail(p, "nesting too deep (more than 1000 levels)"); }
+    if (p.nest > P_MAX_NESTING) { p_fail(p, "nesting too deep (more than 100000 levels)"); }
 }
 
 // Consume a token of type `t`, or fail with `msg`.

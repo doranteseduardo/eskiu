@@ -9,6 +9,7 @@ import "preprocessor.esk";
 import "parser.esk";
 import "async_lower.esk";
 import "codegen.esk";
+import "bigstack.esk";
 
 extern int64 write(int fd, *void buf, int64 n);
 
@@ -19,7 +20,7 @@ void eprint(string s) {
     write(2, (*void)s, n);
 }
 
-int main(int argc, string* argv) {
+int cg_main(int argc, string* argv) {
     if (argc < 2) {
         eprint("usage: cg_main <file.esk>\n");
         return 1;
@@ -62,4 +63,14 @@ int main(int argc, string* argv) {
     printf("\n");
     printf("%s", (string)String_cstr(&g.out));        // function definitions
     return 0;
+}
+
+// Run the driver on a thread with a large stack, so deeply nested input reaches the
+// parser's nesting limit instead of overflowing the stack (see bigstack.esk).
+void main_body() { big_rc = cg_main(big_argc, big_argv); }
+int main(int argc, string* argv) {
+    big_argc = argc;
+    big_argv = argv;
+    run_on_big_stack(main_body);
+    return big_rc;
 }
