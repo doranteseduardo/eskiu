@@ -1,0 +1,12 @@
+// A chained or nested assignment initializes its targets; they are not read first.
+extern int printf(string f, ...);
+int main() {
+    let x: int; let y: int;
+    x = y = 3;
+    let a: int; let b: int; let c: int;
+    a = b = c = 7;
+    let z: int;
+    let w: int = (z = 5);
+    printf("%d %d %d %d %d %d %d\n", x, y, a, b, c, z, w);
+    return 0;
+}

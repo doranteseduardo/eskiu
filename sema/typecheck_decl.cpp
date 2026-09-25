@@ -383,6 +383,14 @@ void TypeChecker::checkUninitPrefix(BlockStmt* body) {
         // &x initializes x (its address may be written through) — not a read.
         if (auto* u = dynamic_cast<UnaryExpr*>(e); u && u->op == "&")
             if (auto* id = dynamic_cast<IdentExpr*>(u->operand.get())) { uninit.erase(id->name); return; }
+        // An assignment (also nested: `x = y = 3`, `let y = (x = 5)`) writes its target
+        // after evaluating the value; the target itself is not read.
+        if (auto* b = dynamic_cast<BinaryExpr*>(e); b && b->op == "=") {
+            scan(b->right.get());
+            if (auto* id = dynamic_cast<IdentExpr*>(b->left.get())) uninit.erase(id->name);
+            else scan(b->left.get());   // e.g. `arr[x] = …` reads x
+            return;
+        }
         if (auto* id = dynamic_cast<IdentExpr*>(e)) {
             if (uninit.count(id->name)) {
                 errorAt(id, "use of uninitialized variable '" + id->name + "'");
@@ -411,14 +419,7 @@ void TypeChecker::checkUninitPrefix(BlockStmt* body) {
             continue;
         }
         Stmt* s = std::get<StmtPtr>(item).get();
-        if (auto* es = dynamic_cast<ExprStmt*>(s)) {
-            if (auto* b = dynamic_cast<BinaryExpr*>(es->expr.get()); b && b->op == "=") {
-                scan(b->right.get());
-                if (auto* id = dynamic_cast<IdentExpr*>(b->left.get())) uninit.erase(id->name);
-                else scan(b->left.get());   // e.g. `arr[x] = …` reads x
-            } else scan(es->expr.get());
-            continue;
-        }
+        if (auto* es = dynamic_cast<ExprStmt*>(s)) { scan(es->expr.get()); continue; }
         if (auto* rs = dynamic_cast<ReturnStmt*>(s)) { if (rs->value) scan(rs->value.get()); continue; }
         break;   // control-flow or anything else: stop (stay conservative)
     }

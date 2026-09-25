@@ -2324,6 +2324,14 @@ void sema_uninit_scan(Sema* s, *ExprNode e, List<string>* uninit) {
         sema_list_erase(uninit, e.a.sval);
         return;
     }
+    // An assignment (also nested: `x = y = 3`, `let y = (x = 5)`) writes its target after
+    // evaluating the value; the target itself is not read.
+    if (e.kind == EK_BINARY && sema_streq(e.sval, "=") == 1) {
+        sema_uninit_scan(s, e.b, uninit);
+        if (e.a != null && e.a.kind == EK_IDENT) { sema_list_erase(uninit, e.a.sval); }
+        else { sema_uninit_scan(s, e.a, uninit); }
+        return;
+    }
     if (e.kind == EK_IDENT) {
         if (sema_in_list(uninit, e.sval) == 1) {
             s.had_error = 1;
@@ -2370,12 +2378,7 @@ void sema_check_uninit(Sema* s, *StmtNode body) {
                 }
             }
         } else if (it.kind == SK_EXPR) {
-            *ExprNode e = it.expr;
-            if (e != null && e.kind == EK_BINARY && sema_streq(e.sval, "=") == 1) {
-                sema_uninit_scan(s, e.b, &uninit);
-                if (e.a != null && e.a.kind == EK_IDENT) { sema_list_erase(&uninit, e.a.sval); }
-                else { sema_uninit_scan(s, e.a, &uninit); }
-            } else { sema_uninit_scan(s, e, &uninit); }
+            sema_uninit_scan(s, it.expr, &uninit);
         } else if (it.kind == SK_RETURN) {
             if (it.expr != null) { sema_uninit_scan(s, it.expr, &uninit); }
         } else {
