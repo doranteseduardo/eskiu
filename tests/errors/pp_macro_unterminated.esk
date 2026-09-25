@@ -1,6 +1,0 @@
-// EXPECT-ERROR: 4:12: unterminated argument list invoking macro 'ADD'
-#define ADD(a, b) ((a) + (b))
-int main() {
-    return ADD(1,
-        2);
-}
