@@ -627,6 +627,18 @@ int al_loop_escapes(*StmtNode s) {
     return 0;
 }
 
+// `let x = E` of a hoisted local: `fr.x = E`. An array literal `{...}` is only a
+// variable initializer, so it fills a temporary that is then copied to the field.
+*StmtNode al_init_field(*AlCtx c, *StmtNode vd) {
+    al_rewrite(vd.expr, &c.vars);
+    if (vd.expr.kind != EK_ARRAYLIT) { return al_assign(al_fr(vd.name), vd.expr); }
+    string tn = fresh_name(str_concat("__init_t", int_to_str(c.tmpn)), c.used); c.tmpn = c.tmpn + 1;
+    List<*StmtNode> blk; List_init<*StmtNode>(&blk, 2);
+    List_push<*StmtNode>(&blk, mk_vardecl(tn, vd.type, vd.expr, 0));
+    List_push<*StmtNode>(&blk, al_assign(al_fr(vd.name), mk_ident(tn)));
+    return al_block(&blk);
+}
+
 // Rewrite a NO-await statement for inclusion in a state (locals→fr, return→completion).
 *StmtNode al_rewrite_plain(*AlCtx c, *StmtNode s) {
     if (s == null) { return s; }
@@ -636,10 +648,22 @@ int al_loop_escapes(*StmtNode s) {
         while (i < List_len<*StmtNode>(&s.items)) {
             *StmtNode it = List_get<*StmtNode>(&s.items, i); i = i + 1;
             if (it.kind == SK_VARDECL) {
-                if (it.expr != null) { al_rewrite(it.expr, &c.vars); List_push<*StmtNode>(&out, al_assign(al_fr(it.name), it.expr)); }
+                if (it.expr != null) { List_push<*StmtNode>(&out, al_init_field(c, it)); }
             } else { List_push<*StmtNode>(&out, al_rewrite_plain(c, it)); }
         }
         return al_block(&out);
+    }
+    if (s.kind == SK_TRY || s.kind == SK_MATCH) {
+        // try: s1 body, items = catch clauses (s1 each), s2 finally. match: expr subject,
+        // items = arms (s1 each). Rewritten in place.
+        al_rewrite(s.expr, &c.vars);
+        s.s1 = al_rewrite_plain(c, s.s1); s.s2 = al_rewrite_plain(c, s.s2);
+        int k = 0;
+        while (k < List_len<*StmtNode>(&s.items)) {
+            *StmtNode cl = List_get<*StmtNode>(&s.items, k); k = k + 1;
+            cl.s1 = al_rewrite_plain(c, cl.s1);
+        }
+        return s;
     }
     if (s.kind == SK_RETURN) {
         *ExprNode v = s.expr; if (v == null) { v = al_int(0); } al_rewrite(v, &c.vars);
@@ -705,8 +729,7 @@ int al_lower_item(*AlCtx c, *StmtNode s, int cur) {
             al_push(c, next, al_exprstmt(al_tcall(str_concat("free_future<", str_concat(Ti, ">")), &fa)));
             return next;
         }
-        al_rewrite(s.expr, &c.vars);
-        al_push(c, cur, al_assign(al_fr(s.name), s.expr));
+        al_push(c, cur, al_init_field(c, s));
         return cur;
     }
     return al_lower_stmt(c, s, cur);
@@ -903,7 +926,8 @@ void al_desugar_items(*AlCtx c, List<*StmtNode>* inp, List<*StmtNode>* out) {
         if (br > 0) {                                  // array "T[N]"
             elemTy = al_substr(ty, 0, br);             // before '['
             int e2 = br + 1; int s2 = e2; while (ty[e2] != 0 && (int)ty[e2] != 93) { e2 = e2 + 1; }
-            lengthE = mk_lit(LIT_INT, al_substr(ty, s2, e2));
+            if (e2 == s2) { lengthE = al_member(mk_ident(itname), "len"); }   // a slice `T[]`
+            else { lengthE = mk_lit(LIT_INT, al_substr(ty, s2, e2)); }
             elemE = al_index(mk_ident(itname), mk_ident(fi));
         } else {                                       // list-like struct (data/size)
             string sn = al_deref(ty);
@@ -1063,7 +1087,10 @@ string al_field_type(*AlCtx c, string nm) {
 // `x`) would collapse into one field. Before hoisting, give every re-declaration a
 // unique name (`x__sN`) and rewrite the references in its lexical scope (mirrors the
 // C++ ShadowRenamer). keys/vals is a scope stack of name → current spelling.
-struct AlRen { List<string> keys; List<string> vals; List<string> seen; List<string>* used; }
+// `static` locals of the async function itself (not of a lambda in it) are one cell for
+// every call, not frame fields: each gets a fresh name and is taken out of the body
+// (`statics`); the lowering declares them at the top of the resume function.
+struct AlRen { List<string> keys; List<string> vals; List<string> seen; List<string>* used; List<*StmtNode> statics; int ldepth; }
 
 string al_ren_lookup(AlRen* r, string n) {
     int i = List_len<string>(&r.keys) - 1;
@@ -1092,7 +1119,9 @@ void al_ren_expr(AlRen* r, *ExprNode e) {
         int lmark = List_len<string>(&r.keys);
         List<string> lps; List_init<string>(&lps, 2); al_lambda_params(e.sval, &lps);
         int li = 0; while (li < List_len<string>(&lps)) { al_ren_bind(r, List_get<string>(&lps, li), List_get<string>(&lps, li)); li = li + 1; }
+        r.ldepth = r.ldepth + 1;
         al_ren_stmt(r, e.stmt);
+        r.ldepth = r.ldepth - 1;
         al_ren_pop(r, lmark);
         return;
     }
@@ -1104,7 +1133,24 @@ void al_ren_scoped(AlRen* r, *StmtNode s) {
     int mark = List_len<string>(&r.keys); al_ren_stmt(r, s); al_ren_pop(r, mark);
 }
 void al_ren_items(AlRen* r, List<*StmtNode>* items) {
-    int i = 0; while (i < List_len<*StmtNode>(items)) { al_ren_stmt(r, List_get<*StmtNode>(items, i)); i = i + 1; }
+    List<*StmtNode> kept; List_init<*StmtNode>(&kept, List_len<*StmtNode>(items) + 1);
+    int i = 0;
+    while (i < List_len<*StmtNode>(items)) {
+        *StmtNode it = List_get<*StmtNode>(items, i); i = i + 1;
+        if (it.kind == SK_VARDECL && it.is_static == 1 && r.ldepth == 0) {
+            al_ren_expr(r, it.expr);
+            string nn = fresh_name(str_concat(it.name, "__st"), r.used);
+            if (al_in(&r.seen, it.name) == 0) { List_push<string>(&r.seen, it.name); }
+            al_ren_bind(r, it.name, nn);
+            it.name = nn;
+            List_push<*StmtNode>(&r.statics, it);
+            continue;
+        }
+        al_ren_stmt(r, it);
+        List_push<*StmtNode>(&kept, it);
+    }
+    while (List_len<*StmtNode>(items) > 0) { List_remove<*StmtNode>(items, List_len<*StmtNode>(items) - 1); }
+    i = 0; while (i < List_len<*StmtNode>(&kept)) { List_push<*StmtNode>(items, List_get<*StmtNode>(&kept, i)); i = i + 1; }
 }
 void al_ren_stmt(AlRen* r, *StmtNode s) {
     if (s == null) { return; }
@@ -1135,9 +1181,21 @@ void al_ren_stmt(AlRen* r, *StmtNode s) {
             while (i < n && ((int)lb[i] == 32 || (int)lb[i] == 44)) { i = i + 1; }
             int st = i;
             while (i < n && (int)lb[i] != 44 && (int)lb[i] != 41 && (int)lb[i] != 32) { i = i + 1; }
-            if (i > st) { string bn = al_substr(lb, st, i); al_ren_bind(r, bn, bn); }
+            if (i > st) {
+                // A binding gets its own spelling too, so a hoisted local of the same name
+                // is not substituted for it.
+                string bn = al_substr(lb, st, i);
+                string nb = bn;
+                if (str_eq(bn, "_") == 0) { nb = al_ren_declare(r, bn); }
+                if (str_eq(nb, bn) == 0) {
+                    lb = str_concat(al_substr(lb, 0, st), str_concat(nb, al_substr(lb, i, n)));
+                    i = st + cstr_len(nb);
+                    n = cstr_len(lb);
+                }
+            }
             if (i < n && (int)lb[i] == 41) { i = n; }
         }
+        s.name = lb;
         al_ren_scoped(r, s.s1);
         al_ren_pop(r, mark);
         return;
@@ -1145,7 +1203,11 @@ void al_ren_stmt(AlRen* r, *StmtNode s) {
     if (s.kind == SK_CATCH) {                            // "Type name": the name shadows
         string cn = s.name; int n = 0; while (cn[n] != 0) { n = n + 1; }
         int i = n; while (i > 0 && (int)cn[i - 1] != 32) { i = i - 1; }
-        string bn = al_substr(cn, i, n); al_ren_bind(r, bn, bn);
+        string bn = al_substr(cn, i, n);
+        if (bn[0] != 0) {
+            string nb = al_ren_declare(r, bn);
+            if (str_eq(nb, bn) == 0) { s.name = str_concat(al_substr(cn, 0, i), nb); }
+        }
         al_ren_scoped(r, s.s1);
         al_ren_pop(r, mark);
         return;
@@ -1207,6 +1269,7 @@ void al_transform(*Program prog, *DeclNode d, List<*DeclNode>* out) {
     }
     let ren: AlRen;
     List_init<string>(&ren.keys, 8); List_init<string>(&ren.vals, 8); List_init<string>(&ren.seen, 8); ren.used = &used;
+    List_init<*StmtNode>(&ren.statics, 2); ren.ldepth = 0;
     pi = 0;
     while (pi < List_len<Param>(&d.params)) {
         Param rp = List_get<Param>(&d.params, pi);
@@ -1245,7 +1308,9 @@ void al_transform(*Program prog, *DeclNode d, List<*DeclNode>* out) {
     }
     *StmtNode wh = alloc<StmtNode>(1); wh.kind = SK_WHILE; wh.expr = mk_lit(LIT_BOOL, "true");
     List<*StmtNode> wb; List_init<*StmtNode>(&wb, 1); List_push<*StmtNode>(&wb, chain); wh.s1 = al_block(&wb);
-    List<*StmtNode> rb; List_init<*StmtNode>(&rb, 1); List_push<*StmtNode>(&rb, wh);
+    List<*StmtNode> rb; List_init<*StmtNode>(&rb, 1);
+    int sti = 0; while (sti < List_len<*StmtNode>(&ren.statics)) { List_push<*StmtNode>(&rb, List_get<*StmtNode>(&ren.statics, sti)); sti = sti + 1; }
+    List_push<*StmtNode>(&rb, wh);
     *DeclNode resumeFn = new_decl(DK_FUNCTION);
     resumeFn.name = resumeN; resumeFn.ret_type = "void"; resumeFn.body = al_block(&rb);
     List_init<Param>(&resumeFn.params, 1);

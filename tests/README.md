@@ -72,6 +72,7 @@ when you add a test.
 | `http2_server` | `<http2_server>` stage 6: the h2c server end-to-end over a socketpair (request → handler → response) |
 | `http2_chunking` | response bodies > 16384 split into MAX_FRAME_SIZE DATA frames (last has END_STREAM) |
 | `async_elseif` | async `if/else-if/else` with `await` in branches + terminating `else` (transform regression) |
+| `async_locals_forms` | in an async fn: a `static` local keeps one cell across calls, `for-in` over a slice, `try`/`catch`, an array-literal local, `match` on a local ADT, bindings named like a hoisted local |
 | `http2_multiplex` | interleaved two-stream multiplexing: per-stream request assembly, each routed + answered |
 | `const` | immutable bindings, usable as array sizes |
 | `param_reassign` | reassigning scalar/pointer parameters; method call through a pointer parameter |

@@ -93,6 +93,11 @@ bool stmtHasAwait(const StmtPtr& s) {
         for (auto& arm : m->arms) if (stmtHasAwait(arm.body)) return true;
         return false;
     }
+    if (auto* t = dynamic_cast<TryStmt*>(s.get())) {
+        if (stmtHasAwait(t->body) || stmtHasAwait(t->finally)) return true;
+        for (auto& c : t->catches) if (stmtHasAwait(c.body)) return true;
+        return false;
+    }
     if (auto* rs = dynamic_cast<ReturnStmt*>(s.get())) return hasAwait(rs->value);
     if (auto* es = dynamic_cast<ExprStmt*>(s.get()))  return hasAwait(es->expr);
     return false;
@@ -233,6 +238,11 @@ struct ShadowRenamer {
     std::set<std::string> seen;                              // names declared so far
     std::vector<std::map<std::string, std::string>> scopes;  // name -> current spelling
     std::set<std::string>* used = nullptr;                   // every name in the function (renames avoid them)
+    // `static` locals of the async function itself (not of a lambda in it): one cell
+    // for every call, so they are not frame fields. Each gets a fresh name and is
+    // taken out of the body; the lowering declares them at the top of the resume.
+    std::vector<DeclPtr> statics;
+    int lambdaDepth = 0;
 
     std::string lookup(const std::string& n) const {
         for (auto it = scopes.rbegin(); it != scopes.rend(); ++it) {
@@ -257,22 +267,35 @@ struct ShadowRenamer {
             for (auto& cap : lam->captures) cap.first = lookup(cap.first);
             scopes.emplace_back();
             for (const auto& p : lam->params) scopes.back()[p.second] = p.second;
+            ++lambdaDepth;
             stmt(lam->body);
+            --lambdaDepth;
             scopes.pop_back();
             return;
         }
         astwalk::forEachChildExprFlat(e.get(), [&](ExprPtr& c) { expr(c); });
     }
     void items(std::vector<BlockItem>& its) {
+        std::vector<BlockItem> kept;
         for (auto& it : its) {
             if (std::holds_alternative<DeclPtr>(it)) {
                 if (auto* vd = dynamic_cast<VarDecl*>(std::get<DeclPtr>(it).get())) {
                     // The initializer still sees the outer binding.
                     expr(vd->initializer);
+                    if (vd->isStatic && lambdaDepth == 0) {
+                        std::string nn = astwalk::freshName(vd->name + "__st", *used);
+                        seen.insert(vd->name);
+                        scopes.back()[vd->name] = nn;
+                        vd->name = nn;
+                        statics.push_back(std::get<DeclPtr>(it));
+                        continue;
+                    }
                     vd->name = declare(vd->name);
                 }
             } else stmt(std::get<StmtPtr>(it));
+            kept.push_back(it);
         }
+        its = std::move(kept);
     }
     void scoped(StmtPtr& s) { scopes.emplace_back(); stmt(s); scopes.pop_back(); }
     void stmt(StmtPtr& s) {
@@ -302,7 +325,9 @@ struct ShadowRenamer {
             expr(m->subject);
             for (auto& arm : m->arms) {
                 scopes.emplace_back();
-                for (auto& bn : arm.bindings) scopes.back()[bn] = bn;
+                // A binding gets its own spelling too, so a hoisted local of the same
+                // name is not substituted for it.
+                for (auto& bn : arm.bindings) if (bn != "_") bn = declare(bn);
                 scoped(arm.body);
                 scopes.pop_back();
             }
@@ -310,7 +335,7 @@ struct ShadowRenamer {
             scoped(t->body);
             for (auto& c : t->catches) {
                 scopes.emplace_back();
-                scopes.back()[c.name] = c.name;
+                if (!c.name.empty()) c.name = declare(c.name);
                 scoped(c.body);
                 scopes.pop_back();
             }
@@ -387,12 +412,14 @@ void AsyncTransform::run(Program* program) {
         if (stmtHasLabeledBreak(fn->body))
             throw std::runtime_error("async function '" + name + "': labeled 'break'/'continue' "
                 "is not supported inside an async function");
+        std::vector<DeclPtr> statics;
         {
             ShadowRenamer sr;
             sr.used = &used;
             sr.scopes.emplace_back();
             for (const auto& p : fn->params) { sr.seen.insert(p.second); sr.scopes.back()[p.second] = p.second; }
             sr.items(block->items);
+            statics = std::move(sr.statics);
         }
 
         // ── Desugar awaits not already bound in a `let`, recursing into control
@@ -466,7 +493,9 @@ void AsyncTransform::run(Program* program) {
                 if (fi->isArrayIter) {
                     bool numeric = !fi->arrayDim.empty();
                     for (char c : fi->arrayDim) if (c < '0' || c > '9') numeric = false;
-                    lengthExpr = numeric ? intlit(std::stoll(fi->arrayDim)) : ident(fi->arrayDim);
+                    lengthExpr = numeric ? intlit(std::stoll(fi->arrayDim))
+                               : fi->arrayDim.empty() ? ExprPtr(std::make_shared<MemberExpr>(fi->iterable, "len"))   // a slice
+                               : ident(fi->arrayDim);
                     elemExpr   = std::make_shared<IndexExpr>(fi->iterable, idx());
                 } else {
                     lengthExpr = std::make_shared<MemberExpr>(fi->iterable, "size");
@@ -633,6 +662,20 @@ void AsyncTransform::run(Program* program) {
             st.push_back(ret(nullptr));
         };
 
+        // `let x = E` of a hoisted local: `fr.x = E`. An array literal `{...}` is only a
+        // variable initializer, so it fills a temporary that is then copied to the field.
+        int initTmp = 0;
+        auto initField = [&](VarDecl* vd) -> StmtPtr {
+            rewrite(vd->initializer, vars);
+            if (!dynamic_cast<ArrayLitExpr*>(vd->initializer.get()))
+                return assign(fr(vd->name), vd->initializer);
+            std::string tn = astwalk::freshName("__init_t" + std::to_string(initTmp++), used);
+            std::vector<BlockItem> blk;
+            blk.push_back(DeclPtr(std::make_shared<VarDecl>(tn, vd->type, vd->initializer)));
+            blk.push_back(assign(fr(vd->name), ident(tn)));
+            return std::make_shared<BlockStmt>(blk);
+        };
+
         // Recursively rewrite a NO-await statement for inclusion in a state:
         // let -> fr.x = E; return -> completion; recurse into control-flow bodies.
         std::function<StmtPtr(const StmtPtr&)> rewritePlain = [&](const StmtPtr& s) -> StmtPtr {
@@ -641,10 +684,20 @@ void AsyncTransform::run(Program* program) {
                 for (auto& it : b->items) {
                     if (std::holds_alternative<DeclPtr>(it)) {
                         auto* vd = dynamic_cast<VarDecl*>(std::get<DeclPtr>(it).get());
-                        if (vd && vd->initializer) { rewrite(vd->initializer, vars); out2.push_back(assign(fr(vd->name), vd->initializer)); }
+                        if (vd && vd->initializer) out2.push_back(initField(vd));
                     } else out2.push_back(rewritePlain(std::get<StmtPtr>(it)));
                 }
                 return std::make_shared<BlockStmt>(out2);
+            }
+            if (auto* t = dynamic_cast<TryStmt*>(s.get())) {
+                std::vector<TryStmt::CatchClause> cs;
+                for (auto& c : t->catches) {
+                    TryStmt::CatchClause nc = c;
+                    nc.body = c.body ? rewritePlain(c.body) : nullptr;
+                    cs.push_back(nc);
+                }
+                return std::make_shared<TryStmt>(rewritePlain(t->body), cs,
+                    t->finally ? rewritePlain(t->finally) : nullptr);
             }
             if (auto* rs = dynamic_cast<ReturnStmt*>(s.get())) {
                 ExprPtr v = rs->value ? rs->value : intlit(0); rewrite(v, vars);
@@ -736,8 +789,7 @@ void AsyncTransform::run(Program* program) {
                 if (hasAwait(vd->initializer))
                     throw std::runtime_error("async function '" + name + "': await must be the whole "
                         "initializer of a `let`, not part of a larger expression");
-                rewrite(vd->initializer, vars);
-                states[cur].push_back(assign(fr(vd->name), vd->initializer));
+                states[cur].push_back(initField(vd));
                 return cur;
             }
             return lowerStmt(std::get<StmtPtr>(it), cur);
@@ -981,6 +1033,7 @@ void AsyncTransform::run(Program* program) {
                 std::make_shared<BlockStmt>(states[s]), chain);
         std::vector<BlockItem> loopBody; loopBody.push_back(chain);
         std::vector<BlockItem> resumeBody;
+        for (auto& sd : statics) resumeBody.push_back(sd);
         resumeBody.push_back(std::make_shared<WhileStmt>(
             std::make_shared<LiteralExpr>(LiteralExpr::Kind::BOOL, "true"),
             std::make_shared<BlockStmt>(loopBody)));
