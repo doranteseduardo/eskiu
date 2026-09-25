@@ -222,6 +222,7 @@ when you add a test.
 | `ternary_null` | A `null` ternary arm takes the other arm's pointer type. |
 | `ternary_wide` | A ternary arm that is an integer literal too wide for `int` makes the result 64-bit, and equal-width mixed signedness is unsigned (C usual arithmetic... |
 | `time_negative_year` | DateTime_format_iso prints a negative (proleptic) year in ISO 8601 expanded form, "-0001", instead of zero-padding the digits around the sign ("00-1"). |
+| `tls_alpn_bounds` | tls_alpn_pick_h2 stops at an ALPN entry whose length runs past the list instead of reading beyond the buffer. |
 | `tls_frame_limit` | A peer-controlled 24-bit frame length larger than the 16384-byte frame buffer must be rejected (FRAME_SIZE_ERROR), not read past the buffer. |
 | `union_layout` | A union takes the alignment of its most-aligned member, so it lands at the C offset inside a struct and the struct is padded like C (u at 8, size 24). |
 | `async_name_collisions` | Locals and parameters named like the async transform's synthesized names (`__fr`, `st`, `ret`, `awaiting`, the await temporaries, the resume function) do not collide with them. |

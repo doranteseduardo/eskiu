@@ -51,10 +51,13 @@ const int SSL_TLSEXT_ERR_NOACK = 3;   // ALPN: none acceptable
 // Scan the wire-format protocol list `protos` (each entry: a 1-byte length then
 // that many name bytes) for "h2". On a match, point *out at the name and set
 // *outlen to 2, returning 1; otherwise 0. Pure — unit-testable without a socket.
+// An entry whose length runs past `len` (a malformed list) ends the scan: no
+// byte at or past protos[len] is read.
 int tls_alpn_pick_h2(*uint8 protos, int len, **uint8 out, *uint8 outlen) {
     int i = 0;
     while (i < len) {
         const int plen = (int)protos[i];
+        if (plen > len - i - 1) { return 0; }
         if (plen == 2 && protos[i + 1] == 'h' && protos[i + 2] == '2') {
             *out = protos + i + 1;
             *outlen = (uint8)2;
