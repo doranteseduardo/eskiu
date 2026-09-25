@@ -365,6 +365,9 @@ private:
     void visit(BreakStmt* node) override;
     void visit(ExprStmt* node) override;
     void visit(BinaryExpr* node) override;
+    // `lv op= v` with a side-effecting lvalue: evaluate lv's address once.
+    void emitCompoundAssign(BinaryExpr* node, BinaryExpr* rhsOp);
+    int compoundSeq = 0;
     void visit(UnaryExpr* node) override;
     void visit(IncDecExpr* node) override;
     void visit(QuestionExpr* node) override;

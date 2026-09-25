@@ -5,9 +5,58 @@
 // are shared with the type checker; see template_utils.h.
 #include "../template_utils.h"
 
+// An expression with no side effects: evaluating it twice is the same as once.
+static bool isPureExpr(const ExprPtr& e) {
+    if (!e) return true;
+    if (dynamic_cast<IdentExpr*>(e.get()) || dynamic_cast<LiteralExpr*>(e.get()) ||
+        dynamic_cast<SizeofExpr*>(e.get()))
+        return true;
+    if (auto* m = dynamic_cast<MemberExpr*>(e.get())) return isPureExpr(m->base);
+    if (auto* ix = dynamic_cast<IndexExpr*>(e.get()))
+        return ix->opFunc.empty() && isPureExpr(ix->base) && isPureExpr(ix->index) && isPureExpr(ix->highIndex);
+    if (auto* u = dynamic_cast<UnaryExpr*>(e.get())) return u->opFunc.empty() && isPureExpr(u->operand);
+    if (auto* c = dynamic_cast<CastExpr*>(e.get())) return isPureExpr(c->expr);
+    if (auto* b = dynamic_cast<BinaryExpr*>(e.get()))
+        return b->op != "=" && b->opFunc.empty() && isPureExpr(b->left) && isPureExpr(b->right);
+    return false;
+}
+
+void CodeGen::emitCompoundAssign(BinaryExpr* node, BinaryExpr* rhsOp) {
+    // `lv op= v` (parsed as `lv = lv op v` sharing the lvalue node) where evaluating `lv`
+    // has side effects (`a[f()] += 1`, `a[i++] += 1`): compute the lvalue's address ONCE,
+    // then run the ordinary `*p = *p op v` through a temporary pointer, so the operator
+    // (built-in or overloaded), coercions and --safe checks are the usual ones.
+    std::string lt = getExprEskiuType(node->left);
+    llvm::Value* addr = evaluateLValue(node->left);
+    std::string tmp = "__cmpd." + std::to_string(compoundSeq++);
+    llvm::AllocaInst* slot = entryAlloca(llvm::PointerType::get(*context, 0), nullptr, tmp);
+    builder->CreateStore(addr, slot);
+    defineSymbol(tmp, slot);
+    defineVarType(tmp, "*" + lt);
+    auto deref = std::make_shared<UnaryExpr>("*", std::make_shared<IdentExpr>(tmp));
+    auto bin = std::make_shared<BinaryExpr>(deref, rhsOp->op, rhsOp->right);
+    bin->opFunc = rhsOp->opFunc;
+    BinaryExpr assign(deref, "=", bin);
+    assign.accept(this);
+}
+
 void CodeGen::visit(BinaryExpr* node) {
     // Assignment: evaluate left as lvalue (pointer), not rvalue
     if (node->op == "=") {
+        // Compound assignment with a side-effecting lvalue: evaluate the lvalue once.
+        if (auto* rb = dynamic_cast<BinaryExpr*>(node->right.get())) {
+            if (rb->left.get() == node->left.get() && !isPureExpr(node->left)) {
+                bool bitfield = false;
+                if (auto* mem = dynamic_cast<MemberExpr*>(node->left.get())) {
+                    auto lit = structLayout.find(structBaseTypeOf(mem->base));
+                    if (lit != structLayout.end()) {
+                        auto sit = lit->second.find(mem->member);
+                        bitfield = sit != lit->second.end() && sit->second.isBitfield;
+                    }
+                }
+                if (!bitfield) { emitCompoundAssign(node, rb); return; }
+            }
+        }
         // Bitfield assignment is a read-modify-write, not a plain store.
         if (auto* mem = dynamic_cast<MemberExpr*>(node->left.get())) {
             auto lit = structLayout.find(structBaseTypeOf(mem->base));
