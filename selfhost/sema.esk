@@ -476,6 +476,7 @@ int sema_has_lt(string t) {
 int sema_known_type(Sema* s, string t) {
     if (sema_is_fn_type(t) == 1) { return 1; }
     string b0 = sema_struct_of_type(sema_strip_nullable(sema_strip_const(t)));
+    if (sema_is_fn_type(b0) == 1) { return 1; }                          // a pointer to a fn value
     int n = 0; while (b0[n] != 0 && (int)b0[n] != 91) { n = n + 1; }   // cut at '['
     string b = sema_sub_str(b0, 0, n);
     if (sema_is_numeric_ty(b) == 1 || sema_streq(b, "void") == 1 || sema_streq(b, "string") == 1
@@ -3354,6 +3355,12 @@ void sema_check_lambda(Sema* s, *ExprNode e) {
     int saved_sw = s.sw_depth; int saved_pd = s.param_depth;
     List<string> saved_lbls = s.loop_lbls;
     List_init<string>(&s.loop_lbls, 4);
+    // The body sees the enclosing null-narrowing; its assignments to captured copies do
+    // not end it outside the lambda.
+    List<string> saved_narrowed = s.narrowed;
+    List_init<string>(&s.narrowed, 4);
+    int ni = 0;
+    while (ni < List_len<string>(&saved_narrowed)) { List_push<string>(&s.narrowed, List_get<string>(&saved_narrowed, ni)); ni = ni + 1; }
     s.cur_ret = sema_isub(s, sema_lambda_ret(e.sval));
     if (s.lam_ret != null && s.lam_ret[0] != 0) { s.cur_ret = s.lam_ret; }
     s.lam_ret = "";
@@ -3378,6 +3385,7 @@ void sema_check_lambda(Sema* s, *ExprNode e) {
     s.cur_ret = saved_ret; s.in_async = saved_async; s.await_seen = saved_seen;
     s.sw_depth = saved_sw; s.param_depth = saved_pd;
     s.loop_lbls = saved_lbls;
+    s.narrowed = saved_narrowed;
 }
 
 // ── statement walk ──
@@ -3698,10 +3706,11 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
         // Anything but an array, a slice or a List-like struct (`data` + `size` fields)
         // cannot be iterated (mirrors the C++ visit(ForInStmt)).
         string itc = sema_canon(s, itt);
+        while ((int)itc[0] == 42) { itc = sema_sub_str(itc, 1, sema_slen(itc)); }   // through a pointer too
         if (sema_judgeable(s, itc) == 1 && sema_arr_bracket(itc) < 0) {
             *DeclNode lsd = sema_find_struct(s, sema_base_name(itc));
             int listy = 0;
-            if (lsd != null && (int)itc[0] != 42) {
+            if (lsd != null) {
                 int hs = 0; int hd = 0; int fi = 0;
                 while (fi < List_len<Param>(&lsd.params)) {
                     string fnm = List_get<Param>(&lsd.params, fi).name;
