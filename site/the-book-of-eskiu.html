@@ -1267,15 +1267,16 @@ pre.code-block {
  interface Eq      { int eq(Eq* o); }</pre>
 <pre class="code-block"> int dump&lt;T: Show + Eq&gt;(T* x) { return x.show(); }</pre>
 <p>Structs satisfy a constraint by defining its methods. Primitives such as <code>int</code> have no methods. Instead they satisfy a constraint via a <code>free</code> function named like the interface method, with the primitive as the first parameter. Inside the generic body, a constrained call t.cmp(x) on a primitive t lowers to cmp(t, x):</p>
-<pre class="code-block"> interface Ord { int cmp(Ord* o); }</pre>
+<p>The sample below continues the same program, so it reuses the <code>Ord</code> interface declared above. The by-value generic gets its own name, <code>smaller</code>, because <code>pick</code> already exists:</p>
 <pre class="code-block"> // Free function makes int satisfy Ord:
  int cmp(int a, int b) { if (a &lt; b) { return -1; } return 1; }</pre>
-<pre class="code-block"> T pick&lt;T: Ord&gt;(T a, T b) {
+<pre class="code-block"> T smaller&lt;T: Ord&gt;(T a, T b) {
        if (a.cmp(b) &lt; 0) { return a; }         // lowers to cmp(a, b)
        return b;
  }</pre>
-<pre class="code-block"> printf(&quot;%d\n&quot;, pick&lt;int&gt;(3, 7));         // 3
- printf(&quot;%d\n&quot;, pick&lt;Num&gt;(&amp;x, &amp;y)); // also works</pre>
+<pre class="code-block"> printf(&quot;%d\n&quot;, smaller&lt;int&gt;(3, 7));        // 3
+ printf(&quot;%d\n&quot;, pick&lt;Num&gt;(&amp;y, &amp;x).v);     // 3: structs use the pointer form</pre>
+<p><code>Num.cmp</code> takes a <code>Num*</code>, so a struct goes through <code>pick</code>, which passes pointers. Calling <code>smaller&lt;Num&gt;</code> with values is rejected.</p>
 <pre class="code-block"> The function-pointer HashMap&lt;K,V&gt; from &lt;map&gt; remains useful when you want to thread hash/eq
  explicitly without declaring an interface. Scalar primitives only; pointer types are not yet supported.</pre>
 <div class="chapter-start" id="chapter-9"><span class="chapter-label">Chapter 9</span>
@@ -1555,7 +1556,8 @@ pre.code-block {
 <p>Function-like macros take parameters. The call must fit on one line:</p>
 <pre class="code-block"> #define SQ(x)       ((x) * (x))
  #define DOUBLE(n) ((n) + (n))
- #define LIMIT       (MAX + 1)       // macro expanding another macro</pre>
+ // LIMIT expands another macro (MAX):
+ #define LIMIT       (MAX + 1)</pre>
 <pre class="code-block"> printf(&quot;%d\n&quot;, SQ(5));                // 25
  printf(&quot;%d\n&quot;, DOUBLE(SQ(3)));        // 18
  printf(&quot;%d\n&quot;, LIMIT);                // 101</pre>
@@ -1686,7 +1688,7 @@ pre.code-block {
  extern int     EVP_DecryptInit(*void ctx, *void cipher,
                                     *uint8 key, *uint8 iv);
  extern int     EVP_DecryptUpdate(*void ctx, *uint8 out, *int outl,
-                                     *uint8 in,   int inl);
+                                     *uint8 inp,  int inl);
  extern int     EVP_DecryptFinal(*void ctx, *uint8 out, *int outl);</pre>
 <h2 class="section" id="sec-14-3">14.3 Linking</h2>
 <p>All library flags are passed directly to <code>eskiuc</code>; it forwards them to the system linker:</p>
@@ -1917,19 +1919,27 @@ pre.code-block {
  }</pre>
 <pre class="code-block"> Map_free&lt;int&gt;(&amp;m);</pre>
 <p>Keys are copied on insert; the map owns them. Map_at returns a stable *V pointer into the value array, valid until the next insert that triggers a grow. For file uploads and binary payloads, pair with &lt;multipart&gt;:</p>
-<pre class="code-block"> import &lt;multipart&gt;;
+<p>The function below runs inside an HTTP handler, after <code>http_recv</code> has filled <code>req</code> (section 23.5 shows the server loop). It looks up the part named <code>photo</code> in a multipart/form-data body:</p>
+<pre class="code-block"> import &lt;http&gt;;
+ import &lt;multipart&gt;;
  import &lt;string&gt;;</pre>
-<pre class="code-block"> // Extract a named part from a multipart/form-data body
- String ct;   String_init(&amp;ct, 64);   HttpReq_header(&amp;req, &quot;Content-Type&quot;, &amp;ct);   // Content-Type header value
- String boundary;     String_init(&amp;boundary, 64);
- if (multipart_boundary(&amp;ct, &amp;boundary) == 1) {
-       *uint8 part;   int64 plen;
-       if (multipart_part(body, body_len, &amp;boundary,
-                          &quot;photo&quot;, &amp;part, &amp;plen) == 1) {
-            // part points into body (zero-copy slice), plen bytes
+<pre class="code-block"> int find_photo(HttpReq* req, **uint8 out, *int64 out_len) {
+       int found = 0;
+       String ct;   String_init(&amp;ct, 64);
+       HttpReq_header(req, &quot;Content-Type&quot;, &amp;ct);    // Content-Type header value
+       String boundary;     String_init(&amp;boundary, 64);
+       if (multipart_boundary(&amp;ct, &amp;boundary) == 1) {
+            *uint8 part;   int64 plen;
+            if (multipart_part(req.body, req.body_len, &amp;boundary,
+                               &quot;photo&quot;, &amp;part, &amp;plen) == 1) {
+                 // part points into req.body (zero-copy slice), plen bytes
+                 out[0] = part;   out_len[0] = plen;
+                 found = 1;
+            }
        }
- }
- String_free(&amp;boundary);    String_free(&amp;ct);</pre>
+       String_free(&amp;boundary);    String_free(&amp;ct);
+       return found;
+ }</pre>
 <h2 class="section" id="sec-15-8b">15.8b HashMap: generic key map</h2>
 <p><code>Map</code>&lt;V&gt; keys on strings. <code>HashMap</code>&lt;K,V&gt; keys on any type: you pass hash and eq function pointers at init, the same pattern as C&#x27;s qsort. Built-in helpers int_hash/int_eq cover integer keys:</p>
 <pre class="code-block"> import &lt;map&gt;;</pre>
@@ -1950,7 +1960,7 @@ pre.code-block {
 <pre class="code-block"> let b: Bytes;
  Bytes_init(&amp;b, 64);</pre>
 <pre class="code-block"> uint8[4] buf = {0xDE, 0xAD, 0x00, 0xBE};       // embedded NUL is fine
- Bytes_append_raw(&amp;b, buf, 4);</pre>
+ Bytes_append_raw(&amp;b, &amp;buf[0], 4);        // an array does not decay: pass &amp;buf[0]</pre>
 <pre class="code-block"> Bytes view = Bytes_slice(&amp;b, 0, 2);    // non-owning, no alloc</pre>
 <pre class="code-block"> Bytes enc = Bytes_to_base64(&amp;b);
  Bytes_free(&amp;enc);   Bytes_free(&amp;b);</pre>
@@ -2401,8 +2411,10 @@ pre.code-block {
 <pre class="code-block"> *int p = null;
  printf(&quot;%d\n&quot;, *p);        // WRONG: immediate crash</pre>
 <p>Fix: Check for <code>null</code> before any dereference:</p>
-<pre class="code-block"> if (p == null) { printf(&quot;no value\n&quot;); return; }
- printf(&quot;%d\n&quot;, *p);</pre>
+<pre class="code-block"> void show(*int p) {
+       if (p == null) { printf(&quot;no value\n&quot;); return; }
+       printf(&quot;%d\n&quot;, *p);
+ }</pre>
 <h2 class="section" id="sec-22-4">22.4 Buffer overrun</h2>
 <p>You read or write past the end of an array. The memory beyond belongs to something else: another variable, heap metadata, or nothing. Writing past the end is a serious security vulnerability:</p>
 <pre class="code-block"> import &lt;mem&gt;;
