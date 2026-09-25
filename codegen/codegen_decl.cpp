@@ -97,7 +97,7 @@ llvm::Function* CodeGen::declareFunction(
     llvm::Type* returnType = getTypeFromString(returnTypeStr);
     bool sret = needsSret(returnType);
     if (sret) {
-        funcSretTypes[name] = llvm::cast<llvm::StructType>(returnType);
+        funcSretTypes[name] = returnType;
         // Prepend hidden sret pointer as first parameter
         paramTypes.insert(paramTypes.begin(), llvm::PointerType::get(*context, 0));
     }

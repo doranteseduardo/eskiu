@@ -413,7 +413,7 @@ private:
 
     // sret (structure return) support for large struct returns
     // Maps function name → actual return struct type (the LLVM function itself returns void)
-    std::map<std::string, llvm::StructType*> funcSretTypes;
+    std::map<std::string, llvm::Type*> funcSretTypes;
     // Active sret pointer for the current function (null if not sret)
     llvm::Value* currentSretParam = nullptr;
 
