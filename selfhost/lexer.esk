@@ -116,6 +116,39 @@ void lx_skip_comment(Lexer* lx) {
     }
 }
 
+// Owned copy of src[a, b).
+string lx_span(*uint8 src, int a, int b) {
+    *uint8 buf = alloc<uint8>(b - a + 1);
+    int i = a;
+    while (i < b) { buf[i - a] = src[i]; i = i + 1; }
+    buf[b - a] = 0;
+    return (string)buf;
+}
+
+string lx_cat3(string a, string b, string c) {
+    int la = 0; while (a[la] != 0) { la = la + 1; }
+    int lb = 0; while (b[lb] != 0) { lb = lb + 1; }
+    int lc = 0; while (c[lc] != 0) { lc = lc + 1; }
+    *uint8 buf = alloc<uint8>(la + lb + lc + 1);
+    int i = 0;
+    while (i < la) { buf[i] = (uint8)a[i]; i = i + 1; }
+    i = 0; while (i < lb) { buf[la + i] = (uint8)b[i]; i = i + 1; }
+    i = 0; while (i < lc) { buf[la + lb + i] = (uint8)c[i]; i = i + 1; }
+    buf[la + lb + lc] = 0;
+    return (string)buf;
+}
+
+// A number must not run straight into an identifier character (`0b101`, `1_000`,
+// `3.5f`); report it and consume the tail (mirrors checkNumberSuffix). The token
+// ends before the tail, like the C++.
+void lx_check_suffix(Lexer* lx, int sp, int sl, int sc) {
+    if (lx_at_end(lx) == 1 || is_ident_cont(lx_peek(lx)) == 0) { return; }
+    int end = lx.pos;
+    while (lx_at_end(lx) == 0 && is_ident_cont(lx_peek(lx)) == 1) { lx_advance(lx); }
+    lx_error(sl, sc, lx_cat3(lx_cat3("invalid suffix '", lx_span(lx.src, end, lx.pos), "' on numeric literal '"),
+                             lx_span(lx.src, sp, end), "'"));
+}
+
 // Does the lexeme src[start, start+len) equal the NUL-terminated keyword `kw`?
 int lexeme_eq(*uint8 src, int start, int len, string kw) {
     int i = 0;
@@ -244,8 +277,12 @@ Token lx_next(Lexer* lx) {
                 while (lx_at_end(lx) == 0 && is_hex(lx_peek(lx)) == 1) {
                     lx_advance(lx);
                 }
+                if (lx.pos - sp == 2) {
+                    lx_error(sl, sc, lx_cat3("hexadecimal literal '", lx_span(lx.src, sp, lx.pos), "' has no digits"));
+                }
                 t.type = INT_LIT; t.start = sp; t.len = lx.pos - sp;
                 t.line = sl; t.col = sc;
+                lx_check_suffix(lx, sp, sl, sc);
                 return t;
             }
         }
@@ -271,6 +308,21 @@ Token lx_next(Lexer* lx) {
         if (isfloat == 1) { t.type = FLOAT_LIT; } else { t.type = INT_LIT; }
         t.start = sp; t.len = lx.pos - sp;
         t.line = sl; t.col = sc;
+        // A leading 0 makes an integer octal (C rule): every digit must be 0-7.
+        if (isfloat == 0 && t.len > 1 && (int)lx.src[sp] == 48) {
+            int k = sp;
+            int bad = 0;
+            while (k < lx.pos && bad == 0) {
+                if ((int)lx.src[k] == 56 || (int)lx.src[k] == 57) { bad = (int)lx.src[k]; }
+                k = k + 1;
+            }
+            if (bad != 0) {
+                uint8[2] bd; bd[0] = (uint8)bad; bd[1] = 0;
+                lx_error(sl, sc, lx_cat3(lx_cat3("invalid digit '", (string)&bd[0], "' in octal literal '"),
+                                         lx_span(lx.src, sp, lx.pos), "'"));
+            }
+        }
+        lx_check_suffix(lx, sp, sl, sc);
         return t;
     }
 

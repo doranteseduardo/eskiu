@@ -1,0 +1,2 @@
+// EXPECT-ERROR: invalid digit '8' in octal literal '08'
+int main() { return 08; }

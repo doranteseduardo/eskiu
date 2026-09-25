@@ -1,0 +1,2 @@
+// EXPECT-ERROR: hexadecimal literal '0x' has no digits
+int main() { return 0x; }

@@ -1,0 +1,2 @@
+// EXPECT-ERROR: invalid suffix '_000' on numeric literal '1'
+int main() { return 1_000; }

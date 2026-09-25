@@ -29,8 +29,9 @@ comments separate tokens and are otherwise insignificant.
 
 ```
 IDENT      = [A-Za-z_] [A-Za-z0-9_]*
-INT_LIT    = [0-9]+  |  '0x' [0-9A-Fa-f]+
-FLOAT_LIT  = [0-9]+ '.' [0-9]+
+INT_LIT    = [1-9][0-9]*  |  '0' [0-7]*  |  '0x' [0-9A-Fa-f]+   // leading 0 = octal (C rule)
+FLOAT_LIT  = [0-9]+ '.' [0-9]+ EXP?  |  [0-9]+ EXP
+EXP        = ('e' | 'E') ('+' | '-')? [0-9]+
 STRING_LIT = '"' ( escape | not('"') )* '"'        // adjacent literals concatenate: "a" "b" == "ab"
 CHAR_LIT   = "'" ( escape | not("'") ) "'"
 escape     = '\' ( 'n' | 't' | 'r' | 'f' | 'v' | '\' | '"' | "'" | '0'    // string and char share the set

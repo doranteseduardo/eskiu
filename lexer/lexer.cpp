@@ -159,6 +159,8 @@ Token Lexer::read_number() {
         while (!is_at_end() && std::isxdigit(peek())) {
             num += advance();
         }
+        if (num.size() == 2) lexError(start_line, start_col, "hexadecimal literal '" + num + "' has no digits");
+        checkNumberSuffix(num, start_line, start_col);
         return Token(TokenType::INT_LIT, num, start_line, start_col);
     }
 
@@ -176,7 +178,25 @@ Token Lexer::read_number() {
         if (!is_at_end() && (peek() == '+' || peek() == '-')) num += advance();
         while (!is_at_end() && std::isdigit(peek())) num += advance();
     }
+    // A leading 0 makes an integer octal (C rule): every digit must be 0-7.
+    if (!isFloat && num.size() > 1 && num[0] == '0') {
+        size_t bad = num.find_first_of("89");
+        if (bad != std::string::npos)
+            lexError(start_line, start_col, std::string("invalid digit '") + num[bad] +
+                     "' in octal literal '" + num + "'");
+    }
+    checkNumberSuffix(num, start_line, start_col);
     return Token(isFloat ? TokenType::FLOAT_LIT : TokenType::INT_LIT, num, start_line, start_col);
+}
+
+// A number must not run straight into an identifier character: `0b101`, `1_000`,
+// `3.5f` and `12abc` are not literals Eskiu accepts, so report them here rather
+// than as a confusing parse error on the leftover identifier.
+void Lexer::checkNumberSuffix(const std::string& num, int errLine, int errCol) {
+    if (is_at_end() || !(std::isalnum((unsigned char)peek()) || peek() == '_')) return;
+    std::string tail;
+    while (!is_at_end() && (std::isalnum((unsigned char)peek()) || peek() == '_')) tail += advance();
+    lexError(errLine, errCol, "invalid suffix '" + tail + "' on numeric literal '" + num + "'");
 }
 
 void Lexer::lexError(int errLine, int errCol, const std::string& msg) {

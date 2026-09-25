@@ -1,0 +1,6 @@
+// Leading-zero integer literals are octal (C rule).
+extern int printf(string fmt, ...);
+int main() {
+    printf("%d %d %d %d\n", 0755, 010, 00, 0);
+    return 0;
+}
