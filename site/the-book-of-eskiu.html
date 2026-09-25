@@ -1472,6 +1472,10 @@ pre.code-block {
  printf(&quot;%lld\n&quot;, sizeof(double)); // 8</pre>
 <pre class="code-block"> struct Vec3 { float x; float y; float z; }
  printf(&quot;%lld\n&quot;, sizeof(Vec3));                // 12</pre>
+<p>As in C, <code>sizeof</code> also accepts a variable, a parameter or a global, and gives the size of its type. A name that is neither a type nor a variable is an error:</p>
+<pre class="code-block"> Vec3 v;
+ double d = 1.0;
+ printf(&quot;%lld %lld\n&quot;, sizeof(v), sizeof(d));   // 12 8</pre>
 <h2 class="section" id="sec-12-4">12.4 Operator precedence</h2>
 <p>From lowest to highest. When in doubt, add parentheses:</p>
 <pre class="code-block"> =    +=    -=         *=   /=   %=       assignment (right to left)
@@ -1525,6 +1529,16 @@ pre.code-block {
  #else
        printf(&quot;debug off\n&quot;);
  #endif</pre>
+<p><code>#if</code> and <code>#elif</code> take a C integer constant expression. Macros are expanded first, <code>defined(NAME)</code> (or <code>defined NAME</code>) tests whether a macro exists, and the usual arithmetic, comparison, bitwise and logical operators work, as do <code>?:</code> and parentheses. A name that is still an identifier after expansion counts as 0:</p>
+<pre class="code-block"> #define LEVEL 3
+ #if LEVEL &gt; 2 &amp;&amp; defined(DEBUG)
+       printf(&quot;verbose debug\n&quot;);
+ #elif LEVEL &gt; 1
+       printf(&quot;verbose\n&quot;);
+ #else
+       printf(&quot;quiet\n&quot;);
+ #endif</pre>
+<p>The preprocessor rejects what it does not understand instead of skipping it. An unknown directive is an error, and so is <code>#include</code> (Eskiu uses <code>import</code>), an <code>#else</code>, <code>#elif</code> or <code>#endif</code> with no matching <code>#if</code>, a conditional still open at the end of the file, and the C operators <code>#</code> and <code>##</code> inside a macro body. Inside a branch that is being skipped, unknown directives are ignored, so a block of code for another platform can use whatever it likes. Arguments to a function-like macro keep string and character literals whole (a comma inside <code>&quot;a,b&quot;</code> does not split the argument) and are expanded before substitution, so <code>SQ(SQ(2))</code> is 16. Files with Windows (CRLF) line endings work.</p>
 <p>Line numbers are preserved through macro expansion: error messages always point to the original source location.</p>
 <p>A macro body can span multiple physical lines using a backslash continuation. Each consumed newline is replaced by a blank line so error messages still point to the right source location:</p>
 <pre class="code-block"> #define POLY(x)         \
@@ -1547,7 +1561,7 @@ pre.code-block {
  }                              // sizeof = 8</pre>
 <pre class="code-block"> printf(&quot;%lld %lld\n&quot;, sizeof(Wire), sizeof(Natural));           // 5 8</pre>
 <p class="output"><em>Output:</em> 5 8</p>
-<p>The compiler predefines a macro for the host OS: __APPLE__ on macOS, __linux__ on Linux, and _WIN32 (plus _WIN64 on a 64-bit arch) on Windows. A bare-metal (none) target predefines none of them. Use them to write portable code that compiles correctly on both platforms:</p>
+<p>The compiler predefines a macro for the host OS: __APPLE__ on macOS, __linux__ on Linux, and _WIN32 (plus _WIN64 on a 64-bit arch) on Windows. A bare-metal (none) target predefines none of them. An architecture macro follows the target the same way: __aarch64__ on 64-bit ARM, __x86_64__ on x86-64, and __arm__ on 32-bit ARM. Use them to write portable code that compiles correctly on both platforms:</p>
 <pre class="code-block"> #ifdef __APPLE__
        printf(&quot;macOS\n&quot;);
  #else
@@ -1561,8 +1575,9 @@ pre.code-block {
  #error DEBUG builds are not supported in this file
  #endif</pre>
 <pre class="code-block"> Supported directives: #define (object-like and function-like, including multi-line with \), #undef, #ifdef,
- #ifndef, #else, #endif, #error, #pragma pack. Predefined: __APPLE__, __linux__, _WIN32, _WIN64, __FILE__, __LINE__,
- __ESKIU_FREESTANDING__. pack(N) with any N ≥ 1 is fully supported.</pre>
+ #ifndef, #if, #elif, #else, #endif, #error, #pragma pack. Predefined: __APPLE__, __linux__, _WIN32, _WIN64,
+ __aarch64__, __x86_64__, __arm__, __FILE__, __LINE__, __ESKIU_FREESTANDING__. pack(N) with any N ≥ 1 is fully
+ supported.</pre>
 <div class="chapter-start" id="chapter-13"><span class="chapter-label">Chapter 13</span>
 <h1 class="chapter-title">Multi-file Programs</h1><hr class="chapter-rule"></div>
 <p>Every program in this book so far has lived in a single file. Real programs grow. When a file exceeds a few hundred lines, it becomes hard to navigate. The <code>import</code> statement lets you split code across as many files as you like.</p>
@@ -1614,6 +1629,13 @@ pre.code-block {
  shared_counter = shared_counter + 1;
  printf(&quot;%d\n&quot;, shared_counter);   // read and write the C global</pre>
 <p>The compiler emits an external-linkage declaration with no initializer; the linker resolves it against the real definition. This is how Eskiu shares mutable state with a C library, not only calls into it.</p>
+<p>A struct or union can cross the boundary by value in either direction. The compiler lowers such a call to the platform&#x27;s C calling convention (on AArch64, x86-64 Linux and macOS, Windows x64 and 32-bit ARM), so it passes the struct in the same registers or memory that clang would use for the matching C prototype:</p>
+<pre class="code-block"> struct Vec2 { double x; double y; }
+ extern Vec2 vec2_add(Vec2 a, Vec2 b);     // C: struct Vec2 vec2_add(struct Vec2, struct Vec2);</pre>
+<pre class="code-block"> Vec2 a = Vec2 { x: 1.0, y: 2.0 };
+ Vec2 s = vec2_add(a, Vec2 { x: 0.5, y: 0.5 });
+ printf(&quot;%.1f %.1f\n&quot;, s.x, s.y);          // 1.5 2.5</pre>
+<p>Keep the field types and order identical on both sides. Unions follow C layout too, so a union field inside such a struct lines up with its C counterpart.</p>
 <h2 class="section" id="sec-14-2">14.2 Calling OpenSSL: a real example</h2>
 <pre class="code-block"> extern *void EVP_CIPHER_CTX_new();
  extern void    EVP_CIPHER_CTX_free(*void ctx);
@@ -1886,12 +1908,13 @@ pre.code-block {
 <p>The &lt;random&gt; module is a seedable pseudo-random generator (xoshiro256**). All of its state lives in an <code>Rng</code> value, so there is no hidden global: a given seed always reproduces the same stream, which is exactly what you want for tests and repeatable runs. It is fast and passes the standard statistical tests, but it is not cryptographically secure, so do not use it for keys, tokens, or nonces.</p>
 <pre class="code-block"> import &lt;random&gt;;</pre>
 <pre class="code-block"> let r: Rng;
- rng_seed(&amp;r, 12345);              // deterministic</pre>
-<pre class="code-block"> uint64 x = rng_next(&amp;r);          // raw 64-bit
- int64  d = rng_range(&amp;r, 1, 7);   // a die: uniform in [1, 7)
- double u = rng_double(&amp;r);        // uniform in [0.0, 1.0)
- int    b = rng_bool(&amp;r);          // 0 or 1</pre>
-<p><code>rng_range</code> and <code>rng_below</code> are unbiased: they redraw whenever they land on the handful of values a plain modulo would skew, so every outcome is equally likely. <code>rng_fill(&amp;r, buf, n)</code> fills a byte buffer. For a nondeterministic stream, seed from the clock: <code>import &lt;time&gt;; rng_seed(&amp;r, (uint64)time_now_ms());</code></p>
+ Rng_seed(&amp;r, 12345);              // deterministic</pre>
+<pre class="code-block"> uint64 x = Rng_next(&amp;r);          // raw 64-bit
+ int64  d = Rng_range(&amp;r, 1, 7);   // a die: uniform in [1, 7)
+ double u = Rng_double(&amp;r);        // uniform in [0.0, 1.0)
+ int    b = Rng_bool(&amp;r);          // 0 or 1</pre>
+<p><code>Rng_range</code> and <code>Rng_below</code> are unbiased: they redraw whenever they land on the handful of values a plain modulo would skew, so every outcome is equally likely. <code>Rng_fill(&amp;r, buf, n)</code> fills a byte buffer. For a nondeterministic stream, seed from the clock: <code>import &lt;time&gt;; Rng_seed(&amp;r, (uint64)time_now_ms());</code></p>
+<p>Because the functions follow the <code>Type_method</code> naming convention, dot syntax works too: <code>r.next()</code> is <code>Rng_next(&amp;r)</code>. Releases before 0.9.2 spelled these <code>rng_seed</code>, <code>rng_next</code> and so on. The old names still compile as deprecated wrappers, and the same applies to the other modules renamed in 0.9.2 (<code>Regex_*</code>/<code>Match_*</code>, <code>Heap_*</code>, <code>EventLoop_*</code>, <code>Executor_*</code>, <code>Chan_*</code>, <code>HpackDecoder_*</code>, <code>H2Conn_*</code>, <code>DateTime_*</code>). Functions that create a value keep their lowercase names: <code>regex_compile</code>, <code>el_new</code>, <code>executor_new</code>, <code>chan_new</code>.</p>
 <h2 class="section" id="sec-15-11">15.11 regex: pattern matching</h2>
 <p>The &lt;regex&gt; module is a regular-expression engine built as a Thompson NFA, run as a Pike VM. It explores every path in lockstep, so matching is linear in the length of the input with no catastrophic backtracking: the pathological patterns that hang backtracking engines (the basis of a ReDoS attack) cannot occur here.</p>
 <p>For a quick yes/no, <code>regex_match</code> compiles the pattern and searches the text for you:</p>
@@ -1900,14 +1923,14 @@ pre.code-block {
 <p>To reuse a pattern or read capture groups, compile once, then search and pull the groups out (group 0 is the whole match, group 1 the first parenthesized part, and so on):</p>
 <pre class="code-block"> Regex re = regex_compile("(\\w+)@(\\w+)");
  let m: Match;
- if (regex_search(&amp;re, "user@host", &amp;m) == 1) {
+ if (Regex_search(&amp;re, "user@host", &amp;m) == 1) {
        let name: String;
        String_init(&amp;name, 16);
-       match_group(&amp;m, "user@host", 1, &amp;name);      // "user"
+       Match_group(&amp;m, "user@host", 1, &amp;name);      // "user"
        String_free(&amp;name);
  }
- match_free(&amp;m);
- regex_free(&amp;re);</pre>
+ Match_free(&amp;m);
+ Regex_free(&amp;re);</pre>
 <p>The syntax covers literals, <code>.</code> (any byte but newline), character classes <code>[a-z]</code> and <code>[^...]</code>, the shorthands <code>\d \w \s</code> (and <code>\D \W \S</code>), the quantifiers <code>* + ? {m} {m,} {m,n}</code>, alternation <code>|</code>, capturing groups <code>( )</code>, and the anchors <code>^</code> and <code>$</code>. Quantifiers are greedy by default; append a <code>?</code> (as in <code>.+?</code>) for the lazy form that matches as little as possible.</p>
 <h2 class="section" id="sec-15-12">15.12 Additional stdlib: quick reference</h2>
 <pre class="code-block"> // net: TCP sockets (see Chapter 23)
@@ -1924,14 +1947,15 @@ pre.code-block {
  import &lt;alloc&gt;;      Bump     Arena   Pool   FirstFit
      alloc_with(&amp;allocator, T, n) -&gt; *T</pre>
 <pre class="code-block"> // sysheap: OS-backed heap (no libc malloc)
- import &lt;sysheap&gt;; heap_init(&amp;h, size) bool             heap_alloc(&amp;h, n) *void
-     heap_free(&amp;h, p)   heap_destroy(&amp;h)</pre>
+ import &lt;sysheap&gt;; Heap_init(&amp;h, size) bool             Heap_alloc(&amp;h, n) *void
+     Heap_free(&amp;h, p)   Heap_destroy(&amp;h)</pre>
 <pre class="code-block"> // time / env / base64 / path
  import &lt;time&gt;;       time_now_ms   time_now_s   time_monotonic_ms   sleep_ms(ms)
-                      DateTime   time_to_utc/time_from_utc   time_format_iso   // UTC civil calendar
+                      DateTime   time_to_utc/DateTime_to_epoch   DateTime_format_iso   // UTC civil calendar
  import &lt;env&gt;;        env_get    env_has      env_get_or   env_get_int
  import &lt;base64&gt;;     base64_encode/decode(*uint8 src, int n, *uint8 out)
                       base64_encoded_len(n)        base64_decoded_len(n)
+                      // decode returns -1 on bad characters, misplaced '=' or a truncated input
  import &lt;path&gt;;       path_join      path_basename      path_dirname   path_extension</pre>
 <pre class="code-block"> // sort: generic heapsort + binary search over a *T array (O(n log n) worst case)
  import &lt;sort&gt;;       sort&lt;T&gt;(a, n, cmp)        bsearch&lt;T&gt;(a, n, key, cmp)
@@ -1940,7 +1964,7 @@ pre.code-block {
  import &lt;url&gt;;        url_encode(s, &amp;out)      url_decode(s, &amp;out)
      url_query_get(query, key, &amp;out) 1/0      // "a=1&amp;msg=hi+there" -> "hi there"</pre>
 <pre class="code-block"> // uuid: RFC 4122 version-4, built on <random> (not crypto-secure)
- import &lt;uuid&gt;;       let r: Rng; rng_seed(&amp;r, seed);   uuid_v4(&amp;r, &amp;out)</pre>
+ import &lt;uuid&gt;;       let r: Rng; Rng_seed(&amp;r, seed);   uuid_v4(&amp;r, &amp;out)</pre>
 <pre class="code-block"> // async runtime
  import &lt;atomic&gt;;     atomic_load   atomic_store   atomic_swap   atomic_cas
  import &lt;executor&gt;; Executor (event loop + thread-safe queue)
@@ -2201,6 +2225,7 @@ pre.code-block {
        return Ok&lt;int, string&gt;(1);
  }</pre>
 <p>The two versions do the same thing, but the second cannot leak: every exit, including a propagated <code>?</code> error, runs both defers. Deferred statements run in <strong>LIFO</strong> order (here <code>out</code> is freed before <code>buf</code>), and a <code>defer</code> inside a loop body runs at the end of each iteration. A defer body may not <code>return</code> or <code>break</code>/<code>continue</code> out of itself.</p>
+<p>A body without braces counts as its own block. In <code>if (owned) defer free(p);</code> the defer is registered only when the condition is true, and it runs as soon as that one-statement body ends, not at the end of the function. The same holds for an unbraced loop body, a <code>case</code> of a <code>switch</code> and a <code>match</code> arm. To tie a cleanup to the whole function, put the <code>defer</code> directly in the function body.</p>
 <p>Use <code>defer</code> for the common acquire-then-release pattern; reach for <code>try</code>/<code>finally</code> (10.2) when cleanup must also run as an exception unwinds past the scope.</p>
 <p><code>errdefer</code> is a variant that runs <strong>only on the error path</strong>: when the function exits through a propagated <code>?</code> error, not on a normal <code>return</code>. It is exactly what you want for undoing half-finished work when a later step fails, while keeping it when everything succeeds:</p>
 <pre class="code-block"> Connection open_ready(string host) {
@@ -2382,6 +2407,16 @@ pre.code-block {
  int g(int a) { }                        // error: missing return in a non-void function
  void main() { }                         // error: main must return int</pre>
 <p>These checks come from the v0.2.2 compiler fuzzer (duplicate cases, dimensions) and the v0.4.0 correctness pass (the conversion, flow, and bounds checks above), both using the LLVM IR verifier and the sanitizers as oracles. Note that <em>narrowing a variable</em> still truncates silently (<code>int</code> to <code>uint8</code>); the error is reserved for a literal that cannot fit its type.</p>
+<p>v0.9.2 added another set. Each of these used to compile, and most of them produced a silently wrong program:</p>
+<pre class="code-block"> int G = compute();                      // error: initializer of global 'G' is not a compile-time constant
+ int x = 1;  int x = 2;                  // error: redefinition of 'x' in the same scope
+ S s = S { v: &quot;text&quot; };                  // error: field 'v': cannot convert 'string' to 'int'
+ render(c);                              // error: cannot convert struct 'Circle' to interface 'Shape' by value
+ const P p = P { x: 1 };  p.set(9);      // error: cannot call method 'set' on a read-only value
+ ?*int q = find();  q = other();  *q;    // error: cannot dereference a possibly-null pointer
+ f(1, 2);                                // error: function 'f' expects 1 arguments, got 2
+ int n = 08;                             // error: invalid digit '8' in octal literal '08'
+ #include &lt;stdio.h&gt;                      // error: #include is not supported (use import)</pre>
 <div class="chapter-start" id="chapter-23"><span class="chapter-label">Chapter 23</span>
 <h1 class="chapter-title">Networking</h1><hr class="chapter-rule"></div>
 <p>Network programming in Eskiu is POSIX sockets via the stdlib module. No framework required for basic use. A TCP server is a file descriptor you accept connections on. A TCP client is a file descriptor you write bytes to.</p>
@@ -2560,7 +2595,7 @@ pre.code-block {
        free_future&lt;int&gt;(r);
        return 0;
  }</pre>
-<p>The compiler transforms an async function into a state machine. Each await is a suspension point: the function can be paused there and resumed later without blocking any OS thread.</p>
+<p>The compiler transforms an async function into a state machine. Each await is a suspension point: the function can be paused there and resumed later without blocking any OS thread. Every control-flow form can contain an await: <code>if</code>, <code>while</code>, <code>do</code>/<code>while</code>, <code>for</code>, <code>for</code>-in and <code>switch</code>. A <code>defer</code> in an async function runs when its block exits, even if the block awaited in between, and a lambda inside it can capture the function&#x27;s locals. Labeled <code>break</code>/<code>continue</code> is not supported inside an async function.</p>
 <h2 class="section" id="sec-25-2">25.2 The event loop</h2>
 <p>Async tasks need something to run them. The event loop is a reactor that watches file descriptors for readiness and resumes the tasks waiting on them:</p>
 <pre class="code-block"> import &lt;eventloop&gt;;
@@ -2581,12 +2616,12 @@ pre.code-block {
        EventLoop* lp = el_new(64);
        int fd = net_tcp_connect(&quot;127.0.0.1&quot;, 7000);
        Future&lt;int&gt;* f = read_line(lp, fd);
-       el_run(lp);    // drives the event loop until all tasks complete
+       EventLoop_run(lp);    // drives the event loop until all tasks complete
        free_future&lt;int&gt;(f);
-       el_free(lp);   net_close(fd);
+       EventLoop_free(lp);   net_close(fd);
        return 0;
  }</pre>
-<p>el_new(n) creates an event loop that watches up to n file descriptors. el_run(lp) blocks until all registered callbacks complete. Internally it uses kqueue on macOS, epoll on Linux, and WSAPoll on Windows.</p>
+<p>el_new(n) creates an event loop that watches up to n file descriptors. EventLoop_run(lp) blocks until all registered callbacks complete. Internally it uses kqueue on macOS, epoll on Linux, and WSAPoll on Windows.</p>
 <h2 class="section" id="sec-25-3">25.3 Concurrent HTTP with http_serve_async</h2>
 <p>The simplest way to write a concurrent HTTP server (one event loop thread, many simultaneous connections):</p>
 <pre class="code-block"> import &lt;http_async&gt;;
@@ -2604,9 +2639,9 @@ pre.code-block {
        int fd = net_tcp_listen(8080);
        EventLoop* lp = el_new(256);
        Future&lt;uint8&gt;* f = http_serve_async(lp, fd, hello, 1000);
-       el_run(lp);
+       EventLoop_run(lp);
        free_future&lt;uint8&gt;(f);
-       el_free(lp);   net_close(fd);
+       EventLoop_free(lp);   net_close(fd);
        return 0;
  }</pre>
 <p>Each incoming connection is handled by a detached async task: a slow client never blocks others. The same handler function works with &lt;http&gt; (threaded) and &lt;http_async&gt; (event loop).</p>
@@ -2626,25 +2661,25 @@ pre.code-block {
 <pre class="code-block"> select2 cancels the loser future automatically: its on_drop cascade cleans up any resources the losing
  task held.</pre>
 <h2 class="section" id="sec-25-5">25.5 Channels</h2>
-<p>A channel passes values between async tasks. chan_send enqueues a value; chan_recv returns a future that completes with the next value:</p>
+<p>A channel passes values between async tasks. Chan_send enqueues a value; Chan_recv returns a future that completes with the next value:</p>
 <pre class="code-block"> import &lt;channel&gt;;
  import &lt;future&gt;;
  import &lt;mem&gt;;
  extern int printf(string fmt, ...);</pre>
 <pre class="code-block"> async int consume(Chan&lt;int&gt;* ch) {
-       int a = await chan_recv&lt;int&gt;(ch);
-       int b = await chan_recv&lt;int&gt;(ch);
+       int a = await Chan_recv&lt;int&gt;(ch);
+       int b = await Chan_recv&lt;int&gt;(ch);
        return a + b;
  }</pre>
 <pre class="code-block"> int main() {
        Chan&lt;int&gt;* ch = chan_new&lt;int&gt;(8);
-       chan_send&lt;int&gt;(ch, 10);
-       chan_send&lt;int&gt;(ch, 20);
+       Chan_send&lt;int&gt;(ch, 10);
+       Chan_send&lt;int&gt;(ch, 20);
        Future&lt;int&gt;* f = consume(ch);
        // drive on event loop or poll directly
        printf(&quot;%d\n&quot;, f.value);       // 30
        free_future&lt;int&gt;(f);
-       chan_free&lt;int&gt;(ch);
+       Chan_free&lt;int&gt;(ch);
        return 0;
  }</pre>
 <div class="chapter-start" id="chapter-26"><span class="chapter-label">Chapter 26</span>
@@ -2893,7 +2928,10 @@ pre.code-block {
 <pre class="code-block">        #undef NAME              Remove definition</pre>
 <pre class="code-block">        #ifdef NAME              Include block if NAME is defined</pre>
 <pre class="code-block">        #ifndef NAME             Include block if NAME is not defined</pre>
-<pre class="code-block">        #else                    Alternate branch for #ifdef / #ifndef</pre>
+<pre class="code-block">        #if expr                 Include block if the integer constant expression is non-zero</pre>
+<pre class="code-block">        #elif expr               Alternative branch tested when every earlier branch was false</pre>
+<pre class="code-block">        defined(NAME)            1 if NAME is a macro, else 0 (only inside #if / #elif)</pre>
+<pre class="code-block">        #else                    Alternate branch for #if / #ifdef / #ifndef</pre>
 <pre class="code-block">        #endif                   End conditional block</pre>
 <pre class="code-block">        #pragma pack(1)          Subsequent structs use 1-byte (packed) alignment</pre>
 <pre class="code-block">        #pragma pack(push,1)     Push current packing onto stack, switch to 1-byte</pre>
@@ -2903,12 +2941,14 @@ pre.code-block {
 <pre class="code-block">        __APPLE__                Predefined by compiler on macOS</pre>
 <pre class="code-block">        __linux__                Predefined by compiler on Linux</pre>
 <pre class="code-block">        _WIN32 / _WIN64          Predefined by compiler on Windows (_WIN64 on 64-bit)</pre>
+<pre class="code-block">        __aarch64__ / __x86_64__ / __arm__   Target architecture (from --target, else the host)</pre>
 <pre class="code-block">        __FILE__                 Current source file path (string literal)</pre>
 <pre class="code-block">        __LINE__                 Current source line number (integer)</pre>
 <pre class="code-block">        __ESKIU_FREESTANDING__   Predefined when --freestanding is passed</pre>
-<pre class="code-block">        #error message           Abort compilation with message (honors #ifdef)</pre>
+<pre class="code-block">        #error message           Abort compilation with message (only in an active branch)</pre>
+<pre class="code-block">        any other directive      Error (including #include; use import). Ignored inside a skipped branch</pre>
 <h3 class="subsection">Macro expansion</h3>
-<p>Macro bodies may span multiple lines using \ continuation. Macros expand recursively; a macro is not re-expanded within its own expansion. The macro table is shared across all files in a multi-file build.</p>
+<p>Macro bodies may span multiple lines using \ continuation. Macros expand recursively; a macro is not re-expanded within its own expansion. Arguments are split at top-level commas (string and character literals stay whole) and expanded before substitution. The <code>#</code> and <code>##</code> operators are not supported and are an error in a macro body. The macro table is shared across all files in a multi-file build.</p>
 <div class="chapter-start" id="ref-r8"><span class="chapter-label ref">Ref R8</span>
 <h1 class="chapter-title">Standard Library</h1><hr class="chapter-rule"></div>
 <h3 class="subsection">net: import &lt;net&gt;</h3>
@@ -2945,15 +2985,17 @@ pre.code-block {
  // Parser
  *JsonValue json_parse(string text)
  *JsonValue JsonValue_get(*JsonValue obj, string key)
- double JsonValue_as_double / string JsonValue_as_cstr / int JsonValue_is_null
- void JsonValue_free(*JsonValue)</pre>
+ int JsonValue_kind / int JsonValue_len / *JsonValue JsonValue_at(v, i)
+ int64 JsonValue_as_int / double JsonValue_as_double / int JsonValue_as_bool / *char JsonValue_as_cstr
+ void JsonValue_free(*JsonValue)
+ // json_parse is strict RFC 8259 and returns null on malformed input or trailing data</pre>
 <h3 class="subsection">alloc: import &lt;alloc&gt; (explicit allocators over a buffer you own)</h3>
 <pre class="code-block"> // All allocators use: *void T_alloc(T* self, int64 n) -&gt; plugs into alloc_with
  Bump:     Bump_init(buf, cap) / Bump_alloc / Bump_reset
  Arena: Arena_init / Arena_alloc / Arena_save / Arena_restore / Arena_reset
  Pool:     Pool_init(buf, cap, blockSize) / Pool_alloc / Pool_free
  FirstFit: FirstFit_init(buf, cap) / FirstFit_alloc / FirstFit_free
- sysheap: heap_init / heap_alloc / heap_free / heap_destroy</pre>
+ sysheap: Heap_init / Heap_alloc / Heap_free / Heap_destroy</pre>
 <h3 class="subsection">map: import &lt;map&gt;</h3>
 <pre class="code-block"> Map&lt;V&gt;: string-keyed hash map (open addressing, 0.75 load factor)
  Map_init&lt;V&gt;(&amp;m, cap)                         // initialise
@@ -3113,11 +3155,11 @@ pre.code-block {
  import &lt;atomic&gt;;       atomic_load       atomic_store       atomic_swap     atomic_cas</pre>
 <pre class="code-block"> // Async/await runtime
  import &lt;future&gt;;     Future&lt;T&gt;   future_new        future_complete       future_poll    free_future
- import &lt;eventloop&gt;;    el_new    el_add_read           el_add_timer    el_run   el_stop    el_free
+ import &lt;eventloop&gt;;    el_new    EventLoop_add_read           EventLoop_add_timer    EventLoop_run   EventLoop_stop    EventLoop_free
  import &lt;executor&gt;;     Executor (thread-safe ready-queue + wakeup)
  import &lt;net_async&gt;;    net_read_async      net_accept_async           net_write_async
  import &lt;timer&gt;;        timer_after(lp, ms) -&gt; *Future&lt;int&gt;
- import &lt;channel&gt;;      Chan&lt;T&gt;       chan_new    chan_send      chan_recv    chan_free</pre>
+ import &lt;channel&gt;;      Chan&lt;T&gt;       chan_new    Chan_send      Chan_recv    Chan_free</pre>
 <pre class="code-block"> // HTTP
  import &lt;http&gt;;         http_serve(port, workers, handler): threaded
  import &lt;http_async&gt;; http_serve_async(lp, fd, handler, n): event loop
@@ -3176,7 +3218,7 @@ pre.code-block {
 <h3 class="subsection">escaping closure</h3>
 <p>A closure whose environment outlives the function that created it, so it gets a heap-allocated env instead of a stack one. Mark the receiving parameter <code>escaping</code>; release it with <code>free_closure(f)</code>.</p>
 <h3 class="subsection">event loop</h3>
-<p>A reactor that watches file descriptors for readiness (kqueue/epoll) and resumes parked futures when I/O is ready. Provided by <code>&lt;eventloop&gt;</code>: <code>el_new</code> / <code>el_run</code> / <code>el_free</code>.</p>
+<p>A reactor that watches file descriptors for readiness (kqueue/epoll) and resumes parked futures when I/O is ready. Provided by <code>&lt;eventloop&gt;</code>: <code>el_new</code> / <code>EventLoop_run</code> / <code>EventLoop_free</code>.</p>
 <h3 class="subsection">extern</h3>
 <p>Declares a function from a C library. The compiler generates a C-ABI call and the linker resolves it; any C library is accessible this way.</p>
 <h3 class="subsection">fat pointer</h3>
