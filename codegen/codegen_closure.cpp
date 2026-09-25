@@ -69,13 +69,10 @@ llvm::Function* CodeGen::emitLambdaFunction(LambdaExpr* node,
     argIt = func->arg_begin();
     ++argIt; // skip env
     for (; argIt != func->arg_end(); ++argIt, ++i) {
-        llvm::Value* slot = &*argIt;
-        if (argIt->getType()->isStructTy()) {
-            auto* a = entryAlloca(argIt->getType(), nullptr,
-                                            node->params[i].second + ".byval");
-            builder->CreateStore(&*argIt, a);
-            slot = a;
-        }
+        // Every parameter gets a stack slot, as in a named function: the body may
+        // reassign it like a local, and a struct param has an address to GEP.
+        auto* slot = entryAlloca(argIt->getType(), nullptr, node->params[i].second);
+        builder->CreateStore(&*argIt, slot);
         defineSymbol(node->params[i].second, slot);
         defineVarType(node->params[i].second, node->params[i].first);
     }
