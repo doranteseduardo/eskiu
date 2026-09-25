@@ -44,8 +44,9 @@ non-null requirement is enforced by the type checker at compile time and adds no
 runtime cost or storage.
 
 A leading `*` and a trailing `[N]` follow the source rule that the array binds
-outermost: `*T[N]` is an array of N `ptr` elements, while a pointer to an array is
-spelled `T[N]*` (a single `ptr`). For C interop, libc `size_t` parameters and returns
+outermost: `*T[N]` is an array of N `ptr` elements. There is no pointer-to-array
+spelling (`T[N]*` does not parse); a `*T` to the first element is the single `ptr` C
+code expects for a `T (*)[N]`. For C interop, libc `size_t` parameters and returns
 (`strlen`, the size argument of `memcpy`/`memset`/`memmove`/`memcmp`/`memchr`) are
 declared `int64` so the extern signatures match the C ABI on 64-bit targets.
 

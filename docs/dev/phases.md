@@ -83,7 +83,7 @@ The project follows two phases:
 | Package manager | ❌ |
 | Self-hosting: lexer/parser/preprocessor/sema/codegen all in Eskiu; 3-stage bootstrap fixpoint, codegen feature-complete (v0.3.0, `selfhost/`) | ✅ |
 | Optimization levels: `-O0`/`-O1`/`-O2`/`-O3`; `-O1`+ run the LLVM middle-end before codegen (v0.3.1) | ✅ |
-| `*T[N]` = array of pointers; pointer-to-array is `T[N]*` (v0.3.1) | ✅ |
+| `*T[N]` = array of pointers (v0.3.1); no pointer-to-array spelling | ✅ |
 | Incompatible `fn`-type assignments rejected; libc `size_t` externs use `int64` (v0.3.1) | ✅ |
 | `-O0`-vs-`-O2` behavioral differential CI gate (`tests/opt_differential.sh`) (v0.3.1) | ✅ |
 
@@ -243,7 +243,7 @@ A hardening release over the self-hosting milestone. No new language surface.
 - [x] `-O0`/`-O1`/`-O2`/`-O3` optimization levels: `-O1`+ run the LLVM middle-end (mem2reg/SROA/instcombine/inlining/GVN) before code generation; `-O0` (default) unchanged.
 - [x] Fixed a float-closure `-O2` miscompile: sema reconciles a lambda's return type with its target `fn(...)->R` (a mismatched header returned `0.0` under `-O2`).
 - [x] Reject incompatible `fn`-type assignments (an `fn(P)->R1` value into an `fn(P)->R2` slot was a silent ABI miscompile; now a compile error).
-- [x] `*T[N]` parses as an array of pointers; a pointer to an array is `T[N]*`.
+- [x] `*T[N]` parses as an array of pointers. (There is no pointer-to-array spelling; `T[N]*` does not parse.)
 - [x] libc `size_t` externs (`memcpy`/`memset`/`memmove`/`memcmp`/`memchr` size arg, `strlen` return) use `int64`.
 - [x] New CI gate `tests/opt_differential.sh`: a `-O0`-vs-`-O2` behavioral differential over the whole corpus, catching optimization-path miscompiles.
 - [x] Parser self-host parity widened to the full corpus (51 → 121 files).

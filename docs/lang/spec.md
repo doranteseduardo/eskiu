@@ -241,9 +241,10 @@ int main() {
 ```
 
 When a leading `*` meets a trailing `[N]`, the **array binds outermost**: `*T[N]` is an
-*array of N pointers* (each element a `*T`), i.e. it reads as `(*T)[N]`. A *pointer to an
-array* is written with a trailing star instead: `T[N]*`. For example `*Node[7]` is seven
-`Node` pointers, while `Node[7]*` points at a seven-`Node` array.
+*array of N pointers* (each element a `*T`), i.e. it reads as `(*T)[N]`. For example
+`*Node[7]` is seven `Node` pointers. There is no spelling for a pointer to a whole array
+(`T[N]*` does not parse); point at the first element instead, `*Node p = &arr[0];`, and
+index through it (`p[i]`).
 
 The same rule applies to a function type: `fn(int)->int[2]` is an *array of 2 function
 values*, not a function returning an array (a function cannot return an array), so

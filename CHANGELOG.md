@@ -795,8 +795,9 @@ promotion track.
   scalar pointer, silently corrupting locals and crashing the compiler outright on
   a module-level array (a constant-folded GEP tripped an LLVM assertion). The
   trailing `[N]` now binds outermost, so `*Node[7]` is an array of 7 pointers
-  consistently across the type checker and codegen; a pointer *to* an array stays
-  spellable with a trailing star (`Node[7]*`). Found porting a C program whose
+  consistently across the type checker and codegen. (This entry used to say a
+  pointer to an array is spelled `Node[7]*`; that form does not parse, so point at the
+  first element with a `*Node` instead.) Found porting a C program whose
   central data structure was a module-level `Actividad *agenda[7]`.
 - **`<eventloop>`: initialize the `on_read` closure of every fd slot.** `el_new`
   zeroed `active`/`gen`/`isWrite` but left the `on_read` fat pointer as `alloc`
