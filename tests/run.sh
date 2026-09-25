@@ -374,6 +374,24 @@ for esk in "$here"/fmt_cases/*.esk; do
     else bad "$name" "formatted output differs from ${name}.formatted"; fi
 done
 
+# `eskiuc fmt` never changes behavior: a fmt case that builds must build and run the
+# same (exit code + stdout) after formatting.
+echo "Formatter behavior:"
+for esk in "$here"/fmt_cases/*.esk; do
+    [[ -e "$esk" ]] || continue
+    name="fmt_cases/$(basename "$esk" .esk)"
+    "$ESKIUC" "$esk" -o "$work/fmtb.orig" >/dev/null 2>&1 || continue
+    cp "$esk" "$work/fmtb.esk"
+    "$ESKIUC" fmt "$work/fmtb.esk" >/dev/null 2>&1
+    if ! "$ESKIUC" "$work/fmtb.esk" -o "$work/fmtb.fmt" >/dev/null 2>&1; then
+        bad "$name/behavior" "the formatted file no longer builds"; continue
+    fi
+    o1="$("$work/fmtb.orig" 2>&1)"; c1=$?
+    o2="$("$work/fmtb.fmt" 2>&1)"; c2=$?
+    if [[ "$c1" == "$c2" && "$o1" == "$o2" ]]; then ok "$name/behavior"
+    else bad "$name/behavior" "formatting changed the program (exit $c1 -> $c2)"; fi
+done
+
 # ---- C++ unit tests -------------------------------------------------------
 # The typed `Type` IR (sema/type.{h,cpp}) is a standalone, dependency-free unit;
 # its round-trip invariant (parse(s).str()==s) is checked here.

@@ -1,9 +1,11 @@
 // Source reformatter for `esk_main fmt` (promotion P2), a byte-for-byte mirror of the
 // C++ `formatSource` (main_support.cpp). The rule set is deliberately conservative:
 //   * 4-space indent per `{` nesting level, dedenting for each leading `}`
-//   * at most one blank line between blocks
-//   * trailing whitespace stripped, exactly one final newline per non-empty line
-// Each line's content (operators, inner spacing, comments) is preserved verbatim.
+//   * blank lines kept (every line keeps its number); only trailing ones are dropped
+//   * trailing whitespace stripped (except after a trailing `\`, where trimming would
+//     create a continuation), exactly one final newline per non-empty line
+// Each line's content (operators, inner spacing, comments, every byte of a string or
+// char literal) is preserved verbatim; only a CRLF line ending's `\r` is taken off.
 // Braces inside strings, char literals and comments are ignored, so the transform is
 // idempotent and safe. Preprocessor lines (`#…`) sit at column 0 and do not nest.
 
@@ -52,15 +54,15 @@ void fmt_eol(String* out, int crlf) {
 }
 
 // Reindent `src` (n bytes) and return the formatted text. Mirrors the C++ line split
-// (strip `\r`, break on `\n`, with the remainder after the last `\n` as a final line)
+// (break on `\n`, drop the one `\r` before it, with the remainder after the last `\n`
+// as a final line)
 // and keeps the file's line ending (CRLF if its first line break is `\r\n`).
 String format_source(*uint8 src, int n) {
     let out: String;
     String_init(&out, n + 64);
     let depth: int = 0;    // current `{` nesting
     let inBlock: int = 0;  // inside a /* … */ block comment
-    int pendingBlank = 0;  // blank lines buffered (for collapsing)
-    int wroteAny = 0;
+    int pendingBlank = 0;  // blank lines buffered (dropped only at the end of the file)
     int crlf = 0;
     int fnl = 0;
     while (fnl < n && src[fnl] != 10) { fnl = fnl + 1; }
@@ -75,11 +77,12 @@ String format_source(*uint8 src, int n) {
     int done = 0;
     while (done == 0) {
         String_clear(&raw);
-        while (i < n && src[i] != 10) {
-            if (src[i] != 13) { String_push(&raw, (char)src[i]); }
+        while (i < n && src[i] != 10) { String_push(&raw, (char)src[i]); i = i + 1; }
+        if (i < n) {                // consume the '\n', and a CRLF ending's '\r'
             i = i + 1;
+            int rl = (int)String_len(&raw);
+            if (rl > 0 && (int)String_char_at(&raw, rl - 1) == 13) { raw.len = raw.len - 1; raw.data[raw.len] = 0; }
         }
-        if (i < n) { i = i + 1; }   // consume the '\n'
         else { done = 1; }          // final remainder line: process it, then stop
 
         int rlen = (int)String_len(&raw);
@@ -98,7 +101,6 @@ String format_source(*uint8 src, int n) {
                 }
                 else { b = b + 1; }
             }
-            wroteAny = 1;
             continue;
         }
 
@@ -107,6 +109,7 @@ String format_source(*uint8 src, int n) {
         while (ts < rlen && (rb[ts] == 32 || rb[ts] == 9)) { ts = ts + 1; }
         int te = rlen;
         while (te > ts && (rb[te - 1] == 32 || rb[te - 1] == 9)) { te = te - 1; }
+        if (te > ts && rb[te - 1] == 92) { te = rlen; }   // `\ ` must not become a continuation
         String_clear(&t);
         int cp = ts;
         while (cp < te) { String_push(&t, (char)rb[cp]); cp = cp + 1; }
@@ -115,14 +118,12 @@ String format_source(*uint8 src, int n) {
 
         if (tlen == 0) { pendingBlank = pendingBlank + 1; continue; }
 
-        if (wroteAny == 1 && pendingBlank > 0) { fmt_eol(&out, crlf); }  // collapse to one blank
-        pendingBlank = 0;
+        while (pendingBlank > 0) { fmt_eol(&out, crlf); pendingBlank = pendingBlank - 1; }   // keep every blank line
 
         if (tb[0] == 35) {          // '#' preprocessor line: column 0, no nesting change
             int a = 0;
             while (a < tlen) { String_push(&out, (char)tb[a]); a = a + 1; }
             fmt_eol(&out, crlf);
-            wroteAny = 1;
             continue;
         }
 
@@ -139,7 +140,6 @@ String format_source(*uint8 src, int n) {
         int a = 0;
         while (a < tlen) { String_push(&out, (char)tb[a]); a = a + 1; }
         fmt_eol(&out, crlf);
-        wroteAny = 1;
 
         fmt_scan(tb, tlen, 0, &depth, &inBlock);   // update nesting from this line's code
     }
