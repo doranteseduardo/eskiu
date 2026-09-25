@@ -1,0 +1,17 @@
+// A named function returning a large struct (sret) called through a fn value: the
+// `__fnptr_` thunk returns the struct by value like any closure.
+extern int printf(string fmt, ...);
+
+struct V { int64 a; int64 b; int64 c; }
+
+V mkv(int64 k) { let v: V; v.a = k; v.b = k * 2; v.c = k * 3; return v; }
+
+V apply(fn(int64)->V f, int64 k) { return f(k); }
+
+int main() {
+    let f: fn(int64)->V = mkv;
+    V v = f(5);
+    V w = apply(mkv, 7);
+    printf("%lld %lld %lld %lld\n", v.a, v.c, w.b, w.c);
+    return 0;
+}

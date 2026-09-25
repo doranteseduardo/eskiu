@@ -700,16 +700,21 @@ llvm::Value* CodeGen::makeFunctionPointer(llvm::Function* target) {
     std::string wname = "__fnptr_" + target->getName().str();
     llvm::Function* wrapper = module->getFunction(wname);
     if (!wrapper) {
-        // Thunk: (env*, params...) -> ret  that ignores env and calls target. A
-        // C-ABI-lowered extern is wrapped at its Eskiu-level signature.
+        // Thunk: (env*, params...) -> ret  that ignores env and calls target. It
+        // presents the Eskiu-level signature an indirect call uses: a C-ABI-lowered
+        // extern is wrapped at its logical signature, and an sret function returns
+        // its struct by value (the thunk passes the hidden sret slot itself).
         auto abiIt = externAbi.find(target->getName().str());
+        auto sretIt = funcSretTypes.find(target->getName().str());
+        bool viaSret = abiIt == externAbi.end() && sretIt != funcSretTypes.end();
         llvm::FunctionType* tfty = abiIt != externAbi.end() ? abiIt->second.logical
                                                             : target->getFunctionType();
         std::vector<llvm::Type*> wparams;
         wparams.push_back(ptrTy);  // env (unused)
-        for (llvm::Type* pt : tfty->params()) wparams.push_back(pt);
-        llvm::FunctionType* wfty = llvm::FunctionType::get(
-            tfty->getReturnType(), wparams, tfty->isVarArg());
+        auto tparams = tfty->params();
+        for (size_t i = viaSret ? 1 : 0; i < tparams.size(); ++i) wparams.push_back(tparams[i]);
+        llvm::Type* wret = viaSret ? sretIt->second : tfty->getReturnType();
+        llvm::FunctionType* wfty = llvm::FunctionType::get(wret, wparams, tfty->isVarArg());
         wrapper = llvm::Function::Create(wfty, llvm::Function::InternalLinkage,
                                          wname, module.get());
 
@@ -717,12 +722,18 @@ llvm::Value* CodeGen::makeFunctionPointer(llvm::Function* target) {
         llvm::BasicBlock* entry = llvm::BasicBlock::Create(*context, "entry", wrapper);
         builder->SetInsertPoint(entry);
         std::vector<llvm::Value*> callArgs;
+        llvm::Value* sretSlot = nullptr;
+        if (viaSret) {
+            sretSlot = builder->CreateAlloca(sretIt->second, nullptr, "sret.tmp");
+            callArgs.push_back(sretSlot);
+        }
         auto ai = wrapper->arg_begin(); ++ai;  // skip env
         for (; ai != wrapper->arg_end(); ++ai) callArgs.push_back(&*ai);
         llvm::Value* r = abiIt != externAbi.end()
             ? emitCAbiCall(target, abiIt->second, callArgs, /*allowInvoke=*/false)
             : builder->CreateCall(target, callArgs);
-        if (tfty->getReturnType()->isVoidTy()) builder->CreateRetVoid();
+        if (viaSret) builder->CreateRet(builder->CreateLoad(sretIt->second, sretSlot));
+        else if (tfty->getReturnType()->isVoidTy()) builder->CreateRetVoid();
         else builder->CreateRet(r);
         if (prev) builder->SetInsertPoint(prev);
     }
