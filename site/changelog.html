@@ -103,8 +103,200 @@ footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
 <p>The format is based on <a href="https://keepachangelog.com/en/1.1.0/">Keep a Changelog</a>.
 Versions follow <code>MAJOR.MINOR.PATCH-stage</code> (e.g. <code>0.0.9-alpha</code>).</p>
 <hr>
-<h2 id="091-2026-09-09">[0.9.1] - 2026-09-09</h2>
+<h2 id="092-2026-09-25">[0.9.2] - 2026-09-25</h2>
+<p>A full-project audit (codegen, type checker, self-host parity, stdlib, front end, driver
+and docs) found about a hundred latent bugs that the existing corpus did not reach. All
+are fixed lockstep in the C++ and self-hosted compilers unless noted, each with a
+regression test.</p>
+<h3 id="added">Added</h3>
+<ul>
+<li><strong><code>#if</code> / <code>#elif</code></strong> with C integer constant expressions (<code>defined(X)</code>, <code>defined X</code>,
+  arithmetic, shifts, comparisons, <code>&amp;&amp;</code>, <code>||</code>, <code>?:</code>). An identifier left after macro
+  expansion counts as <code>0</code>, as in C.</li>
+<li><strong>Interface values.</strong> An interface is now a real <code>{data, vtable}</code> value, so an
+  interface-typed local, struct field, return value or assignment works (these compiled
+  and then crashed before). The value refers to a struct through <code>&amp;x</code>.</li>
+<li><strong><code>const</code> receivers.</strong> A method declared with <code>const T* self</code> can be called on a
+  <code>const</code> value.</li>
+<li><strong>C ABI for structs passed or returned by value across <code>extern</code></strong>: AArch64, x86-64
+  SysV, Windows x64 and 32-bit ARM in the C++ compiler, AArch64 and x86-64 SysV in the
+  self-host. New predefined macros <code>__aarch64__</code>, <code>__x86_64__</code> and <code>__arm__</code> follow the
+  target.</li>
+<li><strong>Test runner:</strong> a <code>run</code> or smoke test may have a C companion <code>tests/NAME.c</code> that is
+  compiled and linked in; <code>tests/warnings/NAME.esk</code> is a new lint kind that asserts the
+  exact <code>-Wall</code> warnings (<code>// EXPECT-WARNING:</code> lines).</li>
+<li>The compiler builds against LLVM 23 as well as LLVM 22. The minimum is now LLVM 21.</li>
+</ul>
+<h3 id="changed-may-reject-or-change-the-behavior-of-existing-programs">Changed (may reject or change the behavior of existing programs)</h3>
+<ul>
+<li><strong>A non-constant global initializer is a compile error.</strong> <code>int g = f();</code>, or a read of
+  a non-<code>const</code> global, used to compile to a silent <code>0</code>. Constant expressions
+  (arithmetic, casts, ternaries, <code>sizeof</code>, enum members, <code>const</code> values, <code>&amp;global</code>) fold
+  correctly.</li>
+<li><strong>Narrow integer operands promote to <code>int</code> before arithmetic and comparison</strong> (the C
+  integer promotions). <code>(uint8)200 + (uint8)100</code> is <code>300</code>, and <code>uint8 200 &gt; int8 -1</code> is
+  true.</li>
+<li><strong>Conversion to <code>bool</code> is <code>!= 0</code></strong> for integer, float and pointer sources. It used to
+  keep only the low bit, so <code>(bool)2</code> was false.</li>
+<li><strong><code>ptr - ptr</code> counts elements</strong>, not bytes (C++; the self-host already did).</li>
+<li><strong>Passing a struct by value where an interface is expected is an error</strong>; pass <code>&amp;x</code>.</li>
+<li><strong>Interface conformance checks method signatures</strong> (return type, arity, parameter
+  types), not only method names.</li>
+<li><strong>Duplicate and conflicting declarations are errors</strong>: same-scope locals, globals,
+  parameters, fields, enum members, structs with different fields, a second <code>default:</code>,
+  one name used for a function and a global (or a struct, or a method), and a prototype
+  whose signature differs from its definition.</li>
+<li><strong>Struct literals are type-checked</strong>: field types, literal ranges, too many
+  initializers, a field given twice. Omitted fields are zero-filled.</li>
+<li><strong><code>sizeof(variable)</code></strong> gives the size of the variable's type; an unknown name is an
+  error.</li>
+<li><strong>Methods called on a <code>const</code> value</strong> must declare <code>const T* self</code>, and <code>&amp;</code> of a
+  <code>const</code> value no longer converts to a non-<code>const</code> pointer.</li>
+<li><strong><code>match</code> on a classic enum</strong> whose members share a value rejects a second arm for the
+  same value.</li>
+<li><strong>Preprocessor:</strong> unknown directives, <code>#include</code> (use <code>import</code>), a stray or duplicate
+  <code>#else</code>/<code>#elif</code>/<code>#endif</code>, a conditional left open, and <code>#</code> or <code>##</code> in a macro body are
+  located errors instead of being silently dropped.</li>
+<li><strong>Numeric literals:</strong> an invalid digit in an octal literal (<code>08</code>, <code>019</code>) is an error
+  (it was read as decimal), as are <code>0x</code> with no digits and any suffix (<code>0b101</code>, <code>1_000</code>,
+  <code>3.5f</code>).</li>
+<li><strong>Strict stdlib parsers:</strong> <code>json_parse</code> follows RFC 8259 (exact literals, no trailing
+  garbage, <code>\uXXXX</code> decoding); <code>base64_decode</code> rejects bad padding and truncated input; a
+  malformed or overflowing <code>Content-Length</code> gets a 400; <code>String_to_int</code> saturates and
+  accepts a leading <code>+</code>; <code>http_reason</code> returns the class name (or an empty string) for
+  an unknown code instead of "OK".</li>
+</ul>
+<h3 id="deprecated">Deprecated</h3>
+<ul>
+<li>Stdlib modules built around a struct now use <code>Type_method</code> names, as the naming
+  convention says: <code>Rng_*</code> (<code>&lt;random&gt;</code>), <code>Regex_search</code>/<code>Regex_free</code>/<code>Match_*</code>
+  (<code>&lt;regex&gt;</code>), <code>Heap_*</code> (<code>&lt;sysheap&gt;</code>), <code>EventLoop_*</code> (<code>&lt;eventloop&gt;</code>), <code>Executor_*</code>
+  (<code>&lt;executor&gt;</code>), <code>Chan_*</code> (<code>&lt;channel&gt;</code>), <code>HpackDecoder_*</code>/<code>HpackHuff_*</code> (<code>&lt;hpack&gt;</code>),
+  <code>H2Conn_*</code>/<code>H2Stream_*</code> (<code>&lt;http2&gt;</code>), <code>DateTime_to_epoch</code>/<code>DateTime_format_iso</code>
+  (<code>&lt;time&gt;</code>). Factories keep their names (<code>el_new</code>, <code>executor_new</code>, <code>chan_new</code>,
+  <code>regex_compile</code>). The old names remain as wrappers and will be removed in a later
+  release. <code>String_is_space</code> is deprecated in favor of <code>is_space</code> from <code>&lt;ctype&gt;</code>.</li>
+</ul>
 <h3 id="fixed">Fixed</h3>
+<h4 id="miscompiles-of-valid-code">Miscompiles of valid code</h4>
+<ul>
+<li>A <code>let</code> in a nested block overwrote the outer variable of the same name for the rest of
+  the function (including inside <code>for</code> bodies and across <code>await</code>).</li>
+<li>Compound assignment (<code>a[f()] += 1</code>, <code>a[i++] += 5</code>, <code>getf().lo += 2</code> on a bitfield)
+  evaluated its left side twice.</li>
+<li>An unbraced <code>defer</code> (<code>if (c) defer ...;</code>, a <code>case</code> body, a loop body) ran even when it
+  was never reached; an unbraced body is now its own scope.</li>
+<li>A ternary with a literal wider than 32 bits or an unsigned arm was truncated, and a
+  <code>null</code> arm crashed LLVM (the <code>null</code> arm in C++ only).</li>
+<li>A lambda body inherited the enclosing function's defers, loop targets and unwind
+  block, and a generic first instantiated inside <code>try</code> produced invalid IR (C++).</li>
+<li><code>finally</code> now runs when a <code>catch</code> handler leaves by <code>return</code>, <code>break</code> or <code>continue</code>.</li>
+<li>A <code>static</code> local captured by a closure is shared (not copied), and an uninitialized
+  <code>static</code> starts at zero.</li>
+<li>A range loop's upper bound (<code>for (i in 0..n())</code>) is evaluated once.</li>
+<li>Operator overloads inside generic bodies, <code>for (row in m)</code> over a 2D array, and
+  denormal or overflowing float literals (C++).</li>
+<li>Member, index and method access on rvalues (<code>mk().a[1]</code>, <code>a.add(b).add(c)</code>); <code>!</code> on
+  pointers and floats and a unary <code>operator !</code> overload; <code>case K:</code> with a <code>const</code> or a
+  constant expression.</li>
+<li>Unions have C alignment; bitfield <code>++</code>/<code>--</code> works, bitfields use C storage words, and
+  their signedness follows the dealiased type.</li>
+<li>Async: <code>do</code>/<code>while</code>, <code>defer</code> and lambdas capturing locals work inside an <code>async fn</code>;
+  a local named <code>fr</code> no longer collides with the frame pointer, and shadowed names inside
+  lambda bodies are renamed correctly.</li>
+<li>Self-host: expression temporaries no longer allocate stack on every loop iteration
+  (long loops overflowed the stack); pointer arithmetic, promotions and ternaries get the
+  right type; ADT payloads with arrays or nested enums, and bitfield structs, have the
+  same size as in the C++ compiler; negative and non-<code>i32</code> global constants keep their
+  value; calling a returned closure directly works; an <code>extern</code> followed by its
+  definition no longer emits two definitions; chained assignment yields the converted
+  value.</li>
+</ul>
+<h4 id="type-checker">Type checker</h4>
+<ul>
+<li>Missing-return analysis is sound for labeled <code>break</code>, <code>break</code> before a <code>return</code>, and
+  <code>switch</code> fall-through, and no longer flags a case that falls into a returning
+  <code>default</code>.</li>
+<li><code>?*T</code> narrowing is flow-sensitive (a reassignment or a shadowing declaration ends it)
+  and covers <code>&amp;&amp;</code>, <code>||</code>, <code>!</code>, early-exit guards (<code>if (p == null) return ...;</code>), loop
+  conditions and ternaries. A narrowed pointer can be passed or assigned as <code>*T</code>.</li>
+<li>Calls through <code>fn</code> values, fields and interface methods, and generic calls, check the
+  argument count and types; a generic call also checks its type-argument count and
+  reports a type argument it cannot infer. <code>break</code>/<code>continue</code> escaping a lambda is
+  rejected.</li>
+<li>Located errors instead of compiler crashes for cyclic type aliases, <code>void</code> variables,
+  parameters and fields, float, pointer or over-wide bitfields, a struct containing
+  itself by value, unknown types and wrong template argument counts. An unknown type no
+  longer triggers a cascade of conversion errors.</li>
+<li>Errors that only codegen used to report (assigning to an rvalue, <code>&amp;</code> of an rvalue or a
+  bitfield, invalid indexing and casts, a non-constant <code>case</code>, <code>break</code> outside a loop,
+  constant slice bounds out of range) now come from the type checker with a location.
+  Integer literals in compound assignments and ternary arms are range-checked.</li>
+<li><code>must_use</code> applies to method-call syntax. An assignment target is no longer reported
+  as an uninitialized read. A leading-star pointer to a generic instance (<code>*List&lt;int&gt;</code>)
+  is accepted as a declared type.</li>
+<li><code>-Wall</code> no longer flags methods used through dot calls, interfaces or operators, or
+  the parameters of prototypes and lambdas; the unused-parameter warning points at the
+  parameter. Diagnostics spell operator functions as <code>operator +(V, V)</code>.</li>
+<li>Self-host: dot calls to free-function methods (<code>s.trim()</code>) are accepted; many invalid
+  programs it used to accept (C-style array declarators, <code>++</code> on a float, a mismatched
+  <code>?</code>, misplaced array literals) are rejected like the C++ compiler; its diagnostics
+  carry <code>line:col</code>.</li>
+</ul>
+<h4 id="front-end-driver-and-tooling">Front end, driver and tooling</h4>
+<ul>
+<li><code>x &lt; y &gt;&gt; 1</code> parses (a backtracked generic parse left <code>&gt;&gt;</code> split), and <code>(*p)</code> parses
+  as a dereference rather than a cast.</li>
+<li>Macro arguments keep string and character literals whole, nested macro calls in
+  arguments expand, and an apostrophe in a comment no longer stops expansion. CRLF
+  sources and <code>\</code> continuations work.</li>
+<li>Imports are deduplicated by canonical path, so diamond and circular imports work.</li>
+<li>Every diagnostic is <code>file:line:col</code>, including parse and lexer errors; an error inside
+  an imported file names that file; parse errors recover at the next declaration.</li>
+<li>The <code>--test-*</code> modes predefine the same macros as a real build and exit non-zero on
+  errors; <code>--definition-at</code> resolves by scope.</li>
+<li><code>run</code> exits with <code>128+signal</code> when the program is killed, drops a <code>--</code> separator and
+  accepts flags with values before the script. <code>-o</code> naming an input file, a directory
+  input and <code>-O4</code> are refused. <code>--help</code> lists the Eskiu options and subcommands without
+  LLVM's internal ones. <code>$CC</code> may carry arguments.</li>
+<li>Nesting-depth and operator-chain limits replace stack overflows on pathological input.</li>
+<li><code>fmt</code> indents code after a closing <code>*/</code> and preserves CRLF line endings.</li>
+<li>Self-host driver: spawns clang without a shell (safe with any argument), accepts the
+  full flag set, finds the stdlib through <code>$ESKIU_ROOT</code>, and reports a missing import as
+  an error.</li>
+<li>VS Code server: full-document sync, unsaved buffers resolve relative imports, and the
+  version comes from <code>package.json</code> (extension 0.0.26).</li>
+</ul>
+<h4 id="standard-library-memory-safety">Standard library: memory safety</h4>
+<ul>
+<li><code>tls_read_frame</code> / <code>tls_read_frame_async</code> check the peer's frame length (heap
+  overflow).</li>
+<li>HPACK: a table-size update above the SETTINGS limit is rejected (heap overflow), a
+  literal naming an evicted entry no longer reads freed memory, and integer and string
+  decoding stay inside the header block.</li>
+<li>A dropped <code>Chan_recv</code> future no longer leaves a dangling waiter.</li>
+<li><code>fs_read_all</code> works on pipes and stdin; <code>String_concat(&amp;s, &amp;s)</code> and
+  <code>Bytes_append(&amp;b, &amp;b)</code> no longer read freed memory; the <code>Map</code> hash can't go negative.</li>
+<li>HTTP/2 response headers are sized to fit and split into CONTINUATION frames.</li>
+</ul>
+<h4 id="standard-library-logic">Standard library: logic</h4>
+<ul>
+<li>Regex: repeated groups (<code>(a){8}</code>) match, capture memory is bounded, <code>a{3,1}</code> is an
+  error, and a leading <code>]</code> in a class is literal.</li>
+<li><code>Json_int</code> writes the full <code>int64</code>, the builder escapes control characters, and a
+  failed parse frees its partial tree.</li>
+<li>HTTP: header values are trimmed of optional whitespace and error bodies are valid
+  JSON.</li>
+<li>Multipart no longer matches <code>name=</code> inside <code>filename=</code> and handles empty fields;
+  <code>net_write_async</code> no longer leaks; <code>EventLoop</code>/<code>Executor</code> close their descriptors and
+  the timer table grows.</li>
+<li><code>FirstFit</code> (and so <code>&lt;sysheap&gt;</code>) coalesces adjacent free blocks; freeing <code>null</code> is a
+  no-op.</li>
+<li><code>String_from_int(INT_MIN)</code>, <code>String_init(&amp;s, 0)</code>, POSIX <code>dirname</code>/<code>basename</code> edge
+  cases, negative ISO years and <code>env_get_int</code> fallbacks on non-numeric values.</li>
+</ul>
+<h2 id="091-2026-09-09">[0.9.1] - 2026-09-09</h2>
+<h3 id="fixed_1">Fixed</h3>
 <p>A correctness campaign (a multi-front bug hunt) closed a set of latent miscompiles and
 type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unless noted.</p>
 <ul>
@@ -131,7 +323,7 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
   miscompile.</li>
 </ul>
 <h2 id="090-2026-09-08">[0.9.0] - 2026-09-08</h2>
-<h3 id="added">Added</h3>
+<h3 id="added_1">Added</h3>
 <ul>
 <li><strong>Labeled <code>break</code> and <code>continue</code>.</strong> A loop can be named with a leading label
   (<code>outer: for (...) { ... }</code>), and <code>break outer</code> / <code>continue outer</code> act on that loop
@@ -142,7 +334,7 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
   innermost first), may not escape a <code>defer</code> body, and is not supported inside an
   <code>async fn</code>. Implemented lockstep in both the C++ and the self-hosted compiler.</li>
 </ul>
-<h3 id="fixed_1">Fixed</h3>
+<h3 id="fixed_2">Fixed</h3>
 <ul>
 <li><strong>Global array initializers are no longer dropped.</strong> A global (or <code>static</code> local) array
   literal such as <code>int[3] G = {10, 20, 30};</code> was silently zero-filled: only scalar globals
@@ -153,7 +345,7 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
   constant form). Fixed in both compilers. Locals were unaffected.</li>
 </ul>
 <h2 id="080-2026-08-21">[0.8.0] - 2026-08-21</h2>
-<h3 id="fixed_2">Fixed</h3>
+<h3 id="fixed_3">Fixed</h3>
 <ul>
 <li><strong>The release binaries are self-contained.</strong> <code>eskiuc</code> picked up z3 and zstd as dynamic
   libraries from the build machine (versioned <code>/opt/homebrew/...</code> paths on macOS; <code>libz3.so</code>,
@@ -187,7 +379,7 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
   (<code>windows.yml</code>): a <code>try</code>/<code>catch</code> program compiles, links with the mingw C++ runtime, and
   catches the throw.</li>
 </ul>
-<h3 id="added_1">Added</h3>
+<h3 id="added_2">Added</h3>
 <ul>
 <li><strong><code>match</code> on classic (payload-less) enums.</strong> A plain <code>enum Dir { N, E, S, W }</code> can now be
   <code>match</code>ed with exhaustiveness checking, the same guarantee algebraic enums already had:
@@ -226,7 +418,7 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
   whose raw heap is not already zero (Linux), while working on those whose is (macOS).</li>
 </ul>
 <h2 id="070">[0.7.0]</h2>
-<h3 id="added_2">Added</h3>
+<h3 id="added_3">Added</h3>
 <ul>
 <li><strong><code>extern</code> variables.</strong> <code>extern &lt;type&gt; &lt;name&gt;;</code> declares a global defined in another
   translation unit (a C global), emitting an external-linkage declaration with no
@@ -248,7 +440,7 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
   An eskiuc object built this way links cleanly into a <code>.3dsx</code> homebrew via the devkitARM
   toolchain.</li>
 </ul>
-<h3 id="fixed_3">Fixed</h3>
+<h3 id="fixed_4">Fixed</h3>
 <ul>
 <li><strong>Float arguments narrow at the call site.</strong> A <code>double</code> literal (Eskiu's default float
   literal type) passed to a <code>float</code> parameter was left as <code>double</code>, so the argument type
@@ -268,14 +460,14 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
 </ul>
 <hr>
 <h2 id="062">[0.6.2]</h2>
-<h3 id="added_3">Added</h3>
+<h3 id="added_4">Added</h3>
 <ul>
 <li><strong>Cross-compilation targets the right platform.</strong> The <code>--target</code> triple now drives the
   predefined platform macro (<code>__APPLE__</code> / <code>__linux__</code>), so <code>eskiuc --target x86_64-linux-gnu</code>
   on macOS selects the Linux stdlib paths (epoll, Linux <code>sockaddr_in</code>) instead of emitting
   unresolved BSD symbols. With no <code>--target</code> it still follows the build host.</li>
 </ul>
-<h3 id="fixed_4">Fixed</h3>
+<h3 id="fixed_5">Fixed</h3>
 <ul>
 <li><strong>Event-loop timer callbacks are initialized.</strong> <code>el_new</code> allocated the timer array but
   only zeroed each timer's <code>active</code> flag, leaving the <code>on_fire</code> closure as heap garbage
@@ -300,7 +492,7 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
 </ul>
 <hr>
 <h2 id="061">[0.6.1]</h2>
-<h3 id="added_4">Added</h3>
+<h3 id="added_5">Added</h3>
 <ul>
 <li><strong><code>\xNN</code> hex escape</strong> in string and character literals: one or two hex digits decode
   to a raw byte, so byte-precise strings are possible (e.g. <code>"\xC3\x91"</code> is <code>Ñ</code> in UTF-8,
@@ -311,7 +503,7 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
   fixed arrays. Write-through the slice aliases the backing buffer, and <code>.len</code> /
   indexing / <code>for-in</code> work as on any slice.</li>
 </ul>
-<h3 id="fixed_5">Fixed</h3>
+<h3 id="fixed_6">Fixed</h3>
 <ul>
 <li><strong>Escape sequences in string and character literals.</strong> <code>\0</code> now decodes to a NUL
   byte instead of the character <code>'0'</code> (a silent trap), character literals accept <code>\r</code>
@@ -337,7 +529,7 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
   spec section and a <code>--safe</code> flag row, and corrected glossary token-type names.</li>
 </ul>
 <h2 id="060">[0.6.0]</h2>
-<h3 id="added_5">Added</h3>
+<h3 id="added_6">Added</h3>
 <ul>
 <li><strong><code>&lt;sort&gt;</code> stdlib module.</strong> Generic in-place <code>sort&lt;T&gt;(a, n, cmp)</code> (heapsort, a
   guaranteed O(n log n) worst case) and <code>bsearch&lt;T&gt;(a, n, key, cmp)</code> over a <code>*T</code> array,
@@ -392,7 +584,7 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
   builds are unaffected. (Self-host mirror of <code>--safe</code> is deferred to the promotion
   track; the shipped C++ compiler carries it.)</li>
 </ul>
-<h3 id="fixed_6">Fixed</h3>
+<h3 id="fixed_7">Fixed</h3>
 <ul>
 <li><strong><code>finally</code> was skipped on an early <code>return</code>/<code>break</code>/<code>continue</code> from inside a <code>try</code>
   body.</strong> The cleanup only ran on fall-through and exception unwind; an early exit jumped
@@ -404,7 +596,7 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
 <p>Fills a set of basic C constructs the language was missing, so idiomatic C ports
 compile without workarounds. Each lands in lockstep across the C++ and self-hosted
 compilers and follows C semantics.</p>
-<h3 id="added_6">Added</h3>
+<h3 id="added_7">Added</h3>
 <ul>
 <li><strong><code>do</code>/<code>while</code> loops.</strong> <code>do { ... } while (cond);</code> runs the body once before testing
   the condition, as in C.</li>
@@ -427,7 +619,7 @@ compilers and follows C semantics.</p>
   matching same-level <code>:</code> ahead is a ternary, otherwise propagation (parenthesize to
   propagate inside a ternary arm).</li>
 </ul>
-<h3 id="fixed_7">Fixed</h3>
+<h3 id="fixed_8">Fixed</h3>
 <ul>
 <li><strong><code>switch</code> on a sub-<code>int</code> subject.</strong> A <code>switch</code> over a <code>char</code> (or other narrow integer)
   with wider case constants failed LLVM verification; the subject and case constants are
@@ -441,7 +633,7 @@ and self-hosted compilers found a batch of miscompiles, crashes, and soundness h
 this release fixes them and tightens the type system. The shipped (C++) compiler carries
 every fix below; the self-hosted compiler's matching sema checks are tracked for the
 promotion track.</p>
-<h3 id="fixed_8">Fixed</h3>
+<h3 id="fixed_9">Fixed</h3>
 <ul>
 <li><strong>A catch-less <code>try</code>/<code>finally</code> aborted when an exception passed through it.</strong> With an
   in-flight exception, the <code>finally</code> block was skipped and the runtime aborted
@@ -543,7 +735,7 @@ promotion track.</p>
 </ul>
 <hr>
 <h2 id="031">[0.3.1]</h2>
-<h3 id="fixed_9">Fixed</h3>
+<h3 id="fixed_10">Fixed</h3>
 <ul>
 <li><strong><code>*T[N]</code> now parses as an array of pointers, not a pointer to an array.</strong> The
   type-string parser (<code>ty::Type::parse</code>) peeled a leading <code>*</code> before the trailing
@@ -604,7 +796,7 @@ promotion track.</p>
 analyzer, and code generator) is reimplemented in Eskiu (<code>selfhost/</code>), reaches a 3-stage
 bootstrap fixpoint, and the self-hosted codegen is <strong>feature-complete against the C++
 corpus</strong> (a full feature sweep is clean). All parity/self-host/bootstrap gates are CI-wired.</p>
-<h3 id="fixed_10">Fixed</h3>
+<h3 id="fixed_11">Fixed</h3>
 <ul>
 <li><strong><code>&amp;&amp;</code> and <code>||</code> now short-circuit.</strong> Code generation evaluated both operands eagerly
   and emitted a logical-and/or, so the right-hand side always ran; a guarded
@@ -622,7 +814,7 @@ corpus</strong> (a full feature sweep is clean). All parity/self-host/bootstrap 
   4 GB. They are now <code>int64</code>, matching <code>size_t</code>. Behavior is unchanged for the common
   sub-4 GB case (the value zero-extends into the argument register either way).</li>
 </ul>
-<h3 id="added_7">Added</h3>
+<h3 id="added_8">Added</h3>
 <ul>
 <li><strong><code>-O</code> optimization levels.</strong> <code>eskiuc -O1</code>/<code>-O2</code>/<code>-O3</code> now runs the LLVM middle-end
   pipeline (mem2reg/SROA/instcombine/inlining/GVN/...) over the module before code
@@ -807,7 +999,7 @@ corpus</strong> (a full feature sweep is clean). All parity/self-host/bootstrap 
 </ul>
 <hr>
 <h2 id="025">[0.2.5]</h2>
-<h3 id="added_8">Added</h3>
+<h3 id="added_9">Added</h3>
 <ul>
 <li><strong><code>&lt;ctype&gt;</code> stdlib module.</strong> Pure-Eskiu ASCII character classification (no libc,
   freestanding-safe): <code>is_space</code>, <code>is_digit</code>, <code>is_hex</code>, <code>is_alpha</code>, <code>is_alnum</code>,
@@ -840,7 +1032,7 @@ corpus</strong> (a full feature sweep is clean). All parity/self-host/bootstrap 
   uniformly mis-lexed program), guards the comment-continuation footgun fixed
   below.</li>
 </ul>
-<h3 id="fixed_11">Fixed</h3>
+<h3 id="fixed_12">Fixed</h3>
 <ul>
 <li><strong>Preprocessor: a <code>//</code> comment ending in <code>\</code> no longer swallows the next source
   line.</strong> Backslash-newline line continuation was applied unconditionally, so a
@@ -1177,7 +1369,7 @@ thread_join(t);
 <li><code>volatile</code> MMIO, <code>asm(...)</code> with GCC-compatible constraints</li>
 </ul>
 <h2 id="0014-alpha">[0.0.14-alpha]</h2>
-<h3 id="added_9">Added</h3>
+<h3 id="added_10">Added</h3>
 <p><strong>Inline assembly</strong>
 - <code>asm("cli");</code>: simple form; passes the string verbatim to the assembler with no inputs, outputs, or clobbers
 - <code>asm("outb %0, %1" :: "a"(val), "Nd"(port) : "memory");</code>: extended form with GCC-compatible constraint syntax; supports input operands, output operands, and clobber lists
@@ -1194,13 +1386,13 @@ thread_join(t);
 <p><strong>v0.1 prerequisites complete</strong>
 - All compiler prerequisites for the kernel-on-QEMU milestone are implemented and tested</p>
 <h2 id="0013-alpha">[0.0.13-alpha]</h2>
-<h3 id="fixed_12">Fixed</h3>
+<h3 id="fixed_13">Fixed</h3>
 <ul>
 <li><strong>Negative literals</strong>: <code>-1</code>, <code>-3.14</code> etc. now parse as negative literal values directly, not as unary minus applied to a positive literal. Global variable initialisers with negative values (e.g. <code>int x = -1;</code>) previously compiled to 0; this is now correct. <code>evaluateConstantExpr</code> folds unary minus on numeric constants as a fallback.</li>
 </ul>
 <hr>
 <h2 id="0012-alpha">[0.0.12-alpha]</h2>
-<h3 id="added_10">Added</h3>
+<h3 id="added_11">Added</h3>
 <p><strong>Lambdas and function pointer types</strong>
 - <code>fn(T,...)-&gt;R</code> function pointer type syntax: first-class function types usable in variable declarations, struct fields, and parameter lists
 - Anonymous function expressions: <code>int(int x) { return x * 2; }</code>, C-like syntax producing a function pointer value
@@ -1216,7 +1408,7 @@ thread_join(t);
 <p><strong>switch/case type checking</strong>
 - The type checker now validates that each <code>case</code> value is compatible with the <code>switch</code> subject expression type; mismatched case types are reported as errors at the <code>case</code> token position</p>
 <h2 id="0011-alpha">[0.0.11-alpha]</h2>
-<h3 id="added_11">Added</h3>
+<h3 id="added_12">Added</h3>
 <p><strong>Decoder rewritten in Eskiu (no C pipeline code)</strong>
 - <code>ine_decoder/crypto.esk</code> (541 lines): AES-256-CBC + RSA-8192 pipeline, hex/base64 decoders, PKCS#1 stripper, 6-bit decoder, WebP reconstruction, <code>run_no_so_pipeline()</code>; all in Eskiu calling OpenSSL via <code>extern</code>
 - <code>ine_decoder/output.esk</code> (186 lines): Spanish character table, field splitter, growable JSON buffer, <code>decode_to_buffers()</code>; pure Eskiu
@@ -1237,7 +1429,7 @@ thread_join(t);
 </ul>
 <hr>
 <h2 id="0010-alpha">[0.0.10-alpha]</h2>
-<h3 id="added_12">Added</h3>
+<h3 id="added_13">Added</h3>
 <p><strong>Global variables</strong>
 - <code>VarDecl</code> at module scope now emits <code>llvm::GlobalVariable</code> instead of <code>alloca</code>
 - Constant initializers folded at compile time: <code>int</code>, <code>float</code>, <code>double</code>, <code>bool</code>, <code>char</code>, <code>string</code>, <code>null</code>
@@ -1255,7 +1447,7 @@ thread_join(t);
 <p><strong>Integer argument widening at call sites</strong>
 - Automatically <code>SExt</code>/<code>Trunc</code> integer arguments to match function parameter widths
 - Fixes <code>i32 1712</code> passed to <code>int64 param</code> (was LLVM verification error)</p>
-<h3 id="fixed_13">Fixed</h3>
+<h3 id="fixed_14">Fixed</h3>
 <ul>
 <li><code>*int</code> vs <code>size_t *</code> in <code>extern.esk</code>: <code>run_no_so_pipeline</code> and <code>decode_to_buffers</code> now use <code>int64</code> for length params to match C's <code>size_t</code> (was writing 8 bytes to a 4-byte stack slot → heap corruption)</li>
 <li>ine_decoder <code>pipeline.esk</code>: stage signatures updated to <code>int64</code> for all size parameters</li>
@@ -1266,7 +1458,7 @@ thread_join(t);
 </ul>
 <hr>
 <h2 id="009-alpha">[0.0.9-alpha]</h2>
-<h3 id="added_13">Added</h3>
+<h3 id="added_14">Added</h3>
 <ul>
 <li><strong><code>ine_decoder/</code>, INE QR decoder port</strong>: full pipeline running at <strong>74.4 ms</strong> total
   (QR: 71.7 ms + crypto: 2.8 ms + output decode: &lt;1 ms) vs. 188.9 ms reference C and 3–5 s original target; 2.5× faster than hand-written C</li>
@@ -1279,27 +1471,27 @@ thread_join(t);
 <li><code>qr_extract.c</code> / <code>qr_extract_impl.cpp</code>: C/C++ shim using CoreGraphics + zxing-cpp 3.x</li>
 <li><code>Makefile</code>, <code>README.md</code></li>
 </ul>
-<h3 id="fixed_14">Fixed</h3>
+<h3 id="fixed_15">Fixed</h3>
 <ul>
 <li><strong>Integer width mismatch in comparisons</strong>: <code>uint8 == int</code> (e.g. <code>plaintext[i] == 124</code>) crashed LLVM with "Both operands to ICmp instruction are not of the same type"; now <code>ZExt</code>s the narrower operand to match the wider before emitting any of the six comparison operators</li>
 <li><strong>Mixed int/float arithmetic</strong>: <code>i64 * double</code> (e.g. timing calculation <code>(t1 - t0) * 1000.0</code>) generated invalid IR; now detects int/float type mismatch in <code>+</code>, <code>-</code>, <code>*</code>, <code>/</code> and promotes the integer operand with <code>SIToFP</code> before emitting the floating-point instruction</li>
 </ul>
 <hr>
 <h2 id="008-alpha">[0.0.8-alpha]</h2>
-<h3 id="added_14">Added</h3>
+<h3 id="added_15">Added</h3>
 <ul>
 <li><strong><code>import "file.esk"</code></strong>: multi-file support with paths resolved relative to the importing file's directory; recursive imports with deduplication (a file imported more than once is parsed only once); <code>Parser.basedir</code> + <code>importedFiles</code> set propagated to sub-parsers</li>
 <li><strong>Interface vtable dispatch</strong>: <code>interface I { void method(); }</code> generates <code>%I_vtable = type { ptr, ... }</code> and <code>%I_fat = type { ptr data, ptr vtable }</code> LLVM types; structs are auto-boxed at call sites via <code>boxAsInterface()</code>; method dispatch loads the vtable pointer from the fat pointer and calls indirectly; <code>getExprEskiuType</code> extended to handle <code>UnaryExpr("&amp;", ...)</code> and <code>UnaryExpr("*", ...)</code> for boxing detection</li>
 <li><strong><code>String.append()</code> and <code>String.concat()</code></strong>: added to <code>stdlib/string.esk</code> using <code>memcpy</code> + pointer arithmetic</li>
 </ul>
-<h3 id="fixed_15">Fixed</h3>
+<h3 id="fixed_16">Fixed</h3>
 <ul>
 <li>Pointer comparison (<code>p == null</code>, <code>ptr1 == ptr2</code>) incorrectly used <code>FCmpOEQ</code> (float equality); now uses <code>ICmpEQ</code>; all six comparison operators updated to check <code>isFloatingPointTy()</code> first</li>
 <li><code>i1 → i32</code> widening used <code>SExt</code> (sign-extends <code>true</code> → <code>-1</code>); now uses <code>ZExt</code> for <code>i1</code> operands so comparisons correctly store <code>0</code> or <code>1</code></li>
 </ul>
 <hr>
 <h2 id="007-alpha">[0.0.7-alpha]</h2>
-<h3 id="added_15">Added</h3>
+<h3 id="added_16">Added</h3>
 <ul>
 <li><strong>Bitwise operators</strong></li>
 <li>Binary: <code>&amp;</code>, <code>|</code>, <code>^</code>, <code>&lt;&lt;</code>, <code>&gt;&gt;</code>, new precedence levels in parser (bitwiseOr → bitwiseXor → bitwiseAnd → equality → shift → comparison → additive)</li>
@@ -1311,7 +1503,7 @@ thread_join(t);
 <li><strong>For-loop with declaration init</strong>: <code>for (int i = 0; i &lt; n; i += 1)</code>, parser wraps the declaration in a <code>BlockStmt</code>; type checker processes init items directly in <code>ForStmt</code> scope, avoiding the inner-scope pop that previously made <code>i</code> undefined in the condition, step, and body</li>
 <li><strong>Pointer arithmetic</strong>: <code>ptr + n</code> → <code>GEP(i8, ptr, n)</code>, <code>ptr - n</code> → <code>GEP(i8, ptr, -n)</code> in <code>visit(BinaryExpr*)</code></li>
 </ul>
-<h3 id="fixed_16">Fixed</h3>
+<h3 id="fixed_17">Fixed</h3>
 <ul>
 <li><code>&amp;</code> address-of returned a loaded value instead of the alloca pointer, breaking all pointer-argument call patterns</li>
 <li>Unary <code>-</code> for floats used integer <code>CreateNeg</code>; now uses <code>CreateFNeg</code> for floating-point operands</li>
@@ -1323,7 +1515,7 @@ thread_join(t);
 </ul>
 <hr>
 <h2 id="006-alpha">[0.0.6-alpha]</h2>
-<h3 id="added_16">Added</h3>
+<h3 id="added_17">Added</h3>
 <ul>
 <li><strong>Source locations in errors</strong>: <code>ASTNode</code> now carries <code>line</code>/<code>col</code>; parser stamps all expression and statement nodes; errors now report <code>file.esk:line:col:</code> instead of <code>file.esk:0:0:</code>; filename taken from the CLI input path</li>
 <li><strong><code>&amp;</code> address-of operator</strong>: correctly returns the lvalue pointer (alloca), enabling <code>fn(&amp;localVar)</code> patterns and template method calls via <code>self</code> pointer</li>
@@ -1333,7 +1525,7 @@ thread_join(t);
 <li><strong>Interface structural check</strong>: <code>isValidAssignment</code> now verifies that a struct satisfies an interface's method signatures (vtable codegen deferred to 0.0.8)</li>
 <li><strong><code>isPointerType</code> unified</strong>: now detects both leading <code>*T</code> and trailing <code>T*</code> conventions</li>
 </ul>
-<h3 id="fixed_17">Fixed</h3>
+<h3 id="fixed_18">Fixed</h3>
 <ul>
 <li><code>&amp;</code> operator returned a loaded value instead of the address, breaking all pointer-argument patterns</li>
 <li>Template method parameter types with pointer suffix (e.g. <code>List&lt;T&gt;*</code>) were incorrectly mangled to <code>List_int_*</code> instead of <code>List_int*</code></li>
@@ -1341,7 +1533,7 @@ thread_join(t);
 </ul>
 <hr>
 <h2 id="005-alpha">[0.0.5-alpha]</h2>
-<h3 id="added_17">Added</h3>
+<h3 id="added_18">Added</h3>
 <ul>
 <li><strong><code>switch</code>/<code>case</code></strong>: <code>SwitchStmt</code> AST node with <code>Case { value, stmts }</code> list; full visitor chain; parser handles <code>switch (expr) { case val: stmts break; default: stmts }</code> with fallthrough support; codegen emits LLVM <code>switch</code> instruction with <code>ConstantInt</code> case values; <code>break</code> branches to <code>switch.end</code> via existing <code>breakTarget</code> mechanism</li>
 <li><strong>Function templates</strong>: <code>fn Name&lt;T, E&gt;(T x) -&gt; RetType&lt;T,E&gt; { ... }</code>; <code>FunctionDecl.typeParams</code> field; <code>TemplateCallExpr</code> AST node parsed in <code>parsePostfix()</code>; lazy instantiation via <code>typeParamOverride</code> map that intercepts all type lookups during template body emission; context save/restore preserves insert point and <code>currentFunction</code> when instantiating inside another function's body; <code>substType</code> handles <code>Name&lt;T,E&gt;</code> nested substitution recursively</li>
@@ -1352,7 +1544,7 @@ thread_join(t);
 <li><code>io.esk</code>: <code>printf</code>, <code>fprintf</code>, <code>sprintf</code>, <code>scanf</code>, <code>puts</code>, <code>getchar</code>, <code>putchar</code></li>
 <li><code>mem.esk</code>: <code>memcpy</code>, <code>memset</code>, <code>memmove</code>, <code>memcmp</code>, <code>strlen</code>, <code>memchr</code></li>
 </ul>
-<h3 id="fixed_18">Fixed</h3>
+<h3 id="fixed_19">Fixed</h3>
 <ul>
 <li>Parser: <code>int fn&lt;T&gt;(T x)</code> at top level was silently dropped; <code>parseDeclaration()</code> now detects <code>&lt;</code> after a name as a function template</li>
 <li>Type checker: template function bodies were visited with unresolved type params; now guarded with <code>typeParams.empty()</code> check</li>
@@ -1360,7 +1552,7 @@ thread_join(t);
 </ul>
 <hr>
 <h2 id="004-alpha">[0.0.4-alpha]</h2>
-<h3 id="added_18">Added</h3>
+<h3 id="added_19">Added</h3>
 <ul>
 <li><strong>Template struct declaration</strong>: <code>struct Result&lt;T, E&gt; { ... }</code>; <code>StructDecl</code> gains <code>typeParams</code> field; template declarations are stored in a separate registry and not emitted to LLVM until first use</li>
 <li><strong>Template type references</strong>: <code>Result&lt;int, string&gt;</code> parsed in <code>parseType()</code> via <code>IDENT &lt; TYPE, ... &gt;</code> lookahead; stored as <code>"Result&lt;int,string&gt;"</code> in the AST</li>
@@ -1370,20 +1562,20 @@ thread_join(t);
 <li><strong>Type substitution</strong>: <code>substType</code> handles <code>*T</code> → <code>*int</code>, <code>T*</code> → <code>int*</code>, <code>T[N]</code> → <code>int[N]</code>, and nested template types recursively</li>
 <li><strong><code>varTypeStack</code> normalization</strong>: <code>VarDecl</code> stores the mangled name so <code>MemberExpr</code> resolution finds instantiated struct fields correctly</li>
 </ul>
-<h3 id="fixed_19">Fixed</h3>
+<h3 id="fixed_20">Fixed</h3>
 <ul>
 <li>Parser: <code>int fn&lt;T&gt;(...)</code> at top level was silently dropped; <code>parseDeclaration()</code> now detects <code>&lt;</code> after a function name as a template parameter list</li>
 <li>Type checker: template bodies were visited with unresolved type parameters; now guarded so only concrete instantiations are type-checked</li>
 </ul>
 <hr>
 <h2 id="003-alpha">[0.0.3-alpha]</h2>
-<h3 id="added_19">Added</h3>
+<h3 id="added_20">Added</h3>
 <ul>
 <li><strong><code>alloc(T, N)</code></strong>: new <code>AllocExpr</code> AST node; emits <code>call @malloc(i64 N * sizeof(T))</code>; <code>sizeof(T)</code> resolved via <code>DataLayout</code> initialized at the start of <code>generateCode()</code></li>
 <li><strong><code>free(ptr)</code></strong>: parsed as a regular call; <code>free</code> pre-registered in the type checker as variadic; auto-declared in the LLVM module on first use, no explicit <code>extern</code> required</li>
 <li><strong><code>getOrDeclareFunc()</code></strong>: codegen helper that lazily declares C runtime functions (<code>malloc</code>, <code>free</code>) into the module without requiring explicit <code>extern</code> declarations</li>
 </ul>
-<h3 id="fixed_20">Fixed</h3>
+<h3 id="fixed_21">Fixed</h3>
 <ul>
 <li><code>validateStructType</code> did not strip the leading <code>*T</code> pointer prefix, causing false "undefined struct" errors on <code>*uint8</code>, <code>*Point</code>, etc.</li>
 <li><code>inferBinaryExprType</code> did not handle the <code>=</code> operator for non-numeric types; assignment to pointer fields and struct fields now type-checks correctly</li>
@@ -1391,7 +1583,7 @@ thread_join(t);
 </ul>
 <hr>
 <h2 id="002-alpha">[0.0.2-alpha]</h2>
-<h3 id="added_20">Added</h3>
+<h3 id="added_21">Added</h3>
 <ul>
 <li><strong>Struct codegen</strong>: <code>llvm::StructType::create</code> per <code>StructDecl</code>; <code>alloca %StructType</code> for locals; field read/write via <code>getelementptr</code></li>
 <li><strong>Fixed-size array fields</strong>: <code>uint8[858]</code> → <code>[858 x i8]</code>; parser now captures the array size (was previously discarded); <code>IndexExpr</code> codegen via GEP for both <code>T[N]</code> and <code>*T</code></li>
@@ -1402,7 +1594,7 @@ thread_join(t);
 <li><strong><code>emitObjectFile()</code></strong>: native <code>.o</code> via LLVM <code>TargetMachine</code> + <code>legacy::PassManager</code>; full pipeline <code>eskiuc file.esk -o file.o</code> produces a linkable object file</li>
 <li><strong>Float arithmetic</strong>: <code>+</code>, <code>-</code>, <code>*</code> now emit <code>fadd</code>/<code>fsub</code>/<code>fmul</code> for floating-point operands (previously always emitted integer instructions)</li>
 </ul>
-<h3 id="fixed_21">Fixed</h3>
+<h3 id="fixed_22">Fixed</h3>
 <ul>
 <li>Type checker: method bodies were not registered and type-checked in the first pass</li>
 <li>Type checker: <code>*T</code> (leading-pointer) was not auto-derefed on member access; now strips the leading <code>*</code> before struct field lookup</li>
@@ -1413,7 +1605,7 @@ thread_join(t);
 </ul>
 <hr>
 <h2 id="001-alpha">[0.0.1-alpha]</h2>
-<h3 id="added_21">Added</h3>
+<h3 id="added_22">Added</h3>
 <ul>
 <li><strong>Phase 0: Build system and CLI</strong>. CMake build with LLVM 17+ integration; <code>--version</code> flag; <code>--test-lexer</code>, <code>--test-parser</code>, <code>--test-typechecker</code>, <code>--test-codegen</code> modes; <code>file:line:col</code> error reporting</li>
 <li><strong>Phase 1: Lexer</strong>. Complete tokenizer with line/col tracking; all Eskiu keywords (<code>int</code>, <code>float</code>, <code>uint8</code>–<code>uint64</code>, <code>int8</code>–<code>int64</code>, <code>struct</code>, <code>interface</code>, <code>enum</code>, <code>alloc</code>, <code>free</code>, <code>extern</code>, <code>thread</code>, <code>try</code>/<code>catch</code>/<code>finally</code>, and more); <code>COLON</code> token for type annotations</li>
@@ -1424,7 +1616,7 @@ thread_join(t);
 <li><strong>Pointer types</strong>: both leading <code>*T</code> and trailing <code>T*</code> syntax accepted throughout lexer, parser, and type checker</li>
 <li><strong>Examples</strong>: <code>examples/hello.esk</code>, <code>examples/test_struct.esk</code>, <code>examples/test_struct_error.esk</code></li>
 </ul>
-<h3 id="fixed_22">Fixed</h3>
+<h3 id="fixed_23">Fixed</h3>
 <ul>
 <li>Lexer: <code>COLON</code> token was not recognized, breaking <code>let</code>-style type annotations</li>
 <li>Type checker: function parameters were not registered before the body validation pass, causing false "undeclared identifier" errors</li>
