@@ -21,38 +21,30 @@ extern int64   strlen(string s);
 int64 mp_find(*uint8 hay, int64 hlen, int64 from, *uint8 needle, int64 nlen) {
     if (from < 0 || from >= hlen) { return -1; }
     *void p = memmem((*void)(hay + from), hlen - from, (*void)needle, nlen);
-    if (p == null) { return -1; }
-    return (int64)((*uint8)p - hay);
+    return p == null ? -1 : (int64)((*uint8)p - hay);
 }
 
 // Parse the boundary token from a Content-Type value
 // ("multipart/form-data; boundary=----abc"). Strips optional quotes. 1 = ok.
 int multipart_boundary(String* ctype, String* out) {
-    String_clear(out);
-    string key = "boundary=";
-    int n = ctype.len;
-    int klen = strlen(key);
-    int i = 0;
-    while (i + klen <= n) {
-        int j = 0;
-        int hit = 1;
-        while (j < klen) {
-            if (ctype.data[i + j] != key[j]) { hit = 0; }
-            j = j + 1;
+    out.clear();
+    const string key = "boundary=";
+    const int n = ctype.len;
+    const int klen = strlen(key);
+    for (int i = 0; i + klen <= n; i++) {
+        bool hit = true;
+        for (int j = 0; hit && j < klen; j++) {
+            if (ctype.data[i + j] != key[j]) { hit = false; }
         }
-        if (hit == 1) {
-            int k = i + klen;
-            if (k < n && ctype.data[k] == 34) { k = k + 1; }
-            while (k < n) {
-                char c = ctype.data[k];
-                if (c == 34 || c == 59 || c == 32 || c == 13) { break; }
-                String_push(out, c);
-                k = k + 1;
-            }
-            if (out.len > 0) { return 1; }
-            return 0;
+        if (!hit) { continue; }
+        int k = i + klen;
+        if (k < n && ctype.data[k] == '"') { k++; }
+        for (; k < n; k++) {
+            const char c = ctype.data[k];
+            if (c == '"' || c == ';' || c == ' ' || c == '\r') { break; }
+            out.push(c);
         }
-        i = i + 1;
+        return out.len > 0 ? 1 : 0;
     }
     return 0;
 }
@@ -61,52 +53,52 @@ int multipart_boundary(String* ctype, String* out) {
 // *out_ptr / *out_len to a slice INTO `body` (no copy). 0 if absent.
 int multipart_part(*uint8 body, int64 blen, String* boundary, string name,
                    **uint8 out_ptr, *int64 out_len) {
-    int bl = boundary.len;
-    int dlen = bl + 2;
+    const int bl = boundary.len;
+    const int dlen = bl + 2;
     *uint8 delim = alloc<uint8>(dlen);
-    delim[0] = 45;  delim[1] = 45;
-    int i = 0;  while (i < bl) { delim[2 + i] = (uint8)boundary.data[i]; i = i + 1; }
+    defer free(delim);
+    delim[0] = '-';  delim[1] = '-';
+    for (i in 0..bl) { delim[2 + i] = (uint8)boundary.data[i]; }
 
     // Build the "name=\"<name>\"" needle.
-    int nlen = strlen(name);
-    int needle_len = nlen + 7;                       // name="" → 6 chars + the name
+    const int nlen = strlen(name);
+    const int needle_len = nlen + 7;                 // name="" → 6 chars + the name
     *uint8 needle = alloc<uint8>(needle_len);
-    string pre = "name=\"";
-    int p = 0;  while (p < 6) { needle[p] = (uint8)pre[p]; p = p + 1; }
-    int q = 0;  while (q < nlen) { needle[6 + q] = (uint8)name[q]; q = q + 1; }
-    needle[6 + nlen] = 34;                            // closing quote
+    defer free(needle);
+    const string pre = "name=\"";
+    for (p in 0..6) { needle[p] = (uint8)pre[p]; }
+    for (q in 0..nlen) { needle[6 + q] = (uint8)name[q]; }
+    needle[6 + nlen] = '"';                          // closing quote
 
-    string crlf2 = "\r\n\r\n";
+    const string crlf2 = "\r\n\r\n";
 
-    int found = 0;
     int64 pos = mp_find(body, blen, 0, delim, dlen);
-    while (pos >= 0 && found == 0) {
-        int64 part_start = pos + dlen;
-        int64 next = mp_find(body, blen, part_start, delim, dlen);
+    while (pos >= 0) {
+        const int64 part_start = pos + dlen;
+        const int64 next = mp_find(body, blen, part_start, delim, dlen);
         if (next < 0) { break; }
-        int64 he = mp_find(body, next, part_start, (*uint8)crlf2, 4);
+        const int64 he = mp_find(body, next, part_start, (*uint8)crlf2, 4);
         if (he >= 0) {
             // The needle must be the `name` parameter itself: preceded by ';' or
             // whitespace, so `filename="photo"` does not match name "photo".
-            int named = 0;
+            bool named = false;
             int64 nh = mp_find(body, he, part_start, needle, needle_len);
-            while (nh >= 0 && named == 0) {
+            while (nh >= 0 && !named) {
                 if (nh > part_start) {
-                    uint8 pc = body[nh - 1];
-                    if (pc == (uint8)59 || pc == (uint8)32 || pc == (uint8)9) { named = 1; }
+                    const uint8 pc = body[nh - 1];
+                    named = pc == ';' || pc == ' ' || pc == '\t';
                 }
-                if (named == 0) { nh = mp_find(body, he, nh + 1, needle, needle_len); }
+                if (!named) { nh = mp_find(body, he, nh + 1, needle, needle_len); }
             }
-            if (named == 1) {
-                int64 cstart = he + 4;
-                int64 cend   = next - 2;
-                if (cend >= cstart) { out_ptr[0] = body + cstart;  out_len[0] = cend - cstart;  found = 1; }
+            const int64 cstart = he + 4;
+            const int64 cend   = next - 2;
+            if (named && cend >= cstart) {
+                out_ptr[0] = body + cstart;
+                out_len[0] = cend - cstart;
+                return 1;
             }
         }
         pos = next;
     }
-
-    free(delim);
-    free(needle);
-    return found;
+    return 0;
 }
