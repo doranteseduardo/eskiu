@@ -71,6 +71,9 @@ Future<T>* chan_recv<T>(Chan<T>* ch) {
         future_complete<T>(f, v);           // ready immediately (fast path)
     } else {
         ch.waiter = f;                      // park; a future chan_send hands off
+        // Cancel path (e.g. the losing side of a select2 timeout): unpark, so a
+        // later chan_send buffers its value instead of completing freed memory.
+        f.on_drop = void() { if (ch.waiter == f) { ch.waiter = (Future<T>*)0; } };
     }
     return f;
 }
