@@ -1955,7 +1955,11 @@ void parse_into(Parser* p, *Program prog) {
     while (p_at(p) != EOF_TOKEN) {
         if (p_at(p) == PRAGMA) { apply_pragma(tok_text(p.src, p_adv(p))); }   // #pragma pack state
         else if (p_at(p) == IMPORT) { p_adv(p); do_import(p, prog); }
-        else { List_push<*DeclNode>(&prog.decls, parse_decl_top(p)); }
+        else {
+            *DeclNode d = parse_decl_top(p);
+            d.file = p.file;               // diagnostics inside it name this file
+            List_push<*DeclNode>(&prog.decls, d);
+        }
     }
 }
 

@@ -24,6 +24,7 @@ bool TypeChecker::check(Program* program) {
     // First pass: register all struct declarations and function signatures
     std::set<std::string> definedFnBodies;   // names of functions WITH a body, for redefinition
     for (const auto& decl : program->declarations) {
+        curFile = decl->sourceFile;
         if (auto enumDecl = dynamic_cast<EnumDecl*>(decl.get())) {
             enumTypes.insert(enumDecl->name);
             if (enumDecl->isADT() && !enumDecl->typeParams.empty()) {
@@ -178,8 +179,10 @@ bool TypeChecker::check(Program* program) {
 
     // Second pass: type check all declarations
     for (const auto& decl : program->declarations) {
+        curFile = decl->sourceFile;
         decl->accept(this);
     }
+    curFile.clear();
 
     checkValueCycles(program);
 
@@ -541,13 +544,13 @@ void TypeChecker::defineFunction(const std::string& name, const std::string& ret
 void TypeChecker::error(int line, int col, const std::string& message) {
     hasErrors = true;
     std::stringstream ss;
-    ss << sourceFile << ":" << line << ":" << col << ": " << message;
+    ss << diagFile() << ":" << line << ":" << col << ": " << message;
     errors.push_back(ss.str());
 }
 
 void TypeChecker::warning(int line, int col, const std::string& message) {
     std::stringstream ss;
-    ss << sourceFile << ":" << line << ":" << col << ": warning: " << message;
+    ss << diagFile() << ":" << line << ":" << col << ": warning: " << message;
     std::cerr << ss.str() << "\n";
 }
 

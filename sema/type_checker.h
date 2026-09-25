@@ -84,7 +84,11 @@ public:
     bool warnExtra = false;   // -Wextra: signed/unsigned comparison mismatches, etc.
 
     // --- LSP / tooling interface (consumed by --hover-at / --definition-at) ---
-    std::string sourceFile = "unknown";   // source file name (for error messages)
+    std::string sourceFile = "unknown";   // the primary input (fallback for diagnostics)
+    // The file of the top-level declaration being checked: diagnostics name it, so
+    // an error in an imported module or a second input points at that file.
+    std::string curFile;
+    const std::string& diagFile() const { return curFile.empty() ? sourceFile : curFile; }
     std::string getTypeAtPosition(int line, int col) const;
     struct DefLocation { int line; int col; std::string file; };
     std::map<std::string, DefLocation> definitionLocations;

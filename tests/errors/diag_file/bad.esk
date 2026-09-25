@@ -1,0 +1,6 @@
+// Imported by errors/diag_imported_file.esk; the type error below must be
+// reported against THIS file, not the importer.
+int helper() {
+    int x = "not an int";
+    return x;
+}

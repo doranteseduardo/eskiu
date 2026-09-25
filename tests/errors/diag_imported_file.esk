@@ -1,0 +1,4 @@
+// EXPECT-ERROR: diag_file/bad.esk:4:
+// An error inside an imported file names that file, not the importer.
+import "diag_file/bad.esk";
+int main() { return helper(); }

@@ -2505,11 +2505,19 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
 
 // Register top-level names that can be referenced as a bare identifier: functions,
 // externs, intrinsics, global vars, and enum members (constants / variant ctors).
+// Diagnostics inside `d` name the file it was parsed from (the primary input if unknown).
+void sema_enter_decl(Sema* s, *DeclNode d, string primary) {
+    s.filename = primary;
+    if (d.file != null) { if (d.file[0] != 0) { s.filename = d.file; } }
+}
+
 void sema_register_globals(Sema* s, *Program prog) {
+    string primary = s.filename;
     int i = 0;
     int n = List_len<*DeclNode>(&prog.decls);
     while (i < n) {
         *DeclNode d = List_get<*DeclNode>(&prog.decls, i);
+        sema_enter_decl(s, d, primary);
         if (d.kind == DK_FUNCTION || d.kind == DK_EXTERN
             || d.kind == DK_INTRINSIC || d.kind == DK_VARDECL) {
             string gty = "";
@@ -2570,6 +2578,7 @@ void sema_register_globals(Sema* s, *Program prog) {
         }
         i = i + 1;
     }
+    s.filename = primary;
 }
 
 // ── Definite-return analysis (mirrors sema/typecheck_decl.cpp) ───────────────
@@ -3144,10 +3153,12 @@ int sema_check(Sema* s, *Program prog) {
     if (s.had_error == 1) { return 0; }   // a cyclic alias makes every later type check meaningless
     List<string> defined_fns;   // top-level functions WITH a body, to catch a redefinition
     List_init<string>(&defined_fns, 32);
+    string primary = s.filename;
     int i = 0;
     int n = List_len<*DeclNode>(&prog.decls);
     while (i < n) {
         *DeclNode d = List_get<*DeclNode>(&prog.decls, i);
+        sema_enter_decl(s, d, primary);
         s.line = d.line; s.col = d.col;
         if (d.kind == DK_FUNCTION && d.body != null) {
             if (sema_in_list(&defined_fns, d.name) == 1) {
@@ -3189,6 +3200,7 @@ int sema_check(Sema* s, *Program prog) {
         }
         i = i + 1;
     }
+    s.filename = primary;
     sema_check_value_cycles(s);
     if (s.had_error == 1) { return 0; }
     return 1;

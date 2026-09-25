@@ -152,6 +152,7 @@ struct DeclNode {
     int is_packed;                 // struct: `packed` qualifier / `#pragma pack(1)` (align 1)
     int pack_align;                // struct: `#pragma pack(N)` alignment cap (0 = natural)
     string operator_sym;           // `operator <op>(...)`: the op ("+","[]","u-"); "" = normal fn
+    string file;                   // top-level decl: the source file it came from (diagnostics)
     int line;                      // source position for diagnostics (0 = unknown)
     int col;
 }

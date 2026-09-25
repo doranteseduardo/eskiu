@@ -85,6 +85,9 @@ public:
 class Decl : public ASTNode {
 public:
     std::string name;
+    // The source file a top-level declaration was parsed from (stamped by the
+    // parser; "" when synthesized). Diagnostics inside it name this file.
+    std::string sourceFile;
     explicit Decl(const std::string& name) : name(name) {}
     virtual ~Decl() = default;
 };

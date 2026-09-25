@@ -295,7 +295,7 @@ void TypeChecker::visit(FunctionDecl* node) {
     validateStructType(normalizeType(node->returnType), node);
 
     // Record definition location
-    definitionLocations[node->name] = {node->line, node->col, sourceFile};
+    definitionLocations[node->name] = {node->line, node->col, diagFile()};
     // -Wall: track top-level functions for unused-function reporting (skip main).
     if (node->name != "main") definedFns[node->name] = {node->line, node->col};
 
@@ -502,7 +502,7 @@ void TypeChecker::visit(VarDecl* node) {
 
     // Record definition location
     if (node->line > 0)
-        definitionLocations[node->name] = {node->line, node->col, sourceFile};
+        definitionLocations[node->name] = {node->line, node->col, diagFile()};
     if (node->initializer) {
         // Reconcile a lambda initializer's return type with a declared fn(...)->R
         // target BEFORE checking its body. A mismatched lambda header (e.g. an
@@ -677,7 +677,7 @@ void TypeChecker::visit(IntrinsicDecl* node) {
 
 void TypeChecker::visit(EnumDecl* node) {
     // Members and the enum type were registered in the first pass.
-    definitionLocations[node->name] = {node->line, node->col, sourceFile};
+    definitionLocations[node->name] = {node->line, node->col, diagFile()};
 }
 
 void TypeChecker::visit(TypeAliasDecl* node) {

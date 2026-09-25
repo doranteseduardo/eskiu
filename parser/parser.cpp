@@ -407,7 +407,10 @@ std::vector<DeclPtr> Parser::parseProgram() {
 
         try {
             DeclPtr decl = parseDeclaration();
-            if (decl) declarations.push_back(decl);
+            if (decl) {
+                decl->sourceFile = filename;
+                declarations.push_back(decl);
+            }
         } catch (const std::exception& e) {
             recover(e);
         }
