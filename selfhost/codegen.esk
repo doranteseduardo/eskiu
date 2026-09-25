@@ -2596,14 +2596,16 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
                 string rop = cg_coerce(g, rhs, l.ty);   // coerce RHS to the variable's type
                 cg_emit(g, "  store "); cg_emit(g, l.ty); cg_emit(g, " "); cg_emit(g, rop);
                 cg_emit(g, ", ptr "); cg_emit(g, l.slot); cg_emit(g, "\n");
-            } else {                                    // member / deref / index lvalue
-                CgVal lv = cg_lval(g, e.a);
-                string lty = cg_lltype(g, lv.ety);
-                string rop = cg_coerce(g, rhs, lty);    // coerce RHS to the field/element type
-                cg_emit(g, "  store "); cg_emit(g, lty); cg_emit(g, " "); cg_emit(g, rop);
-                cg_emit(g, ", ptr "); cg_emit(g, lv.op); cg_emit(g, "\n");
+                // The assignment's value is the stored (converted) one: `l = s = 200` with
+                // an int8 `s` gives `l` -56, not 200.
+                v.op = rop; v.ty = l.ty; v.ety = l.ety; return v;
             }
-            return rhs;
+            CgVal lv = cg_lval(g, e.a);                 // member / deref / index lvalue
+            string lty = cg_lltype(g, lv.ety);
+            string rop = cg_coerce(g, rhs, lty);        // coerce RHS to the field/element type
+            cg_emit(g, "  store "); cg_emit(g, lty); cg_emit(g, " "); cg_emit(g, rop);
+            cg_emit(g, ", ptr "); cg_emit(g, lv.op); cg_emit(g, "\n");
+            v.op = rop; v.ty = lty; v.ety = lv.ety; return v;
         }
         string bopn = cg_op_resolve(g, e.sval, cg_etype(g, e.a), cg_etype(g, e.b));   // binary overload
         if (bopn[0] != 0) { return cg_op_call(g, bopn, e.a, e.b); }
