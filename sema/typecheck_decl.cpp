@@ -283,8 +283,12 @@ void TypeChecker::visit(FunctionDecl* node) {
                       "got '" + node->returnType + "'");
 
     // Parameter and return types must name known types.
-    for (const auto& param : node->params)
-        if (param.first != "...") validateStructType(normalizeType(param.first), node);
+    for (const auto& param : node->params) {
+        if (param.first == "...") continue;
+        validateStructType(normalizeType(param.first), node);
+        if (isVoidValueType(param.first))
+            errorAt(node, "parameter '" + param.second + "' cannot have type 'void'");
+    }
     validateStructType(normalizeType(node->returnType), node);
 
     // Record definition location
@@ -577,6 +581,8 @@ void TypeChecker::visit(VarDecl* node) {
 
     // Validate that struct types exist before use
     validateStructType(normalizedType, node);
+    if (isVoidValueType(node->type))
+        errorAt(node, "variable '" + node->name + "' cannot have type 'void'");
 
     // Preserve a pointee-const qualifier through normalization so the symbol
     // remembers it's read-only (const checks read it back; everything else strips).
@@ -594,11 +600,19 @@ void TypeChecker::visit(StructDecl* node) {
     // Field types must name known types (a template's fields mention its type params and
     // are checked per instantiation through the instance's type arguments instead).
     if (node->typeParams.empty()) {
-        for (const auto& f : node->fields)
+        for (const auto& f : node->fields) {
             validateStructType(normalizeType(f.type), node);
+            if (isVoidValueType(f.type))
+                errorAt(node, "field '" + f.name + "' of '" + node->name + "' cannot have type 'void'");
+            checkBitfield(node, node->name, f);
+        }
         for (const auto& method : node->methods)
             if (auto func = dynamic_cast<FunctionDecl*>(method.get())) {
-                for (const auto& p : func->params) validateStructType(normalizeType(p.first), func);
+                for (const auto& p : func->params) {
+                    validateStructType(normalizeType(p.first), func);
+                    if (isVoidValueType(p.first))
+                        errorAt(func, "parameter '" + p.second + "' cannot have type 'void'");
+                }
                 validateStructType(normalizeType(func->returnType), func);
             }
     }
@@ -619,8 +633,12 @@ void TypeChecker::visit(StructDecl* node) {
 
 void TypeChecker::visit(ExternDecl* node) {
     // Extern functions are already registered in first pass; verify the signature's types.
-    for (const auto& param : node->params)
-        if (param.first != "...") validateStructType(normalizeType(param.first), node);
+    for (const auto& param : node->params) {
+        if (param.first == "...") continue;
+        validateStructType(normalizeType(param.first), node);
+        if (isVoidValueType(param.first))
+            errorAt(node, "parameter '" + param.second + "' cannot have type 'void'");
+    }
     validateStructType(normalizeType(node->returnType), node);
 }
 
@@ -651,6 +669,25 @@ void TypeChecker::visit(InterfaceDecl* node) {
 void TypeChecker::visit(UnionDecl* node) {
     // Registered as a struct in the first pass (so field access works and a signature
     // declared before it may name it); here only its field types are validated.
-    for (const auto& f : node->fields)
+    for (const auto& f : node->fields) {
         validateStructType(normalizeType(f.type), node);
+        if (isVoidValueType(f.type))
+            errorAt(node, "field '" + f.name + "' of '" + node->name + "' cannot have type 'void'");
+    }
+}
+
+void TypeChecker::checkBitfield(ASTNode* at, const std::string& owner, const StructDecl::Field& f) {
+    if (f.bitWidth <= 0) return;
+    std::string t = normalizeType(f.type);
+    static const std::map<std::string, int> widths = {
+        {"bool", 1}, {"char", 8}, {"int8", 8}, {"uint8", 8}, {"int16", 16}, {"uint16", 16},
+        {"int", 32}, {"int32", 32}, {"uint", 32}, {"uint32", 32}, {"int64", 64}, {"uint64", 64}};
+    auto w = widths.find(t);
+    if (w == widths.end()) {
+        errorAt(at, "bitfield '" + f.name + "' of '" + owner + "' must have an integer type, got '" + f.type + "'");
+        return;
+    }
+    if (f.bitWidth > w->second)
+        errorAt(at, "bitfield '" + f.name + "' of '" + owner + "' is " + std::to_string(f.bitWidth) +
+                    " bits wide, more than its type '" + f.type + "' holds (" + std::to_string(w->second) + ")");
 }

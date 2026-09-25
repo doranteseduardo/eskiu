@@ -92,9 +92,16 @@ std::string TypeChecker::inferUnaryExprType(const std::string& op, const std::st
 }
 
 // Type validation
+bool TypeChecker::isVoidValueType(const std::string& type) {
+    ty::Type t = ty::Type::parse(normalizeType(type));
+    while (t.kind == ty::Type::Kind::Array && t.elem) { ty::Type e = *t.elem; t = e; }
+    return t.kind == ty::Type::Kind::Void;
+}
+
 void TypeChecker::validateStructType(const std::string& type, ASTNode* at) {
     // Function pointer types are always valid
     if (type.size() > 3 && type.substr(0, 3) == "fn(") return;
+    if (type == "unknown") return;   // an already-reported bad type (e.g. a cyclic alias)
     std::string baseType = type;
     if (!baseType.empty() && baseType.front() == '?') baseType = baseType.substr(1);   // nullable `?*T`
     // Strip fixed-size array suffixes (T[N], T[N][M], ...) — the element type is what
@@ -328,6 +335,7 @@ std::string TypeChecker::assignabilityError(const std::string& targetType,
         }
     }
     std::string nt = normalizeType(targetType), ns = normalizeType(srcType);
+    if (nt == "unknown" || ns == "unknown") return "";   // an already-reported bad type
     // An integer literal that provably does not fit the target is rejected even though
     // integer-width narrowing is otherwise implicit (its value is statically known).
     if (isIntType(nt))

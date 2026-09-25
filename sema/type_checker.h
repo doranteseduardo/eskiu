@@ -237,6 +237,10 @@ private:
 
     // Type validation
     void validateStructType(const std::string& type, ASTNode* at = nullptr);
+    // A `void` (or array of void) value type: only a function result may be void.
+    bool isVoidValueType(const std::string& type);
+    // A bitfield must have an integer type at least `bitWidth` bits wide.
+    void checkBitfield(ASTNode* at, const std::string& owner, const StructDecl::Field& f);
     // Reject a struct/union that contains itself by value (no finite layout).
     void checkValueCycles(Program* program);
 

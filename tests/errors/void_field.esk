@@ -1,0 +1,3 @@
+// EXPECT-ERROR: field 'v' of 'S' cannot have type 'void'
+struct S { void v; }
+int main() { return 0; }

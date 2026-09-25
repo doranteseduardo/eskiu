@@ -136,6 +136,38 @@ bool TypeChecker::check(Program* program) {
         }
     }
 
+    // A type alias that resolves back to itself (`type A = B; type B = A;`, `type A = *A;`)
+    // names no type. Report it and drop it so type resolution terminates.
+    {
+        std::map<std::string, TypeAliasDecl*> aliasDecls;
+        for (const auto& decl : program->declarations)
+            if (auto* ad = dynamic_cast<TypeAliasDecl*>(decl.get())) aliasDecls[ad->name] = ad;
+        auto baseName = [](const std::string& t) {
+            ty::Type ty = ty::Type::parse(tyq::strip(t));
+            while ((ty.kind == ty::Type::Kind::Array || ty.kind == ty::Type::Kind::Slice) && ty.elem) {
+                ty::Type e = *ty.elem; ty = e;
+            }
+            return ty.nominalName();
+        };
+        std::set<std::string> cyclic;
+        for (const auto& kv : aliasDecls) {
+            std::set<std::string> seen{kv.first};
+            std::string cur = kv.first;
+            while (true) {
+                auto it = typeAliases.find(cur);
+                if (it == typeAliases.end()) break;
+                std::string next = baseName(it->second);
+                if (next == kv.first) { cyclic.insert(kv.first); break; }
+                if (!seen.insert(next).second) break;   // a cycle not through kv.first
+                cur = next;
+            }
+        }
+        for (const auto& n : cyclic) {
+            errorAt(aliasDecls[n], "type alias '" + n + "' refers to itself (a cyclic alias names no type)");
+        }
+        for (const auto& n : cyclic) typeAliases[n] = "unknown";   // resolves to the error sentinel
+    }
+
     // Second pass: type check all declarations
     for (const auto& decl : program->declarations) {
         decl->accept(this);
