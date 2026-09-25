@@ -81,7 +81,8 @@ directive =
     '#define' IDENT macro-body
   | '#define' IDENT '(' (IDENT (',' IDENT)*)? ')' macro-body    // function-like
   | '#undef'  IDENT
-  | '#ifdef'  IDENT  |  '#ifndef' IDENT  |  '#else'  |  '#endif'
+  | '#ifdef'  IDENT  |  '#ifndef' IDENT  |  '#if' const-expr  |  '#elif' const-expr
+  | '#else'  |  '#endif'
   | '#pragma' …                          // passed through to the compiler (e.g. pack)
   | '#error'  text                       // aborts compilation on an active branch
   | '#!' …                               // shebang: ignored (see __FILE__/__LINE__ ref)

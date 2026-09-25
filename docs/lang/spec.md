@@ -2388,9 +2388,24 @@ A small text pass runs before lexing. It supports **object-like and function-lik
 | `#define NAME` | Define `NAME` with an empty value (useful for `#ifdef`) |
 | `#undef NAME` | Remove a definition |
 | `#ifdef NAME` / `#ifndef NAME` | Begin a block compiled only if `NAME` is / is not defined |
+| `#if expr` / `#elif expr` | Begin a block / an alternative compiled only if the integer expression is non-zero |
 | `#else` / `#endif` | Else branch / end of a conditional |
-| `#error message` | Abort compilation with `message` (only on an active `#ifdef` branch) |
+| `#error message` | Abort compilation with `message` (only on an active branch) |
 | `#pragma pack(...)` | Struct packing directive; see §8.9 |
+
+An `#if`/`#elif` expression is a C-style integer constant expression: integer and
+character literals, macros (expanded first), `defined NAME` / `defined(NAME)`, the
+unary `! ~ - +`, the arithmetic, shift, relational, equality, bitwise and logical
+operators, `?:` and parentheses. An identifier left after expansion counts as `0`.
+
+Any other directive is an error, as is `#include` (use `import`), an `#else`,
+`#elif` or `#endif` without its `#if`, a second `#else`, and a conditional left
+open at the end of the file. Inside a skipped branch, unknown directives are
+ignored. Macro bodies may not use `#` (stringification) or `##` (token pasting).
+Arguments to a function-like macro are split at top-level commas (string and
+character literals stay whole) and are macro-expanded before substitution, so
+`SQ(SQ(2))` works as in C. Files with CRLF line endings are handled, including
+`\` continuations.
 
 Two predefined macros expand in place: `__LINE__` (the current source line, an
 integer) and `__FILE__` (the current file path, a string literal). Together with
@@ -2473,6 +2488,5 @@ This is how `<net>` selects the correct `sockaddr_in` layout:
 ### Shebang lines
 
 If the first line of a file begins with `#!` (e.g. `#!/usr/bin/env eskiuc run`),
-the preprocessor treats it as an unrecognized directive and blanks it out,
-preserving line numbers. This lets a `.esk` file be marked executable
+the preprocessor ignores it and blanks it out, preserving line numbers. This lets a `.esk` file be marked executable
 (`chmod +x`) and run directly as a script; see `eskiuc run` in §17.
