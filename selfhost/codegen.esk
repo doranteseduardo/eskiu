@@ -5483,7 +5483,10 @@ void cg_emit_lambda(Codegen* g, CgLambda lam) {
         cg_emit(g, " %p"); cg_emit(g, cg_itoa(k + 1));
         k = k + 1;
     }
-    cg_emit(g, ") {\n");
+    cg_emit(g, ")");
+    // A `try` in the lambda body lands in a landingpad, which needs a personality here too.
+    if (cg_has_try_s(lam.node.stmt) == 1) { cg_emit(g, " personality ptr @"); cg_emit(g, cg_eh_pers(g)); g.uses_eh = 1; }
+    cg_emit(g, " {\n");
     String_init(&g.entry_buf, 128);            // hoist body allocas to the entry block (see cg_emit_fn)
     String saved = g.out;
     String_init(&g.out, 512);

@@ -1,0 +1,23 @@
+// A try/catch inside a lambda body: the lambda's function carries the EH personality.
+extern int printf(string fmt, ...);
+
+int risky(int x) {
+    if (x > 2) { throw x; }
+    return x * 10;
+}
+
+int apply(fn(int)->int f, int v) { return f(v); }
+
+int main() {
+    fn(int)->int safe = int(int x) {
+        int r = 0 - 1;
+        try { r = risky(x); } catch (int e) { r = e + 100; }
+        return r;
+    };
+    printf("%d %d\n", safe(1), safe(5));
+    printf("%d\n", apply(int(int y) {
+        try { return risky(y); } catch (int e) { return 0 - e; }
+        return 0;
+    }, 7));
+    return 0;
+}
