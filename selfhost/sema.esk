@@ -569,6 +569,79 @@ void sema_cycle_dfs(Sema* s, *DeclNode d, List<string>* onstack, List<string>* d
     List_push<string>(done, d.name);
 }
 
+// The struct spelling a field of type `ft` holds by value, through generic instances too
+// ("" for a pointer, slice, fn, or non-struct); array suffixes are peeled. Spaces dropped.
+string sema_value_core(Sema* s, string ft) {
+    string t = sema_nospace(sema_strip_nullable(sema_strip_const(ft)));
+    if ((int)t[0] == 42 || (int)t[0] == 63 || sema_is_fn_type(t) == 1) { return ""; }
+    int depth = 0; int n = 0;
+    while (t[n] != 0) {
+        int c = (int)t[n];
+        if (c == 60) { depth = depth + 1; }
+        else if (c == 62) { depth = depth - 1; }
+        else if (c == 91 && depth == 0) { break; }
+        n = n + 1;
+    }
+    if (t[n] != 0 && (int)t[n + 1] == 93) { return ""; }        // "T[]" slice
+    string core = sema_sub_str(t, 0, n);
+    int m = 0; while (core[m] != 0) { m = m + 1; }
+    if (m == 0 || (int)core[m - 1] == 42) { return ""; }         // trailing-star pointer
+    *DeclNode d = sema_find_tdecl(s, sema_base_name(core));
+    if (d == null || (d.kind != DK_STRUCT && d.kind != DK_UNION)) { return ""; }
+    return core;
+}
+
+// Walk the by-value field spellings of struct spelling `sp` (a generic instance's type
+// arguments substituted), with `stack` the current path. A spelling that recurs on it is
+// a cycle through a generic instance; a path of ever-growing instances (`N<N<T>> next`)
+// has no finite layout either. Reports once per struct (`reported`); 1 = stop the walk.
+// Mirrors the generic part of the C++ TypeChecker::checkValueCycles.
+int sema_gen_cycle_walk(Sema* s, string sp, List<string>* stack, *DeclNode root, List<string>* reported) {
+    *DeclNode d = sema_find_tdecl(s, sema_base_name(sp));
+    if (d == null) { return 0; }
+    List<string> args; List_init<string>(&args, 2); ast_targs(sp, &args);
+    if (List_len<TypeParam>(&d.type_params) != List_len<string>(&args)) { return 0; }
+    List_push<string>(stack, sp);
+    int i = 0; int n = List_len<Param>(&d.params);
+    while (i < n) {
+        Param f = List_get<Param>(&d.params, i);
+        string core = sema_value_core(s, sema_subst_params(f.ty, &d.type_params, &args));
+        if (core[0] != 0) {
+            int hit = 0 - 1;
+            int k = 0; while (k < List_len<string>(stack)) { if (sema_streq(List_get<string>(stack, k), core) == 1) { hit = k; } k = k + 1; }
+            string msg = ""; string key = "";
+            if (hit >= 0) {
+                int gen = 0;
+                k = hit; while (k < List_len<string>(stack)) { if (sema_has_lt(List_get<string>(stack, k)) == 1) { gen = 1; } k = k + 1; }
+                if (gen == 1) { key = sema_base_name(core); msg = "cycle"; }
+            } else if (List_len<string>(stack) >= 64) {
+                key = sema_base_name(List_get<string>(stack, 0)); msg = "deep";
+            } else if (sema_gen_cycle_walk(s, core, stack, root, reported) == 1) {
+                List_remove<string>(stack, List_len<string>(stack) - 1);
+                return 1;
+            }
+            if (msg[0] != 0) {
+                if (sema_in_list(reported, key) == 0) {
+                    List_push<string>(reported, key);
+                    s.had_error = 1;
+                    if (sema_streq(msg, "cycle") == 1) {
+                        printf("error: %s:%d:%d: struct '%s' contains itself by value (through field '%s' of '%s'); use a pointer\n",
+                               s.filename, root.line, root.col, core, f.name, sp);
+                    } else {
+                        printf("error: %s:%d:%d: struct '%s' contains itself by value through ever-deeper generic instances (field '%s' of '%s'); use a pointer\n",
+                               s.filename, root.line, root.col, key, f.name, sema_base_name(sp));
+                    }
+                }
+                List_remove<string>(stack, List_len<string>(stack) - 1);
+                return 1;
+            }
+        }
+        i = i + 1;
+    }
+    List_remove<string>(stack, List_len<string>(stack) - 1);
+    return 0;
+}
+
 void sema_check_value_cycles(Sema* s) {
     List<string> onstack; List_init<string>(&onstack, 4);
     List<string> done; List_init<string>(&done, 8);
@@ -579,6 +652,26 @@ void sema_check_value_cycles(Sema* s) {
         if ((d.kind == DK_STRUCT || d.kind == DK_UNION) && List_len<TypeParam>(&d.type_params) == 0
             && sema_in_list(&done, d.name) == 0) {
             sema_cycle_dfs(s, d, &onstack, &done, &reported);
+        }
+        i = i + 1;
+    }
+    // Through generic instances: from every struct (a generic one with its own type
+    // parameters, `N<T>`).
+    List<string> greported; List_init<string>(&greported, 2);
+    i = 0;
+    while (i < n) {
+        *DeclNode d = List_get<*DeclNode>(&s.tdecls, i);
+        if (d.kind == DK_STRUCT || d.kind == DK_UNION) {
+            string sp = d.name;
+            int tp = 0;
+            while (tp < List_len<TypeParam>(&d.type_params)) {
+                if (tp == 0) { sp = sema_cat(sp, "<"); } else { sp = sema_cat(sp, ","); }
+                sp = sema_cat(sp, List_get<TypeParam>(&d.type_params, tp).name);
+                tp = tp + 1;
+            }
+            if (tp > 0) { sp = sema_cat(sp, ">"); }
+            List<string> stack; List_init<string>(&stack, 8);
+            sema_gen_cycle_walk(s, sp, &stack, d, &greported);
         }
         i = i + 1;
     }

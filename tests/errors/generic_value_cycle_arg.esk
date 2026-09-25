@@ -1,0 +1,8 @@
+// EXPECT-ERROR: struct 'S' contains itself by value (through field 'x' of 'W<S>')
+struct W<T> { T x; }
+struct S { int k; W<S> w; }
+int main() {
+    let s: S;
+    s.k = 0;
+    return s.k;
+}
