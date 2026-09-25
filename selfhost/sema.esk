@@ -1597,6 +1597,7 @@ string sema_canon_d(Sema* s, string t, int d) {
         ci = sema_cat(ci, ">");
     } else {
         if (sema_streq(inner, "int32") == 1) { return "int"; }
+        if (sema_streq(inner, "uint32") == 1) { return "uint"; }
         *DeclNode td = sema_find_tdecl(s, inner);
         if (td != null && td.kind == DK_TYPEALIAS && sema_in_list(&s.tparams, inner) == 0) {
             return sema_canon_d(s, sema_bare(td.ret_type), d + 1);
@@ -1660,6 +1661,12 @@ int sema_judgeable(Sema* s, string c) {
 // (`string`, `*char`, `*int8`, `*uint8`) interconvert. A pointee the checker cannot
 // judge (a type parameter, an unknown name) is not judged. Mirrors the C++
 // pointeesCompatible.
+// `int32` is another spelling of `int`, and `uint32` of `uint`.
+string sema_int32_as_int(string t) {
+    if (sema_streq(t, "int32") == 1) { return "int"; }
+    if (sema_streq(t, "uint32") == 1) { return "uint"; }
+    return t;
+}
 int sema_is_byte_ptr(string t) {
     return sema_streq(t, "string") == 1 || sema_streq(t, "*char") == 1 || sema_streq(t, "*int8") == 1
         || sema_streq(t, "*uint8") == 1;
@@ -1677,7 +1684,7 @@ int sema_ptr_compat(Sema* s, string a0, string b0) {
     if ((int)pa[0] == 42 && (int)pb[0] == 42) { return sema_ptr_compat(s, pa, pb); }
     if (sema_streq(pa, pb) == 1) { return 1; }
     if (sema_judgeable(s, pa) == 0 || sema_judgeable(s, pb) == 0) { return 1; }
-    if ((sema_streq(pa, "int") == 1 || sema_streq(pa, "int32") == 1) && (sema_streq(pb, "int") == 1 || sema_streq(pb, "int32") == 1)) { return 1; }
+    if (sema_streq(sema_int32_as_int(pa), sema_int32_as_int(pb)) == 1) { return 1; }
     return 0;
 }
 

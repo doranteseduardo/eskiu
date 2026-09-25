@@ -369,14 +369,16 @@ bool TypeChecker::dropsConstQual(const std::string& lhs, const std::string& rhs)
     return l == r || l == "*void";
 }
 
-// `int32` is another spelling of `int`: a fn type written with one matches the same
-// signature written with the other.
+// `int32` is another spelling of `int` (and `uint32` of `uint`): a type written with one
+// matches the same type written with the other.
 static std::string int32AsInt(const std::string& t) {
     std::string out;
     auto word = [](char c) { return std::isalnum((unsigned char)c) || c == '_'; };
     for (size_t i = 0; i < t.size();) {
-        if (t.compare(i, 5, "int32") == 0 && (i == 0 || !word(t[i - 1])) &&
-            (i + 5 >= t.size() || !word(t[i + 5]))) { out += "int"; i += 5; continue; }
+        if (i == 0 || !word(t[i - 1])) {
+            if (t.compare(i, 5, "int32") == 0 && (i + 5 >= t.size() || !word(t[i + 5]))) { out += "int"; i += 5; continue; }
+            if (t.compare(i, 6, "uint32") == 0 && (i + 6 >= t.size() || !word(t[i + 6]))) { out += "uint"; i += 6; continue; }
+        }
         out += t[i++];
     }
     return out;
@@ -455,7 +457,7 @@ bool TypeChecker::pointeesCompatible(const std::string& lhs, const std::string& 
     if (!lp.empty() && lp[0] == '?') lp.erase(0, 1);
     if (!rp.empty() && rp[0] == '?') rp.erase(0, 1);
     if (isPointerType(lp) && isPointerType(rp)) return pointeesCompatible(lp, rp);
-    std::string ln = normalizeType(lp), rn = normalizeType(rp);
+    std::string ln = int32AsInt(normalizeType(lp)), rn = int32AsInt(normalizeType(rp));
     if (ln == rn) return true;
     auto judged = [&](const std::string& t) {
         ty::Type k = ty::Type::parse(t);
@@ -463,8 +465,6 @@ bool TypeChecker::pointeesCompatible(const std::string& lhs, const std::string& 
                k.kind != ty::Type::Kind::Unknown && k.kind != ty::Type::Kind::Error && t != "unknown";
     };
     if (!judged(ln) || !judged(rn)) return true;
-    // `int32` is another spelling of `int`.
-    if ((ln == "int" || ln == "int32") && (rn == "int" || rn == "int32")) return true;
     return false;
 }
 
