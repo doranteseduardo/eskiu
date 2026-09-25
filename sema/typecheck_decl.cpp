@@ -310,6 +310,7 @@ void TypeChecker::visit(FunctionDecl* node) {
         if (pt == "int" && plainEnumDecls.count(param.first)) pt = param.first;   // keep enum name for `match`
         if (tyq::baseConst(param.first) && tyq::isPtr(param.first)) pt = "const " + pt;
         defineSymbol(param.second, pt, node->line, node->col, /*isParam=*/true);
+        if (!node->body) scopes.back()[param.second].used = true;   // a prototype's names are documentation
     }
 
     // Escape-soundness: a non-`escaping` closure parameter may only be *called*.

@@ -105,6 +105,7 @@ void TypeChecker::visit(BinaryExpr* node) {
         std::string ret, opFn = resolveOperator(node->op, {leftType, rightType}, ret);
         if (!opFn.empty()) {
             node->opFunc = opFn;
+            calledFns.insert(opFn);        // -Wall: an operator use references it
             expressionTypes[node] = ret;   // the operator's declared return type
         } else {
             errorAt(node,"invalid operands for operator: " + leftType + " and " + rightType);
@@ -351,6 +352,7 @@ void TypeChecker::visit(UnaryExpr* node) {
             opFn = resolveOperator(lookupOp, {operandType}, ret);
         if (!opFn.empty()) {
             node->opFunc = opFn;
+            calledFns.insert(opFn);
             expressionTypes[node] = ret;
         } else {
             errorAt(node,"invalid operand for unary operator: " + operandType);
@@ -452,6 +454,7 @@ void TypeChecker::visit(CallExpr* node) {
         if (mit != functionSignatures.end()) {
             const auto& sig = mit->second;
             const auto& paramTypes = sig.second; // first param is "self"
+            calledFns.insert(mangled);           // -Wall: `x.m()` references `Type_m`
             // A method whose `self` is a plain (mutable) pointer may write through it, so
             // it cannot be called on a read-only receiver (a const value, or through a
             // pointer to const) unless it declares `const T* self`.
@@ -722,7 +725,7 @@ void TypeChecker::visit(IndexExpr* node) {
     // `operator [](Base, Index)` (read/rvalue form; a slice `base[lo..hi]` is not overloaded).
     if (!haveElem && !node->highIndex) {
         std::string ret, opFn = resolveOperator("[]", {baseType, indexType}, ret);
-        if (!opFn.empty()) { node->opFunc = opFn; expressionTypes[node] = ret; return; }
+        if (!opFn.empty()) { node->opFunc = opFn; calledFns.insert(opFn); expressionTypes[node] = ret; return; }
     }
 
     if (!haveElem) { expressionTypes[node] = "unknown"; return; }
@@ -927,7 +930,7 @@ void TypeChecker::visit(LambdaExpr* node) {
     int savedSwitch = switchDepth;
     switchDepth = 0;
     for (const auto& p : node->params)
-        defineSymbol(p.second, normalizeType(p.first));
+        defineSymbol(p.second, normalizeType(p.first), node->line, node->col, /*isParam=*/true);
     // Mark param names so IdentExpr doesn't treat them as captures
     std::set<std::string> paramNames;
     for (const auto& p : node->params) paramNames.insert(p.second);

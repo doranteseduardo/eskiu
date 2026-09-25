@@ -2395,6 +2395,22 @@ int sema_is_void_value(string t0) {
     return sema_streq(sema_sub_str(t, 0, n), "void");
 }
 
+// Source spelling of a function for diagnostics: an operator shows as `operator +(V, V)`
+// rather than its mangled name.
+string sema_fn_display(*DeclNode d) {
+    if (d.operator_sym == null || d.operator_sym[0] == 0) { return d.name; }
+    string op = d.operator_sym;
+    if (sema_streq(op, "u-") == 1) { op = "-"; }
+    string out = sema_cat(sema_cat("operator ", op), "(");
+    int i = 0; int n = List_len<Param>(&d.params);
+    while (i < n) {
+        if (i > 0) { out = sema_cat(out, ", "); }
+        out = sema_cat(out, List_get<Param>(&d.params, i).ty);
+        i = i + 1;
+    }
+    return sema_cat(out, ")");
+}
+
 // A function's parameter and return types must name known types; no parameter is void.
 void sema_check_sig_types(Sema* s, *DeclNode f) {
     int i = 0; int n = List_len<Param>(&f.params);
@@ -2575,7 +2591,7 @@ int sema_check(Sema* s, *Program prog) {
         if (d.kind == DK_FUNCTION && d.body != null) {
             if (sema_in_list(&defined_fns, d.name) == 1) {
                 s.had_error = 1;
-                printf("error: %s:0:0: redefinition of function '%s'\n", s.filename, d.name);
+                printf("error: %s:0:0: redefinition of function '%s'\n", s.filename, sema_fn_display(d));
             } else { List_push<string>(&defined_fns, d.name); }
         }
         if (d.kind == DK_INTRINSIC) {

@@ -136,6 +136,30 @@ if [[ -d "$here/errors" ]]; then
     done
 fi
 
+# ---- lint tests (-Wall) ----------------------------------------------------
+# tests/warnings/NAME.esk must type-check under -Wall and emit exactly the warnings
+# listed on its `// EXPECT-WARNING: <substring>` lines (none listed = none allowed),
+# so a false-positive lint fails the suite.
+echo "Lint tests (-Wall):"
+if [[ -d "$here/warnings" ]]; then
+    for esk in "$here"/warnings/*.esk; do
+        [[ -e "$esk" ]] || continue
+        name="warnings/$(basename "$esk" .esk)"
+        if ! "$ESKIUC" -Wall "$esk" --test-typechecker >"$work/out" 2>&1; then
+            bad "$name" "rejected: $(grep -m1 'error' "$work/out")"; continue
+        fi
+        got="$(grep -c 'warning:' "$work/out")"
+        want_n="$(grep -c 'EXPECT-WARNING:' "$esk")"
+        missing=""
+        while IFS= read -r w; do
+            [[ -n "$w" ]] && ! grep -qF "$w" "$work/out" && missing="$w"
+        done < <(grep 'EXPECT-WARNING:' "$esk" | sed 's/.*EXPECT-WARNING:[[:space:]]*//')
+        if [[ -n "$missing" ]]; then bad "$name" "missing warning \"$missing\""
+        elif [[ "$got" -ne "$want_n" ]]; then bad "$name" "$got warning(s), expected $want_n: $(grep -m1 'warning:' "$work/out")"
+        else ok "$name"; fi
+    done
+fi
+
 # ---- formatter idempotency ------------------------------------------------
 # `eskiuc fmt` must be idempotent: formatting an already-formatted file is a
 # no-op. Format every positive test into a temp file, then assert `fmt --check`

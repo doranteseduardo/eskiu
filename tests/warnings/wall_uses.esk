@@ -1,0 +1,23 @@
+// EXPECT-WARNING: unused parameter 'y'
+// -Wall: functions used only through a dot-call, an interface, or an operator are used;
+// a prototype's parameter names are not unused; a lambda's parameter is a parameter.
+extern int printf(string f, ...);
+struct C { int v; }
+int C_get(*C self) { return self.v; }
+struct V { int x; }
+V operator +(V a, V b) { return V{x: a.x + b.x}; }
+interface Sh { int area(); }
+struct Sq { int s; }
+int Sq_area(*Sq self) { return self.s; }
+int use(Sh s) { return s.area(); }
+int fwd(int x);
+int main() {
+    let c: C = C{v: 1};
+    let a: V = V{x: 1};
+    let b: V = a + a;
+    let q: Sq = Sq{s: 2};
+    let k: fn(int)->int = int(int y) { return 1; };
+    printf("%d\n", c.get() + b.x + use(&q) + fwd(1) + k(0));
+    return 0;
+}
+int fwd(int x) { return x; }

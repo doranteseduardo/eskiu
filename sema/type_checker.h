@@ -210,6 +210,13 @@ private:
     // -Wall function-usage tracking: top-level functions defined vs. referenced
     std::map<std::string, std::pair<int,int>> definedFns; // name -> (line,col)
     std::set<std::string> calledFns;
+    // Source spelling of an operator function for diagnostics (`__op_add_V_V` ->
+    // `operator +(V, V)`); other names display as themselves.
+    std::map<std::string, std::string> fnDisplayNames;
+    std::string fnDisplay(const std::string& name) const {
+        auto it = fnDisplayNames.find(name);
+        return it != fnDisplayNames.end() ? it->second : name;
+    }
 
     // Current function context for return type checking
     std::string currentFunctionReturnType;

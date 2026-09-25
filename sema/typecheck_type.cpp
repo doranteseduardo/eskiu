@@ -191,6 +191,7 @@ std::string TypeChecker::interfaceMismatch(const std::string& structName, Interf
                 sig = &fit->second;
         }
         if (!sig) return "missing method '" + method.name + "'";
+        calledFns.insert(mit != functionSignatures.end() ? mit->first : method.name);   // -Wall: used via the interface
         const auto& params = sig->second;
         if (params.size() != method.params.size() + 1)
             return "method '" + method.name + "' takes " + std::to_string(params.empty() ? 0 : params.size() - 1) +

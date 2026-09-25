@@ -105,9 +105,15 @@ bool TypeChecker::check(Program* program) {
                                                                       : funcDecl->returnType) + ">";
             // A second *definition* (body) of the same name is a redefinition; a
             // body-less forward declaration alongside one definition is fine.
+            if (!funcDecl->operatorSym.empty()) {
+                std::string disp = "operator " + (funcDecl->operatorSym == "u-" ? std::string("-") : funcDecl->operatorSym) + "(";
+                for (size_t i = 0; i < funcDecl->params.size(); ++i)
+                    disp += (i ? ", " : "") + funcDecl->params[i].first;
+                fnDisplayNames[funcDecl->name] = disp + ")";
+            }
             if (funcDecl->body) {
                 if (definedFnBodies.count(funcDecl->name))
-                    errorAt(funcDecl, "redefinition of function '" + funcDecl->name + "'");
+                    errorAt(funcDecl, "redefinition of function '" + fnDisplay(funcDecl->name) + "'");
                 definedFnBodies.insert(funcDecl->name);
             }
             defineFunction(funcDecl->name, sigRet, paramTypes);
@@ -179,7 +185,7 @@ bool TypeChecker::check(Program* program) {
     if (warnAll) {
         for (const auto& [name, loc] : definedFns) {
             if (!calledFns.count(name))
-                warning(loc.first, loc.second, "unused function '" + name + "'");
+                warning(loc.first, loc.second, "unused function '" + fnDisplay(name) + "'");
         }
     }
 
