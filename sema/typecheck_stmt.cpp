@@ -83,11 +83,13 @@ void TypeChecker::visit(ForInStmt* node) {
 
     // Determine the element type the loop variable will bind.
     std::string elemType;
-    auto lb = itType.find('[');
-    if (lb != std::string::npos && !itType.empty() && itType.back() == ']') {
-        elemType = normalizeType(itType.substr(0, lb));      // fixed-size array
+    ty::Type itT = ty::Type::parse(itType);
+    if ((itT.kind == ty::Type::Kind::Array || itT.kind == ty::Type::Kind::Slice) && itT.elem) {
+        // A fixed-size array (or slice): the element is one step in, so the rows of an
+        // `int[2][3]` are `int[3]` (the leftmost bracket is the outer dimension).
+        elemType = normalizeType(itT.elem->str());
         node->isArrayIter = true;
-        node->arrayDim = itType.substr(lb + 1, itType.size() - lb - 2);
+        node->arrayDim = itT.dim;
     } else {
         std::string s = ty::Type::parse(itType).nominalName();
         auto it = structs.find(s);
