@@ -620,7 +620,7 @@ void sema_check_dims(Sema* s, string t) {
             }
             if (known == 1 && v <= (int64)0) {
                 s.had_error = 1;
-                printf("error: %s:%d:%d: array size must be positive, got %lld\n", s.filename, s.line, s.col, v);
+                dprintf(2, "error: %s:%d:%d: array size must be positive, got %lld\n", s.filename, s.line, s.col, v);
             }
             i = j;
         } else { i = i + 1; }
@@ -2123,7 +2123,7 @@ void sema_check_struct_init(Sema* s, *ExprNode e) {
     }
     if (mixed == 1) {
         s.had_error = 1;
-        printf("error: %s:%d:%d: cannot mix positional and named field initializers in a '%s' literal\n", s.filename, s.line, s.col, e.sval);
+        dprintf(2, "error: %s:%d:%d: cannot mix positional and named field initializers in a '%s' literal\n", s.filename, s.line, s.col, e.sval);
     }
     int i = 0;
     while (i < n) {
@@ -2922,7 +2922,7 @@ void sema_binary_checks(Sema* s, *ExprNode e, string lt0, string rt0) {
         else if (sema_is_int_ty(slt) == 1) { width = 32; }
         if (width > 0 && sema_fold_int(s, e.b, &cnt) == 1 && (cnt < (int64)0 || cnt >= (int64)width)) {
             s.had_error = 1;
-            printf("error: %s:%d:%d: shift count %lld is out of range for a %d-bit operand (it must be 0..%d)\n",
+            dprintf(2, "error: %s:%d:%d: shift count %lld is out of range for a %d-bit operand (it must be 0..%d)\n",
                    s.filename, s.line, s.col, cnt, width, width - 1);
         }
     }
@@ -2930,7 +2930,7 @@ void sema_binary_checks(Sema* s, *ExprNode e, string lt0, string rt0) {
     if ((sema_streq(e.sval, "&&") == 1 || sema_streq(e.sval, "||") == 1)
         && (sema_is_aggregate(s, lt0) == 1 || sema_is_aggregate(s, rt0) == 1)) {
         s.had_error = 1;
-        printf("error: %s:%d:%d: invalid operands for operator: %s and %s\n", s.filename, s.line, s.col, lt0, rt0);
+        dprintf(2, "error: %s:%d:%d: invalid operands for operator: %s and %s\n", s.filename, s.line, s.col, lt0, rt0);
     }
     // Division / remainder by a literal zero is a guaranteed runtime trap.
     if ((sema_streq(e.sval, "/") == 1 || sema_streq(e.sval, "%") == 1)
@@ -3360,7 +3360,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
             int hi_ok = sema_fold_int(s, hiE, &hi);
             if (sema_is_arr_ty(abt) == 1 && sema_is_readonly_lvalue(s, e.a) == 1) {
                 s.had_error = 1;             // a slice lets its elements be written
-                printf("error: %s:%d:%d: cannot slice read-only array: a slice allows writing its elements\n", s.filename, s.line, s.col);
+                dprintf(2, "error: %s:%d:%d: cannot slice read-only array: a slice allows writing its elements\n", s.filename, s.line, s.col);
             }
             if (sema_is_arr_ty(abt) == 1) {
                 int64 dv = sema_dim_value(s, sema_arr_count(abt));
@@ -3442,7 +3442,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         if (sema_is_fn_type(bt) == 0) {
             if (sema_ptr_depth(bt) > 1) {
                 s.had_error = 1;
-                printf("error: %s:%d:%d: cannot call method '%s' through '%s': dot syntax dereferences one pointer level (dereference it first)\n",
+                dprintf(2, "error: %s:%d:%d: cannot call method '%s' through '%s': dot syntax dereferences one pointer level (dereference it first)\n",
                        s.filename, s.line, s.col, mem.sval, bt);
                 int ai = 0; while (ai < List_len<*ExprNode>(&e.kids)) { sema_expr(s, List_get<*ExprNode>(&e.kids, ai)); ai = ai + 1; }
                 return;
@@ -3502,7 +3502,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
                 string fp0 = "none";
                 if (List_len<Param>(&ffn.params) > 0) { fp0 = List_get<Param>(&ffn.params, 0).ty; }
                 s.had_error = 1;
-                printf("error: %s:%d:%d: '%s' cannot be called as method '%s' of '%s': its first parameter must be '*%s self' (it is '%s')\n",
+                dprintf(2, "error: %s:%d:%d: '%s' cannot be called as method '%s' of '%s': its first parameter must be '*%s self' (it is '%s')\n",
                        s.filename, s.line, s.col, ffn.name, mem.sval, sn, sn, fp0);
             } else if (ffn != null && List_len<TypeParam>(&ffn.type_params) == 0 && List_len<Param>(&ffn.params) > 0) {
                 List<string> fpts; List_init<string>(&fpts, 4);
@@ -4223,7 +4223,7 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
         string sfn = sema_discarded_must_use(s, st.expr2);   // its value is discarded
         if (sfn[0] != 0) {
             s.had_error = 1;
-            printf("error: %s:%d:%d: result of '%s' must be used (it is marked must_use)\n", s.filename, s.line, s.col, sfn);
+            dprintf(2, "error: %s:%d:%d: result of '%s' must be used (it is marked must_use)\n", s.filename, s.line, s.col, sfn);
         }
         sema_narrow_undo(s, &ins);
         sema_pop(s);
@@ -4339,7 +4339,7 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
                 // collide with another label).
                 if (folded == 1 && sema_case_fits(sema_resolve_scalar(s, sema_infer_type(s, st.expr)), cv) == 0) {
                     s.had_error = 1;
-                    printf("error: %s:%d:%d: case value %lld is out of range for switch subject type '%s'\n",
+                    dprintf(2, "error: %s:%d:%d: case value %lld is out of range for switch subject type '%s'\n",
                            s.filename, s.line, s.col, cv, sema_infer_type(s, st.expr));
                     folded = 0;
                 }
@@ -4980,7 +4980,7 @@ void sema_declare_top(Sema* s, List<NameEnt>* tab, string name, string kind, *De
             // function may not share a name (a call would silently pick one).
             if ((pg == 0) != (dg == 0) && (prev.d.body == null || d.body == null)) {
                 s.had_error = 1;
-                printf("error: %s:%d:%d: conflicting declaration of function '%s' (a generic and a non-generic function cannot share a name)\n",
+                dprintf(2, "error: %s:%d:%d: conflicting declaration of function '%s' (a generic and a non-generic function cannot share a name)\n",
                        s.filename, s.line, s.col, sema_fn_display(d));
             }
             return;
@@ -5067,7 +5067,7 @@ void sema_check_top_names(Sema* s, *Program prog) {
                     string a = sema_extern_sig(s, pd); string b = sema_extern_sig(s, d);
                     if (sema_streq(a, b) == 0) {
                         s.had_error = 1;
-                        printf("error: %s:%d:%d: conflicting declaration of extern '%s' (%s vs the earlier %s)\n", s.filename, s.line, s.col, d.name, b, a);
+                        dprintf(2, "error: %s:%d:%d: conflicting declaration of extern '%s' (%s vs the earlier %s)\n", s.filename, s.line, s.col, d.name, b, a);
                     }
                     j = i;
                 }
@@ -5244,7 +5244,7 @@ void sema_check_fn(Sema* s, *DeclNode f, string self_type) {
     }
     if (sema_streq(f.name, "main") == 1 && f.is_async == 1 && s.in_inst == 0) {
         s.had_error = 1;
-        printf("error: %s:%d:%d: 'main' cannot be async: the program's entry point must return int directly (run an async function from main with an executor)\n",
+        dprintf(2, "error: %s:%d:%d: 'main' cannot be async: the program's entry point must return int directly (run an async function from main with an executor)\n",
                s.filename, s.line, s.col);
     }
     s.in_async = f.is_async;
@@ -5403,7 +5403,7 @@ int sema_check(Sema* s, *Program prog) {
                 string tpname = List_get<TypeParam>(&d.type_params, ti2).name;
                 if (sema_in_list(&tpn, tpname) == 1) {
                     s.had_error = 1;
-                    printf("error: %s:%d:%d: duplicate type parameter '%s' in '%s'\n", s.filename, s.line, s.col, tpname, sema_fn_display(d));
+                    dprintf(2, "error: %s:%d:%d: duplicate type parameter '%s' in '%s'\n", s.filename, s.line, s.col, tpname, sema_fn_display(d));
                 } else { List_push<string>(&tpn, tpname); }
                 ti2 = ti2 + 1;
             }
@@ -5416,7 +5416,7 @@ int sema_check(Sema* s, *Program prog) {
                 string imname = List_get<*DeclNode>(&d.methods, ii2).name;
                 if (sema_in_list(&imn, imname) == 1) {
                     s.had_error = 1;
-                    printf("error: %s:%d:%d: duplicate method '%s' in interface '%s'\n", s.filename, s.line, s.col, imname, d.name);
+                    dprintf(2, "error: %s:%d:%d: duplicate method '%s' in interface '%s'\n", s.filename, s.line, s.col, imname, d.name);
                 } else { List_push<string>(&imn, imname); }
                 ii2 = ii2 + 1;
             }
@@ -5424,7 +5424,7 @@ int sema_check(Sema* s, *Program prog) {
         // `must_use` asks the caller to use a result; a void function has none.
         if (d.kind == DK_FUNCTION && d.is_mustuse == 1 && sema_streq(sema_strip_const(d.ret_type), "void") == 1) {
             s.had_error = 1;
-            printf("error: %s:%d:%d: 'must_use' on '%s', which returns void (there is no result to use)\n", s.filename, s.line, s.col, sema_fn_display(d));
+            dprintf(2, "error: %s:%d:%d: 'must_use' on '%s', which returns void (there is no result to use)\n", s.filename, s.line, s.col, sema_fn_display(d));
         }
         // `main` is called by the C runtime as `main()` or `main(argc, argv[, envp])`.
         if (d.kind == DK_FUNCTION && sema_streq(d.name, "main") == 1 && List_len<Param>(&d.params) > 0) {
@@ -5443,7 +5443,7 @@ int sema_check(Sema* s, *Program prog) {
             }
             if (mok == 0) {
                 s.had_error = 1;
-                printf("error: %s:%d:%d: 'main' must take no parameters or (int argc, string* argv): the C runtime calls it that way\n", s.filename, s.line, s.col);
+                dprintf(2, "error: %s:%d:%d: 'main' must take no parameters or (int argc, string* argv): the C runtime calls it that way\n", s.filename, s.line, s.col);
             }
         }
         // An operator overload extends an operator to a user type: one operand must be a
@@ -5458,7 +5458,7 @@ int sema_check(Sema* s, *Program prog) {
             }
             if (user == 0) {
                 s.had_error = 1;
-                printf("error: %s:%d:%d: '%s' does not overload an operator for a user type: an operand must be a struct, union, sum type or interface (built-in operands keep their built-in meaning)\n",
+                dprintf(2, "error: %s:%d:%d: '%s' does not overload an operator for a user type: an operand must be a struct, union, sum type or interface (built-in operands keep their built-in meaning)\n",
                        s.filename, s.line, s.col, sema_fn_display(d));
             }
         }
