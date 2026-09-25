@@ -51,7 +51,7 @@ for f in "${files[@]}"; do
     # Reference: the C++ build. Link libc++abi so exception programs (which need
     # the Itanium __cxa_* runtime) link on both sides, matching the self-host clang
     # invocation above.
-    if ! "$BIN" "$f" -lc++abi -o "$WORK/$base.cpp" >/dev/null 2>&1; then
+    if ! "$BIN" "$f" -o "$WORK/$base.cpp" >/dev/null 2>&1; then
         echo "skip  $base  (C++ eskiuc could not build it)"; total=$((total - 1)); continue
     fi
     cpp_out="$("$WORK/$base.cpp" 2>/dev/null)"; cpp_code=$?

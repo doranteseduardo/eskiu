@@ -15,6 +15,8 @@
 #
 #   A run or smoke test may have a C companion, tests/NAME.c: it is compiled with
 #   $CC and linked into the test binary (used to check calls across the C ABI).
+#   eskiuc links each test itself with no -l flags, so the libraries a program
+#   implies (#pragma link, the C++ exception runtime, pthread) are proven here.
 #
 #   3. error  tests/errors/NAME.esk
 #             Run --test-typechecker; require a NON-zero exit AND that the
@@ -30,13 +32,13 @@ here="$(cd "$(dirname "$0")" && pwd)"
 root="$(cd "$here/.." && pwd)"
 ESKIUC="${ESKIUC:-$root/build/eskiuc}"
 CC="${CC:-clang}"
+export CC                      # eskiuc links with $CC
 # C++ driver for the unit tests: derive from CC (clang-22 → clang++-22) unless set.
 CXX="${CXX:-${CC/clang/clang++}}"
-LDFLAGS="-lc++ -lpthread -lm"
 
 # Hardening gate: SANITIZE=asan|ubsan compiles every positive test with the
 # matching instrumentation and runs it; a sanitizer abort fails the test.
-# ubsan traps (no runtime); asan needs -fsanitize=address at link.
+# ubsan traps (no runtime); asan links its runtime (eskiuc --asan does that).
 SANITIZE="${SANITIZE:-}"
 SAN_FLAG=""
 case "$SANITIZE" in
@@ -44,7 +46,7 @@ case "$SANITIZE" in
     # free — the alloca-bug class), not leaks. Linux asan turns on LeakSanitizer
     # by default, and the test programs are short-lived and not leak-audited, so
     # leak detection stays off here (auditing the suite for leaks is future work).
-    asan)  SAN_FLAG="--asan";  LDFLAGS="$LDFLAGS -fsanitize=address"
+    asan)  SAN_FLAG="--asan"
            export ASAN_OPTIONS="detect_leaks=0" ;;
     ubsan) SAN_FLAG="--ubsan" ;;
     "")    ;;
@@ -71,23 +73,18 @@ bad()  { printf '  \033[31mFAIL\033[0m  %s — %s\n' "$1" "$2"; fail=$((fail+1))
 echo "Positive tests:"
 for esk in "$here"/*.esk; do
     name="$(basename "$esk" .esk)"
-    obj="$work/$name.o"
     bin="$work/$name"
 
-    if ! "$ESKIUC" $SAN_FLAG "$esk" -o "$obj" >"$work/cerr" 2>&1; then
-        bad "$name" "compile failed: $(head -1 "$work/cerr")"
-        continue
-    fi
-    companion=""
+    companion=()
     if [[ -f "$here/$name.c" ]]; then
-        companion="$work/$name.c.o"
-        if ! $CC -c "$here/$name.c" -o "$companion" >"$work/lerr" 2>&1; then
+        if ! $CC -c "$here/$name.c" -o "$work/$name.c.o" >"$work/lerr" 2>&1; then
             bad "$name" "C companion failed to compile: $(head -1 "$work/lerr")"
             continue
         fi
+        companion=(--link-arg "$work/$name.c.o")
     fi
-    if ! $CC "$obj" $companion $LDFLAGS -o "$bin" >"$work/lerr" 2>&1; then
-        bad "$name" "link failed: $(head -1 "$work/lerr")"
+    if ! "$ESKIUC" $SAN_FLAG "$esk" ${companion[@]+"${companion[@]}"} -o "$bin" >"$work/cerr" 2>&1; then
+        bad "$name" "compile/link failed: $(grep -m1 -v 'built for newer' "$work/cerr")"
         continue
     fi
     "$bin" >"$work/out" 2>&1
@@ -199,6 +196,37 @@ if [[ -x "$work/cc_bad" && "$cc_out" == *"warning: \$CC"* ]]; then
     ok "cli/cc-missing"
 else
     bad "cli/cc-missing" "no fallback warning: $cc_out"
+fi
+
+# The libraries a program implies are added once, after the objects, only when
+# linking an executable, and not at all under --no-default-libs. A $CC wrapper
+# records the link line.
+cat > "$work/cc_log.sh" <<EOF
+#!/bin/sh
+echo "\$@" >> "$work/cc_log"
+exec $CC "\$@"
+EOF
+chmod +x "$work/cc_log.sh"
+linkline() { rm -f "$work/cc_log"; CC="$work/cc_log.sh" "$ESKIUC" "$@" >/dev/null 2>&1; cat "$work/cc_log" 2>/dev/null; }
+ll="$(linkline "$here/pragma_link.esk" -o "$work/pl" -lm)"
+if [[ "$ll" == *" -lm"* && "$ll" != *" -lm"*" -lm"* && "$ll" != *eskiu_no_such_lib* ]]; then ok "cli/link-pragma-dedup"
+else bad "cli/link-pragma-dedup" "link line: $ll"; fi
+ll="$(linkline "$here/exceptions.esk" -o "$work/ex_nd" --no-default-libs)"
+if [[ -n "$ll" && "$ll" != *" -l"* ]]; then ok "cli/no-default-libs"
+else bad "cli/no-default-libs" "link line: $ll"; fi
+ll="$(linkline --target x86_64-unknown-linux-gnu "$here/exceptions.esk" -o "$work/ex_lx")"
+if [[ "$ll" == *" -lstdc++"* ]]; then ok "cli/eh-runtime-linux"
+else bad "cli/eh-runtime-linux" "link line: $ll"; fi
+ll="$(linkline --target aarch64-none-elf "$here/exceptions.esk" -o "$work/ex_none")"
+if [[ -n "$ll" && "$ll" != *" -l"* ]]; then ok "cli/bare-metal-no-libs"
+else bad "cli/bare-metal-no-libs" "link line: $ll"; fi
+printf '#pragma link("eskiu_no_such_lib")\nint main() { return 0; }\n' > "$work/badlib.esk"
+if ! "$ESKIUC" "$work/badlib.esk" -o "$work/badlib" >/dev/null 2>&1 \
+   && "$ESKIUC" "$work/badlib.esk" -c -o "$work/badlib.o" >/dev/null 2>&1 \
+   && "$ESKIUC" "$work/badlib.esk" --no-default-libs -o "$work/badlib" >/dev/null 2>&1; then
+    ok "cli/link-pragma-applied"
+else
+    bad "cli/link-pragma-applied" "a missing #pragma link library did not fail only the link"
 fi
 
 # -Wall points an unused-parameter warning at the parameter itself.

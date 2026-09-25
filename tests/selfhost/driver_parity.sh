@@ -87,6 +87,37 @@ total=$((total + 1))
 if [ -s "$WORK/f.o" ] && ! [ -x "$WORK/f.o" ]; then echo "ok    flags/c-writes-object"
 else echo "FAIL  flags/c-writes-object"; fail=1; fi
 
+# Implied libraries: both drivers must pass the linker the same -l flags (#pragma link,
+# the C++ exception runtime, pthread, per target; explicit -l not repeated; none under
+# --no-default-libs). A wrapper standing in for $CC / $CLANG records them; a cross
+# target's link is expected to fail, only the recorded flags matter.
+REALCC="$(command -v "$CLANG")"
+cat > "$WORK/cclog.sh" <<EOF
+#!/bin/sh
+for a in "\$@"; do case "\$a" in -l*) printf '%s ' "\$a" >> "\$CCLOG" ;; esac; done
+exec "$REALCC" "\$@"
+EOF
+chmod +x "$WORK/cclog.sh"
+libcheck() { # name flags...
+    local name="$1"; shift
+    total=$((total + 1))
+    rm -f "$WORK/l.cpp" "$WORK/l.self"; touch "$WORK/l.cpp" "$WORK/l.self"
+    CCLOG="$WORK/l.cpp" CC="$WORK/cclog.sh" ESKIU_ROOT="$ROOT" "$BIN" "$@" -o "$WORK/l.bin" >/dev/null 2>&1
+    CCLOG="$WORK/l.self" CLANG="$WORK/cclog.sh" ESKIU_ROOT="$ROOT" "$ESKMAIN" "$@" -o "$WORK/l.bin" >/dev/null 2>&1
+    if cmp -s "$WORK/l.cpp" "$WORK/l.self"; then echo "ok    libs/$name  ($(cat "$WORK/l.cpp"))"
+    else echo "FAIL  libs/$name  (cpp: $(cat "$WORK/l.cpp")| self: $(cat "$WORK/l.self"))"; fail=1; fi
+}
+for tgt in "" x86_64-unknown-linux-gnu x86_64-w64-windows-gnu aarch64-none-elf; do
+    tf=(); [ -n "$tgt" ] && tf=(--target "$tgt")
+    tn="${tgt:-host}"
+    libcheck "pragma-$tn"     ${tf[@]+"${tf[@]}"} tests/pragma_link.esk
+    libcheck "math-$tn"       ${tf[@]+"${tf[@]}"} tests/math_nolib.esk -lm
+    libcheck "exceptions-$tn" ${tf[@]+"${tf[@]}"} tests/exceptions.esk
+    libcheck "threads-$tn"    ${tf[@]+"${tf[@]}"} tests/threads.esk
+    libcheck "net-$tn"        ${tf[@]+"${tf[@]}"} tests/net_echo.esk
+done
+libcheck "no-default-libs" --no-default-libs tests/exceptions.esk
+
 echo "----"
 if [ "$fail" -eq 0 ]; then echo "driver parity: $total/$total programs match"; else echo "driver parity: MISMATCH"; fi
 exit "$fail"

@@ -40,7 +40,7 @@ for f in tests/*.esk; do
     if [ -f "tests/$n.c" ]; then
         ${CC:-clang} -c "tests/$n.c" -o "$work/$n.c.o" >/dev/null 2>&1 && extra=(--link-arg "$work/$n.c.o")
     fi
-    # Compile+link at both levels; skip files that need extra libs to link.
+    # Compile+link at both levels (the driver adds the libraries a program implies).
     if ! "$ESKIUC"     "$f" ${extra[@]+"${extra[@]}"} -o "$work/$n.a" >/dev/null 2>&1 \
     || ! "$ESKIUC" -O2 "$f" ${extra[@]+"${extra[@]}"} -o "$work/$n.b" >/dev/null 2>&1; then
         skip=$((skip + 1)); continue
