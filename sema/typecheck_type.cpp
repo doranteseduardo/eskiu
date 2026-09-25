@@ -115,7 +115,14 @@ void TypeChecker::validateStructType(const std::string& type, ASTNode* at) {
     if (type.size() > 3 && type.substr(0, 3) == "fn(") return;
     if (type == "unknown") return;   // an already-reported bad type (e.g. a cyclic alias)
     std::string baseType = type;
-    if (!baseType.empty() && baseType.front() == '?') baseType = baseType.substr(1);   // nullable `?*T`
+    if (!baseType.empty() && baseType.front() == '?') {                                  // nullable `?*T`
+        baseType = baseType.substr(1);
+        if (!isPointerType(baseType)) {
+            std::string msg = "a nullable type must be a pointer ('?*T'), got '" + type + "'";
+            if (at) errorAt(at, msg); else error(0, 0, msg);
+            return;
+        }
+    }
     // Strip fixed-size array suffixes (T[N], T[N][M], ...) — the element type is what
     // matters here; each dimension (a literal, enum, or const) is resolved in codegen.
     while (!baseType.empty() && baseType.back() == ']') {

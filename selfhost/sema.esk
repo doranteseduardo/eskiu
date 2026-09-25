@@ -498,6 +498,11 @@ int sema_known_type(Sema* s, string t) {
 // (mirrors the C++ validateStructType).
 void sema_check_decl_type(Sema* s, string t) {
     if (t == null || t[0] == 0 || sema_streq(t, "...") == 1 || sema_is_fn_type(t) == 1) { return; }
+    if ((int)t[0] == 63 && sema_known_type(s, t) == 1 && sema_c_ptr(sema_canon(s, t)) == 0) {   // `?` marks a pointer only
+        s.had_error = 1;
+        printf("error: %s:%d:%d: a nullable type must be a pointer ('?*T'), got '%s'\n", s.filename, s.line, s.col, t);
+        return;
+    }
     if (sema_known_type(s, t) == 0) {
         s.had_error = 1;
         printf("error: %s:%d:%d: unknown type '%s'\n", s.filename, s.line, s.col, sema_base_name(sema_struct_of_type(t)));
