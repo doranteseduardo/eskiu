@@ -270,6 +270,22 @@ else
     bad "cli/unused-param-position" "$(printf '%s' "$w_out" | grep -m1 warning)"
 fi
 
+# The test modes take every input, like a build: a #define in the first reaches the
+# later ones, and an error in a second input fails --test-typechecker.
+printf '#define LIB_VAL 5\n' > "$work/mf_a.esk"
+printf 'int lib() { return LIB_VAL; }\n' > "$work/mf_b.esk"
+printf 'int main() { return lib() - 5; }\n' > "$work/mf_c.esk"
+printf 'int main() { return 0; }\n' > "$work/mf_ok.esk"
+printf 'int bad() { return nope; }\n' > "$work/mf_bad.esk"
+if "$ESKIUC" --test-typechecker "$work/mf_a.esk" "$work/mf_b.esk" "$work/mf_c.esk" >/dev/null 2>&1 \
+   && "$ESKIUC" --test-codegen "$work/mf_a.esk" "$work/mf_b.esk" "$work/mf_c.esk" 2>/dev/null | grep -q 'define.*@lib' \
+   && ! "$ESKIUC" --test-typechecker "$work/mf_ok.esk" "$work/mf_bad.esk" >/dev/null 2>&1 \
+   && "$ESKIUC" "$work/mf_a.esk" "$work/mf_b.esk" "$work/mf_c.esk" -o "$work/mf" >/dev/null 2>&1 && "$work/mf"; then
+    ok "cli/test-modes-all-inputs"
+else
+    bad "cli/test-modes-all-inputs" "a test mode ignored an extra input"
+fi
+
 # A lexical error in an imported file is reported once, with no parse errors after it.
 lex_out="$("$ESKIUC" --test-typechecker "$here/errors/import_lex_error.esk" 2>&1)"
 if [[ "$(printf '%s\n' "$lex_out" | grep -c '^error:')" -eq 1 ]]; then

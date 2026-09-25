@@ -161,7 +161,7 @@ static std::vector<std::string> g_runArgs;
 static bool sawSeparator = false;   // a `--` after the script separates program args
 
 // Every input file: the first positional plus the extra ones (`eskiuc a.esk b.esk`).
-// The build merges them.
+// The build and the --test-parser/typechecker/codegen modes all merge them.
 static std::vector<std::string> allInputs() {
     std::vector<std::string> ins = { std::string(InputFilename) };
     for (const auto& f : ExtraInputs) ins.push_back(f);
@@ -201,7 +201,7 @@ static int testLexer(const std::string& filename) {
 
 // Test type checker: tokenize, parse, type check, and report errors
 static int testTypeChecker(const std::string& filename) {
-    auto program = loadProgram({ filename }, std::string(TargetTriple), Freestanding);
+    auto program = loadProgram(allInputs(), std::string(TargetTriple), Freestanding);
     if (!program) {
         std::cerr << "Parse failed!" << std::endl;
         return 1;
@@ -234,7 +234,7 @@ static int testTypeChecker(const std::string& filename) {
 
 // Test codegen: tokenize, parse, generate LLVM IR, and print it
 static int testCodegen(const std::string& filename) {
-    auto program = loadProgram({ filename }, std::string(TargetTriple), Freestanding);
+    auto program = loadProgram(allInputs(), std::string(TargetTriple), Freestanding);
     if (!program) {
         std::cerr << "Parse failed!" << std::endl;
         return 1;
@@ -290,7 +290,7 @@ static int testCodegen(const std::string& filename) {
 
 // Test parser: tokenize, parse, and print AST
 static int testParser(const std::string& filename) {
-    auto program = loadProgram({ filename }, std::string(TargetTriple), Freestanding);
+    auto program = loadProgram(allInputs(), std::string(TargetTriple), Freestanding);
     if (!program) {
         std::cerr << "Parse failed!" << std::endl;
         return 1;
@@ -418,7 +418,7 @@ static int compilerMain(int argc, char** argv) {
         if (sscanf(HoverAt.c_str(), "%d:%d", &line, &col) != 2) {
             std::cerr << "error: --hover-at expects LINE:COL format\n"; return 1;
         }
-        auto program = loadProgram({ std::string(InputFilename) }, std::string(TargetTriple), Freestanding);
+        auto program = loadProgram(allInputs(), std::string(TargetTriple), Freestanding);
         if (!program) { std::cout << "(parse error)\n"; return 0; }
         try {
             TypeChecker tc;
@@ -437,7 +437,7 @@ static int compilerMain(int argc, char** argv) {
         if (sscanf(DefinitionAt.c_str(), "%d:%d", &line, &col) != 2) {
             std::cerr << "error: --definition-at expects LINE:COL format\n"; return 1;
         }
-        auto program = loadProgram({ std::string(InputFilename) }, std::string(TargetTriple), Freestanding);
+        auto program = loadProgram(allInputs(), std::string(TargetTriple), Freestanding);
         if (!program) { std::cout << "(parse error)\n"; return 0; }
         try {
             TypeChecker tc;
