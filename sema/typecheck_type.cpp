@@ -442,8 +442,9 @@ bool TypeChecker::isNarrowingNumeric(const std::string& lhsType, const std::stri
     return isFloatType(rhsType) && isIntType(lhsType);
 }
 
-std::string TypeChecker::assignabilityError(const std::string& targetType,
-                                            const std::string& srcType, Expr* srcExpr) {
+std::string TypeChecker::assignabilityError(const std::string& targetIn,
+                                            const std::string& srcIn, Expr* srcExpr) {
+    const std::string targetType = nullableAliasTarget(targetIn), srcType = nullableAliasTarget(srcIn);
     if (srcType == "unknown" || targetType.empty() || targetType == "unknown") return "";
     // Nullable-pointer rules (opt-in null safety): a `?*T` behaves like `*T` for
     // assignment except that assigning a nullable pointer to a non-null one drops the

@@ -717,11 +717,25 @@ void TypeChecker::defineSymbol(const std::string& name, const std::string& type)
     defineSymbol(name, type, 0, 0, false);
 }
 
+// `type NP = ?*N;`: a use of NP is the nullable pointer itself, so the `?` (which the
+// null-safety checks read off the front of a type) must be visible. Other aliases are
+// resolved by normalizeType as usual.
+std::string TypeChecker::nullableAliasTarget(const std::string& t) {
+    std::string cur = t;
+    for (int guard = 0; guard < 64; ++guard) {
+        auto it = typeAliases.find(cur);
+        if (it == typeAliases.end()) return t;
+        cur = it->second;
+        if (!cur.empty() && cur[0] == '?') return cur;
+    }
+    return t;
+}
+
 void TypeChecker::defineSymbol(const std::string& name, const std::string& type,
                                int line, int col, bool isParam) {
     if (!scopes.empty()) {
         Symbol s;
-        s.type = type; s.isDeclared = true;
+        s.type = nullableAliasTarget(type); s.isDeclared = true;
         s.used = false; s.line = line; s.col = col; s.isParam = isParam;
         s.file = diagFile();
         auto ins = scopes.back().insert_or_assign(name, s);

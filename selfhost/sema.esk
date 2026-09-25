@@ -361,10 +361,28 @@ void sema_pop(Sema* s) {
     s.depth = d - 1;
 }
 
+*DeclNode sema_find_tdecl(Sema* s, string name);
+
+// `type NP = ?*N;`: a use of NP is the nullable pointer itself, so the `?` the
+// null-safety checks read off the front of a type must be visible (mirrors the C++
+// nullableAliasTarget).
+string sema_nullable_alias(Sema* s, string t) {
+    string cur = t;
+    int hops = 0;
+    while (hops < 64) {
+        *DeclNode ad = sema_find_tdecl(s, cur);
+        if (ad == null || ad.kind != DK_TYPEALIAS) { return t; }
+        cur = ad.ret_type;
+        if ((int)cur[0] == 63) { return cur; }
+        hops = hops + 1;
+    }
+    return t;
+}
+
 void sema_define(Sema* s, string name, string type, int is_const) {
     let sym: Sym;
     sym.name = name;
-    sym.type = type;
+    sym.type = sema_nullable_alias(s, type);
     sym.depth = s.depth;
     sym.is_const = is_const;
     sym.init = null;
@@ -1578,8 +1596,9 @@ string sema_assign_strict(Sema* s, string t0, string src0) {
 // Conservative assignability of expression `e` to declared type `t` (mirrors the error
 // cases of the C++ assignabilityError). Returns "" when OK or when either side is not
 // understood well enough to judge (so a valid program is never falsely rejected).
-string sema_assign_err(Sema* s, string t0, *ExprNode e) {
-    if (e == null || t0 == null || t0[0] == 0) { return ""; }
+string sema_assign_err(Sema* s, string ta0, *ExprNode e) {
+    if (e == null || ta0 == null || ta0[0] == 0) { return ""; }
+    string t0 = sema_nullable_alias(s, ta0);
     string t = sema_strip_const(t0);
     string tc = sema_canon(s, t0);
     if (sema_find_iface(s, t) != null) {   // nullable / pointer-depth / const boxing rules

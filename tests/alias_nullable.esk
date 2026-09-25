@@ -1,0 +1,13 @@
+// A type alias of a nullable pointer (`type NP = ?*N;`) is that nullable pointer.
+extern int printf(string fmt, ...);
+struct N { int v; }
+type NP = ?*N;
+int read(NP p) { if (p != null) { return p.v; } return -1; }
+int main() {
+    N n = N{v: 1};
+    NP p = &n;
+    NP q = null;
+    if (p != null) { printf("%d\n", p.v); }
+    printf("%d %d\n", read(p), read(q));
+    return 0;
+}
