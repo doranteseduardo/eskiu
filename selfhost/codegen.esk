@@ -2177,6 +2177,21 @@ CgK cg_cfold(Codegen* g, *ExprNode e) {
     return cg_k_none();
 }
 
+// Fold a top-level `const` declaration's initializer in its declared type and record
+// it: a signed int goes to econsts (read as an int operand), anything else to fconsts.
+void cg_fold_const_decl(Codegen* g, *DeclNode d) {
+    string dt = cg_dealias(g, d.ret_type);
+    string dll = cg_lltype(g, dt);
+    CgK k = cg_k_conv(g, cg_cfold(g, d.init), dt);
+    if (k.ok == 1 && cg_streq(dll, "i32") == 1 && cg_is_unsigned(dt) == 0) {
+        let ec2: CgEnumC; ec2.name = d.name; ec2.val = cg_i64toa(k.iv);
+        List_push<CgEnumC>(&g.econsts, ec2);
+    } else if (k.ok == 1) {
+        let ik: CgFK; ik.name = d.name; ik.k = k;
+        List_push<CgFK>(&g.fconsts, ik);
+    }
+}
+
 // Render a folded constant as LLVM constant text for slot type `llty` ("" if the slot
 // is not a scalar numeric type). Integers are wrapped to the slot width (C conversion).
 string cg_k_text(CgK k, string llty) {
@@ -6410,18 +6425,7 @@ void cg_program(Codegen* g, *Program prog) {
             ec.val = cg_num_const("i32", d.init.sval);   // decimal, sign kept (`-5` stays -5)
             List_push<CgEnumC>(&g.econsts, ec);
         } else if (d.kind == DK_VARDECL && d.is_const == 1 && d.init != null) {
-            // A constant expression (`A * 2`, `1.0 / 4.0`) or a non-i32 const: fold it now,
-            // in source order, converted to the declared type.
-            string dt = cg_dealias(g, d.ret_type);
-            string dll = cg_lltype(g, dt);
-            CgK k = cg_k_conv(g, cg_cfold(g, d.init), dt);   // the value in the declared type
-            if (k.ok == 1 && cg_streq(dll, "i32") == 1 && cg_is_unsigned(dt) == 0) {
-                let ec2: CgEnumC; ec2.name = d.name; ec2.val = cg_i64toa(k.iv);   // an int operand
-                List_push<CgEnumC>(&g.econsts, ec2);
-            } else if (k.ok == 1) {
-                let ik: CgFK; ik.name = d.name; ik.k = k;
-                List_push<CgFK>(&g.fconsts, ik);
-            }
+            cg_fold_const_decl(g, d);   // a constant expression (`A * 2`) or a non-int const
         }
         ci = ci + 1;
     }
@@ -6605,7 +6609,9 @@ void cg_program(Codegen* g, *Program prog) {
                 si = si + 1;
                 continue;
             }
-            // (const-int values were already folded into econsts in Pass 0b.)
+            // Pass 0b folded the consts before any struct existed; fold a constant
+            // expression again now that `sizeof(Struct)` is known (the later entry wins).
+            if (d.is_const == 1 && d.init != null && d.init.kind != EK_LITERAL) { cg_fold_const_decl(g, d); }
             string llty = cg_lltype(g, d.ret_type);
             // Duplicate top-level name (e.g. two `const int X`): emit a uniquely-named global
             // (@X.1) so clang does not reject a redefinition. Const-int reads fold via econsts

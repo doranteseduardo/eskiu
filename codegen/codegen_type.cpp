@@ -132,6 +132,9 @@ llvm::Type* CodeGen::getTypeFromString(const std::string& typeStr) {
         default: break;                                    // Null/Unknown/Error
     }
 
+    // Folding a constant (e.g. the pre-pass over top-level consts, which runs before any
+    // struct is declared): an unknown type means "not foldable yet", not an i32 size.
+    if (constEvalDepth > 0) throw std::runtime_error("unknown type '" + typeStr + "' in a constant");
     std::cerr << "Warning: unknown type '" << typeStr << "', defaulting to i32" << std::endl;
     return i32;
 }

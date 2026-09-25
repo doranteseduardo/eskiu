@@ -1,0 +1,15 @@
+// A top-level const whose initializer takes the size of a struct folds to the real
+// size, although the constants are first folded before any struct is declared. Found
+// by the C oracle in tests/fuzz/eskiu_fuzz.py (the self-hosted back end folded 0).
+extern int printf(string fmt, ...);
+
+struct S { uint32[4] a; char c; }
+const int32 N = (int32)(15 / (2 ? sizeof(S) : 1));
+const uint32 Z = (uint32)sizeof(S);
+const int64 W = (int64)Z * 3;
+S s = S { c: 'x' };
+
+int main() {
+    printf("%d %u %lld %lld\n", N, Z, W, (int64)sizeof(s));
+    return 0;
+}
