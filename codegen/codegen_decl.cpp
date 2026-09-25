@@ -565,12 +565,14 @@ void CodeGen::visit(StructDecl* node) {
 }
 
 void CodeGen::visit(ExternDecl* node) {
+    // An `extern` the program also defines is an Eskiu function: its definition
+    // declares the prototype (Eskiu convention, not the C ABI lowering below).
+    if (definedFunctionNames.count(node->name)) return;
     // Get parameter types
     std::vector<llvm::Type*> paramTypes;
     bool hasVarargs = false;
     // A fn-typed parameter of a C function is a C function pointer, not an Eskiu
     // closure: it is declared `ptr` and each call passes a function's C address.
-    bool foreign = !definedFunctionNames.count(node->name);
     std::vector<bool> fnPtr;
 
     for (auto& param : node->params) {
@@ -578,7 +580,7 @@ void CodeGen::visit(ExternDecl* node) {
             hasVarargs = true;
             break;
         }
-        bool isFn = foreign && ty::Type::parse(expandAlias(param.first)).isFn();
+        bool isFn = ty::Type::parse(expandAlias(param.first)).isFn();
         fnPtr.push_back(isFn);
         paramTypes.push_back(isFn ? llvm::PointerType::get(*context, 0) : getTypeFromString(param.first));
     }
