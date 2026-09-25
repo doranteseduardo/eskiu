@@ -30,6 +30,8 @@ Why this catches real bugs: a correct program must produce the same observable r
 
 Some generators carry their own **expected stdout** instead of relying on the O0/O2 differential, notably the backslash-newline-in-comments/strings generators, which catch *uniformly* mis-lexed programs (where O0 and O2 agree but are both wrong, e.g. a `//` comment ending in `\` swallowing the next line). A mismatch against the known output (or a build failure) is the finding.
 
+The O0/O2 differential cannot see a bug that both levels share, or one that the C++ and self-hosted compilers share. The **C oracle** (`--oracle N`, `tests/fuzz/c_oracle.py`) covers that case: it generates programs in a C-translatable subset, emits each one as C as well, and compares the output of both Eskiu compilers with what `clang -O0 -fwrapv` prints. `--oracle-repro SEED:INDEX` prints one program in both languages and `--oracle-reduce SEED:INDEX` shrinks a finding. For errors rather than miscompiles, `tests/fuzz/neg_fuzz.py` injects one error into a generated program and flags a compiler that accepts it, crashes, or reports it on the wrong line. `tests/README.md` has the command lines.
+
 The corpus-wide counterpart is `tests/opt_differential.sh` (v0.3.1): it compiles every `tests/*.esk` with `eskiuc -O0` and with `eskiuc -O2` (the `-O0`/`-O1`/`-O2`/`-O3` flag runs the LLVM middle-end before code generation) and fails on any exit/stdout divergence. Reach for it when diagnosing a bug that only appears under optimization: run it, then re-run the one failing program at each level and diff `--test-codegen` output. It caught the v0.3.1 float-closure return-type miscompile.
 
 ## Resolver Consistency: `ESKIU_RESOLVER_DEBUG`

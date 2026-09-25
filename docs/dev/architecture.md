@@ -494,7 +494,7 @@ The GEP uses the *pointee* type (`ptrElemType()`), so `±n` advances by `n` elem
 
 ### Exception lowering
 
-`try`/`catch`/`throw` lower to the Itanium C++ ABI. Every call inside a `try` body is emitted as `invoke` (not `call`) so it can branch to a `landingpad`; `throw` calls `__cxa_throw` (via `invoke` when inside a try) and the catch dispatch uses `__cxa_begin_catch`/`__cxa_end_catch`. The module gets a `__gxx_personality_v0` declaration. Unhandled exceptions are re-thrown with `resume`. Because this uses the C++ runtime, the final binary must link `-lc++` (macOS) / `-lstdc++` (Linux), surfaced to users in the language spec, with the mechanics kept here.
+`try`/`catch`/`throw` lower to the Itanium C++ ABI. Every call inside a `try` body is emitted as `invoke` (not `call`) so it can branch to a `landingpad`; `throw` calls `__cxa_throw` (via `invoke` when inside a try) and the catch dispatch uses `__cxa_begin_catch`/`__cxa_end_catch`. The module gets a `__gxx_personality_v0` declaration. Unhandled exceptions are re-thrown with `resume`. Because this uses the C++ runtime, the driver links `-lc++` (macOS) / `-lstdc++` (Linux, mingw) whenever the program contains `throw` or `try` (`--no-default-libs` turns it off); the user-facing rule is in the language spec's Linking paragraph.
 
 ### Cleanup stack: `defer` / `errdefer` lowering
 
@@ -599,7 +599,7 @@ The same coercion logic appears in `emitStructInitInto()` for struct field initi
 | Interface name (e.g. `Greeter`) | `%Greeter_fat` (`{ ptr, ptr }`) | An interface value is the fat struct itself (data pointer + vtable pointer), held by value |
 | `T[N]` (fixed-size array) | `[N x T]` (`llvm::ArrayType`) | e.g. `uint8[858]` → `[858 x i8]` |
 
-Integer literals are emitted as `i32` (64-bit literals widen to `i64` without truncation). Float literals are emitted as `double` (`f64`). A float literal assigned to a `float` (`f32`) variable is coerced down via `CreateFPCast`. Signedness is tracked through codegen from the Eskiu type: unsigned types use the unsigned LLVM instructions (`CreateUDiv`, `CreateURem`, `CreateLShr`, `CreateICmpULT`, etc.) while signed types use the signed forms, and integer widening picks `CreateZExt` vs `CreateSExt` from the source operand's signedness at every coercion site.
+Integer literals are emitted as `i32`; a literal that does not fit `int` is typed `int64` (C's `long`) and widens the operation it appears in. Float literals are emitted as `double` (`f64`). A float literal assigned to a `float` (`f32`) variable is coerced down via `CreateFPCast`. Signedness is tracked through codegen from the Eskiu type: unsigned types use the unsigned LLVM instructions (`CreateUDiv`, `CreateURem`, `CreateLShr`, `CreateICmpULT`, etc.) while signed types use the signed forms, and integer widening picks `CreateZExt` vs `CreateSExt` from the source operand's signedness at every coercion site.
 
 ---
 
@@ -610,6 +610,9 @@ Beyond the `--test-*` modes, the compiler is guarded by an automated harness (ru
 - **Golden-IR oracle**, `tests/type_zoo/snapshot.sh` + `tests/type_zoo/golden/`: emits IR for the type-zoo corpus and diffs it against the checked-in baseline. A behavior-preserving change must produce byte-identical IR; this is the codegen-regression guard.
 - **Generative + mutation fuzzer**, `tests/fuzz/eskiu_fuzz.py` with an **O0-vs-O2 differential oracle**: synthesized programs are run at both optimization levels and any divergence is a miscompile. This catches accidentally-`-O0`-correct IR (undef, wrong width, missing extension).
 - **`-O0`-vs-`-O2` corpus differential** (`tests/opt_differential.sh`, v0.3.1): compiles every `tests/*.esk` with `eskiuc -O0` and `eskiuc -O2` (the LLVM middle-end the `-O` flag runs) and fails on any exit/stdout divergence. Where the fuzzer exercises synthesized programs, this exercises the real corpus. It caught the v0.3.1 float-closure return-type miscompile.
+- **C oracle**, `tests/fuzz/c_oracle.py` (`eskiu_fuzz.py --oracle`): generates programs in a C-translatable subset, emits each as C too, and requires the C++ `eskiuc` (at `-O0` and `-O2`) and the self-hosted `eskiuc-esk` to print what `clang -O0 -fwrapv` prints. It is the only check outside the two Eskiu compilers, so it catches a bug they share (the 0.9.2 C conversion and constant-folding fixes came from it).
+- **Negative corpus**, `tests/fuzz/neg_fuzz.py`: injects one error into a generated program and requires both compilers to reject it with a diagnostic located on that line, without crashing.
+- **Stdlib parser fuzzer**, `tests/fuzz/stdlib_fuzz.py`: mutates inputs for the stdlib parsers (JSON, base64, URL, regex, HPACK, HTTP, multipart, UUID/time), built with `--asan`, and fails on a crash, an ASan report or a broken round trip.
 - **`--asan` / `--ubsan` gates**: AddressSanitizer and trapping UB checks run over the test corpus for runtime memory errors and undefined behavior.
 - **Formatter idempotency**: `eskiuc fmt --check` over every test.
 

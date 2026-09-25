@@ -173,6 +173,8 @@ Signedness is tracked by the compiler for correct arithmetic and comparison code
 
 Arithmetic follows C's integer promotions: an operand narrower than `int` (`bool`, `char`, `int8`, `int16`, `uint8`, `uint16`) is converted to `int` before an arithmetic, bitwise, shift, or comparison operator is applied. So `(uint8)200 + (uint8)100` is `300`, `(uint8)200 > (int8)-1` is true, and `true + true` is `2`. Storing the result back into a narrow variable truncates it, as in C. Converting any integer, floating, or pointer value to `bool` yields `value != 0`.
 
+After promotion, two operands of different types meet under C's usual arithmetic conversions: the wider operand's type wins, and at equal width an unsigned operand makes the result unsigned, so `(int32)-1 + (uint32)5` is the `uint32` `4` and `(int32)-1 < (uint32)5` is false. A shift has the type of its promoted left operand, and unary `-` and `~` promote a narrow operand to `int` first. The two arms of a ternary meet the same way (two different narrow arms give an `int`). An integer literal that does not fit in `int` has type `int64`, so `3000000000 * 2` is `6000000000`. Constant initializers fold with exactly these rules.
+
 ### 3.2 Pointer Types
 
 A pointer type is written with a leading `*`:
@@ -1733,6 +1735,21 @@ struct Box<T> {
 }
 ```
 
+A template struct may declare methods in its body. Each method is generated per struct instance, on the first call: for `Box<int>` the method `get` becomes `Box_int_get(*Box_int self)`. A method that only makes sense for some type arguments is fine as long as no other instance calls it.
+
+```eskiu
+struct Cell<T> {
+    T v;
+    T get() { return self.v; }
+    T twice() { return self.v + self.v; }
+}
+
+Cell<int> c = Cell<int>{ 21 };
+int n = c.twice();                // 42
+```
+
+A generic function in the `Type_method` form (`T Cell_peek<T>(Cell<T>* self)`) is also callable as `c.peek()`, with its type arguments taken from the receiver (§8.1).
+
 ### 10.2 Template Functions
 
 ```eskiu
@@ -1756,6 +1773,12 @@ p.first = 1;
 p.second = 3.14;
 
 int big = max<int>(10, 20);
+```
+
+The body of a template is type-checked once per instance, with the concrete type arguments substituted, after the rest of the program. An error that exists only for some type arguments (an operator the concrete type lacks, a value passed where a method takes a pointer) is reported at the offending expression, with the instance named:
+
+```
+error: f.esk:3:28: invalid operands for operator: struct:Box and struct:Box (in instantiation of twice<Box>)
 ```
 
 ### 10.4 Using Result<T,E> from stdlib

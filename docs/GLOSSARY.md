@@ -37,7 +37,7 @@ Maximal sequence of LLVM IR instructions with no branches except at the end. Eve
 An operator that takes exactly two operands. Eskiu supports arithmetic (`+`, `-`, `*`, `/`, `%`), comparison (`==`, `!=`, `<`, `<=`, `>`, `>=`), and logical (`&&`, `||`) binary operators. Precedence rules determine evaluation order when operators appear without parentheses. See also: unary operator, precedence.
 
 **bitfield**
-A struct integer field declared with a bit width (`uint32 mode : 3;`), occupying only that many bits. Consecutive bitfields pack into storage words of their declared type; reads mask and shift the field out (signed fields sign-extend) and writes are read-modify-write. The address of a bitfield cannot be taken. See also: packed struct, struct.
+A struct integer field declared with a bit width (`uint32 mode : 3;`), occupying only that many bits. Bitfields are laid out the way the target's C compiler lays them out (SysV/AAPCS rules on Linux, macOS and bare-metal ARM, MS rules on Windows); reads mask and shift the field out (signed fields sign-extend) and writes are read-modify-write. The address of a bitfield cannot be taken. See also: packed struct, struct.
 
 **BlockItem**
 Union type used internally in the parser and AST to represent a single item inside a block statement: either a declaration (VarDecl, StructDecl) or an executable statement. Storing both as `BlockItem` allows the parser to handle declaration-in-block uniformly. See also: BlockStmt, declaration, statement.
@@ -91,7 +91,7 @@ A thread that owns an event loop plus a thread-safe ready-queue of wakers (`Exec
 A syntactic form that evaluates to a value and has a type. Examples: `3 + 4`, `add(5, 2)`, `point.x`, `*ptr`. Expressions form the leaves and internal nodes of most AST subtrees. See also: lvalue, rvalue, statement.
 
 **ExternDecl**
-AST node representing a declaration of a function whose implementation lives in an external C library. Syntax: `extern int printf(string fmt, ...);`. The type checker records the function signature; the code generator emits an LLVM `declare` instruction so the linker can resolve it. See also: variadic, declaration.
+AST node representing a declaration of a function whose implementation lives in an external C library. Syntax: `extern int printf(string fmt, ...);`. The type checker records the function signature; the code generator emits an LLVM `declare` instruction so the linker can resolve it. A struct passed or returned by value follows the target's C calling convention, and a parameter of fn type is a C function pointer (the call passes a top-level function by name or `null`). See also: variadic, declaration.
 
 ## F
 

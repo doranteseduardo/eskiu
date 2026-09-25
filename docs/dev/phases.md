@@ -27,7 +27,7 @@ The project follows two phases:
 | Structs with methods | ✅ |
 | Operator overloading (`operator +/-/*//%/==/.../[]`, static + structural, zero-cost; lockstep both compilers) | ✅ |
 | Interfaces with vtable dispatch (fat pointer); interface values as locals, fields and returns, signature-checked conformance (v0.9.2) | ✅ |
-| Templates: structs and functions, monomorphic instantiation | ✅ |
+| Templates: structs and functions, monomorphic instantiation; each instance's body type-checked with its type arguments, inline methods on generic structs, dot-calls on generic instances (`l.push(8)`) (v0.9.2) | ✅ |
 | Control flow: if/else, while, for, switch/case (with type checking) | ✅ |
 | Lambdas (`int(int x) { return x*2; }`) and `fn(T)->R` function pointer types | ✅ |
 | Negative literals: `-1`, `-3.14` as first-class values | ✅ |
@@ -67,12 +67,12 @@ The project follows two phases:
 | Forward declarations / call-before-define / mutual recursion | ✅ |
 | Enums: `enum Color { Red, Green = 5, Blue }` | ✅ |
 | Type aliases: `type u8 = uint8;` | ✅ |
-| Struct bitfields: `uint32 x : 1;` | ✅ |
+| Struct bitfields: `uint32 x : 1;`, laid out like the target's C compiler (SysV/AAPCS or MS) (v0.9.2) | ✅ |
 | Preprocessor: `#define` (object/function-like, multi-line via `\`), `#ifdef`/`#ifndef`/`#else`/`#endif`; `#if`/`#elif` with `defined`, located errors for unknown directives (v0.9.2) | ✅ |
-| C ABI for structs passed/returned by value across `extern` (AArch64, x86-64 SysV, Windows x64, 32-bit ARM) (v0.9.2) | ✅ |
+| C ABI for structs passed/returned by value across `extern` (AArch64, x86-64 SysV, Windows x64, 32-bit ARM, both compilers); C callbacks taking structs by value through a thunk; `extern` fn-typed params as C function pointers (v0.9.2) | ✅ |
 | Packed structs: `packed struct` and `#pragma pack(push/pop)` | ✅ |
 | Template type-argument inference: direct (`max(3, 5)`) and composite (`List_get(&nums, i)`) | ✅ |
-| One-step linking: `eskiuc -o prog` invokes the system C toolchain | ✅ |
+| One-step linking: `eskiuc -o prog` invokes the system C toolchain; `#pragma link("name")` and implied libraries (C++ runtime, pthread), `--no-default-libs` (v0.9.2) | ✅ |
 | Multi-file compilation: `eskiuc a.esk b.esk -o prog` | ✅ |
 | `-Wall` warnings: unused vars/params/functions, assignment-in-condition | ✅ |
 | `<bytes>` and `HashMap<K,V>` stdlib (v0.2.1) | ✅ |

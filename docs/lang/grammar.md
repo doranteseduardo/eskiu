@@ -260,6 +260,11 @@ postfix `expr?` (with no matching `:` ahead) is the Result error-propagation ope
 same-level `:` after the `?`. Assignment is the lowest-precedence, right-associative
 level; the ternary sits just above it, also right-associative.
 
+The parser implements the binary levels by precedence climbing, so an operator chain
+of any length parses without deep recursion. Nesting (parentheses, blocks, nested
+statements and lambdas) is limited to 100000 levels, past which the parser reports
+`nesting too deep`.
+
 ```
 primary =
     INT_LIT | FLOAT_LIT | STRING_LIT | CHAR_LIT | 'true' | 'false' | 'null'

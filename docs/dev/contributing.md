@@ -27,7 +27,7 @@ Checklist: Lexer → Parser → AST → ASTVisitor → Type checker → Codegen 
 Visitor propagation: declare in ASTVisitor, build failure drives implementation in ASTPrinter/TypeChecker/CodeGen
 parseType() and parseBlockStatement() are the single dispatch points for types and statement keywords
 New type spellings go in sema/type.cpp (`ty::Type::parse`, the one grammar interpreter shared by sema and codegen) and the typecheck split files (typecheck_type.cpp et al.); do not add a second type-string evaluator
-Template note: bodies NOT type-checked at declaration time; deferred to monomorphic instantiation
+Template note: bodies are not type-checked at declaration time; each instance is checked with its concrete type arguments after the main pass (`queueInstance` / `checkPendingInstances`, and `sema_queue_inst` / `sema_check_insts` in the self-host)
 
 ## Code Style
 C++17, no deps beyond LLVM
@@ -40,6 +40,7 @@ No RTTI except existing dynamic_cast sites
 There IS an automated suite: run it before any PR.
 - `tests/run.sh`: the regression harness over the `.esk` test corpus (the four `--test-*` modes plus end-to-end compile/run).
 - Generative + mutation fuzzer `tests/fuzz/eskiu_fuzz.py` with an **O0-vs-O2 differential oracle**: it compiles each generated program at `-O0` and `-O2` and flags any divergence in output. This is how miscompiles are caught.
+- C oracle (`eskiu_fuzz.py --oracle`, `tests/fuzz/c_oracle.py`): generated programs also emitted as C; both Eskiu compilers must print what clang prints. Negative corpus `tests/fuzz/neg_fuzz.py`: one injected error per program, both compilers must reject it with a located diagnostic. `tests/fuzz/stdlib_fuzz.py`: the stdlib parsers under ASan. All three have CI gates; usage in `tests/README.md`.
 - Golden-IR oracle `tests/type_zoo/snapshot.sh` + `tests/type_zoo/golden/`: captures/checks the emitted IR for the type zoo; the codegen-regression guard.
 - `--asan` / `--ubsan` gates in CI for runtime memory errors and undefined behavior.
 - A formatter-idempotency pass (`eskiuc fmt --check`) over every test.
