@@ -367,7 +367,7 @@ void CodeGen::visit(CallExpr* node) {
             }
 
             auto* ftype = llvm::FunctionType::get(retType, paramLLVM, false);
-            llvm::Value* call = builder->CreateCall(ftype, fnPtr, iargs);
+            llvm::Value* call = createMaybeInvoke(ftype, fnPtr, iargs);
             if (iSret)
                 exprValueStack.push(builder->CreateLoad(
                     llvm::cast<llvm::StructType>(getTypeFromString(retTypes[idx])), sretBuf));
@@ -455,7 +455,7 @@ void CodeGen::visit(CallExpr* node) {
                         fargs[i] = coerceValue(fargs[i], pt, eskiuUnsigned(srcTy));
                     }
                 }
-                exprValueStack.push(builder->CreateCall(ffunc, fargs));
+                exprValueStack.push(createMaybeInvoke(ffunc->getFunctionType(), ffunc, fargs));
                 return;
             }
         }
@@ -512,7 +512,7 @@ void CodeGen::visit(CallExpr* node) {
                 iargs.push_back(av);
             }
             // A void-returning call must not be given a name (LLVM forbids it).
-            exprValueStack.push(builder->CreateCall(
+            exprValueStack.push(createMaybeInvoke(
                 fty, fnPtr, iargs, retTy->isVoidTy() ? "" : "fn.call"));
             return;
         }
@@ -679,7 +679,7 @@ void CodeGen::visit(AllocWithExpr* node) {
     builder->CreateCondBr(bad, fail, doCall);
     builder->SetInsertPoint(doCall);
     // Returns *void; the cast to *T is a no-op under opaque pointers.
-    llvm::Value* p = builder->CreateCall(af, {allocPtr, total}, "allocw.ptr");
+    llvm::Value* p = createMaybeInvoke(af->getFunctionType(), af, {allocPtr, total}, "allocw.ptr");
     llvm::BasicBlock* callEnd = builder->GetInsertBlock();
     builder->CreateBr(done);
     builder->SetInsertPoint(fail);
@@ -847,9 +847,9 @@ void CodeGen::visit(TemplateCallExpr* node) {
     if (sretIt != funcSretTypes.end()) {
         llvm::Value* sretAlloca = entryAlloca(sretIt->second, nullptr, "sret.tmp");
         args.insert(args.begin(), sretAlloca);
-        builder->CreateCall(func, args);
+        createMaybeInvoke(func->getFunctionType(), func, args);
         exprValueStack.push(builder->CreateLoad(sretIt->second, sretAlloca));
     } else {
-        exprValueStack.push(builder->CreateCall(func, args));
+        exprValueStack.push(createMaybeInvoke(func->getFunctionType(), func, args));
     }
 }
