@@ -275,6 +275,7 @@ struct H2Server {
     int    hbcap;
     int    hb_sid;          // its stream, while CONTINUATION frames are expected (else 0)
     int    hb_end_stream;
+    int    hb_selfdep;      // its HEADERS had a PRIORITY on itself: reset the stream once decoded
     int    got_settings;    // the peer's first frame must be SETTINGS (§3.4)
     int    peer_goaway;     // the peer sent GOAWAY: finish what is open, then close
     int    closing;         // we sent GOAWAY: flush and close
@@ -312,7 +313,7 @@ void H2Server_init(H2Server* s, int fd) {
     s.recv_unacked = 0;
     s.hbcap = 16384;
     s.hb = alloc<uint8>(s.hbcap);
-    s.hblen = 0;  s.hb_sid = 0;  s.hb_end_stream = 0;
+    s.hblen = 0;  s.hb_sid = 0;  s.hb_end_stream = 0;  s.hb_selfdep = 0;
     s.got_settings = 0;  s.peer_goaway = 0;  s.closing = 0;
     s.outcap = 4096;
     s.out = alloc<uint8>(s.outcap);
@@ -426,6 +427,15 @@ void H2Server_headers_done(H2Server* s, int sid, int end_stream) {
     const int nh = hpack_decode(&s.dec, s.hb, s.hblen, s.harr, H2_MAX_HEADERS);
     if (nh == -1) { H2Server_goaway(s, H2_COMPRESSION_ERROR); return; }
     const int at = H2Server_find(s, sid);
+    if (s.hb_selfdep != 0) {
+        // A stream cannot depend on itself (§5.3.1): a stream error, raised
+        // after the block is decoded so the HPACK table stays in sync.
+        s.hb_selfdep = 0;
+        H2Server_rst(s, sid, H2_PROTOCOL_ERROR);
+        if (at >= 0) { H2Server_slot_release(&s.slots[at]); }
+        else if (sid > s.conn.last_stream_id) { s.conn.last_stream_id = sid; }
+        return;
+    }
     if (at >= 0) {
         // Trailers on an open request: they must end the stream. After the
         // request ended (half-closed remote) it is a stream error (§5.1).
@@ -542,6 +552,8 @@ void H2Server_on_headers(H2Server* s, H2Frame* h, *uint8 p) {
     }
     if ((h.flags & H2_FLAG_PRIORITY) != 0) { off += 5; }
     if (off + pad > h.length) { H2Server_goaway(s, H2_PROTOCOL_ERROR); return; }   // §6.2
+    s.hb_selfdep = 0;
+    if ((h.flags & H2_FLAG_PRIORITY) != 0 && (int)(h2_get_u32(p, off - 5) & 2147483647) == sid) { s.hb_selfdep = 1; }
     s.hblen = 0;
     if (H2Server_hb_append(s, p + off, h.length - off - pad) != 0) { H2Server_goaway(s, H2_ENHANCE_YOUR_CALM); return; }
     s.hb_end_stream = (h.flags & H2_FLAG_END_STREAM) != 0 ? 1 : 0;
@@ -613,10 +625,16 @@ void H2Server_on_frame(H2Server* s, H2Frame* h, *uint8 p) {
     else if (h.type == H2_PRIORITY) {
         if (h.stream_id == 0) { H2Server_goaway(s, H2_PROTOCOL_ERROR); }
         else if (h.length != 5) { H2Server_rst(s, h.stream_id, H2_FRAME_SIZE_ERROR); }
+        else if ((int)(h2_get_u32(p, 0) & 2147483647) == h.stream_id) {
+            H2Server_rst(s, h.stream_id, H2_PROTOCOL_ERROR);     // depends on itself (§5.3.1)
+            const int at = H2Server_find(s, h.stream_id);
+            if (at >= 0) { H2Server_slot_release(&s.slots[at]); }
+        }
     } else if (h.type == H2_RST_STREAM) {
         if (h.stream_id == 0) { H2Server_goaway(s, H2_PROTOCOL_ERROR); return; }
         if (h.length != 4) { H2Server_goaway(s, H2_FRAME_SIZE_ERROR); return; }
         const int at = H2Server_find(s, h.stream_id);
+        if (at < 0 && h.stream_id > s.conn.last_stream_id) { H2Server_goaway(s, H2_PROTOCOL_ERROR); return; }   // idle stream (§6.4)
         if (at >= 0) { H2Server_slot_release(&s.slots[at]); }
     } else if (h.type == H2_SETTINGS) { H2Server_on_settings(s, h, p); }
     else if (h.type == H2_PUSH_PROMISE || h.type == H2_CONTINUATION) { H2Server_goaway(s, H2_PROTOCOL_ERROR); }
@@ -629,6 +647,7 @@ void H2Server_on_frame(H2Server* s, H2Frame* h, *uint8 p) {
         }
     } else if (h.type == H2_GOAWAY) {
         if (h.stream_id != 0) { H2Server_goaway(s, H2_PROTOCOL_ERROR); return; }
+        if (h.length < 8) { H2Server_goaway(s, H2_FRAME_SIZE_ERROR); return; }   // last-stream-id + error code (§6.8)
         s.peer_goaway = 1;
     } else if (h.type == H2_WINDOW_UPDATE) { H2Server_on_window_update(s, h, p); }
     // Unknown frame types are ignored (§4.1).

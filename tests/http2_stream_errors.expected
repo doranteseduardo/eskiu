@@ -1,0 +1,10 @@
+rst on idle stream 5: [type 7 sid 0 code 1]
+request 1: [type 1 sid 1] [type 0 sid 1]
+rst on closed stream 1:
+goaway of 3 bytes: [type 7 sid 0 code 6]
+headers 3 depending on itself: [type 3 sid 3 code 1]
+  handler: x-note=indexed
+request 5: [type 1 sid 5] [type 0 sid 5]
+headers 7 depending on stream 1: [type 1 sid 7] [type 0 sid 7]
+priority 9 on itself: [type 3 sid 9 code 1]
+priority 11 on stream 7:

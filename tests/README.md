@@ -202,6 +202,7 @@ when you add a test.
 | `http2_field_rules` | RFC 9113 §8.2.1: a request field with CR/LF/NUL or edge whitespace in its value, or an uppercase/space/colon in its name, is answered 400 without the handler (an LF used to forge a header line). |
 | `http2_frame_rules` | h2c frame rules: PADDED DATA/HEADERS unpadded, CONTINUATION reassembled (interrupted = PROTOCOL_ERROR), PING answered, window overflow and bad SETTINGS are GOAWAY, over-long padding rejected, >64 header fields get 431 without the handler. |
 | `http2_settings_values` | SETTINGS values are validated before any is applied (ENABLE_PUSH 0/1, MAX_FRAME_SIZE range, INITIAL_WINDOW_SIZE at most 2^31 - 1), with the RFC 9113 error code from h2_settings_error. |
+| `http2_stream_errors` | RST_STREAM on an idle stream is a PROTOCOL_ERROR GOAWAY, a GOAWAY under 8 bytes a FRAME_SIZE_ERROR, and a HEADERS/PRIORITY self-dependency a PROTOCOL_ERROR reset (its block still decoded, HPACK in sync). |
 | `http2_tls_engine` | Both h2-over-TLS servers run the H2Server engine: padding, CONTINUATION, PING (async), >64 headers (431) and window overflow, over an OpenSSL stand-in (C companion `http2_tls_engine.c`). |
 | `http_async_accept_retry` | The async servers retry a failed accept (EMFILE) after a backoff via net_accept_retry_async instead of spawning a handler on fd -1 that never completes the wait-group. |
 | `http_header_edges` | HTTP/1.1 edge cases: header values lose surrounding whitespace (OWS), an overflowing or malformed Content-Length is a 400 (it used to wrap to 0),... |
