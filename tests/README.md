@@ -21,6 +21,10 @@ The runner classifies every file automatically. There is no list to maintain.
 | **error** | `errors/NAME.esk`                | `--test-typechecker` exits non-zero **and** the diagnostics contain the `EXPECT-ERROR:` substring from the file's first line |
 | **lint**  | `warnings/NAME.esk`              | type-checks under `-Wall` and emits exactly the warnings named by its `// EXPECT-WARNING:` lines (none listed means none allowed) |
 
+A `run` or `smoke` test may have a C companion `NAME.c` next to it. The runner compiles
+it with `$CC` and links it into the test binary, which is how calls across the C ABI are
+checked (`c_abi_struct.c`, `c_abi_try.c`).
+
 These are *honest* tests: a `run` test fails the moment the generated program
 prints anything different, and an `error` test fails if the compiler ever starts
 **accepting** code it should reject. (Verified by deliberately corrupting an
@@ -149,6 +153,66 @@ when you add a test.
 | `sema_accepts` | Valid forms next to the stricter checks: a lambda whose return type is reconciled to the declared one, an enum-member case label, a struct named... |
 | `sizeof_var` | sizeof(variable) measures the variable's type (C semantics). |
 | `uninit_chain_assign` | A chained or nested assignment initializes its targets; they are not read first. |
+| `adt_layout` | ADT enum payload sizing: array fields, nested enums and generic instances must get enough payload slots, and a struct holding an enum by value must be sized... |
+| `async_dowhile_defer` | do/while, defer and capturing lambdas inside async functions, around awaits. |
+| `async_expr_rewrite` | Frame-hoisted locals used after an await inside every expression form: ++/--, a ternary, an array index, a struct literal, a slice, and a cast. |
+| `async_local_named_fr` | A user local named `fr` in an async function must not collide with the transform's internal frame pointer. |
+| `base64_strict` | base64_decode rejects impossible lengths and misplaced padding (it used to decode "Z" and "Z=g=" to something) while still accepting padded, unpadded, and... |
+| `bitfield_incdec` | `++`/`--` on a bitfield is a masked read-modify-write of its storage word: it wraps within the field's width and never spills into the neighbouring fields. |
+| `bitfield_layout` | Bitfields pack into storage words of their declared type (like C): uint8 fields share a byte, a uint64 field keeps all 64 bits, and a new word opens when... |
+| `block_shadow` | A `let` in a nested block (or a for-init) shadows, not overwrites, an outer variable of the same name; the outer binding is visible again after the scope. |
+| `bool_conversion` | Conversion to bool is `!= 0` (C _Bool semantics), never a truncation to the low bit. |
+| `c_abi_struct` | Structs passed and returned BY VALUE across `extern` C functions follow the target C ABI (C side: tests/c_abi_struct.c): register-sized aggregates, HFAs,... (C companion `c_abi_struct.c`) |
+| `c_abi_try` | C-ABI-lowered extern calls inside a `try` body (lowered to `invoke`), with the externs declared before the structs they take by value. (C companion `c_abi_try.c`) |
+| `call_forms` | Generic inference from a struct-literal argument, and calling a returned closure directly (`pick()(3, 4)`). |
+| `chained_assign` | A chained assignment passes on the value converted to the inner target's type. |
+| `chan_recv_drop` | A parked Chan_recv dropped by select2 (the timeout pattern) must unpark: the next Chan_send buffers its value instead of completing the freed future. |
+| `compound_assign_once` | `lv op= v` evaluates the lvalue `lv` exactly once (C semantics), even when it has side effects: an index call, a post-increment, or a call returning a pointer. |
+| `defer_unbraced` | A statement body that is not a block (an unbraced if/else/loop body, a switch case, a match arm) is its own scope: a `defer` in it runs when that body ends,... |
+| `deprecated_names` | The pre-0.9.2 stdlib names (renamed to the Type_method convention) still compile and behave as thin wrappers over the new names. |
+| `dup_struct_decl` | The same struct declared twice (as when two inputs of a multi-file build share a header-style declaration): the duplicate is merged, not emitted a second time. |
+| `env_get_int` | env_get_int returns the fallback for a set but non-numeric (or out-of-range) value, as documented, instead of atoi's 0. |
+| `eventloop_resources` | EventLoop_free closes the kqueue/epoll descriptor (and Executor_free its self-pipe), so creating and freeing loops does not leak fds; and a full timer table... |
+| `expr_types` | Static types of compound expressions: pointer arithmetic keeps the pointee type, numeric binaries promote, and a ternary takes its arms' common type. |
+| `finally_catch_exit` | `finally` runs when a catch handler leaves early (return / break / continue), just as it does on fall-through and on an early exit from the try body. |
+| `float_literal_range` | Float literals follow C: a denormal keeps its (tiny, nonzero) value, and a literal too large for double is infinity. |
+| `forin_multidim` | for-in over a multidimensional array binds each row (an `int[3]` for `int[2][3]`). |
+| `fs_read_pipe` | fs_read_all on a stream that cannot seek (a pipe, like stdin) must read to end of file instead of trusting ftell (-1 there), growing past its first guess. |
+| `generic_operators` | Operator overloads resolve inside a generic body, per instantiation. |
+| `global_const_expr` | Global initializers are folded at compile time, operators included (C semantics). |
+| `global_neg_const` | Negative constants in global initializers keep their sign, and a doubly negated literal folds to the positive value. |
+| `heap_coalesce` | FirstFit (and the <sysheap> Heap over it) coalesces adjacent free regions: after 64 x 900-byte blocks are freed in any order, a 30000-byte allocation fits... |
+| `hpack_evict_name` | RFC 7541 §4.4: a literal with incremental indexing may name a dynamic entry that its own insertion evicts. |
+| `hpack_size_update` | A §6.3 dynamic table size update above SETTINGS_HEADER_TABLE_SIZE is a COMPRESSION_ERROR (the decode fails) instead of growing the table past the entry... |
+| `hpack_truncated` | Malformed HPACK blocks must fail cleanly (-1) without reading past the block: a string literal longer than the remaining bytes, a prefix integer whose... |
+| `http2_big_headers` | Response headers larger than the old fixed 8 KB block are sized from the headers, and a block over MAX_FRAME_SIZE (16384) is split into a HEADERS frame plus... |
+| `http_header_edges` | HTTP/1.1 edge cases: header values lose surrounding whitespace (OWS), an overflowing or malformed Content-Length is a 400 (it used to wrap to 0),... |
+| `int_promotion` | C integer promotions: operands narrower than `int` (bool, char, int8/16, uint8/16) become `int` before arithmetic, bitwise, shift, and comparison. |
+| `interface_values` | An interface value is a {data, vtable} fat pointer held by value: it can be a local, a struct field, a return value, or an argument, and it refers to a... |
+| `json_builder_escape` | The JSON builder escapes control bytes (so its output parses back) and writes a full int64 instead of truncating it to 32 bits. |
+| `json_strict` | json_parse is strict (RFC 8259) and never reads past the input: truncated escapes and literals fail cleanly, malformed literals / numbers and trailing... |
+| `logical_not` | `!` on a pointer tests for null, on a float tests for 0.0, and a user `operator !(V)` resolves for a struct operand. |
+| `loop_temps` | Expression temporaries (short-circuit slots, ternary slots, struct/ADT/closure temps) inside a long loop must not allocate stack space per iteration. |
+| `map_hash_intmin` | A key whose djb2 hash is exactly 0x80000000 ("ovuga,m") must still land in a valid bucket: the signed `h = 0 - h` fold left INT_MIN negative, a negative... |
+| `multipart_name_match` | multipart_part matches the `name` parameter only (not the tail of `filename="..."`), and a present-but-empty field is found with length 0. |
+| `nested_body_context` | A lambda body, or a generic first instantiated inside a `try`, is its own function: it never runs the enclosing function's defers, and never unwinds into... |
+| `net_write_async` | net_write_async completes with the byte count and frees its progress counter on completion (it used to leak one per call; only the cancel path freed it). |
+| `path_posix_edges` | POSIX dirname/basename edge cases: the root, empty paths, and repeated separators between the directory and the final component. |
+| `ptr_diff` | Pointer difference counts elements (C), not bytes. |
+| `range_bound_once` | A range loop's upper bound is evaluated once, before the first iteration. |
+| `regex_repeat_groups` | Counted or repeated groups duplicate SAVE instructions; the Pike VM must still find the match (capture storage used to run out and report a silent no-match). |
+| `rvalue_member` | Member access, indexing and method calls work on rvalue aggregates (call results, operator results, ternaries, fields of temporaries), not just on variables. |
+| `self_append` | Appending a String or Bytes to itself must copy from the live buffer, not from the one freed when the append grows it. |
+| `static_local_closure` | A `static` local has static storage: a closure refers to that one cell (like a global) rather than capturing a copy, and an uninitialized static starts at zero. |
+| `string_int_edges` | String integer edge cases: INT_MIN renders fully (it used to print "-"), a zero-capacity String_init still has room for its NUL, String_to_int accepts a... |
+| `struct_lit_zero_fill` | Fields a struct literal omits are zero-initialized (C semantics), at -O0 and -O2. |
+| `switch_case_fold` | Case values fold to integer constants: literals, chars, enum members, casts and arithmetic over them. |
+| `switch_const_case` | A top-level `const int` (or a constant expression over one) is a valid case label. |
+| `ternary_null` | A `null` ternary arm takes the other arm's pointer type. |
+| `ternary_wide` | A ternary arm that is an integer literal too wide for `int` makes the result 64-bit, and equal-width mixed signedness is unsigned (C usual arithmetic... |
+| `time_negative_year` | DateTime_format_iso prints a negative (proleptic) year in ISO 8601 expanded form, "-0001", instead of zero-padding the digits around the sign ("00-1"). |
+| `tls_frame_limit` | A peer-controlled 24-bit frame length larger than the 16384-byte frame buffer must be rejected (FRAME_SIZE_ERROR), not read past the buffer. |
+| `union_layout` | A union takes the alignment of its most-aligned member, so it lands at the C offset inside a struct and the struct is padded like C (u at 8, size 24). |
 
 ### `smoke` tests (compile + link + exit 0)
 
@@ -273,6 +337,15 @@ when you add a test.
 | `errors/void_field` | rejected with "field 'v' of 'S' cannot have type 'void'" |
 | `errors/void_param` | rejected with "parameter 'x' cannot have type 'void'" |
 | `errors/void_var` | rejected with "variable 'x' cannot have type 'void'" |
+| `errors/c_array_global` | rejected with "Expected declaration" |
+| `errors/c_array_local` | rejected with "Expected declaration" |
+| `errors/global_init_call` | rejected with "is not a compile-time constant" |
+| `errors/global_init_var` | rejected with "is not a compile-time constant" |
+| `errors/incdec_float` | rejected with "'++'/'--' requires an integer or pointer" |
+| `errors/interface_by_value` | rejected with "by value; pass a pointer" |
+| `errors/lambda_break_label` | rejected with "has no enclosing loop labeled 'outer'" |
+| `errors/lambda_break_outer` | rejected with "'break' outside of a loop or switch" |
+| `errors/question_type_args` | rejected with "`?` can only be used in a function returning the same Result type" |
 
 ### `lint` tests (-Wall)
 
