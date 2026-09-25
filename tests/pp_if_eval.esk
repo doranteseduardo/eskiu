@@ -1,0 +1,40 @@
+// #if constant expressions: character constants decode like the lexer's char
+// literals, arithmetic wraps on 64 bits (no host UB), and `&&` / `||` / `?:` do not
+// evaluate the operand they skip (so a division by zero there is no error).
+extern int printf(string fmt, ...);
+
+int main() {
+#if '\x41' == 65 && '\v' == 11 && '\f' == 12 && '\\' == 92 && '\'' == 39 && '\0' == 0
+    printf("char escapes ok\n");
+#endif
+#if 1 || (1 % 0)
+    printf("|| skips ok\n");
+#endif
+#if 0 && (1 / 0)
+    printf("&& bad\n");
+#else
+    printf("&& skips ok\n");
+#endif
+#if 1 ? 2 : (1 / 0)
+    printf("?: skips else ok\n");
+#endif
+#if 0 ? (1 / 0) : 3
+    printf("?: skips then ok\n");
+#endif
+#if (-9223372036854775807 - 1) / -1 == (-9223372036854775807 - 1)
+    printf("INT64_MIN / -1 wraps ok\n");
+#endif
+#if (-9223372036854775807 - 1) % -1 == 0
+    printf("INT64_MIN %% -1 ok\n");
+#endif
+#if 9223372036854775807 + 1 < 0 && -(-9223372036854775807 - 1) < 0
+    printf("overflow wraps ok\n");
+#endif
+#if 4611686018427387904 * 4 == 0
+    printf("mul wraps ok\n");
+#endif
+#if 0xFFFFFFFFFFFFFFFF == -1 && (1 << 63) < 0 && (-8 >> 1) == -4
+    printf("64-bit ok\n");
+#endif
+    return 0;
+}

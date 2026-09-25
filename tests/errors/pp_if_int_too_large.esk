@@ -1,0 +1,4 @@
+// EXPECT-ERROR: integer constant '99999999999999999999' is too large in #if expression
+#if 99999999999999999999
+#endif
+int main() { return 0; }

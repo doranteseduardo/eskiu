@@ -257,6 +257,40 @@ static char decodeEscape(char e) {
     }
 }
 
+// Decode a whole character literal `lit` (quotes included) exactly as read_char
+// does: one character or one escape (`\xNN` or a single-char escape) between the
+// quotes. Used by the preprocessor's #if evaluator. Returns false with `err` set on a
+// malformed literal.
+bool decodeCharLiteral(const std::string& lit, int& value, std::string& err) {
+    size_t n = lit.size();
+    if (n < 2 || lit[0] != '\'') { err = "invalid character constant"; return false; }
+    size_t i = 1;
+    if (i >= n || lit[i] == '\'') {
+        err = i >= n ? "unterminated character literal" : "empty character literal";
+        return false;
+    }
+    unsigned char v;
+    if (lit[i] == '\\' && i + 1 < n) {
+        char e = lit[i + 1];
+        i += 2;
+        if (e == 'x' && i < n && hexDigit(lit[i]) >= 0) {
+            int b = hexDigit(lit[i++]);
+            if (i < n && hexDigit(lit[i]) >= 0) b = b * 16 + hexDigit(lit[i++]);
+            v = (unsigned char)b;
+        } else {
+            v = (unsigned char)decodeEscape(e);
+        }
+    } else {
+        v = (unsigned char)lit[i++];
+    }
+    if (i + 1 != n || lit[i] != '\'') {
+        err = i >= n ? "unterminated character literal" : "character literal must contain a single character";
+        return false;
+    }
+    value = v;
+    return true;
+}
+
 // Decode one escape sequence, assuming the leading '\' has already been consumed:
 // \xNN (one or two hex digits) yields that byte; a single-char escape resolves via
 // decodeEscape (an unknown escape is the character itself).

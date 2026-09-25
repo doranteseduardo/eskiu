@@ -192,16 +192,24 @@ static bool endsInBlockComment(const std::string& line, bool inBlock) {
 // The C subset: integer and char literals, macros (expanded first), `defined X` /
 // `defined(X)`, the unary `! ~ - +`, the binary arithmetic, shift, relational,
 // equality, bitwise and logical operators, `?:`, and parentheses. An identifier
-// left after expansion is 0, as in C. Evaluated on 64-bit signed integers.
+// left after expansion is 0, as in C. Evaluated on 64-bit signed integers with
+// two's-complement wraparound (`+ - *`, unary `-`, and INT64_MIN / -1 wrap; never
+// host UB). `&&`, `||` and `?:` short-circuit: an operand that is not evaluated
+// cannot raise a division-by-zero or shift-count error. An integer literal that
+// does not fit in 64 bits and a shift count outside 0..63 are errors.
 namespace {
 struct PPExprError { std::string msg; };
 
 struct PPExprEval {
     std::vector<std::string> toks;
     size_t pos = 0;
+    int skip = 0;   // > 0 inside an operand a short-circuit leaves unevaluated
 
     const std::string& peek() const { static const std::string end; return pos < toks.size() ? toks[pos] : end; }
     bool eat(const char* t) { if (peek() == t) { pos++; return true; } return false; }
+    void fail(const std::string& msg) { if (skip == 0) throw PPExprError{msg}; }
+
+    static long long wrap(unsigned long long v) { return (long long)v; }
 
     long long primary() {
         if (pos >= toks.size()) throw PPExprError{"expected a value"};
@@ -216,29 +224,25 @@ struct PPExprEval {
             while (!d.empty() && (d.back() == 'u' || d.back() == 'U' || d.back() == 'l' || d.back() == 'L')) d.pop_back();
             bool hex = d.size() > 1 && d[0] == '0' && (d[1] == 'x' || d[1] == 'X');
             bool oct = !hex && d.size() > 1 && d[0] == '0';
-            int base = hex ? 16 : oct ? 8 : 10;
+            unsigned base = hex ? 16 : oct ? 8 : 10;
             size_t start = hex ? 2 : 0;
             if (start >= d.size()) throw PPExprError{"invalid integer '" + t + "'"};
             unsigned long long v = 0;
             for (size_t i = start; i < d.size(); ++i) {
                 char c = d[i];
-                int dv = std::isdigit((unsigned char)c) ? c - '0'
-                       : (c >= 'a' && c <= 'f') ? c - 'a' + 10
-                       : (c >= 'A' && c <= 'F') ? c - 'A' + 10 : 99;
+                unsigned dv = std::isdigit((unsigned char)c) ? c - '0'
+                            : (c >= 'a' && c <= 'f') ? c - 'a' + 10
+                            : (c >= 'A' && c <= 'F') ? c - 'A' + 10 : 99;
                 if (dv >= base) throw PPExprError{"invalid integer '" + t + "'"};
+                if (v > (~0ULL - dv) / base) throw PPExprError{"integer constant '" + t + "' is too large"};
                 v = v * base + dv;
             }
-            return (long long)v;
+            return wrap(v);
         }
         if (t[0] == '\'') {
-            if (t.size() >= 4 && t[1] == '\\') {
-                switch (t[2]) {
-                    case 'n': return '\n'; case 't': return '\t'; case 'r': return '\r';
-                    case '0': return 0;    default: return (unsigned char)t[2];
-                }
-            }
-            if (t.size() >= 3) return (unsigned char)t[1];
-            throw PPExprError{"invalid character constant"};
+            int v = 0; std::string err;
+            if (!decodeCharLiteral(t, v, err)) throw PPExprError{err};
+            return v;
         }
         if (std::isalpha((unsigned char)t[0]) || t[0] == '_') return 0;
         throw PPExprError{"unexpected '" + t + "'"};
@@ -246,36 +250,40 @@ struct PPExprEval {
     long long unary() {
         if (eat("!")) return !unary();
         if (eat("~")) return ~unary();
-        if (eat("-")) return -unary();
+        if (eat("-")) return wrap(0ULL - (unsigned long long)unary());
         if (eat("+")) return unary();
         return primary();
     }
     long long mul() {
         long long v = unary();
         while (true) {
-            if (eat("*")) v = v * unary();
+            if (eat("*")) v = wrap((unsigned long long)v * (unsigned long long)unary());
             else if (peek() == "/" || peek() == "%") {
                 bool div = peek() == "/"; pos++;
                 long long r = unary();
-                if (r == 0) throw PPExprError{"division by zero"};
-                v = div ? v / r : v % r;
+                if (r == 0) { fail("division by zero"); v = 0; continue; }
+                if (r == -1) v = div ? wrap(0ULL - (unsigned long long)v) : 0;
+                else v = div ? v / r : v % r;
             } else return v;
         }
     }
     long long add() {
         long long v = mul();
         while (true) {
-            if (eat("+")) v = v + mul();
-            else if (eat("-")) v = v - mul();
+            if (eat("+")) v = wrap((unsigned long long)v + (unsigned long long)mul());
+            else if (eat("-")) v = wrap((unsigned long long)v - (unsigned long long)mul());
             else return v;
         }
     }
     long long shift() {
         long long v = add();
         while (true) {
-            if (eat("<<")) v = (long long)((unsigned long long)v << (add() & 63));
-            else if (eat(">>")) v = v >> (add() & 63);
-            else return v;
+            bool left = false;
+            if (eat("<<")) left = true;
+            else if (!eat(">>")) return v;
+            long long r = add();
+            if (r < 0 || r > 63) { fail("shift count " + std::to_string(r) + " is out of range"); v = 0; continue; }
+            v = left ? wrap((unsigned long long)v << r) : v >> r;
         }
     }
     long long rel() {
@@ -299,18 +307,41 @@ struct PPExprEval {
     long long band() { long long v = eq();   while (eat("&")) v = v & eq();   return v; }
     long long bxor() { long long v = band(); while (eat("^")) v = v ^ band(); return v; }
     long long bor()  { long long v = bxor(); while (eat("|")) v = v | bxor(); return v; }
-    long long land() { long long v = bor();  while (eat("&&")) { long long r = bor();  v = v && r; } return v; }
-    long long lor()  { long long v = land(); while (eat("||")) { long long r = land(); v = v || r; } return v; }
+    long long land() {
+        long long v = bor();
+        while (eat("&&")) {
+            bool dead = v == 0;
+            if (dead) skip++;
+            long long r = bor();
+            if (dead) skip--;
+            v = v && r;
+        }
+        return v;
+    }
+    long long lor() {
+        long long v = land();
+        while (eat("||")) {
+            bool dead = v != 0;
+            if (dead) skip++;
+            long long r = land();
+            if (dead) skip--;
+            v = v || r;
+        }
+        return v;
+    }
     long long ternary() {
         long long c = lor();
         if (!eat("?")) return c;
+        if (c == 0) skip++;
         long long a = ternary();
+        if (c == 0) skip--;
         if (!eat(":")) throw PPExprError{"expected ':' in '?:'"};
+        if (c != 0) skip++;
         long long b = ternary();
+        if (c != 0) skip--;
         return c ? a : b;
     }
 };
-
 // Split an (already macro-expanded) #if expression into tokens.
 std::vector<std::string> ppExprTokens(const std::string& e) {
     std::vector<std::string> out;

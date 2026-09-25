@@ -158,6 +158,9 @@ struct Token {
 // Helper function to convert TokenType to string
 std::string tokenTypeToString(TokenType type);
 
+// Decode a character literal (quotes included) with the lexer's escape rules.
+bool decodeCharLiteral(const std::string& lit, int& value, std::string& err);
+
 class Lexer {
 public:
     // `macros` is an optional shared macro table: when provided, #defines from
