@@ -1,0 +1,6 @@
+// EXPECT-ERROR: range bound must be an integer
+int main() {
+    float f = 1.5;
+    for (i in 0..f) { }
+    return 0;
+}

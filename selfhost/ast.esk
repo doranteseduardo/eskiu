@@ -9,6 +9,64 @@ import <mem>;
 import <list>;
 import <string>;
 
+// Integer rank of `t` after promotion (32 = int/uint, 64 = int64/uint64); 0 = not an
+// integer. `*uns` is set for an unsigned rank. Mirrors the C++ ty::rangeVarType
+// (shared by sema and codegen).
+int ast_range_rank(string t, int* uns) {
+    *uns = 0;
+    if (ast_streq(t, "int64") == 1) { return 64; }
+    if (ast_streq(t, "uint64") == 1) { *uns = 1; return 64; }
+    if (ast_streq(t, "uint") == 1 || ast_streq(t, "uint32") == 1) { *uns = 1; return 32; }
+    if (ast_streq(t, "int") == 1 || ast_streq(t, "int32") == 1 || ast_streq(t, "int8") == 1
+        || ast_streq(t, "int16") == 1 || ast_streq(t, "uint8") == 1 || ast_streq(t, "uint16") == 1
+        || ast_streq(t, "char") == 1) { return 32; }
+    return 0;
+}
+
+// The loop-variable type of `for (i in a..b)` from its two bound types: C's usual
+// arithmetic conversions over integers. "" when a bound is not an integer.
+string ast_range_var_type(string a, string b) {
+    int ua = 0; int ub = 0;
+    int ra = ast_range_rank(a, &ua);
+    int rb = ast_range_rank(b, &ub);
+    if (ra == 0 || rb == 0) { return ""; }
+    int r = ra; if (rb > r) { r = rb; }
+    int u = ua;
+    if (ra == rb) { if (ub == 1) { u = 1; } } else if (rb > ra) { u = ub; }
+    if (r == 64) { if (u == 1) { return "uint64"; } return "int64"; }
+    if (u == 1) { return "uint"; }
+    return "int";
+}
+
+// The type a bare integer-literal range bound takes: the first of int, int64, uint64
+// that holds it (mirrors the C++ rangeLiteralType: 0x hex, 0-octal, else decimal).
+string ast_range_lit_type(string v) {
+    int i = 0; int neg = 0;
+    if (v[0] == 45) { neg = 1; i = 1; }
+    uint64 base = (uint64)10;
+    if (v[i] == 48 && (v[i + 1] == 120 || v[i + 1] == 88)) { base = (uint64)16; i = i + 2; }
+    else if (v[i] == 48) { base = (uint64)8; }
+    uint64 mag = (uint64)0;
+    int done = 0;
+    while (done == 0 && v[i] != 0) {
+        int c = (int)v[i];
+        int dv = -1;
+        if (c >= 48 && c <= 57) { dv = c - 48; }
+        else if (c >= 97 && c <= 102) { dv = c - 87; }
+        else if (c >= 65 && c <= 70) { dv = c - 55; }
+        if (dv < 0 || (uint64)dv >= base) { done = 1; }
+        else {
+            if (mag > ((uint64)18446744073709551615 - (uint64)dv) / base) { return "int"; }   // overflows: not a valid literal
+            mag = mag * base + (uint64)dv;
+            i = i + 1;
+        }
+    }
+    if (neg == 1) { if (mag <= (uint64)2147483648) { return "int"; } return "int64"; }
+    if (mag <= (uint64)2147483647) { return "int"; }
+    if (mag <= (uint64)9223372036854775807) { return "int64"; }
+    return "uint64";
+}
+
 // ── operator-overload name mangling (shared by parser + sema) ─────────────────
 // An `operator <op>(...)` decl compiles to a normal function under a canonical mangled
 // name (`+`->`add`, `[]`->`index`, unary `-`->`neg`); `a op b` resolves to it by operands.
@@ -122,6 +180,7 @@ struct StmtNode {
     int is_const;          // SK_VARDECL: declared value-const (read-only binding)
     int is_static;         // SK_VARDECL: `static` local (one instance, persists across calls)
     int is_err;            // SK_DEFER: errdefer (runs only on the error path) vs plain defer
+    int is_range;          // SK_VARDECL: a `for (i in A..B)` desugar decl; sema retypes it to the bounds' common integer type
     string resolved_elem;  // SK_FORIN: element type stamped by sema (mirrors C++ resolvedElemType); "" = fall back to structural resolution at lowering
     string label;          // loop's own label (SK_FOR/WHILE/DOWHILE/FORIN) or target label (SK_BREAK/CONTINUE); null/"" = unlabeled
     int line;              // source position for diagnostics (0 = unknown)

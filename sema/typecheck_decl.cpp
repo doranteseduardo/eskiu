@@ -487,6 +487,18 @@ bool TypeChecker::isConstInit(const ExprPtr& e) const {
     return false;
 }
 
+// The type a bare integer-literal range bound takes: the first of int, int64, uint64
+// that holds its value (C's rule for an unsuffixed literal, extended to uint64).
+static std::string rangeLiteralType(const std::string& v) {
+    bool neg = !v.empty() && v[0] == '-';
+    unsigned long long mag = 0;
+    try { mag = std::stoull(neg ? v.substr(1) : v, nullptr, 0); }
+    catch (...) { return "int"; }
+    if (mag <= (neg ? 2147483648ULL : 2147483647ULL)) return "int";
+    if (neg || mag <= 9223372036854775807ULL) return "int64";
+    return "uint64";
+}
+
 void TypeChecker::visit(VarDecl* node) {
     // `extern <type> <name>;` names a variable defined in another translation unit
     // (a C global). It lives at top level and carries no initializer.
@@ -524,6 +536,24 @@ void TypeChecker::visit(VarDecl* node) {
                 lam->returnType = dt.ret->str();
         }
         node->initializer->accept(this);
+        // A `for (i in A..B)` bound decl takes its bound's integer type (promoted to at
+        // least `int`); visit(ForStmt) then widens both decls to their common type.
+        bool badRangeBound = false;
+        if (node->rangeBound) {
+            std::string bt = getExpressionType(node->initializer.get());
+            if (auto* lit = dynamic_cast<LiteralExpr*>(node->initializer.get()))
+                if (lit->kind == LiteralExpr::Kind::INT) bt = rangeLiteralType(lit->value);
+            if (bt != "unknown") {
+                std::string nt = tyq::strip(normalizeType(tyq::strip(bt)));
+                std::string rt = ty::rangeVarType(nt, "int");
+                if (rt.empty()) {
+                    errorAt(node->initializer.get(), "range bound must be an integer, got '" + nt + "'");
+                    badRangeBound = true;
+                } else {
+                    node->type = rt;
+                }
+            }
+        }
         // A global's initializer is evaluated at compile time (there is no code before
         // `main` to run it), so it must be a constant expression, as in C.
         if (scopes.size() <= 1 && !node->isStatic && !isConstInit(node->initializer))
@@ -565,7 +595,7 @@ void TypeChecker::visit(VarDecl* node) {
                     }
                 };
             checkArr(node->type, arr);
-        } else {
+        } else if (!badRangeBound) {
             std::string initType = getExpressionType(node->initializer.get());
             if (initType != "unknown") {
                 if (dropsConstQual(node->type, initType))

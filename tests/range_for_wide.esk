@@ -1,0 +1,32 @@
+// `for (i in A..B)`: the loop variable takes the bounds' common integer type (C's
+// usual arithmetic conversions), so int64/uint64 bounds are not truncated to int.
+extern int printf(string fmt, ...);
+
+T sum<T>(T lo, T hi) {
+    T s = lo - lo;
+    for (i in lo..hi) { s = s + i; }
+    return s;
+}
+
+int main() {
+    int64 lo = 3000000000; int64 hi = 3000000002;
+    for (i in lo..hi) { printf("%lld\n", i); }           // 3000000000 3000000001
+
+    uint64 a = 18446744073709551613;
+    for (j in a..18446744073709551615) { printf("%llu\n", j); }
+
+    int64 n = 3;
+    for (k in 0..n) { printf("%lld\n", k); }              // int literal widens to int64
+
+    for (k in 4294967294..4294967296) { printf("%lld\n", k); }   // literal bounds past int
+
+    uint u = 4294967294;
+    for (k in u..4294967295) { printf("%u\n", k); }
+
+    uint8 b0 = 250; uint16 b1 = 253;
+    for (k in b0..b1) { printf("%d\n", k); }              // narrow bounds promote to int
+
+    printf("%lld\n", sum<int64>(lo, lo + 3));             // generic: per-instance type
+    printf("%d\n", sum<int>(1, 4));
+    return 0;
+}

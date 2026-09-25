@@ -1,0 +1,7 @@
+// EXPECT-ERROR: range bound must be an integer
+int main() {
+    int x = 3;
+    *int p = &x;
+    for (i in p..10) { }
+    return 0;
+}

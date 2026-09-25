@@ -1,0 +1,22 @@
+// An await inside a range-for over int64 bounds: the hoisted loop variable keeps int64.
+import <future>;
+extern int printf(string fmt, ...);
+Future<int64>* produce(int64 v) {
+    Future<int64>* f = future_new<int64>();
+    future_complete<int64>(f, v);
+    return f;
+}
+async int64 sumBig(int64 lo, int64 n) {
+    int64 total = 0;
+    for (i in lo..lo + n) {
+        int64 x = await produce(i);
+        total = total + x;
+    }
+    return total;
+}
+int main() {
+    Future<int64>* r = sumBig(3000000000, 3);
+    printf("%lld\n", r.value);
+    free_future<int64>(r);
+    return 0;
+}

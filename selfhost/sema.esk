@@ -305,6 +305,16 @@ int sema_sym_index(Sema* s, string name) {
     return -1;
 }
 
+// Retype the innermost binding of `name` (a `for (i in A..B)` decl widened to the
+// bounds' common type after both were declared).
+void sema_set_sym_type(Sema* s, string name, string type) {
+    int i = sema_sym_index(s, name);
+    if (i < 0) { return; }
+    Sym sym = List_get<Sym>(&s.syms, i);
+    sym.type = type;
+    List_set<Sym>(&s.syms, i, sym);
+}
+
 // Is `name` a read-only (const) binding?
 int sema_sym_const(Sema* s, string name) {
     int i = sema_sym_index(s, name);
@@ -698,6 +708,41 @@ string sema_infer_type(Sema* s, *ExprNode e) {
         if (sema_is_arr_ty(bt) == 1) { return sema_arr_elem(bt); }
     }
     return "";
+}
+
+// A type spelling with type aliases resolved and a classic enum collapsed to `int`.
+string sema_resolve_scalar(Sema* s, string t0) {
+    string t = sema_strip_const(t0);
+    int hops = 0;
+    while (hops < 16) {
+        *DeclNode ad = sema_find_tdecl(s, t);
+        if (ad != null && ad.kind == DK_TYPEALIAS) { t = sema_strip_const(ad.ret_type); }
+        else { if (ad != null && ad.kind == DK_ENUM) { t = "int"; } hops = 16; }
+        hops = hops + 1;
+    }
+    return t;
+}
+
+// The (resolved) type of a `for (i in A..B)` bound, "" when unknown. Beyond
+// sema_infer_type it types a bare integer literal by its value, a cast by its target,
+// and integer `+ - * / %` / unary `-` by the usual arithmetic conversions.
+string sema_range_bound_type(Sema* s, *ExprNode e) {
+    if (e == null) { return ""; }
+    if (e.kind == EK_LITERAL && e.lit_kind == LIT_INT) { return ast_range_lit_type(e.sval); }
+    if (e.kind == EK_CAST) { return sema_resolve_scalar(s, sema_isub(s, e.sval)); }
+    if (e.kind == EK_UNARY && sema_streq(e.sval, "-") == 1) {
+        string ut = sema_range_bound_type(s, e.a);
+        string pt = ast_range_var_type(ut, "int");
+        if (pt[0] != 0) { return pt; }
+        return ut;
+    }
+    if (e.kind == EK_BINARY && (e.op_fn == null || e.op_fn[0] == 0) && sema_is_arith_op(e.sval) == 1) {
+        string ct = ast_range_var_type(sema_range_bound_type(s, e.a), sema_range_bound_type(s, e.b));
+        if (ct[0] != 0) { return ct; }
+    }
+    string t = sema_infer_type(s, e);
+    if (t[0] == 0) { return ""; }
+    return sema_resolve_scalar(s, t);
 }
 
 // An interface value refers to a struct through a pointer; converting a struct VALUE to
@@ -2614,6 +2659,19 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
     if (k == SK_VARDECL) {
         string vty = sema_isub(s, st.type);   // a generic instance's `T x` names its argument
         sema_expr(s, st.expr);             // initializer (can't reference itself)
+        // A `for (i in A..B)` bound decl takes its bound's integer type (promoted to at
+        // least `int`); SK_FOR then widens both decls to their common type.
+        int bad_range = 0;
+        if (st.is_range == 1) {
+            string bt = sema_range_bound_type(s, st.expr);
+            if (bt[0] != 0) {
+                string rt = ast_range_var_type(bt, "int");
+                if (rt[0] == 0) {
+                    s.had_error = 1; bad_range = 1;
+                    printf("error: %s:%d:%d: range bound must be an integer, got '%s'\n", s.filename, s.line, s.col, bt);
+                } else { st.type = rt; vty = rt; }
+            }
+        }
         if (st.expr != null && st.expr.kind == EK_ARRAYLIT && sema_is_arr_ty(vty) == 1) {
             sema_check_arr_init(s, vty, st.expr);   // too many elements for the fixed size
         }
@@ -2644,7 +2702,7 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
         // Initializer type compatibility. Conservative: only flag a conversion the C++
         // checker also rejects, defaulting to OK when the source type is unknown (so a
         // valid program is never falsely rejected). Mirrors assignabilityError's error cases.
-        if (st.expr != null && vty[0] != 0) {
+        if (st.expr != null && vty[0] != 0 && bad_range == 0) {
             if (sema_is_int_ty(vty) == 1 && st.expr.kind == EK_LITERAL
                 && st.expr.lit_kind == LIT_INT && sema_int_lit_fits(vty, st.expr.sval) == 0) {
                 s.had_error = 1;
@@ -2805,6 +2863,19 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
             int i = 0;
             int n = List_len<*StmtNode>(&st.s1.items);
             while (i < n) { sema_stmt(s, List_get<*StmtNode>(&st.s1.items, i)); i = i + 1; }
+            // `for (i in A..B)`: the loop variable and the bound share the bounds' common type.
+            if (n == 2) {
+                *StmtNode rlo = List_get<*StmtNode>(&st.s1.items, 0);
+                *StmtNode rhi = List_get<*StmtNode>(&st.s1.items, 1);
+                if (rlo.is_range == 1 && rhi.is_range == 1) {
+                    string ct = ast_range_var_type(rlo.type, rhi.type);
+                    if (ct[0] != 0) {
+                        rlo.type = ct; rhi.type = ct;
+                        sema_set_sym_type(s, rlo.name, ct);
+                        sema_set_sym_type(s, rhi.name, ct);
+                    }
+                }
+            }
         } else {
             sema_stmt(s, st.s1);
         }

@@ -2512,6 +2512,13 @@ string cg_unary_ety(Codegen* g, *ExprNode e, string at) {
 
 // The Eskiu type of an expression ("" if unknown). Mirrors the type the C++ type checker
 // assigns, so struct member access, pointer depth, and common/promoted types agree.
+// The type of a `for (i in A..B)` bound: a bare integer literal by its value (the
+// first of int, int64, uint64 that holds it, as sema types it), else its expression type.
+string cg_range_bound_type(Codegen* g, *ExprNode e) {
+    if (e != null && e.kind == EK_LITERAL && e.lit_kind == LIT_INT) { return ast_range_lit_type(e.sval); }
+    return cg_dealias(g, cg_strip_lead_const(cg_etype(g, e)));
+}
+
 string cg_etype(Codegen* g, *ExprNode e) {
     if (e == null) { return ""; }
     if (e.kind == EK_LITERAL) {
@@ -4577,6 +4584,17 @@ void cg_stmt(Codegen* g, *StmtNode st) {
         // The init is scoped to the loop; its wrapping block's items are emitted in the
         // loop scope itself so the loop variable stays visible to cond/step/body.
         int lmark = List_len<CgLocal>(&g.locals);
+        // `for (i in A..B)`: derive the bounds' common integer type here too. A generic
+        // instance's shared AST carries the type sema stamped for SOME instance, and the
+        // no-sema driver (cg_main) stamps none. An unknown bound keeps the sema stamp.
+        if (st.s1 != null && st.s1.kind == SK_BLOCK && List_len<*StmtNode>(&st.s1.items) == 2) {
+            *StmtNode rlo = List_get<*StmtNode>(&st.s1.items, 0);
+            *StmtNode rhi = List_get<*StmtNode>(&st.s1.items, 1);
+            if (rlo.is_range == 1 && rhi.is_range == 1) {
+                string ct = ast_range_var_type(cg_range_bound_type(g, rlo.expr), cg_range_bound_type(g, rhi.expr));
+                if (ct[0] != 0) { rlo.type = ct; rhi.type = ct; }
+            }
+        }
         if (st.s1 != null) {
             if (st.s1.kind == SK_BLOCK) {
                 int ii = 0;

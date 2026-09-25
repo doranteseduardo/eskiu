@@ -197,6 +197,19 @@ void CodeGen::visit(ForStmt* node) {
     // stays visible to the condition, step, and body.
     pushScope();
     if (auto* ib = dynamic_cast<BlockStmt*>(node->init.get())) {
+        // `for (i in A..B)` inside a generic instance: the shared AST carries the type the
+        // checker stamped for SOME instance, so re-derive the bounds' common integer type
+        // for this one (outside a generic the checker's stamp is exact).
+        if (!typeParamOverride.empty() && ib->items.size() == 2 &&
+            std::holds_alternative<DeclPtr>(ib->items[0]) && std::holds_alternative<DeclPtr>(ib->items[1])) {
+            auto* lo = dynamic_cast<VarDecl*>(std::get<DeclPtr>(ib->items[0]).get());
+            auto* hi = dynamic_cast<VarDecl*>(std::get<DeclPtr>(ib->items[1]).get());
+            if (lo && hi && lo->rangeBound && hi->rangeBound && lo->initializer && hi->initializer) {
+                std::string ct = ty::rangeVarType(expandAlias(getExprEskiuType(lo->initializer)),
+                                                  expandAlias(getExprEskiuType(hi->initializer)));
+                if (!ct.empty()) lo->type = hi->type = ct;
+            }
+        }
         for (auto& item : ib->items) {
             if (std::holds_alternative<DeclPtr>(item)) std::get<DeclPtr>(item)->accept(this);
             else std::get<StmtPtr>(item)->accept(this);

@@ -176,6 +176,24 @@ void TypeChecker::visit(ForStmt* node) {
             node->init->accept(this);
         }
     }
+    // `for (i in A..B)`: the loop variable and the bound share the bounds' common type.
+    if (auto* rb = dynamic_cast<BlockStmt*>(node->init.get())) {
+        if (rb->items.size() == 2 && std::holds_alternative<DeclPtr>(rb->items[0]) &&
+            std::holds_alternative<DeclPtr>(rb->items[1])) {
+            auto* lo = dynamic_cast<VarDecl*>(std::get<DeclPtr>(rb->items[0]).get());
+            auto* hi = dynamic_cast<VarDecl*>(std::get<DeclPtr>(rb->items[1]).get());
+            if (lo && hi && lo->rangeBound && hi->rangeBound) {
+                std::string ct = ty::rangeVarType(lo->type, hi->type);
+                if (!ct.empty()) {
+                    lo->type = hi->type = ct;
+                    for (VarDecl* d : {lo, hi}) {
+                        auto it = scopes.back().find(d->name);
+                        if (it != scopes.back().end()) it->second.type = ct;
+                    }
+                }
+            }
+        }
+    }
 
     dropAssignedIn(node->condition.get());
     dropAssignedIn(node->step.get());

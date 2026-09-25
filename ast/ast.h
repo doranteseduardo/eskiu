@@ -135,6 +135,8 @@ public:
     bool isStatic = false;   // `static` local: one instance, persists across calls
     bool isExtern = false;   // `extern <type> <name>;` — a global defined in another
                              // translation unit (C interop); external linkage, no init
+    bool rangeBound = false; // a `for (i in A..B)` desugar decl: sema retypes it to the
+                             // bounds' common integer type (ty::rangeVarType)
 
     VarDecl(const std::string& name, const std::string& type, ExprPtr init = nullptr)
         : Decl(name), type(type), initializer(std::move(init)) {}

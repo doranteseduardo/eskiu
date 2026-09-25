@@ -272,4 +272,27 @@ Type Type::substitute(const std::map<std::string, std::string>& subs) const {
     return r;
 }
 
+namespace {
+// Integer rank (32 = int/uint, 64 = int64/uint64) after promotion; 0 = not an integer.
+int promotedRank(const std::string& t, bool& isUnsigned) {
+    isUnsigned = false;
+    if (t == "int64") return 64;
+    if (t == "uint64") { isUnsigned = true; return 64; }
+    if (t == "uint" || t == "uint32") { isUnsigned = true; return 32; }
+    if (t == "int" || t == "int32" || t == "int8" || t == "int16" ||
+        t == "uint8" || t == "uint16" || t == "char") return 32;
+    return 0;
+}
+}  // namespace
+
+std::string rangeVarType(const std::string& a, const std::string& b) {
+    bool ua = false, ub = false;
+    int ra = promotedRank(trim(a), ua), rb = promotedRank(trim(b), ub);
+    if (ra == 0 || rb == 0) return "";
+    int r = ra > rb ? ra : rb;
+    bool u = (ra == rb) ? (ua || ub) : (ra > rb ? ua : ub);
+    if (r == 64) return u ? "uint64" : "int64";
+    return u ? "uint" : "int";
+}
+
 }  // namespace ty

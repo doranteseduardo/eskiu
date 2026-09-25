@@ -91,4 +91,9 @@ struct Type {
     }
 };
 
+// The loop-variable type of `for (i in a..b)` given the two bound types: C's usual
+// arithmetic conversions over integers (each bound promoted to at least `int`, then the
+// wider rank wins, and unsigned wins at equal rank). "" when a bound is not an integer.
+std::string rangeVarType(const std::string& a, const std::string& b);
+
 }  // namespace ty

@@ -1281,8 +1281,11 @@ string fresh_name(string base, List<string>* used) {
     List_push<string>(&used, var);
     collect_names_e(lo, &used); collect_names_e(hi, &used); collect_names_s(body, &used);
     string endn = fresh_name(str_concat("__end_", var), &used);
-    *StmtNode init = wrap_block(mk_vardecl(var, "int", lo, 0));
-    List_push<*StmtNode>(&init.items, mk_vardecl(endn, "int", hi, 0));
+    // Spelled `int` here; sema retypes both to the bounds' common integer type (is_range).
+    *StmtNode lod = mk_vardecl(var, "int", lo, 0); lod.is_range = 1;
+    *StmtNode hid = mk_vardecl(endn, "int", hi, 0); hid.is_range = 1;
+    *StmtNode init = wrap_block(lod);
+    List_push<*StmtNode>(&init.items, hid);
     s.s1 = init;
     s.expr = mk_bin("<", mk_ident(var), mk_ident(endn));
     s.expr2 = mk_bin("=", mk_ident(var), mk_bin("+", mk_ident(var), mk_lit(LIT_INT, "1")));
