@@ -1024,7 +1024,14 @@ void TypeChecker::visit(CastExpr* node) {
 void TypeChecker::visit(LiteralExpr* node) {
     switch (node->kind) {
         case LiteralExpr::Kind::INT:
-            expressionTypes[node] = "int";
+            // C: an unsuffixed literal is the first of int, int64 that holds it (codegen
+            // emits the value in that width); only an unsigned 64-bit type holds more.
+            try {
+                long long v = std::stoll(node->value, nullptr, 0);
+                expressionTypes[node] = (v >= INT32_MIN && v <= INT32_MAX) ? "int" : "int64";
+            } catch (...) {
+                expressionTypes[node] = "uint64";
+            }
             break;
         case LiteralExpr::Kind::FLOAT:
             // A float literal lowers to a `double` constant (the lexer has no

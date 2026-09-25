@@ -2011,6 +2011,7 @@ CgK cg_cfold(Codegen* g, *ExprNode e) {
             int w = 32;                                  // int, or int64 when it does not fit
             if (e.sval[0] == 45) { if (mag > (uint64)2147483648) { w = 64; } }
             else if (mag > (uint64)2147483647) { w = 64; }
+            if (e.sval[0] != 45 && mag > (uint64)9223372036854775807) { return cg_k_mk(m, 64, 1); }   // uint64
             return cg_k_mk(m, w, 0);
         }
         if (e.lit_kind == LIT_FLOAT) { return cg_k_flt(atof(e.sval)); }
@@ -2557,7 +2558,7 @@ string cg_infer_generic_ret(Codegen* g, *DeclNode gd, *ExprNode e) {
 string cg_lit_arm_etype(Codegen* g, *ExprNode e) {
     if (e != null && e.kind == EK_LITERAL && e.lit_kind == LIT_INT) {
         uint64 m = cg_int_lit_mag(e.sval);
-        if (m > (uint64)9223372036854775807) { return "uint64"; }
+        if (e.sval[0] != 45 && m > (uint64)9223372036854775807) { return "uint64"; }   // -2^63 is an int64
         if (e.sval[0] == 45) { if (m > (uint64)2147483648) { return "int64"; } }
         else if (m > (uint64)2147483647) { return "int64"; }
         return "int";
@@ -2707,7 +2708,7 @@ string cg_range_bound_type(Codegen* g, *ExprNode e) {
 string cg_etype(Codegen* g, *ExprNode e) {
     if (e == null) { return ""; }
     if (e.kind == EK_LITERAL) {
-        if (e.lit_kind == LIT_INT) { return "int"; }
+        if (e.lit_kind == LIT_INT) { return cg_lit_arm_etype(g, e); }   // int, int64 or uint64 by value
         if (e.lit_kind == LIT_FLOAT) { return "double"; }
         if (e.lit_kind == LIT_BOOL) { return "bool"; }
         if (e.lit_kind == LIT_CHAR) { return "char"; }
@@ -3415,6 +3416,7 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
             let lim: uint64 = 2147483647;                 // INT32_MAX; INT32_MIN is one larger in magnitude
             if (neg == 1) { lim = 2147483648; }
             if (mag > lim) { v.ty = "i64"; v.ety = "int64"; }
+            if (neg == 0 && mag > (uint64)9223372036854775807) { v.ety = "uint64"; }
         }
         return v;
     }

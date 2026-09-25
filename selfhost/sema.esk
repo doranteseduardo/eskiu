@@ -640,7 +640,10 @@ string sema_infer_type(Sema* s, *ExprNode e) {
         return "";
     }
     if (e.kind == EK_LITERAL) {
-        if (e.lit_kind == LIT_INT) { return "int"; }
+        if (e.lit_kind == LIT_INT) {                       // int, or int64 when it does not fit
+            if (sema_int_lit_fits("int", e.sval) == 0) { return "int64"; }
+            return "int";
+        }
         if (e.lit_kind == LIT_FLOAT) { return "double"; }
         if (e.lit_kind == LIT_STRING) { return "string"; }
         if (e.lit_kind == LIT_CHAR) { return "char"; }
