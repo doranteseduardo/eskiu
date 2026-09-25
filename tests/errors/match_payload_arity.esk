@@ -1,0 +1,4 @@
+// EXPECT-ERROR: variant 'A' binds 2 field(s), got 1
+enum E { A(int, int), B }
+int f(E e) { match e { A(x) -> return x; B -> return 0; } return 0; }
+int main() { return f(B); }

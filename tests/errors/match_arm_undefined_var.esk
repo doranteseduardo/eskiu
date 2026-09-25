@@ -1,0 +1,4 @@
+// EXPECT-ERROR: undefined variable 'zz'
+enum E { A, B }
+int f(E e) { match e { A -> return zz; B -> return 1; } }
+int main() { return f(A); }
