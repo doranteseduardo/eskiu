@@ -33,16 +33,17 @@ std::string TypeChecker::inferBinaryExprType(const std::string& leftIn, const st
         if (l == "error" || r == "error" || l == "unknown" || r == "unknown")
             return "bool";                       // do not cascade a prior error
         auto ptrish = [&](const std::string& t) { return isPointerType(t) || t == "null"; };
-        auto isAgg  = [&](const std::string& t) {
-            return t.rfind("struct:", 0) == 0 || t.rfind("interface:", 0) == 0 ||
-                   adtEnums.count(t) > 0;
-        };
+        // Aggregates (structs, unions, sum types, interface values, arrays, slices,
+        // closures) have no built-in comparison (only a user `operator ==`).
+        if (isAggregateValue(l) || isAggregateValue(r)) return "error";
         bool ok = (isNumericType(l) && isNumericType(r)) ||
                   (ptrish(l) && ptrish(r)) ||
-                  (l == r && !isAgg(l));
+                  (l == r);
         return ok ? "bool" : "error";
     }
     if (op == "&&" || op == "||") {
+        // The operands are truth values: a scalar (number, bool, pointer), not an aggregate.
+        if (isAggregateValue(normalizeType(leftType)) || isAggregateValue(normalizeType(rightType))) return "error";
         return "bool";
     }
     // Bitwise and shift operators work on integers
@@ -79,7 +80,7 @@ std::string TypeChecker::inferUnaryExprType(const std::string& op, const std::st
         // Logical not of a scalar (number, bool, pointer). A struct operand is not a
         // truth value: "error" here lets a user `operator !(V)` resolve instead.
         std::string n = normalizeType(operandType);
-        if (n.rfind("struct:", 0) == 0) return "error";
+        if (isAggregateValue(n)) return "error";
         return "bool";
     }
     if (op == "-" || op == "+") {
@@ -102,6 +103,17 @@ std::string TypeChecker::inferUnaryExprType(const std::string& op, const std::st
         return "error";
     }
     return "error";
+}
+
+// A (normalized) value type with no scalar meaning: a struct/union, a sum type, an
+// interface value, a fixed array, a slice, or a closure. Such a value is not a truth
+// value and has no built-in comparison.
+bool TypeChecker::isAggregateValue(const std::string& t) {
+    ty::Type pt = ty::Type::parse(t);
+    if (pt.kind == ty::Type::Kind::Array || pt.kind == ty::Type::Kind::Slice || pt.isFn()) return true;
+    if (pt.kind == ty::Type::Kind::Pointer || isPointerType(t)) return false;
+    if (t.rfind("struct:", 0) == 0 || t.rfind("interface:", 0) == 0) return true;
+    return adtEnums.count(t) || interfaceDecls.count(t);
 }
 
 // Type validation

@@ -320,6 +320,7 @@ private:
     void checkArrayDim(const std::string& dim, ASTNode* at);
     // A `void` (or array of void) value type: only a function result may be void.
     bool isVoidValueType(const std::string& type);
+    bool isAggregateValue(const std::string& normalizedType);
     std::set<std::string> unknownTypes;   // names already reported as unknown (no cascades)
     // A bitfield must have an integer type at least `bitWidth` bits wide.
     void checkBitfield(ASTNode* at, const std::string& owner, const StructDecl::Field& f);

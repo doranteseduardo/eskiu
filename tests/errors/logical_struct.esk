@@ -1,0 +1,4 @@
+// EXPECT-ERROR: invalid operands for operator
+// A struct value is not a truth value for `&&`.
+struct P { int a; }
+int main() { P p = P{a: 1}; bool b = p && true; if (b) { return 1; } return 0; }
