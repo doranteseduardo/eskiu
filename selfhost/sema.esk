@@ -5974,8 +5974,9 @@ int sema_check(Sema* s, *Program prog) {
         if (d.kind == DK_VARDECL) {
             int lg = 0;
             while (lg < List_len<string>(&s.late_globals)) {
-                if (sema_streq(List_get<string>(&s.late_globals, lg), d.name) == 1) { List_remove<string>(&s.late_globals, lg); lg = List_len<string>(&s.late_globals); }
-                lg = lg + 1;
+                // every entry of the name (an `extern` declaration and the definition)
+                if (sema_streq(List_get<string>(&s.late_globals, lg), d.name) == 1) { List_remove<string>(&s.late_globals, lg); }
+                else { lg = lg + 1; }
             }
         }
         if (d.kind == DK_STRUCT || d.kind == DK_UNION) {
