@@ -3909,10 +3909,27 @@ void sema_arm_bindings(string label, List<string>* out) {
 // A closure captures an enclosing local by value, so an assignment (or `++`/`--`) to one
 // inside the lambda would change only its copy: an error (mirrors the C++
 // checkCapturedWrite). A global or a `static` local is not captured.
+// A field or element of a captured struct/array value (`p.a = 5`, `arr[0] = 9`) is part
+// of the copy too; a write through a pointer (`ptr.a`, `*p`, a slice or string element)
+// reaches the shared object and is allowed.
 void sema_check_captured_write(Sema* s, *ExprNode t) {
-    if (t == null || t.kind != EK_IDENT) { return; }
     int nb = List_len<int>(&s.lam_bounds);
     if (nb == 0) { return; }
+    int walking = 1;
+    while (walking == 1 && t != null) {
+        if (t.kind == EK_MEMBER) {
+            string bc = sema_canon(s, sema_strip_nullable(sema_infer_type(s, t.a)));
+            if (sema_is_ptrish(bc) == 1) { return; }
+            t = t.a;
+        } else if (t.kind == EK_INDEX) {
+            if (List_len<*ExprNode>(&t.kids) > 0) { return; }        // a slice a[lo..hi]
+            string bc = sema_canon(s, sema_strip_nullable(sema_infer_type(s, t.a)));
+            int br = sema_arr_bracket(bc);
+            if (br < 0 || (int)bc[br + 1] == 93) { return; }          // not a fixed array T[N]
+            t = t.a;
+        } else { walking = 0; }
+    }
+    if (t == null || t.kind != EK_IDENT) { return; }
     int si = sema_sym_index(s, t.sval);
     if (si < 0) { return; }
     Sym sy = List_get<Sym>(&s.syms, si);

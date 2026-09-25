@@ -35,9 +35,26 @@ static bool floatConstFitsInt(double v, const std::string& t) {
 // A closure captures an enclosing local by value (a copy in its environment), so an
 // assignment to one inside the lambda would change only that copy: an error. A global
 // or a `static` local is not captured (the lambda uses the one cell), so it may be set.
+// A field or element of a captured struct/array value (`p.a = 5`, `arr[0] = 9`) is part
+// of the copy too; a write through a pointer (`ptr.a`, `*p`, `s[i]` of a slice or a
+// string) reaches the shared object and is allowed.
 void TypeChecker::checkCapturedWrite(ASTNode* at, Expr* target) {
+    if (captureBoundary.empty()) return;
+    while (target) {
+        if (auto* m = dynamic_cast<MemberExpr*>(target)) {
+            if (tyq::isPtr(getExpressionType(m->base.get()))) return;
+            target = m->base.get(); continue;
+        }
+        if (auto* ix = dynamic_cast<IndexExpr*>(target)) {
+            if (!ix->opFunc.empty() || ix->highIndex) return;
+            std::string bt = normalizeType(getExpressionType(ix->base.get()));
+            if (ty::Type::parse(bt).kind != ty::Type::Kind::Array) return;
+            target = ix->base.get(); continue;
+        }
+        break;
+    }
     auto* id = dynamic_cast<IdentExpr*>(target);
-    if (!id || captureBoundary.empty()) return;
+    if (!id) return;
     if (lookupSymbol(id->name).empty()) return;
     int defIdx = scopeOf(id->name);
     if (defIdx >= 1 && defIdx < captureBoundary.back() && !scopes[defIdx][id->name].isStatic)

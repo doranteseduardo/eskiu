@@ -1,0 +1,16 @@
+// A closure may write through a captured pointer (field, deref, element): the write
+// reaches the shared object, not the closure's copy of the pointer.
+extern int printf(string fmt, ...);
+struct P { int a; int[2] b; }
+int main() {
+    P p = P{a: 1};
+    *P ptr = &p;
+    int n = 0;
+    *int pn = &n;
+    int[3] arr = {1, 2, 3};
+    int[] sl = arr[0..3];
+    fn()->void f = void() { ptr.a = 5; ptr.b[1] = 6; *pn = 7; sl[2] = 8; ptr.a++; };
+    f();
+    printf("%d %d %d %d\n", p.a, p.b[1], n, arr[2]);
+    return 0;
+}

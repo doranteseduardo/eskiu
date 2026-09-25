@@ -1,0 +1,11 @@
+// EXPECT-ERROR: cannot assign to captured variable 'p'
+struct P { int a; }
+int main() {
+    P p = P{a: 1};
+    int[3] arr = {1, 2, 3};
+    fn()->void f = void() { p.a = 5; };
+    fn()->void g = void() { arr[0] = 9; };
+    fn()->void h = void() { p.a++; };
+    f(); g(); h();
+    return p.a;
+}
