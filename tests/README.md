@@ -94,6 +94,7 @@ when you add a test.
 | `bitfields` | bitfield assignment + masked read; signed fields sign-extend |
 | `bitfield_signed_store` | a narrower signed value stored into a wide bitfield sign-extends (assignment, struct literal, `+=`); an unsigned one zero-extends |
 | `array_return_large` | a function returning an array wider than 16 bytes (`int64[4]`, an array of interface values) goes through the hidden return pointer |
+| `generic_rvalue_instance` | a generic struct or enum instance reached only through a call result (`flip(n).a`, `unbox(bx(7))`, `bx(2.5).get()`, `match wrap<int64>(5)`) |
 | `const_bitfield_union` | global and `static` initializers of bitfield structs, unions (any member, nested in a struct), `packed` and `pack(2)` structs fold to their C byte image; local union literals |
 | `templates_result` | `Result<int,string>` monomorphization, `Ok`/`Err` |
 | `template_inference` | `T` inferred when it appears directly as a parameter type |

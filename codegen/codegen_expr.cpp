@@ -840,6 +840,15 @@ std::string CodeGen::stripToStructKey(std::string baseType) {
         auto [tn, args] = splitTemplateType(baseType);
         ensureTemplateInstantiated(mangleTemplate(baseType), tn, args);
         baseType = mangleTemplate(baseType);
+    } else if (!structTypes.count(baseType)) {
+        // A generic instance named only by its mangled form (the type of a call result
+        // the type checker instantiated): build it now.
+        auto ia = templateInstanceArgs.find(baseType);
+        if (ia != templateInstanceArgs.end()) {
+            auto inst = ia->second;
+            if (templateDecls.count(inst.first)) ensureTemplateInstantiated(baseType, inst.first, inst.second);
+            else if (genericEnumDecls.count(inst.first)) ensureEnumInst(inst.first, inst.second);
+        }
     }
     return baseType;
 }

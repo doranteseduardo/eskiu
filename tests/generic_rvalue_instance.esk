@@ -1,0 +1,18 @@
+extern int printf(string fmt, ...);
+enum Option<T> { None, Some(T) }
+struct Box<T> { T v; T get() { return self.v; } }
+struct Pair<A, B> { A a; B b; }
+Option<T> wrap<T>(T x) { return Some<T>(x); }
+Box<T> bx<T>(T x) { return Box<T>{v: x}; }
+T unbox<T>(Box<T> b) { return b.v; }
+Pair<B, A> flip<A, B>(Pair<A, B> p) { return Pair<B, A>{a: p.b, b: p.a}; }
+int main() {
+    match wrap<int64>(5) { Some(v) -> printf("%lld\n", v); None -> printf("none\n"); }
+    match wrap(2.5) { Some(v) -> printf("%.1f\n", v); None -> printf("none\n"); }
+    printf("%d\n", unbox(bx((int16)-7)));
+    printf("%d\n", bx<int8>((int8)4).v);
+    printf("%d %.1f\n", bx(7).get(), bx(2.5).get());
+    Pair<int, int8> n = Pair<int, int8>{a: 1, b: (int8)3};
+    printf("%d %d\n", flip(n).a, flip(n).b);
+    return 0;
+}

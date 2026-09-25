@@ -73,6 +73,9 @@ public:
     // Single-resolver table: post-AsyncTransform type checker's expressionTypeMap.
     // When set, getExprEskiuType returns these resolved types instead of re-deriving.
     const std::map<Expr*, std::string>* resolvedExprTypes = nullptr;
+    // The type checker's generic instances (mangled -> template + args): an instance
+    // reached only through a resolved expression type (a call result) is built on demand.
+    const std::map<std::string, std::pair<std::string, std::vector<std::string>>>* semaInstanceArgs = nullptr;
 
     // Print LLVM IR to stdout
     void printIR() const;

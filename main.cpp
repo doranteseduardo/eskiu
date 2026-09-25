@@ -259,6 +259,7 @@ static int testCodegen(const std::string& filename) {
         // Codegen
         CodeGen codegen;
         codegen.resolvedExprTypes = &postTc.expressionTypeMap();
+        codegen.semaInstanceArgs = &postTc.instanceArgsMap();
         if (!TargetTriple.empty()) codegen.targetTriple = std::string(TargetTriple);
         if (!TargetCPU.empty()) codegen.targetCPU = std::string(TargetCPU);
         if (!TargetFeatures.empty()) codegen.targetFeatures = std::string(TargetFeatures);
@@ -482,6 +483,7 @@ static int compilerMain(int argc, char** argv) {
         postTc.check(program.get());
         CodeGen codegen;
         codegen.resolvedExprTypes = &postTc.expressionTypeMap();
+        codegen.semaInstanceArgs = &postTc.instanceArgsMap();
         if (!TargetTriple.empty()) codegen.targetTriple = std::string(TargetTriple);
         if (!TargetCPU.empty()) codegen.targetCPU = std::string(TargetCPU);
         if (!TargetFeatures.empty()) codegen.targetFeatures = std::string(TargetFeatures);

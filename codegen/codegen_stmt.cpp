@@ -476,7 +476,7 @@ void CodeGen::visit(MatchStmt* node) {
             auto [b, a] = splitTemplateType(st);
             enumName = genericEnumDecls.count(b) ? ensureEnumInst(b, a) : mangleTemplate(st);
         } else if (!st.empty()) {
-            enumName = st;
+            enumName = stripToStructKey(st);
         }
     }
     // Classic int enum: the subject IS the enum's int value (no tag / no payload). Lower to
