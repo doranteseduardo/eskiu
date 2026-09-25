@@ -21,7 +21,12 @@ dispatches every `--test-*` debug mode plus `--version`, takes multiple input fi
 with `-o` assembles the IR and invokes `clang` to link a native binary (threading
 `--asan`/`--ubsan` into the link). It also owns the two subcommands: `run script.esk
 [args...]` compiles to a temp exe, execs it forwarding argv, and propagates the exit code;
-`fmt [--check] file …` reindents in place via `fmt.esk`. The four per-pass parity gates
+`fmt [--check] file …` reindents in place via `fmt.esk`. It starts clang and the `run`
+program with `fork`/`execvp` (no shell, so any argument is passed through unchanged),
+accepts the C++ driver's flags (`--target`, `--mcpu`, `--mattr`, `--reloc`, `--link-arg`,
+`-l`/`-L`, `-c`, `-O0` to `-O3`, `--freestanding`, `--safe`, the sanitizers; `-Wall`/`-Wextra` are accepted and
+ignored, since lint warnings are C++ only), finds `stdlib/` through `$ESKIU_ROOT` or the
+install layout, and reports a missing import as an error. The four per-pass parity gates
 drive *through* `esk_main --test-*`, and `run`/`fmt` have their own parity gates
 (`run_parity.sh`, `fmt_parity.sh`). The code generator emits **LLVM IR as text** (no LLVM library is
 linked), which `clang` then assembles and links. This keeps the self-hosted compiler
