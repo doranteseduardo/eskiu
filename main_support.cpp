@@ -291,6 +291,8 @@ std::shared_ptr<Program> loadProgram(const std::string& filename, const std::str
     parser.stdlibPath = stdlibRoot;
     parser.basedir = dirOf(filename);
     parser.macros = &macros;
+    std::set<std::string> imported = { Parser::canonicalPath(filename) };
+    parser.importedFiles = &imported;
     return parser.parse();
 }
 

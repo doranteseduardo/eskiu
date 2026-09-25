@@ -46,6 +46,7 @@ int main(int argc, string* argv) {
     while (src[plen] != 0) { plen = plen + 1; }
 
     parser_session_init();
+    register_file(argv[1]);
     let p: Parser;
     g_lex_file = argv[1];
     p_init(&p, src, plen);

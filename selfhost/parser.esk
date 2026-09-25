@@ -16,6 +16,7 @@ import "preprocessor.esk";
 
 // Abort the parse on an unrecoverable syntax error (see check_name_not_keyword).
 extern void exit(int code);
+extern string realpath(string path, string resolved);   // canonical import keys
 
 struct Parser {
     List<Token> toks;
@@ -37,6 +38,28 @@ List<string> g_typenames;      // declared type names → enables `(Foo)x` casts
 int g_cur_pack;                // active `#pragma pack(N)` alignment (0 = natural)
 List<int> g_pack_stack;        // saved pack values for `pack(push, N)` / `pack(pop)`
 List<string> g_tparams;        // type params of the generic fn/struct being parsed (`(*T)x`)
+
+// The dedup key for a source file: its absolute path with `.`/`..`/symlinks resolved
+// (mirrors Parser::canonicalPath); the path itself if it cannot be resolved.
+string canonical_path(string path) {
+    string r = realpath(path, null);
+    if (r == null) { return path; }
+    return r;
+}
+
+// Record `path` as parsed. Returns 1 if it is new, 0 if it was already registered
+// (a repeated import, a diamond, a cycle back to a root input).
+int register_file(string path) {
+    string key = canonical_path(path);
+    int i = 0;
+    int seen = List_len<string>(&g_imported);
+    while (i < seen) {
+        if (str_eq(List_get<string>(&g_imported, i), key) == 1) { return 0; }
+        i = i + 1;
+    }
+    List_push<string>(&g_imported, key);
+    return 1;
+}
 
 void parser_session_init() {
     List_init<string>(&g_imported, 16);
@@ -1907,13 +1930,7 @@ void do_import(Parser* p, *Program prog) {
     else if ((int)path[0] != 47) { full = str_concat(p.basedir, str_concat("/", path)); }
     else { full = path; }
 
-    int i = 0;                                   // dedup — parse each file once
-    int seen = List_len<string>(&g_imported);
-    while (i < seen) {
-        if (str_eq(List_get<string>(&g_imported, i), full) == 1) { return; }
-        i = i + 1;
-    }
-    List_push<string>(&g_imported, full);
+    if (register_file(full) == 0) { return; }   // dedup by canonical path — parse each file once
 
     let bytes: int64 = 0;
     *uint8 isrc = fs_read_all(full, &bytes);

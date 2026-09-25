@@ -377,6 +377,9 @@ int main(int argc, char** argv) {
         seedPredefinedMacros(macros, std::string(TargetTriple), Freestanding);
 
         for (const auto& fname : inputs) {
+            // Register the root file itself, so an import cycle back to it (or an
+            // input that an earlier input already imported) is not parsed twice.
+            if (!importedFiles.insert(Parser::canonicalPath(fname)).second) continue;
             std::string source = readFile(fname);
             Lexer lexer(source, &macros, fname);
             std::vector<Token> tokens;

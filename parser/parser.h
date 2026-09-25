@@ -26,8 +26,13 @@ public:
     // Root of the Eskiu installation — used to resolve <stdlib> imports
     // Set from $ESKIU_ROOT env var or dirname(argv[0])/../lib/eskiu
     std::string stdlibPath;
-    // Shared set of already-imported canonical paths (prevents re-importing)
+    // Shared set of already-imported canonical paths (prevents re-importing). The
+    // driver registers each root input too, so a file importing its importer (or
+    // a diamond reaching one file by two spellings) parses it once.
     std::set<std::string>* importedFiles = nullptr;
+    // The key importedFiles uses: an absolute path with `.`/`..`/symlinks resolved
+    // (the path itself when it cannot be resolved).
+    static std::string canonicalPath(const std::string& path);
     // Shared preprocessor macro table — lets #defines propagate into imports
     std::map<std::string, Macro>* macros = nullptr;
     // Shared across all sub-parsers (like importedFiles): type names declared in

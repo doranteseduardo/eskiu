@@ -201,6 +201,9 @@ int main(int argc, string* argv) {
     int fi = 0;
     while (fi < List_len<string>(&infiles)) {
         string f = List_get<string>(&infiles, fi);
+        // Register the root input, so an import cycle back to it (or an input an
+        // earlier input already imported) is not parsed twice.
+        if (register_file(f) == 0) { fi = fi + 1; continue; }
         let flen: int64 = 0;
         *uint8 raw = fs_read_all(f, &flen);
         if (raw == null) {

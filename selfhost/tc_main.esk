@@ -37,6 +37,7 @@ int main(int argc, string* argv) {
     printf("========================================================\n");
 
     parser_session_init();
+    register_file(argv[1]);
     let p: Parser;
     g_lex_file = argv[1];
     p_init(&p, src, plen);

@@ -1,0 +1,14 @@
+// Imports are deduplicated by canonical path: the same file reached as
+// "a/lib.esk", "./a/lib.esk" and "a/sub/../lib.esk" is parsed once, and an
+// import cycle back to the root file does not re-parse the root.
+import "import_dedup/lib.esk";
+import "./import_dedup/lib.esk";
+import "import_dedup/sub/s.esk";
+import "import_dedup/cyc.esk";
+
+extern int printf(string fmt, ...);
+
+int main() {
+    printf("%d %d %d\n", lib_value(), sub_value(), cyc_value());
+    return 0;
+}

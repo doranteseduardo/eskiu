@@ -4,10 +4,17 @@
 #include <iostream>
 #include <fstream>
 #include <sstream>
+#include <filesystem>
 #include "parser_internal.h"
 
 Parser::Parser(const std::vector<Token>& tok)
     : tokens(tok), current(0) {}
+
+std::string Parser::canonicalPath(const std::string& path) {
+    std::error_code ec;
+    std::filesystem::path c = std::filesystem::weakly_canonical(std::filesystem::absolute(path, ec), ec);
+    return ec ? path : c.string();
+}
 
 // ============================================================================
 // Helper Methods
@@ -353,8 +360,9 @@ std::vector<DeclPtr> Parser::parseProgram() {
                     fullPath = path;
                 }
 
-                if (!importedFiles->count(fullPath)) {
-                    importedFiles->insert(fullPath);
+                std::string canon = canonicalPath(fullPath);
+                if (!importedFiles->count(canon)) {
+                    importedFiles->insert(canon);
 
                     std::ifstream file(fullPath);
                     if (!file.is_open())
