@@ -174,6 +174,10 @@ private:
         int depth;
     };
     std::vector<PendingInstance> pendingInstances;
+    // A generic struct instance's inline methods, by their function name (`Box_int_get`):
+    // queued for checking when first called.
+    struct GenericMethodInst { FunctionDecl* fn; StructDecl* owner; std::map<std::string, std::string> subs; };
+    std::map<std::string, GenericMethodInst> genericMethodInsts;
     std::set<std::string> queuedInstances;
     std::map<std::string, std::string> instSubs;  // substitutions of the instance being checked
     std::string instContext;                      // its display name (appended to diagnostics)

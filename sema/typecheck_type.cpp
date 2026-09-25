@@ -563,6 +563,17 @@ std::string TypeChecker::normalizeType(const std::string& rawType) {
                 for (const auto& f : templ->second->fields)
                     info.fields.push_back({substType(f.type, subs), f.name});
                 structs[mangled] = info;
+                // Inline methods of a generic struct become `Box_int_get(*Box_int self, ...)`
+                // per instance. Like codegen, which emits one on its first call, a method's
+                // body is checked (with the instance's type arguments) once it is called.
+                for (const auto& m : templ->second->methods) {
+                    auto* mf = dynamic_cast<FunctionDecl*>(m.get());
+                    if (!mf) continue;
+                    std::vector<std::string> pts{"*" + mangled};
+                    for (const auto& p : mf->params) pts.push_back(substType(p.first, subs));
+                    defineFunction(mangled + "_" + mf->name, substType(mf->returnType, subs), pts);
+                    genericMethodInsts[mangled + "_" + mf->name] = {mf, templ->second, subs};
+                }
                 // Bounded generics on a struct template (`Map<K: Hashable, V>`):
                 // verify the type args satisfy their constraints, once per instance.
                 checkConstraints(nullptr, templ->second->constraints, subs);

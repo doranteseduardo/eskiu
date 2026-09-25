@@ -45,8 +45,9 @@ struct TemplateCapturePass {
             if (scopes[i].count(name)) return i;
         return -1;   // not a tracked local -> a global or top-level fn (not captured)
     }
-    void run(FunctionDecl* fn) {
+    void run(FunctionDecl* fn, const std::string& selfType = "") {
         scopes.push_back({});
+        if (!selfType.empty()) define("self", selfType);
         for (auto& p : fn->params) define(p.second, p.first);  // params: (type, name)
         walkStmt(fn->body.get());
         scopes.pop_back();
@@ -645,6 +646,20 @@ void TypeChecker::visit(StructDecl* node) {
                 }
                 validateStructType(normalizeType(func->returnType), func);
             }
+    }
+    // A generic struct's methods mention its type params: each body is checked per
+    // struct instance (queued when `Box<int>` is instantiated). Lambda captures are
+    // resolved here, type-independently, as for a generic function.
+    if (!node->typeParams.empty()) {
+        std::string selfT = "*" + node->name + "<";
+        for (size_t i = 0; i < node->typeParams.size(); ++i) selfT += (i ? "," : "") + node->typeParams[i];
+        selfT += ">";
+        for (const auto& method : node->methods)
+            if (auto* func = dynamic_cast<FunctionDecl*>(method.get()); func && func->body) {
+                TemplateCapturePass p;
+                p.run(func, selfT);
+            }
+        return;
     }
     // Type-check method bodies
     for (const auto& method : node->methods) {

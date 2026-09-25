@@ -488,6 +488,10 @@ void TypeChecker::visit(CallExpr* node) {
             const auto& sig = mit->second;
             const auto& paramTypes = sig.second; // first param is "self"
             calledFns.insert(mangled);           // -Wall: `x.m()` references `Type_m`
+            if (auto gm = genericMethodInsts.find(mangled); gm != genericMethodInsts.end())
+                queueInstance(gm->second.fn, gm->second.owner->typeParams, gm->second.subs,
+                              gm->second.owner->name, "." + member->member, mangled,
+                              "*" + baseType, gm->second.owner->sourceFile);
             // A method whose `self` is a plain (mutable) pointer may write through it, so
             // it cannot be called on a read-only receiver (a const value, or through a
             // pointer to const) unless it declares `const T* self`.

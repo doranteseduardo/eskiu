@@ -181,6 +181,12 @@ private:
     void ensureTemplateInstantiated(const std::string& mangledName,
                                     const std::string& templateName,
                                     const std::vector<std::string>& args);
+    // An inline method of a generic struct, for one instance (`Box_int` + `get` ->
+    // `Box_int_get(*Box_int self)`): the template method (and its substitutions), or null.
+    FunctionDecl* genericMethod(const std::string& instName, const std::string& method,
+                                std::map<std::string, std::string>* subsOut) const;
+    // Emit that instance method on first use; returns it (null when there is none).
+    llvm::Function* instantiateGenericMethod(const std::string& instName, const std::string& method);
     // Template function registry
     std::map<std::string, FunctionDecl*> funcTemplateDecls;
     // Active type param substitutions during template function instantiation

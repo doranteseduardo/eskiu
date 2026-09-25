@@ -62,7 +62,9 @@ struct CgCabi { string name; CgAbi ret; List<CgAbi> params; string lowret; strin
 struct CgSub { string param; string arg; }
 struct CgLambda { string name; *ExprNode node; string rety; List<string> capn; List<string> capt; List<CgSub> sub; List<CgLocal> statics; }
 // A pending monomorphization: the generic decl + concrete type args + mangled name.
-struct CgInst { *DeclNode decl; string mangled; int is_struct; List<string> args; }
+// is_struct 2 = an inline method of a generic struct instance: `owner` is the generic
+// struct (its type params bind `args`), `self_sp` the instance spelling ("Box<int>").
+struct CgInst { *DeclNode decl; string mangled; int is_struct; List<string> args; *DeclNode owner; string self_sp; }
 
 struct Codegen {
     String out;
@@ -605,6 +607,59 @@ string cg_ensure_fn_inst(Codegen* g, string spelling) {
     return mangled;
 }
 
+// An inline method of a generic struct instance (`Box<int>` + `get` → `Box_int_get`):
+// register its concrete signature (self first) and queue its body, like a generic
+// function instance. Returns the LLVM name, or "" when `sname` is not such an instance.
+string cg_ensure_method_inst(Codegen* g, string sname, string method) {
+    string sp = cg_apply_sub(g, sname);
+    if (cg_has_targs(sp) == 0) { return ""; }
+    *DeclNode gd = cg_find_gstruct(g, cg_gen_base(sp));
+    if (gd == null) { return ""; }
+    *DeclNode m = null;
+    int mi = 0; int mn = List_len<*DeclNode>(&gd.methods);
+    while (mi < mn) { *DeclNode c = List_get<*DeclNode>(&gd.methods, mi); if (cg_streq(c.name, method) == 1) { m = c; } mi = mi + 1; }
+    if (m == null) { return ""; }
+    string smangled = cg_ensure_struct_inst(g, sp);
+    string llname = cg_cat(cg_cat(smangled, "_"), method);
+    if (cg_seen_inst(g, llname) == 1) { return llname; }
+    List_push<string>(&g.inst_seen, llname);
+
+    List<string> args; List_init<string>(&args, 4);
+    cg_gen_args(sp, &args);
+    let inst: CgInst; inst.decl = m; inst.mangled = llname; inst.is_struct = 2;
+    inst.owner = gd; inst.self_sp = sp;
+    List_init<string>(&inst.args, 4);
+    int ai = 0; while (ai < List_len<string>(&args)) { List_push<string>(&inst.args, List_get<string>(&args, ai)); ai = ai + 1; }
+    List_push<CgInst>(&g.worklist, inst);
+
+    List<CgSub> oldsub = cg_push_sub(g, gd, &args);
+    let f: CgFn; f.name = llname; f.retty = cg_lltype(g, m.ret_type);
+    f.rety = cg_apply_sub(g, m.ret_type); f.variadic = 0; f.fixedtypes = "";
+    int np = List_len<Param>(&m.params);
+    List_init<string>(&f.ptys, np + 1);
+    List_init<string>(&f.petys, np + 1);
+    List_push<string>(&f.ptys, "ptr");                    // implicit self
+    List_push<string>(&f.petys, cg_cat("*", sp));
+    int pi = 0;
+    while (pi < np) {
+        Param pm = List_get<Param>(&m.params, pi);
+        List_push<string>(&f.ptys, cg_lltype(g, pm.ty));
+        List_push<string>(&f.petys, cg_apply_sub(g, pm.ty));
+        pi = pi + 1;
+    }
+    List_push<CgFn>(&g.fns, f);
+    g.cursub = oldsub;
+    return llname;
+}
+
+// The function a method call `recv.m(...)` targets, for a receiver of struct `sname`:
+// a generic struct instance's method (instantiated on demand), else `Struct_m`.
+string cg_method_fn(Codegen* g, string sname, string method) {
+    string gm = cg_ensure_method_inst(g, sname, method);
+    if (gm[0] != 0) { return gm; }
+    return cg_cat(cg_cat(sname, "_"), method);
+}
+
 // Emit every queued generic-function instantiation. Bodies may queue further
 // instantiations (transitive generics), so iterate until the worklist is exhausted.
 void cg_drain_worklist(Codegen* g) {
@@ -614,6 +669,10 @@ void cg_drain_worklist(Codegen* g) {
         if (inst.is_struct == 0) {
             List<CgSub> oldsub = cg_push_sub(g, inst.decl, &inst.args);
             cg_emit_fn(g, inst.decl, inst.mangled, "");
+            g.cursub = oldsub;
+        } else if (inst.is_struct == 2) {
+            List<CgSub> oldsub = cg_push_sub(g, inst.owner, &inst.args);
+            cg_emit_fn(g, inst.decl, inst.mangled, inst.self_sp);
             g.cursub = oldsub;
         }
         g.wl_i = g.wl_i + 1;
@@ -2418,7 +2477,7 @@ string cg_etype(Codegen* g, *ExprNode e) {
                 return "";
             }
             string sname = cg_strip_ptr(recv);            // method call → Struct_method
-            string mname = cg_cat(cg_cat(sname, "_"), e.a.sval);
+            string mname = cg_method_fn(g, sname, e.a.sval);
             if (cg_is_fn(g, mname) == 0 && cg_is_struct(g, sname) == 0 && cg_is_fn(g, e.a.sval) == 1) {
                 return cg_find_fn(g, e.a.sval).rety;       // primitive receiver → free fn `m(recv, …)`
             }
@@ -3192,7 +3251,7 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
                 string sptr = "";
                 if (cg_is_ptr_ty(recv_ety) == 1) { sptr = cg_expr(g, e.a.a).op; }
                 else { sptr = cg_addr(g, e.a.a).op; }
-                fname = cg_cat(cg_cat(sname, "_"), e.a.sval);
+                fname = cg_method_fn(g, sname, e.a.sval);
                 args = cg_cat("ptr ", sptr);                // self is the first argument
                 pbase = 1;
             }

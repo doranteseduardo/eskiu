@@ -362,6 +362,9 @@ std::string CodeGen::deriveExprEskiuType(const ExprPtr& expr) const {
             if (bt.find('<') != std::string::npos) bt = mangleTemplate(bt);
             auto it = funcEskiuReturnType.find(bt + "_" + m->member);
             if (it != funcEskiuReturnType.end()) return expandAlias(it->second);
+            std::map<std::string, std::string> subs;
+            if (FunctionDecl* gm = genericMethod(bt, m->member, &subs))
+                return expandAlias(substType(gm->returnType, subs));
         }
         return "";
     }

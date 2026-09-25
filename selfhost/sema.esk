@@ -2115,6 +2115,10 @@ void sema_expr_k(Sema* s, *ExprNode e) {
                     mpi = mpi + 1;
                 }
                 sema_check_call_args(s, e, mwhat, &mpts);
+                // A generic struct instance's method body is checked per instance, once called.
+                if (List_len<TypeParam>(&sd.type_params) > 0 && List_len<string>(&rtargs) == List_len<TypeParam>(&sd.type_params)) {
+                    sema_queue_inst(s, imd, sd, &rtargs, sd.name, sema_cat(".", mem.sval));
+                }
             } else if (ffn != null && List_len<TypeParam>(&ffn.type_params) == 0 && List_len<Param>(&ffn.params) > 0) {
                 List<string> fpts; List_init<string>(&fpts, 4);
                 int fpi = 1; int fpn = List_len<Param>(&ffn.params);
@@ -3519,7 +3523,8 @@ int sema_check(Sema* s, *Program prog) {
             int mm = List_len<*DeclNode>(&d.methods);
             while (k < mm) {
                 sema_check_sig_types(s, List_get<*DeclNode>(&d.methods, k));
-                sema_check_fn(s, List_get<*DeclNode>(&d.methods, k), d.name);
+                // A generic struct's method bodies are checked per instance (sema_check_insts).
+                if (tn == 0) { sema_check_fn(s, List_get<*DeclNode>(&d.methods, k), d.name); }
                 k = k + 1;
             }
             List_init<string>(&s.tparams, 4);

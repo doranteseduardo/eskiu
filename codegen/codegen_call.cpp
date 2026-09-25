@@ -85,6 +85,50 @@ void CodeGen::ensureTemplateInstantiated(const std::string& mangled,
     structFields[mangled] = fields;
 }
 
+FunctionDecl* CodeGen::genericMethod(const std::string& instName, const std::string& method,
+                                     std::map<std::string, std::string>* subsOut) const {
+    auto ia = templateInstanceArgs.find(instName);
+    if (ia == templateInstanceArgs.end()) return nullptr;
+    auto td = templateDecls.find(ia->second.first);
+    if (td == templateDecls.end()) return nullptr;
+    for (const auto& m : td->second->methods) {
+        auto* mf = dynamic_cast<FunctionDecl*>(m.get());
+        if (!mf || mf->name != method) continue;
+        if (subsOut) {
+            const auto& tp = td->second->typeParams;
+            for (size_t i = 0; i < tp.size() && i < ia->second.second.size(); ++i)
+                (*subsOut)[tp[i]] = ia->second.second[i];
+        }
+        return mf;
+    }
+    return nullptr;
+}
+
+llvm::Function* CodeGen::instantiateGenericMethod(const std::string& instName, const std::string& method) {
+    std::string mangled = instName + "_" + method;
+    if (llvm::Function* f = module->getFunction(mangled)) return f;
+    std::map<std::string, std::string> subs;
+    FunctionDecl* mf = genericMethod(instName, method, &subs);
+    if (!mf || !mf->body) return nullptr;
+    std::vector<std::pair<std::string, std::string>> params{{"*" + instName, "self"}};
+    for (const auto& p : mf->params) params.push_back({substType(p.first, subs), p.second});
+
+    // Same context save/restore as a generic function instantiated mid-body.
+    llvm::BasicBlock*          savedBB        = builder->GetInsertBlock();
+    llvm::BasicBlock::iterator savedPoint     = builder->GetInsertPoint();
+    llvm::Function*            savedFunc      = currentFunction;
+    llvm::Value*               savedSretParam = currentSretParam;
+    auto                       savedOverride  = typeParamOverride;
+    typeParamOverride = subs;
+    auto inst = std::make_shared<FunctionDecl>(mangled, substType(mf->returnType, subs), params, mf->body);
+    inst->accept(this);
+    typeParamOverride = savedOverride;
+    currentFunction  = savedFunc;
+    currentSretParam = savedSretParam;
+    if (savedBB) builder->SetInsertPoint(savedBB, savedPoint);
+    return module->getFunction(mangled);
+}
+
 // Lower a call to an `intrinsic`-declared function to inline IR. The registry of
 // supported intrinsics lives here; their signatures are declared in stdlib (e.g.
 // stdlib/atomic.esk) and the orderings/semantics are fixed (docs/dev/async-design.md §3).
@@ -287,6 +331,7 @@ void CodeGen::visit(CallExpr* node) {
         // Struct method call
         std::string mangled = baseType + "_" + member->member;
         llvm::Function* mfunc = module->getFunction(mangled);
+        if (!mfunc) mfunc = instantiateGenericMethod(baseType, member->member);
         if (mfunc) {
             // self: a value-struct receiver passes its address; a pointer receiver
             // passes the pointer it holds (loaded), not the address of its slot.
