@@ -1,0 +1,10 @@
+// A lambda body is its own function: `break` there cannot target a loop of the
+// enclosing function.
+// EXPECT-ERROR: 'break' outside of a loop or switch
+int main() {
+    for (int i = 0; i < 3; i++) {
+        let f: fn()->void = void() { break; };
+        f();
+    }
+    return 0;
+}

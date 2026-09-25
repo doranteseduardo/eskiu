@@ -212,8 +212,10 @@ void TypeChecker::visit(ReturnStmt* node) {
 }
 
 void TypeChecker::visit(BreakStmt* node) {
-    // Break statements are valid in loops (bare break checked at parse/codegen time).
-    // A labeled break must name an enclosing loop label.
+    // A bare break needs an enclosing loop or switch of the SAME function (a lambda body
+    // starts a fresh context); a labeled break must name an enclosing loop label.
+    if (node->label.empty() && loopLabelStack.empty() && switchDepth == 0)
+        errorAt(node, "'break' outside of a loop or switch");
     if (!node->label.empty()) {
         bool found = false;
         for (auto& l : loopLabelStack) if (l == node->label) { found = true; break; }
@@ -239,7 +241,10 @@ void TypeChecker::visit(ExprStmt* node) {
 }
 
 void TypeChecker::visit(ContinueStmt* node) {
-    // Valid inside loops. A labeled continue must name an enclosing loop label.
+    // Valid inside a loop of the same function. A labeled continue must name an
+    // enclosing loop label.
+    if (node->label.empty() && loopLabelStack.empty())
+        errorAt(node, "'continue' outside of a loop");
     if (!node->label.empty()) {
         bool found = false;
         for (auto& l : loopLabelStack) if (l == node->label) { found = true; break; }
@@ -437,6 +442,8 @@ void TypeChecker::visit(SwitchStmt* node) {
                     seenCases.insert(cv);
             }
         }
+        ++switchDepth;
         for (auto& s : c.stmts) s->accept(this);
+        --switchDepth;
     }
 }

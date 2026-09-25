@@ -193,6 +193,7 @@ private:
     // Error tracking
     std::vector<std::string> errors;
     std::vector<std::string> loopLabelStack;   // enclosing loop labels ("" for unlabeled), for labeled break/continue validation
+    int switchDepth = 0;                       // enclosing `switch` statements (an unlabeled `break` may target one)
     bool hasErrors = false;
 
     // Helper methods

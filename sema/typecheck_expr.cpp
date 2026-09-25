@@ -727,6 +727,12 @@ void TypeChecker::visit(LambdaExpr* node) {
     pushScope();
     std::string savedReturn = currentFunctionReturnType;
     currentFunctionReturnType = node->returnType;
+    // The body is its own function: a break/continue there cannot target a loop (or
+    // switch) of the enclosing function.
+    std::vector<std::string> savedLoops = std::move(loopLabelStack);
+    loopLabelStack.clear();
+    int savedSwitch = switchDepth;
+    switchDepth = 0;
     for (const auto& p : node->params)
         defineSymbol(p.second, normalizeType(p.first));
     // Mark param names so IdentExpr doesn't treat them as captures
@@ -735,6 +741,8 @@ void TypeChecker::visit(LambdaExpr* node) {
 
     if (node->body) node->body->accept(this);
     currentFunctionReturnType = savedReturn;
+    loopLabelStack = std::move(savedLoops);
+    switchDepth = savedSwitch;
     popScope();
 
     // Harvest captures: only outer-scope vars, not params
