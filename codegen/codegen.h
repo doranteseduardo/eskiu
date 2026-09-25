@@ -238,6 +238,36 @@ private:
             cg->loopStack.pop_back();
         }
     };
+    // RAII: a nested function body (a lambda, or a template instantiated mid-expression)
+    // is a fresh control-flow context. Save and reset everything that belongs to the
+    // enclosing body (defer/finally cleanups, loop and break/continue targets, the active
+    // landingpad of a surrounding `try`), restoring it on scope exit, so the nested body
+    // never runs the outer defers or branches/unwinds into the outer function's blocks.
+    struct BodyContext {
+        CodeGen* cg;
+        std::vector<std::vector<Cleanup>> cleanups;
+        size_t bcd, ccd;
+        llvm::BasicBlock* bt; llvm::BasicBlock* ct; llvm::BasicBlock* unwind;
+        std::vector<LoopFrame> loops;
+        explicit BodyContext(CodeGen* c)
+            : cg(c), cleanups(std::move(c->cleanupScopes)),
+              bcd(c->breakCleanupDepth), ccd(c->continueCleanupDepth),
+              bt(c->breakTarget), ct(c->continueTarget), unwind(c->unwindTarget),
+              loops(std::move(c->loopStack)) {
+            cg->cleanupScopes.clear();
+            cg->breakCleanupDepth = cg->continueCleanupDepth = 0;
+            cg->breakTarget = cg->continueTarget = nullptr;
+            cg->unwindTarget = nullptr;
+            cg->loopStack.clear();
+        }
+        ~BodyContext() {
+            cg->cleanupScopes = std::move(cleanups);
+            cg->breakCleanupDepth = bcd; cg->continueCleanupDepth = ccd;
+            cg->breakTarget = bt; cg->continueTarget = ct;
+            cg->unwindTarget = unwind;
+            cg->loopStack = std::move(loops);
+        }
+    };
     // Emit (in LIFO order) every cleanup body in frames at index >= depth. On a normal
     // exit (errorPath=false) errdefer bodies are skipped; the `?`-propagation error path
     // passes errorPath=true so both run. Does not pop — the owning scope pops when it ends.

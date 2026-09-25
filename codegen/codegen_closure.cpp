@@ -46,6 +46,8 @@ llvm::Function* CodeGen::emitLambdaFunction(LambdaExpr* node,
     builder->SetInsertPoint(entry);
     currentFunction  = func;
     currentSretParam = nullptr;
+    // The lambda body is its own function: not the enclosing body's defers, loops or `try`.
+    BodyContext bodyCtx(this);
     pushScope();
 
     // Expose captured variables by loading from env
