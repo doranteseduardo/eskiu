@@ -125,3 +125,12 @@ run_test() { # name expected-output < program
     echo '    return 0;'
     echo '}'
 } > "$out/blocks_too_deep.esk"
+# A cast chain past the limit: the error surfaces from the speculative cast parse.
+{
+    echo '// EXPECT-ERROR: nesting too deep'
+    echo 'int main() {'
+    echo '    int a = 3;'
+    printf '    int x = '; rep '(int)' 100001; echo 'a;'
+    echo '    return x;'
+    echo '}'
+} > "$out/casts_too_deep.esk"

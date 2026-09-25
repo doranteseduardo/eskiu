@@ -345,11 +345,13 @@ void p_fail(Parser* p, string msg) {
 // 100000 nested levels is an error rather than a stack overflow here or in the later
 // passes, which recurse once per level. The drivers run the compiler on a large stack
 // (see bigstack.esk), so the limit sits far above realistic code. Operator chains and
-// statement lists are loops and do not count.
+// statement lists are loops and do not count. Past the limit no other reading of the
+// input is valid, so the error is reported even inside a speculative parse (like the
+// C++ NestingError, which a speculative catch rethrows).
 int P_MAX_NESTING = 100000;
 void p_nest_enter(Parser* p) {
     p.nest = p.nest + 1;
-    if (p.nest > P_MAX_NESTING) { p_fail(p, "nesting too deep (more than 100000 levels)"); }
+    if (p.nest > P_MAX_NESTING) { p_report(p, p_peek(p), "nesting too deep (more than 100000 levels)"); }
 }
 
 // Consume a token of type `t`, or fail with `msg`.

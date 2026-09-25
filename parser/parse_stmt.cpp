@@ -185,6 +185,8 @@ StmtPtr Parser::parseBlockStatement() {
                     items.push_back(decl);
                     continue;
                 }
+            } catch (const NestingError&) {
+                throw;
             } catch (...) {
                 // Only an identifier or a leading '*' is ambiguous (it can also
                 // begin an expression statement); fall back for those. A leading
@@ -295,6 +297,8 @@ StmtPtr Parser::parseForStatement() {
         try {
             DeclPtr decl = parseDeclaration();
             init = std::make_shared<BlockStmt>(std::vector<BlockItem>{decl});
+        } catch (const NestingError&) {
+            throw;
         } catch (...) {
             // Unambiguous decl starts (type keyword/const/volatile/let) surface
             // their real error; only IDENT/'*' fall back to an expression.

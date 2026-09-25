@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <stdexcept>
 #include <set>
 #include <string>
 #include <vector>
@@ -88,10 +89,18 @@ private:
     // operator chains and statement lists are loops and do not count.
     static constexpr int kMaxNesting = 100000;
     int nesting = 0;
+    // The nesting error has its own type so a speculative parse (which catches and
+    // discards ordinary syntax errors to try another reading) rethrows it: past the
+    // limit no alternative reading is valid, and retrying at every level would bury
+    // the real diagnostic under a misleading one.
+    struct NestingError : std::runtime_error { using std::runtime_error::runtime_error; };
     void enterNesting() {
         if (++nesting > kMaxNesting) {
             --nesting;
-            fail("nesting too deep (more than " + std::to_string(kMaxNesting) + " levels)");
+            Token at = peek();
+            errLine = at.line;
+            errCol = at.column;
+            throw NestingError("nesting too deep (more than " + std::to_string(kMaxNesting) + " levels)");
         }
     }
     struct NestGuard {

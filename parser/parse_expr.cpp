@@ -227,6 +227,8 @@ ExprPtr Parser::tryParseLambda() {
             lambda->paramEscaping = esc;
             return lambda;
         }
+    } catch (const NestingError&) {
+        throw;
     } catch (...) {}
     rewindTo(savePos);
     return nullptr;
@@ -295,6 +297,8 @@ ExprPtr Parser::parseUnary() {
                     ExprPtr expr = parseUnary();
                     return withPos(std::make_shared<CastExpr>(castType, expr), lpTok);
                 }
+            } catch (const NestingError&) {
+                throw;
             } catch (...) {}
             rewindTo(savePos);
         }
@@ -346,6 +350,8 @@ ExprPtr Parser::parsePostfix() {
                             continue;
                         }
                     }
+                } catch (const NestingError&) {
+                    throw;
                 } catch (...) {}
                 rewindTo(savePos);
             }
