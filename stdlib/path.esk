@@ -35,11 +35,14 @@ void path_join(String* out, string a, string b) {
 }
 
 // The final component (trailing slashes ignored). "/usr/bin/" -> "bin".
+// POSIX edge cases: "/" (or "///") -> "/", "" -> ".".
 void path_basename(String* out, string p) {
     String_clear(out);
     int n = strlen(p);
+    if (n == 0) { String_append(out, "."); return; }
     int end = n;
     while (end > 0 && p[end - 1] == '/') { end = end - 1; }
+    if (end == 0) { String_append(out, "/"); return; }
     int start = end;
     while (start > 0 && p[start - 1] != '/') { start = start - 1; }
     int i = start;
@@ -47,18 +50,25 @@ void path_basename(String* out, string p) {
 }
 
 // Everything before the final component: "/usr/bin" -> "/usr", "foo" -> ".".
+// POSIX edge cases: "/" -> "/", "" -> ".", and the slashes separating the two
+// parts are all dropped ("a//b" -> "a", "//a" -> "/").
 void path_dirname(String* out, string p) {
     String_clear(out);
     int n = strlen(p);
     int end = n;
     while (end > 0 && p[end - 1] == '/') { end = end - 1; }
+    if (end == 0) {
+        if (n == 0) { String_append(out, "."); } else { String_append(out, "/"); }
+        return;
+    }
     int slash = -1;
     int i = 0;
     while (i < end) {
         if (p[i] == '/') { slash = i; }
         i = i + 1;
     }
-    if (slash < 0)  { String_append(out, "."); return; }
+    if (slash < 0) { String_append(out, "."); return; }
+    while (slash > 0 && p[slash - 1] == '/') { slash = slash - 1; }
     if (slash == 0) { String_append(out, "/"); return; }
     i = 0;
     while (i < slash) { String_push(out, p[i]); i = i + 1; }

@@ -1,0 +1,26 @@
+// POSIX dirname/basename edge cases: the root, empty paths, and repeated
+// separators between the directory and the final component.
+import <path>;
+extern int printf(string fmt, ...);
+
+void both(string p) {
+    let d: String;  String_init(&d, 16);
+    let b: String;  String_init(&b, 16);
+    path_dirname(&d, p);
+    path_basename(&b, p);
+    printf("[%s] dir=[%s] base=[%s]\n", p, String_cstr(&d), String_cstr(&b));
+    String_free(&d);
+    String_free(&b);
+}
+
+int main() {
+    both("/");
+    both("///");
+    both("");
+    both("a//b");
+    both("//a");
+    both("/usr//lib///");
+    both("a/");
+    both("a");
+    return 0;
+}
