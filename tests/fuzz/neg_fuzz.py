@@ -147,7 +147,7 @@ class NegGen(Gen):
             "member_scalar": lambda: f"({v.esk}.nope)",
             "call_nonfn": lambda: f"{v.esk}(1)",
             "index_scalar": lambda: f"{v.esk}[0]",
-            "deref_int": lambda: f"(*{v.esk})",
+            "deref_int": lambda: f"(* {v.esk})",   # spaced: the generator never writes it
             "field_unknown": lambda: f"({s.esk}.nope)",
             "struct_arith": lambda: f"({s.esk} + 1)",
             "cast_struct": lambda: f"((int32)({s.esk}))",
