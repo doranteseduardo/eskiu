@@ -209,7 +209,8 @@ if (q != null) {
 
 A non-null `*T` converts to `?*T` implicitly (widening); going the other way (`?*T` to
 `*T`) drops the check and so requires narrowing (or an explicit cast). `?*T` has the same
-representation as `*T` (a bare pointer); the checking is entirely at compile time.
+representation as `*T` (a bare pointer); the checking is entirely at compile time. The
+`?` marks a pointer type only: `?int` is an error.
 
 A null-check narrows in these forms: the then-branch of `if (x != null)` (and the else of
 `if (x == null)`), `if (x)`, `!(x == null)`, the right operand of `x != null && ...` and of
