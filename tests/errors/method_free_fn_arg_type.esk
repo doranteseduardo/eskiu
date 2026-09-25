@@ -1,0 +1,5 @@
+// EXPECT-ERROR: argument 1 type mismatch
+// A free `Type_method(self, ...)` called with dot syntax checks its arguments too.
+struct D { int v; }
+void D_set(*D self, int x) { self.v = x; }
+int main() { let d: D; d.set(&d); return d.v; }

@@ -1,0 +1,3 @@
+// EXPECT-ERROR: argument 1 type mismatch
+struct C { int v; void add(int x) { self.v = self.v + x; } }
+int main() { let c: C; c.v = 0; c.add("s"); return c.v; }

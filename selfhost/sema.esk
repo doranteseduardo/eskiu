@@ -15,6 +15,7 @@
 
 import <io>;
 import <list>;
+import <string>;
 import <mem>;
 import "ast.esk";
 
@@ -927,6 +928,54 @@ void sema_check_generic_binding(Sema* s, *DeclNode fd, *ExprNode e) {
         }
         i = i + 1;
     }
+}
+
+// `t` with the pointer stars and spaces stripped from both ends ("*Box<int>" -> "Box<int>").
+string sema_strip_ptr_sp(string t) {
+    int a = 0; while ((int)t[a] == 42 || (int)t[a] == 32) { a = a + 1; }
+    int b = 0; while (t[b] != 0) { b = b + 1; }
+    while (b > a && ((int)t[b - 1] == 42 || (int)t[b - 1] == 32)) { b = b - 1; }
+    return sema_sub_str(t, a, b);
+}
+
+// Token-wise substitution: each identifier in `t` found in `names` becomes the matching
+// entry of `args` (unchanged past the end of `args`). "*T" -> "*int".
+string sema_subst_names(string t, List<string>* names, List<string>* args) {
+    if (List_len<string>(args) == 0) { return t; }
+    int n = 0; while (t[n] != 0) { n = n + 1; }
+    String out; String_init(&out, n + 8);
+    int i = 0;
+    while (i < n) {
+        int c = (int)t[i];
+        if ((c >= 97 && c <= 122) || (c >= 65 && c <= 90) || (c >= 48 && c <= 57) || c == 95) {
+            int st = i;
+            while (i < n) {
+                int d = (int)t[i];
+                if ((d >= 97 && d <= 122) || (d >= 65 && d <= 90) || (d >= 48 && d <= 57) || d == 95) { i = i + 1; }
+                else { break; }
+            }
+            string id = sema_sub_str(t, st, i);
+            string rep = id;
+            int k = 0;
+            while (k < List_len<string>(names) && k < List_len<string>(args)) {
+                if (sema_streq(List_get<string>(names, k), id) == 1) { rep = List_get<string>(args, k); }
+                k = k + 1;
+            }
+            String_append(&out, rep);
+        } else {
+            String_push(&out, (char)c);
+            i = i + 1;
+        }
+    }
+    return (string)String_cstr(&out);
+}
+
+// sema_subst_names over the names of the type parameters `tps`.
+string sema_subst_params(string t, List<TypeParam>* tps, List<string>* args) {
+    if (List_len<string>(args) == 0 || List_len<TypeParam>(tps) == 0) { return t; }
+    List<string> names; List_init<string>(&names, 4);
+    int i = 0; while (i < List_len<TypeParam>(tps)) { List_push<string>(&names, List_get<TypeParam>(tps, i).name); i = i + 1; }
+    return sema_subst_names(t, &names, args);
 }
 
 // A call through a fn-typed value of type `ft`.
@@ -1937,12 +1986,36 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         }
         if (bt[0] != 0 && sema_is_struct(s, sn) == 1) {
             int inline_m = 0;
+            *DeclNode imd = null;
             *DeclNode sd = sema_find_struct(s, sn);
             if (sd != null) {
                 int j = 0; int mn = List_len<*DeclNode>(&sd.methods);
-                while (j < mn) { if (sema_streq(List_get<*DeclNode>(&sd.methods, j).name, mem.sval) == 1) { inline_m = 1; } j = j + 1; }
+                while (j < mn) {
+                    *DeclNode cm = List_get<*DeclNode>(&sd.methods, j);
+                    if (sema_streq(cm.name, mem.sval) == 1) { inline_m = 1; imd = cm; }
+                    j = j + 1;
+                }
             }
             *DeclNode ffn = sema_find_fndecl(s, sema_cat(sema_cat(sn, "_"), mem.sval));
+            // Arguments against the method's parameters (self excluded), with the same
+            // count + assignability rules as a bare call (mirrors the C++ method path).
+            string mwhat = sema_cat(sema_cat("method '", mem.sval), "'");
+            if (imd != null) {
+                List<string> mpts; List_init<string>(&mpts, 4);
+                List<string> rtargs; List_init<string>(&rtargs, 2);
+                sema_parse_targs(sema_strip_ptr_sp(bt), &rtargs);
+                int mpi = 0; int mpn = List_len<Param>(&imd.params);
+                while (mpi < mpn) {
+                    List_push<string>(&mpts, sema_subst_params(List_get<Param>(&imd.params, mpi).ty, &sd.type_params, &rtargs));
+                    mpi = mpi + 1;
+                }
+                sema_check_call_args(s, e, mwhat, &mpts);
+            } else if (ffn != null && List_len<TypeParam>(&ffn.type_params) == 0 && List_len<Param>(&ffn.params) > 0) {
+                List<string> fpts; List_init<string>(&fpts, 4);
+                int fpi = 1; int fpn = List_len<Param>(&ffn.params);
+                while (fpi < fpn) { List_push<string>(&fpts, List_get<Param>(&ffn.params, fpi).ty); fpi = fpi + 1; }
+                sema_check_call_args(s, e, mwhat, &fpts);
+            }
             int is_field = 0;
             if (inline_m == 0 && sema_has_member(s, sema_cat(sema_cat(sn, "."), mem.sval)) == 1) { is_field = 1; }
             if (inline_m == 0 && ffn == null && is_field == 0) {

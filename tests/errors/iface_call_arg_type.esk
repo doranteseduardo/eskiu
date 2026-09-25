@@ -1,0 +1,5 @@
+// EXPECT-ERROR: argument 1 type mismatch
+interface Sink { void put(int x); }
+struct S { int n; void put(int x) { self.n = self.n + x; } }
+void feed(Sink* k) { k.put("x"); }
+int main() { let s: S; s.n = 0; feed(&s); return s.n; }
