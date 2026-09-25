@@ -16,7 +16,7 @@ int parse_main(int argc, string* argv) {
     let n: int64 = 0;
     *uint8 raw = fs_read_all(argv[1], &n);
     if (raw == null) {
-        printf("error: cannot read %s\n", argv[1]);
+        dprintf(2, "error: cannot read %s\n", argv[1]);
         return 1;
     }
     // Preprocess the top-level file first so the parser sees the same token stream

@@ -258,7 +258,7 @@ int sema_in_list(List<string>* l, string name) {
 // (`s.line:s.col`, 0:0 when unknown) and mark the check failed.
 void sema_error(Sema* s, string msg) {
     s.had_error = 1;
-    printf("error: %s:%d:%d: %s\n", s.filename, s.line, s.col, msg);
+    dprintf(2, "error: %s:%d:%d: %s\n", s.filename, s.line, s.col, msg);
 }
 
 void sema_init(Sema* s, string filename) {
@@ -525,12 +525,12 @@ void sema_check_decl_type(Sema* s, string t) {
     if (t == null || t[0] == 0 || sema_streq(t, "...") == 1 || sema_is_fn_type(t) == 1) { return; }
     if ((int)t[0] == 63 && sema_known_type(s, t) == 1 && sema_c_ptr(sema_canon(s, t)) == 0) {   // `?` marks a pointer only
         s.had_error = 1;
-        printf("error: %s:%d:%d: a nullable type must be a pointer ('?*T'), got '%s'\n", s.filename, s.line, s.col, t);
+        dprintf(2, "error: %s:%d:%d: a nullable type must be a pointer ('?*T'), got '%s'\n", s.filename, s.line, s.col, t);
         return;
     }
     if (sema_known_type(s, t) == 0) {
         s.had_error = 1;
-        printf("error: %s:%d:%d: unknown type '%s'\n", s.filename, s.line, s.col, sema_base_name(sema_struct_of_type(t)));
+        dprintf(2, "error: %s:%d:%d: unknown type '%s'\n", s.filename, s.line, s.col, sema_base_name(sema_struct_of_type(t)));
         return;
     }
     string b = sema_base_name(sema_struct_of_type(sema_strip_nullable(sema_strip_const(t))));
@@ -542,7 +542,7 @@ void sema_check_decl_type(Sema* s, string t) {
     int got = List_len<string>(&targs);
     if (d != null && (want > 0 || got > 0) && want != got) {
         s.had_error = 1;
-        printf("error: %s:%d:%d: '%s' expects %d type argument(s), got %d\n", s.filename, s.line, s.col, b, want, got);
+        dprintf(2, "error: %s:%d:%d: '%s' expects %d type argument(s), got %d\n", s.filename, s.line, s.col, b, want, got);
         return;
     }
     int k = 0;
@@ -578,7 +578,7 @@ void sema_cycle_dfs(Sema* s, *DeclNode d, List<string>* onstack, List<string>* d
                 if (sema_in_list(reported, m) == 0) {
                     List_push<string>(reported, m);
                     s.had_error = 1;
-                    printf("error: %s:%d:%d: struct '%s' contains itself by value (through field '%s' of '%s'); use a pointer\n",
+                    dprintf(2, "error: %s:%d:%d: struct '%s' contains itself by value (through field '%s' of '%s'); use a pointer\n",
                            s.filename, s.line, s.col, m, f.name, d.name);
                 }
             } else if (sema_in_list(done, m) == 0) {
@@ -647,10 +647,10 @@ int sema_gen_cycle_walk(Sema* s, string sp, List<string>* stack, *DeclNode root,
                     List_push<string>(reported, key);
                     s.had_error = 1;
                     if (sema_streq(msg, "cycle") == 1) {
-                        printf("error: %s:%d:%d: struct '%s' contains itself by value (through field '%s' of '%s'); use a pointer\n",
+                        dprintf(2, "error: %s:%d:%d: struct '%s' contains itself by value (through field '%s' of '%s'); use a pointer\n",
                                s.filename, root.line, root.col, core, f.name, sp);
                     } else {
-                        printf("error: %s:%d:%d: struct '%s' contains itself by value through ever-deeper generic instances (field '%s' of '%s'); use a pointer\n",
+                        dprintf(2, "error: %s:%d:%d: struct '%s' contains itself by value through ever-deeper generic instances (field '%s' of '%s'); use a pointer\n",
                                s.filename, root.line, root.col, key, f.name, sema_base_name(sp));
                     }
                 }
@@ -1562,7 +1562,7 @@ void sema_check_call_args(Sema* s, *ExprNode e, string what, List<string>* pts) 
     int argc = List_len<*ExprNode>(&e.kids);
     if ((variadic == 1 && argc < np) || (variadic == 0 && argc != np)) {
         s.had_error = 1;
-        printf("error: %s:%d:%d: %s expects %d argument(s), got %d\n", s.filename, s.line, s.col, what, np, argc);
+        dprintf(2, "error: %s:%d:%d: %s expects %d argument(s), got %d\n", s.filename, s.line, s.col, what, np, argc);
         return;
     }
     int i = 0;
@@ -1570,7 +1570,7 @@ void sema_check_call_args(Sema* s, *ExprNode e, string what, List<string>* pts) 
         string perr = sema_assign_err(s, List_get<string>(pts, i), List_get<*ExprNode>(&e.kids, i));
         if (perr[0] != 0) {
             s.had_error = 1;
-            printf("error: %s:%d:%d: argument %d type mismatch: expected %s, got %s (%s)\n", s.filename, s.line, s.col, i + 1,
+            dprintf(2, "error: %s:%d:%d: argument %d type mismatch: expected %s, got %s (%s)\n", s.filename, s.line, s.col, i + 1,
                    List_get<string>(pts, i), sema_infer_type(s, List_get<*ExprNode>(&e.kids, i)), perr);
         }
         i = i + 1;
@@ -1638,7 +1638,7 @@ int sema_check_generic_arity(Sema* s, *DeclNode fd, *ExprNode e) {
     int argc = List_len<*ExprNode>(&e.kids);
     if ((variadic == 1 && argc < np) || (variadic == 0 && argc != np)) {
         s.had_error = 1;
-        printf("error: %s:%d:%d: function '%s' expects %d argument(s), got %d\n", s.filename, s.line, s.col, fd.name, np, argc);
+        dprintf(2, "error: %s:%d:%d: function '%s' expects %d argument(s), got %d\n", s.filename, s.line, s.col, fd.name, np, argc);
         return 0;
     }
     return 1;
@@ -1709,7 +1709,7 @@ void sema_check_generic_binding(Sema* s, *DeclNode fd, *ExprNode e) {
                 string perr = sema_assign_err(s, b, a);
                 if (perr[0] != 0) {
                     s.had_error = 1;
-                    printf("error: %s:%d:%d: argument %d type mismatch: expected %s, got %s (%s)\n", s.filename, s.line, s.col, i + 1,
+                    dprintf(2, "error: %s:%d:%d: argument %d type mismatch: expected %s, got %s (%s)\n", s.filename, s.line, s.col, i + 1,
                            b, sema_infer_type(s, a), perr);
                 }
             }
@@ -1897,7 +1897,7 @@ void sema_check_fn_value_call(Sema* s, *ExprNode e, string what, string ft) {
 void sema_report_assign(Sema* s, string ctx, string err) {
     if (err[0] == 0) { return; }
     s.had_error = 1;
-    printf("error: %s:%d:%d: %s: %s\n", s.filename, s.line, s.col, ctx, err);
+    dprintf(2, "error: %s:%d:%d: %s: %s\n", s.filename, s.line, s.col, ctx, err);
 }
 
 // The declaration of struct `name` (or null).
@@ -1962,17 +1962,17 @@ void sema_check_struct_init(Sema* s, *ExprNode e) {
             }
             if (ft[0] == 0) {
                 s.had_error = 1;
-                printf("error: %s:%d:%d: struct '%s' has no field '%s'\n", s.filename, s.line, s.col, e.sval, nm);
+                dprintf(2, "error: %s:%d:%d: struct '%s' has no field '%s'\n", s.filename, s.line, s.col, e.sval, nm);
             } else if (sema_in_list(&seen, nm) == 1) {
                 s.had_error = 1;
-                printf("error: %s:%d:%d: field '%s' is initialized more than once in '%s' literal\n", s.filename, s.line, s.col, nm, e.sval);
+                dprintf(2, "error: %s:%d:%d: field '%s' is initialized more than once in '%s' literal\n", s.filename, s.line, s.col, nm, e.sval);
             } else { List_push<string>(&seen, nm); }
         } else if (i < nf) {
             Param p = List_get<Param>(&d.params, i);
             ft = p.ty; shown = p.name;
         } else if (i == nf) {
             s.had_error = 1;
-            printf("error: %s:%d:%d: too many initializers for struct '%s' (it has %d field(s), got %d)\n", s.filename, s.line, s.col, e.sval, nf, n);
+            dprintf(2, "error: %s:%d:%d: too many initializers for struct '%s' (it has %d field(s), got %d)\n", s.filename, s.line, s.col, e.sval, nf, n);
         }
         if (ft[0] != 0) {
             string cft = sema_subst_tparam(d, &targs, ft);
@@ -2054,7 +2054,7 @@ void sema_check_arr_init(Sema* s, string arrT, *ExprNode a) {
         int cnt = List_len<*ExprNode>(&a.kids);
         if (cnt > sema_atoi(dim)) {
             s.had_error = 1;
-            printf("error: %s:%d:%d: array literal has %d elements but '%s' holds %s\n", s.filename, s.line, s.col, cnt, arrT, dim);
+            dprintf(2, "error: %s:%d:%d: array literal has %d elements but '%s' holds %s\n", s.filename, s.line, s.col, cnt, arrT, dim);
         }
     }
     string elemT = sema_arr_elem(arrT);
@@ -2067,7 +2067,7 @@ void sema_check_arr_init(Sema* s, string arrT, *ExprNode a) {
             string aerr = sema_assign_err(s, elemT, el);
             if (aerr[0] != 0) {
                 s.had_error = 1;
-                printf("error: %s:%d:%d: array element: %s\n", s.filename, s.line, s.col, aerr);
+                dprintf(2, "error: %s:%d:%d: array element: %s\n", s.filename, s.line, s.col, aerr);
             }
         }
         i = i + 1;
@@ -2212,12 +2212,12 @@ int sema_check_constraints(Sema* s, List<TypeParam>* tps, List<string>* targs) {
             *DeclNode iface = sema_find_iface(s, ic);
             if (iface == null) {
                 s.had_error = 1; ok = 0;
-                printf("error: %s:%d:%d: unknown constraint interface '%s'\n", s.filename, s.line, s.col, ic);
+                dprintf(2, "error: %s:%d:%d: unknown constraint interface '%s'\n", s.filename, s.line, s.col, ic);
             } else {
                 string why = sema_iface_mismatch(s, bare, iface);
                 if (why[0] != 0) {
                     s.had_error = 1; ok = 0;
-                    printf("error: %s:%d:%d: type '%s' does not satisfy constraint '%s' (required by a bounded type parameter): %s\n",
+                    dprintf(2, "error: %s:%d:%d: type '%s' does not satisfy constraint '%s' (required by a bounded type parameter): %s\n",
                            s.filename, s.line, s.col, concrete, ic, why);
                 }
             }
@@ -2408,7 +2408,7 @@ void sema_check_nullable_deref(Sema* s, *ExprNode operand, string how) {
     string t = sema_infer_type(s, operand);
     if (t[0] != 63) { return; }                        // not (or no longer) a `?…` nullable pointer
     s.had_error = 1;
-    printf("error: %s:%d:%d: cannot %s a possibly-null pointer of type '%s'; check it first (e.g. `if (x != null)`)\n",
+    dprintf(2, "error: %s:%d:%d: cannot %s a possibly-null pointer of type '%s'; check it first (e.g. `if (x != null)`)\n",
            s.filename, s.line, s.col, how, t);
 }
 
@@ -2660,7 +2660,7 @@ void sema_binary_checks(Sema* s, *ExprNode e, string lt0, string rt0) {
     if (e.a != null && e.b != null) { verdict = sema_binop_verdict(s, e.sval, lt0, rt0); }
     if (verdict == 0 && sema_find_binop(s, e.sval, lt0, rt0) == null) {
         s.had_error = 1;
-        printf("error: %s:%d:%d: invalid operands for operator: %s and %s\n", s.filename, s.line, s.col, lt0, rt0);
+        dprintf(2, "error: %s:%d:%d: invalid operands for operator: %s and %s\n", s.filename, s.line, s.col, lt0, rt0);
     }
     if (e.a != null && e.b != null && verdict == -1) {
         // Operand kinds the built-in operators reject (a user operator overload aside).
@@ -2686,7 +2686,7 @@ void sema_binary_checks(Sema* s, *ExprNode e, string lt0, string rt0) {
             && ((sema_is_ptrish(olt) == 1 && sema_is_arr_ty(olt) == 0) || (sema_is_ptrish(ort) == 1 && sema_is_arr_ty(ort) == 0))) { bad = 1; }
         if (bad == 1) {
             s.had_error = 1;
-            printf("error: %s:%d:%d: invalid operands for operator: %s and %s\n", s.filename, s.line, s.col, olt, ort);
+            dprintf(2, "error: %s:%d:%d: invalid operands for operator: %s and %s\n", s.filename, s.line, s.col, olt, ort);
         }
     }
     // Division / remainder by a literal zero is a guaranteed runtime trap.
@@ -2806,7 +2806,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         if (sema_lookup(s, e.sval) == 0
             && sema_streq(e.sval, "va_start") == 0 && sema_streq(e.sval, "va_end") == 0) {
             s.had_error = 1;
-            printf("error: %s:%d:%d: undefined variable '%s'\n", s.filename, s.line, s.col, e.sval);
+            dprintf(2, "error: %s:%d:%d: undefined variable '%s'\n", s.filename, s.line, s.col, e.sval);
         }
         // Escape soundness: a non-escaping closure param used anywhere but as the
         // immediate callee of a call escapes.
@@ -2820,15 +2820,15 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         if (sema_lookup(s, e.sval) == 0 && szd != null && List_len<TypeParam>(&szd.type_params) > 0
             && sema_in_list(&s.tparams, e.sval) == 0) {
             s.had_error = 1;                // a generic type has no size until instantiated
-            printf("error: %s:%d:%d: unknown type '%s'\n", s.filename, s.line, s.col, e.sval);
+            dprintf(2, "error: %s:%d:%d: unknown type '%s'\n", s.filename, s.line, s.col, e.sval);
         }
         if (sema_lookup(s, e.sval) == 0 && sema_known_type(s, e.sval) == 0) {
             s.had_error = 1;
-            printf("error: %s:%d:%d: unknown type '%s'\n", s.filename, s.line, s.col, sema_base_name(sema_struct_of_type(e.sval)));
+            dprintf(2, "error: %s:%d:%d: unknown type '%s'\n", s.filename, s.line, s.col, sema_base_name(sema_struct_of_type(e.sval)));
         }
         if (sema_lookup(s, e.sval) == 0 && sema_is_void_value(sema_resolve_scalar(s, sema_isub(s, e.sval))) == 1) {
             s.had_error = 1;
-            printf("error: %s:%d:%d: sizeof of 'void': a void value has no size\n", s.filename, s.line, s.col);
+            dprintf(2, "error: %s:%d:%d: sizeof of 'void': a void value has no size\n", s.filename, s.line, s.col);
         }
         return;
     }
@@ -2843,7 +2843,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
             string ct = sema_strip_const(sema_infer_type(s, e.a));
             if (sema_is_int_ty(ct) == 1 && sema_int_lit_fits(ct, e.b.b.sval) == 0) {
                 s.had_error = 1;
-                printf("error: %s:%d:%d: compound assignment: integer literal %s is out of range for '%s'\n", s.filename, s.line, s.col, e.b.b.sval, ct);
+                dprintf(2, "error: %s:%d:%d: compound assignment: integer literal %s is out of range for '%s'\n", s.filename, s.line, s.col, e.b.b.sval, ct);
             }
         }
         if (sema_streq(e.sval, "=") == 1 && e.a != null) {
@@ -2853,7 +2853,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
                 string aerr = sema_assign_err(s, alt, e.b);
                 if (aerr[0] != 0) {
                     s.had_error = 1;
-                    printf("error: %s:%d:%d: assignment: %s\n", s.filename, s.line, s.col, aerr);
+                    dprintf(2, "error: %s:%d:%d: assignment: %s\n", s.filename, s.line, s.col, aerr);
                 }
             }
         }
@@ -2891,7 +2891,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
             string ic = sema_canon(s, it);
             if (sema_judgeable(s, ic) == 1 && sema_is_int_ty(ic) == 0 && sema_c_ptr(ic) == 0) {
                 s.had_error = 1;
-                printf("error: %s:%d:%d: '++'/'--' requires an integer or pointer, got '%s'\n", s.filename, s.line, s.col, it);
+                dprintf(2, "error: %s:%d:%d: '++'/'--' requires an integer or pointer, got '%s'\n", s.filename, s.line, s.col, it);
             }
         }
         sema_expr(s, e.a); return;
@@ -2920,7 +2920,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         string ccn = sema_canon(s, cty);
         if (sema_judgeable(s, ccn) == 1 && sema_is_numeric_ty(ccn) == 0 && sema_c_ptr(ccn) == 0) {
             s.had_error = 1;
-            printf("error: %s:%d:%d: ternary condition must be a bool, integer, or pointer, got %s\n", s.filename, s.line, s.col, cty);
+            dprintf(2, "error: %s:%d:%d: ternary condition must be a bool, integer, or pointer, got %s\n", s.filename, s.line, s.col, cty);
         }
         // The two arms need a common type: same, both numeric, or both pointer-like.
         // Conservative: only flag when both arm types are known.
@@ -2945,7 +2945,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         string awc = sema_canon(s, awt);
         if (sema_judgeable(s, awc) == 1 && sema_future_inner(s, awt)[0] == 0) {
             s.had_error = 1;
-            printf("error: %s:%d:%d: await expects a *Future<T>, got %s\n", s.filename, s.line, s.col, awt);
+            dprintf(2, "error: %s:%d:%d: await expects a *Future<T>, got %s\n", s.filename, s.line, s.col, awt);
         }
         return;
     }
@@ -2959,7 +2959,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         if (sema_judgeable(s, mbc) == 1 && sema_is_struct(s, sema_base_name(mbc)) == 0
             && (sema_slice_elem(mbc)[0] == 0 || sema_streq(e.sval, "len") == 0)) {
             s.had_error = 1;
-            printf("error: %s:%d:%d: cannot access member '%s' on non-struct type '%s'\n", s.filename, s.line, s.col, e.sval, bt);
+            dprintf(2, "error: %s:%d:%d: cannot access member '%s' on non-struct type '%s'\n", s.filename, s.line, s.col, e.sval, bt);
         }
         int btn = 0; while (bt[btn] != 0) { btn = btn + 1; }
         // An array/slice base (`Box<int>[]`) is not its element struct (`s.len`).
@@ -2967,7 +2967,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
             string sn = sema_struct_of_type(bt);
             if (sema_is_struct(s, sn) == 1 && sema_has_member(s, sema_cat(sema_cat(sn, "."), e.sval)) == 0) {
                 s.had_error = 1;
-                printf("error: %s:%d:%d: struct '%s' has no member '%s'\n", s.filename, s.line, s.col, sn, e.sval);
+                dprintf(2, "error: %s:%d:%d: struct '%s' has no member '%s'\n", s.filename, s.line, s.col, sn, e.sval);
             }
         }
         return;
@@ -2995,7 +2995,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
             }
             if ((okf == 0 || valf == 0) && (qd != null || sema_is_numeric_ty(qt) == 1 || sema_is_ptrish(qt) == 1)) {
                 s.had_error = 1;
-                printf("error: %s:%d:%d: `?` operator requires a Result-like value (with `ok` and `value` fields), got %s\n", s.filename, s.line, s.col, qt);
+                dprintf(2, "error: %s:%d:%d: `?` operator requires a Result-like value (with `ok` and `value` fields), got %s\n", s.filename, s.line, s.col, qt);
             }
         }
         // Same base name but different type args (`Result<int,string>` in a function
@@ -3035,7 +3035,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
                 }
                 if (ok == 0) {
                     s.had_error = 1;
-                    printf("error: %s:%d:%d: invalid operand for unary operator: %s\n", s.filename, s.line, s.col, ut);
+                    dprintf(2, "error: %s:%d:%d: invalid operand for unary operator: %s\n", s.filename, s.line, s.col, ut);
                 }
             }
         }
@@ -3050,7 +3050,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
                     if (sema_streq(List_get<Param>(&bsd.params, bi).name, e.a.sval) == 1 && bi < List_len<int>(&bsd.field_bits)
                         && List_get<int>(&bsd.field_bits, bi) > 0) {
                         s.had_error = 1;
-                        printf("error: %s:%d:%d: cannot take the address of bitfield '%s'\n", s.filename, s.line, s.col, e.a.sval);
+                        dprintf(2, "error: %s:%d:%d: cannot take the address of bitfield '%s'\n", s.filename, s.line, s.col, e.a.sval);
                     }
                     bi = bi + 1;
                 }
@@ -3071,7 +3071,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
             }
             if (bad == 1) {
                 s.had_error = 1;
-                printf("error: %s:%d:%d: cannot cast '%s' to '%s'\n", s.filename, s.line, s.col, cfrom, e.sval);
+                dprintf(2, "error: %s:%d:%d: cannot cast '%s' to '%s'\n", s.filename, s.line, s.col, cfrom, e.sval);
             }
             // A floating constant cast to an integer type must fit it (mirrors the C++).
             *ExprNode fsrc = e.a;
@@ -3086,7 +3086,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
                     s.had_error = 1;
                     string sign = "";
                     if (fneg == 1) { sign = "-"; }
-                    printf("error: %s:%d:%d: floating constant %s%s is out of range for '%s'\n", s.filename, s.line, s.col, sign, fsrc.sval, e.sval);
+                    dprintf(2, "error: %s:%d:%d: floating constant %s%s is out of range for '%s'\n", s.filename, s.line, s.col, sign, fsrc.sval, e.sval);
                 }
             }
         }
@@ -3110,13 +3110,13 @@ void sema_expr_k(Sema* s, *ExprNode e) {
                 string sdim = sema_arr_count(abt);
                 if (lo_ok == 1 && hi_ok == 1 && sema_atoi(e.b.sval) > sema_atoi(hiE.sval)) {
                     s.had_error = 1;
-                    printf("error: %s:%d:%d: slice bounds out of order: %s..%s\n", s.filename, s.line, s.col, e.b.sval, hiE.sval);
+                    dprintf(2, "error: %s:%d:%d: slice bounds out of order: %s..%s\n", s.filename, s.line, s.col, e.b.sval, hiE.sval);
                 } else if (sema_all_digits(sdim) == 1 && hi_ok == 1 && sema_atoi(hiE.sval) > sema_atoi(sdim)) {
                     s.had_error = 1;
-                    printf("error: %s:%d:%d: slice bound %s is out of bounds for array of size %s\n", s.filename, s.line, s.col, hiE.sval, sdim);
+                    dprintf(2, "error: %s:%d:%d: slice bound %s is out of bounds for array of size %s\n", s.filename, s.line, s.col, hiE.sval, sdim);
                 } else if (sema_all_digits(sdim) == 1 && lo_ok == 1 && sema_atoi(e.b.sval) > sema_atoi(sdim)) {
                     s.had_error = 1;
-                    printf("error: %s:%d:%d: slice bound %s is out of bounds for array of size %s\n", s.filename, s.line, s.col, e.b.sval, sdim);
+                    dprintf(2, "error: %s:%d:%d: slice bound %s is out of bounds for array of size %s\n", s.filename, s.line, s.col, e.b.sval, sdim);
                 }
             }
             sema_expr(s, hiE);
@@ -3127,14 +3127,14 @@ void sema_expr_k(Sema* s, *ExprNode e) {
             string ixc = sema_canon(s, ixt);
             if (sema_judgeable(s, ixc) == 1 && sema_is_int_ty(ixc) == 0) {
                 s.had_error = 1;
-                printf("error: %s:%d:%d: array index must be integer, got %s\n", s.filename, s.line, s.col, ixt);
+                dprintf(2, "error: %s:%d:%d: array index must be integer, got %s\n", s.filename, s.line, s.col, ixt);
             }
             if (List_len<*ExprNode>(&e.kids) > 0) {
                 string hxt = sema_infer_type(s, List_get<*ExprNode>(&e.kids, 0));
                 string hxc = sema_canon(s, hxt);
                 if (sema_judgeable(s, hxc) == 1 && sema_is_int_ty(hxc) == 0) {
                     s.had_error = 1;
-                    printf("error: %s:%d:%d: slice bound must be integer, got %s\n", s.filename, s.line, s.col, hxt);
+                    dprintf(2, "error: %s:%d:%d: slice bound must be integer, got %s\n", s.filename, s.line, s.col, hxt);
                 }
             }
         }
@@ -3147,10 +3147,10 @@ void sema_expr_k(Sema* s, *ExprNode e) {
                 if ((int)e.b.sval[0] == 45 && sema_all_digits(sema_sub_str(e.b.sval, 1, sema_slen(e.b.sval))) == 1
                     && sema_lit_is_zero(e.b.sval) == 0) {
                     s.had_error = 1;
-                    printf("error: %s:%d:%d: array index %s is out of bounds\n", s.filename, s.line, s.col, e.b.sval);
+                    dprintf(2, "error: %s:%d:%d: array index %s is out of bounds\n", s.filename, s.line, s.col, e.b.sval);
                 } else if (sema_all_digits(e.b.sval) == 1 && sema_all_digits(dim) == 1 && sema_atoi(e.b.sval) >= sema_atoi(dim)) {
                     s.had_error = 1;
-                    printf("error: %s:%d:%d: array index %s is out of bounds for array of size %s\n", s.filename, s.line, s.col, e.b.sval, dim);
+                    dprintf(2, "error: %s:%d:%d: array index %s is out of bounds for array of size %s\n", s.filename, s.line, s.col, e.b.sval, dim);
                 }
             }
         }
@@ -3168,7 +3168,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
             }
             if (bad == 1) {
                 s.had_error = 1;
-                printf("error: %s:%d:%d: cannot index into a value of type '%s'\n", s.filename, s.line, s.col, ibt);
+                dprintf(2, "error: %s:%d:%d: cannot index into a value of type '%s'\n", s.filename, s.line, s.col, ibt);
             }
         }
         sema_expr(s, e.a); sema_expr(s, e.b); return;
@@ -3189,7 +3189,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
             while (ii < inn) { *DeclNode c = List_get<*DeclNode>(&ifc.methods, ii); if (sema_streq(c.name, mem.sval) == 1) { im = c; } ii = ii + 1; }
             if (im == null) {
                 s.had_error = 1;
-                printf("error: %s:%d:%d: interface '%s' has no method '%s'\n", s.filename, s.line, s.col, sn, mem.sval);
+                dprintf(2, "error: %s:%d:%d: interface '%s' has no method '%s'\n", s.filename, s.line, s.col, sn, mem.sval);
             } else {
                 List<string> ipts; List_init<string>(&ipts, 4);
                 int pi = 0; int pn = List_len<Param>(&im.params);
@@ -3252,7 +3252,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
             if (inline_m == 0 && sema_has_member(s, sema_cat(sema_cat(sn, "."), mem.sval)) == 1) { is_field = 1; }
             if (inline_m == 0 && ffn == null && is_field == 0) {
                 s.had_error = 1;
-                printf("error: %s:%d:%d: undefined method '%s' on type '%s'\n", s.filename, s.line, s.col, mem.sval, sn);
+                dprintf(2, "error: %s:%d:%d: undefined method '%s' on type '%s'\n", s.filename, s.line, s.col, mem.sval, sn);
             }
             if (is_field == 1 && sd != null) {                // a field holding a fn pointer: o.cb(args)
                 int fi = 0; int nf = List_len<Param>(&sd.params);
@@ -3276,7 +3276,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
                 }
                 if (self_const == 0) {
                     s.had_error = 1;
-                    printf("error: %s:%d:%d: cannot call method '%s' on a read-only value: its self may modify it (declare it 'const %s* self' if it does not)\n",
+                    dprintf(2, "error: %s:%d:%d: cannot call method '%s' on a read-only value: its self may modify it (declare it 'const %s* self' if it does not)\n",
                            s.filename, s.line, s.col, mem.sval, sn);
                 }
             }
@@ -3294,7 +3294,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
             }
             if (served == 0) {
                 s.had_error = 1;
-                printf("error: %s:%d:%d: undefined method '%s' on type '%s'\n", s.filename, s.line, s.col, mem.sval, bt);
+                dprintf(2, "error: %s:%d:%d: undefined method '%s' on type '%s'\n", s.filename, s.line, s.col, mem.sval, bt);
             }
         }
         int i = 0;
@@ -3317,12 +3317,12 @@ void sema_expr_k(Sema* s, *ExprNode e) {
                 if (sig.variadic == 1) {
                     if (argc < sig.fixed) {
                         s.had_error = 1;
-                        printf("error: %s:%d:%d: function '%s' expects at least %d arguments, got %d\n",
+                        dprintf(2, "error: %s:%d:%d: function '%s' expects at least %d arguments, got %d\n",
                                s.filename, s.line, s.col, e.a.sval, sig.fixed, argc);
                     }
                 } else if (argc != sig.fixed) {
                     s.had_error = 1;
-                    printf("error: %s:%d:%d: function '%s' expects %d arguments, got %d\n",
+                    dprintf(2, "error: %s:%d:%d: function '%s' expects %d arguments, got %d\n",
                            s.filename, s.line, s.col, e.a.sval, sig.fixed, argc);
                 }
                 // Argument types against the declared parameter types (conservative).
@@ -3339,7 +3339,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
                             if (cax.kind == EK_LITERAL && cax.lit_kind == LIT_NULL) { ai = ai + 1; continue; }
                             if (cax.kind != EK_IDENT || sema_local_bound(s, cax.sval) == 1 || sema_find_fn(s, cax.sval) < 0) {
                                 s.had_error = 1;
-                                printf("error: %s:%d:%d: argument %d of extern '%s' is a C function pointer: pass a top-level function by name, not a closure value\n",
+                                dprintf(2, "error: %s:%d:%d: argument %d of extern '%s' is a C function pointer: pass a top-level function by name, not a closure value\n",
                                        s.filename, s.line, s.col, ai + 1, e.a.sval);
                                 ai = ai + 1; continue;
                             }
@@ -3347,7 +3347,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
                         string perr = sema_assign_err(s, List_get<Param>(&cfd.params, ai).ty, List_get<*ExprNode>(&e.kids, ai));
                         if (perr[0] != 0) {
                             s.had_error = 1;
-                            printf("error: %s:%d:%d: argument %d type mismatch: expected %s, got %s (%s)\n", s.filename, s.line, s.col, ai + 1,
+                            dprintf(2, "error: %s:%d:%d: argument %d type mismatch: expected %s, got %s (%s)\n", s.filename, s.line, s.col, ai + 1,
                                    List_get<Param>(&cfd.params, ai).ty, sema_infer_type(s, List_get<*ExprNode>(&e.kids, ai)), perr);
                         }
                         ai = ai + 1;
@@ -3363,7 +3363,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
                 string unb = sema_uninferable_tparam(gfd);
                 if (unb[0] != 0) {
                     s.had_error = 1;
-                    printf("error: %s:%d:%d: cannot infer type argument(s) %s of generic function '%s' from the call; write them explicitly, e.g. %s<...>(...)\n",
+                    dprintf(2, "error: %s:%d:%d: cannot infer type argument(s) %s of generic function '%s' from the call; write them explicitly, e.g. %s<...>(...)\n",
                            s.filename, s.line, s.col, unb, gfd.name, gfd.name);
                 } else if (sema_check_generic_arity(s, gfd, e) == 1) {
                     sema_check_generic_binding(s, gfd, e);
@@ -3382,7 +3382,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
                             ui = ui + 1;
                         }
                         s.had_error = 1;
-                        printf("error: %s:%d:%d: cannot infer type argument(s) %s of generic function '%s' from the call; write them explicitly, e.g. %s<...>(...)\n",
+                        dprintf(2, "error: %s:%d:%d: cannot infer type argument(s) %s of generic function '%s' from the call; write them explicitly, e.g. %s<...>(...)\n",
                                s.filename, s.line, s.col, unbound, gfd.name, gfd.name);
                     }
                 }
@@ -3397,7 +3397,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
                 // a local or a global variable that is not callable (a global used to slip
                 // through to codegen, which crashed)
                 s.had_error = 1;
-                printf("error: %s:%d:%d: undefined function '%s'\n", s.filename, s.line, s.col, e.a.sval);
+                dprintf(2, "error: %s:%d:%d: undefined function '%s'\n", s.filename, s.line, s.col, e.a.sval);
             }
         } else if (e.a != null && e.a.kind != EK_IDENT) {
             string ct = sema_infer_type(s, e.a);
@@ -3417,7 +3417,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         string base = sema_base_name(e.sval);
         if (sema_is_type(s, base) == 0) {
             s.had_error = 1;
-            printf("error: %s:%d:%d: undefined struct '%s'\n", s.filename, s.line, s.col, base);
+            dprintf(2, "error: %s:%d:%d: undefined struct '%s'\n", s.filename, s.line, s.col, base);
         }
         sema_check_struct_init(s, e);
         int i = 0;
@@ -3435,7 +3435,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         }
         if (fd == null && sema_streq(tbase, "va_arg") == 0 && sema_is_variant_name(s, tbase) == 0) {
             s.had_error = 1;
-            printf("error: %s:%d:%d: undefined template function '%s'\n", s.filename, s.line, s.col, tbase);
+            dprintf(2, "error: %s:%d:%d: undefined template function '%s'\n", s.filename, s.line, s.col, tbase);
         }
         if (fd != null) {
             List<string> targs;
@@ -3446,7 +3446,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
             int inst_ok = 1;
             if (tn > 0 && na != tn) {
                 s.had_error = 1; inst_ok = 0;
-                printf("error: %s:%d:%d: generic function '%s' expects %d type argument(s), got %d\n", s.filename, s.line, s.col, fd.name, tn, na);
+                dprintf(2, "error: %s:%d:%d: generic function '%s' expects %d type argument(s), got %d\n", s.filename, s.line, s.col, fd.name, tn, na);
             }
             if (sema_check_generic_arity(s, fd, e) == 0) { inst_ok = 0; }
             if (na == tn && sema_check_constraints(s, &fd.type_params, &targs) == 0) { inst_ok = 0; }
@@ -3464,7 +3464,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
                         string aerr = sema_assign_err(s, pty, aexp);
                         if (aerr[0] != 0) {
                             s.had_error = 1;
-                            printf("error: %s:%d:%d: argument %d: expected %s, got %s (%s)\n", s.filename, s.line, s.col, ai + 1, pty,
+                            dprintf(2, "error: %s:%d:%d: argument %d: expected %s, got %s (%s)\n", s.filename, s.line, s.col, ai + 1, pty,
                                    sema_infer_type(s, aexp), aerr);
                         }
                         ai = ai + 1;
@@ -3510,7 +3510,7 @@ void sema_check_lambda(Sema* s, *ExprNode e) {
         if (pn[0] != 0) {
             if (sema_in_list(&seen, pn) == 1) {
                 s.had_error = 1;
-                printf("error: %s:%d:%d: duplicate parameter '%s' in lambda\n", s.filename, s.line, s.col, pn);
+                dprintf(2, "error: %s:%d:%d: duplicate parameter '%s' in lambda\n", s.filename, s.line, s.col, pn);
             } else { List_push<string>(&seen, pn); }
             sema_define(s, pn, sema_isub(s, List_get<string>(&ptys, i)), 0);
         }
@@ -3535,7 +3535,7 @@ void sema_cond(Sema* s, *ExprNode c) {
     string cc = sema_canon(s, ct);
     if (sema_judgeable(s, cc) == 1 && sema_is_numeric_ty(cc) == 0) {
         s.had_error = 1;
-        printf("error: %s:%d:%d: condition must be boolean or numeric, got %s\n", s.filename, s.line, s.col, ct);
+        dprintf(2, "error: %s:%d:%d: condition must be boolean or numeric, got %s\n", s.filename, s.line, s.col, ct);
     }
 }
 
@@ -3547,7 +3547,7 @@ void sema_defer_expr(Sema* s, *ExprNode e) {
         s.had_error = 1;
         int l = s.line; int c = s.col;
         if (e.line > 0) { l = e.line; c = e.col; }
-        printf("error: %s:%d:%d: '?' is not allowed inside a defer body (it would return from the function)\n", s.filename, l, c);
+        dprintf(2, "error: %s:%d:%d: '?' is not allowed inside a defer body (it would return from the function)\n", s.filename, l, c);
     }
     sema_defer_expr(s, e.a);
     sema_defer_expr(s, e.b);
@@ -3563,7 +3563,7 @@ void sema_defer_walk(Sema* s, *StmtNode st, int depth) {
     if (k != SK_RETURN) { sema_defer_expr(s, st.expr); sema_defer_expr(s, st.expr2); }
     if (k == SK_RETURN) {
         s.had_error = 1;
-        printf("error: %s:%d:%d: 'return' is not allowed inside a defer body\n", s.filename, s.line, s.col);
+        dprintf(2, "error: %s:%d:%d: 'return' is not allowed inside a defer body\n", s.filename, s.line, s.col);
         return;
     }
     if (k == SK_BREAK || k == SK_CONTINUE) {
@@ -3574,7 +3574,7 @@ void sema_defer_walk(Sema* s, *StmtNode st, int depth) {
         if (st.label != null && st.label[0] != 0) { labeled = 1; }
         if (depth == 0 || labeled == 1) {
             s.had_error = 1;
-            printf("error: %s:%d:%d: 'break'/'continue' inside a defer body may not escape it\n", s.filename, s.line, s.col);
+            dprintf(2, "error: %s:%d:%d: 'break'/'continue' inside a defer body may not escape it\n", s.filename, s.line, s.col);
         }
         return;
     }
@@ -3662,7 +3662,7 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
                 string rt = ast_range_var_type(bt, "int");
                 if (rt[0] == 0) {
                     s.had_error = 1; bad_range = 1;
-                    printf("error: %s:%d:%d: range bound must be an integer, got '%s'\n", s.filename, s.line, s.col, bt);
+                    dprintf(2, "error: %s:%d:%d: range bound must be an integer, got '%s'\n", s.filename, s.line, s.col, bt);
                 } else { st.type = rt; vty = rt; }
             }
         }
@@ -3674,7 +3674,7 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
         }
         if (st.is_const == 1 && st.expr == null) {
             s.had_error = 1;
-            printf("error: %s:%d:%d: const '%s' must be initialized\n", s.filename, s.line, s.col, st.name);
+            dprintf(2, "error: %s:%d:%d: const '%s' must be initialized\n", s.filename, s.line, s.col, st.name);
         }
         // Initializer type compatibility: the shared assignability rule (mirrors the C++
         // assignabilityError), which knows nothing it cannot judge, so a valid program is
@@ -3693,13 +3693,13 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
                 }
                 if (same == 0) {
                     s.had_error = 1;
-                    printf("error: %s:%d:%d: initializing '%s': incompatible function type '%s' for '%s'\n", s.filename, s.line, s.col, st.name, st.expr.sval, vty);
+                    dprintf(2, "error: %s:%d:%d: initializing '%s': incompatible function type '%s' for '%s'\n", s.filename, s.line, s.col, st.name, st.expr.sval, vty);
                 }
             } else {
                 string aerr = sema_assign_err(s, vty, st.expr);
                 if (aerr[0] != 0) {
                     s.had_error = 1;
-                    printf("error: %s:%d:%d: initializing '%s': %s\n", s.filename, s.line, s.col, st.name, aerr);
+                    dprintf(2, "error: %s:%d:%d: initializing '%s': %s\n", s.filename, s.line, s.col, st.name, aerr);
                 }
             }
         }
@@ -3714,11 +3714,11 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
         }
         if (dup_d == 1) {
             s.had_error = 1;
-            printf("error: %s:%d:%d: redefinition of '%s' in the same scope\n", s.filename, s.line, s.col, st.name);
+            dprintf(2, "error: %s:%d:%d: redefinition of '%s' in the same scope\n", s.filename, s.line, s.col, st.name);
         }
         if (sema_is_void_value(vty) == 1) {
             s.had_error = 1;
-            printf("error: %s:%d:%d: variable '%s' cannot have type 'void'\n", s.filename, s.line, s.col, st.name);
+            dprintf(2, "error: %s:%d:%d: variable '%s' cannot have type 'void'\n", s.filename, s.line, s.col, st.name);
         }
         sema_define(s, st.name, vty, st.is_const);
         sema_set_const_init(s, st.expr);
@@ -3730,16 +3730,16 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
             string rvt = sema_infer_type(s, st.expr);
             if (rvt[0] != 0 && sema_streq(rvt, "void") == 0) {
                 s.had_error = 1;
-                printf("error: %s:%d:%d: return type mismatch: expected void, got %s\n", s.filename, s.line, s.col, rvt);
+                dprintf(2, "error: %s:%d:%d: return type mismatch: expected void, got %s\n", s.filename, s.line, s.col, rvt);
             }
         } else if (st.expr == null && s.cur_ret[0] != 0 && sema_streq(s.cur_ret, "void") == 0) {
             s.had_error = 1;                           // a bare `return;` in a non-void function
-            printf("error: %s:%d:%d: return type mismatch: expected %s, got void\n", s.filename, s.line, s.col, s.cur_ret);
+            dprintf(2, "error: %s:%d:%d: return type mismatch: expected %s, got void\n", s.filename, s.line, s.col, s.cur_ret);
         } else if (st.expr != null && s.cur_ret[0] != 0) {
             string rerr = sema_assign_err(s, s.cur_ret, st.expr);
             if (rerr[0] != 0) {
                 s.had_error = 1;
-                printf("error: %s:%d:%d: return type mismatch: expected %s, got %s (%s)\n", s.filename, s.line, s.col, s.cur_ret,
+                dprintf(2, "error: %s:%d:%d: return type mismatch: expected %s, got %s (%s)\n", s.filename, s.line, s.col, s.cur_ret,
                        sema_infer_type(s, st.expr), rerr);
             }
         }
@@ -3749,7 +3749,7 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
             && st.expr.a != null && st.expr.a.kind == EK_IDENT
             && sema_sym_depth(s, st.expr.a.sval) >= 1) {
             s.had_error = 1;
-            printf("error: %s:%d:%d: returning the address of local '%s' (dangling pointer)\n", s.filename, s.line, s.col, st.expr.a.sval);
+            dprintf(2, "error: %s:%d:%d: returning the address of local '%s' (dangling pointer)\n", s.filename, s.line, s.col, st.expr.a.sval);
         }
         return;
     }
@@ -3772,7 +3772,7 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
         }
         if (fname[0] != 0 && sema_fn_must_use(s, fname) == 1) {
             s.had_error = 1;
-            printf("error: %s:%d:%d: result of '%s' must be used (it is marked must_use)\n", s.filename, s.line, s.col, fname);
+            dprintf(2, "error: %s:%d:%d: result of '%s' must be used (it is marked must_use)\n", s.filename, s.line, s.col, fname);
         }
         return;
     }
@@ -3886,7 +3886,7 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
             }
             if (listy == 0) {
                 s.had_error = 1;
-                printf("error: %s:%d:%d: for-in expects a fixed-size array or a List-like value (with `data` and `size` fields), got %s\n",
+                dprintf(2, "error: %s:%d:%d: for-in expects a fixed-size array or a List-like value (with `data` and `size` fields), got %s\n",
                        s.filename, s.line, s.col, itt);
             }
         }
@@ -3907,7 +3907,7 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
             string kw = "break";
             if (k == SK_CONTINUE) { kw = "continue"; }
             s.had_error = 1;
-            printf("error: %s:%d:%d: labeled '%s %s' has no enclosing loop labeled '%s'\n",
+            dprintf(2, "error: %s:%d:%d: labeled '%s %s' has no enclosing loop labeled '%s'\n",
                    s.filename, s.line, s.col, kw, st.label, st.label);
         }
         return;
@@ -3921,7 +3921,7 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
             string swc = sema_canon(s, swt);
             if (sema_judgeable(s, swc) == 1 && sema_is_int_ty(swc) == 0) {
                 s.had_error = 1;
-                printf("error: %s:%d:%d: switch subject must be integer type, got %s\n", s.filename, s.line, s.col, swt);
+                dprintf(2, "error: %s:%d:%d: switch subject must be integer type, got %s\n", s.filename, s.line, s.col, swt);
             }
             int cj = 0;
             while (cj < List_len<*StmtNode>(&st.items)) {
@@ -3934,7 +3934,7 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
                         int sl0 = s.line; int sc0 = s.col;
                         if (cc.expr.line > 0) { s.line = cc.expr.line; s.col = cc.expr.col; }
                         s.had_error = 1;
-                        printf("error: %s:%d:%d: case value type '%s' is incompatible with switch subject type '%s'\n", s.filename, s.line, s.col, cvt, swt);
+                        dprintf(2, "error: %s:%d:%d: case value type '%s' is incompatible with switch subject type '%s'\n", s.filename, s.line, s.col, cvt, swt);
                         s.line = sl0; s.col = sc0;
                     }
                 }
@@ -3990,7 +3990,7 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
             string msty = sema_struct_of_type(mraw);
             if (mraw[0] != 0 && sema_is_enum(s, msty) == 0 && sema_find_tdecl(s, msty) == null) {
                 s.had_error = 1;
-                printf("error: %s:%d:%d: match subject must be an enum, got %s\n", s.filename, s.line, s.col, mraw);
+                dprintf(2, "error: %s:%d:%d: match subject must be an enum, got %s\n", s.filename, s.line, s.col, mraw);
             }
             int has_wild = 0;
             int ai = 0;
@@ -4005,7 +4005,7 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
                         int vi = sema_variant_index(med, v);
                         if (vi < 0) {
                             s.had_error = 1;
-                            printf("error: %s:%d:%d: '%s' is not a variant of %s\n", s.filename, s.line, s.col, v, msty);
+                            dprintf(2, "error: %s:%d:%d: '%s' is not a variant of %s\n", s.filename, s.line, s.col, v, msty);
                         } else {
                             List<string> binds; List_init<string>(&binds, 2);
                             sema_arm_binds(arm.name, &binds);
@@ -4016,14 +4016,14 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
                             }
                             if (want != List_len<string>(&binds)) {
                                 s.had_error = 1;
-                                printf("error: %s:%d:%d: variant '%s' binds %d field(s), got %d\n", s.filename, s.line, s.col, v, want, List_len<string>(&binds));
+                                dprintf(2, "error: %s:%d:%d: variant '%s' binds %d field(s), got %d\n", s.filename, s.line, s.col, v, want, List_len<string>(&binds));
                             }
                         }
                     }
                     int found = sema_in_list(&seen, v);
                     if (found == 1) {
                         s.had_error = 1;
-                        printf("error: %s:%d:%d: duplicate match arm for variant '%s'\n", s.filename, s.line, s.col, v);
+                        dprintf(2, "error: %s:%d:%d: duplicate match arm for variant '%s'\n", s.filename, s.line, s.col, v);
                     } else {
                         List_push<string>(&seen, v);
                         // Two members of a classic enum may share a value (legal, as in C),
@@ -4033,7 +4033,7 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
                             string prevv = sema_evar_with_val(s, msty, mv.val, &seen, v);
                             if (prevv[0] != 0) {
                                 s.had_error = 1;
-                                printf("error: %s:%d:%d: duplicate match value: '%s' has the same value (%s) as '%s'\n",
+                                dprintf(2, "error: %s:%d:%d: duplicate match value: '%s' has the same value (%s) as '%s'\n",
                                        s.filename, s.line, s.col, v, mv.val, prevv);
                             }
                             List_push<string>(&seen_vals, mv.val);
@@ -4057,7 +4057,7 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
                             if (covered == 0 && ev.plain == 1 && sema_in_list(&seen_vals, ev.val) == 1) { covered = 1; }
                             if (covered == 0) {
                                 s.had_error = 1;
-                                printf("error: %s:%d:%d: non-exhaustive match on '%s': missing '%s'\n",
+                                dprintf(2, "error: %s:%d:%d: non-exhaustive match on '%s': missing '%s'\n",
                                        s.filename, s.line, s.col, sty, ev.variant);
                                 reported = 1;
                             }
@@ -4164,7 +4164,7 @@ void sema_check_variant_args(Sema* s, *ExprNode e, string v, List<string>* targs
     int got = List_len<*ExprNode>(&e.kids);
     if (want != got) {
         s.had_error = 1;
-        printf("error: %s:%d:%d: variant '%s' expects %d argument(s), got %d\n", s.filename, s.line, s.col, v, want, got);
+        dprintf(2, "error: %s:%d:%d: variant '%s' expects %d argument(s), got %d\n", s.filename, s.line, s.col, v, want, got);
         return;
     }
     int tn = List_len<TypeParam>(&ed.type_params);
@@ -4180,7 +4180,7 @@ void sema_check_variant_args(Sema* s, *ExprNode e, string v, List<string>* targs
         string at = sema_infer_type(s, List_get<*ExprNode>(&e.kids, i));
         if (sema_assign_strict(s, ft, at)[0] != 0) {
             s.had_error = 1;
-            printf("error: %s:%d:%d: variant '%s' argument %d type mismatch\n", s.filename, s.line, s.col, v, i + 1);
+            dprintf(2, "error: %s:%d:%d: variant '%s' argument %d type mismatch\n", s.filename, s.line, s.col, v, i + 1);
         }
         i = i + 1;
     }
@@ -4464,7 +4464,7 @@ void sema_uninit_scan(Sema* s, *ExprNode e, List<string>* uninit) {
     if (e.kind == EK_IDENT) {
         if (sema_in_list(uninit, e.sval) == 1) {
             s.had_error = 1;
-            printf("error: %s:%d:%d: use of uninitialized variable '%s'\n", s.filename, s.line, s.col, e.sval);
+            dprintf(2, "error: %s:%d:%d: use of uninitialized variable '%s'\n", s.filename, s.line, s.col, e.sval);
             sema_list_erase(uninit, e.sval);       // report once
         }
         return;
@@ -4580,7 +4580,7 @@ void sema_declare_top(Sema* s, List<NameEnt>* tab, string name, string kind, *De
         if (List_len<TypeParam>(&prev.d.type_params) > 0 || List_len<TypeParam>(&d.type_params) > 0) { return; }
         if (sema_streq(sema_sig_of(prev.d), sema_sig_of(d)) == 0) {
             s.had_error = 1;
-            printf("error: %s:%d:%d: conflicting declaration of function '%s' (%s vs the earlier %s)\n",
+            dprintf(2, "error: %s:%d:%d: conflicting declaration of function '%s' (%s vs the earlier %s)\n",
                    s.filename, s.line, s.col, sema_fn_display(d), sema_sig_of(d), sema_sig_of(prev.d));
         }
         return;                                      // two bodies: reported as a redefinition
@@ -4588,13 +4588,13 @@ void sema_declare_top(Sema* s, List<NameEnt>* tab, string name, string kind, *De
     if (sema_streq(kind, "variable") == 1 && sema_streq(prev.kind, "variable") == 1) {
         if ((prev.d.is_extern == 1 || d.is_extern == 1) && sema_streq(prev.d.ret_type, d.ret_type) == 1) { return; }
         s.had_error = 1;
-        printf("error: %s:%d:%d: redefinition of global variable '%s'\n", s.filename, s.line, s.col, name);
+        dprintf(2, "error: %s:%d:%d: redefinition of global variable '%s'\n", s.filename, s.line, s.col, name);
         return;
     }
     if (sema_streq(kind, "struct") == 1 && sema_streq(prev.kind, "struct") == 1) {
         if (sema_same_struct(prev.d, d) == 1) { return; }
         s.had_error = 1;
-        printf("error: %s:%d:%d: redefinition of struct '%s' with different fields\n", s.filename, s.line, s.col, name);
+        dprintf(2, "error: %s:%d:%d: redefinition of struct '%s' with different fields\n", s.filename, s.line, s.col, name);
         return;
     }
     if (sema_streq(kind, "type alias") == 1 && sema_streq(prev.kind, "type alias") == 1
@@ -4604,9 +4604,9 @@ void sema_declare_top(Sema* s, List<NameEnt>* tab, string name, string kind, *De
         || (sema_is_type_kind(prev.kind) == 1 && sema_streq(kind, "enum member") == 1)) { return; }
     s.had_error = 1;
     if (sema_streq(kind, prev.kind) == 1) {
-        printf("error: %s:%d:%d: redefinition of %s '%s'\n", s.filename, s.line, s.col, kind, name);
+        dprintf(2, "error: %s:%d:%d: redefinition of %s '%s'\n", s.filename, s.line, s.col, kind, name);
     } else {
-        printf("error: %s:%d:%d: '%s' is declared as both %s and %s\n", s.filename, s.line, s.col, name, sema_article(prev.kind), sema_article(kind));
+        dprintf(2, "error: %s:%d:%d: '%s' is declared as both %s and %s\n", s.filename, s.line, s.col, name, sema_article(prev.kind), sema_article(kind));
     }
 }
 
@@ -4664,13 +4664,13 @@ void sema_check_sig_types(Sema* s, *DeclNode f) {
         if (pm.name != null && pm.name[0] != 0 && sema_streq(pm.ty, "...") == 0) {
             if (sema_in_list(&pnames, pm.name) == 1) {
                 s.had_error = 1;
-                printf("error: %s:%d:%d: duplicate parameter '%s' in function '%s'\n", s.filename, s.line, s.col, pm.name, sema_fn_display(f));
+                dprintf(2, "error: %s:%d:%d: duplicate parameter '%s' in function '%s'\n", s.filename, s.line, s.col, pm.name, sema_fn_display(f));
             } else { List_push<string>(&pnames, pm.name); }
         }
         sema_check_decl_type(s, pm.ty);
         if (sema_is_void_value(pm.ty) == 1) {
             s.had_error = 1;
-            printf("error: %s:%d:%d: parameter '%s' cannot have type 'void'\n", s.filename, s.line, s.col, pm.name);
+            dprintf(2, "error: %s:%d:%d: parameter '%s' cannot have type 'void'\n", s.filename, s.line, s.col, pm.name);
         }
         i = i + 1;
     }
@@ -4697,7 +4697,7 @@ void sema_check_fields(Sema* s, *DeclNode d) {
         string fname = List_get<Param>(&d.params, k).name;
         if (sema_in_list(&fnames, fname) == 1) {
             s.had_error = 1;
-            printf("error: %s:%d:%d: duplicate field '%s' in %s '%s'\n", s.filename, s.line, s.col, fname, what, d.name);
+            dprintf(2, "error: %s:%d:%d: duplicate field '%s' in %s '%s'\n", s.filename, s.line, s.col, fname, what, d.name);
         } else { List_push<string>(&fnames, fname); }
         k = k + 1;
     }
@@ -4707,11 +4707,11 @@ void sema_check_fields(Sema* s, *DeclNode d) {
         string mname = List_get<*DeclNode>(&d.methods, m).name;
         if (sema_in_list(&fnames, mname) == 1) {
             s.had_error = 1;
-            printf("error: %s:%d:%d: method '%s' of struct '%s' has the same name as a field\n", s.filename, s.line, s.col, mname, d.name);
+            dprintf(2, "error: %s:%d:%d: method '%s' of struct '%s' has the same name as a field\n", s.filename, s.line, s.col, mname, d.name);
         }
         if (sema_in_list(&mnames, mname) == 1) {
             s.had_error = 1;
-            printf("error: %s:%d:%d: duplicate method '%s' in struct '%s'\n", s.filename, s.line, s.col, mname, d.name);
+            dprintf(2, "error: %s:%d:%d: duplicate method '%s' in struct '%s'\n", s.filename, s.line, s.col, mname, d.name);
         } else { List_push<string>(&mnames, mname); }
         m = m + 1;
     }
@@ -4719,7 +4719,7 @@ void sema_check_fields(Sema* s, *DeclNode d) {
         Param f = List_get<Param>(&d.params, i);
         if (sema_is_void_value(f.ty) == 1) {
             s.had_error = 1;
-            printf("error: %s:%d:%d: field '%s' of '%s' cannot have type 'void'\n", s.filename, s.line, s.col, f.name, d.name);
+            dprintf(2, "error: %s:%d:%d: field '%s' of '%s' cannot have type 'void'\n", s.filename, s.line, s.col, f.name, d.name);
         }
         int bw = 0;
         if (d.kind == DK_STRUCT && i < List_len<int>(&d.field_bits)) { bw = List_get<int>(&d.field_bits, i); }
@@ -4735,10 +4735,10 @@ void sema_check_fields(Sema* s, *DeclNode d) {
             int tb = sema_int_bits(ft);
             if (tb == 0) {
                 s.had_error = 1;
-                printf("error: %s:%d:%d: bitfield '%s' of '%s' must have an integer type, got '%s'\n", s.filename, s.line, s.col, f.name, d.name, f.ty);
+                dprintf(2, "error: %s:%d:%d: bitfield '%s' of '%s' must have an integer type, got '%s'\n", s.filename, s.line, s.col, f.name, d.name, f.ty);
             } else if (bw > tb) {
                 s.had_error = 1;
-                printf("error: %s:%d:%d: bitfield '%s' of '%s' is %d bits wide, more than its type '%s' holds (%d)\n",
+                dprintf(2, "error: %s:%d:%d: bitfield '%s' of '%s' is %d bits wide, more than its type '%s' holds (%d)\n",
                        s.filename, s.line, s.col, f.name, d.name, bw, f.ty, tb);
             }
         }
@@ -4771,7 +4771,7 @@ void sema_check_alias_cycles(Sema* s) {
             }
             if (cyc == 1) {
                 s.had_error = 1;
-                printf("error: %s:%d:%d: type alias '%s' refers to itself (a cyclic alias names no type)\n", s.filename, s.line, s.col, d.name);
+                dprintf(2, "error: %s:%d:%d: type alias '%s' refers to itself (a cyclic alias names no type)\n", s.filename, s.line, s.col, d.name);
             }
         }
         i = i + 1;
@@ -4789,7 +4789,7 @@ void sema_check_fn(Sema* s, *DeclNode f, string self_type) {
         if (f.is_async == 0 && sema_streq(f.ret_type, "void") == 0
             && sema_always_returns(f.body) == 0) {
             s.had_error = 1;
-            printf("error: %s:%d:%d: missing return in non-void function '%s' (control can reach the end without returning a %s)\n",
+            dprintf(2, "error: %s:%d:%d: missing return in non-void function '%s' (control can reach the end without returning a %s)\n",
                    s.filename, s.line, s.col, f.name, f.ret_type);
         }
         return;
@@ -4798,7 +4798,7 @@ void sema_check_fn(Sema* s, *DeclNode f, string self_type) {
     if (sema_streq(f.name, "main") == 1 && sema_streq(f.ret_type, "int") == 0
         && sema_streq(f.ret_type, "int32") == 0) {
         s.had_error = 1;
-        printf("error: %s:%d:%d: 'main' must return int (its return value is the process exit code); got '%s'\n",
+        dprintf(2, "error: %s:%d:%d: 'main' must return int (its return value is the process exit code); got '%s'\n",
                s.filename, s.line, s.col, f.ret_type);
     }
     s.in_async = f.is_async;
@@ -4840,12 +4840,12 @@ void sema_check_fn(Sema* s, *DeclNode f, string self_type) {
     if (f.is_async == 0 && s.in_inst == 0 && sema_streq(f.ret_type, "void") == 0
         && sema_always_returns(f.body) == 0) {
         s.had_error = 1;
-        printf("error: %s:%d:%d: missing return in non-void function '%s' (control can reach the end without returning a %s)\n",
+        dprintf(2, "error: %s:%d:%d: missing return in non-void function '%s' (control can reach the end without returning a %s)\n",
                s.filename, s.line, s.col, f.name, f.ret_type);
     }
     if (f.is_async == 1 && s.await_seen == 0) {
         s.had_error = 1;
-        printf("error: %s:%d:%d: async function '%s' has no `await`\n", s.filename, s.line, s.col, f.name);
+        dprintf(2, "error: %s:%d:%d: async function '%s' has no `await`\n", s.filename, s.line, s.col, f.name);
     }
     int wi = 0;
     int wn = List_len<string>(&s.watched);
@@ -4853,7 +4853,7 @@ void sema_check_fn(Sema* s, *DeclNode f, string self_type) {
         string wnm = List_get<string>(&s.watched, wi);
         if (sema_in_list(&s.escaped, wnm) == 1) {
             s.had_error = 1;
-            printf("error: %s:%d:%d: closure parameter '%s' escapes (used beyond a direct call); mark it `escaping`\n",
+            dprintf(2, "error: %s:%d:%d: closure parameter '%s' escapes (used beyond a direct call); mark it `escaping`\n",
                    s.filename, s.line, s.col, wnm);
         }
         wi = wi + 1;
@@ -4874,7 +4874,7 @@ void sema_check_insts(Sema* s, string primary) {
         s.line = p.func.line; s.col = p.func.col;
         if (p.depth > 64) {
             s.had_error = 1;
-            printf("error: %s:%d:%d: generic instantiation of '%s' is nested more than 64 levels deep (infinitely recursive generic?)\n",
+            dprintf(2, "error: %s:%d:%d: generic instantiation of '%s' is nested more than 64 levels deep (infinitely recursive generic?)\n",
                    s.filename, s.line, s.col, p.display);
             return;
         }
@@ -4905,7 +4905,7 @@ void sema_check_insts(Sema* s, string primary) {
         sema_check_fn(s, p.func, self_t);
         s.in_inst = 0; s.inst_depth = 0;
         if (s.had_error == 1) {
-            printf("note: %s:%d:%d: (in instantiation of %s)\n", s.filename, p.func.line, p.func.col, p.display);
+            dprintf(2, "note: %s:%d:%d: (in instantiation of %s)\n", s.filename, p.func.line, p.func.col, p.display);
         }
         if (saved == 1) { s.had_error = 1; }
         List_init<string>(&s.isub_p, 4); List_init<string>(&s.isub_a, 4); List_init<string>(&s.tparams, 4);
@@ -4931,14 +4931,14 @@ int sema_check(Sema* s, *Program prog) {
         if (d.kind == DK_FUNCTION && d.body != null) {
             if (sema_in_list(&defined_fns, d.name) == 1) {
                 s.had_error = 1;
-                printf("error: %s:%d:%d: redefinition of function '%s'\n", s.filename, s.line, s.col, sema_fn_display(d));
+                dprintf(2, "error: %s:%d:%d: redefinition of function '%s'\n", s.filename, s.line, s.col, sema_fn_display(d));
             } else { List_push<string>(&defined_fns, d.name); }
         }
         if (d.kind == DK_INTRINSIC) {
             if (sema_streq(d.name, "atomic_load") == 0 && sema_streq(d.name, "atomic_store") == 0
                 && sema_streq(d.name, "atomic_swap") == 0 && sema_streq(d.name, "atomic_cas") == 0) {
                 s.had_error = 1;
-                printf("error: %s:%d:%d: unknown intrinsic '%s'\n", s.filename, s.line, s.col, d.name);
+                dprintf(2, "error: %s:%d:%d: unknown intrinsic '%s'\n", s.filename, s.line, s.col, d.name);
             }
         }
         if ((d.kind == DK_FUNCTION && List_len<TypeParam>(&d.type_params) == 0) || d.kind == DK_EXTERN) {

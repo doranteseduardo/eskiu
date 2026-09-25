@@ -28,6 +28,7 @@ string g_lex_file;
 int g_lex_errs;
 
 extern int64 write(int fd, *void buf, int64 n);
+extern int dprintf(int fd, string fmt, ...);   // diagnostics go to stderr, like the C++
 
 void lx_puts_err(string s) {
     int64 n = 0;

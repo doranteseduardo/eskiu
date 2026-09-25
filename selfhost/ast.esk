@@ -9,6 +9,8 @@ import <mem>;
 import <list>;
 import <string>;
 
+extern int dprintf(int fd, string fmt, ...);   // diagnostics go to stderr, like the C++
+
 // Integer rank of `t` after promotion (32 = int/uint, 64 = int64/uint64); 0 = not an
 // integer. `*uns` is set for an unsigned rank. Mirrors the C++ ty::rangeVarType
 // (shared by sema and codegen).

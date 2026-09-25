@@ -19,7 +19,7 @@ int lex_main(int argc, string* argv) {
     let n: int64 = 0;
     *uint8 src = fs_read_all(argv[1], &n);
     if (src == null) {
-        printf("error: cannot read %s\n", argv[1]);
+        dprintf(2, "error: cannot read %s\n", argv[1]);
         return 1;
     }
     lex_dump(src, (int)n);

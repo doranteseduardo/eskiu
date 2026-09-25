@@ -3764,7 +3764,7 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
             if (gd != null) {
                 string spelling = cg_infer_generic(g, gd, e);
                 if (spelling[0] != 0) { return cg_call_mangled(g, cg_ensure_fn_inst(g, spelling), e); }
-                printf("error: cannot infer the type arguments of generic function '%s' from the call; write them explicitly, e.g. %s<...>(...)\n", gd.name, gd.name);
+                dprintf(2, "error: cannot infer the type arguments of generic function '%s' from the call; write them explicitly, e.g. %s<...>(...)\n", gd.name, gd.name);
                 exit(1);
             }
         }
@@ -4143,7 +4143,7 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
     if (e.kind == EK_ARRAYLIT) {
         // Only a variable initializer takes `{...}` (cg_array_init / cg_global_init); as a
         // value anywhere else (a struct-literal field, an argument) it is an error, as in C++.
-        printf("error: an array literal '{...}' is only valid as a variable initializer\n");
+        dprintf(2, "error: an array literal '{...}' is only valid as a variable initializer\n");
         exit(1);
     }
     if (e.kind == EK_STRUCTINIT) {
@@ -5165,7 +5165,7 @@ void cg_stmt(Codegen* g, *StmtNode st) {
                 // A constant label: fold it (`K`, `K + 10`, a top-level `const`), matching
                 // the C++ back-end's constant folder.
                 CgK ck = cg_cfold(g, c.expr);
-                if (ck.ok == 0 || ck.isf == 1) { printf("error: switch case value must be a constant integer\n"); exit(1); }
+                if (ck.ok == 0 || ck.isf == 1) { dprintf(2, "error: switch case value must be a constant integer\n"); exit(1); }
                 cg_emit(g, subj.ty); cg_emit(g, " "); cg_emit(g, cg_k_text(ck, subj.ty));
                 cg_emit(g, ", label %"); cg_emit(g, List_get<string>(&labels, i)); cg_emit(g, " ");
             }

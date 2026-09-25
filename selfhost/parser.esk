@@ -550,7 +550,7 @@ string tok_char_value(*uint8 src, Token t) {
         }
         off = off + 1;
         if (i + consumed < endp) {          // more source chars remain: `'ab'` is not one character
-            printf("error: character literal must contain a single character\n");
+            dprintf(2, "error: character literal must contain a single character\n");
             exit(1);
         }
     }

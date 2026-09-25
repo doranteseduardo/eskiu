@@ -1423,12 +1423,12 @@ void async_lower(*Program prog) {
         *DeclNode d = List_get<*DeclNode>(&prog.decls, i);
         if (d.kind == DK_FUNCTION && d.is_async == 1 && d.body != null
             && al_stmt_has_labeled_break(d.body) == 1) {
-            printf("error: async function '%s': labeled 'break'/'continue' is not supported inside an async function\n", d.name);
+            dprintf(2, "error: async function '%s': labeled 'break'/'continue' is not supported inside an async function\n", d.name);
             exit(1);
         }
         if (d.kind == DK_FUNCTION && d.is_async == 1 && d.body != null
             && al_stmt_has_defer_await(d.body) == 1) {
-            printf("error: async function '%s': await is not supported inside a defer\n", d.name);
+            dprintf(2, "error: async function '%s': await is not supported inside a defer\n", d.name);
             exit(1);
         }
         // An await the transform can't place (in a condition, a larger expression, or an
@@ -1436,7 +1436,7 @@ void async_lower(*Program prog) {
         // `await` reaching codegen crashes or silently miscompiles.
         if (d.kind == DK_FUNCTION && d.is_async == 1 && d.body != null
             && al_can_lower(d.body) == 0 && al_stmt_has_await_deep(d.body) == 1) {
-            printf("error: async function '%s': 'await' is only supported as the whole initializer of a 'let', a 'return', or an assignment — not in a condition or a larger expression\n", d.name);
+            dprintf(2, "error: async function '%s': 'await' is only supported as the whole initializer of a 'let', a 'return', or an assignment — not in a condition or a larger expression\n", d.name);
             exit(1);
         }
         if (d.kind == DK_FUNCTION && d.is_async == 1 && d.body != null && al_can_lower(d.body) == 1) {
