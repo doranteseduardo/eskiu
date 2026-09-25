@@ -1,0 +1,60 @@
+// json_parse is strict (RFC 8259) and never reads past the input: truncated
+// escapes and literals fail cleanly, malformed literals / numbers and trailing
+// garbage are rejected, \uXXXX decodes to UTF-8 (surrogate pairs included),
+// \b and \f decode to control bytes, and long numbers are accepted.
+import <json>;
+import <mem>;
+extern int printf(string fmt, ...);
+extern *void memcpy(*void d, *void s, int64 n);
+
+// Parse a heap copy sized exactly to the text, so ASan flags any over-read.
+void check(string src) {
+    int64 n = strlen(src);
+    *char buf = alloc<char>(n + 1);
+    memcpy((*void)buf, (*void)src, n + 1);
+    *JsonValue v = json_parse((string)buf);
+    printf("%-22s %s\n", src, v == null ? "reject" : "ok");
+    JsonValue_free(v);
+    free((*void)buf);
+}
+
+void bytes(string src) {
+    *JsonValue v = json_parse(src);
+    if (v == null) { printf("reject\n"); return; }
+    printf("len=%lld", String_len(&v.str));
+    int64 i = 0;
+    while (i < String_len(&v.str)) { printf(" %02x", (int)(uint8)v.str.data[i]); i = i + 1; }
+    printf("\n");
+    JsonValue_free(v);
+}
+
+int main() {
+    check("\"ab\\");
+    check("[t");
+    check("{\"k\":n");
+    check("txyz");
+    check("nul");
+    check("1 2");
+    check("{}garbage");
+    check("-");
+    check("1.2.3");
+    check("01");
+    check("1.");
+    check("1e");
+    check("\"\\x\"");
+    check("\"\\u12\"");
+    check("\"\\ud800\"");
+    check("[1,[2,[3,");
+    check("{\"a\":{\"b\":[1,");
+    check("true");
+    check(" [1, -0.5, 2e10, 3E-2] ");
+    check("{\"a\":null,\"b\":false}");
+    bytes("\"\\u0041\"");
+    bytes("\"\\u00e9\\u20ac\"");
+    bytes("\"\\ud83d\\ude00\"");
+    bytes("\"\\b\\f\\/\"");
+    *JsonValue big = json_parse("123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890");
+    printf("long number ok=%d\n", big != null);
+    JsonValue_free(big);
+    return 0;
+}

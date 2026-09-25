@@ -1,0 +1,25 @@
+"ab\                   reject
+[t                     reject
+{"k":n                 reject
+txyz                   reject
+nul                    reject
+1 2                    reject
+{}garbage              reject
+-                      reject
+1.2.3                  reject
+01                     reject
+1.                     reject
+1e                     reject
+"\x"                   reject
+"\u12"                 reject
+"\ud800"               reject
+[1,[2,[3,              reject
+{"a":{"b":[1,          reject
+true                   ok
+ [1, -0.5, 2e10, 3E-2]  ok
+{"a":null,"b":false}   ok
+len=1 41
+len=5 c3 a9 e2 82 ac
+len=4 f0 9f 98 80
+len=3 08 0c 2f
+long number ok=1
