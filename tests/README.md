@@ -208,6 +208,7 @@ when you add a test.
 | `path_posix_edges` | POSIX dirname/basename edge cases: the root, empty paths, and repeated separators between the directory and the final component. |
 | `ptr_diff` | Pointer difference counts elements (C), not bytes. |
 | `range_bound_once` | A range loop's upper bound is evaluated once, before the first iteration. |
+| `regex_depth` | regex_compile rejects group nesting past RE_MAX_DEPTH (512) with an error instead of overflowing the stack. |
 | `regex_repeat_groups` | Counted or repeated groups duplicate SAVE instructions; the Pike VM must still find the match (capture storage used to run out and report a silent no-match). |
 | `rvalue_member` | Member access, indexing and method calls work on rvalue aggregates (call results, operator results, ternaries, fields of temporaries), not just on variables. |
 | `self_append` | Appending a String or Bytes to itself must copy from the live buffer, not from the one freed when the append grows it. |

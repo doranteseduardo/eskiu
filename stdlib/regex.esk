@@ -33,6 +33,7 @@ import <string>;
 #define RE_MAX_RANGE 1024
 #define RE_MAX_CLASS 256
 #define RE_MAX_NODES 4096
+#define RE_MAX_DEPTH 512
 
 // ---- instruction opcodes --------------------------------------------------
 #define OP_CHAR  1
@@ -107,6 +108,7 @@ struct ReComp {
     Regex* re;
     *Node  nodes;
     int    nnode;
+    int    depth;   // groups currently open (the parser recurses once per group)
 }
 
 struct Match {
@@ -304,9 +306,17 @@ Node* re_parse_alt(ReComp* c);
 Node* re_parse_atom(ReComp* c) {
     const int pk = re_peek(c);
     if (pk == '(') {
+        // Nesting is bounded so a pattern of many '(' fails cleanly instead of
+        // recursing until the stack overflows.
+        if (c.depth >= RE_MAX_DEPTH) {
+            if (c.err == null) { c.err = "regex nesting too deep"; }
+            return re_node(c, N_EMPTY);
+        }
         c.pos++;
         const int g = ++c.ngroup;
+        c.depth++;
         Node* inner = re_parse_alt(c);
+        c.depth--;
         if (re_peek(c) != ')') {
             if (c.err == null) { c.err = "missing )"; }
             return re_node(c, N_EMPTY);
@@ -548,6 +558,7 @@ Regex regex_compile(string pattern) {
     c.re = &re;
     c.nodes = alloc<Node>(RE_MAX_NODES);
     c.nnode = 0;
+    c.depth = 0;
     defer free(c.nodes);
 
     Node* ast = re_parse_alt(&c);
