@@ -98,6 +98,8 @@ struct Codegen {
     int lam_i;
     int thk_i;
     String entry_buf;        // local allocas for the fn/lambda being emitted, hoisted to entry
+    List<CgSub> tydefs;      // emitted named LLVM types: name (no '%') → body text ("{ i32, ptr }")
+    List<*DeclNode> tydecls; // non-generic struct/union/ADT decls whose type line is emitted on demand
 }
 
 int cg_streq(string a, string b) {
@@ -228,6 +230,8 @@ void cg_init(Codegen* g) {
     List_init<CgLocal>(&g.gvars, 8);
     List_init<*DeclNode>(&g.gstructs, 8);
     List_init<*DeclNode>(&g.genums, 4);
+    List_init<CgSub>(&g.tydefs, 16);
+    List_init<*DeclNode>(&g.tydecls, 16);
     List_init<CgVariant>(&g.gvariants, 8);
     List_init<*DeclNode>(&g.gfns, 16);
     List_init<CgSub>(&g.cursub, 4);
@@ -486,9 +490,7 @@ string cg_ensure_struct_inst(Codegen* g, string spelling) {
         fi = fi + 1;
     }
     List_push<CgStruct>(&g.structs, s);                   // register before emitting the line
-    String_append(&g.globals, "%"); String_append(&g.globals, mangled);
-    String_append(&g.globals, " = type { "); String_append(&g.globals, (string)String_cstr(&body));
-    String_append(&g.globals, " }\n");
+    cg_deftype(g, mangled, cg_cat("{ ", cg_cat((string)String_cstr(&body), " }")));
 
     g.cursub = oldsub;                                    // restore
     return mangled;
@@ -674,68 +676,163 @@ int cg_is_union(Codegen* g, string name) {
     return 0;
 }
 
-// Approximate byte size of a type (no DataLayout): pointers/i64/double 8, i32/float 4,
-// i16 2, i8/bool/char 1; a struct sums its fields. Used to size a union's storage.
-int cg_type_bytes(Codegen* g, string t) {
-    if (cg_is_ptr_ty(t) == 1 || cg_streq(t, "string") == 1) { return 8; }
-    if (cg_streq(t, "int64") == 1 || cg_streq(t, "uint64") == 1 || cg_streq(t, "double") == 1) { return 8; }
-    if (cg_streq(t, "int") == 1 || cg_streq(t, "int32") == 1 || cg_streq(t, "uint") == 1
-        || cg_streq(t, "uint32") == 1 || cg_streq(t, "float") == 1) { return 4; }
-    if (cg_streq(t, "int16") == 1 || cg_streq(t, "uint16") == 1) { return 2; }
-    if (cg_streq(t, "int8") == 1 || cg_streq(t, "uint8") == 1 || cg_streq(t, "char") == 1 || cg_streq(t, "bool") == 1) { return 1; }
-    if (cg_is_struct(g, t) == 1) {
-        CgStruct s = cg_find_struct(g, t);
-        int sum = 0; int i = 0;
-        while (i < List_len<string>(&s.fetys)) { sum = sum + cg_type_bytes(g, List_get<string>(&s.fetys, i)); i = i + 1; }
-        if (sum < 1) { sum = 1; }
-        return sum;
+// ---- Type layout ----------------------------------------------------------------------
+// Sizes and alignments are computed from the LLVM type text this codegen emits, with the
+// DataLayout rules of the 64-bit hosts we target (iN/float/double/ptr naturally aligned,
+// `{…}` padded per field and rounded to its max field align, `<{…}>` packed, `[N x T]`
+// = N elements). Reading the emitted types (not re-deriving from Eskiu spellings) keeps
+// `sizeof`, ADT payload slots and union/pack layouts equal to what LLVM (and the C++
+// codegen, via DataLayout) sees for bitfield words, arrays, nested enums and unions.
+
+// Emit a named type line `%name = type body` and record its body for the layout queries.
+void cg_deftype(Codegen* g, string name, string body) {
+    let d: CgSub; d.param = name; d.arg = body;
+    List_push<CgSub>(&g.tydefs, d);
+    String_append(&g.globals, "%"); String_append(&g.globals, name);
+    String_append(&g.globals, " = type "); String_append(&g.globals, body); String_append(&g.globals, "\n");
+}
+
+// Body of an emitted named type ("" if not emitted yet).
+string cg_tydef_body(Codegen* g, string name) {
+    int i = 0; int n = List_len<CgSub>(&g.tydefs);
+    while (i < n) {
+        CgSub d = List_get<CgSub>(&g.tydefs, i);
+        if (cg_streq(d.param, name) == 1) { return d.arg; }
+        i = i + 1;
     }
-    return 8;     // unknown — be safe
+    return "";
+}
+
+*DeclNode cg_find_tydecl(Codegen* g, string name) {
+    int i = 0; int n = List_len<*DeclNode>(&g.tydecls);
+    while (i < n) {
+        *DeclNode d = List_get<*DeclNode>(&g.tydecls, i);
+        if (cg_streq(d.name, name) == 1) { return d; }
+        i = i + 1;
+    }
+    return null;
+}
+
+void cg_emit_tydecl(Codegen* g, *DeclNode d);                     // fwd: emits a type line on demand
+int cg_ll_layout(Codegen* g, string s, int* pos, int* al);        // fwd: mutually recursive
+
+void cg_ll_ws(string s, int* pos) { while ((int)s[pos[0]] == 32) { pos[0] = pos[0] + 1; } }
+
+int cg_ll_num(string s, int* pos) {
+    int v = 0;
+    while ((int)s[pos[0]] >= 48 && (int)s[pos[0]] <= 57) { v = v * 10 + ((int)s[pos[0]] - 48); pos[0] = pos[0] + 1; }
+    return v;
+}
+
+int cg_ll_kw(string s, int* pos, string kw) {                    // consume keyword `kw` if present
+    int i = 0;
+    while (kw[i] != 0) { if (s[pos[0] + i] != kw[i]) { return 0; } i = i + 1; }
+    pos[0] = pos[0] + i;
+    return 1;
+}
+
+// Fields of `{ … }` / `<{ … }>` after the opening brace, through the closing `}`.
+int cg_ll_fields(Codegen* g, string s, int* pos, int* al, int pk) {
+    int bytes = 0; int maxal = 1;
+    cg_ll_ws(s, pos);
+    while (s[pos[0]] != 0 && (int)s[pos[0]] != 125) {            // '}'
+        int fal = 1;
+        int fsz = cg_ll_layout(g, s, pos, &fal);
+        if (pk == 1) { fal = 1; }
+        if (fal > maxal) { maxal = fal; }
+        bytes = cg_align_up(bytes, fal) + fsz;
+        cg_ll_ws(s, pos);
+        if ((int)s[pos[0]] == 44) { pos[0] = pos[0] + 1; }       // ','
+        cg_ll_ws(s, pos);
+    }
+    if (s[pos[0]] != 0) { pos[0] = pos[0] + 1; }
+    al[0] = maxal;
+    return cg_align_up(bytes, maxal);
+}
+
+// Layout of the named type `%name`, emitting its (pending) declaration first if needed.
+int cg_ll_named(Codegen* g, string name, int* al) {
+    string body = cg_tydef_body(g, name);
+    if (body[0] == 0) {
+        *DeclNode d = cg_find_tydecl(g, name);
+        if (d != null) { cg_emit_tydecl(g, d); body = cg_tydef_body(g, name); }
+    }
+    if (body[0] == 0) { al[0] = 8; return 8; }
+    int p = 0;
+    return cg_ll_layout(g, body, &p, al);
+}
+
+// Size of the LLVM type starting at s[*pos] (advancing past it); its ABI alignment → *al.
+int cg_ll_layout(Codegen* g, string s, int* pos, int* al) {
+    cg_ll_ws(s, pos);
+    int c = (int)s[pos[0]];
+    al[0] = 1;
+    if (c == 123) { pos[0] = pos[0] + 1; return cg_ll_fields(g, s, pos, al, 0); }   // '{'
+    if (c == 60) {                                                                  // '<'
+        pos[0] = pos[0] + 1; cg_ll_ws(s, pos);
+        if ((int)s[pos[0]] == 123) {                                                // packed `<{ … }>`
+            pos[0] = pos[0] + 1;
+            int psz = cg_ll_fields(g, s, pos, al, 1);
+            cg_ll_ws(s, pos); if ((int)s[pos[0]] == 62) { pos[0] = pos[0] + 1; }
+            al[0] = 1;
+            return psz;
+        }
+        int vn = cg_ll_num(s, pos); cg_ll_ws(s, pos); cg_ll_kw(s, pos, "x");     // vector `<N x T>`
+        int val = 1; int vsz = cg_ll_layout(g, s, pos, &val);
+        cg_ll_ws(s, pos); if ((int)s[pos[0]] == 62) { pos[0] = pos[0] + 1; }
+        al[0] = vn * vsz;
+        return vn * vsz;
+    }
+    if (c == 91) {                                                                  // '[N x T]'
+        pos[0] = pos[0] + 1; cg_ll_ws(s, pos);
+        int an = cg_ll_num(s, pos); cg_ll_ws(s, pos); cg_ll_kw(s, pos, "x");
+        int eal = 1; int esz = cg_ll_layout(g, s, pos, &eal);
+        cg_ll_ws(s, pos); if ((int)s[pos[0]] == 93) { pos[0] = pos[0] + 1; }
+        al[0] = eal;
+        return an * esz;
+    }
+    if (c == 37) {                                                                  // '%name'
+        pos[0] = pos[0] + 1;
+        int st = pos[0];
+        while (s[pos[0]] != 0) {
+            int ch = (int)s[pos[0]];
+            if ((ch >= 97 && ch <= 122) || (ch >= 65 && ch <= 90) || (ch >= 48 && ch <= 57) || ch == 95 || ch == 46) {
+                pos[0] = pos[0] + 1;
+            } else { break; }
+        }
+        return cg_ll_named(g, cg_sub_str(s, st, pos[0]), al);
+    }
+    if (c == 105) {                                                                 // 'iN'
+        pos[0] = pos[0] + 1;
+        int w = cg_ll_num(s, pos);
+        int b = 1;
+        while (b * 8 < w) { b = b * 2; }
+        al[0] = b;
+        return b;
+    }
+    if (cg_ll_kw(s, pos, "ptr") == 1) { al[0] = 8; return 8; }
+    if (cg_ll_kw(s, pos, "double") == 1) { al[0] = 8; return 8; }
+    if (cg_ll_kw(s, pos, "float") == 1) { al[0] = 4; return 4; }
+    if (cg_ll_kw(s, pos, "void") == 1) { return 0; }
+    if (s[pos[0]] != 0) { pos[0] = pos[0] + 1; }                                    // unknown: skip
+    return 0;
 }
 
 int cg_layout_size(Codegen* g, List<string>* fields);   // fwd: mutually recursive with cg_size
 
 int cg_align_up(int x, int a) { return ((x + a - 1) / a) * a; }
 
-// Natural LLVM alignment of a type (matches DataLayout for our type set: ptr/i64/double
-// align 8, i32/float 4, i16 2, i8/bool/char 1; a struct's align = its max field align).
+// ABI alignment of an Eskiu type (of its LLVM lowering).
 int cg_align(Codegen* g, string t) {
-    if (cg_is_ptr_ty(t) == 1 || cg_streq(t, "string") == 1) { return 8; }
-    if (cg_streq(t, "int64") == 1 || cg_streq(t, "uint64") == 1 || cg_streq(t, "double") == 1) { return 8; }
-    if (cg_streq(t, "int16") == 1 || cg_streq(t, "uint16") == 1) { return 2; }
-    if (cg_streq(t, "int8") == 1 || cg_streq(t, "uint8") == 1 || cg_streq(t, "char") == 1 || cg_streq(t, "bool") == 1) { return 1; }
-    if (cg_is_struct(g, t) == 1) {
-        CgStruct s = cg_find_struct(g, t);
-        int maxal = 1; int i = 0;
-        while (i < List_len<string>(&s.fetys)) {
-            int al = cg_align(g, List_get<string>(&s.fetys, i));
-            if (al > maxal) { maxal = al; }
-            i = i + 1;
-        }
-        return maxal;
-    }
-    return 4;     // int/int32/uint and the default
+    int al = 1; int p = 0;
+    cg_ll_layout(g, cg_lltype(g, t), &p, &al);
+    return al;
 }
 
-// Natural LLVM size (with field alignment padding) of a type. Scalars/pointers = their
-// byte width; a struct recurses through its field layout.
+// Allocation size of an Eskiu type (of its LLVM lowering), as LLVM's DataLayout gives it.
 int cg_size(Codegen* g, string t) {
-    if (cg_is_union(g, t) == 1) {                // union: largest member, rounded to its align
-        CgStruct u = cg_find_struct(g, t);
-        int mx = 0; int i = 0;
-        while (i < List_len<string>(&u.fetys)) {
-            int sz = cg_size(g, List_get<string>(&u.fetys, i));
-            if (sz > mx) { mx = sz; }
-            i = i + 1;
-        }
-        if (mx == 0) { mx = 1; }
-        return cg_align_up(mx, cg_align(g, t));
-    }
-    if (cg_is_struct(g, t) == 1) {
-        CgStruct s = cg_find_struct(g, t);
-        return cg_layout_size(g, &s.fetys);
-    }
-    return cg_type_bytes(g, t);
+    int al = 1; int p = 0;
+    return cg_ll_layout(g, cg_lltype(g, t), &p, &al);
 }
 
 // Natural LLVM size of the literal struct `{ fields }`: each field placed at its
@@ -845,9 +942,7 @@ string cg_ensure_enum_inst(Codegen* g, string spelling) {
     }
     if (slots < 1) { slots = 1; }
     List_push<string>(&g.adt_names, mangled);
-    String_append(&g.globals, "%"); String_append(&g.globals, mangled);
-    String_append(&g.globals, " = type { i32, ["); String_append(&g.globals, cg_itoa(slots));
-    String_append(&g.globals, " x i64] }\n");
+    cg_deftype(g, mangled, cg_cat("{ i32, [", cg_cat(cg_itoa(slots), " x i64] }")));
 
     j = 0;
     while (j < m) {
@@ -1275,7 +1370,7 @@ string cg_lltype(Codegen* g, string t) {
     if (cg_streq(t, "va_list") == 1) {                     // {ptr,ptr,ptr,i32,i32} (AArch64 layout, x86-64 superset)
         if (cg_seen_inst(g, "type:__va_list") == 0) {
             List_push<string>(&g.inst_seen, "type:__va_list");
-            String_append(&g.globals, "%__va_list = type { ptr, ptr, ptr, i32, i32 }\n");
+            cg_deftype(g, "__va_list", "{ ptr, ptr, ptr, i32, i32 }");
         }
         return "%__va_list";
     }
@@ -4029,8 +4124,6 @@ int cg_is_bf_struct(Codegen* g, string sname) {
 // slot. Registers a slot per field (word index + bit offset/width, or a plain index for a
 // normal field), emits `%S = type { … }`, and registers the field-name/type list.
 void cg_bf_layout(Codegen* g, *DeclNode d) {
-    let cs: CgStruct; cs.name = d.name;
-    List_init<string>(&cs.fnames, 4); List_init<string>(&cs.fetys, 4);
     String body; String_init(&body, 32);
     int nf = List_len<Param>(&d.params);
     int llcount = 0;          // number of LLVM fields emitted so far
@@ -4040,8 +4133,6 @@ void cg_bf_layout(Codegen* g, *DeclNode d) {
     while (i < nf) {
         Param pm = List_get<Param>(&d.params, i);
         int bw = List_get<int>(&d.field_bits, i);
-        List_push<string>(&cs.fnames, pm.name);
-        List_push<string>(&cs.fetys, pm.ty);
         let slot: CgBF; slot.sname = d.name; slot.fname = pm.name;
         if (bw > 0) {
             if (curword < 0 || curoff + bw > 32) {       // open a fresh i32 word
@@ -4062,10 +4153,7 @@ void cg_bf_layout(Codegen* g, *DeclNode d) {
         List_push<CgBF>(&g.bitfields, slot);
         i = i + 1;
     }
-    List_push<CgStruct>(&g.structs, cs);
-    String_append(&g.globals, "%"); String_append(&g.globals, d.name);
-    String_append(&g.globals, " = type { "); String_append(&g.globals, (string)String_cstr(&body));
-    String_append(&g.globals, " }\n");
+    cg_deftype(g, d.name, cg_cat("{ ", cg_cat((string)String_cstr(&body), " }")));
 }
 
 // Lay out a `#pragma pack(N>=2)` struct: each field at min(natural align, N), with explicit
@@ -4103,9 +4191,7 @@ void cg_emit_pack2(Codegen* g, *DeclNode d) {
         if (emitted > 0) { String_append(&body, ", "); }
         String_append(&body, "["); String_append(&body, cg_itoa(total - offset)); String_append(&body, " x i8]");
     }
-    String_append(&g.globals, "%"); String_append(&g.globals, d.name);
-    String_append(&g.globals, " = type <{ "); String_append(&g.globals, (string)String_cstr(&body));
-    String_append(&g.globals, " }>\n");
+    cg_deftype(g, d.name, cg_cat("<{ ", cg_cat((string)String_cstr(&body), " }>")));
 }
 
 // 1 if the program also defines `name` with a body (an `extern` then a definition
@@ -4144,15 +4230,68 @@ void cg_emit_union(Codegen* g, *DeclNode d) {
         if (anchor[0] != 0) { String_append(&body, ", "); }
         String_append(&body, "["); String_append(&body, cg_itoa(total - anchorsz)); String_append(&body, " x i8]");
     }
-    String_append(&g.globals, "%"); String_append(&g.globals, d.name);
-    String_append(&g.globals, " = type { "); String_append(&g.globals, (string)String_cstr(&body));
-    String_append(&g.globals, " }\n");
+    cg_deftype(g, d.name, cg_cat("{ ", cg_cat((string)String_cstr(&body), " }")));
+}
+
+// An enum is an ADT (tagged union) when some variant carries a payload.
+int cg_enum_is_adt(*DeclNode d) {
+    int j = 0;
+    while (j < List_len<Param>(&d.params)) {
+        List<string> pl = List_get<List<string>>(&d.payloads, j);
+        if (List_len<string>(&pl) > 0) { return 1; }
+        j = j + 1;
+    }
+    return 0;
+}
+
+// An ADT enum's tagged-union type `%E = type { i32, [N x i64] }`: N = i64 slots holding
+// the largest variant payload, laid out by BYTES with field alignment (as the C++
+// makeAdtStruct does via DataLayout), so arrays, structs and nested enums fit.
+void cg_emit_adt_type(Codegen* g, *DeclNode d) {
+    int slots = 0; int j = 0;
+    while (j < List_len<Param>(&d.params)) {
+        List<string> pl = List_get<List<string>>(&d.payloads, j);
+        int isl = (cg_layout_size(g, &pl) + 7) / 8;
+        if (isl > slots) { slots = isl; }
+        j = j + 1;
+    }
+    if (slots < 1) { slots = 1; }
+    cg_deftype(g, d.name, cg_cat("{ i32, [", cg_cat(cg_itoa(slots), " x i64] }")));
+}
+
+// Emit the named type line for a (non-generic) struct / union / ADT enum decl, once.
+// Called in declaration order by pass 1b/1c, and on demand by the layout queries when a
+// type's size is needed before its turn (a union member or payload declared later).
+void cg_emit_tydecl(Codegen* g, *DeclNode d) {
+    if (cg_tydef_body(g, d.name)[0] != 0) { return; }
+    string mark = cg_cat("tyd:", d.name);
+    if (cg_seen_inst(g, mark) == 1) { return; }          // in progress (self-containing type)
+    List_push<string>(&g.inst_seen, mark);
+    if (d.kind == DK_UNION) { cg_emit_union(g, d); return; }
+    if (d.kind == DK_ENUM) { cg_emit_adt_type(g, d); return; }
+    if (cg_struct_has_bf(d) == 1) { cg_bf_layout(g, d); return; }
+    if (d.pack_align >= 2) { cg_emit_pack2(g, d); return; }   // #pragma pack(N>=2): padding + phys slots
+    // Build the body first: a generic field type instantiates into g.globals and must
+    // precede this line, not interleave (see cg_ensure_struct_inst).
+    String body; String_init(&body, 32);
+    int nf = List_len<Param>(&d.params);
+    int fi = 0;
+    while (fi < nf) {
+        if (fi > 0) { String_append(&body, ", "); }
+        String_append(&body, cg_lltype(g, List_get<Param>(&d.params, fi).ty));
+        fi = fi + 1;
+    }
+    // A `packed` struct (or `#pragma pack(1)`) is an LLVM packed struct `<{…}>` (no
+    // inter-field padding, align 1); indices are unchanged (no fillers).
+    string op = "{ "; string cl = " }";
+    if (d.is_packed == 1) { op = "<{ "; cl = " }>"; }
+    cg_deftype(g, d.name, cg_cat(op, cg_cat((string)String_cstr(&body), cl)));
 }
 
 void cg_program(Codegen* g, *Program prog) {
     int n = List_len<*DeclNode>(&prog.decls);
 
-    String_append(&g.globals, "%closure = type { ptr, ptr }\n");   // fat pointer for fn values
+    cg_deftype(g, "closure", "{ ptr, ptr }");   // fat pointer for fn values
 
     // Pass 0: register type aliases (`type Name = Underlying`). Done first so every later
     // type lowering / ety recording resolves aliases (cg_dealias). Chains resolve via
@@ -4192,7 +4331,7 @@ void cg_program(Codegen* g, *Program prog) {
         *DeclNode d = List_get<*DeclNode>(&prog.decls, ii0);
         if (d.kind == DK_INTERFACE) {
             if (g.uses_iface == 0) {
-                String_append(&g.globals, "%iface_fat = type { ptr, ptr }\n");
+                cg_deftype(g, "iface_fat", "{ ptr, ptr }");
                 g.uses_iface = 1;
             }
             let iface: CgIface; iface.name = d.name;
@@ -4200,8 +4339,7 @@ void cg_program(Codegen* g, *Program prog) {
             List_init<string>(&iface.mnames, mn);
             List_init<string>(&iface.mrets, mn);
             List_init<List<string>>(&iface.mparams, mn);
-            String_append(&g.globals, "%"); String_append(&g.globals, d.name);
-            String_append(&g.globals, "_vtable = type { ");
+            String vtb; String_init(&vtb, 32); String_append(&vtb, "{ ");
             int mi = 0;
             while (mi < mn) {
                 *DeclNode m = List_get<*DeclNode>(&d.methods, mi);
@@ -4216,11 +4354,12 @@ void cg_program(Codegen* g, *Program prog) {
                     pj = pj + 1;
                 }
                 List_push<List<string>>(&iface.mparams, ptys);
-                if (mi > 0) { String_append(&g.globals, ", "); }
-                String_append(&g.globals, "ptr");
+                if (mi > 0) { String_append(&vtb, ", "); }
+                String_append(&vtb, "ptr");
                 mi = mi + 1;
             }
-            String_append(&g.globals, " }\n");
+            String_append(&vtb, " }");
+            cg_deftype(g, cg_cat(d.name, "_vtable"), (string)String_cstr(&vtb));
             List_push<CgIface>(&g.ifaces, iface);
         }
         ii0 = ii0 + 1;
@@ -4232,9 +4371,8 @@ void cg_program(Codegen* g, *Program prog) {
         *DeclNode d = List_get<*DeclNode>(&prog.decls, si);
         if (d.kind == DK_STRUCT && List_len<TypeParam>(&d.type_params) > 0) {
             List_push<*DeclNode>(&g.gstructs, d);          // generic — monomorphized on demand
-        } else if (d.kind == DK_STRUCT && cg_struct_has_bf(d) == 1) {
-            cg_bf_layout(g, d);                            // bitfield struct: registers + emits here
         } else if (d.kind == DK_STRUCT) {
+            List_push<*DeclNode>(&g.tydecls, d);
             let s: CgStruct;
             s.name = d.name;
             List_init<string>(&s.fnames, 4);
@@ -4263,35 +4401,22 @@ void cg_program(Codegen* g, *Program prog) {
             }
             List_push<CgStruct>(&g.structs, s);
             List_push<string>(&g.union_names, d.name);
+            List_push<*DeclNode>(&g.tydecls, d);
+        } else if (d.kind == DK_ENUM && List_len<TypeParam>(&d.type_params) == 0 && cg_enum_is_adt(d) == 1) {
+            // Register the ADT name now so struct fields / payloads of this type lower
+            // to `%Name` (not the i32 default) whatever the declaration order.
+            List_push<string>(&g.adt_names, d.name);
+            List_push<*DeclNode>(&g.tydecls, d);
         }
         si = si + 1;
     }
-    // Pass 1b: emit the named struct types (now every struct name resolves).
+    // Pass 1b: emit the named struct/union types (now every struct name resolves). A type
+    // another layout needed earlier (a union member, a pack/ADT payload) is already out.
     si = 0;
     while (si < n) {
         *DeclNode d = List_get<*DeclNode>(&prog.decls, si);
-        if (d.kind == DK_STRUCT && List_len<TypeParam>(&d.type_params) == 0 && cg_struct_has_bf(d) == 0 && d.pack_align >= 2) {
-            cg_emit_pack2(g, d);                  // #pragma pack(N>=2): explicit padding + phys-index slots
-        } else if (d.kind == DK_STRUCT && List_len<TypeParam>(&d.type_params) == 0 && cg_struct_has_bf(d) == 0) {
-            // Build the body first — a generic field type instantiates into g.globals and
-            // must precede this line, not interleave (see cg_ensure_struct_inst).
-            String body; String_init(&body, 32);
-            int nf = List_len<Param>(&d.params);
-            int fi = 0;
-            while (fi < nf) {
-                if (fi > 0) { String_append(&body, ", "); }
-                String_append(&body, cg_lltype(g, List_get<Param>(&d.params, fi).ty));
-                fi = fi + 1;
-            }
-            // A `packed` struct (or `#pragma pack(1)`) is an LLVM packed struct `<{…}>`
-            // (no inter-field padding, align 1); indices are unchanged (no fillers).
-            string op = " = type { "; string cl = " }\n";
-            if (d.is_packed == 1) { op = " = type <{ "; cl = " }>\n"; }
-            String_append(&g.globals, "%"); String_append(&g.globals, d.name);
-            String_append(&g.globals, op); String_append(&g.globals, (string)String_cstr(&body));
-            String_append(&g.globals, cl);
-        } else if (d.kind == DK_UNION) {
-            cg_emit_union(g, d);
+        if ((d.kind == DK_STRUCT && List_len<TypeParam>(&d.type_params) == 0) || d.kind == DK_UNION) {
+            cg_emit_tydecl(g, d);
         }
         si = si + 1;
     }
@@ -4322,22 +4447,9 @@ void cg_program(Codegen* g, *Program prog) {
             }
         } else if (d.kind == DK_ENUM) {
             int m = List_len<Param>(&d.params);
-            int is_adt = 0; int slots = 0;
             int j = 0;
-            while (j < m) {
-                List<string> pl0 = List_get<List<string>>(&d.payloads, j);
-                int pn = List_len<string>(&pl0);
-                if (pn > 0) { is_adt = 1; }
-                int isl = (cg_layout_size(g, &pl0) + 7) / 8;   // i64 slots for this variant
-                if (isl > slots) { slots = isl; }
-                j = j + 1;
-            }
-            if (is_adt == 1) {
-                if (slots < 1) { slots = 1; }
-                List_push<string>(&g.adt_names, d.name);
-                String_append(&g.globals, "%"); String_append(&g.globals, d.name);
-                String_append(&g.globals, " = type { i32, [");
-                String_append(&g.globals, cg_itoa(slots)); String_append(&g.globals, " x i64] }\n");
+            if (cg_enum_is_adt(d) == 1) {
+                cg_emit_tydecl(g, d);
                 j = 0;
                 while (j < m) {
                     let var: CgVariant;

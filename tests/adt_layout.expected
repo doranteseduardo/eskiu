@@ -1,0 +1,9 @@
+Tok=24 Wrap=32 Arr=24 EA=32 H=32
+Opt<B>=24 Opt<Inner>=24 Opt<Opt<int>>=24
+pair 3 0.50
+arr 1 10 50
+B 5 1000000000000
+Inner q 7 8 9
+OptOpt 42
+H[1] 77 123456789012
+H[0] 11 9 2.5
