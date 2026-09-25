@@ -166,6 +166,7 @@ int main(int argc, string* argv) {
             eprint((string)&eb[0]);
             return 1;
         }
+        g_lex_file = infile;
         lex_dump(lraw, (int)ln);
         return 0;
     }
@@ -218,6 +219,7 @@ int main(int argc, string* argv) {
         int plen = 0;
         while (src[plen] != 0) { plen = plen + 1; }
         let p: Parser;
+        g_lex_file = f;
         p_init(&p, src, plen);
         p.basedir = str_dir(f);
         parse_into(&p, prog);

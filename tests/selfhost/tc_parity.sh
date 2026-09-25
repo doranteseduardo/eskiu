@@ -57,7 +57,8 @@ HANDLED="undefined_var arg_count undefined_type await_outside_async async_no_awa
          lambda_sig_mismatch question_non_result undefined_template_fn
          return_in_void call_non_fn member_of_int shift_by_float string_plus_string
          pp_include pp_unknown_directive pp_stray_endif pp_stray_else pp_missing_endif
-         pp_if_bad_expr pp_stringify pp_if_zero_div"
+         pp_if_bad_expr pp_stringify pp_if_zero_div
+         unexpected_char empty_char unterminated_comment unterminated_string"
 HANDLED="$(echo $HANDLED)"   # collapse the multi-line list to single spaces for matching
 
 DRIVER=selfhost/esk_main.esk
@@ -95,7 +96,7 @@ for esk in tests/errors/*.esk; do
     # preprocessor, not the type checker.
     # These reject with the right VERDICT but the self-host lexer/parser wording still
     # differs from C++ (a diagnostic-text consistency item, not a behavioral one).
-    UPSTREAM=" parse_error unterminated_comment unterminated_string "
+    UPSTREAM=" parse_error "
     case " $HANDLED " in
         *" $base "*) ;;
         *) case "$UPSTREAM" in

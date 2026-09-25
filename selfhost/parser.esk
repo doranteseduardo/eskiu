@@ -99,6 +99,7 @@ void p_init(Parser* p, *uint8 src, int len) {
         t = lx_next(&lx);
     }
     List_push<Token>(&p.toks, t);          // keep the EOF token as the last element
+    if (g_lex_errs > 0) { exit(1); }       // lexical errors were reported (like the C++ hadError)
 }
 
 Token p_peek(Parser* p) {
@@ -1784,6 +1785,7 @@ void do_import(Parser* p, *Program prog) {
     *uint8 ppsrc = (*uint8)psrc;
     int plen = 0; while (ppsrc[plen] != 0) { plen = plen + 1; }
     let sub: Parser;
+    g_lex_file = full;
     p_init(&sub, ppsrc, plen);
     sub.basedir = str_dir(full);
     parse_into(&sub, prog);

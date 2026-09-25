@@ -20,6 +20,33 @@ struct Lexer {
     int col;
 }
 
+// Lexical diagnostics (mirrors Lexer::lexError). `g_lex_file` labels them ("" →
+// "<input>"); `g_lex_errs` counts them so a driver can abort before parsing, like
+// the C++ `hadError`. Lexing continues after an error, as in the C++ lexer.
+string g_lex_file;
+int g_lex_errs;
+
+extern int64 write(int fd, *void buf, int64 n);
+
+void lx_puts_err(string s) {
+    int64 n = 0;
+    while (s[n] != 0) { n = n + 1; }
+    write(2, (*void)s, n);
+}
+
+void lx_error(int line, int col, string msg) {
+    uint8[32] nb;
+    lx_puts_err("error: ");
+    if (g_lex_file == null) { lx_puts_err("<input>"); }
+    else if (g_lex_file[0] == 0) { lx_puts_err("<input>"); }
+    else { lx_puts_err(g_lex_file); }
+    sprintf((string)&nb[0], ":%d:%d: ", line, col);
+    lx_puts_err((string)&nb[0]);
+    lx_puts_err(msg);
+    lx_puts_err("\n");
+    g_lex_errs = g_lex_errs + 1;
+}
+
 int lx_at_end(Lexer* lx) {
     if (lx.pos >= lx.len) { return 1; }
     return 0;
@@ -65,15 +92,16 @@ void lx_skip_ws(Lexer* lx) {
     }
 }
 
-// Skip a `//` line comment or a `/* */` block comment (mirror skip_comment). The
-// C++ reports unterminated block comments to stderr only, so the stdout token
-// stream is unaffected — we just consume to EOF and stop.
+// Skip a `//` line comment or a `/* */` block comment (mirror skip_comment). An
+// unterminated block comment is reported and consumed to EOF.
 void lx_skip_comment(Lexer* lx) {
     if (lx_peek(lx) == 47 && lx_peek_next(lx) == 47) {          // '//'
         while (lx_at_end(lx) == 0 && lx_peek(lx) != 10) {
             lx_advance(lx);
         }
     } else if (lx_peek(lx) == 47 && lx_peek_next(lx) == 42) {   // '/*'
+        int sl = lx.line;
+        int sc = lx.col;
         lx_advance(lx);                                         // '/'
         lx_advance(lx);                                         // '*'
         while (lx_at_end(lx) == 0) {
@@ -84,6 +112,7 @@ void lx_skip_comment(Lexer* lx) {
             }
             lx_advance(lx);
         }
+        lx_error(sl, sc, "unterminated block comment");
     }
 }
 
@@ -259,6 +288,8 @@ Token lx_next(Lexer* lx) {
         }
         if (lx_at_end(lx) == 0) {
             lx_advance(lx);                           // closing "
+        } else {
+            lx_error(sl, sc, "unterminated string literal");
         }
         t.type = STRING_LIT; t.start = sp; t.len = lx.pos - sp;
         t.line = sl; t.col = sc;
@@ -270,11 +301,13 @@ Token lx_next(Lexer* lx) {
     if (c == 39) {                                   // '\''
         lx_advance(lx);                              // opening '
         if (lx_at_end(lx) == 1) {
+            lx_error(sl, sc, "unterminated character literal");
             t.type = CHAR_LIT; t.start = sp; t.len = lx.pos - sp;
             t.line = sl; t.col = sc;
             return t;
         }
         if (lx_peek(lx) == 39) {                     // empty ''
+            lx_error(sl, sc, "empty character literal");
             lx_advance(lx);                          // closing '
             t.type = CHAR_LIT; t.start = sp; t.len = lx.pos - sp;
             t.line = sl; t.col = sc;
@@ -282,13 +315,19 @@ Token lx_next(Lexer* lx) {
         }
         if (lx_peek(lx) == 92) {                     // backslash escape
             lx_advance(lx);
-            lx_advance(lx);
+            int esc = lx_advance(lx);
+            if (esc == 120 && is_hex(lx_peek(lx)) == 1) {        // \xNN: up to two hex digits
+                lx_advance(lx);
+                if (is_hex(lx_peek(lx)) == 1) { lx_advance(lx); }
+            }
         } else {
             lx_advance(lx);
         }
         if (lx_at_end(lx) == 0 && lx_peek(lx) == 39) {
             lx_advance(lx);                          // closing '
         } else {
+            if (lx_at_end(lx) == 1 || lx_peek(lx) == 10) { lx_error(sl, sc, "unterminated character literal"); }
+            else { lx_error(sl, sc, "character literal must contain a single character"); }
             while (lx_at_end(lx) == 0 && lx_peek(lx) != 39 && lx_peek(lx) != 10) {
                 lx_advance(lx);
             }
@@ -413,6 +452,10 @@ Token lx_next(Lexer* lx) {
     if (c == 63)  { t.type = QUESTION;  return lx_finish(t, sp, lx.pos, sl, sc); }   // '?'
 
     // Anything else: a single-byte UNKNOWN token (matches the switch default).
+    uint8[48] ub;
+    if (c >= 32 && c < 127) { sprintf((string)&ub[0], "unexpected character '%c'", c); }
+    else { sprintf((string)&ub[0], "unexpected byte 0x%02X", c); }
+    lx_error(sl, sc, (string)&ub[0]);
     t.type = UNKNOWN;
     return lx_finish(t, sp, lx.pos, sl, sc);
 }

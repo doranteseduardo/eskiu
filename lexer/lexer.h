@@ -176,6 +176,7 @@ public:
 
 private:
     std::string source;
+    std::string filename;   // labels diagnostics ("<input>" when empty)
     size_t current;
     int line;
     int column;

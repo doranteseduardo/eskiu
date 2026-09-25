@@ -1,0 +1,2 @@
+// EXPECT-ERROR: empty character literal
+int main() { char c = ''; return 0; }

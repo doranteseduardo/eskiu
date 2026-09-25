@@ -2,6 +2,7 @@
 #include <iostream>
 #include <cctype>
 #include <map>
+#include <cstdio>
 #include "preprocessor.h"
 
 std::unordered_map<std::string, TokenType> Lexer::keywords = {
@@ -71,7 +72,7 @@ std::unordered_map<std::string, TokenType> Lexer::keywords = {
 
 Lexer::Lexer(const std::string& source, std::map<std::string, Macro>* macros,
              const std::string& filename)
-    : current(0), line(1), column(1) {
+    : filename(filename), current(0), line(1), column(1) {
     std::map<std::string, Macro> local;
     preprocess(source, macros ? *macros : local, this->source, filename, this->hadError);
 }
@@ -179,7 +180,8 @@ Token Lexer::read_number() {
 }
 
 void Lexer::lexError(int errLine, int errCol, const std::string& msg) {
-    std::cerr << "error: " << errLine << ":" << errCol << ": " << msg << std::endl;
+    std::cerr << "error: " << (filename.empty() ? "<input>" : filename) << ":"
+              << errLine << ":" << errCol << ": " << msg << std::endl;
     hadError = true;
 }
 
@@ -461,8 +463,14 @@ Token Lexer::next_token() {
                 return Token(TokenType::RANGE, "..", start_line, start_col);
             }
             return Token(TokenType::DOT, ".", start_line, start_col);
-        default:
+        default: {
+            char hex[8];
+            std::snprintf(hex, sizeof hex, "0x%02X", (unsigned char)c);
+            lexError(start_line, start_col, std::isprint((unsigned char)c)
+                         ? std::string("unexpected character '") + c + "'"
+                         : std::string("unexpected byte ") + hex);
             return Token(TokenType::UNKNOWN, std::string(1, c), start_line, start_col);
+        }
     }
 }
 

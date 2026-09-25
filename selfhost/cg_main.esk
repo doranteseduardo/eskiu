@@ -47,6 +47,7 @@ int main(int argc, string* argv) {
 
     parser_session_init();
     let p: Parser;
+    g_lex_file = argv[1];
     p_init(&p, src, plen);
     p.basedir = str_dir(argv[1]);
     *Program prog = parse_program(&p);
