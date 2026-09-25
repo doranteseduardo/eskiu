@@ -141,9 +141,10 @@ int tls_read_frame(*void ssl, *uint8 buf, H2Frame* hdr) {
     return hdr.length;
 }
 
-// Serve one h2-over-TLS connection (blocking): handshake, then the frame loop —
-// HEADERS (+ DATA) → handler → response, with SETTINGS/PING housekeeping. Closes
-// the TLS connection on return.
+// Serve one h2-over-TLS connection (blocking): the client preface, then frames
+// through the <http2_server> H2Server engine (the same protocol handling as the
+// h2c server: flow control both ways, padding, CONTINUATION, PING, SETTINGS
+// validation) until either side ends it. Closes the TLS connection on return.
 void http2_tls_serve_conn(*void ssl, escaping fn(HttpRequest*, HttpResponse*)->void handler) {
     *uint8 pf = alloc<uint8>(24);
     const int pn = tls_read_full(ssl, pf, 24);
@@ -151,64 +152,22 @@ void http2_tls_serve_conn(*void ssl, escaping fn(HttpRequest*, HttpResponse*)->v
     free((*void)pf);
     if (!ok) { tls_close(ssl); return; }
 
-    *uint8 fb = alloc<uint8>(16384 + H2_FRAME_HEADER_LEN);
-    let local: H2Settings;  h2_settings_defaults(&local);
-    local.enable_push = 0;                               // a server MUST NOT set ENABLE_PUSH=1 (§6.5.2)
-    let hdr: H2Frame;
-    const int plen = tls_read_frame(ssl, fb, &hdr);      // client SETTINGS
-    if (plen < 0 || hdr.type != H2_SETTINGS) { free((*void)fb); tls_close(ssl); return; }
-    const int sn = h2_write_settings(fb, &local);  tls_write_all(ssl, fb, sn);
-    const int an = h2_write_settings_ack(fb);      tls_write_all(ssl, fb, an);
-
-    let dec: HpackDecoder;  dec.init(4096);
-    *HpackHeader harr = alloc<HpackHeader>(64);
+    *uint8 fb = alloc<uint8>(TLS_H2_MAX_PAYLOAD + H2_FRAME_HEADER_LEN);
+    H2Server* s = alloc<H2Server>(1);
+    H2Server_init(s, -1);
     bool running = true;
     while (running) {
+        if (s.outlen > 0) { tls_write_all(ssl, s.out, (int)s.outlen); s.outlen = 0; }
+        if (H2Server_done(s) != 0) { break; }
         let fr: H2Frame;
         const int fl = tls_read_frame(ssl, fb, &fr);
-        if (fl < 0) {
-            running = false;
-        } else if (fr.type == H2_HEADERS) {
-            int boff = 0;  int blen = 0;
-            h2_headers_fragment(&fr, fb + 9, &boff, &blen);     // skip PADDED/PRIORITY
-            const int nh = hpack_decode(&dec, fb + 9 + boff, blen, harr, 64);
-            let req: HttpRequest;  req.init();
-            if (nh > 0) { h2_fill_request(&req, harr, nh); }
-            if ((fr.flags & H2_FLAG_END_STREAM) == 0) {
-                while (true) {                                   // DATA frames up to END_STREAM
-                    let df: H2Frame;
-                    const int dl = tls_read_frame(ssl, fb, &df);
-                    if (dl < 0) { running = false; break; }
-                    if (df.type == H2_DATA) {
-                        for (k in 0..df.length) { req.body.push((char)fb[9 + k]); }
-                        if ((df.flags & H2_FLAG_END_STREAM) != 0) { break; }
-                    }
-                }
-            }
-            let res: HttpResponse;  res.init(200);
-            handler(&req, &res);
-            *uint8 out = alloc<uint8>(h2_response_bufsize(&res));
-            const int on = h2_build_response(out, fr.stream_id, &res);
-            tls_write_all(ssl, out, on);
-            free((*void)out);
-            res.free();
-            req.free();
-        } else if (fr.type == H2_SETTINGS) {
-            if ((fr.flags & H2_FLAG_ACK) == 0) { const int a = h2_write_settings_ack(fb); tls_write_all(ssl, fb, a); }
-        } else if (fr.type == H2_PING) {
-            if ((fr.flags & H2_FLAG_ACK) == 0) {
-                *uint8 pb = alloc<uint8>(17);
-                const int pp = h2_write_ping(pb, fb + 9, 1);
-                tls_write_all(ssl, pb, pp);
-                free((*void)pb);
-            }
-        } else if (fr.type == H2_GOAWAY) {
-            running = false;
-        }
+        if (fl == -2) { H2Server_goaway(s, H2_FRAME_SIZE_ERROR); }
+        else if (fl < 0) { running = false; }
+        else { H2Server_step(s, &fr, fb + H2_FRAME_HEADER_LEN, handler); }
     }
-    free((*void)harr);
+    H2Server_free(s);
+    free((*void)s);
     free((*void)fb);
-    dec.free();
     tls_close(ssl);
 }
 
@@ -295,90 +254,36 @@ async int tls_read_frame_async(EventLoop* lp, int fd, *void ssl, *uint8 buf, H2F
     return hdr.length;
 }
 
-// Server opening handshake over TLS: validate the preface, read+apply the
-// client SETTINGS, send ours + ACK. Returns 0 on success, negative on failure.
-// (Split out to keep each async function's control flow simple.)
-async int http2_tls_handshake_async(EventLoop* lp, int fd, *void ssl, *uint8 fb) {
-    int pn = await tls_read_full_async(lp, fd, ssl, fb, 24);
-    if (pn < 24) { return -1; }
-    if (h2_is_preface(fb) == 0) { return -1; }
-    let hdr: H2Frame;
-    int plen = await tls_read_frame_async(lp, fd, ssl, fb, &hdr);
-    if (plen < 0 || hdr.type != H2_SETTINGS) { return -2; }
-    let local: H2Settings;  h2_settings_defaults(&local);  local.enable_push = 0;
-    int sn = h2_write_settings(fb, &local);
-    int w1 = await tls_write_all_async(lp, fd, ssl, fb, sn);
-    int an = h2_write_settings_ack(fb);
-    int w2 = await tls_write_all_async(lp, fd, ssl, fb, an);
-    if (w1 < 0 || w2 < 0) { return -3; }
-    return 0;
-}
-
-// Read a request body (DATA frames until END_STREAM) into `req.body` over TLS.
-// Returns 1 if the connection is still healthy, 0 if it dropped.
-async int http2_tls_read_body_async(EventLoop* lp, int fd, *void ssl, *uint8 fb, HttpRequest* req) {
-    int bd = 0;
-    while (bd == 0) {
-        let df: H2Frame;
-        int dl = await tls_read_frame_async(lp, fd, ssl, fb, &df);
-        if (dl < 0) { return 0; }
-        if (df.type == H2_DATA) {
-            for (int k = 0; k < df.length; k++) { req.body.push((char)fb[9 + k]); }
-            if ((df.flags & H2_FLAG_END_STREAM) != 0) { bd = 1; }
-        }
-    }
-    return 1;
-}
-
-// The post-handshake frame-dispatch loop over TLS. Runs until GOAWAY or EOF.
+// The post-preface frame loop over TLS: frames through the H2Server engine
+// until either side ends the connection or the peer closes. `fb` holds
+// TLS_H2_MAX_PAYLOAD + 9 bytes.
 async void http2_tls_dispatch_async(EventLoop* lp, int fd, *void ssl, *uint8 fb,
                                     escaping fn(HttpRequest*, HttpResponse*)->void handler) {
-    let dec: HpackDecoder;  dec.init(4096);
-    *HpackHeader harr = alloc<HpackHeader>(64);
+    H2Server* s = alloc<H2Server>(1);
+    H2Server_init(s, fd);
     int running = 1;
     while (running != 0) {
-        let fr: H2Frame;
-        int fl = await tls_read_frame_async(lp, fd, ssl, fb, &fr);
-        if (fl < 0) {
-            running = 0;
-        } else if (fr.type == H2_HEADERS) {
-            int boff = 0;  int blen = 0;
-            h2_headers_fragment(&fr, fb + 9, &boff, &blen);     // skip PADDED/PRIORITY
-            int nh = hpack_decode(&dec, fb + 9 + boff, blen, harr, 64);
-            let req: HttpRequest;  req.init();
-            if (nh > 0) { h2_fill_request(&req, harr, nh); }
-            int alive = 1;
-            if ((fr.flags & H2_FLAG_END_STREAM) == 0) {
-                alive = await http2_tls_read_body_async(lp, fd, ssl, fb, &req);
-            }
-            if (alive == 0) { running = 0; }
-            let res: HttpResponse;  res.init(200);
-            handler(&req, &res);
-            *uint8 out = alloc<uint8>(h2_response_bufsize(&res));
-            int on = h2_build_response(out, fr.stream_id, &res);
-            int ow = await tls_write_all_async(lp, fd, ssl, out, on);
-            free((*void)out);
-            res.free();
-            req.free();
-            if (ow < 0) { running = 0; }
-        } else if (fr.type == H2_SETTINGS) {
-            if ((fr.flags & H2_FLAG_ACK) == 0) {
-                int a = h2_write_settings_ack(fb);
-                int w = await tls_write_all_async(lp, fd, ssl, fb, a);
-            }
-        } else if (fr.type == H2_GOAWAY) {
-            running = 0;
+        if (s.outlen > 0) {
+            int w = await tls_write_all_async(lp, fd, ssl, s.out, (int)s.outlen);
+            s.outlen = 0;
+            if (w < 0) { running = 0; }
+        }
+        if (running != 0 && H2Server_done(s) != 0) { running = 0; }
+        if (running != 0) {
+            let fr: H2Frame;
+            int fl = await tls_read_frame_async(lp, fd, ssl, fb, &fr);
+            if (fl == -2) { H2Server_goaway(s, H2_FRAME_SIZE_ERROR); }
+            else if (fl < 0) { running = 0; }
+            else { H2Server_step(s, &fr, fb + H2_FRAME_HEADER_LEN, handler); }
         }
     }
-    free((*void)harr);
-    dec.free();
+    H2Server_free(s);
+    free((*void)s);
 }
 
 // Serve one h2-over-TLS connection asynchronously over the event loop: the SSL
-// handshake (ALPN -> h2), then the frame-dispatch loop. Detached per connection
-// by http2_tls_serve_async, so many TLS connections share one thread. Responses
-// are chunked to MAX_FRAME_SIZE; send-side window flow control is the h2c
-// server's (this path assumes the cooperative-client window, like browsers).
+// handshake (ALPN -> h2), the client preface, then the frame loop. Detached per
+// connection by http2_tls_serve_async, so many TLS connections share one thread.
 async void http2_tls_conn_async(EventLoop* lp, int fd, *void ctx,
                                 escaping fn(HttpRequest*, HttpResponse*)->void handler,
                                 Chan<int>* done) {
@@ -387,9 +292,9 @@ async void http2_tls_conn_async(EventLoop* lp, int fd, *void ctx,
     int ok = 0;
     if (ssl != null) { ok = await tls_accept_async(lp, fd, ssl); }
     if (ok == 1) {
-        *uint8 fb = alloc<uint8>(16384 + H2_FRAME_HEADER_LEN);
-        int hs = await http2_tls_handshake_async(lp, fd, ssl, fb);
-        if (hs == 0) { await http2_tls_dispatch_async(lp, fd, ssl, fb, handler); }
+        *uint8 fb = alloc<uint8>(TLS_H2_MAX_PAYLOAD + H2_FRAME_HEADER_LEN);
+        int pn = await tls_read_full_async(lp, fd, ssl, fb, 24);
+        if (pn == 24 && h2_is_preface(fb) != 0) { await http2_tls_dispatch_async(lp, fd, ssl, fb, handler); }
         free((*void)fb);
     }
     if (ssl != null) { tls_close(ssl); }
