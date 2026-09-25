@@ -186,17 +186,12 @@ void CodeGen::visit(FunctionDecl* node) {
             std::string ptype = !typeParamOverride.empty()
                 ? substType(node->params[paramIdx].first, typeParamOverride)
                 : node->params[paramIdx].first;
-            if (ptype.find('<') != std::string::npos) {
-                ptype = tyq::strip(ptype);     // a `const Box<T>* self` names Box_int
-                std::string sfx;
-                while (!ptype.empty() && ptype.back() == '*') { sfx += '*'; ptype.pop_back(); }
-                // Instantiate the template instance's struct now, so member
-                // access on this param (e.g. List<String>* self -> self.data)
-                // finds its fields even if no earlier code referenced the type.
-                auto [tn, targs] = splitTemplateType(ptype);
-                ensureTemplateInstantiated(mangleTemplate(ptype), tn, targs);
-                ptype = mangleTemplate(ptype) + sfx;
-            }
+            // Instantiate the template instance's struct now, so member access on
+            // this param (e.g. List<String>* self -> self.data) finds its fields
+            // even if no earlier code referenced the type. A `const Box<T>* self`
+            // names Box_int.
+            if (ptype.find('<') != std::string::npos)
+                ptype = instanceSpelling(ptype);
             defineVarType(node->params[paramIdx].second, ptype);
             paramIdx++;
         }
@@ -301,15 +296,8 @@ void CodeGen::visit(VarDecl* node) {
     std::string varType = !typeParamOverride.empty()
                           ? substType(node->type, typeParamOverride)
                           : node->type;
-    if (varType.find('<') != std::string::npos) {
-        // Strip const and trailing pointer stars, mangle the base, then re-append stars
-        varType = tyq::strip(varType);
-        std::string suffix;
-        while (!varType.empty() && varType.back() == '*') {
-            suffix += '*'; varType.pop_back();
-        }
-        varType = mangleTemplate(varType) + suffix;
-    }
+    if (varType.find('<') != std::string::npos)
+        varType = instanceSpelling(varType);
 
     // The name is bound after its initializer: in `{ int64 x = x + 1; }` the `x`
     // on the right is the outer one (sema resolves it that way too).

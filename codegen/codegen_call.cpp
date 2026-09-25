@@ -85,6 +85,30 @@ void CodeGen::ensureTemplateInstantiated(const std::string& mangled,
     structFields[mangled] = fields;
 }
 
+std::string CodeGen::instanceSpelling(const std::string& t) {
+    ty::Type ty = ty::Type::parse(tyq::strip(t));
+    auto inner = [&](std::shared_ptr<ty::Type>& p) {
+        if (p) p = std::make_shared<ty::Type>(ty::Type::parse(instanceSpelling(p->str())));
+    };
+    switch (ty.kind) {
+        case ty::Type::Kind::Pointer: inner(ty.pointee); return ty.str();
+        case ty::Type::Kind::Array:
+        case ty::Type::Kind::Slice:   inner(ty.elem);    return ty.str();
+        case ty::Type::Kind::Fn:
+            for (auto& p : ty.params) p = ty::Type::parse(instanceSpelling(p.str()));
+            inner(ty.ret);
+            return ty.str();
+        case ty::Type::Kind::Template: {
+            std::string s = ty.str();
+            auto [tn, targs] = splitTemplateType(s);
+            std::string mangled = mangleTemplate(s);
+            ensureTemplateInstantiated(mangled, tn, targs);
+            return mangled;
+        }
+        default: return tyq::strip(t);
+    }
+}
+
 FunctionDecl* CodeGen::genericMethod(const std::string& instName, const std::string& method,
                                      std::map<std::string, std::string>* subsOut) const {
     auto ia = templateInstanceArgs.find(instName);

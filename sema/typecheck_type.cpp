@@ -546,6 +546,16 @@ std::string TypeChecker::normalizeType(const std::string& rawType) {
     if (hasPointerSuffix(type)) {
         return addPointerSuffix(normalizeType(extractBaseType(type)));
     }
+    // An array or slice of a template instance (`Box<int>[4]`, `Box<int>*[4]`): the
+    // element is the instance, so normalize it in place instead of mangling the whole
+    // spelling (brackets and all) as if it were one template name.
+    if (!type.empty() && type.back() == ']' && type.find('<') != std::string::npos) {
+        ty::Type t = ty::Type::parse(type);
+        if ((t.kind == ty::Type::Kind::Array || t.kind == ty::Type::Kind::Slice) && t.elem) {
+            t.elem = std::make_shared<ty::Type>(ty::Type::parse(normalizeType(t.elem->str())));
+            return t.str();
+        }
+    }
     // Resolve a type alias to its underlying type.
     if (auto it = typeAliases.find(type); it != typeAliases.end())
         return normalizeType(it->second);

@@ -200,6 +200,10 @@ private:
     void ensureTemplateInstantiated(const std::string& mangledName,
                                     const std::string& templateName,
                                     const std::vector<std::string>& args);
+    // `t` with every template instance in it mangled to its struct name, keeping the
+    // pointer / array / slice structure around it (`Box<int>*[4]` -> `Box_int*[4]`);
+    // each instance is instantiated so its fields resolve.
+    std::string instanceSpelling(const std::string& t);
     // An inline method of a generic struct, for one instance (`Box_int` + `get` ->
     // `Box_int_get(*Box_int self)`): the template method (and its substitutions), or null.
     FunctionDecl* genericMethod(const std::string& instName, const std::string& method,
