@@ -189,13 +189,18 @@ string http_reason(int s) {
     return "";
 }
 
-// Append `v` in decimal to `out`.
-void _http_append_int(String* out, int v) {
-    let t: String;
-    t.init(16);
-    defer t.free();
-    t.from_int(v);
-    out.append(t.cstr());
+// Append `v` in decimal to `out`. Takes int64 so a Content-Length above 2 GiB is
+// written in full (String_from_int is int-only).
+void _http_append_int(String* out, int64 v) {
+    if (v < 0) { out.push('-'); }
+    char[20] digits;
+    int n = 0;
+    uint64 u = v < 0 ? (uint64)0 - (uint64)v : (uint64)v;
+    do {
+        digits[n++] = (char)('0' + (int)(u % 10));
+        u /= 10;
+    } while (u != 0);
+    while (n > 0) { out.push(digits[--n]); }
 }
 
 // Serialize the full HTTP/1.1 response (status line, headers, auto
@@ -385,7 +390,7 @@ int http_recv(int fd, HttpReq* r, int64 max_body) {
 
     // The header read may already hold the start of the body; the rest follows.
     *uint8 body = alloc<uint8>(clen);
-    const int copy0 = have > (int)clen ? (int)clen : have;
+    const int64 copy0 = (int64)have > clen ? clen : (int64)have;   // clamp in int64: clen may exceed INT_MAX
     if (copy0 > 0) { memcpy(body, buf + hend, copy0); }
 
     int64 bgot = copy0;
