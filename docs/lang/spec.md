@@ -1461,7 +1461,8 @@ V3 operator +(V3 a, V3 b)     { let r: V3; r.x = a.x + b.x; r.y = a.y + b.y; r.z
 V3 operator *(V3 a, double s) { let r: V3; r.x = a.x * (float)s; r.y = a.y * (float)s; r.z = a.z * (float)s; return r; }
 V3 operator -(V3 a)           { let r: V3; r.x = 0.0 - a.x; r.y = 0.0 - a.y; r.z = 0.0 - a.z; return r; }
 
-V3 p = (q - t) * 2.0;   // resolves to the two operators above
+V3 p = (q + t) * 2.0;   // operator + and then operator *(V3, double)
+V3 n = -q;              // the unary operator -
 ```
 
 Overloadable: the binary operators `+ - * / % == != < > <= >= & | ^ << >>`, the unary operators `- ! ~`, and subscript `[]`. Compound assignment (`v += w`) is defined as `v = v + w`, using the overloaded `+`. The short-circuit operators `&&` / `||`, the pointer operators `*` / `&`, and `=` / `.` are structural and cannot be overloaded.
