@@ -730,7 +730,7 @@ A type parameter can require that its concrete type satisfy one or more interfac
 
 ```eskiu
 interface Ord {
-    int cmp(*Self other);
+    int cmp(*Ord other);    // `Ord` stands for the implementing type
 }
 
 T max<T: Ord>(T a, T b) {
@@ -739,7 +739,7 @@ T max<T: Ord>(T a, T b) {
 }
 ```
 
-Use `+` to require several interfaces at once (`<K: Hashable + Eq, V>`). A struct satisfies a constraint by defining the interface's methods. A primitive type has no methods, so it satisfies a constraint through a **free function** named like the interface method whose first parameter is that primitive, e.g. `int cmp(int, int)` makes `int` satisfy `Ord`. See spec §10.6 for the full rules.
+Inside an interface, a type spelled with the interface's own name stands for the implementing type, so a `struct Num` with `int cmp(*Num other)` satisfies `Ord`. Use `+` to require several interfaces at once (`<K: Hashable + Eq, V>`). A struct satisfies a constraint by defining the interface's methods. A primitive type has no methods, so it satisfies a constraint through a **free function** named like the interface method whose first parameter is that primitive, e.g. `int cmp(int a, *int b)` makes `int` satisfy the `Ord` above (the interface's `*Ord` becomes `*int`). See spec §10.6 for the full rules.
 
 ---
 

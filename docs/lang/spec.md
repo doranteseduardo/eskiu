@@ -1861,7 +1861,7 @@ interface.
 
 ```eskiu
 interface Ord {
-    int cmp(*Self other);
+    int cmp(*Ord other);    // `Ord` here stands for the implementing type
 }
 
 // `T` must satisfy `Ord`, checked at the call site, not deep in codegen.
@@ -1878,12 +1878,17 @@ struct Cache<K: Hashable + Eq, V> {
 }
 ```
 
+Inside an interface, a parameter type spelled with the interface's own name stands for
+the implementing type (§9), so `struct Num { int v; int cmp(*Num o) {...} }` satisfies
+`Ord` above. There is no `Self` keyword: `*Self` is an ordinary (unknown) type name and
+no struct matches it.
+
 The constraint is enforced when the template is instantiated. If the concrete
 type does not satisfy the interface, the compiler reports the error at the
 instantiation site:
 
 ```
-error: type 'int' does not satisfy constraint 'Ord' (required by a bounded type parameter)
+error: main.esk:9:15: type 'int' does not satisfy constraint 'Ord' (required by a bounded type parameter): missing method 'cmp'
 ```
 
 Constraints are checked for both explicit (`max<Num>(...)`) and inferred
@@ -1895,7 +1900,7 @@ still keyed on the concrete type arguments (§10.3).
 the interface's methods. A *primitive* type (`int`, `float`, …) has no methods, so
 it satisfies a constraint through a **free function** named like the interface
 method whose first parameter is that primitive, e.g. `int cmp(int, int)` makes
-`int` satisfy `interface Ord { int cmp(Self) }`. Inside a generic body a
+`int` satisfy `interface Ord { int cmp(Ord other); }`. Inside a generic body a
 constrained call `t.cmp(x)` on such a `t` lowers to `cmp(t, x)`. So both
 `max<T: Ord>(int…)` and a constraint-bounded `Map<K: Hashable, V>` over `int` keys
 type-check and compile. (The function-pointer `HashMap<K, V>` from the standard
