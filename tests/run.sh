@@ -188,6 +188,15 @@ if [[ $code -eq 3 && "$out" == $'[a]\n[b c]' ]]; then ok "run/args"; else bad "r
 "$ESKIUC" run "$args_esk" crash >/dev/null 2>&1; code=$?
 if [[ $code -eq 139 ]]; then ok "run/signal"; else bad "run/signal" "exit $code (expected 139)"; fi
 
+# `--help` documents the subcommands and lists only Eskiu's options (the LLVM
+# backend's internal flags are hidden).
+help_out="$("$ESKIUC" --help 2>&1)"
+if [[ "$help_out" == *"eskiuc run"* && "$help_out" == *"eskiuc fmt"* && "$help_out" != *"aarch64-neon-syntax"* ]]; then
+    ok "cli/help"
+else
+    bad "cli/help" "subcommands missing or LLVM options listed"
+fi
+
 # ---- go-to-definition -------------------------------------------------------
 # tests/lsp/NAME.esk lists `// DEF L:C L2:C2` queries: --definition-at L:C must
 # resolve to L2:C2 in the same file (the symbol scope lookup picked, not a

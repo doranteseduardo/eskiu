@@ -22,92 +22,125 @@
 #include "codegen/codegen.h"
 #include "main_support.h"
 
-// Command line options
+// Command line options. All of them live in one category so `--help` lists only
+// Eskiu's options (not the ~200 LLVM internals linked in with the backend).
+static llvm::cl::OptionCategory EskiuCat("Eskiu options");
+
+static const char* OVERVIEW =
+    "Eskiu Language Compiler\n\n"
+    "  eskiuc file.esk [more.esk ...] -o prog   compile and link an executable\n"
+    "  eskiuc file.esk -c -o file.o             compile to an object file\n"
+    "  eskiuc run [flags] file.esk [--] [args]  compile to a temp executable and run it\n"
+    "  eskiuc fmt [--check] file.esk ...        reindent files in place\n";
 static llvm::cl::opt<std::string> InputFilename(llvm::cl::Positional,
-                                                 llvm::cl::desc("<input .esk file>"));
+                                                 llvm::cl::desc("<input .esk file>"),
+    llvm::cl::cat(EskiuCat));
 
 // Additional .esk files: `eskiuc a.esk b.esk -o prog` compiles them together.
 static llvm::cl::list<std::string> ExtraInputs(llvm::cl::Positional,
-                                               llvm::cl::desc("[additional .esk files]"));
+                                               llvm::cl::desc("[additional .esk files]"),
+    llvm::cl::cat(EskiuCat));
 
 static llvm::cl::opt<std::string> OutputFilename("o",
                                                   llvm::cl::desc("Output filename"),
-                                                  llvm::cl::value_desc("filename"));
+                                                  llvm::cl::value_desc("filename"),
+    llvm::cl::cat(EskiuCat));
 
 static llvm::cl::opt<bool> TestLexer("test-lexer",
-                                     llvm::cl::desc("Tokenize input and print token stream"));
+                                     llvm::cl::desc("Tokenize input and print token stream"),
+    llvm::cl::cat(EskiuCat));
 
 static llvm::cl::opt<bool> TestParser("test-parser",
-                                      llvm::cl::desc("Parse input and print AST"));
+                                      llvm::cl::desc("Parse input and print AST"),
+    llvm::cl::cat(EskiuCat));
 
 static llvm::cl::opt<bool> TestCodegen("test-codegen",
-                                       llvm::cl::desc("Generate LLVM IR and print it"));
+                                       llvm::cl::desc("Generate LLVM IR and print it"),
+    llvm::cl::cat(EskiuCat));
 
 static llvm::cl::opt<bool> TestTypeChecker("test-typechecker",
-                                           llvm::cl::desc("Type check input and report errors"));
+                                           llvm::cl::desc("Type check input and report errors"),
+    llvm::cl::cat(EskiuCat));
 
 static llvm::cl::opt<std::string> TargetTriple("target",
     llvm::cl::desc("Override target triple (e.g. x86_64-pc-none, aarch64-unknown-none)"),
-    llvm::cl::value_desc("triple"));
+    llvm::cl::value_desc("triple"),
+    llvm::cl::cat(EskiuCat));
 
 static llvm::cl::opt<std::string> TargetCPU("mcpu",
     llvm::cl::desc("Override target CPU (e.g. mpcore for the 3DS ARM11)"),
-    llvm::cl::value_desc("cpu"));
+    llvm::cl::value_desc("cpu"),
+    llvm::cl::cat(EskiuCat));
 
 static llvm::cl::opt<std::string> TargetFeatures("mattr",
     llvm::cl::desc("Target feature string, LLVM -mattr syntax (e.g. +vfp2)"),
-    llvm::cl::value_desc("features"));
+    llvm::cl::value_desc("features"),
+    llvm::cl::cat(EskiuCat));
 
 static llvm::cl::opt<std::string> RelocModel("reloc",
     llvm::cl::desc("Relocation model: pic (default), static, dynamic-no-pic. "
                    "3DS .3dsx targets need 'static'."),
-    llvm::cl::value_desc("model"));
+    llvm::cl::value_desc("model"),
+    llvm::cl::cat(EskiuCat));
 
 static llvm::cl::opt<bool> Freestanding("freestanding",
-    llvm::cl::desc("Compile without libc — alloc/free use esk_alloc/esk_free"));
+    llvm::cl::desc("Compile without libc — alloc/free use esk_alloc/esk_free"),
+    llvm::cl::cat(EskiuCat));
 
 static llvm::cl::opt<bool> Safe("safe",
-    llvm::cl::desc("Insert runtime safety checks (slice bounds); traps on violation"));
+    llvm::cl::desc("Insert runtime safety checks (slice bounds); traps on violation"),
+    llvm::cl::cat(EskiuCat));
 
 static llvm::cl::opt<bool> Wall("Wall",
     llvm::cl::desc("Enable lint-style warnings: unused variables, parameters, "
-                   "and functions, and assignment used as a condition"));
+                   "and functions, and assignment used as a condition"),
+    llvm::cl::cat(EskiuCat));
 
 static llvm::cl::opt<bool> Wextra("Wextra",
-    llvm::cl::desc("Extra warnings: signed/unsigned comparison mismatches"));
+    llvm::cl::desc("Extra warnings: signed/unsigned comparison mismatches"),
+    llvm::cl::cat(EskiuCat));
 
 static llvm::cl::opt<std::string> HoverAt("hover-at",
     llvm::cl::desc("Print the Eskiu type at LINE:COL (e.g. --hover-at 8:12)"),
-    llvm::cl::value_desc("LINE:COL"));
+    llvm::cl::value_desc("LINE:COL"),
+    llvm::cl::cat(EskiuCat));
 
 static llvm::cl::opt<std::string> DefinitionAt("definition-at",
     llvm::cl::desc("Print the definition location of the symbol at LINE:COL"),
-    llvm::cl::value_desc("LINE:COL"));
+    llvm::cl::value_desc("LINE:COL"),
+    llvm::cl::cat(EskiuCat));
 
 static llvm::cl::opt<bool> CompileOnly("c",
-    llvm::cl::desc("Compile to an object file only; do not link"));
+    llvm::cl::desc("Compile to an object file only; do not link"),
+    llvm::cl::cat(EskiuCat));
 
 static llvm::cl::list<std::string> LinkLibs("l", llvm::cl::Prefix,
-    llvm::cl::desc("Link against a library, e.g. -lpthread (passed to the linker)"));
+    llvm::cl::desc("Link against a library, e.g. -lpthread (passed to the linker)"),
+    llvm::cl::cat(EskiuCat));
 
 static llvm::cl::list<std::string> LinkPaths("L", llvm::cl::Prefix,
-    llvm::cl::desc("Add a library search path (passed to the linker)"));
+    llvm::cl::desc("Add a library search path (passed to the linker)"),
+    llvm::cl::cat(EskiuCat));
 
 static llvm::cl::list<std::string> LinkArgs("link-arg",
     llvm::cl::desc("Pass an extra argument to the linker (repeatable)"),
-    llvm::cl::value_desc("arg"));
+    llvm::cl::value_desc("arg"),
+    llvm::cl::cat(EskiuCat));
 
 // Sanitizers: instrument the module (real LLVM passes) and link the runtime.
 static llvm::cl::opt<bool> Asan("asan",
-    llvm::cl::desc("Instrument with AddressSanitizer (detects memory errors)"));
+    llvm::cl::desc("Instrument with AddressSanitizer (detects memory errors)"),
+    llvm::cl::cat(EskiuCat));
 static llvm::cl::opt<bool> Ubsan("ubsan",
-    llvm::cl::desc("Instrument with bounds checking (traps on out-of-bounds access)"));
+    llvm::cl::desc("Instrument with bounds checking (traps on out-of-bounds access)"),
+    llvm::cl::cat(EskiuCat));
 
 // Optimization level: -O0 (default, naive IR straight to the backend), -O1/-O2/-O3
 // run the LLVM middle-end (mem2reg/SROA/instcombine/inlining/GVN/...) before codegen.
 static llvm::cl::opt<unsigned> OptLevel("O", llvm::cl::Prefix,
     llvm::cl::desc("Optimization level: -O0 (default), -O1, -O2, -O3"),
-    llvm::cl::init(0));
+    llvm::cl::init(0),
+    llvm::cl::cat(EskiuCat));
 
 const char* VERSION = "0.9.1";
 
@@ -308,9 +341,11 @@ int main(int argc, char** argv) {
             }
         }
         int newArgc = (int)clArgv.size();
-        llvm::cl::ParseCommandLineOptions(newArgc, clArgv.data(), "Eskiu Language Compiler\n");
+        llvm::cl::HideUnrelatedOptions(EskiuCat);
+        llvm::cl::ParseCommandLineOptions(newArgc, clArgv.data(), OVERVIEW);
     } else {
-        llvm::cl::ParseCommandLineOptions(argc, argv, "Eskiu Language Compiler\n");
+        llvm::cl::HideUnrelatedOptions(EskiuCat);
+        llvm::cl::ParseCommandLineOptions(argc, argv, OVERVIEW);
     }
 
     // Resolve stdlib root once — used by all parsers for import <name>
