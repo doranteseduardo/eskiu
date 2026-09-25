@@ -1127,6 +1127,44 @@ string sema_method_ret(Sema* s, *ExprNode e) {
     return null;
 }
 
+string sema_infer_type(Sema* s, *ExprNode e);
+int sema_variant_index(*DeclNode d, string v);
+
+// The type of a generic variant constructor `Some(x)` without type arguments: each type
+// parameter that is a payload field's whole type takes that argument's type (mirrors the
+// C++ inference, which does not look at the target type). "" when one stays unbound.
+string sema_variant_ctor_type(Sema* s, *DeclNode ed, *ExprNode e) {
+    int vi = sema_variant_index(ed, e.a.sval);
+    if (vi < 0 || vi >= List_len<List<string>>(&ed.payloads)) { return ""; }
+    List<string> pl = List_get<List<string>>(&ed.payloads, vi);
+    int tn = List_len<TypeParam>(&ed.type_params);
+    List<string> bound; List_init<string>(&bound, 2);
+    int t = 0; while (t < tn) { List_push<string>(&bound, ""); t = t + 1; }
+    int i = 0;
+    while (i < List_len<string>(&pl) && i < List_len<*ExprNode>(&e.kids)) {
+        string pt = sema_nospace(List_get<string>(&pl, i));
+        t = 0;
+        while (t < tn) {
+            if (sema_streq(pt, List_get<TypeParam>(&ed.type_params, t).name) == 1 && List_get<string>(&bound, t)[0] == 0) {
+                string at = sema_infer_type(s, List_get<*ExprNode>(&e.kids, i));
+                if (at[0] == 0) { return ""; }
+                List_set<string>(&bound, t, at);
+            }
+            t = t + 1;
+        }
+        i = i + 1;
+    }
+    string r = sema_cat(ed.name, "<");
+    t = 0;
+    while (t < tn) {
+        if (List_get<string>(&bound, t)[0] == 0) { return ""; }
+        if (t > 0) { r = sema_cat(r, ","); }
+        r = sema_cat(r, List_get<string>(&bound, t));
+        t = t + 1;
+    }
+    return sema_cat(r, ">");
+}
+
 // Best-effort string type of an expression ("" = unknown), mirroring the C++
 // getExpressionType for the forms whose type is certain here.
 string sema_infer_type(Sema* s, *ExprNode e) {
@@ -1190,6 +1228,7 @@ string sema_infer_type(Sema* s, *ExprNode e) {
         }
         *DeclNode ved = sema_variant_enum(s, e.a.sval);     // a payload variant constructor `A(1)`
         if (ved != null && List_len<TypeParam>(&ved.type_params) == 0) { return ved.name; }
+        if (ved != null) { return sema_variant_ctor_type(s, ved, e); }
         return "";
     }
     if (e.kind == EK_CALL && e.a != null && e.a.kind == EK_MEMBER) { return sema_method_ret(s, e); }
@@ -3205,6 +3244,22 @@ void sema_expr_k(Sema* s, *ExprNode e) {
             && sema_streq(e.sval, "va_start") == 0 && sema_streq(e.sval, "va_end") == 0) {
             s.had_error = 1;
             dprintf(2, "error: %s:%d:%d: undefined variable '%s'\n", s.filename, s.line, s.col, e.sval);
+        } else if (sema_sym_depth(s, e.sval) <= 0) {
+            // A generic enum's variant does not name its type arguments by itself (they
+            // are not inferred from the target type): `None<int>()` (mirrors the C++).
+            *DeclNode gve = sema_variant_enum(s, e.sval);
+            int gvi = -1;
+            int gpl = 0;
+            if (gve != null) { gvi = sema_variant_index(gve, e.sval); }
+            if (gvi >= 0 && gvi < List_len<List<string>>(&gve.payloads)) {
+                List<string> gpv = List_get<List<string>>(&gve.payloads, gvi);
+                gpl = List_len<string>(&gpv);
+            }
+            if (gve != null && List_len<TypeParam>(&gve.type_params) > 0 && gvi >= 0 && gpl == 0) {
+                s.had_error = 1;
+                dprintf(2, "error: %s:%d:%d: variant '%s' of generic enum '%s' needs explicit type arguments, as in %s<int>()\n",
+                        s.filename, s.line, s.col, e.sval, gve.name, e.sval);
+            }
         }
         // Escape soundness: a non-escaping closure param used anywhere but as the
         // immediate callee of a call escapes.

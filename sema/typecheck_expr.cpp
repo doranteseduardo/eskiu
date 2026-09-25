@@ -1300,7 +1300,13 @@ void TypeChecker::visit(IdentExpr* node) {
         if (inPrimaryFile()) useLocations[{node->line, node->col}] = node->name;
         return;
     }
-    if (type.empty()) {
+    if (type.empty() && genericVariants.count(node->name)) {
+        // A generic enum's variant does not name its type arguments by itself (they are
+        // not inferred from the target type): `None<int>()`.
+        errorAt(node, "variant '" + node->name + "' of generic enum '" + genericVariants[node->name].first +
+                      "' needs explicit type arguments, as in " + node->name + "<int>()");
+        expressionTypes[node] = "unknown";
+    } else if (type.empty()) {
         errorAt(node,"undefined variable '" + node->name + "'");
         expressionTypes[node] = "unknown";
     } else if (type[0] == '?' && narrowedNonNull.count(narrowKey(node->name))) {

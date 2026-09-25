@@ -1,0 +1,3 @@
+// EXPECT-ERROR: 3:27: variant 'None' of generic enum 'Opt' needs explicit type arguments, as in None<int>()
+enum Opt<T> { Some(T), None }
+int main() { Opt<int> n = None; int k = None; return 0; }

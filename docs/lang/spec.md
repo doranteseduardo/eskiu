@@ -1615,7 +1615,9 @@ Algebraic enums may be **generic** and are monomorphized per instantiation, like
 template structs. The type arguments of a generic variant are inferred from the
 payload arguments when they determine them (`Some(42)` → `Option<int>`); otherwise
 (a payload-free variant like `None`, or one that under-determines the type like
-`Either`'s `Left`) write them explicitly:
+`Either`'s `Left`) write them explicitly. They are not inferred from the target
+type: a bare `None` is a compile error, and `Some(42)` is an `Option<int>` even where
+an `Option<int64>` is expected (write `Some<int64>(42)`):
 
 ```eskiu
 enum Option<T>    { None, Some(T) }
