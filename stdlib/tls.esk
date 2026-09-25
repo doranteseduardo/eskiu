@@ -122,11 +122,17 @@ void tls_write_all(*void ssl, *uint8 buf, int n) {
 
 void tls_close(*void ssl) { SSL_shutdown(ssl); SSL_free(ssl); }
 
-// Read one whole frame (header into `hdr`, payload into buf+9). Returns the
-// payload length, or -1 on close/error.
+// Frame buffers here are 16384 + 9 bytes: the payload cap is the default
+// SETTINGS_MAX_FRAME_SIZE, which this server never raises (RFC 9113 §4.2).
+const int TLS_H2_MAX_PAYLOAD = 16384;
+
+// Read one whole frame (header into `hdr`, payload into buf+9; `buf` must hold
+// TLS_H2_MAX_PAYLOAD + 9 bytes). Returns the payload length, -1 on close/error,
+// or -2 if the peer's frame exceeds the maximum frame size (FRAME_SIZE_ERROR).
 int tls_read_frame(*void ssl, *uint8 buf, H2Frame* hdr) {
     if (tls_read_full(ssl, buf, 9) < 9) { return -1; }
     h2_read_header(buf, hdr);
+    if (hdr.length > TLS_H2_MAX_PAYLOAD) { return -2; }
     if (hdr.length > 0) {
         if (tls_read_full(ssl, buf + 9, hdr.length) < hdr.length) { return -1; }
     }
@@ -274,12 +280,14 @@ async int tls_write_all_async(EventLoop* lp, int fd, *void ssl, *uint8 buf, int 
     return sent;
 }
 
-// Read one whole frame over TLS into `buf` (header into `hdr`). Returns the
-// payload length, or -1 on close/error.
+// Read one whole frame over TLS into `buf` (TLS_H2_MAX_PAYLOAD + 9 bytes; header
+// into `hdr`). Returns the payload length, -1 on close/error, or -2 if the frame
+// exceeds the maximum frame size.
 async int tls_read_frame_async(EventLoop* lp, int fd, *void ssl, *uint8 buf, H2Frame* hdr) {
     int h = await tls_read_full_async(lp, fd, ssl, buf, 9);
     if (h < 9) { return -1; }
     h2_read_header(buf, hdr);
+    if (hdr.length > TLS_H2_MAX_PAYLOAD) { return -2; }
     if (hdr.length > 0) {
         int p = await tls_read_full_async(lp, fd, ssl, buf + 9, hdr.length);
         if (p < hdr.length) { return -1; }

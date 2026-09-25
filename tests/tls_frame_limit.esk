@@ -1,0 +1,59 @@
+// A peer-controlled 24-bit frame length larger than the 16384-byte frame buffer
+// must be rejected (FRAME_SIZE_ERROR), not read past the buffer. OpenSSL is
+// replaced by in-file stubs so the test links without libssl.
+import <tls>;
+import <mem>;
+extern int printf(string fmt, ...);
+extern *void memcpy(*void d, *void s, int64 n);
+
+*uint8 g_src;
+int g_len = 0;
+int g_pos = 0;
+
+int SSL_read(*void ssl, *void buf, int n) {
+    int k = g_len - g_pos;
+    if (k > n) { k = n; }
+    if (k <= 0) { return 0; }
+    memcpy(buf, (*void)(g_src + g_pos), (int64)k);
+    g_pos = g_pos + k;
+    return k;
+}
+*void TLS_server_method() { return (*void)0; }
+*void SSL_CTX_new(*void m) { return (*void)0; }
+void SSL_CTX_free(*void c) { }
+int SSL_CTX_use_certificate_file(*void c, string f, int t) { return 0; }
+int SSL_CTX_use_PrivateKey_file(*void c, string f, int t) { return 0; }
+void SSL_CTX_set_alpn_select_cb(*void c, *void cb, *void a) { }
+*void SSL_new(*void c) { return (*void)0; }
+int SSL_set_fd(*void s, int fd) { return 0; }
+int SSL_accept(*void s) { return 1; }
+int SSL_write(*void s, *void b, int n) { return n; }
+int SSL_shutdown(*void s) { return 0; }
+void SSL_free(*void s) { }
+int SSL_get_error(*void s, int r) { return 0; }
+
+void feed(int payload) {
+    g_len = 9 + payload;
+    g_pos = 0;
+    g_src[0] = (uint8)((payload >> 16) & 255);
+    g_src[1] = (uint8)((payload >> 8) & 255);
+    g_src[2] = (uint8)(payload & 255);
+    g_src[3] = (uint8)0;
+    g_src[4] = (uint8)0;
+    g_src[8] = (uint8)1;
+}
+
+int main() {
+    g_src = alloc<uint8>(20009);
+    *uint8 fb = alloc<uint8>(TLS_H2_MAX_PAYLOAD + H2_FRAME_HEADER_LEN);
+    let hdr: H2Frame;
+    feed(20000);
+    printf("oversize: %d\n", tls_read_frame((*void)0, fb, &hdr));
+    feed(16384);
+    printf("max: %d\n", tls_read_frame((*void)0, fb, &hdr));
+    feed(5);
+    printf("small: %d\n", tls_read_frame((*void)0, fb, &hdr));
+    free((*void)fb);
+    free((*void)g_src);
+    return 0;
+}
