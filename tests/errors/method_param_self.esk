@@ -1,0 +1,4 @@
+// EXPECT-ERROR: 3:9: method 'get' of struct 'S' cannot have a parameter named 'self'
+struct S { int v;
+    int get(int self) { return self; } }
+int main() { S t = S{v: 4}; return t.get(9); }

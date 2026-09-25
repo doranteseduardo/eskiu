@@ -312,6 +312,16 @@ void TypeChecker::visit(FunctionDecl* node) {
             errorAt(node, "'" + fnDisplay(node->name) + "' does not overload an operator for a user type: "
                           "an operand must be a struct, union, sum type or interface (built-in operands keep "
                           "their built-in meaning)");
+        // Operand count: `!`, `~` and unary `-` take one, every other operator two.
+        const std::string& op = node->operatorSym;
+        size_t want = (op == "u-" || op == "!" || op == "~") ? 1 : 2;
+        if (node->params.size() != want) {
+            std::string shown = op == "u-" ? "-" : op;
+            errorAt(node, "operator '" + shown + "' takes " +
+                          (op == "-" || op == "u-" ? std::string("1 or 2 parameters") :
+                           want == 1 ? std::string("1 parameter") : std::string("2 parameters")) +
+                          ", got " + std::to_string(node->params.size()));
+        }
     }
 
     // The C runtime calls `main` and uses its return value at once; an async main would
@@ -732,6 +742,10 @@ void TypeChecker::visit(StructDecl* node) {
                     errorAt(mf, "method '" + mf->name + "' of struct '" + node->name + "' has the same name as a field");
                 if (!methods.insert(mf->name).second)
                     errorAt(mf, "duplicate method '" + mf->name + "' in struct '" + node->name + "'");
+                for (const auto& p : mf->params)
+                    if (p.second == "self")
+                        errorAt(mf, "method '" + mf->name + "' of struct '" + node->name +
+                                    "' cannot have a parameter named 'self': it is the implicit receiver");
             }
     }
     // Field types must name known types (a template's fields mention its type params and

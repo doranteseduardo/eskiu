@@ -1427,7 +1427,7 @@ f.mode = 2;   // leaves ready and weight untouched
 
 ### 8.2 Methods with Implicit self
 
-Methods are declared inside the struct body. Inside a method body, `self` refers to a pointer to the receiver struct.
+Methods are declared inside the struct body. Inside a method body, `self` refers to a pointer to the receiver struct. Because `self` is that implicit parameter, an inline method may not declare a parameter named `self`.
 
 ```eskiu
 struct Counter {
@@ -1474,7 +1474,7 @@ V3 p = (q + t) * 2.0;   // operator + and then operator *(V3, double)
 V3 n = -q;              // the unary operator -
 ```
 
-Overloadable: the binary operators `+ - * / % == != < > <= >= & | ^ << >>`, the unary operators `- ! ~`, and subscript `[]`. Compound assignment (`v += w`) is defined as `v = v + w`, using the overloaded `+`. The short-circuit operators `&&` / `||`, the pointer operators `*` / `&`, and `=` / `.` are structural and cannot be overloaded.
+Overloadable: the binary operators `+ - * / % == != < > <= >= & | ^ << >>`, the unary operators `- ! ~`, and subscript `[]`. A binary operator and `[]` take exactly two parameters, `!` and `~` exactly one, and `-` one (negation) or two (subtraction); any other count is a compile error. Compound assignment (`v += w`) is defined as `v = v + w`, using the overloaded `+`. The short-circuit operators `&&` / `||`, the pointer operators `*` / `&`, and `=` / `.` are structural and cannot be overloaded.
 
 Resolution is entirely static and structural:
 

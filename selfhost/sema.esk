@@ -5231,6 +5231,16 @@ void sema_check_fields(Sema* s, *DeclNode d) {
             s.had_error = 1;
             dprintf(2, "error: %s:%d:%d: duplicate method '%s' in struct '%s'\n", s.filename, s.line, s.col, mname, d.name);
         } else { List_push<string>(&mnames, mname); }
+        *DeclNode md = List_get<*DeclNode>(&d.methods, m);
+        int mp = 0;
+        while (mp < List_len<Param>(&md.params)) {
+            if (sema_streq(List_get<Param>(&md.params, mp).name, "self") == 1) {
+                s.had_error = 1;
+                dprintf(2, "error: %s:%d:%d: method '%s' of struct '%s' cannot have a parameter named 'self': it is the implicit receiver\n",
+                        s.filename, md.line, md.col, mname, d.name);
+            }
+            mp = mp + 1;
+        }
         m = m + 1;
     }
     while (i < n) {
@@ -5537,6 +5547,20 @@ int sema_check(Sema* s, *Program prog) {
                 s.had_error = 1;
                 dprintf(2, "error: %s:%d:%d: '%s' does not overload an operator for a user type: an operand must be a struct, union, sum type or interface (built-in operands keep their built-in meaning)\n",
                        s.filename, s.line, s.col, sema_fn_display(d));
+            }
+            // Operand count: `!`, `~` and unary `-` take one, every other operator two.
+            string op = d.operator_sym;
+            int want = 2;
+            if (sema_streq(op, "u-") == 1 || sema_streq(op, "!") == 1 || sema_streq(op, "~") == 1) { want = 1; }
+            int got = List_len<Param>(&d.params);
+            if (got != want) {
+                string shown = op;
+                if (sema_streq(op, "u-") == 1) { shown = "-"; }
+                string cnt = "2 parameters";
+                if (sema_streq(shown, "-") == 1) { cnt = "1 or 2 parameters"; }
+                else if (want == 1) { cnt = "1 parameter"; }
+                s.had_error = 1;
+                dprintf(2, "error: %s:%d:%d: operator '%s' takes %s, got %d\n", s.filename, s.line, s.col, shown, cnt, got);
             }
         }
         if (d.kind == DK_FUNCTION) { sema_check_fn(s, d, ""); }
