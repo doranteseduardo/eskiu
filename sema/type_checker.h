@@ -102,7 +102,7 @@ public:
     std::map<std::pair<int,int>, UseDef> useDefs;
     // Tooling maps only describe the primary input (an imported file's nodes share
     // line/col coordinates with it).
-    bool inPrimaryFile() const { return curFile.empty() || curFile == sourceFile; }
+    bool inPrimaryFile() const { return !inInstance && (curFile.empty() || curFile == sourceFile); }
     std::string getDefinitionAt(int line, int col) const;
     // Declared-name hover spans (variables, parameters): cursor on the declared
     // name → its type, even though the name is not an expression node.
@@ -159,6 +159,34 @@ private:
     void unifyTypeParam(std::string pattern, std::string concrete,
                         const std::set<std::string>& tps,
                         std::map<std::string, std::string>& subs);
+    // Per-instantiation checking of generic bodies. A template body is checked once
+    // for each distinct set of concrete type arguments it is instantiated with (a
+    // generic function call, or a generic struct instance for its inline methods),
+    // after the main pass. The body's AST is shared by every instance, so while one
+    // is checked the per-expression type table is swapped out and no node is stamped.
+    struct PendingInstance {
+        FunctionDecl* fn;
+        std::map<std::string, std::string> subs;   // type param -> concrete type
+        std::string display;                       // "pick<Box>", "Box<int>.get"
+        std::string mangled;                       // the instance's own function name
+        std::string selfType;                      // "*Box_int" for a generic struct method
+        std::string file;
+        int depth;
+    };
+    std::vector<PendingInstance> pendingInstances;
+    std::set<std::string> queuedInstances;
+    std::map<std::string, std::string> instSubs;  // substitutions of the instance being checked
+    std::string instContext;                      // its display name (appended to diagnostics)
+    int instDepth = 0;
+    bool inInstance = false;
+    bool substituting = false;                    // normalizeType re-entry guard
+    // Queue an instance of `fn` (keyed and displayed as `name<args>suffix`), unless already queued.
+    void queueInstance(FunctionDecl* fn, const std::vector<std::string>& typeParams,
+                       const std::map<std::string, std::string>& subs, const std::string& name,
+                       const std::string& suffix, const std::string& mangled, const std::string& selfType, const std::string& file);
+    void checkPendingInstances();
+    // A type argument written inside the instance being checked, resolved to concrete.
+    std::string resolveInstType(const std::string& t) const;
     // Interface registry
     std::map<std::string, InterfaceDecl*> interfaceDecls;
 

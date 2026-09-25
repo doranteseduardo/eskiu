@@ -295,9 +295,9 @@ void TypeChecker::visit(FunctionDecl* node) {
     validateStructType(normalizeType(node->returnType), node);
 
     // Record definition location
-    definitionLocations[node->name] = {node->line, node->col, diagFile()};
+    if (!inInstance) definitionLocations[node->name] = {node->line, node->col, diagFile()};
     // -Wall: track top-level functions for unused-function reporting (skip main).
-    if (node->name != "main") definedFns[node->name] = {node->line, node->col};
+    if (node->name != "main" && !inInstance) definedFns[node->name] = {node->line, node->col};
 
     currentFunctionReturnType = node->returnType;   // inner T (async body returns T)
     bool prevInAsync = inAsyncFn;
@@ -347,7 +347,7 @@ void TypeChecker::visit(FunctionDecl* node) {
     // A non-void function must return on every path; falling off the end is an
     // error (there is no implicit zero return). `void` may fall off; `async`
     // functions complete their future implicitly and are exempt.
-    if (node->body && !node->isAsync && node->returnType != "void" &&
+    if (node->body && !inInstance && !node->isAsync && node->returnType != "void" &&
         !stmtAlwaysReturns(node->body.get())) {
         errorAt(node, "missing return in non-void function '" + node->name +
                       "' (control can reach the end without returning a " +
@@ -368,7 +368,10 @@ void TypeChecker::visit(FunctionDecl* node) {
                       "write a concrete async function or await a generic helper from it");
     }
 
-    for (size_t i = 0; i < node->params.size(); ++i) {
+    // Escape soundness is enforced on non-generic functions only (as before per-instance
+    // checking existed): it counts passing a closure param down to another call as an
+    // escape, which generic helpers such as sort<T> rely on.
+    for (size_t i = 0; i < node->params.size() && !inInstance; ++i) {
         if (escapedFnParams.count(node->params[i].second)) {
             errorAt(node, "closure parameter '" + node->params[i].second +
                 "' escapes (used beyond a direct call); mark it `escaping`");
@@ -505,7 +508,7 @@ void TypeChecker::visit(VarDecl* node) {
     }
 
     // Record definition location
-    if (node->line > 0)
+    if (node->line > 0 && !inInstance)
         definitionLocations[node->name] = {node->line, node->col, diagFile()};
     if (node->initializer) {
         // Reconcile a lambda initializer's return type with a declared fn(...)->R

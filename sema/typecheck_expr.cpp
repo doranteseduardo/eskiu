@@ -126,7 +126,7 @@ void TypeChecker::visit(BinaryExpr* node) {
         // Not found → the operands really are invalid.
         std::string ret, opFn = resolveOperator(node->op, {leftType, rightType}, ret);
         if (!opFn.empty()) {
-            node->opFunc = opFn;
+            if (!inInstance) node->opFunc = opFn;
             calledFns.insert(opFn);        // -Wall: an operator use references it
             expressionTypes[node] = ret;   // the operator's declared return type
         } else {
@@ -384,7 +384,7 @@ void TypeChecker::visit(UnaryExpr* node) {
         if (node->op == "-" || node->op == "!" || node->op == "~")
             opFn = resolveOperator(lookupOp, {operandType}, ret);
         if (!opFn.empty()) {
-            node->opFunc = opFn;
+            if (!inInstance) node->opFunc = opFn;
             calledFns.insert(opFn);
             expressionTypes[node] = ret;
         } else {
@@ -543,6 +543,28 @@ void TypeChecker::visit(CallExpr* node) {
                 return;
             }
         }
+        // Inside a generic instance, a constrained call `t.m(x)` on a primitive receiver is
+        // satisfied by a free function `m(T, ...)` (codegen lowers it to `m(t, x)`).
+        static const std::set<std::string> kScalarPrims = {
+            "int","int8","int16","int32","int64","uint","uint8","uint16","uint32",
+            "uint64","char","bool","float","double"};
+        if (inInstance && kScalarPrims.count(baseType)) {
+            auto fit = functionSignatures.find(member->member);
+            if (fit != functionSignatures.end() && !fit->second.second.empty()) {
+                calledFns.insert(member->member);
+                const auto& pts = fit->second.second;
+                std::string recvT = getExpressionType(member->base.get());
+                std::string e = assignabilityError(pts[0], recvT, member->base.get());
+                if (!e.empty())
+                    errorAt(node, "receiver of '" + member->member + "' type mismatch: expected " +
+                                  pts[0] + ", got " + recvT + " (" + e + ")");
+                for (auto& arg : node->args) arg->accept(this);
+                checkCallArgs(node, "function '" + member->member + "'",
+                              std::vector<std::string>(pts.begin() + 1, pts.end()));
+                expressionTypes[node] = fit->second.first;
+                return;
+            }
+        }
         // Not a method — maybe a struct field holding a fn pointer: o.op(args).
         member->accept(this);
         std::string fieldTy = getExpressionType(member);
@@ -611,11 +633,17 @@ void TypeChecker::visit(CallExpr* node) {
             for (const auto& tpName : fd->typeParams)
                 if (!subs.count(tpName)) unbound += (unbound.empty() ? "" : ", ") + tpName;
             if (unbound.empty()) {
+                size_t errsBefore = errors.size();
                 checkConstraints(node, fd->constraints, subs);
                 // The inferred instantiation's parameter types must accept every argument.
                 std::vector<std::string> pts;
                 for (const auto& p : fd->params) pts.push_back(substType(p.first, subs));
                 checkCallArgs(node, "function '" + funcName + "'", pts);
+                if (errors.size() == errsBefore) {
+                    std::string mangled = funcName;
+                    for (const auto& tpn : fd->typeParams) mangled += "_" + mangleTemplate(subs[tpn]);
+                    queueInstance(fd, fd->typeParams, subs, funcName, "", mangled, "", fd->sourceFile);
+                }
                 expressionTypes[node] = normalizeType(substType(fd->returnType, subs));
                 return;
             }
@@ -666,7 +694,7 @@ void TypeChecker::visit(CallExpr* node) {
         // enforced by the soundness check), so its env can stay on the stack.
         if (auto* lam = dynamic_cast<LambdaExpr*>(node->args[i].get())) {
             bool paramEscapes = escVec && i < escVec->size() && (*escVec)[i];
-            if (!paramEscapes) lam->escapes = false;
+            if (!paramEscapes && !inInstance) lam->escapes = false;
         }
         if (i < fixedCount) {
             std::string argType = getExpressionType(node->args[i].get());
@@ -779,7 +807,7 @@ void TypeChecker::visit(IndexExpr* node) {
     // `operator [](Base, Index)` (read/rvalue form; a slice `base[lo..hi]` is not overloaded).
     if (!haveElem && !node->highIndex) {
         std::string ret, opFn = resolveOperator("[]", {baseType, indexType}, ret);
-        if (!opFn.empty()) { node->opFunc = opFn; calledFns.insert(opFn); expressionTypes[node] = ret; return; }
+        if (!opFn.empty()) { if (!inInstance) node->opFunc = opFn; calledFns.insert(opFn); expressionTypes[node] = ret; return; }
     }
 
     if (!haveElem) {
@@ -1044,11 +1072,14 @@ void TypeChecker::visit(LambdaExpr* node) {
     narrowedNonNull = savedNarrowed;
     popScope();
 
-    // Harvest captures: only outer-scope vars, not params
-    node->captures.clear();
-    for (const auto& [name, type] : captureStack.back()) {
-        if (!paramNames.count(name))
-            node->captures.push_back({name, type});
+    // Harvest captures: only outer-scope vars, not params. A generic body's lambdas
+    // keep the source-form captures TemplateCapturePass recorded (shared by instances).
+    if (!inInstance) {
+        node->captures.clear();
+        for (const auto& [name, type] : captureStack.back()) {
+            if (!paramNames.count(name))
+                node->captures.push_back({name, type});
+        }
     }
     captureStack.pop_back();
     captureBoundary.pop_back();
@@ -1060,7 +1091,8 @@ void TypeChecker::visit(SizeofExpr* node) {
     // `sizeof(x)` of a variable measures the variable's type (C semantics). The parser
     // reads the operand as a type spelling, so resolve a bare name that is a variable
     // (not a type) here and rewrite the operand to that variable's type for codegen.
-    const std::string& tn = node->typeName;
+    const std::string tn = node->typeName;
+    std::string resolved = tn;
     bool isTypeName = isPrimitiveType(tn) || structs.count(tn) || typeAliases.count(tn) ||
                       enumTypes.count(tn) || interfaceDecls.count(tn) || tn == "va_list";
     if (!isTypeName) {
@@ -1069,9 +1101,10 @@ void TypeChecker::visit(SizeofExpr* node) {
             auto f = it->find(tn);
             if (f != it->end()) { f->second.used = true; vt = f->second.type; break; }
         }
-        if (!vt.empty() && vt != "unknown" && vt != "struct:" + tn) node->typeName = tyq::strip(vt);
+        if (!vt.empty() && vt != "unknown" && vt != "struct:" + tn) resolved = tyq::strip(vt);
     }
-    validateStructType(normalizeType(node->typeName), node);
+    if (!inInstance) node->typeName = resolved;   // a generic body's nodes are shared by its instances
+    validateStructType(normalizeType(resolved), node);
     expressionTypes[node] = "int64";
 }
 
@@ -1102,7 +1135,7 @@ void TypeChecker::visit(AwaitExpr* node) {
     if (base == "Future") {
         std::string res = (args.size() == 1) ? normalizeType(args[0]) : "unknown";
         expressionTypes[node] = res;
-        node->resolvedType = res;          // consumed by the async transform
+        if (!inInstance) node->resolvedType = res;   // consumed by the async transform
     } else {
         if (t != "unknown")
             errorAt(node, "await expects a *Future<T>, got " + t);
@@ -1166,9 +1199,10 @@ void TypeChecker::visit(TemplateCallExpr* node) {
     }
     FunctionDecl* fd = templ->second;
     auto& tp = fd->typeParams;
+    size_t errsBefore = errors.size();
     std::map<std::string, std::string> subs;
     for (size_t i = 0; i < tp.size() && i < node->typeArgs.size(); ++i)
-        subs[tp[i]] = node->typeArgs[i];
+        subs[tp[i]] = resolveInstType(node->typeArgs[i]);
     if (node->typeArgs.size() != tp.size())
         errorAt(node, "generic function '" + node->templateName + "' expects " + std::to_string(tp.size()) +
                       " type argument(s), got " + std::to_string(node->typeArgs.size()));
@@ -1195,6 +1229,11 @@ void TypeChecker::visit(TemplateCallExpr* node) {
 
     std::string retType = normalizeType(substType(fd->returnType, subs));
     expressionTypes[node] = retType;
+    if (errors.size() == errsBefore && node->typeArgs.size() == tp.size()) {
+        std::string mangled = node->templateName;
+        for (const auto& t : node->typeArgs) mangled += "_" + mangleTemplate(resolveInstType(t));
+        queueInstance(fd, tp, subs, node->templateName, "", mangled, "", fd->sourceFile);
+    }
 }
 
 void TypeChecker::visit(AllocWithExpr* node) {

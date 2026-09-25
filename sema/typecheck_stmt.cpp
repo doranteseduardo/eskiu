@@ -83,8 +83,7 @@ void TypeChecker::visit(ForInStmt* node) {
         // A fixed-size array (or slice): the element is one step in, so the rows of an
         // `int[2][3]` are `int[3]` (the leftmost bracket is the outer dimension).
         elemType = normalizeType(itT.elem->str());
-        node->isArrayIter = true;
-        node->arrayDim = itT.dim;
+        if (!inInstance) { node->isArrayIter = true; node->arrayDim = itT.dim; }
     } else {
         std::string s = ty::Type::parse(itType).nominalName();
         auto it = structs.find(s);
@@ -102,7 +101,7 @@ void TypeChecker::visit(ForInStmt* node) {
         }
     }
 
-    node->resolvedElemType = elemType;
+    if (!inInstance) node->resolvedElemType = elemType;
     dropAssignedIn(node->body.get());   // later iterations see assignments in the body
     pushScope();
     if (elemType.empty()) {
@@ -288,7 +287,7 @@ void TypeChecker::visit(ThreadJoinStmt* node) {
 void TypeChecker::visit(ThrowStmt* node) {
     if (node->value) {
         node->value->accept(this);
-        node->valueType = getExpressionType(node->value.get());
+        if (!inInstance) node->valueType = getExpressionType(node->value.get());
     }
 }
 
@@ -379,7 +378,7 @@ void TypeChecker::visit(MatchStmt* node) {
     }
     if (!ed && st != "unknown")
         errorAt(node, "match subject must be an enum, got " + st);
-    node->enumName = st;
+    if (!inInstance) node->enumName = st;
     // Index of a variant within `ed` by name (-1 if absent).
     auto variantIndex = [&](const std::string& v) -> int {
         if (!ed) return -1;

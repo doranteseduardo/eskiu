@@ -63,8 +63,8 @@ HANDLED="undefined_var arg_count undefined_type await_outside_async async_no_awa
          parse_error parse_error_located parse_missing_operand parse_return_no_semi parse_import_no_semi
          parse_catch_colon parse_array_field parse_postdec_literal parse_leading_dot
          import_missing import_missing_std operator_as_name nesting_too_deep chain_too_long
-         pragma_link_malformed
-         method_arg_type method_arg_count method_free_fn_arg_type iface_call_arg_type"
+         pragma_link_malformed method_arg_type method_arg_count method_free_fn_arg_type iface_call_arg_type generic_inst_method_arg
+         generic_inst_operator generic_inst_nested"
 HANDLED="$(echo $HANDLED)"   # collapse the multi-line list to single spaces for matching
 
 DRIVER=selfhost/esk_main.esk

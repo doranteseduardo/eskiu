@@ -28,6 +28,11 @@ struct FnSig { string name; int fixed; int variadic; }
 // A top-level name and what declared it (for the one-namespace duplicate check).
 struct NameEnt { string name; string kind; *DeclNode d; }
 
+// A generic instance queued for checking: the template function (or a generic struct's
+// inline method, with `owner` the struct), its concrete type arguments, and its display
+// name ("pick<Box>") for diagnostics. Mirrors the C++ PendingInstance.
+struct SInst { *DeclNode func; *DeclNode owner; List<string> targs; string display; int depth; }
+
 // One enum variant, for match exhaustiveness.
 struct EVar { string en; string variant; string val; int plain; }   // val = member value (classic enums)
 
@@ -58,6 +63,15 @@ struct Sema {
     string filename;
     int line;               // position of the node being checked (0 = unknown), for diagnostics
     int col;
+    // Per-instantiation checking of generic bodies (after the main pass): the queue, the
+    // display keys already queued, and while one is checked its substitution (parallel
+    // type-param names / concrete arguments).
+    List<SInst> insts;
+    List<string> inst_seen;
+    List<string> isub_p;
+    List<string> isub_a;
+    int in_inst;
+    int inst_depth;
 }
 
 // Mutually-recursive walk.
@@ -238,6 +252,12 @@ void sema_init(Sema* s, string filename) {
     s.sw_depth = 0;
     s.line = 0; s.col = 0;
     s.filename = filename;
+    List_init<SInst>(&s.insts, 8);
+    List_init<string>(&s.inst_seen, 8);
+    List_init<string>(&s.isub_p, 4);
+    List_init<string>(&s.isub_a, 4);
+    s.in_inst = 0;
+    s.inst_depth = 0;
 }
 
 void sema_push(Sema* s) { s.depth = s.depth + 1; }
@@ -617,11 +637,15 @@ string sema_infer_type(Sema* s, *ExprNode e) {
         string mbt = sema_infer_type(s, e.a);
         if (mbt[0] != 0 && sema_is_fn_type(mbt) == 0) {
             *DeclNode msd = sema_find_struct(s, sema_struct_of_type(mbt));
-            if (msd != null && List_len<TypeParam>(&msd.type_params) == 0) {
+            List<string> mtargs; List_init<string>(&mtargs, 2);
+            if (msd != null) { sema_parse_targs(sema_strip_ptr_sp(mbt), &mtargs); }
+            // A generic struct's field resolves only through an instance (`Box<int>`).
+            if (msd != null && (List_len<TypeParam>(&msd.type_params) == 0
+                || List_len<string>(&mtargs) == List_len<TypeParam>(&msd.type_params))) {
                 int mi = 0; int mn = List_len<Param>(&msd.params);
                 while (mi < mn) {
                     Param mf = List_get<Param>(&msd.params, mi);
-                    if (sema_streq(mf.name, e.sval) == 1) { return mf.ty; }
+                    if (sema_streq(mf.name, e.sval) == 1) { return sema_subst_params(mf.ty, &msd.type_params, &mtargs); }
                     mi = mi + 1;
                 }
             }
@@ -717,6 +741,9 @@ string sema_assign_err(Sema* s, string t0, *ExprNode e) {
     int sptr = 0; if (sema_is_fn_type(src) == 0 && sema_is_ptrish(src) == 1 && sema_streq(src, "null") == 0 && sema_is_arr_ty(src) == 0) { sptr = 1; }
     if (tnum == 1 && sptr == 1) { return conv; }
     if (tptr == 1 && snum == 1) { return conv; }
+    // A struct value where a pointer is expected, or a pointer where a struct value is.
+    if (tptr == 1 && sema_is_struct(s, src) == 1) { return conv; }
+    if (sptr == 1 && sema_is_struct(s, t) == 1) { return conv; }
     if (sema_is_fn_type(t) == 1 && sema_is_fn_type(src) == 1) { return "incompatible function type"; }
     *DeclNode iface = sema_find_iface(s, t);
     if (iface != null && sema_is_struct(s, sema_struct_of_type(src)) == 1) {
@@ -976,6 +1003,69 @@ string sema_subst_params(string t, List<TypeParam>* tps, List<string>* args) {
     List<string> names; List_init<string>(&names, 4);
     int i = 0; while (i < List_len<TypeParam>(tps)) { List_push<string>(&names, List_get<TypeParam>(tps, i).name); i = i + 1; }
     return sema_subst_names(t, &names, args);
+}
+
+// A type spelling inside the generic instance being checked, with its type parameters
+// replaced by the instance's arguments (unchanged outside an instance).
+string sema_isub(Sema* s, string t) {
+    if (s.in_inst == 0 || t == null) { return t; }
+    return sema_subst_names(t, &s.isub_p, &s.isub_a);
+}
+
+// Queue an instance of `qfn` (keyed and displayed as `name<args>suffix`) for checking,
+// unless it is already queued. `owner` is the generic struct of an inline method.
+void sema_queue_inst(Sema* s, *DeclNode qfn, *DeclNode owner, List<string>* targs, string name, string suffix) {
+    if (qfn == null || qfn.body == null) { return; }
+    let si: SInst;
+    List_init<string>(&si.targs, 4);
+    string disp = sema_cat(name, "<");
+    int i = 0;
+    while (i < List_len<string>(targs)) {
+        string a = sema_isub(s, List_get<string>(targs, i));
+        List_push<string>(&si.targs, a);
+        if (i > 0) { disp = sema_cat(disp, ","); }
+        disp = sema_cat(disp, a);
+        i = i + 1;
+    }
+    disp = sema_cat(sema_cat(disp, ">"), suffix);
+    if (sema_in_list(&s.inst_seen, disp) == 1) { return; }
+    List_push<string>(&s.inst_seen, disp);
+    si.func = qfn; si.owner = owner; si.display = disp; si.depth = s.inst_depth + 1;
+    List_push<SInst>(&s.insts, si);
+}
+
+// Any user operator overload for `op` ("+", "u-", ...)? Built-in operand rules then defer
+// to the overload resolution codegen performs (with its numeric coercions).
+int sema_any_op(Sema* s, string op) {
+    int i = 0; int n = List_len<*DeclNode>(&s.fndecls);
+    while (i < n) {
+        *DeclNode d = List_get<*DeclNode>(&s.fndecls, i);
+        if (d.operator_sym != null && sema_streq(d.operator_sym, op) == 1) { return 1; }
+        i = i + 1;
+    }
+    return 0;
+}
+
+// The type arguments of an inferred generic call `f(x, y)`, from the parameters spelled
+// exactly as a type parameter (`T a`). 1 when every type parameter is bound.
+int sema_bind_targs(Sema* s, *DeclNode fd, *ExprNode e, List<string>* out) {
+    int t = 0; int tn = List_len<TypeParam>(&fd.type_params);
+    while (t < tn) {
+        string tp = List_get<TypeParam>(&fd.type_params, t).name;
+        string b = "";
+        int i = 0; int n = List_len<*ExprNode>(&e.kids); int np = List_len<Param>(&fd.params);
+        while (i < n && i < np && b[0] == 0) {
+            if (sema_streq(List_get<Param>(&fd.params, i).ty, tp) == 1) {
+                string at = sema_strip_const(sema_infer_type(s, List_get<*ExprNode>(&e.kids, i)));
+                if (at[0] != 0 && sema_streq(at, "null") == 0 && sema_streq(at, "unknown") == 0) { b = at; }
+            }
+            i = i + 1;
+        }
+        if (b[0] == 0) { return 0; }
+        List_push<string>(out, b);
+        t = t + 1;
+    }
+    return 1;
 }
 
 // A call through a fn-typed value of type `ft`.
@@ -1682,6 +1772,13 @@ void sema_expr_k(Sema* s, *ExprNode e) {
                 && (sema_is_numeric_ty(olt) == 1 && sema_is_numeric_ty(ort) == 1)) { bad = 1; }
             if (arith == 1 && sema_is_ptrish(olt) == 1 && sema_is_ptrish(ort) == 1
                 && sema_streq(olt, "null") == 0 && sema_streq(ort, "null") == 0) { bad = 1; }
+            // A struct value has no built-in arithmetic/bitwise operator (only a user
+            // overload), and a pointer or string has no `*` `/` `%`.
+            if ((arith == 1 || bitop == 1 || sema_streq(e.sval, "-") == 1)
+                && (sema_is_struct(s, olt) == 1 || sema_is_struct(s, ort) == 1) && sema_any_op(s, e.sval) == 0) { bad = 1; }
+            if ((sema_streq(e.sval, "*") == 1 || sema_streq(e.sval, "/") == 1 || sema_streq(e.sval, "%") == 1)
+                && olt[0] != 0 && ort[0] != 0 && sema_any_op(s, e.sval) == 0
+                && ((sema_is_ptrish(olt) == 1 && sema_is_arr_ty(olt) == 0) || (sema_is_ptrish(ort) == 1 && sema_is_arr_ty(ort) == 0))) { bad = 1; }
             if (bad == 1) {
                 s.had_error = 1;
                 printf("error: %s:%d:%d: invalid operands for operator: %s and %s\n", s.filename, s.line, s.col, olt, ort);
@@ -1860,6 +1957,14 @@ void sema_expr_k(Sema* s, *ExprNode e) {
     }
     if (k == EK_UNARY || k == EK_CAST
         || k == EK_FREECLOSURE || k == EK_THREADCREATE) {
+        if (k == EK_UNARY && (sema_streq(e.sval, "-") == 1 || sema_streq(e.sval, "~") == 1 || sema_streq(e.sval, "!") == 1)) {
+            string ut = sema_strip_const(sema_infer_type(s, e.a));   // a struct value: only a user overload
+            string uop = e.sval; if (sema_streq(uop, "-") == 1) { uop = "u-"; }
+            if (sema_is_struct(s, ut) == 1 && sema_any_op(s, uop) == 0) {
+                s.had_error = 1;
+                printf("error: %s:%d:%d: invalid operand for unary operator: %s\n", s.filename, s.line, s.col, ut);
+            }
+        }
         if (k == EK_UNARY && sema_streq(e.sval, "*") == 1) {
             sema_check_nullable_deref(s, e.a, "dereference");
         }
@@ -2098,7 +2203,11 @@ void sema_expr_k(Sema* s, *ExprNode e) {
                     s.had_error = 1;
                     printf("error: %s:%d:%d: cannot infer type argument(s) %s of generic function '%s' from the call; write them explicitly, e.g. %s<...>(...)\n",
                            s.filename, s.line, s.col, unb, gfd.name, gfd.name);
-                } else if (sema_check_generic_arity(s, gfd, e) == 1) { sema_check_generic_binding(s, gfd, e); }
+                } else if (sema_check_generic_arity(s, gfd, e) == 1) {
+                    sema_check_generic_binding(s, gfd, e);
+                    List<string> btargs; List_init<string>(&btargs, 4);
+                    if (sema_bind_targs(s, gfd, e, &btargs) == 1) { sema_queue_inst(s, gfd, null, &btargs, gfd.name, ""); }
+                }
             }
         }
         // A call through a fn-typed value: a fn-pointer variable (local or global, not a
@@ -2159,21 +2268,22 @@ void sema_expr_k(Sema* s, *ExprNode e) {
             sema_parse_targs(e.sval, &targs);
             int tn = List_len<TypeParam>(&fd.type_params);
             int na = List_len<string>(&targs);
+            int inst_ok = 1;
             if (tn > 0 && na != tn) {
-                s.had_error = 1;
+                s.had_error = 1; inst_ok = 0;
                 printf("error: %s:%d:%d: generic function '%s' expects %d type argument(s), got %d\n", s.filename, s.line, s.col, fd.name, tn, na);
             }
-            sema_check_generic_arity(s, fd, e);
+            if (sema_check_generic_arity(s, fd, e) == 0) { inst_ok = 0; }
             int ti = 0;
             while (ti < tn && ti < na) {
                 TypeParam tp = List_get<TypeParam>(&fd.type_params, ti);
-                string concrete = List_get<string>(&targs, ti);
+                string concrete = sema_isub(s, List_get<string>(&targs, ti));
                 int ci = 0;
                 int cn = List_len<string>(&tp.constraints);
                 while (ci < cn) {
                     string ic = List_get<string>(&tp.constraints, ci);
                     if (sema_satisfies(s, concrete, ic) == 0) {
-                        s.had_error = 1;
+                        s.had_error = 1; inst_ok = 0;
                         printf("error: %s:%d:%d: type '%s' does not satisfy constraint '%s'\n",
                                s.filename, s.line, s.col, concrete, ic);
                     }
@@ -2181,6 +2291,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
                 }
                 ti = ti + 1;
             }
+            if (inst_ok == 1 && tn > 0) { sema_queue_inst(s, fd, null, &targs, fd.name, ""); }
         }
         int i = 0;
         int n = List_len<*ExprNode>(&e.kids);
@@ -2286,9 +2397,10 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
         return;
     }
     if (k == SK_VARDECL) {
+        string vty = sema_isub(s, st.type);   // a generic instance's `T x` names its argument
         sema_expr(s, st.expr);             // initializer (can't reference itself)
-        if (st.expr != null && st.expr.kind == EK_ARRAYLIT && sema_is_arr_ty(st.type) == 1) {
-            sema_check_arr_init(s, st.type, st.expr);   // too many elements for the fixed size
+        if (st.expr != null && st.expr.kind == EK_ARRAYLIT && sema_is_arr_ty(vty) == 1) {
+            sema_check_arr_init(s, vty, st.expr);   // too many elements for the fixed size
         }
         if (st.is_static == 1 && st.expr != null && sema_is_const_init(s, st.expr) == 0) {
             sema_error(s, "a 'static' local's initializer must be a constant");
@@ -2298,7 +2410,7 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
             printf("error: %s:%d:%d: const '%s' must be initialized\n", s.filename, s.line, s.col, st.name);
         }
         // Initializing a non-const pointer from a pointer-to-const drops const.
-        if (st.expr != null && sema_has_star(st.type) == 1 && sema_pointee_const(st.type) == 0) {
+        if (st.expr != null && sema_has_star(vty) == 1 && sema_pointee_const(vty) == 0) {
             if (sema_pointee_const(sema_infer_type(s, st.expr)) == 1) {
                 sema_error(s, "initialization discards a const qualifier");
             }
@@ -2306,42 +2418,42 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
         // A nullable `?*T` may not initialize a non-null `*T` without a null-check (it
         // would drop the guarantee). `*T`/`null` → `?*T` widening is fine. Mirrors the C++
         // assignabilityError nullable rule.
-        if (st.expr != null && st.type[0] != 0 && st.type[0] != 63 && sema_has_star(st.type) == 1) {
+        if (st.expr != null && vty[0] != 0 && vty[0] != 63 && sema_has_star(vty) == 1) {
             string nsrc = sema_infer_type(s, st.expr);
             if (nsrc[0] == 63) {
                 s.had_error = 1;
                 printf("error: %s:%d:%d: assigning a nullable pointer '%s' to non-null '%s' requires a null-check (e.g. `if (x != null)`)\n",
-                       s.filename, s.line, s.col, nsrc, st.type);
+                       s.filename, s.line, s.col, nsrc, vty);
             }
         }
         // Initializer type compatibility. Conservative: only flag a conversion the C++
         // checker also rejects, defaulting to OK when the source type is unknown (so a
         // valid program is never falsely rejected). Mirrors assignabilityError's error cases.
-        if (st.expr != null && st.type[0] != 0) {
-            if (sema_is_int_ty(st.type) == 1 && st.expr.kind == EK_LITERAL
-                && st.expr.lit_kind == LIT_INT && sema_int_lit_fits(st.type, st.expr.sval) == 0) {
+        if (st.expr != null && vty[0] != 0) {
+            if (sema_is_int_ty(vty) == 1 && st.expr.kind == EK_LITERAL
+                && st.expr.lit_kind == LIT_INT && sema_int_lit_fits(vty, st.expr.sval) == 0) {
                 s.had_error = 1;
-                printf("error: %s:%d:%d: integer literal %s is out of range for '%s'\n", s.filename, s.line, s.col, st.expr.sval, st.type);
+                printf("error: %s:%d:%d: integer literal %s is out of range for '%s'\n", s.filename, s.line, s.col, st.expr.sval, vty);
             } else {
                 string src = sema_infer_type(s, st.expr);
                 int flagged = 0;
-                if (src[0] != 0 && sema_streq(src, "unknown") == 0 && sema_streq(src, st.type) == 0) {
+                if (src[0] != 0 && sema_streq(src, "unknown") == 0 && sema_streq(src, vty) == 0) {
                     flagged = 1;
-                    if (sema_is_int_ty(st.type) == 1 && sema_is_float_ty(src) == 1) {
+                    if (sema_is_int_ty(vty) == 1 && sema_is_float_ty(src) == 1) {
                         sema_error(s, "cannot assign a floating-point value to an integer type without an explicit cast (it drops the fraction)");
-                    } else if (sema_streq(src, "string") == 1 && (sema_is_int_ty(st.type) == 1 || sema_is_float_ty(st.type) == 1)) {
+                    } else if (sema_streq(src, "string") == 1 && (sema_is_int_ty(vty) == 1 || sema_is_float_ty(vty) == 1)) {
                         sema_error(s, "cannot convert 'string' to a numeric type");
-                    } else if (sema_streq(src, "void") == 1 && sema_streq(st.type, "void") == 0) {
+                    } else if (sema_streq(src, "void") == 1 && sema_streq(vty, "void") == 0) {
                         sema_error(s, "cannot convert a 'void' value");
-                    } else if (sema_is_fn_type(st.type) == 1 && sema_is_fn_type(src) == 1) {
-                        sema_error(s, "incompatible function type");   // src != st.type (guarded above)
+                    } else if (sema_is_fn_type(vty) == 1 && sema_is_fn_type(src) == 1) {
+                        sema_error(s, "incompatible function type");   // src != vty (guarded above)
                     } else { flagged = 0; }
                 }
                 // The remaining conversions (pointer/number mixes, a `?:` literal arm out of
                 // range, an interface the value does not satisfy): the shared rule.
-                if (flagged == 0 && st.expr.kind == EK_LAMBDA && sema_is_fn_type(st.type) == 1) {
+                if (flagged == 0 && st.expr.kind == EK_LAMBDA && sema_is_fn_type(vty) == 1) {
                     // A lambda's return type is reconciled to the declared one; its parameters must match.
-                    List<string> dps; List_init<string>(&dps, 4); sema_fn_params(st.type, &dps);
+                    List<string> dps; List_init<string>(&dps, 4); sema_fn_params(vty, &dps);
                     List<string> lps; List_init<string>(&lps, 4); sema_lambda_params(st.expr.sval, &lps);
                     int same = 1;
                     if (List_len<string>(&dps) != List_len<string>(&lps)) { same = 0; }
@@ -2352,12 +2464,12 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
                     }
                     if (same == 0) {
                         s.had_error = 1;
-                        printf("error: %s:%d:%d: initializing '%s': incompatible function type '%s' for '%s'\n", s.filename, s.line, s.col, st.name, st.expr.sval, st.type);
+                        printf("error: %s:%d:%d: initializing '%s': incompatible function type '%s' for '%s'\n", s.filename, s.line, s.col, st.name, st.expr.sval, vty);
                     }
                     flagged = 1;
                 }
-                if (flagged == 0 && (sema_pointee_const(src) == 0 || sema_has_star(st.type) == 0)) {
-                    string aerr = sema_assign_err(s, st.type, st.expr);
+                if (flagged == 0 && (sema_pointee_const(src) == 0 || sema_has_star(vty) == 0)) {
+                    string aerr = sema_assign_err(s, vty, st.expr);
                     if (aerr[0] != 0) {
                         s.had_error = 1;
                         printf("error: %s:%d:%d: initializing '%s': %s\n", s.filename, s.line, s.col, st.name, aerr);
@@ -2365,18 +2477,18 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
                 }
             }
         }
-        sema_check_iface_value(s, st.type, st.expr);
-        sema_check_decl_type(s, st.type);
+        sema_check_iface_value(s, vty, st.expr);
+        sema_check_decl_type(s, vty);
         int prev_i = sema_sym_index(s, st.name);    // `let x; let x;` in one scope (an inner block may shadow)
         if (s.depth > 0 && prev_i >= 0 && List_get<Sym>(&s.syms, prev_i).depth == s.depth) {
             s.had_error = 1;
             printf("error: %s:%d:%d: redefinition of '%s' in the same scope\n", s.filename, s.line, s.col, st.name);
         }
-        if (sema_is_void_value(st.type) == 1) {
+        if (sema_is_void_value(vty) == 1) {
             s.had_error = 1;
             printf("error: %s:%d:%d: variable '%s' cannot have type 'void'\n", s.filename, s.line, s.col, st.name);
         }
-        sema_define(s, st.name, st.type, st.is_const);
+        sema_define(s, st.name, vty, st.is_const);
         return;
     }
     if (k == SK_RETURN) {
@@ -2496,7 +2608,7 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
         string itt = sema_infer_type(s, st.expr);
         string elem = "";
         if (sema_is_arr_ty(itt) == 1) { elem = sema_arr_elem(itt); }
-        st.resolved_elem = elem;
+        if (s.in_inst == 0) { st.resolved_elem = elem; }
         sema_drop_assigned(s, st.s1);
         sema_define(s, st.name, elem, 0);
         sema_lbl_push(s, st.label);
@@ -3235,7 +3347,7 @@ void sema_check_fn(Sema* s, *DeclNode f, string self_type) {
     // undefined-variable) is deferred to instantiation, exactly as the C++ checker does,
     // because the param types are still abstract. Only the definite-return check is
     // structural (control-flow, type-independent), so it still applies here.
-    if (List_len<TypeParam>(&f.type_params) > 0) {
+    if (List_len<TypeParam>(&f.type_params) > 0 && s.in_inst == 0) {
         if (f.is_async == 0 && sema_streq(f.ret_type, "void") == 0
             && sema_always_returns(f.body) == 0) {
             s.had_error = 1;
@@ -3252,8 +3364,9 @@ void sema_check_fn(Sema* s, *DeclNode f, string self_type) {
     }
     s.in_async = f.is_async;
     s.await_seen = 0;
-    s.cur_ret = f.ret_type;
-    // Escape soundness: watch non-escaping fn-type params for the body walk.
+    s.cur_ret = sema_isub(s, f.ret_type);
+    // Escape soundness: watch non-escaping fn-type params for the body walk. (Not in a
+    // generic instance: as in the C++ checker, it is enforced on non-generic functions.)
     List_init<string>(&s.watched, 4);
     List_init<string>(&s.escaped, 4);
     List_init<string>(&s.narrowed, 4);
@@ -3265,16 +3378,16 @@ void sema_check_fn(Sema* s, *DeclNode f, string self_type) {
         Param pm = List_get<Param>(&f.params, pe);
         int marked = 0;
         if (pe < List_len<int>(&f.param_escaping)) { marked = List_get<int>(&f.param_escaping, pe); }
-        if (sema_is_fn_type(pm.ty) == 1 && marked == 0) { List_push<string>(&s.watched, pm.name); }
+        if (sema_is_fn_type(pm.ty) == 1 && marked == 0 && s.in_inst == 0) { List_push<string>(&s.watched, pm.name); }
         pe = pe + 1;
     }
     sema_push(s);
-    if (self_type[0] != 0) { sema_define(s, "self", self_type, 0); }   // method: self is the struct
+    if (self_type[0] != 0) { sema_define(s, "self", sema_cat("*", self_type), 0); }   // method: self points at the struct
     int j = 0;
     int m = List_len<Param>(&f.params);
     while (j < m) {
         Param pm = List_get<Param>(&f.params, j);
-        sema_define(s, pm.name, pm.ty, 0);
+        sema_define(s, pm.name, sema_isub(s, pm.ty), 0);
         j = j + 1;
     }
     sema_stmt(s, f.body);
@@ -3282,7 +3395,7 @@ void sema_check_fn(Sema* s, *DeclNode f, string self_type) {
     if (f.is_async == 0) { sema_check_uninit(s, f.body); }   // reads of an uninitialized scalar local
     // A non-void function must return on every path (no implicit zero return);
     // void may fall off, and async completes its future implicitly.
-    if (f.is_async == 0 && sema_streq(f.ret_type, "void") == 0
+    if (f.is_async == 0 && s.in_inst == 0 && sema_streq(f.ret_type, "void") == 0
         && sema_always_returns(f.body) == 0) {
         s.had_error = 1;
         printf("error: %s:%d:%d: missing return in non-void function '%s' (control can reach the end without returning a %s)\n",
@@ -3304,6 +3417,58 @@ void sema_check_fn(Sema* s, *DeclNode f, string self_type) {
         wi = wi + 1;
     }
     s.in_async = 0;
+}
+
+// Check each queued generic instance: the template body with its type parameters bound
+// to the instance's arguments. Checking one may queue more, so this runs until the
+// queue drains. A failing instance is followed by a note naming it.
+void sema_check_insts(Sema* s, string primary) {
+    int i = 0;
+    while (i < List_len<SInst>(&s.insts)) {
+        SInst p = List_get<SInst>(&s.insts, i);
+        *DeclNode top = p.func;
+        if (p.owner != null) { top = p.owner; }
+        sema_enter_decl(s, top, primary);
+        s.line = p.func.line; s.col = p.func.col;
+        if (p.depth > 64) {
+            s.had_error = 1;
+            printf("error: %s:%d:%d: generic instantiation of '%s' is nested more than 64 levels deep (infinitely recursive generic?)\n",
+                   s.filename, s.line, s.col, p.display);
+            return;
+        }
+        List<TypeParam>* tps = &p.func.type_params;
+        if (p.owner != null) { tps = &p.owner.type_params; }
+        List_init<string>(&s.isub_p, 4); List_init<string>(&s.isub_a, 4); List_init<string>(&s.tparams, 4);
+        int k = 0;
+        while (k < List_len<TypeParam>(tps) && k < List_len<string>(&p.targs)) {
+            List_push<string>(&s.isub_p, List_get<TypeParam>(tps, k).name);
+            List_push<string>(&s.tparams, List_get<TypeParam>(tps, k).name);
+            List_push<string>(&s.isub_a, List_get<string>(&p.targs, k));
+            k = k + 1;
+        }
+        string self_t = "";
+        if (p.owner != null) {
+            self_t = sema_cat(p.owner.name, "<");
+            int a = 0;
+            while (a < List_len<string>(&p.targs)) {
+                if (a > 0) { self_t = sema_cat(self_t, ","); }
+                self_t = sema_cat(self_t, List_get<string>(&p.targs, a));
+                a = a + 1;
+            }
+            self_t = sema_cat(self_t, ">");
+        }
+        int saved = s.had_error;
+        s.had_error = 0;
+        s.in_inst = 1; s.inst_depth = p.depth;
+        sema_check_fn(s, p.func, self_t);
+        s.in_inst = 0; s.inst_depth = 0;
+        if (s.had_error == 1) {
+            printf("note: %s:%d:%d: (in instantiation of %s)\n", s.filename, p.func.line, p.func.col, p.display);
+        }
+        if (saved == 1) { s.had_error = 1; }
+        List_init<string>(&s.isub_p, 4); List_init<string>(&s.isub_a, 4); List_init<string>(&s.tparams, 4);
+        i = i + 1;
+    }
 }
 
 // Returns 1 if the program type-checks (no errors), 0 otherwise.
@@ -3361,6 +3526,7 @@ int sema_check(Sema* s, *Program prog) {
         }
         i = i + 1;
     }
+    sema_check_insts(s, primary);
     s.filename = primary;
     sema_check_value_cycles(s);
     if (s.had_error == 1) { return 0; }

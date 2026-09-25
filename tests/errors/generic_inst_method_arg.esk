@@ -1,0 +1,14 @@
+// EXPECT-ERROR: in instantiation of pick<Box>
+// The bound is met, but the body passes `b` (a Box value) where Box_cmp takes a
+// *Box: only visible once T = Box, so the instance body is checked per instantiation.
+interface Ord { int cmp(*Box other); }
+struct Box { int v; int cmp(*Box other) { return self.v - other.v; } }
+T pick<T: Ord>(T a, T b) {
+    if (a.cmp(b) > 0) { return a; }
+    return b;
+}
+int main() {
+    Box x = Box{3}; Box y = Box{5};
+    Box z = pick<Box>(x, y);
+    return z.v;
+}

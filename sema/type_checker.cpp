@@ -184,6 +184,8 @@ bool TypeChecker::check(Program* program) {
     }
     curFile.clear();
 
+    checkPendingInstances();
+
     checkValueCycles(program);
 
     // -Wall: top-level functions defined but never referenced.
@@ -338,9 +340,86 @@ void TypeChecker::checkValueCycles(Program* program) {
 std::string TypeChecker::getExpressionType(Expr* expr) {
     auto it = expressionTypes.find(expr);
     if (it != expressionTypes.end()) {
-        return it->second;
+        // A type built from source spellings inside a generic instance (a lambda's
+        // `fn(T)->T`) still names the parameter: resolve it like any declared type.
+        return inInstance ? resolveInstType(it->second) : it->second;
     }
     return "unknown";
+}
+
+std::string TypeChecker::resolveInstType(const std::string& t) const {
+    if (!inInstance || instSubs.empty()) return t;
+    for (const auto& kv : instSubs)
+        if (t.find(kv.first) != std::string::npos) return substType(t, instSubs);
+    return t;
+}
+
+void TypeChecker::queueInstance(FunctionDecl* fn, const std::vector<std::string>& typeParams,
+                                const std::map<std::string, std::string>& subs,
+                                const std::string& name, const std::string& suffix,
+                                const std::string& mangled, const std::string& selfType,
+                                const std::string& file) {
+    if (!fn || !fn->body) return;
+    std::string display = name + "<";
+    for (size_t i = 0; i < typeParams.size(); ++i) {
+        auto it = subs.find(typeParams[i]);
+        std::string a = it == subs.end() ? typeParams[i] : it->second;
+        for (size_t p; (p = a.find("struct:")) != std::string::npos; ) a.erase(p, 7);
+        display += (i ? "," : "") + a;
+    }
+    display += ">" + suffix;
+    if (!queuedInstances.insert(display).second) return;
+    pendingInstances.push_back({fn, subs, display, mangled, selfType,
+                                file.empty() ? diagFile() : file, instDepth + 1});
+}
+
+// Check each queued generic instance: the template body, with its type parameters
+// bound to the instance's arguments. Checking one may queue more (nested generic
+// calls, generic structs named in the body), so this runs until the queue drains.
+void TypeChecker::checkPendingInstances() {
+    static const int kMaxDepth = 64;
+    for (size_t i = 0; i < pendingInstances.size(); ++i) {
+        PendingInstance p = pendingInstances[i];
+        if (p.depth > kMaxDepth) {
+            curFile = p.file;
+            errorAt(p.fn, "generic instantiation of '" + p.display + "' is nested more than " +
+                          std::to_string(kMaxDepth) + " levels deep (infinitely recursive generic?)");
+            curFile.clear();
+            break;
+        }
+        std::vector<std::pair<std::string, std::string>> params;
+        if (!p.selfType.empty()) params.push_back({p.selfType, "self"});
+        for (const auto& pr : p.fn->params)
+            params.push_back({pr.first == "..." ? pr.first : substType(pr.first, p.subs), pr.second});
+        FunctionDecl inst(p.mangled, substType(p.fn->returnType, p.subs), params, p.fn->body);
+        inst.line = p.fn->line; inst.col = p.fn->col;
+        inst.paramEscaping = p.fn->paramEscaping;
+        inst.paramPositions = p.fn->paramPositions;
+        if (!p.selfType.empty()) {
+            if (!inst.paramEscaping.empty()) inst.paramEscaping.insert(inst.paramEscaping.begin(), false);
+            if (!inst.paramPositions.empty())
+                inst.paramPositions.insert(inst.paramPositions.begin(), {p.fn->line, p.fn->col});
+        }
+
+        std::map<Expr*, std::string> instTypes;
+        std::swap(expressionTypes, instTypes);
+        auto savedNarrowed = narrowedNonNull;
+        narrowedNonNull.clear();
+        curFile = p.file;
+        instSubs = p.subs;
+        instContext = p.display;
+        instDepth = p.depth;
+        inInstance = true;
+        inst.accept(this);
+        inInstance = false;
+        instDepth = 0;
+        instContext.clear();
+        instSubs.clear();
+        curFile.clear();
+        narrowedNonNull = savedNarrowed;
+        std::swap(expressionTypes, instTypes);
+    }
+    pendingInstances.clear();
 }
 
 // Declaration visitors
@@ -550,10 +629,12 @@ void TypeChecker::error(int line, int col, const std::string& message) {
     hasErrors = true;
     std::stringstream ss;
     ss << diagFile() << ":" << line << ":" << col << ": " << message;
+    if (inInstance) ss << " (in instantiation of " << instContext << ")";
     errors.push_back(ss.str());
 }
 
 void TypeChecker::warning(int line, int col, const std::string& message) {
+    if (inInstance) return;   // a generic body is linted once, not once per instance
     std::stringstream ss;
     ss << diagFile() << ":" << line << ":" << col << ": warning: " << message;
     std::cerr << ss.str() << "\n";

@@ -1,5 +1,6 @@
 #include "type_checker.h"
 #include <set>
+#include <algorithm>
 
 // Template type-name utilities (mangleTemplate / splitTemplateType / substType)
 // are shared with codegen; see template_utils.h.
@@ -511,6 +512,17 @@ std::string TypeChecker::normalizeType(const std::string& rawType) {
     // type machinery is const-agnostic. (const survives only in stored declared
     // types, read back by the const-correctness checks.)
     std::string type = tyq::strip(rawType);
+    // Inside a generic instance, the template's type parameters name its concrete
+    // arguments. Substituted once, at the outermost call (the arguments are concrete).
+    if (inInstance && !substituting && !instSubs.empty() &&
+        std::any_of(instSubs.begin(), instSubs.end(),
+                    [&](const auto& kv) { return type.find(kv.first) != std::string::npos; })) {
+        type = substType(type, instSubs);
+        substituting = true;
+        std::string r = normalizeType(type);
+        substituting = false;
+        return r;
+    }
     if (hasPointerSuffix(type)) {
         return addPointerSuffix(normalizeType(extractBaseType(type)));
     }

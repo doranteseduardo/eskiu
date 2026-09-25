@@ -1,0 +1,11 @@
+// EXPECT-ERROR: in instantiation of neg<Q>
+// The error is in a generic called from another generic: the inner instance neg<Q>
+// (reached through twice<Q>) is checked with T = Q.
+struct Q { int v; }
+T neg<T>(T x) { return -x; }
+T twice<T>(T x) { return neg<T>(neg<T>(x)); }
+int main() {
+    Q q = Q{4};
+    Q r = twice<Q>(q);
+    return r.v + twice<int>(3);
+}
