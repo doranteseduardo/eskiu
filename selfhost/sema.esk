@@ -5285,6 +5285,22 @@ int sema_check(Sema* s, *Program prog) {
         if ((d.kind == DK_FUNCTION && List_len<TypeParam>(&d.type_params) == 0) || d.kind == DK_EXTERN) {
             sema_check_sig_types(s, d);
         }
+        // An operator overload extends an operator to a user type: one operand must be a
+        // struct/union, a sum type or an interface value (mirrors the C++ check).
+        if (d.kind == DK_FUNCTION && d.operator_sym != null && d.operator_sym[0] != 0) {
+            int user = 0; int oi = 0;
+            while (oi < List_len<Param>(&d.params)) {
+                string ot = List_get<Param>(&d.params, oi).ty;
+                if (sema_has_star(ot) == 0 && sema_is_fn_type(ot) == 0 && sema_is_arr_ty(ot) == 0
+                    && sema_is_aggregate(s, ot) == 1) { user = 1; }
+                oi = oi + 1;
+            }
+            if (user == 0) {
+                s.had_error = 1;
+                printf("error: %s:%d:%d: '%s' does not overload an operator for a user type: an operand must be a struct, union, sum type or interface (built-in operands keep their built-in meaning)\n",
+                       s.filename, s.line, s.col, sema_fn_display(d));
+            }
+        }
         if (d.kind == DK_FUNCTION) { sema_check_fn(s, d, ""); }
         // A global's initializer runs at compile time (no code runs before `main`), so it
         // must be a constant expression, as in C.

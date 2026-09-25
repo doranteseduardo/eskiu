@@ -285,6 +285,22 @@ void TypeChecker::visit(FunctionDecl* node) {
         errorAt(node, "'main' must return int (its return value is the process exit code); "
                       "got '" + node->returnType + "'");
 
+    // An operator overload extends an operator to a user type: one operand must be a
+    // struct/union, a sum type or an interface value (operators on built-in operands,
+    // pointers included, keep their built-in meaning).
+    if (!node->operatorSym.empty() && !inInstance) {
+        bool userOperand = false;
+        for (const auto& p : node->params) {
+            std::string t = normalizeType(p.first);
+            if (!isPointerType(t) && (t.rfind("struct:", 0) == 0 || adtEnums.count(t) || interfaceDecls.count(t)))
+                userOperand = true;
+        }
+        if (!userOperand)
+            errorAt(node, "'" + fnDisplay(node->name) + "' does not overload an operator for a user type: "
+                          "an operand must be a struct, union, sum type or interface (built-in operands keep "
+                          "their built-in meaning)");
+    }
+
     // Parameter and return types must name known types.
     std::set<std::string> paramNames;
     for (const auto& param : node->params) {

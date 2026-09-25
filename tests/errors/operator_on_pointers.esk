@@ -1,0 +1,5 @@
+// EXPECT-ERROR: does not overload an operator for a user type
+// Pointer operands are built-in (pointer arithmetic), so they cannot be overloaded.
+struct V { int x; }
+V operator +(*V a, *V b) { return V{x: a.x + b.x}; }
+int main() { V a = V{x: 2}; V b = &a + &a; return b.x; }
