@@ -107,9 +107,32 @@ Versions follow <code>MAJOR.MINOR.PATCH-stage</code> (e.g. <code>0.0.9-alpha</co
 <p>A full-project audit (codegen, type checker, self-host parity, stdlib, front end, driver
 and docs) found about a hundred latent bugs that the existing corpus did not reach. All
 are fixed lockstep in the C++ and self-hosted compilers unless noted, each with a
-regression test.</p>
+regression test. A second pass added three fuzzers (a C oracle, a negative corpus and an
+ASan fuzzer for the stdlib parsers), which found about twenty more, and resolved the two
+known limitations left from 0.9.1 (R and S).</p>
 <h3 id="added">Added</h3>
 <ul>
+<li><strong><code>#pragma link("name")</code></strong> links the executable with <code>-lname</code>. The driver also adds
+  the libraries a program implies: the stdlib's own pragmas (<code>libm</code> on Linux, <code>pthread</code>,
+  <code>ws2_32</code>), the C++ exception runtime when the program throws or catches, and
+  <code>pthread</code> when it calls <code>thread_create</code>. <code>-lm</code>, <code>-lc++</code>/<code>-lstdc++</code> and <code>-lpthread</code>
+  are no longer needed. <code>--no-default-libs</code> turns all of this off.</li>
+<li><strong>Inline methods on generic structs</strong> (<code>struct Box&lt;T&gt; { T get() {...} }</code>), instantiated
+  per struct instance on first call.</li>
+<li><strong>Dot-calls on generic instances</strong>: <code>l.push(8)</code> on a <code>List&lt;int&gt;</code> is
+  <code>List_push&lt;int&gt;(&amp;l, 8)</code>, and <code>ch.send(v)</code>, <code>m.get(k, &amp;out)</code> work the same way. The
+  type arguments come from the receiver, then the call's arguments. The call is lowered
+  as an ordinary call, so arguments convert, struct results use <code>sret</code> and a call
+  inside <code>try</code> unwinds.</li>
+<li><strong>C callbacks with structs by value</strong>: a top-level function passed to C as <code>(*void)f</code>
+  that takes or returns a struct by value is reached through a thunk with the C
+  convention.</li>
+<li><strong>Fuzzers</strong>: <code>tests/fuzz/c_oracle.py</code> (programs compiled by both Eskiu compilers and
+  by clang as C, outputs compared), <code>tests/fuzz/neg_fuzz.py</code> (one injected error per
+  program, both compilers must give a located diagnostic) and <code>tests/fuzz/stdlib_fuzz.py</code>
+  (the stdlib parsers under ASan). Each has a CI gate, and
+  <code>tests/selfhost/cabi_parity.sh</code> compares the self-host's lowered C signatures with the
+  C++ ones per target.</li>
 <li><strong><code>#if</code> / <code>#elif</code></strong> with C integer constant expressions (<code>defined(X)</code>, <code>defined X</code>,
   arithmetic, shifts, comparisons, <code>&amp;&amp;</code>, <code>||</code>, <code>?:</code>). An identifier left after macro
   expansion counts as <code>0</code>, as in C.</li>
@@ -119,8 +142,8 @@ regression test.</p>
 <li><strong><code>const</code> receivers.</strong> A method declared with <code>const T* self</code> can be called on a
   <code>const</code> value.</li>
 <li><strong>C ABI for structs passed or returned by value across <code>extern</code></strong>: AArch64, x86-64
-  SysV, Windows x64 and 32-bit ARM in the C++ compiler, AArch64 and x86-64 SysV in the
-  self-host. New predefined macros <code>__aarch64__</code>, <code>__x86_64__</code> and <code>__arm__</code> follow the
+  SysV, Windows x64 and 32-bit ARM, in both compilers (the self-host picks the
+  convention from <code>--target</code>). New predefined macros <code>__aarch64__</code>, <code>__x86_64__</code> and <code>__arm__</code> follow the
   target.</li>
 <li><strong>Test runner:</strong> a <code>run</code> or smoke test may have a C companion <code>tests/NAME.c</code> that is
   compiled and linked in; <code>tests/warnings/NAME.esk</code> is a new lint kind that asserts the
@@ -165,6 +188,31 @@ regression test.</p>
   malformed or overflowing <code>Content-Length</code> gets a 400; <code>String_to_int</code> saturates and
   accepts a leading <code>+</code>; <code>http_reason</code> returns the class name (or an empty string) for
   an unknown code instead of "OK".</li>
+<li><strong>C's usual arithmetic conversions</strong> apply to mixed-sign operands: a signed and an
+  unsigned operand of the same width give an unsigned result, a shift has the type of
+  its promoted left operand, unary <code>-</code> and <code>~</code> promote a narrow operand to <code>int</code>, and
+  two different narrow ternary arms meet as <code>int</code>. An integer literal too wide for
+  <code>int</code> is an <code>int64</code>. Constant initializers fold with exactly these rules.</li>
+<li><strong>An <code>extern</code> parameter of fn type is a C function pointer.</strong> The call passes a
+  top-level function by name or <code>null</code>; a lambda or a fn-typed variable there is an
+  error (its environment cannot cross into C). It used to pass the <code>{fn, env}</code> closure.</li>
+<li><strong>Bitfields follow the target's C layout</strong> (ABI change for structs mixing bitfield
+  types). On SysV/AAPCS targets a bitfield shares bytes with its neighbours while it
+  fits in an aligned unit of its declared type, so <code>uint8 a:4; uint32 w:12;</code> is now 4
+  bytes. Windows targets use the MS layout, including under <code>#pragma pack(N)</code>.</li>
+<li><strong>Each generic instantiation is type-checked</strong> with its concrete type arguments
+  (known limitation S), so an error that exists only for some arguments is reported as
+  <code>... (in instantiation of f&lt;Box&gt;)</code>. The self-host now checks method-call argument
+  types (known limitation R).</li>
+<li><strong>A local in a function's outermost block may not reuse a parameter name</strong> (the
+  parameters and that block share one scope, as in C).</li>
+<li><strong>Range loops</strong>: <code>for (i in A..B)</code> takes the bounds' common integer type (it was always
+  <code>int</code>, so an <code>int64</code> bound wrapped), a non-integer bound is an error, and a bound that
+  names the loop variable reads the outer variable of that name.</li>
+<li><strong>Duplicate <code>case</code> labels are found by value</strong>, so <code>case 7:</code> and <code>case (4 * 2) - 1:</code>, or
+  a <code>const</code> name and its value, collide.</li>
+<li>The self-host rejects bad operands, calls, returns and global types the way the C++
+  compiler does.</li>
 </ul>
 <h3 id="deprecated">Deprecated</h3>
 <ul>
@@ -211,6 +259,20 @@ regression test.</p>
   value; calling a returned closure directly works; an <code>extern</code> followed by its
   definition no longer emits two definitions; chained assignment yields the converted
   value.</li>
+<li>Found by the C oracle: a shadowing initializer (<code>int64 x = x + 1;</code>) reads the outer
+  variable; a deferred statement uses the names visible where it was written, even at
+  an exit where a later declaration shadows one; a braced <code>defer</code> body run on an early
+  exit no longer crashes codegen (C++); <code>continue</code> inside a <code>switch</code> case runs only the
+  loop's defers (self-host); a <code>const</code> initializer using <code>sizeof(struct)</code> folds to the
+  real size (self-host folded 0); literals and <code>sizeof</code> keep their type in mixed-sign
+  operations (self-host).</li>
+<li>Built-in operators inside generic bodies get their instance types, so unsigned
+  division and comparison in a generic function are unsigned (C++).</li>
+<li>Names synthesized by the async transform and by range loops (<code>__fr</code>, <code>st</code>, <code>__end_i</code>
+  and the rest) no longer collide with user identifiers.</li>
+<li>An <code>extern</code> prototype next to the program's own definition keeps the Eskiu
+  convention, so by-value structs and fn parameters agree between the call and the
+  definition (C++).</li>
 </ul>
 <h4 id="type-checker">Type checker</h4>
 <ul>
@@ -242,9 +304,13 @@ regression test.</p>
   programs it used to accept (C-style array declarators, <code>++</code> on a float, a mismatched
   <code>?</code>, misplaced array literals) are rejected like the C++ compiler; its diagnostics
   carry <code>line:col</code>.</li>
+<li><code>int32 main()</code> is accepted as an entry point. Generic arguments are inferred through a
+  <code>const Box&lt;T&gt;* self</code> receiver, and the self-host infers every type parameter of a
+  nested generic argument (<code>HashMap_get(&amp;m, k, &amp;out)</code> with no <code>&lt;K, V&gt;</code>).</li>
 </ul>
 <h4 id="front-end-driver-and-tooling">Front end, driver and tooling</h4>
 <ul>
+<li>A C-style local of function type (<code>fn(int32)-&gt;int32 h = f;</code>) parses (C++).</li>
 <li><code>x &lt; y &gt;&gt; 1</code> parses (a backtracked generic parse left <code>&gt;&gt;</code> split), and <code>(*p)</code> parses
   as a dereference rather than a cast.</li>
 <li>Macro arguments keep string and character literals whole, nested macro calls in
@@ -259,7 +325,12 @@ regression test.</p>
   accepts flags with values before the script. <code>-o</code> naming an input file, a directory
   input and <code>-O4</code> are refused. <code>--help</code> lists the Eskiu options and subcommands without
   LLVM's internal ones. <code>$CC</code> may carry arguments.</li>
-<li>Nesting-depth and operator-chain limits replace stack overflows on pathological input.</li>
+<li>Deeply nested or very long input no longer overflows the compiler's stack. Binary
+  operators parse by precedence climbing, operator and <code>else if</code> chains are walked by
+  loops in every pass (no chain limit), the compiler runs on a 1 GB stack, and more than
+  100000 nesting levels is a located <code>nesting too deep</code> error.</li>
+<li>Faster builds: <code>-O0</code> no longer runs the optimizing backend passes, and symbol lookup
+  takes constant time at any scope depth.</li>
 <li><code>fmt</code> indents code after a closing <code>*/</code> and preserves CRLF line endings.</li>
 <li>Self-host driver: spawns clang without a shell (safe with any argument), accepts the
   full flag set, finds the stdlib through <code>$ESKIU_ROOT</code>, and reports a missing import as
@@ -294,6 +365,11 @@ regression test.</p>
   no-op.</li>
 <li><code>String_from_int(INT_MIN)</code>, <code>String_init(&amp;s, 0)</code>, POSIX <code>dirname</code>/<code>basename</code> edge
   cases, negative ISO years and <code>env_get_int</code> fallbacks on non-numeric values.</li>
+<li>HTTP: a body above 2 GiB is copied and its <code>Content-Length</code> written in full (<code>int64</code>
+  throughout).</li>
+<li>The internals of 34 stdlib modules use the current language (dot-calls, <code>defer</code>,
+  <code>const</code>, range loops) with no API change; <code>tools/gen_hpack_huffman.py</code> emits <code>switch</code>
+  tables for the Huffman code.</li>
 </ul>
 <h2 id="091-2026-09-09">[0.9.1] - 2026-09-09</h2>
 <h3 id="fixed_1">Fixed</h3>
