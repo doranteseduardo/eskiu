@@ -2609,6 +2609,20 @@ string cg_lit_arm_etype(Codegen* g, *ExprNode e) {
         else if (m > (uint64)2147483647) { return "int64"; }
         return "int";
     }
+    // A named top-level function as an arm is a function value: its `fn(...)->R` type,
+    // so the arm decays to a closure (`k > 0 ? inc : dbl`), as in the C++ type checker.
+    if (e != null && e.kind == EK_IDENT && cg_find_local(g, e.sval).slot[0] == 0
+        && cg_find_global(g, e.sval).slot[0] == 0 && cg_is_fn(g, e.sval) == 1) {
+        CgFn f = cg_find_fn(g, e.sval);
+        string ft = "fn(";
+        int i = 0;
+        while (i < List_len<string>(&f.petys)) {
+            if (i > 0) { ft = cg_cat(ft, ", "); }
+            ft = cg_cat(ft, List_get<string>(&f.petys, i));
+            i = i + 1;
+        }
+        return cg_cat(ft, cg_cat(")->", f.rety));
+    }
     return cg_etype(g, e);
 }
 
