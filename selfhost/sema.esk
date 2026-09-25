@@ -1066,7 +1066,12 @@ string sema_future_inner(Sema* s, string t) {
 }
 
 // The type an `async` function's call yields: `*Future<T>`.
-string sema_async_type(string ret) { return sema_cat(sema_cat("*Future<", ret), ">"); }
+// An `async void` function's future carries a 1-byte unit (uint8), as in the C++.
+string sema_async_type(string ret) {
+    string r = ret;
+    if (sema_streq(sema_strip_const(ret), "void") == 1) { r = "uint8"; }
+    return sema_cat(sema_cat("*Future<", r), ">");
+}
 
 // The return type of the method call `x.m(args)` `e` ("" when unknown).
 string sema_method_ret(Sema* s, *ExprNode e) {
@@ -1650,6 +1655,32 @@ int sema_judgeable(Sema* s, string c) {
 // Why a value of type `src0` cannot be stored in a `t0` slot ("" when it can, or when
 // either type is not understood well enough to judge). Mirrors isValidAssignment and the
 // messages of assignabilityError past its literal/const/nullable special cases.
+// Two pointer types convert implicitly only when they point at the same type (C): a
+// `*void` on either side converts to and from any pointer, and the byte pointers
+// (`string`, `*char`, `*int8`, `*uint8`) interconvert. A pointee the checker cannot
+// judge (a type parameter, an unknown name) is not judged. Mirrors the C++
+// pointeesCompatible.
+int sema_is_byte_ptr(string t) {
+    return sema_streq(t, "string") == 1 || sema_streq(t, "*char") == 1 || sema_streq(t, "*int8") == 1
+        || sema_streq(t, "*uint8") == 1;
+}
+int sema_ptr_compat(Sema* s, string a0, string b0) {
+    string a = sema_strip_const(sema_strip_nullable(sema_canon(s, a0)));
+    string b = sema_strip_const(sema_strip_nullable(sema_canon(s, b0)));
+    if (sema_streq(a, b) == 1) { return 1; }
+    if (sema_streq(a, "*void") == 1 || sema_streq(b, "*void") == 1) { return 1; }
+    if (sema_is_byte_ptr(a) == 1 && sema_is_byte_ptr(b) == 1) { return 1; }
+    if (sema_streq(a, "string") == 1 || sema_streq(b, "string") == 1) { return 0; }
+    if ((int)a[0] != 42 || (int)b[0] != 42) { return 1; }            // not a leading-star spelling: not judged
+    string pa = sema_strip_const(sema_strip_nullable(sema_sub_str(a, 1, sema_slen(a))));
+    string pb = sema_strip_const(sema_strip_nullable(sema_sub_str(b, 1, sema_slen(b))));
+    if ((int)pa[0] == 42 && (int)pb[0] == 42) { return sema_ptr_compat(s, pa, pb); }
+    if (sema_streq(pa, pb) == 1) { return 1; }
+    if (sema_judgeable(s, pa) == 0 || sema_judgeable(s, pb) == 0) { return 1; }
+    if ((sema_streq(pa, "int") == 1 || sema_streq(pa, "int32") == 1) && (sema_streq(pb, "int") == 1 || sema_streq(pb, "int32") == 1)) { return 1; }
+    return 0;
+}
+
 string sema_assign_strict(Sema* s, string t0, string src0) {
     string ct = sema_canon(s, t0);
     string cs = sema_canon(s, src0);
@@ -1670,7 +1701,10 @@ string sema_assign_strict(Sema* s, string t0, string src0) {
     if (sema_is_fn_type(ct) == 1 || sema_is_fn_type(cs) == 1) {
         return sema_cat(sema_cat(sema_cat(sema_cat("incompatible function type '", src0), "' for '"), t0), "'");
     }
-    if (tp == 1 && sp == 1) { return ""; }
+    if (tp == 1 && sp == 1) {
+        if (sema_ptr_compat(s, ct, cs) == 1) { return ""; }
+        return conv;
+    }
     if (ifc != null) {
         if (sp == 0 && sema_is_struct(s, sema_base_name(cs)) == 1) {
             return sema_cat(sema_cat(sema_cat(sema_cat("cannot convert struct '", src0), "' to interface '"), t0), "' by value; pass a pointer (&x)");

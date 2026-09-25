@@ -392,6 +392,7 @@ private:
     bool isConditionType(const std::string& type);
     void checkCapturedWrite(ASTNode* at, Expr* target);
     std::string nullableAliasTarget(const std::string& t);
+    bool pointeesCompatible(const std::string& lhs, const std::string& rhs);
     std::string plainEnumAsInt(const std::string& type);
     std::string getPointeeType(const std::string& pointerType);
 

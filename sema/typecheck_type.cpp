@@ -411,7 +411,7 @@ bool TypeChecker::isValidAssignment(const std::string& lhsType, const std::strin
             return lt.isFn() && rt.isFn() && int32AsInt(lt.str()) == int32AsInt(rt.str());
     }
 
-    if (isPointerType(lhs) && isPointerType(rhs)) return true;
+    if (isPointerType(lhs) && isPointerType(rhs)) return pointeesCompatible(lhs, rhs);
 
     // Interface satisfaction: assigning a POINTER to a struct to an interface type (the
     // interface value refers to the struct; a struct value has no address to refer to).
@@ -424,6 +424,47 @@ bool TypeChecker::isValidAssignment(const std::string& lhsType, const std::strin
             return true;
     }
 
+    return false;
+}
+
+// Two pointer types convert implicitly only when they point at the same type (C): a
+// `*void` on either side converts to and from any pointer, and the byte pointers
+// (`string`, `*char`, `*int8`, `*uint8`) interconvert. Any other change of pointee
+// (`*int` to `*Big`) needs a cast. A pointee the checker cannot resolve yet (a type
+// parameter, an unknown name) is not judged.
+bool TypeChecker::pointeesCompatible(const std::string& lhs, const std::string& rhs) {
+    auto canon = [&](const std::string& t) {
+        std::string c = tyq::strip(t);
+        if (!c.empty() && c[0] == '?') c.erase(0, 1);
+        return c;
+    };
+    std::string l = canon(lhs), r = canon(rhs);
+    auto isBytePtr = [&](const std::string& t) {
+        if (t == "string") return true;
+        if (pointerDepth(t) != 1) return false;
+        std::string p = normalizeType(tyq::strip(getPointeeType(t)));
+        return p == "char" || p == "int8" || p == "uint8";
+    };
+    auto isVoidPtr = [&](const std::string& t) {
+        return t != "string" && pointerDepth(t) == 1 && normalizeType(tyq::strip(getPointeeType(t))) == "void";
+    };
+    if (isVoidPtr(l) || isVoidPtr(r)) return true;
+    if (isBytePtr(l) && isBytePtr(r)) return true;
+    if (l == "string" || r == "string") return false;
+    std::string lp = tyq::strip(getPointeeType(l)), rp = tyq::strip(getPointeeType(r));
+    if (!lp.empty() && lp[0] == '?') lp.erase(0, 1);
+    if (!rp.empty() && rp[0] == '?') rp.erase(0, 1);
+    if (isPointerType(lp) && isPointerType(rp)) return pointeesCompatible(lp, rp);
+    std::string ln = normalizeType(lp), rn = normalizeType(rp);
+    if (ln == rn) return true;
+    auto judged = [&](const std::string& t) {
+        ty::Type k = ty::Type::parse(t);
+        return k.kind != ty::Type::Kind::Param && k.kind != ty::Type::Kind::Named &&
+               k.kind != ty::Type::Kind::Unknown && k.kind != ty::Type::Kind::Error && t != "unknown";
+    };
+    if (!judged(ln) || !judged(rn)) return true;
+    // `int32` is another spelling of `int`.
+    if ((ln == "int" || ln == "int32") && (rn == "int" || rn == "int32")) return true;
     return false;
 }
 

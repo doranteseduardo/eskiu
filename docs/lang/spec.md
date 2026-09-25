@@ -194,6 +194,12 @@ let ptr: *int = null;
 let buf: *uint8 = null;
 ```
 
+A pointer converts implicitly only to a pointer to the same type (adding `const` is
+fine). `null` converts to any pointer, a `*void` converts to and from any pointer, and
+the byte pointers `string`, `*char`, `*int8` and `*uint8` interconvert. Any other change
+of pointee, such as `*int` to `*Big` or `**int` to `*int`, needs an explicit cast
+(`(*Big)p`).
+
 #### Checked nullable pointers (`?*T`)
 
 A plain `*T` may hold `null` (as in C), and dereferencing a null one is undefined. For
