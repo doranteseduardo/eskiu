@@ -1,0 +1,32 @@
+// Arrays and slices whose element is a generic-struct instance, by value and
+// through either pointer spelling (`Box<int>*[4]` and `*Box<int>[4]`).
+extern int printf(string fmt, ...);
+
+struct Box<T> { T v; T get() { return self.v; } }
+
+int sum(Box<int>[] s) {
+    int t = 0;
+    for (int i = 0; i < s.len; i++) t = t + s[i].v;
+    return t;
+}
+
+int main() {
+    let a: Box<int> = Box<int>{ v: 3 };
+    let b: Box<int> = Box<int>{ v: 4 };
+    let ptrs: Box<int>*[4];
+    ptrs[0] = &a;
+    ptrs[1] = &b;
+    printf("%d\n", ptrs[0].v + ptrs[1].get());
+    let lead: *Box<int>[2];
+    lead[0] = &b;
+    printf("%d\n", lead[0].v);
+    let vals: Box<int>[3];
+    vals[0] = a;
+    vals[1] = b;
+    vals[2] = Box<int>{ v: 10 };
+    printf("%d %d\n", vals[2].get(), sum(vals[0..3]));
+    let grid: Box<double>[2][2];
+    grid[1][0] = Box<double>{ v: 2.5 };
+    printf("%.1f\n", grid[1][0].v);
+    return 0;
+}

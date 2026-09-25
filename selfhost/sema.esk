@@ -2842,7 +2842,9 @@ void sema_expr_k(Sema* s, *ExprNode e) {
             s.had_error = 1;
             printf("error: %s:%d:%d: cannot access member '%s' on non-struct type '%s'\n", s.filename, s.line, s.col, e.sval, bt);
         }
-        if (bt[0] != 0) {                  // base type known → validate the member
+        int btn = 0; while (bt[btn] != 0) { btn = btn + 1; }
+        // An array/slice base (`Box<int>[]`) is not its element struct (`s.len`).
+        if (bt[0] != 0 && (int)bt[btn - 1] != 93) {   // base type known → validate the member
             string sn = sema_struct_of_type(bt);
             if (sema_is_struct(s, sn) == 1 && sema_has_member(s, sema_cat(sema_cat(sn, "."), e.sval)) == 0) {
                 s.had_error = 1;
