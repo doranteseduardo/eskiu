@@ -157,6 +157,18 @@ void TypeChecker::finishBinary(BinaryExpr* node) {
 
     std::string resultType = inferBinaryExprType(leftType, node->op, rightType);
 
+    // A constant shift count must be less than the (promoted) left operand's width and
+    // not negative; anything else is undefined behavior in C.
+    if ((node->op == "<<" || node->op == ">>") && isIntType(resultType)) {
+        long long cnt = 0;
+        if (foldConstInt(node->right.get(), cnt)) {
+            int width = (resultType == "int64" || resultType == "uint64") ? 64 : 32;
+            if (cnt < 0 || cnt >= width)
+                errorAt(node, "shift count " + std::to_string(cnt) + " is out of range for a " +
+                              std::to_string(width) + "-bit operand (it must be 0.." + std::to_string(width - 1) + ")");
+        }
+    }
+
     if (resultType == "error") {
         // Operator overloading: `a op b` on non-built-in operands resolves to a user
         // `operator op(L, R)` declared for these operand types (with numeric coercion).

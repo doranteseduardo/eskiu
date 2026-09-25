@@ -1,0 +1,3 @@
+// EXPECT-ERROR: shift count -1 is out of range
+// A negative constant shift count is undefined in C.
+int main() { int y = 5; int x = y >> -1; return x; }

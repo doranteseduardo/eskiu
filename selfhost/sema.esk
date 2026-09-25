@@ -2711,6 +2711,20 @@ void sema_binary_checks(Sema* s, *ExprNode e, string lt0, string rt0) {
             dprintf(2, "error: %s:%d:%d: invalid operands for operator: %s and %s\n", s.filename, s.line, s.col, olt, ort);
         }
     }
+    // A constant shift count must be below the (promoted) left operand's width and not
+    // negative (C: undefined). An unknown left type is checked against 64 bits.
+    if ((sema_streq(e.sval, "<<") == 1 || sema_streq(e.sval, ">>") == 1) && e.b != null) {
+        int64 cnt = (int64)0;
+        string slt = sema_resolve_scalar(s, lt0);
+        int width = 0;
+        if (slt[0] == 0 || sema_streq(slt, "int64") == 1 || sema_streq(slt, "uint64") == 1) { width = 64; }
+        else if (sema_is_int_ty(slt) == 1) { width = 32; }
+        if (width > 0 && sema_fold_int(s, e.b, &cnt) == 1 && (cnt < (int64)0 || cnt >= (int64)width)) {
+            s.had_error = 1;
+            printf("error: %s:%d:%d: shift count %lld is out of range for a %d-bit operand (it must be 0..%d)\n",
+                   s.filename, s.line, s.col, cnt, width, width - 1);
+        }
+    }
     // Division / remainder by a literal zero is a guaranteed runtime trap.
     if ((sema_streq(e.sval, "/") == 1 || sema_streq(e.sval, "%") == 1)
         && e.b != null && e.b.kind == EK_LITERAL && e.b.lit_kind == LIT_INT

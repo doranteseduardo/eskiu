@@ -1,0 +1,10 @@
+// Constant shift counts up to the operand width minus one are accepted.
+extern int printf(string f, ...);
+int main() {
+    int64 big = (int64)1 << 40;
+    uint32 top = (uint32)1 << 31;
+    int64 x = 3;
+    int k = 7;
+    printf("%lld %u %lld %d\n", big, top, x << 62, k >> 31);
+    return 0;
+}
