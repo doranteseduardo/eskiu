@@ -1,0 +1,38 @@
+// Global initializers are folded at compile time, operators included (C semantics).
+extern int printf(string fmt, ...);
+
+enum Color { Red, Green = 5, Blue }
+
+const int A = 3;
+int B = A + 1;
+int C = 3 + 1;
+const int D = A * 2;
+double Q = 1.0 / 4.0;
+const double H = 0.5;
+double H2 = H * 3.0;
+float F = (float)1 / 8;
+int[3] arr = {1 + 1, 2 * 3, -(4)};
+int64 BIG = 1 << 40;
+uint32 U = 4000000000 / 2;
+uint8 W = (uint8)(250 + 10);
+int T = A > 2 ? 100 : 200;
+int SH = -16 >> 2;
+bool FLAG = A == 3 && D != 0;
+int E = Blue * 2 + Green;
+int SZ = (int)sizeof(int64) * 2;
+int* P = &B;
+char CH = 'a' + 1;
+
+int counter() { static int n = D * 10; n = n + 1; return n; }
+
+int main() {
+    counter();
+    printf("%d\n", counter());
+    printf("%d %d %d\n", B, C, D);
+    printf("%.3f %.3f %.4f\n", Q, H2, (double)F);
+    printf("%d %d %d\n", arr[0], arr[1], arr[2]);
+    printf("%lld %u %d\n", BIG, U, (int)W);
+    printf("%d %d %d\n", T, SH, (int)FLAG);
+    printf("%d %d %d %c\n", E, SZ, *P, CH);
+    return 0;
+}

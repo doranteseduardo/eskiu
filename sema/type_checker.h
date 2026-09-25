@@ -105,6 +105,9 @@ private:
 
     // True if `name` resolves to a symbol declared `const` (searches scopes).
     bool isConstSymbol(const std::string& name) const;
+    // Is `e` a compile-time constant initializer (C semantics) that codegen's constant
+    // folder emits? Used for global and `static` initializers.
+    bool isConstInit(const ExprPtr& e) const;
     // If assigning to `lhs` would mutate a `const` value in place (the binding
     // itself, or a field/element of a const aggregate), returns true and sets
     // `nameOut` to the constant's name. Stops at pointer dereferences: writing

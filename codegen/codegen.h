@@ -161,6 +161,9 @@ private:
     // (`{...}`) element-wise with C-style zero-fill. Falls back to scalar folding +
     // coercion. Returns nullptr when the initializer isn't a compile-time constant.
     llvm::Constant* constInitializer(const ExprPtr& expr, llvm::Type* declType);
+    // A struct literal of a bitfield-packed struct: the one constant form the folder
+    // leaves as a zero global (a documented limitation) instead of rejecting.
+    bool isUnfoldableBitfieldInit(const ExprPtr& expr);
 
     // Helpers
     llvm::Value* boxAsInterface(const std::string& ifaceName,
@@ -404,6 +407,12 @@ private:
 
     // `const` integer values, by name — so a const can be used as an array size.
     std::map<std::string, long long> constInts;
+    // Folded values of top-level `const` scalars of any numeric type (a `const double`
+    // too), so a later constant initializer can reference them.
+    std::map<std::string, llvm::Constant*> constGlobalValues;
+    // Fold a built-in binary operator over two constant operands (nullptr if it can't).
+    llvm::Constant* foldConstBinary(const std::string& op, llvm::Constant* a, llvm::Constant* b,
+                                    bool isUnsigned);
     // Resolve an array-dimension string (a decimal literal, an enum constant, or
     // a const int) to its value. Returns false if it cannot be resolved.
     bool resolveArrayDim(const std::string& dim, uint64_t& out) const;

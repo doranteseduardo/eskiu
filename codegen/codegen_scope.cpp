@@ -57,9 +57,35 @@ llvm::Constant* CodeGen::evaluateConstantExpr(const ExprPtr& expr) {
                        llvm::PointerType::get(*context, 0))});
     }
 
-    // Fold unary `-`, `~`, `!` on a constant operand.
+    // `&global` is a link-time constant address.
+    if (auto* unary = dynamic_cast<UnaryExpr*>(expr.get()); unary && unary->op == "&") {
+        if (auto* id = dynamic_cast<IdentExpr*>(unary->operand.get()))
+            if (auto* gv = llvm::dyn_cast_or_null<llvm::GlobalVariable>(lookupSymbol(id->name)))
+                return gv;
+        return nullptr;
+    }
+
+    // Fold a built-in binary operator over constant operands (`3 + 1`, `A * 2`, `1.0/4.0`).
+    if (auto* bin = dynamic_cast<BinaryExpr*>(expr.get())) {
+        if (!bin->opFunc.empty()) return nullptr;
+        llvm::Constant* l = evaluateConstantExpr(bin->left);
+        llvm::Constant* r = l ? evaluateConstantExpr(bin->right) : nullptr;
+        if (!l || !r) return nullptr;
+        bool uns = eskiuUnsigned(getExprEskiuType(bin->left)) || eskiuUnsigned(getExprEskiuType(bin->right));
+        return foldConstBinary(bin->op, l, r, uns);
+    }
+
+    // Fold `c ? a : b` with a constant condition to the chosen arm.
+    if (auto* ter = dynamic_cast<TernaryExpr*>(expr.get())) {
+        auto* c = llvm::dyn_cast_or_null<llvm::ConstantInt>(evaluateConstantExpr(ter->condition));
+        if (!c) return nullptr;
+        return evaluateConstantExpr(c->isZero() ? ter->elseExpr : ter->thenExpr);
+    }
+
+    // Fold unary `-`, `~`, `!`, `+` on a constant operand.
     if (auto* unary = dynamic_cast<UnaryExpr*>(expr.get())) {
         llvm::Constant* inner = evaluateConstantExpr(unary->operand);
+        if (unary->op == "+") return inner;
         if (!inner) return nullptr;
         auto* ci = llvm::dyn_cast<llvm::ConstantInt>(inner);
         auto* cf = llvm::dyn_cast<llvm::ConstantFP>(inner);
@@ -95,6 +121,8 @@ llvm::Constant* CodeGen::evaluateConstantExpr(const ExprPtr& expr) {
         auto ci = constInts.find(id->name);
         if (ci != constInts.end())
             return llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), (uint64_t)ci->second, true);
+        auto cg = constGlobalValues.find(id->name);
+        if (cg != constGlobalValues.end()) return cg->second;
         return nullptr;
     }
     // sizeof(T) -> i64 byte size.
@@ -149,6 +177,77 @@ llvm::Constant* CodeGen::evaluateConstantExpr(const ExprPtr& expr) {
         default:
             return nullptr;
     }
+}
+
+llvm::Constant* CodeGen::foldConstBinary(const std::string& op, llvm::Constant* a,
+                                         llvm::Constant* b, bool isUnsigned) {
+    auto* i1 = llvm::Type::getInt1Ty(*context);
+    auto* i64 = llvm::Type::getInt64Ty(*context);
+    auto boolC = [&](bool v) { return llvm::ConstantInt::get(i1, v ? 1 : 0); };
+    auto* fa = llvm::dyn_cast<llvm::ConstantFP>(a);
+    auto* fb = llvm::dyn_cast<llvm::ConstantFP>(b);
+    auto* ia = llvm::dyn_cast<llvm::ConstantInt>(a);
+    auto* ib = llvm::dyn_cast<llvm::ConstantInt>(b);
+    if ((!fa && !ia) || (!fb && !ib)) return nullptr;
+    // An i1 (bool) operand is 0/1; every other integer widens by its signedness.
+    auto intVal = [&](llvm::ConstantInt* c) -> int64_t {
+        if (c->getType()->isIntegerTy(1) || isUnsigned) return (int64_t)c->getZExtValue();
+        return c->getSExtValue();
+    };
+    if (op == "&&" || op == "||") {
+        bool x = fa ? !fa->isZero() : !ia->isZero();
+        bool y = fb ? !fb->isZero() : !ib->isZero();
+        return boolC(op == "&&" ? (x && y) : (x || y));
+    }
+    if (fa || fb) {
+        auto dv = [&](llvm::ConstantFP* f, llvm::ConstantInt* c) -> double {
+            if (f) return f->getValueAPF().convertToDouble();
+            return isUnsigned ? (double)c->getZExtValue() : (double)intVal(c);
+        };
+        double x = dv(fa, ia), y = dv(fb, ib);
+        // `float op float` stays float; anything with a double (or a literal) is double.
+        llvm::Type* ft = llvm::Type::getDoubleTy(*context);
+        if ((!fa || fa->getType()->isFloatTy()) && (!fb || fb->getType()->isFloatTy()))
+            ft = llvm::Type::getFloatTy(*context);
+        if (op == "+") return llvm::ConstantFP::get(ft, x + y);
+        if (op == "-") return llvm::ConstantFP::get(ft, x - y);
+        if (op == "*") return llvm::ConstantFP::get(ft, x * y);
+        if (op == "/") return llvm::ConstantFP::get(ft, x / y);
+        if (op == "==") return boolC(x == y);
+        if (op == "!=") return boolC(x != y);
+        if (op == "<")  return boolC(x < y);
+        if (op == ">")  return boolC(x > y);
+        if (op == "<=") return boolC(x <= y);
+        if (op == ">=") return boolC(x >= y);
+        return nullptr;
+    }
+    int64_t x = intVal(ia), y = intVal(ib);
+    uint64_t ux = (uint64_t)x, uy = (uint64_t)y;
+    auto iC = [&](uint64_t v) { return llvm::ConstantInt::get(i64, v); };
+    if (op == "+") return iC(ux + uy);
+    if (op == "-") return iC(ux - uy);
+    if (op == "*") return iC(ux * uy);
+    if (op == "/" || op == "%") {
+        if (y == 0) return nullptr;
+        if (isUnsigned) return iC(op == "/" ? ux / uy : ux % uy);
+        if (x == INT64_MIN && y == -1) return iC(op == "/" ? ux : 0);
+        return iC((uint64_t)(op == "/" ? x / y : x % y));
+    }
+    if (op == "&") return iC(ux & uy);
+    if (op == "|") return iC(ux | uy);
+    if (op == "^") return iC(ux ^ uy);
+    if (op == "<<") return iC(uy >= 64 ? 0 : ux << uy);
+    if (op == ">>") {
+        if (uy >= 64) return iC(isUnsigned || x >= 0 ? 0 : ~0ULL);
+        return iC(isUnsigned ? ux >> uy : (uint64_t)(x >> y));
+    }
+    if (op == "==") return boolC(x == y);
+    if (op == "!=") return boolC(x != y);
+    if (op == "<")  return boolC(isUnsigned ? ux < uy : x < y);
+    if (op == ">")  return boolC(isUnsigned ? ux > uy : x > y);
+    if (op == "<=") return boolC(isUnsigned ? ux <= uy : x <= y);
+    if (op == ">=") return boolC(isUnsigned ? ux >= uy : x >= y);
+    return nullptr;
 }
 
 // Coerce a folded scalar constant to `ty` (int<->int width, fp<->fp width, int->fp,
@@ -221,6 +320,11 @@ llvm::Constant* CodeGen::constInitializer(const ExprPtr& expr, llvm::Type* declT
         return llvm::ConstantStruct::get(st, vals);
     }
     return coerceConst(evaluateConstantExpr(expr), declType);
+}
+
+bool CodeGen::isUnfoldableBitfieldInit(const ExprPtr& expr) {
+    auto* si = dynamic_cast<StructInitExpr*>(expr.get());
+    return si && structLayout.count(resolveStructInitName(si->structName));
 }
 
 llvm::Value* CodeGen::lookupSymbol(const std::string& name) {

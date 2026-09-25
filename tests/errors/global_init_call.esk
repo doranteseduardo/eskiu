@@ -1,0 +1,5 @@
+// A global initializer must be a compile-time constant (C): a call is not.
+// EXPECT-ERROR: is not a compile-time constant
+int g() { return 5; }
+int G = g();
+int main() { return G; }

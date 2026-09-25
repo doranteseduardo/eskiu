@@ -389,16 +389,44 @@ void TypeChecker::checkUninitPrefix(BlockStmt* body) {
     }
 }
 
-// Is `e` a compile-time constant initializer codegen can fold? A literal, `sizeof`, a
-// numeric unary/cast of a constant, or an array/struct literal built from constants. A
-// bare identifier is deliberately excluded: it could be a runtime local, which codegen
-// would silently zero, so `static` requires the value be written out.
-static bool isConstInit(const ExprPtr& e) {
+// Is `e` a compile-time constant initializer codegen can fold? A literal, `sizeof`, an
+// enum member, a top-level `const`, the address of a global, a non-capturing lambda, and
+// unary/binary/ternary/cast combinations of those, or an array/struct literal built from
+// constants. A call or a read of a non-const variable is not constant (as in C), since
+// it would need code to run before `main`.
+bool TypeChecker::isConstInit(const ExprPtr& e) const {
     if (!e) return true;
     if (dynamic_cast<LiteralExpr*>(e.get())) return true;
     if (dynamic_cast<SizeofExpr*>(e.get())) return true;
-    if (auto* u = dynamic_cast<UnaryExpr*>(e.get()))
-        return (u->op == "-" || u->op == "~" || u->op == "!") && isConstInit(u->operand);
+    if (auto* lam = dynamic_cast<LambdaExpr*>(e.get())) return lam->captures.empty();
+    if (auto* id = dynamic_cast<IdentExpr*>(e.get())) {
+        if (enumConstants.count(id->name)) return true;
+        for (auto it = scopes.rbegin(); it != scopes.rend(); ++it) {
+            auto f = it->find(id->name);
+            if (f == it->end()) continue;
+            // Only a global `const` (scopes[0]) folds; a local const may be a runtime value.
+            return f->second.isConst && &*it == &scopes.front();
+        }
+        return false;
+    }
+    if (auto* u = dynamic_cast<UnaryExpr*>(e.get())) {
+        if (u->op == "&") {
+            // The address of a global variable is a link-time constant.
+            auto* id = dynamic_cast<IdentExpr*>(u->operand.get());
+            if (!id || functionSignatures.count(id->name)) return false;
+            for (auto it = scopes.rbegin(); it != scopes.rend(); ++it)
+                if (it->count(id->name)) return &*it == &scopes.front();
+            return false;
+        }
+        return (u->op == "-" || u->op == "~" || u->op == "!" || u->op == "+") && isConstInit(u->operand);
+    }
+    if (auto* b = dynamic_cast<BinaryExpr*>(e.get())) {
+        static const std::set<std::string> ops = {"+","-","*","/","%","&","|","^","<<",">>",
+            "==","!=","<",">","<=",">=","&&","||"};
+        return ops.count(b->op) && !b->opFunc.size() && isConstInit(b->left) && isConstInit(b->right);
+    }
+    if (auto* t = dynamic_cast<TernaryExpr*>(e.get()))
+        return isConstInit(t->condition) && isConstInit(t->thenExpr) && isConstInit(t->elseExpr);
     if (auto* c = dynamic_cast<CastExpr*>(e.get())) return isConstInit(c->expr);
     if (auto* a = dynamic_cast<ArrayLitExpr*>(e.get())) {
         for (auto& el : a->elements) if (!isConstInit(el)) return false;
@@ -448,6 +476,10 @@ void TypeChecker::visit(VarDecl* node) {
                 lam->returnType = dt.ret->str();
         }
         node->initializer->accept(this);
+        // A global's initializer is evaluated at compile time (there is no code before
+        // `main` to run it), so it must be a constant expression, as in C.
+        if (scopes.size() <= 1 && !node->isStatic && !isConstInit(node->initializer))
+            errorAt(node, "initializer of global '" + node->name + "' is not a compile-time constant");
         // Array literal `= {..}`: the target must be a fixed-size array; check the
         // element count (fewer than the size zero-fill, C-style) and element types.
         if (auto* arr = dynamic_cast<ArrayLitExpr*>(node->initializer.get())) {

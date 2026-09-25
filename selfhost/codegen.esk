@@ -34,6 +34,11 @@ struct CgIface { string name; List<string> mnames; List<string> mrets; List<List
 struct CgStruct { string name; List<string> fnames; List<string> fetys; }
 // A plain (integer) enum constant: name → its integer value as a string.
 struct CgEnumC { string name; string val; }
+// A folded compile-time constant scalar (a global initializer): ok = foldable; isf =
+// floating (value in dv) vs integer (value in iv, two's-complement 64-bit).
+struct CgK { int ok; int isf; int64 iv; double dv; }
+// A top-level `const` float/double, by name, so a later constant initializer can use it.
+struct CgFK { string name; double v; }
 // An ADT enum variant: its name, owning enum, integer tag, and payload field types.
 struct CgVariant { string vname; string ename; int tag; List<string> ptys; }
 // A bitfield slot: which struct/field, the LLVM word it lives in (field index), its bit
@@ -81,6 +86,7 @@ struct Codegen {
     List<CgFn> fns;          // function → return type / variadic signature
     List<CgStruct> structs;  // struct name → field layout
     List<CgEnumC> econsts;   // plain-enum constants → value
+    List<CgFK> fconsts;      // top-level `const` float/double values (for constant folding)
     List<string> enum_names; // enum type names (lower to i32)
     List<CgVariant> variants; // ADT enum variants (by name)
     List<string> adt_names;  // ADT enum type names (lower to %Name, a tagged union)
@@ -224,6 +230,7 @@ void cg_init(Codegen* g) {
     List_init<CgFn>(&g.fns, 32);
     List_init<CgStruct>(&g.structs, 16);
     List_init<CgEnumC>(&g.econsts, 32);
+    List_init<CgFK>(&g.fconsts, 4);
     List_init<string>(&g.enum_names, 16);
     List_init<CgVariant>(&g.variants, 16);
     List_init<string>(&g.adt_names, 8);
@@ -1717,8 +1724,198 @@ string cg_const_struct(Codegen* g, string sname, *ExprNode e) {
     return (string)String_cstr(&out);
 }
 
+// Signed decimal text of a 64-bit value.
+string cg_i64toa(int64 v) {
+    if (v < (int64)0) { return cg_cat("-", cg_u64toa((uint64)0 - (uint64)v)); }
+    return cg_u64toa((uint64)v);
+}
+
+CgK cg_k_int(int64 v) { let k: CgK; k.ok = 1; k.isf = 0; k.iv = v; k.dv = 0.0; return k; }
+CgK cg_k_flt(double v) { let k: CgK; k.ok = 1; k.isf = 1; k.iv = (int64)0; k.dv = v; return k; }
+CgK cg_k_none() { let k: CgK; k.ok = 0; k.isf = 0; k.iv = (int64)0; k.dv = 0.0; return k; }
+int cg_k_true(CgK k) {
+    if (k.isf == 1) { if (k.dv != 0.0) { return 1; } return 0; }
+    if (k.iv != (int64)0) { return 1; }
+    return 0;
+}
+
+// Truncate `v` to `w` bits and re-extend (sign- or zero-) to 64, C conversion semantics.
+int64 cg_k_wrap(int64 v, int w, int uns) {
+    if (w <= 0 || w >= 64) { return v; }
+    uint64 m = ((uint64)1 << (uint64)w) - (uint64)1;
+    uint64 u = (uint64)v & m;
+    if (uns == 0 && (u >> (uint64)(w - 1)) != (uint64)0) { u = u | ~m; }
+    return (int64)u;
+}
+
+// Fold a constant scalar expression (a global/`static` initializer): literals, enum
+// members and `const` globals, sizeof, casts, unary/binary operators, and `?:`.
+// Mirrors CodeGen::evaluateConstantExpr + foldConstBinary. .ok == 0 when not foldable.
+CgK cg_cfold(Codegen* g, *ExprNode e) {
+    if (e == null) { return cg_k_none(); }
+    if (e.kind == EK_LITERAL) {
+        if (e.lit_kind == LIT_INT) {
+            int64 m = (int64)cg_int_lit_mag(e.sval);
+            if (e.sval[0] == 45) { m = (int64)0 - m; }
+            return cg_k_int(m);
+        }
+        if (e.lit_kind == LIT_FLOAT) { return cg_k_flt(atof(e.sval)); }
+        if (e.lit_kind == LIT_CHAR) { return cg_k_int((int64)(uint8)e.sval[0]); }
+        if (e.lit_kind == LIT_BOOL) { if (cg_streq(e.sval, "true") == 1) { return cg_k_int((int64)1); } return cg_k_int((int64)0); }
+        return cg_k_none();
+    }
+    if (e.kind == EK_IDENT) {
+        string v = cg_enum_val(g, e.sval);
+        if (v[0] != 0) {
+            int64 m = (int64)cg_int_lit_mag(v);
+            if (v[0] == 45) { m = (int64)0 - m; }
+            return cg_k_int(m);
+        }
+        int i = List_len<CgFK>(&g.fconsts) - 1;
+        while (i >= 0) {
+            CgFK f = List_get<CgFK>(&g.fconsts, i);
+            if (cg_streq(f.name, e.sval) == 1) { return cg_k_flt(f.v); }
+            i = i - 1;
+        }
+        return cg_k_none();
+    }
+    if (e.kind == EK_SIZEOF) { return cg_k_int((int64)cg_size(g, cg_apply_sub(g, e.sval))); }
+    if (e.kind == EK_CAST) {
+        CgK k = cg_cfold(g, e.a);
+        if (k.ok == 0) { return k; }
+        string t = cg_dealias(g, cg_apply_sub(g, e.sval));
+        if (cg_is_float(t) == 1) {
+            double d = k.dv;
+            if (k.isf == 0) {
+                if (cg_is_unsigned(cg_etype(g, e.a)) == 1) { d = (double)(uint64)k.iv; } else { d = (double)k.iv; }
+            }
+            if (cg_streq(t, "float") == 1) { float f = (float)d; d = (double)f; }
+            return cg_k_flt(d);
+        }
+        int w = cg_int_w(cg_lltype(g, t));
+        if (w == 0) { return cg_k_none(); }              // a pointer/aggregate cast: not folded
+        if (w == 1) { return cg_k_int((int64)cg_k_true(k)); }   // to bool: `!= 0`
+        int64 iv = k.iv;
+        if (k.isf == 1) { iv = (int64)k.dv; }
+        return cg_k_int(cg_k_wrap(iv, w, cg_is_unsigned(t)));
+    }
+    if (e.kind == EK_UNARY) {
+        CgK k = cg_cfold(g, e.a);
+        if (k.ok == 0) { return k; }
+        if (cg_streq(e.sval, "+") == 1) { return k; }
+        if (cg_streq(e.sval, "-") == 1) { if (k.isf == 1) { return cg_k_flt(0.0 - k.dv); } return cg_k_int((int64)((uint64)0 - (uint64)k.iv)); }
+        if (cg_streq(e.sval, "~") == 1 && k.isf == 0) { return cg_k_int(~k.iv); }
+        if (cg_streq(e.sval, "!") == 1) { return cg_k_int((int64)(1 - cg_k_true(k))); }
+        return cg_k_none();
+    }
+    if (e.kind == EK_TERNARY) {
+        CgK c = cg_cfold(g, e.a);
+        if (c.ok == 0) { return c; }
+        if (cg_k_true(c) == 1) { return cg_cfold(g, e.b); }
+        return cg_cfold(g, List_get<*ExprNode>(&e.kids, 0));
+    }
+    if (e.kind == EK_BINARY) {
+        string op = e.sval;
+        CgK a = cg_cfold(g, e.a);
+        if (a.ok == 0) { return a; }
+        CgK b = cg_cfold(g, e.b);
+        if (b.ok == 0) { return b; }
+        if (cg_streq(op, "&&") == 1) { return cg_k_int((int64)(cg_k_true(a) * cg_k_true(b))); }
+        if (cg_streq(op, "||") == 1) { if (cg_k_true(a) + cg_k_true(b) > 0) { return cg_k_int((int64)1); } return cg_k_int((int64)0); }
+        int uns = 0;
+        if (cg_is_unsigned(cg_etype(g, e.a)) == 1 || cg_is_unsigned(cg_etype(g, e.b)) == 1) { uns = 1; }
+        int r = 0 - 1;
+        if (a.isf == 1 || b.isf == 1) {
+            double x = a.dv; double y = b.dv;
+            if (a.isf == 0) { if (uns == 1) { x = (double)(uint64)a.iv; } else { x = (double)a.iv; } }
+            if (b.isf == 0) { if (uns == 1) { y = (double)(uint64)b.iv; } else { y = (double)b.iv; } }
+            if (cg_streq(op, "+") == 1) { return cg_k_flt(x + y); }
+            if (cg_streq(op, "-") == 1) { return cg_k_flt(x - y); }
+            if (cg_streq(op, "*") == 1) { return cg_k_flt(x * y); }
+            if (cg_streq(op, "/") == 1) { return cg_k_flt(x / y); }
+            if (cg_streq(op, "==") == 1) { r = 0; if (x == y) { r = 1; } }
+            if (cg_streq(op, "!=") == 1) { r = 0; if (x != y) { r = 1; } }
+            if (cg_streq(op, "<") == 1)  { r = 0; if (x < y) { r = 1; } }
+            if (cg_streq(op, ">") == 1)  { r = 0; if (x > y) { r = 1; } }
+            if (cg_streq(op, "<=") == 1) { r = 0; if (x <= y) { r = 1; } }
+            if (cg_streq(op, ">=") == 1) { r = 0; if (x >= y) { r = 1; } }
+            if (r >= 0) { return cg_k_int((int64)r); }
+            return cg_k_none();
+        }
+        int64 x = a.iv; int64 y = b.iv;
+        uint64 ux = (uint64)x; uint64 uy = (uint64)y;
+        if (cg_streq(op, "+") == 1) { return cg_k_int((int64)(ux + uy)); }
+        if (cg_streq(op, "-") == 1) { return cg_k_int((int64)(ux - uy)); }
+        if (cg_streq(op, "*") == 1) { return cg_k_int((int64)(ux * uy)); }
+        if (cg_streq(op, "/") == 1 || cg_streq(op, "%") == 1) {
+            if (y == (int64)0) { return cg_k_none(); }
+            if (uns == 1) { if (cg_streq(op, "/") == 1) { return cg_k_int((int64)(ux / uy)); } return cg_k_int((int64)(ux % uy)); }
+            if (y == (int64)(0 - 1)) { if (cg_streq(op, "/") == 1) { return cg_k_int((int64)((uint64)0 - ux)); } return cg_k_int((int64)0); }
+            if (cg_streq(op, "/") == 1) { return cg_k_int(x / y); }
+            return cg_k_int(x % y);
+        }
+        if (cg_streq(op, "&") == 1) { return cg_k_int((int64)(ux & uy)); }
+        if (cg_streq(op, "|") == 1) { return cg_k_int((int64)(ux | uy)); }
+        if (cg_streq(op, "^") == 1) { return cg_k_int((int64)(ux ^ uy)); }
+        if (cg_streq(op, "<<") == 1) { if (uy >= (uint64)64) { return cg_k_int((int64)0); } return cg_k_int((int64)(ux << uy)); }
+        if (cg_streq(op, ">>") == 1) {
+            if (uy >= (uint64)64) { if (uns == 1 || x >= (int64)0) { return cg_k_int((int64)0); } return cg_k_int((int64)(0 - 1)); }
+            if (uns == 1) { return cg_k_int((int64)(ux >> uy)); }
+            return cg_k_int(x >> y);
+        }
+        if (cg_streq(op, "==") == 1) { r = 0; if (x == y) { r = 1; } }
+        if (cg_streq(op, "!=") == 1) { r = 0; if (x != y) { r = 1; } }
+        if (uns == 1) {
+            if (cg_streq(op, "<") == 1)  { r = 0; if (ux < uy) { r = 1; } }
+            if (cg_streq(op, ">") == 1)  { r = 0; if (ux > uy) { r = 1; } }
+            if (cg_streq(op, "<=") == 1) { r = 0; if (ux <= uy) { r = 1; } }
+            if (cg_streq(op, ">=") == 1) { r = 0; if (ux >= uy) { r = 1; } }
+        } else {
+            if (cg_streq(op, "<") == 1)  { r = 0; if (x < y) { r = 1; } }
+            if (cg_streq(op, ">") == 1)  { r = 0; if (x > y) { r = 1; } }
+            if (cg_streq(op, "<=") == 1) { r = 0; if (x <= y) { r = 1; } }
+            if (cg_streq(op, ">=") == 1) { r = 0; if (x >= y) { r = 1; } }
+        }
+        if (r >= 0) { return cg_k_int((int64)r); }
+        return cg_k_none();
+    }
+    return cg_k_none();
+}
+
+// Render a folded constant as LLVM constant text for slot type `llty` ("" if the slot
+// is not a scalar numeric type). Integers are wrapped to the slot width (C conversion).
+string cg_k_text(CgK k, string llty) {
+    if (cg_streq(llty, "double") == 1 || cg_streq(llty, "float") == 1) {
+        double d = k.dv;
+        if (k.isf == 0) { d = (double)k.iv; }
+        if (cg_streq(llty, "float") == 1) { float f = (float)d; d = (double)f; }
+        *uint64 pb = (*uint64)(&d);
+        return cg_cat("0x", cg_hex16(*pb));
+    }
+    int w = cg_int_w(llty);
+    if (w == 0) { return ""; }
+    if (w == 1) { if (cg_k_true(k) == 1) { return "true"; } return "false"; }
+    int64 v = k.iv;
+    if (k.isf == 1) { v = (int64)k.dv; }
+    return cg_i64toa(cg_k_wrap(v, w, 0));
+}
+
 string cg_global_init(Codegen* g, *ExprNode e, string llty) {
     if (e == null) { return "zeroinitializer"; }
+    // `&global`: a link-time constant address.
+    if (e.kind == EK_UNARY && cg_streq(e.sval, "&") == 1 && e.a != null && e.a.kind == EK_IDENT) {
+        CgLocal gl = cg_find_global(g, e.a.sval);
+        if (gl.slot[0] != 0) { return gl.slot; }
+    }
+    // A foldable operator expression (`3 + 1`, `A * 2`, `1.0 / 4.0`, `c ? a : b`, a cast).
+    if (e.kind == EK_BINARY || e.kind == EK_TERNARY || e.kind == EK_UNARY || e.kind == EK_CAST
+        || e.kind == EK_IDENT) {
+        CgK k = cg_cfold(g, e);
+        if (k.ok == 1) {
+            string kt = cg_k_text(k, llty);
+            if (kt[0] != 0) { return kt; }
+        }
+    }
     if (e.kind == EK_LITERAL) {
         if (e.lit_kind == LIT_NULL) { return "null"; }
         if (e.lit_kind == LIT_CHAR) { return cg_itoa((int)e.sval[0]); }
@@ -3672,11 +3869,6 @@ void cg_array_init(Codegen* g, string slot, string arrType, *ExprNode lit, int d
     }
 }
 
-// Decimal text of a signed 64-bit value.
-string cg_i64toa(int64 v) {
-    if (v < (int64)0) { return cg_cat("-", cg_u64toa((uint64)((int64)0 - v))); }
-    return cg_u64toa((uint64)v);
-}
 
 // Fold a `case` value to an integer constant, as the C++ back-end's IRBuilder does:
 // integer/char literals, enum members, casts, and unary/binary arithmetic over those.
@@ -5056,6 +5248,21 @@ void cg_program(Codegen* g, *Program prog) {
             ec.name = d.name;
             ec.val = cg_num_const("i32", d.init.sval);   // decimal, sign kept (`-5` stays -5)
             List_push<CgEnumC>(&g.econsts, ec);
+        } else if (d.kind == DK_VARDECL && d.is_const == 1 && d.init != null) {
+            // A constant expression (`A * 2`, `1.0 / 4.0`): fold it now, in source order.
+            CgK k = cg_cfold(g, d.init);
+            string dt = cg_dealias(g, d.ret_type);
+            if (k.ok == 1 && cg_is_float(dt) == 1) {
+                double dv = k.dv;
+                if (k.isf == 0) { dv = (double)k.iv; }
+                let fk: CgFK; fk.name = d.name; fk.v = dv;
+                List_push<CgFK>(&g.fconsts, fk);
+            } else if (k.ok == 1 && k.isf == 0 && cg_int_w(cg_lltype(g, dt)) > 1) {
+                let ec2: CgEnumC;
+                ec2.name = d.name;
+                ec2.val = cg_i64toa(cg_k_wrap(k.iv, cg_int_w(cg_lltype(g, dt)), cg_is_unsigned(dt)));
+                List_push<CgEnumC>(&g.econsts, ec2);
+            }
         }
         ci = ci + 1;
     }

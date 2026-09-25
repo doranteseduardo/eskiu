@@ -20,9 +20,12 @@ void CodeGen::visit(Program* node) {
     for (auto& decl : node->declarations) {
         if (auto* v = dynamic_cast<VarDecl*>(decl.get())) {
             if (v->isConst && v->initializer) {
-                if (auto* c = evaluateConstantExpr(v->initializer))
+                if (auto* c = evaluateConstantExpr(v->initializer)) {
                     if (auto* ci = llvm::dyn_cast<llvm::ConstantInt>(c))
                         constInts[v->name] = ci->getSExtValue();
+                    else if (llvm::isa<llvm::ConstantFP>(c))
+                        constGlobalValues[v->name] = c;
+                }
             }
         }
     }
@@ -232,9 +235,12 @@ void CodeGen::visit(FunctionDecl* node) {
 void CodeGen::visit(VarDecl* node) {
     // Register `const` ints so a later (local) array dimension can use them.
     if (node->isConst && node->initializer && !constInts.count(node->name)) {
-        if (auto* c = evaluateConstantExpr(node->initializer))
+        if (auto* c = evaluateConstantExpr(node->initializer)) {
             if (auto* ci = llvm::dyn_cast<llvm::ConstantInt>(c))
                 constInts[node->name] = ci->getSExtValue();
+            else if (currentFunction == nullptr && llvm::isa<llvm::ConstantFP>(c))
+                constGlobalValues[node->name] = c;
+        }
     }
 
     llvm::Type* declType = getTypeFromString(node->type);
@@ -255,6 +261,9 @@ void CodeGen::visit(VarDecl* node) {
         llvm::Constant* init = node->initializer
             ? constInitializer(node->initializer, declType)
             : nullptr;
+        if (!init && node->initializer && !isUnfoldableBitfieldInit(node->initializer))
+            throw std::runtime_error("initializer of global '" + node->name +
+                                     "' is not a compile-time constant");
         if (!init) init = llvm::Constant::getNullValue(declType);
 
         auto* gv = new llvm::GlobalVariable(
@@ -270,6 +279,9 @@ void CodeGen::visit(VarDecl* node) {
         llvm::Constant* init = node->initializer
             ? constInitializer(node->initializer, declType)
             : nullptr;
+        if (!init && node->initializer && !isUnfoldableBitfieldInit(node->initializer))
+            throw std::runtime_error("initializer of static '" + node->name +
+                                     "' is not a compile-time constant");
         if (!init) init = llvm::Constant::getNullValue(declType);
         std::string gname = currentFunction->getName().str() + "." + node->name;
         auto* gv = new llvm::GlobalVariable(
