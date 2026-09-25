@@ -308,11 +308,15 @@ void TypeChecker::visit(FunctionDecl* node) {
 
     // Define parameters (preserving a pointee-const qualifier so writing through
     // a `const T*` parameter is caught; normalization otherwise strips const).
-    for (const auto& param : node->params) {
+    for (size_t pi = 0; pi < node->params.size(); ++pi) {
+        const auto& param = node->params[pi];
         std::string pt = normalizeType(param.first);
         if (pt == "int" && plainEnumDecls.count(param.first)) pt = param.first;   // keep enum name for `match`
         if (tyq::baseConst(param.first) && tyq::isPtr(param.first)) pt = "const " + pt;
-        defineSymbol(param.second, pt, node->line, node->col, /*isParam=*/true);
+        // The parameter's own position when the parser recorded it (else the function's).
+        int pl = node->line, pc = node->col;
+        if (pi < node->paramPositions.size()) { pl = node->paramPositions[pi].first; pc = node->paramPositions[pi].second; }
+        defineSymbol(param.second, pt, pl, pc, /*isParam=*/true);
         if (!node->body) scopes.back()[param.second].used = true;   // a prototype's names are documentation
     }
 

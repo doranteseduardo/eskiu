@@ -259,7 +259,7 @@ std::string Parser::parseType() {
 }
 
 std::vector<std::pair<std::string, std::string>> Parser::parseParameterList(
-        std::vector<bool>* escaping) {
+        std::vector<bool>* escaping, std::vector<std::pair<int, int>>* positions) {
     std::vector<std::pair<std::string, std::string>> params;
 
     if (!check(TokenType::RPAREN)) {
@@ -268,6 +268,7 @@ std::vector<std::pair<std::string, std::string>> Parser::parseParameterList(
             if (match(TokenType::ELLIPSIS)) {
                 params.push_back({"...", "..."});
                 if (escaping) escaping->push_back(false);
+                if (positions) positions->push_back({tokens[current - 1].line, tokens[current - 1].column});
                 break;
             }
 
@@ -276,9 +277,10 @@ std::vector<std::pair<std::string, std::string>> Parser::parseParameterList(
             // heap environment.
             bool isEscaping = match(TokenType::ESCAPING);
             std::string type = parseType();
-            std::string name = consume(TokenType::IDENT, "Expected parameter name").value;
-            params.push_back({type, name});
+            Token nameTok = consume(TokenType::IDENT, "Expected parameter name");
+            params.push_back({type, nameTok.value});
             if (escaping) escaping->push_back(isEscaping);
+            if (positions) positions->push_back({nameTok.line, nameTok.column});
         } while (match(TokenType::COMMA));
     }
 

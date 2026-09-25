@@ -145,5 +145,6 @@ private:
 
     std::string parseType();
     std::vector<std::pair<std::string, std::string>> parseParameterList(
-        std::vector<bool>* escaping = nullptr);
+        std::vector<bool>* escaping = nullptr,
+        std::vector<std::pair<int, int>>* positions = nullptr);
 };

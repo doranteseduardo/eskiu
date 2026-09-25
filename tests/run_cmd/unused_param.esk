@@ -1,0 +1,7 @@
+// Used by tests/run.sh: -Wall reports the unused parameter at the parameter (4:11),
+// not at the function name.
+int f(int used,
+      int unused_p) {
+    return used;
+}
+int main() { return f(1, 2); }

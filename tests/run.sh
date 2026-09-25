@@ -201,6 +201,14 @@ else
     bad "cli/cc-missing" "no fallback warning: $cc_out"
 fi
 
+# -Wall points an unused-parameter warning at the parameter itself.
+w_out="$("$ESKIUC" -Wall --test-typechecker "$here/run_cmd/unused_param.esk" 2>&1)"
+if [[ "$w_out" == *"unused_param.esk:4:11: warning: unused parameter 'unused_p'"* ]]; then
+    ok "cli/unused-param-position"
+else
+    bad "cli/unused-param-position" "$(printf '%s' "$w_out" | grep -m1 warning)"
+fi
+
 # `--help` documents the subcommands and lists only Eskiu's options (the LLVM
 # backend's internal flags are hidden).
 help_out="$("$ESKIUC" --help 2>&1)"

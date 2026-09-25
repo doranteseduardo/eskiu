@@ -105,6 +105,9 @@ public:
     // Per-param `escaping` flag (parallel to params): the param retains the
     // closure beyond the call, so closures passed there get a heap env.
     std::vector<bool> paramEscaping;
+    // Per-param (line, col) of the parameter name (parallel to params; may be
+    // empty for synthesized functions): diagnostics about a parameter point here.
+    std::vector<std::pair<int, int>> paramPositions;
     // `async fn`: the call yields `*Future<returnType>`; the body is lowered to a
     // resumable state machine by the async transform. Declared return type stays
     // in `returnType` (the inner T).
