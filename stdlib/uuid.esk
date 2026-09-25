@@ -2,7 +2,7 @@
 //
 //   import <uuid>;
 //   import <random>;
-//   let r: Rng; rng_seed(&r, seed);
+//   let r: Rng; Rng_seed(&r, seed);
 //   let s: String; String_init(&s, 40);
 //   uuid_v4(&r, &s);        // e.g. "f47ac10b-58cc-4372-a567-0e02b2c3d479"
 //
@@ -21,7 +21,7 @@ uint8 uuid_hex(int v) {
 // Append a v4 UUID in the canonical 8-4-4-4-12 lowercase-hex form to `out`.
 void uuid_v4(Rng* r, String* out) {
     *uint8 b = alloc<uint8>(16);
-    rng_fill(r, b, 16);
+    Rng_fill(r, b, 16);
     b[6] = (uint8)(((int)b[6] & 15) | 64);      // version 4 in the high nibble
     b[8] = (uint8)(((int)b[8] & 63) | 128);     // variant 10xx in the top bits
     int i = 0;

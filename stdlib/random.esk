@@ -2,15 +2,15 @@
 //
 //   import <random>;
 //   let r: Rng;
-//   rng_seed(&r, 12345);                 // deterministic
-//   uint64 x   = rng_next(&r);           // raw 64-bit
-//   int64  d   = rng_range(&r, 1, 7);    // a die: [1, 7)
-//   double u   = rng_double(&r);         // [0.0, 1.0)
+//   Rng_seed(&r, 12345);                 // deterministic
+//   uint64 x   = Rng_next(&r);           // raw 64-bit
+//   int64  d   = Rng_range(&r, 1, 7);    // a die: [1, 7)
+//   double u   = Rng_double(&r);         // [0.0, 1.0)
 //
 // The generator holds all its state in the Rng struct: no global mutable state,
 // no libc rand(). A given seed always produces the same stream, which is what
 // you want for tests and reproducible runs. For a nondeterministic stream, seed
-// from the clock: `import <time>; rng_seed(&r, (uint64)time_now_ms());`.
+// from the clock: `import <time>; Rng_seed(&r, (uint64)time_now_ms());`.
 //
 // xoshiro256** is fast, passes the standard statistical test suites, and has a
 // 2^256 period. It is NOT cryptographically secure: do not use it for keys,
@@ -40,7 +40,7 @@ uint64 rng_splitmix(uint64* st) {
 }
 
 // Seed a generator from a single 64-bit value.
-void rng_seed(Rng* r, uint64 seed) {
+void Rng_seed(Rng* r, uint64 seed) {
     uint64 sm = seed;
     r.s0 = rng_splitmix(&sm);
     r.s1 = rng_splitmix(&sm);
@@ -49,7 +49,7 @@ void rng_seed(Rng* r, uint64 seed) {
 }
 
 // The next raw 64-bit value. All the bounded helpers build on this.
-uint64 rng_next(Rng* r) {
+uint64 Rng_next(Rng* r) {
     uint64 result = rng_rotl(r.s1 * 5, 7) * 9;
     uint64 t = r.s1 << 17;
     r.s2 = r.s2 ^ r.s0;
@@ -63,39 +63,39 @@ uint64 rng_next(Rng* r) {
 
 // Uniform in [0, n). Unbiased: values in the short tail that would skew a plain
 // modulo are rejected and redrawn. Returns 0 when n < 2.
-uint64 rng_below(Rng* r, uint64 n) {
+uint64 Rng_below(Rng* r, uint64 n) {
     if (n < 2) { return 0; }
     // threshold = 2^64 mod n, computed without overflowing 64 bits.
     uint64 t = ((18446744073709551615 - n) + 1) % n;
     while (1) {
-        uint64 x = rng_next(r);
+        uint64 x = Rng_next(r);
         if (x >= t) { return x % n; }
     }
 }
 
 // Uniform integer in [lo, hi). Returns lo when the range is empty.
-int64 rng_range(Rng* r, int64 lo, int64 hi) {
+int64 Rng_range(Rng* r, int64 lo, int64 hi) {
     if (hi <= lo) { return lo; }
     uint64 span = (uint64)(hi - lo);
-    return lo + (int64)rng_below(r, span);
+    return lo + (int64)Rng_below(r, span);
 }
 
 // A coin flip: 0 or 1.
-int rng_bool(Rng* r) {
-    return (int)(rng_next(r) & 1);
+int Rng_bool(Rng* r) {
+    return (int)(Rng_next(r) & 1);
 }
 
 // Uniform double in [0.0, 1.0), using the top 53 bits (full mantissa precision).
-double rng_double(Rng* r) {
-    uint64 x = rng_next(r) >> 11;
+double Rng_double(Rng* r) {
+    uint64 x = Rng_next(r) >> 11;
     return (double)x * (1.0 / 9007199254740992.0);   // divide by 2^53
 }
 
 // Fill n bytes of buf with random data.
-void rng_fill(Rng* r, *uint8 buf, int64 n) {
+void Rng_fill(Rng* r, *uint8 buf, int64 n) {
     int64 i = 0;
     while (i < n) {
-        uint64 word = rng_next(r);
+        uint64 word = Rng_next(r);
         int64 j = 0;
         while (j < 8 && i < n) {
             buf[i] = (uint8)(word & 255);
@@ -105,3 +105,19 @@ void rng_fill(Rng* r, *uint8 buf, int64 n) {
         }
     }
 }
+
+// ── Deprecated names (kept so 0.9.1 code compiles; removed in a later release) ──
+// deprecated: use Rng_seed
+void rng_seed(Rng* r, uint64 seed) { Rng_seed(r, seed); }
+// deprecated: use Rng_next
+uint64 rng_next(Rng* r) { return Rng_next(r); }
+// deprecated: use Rng_below
+uint64 rng_below(Rng* r, uint64 n) { return Rng_below(r, n); }
+// deprecated: use Rng_range
+int64 rng_range(Rng* r, int64 lo, int64 hi) { return Rng_range(r, lo, hi); }
+// deprecated: use Rng_bool
+int rng_bool(Rng* r) { return Rng_bool(r); }
+// deprecated: use Rng_double
+double rng_double(Rng* r) { return Rng_double(r); }
+// deprecated: use Rng_fill
+void rng_fill(Rng* r, *uint8 buf, int64 n) { Rng_fill(r, buf, n); }

@@ -1,0 +1,20 @@
+// The pre-0.9.2 stdlib names (renamed to the Type_method convention) still
+// compile and behave as thin wrappers over the new names.
+import <random>;
+extern int printf(string fmt, ...);
+
+int main() {
+    let a: Rng;  rng_seed(&a, (uint64)7);
+    let b: Rng;  Rng_seed(&b, (uint64)7);
+    int same = 1;
+    if (rng_next(&a) != Rng_next(&b)) { same = 0; }
+    if (rng_below(&a, (uint64)10) != Rng_below(&b, (uint64)10)) { same = 0; }
+    if (rng_range(&a, (int64)1, (int64)7) != Rng_range(&b, (int64)1, (int64)7)) { same = 0; }
+    if (rng_bool(&a) != Rng_bool(&b)) { same = 0; }
+    if (rng_double(&a) != Rng_double(&b)) { same = 0; }
+    uint8[4] x;  uint8[4] y;
+    rng_fill(&a, &x[0], (int64)4);  Rng_fill(&b, &y[0], (int64)4);
+    if (x[3] != y[3]) { same = 0; }
+    printf("random: %d\n", same);
+    return 0;
+}
