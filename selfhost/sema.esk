@@ -78,6 +78,9 @@ struct Sema {
     List<string> isub_a;
     int in_inst;
     int inst_depth;
+    // Globals declared after the top-level declaration being checked: C declares a global
+    // at its definition, so an earlier initializer or function body cannot name it.
+    List<string> late_globals;
 }
 
 // Mutually-recursive walk.
@@ -333,6 +336,7 @@ void sema_init(Sema* s, string filename) {
     s.match_ty = "";
     s.lam_ret = "";
     List_init<string>(&s.watched, 4);
+    List_init<string>(&s.late_globals, 4);
     List_init<string>(&s.escaped, 4);
     List_init<string>(&s.narrowed, 4);
     List_init<string>(&s.loop_lbls, 4);
@@ -3323,7 +3327,8 @@ void sema_expr_k(Sema* s, *ExprNode e) {
     if (k == EK_IDENT) {
         // va_start/va_end are variadic-access builtins with no declaration (va_arg<T> is a
         // template call). Treat them as defined, matching the C++ checker.
-        if (sema_lookup(s, e.sval) == 0
+        if ((sema_lookup(s, e.sval) == 0
+             || (sema_local_bound(s, e.sval) == 0 && sema_in_list(&s.late_globals, e.sval) == 1))
             && sema_streq(e.sval, "va_start") == 0 && sema_streq(e.sval, "va_end") == 0) {
             s.had_error = 1;
             dprintf(2, "error: %s:%d:%d: undefined variable '%s'\n", s.filename, s.line, s.col, e.sval);
@@ -5771,6 +5776,12 @@ int sema_check(Sema* s, *Program prog) {
     string primary = s.filename;
     int i = 0;
     int n = List_len<*DeclNode>(&prog.decls);
+    int gi0 = 0;
+    while (gi0 < n) {
+        *DeclNode gd = List_get<*DeclNode>(&prog.decls, gi0);
+        if (gd.kind == DK_VARDECL) { List_push<string>(&s.late_globals, gd.name); }
+        gi0 = gi0 + 1;
+    }
     while (i < n) {
         *DeclNode d = List_get<*DeclNode>(&prog.decls, i);
         sema_enter_decl(s, d, primary);
@@ -5895,6 +5906,13 @@ int sema_check(Sema* s, *Program prog) {
                 ej = ej + 1;
             }
         }
+        if (d.kind == DK_VARDECL && d.is_extern == 0 && d.init != null) {
+            // The initializer is an expression like any other (names, operators, shift
+            // counts), checked before the global itself is declared.
+            if (d.init.kind == EK_LAMBDA && sema_is_fn_type(d.ret_type) == 1) { s.lam_ret = sema_fn_ret(d.ret_type); }
+            sema_expr(s, d.init);
+            s.lam_ret = "";
+        }
         if (d.kind == DK_VARDECL && d.is_extern == 0 && d.init != null && sema_is_const_init(s, d.init) == 0) {
             sema_error(s, sema_cat(sema_cat("initializer of global '", d.name), "' is not a compile-time constant"));
         }
@@ -5906,6 +5924,13 @@ int sema_check(Sema* s, *Program prog) {
             if (gerr[0] != 0) {
                 s.had_error = 1;
                 dprintf(2, "error: %s:%d:%d: initializing '%s': %s\n", s.filename, s.line, s.col, d.name, gerr);
+            }
+        }
+        if (d.kind == DK_VARDECL) {
+            int lg = 0;
+            while (lg < List_len<string>(&s.late_globals)) {
+                if (sema_streq(List_get<string>(&s.late_globals, lg), d.name) == 1) { List_remove<string>(&s.late_globals, lg); lg = List_len<string>(&s.late_globals); }
+                lg = lg + 1;
             }
         }
         if (d.kind == DK_STRUCT || d.kind == DK_UNION) {

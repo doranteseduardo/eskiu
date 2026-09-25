@@ -1750,6 +1750,8 @@ render(&c);   // &c is auto-boxed into a Drawable fat pointer
 
 The same boxing happens wherever an interface-typed slot receives a struct pointer: a local (`let d: Drawable = &c;`), an assignment, a struct field, and a `return` from a function declared to return the interface. The interface value is held by value, so it can be stored and returned freely; it keeps referring to the struct it was boxed from. Passing the struct itself (`render(c)`) is a compile error: an interface refers to a struct through a pointer, so write `&c`.
 
+An interface value always refers to a struct: `null` does not convert to an interface (there is no way to test an interface value for null, so a null one could only crash when called). A global or `static` interface is initialized with the address of a global struct (`Drawable d = &gc;`), a link-time constant.
+
 ### 9.5 Implementation Detail: Fat Pointer
 
 Under the hood, an interface value is a two-word fat pointer:

@@ -97,6 +97,7 @@ when you add a test.
 | `array_return_large` | a function returning an array wider than 16 bytes (`int64[4]`, an array of interface values) goes through the hidden return pointer |
 | `generic_rvalue_instance` | a generic struct or enum instance reached only through a call result (`flip(n).a`, `unbox(bx(7))`, `bx(2.5).get()`, `match wrap<int64>(5)`) |
 | `closure_array_ptr` | an array of closures `fn(int)->int[3]` (indexed and called) and a pointer to a closure `*fn(int)->int` (`&f`, `*pf`, store through it) |
+| `global_iface_init` | a global, `static` or struct-field interface value initialized with `&global` folds to `{data, vtable}` |
 | `const_bitfield_union` | global and `static` initializers of bitfield structs, unions (any member, nested in a struct), `packed` and `pack(2)` structs fold to their C byte image; local union literals |
 | `templates_result` | `Result<int,string>` monomorphization, `Ok`/`Err` |
 | `template_inference` | `T` inferred when it appears directly as a parameter type |
@@ -383,6 +384,9 @@ when you add a test.
 | `errors/await_in_lambda` | rejected with "await is only allowed inside an async function" |
 | `errors/bitfield_float` | rejected with "must have an integer type" |
 | `errors/bitfield_too_wide` | rejected with "is 40 bits wide, more than its type 'uint32' holds" |
+| `errors/global_forward_ref` | a global initializer naming a later global: "undefined variable 'gsz'" (C declares a global at its definition) |
+| `errors/fn_forward_global` | a function body naming a later global: "undefined variable 'gz'" |
+| `errors/global_shift_range` | a global initializer is checked like any expression: "shift count 40 is out of range" |
 | `errors/union_two_members` | rejected with "a union literal initializes one member" |
 | `errors/break_outside` | rejected with "'break' outside of a loop or switch" |
 | `errors/call_non_fn` | rejected with "undefined function 'x'" |

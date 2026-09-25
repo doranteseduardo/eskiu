@@ -1,0 +1,23 @@
+extern int printf(string fmt, ...);
+interface Sh { int area(); }
+struct Sq { int s; int area() { return self.s * self.s; } }
+struct Rect { int w; int h; int area() { return self.w * self.h; } }
+struct Holder { int tag; Sh shape; }
+Sq gsq = Sq{s: 3};
+Rect grc = Rect{w: 2, h: 5};
+Sh gsh = &gsq;
+Holder gh = Holder{tag: 7, shape: &grc};
+int pick() {
+    static Sh cur = &gsq;
+    int a = cur.area();
+    cur = &grc;
+    return a;
+}
+int main() {
+    printf("%d %d\n", gsh.area(), gh.shape.area());
+    gsh = &grc;
+    gsq.s = 4;
+    printf("%d %d\n", gsh.area(), gh.tag);
+    printf("%d %d\n", pick(), pick());
+    return 0;
+}

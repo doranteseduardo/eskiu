@@ -568,7 +568,9 @@ private:
     // return the value if it folded to a constant (converted to `targetTy` when given),
     // else nullptr. So a constant initializer computes exactly what the same expression
     // computes at run time (promotions, signedness, wrapping).
-    llvm::Constant* foldViaCodegen(const ExprPtr& expr, llvm::Type* targetTy);
+    // With `asIface`, the value is converted to that interface (a boxed `&global`).
+    llvm::Constant* foldViaCodegen(const ExprPtr& expr, llvm::Type* targetTy,
+                                   const std::string& asIface = "");
     // Fold a numeric `const` declaration's initializer in its declared type, recording
     // it for array dimensions (constInts) and, at top level, by name. nullptr if not.
     llvm::Constant* foldConstDecl(VarDecl* v);

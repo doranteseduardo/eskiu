@@ -2078,6 +2078,7 @@ struct CgImg { *uint8 b; *uint8 op; int n; List<CgLeaf> dir; List<string> dtx; }
 
 string cg_global_init(Codegen* g, *ExprNode e, string llty);   // fwd
 string cg_i64toa(int64 v);                                      // fwd
+string cg_global_init_ty(Codegen* g, *ExprNode e, string ety);  // fwd
 int64 cg_k_wrap(int64 v, int w, int uns);                       // fwd
 int cg_is_bf_struct(Codegen* g, string sname);                  // fwd
 int cg_ll_align_of(Codegen* g, string t);                       // fwd
@@ -2336,7 +2337,7 @@ string cg_const_struct(Codegen* g, string sname0, *ExprNode e) {
             if (idx == i) { fe = List_get<*ExprNode>(&e.kids, k); }
             k = k + 1;
         }
-        if (fe != null) { String_append(&out, cg_global_init(g, fe, flty)); }
+        if (fe != null) { String_append(&out, cg_global_init_ty(g, fe, List_get<string>(&s.fetys, i))); }
         else { String_append(&out, "zeroinitializer"); }
         i = i + 1;
     }
@@ -4763,7 +4764,18 @@ string cg_iface_slot_fn(Codegen* g, CgIface* f, int mi, string sname) {
     return cg_ensure_fn_inst(g, (string)String_cstr(&sp));
 }
 
+string cg_iface_vtable(Codegen* g, string ifaceName, string structName);   // fwd
 string cg_box_iface(Codegen* g, string ifaceName, string structName, string dataop) {
+    string vtg = cg_iface_vtable(g, ifaceName, structName);
+    string f1 = cg_tmp(g);
+    cg_emit(g, "  "); cg_emit(g, f1); cg_emit(g, " = insertvalue %iface_fat undef, ptr "); cg_emit(g, dataop); cg_emit(g, ", 0\n");
+    string f2 = cg_tmp(g);
+    cg_emit(g, "  "); cg_emit(g, f2); cg_emit(g, " = insertvalue %iface_fat "); cg_emit(g, f1); cg_emit(g, ", ptr "); cg_emit(g, vtg); cg_emit(g, ", 1\n");
+    return f2;
+}
+
+// The vtable global of `structName` as an `ifaceName` (emitted once), e.g. `@Sh_vtable_Sq`.
+string cg_iface_vtable(Codegen* g, string ifaceName, string structName) {
     CgIface f = cg_find_iface(g, ifaceName);
     string vtg = cg_cat("@", cg_cat(ifaceName, cg_cat("_vtable_", cg_mangle(structName))));
     string key = cg_cat("vt:", cg_cat(ifaceName, cg_cat("_", structName)));
@@ -4784,11 +4796,27 @@ string cg_box_iface(Codegen* g, string ifaceName, string structName, string data
         }
         String_append(&g.globals, " }\n");
     }
-    string f1 = cg_tmp(g);
-    cg_emit(g, "  "); cg_emit(g, f1); cg_emit(g, " = insertvalue %iface_fat undef, ptr "); cg_emit(g, dataop); cg_emit(g, ", 0\n");
-    string f2 = cg_tmp(g);
-    cg_emit(g, "  "); cg_emit(g, f2); cg_emit(g, " = insertvalue %iface_fat "); cg_emit(g, f1); cg_emit(g, ", ptr "); cg_emit(g, vtg); cg_emit(g, ", 1\n");
-    return f2;
+    return vtg;
+}
+
+// Constant initializer text of a global / static of Eskiu type `ety` (cg_global_init on
+// its LLVM type). An interface value is `null` (the empty fat value) or a boxed
+// `&global`: `{ ptr @g, ptr @I_vtable_S }`.
+string cg_global_init_ty(Codegen* g, *ExprNode e, string ety) {
+    string t = cg_dealias(g, ety);
+    if (e != null && cg_is_iface(g, t) == 1) {
+        if (e.kind == EK_LITERAL && e.lit_kind == LIT_NULL) { return "zeroinitializer"; }
+        if (e.kind == EK_UNARY && cg_streq(e.sval, "&") == 1 && e.a != null && e.a.kind == EK_IDENT) {
+            CgLocal gl = cg_find_global(g, e.a.sval);
+            if (gl.slot[0] != 0 && cg_is_struct(g, cg_dealias(g, gl.ety)) == 1) {
+                string vtg = cg_iface_vtable(g, t, cg_dealias(g, gl.ety));
+                return cg_cat("{ ptr ", cg_cat(gl.slot, cg_cat(", ptr ", cg_cat(vtg, " }"))));
+            }
+        }
+        dprintf(2, "error: an interface global's initializer must be null or the address of a global struct\n");
+        exit(1);
+    }
+    return cg_global_init(g, e, cg_lltype(g, ety));
 }
 
 // The operand for value `a` (from expression `ax`) stored into a slot of Eskiu type `tety`:
@@ -5524,7 +5552,7 @@ void cg_stmt(Codegen* g, *StmtNode st) {
             if (cg_is_fnty(st.type) == 1) { g.lam_expret = cg_fnty_ret(st.type); }  // thread fn-type return into a lambda init
             // Compute the initializer first (a string literal appends its constant to
             // g.globals; that must not land mid-line — see the module-global path).
-            string sinit = cg_global_init(g, st.expr, ty);
+            string sinit = cg_global_init_ty(g, st.expr, st.type);
             g.lam_expret = "";
             String_append(&g.globals, gname);
             String_append(&g.globals, " = internal global ");
@@ -7269,7 +7297,7 @@ void cg_program(Codegen* g, *Program prog) {
             // Compute the initializer FIRST: a string literal folds via cg_string_global,
             // which appends its constant to g.globals — that must land before this line, not
             // in the middle of it.
-            string initstr = cg_global_init(g, d.init, llty);
+            string initstr = cg_global_init_ty(g, d.init, d.ret_type);
             g.lam_expret = "";
             String_append(&g.globals, gsym);
             String_append(&g.globals, " = global "); String_append(&g.globals, llty);

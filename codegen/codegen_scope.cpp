@@ -57,7 +57,8 @@ llvm::Constant* CodeGen::evaluateConstantExpr(const ExprPtr& expr) {
     return foldViaCodegen(expr, nullptr);
 }
 
-llvm::Constant* CodeGen::foldViaCodegen(const ExprPtr& expr, llvm::Type* targetTy) {
+llvm::Constant* CodeGen::foldViaCodegen(const ExprPtr& expr, llvm::Type* targetTy,
+                                        const std::string& asIface) {
     // The IRBuilder constant-folds an operation on constant operands instead of emitting
     // an instruction, so running the normal expression codegen over a constant tree
     // yields an llvm::Constant. It runs in a throwaway function (so a non-constant
@@ -73,8 +74,8 @@ llvm::Constant* CodeGen::foldViaCodegen(const ExprPtr& expr, llvm::Type* targetT
     ++constEvalDepth;
     llvm::Value* v = nullptr;
     try {
-        v = evaluateExpr(expr);
-        if (v && targetTy) v = coerceValue(v, targetTy, eskiuUnsigned(getExprEskiuType(expr)));
+        v = asIface.empty() ? evaluateExpr(expr) : evalForType(expr, asIface);
+        if (v && targetTy && asIface.empty()) v = coerceValue(v, targetTy, eskiuUnsigned(getExprEskiuType(expr)));
     } catch (const std::exception&) {
         v = nullptr;
     }
@@ -142,6 +143,9 @@ llvm::Constant* CodeGen::constInitializer(const ExprPtr& expr, llvm::Type* declT
         llvm::Constant* c = evaluateConstantExpr(expr);
         return (c && c->getType() == declType) ? c : nullptr;
     }
+    // An interface value `{data, vtable}`: `null`, or a boxed link-time address.
+    for (const auto& [iname, fatTy] : ifaceFatPtrTypes)
+        if (fatTy == declType) return foldViaCodegen(expr, declType, iname);
     return foldViaCodegen(expr, declType);
 }
 
