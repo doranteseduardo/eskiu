@@ -1,0 +1,22 @@
+// time_format_iso prints a negative (proleptic) year in ISO 8601 expanded form,
+// "-0001", instead of zero-padding the digits around the sign ("00-1").
+import <time>;
+import <string>;
+extern int printf(string fmt, ...);
+
+void show(int64 t) {
+    let dt: DateTime;  time_to_utc(t, &dt);
+    let s: String;  String_init(&s, 24);
+    time_format_iso(&dt, &s);
+    printf("%lld -> %s back=%d\n", t, String_cstr(&s), time_from_utc(&dt) == t);
+    String_free(&s);
+}
+
+int main() {
+    show((int64)-62135596801);
+    show((int64)-62167219200);
+    show((int64)-62167219201);
+    show((int64)-377705116800);
+    show((int64)253402300800);
+    return 0;
+}

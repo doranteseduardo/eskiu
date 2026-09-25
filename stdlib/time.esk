@@ -84,8 +84,9 @@ void sleep_ms(int64 ms) {
 //   time_format_iso(&dt, &s);        // "2026-07-13T18:30:00Z"
 //
 // Conversions use Howard Hinnant's days<->civil algorithm, which is exact for
-// the proleptic Gregorian calendar over the whole int64 range. UTC only; there
-// is no timezone or leap-second handling.
+// the proleptic Gregorian calendar for every year that fits DateTime.year (an
+// int, about +/-2.1 billion years). UTC only; there is no timezone or
+// leap-second handling.
 
 struct DateTime {
     int year;
@@ -145,11 +146,16 @@ int64 time_from_utc(DateTime* dt) {
     return days * 86400 + dt.hour * 3600 + dt.min * 60 + dt.sec;
 }
 
-// Append `v` as `width` zero-padded decimal digits to `out` (helper).
+// Append `v` as `width` zero-padded decimal digits to `out` (helper). A
+// negative value gets its sign first, then the padded magnitude ("-0001").
 void time_pad(String* out, int v, int width) {
     let tmp: String;
     String_init(&tmp, 8);
-    String_from_int(&tmp, v);
+    int64 mag = (int64)v;
+    if (mag < (int64)0) { String_push(out, '-'); mag = (int64)0 - mag; }
+    if (mag == (int64)0) { String_push(&tmp, '0'); }
+    while (mag > (int64)0) { String_push(&tmp, (char)(48 + (int)(mag % (int64)10))); mag = mag / (int64)10; }
+    String_reverse(&tmp);
     int64 have = String_len(&tmp);
     int64 pad = (int64)width - have;
     while (pad > 0) { String_push(out, '0'); pad = pad - 1; }
@@ -157,7 +163,8 @@ void time_pad(String* out, int v, int width) {
     String_free(&tmp);
 }
 
-// Append the ISO 8601 UTC form "YYYY-MM-DDTHH:MM:SSZ" to `out`.
+// Append the ISO 8601 UTC form "YYYY-MM-DDTHH:MM:SSZ" to `out`. A year before
+// 0 uses the expanded sign form ("-0001-..."); a year past 9999 uses more digits.
 void time_format_iso(DateTime* dt, String* out) {
     time_pad(out, dt.year, 4);
     String_push(out, '-');
