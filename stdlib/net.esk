@@ -69,12 +69,12 @@ packed struct sockaddr_in {
 // Start Winsock once before any socket call (a no-op elsewhere). Not thread-safe on its
 // own; the servers call it from their single setup path before spawning workers.
 #ifdef _WIN32
-int _net_wsa_ready = 0;
+bool _net_wsa_ready = false;
 void net_wsa_init() {
-    if (_net_wsa_ready == 0) {
+    if (!_net_wsa_ready) {
         uint8[512] wsadata;
         WSAStartup(514, (*void)&wsadata);   // 514 = 0x0202, Winsock 2.2
-        _net_wsa_ready = 1;
+        _net_wsa_ready = true;
     }
 }
 int net_close_fd(int fd) { return closesocket(fd); }
@@ -96,7 +96,7 @@ void net_fill_addr(sockaddr_in* a, uint32 net_ip, uint16 port) {
 // Open a listening TCP socket on 0.0.0.0:port. Returns the fd, or -1 on error.
 int net_tcp_listen(uint16 port) {
     net_wsa_init();
-    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    const int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) { return -1; }
     int one = 1;
     setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (*void)&one, 4);
@@ -109,7 +109,7 @@ int net_tcp_listen(uint16 port) {
 
 // Accept the next pending connection. Returns the connection fd, or -1.
 int net_accept(int listen_fd) {
-    return accept(listen_fd, (*void)0, (*int)0);
+    return accept(listen_fd, null, null);
 }
 
 // Accept the next connection and write the peer's IPv4 address (network byte
@@ -119,7 +119,7 @@ int net_accept(int listen_fd) {
 int net_accept_addr(int listen_fd, *uint32 peer_ip) {
     let a: sockaddr_in;
     let alen: int = 16;
-    int c = accept(listen_fd, (*void)&a, &alen);
+    const int c = accept(listen_fd, (*void)&a, &alen);
     if (c >= 0 && peer_ip != null) { peer_ip[0] = a.sin_addr; }
     return c;
 }
@@ -127,7 +127,7 @@ int net_accept_addr(int listen_fd, *uint32 peer_ip) {
 // Connect to a dotted-quad host (e.g. "127.0.0.1") and port. Returns fd, or -1.
 int net_tcp_connect(string host, uint16 port) {
     net_wsa_init();
-    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    const int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) { return -1; }
     let a: sockaddr_in;
     net_fill_addr(&a, inet_addr(host), port);
