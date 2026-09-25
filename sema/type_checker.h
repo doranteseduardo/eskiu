@@ -92,8 +92,17 @@ public:
     std::string getTypeAtPosition(int line, int col) const;
     struct DefLocation { int line; int col; std::string file; };
     std::map<std::string, DefLocation> definitionLocations;
-    // Use-site map: (line,col) → symbol name (populated from IdentExpr visits)
+    // Use-site map: (line,col) → symbol name of a global (function, enum member,
+    // global variable), resolved through definitionLocations.
     std::map<std::pair<int,int>, std::string> useLocations;
+    // Use-site map for names that resolved to a local/parameter: (line,col) → the
+    // definition of the exact symbol that scope lookup found, so a local `n` in f()
+    // never jumps to another function's `n`.
+    struct UseDef { int width; DefLocation def; };
+    std::map<std::pair<int,int>, UseDef> useDefs;
+    // Tooling maps only describe the primary input (an imported file's nodes share
+    // line/col coordinates with it).
+    bool inPrimaryFile() const { return curFile.empty() || curFile == sourceFile; }
     std::string getDefinitionAt(int line, int col) const;
     // Declared-name hover spans (variables, parameters): cursor on the declared
     // name → its type, even though the name is not an expression node.
@@ -107,6 +116,7 @@ private:
         bool isDeclared;
         bool used = false;     // -Wall: referenced at least once
         int  line = 0, col = 0;
+        std::string file;      // file of the declaration (go-to-definition)
         bool isParam = false;
         bool isConst = false;  // declared with `const` — reassignment is an error
         bool isStatic = false; // `static` local: one global cell, referenced (not captured) by lambdas
@@ -117,6 +127,9 @@ private:
     // Is `e` a compile-time constant initializer (C semantics) that codegen's constant
     // folder emits? Used for global and `static` initializers.
     bool isConstInit(const ExprPtr& e) const;
+
+    // The symbol `name` resolves to in the current scopes (innermost first), or null.
+    const Symbol* findSymbol(const std::string& name) const;
     // If assigning to `lhs` would mutate a `const` value in place (the binding
     // itself, or a field/element of a const aggregate), returns true and sets
     // `nameOut` to the constant's name. Stops at pointer dereferences: writing

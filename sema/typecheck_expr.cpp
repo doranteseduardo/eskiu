@@ -562,7 +562,7 @@ void TypeChecker::visit(CallExpr* node) {
         funcName = identExpr->name;
         calledFns.insert(funcName);  // -Wall: mark referenced
         // Record use-site for go-to-definition
-        useLocations[{identExpr->line, identExpr->col}] = funcName;
+        if (inPrimaryFile()) useLocations[{identExpr->line, identExpr->col}] = funcName;
     } else {
         // Any other callee expression (`mk()(1)`, `(*pf)(x)`): call its fn-typed value.
         node->callee->accept(this);
@@ -922,7 +922,7 @@ void TypeChecker::visit(IdentExpr* node) {
     if (type.empty() && enumConstants.count(node->name)) {
         // Bare enum member, e.g. `Red` — an int constant.
         expressionTypes[node] = "int";
-        useLocations[{node->line, node->col}] = node->name;
+        if (inPrimaryFile()) useLocations[{node->line, node->col}] = node->name;
         return;
     }
     if (type.empty() && adtVariants.count(node->name)) {
@@ -946,7 +946,7 @@ void TypeChecker::visit(IdentExpr* node) {
         }
         t += ")->" + sig.first;
         expressionTypes[node] = t;
-        useLocations[{node->line, node->col}] = node->name;
+        if (inPrimaryFile()) useLocations[{node->line, node->col}] = node->name;
         return;
     }
     if (type.empty()) {
@@ -957,8 +957,17 @@ void TypeChecker::visit(IdentExpr* node) {
     } else {
         expressionTypes[node] = type;
     }
-    // Record use-site so go-to-definition can map cursor → definition
-    useLocations[{node->line, node->col}] = node->name;
+    // Record use-site so go-to-definition can map cursor → definition: a local or
+    // parameter maps to the exact symbol found; a global maps by name.
+    if (inPrimaryFile()) {
+        const Symbol* sym = findSymbol(node->name);
+        auto global = scopes.front().find(node->name);
+        bool isGlobal = global != scopes.front().end() && &global->second == sym;
+        if (sym && !isGlobal && sym->line > 0)
+            useDefs[{node->line, node->col}] = {(int)node->name.size(), {sym->line, sym->col, sym->file}};
+        else
+            useLocations[{node->line, node->col}] = node->name;
+    }
 
     // Capture detection: inside a lambda, a name is captured when it resolves to
     // a variable in an enclosing scope (below the lambda's own scopes). We key off

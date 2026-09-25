@@ -391,36 +391,40 @@ std::string TypeChecker::getTypeAtPosition(int line, int col) const {
 }
 
 std::string TypeChecker::getDefinitionAt(int line, int col) const {
-    // 1. Cursor is on a use-site: look up the symbol name from use location
-    auto useit = useLocations.find({line, col});
-    if (useit != useLocations.end()) {
-        auto defit = definitionLocations.find(useit->second);
-        if (defit != definitionLocations.end()) {
-            const auto& loc = defit->second;
-            return loc.file + ":" + std::to_string(loc.line) + ":" +
-                   std::to_string(loc.col);
-        }
+    auto fmtLoc = [](const DefLocation& loc) {
+        return loc.file + ":" + std::to_string(loc.line) + ":" + std::to_string(loc.col);
+    };
+    // 1. A use of a local/parameter whose name spans the cursor: the definition is
+    //    the symbol scope resolution picked at that use.
+    for (const auto& [pos, use] : useDefs) {
+        if (pos.first == line && col >= pos.second && col < pos.second + use.width)
+            return fmtLoc(use.def);
     }
-    // 2. Cursor may be slightly off — check nearby columns for a use on same line
-    for (int dc = -8; dc <= 8; ++dc) {
-        auto it2 = useLocations.find({line, col + dc});
-        if (it2 != useLocations.end()) {
-            auto defit = definitionLocations.find(it2->second);
-            if (defit != definitionLocations.end()) {
-                const auto& loc = defit->second;
-                return loc.file + ":" + std::to_string(loc.line) + ":" +
-                       std::to_string(loc.col);
-            }
-        }
+    // 2. A use of a global (function, enum member, global variable) spanning it.
+    for (const auto& [pos, name] : useLocations) {
+        if (pos.first != line || col < pos.second || col >= pos.second + (int)name.size()) continue;
+        auto defit = definitionLocations.find(name);
+        if (defit != definitionLocations.end()) return fmtLoc(defit->second);
     }
-    // 3. Cursor is directly on the declaration itself
+    // 3. Cursor is directly on a declaration in this file.
     for (const auto& [name, loc] : definitionLocations) {
-        if (loc.line == line &&
+        if (loc.file == sourceFile && loc.line == line &&
             col >= loc.col && col < loc.col + (int)name.size())
-            return loc.file + ":" + std::to_string(loc.line) + ":" +
-                   std::to_string(loc.col);
+            return fmtLoc(loc);
+    }
+    for (const auto& s : hoverSyms) {
+        if (s.line == line && col >= s.col && col < s.col + std::max(1, s.width))
+            return sourceFile + ":" + std::to_string(s.line) + ":" + std::to_string(s.col);
     }
     return "";
+}
+
+const TypeChecker::Symbol* TypeChecker::findSymbol(const std::string& name) const {
+    for (auto it = scopes.rbegin(); it != scopes.rend(); ++it) {
+        auto sym = it->find(name);
+        if (sym != it->end()) return &sym->second;
+    }
+    return nullptr;
 }
 
 // Scope management
@@ -510,13 +514,14 @@ void TypeChecker::defineSymbol(const std::string& name, const std::string& type,
         Symbol s;
         s.type = type; s.isDeclared = true;
         s.used = false; s.line = line; s.col = col; s.isParam = isParam;
+        s.file = diagFile();
         scopes.back()[name] = s;
     }
     // Record a hover span for the declared name (col points at the name token).
     // Parameters are excluded: the parser stamps them at the *function's*
     // position, not the parameter's, so a span there would be wrong. Parameter
     // uses inside the body still hover correctly via expression types.
-    if (line > 0 && !isParam) {
+    if (line > 0 && !isParam && inPrimaryFile()) {
         std::string disp = type;
         if (disp.rfind("struct:", 0) == 0) disp = disp.substr(7);  // display "Point", not "struct:Point"
         hoverSyms.push_back({line, col, (int)name.size(), disp});

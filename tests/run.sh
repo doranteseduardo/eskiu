@@ -177,6 +177,24 @@ for esk in "$here"/*.esk; do
     done
 done
 
+# ---- go-to-definition -------------------------------------------------------
+# tests/lsp/NAME.esk lists `// DEF L:C L2:C2` queries: --definition-at L:C must
+# resolve to L2:C2 in the same file (the symbol scope lookup picked, not a
+# same-named one elsewhere).
+echo "Go-to-definition:"
+for esk in "$here"/lsp/*.esk; do
+    [[ -e "$esk" ]] || continue
+    name="lsp/$(basename "$esk" .esk)"
+    while read -r q want; do
+        got="$("$ESKIUC" "$esk" --definition-at "$q" 2>&1)"
+        if [[ "$got" == "$esk:$want" ]]; then
+            ok "$name $q"
+        else
+            bad "$name $q" "expected $want, got '$got'"
+        fi
+    done < <(grep '^// DEF ' "$esk" | sed 's#^// DEF ##')
+done
+
 # ---- formatter idempotency ------------------------------------------------
 # `eskiuc fmt` must be idempotent: formatting an already-formatted file is a
 # no-op. Format every positive test into a temp file, then assert `fmt --check`
