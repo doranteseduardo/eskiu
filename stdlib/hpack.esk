@@ -234,7 +234,8 @@ string hpack_static_value(int i) {
 // ── Dynamic table + decoder ──────────────────────────────────────────────────
 
 // One decoded header field. name/value point at storage owned by the static
-// table, the dynamic table, or the input block — valid for the decode's lifetime.
+// table, the dynamic table, or the input block. They stay valid until the next
+// hpack_decode on the same decoder (entries evicted mid-block are freed then).
 struct HpackHeader {
     *uint8 name;  int nlen;
     *uint8 value; int vlen;
@@ -261,6 +262,9 @@ struct HpackDecoder {
     int   scratch_cap;
     int   scratch_used;
     int64 limit;        // the SETTINGS_HEADER_TABLE_SIZE bound on any §6.3 size update
+    **uint8 grave;      // evicted entry strings, freed at the next hpack_decode (see hpack_evict)
+    int   grave_count;
+    int   grave_cap;
 }
 
 void hpack_decoder_init(HpackDecoder* d, int64 max_size) {
@@ -270,6 +274,9 @@ void hpack_decoder_init(HpackDecoder* d, int64 max_size) {
     d.dyn_cap = cap;
     d.max_size = max_size;
     d.limit = max_size;
+    d.grave = (**uint8)0;
+    d.grave_count = 0;
+    d.grave_cap = 0;
     d.cur_size = (int64)0;
     hpack_huff_build(&d.huff);
     d.scratch_cap = 16384;
@@ -285,6 +292,9 @@ void hpack_decoder_free(HpackDecoder* d) {
         i = i + 1;
     }
     free((*void)d.dyn);
+    hpack_grave_clear(d);
+    free((*void)d.grave);
+    d.grave_cap = 0;
     hpack_huff_free(&d.huff);
     free((*void)d.scratch);
     d.dyn_count = 0;
@@ -309,26 +319,54 @@ int hpack_read_str(HpackDecoder* d, *uint8 buf, int off, HpackStr* out) {
     return nx + (int)len;
 }
 
+// Park an evicted entry's string until the next block: headers already decoded
+// from this block may still point at it (their lifetime is the whole decode).
+void hpack_grave_push(HpackDecoder* d, *uint8 p) {
+    if (d.grave_count >= d.grave_cap) {
+        int ncap = d.grave_cap * 2;
+        if (ncap < 16) { ncap = 16; }
+        **uint8 grown = alloc<*uint8>(ncap);
+        int i = 0;
+        while (i < d.grave_count) { grown[i] = d.grave[i]; i = i + 1; }
+        free((*void)d.grave);
+        d.grave = grown;
+        d.grave_cap = ncap;
+    }
+    d.grave[d.grave_count] = p;
+    d.grave_count = d.grave_count + 1;
+}
+
+void hpack_grave_clear(HpackDecoder* d) {
+    int i = 0;
+    while (i < d.grave_count) { free((*void)d.grave[i]); i = i + 1; }
+    d.grave_count = 0;
+}
+
 // Evict the oldest entries until `need` more bytes fit (or the table is empty).
 void hpack_evict(HpackDecoder* d, int64 need) {
     while (d.cur_size + need > d.max_size && d.dyn_count > 0) {
         int last = d.dyn_count - 1;
         d.cur_size = d.cur_size - (int64)d.dyn[last].size;
-        free((*void)d.dyn[last].name);
-        free((*void)d.dyn[last].value);
+        hpack_grave_push(d, d.dyn[last].name);
+        hpack_grave_push(d, d.dyn[last].value);
         d.dyn_count = last;
     }
 }
 
 // Insert a copy of (name, value) at the front of the dynamic table (§4.4).
+// The copies are taken before evicting: `name` may point into an entry that this
+// insert evicts (a literal whose name index refers to the dynamic table, §4.4).
 void hpack_dyn_insert(HpackDecoder* d, *uint8 name, int nlen, *uint8 value, int vlen) {
     int64 esize = (int64)(nlen + vlen + 32);
-    hpack_evict(d, esize);
-    if (esize > d.max_size) { return; }       // larger than the whole table: table left empty
-    int i = d.dyn_count;
-    while (i > 0) { d.dyn[i] = d.dyn[i - 1]; i = i - 1; }
     *uint8 nc = alloc<uint8>(nlen);  memcpy((*void)nc, (*void)name, nlen);
     *uint8 vc = alloc<uint8>(vlen);  memcpy((*void)vc, (*void)value, vlen);
+    hpack_evict(d, esize);
+    if (esize > d.max_size) {                 // larger than the whole table: table left empty
+        free((*void)nc);  free((*void)vc);
+        return;
+    }
+    int i = d.dyn_count;
+    while (i > 0) { d.dyn[i] = d.dyn[i - 1]; i = i - 1; }
     d.dyn[0].name = nc;  d.dyn[0].nlen = nlen;
     d.dyn[0].value = vc; d.dyn[0].vlen = vlen;
     d.dyn[0].size = nlen + vlen + 32;
@@ -400,6 +438,7 @@ int hpack_decode_literal(HpackDecoder* d, *uint8 buf, int off, int prefixBits,
 // Returns the header count, or -1 on a malformed block.
 int hpack_decode(HpackDecoder* d, *uint8 buf, int len, HpackHeader* out, int max) {
     d.scratch_used = 0;                  // reset the per-block arena for Huffman strings
+    hpack_grave_clear(d);                // the previous block's evicted strings are no longer referenced
     int off = 0;  int count = 0;
     while (off < len) {
         if (count >= max) { return -1; }

@@ -1,0 +1,4 @@
+count=2 dyn=1
+entry=aaaa:bbbbbbbbb
+hdr0=aaaa hdr1=aaaa:bbbbbbbbb
+count=2 first=aaaa:bbbbbbbbb
