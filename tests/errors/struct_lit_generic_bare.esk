@@ -1,0 +1,4 @@
+// EXPECT-ERROR: generic struct 'Box' needs type arguments, as in Box<int>{...}
+struct Box<T> { T v; }
+struct P { int a; }
+int main() { Box<int> b = Box{v: "hello"}; P p = P<int>{a: 1}; return b.v + p.a; }

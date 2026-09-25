@@ -1605,7 +1605,13 @@ void TypeChecker::visit(StructInitExpr* node) {
     }
     auto it = structs.find(sname);
     if (it == structs.end()) {
-        errorAt(node,"undefined struct '" + node->structName + "'");
+        std::string base = sname.substr(0, sname.find('<'));
+        if (base == sname && templateDecls.count(sname))
+            errorAt(node, "generic struct '" + sname + "' needs type arguments, as in " + sname + "<int>{...}");
+        else if (base != sname && structs.count(base) && !templateDecls.count(base))
+            errorAt(node, "struct '" + base + "' is not generic: write " + base + "{...}");
+        else
+            errorAt(node,"undefined struct '" + node->structName + "'");
         expressionTypes[node] = "unknown";
         return;
     }

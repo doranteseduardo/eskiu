@@ -3936,9 +3936,20 @@ void sema_expr_k(Sema* s, *ExprNode e) {
             ahops = ahops + 1;
         }
         string base = sema_base_name(e.sval);
+        *DeclNode sd0 = sema_find_tdecl(s, base);
+        List<string> sitargs; List_init<string>(&sitargs, 2);
+        sema_parse_targs(e.sval, &sitargs);
         if (sema_is_type(s, base) == 0) {
             s.had_error = 1;
             dprintf(2, "error: %s:%d:%d: undefined struct '%s'\n", s.filename, s.line, s.col, base);
+        } else if (sd0 != null && sd0.kind == DK_STRUCT && List_len<TypeParam>(&sd0.type_params) > 0
+                   && List_len<string>(&sitargs) == 0) {
+            s.had_error = 1;
+            dprintf(2, "error: %s:%d:%d: generic struct '%s' needs type arguments, as in %s<int>{...}\n", s.filename, s.line, s.col, base, base);
+        } else if (sd0 != null && sd0.kind == DK_STRUCT && List_len<TypeParam>(&sd0.type_params) == 0
+                   && List_len<string>(&sitargs) > 0) {
+            s.had_error = 1;
+            dprintf(2, "error: %s:%d:%d: struct '%s' is not generic: write %s{...}\n", s.filename, s.line, s.col, base, base);
         }
         sema_check_struct_init(s, e);
         int i = 0;
