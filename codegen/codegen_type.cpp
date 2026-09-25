@@ -373,8 +373,9 @@ std::string CodeGen::deriveExprEskiuTypeUncached(const ExprPtr& expr) const {
         std::string base = getExprEskiuType(member->base);
         if (member->member == "len" && ty::Type::parse(base).kind == ty::Type::Kind::Slice)
             return "int64";                                   // slice length field
+        if (!base.empty() && base.front() == '?') base = base.substr(1);
+        while (!base.empty() && base.front() == '*') base = base.substr(1);   // `*struct:T`: the star first
         if (base.size() > 7 && base.substr(0, 7) == "struct:") base = base.substr(7);
-        if (!base.empty() && base.front() == '*') base = base.substr(1);
         while (!base.empty() && base.back()  == '*') base.pop_back();
         if (base.find('<') != std::string::npos) base = mangleTemplate(base);
         auto it = structFields.find(base);

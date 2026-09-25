@@ -314,6 +314,8 @@ void CodeGen::visit(ForInStmt* node) {
     std::string itType = getExprEskiuType(node->iterable);
     std::string elemType;
     ExprPtr lengthExpr, elemExpr;
+    ExprPtr iterable = node->iterable;
+    std::shared_ptr<VarDecl> listPtrDecl;
 
     ty::Type itT = ty::Type::parse(itType);
     if (itT.kind == ty::Type::Kind::Array) {
@@ -330,12 +332,17 @@ void CodeGen::visit(ForInStmt* node) {
         elemExpr   = std::make_shared<IndexExpr>(node->iterable, idx());
     } else {
         // List-like struct: needs `data` (pointer) and `size` (int) fields.
-        // Strip the struct:/pointer decoration to the bare registry key (the
-        // resolved type arrives normalized as e.g. "struct:List_int").
-        std::string s = itType;
-        if (s.rfind("struct:", 0) == 0) s = s.substr(7);
-        while (!s.empty() && s.front() == '*') s = s.substr(1);
-        while (!s.empty() && s.back()  == '*') s.pop_back();
+        // Strip the pointer/struct: decoration to the bare registry key (the resolved
+        // type arrives normalized as e.g. "struct:List_int", or "*struct:List_int" for
+        // an iterable like `&li`).
+        ty::Type base = ty::Type::parse(expandAlias(itType));
+        while (base.isPointer() && base.pointee) { ty::Type p = *base.pointee; base = p; }
+        std::string s = base.isTemplate() ? mangleTemplate(base.str()) : base.nominalName();
+        // A pointer iterable (`&li`) is evaluated once into a local the loop reads.
+        if (itT.isPointer()) {
+            listPtrDecl = std::make_shared<VarDecl>(idxName + "_p", itType, node->iterable);
+            iterable = std::make_shared<IdentExpr>(idxName + "_p");
+        }
         auto it = structFields.find(s);
         std::string dataType;
         bool hasSize = false;
@@ -349,13 +356,16 @@ void CodeGen::visit(ForInStmt* node) {
         while (!dataType.empty() && dataType.front() == '*') dataType = dataType.substr(1);
         while (!dataType.empty() && dataType.back()  == '*') dataType.pop_back();
         elemType   = dataType;
-        lengthExpr = std::make_shared<MemberExpr>(node->iterable, "size");
+        lengthExpr = std::make_shared<MemberExpr>(iterable, "size");
         elemExpr   = std::make_shared<IndexExpr>(
-            std::make_shared<MemberExpr>(node->iterable, "data"), idx());
+            std::make_shared<MemberExpr>(iterable, "data"), idx());
     }
 
     auto idxDecl = std::make_shared<VarDecl>(idxName, "int", intLit("0"));
-    StmtPtr init = std::make_shared<BlockStmt>(std::vector<BlockItem>{DeclPtr(idxDecl)});
+    std::vector<BlockItem> initItems;
+    if (listPtrDecl) initItems.push_back(DeclPtr(listPtrDecl));
+    initItems.push_back(DeclPtr(idxDecl));
+    StmtPtr init = std::make_shared<BlockStmt>(initItems);
     ExprPtr cond = std::make_shared<BinaryExpr>(idx(), "<", lengthExpr);
     ExprPtr step = std::make_shared<BinaryExpr>(idx(), "=",
                        std::make_shared<BinaryExpr>(idx(), "+", intLit("1")));

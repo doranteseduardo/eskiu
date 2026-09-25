@@ -826,8 +826,11 @@ void CodeGen::visit(IndexExpr* node) {
 }
 
 std::string CodeGen::stripToStructKey(std::string baseType) {
+    // The pointer decoration comes first in a `*struct:T` spelling, so strip it before
+    // the `struct:` tag.
+    if (!baseType.empty() && baseType.front() == '?') baseType = baseType.substr(1);
+    while (!baseType.empty() && baseType.front() == '*') baseType = baseType.substr(1);
     if (baseType.size() > 7 && baseType.substr(0, 7) == "struct:") baseType = baseType.substr(7);
-    if (!baseType.empty() && baseType.front() == '*') baseType = baseType.substr(1);
     while (!baseType.empty() && baseType.back()  == '*') baseType.pop_back();
     if (baseType.find('<') != std::string::npos) {
         auto [tn, args] = splitTemplateType(baseType);
