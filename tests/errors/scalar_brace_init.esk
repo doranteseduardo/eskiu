@@ -1,0 +1,5 @@
+// EXPECT-ERROR: an array literal '{...}' can only initialize an array type, not 'int'
+int main() {
+    int x = {1, 2};
+    return x;
+}
