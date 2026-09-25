@@ -6,7 +6,7 @@
   <title>Changelog · Eskiu</title>
   <meta name="description" content="All notable changes to Eskiu are documented in this file." />
   <link rel="canonical" href="https://eskiu-lang.org/changelog.html" />
-  <link rel="icon" type="image/png" href="assets/logo.png" />
+  <link rel="icon" type="image/png" href="../assets/logo.png" />
   <style>*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
   --bg: #ffffff; --surface: #f6f8fa; --border: #d0d7de; --border-mut: #e4e8ed;
@@ -86,7 +86,7 @@ footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
 <body>
   <header class="top">
     <div class="top-in">
-      <a class="brand" href="index.html"><img src="assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.9.1</span></a>
+      <a class="brand" href="index.html"><img src="../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.9.1</span></a>
       <nav class="top-links">
         <a href="docs/index.html">docs</a>
         <a href="the-book-of-eskiu.html">book</a>
@@ -219,8 +219,10 @@ known limitations left from 0.9.1 (R and S).</p>
 <li>Stdlib modules built around a struct now use <code>Type_method</code> names, as the naming
   convention says: <code>Rng_*</code> (<code>&lt;random&gt;</code>), <code>Regex_search</code>/<code>Regex_free</code>/<code>Match_*</code>
   (<code>&lt;regex&gt;</code>), <code>Heap_*</code> (<code>&lt;sysheap&gt;</code>), <code>EventLoop_*</code> (<code>&lt;eventloop&gt;</code>), <code>Executor_*</code>
-  (<code>&lt;executor&gt;</code>), <code>Chan_*</code> (<code>&lt;channel&gt;</code>), <code>HpackDecoder_*</code>/<code>HpackHuff_*</code> (<code>&lt;hpack&gt;</code>),
-  <code>H2Conn_*</code>/<code>H2Stream_*</code> (<code>&lt;http2&gt;</code>), <code>DateTime_to_epoch</code>/<code>DateTime_format_iso</code>
+  (<code>&lt;executor&gt;</code>), <code>Chan_*</code> (<code>&lt;channel&gt;</code>), <code>HpackDecoder_*</code> and
+  <code>HpackHuff_build</code>/<code>HpackHuff_free</code> (<code>&lt;hpack&gt;</code>; <code>hpack_huff_code</code>, <code>hpack_huff_len</code>,
+  <code>hpack_huff_decode</code>, <code>hpack_huff_encode</code> and <code>hpack_huff_encoded_len</code> keep their
+  names), <code>H2Conn_*</code>/<code>H2Stream_*</code> (<code>&lt;http2&gt;</code>), <code>DateTime_to_epoch</code>/<code>DateTime_format_iso</code>
   (<code>&lt;time&gt;</code>). Factories keep their names (<code>el_new</code>, <code>executor_new</code>, <code>chan_new</code>,
   <code>regex_compile</code>). The old names remain as wrappers and will be removed in a later
   release. <code>String_is_space</code> is deprecated in favor of <code>is_space</code> from <code>&lt;ctype&gt;</code>.</li>
