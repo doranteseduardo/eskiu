@@ -1,0 +1,10 @@
+// EXPECT-ERROR: duplicate case value in switch
+// Two spellings of one value: case labels fold before the duplicate check.
+int classify(int i) {
+    switch (i) {
+        case 7: return 1;
+        case (4 * 2) - 1: return 2;
+        default: return 0;
+    }
+}
+int main() { return classify(3); }

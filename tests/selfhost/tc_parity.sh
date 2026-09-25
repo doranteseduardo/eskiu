@@ -25,7 +25,7 @@ fi
 
 # Error classes (files under tests/errors/) that the current sema slice catches.
 # Grows per slice; the rest are reported as skipped.
-HANDLED="undefined_var arg_count undefined_type await_outside_async async_no_await switch_dup_case unknown_intrinsic undefined_field match_duplicate match_nonexhaustive
+HANDLED="undefined_var arg_count undefined_type await_outside_async async_no_await switch_dup_case switch_dup_folded unknown_intrinsic undefined_field match_duplicate match_nonexhaustive
          const_reassign const_no_init const_field const_ptr_write const_ptr_drop
          trait_unsatisfied trait_primitive_unsat question_bad_return escaping_param
          missing_return missing_return_if
