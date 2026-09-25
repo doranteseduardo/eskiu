@@ -1,6 +1,6 @@
 // Bitfields pack into storage words of their declared type (like C): uint8 fields
-// share a byte, a uint64 field keeps all 64 bits, and a new word opens when the
-// declared width changes or the next field does not fit.
+// share a byte, a uint64 field keeps all 64 bits, and a field that does not fit
+// starts a new unit (see bitfield_c_layout for mixed declared types).
 extern int printf(string fmt, ...);
 
 struct A8 { uint8 a : 3; uint8 b : 5; uint8 c : 4; }

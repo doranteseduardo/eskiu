@@ -106,9 +106,26 @@ private:
         unsigned physIndex = 0;     // index into the physical LLVM struct
         unsigned bitOffset = 0;     // bit position within the storage word
         unsigned bitWidth  = 0;     // bitfield width
-        llvm::Type* storageType = nullptr;  // physical slot type
+        llvm::Type* storageType = nullptr;  // physical slot type (a bitfield's declared type)
         bool isSigned = false;
+        // C layout (non-MS targets): the field is addressed by byte offset, not by a
+        // struct element; a bitfield is read through `accessType` (its declared type's
+        // storage unit, or the exact byte span in a packed struct) at `accessAlign`.
+        bool byOffset = false;
+        uint64_t byteOffset = 0;
+        llvm::Type* accessType = nullptr;
+        unsigned accessAlign = 0;
     };
+    // Lay out a struct with bitfields like C on the target: the MS rules on Windows (a
+    // new storage unit when the declared type size changes), else the SysV/AAPCS rules
+    // (a bitfield shares the current unit of its declared type if it fits). Fills the
+    // physical element types and the per-field slots; `llvmPacked` = emit `<{ }>`.
+    void layoutBitfieldStruct(const std::vector<StructDecl::Field>& fields, bool packed,
+                              unsigned packN, std::vector<llvm::Type*>& phys,
+                              std::map<std::string, BitfieldSlot>& slots, bool& llvmPacked);
+    // Address of a field of a bitfield-layout struct `sname` at `base`.
+    llvm::Value* layoutFieldAddr(const std::string& sname, llvm::Value* base,
+                                 const BitfieldSlot& slot, const llvm::Twine& name = "");
     std::map<std::string, std::map<std::string, BitfieldSlot>> structLayout;
     std::string structBaseTypeOf(const ExprPtr& base);  // resolve a member base to a struct name
     // Normalize a resolved type string to its bare struct/registry key: drop the

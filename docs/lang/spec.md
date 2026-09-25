@@ -1367,7 +1367,7 @@ struct Rect {
 
 Field types may be any primitive type, pointer type, another struct type, or a fixed-size array type.
 
-An integer field may declare a **bit width** with `: N`, making it a bitfield. Consecutive bitfields pack into storage words of their declared type; reads mask and shift out the field (signed fields sign-extend), and writes (including compound assignment and `++`/`--`, which wrap within the field's width) are read-modify-write. You cannot take the address of a bitfield.
+An integer field may declare a **bit width** with `: N`, making it a bitfield. Bitfields are laid out like C on the target: on SysV/AAPCS targets a bitfield takes the next free bits unless it would cross a boundary of an aligned storage unit of its declared type (so `uint8 a : 4; uint32 w : 12;` is 4 bytes), and in a `packed` struct bitfields pack back to back; on Windows targets consecutive bitfields share a storage word only while the declared type size stays the same. Reads mask and shift out the field (signed fields sign-extend), and writes (including compound assignment and `++`/`--`, which wrap within the field's width) are read-modify-write. You cannot take the address of a bitfield.
 
 ```eskiu
 struct Flags {

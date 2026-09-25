@@ -45,8 +45,11 @@ struct CgVariant { string vname; string ename; int tag; List<string> ptys; }
 // A bitfield slot: which struct/field, the LLVM word it lives in (field index), its bit
 // offset + width within that word, whether the field is signed (→ sign-extend on read),
 // the storage word's LLVM integer type (the field's declared type, e.g. "i8"), and the
-// field's Eskiu type (so a read carries its signedness).
-struct CgBF { string sname; string fname; int fidx; int boff; int bw; int sgn; string sty; string fety; }
+// field's Eskiu type (so a read carries its signedness). Under the C (non-MS) layout a
+// field is addressed by byte offset `boffs` (-1 = struct element `fidx`) and a bitfield's
+// word is read as `aty` (its declared type, or the byte span in a packed struct) with
+// alignment `aal` (0 = natural).
+struct CgBF { string sname; string fname; int fidx; int boff; int bw; int sgn; string sty; string fety; int boffs; string aty; int aal; }
 // C ABI lowering (see cg_abi_classify). A scalar leaf of a flattened aggregate: byte
 // offset + LLVM type. A classified param/return: kind 0 direct, 1 coerce (one value of
 // `ty`), 2 expand (two args `ty`, `ty2`), 3 indirect (pointer to a caller copy), 4 byval,
@@ -126,6 +129,7 @@ struct Codegen {
     int abi;                 // target C ABI: 0 none, 1 AArch64 Darwin, 2 AArch64 AAPCS64, 3 x86-64 SysV,
                              // 4 Windows x64, 5 32-bit ARM AAPCS (soft-float), 6 ARM AAPCS-VFP (hard-float)
     int ptrsz;               // pointer size in bytes (4 on 32-bit ARM)
+    int msbf;                // 1: MS bitfield layout (Windows targets), else SysV/AAPCS
     List<CgCabi> cabis;      // externs declared with a C-ABI-lowered signature
 }
 
@@ -285,6 +289,10 @@ void cg_init(Codegen* g) {
 #ifdef __arm__
     g.ptrsz = 4;
 #endif
+    g.msbf = 0;
+#ifdef _WIN32
+    g.msbf = 1;
+#endif
     List_init<CgVariant>(&g.gvariants, 8);
     List_init<*DeclNode>(&g.gfns, 16);
     List_init<CgSub>(&g.cursub, 4);
@@ -313,12 +321,14 @@ int cg_has_prefix(string s, string pre) {
 
 // The C ABI of a --target `triple` (C++ CodeGen::cabiTarget): the architecture picks the
 // convention, the OS picks Darwin vs AAPCS64 and Windows x64 vs SysV, and a 32-bit ARM
-// triple ending in `hf` is hard-float. "" keeps the build host's.
+// triple ending in `hf` is hard-float. A Windows triple also selects the MS bitfield
+// layout. "" keeps the build host's.
 void cg_set_target(Codegen* g, string triple) {
     if (triple[0] == 0) { return; }
-    g.abi = 0; g.ptrsz = 8;
+    g.abi = 0; g.ptrsz = 8; g.msbf = 0;
     int apple = cg_has_sub(triple, "apple") | cg_has_sub(triple, "darwin") | cg_has_sub(triple, "macos") | cg_has_sub(triple, "ios");
     int win = cg_has_sub(triple, "windows") | cg_has_sub(triple, "win32") | cg_has_sub(triple, "mingw");
+    g.msbf = win;
     if (cg_has_prefix(triple, "aarch64") == 1 || cg_has_prefix(triple, "arm64") == 1) {
         g.abi = 2; if (apple == 1) { g.abi = 1; }
     } else if (cg_has_prefix(triple, "x86_64") == 1 || cg_has_prefix(triple, "amd64") == 1) {
@@ -1418,6 +1428,7 @@ string cg_box_iface(Codegen* g, string ifaceName, string structName, string data
 CgVal cg_dispatch_iface(Codegen* g, string ifaceName, string fatop, string method, *ExprNode e);  // vtable dispatch
 string cg_member_baseptr(Codegen* g, *ExprNode ea, *string out_sname);  // struct ptr + name
 CgBF cg_bf(Codegen* g, string sname, string fname);
+string cg_bf_wordptr(Codegen* g, string baseptr, string sname, CgBF slot);   // fwd
 string cg_infer_generic(Codegen* g, *DeclNode gd, *ExprNode e);      // infer `name<args>` from arg types
 void cg_collect_idents_e(*ExprNode e, List<string>* out);
 void cg_collect_idents_s(*StmtNode s, List<string>* out);
@@ -2656,7 +2667,15 @@ CgVal cg_lval(Codegen* g, *ExprNode e) {
         // member's own type governs the later load/store. A struct uses the field index.
         int gepidx = idx;
         if (cg_is_union(g, s.name) == 1) { gepidx = 0; }
-        else if (cg_is_bf_struct(g, s.name) == 1) { gepidx = cg_bf(g, s.name, e.sval).fidx; }   // bitfield struct: real word/field index
+        else if (cg_is_bf_struct(g, s.name) == 1) {           // bitfield struct: its layout slot
+            CgBF fs = cg_bf(g, s.name, e.sval);
+            if (fs.boffs >= 0) {
+                v.op = cg_bf_wordptr(g, sptr, s.name, fs);
+                if (idx >= 0) { v.ety = List_get<string>(&s.fetys, idx); }
+                return v;
+            }
+            gepidx = fs.fidx;
+        }
         string t = cg_tmp(g);
         cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = getelementptr inbounds %");
         cg_emit(g, s.name); cg_emit(g, ", ptr "); cg_emit(g, sptr);
@@ -3970,8 +3989,15 @@ uint64 cg_bf_mask(int bw) {
 }
 
 // Address of a bitfield's storage word inside the struct at `baseptr`.
+// Also the address of a normal field of a bitfield-layout struct: by byte offset under the
+// C layout, else the struct element.
 string cg_bf_wordptr(Codegen* g, string baseptr, string sname, CgBF slot) {
     string wa = cg_tmp(g);
+    if (slot.boffs >= 0) {
+        cg_emit(g, "  "); cg_emit(g, wa); cg_emit(g, " = getelementptr inbounds i8, ptr "); cg_emit(g, baseptr);
+        cg_emit(g, ", i64 "); cg_emit(g, cg_itoa(slot.boffs)); cg_emit(g, "\n");
+        return wa;
+    }
     cg_emit(g, "  "); cg_emit(g, wa); cg_emit(g, " = getelementptr inbounds %"); cg_emit(g, sname);
     cg_emit(g, ", ptr "); cg_emit(g, baseptr); cg_emit(g, ", i32 0, i32 "); cg_emit(g, cg_itoa(slot.fidx)); cg_emit(g, "\n");
     return wa;
@@ -3979,15 +4005,43 @@ string cg_bf_wordptr(Codegen* g, string baseptr, string sname, CgBF slot) {
 
 // Read a bitfield from its word: load, shift down, mask, and sign-extend if signed. The
 // value is in the storage type (like the C++ codegen) and carries the field's Eskiu type.
+// ` align N` for a word access that needs one ("" = natural).
+string cg_bf_al(CgBF slot) {
+    if (slot.aal > 0) { return cg_cat(", align ", cg_itoa(slot.aal)); }
+    return "";
+}
+
+// A mask constant printed for an integer of `w` bits (wider than 64: unsigned decimal).
+string cg_bf_const(uint64 v, int w) {
+    if (w > 64) { return cg_u64toa(v); }
+    return cg_iconst(v, w);
+}
+
+// Convert integer `op` of type `from` to `to` (zext or trunc; no-op when equal).
+string cg_bf_resize(Codegen* g, string op, string from, string to) {
+    int fw = cg_int_w(from); int tw = cg_int_w(to);
+    if (fw == tw) { return op; }
+    string t = cg_tmp(g);
+    cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = ");
+    if (fw > tw) { cg_emit(g, "trunc "); } else { cg_emit(g, "zext "); }
+    cg_emit(g, from); cg_emit(g, " "); cg_emit(g, op); cg_emit(g, " to "); cg_emit(g, to); cg_emit(g, "\n");
+    return t;
+}
+
+// Read a bitfield from its word: load (as the access type), shift down, mask, and
+// sign-extend if signed. The value is in the storage type (like the C++ codegen) and
+// carries the field's Eskiu type.
 CgVal cg_bf_load(Codegen* g, string wa, CgBF slot) {
     let v: CgVal; v.ety = slot.fety;
     string st = slot.sty; int W = cg_int_w(st);
+    string at = slot.aty;
     string w = cg_tmp(g);
-    cg_emit(g, "  "); cg_emit(g, w); cg_emit(g, " = load "); cg_emit(g, st); cg_emit(g, ", ptr "); cg_emit(g, wa); cg_emit(g, "\n");
+    cg_emit(g, "  "); cg_emit(g, w); cg_emit(g, " = load "); cg_emit(g, at); cg_emit(g, ", ptr "); cg_emit(g, wa); cg_emit(g, cg_bf_al(slot)); cg_emit(g, "\n");
     string sh = cg_tmp(g);
-    cg_emit(g, "  "); cg_emit(g, sh); cg_emit(g, " = lshr "); cg_emit(g, st); cg_emit(g, " "); cg_emit(g, w); cg_emit(g, ", "); cg_emit(g, cg_itoa(slot.boff)); cg_emit(g, "\n");
+    cg_emit(g, "  "); cg_emit(g, sh); cg_emit(g, " = lshr "); cg_emit(g, at); cg_emit(g, " "); cg_emit(g, w); cg_emit(g, ", "); cg_emit(g, cg_itoa(slot.boff)); cg_emit(g, "\n");
+    string shs = cg_bf_resize(g, sh, at, st);
     string m = cg_tmp(g);
-    cg_emit(g, "  "); cg_emit(g, m); cg_emit(g, " = and "); cg_emit(g, st); cg_emit(g, " "); cg_emit(g, sh); cg_emit(g, ", "); cg_emit(g, cg_iconst(cg_bf_mask(slot.bw), W)); cg_emit(g, "\n");
+    cg_emit(g, "  "); cg_emit(g, m); cg_emit(g, " = and "); cg_emit(g, st); cg_emit(g, " "); cg_emit(g, shs); cg_emit(g, ", "); cg_emit(g, cg_iconst(cg_bf_mask(slot.bw), W)); cg_emit(g, "\n");
     v.ty = st;
     if (slot.sgn == 1 && slot.bw < W) {               // sign-extend from bw bits
         string s1 = cg_tmp(g);
@@ -3999,23 +4053,28 @@ CgVal cg_bf_load(Codegen* g, string wa, CgBF slot) {
     v.op = m; return v;
 }
 
-// Write a bitfield into its word: load, clear the field's bits, OR in the masked/shifted
-// value. `rhsop` is already in the storage type (slot.sty).
+// Write a bitfield into its word: load (as the access type), clear the field's bits, OR
+// in the masked/shifted value. `rhsop` is already in the storage type (slot.sty).
 void cg_bf_store(Codegen* g, string wa, CgBF slot, string rhsop) {
     string st = slot.sty; int W = cg_int_w(st);
+    string at = slot.aty; int AW = cg_int_w(at);
     uint64 mask = cg_bf_mask(slot.bw);
-    uint64 sm = mask << slot.boff;
     string w = cg_tmp(g);
-    cg_emit(g, "  "); cg_emit(g, w); cg_emit(g, " = load "); cg_emit(g, st); cg_emit(g, ", ptr "); cg_emit(g, wa); cg_emit(g, "\n");
+    cg_emit(g, "  "); cg_emit(g, w); cg_emit(g, " = load "); cg_emit(g, at); cg_emit(g, ", ptr "); cg_emit(g, wa); cg_emit(g, cg_bf_al(slot)); cg_emit(g, "\n");
+    string fm = cg_tmp(g);
+    cg_emit(g, "  "); cg_emit(g, fm); cg_emit(g, " = shl "); cg_emit(g, at); cg_emit(g, " "); cg_emit(g, cg_bf_const(mask, AW)); cg_emit(g, ", "); cg_emit(g, cg_itoa(slot.boff)); cg_emit(g, "\n");
+    string nfm = cg_tmp(g);
+    cg_emit(g, "  "); cg_emit(g, nfm); cg_emit(g, " = xor "); cg_emit(g, at); cg_emit(g, " "); cg_emit(g, fm); cg_emit(g, ", -1\n");
     string c = cg_tmp(g);
-    cg_emit(g, "  "); cg_emit(g, c); cg_emit(g, " = and "); cg_emit(g, st); cg_emit(g, " "); cg_emit(g, w); cg_emit(g, ", "); cg_emit(g, cg_iconst(~sm, W)); cg_emit(g, "\n");
+    cg_emit(g, "  "); cg_emit(g, c); cg_emit(g, " = and "); cg_emit(g, at); cg_emit(g, " "); cg_emit(g, w); cg_emit(g, ", "); cg_emit(g, nfm); cg_emit(g, "\n");
     string vm = cg_tmp(g);
     cg_emit(g, "  "); cg_emit(g, vm); cg_emit(g, " = and "); cg_emit(g, st); cg_emit(g, " "); cg_emit(g, rhsop); cg_emit(g, ", "); cg_emit(g, cg_iconst(mask, W)); cg_emit(g, "\n");
+    string vma = cg_bf_resize(g, vm, st, at);
     string shv = cg_tmp(g);
-    cg_emit(g, "  "); cg_emit(g, shv); cg_emit(g, " = shl "); cg_emit(g, st); cg_emit(g, " "); cg_emit(g, vm); cg_emit(g, ", "); cg_emit(g, cg_itoa(slot.boff)); cg_emit(g, "\n");
+    cg_emit(g, "  "); cg_emit(g, shv); cg_emit(g, " = shl "); cg_emit(g, at); cg_emit(g, " "); cg_emit(g, vma); cg_emit(g, ", "); cg_emit(g, cg_itoa(slot.boff)); cg_emit(g, "\n");
     string nw = cg_tmp(g);
-    cg_emit(g, "  "); cg_emit(g, nw); cg_emit(g, " = or "); cg_emit(g, st); cg_emit(g, " "); cg_emit(g, c); cg_emit(g, ", "); cg_emit(g, shv); cg_emit(g, "\n");
-    cg_emit(g, "  store "); cg_emit(g, st); cg_emit(g, " "); cg_emit(g, nw); cg_emit(g, ", ptr "); cg_emit(g, wa); cg_emit(g, "\n");
+    cg_emit(g, "  "); cg_emit(g, nw); cg_emit(g, " = or "); cg_emit(g, at); cg_emit(g, " "); cg_emit(g, c); cg_emit(g, ", "); cg_emit(g, shv); cg_emit(g, "\n");
+    cg_emit(g, "  store "); cg_emit(g, at); cg_emit(g, " "); cg_emit(g, nw); cg_emit(g, ", ptr "); cg_emit(g, wa); cg_emit(g, cg_bf_al(slot)); cg_emit(g, "\n");
 }
 
 CgVal cg_bf_read(Codegen* g, string baseptr, string sname, CgBF slot) {
@@ -4048,10 +4107,14 @@ void cg_struct_init(Codegen* g, string slot, string sname, *ExprNode e) {
             i = i + 1; continue;
         }
         int gepidx = idx; if (bfslot.fidx >= 0) { gepidx = bfslot.fidx; }   // normal field in a bf struct
-        string fp = cg_tmp(g);
-        cg_emit(g, "  "); cg_emit(g, fp); cg_emit(g, " = getelementptr inbounds %");
-        cg_emit(g, s.name); cg_emit(g, ", ptr "); cg_emit(g, slot);
-        cg_emit(g, ", i32 0, i32 "); cg_emit(g, cg_itoa(gepidx)); cg_emit(g, "\n");
+        string fp = "";
+        if (bfslot.boffs >= 0) { fp = cg_bf_wordptr(g, slot, s.name, bfslot); }
+        else {
+            fp = cg_tmp(g);
+            cg_emit(g, "  "); cg_emit(g, fp); cg_emit(g, " = getelementptr inbounds %");
+            cg_emit(g, s.name); cg_emit(g, ", ptr "); cg_emit(g, slot);
+            cg_emit(g, ", i32 0, i32 "); cg_emit(g, cg_itoa(gepidx)); cg_emit(g, "\n");
+        }
         string flty = cg_lltype(g, fety);
         string fop = cg_coerce(g, val, flty);   // hoist: cg_coerce emits its own instr — must not interleave the store line
         if (cg_is_iface(g, cg_dealias(g, fety)) == 1) { fop = cg_iface_conv(g, fety, val, fex); }
@@ -4904,7 +4967,7 @@ CgBF cg_bf(Codegen* g, string sname, string fname) {
         i = i + 1;
     }
     let none: CgBF; none.sname = sname; none.fname = fname; none.fidx = 0 - 1; none.boff = 0; none.bw = 0; none.sgn = 0;
-    none.sty = "i32"; none.fety = "";
+    none.sty = "i32"; none.fety = ""; none.boffs = 0 - 1; none.aty = "i32"; none.aal = 0;
     return none;
 }
 int cg_is_bf_struct(Codegen* g, string sname) {
@@ -4913,15 +4976,181 @@ int cg_is_bf_struct(Codegen* g, string sname) {
     return 0;
 }
 
-// Lay out a bitfield struct like the C++ codegen: consecutive bitfields pack into storage
-// words of their declared type (uint8 → i8, uint64 → i64); a new word opens when the
-// declared width changes or the next field won't fit. A normal field closes the word and
-// gets its own slot. Registers a slot per field (word index + bit offset/width, or a
-// plain index for a normal field) and emits `%S = type { … }` (`<{ … }>` when packed).
+void cg_bf_layout_ms(Codegen* g, *DeclNode d);   // fwd: the Windows (MS) rules
+int cg_ll_align_of(Codegen* g, string t);         // fwd
+int cg_ll_size_of(Codegen* g, string t);          // fwd
+
+// A byte range [off, end) of a bitfield struct: a storage unit (ty = its integer type,
+// "" = a packed byte run) or a normal field (ty = its LLVM type, "" = a byte filler).
+struct CgSpan { int off; int end; string ty; }
+
+void cg_span_insert(List<CgSpan>* l, CgSpan s, int bigfirst) {   // keep sorted by offset
+    List_push<CgSpan>(l, s);
+    int i = List_len<CgSpan>(l) - 1;
+    while (i > 0) {
+        CgSpan p = List_get<CgSpan>(l, i - 1);
+        int before = 0;
+        if (s.off < p.off) { before = 1; }
+        if (bigfirst == 1 && s.off == p.off && s.end > p.end) { before = 1; }
+        if (before == 0) { break; }
+        List_set<CgSpan>(l, i, p);
+        i = i - 1;
+    }
+    List_set<CgSpan>(l, i, s);
+}
+
+string cg_bytes_ty(int n) { return cg_cat("[", cg_cat(cg_itoa(n), " x i8]")); }
+
+// Lay out a struct with bitfields like C on the target (CodeGen::layoutBitfieldStruct):
+// the MS rules on Windows, else SysV/AAPCS (clang's Itanium layout): a bitfield takes the
+// next free bit unless it would cross a boundary of its declared type's storage unit,
+// then it starts at that boundary; a packed struct (or #pragma pack) packs bitfields
+// back to back; a normal field starts at the next byte, aligned. Every field is then
+// addressed by byte offset (slot.boffs); the emitted `%S = type` only has to reproduce
+// the C size and alignment: each maximal storage unit as an integer of its type, the
+// normal fields outside the units as themselves, and `[n x i8]` for the other bytes.
 void cg_bf_layout(Codegen* g, *DeclNode d) {
+    if (g.msbf == 1) { cg_bf_layout_ms(g, d); return; }
+    int nf = List_len<Param>(&d.params);
+    int contig = 0; int cap = 0;
+    if (d.is_packed == 1) { contig = 1; cap = 1; }
+    else if (d.pack_align >= 2) { contig = 1; cap = d.pack_align; }
+    List<CgSpan> units; List_init<CgSpan>(&units, 8);
+    List<CgSpan> normals; List_init<CgSpan>(&normals, 8);
+    int bitpos = 0; int salign = 1;
+    int i = 0;
+    while (i < nf) {
+        Param pm = List_get<Param>(&d.params, i);
+        int bw = List_get<int>(&d.field_bits, i);
+        string lty = cg_lltype(g, pm.ty);
+        int size = cg_size(g, pm.ty);
+        int nal = cg_align(g, pm.ty);
+        int al = nal; if (cap > 0 && al > cap) { al = cap; }
+        if (al > salign) { salign = al; }
+        let slot: CgBF; slot.sname = d.name; slot.fname = pm.name; slot.fety = pm.ty;
+        slot.fidx = 0; slot.sty = lty; slot.aal = 0; slot.aty = lty; slot.boff = 0; slot.bw = 0; slot.sgn = 0;
+        if (bw > 0) {
+            slot.bw = bw;
+            if (cg_is_unsigned(cg_dealias(g, pm.ty)) == 0) { slot.sgn = 1; }
+            if (contig == 1) {
+                slot.boffs = bitpos / 8; slot.boff = bitpos % 8;
+                int span = (slot.boff + bw + 7) / 8;
+                slot.aty = cg_cat("i", cg_itoa(span * 8)); slot.aal = 1;
+                let u: CgSpan; u.off = slot.boffs; u.end = slot.boffs + span; u.ty = "";
+                cg_span_insert(&units, u, 1);
+            } else {
+                int ub = size * 8;
+                if (bitpos / ub != (bitpos + bw - 1) / ub) { bitpos = cg_align_up(bitpos, ub); }
+                slot.boffs = bitpos / ub * size; slot.boff = bitpos - slot.boffs * 8;
+                slot.aal = nal;
+                let u: CgSpan; u.off = slot.boffs; u.end = slot.boffs + size; u.ty = lty;
+                cg_span_insert(&units, u, 1);
+            }
+            bitpos = bitpos + bw;
+        } else {
+            int off = cg_align_up((bitpos + 7) / 8, al);
+            slot.boffs = off;
+            let nsp: CgSpan; nsp.off = off; nsp.end = off + size; nsp.ty = lty;
+            List_push<CgSpan>(&normals, nsp);
+            bitpos = (off + size) * 8;
+        }
+        List_push<CgBF>(&g.bitfields, slot);
+        i = i + 1;
+    }
+    int total = cg_align_up((bitpos + 7) / 8, salign);
+    // Maximal storage units (aligned power-of-two units nest or are disjoint; a packed
+    // struct's overlapping byte runs merge).
+    List<CgSpan> store; List_init<CgSpan>(&store, 8);
+    i = 0;
+    while (i < List_len<CgSpan>(&units)) {
+        CgSpan u = List_get<CgSpan>(&units, i);
+        int n = List_len<CgSpan>(&store);
+        if (n > 0 && u.off < List_get<CgSpan>(&store, n - 1).end) {
+            if (contig == 1) {
+                CgSpan last = List_get<CgSpan>(&store, n - 1);
+                if (u.end > last.end) { last.end = u.end; List_set<CgSpan>(&store, n - 1, last); }
+            }
+        } else { List_push<CgSpan>(&store, u); }
+        i = i + 1;
+    }
+    List<CgSpan> elems; List_init<CgSpan>(&elems, 8);
+    i = 0;
+    while (i < List_len<CgSpan>(&store)) { cg_span_insert(&elems, List_get<CgSpan>(&store, i), 0); i = i + 1; }
+    i = 0;
+    while (i < List_len<CgSpan>(&normals)) {
+        CgSpan nsp = List_get<CgSpan>(&normals, i);
+        int o = nsp.off; int overlap = 0;
+        int j = 0;
+        while (j < List_len<CgSpan>(&store)) {
+            CgSpan u = List_get<CgSpan>(&store, j);
+            if (u.end > o && u.off < nsp.end) {
+                overlap = 1;
+                if (u.off > o) { let pc: CgSpan; pc.off = o; pc.end = u.off; pc.ty = ""; cg_span_insert(&elems, pc, 0); }
+                if (u.end > o) { o = u.end; }
+            }
+            j = j + 1;
+        }
+        if (overlap == 0) { cg_span_insert(&elems, nsp, 0); }
+        else if (o < nsp.end) { let rest: CgSpan; rest.off = o; rest.end = nsp.end; rest.ty = ""; cg_span_insert(&elems, rest, 0); }
+        i = i + 1;
+    }
+    String body; String_init(&body, 32);
+    int cur = 0;
+    i = 0;
+    while (i < List_len<CgSpan>(&elems)) {
+        CgSpan e = List_get<CgSpan>(&elems, i);
+        string t = e.ty; if (t[0] == 0) { t = cg_bytes_ty(e.end - e.off); }
+        int a = 1; if (contig == 0) { a = cg_ll_align_of(g, t); }
+        if (cg_align_up(cur, a) < e.off) {
+            if (String_len(&body) > 0) { String_append(&body, ", "); }
+            String_append(&body, cg_bytes_ty(e.off - cur));
+        }
+        if (String_len(&body) > 0) { String_append(&body, ", "); }
+        String_append(&body, t);
+        cur = e.end;
+        i = i + 1;
+    }
+    if (contig == 1 && cur < total) {
+        if (String_len(&body) > 0) { String_append(&body, ", "); }
+        String_append(&body, cg_bytes_ty(total - cur));
+    }
+    string op = "{ "; string cl = " }";
+    if (contig == 1) { op = "<{ "; cl = " }>"; }
+    cg_deftype(g, d.name, cg_cat(op, cg_cat((string)String_cstr(&body), cl)));
+}
+
+// Append element `t` to an MS-layout struct body; returns its LLVM index. Under
+// #pragma pack(N>=2) (packn) it is placed by hand at alignment min(align, N), with a
+// `[k x i8]` filler before it, tracking the byte offset and the struct alignment.
+int cg_ms_elem(Codegen* g, String* body, int* count, int* off, int* salign, int packn, string t) {
+    if (packn >= 2) {
+        int a = cg_ll_align_of(g, t); if (a > packn) { a = packn; }
+        if (a > salign[0]) { salign[0] = a; }
+        int at = cg_align_up(off[0], a);
+        if (at > off[0]) {
+            if (count[0] > 0) { String_append(body, ", "); }
+            String_append(body, cg_bytes_ty(at - off[0]));
+            count[0] = count[0] + 1;
+        }
+        off[0] = at + cg_ll_size_of(g, t);
+    }
+    if (count[0] > 0) { String_append(body, ", "); }
+    String_append(body, t);
+    count[0] = count[0] + 1;
+    return count[0] - 1;
+}
+
+// The MS layout (Windows targets): consecutive bitfields pack into storage words of their
+// declared type (uint8 → i8, uint64 → i64); a new word opens when the declared width
+// changes or the next field won't fit. A normal field closes the word and gets its own
+// slot. Registers a slot per field (word index + bit offset/width, or a plain index for a
+// normal field) and emits `%S = type { … }` (`<{ … }>` when packed or under pack(N)).
+void cg_bf_layout_ms(Codegen* g, *DeclNode d) {
     String body; String_init(&body, 32);
     int nf = List_len<Param>(&d.params);
+    int packn = 0; if (d.is_packed == 0) { packn = d.pack_align; }
     int llcount = 0;          // number of LLVM fields emitted so far
+    int off = 0; int salign = 1;
     int curword = 0 - 1;      // open bitfield word's LLVM index (-1 = none)
     int curbits = 0;          // open word's width in bits
     int curoff = 0;
@@ -4930,30 +5159,33 @@ void cg_bf_layout(Codegen* g, *DeclNode d) {
         Param pm = List_get<Param>(&d.params, i);
         int bw = List_get<int>(&d.field_bits, i);
         let slot: CgBF; slot.sname = d.name; slot.fname = pm.name; slot.fety = pm.ty;
+        slot.boffs = 0 - 1; slot.aal = 0;
         if (bw > 0) {
             string sty = cg_lltype(g, pm.ty);
             int stb = cg_int_w(sty);
             if (curword < 0 || curbits != stb || curoff + bw > stb) {   // open a fresh word
-                if (llcount > 0) { String_append(&body, ", "); }
-                String_append(&body, sty);
-                curword = llcount; llcount = llcount + 1; curbits = stb; curoff = 0;
+                curword = cg_ms_elem(g, &body, &llcount, &off, &salign, packn, sty);
+                curbits = stb; curoff = 0;
             }
-            slot.fidx = curword; slot.boff = curoff; slot.bw = bw; slot.sty = sty;
+            slot.fidx = curword; slot.boff = curoff; slot.bw = bw; slot.sty = sty; slot.aty = sty;
             slot.sgn = 0; if (cg_is_unsigned(cg_dealias(g, pm.ty)) == 0) { slot.sgn = 1; }
             curoff = curoff + bw;
         } else {
             curword = 0 - 1; curbits = 0; curoff = 0;      // a normal field closes the word
-            if (llcount > 0) { String_append(&body, ", "); }
             string fty = cg_lltype(g, pm.ty);
-            String_append(&body, fty);
-            slot.fidx = llcount; slot.boff = 0; slot.bw = 0; slot.sgn = 0; slot.sty = fty;
-            llcount = llcount + 1;
+            slot.fidx = cg_ms_elem(g, &body, &llcount, &off, &salign, packn, fty);
+            slot.boff = 0; slot.bw = 0; slot.sgn = 0; slot.sty = fty; slot.aty = fty;
         }
         List_push<CgBF>(&g.bitfields, slot);
         i = i + 1;
     }
     string op = "{ "; string cl = " }";
     if (d.is_packed == 1) { op = "<{ "; cl = " }>"; }
+    if (packn >= 2) {
+        int total = cg_align_up(off, salign);
+        if (total > off) { String_append(&body, ", "); String_append(&body, cg_bytes_ty(total - off)); }
+        op = "<{ "; cl = " }>";
+    }
     cg_deftype(g, d.name, cg_cat(op, cg_cat((string)String_cstr(&body), cl)));
 }
 
@@ -4981,6 +5213,7 @@ void cg_emit_pack2(Codegen* g, *DeclNode d) {
         let slot: CgBF; slot.sname = d.name; slot.fname = pm.name;
         slot.fidx = physIdx; slot.boff = 0; slot.bw = 0; slot.sgn = 0;
         slot.sty = cg_lltype(g, pm.ty); slot.fety = pm.ty;
+        slot.boffs = 0 - 1; slot.aty = slot.sty; slot.aal = 0;
         List_push<CgBF>(&g.bitfields, slot);
         if (emitted > 0) { String_append(&body, ", "); }
         String_append(&body, cg_lltype(g, pm.ty));
@@ -5107,6 +5340,30 @@ int cg_ll_leaves(Codegen* g, string s, int* pos, int base, List<CgLeaf>* out, in
             }
             return sz;
         }
+        // A C-layout bitfield struct: its fields, not its storage elements. Like clang, a
+        // bitfield counts as data from its first bit through its declared type's width;
+        // each such byte in the struct is an `i8` leaf (CodeGen::cabiLeaves).
+        int bi = 0; int bfc = 0;
+        while (bi < List_len<CgBF>(&g.bitfields)) {
+            CgBF bs = List_get<CgBF>(&g.bitfields, bi);
+            if (cg_streq(bs.sname, name) == 1 && bs.boffs >= 0) {
+                bfc = 1;
+                if (bs.bw == 0) {
+                    string flt = cg_lltype(g, bs.fety);
+                    int fp = 0; int fal = 1; cg_ll_leaves(g, flt, &fp, base + bs.boffs, out, &fal);
+                } else {
+                    int first = bs.boffs * 8 + bs.boff;
+                    int last = first + cg_int_w(bs.sty);
+                    int b = first / 8;
+                    while (b < (last + 7) / 8 && b < sz) {
+                        let bl: CgLeaf; bl.off = base + b; bl.ty = "i8"; List_push<CgLeaf>(out, bl);
+                        b = b + 1;
+                    }
+                }
+            }
+            bi = bi + 1;
+        }
+        if (bfc == 1) { return sz; }
         string body = cg_tydef_body(g, name);
         int p3 = 0; int dal2 = 1;
         if (body[0] != 0) { cg_ll_leaves(g, body, &p3, base, out, &dal2); }

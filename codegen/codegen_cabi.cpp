@@ -43,6 +43,24 @@ void CodeGen::cabiLeaves(llvm::Type* ty, uint64_t base,
             for (llvm::Type* m : uit->second) cabiLeaves(m, base, out);
             return;
         }
+        // A C-layout bitfield struct: its fields, not its storage elements. Like clang
+        // (BitsContainNoUserData), a bitfield counts as data from its first bit through
+        // its declared type's width; each such byte in the struct is an `i8` leaf.
+        auto lit = st->hasName() ? structLayout.find(st->getName().str()) : structLayout.end();
+        auto fit = st->hasName() ? structFields.find(st->getName().str()) : structFields.end();
+        if (lit != structLayout.end() && fit != structFields.end() && !lit->second.empty()
+                && lit->second.begin()->second.byOffset) {
+            uint64_t size = DL.getTypeAllocSize(st);
+            for (const auto& f : fit->second) {
+                const BitfieldSlot& s = lit->second.at(f.name);
+                if (!s.isBitfield) { cabiLeaves(s.storageType, base + s.byteOffset, out); continue; }
+                uint64_t first = s.byteOffset * 8 + s.bitOffset;
+                uint64_t last = first + s.storageType->getIntegerBitWidth();
+                for (uint64_t b = first / 8; b < (last + 7) / 8 && b < size; ++b)
+                    out.push_back({base + b, llvm::Type::getInt8Ty(ty->getContext())});
+            }
+            return;
+        }
         const llvm::StructLayout* sl = DL.getStructLayout(st);
         for (unsigned i = 0; i < st->getNumElements(); ++i)
             cabiLeaves(st->getElementType(i), base + sl->getElementOffset(i), out);

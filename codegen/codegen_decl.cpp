@@ -1,5 +1,7 @@
 #include "codegen.h"
 #include "../ast/type_qual.h"
+#include "llvm/TargetParser/Triple.h"
+#include <algorithm>
 
 // Template type-name utilities (mangleTemplate / splitTemplateType / substType)
 // are shared with the type checker; see template_utils.h.
@@ -370,41 +372,170 @@ void CodeGen::declareStructType(StructDecl* node) {
         return;
     }
 
-    // Packed layout: pack consecutive bitfields into storage words of their
-    // declared type; non-bitfield fields close the current word and get their
-    // own slot. Each field records its physical slot + bit position.
     std::vector<llvm::Type*> phys;
     std::map<std::string, BitfieldSlot> slots;
-    int curPhys = -1; unsigned curUnitBits = 0, curOffset = 0;
-    for (const auto& f : node->fields) {
-        if (f.bitWidth > 0) {
-            llvm::Type* sty = getTypeFromString(f.type);
-            unsigned stBits = sty->getIntegerBitWidth();
-            if (curPhys < 0 || curUnitBits != stBits ||
-                curOffset + (unsigned)f.bitWidth > stBits) {
-                phys.push_back(sty);
-                curPhys = (int)phys.size() - 1;
-                curUnitBits = stBits; curOffset = 0;
-            }
-            BitfieldSlot s;
-            s.isBitfield = true; s.physIndex = (unsigned)curPhys;
-            s.bitOffset = curOffset; s.bitWidth = (unsigned)f.bitWidth;
-            s.storageType = sty; s.isSigned = !eskiuUnsigned(f.type);
-            slots[f.name] = s;
-            curOffset += (unsigned)f.bitWidth;
-        } else {
-            curPhys = -1; curUnitBits = 0; curOffset = 0;
-            llvm::Type* ft = getTypeFromString(f.type);
-            phys.push_back(ft);
-            BitfieldSlot s;
-            s.isBitfield = false; s.physIndex = (unsigned)phys.size() - 1;
-            s.storageType = ft;
-            slots[f.name] = s;
-        }
-    }
-    structTypes[node->name]  = llvm::StructType::create(*context, phys, node->name, node->isPacked);
+    bool llvmPacked = node->isPacked;
+    layoutBitfieldStruct(node->fields, node->isPacked, (unsigned)std::max(node->packAlign, 0),
+                         phys, slots, llvmPacked);
+    structTypes[node->name]  = llvm::StructType::create(*context, phys, node->name, llvmPacked);
     structFields[node->name] = node->fields;
     structLayout[node->name] = slots;
+}
+
+void CodeGen::layoutBitfieldStruct(const std::vector<StructDecl::Field>& fields, bool packed,
+                                   unsigned packN, std::vector<llvm::Type*>& phys,
+                                   std::map<std::string, BitfieldSlot>& slots, bool& llvmPacked) {
+    if (llvm::Triple(module->getTargetTriple()).isOSWindows()) {
+        // MS: consecutive bitfields share a storage word of their declared type while the
+        // type size stays the same and the next one fits; a normal field closes the word.
+        // Each word is its own element, so LLVM's natural layout is the MS one; under
+        // #pragma pack(N>=2) the elements are placed by hand at alignment min(align, N).
+        const llvm::DataLayout& DL = module->getDataLayout();
+        uint64_t offset = 0, structAlign = 1;
+        auto addElem = [&](llvm::Type* t) -> unsigned {
+            if (packN >= 2) {
+                uint64_t a = std::min<uint64_t>(DL.getABITypeAlign(t).value(), packN);
+                structAlign = std::max(structAlign, a);
+                uint64_t at = (offset + a - 1) / a * a;
+                if (at > offset) phys.push_back(llvm::ArrayType::get(llvm::Type::getInt8Ty(*context), at - offset));
+                offset = at + DL.getTypeAllocSize(t).getFixedValue();
+            }
+            phys.push_back(t);
+            return (unsigned)phys.size() - 1;
+        };
+        int curPhys = -1; unsigned curUnitBits = 0, curOffset = 0;
+        for (const auto& f : fields) {
+            if (f.bitWidth > 0) {
+                llvm::Type* sty = getTypeFromString(f.type);
+                unsigned stBits = sty->getIntegerBitWidth();
+                if (curPhys < 0 || curUnitBits != stBits ||
+                    curOffset + (unsigned)f.bitWidth > stBits) {
+                    curPhys = (int)addElem(sty);
+                    curUnitBits = stBits; curOffset = 0;
+                }
+                BitfieldSlot s;
+                s.isBitfield = true; s.physIndex = (unsigned)curPhys;
+                s.bitOffset = curOffset; s.bitWidth = (unsigned)f.bitWidth;
+                s.storageType = sty; s.isSigned = !eskiuUnsigned(f.type);
+                slots[f.name] = s;
+                curOffset += (unsigned)f.bitWidth;
+            } else {
+                curPhys = -1; curUnitBits = 0; curOffset = 0;
+                llvm::Type* ft = getTypeFromString(f.type);
+                BitfieldSlot s;
+                s.isBitfield = false; s.physIndex = addElem(ft);
+                s.storageType = ft;
+                slots[f.name] = s;
+            }
+        }
+        if (packN >= 2) {
+            uint64_t total = (offset + structAlign - 1) / structAlign * structAlign;
+            if (total > offset) phys.push_back(llvm::ArrayType::get(llvm::Type::getInt8Ty(*context), total - offset));
+            llvmPacked = true;
+        }
+        return;
+    }
+
+    // SysV / AAPCS (clang's Itanium record layout): a bitfield goes at the next free bit
+    // unless it would cross a boundary of its declared type's storage unit, then it
+    // starts at that boundary. A packed struct (or #pragma pack) packs bitfields
+    // back to back. A normal field starts at the next byte, aligned. Every field is
+    // then addressed by byte offset; the element list only has to reproduce the C
+    // size and alignment (and the integer/FP classes the C ABI lowering reads).
+    const llvm::DataLayout& DL = module->getDataLayout();
+    llvm::Type* i8 = llvm::Type::getInt8Ty(*context);
+    bool contiguous = packed || packN >= 2;
+    uint64_t cap = packed ? 1 : (packN >= 2 ? packN : 0);
+    auto capAlign = [&](uint64_t a) { return cap ? std::min(a, cap) : a; };
+    struct Span { uint64_t off, end; llvm::Type* ty; };
+    std::vector<Span> normals, units;
+    uint64_t bitpos = 0, structAlign = 1;
+    for (const auto& f : fields) {
+        llvm::Type* ty = getTypeFromString(f.type);
+        uint64_t size = DL.getTypeAllocSize(ty).getFixedValue();
+        uint64_t align = capAlign(DL.getABITypeAlign(ty).value());
+        structAlign = std::max(structAlign, align);
+        BitfieldSlot s;
+        s.byOffset = true; s.storageType = ty;
+        if (f.bitWidth > 0) {
+            uint64_t w = (uint64_t)f.bitWidth, unitBits = size * 8;
+            s.isBitfield = true; s.bitWidth = (unsigned)w; s.isSigned = !eskiuUnsigned(f.type);
+            if (contiguous) {
+                s.byteOffset = bitpos / 8;
+                s.bitOffset = (unsigned)(bitpos % 8);
+                uint64_t span = (s.bitOffset + w + 7) / 8;
+                s.accessType = llvm::IntegerType::get(*context, (unsigned)(span * 8));
+                s.accessAlign = 1;
+                units.push_back({s.byteOffset, s.byteOffset + span, nullptr});
+            } else {
+                if (bitpos / unitBits != (bitpos + w - 1) / unitBits)
+                    bitpos = (bitpos + unitBits - 1) / unitBits * unitBits;
+                s.byteOffset = bitpos / unitBits * size;
+                s.bitOffset = (unsigned)(bitpos - s.byteOffset * 8);
+                s.accessType = ty;
+                s.accessAlign = (unsigned)DL.getABITypeAlign(ty).value();
+                units.push_back({s.byteOffset, s.byteOffset + size, ty});
+            }
+            bitpos += w;
+        } else {
+            uint64_t off = ((bitpos + 7) / 8 + align - 1) / align * align;
+            s.byteOffset = off;
+            normals.push_back({off, off + size, ty});
+            bitpos = (off + size) * 8;
+        }
+        slots[f.name] = s;
+    }
+    uint64_t total = ((bitpos + 7) / 8 + structAlign - 1) / structAlign * structAlign;
+
+    // Elements: the bitfield storage (each maximal storage unit as an integer of its
+    // type, which carries the unit's alignment; the byte runs of a packed struct as
+    // `[n x i8]`), the normal fields outside it as themselves, and `[n x i8]` for any
+    // other byte (padding, or the part of a normal field sharing a unit that sticks out).
+    std::vector<Span> elems;
+    std::sort(units.begin(), units.end(), [](const Span& a, const Span& b) {
+        return a.off != b.off ? a.off < b.off : a.end > b.end;
+    });
+    for (const auto& u : units) {
+        if (!elems.empty() && u.off < elems.back().end) {
+            if (contiguous) elems.back().end = std::max(elems.back().end, u.end);
+            continue;
+        }
+        elems.push_back(u);
+    }
+    std::vector<Span> storage = elems;
+    for (const auto& n : normals) {
+        uint64_t o = n.off;
+        bool overlap = false;
+        for (const auto& u : storage) {
+            if (u.end <= o || u.off >= n.end) continue;
+            overlap = true;
+            if (u.off > o) elems.push_back({o, u.off, nullptr});
+            o = std::max(o, u.end);
+        }
+        if (!overlap) elems.push_back(n);
+        else if (o < n.end) elems.push_back({o, n.end, nullptr});
+    }
+    std::sort(elems.begin(), elems.end(), [](const Span& a, const Span& b) { return a.off < b.off; });
+    uint64_t cur = 0;
+    for (const auto& e : elems) {
+        llvm::Type* t = e.ty ? e.ty : llvm::ArrayType::get(i8, e.end - e.off);
+        uint64_t a = contiguous ? 1 : DL.getABITypeAlign(t).value();
+        uint64_t at = (cur + a - 1) / a * a;
+        if (at > e.off) throw std::runtime_error("internal: bitfield layout element misplaced");
+        if (at < e.off) phys.push_back(llvm::ArrayType::get(i8, e.off - cur));
+        phys.push_back(t);
+        cur = e.end;
+    }
+    if (contiguous && cur < total) phys.push_back(llvm::ArrayType::get(i8, total - cur));
+    llvmPacked = contiguous;
+}
+
+llvm::Value* CodeGen::layoutFieldAddr(const std::string& sname, llvm::Value* base,
+                                      const BitfieldSlot& slot, const llvm::Twine& name) {
+    if (slot.byOffset)
+        return builder->CreateConstInBoundsGEP1_64(llvm::Type::getInt8Ty(*context), base,
+                                                   slot.byteOffset, name);
+    return builder->CreateStructGEP(structTypes[sname], base, slot.physIndex, name);
 }
 
 void CodeGen::visit(StructDecl* node) {

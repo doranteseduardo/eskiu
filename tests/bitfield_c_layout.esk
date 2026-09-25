@@ -1,0 +1,119 @@
+// Bitfields follow the C layout of the target (C side: tests/bitfield_c_layout.c):
+// adjacent bitfields of different declared types share a storage unit when they fit
+// in an aligned unit of their own type (SysV/AAPCS), packed structs pack bit by bit,
+// and normal fields may sit inside a bitfield's unit. C writes, Eskiu reads, and the
+// other way around, so every field must be at the same bits.
+extern int printf(string fmt, ...);
+extern int c_sizes(int i);
+
+struct A { uint8 a : 4; uint32 w : 12; }
+struct B { uint16 x : 3; uint8 y : 2; uint32 z : 20; }
+struct C { uint8 a : 4; uint8 b : 6; uint32 c : 30; char d; }
+struct D { char c; uint32 x : 20; uint16 y : 9; }
+struct F { uint8 a : 3; int64 big : 40; uint8 t : 7; }
+struct G { uint32 a : 4; char c; int16 k; }
+struct H { char[5] name; uint32 x : 4; }
+struct I { uint16 a : 4; char[3] s; int16 k; }
+struct S { int8 s : 3; int32 t : 20; int16 u : 9; }
+packed struct P { uint8 a : 4; uint32 w : 12; }
+packed struct Q { uint8 a : 3; uint64 v : 50; uint8 b : 7; char e; }
+#pragma pack(2)
+struct R { uint8 a : 4; uint32 w : 12; char c; uint16 k : 3; }
+#pragma pack()
+struct N { char c; D d; char e; }
+struct M { double d; uint8 a : 3; uint32 w : 20; }
+
+extern void c_fill_a(*A p);
+extern void c_fill_b(*B p);
+extern void c_fill_c(*C p);
+extern void c_fill_d(*D p);
+extern void c_fill_f(*F p);
+extern void c_fill_g(*G p);
+extern void c_fill_h(*H p);
+extern void c_fill_i(*I p);
+extern void c_fill_s(*S p);
+extern void c_fill_p(*P p);
+extern void c_fill_q(*Q p);
+extern void c_fill_r(*R p);
+extern void c_fill_n(*N p);
+extern int64 c_sum_a(*A p);
+extern int64 c_sum_b(*B p);
+extern int64 c_sum_c(*C p);
+extern int64 c_sum_d(*D p);
+extern int64 c_sum_f(*F p);
+extern int64 c_sum_g(*G p);
+extern int64 c_sum_h(*H p);
+extern int64 c_sum_i(*I p);
+extern int64 c_sum_s(*S p);
+extern int64 c_sum_p(*P p);
+extern int64 c_sum_q(*Q p);
+extern int64 c_sum_r(*R p);
+extern int64 c_sum_n(*N p);
+extern int64 c_byval_d(D d);
+extern D c_mk_d(int k);
+extern double c_byval_m(M m);
+extern M c_mk_m(int k);
+
+void size(string n, int esk, int i) {
+    if (esk == c_sizes(i)) { printf("sizeof %s ok\n", n); } else { printf("sizeof %s %d, C %d\n", n, esk, c_sizes(i)); }
+}
+
+int main() {
+    size("A", (int)sizeof(A), 0); size("B", (int)sizeof(B), 1); size("C", (int)sizeof(C), 2);
+    size("D", (int)sizeof(D), 3); size("F", (int)sizeof(F), 4); size("G", (int)sizeof(G), 5);
+    size("H", (int)sizeof(H), 6); size("I", (int)sizeof(I), 7); size("S", (int)sizeof(S), 8);
+    size("P", (int)sizeof(P), 9); size("Q", (int)sizeof(Q), 10); size("N", (int)sizeof(N), 11);
+    size("R", (int)sizeof(R), 12);
+
+    let a: A; c_fill_a(&a);
+    printf("A %d %d\n", (int)a.a, (int)a.w);
+    a.a = 3; a.w = 4095; printf("A c %lld\n", c_sum_a(&a));
+    let b: B; c_fill_b(&b);
+    printf("B %d %d %d\n", (int)b.x, (int)b.y, (int)b.z);
+    b.x = 7; b.y = 1; b.z = 1048575; printf("B c %lld\n", c_sum_b(&b));
+    let c: C; c_fill_c(&c);
+    printf("C %d %d %d %c\n", (int)c.a, (int)c.b, (int)c.c, c.d);
+    c.a = 2; c.b = 63; c.c = 123456789; c.d = 'w'; printf("C c %lld\n", c_sum_c(&c));
+    let d: D; c_fill_d(&d);
+    printf("D %c %d %d\n", d.c, (int)d.x, (int)d.y);
+    d.c = 'Y'; d.x = 77777; d.y = 511; printf("D c %lld\n", c_sum_d(&d));
+    let f: F; c_fill_f(&f);
+    printf("F %d %lld %d\n", (int)f.a, f.big, (int)f.t);
+    f.a = 1; f.big = 549755813887; f.t = 127; printf("F c %lld\n", c_sum_f(&f));
+    let g: G; c_fill_g(&g);
+    printf("G %d %c %d\n", (int)g.a, g.c, (int)g.k);
+    g.a = 15; g.c = 'G'; g.k = 32000; printf("G c %lld\n", c_sum_g(&g));
+    let h: H; c_fill_h(&h);
+    printf("H %c%c%c%c%c %d\n", h.name[0], h.name[1], h.name[2], h.name[3], h.name[4], (int)h.x);
+    h.name[0] = 'V'; h.name[4] = 'W'; h.x = 3; printf("H c %lld\n", c_sum_h(&h));
+    let i: I; c_fill_i(&i);
+    printf("I %d %c%c%c %d\n", (int)i.a, i.s[0], i.s[1], i.s[2], (int)i.k);
+    i.a = 15; i.s[1] = 'Q'; i.k = -5; printf("I c %lld\n", c_sum_i(&i));
+    let s: S; c_fill_s(&s);
+    printf("S %d %d %d\n", (int)s.s, (int)s.t, (int)s.u);
+    s.s = 3; s.t = 524287; s.u = -256; printf("S c %lld\n", c_sum_s(&s));
+    s.t += 1; printf("S wrap %d\n", (int)s.t);
+    let p: P; c_fill_p(&p);
+    printf("P %d %d\n", (int)p.a, (int)p.w);
+    p.a = 1; p.w = 17; printf("P c %lld\n", c_sum_p(&p));
+    let q: Q; c_fill_q(&q);
+    printf("Q %d %llu %d %c\n", (int)q.a, q.v, (int)q.b, q.e);
+    q.a = 7; q.v = 1125899906842623; q.b = 1; q.e = 'f'; printf("Q c %lld\n", c_sum_q(&q));
+    let r: R; c_fill_r(&r);
+    printf("R %d %d %c %d\n", (int)r.a, (int)r.w, r.c, (int)r.k);
+    r.a = 1; r.w = 4000; r.c = 's'; r.k = 7; printf("R c %lld\n", c_sum_r(&r));
+    let n: N; c_fill_n(&n);
+    printf("N %c %c %d %d %c\n", n.c, n.d.c, (int)n.d.x, (int)n.d.y, n.e);
+    n.d.y = 5; n.e = 'x'; printf("N c %lld\n", c_sum_n(&n));
+    printf("byval D %lld\n", c_byval_d(d));
+    D dk = c_mk_d(654321);
+    printf("mk D %c %d %d\n", dk.c, (int)dk.x, (int)dk.y);
+    let m: M; m.d = 2.25; m.a = 6; m.w = 1000001;
+    printf("byval M %.2f\n", c_byval_m(m));
+    M mk = c_mk_m(777);
+    printf("mk M %.2f %d %d\n", mk.d, (int)mk.a, (int)mk.w);
+    D[3] arr;
+    arr[1].x = 12345; arr[2].c = 'k';
+    printf("arr %d %c %d\n", (int)arr[1].x, arr[2].c, (int)sizeof(D[3]));
+    return 0;
+}

@@ -79,14 +79,32 @@ logical→physical index map (padding shifts indices).
 
 ### Bitfields
 
-Consecutive bitfields are packed into a storage word of the field's declared
-integer type (`uint8` fields share an `i8`, a `uint64` field lives in an `i64`);
-a new word opens when the declared width changes or the next field does not fit,
-and a non-bitfield field closes the current word. Each field records its
-physical slot, bit offset and width. Reads load the word, shift by the bit
-offset and mask (sign-extending for signed fields); writes, compound
-assignments and `++`/`--` are read-modify-write of the word. Unlike C, adjacent
-bitfields of different declared widths never share a storage unit.
+A struct with bitfields is laid out the way the target's C compiler does it.
+
+- **SysV / AAPCS targets** (Linux, macOS, bare-metal ARM; clang's Itanium
+  layout): a bitfield takes the next free bit unless that would make it cross a
+  boundary of a storage unit of its declared type (a `uint32` field must fit in
+  an aligned 4-byte unit), in which case it starts at that boundary. So adjacent
+  bitfields of different declared types share bytes (`uint8 a:4; uint32 w:12;`
+  is 4 bytes, `w` at bits 4..15), and a normal field starts at the next free
+  byte, aligned, possibly inside a bitfield's unit (`uint32 a:4; char c;` puts
+  `c` at offset 1). The struct is aligned to its most aligned field, bitfields
+  included. In a `packed struct` or under `#pragma pack(N)`, bitfields are
+  packed back to back with no unit rule.
+- **Windows targets** (MS layout): consecutive bitfields share a storage word
+  of their declared type while the type size stays the same and the next one
+  fits; a new word opens when the declared type size changes or the field does
+  not fit, and a normal field closes the current word. Under `#pragma pack(N)`
+  each word and field is aligned to at most N.
+
+Under the SysV/AAPCS layout every field of such a struct is addressed by byte
+offset. The LLVM type only reproduces the C size and alignment: each storage
+unit as an integer of its declared type, the normal fields outside those units
+as themselves, and `[n x i8]` for the remaining bytes (a packed struct is a
+packed LLVM struct of normal fields and byte runs). Reads load the bitfield's
+storage unit (in a packed struct, the exact byte span, e.g. `i24`), shift by the
+bit offset and mask (sign-extending for signed fields); writes, compound
+assignments and `++`/`--` are read-modify-write of that unit.
 
 ### Unions
 

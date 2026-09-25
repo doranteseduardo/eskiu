@@ -802,8 +802,7 @@ void CodeGen::visit(MemberExpr* node) {
             throw std::runtime_error("Struct '" + baseType + "' has no field '" + node->member + "'");
         const BitfieldSlot& slot = sit->second;
         llvm::Value* basePtr = baseAddr();
-        llvm::Value* gep = builder->CreateStructGEP(structTypes[baseType], basePtr,
-                                                    slot.physIndex, node->member);
+        llvm::Value* gep = layoutFieldAddr(baseType, basePtr, slot, node->member);
         if (!slot.isBitfield) {
             exprValueStack.push(builder->CreateLoad(slot.storageType, gep, node->member));
             return;
@@ -836,11 +835,19 @@ void CodeGen::visit(MemberExpr* node) {
     throw std::runtime_error("Struct/union '" + baseType + "' has no field '" + node->member + "'");
 }
 
+// The storage word is read and written as `accessType` (the declared type unless a
+// packed struct's field spans an odd byte range); the value is in the declared type.
+static llvm::Value* loadWord(llvm::IRBuilder<>& b, llvm::Type* at, llvm::Value* p, unsigned align) {
+    return align ? (llvm::Value*)b.CreateAlignedLoad(at, p, llvm::MaybeAlign(align)) : b.CreateLoad(at, p);
+}
+
 llvm::Value* CodeGen::loadBitfieldFrom(llvm::Value* wordPtr, const BitfieldSlot& slot) {
     llvm::Type* sty = slot.storageType;
-    llvm::Value* word = builder->CreateLoad(sty, wordPtr);
+    llvm::Type* aty = slot.accessType ? slot.accessType : sty;
+    llvm::Value* word = loadWord(*builder, aty, wordPtr, slot.accessAlign);
     llvm::Value* shifted = slot.bitOffset
-        ? builder->CreateLShr(word, llvm::ConstantInt::get(sty, slot.bitOffset)) : word;
+        ? builder->CreateLShr(word, llvm::ConstantInt::get(aty, slot.bitOffset)) : word;
+    if (aty != sty) shifted = builder->CreateZExtOrTrunc(shifted, sty);
     uint64_t mask = (slot.bitWidth >= 64) ? ~0ULL : ((1ULL << slot.bitWidth) - 1);
     llvm::Value* masked = builder->CreateAnd(shifted, llvm::ConstantInt::get(sty, mask));
     if (slot.isSigned && slot.bitWidth < sty->getIntegerBitWidth()) {
@@ -860,14 +867,17 @@ void CodeGen::storeBitfieldInto(llvm::Value* wordPtr, const BitfieldSlot& slot,
         else if (val->getType()->isFloatingPointTy())
             val = builder->CreateFPToSI(val, sty);
     }
-    llvm::Value* word = builder->CreateLoad(sty, wordPtr);
+    llvm::Type* aty = slot.accessType ? slot.accessType : sty;
+    llvm::Value* word = loadWord(*builder, aty, wordPtr, slot.accessAlign);
     uint64_t mask = (slot.bitWidth >= 64) ? ~0ULL : ((1ULL << slot.bitWidth) - 1);
-    llvm::Value* fieldMask = llvm::ConstantInt::get(sty, mask << slot.bitOffset);
+    llvm::Value* fieldMask = builder->CreateShl(llvm::ConstantInt::get(aty, mask), slot.bitOffset);
     llvm::Value* cleared  = builder->CreateAnd(word, builder->CreateNot(fieldMask));
     llvm::Value* vMasked  = builder->CreateAnd(val, llvm::ConstantInt::get(sty, mask));
+    if (aty != sty) vMasked = builder->CreateZExtOrTrunc(vMasked, aty);
     llvm::Value* vShifted = slot.bitOffset
-        ? builder->CreateShl(vMasked, llvm::ConstantInt::get(sty, slot.bitOffset)) : vMasked;
-    builder->CreateStore(builder->CreateOr(cleared, vShifted), wordPtr);
+        ? builder->CreateShl(vMasked, llvm::ConstantInt::get(aty, slot.bitOffset)) : vMasked;
+    llvm::StoreInst* st = builder->CreateStore(builder->CreateOr(cleared, vShifted), wordPtr);
+    if (slot.accessAlign) st->setAlignment(llvm::Align(slot.accessAlign));
 }
 
 void CodeGen::storeBitfield(MemberExpr* m, llvm::Value* val) {
@@ -887,7 +897,7 @@ llvm::Value* CodeGen::bitfieldWordPtr(MemberExpr* m, const BitfieldSlot*& slotOu
     std::string rawBaseTy = getExprEskiuType(m->base);
     bool baseIsPtr = (!rawBaseTy.empty() && (rawBaseTy.front() == '*' || rawBaseTy.back() == '*'));
     llvm::Value* basePtr = baseIsPtr ? evaluateExpr(m->base) : evaluateLValue(m->base);
-    return builder->CreateStructGEP(structTypes[baseType], basePtr, slot.physIndex);
+    return layoutFieldAddr(baseType, basePtr, slot);
 }
 
 void CodeGen::visit(CastExpr* node) {
@@ -1124,8 +1134,7 @@ llvm::Value* CodeGen::evaluateLValue(const ExprPtr& expr) {
                     throw std::runtime_error("cannot take the address of bitfield '"
                                              + member->member + "'");
                 llvm::Value* basePtr = baseAddr();
-                return builder->CreateStructGEP(structTypes[baseType], basePtr,
-                                                sit->second.physIndex);
+                return layoutFieldAddr(baseType, basePtr, sit->second);
             }
         }
         for (size_t i = 0; i < fields.size(); ++i) {

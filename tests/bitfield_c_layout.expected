@@ -1,0 +1,45 @@
+sizeof A ok
+sizeof B ok
+sizeof C ok
+sizeof D ok
+sizeof F ok
+sizeof G ok
+sizeof H ok
+sizeof I ok
+sizeof S ok
+sizeof P ok
+sizeof Q ok
+sizeof N ok
+sizeof R ok
+A 9 3000
+A c 304095
+B 5 2 999999
+B c 72048575
+C 13 45 1000000007 q
+C c 123456789382
+D Z 1048000 300
+D c 8900778281
+F 6 -123456789012 99
+F c 549755813888271
+G 11 g -3000
+G c 15742000
+H abcde 14
+H c 869900008703
+I 7 xyz 1234
+I c 1620822195
+S -3 -500000 -200
+S c 3524286744
+S wrap -524288
+P 10 4001
+P c 100017
+Q 5 1000000000000000 100 e
+Q c 1125901078
+R 12 2222 r 6
+R c 14001157
+N n Z 1048000 300 E
+N c 110125
+byval D 8900778281
+mk D M 654321 257
+byval M 1006003.25
+mk M 0.50 5 777
+arr 12345 k 24

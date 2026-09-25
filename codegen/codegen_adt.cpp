@@ -180,7 +180,7 @@ void CodeGen::emitStructInitInto(llvm::Value* dest, StructInitExpr* init) {
         auto lit = structLayout.find(sname);
         if (lit != structLayout.end()) {
             const BitfieldSlot& slot = lit->second.at(fields[idx].name);
-            llvm::Value* gep = builder->CreateStructGEP(st, dest, slot.physIndex);
+            llvm::Value* gep = layoutFieldAddr(sname, dest, slot);
             if (slot.isBitfield) { storeBitfieldInto(gep, slot, val); return; }
             if (val) builder->CreateStore(coerce(val, slot.storageType, uns), gep);
             return;
