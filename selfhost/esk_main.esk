@@ -265,6 +265,13 @@ int esk_main(int argc, string* argv) {
             ai = ai + 1;
             continue;
         }
+        // `run -- script.esk`: a `--` before the script ends the compiler flags, and the
+        // next argument is the script even if it starts with '-' (like the C++ `run`).
+        if (runmode == 1 && cg_streq(a, "--") == 1) {
+            if (ai + 1 < argc) { List_push<string>(&infiles, argv[ai + 1]); gotscript = 1; }
+            ai = ai + 2;
+            continue;
+        }
         // Options with a value take it as the next argument or after `=`.
         string val = null;
         string opt = a;

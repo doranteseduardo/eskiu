@@ -164,6 +164,13 @@ ESKIU_ROOT="$ROOT" "$ESKMAIN" tests/selfhost/driver_inputs/diag_sema/bad_init.es
 if [ "$sc" -eq 1 ] && ! [ -s "$WORK/tc.out" ]; then echo "ok    flags/test-codegen-typechecks"
 else echo "FAIL  flags/test-codegen-typechecks  (rc $sc, $(wc -c < "$WORK/tc.out") bytes of IR)"; fail=1; fi
 
+# `run -- script.esk`: a `--` before the script ends the compiler flags.
+total=$((total + 1))
+ESKIU_ROOT="$ROOT" "$BIN" run -- tests/selfhost/driver_inputs/arith.esk >"$WORK/r.cpp" 2>/dev/null; cc=$?
+ESKIU_ROOT="$ROOT" "$ESKMAIN" run -- tests/selfhost/driver_inputs/arith.esk >"$WORK/r.self" 2>/dev/null; sc=$?
+if [ "$cc" = "$sc" ] && cmp -s "$WORK/r.cpp" "$WORK/r.self"; then echo "ok    flags/run-dashdash  (exit $sc)"
+else echo "FAIL  flags/run-dashdash  (cpp exit $cc, self exit $sc)"; fail=1; fi
+
 # Target macros: _WIN64 accompanies _WIN32 on every 64-bit Windows triple (x86_64,
 # aarch64 and arm64 spellings), and both drivers predefine the same set.
 for tgt in x86_64-pc-windows-msvc aarch64-pc-windows-msvc arm64-pc-windows-msvc i686-pc-windows-msvc; do
