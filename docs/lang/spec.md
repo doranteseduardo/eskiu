@@ -797,7 +797,7 @@ allocation. The standard library marks `alloc` this way:
 must_use *T dup<T>(T* p) { ... }
 
 dup(&x);              // error: result of 'dup' must be used (it is marked must_use)
-let y = dup(&x);      // ok
+*int y = dup(&x);     // ok (x is an int)
 
 alloc<uint8>(64);     // error: the allocation is leaked (alloc is must_use)
 ```
