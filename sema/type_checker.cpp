@@ -131,6 +131,7 @@ bool TypeChecker::check(Program* program) {
             }
             defineFunction(externDecl->name, externDecl->returnType, paramTypes);
             functionParamEscaping[externDecl->name] = externDecl->paramEscaping;
+            externFnNames.insert(externDecl->name);
         } else if (auto intrinDecl = dynamic_cast<IntrinsicDecl*>(decl.get())) {
             // Intrinsics carry an ordinary signature; only codegen treats them
             // specially (inline lowering instead of a call).
@@ -176,6 +177,9 @@ bool TypeChecker::check(Program* program) {
         }
         for (const auto& n : cyclic) typeAliases[n] = "unknown";   // resolves to the error sentinel
     }
+
+    // An extern the program also defines is an Eskiu function, not a C one.
+    for (const auto& n : definedFnBodies) externFnNames.erase(n);
 
     // Second pass: type check all declarations
     for (const auto& decl : program->declarations) {

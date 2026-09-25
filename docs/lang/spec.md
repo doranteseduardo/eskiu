@@ -2078,7 +2078,21 @@ qsort((*void)arr, (int64)5, (int64)4, (*void)cmp);   // (*void)cmp is the raw C 
 
 The callback's signature must match what the C side expects (C ABI). This works
 only for top-level functions (a closure or fn-pointer variable still carries an
-environment and is not C-callable).
+environment and is not C-callable). A callback that takes or returns a struct by
+value works too: C reaches it through a generated thunk with the C calling
+convention.
+
+An `extern` parameter of fn type is a C function pointer, so the prototype can
+spell the callback's signature and the call passes a top-level function by name
+(or `null`), with no cast:
+
+```eskiu
+extern void qsort(*void base, int64 n, int64 size, fn(*void, *void)->int cmp);
+
+qsort((*void)arr, (int64)5, (int64)4, cmp);
+```
+
+Passing anything else there (a lambda, a fn-typed variable) is a compile error.
 
 ---
 

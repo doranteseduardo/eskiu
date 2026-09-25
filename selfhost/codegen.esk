@@ -2813,6 +2813,18 @@ string cg_slice_elem_addr(Codegen* g, *ExprNode base, string idx_op, string hi_o
     return t;
 }
 
+// Evaluate argument `ax` for parameter `i` of `f`. A C function pointer parameter (an
+// extern's fn-typed one, declared `ptr`) takes a top-level function's C address.
+CgVal cg_call_arg(Codegen* g, CgFn* f, int i, *ExprNode ax) {
+    if (cg_streq(cg_pty(f, i), "ptr") == 1 && cg_is_fnty(cg_dealias(g, cg_pety(f, i))) == 1
+        && ax.kind == EK_IDENT && cg_find_local(g, ax.sval).slot[0] == 0
+        && cg_find_global(g, ax.sval).slot[0] == 0 && cg_is_fn(g, ax.sval) == 1) {
+        let v: CgVal; v.op = cg_cabi_callback(g, ax.sval); v.ty = "ptr"; v.ety = "";
+        return v;
+    }
+    return cg_expr(g, ax);
+}
+
 CgVal cg_expr(Codegen* g, *ExprNode e) {
     let v: CgVal;
     v.ety = "";
@@ -3341,7 +3353,7 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
                 List<CgVal> cargs; List_init<CgVal>(&cargs, 4);
                 int ci = 0;
                 while (ci < List_len<*ExprNode>(&e.kids)) {
-                    CgVal a = cg_expr(g, List_get<*ExprNode>(&e.kids, ci));
+                    CgVal a = cg_call_arg(g, &f, ci, List_get<*ExprNode>(&e.kids, ci));
                     string cpty = cg_pty(&f, ci);
                     let ca: CgVal; ca.op = a.op; ca.ty = a.ty; ca.ety = a.ety;
                     if (cpty[0] != 0) { ca.op = cg_coerce(g, a, cpty); ca.ty = cpty; }
@@ -3359,7 +3371,7 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
         int n = List_len<*ExprNode>(&e.kids);
         while (i < n) {
             *ExprNode ax = List_get<*ExprNode>(&e.kids, i);
-            CgVal a = cg_expr(g, ax);
+            CgVal a = cg_call_arg(g, &f, i + pbase, ax);
             string pety = cg_pety(&f, i + pbase);
             // Param expects an interface but we have a struct pointer → box it as a fat pointer.
             if (pety[0] != 0 && cg_is_iface(g, cg_dealias(g, pety)) == 1) {
@@ -5611,9 +5623,11 @@ string cg_cabi_declare(Codegen* g, *DeclNode d) {
     while (i < np) {
         Param pm = List_get<Param>(&d.params, i);
         if (cg_streq(pm.ty, "...") == 1) { variadic = 1; i = i + 1; continue; }
-        CgAbi a = cg_abi_classify(g, pm.ty, 0, &fint, &fsse);
+        string cety = pm.ty;
+        if (cg_is_fnty(cg_dealias(g, pm.ty)) == 1) { cety = "*void"; }   // a C function pointer
+        CgAbi a = cg_abi_classify(g, cety, 0, &fint, &fsse);
         List_push<CgAbi>(&c.params, a);
-        string lty = cg_lltype(g, pm.ty);
+        string lty = cg_lltype(g, cety);
         string bare = lty;
         if (a.kind == 1) { bare = a.ty; }
         else if (a.kind == 2) { bare = cg_cat(a.ty, cg_cat(", ", a.ty2)); }
@@ -6166,6 +6180,9 @@ void cg_program(Codegen* g, *Program prog) {
                 if (cg_streq(pm.ty, "...") == 1) { f.variadic = 1; }
                 else {
                     string plt = cg_lltype(g, pm.ty);
+                    // A C function's fn-typed parameter is a C function pointer (`ptr`).
+                    if (d.kind == DK_EXTERN && cg_prog_defines(prog, d.name) == 0
+                        && cg_is_fnty(cg_dealias(g, pm.ty)) == 1) { plt = "ptr"; }
                     List_push<string>(&f.ptys, plt);
                     List_push<string>(&f.petys, pm.ty);
                     if (first == 0) { fixed = cg_cat(fixed, ", "); }

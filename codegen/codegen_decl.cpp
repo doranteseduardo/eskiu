@@ -45,6 +45,9 @@ void CodeGen::visit(Program* node) {
     // Externs after every type shell: a by-value struct parameter declared later in
     // the source must already have its layout for the C-ABI signature.
     for (auto& decl : node->declarations)
+        if (auto* f = dynamic_cast<FunctionDecl*>(decl.get()))
+            if (f->body) definedFunctionNames.insert(f->name);
+    for (auto& decl : node->declarations)
         if (dynamic_cast<ExternDecl*>(decl.get())) decl->accept(this);
     for (auto& decl : node->declarations) {
         if (auto* f = dynamic_cast<FunctionDecl*>(decl.get())) {
@@ -565,14 +568,21 @@ void CodeGen::visit(ExternDecl* node) {
     // Get parameter types
     std::vector<llvm::Type*> paramTypes;
     bool hasVarargs = false;
+    // A fn-typed parameter of a C function is a C function pointer, not an Eskiu
+    // closure: it is declared `ptr` and each call passes a function's C address.
+    bool foreign = !definedFunctionNames.count(node->name);
+    std::vector<bool> fnPtr;
 
     for (auto& param : node->params) {
         if (param.first == "...") {
             hasVarargs = true;
             break;
         }
-        paramTypes.push_back(getTypeFromString(param.first));
+        bool isFn = foreign && ty::Type::parse(expandAlias(param.first)).isFn();
+        fnPtr.push_back(isFn);
+        paramTypes.push_back(isFn ? llvm::PointerType::get(*context, 0) : getTypeFromString(param.first));
     }
+    if (std::find(fnPtr.begin(), fnPtr.end(), true) != fnPtr.end()) externFnPtrParams[node->name] = fnPtr;
 
     // Create function type
     llvm::Type* returnType = getTypeFromString(node->returnType);

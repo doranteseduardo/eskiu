@@ -702,6 +702,19 @@ void TypeChecker::visit(CallExpr* node) {
         }
         if (i < fixedCount) {
             std::string argType = getExpressionType(node->args[i].get());
+            // A C function's fn-typed parameter is a C function pointer: C can only call
+            // a named top-level function (or get null), never a closure's environment.
+            if (externFnNames.count(funcName)
+                    && ty::Type::parse(normalizeType(expectedParamTypes[i])).isFn()) {
+                auto* id = dynamic_cast<IdentExpr*>(node->args[i].get());
+                auto* lit = dynamic_cast<LiteralExpr*>(node->args[i].get());
+                if (lit && lit->kind == LiteralExpr::Kind::NULL_VAL) continue;
+                if (!(id && lookupSymbol(id->name).empty() && functionSignatures.count(id->name))) {
+                    errorAt(node, "argument " + std::to_string(i + 1) + " of extern '" + funcName +
+                                  "' is a C function pointer: pass a top-level function by name, not a closure value");
+                    continue;
+                }
+            }
             std::string e = assignabilityError(expectedParamTypes[i], argType, node->args[i].get());
             if (!e.empty())
                 errorAt(node,"argument " + std::to_string(i + 1) + " type mismatch: expected " +

@@ -355,6 +355,12 @@ private:
     // function itself, or a `__cabi_<name>` thunk with the lowered C signature when it
     // takes or returns an aggregate by value.
     llvm::Function* cabiCallbackThunk(llvm::Function* target);
+    // An `extern` parameter of fn type is a C function pointer (a bare `ptr`), per
+    // extern: which parameters are. Functions the program defines are never lowered.
+    std::map<std::string, std::vector<bool>> externFnPtrParams;
+    std::set<std::string> definedFunctionNames;
+    // The C function pointer passed for `arg` (a named top-level function or null).
+    llvm::Value* evalCFnPointer(const ExprPtr& arg);
 
     // sret (structure return) support for large struct returns
     // Maps function name → actual return struct type (the LLVM function itself returns void)

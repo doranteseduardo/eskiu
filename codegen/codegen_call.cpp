@@ -463,12 +463,17 @@ void CodeGen::visit(CallExpr* node) {
 
     // An extern with by-value aggregates: coerce the args to its Eskiu-level signature
     // (variadic extras get the C default promotions), then lower to the C ABI.
+    // A C function pointer parameter takes the C address of a named function.
+    auto fpIt = externFnPtrParams.find(func->getName().str());
+    auto isCFnParam = [&](size_t i) {
+        return fpIt != externFnPtrParams.end() && i < fpIt->second.size() && fpIt->second[i];
+    };
     auto abiIt = externAbi.find(func->getName().str());
     if (abiIt != externAbi.end()) {
         auto lparams = abiIt->second.logical->params();
         std::vector<llvm::Value*> cargs;
         for (size_t i = 0; i < node->args.size(); ++i) {
-            llvm::Value* v = evaluateExpr(node->args[i]);
+            llvm::Value* v = isCFnParam(i) ? evalCFnPointer(node->args[i]) : evaluateExpr(node->args[i]);
             bool uns = eskiuUnsigned(getExprEskiuType(node->args[i]));
             if (i < lparams.size()) {
                 if (v->getType() != lparams[i]) v = coerceValue(v, lparams[i], uns);
@@ -490,7 +495,9 @@ void CodeGen::visit(CallExpr* node) {
     auto ptIt = funcEskiuParamTypes.find(func->getName().str());
     for (size_t i = 0; i < node->args.size(); ++i) {
         // A param that expects an interface boxes a struct pointer argument.
-        if (ptIt != funcEskiuParamTypes.end() && i < ptIt->second.size())
+        if (isCFnParam(i))
+            args.push_back(evalCFnPointer(node->args[i]));
+        else if (ptIt != funcEskiuParamTypes.end() && i < ptIt->second.size())
             args.push_back(evalForType(node->args[i], ptIt->second[i]));
         else
             args.push_back(evaluateExpr(node->args[i]));

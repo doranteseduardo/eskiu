@@ -183,6 +183,12 @@ attributes), rebuilds the Eskiu-level values, calls `f`, and returns the result
 the C way. A function without by-value aggregates is passed as itself. Eskiu
 code calling `f` directly is unaffected.
 
+**C function pointer parameters.** A parameter of fn type in an `extern` (one the
+program does not also define) is a C function pointer: it is declared `ptr`, not
+the `{ fn, env }` closure, and each call passes the named top-level function's C
+address (its `__cabi_` thunk when needed) or `null`. The type checker rejects any
+other argument there, since a closure's environment cannot cross into C.
+
 **Variadics.** A `...` parameter makes the LLVM function `isVarArg`. The built-in
 `va_list` is the struct `{ ptr, ptr, ptr, i32, i32 }` (32 B, 8-aligned), a
 superset of the x86-64 (24 B) and AArch64 (32 B) layouts, so one type serves

@@ -415,3 +415,16 @@ llvm::Function* CodeGen::cabiCallbackThunk(llvm::Function* target) {
     }
     return thunk;
 }
+
+// An argument for a C function pointer parameter (an extern's fn-typed parameter): the
+// C address of the named top-level function (through its C-ABI thunk when needed), or
+// null. The type checker rejects anything else (a closure value has an environment).
+llvm::Value* CodeGen::evalCFnPointer(const ExprPtr& arg) {
+    if (auto* id = dynamic_cast<IdentExpr*>(arg.get()))
+        if (!lookupSymbol(id->name))
+            if (llvm::Function* fn = module->getFunction(id->name)) return cabiCallbackThunk(fn);
+    llvm::Value* v = evaluateExpr(arg);
+    if (!v->getType()->isPointerTy())
+        throw std::runtime_error("a C function pointer argument must name a top-level function");
+    return v;
+}
