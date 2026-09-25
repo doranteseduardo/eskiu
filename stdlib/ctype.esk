@@ -1,6 +1,7 @@
 // Pure ASCII character classification — freestanding-safe (no libc ctype).
-// Comparisons only, like <string>'s String_is_space. Takes `int` to mirror the
-// C++ <cctype> domain and avoid char/uint8 width surprises at call sites.
+// Comparisons only. is_space replaces <string>'s deprecated String_is_space.
+// Takes `int` to mirror the C++ <cctype> domain and avoid char/uint8 width
+// surprises at call sites.
 
 // isspace: space, \t, \n, \v, \f, \r  (matches std::isspace for the C locale)
 int is_space(int c) {

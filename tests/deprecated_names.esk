@@ -10,6 +10,7 @@ import <channel>;
 import <hpack>;
 import <http2>;
 import <time>;
+import <ctype>;
 extern int printf(string fmt, ...);
 extern int pipe(*int fds);
 extern int64 write(int fd, *void buf, int64 n);
@@ -93,5 +94,7 @@ int main() {
     time_format_iso(&dt, &iso);
     printf("time: %s %lld\n", String_cstr(&iso), time_from_utc(&dt));
     String_free(&iso);
+
+    printf("space: %d %d %d\n", String_is_space(' '), String_is_space('x'), is_space(32));
     return 0;
 }
