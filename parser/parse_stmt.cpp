@@ -171,6 +171,7 @@ StmtPtr Parser::parseBlockStatement() {
             check(TokenType::VOLATILE) ||
             check(TokenType::STATIC) ||
             check(TokenType::QUESTION) ||   // `?*T q = ...` nullable-pointer local
+            check(TokenType::FN) ||         // `fn(int)->int f = ...` (fn only names a type)
             check(TokenType::LET) ||
             check(TokenType::STAR) || check(TokenType::IDENT) ||
             isPrimitiveTypeToken(peek().type)) {

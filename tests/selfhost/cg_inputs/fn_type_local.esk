@@ -1,0 +1,12 @@
+// A local declared C-style with a function type, `fn(int32)->int32 h = f;`, parses like
+// the `let` form (the self-hosted parser accepted it; the C++ one did not).
+extern int printf(string fmt, ...);
+
+int32 twice(int32 x) { return 2 * x; }
+
+int main() {
+    fn(int32)->int32 h = twice;
+    fn(int32)->int32 k = int32(int32 x) { return x + 1; };
+    printf("%d %d\n", h(20), k(h(3)));
+    return 0;
+}
