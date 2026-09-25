@@ -9,6 +9,8 @@
 //  - window overflow past 2^31 - 1 and bad SETTINGS values are connection
 //    errors (FLOW_CONTROL_ERROR = 3, PROTOCOL_ERROR = 1) instead of being taken;
 //  - padding as long as the frame is a PROTOCOL_ERROR;
+//  - DATA on a stream whose request already ended (its response waiting for
+//    window) is a stream error: RST_STREAM(STREAM_CLOSED = 5);
 //  - more than 64 header fields get a 431 without calling the handler (the
 //    request used to be dispatched with an empty method and path).
 import <mem>;
@@ -184,6 +186,14 @@ int main() {
     p[0] = (uint8)3;  p[1] = (uint8)0;  p[2] = (uint8)0;
     frame(H2_DATA, H2_FLAG_END_STREAM | H2_FLAG_PADDED, 1, p, 3);
     run("padding fills frame");
+
+    // INITIAL_WINDOW_SIZE 0 holds the response body; DATA after END_STREAM.
+    begin();
+    settings1(H2_SETTINGS_INITIAL_WINDOW_SIZE, (int64)0);
+    bl = req_block(blk, "GET", "/held");
+    frame(H2_HEADERS, H2_FLAG_END_HEADERS | H2_FLAG_END_STREAM, 1, blk, bl);
+    frame(H2_DATA, 0, 1, (*uint8)"x", 1);
+    run("data after end_stream");
 
     // 70 header fields: more than the server decodes per request.
     begin();

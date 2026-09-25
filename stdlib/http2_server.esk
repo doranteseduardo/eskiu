@@ -398,8 +398,13 @@ void H2Server_headers_done(H2Server* s, int sid, int end_stream) {
     if (nh == -1) { H2Server_goaway(s, H2_COMPRESSION_ERROR); return; }
     const int at = H2Server_find(s, sid);
     if (at >= 0) {
-        // Trailers on an open request: they must end the stream.
-        if (s.slots[at].state != H2S_RECEIVING) { H2Server_goaway(s, H2_STREAM_CLOSED); return; }
+        // Trailers on an open request: they must end the stream. After the
+        // request ended (half-closed remote) it is a stream error (§5.1).
+        if (s.slots[at].state != H2S_RECEIVING) {
+            H2Server_rst(s, sid, H2_STREAM_CLOSED);
+            H2Server_slot_release(&s.slots[at]);
+            return;
+        }
         if (end_stream == 0) {
             H2Server_rst(s, sid, H2_PROTOCOL_ERROR);
             H2Server_slot_release(&s.slots[at]);
@@ -472,7 +477,8 @@ void H2Server_on_data(H2Server* s, H2Frame* h, *uint8 p) {
     const int at = H2Server_find(s, h.stream_id);
     if (at < 0 || s.slots[at].state != H2S_RECEIVING) {
         if (at < 0 && h.stream_id > s.conn.last_stream_id) { H2Server_goaway(s, H2_PROTOCOL_ERROR); return; }   // idle stream
-        H2Server_rst(s, h.stream_id, H2_STREAM_CLOSED);
+        H2Server_rst(s, h.stream_id, H2_STREAM_CLOSED);   // closed, or half-closed (remote): §5.1
+        if (at >= 0) { H2Server_slot_release(&s.slots[at]); }
         return;
     }
     H2Slot* sl = &s.slots[at];
