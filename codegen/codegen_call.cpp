@@ -315,8 +315,10 @@ void CodeGen::visit(CallExpr* node) {
         // Interface vtable dispatch
         auto ifIt = ifaceMethodOrder.find(baseType);
         if (ifIt != ifaceMethodOrder.end()) {
-            // An interface value IS the fat {data, vtable} struct.
+            // An interface value IS the fat {data, vtable} struct; through a `*I` it is
+            // loaded first (`pi.f()` calls `(*pi).f()`).
             llvm::Value* fat     = evaluateExpr(member->base);
+            if (baseIsPtr) fat = builder->CreateLoad(ifaceFatPtrTypes[baseType], fat, "iface.val");
             llvm::Value* dataPtr = builder->CreateExtractValue(fat, {0}, "iface.data");
             llvm::Value* vtPtr   = builder->CreateExtractValue(fat, {1}, "iface.vt");
             const auto& order = ifIt->second;

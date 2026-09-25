@@ -4161,6 +4161,17 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
             string fatop = cg_expr(g, e.a.a).op;
             return cg_dispatch_iface(g, ifn, fatop, e.a.sval, e);
         }
+        // Through a pointer to an interface value (`*I pi; pi.f()`): load the fat value.
+        if (e.a != null && e.a.kind == EK_MEMBER) {
+            string rty = cg_etype(g, e.a.a);
+            if (cg_is_ptr_ty(rty) == 1 && cg_is_iface(g, cg_dealias(g, cg_deref_ty(rty))) == 1) {
+                string ifn2 = cg_dealias(g, cg_deref_ty(rty));
+                string pop = cg_expr(g, e.a.a).op;
+                string fv = cg_tmp(g);
+                cg_emit(g, "  "); cg_emit(g, fv); cg_emit(g, " = load %iface_fat, ptr "); cg_emit(g, pop); cg_emit(g, "\n");
+                return cg_dispatch_iface(g, ifn2, fv, e.a.sval, e);
+            }
+        }
         // `l.push(x)` on a generic struct instance whose `List_push<T>` is a generic free
         // function: emit it as that (type-inferred) call.
         *ExprNode gmc = cg_generic_method_call(g, e);
@@ -4708,9 +4719,14 @@ CgVal cg_indirect_call(Codegen* g, string cval, string fnty, *ExprNode e) {
     string cargs = cg_cat("ptr ", ep);                  // env is the first argument
     int i = 0; int nn = List_len<*ExprNode>(&e.kids);
     while (i < nn) {
-        CgVal a = cg_expr(g, List_get<*ExprNode>(&e.kids, i));
+        *ExprNode iax = List_get<*ExprNode>(&e.kids, i);
+        CgVal a = cg_expr(g, iax);
         string aop = a.op; string aty = a.ty;
-        if (i < List_len<string>(&fpt)) { string pty = cg_lltype(g, List_get<string>(&fpt, i)); aop = cg_coerce(g, a, pty); aty = pty; }
+        if (i < List_len<string>(&fpt)) {
+            string pety = List_get<string>(&fpt, i);
+            string pty = cg_lltype(g, pety); aop = cg_coerce(g, a, pty); aty = pty;
+            if (cg_is_iface(g, cg_dealias(g, pety)) == 1) { aop = cg_iface_conv(g, pety, a, iax); }   // box `&s`
+        }
         cargs = cg_cat(cargs, cg_cat(", ", cg_cat(aty, cg_cat(" ", aop))));
         i = i + 1;
     }
@@ -4804,6 +4820,26 @@ string cg_iface_vtable(Codegen* g, string ifaceName, string structName) {
 // `&global`: `{ ptr @g, ptr @I_vtable_S }`.
 string cg_global_init_ty(Codegen* g, *ExprNode e, string ety) {
     string t = cg_dealias(g, ety);
+    // An array of interface values: each element is boxed like a scalar one.
+    string inner = t; while (cg_is_array(inner) == 1) { inner = cg_dealias(g, cg_array_elem(inner)); }
+    if (e != null && e.kind == EK_ARRAYLIT && cg_is_array(t) == 1 && cg_is_iface(g, inner) == 1) {
+        string elemEty = cg_array_elem(t);
+        string elemLl = cg_lltype(g, elemEty);
+        int cnt = 0; string lt = cg_lltype(g, t);
+        int ci = 1; while ((int)lt[ci] >= 48 && (int)lt[ci] <= 57) { cnt = cnt * 10 + ((int)lt[ci] - 48); ci = ci + 1; }
+        let out: String; String_init(&out, 64);
+        String_push(&out, '[');
+        int k = 0;
+        while (k < cnt) {
+            if (k > 0) { String_append(&out, ", "); }
+            String_append(&out, elemLl); String_push(&out, ' ');
+            if (k < List_len<*ExprNode>(&e.kids)) { String_append(&out, cg_global_init_ty(g, List_get<*ExprNode>(&e.kids, k), elemEty)); }
+            else { String_append(&out, "zeroinitializer"); }
+            k = k + 1;
+        }
+        String_push(&out, ']');
+        return (string)String_cstr(&out);
+    }
     if (e != null && cg_is_iface(g, t) == 1) {
         if (e.kind == EK_LITERAL && e.lit_kind == LIT_NULL) { return "zeroinitializer"; }
         if (e.kind == EK_UNARY && cg_streq(e.sval, "&") == 1 && e.a != null && e.a.kind == EK_IDENT) {
@@ -5295,6 +5331,7 @@ void cg_array_init(Codegen* g, string slot, string arrType0, *ExprNode lit, int 
         } else {
             CgVal ev = cg_expr(g, el);
             string eop = cg_coerce(g, ev, elemLl);
+            if (cg_is_iface(g, cg_dealias(g, elemStr)) == 1) { eop = cg_iface_conv(g, elemStr, ev, el); }   // box `&s`
             cg_emit(g, "  store "); cg_emit(g, elemLl); cg_emit(g, " "); cg_emit(g, eop);
             cg_emit(g, ", ptr "); cg_emit(g, gp); cg_emit(g, "\n");
         }

@@ -147,7 +147,7 @@ void CodeGen::emitArrayInitInto(llvm::Value* dest, ArrayLitExpr* lit, const std:
                     builder->CreateStore(evaluateExpr(lit->elements[i]), slot);
                 continue;
             }
-            llvm::Value* val = evaluateExpr(lit->elements[i]);
+            llvm::Value* val = evalForType(lit->elements[i], elemStr);   // boxes into an interface element
             if (val->getType() != elemTy) {
                 val = coerceValue(val, elemTy, eskiuUnsigned(getExprEskiuType(lit->elements[i])));
             }
