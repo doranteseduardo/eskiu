@@ -50,20 +50,234 @@ int _http_is_crlf_byte(uint8 c) {
     return (c == '\r' || c == '\n') ? 1 : 0;
 }
 
+// 1 if `c` is a token character (RFC 9110 §5.6.2 tchar): a header name or a
+// method is one or more of these.
+int _http_is_tchar(uint8 c) {
+    if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) { return 1; }
+    switch (c) {
+        case '!': case '#': case '$': case '%': case '&': case '\'': case '*': case '+':
+        case '-': case '.': case '^': case '_': case '`': case '|': case '~':
+            return 1;
+    }
+    return 0;
+}
+
+// The HTTP-version in b[from..to) ("HTTP/" DIGIT "." DIGIT, RFC 9112 §2.3) as
+// major * 10 + minor, or -1 if it is not one.
+int _http_parse_version(*uint8 b, int from, int to) {
+    if (to - from != 8) { return -1; }
+    if (b[from] != 'H' || b[from + 1] != 'T' || b[from + 2] != 'T' || b[from + 3] != 'P' || b[from + 4] != '/') { return -1; }
+    const uint8 ma = b[from + 5];
+    const uint8 mi = b[from + 7];
+    if (ma < '0' || ma > '9' || b[from + 6] != '.' || mi < '0' || mi > '9') { return -1; }
+    return ((int)ma - '0') * 10 + ((int)mi - '0');
+}
+
+// 1 if every line of a "Key: Value\n" block is a field line: a token name
+// directly followed by ':'. Whitespace before the colon (RFC 9112 §5.1) and a
+// line starting with SP/HTAB, an obsolete line fold (§5.2), are rejected.
+int _http_headers_valid(String* headers) {
+    const int64 n = headers.len;
+    int64 i = 0;
+    while (i < n) {
+        int64 j = i;
+        while (j < n && _http_is_tchar((uint8)headers.data[j]) == 1) { j++; }
+        if (j == i || j >= n || headers.data[j] != ':') { return 0; }
+        while (i < n && headers.data[i] != '\n') { i++; }
+        i++;
+    }
+    return 1;
+}
+
+// Number of header lines named `name` (case-insensitive) in a "Key: Value\n" block.
+int _http_header_count(String* headers, string name) {
+    const int64 n = headers.len;
+    int64 i = 0;
+    int count = 0;
+    while (i < n) {
+        int64 j = 0;
+        bool matched = true;
+        for (; name[j] != 0; j++) {
+            if (i + j >= n || http_lc(headers.data[i + j]) != http_lc(name[j])) { matched = false; break; }
+        }
+        if (matched && i + j < n && headers.data[i + j] == ':') { count++; }
+        while (i < n && headers.data[i] != '\n') { i++; }
+        i++;
+    }
+    return count;
+}
+
+// Transfer-Encoding of a request (RFC 9112 §6.1, §6.3): 0 if there is none, 1
+// if it is exactly "chunked" (the only coding supported), 400 if chunked is not
+// the final coding or appears twice (the length cannot be determined), 501 for
+// any other coding. Every Transfer-Encoding line and list member counts.
+int _http_transfer_encoding(String* headers) {
+    const string name = "transfer-encoding";
+    const int64 n = headers.len;
+    int64 i = 0;
+    int codings = 0;
+    int chunked = 0;
+    bool last_chunked = false;
+    bool other = false;
+    bool present = false;
+    while (i < n) {
+        int64 j = 0;
+        bool matched = true;
+        for (; name[j] != 0; j++) {
+            if (i + j >= n || http_lc(headers.data[i + j]) != http_lc(name[j])) { matched = false; break; }
+        }
+        if (matched && i + j < n && headers.data[i + j] == ':') {
+            present = true;
+            int64 k = i + j + 1;
+            while (true) {
+                let item: String;  item.init(16);
+                while (k < n && (headers.data[k] == ' ' || headers.data[k] == '\t')) { k++; }
+                for (; k < n && headers.data[k] != ',' && headers.data[k] != '\n'; k++) { item.push(http_lc(headers.data[k])); }
+                http_trim_ows_tail(&item);
+                if (item.len > 0) {
+                    codings++;
+                    last_chunked = String_eq_cstr(&item, "chunked") == 1;
+                    if (last_chunked) { chunked++; } else { other = true; }
+                }
+                item.free();
+                if (k >= n || headers.data[k] != ',') { break; }
+                k++;
+            }
+        }
+        while (i < n && headers.data[i] != '\n') { i++; }
+        i++;
+    }
+    if (!present) { return 0; }
+    if (codings == 0 || chunked > 1 || !last_chunked) { return 400; }
+    if (other) { return 501; }
+    return 1;
+}
+
+// Checks shared by both request parsers once the head is split into lines:
+// the version (1.x, else 505), field-line syntax, a single Host (required in
+// HTTP/1.1, RFC 9112 §3.2), and the framing headers. Returns 0 if the request
+// has a Content-Length body or none, 1 if its body is chunked, or an error
+// status (400 / 501 / 505).
+int _http_check_head(String* headers, int version) {
+    if (version / 10 != 1) { return 505; }
+    if (_http_headers_valid(headers) == 0) { return 400; }
+    const int hosts = _http_header_count(headers, "host");
+    if (hosts > 1 || (hosts == 0 && version >= 11)) { return 400; }
+    const int te = _http_transfer_encoding(headers);
+    if (te == 0) { return 0; }
+    // Transfer-Encoding with Content-Length is a smuggling vector (§6.3), and an
+    // HTTP/1.0 message with Transfer-Encoding has faulty framing (§6.1).
+    if (_http_header_count(headers, "content-length") > 0 || version < 11) { return 400; }
+    return te;
+}
+
+int _http_hex_digit(uint8 c) {
+    if (c >= '0' && c <= '9') { return (int)c - '0'; }
+    if (c >= 'a' && c <= 'f') { return (int)c - 'a' + 10; }
+    if (c >= 'A' && c <= 'F') { return (int)c - 'A' + 10; }
+    return -1;
+}
+
+// Growable binary output of the chunked decoder (start zeroed; free `data`).
+struct HttpChunkOut {
+    *uint8 data;
+    int64  len;
+    int64  cap;
+}
+
+// Decode the complete chunks of a chunked body (RFC 9112 §7.1) in b[*pos..n),
+// appending their data to `out` (at most `max` bytes in total). *pos advances
+// past each complete chunk, so a caller that receives more input calls again
+// with the same state. Returns 1 once the last chunk and the trailer section
+// (discarded) are consumed, with *pos just past the body; 0 if more input is
+// needed; -1 if the body is malformed; -2 if it exceeds `max`.
+int http_chunked_step(*uint8 b, int64 n, *int64 pos, HttpChunkOut* out, int64 max) {
+    int64 p = *pos;
+    while (true) {
+        int64 size = 0;
+        int64 q = p;
+        while (q < n && _http_hex_digit(b[q]) >= 0) {
+            const int64 d = _http_hex_digit(b[q]);
+            if (size > (9223372036854775807 - d) / 16) { return -1; }
+            size = size * 16 + d;
+            q++;
+        }
+        if (q >= n) { return 0; }
+        if (q == p) { return -1; }
+        // chunk-ext: BWS ";" ... up to the line end (extensions are ignored).
+        int64 e = q;
+        while (e < n && (b[e] == ' ' || b[e] == '\t')) { e++; }
+        if (e >= n) { return 0; }
+        if (b[e] == ';') {
+            while (e < n && _http_is_crlf_byte(b[e]) == 0) { e++; }
+            q = e;
+        }
+        if (q + 1 >= n) { return 0; }
+        if (b[q] != '\r' || b[q + 1] != '\n') { return -1; }
+        q += 2;
+        if (size == 0) { p = q; break; }
+        if (size > max - out.len) { return -2; }
+        if (n - q < size + 2) {
+            if (n - q > size && b[q + size] != '\r') { return -1; }
+            return 0;
+        }
+        if (b[q + size] != '\r' || b[q + size + 1] != '\n') { return -1; }
+        if (out.len + size > out.cap) {
+            int64 nc = out.cap < 256 ? 256 : out.cap;
+            while (nc < out.len + size) { nc *= 2; }
+            *uint8 nd = alloc<uint8>(nc);
+            if (out.len > 0) { memcpy(nd, out.data, out.len); }
+            if (out.data != null) { free(out.data); }
+            out.data = nd;
+            out.cap = nc;
+        }
+        memcpy(out.data + out.len, b + q, size);
+        out.len += size;
+        p = q + size + 2;
+        *pos = p;
+    }
+    // Trailer section: field lines up to a blank line.
+    while (true) {
+        if (p + 1 >= n) { return 0; }
+        if (b[p] == '\r') {
+            if (b[p + 1] != '\n') { return -1; }
+            *pos = p + 2;
+            return 1;
+        }
+        int64 q = p;
+        while (q < n && _http_is_tchar(b[q]) == 1) { q++; }
+        if (q >= n) { return 0; }
+        if (q == p || b[q] != ':') { return -1; }
+        while (q < n && _http_is_crlf_byte(b[q]) == 0) { q++; }
+        if (q + 1 >= n) { return 0; }
+        if (b[q] != '\r' || b[q + 1] != '\n') { return -1; }
+        p = q + 2;
+    }
+    return -1;
+}
+
 // Parse a raw request from `buf` (len bytes). Returns 1 on success, 0 if the
-// request is malformed: an empty method or path, a request line not ended by
-// CRLF, or a bare CR or LF inside a header line (RFC 9112 §2.2: a line break is
-// CRLF, and a lone LF must not start a new header line, which would let a
-// client smuggle a header past a proxy that reads the line differently).
+// request is malformed or not acceptable: a method that is not a token, an
+// empty path, a request line not ended by CRLF or without a valid
+// HTTP-version, a bare CR or LF inside a header line (RFC 9112 §2.2: a line
+// break is CRLF, and a lone LF must not start a new header line, which would
+// let a client smuggle a header past a proxy that reads the line differently),
+// a malformed field line (whitespace before the colon, an obsolete line fold),
+// a missing or repeated Host in HTTP/1.1, or conflicting framing headers
+// (Transfer-Encoding with Content-Length, a coding other than chunked). A
+// chunked body is decoded; it must be complete in `buf`.
 int HttpRequest_parse(HttpRequest* self, *uint8 buf, int len) {
     int pos = 0;
-    for (; pos < len && buf[pos] != ' ' && _http_is_crlf_byte(buf[pos]) == 0; pos++) { self.method.push((char)buf[pos]); }
+    for (; pos < len && _http_is_tchar(buf[pos]) == 1; pos++) { self.method.push((char)buf[pos]); }
     if (pos >= len || buf[pos] != ' ' || self.method.len == 0) { return 0; }
     pos++;
     for (; pos < len && buf[pos] != ' ' && _http_is_crlf_byte(buf[pos]) == 0; pos++) { self.path.push((char)buf[pos]); }
     if (pos >= len || buf[pos] != ' ' || self.path.len == 0) { return 0; }
     pos++;
+    const int vstart = pos;
     for (; pos < len && _http_is_crlf_byte(buf[pos]) == 0; pos++) { self.version.push((char)buf[pos]); }
+    const int version = _http_parse_version(buf, vstart, pos);
+    if (version < 0) { return 0; }
     if (_http_crlf_at(buf, pos, len) == 0) { return 0; }
     pos += 2;
 
@@ -75,6 +289,17 @@ int HttpRequest_parse(HttpRequest* self, *uint8 buf, int len) {
         if (pos >= len) { break; }                             // request cut short
         if (_http_crlf_at(buf, pos, len) == 0) { return 0; }   // a bare CR or LF
         pos += 2;
+    }
+    const int framing = _http_check_head(&self.headers, version);
+    if (framing > 1) { return 0; }
+    if (framing == 1) {
+        let out: HttpChunkOut;
+        out.data = null;  out.len = 0;  out.cap = 0;
+        int64 bpos = pos;
+        const int st = http_chunked_step(buf, len, &bpos, &out, len);
+        if (st == 1) { for (i in 0..out.len) { self.body.push((char)out.data[i]); } }
+        if (out.data != null) { free(out.data); }
+        return st == 1 ? 1 : 0;
     }
     // Remaining bytes are the body.
     for (; pos < len; pos++) { self.body.push((char)buf[pos]); }
@@ -332,17 +557,23 @@ int http_idx_header_end(*uint8 b, int n) {
 }
 
 // Parse request line + headers from buf[0..hend) into r (`hend` is just past
-// the blank line). Returns 1, or 0 if the head is malformed: an empty method or
-// path, or a line break that is not CRLF (a bare LF must not start a new header
-// line, RFC 9112 §2.2).
-int http_parse_head(HttpReq* r, *uint8 buf, int hend) {
+// the blank line), storing the HTTP-version as major * 10 + minor in *version.
+// Returns 1, or 0 if the head is malformed: a method that is not a token, an
+// empty path, a missing or invalid HTTP-version, a line break that is not CRLF
+// (a bare LF must not start a new header line, RFC 9112 §2.2), or a line that
+// is not a field line (whitespace before the colon, an obsolete line fold).
+int _http_parse_head_v(HttpReq* r, *uint8 buf, int hend, *int version) {
     int pos = 0;
-    for (; pos < hend && buf[pos] != ' ' && _http_is_crlf_byte(buf[pos]) == 0; pos++) { r.method.push((char)buf[pos]); }
+    for (; pos < hend && _http_is_tchar(buf[pos]) == 1; pos++) { r.method.push((char)buf[pos]); }
     if (pos >= hend || buf[pos] != ' ' || r.method.len == 0) { return 0; }
     pos++;
     for (; pos < hend && buf[pos] != ' ' && _http_is_crlf_byte(buf[pos]) == 0; pos++) { r.path.push((char)buf[pos]); }
-    if (r.path.len == 0) { return 0; }
-    while (pos < hend && _http_is_crlf_byte(buf[pos]) == 0) { pos++; }   // the version
+    if (pos >= hend || buf[pos] != ' ' || r.path.len == 0) { return 0; }
+    pos++;
+    const int vstart = pos;
+    while (pos < hend && _http_is_crlf_byte(buf[pos]) == 0) { pos++; }
+    *version = _http_parse_version(buf, vstart, pos);
+    if (*version < 0) { return 0; }
     if (_http_crlf_at(buf, pos, hend) == 0) { return 0; }
     pos += 2;
     while (pos < hend && _http_crlf_at(buf, pos, hend) == 0) {
@@ -351,7 +582,14 @@ int http_parse_head(HttpReq* r, *uint8 buf, int hend) {
         if (_http_crlf_at(buf, pos, hend) == 0) { return 0; }   // a bare CR or LF
         pos += 2;
     }
-    return 1;
+    return _http_headers_valid(&r.headers);
+}
+
+// Parse request line + headers from buf[0..hend) into r; 1, or 0 if the head
+// is malformed (see _http_parse_head_v).
+int http_parse_head(HttpReq* r, *uint8 buf, int hend) {
+    int version = 0;
+    return _http_parse_head_v(r, buf, hend, &version);
 }
 
 // Case-insensitive header lookup; copies the value (without surrounding
@@ -411,10 +649,55 @@ int64 http_content_length(String* headers) {
     return found;
 }
 
+// Read the rest of a chunked body: `have` bytes of it already arrived at
+// `head`. Decodes into r.body; 0 on success, 400 if it is malformed or cut
+// short, 413 if it decodes to more than `max_body` bytes.
+int _http_recv_chunked(int fd, HttpReq* r, int64 max_body, *uint8 head, int have) {
+    int64 cap = 8192;
+    while (cap < (int64)have) { cap *= 2; }
+    *uint8 raw = alloc<uint8>(cap);
+    int64 n = have;
+    if (have > 0) { memcpy(raw, head, have); }
+    int64 pos = 0;
+    let out: HttpChunkOut;
+    out.data = null;  out.len = 0;  out.cap = 0;
+    int status = 0;
+    while (true) {
+        const int st = http_chunked_step(raw, n, &pos, &out, max_body);
+        if (st == 1) { break; }
+        if (st < 0) { status = st == -2 ? 413 : 400; break; }
+        // Drop the chunks already decoded; what is left is one partial chunk.
+        if (pos > 0) { memmove(raw, raw + pos, n - pos); n -= pos; pos = 0; }
+        if (n >= cap) {
+            if (cap > max_body + 65536) { status = 413; break; }
+            *uint8 nr = alloc<uint8>(cap * 2);
+            memcpy(nr, raw, n);
+            free(raw);
+            raw = nr;
+            cap *= 2;
+        }
+        const int64 got = net_recv(fd, raw + n, cap - n);
+        if (got <= 0) { status = 400; break; }   // closed early: a truncated body
+        n += got;
+    }
+    free(raw);
+    if (status != 0 || out.len == 0) {
+        if (out.data != null) { free(out.data); }
+        r.body = null;  r.body_len = 0;
+        return status;
+    }
+    r.body     = out.data;
+    r.body_len = out.len;
+    return 0;
+}
+
 // Read a complete request from `fd`. Returns 0 on success, or an HTTP error
-// status (400 malformed / 413 too large) on failure. A peer that closes before
-// the whole Content-Length body arrives gets 400 (never a short body reported
-// as success).
+// status on failure: 400 malformed (including a missing Host in HTTP/1.1,
+// Transfer-Encoding together with Content-Length, whitespace before a header
+// colon, an obsolete line fold), 413 too large, 501 a transfer coding other than
+// chunked, 505 an HTTP major version other than 1. A chunked body is decoded
+// (trailers are discarded). A peer that closes before the whole body arrives
+// gets 400 (never a short body reported as success).
 int http_recv(int fd, HttpReq* r, int64 max_body) {
     int cap = 8192;
     *uint8 buf = alloc<uint8>(cap);
@@ -429,7 +712,11 @@ int http_recv(int fd, HttpReq* r, int64 max_body) {
         hend = http_idx_header_end(buf, n);
         if (hend < 0 && n > 65536) { return 400; }
     }
-    if (http_parse_head(r, buf, hend) == 0) { return 400; }
+    int version = 0;
+    if (_http_parse_head_v(r, buf, hend, &version) == 0) { return 400; }
+    const int framing = _http_check_head(&r.headers, version);
+    if (framing > 1) { return framing; }
+    if (framing == 1) { return _http_recv_chunked(fd, r, max_body, buf + hend, n - hend); }
 
     int64 clen = http_content_length(&r.headers);
     if (clen == -1) { return 400; }           // malformed / overflowing / conflicting Content-Length

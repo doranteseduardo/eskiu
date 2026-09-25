@@ -1,0 +1,71 @@
+// HTTP/1.1 message framing per RFC 9112: a chunked body is decoded (extensions
+// and trailers accepted), Transfer-Encoding with Content-Length is 400, a coding
+// other than chunked is 501, whitespace before a header colon, an obsolete line
+// fold, a missing or repeated Host in HTTP/1.1 and a request line without a
+// valid version are 400, HTTP/2.0 over HTTP/1 is 505. HttpRequest_parse applies
+// the same rules (0 = rejected) and decodes a chunked body in the buffer.
+import <mem>;
+import <string>;
+import <http>;
+extern int printf(string fmt, ...);
+extern int socketpair(int domain, int type, int proto, *int fds);
+extern int64 write(int fd, *void buf, int64 n);
+extern int close(int fd);
+
+void recv_case(string label, string raw) {
+    int[2] sv;  socketpair(1, 1, 0, &sv[0]);
+    write(sv[1], (*void)raw, (int64)strlen(raw));
+    close(sv[1]);
+    let r: HttpReq;  HttpReq_init(&r);
+    const int st = http_recv(sv[0], &r, (int64)64);
+    printf("%s: %d", label, st);
+    if (st == 0) {
+        printf(" body=[");
+        for (i in 0..r.body_len) { printf("%c", (int)r.body[i]); }
+        printf("]");
+    }
+    printf("\n");
+    HttpReq_free(&r);
+    close(sv[0]);
+}
+
+void parse_case(string label, string raw) {
+    let r: HttpRequest;  r.init();
+    const int ok = r.parse((*uint8)raw, (int)strlen(raw));
+    printf("%s: ok=%d body=[%s]\n", label, ok, ok == 1 ? r.body.cstr() : "");
+    r.free();
+}
+
+int main() {
+    recv_case("chunked", "POST /x HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n");
+    recv_case("chunked multi", "POST /x HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: Chunked\r\n\r\n3;ext=1\r\nabc\r\nA\r\n0123456789\r\n0\r\nX-Trailer: t\r\n\r\n");
+    recv_case("chunked empty", "POST /x HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n");
+    recv_case("chunked truncated", "POST /x HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhel");
+    recv_case("chunked bad size", "POST /x HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\nzz\r\nhello\r\n0\r\n\r\n");
+    recv_case("chunked bad CRLF", "POST /x HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhelloXX0\r\n\r\n");
+    recv_case("chunked too large", "POST /x HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n41\r\n");
+    recv_case("TE and CL", "POST /x HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\nContent-Length: 3\r\n\r\n5\r\nhello\r\n0\r\n\r\n");
+    recv_case("TE gzip", "POST /x HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: gzip, chunked\r\n\r\n0\r\n\r\n");
+    recv_case("TE not last", "POST /x HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked, gzip\r\n\r\n0\r\n\r\n");
+    recv_case("TE twice", "POST /x HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n");
+    recv_case("TE in 1.0", "POST /x HTTP/1.0\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n");
+    recv_case("space before colon", "GET /x HTTP/1.1\r\nHost: a\r\nContent-Length : 5\r\n\r\nhello");
+    recv_case("obs-fold", "GET /x HTTP/1.1\r\nHost: a\r\n Content-Length: 5\r\n\r\nhello");
+    recv_case("no Host", "GET /x HTTP/1.1\r\n\r\n");
+    recv_case("two Hosts", "GET /x HTTP/1.1\r\nHost: a\r\nHost: b\r\n\r\n");
+    recv_case("1.0 no Host", "GET /x HTTP/1.0\r\n\r\n");
+    recv_case("no version", "GET /nover\r\n\r\n");
+    recv_case("bad version", "GET /x HTTP/1\r\nHost: a\r\n\r\n");
+    recv_case("HTTP/2.0", "GET /x HTTP/2.0\r\nHost: a\r\n\r\n");
+    recv_case("CL ok", "POST /x HTTP/1.1\r\nHost: a\r\nContent-Length: 2\r\n\r\nhi");
+
+    parse_case("parse chunked", "POST /x HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n2\r\nhi\r\n1\r\n!\r\n0\r\n\r\n");
+    parse_case("parse chunked cut", "POST /x HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n2\r\nhi\r\n");
+    parse_case("parse TE and CL", "POST /x HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\nContent-Length: 2\r\n\r\n0\r\n\r\n");
+    parse_case("parse space before colon", "GET /x HTTP/1.1\r\nHost : a\r\n\r\n");
+    parse_case("parse obs-fold", "GET /x HTTP/1.1\r\nHost: a\r\n\tb\r\n\r\n");
+    parse_case("parse no Host", "GET /x HTTP/1.1\r\n\r\n");
+    parse_case("parse no version", "GET /x\r\nHost: a\r\n\r\n");
+    parse_case("parse ok", "GET /x HTTP/1.1\r\nHost: a\r\n\r\nbody");
+    return 0;
+}

@@ -36,15 +36,15 @@ void parse_case(string label, string raw) {
 }
 
 int main() {
-    recv_case("full body", "POST /u HTTP/1.1\r\nContent-Length: 5\r\n\r\nhello");
-    recv_case("truncated body", "POST /u HTTP/1.1\r\nContent-Length: 5\r\n\r\nhel");
-    recv_case("conflicting lengths", "POST /u HTTP/1.1\r\nContent-Length: 1\r\nContent-Length: 3\r\n\r\nabc");
-    recv_case("repeated length", "POST /u HTTP/1.1\r\nContent-Length: 3\r\ncontent-length: 3\r\n\r\nabc");
-    recv_case("length list", "POST /u HTTP/1.1\r\nContent-Length: 3, 3\r\n\r\nabc");
-    recv_case("conflicting list", "POST /u HTTP/1.1\r\nContent-Length: 3, 4\r\n\r\nabcd");
+    recv_case("full body", "POST /u HTTP/1.1\r\nHost: h\r\nContent-Length: 5\r\n\r\nhello");
+    recv_case("truncated body", "POST /u HTTP/1.1\r\nHost: h\r\nContent-Length: 5\r\n\r\nhel");
+    recv_case("conflicting lengths", "POST /u HTTP/1.1\r\nHost: h\r\nContent-Length: 1\r\nContent-Length: 3\r\n\r\nabc");
+    recv_case("repeated length", "POST /u HTTP/1.1\r\nHost: h\r\nContent-Length: 3\r\ncontent-length: 3\r\n\r\nabc");
+    recv_case("length list", "POST /u HTTP/1.1\r\nHost: h\r\nContent-Length: 3, 3\r\n\r\nabc");
+    recv_case("conflicting list", "POST /u HTTP/1.1\r\nHost: h\r\nContent-Length: 3, 4\r\n\r\nabcd");
     recv_case("bare LF header", "GET / HTTP/1.1\r\nX: 1\nHost: smuggled\r\n\r\n");
-    recv_case("empty method", " / HTTP/1.1\r\n\r\n");
-    recv_case("empty path", "GET  HTTP/1.1\r\n\r\n");
+    recv_case("empty method", " / HTTP/1.1\r\nHost: h\r\n\r\n");
+    recv_case("empty path", "GET  HTTP/1.1\r\nHost: h\r\n\r\n");
 
     parse_case("parse ok", "GET / HTTP/1.1\r\nHost: a\r\n\r\n");
     parse_case("parse bare LF", "GET /x HTTP/1.1\r\nX: 1\nHost: smuggled\r\n\r\n");

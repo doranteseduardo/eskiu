@@ -26,10 +26,10 @@ int recv_status(string raw) {
 }
 
 int main() {
-    printf("ok=%d\n", recv_status("GET / HTTP/1.1\r\nX-Name: \t value \t\r\nContent-Length: 0\r\n\r\n"));
-    printf("overflow=%d\n", recv_status("POST / HTTP/1.1\r\nContent-Length: 18446744073709551616\r\n\r\n"));
-    printf("junk=%d\n", recv_status("POST / HTTP/1.1\r\nContent-Length: 12abc\r\n\r\n"));
-    printf("empty=%d\n", recv_status("POST / HTTP/1.1\r\nContent-Length: \r\n\r\n"));
+    printf("ok=%d\n", recv_status("GET / HTTP/1.1\r\nHost: h\r\nX-Name: \t value \t\r\nContent-Length: 0\r\n\r\n"));
+    printf("overflow=%d\n", recv_status("POST / HTTP/1.1\r\nHost: h\r\nContent-Length: 18446744073709551616\r\n\r\n"));
+    printf("junk=%d\n", recv_status("POST / HTTP/1.1\r\nHost: h\r\nContent-Length: 12abc\r\n\r\n"));
+    printf("empty=%d\n", recv_status("POST / HTTP/1.1\r\nHost: h\r\nContent-Length: \r\n\r\n"));
 
     *uint8 buf = alloc<uint8>(128);
     int n = 0;

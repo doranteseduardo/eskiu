@@ -1,0 +1,29 @@
+chunked: 0 body=[hello]
+chunked multi: 0 body=[abc0123456789]
+chunked empty: 0 body=[]
+chunked truncated: 400
+chunked bad size: 400
+chunked bad CRLF: 400
+chunked too large: 413
+TE and CL: 400
+TE gzip: 501
+TE not last: 400
+TE twice: 400
+TE in 1.0: 400
+space before colon: 400
+obs-fold: 400
+no Host: 400
+two Hosts: 400
+1.0 no Host: 0 body=[]
+no version: 400
+bad version: 400
+HTTP/2.0: 505
+CL ok: 0 body=[hi]
+parse chunked: ok=1 body=[hi!]
+parse chunked cut: ok=0 body=[]
+parse TE and CL: ok=0 body=[]
+parse space before colon: ok=0 body=[]
+parse obs-fold: ok=0 body=[]
+parse no Host: ok=0 body=[]
+parse no version: ok=0 body=[]
+parse ok: ok=1 body=[body]
