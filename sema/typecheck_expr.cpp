@@ -990,8 +990,8 @@ void TypeChecker::visit(IndexExpr* node) {
             if (assignsToConst(node->base.get(), cname))
                 errorAt(node, "cannot slice read-only array '" + cname + "': a slice allows writing its elements");
         }
-        // Constant slice bounds `a[lo..hi]` into a fixed array: 0 <= lo <= hi <= N.
-        if (node->highIndex && bt.kind == ty::Type::Kind::Array) {
+        // Constant slice bounds `a[lo..hi]`: 0 <= lo <= hi on any base, and <= N into a fixed array.
+        if (node->highIndex) {
             long long lo = 0, hi = 0;
             bool haveLo = foldConstInt(node->index.get(), lo), haveHi = foldConstInt(node->highIndex.get(), hi);
             if ((haveLo && lo < 0) || (haveHi && hi < 0))

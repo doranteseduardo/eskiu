@@ -3356,7 +3356,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         return;
     }
     if (k == EK_INDEX || k == EK_ALLOCWITH) {
-        // Constant slice bounds `a[lo..hi]` into a fixed array: 0 <= lo <= hi <= N.
+        // Constant slice bounds `a[lo..hi]`: 0 <= lo <= hi on any base, and <= N into a fixed array.
         // Constant indices and bounds (a literal, an enum member, a `const`, or an
         // expression over them) into a fixed array are checked (mirrors the C++ IndexExpr).
         if (k == EK_INDEX && List_len<*ExprNode>(&e.kids) > 0) {
@@ -3369,8 +3369,9 @@ void sema_expr_k(Sema* s, *ExprNode e) {
                 s.had_error = 1;             // a slice lets its elements be written
                 dprintf(2, "error: %s:%d:%d: cannot slice read-only array: a slice allows writing its elements\n", s.filename, s.line, s.col);
             }
-            if (sema_is_arr_ty(abt) == 1) {
-                int64 dv = sema_dim_value(s, sema_arr_count(abt));
+            {
+                int64 dv = (int64)-1;   // lo <= hi on any base; the dimension only for a fixed array
+                if (sema_is_arr_ty(abt) == 1) { dv = sema_dim_value(s, sema_arr_count(abt)); }
                 if ((lo_ok == 1 && lo < (int64)0) || (hi_ok == 1 && hi < (int64)0)) {
                     sema_error(s, "slice bound is negative");
                 } else if (lo_ok == 1 && hi_ok == 1 && lo > hi) {

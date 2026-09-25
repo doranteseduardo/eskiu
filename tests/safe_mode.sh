@@ -44,6 +44,12 @@ int main() { int[5] a = {1,2,3,4,5}; int i = 7; return a[i]; }
 EOF
 code=$(run "$WORK/t.esk" --safe); [ "$code" != 0 ] && check "array OOB traps (--safe)" trap trap || check "array OOB traps (--safe)" trap "exit $code"
 
+# --- a slice of a slice with lo > hi (run-time bounds) traps ---
+cat > "$WORK/t.esk" <<'EOF'
+int main() { int[5] a = {1,2,3,4,5}; int[] s = a[0..5]; int lo = 3; int hi = 1; int[] t = s[lo..hi]; return (int)t.len; }
+EOF
+code=$(run "$WORK/t.esk" --safe); [ "$code" != 0 ] && check "slice lo > hi traps (--safe)" trap trap || check "slice lo > hi traps (--safe)" trap "exit $code"
+
 # --- in-bounds is unaffected under --safe ---
 cat > "$WORK/t.esk" <<'EOF'
 int main() { int[5] a = {1,2,3,4,5}; int[] s = a[1..4]; int i = 2; return s[i]; }
