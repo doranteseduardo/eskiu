@@ -699,7 +699,6 @@ string sema_binary_type(Sema* s, string op, string lt, string rt) {
     }
     int lp = sema_c_ptr(l); int rp = sema_c_ptr(r);
     if (lp == 1 && sema_is_int_ty(r) == 1 && (sema_streq(op, "+") == 1 || sema_streq(op, "-") == 1)) { return sema_strip_nullable(lt); }
-    if (rp == 1 && sema_is_int_ty(l) == 1 && sema_streq(op, "+") == 1) { return sema_strip_nullable(rt); }
     if (lp == 1 && rp == 1 && sema_streq(op, "-") == 1) { return "int64"; }
     *DeclNode od = sema_find_binop(s, op, lt, rt);
     if (od != null) { return od.ret_type; }
@@ -732,17 +731,8 @@ string sema_slice_elem(string t0) {
 
 // "fn(T1,T2)->R" of a lambda signature spelling "R(T1 a, T2 b)".
 string sema_lambda_fn_type(string sig) {
-    int n = sema_slen(sig);
-    if (n == 0 || (int)sig[n - 1] != 41) { return ""; }
-    int depth = 0; int i = n - 1;
-    while (i >= 0) {
-        int c = (int)sig[i];
-        if (c == 41) { depth = depth + 1; }
-        else if (c == 40) { depth = depth - 1; if (depth == 0) { break; } }
-        i = i - 1;
-    }
-    if (i <= 0) { return ""; }
-    string ret = sema_trim_sub(sig, 0, i);
+    string ret = sema_lambda_ret(sig);
+    if (ret[0] == 0) { return ""; }
     List<string> ps; List_init<string>(&ps, 4);
     sema_lambda_params(sig, &ps);
     string out = "fn(";
@@ -1075,39 +1065,6 @@ string sema_range_bound_type(Sema* s, *ExprNode e) {
     string t = sema_infer_type(s, e);
     if (t[0] == 0) { return ""; }
     return sema_resolve_scalar(s, t);
-}
-
-// Scan a lambda body for a break/continue that escapes it (no loop/switch of its own
-// around it, or a label that names no loop inside the lambda).
-void sema_lambda_jumps(Sema* s, *StmtNode st, int loops, int switches, List<string>* lbls) {
-    if (st == null) { return; }
-    int k = st.kind;
-    if (k == SK_BREAK || k == SK_CONTINUE) {
-        string what = "break"; if (k == SK_CONTINUE) { what = "continue"; }
-        if (st.label != null && st.label[0] != 0) {
-            if (sema_in_list(lbls, st.label) == 0) {
-                s.had_error = 1;
-                printf("error: %s:%d:%d: labeled '%s %s' has no enclosing loop labeled '%s'\n", s.filename, s.line, s.col, what, st.label, st.label);
-            }
-        } else if (loops == 0 && (k == SK_CONTINUE || switches == 0)) {
-            s.had_error = 1;
-            if (k == SK_CONTINUE) { printf("error: %s:%d:%d: 'continue' outside of a loop\n", s.filename, s.line, s.col); }
-            else { printf("error: %s:%d:%d: 'break' outside of a loop or switch\n", s.filename, s.line, s.col); }
-        }
-        return;
-    }
-    if (k == SK_WHILE || k == SK_DOWHILE || k == SK_FOR || k == SK_FORIN) {
-        string lb = ""; if (st.label != null) { lb = st.label; }
-        List_push<string>(lbls, lb);
-        if (k == SK_FOR) { sema_lambda_jumps(s, st.s2, loops + 1, switches, lbls); }
-        else { sema_lambda_jumps(s, st.s1, loops + 1, switches, lbls); }
-        List_remove<string>(lbls, List_len<string>(lbls) - 1);
-        return;
-    }
-    int sw = switches; if (k == SK_SWITCH) { sw = switches + 1; }
-    sema_lambda_jumps(s, st.s1, loops, sw, lbls);
-    sema_lambda_jumps(s, st.s2, loops, sw, lbls);
-    int i = 0; while (i < List_len<*StmtNode>(&st.items)) { sema_lambda_jumps(s, List_get<*StmtNode>(&st.items, i), loops, sw, lbls); i = i + 1; }
 }
 
 // ── canonical type spellings and assignability (mirrors isValidAssignment) ──
@@ -1468,12 +1425,33 @@ void sema_check_call_args(Sema* s, *ExprNode e, string what, List<string>* pts) 
     }
 }
 
-// Parameter types of a lambda's signature spelling "R(T1 a, T2 b)" into `out`.
-void sema_lambda_params(string sig, List<string>* out) {
-    int i = 0; while (sig[i] != 0 && (int)sig[i] != 40) { i = i + 1; }   // first '('
-    if (sig[i] == 0) { return; }
-    int n = 0; while (sig[n] != 0) { n = n + 1; }
-    int close = n - 1; while (close > i && (int)sig[close] != 41) { close = close - 1; }
+// Index of the '(' opening a lambda signature's parameter list "R(T1 a, T2 b)" (the
+// last top-level group, so a fn-typed return `fn(int)->int(int x)` is skipped), or -1.
+int sema_lambda_open(string sig) {
+    int n = sema_slen(sig);
+    if (n == 0 || (int)sig[n - 1] != 41) { return -1; }
+    int depth = 0; int i = n - 1;
+    while (i >= 0) {
+        int c = (int)sig[i];
+        if (c == 41) { depth = depth + 1; }
+        else if (c == 40) { depth = depth - 1; if (depth == 0) { return i; } }
+        i = i - 1;
+    }
+    return -1;
+}
+
+// Return type of a lambda signature spelling "R(T1 a, T2 b)".
+string sema_lambda_ret(string sig) {
+    int i = sema_lambda_open(sig);
+    if (i <= 0) { return ""; }
+    return sema_trim_sub(sig, 0, i);
+}
+
+// Parameter types (into `types`) and names (into `names`) of a lambda signature spelling.
+void sema_lambda_sig(string sig, List<string>* types, List<string>* names) {
+    int i = sema_lambda_open(sig);
+    if (i < 0) { return; }
+    int close = sema_slen(sig) - 1;
     int depth = 0; int start = i + 1; int j = i + 1;
     while (j <= close) {
         int c = (int)sig[j];
@@ -1483,12 +1461,21 @@ void sema_lambda_params(string sig, List<string>* out) {
             string one = sema_trim_sub(sig, start, j);
             int sp = 0; int k = 0; while (one[k] != 0) { if ((int)one[k] == 32) { sp = k; } k = k + 1; }
             if (one[0] != 0) {
-                if (sp > 0) { List_push<string>(out, sema_trim_sub(one, 0, sp)); } else { List_push<string>(out, one); }
+                if (sp > 0) {
+                    List_push<string>(types, sema_trim_sub(one, 0, sp));
+                    List_push<string>(names, sema_trim_sub(one, sp + 1, sema_slen(one)));
+                } else { List_push<string>(types, one); List_push<string>(names, ""); }
             }
             start = j + 1;
         }
         j = j + 1;
     }
+}
+
+// Parameter types of a lambda's signature spelling "R(T1 a, T2 b)" into `out`.
+void sema_lambda_params(string sig, List<string>* out) {
+    List<string> names; List_init<string>(&names, 4);
+    sema_lambda_sig(sig, out, &names);
 }
 
 // A generic function call's argument count must match the declaration. Returns 1 if OK.
@@ -2257,7 +2244,13 @@ int sema_is_lvalue(Sema* s, *ExprNode e) {
     }
     if (e.kind == EK_UNARY) { return sema_streq(e.sval, "*"); }
     if (e.kind == EK_MEMBER) { return 1; }
-    if (e.kind == EK_INDEX) { if (List_len<*ExprNode>(&e.kids) > 0) { return 0; } return 1; }
+    if (e.kind == EK_INDEX) {
+        if (List_len<*ExprNode>(&e.kids) > 0) { return 0; }
+        // `v[i]` on a struct value calls its `operator []`, which returns a value.
+        string bc = sema_canon(s, sema_infer_type(s, e.a));
+        if (sema_judgeable(s, bc) == 1 && sema_is_struct(s, sema_base_name(bc)) == 1 && sema_arr_bracket(bc) < 0) { return 0; }
+        return 1;
+    }
     return 0;
 }
 
@@ -2428,26 +2421,6 @@ int sema_any_index_op(Sema* s) {
     return 0;
 }
 
-// Does the lambda body `st` contain an `await` (outside any nested lambda)?
-int sema_has_await_e(*ExprNode e) {
-    if (e == null) { return 0; }
-    if (e.kind == EK_AWAIT) { return 1; }
-    if (e.kind == EK_LAMBDA) { return 0; }
-    if (sema_has_await_e(e.a) == 1) { return 1; }
-    if (e.kind != EK_TEMPLATECALL && sema_has_await_e(e.b) == 1) { return 1; }
-    int i = 0; int n = List_len<*ExprNode>(&e.kids);
-    while (i < n) { if (sema_has_await_e(List_get<*ExprNode>(&e.kids, i)) == 1) { return 1; } i = i + 1; }
-    return 0;
-}
-int sema_has_await_s(*StmtNode st) {
-    if (st == null) { return 0; }
-    if (sema_has_await_e(st.expr) == 1 || sema_has_await_e(st.expr2) == 1) { return 1; }
-    if (sema_has_await_s(st.s1) == 1 || sema_has_await_s(st.s2) == 1) { return 1; }
-    int i = 0; int n = List_len<*StmtNode>(&st.items);
-    while (i < n) { if (sema_has_await_s(List_get<*StmtNode>(&st.items, i)) == 1) { return 1; } i = i + 1; }
-    return 0;
-}
-
 // ── expression walk ──
 
 void sema_binary_chain(Sema* s, *ExprNode e);
@@ -2463,8 +2436,50 @@ void sema_expr(Sema* s, *ExprNode e) {
 
 // The checks of one non-assignment binary operator `e` whose operands have the inferred
 // types `lt0` and `rt0` (see sema_binary_chain).
+// An aggregate (struct, union or payload enum): compared only through a user operator
+// (mirrors the C++ isAgg).
+int sema_is_agg(Sema* s, string c) {
+    if (sema_is_struct(s, sema_base_name(c)) == 1) { return 1; }
+    *DeclNode d = sema_find_tdecl(s, sema_base_name(c));
+    if (d != null && d.kind == DK_ENUM && sema_is_plain_enum_decl(d) == 0) { return 1; }
+    return 0;
+}
+
+// Do the built-in operators accept binary `op` over operand types `lt0`, `rt0`? 1 yes,
+// 0 no (only a user overload can), -1 when a type is not understood well enough to judge.
+// Mirrors the C++ inferBinaryExprType.
+int sema_binop_verdict(Sema* s, string op, string lt0, string rt0) {
+    string l = sema_canon(s, lt0); string r = sema_canon(s, rt0);
+    if (sema_judgeable(s, l) == 0 || sema_judgeable(s, r) == 0) { return -1; }
+    if (sema_is_cmp_op(op) == 1) {
+        int lp = sema_c_ptr(l); if (sema_streq(l, "null") == 1) { lp = 1; }
+        int rp = sema_c_ptr(r); if (sema_streq(r, "null") == 1) { rp = 1; }
+        if (sema_is_numeric_ty(l) == 1 && sema_is_numeric_ty(r) == 1) { return 1; }
+        if (lp == 1 && rp == 1) { return 1; }
+        if (sema_streq(l, r) == 1 && sema_is_agg(s, l) == 0) { return 1; }
+        return 0;
+    }
+    if (sema_streq(op, "&&") == 1 || sema_streq(op, "||") == 1) { return 1; }
+    if (sema_streq(op, "&") == 1 || sema_streq(op, "|") == 1 || sema_streq(op, "^") == 1
+        || sema_streq(op, "<<") == 1 || sema_streq(op, ">>") == 1) {
+        if (sema_is_int_ty(l) == 1 && sema_is_int_ty(r) == 1) { return 1; }
+        return 0;
+    }
+    if (sema_is_arith_op(op) == 0) { return -1; }
+    if (sema_streq(op, "-") == 1 && sema_c_ptr(l) == 1 && sema_c_ptr(r) == 1) { return 1; }
+    if ((sema_streq(op, "+") == 1 || sema_streq(op, "-") == 1) && sema_c_ptr(l) == 1 && sema_is_int_ty(r) == 1) { return 1; }
+    if (sema_is_numeric_ty(l) == 1 && sema_is_numeric_ty(r) == 1) { return 1; }
+    return 0;
+}
+
 void sema_binary_checks(Sema* s, *ExprNode e, string lt0, string rt0) {
-    if (e.a != null && e.b != null) {
+    int verdict = -1;
+    if (e.a != null && e.b != null) { verdict = sema_binop_verdict(s, e.sval, lt0, rt0); }
+    if (verdict == 0 && sema_find_binop(s, e.sval, lt0, rt0) == null) {
+        s.had_error = 1;
+        printf("error: %s:%d:%d: invalid operands for operator: %s and %s\n", s.filename, s.line, s.col, lt0, rt0);
+    }
+    if (e.a != null && e.b != null && verdict == -1) {
         // Operand kinds the built-in operators reject (a user operator overload aside).
         string olt = sema_strip_const(lt0);
         string ort = sema_strip_const(rt0);
@@ -2501,7 +2516,7 @@ void sema_binary_checks(Sema* s, *ExprNode e, string lt0, string rt0) {
     // Comparison operands must be mutually comparable: both numeric, both pointer-like
     // (incl. null), or the same non-aggregate type. Conservative: only flag when both
     // operand types are known (unknown → skip, never falsely reject).
-    if (sema_is_cmp_op(e.sval) == 1) {
+    if (sema_is_cmp_op(e.sval) == 1 && verdict == -1) {
         string lt = lt0;
         string rt = rt0;
         if (lt[0] != 0 && rt[0] != 0 && sema_streq(lt, "unknown") == 0 && sema_streq(rt, "unknown") == 0) {
@@ -2680,8 +2695,10 @@ void sema_expr_k(Sema* s, *ExprNode e) {
             sema_error(s, "cannot modify read-only location");
         } else {
             string it = sema_infer_type(s, e.a);         // integer or pointer only (C++ rule)
-            if (sema_streq(it, "float") == 1 || sema_streq(it, "double") == 1) {
-                sema_error(s, "'++'/'--' requires an integer or pointer");
+            string ic = sema_canon(s, it);
+            if (sema_judgeable(s, ic) == 1 && sema_is_int_ty(ic) == 0 && sema_c_ptr(ic) == 0) {
+                s.had_error = 1;
+                printf("error: %s:%d:%d: '++'/'--' requires an integer or pointer, got '%s'\n", s.filename, s.line, s.col, it);
             }
         }
         sema_expr(s, e.a); return;
@@ -2706,6 +2723,12 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         sema_narrow_apply(s, &fkeys, &fins);
         sema_expr(s, elseE);
         sema_narrow_undo(s, &fins);
+        string cty = sema_infer_type(s, e.a);
+        string ccn = sema_canon(s, cty);
+        if (sema_judgeable(s, ccn) == 1 && sema_is_numeric_ty(ccn) == 0 && sema_c_ptr(ccn) == 0) {
+            s.had_error = 1;
+            printf("error: %s:%d:%d: ternary condition must be a bool, integer, or pointer, got %s\n", s.filename, s.line, s.col, cty);
+        }
         // The two arms need a common type: same, both numeric, or both pointer-like.
         // Conservative: only flag when both arm types are known.
         string tt = sema_infer_type(s, e.b);
@@ -2785,23 +2808,30 @@ void sema_expr_k(Sema* s, *ExprNode e) {
     }
     if (k == EK_UNARY || k == EK_CAST
         || k == EK_FREECLOSURE || k == EK_THREADCREATE) {
-        if (k == EK_UNARY && (sema_streq(e.sval, "-") == 1 || sema_streq(e.sval, "~") == 1 || sema_streq(e.sval, "!") == 1)) {
-            string ut = sema_strip_const(sema_infer_type(s, e.a));   // a struct value: only a user overload
-            string uop = e.sval; if (sema_streq(uop, "-") == 1) { uop = "u-"; }
-            if (sema_is_struct(s, ut) == 1 && sema_any_op(s, uop) == 0) {
-                s.had_error = 1;
-                printf("error: %s:%d:%d: invalid operand for unary operator: %s\n", s.filename, s.line, s.col, ut);
-            }
-        }
         if (k == EK_UNARY && sema_streq(e.sval, "*") == 1) {
             sema_check_nullable_deref(s, e.a, "dereference");
         }
-        if (k == EK_UNARY && e.a != null && sema_streq(e.sval, "*") == 1) {
-            // `*` needs a pointer operand.
-            string ut = sema_strip_nullable(sema_strip_const(sema_infer_type(s, e.a)));
-            if (sema_is_ptrish(ut) == 0 && (sema_is_numeric_ty(ut) == 1 || sema_is_struct_value(s, ut) == 1)) {
-                s.had_error = 1;
-                printf("error: %s:%d:%d: invalid operand for unary operator: %s\n", s.filename, s.line, s.col, ut);
+        if (k == EK_UNARY && e.a != null && sema_streq(e.sval, "&") == 0) {
+            // The built-in operand rules (mirrors the C++ inferUnaryExprType): `-`/`+` take a
+            // number, `~` an integer, `*` a pointer, `!` anything but a struct; `-`, `~` and
+            // `!` otherwise go through a user operator overload.
+            string ut = sema_strip_nullable(sema_infer_type(s, e.a));
+            string uc = sema_canon(s, ut);
+            if (sema_judgeable(s, uc) == 1) {
+                int ok = 1;
+                if (sema_streq(e.sval, "-") == 1 || sema_streq(e.sval, "+") == 1) { ok = sema_is_numeric_ty(uc); }
+                else if (sema_streq(e.sval, "~") == 1) { ok = sema_is_int_ty(uc); }
+                else if (sema_streq(e.sval, "*") == 1) { ok = sema_c_ptr(uc); }
+                else if (sema_streq(e.sval, "!") == 1 && sema_is_struct(s, sema_base_name(uc)) == 1) { ok = 0; }
+                if (ok == 0 && sema_streq(e.sval, "*") == 0 && sema_streq(e.sval, "+") == 0) {
+                    string uop = e.sval; if (sema_streq(uop, "-") == 1) { uop = "u-"; }
+                    List<string> utys; List_init<string>(&utys, 1); List_push<string>(&utys, ut);
+                    if (sema_find_op(s, uop, &utys) != null) { ok = 1; }
+                }
+                if (ok == 0) {
+                    s.had_error = 1;
+                    printf("error: %s:%d:%d: invalid operand for unary operator: %s\n", s.filename, s.line, s.col, ut);
+                }
             }
         }
         if (k == EK_UNARY && sema_streq(e.sval, "&") == 1 && sema_is_lvalue(s, e.a) == 0) {
@@ -3195,23 +3225,57 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         while (i < n) { sema_expr(s, List_get<*ExprNode>(&e.kids, i)); i = i + 1; }
         return;
     }
-    // EK_LAMBDA: body params aren't extracted yet → skip (S0 under-check, no false error),
-    // except that a break/continue in the body may not target an enclosing loop: the
-    // lambda is its own function (mirrors the C++ loop-context reset).
-    if (k == EK_LAMBDA) {
-        List<string> lls; List_init<string>(&lls, 2);
-        sema_lambda_jumps(s, e.stmt, 0, 0, &lls);
+    // A lambda is its own (non-async) function: its body is checked with its parameters
+    // in a fresh scope over the enclosing one (captures, with their null-narrowing), its
+    // own return type, and no enclosing loop or switch (mirrors the C++ visit(LambdaExpr)).
+    if (k == EK_LAMBDA) { sema_check_lambda(s, e); }
 }
 
-    // EK_LAMBDA: body params aren't extracted yet, so the body is not walked (S0 under-check,
-    // no false error); but a lambda is its own non-async function, so an `await` in it is
-    // rejected even inside an async function.
-    if (k == EK_LAMBDA && sema_has_await_s(e.stmt) == 1) {
-        sema_error(s, "await is only allowed inside an async function");
+void sema_check_lambda(Sema* s, *ExprNode e) {
+    List<string> ptys; List_init<string>(&ptys, 4);
+    List<string> pnames; List_init<string>(&pnames, 4);
+    sema_lambda_sig(e.sval, &ptys, &pnames);
+    string saved_ret = s.cur_ret; int saved_async = s.in_async; int saved_seen = s.await_seen;
+    int saved_sw = s.sw_depth; int saved_pd = s.param_depth;
+    List<string> saved_lbls = s.loop_lbls;
+    List_init<string>(&s.loop_lbls, 4);
+    s.cur_ret = sema_isub(s, sema_lambda_ret(e.sval));
+    s.in_async = 0; s.sw_depth = 0;
+    sema_push(s);
+    List<string> seen; List_init<string>(&seen, 4);
+    int i = 0;
+    while (i < List_len<string>(&ptys)) {
+        string pn = List_get<string>(&pnames, i);
+        if (pn[0] != 0) {
+            if (sema_in_list(&seen, pn) == 1) {
+                s.had_error = 1;
+                printf("error: %s:%d:%d: duplicate parameter '%s' in lambda\n", s.filename, s.line, s.col, pn);
+            } else { List_push<string>(&seen, pn); }
+            sema_define(s, pn, sema_isub(s, List_get<string>(&ptys, i)), 0);
+        }
+        i = i + 1;
     }
+    s.param_depth = s.depth;
+    sema_stmt(s, e.stmt);
+    sema_pop(s);
+    s.cur_ret = saved_ret; s.in_async = saved_async; s.await_seen = saved_seen;
+    s.sw_depth = saved_sw; s.param_depth = saved_pd;
+    s.loop_lbls = saved_lbls;
 }
 
 // ── statement walk ──
+
+// A loop or `if` condition: a `bool` or a number (mirrors the C++ checkCondition).
+void sema_cond(Sema* s, *ExprNode c) {
+    sema_expr(s, c);
+    if (c == null) { return; }
+    string ct = sema_infer_type(s, c);
+    string cc = sema_canon(s, ct);
+    if (sema_judgeable(s, cc) == 1 && sema_is_numeric_ty(cc) == 0) {
+        s.had_error = 1;
+        printf("error: %s:%d:%d: condition must be boolean or numeric, got %s\n", s.filename, s.line, s.col, ct);
+    }
+}
 
 // A defer body runs during scope-exit cleanup, so it may not transfer control out of
 // itself: a `return`, or a `break`/`continue` not enclosed by a loop/switch *within* the
@@ -3427,7 +3491,7 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
         *StmtNode n = st;
         while (n != null) {
             if (n.line > 0) { s.line = n.line; s.col = n.col; }
-            sema_expr(s, n.expr);
+            sema_cond(s, n.expr);
             // Null-narrowing: `if (q != null)` proves `q` non-null in the then-branch (and
             // `if (q == null)` in the else-branch), so a `?*T` may be dereferenced there.
             List<string> tkeys; List_init<string>(&tkeys, 2);
@@ -3450,7 +3514,7 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
         // An outer narrowing does not survive an assignment in the loop (later iterations
         // observe it); the condition's own narrowing holds at the top of every iteration.
         sema_drop_assigned(s, st);
-        sema_expr(s, st.expr);
+        sema_cond(s, st.expr);
         List<string> keys; List_init<string>(&keys, 2);
         List<string> ins; List_init<string>(&ins, 2);
         sema_cond_narrow(s, st.expr, 1, &keys);
@@ -3459,7 +3523,7 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
         sema_narrow_undo(s, &ins);
         return;
     }
-    if (k == SK_DOWHILE) { sema_drop_assigned(s, st); sema_lbl_push(s, st.label); sema_stmt(s, st.s1); sema_lbl_pop(s); sema_expr(s, st.expr); return; }
+    if (k == SK_DOWHILE) { sema_drop_assigned(s, st); sema_lbl_push(s, st.label); sema_stmt(s, st.s1); sema_lbl_pop(s); sema_cond(s, st.expr); return; }
     if (k == SK_FOR) {
         sema_push(s);                      // init var stays in scope for cond/step/body
         // The init is wrapped in a BlockStmt; walk its items in the FOR scope rather
@@ -3487,7 +3551,7 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
         sema_drop_assigned_e(s, st.expr);
         sema_drop_assigned_e(s, st.expr2);
         sema_drop_assigned(s, st.s2);
-        sema_expr(s, st.expr);
+        sema_cond(s, st.expr);
         List<string> keys; List_init<string>(&keys, 2);
         List<string> ins; List_init<string>(&ins, 2);
         sema_cond_narrow(s, st.expr, 1, &keys);
@@ -3717,7 +3781,7 @@ void sema_register_globals(Sema* s, *Program prog) {
             List_push<string>(&s.types, d.name);
             List_push<*DeclNode>(&s.tdecls, d);
         }
-        if (d.kind == DK_STRUCT) {
+        if (d.kind == DK_STRUCT || d.kind == DK_UNION) {
             List_push<string>(&s.structs, d.name);
             List_push<*DeclNode>(&s.sdecls, d);
             int fi = 0;                                       // fields are valid members
