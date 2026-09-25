@@ -1,0 +1,4 @@
+// EXPECT-ERROR: await expects a *Future<T>, got int
+import <future>;
+async int f() { int x = await 5; return x; }
+int main() { return 0; }

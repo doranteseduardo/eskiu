@@ -1,0 +1,3 @@
+// EXPECT-ERROR: cannot convert 'void' to 'int'
+void f() { }
+int main() { int x = true ? f() : f(); return 0; }

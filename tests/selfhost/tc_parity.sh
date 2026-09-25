@@ -74,7 +74,8 @@ HANDLED="undefined_var arg_count undefined_type await_outside_async async_no_awa
          match_payload_arity match_unknown_variant match_other_enum_variant match_binding_type match_arm_undefined_var match_dup_default variant_ctor_arity variant_ctor_type switch_dup_enum_value switch_on_struct catch_undefined_var
          array_lit_elem_type array_lit_elem_float index_negative_literal index_by_float index_by_string alias_array_index_oob method_on_int method_on_generic_prim member_of_array forin_over_int
          const_ptr_member_write const_ptr_index_write const_self_write const_ptr_nested_field_write const_ptr_deref_method const_ptr_through_generic
-         constraint_inferred_unsat constraint_inferred_prim constraint_multi_one_missing constraint_struct_param constraint_method_signature constraint_unknown_iface sizeof_generic_uninstantiated alias_unknown_target alias_generic_not_imported alias_cycle_generic"
+         constraint_inferred_unsat constraint_inferred_prim constraint_multi_one_missing constraint_struct_param constraint_method_signature constraint_unknown_iface sizeof_generic_uninstantiated alias_unknown_target alias_generic_not_imported alias_cycle_generic
+         lambda_reconciled_return nullable_non_pointer await_non_future ptr_arith_to_int string_arith_to_int ternary_void_arms"
 HANDLED="$(echo $HANDLED)"   # collapse the multi-line list to single spaces for matching
 
 DRIVER=selfhost/esk_main.esk
