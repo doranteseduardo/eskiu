@@ -1426,7 +1426,7 @@ Bare-metal ARM64 kernel written in Eskiu boots in QEMU (`-M virt`) and prints to
 
 **Inline assembly**
 - `asm("cli");`: simple form; passes the string verbatim to the assembler with no inputs, outputs, or clobbers
-- `asm("outb %0, %1" :: "a"(val), "Nd"(port) : "memory");`: extended form with GCC-compatible constraint syntax; supports input operands, output operands, and clobber lists
+- `asm("outb %0, %1" :: "a"(val), "Nd"(port) : "memory");`: extended form with GCC-compatible constraint syntax; supports input operands and clobber lists (no output operands)
 - Lowers to LLVM inline asm nodes; `"memory"` clobber emits a compiler barrier
 
 **Freestanding mode**

@@ -1409,9 +1409,10 @@ void outb(uint8 val, uint16 port) {
 }
 ```
 
-Syntax: `asm("template" : outputs : inputs : clobbers);`
+Syntax: `asm("template" :: inputs : clobbers);`
 
-- Inputs and outputs are `"constraint"(expression)` pairs.
+- Inputs are `"constraint"(expression)` pairs.
+- Output operands are not supported: the output section stays empty, so the extended form starts with `::`. Pass results back through memory (a pointer input plus the `"memory"` clobber).
 - `"memory"` in the clobber list acts as a compiler barrier.
 - Common constraints: `"a"` → rax/eax, `"Nd"` → 8-bit immediate or dx, `"r"` → any register.
 
