@@ -151,7 +151,7 @@ private:
     // a concrete argument type (e.g. *List_int), filling `subs`.
     void unifyTypeParam(std::string pattern, std::string concrete,
                         const std::set<std::string>& tps,
-                        std::map<std::string, std::string>& subs);
+                        std::map<std::string, std::string>& subs) const;
 
     // Interface registry: name → vtable type + method order
     std::map<std::string, llvm::StructType*> ifaceVtableTypes;
@@ -204,6 +204,13 @@ private:
     // `Box_int_get(*Box_int self)`): the template method (and its substitutions), or null.
     FunctionDecl* genericMethod(const std::string& instName, const std::string& method,
                                 std::map<std::string, std::string>* subsOut) const;
+    // A generic FREE function `S_m<T..>` taking an instance of the generic struct S first
+    // (the `Type_method` convention, e.g. `List_push<T>(List<T>* self, T item)`), for
+    // `x.m(...)` with x an instance of S: the template (null when there is none).
+    FunctionDecl* genericFreeMethod(const std::string& instName, const std::string& method) const;
+    // Its type arguments for receiver type `recvType` and the call's arguments.
+    std::map<std::string, std::string> genericFreeMethodSubs(FunctionDecl* fd, const std::string& recvType,
+                                                             const std::vector<ExprPtr>& args) const;
     // Emit that instance method on first use; returns it (null when there is none).
     llvm::Function* instantiateGenericMethod(const std::string& instName, const std::string& method);
     // Template function registry

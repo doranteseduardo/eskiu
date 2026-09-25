@@ -1,0 +1,8 @@
+// EXPECT-ERROR: cannot call method 'set' on a read-only value
+struct Box<T> { T v; }
+void Box_set<T>(Box<T>* self, T x) { self.v = x; }
+int main() {
+    const Box<int> b = Box<int>{v: 1};
+    b.set(2);
+    return 0;
+}

@@ -2512,6 +2512,83 @@ string cg_unary_ety(Codegen* g, *ExprNode e, string at) {
 
 // The Eskiu type of an expression ("" if unknown). Mirrors the type the C++ type checker
 // assigns, so struct member access, pointer depth, and common/promoted types agree.
+// `x.m(args)` where x is an instance `S<A..>` of a generic struct with no inline method
+// `m` but a generic free function `S_m<T..>` taking it first (the `Type_method`
+// convention, e.g. `List_push<T>(List<T>* self, T item)`): the equivalent explicit call
+// `S_m<A..>(&x, args)` (`S_m<A..>(x, args)` for a pointer receiver). A type parameter
+// named by the self parameter's type arguments takes the receiver's argument at that
+// position; any other one is inferred from the arguments. null when `e` is not such a call.
+*ExprNode cg_generic_method_call(Codegen* g, *ExprNode e) {
+    if (e == null || e.a == null || e.a.kind != EK_MEMBER) { return null; }
+    string recv = cg_apply_sub(g, cg_etype(g, e.a.a));
+    int rptr = cg_is_ptr_ty(recv);
+    string sname = recv;
+    if (rptr == 1) { sname = cg_strip_ptr(recv); }
+    if (cg_has_targs(sname) == 0) { return null; }
+    string base = cg_gen_base(sname);
+    *DeclNode sd = cg_find_gstruct(g, base);
+    if (sd == null) { return null; }
+    int mi = 0;
+    while (mi < List_len<*DeclNode>(&sd.methods)) {
+        if (cg_streq(List_get<*DeclNode>(&sd.methods, mi).name, e.a.sval) == 1) { return null; }
+        mi = mi + 1;
+    }
+    *DeclNode gd = cg_find_gfn(g, cg_cat(cg_cat(base, "_"), e.a.sval));
+    if (gd == null || List_len<Param>(&gd.params) == 0) { return null; }
+    string selfty = List_get<Param>(&gd.params, 0).ty;
+    List<string> sargs; List_init<string>(&sargs, 2); cg_gen_args(cg_strip_ptr(selfty), &sargs);
+    List<string> rargs; List_init<string>(&rargs, 2); cg_gen_args(sname, &rargs);
+    String sp; String_init(&sp, 16);
+    String_append(&sp, gd.name); String_append(&sp, "<");
+    int ti = 0; int ntp = List_len<TypeParam>(&gd.type_params);
+    while (ti < ntp) {
+        string tp = List_get<TypeParam>(&gd.type_params, ti).name;
+        string binding = "";
+        int k = 0;
+        while (binding[0] == 0 && k < List_len<string>(&sargs) && k < List_len<string>(&rargs)) {
+            if (cg_streq(List_get<string>(&sargs, k), tp) == 1) { binding = List_get<string>(&rargs, k); }
+            k = k + 1;
+        }
+        int pi = 1; int np = List_len<Param>(&gd.params);
+        while (binding[0] == 0 && pi < np && pi - 1 < List_len<*ExprNode>(&e.kids)) {
+            string argty = cg_etype(g, List_get<*ExprNode>(&e.kids, pi - 1));
+            if (argty[0] != 0) { binding = cg_infer_one(List_get<Param>(&gd.params, pi).ty, tp, argty); }
+            pi = pi + 1;
+        }
+        if (binding[0] == 0) { return null; }
+        if (ti > 0) { String_append(&sp, ", "); }
+        String_append(&sp, binding);
+        ti = ti + 1;
+    }
+    String_append(&sp, ">");
+    int sptr = cg_is_ptr_ty(selfty);
+    *ExprNode r = e.a.a;
+    if (sptr != rptr) {
+        *ExprNode u = alloc<ExprNode>(1); u.kind = EK_UNARY; u.a = r; u.line = e.line; u.col = e.col;
+        if (sptr == 1) { u.sval = "&"; } else { u.sval = "*"; }
+        r = u;
+    }
+    *ExprNode c = alloc<ExprNode>(1);
+    c.kind = EK_TEMPLATECALL; c.sval = (string)String_cstr(&sp); c.line = e.line; c.col = e.col;
+    List_init<*ExprNode>(&c.kids, List_len<*ExprNode>(&e.kids) + 1);
+    List_push<*ExprNode>(&c.kids, r);
+    int ki = 0;
+    while (ki < List_len<*ExprNode>(&e.kids)) { List_push<*ExprNode>(&c.kids, List_get<*ExprNode>(&e.kids, ki)); ki = ki + 1; }
+    return c;
+}
+
+// The return type of a generic free-function call spelled `name<args>` (the instance's
+// substituted return type; the instance itself need not be emitted yet).
+string cg_generic_call_ret(Codegen* g, string spelling) {
+    *DeclNode gd = cg_find_gfn(g, cg_gen_base(spelling));
+    if (gd == null) { return ""; }
+    List<string> args; List_init<string>(&args, 4); cg_gen_args(spelling, &args);
+    List<CgSub> oldsub = cg_push_sub(g, gd, &args);
+    string rt = cg_apply_sub(g, gd.ret_type);
+    g.cursub = oldsub;
+    return rt;
+}
+
 // The type of a `for (i in A..B)` bound: a bare integer literal by its value (the
 // first of int, int64, uint64 that holds it, as sema types it), else its expression type.
 string cg_range_bound_type(Codegen* g, *ExprNode e) {
@@ -2631,6 +2708,8 @@ string cg_etype(Codegen* g, *ExprNode e) {
                 if (mi >= 0) { return List_get<string>(&f.mrets, mi); }
                 return "";
             }
+            *ExprNode gmc = cg_generic_method_call(g, e);   // `l.push(x)` → `List_push<T>(&l, x)`
+            if (gmc != null) { return cg_generic_call_ret(g, gmc.sval); }
             string sname = cg_strip_ptr(recv);            // method call → Struct_method
             string mname = cg_method_fn(g, sname, e.a.sval);
             if (cg_is_fn(g, mname) == 0 && cg_is_struct(g, sname) == 0 && cg_is_fn(g, e.a.sval) == 1) {
@@ -3508,6 +3587,10 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
             string fatop = cg_expr(g, e.a.a).op;
             return cg_dispatch_iface(g, ifn, fatop, e.a.sval, e);
         }
+        // `l.push(x)` on a generic struct instance whose `List_push<T>` is a generic free
+        // function: emit it as that (type-inferred) call.
+        *ExprNode gmc = cg_generic_method_call(g, e);
+        if (gmc != null) { return cg_expr(g, gmc); }
         // Resolve the callee. A bare ident is a free function; a MemberExpr is a method
         // call `recv.m(...)` → `Struct_m(self, ...)` with `self` a pointer to the receiver.
         string fname = "";

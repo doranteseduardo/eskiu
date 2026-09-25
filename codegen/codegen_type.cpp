@@ -341,7 +341,7 @@ std::string CodeGen::deriveExprEskiuTypeUncached(const ExprPtr& expr) const {
         if (unary->op == "&") return "*" + getExprEskiuType(unary->operand);
         if (unary->op == "*") {
             std::string t = getExprEskiuType(unary->operand);
-            return (!t.empty() && t.front() == '*') ? t.substr(1) : "";
+            return tyq::isPtr(t) ? tyq::pointee(tyq::strip(t)) : "";
         }
     }
     if (auto index = dynamic_cast<IndexExpr*>(expr.get())) {
@@ -380,6 +380,9 @@ std::string CodeGen::deriveExprEskiuTypeUncached(const ExprPtr& expr) const {
             std::map<std::string, std::string> subs;
             if (FunctionDecl* gm = genericMethod(bt, m->member, &subs))
                 return expandAlias(substType(gm->returnType, subs));
+            if (FunctionDecl* gf = genericFreeMethod(bt, m->member))
+                return expandAlias(substType(gf->returnType,
+                                             genericFreeMethodSubs(gf, getExprEskiuType(m->base), call->args)));
         }
         return "";
     }

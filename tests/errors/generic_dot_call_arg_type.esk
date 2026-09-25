@@ -1,0 +1,7 @@
+// EXPECT-ERROR: argument 1 type mismatch
+import <list>;
+int main() {
+    List<int> l; l.init(4);
+    l.push("eight");
+    return 0;
+}

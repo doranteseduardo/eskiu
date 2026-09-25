@@ -277,6 +277,10 @@ void TypeChecker::visit(ExprStmt* node) {
                 // Method-call syntax `x.m()` resolves to `Type_m` (see visit(CallExpr)).
                 std::string bt = ty::Type::parse(getExpressionType(m->base.get())).nominalName();
                 if (mustUseFuncs.count(bt + "_" + m->member)) fn = bt + "_" + m->member;
+                else if (auto ti = templateInstanceArgs.find(
+                             ty::Type::parse(normalizeType(getExpressionType(m->base.get()))).nominalName());
+                         ti != templateInstanceArgs.end())
+                    fn = ti->second.first + "_" + m->member;   // a generic `S_m<T>` (checkGenericMethodCall)
             }
         } else if (auto* tc = dynamic_cast<TemplateCallExpr*>(node->expr.get())) {
             fn = tc->templateName;

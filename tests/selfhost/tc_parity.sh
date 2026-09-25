@@ -65,7 +65,8 @@ HANDLED="undefined_var arg_count undefined_type await_outside_async async_no_awa
          import_missing import_missing_std operator_as_name
          pragma_link_malformed method_arg_type method_arg_count method_free_fn_arg_type iface_call_arg_type generic_inst_method_arg
          generic_inst_operator generic_inst_nested generic_struct_method_inst extern_fnptr_closure
-         range_bound_float range_bound_ptr"
+         range_bound_float range_bound_ptr
+         generic_dot_call_arg_type generic_dot_call_arg_count generic_dot_call_const generic_dot_call_in_generic"
 HANDLED="$(echo $HANDLED)"   # collapse the multi-line list to single spaces for matching
 
 DRIVER=selfhost/esk_main.esk

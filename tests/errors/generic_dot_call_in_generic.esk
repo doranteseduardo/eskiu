@@ -1,0 +1,9 @@
+// EXPECT-ERROR: argument 1 type mismatch
+struct Box<T> { T v; }
+void Box_twice<T>(Box<T>* self, T x) { self.set(x); }
+void Box_set<T>(Box<T>* self, T x) { self.v = x; }
+int main() {
+    let b: Box<int>;
+    b.twice("s");
+    return 0;
+}

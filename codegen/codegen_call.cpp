@@ -11,7 +11,7 @@
 
 void CodeGen::unifyTypeParam(std::string pattern, std::string concrete,
                              const std::set<std::string>& tps,
-                             std::map<std::string, std::string>& subs) {
+                             std::map<std::string, std::string>& subs) const {
     auto stripStruct = [](std::string s) {
         return s.rfind("struct:", 0) == 0 ? s.substr(7) : s;
     };
@@ -102,6 +102,29 @@ FunctionDecl* CodeGen::genericMethod(const std::string& instName, const std::str
         return mf;
     }
     return nullptr;
+}
+
+FunctionDecl* CodeGen::genericFreeMethod(const std::string& instName, const std::string& method) const {
+    auto ia = templateInstanceArgs.find(instName);
+    if (ia == templateInstanceArgs.end()) return nullptr;
+    auto ft = funcTemplateDecls.find(ia->second.first + "_" + method);
+    if (ft == funcTemplateDecls.end() || ft->second->params.empty()) return nullptr;
+    return ft->second;
+}
+
+std::map<std::string, std::string> CodeGen::genericFreeMethodSubs(FunctionDecl* fd, const std::string& recvType,
+                                                                  const std::vector<ExprPtr>& args) const {
+    const std::string& selfT = fd->params[0].first;
+    bool recvPtr = tyq::isPtr(recvType), selfPtr = tyq::isPtr(selfT);
+    std::string recvAsSelf = recvType;
+    if (selfPtr && !recvPtr) recvAsSelf = "*" + recvType;
+    else if (!selfPtr && recvPtr) recvAsSelf = tyq::pointee(recvType);
+    std::set<std::string> tps(fd->typeParams.begin(), fd->typeParams.end());
+    std::map<std::string, std::string> subs;
+    unifyTypeParam(selfT, recvAsSelf, tps, subs);
+    for (size_t j = 1; j < fd->params.size() && j - 1 < args.size(); ++j)
+        unifyTypeParam(fd->params[j].first, getExprEskiuType(args[j - 1]), tps, subs);
+    return subs;
 }
 
 llvm::Function* CodeGen::instantiateGenericMethod(const std::string& instName, const std::string& method) {
@@ -368,6 +391,22 @@ void CodeGen::visit(CallExpr* node) {
             } else {
                 exprValueStack.push(createMaybeInvoke(mfty, mfunc, margs));
             }
+            return;
+        }
+        // A generic free function `S_m<T..>` on a generic struct instance (the sema
+        // side is checkGenericMethodCall): lower `x.m(args)` as the call `S_m(&x, args)`
+        // (`S_m(x, args)` for a pointer receiver), whose type arguments are inferred.
+        if (FunctionDecl* gf = genericFreeMethod(baseType, member->member)) {
+            bool selfPtr = tyq::isPtr(gf->params[0].first);
+            ExprPtr recv = member->base;
+            if (selfPtr && !baseIsPtr) recv = std::make_shared<UnaryExpr>("&", member->base);
+            else if (!selfPtr && baseIsPtr) recv = std::make_shared<UnaryExpr>("*", member->base);
+            recv->line = member->line; recv->col = member->col;
+            std::vector<ExprPtr> cargs{recv};
+            cargs.insert(cargs.end(), node->args.begin(), node->args.end());
+            CallExpr call(std::make_shared<IdentExpr>(gf->name), cargs);
+            call.line = node->line; call.col = node->col;
+            visit(&call);
             return;
         }
         // Free-function constraint satisfaction: `t.m(x)` on a PRIMITIVE receiver

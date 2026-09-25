@@ -555,6 +555,7 @@ void TypeChecker::visit(CallExpr* node) {
             expressionTypes[node] = sig.first;
             return;
         }
+        if (checkGenericMethodCall(node, member, baseType)) return;
         // Check if baseType is an interface — resolve via interface method list
         {
             auto ifaceIt = interfaceDecls.find(baseType);
@@ -750,6 +751,71 @@ void TypeChecker::visit(CallExpr* node) {
     }
 
     expressionTypes[node] = sig.first;
+}
+
+// `x.m(args)` where x is an instance `S<A..>` of a generic struct and `S_m<T..>` is a
+// generic free function taking the receiver first (the stdlib's `Type_method`
+// convention, e.g. `List_push<T>(List<T>* self, T item)`): the call is `S_m(&x, args)`
+// (or `S_m(x, args)` for a pointer receiver), with the type arguments unified from
+// the receiver and then the arguments. Returns false when no such function exists.
+bool TypeChecker::checkGenericMethodCall(CallExpr* node, MemberExpr* member, const std::string& baseType) {
+    auto ti = templateInstanceArgs.find(baseType);
+    if (ti == templateInstanceArgs.end())   // a source-form receiver type (`Chan<int>*`)
+        ti = templateInstanceArgs.find(
+            ty::Type::parse(normalizeType(getExpressionType(member->base.get()))).nominalName());
+    if (ti == templateInstanceArgs.end()) return false;
+    std::string fnName = ti->second.first + "_" + member->member;
+    auto ft = funcTemplateDecls.find(fnName);
+    if (ft == funcTemplateDecls.end() || ft->second->params.empty()) return false;
+    FunctionDecl* fd = ft->second;
+    calledFns.insert(fnName);
+    for (auto& a : node->args) a->accept(this);
+
+    const std::string& selfT = fd->params[0].first;
+    std::string recvT = getExpressionType(member->base.get());
+    bool recvPtr = tyq::isPtr(recvT), selfPtr = tyq::isPtr(selfT);
+    std::string recvAsSelf = recvT;
+    if (selfPtr && !recvPtr) recvAsSelf = "*" + recvT;
+    else if (!selfPtr && recvPtr) recvAsSelf = tyq::pointee(recvT);
+
+    std::set<std::string> tps(fd->typeParams.begin(), fd->typeParams.end());
+    std::map<std::string, std::string> subs;
+    unifyTypeParam(selfT, recvAsSelf, tps, subs);
+    for (size_t j = 1; j < fd->params.size() && j - 1 < node->args.size(); ++j) {
+        std::string at = getExpressionType(node->args[j - 1].get());
+        if (at != "unknown" && !at.empty()) unifyTypeParam(fd->params[j].first, at, tps, subs);
+    }
+    std::string unbound;
+    for (const auto& tp : fd->typeParams)
+        if (!subs.count(tp)) unbound += (unbound.empty() ? "" : ", ") + tp;
+    if (!unbound.empty()) {
+        errorAt(node, "cannot infer type argument(s) " + unbound + " of generic function '" +
+                      fnName + "' from the method call; call it explicitly, e.g. " + fnName + "<...>(...)");
+        expressionTypes[node] = "unknown";
+        return true;
+    }
+    size_t errsBefore = errors.size();
+    checkConstraints(node, fd->constraints, subs);
+    // A plain (mutable) pointer `self` may write through it, so it cannot take a
+    // read-only receiver (a const value, or one reached through a pointer to const).
+    if (selfPtr) {
+        std::string cname;
+        bool roRecv = recvPtr ? tyq::baseConst(tyq::pointee(recvT))
+                              : assignsToConst(member->base.get(), cname);
+        if (roRecv && !tyq::baseConst(tyq::pointee(selfT)))
+            errorAt(node, "cannot call method '" + member->member + "' on a read-only value: '" +
+                          fnName + "' takes '" + selfT + "' and may modify it");
+    }
+    std::vector<std::string> pts;
+    for (size_t j = 1; j < fd->params.size(); ++j) pts.push_back(substType(fd->params[j].first, subs));
+    checkCallArgs(node, "method '" + member->member + "'", pts);
+    if (errors.size() == errsBefore) {
+        std::string mangled = fnName;
+        for (const auto& tpn : fd->typeParams) mangled += "_" + mangleTemplate(subs[tpn]);
+        queueInstance(fd, fd->typeParams, subs, fnName, "", mangled, "", fd->sourceFile);
+    }
+    expressionTypes[node] = normalizeType(substType(fd->returnType, subs));
+    return true;
 }
 
 void TypeChecker::checkCallArgs(CallExpr* node, const std::string& what,

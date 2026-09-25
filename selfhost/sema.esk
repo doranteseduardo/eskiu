@@ -1154,6 +1154,40 @@ int sema_bind_targs(Sema* s, *DeclNode fd, *ExprNode e, List<string>* out) {
     return 1;
 }
 
+// The type arguments of `x.m(...)` resolved to the generic free function `fd`
+// (`S_m<T..>(S<T..>* self, ...)`), with receiver type `bt` (`S<A..>` or a pointer to
+// it): a type parameter named by the self parameter's type arguments takes the
+// receiver's argument at that position; any other one binds from an argument spelled
+// exactly as it. 1 when every type parameter is bound.
+int sema_method_targs(Sema* s, *DeclNode fd, string bt, *ExprNode e, List<string>* out) {
+    List<string> sargs; List_init<string>(&sargs, 2);
+    sema_parse_targs(sema_strip_ptr_sp(List_get<Param>(&fd.params, 0).ty), &sargs);
+    List<string> rargs; List_init<string>(&rargs, 2);
+    sema_parse_targs(sema_strip_ptr_sp(bt), &rargs);
+    int t = 0; int tn = List_len<TypeParam>(&fd.type_params);
+    while (t < tn) {
+        string tp = List_get<TypeParam>(&fd.type_params, t).name;
+        string b = "";
+        int k = 0;
+        while (k < List_len<string>(&sargs) && k < List_len<string>(&rargs) && b[0] == 0) {
+            if (sema_streq(List_get<string>(&sargs, k), tp) == 1) { b = List_get<string>(&rargs, k); }
+            k = k + 1;
+        }
+        int i = 1; int np = List_len<Param>(&fd.params); int n = List_len<*ExprNode>(&e.kids);
+        while (b[0] == 0 && i < np && i - 1 < n) {
+            if (sema_streq(List_get<Param>(&fd.params, i).ty, tp) == 1) {
+                string at = sema_strip_const(sema_infer_type(s, List_get<*ExprNode>(&e.kids, i - 1)));
+                if (at[0] != 0 && sema_streq(at, "null") == 0 && sema_streq(at, "unknown") == 0) { b = at; }
+            }
+            i = i + 1;
+        }
+        if (b[0] == 0) { return 0; }
+        List_push<string>(out, b);
+        t = t + 1;
+    }
+    return 1;
+}
+
 // A call through a fn-typed value of type `ft`.
 void sema_check_fn_value_call(Sema* s, *ExprNode e, string what, string ft) {
     List<string> pts; List_init<string>(&pts, 4);
@@ -2366,6 +2400,21 @@ void sema_expr_k(Sema* s, *ExprNode e) {
                 int fpi = 1; int fpn = List_len<Param>(&ffn.params);
                 while (fpi < fpn) { List_push<string>(&fpts, List_get<Param>(&ffn.params, fpi).ty); fpi = fpi + 1; }
                 sema_check_call_args(s, e, mwhat, &fpts);
+            } else if (ffn != null && List_len<Param>(&ffn.params) > 0) {
+                // A generic free function `S_m<T..>(S<T..>* self, ...)` on an instance of S
+                // (the `Type_method` convention): the type arguments come from the receiver
+                // (then the arguments); check the arguments against the instantiated params.
+                List<string> gtargs; List_init<string>(&gtargs, 2);
+                if (sema_method_targs(s, ffn, bt, e, &gtargs) == 1) {
+                    List<string> gpts; List_init<string>(&gpts, 4);
+                    int gpi = 1; int gpn = List_len<Param>(&ffn.params);
+                    while (gpi < gpn) {
+                        List_push<string>(&gpts, sema_subst_params(List_get<Param>(&ffn.params, gpi).ty, &ffn.type_params, &gtargs));
+                        gpi = gpi + 1;
+                    }
+                    sema_check_call_args(s, e, mwhat, &gpts);
+                    sema_queue_inst(s, ffn, null, &gtargs, ffn.name, "");
+                }
             }
             int is_field = 0;
             if (inline_m == 0 && sema_has_member(s, sema_cat(sema_cat(sn, "."), mem.sval)) == 1) { is_field = 1; }

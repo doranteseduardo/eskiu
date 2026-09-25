@@ -248,6 +248,7 @@ private:
     void dropAssignedIn(Expr* e);
     // Argument count + types of a call against `paramTypes` (a trailing "..." = variadic);
     // `what` names the callee in diagnostics.
+    bool checkGenericMethodCall(class CallExpr* node, class MemberExpr* member, const std::string& baseType);
     void checkCallArgs(class CallExpr* node, const std::string& what, const std::vector<std::string>& paramTypes);
     // Check a call through a fn-typed value (`fn(T,...)->R`) and return its result type R.
     std::string checkFnValueCall(class CallExpr* node, const std::string& what, const std::string& fnType);
