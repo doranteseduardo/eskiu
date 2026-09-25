@@ -701,7 +701,9 @@ void TypeChecker::visit(IdentExpr* node) {
         // Without this, an inner lambda that references a variable two scopes up
         // would read the enclosing lambda's non-captured value and miscompile
         // ("Referring to an instruction in another function").
-        if (defIdx >= 1) {
+        // A `static` local has static storage: like a global, the lambda body refers
+        // to the one cell directly instead of capturing a copy.
+        if (defIdx >= 1 && !scopes[defIdx][node->name].isStatic) {
             for (size_t k = 0; k < captureStack.size(); ++k) {
                 if (defIdx < captureBoundary[k])
                     captureStack[k][node->name] = type;

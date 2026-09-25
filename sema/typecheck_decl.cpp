@@ -363,6 +363,8 @@ void TypeChecker::checkUninitPrefix(BlockStmt* body) {
         if (std::holds_alternative<DeclPtr>(item)) {
             if (auto* vd = dynamic_cast<VarDecl*>(std::get<DeclPtr>(item).get())) {
                 if (vd->initializer) { scan(vd->initializer.get()); uninit.erase(vd->name); }
+                // A `static` local without an initializer is zero (static storage, C).
+                else if (vd->isStatic) uninit.erase(vd->name);
                 else {
                     std::string t = normalizeType(vd->type);
                     // Only genuine scalars: an array (`T[N]`, incl. `*Node[3]`) ends in
@@ -555,6 +557,7 @@ void TypeChecker::visit(VarDecl* node) {
 
     defineSymbol(node->name, storedType, node->line, node->col, /*isParam=*/false);
     if (node->isConst && !scopes.empty()) scopes.back()[node->name].isConst = true;
+    if (node->isStatic && !scopes.empty()) scopes.back()[node->name].isStatic = true;
 }
 
 void TypeChecker::visit(StructDecl* node) {

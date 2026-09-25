@@ -1573,6 +1573,7 @@ void sema_check_uninit(Sema* s, *StmtNode body) {
         i = i + 1;
         if (it.kind == SK_VARDECL) {
             if (it.expr != null) { sema_uninit_scan(s, it.expr, &uninit); sema_list_erase(&uninit, it.name); }
+            else if (it.is_static == 1) { sema_list_erase(&uninit, it.name); }   // static storage starts at zero (C)
             else {
                 string t = it.type;                // only genuine scalars (arrays init piecewise)
                 if (sema_is_arr_ty(t) == 0 && (sema_is_numeric_ty(t) == 1 || sema_is_ptrish(t) == 1 || sema_is_fn_type(t) == 1)) {

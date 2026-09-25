@@ -59,7 +59,7 @@ struct CgCabi { string name; CgAbi ret; List<CgAbi> params; string lowret; strin
 // and its captured outer variables (parallel name/Eskiu-type lists).
 // One active type-parameter substitution (T → concrete) during instantiation.
 struct CgSub { string param; string arg; }
-struct CgLambda { string name; *ExprNode node; string rety; List<string> capn; List<string> capt; List<CgSub> sub; }
+struct CgLambda { string name; *ExprNode node; string rety; List<string> capn; List<string> capt; List<CgSub> sub; List<CgLocal> statics; }
 // A pending monomorphization: the generic decl + concrete type args + mangled name.
 struct CgInst { *DeclNode decl; string mangled; int is_struct; List<string> args; }
 
@@ -2030,6 +2030,7 @@ string cg_global_init(Codegen* g, *ExprNode e, string llty) {
         List<string> capn; List_init<string>(&capn, 1);
         List<string> capt; List_init<string>(&capt, 1);
         let lam: CgLambda; lam.name = lname; lam.node = e; lam.capn = capn; lam.capt = capt;
+        List_init<CgLocal>(&lam.statics, 1);
         lam.sub = cg_copy_sub(&g.cursub);   // freeze the generic substitution for deferred emission
         if (g.lam_expret[0] != 0) { lam.rety = g.lam_expret; } else { lam.rety = cg_arm_var(e.sval); }
         List_push<CgLambda>(&g.lambdas, lam);
@@ -3427,6 +3428,7 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
         List<string> ids; List_init<string>(&ids, 16); cg_collect_idents_s(e.stmt, &ids);
         List<string> capn; List_init<string>(&capn, 4);
         List<string> capt; List_init<string>(&capt, 4);
+        List<CgLocal> statics; List_init<CgLocal>(&statics, 1);
         int ii = 0;
         while (ii < List_len<string>(&ids)) {
             string nm = List_get<string>(&ids, ii);
@@ -3439,9 +3441,12 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
             }
             if (isparam == 1) { continue; }
             CgLocal l = cg_find_local(g, nm);
+            // A `static` local has static storage (its slot is a global, "@…"): the body
+            // refers to that one cell, like a global, instead of capturing a copy.
+            if (l.slot[0] == 64) { List_push<CgLocal>(&statics, l); continue; }
             if (l.slot[0] != 0) { List_push<string>(&capn, nm); List_push<string>(&capt, l.ety); }
         }
-        let lam: CgLambda; lam.name = lname; lam.node = e; lam.capn = capn; lam.capt = capt;
+        let lam: CgLambda; lam.name = lname; lam.node = e; lam.capn = capn; lam.capt = capt; lam.statics = statics;
         lam.sub = cg_copy_sub(&g.cursub);   // freeze the generic substitution for deferred emission
         // Return type: the fn-type from the assignment context wins over the written one
         // (e.g. a lambda written `int(int x)` assigned to `fn(int)->float` returns float).
@@ -4663,6 +4668,8 @@ void cg_emit_lambda(Codegen* g, CgLambda lam) {
     String_init(&g.entry_buf, 128);            // hoist body allocas to the entry block (see cg_emit_fn)
     String saved = g.out;
     String_init(&g.out, 512);
+    int si = 0;                                            // static locals: the same global cell
+    while (si < List_len<CgLocal>(&lam.statics)) { List_push<CgLocal>(&g.locals, List_get<CgLocal>(&lam.statics, si)); si = si + 1; }
     int nc = List_len<string>(&lam.capn);
     if (nc > 0) {                                          // unpack captures from %p0 (env)
         string envty = cg_env_lltype(g, &lam.capt);

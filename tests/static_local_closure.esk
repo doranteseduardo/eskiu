@@ -1,0 +1,26 @@
+// A `static` local has static storage: a closure refers to that one cell (like a
+// global) rather than capturing a copy, and an uninitialized static starts at zero.
+extern int printf(string fmt, ...);
+
+int tick() {
+    static int calls;
+    calls = calls + 1;
+    return calls;
+}
+
+int viaClosure() {
+    static int n = 0;
+    let bump: fn()->void = void() { n = n + 1; };
+    bump();
+    bump();
+    let read: fn()->int = int() { return n; };
+    return read();
+}
+
+int main() {
+    tick(); tick();
+    printf("%d\n", tick());
+    printf("%d\n", viaClosure());
+    printf("%d\n", viaClosure());
+    return 0;
+}

@@ -101,6 +101,7 @@ private:
         int  line = 0, col = 0;
         bool isParam = false;
         bool isConst = false;  // declared with `const` — reassignment is an error
+        bool isStatic = false; // `static` local: one global cell, referenced (not captured) by lambdas
     };
 
     // True if `name` resolves to a symbol declared `const` (searches scopes).
