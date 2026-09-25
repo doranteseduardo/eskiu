@@ -1,0 +1,78 @@
+// Dropping an unresolved select2/join2/select2v/join2v cascades future_drop to
+// its inputs: their producers are cancelled (on_drop runs) and their wakers are
+// unhooked, so a later completion never reaches the freed combinator. Also the
+// nested case: an inner select2 cancelled because an outer timeout won.
+import <future>;
+import <futureval>;
+import <either>;
+import <timer>;
+import <eventloop>;
+extern int printf(string f, ...);
+
+int cancelled = 0;
+EventLoop* g;
+
+Future<int>* leaf() {
+    Future<int>* f = future_new<int>();
+    free_closure(f.on_drop);
+    f.on_drop = void() { cancelled++; };
+    return f;
+}
+
+async int inner(EventLoop* lp) {
+    Future<int>* a = timer_after(lp, 60);
+    Future<int>* b = timer_after(lp, 80);
+    int w = await select2(a, b);
+    if (w == 0) { free_future<int>(a); } else { free_future<int>(b); }
+    return 5;
+}
+
+async int outer(EventLoop* lp) {
+    Future<int>* x = inner(lp);
+    Future<int>* t = timer_after(lp, 10);
+    int w = await select2(x, t);
+    if (w == 0) { free_future<int>(x); } else { free_future<int>(t); }
+    return w;
+}
+
+int main() {
+    Future<int>* s = select2(leaf(), leaf());
+    future_drop((FutureHdr*)s);
+    printf("select2 drop: %d cancelled\n", cancelled);
+
+    cancelled = 0;
+    Future<int>* done = future_new<int>();
+    future_complete<int>(done, 1);
+    Future<int>* j = join2(done, leaf());
+    future_drop((FutureHdr*)j);
+    printf("join2 drop: %d cancelled\n", cancelled);
+
+    cancelled = 0;
+    Future<int>* a = leaf();
+    Future<int>* b = leaf();
+    Future<int>* j2 = join2(a, b);
+    future_complete<int>(a, 3);
+    future_drop((FutureHdr*)j2);
+    printf("join2 drop after one: %d cancelled\n", cancelled);
+
+    cancelled = 0;
+    Future<Either<int, int>>* sv = select2v<int, int>(leaf(), leaf());
+    future_drop((FutureHdr*)sv);
+    printf("select2v drop: %d cancelled\n", cancelled);
+
+    cancelled = 0;
+    Future<Pair<int, int>>* jv = join2v<int, int>(leaf(), leaf());
+    future_drop((FutureHdr*)jv);
+    printf("join2v drop: %d cancelled\n", cancelled);
+
+    g = el_new(16);
+    Future<int>* o = outer(g);
+    if (future_poll<int>(o, void() { EventLoop_stop(g); }) == 0) { EventLoop_run(g); }
+    printf("nested timeout: %d\n", o.value);
+    free_future_polled<int>(o);
+    EventLoop_add_timer(g, time_monotonic_ms() + 120, void() { EventLoop_stop(g); });
+    EventLoop_run(g);
+    printf("no late wakeups\n");
+    EventLoop_free(g);
+    return 0;
+}

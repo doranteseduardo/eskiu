@@ -106,7 +106,8 @@ void spawn_hdr(FutureHdr* f) {
 // first; the loser is dropped (deregistered + freed). Type-erased by necessity —
 // the loser's value type is not known here, so it can only be dropped through the
 // FutureHdr view. Ownership: takes neither future; on resolution the loser is
-// freed here, and the CALLER frees the winner after reading it. Leak-free via the
+// freed here, and the CALLER frees the winner after reading it. Dropping the
+// select before it resolves drops both inputs with it. Leak-free via the
 // self-free waker technique. Prefer the generic `select2<A,B>` wrapper below.
 Future<int>* select2_hdr(FutureHdr* a, FutureHdr* b) {
     Future<int>* sel = future_new<int>();
@@ -137,33 +138,48 @@ Future<int>* select2_hdr(FutureHdr* a, FutureHdr* b) {
         future_complete<int>(sel, 1);
         return sel;
     }
-    return sel;                                  // both parked: first to complete wins
+    // Both parked: first to complete wins. Dropping `sel` before then cascades to
+    // both inputs (their wakers onA/onB are freed by future_drop), so a later
+    // completion can never reach the freed `sel`.
+    free_closure(sel.on_drop);
+    sel.on_drop = void() { future_drop(a); future_drop(b); };
+    return sel;
 }
 
 // join2_hdr: complete (with 2) once BOTH `a` and `b` have finished. Type-erased;
-// the awaiter then reads both futures' typed values and frees both. Leak-free: a
+// the awaiter then reads both futures' typed values and frees both. Dropping the
+// join before it resolves drops (and frees) both inputs instead. Leak-free: a
 // shared heap counter tracks completions (freed by the second completer), and
 // each waker self-frees its env. Prefer the generic `join2<A,B>` wrapper below.
 Future<int>* join2_hdr(FutureHdr* a, FutureHdr* b) {
     Future<int>* j = future_new<int>();
     *int cnt = alloc<int>(1);   // completions so far (alloc zeroes it)
+    // A waker that has run resets its input's waker to a no-op before freeing its
+    // own env, so a cascade drop of that (READY) input frees nothing twice.
     let onA: fn()->void = void() {
         let self: fn()->void = a.waker;
+        a.waker = void() {};
         (*cnt)++;
         if (*cnt == 2) { free((*void)cnt); future_complete<int>(j, 2); }
         free_closure(self);
     };
     let onB: fn()->void = void() {
         let self: fn()->void = b.waker;
+        b.waker = void() {};
         (*cnt)++;
         if (*cnt == 2) { free((*void)cnt); future_complete<int>(j, 2); }
         free_closure(self);
     };
     a.waker = onA;
-    if (!atomic_cas(&a.state, PENDING, WAITING)) { (*cnt)++; free_closure(onA); }  // a already done
+    if (!atomic_cas(&a.state, PENDING, WAITING)) { (*cnt)++; free_closure(onA); a.waker = void() {}; }  // a already done
     b.waker = onB;
-    if (!atomic_cas(&b.state, PENDING, WAITING)) { (*cnt)++; free_closure(onB); }  // b already done
-    if (*cnt == 2) { free((*void)cnt); future_complete<int>(j, 2); }                   // both already done
+    if (!atomic_cas(&b.state, PENDING, WAITING)) { (*cnt)++; free_closure(onB); b.waker = void() {}; }  // b already done
+    if (*cnt == 2) { free((*void)cnt); future_complete<int>(j, 2); return j; }   // both already done
+    // Dropping `j` before both finish cascades: the counter and both inputs are
+    // released (a pending input is cancelled, a finished one just freed), since
+    // the cancelled awaiter will not free them.
+    free_closure(j.on_drop);
+    j.on_drop = void() { free((*void)cnt); future_drop(a); future_drop(b); };
     return j;
 }
 

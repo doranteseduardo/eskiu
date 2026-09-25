@@ -1,0 +1,7 @@
+select2 drop: 2 cancelled
+join2 drop: 1 cancelled
+join2 drop after one: 1 cancelled
+select2v drop: 2 cancelled
+join2v drop: 2 cancelled
+nested timeout: 1
+no late wakeups
