@@ -2718,17 +2718,23 @@ pre.code-block {
 <p>Three combinators for composing concurrent tasks:</p>
 <pre class="code-block"> import &lt;future&gt;;
  import &lt;mem&gt;;</pre>
-<pre class="code-block"> // spawn&lt;T&gt;: fire and forget, returns the future
- Future&lt;int&gt;* f = spawn&lt;int&gt;(some_async_fn());</pre>
-<pre class="code-block"> // select2&lt;A,B&gt;: whichever finishes first
- // returns Either&lt;A,B&gt;: Left if a won, Right if b won
- import &lt;either&gt;;
- Future&lt;Either&lt;int,int&gt;&gt;* race = select2&lt;int,int&gt;(fa, fb);</pre>
-<pre class="code-block"> // join2&lt;A,B&gt;: wait for both
- // returns Pair&lt;A,B&gt;
- Future&lt;Pair&lt;int,int&gt;&gt;* both = join2&lt;int,int&gt;(fa, fb);</pre>
+<pre class="code-block"> // spawn&lt;T&gt;: fire and forget. Returns nothing; the task frees itself when done.
+ spawn(some_async_fn());</pre>
+<pre class="code-block"> // select2&lt;A,B&gt;: whichever finishes first. Completes with the winner's
+ // index (0 if fa won, 1 if fb won); read the winner's value, then free it.
+ int w = await select2(fa, fb);
+ if (w == 0) { use(fa.value);  free_future&lt;int&gt;(fa); }
+ else        { use(fb.value);  free_future&lt;int&gt;(fb); }</pre>
+<pre class="code-block"> // join2&lt;A,B&gt;: wait for both, then read and free both
+ await join2(fa, fb);
+ int sum = fa.value + fb.value;
+ free_future&lt;int&gt;(fa);   free_future&lt;int&gt;(fb);</pre>
 <pre class="code-block"> select2 cancels the loser future automatically: its on_drop cascade cleans up any resources the losing
  task held.</pre>
+<p>The value-returning forms are in <code>&lt;futureval&gt;</code>: <code>select2v</code> completes with the winner's value as an <code>Either&lt;A,B&gt;</code> (<code>Left</code> if the first future won, <code>Right</code> if the second did) and consumes both inputs, and <code>join2v</code> completes with both values as a <code>Pair&lt;A,B&gt;</code>:</p>
+<pre class="code-block"> import &lt;futureval&gt;;
+ Future&lt;Either&lt;int,int&gt;&gt;* race = select2v&lt;int,int&gt;(fa, fb);
+ Future&lt;Pair&lt;int,int&gt;&gt;* both = join2v&lt;int,int&gt;(fc, fd);</pre>
 <h2 class="section" id="sec-25-5">25.5 Channels</h2>
 <p>A channel passes values between async tasks. Chan_send enqueues a value; Chan_recv returns a future that completes with the next value:</p>
 <pre class="code-block"> import &lt;channel&gt;;
