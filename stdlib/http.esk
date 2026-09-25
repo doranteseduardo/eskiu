@@ -75,8 +75,21 @@ int HttpRequest_parse(HttpRequest* self, *uint8 buf, int len) {
     return 1;
 }
 
+// Drop trailing optional whitespace (SP / HTAB, plus a stray CR) from a header
+// value just copied into `out` (RFC 9110 §5.5: OWS around a field value is not
+// part of it).
+void http_trim_ows_tail(String* out) {
+    while (out.len > 0) {
+        char c = out.data[out.len - 1];
+        if (c != 32 && c != 9 && c != 13) { return; }
+        out.len = out.len - 1;
+        out.data[out.len] = 0;
+    }
+}
+
 // Look up a header by name (case-insensitive). On success copies the value into
-// `out` (cleared first) and returns 1; otherwise returns 0.
+// `out` (cleared first), without surrounding whitespace, and returns 1;
+// otherwise returns 0.
 int HttpRequest_header(HttpRequest* self, string name, String* out) {
     String_clear(out);
     int n = self.headers.len;
@@ -97,10 +110,11 @@ int HttpRequest_header(HttpRequest* self, string name, String* out) {
         }
         if (matched == 1 && i + j < n && self.headers.data[i + j] == 58) {  // ':'
             int k = i + j + 1;
-            while (k < n && self.headers.data[k] == 32) { k = k + 1; }       // skip spaces
+            while (k < n && (self.headers.data[k] == 32 || self.headers.data[k] == 9)) { k = k + 1; }   // leading OWS
             while (k < n && self.headers.data[k] != 10) {
                 String_push(out, self.headers.data[k]); k = k + 1;
             }
+            http_trim_ows_tail(out);
             return 1;
         }
         while (i < n && self.headers.data[i] != 10) { i = i + 1; }
@@ -144,24 +158,35 @@ void HttpResponse_body_append(HttpResponse* self, string s) {
     String_append(&self.body, s);
 }
 
-// Reason phrase for the common status codes.
+// Reason phrase for the common status codes; any other code gets the generic
+// phrase of its class ("" outside 100..599).
 string http_reason(int s) {
     if (s == 200) { return "OK"; }
     if (s == 201) { return "Created"; }
     if (s == 204) { return "No Content"; }
+    if (s == 206) { return "Partial Content"; }
     if (s == 301) { return "Moved Permanently"; }
     if (s == 302) { return "Found"; }
+    if (s == 304) { return "Not Modified"; }
     if (s == 400) { return "Bad Request"; }
     if (s == 401) { return "Unauthorized"; }
     if (s == 403) { return "Forbidden"; }
     if (s == 404) { return "Not Found"; }
     if (s == 405) { return "Method Not Allowed"; }
+    if (s == 409) { return "Conflict"; }
     if (s == 413) { return "Payload Too Large"; }
     if (s == 422) { return "Unprocessable Entity"; }
     if (s == 429) { return "Too Many Requests"; }
     if (s == 500) { return "Internal Server Error"; }
+    if (s == 502) { return "Bad Gateway"; }
     if (s == 503) { return "Service Unavailable"; }
-    return "OK";
+    if (s == 504) { return "Gateway Timeout"; }
+    if (s >= 100 && s < 200) { return "Informational"; }
+    if (s >= 200 && s < 300) { return "Success"; }
+    if (s >= 300 && s < 400) { return "Redirection"; }
+    if (s >= 400 && s < 500) { return "Client Error"; }
+    if (s >= 500 && s < 600) { return "Server Error"; }
+    return "";
 }
 
 // Serialize the full HTTP/1.1 response (status line, headers, auto
@@ -315,7 +340,8 @@ void http_parse_head(HttpReq* r, *uint8 buf, int hend) {
     }
 }
 
-// Case-insensitive header lookup; copies the value into `out`. 1 = hit.
+// Case-insensitive header lookup; copies the value (without surrounding
+// whitespace) into `out`. 1 = hit.
 int HttpReq_header(HttpReq* r, string name, String* out) {
     String_clear(out);
     int n = r.headers.len;
@@ -330,8 +356,9 @@ int HttpReq_header(HttpReq* r, string name, String* out) {
         }
         if (matched == 1 && i + j < n && r.headers.data[i + j] == 58) {
             int k = i + j + 1;
-            while (k < n && r.headers.data[k] == 32) { k = k + 1; }
+            while (k < n && (r.headers.data[k] == 32 || r.headers.data[k] == 9)) { k = k + 1; }   // leading OWS
             while (k < n && r.headers.data[k] != 10) { String_push(out, r.headers.data[k]); k = k + 1; }
+            http_trim_ows_tail(out);
             return 1;
         }
         while (i < n && r.headers.data[i] != 10) { i = i + 1; }
@@ -340,13 +367,18 @@ int HttpReq_header(HttpReq* r, string name, String* out) {
     return 0;
 }
 
+// Parse a Content-Length style value (1*DIGIT). Returns -1 if it is empty, has
+// a non-digit, or does not fit in an int64 (it used to wrap: 2^64 read as 0).
 int64 http_str_to_i64(String* s) {
+    if (s.len == 0) { return (int64)-1; }
     int64 v = 0;
     int i = 0;
     while (i < s.len) {
         char c = s.data[i];
-        if (c < 48 || c > 57) { break; }
-        v = v * 10 + (int64)((int)c - 48);
+        if (c < 48 || c > 57) { return (int64)-1; }
+        int64 d = (int64)((int)c - 48);
+        if (v > ((int64)9223372036854775807 - d) / (int64)10) { return (int64)-1; }
+        v = v * (int64)10 + d;
         i = i + 1;
     }
     return v;
@@ -371,8 +403,10 @@ int http_recv(int fd, HttpReq* r, int64 max_body) {
 
     let cl: String;  String_init(&cl, 16);
     int64 clen = 0;
-    if (HttpReq_header(r, "content-length", &cl) == 1) { clen = http_str_to_i64(&cl); }
+    int has_cl = HttpReq_header(r, "content-length", &cl);
+    if (has_cl == 1) { clen = http_str_to_i64(&cl); }
     String_free(&cl);
+    if (has_cl == 1 && clen < 0) { free(buf); return 400; }   // malformed / overflowing Content-Length
     if (clen > max_body) { free(buf); return 413; }
 
     int have = n - hend;
@@ -416,10 +450,31 @@ void http_reply(int fd, int status, string ctype, string extra, String* body) {
     String_free(&out);
 }
 
-// Convenience: reply with a small JSON error {"error":"..."}.
+// Append `s` to `out` as the body of a JSON string: `"` and backslash escaped,
+// control bytes as \n \r \t or \u00XX.
+void http_json_escape(String* out, string s) {
+    int i = 0;
+    while (s[i] != 0) {
+        char c = s[i];
+        int u = (int)(uint8)c;
+        if (c == 34 || c == 92) { String_push(out, '\\'); String_push(out, c); }
+        else if (u == 10) { String_append(out, "\\n"); }
+        else if (u == 13) { String_append(out, "\\r"); }
+        else if (u == 9)  { String_append(out, "\\t"); }
+        else if (u < 32) {
+            String_append(out, "\\u00");
+            String_push(out, "0123456789abcdef"[u >> 4]);
+            String_push(out, "0123456789abcdef"[u & 15]);
+        }
+        else { String_push(out, c); }
+        i = i + 1;
+    }
+}
+
+// Convenience: reply with a small JSON error {"error":"..."} (msg is escaped).
 void http_reply_error(int fd, int status, string extra, string msg) {
     let b: String;  String_init(&b, 64);
-    String_append(&b, "{\"error\":\"");  String_append(&b, msg);  String_append(&b, "\"}");
+    String_append(&b, "{\"error\":\"");  http_json_escape(&b, msg);  String_append(&b, "\"}");
     http_reply(fd, status, "application/json", extra, &b);
     String_free(&b);
 }

@@ -1,0 +1,63 @@
+// HTTP/1.1 edge cases: header values lose surrounding whitespace (OWS), an
+// overflowing or malformed Content-Length is a 400 (it used to wrap to 0),
+// http_reply_error JSON-escapes its message, and unknown status codes get a
+// class phrase instead of "OK".
+import <mem>;
+import <string>;
+import <http>;
+extern int printf(string fmt, ...);
+extern int socketpair(int domain, int type, int proto, *int fds);
+extern int64 write(int fd, *void buf, int64 n);
+extern int64 read(int fd, *void buf, int64 n);
+extern int close(int fd);
+
+int recv_status(string raw) {
+    int[2] sv; socketpair(1, 1, 0, &sv[0]);
+    write(sv[1], (*void)raw, (int64)strlen(raw));
+    close(sv[1]);
+    let r: HttpReq;  HttpReq_init(&r);
+    int st = http_recv(sv[0], &r, (int64)1000000);
+    let v: String;  String_init(&v, 16);
+    if (st == 0 && HttpReq_header(&r, "x-name", &v) == 1) { printf("  x-name=[%s]\n", String_cstr(&v)); }
+    String_free(&v);
+    HttpReq_free(&r);
+    close(sv[0]);
+    return st;
+}
+
+int main() {
+    printf("ok=%d\n", recv_status("GET / HTTP/1.1\r\nX-Name: \t value \t\r\nContent-Length: 0\r\n\r\n"));
+    printf("overflow=%d\n", recv_status("POST / HTTP/1.1\r\nContent-Length: 18446744073709551616\r\n\r\n"));
+    printf("junk=%d\n", recv_status("POST / HTTP/1.1\r\nContent-Length: 12abc\r\n\r\n"));
+    printf("empty=%d\n", recv_status("POST / HTTP/1.1\r\nContent-Length: \r\n\r\n"));
+
+    *uint8 buf = alloc<uint8>(128);
+    int n = 0;
+    string raw = "GET / HTTP/1.1\r\nHost:  example.org  \r\n\r\n";
+    while (raw[n] != 0) { buf[n] = (uint8)raw[n]; n = n + 1; }
+    let req: HttpRequest;  HttpRequest_init(&req);
+    HttpRequest_parse(&req, buf, n);
+    let h: String;  String_init(&h, 16);
+    HttpRequest_header(&req, "host", &h);
+    printf("host=[%s]\n", String_cstr(&h));
+    String_free(&h);
+    HttpRequest_free(&req);
+    free((*void)buf);
+
+    int[2] sv; socketpair(1, 1, 0, &sv[0]);
+    http_reply_error(sv[0], 400, "", "bad \"input\"\n\\");
+    close(sv[0]);
+    *uint8 rb = alloc<uint8>(512);
+    int64 got = 0;
+    int64 k = read(sv[1], (*void)rb, (int64)511);
+    while (k > 0) { got = got + k; k = read(sv[1], (*void)(rb + got), (int64)511 - got); }
+    rb[got] = (uint8)0;
+    int64 body = 0;
+    while (body + 3 < got && !(rb[body] == (uint8)13 && rb[body + 1] == (uint8)10 && rb[body + 2] == (uint8)13 && rb[body + 3] == (uint8)10)) { body = body + 1; }
+    printf("error body=%s\n", (string)(rb + body + 4));
+    close(sv[1]);
+    free((*void)rb);
+
+    printf("reasons: [%s] [%s] [%s] [%s] [%s]\n", http_reason(200), http_reason(418), http_reason(299), http_reason(599), http_reason(99));
+    return 0;
+}
