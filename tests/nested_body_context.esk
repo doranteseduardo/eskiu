@@ -26,13 +26,13 @@ int lambdaInTry() {
 int genericInTry() {
     List<int> l;
     try {
-        List_init<int>(&l, 1);
-        List_push<int>(&l, 5);
-        List_push<int>(&l, 7);
+        l.init(1);
+        l.push(5);
+        l.push(7);
     } catch (string e) {
         return -1;
     }
-    return List_get<int>(&l, 0) + List_get<int>(&l, 1);
+    return l.get(0) + l.get(1);
 }
 
 int main() {
