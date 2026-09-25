@@ -163,6 +163,9 @@ void CodeGen::emitStructInitInto(llvm::Value* dest, StructInitExpr* init) {
     if (fit == structFields.end()) return;
     const auto& fields = fit->second;
     llvm::StructType* st = structTypes[sname];
+    // Fields the literal omits are zero (C aggregate-initializer semantics), not
+    // whatever the stack slot held; write the zero first, then the given fields.
+    builder->CreateStore(llvm::Constant::getNullValue(st), dest);
 
     bool named = !init->fieldInits.empty() && !init->fieldInits[0].first.empty();
 

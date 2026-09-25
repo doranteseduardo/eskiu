@@ -3839,6 +3839,9 @@ void cg_bf_write(Codegen* g, string baseptr, string sname, CgBF slot, string rhs
 
 void cg_struct_init(Codegen* g, string slot, string sname, *ExprNode e) {
     CgStruct s = cg_find_struct(g, sname);
+    // Fields the literal omits are zero (C aggregate-initializer semantics), not whatever
+    // the stack slot held: store the zero value first, then the given fields.
+    cg_emit(g, "  store %"); cg_emit(g, s.name); cg_emit(g, " zeroinitializer, ptr "); cg_emit(g, slot); cg_emit(g, "\n");
     int n = List_len<*ExprNode>(&e.kids);
     int i = 0;
     while (i < n) {
