@@ -40,15 +40,15 @@ struct Executor {
 // the lock released, so a waker may schedule more work without deadlocking.
 void _ex_drain(Executor* ex, int fd) {
     uint8[64] sink;
-    read(fd, (*void)&sink[0], (int64)64);     // best-effort drain of wake bytes
+    read(fd, (*void)&sink[0], 64);            // best-effort drain of wake bytes
 
-    Mutex_lock(&ex.lock);
+    ex.lock.lock();
     *RQNode n = ex.head;
-    ex.head = (*RQNode)0;
-    ex.tail = (*RQNode)0;
-    Mutex_unlock(&ex.lock);
+    ex.head = null;
+    ex.tail = null;
+    ex.lock.unlock();
 
-    while (n != (*RQNode)0) {
+    while (n != null) {
         *RQNode next = n.next;
         n.waker();                 // resume the coroutine — on THIS (loop) thread
         free_closure(n.waker);     // the waker runs once; release its env
@@ -61,9 +61,9 @@ void _ex_drain(Executor* ex, int fd) {
 Executor* executor_new(EventLoop* lp) {
     Executor* ex = alloc<Executor>(1);
     ex.lp   = lp;
-    ex.head = (*RQNode)0;
-    ex.tail = (*RQNode)0;
-    Mutex_init(&ex.lock);
+    ex.head = null;
+    ex.tail = null;
+    ex.lock.init();
 
     int[2] fds; pipe(&fds[0]);
     ex.wake_r = fds[0];
@@ -77,15 +77,15 @@ Executor* executor_new(EventLoop* lp) {
 void Executor_schedule(Executor* ex, escaping fn()->void w) {
     *RQNode n = alloc<RQNode>(1);
     n.waker = w;
-    n.next  = (*RQNode)0;
+    n.next  = null;
 
-    Mutex_lock(&ex.lock);
-    if (ex.tail == (*RQNode)0) { ex.head = n; ex.tail = n; }
-    else                       { ex.tail.next = n; ex.tail = n; }
-    Mutex_unlock(&ex.lock);
+    ex.lock.lock();
+    if (ex.tail == null) { ex.head = n; ex.tail = n; }
+    else                 { ex.tail.next = n; ex.tail = n; }
+    ex.lock.unlock();
 
     uint8 one = 1;
-    write(ex.wake_w, (*void)&one, (int64)1);   // wake the loop thread
+    write(ex.wake_w, (*void)&one, 1);          // wake the loop thread
 }
 
 // Run until Executor_stop: dispatch I/O readiness and scheduled wakers.
@@ -93,17 +93,17 @@ void Executor_run(Executor* ex)  { EventLoop_run(ex.lp); }
 void Executor_stop(Executor* ex) { EventLoop_stop(ex.lp); }
 
 void Executor_free(Executor* ex) {
-    EventLoop_del_free(ex.lp, ex.wake_r);   // free the drain-callback env too
+    ex.lp.del_free(ex.wake_r);       // free the drain-callback env too
     close(ex.wake_r);                // the self-pipe
     close(ex.wake_w);
     *RQNode n = ex.head;             // wakers scheduled but never run
-    while (n != (*RQNode)0) {
+    while (n != null) {
         *RQNode next = n.next;
         free_closure(n.waker);
         free((*void)n);
         n = next;
     }
-    EventLoop_free(ex.lp);                  // the executor owns its event loop
+    ex.lp.free();                    // the executor owns its event loop
     free((*void)ex);
 }
 
