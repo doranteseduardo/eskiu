@@ -57,6 +57,7 @@ struct Sema {
     int await_seen;         // has an `await` appeared in the current function?
     string cur_ret;         // current function's return type (for `?` propagation)
     string match_ty;        // subject type of the `match` whose arms are being checked
+    string lam_ret;         // return type a lambda initializer is reconciled to ("" = its own)
     List<string> watched;   // non-escaping fn-type params of the current function
     List<string> escaped;   // watched params seen used beyond a direct call
     string callee_ctx;      // name being called right now (a watched param here is OK)
@@ -258,6 +259,7 @@ void sema_init(Sema* s, string filename) {
     s.await_seen = 0;
     s.cur_ret = "";
     s.match_ty = "";
+    s.lam_ret = "";
     List_init<string>(&s.watched, 4);
     List_init<string>(&s.escaped, 4);
     List_init<string>(&s.narrowed, 4);
@@ -2819,6 +2821,12 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         }
         s.await_seen = 1;
         sema_expr(s, e.a);
+        string awt = sema_infer_type(s, e.a);         // the operand is a `*Future<T>`
+        string awc = sema_canon(s, awt);
+        if (sema_judgeable(s, awc) == 1 && sema_future_inner(s, awt)[0] == 0) {
+            s.had_error = 1;
+            printf("error: %s:%d:%d: await expects a *Future<T>, got %s\n", s.filename, s.line, s.col, awt);
+        }
         return;
     }
     if (k == EK_MEMBER) {
@@ -3347,6 +3355,8 @@ void sema_check_lambda(Sema* s, *ExprNode e) {
     List<string> saved_lbls = s.loop_lbls;
     List_init<string>(&s.loop_lbls, 4);
     s.cur_ret = sema_isub(s, sema_lambda_ret(e.sval));
+    if (s.lam_ret != null && s.lam_ret[0] != 0) { s.cur_ret = s.lam_ret; }
+    s.lam_ret = "";
     s.in_async = 0; s.sw_depth = 0;
     sema_push(s);
     List<string> seen; List_init<string>(&seen, 4);
@@ -3466,7 +3476,11 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
     }
     if (k == SK_VARDECL) {
         string vty = sema_isub(s, st.type);   // a generic instance's `T x` names its argument
+        // A lambda initializing a `fn(...)->R` returns R: its body is checked against R
+        // (mirrors the C++ reconciliation of the lambda's return type).
+        if (st.expr != null && st.expr.kind == EK_LAMBDA && sema_is_fn_type(vty) == 1) { s.lam_ret = sema_fn_ret(vty); }
         sema_expr(s, st.expr);             // initializer (can't reference itself)
+        s.lam_ret = "";
         // A `for (i in A..B)` bound decl takes its bound's integer type (promoted to at
         // least `int`); SK_FOR then widens both decls to their common type.
         int bad_range = 0;
