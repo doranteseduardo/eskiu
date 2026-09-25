@@ -115,6 +115,17 @@ struct Codegen {
     int safe;                // --safe: emit runtime slice/array index bounds checks (opt-in)
     int uses_trap;           // a bounds check was emitted → declare @llvm.trap once
     string cur_unwind;       // active landingpad label inside a try body ("" = plain calls)
+    string cur_lbl;          // label of the basic block being emitted (for phi incoming edges)
+    // Defers on the exceptional path (mirrors CodeGen::emitDeferPad). In a program that
+    // throws (prog_eh), each defer gets a landingpad for the calls after it. cl_unw is
+    // parallel to cleanups: the landingpad active before that cleanup was registered. The
+    // try_* lists are parallel, one entry per try body being emitted: its cleanup depth,
+    // its catch-dispatch label, and the extra phi incoming edges from body defer pads.
+    int prog_eh;
+    List<string> cl_unw;
+    List<int> try_cld;
+    List<string> try_disp;
+    List<string> try_phi;
     List<CgLocal> gvars;     // global variables (slot = "@name", a pointer to storage)
     List<*DeclNode> gstructs; // generic struct decls (by name, type_params non-empty)
     List<*DeclNode> genums;  // generic ADT enum decls (monomorphized on demand)
@@ -266,6 +277,12 @@ void cg_init(Codegen* g) {
     g.safe = 0;
     g.uses_trap = 0;
     g.cur_unwind = "";
+    g.cur_lbl = "entry";
+    g.prog_eh = 0;
+    List_init<string>(&g.cl_unw, 4);
+    List_init<int>(&g.try_cld, 4);
+    List_init<string>(&g.try_disp, 4);
+    List_init<string>(&g.try_phi, 4);
     List_init<CgLocal>(&g.gvars, 8);
     List_init<*DeclNode>(&g.gstructs, 8);
     List_init<*DeclNode>(&g.genums, 4);
@@ -1540,6 +1557,7 @@ string cg_lbl(Codegen* g) {
 void cg_label(Codegen* g, string name) {
     cg_emit(g, name); cg_emit(g, ":\n");
     g.terminated = 0;
+    g.cur_lbl = name;
 }
 
 // Unconditional branch — skipped if the block is already terminated.
@@ -1566,7 +1584,10 @@ void cg_run_cleanups(Codegen* g, int depth, int error_path) {
             int nvis = List_get<int>(&g.cl_nloc, i);
             int k = 0;
             while (k < nvis && k < base) { List_push<CgLocal>(&g.locals, List_get<CgLocal>(&g.locals, k)); k = k + 1; }
+            string unw = g.cur_unwind;                   // the body runs under the landingpad
+            g.cur_unwind = List_get<string>(&g.cl_unw, i);   // active before it was registered
             cg_stmt(g, List_get<*StmtNode>(&g.cleanups, i));
+            g.cur_unwind = unw;
             cg_locals_trunc(g, base);
             i = i - 1;
         }
@@ -1578,15 +1599,99 @@ void cg_push_cleanup(Codegen* g, *StmtNode body, int is_err) {
     List_push<*StmtNode>(&g.cleanups, body);
     List_push<int>(&g.cl_err, is_err);
     List_push<int>(&g.cl_nloc, List_len<CgLocal>(&g.locals));
+    List_push<string>(&g.cl_unw, g.cur_unwind);
 }
 
-// Drop cleanup entries down to length `mark` (called on scope exit).
+// Drop cleanup entries down to length `mark` (called on scope exit). Past the scope, calls
+// unwind to the landingpad that was active before its first cleanup again.
 void cg_cleanups_trunc(Codegen* g, int mark) {
+    if (List_len<*StmtNode>(&g.cleanups) > mark) { g.cur_unwind = List_get<string>(&g.cl_unw, mark); }
     while (List_len<*StmtNode>(&g.cleanups) > mark) {
         List_remove<*StmtNode>(&g.cleanups, List_len<*StmtNode>(&g.cleanups) - 1);
         List_remove<int>(&g.cl_err, List_len<int>(&g.cl_err) - 1);
         List_remove<int>(&g.cl_nloc, List_len<int>(&g.cl_nloc) - 1);
+        List_remove<string>(&g.cl_unw, List_len<string>(&g.cl_unw) - 1);
     }
+}
+
+// The landingpad for the calls after a defer (only in a program that throws). Inside a
+// try body it catches everything, runs the pending cleanups down to that try and joins
+// its catch dispatch with the exception pointer; outside any try it is a cleanup pad
+// that runs the function's pending cleanups and resumes unwinding.
+void cg_defer_pad(Codegen* g) {
+    string cont = cg_lbl(g);
+    string pad = cg_lbl(g);
+    cg_br(g, cont);
+    cg_label(g, pad);
+    int nt = List_len<int>(&g.try_cld);
+    string lp = cg_tmp(g);
+    string ex = "";
+    int depth = 0;
+    if (nt > 0) {
+        cg_emit(g, "  "); cg_emit(g, lp); cg_emit(g, " = landingpad { ptr, i32 } catch ptr null\n");
+        ex = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, ex); cg_emit(g, " = extractvalue { ptr, i32 } "); cg_emit(g, lp); cg_emit(g, ", 0\n");
+        depth = List_get<int>(&g.try_cld, nt - 1);
+    } else {
+        cg_emit(g, "  "); cg_emit(g, lp); cg_emit(g, " = landingpad { ptr, i32 } cleanup\n");
+    }
+    cg_run_cleanups(g, depth, 0);
+    if (g.terminated == 0) {
+        if (nt > 0) {
+            string inc = cg_cat(", [ ", cg_cat(ex, cg_cat(", %", cg_cat(g.cur_lbl, " ]"))));
+            List_set<string>(&g.try_phi, nt - 1, cg_cat(List_get<string>(&g.try_phi, nt - 1), inc));
+            cg_emit(g, "  br label %"); cg_emit(g, List_get<string>(&g.try_disp, nt - 1)); cg_emit(g, "\n");
+        } else {
+            cg_emit(g, "  resume { ptr, i32 } "); cg_emit(g, lp); cg_emit(g, "\n");
+        }
+        g.terminated = 1;
+    }
+    cg_label(g, cont);
+    g.cur_unwind = pad;
+}
+
+// Does a subtree contain a `throw` or a `try` (lambda bodies included)? Decides prog_eh.
+int cg_has_eh_s(*StmtNode s);
+int cg_has_eh_e(*ExprNode e) {
+    if (e == null) { return 0; }
+    if (e.kind == EK_LAMBDA) { return cg_has_eh_s(e.stmt); }
+    if (e.kind == EK_BINARY || e.kind == EK_INDEX) {
+        if (cg_has_eh_e(e.a) == 1 || cg_has_eh_e(e.b) == 1) { return 1; }
+    } else if (e.kind == EK_UNARY || e.kind == EK_MEMBER || e.kind == EK_CAST
+               || e.kind == EK_QUESTION || e.kind == EK_AWAIT || e.kind == EK_CALL
+               || e.kind == EK_INCDEC) {
+        if (cg_has_eh_e(e.a) == 1) { return 1; }
+    }
+    if (e.kind == EK_CALL || e.kind == EK_TEMPLATECALL || e.kind == EK_STRUCTINIT
+        || e.kind == EK_ARRAYLIT || e.kind == EK_INDEX) {
+        int i = 0; int n = List_len<*ExprNode>(&e.kids);
+        while (i < n) { if (cg_has_eh_e(List_get<*ExprNode>(&e.kids, i)) == 1) { return 1; } i = i + 1; }
+    }
+    if (e.kind == EK_TERNARY) {
+        if (cg_has_eh_e(e.a) == 1 || cg_has_eh_e(e.b) == 1) { return 1; }
+        if (cg_has_eh_e(List_get<*ExprNode>(&e.kids, 0)) == 1) { return 1; }
+    }
+    return 0;
+}
+int cg_has_eh_s(*StmtNode s) {
+    if (s == null) { return 0; }
+    if (s.kind == SK_THROW || s.kind == SK_TRY) { return 1; }
+    if (s.kind == SK_RETURN || s.kind == SK_EXPR || s.kind == SK_VARDECL
+        || s.kind == SK_IF || s.kind == SK_WHILE || s.kind == SK_DOWHILE || s.kind == SK_FOR || s.kind == SK_FORIN
+        || s.kind == SK_SWITCH || s.kind == SK_CASE || s.kind == SK_MATCH) {
+        if (cg_has_eh_e(s.expr) == 1) { return 1; }
+    }
+    if (s.kind == SK_FOR) { if (cg_has_eh_e(s.expr2) == 1) { return 1; } }
+    if (s.kind == SK_IF || s.kind == SK_WHILE || s.kind == SK_DOWHILE || s.kind == SK_FOR || s.kind == SK_FORIN
+        || s.kind == SK_ARM || s.kind == SK_DEFER) {
+        if (cg_has_eh_s(s.s1) == 1) { return 1; }
+    }
+    if (s.kind == SK_IF || s.kind == SK_FOR) { if (cg_has_eh_s(s.s2) == 1) { return 1; } }
+    if (s.kind == SK_BLOCK || s.kind == SK_SWITCH || s.kind == SK_CASE || s.kind == SK_MATCH) {
+        int i = 0; int n = List_len<*StmtNode>(&s.items);
+        while (i < n) { if (cg_has_eh_s(List_get<*StmtNode>(&s.items, i)) == 1) { return 1; } i = i + 1; }
+    }
+    return 0;
 }
 
 // Drop local bindings down to length `mark` (a block/loop scope ends: an inner `let`
@@ -4954,6 +5059,7 @@ void cg_stmt(Codegen* g, *StmtNode st) {
     }
     if (st.kind == SK_DEFER) {
         cg_push_cleanup(g, st.s1, st.is_err);          // emitted at scope exit; errdefer only on the error path
+        if (g.prog_eh == 1 && st.is_err == 0) { cg_defer_pad(g); }   // and on the exceptional path
         return;
     }
     if (st.kind == SK_IF) {
@@ -5426,6 +5532,7 @@ void cg_stmt(Codegen* g, *StmtNode st) {
         g.uses_eh = 1;
         string lpad = cg_lbl(g);
         string ldone = cg_lbl(g);
+        string ldisp = cg_lbl(g);
         string saved = g.cur_unwind;
         g.cur_unwind = lpad;
         // Register finally as a cleanup for the body's duration, so an early exit
@@ -5433,7 +5540,15 @@ void cg_stmt(Codegen* g, *StmtNode st) {
         // exceptional path still emit it below, so truncate WITHOUT running here.
         int trymark = List_len<*StmtNode>(&g.cleanups);
         if (st.s2 != null) { cg_push_cleanup(g, st.s2, 0); }
+        List_push<int>(&g.try_cld, List_len<*StmtNode>(&g.cleanups));   // body defers join ldisp
+        List_push<string>(&g.try_disp, ldisp);
+        List_push<string>(&g.try_phi, "");
         cg_stmt(g, st.s1);                                // try body
+        int ntry = List_len<int>(&g.try_cld) - 1;
+        string phi_extra = List_get<string>(&g.try_phi, ntry);
+        List_remove<int>(&g.try_cld, ntry);
+        List_remove<string>(&g.try_disp, ntry);
+        List_remove<string>(&g.try_phi, ntry);
         cg_cleanups_trunc(g, trymark);
         g.cur_unwind = saved;
         cg_br(g, ldone);
@@ -5442,6 +5557,14 @@ void cg_stmt(Codegen* g, *StmtNode st) {
         cg_emit(g, "  "); cg_emit(g, lp); cg_emit(g, " = landingpad { ptr, i32 } catch ptr null\n");
         string exptr = cg_tmp(g);
         cg_emit(g, "  "); cg_emit(g, exptr); cg_emit(g, " = extractvalue { ptr, i32 } "); cg_emit(g, lp); cg_emit(g, ", 0\n");
+        cg_emit(g, "  br label %"); cg_emit(g, ldisp); cg_emit(g, "\n");
+        cg_label(g, ldisp);                               // catch dispatch (landingpad or a body defer's pad)
+        if (phi_extra[0] != 0) {
+            string exphi = cg_tmp(g);
+            cg_emit(g, "  "); cg_emit(g, exphi); cg_emit(g, " = phi ptr [ "); cg_emit(g, exptr); cg_emit(g, ", %");
+            cg_emit(g, lpad); cg_emit(g, " ]"); cg_emit(g, phi_extra); cg_emit(g, "\n");
+            exptr = exphi;
+        }
         string exdata = cg_tmp(g);
         cg_emit(g, "  "); cg_emit(g, exdata); cg_emit(g, " = call ptr @__cxa_begin_catch(ptr "); cg_emit(g, exptr); cg_emit(g, ")\n");
         string ets = cg_tmp(g);
@@ -5537,6 +5660,12 @@ void cg_emit_fn(Codegen* g, *DeclNode d, string llname, string self_struct) {
     List_init<*StmtNode>(&g.cleanups, 4);   // fresh scope-exit state per function body
     List_init<int>(&g.cl_err, 4);
     List_init<int>(&g.cl_nloc, 4);
+    List_init<string>(&g.cl_unw, 4);
+    List_init<int>(&g.try_cld, 4);
+    List_init<string>(&g.try_disp, 4);
+    List_init<string>(&g.try_phi, 4);
+    g.cur_unwind = "";
+    g.cur_lbl = "entry";
     List_init<int>(&g.loop_cldepth, 4);
     List_init<string>(&g.loop_lbls, 4);       // fresh loops-only label stack per function body
     List_init<string>(&g.loop_lbl_end, 4);
@@ -5558,7 +5687,7 @@ void cg_emit_fn(Codegen* g, *DeclNode d, string llname, string self_struct) {
         pi = pi + 1;
     }
     cg_emit(g, ")");
-    if (cg_has_try_s(d.body) == 1) { cg_emit(g, " personality ptr @"); cg_emit(g, cg_eh_pers(g)); g.uses_eh = 1; }
+    if (cg_has_try_s(d.body) == 1 || g.prog_eh == 1) { cg_emit(g, " personality ptr @"); cg_emit(g, cg_eh_pers(g)); g.uses_eh = 1; }
     cg_emit(g, " {\n");
     // Emit the body into a fresh buffer while `alloca`s accumulate in entry_buf, then
     // assemble `entry:` + hoisted allocas + body. This keeps loop-body locals from
@@ -5632,9 +5761,11 @@ void cg_emit_lambda(Codegen* g, CgLambda lam) {
         k = k + 1;
     }
     cg_emit(g, ")");
-    // A `try` in the lambda body lands in a landingpad, which needs a personality here too.
-    if (cg_has_try_s(lam.node.stmt) == 1) { cg_emit(g, " personality ptr @"); cg_emit(g, cg_eh_pers(g)); g.uses_eh = 1; }
+    // A `try` in the lambda body lands in a landingpad, which needs a personality here too
+    // (and in a program that throws, so does any defer's landingpad).
+    if (cg_has_try_s(lam.node.stmt) == 1 || g.prog_eh == 1) { cg_emit(g, " personality ptr @"); cg_emit(g, cg_eh_pers(g)); g.uses_eh = 1; }
     cg_emit(g, " {\n");
+    g.cur_lbl = "entry";
     String_init(&g.entry_buf, 128);            // hoist body allocas to the entry block (see cg_emit_fn)
     String saved = g.out;
     String_init(&g.out, 512);
@@ -6613,6 +6744,21 @@ void cg_emit_tydecl(Codegen* g, *DeclNode d) {
 }
 
 void cg_program(Codegen* g, *Program prog) {
+    // Does the program throw or catch anywhere? Only then do defers get landingpads.
+    int ei = 0;
+    while (ei < List_len<*DeclNode>(&prog.decls)) {
+        *DeclNode ed = List_get<*DeclNode>(&prog.decls, ei);
+        if (ed.kind == DK_FUNCTION && cg_has_eh_s(ed.body) == 1) { g.prog_eh = 1; }
+        if (ed.kind == DK_VARDECL && cg_has_eh_e(ed.init) == 1) { g.prog_eh = 1; }
+        if (ed.kind == DK_STRUCT) {
+            int emi = 0;
+            while (emi < List_len<*DeclNode>(&ed.methods)) {
+                if (cg_has_eh_s(List_get<*DeclNode>(&ed.methods, emi).body) == 1) { g.prog_eh = 1; }
+                emi = emi + 1;
+            }
+        }
+        ei = ei + 1;
+    }
     // A struct declared again (sema accepts only an identical repeat, e.g. two merged files
     // sharing a declaration) is one type: keep the first declaration, like the C++ backend.
     int di = List_len<*DeclNode>(&prog.decls) - 1;

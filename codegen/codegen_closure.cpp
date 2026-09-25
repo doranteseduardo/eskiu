@@ -227,6 +227,10 @@ std::string CodeGen::exceptionTypeName(const std::string& raw) const {
     return t.empty() ? "unknown" : t;
 }
 
+void CodeGen::ensureEHRuntime() {
+    ensureEHDecls(module.get(), *context, ehPersonalityName());
+}
+
 void CodeGen::visit(ThrowStmt* node) {
     ensureEHDecls(module.get(), *context, ehPersonalityName());
     llvm::Type* ptrTy = llvm::PointerType::get(*context, 0);
@@ -301,6 +305,7 @@ void CodeGen::visit(TryStmt* node) {
     }
 
     llvm::BasicBlock* lpadBB    = llvm::BasicBlock::Create(*context, "try.lpad",    fn);
+    llvm::BasicBlock* dispatchBB = llvm::BasicBlock::Create(*context, "try.dispatch", fn);
     llvm::BasicBlock* finallyBB = llvm::BasicBlock::Create(*context, "try.finally", fn);
     llvm::BasicBlock* doneBB    = llvm::BasicBlock::Create(*context, "try.done",    fn);
 
@@ -313,8 +318,13 @@ void CodeGen::visit(TryStmt* node) {
     // below, so we pop this frame WITHOUT running it here.
     cleanupScopes.emplace_back();
     if (node->finally) cleanupScopes.back().push_back(makeCleanup(node->finally.get(), /*isErr=*/false));
+    // A defer in the body joins the catch dispatch from its own landingpad after running
+    // the body's pending defers (see emitDeferPad).
+    tryStack.push_back({cleanupScopes.size(), dispatchBB, {}});
     if (node->body) node->body->accept(this);
-    cleanupScopes.pop_back();
+    std::vector<std::pair<llvm::Value*, llvm::BasicBlock*>> incoming = std::move(tryStack.back().incoming);
+    tryStack.pop_back();
+    popCleanupFrame();
     unwindTarget = savedUnwind;
     if (!hasTerminator(builder->GetInsertBlock()))
         builder->CreateBr(finallyBB);
@@ -327,7 +337,17 @@ void CodeGen::visit(TryStmt* node) {
     lp->addClause(llvm::ConstantPointerNull::get(
         llvm::cast<llvm::PointerType>(ptrTy)));
 
-    llvm::Value* exObjPtr = builder->CreateExtractValue(lp, {0}, "ex.ptr");
+    incoming.insert(incoming.begin(), {builder->CreateExtractValue(lp, {0}, "ex.ptr"), lpadBB});
+    builder->CreateBr(dispatchBB);
+
+    // ── catch dispatch (from the landingpad or a body defer's pad) ─────────
+    builder->SetInsertPoint(dispatchBB);
+    llvm::Value* exObjPtr = incoming.front().first;
+    if (incoming.size() > 1) {
+        llvm::PHINode* phi = builder->CreatePHI(ptrTy, incoming.size(), "ex.obj");
+        for (auto& in : incoming) phi->addIncoming(in.first, in.second);
+        exObjPtr = phi;
+    }
 
     // __cxa_begin_catch(ex) → pointer to our EskiuEx
     llvm::Function* beginCatch = getOrDeclareFunc("__cxa_begin_catch",
@@ -377,7 +397,7 @@ void CodeGen::visit(TryStmt* node) {
         cleanupScopes.emplace_back();
         if (node->finally) cleanupScopes.back().push_back(makeCleanup(node->finally.get(), /*isErr=*/false));
         if (c.body) c.body->accept(this);
-        cleanupScopes.pop_back();
+        popCleanupFrame();
         popScope();
 
         if (!hasTerminator(builder->GetInsertBlock()))

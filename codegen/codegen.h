@@ -246,13 +246,32 @@ private:
     // isErr = errdefer (error-path only). The body is emitted later, at an exit, where a
     // shadowing declaration may have rebound a name; `names`/`types` are the bindings
     // visible where it was registered, which the body is resolved against.
+    // prevUnwind is the landingpad that was active before the cleanup was registered: its
+    // body runs under it (an exception inside a defer body skips that defer), and popping
+    // the frame that holds it restores it.
     struct Cleanup {
         Stmt* body; bool isErr;
         std::shared_ptr<const std::map<std::string, llvm::Value*>> names;
         std::shared_ptr<const std::vector<std::map<std::string, std::string>>> types;
+        llvm::BasicBlock* prevUnwind = nullptr;
     };
     Cleanup makeCleanup(Stmt* body, bool isErr);
     std::vector<std::vector<Cleanup>> cleanupScopes;
+    void popCleanupFrame();
+
+    // Defers on the exceptional path. In a program that throws, each `defer` gets a
+    // landingpad for the calls after it: inside a `try` body it runs the pending defers
+    // down to that try and joins its catch dispatch (with the exception pointer); outside
+    // any try it runs the function's pending defers and resumes unwinding.
+    bool programUsesEH = false;
+    struct TryCtx {
+        size_t depth;                      // cleanup frame depth of the try body
+        llvm::BasicBlock* dispatch;        // catch dispatch, entered with the exception ptr
+        std::vector<std::pair<llvm::Value*, llvm::BasicBlock*>> incoming;
+    };
+    std::vector<TryCtx> tryStack;
+    void emitDeferPad();
+    void ensureEHRuntime();
     size_t breakCleanupDepth    = 0;   // frame depth to unwind to on break
     size_t continueCleanupDepth = 0;   // frame depth to unwind to on continue
 
@@ -298,11 +317,13 @@ private:
         size_t bcd, ccd;
         llvm::BasicBlock* bt; llvm::BasicBlock* ct; llvm::BasicBlock* unwind;
         std::vector<LoopFrame> loops;
+        std::vector<TryCtx> tries;
         explicit BodyContext(CodeGen* c)
             : cg(c), cleanups(std::move(c->cleanupScopes)),
               bcd(c->breakCleanupDepth), ccd(c->continueCleanupDepth),
               bt(c->breakTarget), ct(c->continueTarget), unwind(c->unwindTarget),
-              loops(std::move(c->loopStack)) {
+              loops(std::move(c->loopStack)), tries(std::move(c->tryStack)) {
+            cg->tryStack.clear();
             cg->cleanupScopes.clear();
             cg->breakCleanupDepth = cg->continueCleanupDepth = 0;
             cg->breakTarget = cg->continueTarget = nullptr;
@@ -315,6 +336,7 @@ private:
             cg->breakTarget = bt; cg->continueTarget = ct;
             cg->unwindTarget = unwind;
             cg->loopStack = std::move(loops);
+            cg->tryStack = std::move(tries);
         }
     };
     // Emit (in LIFO order) every cleanup body in frames at index >= depth. On a normal

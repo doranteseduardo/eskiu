@@ -1,0 +1,13 @@
+local defer x=0
+local caught 3 x=1
+local 1
+inner block defer
+inner after 0
+inner defer 0
+mid defer
+inner block defer
+inner defer 7
+mid defer
+main caught 7
+looped 3132
+nested 111

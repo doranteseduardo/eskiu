@@ -1,5 +1,6 @@
 #include "codegen.h"
 #include "../ast/type_qual.h"
+#include "../ast/ast_walk.h"
 #include "llvm/TargetParser/Triple.h"
 #include <algorithm>
 
@@ -21,6 +22,18 @@ void CodeGen::visit(Program* node) {
     // in struct fields / globals declared anywhere (resolved during phase 1).
     for (auto& decl : node->declarations)
         if (auto* v = dynamic_cast<VarDecl*>(decl.get())) foldConstDecl(v);
+    // Does the program throw or catch anywhere? Only then do defers get landingpads.
+    for (auto& decl : node->declarations) {
+        if (auto* f = dynamic_cast<FunctionDecl*>(decl.get())) {
+            if (astwalk::containsEH(f->body.get())) programUsesEH = true;
+        } else if (auto* s = dynamic_cast<StructDecl*>(decl.get())) {
+            for (auto& m : s->methods)
+                if (auto* mf = dynamic_cast<FunctionDecl*>(m.get()); mf && astwalk::containsEH(mf->body.get()))
+                    programUsesEH = true;
+        } else if (auto* v = dynamic_cast<VarDecl*>(decl.get())) {
+            if (astwalk::containsEH(v->initializer.get())) programUsesEH = true;
+        }
+    }
     for (auto& decl : node->declarations) {
         if (auto* s = dynamic_cast<StructDecl*>(decl.get())) {
             declareStructType(s); // registers template structs and creates concrete types

@@ -134,6 +134,49 @@ inline bool referencesName(Expr* e, const std::string& name) {
     return found;
 }
 
+// Whether a subtree contains a `throw` or a `try` (lambda bodies included). A program
+// with neither never unwinds through Eskiu frames, so codegen emits no cleanup pads.
+inline bool containsEH(Stmt* s);
+inline bool containsEH(Expr* e) {
+    if (!e) return false;
+    if (auto* lam = dynamic_cast<LambdaExpr*>(e)) return containsEH(lam->body.get());
+    bool found = false;
+    forEachChildExprFlat(e, [&](ExprPtr& c) { if (!found) found = containsEH(c.get()); });
+    return found;
+}
+inline bool containsEH(Stmt* s) {
+    if (!s) return false;
+    if (dynamic_cast<ThrowStmt*>(s) || dynamic_cast<TryStmt*>(s)) return true;
+    auto E = [&](const ExprPtr& e) { return containsEH(e.get()); };
+    auto S = [&](const StmtPtr& st) { return containsEH(st.get()); };
+    if (auto* b = dynamic_cast<BlockStmt*>(s)) {
+        for (auto& it : b->items) {
+            if (std::holds_alternative<StmtPtr>(it)) { if (S(std::get<StmtPtr>(it))) return true; continue; }
+            if (auto* vd = dynamic_cast<VarDecl*>(std::get<DeclPtr>(it).get()); vd && E(vd->initializer)) return true;
+        }
+        return false;
+    }
+    if (auto* i = dynamic_cast<IfStmt*>(s)) return E(i->condition) || S(i->thenBranch) || S(i->elseBranch);
+    if (auto* f = dynamic_cast<ForStmt*>(s)) return S(f->init) || E(f->condition) || E(f->step) || S(f->body);
+    if (auto* fi = dynamic_cast<ForInStmt*>(s)) return E(fi->iterable) || S(fi->body);
+    if (auto* w = dynamic_cast<WhileStmt*>(s)) return E(w->condition) || S(w->body);
+    if (auto* dw = dynamic_cast<DoWhileStmt*>(s)) return S(dw->body) || E(dw->condition);
+    if (auto* r = dynamic_cast<ReturnStmt*>(s)) return E(r->value);
+    if (auto* sw = dynamic_cast<SwitchStmt*>(s)) {
+        if (E(sw->subject)) return true;
+        for (auto& c : sw->cases) for (auto& st : c.stmts) if (S(st)) return true;
+        return false;
+    }
+    if (auto* m = dynamic_cast<MatchStmt*>(s)) {
+        if (E(m->subject)) return true;
+        for (auto& a : m->arms) if (S(a.body)) return true;
+        return false;
+    }
+    if (auto* d = dynamic_cast<DeferStmt*>(s)) return S(d->body);
+    if (auto* es = dynamic_cast<ExprStmt*>(s)) return E(es->expr);
+    return false;
+}
+
 // `base` if it is not in `used`, else the first free `base_1`, `base_2`, ...; the
 // chosen name is added to `used`.
 inline std::string freshName(const std::string& base, std::set<std::string>& used) {

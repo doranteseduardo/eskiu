@@ -26,7 +26,10 @@ void CodeGen::runCleanupsToDepth(size_t depth, bool errorPath) {
             auto types = varTypeStack;
             if (frame[j].names) symbolTable = *frame[j].names;
             if (frame[j].types) varTypeStack = *frame[j].types;
+            llvm::BasicBlock* unwind = unwindTarget;
+            unwindTarget = frame[j].prevUnwind;
             frame[j].body->accept(this);
+            unwindTarget = unwind;
             symbolTable = std::move(names);
             varTypeStack = std::move(types);
         }
@@ -36,7 +39,43 @@ void CodeGen::runCleanupsToDepth(size_t depth, bool errorPath) {
 CodeGen::Cleanup CodeGen::makeCleanup(Stmt* body, bool isErr) {
     return Cleanup{body, isErr,
                    std::make_shared<const std::map<std::string, llvm::Value*>>(symbolTable),
-                   std::make_shared<const std::vector<std::map<std::string, std::string>>>(varTypeStack)};
+                   std::make_shared<const std::vector<std::map<std::string, std::string>>>(varTypeStack),
+                   unwindTarget};
+}
+
+void CodeGen::popCleanupFrame() {
+    // The calls after a scope's defers unwound to their pads; past the scope they go
+    // back to the landingpad that was active before its first defer.
+    if (!cleanupScopes.back().empty()) unwindTarget = cleanupScopes.back().front().prevUnwind;
+    cleanupScopes.pop_back();
+}
+
+void CodeGen::emitDeferPad() {
+    llvm::Function* fn = builder->GetInsertBlock()->getParent();
+    ensureEHRuntime();
+    if (!fn->hasPersonalityFn()) fn->setPersonalityFn(module->getFunction(ehPersonalityName()));
+    llvm::Type* ptrTy = llvm::PointerType::get(*context, 0);
+    llvm::BasicBlock* saved = builder->GetInsertBlock();
+    llvm::BasicBlock* pad = llvm::BasicBlock::Create(*context, "defer.lpad", fn);
+    builder->SetInsertPoint(pad);
+    auto* lp = builder->CreateLandingPad(
+        llvm::StructType::get(*context, {ptrTy, llvm::Type::getInt32Ty(*context)}), 1, "defer.lp");
+    bool inTry = !tryStack.empty();
+    if (inTry) lp->addClause(llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(ptrTy)));
+    else lp->setCleanup(true);
+    llvm::Value* ex = inTry ? builder->CreateExtractValue(lp, {0}, "defer.ex") : nullptr;
+    size_t depth = inTry ? tryStack.back().depth : 0;
+    runCleanupsToDepth(depth, /*errorPath=*/false);
+    if (!blockTerminated()) {
+        if (inTry) {
+            tryStack.back().incoming.push_back({ex, builder->GetInsertBlock()});
+            builder->CreateBr(tryStack.back().dispatch);
+        } else {
+            builder->CreateResume(lp);
+        }
+    }
+    builder->SetInsertPoint(saved);
+    unwindTarget = pad;
 }
 
 void CodeGen::visit(BlockStmt* node) {
@@ -63,7 +102,7 @@ void CodeGen::visit(BlockStmt* node) {
     // Normal fall-through: run this block's deferred cleanups (LIFO, defers only).
     if (!blockTerminated())
         runCleanupsToDepth(cleanupScopes.size() - 1, /*errorPath=*/false);
-    cleanupScopes.pop_back();
+    popCleanupFrame();
     popScope();
 }
 
@@ -78,14 +117,16 @@ void CodeGen::emitScopedBody(const StmtPtr& body) {
     body->accept(this);
     if (!blockTerminated())
         runCleanupsToDepth(cleanupScopes.size() - 1, /*errorPath=*/false);
-    cleanupScopes.pop_back();
+    popCleanupFrame();
     popScope();
 }
 
 void CodeGen::visit(DeferStmt* node) {
     // Register the body to run at scope exit; emitted by runCleanupsToDepth.
-    if (node->body && !cleanupScopes.empty())
+    if (node->body && !cleanupScopes.empty()) {
         cleanupScopes.back().push_back(makeCleanup(node->body.get(), node->isErr));
+        if (programUsesEH && !node->isErr) emitDeferPad();
+    }
 }
 
 void CodeGen::visit(IfStmt* node) {
@@ -148,7 +189,7 @@ void CodeGen::visit(IfStmt* node) {
     for (size_t i = outerMerges.size(); i-- > 0;) {
         if (!blockTerminated())
             runCleanupsToDepth(cleanupScopes.size() - 1, /*errorPath=*/false);
-        cleanupScopes.pop_back();
+        popCleanupFrame();
         popScope();
         if (!hasTerminator(builder->GetInsertBlock())) {
             builder->CreateBr(outerMerges[i]);
@@ -601,7 +642,7 @@ void CodeGen::visit(SwitchStmt* node) {
         }
         if (!blockTerminated())
             runCleanupsToDepth(cleanupScopes.size() - 1, /*errorPath=*/false);
-        cleanupScopes.pop_back();
+        popCleanupFrame();
         popScope();
         if (!hasTerminator(builder->GetInsertBlock())) {
             llvm::BasicBlock* next = (i + 1 < caseBlocks.size()) ? caseBlocks[i+1] : endBlock;

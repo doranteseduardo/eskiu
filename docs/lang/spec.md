@@ -1347,9 +1347,14 @@ Rules:
 - A defer body may not `return`, or `break`/`continue` out of itself (that would jump out
   of the cleanup); doing so is a compile error.
 
+`defer` also runs when an exception unwinds out of the block: a `defer` in a `try` body
+runs before that `try`'s `catch` handles the exception, and a `defer` in a function the
+exception propagates through runs when an outer `try` catches it. (An exception no `try`
+catches ends the program without running cleanups, as in C++.) An `errdefer` does not run
+on an exception, only on `?`-propagation.
+
 `defer` complements `try`/`finally` (§6.9): `finally` is for catch-and-cleanup around a
-block, while `defer` colocates a one-off release with its acquisition. For cleanup that
-must also run when an exception unwinds past the scope, use `try`/`finally`.
+block, while `defer` colocates a one-off release with its acquisition.
 
 **`errdefer`** is a variant that runs its statement only on the **error exit** path,
 namely when the function leaves through `?`-propagation (an `Err` is returned early). It

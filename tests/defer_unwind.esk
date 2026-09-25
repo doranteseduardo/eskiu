@@ -1,0 +1,75 @@
+// Defers run on the exceptional path: a defer inside a try body runs before that
+// try's catch handles the exception, and a defer in a function the exception unwinds
+// through runs when an outer try catches it. LIFO order, nested blocks, loops.
+extern int printf(string fmt, ...);
+
+void boom(int k) { if (k > 0) { throw k; } }
+
+int inner(int k) {
+    defer printf("inner defer %d\n", k);
+    {
+        defer printf("inner block defer\n");
+        boom(k);
+    }
+    printf("inner after %d\n", k);
+    return k;
+}
+
+int mid(int k) {
+    defer printf("mid defer\n");
+    return inner(k) + 1;
+}
+
+int local() {
+    int x = 0;
+    try {
+        defer x += 1;
+        defer printf("local defer x=%d\n", x);
+        boom(3);
+        x = 100;
+    } catch (int e) {
+        printf("local caught %d x=%d\n", e, x);
+    }
+    return x;
+}
+
+int looped() {
+    int s = 0;
+    for (int i = 0; i < 3; i++) {
+        try {
+            defer s += 10;
+            if (i == 1) { boom(i); }
+            s += 1;
+        } catch (int e) {
+            s += 100;
+        } finally {
+            s += 1000;
+        }
+    }
+    return s;
+}
+
+int nested() {
+    int r = 0;
+    try {
+        defer r += 1;
+        try {
+            defer r += 10;
+            boom(5);
+        } catch (string s) {
+            r = -1;
+        }
+        r += 1000;
+    } catch (int e) {
+        r += 100;
+    }
+    return r;
+}
+
+int main() {
+    printf("local %d\n", local());
+    try { mid(0); mid(7); } catch (int e) { printf("main caught %d\n", e); }
+    printf("looped %d\n", looped());
+    printf("nested %d\n", nested());
+    return 0;
+}
