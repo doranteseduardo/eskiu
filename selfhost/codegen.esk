@@ -3816,16 +3816,18 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
                 string sn = bet; if (cg_is_ptr_ty(bet) == 1) { sn = cg_strip_ptr(bet); }
                 CgBF slot = cg_bf(g, sn, e.a.sval);
                 if (slot.bw > 0) {
+                    string sn2 = "";
+                    string baseptr = cg_member_baseptr(g, e.a.a, &sn2);   // target first
                     CgVal rv = cg_expr(g, e.b);
                     string rop = cg_coerce(g, rv, slot.sty);
-                    string sn2 = "";
-                    string baseptr = cg_member_baseptr(g, e.a.a, &sn2);
                     cg_bf_write(g, baseptr, sn2, slot, rop);
                     return rv;
                 }
             }
-            CgVal rhs = cg_expr(g, e.b);
+            // Evaluation order (mirrors CodeGen::emitAssignment): the target's address
+            // first, then the right-hand side, then the store.
             if (e.a != null && e.a.kind == EK_IDENT && cg_find_local(g, e.a.sval).slot[0] != 0) {
+                CgVal rhs = cg_expr(g, e.b);
                 CgLocal l = cg_find_local(g, e.a.sval);
                 string rop = cg_coerce(g, rhs, l.ty);   // coerce RHS to the variable's type
                 if (cg_is_iface(g, l.ety) == 1) { rop = cg_iface_conv(g, l.ety, rhs, e.b); }
@@ -3836,6 +3838,7 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
                 v.op = rop; v.ty = l.ty; v.ety = l.ety; return v;
             }
             CgVal lv = cg_lval(g, e.a);                 // member / deref / index lvalue
+            CgVal rhs = cg_expr(g, e.b);
             string lty = cg_lltype(g, lv.ety);
             string rop = cg_coerce(g, rhs, lty);        // coerce RHS to the field/element type
             if (cg_is_iface(g, cg_dealias(g, lv.ety)) == 1) { rop = cg_iface_conv(g, lv.ety, rhs, e.b); }

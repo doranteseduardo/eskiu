@@ -165,14 +165,18 @@ void CodeGen::emitAssignment(BinaryExpr* node) {
             return;
         }
     }
+    // Evaluation order: the target's address first, then the right-hand side, then the
+    // store (a[f()] = g() calls f before g), as compound assignment does.
     // Bitfield assignment is a read-modify-write, not a plain store.
     if (auto* mem = dynamic_cast<MemberExpr*>(node->left.get())) {
         auto lit = structLayout.find(structBaseTypeOf(mem->base));
         if (lit != structLayout.end()) {
             auto sit = lit->second.find(mem->member);
             if (sit != lit->second.end() && sit->second.isBitfield) {
+                const BitfieldSlot* slot = nullptr;
+                llvm::Value* gep = bitfieldWordPtr(mem, slot);
                 llvm::Value* rhs = evaluateExpr(node->right);
-                storeBitfield(mem, rhs);
+                storeBitfieldInto(gep, *slot, rhs);
                 exprValueStack.push(rhs);
                 return;
             }

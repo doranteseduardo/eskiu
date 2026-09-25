@@ -1,0 +1,24 @@
+// Simple assignment evaluates the target's address first, then the right-hand side,
+// like compound assignment: `a[t(1)] = t(2)` traces 12.
+extern int printf(string fmt, ...);
+
+int trace = 0;
+int t(int v) { trace = trace * 10 + v; return v; }
+
+struct P { int x; int y; }
+struct B { uint32 lo : 4; uint32 hi : 4; }
+
+P gp;
+B gb;
+*P getp() { t(1); return &gp; }
+*B getb() { t(1); return &gb; }
+
+int main() {
+    let a: int[5];
+    trace = 0; a[t(1)] = t(2); printf("%d %d\n", a[1], trace);
+    trace = 0; getp().x = t(2); printf("%d %d\n", gp.x, trace);
+    trace = 0; *(&a[0] + t(3)) = t(4); printf("%d %d\n", a[3], trace);
+    trace = 0; getb().hi = t(5); printf("%d %d\n", (int)gb.hi, trace);
+    trace = 0; a[t(1)] += t(2); printf("%d %d\n", a[1], trace);
+    return 0;
+}

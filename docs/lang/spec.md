@@ -626,6 +626,8 @@ The compound bitwise/shift operators are desugared by the parser: `x op= e` is e
 
 The left-hand side must be an lvalue: a named variable, a pointer dereference (`*ptr = value`), or a field access. Assigning through a dereferenced pointer parameter works correctly. `*ptr = value` stores through the pointer as expected.
 
+Evaluation order: the address of the left-hand side is computed first (its index, pointer and call subexpressions run), then the right-hand side, then the store. So `a[f()] = g()` calls `f` before `g`, and `getp().x = g()` calls `getp` first. A compound assignment `x op= e` evaluates the address of `x` once, in the same order.
+
 ### 5.5.1 Increment and Decrement
 
 `++` and `--` add or subtract one from an integer or pointer lvalue, in place. Both prefix
