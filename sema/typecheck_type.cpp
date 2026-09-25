@@ -369,6 +369,19 @@ bool TypeChecker::dropsConstQual(const std::string& lhs, const std::string& rhs)
     return l == r || l == "*void";
 }
 
+// `int32` is another spelling of `int`: a fn type written with one matches the same
+// signature written with the other.
+static std::string int32AsInt(const std::string& t) {
+    std::string out;
+    auto word = [](char c) { return std::isalnum((unsigned char)c) || c == '_'; };
+    for (size_t i = 0; i < t.size();) {
+        if (t.compare(i, 5, "int32") == 0 && (i == 0 || !word(t[i - 1])) &&
+            (i + 5 >= t.size() || !word(t[i + 5]))) { out += "int"; i += 5; continue; }
+        out += t[i++];
+    }
+    return out;
+}
+
 bool TypeChecker::isValidAssignment(const std::string& lhsType, const std::string& rhsType) {
     // const-correctness: reject a conversion that would silently drop a pointee
     // const (`const int*` → `int*`). Adding const (`int*` → `const int*`) is fine.
@@ -395,7 +408,7 @@ bool TypeChecker::isValidAssignment(const std::string& lhsType, const std::strin
     {
         ty::Type lt = ty::Type::parse(lhs), rt = ty::Type::parse(rhs);
         if (lt.isFn() || rt.isFn())
-            return lt.isFn() && rt.isFn() && lt.str() == rt.str();
+            return lt.isFn() && rt.isFn() && int32AsInt(lt.str()) == int32AsInt(rt.str());
     }
 
     if (isPointerType(lhs) && isPointerType(rhs)) return true;
