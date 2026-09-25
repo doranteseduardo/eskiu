@@ -517,6 +517,7 @@ void sema_check_decl_type(Sema* s, string t) {
     }
     int k = 0;
     while (k < got) { sema_check_decl_type(s, List_get<string>(&targs, k)); k = k + 1; }
+    if (d != null && want > 0 && want == got) { sema_check_constraints(s, &d.type_params, &targs); }
 }
 
 // Name of the struct/union a field of type `ft` holds BY VALUE ("" for a pointer, slice,
@@ -1344,9 +1345,24 @@ int sema_prim_differs(string a0, string b0) {
     return 0;
 }
 
-// Does struct `sn` implement every method of `iface` with a matching signature (arity,
-// and primitive return/param types; a type naming the interface itself is its Self type)?
-// "" when satisfied, else the reason. Mirrors the C++ interfaceMismatch.
+// Is type spelling `t` the interface's own name (its Self type)?
+int sema_is_self_ty(string t, *DeclNode iface) {
+    return sema_streq(sema_struct_of_type(t), iface.name);
+}
+
+// Do two spellings name different types (compared only when both are understood)?
+int sema_types_differ(Sema* s, string a, string b) {
+    string ca = sema_canon(s, a); string cb = sema_canon(s, b);
+    if (sema_judgeable(s, ca) == 0 || sema_judgeable(s, cb) == 0) { return 0; }
+    if (sema_streq(ca, cb) == 1) { return 0; }
+    return 1;
+}
+
+// Does type `sn` implement every method of `iface` with a matching signature (arity,
+// return and parameter types; a type naming the interface itself is its Self type)?
+// A struct implements a method inline or as a free `Type_method`; a scalar primitive
+// through a free function named like the method whose first parameter is it. "" when
+// satisfied, else the reason. Mirrors the C++ interfaceMismatch.
 string sema_iface_mismatch(Sema* s, string sn, *DeclNode iface) {
     *DeclNode sd = sema_find_struct(s, sn);
     int i = 0; int n = List_len<*DeclNode>(&iface.methods);
@@ -1358,21 +1374,32 @@ string sema_iface_mismatch(Sema* s, string sn, *DeclNode iface) {
             while (j < mn) { *DeclNode c = List_get<*DeclNode>(&sd.methods, j); if (sema_streq(c.name, m.name) == 1) { impl = c; } j = j + 1; }
         }
         if (impl == null) { impl = sema_find_fndecl(s, sema_cat(sema_cat(sn, "_"), m.name)); skip = 1; }
+        if (impl == null && sema_is_scalar_prim(sn) == 1) {
+            *DeclNode ff = sema_find_fndecl(s, m.name);
+            if (ff != null && List_len<Param>(&ff.params) > 0
+                && sema_streq(sema_struct_of_type(List_get<Param>(&ff.params, 0).ty), sn) == 1) { impl = ff; }
+        }
         if (impl == null) { return sema_cat(sema_cat("missing method '", m.name), "'"); }
         int want = List_len<Param>(&m.params);
         int got = List_len<Param>(&impl.params) - skip;
         if (got != want) {
-            return sema_cat(sema_cat("method '", m.name), "' has the wrong number of parameters");
+            uint8[96] buf;
+            sprintf((string)&buf[0], "' takes %d parameter(s), the interface requires %d", got, want);
+            return sema_cat(sema_cat("method '", m.name), (string)&buf[0]);
         }
-        if (sema_streq(sema_struct_of_type(m.ret_type), iface.name) == 0 && sema_prim_differs(impl.ret_type, m.ret_type) == 1) {
-            return sema_cat(sema_cat("method '", m.name), "' has the wrong return type");
+        if (sema_is_self_ty(m.ret_type, iface) == 0 && sema_types_differ(s, impl.ret_type, m.ret_type) == 1) {
+            return sema_cat(sema_cat(sema_cat(sema_cat(sema_cat(sema_cat("method '", m.name), "' returns '"), impl.ret_type),
+                            "', the interface requires '"), m.ret_type), "'");
         }
         int k = 0;
         while (k < want) {
             string wt = List_get<Param>(&m.params, k).ty;
             string gt = List_get<Param>(&impl.params, k + skip).ty;
-            if (sema_streq(sema_struct_of_type(wt), iface.name) == 0 && sema_prim_differs(gt, wt) == 1) {
-                return sema_cat(sema_cat("method '", m.name), "' has a wrong parameter type");
+            if (sema_is_self_ty(wt, iface) == 0 && sema_types_differ(s, gt, wt) == 1) {
+                uint8[32] nb;
+                sprintf((string)&nb[0], "%d", k + 1);
+                return sema_cat(sema_cat(sema_cat(sema_cat(sema_cat(sema_cat(sema_cat(sema_cat("method '", m.name), "' parameter "),
+                                (string)&nb[0]), " is '"), gt), "', the interface requires '"), wt), "'");
             }
             k = k + 1;
         }
@@ -2043,30 +2070,39 @@ int sema_is_scalar_prim(string c) {
     return 0;
 }
 
-// Does concrete type `c` satisfy interface `iface_name`? A struct satisfies via a
-// real method `c.method`; a scalar primitive may satisfy via a free function named
-// `method` whose first parameter is `c` (mirrors structSatisfiesInterface). Unknown
-// interface → treat as satisfied (don't false-positive).
-int sema_satisfies(Sema* s, string c, string iface_name) {
-    *DeclNode iface = sema_find_iface(s, iface_name);
-    if (iface == null) { return 1; }
-    int prim = sema_is_scalar_prim(c);
-    int i = 0; int n = List_len<*DeclNode>(&iface.methods);
-    while (i < n) {
-        string m = List_get<*DeclNode>(&iface.methods, i).name;
-        int ok = 0;
-        if (sema_has_member(s, sema_cat(sema_cat(c, "."), m)) == 1) { ok = 1; }   // struct method
-        if (ok == 0 && sema_find_fndecl(s, sema_cat(sema_cat(c, "_"), m)) != null) { ok = 1; }   // free `Type_method`
-        if (ok == 0 && prim == 1) {                                               // free-fn fallback
-            *DeclNode ff = sema_find_fndecl(s, m);
-            if (ff != null && List_len<Param>(&ff.params) > 0) {
-                if (sema_streq(sema_struct_of_type(List_get<Param>(&ff.params, 0).ty), c) == 1) { ok = 1; }
+// Bounded generics: each constrained type parameter's argument (`targs`, parallel to
+// `tps`) must satisfy its interface constraints, structurally (mirrors the C++
+// checkConstraints). Returns 1 when all hold.
+int sema_check_constraints(Sema* s, List<TypeParam>* tps, List<string>* targs) {
+    int ok = 1;
+    int t = 0;
+    while (t < List_len<TypeParam>(tps) && t < List_len<string>(targs)) {
+        TypeParam tp = List_get<TypeParam>(tps, t);
+        string concrete = sema_isub(s, List_get<string>(targs, t));
+        string bare = sema_canon(s, concrete);
+        while ((int)bare[0] == 42) { bare = sema_sub_str(bare, 1, sema_slen(bare)); }
+        bare = sema_base_name(bare);
+        int ci = 0;
+        if (sema_in_list(&s.tparams, bare) == 1) { ci = List_len<string>(&tp.constraints); }   // still abstract
+        while (ci < List_len<string>(&tp.constraints)) {
+            string ic = List_get<string>(&tp.constraints, ci);
+            *DeclNode iface = sema_find_iface(s, ic);
+            if (iface == null) {
+                s.had_error = 1; ok = 0;
+                printf("error: %s:%d:%d: unknown constraint interface '%s'\n", s.filename, s.line, s.col, ic);
+            } else {
+                string why = sema_iface_mismatch(s, bare, iface);
+                if (why[0] != 0) {
+                    s.had_error = 1; ok = 0;
+                    printf("error: %s:%d:%d: type '%s' does not satisfy constraint '%s' (required by a bounded type parameter): %s\n",
+                           s.filename, s.line, s.col, concrete, ic, why);
+                }
             }
+            ci = ci + 1;
         }
-        if (ok == 0) { return 0; }
-        i = i + 1;
+        t = t + 1;
     }
-    return 1;
+    return ok;
 }
 
 // Extract the type arguments of a template-call spelling ("pick<int>" → ["int"],
@@ -2657,6 +2693,12 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         return;
     }
     if (k == EK_SIZEOF) {                  // sizeof(T) or sizeof(variable): T must be a known type
+        *DeclNode szd = sema_find_tdecl(s, e.sval);
+        if (sema_lookup(s, e.sval) == 0 && szd != null && List_len<TypeParam>(&szd.type_params) > 0
+            && sema_in_list(&s.tparams, e.sval) == 0) {
+            s.had_error = 1;                // a generic type has no size until instantiated
+            printf("error: %s:%d:%d: unknown type '%s'\n", s.filename, s.line, s.col, e.sval);
+        }
         if (sema_lookup(s, e.sval) == 0 && sema_known_type(s, e.sval) == 0) {
             s.had_error = 1;
             printf("error: %s:%d:%d: unknown type '%s'\n", s.filename, s.line, s.col, sema_base_name(sema_struct_of_type(e.sval)));
@@ -3175,7 +3217,9 @@ void sema_expr_k(Sema* s, *ExprNode e) {
                 } else if (sema_check_generic_arity(s, gfd, e) == 1) {
                     sema_check_generic_binding(s, gfd, e);
                     List<string> btargs; List_init<string>(&btargs, 4);
-                    if (sema_bind_targs(s, gfd, e, &btargs) == 1) { sema_queue_inst(s, gfd, null, &btargs, gfd.name, ""); }
+                    if (sema_bind_targs(s, gfd, e, &btargs) == 1) {
+                        if (sema_check_constraints(s, &gfd.type_params, &btargs) == 1) { sema_queue_inst(s, gfd, null, &btargs, gfd.name, ""); }
+                    }
                     else if (sema_args_typed(s, e) == 1) {
                         string unbound = "";
                         int ui = 0;
@@ -3254,23 +3298,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
                 printf("error: %s:%d:%d: generic function '%s' expects %d type argument(s), got %d\n", s.filename, s.line, s.col, fd.name, tn, na);
             }
             if (sema_check_generic_arity(s, fd, e) == 0) { inst_ok = 0; }
-            int ti = 0;
-            while (ti < tn && ti < na) {
-                TypeParam tp = List_get<TypeParam>(&fd.type_params, ti);
-                string concrete = sema_isub(s, List_get<string>(&targs, ti));
-                int ci = 0;
-                int cn = List_len<string>(&tp.constraints);
-                while (ci < cn) {
-                    string ic = List_get<string>(&tp.constraints, ci);
-                    if (sema_satisfies(s, concrete, ic) == 0) {
-                        s.had_error = 1; inst_ok = 0;
-                        printf("error: %s:%d:%d: type '%s' does not satisfy constraint '%s'\n",
-                               s.filename, s.line, s.col, concrete, ic);
-                    }
-                    ci = ci + 1;
-                }
-                ti = ti + 1;
-            }
+            if (na == tn && sema_check_constraints(s, &fd.type_params, &targs) == 0) { inst_ok = 0; }
             if (inst_ok == 1 && tn > 0) {
                 // The arguments against the instantiated parameter types.
                 List<string> ctargs; List_init<string>(&ctargs, 4);
@@ -4727,6 +4755,7 @@ int sema_check(Sema* s, *Program prog) {
         // A global's initializer runs at compile time (no code runs before `main`), so it
         // must be a constant expression, as in C.
         if (d.kind == DK_VARDECL) { sema_check_decl_type(s, d.ret_type); }   // a global's type must exist
+        if (d.kind == DK_TYPEALIAS) { sema_check_decl_type(s, d.ret_type); }   // so must an alias's target
         if (d.kind == DK_VARDECL && d.is_extern == 0 && d.init != null && sema_is_const_init(s, d.init) == 0) {
             sema_error(s, sema_cat(sema_cat("initializer of global '", d.name), "' is not a compile-time constant"));
         }
