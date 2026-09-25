@@ -1,0 +1,45 @@
+// Frame-hoisted locals used after an await inside every expression form: ++/--,
+// a ternary, an array index, a struct literal, a slice, and a cast.
+import <future>;
+extern int printf(string fmt, ...);
+
+struct P { int a; int b; }
+
+Future<int>* produce(int v) {
+    Future<int>* f = future_new<int>();
+    future_complete<int>(f, v);
+    return f;
+}
+
+async int sumN(int n) {
+    int total = 0;
+    for (int i = 0; i < n; i++) {
+        int v = await produce(i);
+        total += v;
+    }
+    return total;
+}
+
+async int forms(int n) {
+    int x = await produce(n);
+    x++;
+    --x;
+    x += 1;
+    int t = x > 2 ? x : 0;
+    int[3] arr;
+    arr[0] = x; arr[1] = t; arr[2] = 7;
+    P p = P{x, arr[2]};
+    int64 w = (int64)p.b + (int64)x;
+    int[] sl = arr[0..2];
+    return t + arr[1] + p.a + (int)w + sl[1];
+}
+
+int main() {
+    Future<int>* r = sumN(5);
+    printf("%d\n", r.value);
+    free_future<int>(r);
+    Future<int>* q = forms(4);
+    printf("%d\n", q.value);
+    free_future<int>(q);
+    return 0;
+}
