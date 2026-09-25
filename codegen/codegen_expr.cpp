@@ -441,6 +441,25 @@ void CodeGen::visit(UnaryExpr* node) {
 }
 
 void CodeGen::visit(IncDecExpr* node) {
+    // A bitfield has no address: step it with a masked read-modify-write of its storage
+    // word (evaluating the base once). Prefix yields the stored, width-wrapped value.
+    if (auto* mem = dynamic_cast<MemberExpr*>(node->operand.get())) {
+        auto lit = structLayout.find(structBaseTypeOf(mem->base));
+        if (lit != structLayout.end()) {
+            auto sit = lit->second.find(mem->member);
+            if (sit != lit->second.end() && sit->second.isBitfield) {
+                const BitfieldSlot* slot = nullptr;
+                llvm::Value* gep = bitfieldWordPtr(mem, slot);
+                llvm::Value* old = loadBitfieldFrom(gep, *slot);
+                llvm::Value* one = llvm::ConstantInt::get(old->getType(), 1);
+                llvm::Value* nw = node->decrement ? builder->CreateSub(old, one)
+                                                  : builder->CreateAdd(old, one);
+                storeBitfieldInto(gep, *slot, nw);
+                exprValueStack.push(node->prefix ? loadBitfieldFrom(gep, *slot) : old);
+                return;
+            }
+        }
+    }
     llvm::Value* ptr = evaluateLValue(node->operand);
     std::string ety = getExprEskiuType(node->operand);
     bool isPtr = !ety.empty() && (ety.front() == '*' || ety.back() == '*');
@@ -679,17 +698,7 @@ void CodeGen::visit(MemberExpr* node) {
             exprValueStack.push(builder->CreateLoad(slot.storageType, gep, node->member));
             return;
         }
-        llvm::Type* sty = slot.storageType;
-        llvm::Value* word = builder->CreateLoad(sty, gep);
-        llvm::Value* shifted = slot.bitOffset
-            ? builder->CreateLShr(word, llvm::ConstantInt::get(sty, slot.bitOffset)) : word;
-        uint64_t mask = (slot.bitWidth >= 64) ? ~0ULL : ((1ULL << slot.bitWidth) - 1);
-        llvm::Value* masked = builder->CreateAnd(shifted, llvm::ConstantInt::get(sty, mask));
-        if (slot.isSigned && slot.bitWidth < sty->getIntegerBitWidth()) {
-            unsigned sh = sty->getIntegerBitWidth() - slot.bitWidth;
-            masked = builder->CreateAShr(builder->CreateShl(masked, sh), sh);
-        }
-        exprValueStack.push(masked);
+        exprValueStack.push(loadBitfieldFrom(gep, slot));
         return;
     }
 
@@ -717,6 +726,20 @@ void CodeGen::visit(MemberExpr* node) {
     throw std::runtime_error("Struct/union '" + baseType + "' has no field '" + node->member + "'");
 }
 
+llvm::Value* CodeGen::loadBitfieldFrom(llvm::Value* wordPtr, const BitfieldSlot& slot) {
+    llvm::Type* sty = slot.storageType;
+    llvm::Value* word = builder->CreateLoad(sty, wordPtr);
+    llvm::Value* shifted = slot.bitOffset
+        ? builder->CreateLShr(word, llvm::ConstantInt::get(sty, slot.bitOffset)) : word;
+    uint64_t mask = (slot.bitWidth >= 64) ? ~0ULL : ((1ULL << slot.bitWidth) - 1);
+    llvm::Value* masked = builder->CreateAnd(shifted, llvm::ConstantInt::get(sty, mask));
+    if (slot.isSigned && slot.bitWidth < sty->getIntegerBitWidth()) {
+        unsigned sh = sty->getIntegerBitWidth() - slot.bitWidth;
+        masked = builder->CreateAShr(builder->CreateShl(masked, sh), sh);
+    }
+    return masked;
+}
+
 void CodeGen::storeBitfieldInto(llvm::Value* wordPtr, const BitfieldSlot& slot,
                                 llvm::Value* val) {
     llvm::Type* sty = slot.storageType;  // integer storage word
@@ -738,8 +761,15 @@ void CodeGen::storeBitfieldInto(llvm::Value* wordPtr, const BitfieldSlot& slot,
 }
 
 void CodeGen::storeBitfield(MemberExpr* m, llvm::Value* val) {
+    const BitfieldSlot* slot = nullptr;
+    llvm::Value* gep = bitfieldWordPtr(m, slot);
+    storeBitfieldInto(gep, *slot, val);
+}
+
+llvm::Value* CodeGen::bitfieldWordPtr(MemberExpr* m, const BitfieldSlot*& slotOut) {
     std::string baseType = structBaseTypeOf(m->base);
     const BitfieldSlot& slot = structLayout[baseType][m->member];
+    slotOut = &slot;
     // A pointer-to-struct base's address is the pointer's VALUE (evaluateExpr), not the
     // lvalue slot holding the pointer — mirrors the read path's baseAddr. The old code
     // used evaluateLValue for both, so a `*Struct` bitfield write hit the pointer's own
@@ -747,8 +777,7 @@ void CodeGen::storeBitfield(MemberExpr* m, llvm::Value* val) {
     std::string rawBaseTy = getExprEskiuType(m->base);
     bool baseIsPtr = (!rawBaseTy.empty() && (rawBaseTy.front() == '*' || rawBaseTy.back() == '*'));
     llvm::Value* basePtr = baseIsPtr ? evaluateExpr(m->base) : evaluateLValue(m->base);
-    llvm::Value* gep = builder->CreateStructGEP(structTypes[baseType], basePtr, slot.physIndex);
-    storeBitfieldInto(gep, slot, val);
+    return builder->CreateStructGEP(structTypes[baseType], basePtr, slot.physIndex);
 }
 
 void CodeGen::visit(CastExpr* node) {

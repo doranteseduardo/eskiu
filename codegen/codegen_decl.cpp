@@ -385,7 +385,7 @@ void CodeGen::declareStructType(StructDecl* node) {
             BitfieldSlot s;
             s.isBitfield = true; s.physIndex = (unsigned)curPhys;
             s.bitOffset = curOffset; s.bitWidth = (unsigned)f.bitWidth;
-            s.storageType = sty; s.isSigned = (f.type.rfind("uint", 0) != 0);
+            s.storageType = sty; s.isSigned = !eskiuUnsigned(f.type);
             slots[f.name] = s;
             curOffset += (unsigned)f.bitWidth;
         } else {

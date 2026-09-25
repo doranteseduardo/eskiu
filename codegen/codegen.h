@@ -114,6 +114,10 @@ private:
     // `struct:` tag and pointer decoration, and mangle+instantiate a template type.
     std::string stripToStructKey(std::string t);
     void storeBitfield(MemberExpr* m, llvm::Value* val); // read-modify-write a bitfield
+    // Storage-word address of bitfield member `m` (base evaluated once); sets `slot`.
+    llvm::Value* bitfieldWordPtr(MemberExpr* m, const BitfieldSlot*& slot);
+    // Extract (shift, mask, sign-extend) a bitfield's value from its storage word.
+    llvm::Value* loadBitfieldFrom(llvm::Value* wordPtr, const BitfieldSlot& slot);
     // Masked read-modify-write of a bitfield given the storage-word pointer.
     void storeBitfieldInto(llvm::Value* wordPtr, const BitfieldSlot& slot, llvm::Value* val);
 

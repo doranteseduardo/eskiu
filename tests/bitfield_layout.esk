@@ -1,0 +1,32 @@
+// Bitfields pack into storage words of their declared type (like C): uint8 fields
+// share a byte, a uint64 field keeps all 64 bits, and a new word opens when the
+// declared width changes or the next field does not fit.
+extern int printf(string fmt, ...);
+
+struct A8 { uint8 a : 3; uint8 b : 5; uint8 c : 4; }
+struct B32 { uint32 a : 20; uint32 b : 20; }
+struct C16 { int x; uint16 f : 4; uint16 g : 12; int8 z; }
+struct D64 { uint64 a : 40; uint64 b : 30; }
+struct S8 { int8 s : 3; uint8 u : 5; }
+
+int main() {
+    printf("sizeof A8=%d B32=%d C16=%d D64=%d S8=%d\n", (int)sizeof(A8), (int)sizeof(B32),
+           (int)sizeof(C16), (int)sizeof(D64), (int)sizeof(S8));
+    let a: A8; a.a = 5; a.b = 31; a.c = 9;
+    printf("A8 %d %d %d\n", (int)a.a, (int)a.b, (int)a.c);
+    let c: C16; c.x = -7; c.f = 15; c.g = 4095; c.z = -2;
+    printf("C16 %d %d %d %d\n", c.x, (int)c.f, (int)c.g, (int)c.z);
+    let d: D64; d.a = 0xFFFFFFFFFF; d.b = 0x3FFFFFFF;
+    d.a += 2;
+    printf("D64 %llx %llx\n", d.a, d.b);
+    d.a = 0x123456789A;
+    printf("D64 %llx %llx\n", d.a, d.b);
+    let s: S8; s.s = -3; s.u = 31;
+    printf("S8 %d %d\n", (int)s.s, (int)s.u);
+    s.s = 3; s.s += 1;
+    printf("S8 wrap %d %d\n", (int)s.s, (int)s.u);
+    let p: *A8 = &a;
+    p.b = 17;
+    printf("via ptr %d %d %d\n", (int)a.a, (int)a.b, (int)a.c);
+    return 0;
+}

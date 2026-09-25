@@ -1,0 +1,8 @@
+sizeof A8=2 B32=8 C16=8 D64=16 S8=1
+A8 5 31 9
+C16 -7 15 4095 -2
+D64 1 3fffffff
+D64 123456789a 3fffffff
+S8 -3 31
+S8 wrap -4 31
+via ptr 5 17 9
