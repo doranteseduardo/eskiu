@@ -118,6 +118,46 @@ inline void collectNames(Stmt* s, std::set<std::string>& out) {
     else if (auto* es = dynamic_cast<ExprStmt*>(s))     { E(es->expr); }
 }
 
+// Names whose address is taken (`&x`) anywhere in a subtree, lambda bodies included.
+inline void collectAddressTaken(Stmt* s, std::set<std::string>& out);
+inline void collectAddressTaken(Expr* e, std::set<std::string>& out) {
+    if (!e) return;
+    if (auto* u = dynamic_cast<UnaryExpr*>(e); u && u->op == "&")
+        if (auto* id = dynamic_cast<IdentExpr*>(u->operand.get())) out.insert(id->name);
+    if (auto* lam = dynamic_cast<LambdaExpr*>(e)) { collectAddressTaken(lam->body.get(), out); return; }
+    forEachChildExprFlat(e, [&](ExprPtr& c) { collectAddressTaken(c.get(), out); });
+}
+inline void collectAddressTaken(Stmt* s, std::set<std::string>& out) {
+    if (!s) return;
+    auto E = [&](const ExprPtr& e) { collectAddressTaken(e.get(), out); };
+    auto S = [&](const StmtPtr& st) { collectAddressTaken(st.get(), out); };
+    if (auto* b = dynamic_cast<BlockStmt*>(s)) {
+        for (auto& it : b->items) {
+            if (std::holds_alternative<StmtPtr>(it)) { S(std::get<StmtPtr>(it)); continue; }
+            if (auto* vd = dynamic_cast<VarDecl*>(std::get<DeclPtr>(it).get())) E(vd->initializer);
+        }
+    }
+    else if (auto* i = dynamic_cast<IfStmt*>(s)) {
+        for (IfStmt* n = i; n;) {
+            E(n->condition); S(n->thenBranch);
+            auto* next = dynamic_cast<IfStmt*>(n->elseBranch.get());
+            if (!next) S(n->elseBranch);
+            n = next;
+        }
+    }
+    else if (auto* f = dynamic_cast<ForStmt*>(s))       { S(f->init); E(f->condition); E(f->step); S(f->body); }
+    else if (auto* fi = dynamic_cast<ForInStmt*>(s))    { E(fi->iterable); S(fi->body); }
+    else if (auto* w = dynamic_cast<WhileStmt*>(s))     { E(w->condition); S(w->body); }
+    else if (auto* dw = dynamic_cast<DoWhileStmt*>(s))  { S(dw->body); E(dw->condition); }
+    else if (auto* r = dynamic_cast<ReturnStmt*>(s))    { E(r->value); }
+    else if (auto* sw = dynamic_cast<SwitchStmt*>(s))   { E(sw->subject); for (auto& c : sw->cases) for (auto& st : c.stmts) S(st); }
+    else if (auto* m = dynamic_cast<MatchStmt*>(s))     { E(m->subject); for (auto& a : m->arms) S(a.body); }
+    else if (auto* th = dynamic_cast<ThrowStmt*>(s))    { E(th->value); }
+    else if (auto* t = dynamic_cast<TryStmt*>(s))       { S(t->body); for (auto& c : t->catches) S(c.body); S(t->finally); }
+    else if (auto* d = dynamic_cast<DeferStmt*>(s))     { S(d->body); }
+    else if (auto* es = dynamic_cast<ExprStmt*>(s))     { E(es->expr); }
+}
+
 // Whether `e` reads the name `name` (an identifier or `sizeof(name)`; a lambda body
 // counts when it spells the name anywhere). Member names are not reads.
 inline bool referencesName(Expr* e, const std::string& name) {

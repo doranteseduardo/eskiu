@@ -327,7 +327,13 @@ void TypeChecker::condNarrowings(Expr* cond, bool whenTrue, std::vector<std::str
         auto* id = dynamic_cast<IdentExpr*>(e);
         if (!id) return "";
         std::string t = lookupSymbol(id->name);
-        return (!t.empty() && t[0] == '?') ? narrowKey(id->name) : "";
+        if (t.empty() || t[0] != '?') return "";
+        // A variable reachable through a pointer (`&p` taken) can be nulled behind the
+        // check by a write through it, so the check proves nothing lasting.
+        int si = scopeOf(id->name);
+        if (si >= 0 && scopes[si][id->name].addrTaken) return "";
+        if (si == 0 && globalAddrTaken.count(id->name)) return "";
+        return narrowKey(id->name);
     };
     // `!c` flips the sense; `a && b` (when true) and `a || b` (when false) narrow by both
     // operands. The left spine of such a run is followed with a loop; the right operands
@@ -394,6 +400,33 @@ std::vector<std::string> TypeChecker::applyNarrowings(const std::vector<std::str
     for (const auto& k : keys)
         if (narrowedNonNull.insert(k).second) inserted.push_back(k);
     return inserted;
+}
+
+void TypeChecker::markAddrTaken(const std::set<std::string>& names) {
+    for (const auto& n : names) {
+        int si = scopeOf(n);
+        if (si >= 0) scopes[si][n].addrTaken = true;
+    }
+}
+
+void TypeChecker::markAddrTakenIn(Stmt* s) {
+    std::set<std::string> names;
+    astwalk::collectAddressTaken(s, names);
+    markAddrTaken(names);
+}
+
+void TypeChecker::markAddrTakenIn(Expr* e) {
+    std::set<std::string> names;
+    astwalk::collectAddressTaken(e, names);
+    markAddrTaken(names);
+}
+
+void TypeChecker::dropGlobalNarrowings() {
+    for (auto it = narrowedNonNull.begin(); it != narrowedNonNull.end();) {
+        size_t at = it->rfind('@');
+        if (at != std::string::npos && it->compare(at, std::string::npos, "@0") == 0) it = narrowedNonNull.erase(it);
+        else ++it;
+    }
 }
 
 void TypeChecker::undoNarrowings(const std::vector<std::string>& inserted) {
@@ -471,6 +504,8 @@ void TypeChecker::visit(UnaryExpr* node) {
     if (node->op == "&")
         if (auto* id = dynamic_cast<IdentExpr*>(node->operand.get())) {
             std::string declared = lookupSymbol(id->name);
+            int si = scopeOf(id->name);
+            if (si >= 0) scopes[si][id->name].addrTaken = true;
             if (!declared.empty() && declared[0] == '?') {
                 operandType = declared;
                 narrowedNonNull.erase(narrowKey(id->name));
@@ -536,6 +571,8 @@ void TypeChecker::visit(IncDecExpr* node) {
 }
 
 void TypeChecker::visit(CallExpr* node) {
+    // The callee may assign any global: a global's narrowing ends after the call.
+    struct GlobalNarrowDrop { TypeChecker* t; ~GlobalNarrowDrop() { t->dropGlobalNarrowings(); } } dropAfter{this};
     // Variadic access builtins: va_start(ap) / va_end(ap) — void.
     if (auto* bid = dynamic_cast<IdentExpr*>(node->callee.get())) {
         if ((bid->name == "va_start" || bid->name == "va_end") && lookupSymbol(bid->name).empty()) {
@@ -1395,6 +1432,8 @@ void TypeChecker::visit(SizeofExpr* node) {
 }
 
 void TypeChecker::visit(AwaitExpr* node) {
+    // The callee may assign any global: a global's narrowing ends after the call.
+    struct GlobalNarrowDrop { TypeChecker* t; ~GlobalNarrowDrop() { t->dropGlobalNarrowings(); } } dropAfter{this};
     if (!inAsyncFn)
         errorAt(node, "await is only allowed inside an async function");
     awaitSeenInFn = true;
@@ -1444,6 +1483,8 @@ void TypeChecker::visit(ThreadCreateExpr* node) {
 }
 
 void TypeChecker::visit(TemplateCallExpr* node) {
+    // The callee may assign any global: a global's narrowing ends after the call.
+    struct GlobalNarrowDrop { TypeChecker* t; ~GlobalNarrowDrop() { t->dropGlobalNarrowings(); } } dropAfter{this};
     // Variadic access: va_arg<T>(ap) yields the next argument as T.
     if (node->templateName == "va_arg" && node->typeArgs.size() == 1) {
         for (auto& a : node->args) a->accept(this);

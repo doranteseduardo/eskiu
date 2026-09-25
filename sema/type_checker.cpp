@@ -10,6 +10,7 @@
 // are shared with codegen; see template_utils.h.
 #include "../template_utils.h"
 #include "../ast/type_qual.h"
+#include "../ast/ast_walk.h"
 
 // ============================================================================
 
@@ -20,6 +21,15 @@ TypeChecker::TypeChecker() {
 bool TypeChecker::check(Program* program) {
     hasErrors = false;
     errors.clear();
+
+    // Every `&name` in the program: a global whose address is taken is never narrowed.
+    for (const auto& decl : program->declarations) {
+        if (auto* fd = dynamic_cast<FunctionDecl*>(decl.get())) astwalk::collectAddressTaken(fd->body.get(), globalAddrTaken);
+        else if (auto* vd = dynamic_cast<VarDecl*>(decl.get())) astwalk::collectAddressTaken(vd->initializer.get(), globalAddrTaken);
+        else if (auto* sd = dynamic_cast<StructDecl*>(decl.get()))
+            for (const auto& m : sd->methods)
+                if (auto* mf = dynamic_cast<FunctionDecl*>(m.get())) astwalk::collectAddressTaken(mf->body.get(), globalAddrTaken);
+    }
 
     // First pass: register all struct declarations and function signatures
     std::set<std::string> definedFnBodies;   // names of functions WITH a body, for redefinition

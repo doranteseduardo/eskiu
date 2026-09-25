@@ -122,6 +122,7 @@ private:
         bool isConst = false;  // declared with `const` — reassignment is an error
         bool isStatic = false; // `static` local: one global cell, referenced (not captured) by lambdas
         Expr* constInit = nullptr; // initializer of a `const` (lets case labels fold `const int K`)
+        bool addrTaken = false; // `&x` seen: a write through that pointer can null it (no narrowing)
     };
 
     // True if `name` resolves to a symbol declared `const` (searches scopes).
@@ -238,6 +239,16 @@ private:
     // shadowing declaration is a different variable. A narrowed identifier's expression
     // type drops the `?`, so it may be dereferenced and used as a `*T`.
     std::set<std::string> narrowedNonNull;
+    // Globals whose address is taken somewhere in the program: never narrowed (a write
+    // through the pointer can store null behind the check).
+    std::set<std::string> globalAddrTaken;
+    // Mark the symbols of every `&x` in a loop body before it is checked: a later
+    // iteration's check must not trust a pointer taken further down.
+    void markAddrTakenIn(Stmt* s);
+    void markAddrTakenIn(Expr* e);
+    void markAddrTaken(const std::set<std::string>& names);
+    // A call (or an await) may run code that assigns any global: its narrowing ends.
+    void dropGlobalNarrowings();
     std::string narrowKey(const std::string& name) const;
     // Keys of the `?*T` variables proven non-null when `cond` evaluates to `whenTrue`
     // (`p != null`, `p == null` false, `p`, `!c`, `a && b` true, `a || b` false).

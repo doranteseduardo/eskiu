@@ -1,0 +1,12 @@
+// EXPECT-ERROR: cannot access a member of a possibly-null pointer
+// A pointer taken to the variable before the check can null it behind the check.
+extern int printf(string fmt, ...);
+struct N { int v; }
+void kill(?*N* pp) { if (pp != null) { *pp = null; } }
+int main() {
+    N n = N{v: 1};
+    ?*N p = &n;
+    ?*N* alias = &p;
+    if (p != null) { kill(alias); p.v = 2; }
+    return 0;
+}

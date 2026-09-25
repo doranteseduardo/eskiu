@@ -221,7 +221,11 @@ A null-check narrows in these forms: the then-branch of `if (x != null)` (and th
 exit such as `if (x == null) { return 0; }`. While narrowed, `x` can be passed or assigned
 where a `*T` is expected. Narrowing applies to the variable itself: assigning to it (other
 than storing an address `&y`), taking its address, or reassigning it anywhere in an
-enclosing loop ends it, and a shadowing declaration of the same name is not narrowed.
+enclosing loop ends it, and a shadowing declaration of the same name is not narrowed. A
+variable whose address has been taken (`&x`, before the check or anywhere in an enclosing
+loop) is not narrowed, since a write through that pointer can store null behind the check;
+for a global the address counts anywhere in the program. A global's narrowing also ends at
+every call and `await`, since the callee may assign it.
 
 ### 3.3 Array Types
 

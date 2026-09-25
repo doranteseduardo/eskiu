@@ -19,7 +19,7 @@ import <string>;
 import <mem>;
 import "ast.esk";
 
-struct Sym { string name; string type; int depth; int is_const; *ExprNode init; int is_static; }   // init: a const's initializer (case-label folding)
+struct Sym { string name; string type; int depth; int is_const; *ExprNode init; int is_static; int addr_taken; }   // init: a const's initializer (case-label folding)
 
 // Signature of a non-generic top-level function/extern/intrinsic, for arg-count
 // checking. `variadic` = trailing `...`; `fixed` = required arg count.
@@ -39,6 +39,7 @@ struct EVar { string en; string variant; string val; int plain; }   // val = mem
 struct Sema {
     int fold_depth;          // recursion guard for sema_fold_int through const initializers
     List<Sym> syms;
+    List<string> gaddr;      // names whose address is taken anywhere (a global among them is never narrowed)
     List<FnSig> fns;
     List<string> types;     // declared type names (struct/union/interface/enum/alias)
     List<string> structs;   // struct names (subset of types; have fields/methods)
@@ -387,6 +388,7 @@ void sema_define(Sema* s, string name, string type, int is_const) {
     sym.is_const = is_const;
     sym.init = null;
     sym.is_static = 0;
+    sym.addr_taken = 0;
     List_push<Sym>(&s.syms, sym);
 }
 
@@ -2512,6 +2514,74 @@ void sema_narrow_kill(Sema* s, string name) {
     }
 }
 
+// Names whose address is taken (`&x`) anywhere in `e` / `st`, lambda bodies included
+// (mirrors astwalk::collectAddressTaken; the same kind-aware walk as sema_drop_assigned).
+void sema_addr_names(*StmtNode st, List<string>* out);
+void sema_addr_names_e(*ExprNode e, List<string>* out) {
+    if (e == null) { return; }
+    if (e.kind == EK_UNARY && sema_streq(e.sval, "&") == 1 && e.a != null && e.a.kind == EK_IDENT) { List_push<string>(out, e.a.sval); }
+    if (e.kind == EK_BINARY || e.kind == EK_INDEX || e.kind == EK_TERNARY) { sema_addr_names_e(e.a, out); sema_addr_names_e(e.b, out); }
+    else if (e.kind == EK_UNARY || e.kind == EK_MEMBER || e.kind == EK_CAST || e.kind == EK_QUESTION
+             || e.kind == EK_AWAIT || e.kind == EK_CALL || e.kind == EK_INCDEC) { sema_addr_names_e(e.a, out); }
+    if (e.kind == EK_CALL || e.kind == EK_TEMPLATECALL || e.kind == EK_STRUCTINIT
+        || e.kind == EK_ARRAYLIT || e.kind == EK_INDEX || e.kind == EK_TERNARY) {
+        int i = 0; int n = List_len<*ExprNode>(&e.kids);
+        while (i < n) { sema_addr_names_e(List_get<*ExprNode>(&e.kids, i), out); i = i + 1; }
+    }
+    if (e.kind == EK_LAMBDA) { sema_addr_names(e.stmt, out); }
+}
+void sema_addr_names(*StmtNode st, List<string>* out) {
+    if (st == null) { return; }
+    sema_addr_names_e(st.expr, out);
+    sema_addr_names_e(st.expr2, out);
+    sema_addr_names(st.s1, out);
+    sema_addr_names(st.s2, out);
+    int i = 0; int n = List_len<*StmtNode>(&st.items);
+    while (i < n) { sema_addr_names(List_get<*StmtNode>(&st.items, i), out); i = i + 1; }
+}
+
+// Mark the innermost binding of `name`: its address is taken, so a write through that
+// pointer can null it behind a check (no narrowing).
+void sema_mark_addr(Sema* s, string name) {
+    int si = sema_sym_index(s, name);
+    if (si < 0) { return; }
+    Sym sy = List_get<Sym>(&s.syms, si);
+    sy.addr_taken = 1;
+    List_set<Sym>(&s.syms, si, sy);
+}
+
+// Before a loop body is checked: every `&x` in it (a later iteration's check must not
+// trust a pointer taken further down; mirrors the C++ markAddrTakenIn).
+void sema_mark_addr_in(Sema* s, *StmtNode st) {
+    List<string> names; List_init<string>(&names, 4);
+    sema_addr_names(st, &names);
+    int i = 0;
+    while (i < List_len<string>(&names)) { sema_mark_addr(s, List_get<string>(&names, i)); i = i + 1; }
+    List_free<string>(&names);
+}
+
+// A call (or an await) may run code that assigns any global: its narrowing ends.
+void sema_drop_global_narrowings(Sema* s) {
+    int i = List_len<string>(&s.narrowed) - 1;
+    while (i >= 0) {
+        string k = List_get<string>(&s.narrowed, i);
+        int n = 0; while (k[n] != 0) { n = n + 1; }
+        if (n >= 2 && (int)k[n - 2] == 64 && (int)k[n - 1] == 48) { List_remove<string>(&s.narrowed, i); }   // "@0"
+        i = i - 1;
+    }
+}
+
+// May `name` be narrowed? Not when its address is taken (a write through the pointer can
+// store null behind the check); for a global, anywhere in the program.
+int sema_narrowable(Sema* s, string name) {
+    int si = sema_sym_index(s, name);
+    if (si < 0) { return 1; }
+    Sym sy = List_get<Sym>(&s.syms, si);
+    if (sy.addr_taken == 1) { return 0; }
+    if (sy.depth == 0 && sema_in_list(&s.gaddr, name) == 1) { return 0; }
+    return 1;
+}
+
 void sema_cond_narrow_leaf(Sema* s, *ExprNode c, int when_true, List<string>* out);
 // Keys of the `?*T` variables proven non-null when `c` evaluates to `when_true`
 // (`p != null`, `p == null` false, `p`, `!c`, `a && b` true, `a || b` false).
@@ -2584,13 +2654,14 @@ void sema_cond_narrow_leaf(Sema* s, *ExprNode c, int when_true, List<string>* ou
             *ExprNode idE = null;
             if (c.a != null && c.a.kind == EK_IDENT && c.b != null && c.b.kind == EK_LITERAL && c.b.lit_kind == LIT_NULL) { idE = c.a; }
             else if (c.b != null && c.b.kind == EK_IDENT && c.a != null && c.a.kind == EK_LITERAL && c.a.lit_kind == LIT_NULL) { idE = c.b; }
-            if (idE != null && sema_lookup_type(s, idE.sval)[0] == 63 && sema_streq(c.sval, "!=") == when_true) {
+            if (idE != null && sema_lookup_type(s, idE.sval)[0] == 63 && sema_streq(c.sval, "!=") == when_true
+                && sema_narrowable(s, idE.sval) == 1) {
                 List_push<string>(out, sema_nkey(s, idE.sval));
             }
         }
         return;
     }
-    if (when_true == 1 && c.kind == EK_IDENT && sema_lookup_type(s, c.sval)[0] == 63) {
+    if (when_true == 1 && c.kind == EK_IDENT && sema_lookup_type(s, c.sval)[0] == 63 && sema_narrowable(s, c.sval) == 1) {
         List_push<string>(out, sema_nkey(s, c.sval));   // `if (p)`
     }
 }
@@ -2864,6 +2935,8 @@ void sema_expr(Sema* s, *ExprNode e) {
     int pl = s.line; int pc = s.col;
     if (e.line > 0) { s.line = e.line; s.col = e.col; }
     sema_expr_k(s, e);
+    // The callee may assign any global: a global's narrowing ends after the call.
+    if (e.kind == EK_CALL || e.kind == EK_TEMPLATECALL || e.kind == EK_AWAIT) { sema_drop_global_narrowings(s); }
     s.line = pl; s.col = pc;
 }
 
@@ -3372,6 +3445,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         }
         // `&p` of a narrowed `?*T` may be written through (storing null): narrowing ends.
         if (k == EK_UNARY && sema_streq(e.sval, "&") == 1 && e.a != null && e.a.kind == EK_IDENT) {
+            sema_mark_addr(s, e.a.sval);
             string ak = sema_nkey(s, e.a.sval);
             if (ak[0] != 0) { sema_narrow_drop(s, ak); }
         }
@@ -4270,6 +4344,7 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
         // An outer narrowing does not survive an assignment in the loop (later iterations
         // observe it); the condition's own narrowing holds at the top of every iteration.
         sema_drop_assigned(s, st);
+        sema_mark_addr_in(s, st.s1);
         sema_cond(s, st.expr);
         List<string> keys; List_init<string>(&keys, 2);
         List<string> ins; List_init<string>(&ins, 2);
@@ -4279,7 +4354,7 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
         sema_narrow_undo(s, &ins);
         return;
     }
-    if (k == SK_DOWHILE) { sema_drop_assigned(s, st); sema_lbl_push(s, st.label); sema_stmt(s, st.s1); sema_lbl_pop(s); sema_cond(s, st.expr); return; }
+    if (k == SK_DOWHILE) { sema_drop_assigned(s, st); sema_mark_addr_in(s, st.s1); sema_lbl_push(s, st.label); sema_stmt(s, st.s1); sema_lbl_pop(s); sema_cond(s, st.expr); return; }
     if (k == SK_FOR) {
         sema_push(s);                      // init var stays in scope for cond/step/body
         // The init is wrapped in a BlockStmt; walk its items in the FOR scope rather
@@ -4307,6 +4382,7 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
         sema_drop_assigned_e(s, st.expr);
         sema_drop_assigned_e(s, st.expr2);
         sema_drop_assigned(s, st.s2);
+        sema_mark_addr_in(s, st.s2);
         sema_cond(s, st.expr);
         List<string> keys; List_init<string>(&keys, 2);
         List<string> ins; List_init<string>(&ins, 2);
@@ -4359,6 +4435,7 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
             }
         }
         sema_drop_assigned(s, st.s1);
+        sema_mark_addr_in(s, st.s1);
         sema_define(s, st.name, elem, 0);
         sema_lbl_push(s, st.label);
         sema_stmt(s, st.s1);
@@ -5472,6 +5549,19 @@ void sema_check_insts(Sema* s, string primary) {
 
 // Returns 1 if the program type-checks (no errors), 0 otherwise.
 int sema_check(Sema* s, *Program prog) {
+    // Every `&name` in the program: a global whose address is taken is never narrowed.
+    List_init<string>(&s.gaddr, 8);
+    int gi = 0;
+    while (gi < List_len<*DeclNode>(&prog.decls)) {
+        *DeclNode gd = List_get<*DeclNode>(&prog.decls, gi);
+        if (gd.kind == DK_FUNCTION) { sema_addr_names(gd.body, &s.gaddr); }
+        else if (gd.kind == DK_VARDECL) { sema_addr_names_e(gd.init, &s.gaddr); }
+        else if (gd.kind == DK_STRUCT) {
+            int gm = 0;
+            while (gm < List_len<*DeclNode>(&gd.methods)) { sema_addr_names(List_get<*DeclNode>(&gd.methods, gm).body, &s.gaddr); gm = gm + 1; }
+        }
+        gi = gi + 1;
+    }
     sema_register_globals(s, prog);
     sema_check_top_names(s, prog);
     sema_check_alias_cycles(s);

@@ -111,7 +111,7 @@ void TypeChecker::visit(ForInStmt* node) {
     }
 
     if (!inInstance) node->resolvedElemType = elemType;
-    dropAssignedIn(node->body.get());   // later iterations see assignments in the body
+    dropAssignedIn(node->body.get()); markAddrTakenIn(node->body.get());   // later iterations see assignments in the body
     pushScope();
     if (elemType.empty()) {
         errorAt(node, "for-in expects a fixed-size array or a List-like value "
@@ -129,7 +129,7 @@ void TypeChecker::visit(ForInStmt* node) {
 void TypeChecker::visit(WhileStmt* node) {
     // A narrowing from outside the loop does not survive an assignment in the body
     // (the condition and later iterations would observe it).
-    dropAssignedIn(node->body.get());
+    dropAssignedIn(node->body.get()); markAddrTakenIn(node->body.get());
     dropAssignedIn(node->condition.get());
     if (node->condition) {
         warnAssignInCondition(node->condition.get());
@@ -148,7 +148,7 @@ void TypeChecker::visit(WhileStmt* node) {
 }
 
 void TypeChecker::visit(DoWhileStmt* node) {
-    dropAssignedIn(node->body.get());
+    dropAssignedIn(node->body.get()); markAddrTakenIn(node->body.get());
     dropAssignedIn(node->condition.get());
     loopLabelStack.push_back(node->label);
     if (node->body) node->body->accept(this);
@@ -198,7 +198,7 @@ void TypeChecker::visit(ForStmt* node) {
 
     dropAssignedIn(node->condition.get());
     dropAssignedIn(node->step.get());
-    dropAssignedIn(node->body.get());
+    dropAssignedIn(node->body.get()); markAddrTakenIn(node->body.get());
 
     // Type check condition (for intentionally omits the assign-in-condition warning)
     if (node->condition) {
