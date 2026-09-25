@@ -290,6 +290,7 @@ private:
     // An expression that denotes storage (a variable, field, element, or `*p`), so it may be
     // assigned to or have its address taken.
     bool isLvalueExpr(Expr* e);
+    bool isSliceLen(Expr* e);
     void checkAssignment(class BinaryExpr* node);
     // Type one operator whose operands were already visited (see visit(BinaryExpr)).
     void finishBinary(class BinaryExpr* node);

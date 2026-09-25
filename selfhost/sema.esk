@@ -2517,6 +2517,15 @@ void sema_check_nullable_deref(Sema* s, *ExprNode operand, string how) {
            s.filename, s.line, s.col, how, t);
 }
 
+// `s.len` of a slice: a read-only view of the fat pointer's length.
+int sema_is_slice_len(Sema* s, *ExprNode e) {
+    if (e == null || e.kind != EK_MEMBER || sema_streq(e.sval, "len") == 0) { return 0; }
+    string bt = sema_strip_nullable(sema_strip_const(sema_infer_type(s, e.a)));
+    int n = 0; while (bt[n] != 0) { n = n + 1; }
+    if (n >= 2 && (int)bt[n - 2] == 91 && (int)bt[n - 1] == 93) { return 1; }   // "...[]"
+    return 0;
+}
+
 // An expression that denotes storage (a variable, field, element, or `*p`): it may be
 // assigned to or have its address taken. Mirrors the C++ isLvalueExpr.
 int sema_is_lvalue(Sema* s, *ExprNode e) {
@@ -2527,7 +2536,7 @@ int sema_is_lvalue(Sema* s, *ExprNode e) {
         return 1;
     }
     if (e.kind == EK_UNARY) { return sema_streq(e.sval, "*"); }
-    if (e.kind == EK_MEMBER) { return 1; }
+    if (e.kind == EK_MEMBER) { return 1 - sema_is_slice_len(s, e); }
     if (e.kind == EK_INDEX) {
         if (List_len<*ExprNode>(&e.kids) > 0) { return 0; }
         // `v[i]` on a struct value calls its `operator []`, which returns a value.
@@ -2987,7 +2996,9 @@ void sema_expr_k(Sema* s, *ExprNode e) {
                 }
             }
         }
-        if (sema_streq(e.sval, "=") == 1 && sema_is_lvalue(s, e.a) == 0) {
+        if (sema_is_slice_len(s, e.a) == 1) {
+            sema_error(s, "cannot assign to the length of a slice: it is read-only (take a new slice instead)");
+        } else if (sema_streq(e.sval, "=") == 1 && sema_is_lvalue(s, e.a) == 0) {
             sema_error(s, "cannot assign to this expression: it is not a variable, field, element, or dereference");
         }
         if (sema_is_assign(e.sval) == 1 && sema_is_readonly_lvalue(s, e.a) == 1) {
@@ -3014,6 +3025,8 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         if (e.a == null || (e.a.kind != EK_IDENT && e.a.kind != EK_MEMBER && e.a.kind != EK_INDEX
             && (e.a.kind != EK_UNARY || sema_streq(e.a.sval, "*") == 0))) {
             sema_error(s, "'++'/'--' requires a modifiable variable");
+        } else if (sema_is_slice_len(s, e.a) == 1) {
+            sema_error(s, "cannot assign to the length of a slice: it is read-only (take a new slice instead)");
         } else if (sema_is_readonly_lvalue(s, e.a) == 1) {
             sema_error(s, "cannot modify read-only location");
         } else {

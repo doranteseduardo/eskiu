@@ -39,7 +39,9 @@ static bool floatConstFitsInt(double v, const std::string& t) {
 [[gnu::noinline]] void TypeChecker::checkAssignment(BinaryExpr* node) {
     // Assigning to a `const` binding, a field/element of a const value, or
     // through a pointer-to-const (`const T*`) is an error. See assignsToConst.
-    if (!isLvalueExpr(node->left.get()))
+    if (isSliceLen(node->left.get()))
+        errorAt(node, "cannot assign to the length of a slice: it is read-only (take a new slice instead)");
+    else if (!isLvalueExpr(node->left.get()))
         errorAt(node, "cannot assign to this expression: it is not a variable, field, element, or dereference");
     std::string cname;
     if (assignsToConst(node->left.get(), cname))
@@ -460,7 +462,9 @@ void TypeChecker::visit(IncDecExpr* node) {
     bool isLval = dynamic_cast<IdentExpr*>(op) || dynamic_cast<MemberExpr*>(op) ||
                   dynamic_cast<IndexExpr*>(op) ||
                   (dynamic_cast<UnaryExpr*>(op) && static_cast<UnaryExpr*>(op)->op == "*");
-    if (!isLval)
+    if (isSliceLen(op))
+        errorAt(node, "cannot assign to the length of a slice: it is read-only (take a new slice instead)");
+    else if (!isLval)
         errorAt(node, "'++'/'--' requires a modifiable variable");
     std::string cname;
     if (assignsToConst(op, cname))

@@ -562,9 +562,18 @@ bool TypeChecker::isLvalueExpr(Expr* e) {
     if (auto* id = dynamic_cast<IdentExpr*>(e))
         return !lookupSymbol(id->name).empty() || !functionSignatures.count(id->name);
     if (auto* u = dynamic_cast<UnaryExpr*>(e)) return u->op == "*";
-    if (dynamic_cast<MemberExpr*>(e)) return true;
+    if (dynamic_cast<MemberExpr*>(e)) return !isSliceLen(e);
     if (auto* ix = dynamic_cast<IndexExpr*>(e)) return !ix->highIndex && ix->opFunc.empty();
     return false;
+}
+
+// `s.len` of a slice: a read-only view of the fat pointer's length.
+bool TypeChecker::isSliceLen(Expr* e) {
+    auto* m = dynamic_cast<MemberExpr*>(e);
+    if (!m || m->member != "len") return false;
+    std::string bt = getExpressionType(m->base.get());
+    if (!bt.empty() && bt[0] == '?') bt = bt.substr(1);
+    return ty::Type::parse(bt).kind == ty::Type::Kind::Slice;
 }
 
 // Value of an integer constant expression built from literals, enum members, unary
