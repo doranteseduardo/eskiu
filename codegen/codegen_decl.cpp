@@ -3,6 +3,8 @@
 #include "../ast/ast_walk.h"
 #include "llvm/TargetParser/Triple.h"
 #include <algorithm>
+#include <functional>
+#include "../sema/type.h"
 
 // Template type-name utilities (mangleTemplate / splitTemplateType / substType)
 // are shared with the type checker; see template_utils.h.
@@ -34,14 +36,62 @@ void CodeGen::visit(Program* node) {
             if (astwalk::containsEH(v->initializer.get())) programUsesEH = true;
         }
     }
+    // Type declarations in dependency order: a type a struct/union/enum holds BY VALUE
+    // is laid out first wherever it is declared (`struct S { T t; } struct T {...}`), as
+    // a C compiler sees every complete type before its use. A pointer needs no layout.
+    std::map<std::string, Decl*> typeDeclOf;
     for (auto& decl : node->declarations) {
-        if (auto* s = dynamic_cast<StructDecl*>(decl.get())) {
-            declareStructType(s); // registers template structs and creates concrete types
-        } else if (dynamic_cast<UnionDecl*>(decl.get()) ||
-                   dynamic_cast<InterfaceDecl*>(decl.get()) ||
-                   dynamic_cast<EnumDecl*>(decl.get()) ||
-                   dynamic_cast<TypeAliasDecl*>(decl.get()) ||
-                   dynamic_cast<IntrinsicDecl*>(decl.get())) {
+        Decl* d = decl.get();
+        bool isType = dynamic_cast<StructDecl*>(d) || dynamic_cast<UnionDecl*>(d) ||
+                      dynamic_cast<InterfaceDecl*>(d) || dynamic_cast<EnumDecl*>(d) ||
+                      dynamic_cast<TypeAliasDecl*>(d);
+        if (isType && !typeDeclOf.count(d->name)) typeDeclOf[d->name] = d;
+    }
+    std::set<Decl*> typeDone, typeVisiting;
+    std::function<void(Decl*)> declareTypeDecl;
+    std::function<void(const ty::Type&)> needType = [&](const ty::Type& t) {
+        switch (t.kind) {
+            case ty::Type::Kind::Pointer: case ty::Type::Kind::Fn: case ty::Type::Kind::Slice:
+                return;
+            case ty::Type::Kind::Array:
+                if (t.elem) needType(*t.elem);
+                return;
+            default: break;
+        }
+        for (const auto& a : t.args) needType(a);
+        auto it = typeDeclOf.find(t.name);
+        if (it != typeDeclOf.end()) declareTypeDecl(it->second);
+    };
+    auto needStr = [&](const std::string& ts) { needType(ty::Type::parse(ts)); };
+    declareTypeDecl = [&](Decl* d) {
+        if (typeDone.count(d) || typeVisiting.count(d)) return;
+        typeVisiting.insert(d);
+        if (auto* s = dynamic_cast<StructDecl*>(d)) {
+            if (s->typeParams.empty()) for (const auto& f : s->fields) needStr(f.type);
+        } else if (auto* u = dynamic_cast<UnionDecl*>(d)) {
+            for (const auto& f : u->fields) needStr(f.type);
+        } else if (auto* e = dynamic_cast<EnumDecl*>(d)) {
+            if (e->typeParams.empty())
+                for (const auto& pl : e->payloads) for (const auto& ft : pl) needStr(ft);
+        } else if (auto* a = dynamic_cast<TypeAliasDecl*>(d)) {
+            needStr(a->aliased);
+        }
+        typeVisiting.erase(d);
+        typeDone.insert(d);
+        if (auto* s = dynamic_cast<StructDecl*>(d)) declareStructType(s);  // registers templates too
+        else d->accept(this);
+    };
+    // Generic templates first: a concrete type may hold an instance of one declared later.
+    for (auto& decl : node->declarations) {
+        if (auto* s = dynamic_cast<StructDecl*>(decl.get()); s && !s->typeParams.empty()) declareTypeDecl(s);
+        if (auto* e = dynamic_cast<EnumDecl*>(decl.get()); e && !e->typeParams.empty()) declareTypeDecl(e);
+    }
+    for (auto& decl : node->declarations) {
+        if (dynamic_cast<StructDecl*>(decl.get()) || dynamic_cast<UnionDecl*>(decl.get()) ||
+            dynamic_cast<InterfaceDecl*>(decl.get()) || dynamic_cast<EnumDecl*>(decl.get()) ||
+            dynamic_cast<TypeAliasDecl*>(decl.get())) {
+            declareTypeDecl(decl.get());
+        } else if (dynamic_cast<IntrinsicDecl*>(decl.get())) {
             decl->accept(this);
         }
     }

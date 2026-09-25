@@ -1,0 +1,21 @@
+extern int printf(string fmt, ...);
+struct S { T t; C c; I i; U u; E e; AL al; Box<T> bt; T[2] ts; int k; }
+struct Box<X> { X v; }
+struct T { int64 a; int64 b; }
+enum C { R, G }
+enum E { A(int64), Z }
+union U { int64 x; double d; }
+type AL = T;
+interface I { int f(); }
+int main() {
+    S s;
+    s.t.a = 1; s.t.b = 2; s.k = 3;
+    s.bt.v.b = 9; s.ts[1].a = 11; s.al.b = 13;
+    s.u.d = 1.5; s.e = A((int64)7);
+    printf("%lld %lld %d %lld %lld %lld %.1f\n", s.t.a, s.t.b, s.k, s.bt.v.b, s.ts[1].a, s.al.b, s.u.d);
+    printf("%d %d\n", (int)sizeof(S), (int)sizeof(T));
+    S[2] arr;
+    arr[1].k = 5; arr[0].k = 1;
+    printf("%d %d\n", arr[0].k, arr[1].k);
+    return 0;
+}
