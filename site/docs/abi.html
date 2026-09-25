@@ -219,15 +219,39 @@ N)</code>). The result is emitted as a packed LLVM struct (padding is explicit) 
 matches the C <code>#pragma pack(N)</code> ABI. Field access goes through a
 logical→physical index map (padding shifts indices).</p>
 <h3 id="bitfields">Bitfields</h3>
-<p>Consecutive bitfields are packed into a storage word of the field's declared
-integer type; a non-bitfield field closes the current word. Each field records
-its physical slot, bit offset and width. Reads load the word, shift by the bit
-offset and mask (sign-extending for signed fields); writes are read-modify-write
-of the word.</p>
+<p>A struct with bitfields is laid out the way the target's C compiler does it.</p>
+<ul>
+<li><strong>SysV / AAPCS targets</strong> (Linux, macOS, bare-metal ARM; clang's Itanium
+  layout): a bitfield takes the next free bit unless that would make it cross a
+  boundary of a storage unit of its declared type (a <code>uint32</code> field must fit in
+  an aligned 4-byte unit), in which case it starts at that boundary. So adjacent
+  bitfields of different declared types share bytes (<code>uint8 a:4; uint32 w:12;</code>
+  is 4 bytes, <code>w</code> at bits 4..15), and a normal field starts at the next free
+  byte, aligned, possibly inside a bitfield's unit (<code>uint32 a:4; char c;</code> puts
+  <code>c</code> at offset 1). The struct is aligned to its most aligned field, bitfields
+  included. In a <code>packed struct</code> or under <code>#pragma pack(N)</code>, bitfields are
+  packed back to back with no unit rule.</li>
+<li><strong>Windows targets</strong> (MS layout): consecutive bitfields share a storage word
+  of their declared type while the type size stays the same and the next one
+  fits; a new word opens when the declared type size changes or the field does
+  not fit, and a normal field closes the current word. Under <code>#pragma pack(N)</code>
+  each word and field is aligned to at most N.</li>
+</ul>
+<p>Under the SysV/AAPCS layout every field of such a struct is addressed by byte
+offset. The LLVM type only reproduces the C size and alignment: each storage
+unit as an integer of its declared type, the normal fields outside those units
+as themselves, and <code>[n x i8]</code> for the remaining bytes (a packed struct is a
+packed LLVM struct of normal fields and byte runs). Reads load the bitfield's
+storage unit (in a packed struct, the exact byte span, e.g. <code>i24</code>), shift by the
+bit offset and mask (sign-extending for signed fields); writes, compound
+assignments and <code>++</code>/<code>--</code> are read-modify-write of that unit.</p>
 <h3 id="unions">Unions</h3>
-<p>A <code>union</code> lowers to a single byte array <code>[N x i8]</code> (wrapped in a one-field
-struct), where <code>N</code> is the size of the largest member. All members share offset
-0; a member access reinterprets the storage at that type.</p>
+<p>A <code>union</code> lowers to <code>{ M, [P x i8] }</code>, where <code>M</code> is its most-aligned member
+(ties go to the larger one) and the byte padding brings the size up to the
+largest member rounded to that alignment. So the union has C's size and
+alignment, and lands at the C offset inside a struct (<code>struct { int tag; union {
+int64 l; int i; } u; }</code> puts <code>u</code> at 8). All members share offset 0; a member
+access reinterprets the storage at that type.</p>
 <hr>
 <h2 id="enums">Enums</h2>
 <h3 id="classic-enums">Classic enums</h3>
@@ -256,7 +280,60 @@ lowered types. Scalars and pointers pass in registers per the target ABI.</p>
 (<code>getTypeAllocSize &gt; 16</code>) returns <code>void</code> and takes a hidden pointer as its first
 parameter; the caller allocates the result buffer and passes its address.
 Structs ≤ 16 bytes are returned by value (the target ABI splits them into
-registers as usual). This is the System V / AArch64 rule and is C-compatible.</p>
+registers as usual). This is the convention between Eskiu functions; calls to
+<code>extern</code> C functions follow the C ABI lowering below.</p>
+<p><strong>Aggregates across <code>extern</code> (C ABI).</strong> Between Eskiu functions a struct or
+union argument/result is a first-class LLVM value. An <code>extern</code> function that
+takes or returns one by value is instead declared with the lowered C signature
+(<code>codegen/codegen_cabi.cpp</code>, mirrored by the self-hosted codegen), and each call
+converts to and from it, so it links against C compiled by clang/gcc:</p>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th>Target</th>
+<th>Aggregate argument</th>
+<th>Aggregate result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>AArch64 (AAPCS64, Darwin + Linux)</td>
+<td>HFA of 1-4 <code>float</code>/<code>double</code> → <code>[N x fp]</code> in FP registers (with <code>alignstack(8)</code> off Darwin); ≤ 8 bytes → <code>i64</code>; ≤ 16 → <code>[2 x i64]</code>; larger → pointer to a caller-made copy</td>
+<td>HFA → <code>{ fp, ... }</code>; ≤ 8 bytes → <code>iN</code>; ≤ 16 → <code>[2 x i64]</code>; larger → <code>sret</code> (x8)</td>
+</tr>
+<tr>
+<td>x86-64 System V (Linux, macOS)</td>
+<td>each eightbyte classified INTEGER/SSE → one or two register values (<code>i64</code>, <code>i32</code>, <code>double</code>, <code>&lt;2 x float&gt;</code>, <code>ptr</code>, ...); &gt; 16 bytes, a misaligned field, or no free registers left → <code>byval</code></td>
+<td>the same classes as a <code>{ lo, hi }</code> pair or one value; &gt; 16 bytes → <code>sret</code></td>
+</tr>
+<tr>
+<td>Windows x64</td>
+<td>size 1/2/4/8 → <code>iN</code>; otherwise pointer to a caller-made copy</td>
+<td>size 1/2/4/8 → <code>iN</code>; otherwise <code>sret</code></td>
+</tr>
+<tr>
+<td>32-bit ARM (AAPCS)</td>
+<td>hard-float HFA → <code>{ fp, ... }</code>; ≤ 64 bytes → <code>[N x i32]</code> (<code>[N x i64]</code> if 8-aligned); larger → <code>byval</code></td>
+<td>hard-float HFA → <code>{ fp, ... }</code>; ≤ 4 bytes → <code>i32</code>; otherwise <code>sret</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>The coerced types match what clang emits for the same C signature. Other
+targets keep the first-class lowering. Fat values (closures, slices) and
+<code>va_list</code> are not C aggregates and keep their own layout.</p>
+<p><strong>Callbacks from C.</strong> An Eskiu function handed to C as a raw function pointer
+(<code>(*void)f</code>, the cast of a top-level function name to a pointer type) is called
+with the C convention. When it takes or returns an aggregate by value, the cast
+yields the address of a thunk <code>__cabi_&lt;name&gt;</code> instead of <code>@name</code>: the thunk has
+the lowered C signature from the table above (with the same <code>sret</code>/<code>byval</code>
+attributes), rebuilds the Eskiu-level values, calls <code>f</code>, and returns the result
+the C way. A function without by-value aggregates is passed as itself. Eskiu
+code calling <code>f</code> directly is unaffected.</p>
+<p><strong>C function pointer parameters.</strong> A parameter of fn type in an <code>extern</code> (one the
+program does not also define) is a C function pointer: it is declared <code>ptr</code>, not
+the <code>{ fn, env }</code> closure, and each call passes the named top-level function's C
+address (its <code>__cabi_</code> thunk when needed) or <code>null</code>. The type checker rejects any
+other argument there, since a closure's environment cannot cross into C.</p>
 <p><strong>Variadics.</strong> A <code>...</code> parameter makes the LLVM function <code>isVarArg</code>. The built-in
 <code>va_list</code> is the struct <code>{ ptr, ptr, ptr, i32, i32 }</code> (32 B, 8-aligned), a
 superset of the x86-64 (24 B) and AArch64 (32 B) layouts, so one type serves

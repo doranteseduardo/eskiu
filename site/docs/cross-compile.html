@@ -139,6 +139,9 @@ object file; link it with a cross toolchain that targets the same platform.</p>
   metal has no host OS, so portable code guards that path explicitly.</li>
 <li>With no <code>--target</code>, the macro follows the build host.</li>
 </ul>
+<p>An architecture macro follows the same rule (the <code>--target</code> triple, else the build host):
+<code>__aarch64__</code> for AArch64, <code>__x86_64__</code> for x86-64, <code>__arm__</code> for 32-bit ARM. At most one
+is defined.</p>
 <p><code>--freestanding</code> additionally predefines <code>__ESKIU_FREESTANDING__</code> and routes <code>alloc</code>/<code>free</code>
 to caller-supplied <code>esk_alloc</code>/<code>esk_free</code> instead of libc.</p>
 <h2 id="hard-float-arm">Hard-float ARM</h2>
@@ -173,7 +176,10 @@ arm-none-eabi-gcc -specs=3dsx.specs -march=armv6k -mtune=mpcore -mfloat-abi=hard
 triple (and the resulting <code>Tag_ABI_VFP_args</code>) matters: without it the linker rejects the
 Eskiu object against hard-float libctru.</p>
 <p>Eskiu declarations compile to C-ABI symbols, so a <code>main.c</code> can call an Eskiu function by
-declaring it <code>extern</code>. The self-hosted compiler does not yet forward <code>--mcpu</code>/<code>--mattr</code>/
+declaring it <code>extern</code>. In the other direction, a struct passed to or returned from an
+<code>extern</code> C function by value follows the target's C calling convention (AArch64, x86-64
+System V, Windows x64 and 32-bit ARM, including the hard-float HFA rules); see
+<code>docs/dev/abi.md</code>. The self-hosted compiler does not yet forward <code>--mcpu</code>/<code>--mattr</code>/
 <code>--reloc</code>, so 3DS builds use the reference <code>eskiuc</code>.</p>
 <h2 id="example-windows-x86-64">Example: Windows (x86-64)</h2>
 <p>The x86 backend emits COFF objects for a Windows triple with no extra flags; LLVM lowers

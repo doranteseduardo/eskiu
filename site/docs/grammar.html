@@ -152,8 +152,9 @@ then declarations, types, statements, and expressions (lowest precedence first).
 <p>Tokens are produced after the <a href="#preprocessor">preprocessor</a> pass. Whitespace and
 comments separate tokens and are otherwise insignificant.</p>
 <pre><code>IDENT      = [A-Za-z_] [A-Za-z0-9_]*
-INT_LIT    = [0-9]+  |  '0x' [0-9A-Fa-f]+
-FLOAT_LIT  = [0-9]+ '.' [0-9]+
+INT_LIT    = [1-9][0-9]*  |  '0' [0-7]*  |  '0x' [0-9A-Fa-f]+   // leading 0 = octal (C rule)
+FLOAT_LIT  = [0-9]+ '.' [0-9]+ EXP?  |  [0-9]+ EXP
+EXP        = ('e' | 'E') ('+' | '-')? [0-9]+
 STRING_LIT = '&quot;' ( escape | not('&quot;') )* '&quot;'        // adjacent literals concatenate: &quot;a&quot; &quot;b&quot; == &quot;ab&quot;
 CHAR_LIT   = &quot;'&quot; ( escape | not(&quot;'&quot;) ) &quot;'&quot;
 escape     = '\' ( 'n' | 't' | 'r' | 'f' | 'v' | '\' | '&quot;' | &quot;'&quot; | '0'    // string and char share the set
@@ -167,7 +168,7 @@ float double bool char string void
 struct packed union interface enum fn
 if else while do for in switch match case default break continue return
 import extern intrinsic  sizeof alloc_with free_closure
-thread_create thread_join  asm  try catch finally throw  defer errdefer
+thread_create thread_join  asm  try catch finally throw  defer errdefer  operator
 null true false
 </code></pre>
 <p><code>type</code> is <strong>not</strong> reserved: it is a contextual keyword recognized only in the
@@ -190,13 +191,15 @@ directive lines become blank lines so source line numbers are preserved.</p>
     '#define' IDENT macro-body
   | '#define' IDENT '(' (IDENT (',' IDENT)*)? ')' macro-body    // function-like
   | '#undef'  IDENT
-  | '#ifdef'  IDENT  |  '#ifndef' IDENT  |  '#else'  |  '#endif'
-  | '#pragma' …                          // passed through to the compiler (e.g. pack)
+  | '#ifdef'  IDENT  |  '#ifndef' IDENT  |  '#if' const-expr  |  '#elif' const-expr
+  | '#else'  |  '#endif'
+  | '#pragma' …                          // passed through to the compiler (pack, link)
   | '#error'  text                       // aborts compilation on an active branch
   | '#!' …                               // shebang: ignored (see __FILE__/__LINE__ ref)
 </code></pre>
 <p>Predefined macros: <code>__FILE__</code>, <code>__LINE__</code>, a host-OS macro
-(<code>__APPLE__</code>/<code>__linux__</code>), and <code>__ESKIU_FREESTANDING__</code> under <code>--freestanding</code>.</p>
+(<code>__APPLE__</code>/<code>__linux__</code>), an architecture macro (<code>__aarch64__</code>/<code>__x86_64__</code>/<code>__arm__</code>),
+and <code>__ESKIU_FREESTANDING__</code> under <code>--freestanding</code>.</p>
 <hr>
 <h2 id="program">Program</h2>
 <pre><code>program     = item*
@@ -301,7 +304,8 @@ asm-stmt      = 'asm' '(' STRING_LIT ( ':' ':' asm-operand (',' asm-operand)*
 asm-operand   = STRING_LIT '(' expr ')'
 thread-join-stmt = 'thread_join' '(' expr ')' ';'
 </code></pre>
-<p><code>for (i in A..B)</code> desugars to a counted <code>for (int i = A; i &lt; B; i = i + 1)</code>.</p>
+<p><code>for (i in A..B)</code> desugars to a counted <code>for (T i = A; i &lt; B; i = i + 1)</code>, where <code>T</code> is
+the bounds' common integer type (see the spec's for-in section).</p>
 <hr>
 <h2 id="expressions">Expressions</h2>
 <p>Precedence, lowest to highest. Each level is left-associative unless noted.</p>
@@ -338,6 +342,10 @@ postfix <code>expr?</code> (with no matching <code>:</code> ahead) is the Result
 (it returns early on the error variant). The parser disambiguates by scanning for a
 same-level <code>:</code> after the <code>?</code>. Assignment is the lowest-precedence, right-associative
 level; the ternary sits just above it, also right-associative.</p>
+<p>The parser implements the binary levels by precedence climbing, so an operator chain
+of any length parses without deep recursion. Nesting (parentheses, blocks, nested
+statements and lambdas) is limited to 100000 levels, past which the parser reports
+<code>nesting too deep</code>.</p>
 <pre><code>primary =
     INT_LIT | FLOAT_LIT | STRING_LIT | CHAR_LIT | 'true' | 'false' | 'null'
   | IDENT

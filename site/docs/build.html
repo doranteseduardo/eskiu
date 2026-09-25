@@ -111,7 +111,7 @@ footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
 <tbody>
 <tr>
 <td>LLVM</td>
-<td>17</td>
+<td>21</td>
 <td>22.x</td>
 </tr>
 <tr>
@@ -142,6 +142,7 @@ footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
 export LLVM_DIR=&quot;$(brew --prefix llvm)/lib/cmake/llvm&quot;
 </code></pre>
 <p>Add these to your shell profile (<code>~/.zshrc</code> or <code>~/.bash_profile</code>) to make them permanent.</p>
+<p>Homebrew's <code>llvm</code> formula tracks the newest release (LLVM 23 at the time of writing). Eskiu builds against it, but CI and the release binaries use LLVM 22. To match them exactly, install <code>llvm@22</code> and use <code>$(brew --prefix llvm@22)</code> in the two lines above.</p>
 <h3 id="build">Build</h3>
 <pre><code class="language-bash">git clone https://github.com/doranteseduardo/eskiu.git
 cd eskiu
@@ -158,34 +159,34 @@ cmake --build build -- -j$(sysctl -n hw.logicalcpu)
 <h2 id="linux-ubuntu-debian">Linux (Ubuntu / Debian)</h2>
 <h3 id="install-dependencies_1">Install dependencies</h3>
 <pre><code class="language-bash">sudo apt-get update
-sudo apt-get install -y llvm-17-dev clang-17 cmake git
+sudo apt-get install -y llvm-22-dev clang-22 cmake git
 </code></pre>
-<p>For Ubuntu 22.04 or older, the LLVM 17 packages are in the LLVM apt repository:</p>
+<p>For Ubuntu 22.04 or older, the LLVM 22 packages are in the LLVM apt repository:</p>
 <pre><code class="language-bash">wget https://apt.llvm.org/llvm.sh
 chmod +x llvm.sh
-sudo ./llvm.sh 17
-sudo apt-get install -y llvm-17-dev
+sudo ./llvm.sh 22
+sudo apt-get install -y llvm-22-dev
 </code></pre>
 <h3 id="build_1">Build</h3>
 <pre><code class="language-bash">git clone https://github.com/doranteseduardo/eskiu.git
 cd eskiu
 cmake -S . -B build \
   -DCMAKE_BUILD_TYPE=Release \
-  -DLLVM_DIR=/usr/lib/llvm-17/lib/cmake/llvm \
-  -DCMAKE_CXX_COMPILER=clang++-17
+  -DLLVM_DIR=/usr/lib/llvm-22/lib/cmake/llvm \
+  -DCMAKE_CXX_COMPILER=clang++-22
 cmake --build build -- -j$(nproc)
 </code></pre>
 <hr>
 <h2 id="linux-alpine">Linux (Alpine)</h2>
 <h3 id="install-dependencies_2">Install dependencies</h3>
-<pre><code class="language-bash">apk add llvm17-dev cmake clang17 git make
+<pre><code class="language-bash">apk add llvm22-dev cmake clang22 git make
 </code></pre>
 <h3 id="build_2">Build</h3>
 <pre><code class="language-bash">git clone https://github.com/doranteseduardo/eskiu.git
 cd eskiu
 cmake -S . -B build \
   -DCMAKE_BUILD_TYPE=Release \
-  -DLLVM_DIR=/usr/lib/llvm17/lib/cmake/llvm \
+  -DLLVM_DIR=/usr/lib/llvm22/lib/cmake/llvm \
   -DCMAKE_CXX_COMPILER=clang++
 cmake --build build -- -j$(nproc)
 </code></pre>
@@ -266,36 +267,38 @@ entry:
 <td><code>/usr/local/opt/llvm/lib/cmake/llvm</code></td>
 </tr>
 <tr>
-<td>Ubuntu apt llvm-17</td>
-<td><code>/usr/lib/llvm-17/lib/cmake/llvm</code></td>
+<td>Ubuntu apt llvm-22</td>
+<td><code>/usr/lib/llvm-22/lib/cmake/llvm</code></td>
 </tr>
 <tr>
-<td>Alpine apk llvm17</td>
-<td><code>/usr/lib/llvm17/lib/cmake/llvm</code></td>
+<td>Alpine apk llvm22</td>
+<td><code>/usr/lib/llvm22/lib/cmake/llvm</code></td>
 </tr>
 </tbody>
 </table></div>
 <p>You can also run <code>llvm-config --cmakedir</code> (substituting the versioned binary name if needed) to get the correct path:</p>
-<pre><code class="language-bash">llvm-config-17 --cmakedir
+<pre><code class="language-bash">llvm-config-22 --cmakedir
 </code></pre>
 <h3 id="c17-errors">C++17 errors</h3>
 <p>If the system default compiler does not support C++17, specify the compiler explicitly:</p>
 <pre><code class="language-bash">cmake -S . -B build \
-  -DCMAKE_CXX_COMPILER=clang++-17 \
-  -DCMAKE_C_COMPILER=clang-17
+  -DCMAKE_CXX_COMPILER=clang++-22 \
+  -DCMAKE_C_COMPILER=clang-22
 </code></pre>
 <h3 id="linker-errors-undefined-llvm-symbols">Linker errors: undefined LLVM symbols</h3>
 <p>The build links <code>support</code>, <code>core</code>, and <code>irreader</code>. If you see undefined symbols from LLVM:</p>
 <ol>
 <li>Confirm the installed LLVM version matches the headers used at configure time (<code>llvm-config --version</code>).</li>
-<li>On Ubuntu, ensure you installed <code>llvm-17-dev</code> (not just <code>llvm-17</code>); the <code>-dev</code> package contains the static libraries.</li>
-<li>On Alpine, <code>llvm17-dev</code> is the correct package name; <code>llvm17</code> alone does not ship the <code>.a</code> archives.</li>
+<li>On Ubuntu, ensure you installed <code>llvm-22-dev</code> (not just <code>llvm-22</code>); the <code>-dev</code> package contains the static libraries.</li>
+<li>On Alpine, <code>llvm22-dev</code> is the correct package name; <code>llvm22</code> alone does not ship the <code>.a</code> archives.</li>
 </ol>
 <hr>
 <h2 id="running-tests">Running Tests</h2>
 <p>The automated suite is driven by <code>tests/run.sh</code>, which compiles, links, and runs every
 <code>tests/*.esk</code> case (matching stdout against <code>*.expected</code>, smoke-running the rest, and
-checking that <code>tests/errors/*.esk</code> are rejected):</p>
+checking that <code>tests/errors/*.esk</code> are rejected). <code>eskiuc</code> links each test itself with
+no <code>-l</code> flags, so the libraries programs imply (<code>#pragma link</code>, the C++ exception
+runtime, pthread) are exercised too:</p>
 <pre><code class="language-bash">tests/run.sh                       # full suite against build/eskiuc
 ESKIUC=/path/eskiuc tests/run.sh   # point at a specific compiler
 </code></pre>

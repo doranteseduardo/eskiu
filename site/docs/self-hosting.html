@@ -114,7 +114,12 @@ dispatches every <code>--test-*</code> debug mode plus <code>--version</code>, t
 with <code>-o</code> assembles the IR and invokes <code>clang</code> to link a native binary (threading
 <code>--asan</code>/<code>--ubsan</code> into the link). It also owns the two subcommands: <code>run script.esk
 [args...]</code> compiles to a temp exe, execs it forwarding argv, and propagates the exit code;
-<code>fmt [--check] file …</code> reindents in place via <code>fmt.esk</code>. The four per-pass parity gates
+<code>fmt [--check] file …</code> reindents in place via <code>fmt.esk</code>. It starts clang and the <code>run</code>
+program with <code>fork</code>/<code>execvp</code> (no shell, so any argument is passed through unchanged),
+accepts the C++ driver's flags (<code>--target</code>, <code>--mcpu</code>, <code>--mattr</code>, <code>--reloc</code>, <code>--link-arg</code>,
+<code>-l</code>/<code>-L</code>, <code>-c</code>, <code>-O0</code> to <code>-O3</code>, <code>--freestanding</code>, <code>--safe</code>, the sanitizers; <code>-Wall</code>/<code>-Wextra</code> are accepted and
+ignored, since lint warnings are C++ only), finds <code>stdlib/</code> through <code>$ESKIU_ROOT</code> or the
+install layout, and reports a missing import as an error. The four per-pass parity gates
 drive <em>through</em> <code>esk_main --test-*</code>, and <code>run</code>/<code>fmt</code> have their own parity gates
 (<code>run_parity.sh</code>, <code>fmt_parity.sh</code>). The code generator emits <strong>LLVM IR as text</strong> (no LLVM library is
 linked), which <code>clang</code> then assembles and links. This keeps the self-hosted compiler
@@ -157,7 +162,11 @@ promotion-track gates that exercise the whole driver end to end: <code>cg_bootst
 3-stage self-host fixpoint), <code>driver_parity.sh</code> / <code>run_parity.sh</code> / <code>fmt_parity.sh</code> (the
 <code>-o</code> / <code>run</code> / <code>fmt</code> CLI paths), and <code>corpus_parity.sh</code> (P3: every positive test compiled by
 the Eskiu-built compiler produces the same exit + stdout as C++). The negative-corpus
-verdict + diagnostic parity is part of <code>tc_parity.sh</code>.</p>
+verdict + diagnostic parity is part of <code>tc_parity.sh</code>. <code>cabi_parity.sh</code> compares the C
+signatures the self-host lowers for <code>extern</code> aggregates, callback thunks and fn-pointer
+parameters with the C++ ones, per target (AArch64, x86-64 SysV, Windows x64, ARM32).
+Outside these scripts, the C oracle (<code>tests/fuzz/eskiu_fuzz.py --oracle</code>) and the negative
+corpus fuzzer (<code>tests/fuzz/neg_fuzz.py</code>) run generated programs through both compilers.</p>
 <h2 id="the-bootstrap-fixpoint">The bootstrap fixpoint</h2>
 <p>Beyond per-pass parity, the self-hosted compiler is validated <strong>against itself</strong>:</p>
 <ul>
@@ -191,6 +200,7 @@ tests/selfhost/tc_parity.sh              # semantic analysis
 tests/selfhost/cg_parity.sh              # codegen (behavioral)
 tests/selfhost/cg_selfhost.sh            # self-compilation + emit validity
 tests/selfhost/cg_bootstrap.sh           # 3-stage bootstrap fixpoint
+tests/selfhost/cabi_parity.sh            # C ABI lowering per target
 </code></pre>
 <p>All are wired into CI. The sources live in <code>selfhost/</code>; the slice-by-slice development record
 is in <code>selfhost/BACKEND_PLAN.md</code>.</p>
