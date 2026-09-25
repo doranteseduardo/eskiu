@@ -1,0 +1,27 @@
+// Globals have external (C) linkage: C code reads and writes them by name. An `extern`
+// beside the variable's own definition (before or after it) names the same variable.
+extern int printf(string fmt, ...);
+extern int c_counter;
+extern int c_read_esk();
+extern void c_bump_esk();
+
+extern int gc;
+int gc = 7;
+int gd = 9;
+extern int gd;
+extern int gd;
+
+int esk_value = 11;
+double esk_scale = 1.5;
+
+void bump() { gc += 1; gd += 2; }
+
+int main() {
+    bump();
+    printf("%d %d %d\n", gc, gd, c_counter);
+    c_counter += 1;
+    printf("%d %d\n", c_counter, c_read_esk());
+    c_bump_esk();
+    printf("%d %f\n", esk_value, esk_scale);
+    return 0;
+}

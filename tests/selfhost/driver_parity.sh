@@ -111,6 +111,19 @@ total=$((total + 1))
 if [ -s "$WORK/f.o" ] && ! [ -x "$WORK/f.o" ]; then echo "ok    flags/c-writes-object"
 else echo "FAIL  flags/c-writes-object"; fail=1; fi
 
+# Multi-file: an `extern` variable in one input names the definition in another (either
+# input order), in both drivers.
+for order in "main lib" "lib main"; do
+    read -r mfa mfb <<< "$order"
+    total=$((total + 1))
+    mfin=("tests/multi_extern/$mfa.esk" "tests/multi_extern/$mfb.esk")
+    c=0; s=0
+    "$BIN" "${mfin[@]}" -o "$WORK/mf.cpp" >/dev/null 2>&1 && "$WORK/mf.cpp" || c=$?
+    ESKIU_ROOT="$ROOT" "$ESKMAIN" "${mfin[@]}" -o "$WORK/mf.self" >/dev/null 2>&1 && "$WORK/mf.self" || s=$?
+    if [ "$c" = 42 ] && [ "$s" = 42 ]; then echo "ok    multi-file/extern ($mfa $mfb)"
+    else echo "FAIL  multi-file/extern ($mfa $mfb)  (cpp exit=$c, self exit=$s, want 42)"; fail=1; fi
+done
+
 # Implied libraries: both drivers must pass the linker the same -l flags (#pragma link,
 # the C++ exception runtime, pthread, per target; explicit -l not repeated; none under
 # --no-default-libs). A wrapper standing in for $CC / $CLANG records them; a cross

@@ -264,8 +264,11 @@ void CodeGen::visit(VarDecl* node) {
         // `extern <type> <name>;` — the variable is defined in another translation
         // unit (a C global). Emit an external declaration: external linkage, no
         // initializer. References resolve at link time.
+        // Beside its definition in the same program (either order, or another input
+        // file), an `extern` names that one variable.
+        llvm::GlobalVariable* prior = module->getNamedGlobal(node->name);
         if (node->isExtern) {
-            auto* gv = new llvm::GlobalVariable(
+            auto* gv = prior ? prior : new llvm::GlobalVariable(
                 *module, declType, /*isConstant=*/node->isConst,
                 llvm::GlobalValue::ExternalLinkage, /*init=*/nullptr, node->name);
             defineSymbol(node->name, gv);
@@ -280,9 +283,18 @@ void CodeGen::visit(VarDecl* node) {
                                      "' is not a compile-time constant");
         if (!init) init = llvm::Constant::getNullValue(declType);
 
-        auto* gv = new llvm::GlobalVariable(
-            *module, declType, /*isConstant=*/false,
-            llvm::GlobalValue::PrivateLinkage, init, node->name);
+        // A global has external (C) linkage, so a C object can reference it by name. An
+        // earlier `extern` declaration of it becomes this definition.
+        llvm::GlobalVariable* gv = nullptr;
+        if (prior && prior->isDeclaration() && prior->getValueType() == declType) {
+            gv = prior;
+            gv->setInitializer(init);
+            gv->setConstant(false);
+        } else {
+            gv = new llvm::GlobalVariable(
+                *module, declType, /*isConstant=*/false,
+                llvm::GlobalValue::ExternalLinkage, init, node->name);
+        }
 
         if (constVal) constValueOf[gv] = constVal;
         defineSymbol(node->name, gv);

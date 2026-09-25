@@ -2091,6 +2091,8 @@ int last_error() {
 
 An extern variable lives at the top level and carries no initializer (its definition, and value, live in the other object). `extern const <type> <name>;` declares a read-only C global.
 
+The definition may also be in the same program: an `extern` next to the variable's own definition (before or after it, or in another file compiled with it) names that one variable. In the other direction, every Eskiu global has external (C) linkage under its own name, so C code can reach it with `extern int name;`. A `static` local stays private to its function.
+
 ### 13.3 Calling Extern Functions
 
 `extern` functions are called exactly like Eskiu functions:

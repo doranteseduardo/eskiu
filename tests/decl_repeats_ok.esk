@@ -6,7 +6,9 @@ extern int printf(string fmt, ...);
 struct P { int x; int y; }
 struct P { int x; int y; }
 int twice(int v);
+extern int counter;
 int counter = 4;
+extern int counter;
 int twice(int v) { return v * 2; }
 int main() {
     let p: P = P{x: 1, y: 2};

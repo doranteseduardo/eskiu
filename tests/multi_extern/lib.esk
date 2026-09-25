@@ -1,0 +1,4 @@
+// Defines the global that main.esk reaches through `extern`.
+int shared_total = 40;
+
+void add_to_shared(int v) { shared_total += v; }
