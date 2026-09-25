@@ -77,6 +77,16 @@ import "parser.esk";   // mk_ident/mk_lit/mk_bin/mk_cast, str_concat/str_eq/int_
     s.kind = SK_FOR; s.s1 = init; s.expr = cond; s.expr2 = step; s.s2 = body;
     return s;
 }
+*StmtNode al_dowhile(*StmtNode body, *ExprNode cond) {
+    *StmtNode s = alloc<StmtNode>(1);
+    s.kind = SK_DOWHILE; s.s1 = body; s.expr = cond;
+    return s;
+}
+*StmtNode al_defer(*StmtNode body, int is_err) {
+    *StmtNode s = alloc<StmtNode>(1);
+    s.kind = SK_DEFER; s.s1 = body; s.is_err = is_err;
+    return s;
+}
 string al_substr(string s, int a, int b) {
     *uint8 buf = alloc<uint8>(b - a + 1);
     int k = 0; while (k < b - a) { buf[k] = (uint8)s[a + k]; k = k + 1; }
@@ -183,7 +193,8 @@ string al_await_type(*Program prog, *ExprNode awaited) {
 string al_find_vartype(*StmtNode s, string name) {
     if (s == null) { return ""; }
     if (s.kind == SK_VARDECL && str_eq(s.name, name) == 1) { return s.type; }
-    if (s.kind == SK_IF || s.kind == SK_WHILE || s.kind == SK_FOR || s.kind == SK_FORIN) {
+    if (s.kind == SK_IF || s.kind == SK_WHILE || s.kind == SK_FOR || s.kind == SK_FORIN
+        || s.kind == SK_DOWHILE || s.kind == SK_DEFER) {
         string t = al_find_vartype(s.s1, name); if (t[0] != 0) { return t; }
     }
     if (s.kind == SK_IF || s.kind == SK_FOR) { string t = al_find_vartype(s.s2, name); if (t[0] != 0) { return t; } }
@@ -265,6 +276,14 @@ struct AlCtx {
     List<List<*StmtNode>> states;  // one statement list per state
     List<int> brk;                 // break-target states (innermost last)
     List<int> cont;                // continue-target states
+    // `defer` in a state-split block: the block no longer exists as a real scope, so its
+    // (rewritten) defer bodies are kept here, one frame per split block (innermost last),
+    // and emitted LIFO at each exit: fall-through (the block's frame), `return` (every
+    // frame), `break`/`continue` (frames above the target's depth, parallel to brk/cont).
+    // errdefer only runs on a `?` error exit, which async lowering never produces.
+    List<List<*StmtNode>> dfr;
+    List<int> brk_dd;
+    List<int> cont_dd;
     int awcount;                   // await counter → __aw0, __aw1, …
     int tmpn;                      // desugar temp counter → __awt0, …
     *DeclNode curfn;                  // the async function being lowered (for iterable type lookup)
@@ -304,15 +323,36 @@ void al_goto(*AlCtx c, int st, int target) { al_push(c, st, al_assign(al_fr("st"
 // continue target states, kept in sync on the two parallel stacks.
 void al_enter_loop(*AlCtx c, int brk, int cont) {
     List_push<int>(&c.brk, brk); List_push<int>(&c.cont, cont);
+    int dd = List_len<List<*StmtNode>>(&c.dfr);
+    List_push<int>(&c.brk_dd, dd); List_push<int>(&c.cont_dd, dd);
 }
 void al_leave_loop(*AlCtx c) {
     List_remove<int>(&c.brk, List_len<int>(&c.brk) - 1);
     List_remove<int>(&c.cont, List_len<int>(&c.cont) - 1);
+    List_remove<int>(&c.brk_dd, List_len<int>(&c.brk_dd) - 1);
+    List_remove<int>(&c.cont_dd, List_len<int>(&c.cont_dd) - 1);
+}
+
+// Append the pending split-block defer bodies of frames >= downTo to `out`, LIFO.
+void al_emit_defers(*AlCtx c, List<*StmtNode>* out, int downTo) {
+    int f = List_len<List<*StmtNode>>(&c.dfr) - 1;
+    while (f >= downTo) {
+        List<*StmtNode> fr = List_get<List<*StmtNode>>(&c.dfr, f);
+        int k = List_len<*StmtNode>(&fr) - 1;
+        while (k >= 0) { List_push<*StmtNode>(out, List_get<*StmtNode>(&fr, k)); k = k - 1; }
+        f = f - 1;
+    }
+}
+void al_emit_defers_st(*AlCtx c, int st, int downTo) {
+    List<*StmtNode> items; List_init<*StmtNode>(&items, 4);
+    al_emit_defers(c, &items, downTo);
+    int i = 0; while (i < List_len<*StmtNode>(&items)) { al_push(c, st, List_get<*StmtNode>(&items, i)); i = i + 1; }
 }
 
 // The completion sequence (fr.ret.value = v; if(atomic_swap(&fr.ret.state,2)==1) fr.ret.waker(); return;)
-void al_completion_items(*ExprNode v, List<*StmtNode>* out) {
+void al_completion_items(*AlCtx c, *ExprNode v, List<*StmtNode>* out) {
     List_push<*StmtNode>(out, al_assign(al_member(al_fr("ret"), "value"), v));
+    al_emit_defers(c, out, 0);                       // pending defers, before publishing
     List<*ExprNode> sa; List_init<*ExprNode>(&sa, 2);
     List_push<*ExprNode>(&sa, mk_un("&", al_member(al_fr("ret"), "state"))); List_push<*ExprNode>(&sa, al_int(2));
     *ExprNode swap = al_call("atomic_swap", &sa);
@@ -324,12 +364,12 @@ void al_completion_items(*ExprNode v, List<*StmtNode>* out) {
 }
 void al_complete(*AlCtx c, int st, *ExprNode v) {
     List<*StmtNode> items; List_init<*StmtNode>(&items, 3);
-    al_completion_items(v, &items);
+    al_completion_items(c, v, &items);
     int i = 0; while (i < List_len<*StmtNode>(&items)) { al_push(c, st, List_get<*StmtNode>(&items, i)); i = i + 1; }
 }
-*StmtNode al_complete_block(*ExprNode v) {
+*StmtNode al_complete_block(*AlCtx c, *ExprNode v) {
     List<*StmtNode> items; List_init<*StmtNode>(&items, 3);
-    al_completion_items(v, &items);
+    al_completion_items(c, v, &items);
     return al_block(&items);
 }
 
@@ -372,7 +412,7 @@ int al_loop_escapes(*StmtNode s) {
     }
     if (s.kind == SK_RETURN) {
         *ExprNode v = s.expr; if (v == null) { v = al_int(0); } al_rewrite(v, &c.vars);
-        return al_complete_block(v);
+        return al_complete_block(c, v);
     }
     if (s.kind == SK_EXPR) { al_rewrite(s.expr, &c.vars); return s; }
     if (s.kind == SK_IF) {
@@ -380,6 +420,9 @@ int al_loop_escapes(*StmtNode s) {
         return al_if(s.expr, al_rewrite_plain(c, s.s1), al_rewrite_plain(c, s.s2));
     }
     if (s.kind == SK_WHILE) { al_rewrite(s.expr, &c.vars); return al_while(s.expr, al_rewrite_plain(c, s.s1)); }
+    if (s.kind == SK_DOWHILE) { al_rewrite(s.expr, &c.vars); return al_dowhile(al_rewrite_plain(c, s.s1), s.expr); }
+    if (s.kind == SK_DEFER) { return al_defer(al_rewrite_plain(c, s.s1), s.is_err); }
+    if (s.kind == SK_THROW) { al_rewrite(s.expr, &c.vars); return s; }
     if (s.kind == SK_FOR) {
         *StmtNode in2 = al_rewrite_plain(c, s.s1);
         al_rewrite(s.expr, &c.vars); al_rewrite(s.expr2, &c.vars);
@@ -441,12 +484,25 @@ int al_lower_item(*AlCtx c, *StmtNode s, int cur) {
 
 int al_lower_seq(*AlCtx c, List<*StmtNode>* items, int entry) {
     int cur = entry;
+    List<*StmtNode> frame; List_init<*StmtNode>(&frame, 2);
+    List_push<List<*StmtNode>>(&c.dfr, frame);     // this split block's defers
+    int top = List_len<List<*StmtNode>>(&c.dfr) - 1;
     int i = 0;
     while (i < List_len<*StmtNode>(items)) {
-        if (cur == 0 - 1) { return cur; }       // rest unreachable
-        cur = al_lower_item(c, List_get<*StmtNode>(items, i), cur);
-        i = i + 1;
+        if (cur == 0 - 1) { break; }             // rest unreachable
+        *StmtNode it = List_get<*StmtNode>(items, i); i = i + 1;
+        if (it.kind == SK_DEFER) {
+            if (it.is_err == 0) {
+                List<*StmtNode> fr = List_get<List<*StmtNode>>(&c.dfr, top);
+                List_push<*StmtNode>(&fr, al_rewrite_plain(c, it.s1));
+                List_set<List<*StmtNode>>(&c.dfr, top, fr);
+            }
+            continue;
+        }
+        cur = al_lower_item(c, it, cur);
     }
+    if (cur != 0 - 1) { al_emit_defers_st(c, cur, top); }   // fall-through exit
+    List_remove<List<*StmtNode>>(&c.dfr, top);
     return cur;
 }
 
@@ -456,8 +512,14 @@ int al_lower_stmt(*AlCtx c, *StmtNode s, int cur) {
         *ExprNode v = s.expr; if (v == null) { v = al_int(0); } al_rewrite(v, &c.vars);
         al_complete(c, cur, v); return 0 - 1;
     }
-    if (s.kind == SK_BREAK) { al_goto(c, cur, List_get<int>(&c.brk, List_len<int>(&c.brk) - 1)); return 0 - 1; }
-    if (s.kind == SK_CONTINUE) { al_goto(c, cur, List_get<int>(&c.cont, List_len<int>(&c.cont) - 1)); return 0 - 1; }
+    if (s.kind == SK_BREAK) {
+        al_emit_defers_st(c, cur, List_get<int>(&c.brk_dd, List_len<int>(&c.brk_dd) - 1));
+        al_goto(c, cur, List_get<int>(&c.brk, List_len<int>(&c.brk) - 1)); return 0 - 1;
+    }
+    if (s.kind == SK_CONTINUE) {
+        al_emit_defers_st(c, cur, List_get<int>(&c.cont_dd, List_len<int>(&c.cont_dd) - 1));
+        al_goto(c, cur, List_get<int>(&c.cont, List_len<int>(&c.cont) - 1)); return 0 - 1;
+    }
     // No await and no escaping break/continue → emit verbatim in this state.
     if (al_stmt_has_await_deep(s) == 0 && al_loop_escapes(s) == 0) {
         al_push(c, cur, al_rewrite_plain(c, s));
@@ -484,6 +546,19 @@ int al_lower_stmt(*AlCtx c, *StmtNode s, int cur) {
         int be = al_lower_stmt(c, s.s1, bodyE);
         al_leave_loop(c);
         if (be != 0 - 1) { al_goto(c, be, header); }
+        return after;
+    }
+    if (s.kind == SK_DOWHILE) {
+        // do body while (cond): body first, then test(cond) → body | after. The test is
+        // its own state so `continue` re-tests the condition (C semantics).
+        al_rewrite(s.expr, &c.vars);
+        int bodyE = al_newst(c); int test = al_newst(c); int after = al_newst(c);
+        al_goto(c, cur, bodyE);
+        al_push(c, test, al_dispatch2(s.expr, bodyE, after));
+        al_enter_loop(c, after, test);
+        int be = al_lower_stmt(c, s.s1, bodyE);
+        al_leave_loop(c);
+        if (be != 0 - 1) { al_goto(c, be, test); }
         return after;
     }
     if (s.kind == SK_FOR) {
@@ -527,6 +602,7 @@ int al_lower_stmt(*AlCtx c, *StmtNode s, int cur) {
         }
         al_push(c, cur, chain);
         List_push<int>(&c.brk, join);
+        List_push<int>(&c.brk_dd, List_len<List<*StmtNode>>(&c.dfr));
         k = 0;
         while (k < nc) {
             *StmtNode cs = List_get<*StmtNode>(&s.items, k);
@@ -537,6 +613,7 @@ int al_lower_stmt(*AlCtx c, *StmtNode s, int cur) {
             k = k + 1;
         }
         List_remove<int>(&c.brk, List_len<int>(&c.brk) - 1);
+        List_remove<int>(&c.brk_dd, List_len<int>(&c.brk_dd) - 1);
         return join;
     }
     if (s.kind == SK_BLOCK) { return al_lower_seq(c, &s.items, cur); }
@@ -582,6 +659,7 @@ void al_desugar_items(*AlCtx c, List<*StmtNode>* inp, List<*StmtNode>* out) {
         return al_if(s.expr, al_desugar_stmt(c, s.s1), e2);
     }
     if (s.kind == SK_WHILE) { return al_while(s.expr, al_desugar_stmt(c, s.s1)); }
+    if (s.kind == SK_DOWHILE) { return al_dowhile(al_desugar_stmt(c, s.s1), s.expr); }
     if (s.kind == SK_FOR) { return al_for(s.s1, s.expr, s.expr2, al_desugar_stmt(c, s.s2)); }
     if (s.kind == SK_FORIN) {
         // Desugar `for (v in it)` into a counted C-for, then let the for-lowering handle the
@@ -645,11 +723,109 @@ void al_scan_locals(*AlCtx c, *StmtNode s) {
         }
         return;
     }
-    if (s.kind == SK_IF || s.kind == SK_WHILE || s.kind == SK_FOR) { al_scan_locals(c, s.s1); }
+    if (s.kind == SK_IF || s.kind == SK_WHILE || s.kind == SK_FOR || s.kind == SK_DOWHILE
+        || s.kind == SK_DEFER) { al_scan_locals(c, s.s1); }
     if (s.kind == SK_IF || s.kind == SK_FOR) { al_scan_locals(c, s.s2); }
     if (s.kind == SK_BLOCK || s.kind == SK_SWITCH || s.kind == SK_CASE) {
         int i = 0; while (i < List_len<*StmtNode>(&s.items)) { al_scan_locals(c, List_get<*StmtNode>(&s.items, i)); i = i + 1; }
     }
+}
+
+// ── Lambdas capturing a frame-hoisted local ────────────────────────────────────
+// The resume function has no local of that name (it lives in `fr.<name>`, and al_rewrite
+// stops at a lambda), so each statement whose own expressions create such a lambda is
+// wrapped as `{ T x = fr.x; <stmt> }`: a by-value snapshot at the creation point, exactly
+// what the closure's capture takes. Mirrors the C++ AsyncTransform wrapCaps pass.
+void al_collect_idents_s(*StmtNode s, List<string>* out);
+void al_collect_idents_e(*ExprNode e, List<string>* out) {
+    if (e == null) { return; }
+    if (e.kind == EK_IDENT) { List_push<string>(out, e.sval); return; }
+    if (e.kind == EK_LAMBDA) { al_collect_idents_s(e.stmt, out); return; }
+    List<*ExprNode> ch; List_init<*ExprNode>(&ch, 4); al_children(e, &ch);
+    int i = 0; while (i < List_len<*ExprNode>(&ch)) { al_collect_idents_e(List_get<*ExprNode>(&ch, i), out); i = i + 1; }
+}
+void al_collect_idents_s(*StmtNode s, List<string>* out) {
+    if (s == null) { return; }
+    al_collect_idents_e(s.expr, out);
+    al_collect_idents_e(s.expr2, out);
+    al_collect_idents_s(s.s1, out);
+    al_collect_idents_s(s.s2, out);
+    if (s.kind == SK_BLOCK || s.kind == SK_SWITCH || s.kind == SK_CASE || s.kind == SK_MATCH || s.kind == SK_TRY) {
+        int i = 0; while (i < List_len<*StmtNode>(&s.items)) { al_collect_idents_s(List_get<*StmtNode>(&s.items, i), out); i = i + 1; }
+    }
+}
+// Parameter names of a lambda signature `int(int y, fn(int)->int g)` → ["y", "g"].
+void al_lambda_params(string sig, List<string>* out) {
+    int i = 0; while (sig[i] != 0 && (int)sig[i] != 40) { i = i + 1; }   // to '('
+    if (sig[i] == 0) { return; }
+    i = i + 1;
+    int depth = 1; int start = i;
+    while (sig[i] != 0 && depth > 0) {
+        int ch = (int)sig[i];
+        if (ch == 40) { depth = depth + 1; }
+        else if (ch == 41) { depth = depth - 1; }
+        if ((ch == 44 && depth == 1) || depth == 0) {
+            int e = i; while (e > start && (int)sig[e - 1] == 32) { e = e - 1; }
+            int b = e; while (b > start && (int)sig[b - 1] != 32) { b = b - 1; }
+            if (e > b) { List_push<string>(out, al_substr(sig, b, e)); }
+            start = i + 1;
+        }
+        i = i + 1;
+    }
+}
+void al_lambda_caps(*AlCtx c, *ExprNode e, List<string>* caps) {
+    if (e == null) { return; }
+    if (e.kind == EK_LAMBDA) {
+        List<string> ids; List_init<string>(&ids, 8); al_collect_idents_s(e.stmt, &ids);
+        List<string> ps; List_init<string>(&ps, 2); al_lambda_params(e.sval, &ps);
+        int i = 0;
+        while (i < List_len<string>(&ids)) {
+            string nm = List_get<string>(&ids, i); i = i + 1;
+            if (al_in(&c.vars, nm) == 1 && al_in(&ps, nm) == 0 && al_in(caps, nm) == 0) { List_push<string>(caps, nm); }
+        }
+        return;
+    }
+    List<*ExprNode> ch; List_init<*ExprNode>(&ch, 4); al_children(e, &ch);
+    int i = 0; while (i < List_len<*ExprNode>(&ch)) { al_lambda_caps(c, List_get<*ExprNode>(&ch, i), caps); i = i + 1; }
+}
+string al_field_type(*AlCtx c, string nm) {
+    int i = 0; while (i < List_len<Param>(&c.fields)) { Param f = List_get<Param>(&c.fields, i); if (str_eq(f.name, nm) == 1) { return f.ty; } i = i + 1; }
+    return "int";
+}
+*StmtNode al_wrap_caps(*AlCtx c, *StmtNode s) {
+    if (s == null) { return s; }
+    if (s.kind == SK_BLOCK) {
+        int i = 0; while (i < List_len<*StmtNode>(&s.items)) { List_set<*StmtNode>(&s.items, i, al_wrap_caps(c, List_get<*StmtNode>(&s.items, i))); i = i + 1; }
+        return s;
+    }
+    List<string> caps; List_init<string>(&caps, 2);
+    if (s.kind == SK_SWITCH || s.kind == SK_MATCH) {
+        al_lambda_caps(c, s.expr, &caps);
+        int i = 0;
+        while (i < List_len<*StmtNode>(&s.items)) {
+            *StmtNode cs = List_get<*StmtNode>(&s.items, i); i = i + 1;
+            if (s.kind == SK_SWITCH) {
+                al_lambda_caps(c, cs.expr, &caps);
+                int j = 0; while (j < List_len<*StmtNode>(&cs.items)) { List_set<*StmtNode>(&cs.items, j, al_wrap_caps(c, List_get<*StmtNode>(&cs.items, j))); j = j + 1; }
+            } else { cs.s1 = al_wrap_caps(c, cs.s1); }
+        }
+    } else {
+        // Every other kind: its own expressions (cond / step / value / initializer) and
+        // its nested statements (then/else, body, for-init, defer body).
+        al_lambda_caps(c, s.expr, &caps);
+        al_lambda_caps(c, s.expr2, &caps);
+        s.s1 = al_wrap_caps(c, s.s1);
+        s.s2 = al_wrap_caps(c, s.s2);
+    }
+    if (List_len<string>(&caps) == 0) { return s; }
+    List<*StmtNode> blk; List_init<*StmtNode>(&blk, 4);
+    int k = 0;
+    while (k < List_len<string>(&caps)) {
+        string nm = List_get<string>(&caps, k); k = k + 1;
+        List_push<*StmtNode>(&blk, mk_vardecl(nm, al_field_type(c, nm), al_fr(nm), 0));
+    }
+    List_push<*StmtNode>(&blk, s);
+    return al_block(&blk);
 }
 
 // Lower one async function into [frame struct, resume fn, ctor fn], appended to `out`.
@@ -667,6 +843,9 @@ void al_transform(*Program prog, *DeclNode d, List<*DeclNode>* out) {
     List_init<List<*StmtNode>>(&c.states, 4);
     List_init<int>(&c.brk, 4);
     List_init<int>(&c.cont, 4);
+    List_init<List<*StmtNode>>(&c.dfr, 4);
+    List_init<int>(&c.brk_dd, 4);
+    List_init<int>(&c.cont_dd, 4);
     let fret: Param; fret.name = "ret"; fret.ty = str_concat("Future<", str_concat(Tret, ">")); List_push<Param>(&c.fields, fret);
     let fst: Param; fst.name = "st"; fst.ty = "int"; List_push<Param>(&c.fields, fst);
     let faw: Param; faw.name = "awaiting"; faw.ty = "*FutureHdr"; List_push<Param>(&c.fields, faw);
@@ -686,6 +865,13 @@ void al_transform(*Program prog, *DeclNode d, List<*DeclNode>* out) {
     int exit = al_lower_seq(&c, &dbody, entry);
     if (exit != 0 - 1) {
         al_complete(&c, exit, al_int(0));
+    }
+    int wi = 0;                                // lambdas capturing hoisted locals
+    while (wi < List_len<List<*StmtNode>>(&c.states)) {
+        List<*StmtNode> stl = List_get<List<*StmtNode>>(&c.states, wi);
+        int wk = 0; while (wk < List_len<*StmtNode>(&stl)) { List_set<*StmtNode>(&stl, wk, al_wrap_caps(&c, List_get<*StmtNode>(&stl, wk))); wk = wk + 1; }
+        List_set<List<*StmtNode>>(&c.states, wi, stl);
+        wi = wi + 1;
     }
 
     // resume fn: while (1) { if (fr.st==0){…} else if (fr.st==1){…} … else return; }
@@ -786,7 +972,9 @@ int al_stmt_has_await_deep(*StmtNode s) {
     if (s == null) { return 0; }
     if (al_expr_has_await(s.expr) == 1 || al_expr_has_await(s.expr2) == 1) { return 1; }
     if (s.kind == SK_IF || s.kind == SK_WHILE || s.kind == SK_FOR || s.kind == SK_FORIN
-        || s.kind == SK_ARM || s.kind == SK_CATCH) { if (al_stmt_has_await_deep(s.s1) == 1) { return 1; } }
+        || s.kind == SK_ARM || s.kind == SK_CATCH || s.kind == SK_DOWHILE || s.kind == SK_DEFER) {
+        if (al_stmt_has_await_deep(s.s1) == 1) { return 1; }
+    }
     if (s.kind == SK_IF || s.kind == SK_FOR || s.kind == SK_TRY) { if (al_stmt_has_await_deep(s.s2) == 1) { return 1; } }
     if (s.kind == SK_BLOCK || s.kind == SK_SWITCH || s.kind == SK_CASE || s.kind == SK_MATCH || s.kind == SK_TRY) {
         int i = 0; while (i < List_len<*StmtNode>(&s.items)) { if (al_stmt_has_await_deep(List_get<*StmtNode>(&s.items, i)) == 1) { return 1; } i = i + 1; }
@@ -816,6 +1004,17 @@ int al_stmt_has_labeled_break(*StmtNode s) {
     return 0;
 }
 
+// Does a statement subtree contain a `defer` whose body awaits?
+int al_stmt_has_defer_await(*StmtNode s) {
+    if (s == null) { return 0; }
+    if (s.kind == SK_DEFER) { return al_stmt_has_await_deep(s.s1); }
+    if (al_stmt_has_defer_await(s.s1) == 1 || al_stmt_has_defer_await(s.s2) == 1) { return 1; }
+    if (s.kind == SK_BLOCK || s.kind == SK_SWITCH || s.kind == SK_CASE || s.kind == SK_MATCH || s.kind == SK_TRY) {
+        int i = 0; while (i < List_len<*StmtNode>(&s.items)) { if (al_stmt_has_defer_await(List_get<*StmtNode>(&s.items, i)) == 1) { return 1; } i = i + 1; }
+    }
+    return 0;
+}
+
 // Can we lower this body? Await is supported at the top level and inside if/while/for/
 // block; NOT yet inside switch/for-in/match/try (those are left untransformed). Also
 // requires await to be the whole initializer of a `let` (not nested in a larger expr).
@@ -839,7 +1038,7 @@ int al_can_lower(*StmtNode s) {
     if (s.kind == SK_IF) {
         return al_expr_has_await(s.expr) == 0 && al_can_lower(s.s1) == 1 && al_can_lower(s.s2) == 1;
     }
-    if (s.kind == SK_WHILE || s.kind == SK_FORIN) {
+    if (s.kind == SK_WHILE || s.kind == SK_FORIN || s.kind == SK_DOWHILE) {
         return al_expr_has_await(s.expr) == 0 && al_can_lower(s.s1) == 1;
     }
     if (s.kind == SK_FOR) {
@@ -864,6 +1063,11 @@ void async_lower(*Program prog) {
         if (d.kind == DK_FUNCTION && d.is_async == 1 && d.body != null
             && al_stmt_has_labeled_break(d.body) == 1) {
             printf("error: async function '%s': labeled 'break'/'continue' is not supported inside an async function\n", d.name);
+            exit(1);
+        }
+        if (d.kind == DK_FUNCTION && d.is_async == 1 && d.body != null
+            && al_stmt_has_defer_await(d.body) == 1) {
+            printf("error: async function '%s': await is not supported inside a defer\n", d.name);
             exit(1);
         }
         // An await the transform can't place (in a condition, a larger expression, or an

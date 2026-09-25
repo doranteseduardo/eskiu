@@ -5,6 +5,7 @@
 #include <map>
 #include <memory>
 #include <functional>
+#include <algorithm>
 
 // ── Small AST builders ───────────────────────────────────────────────────────
 namespace {
@@ -64,6 +65,12 @@ bool stmtHasAwait(const StmtPtr& s) {
         return hasAwait(i->condition) || stmtHasAwait(i->thenBranch) || stmtHasAwait(i->elseBranch);
     if (auto* w = dynamic_cast<WhileStmt*>(s.get()))
         return hasAwait(w->condition) || stmtHasAwait(w->body);
+    if (auto* dw = dynamic_cast<DoWhileStmt*>(s.get()))
+        return stmtHasAwait(dw->body) || hasAwait(dw->condition);
+    if (auto* ds = dynamic_cast<DeferStmt*>(s.get()))
+        return stmtHasAwait(ds->body);
+    if (auto* ts = dynamic_cast<ThrowStmt*>(s.get()))
+        return hasAwait(ts->value);
     if (auto* f = dynamic_cast<ForStmt*>(s.get()))
         return stmtHasAwait(f->init) || hasAwait(f->condition) || hasAwait(f->step) || stmtHasAwait(f->body);
     if (auto* fi = dynamic_cast<ForInStmt*>(s.get()))
@@ -205,6 +212,8 @@ void AsyncTransform::run(Program* program) {
                     i->elseBranch ? desugarStmt(i->elseBranch) : nullptr);
             if (auto* w = dynamic_cast<WhileStmt*>(s.get()))
                 return std::make_shared<WhileStmt>(w->condition, desugarStmt(w->body));
+            if (auto* dw = dynamic_cast<DoWhileStmt*>(s.get()))
+                return std::make_shared<DoWhileStmt>(desugarStmt(dw->body), dw->condition);
             if (auto* f = dynamic_cast<ForStmt*>(s.get()))
                 return std::make_shared<ForStmt>(f->init, f->condition, f->step, desugarStmt(f->body));
             if (auto* fi = dynamic_cast<ForInStmt*>(s.get())) {
@@ -290,6 +299,8 @@ void AsyncTransform::run(Program* program) {
             if (auto* b = dynamic_cast<BlockStmt*>(s.get())) scanB(b->items);
             else if (auto* i = dynamic_cast<IfStmt*>(s.get())) { scanS(i->thenBranch); scanS(i->elseBranch); }
             else if (auto* w = dynamic_cast<WhileStmt*>(s.get())) scanS(w->body);
+            else if (auto* dw = dynamic_cast<DoWhileStmt*>(s.get())) scanS(dw->body);
+            else if (auto* ds = dynamic_cast<DeferStmt*>(s.get())) scanS(ds->body);
             else if (auto* f = dynamic_cast<ForStmt*>(s.get())) { scanS(f->init); scanS(f->body); }
             else if (auto* fi = dynamic_cast<ForInStmt*>(s.get())) scanS(fi->body);
             else if (auto* sw = dynamic_cast<SwitchStmt*>(s.get()))
@@ -309,6 +320,27 @@ void AsyncTransform::run(Program* program) {
         // when a loop is lowered into states we push its exit/continue target states
         // here, and a `break`/`continue` becomes a transition to them.
         std::vector<int> brkTargets, contTargets;
+        // `defer` in a state-split block: the block no longer exists as a real scope, so
+        // its defer bodies (already rewritten) are kept here, one frame per split block
+        // (innermost last), and emitted LIFO at each exit: the block's fall-through end,
+        // a `return` (every frame), and a `break`/`continue` (the frames above the
+        // target's depth, kept parallel to brkTargets/contTargets). errdefer only runs on
+        // a `?` error exit, which async lowering does not produce, so it is dropped.
+        std::vector<std::vector<StmtPtr>> deferFrames;
+        std::vector<size_t> brkDeferDepth, contDeferDepth;
+        auto enterLoop = [&](int brk, int cont) {
+            brkTargets.push_back(brk); contTargets.push_back(cont);
+            brkDeferDepth.push_back(deferFrames.size()); contDeferDepth.push_back(deferFrames.size());
+        };
+        auto leaveLoop = [&]() {
+            brkTargets.pop_back(); contTargets.pop_back();
+            brkDeferDepth.pop_back(); contDeferDepth.pop_back();
+        };
+        auto emitDefers = [&](std::vector<BlockItem>& st, size_t downTo) {
+            for (size_t f = deferFrames.size(); f-- > downTo;)
+                for (auto it = deferFrames[f].rbegin(); it != deferFrames[f].rend(); ++it)
+                    st.push_back(*it);
+        };
         // Does `s` contain a `break`/`continue` that binds to an *enclosing* loop —
         // i.e. one not shadowed by a nested loop/switch? Such a statement can't be
         // emitted verbatim by rewritePlain inside a split loop; it must be lowered
@@ -346,9 +378,11 @@ void AsyncTransform::run(Program* program) {
             return false;
         };
 
-        // Complete the future with `v` (already rewritten), then return.
+        // Complete the future with `v` (already rewritten), then return. Pending defers
+        // run after the value is computed, before the completion is published.
         auto completeInto = [&](std::vector<BlockItem>& st, ExprPtr v) {
             st.push_back(assign(std::make_shared<MemberExpr>(fr("ret"), "value"), v));
+            emitDefers(st, 0);
             ExprPtr swap = std::make_shared<CallExpr>(ident("atomic_swap"),
                 std::vector<ExprPtr>{ std::make_shared<UnaryExpr>("&",
                     std::make_shared<MemberExpr>(fr("ret"), "state")), intlit(2) });
@@ -388,6 +422,13 @@ void AsyncTransform::run(Program* program) {
                 rewrite(w->condition, vars);
                 return std::make_shared<WhileStmt>(w->condition, rewritePlain(w->body));
             }
+            if (auto* dw = dynamic_cast<DoWhileStmt*>(s.get())) {
+                rewrite(dw->condition, vars);
+                return std::make_shared<DoWhileStmt>(rewritePlain(dw->body), dw->condition);
+            }
+            if (auto* ds = dynamic_cast<DeferStmt*>(s.get()))
+                return std::make_shared<DeferStmt>(rewritePlain(ds->body), ds->isErr);
+            if (auto* ts = dynamic_cast<ThrowStmt*>(s.get())) { rewrite(ts->value, vars); return s; }
             if (auto* f = dynamic_cast<ForStmt*>(s.get())) {
                 StmtPtr in2 = f->init ? rewritePlain(f->init) : nullptr;
                 rewrite(f->condition, vars); rewrite(f->step, vars);
@@ -467,10 +508,21 @@ void AsyncTransform::run(Program* program) {
         // terminator or a transition to an unreachable state.
         lowerSeq = [&](const std::vector<BlockItem>& its, int entry) -> int {
             int cur = entry;
+            deferFrames.push_back({});           // this split block's defers
             for (auto& it : its) {
                 if (cur == -1) break;            // rest is unreachable
+                if (std::holds_alternative<StmtPtr>(it))
+                    if (auto* ds = dynamic_cast<DeferStmt*>(std::get<StmtPtr>(it).get())) {
+                        if (stmtHasAwait(ds->body))
+                            throw std::runtime_error("async function '" + name + "': await is not "
+                                "supported inside a defer");
+                        if (!ds->isErr) deferFrames.back().push_back(rewritePlain(ds->body));
+                        continue;
+                    }
                 BlockItem copy = it; cur = lowerItem(copy, cur);
             }
+            if (cur != -1) emitDefers(states[cur], deferFrames.size() - 1);   // fall-through exit
+            deferFrames.pop_back();
             return cur;
         };
         lowerStmt = [&](const StmtPtr& s, int cur) -> int {
@@ -487,11 +539,13 @@ void AsyncTransform::run(Program* program) {
             if (dynamic_cast<BreakStmt*>(s.get())) {
                 if (brkTargets.empty())
                     throw std::runtime_error("async function '" + name + "': `break` outside a loop");
+                emitDefers(states[cur], brkDeferDepth.back());
                 goTo(cur, brkTargets.back()); return -1;
             }
             if (dynamic_cast<ContinueStmt*>(s.get())) {
                 if (contTargets.empty())
                     throw std::runtime_error("async function '" + name + "': `continue` outside a loop");
+                emitDefers(states[cur], contDeferDepth.back());
                 goTo(cur, contTargets.back()); return -1;
             }
             // Emit verbatim only if there's no await AND no break/continue that would
@@ -521,12 +575,27 @@ void AsyncTransform::run(Program* program) {
                 std::vector<BlockItem> eb; eb.push_back(assign(fr("st"), intlit(after)));
                 states[header].push_back(std::make_shared<IfStmt>(w->condition,
                     std::make_shared<BlockStmt>(tb), std::make_shared<BlockStmt>(eb)));
-                brkTargets.push_back(after);        // break -> after; continue -> re-test
-                contTargets.push_back(header);
+                enterLoop(after, header);           // break -> after; continue -> re-test
                 int be = lowerStmt(w->body, bodyE);
-                brkTargets.pop_back(); contTargets.pop_back();
+                leaveLoop();
                 if (be != -1) goTo(be, header);    // back-edge
                 return after;                       // the loop may not execute -> reachable
+            }
+            if (auto* dw = dynamic_cast<DoWhileStmt*>(s.get())) {
+                // do body while (cond): body first, then cond(test) -> body | after. The
+                // test is its own state so `continue` re-tests the condition (C semantics).
+                rewrite(dw->condition, vars);
+                int bodyE = newState(), test = newState(), after = newState();
+                goTo(cur, bodyE);
+                std::vector<BlockItem> tb; tb.push_back(assign(fr("st"), intlit(bodyE)));
+                std::vector<BlockItem> eb; eb.push_back(assign(fr("st"), intlit(after)));
+                states[test].push_back(std::make_shared<IfStmt>(dw->condition,
+                    std::make_shared<BlockStmt>(tb), std::make_shared<BlockStmt>(eb)));
+                enterLoop(after, test);             // break -> after; continue -> test
+                int be = lowerStmt(dw->body, bodyE);
+                leaveLoop();
+                if (be != -1) goTo(be, test);
+                return after;
             }
             if (auto* f = dynamic_cast<ForStmt*>(s.get())) {
                 // for (init; cond; step) body  — init/step run as plain code; the
@@ -547,10 +616,9 @@ void AsyncTransform::run(Program* program) {
                 }
                 if (f->step) { ExprPtr stp = f->step; rewrite(stp, vars); states[step].push_back(exprStmt(stp)); }
                 goTo(step, header);                // step -> back-edge
-                brkTargets.push_back(after);       // break -> after; continue -> step
-                contTargets.push_back(step);
+                enterLoop(after, step);            // break -> after; continue -> step
                 int be = lowerStmt(f->body, bodyE);
-                brkTargets.pop_back(); contTargets.pop_back();
+                leaveLoop();
                 if (be != -1) goTo(be, step);      // body exit -> step
                 return after;
             }
@@ -576,18 +644,19 @@ void AsyncTransform::run(Program* program) {
                 }
                 states[cur].push_back(chain);
                 brkTargets.push_back(join);                   // break -> switch end
+                brkDeferDepth.push_back(deferFrames.size());
                 for (int k = 0; k < n; ++k) {
                     std::vector<BlockItem> body;
                     for (auto& st : sw->cases[k].stmts) body.push_back(BlockItem(st));
                     int e = lowerSeq(body, entry[k]);
                     if (e != -1) goTo(e, (k + 1 < n) ? entry[k + 1] : join);  // fall through
                 }
-                brkTargets.pop_back();
+                brkTargets.pop_back(); brkDeferDepth.pop_back();
                 return join;
             }
             if (auto* b = dynamic_cast<BlockStmt*>(s.get())) return lowerSeq(b->items, cur);
             throw std::runtime_error("async function '" + name + "': await is not supported "
-                "inside this statement (supported: if/else, while, for, for-in, switch)");
+                "inside this statement (supported: if/else, while, do/while, for, for-in, switch)");
         };
 
         int entry = newState();                 // state 0
@@ -598,6 +667,73 @@ void AsyncTransform::run(Program* program) {
             if (isVoid) completeInto(states[exit], intlit(0));
             else        states[exit].push_back(ret(nullptr));
         }
+
+        // ── Lambdas capturing a frame-hoisted local. The resume function has no local of
+        //    that name (it lives in `fr.<name>`, and rewrite() stops at a lambda), so each
+        //    statement whose own expressions create such a lambda is wrapped as
+        //    `{ T x = fr.x; <stmt> }`: a by-value snapshot at the creation point, which is
+        //    exactly what the closure's capture takes.
+        std::map<std::string, std::string> fieldTy;
+        for (auto& f : fields) fieldTy[f.name] = f.type;
+        std::function<void(const ExprPtr&, std::vector<std::string>&)> lambdaCaps =
+            [&](const ExprPtr& e, std::vector<std::string>& caps) {
+                if (!e) return;
+                if (auto* lam = dynamic_cast<LambdaExpr*>(e.get())) {
+                    for (auto& c : lam->captures)
+                        if (vars.count(c.first) && std::find(caps.begin(), caps.end(), c.first) == caps.end())
+                            caps.push_back(c.first);
+                    return;
+                }
+                astwalk::forEachChildExpr(e.get(), [&](ExprPtr& ch) { lambdaCaps(ch, caps); });
+            };
+        std::function<StmtPtr(const StmtPtr&)> wrapCaps = [&](const StmtPtr& s) -> StmtPtr {
+            if (!s) return s;
+            std::vector<std::string> caps;
+            if (auto* b = dynamic_cast<BlockStmt*>(s.get())) {
+                for (auto& it : b->items)
+                    if (std::holds_alternative<StmtPtr>(it)) it = BlockItem(wrapCaps(std::get<StmtPtr>(it)));
+                return s;
+            }
+            if (auto* i = dynamic_cast<IfStmt*>(s.get())) {
+                lambdaCaps(i->condition, caps);
+                i->thenBranch = wrapCaps(i->thenBranch); i->elseBranch = wrapCaps(i->elseBranch);
+            } else if (auto* w = dynamic_cast<WhileStmt*>(s.get())) {
+                lambdaCaps(w->condition, caps); w->body = wrapCaps(w->body);
+            } else if (auto* dw = dynamic_cast<DoWhileStmt*>(s.get())) {
+                lambdaCaps(dw->condition, caps); dw->body = wrapCaps(dw->body);
+            } else if (auto* f = dynamic_cast<ForStmt*>(s.get())) {
+                f->init = wrapCaps(f->init);
+                lambdaCaps(f->condition, caps); lambdaCaps(f->step, caps);
+                f->body = wrapCaps(f->body);
+            } else if (auto* fi = dynamic_cast<ForInStmt*>(s.get())) {
+                lambdaCaps(fi->iterable, caps); fi->body = wrapCaps(fi->body);
+            } else if (auto* sw = dynamic_cast<SwitchStmt*>(s.get())) {
+                lambdaCaps(sw->subject, caps);
+                for (auto& c : sw->cases) {
+                    lambdaCaps(c.value, caps);
+                    for (auto& st : c.stmts) st = wrapCaps(st);
+                }
+            } else if (auto* m = dynamic_cast<MatchStmt*>(s.get())) {
+                lambdaCaps(m->subject, caps);
+                for (auto& arm : m->arms) arm.body = wrapCaps(arm.body);
+            } else if (auto* ds = dynamic_cast<DeferStmt*>(s.get())) {
+                ds->body = wrapCaps(ds->body);
+            } else if (auto* rs = dynamic_cast<ReturnStmt*>(s.get())) {
+                lambdaCaps(rs->value, caps);
+            } else if (auto* es = dynamic_cast<ExprStmt*>(s.get())) {
+                lambdaCaps(es->expr, caps);
+            } else if (auto* ts = dynamic_cast<ThrowStmt*>(s.get())) {
+                lambdaCaps(ts->value, caps);
+            }
+            if (caps.empty()) return s;
+            std::vector<BlockItem> blk;
+            for (auto& n : caps) blk.push_back(DeclPtr(std::make_shared<VarDecl>(n, fieldTy[n], fr(n))));
+            blk.push_back(s);
+            return std::make_shared<BlockStmt>(blk);
+        };
+        for (auto& st : states)
+            for (auto& it : st)
+                if (std::holds_alternative<StmtPtr>(it)) it = BlockItem(wrapCaps(std::get<StmtPtr>(it)));
 
         // ── Resume:  while (true) { if(st==0){..} else if(st==1){..} ... else return; }
         StmtPtr chain = ret(nullptr);           // terminal: unknown state -> return
