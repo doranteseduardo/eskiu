@@ -149,3 +149,8 @@ jobs:
       # narrows, `?*T`->`*T` needs a check, `*T`->`?*T` widens).
       - name: Nullable self-host parity
         run: CC=clang-22 tests/selfhost/nullable_parity.sh
+
+      # C-ABI lowering parity: every lowered extern declaration and callback thunk the
+      # self-host emits must match the C++ compiler's signature, across 9 target triples.
+      - name: C ABI self-host parity
+        run: CLANG=clang-22 tests/selfhost/cabi_parity.sh
