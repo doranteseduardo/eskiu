@@ -43,6 +43,11 @@ void String_free(String* self) {
 void String_append(String* self, string s) {
     int64 slen   = strlen(s);
     int64 newlen = self.len + slen;
+    // `s` may point into our own buffer (String_concat(&s, &s)); growing frees
+    // it, so re-derive the pointer from its offset after the copy.
+    int64 so = (int64)s - (int64)self.data;
+    int inside = 0;
+    if (self.data != null && so >= (int64)0 && so <= self.len) { inside = 1; }
     if (newlen >= self.cap) {
         int64 newcap = newlen * 2 + 1;
         let newbuf: *char = alloc<char>(newcap);
@@ -50,8 +55,10 @@ void String_append(String* self, string s) {
         free(self.data);
         self.data = newbuf;
         self.cap  = newcap;
+        if (inside == 1) { s = (string)(self.data + so); }
     }
-    memcpy(self.data + self.len, s, slen + 1);
+    memcpy(self.data + self.len, s, slen);
+    self.data[newlen] = 0;
     self.len = newlen;
 }
 

@@ -57,8 +57,14 @@ void Bytes_push(Bytes* self, uint8 b) {
 
 void Bytes_append_raw(Bytes* self, *uint8 src, int64 n) {
     if (n <= 0) { return; }
+    // `src` may point into our own buffer (Bytes_append(&b, &b)); growing frees
+    // it, so re-derive the pointer from its offset after the reserve.
+    int64 so = (int64)src - (int64)self.data;
+    int inside = 0;
+    if (self.data != null && so >= (int64)0 && so < self.len) { inside = 1; }
     Bytes_reserve(self, n);
-    memcpy((*void)(self.data + self.len), (*void)src, (int)n);
+    if (inside == 1) { src = self.data + so; }
+    memmove((*void)(self.data + self.len), (*void)src, n);
     self.len = self.len + n;
     self.data[self.len] = 0;
 }
