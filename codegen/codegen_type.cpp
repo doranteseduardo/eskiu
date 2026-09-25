@@ -166,6 +166,8 @@ llvm::Value* CodeGen::coerceInt(llvm::Value* val, llvm::Type* ty, bool unsignedS
     if (!val->getType()->isIntegerTy() || !ty->isIntegerTy()) return val;
     unsigned sw = val->getType()->getIntegerBitWidth();
     unsigned dw = ty->getIntegerBitWidth();
+    // To bool: `!= 0`, not a truncation (a returned 4 is true, not its low bit).
+    if (dw == 1) return builder->CreateICmpNE(val, llvm::ConstantInt::get(val->getType(), 0));
     if (sw < dw) return unsignedSrc ? builder->CreateZExt(val, ty) : builder->CreateSExt(val, ty);
     if (sw > dw) return builder->CreateTrunc(val, ty);
     return val;
@@ -190,6 +192,8 @@ llvm::Value* CodeGen::coerceValue(llvm::Value* val, llvm::Type* target, bool uns
     llvm::Type* src = val->getType();
     if (src->isIntegerTy() && target->isIntegerTy())             return coerceInt(val, target, unsignedSrc);
     if (src->isIntegerTy() && target->isFloatingPointTy())       return intToFloat(val, target, unsignedSrc);
+    if (src->isFloatingPointTy() && target->isIntegerTy(1))
+        return builder->CreateFCmpUNE(val, llvm::ConstantFP::get(src, 0.0));
     if (src->isFloatingPointTy() && target->isIntegerTy())       return builder->CreateFPToSI(val, target);
     if (src->isFloatingPointTy() && target->isFloatingPointTy()) return builder->CreateFPCast(val, target);
     return val;

@@ -1032,7 +1032,12 @@ string cg_coerce(Codegen* g, CgVal val, string target) {
     if (tf == 0 && sf == 0 && tw == 0 && sw == 0) { return val.op; }   // non-scalar (struct)
     string t = cg_tmp(g);
     cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = ");
-    if (tf == 1 && sw > 0) {                              // int→float: unsigned source uses uitofp
+    if (tw == 1) {                                        // to bool: `!= 0`, never a truncation
+        if (sf == 1) { cg_emit(g, "fcmp une "); cg_emit(g, val.ty); cg_emit(g, " "); cg_emit(g, val.op); cg_emit(g, ", 0.0"); }
+        else if (sptr == 1) { cg_emit(g, "icmp ne ptr "); cg_emit(g, val.op); cg_emit(g, ", null"); }
+        else { cg_emit(g, "icmp ne "); cg_emit(g, val.ty); cg_emit(g, " "); cg_emit(g, val.op); cg_emit(g, ", 0"); }
+    }
+    else if (tf == 1 && sw > 0) {                              // int→float: unsigned source uses uitofp
         if (cg_is_unsigned(val.ety) == 1) { cg_emit(g, "uitofp "); } else { cg_emit(g, "sitofp "); }
         cg_emit(g, val.ty); cg_emit(g, " "); cg_emit(g, val.op); cg_emit(g, " to "); cg_emit(g, target);
     }
@@ -3164,7 +3169,7 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
         CgVal src = cg_expr(g, e.a);
         // float → unsigned int needs fptoui; cg_coerce emits signed fptosi, which saturates
         // a value above the signed max (e.g. (uint32)3e9 → 2147483647 instead of 3e9).
-        if (cg_is_float(src.ty) == 1 && cg_int_w(dll) > 0 && cg_is_unsigned(dstety) == 1) {
+        if (cg_is_float(src.ty) == 1 && cg_int_w(dll) > 1 && cg_is_unsigned(dstety) == 1) {
             string t = cg_tmp(g);
             cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = fptoui "); cg_emit(g, src.ty);
             cg_emit(g, " "); cg_emit(g, src.op); cg_emit(g, " to "); cg_emit(g, dll); cg_emit(g, "\n");

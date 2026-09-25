@@ -804,6 +804,17 @@ void CodeGen::visit(CastExpr* node) {
 
     if (val->getType() == targetType) {
         result = val;
+    } else if (targetType->isIntegerTy(1)) {
+        // Conversion to bool is `!= 0` (C `_Bool`), never a truncation: (bool)2,
+        // (bool)256 and (bool)0.5 are all true.
+        if (val->getType()->isFloatingPointTy())
+            result = builder->CreateFCmpUNE(val, llvm::ConstantFP::get(val->getType(), 0.0));
+        else if (val->getType()->isPointerTy())
+            result = builder->CreateIsNotNull(val);
+        else if (val->getType()->isIntegerTy())
+            result = builder->CreateICmpNE(val, llvm::ConstantInt::get(val->getType(), 0));
+        else
+            throw std::runtime_error("Cannot cast between these types");
     } else if (val->getType()->isIntegerTy() && targetType->isIntegerTy()) {
         // Integer to integer
         unsigned srcWidth = llvm::cast<llvm::IntegerType>(val->getType())->getBitWidth();
