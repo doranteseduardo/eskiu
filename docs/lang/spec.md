@@ -106,6 +106,8 @@ Negative literals are first-class values and can be used in any expression conte
 **Float literals** contain a decimal point. They have type `double` (f64) by default;
 assigning one to a `float` (f32) variable or field coerces it down (a `double`→`float`
 cast). Integer literals are `int` (i32), widening to `int64` when they exceed 32 bits.
+A float literal may carry an exponent (`1e10`, `2.5e-3`), which needs at least one
+digit. An integer literal that does not fit in 64 bits is a lexical error.
 
 ```eskiu
 3.14    2.0    0.5
@@ -2475,6 +2477,11 @@ An `#if`/`#elif` expression is a C-style integer constant expression: integer an
 character literals, macros (expanded first), `defined NAME` / `defined(NAME)`, the
 unary `! ~ - +`, the arithmetic, shift, relational, equality, bitwise and logical
 operators, `?:` and parentheses. An identifier left after expansion counts as `0`.
+It is evaluated on 64-bit signed integers with two's-complement wraparound (so
+`INT64_MIN / -1` is `INT64_MIN`), and a character literal decodes with the same
+escapes as in code. `&&`, `||` and `?:` do not evaluate the operand they skip, so
+`#if 1 || 1 / 0` is fine. A division by zero that is evaluated, a shift count
+outside 0..63, and an integer literal that does not fit in 64 bits are errors.
 
 Any other directive is an error, as is `#include` (use `import`), an `#else`,
 `#elif` or `#endif` without its `#if`, a second `#else`, and a conditional left
@@ -2482,8 +2489,14 @@ open at the end of the file. Inside a skipped branch, unknown directives are
 ignored. Macro bodies may not use `#` (stringification) or `##` (token pasting).
 Arguments to a function-like macro are split at top-level commas (string and
 character literals stay whole) and are macro-expanded before substitution, so
-`SQ(SQ(2))` works as in C. Files with CRLF line endings are handled, including
-`\` continuations.
+`SQ(SQ(2))` works as in C. An invocation must pass as many arguments as the macro
+has parameters (a one-parameter macro accepts `F()` as one empty argument), and an
+argument list left open at the end of the line is an error. A replacement that ends
+in the name of a function-like macro picks up the `(...)` that follows it, so after
+`#define CALLF F`, `CALLF(2)` expands `F(2)`. Comments count as whitespace: a `//`
+or `/* */` comment in a directive is not part of the macro body, and one inside an
+argument list does not end the argument. Files with CRLF line endings are handled,
+including `\` continuations.
 
 Two predefined macros expand in place: `__LINE__` (the current source line, an
 integer) and `__FILE__` (the current file path, a string literal). Together with
@@ -2518,7 +2531,7 @@ int main() {
 }
 ```
 
-Substitution is identifier-aware and leaves string and character literals untouched. Expansion is **recursive**: a macro whose body references other macros is expanded fully (a macro is never re-expanded within its own expansion). The macro table is **shared across files**, so a `#define` propagates into files pulled in by `import` and into the other inputs of a multi-file compile. A function-like macro *invocation* must fit on a single (post-continuation) line.
+Substitution is identifier-aware and leaves string and character literals untouched. Expansion is **recursive**: a macro whose body references other macros is expanded fully (a macro is never re-expanded within its own expansion). The macro table is **shared across files** and follows the text in order, like C's `#include`: an imported file sees the macros defined before its `import` line (not the ones defined after it), its own `#define`s reach the importing file's later lines, and each input of a multi-file compile sees the macros of the inputs before it. A function-like macro *invocation* must fit on a single (post-continuation) line.
 
 Unlike the other directives, `#pragma` is not consumed by the preprocessor. It is passed through to the compiler. `#pragma pack` (§8.9) and `#pragma link` are acted upon; any other pragma is ignored.
 
@@ -2546,7 +2559,7 @@ The compiler predefines these:
 | Macro | Value | Notes |
 |---|---|---|
 | `__LINE__` | current source line, an integer | refreshed for every line; reflects the line of the *use*, after line-splicing |
-| `__FILE__` | current file path, a string literal | the path as passed to the compiler or resolved by `import`; distinct per file in a multi-file build |
+| `__FILE__` | current file path, a string literal | the path as passed to the compiler or resolved by `import`, with `\` and `"` escaped; distinct per file in a multi-file build |
 | `__APPLE__` | `1` (Apple targets) | target-OS macro, from `--target` or the host |
 | `__linux__` | `1` (Linux targets) | |
 | `_WIN32` | `1` (Windows targets) | also defined for 64-bit Windows |
