@@ -541,6 +541,8 @@ void TypeChecker::visit(CallExpr* node) {
     // Method call: callee is MemberExpr (e.g. p.distance(q))
     if (auto member = dynamic_cast<MemberExpr*>(node->callee.get())) {
         member->base->accept(this);
+        // A method call dereferences its receiver: a `?*T` must be null-checked first.
+        checkNullableDeref(member->base.get(), "access a member of");
         // bare nominal: *Rect and Rect both resolve to Rect_method
         std::string baseType = ty::Type::parse(getExpressionType(member->base.get())).nominalName();
         {

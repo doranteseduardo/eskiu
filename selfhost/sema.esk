@@ -1286,6 +1286,66 @@ string sema_range_bound_type(Sema* s, *ExprNode e) {
     return sema_resolve_scalar(s, t);
 }
 
+// An interface value refers to a struct through a pointer; converting a struct VALUE to
+// an interface-typed slot (param, variable, return) is an error, as in the C++ checker.
+void sema_check_iface_value(Sema* s, string tety, *ExprNode e) {
+    if (e == null || tety[0] == 0) { return; }
+    int isif = 0; int i = 0;
+    while (i < List_len<*DeclNode>(&s.ifaces)) { if (sema_streq(List_get<*DeclNode>(&s.ifaces, i).name, tety) == 1) { isif = 1; } i = i + 1; }
+    if (isif == 0) { return; }
+    string src = sema_infer_type(s, e);
+    if (src[0] == 0) { return; }
+    // An interface value refers to its target through a non-null pointer: a `?*T` needs a
+    // null-check first (mirrors the C++ nullable assignability rule).
+    if (src[0] == 63) {
+        s.had_error = 1;
+        dprintf(2, "error: %s:%d:%d: assigning a nullable pointer '%s' to non-null '%s' requires a null-check (e.g. `if (x != null)`)\n",
+               s.filename, s.line, s.col, src, tety);
+        return;
+    }
+    string bare = sema_strip_const(src);
+    string sn = sema_struct_of_type(bare);
+    if (sema_has_star(bare) == 1 && sema_in_list(&s.structs, sn) == 1) {
+        int stars = 0; int i2 = 0;
+        while (bare[i2] != 0) { if ((int)bare[i2] == 42) { stars = stars + 1; } i2 = i2 + 1; }
+        if (stars != 1) {
+            s.had_error = 1;
+            dprintf(2, "error: %s:%d:%d: cannot convert '%s' to interface '%s': only a pointer to a struct (a single '*') converts to an interface\n",
+                   s.filename, s.line, s.col, src, tety);
+            return;
+        }
+        // Boxing a pointer to const: every implementing method must take a const self.
+        if (sema_pointee_const(src) == 1) {
+            *DeclNode ifd = sema_find_iface(s, tety);
+            *DeclNode sd = sema_find_struct(s, sn);
+            int mi = 0;
+            while (ifd != null && mi < List_len<*DeclNode>(&ifd.methods)) {
+                string mname = List_get<*DeclNode>(&ifd.methods, mi).name;
+                int mutable_self = 0;
+                if (sd != null) {
+                    int j = 0;
+                    while (j < List_len<*DeclNode>(&sd.methods)) { if (sema_streq(List_get<*DeclNode>(&sd.methods, j).name, mname) == 1) { mutable_self = 1; } j = j + 1; }
+                }
+                *DeclNode ff = sema_find_fndecl(s, sema_cat(sema_cat(sn, "_"), mname));
+                if (mutable_self == 0 && ff != null && List_len<Param>(&ff.params) > 0
+                    && sema_pointee_const(List_get<Param>(&ff.params, 0).ty) == 0) { mutable_self = 1; }
+                if (mutable_self == 1) {
+                    s.had_error = 1;
+                    dprintf(2, "error: %s:%d:%d: conversion discards a const qualifier ('%s' to '%s'): method '%s' of '%s' takes a mutable self\n",
+                           s.filename, s.line, s.col, src, tety, mname, sn);
+                    return;
+                }
+                mi = mi + 1;
+            }
+        }
+        return;
+    }
+    if (sema_in_list(&s.structs, src) == 0) { return; }
+    s.had_error = 1;
+    dprintf(2, "error: %s:%d:%d: cannot convert struct '%s' to interface '%s' by value; pass a pointer (&x)\n",
+           s.filename, s.line, s.col, src, tety);
+}
+
 // ── canonical type spellings and assignability (mirrors isValidAssignment) ──
 
 int sema_is_idc(int c) {

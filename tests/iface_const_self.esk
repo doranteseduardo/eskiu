@@ -1,0 +1,11 @@
+// A const value boxes into an interface when every implementing method takes `const T* self`.
+extern int printf(string f, ...);
+interface Shape { int area(); }
+struct Sq { int side; }
+int Sq_area(const Sq* self) { return self.side * self.side; }
+int show(Shape s) { return s.area(); }
+int main() {
+    const Sq q = Sq{side: 4};
+    printf("%d\n", show(&q));
+    return 0;
+}

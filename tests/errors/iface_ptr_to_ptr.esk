@@ -1,0 +1,5 @@
+// EXPECT-ERROR: only a pointer to a struct (a single '*') converts to an interface
+// `&p` of a `*X` is a `**X`: boxing it dispatched on the wrong object.
+interface S { int a(); }
+struct X { int v; int a() { return self.v; } }
+int main() { X x = X{v: 1}; *X p = &x; S s = &p; return s.a(); }

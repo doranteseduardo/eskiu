@@ -343,6 +343,8 @@ private:
     // receives its concrete (return, [self, params...]) signature. Null when none applies.
     FunctionDecl* genericFreeMethodFor(const std::string& instName, const InterfaceDecl::MethodSig& m,
                                        std::pair<std::string, std::vector<std::string>>& sig);
+    static int pointerDepth(const std::string& type);
+    std::string ifaceConstDrop(const std::string& srcType, const std::string& structName, InterfaceDecl* iface);
     // Bounded generics: check that each constrained type param's concrete arg
     // (in `subs`) satisfies its interface constraint(s).
     void checkConstraints(ASTNode* node,

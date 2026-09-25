@@ -386,13 +386,36 @@ bool TypeChecker::isValidAssignment(const std::string& lhsType, const std::strin
     // interface value refers to the struct; a struct value has no address to refer to).
     auto ifaceIt = interfaceDecls.find(lhs);
     if (ifaceIt != interfaceDecls.end()) {
-        if (!isPointerType(rhs)) return false;
+        if (!isPointerType(rhs) || pointerDepth(rhs) != 1) return false;
         std::string structName = ty::Type::parse(rhs).nominalName();
+        if (!ifaceConstDrop(rhsType, structName, ifaceIt->second).empty()) return false;
         if (interfaceMismatch(structName, ifaceIt->second).empty())
             return true;
     }
 
     return false;
+}
+
+// Pointer levels of a type spelling (`*X` and `X*` are 1, `**X` and `*X*` are 2).
+int TypeChecker::pointerDepth(const std::string& raw) {
+    std::string t = tyq::strip(raw);
+    int n = 0;
+    while (!t.empty() && t.front() == '*') { t.erase(0, 1); ++n; }
+    while (!t.empty() && t.back() == '*')  { t.pop_back(); ++n; }
+    return n;
+}
+
+// Boxing a pointer to const into interface `iface`: the name of the first method whose
+// implementation takes a mutable `self` (it could modify the value), else "".
+std::string TypeChecker::ifaceConstDrop(const std::string& srcType, const std::string& structName,
+                                         InterfaceDecl* iface) {
+    if (!tyq::isPtr(srcType) || !tyq::baseConst(srcType)) return "";
+    for (const auto& m : iface->methods) {
+        auto it = functionSignatures.find(structName + "_" + m.name);
+        if (it == functionSignatures.end() || it->second.second.empty()) continue;
+        if (!tyq::baseConst(it->second.second[0])) return m.name;
+    }
+    return "";
 }
 
 bool TypeChecker::isNumericType(const std::string& type) {
@@ -420,7 +443,8 @@ std::string TypeChecker::assignabilityError(const std::string& targetType,
         if (tNull || sNull) {
             std::string t2 = tNull ? targetType.substr(1) : targetType;
             std::string s2 = sNull ? srcType.substr(1)    : srcType;
-            if (sNull && !tNull && isPointerType(t2))
+            // An interface value refers to its target through a non-null pointer too.
+            if (sNull && !tNull && (isPointerType(t2) || interfaceDecls.count(normalizeType(t2))))
                 return "assigning a nullable pointer '" + srcType + "' to non-null '" +
                        targetType + "' requires a null-check (e.g. `if (x != null)`)";
             return assignabilityError(t2, s2, srcExpr);
@@ -463,6 +487,13 @@ std::string TypeChecker::assignabilityError(const std::string& targetType,
         return "cannot convert struct '" + rt.nominalName() + "' to interface '" + nt +
                "' by value; pass a pointer (&x)";
     if (auto ii = interfaceDecls.find(nt); ii != interfaceDecls.end()) {
+        if (isPointerType(ns) && pointerDepth(ns) != 1)
+            return "cannot convert '" + srcType + "' to interface '" + targetType +
+                   "': only a pointer to a struct (a single '*') converts to an interface";
+        std::string m = ifaceConstDrop(srcType, rt.nominalName(), ii->second);
+        if (!m.empty())
+            return "conversion discards a const qualifier ('" + srcType + "' to '" + targetType +
+                   "'): method '" + m + "' of '" + rt.nominalName() + "' takes a mutable self";
         std::string why = interfaceMismatch(rt.nominalName(), ii->second);
         if (!why.empty())
             return "'" + srcType + "' does not satisfy interface '" + targetType + "': " + why;

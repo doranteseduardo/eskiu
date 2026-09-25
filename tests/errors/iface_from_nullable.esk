@@ -1,0 +1,5 @@
+// EXPECT-ERROR: assigning a nullable pointer '?*X' to non-null 'S' requires a null-check
+// A `?*T` must be null-checked before it is boxed into an interface value.
+interface S { int a(); }
+struct X { int v; int a() { return self.v; } }
+int main() { ?*X p = null; S s = p; return s.a(); }
