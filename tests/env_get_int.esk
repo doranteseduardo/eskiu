@@ -1,0 +1,17 @@
+// env_get_int returns the fallback for a set but non-numeric (or out-of-range)
+// value, as documented, instead of atoi's 0.
+import <env>;
+extern int printf(string fmt, ...);
+extern int setenv(string name, string value, int overwrite);
+
+int get(string value) {
+    setenv("ESKIU_ENV_INT_TEST", value, 1);
+    return env_get_int("ESKIU_ENV_INT_TEST", 77);
+}
+
+int main() {
+    printf("42=%d -7=%d +5=%d spaced=%d\n", get("42"), get("-7"), get("+5"), get(" 12 "));
+    printf("abc=%d empty=%d 12x=%d minus=%d big=%d\n", get("abc"), get(""), get("12x"), get("-"), get("99999999999"));
+    printf("min=%d max=%d\n", get("-2147483648"), get("2147483647"));
+    return 0;
+}
