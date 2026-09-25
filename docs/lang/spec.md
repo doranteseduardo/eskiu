@@ -1779,7 +1779,7 @@ Cell<int> c = Cell<int>{ 21 };
 int n = c.twice();                // 42
 ```
 
-A generic function in the `Type_method` form (`T Cell_peek<T>(Cell<T>* self)`) is also callable as `c.peek()`, with its type arguments taken from the receiver (§8.1).
+A generic function in the `Type_method` form (`T Cell_peek<T>(Cell<T>* self)`) is also callable as `c.peek()`, with its type arguments taken from the receiver (§8.2).
 
 ### 10.2 Template Functions
 
@@ -2631,4 +2631,4 @@ This is how `<net>` selects the correct `sockaddr_in` layout:
 
 If the first line of a file begins with `#!` (e.g. `#!/usr/bin/env eskiuc run`),
 the preprocessor ignores it and blanks it out, preserving line numbers. This lets a `.esk` file be marked executable
-(`chmod +x`) and run directly as a script; see `eskiuc run` in §17.
+(`chmod +x`) and run directly as a script; see `eskiuc run` in §16.

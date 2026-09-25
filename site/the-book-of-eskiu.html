@@ -1757,6 +1757,8 @@ pre.code-block {
  void List_init&lt;T&gt;(List&lt;T&gt;* self, int cap)         // call before use
  void List_push&lt;T&gt;(List&lt;T&gt;* self, T item)          // append an element
  T      List_get&lt;T&gt;(List&lt;T&gt;* self, int i)          // read element i
+ void List_set&lt;T&gt;(List&lt;T&gt;* self, int i, T item)   // overwrite element i
+ void List_remove&lt;T&gt;(List&lt;T&gt;* self, int i)        // remove element i, shift the tail down
  int    List_len&lt;T&gt;(List&lt;T&gt;* self)                 // returns self-&gt;size
  void List_free&lt;T&gt;(List&lt;T&gt;* self)                  // free the buffer</pre>
 <p>The compiler infers T from the <code>List</code>&lt;T&gt;* argument; no explicit type argument needed:</p>
@@ -1782,7 +1784,7 @@ pre.code-block {
 <h2 class="section" id="sec-15-3">15.3 string: mutable text</h2>
 <p>The built-in <code>string</code> type is an immutable C-<code>string</code> literal. For text you need to build or modify at runtime, use <code>String</code>, a struct with an owned, growable buffer. The standard library is broad. The complete <code>String</code> API:</p>
 <pre class="code-block"> // string.esk: the complete interface
- void     String_init(String* self, int cap)           // initialise with capacity
+ void     String_init(String* self, int64 cap)         // initialise with capacity
  void     String_from(String* self, string s)          // initialise from a literal
  void     String_append(String* self, string s)        // append a string literal
  void     String_concat(String* self, String* other)   // append another String
@@ -1791,13 +1793,13 @@ pre.code-block {
  void     String_reverse(String* self)                 // reverse in place
  void     String_free(String* self)                    // free the buffer</pre>
 <pre class="code-block"> *char String_cstr(String* self)                       // null-terminated C string
- int      String_len(String* self)                     // length in bytes
- char     String_char_at(String* self, int i)          // read character at index i
- void     String_set(String* self, int i, char c)      // overwrite character at i
- int      String_index_of(String* self, char c)        // first index of c, or -1
+ int64    String_len(String* self)                     // length in bytes
+ char     String_char_at(String* self, int64 i)        // read character at index i
+ void     String_set(String* self, int64 i, char c)    // overwrite character at i
+ int64    String_index_of(String* self, char c)        // first index of c, or -1
  int      String_eq(String* self, String* other)       // 1 if equal, else 0
  int      String_eq_cstr(String* self, string s)       // compare to C string literal
- void     String_substring(String* self, String* out, int start, int count)
+ void     String_substring(String* self, String* out, int64 start, int64 count)
  void     String_from_int(String* self, int n)            // render integer as text
  int      String_to_int(String* self)                     // parse leading integer
  int      String_starts_with(String* self, string prefix) // 1 if prefix matches
@@ -1811,9 +1813,9 @@ pre.code-block {
  String_from(&amp;s, &quot;hello&quot;);
  String_push(&amp;s, &#x27;!&#x27;);                                      // hello!
  String_set(&amp;s, 0, &#x27;H&#x27;);                                    // Hello!
- printf(&quot;%s (len=%d)\n&quot;, String_cstr(&amp;s), String_len(&amp;s));
+ printf(&quot;%s (len=%lld)\n&quot;, String_cstr(&amp;s), String_len(&amp;s));
  printf(&quot;%c\n&quot;, String_char_at(&amp;s, 0));                   // H
- printf(&quot;%d\n&quot;, String_index_of(&amp;s, &#x27;l&#x27;));                // 2
+ printf(&quot;%lld\n&quot;, String_index_of(&amp;s, &#x27;l&#x27;));              // 2
  printf(&quot;%d\n&quot;, String_eq_cstr(&amp;s, &quot;Hello!&quot;)); // 1</pre>
 <pre class="code-block"> let sub: String;
  String_init(&amp;sub, 8);
@@ -1825,7 +1827,7 @@ pre.code-block {
  String_from_int(&amp;num, -2026);
  printf(&quot;%s -&gt; %d\n&quot;, String_cstr(&amp;num), String_to_int(&amp;num)); // -2026 -&gt; -2026</pre>
 <pre class="code-block"> String_free(&amp;s); String_free(&amp;sub); String_free(&amp;num);</pre>
-<p class="output"><em>Output:</em> Hello! (len=6) H 2 1 ello olle -2026 -&gt; -2026</p>
+<p class="output"><em>Output:</em> Hello! (len=6) H 2 1 olle -2026 -&gt; -2026</p>
 <h2 class="section" id="sec-15-4">15.4 math: mathematical functions</h2>
 <p>Thin wrappers over libm (linked automatically). All functions take and return <code>double</code> except abs:</p>
 <pre class="code-block"> // math.esk: the complete interface
@@ -1847,8 +1849,8 @@ pre.code-block {
 <p>Wrappers for libc stdio. <code>printf</code> is the most common; you have been using it since Chapter 1:</p>
 <pre class="code-block"> // io.esk: the complete interface
  int printf(string fmt, ...)                         // print to stdout
- int fprintf(*void stream, string fmt, ...) // print to a file handle
- int sprintf(*char buf, string fmt, ...) // print to a buffer
+ int fprintf(string stream, string fmt, ...)        // print to a FILE* handle (typed string)
+ int sprintf(string buf, string fmt, ...)           // print into a caller-owned buffer
  int scanf(string fmt, ...)                          // read from stdin
  int puts(string s)                                  // print string + newline
  int getchar()                                       // read one character
@@ -2218,7 +2220,7 @@ pre.code-block {
 <p>Press Ctrl-A X to exit QEMU.</p>
 <h2 class="section" id="sec-18-9">18.9 What this demonstrates</h2>
 <p>The kernel uses seven features from this book in combination: multi-file imports (Ch13), inline assembly (Ch16), cross-compilation (Ch17), <code>volatile</code> and MMIO (Ch6.9), pointer casting (Ch6.3), <code>string</code> indexing (Ch2.2), and the freestanding allocator hook. None of these features exist in isolation; bare-metal programming is where they compose.</p>
-<p>The kernel is 130 lines of Eskiu and 7 lines of assembly. The assembly sets up the stack. Everything else (the UART driver, the allocator, the output, the idle loop) is plain Eskiu code that compiles to the same LLVM IR as any other Eskiu program.</p>
+<p>The kernel is about 110 lines of Eskiu in three files (<code>kernel.esk</code>, <code>uart.esk</code>, <code>alloc.esk</code>) and a 12-line assembly stub. The assembly sets up the stack. Everything else (the UART driver, the allocator, the output, the idle loop) is plain Eskiu code that compiles to the same LLVM IR as any other Eskiu program.</p>
 <div class="chapter-start" id="chapter-19"><span class="chapter-label">Chapter 19</span>
 <h1 class="chapter-title">Ownership and Resources</h1><hr class="chapter-rule"></div>
 <p>Eskiu has no garbage collector. No reference counter silently frees memory when you stop using it. You are responsible for every allocation, and that responsibility must be explicit in your code.</p>
@@ -2854,7 +2856,7 @@ pre.code-block {
  uint     uint8    uint16     uint32       uint64
  float     double     bool    char     string       void</pre>
 <pre class="code-block"> struct     packed     union    enum       type     interface
- fn    extern     intrinsic     import     static     must_use</pre>
+ fn    extern     intrinsic     import     static     must_use     operator</pre>
 <pre class="code-block"> if    else     for   while    do     in     switch      case     default
  return     break     continue      match</pre>
 <pre class="code-block"> alloc_with       free_closure        sizeof      asm</pre>
@@ -3048,7 +3050,8 @@ pre.code-block {
 <pre class="code-block"> // Binary-safe full-body reader (use for uploads and binary data)
  struct HttpReq { String method; String path; String headers;
                      *uint8 body; int64 body_len; }
- HttpReq_init / HttpReq_free / HttpReq_header(r, name) -&gt; string
+ HttpReq_init / HttpReq_free
+ int HttpReq_header(HttpReq* r, string name, String* out)   // 1 if found; value copied to out
  int http_recv(int fd, HttpReq* r, int64 max_body)                      // loop recv full body
  void http_reply(int fd, int status, string ctype, string extra, String* body)
  void http_reply_error(int fd, int status, string extra, string msg)</pre>
@@ -3194,7 +3197,7 @@ pre.code-block {
  float     double     bool    char    string    void</pre>
 <pre class="code-block"> // Declarations
  let     const    volatile     static    must_use    struct       packed    union    enum   type
- interface       fn   extern    intrinsic       import</pre>
+ interface       fn   extern    intrinsic       import     operator</pre>
 <pre class="code-block"> // Control flow
  if    else     for   while    do    in     switch    case   default
  return     break     continue      match</pre>
