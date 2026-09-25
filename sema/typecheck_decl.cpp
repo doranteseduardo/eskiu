@@ -449,22 +449,16 @@ bool TypeChecker::isConstInit(const ExprPtr& e) const {
     if (auto* lam = dynamic_cast<LambdaExpr*>(e.get())) return lam->captures.empty();
     if (auto* id = dynamic_cast<IdentExpr*>(e.get())) {
         if (enumConstants.count(id->name)) return true;
-        for (auto it = scopes.rbegin(); it != scopes.rend(); ++it) {
-            auto f = it->find(id->name);
-            if (f == it->end()) continue;
-            // Only a global `const` (scopes[0]) folds; a local const may be a runtime value.
-            return f->second.isConst && &*it == &scopes.front();
-        }
-        return false;
+        // Only a global `const` (scopes[0]) folds; a local const may be a runtime value.
+        int si = scopeOf(id->name);
+        return si == 0 && scopes[0].find(id->name)->second.isConst;
     }
     if (auto* u = dynamic_cast<UnaryExpr*>(e.get())) {
         if (u->op == "&") {
             // The address of a global variable is a link-time constant.
             auto* id = dynamic_cast<IdentExpr*>(u->operand.get());
             if (!id || functionSignatures.count(id->name)) return false;
-            for (auto it = scopes.rbegin(); it != scopes.rend(); ++it)
-                if (it->count(id->name)) return &*it == &scopes.front();
-            return false;
+            return scopeOf(id->name) == 0;
         }
         return (u->op == "-" || u->op == "~" || u->op == "!" || u->op == "+") && isConstInit(u->operand);
     }

@@ -502,12 +502,14 @@ std::string TypeChecker::getDefinitionAt(int line, int col) const {
     return "";
 }
 
+int TypeChecker::scopeOf(const std::string& name) const {
+    auto it = scopeIndex.find(name);
+    return it == scopeIndex.end() ? -1 : it->second.back();
+}
+
 const TypeChecker::Symbol* TypeChecker::findSymbol(const std::string& name) const {
-    for (auto it = scopes.rbegin(); it != scopes.rend(); ++it) {
-        auto sym = it->find(name);
-        if (sym != it->end()) return &sym->second;
-    }
-    return nullptr;
+    int si = scopeOf(name);
+    return si < 0 ? nullptr : &scopes[si].find(name)->second;
 }
 
 // Scope management
@@ -527,15 +529,17 @@ void TypeChecker::popScope() {
                     + name + "'");
         }
     }
+    for (const auto& entry : scopes.back()) {
+        auto it = scopeIndex.find(entry.first);
+        it->second.pop_back();
+        if (it->second.empty()) scopeIndex.erase(it);
+    }
     scopes.pop_back();
 }
 
 bool TypeChecker::isConstSymbol(const std::string& name) const {
-    for (auto it = scopes.rbegin(); it != scopes.rend(); ++it) {
-        auto f = it->find(name);
-        if (f != it->end()) return f->second.isConst;
-    }
-    return false;
+    const Symbol* sym = findSymbol(name);
+    return sym && sym->isConst;
 }
 
 bool TypeChecker::assignsToConst(Expr* lhs, std::string& nameOut) {
@@ -598,7 +602,8 @@ void TypeChecker::defineSymbol(const std::string& name, const std::string& type,
         s.type = type; s.isDeclared = true;
         s.used = false; s.line = line; s.col = col; s.isParam = isParam;
         s.file = diagFile();
-        scopes.back()[name] = s;
+        auto ins = scopes.back().insert_or_assign(name, s);
+        if (ins.second) scopeIndex[name].push_back((int)scopes.size() - 1);
     }
     // Record a hover span for the declared name (col points at the name token).
     // Parameters are excluded: the parser stamps them at the *function's*
@@ -612,15 +617,12 @@ void TypeChecker::defineSymbol(const std::string& name, const std::string& type,
 }
 
 std::string TypeChecker::lookupSymbol(const std::string& name) {
-    // Search from innermost to outermost scope
-    for (auto it = scopes.rbegin(); it != scopes.rend(); ++it) {
-        auto sym = it->find(name);
-        if (sym != it->end()) {
-            sym->second.used = true;  // -Wall: mark referenced
-            return sym->second.type;
-        }
-    }
-    return "";
+    // The innermost scope that defines it
+    int si = scopeOf(name);
+    if (si < 0) return "";
+    Symbol& sym = scopes[si].find(name)->second;
+    sym.used = true;  // -Wall: mark referenced
+    return sym.type;
 }
 
 void TypeChecker::defineFunction(const std::string& name, const std::string& returnType,

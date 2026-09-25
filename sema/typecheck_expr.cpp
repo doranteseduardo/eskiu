@@ -230,9 +230,8 @@ void TypeChecker::visit(TernaryExpr* node) {
 }
 
 std::string TypeChecker::narrowKey(const std::string& name) const {
-    for (int si = (int)scopes.size() - 1; si >= 0; --si)
-        if (scopes[si].count(name)) return name + "@" + std::to_string(si);
-    return "";
+    int si = scopeOf(name);
+    return si < 0 ? "" : name + "@" + std::to_string(si);
 }
 
 void TypeChecker::condNarrowings(Expr* cond, bool whenTrue, std::vector<std::string>& keys) {
@@ -1019,10 +1018,7 @@ void TypeChecker::visit(IdentExpr* node) {
     // the variable's defining scope index, NOT functionSignatures — a param or
     // local that shadows a same-named top-level function must still be captured.
     if (!captureStack.empty() && !type.empty()) {
-        int defIdx = -1;
-        for (int si = (int)scopes.size() - 1; si >= 0; --si) {
-            if (scopes[si].count(node->name)) { defIdx = si; break; }
-        }
+        int defIdx = scopeOf(node->name);
         // Capture only enclosing-function scopes: index >= 1 (the global scope
         // at 0 is module-level and accessed directly, not captured by value).
         // A variable must be captured by EVERY enclosing lambda it is outer to,
@@ -1113,11 +1109,7 @@ void TypeChecker::visit(SizeofExpr* node) {
     bool isTypeName = isPrimitiveType(tn) || structs.count(tn) || typeAliases.count(tn) ||
                       enumTypes.count(tn) || interfaceDecls.count(tn) || tn == "va_list";
     if (!isTypeName) {
-        std::string vt;
-        for (auto it = scopes.rbegin(); it != scopes.rend(); ++it) {
-            auto f = it->find(tn);
-            if (f != it->end()) { f->second.used = true; vt = f->second.type; break; }
-        }
+        std::string vt = lookupSymbol(tn);
         if (!vt.empty() && vt != "unknown" && vt != "struct:" + tn) resolved = tyq::strip(vt);
     }
     if (!inInstance) node->typeName = resolved;   // a generic body's nodes are shared by its instances

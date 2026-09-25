@@ -4,6 +4,7 @@
 #include "../lexer/lexer.h"
 #include "type.h"
 #include <map>
+#include <unordered_map>
 #include <set>
 #include <vector>
 #include <string>
@@ -145,6 +146,12 @@ private:
 
     // Scope management
     std::vector<std::map<std::string, Symbol>> scopes;
+    // name -> indices of the scopes that define it, innermost last, so a lookup costs
+    // the same at any nesting depth instead of a walk over every enclosing scope.
+    // Kept in step with `scopes` by defineSymbol and popScope.
+    std::unordered_map<std::string, std::vector<int>> scopeIndex;
+    // Index of the innermost scope defining `name`, or -1.
+    int scopeOf(const std::string& name) const;
 
     // Struct registry: name -> StructInfo  (concrete structs only)
     std::map<std::string, StructInfo> structs;

@@ -207,9 +207,7 @@ void TypeChecker::visit(ReturnStmt* node) {
         // and are fine, so they are not flagged.
         if (auto* u = dynamic_cast<UnaryExpr*>(node->value.get()); u && u->op == "&") {
             if (auto* id = dynamic_cast<IdentExpr*>(u->operand.get())) {
-                int defIdx = -1;
-                for (int si = (int)scopes.size() - 1; si >= 0; --si)
-                    if (scopes[si].count(id->name)) { defIdx = si; break; }
+                int defIdx = scopeOf(id->name);
                 if (defIdx >= 1)   // a function-scope local/param, not a global (index 0)
                     errorAt(node, "returning the address of local '" + id->name +
                                   "' (dangling pointer)");
