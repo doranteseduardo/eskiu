@@ -270,6 +270,14 @@ else
     bad "cli/unused-param-position" "$(printf '%s' "$w_out" | grep -m1 warning)"
 fi
 
+# A lexical error in an imported file is reported once, with no parse errors after it.
+lex_out="$("$ESKIUC" --test-typechecker "$here/errors/import_lex_error.esk" 2>&1)"
+if [[ "$(printf '%s\n' "$lex_out" | grep -c '^error:')" -eq 1 ]]; then
+    ok "cli/import-lex-error-stops"
+else
+    bad "cli/import-lex-error-stops" "$(printf '%s' "$lex_out" | grep '^error:' | tail -1)"
+fi
+
 # A NUL byte in code is a located lexical error (one in a string literal is kept).
 printf 'int main() {\n    string s = "a\000b";\n    \000 return 0;\n}\n' > "$work/nul.esk"
 nul_out="$("$ESKIUC" --test-typechecker "$work/nul.esk" 2>&1)"

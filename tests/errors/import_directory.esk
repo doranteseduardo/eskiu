@@ -1,0 +1,3 @@
+// EXPECT-ERROR: 2:8: Cannot open import
+import ".";
+int main() { return 0; }

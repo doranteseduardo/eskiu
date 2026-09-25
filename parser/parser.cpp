@@ -386,6 +386,9 @@ std::vector<DeclPtr> Parser::parseProgram() {
                 if (!importedFiles->count(canon)) {
                     importedFiles->insert(canon);
 
+                    std::error_code ec;
+                    if (std::filesystem::is_directory(fullPath, ec))
+                        fail("Cannot open import: '" + fullPath + "'", pathTok);
                     // The preprocessor already handled this import at its line (see
                     // ImportCache); otherwise read and preprocess it now.
                     auto cached = importCache ? importCache->files.find(canon)
@@ -411,7 +414,9 @@ std::vector<DeclPtr> Parser::parseProgram() {
                     Token t = lexer.next_token();
                     while (t.type != TokenType::EOF_TOKEN) { itoks.push_back(t); t = lexer.next_token(); }
                     itoks.push_back(t);
-                    if (lexer.hadError) hadError = true;  // propagate lexical errors from the import
+                    // A lexical error in the import stops here, like one in a root
+                    // file: parsing the broken token stream would only cascade.
+                    if (lexer.hadError) { hadError = true; continue; }
 
                     Parser sub(itoks);
                     sub.filename      = fullPath;
