@@ -239,6 +239,9 @@ int main(int argc, string* argv) {
     string optflag = "";     // -O0..-O3 (clang optimizes the emitted IR)
     List<string> linkx;      // -l / -L / --link-arg, forwarded to the link
     List_init<string>(&linkx, 4);
+    List<string> linked;     // library names given with -l (the implied ones skip these)
+    List_init<string>(&linked, 4);
+    int default_libs = 1;    // --no-default-libs clears it: link only what -l names
     // `esk_main run script.esk [args...]`: compile to a temp exe, run it forwarding
     // [args...], propagate its exit code, then delete it (matches the C++ `run`). Any
     // flags before the script go to the compiler; the first non-flag is the script and
@@ -276,9 +279,12 @@ int main(int argc, string* argv) {
         else if (cg_streq(opt, "--target") == 1 || cg_streq(opt, "-target") == 1) { triple = val; }
         else if (cg_streq(opt, "--mcpu") == 1 || cg_streq(opt, "-mcpu") == 1) { mcpu = val; }
         else if (cg_streq(opt, "--link-arg") == 1 || cg_streq(opt, "-link-arg") == 1) { List_push<string>(&linkx, val); }
-        else if (cg_streq(opt, "-l") == 1) { List_push<string>(&linkx, cg_cat("-l", val)); }
+        else if (cg_streq(opt, "-l") == 1) { List_push<string>(&linkx, cg_cat("-l", val)); List_push<string>(&linked, val); }
         else if (cg_streq(opt, "-L") == 1) { List_push<string>(&linkx, cg_cat("-L", val)); }
-        else if ((int)a[0] == 45 && (int)a[1] == 108 && a[2] != 0) { List_push<string>(&linkx, a); }   // -lfoo
+        else if ((int)a[0] == 45 && (int)a[1] == 108 && a[2] != 0) {                                   // -lfoo
+            List_push<string>(&linkx, a);
+            List_push<string>(&linked, str_after(a, 2));
+        }
         else if ((int)a[0] == 45 && (int)a[1] == 76 && a[2] != 0) { List_push<string>(&linkx, a); }    // -Lpath
         else if ((int)a[0] == 45 && (int)a[1] == 79) {                                                 // -O<n>
             if (a[2] == 0 || a[3] != 0 || (int)a[2] < 48 || (int)a[2] > 51) {
@@ -288,6 +294,7 @@ int main(int argc, string* argv) {
             optflag = a;
         }
         else if (cg_streq(a, "-c") == 1) { compile_only = 1; }
+        else if (cg_streq(a, "--no-default-libs") == 1 || cg_streq(a, "-no-default-libs") == 1) { default_libs = 0; }
         else if (cg_streq(a, "--freestanding") == 1 || cg_streq(a, "-freestanding") == 1) { freestanding = 1; }
         else if (cg_streq(a, "--asan") == 1) { san = 1; }
         else if (cg_streq(a, "--ubsan") == 1) { san = 2; }
@@ -326,7 +333,7 @@ int main(int argc, string* argv) {
         return 0;
     }
     if (List_len<string>(&infiles) == 0) {
-        eprint("usage: esk_main [-o <out>] [-c] [-O<n>] [--target T] [--asan|--ubsan] [--safe] [--freestanding] [-l<lib>] [-L<dir>] [--link-arg A] [--test-*] <file.esk> [more.esk ...]\n");
+        eprint("usage: esk_main [-o <out>] [-c] [-O<n>] [--target T] [--asan|--ubsan] [--safe] [--freestanding] [-l<lib>] [-L<dir>] [--link-arg A] [--no-default-libs] [--test-*] <file.esk> [more.esk ...]\n");
         return 1;
     }
     string infile = List_get<string>(&infiles, 0);   // primary file: test modes + diagnostics
@@ -513,6 +520,37 @@ int main(int argc, string* argv) {
     if (want_obj == 0) {
         int li = 0;
         while (li < List_len<string>(&linkx)) { List_push<string>(&cargs, List_get<string>(&linkx, li)); li = li + 1; }
+        // The libraries the program implies (C++ implicitLinkLibs): its `#pragma link`s,
+        // then the C++ exception runtime when it throws or catches and pthread when it
+        // spawns threads, for the platform g_pp_os names. After every object, once each.
+        if (default_libs == 1) {
+            List<string> implied;
+            List_init<string>(&implied, 4);
+            int pi = 0;
+            while (pi < List_len<string>(&g_link_libs)) { List_push<string>(&implied, List_get<string>(&g_link_libs, pi)); pi = pi + 1; }
+            int gnu = 0;
+            if (cg_streq(g_pp_os, "__linux__") == 1 || cg_streq(g_pp_os, "_WIN32") == 1) { gnu = 1; }
+            if (g.uses_eh == 1) {
+                if (cg_streq(g_pp_os, "__APPLE__") == 1) { List_push<string>(&implied, "c++"); }
+                else if (gnu == 1) { List_push<string>(&implied, "stdc++"); }
+            }
+            if (g.uses_threads == 1 && gnu == 1) { List_push<string>(&implied, "pthread"); }
+            int ii2 = 0;
+            while (ii2 < List_len<string>(&implied)) {
+                string lib = List_get<string>(&implied, ii2);
+                int dup = 0;
+                int di = 0;
+                while (di < List_len<string>(&linked)) {
+                    if (cg_streq(List_get<string>(&linked, di), lib) == 1) { dup = 1; }
+                    di = di + 1;
+                }
+                if (dup == 0) {
+                    List_push<string>(&cargs, cg_cat("-l", lib));
+                    List_push<string>(&linked, lib);
+                }
+                ii2 = ii2 + 1;
+            }
+        }
     }
     int rc = spawn_wait(&cargs);
     remove(tmp);

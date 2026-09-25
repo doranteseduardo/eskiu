@@ -118,6 +118,11 @@ static llvm::cl::list<std::string> LinkLibs("l", llvm::cl::Prefix,
     llvm::cl::desc("Link against a library, e.g. -lpthread (passed to the linker)"),
     llvm::cl::cat(EskiuCat));
 
+static llvm::cl::opt<bool> NoDefaultLibs("no-default-libs",
+    llvm::cl::desc("Do not add the libraries the program implies (#pragma link, the C++ "
+                   "exception runtime, pthread); link only what -l names"),
+    llvm::cl::cat(EskiuCat));
+
 static llvm::cl::list<std::string> LinkPaths("L", llvm::cl::Prefix,
     llvm::cl::desc("Add a library search path (passed to the linker)"),
     llvm::cl::cat(EskiuCat));
@@ -444,6 +449,7 @@ int main(int argc, char** argv) {
 
     try {
         std::vector<DeclPtr> mergedDecls;
+        std::vector<std::string> pragmaLibs;     // `#pragma link` libraries of every input
         std::set<std::string> importedFiles;     // shared: a common import is parsed once
         std::map<std::string, Macro> macros;     // shared: #defines propagate across files
 
@@ -477,6 +483,7 @@ int main(int argc, char** argv) {
             }
             mergedDecls.insert(mergedDecls.end(),
                                prog->declarations.begin(), prog->declarations.end());
+            pragmaLibs.insert(pragmaLibs.end(), prog->linkLibs.begin(), prog->linkLibs.end());
         }
         auto program = std::make_shared<Program>(mergedDecls);
 
@@ -546,6 +553,20 @@ int main(int argc, char** argv) {
             std::vector<std::string> extra(LinkArgs.begin(), LinkArgs.end());
             // ASan needs its runtime linked; --ubsan traps directly (no runtime).
             if (Asan) extra.push_back("-fsanitize=address");
+            // The libraries the program implies go after every object (a --link-arg
+            // object may need them too), skipping any -l already given.
+            if (!NoDefaultLibs) {
+                llvm::Module* mod = codegen.getModule();
+                bool usesEH = mod->getFunction("__cxa_throw") || mod->getFunction("__cxa_rethrow") ||
+                              mod->getFunction("__gxx_personality_v0") ||
+                              mod->getFunction("__gxx_personality_seh0");
+                bool usesThreads = mod->getFunction("pthread_create") != nullptr;
+                std::vector<std::string> implied = pragmaLibs;
+                for (const auto& l : implicitLinkLibs(macros, usesEH, usesThreads)) implied.push_back(l);
+                std::set<std::string> seen(libs.begin(), libs.end());
+                for (const auto& l : implied)
+                    if (seen.insert(l).second) extra.push_back("-l" + l);
+            }
             bool ok = linkExecutable(tmpObjPath, outFile, libs, paths, extra, /*sanitized=*/Asan);
             llvm::sys::fs::remove(tmpObjPath);
             if (!ok) { if (g_runMode) llvm::sys::fs::remove(runExePath); return 1; }

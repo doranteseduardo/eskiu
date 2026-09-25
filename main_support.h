@@ -35,4 +35,10 @@ bool linkExecutable(const std::string& obj, const std::string& out,
                     const std::vector<std::string>& paths,
                     const std::vector<std::string>& extra,
                     bool sanitized = false);
+// The runtime libraries a program needs that no stdlib module names, for the platform
+// the predefined macros select: the C++ exception runtime when it throws or catches
+// (-lc++ on Apple, -lstdc++ on Linux and mingw) and pthread when it spawns threads
+// (Linux and mingw; libSystem has it on Apple). A non-hosted target gets none.
+std::vector<std::string> implicitLinkLibs(const std::map<std::string, Macro>& macros,
+                                          bool usesExceptions, bool usesThreads);
 int runExecutable(const std::string& exe, const std::vector<std::string>& progArgs);

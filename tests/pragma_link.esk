@@ -1,0 +1,18 @@
+// #pragma link("name"): the driver links -lname when it builds the executable, so
+// this links with no -l flags. pow and fmod come from libm, which glibc keeps out of
+// libc. The pragma repeats (linked once), comes from an import too, and a pragma in
+// a skipped #ifdef branch is not linked (that library does not exist).
+#pragma link("m")
+#pragma link( "m" )
+#ifdef __ESKIU_NO_SUCH_MACRO__
+#pragma link("eskiu_no_such_lib")
+#endif
+#pragma once
+import "link_lib/pmod.esk";
+extern int printf(string fmt, ...);
+extern double fmod(double x, double y);
+
+int main() {
+    printf("%.0f %.0f\n", pmod_pow(2.0, 5.0), fmod(17.0, 5.0));
+    return 0;
+}

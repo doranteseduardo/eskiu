@@ -392,6 +392,19 @@ bool linkExecutable(const std::string& obj, const std::string& out,
     return true;
 }
 
+std::vector<std::string> implicitLinkLibs(const std::map<std::string, Macro>& macros,
+                                          bool usesExceptions, bool usesThreads) {
+    std::vector<std::string> libs;
+    bool apple = macros.count("__APPLE__") > 0;
+    bool gnu = macros.count("__linux__") > 0 || macros.count("_WIN32") > 0;
+    if (usesExceptions) {
+        if (apple) libs.push_back("c++");
+        else if (gnu) libs.push_back("stdc++");
+    }
+    if (usesThreads && gnu) libs.push_back("pthread");
+    return libs;
+}
+
 // Run an executable, forwarding `progArgs`, and return its exit code: the program's
 // own status, 128+N when it was killed by signal N (the shell convention), or 1 if it
 // could not be launched. Used by `eskiuc run`.

@@ -1,0 +1,18 @@
+// A program that throws links with no -l flag: the driver adds the C++ exception
+// runtime for the target (-lc++ on macOS, -lstdc++ on Linux and mingw).
+extern int printf(string fmt, ...);
+
+int check(int n) {
+    if (n > 2) { throw "too big"; }
+    return n;
+}
+
+int main() {
+    try {
+        printf("%d\n", check(1));
+        printf("%d\n", check(5));
+    } catch (string e) {
+        printf("caught: %s\n", e);
+    }
+    return 0;
+}
