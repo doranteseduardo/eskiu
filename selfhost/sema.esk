@@ -501,6 +501,7 @@ int sema_known_type(Sema* s, string t) {
     if (sema_is_fn_type(b0) == 1) { return 1; }                          // a pointer to a fn value
     int n = 0; while (b0[n] != 0 && (int)b0[n] != 91) { n = n + 1; }   // cut at '['
     string b = sema_sub_str(b0, 0, n);
+    if (sema_is_fn_type(b) == 1) { return 1; }         // a pointer to / array of fn(...)->R
     if (sema_is_numeric_ty(b) == 1 || sema_streq(b, "void") == 1 || sema_streq(b, "string") == 1
         || sema_streq(b, "va_list") == 1) { return 1; }
     if (sema_in_list(&s.tparams, b) == 1) { return 1; }
