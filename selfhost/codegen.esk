@@ -84,6 +84,7 @@ struct Codegen {
     List<string> loop_end;   // break targets
     List<*StmtNode> cleanups; // scope-exit cleanup bodies (defer + a try's finally), LIFO
     List<int> cl_err;        // parallel to cleanups: 1 = errdefer (error-path only), 0 = defer/finally
+    List<int> cl_nloc;       // parallel to cleanups: how many locals were visible when it was registered
     List<int> loop_cldepth;  // cleanups-stack length at each loop entry (parallel to loop_end)
     // Loops-only frame stack for labeled break/continue (a `switch` never pushes here, unlike
     // loop_end above). The four lists are parallel: label / break block / continue block /
@@ -236,6 +237,7 @@ void cg_init(Codegen* g) {
     List_init<string>(&g.loop_end, 4);
     List_init<*StmtNode>(&g.cleanups, 4);
     List_init<int>(&g.cl_err, 4);
+    List_init<int>(&g.cl_nloc, 4);
     List_init<int>(&g.loop_cldepth, 4);
     List_init<string>(&g.loop_lbls, 4);
     List_init<string>(&g.loop_lbl_end, 4);
@@ -1533,8 +1535,25 @@ void cg_run_cleanups(Codegen* g, int depth, int error_path) {
     while (i >= depth) {
         if (g.terminated == 1) { return; }
         if (List_get<int>(&g.cl_err, i) == 1 && error_path == 0) { i = i - 1; }
-        else { cg_stmt(g, List_get<*StmtNode>(&g.cleanups, i)); i = i - 1; }
+        else {
+            // A cleanup body sees the names that were visible where it was registered,
+            // not a later shadowing declaration: re-bind those locals on top, emit, drop.
+            int base = List_len<CgLocal>(&g.locals);
+            int nvis = List_get<int>(&g.cl_nloc, i);
+            int k = 0;
+            while (k < nvis && k < base) { List_push<CgLocal>(&g.locals, List_get<CgLocal>(&g.locals, k)); k = k + 1; }
+            cg_stmt(g, List_get<*StmtNode>(&g.cleanups, i));
+            cg_locals_trunc(g, base);
+            i = i - 1;
+        }
     }
+}
+
+// Register a cleanup (a defer/errdefer body or a `finally`) for the current scope.
+void cg_push_cleanup(Codegen* g, *StmtNode body, int is_err) {
+    List_push<*StmtNode>(&g.cleanups, body);
+    List_push<int>(&g.cl_err, is_err);
+    List_push<int>(&g.cl_nloc, List_len<CgLocal>(&g.locals));
 }
 
 // Drop cleanup entries down to length `mark` (called on scope exit).
@@ -1542,6 +1561,7 @@ void cg_cleanups_trunc(Codegen* g, int mark) {
     while (List_len<*StmtNode>(&g.cleanups) > mark) {
         List_remove<*StmtNode>(&g.cleanups, List_len<*StmtNode>(&g.cleanups) - 1);
         List_remove<int>(&g.cl_err, List_len<int>(&g.cl_err) - 1);
+        List_remove<int>(&g.cl_nloc, List_len<int>(&g.cl_nloc) - 1);
     }
 }
 
@@ -4693,8 +4713,7 @@ void cg_stmt(Codegen* g, *StmtNode st) {
         return;
     }
     if (st.kind == SK_DEFER) {
-        List_push<*StmtNode>(&g.cleanups, st.s1);      // registered; emitted at scope exit
-        List_push<int>(&g.cl_err, st.is_err);          // errdefer runs only on the error path
+        cg_push_cleanup(g, st.s1, st.is_err);          // emitted at scope exit; errdefer only on the error path
         return;
     }
     if (st.kind == SK_IF) {
@@ -5164,7 +5183,7 @@ void cg_stmt(Codegen* g, *StmtNode st) {
         // (return/break/continue/`?`) inside the body runs it. Fall-through and the
         // exceptional path still emit it below, so truncate WITHOUT running here.
         int trymark = List_len<*StmtNode>(&g.cleanups);
-        if (st.s2 != null) { List_push<*StmtNode>(&g.cleanups, st.s2); List_push<int>(&g.cl_err, 0); }
+        if (st.s2 != null) { cg_push_cleanup(g, st.s2, 0); }
         cg_stmt(g, st.s1);                                // try body
         cg_cleanups_trunc(g, trymark);
         g.cur_unwind = saved;
@@ -5206,7 +5225,7 @@ void cg_stmt(Codegen* g, *StmtNode st) {
             cg_emit(g, "  call void @__cxa_end_catch()\n");
             // `finally` also runs when the handler leaves early (return/break/continue).
             int cmark = List_len<*StmtNode>(&g.cleanups);
-            if (st.s2 != null) { List_push<*StmtNode>(&g.cleanups, st.s2); List_push<int>(&g.cl_err, 0); }
+            if (st.s2 != null) { cg_push_cleanup(g, st.s2, 0); }
             cg_stmt(g, c.s1);                             // handler body
             cg_cleanups_trunc(g, cmark);
             cg_br(g, ldone);
@@ -5268,6 +5287,7 @@ void cg_emit_fn(Codegen* g, *DeclNode d, string llname, string self_struct) {
     List_init<CgLocal>(&g.locals, 8);
     List_init<*StmtNode>(&g.cleanups, 4);   // fresh scope-exit state per function body
     List_init<int>(&g.cl_err, 4);
+    List_init<int>(&g.cl_nloc, 4);
     List_init<int>(&g.loop_cldepth, 4);
     List_init<string>(&g.loop_lbls, 4);       // fresh loops-only label stack per function body
     List_init<string>(&g.loop_lbl_end, 4);

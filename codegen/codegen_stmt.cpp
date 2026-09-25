@@ -19,9 +19,22 @@ void CodeGen::runCleanupsToDepth(size_t depth, bool errorPath) {
         for (size_t j = frame.size(); j-- > 0; ) {
             if (blockTerminated()) return;
             if (frame[j].isErr && !errorPath) continue;
+            // Resolve the body against the names visible where it was registered.
+            auto names = symbolTable;
+            auto types = varTypeStack;
+            if (frame[j].names) symbolTable = *frame[j].names;
+            if (frame[j].types) varTypeStack = *frame[j].types;
             frame[j].body->accept(this);
+            symbolTable = std::move(names);
+            varTypeStack = std::move(types);
         }
     }
+}
+
+CodeGen::Cleanup CodeGen::makeCleanup(Stmt* body, bool isErr) {
+    return Cleanup{body, isErr,
+                   std::make_shared<const std::map<std::string, llvm::Value*>>(symbolTable),
+                   std::make_shared<const std::vector<std::map<std::string, std::string>>>(varTypeStack)};
 }
 
 void CodeGen::visit(BlockStmt* node) {
@@ -70,7 +83,7 @@ void CodeGen::emitScopedBody(const StmtPtr& body) {
 void CodeGen::visit(DeferStmt* node) {
     // Register the body to run at scope exit; emitted by runCleanupsToDepth.
     if (node->body && !cleanupScopes.empty())
-        cleanupScopes.back().push_back({node->body.get(), node->isErr});
+        cleanupScopes.back().push_back(makeCleanup(node->body.get(), node->isErr));
 }
 
 void CodeGen::visit(IfStmt* node) {

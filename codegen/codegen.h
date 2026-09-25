@@ -234,7 +234,15 @@ private:
     // `defer`/`errdefer` bodies (and a try's `finally`) to run LIFO when the scope is
     // left. Normal control-flow exits (return / break / continue / `?`) emit the frames
     // they leave before branching; block fall-through runs its own frame.
-    struct Cleanup { Stmt* body; bool isErr; };   // isErr = errdefer (error-path only)
+    // isErr = errdefer (error-path only). The body is emitted later, at an exit, where a
+    // shadowing declaration may have rebound a name; `names`/`types` are the bindings
+    // visible where it was registered, which the body is resolved against.
+    struct Cleanup {
+        Stmt* body; bool isErr;
+        std::shared_ptr<const std::map<std::string, llvm::Value*>> names;
+        std::shared_ptr<const std::vector<std::map<std::string, std::string>>> types;
+    };
+    Cleanup makeCleanup(Stmt* body, bool isErr);
     std::vector<std::vector<Cleanup>> cleanupScopes;
     size_t breakCleanupDepth    = 0;   // frame depth to unwind to on break
     size_t continueCleanupDepth = 0;   // frame depth to unwind to on continue
