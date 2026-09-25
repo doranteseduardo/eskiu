@@ -510,6 +510,13 @@ void TypeChecker::visit(CallExpr* node) {
         member->base->accept(this);
         // bare nominal: *Rect and Rect both resolve to Rect_method
         std::string baseType = ty::Type::parse(getExpressionType(member->base.get())).nominalName();
+        {
+            // A source-form instance receiver (`Box<int>`, e.g. a field's declared
+            // type) names its mangled struct, instantiated so its inline methods exist.
+            ty::Type rt = ty::Type::parse(tyq::strip(getExpressionType(member->base.get())));
+            while (rt.isPointer() && rt.pointee) { ty::Type inner = *rt.pointee; rt = inner; }
+            if (rt.isTemplate()) baseType = ty::Type::parse(normalizeType(rt.str())).nominalName();
+        }
 
         std::string mangled = baseType + "_" + member->member;
         auto mit = functionSignatures.find(mangled);
