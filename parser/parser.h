@@ -46,6 +46,12 @@ private:
     void consumeTemplateClose(const char* ctx);
     std::vector<Token> tokens;
     size_t current;
+    // Indices where consumeTemplateClose split a `>>` into `> >`, in order. A
+    // speculative parse that backtracks must undo the splits it made, or a later
+    // `x < y >> 1` would see two `>` tokens instead of the shift it really is.
+    std::vector<size_t> rshiftSplits;
+    // Backtrack to a saved position, undoing any `>>` splits made at or after it.
+    void rewindTo(size_t pos);
 
     // Helper methods
     Token peek() const;

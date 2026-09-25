@@ -189,7 +189,7 @@ StmtPtr Parser::parseBlockStatement() {
                 // "expected a name, found keyword 'fn'" diagnostic for `int fn;`).
                 TokenType startTok = tokens[savePos].type;
                 if (startTok != TokenType::IDENT && startTok != TokenType::STAR) throw;
-                current = savePos;
+                rewindTo(savePos);
             }
         }
 
@@ -270,7 +270,7 @@ StmtPtr Parser::parseForStatement() {
             // their real error; only IDENT/'*' fall back to an expression.
             TokenType startTok = tokens[savePos].type;
             if (startTok != TokenType::IDENT && startTok != TokenType::STAR) throw;
-            current = savePos;
+            rewindTo(savePos);
             init = parseExpressionStatement();
         }
     } else {

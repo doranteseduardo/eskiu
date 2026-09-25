@@ -97,17 +97,28 @@ void Parser::consumeTemplateClose(const char* ctx) {
     if (check(TokenType::GT)) { advance(); return; }
     // A lexed ">>" (right-shift) closes two template levels at once. Split it
     // permanently into "> >" by rewriting this token to ">" and inserting a
-    // second ">" after it, then consume the first. Insertion (vs. a destructive
-    // rewrite) keeps the stream correct across the parser's backtracking — a
-    // saved position is always before `current`, so it is unaffected.
+    // second ">" after it, then consume the first. The split is logged so a
+    // backtracking caller (rewindTo) can restore the original `>>` token.
     if (check(TokenType::RSHIFT)) {
         tokens[current].type  = TokenType::GT;
         tokens[current].value = ">";
         tokens.insert(tokens.begin() + current + 1, tokens[current]);
+        rshiftSplits.push_back(current);
         advance();
         return;
     }
     consume(TokenType::GT, ctx);   // not a close — emit the standard error
+}
+
+void Parser::rewindTo(size_t pos) {
+    while (!rshiftSplits.empty() && rshiftSplits.back() >= pos) {
+        size_t at = rshiftSplits.back();
+        rshiftSplits.pop_back();
+        tokens.erase(tokens.begin() + at + 1);
+        tokens[at].type  = TokenType::RSHIFT;
+        tokens[at].value = ">>";
+    }
+    current = pos;
 }
 
 std::string Parser::parseType() {

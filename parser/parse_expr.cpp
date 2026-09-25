@@ -175,7 +175,7 @@ ExprPtr Parser::parseUnary() {
                     return std::make_shared<CastExpr>(castType, expr);
                 }
             } catch (...) {}
-            current = savePos;
+            rewindTo(savePos);
         }
     }
 
@@ -219,7 +219,7 @@ ExprPtr Parser::parsePostfix() {
                         }
                     }
                 } catch (...) {}
-                current = savePos;
+                rewindTo(savePos);
             }
         }
         if (match(TokenType::LPAREN)) {
@@ -362,7 +362,7 @@ ExprPtr Parser::parsePrimary() {
                     return lambda;
                 }
             } catch (...) {}
-            current = savePos; // not a lambda, fall through
+            rewindTo(savePos); // not a lambda, fall through
         }
     }
 

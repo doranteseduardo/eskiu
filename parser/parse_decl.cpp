@@ -218,7 +218,7 @@ DeclPtr Parser::parseDeclaration() {
             // `V3 operator +(...)` — an operator overload: rewind and let parseFunctionDecl
             // handle the `operator` form (return type already parsed above, re-parsed there).
             if (check(TokenType::OPERATOR)) {
-                current = savePos;
+                rewindTo(savePos);
                 return parseFunctionDecl();
             }
 
@@ -228,7 +228,7 @@ DeclPtr Parser::parseDeclaration() {
 
                 if (match(TokenType::LPAREN) || check(TokenType::LT)) {
                     // Function declaration (possibly template: name<T,E>(...))
-                    current = savePos;
+                    rewindTo(savePos);
                     return parseFunctionDecl();
                 } else if (match(TokenType::SEMICOLON) || match(TokenType::EQ)) {
                     // Variable declaration — split const into stored type + flag.
@@ -414,7 +414,7 @@ DeclPtr Parser::parseStructDecl() {
 
             if (check(TokenType::LPAREN)) {
                 // Method — backtrack and parse as a full function declaration
-                current = savePos;
+                rewindTo(savePos);
                 methods.push_back(parseFunctionDecl());
             } else {
                 // Optional bitfield width:  uint32 flags : 3;
