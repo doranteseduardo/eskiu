@@ -2978,6 +2978,19 @@ int sema_fold_op(string op, int64 x, int64 y, int64* out) {
 // Value of an integer constant expression built from literals, enum members, unary and
 // binary operators and casts (mirrors TypeChecker::foldConstInt). Returns 0 when the
 // value is not known here (`sizeof`, a non-constant name, division by zero).
+// `v` converted to the integer type `t` (C: truncate, then sign- or zero-extend); a
+// non-integer or 64-bit type leaves it unchanged.
+int64 sema_trunc_const(string t, int64 v) {
+    if (sema_streq(t, "bool") == 1) { if (v != (int64)0) { return (int64)1; } return (int64)0; }
+    if (sema_streq(t, "char") == 1 || sema_streq(t, "uint8") == 1) { return (int64)(uint8)v; }
+    if (sema_streq(t, "int8") == 1) { return (int64)(int8)v; }
+    if (sema_streq(t, "uint16") == 1) { return (int64)(uint16)v; }
+    if (sema_streq(t, "int16") == 1) { return (int64)(int16)v; }
+    if (sema_streq(t, "uint") == 1 || sema_streq(t, "uint32") == 1) { return (int64)(uint32)v; }
+    if (sema_streq(t, "int") == 1 || sema_streq(t, "int32") == 1) { return (int64)(int32)v; }
+    return v;
+}
+
 int sema_fold_int(Sema* s, *ExprNode e, int64* out) {
     if (e == null) { return 0; }
     if (e.kind == EK_LITERAL) {
@@ -3003,6 +3016,7 @@ int sema_fold_int(Sema* s, *ExprNode e, int64* out) {
             s.fold_depth = s.fold_depth + 1;
             int ok = sema_fold_int(s, sy.init, out);
             s.fold_depth = s.fold_depth - 1;
+            if (ok == 1) { out[0] = sema_trunc_const(sema_resolve_scalar(s, sy.type), out[0]); }
             return ok;
         }
         int i = 0; int n = List_len<EVar>(&s.evars);
@@ -3043,7 +3057,11 @@ int sema_fold_int(Sema* s, *ExprNode e, int64* out) {
         out[0] = x;
         return 1;
     }
-    if (e.kind == EK_CAST) { return sema_fold_int(s, e.a, out); }
+    if (e.kind == EK_CAST) {
+        if (sema_fold_int(s, e.a, out) == 0) { return 0; }
+        out[0] = sema_trunc_const(sema_resolve_scalar(s, sema_isub(s, e.sval)), out[0]);
+        return 1;
+    }
     return 0;
 }
 

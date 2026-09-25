@@ -314,6 +314,7 @@ private:
     // A switch `case` label codegen can fold to an integer constant.
     bool isConstIntExpr(Expr* e);
     bool foldConstInt(Expr* e, long long& out);
+    static long long truncConstInt(const std::string& raw, long long v);
     static bool foldConstBinaryOp(const std::string& op, long long x, long long y, long long& out);
     int foldDepth = 0;
     bool hasErrors = false;

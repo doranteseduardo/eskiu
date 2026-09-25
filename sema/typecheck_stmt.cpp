@@ -648,6 +648,7 @@ bool TypeChecker::foldConstInt(Expr* e, long long& out) {
             ++foldDepth;
             bool ok = foldConstInt(sym->constInit, out);
             --foldDepth;
+            if (ok) out = truncConstInt(normalizeType(sym->type), out);
             return ok;
         }
         auto it = enumConstants.find(id->name);
@@ -677,8 +678,26 @@ bool TypeChecker::foldConstInt(Expr* e, long long& out) {
         out = x;
         return true;
     }
-    if (auto* c = dynamic_cast<CastExpr*>(e)) return foldConstInt(c->expr.get(), out);
+    if (auto* c = dynamic_cast<CastExpr*>(e)) {
+        if (!foldConstInt(c->expr.get(), out)) return false;
+        out = truncConstInt(normalizeType(c->targetType), out);
+        return true;
+    }
     return false;
+}
+
+// `v` converted to the integer type `raw` (C: truncate, then sign- or zero-extend);
+// a non-integer or 64-bit type leaves it unchanged.
+long long TypeChecker::truncConstInt(const std::string& raw, long long v) {
+    std::string t = tyq::strip(raw);
+    if (t == "bool") return v != 0;
+    if (t == "char" || t == "uint8") return (long long)(uint8_t)v;
+    if (t == "int8") return (long long)(int8_t)v;
+    if (t == "uint16") return (long long)(uint16_t)v;
+    if (t == "int16") return (long long)(int16_t)v;
+    if (t == "uint" || t == "uint32") return (long long)(uint32_t)v;
+    if (t == "int" || t == "int32") return (long long)(int32_t)v;
+    return v;
 }
 
 // `x op y` over folded integer operands (two's-complement wrap); false when `op` does
