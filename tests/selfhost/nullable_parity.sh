@@ -52,7 +52,31 @@ cat > "$WORK/widen.esk"   <<'EOF'
 int main() { int x = 1; *int p = &x; ?*int q = p; if (q != null) { return *q; } return 0; }
 EOF
 
+cat > "$WORK/reassign.esk" <<'EOF'
+int main() { int x = 1; ?*int q = &x; if (q != null) { q = null; return *q; } return 0; }
+EOF
+cat > "$WORK/shadow.esk" <<'EOF'
+int main() { int x = 1; ?*int q = &x; if (q != null) { ?*int q = null; return *q; } return 0; }
+EOF
+cat > "$WORK/loopkill.esk" <<'EOF'
+int main() { int x = 1; ?*int q = &x; int t = 0; if (q != null) { while (t < 2) { t = t + *q; q = null; } } return t; }
+EOF
+cat > "$WORK/forms.esk" <<'EOF'
+int f(*int q) { return *q; }
+int g(?*int p) { if (p == null) { return 0; } return *p; }
+int main() { int x = 1; ?*int q = &x; int t = 0;
+  if (q != null && *q > 0) { t = t + 1; }
+  if (q == null || *q > 0) { t = t + 1; }
+  if (!(q == null)) { t = t + f(q); }
+  while (q != null) { t = t + *q; q = null; }
+  return t + g(&x); }
+EOF
+
 parity "unchecked deref rejected"    "$WORK/deref.esk"
+parity "reassigned in branch rejected" "$WORK/reassign.esk"
+parity "shadowing decl rejected"     "$WORK/shadow.esk"
+parity "reassigned in loop rejected" "$WORK/loopkill.esk"
+parity "&&/||/!/guard/while accepted" "$WORK/forms.esk"
 parity "narrowed deref accepted"     "$WORK/narrow.esk"
 parity "nullable->non-null rejected" "$WORK/tononnull.esk"
 parity "non-null->nullable accepted" "$WORK/widen.esk"

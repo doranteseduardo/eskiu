@@ -19,6 +19,7 @@ void TypeChecker::visit(BlockStmt* node) {
 
     // Type check items in order, maintaining exact parse order
     // Declarations can be interleaved with statements
+    std::vector<std::string> guardNarrowed;   // narrowings from an early-exit guard, undone at block end
     for (const auto& item : node->items) {
         // Check if this item is a declaration or a statement
         if (std::holds_alternative<DeclPtr>(item)) {
@@ -29,8 +30,19 @@ void TypeChecker::visit(BlockStmt* node) {
             // It's a statement
             const auto& stmt = std::get<StmtPtr>(item);
             stmt->accept(this);
+            // Early-exit guard: after `if (p == null) return ...;` the rest of the block
+            // only runs when the condition was false (resp. true, when only the else exits).
+            if (auto* ifs = dynamic_cast<IfStmt*>(stmt.get()); ifs && ifs->condition) {
+                bool thenExits = !stmtCanCompleteNormally(ifs->thenBranch.get());
+                bool elseExits = ifs->elseBranch && !stmtCanCompleteNormally(ifs->elseBranch.get());
+                std::vector<std::string> keys;
+                if (thenExits && !elseExits) condNarrowings(ifs->condition.get(), false, keys);
+                else if (elseExits && !thenExits) condNarrowings(ifs->condition.get(), true, keys);
+                for (auto& k : applyNarrowings(keys)) guardNarrowed.push_back(k);
+            }
         }
     }
+    undoNarrowings(guardNarrowed);
 
     popScope();
 }
@@ -41,39 +53,21 @@ void TypeChecker::visit(IfStmt* node) {
         checkCondition(node, node->condition.get());
     }
     // Null-narrowing: `if (q != null)` proves `q` non-null in the then-branch (and
-    // `if (q == null)` in the else-branch), so a `?*T` may be dereferenced there.
-    std::string narrowVar;
-    bool narrowThen = true;
-    if (auto* b = dynamic_cast<BinaryExpr*>(node->condition.get())) {
-        if (b->op == "!=" || b->op == "==") {
-            auto isNull = [](Expr* e) {
-                auto* l = dynamic_cast<LiteralExpr*>(e);
-                return l && l->kind == LiteralExpr::Kind::NULL_VAL;
-            };
-            IdentExpr* id = nullptr;
-            if ((id = dynamic_cast<IdentExpr*>(b->left.get())) && isNull(b->right.get())) {}
-            else if ((id = dynamic_cast<IdentExpr*>(b->right.get())) && isNull(b->left.get())) {}
-            else id = nullptr;
-            if (id) {
-                std::string t = getExpressionType(id);
-                if (!t.empty() && t[0] == '?') { narrowVar = id->name; narrowThen = (b->op == "!="); }
-            }
-        }
-    }
-    auto narrow = [&](bool active) -> bool {   // returns whether we inserted (to restore)
-        if (narrowVar.empty() || !active || narrowedNonNull.count(narrowVar)) return false;
-        narrowedNonNull.insert(narrowVar); return true;
-    };
-
+    // `if (q == null)` in the else-branch), so a `?*T` may be dereferenced there. An
+    // assignment to `q` inside the branch ends the narrowing (see visit(BinaryExpr)).
     if (node->thenBranch) {
-        bool ins = narrow(!narrowVar.empty() && narrowThen);
+        std::vector<std::string> keys;
+        condNarrowings(node->condition.get(), true, keys);
+        auto inserted = applyNarrowings(keys);
         node->thenBranch->accept(this);
-        if (ins) narrowedNonNull.erase(narrowVar);
+        undoNarrowings(inserted);
     }
     if (node->elseBranch) {
-        bool ins = narrow(!narrowVar.empty() && !narrowThen);
+        std::vector<std::string> keys;
+        condNarrowings(node->condition.get(), false, keys);
+        auto inserted = applyNarrowings(keys);
         node->elseBranch->accept(this);
-        if (ins) narrowedNonNull.erase(narrowVar);
+        undoNarrowings(inserted);
     }
 }
 
@@ -108,6 +102,7 @@ void TypeChecker::visit(ForInStmt* node) {
     }
 
     node->resolvedElemType = elemType;
+    dropAssignedIn(node->body.get());   // later iterations see assignments in the body
     pushScope();
     if (elemType.empty()) {
         errorAt(node, "for-in expects a fixed-size array or a List-like value "
@@ -123,18 +118,29 @@ void TypeChecker::visit(ForInStmt* node) {
 }
 
 void TypeChecker::visit(WhileStmt* node) {
+    // A narrowing from outside the loop does not survive an assignment in the body
+    // (the condition and later iterations would observe it).
+    dropAssignedIn(node->body.get());
+    dropAssignedIn(node->condition.get());
     if (node->condition) {
         warnAssignInCondition(node->condition.get());
         checkCondition(node, node->condition.get());
     }
     loopLabelStack.push_back(node->label);
     if (node->body) {
+        // `while (p != null)` re-tests p before every iteration, so the body sees it non-null.
+        std::vector<std::string> keys;
+        if (node->condition) condNarrowings(node->condition.get(), true, keys);
+        auto inserted = applyNarrowings(keys);
         node->body->accept(this);
+        undoNarrowings(inserted);
     }
     loopLabelStack.pop_back();
 }
 
 void TypeChecker::visit(DoWhileStmt* node) {
+    dropAssignedIn(node->body.get());
+    dropAssignedIn(node->condition.get());
     loopLabelStack.push_back(node->label);
     if (node->body) node->body->accept(this);
     loopLabelStack.pop_back();
@@ -163,22 +169,31 @@ void TypeChecker::visit(ForStmt* node) {
         }
     }
 
+    dropAssignedIn(node->condition.get());
+    dropAssignedIn(node->step.get());
+    dropAssignedIn(node->body.get());
+
     // Type check condition (for intentionally omits the assign-in-condition warning)
     if (node->condition) {
         checkCondition(node, node->condition.get());
     }
 
-    // Type check step
-    if (node->step) {
-        node->step->accept(this);
-    }
-
-    // Type check body
+    // Type check body, then the step (which runs after it), both under the
+    // condition's narrowing (`for (; p != null; p = p.next)`).
+    std::vector<std::string> keys;
+    if (node->condition) condNarrowings(node->condition.get(), true, keys);
+    auto inserted = applyNarrowings(keys);
     loopLabelStack.push_back(node->label);
     if (node->body) {
         node->body->accept(this);
     }
     loopLabelStack.pop_back();
+
+    // Type check step
+    if (node->step) {
+        node->step->accept(this);
+    }
+    undoNarrowings(inserted);
 
     popScope();
 }

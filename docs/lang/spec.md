@@ -209,6 +209,15 @@ A non-null `*T` converts to `?*T` implicitly (widening); going the other way (`?
 `*T`) drops the check and so requires narrowing (or an explicit cast). `?*T` has the same
 representation as `*T` (a bare pointer); the checking is entirely at compile time.
 
+A null-check narrows in these forms: the then-branch of `if (x != null)` (and the else of
+`if (x == null)`), `if (x)`, `!(x == null)`, the right operand of `x != null && ...` and of
+`x == null || ...`, either arm of a `?:` on such a condition, the body of
+`while (x != null)` or `for (...; x != null; ...)`, and the rest of a block after an early
+exit such as `if (x == null) { return 0; }`. While narrowed, `x` can be passed or assigned
+where a `*T` is expected. Narrowing applies to the variable itself: assigning to it (other
+than storing an address `&y`), taking its address, or reassigning it anywhere in an
+enclosing loop ends it, and a shadowing declaration of the same name is not narrowed.
+
 ### 3.3 Array Types
 
 Fixed-size arrays use the form `T[N]` where `N` is a compile-time integer constant: a decimal literal, an `enum` member, or a `const int` (see §4.6). Array types are supported both as struct fields and as local variables:

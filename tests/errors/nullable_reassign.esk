@@ -1,0 +1,2 @@
+// EXPECT-ERROR: cannot dereference a possibly-null pointer
+int main() { let x: int = 5; let p: ?*int = &x; if (p != null) { p = null; return *p; } return 0; }

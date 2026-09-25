@@ -9,6 +9,10 @@
 #include <string>
 #include <memory>
 
+// Can executing `s` fall through to the following statement? (Definite-return analysis,
+// typecheck_decl.cpp; also drives null-narrowing after an early-exit guard.)
+bool stmtCanCompleteNormally(Stmt* s);
+
 class TypeChecker : public ASTVisitor {
 public:
     TypeChecker();
@@ -169,7 +173,21 @@ private:
     // Per-function `escaping` flags for each parameter (closure-retention).
     std::map<std::string, std::vector<bool>> functionParamEscaping;
     std::set<std::string> mustUseFuncs;   // functions whose result may not be discarded
-    std::set<std::string> narrowedNonNull; // `?*T` vars currently known non-null (via if-narrowing)
+    // `?*T` variables currently known non-null, keyed by narrowKey ("name@scope") so a
+    // shadowing declaration is a different variable. A narrowed identifier's expression
+    // type drops the `?`, so it may be dereferenced and used as a `*T`.
+    std::set<std::string> narrowedNonNull;
+    std::string narrowKey(const std::string& name) const;
+    // Keys of the `?*T` variables proven non-null when `cond` evaluates to `whenTrue`
+    // (`p != null`, `p == null` false, `p`, `!c`, `a && b` true, `a || b` false).
+    void condNarrowings(Expr* cond, bool whenTrue, std::vector<std::string>& keys);
+    // Insert `keys` into narrowedNonNull; returns the ones newly inserted (to undo).
+    std::vector<std::string> applyNarrowings(const std::vector<std::string>& keys);
+    void undoNarrowings(const std::vector<std::string>& inserted);
+    // Forget narrowing of every variable assigned (or address-taken) anywhere in `s`/`e`,
+    // before checking a loop whose later iterations would observe the assignment.
+    void dropAssignedIn(Stmt* s);
+    void dropAssignedIn(Expr* e);
     // Reject deref/index/member of a nullable `?*T` that hasn't been null-checked.
     void checkNullableDeref(Expr* operand, const char* how);
     // Escape-soundness state for the function currently being checked: the names

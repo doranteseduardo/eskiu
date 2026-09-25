@@ -1,0 +1,34 @@
+// Null-narrowing forms for `?*T`: each dereference below is proven safe.
+extern int printf(string f, ...);
+struct Node { int v; ?*Node next; }
+int f(*int q) { return *q; }
+int guard(?*int p) {
+    if (p == null) { return -1; }
+    return *p;
+}
+int sum(?*Node n) {
+    int t = 0;
+    while (n != null) { t = t + n.v; n = n.next; }
+    return t;
+}
+int count(?*Node head) {
+    int c = 0;
+    for (?*Node n = head; n != null; n = n.next) { c = c + n.v * 0 + 1; }
+    return c;
+}
+int main() {
+    int x = 5;
+    ?*int p = &x;
+    int a = 0;
+    if (p != null && *p > 3) { a = a + 1; }
+    if (p == null || *p > 3) { a = a + 1; }
+    if (!(p == null)) { a = a + *p; }
+    let r: *int = &a;
+    if (p != null) { r = p; let q: *int = p; a = a + f(p) + *q; }
+    int t = p != null ? *p : 0;
+    let n3: Node = Node{v: 3, next: null};
+    let n2: Node = Node{v: 2, next: &n3};
+    let n1: Node = Node{v: 1, next: &n2};
+    printf("%d %d %d %d %d %d\n", a, *r, t, guard(p), sum(&n1), count(&n1));
+    return 0;
+}

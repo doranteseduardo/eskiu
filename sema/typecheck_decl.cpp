@@ -253,6 +253,8 @@ bool canCompleteNormally(Stmt* s) {
 bool stmtAlwaysReturns(Stmt* s) { return !canCompleteNormally(s); }
 } // namespace
 
+bool stmtCanCompleteNormally(Stmt* s) { return canCompleteNormally(s); }
+
 void TypeChecker::visit(FunctionDecl* node) {
     if (!node->typeParams.empty()) {
         // Template body: type-checking is deferred to instantiation, but lambda

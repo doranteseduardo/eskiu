@@ -40,7 +40,8 @@ HANDLED="undefined_var arg_count undefined_type await_outside_async async_no_awa
          struct_init_generic_field sizeof_unknown
          struct_value_cycle field_unknown_type param_unknown_type template_arg_count template_unknown_arg
          iface_return_mismatch iface_arity_mismatch arg_type_mismatch
-         missing_return_labeled_break missing_return_dowhile_break missing_return_switch_break"
+         missing_return_labeled_break missing_return_dowhile_break missing_return_switch_break
+         nullable_reassign nullable_shadow nullable_loop_reassign"
 HANDLED="$(echo $HANDLED)"   # collapse the multi-line list to single spaces for matching
 
 DRIVER=selfhost/esk_main.esk

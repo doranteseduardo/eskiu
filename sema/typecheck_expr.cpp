@@ -7,6 +7,7 @@
 // are shared with codegen; see template_utils.h.
 #include "../template_utils.h"
 #include "../ast/type_qual.h"
+#include "../ast/ast_walk.h"
 
 // ============================================================================
 
@@ -17,7 +18,17 @@
 // Expression visitors
 void TypeChecker::visit(BinaryExpr* node) {
     node->left->accept(this);
-    node->right->accept(this);
+    // Short-circuit narrowing: in `p != null && *p`, the right operand only runs when
+    // the left is true (for `||`, when it is false), so it sees `p` as non-null.
+    if (node->op == "&&" || node->op == "||") {
+        std::vector<std::string> keys;
+        condNarrowings(node->left.get(), node->op == "&&", keys);
+        auto inserted = applyNarrowings(keys);
+        node->right->accept(this);
+        undoNarrowings(inserted);
+    } else {
+        node->right->accept(this);
+    }
 
     // Assigning to a `const` binding, a field/element of a const value, or
     // through a pointer-to-const (`const T*`) is an error. See assignsToConst.
@@ -26,6 +37,16 @@ void TypeChecker::visit(BinaryExpr* node) {
         if (assignsToConst(node->left.get(), cname))
             errorAt(node, "cannot assign to read-only location '" + cname + "'");
         std::string lt = getExpressionType(node->left.get());
+        // The target of `p = ...` keeps its declared type even while `p` is narrowed,
+        // and the assignment ends the narrowing (unless it stores an address `&x`).
+        if (auto* id = dynamic_cast<IdentExpr*>(node->left.get())) {
+            std::string declared = lookupSymbol(id->name);
+            if (!declared.empty() && declared[0] == '?') {
+                lt = declared;
+                auto* u = dynamic_cast<UnaryExpr*>(node->right.get());
+                if (!(u && u->op == "&")) narrowedNonNull.erase(narrowKey(id->name));
+            }
+        }
         std::string rt = getExpressionType(node->right.get());
         if (tyq::dropsConst(lt, rt))
             errorAt(node, "assignment discards a const qualifier ('" + rt + "' to '" + lt + "')");
@@ -144,8 +165,18 @@ static std::string literalArmType(Expr* e, const std::string& t) {
 
 void TypeChecker::visit(TernaryExpr* node) {
     node->condition->accept(this);
-    node->thenExpr->accept(this);
-    node->elseExpr->accept(this);
+    {
+        std::vector<std::string> keys;
+        condNarrowings(node->condition.get(), true, keys);
+        auto inserted = applyNarrowings(keys);
+        node->thenExpr->accept(this);
+        undoNarrowings(inserted);
+        keys.clear();
+        condNarrowings(node->condition.get(), false, keys);
+        inserted = applyNarrowings(keys);
+        node->elseExpr->accept(this);
+        undoNarrowings(inserted);
+    }
 
     std::string ct = getExpressionType(node->condition.get());
     if (ct != "unknown" && !isNumericType(ct) && !isPointerType(ct) &&
@@ -175,11 +206,106 @@ void TypeChecker::visit(TernaryExpr* node) {
     expressionTypes[node] = result;
 }
 
+std::string TypeChecker::narrowKey(const std::string& name) const {
+    for (int si = (int)scopes.size() - 1; si >= 0; --si)
+        if (scopes[si].count(name)) return name + "@" + std::to_string(si);
+    return "";
+}
+
+void TypeChecker::condNarrowings(Expr* cond, bool whenTrue, std::vector<std::string>& keys) {
+    auto nullableIdent = [&](Expr* e) -> std::string {
+        auto* id = dynamic_cast<IdentExpr*>(e);
+        if (!id) return "";
+        std::string t = lookupSymbol(id->name);
+        return (!t.empty() && t[0] == '?') ? narrowKey(id->name) : "";
+    };
+    if (auto* u = dynamic_cast<UnaryExpr*>(cond); u && u->op == "!") {
+        condNarrowings(u->operand.get(), !whenTrue, keys);
+        return;
+    }
+    if (auto* b = dynamic_cast<BinaryExpr*>(cond)) {
+        if ((b->op == "&&" && whenTrue) || (b->op == "||" && !whenTrue)) {
+            condNarrowings(b->left.get(), whenTrue, keys);
+            condNarrowings(b->right.get(), whenTrue, keys);
+            return;
+        }
+        if (b->op == "!=" || b->op == "==") {
+            auto isNull = [](Expr* e) {
+                auto* l = dynamic_cast<LiteralExpr*>(e);
+                return l && l->kind == LiteralExpr::Kind::NULL_VAL;
+            };
+            std::string k;
+            if (isNull(b->right.get())) k = nullableIdent(b->left.get());
+            else if (isNull(b->left.get())) k = nullableIdent(b->right.get());
+            if (!k.empty() && (b->op == "!=") == whenTrue) keys.push_back(k);
+        }
+        return;
+    }
+    if (whenTrue) {                                    // `if (p)`: a pointer tested for non-null
+        std::string k = nullableIdent(cond);
+        if (!k.empty()) keys.push_back(k);
+    }
+}
+
+std::vector<std::string> TypeChecker::applyNarrowings(const std::vector<std::string>& keys) {
+    std::vector<std::string> inserted;
+    for (const auto& k : keys)
+        if (narrowedNonNull.insert(k).second) inserted.push_back(k);
+    return inserted;
+}
+
+void TypeChecker::undoNarrowings(const std::vector<std::string>& inserted) {
+    for (const auto& k : inserted) narrowedNonNull.erase(k);
+}
+
+void TypeChecker::dropAssignedIn(Expr* e) {
+    if (!e || narrowedNonNull.empty()) return;
+    auto dropName = [&](const std::string& n) {
+        for (auto it = narrowedNonNull.begin(); it != narrowedNonNull.end();)
+            if (it->compare(0, n.size() + 1, n + "@") == 0) it = narrowedNonNull.erase(it); else ++it;
+    };
+    if (auto* b = dynamic_cast<BinaryExpr*>(e); b && b->op == "=")
+        if (auto* id = dynamic_cast<IdentExpr*>(b->left.get())) dropName(id->name);
+    if (auto* u = dynamic_cast<UnaryExpr*>(e); u && u->op == "&")
+        if (auto* id = dynamic_cast<IdentExpr*>(u->operand.get())) dropName(id->name);
+    if (auto* lam = dynamic_cast<LambdaExpr*>(e)) { dropAssignedIn(lam->body.get()); return; }
+    astwalk::forEachChildExpr(e, [&](ExprPtr& c) { dropAssignedIn(c.get()); });
+}
+
+void TypeChecker::dropAssignedIn(Stmt* s) {
+    if (!s || narrowedNonNull.empty()) return;
+    if (auto* b = dynamic_cast<BlockStmt*>(s)) {
+        for (auto& it : b->items) {
+            if (auto* st = std::get_if<StmtPtr>(&it)) dropAssignedIn(st->get());
+            else if (auto* vd = dynamic_cast<VarDecl*>(std::get<DeclPtr>(it).get())) dropAssignedIn(vd->initializer.get());
+        }
+    } else if (auto* es = dynamic_cast<ExprStmt*>(s)) dropAssignedIn(es->expr.get());
+    else if (auto* r = dynamic_cast<ReturnStmt*>(s)) dropAssignedIn(r->value.get());
+    else if (auto* i = dynamic_cast<IfStmt*>(s)) {
+        dropAssignedIn(i->condition.get()); dropAssignedIn(i->thenBranch.get()); dropAssignedIn(i->elseBranch.get());
+    } else if (auto* w = dynamic_cast<WhileStmt*>(s)) { dropAssignedIn(w->condition.get()); dropAssignedIn(w->body.get()); }
+    else if (auto* dw = dynamic_cast<DoWhileStmt*>(s)) { dropAssignedIn(dw->condition.get()); dropAssignedIn(dw->body.get()); }
+    else if (auto* f = dynamic_cast<ForStmt*>(s)) {
+        dropAssignedIn(f->init.get()); dropAssignedIn(f->condition.get());
+        dropAssignedIn(f->step.get()); dropAssignedIn(f->body.get());
+    } else if (auto* fi = dynamic_cast<ForInStmt*>(s)) { dropAssignedIn(fi->iterable.get()); dropAssignedIn(fi->body.get()); }
+    else if (auto* sw = dynamic_cast<SwitchStmt*>(s)) {
+        dropAssignedIn(sw->subject.get());
+        for (auto& c : sw->cases) for (auto& st : c.stmts) dropAssignedIn(st.get());
+    } else if (auto* m = dynamic_cast<MatchStmt*>(s)) {
+        dropAssignedIn(m->subject.get());
+        for (auto& arm : m->arms) dropAssignedIn(arm.body.get());
+    } else if (auto* t = dynamic_cast<TryStmt*>(s)) {
+        dropAssignedIn(t->body.get());
+        for (auto& c : t->catches) dropAssignedIn(c.body.get());
+        dropAssignedIn(t->finally.get());
+    } else if (auto* d = dynamic_cast<DeferStmt*>(s)) dropAssignedIn(d->body.get());
+    else if (auto* th = dynamic_cast<ThrowStmt*>(s)) dropAssignedIn(th->value.get());
+}
+
 void TypeChecker::checkNullableDeref(Expr* operand, const char* how) {
     std::string t = getExpressionType(operand);
-    if (t.empty() || t[0] != '?') return;                 // not a checked-nullable pointer
-    if (auto* id = dynamic_cast<IdentExpr*>(operand))      // narrowed non-null in this branch?
-        if (narrowedNonNull.count(id->name)) return;
+    if (t.empty() || t[0] != '?') return;                 // not (or no longer) a nullable pointer
     errorAt(operand, std::string("cannot ") + how + " a possibly-null pointer of type '" + t +
                      "'; check it first (e.g. `if (x != null)`)");
 }
@@ -187,6 +313,16 @@ void TypeChecker::checkNullableDeref(Expr* operand, const char* how) {
 void TypeChecker::visit(UnaryExpr* node) {
     node->operand->accept(this);
     std::string operandType = getExpressionType(node->operand.get());
+    // `&p` of a narrowed `?*T` is a `*?*T` (a write through it may store null), so the
+    // narrowing ends here and the address carries the declared nullable type.
+    if (node->op == "&")
+        if (auto* id = dynamic_cast<IdentExpr*>(node->operand.get())) {
+            std::string declared = lookupSymbol(id->name);
+            if (!declared.empty() && declared[0] == '?') {
+                operandType = declared;
+                narrowedNonNull.erase(narrowKey(id->name));
+            }
+        }
 
     if (node->op == "*") checkNullableDeref(node->operand.get(), "dereference");
 
@@ -680,6 +816,8 @@ void TypeChecker::visit(IdentExpr* node) {
     if (type.empty()) {
         errorAt(node,"undefined variable '" + node->name + "'");
         expressionTypes[node] = "unknown";
+    } else if (type[0] == '?' && narrowedNonNull.count(narrowKey(node->name))) {
+        expressionTypes[node] = type.substr(1);   // proven non-null here: a plain `*T`
     } else {
         expressionTypes[node] = type;
     }
