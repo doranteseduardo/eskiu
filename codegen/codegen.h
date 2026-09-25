@@ -306,6 +306,7 @@ private:
 
     // Resolve the Eskiu type string of an expression (for struct/array access)
     std::string getExprEskiuType(const ExprPtr& expr) const;
+    std::string getExprEskiuTypeRaw(const ExprPtr& expr) const;   // before C promotion
     // The structural fallback: derive an expression's Eskiu type from the AST when
     // the single-resolver table has no entry. Split out so getExprEskiuType can,
     // under ESKIU_RESOLVER_DEBUG, cross-check the table against this derivation.
@@ -315,6 +316,9 @@ private:
     // downstream logic sees e.g. "*uint8" instead of an alias name like "Bytes".
     std::string expandAlias(const std::string& t) const;
 
+    // Binary operators whose integer operands undergo C's integer promotions (to `int`
+    // when narrower): arithmetic, bitwise, shifts, and comparisons.
+    static bool isIntPromotingOp(const std::string& op);
     // True if the Eskiu type widens with zero-extension (unsigned / char / bool).
     bool eskiuUnsigned(const std::string& t) const;
     // Widen or truncate integer `val` to `ty`, choosing zero- vs sign-extension by

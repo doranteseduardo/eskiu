@@ -1,0 +1,35 @@
+// C integer promotions: operands narrower than `int` (bool, char, int8/16, uint8/16)
+// become `int` before arithmetic, bitwise, shift, and comparison.
+extern int printf(string fmt, ...);
+
+bool isPos(int x) { return x > 0; }
+
+int main() {
+    uint8 a = (uint8)200;
+    int8 b = (int8)-1;
+    printf("%d\n", (int)(a > b));
+    uint16 c = (uint16)60000;
+    int16 d = (int16)-1;
+    printf("%d\n", (int)(c > d));
+    int8 e = (int8)-128;
+    uint8 two = (uint8)2;
+    printf("%d\n", e / two);
+    int s = (uint8)200 + (uint8)100;
+    printf("%d\n", s);
+    int t = isPos(5) + isPos(3);
+    printf("%d\n", t);
+    uint8 x = (uint8)1;
+    uint8 y = (uint8)2;
+    int64 diff = x - y;
+    printf("%lld\n", diff);
+    printf("%d\n", (int)((x - y) < 0));
+    uint8 hi = (uint8)0x80;
+    printf("%d\n", hi << 1);
+    char ch = 'z';
+    printf("%d\n", ch - 'a');
+    uint8 wrapped = a + a;
+    printf("%d\n", (int)wrapped);
+    int16 m = (int16)30000;
+    printf("%d\n", m + m);
+    return 0;
+}

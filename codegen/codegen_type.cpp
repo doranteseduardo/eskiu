@@ -210,7 +210,30 @@ std::string CodeGen::expandAlias(const std::string& raw) const {
     return t;
 }
 
+bool CodeGen::isIntPromotingOp(const std::string& op) {
+    static const std::set<std::string> ops = {"+","-","*","/","%","&","|","^","<<",">>",
+                                              "==","!=","<",">","<=",">="};
+    return ops.count(op) > 0;
+}
+
+// The type checker types `uint8 + uint8` as uint8 (so assigning it back needs no
+// cast), but the value codegen computes is the C-promoted `int`. Report `int` for such
+// an arithmetic/bitwise result so every consumer extends it as the signed int it is.
+static std::string promotedResultType(const ExprPtr& expr, const std::string& t) {
+    auto* b = dynamic_cast<BinaryExpr*>(expr.get());
+    if (!b || !b->opFunc.empty()) return t;
+    static const std::set<std::string> arith = {"+","-","*","/","%","&","|","^","<<",">>"};
+    if (!arith.count(b->op)) return t;
+    static const std::set<std::string> narrow = {"bool","char","int8","uint8","int16","uint16"};
+    return narrow.count(t) ? "int" : t;
+}
+
 std::string CodeGen::getExprEskiuType(const ExprPtr& expr) const {
+    std::string t = getExprEskiuTypeRaw(expr);
+    return promotedResultType(expr, expandAlias(t)) == "int" ? "int" : t;
+}
+
+std::string CodeGen::getExprEskiuTypeRaw(const ExprPtr& expr) const {
     // Single resolver: prefer the post-transform type checker's resolved type.
     if (resolvedExprTypes) {
         auto it = resolvedExprTypes->find(expr.get());

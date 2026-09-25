@@ -171,6 +171,8 @@ An unrecognized escape (`\q`) yields the character itself (`q`).
 
 Signedness is tracked by the compiler for correct arithmetic and comparison codegen. Signed and unsigned variants of the same width share the same LLVM integer type (e.g., `int8` and `uint8` are both `i8`).
 
+Arithmetic follows C's integer promotions: an operand narrower than `int` (`bool`, `char`, `int8`, `int16`, `uint8`, `uint16`) is converted to `int` before an arithmetic, bitwise, shift, or comparison operator is applied. So `(uint8)200 + (uint8)100` is `300`, `(uint8)200 > (int8)-1` is true, and `true + true` is `2`. Storing the result back into a narrow variable truncates it, as in C. Converting any integer, floating, or pointer value to `bool` yields `value != 0`.
+
 ### 3.2 Pointer Types
 
 A pointer type is written with a leading `*`:

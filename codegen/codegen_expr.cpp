@@ -109,6 +109,21 @@ void CodeGen::visit(BinaryExpr* node) {
     };
     bool lUns = isUnsignedEsk(node->left);
     bool rUns = isUnsignedEsk(node->right);
+    // C integer promotions: an integer operand narrower than `int` (bool, char, int8/16,
+    // uint8/16) is converted to `int` before arithmetic, bitwise, shift, or comparison,
+    // extending by its own signedness. After promotion it is a signed int, so e.g.
+    // (uint8)200 > (int8)-1 compares 200 with -1, and (uint8)200 + (uint8)100 is 300.
+    if (isIntPromotingOp(node->op)) {
+        llvm::Type* i32 = llvm::Type::getInt32Ty(*context);
+        auto promote = [&](llvm::Value*& v, bool& uns) {
+            if (v->getType()->isIntegerTy() && v->getType()->getIntegerBitWidth() < 32) {
+                v = uns ? builder->CreateZExt(v, i32) : builder->CreateSExt(v, i32);
+                uns = false;
+            }
+        };
+        promote(left, lUns);
+        promote(right, rUns);
+    }
     // Signedness of a signed-vs-unsigned op, by C's usual arithmetic conversions: after
     // both operands widen to a common width, the op is unsigned only when the unsigned
     // operand's rank (width) is at least the signed one's. A wider signed type represents

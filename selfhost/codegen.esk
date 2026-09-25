@@ -2843,6 +2843,15 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
         }
         CgVal l = cg_expr(g, e.a);
         CgVal r = cg_expr(g, e.b);
+        // C integer promotions: an integer operand narrower than `int` (bool, char, int8/16,
+        // uint8/16) becomes a signed `int` (extended by its own signedness) before any
+        // arithmetic, bitwise, shift, or comparison. Mirrors CodeGen::isIntPromotingOp.
+        if (cg_arith_op(e.sval)[0] != 0 || cg_cmp_pred(e.sval)[0] != 0) {
+            int plw = cg_int_w(l.ty);
+            if (plw > 0 && plw < 32) { l.op = cg_coerce(g, l, "i32"); l.ty = "i32"; l.ety = "int"; }
+            int prw = cg_int_w(r.ty);
+            if (prw > 0 && prw < 32) { r.op = cg_coerce(g, r, "i32"); r.ty = "i32"; r.ety = "int"; }
+        }
         // Floating-point: if either operand is float/double, promote both to the wider
         // and use fcmp/fadd/… (mixed int/float promotes the int via sitofp in cg_coerce).
         if (cg_is_float(l.ty) == 1 || cg_is_float(r.ty) == 1) {
