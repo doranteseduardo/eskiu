@@ -86,9 +86,16 @@ static std::unique_ptr<llvm::TargetMachine> makeTargetMachine(
     // hard-float libraries like libctru.
     if (tripleStr.size() >= 2 && tripleStr.compare(tripleStr.size() - 2, 2, "hf") == 0)
         opt.FloatABIType = llvm::FloatABI::Hard;
+    // The backend's optimization level follows -O, as in clang: at -O0 the machine
+    // passes that scale with loop nesting depth (loop-invariant code motion, block
+    // frequencies) do not run.
+    llvm::CodeGenOptLevel level = cg.optLevel == 0 ? llvm::CodeGenOptLevel::None
+                                : cg.optLevel == 1 ? llvm::CodeGenOptLevel::Less
+                                : cg.optLevel == 2 ? llvm::CodeGenOptLevel::Default
+                                                   : llvm::CodeGenOptLevel::Aggressive;
     return std::unique_ptr<llvm::TargetMachine>(
         target->createTargetMachine(triple, cpu, cg.targetFeatures, opt,
-                                    parseRelocModel(cg.relocModel)));
+                                    parseRelocModel(cg.relocModel), std::nullopt, level));
 }
 
 CodeGen::CodeGen()
