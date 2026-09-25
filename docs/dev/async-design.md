@@ -184,9 +184,9 @@ This is the heart of the design. The contract locks the *requirements* (atomic
 ## 4. Lowering an `async` function to a state machine (AST transform)
 
 ```eskiu
-async int fetch_len(EventLoop* lp, string host) {
-    int fd = await net_connect_async(lp, host);   // await #1
-    int n  = await net_read_async(lp, fd);         // await #2
+async int fetch_len(EventLoop* lp, int listen_fd, *uint8 buf) {
+    int fd = await net_accept_async(lp, listen_fd);        // await #1
+    int n  = await net_read_async(lp, fd, buf, (int64)64); // await #2
     return n;
 }
 ```
@@ -204,7 +204,8 @@ struct __Frame_fetch_len {
     FutureHdr*  awaiting;  // inner future currently parked on (null otherwise)
     Executor*   home;      // where this coroutine's resumes must run (thread-affinity)
     EventLoop*  lp;        // param
-    string      host;      // param
+    int         listen_fd; // param
+    *uint8      buf;       // param
     int         fd;        // local live across await #2
 }
 ```
@@ -216,7 +217,7 @@ object is the `Future` header, synchronized per §3.
 
 ### 4.2 Constructor + resume
 
-- **Constructor** `Future<int>* fetch_len(EventLoop* lp, string host)`: allocs the
+- **Constructor** `Future<int>* fetch_len(EventLoop* lp, int listen_fd, *uint8 buf)`: allocs the
   frame, stores params, `st=0`, `awaiting=null`, `home = current_executor()`, sets
   `frame.ret.on_drop = <cascade-drop awaiting, free frame>`, calls
   `__resume_fetch_len(frame)` once, returns `&frame.ret`.
@@ -225,13 +226,13 @@ object is the `Future` header, synchronized per §3.
 ```
 switch (f.st) {
 case 0:
-  Future<int>* g = net_connect_async(f.lp, f.host);
+  Future<int>* g = net_accept_async(f.lp, f.listen_fd);
   f.waker_of_g = <closure capturing f, f.home: schedule "f.st=1; __resume(f)" on f.home>;
   // park via §3.1 against g; if g already ready, fall through with g.value
   ... if parked: f.awaiting=(FutureHdr*)g; f.st=1; return;
   f.fd = g.value; f.awaiting=null; free_future(g);
 case 1:
-  Future<int>* h = net_read_async(f.lp, f.fd);
+  Future<int>* h = net_read_async(f.lp, f.fd, f.buf, 64);
   ... (same park/fast-path against h, resume label 2) ...
   int n = h.value; f.awaiting=null; free_future(h);
   // return n: complete our own future (§3.2), then the awaiter's waker frees f
@@ -330,14 +331,16 @@ contract change), a deliberate later feature.
 - An `async T f(...)` has *declared* return type `T`; its *call expression* has type
   `Future<T>*`. The type checker performs this rewrite.
 - `await E`: `E : Future<T>*`, `await E : T`. Legal **only inside an `async` function**
-  (top level uses `future_block`). New keywords: `async`, `await`.
+  (the top level drives a future by hand, see below). New keywords: `async`, `await`.
 - Calling an `async` function without `await` yields `Future<T>*` (start now, await later,
   or hand to a combinator). If neither awaited nor handed off, the transform drops it
   on scope exit (§7).
 - `future_drop(f)` is the explicit cancel entry; the transform also inserts it
   implicitly (§7).
-- `future_block(lp, f)` drives the loop at the top level: sets `f.waker` to stop the
-  loop, runs it, returns `f.value`, frees `f`.
+- At the top level a future is driven by hand: `future_poll(f, waker)` installs a
+  waker that calls `el_stop`, `el_run(lp)` runs the loop until then (skip it when
+  `future_poll` returns 1, the future is already ready), and the caller reads
+  `f.value` and releases `f` with `free_future`. There is no `future_block` helper.
 
 ---
 
@@ -356,8 +359,9 @@ The async stack decomposes into independently testable layers:
   completes; the resume is scheduled on a different executor).
 - **Executor** (`<executor>`): ready-queue + self-pipe/`eventfd` wakeup over
   `<eventloop>`; `current_executor()`, `spawn`.
-- **Leaf futures** (`<net_async>`): `net_connect_async`/`net_read_async` with a
-  real `on_drop`.
+- **Leaf futures** (`<net_async>`): `net_accept_async`/`net_read_async`/
+  `net_write_async` (plus the readiness-only `net_readable_async`/`net_writable_async`)
+  with a real `on_drop`.
 - **Lexer/parser**: the `async` modifier, the `await` expression, and their tokens.
 - **Type checker**: async return → `Future<T>*`; `await` typing; "await only in
   async"; tracking of unconsumed `Future` locals for the drop pass.
