@@ -1,0 +1,23 @@
+// A repeat count above 1000 is a compile error (RE2's limit). Reading the digits
+// used to wrap the int, so `a{4294967298}` compiled as `a{2}`.
+import <regex>;
+extern int printf(string fmt, ...);
+
+void show(string p, string s) {
+    Regex re = regex_compile(p);
+    if (re.ok == 0) { printf("%s: error %s\n", p, re.err); Regex_free(&re); return; }
+    printf("%s on \"%s\": %d\n", p, s, regex_match(p, s));
+    Regex_free(&re);
+}
+
+int main() {
+    show("^a{4294967298}$", "aa");
+    show("a{1,4294967296}", "a");
+    show("a{99999999999999999999}", "a");
+    show("a{1001}", "a");
+    show("a{2,1001}", "aa");
+    show("^a{1000}$", "a");
+    show("^a{2,1000}$", "aaa");
+    show("^a{0,}$", "aaa");
+    return 0;
+}

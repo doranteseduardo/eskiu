@@ -16,9 +16,9 @@
 //
 // Supported syntax: literals, `.` (any byte but newline), character classes
 // `[a-z]` / `[^...]`, the shorthands `\d \w \s` (and `\D \W \S` outside a class),
-// the escapes `\n \t \r \f \v \0`, quantifiers `* + ? {m} {m,} {m,n}` (append `?`
-// for the lazy form), alternation `|`, capturing groups `( )`, and the anchors
-// `^` (start of text) and `$` (end of text).
+// the escapes `\n \t \r \f \v \0`, quantifiers `* + ? {m} {m,} {m,n}` (counts up to
+// 1000, as in RE2; append `?` for the lazy form), alternation `|`, capturing
+// groups `( )`, and the anchors `^` (start of text) and `$` (end of text).
 //
 // The matcher is a Thompson NFA run as a Pike VM: it explores all paths in
 // lockstep, so matching is linear in the input length with no catastrophic
@@ -34,6 +34,7 @@ import <string>;
 #define RE_MAX_CLASS 256
 #define RE_MAX_NODES 4096
 #define RE_MAX_DEPTH 512
+#define RE_MAX_REPEAT 1000
 
 // ---- instruction opcodes --------------------------------------------------
 #define OP_CHAR  1
@@ -347,14 +348,17 @@ Node* re_parse_atom(ReComp* c) {
     return n;
 }
 
+// Read a repeat count: -1 when there are no digits, -2 when it exceeds
+// RE_MAX_REPEAT (the value is clamped while reading, so it cannot wrap).
 int re_read_int(ReComp* c) {
     const int start = c.pos;
     int v = 0;
     while (re_peek(c) >= '0' && re_peek(c) <= '9') {
-        v = v * 10 + (re_peek(c) - '0');
+        if (v <= RE_MAX_REPEAT) { v = v * 10 + (re_peek(c) - '0'); }
         c.pos++;
     }
-    return c.pos == start ? -1 : v;
+    if (c.pos == start) { return -1; }
+    return v > RE_MAX_REPEAT ? -2 : v;
 }
 
 Node* re_parse_repeat(ReComp* c) {
@@ -369,6 +373,10 @@ Node* re_parse_repeat(ReComp* c) {
     else if (pk == '{') {
         c.pos++;
         const int m1 = re_read_int(c);
+        if (m1 == -2) {
+            if (c.err == null) { c.err = "invalid repeat count"; }
+            return a;
+        }
         if (m1 < 0) {
             if (c.err == null) { c.err = "invalid {n,m}"; }
             return a;
@@ -379,6 +387,10 @@ Node* re_parse_repeat(ReComp* c) {
             if (re_peek(c) == '}') { rmax = -1; }
             else {
                 const int m2 = re_read_int(c);
+                if (m2 == -2) {
+                    if (c.err == null) { c.err = "invalid repeat count"; }
+                    return a;
+                }
                 if (m2 < 0) {
                     if (c.err == null) { c.err = "invalid {n,m}"; }
                     return a;

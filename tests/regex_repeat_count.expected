@@ -1,0 +1,8 @@
+^a{4294967298}$: error invalid repeat count
+a{1,4294967296}: error invalid repeat count
+a{99999999999999999999}: error invalid repeat count
+a{1001}: error invalid repeat count
+a{2,1001}: error invalid repeat count
+^a{1000}$ on "a": 0
+^a{2,1000}$ on "aaa": 1
+^a{0,}$ on "aaa": 1
