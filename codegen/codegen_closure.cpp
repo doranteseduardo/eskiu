@@ -79,7 +79,7 @@ llvm::Function* CodeGen::emitLambdaFunction(LambdaExpr* node,
     }
 
     if (node->body) node->body->accept(this);
-    if (!builder->GetInsertBlock()->getTerminator()) {
+    if (!hasTerminator(builder->GetInsertBlock())) {
         if (retTy->isVoidTy()) builder->CreateRetVoid();
         else builder->CreateRet(llvm::Constant::getNullValue(retTy));
     }
@@ -290,7 +290,7 @@ void CodeGen::visit(TryStmt* node) {
     if (node->body) node->body->accept(this);
     cleanupScopes.pop_back();
     unwindTarget = savedUnwind;
-    if (!builder->GetInsertBlock()->getTerminator())
+    if (!hasTerminator(builder->GetInsertBlock()))
         builder->CreateBr(finallyBB);
 
     // ── landingpad ────────────────────────────────────────────────────────
@@ -346,7 +346,7 @@ void CodeGen::visit(TryStmt* node) {
         if (c.body) c.body->accept(this);
         popScope();
 
-        if (!builder->GetInsertBlock()->getTerminator()) {
+        if (!hasTerminator(builder->GetInsertBlock())) {
             builder->CreateCall(endCatch, {});
             builder->CreateBr(finallyBB);
         }
@@ -359,9 +359,9 @@ void CodeGen::visit(TryStmt* node) {
     // exception with __cxa_rethrow. (end_catch + resume here double-freed the
     // exception and aborted; and the finally was skipped entirely.) The rethrow is an
     // invoke when an enclosing try can catch it, so its landingpad fires.
-    if (!builder->GetInsertBlock()->getTerminator()) {
+    if (!hasTerminator(builder->GetInsertBlock())) {
         if (node->finally) node->finally->accept(this);
-        if (!builder->GetInsertBlock()->getTerminator()) {
+        if (!hasTerminator(builder->GetInsertBlock())) {
             llvm::Function* rethrow = getOrDeclareFunc("__cxa_rethrow",
                 llvm::Type::getVoidTy(*context), {});
             if (savedUnwind) {
@@ -379,7 +379,7 @@ void CodeGen::visit(TryStmt* node) {
     // ── finally (normal, non-exceptional path) ─────────────────────────────
     builder->SetInsertPoint(finallyBB);
     if (node->finally) node->finally->accept(this);
-    if (!builder->GetInsertBlock()->getTerminator())
+    if (!hasTerminator(builder->GetInsertBlock()))
         builder->CreateBr(doneBB);
 
     builder->SetInsertPoint(doneBB);

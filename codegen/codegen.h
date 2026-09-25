@@ -12,6 +12,13 @@
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Value.h"
 
+// True when `bb` already ends in a terminator. LLVM 23 made
+// BasicBlock::getTerminator() assert on an unterminated block instead of
+// returning null, so every "is this block closed?" test goes through here.
+inline bool hasTerminator(const llvm::BasicBlock* bb) {
+    return !bb->empty() && bb->back().isTerminator();
+}
+
 class CodeGen : public ASTVisitor {
 public:
     CodeGen();

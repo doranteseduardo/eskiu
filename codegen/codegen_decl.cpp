@@ -206,7 +206,7 @@ void CodeGen::visit(FunctionDecl* node) {
     }
 
     // Default return if no explicit return emitted
-    if (!builder->GetInsertBlock()->getTerminator()) {
+    if (!hasTerminator(builder->GetInsertBlock())) {
         if (sret || returnType->isVoidTy()) {
             builder->CreateRetVoid();
         } else if (returnType->isIntegerTy()) {

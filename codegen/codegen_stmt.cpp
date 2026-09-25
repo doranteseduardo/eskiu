@@ -6,7 +6,7 @@
 #include "../template_utils.h"
 
 bool CodeGen::blockTerminated() {
-    return builder->GetInsertBlock() && builder->GetInsertBlock()->getTerminator();
+    return builder->GetInsertBlock() && hasTerminator(builder->GetInsertBlock());
 }
 
 void CodeGen::runCleanupsToDepth(size_t depth, bool errorPath) {
@@ -80,7 +80,7 @@ void CodeGen::visit(IfStmt* node) {
     // Then block
     builder->SetInsertPoint(thenBlock);
     node->thenBranch->accept(this);
-    if (!builder->GetInsertBlock()->getTerminator()) {
+    if (!hasTerminator(builder->GetInsertBlock())) {
         builder->CreateBr(mergeBlock);
     }
 
@@ -88,7 +88,7 @@ void CodeGen::visit(IfStmt* node) {
     if (node->elseBranch) {
         builder->SetInsertPoint(elseBlock);
         node->elseBranch->accept(this);
-        if (!builder->GetInsertBlock()->getTerminator()) {
+        if (!hasTerminator(builder->GetInsertBlock())) {
             builder->CreateBr(mergeBlock);
         }
     }
@@ -113,7 +113,7 @@ void CodeGen::visit(WhileStmt* node) {
 
     builder->SetInsertPoint(bodyBlock);
     { LoopContext lc(this, exitBlock, loopBlock, node->label); node->body->accept(this); }
-    if (!builder->GetInsertBlock()->getTerminator())
+    if (!hasTerminator(builder->GetInsertBlock()))
         builder->CreateBr(loopBlock);
 
     builder->SetInsertPoint(exitBlock);
@@ -129,7 +129,7 @@ void CodeGen::visit(DoWhileStmt* node) {
 
     // `continue` re-tests the condition (jumps to condBlock)
     { LoopContext lc(this, exitBlock, condBlock, node->label); node->body->accept(this); }
-    if (!builder->GetInsertBlock()->getTerminator())
+    if (!hasTerminator(builder->GetInsertBlock()))
         builder->CreateBr(condBlock);
 
     builder->SetInsertPoint(condBlock);
@@ -169,7 +169,7 @@ void CodeGen::visit(ForStmt* node) {
     builder->SetInsertPoint(bodyBlock);
     // continue jumps to the step block
     { LoopContext lc(this, exitBlock, stepBlock, node->label); node->body->accept(this); }
-    if (!builder->GetInsertBlock()->getTerminator())
+    if (!hasTerminator(builder->GetInsertBlock()))
         builder->CreateBr(stepBlock);
 
     // Step
@@ -370,7 +370,7 @@ void CodeGen::visit(MatchStmt* node) {
         for (size_t i = 0; i < node->arms.size(); ++i) {
             builder->SetInsertPoint(armBlocks[i]);
             if (node->arms[i].body) node->arms[i].body->accept(this);
-            if (!builder->GetInsertBlock()->getTerminator())
+            if (!hasTerminator(builder->GetInsertBlock()))
                 builder->CreateBr(endBlock);
         }
         builder->SetInsertPoint(endBlock);
@@ -444,7 +444,7 @@ void CodeGen::visit(MatchStmt* node) {
         }
         if (arm.body) arm.body->accept(this);
         popScope();
-        if (!builder->GetInsertBlock()->getTerminator())
+        if (!hasTerminator(builder->GetInsertBlock()))
             builder->CreateBr(endBlock);
     }
     builder->SetInsertPoint(endBlock);
@@ -508,9 +508,9 @@ void CodeGen::visit(SwitchStmt* node) {
         builder->SetInsertPoint(caseBlocks[i]);
         for (auto& stmt : node->cases[i].stmts) {
             stmt->accept(this);
-            if (builder->GetInsertBlock()->getTerminator()) break;
+            if (hasTerminator(builder->GetInsertBlock())) break;
         }
-        if (!builder->GetInsertBlock()->getTerminator()) {
+        if (!hasTerminator(builder->GetInsertBlock())) {
             llvm::BasicBlock* next = (i + 1 < caseBlocks.size()) ? caseBlocks[i+1] : endBlock;
             builder->CreateBr(next);
         }

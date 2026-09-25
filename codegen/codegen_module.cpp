@@ -68,7 +68,11 @@ static void initCodegenTargets(bool withAsm) {
 static std::unique_ptr<llvm::TargetMachine> makeTargetMachine(
         const CodeGen& cg, const llvm::Triple& triple, const std::string& tripleStr) {
     std::string err;
+#if LLVM_VERSION_MAJOR >= 22
+    const llvm::Target* target = llvm::TargetRegistry::lookupTarget(triple, err);
+#else
     const llvm::Target* target = llvm::TargetRegistry::lookupTarget(tripleStr, err);
+#endif
     if (!target) return nullptr;
     bool isCross = !cg.targetTriple.empty() &&
         cg.targetTriple != llvm::sys::getDefaultTargetTriple();
