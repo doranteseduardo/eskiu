@@ -910,27 +910,41 @@ void TypeChecker::visit(StructInitExpr* node) {
 
     const auto& fields = it->second.fields;
     bool named = !node->fieldInits.empty() && !node->fieldInits[0].first.empty();
+    std::set<std::string> seenFields;
 
     for (size_t i = 0; i < node->fieldInits.size(); ++i) {
         const auto& [fname, expr] = node->fieldInits[i];
         expr->accept(this);
+        ASTNode* at = (expr->line > 0) ? static_cast<ASTNode*>(expr.get()) : node;
 
-        std::string fieldType;
+        std::string fieldType, shownName;
         if (named) {
             for (const auto& f : fields) {
                 if (f.name == fname) { fieldType = f.type; break; }
             }
+            shownName = fname;
             if (fieldType.empty())
-                errorAt(node,"struct '" + node->structName + "' has no field '" + fname + "'");
+                errorAt(at, "struct '" + node->structName + "' has no field '" + fname + "'");
+            else if (!seenFields.insert(fname).second)
+                errorAt(at, "field '" + fname + "' is initialized more than once in '" +
+                            node->structName + "' literal");
         } else if (i < fields.size()) {
             fieldType = fields[i].type;
+            shownName = fields[i].name;
+        } else if (i == fields.size()) {
+            errorAt(at, "too many initializers for struct '" + node->structName + "' (it has " +
+                        std::to_string(fields.size()) + " field(s), got " +
+                        std::to_string(node->fieldInits.size()) + ")");
         }
 
         if (!fieldType.empty()) {
             std::string valType = getExpressionType(expr.get());
-            if (valType != "unknown" && !isValidAssignment(fieldType, valType))
-                warning(0, 0, "field '" + (named ? fname : fields[i].name) +
-                              "': implicit conversion from " + valType + " to " + fieldType);
+            if (valType != "unknown") {
+                std::string e = tyq::dropsConst(fieldType, valType)
+                    ? "conversion discards a const qualifier ('" + valType + "' to '" + fieldType + "')"
+                    : assignabilityError(fieldType, valType, expr.get());
+                if (!e.empty()) errorAt(at, "field '" + shownName + "': " + e);
+            }
         }
     }
 

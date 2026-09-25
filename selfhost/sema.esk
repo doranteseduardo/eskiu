@@ -37,6 +37,7 @@ struct Sema {
     List<EVar> evars;       // every enum's variants
     List<*DeclNode> fndecls; // all top-level fn/extern/intrinsic decls (params, type-params)
     List<*DeclNode> ifaces;  // interface decls (their required methods)
+    List<*DeclNode> sdecls;  // struct decls (field names + types, for struct literals)
     int depth;
     int had_error;
     int in_async;           // currently inside an `async` function body?
@@ -212,6 +213,7 @@ void sema_init(Sema* s, string filename) {
     List_init<EVar>(&s.evars, 32);
     List_init<*DeclNode>(&s.fndecls, 64);
     List_init<*DeclNode>(&s.ifaces, 16);
+    List_init<*DeclNode>(&s.sdecls, 16);
     s.depth = 0;                           // global scope
     s.had_error = 0;
     s.in_async = 0;
@@ -499,6 +501,124 @@ void sema_lambda_jumps(Sema* s, *StmtNode st, int loops, int switches, List<stri
     sema_lambda_jumps(s, st.s1, loops, sw, lbls);
     sema_lambda_jumps(s, st.s2, loops, sw, lbls);
     int i = 0; while (i < List_len<*StmtNode>(&st.items)) { sema_lambda_jumps(s, List_get<*StmtNode>(&st.items, i), loops, sw, lbls); i = i + 1; }
+}
+
+// Conservative assignability of expression `e` to declared type `t` (mirrors the error
+// cases of the C++ assignabilityError). Returns "" when OK or when either side is not
+// understood well enough to judge (so a valid program is never falsely rejected).
+string sema_assign_err(Sema* s, string t0, *ExprNode e) {
+    if (e == null || t0 == null || t0[0] == 0) { return ""; }
+    string t = sema_strip_const(t0);
+    if (sema_is_int_ty(t) == 1 && e.kind == EK_LITERAL && e.lit_kind == LIT_INT
+        && sema_int_lit_fits(t, e.sval) == 0) {
+        return sema_cat(sema_cat(sema_cat(sema_cat("integer literal ", e.sval), " is out of range for '"), t), "'");
+    }
+    string src = sema_strip_const(sema_infer_type(s, e));
+    if (src[0] == 0 || sema_streq(src, "unknown") == 1 || sema_streq(src, t) == 1) { return ""; }
+    string conv = sema_cat(sema_cat(sema_cat(sema_cat("cannot convert '", src), "' to '"), t), "'");
+    if (sema_streq(src, "void") == 1) { return "cannot convert a 'void' value"; }
+    if (sema_is_int_ty(t) == 1 && sema_is_float_ty(src) == 1) {
+        return "cannot assign a floating-point value to an integer type without an explicit cast (it drops the fraction)";
+    }
+    int tnum = sema_is_numeric_ty(t);
+    int snum = sema_is_numeric_ty(src);
+    int tptr = 0; if (t[0] != 63 && sema_is_fn_type(t) == 0 && sema_is_ptrish(t) == 1 && sema_is_arr_ty(t) == 0) { tptr = 1; }
+    int sptr = 0; if (sema_is_fn_type(src) == 0 && sema_is_ptrish(src) == 1 && sema_streq(src, "null") == 0 && sema_is_arr_ty(src) == 0) { sptr = 1; }
+    if (tnum == 1 && sptr == 1) { return conv; }
+    if (tptr == 1 && snum == 1) { return conv; }
+    if (sema_is_fn_type(t) == 1 && sema_is_fn_type(src) == 1) { return "incompatible function type"; }
+    return "";
+}
+
+// Report `field 'f': <err>` / `<ctx>: <err>` when non-empty.
+void sema_report_assign(Sema* s, string ctx, string err) {
+    if (err[0] == 0) { return; }
+    s.had_error = 1;
+    printf("error: %s:0:0: %s: %s\n", s.filename, ctx, err);
+}
+
+// The declaration of struct `name` (or null).
+*DeclNode sema_find_struct(Sema* s, string name) {
+    int i = 0; int n = List_len<*DeclNode>(&s.sdecls);
+    while (i < n) {
+        *DeclNode d = List_get<*DeclNode>(&s.sdecls, i);
+        if (sema_streq(d.name, name) == 1) { return d; }
+        i = i + 1;
+    }
+    return null;
+}
+
+// Field type `ft` of a generic struct `d` with the literal's type args substituted when the
+// field is spelled exactly as a type parameter ("T" → "int"); otherwise unchanged.
+string sema_subst_tparam(*DeclNode d, List<string>* targs, string ft) {
+    int i = 0; int n = List_len<TypeParam>(&d.type_params);
+    while (i < n) {
+        if (sema_streq(List_get<TypeParam>(&d.type_params, i).name, ft) == 1) {
+            if (i < List_len<string>(targs)) { return List_get<string>(targs, i); }
+            return "";
+        }
+        i = i + 1;
+    }
+    return ft;
+}
+
+// Is `ft` mentioning a type parameter of `d` (so its concrete type is unknown here)?
+int sema_mentions_tparam(*DeclNode d, string ft) {
+    int i = 0; int n = List_len<TypeParam>(&d.type_params);
+    while (i < n) {
+        string tp = List_get<TypeParam>(&d.type_params, i).name;
+        if (sema_streq(sema_struct_of_type(ft), tp) == 1) { return 1; }
+        i = i + 1;
+    }
+    return 0;
+}
+
+// Struct literal `S{...}`: too many positional values, a repeated or unknown named field,
+// and field value types (mirrors the C++ visit(StructInitExpr)).
+void sema_check_struct_init(Sema* s, *ExprNode e) {
+    *DeclNode d = sema_find_struct(s, sema_base_name(e.sval));
+    if (d == null) { return; }
+    List<string> targs; List_init<string>(&targs, 2);
+    sema_parse_targs(e.sval, &targs);
+    int nf = List_len<Param>(&d.params);
+    int n = List_len<*ExprNode>(&e.kids);
+    List<string> seen; List_init<string>(&seen, 4);
+    int i = 0;
+    while (i < n) {
+        *ExprNode v = List_get<*ExprNode>(&e.kids, i);
+        string nm = "";
+        if (i < List_len<string>(&e.names)) { nm = List_get<string>(&e.names, i); }
+        string ft = "";
+        string shown = nm;
+        if (nm[0] != 0) {
+            int fi = 0;
+            while (fi < nf) {
+                Param p = List_get<Param>(&d.params, fi);
+                if (sema_streq(p.name, nm) == 1) { ft = p.ty; }
+                fi = fi + 1;
+            }
+            if (ft[0] == 0) {
+                s.had_error = 1;
+                printf("error: %s:0:0: struct '%s' has no field '%s'\n", s.filename, e.sval, nm);
+            } else if (sema_in_list(&seen, nm) == 1) {
+                s.had_error = 1;
+                printf("error: %s:0:0: field '%s' is initialized more than once in '%s' literal\n", s.filename, nm, e.sval);
+            } else { List_push<string>(&seen, nm); }
+        } else if (i < nf) {
+            Param p = List_get<Param>(&d.params, i);
+            ft = p.ty; shown = p.name;
+        } else if (i == nf) {
+            s.had_error = 1;
+            printf("error: %s:0:0: too many initializers for struct '%s' (it has %d field(s), got %d)\n", s.filename, e.sval, nf, n);
+        }
+        if (ft[0] != 0) {
+            string cft = sema_subst_tparam(d, &targs, ft);
+            if (cft[0] != 0 && sema_mentions_tparam(d, cft) == 0) {
+                sema_report_assign(s, sema_cat(sema_cat("field '", shown), "'"), sema_assign_err(s, cft, v));
+            }
+        }
+        i = i + 1;
+    }
 }
 
 // Recursively check an array literal against a (possibly multi-dimensional) array type:
@@ -969,6 +1089,7 @@ void sema_expr(Sema* s, *ExprNode e) {
             s.had_error = 1;
             printf("error: %s:0:0: undefined struct '%s'\n", s.filename, base);
         }
+        sema_check_struct_init(s, e);
         int i = 0;
         int n = List_len<*ExprNode>(&e.kids);
         while (i < n) { sema_expr(s, List_get<*ExprNode>(&e.kids, i)); i = i + 1; }
@@ -1374,6 +1495,7 @@ void sema_register_globals(Sema* s, *Program prog) {
         }
         if (d.kind == DK_STRUCT) {
             List_push<string>(&s.structs, d.name);
+            List_push<*DeclNode>(&s.sdecls, d);
             int fi = 0;                                       // fields are valid members
             int fn2 = List_len<Param>(&d.params);
             while (fi < fn2) {
