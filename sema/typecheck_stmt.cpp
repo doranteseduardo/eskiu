@@ -664,7 +664,8 @@ bool TypeChecker::isConstIntExpr(Expr* e) {
     if (auto* id = dynamic_cast<IdentExpr*>(e)) {
         std::string t = lookupSymbol(id->name);
         if (t.empty()) return enumConstants.count(id->name) > 0;
-        return isConstSymbol(id->name) && isIntType(normalizeType(t));   // `const int K = 7` folds
+        const Symbol* sym = findSymbol(id->name);   // `const int K = 7` folds (a const parameter does not)
+        return sym && sym->isConst && sym->constInit && isIntType(normalizeType(t));
     }
     if (auto* u = dynamic_cast<UnaryExpr*>(e))
         return (u->op == "-" || u->op == "~" || u->op == "!") && isConstIntExpr(u->operand.get());

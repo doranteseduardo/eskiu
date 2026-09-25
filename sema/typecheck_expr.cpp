@@ -967,6 +967,12 @@ void TypeChecker::visit(IndexExpr* node) {
             }
         }
         const std::string dimS = std::to_string(dimV);
+        // A slice lets its elements be written, so a read-only array has no slice.
+        if (node->highIndex && bt.kind == ty::Type::Kind::Array) {
+            std::string cname;
+            if (assignsToConst(node->base.get(), cname))
+                errorAt(node, "cannot slice read-only array '" + cname + "': a slice allows writing its elements");
+        }
         // Constant slice bounds `a[lo..hi]` into a fixed array: 0 <= lo <= hi <= N.
         if (node->highIndex && bt.kind == ty::Type::Kind::Array) {
             long long lo = 0, hi = 0;
@@ -1265,6 +1271,7 @@ void TypeChecker::visit(LambdaExpr* node) {
     for (const auto& p : node->params) {
         if (scopes.back().count(p.second)) errorAt(node, "duplicate parameter '" + p.second + "' in lambda");
         defineSymbol(p.second, normalizeType(p.first), node->line, node->col, /*isParam=*/true);
+        if (tyq::bindingConst(p.first)) scopes.back()[p.second].isConst = true;
     }
     // Mark param names so IdentExpr doesn't treat them as captures
     std::set<std::string> paramNames;

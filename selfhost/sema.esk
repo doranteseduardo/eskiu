@@ -2767,7 +2767,9 @@ int sema_is_const_int(Sema* s, *ExprNode e) {
     if (e.kind == EK_IDENT) {
         if (sema_local_bound(s, e.sval) == 0 && sema_is_enum_member(s, e.sval) == 1) { return 1; }
         // `const int K = 7` folds too
-        if (sema_sym_const(s, e.sval) == 1 && sema_is_int_ty(sema_lookup_type(s, e.sval)) == 1) { return 1; }
+        int ci = sema_sym_index(s, e.sval);   // (a const parameter has no initializer to fold)
+        if (sema_sym_const(s, e.sval) == 1 && ci >= 0 && List_get<Sym>(&s.syms, ci).init != null
+            && sema_is_int_ty(sema_lookup_type(s, e.sval)) == 1) { return 1; }
         return 0;
     }
     if (e.kind == EK_UNARY) {
@@ -3344,6 +3346,10 @@ void sema_expr_k(Sema* s, *ExprNode e) {
             int64 lo = (int64)0; int64 hi = (int64)0;
             int lo_ok = sema_fold_int(s, e.b, &lo);
             int hi_ok = sema_fold_int(s, hiE, &hi);
+            if (sema_is_arr_ty(abt) == 1 && sema_is_readonly_lvalue(s, e.a) == 1) {
+                s.had_error = 1;             // a slice lets its elements be written
+                printf("error: %s:%d:%d: cannot slice read-only array: a slice allows writing its elements\n", s.filename, s.line, s.col);
+            }
             if (sema_is_arr_ty(abt) == 1) {
                 int64 dv = sema_dim_value(s, sema_arr_count(abt));
                 if ((lo_ok == 1 && lo < (int64)0) || (hi_ok == 1 && hi < (int64)0)) {
@@ -5087,7 +5093,12 @@ void sema_check_fn(Sema* s, *DeclNode f, string self_type) {
     int m = List_len<Param>(&f.params);
     while (j < m) {
         Param pm = List_get<Param>(&f.params, j);
-        sema_define(s, pm.name, sema_isub(s, pm.ty), 0);
+        // `const int x` (or `T*const p`): the parameter itself may not be reassigned.
+        int pconst = 0;
+        int pn2 = 0; while (pm.ty[pn2] != 0) { pn2 = pn2 + 1; }
+        if (pn2 >= 6 && sema_streq(sema_sub_str(pm.ty, 0, 6), "const ") == 1 && sema_has_star(pm.ty) == 0) { pconst = 1; }
+        if (pn2 >= 6 && sema_streq(sema_sub_str(pm.ty, pn2 - 6, pn2), "*const") == 1) { pconst = 1; }
+        sema_define(s, pm.name, sema_isub(s, pm.ty), pconst);
         j = j + 1;
     }
     int prev_pd = s.param_depth;

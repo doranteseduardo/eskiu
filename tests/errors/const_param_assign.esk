@@ -1,0 +1,4 @@
+// EXPECT-ERROR: cannot assign to read-only location
+// A `const` parameter is read-only in the body, like a const local.
+int f(const int x) { x = 5; return x; }
+int main() { return f(1); }

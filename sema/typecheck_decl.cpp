@@ -321,6 +321,8 @@ void TypeChecker::visit(FunctionDecl* node) {
         if (pi < node->paramPositions.size()) { pl = node->paramPositions[pi].first; pc = node->paramPositions[pi].second; }
         defineSymbol(param.second, pt, pl, pc, /*isParam=*/true);
         if (!node->body) scopes.back()[param.second].used = true;   // a prototype's names are documentation
+        // `const int x` (or `T*const p`): the parameter itself may not be reassigned.
+        if (tyq::bindingConst(param.first)) scopes.back()[param.second].isConst = true;
     }
 
     // Escape-soundness: a non-`escaping` closure parameter may only be *called*.
@@ -707,7 +709,10 @@ void TypeChecker::visit(StructDecl* node) {
             currentFunctionReturnType = func->returnType;
             pushScope();
             defineSymbol("self", "*" + node->name);
-            for (const auto& p : func->params) defineSymbol(p.second, normalizeType(p.first));
+            for (const auto& p : func->params) {
+                defineSymbol(p.second, normalizeType(p.first));
+                if (tyq::bindingConst(p.first)) scopes.back()[p.second].isConst = true;
+            }
             if (func->body) func->body->accept(this);
             popScope();
             currentFunctionReturnType = savedReturn;
