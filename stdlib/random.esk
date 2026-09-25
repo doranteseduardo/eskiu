@@ -32,7 +32,7 @@ uint64 rng_rotl(uint64 x, int k) {
 // small or zero seed still gives a good starting state (all-zero state is fatal
 // for xoshiro, and SplitMix never returns all-zero from a stepping counter).
 uint64 rng_splitmix(uint64* st) {
-    *st = *st + 0x9E3779B97F4A7C15;
+    *st += 0x9E3779B97F4A7C15;
     uint64 z = *st;
     z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9;
     z = (z ^ (z >> 27)) * 0x94D049BB133111EB;
@@ -50,13 +50,13 @@ void Rng_seed(Rng* r, uint64 seed) {
 
 // The next raw 64-bit value. All the bounded helpers build on this.
 uint64 Rng_next(Rng* r) {
-    uint64 result = rng_rotl(r.s1 * 5, 7) * 9;
-    uint64 t = r.s1 << 17;
-    r.s2 = r.s2 ^ r.s0;
-    r.s3 = r.s3 ^ r.s1;
-    r.s1 = r.s1 ^ r.s2;
-    r.s0 = r.s0 ^ r.s3;
-    r.s2 = r.s2 ^ t;
+    const uint64 result = rng_rotl(r.s1 * 5, 7) * 9;
+    const uint64 t = r.s1 << 17;
+    r.s2 ^= r.s0;
+    r.s3 ^= r.s1;
+    r.s1 ^= r.s2;
+    r.s0 ^= r.s3;
+    r.s2 ^= t;
     r.s3 = rng_rotl(r.s3, 45);
     return result;
 }
@@ -66,9 +66,9 @@ uint64 Rng_next(Rng* r) {
 uint64 Rng_below(Rng* r, uint64 n) {
     if (n < 2) { return 0; }
     // threshold = 2^64 mod n, computed without overflowing 64 bits.
-    uint64 t = ((18446744073709551615 - n) + 1) % n;
-    while (1) {
-        uint64 x = Rng_next(r);
+    const uint64 t = ((18446744073709551615 - n) + 1) % n;
+    while (true) {
+        const uint64 x = r.next();
         if (x >= t) { return x % n; }
     }
 }
@@ -76,18 +76,18 @@ uint64 Rng_below(Rng* r, uint64 n) {
 // Uniform integer in [lo, hi). Returns lo when the range is empty.
 int64 Rng_range(Rng* r, int64 lo, int64 hi) {
     if (hi <= lo) { return lo; }
-    uint64 span = (uint64)(hi - lo);
-    return lo + (int64)Rng_below(r, span);
+    const uint64 span = (uint64)(hi - lo);
+    return lo + (int64)r.below(span);
 }
 
 // A coin flip: 0 or 1.
 int Rng_bool(Rng* r) {
-    return (int)(Rng_next(r) & 1);
+    return (int)(r.next() & 1);
 }
 
 // Uniform double in [0.0, 1.0), using the top 53 bits (full mantissa precision).
 double Rng_double(Rng* r) {
-    uint64 x = Rng_next(r) >> 11;
+    const uint64 x = r.next() >> 11;
     return (double)x * (1.0 / 9007199254740992.0);   // divide by 2^53
 }
 
@@ -95,13 +95,11 @@ double Rng_double(Rng* r) {
 void Rng_fill(Rng* r, *uint8 buf, int64 n) {
     int64 i = 0;
     while (i < n) {
-        uint64 word = Rng_next(r);
-        int64 j = 0;
-        while (j < 8 && i < n) {
+        uint64 word = r.next();
+        for (int j = 0; j < 8 && i < n; j++) {
             buf[i] = (uint8)(word & 255);
-            word = word >> 8;
-            i = i + 1;
-            j = j + 1;
+            word >>= 8;
+            i++;
         }
     }
 }
