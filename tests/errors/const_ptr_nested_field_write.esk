@@ -1,0 +1,4 @@
+// EXPECT-ERROR: cannot assign to read-only location
+struct Q { int y; }
+struct P { Q q; }
+int main() { P a = P{q: Q{y: 1}}; const P* r = &a; r.q.y = 7; return a.q.y; }
