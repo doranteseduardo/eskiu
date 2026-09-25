@@ -55,6 +55,16 @@ void TypeChecker::visit(BinaryExpr* node) {
             // stays valid). Handled here so `=` gets the same rules as init/return.
             std::string e = assignabilityError(lt, rt, node->right.get());
             if (!e.empty()) errorAt(node, "assignment: " + e);
+            // A compound assignment `x op= lit` (desugared to `x = x op lit`, sharing the
+            // target node) stores into x's type, so its literal operand must fit it, as
+            // for `x = lit`.
+            if (auto* cb = dynamic_cast<BinaryExpr*>(node->right.get());
+                cb && cb->left.get() == node->left.get() && cb->op != "<<" && cb->op != ">>" &&
+                isIntType(normalizeType(lt)))
+                if (auto* lit = dynamic_cast<LiteralExpr*>(cb->right.get());
+                    lit && lit->kind == LiteralExpr::Kind::INT && !intLiteralFits(normalizeType(lt), lit))
+                    errorAt(node, "compound assignment: integer literal " + lit->value +
+                                  " is out of range for '" + lt + "'");
         }
         expressionTypes[node] = lt;
         return;
@@ -699,6 +709,27 @@ void TypeChecker::visit(IndexExpr* node) {
     if (baseType == "string") { elem = "char"; haveElem = true; }
     else if (bt.kind == ty::Type::Kind::Array || bt.kind == ty::Type::Kind::Slice) {
         elem = bt.elem->str(); haveElem = true;
+        // Constant slice bounds `a[lo..hi]` into a fixed array: 0 <= lo <= hi <= N.
+        if (node->highIndex && bt.kind == ty::Type::Kind::Array) {
+            auto litVal = [](Expr* e, long long& out) {
+                auto* l = dynamic_cast<LiteralExpr*>(e);
+                if (!l || l->kind != LiteralExpr::Kind::INT) return false;
+                try { out = std::stoll(l->value, nullptr, 0); } catch (...) { return false; }
+                return true;
+            };
+            const std::string& dim = bt.dim;
+            bool dimNum = !dim.empty() &&
+                std::all_of(dim.begin(), dim.end(), [](unsigned char c){ return std::isdigit(c); });
+            long long lo = 0, hi = 0;
+            bool haveLo = litVal(node->index.get(), lo), haveHi = litVal(node->highIndex.get(), hi);
+            if ((haveLo && lo < 0) || (haveHi && hi < 0))
+                errorAt(node, "slice bound is negative");
+            else if (haveLo && haveHi && lo > hi)
+                errorAt(node, "slice bounds out of order: " + std::to_string(lo) + ".." + std::to_string(hi));
+            else if (dimNum && ((haveHi && hi > std::stoll(dim)) || (haveLo && lo > std::stoll(dim))))
+                errorAt(node, "slice bound " + std::to_string(haveHi && hi > std::stoll(dim) ? hi : lo) +
+                              " is out of bounds for array of size " + dim);
+        }
         // Constant-index bounds check: only a plain index into a fixed array with a
         // numeric dimension is checkable at compile time.
         if (!node->highIndex && bt.kind == ty::Type::Kind::Array) {

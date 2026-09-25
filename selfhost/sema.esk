@@ -650,6 +650,13 @@ string sema_assign_err(Sema* s, string t0, *ExprNode e) {
         && sema_int_lit_fits(t, e.sval) == 0) {
         return sema_cat(sema_cat(sema_cat(sema_cat("integer literal ", e.sval), " is out of range for '"), t), "'");
     }
+    if (sema_is_int_ty(t) == 1 && e.kind == EK_TERNARY) {   // each literal arm of a `?:` must fit
+        string ta = sema_assign_err(s, t0, e.b);
+        if (ta[0] != 0 && e.b != null && e.b.kind == EK_LITERAL) { return ta; }
+        *ExprNode ee = List_get<*ExprNode>(&e.kids, 0);
+        string tb = sema_assign_err(s, t0, ee);
+        if (tb[0] != 0 && ee != null && ee.kind == EK_LITERAL) { return tb; }
+    }
     string src0 = sema_infer_type(s, e);
     if (sema_pointee_const(src0) == 1 && sema_has_star(t0) == 1 && sema_pointee_const(t0) == 0
         && sema_is_fn_type(t0) == 0) {
@@ -1342,6 +1349,17 @@ void sema_expr(Sema* s, *ExprNode e) {
     }
     if (k == EK_LITERAL) { return; }
     if (k == EK_BINARY) {
+        // A compound assignment `x op= lit` (desugared to `x = x op lit`, sharing the target
+        // node) stores into x's type, so its literal operand must fit it, as for `x = lit`.
+        if (sema_streq(e.sval, "=") == 1 && e.b != null && e.b.kind == EK_BINARY && e.b.a == e.a
+            && sema_streq(e.b.sval, "<<") == 0 && sema_streq(e.b.sval, ">>") == 0
+            && e.b.b != null && e.b.b.kind == EK_LITERAL && e.b.b.lit_kind == LIT_INT) {
+            string ct = sema_strip_const(sema_infer_type(s, e.a));
+            if (sema_is_int_ty(ct) == 1 && sema_int_lit_fits(ct, e.b.b.sval) == 0) {
+                s.had_error = 1;
+                printf("error: %s:0:0: compound assignment: integer literal %s is out of range for '%s'\n", s.filename, e.b.b.sval, ct);
+            }
+        }
         if (sema_is_assign(e.sval) == 1 && sema_is_readonly_lvalue(s, e.a) == 1) {
             sema_error(s, "cannot assign to read-only location");
         }
@@ -1497,6 +1515,28 @@ void sema_expr(Sema* s, *ExprNode e) {
         return;
     }
     if (k == EK_INDEX || k == EK_ALLOCWITH) {
+        // Constant slice bounds `a[lo..hi]` into a fixed array: 0 <= lo <= hi <= N.
+        if (k == EK_INDEX && List_len<*ExprNode>(&e.kids) > 0) {
+            *ExprNode hiE = List_get<*ExprNode>(&e.kids, 0);
+            string abt = sema_infer_type(s, e.a);
+            int lo_ok = 0; int hi_ok = 0;
+            if (e.b != null && e.b.kind == EK_LITERAL && e.b.lit_kind == LIT_INT && sema_all_digits(e.b.sval) == 1) { lo_ok = 1; }
+            if (hiE != null && hiE.kind == EK_LITERAL && hiE.lit_kind == LIT_INT && sema_all_digits(hiE.sval) == 1) { hi_ok = 1; }
+            if (sema_is_arr_ty(abt) == 1) {
+                string sdim = sema_arr_count(abt);
+                if (lo_ok == 1 && hi_ok == 1 && sema_atoi(e.b.sval) > sema_atoi(hiE.sval)) {
+                    s.had_error = 1;
+                    printf("error: %s:0:0: slice bounds out of order: %s..%s\n", s.filename, e.b.sval, hiE.sval);
+                } else if (sema_all_digits(sdim) == 1 && hi_ok == 1 && sema_atoi(hiE.sval) > sema_atoi(sdim)) {
+                    s.had_error = 1;
+                    printf("error: %s:0:0: slice bound %s is out of bounds for array of size %s\n", s.filename, hiE.sval, sdim);
+                } else if (sema_all_digits(sdim) == 1 && lo_ok == 1 && sema_atoi(e.b.sval) > sema_atoi(sdim)) {
+                    s.had_error = 1;
+                    printf("error: %s:0:0: slice bound %s is out of bounds for array of size %s\n", s.filename, e.b.sval, sdim);
+                }
+            }
+            sema_expr(s, hiE);
+        }
         // Constant-index bounds check on a fixed array with a numeric dimension.
         if (k == EK_INDEX && e.b != null && e.b.kind == EK_LITERAL && e.b.lit_kind == LIT_INT
             && sema_all_digits(e.b.sval) == 1) {
@@ -1828,7 +1868,9 @@ void sema_stmt(Sema* s, *StmtNode st) {
                 printf("error: %s:0:0: integer literal %s is out of range for '%s'\n", s.filename, st.expr.sval, st.type);
             } else {
                 string src = sema_infer_type(s, st.expr);
+                int flagged = 0;
                 if (src[0] != 0 && sema_streq(src, "unknown") == 0 && sema_streq(src, st.type) == 0) {
+                    flagged = 1;
                     if (sema_is_int_ty(st.type) == 1 && sema_is_float_ty(src) == 1) {
                         sema_error(s, "cannot assign a floating-point value to an integer type without an explicit cast (it drops the fraction)");
                     } else if (sema_streq(src, "string") == 1 && (sema_is_int_ty(st.type) == 1 || sema_is_float_ty(st.type) == 1)) {
@@ -1837,6 +1879,15 @@ void sema_stmt(Sema* s, *StmtNode st) {
                         sema_error(s, "cannot convert a 'void' value");
                     } else if (sema_is_fn_type(st.type) == 1 && sema_is_fn_type(src) == 1) {
                         sema_error(s, "incompatible function type");   // src != st.type (guarded above)
+                    } else { flagged = 0; }
+                }
+                // The remaining conversions (pointer/number mixes, a `?:` literal arm out of
+                // range, an interface the value does not satisfy): the shared rule.
+                if (flagged == 0 && (sema_pointee_const(src) == 0 || sema_has_star(st.type) == 0)) {
+                    string aerr = sema_assign_err(s, st.type, st.expr);
+                    if (aerr[0] != 0) {
+                        s.had_error = 1;
+                        printf("error: %s:0:0: initializing '%s': %s\n", s.filename, st.name, aerr);
                     }
                 }
             }

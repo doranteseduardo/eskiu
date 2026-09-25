@@ -342,10 +342,17 @@ std::string TypeChecker::assignabilityError(const std::string& targetType,
     if (nt == "unknown" || ns == "unknown") return "";   // an already-reported bad type
     // An integer literal that provably does not fit the target is rejected even though
     // integer-width narrowing is otherwise implicit (its value is statically known).
-    if (isIntType(nt))
+    if (isIntType(nt)) {
         if (auto* l = dynamic_cast<LiteralExpr*>(srcExpr);
             l && l->kind == LiteralExpr::Kind::INT && !intLiteralFits(nt, srcExpr))
             return "integer literal " + l->value + " is out of range for '" + targetType + "'";
+        // Either arm of a `?:` is the assigned value, so each literal arm must fit too.
+        if (auto* t = dynamic_cast<TernaryExpr*>(srcExpr))
+            for (Expr* arm : {t->thenExpr.get(), t->elseExpr.get()}) {
+                std::string e = assignabilityError(targetType, getExpressionType(arm), arm);
+                if (!e.empty() && dynamic_cast<LiteralExpr*>(arm)) return e;
+            }
+    }
     if (isValidAssignment(targetType, srcType)) return "";
     ty::Type lt = ty::Type::parse(nt);
     ty::Type rt = ty::Type::parse(ns);
