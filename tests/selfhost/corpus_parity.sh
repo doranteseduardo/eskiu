@@ -42,7 +42,12 @@ for esk in tests/*.esk; do
     if ! ESKIU_ROOT="$ROOT" "$ESKMAIN" "$esk" > "$WORK/$name.ll" 2>"$WORK/$name.emit"; then
         echo "FAIL  $name  (self-host compile errored)"; sed 's/^/      /' "$WORK/$name.emit" | grep -vi 'overriding the module' | head -3; fail=1; continue
     fi
-    if ! "$CLANG" "$WORK/$name.ll" $LDFLAGS -o "$WORK/$name.bin" 2>"$WORK/$name.clang"; then
+    companion=""                                  # tests/NAME.c: C side of a C-ABI test
+    if [ -f "tests/$name.c" ]; then
+        companion="$WORK/$name.c.o"
+        "$CLANG" -c "tests/$name.c" -o "$companion" 2>"$WORK/$name.clang" || { echo "FAIL  $name  (C companion failed to compile)"; fail=1; continue; }
+    fi
+    if ! "$CLANG" "$WORK/$name.ll" $companion $LDFLAGS -o "$WORK/$name.bin" 2>"$WORK/$name.clang"; then
         echo "FAIL  $name  (clang rejected the emitted IR)"; sed 's/^/      /' "$WORK/$name.clang" | head -3; fail=1; continue
     fi
     ESKIU_ROOT="$ROOT" "$WORK/$name.bin" > "$WORK/$name.out" 2>&1; code=$?

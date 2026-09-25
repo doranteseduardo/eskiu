@@ -13,6 +13,9 @@
 #             Used for tests whose output is non-deterministic (threads) or
 #             which only need to prove they build and run.
 #
+#   A run or smoke test may have a C companion, tests/NAME.c: it is compiled with
+#   $CC and linked into the test binary (used to check calls across the C ABI).
+#
 #   3. error  tests/errors/NAME.esk
 #             Run --test-typechecker; require a NON-zero exit AND that the
 #             diagnostics contain the substring after "EXPECT-ERROR:" on the
@@ -75,7 +78,15 @@ for esk in "$here"/*.esk; do
         bad "$name" "compile failed: $(head -1 "$work/cerr")"
         continue
     fi
-    if ! $CC "$obj" $LDFLAGS -o "$bin" >"$work/lerr" 2>&1; then
+    companion=""
+    if [[ -f "$here/$name.c" ]]; then
+        companion="$work/$name.c.o"
+        if ! $CC -c "$here/$name.c" -o "$companion" >"$work/lerr" 2>&1; then
+            bad "$name" "C companion failed to compile: $(head -1 "$work/lerr")"
+            continue
+        fi
+    fi
+    if ! $CC "$obj" $companion $LDFLAGS -o "$bin" >"$work/lerr" 2>&1; then
         bad "$name" "link failed: $(head -1 "$work/lerr")"
         continue
     fi
