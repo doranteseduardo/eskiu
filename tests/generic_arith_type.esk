@@ -1,5 +1,5 @@
-// Arithmetic inside a generic body: the type checker skips template bodies, so
-// codegen types `a + b` / `-a` itself. A ternary arm `self.cap * 2` must resolve to
+// Arithmetic inside a generic body: codegen derives the types of `a + b` / `-a` in
+// each template instance itself. A ternary arm `self.cap * 2` must resolve to
 // int (it used to print "unknown type ''"), and `(a + b) / c` over uint must keep
 // its unsigned division and comparison.
 extern int printf(string fmt, ...);
