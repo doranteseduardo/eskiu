@@ -4345,6 +4345,7 @@ void sema_defer_walk(Sema* s, *StmtNode st, int depth) {
     if (k == SK_DEFER) { sema_defer_walk(s, st.s1, depth); return; }
 }
 
+string sema_void_type_err(Sema* s, string t0);   // fwd
 void sema_stmt(Sema* s, *StmtNode st) {
     if (st == null) { return; }
     int pl = s.line; int pc = s.col;
@@ -4451,9 +4452,10 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
             s.had_error = 1;
             dprintf(2, "error: %s:%d:%d: redefinition of '%s' in the same scope\n", s.filename, s.line, s.col, st.name);
         }
-        if (sema_is_void_value(vty) == 1) {
+        string vterr = sema_void_type_err(s, vty);
+        if (vterr[0] != 0) {
             s.had_error = 1;
-            dprintf(2, "error: %s:%d:%d: variable '%s' cannot have type 'void'\n", s.filename, s.line, s.col, st.name);
+            dprintf(2, "error: %s:%d:%d: variable '%s' %s\n", s.filename, s.line, s.col, st.name, vterr);
         }
         sema_define(s, st.name, vty, st.is_const);
         if (st.is_static == 1) {
@@ -5299,6 +5301,31 @@ int sema_is_void_value(string t0) {
     return sema_streq(sema_sub_str(t, 0, n), "void");
 }
 
+// "" when a value of type `t0` is fine, else why not (mirrors TypeChecker::voidTypeError):
+// a `void` value (also an array or slice of one), or a generic instance like `Box<void>`
+// whose type argument makes a field a `void` value.
+string sema_void_type_err(Sema* s, string t0) {
+    if (sema_is_void_value(t0) == 1) { return "cannot have type 'void'"; }
+    string t = sema_strip_const(t0);
+    if (sema_has_star(t) == 1 || sema_is_fn_type(t) == 1) { return ""; }
+    int n = 0; while (t[n] != 0 && (int)t[n] != 91) { n = n + 1; }
+    string bt = sema_sub_str(t, 0, n);
+    if (sema_has_lt(bt) == 0) { return ""; }
+    *DeclNode d = sema_find_struct(s, sema_base_name(bt));
+    if (d == null || List_len<TypeParam>(&d.type_params) == 0) { return ""; }
+    List<string> targs; List_init<string>(&targs, 2);
+    sema_parse_targs(bt, &targs);
+    int i = 0;
+    while (i < List_len<Param>(&d.params)) {
+        Param f = List_get<Param>(&d.params, i);
+        if (sema_is_void_value(sema_subst_params(f.ty, &d.type_params, &targs)) == 1) {
+            return sema_cat(sema_cat(sema_cat(sema_cat("cannot have type '", t0), "': its field '"), f.name), "' would be 'void'");
+        }
+        i = i + 1;
+    }
+    return "";
+}
+
 // "ret(p1, p2)" signature spelling of a function, for the prototype/definition check.
 string sema_sig_of(*DeclNode f) {
     string out = sema_cat(sema_strip_const(f.ret_type), "(");
@@ -5487,9 +5514,10 @@ void sema_check_sig_types(Sema* s, *DeclNode f) {
             } else { List_push<string>(&pnames, pm.name); }
         }
         sema_check_decl_type(s, pm.ty);
-        if (sema_is_void_value(pm.ty) == 1) {
+        string pterr = sema_void_type_err(s, pm.ty);
+        if (pterr[0] != 0) {
             s.had_error = 1;
-            dprintf(2, "error: %s:%d:%d: parameter '%s' cannot have type 'void'\n", s.filename, s.line, s.col, pm.name);
+            dprintf(2, "error: %s:%d:%d: parameter '%s' %s\n", s.filename, s.line, s.col, pm.name, pterr);
         }
         i = i + 1;
     }
@@ -5546,9 +5574,10 @@ void sema_check_fields(Sema* s, *DeclNode d) {
     }
     while (i < n) {
         Param f = List_get<Param>(&d.params, i);
-        if (sema_is_void_value(f.ty) == 1) {
+        string fterr = sema_void_type_err(s, f.ty);
+        if (fterr[0] != 0 && (List_len<TypeParam>(&d.type_params) == 0 || sema_is_void_value(f.ty) == 1)) {
             s.had_error = 1;
-            dprintf(2, "error: %s:%d:%d: field '%s' of '%s' cannot have type 'void'\n", s.filename, s.line, s.col, f.name, d.name);
+            dprintf(2, "error: %s:%d:%d: field '%s' of '%s' %s\n", s.filename, s.line, s.col, f.name, d.name, fterr);
         }
         int bw = 0;
         if (d.kind == DK_STRUCT && i < List_len<int>(&d.field_bits)) { bw = List_get<int>(&d.field_bits, i); }

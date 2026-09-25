@@ -359,8 +359,8 @@ void TypeChecker::visit(FunctionDecl* node) {
         if (!param.second.empty() && !paramNames.insert(param.second).second)
             errorAt(node, "duplicate parameter '" + param.second + "' in function '" + fnDisplay(node->name) + "'");
         validateStructType(normalizeType(param.first), node);
-        if (isVoidValueType(param.first))
-            errorAt(node, "parameter '" + param.second + "' cannot have type 'void'");
+        if (std::string vm = voidTypeError(param.first); !vm.empty())
+            errorAt(node, "parameter '" + param.second + "' " + vm);
     }
     validateStructType(normalizeType(node->returnType), node);
 
@@ -698,8 +698,8 @@ void TypeChecker::visit(VarDecl* node) {
 
     // Validate that struct types exist before use
     validateStructType(normalizedType, node);
-    if (isVoidValueType(node->type))
-        errorAt(node, "variable '" + node->name + "' cannot have type 'void'");
+    if (std::string vm = voidTypeError(node->type); !vm.empty())
+        errorAt(node, "variable '" + node->name + "' " + vm);
 
     // Preserve a pointee-const qualifier through normalization so the symbol
     // remembers it's read-only (const checks read it back; everything else strips).
@@ -753,16 +753,16 @@ void TypeChecker::visit(StructDecl* node) {
     if (node->typeParams.empty()) {
         for (const auto& f : node->fields) {
             validateStructType(normalizeType(f.type), node);
-            if (isVoidValueType(f.type))
-                errorAt(node, "field '" + f.name + "' of '" + node->name + "' cannot have type 'void'");
+            if (std::string vm = voidTypeError(f.type); !vm.empty())
+                errorAt(node, "field '" + f.name + "' of '" + node->name + "' " + vm);
             checkBitfield(node, node->name, f);
         }
         for (const auto& method : node->methods)
             if (auto func = dynamic_cast<FunctionDecl*>(method.get())) {
                 for (const auto& p : func->params) {
                     validateStructType(normalizeType(p.first), func);
-                    if (isVoidValueType(p.first))
-                        errorAt(func, "parameter '" + p.second + "' cannot have type 'void'");
+                    if (std::string vm = voidTypeError(p.first); !vm.empty())
+                        errorAt(func, "parameter '" + p.second + "' " + vm);
                 }
                 validateStructType(normalizeType(func->returnType), func);
             }
@@ -804,8 +804,8 @@ void TypeChecker::visit(ExternDecl* node) {
     for (const auto& param : node->params) {
         if (param.first == "...") continue;
         validateStructType(normalizeType(param.first), node);
-        if (isVoidValueType(param.first))
-            errorAt(node, "parameter '" + param.second + "' cannot have type 'void'");
+        if (std::string vm = voidTypeError(param.first); !vm.empty())
+            errorAt(node, "parameter '" + param.second + "' " + vm);
     }
     validateStructType(normalizeType(node->returnType), node);
 }
@@ -855,8 +855,8 @@ void TypeChecker::visit(UnionDecl* node) {
             errorAt(node, "duplicate field '" + f.name + "' in union '" + node->name + "'");
     for (const auto& f : node->fields) {
         validateStructType(normalizeType(f.type), node);
-        if (isVoidValueType(f.type))
-            errorAt(node, "field '" + f.name + "' of '" + node->name + "' cannot have type 'void'");
+        if (std::string vm = voidTypeError(f.type); !vm.empty())
+            errorAt(node, "field '" + f.name + "' of '" + node->name + "' " + vm);
     }
 }
 

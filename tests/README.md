@@ -389,6 +389,8 @@ when you add a test.
 | `errors/global_forward_ref` | a global initializer naming a later global: "undefined variable 'gsz'" (C declares a global at its definition) |
 | `errors/fn_forward_global` | a function body naming a later global: "undefined variable 'gz'" |
 | `errors/global_shift_range` | a global initializer is checked like any expression: "shift count 40 is out of range" |
+| `errors/generic_void_field` | `Box<void>` makes a field a `void` value: "its field 'v' would be 'void'" |
+| `errors/void_slice` | a `void[]` slice has `void` elements: "variable 's' cannot have type 'void'" |
 | `errors/union_two_members` | rejected with "a union literal initializes one member" |
 | `errors/break_outside` | rejected with "'break' outside of a loop or switch" |
 | `errors/call_non_fn` | rejected with "undefined function 'x'" |

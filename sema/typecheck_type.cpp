@@ -129,8 +129,27 @@ bool TypeChecker::isAggregateValue(const std::string& t) {
 // Type validation
 bool TypeChecker::isVoidValueType(const std::string& type) {
     ty::Type t = ty::Type::parse(normalizeType(type));
-    while (t.kind == ty::Type::Kind::Array && t.elem) { ty::Type e = *t.elem; t = e; }
+    while ((t.kind == ty::Type::Kind::Array || t.kind == ty::Type::Kind::Slice) && t.elem) { ty::Type e = *t.elem; t = e; }
     return t.kind == ty::Type::Kind::Void;
+}
+
+std::string TypeChecker::voidTypeError(const std::string& type) {
+    if (isVoidValueType(type)) return "cannot have type 'void'";
+    // A generic instance whose type argument makes a field a `void` value (`Box<void>`).
+    ty::Type t = ty::Type::parse(normalizeType(type));
+    while ((t.kind == ty::Type::Kind::Array || t.kind == ty::Type::Kind::Slice) && t.elem) { ty::Type e = *t.elem; t = e; }
+    if (t.kind != ty::Type::Kind::Struct) return "";
+    auto ia = templateInstanceArgs.find(t.name);
+    if (ia == templateInstanceArgs.end()) return "";
+    auto td = templateDecls.find(ia->second.first);
+    if (td == templateDecls.end()) return "";
+    std::map<std::string, std::string> subs;
+    const auto& tp = td->second->typeParams;
+    for (size_t i = 0; i < tp.size() && i < ia->second.second.size(); ++i) subs[tp[i]] = ia->second.second[i];
+    for (const auto& f : td->second->fields)
+        if (isVoidValueType(substType(f.type, subs)))
+            return "cannot have type '" + type + "': its field '" + f.name + "' would be 'void'";
+    return "";
 }
 
 void TypeChecker::validateStructType(const std::string& type, ASTNode* at) {
