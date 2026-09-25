@@ -1,0 +1,2 @@
+// EXPECT-ERROR: incompatible function type
+int main() { fn()->int g = null; return g(); }

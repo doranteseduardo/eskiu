@@ -1,0 +1,5 @@
+// EXPECT-ERROR: does not satisfy interface 'S'
+interface S { int a(); }
+interface T { int a(); int b(); }
+struct X { int v; int a() { return self.v; } int b() { return 2; } }
+int main() { X x = X{v: 1}; T t = &x; S s = t; return s.a(); }

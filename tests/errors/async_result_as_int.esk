@@ -1,0 +1,5 @@
+// EXPECT-ERROR: cannot convert '*Future<int>' to 'int'
+import <future>;
+Future<int>* produce() { Future<int>* f = future_new<int>(); future_complete<int>(f, 41); return f; }
+async int f() { int x = await produce(); return x; }
+int main() { int r = f(); return r; }

@@ -1,0 +1,2 @@
+// EXPECT-ERROR: cannot convert 'int[3]' to 'int[2]'
+int main() { int[3] a = {1, 2, 3}; int[2] b = {0, 0}; b = a; return b[1]; }

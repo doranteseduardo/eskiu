@@ -1,0 +1,2 @@
+// EXPECT-ERROR: integer literal 0x1FFFFFFFF is out of range for 'int'
+int main() { int x = 0x1FFFFFFFF; return x; }

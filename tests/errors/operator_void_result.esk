@@ -1,0 +1,4 @@
+// EXPECT-ERROR: cannot convert 'void' to 'int'
+struct V { int x; }
+void operator +(V a, V b) { }
+int main() { V a = V{x: 1}; int z = a + a; return z; }

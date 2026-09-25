@@ -1,0 +1,2 @@
+// EXPECT-ERROR: cannot convert 'int[]' to 'double[]'
+int main() { int[3] a = {1, 2, 3}; double[] s = a[0..3]; return 0; }

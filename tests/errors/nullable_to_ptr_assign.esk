@@ -1,0 +1,2 @@
+// EXPECT-ERROR: requires a null-check
+int main() { int x = 5; ?*int p = &x; *int q = &x; q = p; return *q; }

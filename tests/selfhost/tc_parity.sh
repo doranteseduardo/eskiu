@@ -68,7 +68,8 @@ HANDLED="undefined_var arg_count undefined_type await_outside_async async_no_awa
          range_bound_float range_bound_ptr
          generic_dot_call_arg_type generic_dot_call_arg_count generic_dot_call_const generic_dot_call_in_generic
          call_global_nonfn unknown_global_type deref_non_pointer unary_struct string_arith struct_arith
-         return_no_value assign_struct_to_int switch_case_location"
+         return_no_value assign_struct_to_int switch_case_location
+         nullable_to_ptr_arg nullable_to_ptr_return nullable_to_ptr_assign operator_void_result hex_literal_range hex_literal_range_wide literal_over_64_bits struct_lit_other_struct array_assign_size array_arg_size slice_to_ptr slice_elem_mismatch fn_value_null async_result_as_int await_result_mismatch iface_to_iface iface_null iface_method_ret_mismatch iface_from_int_ptr generic_explicit_arg_type generic_ret_mismatch const_ptr_ternary void_ptr_deref_value"
 HANDLED="$(echo $HANDLED)"   # collapse the multi-line list to single spaces for matching
 
 DRIVER=selfhost/esk_main.esk

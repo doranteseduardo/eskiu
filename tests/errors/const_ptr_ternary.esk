@@ -1,0 +1,2 @@
+// EXPECT-ERROR: discards a const qualifier
+int main() { int a = 1; const int* r = &a; *int q = true ? r : &a; *q = 5; return a; }
