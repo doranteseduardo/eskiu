@@ -1,0 +1,25 @@
+// Fuzz target: <url> percent-decoding and query lookup on arbitrary text, plus an
+// encode/decode round trip (decoding the encoding gives back the input).
+import "harness.esk";
+import <url>;
+import <string>;
+
+void fuzz_one(*uint8 data, int len, string s) {
+    let out: String; String_init(&out, 16);
+    url_decode(s, &out);
+    String_clear(&out);
+    url_query_get(s, "a", &out);
+    String_clear(&out);
+    url_query_get(s, "", &out);
+    String_clear(&out);
+    url_query_get(s, "q", &out);
+
+    let enc: String; String_init(&enc, 16);
+    url_encode(s, &enc);
+    let back: String; String_init(&back, 16);
+    url_decode((string)String_cstr(&enc), &back);
+    if (String_eq_cstr(&back, s) != 1) { fuzz_fail("url round trip"); }
+    String_free(&out);
+    String_free(&enc);
+    String_free(&back);
+}

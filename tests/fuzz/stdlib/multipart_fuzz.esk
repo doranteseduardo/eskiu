@@ -1,0 +1,40 @@
+// Fuzz target: <multipart>. The input's first line is a Content-Type value, the rest
+// is the body; the boundary is extracted and a few part names are looked up.
+import "harness.esk";
+import <multipart>;
+import <string>;
+
+void mp_lookup(*uint8 body, int64 blen, String* bd, string name) {
+    *uint8 part = null;
+    int64 plen = 0;
+    if (multipart_part(body, blen, bd, name, &part, &plen) == 1) {
+        if (plen < (int64)0 || part < body || part + plen > body + blen) { fuzz_fail("part outside the body"); }
+        int64 i = 0; int64 h = 0;
+        while (i < plen) { h = h + (int64)part[i]; i = i + 1; }
+    }
+}
+
+void fuzz_one(*uint8 data, int len, string s) {
+    int nl = 0;
+    while (nl < len && data[nl] != 10) { nl = nl + 1; }
+    let ct: String; String_init(&ct, 32);
+    int i = 0;
+    while (i < nl) { String_push(&ct, (char)data[i]); i = i + 1; }
+    let bd: String; String_init(&bd, 32);
+    int64 blen = 0;
+    *uint8 body = data + len;
+    if (nl < len) { body = data + nl + 1; blen = (int64)(len - nl - 1); }
+    if (multipart_boundary(&ct, &bd) == 1) {
+        mp_lookup(body, blen, &bd, "file");
+        mp_lookup(body, blen, &bd, "a");
+        mp_lookup(body, blen, &bd, "");
+    }
+    // A boundary taken straight from the input, including an empty one.
+    let raw: String; String_init(&raw, 8);
+    i = 0;
+    while (i < nl && i < 8) { String_push(&raw, (char)data[i]); i = i + 1; }
+    mp_lookup(body, blen, &raw, "x");
+    String_free(&raw);
+    String_free(&bd);
+    String_free(&ct);
+}

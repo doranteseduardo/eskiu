@@ -1,0 +1,70 @@
+// harness.esk: the batch driver shared by the stdlib fuzz targets.
+//
+// A target defines `void fuzz_one(*uint8 data, int len, string s)` and imports this
+// file. The program reads a batch file (argv[1]) of records, each a 4-byte
+// little-endian length followed by that many bytes, and calls fuzz_one once per
+// record. `data` is a heap copy of exactly `len` bytes (so AddressSanitizer flags a
+// read one past the end) and `s` is a separate NUL-terminated copy for the
+// string-taking APIs. Before each record the index is written to stderr, so the
+// driver (tests/fuzz/stdlib_fuzz.py) can tell which input crashed or hung.
+// A target signals a broken invariant with fuzz_fail, which aborts.
+
+import <mem>;
+import <fs>;
+
+extern int64 write(int fd, *void buf, int64 n);
+extern void abort();
+extern int printf(string fmt, ...);
+
+void fuzz_one(*uint8 data, int len, string s);
+
+void fuzz_mark(int idx) {
+    *uint8 b = alloc<uint8>(16);
+    int n = 0;
+    b[n] = (uint8)35; n = n + 1;
+    int64 v = (int64)idx;
+    int64 div = 1;
+    while (div * (int64)10 <= v) { div = div * (int64)10; }
+    while (div > (int64)0) { b[n] = (uint8)(48 + (int)(v / div)); v = v % div; div = div / (int64)10; n = n + 1; }
+    b[n] = (uint8)10; n = n + 1;
+    write(2, (*void)b, (int64)n);
+    free(b);
+}
+
+void fuzz_fail(string what) {
+    printf("FUZZ-INVARIANT: %s\n", what);
+    abort();
+}
+
+int main(int argc, string* argv) {
+    if (argc < 2) { printf("usage: %s BATCH\n", argv[0]); return 2; }
+    int64 n = 0;
+    *uint8 all = fs_read_all(argv[1], &n);
+    if (all == null) { printf("cannot read %s\n", argv[1]); return 2; }
+    int64 pos = 0;
+    int idx = 0;
+    while (pos + (int64)4 <= n) {
+        int64 len = (int64)all[pos] | ((int64)all[pos + 1] << 8) | ((int64)all[pos + 2] << 16)
+                  | ((int64)all[pos + 3] << 24);
+        pos = pos + 4;
+        if (pos + len > n) { break; }
+        int64 cap = len;
+        if (cap < (int64)1) { cap = 1; }
+        *uint8 data = alloc<uint8>(cap);
+        *uint8 str = alloc<uint8>(len + 1);
+        if (len > (int64)0) {
+            memcpy((*void)data, (*void)(all + pos), len);
+            memcpy((*void)str, (*void)(all + pos), len);
+        }
+        str[len] = (uint8)0;
+        fuzz_mark(idx);
+        fuzz_one(data, (int)len, (string)str);
+        free(data);
+        free(str);
+        pos = pos + len;
+        idx = idx + 1;
+    }
+    free(all);
+    printf("ok %d\n", idx);
+    return 0;
+}

@@ -1,0 +1,30 @@
+// Fuzz target: <json> json_parse on arbitrary text, then a walk of the whole tree.
+import "harness.esk";
+import <json>;
+import <string>;
+
+int64 json_walk(JsonValue* v, int depth) {
+    int64 h = (int64)v.kind;
+    if (v.kind == JString) { h = h + (int64)v.str.len; }
+    if (v.kind == JNumber) { h = h + (int64)(v.num != v.num); }
+    h = h + (int64)v.key.len;
+    if (depth > 100000) { fuzz_fail("tree deeper than the input"); }
+    *JsonValue c = v.child;
+    int n = 0;
+    while (c != null) { h = h * (int64)31 + json_walk(c, depth + 1); c = c.next; n = n + 1; }
+    if ((v.kind == JArray || v.kind == JObject) && n != JsonValue_len(v)) { fuzz_fail("JsonValue_len disagrees with the children"); }
+    if (v.kind == JObject && n > 0) {
+        *JsonValue first = JsonValue_get(v, (string)String_cstr(&v.child.key));
+        if (first == null) { fuzz_fail("JsonValue_get misses a present key"); }
+    }
+    if (v.kind == JArray && n > 0 && JsonValue_at(v, n - 1) == null) { fuzz_fail("JsonValue_at misses the last element"); }
+    return h;
+}
+
+void fuzz_one(*uint8 data, int len, string s) {
+    *JsonValue v = json_parse(s);
+    if (v != null) {
+        json_walk(v, 0);
+        JsonValue_free(v);
+    }
+}

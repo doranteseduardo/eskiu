@@ -1,0 +1,22 @@
+// Fuzz target: <base64> decode of arbitrary text, plus an encode/decode round trip
+// of the raw bytes (the decoded bytes must equal the input).
+import "harness.esk";
+import <base64>;
+
+void fuzz_one(*uint8 data, int len, string s) {
+    *uint8 out = alloc<uint8>(base64_decoded_len(len));
+    int got = base64_decode(data, len, out);
+    if (got > base64_decoded_len(len)) { fuzz_fail("decode wrote past base64_decoded_len"); }
+    free(out);
+
+    *uint8 enc = alloc<uint8>(base64_encoded_len(len) + 1);
+    int elen = base64_encode(data, len, enc);
+    if (elen != base64_encoded_len(len)) { fuzz_fail("encode length"); }
+    *uint8 back = alloc<uint8>(base64_decoded_len(elen));
+    int blen = base64_decode(enc, elen, back);
+    if (blen != len) { fuzz_fail("round trip length"); }
+    int i = 0;
+    while (i < len) { if (back[i] != data[i]) { fuzz_fail("round trip bytes"); } i = i + 1; }
+    free(enc);
+    free(back);
+}
