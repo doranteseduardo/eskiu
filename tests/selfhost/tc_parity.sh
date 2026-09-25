@@ -61,7 +61,8 @@ HANDLED="undefined_var arg_count undefined_type await_outside_async async_no_awa
          unexpected_char empty_char unterminated_comment unterminated_string
          octal_bad_digit octal_bad_digit2 hex_no_digits number_suffix number_underscore
          parse_error parse_error_located parse_missing_operand parse_return_no_semi parse_import_no_semi
-         parse_catch_colon parse_array_field parse_postdec_literal parse_leading_dot"
+         parse_catch_colon parse_array_field parse_postdec_literal parse_leading_dot
+         import_missing import_missing_std"
 HANDLED="$(echo $HANDLED)"   # collapse the multi-line list to single spaces for matching
 
 DRIVER=selfhost/esk_main.esk

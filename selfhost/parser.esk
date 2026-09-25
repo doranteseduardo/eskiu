@@ -38,6 +38,7 @@ List<string> g_typenames;      // declared type names → enables `(Foo)x` casts
 int g_cur_pack;                // active `#pragma pack(N)` alignment (0 = natural)
 List<int> g_pack_stack;        // saved pack values for `pack(push, N)` / `pack(pop)`
 List<string> g_tparams;        // type params of the generic fn/struct being parsed (`(*T)x`)
+string g_stdlib_root;          // root holding stdlib/ (the driver sets it; null → cwd)
 
 // The dedup key for a source file: its absolute path with `.`/`..`/symlinks resolved
 // (mirrors Parser::canonicalPath); the path itself if it cannot be resolved.
@@ -1903,6 +1904,7 @@ int str_to_int(string s) {
 void do_import(Parser* p, *Program prog) {
     string path = "";
     int is_std = 0;
+    Token path_tok = p_peek(p);
     if (p_at(p) == STRING_LIT) {
         int _dl2 = 0; path = tok_str_value(p.src, p_peek(p), &_dl2);
         p_adv(p);
@@ -1924,9 +1926,14 @@ void do_import(Parser* p, *Program prog) {
     }
     p_expect(p, SEMICOLON, "Expected ';' after import");
 
-    // Resolve full path: stdlib relative to cwd, otherwise relative to this file's dir.
+    // Resolve full path: stdlib under the stdlib root (like the C++ stdlibPath: $ESKIU_ROOT
+    // or the install layout; the cwd when neither is known), otherwise relative to this
+    // file's dir.
     string full;
-    if (is_std == 1) { full = path; }
+    if (is_std == 1) {
+        full = path;
+        if (g_stdlib_root != null) { if (g_stdlib_root[0] != 0) { full = str_concat(g_stdlib_root, str_concat("/", path)); } }
+    }
     else if ((int)path[0] != 47) { full = str_concat(p.basedir, str_concat("/", path)); }
     else { full = path; }
 
@@ -1934,7 +1941,9 @@ void do_import(Parser* p, *Program prog) {
 
     let bytes: int64 = 0;
     *uint8 isrc = fs_read_all(full, &bytes);
-    if (isrc == null) { return; }                // unreadable import — skip (C++ errors)
+    if (isrc == null) {                          // a missing import is an error (like the C++)
+        p_report(p, path_tok, str_concat(str_concat("Cannot open import: '", full), "'"));
+    }
     // Preprocess the import (the C++ folds preprocessing into the lexer per file); this
     // evaluates its #ifdef/#define so e.g. mem.esk picks one branch, not both.
     let pe: int = 0;

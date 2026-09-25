@@ -28,6 +28,11 @@ extern int    waitpid(int pid, *int status, int options);
 extern void   _exit(int code);
 extern string getenv(string name);  // $CLANG selects the clang binary (default "clang")
 extern int    getpid();             // unique temp-exe name for `run`
+#ifdef __APPLE__
+extern int    _NSGetExecutablePath(*uint8 buf, *uint32 size);   // locate stdlib next to us
+#else
+extern int64  readlink(string path, string buf, int64 n);
+#endif
 
 // Diagnostics go to stderr (fd 2), never stdout — stdout carries only the emitted .ll.
 void eprint(string s) {
@@ -74,6 +79,88 @@ void push_words(List<string>* args, string cmd) {
             List_push<string>(args, (string)w);
         }
     }
+}
+
+// Options that take a value (`-o out`, `--target T`, or `--target=T`). The self-host
+// driver implements -o/--target/--mcpu/--link-arg/-l/-L; the rest are C++-only.
+int is_value_opt(string o) {
+    if (cg_streq(o, "-o") == 1 || cg_streq(o, "-l") == 1 || cg_streq(o, "-L") == 1) { return 1; }
+    if (cg_streq(o, "--target") == 1 || cg_streq(o, "-target") == 1) { return 1; }
+    if (cg_streq(o, "--mcpu") == 1 || cg_streq(o, "-mcpu") == 1) { return 1; }
+    if (cg_streq(o, "--link-arg") == 1 || cg_streq(o, "-link-arg") == 1) { return 1; }
+    if (cg_streq(o, "--mattr") == 1 || cg_streq(o, "-mattr") == 1) { return 1; }
+    if (cg_streq(o, "--reloc") == 1 || cg_streq(o, "-reloc") == 1) { return 1; }
+    if (cg_streq(o, "--hover-at") == 1 || cg_streq(o, "-hover-at") == 1) { return 1; }
+    if (cg_streq(o, "--definition-at") == 1 || cg_streq(o, "-definition-at") == 1) { return 1; }
+    return 0;
+}
+
+// s[0, n) and s[n, end) as fresh strings.
+string str_prefix(string s, int n) {
+    *uint8 b = alloc<uint8>((int64)(n + 1));
+    int i = 0;
+    while (i < n) { b[i] = (uint8)s[i]; i = i + 1; }
+    return (string)b;
+}
+string str_after(string s, int n) {
+    int len = n;
+    while (s[len] != 0) { len = len + 1; }
+    *uint8 b = alloc<uint8>((int64)(len - n + 1));
+    int i = n;
+    while (i < len) { b[i - n] = (uint8)s[i]; i = i + 1; }
+    return (string)b;
+}
+
+int str_starts(string s, string pre) {
+    int i = 0;
+    while (pre[i] != 0) { if (s[i] != pre[i]) { return 0; } i = i + 1; }
+    return 1;
+}
+
+int str_contains(string s, string sub) {
+    int i = 0;
+    while (s[i] != 0) {
+        int j = 0;
+        while (sub[j] != 0 && s[i + j] == sub[j]) { j = j + 1; }
+        if (sub[j] == 0) { return 1; }
+        i = i + 1;
+    }
+    return 0;
+}
+
+int file_exists(string path) {
+    let n: int64 = 0;
+    *uint8 b = fs_read_all(path, &n);
+    if (b == null) { return 0; }
+    return 1;
+}
+
+// Where stdlib/ lives, like the C++ resolveStdlibPath: $ESKIU_ROOT, else the install
+// layout next to this binary (<prefix>/bin/eskiuc-esk → <prefix>/lib/eskiu, or the
+// dev tree build/eskiuc-esk → build/..). null when none is found (imports then
+// resolve against the current directory).
+string find_stdlib_root() {
+    string env = getenv("ESKIU_ROOT");
+    if (env != null) { if (env[0] != 0) { return env; } }
+    uint8[4096] buf;
+    int got = 0;
+#ifdef __APPLE__
+    let sz: uint32 = 4096;
+    if (_NSGetExecutablePath(&buf[0], &sz) == 0) { got = 1; }
+#else
+    int64 rn = readlink("/proc/self/exe", (string)&buf[0], 4095);
+    if (rn > 0) { buf[rn] = 0; got = 1; }
+#endif
+    if (got == 0) { return null; }
+    string exe = realpath((string)&buf[0], null);
+    if (exe == null) { return null; }
+    string bindir = str_dir(exe);
+    string prefix = str_dir(bindir);
+    string inst = cg_cat(prefix, "/lib/eskiu");
+    if (file_exists(cg_cat(inst, "/stdlib/result.esk")) == 1) { return inst; }
+    string dev = cg_cat(bindir, "/..");
+    if (file_exists(cg_cat(dev, "/stdlib/result.esk")) == 1) { return dev; }
+    return null;
 }
 
 int bytes_eq(*uint8 a, int an, *uint8 b, int bn) {
@@ -145,6 +232,13 @@ int main(int argc, string* argv) {
     string mode = "";        // "" = compile; else --version / --test-{lexer,parser,typechecker,codegen}
     int san = 0;             // 0 = none, 1 = address, 2 = undefined
     int safe = 0;            // --safe: opt-in runtime slice/array bounds checks
+    int compile_only = 0;    // -c: emit an object file, do not link
+    int freestanding = 0;    // --freestanding: no libc; object only (link it yourself)
+    string triple = "";      // --target TRIPLE (passed to clang; picks the OS macro)
+    string mcpu = "";        // --mcpu CPU
+    string optflag = "";     // -O0..-O3 (clang optimizes the emitted IR)
+    List<string> linkx;      // -l / -L / --link-arg, forwarded to the link
+    List_init<string>(&linkx, 4);
     // `esk_main run script.esk [args...]`: compile to a temp exe, run it forwarding
     // [args...], propagate its exit code, then delete it (matches the C++ `run`). Any
     // flags before the script go to the compiler; the first non-flag is the script and
@@ -158,31 +252,65 @@ int main(int argc, string* argv) {
     int sawsep = 0;
     int ai = start;
     while (ai < argc) {
+        string a = argv[ai];
         if (runmode == 1 && gotscript == 1) {
             // Everything after the script is program argv; a `--` right after it only
             // separates, so it is dropped (like the C++ `run`).
-            if (sawsep == 0 && List_len<string>(&runargs) == 0 && cg_streq(argv[ai], "--") == 1) { sawsep = 1; }
-            else { List_push<string>(&runargs, argv[ai]); }
+            if (sawsep == 0 && List_len<string>(&runargs) == 0 && cg_streq(a, "--") == 1) { sawsep = 1; }
+            else { List_push<string>(&runargs, a); }
             ai = ai + 1;
             continue;
         }
-        if (cg_streq(argv[ai], "-o") == 1) {
+        // Options with a value take it as the next argument or after `=`.
+        string val = null;
+        string opt = a;
+        int eqi = 0;
+        while (a[eqi] != 0 && (int)a[eqi] != 61) { eqi = eqi + 1; }
+        if ((int)a[0] == 45 && a[eqi] == 61) { opt = str_prefix(a, eqi); val = str_after(a, eqi + 1); }
+        if (is_value_opt(opt) == 1 && val == null) {
+            if (ai + 1 >= argc) { eprint("error: option '"); eprint(opt); eprint("' needs a value\n"); return 1; }
             ai = ai + 1;
-            if (ai < argc) { outfile = argv[ai]; }
-        } else if (cg_streq(argv[ai], "--asan") == 1) {
-            san = 1;
-        } else if (cg_streq(argv[ai], "--ubsan") == 1) {
-            san = 2;
-        } else if (cg_streq(argv[ai], "--safe") == 1) {
-            safe = 1;
-        } else if (cg_streq(argv[ai], "--version") == 1
-                || cg_streq(argv[ai], "--test-lexer") == 1
-                || cg_streq(argv[ai], "--test-parser") == 1
-                || cg_streq(argv[ai], "--test-typechecker") == 1
-                || cg_streq(argv[ai], "--test-codegen") == 1) {
-            mode = argv[ai];
-        } else if (argv[ai][0] != 45) {   // not a flag ('-') → input file; unknown flags like -Wall/-Wextra are accepted and ignored
-            List_push<string>(&infiles, argv[ai]);
+            val = argv[ai];
+        }
+        if (cg_streq(opt, "-o") == 1) { outfile = val; }
+        else if (cg_streq(opt, "--target") == 1 || cg_streq(opt, "-target") == 1) { triple = val; }
+        else if (cg_streq(opt, "--mcpu") == 1 || cg_streq(opt, "-mcpu") == 1) { mcpu = val; }
+        else if (cg_streq(opt, "--link-arg") == 1 || cg_streq(opt, "-link-arg") == 1) { List_push<string>(&linkx, val); }
+        else if (cg_streq(opt, "-l") == 1) { List_push<string>(&linkx, cg_cat("-l", val)); }
+        else if (cg_streq(opt, "-L") == 1) { List_push<string>(&linkx, cg_cat("-L", val)); }
+        else if ((int)a[0] == 45 && (int)a[1] == 108 && a[2] != 0) { List_push<string>(&linkx, a); }   // -lfoo
+        else if ((int)a[0] == 45 && (int)a[1] == 76 && a[2] != 0) { List_push<string>(&linkx, a); }    // -Lpath
+        else if ((int)a[0] == 45 && (int)a[1] == 79) {                                                 // -O<n>
+            if (a[2] == 0 || a[3] != 0 || (int)a[2] < 48 || (int)a[2] > 51) {
+                eprint("error: invalid optimization level '"); eprint(a); eprint("' (use -O0, -O1, -O2 or -O3)\n");
+                return 1;
+            }
+            optflag = a;
+        }
+        else if (cg_streq(a, "-c") == 1) { compile_only = 1; }
+        else if (cg_streq(a, "--freestanding") == 1 || cg_streq(a, "-freestanding") == 1) { freestanding = 1; }
+        else if (cg_streq(a, "--asan") == 1) { san = 1; }
+        else if (cg_streq(a, "--ubsan") == 1) { san = 2; }
+        else if (cg_streq(a, "--safe") == 1) { safe = 1; }
+        else if (cg_streq(a, "-Wall") == 1 || cg_streq(a, "-Wextra") == 1
+              || cg_streq(a, "--Wall") == 1 || cg_streq(a, "--Wextra") == 1) { }   // lint warnings: C++ only
+        else if (cg_streq(a, "--version") == 1
+                || cg_streq(a, "--test-lexer") == 1
+                || cg_streq(a, "--test-parser") == 1
+                || cg_streq(a, "--test-typechecker") == 1
+                || cg_streq(a, "--test-codegen") == 1) {
+            mode = a;
+        }
+        else if (is_value_opt(opt) == 1) {
+            eprint("error: option '"); eprint(opt); eprint("' is not supported by the self-hosted driver\n");
+            return 1;
+        }
+        else if ((int)a[0] == 45 && a[1] != 0) {
+            eprint("error: unknown option '"); eprint(a); eprint("'\n");
+            return 1;
+        }
+        else {
+            List_push<string>(&infiles, a);
             gotscript = 1;
         }
         ai = ai + 1;
@@ -198,7 +326,7 @@ int main(int argc, string* argv) {
         return 0;
     }
     if (List_len<string>(&infiles) == 0) {
-        eprint("usage: esk_main [-o <out>] [--asan|--ubsan] [--safe] [--test-*] <file.esk> [more.esk ...]\n");
+        eprint("usage: esk_main [-o <out>] [-c] [-O<n>] [--target T] [--asan|--ubsan] [--safe] [--freestanding] [-l<lib>] [-L<dir>] [--link-arg A] [--test-*] <file.esk> [more.esk ...]\n");
         return 1;
     }
     string infile = List_get<string>(&infiles, 0);   // primary file: test modes + diagnostics
@@ -206,12 +334,32 @@ int main(int argc, string* argv) {
     // Every mode preprocesses exactly like a real compile (the C++ test modes share the
     // build's predefined macros): the host OS macro picks the stdlib platform branch
     // (kqueue vs epoll, sockaddr layout) and __FILE__ is the real path.
+    // The platform macro follows --target, else the build host (C++ seedPredefinedMacros);
+    // a bare-metal triple defines none.
+    if (triple[0] == 0) {
 #ifdef __APPLE__
-    g_pp_os = "__APPLE__";
+        g_pp_os = "__APPLE__";
 #else
-    g_pp_os = "__linux__";
+        g_pp_os = "__linux__";
 #endif
-    g_pp_arch = cg_host_arch_macro();
+    } else if (str_contains(triple, "linux") == 1) { g_pp_os = "__linux__"; }
+    else if (str_contains(triple, "apple") == 1 || str_contains(triple, "darwin") == 1
+             || str_contains(triple, "macos") == 1) { g_pp_os = "__APPLE__"; }
+    else if (str_contains(triple, "windows") == 1 || str_contains(triple, "win32") == 1
+             || str_contains(triple, "mingw") == 1) {
+        g_pp_os = "_WIN32";
+        if (str_contains(triple, "x86_64") == 1 || str_contains(triple, "amd64") == 1
+            || str_contains(triple, "aarch64") == 1) { List_push<string>(&g_pp_predef, "_WIN64"); }
+    } else { g_pp_os = ""; }
+    if (freestanding == 1) { List_push<string>(&g_pp_predef, "__ESKIU_FREESTANDING__"); }
+    // The architecture macro (__aarch64__ / __x86_64__ / __arm__) follows the triple's
+    // prefix, else the host's (C++ seedPredefinedMacros).
+    if (triple[0] == 0) { g_pp_arch = cg_host_arch_macro(); }
+    else if (str_starts(triple, "aarch64") == 1 || str_starts(triple, "arm64") == 1) { g_pp_arch = "__aarch64__"; }
+    else if (str_starts(triple, "x86_64") == 1 || str_starts(triple, "amd64") == 1) { g_pp_arch = "__x86_64__"; }
+    else if (str_starts(triple, "arm") == 1 || str_starts(triple, "thumb") == 1) { g_pp_arch = "__arm__"; }
+    else { g_pp_arch = ""; }
+    g_stdlib_root = find_stdlib_root();
 
     // --test-lexer: preprocess, then print the token stream (C++ testLexer).
     if (cg_streq(mode, "--test-lexer") == 1) {
@@ -302,6 +450,10 @@ int main(int argc, string* argv) {
     cg_init(&g);
     g.safe = safe;                     // --safe → emit runtime bounds checks
     cg_program(&g, prog);
+    // -c (or --freestanding) without -o writes <input>.o, like the C++ driver.
+    if (outfile == null && (compile_only == 1 || freestanding == 1) && runmode == 0) {
+        outfile = cg_cat(infile, ".o");
+    }
     if (outfile == null || cg_streq(mode, "--test-codegen") == 1) {
         // No -o (or --test-codegen): emit the .ll to stdout (the bootstrap harness pipes it to clang).
         printf("%s", (string)String_cstr(&g.globals));   // declares + string constants
@@ -329,9 +481,26 @@ int main(int argc, string* argv) {
     push_words(&cargs, cc);
     if (san == 1) { List_push<string>(&cargs, "-fsanitize=address"); }
     else if (san == 2) { List_push<string>(&cargs, "-fsanitize=undefined"); }
+    // Object only when asked (-c, a .o output, --freestanding), else link. The IR
+    // carries no target triple, so clang's -Woverride-module note is expected noise.
+    int olen = 0;
+    while (outfile[olen] != 0) { olen = olen + 1; }
+    int want_obj = compile_only;
+    if (freestanding == 1) { want_obj = 1; }
+    if (olen >= 2 && (int)outfile[olen - 2] == 46 && (int)outfile[olen - 1] == 111) { want_obj = 1; }
+    if (runmode == 1) { want_obj = 0; }
+    List_push<string>(&cargs, "-Wno-override-module");
+    if (triple[0] != 0) { List_push<string>(&cargs, "-target"); List_push<string>(&cargs, triple); }
+    if (mcpu[0] != 0) { List_push<string>(&cargs, cg_cat("-mcpu=", mcpu)); }
+    if (optflag[0] != 0) { List_push<string>(&cargs, optflag); }
+    if (want_obj == 1) { List_push<string>(&cargs, "-c"); }
     List_push<string>(&cargs, tmp);
     List_push<string>(&cargs, "-o");
     List_push<string>(&cargs, outfile);
+    if (want_obj == 0) {
+        int li = 0;
+        while (li < List_len<string>(&linkx)) { List_push<string>(&cargs, List_get<string>(&linkx, li)); li = li + 1; }
+    }
     int rc = spawn_wait(&cargs);
     remove(tmp);
     if (rc != 0) {

@@ -1,0 +1,3 @@
+// EXPECT-ERROR: Cannot open import
+import "no_such_file.esk";
+int main() { return 0; }

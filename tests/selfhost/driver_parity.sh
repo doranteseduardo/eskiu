@@ -60,6 +60,26 @@ for f in "${files[@]}"; do
     fi
 done
 
+# Flags: both drivers accept the same compile flags and reject unknown ones.
+ARGS_ESK=tests/run_cmd/args.esk
+flagcheck() { # name expect(ok|reject) flags...
+    local name="$1" want="$2"; shift 2
+    total=$((total + 1))
+    local c=0 s=0
+    ESKIU_ROOT="$ROOT" "$BIN" "$@" >/dev/null 2>&1 || c=1
+    ESKIU_ROOT="$ROOT" "$ESKMAIN" "$@" >/dev/null 2>&1 || s=1
+    local w=0; [ "$want" = reject ] && w=1
+    if [ "$c" = "$w" ] && [ "$s" = "$w" ]; then echo "ok    flags/$name"
+    else echo "FAIL  flags/$name  (cpp rc!=0: $c, self rc!=0: $s, want $want)"; fail=1; fi
+}
+flagcheck object   ok     -c "$ARGS_ESK" -o "$WORK/f.o"
+flagcheck opt      ok     -O2 "$ARGS_ESK" -o "$WORK/f.o2"
+flagcheck unknown  reject --no-such-flag "$ARGS_ESK" -o "$WORK/f.u"
+flagcheck linklib  ok     -lm "$ARGS_ESK" -o "$WORK/f.lm"
+total=$((total + 1))
+if [ -s "$WORK/f.o" ] && ! [ -x "$WORK/f.o" ]; then echo "ok    flags/c-writes-object"
+else echo "FAIL  flags/c-writes-object"; fail=1; fi
+
 echo "----"
 if [ "$fail" -eq 0 ]; then echo "driver parity: $total/$total programs match"; else echo "driver parity: MISMATCH"; fi
 exit "$fail"

@@ -18,6 +18,10 @@ import <mem>;
 string g_pp_os;
 string g_pp_arch;   // host architecture macro (__aarch64__ / __x86_64__), set like g_pp_os
 
+// Further predefined macros (value 1) for real compilation, e.g. _WIN64 or
+// __ESKIU_FREESTANDING__ (the C++ seedPredefinedMacros). Set by the driver.
+List<string> g_pp_predef;
+
 struct PPMacro {
     string name;
     int is_function;
@@ -733,6 +737,14 @@ string pp_run(string src, int len, string filename, *int had_err) {
         PPMacro am; am.name = g_pp_arch; am.is_function = 0; List_init<string>(&am.params, 1); am.body = "1";
         pp_define(&tbl, am);
     } }
+
+    int pdi = 0;
+    while (pdi < List_len<string>(&g_pp_predef)) {
+        PPMacro xm; xm.name = List_get<string>(&g_pp_predef, pdi); xm.is_function = 0;
+        List_init<string>(&xm.params, 1); xm.body = "1";
+        pp_define(&tbl, xm);
+        pdi = pdi + 1;
+    }
 
     List<PPCond> stack;
     List_init<PPCond>(&stack, 8);
