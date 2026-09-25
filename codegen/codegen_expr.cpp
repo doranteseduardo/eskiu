@@ -78,6 +78,26 @@ std::string CodeGen::resolveOpInTemplateTypes(const std::string& op,
     if (!anyNominal) return "";
     std::string n = eskiuOpName(op, tys);
     if (!n.empty() && module->getFunction(n)) return n;
+    // An overload is named from its declared spellings (`Vec<int>`), while an operand
+    // here may carry the instance's mangled struct name (`Vec_int`): retry with the
+    // source form of each generic instance.
+    std::function<std::string(const std::string&)> sourceForm = [&](const std::string& t) {
+        auto ia = templateInstanceArgs.find(t);
+        if (ia == templateInstanceArgs.end()) return t;
+        std::string s = ia->second.first + "<";
+        for (size_t i = 0; i < ia->second.second.size(); ++i)
+            s += (i ? "," : "") + sourceForm(ia->second.second[i]);
+        return s + ">";
+    };
+    {
+        std::vector<std::string> src;
+        for (const auto& t : tys) src.push_back(sourceForm(t));
+        if (src != tys) {
+            std::string n2 = eskiuOpName(op, src);
+            if (!n2.empty() && module->getFunction(n2)) return n2;
+            tys = src;
+        }
+    }
     // A numeric operand may coerce to the overload's declared numeric parameter.
     for (size_t i = 0; i < tys.size(); ++i) {
         if (!nums.count(tys[i])) continue;
