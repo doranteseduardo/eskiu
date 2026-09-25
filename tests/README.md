@@ -23,7 +23,13 @@ The runner classifies every file automatically. There is no list to maintain.
 
 A `run` or `smoke` test may have a C companion `NAME.c` next to it. The runner compiles
 it with `$CC` and links it into the test binary, which is how calls across the C ABI are
-checked (`c_abi_struct.c`, `c_abi_try.c`).
+checked (`c_abi_struct.c`, `c_abi_try.c`, `c_abi_callback.c`, `c_abi_fnptr.c`,
+`bitfield_c_layout.c`). Every test links through `eskiuc` with no `-l` flags, so the
+libraries a program implies (`#pragma link`, the C++ runtime, pthread) are exercised too.
+
+`run.sh` also runs the generated deep-input tests from `tests/deep/gen.sh`: a
+100000-operand chain, 10000-deep nesting, and a program past the 100000-level nesting
+limit that must be rejected.
 
 These are *honest* tests: a `run` test fails the moment the generated program
 prints anything different, and an `error` test fails if the compiler ever starts
@@ -213,6 +219,38 @@ when you add a test.
 | `time_negative_year` | DateTime_format_iso prints a negative (proleptic) year in ISO 8601 expanded form, "-0001", instead of zero-padding the digits around the sign ("00-1"). |
 | `tls_frame_limit` | A peer-controlled 24-bit frame length larger than the 16384-byte frame buffer must be rejected (FRAME_SIZE_ERROR), not read past the buffer. |
 | `union_layout` | A union takes the alignment of its most-aligned member, so it lands at the C offset inside a struct and the struct is padded like C (u at 8, size 24). |
+| `async_name_collisions` | Locals and parameters named like the async transform's synthesized names (`__fr`, `st`, `ret`, `awaiting`, the await temporaries, the resume function) do not collide with them. |
+| `async_range_wide` | An await inside a range loop over `int64` bounds keeps the hoisted loop variable `int64`. |
+| `bitfield_c_layout` | Bitfields follow the target's C layout (C side: `bitfield_c_layout.c`): mixed declared types share a storage unit when they fit (SysV/AAPCS), packed structs pack bit by bit; C writes, Eskiu reads, and back. |
+| `c_abi_callback` | An Eskiu function passed to C as `(*void)f` that takes or returns a struct by value is reached through a C-ABI thunk (C side: `c_abi_callback.c`). |
+| `c_abi_fnptr` | An `extern` fn-typed parameter is a C function pointer: a top-level function is passed by its C address (through a thunk for by-value structs), `null` as a null pointer, and libc `qsort` takes its comparator that way (C side: `c_abi_fnptr.c`). |
+| `const_fold_c` | Constant initializers compute what the same expression computes at run time (promotions, usual arithmetic conversions, sign-extending casts, wrapping). |
+| `const_ptr_method` | A method on `const P* self` is callable through a pointer to const. |
+| `const_sizeof_struct` | A top-level `const` using `sizeof(struct)` folds to the real size. |
+| `defer_block_body` | A braced defer body run on an early exit does not invalidate the frame being unwound. |
+| `defer_shadow` | A deferred statement names the variables visible where it was written, even when it runs where a later declaration shadows one. |
+| `defer_switch_continue` | `continue` of a loop inside a `switch` case runs only the loop body's defers. |
+| `exceptions_nolib` | A program that throws links with no `-l` flag (the driver adds the C++ runtime). |
+| `extern_defined_struct` | An `extern` prototype next to the program's own definition keeps the Eskiu convention. |
+| `fn_type_local` | A C-style local of function type, `fn(int32)->int32 h = f;`, parses. |
+| `generic_arith_type` | Built-in operators in a generic body get the instance's types (unsigned division and comparison stay unsigned). |
+| `generic_const_self` | A generic `Type_method` taking `const Box<T>* self` infers `T` through a const receiver. |
+| `generic_dot_call` | `x.m(args)` on a generic instance calls the generic `S_m<T..>` with the receiver's type arguments (`List`, `Map`, `HashMap`, `Chan`, and inside generic bodies). |
+| `generic_infer_multi` | One parameter carrying several type parameters binds them all (`Pair<A, B>`, `HashMap_get(&m, k, &out)`). |
+| `generic_struct_methods` | Inline methods on a generic struct, instantiated per struct instance. |
+| `http_int64_lengths` | `Content-Length` digits are written from an `int64`, so values above `INT_MAX` come out in full. |
+| `int_conversions_c` | C's usual arithmetic conversions: same-width signed/unsigned is unsigned, a shift takes its left operand's type, unary `-`/`~` promote. |
+| `literal_unsigned_mix` | A literal mixed with an unsigned operand follows C's conversions; a char literal is unsigned. |
+| `main_int32` | `int32 main()` is a valid entry point. |
+| `math_nolib` | `import <math>` links with no `-l` flag (`#pragma link("m")` on glibc). |
+| `pragma_link` | `#pragma link("name")` links `-lname`: repeated pragmas link once, an import's pragma counts, one in a skipped `#ifdef` branch does not. |
+| `range_bound_outer` | Range bounds are read in the enclosing scope: a bound naming the loop variable means the outer one. |
+| `range_end_name` | The range loop's synthesized bound local does not capture a user variable spelled `__end_i`. |
+| `range_for_wide` | The range loop variable takes the bounds' common integer type, so `int64`/`uint64` bounds are not truncated. |
+| `shadow_init` | A shadowing declaration's initializer reads the outer variable. |
+| `sizeof_mixed_sign` | `sizeof` is an `int64` in mixed-sign arithmetic. |
+| `ternary_narrow_arms` | Two different narrow ternary arms meet as `int`. |
+| `wide_literal_type` | An integer literal too wide for `int` is an `int64` and widens its operation. |
 
 ### `smoke` tests (compile + link + exit 0)
 
@@ -346,6 +384,36 @@ when you add a test.
 | `errors/lambda_break_label` | rejected with "has no enclosing loop labeled 'outer'" |
 | `errors/lambda_break_outer` | rejected with "'break' outside of a loop or switch" |
 | `errors/question_type_args` | rejected with "`?` can only be used in a function returning the same Result type" |
+| `errors/assign_struct_to_int` | rejected with "cannot convert" |
+| `errors/call_global_nonfn` | rejected with "undefined function 'g'" |
+| `errors/const_ptr_method_call` | rejected with "cannot call method 'set' on a read-only value" |
+| `errors/deref_non_pointer` | rejected with "invalid operand for unary operator" |
+| `errors/dup_param_local` | rejected with "redefinition of 'a' in the same scope" (a local reusing a parameter name) |
+| `errors/extern_fnptr_closure` | rejected with "is a C function pointer" (a closure passed to an extern's fn parameter) |
+| `errors/generic_dot_call_arg_count` | rejected with "method 'set' expects 1 argument(s), got 2" |
+| `errors/generic_dot_call_arg_type` | rejected with "argument 1 type mismatch" |
+| `errors/generic_dot_call_const` | rejected with "cannot call method 'set' on a read-only value" |
+| `errors/generic_dot_call_in_generic` | rejected with "argument 1 type mismatch" |
+| `errors/generic_infer_shape` | rejected with "cannot infer type argument(s) A, B" |
+| `errors/generic_inst_method_arg` | rejected with "in instantiation of pick<Box>" |
+| `errors/generic_inst_nested` | rejected with "in instantiation of neg<Q>" |
+| `errors/generic_inst_operator` | rejected with "in instantiation of add<P>" |
+| `errors/generic_struct_method_inst` | rejected with "in instantiation of Box<string>.bump" |
+| `errors/iface_call_arg_type` | rejected with "argument 1 type mismatch" |
+| `errors/method_arg_count` | rejected with "method 'add' expects 1 argument(s), got 2" |
+| `errors/method_arg_type` | rejected with "argument 1 type mismatch" |
+| `errors/method_free_fn_arg_type` | rejected with "argument 1 type mismatch" |
+| `errors/pragma_link_malformed` | rejected with "malformed #pragma link" |
+| `errors/range_bound_float` | rejected with "range bound must be an integer" |
+| `errors/range_bound_ptr` | rejected with "range bound must be an integer" |
+| `errors/return_no_value` | rejected with "return type mismatch" |
+| `errors/string_arith` | rejected with "invalid operands for operator" |
+| `errors/struct_arith` | rejected with "invalid operands for operator" |
+| `errors/switch_case_location` | rejected with ":8:14: duplicate case value" |
+| `errors/switch_dup_const` | rejected with "duplicate case value in switch" (a `const` label) |
+| `errors/switch_dup_folded` | rejected with "duplicate case value in switch" (folded labels) |
+| `errors/unary_struct` | rejected with "invalid operand for unary operator" |
+| `errors/unknown_global_type` | rejected with "unknown type 'NoType'" |
 
 ### `lint` tests (-Wall)
 
