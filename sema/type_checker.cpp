@@ -784,7 +784,8 @@ void TypeChecker::warnAssignInCondition(Expr* cond) {
 
 // A condition may be a bool, a number (`!= 0`) or a pointer, nullable included (`!= null`).
 bool TypeChecker::isConditionType(const std::string& type) {
-    if (type == "unknown" || normalizeType(type) == "bool" || isNumericType(type)) return true;
+    std::string n = normalizeType(type);   // a classic enum is its int value
+    if (type == "unknown" || n == "bool" || isNumericType(type) || isNumericType(n)) return true;
     return isPointerType((!type.empty() && type[0] == '?') ? type.substr(1) : type);
 }
 

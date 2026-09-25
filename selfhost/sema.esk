@@ -3876,15 +3876,16 @@ void sema_arm_bindings(string label, List<string>* out) {
 
 // ── statement walk ──
 
-// A loop or `if` condition: a `bool` or a number (mirrors the C++ checkCondition).
+// A loop or `if` condition: a `bool`, a number (`!= 0`) or a pointer, `string` and `?*T`
+// included (`!= null`) (mirrors the C++ checkCondition).
 void sema_cond(Sema* s, *ExprNode c) {
     sema_expr(s, c);
     if (c == null) { return; }
     string ct = sema_infer_type(s, c);
     string cc = sema_canon(s, ct);
-    if (sema_judgeable(s, cc) == 1 && sema_is_numeric_ty(cc) == 0) {
+    if (sema_judgeable(s, cc) == 1 && sema_is_numeric_ty(cc) == 0 && sema_c_ptr(cc) == 0) {
         s.had_error = 1;
-        dprintf(2, "error: %s:%d:%d: condition must be boolean or numeric, got %s\n", s.filename, s.line, s.col, ct);
+        dprintf(2, "error: %s:%d:%d: condition must be boolean, numeric, or a pointer, got %s\n", s.filename, s.line, s.col, ct);
     }
 }
 

@@ -1,0 +1,19 @@
+// A string is a char pointer, so as a condition it tests `!= null`; a classic enum
+// value tests `!= 0`.
+extern int printf(string fmt, ...);
+
+enum Mode { Off, On }
+
+int main() {
+    string s = "a";
+    string n = null;
+    if (s) { printf("s set\n"); }
+    if (!n) { printf("n null\n"); }
+    printf("%d %d\n", s ? 1 : 0, n ? 1 : 0);
+    Mode m = On;
+    Mode o = Off;
+    if (m) { printf("on\n"); }
+    while (o) { o = Off; }
+    printf("%d\n", o ? 1 : 2);
+    return 0;
+}
