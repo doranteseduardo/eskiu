@@ -221,11 +221,13 @@ bool CodeGen::isIntPromotingOp(const std::string& op) {
 // cast), but the value codegen computes is the C-promoted `int`. Report `int` for such
 // an arithmetic/bitwise result so every consumer extends it as the signed int it is.
 static std::string promotedResultType(const ExprPtr& expr, const std::string& t) {
+    static const std::set<std::string> narrow = {"bool","char","int8","uint8","int16","uint16"};
+    if (auto* u = dynamic_cast<UnaryExpr*>(expr.get()))     // `-x` / `~x` promote too
+        return (u->opFunc.empty() && (u->op == "-" || u->op == "~") && narrow.count(t)) ? "int" : t;
     auto* b = dynamic_cast<BinaryExpr*>(expr.get());
     if (!b || !b->opFunc.empty()) return t;
     static const std::set<std::string> arith = {"+","-","*","/","%","&","|","^","<<",">>"};
     if (!arith.count(b->op)) return t;
-    static const std::set<std::string> narrow = {"bool","char","int8","uint8","int16","uint16"};
     return narrow.count(t) ? "int" : t;
 }
 

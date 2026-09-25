@@ -2389,6 +2389,16 @@ int cg_is_num_ety(Codegen* g, string t) {
 }
 int cg_is_ptr_ety(string t) { return cg_is_ptr_ty(t) == 1 || cg_streq(t, "string") == 1; }
 
+// The integer width an Eskiu type ranks at for promotion: 64/32, 16 for any narrower
+// integer (it promotes to int), 0 for a non-integer.
+int cg_rank_w(Codegen* g, string t) {
+    if (cg_streq(t, "int64") == 1 || cg_streq(t, "uint64") == 1) { return 64; }
+    if (cg_streq(t, "int") == 1 || cg_streq(t, "int32") == 1 || cg_streq(t, "uint") == 1
+        || cg_streq(t, "uint32") == 1) { return 32; }
+    if (cg_is_int_ety(g, t) == 1) { return 16; }
+    return 0;
+}
+
 // The common type of two numeric operands. Mirrors the C++ TypeChecker::promoteType
 // exactly (including its rank order), so signedness and width decisions agree.
 string cg_promote(Codegen* g, string a, string b) {
@@ -2397,6 +2407,25 @@ string cg_promote(Codegen* g, string a, string b) {
     if (cg_streq(a, b) == 1) { return a; }
     if (cg_streq(a, "double") == 1 || cg_streq(b, "double") == 1) { return "double"; }
     if (cg_streq(a, "float") == 1 || cg_streq(b, "float") == 1) { return "float"; }
+    // C's usual arithmetic conversions once an operand is int-sized or wider (a narrow
+    // operand counts as int): signed/unsigned is unsigned unless the signed type is wider.
+    int wa = cg_rank_w(g, a); int wb = cg_rank_w(g, b);
+    if (wa > 0 && wb > 0 && (wa >= 32 || wb >= 32)) {
+        int ua = 0; if (wa >= 32 && cg_is_unsigned(a) == 1) { ua = 1; }
+        int ub = 0; if (wb >= 32 && cg_is_unsigned(b) == 1) { ub = 1; }
+        if (wa < 32) { wa = 32; }
+        if (wb < 32) { wb = 32; }
+        int w = wa; int u = ua;
+        if (ua == ub) { if (wb > wa) { w = wb; } }
+        else {
+            int wu = wa; int ws = wb;
+            if (ub == 1) { wu = wb; ws = wa; }
+            if (wu >= ws) { w = wu; u = 1; } else { w = ws; u = 0; }
+        }
+        if (w == 64) { if (u == 1) { return "uint64"; } return "int64"; }
+        if (u == 1) { return "uint32"; }
+        return "int32";
+    }
     if (cg_streq(a, "int64") == 1 || cg_streq(b, "int64") == 1) { return "int64"; }
     if (cg_streq(a, "uint64") == 1 || cg_streq(b, "uint64") == 1) { return "uint64"; }
     if (cg_streq(a, "int32") == 1 || cg_streq(b, "int32") == 1) { return "int32"; }
@@ -2418,6 +2447,11 @@ string cg_binary_ety(Codegen* g, string op, string l, string r) {
         if (cg_is_ptr_ety(l) == 1 && cg_is_int_ety(g, r) == 1) { return l; }
         if (cg_streq(op, "+") == 1 && cg_is_ptr_ety(r) == 1 && cg_is_int_ety(g, l) == 1) { return r; }
     }
+    // C integer promotion: a narrower-than-int operand is an int; a shift has the
+    // (promoted) type of its left operand alone.
+    if (cg_rank_w(g, l) == 16) { l = "int"; }
+    if (cg_rank_w(g, r) == 16) { r = "int"; }
+    if ((cg_streq(op, "<<") == 1 || cg_streq(op, ">>") == 1) && cg_is_int_ety(g, l) == 1) { return l; }
     if (cg_is_num_ety(g, l) == 1 && cg_is_num_ety(g, r) == 1) { return cg_promote(g, l, r); }
     return "";
 }
@@ -2507,6 +2541,7 @@ string cg_unary_ety(Codegen* g, *ExprNode e, string at) {
     string uopn = cg_op_resolve1(g, uop, at);
     if (uopn[0] != 0) { return cg_find_fn(g, uopn).rety; }
     if (cg_streq(e.sval, "!") == 1) { return "bool"; }
+    if ((cg_streq(e.sval, "-") == 1 || cg_streq(e.sval, "~") == 1) && cg_rank_w(g, at) == 16) { return "int"; }
     return at;
 }
 
@@ -3039,6 +3074,10 @@ CgVal cg_unary_chain(Codegen* g, *ExprNode e) {
 CgVal cg_unary_apply(Codegen* g, *ExprNode e, CgVal operand) {
     let v: CgVal;
     v.ety = "";
+    if (cg_streq(e.sval, "-") == 1 || cg_streq(e.sval, "~") == 1) {
+        int nw = cg_int_w(operand.ty);                   // C: a narrow operand becomes int first
+        if (nw > 0 && nw < 32) { operand.op = cg_coerce(g, operand, "i32"); operand.ty = "i32"; operand.ety = "int"; }
+    }
     if (cg_streq(e.sval, "-") == 1) {
         CgVal a = operand;
         string t = cg_tmp(g);
@@ -3049,7 +3088,7 @@ CgVal cg_unary_apply(Codegen* g, *ExprNode e, CgVal operand) {
             cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = sub "); cg_emit(g, a.ty);
             cg_emit(g, " 0, "); cg_emit(g, a.op); cg_emit(g, "\n");
         }
-        v.op = t; v.ty = a.ty; return v;
+        v.op = t; v.ty = a.ty; v.ety = a.ety; return v;   // keeps the (promoted) signedness
     }
     if (cg_streq(e.sval, "!") == 1) {                // logical not: (x == 0) -> i1
         CgVal a = operand;
@@ -3194,6 +3233,8 @@ CgVal cg_binary_builtin(Codegen* g, *ExprNode e, CgVal left) {
     string icty = l.ty; string ilop = l.op; string irop = r.op; int uns = 0;
     if (lw > 0 && rw > 0) {
         if (rw > lw) { icty = r.ty; } else { icty = l.ty; }
+        // A shift computes in the width of the value shifted; the count never widens it.
+        if (cg_streq(e.sval, "<<") == 1 || cg_streq(e.sval, ">>") == 1) { icty = l.ty; }
         ilop = cg_coerce(g, l, icty);
         irop = cg_coerce(g, r, icty);
         // C usual arithmetic conversions: an op mixing signed and unsigned is unsigned

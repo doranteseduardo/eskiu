@@ -391,14 +391,15 @@ llvm::Value* CodeGen::emitBuiltinBinary(BinaryExpr* node, llvm::Value* left) {
         widenForBitwise(); result = builder->CreateOr(left, right);
     } else if (node->op == "^") {
         widenForBitwise(); result = builder->CreateXor(left, right);
-    } else if (node->op == "<<") {
-        widenForBitwise(); result = builder->CreateShl(left, right);
-    } else if (node->op == ">>") {
-        widenForBitwise();
+    } else if (node->op == "<<" || node->op == ">>") {
+        // A shift computes in the (promoted) width of the value shifted; the count is
+        // converted to that width and never widens the result (C).
+        if (left->getType()->isIntegerTy() && right->getType()->isIntegerTy())
+            right = builder->CreateZExtOrTrunc(right, left->getType());
         // The shift kind follows the value being shifted (the left operand) only; the
         // count's signedness is irrelevant, so a signed value keeps an arithmetic shift.
-        result = lUns ? builder->CreateLShr(left, right)
-                      : builder->CreateAShr(left, right);
+        if (node->op == "<<") result = builder->CreateShl(left, right);
+        else result = lUns ? builder->CreateLShr(left, right) : builder->CreateAShr(left, right);
     } else {
         throw std::runtime_error("Unknown binary operator: " + node->op);
     }
@@ -545,6 +546,15 @@ void CodeGen::visit(UnaryExpr* node) {
     }
 
     llvm::Value* result = nullptr;
+
+    // C integer promotion: `-`/`~` on an operand narrower than int (bool, char, int8/16,
+    // uint8/16) first widens it to int by its own signedness, so `~(uint8)255` is -256.
+    if ((node->op == "-" || node->op == "~") && val->getType()->isIntegerTy() &&
+        val->getType()->getIntegerBitWidth() < 32) {
+        llvm::Type* i32 = llvm::Type::getInt32Ty(*context);
+        bool uns = val->getType()->isIntegerTy(1) || eskiuUnsigned(getExprEskiuType(node->operand));
+        val = uns ? builder->CreateZExt(val, i32) : builder->CreateSExt(val, i32);
+    }
 
     if (node->op == "-") {
         result = val->getType()->isFloatingPointTy()

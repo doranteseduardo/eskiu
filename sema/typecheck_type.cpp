@@ -46,8 +46,10 @@ std::string TypeChecker::inferBinaryExprType(const std::string& leftIn, const st
     }
     // Bitwise and shift operators work on integers
     if (op == "&" || op == "|" || op == "^" || op == "<<" || op == ">>") {
-        if (isIntType(leftType) && isIntType(rightType)) return promoteType(leftType, rightType);
-        return "error";
+        if (!isIntType(leftType) || !isIntType(rightType)) return "error";
+        // A shift has the (promoted) type of its left operand alone, as in C.
+        if (op == "<<" || op == ">>") return intPromoted(leftType);
+        return promoteType(intPromoted(leftType), intPromoted(rightType));
     }
     // Pointer arithmetic: ptr + int / ptr - int → ptr; ptr - ptr → int64
     if (op == "-" && isPointerType(leftType) && isPointerType(rightType)) return "int64";
@@ -57,7 +59,16 @@ std::string TypeChecker::inferBinaryExprType(const std::string& leftIn, const st
     if (!isNumericType(leftType) || !isNumericType(rightType)) {
         return "error";
     }
-    return promoteType(leftType, rightType);
+    return promoteType(intPromoted(leftType), intPromoted(rightType));
+}
+
+// C integer promotion: an integer type narrower than int (bool, char, int8/16,
+// uint8/16) is int in arithmetic; every other type is itself.
+std::string TypeChecker::intPromoted(const std::string& raw) {
+    std::string t = tyq::strip(raw);
+    if (t == "bool" || t == "char" || t == "int8" || t == "uint8" || t == "int16" || t == "uint16")
+        return "int32";
+    return t;
 }
 
 std::string TypeChecker::inferUnaryExprType(const std::string& op, const std::string& operandIn) {
@@ -72,12 +83,12 @@ std::string TypeChecker::inferUnaryExprType(const std::string& op, const std::st
     }
     if (op == "-" || op == "+") {
         if (isNumericType(operandType)) {
-            return operandType;
+            return op == "-" ? intPromoted(operandType) : operandType;
         }
         return "error";
     }
     if (op == "~") {
-        if (isIntType(operandType)) return operandType;
+        if (isIntType(operandType)) return intPromoted(operandType);
         return "error";
     }
     if (op == "&") {
@@ -594,6 +605,28 @@ std::string TypeChecker::promoteType(const std::string& raw1, const std::string&
     if (type1 == type2) return type1;
     if (type1 == "double"  || type2 == "double")  return "double";
     if (type1 == "float"   || type2 == "float")   return "float";
+    // C's usual arithmetic conversions once an operand is int-sized or wider: a narrow
+    // operand counts as int, and a signed/unsigned pair is unsigned unless the signed
+    // type is wider (int32 + uint32 is uint32, int64 + uint64 is uint64, int64 + uint32
+    // is int64). Two narrow operands keep the legacy spelling (codegen reports it as int).
+    auto width = [&](const std::string& t) -> int {
+        if (t == "int64" || t == "uint64") return 64;
+        if (t == "int" || t == "int32" || t == "uint" || t == "uint32") return 32;
+        return isIntType(t) ? 16 : 0;
+    };
+    int w1 = width(type1), w2 = width(type2);
+    if (w1 && w2 && (w1 >= 32 || w2 >= 32)) {
+        auto isUns = [](const std::string& t) { return t == "uint" || t == "uint32" || t == "uint64"; };
+        bool u1 = isUns(type1), u2 = isUns(type2);
+        w1 = std::max(w1, 32); w2 = std::max(w2, 32);
+        int w; bool u;
+        if (u1 == u2) { w = std::max(w1, w2); u = u1; }
+        else {
+            int wu = u1 ? w1 : w2, ws = u1 ? w2 : w1;
+            u = wu >= ws; w = u ? wu : ws;
+        }
+        return w == 64 ? (u ? "uint64" : "int64") : (u ? "uint32" : "int32");
+    }
     if (type1 == "int64"   || type2 == "int64")   return "int64";
     if (type1 == "uint64"  || type2 == "uint64")  return "uint64";
     if (type1 == "int32"   || type2 == "int32")   return "int32";

@@ -364,6 +364,7 @@ private:
 
     // Type promotion
     std::string promoteType(const std::string& type1, const std::string& type2);
+    static std::string intPromoted(const std::string& type);
 
     // Type normalization
     std::string normalizeType(const std::string& type);

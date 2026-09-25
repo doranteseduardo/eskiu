@@ -1,0 +1,31 @@
+// C's usual arithmetic conversions, checked against clang by the C oracle in
+// tests/fuzz/eskiu_fuzz.py: a signed/unsigned pair of the same width is unsigned,
+// a shift has its left operand's promoted type, and unary `-`/`~` promote a narrow
+// operand to int first.
+extern int printf(string fmt, ...);
+
+int main() {
+    uint32 u = 5;
+    int32 i = -1;
+    uint64 bu = 3;
+    int64 bi = -2;
+    uint8 d = 255;
+    bool t = true;
+    int8 c = 100;
+    printf("%lld\n", (int64)(i + u));          // uint32: 4
+    printf("%lld\n", (int64)(i * u));          // uint32: 4294967291
+    printf("%lld\n", (int64)(true ? i : u));   // uint32: 4294967295
+    printf("%d\n", (bi + bu) > 0);             // uint64: 1 > 0
+    printf("%llu\n", (uint64)(bi / bu));       // uint64 division: 6148914691236517204
+    printf("%lld\n", (int64)((int32)1 << (int64)31));   // int32 result: -2147483648
+    printf("%lld\n", (int64)((uint8)1 << 9));   // int result: 512
+    printf("%lld\n", (int64)(-u));             // uint32: 4294967291
+    printf("%lld\n", (int64)(~d));             // int: -256
+    printf("%lld\n", (int64)(-t));             // int: -1
+    printf("%lld\n", (int64)(~t));             // int: -2
+    printf("%lld\n", (int64)(t ? c + c : c));  // int: 200
+    uint16 w = 65535;
+    int16 s = 1;
+    printf("%lld\n", (int64)(t ? w + w : s));  // int: 131070
+    return 0;
+}
