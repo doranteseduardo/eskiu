@@ -1,0 +1,4 @@
+// EXPECT-ERROR: is declared as both a function and a variable
+int f() { return 1; }
+int f = 3;
+int main() { return f; }

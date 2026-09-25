@@ -5347,6 +5347,23 @@ void cg_emit_tydecl(Codegen* g, *DeclNode d) {
 }
 
 void cg_program(Codegen* g, *Program prog) {
+    // A struct declared again (sema accepts only an identical repeat, e.g. two merged files
+    // sharing a declaration) is one type: keep the first declaration, like the C++ backend.
+    int di = List_len<*DeclNode>(&prog.decls) - 1;
+    while (di > 0) {
+        *DeclNode dd = List_get<*DeclNode>(&prog.decls, di);
+        int dup = 0;
+        if (dd.kind == DK_STRUCT) {
+            int dj = 0;
+            while (dj < di) {
+                *DeclNode de = List_get<*DeclNode>(&prog.decls, dj);
+                if (de.kind == DK_STRUCT && cg_streq(de.name, dd.name) == 1) { dup = 1; }
+                dj = dj + 1;
+            }
+        }
+        if (dup == 1) { List_remove<*DeclNode>(&prog.decls, di); }
+        di = di - 1;
+    }
     int n = List_len<*DeclNode>(&prog.decls);
 
     cg_deftype(g, "closure", "{ ptr, ptr }");   // fat pointer for fn values

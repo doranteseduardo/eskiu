@@ -1,0 +1,4 @@
+// EXPECT-ERROR: redefinition of enum 'C'
+enum C { R, G }
+enum C { X, Y }
+int main() { return G; }

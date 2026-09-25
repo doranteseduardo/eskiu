@@ -283,8 +283,11 @@ void TypeChecker::visit(FunctionDecl* node) {
                       "got '" + node->returnType + "'");
 
     // Parameter and return types must name known types.
+    std::set<std::string> paramNames;
     for (const auto& param : node->params) {
         if (param.first == "...") continue;
+        if (!param.second.empty() && !paramNames.insert(param.second).second)
+            errorAt(node, "duplicate parameter '" + param.second + "' in function '" + fnDisplay(node->name) + "'");
         validateStructType(normalizeType(param.first), node);
         if (isVoidValueType(param.first))
             errorAt(node, "parameter '" + param.second + "' cannot have type 'void'");
@@ -592,6 +595,10 @@ void TypeChecker::visit(VarDecl* node) {
     if (tyq::baseConst(node->type) && tyq::isPtr(node->type))
         storedType = "const " + normalizedType;
 
+    // Two locals of the same name in one scope (`let x; let x;`). Globals are checked
+    // once for the whole program (checkTopLevelNames); an inner block may shadow.
+    if (scopes.size() > 1 && scopes.back().count(node->name))
+        errorAt(node, "redefinition of '" + node->name + "' in the same scope");
     defineSymbol(node->name, storedType, node->line, node->col, /*isParam=*/false);
     if (node->isConst && !scopes.empty()) scopes.back()[node->name].isConst = true;
     if (node->isStatic && !scopes.empty()) scopes.back()[node->name].isStatic = true;
@@ -599,6 +606,20 @@ void TypeChecker::visit(VarDecl* node) {
 
 void TypeChecker::visit(StructDecl* node) {
     defineSymbol(node->name, "struct:" + node->name);
+    {
+        std::set<std::string> names;
+        for (const auto& f : node->fields)
+            if (!names.insert(f.name).second)
+                errorAt(node, "duplicate field '" + f.name + "' in struct '" + node->name + "'");
+        std::set<std::string> methods;
+        for (const auto& m : node->methods)
+            if (auto* mf = dynamic_cast<FunctionDecl*>(m.get())) {
+                if (names.count(mf->name))
+                    errorAt(mf, "method '" + mf->name + "' of struct '" + node->name + "' has the same name as a field");
+                if (!methods.insert(mf->name).second)
+                    errorAt(mf, "duplicate method '" + mf->name + "' in struct '" + node->name + "'");
+            }
+    }
     // Field types must name known types (a template's fields mention its type params and
     // are checked per instantiation through the instance's type arguments instead).
     if (node->typeParams.empty()) {
@@ -671,6 +692,10 @@ void TypeChecker::visit(InterfaceDecl* node) {
 void TypeChecker::visit(UnionDecl* node) {
     // Registered as a struct in the first pass (so field access works and a signature
     // declared before it may name it); here only its field types are validated.
+    std::set<std::string> names;
+    for (const auto& f : node->fields)
+        if (!names.insert(f.name).second)
+            errorAt(node, "duplicate field '" + f.name + "' in union '" + node->name + "'");
     for (const auto& f : node->fields) {
         validateStructType(normalizeType(f.type), node);
         if (isVoidValueType(f.type))

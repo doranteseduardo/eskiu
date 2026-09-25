@@ -1,0 +1,4 @@
+// EXPECT-ERROR: is declared as both a struct and a function
+struct f { int v; }
+int f() { return 1; }
+int main() { return f(); }

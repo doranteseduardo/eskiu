@@ -46,7 +46,9 @@ HANDLED="undefined_var arg_count undefined_type await_outside_async async_no_awa
          fn_value_arg_count fn_value_arg_type fn_field_arg_count fn_chained_arg_count iface_call_arg_count
          generic_arg_count generic_explicit_arg_count generic_type_arg_count generic_arg_conflict generic_uninferable
          match_dup_value alias_cycle void_var void_param void_field bitfield_float bitfield_too_wide
-         operator_redefinition"
+         operator_redefinition
+         dup_local dup_global dup_param dup_fn_global dup_struct_fn dup_struct dup_field dup_enum
+         dup_enum_member dup_default dup_method_fn dup_field_method proto_conflict"
 HANDLED="$(echo $HANDLED)"   # collapse the multi-line list to single spaces for matching
 
 DRIVER=selfhost/esk_main.esk

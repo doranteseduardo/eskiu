@@ -142,6 +142,8 @@ bool TypeChecker::check(Program* program) {
         }
     }
 
+    checkTopLevelNames(program);
+
     // A type alias that resolves back to itself (`type A = B; type B = A;`, `type A = *A;`)
     // names no type. Report it and drop it so type resolution terminates.
     {
@@ -195,6 +197,95 @@ bool TypeChecker::check(Program* program) {
     }
 
     return !hasErrors;
+}
+
+// Top-level names share one namespace: a function, global variable, struct/union, enum,
+// enum member, interface, or type alias may be declared once. Exceptions: `extern`
+// declarations (repeated across modules), a body-less prototype plus its definition (with
+// the same signature), a variable's `extern` declaration plus its definition, and a struct
+// declared again with identical fields (a multi-file merge of the same declaration).
+void TypeChecker::checkTopLevelNames(Program* program) {
+    struct Entry { std::string kind; Decl* decl; };
+    std::map<std::string, Entry> seen;
+    auto sameFields = [](const std::vector<StructDecl::Field>& a, const std::vector<StructDecl::Field>& b) {
+        if (a.size() != b.size()) return false;
+        for (size_t i = 0; i < a.size(); ++i)
+            if (a[i].type != b[i].type || a[i].name != b[i].name || a[i].bitWidth != b[i].bitWidth) return false;
+        return true;
+    };
+    auto sigOf = [&](FunctionDecl* f) {
+        std::string s = normalizeType(f->returnType) + "(";
+        for (size_t i = 0; i < f->params.size(); ++i) s += (i ? ", " : "") + normalizeType(f->params[i].first);
+        return s + ")";
+    };
+    auto declare = [&](const std::string& name, const std::string& kind, Decl* d) {
+        auto it = seen.find(name);
+        if (it == seen.end()) { seen[name] = {kind, d}; return; }
+        Entry& prev = it->second;
+        if (kind == "function" && prev.kind == "function") {
+            auto* a = static_cast<FunctionDecl*>(prev.decl);
+            auto* b = static_cast<FunctionDecl*>(d);
+            if (!a->typeParams.empty() || !b->typeParams.empty()) {
+                if (a->body && b->body) return;              // reported as a redefinition
+            } else if (sigOf(a) != sigOf(b)) {
+                errorAt(d, "conflicting declaration of function '" + fnDisplay(name) + "' (" +
+                           sigOf(b) + " vs the earlier " + sigOf(a) + ")");
+                return;
+            }
+            if (!prev.decl || (!a->body && b->body)) prev.decl = d;
+            return;                                          // two bodies: reported as a redefinition
+        }
+        if (kind == "variable" && prev.kind == "variable") {
+            auto* a = static_cast<VarDecl*>(prev.decl);
+            auto* b = static_cast<VarDecl*>(d);
+            if ((a->isExtern || b->isExtern) && normalizeType(a->type) == normalizeType(b->type)) return;
+            errorAt(d, "redefinition of global variable '" + name + "'");
+            return;
+        }
+        if (kind == "struct" && prev.kind == "struct") {
+            auto* a = static_cast<StructDecl*>(prev.decl);
+            auto* b = static_cast<StructDecl*>(d);
+            if (sameFields(a->fields, b->fields) && a->methods.size() == b->methods.size() &&
+                a->typeParams == b->typeParams) return;      // the same declaration, merged twice
+            errorAt(d, "redefinition of struct '" + name + "' with different fields");
+            return;
+        }
+        if (kind == prev.kind) {
+            errorAt(d, "redefinition of " + kind + " '" + name + "'");
+            return;
+        }
+        errorAt(d, "'" + name + "' is declared as both a " + prev.kind + " and a " + kind);
+    };
+    for (const auto& decl : program->declarations) {
+        Decl* d = decl.get();
+        if (auto* f = dynamic_cast<FunctionDecl*>(d)) declare(f->name, "function", f);
+        else if (auto* v = dynamic_cast<VarDecl*>(d)) declare(v->name, "variable", v);
+        else if (auto* s = dynamic_cast<StructDecl*>(d)) {
+            declare(s->name, "struct", s);
+            // An inline method `S.m` is the function `S_m`; a free `S_m` would be a second one.
+            for (const auto& m : s->methods)
+                if (auto* mf = dynamic_cast<FunctionDecl*>(m.get())) {
+                    std::string mangled = s->name + "_" + mf->name;
+                    auto it = seen.find(mangled);
+                    if (it != seen.end() && it->second.kind == "function")
+                        errorAt(it->second.decl, "function '" + mangled + "' conflicts with method '" +
+                                                 mf->name + "' of struct '" + s->name + "'");
+                    else seen[mangled] = {"method", mf};
+                }
+        }
+        else if (auto* u = dynamic_cast<UnionDecl*>(d)) declare(u->name, "union", u);
+        else if (auto* e = dynamic_cast<EnumDecl*>(d)) {
+            declare(e->name, "enum", e);
+            for (const auto& m : e->members) declare(m.first, "enum member", e);
+        }
+        else if (auto* i = dynamic_cast<InterfaceDecl*>(d)) declare(i->name, "interface", i);
+        else if (auto* a = dynamic_cast<TypeAliasDecl*>(d)) {
+            auto it = seen.find(a->name);
+            if (it != seen.end() && it->second.kind == "type alias" &&
+                static_cast<TypeAliasDecl*>(it->second.decl)->aliased == a->aliased) continue;
+            declare(a->name, "type alias", a);
+        }
+    }
 }
 
 // A struct (or union) that contains itself by value, directly or through other by-value

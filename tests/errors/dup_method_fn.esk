@@ -1,0 +1,4 @@
+// EXPECT-ERROR: 'S_get' is declared as both a method and a function
+struct S { int v; int get() { return 1; } }
+int S_get(*S self) { return 2; }
+int main() { let s: S = S{v: 1}; return s.get(); }

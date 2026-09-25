@@ -450,7 +450,12 @@ void TypeChecker::visit(SwitchStmt* node) {
         errorAt(node,"switch subject must be integer type, got " + subjType);
     std::set<long long> seenCases;   // detect duplicate case values (else codegen
                                      // emits a switch the IR verifier rejects)
+    bool seenDefault = false;
     for (auto& c : node->cases) {
+        if (!c.value) {
+            if (seenDefault) errorAt(node, "multiple 'default' labels in one switch");
+            seenDefault = true;
+        }
         if (c.value) {
             c.value->accept(this);
             std::string caseType = getExpressionType(c.value.get());

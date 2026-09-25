@@ -250,6 +250,8 @@ private:
     void checkBitfield(ASTNode* at, const std::string& owner, const StructDecl::Field& f);
     // Reject a struct/union that contains itself by value (no finite layout).
     void checkValueCycles(Program* program);
+    // One top-level namespace: duplicate/conflicting functions, globals, types, members.
+    void checkTopLevelNames(Program* program);
 
     // Type checking utilities
     bool isValidAssignment(const std::string& lhsType, const std::string& rhsType);

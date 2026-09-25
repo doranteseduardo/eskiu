@@ -929,8 +929,10 @@ void TypeChecker::visit(LambdaExpr* node) {
     loopLabelStack.clear();
     int savedSwitch = switchDepth;
     switchDepth = 0;
-    for (const auto& p : node->params)
+    for (const auto& p : node->params) {
+        if (scopes.back().count(p.second)) errorAt(node, "duplicate parameter '" + p.second + "' in lambda");
         defineSymbol(p.second, normalizeType(p.first), node->line, node->col, /*isParam=*/true);
+    }
     // Mark param names so IdentExpr doesn't treat them as captures
     std::set<std::string> paramNames;
     for (const auto& p : node->params) paramNames.insert(p.second);
