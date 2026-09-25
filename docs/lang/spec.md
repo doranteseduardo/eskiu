@@ -528,7 +528,9 @@ next();   // 2
 next();   // 3
 ```
 
-A `static` local's initializer must be a **compile-time constant** (a literal); a runtime expression is rejected. An uninitialised `static` local is zero-initialised. Two `static` locals in different functions never alias, even if they share a name. `static` on a global is rejected, since a global already has static storage.
+A `static` local's initializer must be a **compile-time constant**; a runtime expression is rejected. An uninitialised `static` local is zero-initialised. Two `static` locals in different functions never alias, even if they share a name. `static` on a global is rejected, since a global already has static storage. A closure that uses a `static` local refers to that one cell, like a global, rather than capturing a copy.
+
+The same constant rule applies to a **global** variable's initializer, as in C: it may be a literal, an enum member, a top-level `const`, `sizeof`, the address of a global (`&g`), a non-capturing lambda, any unary, binary, ternary or cast expression over those (`int C = 3 + 1;`, `double q = 1.0 / 4.0;`), or an array or struct literal built from them. A call or a read of a non-`const` variable is a compile error ("initializer of global 'X' is not a compile-time constant"), since no code runs before `main` to compute it.
 
 ---
 
