@@ -1580,6 +1580,12 @@ string sema_assign_err(Sema* s, string t0, *ExprNode e) {
     if (e == null || t0 == null || t0[0] == 0) { return ""; }
     string t = sema_strip_const(t0);
     string tc = sema_canon(s, t0);
+    if (sema_find_iface(s, t) != null) {   // nullable / pointer-depth / const boxing rules
+        int had0 = s.had_error; s.had_error = 0;
+        sema_check_iface_value(s, t, e);
+        int hit = s.had_error; s.had_error = had0 | hit;
+        if (hit == 1) { return ""; }
+    }
     if (sema_is_int_ty(tc) == 1 && e.kind == EK_LITERAL && e.lit_kind == LIT_INT
         && sema_int_lit_fits(tc, e.sval) == 0) {
         return sema_cat(sema_cat(sema_cat(sema_cat("integer literal ", e.sval), " is out of range for '"), t), "'");
@@ -2862,6 +2868,7 @@ int sema_binop_verdict(Sema* s, string op, string lt0, string rt0) {
         int rp = sema_c_ptr(r); if (sema_streq(r, "null") == 1) { rp = 1; }
         if (sema_is_numeric_ty(l) == 1 && sema_is_numeric_ty(r) == 1) { return 1; }
         if (lp == 1 && rp == 1) { return 1; }
+        if (sema_is_aggregate(s, lt0) == 1 || sema_is_aggregate(s, rt0) == 1) { return 0; }   // no built-in == on aggregates
         if (sema_streq(l, r) == 1 && sema_is_agg(s, l) == 0) { return 1; }
         return 0;
     }
