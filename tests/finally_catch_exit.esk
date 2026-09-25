@@ -1,0 +1,39 @@
+// `finally` runs when a catch handler leaves early (return / break / continue), just
+// as it does on fall-through and on an early exit from the try body.
+extern int printf(string fmt, ...);
+
+int fromCatch(int k) {
+    try {
+        if (k > 0) { throw "boom"; }
+        printf("body ");
+    } catch (string e) {
+        printf("catch:%s ", e);
+        return 1;
+    } finally {
+        printf("finally ");
+    }
+    return 0;
+}
+
+int loopCatch() {
+    int n = 0;
+    for (int i = 0; i < 3; i++) {
+        try {
+            throw "x";
+        } catch (string e) {
+            n = n + 1;
+            if (i == 1) { continue; }
+            if (i == 2) { break; }
+        } finally {
+            printf("f%d ", i);
+        }
+    }
+    return n;
+}
+
+int main() {
+    printf("-> %d\n", fromCatch(1));
+    printf("-> %d\n", fromCatch(0));
+    printf("-> %d\n", loopCatch());
+    return 0;
+}

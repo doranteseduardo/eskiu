@@ -344,14 +344,20 @@ void CodeGen::visit(TryStmt* node) {
         builder->CreateStore(catchVal, catchAlloca);
         defineSymbol(c.name, catchAlloca);
         defineVarType(c.name, c.type);
+        // The payload is copied out, so the exception object can be released before the
+        // handler runs; then an early exit (return/break/continue) from the handler has
+        // nothing left to end.
+        builder->CreateCall(endCatch, {});
 
+        // `finally` also runs when the handler leaves early (return/break/continue).
+        cleanupScopes.emplace_back();
+        if (node->finally) cleanupScopes.back().push_back({node->finally.get(), /*isErr=*/false});
         if (c.body) c.body->accept(this);
+        cleanupScopes.pop_back();
         popScope();
 
-        if (!hasTerminator(builder->GetInsertBlock())) {
-            builder->CreateCall(endCatch, {});
+        if (!hasTerminator(builder->GetInsertBlock()))
             builder->CreateBr(finallyBB);
-        }
 
         builder->SetInsertPoint(nextBB);
     }

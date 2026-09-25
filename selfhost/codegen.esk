@@ -4554,7 +4554,11 @@ void cg_stmt(Codegen* g, *StmtNode st) {
             cg_emit(g, "  store "); cg_emit(g, cty); cg_emit(g, " "); cg_emit(g, cv); cg_emit(g, ", ptr "); cg_emit(g, cslot); cg_emit(g, "\n");
             cg_add_local(g, cname, cslot, cty, ctype);
             cg_emit(g, "  call void @__cxa_end_catch()\n");
+            // `finally` also runs when the handler leaves early (return/break/continue).
+            int cmark = List_len<*StmtNode>(&g.cleanups);
+            if (st.s2 != null) { List_push<*StmtNode>(&g.cleanups, st.s2); List_push<int>(&g.cl_err, 0); }
             cg_stmt(g, c.s1);                             // handler body
+            cg_cleanups_trunc(g, cmark);
             cg_br(g, ldone);
             while (List_len<CgLocal>(&g.locals) > lbase) { List_remove<CgLocal>(&g.locals, List_len<CgLocal>(&g.locals) - 1); }
             cg_label(g, nbl);
