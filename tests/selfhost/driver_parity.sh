@@ -140,6 +140,24 @@ for tgt in "" x86_64-unknown-linux-gnu x86_64-w64-windows-gnu aarch64-none-elf; 
     libcheck "threads-$tn"    ${tf[@]+"${tf[@]}"} tests/threads.esk
     libcheck "net-$tn"        ${tf[@]+"${tf[@]}"} tests/net_echo.esk
 done
+# Diagnostics: a syntax error is reported on stderr as `error: file:line:col: msg`,
+# identically by both drivers (diag_parse/), and a type error is reported on stderr with
+# nothing on stdout (diag_sema/). Both drivers must reject every file.
+for f in tests/selfhost/driver_inputs/diag_parse/*.esk tests/selfhost/driver_inputs/diag_sema/*.esk; do
+    total=$((total + 1))
+    n="diag/$(basename "$(dirname "$f")")/$(basename "$f" .esk)"
+    "$BIN" "$f" -o "$WORK/d.bin" >"$WORK/d.cpp.out" 2>"$WORK/d.cpp.err"; cc=$?
+    ESKIU_ROOT="$ROOT" "$ESKMAIN" "$f" -o "$WORK/d.bin" >"$WORK/d.self.out" 2>"$WORK/d.self.err"; sc=$?
+    ce="$(grep -m1 '^error: ' "$WORK/d.cpp.err")"; se="$(grep -m1 '^error: ' "$WORK/d.self.err")"
+    ok=1
+    [ "$cc" -ne 0 ] && [ "$sc" -ne 0 ] || ok=0
+    [ -s "$WORK/d.self.out" ] && ok=0
+    case "$se" in "error: $f:"*) ;; *) ok=0 ;; esac
+    case "$f" in */diag_parse/*) [ "$ce" = "$se" ] || ok=0 ;; esac
+    if [ "$ok" -eq 1 ]; then echo "ok    $n"
+    else echo "FAIL  $n  (cpp rc $cc: $ce | self rc $sc: $se | self stdout: $(head -c 200 "$WORK/d.self.out"))"; fail=1; fi
+done
+
 # Target macros: _WIN64 accompanies _WIN32 on every 64-bit Windows triple (x86_64,
 # aarch64 and arm64 spellings), and both drivers predefine the same set.
 for tgt in x86_64-pc-windows-msvc aarch64-pc-windows-msvc arm64-pc-windows-msvc i686-pc-windows-msvc; do
