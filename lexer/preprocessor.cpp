@@ -5,6 +5,7 @@
 #include <map>
 #include <vector>
 #include <set>
+#include <algorithm>
 #include "preprocessor.h"
 
 // ── Preprocessor ────────────────────────────────────────────────────────────
@@ -69,6 +70,7 @@ struct PPExpandCtx {
     size_t errCol = 0;
     size_t topCol = 0;
     int depth = 0;
+    bool openCall = false;
 };
 
 static bool ppIdentStart(char c) { return std::isalpha((unsigned char)c) || c == '_'; }
@@ -108,6 +110,10 @@ static std::string ppExpand(const std::string& input,
     std::string out; size_t i = 0, n = text.size();
     auto fail = [&](const std::string& msg) {
         if (ctx && ctx->err.empty()) { ctx->err = msg; ctx->errCol = ctx->topCol; }
+    };
+    auto failOpen = [&](const std::string& msg) {
+        if (ctx && ctx->depth == 0 && ctx->err.empty()) ctx->openCall = true;
+        fail(msg);
     };
     while (i < n) {
         char c = text[i];
@@ -156,7 +162,12 @@ static std::string ppExpand(const std::string& input,
                                 if (e == std::string::npos) { p = n; break; }
                                 cur += ' '; p = e + 2; continue;
                             }
-                            if (d == '/' && p + 1 < n && text[p + 1] == '/') { p = n; break; }
+                            if (d == '/' && p + 1 < n && text[p + 1] == '/') {
+                                size_t e = text.find('\n', p);
+                                if (e == std::string::npos) { p = n; break; }
+                                p = e; continue;
+                            }
+                            if (d == '\n') { cur += ' '; p++; continue; }
                             if (d == '(') { depth++; cur += d; sawAny = true; }
                             else if (d == ')') { if (depth==0) { p++; closed = true; break; } depth--; cur += d; }
                             else if (d == ',' && depth==0) { args.push_back(ppTrim(cur)); cur.clear(); sawAny = true; }
@@ -164,7 +175,7 @@ static std::string ppExpand(const std::string& input,
                             p++;
                         }
                         if (!closed) {
-                            fail("unterminated argument list invoking macro '" + id + "'");
+                            failOpen("unterminated argument list invoking macro '" + id + "'");
                             out += id; i = j; continue;
                         }
                         if (sawAny) args.push_back(ppTrim(cur));
@@ -606,6 +617,8 @@ static std::string ppFileLiteral(const std::string& path) {
     return s + "\"";
 }
 
+static const int kMaxMacroJoin = 1000;
+
 void preprocess(const std::string& src,
                        std::map<std::string, Macro>& defines,
                        std::string& result,
@@ -769,9 +782,29 @@ void preprocess(const std::string& src,
             std::set<std::string> expanding;
             PPExpandCtx ctx;
             bool blkStart = inBlockComment;
-            std::string expanded = ppExpand(line, defines, expanding, &inBlockComment, &ctx);
+            std::string expanded;
+            // A function-like macro call whose argument list continues on the
+            // following lines: join them (newline kept, read as a space inside the
+            // arguments) and expand again. The joined lines become trailing blanks.
+            for (int joins = 0;; joins++) {
+                bool blk = blkStart;
+                expanding.clear();
+                ctx = PPExpandCtx();
+                expanded = ppExpand(line, defines, expanding, &blk, &ctx);
+                std::string cont;
+                if (ctx.openCall && joins < kMaxMacroJoin && std::getline(in, cont)) {
+                    stripCR(cont);
+                    line += "\n" + cont;
+                    extra++;
+                    curLine++;
+                    continue;
+                }
+                inBlockComment = blk;
+                break;
+            }
             if (!ctx.err.empty()) ppError(lineNo, (int)ctx.errCol, ctx.err);
             out << expanded;
+            extra -= (int)std::count(expanded.begin(), expanded.end(), '\n');
             if (importHook) {
                 ppScanImports(expanded, blkStart, *importHook);
                 defines["__FILE__"] = fileMacro;

@@ -220,9 +220,10 @@ struct PPCtx {
     int err_col;
     int top_col;
     int depth;
+    int open_call;   // an unterminated call at the top level (its args continue on the next line)
 }
 
-void pp_ctx_init(PPCtx* c) { c.err = ""; c.err_col = 0; c.top_col = 0; c.depth = 0; }
+void pp_ctx_init(PPCtx* c) { c.err = ""; c.err_col = 0; c.top_col = 0; c.depth = 0; c.open_call = 0; }
 
 void pp_ctx_fail(PPCtx* c, string msg) {
     if (c.err[0] == 0) { c.err = msg; c.err_col = c.top_col; }
@@ -328,7 +329,12 @@ string pp_expand(string input, List<PPMacro>* tbl, List<string>* expanding, *int
                                 if (e + 1 >= n) { stop = 1; }
                                 else { String_push(&cur, (char)32); p = e + 2; }
                             }
-                            else if (d == 47 && p + 1 < n && (int)text[p + 1] == 47) { stop = 1; }
+                            else if (d == 47 && p + 1 < n && (int)text[p + 1] == 47) {
+                                int e = p;
+                                while (e < n && (int)text[e] != 10) { e = e + 1; }
+                                if (e >= n) { stop = 1; } else { p = e; }
+                            }
+                            else if (d == 10) { String_push(&cur, (char)32); p = p + 1; }
                             else if (d == 40) { depth = depth + 1; String_push(&cur, (char)d); saw_any = 1; p = p + 1; }
                             else if (d == 41) {
                                 if (depth == 0) { p = p + 1; closed = 1; }
@@ -345,6 +351,7 @@ string pp_expand(string input, List<PPMacro>* tbl, List<string>* expanding, *int
                             }
                         }
                         if (closed == 0) {
+                            if (ctx.depth == 0 && ctx.err[0] == 0) { ctx.open_call = 1; }
                             pp_ctx_fail(ctx, pp_cat(pp_cat("unterminated argument list invoking macro '", id), "'"));
                             skip_rest = 1;
                         } else {
@@ -1249,11 +1256,31 @@ string pp_run(string src, int len, string filename, *int had_err) {
             // A NUL byte in the line is kept (the C++ std::string keeps it, and its
             // lexer reports it): expand the pieces between NULs.
             int s0 = 0;
+            int joins = 0;
             while (s0 <= ln) {
                 int e0 = s0;
                 while (e0 < ln && (int)ls[e0] != 0) { e0 = e0 + 1; }
                 int blk_start = in_block;
                 string expanded = pp_expand(pp_sub(ls, s0, e0 - s0), tblp, &expanding, &in_block, &ctx);
+                // A macro call whose arguments continue on the next lines: join them
+                // (newline kept) and expand again (mirrors the C++).
+                if (ctx.open_call == 1 && s0 == 0 && e0 == ln && joins < 1000 && i < len) {
+                    in_block = blk_start;
+                    String_push(&line, (char)10);
+                    while (i < len && (int)src[i] != 10) { String_push(&line, (char)src[i]); i = i + 1; }
+                    if (i < len) { i = i + 1; }
+                    pp_strip_cr(&line);
+                    extra = extra + 1;
+                    cur_line = cur_line + 1;
+                    joins = joins + 1;
+                    ls = (string)String_cstr(&line);
+                    ln = String_len(&line);
+                    pp_ctx_init(&ctx);
+                    continue;
+                }
+                int k = 0;
+                int en = pp_clen(expanded);
+                while (k < en) { if ((int)expanded[k] == 10) { extra = extra - 1; } k = k + 1; }
                 String_append(&out, expanded);
                 if (e0 < ln) { String_push(&out, (char)0); }
                 if (g_pp_hook_set == 1) {

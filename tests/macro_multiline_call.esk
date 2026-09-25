@@ -1,0 +1,18 @@
+// A function-like macro call whose argument list spans several lines.
+extern int printf(string fmt, ...);
+#define ADD(a, b) ((a) + (b))
+#define TRI(a, b, c) ((a) * (b) + (c))
+int main() {
+  int x = ADD(1,
+              2);
+  int y = TRI(ADD(1, // one
+                  1),
+              3, /* four
+              */ 4);
+  int z = ADD(
+    ADD(1, 2),
+    3) + ADD(x,
+             y);
+  printf("%d %d %d %d\n", x, y, z, __LINE__);
+  return 0;
+}
