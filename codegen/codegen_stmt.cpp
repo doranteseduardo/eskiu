@@ -50,6 +50,21 @@ void CodeGen::visit(BlockStmt* node) {
     popScope();
 }
 
+void CodeGen::emitScopedBody(const StmtPtr& body) {
+    // A statement body that is not a block (`if (c) defer f();`, `while (c) stmt;`,
+    // an unbraced match arm) is still its own scope: a `defer` in it runs when that
+    // body ends, not at the end of the enclosing function or block.
+    if (!body) return;
+    if (dynamic_cast<BlockStmt*>(body.get())) { body->accept(this); return; }
+    pushScope();
+    cleanupScopes.emplace_back();
+    body->accept(this);
+    if (!blockTerminated())
+        runCleanupsToDepth(cleanupScopes.size() - 1, /*errorPath=*/false);
+    cleanupScopes.pop_back();
+    popScope();
+}
+
 void CodeGen::visit(DeferStmt* node) {
     // Register the body to run at scope exit; emitted by runCleanupsToDepth.
     if (node->body && !cleanupScopes.empty())
@@ -83,7 +98,7 @@ void CodeGen::visit(IfStmt* node) {
 
     // Then block
     builder->SetInsertPoint(thenBlock);
-    node->thenBranch->accept(this);
+    emitScopedBody(node->thenBranch);
     if (!hasTerminator(builder->GetInsertBlock())) {
         builder->CreateBr(mergeBlock);
     }
@@ -91,7 +106,7 @@ void CodeGen::visit(IfStmt* node) {
     // Else block
     if (node->elseBranch) {
         builder->SetInsertPoint(elseBlock);
-        node->elseBranch->accept(this);
+        emitScopedBody(node->elseBranch);
         if (!hasTerminator(builder->GetInsertBlock())) {
             builder->CreateBr(mergeBlock);
         }
@@ -116,7 +131,7 @@ void CodeGen::visit(WhileStmt* node) {
     builder->CreateCondBr(cond, bodyBlock, exitBlock);
 
     builder->SetInsertPoint(bodyBlock);
-    { LoopContext lc(this, exitBlock, loopBlock, node->label); node->body->accept(this); }
+    { LoopContext lc(this, exitBlock, loopBlock, node->label); emitScopedBody(node->body); }
     if (!hasTerminator(builder->GetInsertBlock()))
         builder->CreateBr(loopBlock);
 
@@ -132,7 +147,7 @@ void CodeGen::visit(DoWhileStmt* node) {
     builder->SetInsertPoint(bodyBlock);
 
     // `continue` re-tests the condition (jumps to condBlock)
-    { LoopContext lc(this, exitBlock, condBlock, node->label); node->body->accept(this); }
+    { LoopContext lc(this, exitBlock, condBlock, node->label); emitScopedBody(node->body); }
     if (!hasTerminator(builder->GetInsertBlock()))
         builder->CreateBr(condBlock);
 
@@ -180,7 +195,7 @@ void CodeGen::visit(ForStmt* node) {
     // Body
     builder->SetInsertPoint(bodyBlock);
     // continue jumps to the step block
-    { LoopContext lc(this, exitBlock, stepBlock, node->label); node->body->accept(this); }
+    { LoopContext lc(this, exitBlock, stepBlock, node->label); emitScopedBody(node->body); }
     if (!hasTerminator(builder->GetInsertBlock()))
         builder->CreateBr(stepBlock);
 
@@ -382,7 +397,7 @@ void CodeGen::visit(MatchStmt* node) {
                 sw->addCase(llvm::cast<llvm::ConstantInt>(constIntBits(i32, (uint64_t)(int64_t)valueOf(node->arms[i].variant))), armBlocks[i]);
         for (size_t i = 0; i < node->arms.size(); ++i) {
             builder->SetInsertPoint(armBlocks[i]);
-            if (node->arms[i].body) node->arms[i].body->accept(this);
+            emitScopedBody(node->arms[i].body);
             if (!hasTerminator(builder->GetInsertBlock()))
                 builder->CreateBr(endBlock);
         }
@@ -455,7 +470,7 @@ void CodeGen::visit(MatchStmt* node) {
                 defineVarType(arm.bindings[b], substType(ed->payloads[vi][b], subs));
             }
         }
-        if (arm.body) arm.body->accept(this);
+        emitScopedBody(arm.body);
         popScope();
         if (!hasTerminator(builder->GetInsertBlock()))
             builder->CreateBr(endBlock);
@@ -519,10 +534,18 @@ void CodeGen::visit(SwitchStmt* node) {
 
     for (size_t i = 0; i < node->cases.size(); ++i) {
         builder->SetInsertPoint(caseBlocks[i]);
+        // Each case's statements are a scope: a `defer` there runs when the case body
+        // is left (by `break`, or by falling through into the next case).
+        pushScope();
+        cleanupScopes.emplace_back();
         for (auto& stmt : node->cases[i].stmts) {
             stmt->accept(this);
             if (hasTerminator(builder->GetInsertBlock())) break;
         }
+        if (!blockTerminated())
+            runCleanupsToDepth(cleanupScopes.size() - 1, /*errorPath=*/false);
+        cleanupScopes.pop_back();
+        popScope();
         if (!hasTerminator(builder->GetInsertBlock())) {
             llvm::BasicBlock* next = (i + 1 < caseBlocks.size()) ? caseBlocks[i+1] : endBlock;
             builder->CreateBr(next);

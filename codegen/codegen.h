@@ -238,6 +238,9 @@ private:
     // passes errorPath=true so both run. Does not pop — the owning scope pops when it ends.
     void runCleanupsToDepth(size_t depth, bool errorPath);
     bool blockTerminated();   // is the current basic block already terminated?
+    // Emit a statement body as its own scope (variables + defer cleanups), even when it
+    // is a single unbraced statement.
+    void emitScopedBody(const StmtPtr& body);
     // Address of element `idx` of an indexable base (fixed array / slice / pointer /
     // string). Shared by index-read, index-write (lvalue), and slice construction.
     llvm::Value* indexElemAddr(const ExprPtr& base, llvm::Value* idx, bool doCheck = true);

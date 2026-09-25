@@ -1402,6 +1402,20 @@ void cg_locals_trunc(Codegen* g, int mark) {
     while (List_len<CgLocal>(&g.locals) > mark) { List_remove<CgLocal>(&g.locals, List_len<CgLocal>(&g.locals) - 1); }
 }
 
+// Emit a statement body as its own scope (locals + defer cleanups), even a single
+// unbraced statement (`if (c) defer f();`, an unbraced loop body or match arm), so a
+// `defer` in it runs when that body ends (mirrors CodeGen::emitScopedBody).
+void cg_scoped_stmt(Codegen* g, *StmtNode st) {
+    if (st == null) { return; }
+    if (st.kind == SK_BLOCK) { cg_stmt(g, st); return; }
+    int mark = List_len<*StmtNode>(&g.cleanups);
+    int lmark = List_len<CgLocal>(&g.locals);
+    cg_stmt(g, st);
+    if (g.terminated == 0) { cg_run_cleanups(g, mark, 0); }
+    cg_cleanups_trunc(g, mark);
+    cg_locals_trunc(g, lmark);
+}
+
 // An expression with no side effects: evaluating it twice is the same as once.
 int cg_is_pure(*ExprNode e) {
     if (e == null) { return 1; }
@@ -4033,8 +4047,8 @@ void cg_stmt(Codegen* g, *StmtNode st) {
         cg_emit(g, "  br i1 "); cg_emit(g, c.op); cg_emit(g, ", label %"); cg_emit(g, l_then);
         cg_emit(g, ", label %"); cg_emit(g, l_else); cg_emit(g, "\n");
         g.terminated = 1;
-        cg_label(g, l_then); cg_stmt(g, st.s1); cg_br(g, l_end);
-        if (st.s2 != null) { cg_label(g, l_else); cg_stmt(g, st.s2); cg_br(g, l_end); }
+        cg_label(g, l_then); cg_scoped_stmt(g, st.s1); cg_br(g, l_end);
+        if (st.s2 != null) { cg_label(g, l_else); cg_scoped_stmt(g, st.s2); cg_br(g, l_end); }
         cg_label(g, l_end);
         return;
     }
@@ -4050,7 +4064,7 @@ void cg_stmt(Codegen* g, *StmtNode st) {
         g.terminated = 1;
         cg_label(g, l_body);
         cg_loop_push(g, l_cond, l_end, st.label);
-        cg_stmt(g, st.s1);
+        cg_scoped_stmt(g, st.s1);
         cg_loop_pop(g);
         cg_br(g, l_cond);
         cg_label(g, l_end);
@@ -4063,7 +4077,7 @@ void cg_stmt(Codegen* g, *StmtNode st) {
         cg_br(g, l_body);
         cg_label(g, l_body);
         cg_loop_push(g, l_cond, l_end, st.label);       // `continue` re-tests the condition
-        cg_stmt(g, st.s1);
+        cg_scoped_stmt(g, st.s1);
         cg_loop_pop(g);
         cg_br(g, l_cond);
         cg_label(g, l_cond);
@@ -4100,7 +4114,7 @@ void cg_stmt(Codegen* g, *StmtNode st) {
         }
         cg_label(g, l_body);
         cg_loop_push(g, l_step, l_end, st.label);
-        cg_stmt(g, st.s2);
+        cg_scoped_stmt(g, st.s2);
         cg_loop_pop(g);
         cg_br(g, l_step);
         cg_label(g, l_step);
@@ -4265,8 +4279,18 @@ void cg_stmt(Codegen* g, *StmtNode st) {
         while (i < nc) {
             cg_label(g, List_get<string>(&labels, i));
             *StmtNode c = List_get<*StmtNode>(&st.items, i);
+            // Each case's statements are a scope: a `defer` there runs when the case body
+            // is left (by `break`, or by falling through into the next case).
+            int cmark = List_len<*StmtNode>(&g.cleanups);
+            int clmark = List_len<CgLocal>(&g.locals);
             int bi = 0; int bn = List_len<*StmtNode>(&c.items);
-            while (bi < bn) { cg_stmt(g, List_get<*StmtNode>(&c.items, bi)); bi = bi + 1; }
+            while (bi < bn) {
+                if (g.terminated == 1) { bi = bn; }
+                else { cg_stmt(g, List_get<*StmtNode>(&c.items, bi)); bi = bi + 1; }
+            }
+            if (g.terminated == 0) { cg_run_cleanups(g, cmark, 0); }
+            cg_cleanups_trunc(g, cmark);
+            cg_locals_trunc(g, clmark);
             if (i + 1 < nc) { cg_br(g, List_get<string>(&labels, i + 1)); }   // fall through
             else { cg_br(g, l_end); }
             i = i + 1;
@@ -4310,7 +4334,7 @@ void cg_stmt(Codegen* g, *StmtNode st) {
             mi = 0;
             while (mi < mn) {
                 cg_label(g, List_get<string>(&mlabels, mi));
-                cg_stmt(g, List_get<*StmtNode>(&st.items, mi).s1);
+                cg_scoped_stmt(g, List_get<*StmtNode>(&st.items, mi).s1);
                 cg_br(g, m_end);
                 mi = mi + 1;
             }
@@ -4394,7 +4418,7 @@ void cg_stmt(Codegen* g, *StmtNode st) {
                     j = j + 1;
                 }
             }
-            cg_stmt(g, arm.s1);
+            cg_scoped_stmt(g, arm.s1);
             cg_br(g, l_end);
             while (List_len<CgLocal>(&g.locals) > lbase) { List_remove<CgLocal>(&g.locals, List_len<CgLocal>(&g.locals) - 1); }
             i = i + 1;

@@ -1295,7 +1295,10 @@ Rules:
 
 - Deferred statements run in **LIFO** order: the last one registered runs first.
 - `defer` runs on fall-through, `return`, `break`, `continue`, and `?`-propagation. It is
-  block-scoped, so a `defer` in a loop body runs at the end of **each iteration**.
+  block-scoped, so a `defer` in a loop body runs at the end of **each iteration**. An
+  unbraced body (`if (c) defer f();`, a single-statement loop body, a `switch` case, a
+  `match` arm) is its own scope too: the defer runs when that body ends, and only if it
+  was reached.
 - The deferred statement is evaluated when the block is left (it reads variables' values
   at exit time), after any `return` value has been computed.
 - A defer body may not `return`, or `break`/`continue` out of itself (that would jump out

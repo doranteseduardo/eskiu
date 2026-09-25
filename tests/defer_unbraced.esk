@@ -1,0 +1,45 @@
+// A statement body that is not a block (an unbraced if/else/loop body, a switch case,
+// a match arm) is its own scope: a `defer` in it runs when that body ends, and only
+// if it was reached.
+extern int printf(string fmt, ...);
+
+enum Tok { Num(int), Stop }
+
+void sw(int k) {
+    printf("k=%d: ", k);
+    switch (k) {
+        case 1: defer printf("d1 "); printf("c1 ");
+        case 2: defer printf("d2 "); printf("c2 "); break;
+        default: printf("def ");
+    }
+    printf("end\n");
+}
+
+void branch(int k) {
+    printf("b%d: ", k);
+    if (k == 1) defer printf("IF ");
+    else defer printf("ELSE ");
+    while (k < 0) defer printf("W ");
+    printf("body\n");
+}
+
+void loop() {
+    for (int i = 0; i < 3; i++) defer printf("i%d ", i);
+    printf("\n");
+}
+
+void arms(Tok t) {
+    match t {
+        Num(n) -> defer printf("n%d ", n);
+        Stop -> printf("stop ");
+    }
+    printf("after\n");
+}
+
+int main() {
+    sw(1); sw(2); sw(3);
+    branch(1); branch(2);
+    loop();
+    arms(Num(4)); arms(Stop);
+    return 0;
+}
