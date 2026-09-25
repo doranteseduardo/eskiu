@@ -219,6 +219,8 @@ private:
 
     // Type checking utilities
     bool isValidAssignment(const std::string& lhsType, const std::string& rhsType);
+    // "" if `structName` structurally satisfies `iface` (names + signatures), else why not.
+    std::string interfaceMismatch(const std::string& structName, InterfaceDecl* iface);
     // Bounded generics: check that each constrained type param's concrete arg
     // (in `subs`) satisfies its interface constraint(s).
     void checkConstraints(ASTNode* node,

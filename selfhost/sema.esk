@@ -636,6 +636,60 @@ string sema_assign_err(Sema* s, string t0, *ExprNode e) {
     if (tnum == 1 && sptr == 1) { return conv; }
     if (tptr == 1 && snum == 1) { return conv; }
     if (sema_is_fn_type(t) == 1 && sema_is_fn_type(src) == 1) { return "incompatible function type"; }
+    *DeclNode iface = sema_find_iface(s, t);
+    if (iface != null && sema_is_struct(s, sema_struct_of_type(src)) == 1) {
+        string why = sema_iface_mismatch(s, sema_struct_of_type(src), iface);
+        if (why[0] != 0) {
+            return sema_cat(sema_cat(sema_cat(sema_cat(sema_cat("'", src), "' does not satisfy interface '"), t), "': "), why);
+        }
+    }
+    return "";
+}
+
+// Two type spellings that are both primitive and differ (a certain mismatch). Anything
+// else (structs, pointers, aliases) is not compared, to stay conservative.
+int sema_prim_differs(string a0, string b0) {
+    string a = sema_strip_const(a0); string b = sema_strip_const(b0);
+    int ap = sema_is_numeric_ty(a); if (sema_streq(a, "void") == 1 || sema_streq(a, "string") == 1) { ap = 1; }
+    int bp = sema_is_numeric_ty(b); if (sema_streq(b, "void") == 1 || sema_streq(b, "string") == 1) { bp = 1; }
+    if (ap == 1 && bp == 1 && sema_streq(a, b) == 0) { return 1; }
+    return 0;
+}
+
+// Does struct `sn` implement every method of `iface` with a matching signature (arity,
+// and primitive return/param types; a type naming the interface itself is its Self type)?
+// "" when satisfied, else the reason. Mirrors the C++ interfaceMismatch.
+string sema_iface_mismatch(Sema* s, string sn, *DeclNode iface) {
+    *DeclNode sd = sema_find_struct(s, sn);
+    int i = 0; int n = List_len<*DeclNode>(&iface.methods);
+    while (i < n) {
+        *DeclNode m = List_get<*DeclNode>(&iface.methods, i);
+        *DeclNode impl = null; int skip = 0;
+        if (sd != null) {
+            int j = 0; int mn = List_len<*DeclNode>(&sd.methods);
+            while (j < mn) { *DeclNode c = List_get<*DeclNode>(&sd.methods, j); if (sema_streq(c.name, m.name) == 1) { impl = c; } j = j + 1; }
+        }
+        if (impl == null) { impl = sema_find_fndecl(s, sema_cat(sema_cat(sn, "_"), m.name)); skip = 1; }
+        if (impl == null) { return sema_cat(sema_cat("missing method '", m.name), "'"); }
+        int want = List_len<Param>(&m.params);
+        int got = List_len<Param>(&impl.params) - skip;
+        if (got != want) {
+            return sema_cat(sema_cat("method '", m.name), "' has the wrong number of parameters");
+        }
+        if (sema_streq(sema_struct_of_type(m.ret_type), iface.name) == 0 && sema_prim_differs(impl.ret_type, m.ret_type) == 1) {
+            return sema_cat(sema_cat("method '", m.name), "' has the wrong return type");
+        }
+        int k = 0;
+        while (k < want) {
+            string wt = List_get<Param>(&m.params, k).ty;
+            string gt = List_get<Param>(&impl.params, k + skip).ty;
+            if (sema_streq(sema_struct_of_type(wt), iface.name) == 0 && sema_prim_differs(gt, wt) == 1) {
+                return sema_cat(sema_cat("method '", m.name), "' has a wrong parameter type");
+            }
+            k = k + 1;
+        }
+        i = i + 1;
+    }
     return "";
 }
 
@@ -1176,6 +1230,19 @@ void sema_expr(Sema* s, *ExprNode e) {
                     s.had_error = 1;
                     printf("error: %s:0:0: function '%s' expects %d arguments, got %d\n",
                            s.filename, e.a.sval, sig.fixed, argc);
+                }
+                // Argument types against the declared parameter types (conservative).
+                *DeclNode cfd = sema_find_fndecl(s, e.a.sval);
+                if (cfd != null) {
+                    int ai = 0;
+                    while (ai < argc && ai < sig.fixed) {
+                        string perr = sema_assign_err(s, List_get<Param>(&cfd.params, ai).ty, List_get<*ExprNode>(&e.kids, ai));
+                        if (perr[0] != 0) {
+                            s.had_error = 1;
+                            printf("error: %s:0:0: argument %d type mismatch: %s\n", s.filename, ai + 1, perr);
+                        }
+                        ai = ai + 1;
+                    }
                 }
             }
         }

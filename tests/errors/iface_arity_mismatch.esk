@@ -1,0 +1,6 @@
+// EXPECT-ERROR: does not satisfy interface 'Shape'
+interface Shape { int area(int k); }
+struct Sq { int s; }
+int Sq_area(*Sq self) { return self.s; }
+int use(Shape s) { return s.area(3); }
+int main() { let q: Sq = Sq{s: 2}; return use(&q); }

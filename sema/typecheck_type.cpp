@@ -158,32 +158,48 @@ void TypeChecker::validateStructType(const std::string& type, ASTNode* at) {
 }
 
 // Type checking utilities
-// Check if a struct satisfies an interface (structural typing)
-static bool structSatisfiesInterface(
-        const std::map<std::string, std::pair<std::string, std::vector<std::string>>>& funcs,
-        const std::string& structName,
-        InterfaceDecl* iface) {
+// Does `structName` satisfy `iface` (structural typing)? Each required method must exist
+// with the interface's signature: same return type and the same parameter types after
+// the receiver. Returns "" when satisfied, else the reason (for the diagnostic).
+std::string TypeChecker::interfaceMismatch(const std::string& structName, InterfaceDecl* iface) {
+    static const std::set<std::string> kScalarPrims = {
+        "int","int8","int16","int32","int64","uint","uint8","uint16","uint32",
+        "uint64","char","bool","float","double"};
     for (const auto& method : iface->methods) {
-        // A struct satisfies via a mangled method `Type_method`.
-        std::string mangled = structName + "_" + method.name;
-        if (funcs.find(mangled) != funcs.end()) continue;
-        // Free-function fallback (lets PRIMITIVES satisfy a constraint): a
-        // top-level fn named `method` whose first parameter is the constrained
-        // type acts as the receiver-taking implementation — `t.method(...)`
-        // lowers to `method(t, ...)`. So `int cmp(int,int)` satisfies `Ord` for int.
-        // Gated to scalar primitives to match codegen's dispatch (a struct must
-        // satisfy via a real method) — keeps sema and codegen in lockstep.
-        static const std::set<std::string> kScalarPrims = {
-            "int","int8","int16","int32","int64","uint","uint8","uint16","uint32",
-            "uint64","char","bool","float","double"};
-        auto fit = funcs.find(method.name);
-        if (kScalarPrims.count(structName) && fit != funcs.end() && !fit->second.second.empty()) {
-            std::string p0 = ty::Type::parse(fit->second.second[0]).nominalName();
-            if (p0 == structName) continue;
+        // A struct satisfies via a mangled method `Type_method`. Free-function fallback
+        // (lets PRIMITIVES satisfy a constraint): a top-level fn named `method` whose first
+        // parameter is the constrained type acts as the receiver-taking implementation, so
+        // `int cmp(int,int)` satisfies `Ord` for int. Gated to scalar primitives to match
+        // codegen's dispatch (a struct must satisfy via a real method).
+        const std::pair<std::string, std::vector<std::string>>* sig = nullptr;
+        auto mit = functionSignatures.find(structName + "_" + method.name);
+        if (mit != functionSignatures.end()) sig = &mit->second;
+        else if (kScalarPrims.count(structName)) {
+            auto fit = functionSignatures.find(method.name);
+            if (fit != functionSignatures.end() && !fit->second.second.empty() &&
+                ty::Type::parse(fit->second.second[0]).nominalName() == structName)
+                sig = &fit->second;
         }
-        return false;
+        if (!sig) return "missing method '" + method.name + "'";
+        const auto& params = sig->second;
+        if (params.size() != method.params.size() + 1)
+            return "method '" + method.name + "' takes " + std::to_string(params.empty() ? 0 : params.size() - 1) +
+                   " parameter(s), the interface requires " + std::to_string(method.params.size());
+        // A type spelled with the interface's own name (`int cmp(Ord* o)`) stands for the
+        // implementing type (a Self type), so it is not compared literally.
+        auto isSelf = [&](const std::string& t) {
+            return ty::Type::parse(tyq::strip(t)).nominalName() == iface->name;
+        };
+        if (!isSelf(method.returnType) && normalizeType(sig->first) != normalizeType(method.returnType))
+            return "method '" + method.name + "' returns '" + sig->first + "', the interface requires '" +
+                   method.returnType + "'";
+        for (size_t i = 0; i < method.params.size(); ++i)
+            if (!isSelf(method.params[i].first) &&
+                normalizeType(params[i + 1]) != normalizeType(method.params[i].first))
+                return "method '" + method.name + "' parameter " + std::to_string(i + 1) + " is '" +
+                       params[i + 1] + "', the interface requires '" + method.params[i].first + "'";
     }
-    return true;
+    return "";
 }
 
 // Bounded generics: verify each constrained type parameter's concrete argument
@@ -209,9 +225,10 @@ void TypeChecker::checkConstraints(ASTNode* node,
                 else error(0, 0, "unknown constraint interface '" + ic + "'");
                 continue;
             }
-            if (!structSatisfiesInterface(functionSignatures, bare, iit->second)) {
+            std::string why = interfaceMismatch(bare, iit->second);
+            if (!why.empty()) {
                 std::string msg = "type '" + concrete + "' does not satisfy constraint '" +
-                                  ic + "' (required by a bounded type parameter)";
+                                  ic + "' (required by a bounded type parameter): " + why;
                 if (node) errorAt(node, msg); else error(0, 0, msg);
             }
         }
@@ -255,7 +272,7 @@ bool TypeChecker::isValidAssignment(const std::string& lhsType, const std::strin
     if (ifaceIt != interfaceDecls.end()) {
         if (!isPointerType(rhs)) return false;
         std::string structName = ty::Type::parse(rhs).nominalName();
-        if (structSatisfiesInterface(functionSignatures, structName, ifaceIt->second))
+        if (interfaceMismatch(structName, ifaceIt->second).empty())
             return true;
     }
 
@@ -315,6 +332,11 @@ std::string TypeChecker::assignabilityError(const std::string& targetType,
     if (interfaceDecls.count(nt) && !isPointerType(ns) && structs.count(rt.nominalName()))
         return "cannot convert struct '" + rt.nominalName() + "' to interface '" + nt +
                "' by value; pass a pointer (&x)";
+    if (auto ii = interfaceDecls.find(nt); ii != interfaceDecls.end()) {
+        std::string why = interfaceMismatch(rt.nominalName(), ii->second);
+        if (!why.empty())
+            return "'" + srcType + "' does not satisfy interface '" + targetType + "': " + why;
+    }
     return "cannot convert '" + srcType + "' to '" + targetType + "'";
 }
 

@@ -1,0 +1,3 @@
+// EXPECT-ERROR: argument 1 type mismatch
+int g(int x) { return x; }
+int main() { return g("a"); }
