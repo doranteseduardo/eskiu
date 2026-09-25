@@ -82,7 +82,7 @@ HANDLED="undefined_var arg_count undefined_type await_outside_async async_no_awa
          const_ptr_member_write const_ptr_index_write const_self_write const_ptr_nested_field_write const_ptr_deref_method const_ptr_through_generic
          constraint_inferred_unsat constraint_inferred_prim constraint_multi_one_missing constraint_struct_param constraint_method_signature constraint_unknown_iface sizeof_generic_uninstantiated alias_unknown_target alias_generic_not_imported alias_cycle_generic
          lambda_reconciled_return nullable_non_pointer await_non_future ptr_arith_to_int string_arith_to_int ternary_void_arms
-         macro_unterminated_call closure_captured_field_write method_param_self operator_arity alias_nullable_deref nullable_global_call nullable_addr_taken"
+         macro_unterminated_call closure_captured_field_write method_param_self operator_arity alias_nullable_deref nullable_global_call nullable_addr_taken enum_value_cycle enum_value_cycle_generic"
 HANDLED="$(echo $HANDLED)"   # collapse the multi-line list to single spaces for matching
 
 DRIVER=selfhost/esk_main.esk

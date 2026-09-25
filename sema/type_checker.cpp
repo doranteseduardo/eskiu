@@ -358,23 +358,38 @@ void TypeChecker::checkTopLevelNames(Program* program) {
 
 // A struct (or union) that contains itself by value, directly or through other by-value
 // fields, has no finite layout. Pointer and slice fields break the cycle; a fixed-size
-// array of a struct does not.
+// array of a struct does not. A sum type holds each variant's payload by value, so an
+// enum whose payload holds the enum (`enum L { Cons(int, L), Nil }`) is the same error.
 void TypeChecker::checkValueCycles(Program* program) {
-    std::map<std::string, Decl*> decls;
-    for (const auto& decl : program->declarations)
-        if (auto* sd = dynamic_cast<StructDecl*>(decl.get()); sd && sd->typeParams.empty()) decls[sd->name] = sd;
-        else if (auto* ud = dynamic_cast<UnionDecl*>(decl.get())) decls[ud->name] = ud;
-    auto fieldsOf = [&](Decl* d) -> const std::vector<StructDecl::Field>& {
-        if (auto* sd = dynamic_cast<StructDecl*>(d)) return sd->fields;
-        return static_cast<UnionDecl*>(d)->fields;
-    };
+    // Each aggregate's by-value members: its fields, or an enum's variant payloads.
+    struct VField { std::string type, desc; };
+    struct VNode { Decl* decl; const char* kind; std::vector<std::string> tparams; std::vector<VField> fields; };
+    std::map<std::string, VNode> all;
+    for (const auto& decl : program->declarations) {
+        if (auto* sd = dynamic_cast<StructDecl*>(decl.get())) {
+            VNode n{sd, "struct", sd->typeParams, {}};
+            for (const auto& f : sd->fields) n.fields.push_back({f.type, "field '" + f.name + "'"});
+            all[sd->name] = n;
+        } else if (auto* ud = dynamic_cast<UnionDecl*>(decl.get())) {
+            VNode n{ud, "struct", {}, {}};
+            for (const auto& f : ud->fields) n.fields.push_back({f.type, "field '" + f.name + "'"});
+            all[ud->name] = n;
+        } else if (auto* ed = dynamic_cast<EnumDecl*>(decl.get()); ed && ed->isADT()) {
+            VNode n{ed, "enum", ed->typeParams, {}};
+            for (size_t i = 0; i < ed->members.size() && i < ed->payloads.size(); ++i)
+                for (const auto& pt : ed->payloads[i]) n.fields.push_back({pt, "variant '" + ed->members[i].first + "'"});
+            all[ed->name] = n;
+        }
+    }
+    std::map<std::string, VNode*> decls;   // the non-generic ones
+    for (auto& kv : all) if (kv.second.tparams.empty()) decls[kv.first] = &kv.second;
     auto byValueStruct = [&](const std::string& ft) -> std::string {
         // Peel array dimensions first: `S[2]` holds S by value, but normalizeType only
         // resolves a bare struct name.
         ty::Type t = ty::Type::parse(tyq::strip(ft));
         while (t.kind == ty::Type::Kind::Array && t.elem) { ty::Type e = *t.elem; t = e; }
         t = ty::Type::parse(normalizeType(t.str()));
-        if (t.kind != ty::Type::Kind::Struct) return "";
+        if (t.kind != ty::Type::Kind::Struct && !(t.kind == ty::Type::Kind::Named && adtEnums.count(t.name))) return "";
         std::string n = t.nominalName();
         return decls.count(n) ? n : "";
     };
@@ -382,13 +397,13 @@ void TypeChecker::checkValueCycles(Program* program) {
     std::set<std::string> reported;
     std::function<void(const std::string&)> dfs = [&](const std::string& n) {
         state[n] = 1;
-        for (const auto& f : fieldsOf(decls[n])) {
+        for (const auto& f : decls[n]->fields) {
             std::string m = byValueStruct(f.type);
             if (m.empty()) continue;
             if (state[m] == 1) {
                 if (reported.insert(m).second)
-                    errorAtDecl(decls[m], "struct '" + m + "' contains itself by value (through field '" +
-                                      f.name + "' of '" + n + "'); use a pointer");
+                    errorAtDecl(decls[m]->decl, std::string(decls[m]->kind) + " '" + m + "' contains itself by value (through " +
+                                      f.desc + " of '" + n + "'); use a pointer");
             } else if (state[m] == 0) dfs(m);
         }
         state[n] = 2;
@@ -400,10 +415,6 @@ void TypeChecker::checkValueCycles(Program* program) {
     // arguments. A spelling that recurs is a cycle (`N<T> next`, or `S` holding a
     // `W<S>` that holds its `T` by value); instances that only ever grow (`N<N<T>> next`)
     // have no finite layout either. A cycle of plain structs is reported above.
-    std::map<std::string, Decl*> all;
-    for (const auto& decl : program->declarations)
-        if (auto* sd = dynamic_cast<StructDecl*>(decl.get())) all[sd->name] = sd;
-        else if (auto* ud = dynamic_cast<UnionDecl*>(decl.get())) all[ud->name] = ud;
     auto baseOf = [](const std::string& sp) { return sp.substr(0, sp.find('<')); };
     // The struct spelling a field of type `ft` holds by value ("" if none).
     auto valueCore = [&](const std::string& ft) -> std::string {
@@ -416,15 +427,15 @@ void TypeChecker::checkValueCycles(Program* program) {
     std::set<std::string> reportedGen;
     std::vector<std::string> stack;
     std::function<bool(const std::string&, Decl*)> walk = [&](const std::string& sp, Decl* root) -> bool {
-        Decl* d = all[baseOf(sp)];
+        VNode& d = all[baseOf(sp)];
         std::map<std::string, std::string> subs;
-        if (auto* sd = dynamic_cast<StructDecl*>(d); sd && !sd->typeParams.empty()) {
+        if (!d.tparams.empty()) {
             auto args = splitTemplateType(sp).second;
-            if (args.size() != sd->typeParams.size()) return false;
-            for (size_t i = 0; i < args.size(); ++i) subs[sd->typeParams[i]] = args[i];
+            if (args.size() != d.tparams.size()) return false;
+            for (size_t i = 0; i < args.size(); ++i) subs[d.tparams[i]] = args[i];
         }
         stack.push_back(sp);
-        for (const auto& f : fieldsOf(d)) {
+        for (const auto& f : d.fields) {
             std::string core = valueCore(subs.empty() ? f.type : substType(f.type, subs));
             if (core.empty()) continue;
             auto hit = std::find(stack.begin(), stack.end(), core);
@@ -433,12 +444,12 @@ void TypeChecker::checkValueCycles(Program* program) {
                 if (std::none_of(hit, stack.end(), [](const std::string& s) { return s.find('<') != std::string::npos; }))
                     continue;
                 key = baseOf(core);
-                msg = "struct '" + core + "' contains itself by value (through field '" + f.name +
-                      "' of '" + sp + "'); use a pointer";
+                msg = std::string(all[key].kind) + " '" + core + "' contains itself by value (through " + f.desc +
+                      " of '" + sp + "'); use a pointer";
             } else if (stack.size() >= kMaxNest) {
                 key = baseOf(stack.front());
-                msg = "struct '" + key + "' contains itself by value through ever-deeper generic instances "
-                      "(field '" + f.name + "' of '" + baseOf(sp) + "'); use a pointer";
+                msg = std::string(all[key].kind) + " '" + key + "' contains itself by value through ever-deeper generic instances "
+                      "(" + f.desc + " of '" + baseOf(sp) + "'); use a pointer";
             } else {
                 if (walk(core, root)) { stack.pop_back(); return true; }
                 continue;
@@ -451,16 +462,15 @@ void TypeChecker::checkValueCycles(Program* program) {
         return false;
     };
     for (const auto& decl : program->declarations) {
-        std::string sp;
-        if (auto* sd = dynamic_cast<StructDecl*>(decl.get())) {
-            sp = sd->name;
-            if (!sd->typeParams.empty()) {
-                sp += "<";
-                for (size_t i = 0; i < sd->typeParams.size(); ++i) sp += (i ? "," : "") + sd->typeParams[i];
-                sp += ">";
-            }
-        } else if (dynamic_cast<UnionDecl*>(decl.get())) sp = decl->name;
-        else continue;
+        auto it = all.find(decl->name);
+        if (it == all.end() || it->second.decl != decl.get()) continue;
+        std::string sp = decl->name;
+        const auto& tp = it->second.tparams;
+        if (!tp.empty()) {
+            sp += "<";
+            for (size_t i = 0; i < tp.size(); ++i) sp += (i ? "," : "") + tp[i];
+            sp += ">";
+        }
         stack.clear();
         walk(ty::Type::parse(sp).str(), decl.get());
     }

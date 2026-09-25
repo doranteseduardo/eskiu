@@ -1,0 +1,4 @@
+// EXPECT-ERROR: 2:6: enum 'L' contains itself by value (through variant 'Cons' of 'L'); use a pointer
+enum L { Cons(int, L), Nil }
+int len(L l) { match l { Cons(h, t) -> { return 1 + len(t); } Nil -> { return 0; } } return 0; }
+int main() { L l = Cons(1, Cons(2, Nil)); return len(l); }

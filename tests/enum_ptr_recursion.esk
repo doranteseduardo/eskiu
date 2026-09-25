@@ -1,0 +1,17 @@
+// A sum type may refer to itself through a pointer; only a by-value payload cycle has no
+// finite layout. A struct holding an enum that holds another struct is fine.
+extern int printf(string fmt, ...);
+struct Leaf { int v; }
+enum T { Node(int, *T), Tip(Leaf) }
+struct Holder { T t; int k; }
+int sum(*T t) {
+    match *t { Node(v, next) -> { return v + sum(next); } Tip(l) -> { return l.v; } }
+    return 0;
+}
+int main() {
+    T tip = Tip(Leaf{v: 3});
+    T n1 = Node(2, &tip);
+    Holder h = Holder{t: Node(1, &n1), k: 0};
+    printf("%d\n", sum(&h.t));
+    return 0;
+}
