@@ -53,6 +53,22 @@ private:
     void consumeTemplateClose(const char* ctx);
     std::vector<Token> tokens;
     size_t current;
+    // Recursion guard: nested expressions/statements beyond kMaxNesting levels (and
+    // one operator chain longer than kMaxChain operands) are rejected with an error
+    // instead of overflowing the stack here or in the later recursive passes.
+    static constexpr int kMaxNesting = 1000;
+    static constexpr int kMaxChain = 1000;
+    int nesting = 0;
+    struct NestGuard {
+        Parser& p;
+        explicit NestGuard(Parser& parser) : p(parser) {
+            if (++p.nesting > kMaxNesting) {
+                --p.nesting;
+                p.fail("nesting too deep (more than " + std::to_string(kMaxNesting) + " levels)");
+            }
+        }
+        ~NestGuard() { --p.nesting; }
+    };
     // Indices where consumeTemplateClose split a `>>` into `> >`, in order. A
     // speculative parse that backtracks must undo the splits it made, or a later
     // `x < y >> 1` would see two `>` tokens instead of the shift it really is.

@@ -11,6 +11,7 @@
 // ============================================================================
 
 StmtPtr Parser::parseStatement() {
+    NestGuard guard(*this);
     // Labeled loop: IDENT ':' <for|while|do>. A bare `IDENT:` at statement level has no
     // other meaning, and we only treat it as a label when a loop keyword follows.
     if (check(TokenType::IDENT) && peek_ahead(1).type == TokenType::COLON) {

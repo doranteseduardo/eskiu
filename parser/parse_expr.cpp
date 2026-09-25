@@ -58,6 +58,7 @@ bool Parser::ternaryColonAhead() const {
 }
 
 ExprPtr Parser::parseTernary() {
+    NestGuard guard(*this);
     ExprPtr cond = parseLogicalOr();
     if (check(TokenType::QUESTION) && ternaryColonAhead()) {
         Token qTok = advance();                       // consume '?'
@@ -70,6 +71,7 @@ ExprPtr Parser::parseTernary() {
 }
 
 ExprPtr Parser::parseAssignment() {
+    NestGuard guard(*this);
     ExprPtr expr = parseTernary();
 
     // Compound assignments: desugar x += y  →  x = x + y
@@ -101,8 +103,12 @@ ExprPtr Parser::parseAssignment() {
 
 ExprPtr Parser::parseBinaryLevel(ExprPtr (Parser::*next)(), const std::vector<TokenType>& ops) {
     ExprPtr expr = (this->*next)();
+    int operands = 1;
     while (match(ops)) {
         Token opTok = tokens[current - 1];
+        if (++operands > kMaxChain)
+            fail("expression has more than " + std::to_string(kMaxChain) +
+                 " operands in one operator chain; split it up", opTok);
         expr = withPos(std::make_shared<BinaryExpr>(expr, opTok.value, (this->*next)()), opTok);
     }
     return expr;
@@ -148,6 +154,7 @@ bool Parser::starParenIsCast() const {
 }
 
 ExprPtr Parser::parseUnary() {
+    NestGuard guard(*this);
     // await E — prefix operator; binds like a unary operator.
     if (check(TokenType::AWAIT)) {
         Token awaitTok = advance();

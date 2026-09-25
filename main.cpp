@@ -165,9 +165,12 @@ static int testLexer(const std::string& filename) {
 
     while (tok.type != TokenType::EOF_TOKEN) {
         std::string typeStr = tokenTypeToString(tok.type);
-        std::cout << "  Line " << std::string(3 - std::to_string(tok.line).length(), ' ') << tok.line
-                  << ", Col " << std::string(3 - std::to_string(tok.column).length(), ' ') << tok.column
-                  << "  " << std::string(15 - typeStr.length(), ' ') << typeStr
+        // Right-align like printf("%3d") / "%15s": pad short fields, never truncate
+        // (a column past 999 must not underflow the pad count).
+        auto pad = [](const std::string& v, size_t w) { return std::string(v.size() < w ? w - v.size() : 0, ' ') + v; };
+        std::cout << "  Line " << pad(std::to_string(tok.line), 3)
+                  << ", Col " << pad(std::to_string(tok.column), 3)
+                  << "  " << pad(typeStr, 15)
                   << "  '" << tok.value << "'" << std::endl;
         tok = lexer.next_token();
         tokenCount++;

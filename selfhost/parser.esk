@@ -28,6 +28,7 @@ struct Parser {
     string file;           // this file's path, for diagnostics ("" → "<input>")
     int spec;              // > 0 while parsing speculatively (errors backtrack, not abort)
     int failed;            // a speculative parse hit a syntax error (see p_fail)
+    int nest;              // current expression/statement nesting (see p_nest_enter)
 }
 
 // Session state shared across every file parsed in one run (mirrors the C++ parser's
@@ -122,6 +123,7 @@ void p_init(Parser* p, *uint8 src, int len) {
     p.file = g_lex_file;
     p.spec = 0;
     p.failed = 0;
+    p.nest = 0;
     List_init<Token>(&p.toks, 256);
     let lx: Lexer;
     lx.src = src; lx.len = len; lx.pos = 0; lx.line = 1; lx.col = 1;
@@ -188,6 +190,23 @@ void p_fail(Parser* p, string msg) {
         return;
     }
     p_report(p, p_peek(p), msg);
+}
+
+// Recursion guard (mirrors the C++ NestGuard): more than 1000 nested levels, or an
+// operator chain of more than 1000 operands, is an error rather than a stack overflow
+// here or in the later recursive passes.
+int P_MAX_NESTING = 1000;
+int P_MAX_CHAIN = 1000;
+void p_nest_enter(Parser* p) {
+    p.nest = p.nest + 1;
+    if (p.nest > P_MAX_NESTING) { p_fail(p, "nesting too deep (more than 1000 levels)"); }
+}
+// Count one more operand of an operator chain at the operator token; fail past the limit.
+int p_chain(Parser* p, int n) {
+    if (n + 1 > P_MAX_CHAIN) {
+        p_fail(p, "expression has more than 1000 operands in one operator chain; split it up");
+    }
+    return n + 1;
 }
 
 // Consume a token of type `t`, or fail with `msg`.
@@ -837,7 +856,14 @@ int star_paren_is_cast(Parser* p) {
     return 0;
 }
 
+*ExprNode parse_unary_inner(Parser* p);
 *ExprNode parse_unary(Parser* p) {
+    p_nest_enter(p);
+    *ExprNode r = parse_unary_inner(p);
+    p.nest = p.nest - 1;
+    return r;
+}
+*ExprNode parse_unary_inner(Parser* p) {
     // await E — prefix, binds like a unary operator.
     if (p_at(p) == AWAIT) {
         p_adv(p);
@@ -906,67 +932,77 @@ int star_paren_is_cast(Parser* p) {
 
 *ExprNode parse_mul(Parser* p) {
     *ExprNode e = parse_unary(p);
+    int ops = 1;
     while (p_at(p) == STAR || p_at(p) == SLASH || p_at(p) == PERCENT) {
-        int t = p_at(p); p_adv(p);
+        int t = p_at(p); ops = p_chain(p, ops); p_adv(p);
         e = mk_bin(op_str(t), e, parse_unary(p));
     }
     return e;
 }
 *ExprNode parse_add(Parser* p) {
     *ExprNode e = parse_mul(p);
+    int ops = 1;
     while (p_at(p) == PLUS || p_at(p) == MINUS) {
-        int t = p_at(p); p_adv(p);
+        int t = p_at(p); ops = p_chain(p, ops); p_adv(p);
         e = mk_bin(op_str(t), e, parse_mul(p));
     }
     return e;
 }
 *ExprNode parse_shift(Parser* p) {
     *ExprNode e = parse_add(p);
+    int ops = 1;
     while (p_at(p) == LSHIFT || p_at(p) == RSHIFT) {
-        int t = p_at(p); p_adv(p);
+        int t = p_at(p); ops = p_chain(p, ops); p_adv(p);
         e = mk_bin(op_str(t), e, parse_add(p));
     }
     return e;
 }
 *ExprNode parse_cmp(Parser* p) {
     *ExprNode e = parse_shift(p);
+    int ops = 1;
     while (p_at(p) == LT || p_at(p) == GT || p_at(p) == LE || p_at(p) == GE) {
-        int t = p_at(p); p_adv(p);
+        int t = p_at(p); ops = p_chain(p, ops); p_adv(p);
         e = mk_bin(op_str(t), e, parse_shift(p));
     }
     return e;
 }
 *ExprNode parse_eq(Parser* p) {
     *ExprNode e = parse_cmp(p);
+    int ops = 1;
     while (p_at(p) == EQEQ || p_at(p) == NE) {
-        int t = p_at(p); p_adv(p);
+        int t = p_at(p); ops = p_chain(p, ops); p_adv(p);
         e = mk_bin(op_str(t), e, parse_cmp(p));
     }
     return e;
 }
 *ExprNode parse_band(Parser* p) {
     *ExprNode e = parse_eq(p);
-    while (p_at(p) == AMPERSAND) { p_adv(p); e = mk_bin("&", e, parse_eq(p)); }
+    int ops = 1;
+    while (p_at(p) == AMPERSAND) { ops = p_chain(p, ops); p_adv(p); e = mk_bin("&", e, parse_eq(p)); }
     return e;
 }
 *ExprNode parse_bxor(Parser* p) {
     *ExprNode e = parse_band(p);
-    while (p_at(p) == CARET) { p_adv(p); e = mk_bin("^", e, parse_band(p)); }
+    int ops = 1;
+    while (p_at(p) == CARET) { ops = p_chain(p, ops); p_adv(p); e = mk_bin("^", e, parse_band(p)); }
     return e;
 }
 *ExprNode parse_bor(Parser* p) {
     *ExprNode e = parse_bxor(p);
-    while (p_at(p) == PIPE) { p_adv(p); e = mk_bin("|", e, parse_bxor(p)); }
+    int ops = 1;
+    while (p_at(p) == PIPE) { ops = p_chain(p, ops); p_adv(p); e = mk_bin("|", e, parse_bxor(p)); }
     return e;
 }
 *ExprNode parse_and(Parser* p) {
     *ExprNode e = parse_bor(p);
-    while (p_at(p) == AND) { p_adv(p); e = mk_bin("&&", e, parse_bor(p)); }
+    int ops = 1;
+    while (p_at(p) == AND) { ops = p_chain(p, ops); p_adv(p); e = mk_bin("&&", e, parse_bor(p)); }
     return e;
 }
 *ExprNode parse_or(Parser* p) {
     *ExprNode e = parse_and(p);
-    while (p_at(p) == OR) { p_adv(p); e = mk_bin("||", e, parse_and(p)); }
+    int ops = 1;
+    while (p_at(p) == OR) { ops = p_chain(p, ops); p_adv(p); e = mk_bin("||", e, parse_and(p)); }
     return e;
 }
 
@@ -991,7 +1027,14 @@ int ternary_colon_ahead(Parser* p) {
     return 0;
 }
 
+*ExprNode parse_ternary_inner(Parser* p);
 *ExprNode parse_ternary(Parser* p) {
+    p_nest_enter(p);
+    *ExprNode r = parse_ternary_inner(p);
+    p.nest = p.nest - 1;
+    return r;
+}
+*ExprNode parse_ternary_inner(Parser* p) {
     *ExprNode cond = parse_or(p);
     if (p_at(p) == QUESTION && ternary_colon_ahead(p) == 1) {
         p_adv(p);                                      // '?'
@@ -1007,7 +1050,14 @@ int ternary_colon_ahead(Parser* p) {
     return cond;
 }
 
+*ExprNode parse_assignment_inner(Parser* p);
 *ExprNode parse_assignment(Parser* p) {
+    p_nest_enter(p);
+    *ExprNode r = parse_assignment_inner(p);
+    p.nest = p.nest - 1;
+    return r;
+}
+*ExprNode parse_assignment_inner(Parser* p) {
     *ExprNode left = parse_ternary(p);
     int t = p_at(p);
     if (is_compound(t) == 1) {
@@ -1430,7 +1480,14 @@ void check_name_not_keyword(Parser* p) {
     return s;
 }
 
+*StmtNode parse_stmt_inner(Parser* p);
 *StmtNode parse_stmt(Parser* p) {
+    p_nest_enter(p);
+    *StmtNode r = parse_stmt_inner(p);
+    p.nest = p.nest - 1;
+    return r;
+}
+*StmtNode parse_stmt_inner(Parser* p) {
     int t = p_at(p);
     // Labeled loop: IDENT ':' <for|while|do>. Only a loop keyword after the ':' makes it a
     // label; a bare `IDENT:` has no other statement-level meaning.
