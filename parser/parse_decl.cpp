@@ -405,6 +405,8 @@ DeclPtr Parser::parseIntrinsicDecl() {
 }
 
 DeclPtr Parser::parseStructDecl() {
+    // The name token stamps the decl's position (struct-level diagnostics).
+    Token nameTok = peek();
     std::string name = consume(TokenType::IDENT, "Expected struct name").value;
 
     // Optional type parameters: struct List<T>  or  struct Result<T, E>
@@ -458,7 +460,7 @@ DeclPtr Parser::parseStructDecl() {
         decl->packAlign = currentPack;
         if (currentPack == 1) decl->isPacked = true;
     }
-    return decl;
+    return withPos(decl, nameTok);
 }
 
 void Parser::addLinkLib(const std::string& name) {
