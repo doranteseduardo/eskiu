@@ -616,6 +616,14 @@ pre.code-block {
  int s   = a + (uint8)100;       // 300: both operands became int
  int8 m  = (int8)-1;
  bool gt = a &gt; m;                // true: 200 &gt; -1</pre>
+<p>When the two operands still differ after promotion, C&#x27;s usual arithmetic conversions pick the common type: the wider operand wins, and at equal width an unsigned operand makes the result unsigned. A shift takes the type of its left operand. An integer literal too large for <code>int</code> is an <code>int64</code>, so it widens the expression it appears in:</p>
+<pre class="code-block"> uint32 u = 5;
+ int32 i = -1;
+ printf(&quot;%u\n&quot;, i + u);          // 4: int32 + uint32 is uint32
+ printf(&quot;%d\n&quot;, i &lt; u);          // 0: -1 converts to 4294967295
+ int64 big = 3000000000 * 2;     // 6000000000: the literal is an int64
+ printf(&quot;%lld\n&quot;, big);</pre>
+<p class="output"><em>Output:</em> 4 0 6000000000</p>
 <p>Converting to <code>bool</code> tests against zero. <code>(bool)2</code>, <code>(bool)0.5</code> and a non-null pointer are all <code>true</code>; only <code>0</code>, <code>0.0</code> and <code>null</code> are <code>false</code>.</p>
 <h2 class="section" id="sec-2-4">2.4 A complete example</h2>
 <pre class="code-block"> extern int printf(string fmt, ...);</pre>
@@ -1005,6 +1013,14 @@ pre.code-block {
 <pre class="code-block"> Flags g = Flags { a: 1, b: 7, c: 15 };
  printf(&quot;%d %d %d\n&quot;, g.a, g.b, g.c);        // 1 7 15</pre>
 <p>Increment, decrement and compound assignment work on a bitfield and wrap at its width, so after <code>g.c++</code> the 4-bit field holds 0. A signed field (<code>int8 d : 3</code>) sign-extends when read, including through a type alias. A bitfield must have an integer type, and its width must fit in that type: a <code>float</code> or pointer bitfield, or <code>uint32 x : 40</code>, is an error, and you cannot take a bitfield&#x27;s address.</p>
+<p>The layout is the one the target&#x27;s C compiler uses, so a struct with bitfields can be shared with C. On Linux, macOS and bare-metal ARM a bitfield shares bytes with its neighbours as long as it fits inside an aligned unit of its own declared type, even when the declared types differ. On Windows a new storage word starts whenever the declared type size changes. The same struct can therefore have different sizes on different targets:</p>
+<pre class="code-block"> struct Mixed {
+       uint8  a : 4;
+       uint32 w : 12;
+ }
+ Mixed m = Mixed { a: 9, w: 1000 };
+ printf(&quot;%lld %d %d\n&quot;, sizeof(Mixed), m.a, m.w);   // 4 9 1000 (8 on Windows)</pre>
+<p class="output"><em>Output:</em> 4 9 1000</p>
 <h2 class="section" id="sec-5-7">5.7 packed struct</h2>
 <p>By default the compiler inserts padding between struct fields to satisfy alignment requirements. A <code>uint8</code> followed by a <code>uint32</code> occupies 8 bytes, not 5, because the compiler adds 3 padding bytes before the <code>uint32</code>. The <code>packed</code> qualifier removes all padding, giving you the exact on-wire layout. This is essential for hardware register maps, network protocols, and interop with C structs declared with __attribute__((<code>packed</code>)):</p>
 <pre class="code-block"> struct Natural {            // default layout
@@ -1181,6 +1197,12 @@ pre.code-block {
 <pre class="code-block"> printf(&quot;%d\n&quot;, max(3, 5));           // 5   : T inferred as int
  printf(&quot;%d\n&quot;, identity(42));        // 42</pre>
 <p>A generic call is checked like any other call: the number of arguments, the number of type arguments (<code>identity&lt;int, int&gt;</code> is an error), and each argument&#x27;s type once <code>T</code> is known. When a type parameter cannot be inferred from the arguments, for example because it appears only in the return type, the compiler asks you to write it explicitly.</p>
+<p>The body is checked too, once for each set of type arguments you actually use. A template that only works for some types is fine until you instantiate it with one it does not support, and the error then points at the offending line and names the instance:</p>
+<pre class="code-block"> struct Box { int v; }
+ T twice&lt;T&gt;(T x) { return x + x; }
+ Box b = Box { v: 1 };
+ Box c = twice&lt;Box&gt;(b);   // error: invalid operands for operator: struct:Box and
+                          // struct:Box (in instantiation of twice&lt;Box&gt;)</pre>
 <h2 class="section" id="sec-8-2">8.2 A template struct</h2>
 <pre class="code-block"> struct Pair&lt;A, B&gt; {
        A first;
@@ -1188,6 +1210,25 @@ pre.code-block {
  }</pre>
 <pre class="code-block"> Pair&lt;int, string&gt; p = Pair&lt;int, string&gt; { first: 1, second: &quot;one&quot; };
  printf(&quot;%d %s\n&quot;, p.first, p.second);          // 1 one</pre>
+<p>A template struct can declare methods in its body, the same way as a plain struct. The compiler generates each method for every instance that calls it, so <code>Stack&lt;int&gt;</code> and <code>Stack&lt;double&gt;</code> each get their own <code>push</code>. A generic function written in the <code>Type_method</code> form, with the struct as its first parameter, is callable with dot syntax as well. Its type arguments are taken from the receiver, so <code>s.peek()</code> on a <code>Stack&lt;int&gt;</code> is <code>Stack_peek&lt;int&gt;(&amp;s)</code>:</p>
+<pre class="code-block"> struct Stack&lt;T&gt; {
+       T[8] items;
+       int n;
+       void push(T x) { self.items[self.n] = x; self.n++; }
+       T pop() { self.n--; return self.items[self.n]; }
+ }</pre>
+<pre class="code-block"> T Stack_peek&lt;T&gt;(Stack&lt;T&gt;* self) { return self.items[self.n - 1]; }</pre>
+<pre class="code-block"> Stack&lt;int&gt; s = Stack&lt;int&gt; { n: 0 };
+ s.push(3);
+ s.push(9);
+ printf(&quot;%d\n&quot;, s.peek());                // 9
+ int top = s.pop();
+ printf(&quot;%d %d\n&quot;, top, s.pop());         // 9 3
+ Stack&lt;double&gt; d = Stack&lt;double&gt; { n: 0 };
+ d.push(2.5);
+ printf(&quot;%.1f\n&quot;, d.peek());              // 2.5</pre>
+<p class="output"><em>Output:</em> 9 9 3 2.5</p>
+<p>This is how the standard library&#x27;s containers are used: <code>l.push(8)</code> on a <code>List&lt;int&gt;</code> is <code>List_push&lt;int&gt;(&amp;l, 8)</code> (see Chapter 15).</p>
 <h2 class="section" id="sec-8-3">8.3 Result</h2>
 <p>The standard way to return a value or an error. Import from the standard library:</p>
 <pre class="code-block"> import &lt;result&gt;;</pre>
@@ -1493,6 +1534,7 @@ pre.code-block {
  *    /    %
  !    -    ~       &amp;    *   ++   --   (TYPE)   unary (right to left)
  ()    []      .    ?                       call, index, member, propagate</pre>
+<p>An expression may be as long as you like: a generated chain of a hundred thousand <code>+</code> operands, or a long <code>else if</code> ladder, compiles without trouble. Nesting (parentheses, blocks, nested <code>if</code>s and lambdas) may go 100000 levels deep, far beyond anything written by hand. Past that the compiler stops with a located <code>nesting too deep</code> error.</p>
 <h2 class="section" id="sec-12-4b">12.4b Range operator</h2>
 <p>The .. operator produces a half-open integer range for use in for-in loops. A..B iterates A, A+1, …, B-1. Both bounds are any integer expression, and the loop variable takes their common integer type; an empty range (A ≥ B) runs zero times:</p>
 <pre class="code-block"> for (i in 0..5)             { /* 0 1 2 3 4 */ }
@@ -1674,6 +1716,13 @@ pre.code-block {
  // (*void)cmp is the raw C pointer, not a fat closure
  free((*void)arr);</pre>
 <p>This works for top-level functions only. A closure or lambda still carries an environment and cannot be passed as a C callback.</p>
+<p>The prototype can also spell the callback&#x27;s type. A parameter of fn type in an <code>extern</code> is a C function pointer, so the call passes the function by name, with no cast:</p>
+<pre class="code-block"> extern void qsort(*void base, int64 n, int64 size, fn(*void, *void)-&gt;int cmp);</pre>
+<pre class="code-block"> qsort((*void)arr, (int64)5, (int64)4, cmp);
+ for (i in 0..5) { printf(&quot;%d &quot;, arr[i]); }     // 1 1 3 4 5</pre>
+<p class="output"><em>Output:</em> 1 1 3 4 5</p>
+<p>Only a top-level function (or <code>null</code>) is accepted there. Passing a lambda or a fn-typed variable is a compile error (&quot;is a C function pointer&quot;), because its environment cannot cross into C.</p>
+<p>A callback may take or return a struct by value. C then calls it through a small thunk the compiler generates with the target&#x27;s C calling convention, so the struct arrives the way the C side passed it. Your own Eskiu calls to the function are unaffected.</p>
 <div class="chapter-start" id="chapter-15"><span class="chapter-label">Chapter 15</span>
 <h1 class="chapter-title">The Standard Library</h1><hr class="chapter-rule"></div>
 <p>Eskiu&#x27;s standard library ships as 41 plain .esk files with the compiler. There is no magic: they are Eskiu code, readable at lib/eskiu/stdlib/ in your installation. Import each module with an angle-bracket <code>import</code>.</p>
