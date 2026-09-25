@@ -19,7 +19,7 @@ void`, cancellation, and all control flow around `await` (`if`/`while`/C-style
 ownership, leak-free under `leaks`. A `defer` in a block split by an await is kept
 by the transform and emitted at each exit of that block (fall-through, `return`,
 `break`/`continue`); an `await` inside a defer body is rejected. A lambda that
-captures a frame-hoisted local gets a block-local copy (`T x = fr.x;`) at its
+captures a frame-hoisted local gets a block-local copy (`T x = __fr.x;`, `__fr` being the frame pointer) at its
 creation point, so the capture is still a by-value snapshot. Combinators (`spawn`/`select2`/`join2`,
 generic + cast-free) and a `<timer>` leaf future for deadline-based timeouts build
 on this shape.

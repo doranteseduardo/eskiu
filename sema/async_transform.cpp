@@ -16,7 +16,7 @@ ExprPtr intlit(long long v) {
 }
 // fr.<field>
 ExprPtr fr(const std::string& field) {
-    return std::make_shared<MemberExpr>(ident("fr"), field);
+    return std::make_shared<MemberExpr>(ident("__fr"), field);
 }
 ExprPtr binop(ExprPtr l, const std::string& op, ExprPtr r) {
     return std::make_shared<BinaryExpr>(std::move(l), op, std::move(r));
@@ -126,11 +126,11 @@ ExprPtr resumeWaker(const std::string& resumeName, int state, const std::string&
     std::vector<BlockItem> body;
     body.push_back(assign(fr("st"), intlit(state)));
     body.push_back(exprStmt(std::make_shared<CallExpr>(
-        ident(resumeName), std::vector<ExprPtr>{ ident("fr") })));
+        ident(resumeName), std::vector<ExprPtr>{ ident("__fr") })));
     auto blk = std::make_shared<BlockStmt>(body);
     auto lam = std::make_shared<LambdaExpr>(
         std::vector<std::pair<std::string,std::string>>{}, "void", blk);
-    lam->captures.push_back({"fr", framePtrTy});
+    lam->captures.push_back({"__fr", framePtrTy});
     return lam;
 }
 
@@ -747,12 +747,12 @@ void AsyncTransform::run(Program* program) {
             std::make_shared<BlockStmt>(loopBody)));
         auto resumeFn = std::make_shared<FunctionDecl>(
             resumeN, "void",
-            std::vector<std::pair<std::string,std::string>>{ {"*" + frameT, "fr"} },
+            std::vector<std::pair<std::string,std::string>>{ {"*" + frameT, "__fr"} },
             std::make_shared<BlockStmt>(resumeBody));
 
         // ── Constructor:  *Future<T> name(params) { ... } ────────────────────
         std::vector<BlockItem> ctor;
-        ctor.push_back(std::make_shared<VarDecl>("fr", "*" + frameT,
+        ctor.push_back(std::make_shared<VarDecl>("__fr", "*" + frameT,
             std::make_shared<TemplateCallExpr>("alloc", std::vector<std::string>{frameT},
                 std::vector<ExprPtr>{ intlit(1) })));
         ctor.push_back(assign(fr("st"), intlit(0)));
@@ -779,15 +779,15 @@ void AsyncTransform::run(Program* program) {
             auto dropLam = std::make_shared<LambdaExpr>(
                 std::vector<std::pair<std::string,std::string>>{}, "void",
                 std::make_shared<BlockStmt>(dropBody));
-            dropLam->captures.push_back({"fr", "*" + frameT});
+            dropLam->captures.push_back({"__fr", "*" + frameT});
             ctor.push_back(assign(std::make_shared<MemberExpr>(fr("ret"), "on_drop"), dropLam));
         }
         for (const auto& p : fn->params)
             ctor.push_back(assign(fr(p.second), ident(p.second)));
         ctor.push_back(exprStmt(std::make_shared<CallExpr>(
-            ident(resumeN), std::vector<ExprPtr>{ ident("fr") })));
+            ident(resumeN), std::vector<ExprPtr>{ ident("__fr") })));
         ctor.push_back(ret(std::make_shared<UnaryExpr>("&",
-            std::make_shared<MemberExpr>(ident("fr"), "ret"))));
+            std::make_shared<MemberExpr>(ident("__fr"), "ret"))));
         auto ctorFn = std::make_shared<FunctionDecl>(
             name, "*Future<" + Tret + ">", fn->params, std::make_shared<BlockStmt>(ctor));
         // Preserve the original async fn's per-parameter `escaping` flags. The ctor
