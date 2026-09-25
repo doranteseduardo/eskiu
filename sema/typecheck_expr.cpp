@@ -32,6 +32,19 @@ static bool floatConstFitsInt(double v, const std::string& t) {
 // literals, lambdas, await, template calls, struct init).
 // Part of the type_checker.cpp split; see type_checker.h.
 
+// A closure captures an enclosing local by value (a copy in its environment), so an
+// assignment to one inside the lambda would change only that copy: an error. A global
+// or a `static` local is not captured (the lambda uses the one cell), so it may be set.
+void TypeChecker::checkCapturedWrite(ASTNode* at, Expr* target) {
+    auto* id = dynamic_cast<IdentExpr*>(target);
+    if (!id || captureBoundary.empty()) return;
+    if (lookupSymbol(id->name).empty()) return;
+    int defIdx = scopeOf(id->name);
+    if (defIdx >= 1 && defIdx < captureBoundary.back() && !scopes[defIdx][id->name].isStatic)
+        errorAt(at, "cannot assign to captured variable '" + id->name +
+                    "': a closure captures it by value (use a pointer, a global, or a static)");
+}
+
 // Expression visitors
 // `lhs = rhs` (also the desugared compound `x op= y`): the target must be a writable
 // lvalue, the value assignable to it. Kept out of visit(BinaryExpr) so that visitor's
@@ -46,6 +59,7 @@ static bool floatConstFitsInt(double v, const std::string& t) {
     std::string cname;
     if (assignsToConst(node->left.get(), cname))
         errorAt(node, "cannot assign to read-only location '" + cname + "'");
+    checkCapturedWrite(node, node->left.get());
     std::string lt = getExpressionType(node->left.get());
     // The target of `p = ...` keeps its declared type even while `p` is narrowed,
     // and the assignment ends the narrowing (unless it stores an address `&x`).
@@ -497,6 +511,7 @@ void TypeChecker::visit(IncDecExpr* node) {
     std::string cname;
     if (assignsToConst(op, cname))
         errorAt(node, "cannot modify read-only location '" + cname + "'");
+    checkCapturedWrite(node, op);
     std::string t = getExpressionType(op);
     if (t != "unknown" && !isIntType(t) && !isPointerType(t))
         errorAt(node, "'++'/'--' requires an integer or pointer, got '" + t + "'");
@@ -821,7 +836,23 @@ void TypeChecker::visit(CallExpr* node) {
 
     // Type check fixed arguments; visit (but do not type-check) variadic extras
     for (size_t i = 0; i < node->args.size(); ++i) {
-        node->args[i]->accept(this);
+        // A watched (non-escaping) closure param passed straight to a non-escaping
+        // param of an Eskiu function does not escape either: the callee may only
+        // call it. (A C function's fn-typed param is a C function pointer, not this.)
+        bool forwards = false;
+        if (auto* aid = dynamic_cast<IdentExpr*>(node->args[i].get())) {
+            bool paramEscapes = escVec && i < escVec->size() && (*escVec)[i];
+            forwards = nonEscapingFnParams.count(aid->name) && !paramEscapes &&
+                       !externFnNames.count(funcName) && i < fixedCount;
+        }
+        if (forwards) {
+            std::string prev = calleeContext;
+            calleeContext = static_cast<IdentExpr*>(node->args[i].get())->name;
+            node->args[i]->accept(this);
+            calleeContext = prev;
+        } else {
+            node->args[i]->accept(this);
+        }
         // Escape optimization: a lambda passed directly to a NON-escaping
         // parameter does not outlive the call (the callee may only call it —
         // enforced by the soundness check), so its env can stay on the stack.

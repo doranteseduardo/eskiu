@@ -61,6 +61,7 @@ struct Sema {
     List<string> watched;   // non-escaping fn-type params of the current function
     List<string> escaped;   // watched params seen used beyond a direct call
     string callee_ctx;      // name being called right now (a watched param here is OK)
+    List<int> lam_bounds;   // scope depth just outside each enclosing lambda (innermost last)
     List<string> narrowed;  // `?*T` vars proven non-null in the current branch (`if (x != null)`)
     List<string> loop_lbls; // enclosing loop labels ("" for unlabeled), for labeled break/continue
     int sw_depth;           // enclosing switches (a bare `break` may exit one)
@@ -334,6 +335,7 @@ void sema_init(Sema* s, string filename) {
     List_init<string>(&s.escaped, 4);
     List_init<string>(&s.narrowed, 4);
     List_init<string>(&s.loop_lbls, 4);
+    List_init<int>(&s.lam_bounds, 4);
     s.callee_ctx = "";
     s.sw_depth = 0;
     s.param_depth = 0 - 1;
@@ -3118,6 +3120,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         if (sema_is_assign(e.sval) == 1 && sema_is_readonly_lvalue(s, e.a) == 1) {
             sema_error(s, "cannot assign to read-only location");
         }
+        if (sema_is_assign(e.sval) == 1) { sema_check_captured_write(s, e.a); }
         sema_expr(s, e.a);
         sema_expr(s, e.b);
         // `p = ...` ends p's narrowing unless it stores an address `&x` or steps the pointer
@@ -3151,6 +3154,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
                 dprintf(2, "error: %s:%d:%d: '++'/'--' requires an integer or pointer, got '%s'\n", s.filename, s.line, s.col, it);
             }
         }
+        sema_check_captured_write(s, e.a);
         sema_expr(s, e.a); return;
     }
     if (k == EK_ARRAYLIT) {                            // { e0, e1, ... }
@@ -3693,9 +3697,33 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         else { s.callee_ctx = ""; }
         sema_expr(s, e.a);                 // callee (functions live in the global scope)
         s.callee_ctx = prev;
+        // A watched (non-escaping) closure param passed straight to a non-escaping param
+        // of an Eskiu function does not escape: the callee may only call it (mirrors the
+        // C++ visit(CallExpr)). A C function's fn-typed param is a C pointer, not this.
+        *DeclNode cfd = null;
+        if (e.a != null && e.a.kind == EK_IDENT && sema_local_bound(s, e.a.sval) == 0) { cfd = sema_find_fndecl(s, e.a.sval); }
+        if (cfd != null && cfd.kind != DK_FUNCTION) { cfd = null; }
         int i = 0;
         int n = List_len<*ExprNode>(&e.kids);
-        while (i < n) { sema_expr(s, List_get<*ExprNode>(&e.kids, i)); i = i + 1; }
+        while (i < n) {
+            *ExprNode ka = List_get<*ExprNode>(&e.kids, i);
+            int fwd = 0;
+            if (cfd != null && ka != null && ka.kind == EK_IDENT && sema_in_list(&s.watched, ka.sval) == 1
+                && i < List_len<Param>(&cfd.params)) {
+                int pesc = 0;
+                if (i < List_len<int>(&cfd.param_escaping)) { pesc = List_get<int>(&cfd.param_escaping, i); }
+                if (pesc == 0) { fwd = 1; }
+            }
+            if (fwd == 1) {
+                string pk = s.callee_ctx;
+                s.callee_ctx = ka.sval;
+                sema_expr(s, ka);
+                s.callee_ctx = pk;
+            } else {
+                sema_expr(s, ka);
+            }
+            i = i + 1;
+        }
         return;
     }
     if (k == EK_STRUCTINIT) {
@@ -3808,6 +3836,7 @@ void sema_check_lambda(Sema* s, *ExprNode e) {
     if (s.lam_ret != null && s.lam_ret[0] != 0) { s.cur_ret = s.lam_ret; }
     s.lam_ret = "";
     s.in_async = 0; s.sw_depth = 0;
+    List_push<int>(&s.lam_bounds, s.depth);
     sema_push(s);
     List<string> seen; List_init<string>(&seen, 4);
     int i = 0;
@@ -3825,6 +3854,7 @@ void sema_check_lambda(Sema* s, *ExprNode e) {
     s.param_depth = s.depth;
     sema_stmt(s, e.stmt);
     sema_pop(s);
+    List_remove<int>(&s.lam_bounds, List_len<int>(&s.lam_bounds) - 1);
     s.cur_ret = saved_ret; s.in_async = saved_async; s.await_seen = saved_seen;
     s.sw_depth = saved_sw; s.param_depth = saved_pd;
     s.loop_lbls = saved_lbls;
@@ -3875,6 +3905,23 @@ void sema_arm_bindings(string label, List<string>* out) {
 }
 
 // ── statement walk ──
+
+// A closure captures an enclosing local by value, so an assignment (or `++`/`--`) to one
+// inside the lambda would change only its copy: an error (mirrors the C++
+// checkCapturedWrite). A global or a `static` local is not captured.
+void sema_check_captured_write(Sema* s, *ExprNode t) {
+    if (t == null || t.kind != EK_IDENT) { return; }
+    int nb = List_len<int>(&s.lam_bounds);
+    if (nb == 0) { return; }
+    int si = sema_sym_index(s, t.sval);
+    if (si < 0) { return; }
+    Sym sy = List_get<Sym>(&s.syms, si);
+    if (sy.depth >= 1 && sy.depth <= List_get<int>(&s.lam_bounds, nb - 1) && sy.is_static == 0) {
+        s.had_error = 1;
+        dprintf(2, "error: %s:%d:%d: cannot assign to captured variable '%s': a closure captures it by value (use a pointer, a global, or a static)\n",
+               s.filename, s.line, s.col, t.sval);
+    }
+}
 
 // A loop or `if` condition: a `bool`, a number (`!= 0`) or a pointer, `string` and `?*T`
 // included (`!= null`) (mirrors the C++ checkCondition).
@@ -4094,6 +4141,10 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
             dprintf(2, "error: %s:%d:%d: variable '%s' cannot have type 'void'\n", s.filename, s.line, s.col, st.name);
         }
         sema_define(s, st.name, vty, st.is_const);
+        if (st.is_static == 1) {
+            int sti = List_len<Sym>(&s.syms) - 1;
+            Sym ss = List_get<Sym>(&s.syms, sti); ss.is_static = 1; List_set<Sym>(&s.syms, sti, ss);
+        }
         sema_set_const_init(s, st.expr);
         if (st.is_static == 1) {           // static storage: its address outlives the call
             int sn = List_len<Sym>(&s.syms) - 1;

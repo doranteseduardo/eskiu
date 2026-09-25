@@ -895,6 +895,8 @@ let add: fn(int)->int = int(int x) { return x + base; };
 add(5);   // 15: 'base' was captured by value
 ```
 
+The closure holds its own copy of each captured variable, taken when the lambda expression is evaluated: a later change to `base` in the enclosing function is not seen by `add`. For the same reason a lambda may not assign to a captured variable (`base = 1;`, `base += 1;` or `base++;` inside the body is a compile error, "cannot assign to captured variable"), since the write would change only the copy and be lost. To share state with the enclosing code, write through a pointer to it (`*p = v`), or use a global or a `static` local: those are not captured, the lambda reads and writes the one variable. The lambda's own parameters and locals are ordinary variables it may assign.
+
 Under the hood, `fn(T)->R` is a two-word fat pointer `{fn_ptr, env_ptr}`. When a lambda captures one or more variables, the compiler packages them into an environment struct and stores its address in `env_ptr`. Lambdas that capture nothing have `env_ptr = null` and compile identically to plain function pointers. The representation is fully transparent to user code. The type annotation remains `fn(T)->R` in both cases.
 
 **Escape analysis and closure lifetime.** Where the environment lives depends on whether the closure *escapes* its creating function:
@@ -911,6 +913,8 @@ void on_ready(int fd, escaping fn(int)->void cb) { handlers[fd] = cb; }
 // only calls f -> no annotation; closures passed here stay on the stack
 int apply(fn(int)->int f, int x) { return f(x); }
 ```
+
+Passing a non-`escaping` closure parameter straight on to another function's non-`escaping` parameter is also fine, since that callee can only call it too.
 
 This is checked: using a non-`escaping` closure parameter beyond a direct call is a compile error pointing you at `escaping`, so a closure can never silently outlive its stack environment. `escaping` and `free_closure` are reserved words (§2.3).
 

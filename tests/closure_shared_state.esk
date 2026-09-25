@@ -1,0 +1,24 @@
+// A closure captures locals by value; to share state with the enclosing function it
+// writes through a pointer, a global, or a static local (not captured). Its own locals
+// and parameters are its own to assign.
+extern int printf(string fmt, ...);
+
+int total = 0;
+
+int main() {
+    int count = 0;
+    *int pc = &count;
+    static int hits = 0;
+    let f: fn(int)->int = int(int v) {
+        *pc = *pc + v;
+        total += v;
+        hits++;
+        int local = v;
+        local += 1;
+        v = v * 2;
+        return local + v;
+    };
+    int r = f(2) + f(3);
+    printf("%d %d %d %d\n", count, total, hits, r);
+    return 0;
+}

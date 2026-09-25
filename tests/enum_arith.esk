@@ -1,0 +1,25 @@
+// A classic enum value is an int in arithmetic, bitwise, shift, unary and comparison
+// operators (the result is int), and an enum variable takes compound assignment.
+extern int printf(string fmt, ...);
+
+enum Dir { North, East = 4, South, West }
+
+int main() {
+    Dir d = South;
+    Dir c = East;
+    int a = c + 1;
+    int b = c * 2;
+    c += 1;
+    printf("%d %d %d\n", a, b, c);
+    printf("%d %d %d %d\n", -d, ~d, d & 1, d << 1);
+    printf("%d %d %d %d\n", d < 6, d != 1, d == South, d >= West);
+    float f = 0.5;
+    f += d;
+    printf("%f\n", (double)f);
+    int m = d % 3 + (d | 8) - (d ^ 1) + (d >> 1);
+    printf("%d\n", m);
+    d = West;
+    d -= 2;
+    printf("%d\n", d == East);
+    return 0;
+}

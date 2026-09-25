@@ -1,6 +1,6 @@
 // Valid forms next to the stricter checks: a lambda whose return type is reconciled to
-// the declared one, an enum-member case label, a struct named like an enum member, a
-// narrowed pointer stepped by itself, and a lambda assigning its own copy of a capture.
+// the declared one, an enum-member case label, a struct named like an enum member and a
+// narrowed pointer stepped by itself.
 extern int printf(string f, ...);
 enum Col { R, G }
 struct G { int v; }
@@ -14,8 +14,6 @@ int main() {
     if (p != null) {
         p = p + 1;
         t = *p;
-        let h: fn()->void = void() { p = null; };
-        h();
         t = t + *p;
     }
     printf("%.1f %d %d %d %d\n", (double)f(2), g.v, pick(7), pick(0), t);

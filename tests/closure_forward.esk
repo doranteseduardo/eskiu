@@ -1,0 +1,13 @@
+// A non-escaping closure parameter may be forwarded to another non-escaping
+// parameter: the callee can only call it, so it does not escape.
+extern int printf(string fmt, ...);
+
+int call(fn(int)->int f, int x) { return f(x); }
+int fwd(fn(int)->int f, int x) { return call(f, x) + 1; }
+int fwd2(fn(int)->int g, int x) { return fwd(g, x) * 2; }
+
+int main() {
+    int k = 10;
+    printf("%d %d\n", fwd(int(int v) { return v + k; }, 1), fwd2(int(int v) { return v * 3; }, 2));
+    return 0;
+}

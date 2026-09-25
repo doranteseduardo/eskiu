@@ -24,6 +24,9 @@ std::string TypeChecker::inferBinaryExprType(const std::string& leftIn, const st
     if (op == "=") {
         return isValidAssignment(leftType, rightType) ? leftType : "error";
     }
+    // A classic enum value is an int in arithmetic, bitwise and comparison operators.
+    leftType = plainEnumAsInt(leftType);
+    rightType = plainEnumAsInt(rightType);
     if (op == "==" || op == "!=" || op == "<" || op == ">" || op == "<=" || op == ">=") {
         // Operands must be mutually comparable: both numeric, both pointer-like
         // (including `null`), or the same non-aggregate type. Rejecting the rest
@@ -73,9 +76,15 @@ std::string TypeChecker::intPromoted(const std::string& raw) {
     return t;
 }
 
+// A classic (payload-less) enum type spelled by name is `int` as an operand.
+std::string TypeChecker::plainEnumAsInt(const std::string& type) {
+    return plainEnumDecls.count(tyq::strip(type)) ? std::string("int") : type;
+}
+
 std::string TypeChecker::inferUnaryExprType(const std::string& op, const std::string& operandIn) {
     // A `?*T` derefs like `*T` (deref-safety is enforced separately by checkNullableDeref).
     std::string operandType = (!operandIn.empty() && operandIn[0] == '?') ? operandIn.substr(1) : operandIn;
+    if (op != "&") operandType = plainEnumAsInt(operandType);
     if (op == "!") {
         // Logical not of a scalar (number, bool, pointer). A struct operand is not a
         // truth value: "error" here lets a user `operator !(V)` resolve instead.
