@@ -293,7 +293,8 @@ void CodeGen::visit(CallExpr* node) {
             llvm::Value* self = baseIsPtr ? evaluateExpr(member->base)
                                           : evaluateAddress(member->base);
             std::vector<llvm::Value*> margs = {self};
-            auto mpt = funcEskiuParamTypes.find(mangled);   // [0] is self
+            // The method's param types; [0] is self.
+            auto mpt = funcEskiuParamTypes.find(mangled);
             for (size_t ai = 0; ai < node->args.size(); ++ai) {
                 bool has = mpt != funcEskiuParamTypes.end() && ai + 1 < mpt->second.size();
                 margs.push_back(has ? evalForType(node->args[ai], mpt->second[ai + 1])

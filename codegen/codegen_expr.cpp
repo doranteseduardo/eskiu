@@ -283,7 +283,7 @@ void CodeGen::visit(BinaryExpr* node) {
         }
     } else if (node->op == "-") {
         if (left->getType()->isPointerTy() && right->getType()->isPointerTy()) {
-            // ptr - ptr: the distance in ELEMENTS (C), as an i64 — not in bytes.
+            // ptr - ptr: the distance in elements (C), as an i64, not in bytes.
             result = builder->CreatePtrDiff(ptrElemType(), left, right, "ptrdiff");
         } else if (left->getType()->isPointerTy()) {
             llvm::Value* neg = builder->CreateNeg(

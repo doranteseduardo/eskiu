@@ -137,7 +137,8 @@ static std::string literalArmType(Expr* e, const std::string& t) {
         if (v >= INT32_MIN && v <= INT32_MAX) return t;
         return "int64";
     } catch (...) {
-        return "uint64";   // above INT64_MAX: only an unsigned 64-bit type holds it
+        // Above INT64_MAX: only an unsigned 64-bit type holds it.
+        return "uint64";
     }
 }
 
@@ -161,7 +162,8 @@ void TypeChecker::visit(TernaryExpr* node) {
     if (tt == "unknown")       result = et;
     else if (et == "unknown")  result = tt;
     else if (tt == et)         result = tt;
-    else if (tt == "null" && (isPointerType(et) || et[0] == '?')) result = et;   // `c ? null : &x`
+    // A `null` arm takes the other arm's pointer type (`c ? null : &x`).
+    else if (tt == "null" && (isPointerType(et) || et[0] == '?')) result = et;
     else if (et == "null" && (isPointerType(tt) || tt[0] == '?')) result = tt;
     else if (isNumericType(tt) && isNumericType(et)) result = promoteType(tt, et);
     else if (assignabilityError(tt, et, node->elseExpr.get()).empty()) result = tt;

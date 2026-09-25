@@ -167,7 +167,8 @@ struct ShadowRenamer {
         for (auto& it : its) {
             if (std::holds_alternative<DeclPtr>(it)) {
                 if (auto* vd = dynamic_cast<VarDecl*>(std::get<DeclPtr>(it).get())) {
-                    expr(vd->initializer);           // the initializer sees the outer binding
+                    // The initializer still sees the outer binding.
+                    expr(vd->initializer);
                     vd->name = declare(vd->name);
                 }
             } else stmt(std::get<StmtPtr>(it));

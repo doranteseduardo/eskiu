@@ -124,7 +124,8 @@ llvm::Type* CodeGen::getTypeFromString(const std::string& typeStr) {
             }
             auto it = structTypes.find(t.name);            // bare struct name
             if (it != structTypes.end()) return it->second;
-            auto fit = ifaceFatPtrTypes.find(t.name);      // interface value → {data, vtable}
+            // An interface value is its {data, vtable} fat struct.
+            auto fit = ifaceFatPtrTypes.find(t.name);
             if (fit != ifaceFatPtrTypes.end()) return fit->second;
             break;
         }
