@@ -785,8 +785,14 @@ void CodeGen::visit(TemplateCallExpr* node) {
     llvm::Function* func = instantiateFnTemplate(fd, mangledName, subs);
     if (!func) throw std::runtime_error("Template instantiation failed: " + mangledName);
 
+    // An argument bound to an interface parameter (`Sh y`, or `T x` with T = Sh) is
+    // boxed to the interface, as for a direct call.
     std::vector<llvm::Value*> args;
-    for (auto& arg : node->args) args.push_back(evaluateExpr(arg));
+    for (size_t i = 0; i < node->args.size(); ++i) {
+        bool fixed = i < fd->params.size() && fd->params[i].first != "...";
+        args.push_back(fixed ? evalForType(node->args[i], substType(fd->params[i].first, subs))
+                             : evaluateExpr(node->args[i]));
+    }
 
     // Coerce arguments to the instantiated function's parameter types — e.g. a
     // `double` literal passed where T=float substituted the parameter to `float`.

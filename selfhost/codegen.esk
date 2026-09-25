@@ -4372,10 +4372,14 @@ CgVal cg_call_mangled(Codegen* g, string mangled, *ExprNode e) {
     string args = "";
     int i = 0; int n = List_len<*ExprNode>(&e.kids);
     while (i < n) {
-        CgVal a = cg_expr(g, List_get<*ExprNode>(&e.kids, i));
+        *ExprNode ax = List_get<*ExprNode>(&e.kids, i);
+        CgVal a = cg_expr(g, ax);
         string pty = cg_pty(&f, i);
+        string pety = cg_pety(&f, i);
         string aop = a.op; string aty = a.ty;
-        if (pty[0] != 0) { aop = cg_coerce(g, a, pty); aty = pty; }
+        // An interface parameter (`Sh y`, or `T x` with T = Sh) boxes a struct pointer.
+        if (pety[0] != 0 && cg_is_iface(g, cg_dealias(g, pety)) == 1) { aop = cg_iface_conv(g, pety, a, ax); aty = "%iface_fat"; }
+        else if (pty[0] != 0) { aop = cg_coerce(g, a, pty); aty = pty; }
         if (args[0] != 0) { args = cg_cat(args, ", "); }
         args = cg_cat(args, cg_cat(aty, cg_cat(" ", aop)));
         i = i + 1;
