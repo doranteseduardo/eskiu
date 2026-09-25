@@ -36,16 +36,16 @@ Chan<T>* chan_new<T>(int cap) {
     ch.cap    = cap;
     ch.head   = 0;
     ch.count  = 0;
-    ch.waiter = (Future<T>*)0;
+    ch.waiter = null;
     return ch;
 }
 
 // Send `v`. If a receiver is parked, hand the value off directly (waking it);
 // otherwise buffer it. Returns false if the buffer is full and nobody is waiting.
 bool Chan_send<T>(Chan<T>* ch, T v) {
-    if (ch.waiter != (Future<T>*)0) {
+    if (ch.waiter != null) {
         Future<T>* w = ch.waiter;
-        ch.waiter = (Future<T>*)0;          // clear first: completing may resume an
+        ch.waiter = null;                   // clear first: completing may resume an
         future_complete<T>(w, v);           // awaiter that immediately recvs again
         return true;
     }
@@ -53,7 +53,7 @@ bool Chan_send<T>(Chan<T>* ch, T v) {
     int tail = ch.head + ch.count;
     if (tail >= ch.cap) { tail = tail - ch.cap; }
     ch.buf[tail] = v;
-    ch.count = ch.count + 1;
+    ch.count++;
     return true;
 }
 
@@ -65,15 +65,15 @@ Future<T>* Chan_recv<T>(Chan<T>* ch) {
     Future<T>* f = future_new<T>();
     if (ch.count > 0) {
         T v = ch.buf[ch.head];
-        ch.head = ch.head + 1;
+        ch.head++;
         if (ch.head >= ch.cap) { ch.head = 0; }
-        ch.count = ch.count - 1;
+        ch.count--;
         future_complete<T>(f, v);           // ready immediately (fast path)
     } else {
         ch.waiter = f;                      // park; a future Chan_send hands off
         // Cancel path (e.g. the losing side of a select2 timeout): unpark, so a
         // later Chan_send buffers its value instead of completing freed memory.
-        f.on_drop = void() { if (ch.waiter == f) { ch.waiter = (Future<T>*)0; } };
+        f.on_drop = void() { if (ch.waiter == f) { ch.waiter = null; } };
     }
     return f;
 }
