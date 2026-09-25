@@ -458,19 +458,56 @@ int re_emit(ReComp* c, int op, int a, int b) {
 
 void re_compile_node(ReComp* c, Node* n);
 
+// Can `n` match the empty string?
+bool re_nullable(Node* n) {
+    if (n == null) { return true; }
+    switch (n.kind) {
+        case N_LIT: return false;
+        case N_ANY: return false;
+        case N_CLASS: return false;
+        case N_CONCAT: return re_nullable(n.left) && re_nullable(n.right);
+        case N_ALT: return re_nullable(n.left) || re_nullable(n.right);
+        case N_GROUP: return re_nullable(n.left);
+        case N_REPEAT: return n.rmin == 0 || re_nullable(n.left);
+        default: return true;
+    }
+}
+
 void re_compile_repeat(ReComp* c, Node* n) {
     const int rmin = n.rmin;
     const int rmax = n.rmax;
     const bool greedy = n.greedy == 1;
     Node* child = n.left;
 
-    for (int i = 0; i < rmin && c.err == null; i++) {
+    // Unbounded repeats follow RE2: x{n,} is n-1 copies of x then x+, and x*
+    // is a loop, or (x+)? when x can match empty (the loop form would reach
+    // its already-visited split after an empty iteration and drop that path).
+    const int copies = rmax == -1 && rmin > 0 ? rmin - 1 : rmin;
+    for (int i = 0; i < copies && c.err == null; i++) {
         re_compile_node(c, child);
     }
     if (c.err != null) { return; }
 
+    if (rmax == -1 && (rmin > 0 || re_nullable(child))) {
+        // x+:     body: child; l: split(body, end); end:
+        // (x+)?:  q: split(body, end); then x+
+        int q = -1;
+        if (rmin == 0) { q = re_emit(c, OP_SPLIT, 0, 0); }
+        const int body = c.re.ninst;
+        re_compile_node(c, child);
+        const int l = re_emit(c, OP_SPLIT, 0, 0);
+        const int end = c.re.ninst;
+        if (c.err != null) { return; }
+        if (greedy) { c.re.inst[l].a = body; c.re.inst[l].b = end; }
+        else { c.re.inst[l].a = end; c.re.inst[l].b = body; }
+        if (q >= 0) {
+            if (greedy) { c.re.inst[q].a = body; c.re.inst[q].b = end; }
+            else { c.re.inst[q].a = end; c.re.inst[q].b = body; }
+        }
+        return;
+    }
     if (rmax == -1) {
-        // zero-or-more: L: split(body,end); body: child; jmp L; end:
+        // x*: L: split(body,end); body: child; jmp L; end:
         const int lsplit = re_emit(c, OP_SPLIT, 0, 0);
         const int body = c.re.ninst;
         re_compile_node(c, child);

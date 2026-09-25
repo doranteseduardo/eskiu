@@ -1,0 +1,35 @@
+// A starred group that can match empty may take one empty iteration and then
+// exit, as in RE2: `(a?|b)*` on "b" matches "" at 0 with group 1 = (0,0).
+// The loop form used to reach its already-visited split and drop that path.
+import <regex>;
+extern int printf(string fmt, ...);
+
+void show(string p, string s) {
+    Regex re = regex_compile(p);
+    if (re.ok == 0) { printf("%s: error %s\n", p, re.err); Regex_free(&re); return; }
+    let m: Match;
+    int r = Regex_search(&re, s, &m);
+    printf("%s on \"%s\": %d", p, s, r);
+    if (r == 1) {
+        for (int g = 0; g <= m.ngroup; g++) { printf(" (%d,%d)", m.cap[2 * g], m.cap[2 * g + 1]); }
+    }
+    printf("\n");
+    Match_free(&m);
+    Regex_free(&re);
+}
+
+int main() {
+    show("(a?|b)*", "b");
+    show("(|a)*", "a");
+    show("(a*)*", "b");
+    show("(x?)*y", "y");
+    show("(a*)+", "b");
+    show("((1*))+", "1");
+    show("(a?b?)*", "ab");
+    show("(a*|b)*", "abab");
+    show("(a?)*?b", "ab");
+    show("((a)|b)*", "ab");
+    show("(a|b)*", "ab");
+    show("(a?){2,}", "aaa");
+    return 0;
+}
