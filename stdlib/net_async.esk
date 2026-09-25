@@ -62,16 +62,18 @@ int64 _net_write(int fd, *void buf, int64 n) { return write(fd, buf, n); }
 Future<int>* net_write_async(EventLoop* lp, int fd, *uint8 buf, int64 len) {
     Future<int>* f = future_new<int>();
     *int64 sent = alloc<int64>(1);  *sent = (int64)0;
-    // on_drop (cancel / free): release the loop registration and the counter.
+    // on_drop (cancel before completion): release the loop registration and the
+    // counter. On completion the callback frees the counter itself.
     f.on_drop = void() { el_del_free(lp, fd); free((*void)sent); };
     el_add_write(lp, fd, void(EventLoop* l, int wfd) {
         while (*sent < len) {
             int64 w = _net_write(wfd, (*void)(buf + *sent), len - *sent);
             if (w > (int64)0) { *sent = *sent + w; }
             else if (w < (int64)0 && _net_errno() == _NET_EAGAIN) { return; }  // buffer full: wait
-            else { el_del(l, wfd); future_complete<int>(f, -1); return; }       // hard error / 0
+            else { el_del(l, wfd); free((*void)sent); future_complete<int>(f, -1); return; }   // hard error / 0
         }
         el_del(l, wfd);                          // all sent; one-shot
+        free((*void)sent);                       // completed: on_drop will not run, so free it here
         future_complete<int>(f, (int)len);
     });
     return f;

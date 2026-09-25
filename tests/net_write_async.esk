@@ -1,0 +1,42 @@
+// net_write_async completes with the byte count and frees its progress counter
+// on completion (it used to leak one per call; only the cancel path freed it).
+// Deterministic: a pipe is always writable for a small payload.
+import <mem>;
+import <net_async>;
+extern int  printf(string fmt, ...);
+extern int  pipe(*int fds);
+extern int64 read(int fd, *void buf, int64 n);
+
+EventLoop* g_lp;
+int g_total = 0;
+int g_left = 0;
+Future<int>* g_f;
+
+void start(int fd, string msg) {
+    g_f = net_write_async(g_lp, fd, (*uint8)msg, (int64)strlen(msg));
+    future_poll<int>(g_f, void() {
+        g_total = g_total + g_f.value;
+        free_future<int>(g_f);
+        g_left = g_left - 1;
+        if (g_left == 0) { el_stop(g_lp); }
+    });
+}
+
+int main() {
+    int[2] fds; pipe(&fds[0]);
+    net_set_nonblocking(fds[1]);
+    g_lp = el_new(64);
+    int i = 0;
+    while (i < 3) {
+        g_left = 1;
+        start(fds[1], "hello ");
+        el_run(g_lp);
+        i = i + 1;
+    }
+    uint8[64] buf;
+    int64 n = read(fds[0], (*void)&buf[0], (int64)64);
+    buf[n] = (uint8)0;
+    printf("wrote %d, read %lld [%s]\n", g_total, n, (string)&buf[0]);
+    el_free(g_lp);
+    return 0;
+}
