@@ -52,7 +52,10 @@ HANDLED="undefined_var arg_count undefined_type await_outside_async async_no_awa
          slice_bounds_order slice_bounds_oob compound_lit_range ternary_lit_range
          assign_rvalue assign_ternary addr_of_call addr_of_literal addr_of_bitfield index_scalar
          index_struct cast_struct cast_ptr_float case_nonconst break_outside continue_in_switch
-         await_in_lambda unknown_sig_type unknown_var_type"
+         await_in_lambda unknown_sig_type unknown_var_type
+         init_string_from_int init_ptr_from_int assign_float_to_int float_expr_to_int match_non_enum
+         lambda_sig_mismatch question_non_result undefined_template_fn
+         return_in_void call_non_fn member_of_int shift_by_float string_plus_string"
 HANDLED="$(echo $HANDLED)"   # collapse the multi-line list to single spaces for matching
 
 DRIVER=selfhost/esk_main.esk

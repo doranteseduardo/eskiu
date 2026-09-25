@@ -254,7 +254,14 @@ void TypeChecker::checkTopLevelNames(Program* program) {
             errorAt(d, "redefinition of " + kind + " '" + name + "'");
             return;
         }
-        errorAt(d, "'" + name + "' is declared as both a " + prev.kind + " and a " + kind);
+        // Types and enum members live apart (a struct `G` beside a member `G` is fine);
+        // otherwise one name has one meaning.
+        auto isType = [](const std::string& k) {
+            return k == "struct" || k == "union" || k == "enum" || k == "interface" || k == "type alias";
+        };
+        if ((isType(kind) && prev.kind == "enum member") || (isType(prev.kind) && kind == "enum member")) return;
+        auto article = [](const std::string& k) { return std::string(k[0] == 'e' || k[0] == 'i' || k[0] == 'u' ? "an " : "a ") + k; };
+        errorAt(d, "'" + name + "' is declared as both " + article(prev.kind) + " and " + article(kind));
     };
     for (const auto& decl : program->declarations) {
         Decl* d = decl.get();

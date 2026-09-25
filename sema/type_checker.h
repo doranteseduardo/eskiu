@@ -228,6 +228,7 @@ private:
     // An expression that denotes storage (a variable, field, element, or `*p`), so it may be
     // assigned to or have its address taken.
     bool isLvalueExpr(Expr* e);
+    void checkAssignment(class BinaryExpr* node);
     // A switch `case` label codegen can fold to an integer constant.
     bool isConstIntExpr(Expr* e);
     bool hasErrors = false;

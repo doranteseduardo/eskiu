@@ -1,0 +1,2 @@
+// EXPECT-ERROR: cannot assign a floating-point value
+int main() { let x: int = 1; x = 2.5; return x; }

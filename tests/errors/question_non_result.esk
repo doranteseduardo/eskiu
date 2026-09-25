@@ -1,0 +1,5 @@
+// EXPECT-ERROR: requires a Result-like value
+struct P { int x; }
+P g() { return P{x: 1}; }
+P f() { let v: int = g()?; return P{x: v}; }
+int main() { return f().x; }

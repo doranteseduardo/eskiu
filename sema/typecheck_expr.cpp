@@ -16,6 +16,56 @@
 // Part of the type_checker.cpp split; see type_checker.h.
 
 // Expression visitors
+// `lhs = rhs` (also the desugared compound `x op= y`): the target must be a writable
+// lvalue, the value assignable to it. Kept out of visit(BinaryExpr) so that visitor's
+// frame stays small (it recurses once per operator of a long expression chain).
+[[gnu::noinline]] void TypeChecker::checkAssignment(BinaryExpr* node) {
+    // Assigning to a `const` binding, a field/element of a const value, or
+    // through a pointer-to-const (`const T*`) is an error. See assignsToConst.
+    if (!isLvalueExpr(node->left.get()))
+        errorAt(node, "cannot assign to this expression: it is not a variable, field, element, or dereference");
+    std::string cname;
+    if (assignsToConst(node->left.get(), cname))
+        errorAt(node, "cannot assign to read-only location '" + cname + "'");
+    std::string lt = getExpressionType(node->left.get());
+    // The target of `p = ...` keeps its declared type even while `p` is narrowed,
+    // and the assignment ends the narrowing (unless it stores an address `&x`).
+    if (auto* id = dynamic_cast<IdentExpr*>(node->left.get())) {
+        std::string declared = lookupSymbol(id->name);
+        if (!declared.empty() && declared[0] == '?') {
+            lt = declared;
+            // `p = &x` stores an address, and `p = p + k` / `p += k` steps a non-null
+            // pointer; any other value may be null.
+            auto* u = dynamic_cast<UnaryExpr*>(node->right.get());
+            auto* ar = dynamic_cast<BinaryExpr*>(node->right.get());
+            auto* self = ar ? dynamic_cast<IdentExpr*>(ar->left.get()) : nullptr;
+            bool keeps = (u && u->op == "&") ||
+                         (ar && (ar->op == "+" || ar->op == "-") && self && self->name == id->name);
+            if (!keeps) narrowedNonNull.erase(narrowKey(id->name));
+        }
+    }
+    std::string rt = getExpressionType(node->right.get());
+    if (dropsConstQual(lt, rt))
+        errorAt(node, "assignment discards a const qualifier ('" + rt + "' to '" + lt + "')");
+    else if (lt != "unknown" && rt != "unknown") {
+        // Type compatibility incl. narrowing (a literal that fits the target
+        // stays valid). Handled here so `=` gets the same rules as init/return.
+        std::string e = assignabilityError(lt, rt, node->right.get());
+        if (!e.empty()) errorAt(node, "assignment: " + e);
+        // A compound assignment `x op= lit` (desugared to `x = x op lit`, sharing the
+        // target node) stores into x's type, so its literal operand must fit it, as
+        // for `x = lit`.
+        if (auto* cb = dynamic_cast<BinaryExpr*>(node->right.get());
+            cb && cb->left.get() == node->left.get() && cb->op != "<<" && cb->op != ">>" &&
+            isIntType(normalizeType(lt)))
+            if (auto* lit = dynamic_cast<LiteralExpr*>(cb->right.get());
+                lit && lit->kind == LiteralExpr::Kind::INT && !intLiteralFits(normalizeType(lt), lit))
+                errorAt(node, "compound assignment: integer literal " + lit->value +
+                              " is out of range for '" + lt + "'");
+    }
+    expressionTypes[node] = lt;
+}
+
 void TypeChecker::visit(BinaryExpr* node) {
     node->left->accept(this);
     // Short-circuit narrowing: in `p != null && *p`, the right operand only runs when
@@ -30,47 +80,7 @@ void TypeChecker::visit(BinaryExpr* node) {
         node->right->accept(this);
     }
 
-    // Assigning to a `const` binding, a field/element of a const value, or
-    // through a pointer-to-const (`const T*`) is an error. See assignsToConst.
-    if (node->op == "=") {
-        if (!isLvalueExpr(node->left.get()))
-            errorAt(node, "cannot assign to this expression: it is not a variable, field, element, or dereference");
-        std::string cname;
-        if (assignsToConst(node->left.get(), cname))
-            errorAt(node, "cannot assign to read-only location '" + cname + "'");
-        std::string lt = getExpressionType(node->left.get());
-        // The target of `p = ...` keeps its declared type even while `p` is narrowed,
-        // and the assignment ends the narrowing (unless it stores an address `&x`).
-        if (auto* id = dynamic_cast<IdentExpr*>(node->left.get())) {
-            std::string declared = lookupSymbol(id->name);
-            if (!declared.empty() && declared[0] == '?') {
-                lt = declared;
-                auto* u = dynamic_cast<UnaryExpr*>(node->right.get());
-                if (!(u && u->op == "&")) narrowedNonNull.erase(narrowKey(id->name));
-            }
-        }
-        std::string rt = getExpressionType(node->right.get());
-        if (dropsConstQual(lt, rt))
-            errorAt(node, "assignment discards a const qualifier ('" + rt + "' to '" + lt + "')");
-        else if (lt != "unknown" && rt != "unknown") {
-            // Type compatibility incl. narrowing (a literal that fits the target
-            // stays valid). Handled here so `=` gets the same rules as init/return.
-            std::string e = assignabilityError(lt, rt, node->right.get());
-            if (!e.empty()) errorAt(node, "assignment: " + e);
-            // A compound assignment `x op= lit` (desugared to `x = x op lit`, sharing the
-            // target node) stores into x's type, so its literal operand must fit it, as
-            // for `x = lit`.
-            if (auto* cb = dynamic_cast<BinaryExpr*>(node->right.get());
-                cb && cb->left.get() == node->left.get() && cb->op != "<<" && cb->op != ">>" &&
-                isIntType(normalizeType(lt)))
-                if (auto* lit = dynamic_cast<LiteralExpr*>(cb->right.get());
-                    lit && lit->kind == LiteralExpr::Kind::INT && !intLiteralFits(normalizeType(lt), lit))
-                    errorAt(node, "compound assignment: integer literal " + lit->value +
-                                  " is out of range for '" + lt + "'");
-        }
-        expressionTypes[node] = lt;
-        return;
-    }
+    if (node->op == "=") { checkAssignment(node); return; }
 
     std::string leftType = getExpressionType(node->left.get());
     std::string rightType = getExpressionType(node->right.get());
@@ -773,7 +783,11 @@ void TypeChecker::visit(IndexExpr* node) {
     }
 
     if (!haveElem) {
-        if (baseType != "unknown" && !baseType.empty())
+        // Only a base certain to be unindexable is reported: a number, or a struct/sum-type
+        // value with no `operator []` (other spellings, e.g. an array of fn values, are
+        // left to the element resolution in codegen).
+        std::string nb = normalizeType(tyq::strip(baseType));
+        if (isNumericType(nb) || nb.rfind("struct:", 0) == 0 || adtEnums.count(nb))
             errorAt(node, "cannot index into a value of type '" + ty::Type::parse(baseType).nominalName() + "'");
         expressionTypes[node] = "unknown";
         return;
@@ -1001,6 +1015,9 @@ void TypeChecker::visit(LambdaExpr* node) {
     // an enclosing async function.
     bool savedAsync = inAsyncFn, savedAwait = awaitSeenInFn;
     inAsyncFn = false;
+    // Captures are by value: an assignment to a captured name inside the body changes the
+    // lambda's copy, so it must not end a narrowing of the enclosing variable.
+    std::set<std::string> savedNarrowed = narrowedNonNull;
     for (const auto& p : node->params) {
         if (scopes.back().count(p.second)) errorAt(node, "duplicate parameter '" + p.second + "' in lambda");
         defineSymbol(p.second, normalizeType(p.first), node->line, node->col, /*isParam=*/true);
@@ -1015,6 +1032,7 @@ void TypeChecker::visit(LambdaExpr* node) {
     switchDepth = savedSwitch;
     inAsyncFn = savedAsync;
     awaitSeenInFn = savedAwait;
+    narrowedNonNull = savedNarrowed;
     popScope();
 
     // Harvest captures: only outer-scope vars, not params
@@ -1232,7 +1250,12 @@ void TypeChecker::visit(StructInitExpr* node) {
 
         if (!fieldType.empty()) {
             std::string valType = getExpressionType(expr.get());
-            if (valType != "unknown") {
+            if (valType == "array-literal") {
+                // `{...}` fills an array field (its elements are checked like an array init).
+                if (ty::Type::parse(normalizeType(fieldType)).kind != ty::Type::Kind::Array)
+                    errorAt(at, "field '" + shownName + "': an array literal '{...}' can only initialize an array type, not '" +
+                                fieldType + "'");
+            } else if (valType != "unknown") {
                 std::string e = dropsConstQual(fieldType, valType)
                     ? "conversion discards a const qualifier ('" + valType + "' to '" + fieldType + "')"
                     : assignabilityError(fieldType, valType, expr.get());

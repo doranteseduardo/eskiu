@@ -514,6 +514,13 @@ int sema_has_member(Sema* s, string key) {   // key = "Struct.member"
     return sema_in_list(&s.members, key);
 }
 
+// Is `name` a variant of any enum (e.g. a generic `Some` constructed as `Some<int>(5)`)?
+int sema_is_variant_name(Sema* s, string name) {
+    int i = 0; int n = List_len<EVar>(&s.evars);
+    while (i < n) { if (sema_streq(List_get<EVar>(&s.evars, i).variant, name) == 1) { return 1; } i = i + 1; }
+    return 0;
+}
+
 // The variant `v` of enum `en` (plain = 0 and val = null when absent).
 EVar sema_find_evar(Sema* s, string en, string v) {
     int i = 0; int n = List_len<EVar>(&s.evars);
@@ -587,6 +594,34 @@ string sema_infer_type(Sema* s, *ExprNode e) {
             return sema_cat(bt, "*");
         }
         if (sema_streq(e.sval, "!") == 1) { return "bool"; }
+    }
+    if (e.kind == EK_BINARY) {
+        if (sema_is_cmp_op(e.sval) == 1 || sema_streq(e.sval, "&&") == 1 || sema_streq(e.sval, "||") == 1) { return "bool"; }
+        if (sema_streq(e.sval, "+") == 1 || sema_streq(e.sval, "-") == 1 || sema_streq(e.sval, "*") == 1
+            || sema_streq(e.sval, "/") == 1 || sema_streq(e.sval, "%") == 1) {
+            // Only the floating-point promotion is inferred (an integer mix is left unknown).
+            string lt = sema_strip_const(sema_infer_type(s, e.a));
+            string rt = sema_strip_const(sema_infer_type(s, e.b));
+            if (sema_is_numeric_ty(lt) == 1 && sema_is_numeric_ty(rt) == 1) {
+                if (sema_streq(lt, "double") == 1 || sema_streq(rt, "double") == 1) { return "double"; }
+                if (sema_streq(lt, "float") == 1 || sema_streq(rt, "float") == 1) { return "float"; }
+            }
+        }
+    }
+    if (e.kind == EK_MEMBER) {                           // s.f → the field's declared type (non-generic structs)
+        string mbt = sema_infer_type(s, e.a);
+        if (mbt[0] != 0 && sema_is_fn_type(mbt) == 0) {
+            *DeclNode msd = sema_find_struct(s, sema_struct_of_type(mbt));
+            if (msd != null && List_len<TypeParam>(&msd.type_params) == 0) {
+                int mi = 0; int mn = List_len<Param>(&msd.params);
+                while (mi < mn) {
+                    Param mf = List_get<Param>(&msd.params, mi);
+                    if (sema_streq(mf.name, e.sval) == 1) { return mf.ty; }
+                    mi = mi + 1;
+                }
+            }
+        }
+        return "";
     }
     if (e.kind == EK_INDEX) {                            // arr[i] → element type (arrays only for now)
         string bt = sema_infer_type(s, e.a);
@@ -777,6 +812,29 @@ void sema_check_call_args(Sema* s, *ExprNode e, string what, List<string>* pts) 
             printf("error: %s:0:0: argument %d type mismatch: %s\n", s.filename, i + 1, perr);
         }
         i = i + 1;
+    }
+}
+
+// Parameter types of a lambda's signature spelling "R(T1 a, T2 b)" into `out`.
+void sema_lambda_params(string sig, List<string>* out) {
+    int i = 0; while (sig[i] != 0 && (int)sig[i] != 40) { i = i + 1; }   // first '('
+    if (sig[i] == 0) { return; }
+    int n = 0; while (sig[n] != 0) { n = n + 1; }
+    int close = n - 1; while (close > i && (int)sig[close] != 41) { close = close - 1; }
+    int depth = 0; int start = i + 1; int j = i + 1;
+    while (j <= close) {
+        int c = (int)sig[j];
+        if (c == 40 || c == 60 || c == 91) { depth = depth + 1; }
+        else if ((c == 41 && j < close) || c == 93 || (c == 62 && (int)sig[j - 1] != 45)) { depth = depth - 1; }
+        if ((c == 44 && depth == 0) || j == close) {
+            string one = sema_trim_sub(sig, start, j);
+            int sp = 0; int k = 0; while (one[k] != 0) { if ((int)one[k] == 32) { sp = k; } k = k + 1; }
+            if (one[0] != 0) {
+                if (sp > 0) { List_push<string>(out, sema_trim_sub(one, 0, sp)); } else { List_push<string>(out, one); }
+            }
+            start = j + 1;
+        }
+        j = j + 1;
     }
 }
 
@@ -1148,6 +1206,7 @@ int sema_satisfies(Sema* s, string c, string iface_name) {
         string m = List_get<*DeclNode>(&iface.methods, i).name;
         int ok = 0;
         if (sema_has_member(s, sema_cat(sema_cat(c, "."), m)) == 1) { ok = 1; }   // struct method
+        if (ok == 0 && sema_find_fndecl(s, sema_cat(sema_cat(c, "_"), m)) != null) { ok = 1; }   // free `Type_method`
         if (ok == 0 && prim == 1) {                                               // free-fn fallback
             *DeclNode ff = sema_find_fndecl(s, m);
             if (ff != null && List_len<Param>(&ff.params) > 0) {
@@ -1453,6 +1512,37 @@ void sema_expr(Sema* s, *ExprNode e) {
                 printf("error: %s:0:0: compound assignment: integer literal %s is out of range for '%s'\n", s.filename, e.b.b.sval, ct);
             }
         }
+        if (sema_streq(e.sval, "=") == 1 && e.a != null) {
+            string alt = sema_infer_type(s, e.a);
+            if (e.a.kind == EK_IDENT) { alt = sema_lookup_type(s, e.a.sval); }   // declared type, even if narrowed
+            if (alt[0] != 0) {
+                string aerr = sema_assign_err(s, alt, e.b);
+                if (aerr[0] != 0) {
+                    s.had_error = 1;
+                    printf("error: %s:0:0: assignment: %s\n", s.filename, aerr);
+                }
+            }
+        }
+        if (sema_is_assign(e.sval) == 0 && e.a != null && e.b != null) {
+            // Operand kinds the built-in operators reject (a user operator overload aside).
+            string olt = sema_strip_const(sema_infer_type(s, e.a));
+            string ort = sema_strip_const(sema_infer_type(s, e.b));
+            int bitop = 0;
+            if (sema_streq(e.sval, "&") == 1 || sema_streq(e.sval, "|") == 1 || sema_streq(e.sval, "^") == 1
+                || sema_streq(e.sval, "<<") == 1 || sema_streq(e.sval, ">>") == 1) { bitop = 1; }
+            int arith = 0;
+            if (sema_streq(e.sval, "+") == 1 || sema_streq(e.sval, "*") == 1 || sema_streq(e.sval, "/") == 1
+                || sema_streq(e.sval, "%") == 1) { arith = 1; }
+            int bad = 0;
+            if (bitop == 1 && (sema_is_float_ty(olt) == 1 || sema_is_float_ty(ort) == 1)
+                && (sema_is_numeric_ty(olt) == 1 && sema_is_numeric_ty(ort) == 1)) { bad = 1; }
+            if (arith == 1 && sema_is_ptrish(olt) == 1 && sema_is_ptrish(ort) == 1
+                && sema_streq(olt, "null") == 0 && sema_streq(ort, "null") == 0) { bad = 1; }
+            if (bad == 1) {
+                s.had_error = 1;
+                printf("error: %s:0:0: invalid operands for operator: %s and %s\n", s.filename, olt, ort);
+            }
+        }
         if (sema_streq(e.sval, "=") == 1 && sema_is_lvalue(s, e.a) == 0) {
             sema_error(s, "cannot assign to this expression: it is not a variable, field, element, or dereference");
         }
@@ -1498,9 +1588,14 @@ void sema_expr(Sema* s, *ExprNode e) {
             return;
         }
         sema_expr(s, e.b);
-        // `p = ...` ends p's narrowing unless it stores an address `&x`.
-        if (sema_streq(e.sval, "=") == 1 && e.a != null && e.a.kind == EK_IDENT
-            && (e.b == null || e.b.kind != EK_UNARY || sema_streq(e.b.sval, "&") == 0)) {
+        // `p = ...` ends p's narrowing unless it stores an address `&x` or steps the pointer
+        // itself (`p = p + k`, `p += k`).
+        int keeps = 0;
+        if (e.b != null && e.b.kind == EK_UNARY && sema_streq(e.b.sval, "&") == 1) { keeps = 1; }
+        if (e.b != null && e.b.kind == EK_BINARY && (sema_streq(e.b.sval, "+") == 1 || sema_streq(e.b.sval, "-") == 1)
+            && e.b.a != null && e.b.a.kind == EK_IDENT && e.a != null && e.a.kind == EK_IDENT
+            && sema_streq(e.b.a.sval, e.a.sval) == 1) { keeps = 1; }
+        if (sema_streq(e.sval, "=") == 1 && e.a != null && e.a.kind == EK_IDENT && keeps == 0) {
             string nk = sema_nkey(s, e.a.sval);
             if (nk[0] != 0) { sema_narrow_drop(s, nk); }
         }
@@ -1567,6 +1662,10 @@ void sema_expr(Sema* s, *ExprNode e) {
         sema_expr(s, e.a);                 // walk base (catches undefined vars in it)
         sema_check_nullable_deref(s, e.a, "access a member of");
         string bt = sema_infer_type(s, e.a);
+        if (sema_is_numeric_ty(sema_strip_const(bt)) == 1) {
+            s.had_error = 1;
+            printf("error: %s:0:0: cannot access member '%s' on non-struct type '%s'\n", s.filename, e.sval, bt);
+        }
         if (bt[0] != 0) {                  // base type known → validate the member
             string sn = sema_struct_of_type(bt);
             if (sema_is_struct(s, sn) == 1 && sema_has_member(s, sema_cat(sema_cat(sn, "."), e.sval)) == 0) {
@@ -1582,8 +1681,26 @@ void sema_expr(Sema* s, *ExprNode e) {
         // (a struct with `ok`/`value` fields; the type name, not a literal "Result"). The
         // self-host tracks struct names but not fields, so it compares the struct names and
         // skips when either is unknown (matching C++'s ret == operand-type check).
-        string opn = sema_struct_of_type(sema_infer_type(s, e.a));
+        string qt = sema_infer_type(s, e.a);
+        string opn = sema_struct_of_type(qt);
         string retn = sema_struct_of_type(s.cur_ret);
+        if (qt[0] != 0) {                  // the operand must be Result-like (`ok` + `value` fields)
+            *DeclNode qd = sema_find_struct(s, opn);
+            int okf = 0; int valf = 0;
+            if (qd != null && sema_has_star(qt) == 0) {
+                int qi = 0; int qn = List_len<Param>(&qd.params);
+                while (qi < qn) {
+                    string fnm = List_get<Param>(&qd.params, qi).name;
+                    if (sema_streq(fnm, "ok") == 1) { okf = 1; }
+                    if (sema_streq(fnm, "value") == 1) { valf = 1; }
+                    qi = qi + 1;
+                }
+            }
+            if ((okf == 0 || valf == 0) && (qd != null || sema_is_numeric_ty(qt) == 1 || sema_is_ptrish(qt) == 1)) {
+                s.had_error = 1;
+                printf("error: %s:0:0: `?` operator requires a Result-like value (with `ok` and `value` fields), got %s\n", s.filename, qt);
+            }
+        }
         // Same base name but different type args (`Result<int,string>` in a function
         // returning `Result<int64,string>`) is also a mismatch: compare the full spellings.
         string opt = sema_nospace(sema_infer_type(s, e.a));
@@ -1821,6 +1938,10 @@ void sema_expr(Sema* s, *ExprNode e) {
         if (e.a != null && e.a.kind == EK_IDENT && (sema_local_bound(s, e.a.sval) == 1 || sema_find_fn(s, e.a.sval) < 0)) {
             string vt = sema_lookup_type(s, e.a.sval);
             if (sema_is_fn_type(vt) == 1) { sema_check_fn_value_call(s, e, sema_cat(sema_cat("'", e.a.sval), "'"), vt); }
+            else if (sema_local_bound(s, e.a.sval) == 1 && (sema_is_numeric_ty(sema_strip_const(vt)) == 1 || sema_streq(vt, "string") == 1)) {
+                s.had_error = 1;
+                printf("error: %s:0:0: undefined function '%s'\n", s.filename, e.a.sval);
+            }
         } else if (e.a != null && e.a.kind != EK_IDENT) {
             string ct = sema_infer_type(s, e.a);
             if (sema_is_fn_type(ct) == 1) { sema_check_fn_value_call(s, e, "the called function value", ct); }
@@ -1859,6 +1980,11 @@ void sema_expr(Sema* s, *ExprNode e) {
     }
     if (k == EK_TEMPLATECALL) {        // Name<args>(...) — check bounded-generic constraints
         *DeclNode fd = sema_find_fndecl(s, sema_base_name(e.sval));
+        string tbase = sema_base_name(e.sval);
+        if (fd == null && sema_streq(tbase, "va_arg") == 0 && sema_is_variant_name(s, tbase) == 0) {
+            s.had_error = 1;
+            printf("error: %s:0:0: undefined template function '%s'\n", s.filename, tbase);
+        }
         if (fd != null) {
             List<string> targs;
             List_init<string>(&targs, 4);
@@ -2037,6 +2163,23 @@ void sema_stmt(Sema* s, *StmtNode st) {
                 }
                 // The remaining conversions (pointer/number mixes, a `?:` literal arm out of
                 // range, an interface the value does not satisfy): the shared rule.
+                if (flagged == 0 && st.expr.kind == EK_LAMBDA && sema_is_fn_type(st.type) == 1) {
+                    // A lambda's return type is reconciled to the declared one; its parameters must match.
+                    List<string> dps; List_init<string>(&dps, 4); sema_fn_params(st.type, &dps);
+                    List<string> lps; List_init<string>(&lps, 4); sema_lambda_params(st.expr.sval, &lps);
+                    int same = 1;
+                    if (List_len<string>(&dps) != List_len<string>(&lps)) { same = 0; }
+                    int pi = 0;
+                    while (same == 1 && pi < List_len<string>(&dps)) {
+                        if (sema_streq(List_get<string>(&dps, pi), List_get<string>(&lps, pi)) == 0) { same = 0; }
+                        pi = pi + 1;
+                    }
+                    if (same == 0) {
+                        s.had_error = 1;
+                        printf("error: %s:0:0: initializing '%s': incompatible function type '%s' for '%s'\n", s.filename, st.name, st.expr.sval, st.type);
+                    }
+                    flagged = 1;
+                }
                 if (flagged == 0 && (sema_pointee_const(src) == 0 || sema_has_star(st.type) == 0)) {
                     string aerr = sema_assign_err(s, st.type, st.expr);
                     if (aerr[0] != 0) {
@@ -2063,6 +2206,19 @@ void sema_stmt(Sema* s, *StmtNode st) {
     if (k == SK_RETURN) {
         sema_expr(s, st.expr);
         sema_check_iface_value(s, s.cur_ret, st.expr);
+        if (st.expr != null && sema_streq(s.cur_ret, "void") == 1) {
+            string rvt = sema_infer_type(s, st.expr);
+            if (rvt[0] != 0 && sema_streq(rvt, "void") == 0) {
+                s.had_error = 1;
+                printf("error: %s:0:0: return type mismatch: expected void, got %s\n", s.filename, rvt);
+            }
+        } else if (st.expr != null && s.cur_ret[0] != 0) {
+            string rerr = sema_assign_err(s, s.cur_ret, st.expr);
+            if (rerr[0] != 0) {
+                s.had_error = 1;
+                printf("error: %s:0:0: return type mismatch: expected %s (%s)\n", s.filename, s.cur_ret, rerr);
+            }
+        }
         // Returning `&local`/`&param` yields a dangling pointer (its frame is gone). Only
         // the clear bare-ident case is flagged; `&arr[i]`/`&p.field` point into other memory.
         if (st.expr != null && st.expr.kind == EK_UNARY && sema_streq(st.expr.sval, "&") == 1
@@ -2226,7 +2382,12 @@ void sema_stmt(Sema* s, *StmtNode st) {
             List_init<string>(&seen, 8);
             List<string> seen_vals;                // values of the arms of a classic enum
             List_init<string>(&seen_vals, 8);
-            string msty = sema_struct_of_type(sema_infer_type(s, st.expr));
+            string mraw = sema_infer_type(s, st.expr);
+            string msty = sema_struct_of_type(mraw);
+            if (mraw[0] != 0 && sema_is_enum(s, msty) == 0 && sema_find_tdecl(s, msty) == null) {
+                s.had_error = 1;
+                printf("error: %s:0:0: match subject must be an enum, got %s\n", s.filename, mraw);
+            }
             int has_wild = 0;
             int ai = 0;
             int an = List_len<*StmtNode>(&st.items);
@@ -2649,6 +2810,18 @@ int sema_same_struct(*DeclNode a, *DeclNode b) {
     return 1;
 }
 
+int sema_is_type_kind(string k) {
+    if (sema_streq(k, "struct") == 1 || sema_streq(k, "union") == 1 || sema_streq(k, "enum") == 1
+        || sema_streq(k, "interface") == 1 || sema_streq(k, "type alias") == 1) { return 1; }
+    return 0;
+}
+
+// "a struct", "an enum member", ...
+string sema_article(string k) {
+    if (k[0] == 101 || k[0] == 105 || k[0] == 117) { return sema_cat("an ", k); }   // e i u
+    return sema_cat("a ", k);
+}
+
 // Index of `name` in the top-level name table, or -1.
 int sema_name_index(List<NameEnt>* tab, string name) {
     int i = 0; int n = List_len<NameEnt>(tab);
@@ -2685,11 +2858,14 @@ void sema_declare_top(Sema* s, List<NameEnt>* tab, string name, string kind, *De
     }
     if (sema_streq(kind, "type alias") == 1 && sema_streq(prev.kind, "type alias") == 1
         && sema_streq(prev.d.ret_type, d.ret_type) == 1) { return; }
+    // Types and enum members live apart (a struct `G` beside a member `G` is fine).
+    if ((sema_is_type_kind(kind) == 1 && sema_streq(prev.kind, "enum member") == 1)
+        || (sema_is_type_kind(prev.kind) == 1 && sema_streq(kind, "enum member") == 1)) { return; }
     s.had_error = 1;
     if (sema_streq(kind, prev.kind) == 1) {
         printf("error: %s:0:0: redefinition of %s '%s'\n", s.filename, kind, name);
     } else {
-        printf("error: %s:0:0: '%s' is declared as both a %s and a %s\n", s.filename, name, prev.kind, kind);
+        printf("error: %s:0:0: '%s' is declared as both %s and %s\n", s.filename, name, sema_article(prev.kind), sema_article(kind));
     }
 }
 
