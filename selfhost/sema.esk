@@ -1767,6 +1767,16 @@ int sema_types_differ(Sema* s, string a, string b) {
     return 1;
 }
 
+// An implementation's type `a` against the interface's `b`: the C++ compares the
+// normalized spellings, so a concrete `a` must match a `b` the checker cannot judge (an
+// undeclared `Self`) literally. An unresolved `a` (a generic's `T`) is not judged.
+int sema_iface_types_differ(Sema* s, string a, string b) {
+    string ca = sema_canon(s, a); string cb = sema_canon(s, b);
+    if (sema_judgeable(s, ca) == 0 || sema_judgeable(s, cb) == 1) { return sema_types_differ(s, a, b); }
+    if (sema_streq(ca, cb) == 1) { return 0; }
+    return 1;
+}
+
 // Does type `sn` implement every method of `iface` with a matching signature (arity,
 // return and parameter types; a type naming the interface itself is its Self type)?
 // A struct implements a method inline or as a free `Type_method`; a scalar primitive
@@ -1796,7 +1806,7 @@ string sema_iface_mismatch(Sema* s, string sn, *DeclNode iface) {
             sprintf((string)&buf[0], "' takes %d parameter(s), the interface requires %d", got, want);
             return sema_cat(sema_cat("method '", m.name), (string)&buf[0]);
         }
-        if (sema_is_self_ty(m.ret_type, iface) == 0 && sema_types_differ(s, impl.ret_type, m.ret_type) == 1) {
+        if (sema_is_self_ty(m.ret_type, iface) == 0 && sema_iface_types_differ(s, impl.ret_type, m.ret_type) == 1) {
             return sema_cat(sema_cat(sema_cat(sema_cat(sema_cat(sema_cat("method '", m.name), "' returns '"), impl.ret_type),
                             "', the interface requires '"), m.ret_type), "'");
         }
@@ -1804,7 +1814,17 @@ string sema_iface_mismatch(Sema* s, string sn, *DeclNode iface) {
         while (k < want) {
             string wt = List_get<Param>(&m.params, k).ty;
             string gt = List_get<Param>(&impl.params, k + skip).ty;
-            if (sema_is_self_ty(wt, iface) == 0 && sema_types_differ(s, gt, wt) == 1) {
+            int selfp = sema_is_self_ty(wt, iface);
+            // A Self parameter is the implementing type (or the interface itself).
+            int self_bad = 0;
+            if (selfp == 1) {
+                string gb = sema_struct_of_type(gt);
+                string gc = sema_struct_of_type(sema_canon(s, gt));
+                string sb = sema_base_name(sn);
+                if (sema_streq(gb, iface.name) == 0 && sema_streq(gb, sb) == 0 && sema_streq(gc, sb) == 0
+                    && sema_streq(sema_base_name(gb), sb) == 0) { self_bad = 1; }
+            }
+            if (self_bad == 1 || (selfp == 0 && sema_iface_types_differ(s, gt, wt) == 1)) {
                 uint8[32] nb;
                 sprintf((string)&nb[0], "%d", k + 1);
                 return sema_cat(sema_cat(sema_cat(sema_cat(sema_cat(sema_cat(sema_cat(sema_cat("method '", m.name), "' parameter "),

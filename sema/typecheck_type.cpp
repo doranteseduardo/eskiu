@@ -277,11 +277,19 @@ std::string TypeChecker::interfaceMismatch(const std::string& structName, Interf
         if (!isSelf(method.returnType) && normalizeType(sig->first) != normalizeType(method.returnType))
             return "method '" + method.name + "' returns '" + sig->first + "', the interface requires '" +
                    method.returnType + "'";
-        for (size_t i = 0; i < method.params.size(); ++i)
-            if (!isSelf(method.params[i].first) &&
-                normalizeType(params[i + 1]) != normalizeType(method.params[i].first))
+        // A Self parameter is the implementing type (or the interface itself).
+        auto isImplType = [&](const std::string& t) {
+            std::string raw = ty::Type::parse(tyq::strip(t)).nominalName();
+            return raw == iface->name || raw == structName ||
+                   ty::Type::parse(normalizeType(tyq::strip(t))).nominalName() == structName;
+        };
+        for (size_t i = 0; i < method.params.size(); ++i) {
+            bool self = isSelf(method.params[i].first);
+            if ((self && !isImplType(params[i + 1])) ||
+                (!self && normalizeType(params[i + 1]) != normalizeType(method.params[i].first)))
                 return "method '" + method.name + "' parameter " + std::to_string(i + 1) + " is '" +
                        params[i + 1] + "', the interface requires '" + method.params[i].first + "'";
+        }
     }
     return "";
 }
