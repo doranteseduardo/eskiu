@@ -30,7 +30,7 @@ The tarball installs:
 
 ## Option B: Build from source
 
-Requires LLVM 17+, CMake 3.20+, and a C++17 compiler.
+Requires LLVM 21+, CMake 3.20+, and a C++17 compiler.
 
 ```bash
 cmake -S . -B build

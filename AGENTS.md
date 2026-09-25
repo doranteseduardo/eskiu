@@ -6,7 +6,7 @@ Guidelines for AI agents working on the Eskiu compiler.
 
 ## What this project is
 
-Eskiu is a systems programming language compiler written in C++17 that emits LLVM IR and links against LLVM 17+. The pipeline is:
+Eskiu is a systems programming language compiler written in C++17 that emits LLVM IR and links against LLVM 21+ (CI and releases use LLVM 22). The pipeline is:
 
 ```
 Source → Lexer → Parser → TypeChecker → CodeGen → LLVM IR → .o → (cc/clang/gcc) → executable
