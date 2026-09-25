@@ -300,7 +300,29 @@ void CodeGen::visit(CallExpr* node) {
                 margs.push_back(has ? evalForType(node->args[ai], mpt->second[ai + 1])
                                     : evaluateExpr(node->args[ai]));
             }
-            exprValueStack.push(builder->CreateCall(mfunc, margs));
+            // Widen/narrow each argument to the method's declared parameter type, like a
+            // direct call does (`r.set(5)` against an int64 parameter passes an i32 otherwise).
+            llvm::FunctionType* mfty = mfunc->getFunctionType();
+            unsigned mbase = funcSretTypes.count(mangled) ? 1u : 0u;
+            for (size_t ai = 0; ai < node->args.size(); ++ai) {
+                unsigned pi = mbase + 1 + (unsigned)ai;
+                if (pi >= mfty->getNumParams()) break;
+                llvm::Type* pt = mfty->getParamType(pi);
+                if (margs[ai + 1]->getType() != pt)
+                    margs[ai + 1] = coerceValue(margs[ai + 1], pt,
+                                                eskiuUnsigned(getExprEskiuType(node->args[ai])));
+            }
+            // A large struct return goes through the hidden sret pointer, and inside a
+            // `try` the call must be an invoke, exactly as for a direct call.
+            auto msret = funcSretTypes.find(mangled);
+            if (msret != funcSretTypes.end()) {
+                llvm::Value* sretAlloca = entryAlloca(msret->second, nullptr, "sret.tmp");
+                margs.insert(margs.begin(), sretAlloca);
+                createMaybeInvoke(mfty, mfunc, margs);
+                exprValueStack.push(builder->CreateLoad(msret->second, sretAlloca));
+            } else {
+                exprValueStack.push(createMaybeInvoke(mfty, mfunc, margs));
+            }
             return;
         }
         // Free-function constraint satisfaction: `t.m(x)` on a PRIMITIVE receiver
