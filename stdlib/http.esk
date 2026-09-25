@@ -25,53 +25,50 @@ struct HttpRequest {
 }
 
 void HttpRequest_init(HttpRequest* self) {
-    String_init(&self.method, 8);
-    String_init(&self.path, 32);
-    String_init(&self.version, 16);
-    String_init(&self.headers, 128);
-    String_init(&self.body, 64);
+    self.method.init(8);
+    self.path.init(32);
+    self.version.init(16);
+    self.headers.init(128);
+    self.body.init(64);
 }
 
 void HttpRequest_free(HttpRequest* self) {
-    String_free(&self.method);
-    String_free(&self.path);
-    String_free(&self.version);
-    String_free(&self.headers);
-    String_free(&self.body);
+    self.method.free();
+    self.path.free();
+    self.version.free();
+    self.headers.free();
+    self.body.free();
+}
+
+// 1 if buf[pos..pos+2) is a CRLF within the first `len` bytes.
+int _http_crlf_at(*uint8 buf, int pos, int len) {
+    return (pos + 1 < len && buf[pos] == '\r' && buf[pos + 1] == '\n') ? 1 : 0;
 }
 
 // Parse a raw request from `buf` (len bytes). Returns 1 on success, 0 if the
 // request line is malformed.
 int HttpRequest_parse(HttpRequest* self, *uint8 buf, int len) {
     int pos = 0;
-    while (pos < len && buf[pos] != 32 && buf[pos] != 13) {
-        String_push(&self.method, (char)buf[pos]); pos = pos + 1;
-    }
-    if (pos >= len || buf[pos] != 32) { return 0; }
-    pos = pos + 1;
-    while (pos < len && buf[pos] != 32) {
-        String_push(&self.path, (char)buf[pos]); pos = pos + 1;
-    }
+    for (; pos < len && buf[pos] != ' ' && buf[pos] != '\r'; pos++) { self.method.push((char)buf[pos]); }
+    if (pos >= len || buf[pos] != ' ') { return 0; }
+    pos++;
+    for (; pos < len && buf[pos] != ' '; pos++) { self.path.push((char)buf[pos]); }
     if (pos >= len) { return 0; }
-    pos = pos + 1;
-    while (pos < len && buf[pos] != 13) {
-        String_push(&self.version, (char)buf[pos]); pos = pos + 1;
-    }
-    if (pos + 1 < len && buf[pos] == 13 && buf[pos + 1] == 10) { pos = pos + 2; }
-    else { return 0; }
+    pos++;
+    for (; pos < len && buf[pos] != '\r'; pos++) { self.version.push((char)buf[pos]); }
+    if (_http_crlf_at(buf, pos, len) == 0) { return 0; }
+    pos += 2;
 
     // Header lines until the blank line; store as "Key: Value\n".
     while (pos < len) {
-        if (pos + 1 < len && buf[pos] == 13 && buf[pos + 1] == 10) { pos = pos + 2; break; }
-        while (pos < len && buf[pos] != 13) {
-            String_push(&self.headers, (char)buf[pos]); pos = pos + 1;
-        }
-        String_push(&self.headers, '\n');
-        if (pos + 1 < len && buf[pos] == 13 && buf[pos + 1] == 10) { pos = pos + 2; }
-        else { break; }
+        if (_http_crlf_at(buf, pos, len) == 1) { pos += 2; break; }
+        for (; pos < len && buf[pos] != '\r'; pos++) { self.headers.push((char)buf[pos]); }
+        self.headers.push('\n');
+        if (_http_crlf_at(buf, pos, len) == 0) { break; }
+        pos += 2;
     }
     // Remaining bytes are the body.
-    while (pos < len) { String_push(&self.body, (char)buf[pos]); pos = pos + 1; }
+    for (; pos < len; pos++) { self.body.push((char)buf[pos]); }
     return 1;
 }
 
@@ -80,47 +77,48 @@ int HttpRequest_parse(HttpRequest* self, *uint8 buf, int len) {
 // part of it).
 void http_trim_ows_tail(String* out) {
     while (out.len > 0) {
-        char c = out.data[out.len - 1];
-        if (c != 32 && c != 9 && c != 13) { return; }
-        out.len = out.len - 1;
-        out.data[out.len] = 0;
+        const char c = out.data[out.len - 1];
+        if (c != ' ' && c != '\t' && c != '\r') { return; }
+        out.data[--out.len] = 0;
     }
+}
+
+char http_lc(char c) {
+    return (c >= 'A' && c <= 'Z') ? (char)((int)c + 32) : c;
+}
+
+// Find header `name` (case-insensitive) in a "Key: Value\n" block and copy its
+// value into `out` (cleared first) without surrounding whitespace. 1 = hit.
+int _http_header_lookup(String* headers, string name, String* out) {
+    out.clear();
+    const int n = headers.len;
+    int i = 0;
+    while (i < n) {
+        // Compare the line's key against `name`.
+        int j = 0;
+        bool matched = true;
+        for (; name[j] != 0; j++) {
+            if (i + j >= n || http_lc(headers.data[i + j]) != http_lc(name[j])) { matched = false; break; }
+        }
+        if (matched && i + j < n && headers.data[i + j] == ':') {
+            int k = i + j + 1;
+            while (k < n && (headers.data[k] == ' ' || headers.data[k] == '\t')) { k++; }   // leading OWS
+            for (; k < n && headers.data[k] != '\n'; k++) { out.push(headers.data[k]); }
+            http_trim_ows_tail(out);
+            return 1;
+        }
+        // Skip to the start of the next line.
+        while (i < n && headers.data[i] != '\n') { i++; }
+        i++;
+    }
+    return 0;
 }
 
 // Look up a header by name (case-insensitive). On success copies the value into
 // `out` (cleared first), without surrounding whitespace, and returns 1;
 // otherwise returns 0.
 int HttpRequest_header(HttpRequest* self, string name, String* out) {
-    String_clear(out);
-    int n = self.headers.len;
-    int i = 0;
-    while (i < n) {
-        int j = 0;
-        int matched = 1;
-        while (name[j] != 0) {
-            if (i + j >= n) { matched = 0; }
-            if (matched == 1) {
-                char a = self.headers.data[i + j];
-                char b = name[j];
-                if (a >= 65 && a <= 90) { a = (char)((int)a + 32); }
-                if (b >= 65 && b <= 90) { b = (char)((int)b + 32); }
-                if (a != b) { matched = 0; }
-            }
-            j = j + 1;
-        }
-        if (matched == 1 && i + j < n && self.headers.data[i + j] == 58) {  // ':'
-            int k = i + j + 1;
-            while (k < n && (self.headers.data[k] == 32 || self.headers.data[k] == 9)) { k = k + 1; }   // leading OWS
-            while (k < n && self.headers.data[k] != 10) {
-                String_push(out, self.headers.data[k]); k = k + 1;
-            }
-            http_trim_ows_tail(out);
-            return 1;
-        }
-        while (i < n && self.headers.data[i] != 10) { i = i + 1; }
-        i = i + 1;
-    }
-    return 0;
+    return _http_header_lookup(&self.headers, name, out);
 }
 
 // ── Response (builder) ───────────────────────────────────────────────────────
@@ -133,54 +131,56 @@ struct HttpResponse {
 
 void HttpResponse_init(HttpResponse* self, int status) {
     self.status = status;
-    String_init(&self.headers, 128);
-    String_init(&self.body, 128);
+    self.headers.init(128);
+    self.body.init(128);
 }
 
 void HttpResponse_free(HttpResponse* self) {
-    String_free(&self.headers);
-    String_free(&self.body);
+    self.headers.free();
+    self.body.free();
 }
 
 void HttpResponse_header(HttpResponse* self, string key, string val) {
-    String_append(&self.headers, key);
-    String_append(&self.headers, ": ");
-    String_append(&self.headers, val);
-    String_append(&self.headers, "\r\n");
+    self.headers.append(key);
+    self.headers.append(": ");
+    self.headers.append(val);
+    self.headers.append("\r\n");
 }
 
 void HttpResponse_set_body(HttpResponse* self, string s) {
-    String_clear(&self.body);
-    String_append(&self.body, s);
+    self.body.clear();
+    self.body.append(s);
 }
 
 void HttpResponse_body_append(HttpResponse* self, string s) {
-    String_append(&self.body, s);
+    self.body.append(s);
 }
 
 // Reason phrase for the common status codes; any other code gets the generic
 // phrase of its class ("" outside 100..599).
 string http_reason(int s) {
-    if (s == 200) { return "OK"; }
-    if (s == 201) { return "Created"; }
-    if (s == 204) { return "No Content"; }
-    if (s == 206) { return "Partial Content"; }
-    if (s == 301) { return "Moved Permanently"; }
-    if (s == 302) { return "Found"; }
-    if (s == 304) { return "Not Modified"; }
-    if (s == 400) { return "Bad Request"; }
-    if (s == 401) { return "Unauthorized"; }
-    if (s == 403) { return "Forbidden"; }
-    if (s == 404) { return "Not Found"; }
-    if (s == 405) { return "Method Not Allowed"; }
-    if (s == 409) { return "Conflict"; }
-    if (s == 413) { return "Payload Too Large"; }
-    if (s == 422) { return "Unprocessable Entity"; }
-    if (s == 429) { return "Too Many Requests"; }
-    if (s == 500) { return "Internal Server Error"; }
-    if (s == 502) { return "Bad Gateway"; }
-    if (s == 503) { return "Service Unavailable"; }
-    if (s == 504) { return "Gateway Timeout"; }
+    switch (s) {
+        case 200: return "OK";
+        case 201: return "Created";
+        case 204: return "No Content";
+        case 206: return "Partial Content";
+        case 301: return "Moved Permanently";
+        case 302: return "Found";
+        case 304: return "Not Modified";
+        case 400: return "Bad Request";
+        case 401: return "Unauthorized";
+        case 403: return "Forbidden";
+        case 404: return "Not Found";
+        case 405: return "Method Not Allowed";
+        case 409: return "Conflict";
+        case 413: return "Payload Too Large";
+        case 422: return "Unprocessable Entity";
+        case 429: return "Too Many Requests";
+        case 500: return "Internal Server Error";
+        case 502: return "Bad Gateway";
+        case 503: return "Service Unavailable";
+        case 504: return "Gateway Timeout";
+    }
     if (s >= 100 && s < 200) { return "Informational"; }
     if (s >= 200 && s < 300) { return "Success"; }
     if (s >= 300 && s < 400) { return "Redirection"; }
@@ -189,25 +189,28 @@ string http_reason(int s) {
     return "";
 }
 
+// Append `v` in decimal to `out`.
+void _http_append_int(String* out, int v) {
+    let t: String;
+    t.init(16);
+    defer t.free();
+    t.from_int(v);
+    out.append(t.cstr());
+}
+
 // Serialize the full HTTP/1.1 response (status line, headers, auto
 // Content-Length, blank line, body) into `out`.
 void HttpResponse_render(HttpResponse* self, String* out) {
-    String_append(out, "HTTP/1.1 ");
-    let st: String;  String_init(&st, 8);
-    String_from_int(&st, self.status);
-    String_append(out, String_cstr(&st));
-    String_free(&st);
-    String_push(out, ' ');
-    String_append(out, http_reason(self.status));
-    String_append(out, "\r\n");
-    String_append(out, String_cstr(&self.headers));
-    String_append(out, "Content-Length: ");
-    let cl: String;  String_init(&cl, 16);
-    String_from_int(&cl, self.body.len);
-    String_append(out, String_cstr(&cl));
-    String_free(&cl);
-    String_append(out, "\r\n\r\n");
-    String_append(out, String_cstr(&self.body));
+    out.append("HTTP/1.1 ");
+    _http_append_int(out, self.status);
+    out.push(' ');
+    out.append(http_reason(self.status));
+    out.append("\r\n");
+    out.append(self.headers.cstr());
+    out.append("Content-Length: ");
+    _http_append_int(out, self.body.len);
+    out.append("\r\n\r\n");
+    out.append(self.body.cstr());
 }
 
 // ── Worker pool ──────────────────────────────────────────────────────────────
@@ -218,39 +221,37 @@ void HttpResponse_render(HttpResponse* self, String* out) {
 // to `handler`, and answered. Runs forever.
 void http_worker_loop(int fd, fn(HttpRequest*, HttpResponse*)->void handler) {
     *uint8 buf = alloc<uint8>(8192);
-    while (1) {
-        int c = net_accept(fd);
+    defer free(buf);
+    while (true) {
+        const int c = net_accept(fd);
         if (c < 0) { continue; }
-        int64 n = net_recv(c, (*void)buf, 8192);
+        const int64 n = net_recv(c, buf, 8192);
         if (n <= 0) { net_close(c); continue; }
 
-        let req: HttpRequest;  HttpRequest_init(&req);
-        HttpRequest_parse(&req, buf, (int)n);
-        let res: HttpResponse;  HttpResponse_init(&res, 200);
+        let req: HttpRequest;  req.init();
+        req.parse(buf, (int)n);
+        let res: HttpResponse;  res.init(200);
         handler(&req, &res);
 
-        let out: String;  String_init(&out, 256);
-        HttpResponse_render(&res, &out);
-        net_send(c, (*void)String_cstr(&out), out.len);
+        let out: String;  out.init(256);
+        res.render(&out);
+        net_send(c, out.cstr(), out.len);
         net_close(c);
 
-        String_free(&out);
-        HttpResponse_free(&res);
-        HttpRequest_free(&req);
+        out.free();
+        res.free();
+        req.free();
     }
-    free(buf);
 }
 
 // Listen on `port` and serve with `nworkers` threads (the calling thread is one
 // of them, so it blocks here). Returns immediately only if the bind fails.
 void http_serve(int port, int nworkers, escaping fn(HttpRequest*, HttpResponse*)->void handler) {
-    int fd = net_tcp_listen((uint16)port);
+    const int fd = net_tcp_listen((uint16)port);
     if (fd < 0) { return; }
-    int spawned = 1;
-    while (spawned < nworkers) {
+    for (int spawned = 1; spawned < nworkers; spawned++) {
         let w: fn()->void = void() { http_worker_loop(fd, handler); };
         thread_create(w);
-        spawned = spawned + 1;
     }
     http_worker_loop(fd, handler);
 }
@@ -278,17 +279,17 @@ struct HttpReq {
 }
 
 void HttpReq_init(HttpReq* self) {
-    String_init(&self.method, 8);
-    String_init(&self.path, 32);
-    String_init(&self.headers, 256);
+    self.method.init(8);
+    self.path.init(32);
+    self.headers.init(256);
     self.body     = null;
     self.body_len = 0;
 }
 
 void HttpReq_free(HttpReq* self) {
-    String_free(&self.method);
-    String_free(&self.path);
-    String_free(&self.headers);
+    self.method.free();
+    self.path.free();
+    self.headers.free();
     if (self.body != null) { free(self.body); self.body = null; }
 }
 
@@ -303,83 +304,52 @@ Bytes HttpReq_body(HttpReq* self) {
 
 // Index just past the "\r\n\r\n" header terminator in b[0..n), or -1.
 int http_idx_header_end(*uint8 b, int n) {
-    int i = 0;
-    while (i + 3 < n) {
-        if (b[i] == 13 && b[i + 1] == 10 && b[i + 2] == 13 && b[i + 3] == 10) { return i + 4; }
-        i = i + 1;
+    for (int i = 0; i + 3 < n; i++) {
+        if (b[i] == '\r' && b[i + 1] == '\n' && b[i + 2] == '\r' && b[i + 3] == '\n') { return i + 4; }
     }
     return -1;
 }
 
 *uint8 http_buf_grow(*uint8 old, int used, int newcap) {
     *uint8 nb = alloc<uint8>(newcap);
-    if (used > 0) { memcpy((*void)nb, (*void)old, used); }
+    if (used > 0) { memcpy(nb, old, used); }
     free(old);
     return nb;
-}
-
-char http_lc(char c) {
-    if (c >= 65 && c <= 90) { return (char)((int)c + 32); }
-    return c;
 }
 
 // Parse request line + headers from buf[0..hend) into r.
 void http_parse_head(HttpReq* r, *uint8 buf, int hend) {
     int pos = 0;
-    while (pos < hend && buf[pos] != 32 && buf[pos] != 13) { String_push(&r.method, (char)buf[pos]); pos = pos + 1; }
-    if (pos < hend && buf[pos] == 32) { pos = pos + 1; }
-    while (pos < hend && buf[pos] != 32 && buf[pos] != 13) { String_push(&r.path, (char)buf[pos]); pos = pos + 1; }
-    while (pos < hend && buf[pos] != 10) { pos = pos + 1; }
-    if (pos < hend) { pos = pos + 1; }
-    while (pos < hend) {
-        if (buf[pos] == 13 || buf[pos] == 10) { break; }
-        while (pos < hend && buf[pos] != 13 && buf[pos] != 10) { String_push(&r.headers, (char)buf[pos]); pos = pos + 1; }
-        String_push(&r.headers, '\n');
-        if (pos < hend && buf[pos] == 13) { pos = pos + 1; }
-        if (pos < hend && buf[pos] == 10) { pos = pos + 1; }
+    for (; pos < hend && buf[pos] != ' ' && buf[pos] != '\r'; pos++) { r.method.push((char)buf[pos]); }
+    if (pos < hend && buf[pos] == ' ') { pos++; }
+    for (; pos < hend && buf[pos] != ' ' && buf[pos] != '\r'; pos++) { r.path.push((char)buf[pos]); }
+    while (pos < hend && buf[pos] != '\n') { pos++; }
+    if (pos < hend) { pos++; }
+    while (pos < hend && buf[pos] != '\r' && buf[pos] != '\n') {
+        for (; pos < hend && buf[pos] != '\r' && buf[pos] != '\n'; pos++) { r.headers.push((char)buf[pos]); }
+        r.headers.push('\n');
+        if (pos < hend && buf[pos] == '\r') { pos++; }
+        if (pos < hend && buf[pos] == '\n') { pos++; }
     }
 }
 
 // Case-insensitive header lookup; copies the value (without surrounding
 // whitespace) into `out`. 1 = hit.
 int HttpReq_header(HttpReq* r, string name, String* out) {
-    String_clear(out);
-    int n = r.headers.len;
-    int i = 0;
-    while (i < n) {
-        int j = 0;
-        int matched = 1;
-        while (name[j] != 0) {
-            if (i + j >= n) { matched = 0; }
-            if (matched == 1 && http_lc(r.headers.data[i + j]) != http_lc(name[j])) { matched = 0; }
-            j = j + 1;
-        }
-        if (matched == 1 && i + j < n && r.headers.data[i + j] == 58) {
-            int k = i + j + 1;
-            while (k < n && (r.headers.data[k] == 32 || r.headers.data[k] == 9)) { k = k + 1; }   // leading OWS
-            while (k < n && r.headers.data[k] != 10) { String_push(out, r.headers.data[k]); k = k + 1; }
-            http_trim_ows_tail(out);
-            return 1;
-        }
-        while (i < n && r.headers.data[i] != 10) { i = i + 1; }
-        i = i + 1;
-    }
-    return 0;
+    return _http_header_lookup(&r.headers, name, out);
 }
 
 // Parse a Content-Length style value (1*DIGIT). Returns -1 if it is empty, has
 // a non-digit, or does not fit in an int64 (it used to wrap: 2^64 read as 0).
 int64 http_str_to_i64(String* s) {
-    if (s.len == 0) { return (int64)-1; }
+    if (s.len == 0) { return -1; }
     int64 v = 0;
-    int i = 0;
-    while (i < s.len) {
-        char c = s.data[i];
-        if (c < 48 || c > 57) { return (int64)-1; }
-        int64 d = (int64)((int)c - 48);
-        if (v > ((int64)9223372036854775807 - d) / (int64)10) { return (int64)-1; }
-        v = v * (int64)10 + d;
-        i = i + 1;
+    for (i in 0..s.len) {
+        const char c = s.data[i];
+        if (c < '0' || c > '9') { return -1; }
+        const int64 d = (int)c - '0';
+        if (v > (9223372036854775807 - d) / 10) { return -1; }
+        v = v * 10 + d;
     }
     return v;
 }
@@ -389,40 +359,40 @@ int64 http_str_to_i64(String* s) {
 int http_recv(int fd, HttpReq* r, int64 max_body) {
     int cap = 8192;
     *uint8 buf = alloc<uint8>(cap);
+    defer free(buf);
     int n = 0;
     int hend = -1;
     while (hend < 0) {
-        if (n >= cap) { cap = cap * 2; buf = http_buf_grow(buf, n, cap); }
-        int64 got = net_recv(fd, (*void)(buf + n), cap - n);
-        if (got <= 0) { free(buf); return 400; }
-        n = n + (int)got;
+        if (n >= cap) { cap *= 2; buf = http_buf_grow(buf, n, cap); }
+        const int64 got = net_recv(fd, buf + n, cap - n);
+        if (got <= 0) { return 400; }
+        n += (int)got;
         hend = http_idx_header_end(buf, n);
-        if (hend < 0 && n > 65536) { free(buf); return 400; }
+        if (hend < 0 && n > 65536) { return 400; }
     }
     http_parse_head(r, buf, hend);
 
-    let cl: String;  String_init(&cl, 16);
+    let cl: String;  cl.init(16);
     int64 clen = 0;
-    int has_cl = HttpReq_header(r, "content-length", &cl);
-    if (has_cl == 1) { clen = http_str_to_i64(&cl); }
-    String_free(&cl);
-    if (has_cl == 1 && clen < 0) { free(buf); return 400; }   // malformed / overflowing Content-Length
-    if (clen > max_body) { free(buf); return 413; }
+    const bool has_cl = r.header("content-length", &cl) == 1;
+    if (has_cl) { clen = http_str_to_i64(&cl); }
+    cl.free();
+    if (has_cl && clen < 0) { return 400; }   // malformed / overflowing Content-Length
+    if (clen > max_body) { return 413; }
 
-    int have = n - hend;
-    if (clen <= 0) { r.body = null; r.body_len = 0; free(buf); return 0; }
+    const int have = n - hend;
+    if (clen <= 0) { r.body = null; r.body_len = 0; return 0; }
 
+    // The header read may already hold the start of the body; the rest follows.
     *uint8 body = alloc<uint8>(clen);
-    int copy0 = have;
-    if (copy0 > (int)clen) { copy0 = (int)clen; }
-    if (copy0 > 0) { memcpy((*void)body, (*void)(buf + hend), copy0); }
-    free(buf);
+    const int copy0 = have > (int)clen ? (int)clen : have;
+    if (copy0 > 0) { memcpy(body, buf + hend, copy0); }
 
     int64 bgot = copy0;
     while (bgot < clen) {
-        int64 got = net_recv(fd, (*void)(body + bgot), clen - bgot);
+        const int64 got = net_recv(fd, body + bgot, clen - bgot);
         if (got <= 0) { break; }
-        bgot = bgot + got;
+        bgot += got;
     }
     r.body     = body;
     r.body_len = bgot;
@@ -433,48 +403,50 @@ int http_recv(int fd, HttpReq* r, int64 max_body) {
 // be empty). `body` is sent verbatim (its String length is honoured, so it may
 // hold bytes a NUL would otherwise cut short).
 void http_reply(int fd, int status, string ctype, string extra, String* body) {
-    let out: String;  String_init(&out, body.len + 256);
-    String_append(&out, "HTTP/1.1 ");
-    let st: String;  String_init(&st, 8);  String_from_int(&st, status);
-    String_append(&out, String_cstr(&st));  String_free(&st);
-    String_push(&out, ' ');
-    String_append(&out, http_reason(status));
-    String_append(&out, "\r\nContent-Type: ");  String_append(&out, ctype);  String_append(&out, "\r\n");
-    String_append(&out, extra);
-    String_append(&out, "Content-Length: ");
-    let cln: String;  String_init(&cln, 16);  String_from_int(&cln, body.len);
-    String_append(&out, String_cstr(&cln));  String_free(&cln);
-    String_append(&out, "\r\nConnection: close\r\n\r\n");
-    net_send(fd, (*void)String_cstr(&out), out.len);
-    if (body.len > 0) { net_send(fd, (*void)body.data, body.len); }
-    String_free(&out);
+    let out: String;
+    out.init(body.len + 256);
+    defer out.free();
+    out.append("HTTP/1.1 ");
+    _http_append_int(&out, status);
+    out.push(' ');
+    out.append(http_reason(status));
+    out.append("\r\nContent-Type: ");
+    out.append(ctype);
+    out.append("\r\n");
+    out.append(extra);
+    out.append("Content-Length: ");
+    _http_append_int(&out, body.len);
+    out.append("\r\nConnection: close\r\n\r\n");
+    net_send(fd, out.cstr(), out.len);
+    if (body.len > 0) { net_send(fd, body.data, body.len); }
 }
 
 // Append `s` to `out` as the body of a JSON string: `"` and backslash escaped,
 // control bytes as \n \r \t or \u00XX.
 void http_json_escape(String* out, string s) {
-    int i = 0;
-    while (s[i] != 0) {
-        char c = s[i];
-        int u = (int)(uint8)c;
-        if (c == 34 || c == 92) { String_push(out, '\\'); String_push(out, c); }
-        else if (u == 10) { String_append(out, "\\n"); }
-        else if (u == 13) { String_append(out, "\\r"); }
-        else if (u == 9)  { String_append(out, "\\t"); }
+    for (int i = 0; s[i] != 0; i++) {
+        const char c = s[i];
+        const int u = (int)(uint8)c;
+        if (c == '"' || c == '\\') { out.push('\\'); out.push(c); }
+        else if (c == '\n') { out.append("\\n"); }
+        else if (c == '\r') { out.append("\\r"); }
+        else if (c == '\t') { out.append("\\t"); }
         else if (u < 32) {
-            String_append(out, "\\u00");
-            String_push(out, "0123456789abcdef"[u >> 4]);
-            String_push(out, "0123456789abcdef"[u & 15]);
+            out.append("\\u00");
+            out.push("0123456789abcdef"[u >> 4]);
+            out.push("0123456789abcdef"[u & 15]);
         }
-        else { String_push(out, c); }
-        i = i + 1;
+        else { out.push(c); }
     }
 }
 
 // Convenience: reply with a small JSON error {"error":"..."} (msg is escaped).
 void http_reply_error(int fd, int status, string extra, string msg) {
-    let b: String;  String_init(&b, 64);
-    String_append(&b, "{\"error\":\"");  http_json_escape(&b, msg);  String_append(&b, "\"}");
+    let b: String;
+    b.init(64);
+    defer b.free();
+    b.append("{\"error\":\"");
+    http_json_escape(&b, msg);
+    b.append("\"}");
     http_reply(fd, status, "application/json", extra, &b);
-    String_free(&b);
 }
