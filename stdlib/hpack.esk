@@ -448,27 +448,47 @@ int hpack_decode_literal(HpackDecoder* d, *uint8 buf, int off, int end, int pref
     return off;
 }
 
+// Make the Huffman scratch arena big enough for any block of `len` bytes: the
+// shortest code is 5 bits, so the decoded strings total at most len * 8 / 5
+// bytes. (The previous block's headers are dead by now, so the old arena can go.)
+void hpack_scratch_fit(HpackDecoder* d, int len) {
+    const int64 need = (int64)len * 8 / 5 + 8;
+    if (need <= d.scratch_cap) { return; }
+    free(d.scratch);
+    d.scratch = alloc<uint8>(need);
+    d.scratch_cap = (int)need;
+}
+
 // Decode a complete header block (`len` bytes at `buf`) into out[0..max).
-// Returns the header count, or -1 on a malformed block.
+// Returns the header count, -1 on a malformed block (a COMPRESSION_ERROR:
+// the dynamic table may be out of sync, so the connection cannot continue), or
+// -2 if the block is well-formed but holds more than `max` fields. On -2 the
+// whole block was still decoded, so the dynamic table stays in sync; out[] holds
+// the first `max` fields and the caller should reject just that header list.
+// A dynamic table size update is only valid at the start of a block, before
+// any field (RFC 7541 §4.2); one after a field is a COMPRESSION_ERROR.
 int hpack_decode(HpackDecoder* d, *uint8 buf, int len, HpackHeader* out, int max) {
     d.scratch_used = 0;                  // reset the per-block arena for Huffman strings
     hpack_grave_clear(d);                // the previous block's evicted strings are no longer referenced
-    int off = 0;  int count = 0;
+    hpack_scratch_fit(d, len);
+    let spill: HpackHeader;              // where fields past `max` are decoded (and dropped)
+    int off = 0;  int count = 0;  int fields = 0;
     while (off < len) {
-        if (count >= max) { return -1; }
+        HpackHeader* h = count < max ? &out[count] : &spill;
         const int b = (int)buf[off];
         if ((b & 128) != 0) {                            // §6.1 indexed
             int nx = 0;
             const int64 idx = hpack_decode_int_at(buf, off, len, 7, &nx);
             if (idx < 0) { return -1; }
             off = nx;
-            if (hpack_resolve(d, (int)idx, &out[count]) != 0) { return -1; }
-            count++;
+            if (hpack_resolve(d, (int)idx, h) != 0) { return -1; }
+            fields++;
         } else if ((b & 64) != 0) {                      // §6.2.1 literal, incremental indexing
-            off = hpack_decode_literal(d, buf, off, len, 6, &out[count], 1);
+            off = hpack_decode_literal(d, buf, off, len, 6, h, 1);
             if (off < 0) { return -1; }
-            count++;
+            fields++;
         } else if ((b & 32) != 0) {                      // §6.3 dynamic table size update
+            if (fields > 0) { return -1; }              // after a field: COMPRESSION_ERROR (§4.2)
             int nx = 0;
             const int64 newmax = hpack_decode_int_at(buf, off, len, 5, &nx);
             if (newmax < 0) { return -1; }
@@ -476,12 +496,13 @@ int hpack_decode(HpackDecoder* d, *uint8 buf, int len, HpackHeader* out, int max
             if (newmax > d.limit) { return -1; }        // above SETTINGS_HEADER_TABLE_SIZE: COMPRESSION_ERROR
             hpack_set_max(d, newmax);
         } else {                                         // §6.2.2 / §6.2.3 without / never indexed
-            off = hpack_decode_literal(d, buf, off, len, 4, &out[count], 0);
+            off = hpack_decode_literal(d, buf, off, len, 4, h, 0);
             if (off < 0) { return -1; }
-            count++;
+            fields++;
         }
+        count = fields < max ? fields : max;
     }
-    return count;
+    return fields > max ? -2 : fields;
 }
 
 // ── Encoder (stateless; raw strings) ─────────────────────────────────────────

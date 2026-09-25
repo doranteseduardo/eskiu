@@ -1,0 +1,5 @@
+big: block=12509 n=1 vlen=20000 last=a
+update after field: -1
+update first: 1
+70 fields into 64: -2 first=h00
+next block: n=1 name=h69

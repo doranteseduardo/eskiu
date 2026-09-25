@@ -190,6 +190,7 @@ when you add a test.
 | `global_neg_const` | Negative constants in global initializers keep their sign, and a doubly negated literal folds to the positive value. |
 | `heap_coalesce` | FirstFit (and the <sysheap> Heap over it) coalesces adjacent free regions: after 64 x 900-byte blocks are freed in any order, a 30000-byte allocation fits... |
 | `hpack_evict_name` | RFC 7541 §4.4: a literal with incremental indexing may name a dynamic entry that its own insertion evicts. |
+| `hpack_limits` | HPACK: the Huffman scratch arena is sized from the block (a valid 20000-byte value decodes), a table size update after a field is a COMPRESSION_ERROR, and more fields than the caller's array is -2 with the table kept in sync. |
 | `hpack_size_update` | A §6.3 dynamic table size update above SETTINGS_HEADER_TABLE_SIZE is a COMPRESSION_ERROR (the decode fails) instead of growing the table past the entry... |
 | `hpack_truncated` | Malformed HPACK blocks must fail cleanly (-1) without reading past the block: a string literal longer than the remaining bytes, a prefix integer whose... |
 | `http2_big_headers` | Response headers larger than the old fixed 8 KB block are sized from the headers, and a block over MAX_FRAME_SIZE (16384) is split into a HEADERS frame plus... |
