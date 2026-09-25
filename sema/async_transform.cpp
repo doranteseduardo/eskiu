@@ -1,5 +1,6 @@
 #include "async_transform.h"
 #include "../ast/ast_walk.h"
+#include "../template_utils.h"
 #include <stdexcept>
 #include <set>
 #include <map>
@@ -126,14 +127,96 @@ bool stmtHasLabeledBreak(const StmtPtr& s) {
     return false;
 }
 
+// Every AwaitExpr in a function body (lambda bodies excluded: an await belongs to
+// the async function it is spelled in).
+void collectAwaits(Expr* e, std::vector<AwaitExpr*>& out) {
+    if (!e || dynamic_cast<LambdaExpr*>(e)) return;
+    if (auto* a = dynamic_cast<AwaitExpr*>(e)) out.push_back(a);
+    astwalk::forEachChildExprFlat(e, [&](ExprPtr& c) { collectAwaits(c.get(), out); });
+}
+void collectAwaits(Stmt* s, std::vector<AwaitExpr*>& out) {
+    if (!s) return;
+    auto E = [&](const ExprPtr& e) { collectAwaits(e.get(), out); };
+    auto S = [&](const StmtPtr& st) { collectAwaits(st.get(), out); };
+    if (auto* b = dynamic_cast<BlockStmt*>(s)) {
+        for (auto& it : b->items) {
+            if (std::holds_alternative<StmtPtr>(it)) { S(std::get<StmtPtr>(it)); continue; }
+            if (auto* vd = dynamic_cast<VarDecl*>(std::get<DeclPtr>(it).get())) E(vd->initializer);
+        }
+    }
+    else if (auto* i = dynamic_cast<IfStmt*>(s))        { E(i->condition); S(i->thenBranch); S(i->elseBranch); }
+    else if (auto* f = dynamic_cast<ForStmt*>(s))       { S(f->init); E(f->condition); E(f->step); S(f->body); }
+    else if (auto* fi = dynamic_cast<ForInStmt*>(s))    { E(fi->iterable); S(fi->body); }
+    else if (auto* w = dynamic_cast<WhileStmt*>(s))     { E(w->condition); S(w->body); }
+    else if (auto* dw = dynamic_cast<DoWhileStmt*>(s))  { S(dw->body); E(dw->condition); }
+    else if (auto* r = dynamic_cast<ReturnStmt*>(s))    { E(r->value); }
+    else if (auto* sw = dynamic_cast<SwitchStmt*>(s))   { E(sw->subject); for (auto& c : sw->cases) { E(c.value); for (auto& st : c.stmts) S(st); } }
+    else if (auto* m = dynamic_cast<MatchStmt*>(s))     { E(m->subject); for (auto& a : m->arms) S(a.body); }
+    else if (auto* th = dynamic_cast<ThrowStmt*>(s))    { E(th->value); }
+    else if (auto* t = dynamic_cast<TryStmt*>(s))       { S(t->body); for (auto& c : t->catches) S(c.body); S(t->finally); }
+    else if (auto* d = dynamic_cast<DeferStmt*>(s))     { S(d->body); }
+    else if (auto* es = dynamic_cast<ExprStmt*>(s))     { E(es->expr); }
+}
+
+// `t` with every subtree spelled `from` replaced by `to`.
+ty::Type replaceSubtree(const ty::Type& t, const std::string& from, const std::string& to) {
+    if (t.str() == from) return ty::Type::parse(to);
+    ty::Type r = t;
+    auto in = [&](std::shared_ptr<ty::Type>& p) {
+        if (p) p = std::make_shared<ty::Type>(replaceSubtree(*p, from, to));
+    };
+    in(r.pointee); in(r.elem); in(r.ret);
+    for (auto& a : r.args)   a = replaceSubtree(a, from, to);
+    for (auto& a : r.params) a = replaceSubtree(a, from, to);
+    return r;
+}
+
+// The awaited type of `aw` in a generic async function, in terms of the template's type
+// parameters: a spelling S with substType(S, subs) equal to the awaited type in every
+// checked instance. Candidates put a type parameter in place of each subtree spelled as
+// its argument (every subset of the parameters, most first); any consistent one is right
+// for every instance there is. "" when none fits.
+std::string genericAwaitType(const AwaitExpr* aw, const std::vector<std::string>& tps) {
+    if (aw->instanceTypes.empty()) return "";
+    auto canon = [](const std::string& s) { return ty::Type::parse(s).str(); };
+    const auto& first = aw->instanceTypes.front();
+    size_t n = tps.size();
+    std::vector<unsigned> masks;
+    for (unsigned m = 0; m < (1u << n); ++m) masks.push_back(m);
+    std::stable_sort(masks.begin(), masks.end(), [](unsigned a, unsigned b) {
+        return __builtin_popcount(a) > __builtin_popcount(b);
+    });
+    for (unsigned m : masks) {
+        ty::Type c = ty::Type::parse(first.second);
+        for (size_t i = 0; i < n; ++i) {
+            auto it = first.first.find(tps[i]);
+            if ((m >> i & 1) && it != first.first.end()) c = replaceSubtree(c, canon(it->second), tps[i]);
+        }
+        std::string cand = c.str();
+        bool ok = true;
+        for (const auto& inst : aw->instanceTypes)
+            if (canon(substType(cand, inst.first)) != canon(inst.second)) { ok = false; break; }
+        if (ok) return cand;
+    }
+    return "";
+}
+
 // The closure  void() { fr.st = <state>; __<name>_resume(fr); }  used as a waker.
 // Captures the frame pointer `fr` by value. Because this AST is synthesized after
 // the type checker runs, we populate `captures` ourselves (sema would otherwise).
-ExprPtr resumeWaker(const std::string& resumeName, int state, const std::string& framePtrTy) {
+// A call to the resume function; for a generic async function it is itself generic,
+// called with the enclosing template's own type parameters.
+ExprPtr resumeCall(const std::string& resumeName, const std::vector<std::string>& tps) {
+    std::vector<ExprPtr> args{ ident(frn.ptr) };
+    if (tps.empty()) return std::make_shared<CallExpr>(ident(resumeName), args);
+    return std::make_shared<TemplateCallExpr>(resumeName, tps, args);
+}
+
+ExprPtr resumeWaker(const std::string& resumeName, int state, const std::string& framePtrTy,
+                    const std::vector<std::string>& tps) {
     std::vector<BlockItem> body;
     body.push_back(assign(fr(frn.st), intlit(state)));
-    body.push_back(exprStmt(std::make_shared<CallExpr>(
-        ident(resumeName), std::vector<ExprPtr>{ ident(frn.ptr) })));
+    body.push_back(exprStmt(resumeCall(resumeName, tps)));
     auto blk = std::make_shared<BlockStmt>(body);
     auto lam = std::make_shared<LambdaExpr>(
         std::vector<std::pair<std::string,std::string>>{}, "void", blk);
@@ -253,12 +336,41 @@ void AsyncTransform::run(Program* program) {
         if (!fn || !fn->isAsync) { out.push_back(decl); continue; }
 
         const std::string name   = fn->name;
+        // A generic async function is lowered once, generically: the frame struct, the
+        // resume function, and the constructor are templates over its type parameters,
+        // instantiated per use like any generic. The awaited types come from the type
+        // checker's per-instance records (genericAwaitType). Never instantiated: nothing
+        // to lower (and nothing codegen will emit).
+        const std::vector<std::string>& tps = fn->typeParams;
+        const bool generic = !tps.empty();
+        std::map<AwaitExpr*, std::string> genAwTy;
+        if (generic) {
+            std::vector<AwaitExpr*> aws;
+            collectAwaits(fn->body.get(), aws);
+            if (aws.empty() || aws.front()->instanceTypes.empty()) { out.push_back(decl); continue; }
+            for (auto* aw : aws) {
+                std::string t = genericAwaitType(aw, tps);
+                if (t.empty())
+                    throw std::runtime_error("async function '" + name + "': cannot express an awaited "
+                        "type in terms of its type parameters");
+                genAwTy[aw] = t;
+            }
+        }
+        auto awType = [&](AwaitExpr* aw) -> std::string {
+            return generic ? genAwTy[aw] : aw->resolvedType;
+        };
         // Every synthesized name avoids the names already spelled in the function (and
         // the program's top-level names, for the frame type and resume function).
         std::set<std::string> used = topNames;
         astwalk::collectNames(fn->body.get(), used);
         for (const auto& p : fn->params) used.insert(p.second);
-        const std::string frameT = astwalk::freshName("__" + name + "_frame", used);
+        const std::string frameName = astwalk::freshName("__" + name + "_frame", used);
+        std::string frameT = frameName;       // the frame type's spelling (`__f_frame<T>` if generic)
+        if (generic) {
+            frameT += "<";
+            for (size_t i = 0; i < tps.size(); ++i) frameT += (i ? "," : "") + tps[i];
+            frameT += ">";
+        }
         const std::string resumeN = astwalk::freshName("__" + name + "_resume", used);
         frn.ptr = astwalk::freshName("__fr", used);
         frn.st = astwalk::freshName("st", used);
@@ -300,14 +412,14 @@ void AsyncTransform::run(Program* program) {
                         if (auto* rs = dynamic_cast<ReturnStmt*>(stmt.get())) {
                             if (auto* aw = dynamic_cast<AwaitExpr*>(rs->value.get())) {
                                 std::string tn = astwalk::freshName("__aw_t" + std::to_string(tmpN++), used);
-                                out2.push_back(DeclPtr(std::make_shared<VarDecl>(tn, aw->resolvedType, rs->value)));
+                                out2.push_back(DeclPtr(std::make_shared<VarDecl>(tn, awType(aw), rs->value)));
                                 out2.push_back(StmtPtr(std::make_shared<ReturnStmt>(ident(tn))));
                                 continue;
                             }
                         } else if (auto* es = dynamic_cast<ExprStmt*>(stmt.get())) {
                             if (auto* aw = dynamic_cast<AwaitExpr*>(es->expr.get())) {
                                 std::string tn = astwalk::freshName("__aw_t" + std::to_string(tmpN++), used);
-                                out2.push_back(DeclPtr(std::make_shared<VarDecl>(tn, aw->resolvedType, es->expr)));
+                                out2.push_back(DeclPtr(std::make_shared<VarDecl>(tn, awType(aw), es->expr)));
                                 continue;          // discard
                             }
                             // x = await E;  ->  let __awN = await E; x = __awN;
@@ -315,7 +427,7 @@ void AsyncTransform::run(Program* program) {
                                 if (b->op == "=")
                                     if (auto* aw = dynamic_cast<AwaitExpr*>(b->right.get())) {
                                         std::string tn = astwalk::freshName("__aw_t" + std::to_string(tmpN++), used);
-                                        out2.push_back(DeclPtr(std::make_shared<VarDecl>(tn, aw->resolvedType, b->right)));
+                                        out2.push_back(DeclPtr(std::make_shared<VarDecl>(tn, awType(aw), b->right)));
                                         out2.push_back(StmtPtr(std::make_shared<ExprStmt>(
                                             binop(b->left, "=", ident(tn)))));
                                         continue;
@@ -415,7 +527,7 @@ void AsyncTransform::run(Program* program) {
                             if (auto* aw = dynamic_cast<AwaitExpr*>(vd->initializer.get())) {
                                 awIdx[aw] = (int)awaits.size();
                                 awNames.push_back(astwalk::freshName("__aw" + std::to_string(awaits.size()), used));
-                                fields.push_back({"*Future<" + aw->resolvedType + ">", awNames.back()});
+                                fields.push_back({"*Future<" + awType(aw) + ">", awNames.back()});
                                 awaits.push_back({vd, aw});
                             }
                     } else scanS(std::get<StmtPtr>(it));
@@ -599,13 +711,13 @@ void AsyncTransform::run(Program* program) {
                 if (!vd || !vd->initializer) return cur;
                 if (auto* aw = dynamic_cast<AwaitExpr*>(vd->initializer.get())) {
                     int i = awIdx[aw]; std::string awf = awNames[i];
-                    const std::string Tp = aw->resolvedType;   // the future's inner type T'
+                    const std::string Tp = awType(aw);   // the future's inner type T'
                     ExprPtr callE = aw->operand; rewrite(callE, vars);
                     states[cur].push_back(assign(fr(awf), callE));
                     int next = newState();
                     ExprPtr poll = std::make_shared<TemplateCallExpr>("future_poll",
                         std::vector<std::string>{Tp},
-                        std::vector<ExprPtr>{ fr(awf), resumeWaker(resumeN, next, "*" + frameT) });
+                        std::vector<ExprPtr>{ fr(awf), resumeWaker(resumeN, next, "*" + frameT, tps) });
                     std::vector<BlockItem> pk;
                     pk.push_back(assign(fr(frn.awaiting), std::make_shared<CastExpr>("*FutureHdr", fr(awf))));
                     pk.push_back(ret(nullptr));
@@ -876,6 +988,7 @@ void AsyncTransform::run(Program* program) {
             resumeN, "void",
             std::vector<std::pair<std::string,std::string>>{ {"*" + frameT, frn.ptr} },
             std::make_shared<BlockStmt>(resumeBody));
+        resumeFn->typeParams = tps;
 
         // ── Constructor:  *Future<T> name(params) { ... } ────────────────────
         std::vector<BlockItem> ctor;
@@ -911,8 +1024,7 @@ void AsyncTransform::run(Program* program) {
         }
         for (const auto& p : fn->params)
             ctor.push_back(assign(fr(p.second), ident(p.second)));
-        ctor.push_back(exprStmt(std::make_shared<CallExpr>(
-            ident(resumeN), std::vector<ExprPtr>{ ident(frn.ptr) })));
+        ctor.push_back(exprStmt(resumeCall(resumeN, tps)));
         ctor.push_back(ret(std::make_shared<UnaryExpr>("&",
             std::make_shared<MemberExpr>(ident(frn.ptr), frn.ret))));
         auto ctorFn = std::make_shared<FunctionDecl>(
@@ -923,9 +1035,14 @@ void AsyncTransform::run(Program* program) {
         // env at the call site and the frame would hold a dangling pointer (a UAF that
         // surfaced as an intermittent SIGILL calling a garbage closure on Linux).
         ctorFn->paramEscaping = fn->paramEscaping;
+        ctorFn->typeParams = tps;
+        ctorFn->constraints = fn->constraints;
+        ctorFn->sourceFile = fn->sourceFile;
 
         // ── Emit frame struct + resume + constructor in place of the async fn ─
-        out.push_back(std::make_shared<StructDecl>(frameT, fields));
+        auto frameDecl = std::make_shared<StructDecl>(frameName, fields);
+        frameDecl->typeParams = tps;
+        out.push_back(frameDecl);
         out.push_back(resumeFn);
         out.push_back(ctorFn);
     }

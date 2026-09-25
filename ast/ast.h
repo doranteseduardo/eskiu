@@ -727,6 +727,10 @@ class AwaitExpr : public Expr {
 public:
     ExprPtr operand;
     std::string resolvedType;   // set by the type checker: the awaited value type T'
+    // In a generic async function: per checked instance, its type-argument bindings and
+    // the awaited type (source form). The async transform recovers the type in terms of
+    // the template's parameters from these (the body is shared by every instance).
+    std::vector<std::pair<std::map<std::string, std::string>, std::string>> instanceTypes;
     explicit AwaitExpr(ExprPtr o) : operand(std::move(o)) {}
     void accept(class ASTVisitor* visitor) override;
 };

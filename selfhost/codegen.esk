@@ -2840,7 +2840,11 @@ string cg_etype(Codegen* g, *ExprNode e) {
             String_append(&sp, ">");
             return cg_ensure_enum_inst(g, (string)String_cstr(&sp));
         }
-        return cg_find_fn(g, cg_mangle(cg_apply_sub(g, e.sval))).rety;
+        string trt = cg_find_fn(g, cg_mangle(cg_apply_sub(g, e.sval))).rety;
+        // Not instantiated yet (an argument typed for inference, `spawn(task<int>(3))`):
+        // the template's substituted return type.
+        if (trt[0] == 0) { trt = cg_generic_call_ret(g, cg_apply_sub(g, e.sval)); }
+        return trt;
     }
     if (e.kind == EK_CALL) {
         if (e.a != null && e.a.kind == EK_MEMBER) {

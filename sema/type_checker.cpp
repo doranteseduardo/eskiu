@@ -393,6 +393,12 @@ void TypeChecker::queueInstance(FunctionDecl* fn, const std::vector<std::string>
 // Check each queued generic instance: the template body, with its type parameters
 // bound to the instance's arguments. Checking one may queue more (nested generic
 // calls, generic structs named in the body), so this runs until the queue drains.
+std::string TypeChecker::genericCallRet(FunctionDecl* fd, const std::map<std::string, std::string>& subs) {
+    std::string r = substType(fd->returnType, subs);
+    if (fd->isAsync) r = "*Future<" + (r == "void" ? std::string("uint8") : r) + ">";
+    return normalizeType(r);
+}
+
 void TypeChecker::checkPendingInstances() {
     static const int kMaxDepth = 64;
     for (size_t i = 0; i < pendingInstances.size(); ++i) {
@@ -410,6 +416,7 @@ void TypeChecker::checkPendingInstances() {
             params.push_back({pr.first == "..." ? pr.first : substType(pr.first, p.subs), pr.second});
         FunctionDecl inst(p.mangled, substType(p.fn->returnType, p.subs), params, p.fn->body);
         inst.line = p.fn->line; inst.col = p.fn->col;
+        inst.isAsync = p.fn->isAsync;
         inst.paramEscaping = p.fn->paramEscaping;
         inst.paramPositions = p.fn->paramPositions;
         if (!p.selfType.empty()) {

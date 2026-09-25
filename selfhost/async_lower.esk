@@ -35,6 +35,9 @@ string al_fst = "st";
 string al_fret = "ret";
 string al_fawt = "awaiting";
 *ExprNode al_fr(string field) { return al_member(mk_ident(al_frp), field); }
+// The lowered function's type-parameter list spelled `<T, U>` ("" when it is not generic):
+// a generic async function lowers to a generic frame, resume function, and constructor.
+string al_tps = "";
 
 *ExprNode al_call(string name, List<*ExprNode>* args) {
     *ExprNode e = alloc<ExprNode>(1);
@@ -121,12 +124,18 @@ string al_substr(string s, int a, int b) {
     return s;
 }
 
+// `__name_resume(fr)`, or `__name_resume<T..>(fr)` for a generic async function.
+*ExprNode al_resume_call(string resumeN) {
+    List<*ExprNode> ra; List_init<*ExprNode>(&ra, 1); List_push<*ExprNode>(&ra, mk_ident(al_frp));
+    if (al_tps[0] == 0) { return al_call(resumeN, &ra); }
+    return al_tcall(str_concat(resumeN, al_tps), &ra);
+}
+
 // The waker closure `void() { fr.st = <state>; __name_resume(fr); }` (captures fr).
 *ExprNode al_waker(string resumeN, int state) {
     List<*StmtNode> body; List_init<*StmtNode>(&body, 2);
     List_push<*StmtNode>(&body, al_assign(al_fr(al_fst), al_int(state)));
-    List<*ExprNode> ra; List_init<*ExprNode>(&ra, 1); List_push<*ExprNode>(&ra, mk_ident(al_frp));
-    List_push<*StmtNode>(&body, al_exprstmt(al_call(resumeN, &ra)));
+    List_push<*StmtNode>(&body, al_exprstmt(al_resume_call(resumeN)));
     *ExprNode e = alloc<ExprNode>(1);
     e.kind = EK_LAMBDA; e.sval = "void()"; e.stmt = al_block(&body);
     return e;
@@ -1158,7 +1167,16 @@ void al_transform(*Program prog, *DeclNode d, List<*DeclNode>* out) {
     while (ti < List_len<*DeclNode>(&prog.decls)) { List_push<string>(&used, List_get<*DeclNode>(&prog.decls, ti).name); ti = ti + 1; }
     collect_names_s(d.body, &used);
     int ui = 0; while (ui < List_len<Param>(&d.params)) { List_push<string>(&used, List_get<Param>(&d.params, ui).name); ui = ui + 1; }
-    string frameT = fresh_name(str_concat("__", str_concat(name, "_frame")), &used);
+    string frameName = fresh_name(str_concat("__", str_concat(name, "_frame")), &used);
+    al_tps = "";
+    int tpi = 0;
+    while (tpi < List_len<TypeParam>(&d.type_params)) {
+        if (tpi == 0) { al_tps = "<"; } else { al_tps = str_concat(al_tps, ", "); }
+        al_tps = str_concat(al_tps, List_get<TypeParam>(&d.type_params, tpi).name);
+        tpi = tpi + 1;
+    }
+    if (al_tps[0] != 0) { al_tps = str_concat(al_tps, ">"); }
+    string frameT = str_concat(frameName, al_tps);   // the frame type's spelling
     string resumeN = fresh_name(str_concat("__", str_concat(name, "_resume")), &used);
     al_frp = fresh_name("__fr", &used);
     al_fst = fresh_name("st", &used);
@@ -1232,6 +1250,7 @@ void al_transform(*Program prog, *DeclNode d, List<*DeclNode>* out) {
     resumeFn.name = resumeN; resumeFn.ret_type = "void"; resumeFn.body = al_block(&rb);
     List_init<Param>(&resumeFn.params, 1);
     let fp: Param; fp.name = al_frp; fp.ty = str_concat("*", frameT); List_push<Param>(&resumeFn.params, fp);
+    resumeFn.type_params = d.type_params;
 
     // ctor: *Future<Tret> name(params) { fr = alloc<frameT>(1); init; resume(fr); return &fr.ret; }
     List<*StmtNode> ctor; List_init<*StmtNode>(&ctor, 8);
@@ -1248,18 +1267,19 @@ void al_transform(*Program prog, *DeclNode d, List<*DeclNode>* out) {
         List_push<*StmtNode>(&ctor, al_assign(al_fr(p.name), mk_ident(p.name)));
         pi = pi + 1;
     }
-    List<*ExprNode> ca; List_init<*ExprNode>(&ca, 1); List_push<*ExprNode>(&ca, mk_ident(al_frp));
-    List_push<*StmtNode>(&ctor, al_exprstmt(al_call(resumeN, &ca)));
+    List_push<*StmtNode>(&ctor, al_exprstmt(al_resume_call(resumeN)));
     List_push<*StmtNode>(&ctor, al_return(mk_un("&", al_member(mk_ident(al_frp), al_fret))));
     *DeclNode ctorFn = new_decl(DK_FUNCTION);
     ctorFn.name = name; ctorFn.ret_type = str_concat("*Future<", str_concat(Tret, ">"));
     ctorFn.body = al_block(&ctor);
     List_init<Param>(&ctorFn.params, 2);
     pi = 0; while (pi < List_len<Param>(&d.params)) { List_push<Param>(&ctorFn.params, List_get<Param>(&d.params, pi)); pi = pi + 1; }
+    ctorFn.type_params = d.type_params;
 
     // frame struct
     *DeclNode frameD = new_decl(DK_STRUCT);
-    frameD.name = frameT;
+    frameD.name = frameName;
+    frameD.type_params = d.type_params;
     List_init<Param>(&frameD.params, List_len<Param>(&c.fields));
     int ff = 0; while (ff < List_len<Param>(&c.fields)) { List_push<Param>(&frameD.params, List_get<Param>(&c.fields, ff)); ff = ff + 1; }
 

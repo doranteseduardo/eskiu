@@ -685,7 +685,7 @@ void TypeChecker::visit(CallExpr* node) {
                     for (const auto& tpn : fd->typeParams) mangled += "_" + mangleTemplate(subs[tpn]);
                     queueInstance(fd, fd->typeParams, subs, funcName, "", mangled, "", fd->sourceFile);
                 }
-                expressionTypes[node] = normalizeType(substType(fd->returnType, subs));
+                expressionTypes[node] = genericCallRet(fd, subs);
                 return;
             }
             errorAt(node, "cannot infer type argument(s) " + unbound + " of generic function '" +
@@ -823,7 +823,7 @@ bool TypeChecker::checkGenericMethodCall(CallExpr* node, MemberExpr* member, con
         for (const auto& tpn : fd->typeParams) mangled += "_" + mangleTemplate(subs[tpn]);
         queueInstance(fd, fd->typeParams, subs, fnName, "", mangled, "", fd->sourceFile);
     }
-    expressionTypes[node] = normalizeType(substType(fd->returnType, subs));
+    expressionTypes[node] = genericCallRet(fd, subs);
     return true;
 }
 
@@ -1255,6 +1255,7 @@ void TypeChecker::visit(AwaitExpr* node) {
         std::string res = (args.size() == 1) ? normalizeType(args[0]) : "unknown";
         expressionTypes[node] = res;
         if (!inInstance) node->resolvedType = res;   // consumed by the async transform
+        else if (args.size() == 1) node->instanceTypes.push_back({instSubs, args[0]});
     } else {
         if (t != "unknown")
             errorAt(node, "await expects a *Future<T>, got " + t);
@@ -1346,7 +1347,7 @@ void TypeChecker::visit(TemplateCallExpr* node) {
                         ", got " + got + " (" + e + ")");
     }
 
-    std::string retType = normalizeType(substType(fd->returnType, subs));
+    std::string retType = genericCallRet(fd, subs);
     expressionTypes[node] = retType;
     if (errors.size() == errsBefore && node->typeArgs.size() == tp.size()) {
         std::string mangled = node->templateName;

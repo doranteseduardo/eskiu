@@ -199,6 +199,9 @@ private:
     void checkPendingInstances();
     // A type argument written inside the instance being checked, resolved to concrete.
     std::string resolveInstType(const std::string& t) const;
+    // The (normalized) type of a call to the generic function `fd` under `subs`: its
+    // substituted return type, or `*Future<T>` for an `async` function.
+    std::string genericCallRet(FunctionDecl* fd, const std::map<std::string, std::string>& subs);
     // Interface registry
     std::map<std::string, InterfaceDecl*> interfaceDecls;
 

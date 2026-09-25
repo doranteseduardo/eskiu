@@ -254,6 +254,17 @@ machinery. (The §3.1 park sequence is emitted inline at each await; shown abbre
 The park's failed-CAS branch means an already-ready inner future does **not**
 suspend: read value, fall through. Zero extra round-trips when nothing blocks.
 
+### 4.4 Generic async functions
+
+`async T f<T>(...)` lowers once, generically: the frame struct, the resume function,
+and the constructor are templates over `f`'s type parameters (`__f_frame<T>`,
+`__f_resume<T>`, `*Future<T> f<T>(...)`), instantiated per use like any generic. Each
+awaited type must be spelled in terms of `T`. The C++ transform recovers it from the
+type checker's per-instance records (`AwaitExpr::instanceTypes`: the instance's type
+arguments and the awaited type), choosing a spelling that reproduces every checked
+instance. The self-host pass resolves it from the source directly (`al_await_type`). A
+generic async function that is never instantiated is left as is.
+
 ---
 
 ## 5. Field walk: why `{state, waker, on_drop, value}` survives everything

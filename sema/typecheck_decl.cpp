@@ -362,13 +362,6 @@ void TypeChecker::visit(FunctionDecl* node) {
         errorAt(node, "async function '" + node->name + "' has no `await`; "
                       "remove `async` or add an `await`");
     }
-    // A generic `async fn` is not supported: the coroutine frame is built once
-    // from the body's source types, so a type parameter (`T`) would not be
-    // substituted per instantiation. Reject it rather than miscompile.
-    if (node->isAsync && !node->typeParams.empty()) {
-        errorAt(node, "async function '" + node->name + "' cannot be generic; "
-                      "write a concrete async function or await a generic helper from it");
-    }
 
     // Escape soundness is enforced on non-generic functions only (as before per-instance
     // checking existed): it counts passing a closure param down to another call as an
