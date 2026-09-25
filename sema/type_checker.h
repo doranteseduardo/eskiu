@@ -248,6 +248,7 @@ private:
     void checkAssignment(class BinaryExpr* node);
     // A switch `case` label codegen can fold to an integer constant.
     bool isConstIntExpr(Expr* e);
+    bool foldConstInt(Expr* e, long long& out);
     bool hasErrors = false;
 
     // Helper methods

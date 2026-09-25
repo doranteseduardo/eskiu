@@ -1400,6 +1400,87 @@ int sema_is_lvalue(Sema* s, *ExprNode e) {
     return 0;
 }
 
+// Parse an integer spelling (optional '-', decimal, 0x hex, leading-0 octal) as int64.
+int64 sema_parse_int(string t) {
+    int i = 0; int64 base = 10; int64 sign = (int64)1;
+    if (t[0] == '-') { sign = (int64)-1; i = 1; }
+    if (t[i] == '0' && (t[i + 1] == 'x' || t[i + 1] == 'X')) { base = 16; i = i + 2; }
+    else if (t[i] == '0' && t[i + 1] != 0) { base = 8; i = i + 1; }
+    int64 v = 0;
+    while (t[i] != 0) {
+        int ch = (int)t[i]; int64 d = 0;
+        if (ch >= 48 && ch <= 57) { d = (int64)(ch - 48); }
+        else if (ch >= 97 && ch <= 102) { d = (int64)(ch - 87); }
+        else if (ch >= 65 && ch <= 70) { d = (int64)(ch - 55); }
+        else { return sign * v; }
+        v = v * base + d;
+        i = i + 1;
+    }
+    return sign * v;
+}
+
+// Value of an integer constant expression built from literals, enum members, unary and
+// binary operators and casts (mirrors TypeChecker::foldConstInt). Returns 0 when the
+// value is not known here (a `const` variable, `sizeof`, division by zero).
+int sema_fold_int(Sema* s, *ExprNode e, int64* out) {
+    if (e == null) { return 0; }
+    if (e.kind == EK_LITERAL) {
+        if (e.lit_kind == LIT_INT) { out[0] = sema_parse_int(e.sval); return 1; }
+        if (e.lit_kind == LIT_CHAR) { out[0] = (int64)(uint8)e.sval[0]; return 1; }
+        if (e.lit_kind == LIT_BOOL) { if (sema_streq(e.sval, "true") == 1) { out[0] = (int64)1; } else { out[0] = (int64)0; } return 1; }
+        return 0;
+    }
+    if (e.kind == EK_IDENT) {
+        if (sema_local_bound(s, e.sval) == 1) { return 0; }
+        int i = 0; int n = List_len<EVar>(&s.evars);
+        while (i < n) {
+            EVar ev = List_get<EVar>(&s.evars, i);
+            if (sema_streq(ev.variant, e.sval) == 1 && ev.plain == 1) {
+                out[0] = sema_parse_int(ev.val);
+                return 1;
+            }
+            i = i + 1;
+        }
+        return 0;
+    }
+    if (e.kind == EK_UNARY) {
+        int64 v = (int64)0;
+        if (sema_fold_int(s, e.a, &v) == 0) { return 0; }
+        if (sema_streq(e.sval, "-") == 1) { out[0] = (int64)0 - v; return 1; }
+        if (sema_streq(e.sval, "~") == 1) { out[0] = ~v; return 1; }
+        if (sema_streq(e.sval, "!") == 1) { if (v == (int64)0) { out[0] = (int64)1; } else { out[0] = (int64)0; } return 1; }
+        return 0;
+    }
+    if (e.kind == EK_BINARY) {
+        int64 x = (int64)0; int64 y = (int64)0;
+        if (sema_fold_int(s, e.a, &x) == 0 || sema_fold_int(s, e.b, &y) == 0) { return 0; }
+        string op = e.sval;
+        if (sema_streq(op, "+") == 1) { out[0] = x + y; return 1; }
+        if (sema_streq(op, "-") == 1) { out[0] = x - y; return 1; }
+        if (sema_streq(op, "*") == 1) { out[0] = x * y; return 1; }
+        if (sema_streq(op, "/") == 1 || sema_streq(op, "%") == 1) {
+            if (y == (int64)0) { return 0; }
+            if (sema_streq(op, "/") == 1) { out[0] = x / y; } else { out[0] = x % y; }
+            return 1;
+        }
+        if (sema_streq(op, "&") == 1) { out[0] = x & y; return 1; }
+        if (sema_streq(op, "|") == 1) { out[0] = x | y; return 1; }
+        if (sema_streq(op, "^") == 1) { out[0] = x ^ y; return 1; }
+        if (sema_streq(op, "<<") == 1) { if (y < (int64)0 || y > (int64)63) { return 0; } out[0] = x << y; return 1; }
+        if (sema_streq(op, ">>") == 1) { if (y < (int64)0 || y > (int64)63) { return 0; } out[0] = x >> y; return 1; }
+        int64 r = (int64)0;
+        if (sema_streq(op, "==") == 1) { if (x == y) { r = (int64)1; } out[0] = r; return 1; }
+        if (sema_streq(op, "!=") == 1) { if (x != y) { r = (int64)1; } out[0] = r; return 1; }
+        if (sema_streq(op, "<") == 1) { if (x < y) { r = (int64)1; } out[0] = r; return 1; }
+        if (sema_streq(op, ">") == 1) { if (x > y) { r = (int64)1; } out[0] = r; return 1; }
+        if (sema_streq(op, "<=") == 1) { if (x <= y) { r = (int64)1; } out[0] = r; return 1; }
+        if (sema_streq(op, ">=") == 1) { if (x >= y) { r = (int64)1; } out[0] = r; return 1; }
+        return 0;
+    }
+    if (e.kind == EK_CAST) { return sema_fold_int(s, e.a, out); }
+    return 0;
+}
+
 // A switch `case` label codegen can fold to an integer constant.
 int sema_is_const_int(Sema* s, *ExprNode e) {
     if (e == null) { return 0; }
@@ -2368,10 +2449,12 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
     if (k == SK_SWITCH || k == SK_MATCH) {
         sema_expr(s, st.expr);             // subject
         if (k == SK_SWITCH) {
-            // Duplicate case values: compare literal/ident text (under-detects across
-            // different spellings of the same value, but never false-positives).
+            // Duplicate case values: compare folded values (so `7` and `(4 * 2) - 1`
+            // collide, as in C); a label that doesn't fold (a `const` name) by its text.
             List<string> seen;
             List_init<string>(&seen, 8);
+            List<int64> seen_cv;
+            List_init<int64>(&seen_cv, 8);
             int ci = 0;
             int cn = List_len<*StmtNode>(&st.items);
             int defaults = 0;
@@ -2384,8 +2467,13 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
                     defaults = defaults + 1;
                     if (defaults == 2) { sema_error(s, "multiple 'default' labels in one switch"); }
                 }
-                if (c.kind == SK_CASE && c.expr != null
-                    && (c.expr.kind == EK_LITERAL || c.expr.kind == EK_IDENT)) {
+                int64 cv = (int64)0;
+                if (c.kind == SK_CASE && c.expr != null && sema_fold_int(s, c.expr, &cv) == 1) {
+                    int dj = 0; int dup = 0;
+                    while (dj < List_len<int64>(&seen_cv)) { if (List_get<int64>(&seen_cv, dj) == cv) { dup = 1; } dj = dj + 1; }
+                    if (dup == 1) { sema_error(s, "duplicate case value in switch"); }
+                    else { List_push<int64>(&seen_cv, cv); }
+                } else if (c.kind == SK_CASE && c.expr != null && c.expr.kind == EK_IDENT) {
                     string key = c.expr.sval;
                     int found = sema_in_list(&seen, key);
                     if (found == 1) {

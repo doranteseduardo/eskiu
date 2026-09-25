@@ -1,4 +1,5 @@
 #include "type_checker.h"
+#include <climits>
 #include <functional>
 #include <set>
 
@@ -469,17 +470,10 @@ void TypeChecker::visit(SwitchStmt* node) {
             }
             if (!isConstIntExpr(c.value.get()))
                 errorAt(c.value.get(), "switch case value must be a constant integer expression");
-            // Constant-fold integer literals and enum constants to catch dupes.
-            long long cv = 0;  bool haveCv = false;
-            if (auto* lit = dynamic_cast<LiteralExpr*>(c.value.get())) {
-                if (lit->kind == LiteralExpr::Kind::INT) {
-                    try { cv = std::stoll(lit->value, nullptr, 0); haveCv = true; }
-                    catch (...) {}
-                }
-            } else if (auto* id = dynamic_cast<IdentExpr*>(c.value.get())) {
-                auto eit = enumConstants.find(id->name);
-                if (eit != enumConstants.end()) { cv = eit->second; haveCv = true; }
-            }
+            // Fold the label to its value so two spellings of one value (`7` and
+            // `(4 * 2) - 1`) are caught as duplicates, as in C.
+            long long cv = 0;
+            bool haveCv = foldConstInt(c.value.get(), cv);
             if (haveCv) {
                 if (seenCases.count(cv))
                     errorAt(c.value.get(), "duplicate case value in switch");
@@ -499,6 +493,64 @@ bool TypeChecker::isLvalueExpr(Expr* e) {
     if (auto* u = dynamic_cast<UnaryExpr*>(e)) return u->op == "*";
     if (dynamic_cast<MemberExpr*>(e)) return true;
     if (auto* ix = dynamic_cast<IndexExpr*>(e)) return !ix->highIndex && ix->opFunc.empty();
+    return false;
+}
+
+// Value of an integer constant expression built from literals, enum members, unary
+// and binary operators and casts. Returns false when the value is not known here
+// (a `const` variable, `sizeof`, division by zero), so callers never guess.
+bool TypeChecker::foldConstInt(Expr* e, long long& out) {
+    if (auto* l = dynamic_cast<LiteralExpr*>(e)) {
+        if (l->kind == LiteralExpr::Kind::INT) {
+            try { out = (long long)std::stoull(l->value, nullptr, 0); return true; }
+            catch (...) { return false; }
+        }
+        if (l->kind == LiteralExpr::Kind::CHAR) { out = l->value.empty() ? 0 : (unsigned char)l->value[0]; return true; }
+        if (l->kind == LiteralExpr::Kind::BOOL) { out = l->value == "true" ? 1 : 0; return true; }
+        return false;
+    }
+    if (auto* id = dynamic_cast<IdentExpr*>(e)) {
+        if (!lookupSymbol(id->name).empty()) return false;
+        auto it = enumConstants.find(id->name);
+        if (it == enumConstants.end()) return false;
+        out = it->second;
+        return true;
+    }
+    if (auto* u = dynamic_cast<UnaryExpr*>(e)) {
+        long long v;
+        if (!foldConstInt(u->operand.get(), v)) return false;
+        if (u->op == "-") { out = (long long)(0ULL - (unsigned long long)v); return true; }
+        if (u->op == "~") { out = ~v; return true; }
+        if (u->op == "!") { out = v == 0; return true; }
+        return false;
+    }
+    if (auto* b = dynamic_cast<BinaryExpr*>(e)) {
+        long long x, y;
+        if (!foldConstInt(b->left.get(), x) || !foldConstInt(b->right.get(), y)) return false;
+        unsigned long long ux = (unsigned long long)x, uy = (unsigned long long)y;
+        const std::string& op = b->op;
+        if (op == "+") out = (long long)(ux + uy);
+        else if (op == "-") out = (long long)(ux - uy);
+        else if (op == "*") out = (long long)(ux * uy);
+        else if (op == "/" || op == "%") {
+            if (y == 0 || (x == LLONG_MIN && y == -1)) return false;
+            out = op == "/" ? x / y : x % y;
+        }
+        else if (op == "&") out = x & y;
+        else if (op == "|") out = x | y;
+        else if (op == "^") out = x ^ y;
+        else if (op == "<<") { if (y < 0 || y > 63) return false; out = (long long)(ux << y); }
+        else if (op == ">>") { if (y < 0 || y > 63) return false; out = x >> y; }
+        else if (op == "==") out = x == y;
+        else if (op == "!=") out = x != y;
+        else if (op == "<") out = x < y;
+        else if (op == ">") out = x > y;
+        else if (op == "<=") out = x <= y;
+        else if (op == ">=") out = x >= y;
+        else return false;
+        return true;
+    }
+    if (auto* c = dynamic_cast<CastExpr*>(e)) return foldConstInt(c->expr.get(), out);
     return false;
 }
 
