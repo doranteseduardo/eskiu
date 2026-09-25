@@ -1,0 +1,8 @@
+// import <math> links with no -l flag: <math> carries #pragma link("m") for glibc.
+import <math>;
+extern int printf(string fmt, ...);
+
+int main() {
+    printf("%.0f %.0f %.0f\n", pow(3.0, 4.0), floor(2.7), sqrt(81.0));
+    return 0;
+}

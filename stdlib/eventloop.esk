@@ -114,6 +114,7 @@ int _el_wait(int kq, *EvNative evs, *int fds, int max, int64 timeout_ms) {
 // Unlike epoll/kqueue (kernel-side interest state), WSAPoll is stateless: it takes the whole
 // pollfd array each call. So the interest set lives in a user-space table, rebuilt in place by
 // _el_ctl and handed to WSAPoll by _el_wait. One event loop is assumed (a single global set).
+#pragma link("ws2_32")
 extern int WSAPoll(*void fdarray, int nfds, int timeout);
 
 // WSAPOLLFD: { SOCKET fd; SHORT events; SHORT revents; }. On x64 SOCKET is 8 bytes and forces

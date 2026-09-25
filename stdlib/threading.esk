@@ -10,6 +10,14 @@
 // Pass a *pointer* to a primitive into a thread closure (closures capture by
 // value, so capturing the pointer is what makes the lock shared).
 
+// Older glibc and mingw (winpthreads) keep pthread out of libc; macOS has it in libSystem.
+#ifdef __linux__
+#pragma link("pthread")
+#endif
+#ifdef _WIN32
+#pragma link("pthread")
+#endif
+
 extern int pthread_mutex_init(*void m, *void attr);
 extern int pthread_mutex_lock(*void m);
 extern int pthread_mutex_unlock(*void m);

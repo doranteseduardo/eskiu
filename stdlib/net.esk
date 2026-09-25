@@ -18,6 +18,7 @@ extern int   connect(int fd, *void addr, int len);
 #ifdef _WIN32
 // Winsock (ws2_32): sockets are closed with closesocket, not the CRT close, and the library
 // must be started once before any socket call. WSADATA is ~400 bytes; 512 is a safe buffer.
+#pragma link("ws2_32")
 extern int closesocket(int fd);
 extern int WSAStartup(int version, *void data);
 #else
