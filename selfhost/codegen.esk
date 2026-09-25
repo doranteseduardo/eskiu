@@ -3408,9 +3408,11 @@ CgVal cg_binary_builtin(Codegen* g, *ExprNode e, CgVal left) {
             offop = nt;
         }
         string elem = cg_deref_ty(base.ety);
+        string ell = cg_lltype(g, elem);
+        if (cg_streq(ell, "void") == 1) { ell = "i8"; }   // `*void` steps by bytes (as the C++ build does)
         string t = cg_tmp(g);
         cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = getelementptr inbounds ");
-        cg_emit(g, cg_lltype(g, elem)); cg_emit(g, ", ptr "); cg_emit(g, base.op);
+        cg_emit(g, ell); cg_emit(g, ", ptr "); cg_emit(g, base.op);
         cg_emit(g, ", "); cg_emit(g, off.ty); cg_emit(g, " "); cg_emit(g, offop); cg_emit(g, "\n");
         v.op = t; v.ty = "ptr"; v.ety = base.ety; return v;
     }
