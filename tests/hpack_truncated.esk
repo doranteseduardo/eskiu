@@ -7,7 +7,7 @@ extern int printf(string fmt, ...);
 
 int main() {
     *HpackHeader out = alloc<HpackHeader>(8);
-    let d: HpackDecoder;  hpack_decoder_init(&d, (int64)4096);
+    let d: HpackDecoder;  HpackDecoder_init(&d, (int64)4096);
 
     *uint8 a = alloc<uint8>(3);
     a[0] = (uint8)0; a[1] = (uint8)100; a[2] = (uint8)97;
@@ -38,7 +38,7 @@ int main() {
     int nx = 0;
     printf("int: %lld\n", hpack_decode_int_at(c, 0, 12, 8, &nx));
 
-    hpack_decoder_free(&d);
+    HpackDecoder_free(&d);
     free((*void)a); free((*void)b); free((*void)c); free((*void)e); free((*void)f); free((*void)g);
     free((*void)out);
     return 0;

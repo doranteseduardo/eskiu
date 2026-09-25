@@ -90,7 +90,7 @@ struct HpackHuff {
     *int child0;  *int child1;  *int sym;  int nodes;
 }
 
-void hpack_huff_build(HpackHuff* h) {
+void HpackHuff_build(HpackHuff* h) {
     int cap = 8192;
     h.child0 = alloc<int>(cap);  h.child1 = alloc<int>(cap);  h.sym = alloc<int>(cap);
     int i = 0;
@@ -118,7 +118,7 @@ void hpack_huff_build(HpackHuff* h) {
     }
 }
 
-void hpack_huff_free(HpackHuff* h) {
+void HpackHuff_free(HpackHuff* h) {
     free((*void)h.child0);  free((*void)h.child1);  free((*void)h.sym);
 }
 
@@ -279,7 +279,7 @@ struct HpackDecoder {
     int   grave_cap;
 }
 
-void hpack_decoder_init(HpackDecoder* d, int64 max_size) {
+void HpackDecoder_init(HpackDecoder* d, int64 max_size) {
     int cap = (int)(max_size / (int64)32) + 1;   // min entry size is 32 bytes
     d.dyn = alloc<HpackEntry>(cap);
     d.dyn_count = 0;
@@ -290,13 +290,13 @@ void hpack_decoder_init(HpackDecoder* d, int64 max_size) {
     d.grave_count = 0;
     d.grave_cap = 0;
     d.cur_size = (int64)0;
-    hpack_huff_build(&d.huff);
+    HpackHuff_build(&d.huff);
     d.scratch_cap = 16384;
     d.scratch = alloc<uint8>(d.scratch_cap);
     d.scratch_used = 0;
 }
 
-void hpack_decoder_free(HpackDecoder* d) {
+void HpackDecoder_free(HpackDecoder* d) {
     int i = 0;
     while (i < d.dyn_count) {
         free((*void)d.dyn[i].name);
@@ -307,7 +307,7 @@ void hpack_decoder_free(HpackDecoder* d) {
     hpack_grave_clear(d);
     free((*void)d.grave);
     d.grave_cap = 0;
-    hpack_huff_free(&d.huff);
+    HpackHuff_free(&d.huff);
     free((*void)d.scratch);
     d.dyn_count = 0;
 }
@@ -535,3 +535,13 @@ int hpack_encode_header(*uint8 buf, int off, *uint8 name, int nlen, *uint8 value
     off = hpack_emit_str(buf, off, name, nlen);
     return hpack_emit_str(buf, off, value, vlen);
 }
+
+// ── Deprecated names (kept so 0.9.1 code compiles; removed in a later release) ──
+// deprecated: use HpackHuff_build
+void hpack_huff_build(HpackHuff* h) { HpackHuff_build(h); }
+// deprecated: use HpackHuff_free
+void hpack_huff_free(HpackHuff* h) { HpackHuff_free(h); }
+// deprecated: use HpackDecoder_init
+void hpack_decoder_init(HpackDecoder* d, int64 max_size) { HpackDecoder_init(d, max_size); }
+// deprecated: use HpackDecoder_free
+void hpack_decoder_free(HpackDecoder* d) { HpackDecoder_free(d); }

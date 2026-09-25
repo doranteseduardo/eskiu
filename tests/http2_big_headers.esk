@@ -35,7 +35,7 @@ int main() {
         off = off + 9 + f.length;
         frames = frames + 1;
     }
-    let dec: HpackDecoder;  hpack_decoder_init(&dec, (int64)4096);
+    let dec: HpackDecoder;  HpackDecoder_init(&dec, (int64)4096);
     *HpackHeader hs = alloc<HpackHeader>(8);
     int c = hpack_decode(&dec, block, blen, hs, 8);
     printf("headers=%d big=%d small=%.*s\n", c, hs[2].vlen, hs[3].vlen, (string)hs[3].value);
@@ -43,7 +43,7 @@ int main() {
     h2_read_header(out + off, &df);
     printf("then type=%d len=%d\n", df.type, df.length);
 
-    hpack_decoder_free(&dec);
+    HpackDecoder_free(&dec);
     free((*void)hs);
     free((*void)block);
     free((*void)out);

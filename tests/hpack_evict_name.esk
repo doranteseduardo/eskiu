@@ -10,7 +10,7 @@ int main() {
     *HpackHeader out = alloc<HpackHeader>(8);
     *uint8 blk = alloc<uint8>(64);
 
-    let d: HpackDecoder;  hpack_decoder_init(&d, (int64)64);
+    let d: HpackDecoder;  HpackDecoder_init(&d, (int64)64);
     int off = 0;
     blk[off] = (uint8)64; off = off + 1; blk[off] = (uint8)4; off = off + 1;
     int k = 0; while (k < 4) { blk[off] = (uint8)97; off = off + 1; k = k + 1; }
@@ -33,7 +33,7 @@ int main() {
     c = hpack_decode(&d, blk, off, out, 8);
     printf("count=%d first=%.*s:%.*s\n", c, out[0].nlen, (string)out[0].name, out[0].vlen, (string)out[0].value);
 
-    hpack_decoder_free(&d);
+    HpackDecoder_free(&d);
     free((*void)blk);
     free((*void)out);
     return 0;

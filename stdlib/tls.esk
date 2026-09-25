@@ -158,7 +158,7 @@ void http2_tls_serve_conn(*void ssl, escaping fn(HttpRequest*, HttpResponse*)->v
     int sn = h2_write_settings(fb, &local);  tls_write_all(ssl, fb, sn);
     int an = h2_write_settings_ack(fb);      tls_write_all(ssl, fb, an);
 
-    let dec: HpackDecoder;  hpack_decoder_init(&dec, (int64)4096);
+    let dec: HpackDecoder;  HpackDecoder_init(&dec, (int64)4096);
     *HpackHeader harr = alloc<HpackHeader>(64);
     int running = 1;
     while (running != 0) {
@@ -208,7 +208,7 @@ void http2_tls_serve_conn(*void ssl, escaping fn(HttpRequest*, HttpResponse*)->v
     }
     free((*void)harr);
     free((*void)fb);
-    hpack_decoder_free(&dec);
+    HpackDecoder_free(&dec);
     tls_close(ssl);
 }
 
@@ -334,7 +334,7 @@ async int http2_tls_read_body_async(EventLoop* lp, int fd, *void ssl, *uint8 fb,
 // The post-handshake frame-dispatch loop over TLS. Runs until GOAWAY or EOF.
 async void http2_tls_dispatch_async(EventLoop* lp, int fd, *void ssl, *uint8 fb,
                                     escaping fn(HttpRequest*, HttpResponse*)->void handler) {
-    let dec: HpackDecoder;  hpack_decoder_init(&dec, (int64)4096);
+    let dec: HpackDecoder;  HpackDecoder_init(&dec, (int64)4096);
     *HpackHeader harr = alloc<HpackHeader>(64);
     int running = 1;
     while (running != 0) {
@@ -372,7 +372,7 @@ async void http2_tls_dispatch_async(EventLoop* lp, int fd, *void ssl, *uint8 fb,
         }
     }
     free((*void)harr);
-    hpack_decoder_free(&dec);
+    HpackDecoder_free(&dec);
 }
 
 // Serve one h2-over-TLS connection asynchronously over the event loop: the SSL

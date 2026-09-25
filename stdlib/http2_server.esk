@@ -301,7 +301,7 @@ async void http2_serve_conn_async(EventLoop* lp, int fd,
     let conn: H2Conn;  h2_conn_init(&conn, fd);
     int hs = await h2_server_handshake_async(lp, &conn);
     if (hs == 0) {
-        let dec: HpackDecoder;  hpack_decoder_init(&dec, (int64)4096);
+        let dec: HpackDecoder;  HpackDecoder_init(&dec, (int64)4096);
         int FBCAP = 16384 + H2_FRAME_HEADER_LEN;        // hold a full MAX_FRAME_SIZE payload + header
         *uint8 fb = alloc<uint8>(FBCAP);
         *HpackHeader harr = alloc<HpackHeader>(64);
@@ -383,7 +383,7 @@ async void http2_serve_conn_async(EventLoop* lp, int fd,
         free((*void)streams);
         free((*void)harr);
         free((*void)fb);
-        hpack_decoder_free(&dec);
+        HpackDecoder_free(&dec);
     }
     net_close(fd);
     Chan_send<int>(done, 1);

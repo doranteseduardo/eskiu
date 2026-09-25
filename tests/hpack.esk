@@ -24,7 +24,7 @@ int main() {
     string host = "www.example.com";
     int i = 0; while (i < 15) { blk[5 + i] = ((*uint8)host)[i]; i = i + 1; }
 
-    let dec: HpackDecoder;  hpack_decoder_init(&dec, (int64)4096);
+    let dec: HpackDecoder;  HpackDecoder_init(&dec, (int64)4096);
     *HpackHeader hs = alloc<HpackHeader>(16);
     int n = hpack_decode(&dec, blk, 20, hs, 16);
     printf("count=%d dyn=%d\n", n, dec.dyn_count);                       // count=4 dyn=1
@@ -36,15 +36,15 @@ int main() {
     // The literal field was added to the dynamic table: index 62 resolves to it.
     let r: HpackHeader;  hpack_resolve(&dec, 62, &r);
     printf("dyn62=%.*s:%.*s\n", r.nlen, r.name, r.vlen, r.value);        // :authority:www.example.com
-    hpack_decoder_free(&dec);
+    HpackDecoder_free(&dec);
 
     // --- Encode -> decode round-trip of a custom field (fully literal).
     string ck = "custom-key";  string cv = "custom-value";
     int p = hpack_encode_header(buf, 0, (*uint8)ck, 10, (*uint8)cv, 12);
-    let d2: HpackDecoder;  hpack_decoder_init(&d2, (int64)4096);
+    let d2: HpackDecoder;  HpackDecoder_init(&d2, (int64)4096);
     int m = hpack_decode(&d2, buf, p, hs, 16);
     printf("rt=%d %.*s=%.*s\n", m, hs[0].nlen, hs[0].name, hs[0].vlen, hs[0].value);
-    hpack_decoder_free(&d2);
+    HpackDecoder_free(&d2);
 
     // --- §C.4.1: the same request, Huffman-coded. The :authority value
     //   "www.example.com" is "8c f1 e3 c2 e5 f2 3a 6b a0 ab 90 f4 ff" (H=1, 12 B).
@@ -53,23 +53,23 @@ int main() {
     hb[5]=(uint8)241; hb[6]=(uint8)227; hb[7]=(uint8)194; hb[8]=(uint8)229; hb[9]=(uint8)242;
     hb[10]=(uint8)58; hb[11]=(uint8)107; hb[12]=(uint8)160; hb[13]=(uint8)171; hb[14]=(uint8)144;
     hb[15]=(uint8)244; hb[16]=(uint8)255;
-    let d3: HpackDecoder;  hpack_decoder_init(&d3, (int64)4096);
+    let d3: HpackDecoder;  HpackDecoder_init(&d3, (int64)4096);
     int hn = hpack_decode(&d3, hb, 17, hs, 16);
     printf("huff_count=%d\n", hn);                                       // 4
     printf("huff_authority=%.*s\n", hs[3].nlen, hs[3].name);            // :authority
     printf("huff_value=%.*s\n", hs[3].vlen, hs[3].value);              // www.example.com
-    hpack_decoder_free(&d3);
+    HpackDecoder_free(&d3);
 
     // --- Huffman encode then decode back (exercises many symbols).
     string sample = "Mozilla/5.0 (custom-agent) text/html; q=0.9";
     int slen = strlen(sample);
     int he = hpack_huff_encode(buf, 0, (*uint8)sample, slen);
     *uint8 dout = alloc<uint8>(128);
-    let huff: HpackHuff;  hpack_huff_build(&huff);
+    let huff: HpackHuff;  HpackHuff_build(&huff);
     int dn = hpack_huff_decode(&huff, buf, he, dout, 128);
     printf("huff_rt enc=%d dec=%d match=%d\n", he, dn,
            (dn == slen) && (memcmp((*void)dout, (*void)sample, slen) == 0));
-    hpack_huff_free(&huff);
+    HpackHuff_free(&huff);
 
     free((*void)dout);  free((*void)hb);  free((*void)hs);  free((*void)blk);  free((*void)buf);
     return 0;

@@ -22,7 +22,7 @@ int main() {
     *HpackHeader out = alloc<HpackHeader>(300);
     *uint8 blk = alloc<uint8>(4096);
 
-    let d: HpackDecoder;  hpack_decoder_init(&d, (int64)4096);
+    let d: HpackDecoder;  HpackDecoder_init(&d, (int64)4096);
     int off = hpack_encode_int(blk, 0, 5, 32, (int64)1000000);
     off = fill(blk, off, 200);
     printf("oversize update: %d\n", hpack_decode(&d, blk, off, out, 300));
@@ -32,14 +32,14 @@ int main() {
     off = fill(blk, off, 200);
     int c = hpack_decode(&d, blk, off, out, 300);
     printf("within limit: %d dyn=%d\n", c, d.dyn_count);
-    hpack_decoder_free(&d);
+    HpackDecoder_free(&d);
 
-    let e: HpackDecoder;  hpack_decoder_init(&e, (int64)64);
+    let e: HpackDecoder;  HpackDecoder_init(&e, (int64)64);
     hpack_set_max(&e, (int64)100000);
     off = fill(blk, 0, 200);
     c = hpack_decode(&e, blk, off, out, 300);
     printf("raised: %d dyn=%d\n", c, e.dyn_count);
-    hpack_decoder_free(&e);
+    HpackDecoder_free(&e);
 
     free((*void)blk);
     free((*void)out);

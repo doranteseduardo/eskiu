@@ -7,6 +7,7 @@ import <sysheap>;
 import <eventloop>;
 import <executor>;
 import <channel>;
+import <hpack>;
 extern int printf(string fmt, ...);
 extern int pipe(*int fds);
 extern int64 write(int fd, *void buf, int64 n);
@@ -74,5 +75,11 @@ int main() {
     printf("channel: %d %d\n", rf.state == READY, rf.value);
     free_future<int>(rf);
     chan_free<int>(ch);
+
+    let hd: HpackDecoder;  hpack_decoder_init(&hd, (int64)4096);
+    let hh: HpackHuff;  hpack_huff_build(&hh);
+    printf("hpack: %d %d\n", hd.dyn_cap > 0, hh.nodes > 1);
+    hpack_huff_free(&hh);
+    hpack_decoder_free(&hd);
     return 0;
 }
