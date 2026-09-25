@@ -28,11 +28,21 @@ async int one(int a) {
     return x + a;
 }
 
+int call(fn()->int f) { return f(); }
+async int lam(int a) {
+    let x: int = 1;
+    { let x: int = await produce(); let g: fn()->int = int() { return x + 2; }; a = a + call(g); }
+    let h: fn()->int = int() { return x; };
+    return a + call(h);
+}
+
 int main() {
     printf("%d\n", nested());
     printf("%d\n", loops());
     printf("%d\n", siblings());
     Future<int>* r = one(1);
     printf("%d\n", r.value);
+    Future<int>* q = lam(0);
+    printf("%d\n", q.value);
     return 0;
 }

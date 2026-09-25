@@ -854,15 +854,22 @@ void al_ren_pop(AlRen* r, int mark) {
         List_remove<string>(&r.vals, List_len<string>(&r.vals) - 1);
     }
 }
+void al_ren_stmt(AlRen* r, *StmtNode s);
 void al_ren_expr(AlRen* r, *ExprNode e) {
     if (e == null) { return; }
     if (e.kind == EK_IDENT) { e.sval = al_ren_lookup(r, e.sval); return; }
-    if (e.kind == EK_LAMBDA) { return; }                 // a lambda has its own scope
+    if (e.kind == EK_LAMBDA) {                           // body follows renames; params shadow
+        int lmark = List_len<string>(&r.keys);
+        List<string> lps; List_init<string>(&lps, 2); al_lambda_params(e.sval, &lps);
+        int li = 0; while (li < List_len<string>(&lps)) { al_ren_bind(r, List_get<string>(&lps, li), List_get<string>(&lps, li)); li = li + 1; }
+        al_ren_stmt(r, e.stmt);
+        al_ren_pop(r, lmark);
+        return;
+    }
     if (e.kind == EK_MEMBER) { al_ren_expr(r, e.a); return; }   // sval is the field name
     al_ren_expr(r, e.a); al_ren_expr(r, e.b);
     int i = 0; while (i < List_len<*ExprNode>(&e.kids)) { al_ren_expr(r, List_get<*ExprNode>(&e.kids, i)); i = i + 1; }
 }
-void al_ren_stmt(AlRen* r, *StmtNode s);
 void al_ren_scoped(AlRen* r, *StmtNode s) {
     int mark = List_len<string>(&r.keys); al_ren_stmt(r, s); al_ren_pop(r, mark);
 }

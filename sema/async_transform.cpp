@@ -161,6 +161,16 @@ struct ShadowRenamer {
     void expr(ExprPtr& e) {
         if (!e) return;
         if (auto* id = dynamic_cast<IdentExpr*>(e.get())) { id->name = lookup(id->name); return; }
+        if (auto* lam = dynamic_cast<LambdaExpr*>(e.get())) {
+            // A lambda body referring to a renamed local must follow the rename (and so
+            // must its capture list); its own params shadow the enclosing names.
+            for (auto& cap : lam->captures) cap.first = lookup(cap.first);
+            scopes.emplace_back();
+            for (const auto& p : lam->params) scopes.back()[p.second] = p.second;
+            stmt(lam->body);
+            scopes.pop_back();
+            return;
+        }
         astwalk::forEachChildExpr(e.get(), [&](ExprPtr& c) { expr(c); });
     }
     void items(std::vector<BlockItem>& its) {
