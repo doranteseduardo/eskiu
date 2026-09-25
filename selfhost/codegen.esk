@@ -69,6 +69,7 @@ struct Codegen {
     int next;            // SSA temp / slot / label counter
     int strcount;        // string-literal global counter
     string cur_ret;      // current function's LLVM return type
+    string cur_rety;     // current function's Eskiu return type (interface boxing on return)
     List<CgLocal> locals;
     int terminated;      // is the current basic block already terminated?
     List<string> loop_cont;  // continue targets (innermost last)
@@ -216,6 +217,7 @@ void cg_init(Codegen* g) {
     g.next = 0;
     g.strcount = 0;
     g.cur_ret = "void";
+    g.cur_rety = "void";
     List_init<CgLocal>(&g.locals, 8);
     g.terminated = 0;
     List_init<string>(&g.loop_cont, 4);
@@ -1483,7 +1485,7 @@ string cg_lltype(Codegen* g, string t) {
         }
         return "%__va_list";
     }
-    if (cg_is_iface(g, t) == 1) { return "ptr"; }          // interface value = ptr to fat {data,vtable}
+    if (cg_is_iface(g, t) == 1) { return "%iface_fat"; }   // interface value = fat {data, vtable}, by value
     if (cg_is_struct(g, t) == 1) { return cg_cat("%", t); }
     if (cg_is_adt(g, t) == 1) { return cg_cat("%", t); }   // ADT enum → tagged-union type
     if (cg_is_fnty(t) == 1) { return "%closure"; }         // fn(...)->R → fat pointer {fn,env}
@@ -2871,6 +2873,7 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
             if (e.a != null && e.a.kind == EK_IDENT && cg_find_local(g, e.a.sval).slot[0] != 0) {
                 CgLocal l = cg_find_local(g, e.a.sval);
                 string rop = cg_coerce(g, rhs, l.ty);   // coerce RHS to the variable's type
+                if (cg_is_iface(g, l.ety) == 1) { rop = cg_iface_conv(g, l.ety, rhs, e.b); }
                 cg_emit(g, "  store "); cg_emit(g, l.ty); cg_emit(g, " "); cg_emit(g, rop);
                 cg_emit(g, ", ptr "); cg_emit(g, l.slot); cg_emit(g, "\n");
                 // The assignment's value is the stored (converted) one: `l = s = 200` with
@@ -2880,6 +2883,7 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
             CgVal lv = cg_lval(g, e.a);                 // member / deref / index lvalue
             string lty = cg_lltype(g, lv.ety);
             string rop = cg_coerce(g, rhs, lty);        // coerce RHS to the field/element type
+            if (cg_is_iface(g, cg_dealias(g, lv.ety)) == 1) { rop = cg_iface_conv(g, lv.ety, rhs, e.b); }
             cg_emit(g, "  store "); cg_emit(g, lty); cg_emit(g, " "); cg_emit(g, rop);
             cg_emit(g, ", ptr "); cg_emit(g, lv.op); cg_emit(g, "\n");
             v.op = rop; v.ty = lty; v.ety = lv.ety; return v;
@@ -3162,11 +3166,10 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
             CgVal a = cg_expr(g, ax);
             string pety = cg_pety(&f, i + pbase);
             // Param expects an interface but we have a struct pointer → box it as a fat pointer.
-            if (pety[0] != 0 && cg_is_iface(g, pety) == 1) {
-                string sn = cg_strip_ptr(cg_etype(g, ax));
-                string boxed = cg_box_iface(g, pety, sn, a.op);
+            if (pety[0] != 0 && cg_is_iface(g, cg_dealias(g, pety)) == 1) {
+                string boxed = cg_iface_conv(g, pety, a, ax);
                 if (args[0] != 0) { args = cg_cat(args, ", "); }
-                args = cg_cat(args, cg_cat("ptr ", boxed));
+                args = cg_cat(args, cg_cat("%iface_fat ", boxed));
                 i = i + 1;
             } else {
                 string pty = cg_pty(&f, i + pbase);
@@ -3559,10 +3562,10 @@ CgVal cg_indirect_call(Codegen* g, string cval, string fnty, *ExprNode e) {
     v.op = t; v.ty = rt; v.ety = cg_fnty_ret(fnty); return v;
 }
 
-// Box a struct pointer `dataop` (of struct `structName`) as interface `ifaceName`: build a
-// fat pointer {data, vtable} on the stack and return the slot's address (the interface value
-// passed to callees). The per-(interface,struct) vtable global is emitted once, holding the
-// struct's implementation of each interface method in declaration order.
+// Box a struct pointer `dataop` (of struct `structName`) as interface `ifaceName`: the fat
+// pointer value {data, vtable} (an interface value is this struct, by value, like a closure).
+// The per-(interface,struct) vtable global is emitted once, holding the struct's
+// implementation of each interface method in declaration order.
 string cg_box_iface(Codegen* g, string ifaceName, string structName, string dataop) {
     CgIface f = cg_find_iface(g, ifaceName);
     string vtg = cg_cat("@", cg_cat(ifaceName, cg_cat("_vtable_", structName)));
@@ -3581,14 +3584,24 @@ string cg_box_iface(Codegen* g, string ifaceName, string structName, string data
         }
         String_append(&g.globals, " }\n");
     }
-    string slot = cg_entry_alloca(g, "%iface_fat");
-    string dg = cg_tmp(g);
-    cg_emit(g, "  "); cg_emit(g, dg); cg_emit(g, " = getelementptr %iface_fat, ptr "); cg_emit(g, slot); cg_emit(g, ", i32 0, i32 0\n");
-    cg_emit(g, "  store ptr "); cg_emit(g, dataop); cg_emit(g, ", ptr "); cg_emit(g, dg); cg_emit(g, "\n");
-    string vg = cg_tmp(g);
-    cg_emit(g, "  "); cg_emit(g, vg); cg_emit(g, " = getelementptr %iface_fat, ptr "); cg_emit(g, slot); cg_emit(g, ", i32 0, i32 1\n");
-    cg_emit(g, "  store ptr "); cg_emit(g, vtg); cg_emit(g, ", ptr "); cg_emit(g, vg); cg_emit(g, "\n");
-    return slot;
+    string f1 = cg_tmp(g);
+    cg_emit(g, "  "); cg_emit(g, f1); cg_emit(g, " = insertvalue %iface_fat undef, ptr "); cg_emit(g, dataop); cg_emit(g, ", 0\n");
+    string f2 = cg_tmp(g);
+    cg_emit(g, "  "); cg_emit(g, f2); cg_emit(g, " = insertvalue %iface_fat "); cg_emit(g, f1); cg_emit(g, ", ptr "); cg_emit(g, vtg); cg_emit(g, ", 1\n");
+    return f2;
+}
+
+// The operand for value `a` (from expression `ax`) stored into a slot of Eskiu type `tety`:
+// when the slot is an interface and `a` is not already that interface, box the struct
+// pointer (`null` → the empty fat value). Otherwise `a.op` unchanged. Mirrors evalForType.
+string cg_iface_conv(Codegen* g, string tety, CgVal a, *ExprNode ax) {
+    string t = cg_dealias(g, tety);
+    if (cg_is_iface(g, t) == 0) { return a.op; }
+    if (cg_streq(cg_dealias(g, a.ety), t) == 1) { return a.op; }
+    if (ax != null && ax.kind == EK_LITERAL && ax.lit_kind == LIT_NULL) { return "zeroinitializer"; }
+    if (cg_streq(a.ty, "%iface_fat") == 1) { return a.op; }
+    string sety = a.ety; if (sety[0] == 0) { sety = cg_etype(g, ax); }
+    return cg_box_iface(g, t, cg_strip_ptr(sety), a.op);
 }
 
 // Dynamic dispatch `recv.method(...)` where `recv` is an interface value (a fat pointer
@@ -3598,14 +3611,10 @@ CgVal cg_dispatch_iface(Codegen* g, string ifaceName, string fatop, string metho
     let v: CgVal; v.ety = "";
     CgIface f = cg_find_iface(g, ifaceName);
     int idx = cg_iface_midx(&f, method);
-    string dg = cg_tmp(g);
-    cg_emit(g, "  "); cg_emit(g, dg); cg_emit(g, " = getelementptr %iface_fat, ptr "); cg_emit(g, fatop); cg_emit(g, ", i32 0, i32 0\n");
     string data = cg_tmp(g);
-    cg_emit(g, "  "); cg_emit(g, data); cg_emit(g, " = load ptr, ptr "); cg_emit(g, dg); cg_emit(g, "\n");
-    string vg = cg_tmp(g);
-    cg_emit(g, "  "); cg_emit(g, vg); cg_emit(g, " = getelementptr %iface_fat, ptr "); cg_emit(g, fatop); cg_emit(g, ", i32 0, i32 1\n");
+    cg_emit(g, "  "); cg_emit(g, data); cg_emit(g, " = extractvalue %iface_fat "); cg_emit(g, fatop); cg_emit(g, ", 0\n");
     string vt = cg_tmp(g);
-    cg_emit(g, "  "); cg_emit(g, vt); cg_emit(g, " = load ptr, ptr "); cg_emit(g, vg); cg_emit(g, "\n");
+    cg_emit(g, "  "); cg_emit(g, vt); cg_emit(g, " = extractvalue %iface_fat "); cg_emit(g, fatop); cg_emit(g, ", 1\n");
     string fg = cg_tmp(g);
     cg_emit(g, "  "); cg_emit(g, fg); cg_emit(g, " = getelementptr %"); cg_emit(g, ifaceName); cg_emit(g, "_vtable, ptr "); cg_emit(g, vt);
     cg_emit(g, ", i32 0, i32 "); cg_emit(g, cg_itoa(idx)); cg_emit(g, "\n");
@@ -3617,11 +3626,14 @@ CgVal cg_dispatch_iface(Codegen* g, string ifaceName, string fatop, string metho
     List<string> ptys = List_get<List<string>>(&f.mparams, idx);
     int i = 0; int nn = List_len<*ExprNode>(&e.kids);
     while (i < nn) {
-        CgVal a = cg_expr(g, List_get<*ExprNode>(&e.kids, i));
+        *ExprNode dax = List_get<*ExprNode>(&e.kids, i);
+        CgVal a = cg_expr(g, dax);
         string aop = a.op; string aty = a.ty;
         if (i < List_len<string>(&ptys)) {              // coerce to the method's param type
-            string pty = cg_lltype(g, List_get<string>(&ptys, i));
-            if (pty[0] != 0) { aop = cg_coerce(g, a, pty); aty = pty; }
+            string dpety = List_get<string>(&ptys, i);
+            string pty = cg_lltype(g, dpety);
+            if (cg_is_iface(g, cg_dealias(g, dpety)) == 1) { aop = cg_iface_conv(g, dpety, a, dax); aty = pty; }
+            else if (pty[0] != 0) { aop = cg_coerce(g, a, pty); aty = pty; }
         }
         args = cg_cat(args, cg_cat(", ", cg_cat(aty, cg_cat(" ", aop))));
         i = i + 1;
@@ -3836,7 +3848,8 @@ void cg_struct_init(Codegen* g, string slot, string sname, *ExprNode e) {
         string fety = "";
         if (idx >= 0 && idx < List_len<string>(&s.fetys)) { fety = List_get<string>(&s.fetys, idx); }
         string actual = fname; if (actual[0] == 0 && idx >= 0 && idx < List_len<string>(&s.fnames)) { actual = List_get<string>(&s.fnames, idx); }
-        CgVal val = cg_expr(g, List_get<*ExprNode>(&e.kids, i));
+        *ExprNode fex = List_get<*ExprNode>(&e.kids, i);
+        CgVal val = cg_expr(g, fex);
         CgBF bfslot = cg_bf(g, sname, actual);
         if (bfslot.bw > 0) {                            // a bitfield member of this literal
             cg_bf_write(g, slot, s.name, bfslot, cg_coerce(g, val, bfslot.sty));
@@ -3849,6 +3862,7 @@ void cg_struct_init(Codegen* g, string slot, string sname, *ExprNode e) {
         cg_emit(g, ", i32 0, i32 "); cg_emit(g, cg_itoa(gepidx)); cg_emit(g, "\n");
         string flty = cg_lltype(g, fety);
         string fop = cg_coerce(g, val, flty);   // hoist: cg_coerce emits its own instr — must not interleave the store line
+        if (cg_is_iface(g, cg_dealias(g, fety)) == 1) { fop = cg_iface_conv(g, fety, val, fex); }
         cg_emit(g, "  store "); cg_emit(g, flty); cg_emit(g, " "); cg_emit(g, fop);
         cg_emit(g, ", ptr "); cg_emit(g, fp); cg_emit(g, "\n");
         i = i + 1;
@@ -4247,6 +4261,7 @@ void cg_stmt(Codegen* g, *StmtNode st) {
                 CgVal init = cg_expr(g, st.expr);
                 g.lam_expret = "";
                 string iop = cg_coerce(g, init, ty);    // widen/truncate/null-coerce to the declared type
+                if (cg_is_iface(g, cg_dealias(g, st.type)) == 1) { iop = cg_iface_conv(g, st.type, init, st.expr); }
                 cg_emit(g, "  store "); cg_emit(g, ty); cg_emit(g, " "); cg_emit(g, iop);
                 cg_emit(g, ", ptr "); cg_emit(g, slot); cg_emit(g, "\n");
             }
@@ -4543,6 +4558,7 @@ void cg_stmt(Codegen* g, *StmtNode st) {
         if (st.expr != null) {
             CgVal r = cg_expr(g, st.expr);
             string rop = cg_coerce(g, r, g.cur_ret);     // widen/convert to the return type (bool→int, etc.)
+            if (cg_is_iface(g, cg_dealias(g, g.cur_rety)) == 1) { rop = cg_iface_conv(g, g.cur_rety, r, st.expr); }
             cg_run_cleanups(g, 0, 0);                     // normal exit: defers/finally, not errdefer
             cg_emit(g, "  ret "); cg_emit(g, g.cur_ret); cg_emit(g, " "); cg_emit(g, rop); cg_emit(g, "\n");
         } else {
@@ -4569,6 +4585,7 @@ void cg_emit_fn(Codegen* g, *DeclNode d, string llname, string self_struct) {
     if (d.body == null) { return; }
     string rt = cg_lltype(g, d.ret_type);
     g.cur_ret = rt;
+    g.cur_rety = cg_apply_sub(g, d.ret_type);
     List_init<CgLocal>(&g.locals, 8);
     List_init<*StmtNode>(&g.cleanups, 4);   // fresh scope-exit state per function body
     List_init<int>(&g.cl_err, 4);
@@ -4657,6 +4674,7 @@ void cg_emit_lambda(Codegen* g, CgLambda lam) {
     g.cursub = lam.sub;                                    // so type-params in the body (Pair<A,B> → Pair<int,int>) resolve
     string rt = cg_lltype(g, lam.rety);                    // resolved return type (context or written)
     g.cur_ret = rt;
+    g.cur_rety = lam.rety;
     List<string> pp; List_init<string>(&pp, 4); cg_paren_list(lam.node.sval, &pp);
     cg_emit(g, "define "); cg_emit(g, rt); cg_emit(g, " @"); cg_emit(g, lam.name); cg_emit(g, "(ptr %p0");
     int k = 0; int np = List_len<string>(&pp);

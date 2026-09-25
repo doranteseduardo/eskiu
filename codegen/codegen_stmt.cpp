@@ -291,17 +291,22 @@ void CodeGen::visit(ReturnStmt* node) {
         return coerceValue(v, ft, uns);
     };
 
+    std::string retEsk;
+    if (currentFunction) {
+        auto rit = funcEskiuReturnType.find(currentFunction->getName().str());
+        if (rit != funcEskiuReturnType.end()) retEsk = rit->second;
+    }
     if (currentSretParam != nullptr) {
         // sret function: store result to hidden pointer, return void
         if (node->value) {
-            llvm::Value* retValue = evaluateExpr(node->value);
+            llvm::Value* retValue = evalForType(node->value, retEsk);
             builder->CreateStore(retValue, currentSretParam);
         }
         runCleanupsToDepth(0, /*errorPath=*/false);          // run pending defers/finally before leaving
         builder->CreateRetVoid();
     } else if (node->value) {
         // Evaluate the return value first, THEN run cleanups (C defer order), then ret.
-        llvm::Value* retValue = coerceRetVal(evaluateExpr(node->value));
+        llvm::Value* retValue = coerceRetVal(evalForType(node->value, retEsk));
         runCleanupsToDepth(0, /*errorPath=*/false);
         builder->CreateRet(retValue);
     } else {

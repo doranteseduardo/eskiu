@@ -124,8 +124,8 @@ llvm::Type* CodeGen::getTypeFromString(const std::string& typeStr) {
             }
             auto it = structTypes.find(t.name);            // bare struct name
             if (it != structTypes.end()) return it->second;
-            if (ifaceFatPtrTypes.count(t.name))            // interface value → opaque ptr
-                return llvm::PointerType::get(*context, 0);
+            auto fit = ifaceFatPtrTypes.find(t.name);      // interface value → {data, vtable}
+            if (fit != ifaceFatPtrTypes.end()) return fit->second;
             break;
         }
         default: break;                                    // Null/Unknown/Error

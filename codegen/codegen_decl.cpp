@@ -317,7 +317,7 @@ void CodeGen::visit(VarDecl* node) {
         } else if (auto arrLit = dynamic_cast<ArrayLitExpr*>(node->initializer.get())) {
             emitArrayInitInto(alloca, arrLit, varType);
         } else {
-            llvm::Value* val = evaluateExpr(node->initializer);
+            llvm::Value* val = evalForType(node->initializer, varType);
             val = coerceValue(val, declType, eskiuUnsigned(getExprEskiuType(node->initializer)));
             if (val) builder->CreateStore(val, alloca);
         }

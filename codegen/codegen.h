@@ -169,6 +169,11 @@ private:
     llvm::Value* boxAsInterface(const std::string& ifaceName,
                                 const std::string& structName,
                                 llvm::Value* structPtr);
+    // The interface named by `type` ("" if it is not an interface type).
+    std::string interfaceName(const std::string& type) const;
+    // Evaluate `e` for a slot of Eskiu type `targetType`: boxes a struct pointer when the
+    // target is an interface, else a plain evaluateExpr.
+    llvm::Value* evalForType(const ExprPtr& e, const std::string& targetType);
     // Wrap a top-level function in a {fn_ptr, env_ptr} closure value so a bare
     // function name can be passed where a fn(...)->R is expected. The synthesized
     // thunk ignores env and forwards to the target; cached per function.

@@ -223,14 +223,10 @@ void CodeGen::visit(CallExpr* node) {
         // Interface vtable dispatch
         auto ifIt = ifaceMethodOrder.find(baseType);
         if (ifIt != ifaceMethodOrder.end()) {
-            // An interface value IS a pointer to the fat {data, vtable} struct,
-            // so its *value* (loaded from the variable's slot) is the fat pointer.
-            llvm::Value* fatPtr = evaluateExpr(member->base);
-            llvm::StructType* fatType = ifaceFatPtrTypes[baseType];
-            llvm::Value* dataGEP = builder->CreateStructGEP(fatType, fatPtr, 0);
-            llvm::Value* dataPtr = builder->CreateLoad(llvm::PointerType::get(*context, 0), dataGEP);
-            llvm::Value* vtGEP   = builder->CreateStructGEP(fatType, fatPtr, 1);
-            llvm::Value* vtPtr   = builder->CreateLoad(llvm::PointerType::get(*context, 0), vtGEP);
+            // An interface value IS the fat {data, vtable} struct.
+            llvm::Value* fat     = evaluateExpr(member->base);
+            llvm::Value* dataPtr = builder->CreateExtractValue(fat, {0}, "iface.data");
+            llvm::Value* vtPtr   = builder->CreateExtractValue(fat, {1}, "iface.vt");
             const auto& order = ifIt->second;
             size_t idx = 0;
             for (; idx < order.size(); ++idx) if (order[idx] == member->member) break;
@@ -251,7 +247,8 @@ void CodeGen::visit(CallExpr* node) {
                 (idx < paramLists.size()) ? &paramLists[idx] : nullptr;
             std::vector<llvm::Value*> iargs = {dataPtr};
             for (size_t ai = 0; ai < node->args.size(); ++ai) {
-                llvm::Value* av = evaluateExpr(node->args[ai]);
+                llvm::Value* av = (iParams && ai < iParams->size())
+                    ? evalForType(node->args[ai], (*iParams)[ai]) : evaluateExpr(node->args[ai]);
                 if (iParams && ai < iParams->size())
                     av = coerceValue(av, getTypeFromString((*iParams)[ai]),
                                      eskiuUnsigned(getExprEskiuType(node->args[ai])));
@@ -296,7 +293,12 @@ void CodeGen::visit(CallExpr* node) {
             llvm::Value* self = baseIsPtr ? evaluateExpr(member->base)
                                           : evaluateLValue(member->base);
             std::vector<llvm::Value*> margs = {self};
-            for (auto& arg : node->args) margs.push_back(evaluateExpr(arg));
+            auto mpt = funcEskiuParamTypes.find(mangled);   // [0] is self
+            for (size_t ai = 0; ai < node->args.size(); ++ai) {
+                bool has = mpt != funcEskiuParamTypes.end() && ai + 1 < mpt->second.size();
+                margs.push_back(has ? evalForType(node->args[ai], mpt->second[ai + 1])
+                                    : evaluateExpr(node->args[ai]));
+            }
             exprValueStack.push(builder->CreateCall(mfunc, margs));
             return;
         }
@@ -419,21 +421,11 @@ void CodeGen::visit(CallExpr* node) {
     std::vector<llvm::Value*> args;
     auto ptIt = funcEskiuParamTypes.find(func->getName().str());
     for (size_t i = 0; i < node->args.size(); ++i) {
-        bool boxed = false;
-        if (ptIt != funcEskiuParamTypes.end() && i < ptIt->second.size()) {
-            const std::string& ep = ptIt->second[i];
-            if (ifaceFatPtrTypes.count(ep)) {
-                // Param expects an interface — evaluate arg as pointer and box it
-                std::string argType = getExprEskiuType(node->args[i]);
-                if (!argType.empty() && argType.front() == '*') argType = argType.substr(1);
-                if (argType.size() > 7 && argType.substr(0, 7) == "struct:") argType = argType.substr(7);
-                while (!argType.empty() && argType.back() == '*') argType.pop_back();
-                llvm::Value* sPtr = evaluateExpr(node->args[i]); // &struct → ptr
-                args.push_back(boxAsInterface(ep, argType, sPtr));
-                boxed = true;
-            }
-        }
-        if (!boxed) args.push_back(evaluateExpr(node->args[i]));
+        // A param that expects an interface boxes a struct pointer argument.
+        if (ptIt != funcEskiuParamTypes.end() && i < ptIt->second.size())
+            args.push_back(evalForType(node->args[i], ptIt->second[i]));
+        else
+            args.push_back(evaluateExpr(node->args[i]));
     }
 
     // Widen/truncate integer arguments to match function parameter types. If the

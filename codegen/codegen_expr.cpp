@@ -71,7 +71,7 @@ void CodeGen::visit(BinaryExpr* node) {
             }
         }
         llvm::Value* lhs = evaluateLValue(node->left);
-        llvm::Value* rhs = evaluateExpr(node->right);
+        llvm::Value* rhs = evalForType(node->right, getExprEskiuType(node->left));
         // Coerce RHS to match the lvalue's expected element type.
         // Prefer the LHS's declared (static) scalar type: a union member lvalue
         // collapses to the union's base pointer (all fields at offset 0), so the

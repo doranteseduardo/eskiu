@@ -171,7 +171,7 @@ void CodeGen::emitStructInitInto(llvm::Value* dest, StructInitExpr* init) {
     };
 
     auto storeField = [&](size_t idx, ExprPtr expr) {
-        llvm::Value* val = evaluateExpr(expr);
+        llvm::Value* val = evalForType(expr, fields[idx].type);
         bool uns = eskiuUnsigned(getExprEskiuType(expr));
         // Bitfield-layout struct: store via the physical slot.
         auto lit = structLayout.find(sname);
@@ -241,13 +241,13 @@ void CodeGen::visit(InterfaceDecl* node) {
     ifaceMethodReturnTypes[node->name]      = retTypes;
     ifaceMethodParamEskiuTypes[node->name]  = paramTypesList;
 
-    // Fat pointer type: %I_fat = type { ptr, ptr }
+    // Fat pointer type: %I_fat = type { ptr, ptr }. An interface value IS this struct,
+    // by value (like a closure), so it can live in a local, a field, or a return value
+    // without pointing into some caller's stack frame.
     llvm::StructType* fatPtr = llvm::StructType::create(*context,
         {llvm::PointerType::get(*context, 0), llvm::PointerType::get(*context, 0)},
         node->name + "_fat");
     ifaceFatPtrTypes[node->name] = fatPtr;
-    // Interface values are always passed as ptr (pointer to fat struct)
-    // getTypeFromString("I") → ptr  (handled in getTypeFromString below)
 }
 
 // Create a fat pointer {data_ptr, vtable_ptr} for struct S implementing interface I
@@ -278,13 +278,34 @@ llvm::Value* CodeGen::boxAsInterface(const std::string& ifaceName,
             llvm::GlobalValue::PrivateLinkage, vtInit, vtGlobName);
     }
 
-    // Alloca for the fat pointer
-    llvm::Value* fat = entryAlloca(fatType, nullptr, ifaceName + ".box");
-    // fat[0] = data ptr
-    llvm::Value* d = builder->CreateStructGEP(fatType, fat, 0);
-    builder->CreateStore(structPtr, d);
-    // fat[1] = vtable ptr
-    llvm::Value* v = builder->CreateStructGEP(fatType, fat, 1);
-    builder->CreateStore(vtGlob, v);
-    return fat;  // pointer to fat pointer (alloca)
+    // The fat pointer value { data ptr, vtable ptr }.
+    llvm::Value* fat = llvm::UndefValue::get(fatType);
+    fat = builder->CreateInsertValue(fat, structPtr, {0});
+    fat = builder->CreateInsertValue(fat, vtGlob, {1});
+    return fat;
+}
+
+std::string CodeGen::interfaceName(const std::string& type) const {
+    std::string t = tyq::strip(type);
+    if (t.rfind("interface:", 0) == 0) t = t.substr(10);
+    return ifaceFatPtrTypes.count(t) ? t : "";
+}
+
+llvm::Value* CodeGen::evalForType(const ExprPtr& e, const std::string& targetType) {
+    std::string iface = interfaceName(targetType);
+    if (iface.empty()) return evaluateExpr(e);
+    // Converting to an interface: an interface value passes through; `null` is the
+    // empty {null, null}; a pointer to a struct is boxed with that struct's vtable.
+    std::string st = getExprEskiuType(e);
+    if (interfaceName(st) == iface) return evaluateExpr(e);
+    if (auto* lit = dynamic_cast<LiteralExpr*>(e.get()); lit && lit->kind == LiteralExpr::Kind::NULL_VAL)
+        return llvm::ConstantAggregateZero::get(ifaceFatPtrTypes[iface]);
+    bool isPtr = !st.empty() && (st.front() == '*' || st.back() == '*');
+    if (!isPtr)
+        throw std::runtime_error("cannot convert a '" + st + "' value to interface '" + iface +
+                                 "'; pass a pointer (&x)");
+    std::string sname = st;
+    while (!sname.empty() && sname.front() == '*') sname = sname.substr(1);
+    while (!sname.empty() && sname.back() == '*') sname.pop_back();
+    return boxAsInterface(iface, stripToStructKey(sname), evaluateExpr(e));
 }

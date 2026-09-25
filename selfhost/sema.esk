@@ -454,6 +454,20 @@ string sema_infer_type(Sema* s, *ExprNode e) {
     return "";
 }
 
+// An interface value refers to a struct through a pointer; converting a struct VALUE to
+// an interface-typed slot (param, variable, return) is an error, as in the C++ checker.
+void sema_check_iface_value(Sema* s, string tety, *ExprNode e) {
+    if (e == null || tety[0] == 0) { return; }
+    int isif = 0; int i = 0;
+    while (i < List_len<*DeclNode>(&s.ifaces)) { if (sema_streq(List_get<*DeclNode>(&s.ifaces, i).name, tety) == 1) { isif = 1; } i = i + 1; }
+    if (isif == 0) { return; }
+    string src = sema_infer_type(s, e);
+    if (src[0] == 0 || sema_in_list(&s.structs, src) == 0) { return; }
+    s.had_error = 1;
+    printf("error: %s:0:0: cannot convert struct '%s' to interface '%s' by value; pass a pointer (&x)\n",
+           s.filename, src, tety);
+}
+
 // Recursively check an array literal against a (possibly multi-dimensional) array type:
 // too many elements for a numeric dimension is an error; a short list zero-fills (C-style).
 // Is `e` a compile-time constant initializer codegen can fold? Mirrors the C++ isConstInit:
@@ -904,6 +918,16 @@ void sema_expr(Sema* s, *ExprNode e) {
         int i = 0;
         int n = List_len<*ExprNode>(&e.kids);
         while (i < n) { sema_expr(s, List_get<*ExprNode>(&e.kids, i)); i = i + 1; }
+        if (e.a != null && e.a.kind == EK_IDENT && sema_local_bound(s, e.a.sval) == 0) {
+            *DeclNode cfd = sema_find_fndecl(s, e.a.sval);
+            if (cfd != null) {
+                int ai = 0;
+                while (ai < n && ai < List_len<Param>(&cfd.params)) {
+                    sema_check_iface_value(s, List_get<Param>(&cfd.params, ai).ty, List_get<*ExprNode>(&e.kids, ai));
+                    ai = ai + 1;
+                }
+            }
+        }
         return;
     }
     if (k == EK_STRUCTINIT) {
@@ -1060,11 +1084,13 @@ void sema_stmt(Sema* s, *StmtNode st) {
                 }
             }
         }
+        sema_check_iface_value(s, st.type, st.expr);
         sema_define(s, st.name, st.type, st.is_const);
         return;
     }
     if (k == SK_RETURN) {
         sema_expr(s, st.expr);
+        sema_check_iface_value(s, s.cur_ret, st.expr);
         // Returning `&local`/`&param` yields a dangling pointer (its frame is gone). Only
         // the clear bare-ident case is flagged; `&arr[i]`/`&p.field` point into other memory.
         if (st.expr != null && st.expr.kind == EK_UNARY && sema_streq(st.expr.sval, "&") == 1

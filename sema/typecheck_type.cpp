@@ -123,6 +123,7 @@ void TypeChecker::validateStructType(const std::string& type) {
         if (structs.find(baseType) == structs.end() &&
             typeAliases.find(baseType) == typeAliases.end() &&
             enumTypes.find(baseType) == enumTypes.end() &&
+            interfaceDecls.find(baseType) == interfaceDecls.end() &&
             adtEnums.find(baseType) == adtEnums.end()) {     // incl. generic enum instances
             error(0, 0, "undefined struct '" + baseType + "'");
         }
@@ -221,9 +222,11 @@ bool TypeChecker::isValidAssignment(const std::string& lhsType, const std::strin
 
     if (isPointerType(lhs) && isPointerType(rhs)) return true;
 
-    // Interface satisfaction: assigning a struct to an interface type
+    // Interface satisfaction: assigning a POINTER to a struct to an interface type (the
+    // interface value refers to the struct; a struct value has no address to refer to).
     auto ifaceIt = interfaceDecls.find(lhs);
     if (ifaceIt != interfaceDecls.end()) {
+        if (!isPointerType(rhs)) return false;
         std::string structName = ty::Type::parse(rhs).nominalName();
         if (structSatisfiesInterface(functionSignatures, structName, ifaceIt->second))
             return true;
@@ -282,6 +285,9 @@ std::string TypeChecker::assignabilityError(const std::string& targetType,
         return "cannot assign a floating-point value ('" + srcType + "') to integer type '" +
                targetType + "' without an explicit cast (it drops the fraction)";
     if (tyq::dropsConst(targetType, srcType)) return "";   // reported by the caller's const check
+    if (interfaceDecls.count(nt) && !isPointerType(ns) && structs.count(rt.nominalName()))
+        return "cannot convert struct '" + rt.nominalName() + "' to interface '" + nt +
+               "' by value; pass a pointer (&x)";
     return "cannot convert '" + srcType + "' to '" + targetType + "'";
 }
 

@@ -1,0 +1,8 @@
+// An interface refers to a struct through a pointer; passing the struct by value is
+// rejected (it has no address the interface value could keep).
+// EXPECT-ERROR: by value; pass a pointer
+interface Sh { int area(); }
+struct Sq { int s; }
+int Sq_area(*Sq self) { return self.s; }
+int use(Sh s) { return s.area(); }
+int main() { let q: Sq = Sq{s: 2}; return use(q); }
