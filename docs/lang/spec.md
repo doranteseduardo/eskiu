@@ -1407,6 +1407,20 @@ struct Counter {
 
 Methods are lowered to regular functions with a leading pointer parameter, e.g., `Counter_increment(*Counter self)`. A method may also be written at top level in that lowered form, `int Counter_get(*Counter self) { ... }`, and it is called the same way (`c.get()`). To call a method on a `const` value, write the receiver as `const T* self` (see §4.6).
 
+Dot syntax also reaches a **generic** free function on an instance of a generic struct. When `x` has type `S<A..>` (or `*S<A..>`) and there is a generic function `S_m<T..>` whose first parameter is the struct (`S<T..>*`, or `S<T..>` by value), then `x.m(args)` is the call `S_m<A..>(&x, args)`, or `S_m<A..>(x, args)` when `x` is already a pointer. The type arguments come from the receiver: a type parameter named in the first parameter's type takes the receiver's argument at that position, and any other one is inferred from the call's arguments. The arguments are checked against the instantiated parameter types, as for any call. This is how the standard library's generic containers read:
+
+```eskiu
+import <list>;
+
+List<int> l; l.init(4);      // List_init<int>(&l, 4)
+l.push(8);                   // List_push<int>(&l, 8)
+int n = l.len();             // List_len<int>(&l)
+int first = l.get(0);        // List_get<int>(&l, 0)
+l.free();
+```
+
+It works the same way inside a generic body, where the receiver's type arguments are the enclosing instance's (`void Box_twice<T>(Box<T>* self, T x) { self.set(x); }`). An inline method declared in the struct body takes precedence over a free function of the same name.
+
 ### 8.2a Operator Overloading
 
 A type can give meaning to an operator by declaring `operator <op>`, so `a + b` reads as algebra instead of a nested call. This is aimed at value types like vectors and matrices, where the notation carries the meaning.
