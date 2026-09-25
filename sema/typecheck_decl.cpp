@@ -636,7 +636,15 @@ void TypeChecker::visit(VarDecl* node) {
 
     // Two locals of the same name in one scope (`let x; let x;`). Globals are checked
     // once for the whole program (checkTopLevelNames); an inner block may shadow.
-    if (scopes.size() > 1 && scopes.back().count(node->name))
+    // A function's (or lambda's) outermost block shares the parameters' scope, as in C,
+    // so a local there may not reuse a parameter's name.
+    auto redeclaresParam = [&]() {
+        if (scopes.size() < 2) return false;
+        auto& outer = scopes[scopes.size() - 2];
+        auto it = outer.find(node->name);
+        return it != outer.end() && it->second.isParam;
+    };
+    if (scopes.size() > 1 && (scopes.back().count(node->name) || redeclaresParam()))
         errorAt(node, "redefinition of '" + node->name + "' in the same scope");
     defineSymbol(node->name, storedType, node->line, node->col, /*isParam=*/false);
     if (node->isConst && !scopes.empty()) {

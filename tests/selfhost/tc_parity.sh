@@ -47,7 +47,7 @@ HANDLED="undefined_var arg_count undefined_type await_outside_async async_no_awa
          generic_arg_count generic_explicit_arg_count generic_type_arg_count generic_arg_conflict generic_uninferable
          match_dup_value alias_cycle void_var void_param void_field bitfield_float bitfield_too_wide
          operator_redefinition
-         dup_local dup_global dup_param dup_fn_global dup_struct_fn dup_struct dup_field dup_enum
+         dup_local dup_param_local dup_global dup_param dup_fn_global dup_struct_fn dup_struct dup_field dup_enum
          dup_enum_member dup_default dup_method_fn dup_field_method proto_conflict
          slice_bounds_order slice_bounds_oob compound_lit_range ternary_lit_range
          assign_rvalue assign_ternary addr_of_call addr_of_literal addr_of_bitfield index_scalar

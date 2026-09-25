@@ -51,6 +51,7 @@ struct Sema {
     List<string> tparams;    // type parameters in scope (a generic struct's methods)
     List<*DeclNode> tdecls;  // every type decl (struct/union/enum/interface/alias)
     int depth;
+    int param_depth;         // depth of the current function's parameters (-1 outside one)
     int had_error;
     int in_async;           // currently inside an `async` function body?
     int await_seen;         // has an `await` appeared in the current function?
@@ -252,6 +253,7 @@ void sema_init(Sema* s, string filename) {
     List_init<string>(&s.loop_lbls, 4);
     s.callee_ctx = "";
     s.sw_depth = 0;
+    s.param_depth = 0 - 1;
     s.line = 0; s.col = 0;
     s.filename = filename;
     List_init<SInst>(&s.insts, 8);
@@ -2805,7 +2807,14 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
         sema_check_iface_value(s, vty, st.expr);
         sema_check_decl_type(s, vty);
         int prev_i = sema_sym_index(s, st.name);    // `let x; let x;` in one scope (an inner block may shadow)
-        if (s.depth > 0 && prev_i >= 0 && List_get<Sym>(&s.syms, prev_i).depth == s.depth) {
+        int dup_d = 0;
+        if (s.depth > 0 && prev_i >= 0) {
+            int pd = List_get<Sym>(&s.syms, prev_i).depth;
+            if (pd == s.depth) { dup_d = 1; }
+            // the function's outermost block shares the parameters' scope (C)
+            if (pd == s.param_depth && s.depth == s.param_depth + 1) { dup_d = 1; }
+        }
+        if (dup_d == 1) {
             s.had_error = 1;
             printf("error: %s:%d:%d: redefinition of '%s' in the same scope\n", s.filename, s.line, s.col, st.name);
         }
@@ -3740,7 +3749,10 @@ void sema_check_fn(Sema* s, *DeclNode f, string self_type) {
         sema_define(s, pm.name, sema_isub(s, pm.ty), 0);
         j = j + 1;
     }
+    int prev_pd = s.param_depth;
+    s.param_depth = s.depth;
     sema_stmt(s, f.body);
+    s.param_depth = prev_pd;
     sema_pop(s);
     if (f.is_async == 0) { sema_check_uninit(s, f.body); }   // reads of an uninitialized scalar local
     // A non-void function must return on every path (no implicit zero return);
