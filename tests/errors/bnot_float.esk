@@ -1,0 +1,2 @@
+// EXPECT-ERROR: invalid operand for unary operator: double
+int main() { double d = ~1.5; return 0; }

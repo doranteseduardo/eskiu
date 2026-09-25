@@ -1,0 +1,3 @@
+// EXPECT-ERROR: ternary condition must be a bool, integer, or pointer
+struct P { int a; }
+int main() { P p = P{a: 1}; int x = p ? 1 : 2; return x; }

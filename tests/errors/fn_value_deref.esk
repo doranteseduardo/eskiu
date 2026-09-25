@@ -1,0 +1,2 @@
+// EXPECT-ERROR: invalid operand for unary operator
+int main() { fn()->int a = int() { return 1; }; int x = *a; return x; }

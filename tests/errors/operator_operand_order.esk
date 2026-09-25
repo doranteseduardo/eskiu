@@ -1,0 +1,4 @@
+// EXPECT-ERROR: invalid operands for operator: int and
+struct V { int x; }
+V operator *(V a, int k) { return V{x: a.x * k}; }
+int main() { V a = V{x: 2}; V b = 3 * a; return b.x; }

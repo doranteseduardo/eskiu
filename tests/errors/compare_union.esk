@@ -1,0 +1,3 @@
+// EXPECT-ERROR: invalid operands for operator
+union U { int i; float f; }
+int main() { U a; a.i = 1; U b; b.i = 1; if (a == b) { return 1; } return 0; }

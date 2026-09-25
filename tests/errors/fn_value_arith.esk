@@ -1,0 +1,2 @@
+// EXPECT-ERROR: invalid operands for operator
+int main() { fn()->int a = int() { return 1; }; int x = a + 1; return x; }

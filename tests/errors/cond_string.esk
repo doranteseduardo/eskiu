@@ -1,0 +1,2 @@
+// EXPECT-ERROR: condition must be boolean or numeric, got string
+int main() { string s = "a"; if (s) { return 1; } return 0; }

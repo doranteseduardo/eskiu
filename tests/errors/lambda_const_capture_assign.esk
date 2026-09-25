@@ -1,0 +1,2 @@
+// EXPECT-ERROR: cannot assign to read-only location
+int main() { const int x = 1; fn()->void g = void() { x = 5; }; g(); return x; }

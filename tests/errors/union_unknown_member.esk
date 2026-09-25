@@ -1,0 +1,3 @@
+// EXPECT-ERROR: has no member 'zz'
+union U { int i; float f; }
+int main() { U u; u.i = 3; return u.zz; }
