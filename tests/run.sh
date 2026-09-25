@@ -177,6 +177,17 @@ for esk in "$here"/*.esk; do
     done
 done
 
+# ---- eskiuc run -------------------------------------------------------------
+# `run [flags] script [--] args`: a flag's separate value is not the script, a `--`
+# after the script is dropped, the program's exit code is propagated, and a
+# program killed by a signal exits 128+signal like a shell.
+echo "run subcommand:"
+args_esk="$here/run_cmd/args.esk"
+out="$("$ESKIUC" run -o "$work/unused" "$args_esk" -- a "b c" 2>/dev/null)"; code=$?
+if [[ $code -eq 3 && "$out" == $'[a]\n[b c]' ]]; then ok "run/args"; else bad "run/args" "exit $code, output '$out'"; fi
+"$ESKIUC" run "$args_esk" crash >/dev/null 2>&1; code=$?
+if [[ $code -eq 139 ]]; then ok "run/signal"; else bad "run/signal" "exit $code (expected 139)"; fi
+
 # ---- go-to-definition -------------------------------------------------------
 # tests/lsp/NAME.esk lists `// DEF L:C L2:C2` queries: --definition-at L:C must
 # resolve to L2:C2 in the same file (the symbol scope lookup picked, not a

@@ -115,6 +115,7 @@ const char* VERSION = "0.9.1";
 // temporary executable, run with g_runArgs, then deleted (see main()).
 static bool g_runMode = false;
 static std::vector<std::string> g_runArgs;
+static bool sawSeparator = false;   // a `--` after the script separates program args
 
 // Test lexer: tokenize and print all tokens
 static int testLexer(const std::string& filename) {
@@ -281,12 +282,27 @@ int main(int argc, char** argv) {
     // parser; everything after the script becomes the program's argv.
     if (argc >= 2 && std::string(argv[1]) == "run") {
         g_runMode = true;
+        // Options that take their value as the next argument (`-o out`, `--target T`):
+        // that argument is the option's value, not the script.
+        static const std::set<std::string> valueOpts = {
+            "-o", "-target", "--target", "-mcpu", "--mcpu", "-mattr", "--mattr",
+            "-reloc", "--reloc", "-link-arg", "--link-arg", "-hover-at", "--hover-at",
+            "-definition-at", "--definition-at", "-l", "-L",
+        };
         std::vector<char*> clArgv = { argv[0] };
         bool gotScript = false;
         for (int i = 2; i < argc; ++i) {
+            std::string a = argv[i];
             if (!gotScript) {
+                if (a == "--") {                              // end of compiler flags
+                    if (i + 1 < argc) { clArgv.push_back(argv[++i]); gotScript = true; }
+                    continue;
+                }
                 clArgv.push_back(argv[i]);
-                if (argv[i][0] != '-') gotScript = true;   // first non-flag = the script
+                if (valueOpts.count(a) && i + 1 < argc) { clArgv.push_back(argv[++i]); continue; }
+                if (a[0] != '-') gotScript = true;           // first non-flag = the script
+            } else if (g_runArgs.empty() && a == "--" && !sawSeparator) {
+                sawSeparator = true;                          // `run f.esk -- args`: drop the `--`
             } else {
                 g_runArgs.push_back(argv[i]);
             }

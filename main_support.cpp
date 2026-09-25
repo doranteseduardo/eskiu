@@ -4,6 +4,11 @@
 #include <cstdlib>
 #include <climits>
 #include <set>
+#include <cerrno>
+#ifndef _WIN32
+  #include <unistd.h>
+  #include <sys/wait.h>
+#endif
 #ifdef __APPLE__
   #include <mach-o/dyld.h>
 #elif defined(__linux__)
@@ -356,9 +361,33 @@ bool linkExecutable(const std::string& obj, const std::string& out,
     return true;
 }
 
-// Run an executable, forwarding `progArgs`, and return its exit code (or 1 if it
-// could not be launched). Used by `eskiuc run`.
+// Run an executable, forwarding `progArgs`, and return its exit code: the program's
+// own status, 128+N when it was killed by signal N (the shell convention), or 1 if it
+// could not be launched. Used by `eskiuc run`.
 int runExecutable(const std::string& exe, const std::vector<std::string>& progArgs) {
+#ifndef _WIN32
+    std::vector<char*> cargv;
+    cargv.push_back(const_cast<char*>(exe.c_str()));
+    for (const auto& a : progArgs) cargv.push_back(const_cast<char*>(a.c_str()));
+    cargv.push_back(nullptr);
+    pid_t pid = fork();
+    if (pid < 0) {
+        std::cerr << "error: could not run '" << exe << "': fork failed" << std::endl;
+        return 1;
+    }
+    if (pid == 0) {
+        execv(exe.c_str(), cargv.data());
+        std::cerr << "error: could not run '" << exe << "'" << std::endl;
+        _exit(127);
+    }
+    int status = 0;
+    while (waitpid(pid, &status, 0) < 0) {
+        if (errno != EINTR) { std::cerr << "error: waiting for '" << exe << "' failed" << std::endl; return 1; }
+    }
+    if (WIFSIGNALED(status)) return 128 + WTERMSIG(status);
+    if (WIFEXITED(status)) return WEXITSTATUS(status);
+    return 1;
+#else
     std::vector<std::string> argv = {exe};
     for (const auto& a : progArgs) argv.push_back(a);
     std::vector<llvm::StringRef> args(argv.begin(), argv.end());
@@ -373,4 +402,5 @@ int runExecutable(const std::string& exe, const std::vector<std::string>& progAr
         return 1;
     }
     return rc;
+#endif
 }
