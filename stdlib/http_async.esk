@@ -33,9 +33,9 @@ async void http_conn_async(EventLoop* lp, int c,
     int n = await net_read_async(lp, c, buf, 8192);
     if (n > 0) {
         let req: HttpRequest;  req.init();
-        req.parse(buf, n);
         let res: HttpResponse;  res.init(200);
-        handler(&req, &res);
+        if (req.parse(buf, n) == 1) { handler(&req, &res); }
+        else { res.status = 400; }                  // malformed: the handler never sees it
         let out: String;  out.init(256);
         res.render(&out);
         net_send(c, (*void)out.cstr(), out.len);

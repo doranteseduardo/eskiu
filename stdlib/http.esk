@@ -45,26 +45,35 @@ int _http_crlf_at(*uint8 buf, int pos, int len) {
     return (pos + 1 < len && buf[pos] == '\r' && buf[pos + 1] == '\n') ? 1 : 0;
 }
 
+// 1 if `c` is a CR or LF byte (a line break may only appear as CRLF).
+int _http_is_crlf_byte(uint8 c) {
+    return (c == '\r' || c == '\n') ? 1 : 0;
+}
+
 // Parse a raw request from `buf` (len bytes). Returns 1 on success, 0 if the
-// request line is malformed.
+// request is malformed: an empty method or path, a request line not ended by
+// CRLF, or a bare CR or LF inside a header line (RFC 9112 §2.2: a line break is
+// CRLF, and a lone LF must not start a new header line, which would let a
+// client smuggle a header past a proxy that reads the line differently).
 int HttpRequest_parse(HttpRequest* self, *uint8 buf, int len) {
     int pos = 0;
-    for (; pos < len && buf[pos] != ' ' && buf[pos] != '\r'; pos++) { self.method.push((char)buf[pos]); }
-    if (pos >= len || buf[pos] != ' ') { return 0; }
+    for (; pos < len && buf[pos] != ' ' && _http_is_crlf_byte(buf[pos]) == 0; pos++) { self.method.push((char)buf[pos]); }
+    if (pos >= len || buf[pos] != ' ' || self.method.len == 0) { return 0; }
     pos++;
-    for (; pos < len && buf[pos] != ' '; pos++) { self.path.push((char)buf[pos]); }
-    if (pos >= len) { return 0; }
+    for (; pos < len && buf[pos] != ' ' && _http_is_crlf_byte(buf[pos]) == 0; pos++) { self.path.push((char)buf[pos]); }
+    if (pos >= len || buf[pos] != ' ' || self.path.len == 0) { return 0; }
     pos++;
-    for (; pos < len && buf[pos] != '\r'; pos++) { self.version.push((char)buf[pos]); }
+    for (; pos < len && _http_is_crlf_byte(buf[pos]) == 0; pos++) { self.version.push((char)buf[pos]); }
     if (_http_crlf_at(buf, pos, len) == 0) { return 0; }
     pos += 2;
 
     // Header lines until the blank line; store as "Key: Value\n".
     while (pos < len) {
         if (_http_crlf_at(buf, pos, len) == 1) { pos += 2; break; }
-        for (; pos < len && buf[pos] != '\r'; pos++) { self.headers.push((char)buf[pos]); }
+        for (; pos < len && _http_is_crlf_byte(buf[pos]) == 0; pos++) { self.headers.push((char)buf[pos]); }
         self.headers.push('\n');
-        if (_http_crlf_at(buf, pos, len) == 0) { break; }
+        if (pos >= len) { break; }                             // request cut short
+        if (_http_crlf_at(buf, pos, len) == 0) { return 0; }   // a bare CR or LF
         pos += 2;
     }
     // Remaining bytes are the body.
@@ -215,7 +224,8 @@ void HttpResponse_render(HttpResponse* self, String* out) {
     out.append("Content-Length: ");
     _http_append_int(out, self.body.len);
     out.append("\r\n\r\n");
-    out.append(self.body.cstr());
+    // All body.len bytes: the body may hold a NUL, which cstr() would cut at.
+    for (i in 0..self.body.len) { out.push(self.body.data[i]); }
 }
 
 // ── Worker pool ──────────────────────────────────────────────────────────────
@@ -234,9 +244,9 @@ void http_worker_loop(int fd, fn(HttpRequest*, HttpResponse*)->void handler) {
         if (n <= 0) { net_close(c); continue; }
 
         let req: HttpRequest;  req.init();
-        req.parse(buf, (int)n);
         let res: HttpResponse;  res.init(200);
-        handler(&req, &res);
+        if (req.parse(buf, (int)n) == 1) { handler(&req, &res); }
+        else { res.status = 400; }                  // malformed: the handler never sees it
 
         let out: String;  out.init(256);
         res.render(&out);
@@ -322,20 +332,27 @@ int http_idx_header_end(*uint8 b, int n) {
     return nb;
 }
 
-// Parse request line + headers from buf[0..hend) into r.
-void http_parse_head(HttpReq* r, *uint8 buf, int hend) {
+// Parse request line + headers from buf[0..hend) into r (`hend` is just past
+// the blank line). Returns 1, or 0 if the head is malformed: an empty method or
+// path, or a line break that is not CRLF (a bare LF must not start a new header
+// line, RFC 9112 §2.2).
+int http_parse_head(HttpReq* r, *uint8 buf, int hend) {
     int pos = 0;
-    for (; pos < hend && buf[pos] != ' ' && buf[pos] != '\r'; pos++) { r.method.push((char)buf[pos]); }
-    if (pos < hend && buf[pos] == ' ') { pos++; }
-    for (; pos < hend && buf[pos] != ' ' && buf[pos] != '\r'; pos++) { r.path.push((char)buf[pos]); }
-    while (pos < hend && buf[pos] != '\n') { pos++; }
-    if (pos < hend) { pos++; }
-    while (pos < hend && buf[pos] != '\r' && buf[pos] != '\n') {
-        for (; pos < hend && buf[pos] != '\r' && buf[pos] != '\n'; pos++) { r.headers.push((char)buf[pos]); }
+    for (; pos < hend && buf[pos] != ' ' && _http_is_crlf_byte(buf[pos]) == 0; pos++) { r.method.push((char)buf[pos]); }
+    if (pos >= hend || buf[pos] != ' ' || r.method.len == 0) { return 0; }
+    pos++;
+    for (; pos < hend && buf[pos] != ' ' && _http_is_crlf_byte(buf[pos]) == 0; pos++) { r.path.push((char)buf[pos]); }
+    if (r.path.len == 0) { return 0; }
+    while (pos < hend && _http_is_crlf_byte(buf[pos]) == 0) { pos++; }   // the version
+    if (_http_crlf_at(buf, pos, hend) == 0) { return 0; }
+    pos += 2;
+    while (pos < hend && _http_crlf_at(buf, pos, hend) == 0) {
+        for (; pos < hend && _http_is_crlf_byte(buf[pos]) == 0; pos++) { r.headers.push((char)buf[pos]); }
         r.headers.push('\n');
-        if (pos < hend && buf[pos] == '\r') { pos++; }
-        if (pos < hend && buf[pos] == '\n') { pos++; }
+        if (_http_crlf_at(buf, pos, hend) == 0) { return 0; }   // a bare CR or LF
+        pos += 2;
     }
+    return 1;
 }
 
 // Case-insensitive header lookup; copies the value (without surrounding
@@ -359,8 +376,46 @@ int64 http_str_to_i64(String* s) {
     return v;
 }
 
+// The request's Content-Length: -2 if there is none, -1 if it is invalid, else
+// the length. Every Content-Length line counts, and a line may carry a
+// comma-separated list; all the values must be the same number (RFC 9112 §6.3:
+// differing lengths are unrecoverable, a request-smuggling vector).
+int64 http_content_length(String* headers) {
+    const string name = "content-length";
+    int64 found = -2;
+    const int64 n = headers.len;
+    int64 i = 0;
+    while (i < n) {
+        int64 j = 0;
+        bool matched = true;
+        for (; name[j] != 0; j++) {
+            if (i + j >= n || http_lc(headers.data[i + j]) != http_lc(name[j])) { matched = false; break; }
+        }
+        if (matched && i + j < n && headers.data[i + j] == ':') {
+            int64 k = i + j + 1;
+            while (true) {
+                let item: String;  item.init(16);
+                while (k < n && (headers.data[k] == ' ' || headers.data[k] == '\t')) { k++; }
+                for (; k < n && headers.data[k] != ',' && headers.data[k] != '\n'; k++) { item.push(headers.data[k]); }
+                http_trim_ows_tail(&item);
+                const int64 v = http_str_to_i64(&item);
+                item.free();
+                if (v < 0 || (found >= 0 && v != found)) { return -1; }
+                found = v;
+                if (k >= n || headers.data[k] != ',') { break; }
+                k++;
+            }
+        }
+        while (i < n && headers.data[i] != '\n') { i++; }
+        i++;
+    }
+    return found;
+}
+
 // Read a complete request from `fd`. Returns 0 on success, or an HTTP error
-// status (400 malformed / 413 too large) on failure.
+// status (400 malformed / 413 too large) on failure. A peer that closes before
+// the whole Content-Length body arrives gets 400 (never a short body reported
+// as success).
 int http_recv(int fd, HttpReq* r, int64 max_body) {
     int cap = 8192;
     *uint8 buf = alloc<uint8>(cap);
@@ -375,14 +430,11 @@ int http_recv(int fd, HttpReq* r, int64 max_body) {
         hend = http_idx_header_end(buf, n);
         if (hend < 0 && n > 65536) { return 400; }
     }
-    http_parse_head(r, buf, hend);
+    if (http_parse_head(r, buf, hend) == 0) { return 400; }
 
-    let cl: String;  cl.init(16);
-    int64 clen = 0;
-    const bool has_cl = r.header("content-length", &cl) == 1;
-    if (has_cl) { clen = http_str_to_i64(&cl); }
-    cl.free();
-    if (has_cl && clen < 0) { return 400; }   // malformed / overflowing Content-Length
+    int64 clen = http_content_length(&r.headers);
+    if (clen == -1) { return 400; }           // malformed / overflowing / conflicting Content-Length
+    if (clen < 0) { clen = 0; }               // none: no body
     if (clen > max_body) { return 413; }
 
     const int have = n - hend;
@@ -396,7 +448,7 @@ int http_recv(int fd, HttpReq* r, int64 max_body) {
     int64 bgot = copy0;
     while (bgot < clen) {
         const int64 got = net_recv(fd, body + bgot, clen - bgot);
-        if (got <= 0) { break; }
+        if (got <= 0) { free(body); return 400; }       // closed early: a truncated body
         bgot += got;
     }
     r.body     = body;
