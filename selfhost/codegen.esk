@@ -5134,8 +5134,21 @@ void cg_struct_init(Codegen* g, string slot, string sname0, *ExprNode e) {
         if (idx >= 0 && idx < List_len<string>(&s.fetys)) { fety = List_get<string>(&s.fetys, idx); }
         string actual = fname; if (actual[0] == 0 && idx >= 0 && idx < List_len<string>(&s.fnames)) { actual = List_get<string>(&s.fnames, idx); }
         *ExprNode fex = List_get<*ExprNode>(&e.kids, i);
-        CgVal val = cg_expr(g, fex);
         CgBF bfslot = cg_bf(g, sname, actual);
+        if (fex.kind == EK_ARRAYLIT) {                  // an array field's `{...}` fills it in place
+            string ap = slot;
+            if (bfslot.boffs >= 0) { ap = cg_bf_wordptr(g, slot, s.name, bfslot); }
+            else if (cg_is_union(g, s.name) == 0) {
+                int aidx = idx; if (bfslot.fidx >= 0) { aidx = bfslot.fidx; }
+                ap = cg_tmp(g);
+                cg_emit(g, "  "); cg_emit(g, ap); cg_emit(g, " = getelementptr inbounds %");
+                cg_emit(g, s.name); cg_emit(g, ", ptr "); cg_emit(g, slot);
+                cg_emit(g, ", i32 0, i32 "); cg_emit(g, cg_itoa(aidx)); cg_emit(g, "\n");
+            }
+            cg_array_init(g, ap, fety, fex, 1);
+            i = i + 1; continue;
+        }
+        CgVal val = cg_expr(g, fex);
         if (bfslot.bw > 0) {                            // a bitfield member of this literal
             cg_bf_write(g, slot, s.name, bfslot, cg_coerce(g, val, bfslot.sty));
             i = i + 1; continue;

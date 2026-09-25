@@ -98,6 +98,7 @@ when you add a test.
 | `generic_rvalue_instance` | a generic struct or enum instance reached only through a call result (`flip(n).a`, `unbox(bx(7))`, `bx(2.5).get()`, `match wrap<int64>(5)`) |
 | `closure_array_ptr` | an array of closures `fn(int)->int[3]` (indexed and called) and a pointer to a closure `*fn(int)->int` (`&f`, `*pf`, store through it) |
 | `global_iface_init` | a global, `static` or struct-field interface value initialized with `&global` folds to `{data, vtable}` |
+| `struct_lit_array_field` | a struct literal's array field takes `{...}` (nested, zero-filled) in a local, an assignment, a bitfield struct and a global |
 | `const_bitfield_union` | global and `static` initializers of bitfield structs, unions (any member, nested in a struct), `packed` and `pack(2)` structs fold to their C byte image; local union literals |
 | `templates_result` | `Result<int,string>` monomorphization, `Ok`/`Err` |
 | `template_inference` | `T` inferred when it appears directly as a parameter type |

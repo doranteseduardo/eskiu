@@ -175,6 +175,15 @@ void CodeGen::emitStructInitInto(llvm::Value* dest, StructInitExpr* init) {
     };
 
     auto storeField = [&](size_t idx, ExprPtr expr) {
+        // An array field's `{...}` fills the field in place, like an array variable's.
+        if (auto* arr = dynamic_cast<ArrayLitExpr*>(expr.get())) {
+            llvm::Value* at = dest;
+            auto lit = structLayout.find(sname);
+            if (lit != structLayout.end()) at = layoutFieldAddr(sname, dest, lit->second.at(fields[idx].name));
+            else if (!unionFields.count(sname)) at = builder->CreateStructGEP(st, dest, idx);
+            emitArrayInitInto(at, arr, fields[idx].type);
+            return;
+        }
         llvm::Value* val = evalForType(expr, fields[idx].type);
         bool uns = eskiuUnsigned(getExprEskiuType(expr));
         // Bitfield-layout struct: store via the physical slot.
