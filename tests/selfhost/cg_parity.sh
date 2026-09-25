@@ -39,6 +39,15 @@ for f in "${files[@]}"; do
     total=$((total + 1))
     base="$(basename "$f" .esk)"
 
+    # Reference first: the C++ build. Link libc++abi so exception programs (which need
+    # the Itanium __cxa_* runtime) link on both sides, matching the self-host clang
+    # invocation below. An input the C++ rejects is skipped (the self-host type-checks
+    # under --test-codegen too, so it would reject it as well).
+    if ! "$BIN" "$f" -o "$WORK/$base.cpp" >/dev/null 2>&1; then
+        echo "skip  $base  (C++ eskiuc could not build it)"; total=$((total - 1)); continue
+    fi
+    cpp_out="$("$WORK/$base.cpp" 2>/dev/null)"; cpp_code=$?
+
     # Self-hosted: emit .ll, compile with clang, run.
     if ! ESKIU_ROOT="$(pwd)" "$CGBIN" --test-codegen "$f" > "$WORK/$base.ll" 2>"$WORK/$base.emit.err"; then
         echo "FAIL  $base  (self-host codegen errored)"; sed 's/^/      /' "$WORK/$base.emit.err" | head; fail=1; continue
@@ -47,14 +56,6 @@ for f in "${files[@]}"; do
         echo "FAIL  $base  (clang rejected emitted .ll)"; sed 's/^/      /' "$WORK/$base.clang.err" | head; fail=1; continue
     fi
     self_out="$("$WORK/$base.self" 2>/dev/null)"; self_code=$?
-
-    # Reference: the C++ build. Link libc++abi so exception programs (which need
-    # the Itanium __cxa_* runtime) link on both sides, matching the self-host clang
-    # invocation above.
-    if ! "$BIN" "$f" -o "$WORK/$base.cpp" >/dev/null 2>&1; then
-        echo "skip  $base  (C++ eskiuc could not build it)"; total=$((total - 1)); continue
-    fi
-    cpp_out="$("$WORK/$base.cpp" 2>/dev/null)"; cpp_code=$?
 
     if [ "$self_code" = "$cpp_code" ] && [ "$self_out" = "$cpp_out" ]; then
         echo "ok    $base  (exit $self_code)"

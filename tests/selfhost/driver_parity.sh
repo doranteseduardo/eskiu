@@ -158,6 +158,12 @@ for f in tests/selfhost/driver_inputs/diag_parse/*.esk tests/selfhost/driver_inp
     else echo "FAIL  $n  (cpp rc $cc: $ce | self rc $sc: $se | self stdout: $(head -c 200 "$WORK/d.self.out"))"; fail=1; fi
 done
 
+# --test-codegen type-checks first: an ill-typed program is rejected (exit 1, no IR).
+total=$((total + 1))
+ESKIU_ROOT="$ROOT" "$ESKMAIN" tests/selfhost/driver_inputs/diag_sema/bad_init.esk --test-codegen >"$WORK/tc.out" 2>/dev/null; sc=$?
+if [ "$sc" -eq 1 ] && ! [ -s "$WORK/tc.out" ]; then echo "ok    flags/test-codegen-typechecks"
+else echo "FAIL  flags/test-codegen-typechecks  (rc $sc, $(wc -c < "$WORK/tc.out") bytes of IR)"; fail=1; fi
+
 # Target macros: _WIN64 accompanies _WIN32 on every 64-bit Windows triple (x86_64,
 # aarch64 and arm64 spellings), and both drivers predefine the same set.
 for tgt in x86_64-pc-windows-msvc aarch64-pc-windows-msvc arm64-pc-windows-msvc i686-pc-windows-msvc; do
