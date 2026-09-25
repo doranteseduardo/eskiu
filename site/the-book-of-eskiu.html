@@ -317,6 +317,7 @@ pre.code-block {
 <a href="#sec-7-1" class="toc-sec">7.1 Declaring an interface</a>
 <a href="#sec-7-2" class="toc-sec">7.2 Two structs, one interface</a>
 <a href="#sec-7-3" class="toc-sec">7.3 Using the interface</a>
+<a href="#sec-7-4" class="toc-sec">7.4 Interface values</a>
 <a href="#chapter-8" class="toc-ch">Chapter 8</a>
 <a href="#sec-8-1" class="toc-sec">8.1 A template function</a>
 <a href="#sec-8-2" class="toc-sec">8.2 A template struct</a>
@@ -592,7 +593,7 @@ pre.code-block {
 <pre class="code-block">           char        8 bits      &#x27;A&#x27;, &#x27;\n&#x27;     Single byte, unsigned (0–255)</pre>
 <pre class="code-block">           string      pointer     &quot;hello&quot;       Immutable text literals</pre>
 <p>Eskiu also has <code>int8</code>, <code>int16</code>, <code>int32</code>, <code>uint16</code>, <code>uint64</code>. For most code, <code>int</code> and <code>uint8</code> cover the majority of cases.</p>
-<p>Integer literals can be written in hexadecimal with a 0x prefix. Character and string literals support the usual escapes (<code>\n \t \r \f \v \0 \\ \" \'</code>) plus <code>\xNN</code>, which writes a raw byte from one or two hex digits (so <code>"\xC3\x91"</code> is <code>Ñ</code> in UTF-8). <code>char</code> is an unsigned 8-bit type (0–255); when widened to <code>int</code> it zero-extends, not sign-extends:</p>
+<p>Integer literals can be written in hexadecimal with a 0x prefix, and a leading <code>0</code> means octal, as in C (<code>017</code> is 15). A literal with a digit its base does not allow (<code>08</code>), a bare <code>0x</code>, or a suffix of any kind (<code>0b101</code>, <code>1_000</code>, <code>3.5f</code>) is a compile error. Character and string literals support the usual escapes (<code>\n \t \r \f \v \0 \\ \" \'</code>) plus <code>\xNN</code>, which writes a raw byte from one or two hex digits (so <code>"\xC3\x91"</code> is <code>Ñ</code> in UTF-8). <code>char</code> is an unsigned 8-bit type (0–255); when widened to <code>int</code> it zero-extends, not sign-extends:</p>
 <pre class="code-block"> int flags = 0xFF;                    // hex literal = 255
  uint32 mask = 0xDEADBEEF; // larger hex</pre>
 <pre class="code-block"> char a = &#x27;A&#x27;;                        // character literal
@@ -610,6 +611,12 @@ pre.code-block {
  int n          = (int)x;         // 3: fractional part discarded
  uint8 b        = (uint8)n;       // fine if n fits in 0–255
  float f        = (float)n;       // widen to float</pre>
+<p>Arithmetic follows C&#x27;s integer promotions. An operand narrower than <code>int</code> (<code>bool</code>, <code>char</code>, <code>int8</code>, <code>int16</code>, <code>uint8</code>, <code>uint16</code>) becomes an <code>int</code> before the operation, so the result does not wrap at 8 or 16 bits and comparisons between signed and unsigned bytes behave as they do in C. The value only narrows again when you store it into a narrow variable:</p>
+<pre class="code-block"> uint8 a = (uint8)200;
+ int s   = a + (uint8)100;       // 300: both operands became int
+ int8 m  = (int8)-1;
+ bool gt = a &gt; m;                // true: 200 &gt; -1</pre>
+<p>Converting to <code>bool</code> tests against zero. <code>(bool)2</code>, <code>(bool)0.5</code> and a non-null pointer are all <code>true</code>; only <code>0</code>, <code>0.0</code> and <code>null</code> are <code>false</code>.</p>
 <h2 class="section" id="sec-2-4">2.4 A complete example</h2>
 <pre class="code-block"> extern int printf(string fmt, ...);</pre>
 <pre class="code-block"> int main() {
@@ -639,6 +646,12 @@ pre.code-block {
        return 0;
  }</pre>
 <p class="output"><em>Output:</em> 3</p>
+<p>A global&#x27;s initializer is computed at compile time, as in C, so it must be a constant expression: literals, arithmetic and casts on them, ternaries, <code>sizeof</code>, enum members, <code>const</code> globals, and the address of another global. A function call or a read of an ordinary (non-<code>const</code>) global is a compile error. Initialize such a global inside <code>main</code> instead:</p>
+<pre class="code-block"> const int BASE = 10;
+ int limit = BASE * 4;              // fine: folded to 40
+ int* where = &amp;limit;               // fine: address of a global
+ // int start = compute();          // error: not a compile-time constant
+ // int twice = limit * 2;          // error: limit is not const</pre>
 <h2 class="section" id="sec-2-6">2.6 const: immutable bindings</h2>
 <p>A <code>const</code> binding cannot be reassigned after its initial value. Unlike a plain variable, a <code>const</code> <code>int</code> can be used as an array size:</p>
 <pre class="code-block"> const int CAP = 4;
@@ -660,7 +673,7 @@ pre.code-block {
  }
  printf(&quot;%d %d %d\n&quot;, next(), next(), next());   // 1 2 3</pre>
 <p class="output"><em>Output:</em> 1 2 3</p>
-<p>Two <code>static</code> locals in different functions never share storage, even with the same name. <code>static</code> on a global is rejected, since a global already persists for the whole program.</p>
+<p>A <code>static</code> local declared without an initializer starts at zero. A closure that uses a <code>static</code> local refers to that one variable, the same way it would refer to a global, so a change made through the closure is visible to later calls. Two <code>static</code> locals in different functions never share storage, even with the same name. <code>static</code> on a global is rejected, since a global already persists for the whole program.</p>
 <h2 class="section" id="sec-2-7">2.7 enum: named integer constants</h2>
 <p>An enum assigns names to integer values. Values start at 0 and increment by 1 unless you set them explicitly. After an explicit value, numbering continues from there:</p>
 <pre class="code-block"> enum Color     { Red, Green, Blue }                 // 0, 1, 2
@@ -680,6 +693,7 @@ pre.code-block {
        Green -&gt; { printf(&quot;green\n&quot;); }
        Blue  -&gt; { printf(&quot;blue\n&quot;); }
  }</pre>
+<p>Two members may share a value, as in C (<code>enum Level { Low = 1, Mid = 2, Medium = 2 }</code>). A <code>match</code> works on the value, so one arm covers every member with that value, and a second arm for the same value is an error. Declaring the same member name twice, or reusing a member name for a function or global, is also an error.</p>
 <h2 class="section" id="sec-2-8">2.8 type: aliases</h2>
 <p>A type alias gives an existing type a new name. The alias and the original are interchangeable. This is Eskiu&#x27;s equivalent of C&#x27;s typedef:</p>
 <pre class="code-block"> type u8        = uint8;
@@ -741,6 +755,7 @@ pre.code-block {
  }</pre>
 <pre class="code-block"> printf(&quot;%d %d\n&quot;, is_even(10), is_odd(10));             // 1 0</pre>
 <p class="output"><em>Output:</em> 1 0</p>
+<p>A forward declaration must match the definition exactly: the same return type and the same parameter types. A mismatch is a <em>conflicting declaration</em> error. Defining the same function twice, giving two parameters the same name, or using one name for both a function and a global variable is also rejected.</p>
 <h2 class="section" id="sec-3-6">3.6 Command-line arguments</h2>
 <p>To read what the user typed on the command line, give main two parameters: <code>argc</code>, the number of arguments, and <code>argv</code>, an array of strings. <code>argv</code>[0] is always the program&#x27;s own name, so the first real argument is <code>argv</code>[1]:</p>
 <pre class="code-block"> extern int printf(string fmt, ...);</pre>
@@ -828,6 +843,7 @@ pre.code-block {
        default: printf(&quot;Other\n&quot;);       break;
  }</pre>
 <p class="output"><em>Output:</em> Wednesday</p>
+<p>A <code>case</code> label must be a compile-time constant: a literal, an enum member, a <code>const</code> integer, or an expression built from them (<code>case BASE + 1:</code>). A second <code>default:</code> in the same <code>switch</code> is an error.</p>
 <h2 class="section" id="sec-4-6">4.6 for-in</h2>
 <p>The for-in loop iterates over a collection without managing an index. It works over fixed-size arrays and <code>List</code>&lt;T&gt; (or any struct with data and size fields):</p>
 <pre class="code-block"> // Fixed-size array
@@ -858,7 +874,13 @@ pre.code-block {
  int lo = 2;        int hi = 6;
  for (j in lo..hi) { printf(&quot;%d           &quot;, j); }
  // Output: 2           3   4    5</pre>
-<p>The loop variable (v, n, or i above) is a copy. Modifying it does not affect the collection or the range. continue correctly advances the index.</p>
+<p>The loop variable (v, n, or i above) is a copy. Modifying it does not affect the collection or the range. continue correctly advances the index. The upper bound of a range is evaluated once, before the first iteration: <code>for (i in 0..count())</code> calls <code>count()</code> one time, and changing <code>hi</code> inside the loop does not change how many times it runs.</p>
+<p>Over a two-dimensional array, for-in binds each row in turn, so a nested for-in walks the elements:</p>
+<pre class="code-block"> int[2][3] m = {{1, 2, 3}, {4, 5, 6}};
+ for (row in m) {
+       for (x in row) { printf(&quot;%d &quot;, x); }
+ }
+ printf(&quot;\n&quot;);                  // 1 2 3 4 5 6</pre>
 <h2 class="section" id="sec-4-7">4.7 do / while</h2>
 <p>Like <code>while</code>, but the condition is checked <em>after</em> the body, so the body always runs at least once. Use it when the first iteration must happen before there is anything to test:</p>
 <pre class="code-block"> int n = 0;
@@ -887,6 +909,7 @@ pre.code-block {
  Point q = Point { 3.0, 4.0 };         // same as { x: 3.0, y: 4.0 }</pre>
 <pre class="code-block"> // Field-by-field
  Point r;       r.x = 5.0;   r.y = 6.0;</pre>
+<p>A field the literal leaves out is set to zero, as in C, so <code>Point { y: 2.5 }</code> has <code>x == 0.0</code>. Each value is checked against its field&#x27;s type, so a <code>string</code> given to an <code>int</code> field, an integer literal that does not fit the field, more values than the struct has fields, or the same field named twice are all compile errors.</p>
 <h2 class="section" id="sec-5-3">5.3 Methods</h2>
 <p>A method is a function inside a struct body. <code>self</code> refers to a pointer to the instance:</p>
 <pre class="code-block"> struct Rect {
@@ -902,6 +925,13 @@ pre.code-block {
 <pre class="code-block"> Rect r = Rect { w: 4.0, h: 3.0 };
  r.print();</pre>
 <p class="output"><em>Output:</em> Rect(4.0 x 3.0) area=12.0 perim=14.0</p>
+<p>A method written inside the struct receives <code>self</code> as a plain <code>*Rect</code>, which may modify the value. For that reason it cannot be called on a <code>const</code> value. A method that only reads can be written as a free function named <code>Type_method</code> whose receiver is <code>const T* self</code>; dot syntax finds it the same way, and it works on <code>const</code> and non-<code>const</code> values alike:</p>
+<pre class="code-block"> struct Counter { int n; }
+ int Counter_peek(const Counter* self) { return self.n; }   // read-only receiver</pre>
+<pre class="code-block"> const Counter c = Counter { n: 3 };
+ printf(&quot;%d\n&quot;, c.peek());      // 3
+ // a *Counter method on c is an error: declare it const Counter* self</pre>
+<p>A field and a method with the same name, or two fields with the same name, are rejected.</p>
 <h2 class="section" id="sec-5-3a">5.3a Operator overloading</h2>
 <p>For value types like vectors and matrices, the algebra reads better than nested calls. A struct can give an operator meaning by declaring <code>operator</code>, and then <code>a + b</code> resolves to it:</p>
 <pre class="code-block"> struct V3 { float x; float y; float z; }</pre>
@@ -954,6 +984,7 @@ pre.code-block {
  v.i = 0x3F800000;             // bit pattern for 1.0f
  printf(&quot;%f\n&quot;, v.f);        // 1.000000</pre>
 <p class="output"><em>Output:</em> 1.000000</p>
+<p>A union has the size and alignment C gives it: the size of its largest field, rounded up to the strictest field alignment. <code>union { uint8 tag; int64 wide; }</code> is 8 bytes and 8-aligned, so it lays out the same as the matching C union when you pass it across <code>extern</code>.</p>
 <h2 class="section" id="sec-5-6">5.6 Bitfields</h2>
 <p>A bitfield is a struct field with a width in bits written after a colon. Multiple bitfields pack into the same underlying integer word. This lets you represent hardware registers, protocol headers, or compact flags without manual bit manipulation:</p>
 <pre class="code-block"> struct Flags {
@@ -972,6 +1003,7 @@ pre.code-block {
 <p>Struct literals work with bitfields the same as with normal fields:</p>
 <pre class="code-block"> Flags g = Flags { a: 1, b: 7, c: 15 };
  printf(&quot;%d %d %d\n&quot;, g.a, g.b, g.c);        // 1 7 15</pre>
+<p>Increment, decrement and compound assignment work on a bitfield and wrap at its width, so after <code>g.c++</code> the 4-bit field holds 0. A signed field (<code>int8 d : 3</code>) sign-extends when read, including through a type alias. A bitfield must have an integer type, and its width must fit in that type: a <code>float</code> or pointer bitfield, or <code>uint32 x : 40</code>, is an error, and you cannot take a bitfield&#x27;s address.</p>
 <h2 class="section" id="sec-5-7">5.7 packed struct</h2>
 <p>By default the compiler inserts padding between struct fields to satisfy alignment requirements. A <code>uint8</code> followed by a <code>uint32</code> occupies 8 bytes, not 5, because the compiler adds 3 padding bytes before the <code>uint32</code>. The <code>packed</code> qualifier removes all padding, giving you the exact on-wire layout. This is essential for hardware register maps, network protocols, and interop with C structs declared with __attribute__((<code>packed</code>)):</p>
 <pre class="code-block"> struct Natural {            // default layout
@@ -1024,6 +1056,8 @@ pre.code-block {
  arr[0]=10; arr[1]=20; arr[2]=30; arr[3]=40;</pre>
 <pre class="code-block"> *int p = arr + 2;             // advances 2 × sizeof(int) = 8 bytes
  printf(&quot;%d\n&quot;, *p);        // 30</pre>
+<pre class="code-block"> int64 gap = p - arr;          // 2: the difference counts elements, not bytes
+ printf(&quot;%lld\n&quot;, gap);</pre>
 <pre class="code-block"> free(arr);</pre>
 <pre class="code-block"> Exception: *void and *char always use byte stride (1 byte per step), for C interop compatibility.</pre>
 <h2 class="section" id="sec-6-7">6.7 Null and checked nullable pointers</h2>
@@ -1036,6 +1070,17 @@ pre.code-block {
  if (q != null) {
        printf(&quot;%d&quot;, *q);    // ok: narrowed to non-null here
  }</pre>
+<p>Narrowing follows the flow of the code, so the usual C idioms all count as a check. The right side of <code>q != null &amp;&amp; *q &gt; 0</code> and of <code>q == null || *q &gt; 0</code> is narrowed, as is the true arm of <code>q != null ? *q : 0</code> and the body of <code>if (!(q == null))</code>. An early exit narrows everything after it, and a loop condition narrows the loop body:</p>
+<pre class="code-block"> int first(?*Node n) {
+       if (n == null) { return -1; }     // early exit
+       return n.v;                       // n is non-null from here on
+ }
+ int sum(?*Node n) {
+       int t = 0;
+       while (n != null) { t = t + n.v; n = n.next; }
+       return t;
+ }</pre>
+<p>A narrowed pointer can be passed or assigned where a plain <code>*T</code> is expected. Narrowing ends when the variable is reassigned (the new value is unchecked again) or when an inner block declares a new variable with the same name.</p>
 <p>A non-null <code>*T</code> converts to <code>?*T</code> freely (it is always safe to forget non-nullness); going the other way requires a null-check. <code>?*T</code> has the same representation as a bare pointer, so the safety is entirely at compile time with no runtime cost. Use <code>?*T</code> at the boundaries where <code>null</code> is a real possibility (a lookup that can miss, an optional field) and keep <code>*T</code> where the value is always present.</p>
 <h2 class="section" id="sec-6-8">6.8 Pointer constness</h2>
 <p><code>const</code> T* is a pointer to read-only data: you can read through it and rebind it, but cannot write through it. T* <code>const</code> is a read-only pointer: you can write through it but cannot rebind it. Adding <code>const</code> is always safe; removing it is a compile error:</p>
@@ -1048,7 +1093,7 @@ pre.code-block {
        for (i in 0..n) { s = s + p[i]; }
        return s;
  }</pre>
-<p>Use <code>const</code> T* parameters to communicate that a function will not modify the caller&#x27;s data. It is a contract enforced by the compiler.</p>
+<p>Use <code>const</code> T* parameters to communicate that a function will not modify the caller&#x27;s data. It is a contract enforced by the compiler. The address of a <code>const</code> variable has type <code>const T*</code>, so passing <code>&amp;x</code> of a <code>const int x</code> to a function taking <code>*int</code> is an error (&quot;discards a const qualifier&quot;). The same rule decides which methods a <code>const</code> struct can call (section 5.3).</p>
 <h2 class="section" id="sec-6-9">6.9 volatile</h2>
 <p>The <code>volatile</code> qualifier prevents the compiler from optimising away, caching, or reordering loads and stores to a pointer. Required for memory-mapped hardware registers, whose value can change independently of your program:</p>
 <pre class="code-block"> volatile let uart_dr: *uint8 = (uint8*) 0x09000000;
@@ -1094,6 +1139,28 @@ pre.code-block {
        return 0;
  }</pre>
 <p class="output"><em>Output:</em> Circle r=5.00 area=78.54 Rect 4.0x6.0 area=24.00 total: 102.54</p>
+<p>Notice the <code>&amp;</code>. An interface value is a pair of pointers, one to the struct and one to a table of its methods, so it always refers to a struct that lives somewhere else. You make one from the struct&#x27;s address. Passing the struct itself (<code>printShape(c)</code>) is a compile error that asks for a pointer, because the interface would have nothing to point at once the copy was gone.</p>
+<p>A struct satisfies an interface only when each method matches the interface&#x27;s signature: the same return type and the same parameter types after <code>self</code>. A method with the right name but a different signature is reported as &quot;does not satisfy interface&quot;.</p>
+<h2 class="section" id="sec-7-4">7.4 Interface values</h2>
+<p>An interface value is an ordinary value. You can keep one in a local, store it in a struct field, return it from a function, and reassign it to point at a different struct. Each call dispatches through the method table of whatever it currently refers to:</p>
+<pre class="code-block"> struct Scene { Shape main; int layer; }</pre>
+<pre class="code-block"> Shape pick(bool round, *Circle c, *Rectangle r) {
+       if (round) { return c; }
+       return r;
+ }</pre>
+<pre class="code-block"> int main() {
+       Circle      c = Circle      { radius: 1.0 };
+       Rectangle r = Rectangle { w: 2.0, h: 3.0 };
+       Shape s = &amp;c;
+       printf(&quot;%.2f\n&quot;, s.area());              // 3.14
+       s = &amp;r;
+       printf(&quot;%.2f\n&quot;, s.area());              // 6.00
+       Scene sc = Scene { main: pick(true, &amp;c, &amp;r), layer: 1 };
+       sc.main.describe();                      // Circle r=1.00 area=3.14
+       return 0;
+ }</pre>
+<p class="output"><em>Output:</em> 3.14 6.00 Circle r=1.00 area=3.14</p>
+<p>The interface value does not own the struct. Keep the struct alive for as long as any interface value refers to it, just as you would with a plain pointer.</p>
 <div class="chapter-start" id="chapter-8"><span class="chapter-label">Chapter 8</span>
 <h1 class="chapter-title">Templates</h1><hr class="chapter-rule"></div>
 <p>A template is a blueprint the compiler fills in with a concrete type when you use it. You write the logic once, parameterised by a type placeholder, and the compiler generates a separate, fully optimised version for each type you actually use. There is no runtime overhead: templates are entirely a compile-time mechanism.</p>
@@ -1112,6 +1179,7 @@ pre.code-block {
 <p>When a type parameter appears directly as a parameter type, the compiler can infer it from the arguments; the angle brackets become optional:</p>
 <pre class="code-block"> printf(&quot;%d\n&quot;, max(3, 5));           // 5   : T inferred as int
  printf(&quot;%d\n&quot;, identity(42));        // 42</pre>
+<p>A generic call is checked like any other call: the number of arguments, the number of type arguments (<code>identity&lt;int, int&gt;</code> is an error), and each argument&#x27;s type once <code>T</code> is known. When a type parameter cannot be inferred from the arguments, for example because it appears only in the return type, the compiler asks you to write it explicitly.</p>
 <h2 class="section" id="sec-8-2">8.2 A template struct</h2>
 <pre class="code-block"> struct Pair&lt;A, B&gt; {
        A first;
@@ -1207,6 +1275,7 @@ pre.code-block {
  int add(int a, int b) { return a + b; }
  let o: Ops;    o.op = add;
  printf(&quot;%d\n&quot;, o.op(3, 4));     // 7</pre>
+<p>A call through a <code>fn</code> value, including a struct field like <code>o.op</code>, is checked against the <code>fn</code> type: the wrong number of arguments or an argument of the wrong type is a compile error. A lambda body is a function of its own, so a <code>break</code> or <code>continue</code> inside it cannot target a loop outside it, and the enclosing function&#x27;s <code>defer</code> statements do not run when the lambda returns.</p>
 <h2 class="section" id="sec-9-6">9.6 Escaping closures</h2>
 <p>By default a closure environment lives on the stack. Zero allocation cost, but it cannot outlive the function that created it. When a closure must outlive its creator the parameter that receives it must be marked escaping:</p>
 <pre class="code-block"> void on_ready(int fd, escaping fn(int)-&gt;void cb) {
@@ -1264,6 +1333,17 @@ pre.code-block {
        printf(&quot;done\n&quot;);                  // always runs
  }</pre>
 <p class="output"><em>Output:</em> caught: division by zero done</p>
+<p><code>finally</code> runs on every way out of the <code>try</code>: falling through, an exception, and a <code>return</code>, <code>break</code> or <code>continue</code> from either the <code>try</code> body or a <code>catch</code> handler. A handler that returns early still prints <code>done</code> first:</p>
+<pre class="code-block"> int attempt() {
+       try {
+            return divide(1, 0);
+       } catch (string e) {
+            return -1;                        // finally runs before this return
+       } finally {
+            printf(&quot;done\n&quot;);
+       }
+       return 0;
+ }</pre>
 <pre class="code-block"> Link with -lc++ (macOS) or -lstdc++ (Linux) when using exceptions; on Windows a mingw g++ supplies the runtime and the SEH unwinder.</pre>
 <h2 class="section" id="sec-10-3">10.3 The ? operator</h2>
 <p>Chaining multiple <code>Result</code>-returning calls with explicit if (r.ok == 0) return <code>Err</code> checks gets verbose quickly. The postfix ? operator shortens this: applied to a <code>Result</code>&lt;T,E&gt; expression, it either unwraps the value on success or immediately returns the <code>Err</code> to the caller:</p>
