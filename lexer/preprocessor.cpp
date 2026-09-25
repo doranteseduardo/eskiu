@@ -556,6 +556,20 @@ static std::string ppStripComments(const std::string& line, bool& openAtEnd) {
     return out;
 }
 
+// `__FILE__`'s body: the path as a string literal, with `\` and `"` escaped so a
+// Windows path or a quote in a file name stays one well-formed literal.
+static std::string ppFileLiteral(const std::string& path) {
+    std::string s = "\"";
+    for (char c : path) {
+        if (c == '\\' || c == '"') { s += '\\'; s += c; }
+        else if (c == '\n') s += "\\n";
+        else if (c == '\t') s += "\\t";
+        else if (c == '\r') s += "\\r";
+        else s += c;
+    }
+    return s + "\"";
+}
+
 void preprocess(const std::string& src,
                        std::map<std::string, Macro>& defines,
                        std::string& result,
@@ -564,7 +578,8 @@ void preprocess(const std::string& src,
     // Predefined `__FILE__` (constant for this file). `__LINE__` is refreshed each
     // line below. Both are ordinary object-like macros so ppExpand handles them
     // with correct identifier boundaries.
-    { Macro m; m.body = "\"" + filename + "\""; defines["__FILE__"] = m; }
+    Macro fileMacro; fileMacro.body = ppFileLiteral(filename);
+    defines["__FILE__"] = fileMacro;
     const std::string fileLabel = filename.empty() ? "<input>" : filename;
     auto ppError = [&](int ln, int col, const std::string& msg) {
         std::cerr << "error: " << fileLabel << ":" << ln << ":" << col << ": " << msg << std::endl;

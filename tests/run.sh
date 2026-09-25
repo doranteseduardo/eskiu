@@ -270,6 +270,16 @@ else
     bad "cli/unused-param-position" "$(printf '%s' "$w_out" | grep -m1 warning)"
 fi
 
+# __FILE__ is a well-formed string literal even when the path has a quote or a backslash.
+qdir="$work/q\"d\\ir"
+mkdir -p "$qdir"
+printf 'extern int printf(string fmt, ...);\nint main() { printf("%%s\\n", __FILE__); return 0; }\n' > "$qdir/f.esk"
+if "$ESKIUC" "$qdir/f.esk" -o "$work/fq" >/dev/null 2>&1 && [[ "$("$work/fq")" == "$qdir/f.esk" ]]; then
+    ok "cli/file-macro-escape"
+else
+    bad "cli/file-macro-escape" "__FILE__ for '$qdir/f.esk' is not the path"
+fi
+
 # `--help` documents the subcommands and lists only Eskiu's options (the LLVM
 # backend's internal flags are hidden).
 help_out="$("$ESKIUC" --help 2>&1)"

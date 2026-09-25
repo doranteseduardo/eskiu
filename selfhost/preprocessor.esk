@@ -940,6 +940,27 @@ string pp_strip_comments(string line, *int open_at_end) {
     return (string)String_cstr(&out);
 }
 
+// `__FILE__`'s body: the path as a string literal with `\` and `"` escaped (mirrors
+// ppFileLiteral).
+string pp_file_literal(string path) {
+    int n = pp_clen(path);
+    String s;
+    String_init(&s, n + 4);
+    String_push(&s, (char)34);
+    int i = 0;
+    while (i < n) {
+        int c = (int)path[i];
+        if (c == 92 || c == 34) { String_push(&s, (char)92); String_push(&s, (char)c); }
+        else if (c == 10) { String_append(&s, "\\n"); }
+        else if (c == 9) { String_append(&s, "\\t"); }
+        else if (c == 13) { String_append(&s, "\\r"); }
+        else { String_push(&s, (char)c); }
+        i = i + 1;
+    }
+    String_push(&s, (char)34);
+    return (string)String_cstr(&s);
+}
+
 // Preprocess `src` (length `len`) into a returned NUL-terminated string. `filename`
 // becomes __FILE__ (quoted) and labels diagnostics. Sets `*had_err` to 1 after
 // reporting any directive error (an active #error, a bad #if, an unbalanced
@@ -950,14 +971,9 @@ string pp_run(string src, int len, string filename, *int had_err) {
     List_init<PPMacro>(&tbl, 16);
 
     // Predefined __FILE__ = "<filename>" (an ordinary object-like macro).
-    String fb;
-    String_init(&fb, pp_clen(filename) + 2);
-    String_push(&fb, (char)34);
-    String_append(&fb, filename);
-    String_push(&fb, (char)34);
     PPMacro fm;
     fm.name = "__FILE__"; fm.is_function = 0; List_init<string>(&fm.params, 1);
-    fm.body = (string)String_cstr(&fb);
+    fm.body = pp_file_literal(filename);
     pp_define(&tbl, fm);
 
     // Host OS macro (e.g. __APPLE__/__linux__), so platform `#ifdef`s in the stdlib pick

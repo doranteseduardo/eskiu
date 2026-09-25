@@ -69,6 +69,22 @@ for f in "${files[@]}"; do
     fi
 done
 
+# __FILE__ for a path with a quote and a backslash (escaped into one string literal).
+QDIR="$(mktemp -d)"
+mkdir -p "$QDIR/q\"d\\ir"
+printf 'string f = __FILE__;\n' > "$QDIR/q\"d\\ir/f.esk"
+total=$((total + 1))
+ref=$("$BIN" --test-lexer "$QDIR/q\"d\\ir/f.esk" 2>/dev/null | strip_banner)
+got=$("$PPBIN" "$QDIR/q\"d\\ir/f.esk" 2>/dev/null)
+if [ "$ref" = "$got" ] && printf '%s' "$ref" | grep -qF "q\"d\\ir/f.esk'"; then
+    echo "ok    __FILE__ escaping"
+else
+    echo "FAIL  __FILE__ escaping"
+    diff <(printf '%s\n' "$ref") <(printf '%s\n' "$got") | sed 's/^/      /'
+    fail=1
+fi
+rm -rf "$QDIR"
+
 echo "----"
 if [ "$fail" -eq 0 ]; then
     echo "parity: $total/$total files match"
