@@ -1,0 +1,31 @@
+// base64_decode rejects impossible lengths and misplaced padding (it used to
+// decode "Z" and "Z=g=" to something) while still accepting padded, unpadded,
+// and whitespace-broken input.
+import <mem>;
+import <base64>;
+extern int printf(string fmt, ...);
+
+void dec(string s) {
+    int n = (int)strlen(s);
+    *uint8 out = alloc<uint8>(base64_decoded_len(n) + 1);
+    int m = base64_decode((*uint8)s, n, out);
+    if (m < 0) { printf("[%s] -> error\n", s); }
+    else { out[m] = (uint8)0; printf("[%s] -> %d [%s]\n", s, m, (string)out); }
+    free((*void)out);
+}
+
+int main() {
+    dec("Z");
+    dec("Z=g=");
+    dec("SGVsbG8=");
+    dec("SGVsbG8");
+    dec("SGVsbA==");
+    dec("SGVsbA");
+    dec("SGVsb");
+    dec("SGVsbA=");
+    dec("SGVsbA===");
+    dec("SGVs\t bG8=");
+    dec("SGV*bG8=");
+    dec("");
+    return 0;
+}

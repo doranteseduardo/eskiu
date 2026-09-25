@@ -1,0 +1,12 @@
+[Z] -> error
+[Z=g=] -> error
+[SGVsbG8=] -> 5 [Hello]
+[SGVsbG8] -> 5 [Hello]
+[SGVsbA==] -> 4 [Hell]
+[SGVsbA] -> 4 [Hell]
+[SGVsb] -> error
+[SGVsbA=] -> error
+[SGVsbA===] -> error
+[SGVs	 bG8=] -> 5 [Hello]
+[SGV*bG8=] -> error
+[] -> 0 []

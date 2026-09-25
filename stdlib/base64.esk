@@ -74,21 +74,28 @@ int base64_encode(*uint8 src, int n, *uint8 out) {
 }
 
 // Decode `n` characters from src into out. Returns the number of bytes written,
-// or -1 on a malformed character. Whitespace and padding ('=') are ignored.
+// or -1 on malformed input: a non-Base64 character, '=' anywhere but the end
+// (or more than two), a padded input that is not whole 4-character groups, or
+// a length that cannot come from any byte string (one character left over, the
+// sign of a truncated input). Unpadded input is accepted. Whitespace is ignored.
 // out must hold base64_decoded_len(n) bytes.
 int base64_decode(*uint8 src, int n, *uint8 out) {
     int acc  = 0;   // bit accumulator
     int bits = 0;   // bits currently in acc
     int o    = 0;
     int i    = 0;
+    int data = 0;   // Base64 digits seen
+    int pad  = 0;   // '=' seen (only trailing padding is valid)
     while (i < n) {
         uint8 c = src[i];
         i = i + 1;
-        if (c == 61) { continue; }                       // '=' padding
         if (c == 32 || c == 10 || c == 13 || c == 9) { continue; }  // whitespace
+        if (c == 61) { pad = pad + 1; continue; }                   // '=' padding
+        if (pad > 0) { return -1; }                                 // data after padding
         int v = base64_value(c);
         if (v < 0) { return -1; }
-        acc  = (acc << 6) | v;
+        data = data + 1;
+        acc  = ((acc << 6) | v) & 16777215;
         bits = bits + 6;
         if (bits >= 8) {
             bits = bits - 8;
@@ -96,5 +103,8 @@ int base64_decode(*uint8 src, int n, *uint8 out) {
             o = o + 1;
         }
     }
+    if (data % 4 == 1) { return -1; }                               // truncated: a lone 6-bit digit
+    if (pad > 2) { return -1; }
+    if (pad > 0 && (data + pad) % 4 != 0) { return -1; }            // padding must complete the group
     return o;
 }
