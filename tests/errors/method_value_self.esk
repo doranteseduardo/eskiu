@@ -1,0 +1,5 @@
+// EXPECT-ERROR: 'P_get' cannot be called as method 'get' of 'P': its first parameter must be '*P self'
+// Dot syntax passes the receiver's address; a by-value `self` read garbage.
+struct P { int a; }
+int P_get(P self) { return self.a; }
+int main() { P p = P{a: 4}; return p.get(); }

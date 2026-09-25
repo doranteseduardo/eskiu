@@ -557,6 +557,17 @@ void TypeChecker::visit(CallExpr* node) {
             const auto& sig = mit->second;
             const auto& paramTypes = sig.second; // first param is "self"
             calledFns.insert(mangled);           // -Wall: `x.m()` references `Type_m`
+            // Dot syntax passes the receiver's address, so the function's first parameter
+            // must be a pointer to the receiver's type (`*P self` or `const P* self`).
+            if (paramTypes.empty() || !tyq::isPtr(paramTypes[0]) ||
+                ty::Type::parse(normalizeType(tyq::strip(tyq::pointee(paramTypes[0])))).nominalName() != baseType) {
+                errorAt(node, "'" + mangled + "' cannot be called as method '" + member->member + "' of '" +
+                              baseType + "': its first parameter must be '*" + baseType + " self' (it is '" +
+                              (paramTypes.empty() ? std::string("none") : paramTypes[0]) + "')");
+                for (auto& a : node->args) a->accept(this);
+                expressionTypes[node] = sig.first;
+                return;
+            }
             if (auto gm = genericMethodInsts.find(mangled); gm != genericMethodInsts.end())
                 queueInstance(gm->second.fn, gm->second.owner->typeParams, gm->second.subs,
                               gm->second.owner->name, "." + member->member, mangled,

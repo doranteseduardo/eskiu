@@ -3373,6 +3373,16 @@ void sema_expr_k(Sema* s, *ExprNode e) {
                 if (List_len<TypeParam>(&sd.type_params) > 0 && List_len<string>(&rtargs) == List_len<TypeParam>(&sd.type_params)) {
                     sema_queue_inst(s, imd, sd, &rtargs, sd.name, sema_cat(".", mem.sval));
                 }
+            } else if (ffn != null && List_len<TypeParam>(&ffn.type_params) == 0
+                       && (List_len<Param>(&ffn.params) == 0 || sema_has_star(List_get<Param>(&ffn.params, 0).ty) == 0
+                           || sema_streq(sema_struct_of_type(List_get<Param>(&ffn.params, 0).ty), sn) == 0)) {
+                // Dot syntax passes the receiver's address: the first parameter must be a
+                // pointer to the receiver's type (mirrors the C++ method path).
+                string fp0 = "none";
+                if (List_len<Param>(&ffn.params) > 0) { fp0 = List_get<Param>(&ffn.params, 0).ty; }
+                s.had_error = 1;
+                printf("error: %s:%d:%d: '%s' cannot be called as method '%s' of '%s': its first parameter must be '*%s self' (it is '%s')\n",
+                       s.filename, s.line, s.col, ffn.name, mem.sval, sn, sn, fp0);
             } else if (ffn != null && List_len<TypeParam>(&ffn.type_params) == 0 && List_len<Param>(&ffn.params) > 0) {
                 List<string> fpts; List_init<string>(&fpts, 4);
                 int fpi = 1; int fpn = List_len<Param>(&ffn.params);
