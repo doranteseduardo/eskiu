@@ -236,7 +236,8 @@ void seedPredefinedMacros(std::map<std::string, Macro>& macros, const std::strin
     // for both widths and adds _WIN64 only when 64-bit).
     bool tgt64 = tt.find("x86_64") != std::string::npos ||
                  tt.find("amd64") != std::string::npos ||
-                 tt.find("aarch64") != std::string::npos;
+                 tt.find("aarch64") != std::string::npos ||
+                 tt.find("arm64") != std::string::npos;
     if (tgtLinux)        { macros["__linux__"] = os; }
     else if (tgtApple)   { macros["__APPLE__"] = os; }
     else if (tgtWindows) {

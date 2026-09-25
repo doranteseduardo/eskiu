@@ -140,6 +140,17 @@ for tgt in "" x86_64-unknown-linux-gnu x86_64-w64-windows-gnu aarch64-none-elf; 
     libcheck "threads-$tn"    ${tf[@]+"${tf[@]}"} tests/threads.esk
     libcheck "net-$tn"        ${tf[@]+"${tf[@]}"} tests/net_echo.esk
 done
+# Target macros: _WIN64 accompanies _WIN32 on every 64-bit Windows triple (x86_64,
+# aarch64 and arm64 spellings), and both drivers predefine the same set.
+for tgt in x86_64-pc-windows-msvc aarch64-pc-windows-msvc arm64-pc-windows-msvc i686-pc-windows-msvc; do
+    total=$((total + 1))
+    "$BIN" --target "$tgt" tests/target_macros.esk --test-parser 2>&1 | grep -o 'is_win[0-9]*' > "$WORK/m.cpp"
+    ESKIU_ROOT="$ROOT" "$ESKMAIN" --target "$tgt" tests/target_macros.esk --test-parser 2>&1 | grep -o 'is_win[0-9]*' > "$WORK/m.self"
+    want="is_win32"; case "$tgt" in i686*) ;; *) want="is_win32 is_win64" ;; esac
+    got="$(tr '\n' ' ' < "$WORK/m.cpp" | sed 's/ $//')"
+    if [ "$got" = "$want" ] && cmp -s "$WORK/m.cpp" "$WORK/m.self"; then echo "ok    macros/$tgt  ($got)"
+    else echo "FAIL  macros/$tgt  (cpp: $got | self: $(tr '\n' ' ' < "$WORK/m.self"))"; fail=1; fi
+done
 libcheck "no-default-libs" --no-default-libs tests/exceptions.esk
 
 echo "----"

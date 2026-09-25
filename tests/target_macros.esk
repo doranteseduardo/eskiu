@@ -1,0 +1,10 @@
+// The target-OS macros follow --target: _WIN64 accompanies _WIN32 for every 64-bit
+// Windows triple (x86_64, aarch64, arm64). driver_parity.sh checks the dumps.
+#ifdef _WIN32
+int is_win32() { return 1; }
+#endif
+#ifdef _WIN64
+int is_win64() { return 1; }
+#endif
+
+int main() { return 0; }

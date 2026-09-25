@@ -370,7 +370,7 @@ int esk_main(int argc, string* argv) {
              || str_contains(triple, "mingw") == 1) {
         g_pp_os = "_WIN32";
         if (str_contains(triple, "x86_64") == 1 || str_contains(triple, "amd64") == 1
-            || str_contains(triple, "aarch64") == 1) { List_push<string>(&g_pp_predef, "_WIN64"); }
+            || str_contains(triple, "aarch64") == 1 || str_contains(triple, "arm64") == 1) { List_push<string>(&g_pp_predef, "_WIN64"); }
     } else { g_pp_os = ""; }
     if (freestanding == 1) { List_push<string>(&g_pp_predef, "__ESKIU_FREESTANDING__"); }
     // The architecture macro (__aarch64__ / __x86_64__ / __arm__) follows the triple's

@@ -334,6 +334,7 @@ when you add a test.
 | `arrays_md` | multidimensional array lowering, nested initializer, per-dimension index |
 | `pp_if` | `#if` / `#elif` with integer constant expressions and `defined(X)` |
 | `ternary_ir` | ternary lowering: branch plus result slot, arms coerced to the common type |
+| `target_macros` | `_WIN64` beside `_WIN32` for every 64-bit Windows triple (dumps compared by `driver_parity.sh`) |
 
 ### `error` tests (must be rejected)
 
