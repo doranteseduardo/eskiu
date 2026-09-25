@@ -22,6 +22,8 @@ int E = Blue * 2 + Green;
 int SZ = (int)sizeof(int64) * 2;
 int* P = &B;
 char CH = 'a' + 1;
+const int64 WIDE = -5000000000;
+int64 WIDE2 = WIDE * 2;
 
 int counter() { static int n = D * 10; n = n + 1; return n; }
 
@@ -34,5 +36,6 @@ int main() {
     printf("%lld %u %d\n", BIG, U, (int)W);
     printf("%d %d %d\n", T, SH, (int)FLAG);
     printf("%d %d %d %c\n", E, SZ, *P, CH);
+    printf("%lld %lld\n", WIDE, WIDE2);
     return 0;
 }

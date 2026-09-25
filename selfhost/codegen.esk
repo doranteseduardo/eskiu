@@ -37,8 +37,9 @@ struct CgEnumC { string name; string val; }
 // A folded compile-time constant scalar (a global initializer): ok = foldable; isf =
 // floating (value in dv) vs integer (value in iv, two's-complement 64-bit).
 struct CgK { int ok; int isf; int64 iv; double dv; }
-// A top-level `const` float/double, by name, so a later constant initializer can use it.
-struct CgFK { string name; double v; }
+// A folded top-level `const` that is not an i32 (float/double, int64, ...), by name, so
+// a later constant initializer can use it (i32 consts live in econsts).
+struct CgFK { string name; CgK k; }
 // An ADT enum variant: its name, owning enum, integer tag, and payload field types.
 struct CgVariant { string vname; string ename; int tag; List<string> ptys; }
 // A bitfield slot: which struct/field, the LLVM word it lives in (field index), its bit
@@ -87,7 +88,7 @@ struct Codegen {
     List<CgFn> fns;          // function → return type / variadic signature
     List<CgStruct> structs;  // struct name → field layout
     List<CgEnumC> econsts;   // plain-enum constants → value
-    List<CgFK> fconsts;      // top-level `const` float/double values (for constant folding)
+    List<CgFK> fconsts;      // top-level non-i32 `const` values (for constant folding)
     List<string> enum_names; // enum type names (lower to i32)
     List<CgVariant> variants; // ADT enum variants (by name)
     List<string> adt_names;  // ADT enum type names (lower to %Name, a tagged union)
@@ -1814,7 +1815,7 @@ CgK cg_cfold(Codegen* g, *ExprNode e) {
         int i = List_len<CgFK>(&g.fconsts) - 1;
         while (i >= 0) {
             CgFK f = List_get<CgFK>(&g.fconsts, i);
-            if (cg_streq(f.name, e.sval) == 1) { return cg_k_flt(f.v); }
+            if (cg_streq(f.name, e.sval) == 1) { return f.k; }
             i = i - 1;
         }
         return cg_k_none();
@@ -5356,19 +5357,26 @@ void cg_program(Codegen* g, *Program prog) {
             ec.val = cg_num_const("i32", d.init.sval);   // decimal, sign kept (`-5` stays -5)
             List_push<CgEnumC>(&g.econsts, ec);
         } else if (d.kind == DK_VARDECL && d.is_const == 1 && d.init != null) {
-            // A constant expression (`A * 2`, `1.0 / 4.0`): fold it now, in source order.
+            // A constant expression (`A * 2`, `1.0 / 4.0`) or a non-i32 const: fold it now,
+            // in source order, converted to the declared type.
             CgK k = cg_cfold(g, d.init);
             string dt = cg_dealias(g, d.ret_type);
+            string dll = cg_lltype(g, dt);
             if (k.ok == 1 && cg_is_float(dt) == 1) {
-                double dv = k.dv;
-                if (k.isf == 0) { dv = (double)k.iv; }
-                let fk: CgFK; fk.name = d.name; fk.v = dv;
+                if (k.isf == 0) { k = cg_k_flt((double)k.iv); }
+                let fk: CgFK; fk.name = d.name; fk.k = k;
                 List_push<CgFK>(&g.fconsts, fk);
-            } else if (k.ok == 1 && k.isf == 0 && cg_int_w(cg_lltype(g, dt)) > 1) {
-                let ec2: CgEnumC;
-                ec2.name = d.name;
-                ec2.val = cg_i64toa(cg_k_wrap(k.iv, cg_int_w(cg_lltype(g, dt)), cg_is_unsigned(dt)));
-                List_push<CgEnumC>(&g.econsts, ec2);
+            } else if (k.ok == 1 && cg_int_w(dll) > 1) {
+                int64 iv = k.iv;
+                if (k.isf == 1) { iv = (int64)k.dv; }
+                iv = cg_k_wrap(iv, cg_int_w(dll), cg_is_unsigned(dt));
+                if (cg_streq(dll, "i32") == 1) {           // folded reads are i32 operands
+                    let ec2: CgEnumC; ec2.name = d.name; ec2.val = cg_i64toa(iv);
+                    List_push<CgEnumC>(&g.econsts, ec2);
+                } else {
+                    let ik: CgFK; ik.name = d.name; ik.k = cg_k_int(iv);
+                    List_push<CgFK>(&g.fconsts, ik);
+                }
             }
         }
         ci = ci + 1;
