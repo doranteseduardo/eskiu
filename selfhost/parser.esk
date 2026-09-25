@@ -1115,6 +1115,10 @@ void check_name_not_keyword(Parser* p) {
     check_name_not_keyword(p);
     if (p_at(p) != IDENT) { p.pos = save; return null; }
     string nm = tok_text(p.src, p_peek(p)); p_adv(p);
+    if (p_at(p) == LBRACKET) {             // C-style `int a[3];`: arrays are `int[3] a`
+        printf("error: Error parsing declaration: Expected declaration\n");
+        exit(1);
+    }
     if (p_at(p) == EQ) {
         p_adv(p);
         *ExprNode init = parse_expr(p);
@@ -1687,6 +1691,10 @@ int str_to_int(string s) {
     if (p_at(p) == LPAREN || p_at(p) == LT) {
         p.pos = save;                      // it's a function — re-parse from the top
         return parse_function(p);
+    }
+    if (p_at(p) == LBRACKET) {             // C-style `int grid[3][4];`: arrays are `int[3][4] grid`
+        printf("error: Expected declaration\n");
+        exit(1);
     }
     *ExprNode init = null;
     if (p_at(p) == EQ) { p_adv(p); init = parse_expr(p); }

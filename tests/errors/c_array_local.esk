@@ -1,0 +1,6 @@
+// EXPECT-ERROR: Expected declaration
+// C-style array declarators are not Eskiu syntax: write `int[3] a;`.
+int main() {
+    int a[3];
+    return 0;
+}
