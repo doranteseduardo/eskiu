@@ -128,6 +128,7 @@ DeclPtr Parser::parseDeclaration() {
                 }
                 members.push_back({mname, val});
                 payloads.push_back(payload);
+                if (!enumTypeParams.empty()) sharedGenericNames->insert(mname);   // Some<int>(x)
                 next = val + 1;
                 if (!match(TokenType::COMMA)) break;
             }
@@ -328,6 +329,7 @@ DeclPtr Parser::parseFunctionDecl() {
         name = consume(TokenType::IDENT, "Expected function name").value;
         // Optional type parameters: int max<T>(T a, T b) { ... }
         parseTypeParams(typeParams, typeConstraints);
+        if (!typeParams.empty()) sharedGenericNames->insert(name);
     }
 
     consume(TokenType::LPAREN, "Expected '('");

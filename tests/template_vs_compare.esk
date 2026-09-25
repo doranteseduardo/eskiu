@@ -1,0 +1,33 @@
+// `a < b, c > (d)` is two comparisons, not a template call on `a`: a call needs a
+// known generic callee or type arguments that can only be types.
+extern int printf(string fmt, ...);
+
+struct Box<T> { T v; }
+enum Opt<T> { Nothing, Just(T) }
+
+T ident<T>(T x) { return x; }
+
+int f2(bool x, bool y) { return (int)x * 10 + (int)y; }
+
+int opt_or(Opt<int> o, int d) {
+    match o {
+        Just(v) -> return v;
+        Nothing -> return d;
+    }
+}
+
+int main() {
+    int a = 1; int b = 2; int c = 3; int d = 0;
+    printf("%d\n", f2(a < b, c > (d)));
+    printf("%d\n", f2(a<b, c>(d)));
+    int[4] arr = {1, 2, 3, 4};
+    printf("%d\n", f2(a < arr[1], arr[2] > (d)));
+    bool[2] bs = {a < b, c > (a)};
+    printf("%d %d\n", (int)bs[0], (int)bs[1]);
+    bool r = a < b >> (c);
+    printf("%d\n", (int)r);
+    printf("%d\n", ident<int>(7));
+    Box<int> bx = Box<int>{v: 9};
+    printf("%d %d\n", bx.v, opt_or(Just<int>(5), 0));
+    return 0;
+}

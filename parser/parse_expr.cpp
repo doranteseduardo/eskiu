@@ -136,6 +136,27 @@ bool Parser::isTypeName(const std::string& name) const {
     return false;
 }
 
+bool Parser::typeArgIsEvident(const std::string& t) const {
+    if (t.find_first_of("<(") != std::string::npos) return true;   // Name<...> or fn(...)->R
+    size_t b = 0, e = t.size();
+    for (;;) {
+        if (b < e && (t[b] == '?' || t[b] == '*')) b++;
+        else if (t.compare(b, 6, "const ") == 0) b += 6;
+        else break;
+    }
+    for (;;) {
+        if (e > b && t[e - 1] == ']') { size_t o = t.rfind('[', e - 1); if (o == std::string::npos || o < b) break; e = o; }
+        else if (e - b > 6 && t.compare(e - 6, 6, "*const") == 0) e -= 6;
+        else if (e > b && t[e - 1] == '*') e--;
+        else break;
+    }
+    std::string base = t.substr(b, e - b);
+    static const std::set<std::string> prims = {
+        "int", "int8", "int16", "int32", "int64", "uint", "uint8", "uint16", "uint32", "uint64",
+        "float", "double", "bool", "char", "string", "void"};
+    return prims.count(base) > 0 || isTypeName(base);
+}
+
 bool Parser::starParenIsCast() const {
     size_t k = 1;
     while (peek_ahead(k).type == TokenType::STAR) k++;
@@ -287,6 +308,8 @@ ExprPtr Parser::parsePostfix() {
 
     while (true) {
         // Template function call: ident<TypeArg, ...>(args)
+        // `a < b, c > (d)` reads as a call only when the callee is a known generic
+        // (function, enum variant or type) or every argument can only be a type.
         if (auto* ident = dynamic_cast<IdentExpr*>(expr.get())) {
             if (check(TokenType::LT)) {
                 size_t savePos = current;
@@ -294,7 +317,10 @@ ExprPtr Parser::parsePostfix() {
                     advance(); // consume <
                     std::vector<std::string> typeArgs;
                     do { typeArgs.push_back(parseType()); } while (match(TokenType::COMMA));
-                    if (check(TokenType::GT) || check(TokenType::RSHIFT)) {
+                    bool knownGeneric = sharedGenericNames->count(ident->name) || isTypeName(ident->name);
+                    bool allTypes = true;
+                    for (const auto& ta : typeArgs) allTypes = allTypes && typeArgIsEvident(ta);
+                    if ((knownGeneric || allTypes) && (check(TokenType::GT) || check(TokenType::RSHIFT))) {
                         consumeTemplateClose("Expected '>'");
                         if (match(TokenType::LPAREN)) {
                             // Template function call: Name<T,...>(args)

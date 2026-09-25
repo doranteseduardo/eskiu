@@ -109,6 +109,7 @@ when you add a test.
 | `template_struct_literal` | named template struct literal `Pair<int,float>{…}` |
 | `template_nested_close` | a lexed `>>` closes nested brackets (`List_init<List<int>>`) |
 | `nested_template` | a template fn calling another with the type param forwarded |
+| `template_vs_compare` | `f(a < b, c > (d))` is two comparisons; `Name<...>(` is a call only for a known generic or type-only arguments |
 | `list_struct` | `List<StructType>` used through helper functions |
 | `list_free_reuse` | `List_free` sets `data` to null: a push after it regrows the list and a second free (also via `String_split_free`) is a no-op, not a double free |
 | `member_temp` | member access on a struct-valued temporary (call result) |

@@ -36,6 +36,7 @@ struct Parser {
 // them up once before parsing; a fresh process per parity test resets them.
 List<string> g_imported;       // resolved import paths already parsed (dedup)
 List<string> g_typenames;      // declared type names → enables `(Foo)x` casts
+List<string> g_genericnames;   // generic fns + generic enum variants (`Name<...>(` is a call)
 int g_cur_pack;                // active `#pragma pack(N)` alignment (0 = natural)
 List<int> g_pack_stack;        // saved pack values for `pack(push, N)` / `pack(pop)`
 List<string> g_link_libs;      // `#pragma link("name")` libraries, first-seen order, no dups
@@ -136,6 +137,7 @@ void parser_session_init() {
     g_pp_hook_set = 1;
     List_init<string>(&g_imported, 16);
     List_init<string>(&g_typenames, 64);
+    List_init<string>(&g_genericnames, 16);
     g_cur_pack = 0;
     List_init<int>(&g_pack_stack, 8);
     List_init<string>(&g_link_libs, 4);
@@ -497,6 +499,52 @@ int is_type_name(Parser* p, string name) {
         i = i + 1;
     }
     return 0;
+}
+
+// Is `name` a generic function or generic enum variant parsed so far?
+int is_generic_name(string name) {
+    int i = 0;
+    while (i < List_len<string>(&g_genericnames)) {
+        if (str_eq(List_get<string>(&g_genericnames, i), name) == 1) { return 1; }
+        i = i + 1;
+    }
+    return 0;
+}
+
+// Can the parsed template argument `t` only be a type (mirrors Parser::typeArgIsEvident)?
+// A bare name that is not a declared type (`b` in `f(a < b, c > (d))`) may equally be
+// a comparison operand.
+int type_arg_evident(Parser* p, string t) {
+    int n = cstr_len(t);
+    int i = 0;
+    while (i < n) { if ((int)t[i] == 60 || (int)t[i] == 40) { return 1; } i = i + 1; }   // '<' '('
+    int b = 0;
+    int e = n;
+    int go = 1;
+    while (go == 1) {
+        go = 0;
+        if (b < e && ((int)t[b] == 63 || (int)t[b] == 42)) { b = b + 1; go = 1; }          // '?' '*'
+        else if (e - b >= 6 && str_eq(p_sub(t, b, b + 6), "const ") == 1) { b = b + 6; go = 1; }
+    }
+    go = 1;
+    while (go == 1) {
+        go = 0;
+        if (e > b && (int)t[e - 1] == 93) {                                              // ']'
+            int o = e - 1;
+            while (o >= b && (int)t[o] != 91) { o = o - 1; }                              // '['
+            if (o >= b) { e = o; go = 1; }
+        }
+        else if (e - b > 6 && str_eq(p_sub(t, e - 6, e), "*const") == 1) { e = e - 6; go = 1; }
+        else if (e > b && (int)t[e - 1] == 42) { e = e - 1; go = 1; }
+    }
+    string base = p_sub(t, b, e);
+    if (str_eq(base, "int") == 1 || str_eq(base, "int8") == 1 || str_eq(base, "int16") == 1
+        || str_eq(base, "int32") == 1 || str_eq(base, "int64") == 1 || str_eq(base, "uint") == 1
+        || str_eq(base, "uint8") == 1 || str_eq(base, "uint16") == 1 || str_eq(base, "uint32") == 1
+        || str_eq(base, "uint64") == 1 || str_eq(base, "float") == 1 || str_eq(base, "double") == 1
+        || str_eq(base, "bool") == 1 || str_eq(base, "char") == 1 || str_eq(base, "string") == 1
+        || str_eq(base, "void") == 1) { return 1; }
+    return is_type_name(p, base);
 }
 
 // Push a decl's type-param names onto g_tparams; returns the old depth for restoring.
@@ -948,15 +996,23 @@ int lambda_ahead(Parser* p) {
             int save_gt = p.pending_gt;
             p.spec = p.spec + 1;
             p_adv(p);                          // '<'
+            // `a < b, c > (d)` reads as a call only when the callee is a known generic
+            // (function, enum variant or type) or every argument can only be a type.
+            int evident = 1;
             string sig = str_concat(e.sval, "<");
-            sig = str_concat(sig, parse_type(p));
+            string ta = parse_type(p);
+            if (type_arg_evident(p, ta) == 0) { evident = 0; }
+            sig = str_concat(sig, ta);
             while (p_at(p) == COMMA) {
                 p_adv(p);
                 sig = str_concat(sig, ",");
-                sig = str_concat(sig, parse_type(p));
+                ta = parse_type(p);
+                if (type_arg_evident(p, ta) == 0) { evident = 0; }
+                sig = str_concat(sig, ta);
             }
+            if (is_generic_name(e.sval) == 1 || is_type_name(p, e.sval) == 1) { evident = 1; }
             int matched = 0;
-            if (at_tclose(p) == 1) {
+            if (evident == 1 && at_tclose(p) == 1) {
                 consume_tclose(p);
                 sig = str_concat(sig, ">");
                 if (p_at(p) == LPAREN) {
@@ -1933,6 +1989,7 @@ string parse_operator_token(Parser* p) {
         d.name = tok_text(p.src, nm);
         d.line = nm.line; d.col = nm.col;  // diagnostics point at the name (as the C++ parser)
         parse_type_params(p, &d.type_params, 1);   // optional <T, U: Iface>
+        if (List_len<TypeParam>(&d.type_params) > 0) { List_push<string>(&g_genericnames, d.name); }
     }
     p_expect(p, LPAREN, "Expected '('");
     parse_params(p, d);                    // fills d.params, stops at ')'
@@ -2152,6 +2209,7 @@ string i64_to_str(int64 n) {
         pm.ty = i64_to_str(val);
         List_push<Param>(&d.params, pm);
         List_push<List<string>>(&d.payloads, pl);
+        if (List_len<TypeParam>(&d.type_params) > 0) { List_push<string>(&g_genericnames, mname); }   // Some<int>(x)
         next = val + (int64)1;
         if (p_at(p) == COMMA) { p_adv(p); } else { break; }
     }

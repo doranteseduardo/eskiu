@@ -343,6 +343,7 @@ std::vector<DeclPtr> Parser::parseProgram() {
     if (!importedFiles) importedFiles = &ownedSet;
     // The root parser owns the shared type-name set; sub-parsers point at it.
     if (!sharedTypeNames) sharedTypeNames = &declaredTypeNames;
+    if (!sharedGenericNames) sharedGenericNames = &declaredGenericNames;
 
     // Panic-mode recovery shared by both parse paths: report the error at its
     // location, then skip to the next top-level declaration so one bad
@@ -430,6 +431,7 @@ std::vector<DeclPtr> Parser::parseProgram() {
                     sub.macros        = macros;
                     sub.importCache   = importCache;
                     sub.sharedTypeNames = sharedTypeNames;   // one set for all parsers
+                    sub.sharedGenericNames = sharedGenericNames;
 
                     auto subProg = sub.parse();
                     if (!subProg) {

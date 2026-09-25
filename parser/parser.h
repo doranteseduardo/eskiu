@@ -64,12 +64,17 @@ public:
     // imports an already-imported module never learned its type names and
     // misparsed `(Type*)x` casts (e.g. `(Future<T>*)0` after `import <future>`).
     std::set<std::string>* sharedTypeNames = nullptr;
+    // Shared the same way: names of generic functions and generic enum variants, the
+    // callees whose `Name<...>(` is a template call even when a type argument is a
+    // bare name not yet declared (see parsePostfix).
+    std::set<std::string>* sharedGenericNames = nullptr;
 
 private:
     // Backing store for sharedTypeNames in the root parser; sub-parsers point
     // sharedTypeNames at the root's. Names of declared types (structs, enums,
     // unions, aliases) — lets the cast parser recognize (TypeName)expr.
     std::set<std::string> declaredTypeNames;
+    std::set<std::string> declaredGenericNames;   // backing store for sharedGenericNames
     // Consume a template-closing '>'. Handles a lexed '>>' (right-shift) at the
     // close of nested templates (List<List<int>>) by splitting it: the inner
     // close turns '>>' into a single '>' left for the outer close.
@@ -182,6 +187,9 @@ private:
     // `alloc<T>` names a type even though T is not a declared type name.
     std::vector<std::string> typeParamScope;
     bool isTypeName(const std::string& name) const;
+    // Can the parsed template argument `t` only be a type? A bare name that is not a
+    // declared type (`b` in `f(a < b, c > (d))`) may equally be a comparison operand.
+    bool typeArgIsEvident(const std::string& t) const;
     ExprPtr parsePostfix();
     ExprPtr parsePrimary();
 
