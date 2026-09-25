@@ -3161,7 +3161,7 @@ pre.code-block {
 <pre class="code-block">        Data race           Two threads access the same memory             TSan (Thread Sanitizer)
                             concurrently with at least one write and no    reports. Silent otherwise.
                             synchronisation.</pre>
-<p>Compile with AddressSanitizer to catch the first four categories: <code>eskiuc</code> file.esk -c -o file.o &amp;&amp; clang -fsanitize=address file.o -o file_asan</p>
+<p>Compile with AddressSanitizer to catch the first four categories: <code>eskiuc file.esk --asan -o file_asan</code>. The instrumentation is added by <code>eskiuc</code> itself, so linking a plain <code>-c</code> object with <code>clang -fsanitize=address</code> does not instrument the Eskiu code.</p>
 <div class="chapter-start" id="appendix-a"><span class="chapter-label app">Appendix A</span>
 <h1 class="chapter-title">Quick Reference</h1><hr class="chapter-rule"></div>
 <p>A.1 CLI flags</p>
