@@ -307,7 +307,20 @@ std::string CodeGen::deriveExprEskiuType(const ExprPtr& expr) const {
             }
         }
     }
+    if (auto bin = dynamic_cast<BinaryExpr*>(expr.get())) {
+        std::string fn = bin->opFunc.empty() ? resolveOpInTemplate(bin->op, {bin->left, bin->right})
+                                             : bin->opFunc;
+        auto it = funcEskiuReturnType.find(fn);
+        if (!fn.empty() && it != funcEskiuReturnType.end()) return expandAlias(it->second);
+    }
     if (auto unary = dynamic_cast<UnaryExpr*>(expr.get())) {
+        if (unary->op == "-" || unary->op == "!" || unary->op == "~") {
+            std::string fn = unary->opFunc.empty()
+                ? resolveOpInTemplate(unary->op == "-" ? "u-" : unary->op, {unary->operand})
+                : unary->opFunc;
+            auto it = funcEskiuReturnType.find(fn);
+            if (!fn.empty() && it != funcEskiuReturnType.end()) return expandAlias(it->second);
+        }
         if (unary->op == "&") return "*" + getExprEskiuType(unary->operand);
         if (unary->op == "*") {
             std::string t = getExprEskiuType(unary->operand);

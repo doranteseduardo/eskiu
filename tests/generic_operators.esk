@@ -1,0 +1,27 @@
+// Operator overloads resolve inside a generic body, per instantiation.
+extern int printf(string fmt, ...);
+
+struct V { int x; int y; }
+V operator +(V a, V b) { return V{ x: a.x + b.x, y: a.y + b.y }; }
+V operator *(V a, int k) { return V{ x: a.x * k, y: a.y * k }; }
+V operator -(V a) { return V{ x: 0 - a.x, y: 0 - a.y }; }
+bool operator ==(V a, V b) { return a.x == b.x && a.y == b.y; }
+
+T sum3<T>(T a, T b, T c) { return a + b + c; }
+T scale<T>(T a) { return a * 3; }
+T neg<T>(T a) { return -a; }
+bool same<T>(T a, T b) { return a == b; }
+
+int main() {
+    V a = V{ x: 1, y: 2 };
+    V b = V{ x: 10, y: 20 };
+    V s = sum3<V>(a, b, a);
+    printf("%d %d\n", s.x, s.y);
+    printf("%d\n", sum3<int>(1, 2, 3));
+    V t = scale<V>(a);
+    printf("%d %d %d\n", t.x, t.y, scale<int>(5));
+    V n = neg<V>(b);
+    printf("%d %d %d\n", n.x, n.y, neg<int>(4));
+    printf("%d %d\n", (int)same<V>(a, a), (int)same<V>(a, b));
+    return 0;
+}

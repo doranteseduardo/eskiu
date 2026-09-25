@@ -40,6 +40,36 @@ void CodeGen::emitCompoundAssign(BinaryExpr* node, BinaryExpr* rhsOp) {
     assign.accept(this);
 }
 
+std::string CodeGen::resolveOpInTemplate(const std::string& op,
+                                         const std::vector<ExprPtr>& operands) const {
+    if (typeParamOverride.empty()) return "";
+    static const std::set<std::string> nums = {"int","int8","int16","int32","int64","uint",
+        "uint8","uint16","uint32","uint64","float","double","char","bool"};
+    std::vector<std::string> tys;
+    bool anyNominal = false;
+    for (const auto& e : operands) {
+        std::string t = expandAlias(getExprEskiuType(e));
+        if (t.empty() || t == "unknown") return "";
+        if (t.rfind("struct:", 0) == 0) t = t.substr(7);
+        if (!nums.count(t) && t.front() != '*' && t.back() != '*' && t != "string") anyNominal = true;
+        tys.push_back(t);
+    }
+    if (!anyNominal) return "";
+    std::string n = eskiuOpName(op, tys);
+    if (!n.empty() && module->getFunction(n)) return n;
+    // A numeric operand may coerce to the overload's declared numeric parameter.
+    for (size_t i = 0; i < tys.size(); ++i) {
+        if (!nums.count(tys[i])) continue;
+        for (const auto& alt : nums) {
+            std::vector<std::string> t2 = tys;
+            t2[i] = alt;
+            std::string n2 = eskiuOpName(op, t2);
+            if (!n2.empty() && module->getFunction(n2)) return n2;
+        }
+    }
+    return "";
+}
+
 void CodeGen::visit(BinaryExpr* node) {
     // Assignment: evaluate left as lvalue (pointer), not rvalue
     if (node->op == "=") {
@@ -134,9 +164,11 @@ void CodeGen::visit(BinaryExpr* node) {
 
     // Operator overload: sema resolved this to a user `operator op(...)`. Lower it as a call
     // to that function (reusing the struct-by-value call ABI) instead of a built-in op.
-    if (!node->opFunc.empty()) {
+    std::string opFn = node->opFunc;
+    if (opFn.empty()) opFn = resolveOpInTemplate(node->op, {node->left, node->right});
+    if (!opFn.empty()) {
         auto call = std::make_shared<CallExpr>(
-            std::make_shared<IdentExpr>(node->opFunc),
+            std::make_shared<IdentExpr>(opFn),
             std::vector<ExprPtr>{node->left, node->right});
         call->accept(this);
         return;
@@ -462,9 +494,12 @@ void CodeGen::visit(TernaryExpr* node) {
 void CodeGen::visit(UnaryExpr* node) {
     // Unary operator overload: sema resolved this to a user `operator -/!/~(V)`. Lower it
     // as a one-arg call to that function.
-    if (!node->opFunc.empty()) {
+    std::string opFn = node->opFunc;
+    if (opFn.empty() && (node->op == "-" || node->op == "!" || node->op == "~"))
+        opFn = resolveOpInTemplate(node->op == "-" ? "u-" : node->op, {node->operand});
+    if (!opFn.empty()) {
         auto call = std::make_shared<CallExpr>(
-            std::make_shared<IdentExpr>(node->opFunc),
+            std::make_shared<IdentExpr>(opFn),
             std::vector<ExprPtr>{node->operand});
         call->accept(this);
         return;

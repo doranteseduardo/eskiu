@@ -403,6 +403,10 @@ private:
     void visit(BreakStmt* node) override;
     void visit(ExprStmt* node) override;
     void visit(BinaryExpr* node) override;
+    // Inside a template instantiation (whose body the type checker skips, so no opFunc
+    // is stamped): resolve `op` over the operands' concrete types to a user operator
+    // overload by its canonical mangled name. "" = a built-in operator.
+    std::string resolveOpInTemplate(const std::string& op, const std::vector<ExprPtr>& operands) const;
     // `lv op= v` with a side-effecting lvalue: evaluate lv's address once.
     void emitCompoundAssign(BinaryExpr* node, BinaryExpr* rhsOp);
     int compoundSeq = 0;
