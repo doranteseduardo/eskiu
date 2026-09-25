@@ -985,6 +985,13 @@ llvm::Value* CodeGen::bitfieldWordPtr(MemberExpr* m, const BitfieldSlot*& slotOu
 }
 
 void CodeGen::visit(CastExpr* node) {
+    // `(void)e` evaluates `e` for its side effects and discards the value (sema only allows
+    // it where no value is needed).
+    if (node->targetType == "void") {
+        evaluateExpr(node->expr);
+        exprValueStack.push(llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), 0));
+        return;
+    }
     llvm::Type* targetType = getTypeFromString(node->targetType);
 
     // Casting a top-level function name to a pointer type yields its RAW C

@@ -3914,6 +3914,10 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
 
     if (e.kind == EK_CAST) {
         string dstety = cg_apply_sub(g, e.sval);
+        if (cg_streq(dstety, "void") == 1) {   // `(void)e`: evaluate for side effects, discard
+            cg_expr(g, e.a);
+            v.op = ""; v.ty = "void"; return v;
+        }
         string dll = cg_lltype(g, dstety);
         // A top-level function cast to a pointer is the raw address C calls: through its
         // C-ABI thunk when it takes or returns a struct by value.

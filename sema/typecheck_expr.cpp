@@ -1098,6 +1098,11 @@ void TypeChecker::visit(MemberExpr* node) {
 
 void TypeChecker::visit(CastExpr* node) {
     node->expr->accept(this);
+    // `(void)e` (C): evaluate `e` and discard its value, e.g. to mark a result as unused.
+    if (tyq::strip(node->targetType) == "void") {
+        expressionTypes[node] = "void";
+        return;
+    }
     // Validate that struct types exist in casts
     std::string normalizedType = normalizeType(node->targetType);
     validateStructType(normalizedType, node);
