@@ -196,6 +196,7 @@ llvm::Constant* CodeGen::constInitializer(const ExprPtr& expr, llvm::Type* declT
         auto stIt = structTypes.find(sname);
         if (fit == structFields.end() || stIt == structTypes.end()) return nullptr;
         if (structLayout.count(sname)) return nullptr;   // bitfield struct: not folded
+        if (unionFields.count(sname)) return nullptr;    // union: members overlap, not folded
         const auto& fields = fit->second;
         llvm::StructType* st = stIt->second;
         std::vector<llvm::Constant*> vals(fields.size(), nullptr);

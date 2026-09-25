@@ -459,22 +459,37 @@ void CodeGen::visit(TypeAliasDecl* node) {
 }
 
 void CodeGen::visit(UnionDecl* node) {
-    // Compute size = max(sizeof(field)) across all fields
-    uint64_t maxSize = 0;
+    // C layout: size = the largest member rounded up to the strictest member
+    // alignment, and the union is as aligned as that member. The storage is
+    // `{ <most-aligned member>, [pad x i8] }` so LLVM gives it the C alignment
+    // (a bare `[N x i8]` would be 1-aligned and pack wrongly inside a struct).
+    const llvm::DataLayout& DL = module->getDataLayout();
+    uint64_t maxSize = 0, maxAlign = 1;
+    llvm::Type* anchor = nullptr;
+    std::vector<llvm::Type*> memberTys;
     for (const auto& f : node->fields) {
         llvm::Type* ft = getTypeFromString(f.type);
-        uint64_t sz = module->getDataLayout().getTypeAllocSize(ft);
+        memberTys.push_back(ft);
+        uint64_t sz = DL.getTypeAllocSize(ft);
+        uint64_t al = DL.getABITypeAlign(ft).value();
         if (sz > maxSize) maxSize = sz;
+        if (!anchor || al > maxAlign ||
+            (al == maxAlign && sz > DL.getTypeAllocSize(anchor))) {
+            anchor = ft; maxAlign = std::max(maxAlign, al);
+        }
     }
-    if (maxSize == 0) maxSize = 1;
+    uint64_t total = (maxSize + maxAlign - 1) / maxAlign * maxAlign;
+    std::vector<llvm::Type*> body;
+    if (anchor) body.push_back(anchor);
+    uint64_t used = anchor ? DL.getTypeAllocSize(anchor) : 0;
+    if (total == 0) total = 1;
+    if (total > used)
+        body.push_back(llvm::ArrayType::get(llvm::Type::getInt8Ty(*context), total - used));
 
-    // Store as opaque byte array — same as struct in LLVM type registry
-    llvm::Type* unionTy = llvm::ArrayType::get(
-        llvm::Type::getInt8Ty(*context), maxSize);
     std::string mangledName = node->name;
-    // Named struct wrapping the byte array for cleaner IR
-    auto* namedTy = llvm::StructType::create(*context, {unionTy}, mangledName + ".union");
+    auto* namedTy = llvm::StructType::create(*context, body, mangledName + ".union");
     structTypes[mangledName] = namedTy;
+    unionMemberTypes[namedTy] = memberTys;
 
     // Register fields so MemberExpr can resolve them (all at offset 0, typed via cast)
     unionFields[mangledName] = node->fields;

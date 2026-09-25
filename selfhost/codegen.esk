@@ -720,6 +720,17 @@ int cg_align(Codegen* g, string t) {
 // Natural LLVM size (with field alignment padding) of a type. Scalars/pointers = their
 // byte width; a struct recurses through its field layout.
 int cg_size(Codegen* g, string t) {
+    if (cg_is_union(g, t) == 1) {                // union: largest member, rounded to its align
+        CgStruct u = cg_find_struct(g, t);
+        int mx = 0; int i = 0;
+        while (i < List_len<string>(&u.fetys)) {
+            int sz = cg_size(g, List_get<string>(&u.fetys, i));
+            if (sz > mx) { mx = sz; }
+            i = i + 1;
+        }
+        if (mx == 0) { mx = 1; }
+        return cg_align_up(mx, cg_align(g, t));
+    }
     if (cg_is_struct(g, t) == 1) {
         CgStruct s = cg_find_struct(g, t);
         return cg_layout_size(g, &s.fetys);
@@ -4109,6 +4120,35 @@ int cg_prog_defines(*Program prog, string name) {
     return 0;
 }
 
+// Emit a union's storage type with its C layout: `{ <most-aligned member>, [pad x i8] }`,
+// sized to the largest member rounded up to that alignment (all members overlap at
+// offset 0). A bare `[N x i8]` would be 1-aligned and misplace the union in a struct.
+// Anchor choice mirrors the C++ codegen: highest alignment, ties to the larger member.
+void cg_emit_union(Codegen* g, *DeclNode d) {
+    int maxsz = 0; int maxal = 1; string anchor = ""; int anchorsz = 0;
+    int fi = 0;
+    while (fi < List_len<Param>(&d.params)) {
+        string ft = List_get<Param>(&d.params, fi).ty;
+        int sz = cg_size(g, ft); int al = cg_align(g, ft);
+        if (sz > maxsz) { maxsz = sz; }
+        if (anchor[0] == 0 || al > maxal || (al == maxal && sz > anchorsz)) {
+            anchor = ft; anchorsz = sz; if (al > maxal) { maxal = al; }
+        }
+        fi = fi + 1;
+    }
+    int total = cg_align_up(maxsz, maxal);
+    if (total == 0) { total = 1; }
+    String body; String_init(&body, 32);
+    if (anchor[0] != 0) { String_append(&body, cg_lltype(g, anchor)); }
+    if (total > anchorsz) {
+        if (anchor[0] != 0) { String_append(&body, ", "); }
+        String_append(&body, "["); String_append(&body, cg_itoa(total - anchorsz)); String_append(&body, " x i8]");
+    }
+    String_append(&g.globals, "%"); String_append(&g.globals, d.name);
+    String_append(&g.globals, " = type { "); String_append(&g.globals, (string)String_cstr(&body));
+    String_append(&g.globals, " }\n");
+}
+
 void cg_program(Codegen* g, *Program prog) {
     int n = List_len<*DeclNode>(&prog.decls);
 
@@ -4251,16 +4291,7 @@ void cg_program(Codegen* g, *Program prog) {
             String_append(&g.globals, op); String_append(&g.globals, (string)String_cstr(&body));
             String_append(&g.globals, cl);
         } else if (d.kind == DK_UNION) {
-            // A union is storage sized to its largest member; all members overlap at offset 0.
-            int maxb = 1; int fi = 0;
-            while (fi < List_len<Param>(&d.params)) {
-                int bb = cg_type_bytes(g, List_get<Param>(&d.params, fi).ty);
-                if (bb > maxb) { maxb = bb; }
-                fi = fi + 1;
-            }
-            String_append(&g.globals, "%"); String_append(&g.globals, d.name);
-            String_append(&g.globals, " = type { ["); String_append(&g.globals, cg_itoa(maxb));
-            String_append(&g.globals, " x i8] }\n");
+            cg_emit_union(g, d);
         }
         si = si + 1;
     }

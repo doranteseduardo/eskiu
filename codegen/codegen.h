@@ -351,8 +351,11 @@ private:
     void visit(AwaitExpr* node) override;
     void visit(ThreadCreateExpr* node) override;
 
-    // Union registry: name → fields (all share offset 0; stored as [N x i8])
+    // Union registry: name → fields (all share offset 0)
     std::map<std::string, std::vector<StructDecl::Field>> unionFields;
+    // Union LLVM storage type → its members' LLVM types (the C-ABI classifier needs
+    // every member, since the storage type keeps only the most-aligned one).
+    std::map<llvm::StructType*, std::vector<llvm::Type*>> unionMemberTypes;
     void visit(ThreadJoinStmt* node) override;
     void visit(ThrowStmt* node) override;
     void visit(TryStmt* node) override;
