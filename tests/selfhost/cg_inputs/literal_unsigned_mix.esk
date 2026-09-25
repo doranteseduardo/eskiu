@@ -1,0 +1,14 @@
+// A literal mixed with an unsigned operand follows C's conversions (`1 - u` is
+// unsigned), and a char literal is unsigned. Found by the C oracle in
+// tests/fuzz/eskiu_fuzz.py (the self-hosted back end typed literals as unknown).
+extern int printf(string fmt, ...);
+
+int main() {
+    uint32 u = 5;
+    uint32[4] a = {1, 2};
+    printf("%lld\n", (int64)(1 - u));             // 4294967292
+    printf("%lld\n", (int64)(-(200 + a[3])));     // 4294967096
+    printf("%lld\n", (int64)('\xff'));            // 255
+    printf("%lld\n", (int64)(true - u));          // 4294967292
+    return 0;
+}

@@ -3399,20 +3399,22 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
 
     if (e.kind == EK_LITERAL) {
         if (e.lit_kind == LIT_STRING) { v.op = cg_string_global_n(g, e.sval, e.slen); v.ty = "ptr"; return v; }
-        if (e.lit_kind == LIT_CHAR) { v.op = cg_itoa((int)e.sval[0]); v.ty = "i8"; return v; }
+        // Literals carry their Eskiu type too, so an operation mixing one with an unsigned
+        // operand gets C's conversions (`1 - u` is unsigned; a char literal is unsigned).
+        if (e.lit_kind == LIT_CHAR) { v.op = cg_itoa((int)(uint8)e.sval[0]); v.ty = "i8"; v.ety = "char"; return v; }
         v.op = e.sval;
-        if (e.lit_kind == LIT_BOOL) { v.ty = "i1"; }
+        if (e.lit_kind == LIT_BOOL) { v.ty = "i1"; v.ety = "bool"; }
         else if (e.lit_kind == LIT_NULL) { v.op = "null"; v.ty = "ptr"; }
-        else if (e.lit_kind == LIT_FLOAT) { v.op = cg_double_lit(e.sval); v.ty = "double"; }   // float literal defaults to double
+        else if (e.lit_kind == LIT_FLOAT) { v.op = cg_double_lit(e.sval); v.ty = "double"; v.ety = "double"; }   // float literal defaults to double
         else {                            // integer literal: normalize base, i64 if it won't fit signed i32
             int neg = 0; if (e.sval[0] == 45) { neg = 1; }
             let mag: uint64 = cg_int_lit_mag(e.sval);
             string dec = cg_u64toa(mag);
             if (neg == 1) { v.op = cg_cat("-", dec); } else { v.op = dec; }
-            v.ty = "i32";
+            v.ty = "i32"; v.ety = "int";
             let lim: uint64 = 2147483647;                 // INT32_MAX; INT32_MIN is one larger in magnitude
             if (neg == 1) { lim = 2147483648; }
-            if (mag > lim) { v.ty = "i64"; }
+            if (mag > lim) { v.ty = "i64"; v.ety = "int64"; }
         }
         return v;
     }
@@ -3426,7 +3428,7 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
             v.op = t; v.ty = l.ty; v.ety = l.ety; return v;
         }
         string ev = cg_enum_val(g, e.sval);            // a plain-enum constant?
-        if (ev[0] != 0) { v.op = ev; v.ty = "i32"; return v; }
+        if (ev[0] != 0) { v.op = ev; v.ty = "i32"; v.ety = "int"; return v; }
         CgLocal gv = cg_find_global(g, e.sval);        // a global variable?
         if (gv.slot[0] != 0) {
             string t = cg_tmp(g);
