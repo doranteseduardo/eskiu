@@ -60,16 +60,54 @@ static std::string ppSubstParams(const std::string& body,
     return out;
 }
 
+// Error state shared by one top-level ppExpand call and its nested expansions: the
+// first malformed macro invocation (arity mismatch, unterminated argument list) and
+// the column of the top-level token whose expansion produced it.
+struct PPExpandCtx {
+    std::string err;
+    size_t errCol = 0;
+    size_t topCol = 0;
+    int depth = 0;
+};
+
+static bool ppIdentStart(char c) { return std::isalpha((unsigned char)c) || c == '_'; }
+static bool ppIdentChar(char c) { return std::isalnum((unsigned char)c) || c == '_'; }
+
+// Skip spaces, tabs and closed `/* */` comments on one line starting at p.
+static size_t ppSkipBlank(const std::string& s, size_t p) {
+    size_t n = s.size();
+    while (p < n) {
+        if (s[p] == ' ' || s[p] == '\t') { p++; continue; }
+        if (s[p] == '/' && p + 1 < n && s[p + 1] == '*') {
+            size_t e = s.find("*/", p + 2);
+            if (e == std::string::npos) return p;
+            p = e + 2; continue;
+        }
+        break;
+    }
+    return p;
+}
+
 // Expand all macros in `text`, recursively. `expanding` guards against a macro
 // re-expanding within its own expansion (prevents infinite loops). `inBlock`, when
 // given, carries `/* ... */` comment state across source lines: comment text is
 // copied verbatim (an apostrophe in a comment must not open a char literal).
-static std::string ppExpand(const std::string& text,
+// `ctx`, when given, receives the first malformed-invocation error. A replacement
+// that ends in the name of a function-like macro is rescanned together with the
+// rest of the text, so `#define CALLF F` makes `CALLF(2)` call F (C semantics).
+static std::string ppExpand(const std::string& input,
                             const std::map<std::string, Macro>& defines,
                             std::set<std::string>& expanding,
-                            bool* inBlock = nullptr) {
+                            bool* inBlock = nullptr,
+                            PPExpandCtx* ctx = nullptr) {
     bool blk = inBlock ? *inBlock : false;
+    std::string text = input;
+    long long colShift = 0;
+    size_t keepTop = 0;
     std::string out; size_t i = 0, n = text.size();
+    auto fail = [&](const std::string& msg) {
+        if (ctx && ctx->err.empty()) { ctx->err = msg; ctx->errCol = ctx->topCol; }
+    };
     while (i < n) {
         char c = text[i];
         if (blk) {
@@ -84,45 +122,99 @@ static std::string ppExpand(const std::string& text,
             continue;
         }
         if (c == '/' && i+1<n && text[i+1]=='/') { out += text.substr(i); break; }
-        if (std::isalpha((unsigned char)c) || c == '_') {
-            size_t j = i; while (j<n && (std::isalnum((unsigned char)text[j])||text[j]=='_')) j++;
+        if (ppIdentStart(c)) {
+            size_t j = i; while (j<n && ppIdentChar(text[j])) j++;
             std::string id = text.substr(i, j-i);
+            if (ctx && ctx->depth == 0 && i >= keepTop) ctx->topCol = (size_t)((long long)i + colShift + 1);
             auto it = defines.find(id);
             if (it != defines.end() && !expanding.count(id)) {
                 const Macro& mac = it->second;
+                std::string res;
+                size_t after = j;
+                bool expanded = false;
                 if (!mac.isFunction) {
                     expanding.insert(id);
-                    out += ppExpand(mac.body, defines, expanding);
+                    if (ctx) ctx->depth++;
+                    res = ppExpand(mac.body, defines, expanding, nullptr, ctx);
+                    if (ctx) ctx->depth--;
                     expanding.erase(id);
-                    i = j; continue;
-                }
-                size_t k = j; while (k<n && (text[k]==' '||text[k]=='\t')) k++;
-                if (k < n && text[k] == '(') {           // function-like call
-                    // Split the arguments at top-level commas. String and char
-                    // literals are copied whole, so a ',' or ')' inside one does
-                    // not end an argument.
-                    std::vector<std::string> args; std::string cur; int depth = 0;
-                    bool sawAny = false; size_t p = k + 1;
-                    while (p < n) {
-                        char d = text[p];
-                        if (d == '"' || d == '\'') { ppCopyLiteral(text, p, cur); sawAny = true; continue; }
-                        if (d == '(') { depth++; cur += d; sawAny = true; }
-                        else if (d == ')') { if (depth==0) { p++; break; } depth--; cur += d; }
-                        else if (d == ',' && depth==0) { args.push_back(ppTrim(cur)); cur.clear(); }
-                        else { cur += d; sawAny = true; }
-                        p++;
+                    expanded = true;
+                } else {
+                    size_t k = ppSkipBlank(text, j);
+                    if (k < n && text[k] == '(') {           // function-like call
+                        // Split the arguments at top-level commas. String and char
+                        // literals are copied whole, so a ',' or ')' inside one does
+                        // not end an argument; a comment counts as a space.
+                        std::vector<std::string> args; std::string cur; int depth = 0;
+                        bool sawAny = false, closed = false; size_t p = k + 1;
+                        while (p < n) {
+                            char d = text[p];
+                            if (d == '"' || d == '\'') { ppCopyLiteral(text, p, cur); sawAny = true; continue; }
+                            if (d == '/' && p + 1 < n && text[p + 1] == '*') {
+                                size_t e = text.find("*/", p + 2);
+                                if (e == std::string::npos) { p = n; break; }
+                                cur += ' '; p = e + 2; continue;
+                            }
+                            if (d == '/' && p + 1 < n && text[p + 1] == '/') { p = n; break; }
+                            if (d == '(') { depth++; cur += d; sawAny = true; }
+                            else if (d == ')') { if (depth==0) { p++; closed = true; break; } depth--; cur += d; }
+                            else if (d == ',' && depth==0) { args.push_back(ppTrim(cur)); cur.clear(); sawAny = true; }
+                            else { cur += d; if (d != ' ' && d != '\t') sawAny = true; }
+                            p++;
+                        }
+                        if (!closed) {
+                            fail("unterminated argument list invoking macro '" + id + "'");
+                            out += id; i = j; continue;
+                        }
+                        if (sawAny) args.push_back(ppTrim(cur));
+                        if (args.empty() && mac.params.size() == 1) args.push_back("");
+                        if (args.size() != mac.params.size()) {
+                            size_t want = mac.params.size();
+                            if (args.size() < want)
+                                fail("macro '" + id + "' requires " + std::to_string(want) + " argument" +
+                                     (want == 1 ? "" : "s") + ", but only " + std::to_string(args.size()) + " given");
+                            else
+                                fail("macro '" + id + "' passed " + std::to_string(args.size()) + " argument" +
+                                     (args.size() == 1 ? "" : "s") + ", but takes just " + std::to_string(want));
+                            out += text.substr(i, p - i); i = p; continue;
+                        }
+                        // Arguments are fully macro-expanded before substitution (C
+                        // rule), so a nested call like F(F(3)) expands the inner one.
+                        if (ctx) ctx->depth++;
+                        for (auto& a : args) a = ppExpand(a, defines, expanding, nullptr, ctx);
+                        std::string sub = ppSubstParams(mac.body, mac.params, args);
+                        expanding.insert(id);
+                        res = ppExpand(sub, defines, expanding, nullptr, ctx);
+                        expanding.erase(id);
+                        if (ctx) ctx->depth--;
+                        after = p;
+                        expanded = true;
                     }
-                    if (sawAny || !args.empty()) args.push_back(ppTrim(cur));
-                    // Arguments are fully macro-expanded before substitution (C
-                    // rule), so a nested call like F(F(3)) expands the inner one.
-                    for (auto& a : args) a = ppExpand(a, defines, expanding);
-                    std::string sub = ppSubstParams(mac.body, mac.params, args);
-                    expanding.insert(id);
-                    out += ppExpand(sub, defines, expanding);
-                    expanding.erase(id);
-                    i = p; continue;
+                    // function-like name not followed by '(' → leave as-is
                 }
-                // function-like name not followed by '(' → leave as-is
+                if (expanded) {
+                    // A replacement ending in a function-like macro name followed by
+                    // '(' in the remaining text: rescan that name with the rest.
+                    size_t t = res.size();
+                    while (t > 0 && (res[t-1] == ' ' || res[t-1] == '\t')) t--;
+                    size_t s0 = t;
+                    while (s0 > 0 && ppIdentChar(res[s0-1])) s0--;
+                    if (s0 < t && ppIdentStart(res[s0])) {
+                        std::string tid = res.substr(s0, t - s0);
+                        auto ft = defines.find(tid);
+                        size_t k2 = ppSkipBlank(text, after);
+                        if (ft != defines.end() && ft->second.isFunction && !expanding.count(tid)
+                            && k2 < n && text[k2] == '(') {
+                            out += res.substr(0, s0);
+                            colShift += (long long)after - (long long)tid.size();
+                            text = tid + text.substr(after);
+                            keepTop = tid.size();
+                            i = 0; n = text.size();
+                            continue;
+                        }
+                    }
+                    out += res; i = after; continue;
+                }
             }
             out += id; i = j; continue;
         }
@@ -412,7 +504,9 @@ static bool ppEvalIf(const std::string& expr, const std::map<std::string, Macro>
         pre += c; i++;
     }
     std::set<std::string> expanding;
-    std::string expanded = ppExpand(pre, defines, expanding);
+    PPExpandCtx ctx;
+    std::string expanded = ppExpand(pre, defines, expanding, nullptr, &ctx);
+    if (!ctx.err.empty()) { err = ctx.err; return false; }
     try {
         PPExprEval ev;
         ev.toks = ppExprTokens(expanded);
@@ -439,6 +533,27 @@ static bool ppBodyHasHash(const std::string& body) {
         if (c == '#') return true;
     }
     return false;
+}
+
+// A directive line with its comments replaced by whitespace (C translation phase 3
+// runs before directives): each closed `/* */` becomes one space and a `//` comment
+// is dropped, string and char literals are kept whole. A `/*` left open drops the
+// rest of the line and sets `openAtEnd`.
+static std::string ppStripComments(const std::string& line, bool& openAtEnd) {
+    std::string out; size_t i = 0, n = line.size();
+    openAtEnd = false;
+    while (i < n) {
+        char c = line[i];
+        if (c == '"' || c == '\'') { ppCopyLiteral(line, i, out); continue; }
+        if (c == '/' && i + 1 < n && line[i + 1] == '/') break;
+        if (c == '/' && i + 1 < n && line[i + 1] == '*') {
+            size_t e = line.find("*/", i + 2);
+            if (e == std::string::npos) { openAtEnd = true; break; }
+            out += ' '; i = e + 2; continue;
+        }
+        out += c; i++;
+    }
+    return out;
 }
 
 void preprocess(const std::string& src,
@@ -497,8 +612,10 @@ void preprocess(const std::string& src,
         bool handled = false;
         // A `#!` first line is a shebang (`#!/usr/bin/env eskiuc run`), not a directive.
         bool shebang = lineNo == 1 && line.compare(0, 2, "#!") == 0;
+        bool dirOpen = false;            // the directive line leaves a /* comment open
         if (!inBlockComment && h != std::string::npos && line[h] == '#') {
             handled = true;
+            if (!shebang) line = ppStripComments(line, dirOpen);
             int col = (int)h + 1;
             size_t kp = h + 1;
             while (kp < line.size() && (line[kp] == ' ' || line[kp] == '\t')) kp++;
@@ -597,11 +714,21 @@ void preprocess(const std::string& src,
 
         if (!handled && active()) {
             { Macro m; m.body = std::to_string(lineNo); defines["__LINE__"] = m; }
-            std::set<std::string> expanding; out << ppExpand(line, defines, expanding, &inBlockComment);
+            std::set<std::string> expanding;
+            PPExpandCtx ctx;
+            std::string expanded = ppExpand(line, defines, expanding, &inBlockComment, &ctx);
+            if (!ctx.err.empty()) ppError(lineNo, (int)ctx.errCol, ctx.err);
+            out << expanded;
         } else {
-            inBlockComment = endsInBlockComment(line, inBlockComment);
+            // Inactive and directive lines emit blank. When one opens or closes a
+            // `/* */` comment, emit just the delimiter so the lexer's view of the
+            // comment matches the source (a directive's `/* ...` continuing onto
+            // the next lines must not leave a stray `*/` behind).
+            bool was = inBlockComment;
+            inBlockComment = handled ? dirOpen : endsInBlockComment(line, inBlockComment);
+            if (!was && inBlockComment) out << "/*";
+            else if (was && !inBlockComment) out << "*/";
         }
-        // inactive / directive lines emit blank
 
         for (int e = 0; e < extra; ++e) out << "\n";  // preserve line numbers
     }

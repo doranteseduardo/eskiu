@@ -1,0 +1,3 @@
+// EXPECT-ERROR: 3:21: macro 'ADD' passed 3 arguments, but takes just 2
+#define ADD(a, b) ((a) + (b))
+int main() { return ADD(1, 2, 3); }

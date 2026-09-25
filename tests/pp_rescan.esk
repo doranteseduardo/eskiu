@@ -1,0 +1,19 @@
+// A macro whose replacement ends in the name of a function-like macro is rescanned
+// together with the rest of the line, so the name picks up the `(...)` that follows
+// (C semantics): `#define CALLF F` then `CALLF(2)` calls F.
+extern int printf(string fmt, ...);
+
+#define F(x) ((x) * 10)
+#define CALLF F
+#define PICK() F
+#define ID(x) x
+
+int main() {
+    printf("%d\n", CALLF(2));
+    printf("%d\n", CALLF (3) + 1);
+    printf("%d\n", PICK()(4));
+    printf("%d\n", ID(CALLF)(5));
+    int F = 7;
+    printf("%d\n", CALLF);
+    return 0;
+}
