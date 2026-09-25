@@ -1595,7 +1595,7 @@ match x { Some(v) -> printf("%d\n", v);  None -> printf("none\n"); }
 
 A `match` must be **exhaustive**: every variant must have an arm, or there must be
 a `_` default. Otherwise it is a compile error naming the missing variants. A
-variant may not appear in two arms. The arm body is any statement (often a block
+variant may not appear in two arms, and a match has at most one `_` default. The arm body is any statement (often a block
 or a `return`). The value is
 laid out as `{ tag, payload }`, where the payload area is sized to the largest
 variant. (A `match` subject is parsed without a trailing struct literal, like the

@@ -427,6 +427,7 @@ void TypeChecker::visit(MatchStmt* node) {
     for (size_t ai = 0; ai < node->arms.size(); ++ai) {
         auto& arm = node->arms[ai];
         if (arm.variant.empty()) {
+            if (hasDefault) errorAt(node, "duplicate match arm for variant '_'");
             hasDefault = true;
             if (ai + 1 < node->arms.size())   // arms after `_` can never match
                 warning(node->line, node->col, "match arms after the `_` default are unreachable");

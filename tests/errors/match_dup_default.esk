@@ -1,0 +1,4 @@
+// EXPECT-ERROR: duplicate match arm for variant '_'
+enum E { A, B }
+int f(E e) { match e { _ -> return 1; _ -> return 2; } return 0; }
+int main() { return f(A); }
