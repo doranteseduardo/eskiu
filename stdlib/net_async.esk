@@ -41,11 +41,13 @@ extern *int __error();
 int _net_errno() { return *__error(); }
 const int _NET_EAGAIN  = 35;     // EAGAIN == EWOULDBLOCK on macOS
 const int _NET_NONBLOCK = 4;     // O_NONBLOCK
+const int _NET_ENOTSOCK = 38;
 #else
 extern *int __errno_location();
 int _net_errno() { return *__errno_location(); }
 const int _NET_EAGAIN  = 11;     // EAGAIN == EWOULDBLOCK on Linux
 const int _NET_NONBLOCK = 2048;  // O_NONBLOCK (0x800)
+const int _NET_ENOTSOCK = 88;
 #endif
 
 // Put `fd` into non-blocking mode (so read/write return EAGAIN instead of
@@ -55,7 +57,13 @@ void net_set_nonblocking(int fd) {
     fcntl(fd, 4, fl | _NET_NONBLOCK);
 }
 int64 _net_read(int fd, *void buf, int64 n)  { return read(fd, buf, n); }
-int64 _net_write(int fd, *void buf, int64 n) { return write(fd, buf, n); }
+// A socket goes through net_send (no SIGPIPE on a closed peer); any other
+// descriptor (a pipe) falls back to write.
+int64 _net_write(int fd, *void buf, int64 n) {
+    const int64 w = net_send(fd, buf, n);
+    if (w < 0 && _net_errno() == _NET_ENOTSOCK) { return write(fd, buf, n); }
+    return w;
+}
 #endif
 
 // Write all `len` bytes of `buf` to `fd` without blocking the loop: write what

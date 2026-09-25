@@ -160,6 +160,7 @@ when you add a test.
 | `async_spawn` | detached generic `spawn<T>` of async tasks (ready + suspending), leak-free |
 | `async_select` | generic `select2<A,B>`: await the first of two futures; loser dropped (A-wins + B-wins) |
 | `combinator_drop` | dropping an unresolved `select2`/`join2`/`select2v`/`join2v` drops its inputs (producers cancelled, wakers unhooked); nested timeout cancels an inner select |
+| `net_no_sigpipe` | a send to a closed peer (`net_send`, `net_send_str`, `http_reply`, `net_write_async`) returns an error instead of raising SIGPIPE |
 | `async_join` | generic `join2<A,B>`: await both futures, then read both values |
 | `const_method` | A method declaring `const T* self` may be called on a const value. |
 | `decl_repeats_ok` | Repeated top-level declarations that stay legal: a prototype before its definition, an `extern` declaration beside the variable's definition, and... |

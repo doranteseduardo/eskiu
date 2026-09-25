@@ -100,6 +100,7 @@ int net_tcp_listen(uint16 port) {
     if (fd < 0) { return -1; }
     int one = 1;
     setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (*void)&one, 4);
+    net_nosigpipe(fd);
     let a: sockaddr_in;
     net_fill_addr(&a, 0, port);              // INADDR_ANY
     if (bind(fd, (*void)&a, 16) != 0) { net_close_fd(fd); return -1; }
@@ -109,7 +110,9 @@ int net_tcp_listen(uint16 port) {
 
 // Accept the next pending connection. Returns the connection fd, or -1.
 int net_accept(int listen_fd) {
-    return accept(listen_fd, null, null);
+    const int c = accept(listen_fd, null, null);
+    if (c >= 0) { net_nosigpipe(c); }
+    return c;
 }
 
 // Accept the next connection and write the peer's IPv4 address (network byte
@@ -120,6 +123,7 @@ int net_accept_addr(int listen_fd, *uint32 peer_ip) {
     let a: sockaddr_in;
     let alen: int = 16;
     const int c = accept(listen_fd, (*void)&a, &alen);
+    if (c >= 0) { net_nosigpipe(c); }
     if (c >= 0 && peer_ip != null) { peer_ip[0] = a.sin_addr; }
     return c;
 }
@@ -132,10 +136,40 @@ int net_tcp_connect(string host, uint16 port) {
     let a: sockaddr_in;
     net_fill_addr(&a, inet_addr(host), port);
     if (connect(fd, (*void)&a, 16) != 0) { net_close_fd(fd); return -1; }
+    net_nosigpipe(fd);
     return fd;
 }
 
-int64 net_send(int fd, *void buf, int64 n) { return send(fd, buf, n, 0); }
+// Writing to a socket whose peer has closed must fail with EPIPE, not raise
+// SIGPIPE (which kills the process by default). net_send passes MSG_NOSIGNAL
+// (Linux and macOS both have it). A plain write() on a socket (OpenSSL's socket
+// BIO) takes no flag: macOS covers it with SO_NOSIGPIPE, set on every socket
+// net_accept/net_tcp_connect returns (accepted sockets inherit it from a
+// listener too). Windows has no SIGPIPE.
+#ifdef __linux__
+#define _NET_MSG_NOSIGNAL 16384
+#else
+#ifdef __APPLE__
+#define _NET_MSG_NOSIGNAL 524288
+#else
+#define _NET_MSG_NOSIGNAL 0
+#endif
+#endif
+#ifdef __APPLE__
+#define _NET_SO_NOSIGPIPE 4130
+#endif
+
+// Make plain writes on socket `fd` return EPIPE instead of raising SIGPIPE,
+// where the socket can carry that (macOS). A no-op elsewhere.
+void net_nosigpipe(int fd) {
+#ifdef __APPLE__
+    int one = 1;
+    setsockopt(fd, SOL_SOCKET, _NET_SO_NOSIGPIPE, (*void)&one, 4);
+#endif
+}
+
+// send() that never raises SIGPIPE: a closed peer is a -1 return (EPIPE).
+int64 net_send(int fd, *void buf, int64 n) { return send(fd, buf, n, _NET_MSG_NOSIGNAL); }
 int64 net_recv(int fd, *void buf, int64 n) { return recv(fd, buf, n, 0); }
-int64 net_send_str(int fd, string s)       { return send(fd, (*void)s, strlen(s), 0); }
+int64 net_send_str(int fd, string s)       { return net_send(fd, (*void)s, strlen(s)); }
 void  net_close(int fd)                    { net_close_fd(fd); }

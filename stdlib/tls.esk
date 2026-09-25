@@ -46,6 +46,21 @@ const int SSL_ERROR_WANT_WRITE = 3;
 const int SSL_TLSEXT_ERR_OK    = 0;   // ALPN: a protocol was selected
 const int SSL_TLSEXT_ERR_NOACK = 3;   // ALPN: none acceptable
 
+// OpenSSL writes a socket BIO with write(), so a peer that closed raises
+// SIGPIPE. macOS marks the socket SO_NOSIGPIPE; Linux has no per-socket switch,
+// so the first TLS connection sets SIGPIPE to ignored for the process (every
+// write to a closed peer then fails with EPIPE, which SSL_write reports).
+#ifdef __linux__
+extern *void signal(int sig, *void handler);
+bool _tls_sigpipe_off = false;
+#endif
+void tls_nosigpipe(int fd) {
+    net_nosigpipe(fd);
+#ifdef __linux__
+    if (!_tls_sigpipe_off) { signal(13, (*void)(int64)1); _tls_sigpipe_off = true; }
+#endif
+}
+
 // ── ALPN: select "h2" ────────────────────────────────────────────────────────
 
 // Scan the wire-format protocol list `protos` (each entry: a 1-byte length then
@@ -96,6 +111,7 @@ int tls_alpn_select(*void ssl, **uint8 out, *uint8 outlen, *uint8 protos, uint i
 *void tls_accept(*void ctx, int fd) {
     *void ssl = SSL_new(ctx);
     if (ssl == null) { return null; }
+    tls_nosigpipe(fd);
     SSL_set_fd(ssl, fd);
     if (SSL_accept(ssl) <= 0) { SSL_free(ssl); return null; }
     return ssl;
@@ -179,7 +195,7 @@ void http2_tls_serve_conn(*void ssl, escaping fn(HttpRequest*, HttpResponse*)->v
 // Create an SSL for `fd` (no handshake yet). The fd should be non-blocking.
 *void tls_new(*void ctx, int fd) {
     *void ssl = SSL_new(ctx);
-    if (ssl != null) { SSL_set_fd(ssl, fd); }
+    if (ssl != null) { tls_nosigpipe(fd); SSL_set_fd(ssl, fd); }
     return ssl;
 }
 
