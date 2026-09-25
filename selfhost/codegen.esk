@@ -1919,7 +1919,8 @@ string cg_num_const(string llty, string text) {
 // Constant struct-literal text "{ ty v, ty v, ... }" for a global initializer; returns
 // "" to signal a fall back to zeroinitializer (a bitfield-packed struct, whose physical
 // layout differs — a documented limitation). Named + positional fields; missing → zero.
-string cg_const_struct(Codegen* g, string sname, *ExprNode e) {
+string cg_const_struct(Codegen* g, string sname0, *ExprNode e) {
+    string sname = cg_dealias(g, sname0);
     CgStruct s = cg_find_struct(g, sname);
     int nf = List_len<string>(&s.fnames);
     if (nf == 0) { return ""; }
@@ -4560,7 +4561,8 @@ void cg_bf_write(Codegen* g, string baseptr, string sname, CgBF slot, string rhs
     cg_bf_store(g, cg_bf_wordptr(g, baseptr, sname, slot), slot, rhsop);
 }
 
-void cg_struct_init(Codegen* g, string slot, string sname, *ExprNode e) {
+void cg_struct_init(Codegen* g, string slot, string sname0, *ExprNode e) {
+    string sname = cg_dealias(g, sname0);                // `Alias{...}` of a struct alias fills the struct
     CgStruct s = cg_find_struct(g, sname);
     // Fields the literal omits are zero (C aggregate-initializer semantics), not whatever
     // the stack slot held: store the zero value first, then the given fields.
