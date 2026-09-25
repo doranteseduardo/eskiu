@@ -51,6 +51,14 @@ jobs:
       - name: Fuzz (compiler)
         run: ESKIU_CLANG=clang-22 python3 tests/fuzz/eskiu_fuzz.py --iterations 1500 --seed 1
 
+      # External oracle: generated programs in a C-translatable subset (every integer
+      # width, casts, control flow, arrays, structs, pointers, globals, statics, defer)
+      # must print exactly what their C translation prints under clang -O0 -fwrapv, for
+      # the C++ eskiuc (-O0 and -O2) and the self-hosted eskiuc-esk. It catches bugs
+      # both Eskiu compilers share, which the differentials above cannot see.
+      - name: Fuzz (C oracle)
+        run: ESKIU_CLANG=clang-22 python3 tests/fuzz/eskiu_fuzz.py --oracle-only --oracle 200 --seed 1
+
       # -O0 vs -O2 behavioral differential over the whole corpus: a program must
       # behave identically with and without the middle-end optimizer. Catches
       # optimization-path miscompiles (bad IR attributes, type/ABI mismatches, UB)

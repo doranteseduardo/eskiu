@@ -369,6 +369,46 @@ covered by exact-match `run` tests, so a regression would fail `run.sh`.
    all prototypes in a pre-pass before emitting bodies, enabling call-before-define
    and mutual recursion. Guarded by `forward_decl.esk`.
 
+## Fuzzers
+
+The fuzzers live in `tests/fuzz/`. Each run is deterministic for a given `--seed`, writes
+what it finds to `tests/fuzz/findings/` (ignored by git), and exits non-zero when it finds
+anything. Every compiler and program invocation runs under a timeout and a 4 GB resident
+memory cap (`fuzz_util.py`), and a timeout or blowup counts as a finding. Parallel work is
+limited to 4 jobs by default (`--jobs`).
+
+**`eskiu_fuzz.py`** has two parts.
+
+- The mutation and generation loop (`--iterations N`) feeds programs to `eskiuc` and
+  reports crashes, IR verifier failures, hangs, and programs whose output differs between
+  `-O0` and `-O2`.
+- The C oracle (`--oracle N`, module `c_oracle.py`) generates programs inside a
+  C-translatable subset of Eskiu: integers of every width and signedness, `bool` and
+  `char`, casts, arithmetic, bitwise, shift and comparison operators, the ternary,
+  `if`/`while`/`for`/`do`/`switch`/`break`/`continue`, nested blocks that shadow outer
+  names, arrays, structs, pointers and pointer difference, pure and side-effecting
+  functions, globals with constant initializers, `static` locals and `defer`. Each
+  program is also emitted as C, built with `clang -O0 -fwrapv`, and the C++ `eskiuc` (at
+  `-O0` and `-O2`) and the self-hosted `eskiuc-esk` must print exactly what it prints.
+  This is the only check outside the Eskiu compilers, so it catches a bug both compilers
+  share. Undefined behavior is avoided the same way on both sides (divisors and shift
+  counts are guarded, indices masked, side effects kept where C fixes the order); `defer`
+  has no C counterpart, so the C side runs the deferred statements at every exit.
+
+```bash
+python3 tests/fuzz/eskiu_fuzz.py --iterations 300 --seed 1           # mutation loop
+python3 tests/fuzz/eskiu_fuzz.py --oracle-only --oracle 200 --seed 1 # the CI oracle gate
+python3 tests/fuzz/eskiu_fuzz.py --oracle-only --oracle 20000 --seed 5   # a long run
+python3 tests/fuzz/eskiu_fuzz.py --oracle-repro 5:1234    # print one program (Eskiu + C)
+python3 tests/fuzz/eskiu_fuzz.py --oracle-reduce 5:1234   # shrink a finding
+```
+
+A finding is named `oracle_<build>-<kind>_<seed>_<index>` (for example
+`oracle_self-diff_5_1234.esk` with its `.c` twin); `--oracle-reduce` deletes lines and
+whole blocks while the finding still reproduces and writes `reduced_<seed>_<index>.*`.
+Set `ESKIU_CLANG` to the clang to use, and `ESKIUC_ESK` if the self-hosted compiler is
+not at `build/eskiuc-esk` (it is skipped when missing).
+
 ## Adding a test
 
 - **Positive, deterministic output:** add `NAME.esk` and `NAME.expected` (the exact
