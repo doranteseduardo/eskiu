@@ -159,6 +159,18 @@ bool TypeChecker::check(Program* program) {
             }
             return ty.nominalName();
         };
+        // Does identifier `name` occur in type spelling `t` (e.g. as a type argument)?
+        auto mentions = [](const std::string& t, const std::string& name) {
+            auto idc = [](char c) { return std::isalnum((unsigned char)c) || c == '_'; };
+            for (size_t i = 0; i < t.size();) {
+                if (!idc(t[i])) { ++i; continue; }
+                size_t j = i;
+                while (j < t.size() && idc(t[j])) ++j;
+                if (t.compare(i, j - i, name) == 0 && j - i == name.size()) return true;
+                i = j;
+            }
+            return false;
+        };
         std::set<std::string> cyclic;
         for (const auto& kv : aliasDecls) {
             std::set<std::string> seen{kv.first};
@@ -167,7 +179,8 @@ bool TypeChecker::check(Program* program) {
                 auto it = typeAliases.find(cur);
                 if (it == typeAliases.end()) break;
                 std::string next = baseName(it->second);
-                if (next == kv.first) { cyclic.insert(kv.first); break; }
+                // Also through a type argument (`type L = List<L>;`): its layout needs itself.
+                if (next == kv.first || mentions(it->second, kv.first)) { cyclic.insert(kv.first); break; }
                 if (!seen.insert(next).second) break;   // a cycle not through kv.first
                 cur = next;
             }

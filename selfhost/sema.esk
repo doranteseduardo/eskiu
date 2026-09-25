@@ -4568,7 +4568,8 @@ void sema_check_alias_cycles(Sema* s) {
                 string b0 = sema_struct_of_type(sema_strip_const(cur));
                 int bn = 0; while (b0[bn] != 0 && (int)b0[bn] != 91) { bn = bn + 1; }
                 string b = sema_base_name(sema_sub_str(b0, 0, bn));
-                if (sema_streq(b, d.name) == 1) { cyc = 1; steps = 64; }
+                // Also through a type argument (`type L = List<L>;`): its layout needs itself.
+                if (sema_streq(b, d.name) == 1 || sema_type_mentions(cur, d.name) == 1) { cyc = 1; steps = 64; }
                 else {
                     *DeclNode nx = sema_find_tdecl(s, b);
                     if (nx == null || nx.kind != DK_TYPEALIAS) { steps = 64; }

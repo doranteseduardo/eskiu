@@ -1,0 +1,4 @@
+// EXPECT-ERROR: type alias 'L' refers to itself
+import <list>;
+type L = List<L>;
+int main() { return 0; }
