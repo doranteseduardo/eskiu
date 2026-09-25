@@ -1,0 +1,5 @@
+// EXPECT-ERROR: does not satisfy constraint 'A'
+interface A { int a(); }
+struct Box<T: A> { T v; }
+struct Y { int q; }
+int main() { Box<Y> b; return 0; }

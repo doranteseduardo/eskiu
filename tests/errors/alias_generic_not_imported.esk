@@ -1,0 +1,3 @@
+// EXPECT-ERROR: unknown type 'List
+type IntList = List<int>;
+int main() { return 0; }

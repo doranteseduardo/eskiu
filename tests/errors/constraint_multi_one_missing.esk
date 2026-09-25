@@ -1,0 +1,6 @@
+// EXPECT-ERROR: does not satisfy constraint 'B'
+interface A { int a(); }
+interface B { int b(); }
+struct X { int v; int a() { return 1; } }
+int pick<T: A + B>(T x) { return x.a(); }
+int main() { X x = X{v: 1}; return pick(x); }

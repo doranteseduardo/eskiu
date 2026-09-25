@@ -73,7 +73,8 @@ HANDLED="undefined_var arg_count undefined_type await_outside_async async_no_awa
          lambda_return_mismatch lambda_void_returns_value lambda_undefined_var lambda_const_capture_assign lambda_dangling_local lambda_dup_param lambda_question_non_result cond_fn_value cond_string cond_struct_while cond_enum_payload ternary_cond_struct fn_value_arith fn_value_deref bnot_float operator_unary_as_binary operator_index_assign operator_operand_order incdec_struct compare_union compare_enum_payload array_plus enum_payload_arith union_unknown_member
          match_payload_arity match_unknown_variant match_other_enum_variant match_binding_type match_arm_undefined_var match_dup_default variant_ctor_arity variant_ctor_type switch_dup_enum_value switch_on_struct catch_undefined_var
          array_lit_elem_type array_lit_elem_float index_negative_literal index_by_float index_by_string alias_array_index_oob method_on_int method_on_generic_prim member_of_array forin_over_int
-         const_ptr_member_write const_ptr_index_write const_self_write const_ptr_nested_field_write const_ptr_deref_method const_ptr_through_generic"
+         const_ptr_member_write const_ptr_index_write const_self_write const_ptr_nested_field_write const_ptr_deref_method const_ptr_through_generic
+         constraint_inferred_unsat constraint_inferred_prim constraint_multi_one_missing constraint_struct_param constraint_method_signature constraint_unknown_iface sizeof_generic_uninstantiated alias_unknown_target alias_generic_not_imported alias_cycle_generic"
 HANDLED="$(echo $HANDLED)"   # collapse the multi-line list to single spaces for matching
 
 DRIVER=selfhost/esk_main.esk

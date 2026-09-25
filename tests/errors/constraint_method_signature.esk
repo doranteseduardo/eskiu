@@ -1,0 +1,5 @@
+// EXPECT-ERROR: method 'cmp' parameter 1 is 'string', the interface requires 'int'
+interface Ord { int cmp(int o); }
+struct X { int v; int cmp(string o) { return 1; } }
+int pick<T: Ord>(T a) { return 0; }
+int main() { X x = X{v: 5}; return pick(x); }
