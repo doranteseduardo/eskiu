@@ -55,7 +55,9 @@ HANDLED="undefined_var arg_count undefined_type await_outside_async async_no_awa
          await_in_lambda unknown_sig_type unknown_var_type
          init_string_from_int init_ptr_from_int assign_float_to_int float_expr_to_int match_non_enum
          lambda_sig_mismatch question_non_result undefined_template_fn
-         return_in_void call_non_fn member_of_int shift_by_float string_plus_string"
+         return_in_void call_non_fn member_of_int shift_by_float string_plus_string
+         pp_include pp_unknown_directive pp_stray_endif pp_stray_else pp_missing_endif
+         pp_if_bad_expr pp_stringify pp_if_zero_div"
 HANDLED="$(echo $HANDLED)"   # collapse the multi-line list to single spaces for matching
 
 DRIVER=selfhost/esk_main.esk

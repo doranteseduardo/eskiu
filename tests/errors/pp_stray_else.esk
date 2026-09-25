@@ -1,0 +1,6 @@
+// EXPECT-ERROR: #else after #else
+#ifdef X
+#else
+#else
+#endif
+int main() { return 0; }

@@ -188,6 +188,228 @@ static bool endsInBlockComment(const std::string& line, bool inBlock) {
     return inBlock;
 }
 
+// ── #if / #elif constant expressions ─────────────────────────────────────────
+// The C subset: integer and char literals, macros (expanded first), `defined X` /
+// `defined(X)`, the unary `! ~ - +`, the binary arithmetic, shift, relational,
+// equality, bitwise and logical operators, `?:`, and parentheses. An identifier
+// left after expansion is 0, as in C. Evaluated on 64-bit signed integers.
+namespace {
+struct PPExprError { std::string msg; };
+
+struct PPExprEval {
+    std::vector<std::string> toks;
+    size_t pos = 0;
+
+    const std::string& peek() const { static const std::string end; return pos < toks.size() ? toks[pos] : end; }
+    bool eat(const char* t) { if (peek() == t) { pos++; return true; } return false; }
+
+    long long primary() {
+        if (pos >= toks.size()) throw PPExprError{"expected a value"};
+        std::string t = toks[pos++];
+        if (t == "(") {
+            long long v = ternary();
+            if (!eat(")")) throw PPExprError{"expected ')'"};
+            return v;
+        }
+        if (std::isdigit((unsigned char)t[0])) {
+            std::string d = t;
+            while (!d.empty() && (d.back() == 'u' || d.back() == 'U' || d.back() == 'l' || d.back() == 'L')) d.pop_back();
+            bool hex = d.size() > 1 && d[0] == '0' && (d[1] == 'x' || d[1] == 'X');
+            bool oct = !hex && d.size() > 1 && d[0] == '0';
+            int base = hex ? 16 : oct ? 8 : 10;
+            size_t start = hex ? 2 : 0;
+            if (start >= d.size()) throw PPExprError{"invalid integer '" + t + "'"};
+            unsigned long long v = 0;
+            for (size_t i = start; i < d.size(); ++i) {
+                char c = d[i];
+                int dv = std::isdigit((unsigned char)c) ? c - '0'
+                       : (c >= 'a' && c <= 'f') ? c - 'a' + 10
+                       : (c >= 'A' && c <= 'F') ? c - 'A' + 10 : 99;
+                if (dv >= base) throw PPExprError{"invalid integer '" + t + "'"};
+                v = v * base + dv;
+            }
+            return (long long)v;
+        }
+        if (t[0] == '\'') {
+            if (t.size() >= 4 && t[1] == '\\') {
+                switch (t[2]) {
+                    case 'n': return '\n'; case 't': return '\t'; case 'r': return '\r';
+                    case '0': return 0;    default: return (unsigned char)t[2];
+                }
+            }
+            if (t.size() >= 3) return (unsigned char)t[1];
+            throw PPExprError{"invalid character constant"};
+        }
+        if (std::isalpha((unsigned char)t[0]) || t[0] == '_') return 0;
+        throw PPExprError{"unexpected '" + t + "'"};
+    }
+    long long unary() {
+        if (eat("!")) return !unary();
+        if (eat("~")) return ~unary();
+        if (eat("-")) return -unary();
+        if (eat("+")) return unary();
+        return primary();
+    }
+    long long mul() {
+        long long v = unary();
+        while (true) {
+            if (eat("*")) v = v * unary();
+            else if (peek() == "/" || peek() == "%") {
+                bool div = peek() == "/"; pos++;
+                long long r = unary();
+                if (r == 0) throw PPExprError{"division by zero"};
+                v = div ? v / r : v % r;
+            } else return v;
+        }
+    }
+    long long add() {
+        long long v = mul();
+        while (true) {
+            if (eat("+")) v = v + mul();
+            else if (eat("-")) v = v - mul();
+            else return v;
+        }
+    }
+    long long shift() {
+        long long v = add();
+        while (true) {
+            if (eat("<<")) v = (long long)((unsigned long long)v << (add() & 63));
+            else if (eat(">>")) v = v >> (add() & 63);
+            else return v;
+        }
+    }
+    long long rel() {
+        long long v = shift();
+        while (true) {
+            if (eat("<")) v = v < shift();
+            else if (eat(">")) v = v > shift();
+            else if (eat("<=")) v = v <= shift();
+            else if (eat(">=")) v = v >= shift();
+            else return v;
+        }
+    }
+    long long eq() {
+        long long v = rel();
+        while (true) {
+            if (eat("==")) v = v == rel();
+            else if (eat("!=")) v = v != rel();
+            else return v;
+        }
+    }
+    long long band() { long long v = eq();   while (eat("&")) v = v & eq();   return v; }
+    long long bxor() { long long v = band(); while (eat("^")) v = v ^ band(); return v; }
+    long long bor()  { long long v = bxor(); while (eat("|")) v = v | bxor(); return v; }
+    long long land() { long long v = bor();  while (eat("&&")) { long long r = bor();  v = v && r; } return v; }
+    long long lor()  { long long v = land(); while (eat("||")) { long long r = land(); v = v || r; } return v; }
+    long long ternary() {
+        long long c = lor();
+        if (!eat("?")) return c;
+        long long a = ternary();
+        if (!eat(":")) throw PPExprError{"expected ':' in '?:'"};
+        long long b = ternary();
+        return c ? a : b;
+    }
+};
+
+// Split an (already macro-expanded) #if expression into tokens.
+std::vector<std::string> ppExprTokens(const std::string& e) {
+    std::vector<std::string> out;
+    size_t i = 0, n = e.size();
+    while (i < n) {
+        char c = e[i];
+        if (c == ' ' || c == '\t') { i++; continue; }
+        if (c == '/' && i + 1 < n && e[i + 1] == '/') break;
+        if (c == '/' && i + 1 < n && e[i + 1] == '*') {
+            size_t end = e.find("*/", i + 2);
+            i = end == std::string::npos ? n : end + 2;
+            continue;
+        }
+        if (std::isalnum((unsigned char)c) || c == '_') {
+            size_t j = i; while (j < n && (std::isalnum((unsigned char)e[j]) || e[j] == '_')) j++;
+            out.push_back(e.substr(i, j - i)); i = j; continue;
+        }
+        if (c == '\'') {
+            size_t j = i + 1;
+            while (j < n && e[j] != '\'') { if (e[j] == '\\') j++; j++; }
+            out.push_back(e.substr(i, std::min(j + 1, n) - i)); i = j + 1; continue;
+        }
+        static const char* two[] = {"||", "&&", "==", "!=", "<=", ">=", "<<", ">>"};
+        bool matched = false;
+        for (const char* t : two) {
+            if (i + 1 < n && e[i] == t[0] && e[i + 1] == t[1]) { out.push_back(t); i += 2; matched = true; break; }
+        }
+        if (matched) continue;
+        if (std::string("()!~-+*/%<>&^|?:").find(c) != std::string::npos) { out.push_back(std::string(1, c)); i++; continue; }
+        throw PPExprError{std::string("unexpected character '") + c + "'"};
+    }
+    return out;
+}
+} // namespace
+
+// Replace `defined X` / `defined(X)` with 1/0, macro-expand, then evaluate.
+// Returns false (and sets err) on a malformed expression.
+static bool ppEvalIf(const std::string& expr, const std::map<std::string, Macro>& defines,
+                     long long& value, std::string& err) {
+    std::string pre;
+    size_t i = 0, n = expr.size();
+    while (i < n) {
+        char c = expr[i];
+        if (std::isalpha((unsigned char)c) || c == '_') {
+            size_t j = i; while (j < n && (std::isalnum((unsigned char)expr[j]) || expr[j] == '_')) j++;
+            std::string id = expr.substr(i, j - i);
+            if (id != "defined") { pre += id; i = j; continue; }
+            size_t k = j; while (k < n && (expr[k] == ' ' || expr[k] == '\t')) k++;
+            bool paren = k < n && expr[k] == '(';
+            if (paren) { k++; while (k < n && (expr[k] == ' ' || expr[k] == '\t')) k++; }
+            size_t m = k; while (m < n && (std::isalnum((unsigned char)expr[m]) || expr[m] == '_')) m++;
+            if (m == k) { err = "expected a macro name after 'defined'"; return false; }
+            std::string name = expr.substr(k, m - k);
+            if (paren) {
+                while (m < n && (expr[m] == ' ' || expr[m] == '\t')) m++;
+                if (m >= n || expr[m] != ')') { err = "expected ')' after 'defined(" + name + "'"; return false; }
+                m++;
+            }
+            pre += defines.count(name) ? " 1 " : " 0 ";
+            i = m; continue;
+        }
+        if (c == '\'') {
+            size_t j = i + 1;
+            while (j < n && expr[j] != '\'') { if (expr[j] == '\\') j++; j++; }
+            size_t e = std::min(j + 1, n);
+            pre += expr.substr(i, e - i); i = e; continue;
+        }
+        pre += c; i++;
+    }
+    std::set<std::string> expanding;
+    std::string expanded = ppExpand(pre, defines, expanding);
+    try {
+        PPExprEval ev;
+        ev.toks = ppExprTokens(expanded);
+        if (ev.toks.empty()) { err = "#if with no expression"; return false; }
+        value = ev.ternary();
+        if (ev.pos != ev.toks.size()) { err = "unexpected '" + ev.toks[ev.pos] + "' in #if expression"; return false; }
+    } catch (const PPExprError& e) {
+        err = e.msg + " in #if expression";
+        return false;
+    }
+    return true;
+}
+
+// Does a macro body use `#` (stringification) or `##` (token pasting) outside a
+// string/char literal? Neither is supported.
+static bool ppBodyHasHash(const std::string& body) {
+    for (size_t i = 0; i < body.size(); ++i) {
+        char c = body[i];
+        if (c == '"' || c == '\'') {
+            char q = c; ++i;
+            while (i < body.size() && body[i] != q) { if (body[i] == '\\') ++i; ++i; }
+            continue;
+        }
+        if (c == '#') return true;
+    }
+    return false;
+}
+
 void preprocess(const std::string& src,
                        std::map<std::string, Macro>& defines,
                        std::string& result,
@@ -197,7 +419,14 @@ void preprocess(const std::string& src,
     // line below. Both are ordinary object-like macros so ppExpand handles them
     // with correct identifier boundaries.
     { Macro m; m.body = "\"" + filename + "\""; defines["__FILE__"] = m; }
-    struct Cond { bool parentActive; bool branchActive; };
+    const std::string fileLabel = filename.empty() ? "<input>" : filename;
+    auto ppError = [&](int ln, int col, const std::string& msg) {
+        std::cerr << "error: " << fileLabel << ":" << ln << ":" << col << ": " << msg << std::endl;
+        hadErr = true;
+    };
+    // One entry per open conditional. `anyTaken`: some branch of this #if chain
+    // has already been selected (so a later #elif/#else is skipped).
+    struct Cond { bool parentActive; bool branchActive; bool anyTaken; bool sawElse; int line; int col; };
     std::vector<Cond> stack;
     auto active = [&]() {
         return stack.empty() ? true : (stack.back().parentActive && stack.back().branchActive);
@@ -208,7 +437,11 @@ void preprocess(const std::string& src,
     std::string line; bool first = true;
     int curLine = 0;
     bool inBlockComment = false;     // a /* */ comment is open at the start of this line
+    // CRLF input: getline leaves the '\r', which would hide a trailing '\'
+    // continuation and leak into directive operands. Drop it up front.
+    auto stripCR = [](std::string& l) { if (!l.empty() && l.back() == '\r') l.pop_back(); };
     while (std::getline(in, line)) {
+        stripCR(line);
         curLine++;                       // physical line of this logical line
         int lineNo = curLine;            // __LINE__ for this logical line
         // Line splicing: a trailing backslash continues onto the next physical
@@ -220,6 +453,7 @@ void preprocess(const std::string& src,
             line.pop_back();
             std::string cont;
             if (!std::getline(in, cont)) break;
+            stripCR(cont);
             line += cont;
             extra++;
             curLine++;                   // each continuation is a physical line too
@@ -230,14 +464,20 @@ void preprocess(const std::string& src,
 
         size_t h = line.find_first_not_of(" \t");
         bool handled = false;
+        // A `#!` first line is a shebang (`#!/usr/bin/env eskiuc run`), not a directive.
+        bool shebang = lineNo == 1 && line.compare(0, 2, "#!") == 0;
         if (!inBlockComment && h != std::string::npos && line[h] == '#') {
             handled = true;
-            std::istringstream ds(line.substr(h + 1));
-            std::string kw; ds >> kw;
+            int col = (int)h + 1;
+            size_t kp = h + 1;
+            while (kp < line.size() && (line[kp] == ' ' || line[kp] == '\t')) kp++;
+            size_t ks = kp;
+            while (kp < line.size() && (std::isalnum((unsigned char)line[kp]) || line[kp] == '_')) kp++;
+            std::string kw = line.substr(ks, kp - ks);
+            std::string rest = ppTrim(line.substr(kp));
+            std::string operand = rest.substr(0, rest.find_first_of(" \t"));
             if (kw == "define") {
                 if (active()) {
-                    std::string rest; std::getline(ds, rest);
-                    rest = ppTrim(rest);
                     size_t p = 0;
                     while (p < rest.size() && (std::isalnum((unsigned char)rest[p]) || rest[p]=='_')) p++;
                     std::string name = rest.substr(0, p);
@@ -256,21 +496,54 @@ void preprocess(const std::string& src,
                     } else {
                         mac.body = ppTrim(p < rest.size() ? rest.substr(p) : "");
                     }
-                    if (!name.empty()) defines[name] = mac;
+                    if (name.empty()) ppError(lineNo, col, "expected a macro name after #define");
+                    else if (ppBodyHasHash(mac.body))
+                        ppError(lineNo, col, "macro '" + name + "': '#' stringification and '##' token pasting are not supported");
+                    else defines[name] = mac;
                 }
             } else if (kw == "undef") {
-                std::string name; ds >> name;
-                if (active()) defines.erase(name);
-            } else if (kw == "ifdef") {
-                std::string name; ds >> name;
-                stack.push_back({active(), defines.count(name) > 0});
-            } else if (kw == "ifndef") {
-                std::string name; ds >> name;
-                stack.push_back({active(), defines.count(name) == 0});
+                if (active()) defines.erase(operand);
+            } else if (kw == "ifdef" || kw == "ifndef") {
+                bool on = false;
+                if (active()) {
+                    if (operand.empty()) ppError(lineNo, col, "expected a macro name after #" + kw);
+                    on = (defines.count(operand) > 0) == (kw == "ifdef");
+                }
+                stack.push_back({active(), on, on, false, lineNo, col});
+            } else if (kw == "if") {
+                bool on = false;
+                if (active()) {
+                    long long v = 0; std::string err;
+                    if (ppEvalIf(rest, defines, v, err)) on = v != 0;
+                    else ppError(lineNo, col, err);
+                }
+                stack.push_back({active(), on, on, false, lineNo, col});
+            } else if (kw == "elif") {
+                if (stack.empty()) ppError(lineNo, col, "#elif without #if");
+                else if (stack.back().sawElse) ppError(lineNo, col, "#elif after #else");
+                else {
+                    Cond& c = stack.back();
+                    bool on = false;
+                    if (c.parentActive && !c.anyTaken) {
+                        long long v = 0; std::string err;
+                        if (ppEvalIf(rest, defines, v, err)) on = v != 0;
+                        else ppError(lineNo, col, err);
+                    }
+                    c.branchActive = on;
+                    c.anyTaken = c.anyTaken || on;
+                }
             } else if (kw == "else") {
-                if (!stack.empty()) stack.back().branchActive = !stack.back().branchActive;
+                if (stack.empty()) ppError(lineNo, col, "#else without #if");
+                else if (stack.back().sawElse) ppError(lineNo, col, "#else after #else");
+                else {
+                    Cond& c = stack.back();
+                    c.branchActive = !c.anyTaken;
+                    c.anyTaken = true;
+                    c.sawElse = true;
+                }
             } else if (kw == "endif") {
-                if (!stack.empty()) stack.pop_back();
+                if (stack.empty()) ppError(lineNo, col, "#endif without #if");
+                else stack.pop_back();
             } else if (kw == "pragma") {
                 // #pragma is a compiler directive, not a preprocessor one: pass
                 // it through unchanged so the lexer/parser can act on it (e.g.
@@ -279,14 +552,16 @@ void preprocess(const std::string& src,
             } else if (kw == "error") {
                 // #error <message> — abort compilation with the message (only on
                 // an active branch, so it can guard #ifdef blocks).
-                if (active()) {
-                    std::string msg; std::getline(ds, msg); msg = ppTrim(msg);
-                    std::cerr << "error: " << (filename.empty() ? "<input>" : filename)
-                              << ":" << lineNo << ": #error " << msg << std::endl;
-                    hadErr = true;
-                }
+                if (active()) ppError(lineNo, col, "#error " + rest);
+            } else if (kw == "include") {
+                if (active())
+                    ppError(lineNo, col, "#include is not supported; use `import \"file.esk\";` "
+                                         "or `import <module>;` instead");
+            } else if (kw.empty() && (rest.empty() || shebang)) {
+                // `#` alone is the null directive; a `#!` first line is a shebang.
+            } else if (active()) {
+                ppError(lineNo, col, "unknown preprocessor directive '#" + (kw.empty() ? rest : kw) + "'");
             }
-            // any other directive emits a blank line
         }
 
         if (!handled && active()) {
@@ -299,6 +574,8 @@ void preprocess(const std::string& src,
 
         for (int e = 0; e < extra; ++e) out << "\n";  // preserve line numbers
     }
+    for (const Cond& c : stack)
+        ppError(c.line, c.col, "unterminated conditional directive (missing #endif)");
     result = out.str();
 }
 

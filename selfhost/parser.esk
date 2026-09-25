@@ -1780,6 +1780,7 @@ void do_import(Parser* p, *Program prog) {
     // evaluates its #ifdef/#define so e.g. mem.esk picks one branch, not both.
     let pe: int = 0;
     string psrc = pp_run((string)isrc, (int)bytes, full, &pe);
+    if (pe != 0) { exit(1); }                    // directive error in the import (already reported)
     *uint8 ppsrc = (*uint8)psrc;
     int plen = 0; while (ppsrc[plen] != 0) { plen = plen + 1; }
     let sub: Parser;

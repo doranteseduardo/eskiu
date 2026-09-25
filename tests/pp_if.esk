@@ -1,0 +1,51 @@
+// #if / #elif with integer constant expressions and defined(X).
+extern int printf(string fmt, ...);
+
+#define LEVEL 3
+#define ON 1
+#define TWICE(x) ((x) * 2)
+
+int main() {
+#if 0
+    this is not compiled;
+#endif
+#if LEVEL > 2 && defined(ON)
+    printf("level>2\n");
+#elif LEVEL > 1
+    printf("wrong\n");
+#else
+    printf("wrong\n");
+#endif
+#if LEVEL == 1
+    printf("wrong\n");
+#elif LEVEL == 3
+    printf("elif taken\n");
+#elif LEVEL >= 3
+    printf("wrong: second elif\n");
+#endif
+#if !defined NOPE && (0x10 | 010) == 24 && TWICE(LEVEL) == 6
+    printf("hex/octal/macro ok\n");
+#endif
+#if UNDEFINED_NAME
+    printf("wrong\n");
+#else
+    printf("undefined is 0\n");
+#endif
+#if (1 ? 2 : 3) == 2 && -1 < 0 && ~0 == -1 && 7 % 4 == 3 && (1 << 4) == 16 && 'A' == 65
+    printf("operators ok\n");
+#endif
+#ifdef ON
+#if 0
+    printf("wrong\n");
+#elif 1
+    printf("nested ok\n");
+#endif
+#endif
+#if 0
+#if garbage (( here
+#endif
+#include "skipped in an inactive branch.h"
+#unknown_directive_is_fine_when_skipped
+#endif
+    return 0;
+}
