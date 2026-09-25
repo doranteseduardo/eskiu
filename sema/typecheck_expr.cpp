@@ -1,5 +1,6 @@
 #include "type_checker.h"
 #include <algorithm>
+#include <cstdint>
 #include <set>
 
 // Template type-name utilities (mangleTemplate / splitTemplateType / substType)
@@ -126,6 +127,20 @@ void TypeChecker::visit(QuestionExpr* node) {
     expressionTypes[node] = valueType;
 }
 
+// An integer literal that does not fit `int` has a wider type (C: the first of int,
+// long, unsigned long that holds it), so `c ? x : 10000000000` is 64-bit, not an int.
+static std::string literalArmType(Expr* e, const std::string& t) {
+    auto* lit = dynamic_cast<LiteralExpr*>(e);
+    if (!lit || lit->kind != LiteralExpr::Kind::INT) return t;
+    try {
+        long long v = std::stoll(lit->value, nullptr, 0);
+        if (v >= INT32_MIN && v <= INT32_MAX) return t;
+        return "int64";
+    } catch (...) {
+        return "uint64";   // above INT64_MAX: only an unsigned 64-bit type holds it
+    }
+}
+
 void TypeChecker::visit(TernaryExpr* node) {
     node->condition->accept(this);
     node->thenExpr->accept(this);
@@ -136,8 +151,8 @@ void TypeChecker::visit(TernaryExpr* node) {
         normalizeType(ct) != "bool")
         errorAt(node, "ternary condition must be a bool, integer, or pointer, got " + ct);
 
-    std::string tt = getExpressionType(node->thenExpr.get());
-    std::string et = getExpressionType(node->elseExpr.get());
+    std::string tt = literalArmType(node->thenExpr.get(), getExpressionType(node->thenExpr.get()));
+    std::string et = literalArmType(node->elseExpr.get(), getExpressionType(node->elseExpr.get()));
 
     // The result type is the arms' common type: identical types pass through, two
     // numerics promote to the wider (C-style), and otherwise the arms must be mutually

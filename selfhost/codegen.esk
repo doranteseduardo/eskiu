@@ -2281,6 +2281,19 @@ string cg_infer_generic_ret(Codegen* g, *DeclNode gd, *ExprNode e) {
     return rt;
 }
 
+// A ternary arm's type: an integer literal that does not fit `int` is 64-bit (C: the
+// first of int, long, unsigned long that holds it), so `c ? x : 10000000000` is an int64.
+string cg_lit_arm_etype(Codegen* g, *ExprNode e) {
+    if (e != null && e.kind == EK_LITERAL && e.lit_kind == LIT_INT) {
+        uint64 m = cg_int_lit_mag(e.sval);
+        if (m > (uint64)9223372036854775807) { return "uint64"; }
+        if (e.sval[0] == 45) { if (m > (uint64)2147483648) { return "int64"; } }
+        else if (m > (uint64)2147483647) { return "int64"; }
+        return "int";
+    }
+    return cg_etype(g, e);
+}
+
 // The Eskiu type of an expression ("" if unknown). Mirrors the type the C++ type checker
 // assigns, so struct member access, pointer depth, and common/promoted types agree.
 string cg_etype(Codegen* g, *ExprNode e) {
@@ -2400,8 +2413,8 @@ string cg_etype(Codegen* g, *ExprNode e) {
     }
     if (e.kind == EK_CAST) { return cg_apply_sub(g, e.sval); }
     if (e.kind == EK_TERNARY) {                        // common type of the two arms (C++ rule)
-        string tt = cg_etype(g, e.b);
-        string et = cg_etype(g, List_get<*ExprNode>(&e.kids, 0));
+        string tt = cg_lit_arm_etype(g, e.b);
+        string et = cg_lit_arm_etype(g, List_get<*ExprNode>(&e.kids, 0));
         if (cg_streq(tt, et) == 1) { return tt; }
         if (tt[0] == 0) { return et; }
         if (et[0] == 0) { return tt; }

@@ -422,6 +422,14 @@ void CodeGen::visit(TernaryExpr* node) {
         resTy = tLL->getIntegerBitWidth() >= eLL->getIntegerBitWidth() ? tLL : eLL;
     else
         resTy = tLL;
+    // Two numeric arms: the type checker's common type is authoritative (a literal arm
+    // too wide for `int` makes the result 64-bit; equal-width mixed signedness is unsigned).
+    auto isNum = [](llvm::Type* t) { return t && (t->isIntegerTy() || t->isFloatingPointTy()); };
+    if (resolvedExprTypes && isNum(tLL) && isNum(eLL)) {
+        auto it = resolvedExprTypes->find(node);
+        if (it != resolvedExprTypes->end() && it->second != "unknown")
+            if (llvm::Type* rt = getTypeFromString(it->second); isNum(rt)) resTy = rt;
+    }
 
     auto coerce = [&](llvm::Value* v, const std::string& srcEskiu) -> llvm::Value* {
         return coerceValue(v, resTy, eskiuUnsigned(srcEskiu));
