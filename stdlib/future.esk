@@ -119,7 +119,7 @@ Future<int>* select2_hdr(FutureHdr* a, FutureHdr* b) {
         free_closure(self);
     };
     a.waker = onA;
-    if (atomic_cas(&a.state, PENDING, WAITING) == false) {   // a already READY -> a wins
+    if (!atomic_cas(&a.state, PENDING, WAITING)) {   // a already READY -> a wins
         free_closure(onA);                       // onA never fires (a won't be future_drop'd)
         free_closure(onB);                       // onB was created but never armed
         future_drop(b);                          // drop the loser (frees b's waker/on_drop/struct)
@@ -127,7 +127,7 @@ Future<int>* select2_hdr(FutureHdr* a, FutureHdr* b) {
         return sel;
     }
     b.waker = onB;
-    if (atomic_cas(&b.state, PENDING, WAITING) == false) {   // b already READY -> b wins
+    if (!atomic_cas(&b.state, PENDING, WAITING)) {   // b already READY -> b wins
         free_closure(onB);                       // onB never fires
         future_drop(a);                          // a was armed (WAITING) -> future_drop frees onA
         future_complete<int>(sel, 1);
@@ -142,24 +142,23 @@ Future<int>* select2_hdr(FutureHdr* a, FutureHdr* b) {
 // each waker self-frees its env. Prefer the generic `join2<A,B>` wrapper below.
 Future<int>* join2_hdr(FutureHdr* a, FutureHdr* b) {
     Future<int>* j = future_new<int>();
-    *int cnt = alloc<int>(1);
-    *cnt = 0;
+    *int cnt = alloc<int>(1);   // completions so far (alloc zeroes it)
     let onA: fn()->void = void() {
         let self: fn()->void = a.waker;
-        *cnt = *cnt + 1;
+        (*cnt)++;
         if (*cnt == 2) { free((*void)cnt); future_complete<int>(j, 2); }
         free_closure(self);
     };
     let onB: fn()->void = void() {
         let self: fn()->void = b.waker;
-        *cnt = *cnt + 1;
+        (*cnt)++;
         if (*cnt == 2) { free((*void)cnt); future_complete<int>(j, 2); }
         free_closure(self);
     };
     a.waker = onA;
-    if (atomic_cas(&a.state, PENDING, WAITING) == false) { *cnt = *cnt + 1; free_closure(onA); }  // a already done
+    if (!atomic_cas(&a.state, PENDING, WAITING)) { (*cnt)++; free_closure(onA); }  // a already done
     b.waker = onB;
-    if (atomic_cas(&b.state, PENDING, WAITING) == false) { *cnt = *cnt + 1; free_closure(onB); }  // b already done
+    if (!atomic_cas(&b.state, PENDING, WAITING)) { (*cnt)++; free_closure(onB); }  // b already done
     if (*cnt == 2) { free((*void)cnt); future_complete<int>(j, 2); }                   // both already done
     return j;
 }
