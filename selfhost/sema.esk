@@ -25,7 +25,7 @@ struct Sym { string name; string type; int depth; int is_const; }
 struct FnSig { string name; int fixed; int variadic; }
 
 // One enum variant, for match exhaustiveness.
-struct EVar { string en; string variant; }
+struct EVar { string en; string variant; string val; int plain; }   // val = member value (classic enums)
 
 struct Sema {
     List<Sym> syms;
@@ -507,6 +507,30 @@ int sema_is_struct(Sema* s, string name) {
 
 int sema_has_member(Sema* s, string key) {   // key = "Struct.member"
     return sema_in_list(&s.members, key);
+}
+
+// The variant `v` of enum `en` (plain = 0 and val = null when absent).
+EVar sema_find_evar(Sema* s, string en, string v) {
+    int i = 0; int n = List_len<EVar>(&s.evars);
+    while (i < n) {
+        EVar ev = List_get<EVar>(&s.evars, i);
+        if (sema_streq(ev.en, en) == 1 && sema_streq(ev.variant, v) == 1) { return ev; }
+        i = i + 1;
+    }
+    let none: EVar; none.en = en; none.variant = v; none.val = null; none.plain = 0;
+    return none;
+}
+
+// A variant of `en` other than `self_v`, already in `seen`, whose value is `val` ("" if none).
+string sema_evar_with_val(Sema* s, string en, string val, List<string>* seen, string self_v) {
+    int i = 0; int n = List_len<EVar>(&s.evars);
+    while (i < n) {
+        EVar ev = List_get<EVar>(&s.evars, i);
+        if (sema_streq(ev.en, en) == 1 && sema_streq(ev.variant, self_v) == 0 && sema_streq(ev.val, val) == 1
+            && sema_in_list(seen, ev.variant) == 1) { return ev.variant; }
+        i = i + 1;
+    }
+    return "";
 }
 
 int sema_is_enum(Sema* s, string name) {
@@ -1971,6 +1995,9 @@ void sema_stmt(Sema* s, *StmtNode st) {
             // and noting a `_` wildcard, then check exhaustiveness.
             List<string> seen;
             List_init<string>(&seen, 8);
+            List<string> seen_vals;                // values of the arms of a classic enum
+            List_init<string>(&seen_vals, 8);
+            string msty = sema_struct_of_type(sema_infer_type(s, st.expr));
             int has_wild = 0;
             int ai = 0;
             int an = List_len<*StmtNode>(&st.items);
@@ -1985,6 +2012,18 @@ void sema_stmt(Sema* s, *StmtNode st) {
                         printf("error: %s:0:0: duplicate match arm for variant '%s'\n", s.filename, v);
                     } else {
                         List_push<string>(&seen, v);
+                        // Two members of a classic enum may share a value (legal, as in C),
+                        // but a match on the value cannot have two arms for it.
+                        EVar mv = sema_find_evar(s, msty, v);
+                        if (mv.plain == 1 && mv.val != null) {
+                            string prevv = sema_evar_with_val(s, msty, mv.val, &seen, v);
+                            if (prevv[0] != 0) {
+                                s.had_error = 1;
+                                printf("error: %s:0:0: duplicate match value: '%s' has the same value (%s) as '%s'\n",
+                                       s.filename, v, mv.val, prevv);
+                            }
+                            List_push<string>(&seen_vals, mv.val);
+                        }
                     }
                 }
                 ai = ai + 1;
@@ -2001,6 +2040,7 @@ void sema_stmt(Sema* s, *StmtNode st) {
                         EVar ev = List_get<EVar>(&s.evars, ei);
                         if (reported == 0 && sema_streq(ev.en, sty) == 1) {
                             int covered = sema_in_list(&seen, ev.variant);
+                            if (covered == 0 && ev.plain == 1 && sema_in_list(&seen_vals, ev.val) == 1) { covered = 1; }
                             if (covered == 0) {
                                 s.had_error = 1;
                                 printf("error: %s:0:0: non-exhaustive match on '%s': missing '%s'\n",
@@ -2101,6 +2141,15 @@ void sema_register_globals(Sema* s, *Program prog) {
                 string vn = List_get<Param>(&d.params, j).name;
                 sema_define(s, vn, "", 0);
                 let ev: EVar; ev.en = d.name; ev.variant = vn;
+                ev.val = List_get<Param>(&d.params, j).ty;
+                ev.plain = 1;
+                if (List_len<TypeParam>(&d.type_params) > 0) { ev.plain = 0; }
+                int pj = 0;
+                while (pj < List_len<List<string>>(&d.payloads)) {
+                    List<string> ppl = List_get<List<string>>(&d.payloads, pj);
+                    if (List_len<string>(&ppl) > 0) { ev.plain = 0; }
+                    pj = pj + 1;
+                }
                 List_push<EVar>(&s.evars, ev);
                 j = j + 1;
             }

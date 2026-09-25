@@ -1,0 +1,9 @@
+// Classic enum members may share a value (as in C). A match is on the value, so one arm
+// covers every member with that value.
+extern int printf(string f, ...);
+enum Color { Red = 1, Crimson = 1, Blue }
+int code(Color c) { match c { Red -> return 10; Blue -> return 20; } return 0; }
+int main() {
+    printf("%d %d %d\n", code(Red), code(Crimson), code(Blue));
+    return 0;
+}

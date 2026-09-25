@@ -388,6 +388,14 @@ void TypeChecker::visit(MatchStmt* node) {
     };
     bool hasDefault = false;
     std::set<std::string> covered;
+    // A classic enum may give two members the same value (legal, as in C); a `match` is a
+    // switch on the value, so two arms for equal values would be one duplicate case.
+    bool plain = ed && plainEnumDecls.count(st) && plainEnumDecls[st] == ed;
+    std::map<long long, std::string> valueArm;
+    auto memberValue = [&](const std::string& v, long long& out) {
+        for (const auto& m : ed->members) if (m.first == v) { out = m.second; return true; }
+        return false;
+    };
     for (size_t ai = 0; ai < node->arms.size(); ++ai) {
         auto& arm = node->arms[ai];
         if (arm.variant.empty()) {
@@ -397,6 +405,12 @@ void TypeChecker::visit(MatchStmt* node) {
         }
         else if (!covered.insert(arm.variant).second)
             errorAt(node, "duplicate match arm for variant '" + arm.variant + "'");
+        else if (long long val = 0; plain && memberValue(arm.variant, val)) {
+            auto [it, fresh] = valueArm.insert({val, arm.variant});
+            if (!fresh)
+                errorAt(node, "duplicate match value: '" + arm.variant + "' has the same value (" +
+                              std::to_string(val) + ") as '" + it->second + "'");
+        }
         pushScope();
         if (!arm.variant.empty() && ed) {
             int vi = variantIndex(arm.variant);
@@ -421,7 +435,8 @@ void TypeChecker::visit(MatchStmt* node) {
     if (ed && !hasDefault) {
         std::string missing;
         for (const auto& m : ed->members)
-            if (!covered.count(m.first)) missing += (missing.empty() ? "" : ", ") + m.first;
+            if (!covered.count(m.first) && !(plain && valueArm.count(m.second)))   // an equal-valued arm covers it
+                missing += (missing.empty() ? "" : ", ") + m.first;
         if (!missing.empty())
             errorAt(node, "non-exhaustive match on " + st + ": missing " + missing +
                           " (add those arms or a `_` default)");
