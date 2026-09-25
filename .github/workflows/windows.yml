@@ -44,9 +44,9 @@ jobs:
       - name: Exception unwinding E2E (SEH personality)
         run: |
           # Prove try/throw/catch actually unwinds on native Windows. eskiuc.exe emits a COFF
-          # object whose EH uses the mingw SEH personality (__gxx_personality_seh0); g++ links
-          # libstdc++/libsupc++ (the __cxa_* runtime + the SEH unwinder) and the CRT entry, and
-          # the program must catch and print. A wrong personality would abort at throw.
+          # object whose EH uses the mingw SEH personality (__gxx_personality_seh0) and links it
+          # through gcc with no -l flag: the driver adds -lstdc++ (the __cxa_* runtime + the SEH
+          # unwinder) itself. The program must catch and print; a wrong personality would abort.
           cat > eh.esk <<'EOF'
           extern int printf(string fmt, ...);
           int main() {
@@ -55,8 +55,7 @@ jobs:
               return 0;
           }
           EOF
-          ./build/eskiuc.exe eh.esk -o eh.obj -c
-          g++ eh.obj -o eh.exe
+          ./build/eskiuc.exe eh.esk -o eh.exe
           out=$(./eh.exe)
           echo "program output: $out"
           test "$out" = "caught 42"
@@ -65,7 +64,8 @@ jobs:
         run: |
           # Exercise the POSIX-shimmed stdlib on native Windows: <sysheap> (VirtualAlloc page
           # backend), <threading> (pthread mutex via winpthreads) and <time> (clock_gettime /
-          # nanosleep via winpthreads). Links with -lpthread; VirtualAlloc/Free is in kernel32.
+          # nanosleep via winpthreads). <threading>'s #pragma link adds -lpthread; VirtualAlloc/Free
+          # is in kernel32.
           cat > shims.esk <<'EOF'
           import <sysheap>;
           import <threading>;
@@ -86,8 +86,7 @@ jobs:
               return 0;
           }
           EOF
-          ESKIU_ROOT="$PWD" ./build/eskiuc.exe shims.esk -o shims.obj -c
-          g++ shims.obj -o shims.exe -lpthread
+          ESKIU_ROOT="$PWD" ./build/eskiuc.exe shims.esk -o shims.exe
           out=$(./shims.exe)
           echo "program output: $out"
           test "$out" = "ok 7 1"
@@ -95,7 +94,7 @@ jobs:
       - name: Sockets E2E (Winsock)
         run: |
           # A loopback TCP round-trip via <net>'s Winsock backend (WSAStartup + socket/bind/
-          # listen/accept/connect/send/recv/closesocket). Links against ws2_32.
+          # listen/accept/connect/send/recv/closesocket). <net>'s #pragma link adds ws2_32.
           cat > net.esk <<'EOF'
           import <net>;
           extern int printf(string fmt, ...);
@@ -114,8 +113,7 @@ jobs:
               return 0;
           }
           EOF
-          ESKIU_ROOT="$PWD" ./build/eskiuc.exe net.esk -o net.obj -c
-          g++ net.obj -o net.exe -lws2_32
+          ESKIU_ROOT="$PWD" ./build/eskiuc.exe net.esk -o net.exe
           out=$(./net.exe)
           echo "program output: $out"
           test "$out" = "got 2 hi"
@@ -126,7 +124,7 @@ jobs:
           # with the event loop (WSAPoll backend), a peer sends 5 bytes, and net_read_async
           # completes on the first dispatch. Exercises <eventloop> (WSAPoll + fd-indexed slots
           # that grow to fit Windows' large SOCKET handles) + <net_async> (ioctlsocket
-          # non-blocking + recv + WSAGetLastError). Links ws2_32. A timeout guards against a
+          # non-blocking + recv + WSAGetLastError). ws2_32 comes from #pragma link. A timeout guards against a
           # reactor hang so a regression fails fast instead of running to the job limit.
           cat > async.esk <<'EOF'
           import <net_async>;
@@ -149,8 +147,7 @@ jobs:
               return 0;
           }
           EOF
-          ESKIU_ROOT="$PWD" ./build/eskiuc.exe async.esk -o async.obj -c
-          g++ async.obj -o async.exe -lws2_32
+          ESKIU_ROOT="$PWD" ./build/eskiuc.exe async.esk -o async.exe
           out=$(timeout 20 ./async.exe)
           echo "program output: $out"
           test "$out" = "read heo"
