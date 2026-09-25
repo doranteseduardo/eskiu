@@ -11,6 +11,7 @@ struct String {
 }
 
 void String_init(String* self, int64 initial_cap) {
+    if (initial_cap < 1) { initial_cap = 1; }   // room for the trailing NUL
     self.data = alloc<char>(initial_cap);
     self.len  = 0;
     self.cap  = initial_cap;
@@ -163,29 +164,32 @@ void String_from_int(String* self, int n) {
         String_push(self, '0');
         return;
     }
-    int v   = n;
+    int64 v = (int64)n;   // widened: -(-2147483648) does not fit in an int
     int neg = 0;
     if (v < 0) {
         neg = 1;
         v = -v;
     }
     while (v > 0) {
-        String_push(self, (char)((int)'0' + (v % 10)));
+        String_push(self, (char)((int)'0' + (int)(v % (int64)10)));
         v = v / 10;
     }
     if (neg == 1) { String_push(self, '-'); }
     String_reverse(self);
 }
 
-// Parse a leading (optionally signed) decimal integer; stops at the first
-// non-digit. Returns 0 for an empty or non-numeric string.
+// Parse a leading (optionally signed, '+' or '-') decimal integer; stops at the first
+// non-digit. Returns 0 for an empty or non-numeric string; a value outside the
+// int range saturates to INT_MIN / INT_MAX.
 int String_to_int(String* self) {
-    int result = 0;
+    int64 result = 0;
     int64 i = 0;
     int neg = 0;
     int done = 0;
     if (self.len > 0 && self.data[0] == '-') {
         neg = 1;
+        i = 1;
+    } else if (self.len > 0 && self.data[0] == '+') {
         i = 1;
     }
     while (i < self.len && done == 0) {
@@ -193,12 +197,14 @@ int String_to_int(String* self) {
         if (c < '0' || c > '9') {
             done = 1;
         } else {
-            result = result * 10 + ((int)c - (int)'0');
+            result = result * (int64)10 + (int64)((int)c - (int)'0');
+            if (result > (int64)2147483648) { result = (int64)2147483648; }   // saturate; no int64 overflow
             i = i + 1;
         }
     }
-    if (neg == 1) { return -result; }
-    return result;
+    if (neg == 1) { return (int)(0 - result); }
+    if (result > (int64)2147483647) { return 2147483647; }
+    return (int)result;
 }
 
 // 1 if this String begins with the C string `prefix`, else 0.
