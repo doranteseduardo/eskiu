@@ -25,54 +25,53 @@ struct Json {
     String buf;
 }
 
-void Json_init(Json* self)  { String_init(&self.buf, 64); }
-void Json_free(Json* self)  { String_free(&self.buf); }
-*char Json_cstr(Json* self) { return String_cstr(&self.buf); }
+void Json_init(Json* self)  { self.buf.init(64); }
+void Json_free(Json* self)  { self.buf.free(); }
+*char Json_cstr(Json* self) { return self.buf.cstr(); }
 
 // Insert a separating comma unless the last byte is an opener or a key colon.
 void Json_sep(Json* self) {
-    int n = self.buf.len;
+    const int64 n = self.buf.len;
     if (n == 0) { return; }
-    char last = self.buf.data[n - 1];
-    if (last == 123 || last == 91 || last == 58 || last == 44) { return; } // { [ : ,
-    String_push(&self.buf, ',');
+    const char last = self.buf.data[n - 1];
+    if (last == '{' || last == '[' || last == ':' || last == ',') { return; }
+    self.buf.push(',');
 }
 
 // Append a JSON string literal: `"` and backslash are escaped, and every
 // control byte below 0x20 becomes \n \t \r \b \f or \u00XX (RFC 8259 §7).
 void Json_raw_str(Json* self, string s) {
-    String_push(&self.buf, '"');
-    let i: int = 0;
-    while (s[i] != 0) {
-        char c = s[i];
-        int u = (int)(uint8)c;
-        if (c == 34 || c == 92) { String_push(&self.buf, '\\'); String_push(&self.buf, c); }  // " or backslash
-        else if (u == 10) { String_append(&self.buf, "\\n"); }
-        else if (u == 9)  { String_append(&self.buf, "\\t"); }
-        else if (u == 13) { String_append(&self.buf, "\\r"); }
-        else if (u == 8)  { String_append(&self.buf, "\\b"); }
-        else if (u == 12) { String_append(&self.buf, "\\f"); }
+    String* out = &self.buf;
+    out.push('"');
+    for (int i = 0; s[i] != 0; i++) {
+        const char c = s[i];
+        const int u = (int)(uint8)c;
+        if (c == '"' || c == '\\') { out.push('\\'); out.push(c); }
+        else if (c == '\n') { out.append("\\n"); }
+        else if (c == '\t') { out.append("\\t"); }
+        else if (c == '\r') { out.append("\\r"); }
+        else if (u == 8)    { out.append("\\b"); }
+        else if (c == '\f') { out.append("\\f"); }
         else if (u < 32) {
-            String_append(&self.buf, "\\u00");
-            String_push(&self.buf, "0123456789abcdef"[u >> 4]);
-            String_push(&self.buf, "0123456789abcdef"[u & 15]);
+            out.append("\\u00");
+            out.push("0123456789abcdef"[u >> 4]);
+            out.push("0123456789abcdef"[u & 15]);
         }
-        else { String_push(&self.buf, c); }
-        i = i + 1;
+        else { out.push(c); }
     }
-    String_push(&self.buf, '"');
+    out.push('"');
 }
 
-void Json_obj_begin(Json* self) { Json_sep(self); String_push(&self.buf, '{'); }
-void Json_obj_end(Json* self)   { String_push(&self.buf, '}'); }
-void Json_arr_begin(Json* self) { Json_sep(self); String_push(&self.buf, '['); }
-void Json_arr_end(Json* self)   { String_push(&self.buf, ']'); }
+void Json_obj_begin(Json* self) { Json_sep(self); self.buf.push('{'); }
+void Json_obj_end(Json* self)   { self.buf.push('}'); }
+void Json_arr_begin(Json* self) { Json_sep(self); self.buf.push('['); }
+void Json_arr_end(Json* self)   { self.buf.push(']'); }
 
 // Object key: emits "key": — the following value attaches without a comma.
 void Json_key(Json* self, string k) {
     Json_sep(self);
     Json_raw_str(self, k);
-    String_push(&self.buf, ':');
+    self.buf.push(':');
 }
 
 void Json_str(Json* self, string v) { Json_sep(self); Json_raw_str(self, v); }
@@ -80,26 +79,25 @@ void Json_str(Json* self, string v) { Json_sep(self); Json_raw_str(self, v); }
 // Append the full int64 (no truncation to 32 bits; INT64_MIN included).
 void Json_int(Json* self, int64 v) {
     Json_sep(self);
+    String* out = &self.buf;
     uint64 mag = (uint64)v;
-    if (v < (int64)0) { String_push(&self.buf, '-'); mag = (uint64)0 - (uint64)v; }
+    if (v < 0) { out.push('-'); mag = (uint64)0 - (uint64)v; }
+    // Collect the digits least significant first, then emit them in reverse.
     let digits: char[20];
     int n = 0;
-    if (mag == (uint64)0) { digits[0] = '0'; n = 1; }
-    while (mag > (uint64)0) {
-        digits[n] = (char)(48 + (int)(mag % (uint64)10));
-        mag = mag / (uint64)10;
-        n = n + 1;
-    }
-    while (n > 0) { n = n - 1; String_push(&self.buf, digits[n]); }
+    do {
+        digits[n++] = (char)('0' + (int)(mag % 10));
+        mag /= 10;
+    } while (mag > 0);
+    while (n > 0) { out.push(digits[--n]); }
 }
 
 void Json_bool(Json* self, int b) {
     Json_sep(self);
-    if (b != 0) { String_append(&self.buf, "true"); }
-    else        { String_append(&self.buf, "false"); }
+    self.buf.append(b != 0 ? "true" : "false");
 }
 
-void Json_null(Json* self) { Json_sep(self); String_append(&self.buf, "null"); }
+void Json_null(Json* self) { Json_sep(self); self.buf.append("null"); }
 
 // ── Parsed value tree ────────────────────────────────────────────────────────
 
@@ -118,15 +116,10 @@ struct JsonValue {
     *JsonValue next;      // next sibling
 }
 
+// alloc zero-fills, so num is 0, boolean is 0, and str/key/child/next are null.
 *JsonValue JsonValue_new(int kind) {
     *JsonValue v = alloc<JsonValue>(1);
     v.kind = kind;
-    v.num = 0.0;
-    v.boolean = 0;
-    v.str.data = (*char)0; v.str.len = 0; v.str.cap = 0;
-    v.key.data = (*char)0; v.key.len = 0; v.key.cap = 0;
-    v.child = (*JsonValue)0;
-    v.next  = (*JsonValue)0;
     return v;
 }
 
@@ -136,9 +129,9 @@ void JsonValue_free(JsonValue* v) {
     while (v != null) {
         *JsonValue nx = v.next;
         JsonValue_free(v.child);
-        if (v.str.data != null) { String_free(&v.str); }
-        if (v.key.data != null) { String_free(&v.key); }
-        free((*void)v);
+        if (v.str.data != null) { v.str.free(); }
+        if (v.key.data != null) { v.key.free(); }
+        free(v);
         v = nx;
     }
 }
@@ -148,37 +141,32 @@ int JsonValue_kind(JsonValue* v) { return v.kind; }
 // Number of array elements / object members.
 int JsonValue_len(JsonValue* v) {
     int n = 0;
-    *JsonValue c = v.child;
-    while (c != null) { n = n + 1; c = c.next; }
+    for (*JsonValue c = v.child; c != null; c = c.next) { n++; }
     return n;
 }
 
 // The i-th array element (or object member), or null if out of range.
 *JsonValue JsonValue_at(JsonValue* v, int i) {
-    *JsonValue c = v.child;
     int j = 0;
-    while (c != null) {
+    for (*JsonValue c = v.child; c != null; c = c.next) {
         if (j == i) { return c; }
-        j = j + 1;
-        c = c.next;
+        j++;
     }
-    return (*JsonValue)0;
+    return null;
 }
 
 // The object member whose key equals `key`, or null.
 *JsonValue JsonValue_get(JsonValue* v, string key) {
-    *JsonValue c = v.child;
-    while (c != null) {
-        if (c.key.data != null && String_eq_cstr(&c.key, key) == 1) { return c; }
-        c = c.next;
+    for (*JsonValue c = v.child; c != null; c = c.next) {
+        if (c.key.data != null && c.key.eq_cstr(key) == 1) { return c; }
     }
-    return (*JsonValue)0;
+    return null;
 }
 
 int64  JsonValue_as_int(JsonValue* v)    { return (int64)v.num; }
 double JsonValue_as_double(JsonValue* v) { return v.num; }
 int    JsonValue_as_bool(JsonValue* v)   { return v.boolean; }
-*char  JsonValue_as_cstr(JsonValue* v)   { return String_cstr(&v.str); }
+*char  JsonValue_as_cstr(JsonValue* v)   { return v.str.cstr(); }
 
 // ── Parser (recursive descent) ───────────────────────────────────────────────
 // Strict RFC 8259: exact literals, the number grammar, the full escape set with
@@ -193,134 +181,132 @@ struct JParser {
 }
 
 void JParser_ws(JParser* self) {
-    while (1) {
-        char c = self.src[self.pos];
-        if (c == 32 || c == 9 || c == 10 || c == 13) { self.pos = self.pos + 1; }
-        else { return; }
+    while (true) {
+        const char c = self.src[self.pos];
+        if (c != ' ' && c != '\t' && c != '\n' && c != '\r') { return; }
+        self.pos++;
     }
 }
 
 // Value of one hex digit, or -1.
 int JParser_hex(char c) {
-    if (c >= 48 && c <= 57)  { return (int)c - 48; }
-    if (c >= 97 && c <= 102) { return (int)c - 87; }
-    if (c >= 65 && c <= 70)  { return (int)c - 55; }
+    if (c >= '0' && c <= '9') { return (int)c - '0'; }
+    if (c >= 'a' && c <= 'f') { return (int)c - 'a' + 10; }
+    if (c >= 'A' && c <= 'F') { return (int)c - 'A' + 10; }
     return -1;
 }
 
 // Read the 4 hex digits of a \u escape (cursor on the first digit); -1 if bad.
 int JParser_u4(JParser* self) {
     int v = 0;
-    int i = 0;
-    while (i < 4) {
-        int h = JParser_hex(self.src[self.pos]);
+    for (int i = 0; i < 4; i++) {
+        const int h = JParser_hex(self.src[self.pos]);
         if (h < 0) { return -1; }
         v = v * 16 + h;
-        self.pos = self.pos + 1;
-        i = i + 1;
+        self.pos++;
     }
     return v;
 }
 
 // Append code point `cp` (<= 0x10FFFF) as UTF-8.
 void JParser_utf8(String* out, int cp) {
-    if (cp < 128) { String_push(out, (char)cp); }
+    if (cp < 128) { out.push((char)cp); }
     else if (cp < 2048) {
-        String_push(out, (char)(192 | (cp >> 6)));
-        String_push(out, (char)(128 | (cp & 63)));
+        out.push((char)(192 | (cp >> 6)));
+        out.push((char)(128 | (cp & 63)));
     } else if (cp < 65536) {
-        String_push(out, (char)(224 | (cp >> 12)));
-        String_push(out, (char)(128 | ((cp >> 6) & 63)));
-        String_push(out, (char)(128 | (cp & 63)));
+        out.push((char)(224 | (cp >> 12)));
+        out.push((char)(128 | ((cp >> 6) & 63)));
+        out.push((char)(128 | (cp & 63)));
     } else {
-        String_push(out, (char)(240 | (cp >> 18)));
-        String_push(out, (char)(128 | ((cp >> 12) & 63)));
-        String_push(out, (char)(128 | ((cp >> 6) & 63)));
-        String_push(out, (char)(128 | (cp & 63)));
+        out.push((char)(240 | (cp >> 18)));
+        out.push((char)(128 | ((cp >> 12) & 63)));
+        out.push((char)(128 | ((cp >> 6) & 63)));
+        out.push((char)(128 | (cp & 63)));
     }
 }
 
 // Read a quoted string (cursor must be on the opening quote) into `out`,
 // decoding every JSON escape.
 void JParser_read_string(JParser* self, String* out) {
-    self.pos = self.pos + 1;   // skip opening quote
-    while (1) {
-        int c = (int)(uint8)self.src[self.pos];
-        if (c == 0)  { self.err = 1; return; }     // unterminated
-        if (c == 34) { self.pos = self.pos + 1; return; }   // closing quote
-        if (c < 32)  { self.err = 1; return; }     // raw control byte
-        if (c == 92) {                              // backslash escape
-            self.pos = self.pos + 1;
-            char e = self.src[self.pos];
-            if (e == 0) { self.err = 1; return; }
-            self.pos = self.pos + 1;
-            if      (e == 34)  { String_push(out, '"'); }
-            else if (e == 92)  { String_push(out, '\\'); }
-            else if (e == 47)  { String_push(out, '/'); }
-            else if (e == 98)  { String_push(out, (char)8); }
-            else if (e == 102) { String_push(out, '\f'); }
-            else if (e == 110) { String_push(out, '\n'); }
-            else if (e == 114) { String_push(out, '\r'); }
-            else if (e == 116) { String_push(out, '\t'); }
-            else if (e == 117) {                    // \uXXXX
+    self.pos++;   // skip opening quote
+    while (true) {
+        const int c = (int)(uint8)self.src[self.pos];
+        if (c == 0)   { self.err = 1; return; }       // unterminated
+        if (c == '"') { self.pos++; return; }         // closing quote
+        if (c < 32)   { self.err = 1; return; }       // raw control byte
+        if (c != '\\') {
+            out.push((char)c);
+            self.pos++;
+            continue;
+        }
+        // A backslash escape.
+        self.pos++;
+        const char e = self.src[self.pos];
+        if (e == 0) { self.err = 1; return; }
+        self.pos++;
+        switch (e) {
+            case '"':  out.push('"'); break;
+            case '\\': out.push('\\'); break;
+            case '/':  out.push('/'); break;
+            case 'b':  out.push((char)8); break;
+            case 'f':  out.push('\f'); break;
+            case 'n':  out.push('\n'); break;
+            case 'r':  out.push('\r'); break;
+            case 't':  out.push('\t'); break;
+            case 'u': {                                // \uXXXX
                 int cp = JParser_u4(self);
                 if (cp < 0 || (cp >= 56320 && cp <= 57343)) { self.err = 1; return; }  // bad / lone low surrogate
-                if (cp >= 55296 && cp <= 56319) {   // high surrogate: a \uDC00-\uDFFF must follow
-                    if (self.src[self.pos] != 92 || self.src[self.pos + 1] != 117) { self.err = 1; return; }
-                    self.pos = self.pos + 2;
-                    int lo = JParser_u4(self);
+                if (cp >= 55296 && cp <= 56319) {      // high surrogate: a \uDC00-\uDFFF must follow
+                    if (self.src[self.pos] != '\\' || self.src[self.pos + 1] != 'u') { self.err = 1; return; }
+                    self.pos += 2;
+                    const int lo = JParser_u4(self);
                     if (lo < 56320 || lo > 57343) { self.err = 1; return; }
                     cp = 65536 + ((cp - 55296) << 10) + (lo - 56320);
                 }
                 JParser_utf8(out, cp);
-            }
-            else { self.err = 1; return; }          // not a JSON escape
-        } else {
-            String_push(out, (char)c);
-            self.pos = self.pos + 1;
+            } break;
+            default: self.err = 1; return;             // not a JSON escape
         }
     }
 }
 
 int JParser_is_digit(char c) {
-    if (c >= 48 && c <= 57) { return 1; }
-    return 0;
+    return (c >= '0' && c <= '9') ? 1 : 0;
 }
 
 // Read a number per the JSON grammar: -? (0 | [1-9][0-9]*) (.[0-9]+)? ([eE][+-]?[0-9]+)?
 double JParser_read_number(JParser* self) {
-    int start = self.pos;
-    if (self.src[self.pos] == 45) { self.pos = self.pos + 1; }
-    if (self.src[self.pos] == 48) { self.pos = self.pos + 1; }
+    const int start = self.pos;
+    if (self.src[self.pos] == '-') { self.pos++; }
+    if (self.src[self.pos] == '0') { self.pos++; }
     else if (JParser_is_digit(self.src[self.pos]) == 1) {
-        while (JParser_is_digit(self.src[self.pos]) == 1) { self.pos = self.pos + 1; }
+        while (JParser_is_digit(self.src[self.pos]) == 1) { self.pos++; }
     } else { self.err = 1; return 0.0; }
-    if (self.src[self.pos] == 46) {
-        self.pos = self.pos + 1;
+    if (self.src[self.pos] == '.') {
+        self.pos++;
         if (JParser_is_digit(self.src[self.pos]) == 0) { self.err = 1; return 0.0; }
-        while (JParser_is_digit(self.src[self.pos]) == 1) { self.pos = self.pos + 1; }
+        while (JParser_is_digit(self.src[self.pos]) == 1) { self.pos++; }
     }
-    if (self.src[self.pos] == 101 || self.src[self.pos] == 69) {
-        self.pos = self.pos + 1;
-        if (self.src[self.pos] == 43 || self.src[self.pos] == 45) { self.pos = self.pos + 1; }
+    if (self.src[self.pos] == 'e' || self.src[self.pos] == 'E') {
+        self.pos++;
+        if (self.src[self.pos] == '+' || self.src[self.pos] == '-') { self.pos++; }
         if (JParser_is_digit(self.src[self.pos]) == 0) { self.err = 1; return 0.0; }
-        while (JParser_is_digit(self.src[self.pos]) == 1) { self.pos = self.pos + 1; }
+        while (JParser_is_digit(self.src[self.pos]) == 1) { self.pos++; }
     }
-    let text: String;  String_init(&text, (int64)(self.pos - start + 1));
-    int i = start;
-    while (i < self.pos) { String_push(&text, self.src[i]); i = i + 1; }
-    double d = atof((string)String_cstr(&text));
-    String_free(&text);
-    return d;
+    // atof needs a NUL-terminated copy of just the number's text.
+    let text: String;
+    text.init(self.pos - start + 1);
+    defer text.free();
+    for (i in start..self.pos) { text.push(self.src[i]); }
+    return atof((string)text.cstr());
 }
 
 // Consume the exact literal `word` (true / false / null); sets err otherwise.
 void JParser_word(JParser* self, string word) {
-    int i = 0;
-    while (word[i] != 0) {
+    for (int i = 0; word[i] != 0; i++) {
         if (self.src[self.pos] != word[i]) { self.err = 1; return; }
-        self.pos = self.pos + 1;
-        i = i + 1;
+        self.pos++;
     }
 }
 
@@ -330,11 +316,11 @@ void JParser_word(JParser* self, string word) {
 // linked in, so json_parse frees the whole tree.
 *JsonValue JParser_array(JParser* self) {
     *JsonValue arr = JsonValue_new(JArray);
-    self.pos = self.pos + 1;   // skip [
+    self.pos++;   // skip [
     JParser_ws(self);
-    if (self.src[self.pos] == 93) { self.pos = self.pos + 1; return arr; }  // ]
-    *JsonValue tail = (*JsonValue)0;
-    while (1) {
+    if (self.src[self.pos] == ']') { self.pos++; return arr; }
+    *JsonValue tail = null;
+    while (true) {
         *JsonValue elem = JParser_value(self);
         if (elem != null) {
             if (arr.child == null) { arr.child = elem; } else { tail.next = elem; }
@@ -342,9 +328,9 @@ void JParser_word(JParser* self, string word) {
         }
         if (self.err == 1) { return arr; }
         JParser_ws(self);
-        char c = self.src[self.pos];
-        if (c == 44) { self.pos = self.pos + 1; }            // ,
-        else if (c == 93) { self.pos = self.pos + 1; return arr; }  // ]
+        const char c = self.src[self.pos];
+        if (c == ',') { self.pos++; }
+        else if (c == ']') { self.pos++; return arr; }
         else { self.err = 1; return arr; }
     }
     return arr;
@@ -352,29 +338,30 @@ void JParser_word(JParser* self, string word) {
 
 *JsonValue JParser_object(JParser* self) {
     *JsonValue obj = JsonValue_new(JObject);
-    self.pos = self.pos + 1;   // skip {
+    self.pos++;   // skip {
     JParser_ws(self);
-    if (self.src[self.pos] == 125) { self.pos = self.pos + 1; return obj; }  // }
-    *JsonValue tail = (*JsonValue)0;
-    while (1) {
+    if (self.src[self.pos] == '}') { self.pos++; return obj; }
+    *JsonValue tail = null;
+    while (true) {
         JParser_ws(self);
-        if (self.src[self.pos] != 34) { self.err = 1; return obj; }   // expect "
-        let k: String;  String_init(&k, 8);
+        if (self.src[self.pos] != '"') { self.err = 1; return obj; }   // expect a key
+        let k: String;
+        k.init(8);
         JParser_read_string(self, &k);
-        if (self.err == 1) { String_free(&k); return obj; }
+        if (self.err == 1) { k.free(); return obj; }
         JParser_ws(self);
-        if (self.src[self.pos] != 58) { self.err = 1; String_free(&k); return obj; }  // :
-        self.pos = self.pos + 1;
+        if (self.src[self.pos] != ':') { self.err = 1; k.free(); return obj; }
+        self.pos++;
         *JsonValue val = JParser_value(self);
-        if (val == null) { String_free(&k); return obj; }
-        val.key.data = k.data;  val.key.len = k.len;  val.key.cap = k.cap;  // move key in
+        if (val == null) { k.free(); return obj; }
+        val.key = k;   // move the key in
         if (obj.child == null) { obj.child = val; } else { tail.next = val; }
         tail = val;
         if (self.err == 1) { return obj; }
         JParser_ws(self);
-        char c = self.src[self.pos];
-        if (c == 44) { self.pos = self.pos + 1; }            // ,
-        else if (c == 125) { self.pos = self.pos + 1; return obj; }  // }
+        const char c = self.src[self.pos];
+        if (c == ',') { self.pos++; }
+        else if (c == '}') { self.pos++; return obj; }
         else { self.err = 1; return obj; }
     }
     return obj;
@@ -382,37 +369,38 @@ void JParser_word(JParser* self, string word) {
 
 *JsonValue JParser_value(JParser* self) {
     JParser_ws(self);
-    char c = self.src[self.pos];
-    if (c == 123) { return JParser_object(self); }   // {
-    if (c == 91)  { return JParser_array(self); }    // [
-    if (c == 34) {                                   // "
+    const char c = self.src[self.pos];
+    if (c == '{') { return JParser_object(self); }
+    if (c == '[') { return JParser_array(self); }
+    if (c == '"') {
         *JsonValue v = JsonValue_new(JString);
-        String_init(&v.str, 8);
+        v.str.init(8);
         JParser_read_string(self, &v.str);
         return v;
     }
-    if (c == 116) {   // true
-        *JsonValue v = JsonValue_new(JBool); v.boolean = 1;
+    if (c == 't') {
+        *JsonValue v = JsonValue_new(JBool);
+        v.boolean = 1;
         JParser_word(self, "true");
         return v;
     }
-    if (c == 102) {   // false
-        *JsonValue v = JsonValue_new(JBool); v.boolean = 0;
+    if (c == 'f') {
+        *JsonValue v = JsonValue_new(JBool);
         JParser_word(self, "false");
         return v;
     }
-    if (c == 110) {   // null
+    if (c == 'n') {
         *JsonValue v = JsonValue_new(JNull);
         JParser_word(self, "null");
         return v;
     }
-    if (c == 45 || (c >= 48 && c <= 57)) {           // - or digit
+    if (c == '-' || JParser_is_digit(c) == 1) {
         *JsonValue v = JsonValue_new(JNumber);
         v.num = JParser_read_number(self);
         return v;
     }
     self.err = 1;
-    return (*JsonValue)0;
+    return null;
 }
 
 // Parse `src` into a value tree. Returns null on malformed input (any partial
@@ -429,7 +417,7 @@ void JParser_word(JParser* self, string word) {
     }
     if (p.err == 1) {
         JsonValue_free(v);
-        return (*JsonValue)0;
+        return null;
     }
     return v;
 }
