@@ -110,7 +110,7 @@ are fixed lockstep in the C++ and self-hosted compilers unless noted, each with 
 regression test. A second pass added three fuzzers (a C oracle, a negative corpus and an
 ASan fuzzer for the stdlib parsers), which found about twenty more, and resolved the two
 known limitations left from 0.9.1 (R and S). A second blind audit round found about 165
-more, fixed the same way.</p>
+more and a third about 60, fixed the same way.</p>
 <h3 id="added">Added</h3>
 <ul>
 <li><strong><code>#pragma link("name")</code></strong> links the executable with <code>-lname</code>. The driver also adds
@@ -250,6 +250,22 @@ more, fixed the same way.</p>
   symbol. An assignment evaluates its target before its value, as the other compound
   forms already did.</li>
 <li>Self-host diagnostics go to stderr, as the C++ compiler's do.</li>
+<li><strong>Pointer conversions between unrelated pointee types need a cast</strong> (<code>*int</code> to <code>*Big</code>).
+  <code>*void</code>, <code>null</code> and the byte pointers (<code>string</code>, <code>*char</code>, <code>*int8</code>, <code>*uint8</code>) stay
+  implicit, and <code>int</code>/<code>int32</code> and <code>uint</code>/<code>uint32</code> spellings of the same type match.</li>
+<li><strong>A global initializer or a function body may not name a global defined later in the
+  file</strong>, as in C (it compiled to a zero address before).</li>
+<li>A by-value recursive enum (<code>enum L { Cons(int, L), Nil }</code>) is an error, like a struct
+  that contains itself. <code>Box&lt;void&gt;</code>, <code>void[]</code> and a non-constant array size are errors.</li>
+<li>A lambda may not write a field or element of a captured struct or array (<code>p.a = 5</code>,
+  <code>arr[0] = 9</code>); writes through a pointer, a slice or a string are allowed.</li>
+<li>A bare nullary variant of a generic enum needs its type arguments (<code>None&lt;int&gt;()</code>), and
+  a variant constructor's payload is checked against the declared instance.</li>
+<li><code>?*T</code> narrowing ends at any call or <code>await</code> for a global, and an address-taken
+  variable is never narrowed.</li>
+<li><code>?</code> needs an integer or <code>bool</code> <code>ok</code> field; a union literal names one member; an inline
+  method can't declare a parameter named <code>self</code>, and an operator overload must have the
+  operator's arity.</li>
 </ul>
 <h3 id="deprecated">Deprecated</h3>
 <ul>
@@ -455,6 +471,34 @@ more, fixed the same way.</p>
   rejects a late table-size update and a field that overflows; <code>json</code> frees its tree
   iteratively; <code>String</code> and <code>Map</code> use-after-free, substring clamping and <code>int64</code> epochs
   are fixed; allocator sizes can't overflow and a tiny <code>FirstFit</code> buffer is handled.</li>
+</ul>
+<h4 id="third-audit-round">Third audit round</h4>
+<ul>
+<li>Bitfields: a narrower signed value stored into a wide bitfield keeps its sign, and a
+  global or <code>static</code> initializer of a bitfield struct, a union or a packed struct keeps
+  its values (it was zero-filled). Union literals, including a global union set through
+  a pointer member, produce valid IR.</li>
+<li>Async functions: a <code>static</code> local keeps its value across calls, and <code>for-in</code> over a
+  slice, <code>try</code>/<code>catch</code>, array literals and <code>match</code> on an enum local work.</li>
+<li>Generics: an instance reached only through a call result (<code>flip(n).a</code>,
+  <code>unbox(bx(7))</code>, <code>bx(2.5).get()</code>) is instantiated.</li>
+<li>Interfaces: arrays of interface values, method calls through <code>*I</code>, a global interface
+  value and a closure taking an interface argument work; returning a large array uses
+  <code>sret</code>.</li>
+<li>A struct field whose type is declared later in the file gets the right layout (it was
+  laid out as <code>i32</code>). Member access through <code>const *T</code> works.</li>
+<li>Lambdas can return a struct, a pointer or a generic instance; <code>(*pf)(x)</code> calls through
+  a pointer to a closure; arrays of closures and pointers to closures work in the
+  self-host; unary <code>+</code> compiles.</li>
+<li>A function-like macro call can span lines, <code>#pragma</code> is accepted inside a function or
+  struct body, and <code>fmt</code> leaves the bytes of a multi-line string literal alone.</li>
+<li>Self-host: rejects casts from an interface, a brace initializer for a non-array, a
+  mistyped global initializer, a struct literal with wrong type arguments and a free
+  function with the wrong signature for a constraint, as the C++ compiler does.</li>
+<li>Stdlib: regex loops whose body can match empty follow RE2 (<code>(a?|b)*</code> on "b" is 0,0), a
+  repeat count above 1000 is an error, HTTP/2 rejects CR, LF and NUL in header fields,
+  RST_STREAM on an idle stream, a short GOAWAY and a stream that depends on itself, and
+  <code>http_reply</code> accepts a <code>null</code> body.</li>
 </ul>
 <h2 id="091-2026-09-09">[0.9.1] - 2026-09-09</h2>
 <h3 id="fixed_1">Fixed</h3>
@@ -1534,7 +1578,7 @@ thread_join(t);
 <h3 id="added_10">Added</h3>
 <p><strong>Inline assembly</strong>
 - <code>asm("cli");</code>: simple form; passes the string verbatim to the assembler with no inputs, outputs, or clobbers
-- <code>asm("outb %0, %1" :: "a"(val), "Nd"(port) : "memory");</code>: extended form with GCC-compatible constraint syntax; supports input operands, output operands, and clobber lists
+- <code>asm("outb %0, %1" :: "a"(val), "Nd"(port) : "memory");</code>: extended form with GCC-compatible constraint syntax; supports input operands and clobber lists (no output operands)
 - Lowers to LLVM inline asm nodes; <code>"memory"</code> clobber emits a compiler barrier</p>
 <p><strong>Freestanding mode</strong>
 - <code>--freestanding</code> CLI flag: redirects <code>alloc</code> to call <code>esk_alloc</code> and <code>free</code> to call <code>esk_free</code> instead of the libc <code>malloc</code>/<code>free</code>

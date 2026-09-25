@@ -359,6 +359,11 @@ digit. An integer literal that does not fit in 64 bits is a lexical error.</p>
 <pre><code class="language-eskiu">let ptr: *int = null;
 let buf: *uint8 = null;
 </code></pre>
+<p>A pointer converts implicitly only to a pointer to the same type (adding <code>const</code> is
+fine). <code>null</code> converts to any pointer, a <code>*void</code> converts to and from any pointer, and
+the byte pointers <code>string</code>, <code>*char</code>, <code>*int8</code> and <code>*uint8</code> interconvert. Any other change
+of pointee, such as <code>*int</code> to <code>*Big</code> or <code>**int</code> to <code>*int</code>, needs an explicit cast
+(<code>(*Big)p</code>).</p>
 <h4 id="checked-nullable-pointers-t">Checked nullable pointers (<code>?*T</code>)</h4>
 <p>A plain <code>*T</code> may hold <code>null</code> (as in C), and dereferencing a null one is undefined. For
 opt-in null safety, write <code>?*T</code>, a <strong>checked nullable pointer</strong>. The compiler will not let
@@ -373,7 +378,7 @@ if (q != null) {
 <p>A non-null <code>*T</code> converts to <code>?*T</code> implicitly (widening); going the other way (<code>?*T</code> to
 <code>*T</code>) drops the check and so requires narrowing (or an explicit cast). <code>?*T</code> has the same
 representation as <code>*T</code> (a bare pointer); the checking is entirely at compile time. The
-<code>?</code> marks a pointer type only: <code>?int</code> is an error.</p>
+<code>?</code> marks a pointer type only: <code>?int</code> is an error. The <code>?</code> applies to the whole type it starts, so <code>?*T*</code> is a nullable pointer to <code>*T</code>. A pointer to a nullable pointer has no spelling; use <code>**T</code> and narrow the loaded value.</p>
 <p>A null-check narrows in these forms: the then-branch of <code>if (x != null)</code> (and the else of
 <code>if (x == null)</code>), <code>if (x)</code>, <code>!(x == null)</code>, the right operand of <code>x != null &amp;&amp; ...</code> and of
 <code>x == null || ...</code>, either arm of a <code>?:</code> on such a condition, the body of
@@ -381,7 +386,11 @@ representation as <code>*T</code> (a bare pointer); the checking is entirely at 
 exit such as <code>if (x == null) { return 0; }</code>. While narrowed, <code>x</code> can be passed or assigned
 where a <code>*T</code> is expected. Narrowing applies to the variable itself: assigning to it (other
 than storing an address <code>&amp;y</code>), taking its address, or reassigning it anywhere in an
-enclosing loop ends it, and a shadowing declaration of the same name is not narrowed.</p>
+enclosing loop ends it, and a shadowing declaration of the same name is not narrowed. A
+variable whose address has been taken (<code>&amp;x</code>, before the check or anywhere in an enclosing
+loop) is not narrowed, since a write through that pointer can store null behind the check;
+for a global the address counts anywhere in the program. A global's narrowing also ends at
+every call and <code>await</code>, since the callee may assign it.</p>
 <h3 id="33-array-types">3.3 Array Types</h3>
 <p>Fixed-size arrays use the form <code>T[N]</code> where <code>N</code> is a compile-time integer constant: a decimal literal, an <code>enum</code> member, or a <code>const int</code> (see §4.6). Array types are supported both as struct fields and as local variables:</p>
 <pre><code class="language-eskiu">struct QRBuffer {
@@ -1104,7 +1113,7 @@ int out2 = apply(int(int x) { return x + 1; }, 9);  // out2 == 10
 let add: fn(int)-&gt;int = int(int x) { return x + base; };
 add(5);   // 15: 'base' was captured by value
 </code></pre>
-<p>The closure holds its own copy of each captured variable, taken when the lambda expression is evaluated: a later change to <code>base</code> in the enclosing function is not seen by <code>add</code>. For the same reason a lambda may not assign to a captured variable (<code>base = 1;</code>, <code>base += 1;</code> or <code>base++;</code> inside the body is a compile error, "cannot assign to captured variable"), since the write would change only the copy and be lost. To share state with the enclosing code, write through a pointer to it (<code>*p = v</code>), or use a global or a <code>static</code> local: those are not captured, the lambda reads and writes the one variable. The lambda's own parameters and locals are ordinary variables it may assign.</p>
+<p>The closure holds its own copy of each captured variable, taken when the lambda expression is evaluated: a later change to <code>base</code> in the enclosing function is not seen by <code>add</code>. For the same reason a lambda may not assign to a captured variable (<code>base = 1;</code>, <code>base += 1;</code> or <code>base++;</code> inside the body is a compile error, "cannot assign to captured variable"; so is a write to a field or element of a captured struct or array value, <code>p.a = 5;</code> or <code>arr[0] = 9;</code>), since the write would change only the copy and be lost. To share state with the enclosing code, write through a pointer to it (<code>*p = v</code>, <code>ptr.a = v</code>), or use a global or a <code>static</code> local: those are not captured, the lambda reads and writes the one variable. The lambda's own parameters and locals are ordinary variables it may assign.</p>
 <p>Under the hood, <code>fn(T)-&gt;R</code> is a two-word fat pointer <code>{fn_ptr, env_ptr}</code>. When a lambda captures one or more variables, the compiler packages them into an environment struct and stores its address in <code>env_ptr</code>. Lambdas that capture nothing have <code>env_ptr = null</code> and compile identically to plain function pointers. The representation is fully transparent to user code. The type annotation remains <code>fn(T)-&gt;R</code> in both cases.</p>
 <p><strong>Escape analysis and closure lifetime.</strong> Where the environment lives depends on whether the closure <em>escapes</em> its creating function:</p>
 <ul>
@@ -1495,7 +1504,7 @@ let f: Flags = Flags { ready: 1, mode: 5, weight: 9 };
 f.mode = 2;   // leaves ready and weight untouched
 </code></pre>
 <h3 id="82-methods-with-implicit-self">8.2 Methods with Implicit self</h3>
-<p>Methods are declared inside the struct body. Inside a method body, <code>self</code> refers to a pointer to the receiver struct.</p>
+<p>Methods are declared inside the struct body. Inside a method body, <code>self</code> refers to a pointer to the receiver struct. Because <code>self</code> is that implicit parameter, an inline method may not declare a parameter named <code>self</code>.</p>
 <pre><code class="language-eskiu">struct Counter {
     int count;
 
@@ -1530,7 +1539,7 @@ V3 operator -(V3 a)           { let r: V3; r.x = 0.0 - a.x; r.y = 0.0 - a.y; r.z
 V3 p = (q + t) * 2.0;   // operator + and then operator *(V3, double)
 V3 n = -q;              // the unary operator -
 </code></pre>
-<p>Overloadable: the binary operators <code>+ - * / % == != &lt; &gt; &lt;= &gt;= &amp; | ^ &lt;&lt; &gt;&gt;</code>, the unary operators <code>- ! ~</code>, and subscript <code>[]</code>. Compound assignment (<code>v += w</code>) is defined as <code>v = v + w</code>, using the overloaded <code>+</code>. The short-circuit operators <code>&amp;&amp;</code> / <code>||</code>, the pointer operators <code>*</code> / <code>&amp;</code>, and <code>=</code> / <code>.</code> are structural and cannot be overloaded.</p>
+<p>Overloadable: the binary operators <code>+ - * / % == != &lt; &gt; &lt;= &gt;= &amp; | ^ &lt;&lt; &gt;&gt;</code>, the unary operators <code>- ! ~</code>, and subscript <code>[]</code>. A binary operator and <code>[]</code> take exactly two parameters, <code>!</code> and <code>~</code> exactly one, and <code>-</code> one (negation) or two (subtraction); any other count is a compile error. Compound assignment (<code>v += w</code>) is defined as <code>v = v + w</code>, using the overloaded <code>+</code>. The short-circuit operators <code>&amp;&amp;</code> / <code>||</code>, the pointer operators <code>*</code> / <code>&amp;</code>, and <code>=</code> / <code>.</code> are structural and cannot be overloaded.</p>
 <p>Resolution is entirely static and structural:</p>
 <ul>
 <li>A type gets an operator simply by declaring one for it. There is no trait or <code>impl</code> block to register; if an <code>operator</code> exists for the operand types, the operator resolves to it, otherwise the operands must be built-in.</li>
@@ -1585,6 +1594,7 @@ u.i = 0x3F800000;   // bit pattern for 1.0f
 printf(&quot;%f\n&quot;, u.f); // prints 1.0
 </code></pre>
 <p><code>sizeof(Value)</code> returns the size of the largest field: <code>sizeof(*uint8)</code> = 8 on a 64-bit target in this example.</p>
+<p>A union literal initializes exactly one member, named or positional (<code>Value{f: 1.5}</code>, <code>Value{7}</code> sets <code>i</code>); the remaining bytes are zero. Naming two members is an error. A union literal is a constant initializer for a global or <code>static</code> when its member value is constant.</p>
 <h3 id="87-enums">8.7 Enums</h3>
 <p>An <code>enum</code> declares a set of named integer constants. Members take consecutive values starting at 0; an explicit <code>= N</code> resets the running value, and the next member continues from there. The enum type itself is an <code>int</code> (<code>i32</code>), so enum values work in arithmetic, comparisons, and <code>switch</code>.</p>
 <pre><code class="language-eskiu">enum Color  { Red, Green, Blue }            // 0, 1, 2
@@ -1626,7 +1636,9 @@ Shape a = Circle(2.0);          // construct; payload-free variants are bare (`U
 template structs. The type arguments of a generic variant are inferred from the
 payload arguments when they determine them (<code>Some(42)</code> → <code>Option&lt;int&gt;</code>); otherwise
 (a payload-free variant like <code>None</code>, or one that under-determines the type like
-<code>Either</code>'s <code>Left</code>) write them explicitly:</p>
+<code>Either</code>'s <code>Left</code>) write them explicitly. They are not inferred from the target
+type: a bare <code>None</code> is a compile error, and <code>Some(42)</code> is an <code>Option&lt;int&gt;</code> even where
+an <code>Option&lt;int64&gt;</code> is expected (write <code>Some&lt;int64&gt;(42)</code>):</p>
 <pre><code class="language-eskiu">enum Option&lt;T&gt;    { None, Some(T) }
 enum Either&lt;A, B&gt; { Left(A), Right(B) }
 
@@ -1713,6 +1725,7 @@ c.radius = 5.0;
 render(&amp;c);   // &amp;c is auto-boxed into a Drawable fat pointer
 </code></pre>
 <p>The same boxing happens wherever an interface-typed slot receives a struct pointer: a local (<code>let d: Drawable = &amp;c;</code>), an assignment, a struct field, and a <code>return</code> from a function declared to return the interface. The interface value is held by value, so it can be stored and returned freely; it keeps referring to the struct it was boxed from. Passing the struct itself (<code>render(c)</code>) is a compile error: an interface refers to a struct through a pointer, so write <code>&amp;c</code>.</p>
+<p>An interface value always refers to a struct: <code>null</code> does not convert to an interface (there is no way to test an interface value for null, so a null one could only crash when called). A global or <code>static</code> interface is initialized with the address of a global struct (<code>Drawable d = &amp;gc;</code>), a link-time constant.</p>
 <h3 id="95-implementation-detail-fat-pointer">9.5 Implementation Detail: Fat Pointer</h3>
 <p>Under the hood, an interface value is a two-word fat pointer:</p>
 <pre><code>{ i8* data_ptr, i8* vtable_ptr }
@@ -1802,8 +1815,8 @@ Result&lt;int, string&gt; compute(int a, int b, int c) {
     return Ok&lt;int, string&gt;(y + 1);
 }
 </code></pre>
-<p>A value is treated as Result-like if it has an <code>int ok</code> field and a <code>value</code>
-field; the standard library's <code>Result&lt;T, E&gt;</code> satisfies this. Applying <code>?</code> to an
+<p>A value is treated as Result-like if it has an <code>ok</code> field of an integer type or
+<code>bool</code> (zero is the error) and a <code>value</code> field; the standard library's <code>Result&lt;T, E&gt;</code> satisfies this. Applying <code>?</code> to an
 expression of any other type is a compile error.</p>
 <h3 id="106-bounded-type-parameters-constraints">10.6 Bounded type parameters (constraints)</h3>
 <p>A type parameter may carry one or more interface constraints, written after a
@@ -2535,7 +2548,7 @@ Nothing is added when no executable is linked. With <code>--freestanding</code> 
 no linking happens, so bare-metal targets are linked yourself (see the kernel's
 <code>ld.lld</code> invocation).</p>
 <p><strong>Running directly.</strong> <code>eskiuc run file.esk [args...]</code> compiles to a temporary executable, runs it (forwarding <code>args...</code>), then deletes it, propagating the program's exit code, handy for quick iteration. If the program is killed by a signal, <code>run</code> exits with <code>128 +</code> the signal number, as a shell does. Compiler flags (including ones that take a value, such as <code>--target TRIPLE</code>) go <em>before</em> the script and program arguments <em>after</em> it; a <code>--</code> right after the script is dropped, so <code>eskiuc run --asan file.esk -- input.txt</code> passes only <code>input.txt</code>. Because a leading <code>#!</code> line is ignored, a script can also start with <code>#!/usr/bin/env eskiuc run</code> and, once <code>chmod +x</code>'d, be executed directly.</p>
-<p><strong>Formatting.</strong> <code>eskiuc fmt file.esk …</code> reformats files in place. It is deliberately conservative: it re-indents to four spaces per brace level, trims trailing whitespace (except after a trailing <code>\</code>, where trimming would create a line continuation), drops blank lines at the end of the file, and ensures a final newline, but leaves each line's content (operator spacing, comments, every byte of a string or character literal) exactly as written and keeps every other blank line, so line numbers (<code>__LINE__</code>, diagnostics) do not move. It never alters a program's behavior and is idempotent. <code>--check</code> makes it report (and exit non-zero on) files that would change, without writing. Useful in CI.</p>
+<p><strong>Formatting.</strong> <code>eskiuc fmt file.esk …</code> reformats files in place. It is deliberately conservative: it re-indents to four spaces per brace level, trims trailing whitespace (except after a trailing <code>\</code>, where trimming would create a line continuation), drops blank lines at the end of the file, and ensures a final newline, but leaves each line's content (operator spacing, comments, every byte of a string or character literal, including every line of a string that spans lines) exactly as written and keeps every other blank line, so line numbers (<code>__LINE__</code>, diagnostics) do not move. It never alters a program's behavior and is idempotent. <code>--check</code> makes it report (and exit non-zero on) files that would change, without writing. Useful in CI.</p>
 <p><strong>Sanitizers.</strong> <code>--asan</code> instruments the program with AddressSanitizer (detecting heap, stack and global memory errors) and links the matching LLVM runtime; <code>--ubsan</code> inserts trapping bounds checks (an out-of-bounds access aborts via a trap; no runtime is required). Both are real LLVM instrumentation passes and compose with <code>eskiuc run</code>.</p>
 <p><code>--hover-at</code> and <code>--definition-at</code> accept the format <code>LINE:COL</code> with 1-based line and column numbers. They are used by the VS Code extension to provide hover type information and go-to-definition navigation.</p>
 <h3 id="cross-compilation">Cross-compilation</h3>
@@ -2681,8 +2694,8 @@ int main() {
     return 0;
 }
 </code></pre>
-<p>Substitution is identifier-aware and leaves string and character literals untouched. Expansion is <strong>recursive</strong>: a macro whose body references other macros is expanded fully (a macro is never re-expanded within its own expansion). The macro table is <strong>shared across files</strong> and follows the text in order, like C's <code>#include</code>: an imported file sees the macros defined before its <code>import</code> line (not the ones defined after it), its own <code>#define</code>s reach the importing file's later lines, and each input of a multi-file compile sees the macros of the inputs before it. A function-like macro <em>invocation</em> must fit on a single (post-continuation) line.</p>
-<p>Unlike the other directives, <code>#pragma</code> is not consumed by the preprocessor. It is passed through to the compiler. <code>#pragma pack</code> (§8.9) and <code>#pragma link</code> are acted upon; any other pragma is ignored.</p>
+<p>Substitution is identifier-aware and leaves string and character literals untouched. Expansion is <strong>recursive</strong>: a macro whose body references other macros is expanded fully (a macro is never re-expanded within its own expansion). The macro table is <strong>shared across files</strong> and follows the text in order, like C's <code>#include</code>: an imported file sees the macros defined before its <code>import</code> line (not the ones defined after it), its own <code>#define</code>s reach the importing file's later lines, and each input of a multi-file compile sees the macros of the inputs before it. A function-like macro invocation may span lines: its argument list continues until the matching <code>)</code> (a newline inside it reads as a space).</p>
+<p>Unlike the other directives, <code>#pragma</code> is not consumed by the preprocessor. It is passed through to the compiler. <code>#pragma pack</code> (§8.9) and <code>#pragma link</code> are acted upon; any other pragma is ignored. A pragma may appear at the top level, inside a function body or inside a struct body; a <code>pack</code> inside a struct body applies to the structs declared after it (as in C), not to the enclosing one.</p>
 <p><code>#pragma link("name")</code> asks the driver to link the executable with <code>-lname</code>. The
 name is what follows <code>-l</code> (letters, digits, <code>_ . + -</code>, not starting with <code>-</code>), in
 double quotes; any other form is an error. A pragma in an imported module counts

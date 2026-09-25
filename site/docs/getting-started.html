@@ -1421,9 +1421,10 @@ void outb(uint8 val, uint16 port) {
     asm(&quot;outb ${0:b}, $1&quot; :: &quot;a&quot;(val), &quot;Nd&quot;(port) : &quot;memory&quot;);
 }
 </code></pre>
-<p>Syntax: <code>asm("template" : outputs : inputs : clobbers);</code></p>
+<p>Syntax: <code>asm("template" :: inputs : clobbers);</code></p>
 <ul>
-<li>Inputs and outputs are <code>"constraint"(expression)</code> pairs.</li>
+<li>Inputs are <code>"constraint"(expression)</code> pairs.</li>
+<li>Output operands are not supported: the output section stays empty, so the extended form starts with <code>::</code>. Pass results back through memory (a pointer input plus the <code>"memory"</code> clobber).</li>
 <li><code>"memory"</code> in the clobber list acts as a compiler barrier.</li>
 <li>Common constraints: <code>"a"</code> → rax/eax, <code>"Nd"</code> → 8-bit immediate or dx, <code>"r"</code> → any register.</li>
 </ul>
