@@ -1,0 +1,7 @@
+  stream 1: /up len=100000
+upload: sent=100000 updates>0=1
+  stream 3: /big len=0zzzzzzzzzzzzzzzzzzzzzzzzzzzzzz
+  stream 5: /s5 len=0 x-test=dyn
+while waiting: big so far=65535 extra big data=0
+big total=200010
+  stream 7: /s7 len=0 x-test=dyn
