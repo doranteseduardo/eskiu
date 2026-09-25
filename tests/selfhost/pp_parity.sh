@@ -40,7 +40,7 @@ fi
 rm -f /tmp/ppbuild.$$
 
 strip_banner() {
-    sed -E '/^Tokenizing: /d; /^=+$/d; /^Total tokens: /d'
+    LC_ALL=C sed -E '/^Tokenizing: /d; /^=+$/d; /^Total tokens: /d'
 }
 
 if [ "$#" -eq 1 ] && [ "$1" = "--full" ]; then
