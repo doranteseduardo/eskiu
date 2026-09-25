@@ -252,6 +252,18 @@ for esk in "$here"/*.esk; do
     fi
 done
 
+# `eskiuc fmt` output: tests/fmt_cases/NAME.esk must format to NAME.formatted
+# byte for byte (line endings included).
+echo "Formatter output:"
+for esk in "$here"/fmt_cases/*.esk; do
+    [[ -e "$esk" ]] || continue
+    name="fmt_cases/$(basename "$esk" .esk)"
+    cp "$esk" "$work/fmtcase.esk"
+    "$ESKIUC" fmt "$work/fmtcase.esk" >/dev/null 2>&1
+    if cmp -s "$work/fmtcase.esk" "${esk%.esk}.formatted"; then ok "$name"
+    else bad "$name" "formatted output differs from ${name}.formatted"; fi
+done
+
 # ---- C++ unit tests -------------------------------------------------------
 # The typed `Type` IR (sema/type.{h,cpp}) is a standalone, dependency-free unit;
 # its round-trip invariant (parse(s).str()==s) is checked here.

@@ -107,8 +107,12 @@ std::string dirOf(const std::string& path) {
 // Each line's *content* (operators, inner spacing, comments) is preserved
 // verbatim. Braces inside strings, char literals and comments are ignored, so
 // formatting is idempotent and safe. Preprocessor lines (`#…`) sit at column 0
-// and do not affect nesting.
+// and do not affect nesting. The file's line ending (LF or CRLF, judged by its first
+// line break) is preserved.
 std::string formatSource(const std::string& src) {
+    size_t firstNl = src.find('\n');
+    const std::string eol = (firstNl != std::string::npos && firstNl > 0 && src[firstNl - 1] == '\r')
+                                ? "\r\n" : "\n";
     std::vector<std::string> lines;
     { std::string cur; for (char c : src) { if (c == '\n') { lines.push_back(cur); cur.clear(); }
                                             else if (c != '\r') cur += c; }
@@ -127,35 +131,10 @@ std::string formatSource(const std::string& src) {
     int pendingBlank = 0;     // blank lines buffered (for collapsing)
     bool wroteAny = false;
 
-    for (const std::string& raw : lines) {
-        if (inBlock) {                       // verbatim until the comment closes
-            out += raw; out += "\n";
-            for (size_t i = 0; i + 1 < raw.size(); ++i)
-                if (raw[i] == '*' && raw[i + 1] == '/') { inBlock = false; break; }
-            wroteAny = true;
-            continue;
-        }
-        std::string t = trim(raw);
-        if (t.empty()) { pendingBlank++; continue; }
-
-        if (wroteAny && pendingBlank > 0) out += "\n";   // collapse to one blank
-        pendingBlank = 0;
-
-        if (t[0] == '#') {                   // preprocessor line: column 0, no nesting change
-            out += t; out += "\n"; wroteAny = true; continue;
-        }
-
-        // This line's indent dedents for each leading `}`.
-        int lead = depth;
-        for (char c : t) { if (c == '}') lead--; else break; }
-        if (lead < 0) lead = 0;
-        out.append((size_t)lead * 4, ' ');
-        out += t; out += "\n";
-        wroteAny = true;
-
-        // Update nesting from this line's code, skipping strings/chars/comments.
-        // Strings are checked first, so a `/*` or `}` inside a literal is ignored.
-        for (size_t i = 0; i < t.size(); ++i) {
+    // Update nesting from t[from..] (code state), skipping strings/chars/comments.
+    // Strings are checked first, so a `/*` or `}` inside a literal is ignored.
+    auto scanNesting = [&](const std::string& t, size_t from) {
+        for (size_t i = from; i < t.size(); ++i) {
             char c = t[i];
             if (c == '"' || c == '\'') {                                     // string / char literal
                 char q = c; ++i;
@@ -177,6 +156,38 @@ std::string formatSource(const std::string& src) {
             else if (c == '}') depth--;
         }
         if (depth < 0) depth = 0;
+    };
+
+    for (const std::string& raw : lines) {
+        if (inBlock) {                       // verbatim until the comment closes
+            out += raw; out += eol;
+            for (size_t i = 0; i + 1 < raw.size(); ++i)
+                if (raw[i] == '*' && raw[i + 1] == '/') {
+                    inBlock = false;
+                    scanNesting(raw, i + 2);         // code after the `*/` still nests
+                    break;
+                }
+            wroteAny = true;
+            continue;
+        }
+        std::string t = trim(raw);
+        if (t.empty()) { pendingBlank++; continue; }
+
+        if (wroteAny && pendingBlank > 0) out += eol;    // collapse to one blank
+        pendingBlank = 0;
+
+        if (t[0] == '#') {                   // preprocessor line: column 0, no nesting change
+            out += t; out += eol; wroteAny = true; continue;
+        }
+
+        // This line's indent dedents for each leading `}`.
+        int lead = depth;
+        for (char c : t) { if (c == '}') lead--; else break; }
+        if (lead < 0) lead = 0;
+        out.append((size_t)lead * 4, ' ');
+        out += t; out += eol;
+        wroteAny = true;
+        scanNesting(t, 0);
     }
     return out;
 }
