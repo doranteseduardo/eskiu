@@ -1,0 +1,27 @@
+// Member access, indexing and method calls work on rvalue aggregates (call results,
+// operator results, ternaries, fields of temporaries), not just on variables.
+extern int printf(string fmt, ...);
+
+struct G { int a; int b; }
+struct O { G g; int[3] a; }
+struct V { int x; int y; int len() { return self.x + self.y; } }
+struct C { int n; int get() { return self.n; } C add(C o) { return C{ n: self.n + o.n }; } }
+V operator +(V a, V b) { return V{ x: a.x + b.x, y: a.y + b.y }; }
+V operator -(V a) { return V{ x: 0 - a.x, y: 0 - a.y }; }
+
+O mko(int k) { O o; o.g.a = k; o.g.b = k * 2; o.a[0] = 7; o.a[1] = 8; o.a[2] = 9; return o; }
+O id(O o) { return o; }
+C mk(int n) { return C{ n: n }; }
+
+int main(int argc, string* argv) {
+    printf("%d %d\n", mko(1).g.b, mko(2).a[1]);
+    O s = mko(3);
+    printf("%d\n", id(s).a[2]);
+    V a = V{ x: 1, y: 2 };
+    V b = V{ x: 10, y: 20 };
+    printf("%d %d %d\n", (a + b).y, (-a).y, (a + b).len());
+    bool c = argc > 0;
+    printf("%d\n", (c ? a : b).x);
+    printf("%d %d\n", mk(3).get(), mk(1).add(mk(2)).add(mk(4)).get());
+    return 0;
+}

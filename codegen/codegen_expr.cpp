@@ -714,6 +714,9 @@ void CodeGen::visit(IndexExpr* node) {
     }
 
     llvm::Value* idx = evaluateExpr(node->index);
+    // A read: an array-valued rvalue base (`mk().a[1]`) is materialized, not rejected.
+    struct AllowTemp { CodeGen* c; bool p; ~AllowTemp() { c->lvalueAllowTemp = p; } } allowTemp{this, lvalueAllowTemp};
+    lvalueAllowTemp = true;
 
     // Slice element: s[i] → load from the fat pointer's data at i.
     if (bt.kind == ty::Type::Kind::Slice) {
@@ -775,21 +778,11 @@ void CodeGen::visit(MemberExpr* node) {
     // base via its address (see the matching logic in evaluateLValue).
     std::string rawBaseTy = getExprEskiuType(node->base);
     bool baseIsPtr = (!rawBaseTy.empty() && (rawBaseTy.front() == '*' || rawBaseTy.back() == '*'));
-    // A struct-valued temporary (call result, template call, struct literal) is
-    // an rvalue with no address — materialize it into an alloca so we can GEP.
-    Expr* b = node->base.get();
-    bool baseIsTemp = !baseIsPtr &&
-        (dynamic_cast<CallExpr*>(b) || dynamic_cast<TemplateCallExpr*>(b) ||
-         dynamic_cast<StructInitExpr*>(b));
+    // A struct-valued rvalue base (a call result, `a + b`, a struct literal, a field of
+    // one) has no address: evaluateAddress materializes it into a temporary to GEP.
     auto baseAddr = [&]() -> llvm::Value* {
         if (baseIsPtr) return evaluateExpr(node->base);
-        if (baseIsTemp) {
-            llvm::Value* v = evaluateExpr(node->base);
-            llvm::Value* tmp = entryAlloca(v->getType(), nullptr, "mem.tmp");
-            builder->CreateStore(v, tmp);
-            return tmp;
-        }
-        return evaluateLValue(node->base);
+        return evaluateAddress(node->base);
     };
 
     // Bitfield-layout struct: physical slot map (handles bitfields and the
@@ -1140,5 +1133,19 @@ llvm::Value* CodeGen::evaluateLValue(const ExprPtr& expr) {
         return indexElemAddr(index->base, idx);
     }
 
+    if (lvalueAllowTemp) {
+        llvm::Value* v = evaluateExpr(expr);
+        llvm::Value* tmp = entryAlloca(v->getType(), nullptr, "rval.tmp");
+        builder->CreateStore(v, tmp);
+        return tmp;
+    }
     throw std::runtime_error("Left-hand side of assignment is not an lvalue");
+}
+
+llvm::Value* CodeGen::evaluateAddress(const ExprPtr& expr) {
+    bool prev = lvalueAllowTemp;
+    lvalueAllowTemp = true;
+    llvm::Value* a = evaluateLValue(expr);
+    lvalueAllowTemp = prev;
+    return a;
 }

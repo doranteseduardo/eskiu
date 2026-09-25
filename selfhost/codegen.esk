@@ -1288,6 +1288,7 @@ string cg_env_lltype(Codegen* g, List<string>* capt) {
 // Mutually-recursive: expr (rvalue) ↔ lval (address of an lvalue).
 CgVal cg_expr(Codegen* g, *ExprNode e);
 CgVal cg_lval(Codegen* g, *ExprNode e);
+CgVal cg_addr(Codegen* g, *ExprNode e);   // fwd: address for a read (materializes an rvalue)
 string cg_etype(Codegen* g, *ExprNode e);
 string cg_ensure_struct_inst(Codegen* g, string spelling);   // monomorphize a generic struct
 CgVal cg_build_variant(Codegen* g, CgVariant var, *ExprNode call);   // construct an ADT value
@@ -2472,7 +2473,7 @@ CgVal cg_lval(Codegen* g, *ExprNode e) {
             v.op = t; v.ety = elem; return v;
         }
         if (cg_is_array(bet) == 1) {                    // array: GEP [N x T], ptr, 0, idx
-            string slot = cg_lval(g, e.a).op;
+            string slot = cg_addr(g, e.a).op;
             if (g.safe == 1) {
                 string alen = cg_array_len_const(g, bet);
                 if (cg_streq(alen, "") == 0) { cg_bounds_check(g, idx.op, ity, alen); }
@@ -2524,6 +2525,20 @@ CgVal cg_lval(Codegen* g, *ExprNode e) {
         return v;
     }
     return v;
+}
+
+// Address of `e` for a READ (a method receiver, an indexed array): its lvalue address, or,
+// for an rvalue aggregate (a call result, `a + b`, a ternary), a temporary holding its
+// value (mirrors CodeGen::evaluateAddress).
+CgVal cg_addr(Codegen* g, *ExprNode e) {
+    CgVal lv = cg_lval(g, e);
+    if (lv.op[0] != 0) { return lv; }
+    CgVal val = cg_expr(g, e);
+    string slot = cg_entry_alloca(g, val.ty);
+    cg_emit(g, "  store "); cg_emit(g, val.ty); cg_emit(g, " "); cg_emit(g, val.op);
+    cg_emit(g, ", ptr "); cg_emit(g, slot); cg_emit(g, "\n");
+    lv.op = slot; lv.ety = val.ety; if (lv.ety[0] == 0) { lv.ety = cg_etype(g, e); }
+    return lv;
 }
 
 // --safe bounds check: trap when `idx_op` (type `ity`) is < 0 or >= `len_op` (an i64
@@ -3130,7 +3145,7 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
             } else {
                 string sptr = "";
                 if (cg_is_ptr_ty(recv_ety) == 1) { sptr = cg_expr(g, e.a.a).op; }
-                else { sptr = cg_lval(g, e.a.a).op; }
+                else { sptr = cg_addr(g, e.a.a).op; }
                 fname = cg_cat(cg_cat(sname, "_"), e.a.sval);
                 args = cg_cat("ptr ", sptr);                // self is the first argument
                 pbase = 1;

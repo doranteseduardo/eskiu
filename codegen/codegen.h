@@ -525,4 +525,10 @@ private:
     std::stack<llvm::Value*> exprValueStack;
     llvm::Value* evaluateExpr(const ExprPtr& expr);
     llvm::Value* evaluateLValue(const ExprPtr& expr);
+    // Address of `expr` for a READ (member access, indexing, a method receiver): like
+    // evaluateLValue, but an rvalue aggregate (a call result, `a + b`, `c ? s : t`, a
+    // struct literal) is materialized into a temporary, so `mk().a[1]` and `(a+b).y`
+    // work. A store target still goes through the strict evaluateLValue.
+    llvm::Value* evaluateAddress(const ExprPtr& expr);
+    bool lvalueAllowTemp = false;   // set while evaluateAddress is resolving an address
 };

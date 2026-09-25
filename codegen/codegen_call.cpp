@@ -291,7 +291,7 @@ void CodeGen::visit(CallExpr* node) {
             // self: a value-struct receiver passes its address; a pointer receiver
             // passes the pointer it holds (loaded), not the address of its slot.
             llvm::Value* self = baseIsPtr ? evaluateExpr(member->base)
-                                          : evaluateLValue(member->base);
+                                          : evaluateAddress(member->base);
             std::vector<llvm::Value*> margs = {self};
             auto mpt = funcEskiuParamTypes.find(mangled);   // [0] is self
             for (size_t ai = 0; ai < node->args.size(); ++ai) {
