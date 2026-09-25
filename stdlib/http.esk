@@ -457,10 +457,11 @@ int http_recv(int fd, HttpReq* r, int64 max_body) {
 
 // Send a full HTTP/1.1 response. `extra` is pre-formatted "K: V\r\n" lines (may
 // be empty). `body` is sent verbatim (its String length is honoured, so it may
-// hold bytes a NUL would otherwise cut short).
+// hold bytes a NUL would otherwise cut short). A null `body` sends an empty body.
 void http_reply(int fd, int status, string ctype, string extra, String* body) {
+    const int64 blen = body == null ? 0 : body.len;
     let out: String;
-    out.init(body.len + 256);
+    out.init(blen + 256);
     defer out.free();
     out.append("HTTP/1.1 ");
     _http_append_int(&out, status);
@@ -471,10 +472,10 @@ void http_reply(int fd, int status, string ctype, string extra, String* body) {
     out.append("\r\n");
     out.append(extra);
     out.append("Content-Length: ");
-    _http_append_int(&out, body.len);
+    _http_append_int(&out, blen);
     out.append("\r\nConnection: close\r\n\r\n");
     net_send(fd, out.cstr(), out.len);
-    if (body.len > 0) { net_send(fd, body.data, body.len); }
+    if (blen > 0) { net_send(fd, body.data, blen); }
 }
 
 // Append `s` to `out` as the body of a JSON string: `"` and backslash escaped,
