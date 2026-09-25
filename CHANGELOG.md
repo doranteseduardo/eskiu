@@ -238,8 +238,8 @@ more, fixed the same way.
   as an uninitialized read. A leading-star pointer to a generic instance (`*List<int>`)
   is accepted as a declared type.
 - `-Wall` no longer flags methods used through dot calls, interfaces or operators, or
-  the parameters of prototypes and lambdas; the unused-parameter warning points at the
-  parameter. Diagnostics spell operator functions as `operator +(V, V)`.
+  the parameters of prototypes (an unused lambda parameter is still reported, like any
+  other parameter); the unused-parameter warning points at the parameter. Diagnostics spell operator functions as `operator +(V, V)`.
 - Self-host: dot calls to free-function methods (`s.trim()`) are accepted; many invalid
   programs it used to accept (C-style array declarators, `++` on a float, a mismatched
   `?`, misplaced array literals) are rejected like the C++ compiler; its diagnostics
@@ -272,7 +272,8 @@ more, fixed the same way.
   takes constant time at any scope depth.
 - `fmt` indents code after a closing `*/` and preserves CRLF line endings.
 - Self-host driver: spawns clang without a shell (safe with any argument), accepts the
-  full flag set, finds the stdlib through `$ESKIU_ROOT`, and reports a missing import as
+  full flag set (`-Wall`/`-Wextra` are accepted and ignored: lint warnings come only from
+  the C++ compiler), finds the stdlib through `$ESKIU_ROOT`, and reports a missing import as
   an error.
 - VS Code server: full-document sync, unsaved buffers resolve relative imports, and the
   version comes from `package.json` (extension 0.0.26).
