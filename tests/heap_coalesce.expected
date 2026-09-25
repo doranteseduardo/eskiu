@@ -1,0 +1,3 @@
+small blocks=64, 30000 after free=1
+second 30000=1
+whole heap after free=1

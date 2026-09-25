@@ -76,7 +76,7 @@ bool heap_init(Heap* self, int64 size) {
 }
 
 *void heap_alloc(Heap* self, int64 nbytes) { return FirstFit_alloc(&self.ff, nbytes); }
-void  heap_free(Heap* self, *void p)        { FirstFit_free(&self.ff, p); }
+void  heap_free(Heap* self, *void p)        { FirstFit_free(&self.ff, p); }   // null is a no-op
 
 // Return all the heap's pages to the OS. Frees everything at once.
 void heap_destroy(Heap* self) { sys_unpages(self.base, self.size); }

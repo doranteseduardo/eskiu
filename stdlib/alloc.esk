@@ -97,8 +97,10 @@ void Pool_free(Pool* self, *void p) {
 // ── First-fit general-purpose (after Thompson's original) ────────────────────
 // Each region is [FFNode header][payload]. Free regions are linked through the
 // header's `next`; used regions keep their size in the header. Alloc does a
-// first-fit search and splits a large region; free pushes the region back onto
-// the list. Adjacent free regions are not coalesced.
+// first-fit search and splits a large region. The free list is kept in address
+// order, so free merges the region with an adjacent free neighbour on either
+// side (coalescing): freeing everything restores one region, and the heap does
+// not fragment permanently.
 struct FFNode {
     int64    size;   // payload bytes available in this region
     *FFNode  next;   // next free region (used regions: ignored)
@@ -142,7 +144,22 @@ void FirstFit_init(FirstFit* self, *uint8 buf, int64 cap) {
     return (*void)0;             // out of memory
 }
 void FirstFit_free(FirstFit* self, *void p) {
+    if (p == (*void)0) { return; }   // free(null) is a no-op
     *FFNode hdr = (*FFNode)((*uint8)p - 16);
-    hdr.next = self.freeHead;
-    self.freeHead = hdr;
+    int64 at = (int64)hdr;
+    *FFNode prev = (*FFNode)0;
+    *FFNode cur  = self.freeHead;
+    while (cur != (*FFNode)0 && (int64)cur < at) { prev = cur; cur = cur.next; }
+    hdr.next = cur;
+    if (prev == (*FFNode)0) { self.freeHead = hdr; } else { prev.next = hdr; }
+    // Merge with the following region when it starts right after this one.
+    if (cur != (*FFNode)0 && at + (int64)16 + hdr.size == (int64)cur) {
+        hdr.size = hdr.size + (int64)16 + cur.size;
+        hdr.next = cur.next;
+    }
+    // Merge into the preceding region when this one starts right after it.
+    if (prev != (*FFNode)0 && (int64)prev + (int64)16 + prev.size == at) {
+        prev.size = prev.size + (int64)16 + hdr.size;
+        prev.next = hdr.next;
+    }
 }
