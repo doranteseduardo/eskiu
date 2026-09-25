@@ -10,6 +10,7 @@
 
 import <ctype>;
 import <io>;
+import <mem>;
 import "tokens.esk";
 
 struct Lexer {
