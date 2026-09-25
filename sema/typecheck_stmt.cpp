@@ -494,6 +494,20 @@ void TypeChecker::visit(MatchStmt* node) {
     }
 }
 
+// Does the folded case value `v` lie in the range of integer type `t`? A 64-bit subject
+// holds every folded value (it is folded in 64 bits).
+static bool caseValueFits(const std::string& raw, long long v) {
+    std::string t = tyq::strip(raw);
+    if (t == "bool") return v >= 0 && v <= 1;
+    if (t == "char" || t == "uint8") return v >= 0 && v <= 255;
+    if (t == "int8") return v >= -128 && v <= 127;
+    if (t == "uint16") return v >= 0 && v <= 65535;
+    if (t == "int16") return v >= -32768 && v <= 32767;
+    if (t == "uint" || t == "uint32") return v >= 0 && v <= 4294967295LL;
+    if (t == "int" || t == "int32") return v >= INT_MIN && v <= INT_MAX;
+    return true;
+}
+
 void TypeChecker::visit(SwitchStmt* node) {
     node->subject->accept(this);
     std::string subjType = getExpressionType(node->subject.get());
@@ -524,6 +538,13 @@ void TypeChecker::visit(SwitchStmt* node) {
             // `(4 * 2) - 1`) are caught as duplicates, as in C.
             long long cv = 0;
             bool haveCv = foldConstInt(c.value.get(), cv);
+            // A label the subject's type cannot hold never matches (and, truncated to that
+            // type, could collide with another label): reject it.
+            if (haveCv && subjType != "unknown" && !caseValueFits(normalizeType(subjType), cv)) {
+                errorAt(c.value.get(), "case value " + std::to_string(cv) +
+                                       " is out of range for switch subject type '" + subjType + "'");
+                haveCv = false;
+            }
             if (haveCv) {
                 if (seenCases.count(cv))
                     errorAt(c.value.get(), "duplicate case value in switch");
