@@ -247,7 +247,10 @@ StmtPtr Parser::parseForStatement() {
         // The bound's name is fresh against every name in the loop, so a user
         // `__end_i` read in the body (or in B) still means the user's variable.
         // T is the bounds' common integer type; the decls are spelled `int` here
-        // and the type checker retypes them (VarDecl::rangeBound).
+        // and the type checker retypes them (VarDecl::rangeBound). Both bounds are read
+        // in the enclosing scope: a B that names the loop variable (`for (i in 0..i)`)
+        // means the OUTER `i`, so then the bound is declared first, before the new `i`
+        // (A already sees the outer one: a local is bound after its initializer).
         if (match(TokenType::RANGE)) {
             ExprPtr end = parseExpression();
             consume(TokenType::RPAREN, "Expected ')'");
@@ -264,7 +267,9 @@ StmtPtr Parser::parseForStatement() {
             auto edecl = std::make_shared<VarDecl>(endName, "int", end);
             edecl->line = nameTok.line; edecl->col = nameTok.column;
             edecl->rangeBound = true;
-            StmtPtr init = std::make_shared<BlockStmt>(std::vector<BlockItem>{ DeclPtr(idecl), DeclPtr(edecl) });
+            StmtPtr init = astwalk::referencesName(end.get(), nameTok.value)
+                ? std::make_shared<BlockStmt>(std::vector<BlockItem>{ DeclPtr(edecl), DeclPtr(idecl) })
+                : std::make_shared<BlockStmt>(std::vector<BlockItem>{ DeclPtr(idecl), DeclPtr(edecl) });
             ExprPtr cond = std::make_shared<BinaryExpr>(iv(), "<",
                                withPos(std::make_shared<IdentExpr>(endName), nameTok));
             ExprPtr one  = std::make_shared<LiteralExpr>(LiteralExpr::Kind::INT, "1");

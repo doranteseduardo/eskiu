@@ -1152,6 +1152,12 @@ Four kinds of iterable are supported:
   `for (i in 0..n())` calls `n()` once, and changing a variable used in `B` inside
   the body does not change the number of iterations.
 
+  Both bounds are read in the enclosing scope, before the loop variable exists. A
+  bound that names the loop variable means the outer variable of that name, as in C's
+  `for (int i2 = a; i2 < b; ...)`: with an outer `int i = 3`, `for (i in 0..i)` runs
+  `0, 1, 2`. When `B` names the loop variable it is evaluated before `A`; otherwise
+  `A` is evaluated first.
+
   The loop variable's type `T` is the common type of the two bounds under C's usual
   arithmetic conversions: each bound is promoted to at least `int`, the wider one
   wins, and at equal width an unsigned bound makes `T` unsigned. So `0..n` with

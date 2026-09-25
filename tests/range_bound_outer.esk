@@ -1,0 +1,18 @@
+// `for (i in A..B)` reads both bounds in the enclosing scope: a bound naming the
+// loop variable means the outer `i` (as in C's `for (int i2 = a; i2 < b; ...)`),
+// not the new loop variable. The bounds' types come from the outer `i` too.
+extern int printf(string fmt, ...);
+
+int main() {
+    int i = 3;
+    int n = 0;
+    for (i in 0..i) { n = n + 1; printf("a %d\n", i); }
+    printf("n=%d i=%d\n", n, i);
+    for (i in 1..i + 2) { printf("b %d\n", i); }
+    for (i in i..i + 2) { printf("c %d\n", i); }
+    int64 big = (int64)5000000000;
+    int k = 0;
+    for (big in big - (int64)2..big) { k = k + 1; }
+    printf("k=%d\n", k);
+    return 0;
+}

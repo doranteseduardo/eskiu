@@ -118,6 +118,22 @@ inline void collectNames(Stmt* s, std::set<std::string>& out) {
     else if (auto* es = dynamic_cast<ExprStmt*>(s))     { E(es->expr); }
 }
 
+// Whether `e` reads the name `name` (an identifier or `sizeof(name)`; a lambda body
+// counts when it spells the name anywhere). Member names are not reads.
+inline bool referencesName(Expr* e, const std::string& name) {
+    if (!e) return false;
+    if (auto* id = dynamic_cast<IdentExpr*>(e)) return id->name == name;
+    if (auto* sz = dynamic_cast<SizeofExpr*>(e)) return sz->typeName == name;
+    if (auto* lam = dynamic_cast<LambdaExpr*>(e)) {
+        std::set<std::string> names;
+        collectNames(lam->body.get(), names);
+        return names.count(name) > 0;
+    }
+    bool found = false;
+    forEachChildExprFlat(e, [&](ExprPtr& c) { if (!found) found = referencesName(c.get(), name); });
+    return found;
+}
+
 // `base` if it is not in `used`, else the first free `base_1`, `base_2`, ...; the
 // chosen name is added to `used`.
 inline std::string freshName(const std::string& base, std::set<std::string>& used) {

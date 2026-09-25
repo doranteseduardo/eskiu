@@ -1259,6 +1259,23 @@ void collect_names_s(*StmtNode s, List<string>* out) {
         s = s.s2;
     }
 }
+// Whether `e` reads the name `nm` (an identifier or `sizeof(nm)`; a lambda body counts
+// when it spells the name anywhere). Member names are not reads. Mirrors the C++
+// astwalk::referencesName.
+int refs_name_e(*ExprNode e, string nm) {
+    while (e != null) {
+        if ((e.kind == EK_IDENT || e.kind == EK_SIZEOF) && str_eq(e.sval, nm) == 1) { return 1; }
+        if (e.kind == EK_LAMBDA) {
+            List<string> ln; List_init<string>(&ln, 8);
+            collect_names_s(e.stmt, &ln);
+            return names_has(&ln, nm);
+        }
+        if (refs_name_e(e.b, nm) == 1) { return 1; }
+        int i = 0; while (i < List_len<*ExprNode>(&e.kids)) { if (refs_name_e(List_get<*ExprNode>(&e.kids, i), nm) == 1) { return 1; } i = i + 1; }
+        e = e.a;
+    }
+    return 0;
+}
 // `base` if it is not in `used`, else the first free `base_1`, `base_2`, ...; the chosen
 // name is added to `used`.
 string fresh_name(string base, List<string>* used) {
@@ -1284,8 +1301,11 @@ string fresh_name(string base, List<string>* used) {
     // Spelled `int` here; sema retypes both to the bounds' common integer type (is_range).
     *StmtNode lod = mk_vardecl(var, "int", lo, 0); lod.is_range = 1;
     *StmtNode hid = mk_vardecl(endn, "int", hi, 0); hid.is_range = 1;
-    *StmtNode init = wrap_block(lod);
-    List_push<*StmtNode>(&init.items, hid);
+    // Both bounds are read in the enclosing scope: a B naming the loop variable
+    // (`for (i in 0..i)`) means the OUTER `i`, so the bound is declared first then.
+    *StmtNode init = null;
+    if (refs_name_e(hi, var) == 1) { init = wrap_block(hid); List_push<*StmtNode>(&init.items, lod); }
+    else { init = wrap_block(lod); List_push<*StmtNode>(&init.items, hid); }
     s.s1 = init;
     s.expr = mk_bin("<", mk_ident(var), mk_ident(endn));
     s.expr2 = mk_bin("=", mk_ident(var), mk_bin("+", mk_ident(var), mk_lit(LIT_INT, "1")));
