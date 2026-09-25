@@ -464,7 +464,7 @@ DeclPtr Parser::parseStructDecl() {
         decl->packAlign = currentPack;
         if (currentPack == 1) decl->isPacked = true;
     }
-    return withPos(decl, nameTok);
+    return withPos(decl, snameTok);
 }
 
 void Parser::addLinkLib(const std::string& name) {
