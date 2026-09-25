@@ -118,6 +118,9 @@ void TypeChecker::validateStructType(const std::string& type, ASTNode* at) {
         if (hasPointerSuffix(baseType)) { baseType = extractBaseType(baseType); stripped = true; }
         else if (baseType.front() == '*') { baseType = baseType.substr(1); stripped = true; }
     }
+    // A leading-star generic pointee (`*List<int>`) reaches here unnormalized (normalizeType
+    // only descends through a trailing star): resolve it now, instantiating the template.
+    if (baseType.find('<') != std::string::npos) baseType = normalizeType(baseType);
 
     // A template instance (Pair<int,float> -> struct:Pair_int_float, Option<T> -> Option_T)
     // must supply exactly the template's type-parameter count, each a known type.

@@ -1,0 +1,17 @@
+// A leading-star pointer to a generic struct instance (`*List<int>`, `*B<int>`) is a valid
+// declared type, including one used only as an explicit type argument (`alloc<List<int>>`).
+import <list>;
+import <mem>;
+extern int printf(string fmt, ...);
+struct B<T> { T v; }
+int main() {
+    *List<int> l = alloc<List<int>>(1);
+    List_init<int>(l, 4);
+    List_push<int>(l, 3);
+    List_push<int>(l, 4);
+    *B<int> p = alloc<B<int>>(1);
+    p.v = 7;
+    B<int>* q = p;
+    printf("%d %d %d\n", List_get<int>(l, 0) + List_get<int>(l, 1), p.v, q.v);
+    return 0;
+}
