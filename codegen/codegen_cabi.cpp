@@ -335,3 +335,65 @@ llvm::Value* CodeGen::emitCAbiCall(llvm::Function* fn, const CAbiSig& sig,
     if (sig.ret.kind == CAbiArg::Coerce) return cabiReinterpret(call, rt);
     return call;
 }
+
+// C calls an Eskiu function through a raw pointer (`(*void)f`): the thunk takes the
+// lowered C signature, rebuilds the Eskiu-level values and calls `target` with the
+// Eskiu convention (first-class aggregates, hidden result pointer for a large struct),
+// then hands the result back the C way.
+llvm::Function* CodeGen::cabiCallbackThunk(llvm::Function* target) {
+    std::string name = target->getName().str();
+    if (externAbi.count(name) || target->isVarArg()) return target;
+    auto sretIt = funcSretTypes.find(name);
+    bool eskSret = sretIt != funcSretTypes.end();
+    llvm::FunctionType* fty = target->getFunctionType();
+    std::vector<llvm::Type*> lps(fty->param_begin() + (eskSret ? 1 : 0), fty->param_end());
+    llvm::Type* lret = eskSret ? sretIt->second : fty->getReturnType();
+    CAbiSig sig;
+    if (!buildCAbiSig(llvm::FunctionType::get(lret, lps, false), sig)) return target;
+    std::string tname = "__cabi_" + name;
+    if (llvm::Function* have = module->getFunction(tname)) return have;
+    llvm::Function* thunk = llvm::Function::Create(sig.lowered, llvm::Function::InternalLinkage,
+                                                   tname, module.get());
+    addCAbiAttrs(sig, [&](unsigned i, llvm::Attribute a) { thunk->addParamAttr(i, a); });
+
+    llvm::IRBuilderBase::InsertPointGuard guard(*builder);
+    builder->SetInsertPoint(llvm::BasicBlock::Create(*context, "entry", thunk));
+    auto ai = thunk->arg_begin();
+    llvm::Value* sretOut = nullptr;
+    if (sig.ret.kind == CAbiArg::Sret) sretOut = &*ai++;
+    std::vector<llvm::Value*> args;
+    for (size_t i = 0; i < sig.params.size(); ++i) {
+        const CAbiArg& a = sig.params[i];
+        switch (a.kind) {
+        case CAbiArg::Direct: args.push_back(&*ai++); break;
+        case CAbiArg::Coerce: args.push_back(cabiReinterpret(&*ai++, lps[i])); break;
+        case CAbiArg::Expand: {
+            auto* st = llvm::cast<llvm::StructType>(a.ty);
+            llvm::Value* pair = llvm::UndefValue::get(st);
+            for (unsigned e = 0; e < st->getNumElements(); ++e)
+                pair = builder->CreateInsertValue(pair, &*ai++, {e});
+            args.push_back(cabiReinterpret(pair, lps[i]));
+            break;
+        }
+        default: args.push_back(builder->CreateLoad(lps[i], &*ai++)); break;
+        }
+    }
+    llvm::Value* r = nullptr;
+    if (eskSret) {
+        llvm::AllocaInst* tmp = entryAlloca(lret, nullptr, "cabi.res");
+        args.insert(args.begin(), tmp);
+        builder->CreateCall(target, args);
+        r = builder->CreateLoad(lret, tmp);
+    } else {
+        r = builder->CreateCall(target, args);
+    }
+    if (sig.ret.kind == CAbiArg::Sret) {
+        builder->CreateStore(r, sretOut);
+        builder->CreateRetVoid();
+    } else if (lret->isVoidTy()) {
+        builder->CreateRetVoid();
+    } else {
+        builder->CreateRet(sig.ret.kind == CAbiArg::Coerce ? cabiReinterpret(r, sig.ret.ty) : r);
+    }
+    return thunk;
+}

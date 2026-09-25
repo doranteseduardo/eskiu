@@ -153,11 +153,17 @@ converts to and from it, so it links against C compiled by clang/gcc:
 | 32-bit ARM (AAPCS) | hard-float HFA → `{ fp, ... }`; ≤ 64 bytes → `[N x i32]` (`[N x i64]` if 8-aligned); larger → `byval` | hard-float HFA → `{ fp, ... }`; ≤ 4 bytes → `i32`; otherwise `sret` |
 
 The coerced types match what clang emits for the same C signature. Other
-targets keep the first-class lowering. Only calls to `extern` declarations are
-lowered: an Eskiu function whose address is handed to C as a callback still
-takes and returns aggregates as first-class values, so a C caller passing a
-struct by value to it is not supported. Fat values (closures, slices) and
+targets keep the first-class lowering. Fat values (closures, slices) and
 `va_list` are not C aggregates and keep their own layout.
+
+**Callbacks from C.** An Eskiu function handed to C as a raw function pointer
+(`(*void)f`, the cast of a top-level function name to a pointer type) is called
+with the C convention. When it takes or returns an aggregate by value, the cast
+yields the address of a thunk `__cabi_<name>` instead of `@name`: the thunk has
+the lowered C signature from the table above (with the same `sret`/`byval`
+attributes), rebuilds the Eskiu-level values, calls `f`, and returns the result
+the C way. A function without by-value aggregates is passed as itself. Eskiu
+code calling `f` directly is unaffected.
 
 **Variadics.** A `...` parameter makes the LLVM function `isVarArg`. The built-in
 `va_list` is the struct `{ ptr, ptr, ptr, i32, i32 }` (32 B, 8-aligned), a

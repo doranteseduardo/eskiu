@@ -1,0 +1,101 @@
+// An Eskiu function handed to C as a raw callback (`(*void)f`) that takes or returns
+// a struct by value is reached through a C-ABI thunk (C side: tests/c_abi_callback.c).
+extern int printf(string fmt, ...);
+
+struct P2 { int x; int y; }
+struct Sm { int x; int8 c; }
+struct F2 { float x; float y; }
+struct F4 { float a; float b; float c; float d; }
+struct D3 { double x; double y; double z; }
+struct Mix { float f; int i; }
+struct DL { double d; int64 l; }
+struct C3 { char a; char b; char c; }
+struct Big { int64 a; int64 b; int64 c; int64 d; int64 e; }
+struct PS { string s; int n; }
+
+extern int c_call_p2(*void cb, int x, int y);
+extern int c_call_sm(*void cb, int x, int c);
+extern float c_call_f2(*void cb, float x);
+extern float c_call_f4(*void cb, float x);
+extern double c_call_d3(*void cb, double x);
+extern double c_call_mix(*void cb, float f, int i);
+extern double c_call_dl(*void cb, double d, int64 l);
+extern int c_call_c3(*void cb, char a);
+extern int c_call_ps(*void cb, int n);
+extern int c_ret_ps(*void cb, int k);
+extern int64 c_call_big(*void cb, int64 s);
+extern int64 c_call_many(*void cb);
+extern double c_call_mixed(*void cb);
+extern int c_ret_p2(*void cb, int k);
+extern int c_ret_sm(*void cb, int k);
+extern float c_ret_f2(*void cb, float k);
+extern double c_ret_d3(*void cb, double k);
+extern double c_ret_mix(*void cb, int k);
+extern double c_ret_dl(*void cb, int64 k);
+extern int c_ret_c3(*void cb, char k);
+extern int64 c_ret_big(*void cb, int64 k);
+extern int64 c_ret_big2(*void cb, int64 k);
+
+int on_p2(P2 p) { return p.x * 10 + p.y; }
+int on_sm(Sm s) { return s.x * 1000 + (int)s.c; }
+float on_f2(F2 f) { return f.x * f.y; }
+float on_f4(F4 f) { return f.a + f.b * 10.0 + f.c * 100.0 + f.d * 1000.0; }
+double on_d3(D3 d) { return d.x + d.y * 10.0 + d.z * 100.0; }
+double on_mix(Mix m) { return (double)m.f + (double)(m.i * 100); }
+double on_dl(DL v) { return v.d + (double)(v.l * 10); }
+int on_c3(C3 c) { return (int)c.a * 10000 + (int)c.b * 100 + (int)c.c; }
+int on_ps(PS p) { return p.n * 1000 + (int)p.s[0]; }
+int64 on_big(Big b) { return b.a + b.b * 10 + b.c * 100 + b.d * 1000 + b.e * 10000; }
+int64 on_many(Sm a, Sm b, Sm c, Sm d, Sm e, Sm f, Sm g, Sm h, Sm i) {
+    int64 xs = (int64)(a.x + b.x + c.x + d.x + e.x + f.x + g.x + h.x + i.x);
+    int64 cs = (int64)((int)a.c + (int)b.c + (int)c.c + (int)d.c + (int)e.c + (int)f.c
+                       + (int)g.c + (int)h.c + (int)i.c);
+    return xs * 1000 + cs + (int64)i.x * 1000000;
+}
+double on_mixed(int a, P2 p, double d, F2 f, Big b, int z, DL v) {
+    return (double)a + (double)(p.x * 10 + p.y) + d + (double)f.x + (double)f.y
+         + (double)(b.a + b.e) + (double)z + v.d + (double)v.l;
+}
+
+P2 mk_p2(int k) { let p: P2; p.x = k; p.y = k + 1; return p; }
+Sm mk_sm(int k) { let s: Sm; s.x = k; s.c = (int8)(k + 5); return s; }
+F2 mk_f2(float k) { let f: F2; f.x = k; f.y = k + 0.5; return f; }
+D3 mk_d3(double k) { let d: D3; d.x = k; d.y = k + 1.0; d.z = k + 2.0; return d; }
+Mix mk_mix(int k) { let m: Mix; m.f = 0.25; m.i = k; return m; }
+DL mk_dl(int64 k) { let v: DL; v.d = 0.5; v.l = k * 3; return v; }
+C3 mk_c3(char k) { let c: C3; c.a = k; c.b = (char)((int)k + 1); c.c = (char)((int)k + 2); return c; }
+PS mk_ps(int k) { let p: PS; p.s = "abc"; p.n = k; return p; }
+Big mk_big(int64 k) { let b: Big; b.a = k; b.b = k + 1; b.c = k + 2; b.d = k + 3; b.e = k + 4; return b; }
+Big mk_big2(Big src, Sm s) {
+    let b: Big;
+    b.a = src.a * (int64)s.x; b.b = src.b + (int64)s.c; b.c = src.c; b.d = src.d; b.e = src.e + 100;
+    return b;
+}
+
+int main() {
+    printf("p2 %d\n", c_call_p2((*void)on_p2, 4, 7));
+    printf("sm %d\n", c_call_sm((*void)on_sm, 12, 34));
+    printf("f2 %.2f\n", (double)c_call_f2((*void)on_f2, 1.5));
+    printf("f4 %.1f\n", (double)c_call_f4((*void)on_f4, 1.0));
+    printf("d3 %.1f\n", c_call_d3((*void)on_d3, 2.0));
+    printf("mix %.2f\n", c_call_mix((*void)on_mix, 0.75, 9));
+    printf("dl %.1f\n", c_call_dl((*void)on_dl, 2.5, (int64)8));
+    printf("c3 %d\n", c_call_c3((*void)on_c3, 'A'));
+    printf("ps %d\n", c_call_ps((*void)on_ps, 5));
+    printf("ret ps %d\n", c_ret_ps((*void)mk_ps, 9));
+    printf("big %lld\n", c_call_big((*void)on_big, (int64)1));
+    printf("many %lld\n", c_call_many((*void)on_many));
+    printf("mixed %.2f\n", c_call_mixed((*void)on_mixed));
+    printf("ret p2 %d\n", c_ret_p2((*void)mk_p2, 6));
+    printf("ret sm %d\n", c_ret_sm((*void)mk_sm, 7));
+    printf("ret f2 %.1f\n", (double)c_ret_f2((*void)mk_f2, 2.0));
+    printf("ret d3 %.1f\n", c_ret_d3((*void)mk_d3, 1.0));
+    printf("ret mix %.2f\n", c_ret_mix((*void)mk_mix, 3));
+    printf("ret dl %.1f\n", c_ret_dl((*void)mk_dl, (int64)5));
+    printf("ret c3 %d\n", c_ret_c3((*void)mk_c3, 'a'));
+    printf("ret big %lld\n", c_ret_big((*void)mk_big, (int64)1));
+    printf("ret big2 %lld\n", c_ret_big2((*void)mk_big2, (int64)2));
+    let p: P2; p.x = 1; p.y = 2;
+    printf("direct %d\n", on_p2(p));
+    return 0;
+}

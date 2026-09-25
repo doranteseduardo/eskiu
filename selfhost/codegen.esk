@@ -1075,6 +1075,7 @@ string cg_payload_lltype(Codegen* g, CgVariant* v) {
 int cg_is_unsigned(string t);   // fwd (defined later); for signedness-aware widening
 int cg_is_fn(Codegen* g, string name);
 string cg_fn_to_closure(Codegen* g, string fnname);   // fwd: decay a top-level fn to a {thunk,null} closure
+string cg_cabi_callback(Codegen* g, string name);     // fwd: a top-level fn as a raw C callback address
 
 // Coerce a value to a target LLVM type, emitting the conversion if needed; returns the
 // operand to use. Mirrors the casts in EK_CAST — for ABI-correct call arguments (e.g. an
@@ -1197,8 +1198,16 @@ string cg_fn_to_closure(Codegen* g, string fnname) {
     return c2;
 }
 
+void cg_emit_cabi_thunk(Codegen* g, string name);   // fwd: a C-ABI callback thunk
+
 // Emit one `__fnptr_<name>` thunk: `R __fnptr_f(ptr env, <params>) { return f(<params>); }`.
+// A `cabi:<name>` entry is a C-ABI callback thunk instead (cg_cabi_callback).
 void cg_emit_thunk(Codegen* g, string fnname) {
+    int fl = 0; while (fnname[fl] != 0) { fl = fl + 1; }
+    if (fl > 5 && cg_streq(cg_sub_str(fnname, 0, 5), "cabi:") == 1) {
+        cg_emit_cabi_thunk(g, cg_sub_str(fnname, 5, fl));
+        return;
+    }
     CgFn f = cg_find_fn(g, fnname);
     int np = List_len<string>(&f.ptys);
     CgCabi cab = cg_find_cabi(g, fnname);
@@ -3366,6 +3375,13 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
     if (e.kind == EK_CAST) {
         string dstety = cg_apply_sub(g, e.sval);
         string dll = cg_lltype(g, dstety);
+        // A top-level function cast to a pointer is the raw address C calls: through its
+        // C-ABI thunk when it takes or returns a struct by value.
+        if (cg_streq(dll, "ptr") == 1 && e.a != null && e.a.kind == EK_IDENT
+            && cg_find_local(g, e.a.sval).slot[0] == 0 && cg_find_global(g, e.a.sval).slot[0] == 0
+            && cg_is_fn(g, e.a.sval) == 1) {
+            v.op = cg_cabi_callback(g, e.a.sval); v.ty = "ptr"; v.ety = dstety; return v;
+        }
         CgVal src = cg_expr(g, e.a);
         // float → unsigned int needs fptoui; cg_coerce emits signed fptosi, which saturates
         // a value above the signed max (e.g. (uint32)3e9 → 2147483647 instead of 3e9).
@@ -5351,6 +5367,115 @@ CgVal cg_cabi_call(Codegen* g, CgCabi* c, CgFn* f, List<CgVal>* args) {
     if (isvoid == 1) { return v; }
     if (c.ret.kind == 1) { v.op = cg_abi_reinterp(g, t, c.ret.ty, f.retty); v.ty = f.retty; return v; }
     v.op = t; v.ty = f.retty; return v;
+}
+
+// Does the Eskiu function `f` take or return an aggregate by value (so C must reach it
+// through a C-ABI thunk)? Externs lowered at declaration and variadics are left alone.
+int cg_cabi_needs_thunk(Codegen* g, CgFn* f) {
+    if (g.abi == 0 || f.variadic == 1) { return 0; }
+    if (cg_find_cabi(g, f.name).name[0] != 0) { return 0; }
+    if (cg_abi_is_agg(f.retty) == 1) { return 1; }
+    int i = 0;
+    while (i < List_len<string>(&f.ptys)) { if (cg_abi_is_agg(List_get<string>(&f.ptys, i)) == 1) { return 1; } i = i + 1; }
+    return 0;
+}
+
+// The raw address C calls for the top-level function `name` (`(*void)f`): `@name`, or
+// its `@__cabi_<name>` thunk (queued) when it has a by-value aggregate.
+string cg_cabi_callback(Codegen* g, string name) {
+    CgFn f = cg_find_fn(g, name);
+    if (cg_cabi_needs_thunk(g, &f) == 0) { return cg_cat("@", name); }
+    string key = cg_cat("cabi:", name);
+    if (cg_seen_inst(g, cg_cat("thunk:", key)) == 0) {
+        List_push<string>(&g.inst_seen, cg_cat("thunk:", key));
+        List_push<string>(&g.fnthunks, key);
+    }
+    return cg_cat("@__cabi_", name);
+}
+
+// Emit `__cabi_<name>`: the lowered C signature (like an extern's), rebuilding the Eskiu
+// values, calling `name` with first-class aggregates and returning the result the C way
+// (mirrors CodeGen::cabiCallbackThunk).
+void cg_emit_cabi_thunk(Codegen* g, string name) {
+    CgFn f = cg_find_fn(g, name);
+    int np = List_len<string>(&f.ptys);
+    int fint = 6; int fsse = 8;
+    let ra: CgAbi; ra.kind = 0; ra.ty = ""; ra.ty2 = ""; ra.align = 0; ra.salign = 0;
+    if (cg_streq(f.retty, "void") == 0) { ra = cg_abi_classify(g, f.rety, 1, &fint, &fsse); }
+    if (ra.kind == 5 && fint > 0) { fint = fint - 1; }
+    String hdr; String_init(&hdr, 64);
+    if (ra.kind == 5) {
+        String_append(&hdr, cg_cat("ptr sret(", cg_cat(ra.ty, cg_cat(") align ", cg_cat(cg_itoa(ra.align), " %sr")))));
+    }
+    List<CgAbi> ks; List_init<CgAbi>(&ks, np);
+    int i = 0;
+    while (i < np) {
+        CgAbi k = cg_abi_classify(g, List_get<string>(&f.petys, i), 0, &fint, &fsse);
+        List_push<CgAbi>(&ks, k);
+        string an = cg_cat("%a", cg_itoa(i));
+        string lty = List_get<string>(&f.ptys, i);
+        if (String_len(&hdr) > 0) { String_append(&hdr, ", "); }
+        if (k.kind == 2) {
+            String_append(&hdr, cg_cat(k.ty, cg_cat(" ", cg_cat(an, cg_cat("l, ", cg_cat(k.ty2, cg_cat(" ", cg_cat(an, "h"))))))));
+        } else {
+            String_append(&hdr, cg_cat(cg_abi_param_decl(k, lty), cg_cat(" ", an)));
+        }
+        i = i + 1;
+    }
+    string lowret = f.retty;
+    if (ra.kind == 5) { lowret = "void"; } else if (ra.kind == 1) { lowret = ra.ty; }
+    String_init(&g.entry_buf, 128);
+    String saved = g.out;
+    String_init(&g.out, 256);
+    String args; String_init(&args, 64);
+    i = 0;
+    while (i < np) {
+        CgAbi k = List_get<CgAbi>(&ks, i);
+        string an = cg_cat("%a", cg_itoa(i));
+        string lty = List_get<string>(&f.ptys, i);
+        string op = an;
+        if (k.kind == 1) { op = cg_abi_reinterp(g, an, k.ty, lty); }
+        else if (k.kind == 2) {
+            string pty = cg_cat("{ ", cg_cat(k.ty, cg_cat(", ", cg_cat(k.ty2, " }"))));
+            string p0 = cg_tmp(g);
+            cg_emit(g, "  "); cg_emit(g, p0); cg_emit(g, " = insertvalue "); cg_emit(g, pty); cg_emit(g, " undef, ");
+            cg_emit(g, k.ty); cg_emit(g, " "); cg_emit(g, an); cg_emit(g, "l, 0\n");
+            string p1 = cg_tmp(g);
+            cg_emit(g, "  "); cg_emit(g, p1); cg_emit(g, " = insertvalue "); cg_emit(g, pty); cg_emit(g, " "); cg_emit(g, p0);
+            cg_emit(g, ", "); cg_emit(g, k.ty2); cg_emit(g, " "); cg_emit(g, an); cg_emit(g, "h, 1\n");
+            op = cg_abi_reinterp(g, p1, pty, lty);
+        } else if (k.kind == 3 || k.kind == 4) {
+            op = cg_tmp(g);
+            cg_emit(g, "  "); cg_emit(g, op); cg_emit(g, " = load "); cg_emit(g, lty); cg_emit(g, ", ptr "); cg_emit(g, an); cg_emit(g, "\n");
+        }
+        if (i > 0) { String_append(&args, ", "); }
+        String_append(&args, cg_cat(lty, cg_cat(" ", op)));
+        i = i + 1;
+    }
+    string argstr = (string)String_cstr(&args);
+    if (cg_streq(f.retty, "void") == 1) {
+        cg_emit(g, "  call void @"); cg_emit(g, name); cg_emit(g, "("); cg_emit(g, argstr); cg_emit(g, ")\n");
+        cg_emit(g, "  ret void\n");
+    } else {
+        string r = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, r); cg_emit(g, " = call "); cg_emit(g, f.retty); cg_emit(g, " @"); cg_emit(g, name);
+        cg_emit(g, "("); cg_emit(g, argstr); cg_emit(g, ")\n");
+        if (ra.kind == 5) {
+            cg_emit(g, "  store "); cg_emit(g, f.retty); cg_emit(g, " "); cg_emit(g, r); cg_emit(g, ", ptr %sr\n");
+            cg_emit(g, "  ret void\n");
+        } else {
+            string rv = r;
+            if (ra.kind == 1) { rv = cg_abi_reinterp(g, r, f.retty, ra.ty); }
+            cg_emit(g, "  ret "); cg_emit(g, lowret); cg_emit(g, " "); cg_emit(g, rv); cg_emit(g, "\n");
+        }
+    }
+    string bodytext = (string)String_cstr(&g.out);
+    g.out = saved;
+    cg_emit(g, "define internal "); cg_emit(g, lowret); cg_emit(g, " @__cabi_"); cg_emit(g, name);
+    cg_emit(g, "("); cg_emit(g, (string)String_cstr(&hdr)); cg_emit(g, ") {\nentry:\n");
+    cg_emit(g, (string)String_cstr(&g.entry_buf));
+    cg_emit(g, bodytext);
+    cg_emit(g, "}\n\n");
 }
 
 // An enum is an ADT (tagged union) when some variant carries a payload.

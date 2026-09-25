@@ -896,12 +896,13 @@ void CodeGen::visit(CastExpr* node) {
     // Casting a top-level function name to a pointer type yields its RAW C
     // function pointer — the bare symbol address, not the {fn, env} closure fat
     // pointer the name would otherwise decay to. This is how an Eskiu function is
-    // handed to a C API as a callback (e.g. OpenSSL's ALPN select callback).
+    // handed to a C API as a callback (e.g. OpenSSL's ALPN select callback); one taking
+    // or returning a struct by value is reached through its C-ABI thunk.
     if (targetType->isPointerTy()) {
         if (auto* id = dynamic_cast<IdentExpr*>(node->expr.get())) {
             if (!lookupSymbol(id->name)) {               // not shadowed by a variable
                 if (llvm::Function* fn = module->getFunction(id->name)) {
-                    exprValueStack.push(fn);             // a Function* is already a ptr
+                    exprValueStack.push(cabiCallbackThunk(fn));
                     return;
                 }
             }

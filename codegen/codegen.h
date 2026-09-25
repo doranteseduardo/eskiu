@@ -334,6 +334,10 @@ private:
     // Call a lowered extern with logical argument values; returns the logical result.
     llvm::Value* emitCAbiCall(llvm::Function* fn, const CAbiSig& sig,
                               const std::vector<llvm::Value*>& args, bool allowInvoke = true);
+    // The address C should call for the Eskiu function `target` (a raw callback): the
+    // function itself, or a `__cabi_<name>` thunk with the lowered C signature when it
+    // takes or returns an aggregate by value.
+    llvm::Function* cabiCallbackThunk(llvm::Function* target);
 
     // sret (structure return) support for large struct returns
     // Maps function name → actual return struct type (the LLVM function itself returns void)
