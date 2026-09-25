@@ -1,0 +1,21 @@
+// Pointer difference counts elements (C), not bytes.
+extern int printf(string fmt, ...);
+
+struct P { int64 a; int64 b; }
+
+int main() {
+    int[8] a;
+    *int p = &a[1];
+    *int q = &a[6];
+    int64 d = q - p;
+    printf("%lld %lld\n", d, p - q);
+    P[4] ps;
+    *P s = &ps[0];
+    *P t = &ps[3];
+    printf("%lld\n", t - s);
+    string str = "hello";
+    *uint8 b = (*uint8)str;
+    *uint8 e = b + 4;
+    printf("%lld\n", e - b);
+    return 0;
+}
