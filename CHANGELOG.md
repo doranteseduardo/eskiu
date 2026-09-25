@@ -15,7 +15,7 @@ are fixed lockstep in the C++ and self-hosted compilers unless noted, each with 
 regression test. A second pass added three fuzzers (a C oracle, a negative corpus and an
 ASan fuzzer for the stdlib parsers), which found about twenty more, and resolved the two
 known limitations left from 0.9.1 (R and S). A second blind audit round found about 165
-more, fixed the same way.
+more and a third about 60, fixed the same way.
 
 ### Added
 - **`#pragma link("name")`** links the executable with `-lname`. The driver also adds
@@ -154,6 +154,22 @@ more, fixed the same way.
   symbol. An assignment evaluates its target before its value, as the other compound
   forms already did.
 - Self-host diagnostics go to stderr, as the C++ compiler's do.
+- **Pointer conversions between unrelated pointee types need a cast** (`*int` to `*Big`).
+  `*void`, `null` and the byte pointers (`string`, `*char`, `*int8`, `*uint8`) stay
+  implicit, and `int`/`int32` and `uint`/`uint32` spellings of the same type match.
+- **A global initializer or a function body may not name a global defined later in the
+  file**, as in C (it compiled to a zero address before).
+- A by-value recursive enum (`enum L { Cons(int, L), Nil }`) is an error, like a struct
+  that contains itself. `Box<void>`, `void[]` and a non-constant array size are errors.
+- A lambda may not write a field or element of a captured struct or array (`p.a = 5`,
+  `arr[0] = 9`); writes through a pointer, a slice or a string are allowed.
+- A bare nullary variant of a generic enum needs its type arguments (`None<int>()`), and
+  a variant constructor's payload is checked against the declared instance.
+- `?*T` narrowing ends at any call or `await` for a global, and an address-taken
+  variable is never narrowed.
+- `?` needs an integer or `bool` `ok` field; a union literal names one member; an inline
+  method can't declare a parameter named `self`, and an operator overload must have the
+  operator's arity.
 
 ### Deprecated
 - Stdlib modules built around a struct now use `Type_method` names, as the naming
@@ -352,6 +368,33 @@ more, fixed the same way.
   rejects a late table-size update and a field that overflows; `json` frees its tree
   iteratively; `String` and `Map` use-after-free, substring clamping and `int64` epochs
   are fixed; allocator sizes can't overflow and a tiny `FirstFit` buffer is handled.
+
+#### Third audit round
+- Bitfields: a narrower signed value stored into a wide bitfield keeps its sign, and a
+  global or `static` initializer of a bitfield struct, a union or a packed struct keeps
+  its values (it was zero-filled). Union literals, including a global union set through
+  a pointer member, produce valid IR.
+- Async functions: a `static` local keeps its value across calls, and `for-in` over a
+  slice, `try`/`catch`, array literals and `match` on an enum local work.
+- Generics: an instance reached only through a call result (`flip(n).a`,
+  `unbox(bx(7))`, `bx(2.5).get()`) is instantiated.
+- Interfaces: arrays of interface values, method calls through `*I`, a global interface
+  value and a closure taking an interface argument work; returning a large array uses
+  `sret`.
+- A struct field whose type is declared later in the file gets the right layout (it was
+  laid out as `i32`). Member access through `const *T` works.
+- Lambdas can return a struct, a pointer or a generic instance; `(*pf)(x)` calls through
+  a pointer to a closure; arrays of closures and pointers to closures work in the
+  self-host; unary `+` compiles.
+- A function-like macro call can span lines, `#pragma` is accepted inside a function or
+  struct body, and `fmt` leaves the bytes of a multi-line string literal alone.
+- Self-host: rejects casts from an interface, a brace initializer for a non-array, a
+  mistyped global initializer, a struct literal with wrong type arguments and a free
+  function with the wrong signature for a constraint, as the C++ compiler does.
+- Stdlib: regex loops whose body can match empty follow RE2 (`(a?|b)*` on "b" is 0,0), a
+  repeat count above 1000 is an error, HTTP/2 rejects CR, LF and NUL in header fields,
+  RST_STREAM on an idle stream, a short GOAWAY and a stream that depends on itself, and
+  `http_reply` accepts a `null` body.
 
 ## [0.9.1] - 2026-09-09
 ### Fixed
