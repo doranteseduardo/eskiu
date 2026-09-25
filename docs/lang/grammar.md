@@ -48,7 +48,7 @@ float double bool char string void
 struct packed union interface enum fn
 if else while do for in switch match case default break continue return
 import extern intrinsic  sizeof alloc_with free_closure
-thread_create thread_join  asm  try catch finally throw  defer errdefer
+thread_create thread_join  asm  try catch finally throw  defer errdefer  operator
 null true false
 ```
 

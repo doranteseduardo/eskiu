@@ -395,7 +395,7 @@ std::unique_ptr<llvm::Module>      module;   // named "eskiu"
 std::unique_ptr<llvm::IRBuilder<>> builder;
 ```
 
-`generateCode()` sets the target triple and data layout early (needed for `sizeof` in `AllocExpr`), then visits the program. `visit(FunctionDecl*)` creates an `"entry"` `BasicBlock` and calls `builder->SetInsertPoint(entryBlock)`. Control-flow visitors create named basic blocks (`"then"`, `"merge"`, `"while"`, `"for_body"`, `"for_step"`, `"for_exit"`, `"switch.end"`, etc.) and move the insert point with `SetInsertPoint`. After all declarations are visited, `generateCode()` calls `llvm::verifyModule`; on failure it returns `nullptr`.
+`generateCode()` sets the target triple and data layout early (needed for `sizeof` and `alloc_with` sizing), then visits the program. `visit(FunctionDecl*)` creates an `"entry"` `BasicBlock` and calls `builder->SetInsertPoint(entryBlock)`. Control-flow visitors create named basic blocks (`"then"`, `"merge"`, `"while"`, `"for_body"`, `"for_step"`, `"for_exit"`, `"switch.end"`, etc.) and move the insert point with `SetInsertPoint`. After all declarations are visited, `generateCode()` calls `llvm::verifyModule`; on failure it returns `nullptr`.
 
 ### Three-phase program lowering (forward references)
 

@@ -76,7 +76,7 @@ alloc_with
 const  volatile  static  escaping  must_use  asm
 thread_create  thread_join
 try  catch  finally  throw  defer  errdefer
-async  await
+async  await  operator
 sizeof  free_closure  union  enum
 ```
 
@@ -2383,8 +2383,12 @@ The compiler predefines these:
 |---|---|---|
 | `__LINE__` | current source line, an integer | refreshed for every line; reflects the line of the *use*, after line-splicing |
 | `__FILE__` | current file path, a string literal | the path as passed to the compiler or resolved by `import`; distinct per file in a multi-file build |
-| `__APPLE__` | `1` (macOS only) | host-OS macro; exactly one of `__APPLE__`/`__linux__` is defined |
-| `__linux__` | `1` (Linux only) | |
+| `__APPLE__` | `1` (Apple targets) | target-OS macro, from `--target` or the host |
+| `__linux__` | `1` (Linux targets) | |
+| `_WIN32` | `1` (Windows targets) | also defined for 64-bit Windows |
+| `_WIN64` | `1` (64-bit Windows targets) | |
+
+At most one OS family is defined. A bare-metal triple (OS `none`, e.g. `aarch64-none-elf`) defines none of them.
 | `__ESKIU_FREESTANDING__` | `1` under `--freestanding` | lets stdlib target `esk_alloc`/`esk_free` instead of libc |
 
 `__LINE__` and `__FILE__` are ordinary object-like macros (so substitution
