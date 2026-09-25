@@ -215,7 +215,8 @@ asm-operand   = STRING_LIT '(' expr ')'
 thread-join-stmt = 'thread_join' '(' expr ')' ';'
 ```
 
-`for (i in A..B)` desugars to a counted `for (int i = A; i < B; i = i + 1)`.
+`for (i in A..B)` desugars to a counted `for (T i = A; i < B; i = i + 1)`, where `T` is
+the bounds' common integer type (see the spec's for-in section).
 
 ---
 

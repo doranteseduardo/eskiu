@@ -1147,10 +1147,17 @@ Four kinds of iterable are supported:
   }
   ```
 
-  A range desugars to `for (int i = A; i < B; i = i + 1)`, so an empty range
+  A range desugars to `for (T i = A; i < B; i = i + 1)`, so an empty range
   (`A >= B`) runs zero times. `B` is evaluated once, before the first iteration:
   `for (i in 0..n())` calls `n()` once, and changing a variable used in `B` inside
   the body does not change the number of iterations.
+
+  The loop variable's type `T` is the common type of the two bounds under C's usual
+  arithmetic conversions: each bound is promoted to at least `int`, the wider one
+  wins, and at equal width an unsigned bound makes `T` unsigned. So `0..n` with
+  `n: int64` counts in `int64`, and two `uint8` bounds count in `int`. A bare
+  integer literal bound takes the first of `int`, `int64`, `uint64` that holds its
+  value. A bound that is not an integer (a `float`, a pointer) is a compile error.
 
 - **Fixed-size arrays** (`T[N]`), including array fields. Over a multidimensional
   array `T[N][M]` the loop variable is each row, a `T[M]`:

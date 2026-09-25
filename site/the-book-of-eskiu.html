@@ -874,6 +874,7 @@ pre.code-block {
  int lo = 2;        int hi = 6;
  for (j in lo..hi) { printf(&quot;%d           &quot;, j); }
  // Output: 2           3   4    5</pre>
+<p>A range's loop variable takes the common integer type of its two bounds, by the same promotion rules as C arithmetic: two <code>int</code> bounds give an <code>int</code>, an <code>int64</code> bound makes it <code>int64</code>, and an unsigned bound of the widest width makes it unsigned. So <code>for (i in 0..n)</code> with <code>n: int64</code> counts past 2<sup>31</sup> without wrapping. A <code>float</code> or pointer bound is a compile error.</p>
 <p>The loop variable (v, n, or i above) is a copy. Modifying it does not affect the collection or the range. continue correctly advances the index. The upper bound of a range is evaluated once, before the first iteration: <code>for (i in 0..count())</code> calls <code>count()</code> one time, and changing <code>hi</code> inside the loop does not change how many times it runs.</p>
 <p>Over a two-dimensional array, for-in binds each row in turn, so a nested for-in walks the elements:</p>
 <pre class="code-block"> int[2][3] m = {{1, 2, 3}, {4, 5, 6}};
@@ -1493,7 +1494,7 @@ pre.code-block {
  !    -    ~       &amp;    *   ++   --   (TYPE)   unary (right to left)
  ()    []      .    ?                       call, index, member, propagate</pre>
 <h2 class="section" id="sec-12-4b">12.4b Range operator</h2>
-<p>The .. operator produces a half-open integer range for use in for-in loops. A..B iterates A, A+1, …, B-1. Both bounds are any integer expression; an empty range (A ≥ B) runs zero times:</p>
+<p>The .. operator produces a half-open integer range for use in for-in loops. A..B iterates A, A+1, …, B-1. Both bounds are any integer expression, and the loop variable takes their common integer type; an empty range (A ≥ B) runs zero times:</p>
 <pre class="code-block"> for (i in 0..5)             { /* 0 1 2 3 4 */ }
  for (i in lo..hi){ /* lo to hi-1 */ }
  for (i in 5..5)             { /* never runs */ }</pre>
