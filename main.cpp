@@ -557,15 +557,12 @@ static int compilerMain(int argc, char** argv) {
                 llvm::sys::fs::remove(runExePath);
                 return rc;
             }
-            std::cout << outFile << std::endl;
             return 0;
         }
 
         if (!codegen.emitObjectFile(outFile)) {
             return 1;
         }
-
-        std::cout << outFile << std::endl;
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "error: " << e.what() << std::endl;

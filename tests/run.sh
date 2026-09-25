@@ -262,6 +262,16 @@ else
     bad "cli/link-pragma-applied" "a missing #pragma link library did not fail only the link"
 fi
 
+# A successful compile prints nothing to stdout (no output-file echo).
+printf 'int main() { return 0; }\n' > "$work/quiet.esk"
+q_out="$("$ESKIUC" "$work/quiet.esk" -o "$work/quiet" 2>/dev/null)"
+q_obj="$("$ESKIUC" "$work/quiet.esk" -c -o "$work/quiet.o" 2>/dev/null)"
+if [[ -z "$q_out" && -z "$q_obj" && -x "$work/quiet" ]]; then
+    ok "cli/quiet-success"
+else
+    bad "cli/quiet-success" "stdout: $q_out $q_obj"
+fi
+
 # -Wall points an unused-parameter warning at the parameter itself.
 w_out="$("$ESKIUC" -Wall --test-typechecker "$here/run_cmd/unused_param.esk" 2>&1)"
 if [[ "$w_out" == *"unused_param.esk:4:11: warning: unused parameter 'unused_p'"* ]]; then
