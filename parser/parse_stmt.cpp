@@ -228,8 +228,9 @@ StmtPtr Parser::parseForStatement() {
         consume(TokenType::IN, "Expected 'in'");
         ExprPtr first = parseExpression();
         // for (i in A..B) — half-open numeric range [A, B). Desugar at parse time
-        // into a counted `for (int i = A; i < B; i = i + 1)`, so it reuses all the
-        // for-loop machinery (codegen, the async transform, break/continue).
+        // into a counted `for (int i = A, __end_i = B; i < __end_i; i = i + 1)`, so it
+        // reuses all the for-loop machinery (codegen, the async transform,
+        // break/continue). The bound B is evaluated ONCE, before the first iteration.
         if (match(TokenType::RANGE)) {
             ExprPtr end = parseExpression();
             consume(TokenType::RPAREN, "Expected ')'");
@@ -237,8 +238,12 @@ StmtPtr Parser::parseForStatement() {
             auto iv = [&]() { return withPos(std::make_shared<IdentExpr>(nameTok.value), nameTok); };
             auto idecl = std::make_shared<VarDecl>(nameTok.value, "int", first);
             idecl->line = nameTok.line; idecl->col = nameTok.column;
-            StmtPtr init = std::make_shared<BlockStmt>(std::vector<BlockItem>{ DeclPtr(idecl) });
-            ExprPtr cond = std::make_shared<BinaryExpr>(iv(), "<", end);
+            std::string endName = "__end_" + nameTok.value;
+            auto edecl = std::make_shared<VarDecl>(endName, "int", end);
+            edecl->line = nameTok.line; edecl->col = nameTok.column;
+            StmtPtr init = std::make_shared<BlockStmt>(std::vector<BlockItem>{ DeclPtr(idecl), DeclPtr(edecl) });
+            ExprPtr cond = std::make_shared<BinaryExpr>(iv(), "<",
+                               withPos(std::make_shared<IdentExpr>(endName), nameTok));
             ExprPtr one  = std::make_shared<LiteralExpr>(LiteralExpr::Kind::INT, "1");
             ExprPtr step = std::make_shared<BinaryExpr>(iv(), "=",
                                std::make_shared<BinaryExpr>(iv(), "+", one));

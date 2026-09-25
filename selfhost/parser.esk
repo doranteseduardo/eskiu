@@ -1005,12 +1005,16 @@ string strip_binding_const(string t) {
 }
 
 // `for (x in A..B)` desugars (at parse time, like the C++) into a counted ForStmt:
-//   for (int x = A; x < B; x = x + 1) body
+//   for (int x = A, __end_x = B; x < __end_x; x = x + 1) body
+// so the bound B is evaluated once, before the first iteration.
 *StmtNode desugar_range(string var, *ExprNode lo, *ExprNode hi, *StmtNode body) {
     *StmtNode s = alloc<StmtNode>(1);
     s.kind = SK_FOR;
-    s.s1 = wrap_block(mk_vardecl(var, "int", lo, 0));
-    s.expr = mk_bin("<", mk_ident(var), hi);
+    string endn = str_concat("__end_", var);
+    *StmtNode init = wrap_block(mk_vardecl(var, "int", lo, 0));
+    List_push<*StmtNode>(&init.items, mk_vardecl(endn, "int", hi, 0));
+    s.s1 = init;
+    s.expr = mk_bin("<", mk_ident(var), mk_ident(endn));
     s.expr2 = mk_bin("=", mk_ident(var), mk_bin("+", mk_ident(var), mk_lit(LIT_INT, "1")));
     s.s2 = body;
     return s;
