@@ -2582,7 +2582,7 @@ The compiler predefines these:
 
 | Macro | Value | Notes |
 |---|---|---|
-| `__LINE__` | current source line, an integer | refreshed for every line; reflects the line of the *use*, after line-splicing |
+| `__LINE__` | current source line, an integer | refreshed for every logical line; on a `\`-continued line it is the line where that logical line starts |
 | `__FILE__` | current file path, a string literal | the path as passed to the compiler or resolved by `import`, with `\` and `"` escaped; distinct per file in a multi-file build |
 | `__APPLE__` | `1` (Apple targets) | target-OS macro, from `--target` or the host |
 | `__linux__` | `1` (Linux targets) | |
@@ -2596,8 +2596,9 @@ At most one OS family is defined. A bare-metal triple (OS `none`, e.g. `aarch64-
 `__LINE__` and `__FILE__` are ordinary object-like macros (so substitution
 respects identifier boundaries and skips string/char literals) but their values
 are maintained by the compiler. `__LINE__` is re-set to the physical line number
-of each logical line before that line is expanded, so a `__LINE__` inside a
-multi-line continuation still reports the line where it textually appears.
+of each logical line before that line is expanded. Line splicing happens first, so
+a `__LINE__` on the second physical line of a `\`-continued line reports the line
+where the logical line starts, not the line where it textually appears.
 `__FILE__` is threaded from the file currently being compiled or imported, so in
 a multi-file or `import`-driven build each file sees its own path. Together with
 `#error` they support assertions, build guards, and `file:line` diagnostics:
