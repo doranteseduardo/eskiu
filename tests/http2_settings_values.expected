@@ -1,0 +1,10 @@
+push 0: error=0 apply=0 window=65535 frame=16384 push=0
+push 2: error=1 apply=-1 window=65535 frame=16384 push=1
+window max: error=0 apply=0 window=2147483647 frame=16384 push=1
+window over: error=3 apply=-1 window=65535 frame=16384 push=1
+frame min: error=0 apply=0 window=65535 frame=16384 push=1
+frame small: error=1 apply=-1 window=65535 frame=16384 push=1
+frame max: error=0 apply=0 window=65535 frame=16777215 push=1
+frame big: error=1 apply=-1 window=65535 frame=16384 push=1
+unknown id: error=0 apply=0 window=65535 frame=16384 push=1
+length 5: error=6

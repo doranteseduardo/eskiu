@@ -181,11 +181,32 @@ int h2_write_settings_ack(*uint8 buf) {
     return h2_frame_finish(buf, H2_SETTINGS, H2_FLAG_ACK, 0, 0);
 }
 
+// The largest flow-control window (and SETTINGS_INITIAL_WINDOW_SIZE): 2^31 - 1.
+const int64 H2_MAX_WINDOW = 2147483647;
+
+// Validate a received SETTINGS payload (§6.5.2) without applying it. Returns 0
+// if every value is legal, else the connection error code the peer earned:
+// FRAME_SIZE_ERROR for a length that is not a multiple of 6, PROTOCOL_ERROR
+// for ENABLE_PUSH other than 0/1 or MAX_FRAME_SIZE outside 16384..16777215,
+// FLOW_CONTROL_ERROR for INITIAL_WINDOW_SIZE above 2^31 - 1.
+int h2_settings_error(*uint8 payload, int len) {
+    if (len % 6 != 0) { return H2_FRAME_SIZE_ERROR; }
+    for (int i = 0; i < len; i += 6) {
+        const int   id = ((int)payload[i] << 8) | (int)payload[i + 1];
+        const int64 v  = h2_get_u32(payload, i + 2);
+        if (id == H2_SETTINGS_ENABLE_PUSH && v > 1) { return H2_PROTOCOL_ERROR; }
+        if (id == H2_SETTINGS_INITIAL_WINDOW_SIZE && v > H2_MAX_WINDOW) { return H2_FLOW_CONTROL_ERROR; }
+        if (id == H2_SETTINGS_MAX_FRAME_SIZE && (v < 16384 || v > 16777215)) { return H2_PROTOCOL_ERROR; }
+    }
+    return 0;
+}
+
 // Apply a received SETTINGS payload (`len` bytes, must be a multiple of 6) to
 // `s`, updating only the parameters present. Returns 0 on success, -1 if the
-// payload length is not a multiple of 6 (a FRAME_SIZE_ERROR).
+// payload is invalid (see h2_settings_error for which error; nothing is applied
+// then).
 int h2_apply_settings(H2Settings* s, *uint8 payload, int len) {
-    if (len % 6 != 0) { return -1; }
+    if (h2_settings_error(payload, len) != 0) { return -1; }
     for (int i = 0; i < len; i += 6) {
         const int   id = ((int)payload[i] << 8) | (int)payload[i + 1];
         const int64 v  = h2_get_u32(payload, i + 2);
@@ -476,8 +497,10 @@ async int h2_server_handshake_async(EventLoop* lp, H2Conn* c) {
     *uint8 fb = alloc<uint8>(4096);
     let hdr: H2Frame;
     int plen = await h2_read_frame_async(lp, c.fd, fb, 4096, &hdr);
-    if (plen < 0 || hdr.type != H2_SETTINGS) { free((*void)fb); return -2; }
-    h2_apply_settings(&c.remote, fb + H2_FRAME_HEADER_LEN, hdr.length);
+    if (plen < 0 || hdr.type != H2_SETTINGS || (hdr.flags & H2_FLAG_ACK) != 0 ||
+        h2_apply_settings(&c.remote, fb + H2_FRAME_HEADER_LEN, hdr.length) != 0) {
+        free((*void)fb); return -2;
+    }
 
     c.local.enable_push = 0;                           // a server MUST NOT set ENABLE_PUSH=1 (§6.5.2)
     int sn = h2_write_settings(fb, &c.local);          // advertise ours

@@ -198,6 +198,7 @@ when you add a test.
 | `hpack_size_update` | A §6.3 dynamic table size update above SETTINGS_HEADER_TABLE_SIZE is a COMPRESSION_ERROR (the decode fails) instead of growing the table past the entry... |
 | `hpack_truncated` | Malformed HPACK blocks must fail cleanly (-1) without reading past the block: a string literal longer than the remaining bytes, a prefix integer whose... |
 | `http2_big_headers` | Response headers larger than the old fixed 8 KB block are sized from the headers, and a block over MAX_FRAME_SIZE (16384) is split into a HEADERS frame plus... |
+| `http2_settings_values` | SETTINGS values are validated before any is applied (ENABLE_PUSH 0/1, MAX_FRAME_SIZE range, INITIAL_WINDOW_SIZE at most 2^31 - 1), with the RFC 9113 error code from h2_settings_error. |
 | `http_async_accept_retry` | The async servers retry a failed accept (EMFILE) after a backoff via net_accept_retry_async instead of spawning a handler on fd -1 that never completes the wait-group. |
 | `http_header_edges` | HTTP/1.1 edge cases: header values lose surrounding whitespace (OWS), an overflowing or malformed Content-Length is a 400 (it used to wrap to 0),... |
 | `http_strict` | HTTP/1.1 strictness: a body cut short by the peer is 400, conflicting Content-Length values are 400, a bare CR/LF in the head or an empty method/path is malformed (the servers answer 400 without the handler), and render sends a body past an embedded NUL. |
