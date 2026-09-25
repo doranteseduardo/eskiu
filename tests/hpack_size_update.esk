@@ -1,0 +1,47 @@
+// A §6.3 dynamic table size update above SETTINGS_HEADER_TABLE_SIZE is a
+// COMPRESSION_ERROR (the decode fails) instead of growing the table past the
+// entry array it was allocated with. Raising the limit through hpack_set_max
+// grows the array, so many small inserts stay in bounds.
+import <mem>;
+import <hpack>;
+extern int printf(string fmt, ...);
+
+int fill(*uint8 blk, int off, int n) {
+    int i = 0;
+    while (i < n) {
+        blk[off] = (uint8)64; off = off + 1;
+        blk[off] = (uint8)1;  off = off + 1;
+        blk[off] = (uint8)97; off = off + 1;
+        blk[off] = (uint8)0;  off = off + 1;
+        i = i + 1;
+    }
+    return off;
+}
+
+int main() {
+    *HpackHeader out = alloc<HpackHeader>(300);
+    *uint8 blk = alloc<uint8>(4096);
+
+    let d: HpackDecoder;  hpack_decoder_init(&d, (int64)4096);
+    int off = hpack_encode_int(blk, 0, 5, 32, (int64)1000000);
+    off = fill(blk, off, 200);
+    printf("oversize update: %d\n", hpack_decode(&d, blk, off, out, 300));
+
+    off = hpack_encode_int(blk, 0, 5, 32, (int64)64);
+    off = hpack_encode_int(blk, off, 5, 32, (int64)4096);
+    off = fill(blk, off, 200);
+    int c = hpack_decode(&d, blk, off, out, 300);
+    printf("within limit: %d dyn=%d\n", c, d.dyn_count);
+    hpack_decoder_free(&d);
+
+    let e: HpackDecoder;  hpack_decoder_init(&e, (int64)64);
+    hpack_set_max(&e, (int64)100000);
+    off = fill(blk, 0, 200);
+    c = hpack_decode(&e, blk, off, out, 300);
+    printf("raised: %d dyn=%d\n", c, e.dyn_count);
+    hpack_decoder_free(&e);
+
+    free((*void)blk);
+    free((*void)out);
+    return 0;
+}

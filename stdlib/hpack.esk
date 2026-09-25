@@ -260,6 +260,7 @@ struct HpackDecoder {
     *uint8 scratch;
     int   scratch_cap;
     int   scratch_used;
+    int64 limit;        // the SETTINGS_HEADER_TABLE_SIZE bound on any §6.3 size update
 }
 
 void hpack_decoder_init(HpackDecoder* d, int64 max_size) {
@@ -268,6 +269,7 @@ void hpack_decoder_init(HpackDecoder* d, int64 max_size) {
     d.dyn_count = 0;
     d.dyn_cap = cap;
     d.max_size = max_size;
+    d.limit = max_size;
     d.cur_size = (int64)0;
     hpack_huff_build(&d.huff);
     d.scratch_cap = 16384;
@@ -335,7 +337,19 @@ void hpack_dyn_insert(HpackDecoder* d, *uint8 name, int nlen, *uint8 value, int 
 }
 
 // Set a new dynamic-table max size (§6.3 dynamic table size update); evicts.
+// Raising it past the size the entry array was allocated for grows the array
+// (so the table can always hold max_size / 32 entries, the minimum entry size).
 void hpack_set_max(HpackDecoder* d, int64 newmax) {
+    int need = (int)(newmax / (int64)32) + 1;
+    if (need > d.dyn_cap) {
+        *HpackEntry grown = alloc<HpackEntry>(need);
+        int i = 0;
+        while (i < d.dyn_count) { grown[i] = d.dyn[i]; i = i + 1; }
+        free((*void)d.dyn);
+        d.dyn = grown;
+        d.dyn_cap = need;
+    }
+    if (newmax > d.limit) { d.limit = newmax; }
     d.max_size = newmax;
     hpack_evict(d, (int64)0);
 }
@@ -404,6 +418,7 @@ int hpack_decode(HpackDecoder* d, *uint8 buf, int len, HpackHeader* out, int max
             int nx = 0;
             int64 newmax = hpack_decode_int(buf, off, 5, &nx);
             off = nx;
+            if (newmax > d.limit) { return -1; }        // above SETTINGS_HEADER_TABLE_SIZE: COMPRESSION_ERROR
             hpack_set_max(d, newmax);
         } else {                                         // §6.2.2 / §6.2.3 without / never indexed
             off = hpack_decode_literal(d, buf, off, 4, &out[count], 0);
