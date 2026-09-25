@@ -2394,9 +2394,9 @@ The compiler predefines these:
 | `_WIN32` | `1` (Windows targets) | also defined for 64-bit Windows |
 | `_WIN64` | `1` (64-bit Windows targets) | |
 | `__aarch64__` / `__x86_64__` / `__arm__` | `1` | target-architecture macro, from `--target` or else the build host (at most one is defined) |
+| `__ESKIU_FREESTANDING__` | `1` under `--freestanding` | lets stdlib target `esk_alloc`/`esk_free` instead of libc |
 
 At most one OS family is defined. A bare-metal triple (OS `none`, e.g. `aarch64-none-elf`) defines none of them.
-| `__ESKIU_FREESTANDING__` | `1` under `--freestanding` | lets stdlib target `esk_alloc`/`esk_free` instead of libc |
 
 `__LINE__` and `__FILE__` are ordinary object-like macros (so substitution
 respects identifier boundaries and skips string/char literals) but their values
