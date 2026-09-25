@@ -3706,7 +3706,8 @@ void sema_check_fn(Sema* s, *DeclNode f, string self_type) {
         return;
     }
     // `main` is the entry point; its return value is the process exit code, so it must be int.
-    if (sema_streq(f.name, "main") == 1 && sema_streq(f.ret_type, "int") == 0) {
+    if (sema_streq(f.name, "main") == 1 && sema_streq(f.ret_type, "int") == 0
+        && sema_streq(f.ret_type, "int32") == 0) {
         s.had_error = 1;
         printf("error: %s:%d:%d: 'main' must return int (its return value is the process exit code); got '%s'\n",
                s.filename, s.line, s.col, f.ret_type);

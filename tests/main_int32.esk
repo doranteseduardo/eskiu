@@ -1,0 +1,8 @@
+// `int32` is `int`, so `int32 main()` is a valid entry point (it was rejected as not
+// returning int). Found while building the negative corpus (tests/fuzz/neg_fuzz.py).
+extern int printf(string fmt, ...);
+
+int32 main() {
+    printf("main returns int32\n");
+    return 0;
+}

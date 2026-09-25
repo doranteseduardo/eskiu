@@ -279,7 +279,8 @@ void TypeChecker::visit(FunctionDecl* node) {
     // `main` is the program entry point: its return value is the process exit code,
     // so it must return `int`. A `void main()` leaves the exit code as whatever garbage
     // is in the return register (undefined, and platform-dependent).
-    if (node->name == "main" && normalizeType(node->returnType) != "int")
+    if (node->name == "main" && normalizeType(node->returnType) != "int" &&
+        normalizeType(node->returnType) != "int32")
         errorAt(node, "'main' must return int (its return value is the process exit code); "
                       "got '" + node->returnType + "'");
 
