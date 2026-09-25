@@ -211,6 +211,7 @@ std::shared_ptr<Program> loadProgram(const std::string& filename) {
     if (lexer.hadError) return nullptr;
 
     Parser parser(tokens);
+    parser.filename = filename;
     parser.stdlibPath = stdlibRoot;
     parser.basedir = dirOf(filename);
     return parser.parse();

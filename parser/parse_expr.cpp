@@ -8,7 +8,7 @@
 // Part of the parser.cpp split; see parser.h.
 
 ExprPtr Parser::parseStructInit(const std::string& structName) {
-    consume(TokenType::LBRACE, "Expected '{'");
+    Token lbTok = consume(TokenType::LBRACE, "Expected '{'");
     std::vector<std::pair<std::string, ExprPtr>> inits;
 
     if (!check(TokenType::RBRACE)) {
@@ -26,7 +26,9 @@ ExprPtr Parser::parseStructInit(const std::string& structName) {
     }
 
     consume(TokenType::RBRACE, "Expected '}'");
-    return std::make_shared<StructInitExpr>(structName, std::move(inits));
+    auto si = std::make_shared<StructInitExpr>(structName, std::move(inits));
+    si->line = lbTok.line; si->col = lbTok.column;
+    return si;
 }
 
 ExprPtr Parser::parseExpression() {
@@ -169,15 +171,16 @@ ExprPtr Parser::parseUnary() {
 
     // Prefix ++x / --x
     if (match({TokenType::PLUS_PLUS, TokenType::MINUS_MINUS})) {
-        bool dec = tokens[current - 1].type == TokenType::MINUS_MINUS;
+        Token opTok = tokens[current - 1];
+        bool dec = opTok.type == TokenType::MINUS_MINUS;
         ExprPtr operand = parseUnary();
-        return std::make_shared<IncDecExpr>(operand, dec, /*prefix=*/true);
+        return withPos(std::make_shared<IncDecExpr>(operand, dec, /*prefix=*/true), opTok);
     }
 
     if (match({TokenType::NOT, TokenType::MINUS, TokenType::PLUS, TokenType::AMPERSAND, TokenType::STAR, TokenType::TILDE})) {
         Token opToken = tokens[current - 1];
         ExprPtr expr = parseUnary();
-        return std::make_shared<UnaryExpr>(opToken.value, expr);
+        return withPos(std::make_shared<UnaryExpr>(opToken.value, expr), opToken);
     }
 
     // Cast expression: (TYPE) expr
@@ -195,11 +198,11 @@ ExprPtr Parser::parseUnary() {
         if (isTypeKeyword) {
             size_t savePos = current;
             try {
-                advance(); // consume (
+                Token lpTok = advance(); // consume (
                 std::string castType = parseType();
                 if (match(TokenType::RPAREN)) {
                     ExprPtr expr = parseUnary();
-                    return std::make_shared<CastExpr>(castType, expr);
+                    return withPos(std::make_shared<CastExpr>(castType, expr), lpTok);
                 }
             } catch (...) {}
             rewindTo(savePos);
@@ -230,7 +233,9 @@ ExprPtr Parser::parsePostfix() {
                                 do { args.push_back(parseExpression()); } while (match(TokenType::COMMA));
                             }
                             consume(TokenType::RPAREN, "Expected ')'");
-                            expr = std::make_shared<TemplateCallExpr>(ident->name, typeArgs, std::move(args));
+                            auto tc = std::make_shared<TemplateCallExpr>(ident->name, typeArgs, std::move(args));
+                            tc->line = ident->line; tc->col = ident->col;
+                            expr = tc;
                             continue;
                         }
                         if (check(TokenType::LBRACE)) {
@@ -340,7 +345,7 @@ ExprPtr Parser::parsePrimary() {
         consume(TokenType::COMMA, "Expected ',' after type in alloc_with");
         ExprPtr count = parseExpression();
         consume(TokenType::RPAREN, "Expected ')'");
-        return std::make_shared<AllocWithExpr>(allocator, elemType, count);
+        return withPos(std::make_shared<AllocWithExpr>(allocator, elemType, count), tok);
     }
 
 
@@ -402,10 +407,10 @@ ExprPtr Parser::parsePrimary() {
     if (match(TokenType::LPAREN)) {
         ExprPtr expr = parseExpression();
         if (!match(TokenType::RPAREN)) {
-            throw std::runtime_error("Expected ')'");
+            fail("Expected ')'");
         }
         return expr;
     }
 
-    throw std::runtime_error(std::string("Expected expression, got ") + tokenTypeToString(tok.type));
+    fail(std::string("Expected expression, got ") + tokenTypeToString(tok.type));
 }

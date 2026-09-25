@@ -253,20 +253,15 @@ DeclPtr Parser::parseDeclaration() {
                 // through so the caller can reinterpret the tokens.
                 TokenType nt = peek().type;
                 if (nt >= TokenType::LET && nt <= TokenType::UINT64) {
-                    throw std::runtime_error(
-                        "expected a name, found keyword '" + peek().value + "'");
+                    fail("expected a name, found keyword '" + peek().value + "'");
                 }
             }
         }
-    } catch (const std::exception& e) {
-        // Don't double-prefix when an inner declaration already wrapped the error
-        // (e.g. a malformed local decl inside a function body).
-        std::string m = e.what();
-        if (m.rfind("Error parsing declaration: ", 0) == 0) throw;
-        throw std::runtime_error("Error parsing declaration: " + m);
+    } catch (const std::exception&) {
+        throw;
     }
 
-    throw std::runtime_error("Expected declaration");
+    fail("Expected declaration, got " + tokenTypeToString(peek().type));
 }
 
 // Read the operator token(s) after `operator`. Returns its spelling ("+", "==", "[]", ...),
@@ -333,7 +328,7 @@ DeclPtr Parser::parseFunctionDecl() {
         if (params.size() == 1 && opSpelling == "-") opSpelling = "u-";
         name = eskiuOpName(opSpelling, ptys);
         if (name.empty())
-            throw std::runtime_error("operator '" + opSpelling + "' cannot be overloaded");
+            fail("operator '" + opSpelling + "' cannot be overloaded", nameTok);
     }
 
     // A bare ';' marks a forward declaration (prototype only, no body).

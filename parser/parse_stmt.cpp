@@ -160,7 +160,7 @@ StmtPtr Parser::parseStatement() {
 }
 
 StmtPtr Parser::parseBlockStatement() {
-    consume(TokenType::LBRACE, "Expected '{'");
+    Token lbTok = consume(TokenType::LBRACE, "Expected '{'");
     std::vector<BlockItem> items;
 
     while (!check(TokenType::RBRACE) && !is_at_end()) {
@@ -199,11 +199,11 @@ StmtPtr Parser::parseBlockStatement() {
     }
 
     consume(TokenType::RBRACE, "Expected '}'");
-    return std::make_shared<BlockStmt>(items);
+    return withPos(std::make_shared<BlockStmt>(items), lbTok);
 }
 
 StmtPtr Parser::parseIfStatement() {
-    consume(TokenType::IF, "Expected 'if'");
+    Token ifTok = consume(TokenType::IF, "Expected 'if'");
     consume(TokenType::LPAREN, "Expected '('");
     ExprPtr condition = parseExpression();
     consume(TokenType::RPAREN, "Expected ')'");
@@ -215,11 +215,11 @@ StmtPtr Parser::parseIfStatement() {
         elseBranch = parseStatement();
     }
 
-    return std::make_shared<IfStmt>(condition, thenBranch, elseBranch);
+    return withPos(std::make_shared<IfStmt>(condition, thenBranch, elseBranch), ifTok);
 }
 
 StmtPtr Parser::parseForStatement() {
-    consume(TokenType::FOR, "Expected 'for'");
+    Token forTok = consume(TokenType::FOR, "Expected 'for'");
     consume(TokenType::LPAREN, "Expected '('");
 
     // for (x in iterable) — element-wise iteration
@@ -291,29 +291,29 @@ StmtPtr Parser::parseForStatement() {
 
     StmtPtr body = parseStatement();
 
-    return std::make_shared<ForStmt>(init, condition, step, body);
+    return withPos(std::make_shared<ForStmt>(init, condition, step, body), forTok);
 }
 
 StmtPtr Parser::parseWhileStatement() {
-    consume(TokenType::WHILE, "Expected 'while'");
+    Token wTok = consume(TokenType::WHILE, "Expected 'while'");
     consume(TokenType::LPAREN, "Expected '('");
     ExprPtr condition = parseExpression();
     consume(TokenType::RPAREN, "Expected ')'");
 
     StmtPtr body = parseStatement();
 
-    return std::make_shared<WhileStmt>(condition, body);
+    return withPos(std::make_shared<WhileStmt>(condition, body), wTok);
 }
 
 StmtPtr Parser::parseDoWhileStatement() {
-    consume(TokenType::DO, "Expected 'do'");
+    Token dTok = consume(TokenType::DO, "Expected 'do'");
     StmtPtr body = parseStatement();
     consume(TokenType::WHILE, "Expected 'while' after do-body");
     consume(TokenType::LPAREN, "Expected '('");
     ExprPtr condition = parseExpression();
     consume(TokenType::RPAREN, "Expected ')'");
     consume(TokenType::SEMICOLON, "Expected ';' after do-while");
-    return std::make_shared<DoWhileStmt>(body, condition);
+    return withPos(std::make_shared<DoWhileStmt>(body, condition), dTok);
 }
 
 StmtPtr Parser::parseReturnStatement() {
@@ -351,9 +351,10 @@ StmtPtr Parser::parseContinueStatement() {
 }
 
 StmtPtr Parser::parseExpressionStatement() {
+    Token startTok = peek();
     ExprPtr expr = parseExpression();
     consume(TokenType::SEMICOLON, "Expected ';'");
-    return std::make_shared<ExprStmt>(expr);
+    return withPos(std::make_shared<ExprStmt>(expr), startTok);
 }
 
 // ============================================================================
@@ -403,7 +404,7 @@ StmtPtr Parser::parseMatchStatement() {
 }
 
 StmtPtr Parser::parseSwitchStatement() {
-    consume(TokenType::SWITCH, "Expected 'switch'");
+    Token swTok = consume(TokenType::SWITCH, "Expected 'switch'");
     consume(TokenType::LPAREN, "Expected '('");
     ExprPtr subject = parseExpression();
     consume(TokenType::RPAREN, "Expected ')'");
@@ -429,5 +430,5 @@ StmtPtr Parser::parseSwitchStatement() {
         cases.push_back(std::move(c));
     }
     consume(TokenType::RBRACE, "Expected '}'");
-    return std::make_shared<SwitchStmt>(subject, std::move(cases));
+    return withPos(std::make_shared<SwitchStmt>(subject, std::move(cases)), swTok);
 }

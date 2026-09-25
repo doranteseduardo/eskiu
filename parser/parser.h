@@ -21,6 +21,8 @@ public:
 
     // Directory of the current source file — used to resolve relative imports
     std::string basedir;
+    // The source file being parsed; labels diagnostics ("<input>" when empty).
+    std::string filename;
     // Root of the Eskiu installation — used to resolve <stdlib> imports
     // Set from $ESKIU_ROOT env var or dirname(argv[0])/../lib/eskiu
     std::string stdlibPath;
@@ -61,6 +63,14 @@ private:
     bool match(TokenType type);
     bool match(const std::vector<TokenType>& types);
     Token consume(TokenType type, const std::string& message);
+    // Report a syntax error at the current token (or at `at`): records its position
+    // for the diagnostic, then throws. Speculative parses catch and discard it.
+    [[noreturn]] void fail(const std::string& message);
+    [[noreturn]] void fail(const std::string& message, const Token& at);
+    int errLine = 0, errCol = 0;
+    // Panic-mode recovery: skip to the next token that plausibly starts a top-level
+    // declaration (at column 1), so one error does not cascade.
+    void skipToNextDecl(size_t declStart);
     bool is_at_end() const;
 
     // Parsing methods

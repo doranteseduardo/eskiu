@@ -454,6 +454,7 @@ int main(int argc, char** argv) {
             if (lexer.hadError) return 1;
 
             Parser parser(tokens);
+            parser.filename = fname;
             parser.stdlibPath = stdlibRoot;
             parser.basedir = dirOf(fname);
             parser.importedFiles = &importedFiles;
