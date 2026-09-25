@@ -2,6 +2,7 @@
 #include "../lexer/lexer.h"
 #include <stdexcept>
 #include "parser_internal.h"
+#include "../ast/ast_walk.h"
 
 // Parser — statement parsing (blocks, control flow, match/switch, returns).
 // Part of the parser.cpp split; see parser.h.
@@ -232,6 +233,8 @@ StmtPtr Parser::parseForStatement() {
         // into a counted `for (int i = A, __end_i = B; i < __end_i; i = i + 1)`, so it
         // reuses all the for-loop machinery (codegen, the async transform,
         // break/continue). The bound B is evaluated ONCE, before the first iteration.
+        // The bound's name is fresh against every name in the loop, so a user
+        // `__end_i` read in the body (or in B) still means the user's variable.
         if (match(TokenType::RANGE)) {
             ExprPtr end = parseExpression();
             consume(TokenType::RPAREN, "Expected ')'");
@@ -239,7 +242,11 @@ StmtPtr Parser::parseForStatement() {
             auto iv = [&]() { return withPos(std::make_shared<IdentExpr>(nameTok.value), nameTok); };
             auto idecl = std::make_shared<VarDecl>(nameTok.value, "int", first);
             idecl->line = nameTok.line; idecl->col = nameTok.column;
-            std::string endName = "__end_" + nameTok.value;
+            std::set<std::string> used{nameTok.value};
+            astwalk::collectNames(first.get(), used);
+            astwalk::collectNames(end.get(), used);
+            astwalk::collectNames(body.get(), used);
+            std::string endName = astwalk::freshName("__end_" + nameTok.value, used);
             auto edecl = std::make_shared<VarDecl>(endName, "int", end);
             edecl->line = nameTok.line; edecl->col = nameTok.column;
             StmtPtr init = std::make_shared<BlockStmt>(std::vector<BlockItem>{ DeclPtr(idecl), DeclPtr(edecl) });

@@ -1301,10 +1301,15 @@ string fresh_name(string base, List<string>* used) {
 // `for (x in A..B)` desugars (at parse time, like the C++) into a counted ForStmt:
 //   for (int x = A, __end_x = B; x < __end_x; x = x + 1) body
 // so the bound B is evaluated once, before the first iteration.
+// The bound's name is fresh against every name in the loop, so a user `__end_x` read in
+// the body (or the bound) still means the user's variable.
 *StmtNode desugar_range(string var, *ExprNode lo, *ExprNode hi, *StmtNode body) {
     *StmtNode s = ast_new_stmt();
     s.kind = SK_FOR;
-    string endn = str_concat("__end_", var);
+    List<string> used; List_init<string>(&used, 8);
+    List_push<string>(&used, var);
+    collect_names_e(lo, &used); collect_names_e(hi, &used); collect_names_s(body, &used);
+    string endn = fresh_name(str_concat("__end_", var), &used);
     *StmtNode init = wrap_block(mk_vardecl(var, "int", lo, 0));
     List_push<*StmtNode>(&init.items, mk_vardecl(endn, "int", hi, 0));
     s.s1 = init;
