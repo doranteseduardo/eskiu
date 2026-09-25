@@ -648,6 +648,10 @@ void sema_check_dims(Sema* s, string t) {
                 s.had_error = 1;
                 dprintf(2, "error: %s:%d:%d: array size must be positive, got %lld\n", s.filename, s.line, s.col, v);
             }
+            if (known == 0 && dim[0] != 0) {             // no variable-length arrays
+                s.had_error = 1;
+                dprintf(2, "error: %s:%d:%d: array size must be a compile-time constant, got '%s'\n", s.filename, s.line, s.col, dim);
+            }
             i = j;
         } else { i = i + 1; }
     }

@@ -246,6 +246,9 @@ void TypeChecker::checkArrayDim(const std::string& dim, ASTNode* at) {
     if (known && v <= 0)
         errorAt(at, "array size must be positive, got " + std::to_string(v) +
                     (std::to_string(v) == dim ? "" : " ('" + dim + "')"));
+    // No variable-length arrays: the size is fixed at compile time.
+    if (!known && !dim.empty())
+        errorAt(at, "array size must be a compile-time constant, got '" + dim + "'");
 }
 
 // Type checking utilities
