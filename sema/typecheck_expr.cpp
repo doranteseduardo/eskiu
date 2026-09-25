@@ -605,7 +605,7 @@ void TypeChecker::visit(CastExpr* node) {
     node->expr->accept(this);
     // Validate that struct types exist in casts
     std::string normalizedType = normalizeType(node->targetType);
-    validateStructType(normalizedType);
+    validateStructType(normalizedType, node);
     expressionTypes[node] = normalizedType;
 }
 
@@ -762,6 +762,21 @@ void TypeChecker::visit(LambdaExpr* node) {
 }
 
 void TypeChecker::visit(SizeofExpr* node) {
+    // `sizeof(x)` of a variable measures the variable's type (C semantics). The parser
+    // reads the operand as a type spelling, so resolve a bare name that is a variable
+    // (not a type) here and rewrite the operand to that variable's type for codegen.
+    const std::string& tn = node->typeName;
+    bool isTypeName = isPrimitiveType(tn) || structs.count(tn) || typeAliases.count(tn) ||
+                      enumTypes.count(tn) || interfaceDecls.count(tn) || tn == "va_list";
+    if (!isTypeName) {
+        std::string vt;
+        for (auto it = scopes.rbegin(); it != scopes.rend(); ++it) {
+            auto f = it->find(tn);
+            if (f != it->end()) { f->second.used = true; vt = f->second.type; break; }
+        }
+        if (!vt.empty() && vt != "unknown" && vt != "struct:" + tn) node->typeName = tyq::strip(vt);
+    }
+    validateStructType(normalizeType(node->typeName), node);
     expressionTypes[node] = "int64";
 }
 

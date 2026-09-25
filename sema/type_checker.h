@@ -213,7 +213,7 @@ private:
     std::string inferUnaryExprType(const std::string& op, const std::string& operandType);
 
     // Type validation
-    void validateStructType(const std::string& type);
+    void validateStructType(const std::string& type, ASTNode* at = nullptr);
 
     // Type checking utilities
     bool isValidAssignment(const std::string& lhsType, const std::string& rhsType);

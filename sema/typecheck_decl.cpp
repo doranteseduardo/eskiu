@@ -547,7 +547,7 @@ void TypeChecker::visit(VarDecl* node) {
         normalizedType = node->type;
 
     // Validate that struct types exist before use
-    validateStructType(normalizedType);
+    validateStructType(normalizedType, node);
 
     // Preserve a pointee-const qualifier through normalization so the symbol
     // remembers it's read-only (const checks read it back; everything else strips).
@@ -599,7 +599,7 @@ void TypeChecker::visit(EnumDecl* node) {
 
 void TypeChecker::visit(TypeAliasDecl* node) {
     // The alias was registered in the first pass; validate the underlying type.
-    validateStructType(normalizeType(node->aliased));
+    validateStructType(normalizeType(node->aliased), node);
 }
 
 void TypeChecker::visit(InterfaceDecl* node) {

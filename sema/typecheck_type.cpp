@@ -92,7 +92,7 @@ std::string TypeChecker::inferUnaryExprType(const std::string& op, const std::st
 }
 
 // Type validation
-void TypeChecker::validateStructType(const std::string& type) {
+void TypeChecker::validateStructType(const std::string& type, ASTNode* at) {
     // Function pointer types are always valid
     if (type.size() > 3 && type.substr(0, 3) == "fn(") return;
     std::string baseType = type;
@@ -119,7 +119,8 @@ void TypeChecker::validateStructType(const std::string& type) {
 
         // Look up struct in registry
         if (structs.find(structName) == structs.end()) {
-            error(0, 0, "undefined struct '" + structName + "'");
+            if (at) errorAt(at, "unknown type '" + structName + "'");
+            else error(0, 0, "unknown type '" + structName + "'");
         }
     } else if (!isPrimitiveType(baseType) && baseType != "va_list") {
         // Valid if it's a known struct, type alias, or enum type — anything else
@@ -127,9 +128,10 @@ void TypeChecker::validateStructType(const std::string& type) {
         if (structs.find(baseType) == structs.end() &&
             typeAliases.find(baseType) == typeAliases.end() &&
             enumTypes.find(baseType) == enumTypes.end() &&
-            interfaceDecls.find(baseType) == interfaceDecls.end() &&
-            adtEnums.find(baseType) == adtEnums.end()) {     // incl. generic enum instances
-            error(0, 0, "undefined struct '" + baseType + "'");
+            adtEnums.find(baseType) == adtEnums.end() &&     // incl. generic enum instances
+            interfaceDecls.find(baseType) == interfaceDecls.end()) {
+            if (at) errorAt(at, "unknown type '" + baseType + "'");
+            else error(0, 0, "unknown type '" + baseType + "'");
         }
     }
 }

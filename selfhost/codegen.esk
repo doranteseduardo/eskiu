@@ -1658,6 +1658,18 @@ CgLocal cg_find_global(Codegen* g, string name) {
     return none;
 }
 
+// `sizeof(x)` of a variable measures the variable's type (C semantics): the parser reads
+// the operand as a type spelling, so a name bound to a local/global (and not a struct)
+// resolves to that binding's type. Mirrors the C++ visit(SizeofExpr) rewrite.
+string cg_sizeof_ty(Codegen* g, string t) {
+    if (cg_is_struct(g, t) == 1) { return t; }
+    CgLocal l = cg_find_local(g, t);
+    if (l.slot[0] != 0 && l.ety[0] != 0) { return l.ety; }
+    CgLocal gv = cg_find_global(g, t);
+    if (gv.slot[0] != 0 && gv.ety[0] != 0) { return gv.ety; }
+    return t;
+}
+
 // Constant initializer text for a global of LLVM type `llty`. Literal scalars fold to a
 // constant; everything else (incl. a missing/non-constant init) is zeroinitializer —
 // such a global must be set up at runtime (e.g. List_init in a session-init function).
@@ -1977,7 +1989,7 @@ string cg_global_init(Codegen* g, *ExprNode e, string llty) {
         return "zeroinitializer";
     }
     if (e.kind == EK_SIZEOF) {
-        return cg_itoa(cg_size(g, cg_apply_sub(g, e.sval)));   // static byte size
+        return cg_itoa(cg_size(g, cg_apply_sub(g, cg_sizeof_ty(g, e.sval))));   // static byte size
     }
     if (e.kind == EK_UNARY) {
         // `-` reaches here rarely (negatives are single literal tokens); `~`/`!` need folding.
@@ -3271,7 +3283,7 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
 
     if (e.kind == EK_SIZEOF) {
         // sizeof(T) without hardcoded sizes: ptrtoint of `gep T, null, 1`.
-        string llty = cg_lltype(g, e.sval);              // applies the active sub
+        string llty = cg_lltype(g, cg_sizeof_ty(g, e.sval));   // applies the active sub
         string g1 = cg_tmp(g);
         cg_emit(g, "  "); cg_emit(g, g1); cg_emit(g, " = getelementptr ");
         cg_emit(g, llty); cg_emit(g, ", ptr null, i32 1\n");

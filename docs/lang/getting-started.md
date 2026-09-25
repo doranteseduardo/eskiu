@@ -1403,7 +1403,7 @@ int main() {
 }
 ```
 
-`sizeof` is resolved entirely at compile time and produces no runtime code.
+`sizeof` is resolved entirely at compile time and produces no runtime code. As in C, `sizeof(x)` where `x` names a variable gives the size of that variable's type (`let d: double; sizeof(d)` is 8). A name that is neither a type nor a variable is an error.
 
 ---
 
