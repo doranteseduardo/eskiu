@@ -128,8 +128,11 @@ The unit of the HTTP/2 wire protocol (RFC 7540): a 9-byte binary header (length,
 **identifier**
 A name chosen by the programmer to label a variable, function, struct, or parameter. In Eskiu, identifiers must begin with a letter or underscore and may contain letters, digits, and underscores. The lexer emits an `IDENT` token; the parser stores the raw string in `IdentExpr` or declaration nodes.
 
+**integer promotion**
+The C rule that converts an operand narrower than `int` (`bool`, `char`, `int8`, `int16`, `uint8`, `uint16`) to `int` before an arithmetic, bitwise, shift or comparison operator is applied. Eskiu follows it since v0.9.2, so `(uint8)200 + (uint8)100` is `300`. See also: type coercion.
+
 **interface**
-A structurally typed contract defined by a method set (`interface Drawable { void draw(); }`). A concrete type satisfies an interface implicitly whenever it provides all the named methods: no explicit `implements` declaration is required. An interface value is a fat pointer `{data_ptr, vtable_ptr}`, and method calls dispatch dynamically through the vtable. See also: vtable, fat pointer, bounded generic / type-parameter constraint.
+A structurally typed contract defined by a method set (`interface Drawable { void draw(); }`). A concrete type satisfies an interface implicitly whenever it provides all the named methods with matching signatures: no explicit `implements` declaration is required. An interface value is a fat pointer `{data_ptr, vtable_ptr}` made from a pointer to the struct (`&x`); it can be stored in a local or field, passed and returned, and method calls dispatch dynamically through the vtable. Passing a struct by value where an interface is expected is an error. See also: vtable, fat pointer, bounded generic / type-parameter constraint.
 
 **intrinsic**
 A function declared with the `intrinsic` qualifier whose calls the compiler lowers to inline IR rather than an ordinary call. Used for operations that must compile directly to specific instructions, such as the `<atomic>` cell operations. See also: atomic, declaration.
@@ -170,8 +173,11 @@ A function qualifier (`must_use *uint8 grab() { ... }`) that makes discarding th
 
 ## N
 
+**narrowing**
+The type checker's knowledge that a `?*T` variable is non-null at a given point, established by a null check: `if (x != null)`, an early exit such as `if (x == null) { return; }`, a loop condition, the left side of `&&`/`||`, or a ternary condition. Narrowing is flow-sensitive: an assignment to the variable ends it, and a shadowing declaration of the same name is not narrowed. While narrowed, the variable may be dereferenced and passed where a `*T` is expected. See also: nullable pointer.
+
 **nullable pointer (`?*T`)**
-A checked pointer type that may hold `null`. Unlike a bare `*T` (C-nullable but unchecked), a `?*T` cannot be dereferenced, indexed, or member-accessed until it is proven non-null; `if (x != null) { ... }` narrows it to non-null in that branch. A `*T` widens to `?*T` implicitly; the reverse needs a check. It lowers to a bare pointer, so the safety is entirely at compile time. See also: pointer, narrowing.
+A checked pointer type that may hold `null`. Unlike a bare `*T` (C-nullable but unchecked), a `?*T` cannot be dereferenced, indexed, or member-accessed until it is proven non-null; a null check such as `if (x != null) { ... }` narrows it to non-null. A `*T` widens to `?*T` implicitly; the reverse needs a check. It lowers to a bare pointer, so the safety is entirely at compile time. See also: pointer, narrowing.
 
 ## O
 
