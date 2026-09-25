@@ -483,10 +483,10 @@ void CodeGen::visit(QuestionExpr* node) {
     if (currentSretParam != nullptr) {
         builder->CreateStore(whole, currentSretParam);
         runCleanupsToDepth(0, /*errorPath=*/true);      // ? error exit: defers + errdefers
-        builder->CreateRetVoid();
+        if (!blockTerminated()) builder->CreateRetVoid();
     } else {
         runCleanupsToDepth(0, /*errorPath=*/true);
-        builder->CreateRet(whole);
+        if (!blockTerminated()) builder->CreateRet(whole);
     }
 
     // Success path: unwrap and yield the value field.

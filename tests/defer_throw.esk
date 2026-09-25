@@ -1,0 +1,53 @@
+// A `throw` inside a defer body ends the block itself: the exit that ran the defer
+// (return, fall-through, break, continue, `?`) emits nothing after it.
+import <result>;
+extern int printf(string fmt, ...);
+
+int on_return(int x) {
+    defer { throw x; }
+    printf("body %d\n", x);
+    return x + 1;
+}
+void on_fallthrough(int x) {
+    defer { throw x; }
+    printf("fall %d\n", x);
+}
+int on_break(int n) {
+    int i = 0;
+    while (i < n) {
+        defer { if (i == 2) { throw i * 10; } }
+        if (i == 2) { break; }
+        i = i + 1;
+    }
+    return i;
+}
+int on_continue(int n) {
+    for (int i = 0; i < n; i++) {
+        defer { if (i == 1) { throw 100 + i; } }
+        continue;
+    }
+    return 0;
+}
+Result<int, string> check(int x) {
+    if (x > 0) { return Err<int, string>("bad"); }
+    return Ok<int, string>(x);
+}
+Result<int, string> on_question(int x) {
+    defer { throw 7; }
+    int v = check(x)?;
+    return Ok<int, string>(v);
+}
+int conditional(int x) {
+    defer { if (x > 3) { throw x; } }
+    return x;
+}
+
+int main() {
+    try { on_return(5); } catch (int c) { printf("c %d\n", c); }
+    try { on_fallthrough(6); } catch (int c) { printf("c %d\n", c); }
+    try { on_break(5); } catch (int c) { printf("c %d\n", c); }
+    try { on_continue(3); } catch (int c) { printf("c %d\n", c); }
+    try { on_question(1); } catch (int c) { printf("c %d\n", c); }
+    try { printf("%d\n", conditional(2)); conditional(9); } catch (int c) { printf("c %d\n", c); }
+    return 0;
+}

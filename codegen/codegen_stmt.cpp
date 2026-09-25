@@ -11,7 +11,9 @@ bool CodeGen::blockTerminated() {
 
 void CodeGen::runCleanupsToDepth(size_t depth, bool errorPath) {
     // Emit each pending cleanup body, innermost frame first and LIFO within a frame.
-    // errdefer bodies run only on the error path (`?`-propagation).
+    // errdefer bodies run only on the error path (`?`-propagation). A body may itself
+    // end the block (a `throw` in a defer): the caller then emits no exit of its own
+    // (see blockTerminated at each exit).
     for (size_t i = cleanupScopes.size(); i-- > depth; ) {
         // A copy: emitting a braced body pushes its own frame, which can reallocate
         // cleanupScopes and would leave a reference dangling.
@@ -357,15 +359,15 @@ void CodeGen::visit(ReturnStmt* node) {
             builder->CreateStore(retValue, currentSretParam);
         }
         runCleanupsToDepth(0, /*errorPath=*/false);          // run pending defers/finally before leaving
-        builder->CreateRetVoid();
+        if (!blockTerminated()) builder->CreateRetVoid();
     } else if (node->value) {
         // Evaluate the return value first, THEN run cleanups (C defer order), then ret.
         llvm::Value* retValue = coerceRetVal(evalForType(node->value, retEsk));
         runCleanupsToDepth(0, /*errorPath=*/false);
-        builder->CreateRet(retValue);
+        if (!blockTerminated()) builder->CreateRet(retValue);
     } else {
         runCleanupsToDepth(0, /*errorPath=*/false);
-        builder->CreateRetVoid();
+        if (!blockTerminated()) builder->CreateRetVoid();
     }
 }
 
@@ -376,7 +378,7 @@ void CodeGen::visit(BreakStmt* node) {
         for (size_t i = loopStack.size(); i-- > 0; ) {
             if (loopStack[i].label == node->label) {
                 runCleanupsToDepth(loopStack[i].cleanupDepth, false);
-                builder->CreateBr(loopStack[i].breakBlock);
+                if (!blockTerminated()) builder->CreateBr(loopStack[i].breakBlock);
                 return;
             }
         }
@@ -385,7 +387,7 @@ void CodeGen::visit(BreakStmt* node) {
     if (!breakTarget)
         throw std::runtime_error("break used outside of a loop");
     runCleanupsToDepth(breakCleanupDepth, false);   // defers inside the loop body run
-    builder->CreateBr(breakTarget);
+    if (!blockTerminated()) builder->CreateBr(breakTarget);
 }
 
 void CodeGen::visit(ExprStmt* node) {
@@ -397,7 +399,7 @@ void CodeGen::visit(ContinueStmt* node) {
         for (size_t i = loopStack.size(); i-- > 0; ) {
             if (loopStack[i].label == node->label) {
                 runCleanupsToDepth(loopStack[i].cleanupDepth, false);
-                builder->CreateBr(loopStack[i].continueBlock);
+                if (!blockTerminated()) builder->CreateBr(loopStack[i].continueBlock);
                 return;
             }
         }
@@ -406,7 +408,7 @@ void CodeGen::visit(ContinueStmt* node) {
     if (!continueTarget)
         throw std::runtime_error("continue used outside of a loop");
     runCleanupsToDepth(continueCleanupDepth, false);
-    builder->CreateBr(continueTarget);
+    if (!blockTerminated()) builder->CreateBr(continueTarget);
 }
 
 void CodeGen::visit(MatchStmt* node) {
