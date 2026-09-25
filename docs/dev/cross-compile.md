@@ -24,6 +24,10 @@ The preprocessor predefines a platform macro so `import`ed stdlib code can branc
   metal has no host OS, so portable code guards that path explicitly.
 - With no `--target`, the macro follows the build host.
 
+An architecture macro follows the same rule (the `--target` triple, else the build host):
+`__aarch64__` for AArch64, `__x86_64__` for x86-64, `__arm__` for 32-bit ARM. At most one
+is defined.
+
 `--freestanding` additionally predefines `__ESKIU_FREESTANDING__` and routes `alloc`/`free`
 to caller-supplied `esk_alloc`/`esk_free` instead of libc.
 
@@ -72,7 +76,10 @@ triple (and the resulting `Tag_ABI_VFP_args`) matters: without it the linker rej
 Eskiu object against hard-float libctru.
 
 Eskiu declarations compile to C-ABI symbols, so a `main.c` can call an Eskiu function by
-declaring it `extern`. The self-hosted compiler does not yet forward `--mcpu`/`--mattr`/
+declaring it `extern`. In the other direction, a struct passed to or returned from an
+`extern` C function by value follows the target's C calling convention (AArch64, x86-64
+System V, Windows x64 and 32-bit ARM, including the hard-float HFA rules); see
+`docs/dev/abi.md`. The self-hosted compiler does not yet forward `--mcpu`/`--mattr`/
 `--reloc`, so 3DS builds use the reference `eskiuc`.
 
 ## Example: Windows (x86-64)

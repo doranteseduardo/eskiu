@@ -63,4 +63,4 @@ v0.9.1 (a correctness campaign closing a set of latent miscompiles), over the v0
 - Earlier 0.3.1 correctness work (via the `-O` optimization levels): a float-closure return-type miscompile, a rejected fn-type ABI mismatch, the `*T[N]` parse fix, and correct `size_t` externs.
 - A `-O0`-vs-`-O2` behavioral differential (`tests/opt_differential.sh`) guards the whole corpus against optimization-path miscompiles.
 
-The live track toward v1.0 is promoting the Eskiu-written compiler to the primary build; see `selfhost/PROMOTION_PLAN.md`. Genuinely deferred: a package manager. See docs/dev/phases.md for the full feature table and roadmap. New feature proposals require an issue.
+The promotion of the Eskiu-written compiler is complete (`selfhost/PROMOTION_PLAN.md`): CMake builds it as `eskiuc-esk` next to the shipped C++ `eskiuc`, and CI gates their equivalence. What remains for v1.0 is a package manager. See docs/dev/phases.md for the full feature table and roadmap. New feature proposals require an issue.
