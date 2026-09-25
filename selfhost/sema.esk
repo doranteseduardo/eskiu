@@ -376,6 +376,20 @@ string sema_struct_of_type(string t) {
     return (string)buf;
 }
 
+// `t` with every space removed ("Result<int, string>" -> "Result<int,string>").
+string sema_nospace(string t) {
+    int n = 0; while (t[n] != 0) { n = n + 1; }
+    *uint8 buf = alloc<uint8>(n + 1);
+    int o = 0; int i = 0;
+    while (i < n) { if ((int)t[i] != 32) { buf[o] = (uint8)t[i]; o = o + 1; } i = i + 1; }
+    buf[o] = 0;
+    return (string)buf;
+}
+int sema_has_lt(string t) {
+    int i = 0; while (t[i] != 0) { if ((int)t[i] == 60) { return 1; } i = i + 1; }
+    return 0;
+}
+
 int sema_is_struct(Sema* s, string name) {
     return sema_in_list(&s.structs, name);
 }
@@ -725,6 +739,11 @@ void sema_expr(Sema* s, *ExprNode e) {
             sema_error(s, "'++'/'--' requires a modifiable variable");
         } else if (sema_is_readonly_lvalue(s, e.a) == 1) {
             sema_error(s, "cannot modify read-only location");
+        } else {
+            string it = sema_infer_type(s, e.a);         // integer or pointer only (C++ rule)
+            if (sema_streq(it, "float") == 1 || sema_streq(it, "double") == 1) {
+                sema_error(s, "'++'/'--' requires an integer or pointer");
+            }
         }
         sema_expr(s, e.a); return;
     }
@@ -780,7 +799,15 @@ void sema_expr(Sema* s, *ExprNode e) {
         // skips when either is unknown (matching C++'s ret == operand-type check).
         string opn = sema_struct_of_type(sema_infer_type(s, e.a));
         string retn = sema_struct_of_type(s.cur_ret);
-        if (opn[0] != 0 && retn[0] != 0 && sema_streq(opn, retn) == 0) {
+        // Same base name but different type args (`Result<int,string>` in a function
+        // returning `Result<int64,string>`) is also a mismatch: compare the full spellings.
+        string opt = sema_nospace(sema_infer_type(s, e.a));
+        string rett = sema_nospace(s.cur_ret);
+        int mismatch = 0;
+        if (opn[0] != 0 && retn[0] != 0 && sema_streq(opn, retn) == 0) { mismatch = 1; }
+        if (mismatch == 0 && opn[0] != 0 && retn[0] != 0 && sema_has_lt(opt) == 1 && sema_has_lt(rett) == 1
+            && sema_streq(opt, rett) == 0) { mismatch = 1; }
+        if (mismatch == 1) {
             sema_error(s, "`?` can only be used in a function returning the same Result type");
         }
         return;

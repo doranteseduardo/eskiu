@@ -1,0 +1,8 @@
+// EXPECT-ERROR: '++'/'--' requires an integer or pointer
+import <io>;
+int main() {
+    double d = 1.5;
+    d++;
+    printf("%.2f\n", d);
+    return 0;
+}

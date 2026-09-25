@@ -34,7 +34,8 @@ HANDLED="undefined_var arg_count undefined_type await_outside_async async_no_awa
          const_addr_of init_incompatible init_void float_to_int literal_out_of_range
          compare_incompatible compare_struct ternary_incompatible fn_return_mismatch
          index_oob array_overflow array_2d_oob array_2d_init_overflow
-         dangling_local uninitialized pp_error unterminated_char"
+         dangling_local uninitialized pp_error unterminated_char
+         incdec_float question_type_args c_array_global c_array_local"
 HANDLED="$(echo $HANDLED)"   # collapse the multi-line list to single spaces for matching
 
 DRIVER=selfhost/esk_main.esk
