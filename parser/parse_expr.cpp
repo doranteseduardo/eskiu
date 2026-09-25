@@ -144,11 +144,12 @@ bool Parser::starParenIsCast() const {
         return true;
     if (isTypeName(peek_ahead(k).value)) return true;
     // An unknown name: a cast only when an operand follows the `)`. A binary operator,
-    // `++`/`--`, `.`, `[`, `=` or a terminator means `(*p)` is a dereference.
+    // `++`/`--`, `.`, `[`, `=`, a call's `(` (`(*pf)(x)`) or a terminator means `(*p)` is
+    // a dereference.
     switch (peek_ahead(k + 2).type) {
         case TokenType::IDENT: case TokenType::INT_LIT: case TokenType::FLOAT_LIT:
         case TokenType::STRING_LIT: case TokenType::CHAR_LIT: case TokenType::TRUE:
-        case TokenType::FALSE: case TokenType::NULL_KW: case TokenType::LPAREN:
+        case TokenType::FALSE: case TokenType::NULL_KW:
         case TokenType::NOT: case TokenType::TILDE: case TokenType::SIZEOF:
             return true;
         default:

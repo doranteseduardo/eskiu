@@ -14,6 +14,6 @@ int main() {
     let pf: *fn(int)->int = &f;
     let g: fn(int)->int = *pf;
     *pf = inc;
-    printf("%d %d\n", g(4), f(4));
+    printf("%d %d %d\n", g(4), f(4), (*pf)(9));
     return 0;
 }

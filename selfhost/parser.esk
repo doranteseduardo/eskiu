@@ -1030,7 +1030,7 @@ int lambda_ahead(Parser* p) {
 }
 
 // At `(` followed by `*`: does it open a cast (mirrors Parser::starParenIsCast)?
-// `(*T)x` is a cast; `(*p)`, `(*p) - 1`, `(*p)++`, `(*sp).a` dereference.
+// `(*T)x` is a cast; `(*p)`, `(*p) - 1`, `(*p)++`, `(*sp).a`, `(*pf)(x)` dereference.
 int star_paren_is_cast(Parser* p) {
     int k = 1;
     while (p_peek_k(p, k).type == STAR) { k = k + 1; }
@@ -1038,7 +1038,7 @@ int star_paren_is_cast(Parser* p) {
     if (is_type_name(p, tok_text(p.src, p_peek_k(p, k))) == 1) { return 1; }
     int f = p_peek_k(p, k + 2).type;
     if (f == IDENT || f == INT_LIT || f == FLOAT_LIT || f == STRING_LIT || f == CHAR_LIT
-        || f == TRUE || f == FALSE || f == NULL_KW || f == LPAREN || f == NOT || f == TILDE
+        || f == TRUE || f == FALSE || f == NULL_KW || f == NOT || f == TILDE
         || f == SIZEOF) { return 1; }
     return 0;
 }
