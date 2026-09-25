@@ -1,0 +1,4 @@
+// EXPECT-ERROR: :3:8: bitfield 'a' of 'F' is 9 bits wide
+// A struct-level error points at the struct's name.
+struct F { uint8 a : 9; }
+int main() { return 0; }

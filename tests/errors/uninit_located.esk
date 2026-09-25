@@ -1,0 +1,7 @@
+// EXPECT-ERROR: :5:13: use of uninitialized variable 'x'
+// The error points at the read, not at the function header.
+int main() {
+    int x;
+    int y = x + 1;
+    return y;
+}

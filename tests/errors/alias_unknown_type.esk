@@ -1,0 +1,4 @@
+// EXPECT-ERROR: :3:6: unknown type 'Nope'
+// An alias to an unknown type is reported at the alias.
+type Q = Nope;
+int main() { return 0; }

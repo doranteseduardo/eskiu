@@ -1,0 +1,5 @@
+// EXPECT-ERROR: :4:6: redefinition of enum member 'A'
+// A top-level clash is reported at the second declaration's name, not at 0:0.
+enum E { A, B }
+enum F { A, C }
+int main() { return 0; }

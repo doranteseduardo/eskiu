@@ -188,7 +188,7 @@ bool TypeChecker::check(Program* program) {
             }
         }
         for (const auto& n : cyclic) {
-            errorAt(aliasDecls[n], "type alias '" + n + "' refers to itself (a cyclic alias names no type)");
+            errorAtDecl(aliasDecls[n], "type alias '" + n + "' refers to itself (a cyclic alias names no type)");
         }
         for (const auto& n : cyclic) typeAliases[n] = "unknown";   // resolves to the error sentinel
     }
@@ -199,8 +199,10 @@ bool TypeChecker::check(Program* program) {
     // Second pass: type check all declarations
     for (const auto& decl : program->declarations) {
         curFile = decl->sourceFile;
+        posCtx = decl.get();
         decl->accept(this);
     }
+    posCtx = nullptr;
     curFile.clear();
 
     checkPendingInstances();
@@ -252,7 +254,7 @@ void TypeChecker::checkTopLevelNames(Program* program) {
             if (!a->typeParams.empty() || !b->typeParams.empty()) {
                 if (a->body && b->body) return;              // reported as a redefinition
             } else if (sigOf(a) != sigOf(b)) {
-                errorAt(d, "conflicting declaration of function '" + fnDisplay(name) + "' (" +
+                errorAtDecl(d, "conflicting declaration of function '" + fnDisplay(name) + "' (" +
                            sigOf(b) + " vs the earlier " + sigOf(a) + ")");
                 return;
             }
@@ -263,7 +265,7 @@ void TypeChecker::checkTopLevelNames(Program* program) {
             auto* a = static_cast<VarDecl*>(prev.decl);
             auto* b = static_cast<VarDecl*>(d);
             if ((a->isExtern || b->isExtern) && normalizeType(a->type) == normalizeType(b->type)) return;
-            errorAt(d, "redefinition of global variable '" + name + "'");
+            errorAtDecl(d, "redefinition of global variable '" + name + "'");
             return;
         }
         if (kind == "struct" && prev.kind == "struct") {
@@ -271,11 +273,11 @@ void TypeChecker::checkTopLevelNames(Program* program) {
             auto* b = static_cast<StructDecl*>(d);
             if (sameFields(a->fields, b->fields) && a->methods.size() == b->methods.size() &&
                 a->typeParams == b->typeParams) return;      // the same declaration, merged twice
-            errorAt(d, "redefinition of struct '" + name + "' with different fields");
+            errorAtDecl(d, "redefinition of struct '" + name + "' with different fields");
             return;
         }
         if (kind == prev.kind) {
-            errorAt(d, "redefinition of " + kind + " '" + name + "'");
+            errorAtDecl(d, "redefinition of " + kind + " '" + name + "'");
             return;
         }
         // Types and enum members live apart (a struct `G` beside a member `G` is fine);
@@ -285,7 +287,7 @@ void TypeChecker::checkTopLevelNames(Program* program) {
         };
         if ((isType(kind) && prev.kind == "enum member") || (isType(prev.kind) && kind == "enum member")) return;
         auto article = [](const std::string& k) { return std::string(k[0] == 'e' || k[0] == 'i' || k[0] == 'u' ? "an " : "a ") + k; };
-        errorAt(d, "'" + name + "' is declared as both " + article(prev.kind) + " and " + article(kind));
+        errorAtDecl(d, "'" + name + "' is declared as both " + article(prev.kind) + " and " + article(kind));
     };
     for (const auto& decl : program->declarations) {
         Decl* d = decl.get();
@@ -299,7 +301,7 @@ void TypeChecker::checkTopLevelNames(Program* program) {
                     std::string mangled = s->name + "_" + mf->name;
                     auto it = seen.find(mangled);
                     if (it != seen.end() && it->second.kind == "function")
-                        errorAt(it->second.decl, "function '" + mangled + "' conflicts with method '" +
+                        errorAtDecl(it->second.decl, "function '" + mangled + "' conflicts with method '" +
                                                  mf->name + "' of struct '" + s->name + "'");
                     else seen[mangled] = {"method", mf};
                 }
@@ -347,7 +349,7 @@ void TypeChecker::checkValueCycles(Program* program) {
             if (m.empty()) continue;
             if (state[m] == 1) {
                 if (reported.insert(m).second)
-                    errorAt(decls[m], "struct '" + m + "' contains itself by value (through field '" +
+                    errorAtDecl(decls[m], "struct '" + m + "' contains itself by value (through field '" +
                                       f.name + "' of '" + n + "'); use a pointer");
             } else if (state[m] == 0) dfs(m);
         }
@@ -729,6 +731,13 @@ void TypeChecker::error(int line, int col, const std::string& message) {
     ss << diagFile() << ":" << line << ":" << col << ": " << message;
     if (inInstance) ss << " (in instantiation of " << instContext << ")";
     errors.push_back(ss.str());
+}
+
+void TypeChecker::errorAtDecl(Decl* d, const std::string& message) {
+    std::string saved = curFile;
+    if (!d->sourceFile.empty()) curFile = d->sourceFile;
+    errorAt(d, message);
+    curFile = saved;
 }
 
 void TypeChecker::warning(int line, int col, const std::string& message) {

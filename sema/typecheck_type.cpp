@@ -156,7 +156,7 @@ void TypeChecker::validateStructType(const std::string& type, ASTNode* at) {
             if (want && args.size() != want)
                 msg = "'" + tname + "' expects " + std::to_string(want) + " type argument(s), got " +
                       std::to_string(args.size());
-            if (!msg.empty()) { if (at) errorAt(at, msg); else error(0, 0, msg); return; }
+            if (!msg.empty()) { if (at) errorAt(at, msg); else errorAtCtx(msg); return; }
             for (const auto& a : args) validateStructType(normalizeType(a), at);
             return;
         }
@@ -171,7 +171,7 @@ void TypeChecker::validateStructType(const std::string& type, ASTNode* at) {
         if (structs.find(structName) == structs.end()) {
             unknownTypes.insert(structName);
             if (at) errorAt(at, "unknown type '" + structName + "'");
-            else error(0, 0, "unknown type '" + structName + "'");
+            else errorAtCtx("unknown type '" + structName + "'");
         }
     } else if (!isPrimitiveType(baseType) && baseType != "va_list") {
         // Valid if it's a known struct, type alias, or enum type — anything else
@@ -183,7 +183,7 @@ void TypeChecker::validateStructType(const std::string& type, ASTNode* at) {
             interfaceDecls.find(baseType) == interfaceDecls.end()) {
             unknownTypes.insert(baseType);
             if (at) errorAt(at, "unknown type '" + baseType + "'");
-            else error(0, 0, "unknown type '" + baseType + "'");
+            else errorAtCtx("unknown type '" + baseType + "'");
         }
     }
 }
@@ -290,14 +290,14 @@ void TypeChecker::checkConstraints(ASTNode* node,
             auto iit = interfaceDecls.find(ic);
             if (iit == interfaceDecls.end()) {
                 if (node) errorAt(node, "unknown constraint interface '" + ic + "'");
-                else error(0, 0, "unknown constraint interface '" + ic + "'");
+                else errorAtCtx("unknown constraint interface '" + ic + "'");
                 continue;
             }
             std::string why = interfaceMismatch(bare, iit->second);
             if (!why.empty()) {
                 std::string msg = "type '" + concrete + "' does not satisfy constraint '" +
                                   ic + "' (required by a bounded type parameter): " + why;
-                if (node) errorAt(node, msg); else error(0, 0, msg);
+                if (node) errorAt(node, msg); else errorAtCtx(msg);
             }
         }
     }

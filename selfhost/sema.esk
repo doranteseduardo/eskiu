@@ -4465,7 +4465,9 @@ void sema_uninit_scan(Sema* s, *ExprNode e, List<string>* uninit) {
     if (e.kind == EK_IDENT) {
         if (sema_in_list(uninit, e.sval) == 1) {
             s.had_error = 1;
-            dprintf(2, "error: %s:%d:%d: use of uninitialized variable '%s'\n", s.filename, s.line, s.col, e.sval);
+            int ul = s.line; int uc = s.col;
+            if (e.line > 0) { ul = e.line; uc = e.col; }   // at the read, not the function header
+            dprintf(2, "error: %s:%d:%d: use of uninitialized variable '%s'\n", s.filename, ul, uc, e.sval);
             sema_list_erase(uninit, e.sval);       // report once
         }
         return;

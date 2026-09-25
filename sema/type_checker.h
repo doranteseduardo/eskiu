@@ -395,6 +395,14 @@ private:
     void errorAt(ASTNode* node, const std::string& message) {
         error(node->line, node->col, message);
     }
+    // The innermost declaration being checked: an error found with no node of its own
+    // (a type resolved inside normalizeType) is reported at it.
+    ASTNode* posCtx = nullptr;
+    void errorAtCtx(const std::string& message) {
+        if (posCtx) errorAt(posCtx, message); else error(0, 0, message);
+    }
+    // Report at top-level declaration `d`, naming the file it was declared in.
+    void errorAtDecl(Decl* d, const std::string& message);
 
     // Cache for expression types
     std::map<Expr*, std::string> expressionTypes;

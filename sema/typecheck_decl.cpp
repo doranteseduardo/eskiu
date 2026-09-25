@@ -496,6 +496,9 @@ static std::string rangeLiteralType(const std::string& v) {
 void TypeChecker::visit(VarDecl* node) {
     // `extern <type> <name>;` names a variable defined in another translation unit
     // (a C global). It lives at top level and carries no initializer.
+    ASTNode* savedCtx = posCtx;
+    if (node->line > 0) posCtx = node;
+    struct CtxRestore { ASTNode*& p; ASTNode* v; ~CtxRestore() { p = v; } } ctxRestore{posCtx, savedCtx};
     if (node->isExtern) {
         if (scopes.size() > 1)
             errorAt(node, "'extern' is only allowed on a top-level variable");

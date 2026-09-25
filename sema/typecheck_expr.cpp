@@ -710,7 +710,7 @@ void TypeChecker::visit(CallExpr* node) {
             expressionTypes[node] = "unknown";
             return;
         }
-        errorAt(node,"undefined function '" + funcName + "'");
+        errorAt(node->callee.get(), "undefined function '" + funcName + "'");
         expressionTypes[node] = "unknown";
         return;
     }
@@ -990,7 +990,7 @@ void TypeChecker::visit(MemberExpr* node) {
         // Look up struct in registry
         auto it = structs.find(structName);
         if (it == structs.end()) {
-            error(0, 0, "undefined struct '" + structName + "'");
+            errorAt(node, "undefined struct '" + structName + "'");
             expressionTypes[node] = "unknown";
             return;
         }

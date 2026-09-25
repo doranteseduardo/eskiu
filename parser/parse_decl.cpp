@@ -58,7 +58,8 @@ DeclPtr Parser::parseDeclaration() {
         }
 
         if (match(TokenType::UNION)) {
-            std::string name = consume(TokenType::IDENT, "Expected union name").value;
+            Token unameTok = consume(TokenType::IDENT, "Expected union name");
+            std::string name = unameTok.value;
             consume(TokenType::LBRACE, "Expected '{'");
             std::vector<StructDecl::Field> fields;
             while (!check(TokenType::RBRACE) && !is_at_end()) {
@@ -70,12 +71,13 @@ DeclPtr Parser::parseDeclaration() {
             }
             consume(TokenType::RBRACE, "Expected '}'");
             sharedTypeNames->insert(name);
-            return std::make_shared<UnionDecl>(name, fields);
+            return withPos(std::make_shared<UnionDecl>(name, fields), unameTok);
         }
         if (match(TokenType::INTERFACE)) {
-            std::string name = consume(TokenType::IDENT, "Expected interface name").value;
+            Token inameTok = consume(TokenType::IDENT, "Expected interface name");
+            std::string name = inameTok.value;
             consume(TokenType::LBRACE, "Expected '{'");
-            auto decl = std::make_shared<InterfaceDecl>(name);
+            auto decl = withPos(std::make_shared<InterfaceDecl>(name), inameTok);
             while (!check(TokenType::RBRACE) && !is_at_end()) {
                 InterfaceDecl::MethodSig sig;
                 sig.returnType = parseType();
@@ -92,7 +94,8 @@ DeclPtr Parser::parseDeclaration() {
 
         // enum Color { Red, Green = 5, Blue }
         if (match(TokenType::ENUM)) {
-            std::string name = consume(TokenType::IDENT, "Expected enum name").value;
+            Token enameTok = consume(TokenType::IDENT, "Expected enum name");
+            std::string name = enameTok.value;
             std::vector<std::string> enumTypeParams;
             if (match(TokenType::LT)) {                 // enum Option<T, U> { ... }
                 do {
@@ -130,7 +133,7 @@ DeclPtr Parser::parseDeclaration() {
             }
             consume(TokenType::RBRACE, "Expected '}'");
             sharedTypeNames->insert(name);
-            auto ed = std::make_shared<EnumDecl>(name, members);
+            auto ed = withPos(std::make_shared<EnumDecl>(name, members), enameTok);
             ed->payloads = std::move(payloads);
             ed->typeParams = std::move(enumTypeParams);
             return ed;
@@ -141,12 +144,13 @@ DeclPtr Parser::parseDeclaration() {
             peek_ahead(1).type == TokenType::IDENT &&
             peek_ahead(2).type == TokenType::EQ) {
             advance();                                  // 'type'
-            std::string name = advance().value;         // alias name
+            Token anameTok = advance();                 // alias name
+            std::string name = anameTok.value;
             advance();                                  // '='
             std::string underlying = parseType();
             consume(TokenType::SEMICOLON, "Expected ';' after type alias");
             sharedTypeNames->insert(name);
-            return std::make_shared<TypeAliasDecl>(name, underlying);
+            return withPos(std::make_shared<TypeAliasDecl>(name, underlying), anameTok);
         }
 
         // Optional leading qualifiers, in any order: `volatile let`, `static int x`,
@@ -405,9 +409,8 @@ DeclPtr Parser::parseIntrinsicDecl() {
 }
 
 DeclPtr Parser::parseStructDecl() {
-    // The name token stamps the decl's position (struct-level diagnostics).
-    Token nameTok = peek();
-    std::string name = consume(TokenType::IDENT, "Expected struct name").value;
+    Token snameTok = consume(TokenType::IDENT, "Expected struct name");
+    std::string name = snameTok.value;
 
     // Optional type parameters: struct List<T>  or  struct Result<T, E>
     std::vector<std::string> typeParams;
@@ -452,7 +455,7 @@ DeclPtr Parser::parseStructDecl() {
     consume(TokenType::RBRACE, "Expected '}'");
 
     sharedTypeNames->insert(name);
-    auto decl = std::make_shared<StructDecl>(name, fields);
+    auto decl = withPos(std::make_shared<StructDecl>(name, fields), snameTok);
     decl->methods  = methods;
     decl->typeParams = typeParams;
     decl->constraints = typeConstraints;

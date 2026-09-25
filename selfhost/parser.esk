@@ -1859,6 +1859,7 @@ string parse_operator_token(Parser* p) {
     string opsym = "";
     if (p_at(p) == OPERATOR) {             // `V3 operator +(V3 a, V3 b) { ... }`
         Token opkw = p_adv(p);
+        d.line = opkw.line; d.col = opkw.col;
         Token optok = p_peek(p);
         opsym = parse_operator_token(p);
         if (opsym[0] == 0) {               // not an overloadable operator (mirrors the C++)
@@ -1870,6 +1871,7 @@ string parse_operator_token(Parser* p) {
     } else {
         Token nm = p_expect_ident(p, "Expected function name");               // function name
         d.name = tok_text(p.src, nm);
+        d.line = nm.line; d.col = nm.col;  // diagnostics point at the name (as the C++ parser)
         parse_type_params(p, &d.type_params, 1);   // optional <T, U: Iface>
     }
     p_expect(p, LPAREN, "Expected '('");
@@ -1955,6 +1957,7 @@ int str_to_int(string s) {
 *DeclNode parse_struct(Parser* p) {
     *DeclNode d = new_decl(DK_STRUCT);
     d.name = tok_text(p.src, p_expect_ident(p, "Expected struct name"));
+    d.line = g_pos_line; d.col = g_pos_col;   // the name token (as the C++ parser)
     if (g_cur_pack >= 1) { d.pack_align = g_cur_pack; if (g_cur_pack == 1) { d.is_packed = 1; } }
     parse_type_params(p, &d.type_params, 1);   // optional <T, E: Iface>
     int tmark = push_tparams(&d.type_params);   // in scope for inline methods
@@ -1993,6 +1996,7 @@ int str_to_int(string s) {
 *DeclNode parse_union(Parser* p) {
     *DeclNode d = new_decl(DK_UNION);
     d.name = tok_text(p.src, p_expect_ident(p, "Expected union name"));
+    d.line = g_pos_line; d.col = g_pos_col;   // the name token (as the C++ parser)
     p_expect(p, LBRACE, "Expected '{'");
     List_init<Param>(&d.params, 4);
     while (p_at(p) != RBRACE && p_at(p) != EOF_TOKEN) {
@@ -2009,6 +2013,7 @@ int str_to_int(string s) {
 *DeclNode parse_interface(Parser* p) {
     *DeclNode d = new_decl(DK_INTERFACE);
     d.name = tok_text(p.src, p_expect_ident(p, "Expected interface name"));
+    d.line = g_pos_line; d.col = g_pos_col;   // the name token (as the C++ parser)
     p_expect(p, LBRACE, "Expected '{'");
     while (p_at(p) != RBRACE && p_at(p) != EOF_TOKEN) {
         *DeclNode m = new_decl(DK_FUNCTION);
@@ -2027,6 +2032,7 @@ int str_to_int(string s) {
 *DeclNode parse_enum(Parser* p) {
     *DeclNode d = new_decl(DK_ENUM);
     d.name = tok_text(p.src, p_expect_ident(p, "Expected enum name"));
+    d.line = g_pos_line; d.col = g_pos_col;   // the name token (as the C++ parser)
     parse_type_params(p, &d.type_params, 0);   // optional <T> (enum: no constraints field)
     p_expect(p, LBRACE, "Expected '{'");
     List_init<Param>(&d.params, 4);
@@ -2066,6 +2072,7 @@ int str_to_int(string s) {
     p_adv(p);                              // 'type'
     *DeclNode d = new_decl(DK_TYPEALIAS);
     d.name = tok_text(p.src, p_adv(p));    // alias name
+    d.line = g_pos_line; d.col = g_pos_col;   // the name token (as the C++ parser)
     p_expect(p, EQ, "Expected '='");
     d.ret_type = parse_type(p);
     p_expect(p, SEMICOLON, "Expected ';'");
