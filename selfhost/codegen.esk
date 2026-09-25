@@ -2165,6 +2165,11 @@ string cg_img_render(Codegen* g, CgImg* im, string llty, int off) {
     while (di < List_len<CgLeaf>(&im.dir)) {
         CgLeaf dl = List_get<CgLeaf>(&im.dir, di);
         if (dl.off == off && cg_streq(dl.ty, llty) == 1) { return List_get<string>(&im.dtx, di); }
+        // An address where the layout has a pointer-sized integer (a union laid out as int64).
+        if (dl.off == off && cg_streq(dl.ty, "ptr") == 1 && cg_int_w(llty) > 0
+            && cg_ll_size_of(g, llty) == cg_ll_size_of(g, "ptr")) {
+            return cg_cat(cg_cat(cg_cat(cg_cat("ptrtoint (ptr ", List_get<string>(&im.dtx, di)), " to "), llty), ")");
+        }
         di = di + 1;
     }
     int sz = cg_ll_size_of(g, llty);
@@ -2242,6 +2247,10 @@ string cg_img_render(Codegen* g, CgImg* im, string llty, int off) {
     if (zero == 1) {
         if (cg_streq(body, "ptr") == 1) { return "null"; }
         return "zeroinitializer";
+    }
+    if (cg_streq(body, "ptr") == 1) {                           // integer bytes where the layout has a pointer
+        string it = "i64"; if (sz == 4) { it = "i32"; }
+        return cg_cat(cg_cat(cg_cat(cg_cat("inttoptr (", it), " "), cg_i64toa((int64)v)), " to ptr)");
     }
     return "";
 }

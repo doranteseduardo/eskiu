@@ -192,6 +192,11 @@ llvm::Constant* constFromImage(const llvm::DataLayout& DL, llvm::Type* t, const 
                                uint64_t off) {
     auto dit = img.direct.find(off);
     if (dit != img.direct.end() && dit->second->getType() == t) return dit->second;
+    // An address stored where the layout has a pointer-sized integer (a union whose layout
+    // member is an int64): the link-time address converts in place.
+    if (dit != img.direct.end() && dit->second->getType()->isPointerTy() && t->isIntegerTy() &&
+        DL.getTypeAllocSize(t) == DL.getTypeAllocSize(dit->second->getType()))
+        return llvm::ConstantExpr::getPtrToInt(dit->second, t);
     uint64_t size = DL.getTypeAllocSize(t).getFixedValue();
     if (off + size > img.bytes.size()) return nullptr;
     if (auto* st = llvm::dyn_cast<llvm::StructType>(t)) {
@@ -226,6 +231,8 @@ llvm::Constant* constFromImage(const llvm::DataLayout& DL, llvm::Type* t, const 
         bits.insertBits((uint64_t)img.bytes[off + i], (unsigned)i * 8, std::min(8u, nbits - (unsigned)i * 8));
     if (t->isIntegerTy()) return llvm::ConstantInt::get(t, bits);
     if (t->isFloatingPointTy()) return llvm::ConstantFP::get(t, llvm::APFloat(t->getFltSemantics(), bits));
+    if (t->isPointerTy())      // integer bytes where the layout has a pointer
+        return llvm::ConstantExpr::getIntToPtr(llvm::ConstantInt::get(t->getContext(), bits), t);
     return nullptr;
 }
 }  // namespace
