@@ -1,0 +1,3 @@
+// EXPECT-ERROR: missing return in lambda returning 'int'
+// A lambda body falls under the same definite-return rule as a function body.
+int main() { fn()->int f = int() { }; return f(); }

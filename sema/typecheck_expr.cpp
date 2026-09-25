@@ -1301,6 +1301,10 @@ void TypeChecker::visit(LambdaExpr* node) {
     for (const auto& p : node->params) paramNames.insert(p.second);
 
     if (node->body) node->body->accept(this);
+    // A lambda returning a value must return on every path, like a function.
+    if (node->body && tyq::strip(node->returnType) != "void" && stmtCanCompleteNormally(node->body.get()))
+        errorAt(node, "missing return in lambda returning '" + node->returnType +
+                      "' (control can reach the end without returning a value)");
     currentFunctionReturnType = savedReturn;
     loopLabelStack = std::move(savedLoops);
     switchDepth = savedSwitch;

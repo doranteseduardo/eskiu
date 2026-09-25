@@ -314,6 +314,11 @@ void TypeChecker::visit(FunctionDecl* node) {
                           "their built-in meaning)");
     }
 
+    // The C runtime calls `main` and uses its return value at once; an async main would
+    // return a future nobody runs.
+    if (node->name == "main" && node->isAsync)
+        errorAt(node, "'main' cannot be async: the program's entry point must return int directly "
+                      "(run an async function from main with an executor)");
     // `main` is called by the C runtime as `main()` or `main(argc, argv[, envp])`.
     if (node->name == "main" && !node->params.empty()) {
         auto isArgv = [&](const std::string& t) {

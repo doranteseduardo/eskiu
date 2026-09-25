@@ -3767,7 +3767,19 @@ void sema_expr_k(Sema* s, *ExprNode e) {
     // A lambda is its own (non-async) function: its body is checked with its parameters
     // in a fresh scope over the enclosing one (captures, with their null-narrowing), its
     // own return type, and no enclosing loop or switch (mirrors the C++ visit(LambdaExpr)).
-    if (k == EK_LAMBDA) { sema_check_lambda(s, e); }
+    if (k == EK_LAMBDA) {
+        sema_check_lambda(s, e);
+        // A lambda returning a value must return on every path, like a function. Its
+        // signature spelling is "R(T a, ...)".
+        int lp = 0; while (e.sval[lp] != 0 && (int)e.sval[lp] != 40) { lp = lp + 1; }
+        string lret = sema_trim_sub(e.sval, 0, lp);
+        if (e.stmt != null && lret[0] != 0 && sema_streq(sema_strip_const(lret), "void") == 0
+            && sema_always_returns(e.stmt) == 0) {
+            s.had_error = 1;
+            dprintf(2, "error: %s:%d:%d: missing return in lambda returning '%s' (control can reach the end without returning a value)\n",
+                   s.filename, s.line, s.col, lret);
+        }
+    }
 }
 
 void sema_check_lambda(Sema* s, *ExprNode e) {
@@ -5229,6 +5241,11 @@ void sema_check_fn(Sema* s, *DeclNode f, string self_type) {
         s.had_error = 1;
         dprintf(2, "error: %s:%d:%d: 'main' must return int (its return value is the process exit code); got '%s'\n",
                s.filename, s.line, s.col, f.ret_type);
+    }
+    if (sema_streq(f.name, "main") == 1 && f.is_async == 1 && s.in_inst == 0) {
+        s.had_error = 1;
+        printf("error: %s:%d:%d: 'main' cannot be async: the program's entry point must return int directly (run an async function from main with an executor)\n",
+               s.filename, s.line, s.col);
     }
     s.in_async = f.is_async;
     s.await_seen = 0;

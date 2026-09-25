@@ -1,0 +1,5 @@
+// EXPECT-ERROR: 'main' cannot be async
+// The entry point returns int to the C runtime; an async main returned an unrun future.
+import <future>;
+Future<int>* produce() { Future<int>* f = future_new<int>(); future_complete<int>(f, 41); return f; }
+async int main() { int x = await produce(); return x; }
