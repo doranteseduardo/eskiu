@@ -14,7 +14,8 @@ and docs) found about a hundred latent bugs that the existing corpus did not rea
 are fixed lockstep in the C++ and self-hosted compilers unless noted, each with a
 regression test. A second pass added three fuzzers (a C oracle, a negative corpus and an
 ASan fuzzer for the stdlib parsers), which found about twenty more, and resolved the two
-known limitations left from 0.9.1 (R and S).
+known limitations left from 0.9.1 (R and S). A second blind audit round found about 165
+more, fixed the same way.
 
 ### Added
 - **`#pragma link("name")`** links the executable with `-lname`. The driver also adds
@@ -54,6 +55,14 @@ known limitations left from 0.9.1 (R and S).
   compiled and linked in; `tests/warnings/NAME.esk` is a new lint kind that asserts the
   exact `-Wall` warnings (`// EXPECT-WARNING:` lines).
 - The compiler builds against LLVM 23 as well as LLVM 22. The minimum is now LLVM 21.
+- **Generic async functions** (`async T f<T>(...)`), in both compilers.
+- **`(void)expr`** evaluates an expression and discards its value, which also silences
+  `must_use`.
+- `<http2_server>`: the `H2Server` engine (flow control, SETTINGS validation, stream
+  states) serves both h2c and TLS connections. `<future>` gains `free_future_polled` for
+  a future whose waker was installed by hand, and `<http>` gains `http_content_length`.
+- `<json>` and `<regex>` limit nesting to 512 levels (`JSON_MAX_DEPTH`, `RE_MAX_DEPTH`),
+  so deep input fails cleanly instead of exhausting the stack.
 
 ### Changed (may reject or change the behavior of existing programs)
 - **A non-constant global initializer is a compile error.** `int g = f();`, or a read of
@@ -117,6 +126,34 @@ known limitations left from 0.9.1 (R and S).
   a `const` name and its value, collide.
 - The self-host rejects bad operands, calls, returns and global types the way the C++
   compiler does.
+- **A lambda may not assign a captured variable** (`n = 1`, `n += 1`, `n++`): the
+  closure holds a copy, so the write was silently lost. Write through a pointer, or use
+  a global or a `static` local, which are not captured.
+- **Conditions** take a `bool`, a number or a pointer (`string` and `?*T` included). A
+  float condition is `!= 0.0`, so NaN is true, and `!=` on floats is unordered, as in C.
+- **Aggregates** (structs, arrays, slices, closures, interface values) have no built-in
+  `==`, `<` or truth value; define an operator overload. An overload needs at least one
+  user-type operand.
+- **Interface boxing** takes a pointer to a struct with exactly one `*`; a `?*T` must be
+  null-checked first, and a pointer to `const` only boxes into an interface whose
+  methods all take `const T* self`.
+- **More constant checks**: array sizes must be positive, a constant shift count must be
+  inside the operand width, a `case` value must fit the subject type, enum member values
+  must fit `int`, and constant array indices and slice bounds are folded and checked
+  (`lo <= hi` on any base).
+- **Read-only rules**: `const` parameters can't be assigned, a `const` array can't be
+  sliced, and `s.len` of a slice is read-only.
+- A struct literal can't mix positional and named fields; a second `_` arm in a `match`
+  is an error; returning the address of a local's field, element or slice is an error
+  (a `static` is fine); `#pragma pack` takes 1, 2, 4, 8 or 16.
+- A top-level function called with dot syntax needs a pointer `self`; `async main` and
+  a lambda that can fall off its end without returning a value are errors.
+- A lambda written directly in `thread_create` is owned by the thread, which frees its
+  environment when it finishes.
+- Globals get C linkage, so an `extern` next to its definition refers to the same
+  symbol. An assignment evaluates its target before its value, as the other compound
+  forms already did.
+- Self-host diagnostics go to stderr, as the C++ compiler's do.
 
 ### Deprecated
 - Stdlib modules built around a struct now use `Type_method` names, as the naming
@@ -270,6 +307,50 @@ known limitations left from 0.9.1 (R and S).
 - The internals of 34 stdlib modules use the current language (dot-calls, `defer`,
   `const`, range loops) with no API change; `tools/gen_hpack_huffman.py` emits `switch`
   tables for the Huffman code.
+
+#### Second audit round
+- Exceptions: a `defer` runs when an exception unwinds through its block; a thrown value
+  keeps its type and a generic `throw` matches its `catch`; calls through a closure, a
+  vtable or a generic instance unwind inside `try`; a `throw` inside a `defer` body ends
+  that exit path cleanly; `?` inside a `defer` body is an error.
+- Closures and fn values: calls through a fn value parse nested fn types, convert their
+  arguments and use `sret` for struct results; arrays of fn values work; lambda
+  parameters can be reassigned; a non-escaping closure parameter can be passed on to
+  another non-escaping parameter; a named function used as a ternary arm decays to a
+  closure (self-host).
+- Generics: a prototype before its definition, interface arguments boxed at generic
+  call sites, generic instance methods in interface vtables, arrays and slices of
+  generic instances, a method call on a source-form instance, an operator overload on a
+  generic instance inside a template body, a generic struct containing itself by value
+  (now an error), and a type alias cyclic through a type argument (now an error).
+- Pointers: `string` arithmetic and `*void` arithmetic step by bytes; `for-in` and member
+  access work through a `*struct` pointer.
+- `?*T` narrowing ends at an assignment inside a condition and follows pointer
+  arithmetic on the narrowed pointer. A nullable non-pointer type is an error.
+- Front end: imports see the macro table as of their import line, `__FILE__` is escaped
+  as a string, macro comments and arity errors are handled, rescanning reaches a call
+  that spans the expansion, `#if` arithmetic wraps and short-circuits like C, an
+  out-of-range float constant cast is an error, and 64-bit integer literals and
+  exponent digits are checked. Every top-level and use-site diagnostic carries a
+  location.
+- Driver: nothing is printed on a successful compile; test modes take every input the
+  way a build does; importing a directory is an error; `_WIN64` is defined for arm64
+  Windows triples; `fmt` keeps line numbers and literal bytes.
+- Self-host: temp `.ll` files are created with `mkstemps`, `run` accepts `--` before
+  the script, `--test-codegen` type-checks first, parse errors are located, and sema
+  matches the C++ checks on lambda bodies, conditions, operands, assignability, match
+  arms, variant constructors, array literals, indexes, members, `for-in`, constraints,
+  alias targets, `await` operands and writes through a pointer to `const`.
+- `alloc_with` returns `null` when `n * sizeof(T)` overflows.
+- Stdlib: HTTP/2 frames on a half-closed stream are stream errors and SETTINGS values
+  are validated; async servers retry a failed accept; `Chan_free` detaches a parked
+  receiver; the executor's self-pipe wakes coalesce; the event loop handles a zero
+  capacity and frees callback environments; multipart reads the boundary parameter and
+  CRLF delimiters; HTTP/1.1 rejects a truncated body, conflicting lengths, bare LF and a
+  NUL in the body; the ALPN list is bounds-checked; HPACK sizes its scratch buffer,
+  rejects a late table-size update and a field that overflows; `json` frees its tree
+  iteratively; `String` and `Map` use-after-free, substring clamping and `int64` epochs
+  are fixed; allocator sizes can't overflow and a tiny `FirstFit` buffer is handled.
 
 ## [0.9.1] - 2026-09-09
 ### Fixed
