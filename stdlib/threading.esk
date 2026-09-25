@@ -34,12 +34,12 @@ extern int pthread_cond_destroy(*void c);
 struct Mutex { int64[8] _opaque; }
 struct Cond  { int64[6] _opaque; }
 
-void Mutex_init(Mutex* self)    { pthread_mutex_init((*void)self, (*void)0); }
+void Mutex_init(Mutex* self)    { pthread_mutex_init((*void)self, null); }
 void Mutex_lock(Mutex* self)    { pthread_mutex_lock((*void)self); }
 void Mutex_unlock(Mutex* self)  { pthread_mutex_unlock((*void)self); }
 void Mutex_destroy(Mutex* self) { pthread_mutex_destroy((*void)self); }
 
-void Cond_init(Cond* self)           { pthread_cond_init((*void)self, (*void)0); }
+void Cond_init(Cond* self)           { pthread_cond_init((*void)self, null); }
 void Cond_wait(Cond* self, Mutex* m) { pthread_cond_wait((*void)self, (*void)m); }
 void Cond_signal(Cond* self)         { pthread_cond_signal((*void)self); }
 void Cond_broadcast(Cond* self)      { pthread_cond_broadcast((*void)self); }
@@ -54,30 +54,30 @@ struct Sem {
 }
 
 void Sem_init(Sem* self, int initial) {
-    Mutex_init(&self.m);
-    Cond_init(&self.c);
+    self.m.init();
+    self.c.init();
     self.count = initial;
 }
 
 // Block until the count is positive, then take one.
 void Sem_wait(Sem* self) {
-    Mutex_lock(&self.m);
+    self.m.lock();
+    defer self.m.unlock();
     while (self.count <= 0) {
-        Cond_wait(&self.c, &self.m);
+        self.c.wait(&self.m);
     }
-    self.count = self.count - 1;
-    Mutex_unlock(&self.m);
+    self.count--;
 }
 
 // Release one, waking a waiter if any.
 void Sem_post(Sem* self) {
-    Mutex_lock(&self.m);
-    self.count = self.count + 1;
-    Cond_signal(&self.c);
-    Mutex_unlock(&self.m);
+    self.m.lock();
+    defer self.m.unlock();
+    self.count++;
+    self.c.signal();
 }
 
 void Sem_destroy(Sem* self) {
-    Cond_destroy(&self.c);
-    Mutex_destroy(&self.m);
+    self.c.destroy();
+    self.m.destroy();
 }
