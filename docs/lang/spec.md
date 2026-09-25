@@ -245,6 +245,10 @@ When a leading `*` meets a trailing `[N]`, the **array binds outermost**: `*T[N]
 array* is written with a trailing star instead: `T[N]*`. For example `*Node[7]` is seven
 `Node` pointers, while `Node[7]*` points at a seven-`Node` array.
 
+The same rule applies to a function type: `fn(int)->int[2]` is an *array of 2 function
+values*, not a function returning an array (a function cannot return an array), so
+`fs[1](41)` calls the second element.
+
 `uint8[858]` lowers to `[858 x i8]` in LLVM IR.
 
 An array may be initialized with a brace list `{ e0, e1, ... }`. As in C, listing fewer
