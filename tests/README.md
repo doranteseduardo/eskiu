@@ -19,6 +19,7 @@ The runner classifies every file automatically. There is no list to maintain.
 | **run**   | `NAME.esk` **+** `NAME.expected` | compiles, links, runs, and stdout matches `NAME.expected` **exactly** |
 | **smoke** | `NAME.esk` with no `.expected`   | compiles, links, and exits `0` (output not checked) |
 | **error** | `errors/NAME.esk`                | `--test-typechecker` exits non-zero **and** the diagnostics contain the `EXPECT-ERROR:` substring from the file's first line |
+| **lint**  | `warnings/NAME.esk`              | type-checks under `-Wall` and emits exactly the warnings named by its `// EXPECT-WARNING:` lines (none listed means none allowed) |
 
 These are *honest* tests: a `run` test fails the moment the generated program
 prints anything different, and an `error` test fails if the compiler ever starts
@@ -138,6 +139,16 @@ when you add a test.
 | `async_spawn` | detached generic `spawn<T>` of async tasks (ready + suspending), leak-free |
 | `async_select` | generic `select2<A,B>`: await the first of two futures; loser dropped (A-wins + B-wins) |
 | `async_join` | generic `join2<A,B>`: await both futures, then read both values |
+| `const_method` | A method declaring `const T* self` may be called on a const value. |
+| `decl_repeats_ok` | Repeated top-level declarations that stay legal: a prototype before its definition, an `extern` declaration beside the variable's definition, and... |
+| `enum_dup_value` | Classic enum members may share a value (as in C). A match is on the value, so one arm covers every member with that value. |
+| `generic_ptr_leading` | A leading-star pointer to a generic struct instance (`*List<int>`, `*B<int>`) is a valid declared type, including one used only as an explicit... |
+| `method_free_fn` | Method-call syntax on free-function methods (`Type_method(self, ...)`), including stdlib ones: `c.get()`, `s.trim()`, `n.push('!')`. |
+| `nullable_narrow` | Null-narrowing forms for `?*T`: each dereference below is proven safe. |
+| `return_flow` | Definite-return analysis: forms that always return are accepted. |
+| `sema_accepts` | Valid forms next to the stricter checks: a lambda whose return type is reconciled to the declared one, an enum-member case label, a struct named... |
+| `sizeof_var` | sizeof(variable) measures the variable's type (C semantics). |
+| `uninit_chain_assign` | A chained or nested assignment initializes its targets; they are not read first. |
 
 ### `smoke` tests (compile + link + exit 0)
 
@@ -175,6 +186,99 @@ when you add a test.
 | `errors/unterminated_string` | unterminated string literal |
 | `errors/unterminated_char` | malformed/unterminated char literal |
 | `errors/unterminated_comment` | unterminated block comment |
+| `errors/addr_of_bitfield` | rejected with "cannot take the address of bitfield 'a'" |
+| `errors/addr_of_call` | rejected with "cannot take the address of this expression" |
+| `errors/addr_of_literal` | rejected with "cannot take the address of this expression" |
+| `errors/alias_cycle` | rejected with "type alias 'A1' refers to itself" |
+| `errors/arg_type_mismatch` | rejected with "argument 1 type mismatch" |
+| `errors/assign_float_to_int` | rejected with "cannot assign a floating-point value" |
+| `errors/assign_rvalue` | rejected with "cannot assign to this expression" |
+| `errors/assign_ternary` | rejected with "cannot assign to this expression" |
+| `errors/await_in_lambda` | rejected with "await is only allowed inside an async function" |
+| `errors/bitfield_float` | rejected with "must have an integer type" |
+| `errors/bitfield_too_wide` | rejected with "is 40 bits wide, more than its type 'uint32' holds" |
+| `errors/break_outside` | rejected with "'break' outside of a loop or switch" |
+| `errors/call_non_fn` | rejected with "undefined function 'x'" |
+| `errors/case_nonconst` | rejected with "switch case value must be a constant integer" |
+| `errors/cast_ptr_float` | rejected with "cannot cast 'string' to 'float'" |
+| `errors/cast_struct` | rejected with "cannot cast" |
+| `errors/compound_lit_range` | rejected with "integer literal 300 is out of range for 'uint8'" |
+| `errors/const_addr_arg` | rejected with "discards a const qualifier" |
+| `errors/const_method_call` | rejected with "cannot call method 'set' on a read-only value" |
+| `errors/const_struct_addr` | rejected with "discards a const qualifier" |
+| `errors/continue_in_switch` | rejected with "'continue' outside of a loop" |
+| `errors/dup_default` | rejected with "multiple 'default' labels" |
+| `errors/dup_enum` | rejected with "redefinition of enum 'C'" |
+| `errors/dup_enum_member` | rejected with "redefinition of enum member 'R'" |
+| `errors/dup_field` | rejected with "duplicate field 'x' in struct 'A'" |
+| `errors/dup_field_method` | rejected with "has the same name as a field" |
+| `errors/dup_fn_global` | rejected with "is declared as both a function and a variable" |
+| `errors/dup_global` | rejected with "redefinition of global variable 'G'" |
+| `errors/dup_local` | rejected with "redefinition of 'x' in the same scope" |
+| `errors/dup_method_fn` | rejected with "'S_get' is declared as both a method and a function" |
+| `errors/dup_param` | rejected with "duplicate parameter 'a'" |
+| `errors/dup_struct` | rejected with "redefinition of struct 'A' with different fields" |
+| `errors/dup_struct_fn` | rejected with "is declared as both a struct and a function" |
+| `errors/field_unknown_type` | rejected with "unknown type 'Nope'" |
+| `errors/float_expr_to_int` | rejected with "cannot assign a floating-point value" |
+| `errors/fn_chained_arg_count` | rejected with "expects 1 argument(s), got 2" |
+| `errors/fn_field_arg_count` | rejected with "'cb' expects 1 argument(s), got 0" |
+| `errors/fn_value_arg_count` | rejected with "'f' expects 1 argument(s), got 2" |
+| `errors/fn_value_arg_type` | rejected with "argument 1 type mismatch" |
+| `errors/generic_arg_conflict` | rejected with "argument 2 type mismatch" |
+| `errors/generic_arg_count` | rejected with "function 'id' expects 1 argument(s), got 2" |
+| `errors/generic_explicit_arg_count` | rejected with "function 'id' expects 1 argument(s), got 2" |
+| `errors/generic_type_arg_count` | rejected with "generic function 'id' expects 1 type argument(s), got 2" |
+| `errors/generic_uninferable` | rejected with "cannot infer type argument(s) T of generic function 'mk'" |
+| `errors/iface_arity_mismatch` | rejected with "does not satisfy interface 'Shape'" |
+| `errors/iface_call_arg_count` | rejected with "method 'area' expects 0 argument(s), got 2" |
+| `errors/iface_return_mismatch` | rejected with "does not satisfy interface 'Shape'" |
+| `errors/index_scalar` | rejected with "cannot index into a value of type 'int'" |
+| `errors/index_struct` | rejected with "cannot index into a value of type 'S'" |
+| `errors/init_ptr_from_int` | rejected with "cannot convert 'int' to '*int'" |
+| `errors/init_string_from_int` | rejected with "cannot convert 'int' to 'string'" |
+| `errors/lambda_sig_mismatch` | rejected with "incompatible function type" |
+| `errors/match_dup_value` | rejected with "duplicate match value" |
+| `errors/match_non_enum` | rejected with "match subject must be an enum" |
+| `errors/member_of_int` | rejected with "cannot access member 'y' on non-struct type 'int'" |
+| `errors/missing_return_dowhile_break` | rejected with "missing return in non-void function 'f'" |
+| `errors/missing_return_labeled_break` | rejected with "missing return in non-void function 'f'" |
+| `errors/missing_return_switch_break` | rejected with "missing return in non-void function 'f'" |
+| `errors/must_use_method` | rejected with "result of 'C_get' must be used" |
+| `errors/nullable_loop_reassign` | rejected with "cannot dereference a possibly-null pointer" |
+| `errors/nullable_reassign` | rejected with "cannot dereference a possibly-null pointer" |
+| `errors/nullable_shadow` | rejected with "cannot dereference a possibly-null pointer" |
+| `errors/operator_redefinition` | rejected with "redefinition of function 'operator +(V, V)'" |
+| `errors/param_unknown_type` | rejected with "unknown type 'Nope'" |
+| `errors/proto_conflict` | rejected with "conflicting declaration of function 'f'" |
+| `errors/question_non_result` | rejected with "requires a Result-like value" |
+| `errors/return_in_void` | rejected with "return type mismatch: expected void" |
+| `errors/shift_by_float` | rejected with "invalid operands for operator" |
+| `errors/sizeof_unknown` | rejected with "unknown type 'Nope'" |
+| `errors/slice_bounds_oob` | rejected with "slice bound 9 is out of bounds for array of size 4" |
+| `errors/slice_bounds_order` | rejected with "slice bounds out of order" |
+| `errors/string_plus_string` | rejected with "invalid operands for operator" |
+| `errors/struct_init_dup_field` | rejected with "field 'v' is initialized more than once" |
+| `errors/struct_init_field_type` | rejected with "field 'v': cannot convert 'string' to 'int'" |
+| `errors/struct_init_generic_field` | rejected with "field 'v': cannot convert 'string' to 'int'" |
+| `errors/struct_init_lit_range` | rejected with "integer literal 999 is out of range for 'uint8'" |
+| `errors/struct_init_too_many` | rejected with "too many initializers for struct 'S'" |
+| `errors/struct_value_cycle` | rejected with "contains itself by value" |
+| `errors/template_arg_count` | rejected with "'Pair' expects 2 type argument(s), got 1" |
+| `errors/template_unknown_arg` | rejected with "unknown type 'Nope'" |
+| `errors/ternary_lit_range` | rejected with "integer literal 300 is out of range for 'uint8'" |
+| `errors/undefined_template_fn` | rejected with "undefined template function 'nope'" |
+| `errors/unknown_sig_type` | rejected with "unknown type 'Nope'" |
+| `errors/unknown_var_type` | rejected with "unknown type 'Nope'" |
+| `errors/void_field` | rejected with "field 'v' of 'S' cannot have type 'void'" |
+| `errors/void_param` | rejected with "parameter 'x' cannot have type 'void'" |
+| `errors/void_var` | rejected with "variable 'x' cannot have type 'void'" |
+
+### `lint` tests (-Wall)
+
+| Test | Warnings asserted |
+|------|-------------------|
+| `warnings/wall_uses` | -Wall uses: dot-call, interface and operator functions, prototype and lambda parameters |
 
 ## Previously known issues (now fixed, and guarded by tests)
 
@@ -200,3 +304,5 @@ covered by exact-match `run` tests, so a regression would fail `run.sh`.
 - **Positive, non-deterministic / smoke only:** add `NAME.esk` with no `.expected`.
 - **Negative:** add `errors/NAME.esk` whose first line is
   `// EXPECT-ERROR: <substring of the diagnostic>`.
+- **Lint:** add `warnings/NAME.esk` with one `// EXPECT-WARNING: <substring>` line per
+  expected `-Wall` warning (no such line means the file must produce no warning).
