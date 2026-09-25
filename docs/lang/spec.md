@@ -327,7 +327,7 @@ let items: List<float>;
 
 ### 3.6 Interface Types
 
-Interface types are structural: any struct that provides all required methods satisfies the interface without an explicit declaration. When a struct is passed as an interface, the compiler auto-boxes the value into a fat pointer `{data_ptr, vtable_ptr}`. Each required method must match the interface's signature (return type and parameter types after the receiver; a type spelled with the interface's own name stands for the implementing type).
+Interface types are structural: any struct that provides all required methods satisfies the interface without an explicit declaration. An interface value is a fat pointer `{data_ptr, vtable_ptr}`; the compiler builds one from a pointer to a conforming struct (`&x`) wherever an interface is expected (see §9.4). Passing the struct itself by value is an error. Each required method must match the interface's signature (return type and parameter types after the receiver; a type spelled with the interface's own name stands for the implementing type).
 
 ```eskiu
 interface Drawable { void draw(); }
@@ -428,6 +428,8 @@ string name = "Eskiu";
 ```
 
 Both forms are equivalent. The type annotation is required in both; type inference is not supported.
+
+A variable is visible from its declaration to the end of the enclosing block. A declaration in a nested block may **shadow** an outer variable of the same name; the outer variable is unchanged and visible again after the inner block ends. Declaring the same name twice in one scope is an error, and so are these other duplicates: two parameters with one name, two fields (or a field and a method) with one name in a struct, a repeated enum member, a second `default:` in a `switch`, a global and a function (or a struct and a function) with one name, and a function prototype whose signature differs from its definition. A prototype that matches its definition, and an `extern` declaration next to the variable's definition, are allowed.
 
 ### 4.3 Pointer Variables
 
@@ -661,6 +663,8 @@ The exceptions are `*void` and `*char`, which always use byte-level stride (1 by
 *uint8 back = mid - 512;   // back to start
 ```
 
+Subtracting two pointers of the same type gives an `int64` count of **elements** between them, as in C: `(pi + 3) - pi` is `3` for a `*int`, not `12`.
+
 ### 5.8 sizeof Expression
 
 `sizeof(T)` is a compile-time constant expression that evaluates to the size of type `T` in bytes as an `int64`. It works for all Eskiu types, including structs and unions.
@@ -673,7 +677,7 @@ sizeof(double) // 8
 sizeof(Grid)   // 12  (3 float fields)
 ```
 
-`sizeof` is resolved entirely at compile time and produces no runtime code.
+`sizeof` is resolved entirely at compile time and produces no runtime code. As in C, `sizeof(x)` where `x` names a variable (or a parameter or global) gives the size of that variable's type; a name that is neither a type nor a variable is an error.
 
 ### 5.9 Conditional (ternary)
 
@@ -1066,7 +1070,7 @@ try {
 
 #### finally
 
-The `finally` block executes unconditionally after the `try` body and any `catch` clause, regardless of whether an exception was raised.
+The `finally` block executes unconditionally after the `try` body and any `catch` clause, regardless of whether an exception was raised. It also runs when the body or a `catch` handler leaves early with `return`, `break`, `continue` or `?`.
 
 ```eskiu
 try {
@@ -1145,9 +1149,12 @@ Four kinds of iterable are supported:
   ```
 
   A range desugars to `for (int i = A; i < B; i = i + 1)`, so an empty range
-  (`A >= B`) runs zero times.
+  (`A >= B`) runs zero times. `B` is evaluated once, before the first iteration:
+  `for (i in 0..n())` calls `n()` once, and changing a variable used in `B` inside
+  the body does not change the number of iterations.
 
-- **Fixed-size arrays** (`T[N]`), including array fields:
+- **Fixed-size arrays** (`T[N]`), including array fields. Over a multidimensional
+  array `T[N][M]` the loop variable is each row, a `T[M]`:
 
   ```eskiu
   int[4] xs;
@@ -1317,7 +1324,7 @@ Rules:
 - A defer body may not `return`, or `break`/`continue` out of itself (that would jump out
   of the cleanup); doing so is a compile error.
 
-`defer` complements `try`/`finally` (§10): `finally` is for catch-and-cleanup around a
+`defer` complements `try`/`finally` (§6.9): `finally` is for catch-and-cleanup around a
 block, while `defer` colocates a one-off release with its acquisition. For cleanup that
 must also run when an exception unwinds past the scope, use `try`/`finally`.
 
@@ -1392,7 +1399,7 @@ struct Counter {
 }
 ```
 
-Methods are lowered to regular functions with a leading pointer parameter, e.g., `Counter_increment(*Counter self)`.
+Methods are lowered to regular functions with a leading pointer parameter, e.g., `Counter_increment(*Counter self)`. A method may also be written at top level in that lowered form, `int Counter_get(*Counter self) { ... }`, and it is called the same way (`c.get()`). To call a method on a `const` value, write the receiver as `const T* self` (see §4.6).
 
 ### 8.2a Operator Overloading
 
@@ -1430,7 +1437,13 @@ Point p = Point { x: 1.5, y: 2.5 };
 Point p = Point { 1.5, 2.5 };
 ```
 
-Fields are assigned in declaration order in the positional form. All fields must be provided.
+Fields are assigned in declaration order in the positional form. A field the literal leaves out is zero-filled (as in C), in either form. Each value is checked against its field's type (an integer literal must fit the field), and naming a field twice, naming a field the struct does not have, or giving more positional values than there are fields is an error.
+
+```eskiu
+struct P { int x; int y; double z; }
+P a = P { y: 5 };        // x = 0, y = 5, z = 0.0
+P b = P { 1 };           // x = 1, y = 0, z = 0.0
+```
 
 ### 8.4 Field Access and Mutation
 
@@ -1650,7 +1663,7 @@ void render(Drawable d) {
 }
 ```
 
-Dispatch is performed via the vtable pointer in the fat pointer.
+Dispatch is performed via the vtable pointer in the fat pointer. The arguments are checked against the interface's declaration of the method (count and types), like a direct call.
 
 ### 9.4 Passing Structs as Interfaces
 
@@ -1723,6 +1736,7 @@ int big = max<int>(10, 20);
 
 ```eskiu
 import <result>;
+extern int printf(string fmt, ...);
 
 int main() {
     let r: Result<int, string> = Ok<int, string>(42);
@@ -1826,6 +1840,8 @@ library remains for cases where you want to thread `hash`/`eq` explicitly.)
 All variables declared in a function body are allocated on the stack. Stack memory is reclaimed automatically when the enclosing function returns. There is no garbage collector.
 
 ```eskiu
+struct Point { float x; float y; }
+
 int main() {
     int x = 10;
     Point p;
@@ -1962,7 +1978,7 @@ All declarations in the imported file (functions, structs, templates, externs) b
 
 ### 12.2 Deduplication
 
-Each file is parsed and processed at most once per compilation, regardless of how many files import it. Circular imports are detected and do not cause infinite loops.
+Each file is parsed and processed at most once per compilation, regardless of how many files import it. Files are identified by their canonical path, so two different relative spellings of the same file (a diamond import) count as one. Circular imports are detected and do not cause infinite loops.
 
 ### 12.3 Example
 
@@ -2039,6 +2055,13 @@ extern *void memset(*void ptr, int value, int64 n);
 
 (For heap allocation, prefer `import <mem>` and `alloc<T>`/`free` over declaring `malloc`/`free` as `extern` yourself; see §11.2.)
 
+A struct or union may be passed to or returned from an `extern` function **by value**. The compiler lowers such a call to the target's C calling convention (register classes, homogeneous float aggregates, hidden return pointer), matching what clang emits for the same C signature, on AArch64, x86-64 System V, Windows x64 and 32-bit ARM. The self-hosted compiler lowers AArch64 and x86-64 System V. See `docs/dev/abi.md` for the per-target rules.
+
+```eskiu
+struct Vec2 { double x; double y; }
+extern Vec2 vec2_add(Vec2 a, Vec2 b);   // a C function taking and returning structs
+```
+
 ### 13.4 Passing an Eskiu function as a C callback
 
 Many C APIs take a function pointer (`qsort`, `signal`, OpenSSL's ALPN selector,
@@ -2068,7 +2091,7 @@ Eskiu ships a set of standard library files in the `stdlib/` directory. Import a
 |-----------------------|------------------------------------------------------------------|
 | `stdlib/result.esk`   | `Result<T,E>` template struct; `Ok<T,E>(value)` and `Err<T,E>(err)` constructor functions |
 | `stdlib/list.esk`     | `List<T>` template struct; `List_init`, `List_push`, `List_get`, `List_set`, `List_remove`, `List_len`, `List_free` |
-| `stdlib/string.esk`   | `String` struct; `String_init`, `String_from`, `String_append`, `String_concat`, `String_push`, `String_char_at`, `String_set`, `String_clear`, `String_index_of`, `String_eq`, `String_eq_cstr`, `String_reverse`, `String_substring`, `String_from_int`, `String_to_int`, `String_cstr`, `String_len`, `String_free`, `String_starts_with`, `String_ends_with`, `String_trim`, `String_next_token` (streaming split), `String_split`/`String_split_free` (into a `List<String>`) |
+| `stdlib/string.esk`   | `String` struct; `String_init`, `String_from`, `String_append`, `String_concat`, `String_push`, `String_char_at`, `String_set`, `String_clear`, `String_index_of`, `String_eq`, `String_eq_cstr`, `String_reverse`, `String_substring`, `String_from_int`, `String_to_int`, `String_cstr`, `String_len`, `String_free`, `String_starts_with`, `String_ends_with`, `String_trim`, `String_next_token` (streaming split), `String_split`/`String_split_free` (into a `List<String>`). `String_to_int` accepts a leading sign and saturates at the `int` range. `String_is_space` is deprecated; use `is_space` from `<ctype>` |
 | `stdlib/ctype.esk`    | Pure-Eskiu ASCII character classification (comparisons only, no libc, freestanding-safe): `is_space`, `is_digit`, `is_hex`, `is_alpha`, `is_alnum`, `is_ident_start`, `is_ident_cont`. Each takes and returns `int` (1/0) |
 | `stdlib/math.esk`     | `extern` declarations for `sqrt`, `fabs`, `pow`, `floor`, `ceil`, `fmod`, `abs` |
 | `stdlib/io.esk`       | `extern` declarations for `printf`, `fprintf`, `sprintf`, `scanf`, `puts`, `getchar`, `putchar` |
@@ -2083,7 +2106,7 @@ Eskiu ships a set of standard library files in the `stdlib/` directory. Import a
 | `stdlib/url.esk`      | RFC 3986 percent-encoding: `url_encode`, `url_decode` (and `url_decode_range`), plus `url_query_get(query, key, &out)` for `a=1&b=2` query strings (`+` decodes to a space) |
 | `stdlib/uuid.esk`     | `uuid_v4(&rng, &out)`: an RFC 4122 version-4 UUID string (`xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx`) drawn from a `<random>` `Rng` |
 | `stdlib/env.esk`      | `env_get`, `env_has`, `env_get_or`, `env_get_int` (process environment; CLI args come from `main`'s `argc`/`argv`) |
-| `stdlib/base64.esk`   | `base64_encode` / `base64_decode` over byte buffers, plus `base64_encoded_len` / `base64_decoded_len` and the `base64_value` / `base64_digit` primitives |
+| `stdlib/base64.esk`   | `base64_encode` / `base64_decode` over byte buffers (decoding rejects bad padding and truncated input), plus `base64_encoded_len` / `base64_decoded_len` and the `base64_value` / `base64_digit` primitives |
 | `stdlib/bytes.esk`    | `Bytes`, a growable, binary-safe byte buffer (`*uint8` + length; embedded NULs survive, unlike `String`): `Bytes_init`/`_free`/`_push`/`_append`/`_append_raw`/`_slice` (non-owning view)/`_eq`/`_from_str`/`_cstr`, plus `Bytes_from_base64`/`Bytes_to_base64` |
 | `stdlib/path.esk`     | Unix path manipulation: `path_join`, `path_basename`, `path_dirname`, `path_extension`, `path_is_absolute` |
 | `stdlib/http.esk`     | HTTP/1.1: `HttpRequest` + `HttpRequest_parse`/`_header`, `HttpResponse` + `HttpResponse_header`/`_set_body`/`_render`, and a threaded worker pool `http_serve(port, nworkers, handler)` where `handler` is `fn(HttpRequest*, HttpResponse*)->void`. Plus a binary-safe full-body reader `HttpReq` + `http_recv` (loops until the Content-Length body arrives, into a `*uint8` body), `HttpReq_header`, `http_reply`, `http_reply_error`: for uploads a single-recv String body would corrupt binary bytes |
@@ -2092,7 +2115,7 @@ Eskiu ships a set of standard library files in the `stdlib/` directory. Import a
 | `stdlib/threading.esk`| Synchronization over pthread: `Mutex` (`_init`/`_lock`/`_unlock`/`_destroy`), `Cond` (`_init`/`_wait`/`_signal`/`_broadcast`/`_destroy`), `Sem` (`_init`/`_wait`/`_post`/`_destroy`). Pairs with the `thread_create`/`thread_join` built-ins |
 | `stdlib/eventloop.esk`| Readiness reactor over kqueue (macOS) / epoll (Linux): `EventLoop`, `el_new`, `EventLoop_add_read`, `EventLoop_add_write`, `EventLoop_del`, `EventLoop_run`, `EventLoop_stop`, `EventLoop_free`, plus a timer wheel (`EventLoop_add_timer`/`EventLoop_del_timer`). Callback is `fn(EventLoop*, int)->void` |
 | `stdlib/atomic.esk`| Atomic intrinsics on an `int` cell: `atomic_load`/`atomic_store`/`atomic_swap`/`atomic_cas`, lowering to LLVM atomics with fixed acquire/release ordering. Declared with the `intrinsic` qualifier |
-| `stdlib/json.esk`     | JSON builder + parser. Builder: `Json` + `Json_init`/`_free`/`_cstr`, `Json_obj_begin`/`_end`, `Json_arr_begin`/`_end`, `Json_key`, `Json_str`, `Json_int`, `Json_bool`, `Json_null` (auto separators). Parser: `json_parse(src) -> *JsonValue` + `JsonValue_kind`/`_len`/`_at`/`_get`/`_as_int`/`_as_double`/`_as_bool`/`_as_cstr`/`_free` |
+| `stdlib/json.esk`     | JSON builder + parser. Builder: `Json` + `Json_init`/`_free`/`_cstr`, `Json_obj_begin`/`_end`, `Json_arr_begin`/`_end`, `Json_key`, `Json_str`, `Json_int`, `Json_bool`, `Json_null` (auto separators). Parser (strict RFC 8259: exact literals, no trailing data, `\uXXXX` escapes decoded; returns `null` on malformed input): `json_parse(src) -> *JsonValue` + `JsonValue_kind`/`_len`/`_at`/`_get`/`_as_int`/`_as_double`/`_as_bool`/`_as_cstr`/`_free` |
 | `stdlib/sysheap.esk`  | `Heap`, a general-purpose heap that `mmap`s OS pages and runs `FirstFit` over them, providing allocation with no libc `malloc` (suitable as a freestanding backend) |
 | `stdlib/future.esk`   | The async runtime's `Future<T>` (the locked compiler↔generated-code contract): the `state`/`waker`/`on_drop` handshake, `future_new`/`future_complete`/`future_poll`/`future_drop`/`free_future`, and the generic combinators `spawn<T>`, `select2<A,B>` (first of two), `join2<A,B>` (all of two) |
 | `stdlib/executor.esk` | `Executor`, a thread that owns an event loop plus a thread-safe ready-queue of wakers woken through a self-pipe, so a waker (a coroutine resume) always runs on the executor's own thread: `executor_new`, `Executor_schedule`, `Executor_run`, `Executor_stop`, `Executor_free` |
@@ -2108,10 +2131,13 @@ Eskiu ships a set of standard library files in the `stdlib/` directory. Import a
 | `stdlib/http2_server.esk`| HTTP/2 (h2c, cleartext) server over the async event loop: drives the opening handshake then a frame-dispatch loop, multiplexes interleaved streams to per-stream slots, HPACK-decodes a completed request into an `HttpRequest`, and encodes the `HttpResponse` back as a HEADERS frame plus flow-controlled DATA frames: `http2_serve_async` |
 | `stdlib/tls.esk`      | TLS for HTTP/2 over OpenSSL (libssl) with ALPN negotiating `"h2"`: a server `SSL_CTX` that loads a cert/key and selects `"h2"`, plus blocking (`http2_tls_serve_conn`) and async (`http2_tls_serve_async`) h2-over-TLS servers that run the `<http2>` protocol over the encrypted stream |
 
+Modules built around a struct name their operations `Type_method`, so they can also be called with dot syntax (`rng.next()` calls `Rng_next(&rng)`). Functions that create a value keep a lowercase module name (`el_new`, `executor_new`, `chan_new`, `regex_compile`). Release 0.9.2 renamed the older lowercase forms: `rng_*` to `Rng_*`, `regex_search`/`regex_free`/`match_*` to `Regex_*`/`Match_*`, `heap_*` to `Heap_*`, `el_*` to `EventLoop_*`, `executor_*` to `Executor_*`, `chan_*` to `Chan_*`, `hpack_decoder_*`/`hpack_huff_*` to `HpackDecoder_*`/`HpackHuff_*`, `h2_conn_init`/`h2_stream_init`/`h2_can_send` to `H2Conn_init`/`H2Stream_init`/`H2Conn_can_send`, and `time_from_utc`/`time_format_iso` to `DateTime_to_epoch`/`DateTime_format_iso`. The old names still work as deprecated wrappers and will be removed in a later release.
+
 ### Result<T,E>
 
 ```eskiu
 import <result>;
+extern int printf(string fmt, ...);
 
 Result<int, string> divide(int a, int b) {
     if (b == 0) return Err<int, string>("division by zero");
@@ -2133,6 +2159,7 @@ int main() {
 
 ```eskiu
 import <list>;
+extern int printf(string fmt, ...);
 
 int main() {
     let items: List<int>;
@@ -2151,6 +2178,7 @@ int main() {
 
 ```eskiu
 import <string>;
+extern int printf(string fmt, ...);
 
 int main() {
     let s: String;
@@ -2283,7 +2311,7 @@ Sections are separated by `:`. Trailing sections may be omitted if empty.
 | `eskiuc file.esk --safe -o prog` | Bounds-check every array and slice index at runtime (trap on out-of-range); off by default |
 | `eskiuc file.esk -Wall -o prog` | Enable lint warnings: unused vars/params/functions, assignment-in-condition |
 | `eskiuc file.esk -Wextra -o prog` | Extra warnings on top of `-Wall`: signed/unsigned comparison mismatches |
-| `eskiuc file.esk -O2 -o prog` | Optimize: run the LLVM middle-end (`-O1`/`-O2`/`-O3`). `-O0` (default) emits naive IR straight to the backend |
+| `eskiuc file.esk -O2 -o prog` | Optimize: run the LLVM middle-end (`-O1`/`-O2`/`-O3`). `-O0` (default) emits naive IR straight to the backend. A level above 3 is rejected |
 | `eskiuc file.esk -o prog -lpthread` | Link, passing library flags through to the linker |
 | `eskiuc file.esk -o file.o` | Compile to an object file only (no link) |
 | `eskiuc file.esk -c -o name` | Compile to an object file only, any name |
@@ -2300,13 +2328,13 @@ Sections are separated by `:`. Trailing sections may be omitted if empty.
 **Linking.** When the `-o` output is not an object file (no `.o` suffix) and `-c`
 is absent, `eskiuc` links the program into an executable by invoking the system
 C toolchain (`$CC`, then `cc`/`clang`/`gcc` on the `PATH`) exactly as `rustc`
-and `clang` do internally. `-l<lib>` and `-L<path>` flags, and any `--link-arg=<arg>`,
+and `clang` do internally. `$CC` may include arguments (`CC="clang --target=..."`). `-l<lib>` and `-L<path>` flags, and any `--link-arg=<arg>`,
 are forwarded to the linker. A C toolchain must therefore be installed (it is the
 only build-time dependency besides LLVM). With `--freestanding` (or a `.o` output)
 no linking happens, so bare-metal targets are linked yourself (see the kernel's
 `ld.lld` invocation).
 
-**Running directly.** `eskiuc run file.esk [args...]` compiles to a temporary executable, runs it (forwarding `args...`), then deletes it, propagating the program's exit code, handy for quick iteration. Compiler flags go *before* the script and program arguments *after* it (`eskiuc run --asan file.esk -- input.txt`). Because a leading `#!` line is ignored, a script can also start with `#!/usr/bin/env eskiuc run` and, once `chmod +x`'d, be executed directly.
+**Running directly.** `eskiuc run file.esk [args...]` compiles to a temporary executable, runs it (forwarding `args...`), then deletes it, propagating the program's exit code, handy for quick iteration. If the program is killed by a signal, `run` exits with `128 +` the signal number, as a shell does. Compiler flags (including ones that take a value, such as `--target TRIPLE`) go *before* the script and program arguments *after* it; a `--` right after the script is dropped, so `eskiuc run --asan file.esk -- input.txt` passes only `input.txt`. Because a leading `#!` line is ignored, a script can also start with `#!/usr/bin/env eskiuc run` and, once `chmod +x`'d, be executed directly.
 
 **Formatting.** `eskiuc fmt file.esk …` reformats files in place. It is deliberately conservative: it re-indents to four spaces per brace level, trims trailing whitespace, collapses consecutive blank lines, and ensures a final newline, but leaves each line's content (operator spacing, comments, string contents) exactly as written, so it never alters a program's behavior and is idempotent. `--check` makes it report (and exit non-zero on) files that would change, without writing. Useful in CI.
 
@@ -2341,11 +2369,11 @@ When `--target` is omitted the compiler defaults to the host machine's triple.
 The compiler emits diagnostics with full source location information:
 
 ```
-file.esk:8:22: undefined variable 'foo'
-file.esk:14:5: type mismatch: expected int, got float
+error: file.esk:8:22: undefined variable 'foo'
+error: file.esk:14:5: type mismatch: expected int, got float
 ```
 
-The format is `file:line:col: message`. Line and column numbers are 1-based.
+The format is `error: file:line:col: message`. Line and column numbers are 1-based. Lexer, preprocessor, parser and type errors all use it, and an error inside an imported file names that file. `-Wall` warnings are printed as `file:line:col: warning: message`. Every mode, including the `--test-*` modes, exits with a non-zero status when it reports an error.
 
 ---
 
