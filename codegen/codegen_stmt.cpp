@@ -13,7 +13,9 @@ void CodeGen::runCleanupsToDepth(size_t depth, bool errorPath) {
     // Emit each pending cleanup body, innermost frame first and LIFO within a frame.
     // errdefer bodies run only on the error path (`?`-propagation).
     for (size_t i = cleanupScopes.size(); i-- > depth; ) {
-        auto& frame = cleanupScopes[i];
+        // A copy: emitting a braced body pushes its own frame, which can reallocate
+        // cleanupScopes and would leave a reference dangling.
+        auto frame = cleanupScopes[i];
         for (size_t j = frame.size(); j-- > 0; ) {
             if (blockTerminated()) return;
             if (frame[j].isErr && !errorPath) continue;
