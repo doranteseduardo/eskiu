@@ -1,0 +1,5 @@
+// EXPECT-ERROR: await is only allowed inside an async function
+import <future>;
+Future<int>* produce() { Future<int>* f = future_new<int>(); future_complete<int>(f, 41); return f; }
+async int one() { let x: int = await produce(); let g: fn()->int = int() { int n = await produce(); return n; }; return x + g(); }
+int main() { return 0; }

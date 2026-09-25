@@ -33,6 +33,8 @@ void TypeChecker::visit(BinaryExpr* node) {
     // Assigning to a `const` binding, a field/element of a const value, or
     // through a pointer-to-const (`const T*`) is an error. See assignsToConst.
     if (node->op == "=") {
+        if (!isLvalueExpr(node->left.get()))
+            errorAt(node, "cannot assign to this expression: it is not a variable, field, element, or dereference");
         std::string cname;
         if (assignsToConst(node->left.get(), cname))
             errorAt(node, "cannot assign to read-only location '" + cname + "'");
@@ -324,6 +326,17 @@ void TypeChecker::checkNullableDeref(Expr* operand, const char* how) {
 void TypeChecker::visit(UnaryExpr* node) {
     node->operand->accept(this);
     std::string operandType = getExpressionType(node->operand.get());
+    if (node->op == "&" && !isLvalueExpr(node->operand.get()))
+        errorAt(node, "cannot take the address of this expression: it is not a variable, field, element, or dereference");
+    if (node->op == "&")
+        if (auto* m = dynamic_cast<MemberExpr*>(node->operand.get())) {
+            std::string bt = ty::Type::parse(normalizeType(tyq::strip(getExpressionType(m->base.get())))).nominalName();
+            auto sit = structs.find(bt);
+            if (sit != structs.end())
+                for (const auto& f : sit->second.fields)
+                    if (f.name == m->member && f.bitWidth > 0)
+                        errorAt(node, "cannot take the address of bitfield '" + m->member + "'");
+        }
     // `&p` of a narrowed `?*T` is a `*?*T` (a write through it may store null), so the
     // narrowing ends here and the address carries the declared nullable type.
     if (node->op == "&")
@@ -759,7 +772,12 @@ void TypeChecker::visit(IndexExpr* node) {
         if (!opFn.empty()) { node->opFunc = opFn; calledFns.insert(opFn); expressionTypes[node] = ret; return; }
     }
 
-    if (!haveElem) { expressionTypes[node] = "unknown"; return; }
+    if (!haveElem) {
+        if (baseType != "unknown" && !baseType.empty())
+            errorAt(node, "cannot index into a value of type '" + ty::Type::parse(baseType).nominalName() + "'");
+        expressionTypes[node] = "unknown";
+        return;
+    }
 
     // `base[lo..hi]` yields a slice of the element type; `base[i]` yields the element.
     expressionTypes[node] = node->highIndex ? (elem + "[]") : elem;
@@ -827,6 +845,25 @@ void TypeChecker::visit(CastExpr* node) {
     // Validate that struct types exist in casts
     std::string normalizedType = normalizeType(node->targetType);
     validateStructType(normalizedType, node);
+    // A cast converts between scalars: numbers (incl. bool/char/enums), pointers, and
+    // integer<->pointer. An aggregate (struct, union, sum type, array, slice, closure)
+    // casts only to its own type; float<->pointer has no meaning.
+    {
+        std::string from = normalizeType(tyq::strip(getExpressionType(node->expr.get())));
+        std::string to = normalizeType(tyq::strip(normalizedType));
+        if (!from.empty() && from[0] == '?') from = from.substr(1);
+        if (!to.empty() && to[0] == '?') to = to.substr(1);
+        bool fnName = false;   // a top-level function cast to a pointer is its raw C address
+        if (auto* id = dynamic_cast<IdentExpr*>(node->expr.get()))
+            fnName = lookupSymbol(id->name).empty() && functionSignatures.count(id->name);
+        auto isPtr = [&](const std::string& t) { return isPointerType(t) || t == "null"; };
+        bool ok = from == "unknown" || to == "unknown" || from == to || (fnName && isPtr(to)) ||
+                  (isNumericType(from) && isNumericType(to)) ||
+                  (isPtr(from) && isPtr(to)) ||
+                  (isIntType(from) && isPtr(to)) || (isPtr(from) && isIntType(to));
+        if (!ok)
+            errorAt(node, "cannot cast '" + getExpressionType(node->expr.get()) + "' to '" + node->targetType + "'");
+    }
     expressionTypes[node] = normalizedType;
 }
 
@@ -960,6 +997,10 @@ void TypeChecker::visit(LambdaExpr* node) {
     loopLabelStack.clear();
     int savedSwitch = switchDepth;
     switchDepth = 0;
+    // A lambda is its own (non-async) function: an `await` in its body does not belong to
+    // an enclosing async function.
+    bool savedAsync = inAsyncFn, savedAwait = awaitSeenInFn;
+    inAsyncFn = false;
     for (const auto& p : node->params) {
         if (scopes.back().count(p.second)) errorAt(node, "duplicate parameter '" + p.second + "' in lambda");
         defineSymbol(p.second, normalizeType(p.first), node->line, node->col, /*isParam=*/true);
@@ -972,6 +1013,8 @@ void TypeChecker::visit(LambdaExpr* node) {
     currentFunctionReturnType = savedReturn;
     loopLabelStack = std::move(savedLoops);
     switchDepth = savedSwitch;
+    inAsyncFn = savedAsync;
+    awaitSeenInFn = savedAwait;
     popScope();
 
     // Harvest captures: only outer-scope vars, not params

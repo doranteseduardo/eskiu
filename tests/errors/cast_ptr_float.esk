@@ -1,0 +1,2 @@
+// EXPECT-ERROR: cannot cast 'string' to 'float'
+int main() { let f: float = (float)"s"; return 0; }

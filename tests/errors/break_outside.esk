@@ -1,0 +1,2 @@
+// EXPECT-ERROR: 'break' outside of a loop or switch
+int main() { break; return 0; }

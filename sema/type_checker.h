@@ -224,7 +224,12 @@ private:
     // Error tracking
     std::vector<std::string> errors;
     std::vector<std::string> loopLabelStack;   // enclosing loop labels ("" for unlabeled), for labeled break/continue validation
-    int switchDepth = 0;                       // enclosing `switch` statements (an unlabeled `break` may target one)
+    int switchDepth = 0;                       // enclosing switches (a bare `break` may exit one)
+    // An expression that denotes storage (a variable, field, element, or `*p`), so it may be
+    // assigned to or have its address taken.
+    bool isLvalueExpr(Expr* e);
+    // A switch `case` label codegen can fold to an integer constant.
+    bool isConstIntExpr(Expr* e);
     bool hasErrors = false;
 
     // Helper methods

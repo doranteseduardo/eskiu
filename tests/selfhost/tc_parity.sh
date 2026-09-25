@@ -49,7 +49,10 @@ HANDLED="undefined_var arg_count undefined_type await_outside_async async_no_awa
          operator_redefinition
          dup_local dup_global dup_param dup_fn_global dup_struct_fn dup_struct dup_field dup_enum
          dup_enum_member dup_default dup_method_fn dup_field_method proto_conflict
-         slice_bounds_order slice_bounds_oob compound_lit_range ternary_lit_range"
+         slice_bounds_order slice_bounds_oob compound_lit_range ternary_lit_range
+         assign_rvalue assign_ternary addr_of_call addr_of_literal addr_of_bitfield index_scalar
+         index_struct cast_struct cast_ptr_float case_nonconst break_outside continue_in_switch
+         await_in_lambda"
 HANDLED="$(echo $HANDLED)"   # collapse the multi-line list to single spaces for matching
 
 DRIVER=selfhost/esk_main.esk

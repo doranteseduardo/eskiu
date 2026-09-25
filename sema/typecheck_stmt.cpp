@@ -467,6 +467,8 @@ void TypeChecker::visit(SwitchStmt* node) {
                         "' is incompatible with switch subject type '" + subjType + "'");
                 }
             }
+            if (!isConstIntExpr(c.value.get()))
+                errorAt(c.value.get(), "switch case value must be a constant integer expression");
             // Constant-fold integer literals and enum constants to catch dupes.
             long long cv = 0;  bool haveCv = false;
             if (auto* lit = dynamic_cast<LiteralExpr*>(c.value.get())) {
@@ -489,4 +491,32 @@ void TypeChecker::visit(SwitchStmt* node) {
         for (auto& s : c.stmts) s->accept(this);
         --switchDepth;
     }
+}
+
+bool TypeChecker::isLvalueExpr(Expr* e) {
+    if (auto* id = dynamic_cast<IdentExpr*>(e))
+        return !lookupSymbol(id->name).empty() || !functionSignatures.count(id->name);
+    if (auto* u = dynamic_cast<UnaryExpr*>(e)) return u->op == "*";
+    if (dynamic_cast<MemberExpr*>(e)) return true;
+    if (auto* ix = dynamic_cast<IndexExpr*>(e)) return !ix->highIndex && ix->opFunc.empty();
+    return false;
+}
+
+bool TypeChecker::isConstIntExpr(Expr* e) {
+    if (auto* l = dynamic_cast<LiteralExpr*>(e))
+        return l->kind == LiteralExpr::Kind::INT || l->kind == LiteralExpr::Kind::CHAR ||
+               l->kind == LiteralExpr::Kind::BOOL;
+    if (auto* id = dynamic_cast<IdentExpr*>(e)) {
+        std::string t = lookupSymbol(id->name);
+        if (t.empty()) return enumConstants.count(id->name) > 0;
+        return isConstSymbol(id->name) && isIntType(normalizeType(t));   // `const int K = 7` folds
+    }
+    if (auto* u = dynamic_cast<UnaryExpr*>(e))
+        return (u->op == "-" || u->op == "~" || u->op == "!") && isConstIntExpr(u->operand.get());
+    if (auto* b = dynamic_cast<BinaryExpr*>(e))
+        return b->op != "=" && b->op != "&&" && b->op != "||" &&
+               isConstIntExpr(b->left.get()) && isConstIntExpr(b->right.get());
+    if (auto* c = dynamic_cast<CastExpr*>(e)) return isConstIntExpr(c->expr.get());
+    if (dynamic_cast<SizeofExpr*>(e)) return true;
+    return false;
 }

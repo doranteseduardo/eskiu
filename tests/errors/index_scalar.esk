@@ -1,0 +1,2 @@
+// EXPECT-ERROR: cannot index into a value of type 'int'
+int main() { let x: int = 3; return x[0]; }
