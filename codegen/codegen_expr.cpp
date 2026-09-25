@@ -56,12 +56,20 @@ void CodeGen::emitCompoundAssign(BinaryExpr* node, BinaryExpr* rhsOp) {
 std::string CodeGen::resolveOpInTemplate(const std::string& op,
                                          const std::vector<ExprPtr>& operands) const {
     if (typeParamOverride.empty()) return "";
+    std::vector<std::string> tys;
+    for (const auto& e : operands) tys.push_back(getExprEskiuType(e));
+    return resolveOpInTemplateTypes(op, tys);
+}
+
+std::string CodeGen::resolveOpInTemplateTypes(const std::string& op,
+                                              const std::vector<std::string>& operandTypes) const {
+    if (typeParamOverride.empty()) return "";
     static const std::set<std::string> nums = {"int","int8","int16","int32","int64","uint",
         "uint8","uint16","uint32","uint64","float","double","char","bool"};
     std::vector<std::string> tys;
     bool anyNominal = false;
-    for (const auto& e : operands) {
-        std::string t = expandAlias(getExprEskiuType(e));
+    for (const auto& ot : operandTypes) {
+        std::string t = expandAlias(ot);
         if (t.empty() || t == "unknown") return "";
         if (t.rfind("struct:", 0) == 0) t = t.substr(7);
         if (!nums.count(t) && t.front() != '*' && t.back() != '*' && t != "string") anyNominal = true;

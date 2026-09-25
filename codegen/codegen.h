@@ -462,6 +462,8 @@ private:
     // is stamped): resolve `op` over the operands' concrete types to a user operator
     // overload by its canonical mangled name. "" = a built-in operator.
     std::string resolveOpInTemplate(const std::string& op, const std::vector<ExprPtr>& operands) const;
+    std::string resolveOpInTemplateTypes(const std::string& op,
+                                         const std::vector<std::string>& operandTypes) const;
     // `lv op= v` with a side-effecting lvalue: evaluate lv's address once.
     void emitCompoundAssign(BinaryExpr* node, BinaryExpr* rhsOp);
     int compoundSeq = 0;

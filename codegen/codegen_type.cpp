@@ -234,6 +234,49 @@ static std::string promotedResultType(const ExprPtr& expr, const std::string& t)
     return narrow.count(t) ? "int" : t;
 }
 
+// The static type of a built-in (non-overloaded) binary operator, mirroring the type
+// checker's inferBinaryExprType + promoteType. Codegen needs it where the resolver
+// table has no entry, e.g. inside a template instance (the type checker skips generic
+// bodies), so `(a + b) / c` over `uint` keeps its signedness there too.
+static std::string builtinBinaryType(const std::string& l, const std::string& op,
+                                     const std::string& r) {
+    static const std::set<std::string> cmp = {"==","!=","<",">","<=",">=","&&","||"};
+    if (cmp.count(op)) return "bool";
+    if (op == "=") return l;
+    auto width = [](const std::string& t) -> int {
+        if (t == "int64" || t == "uint64") return 64;
+        if (t == "int" || t == "int32" || t == "uint" || t == "uint32") return 32;
+        if (t == "int16" || t == "uint16") return 16;
+        if (t == "int8" || t == "uint8" || t == "char" || t == "bool") return 8;
+        return 0;
+    };
+    auto isFloat = [](const std::string& t) { return t == "float" || t == "double"; };
+    auto isPtr = [](const std::string& t) {
+        return !t.empty() && (t.front() == '*' || t.back() == '*' || t == "string");
+    };
+    auto promoted = [&](const std::string& t) { return width(t) && width(t) < 32 ? "int" : t; };
+    if (op == "-" && isPtr(l) && isPtr(r)) return "int64";
+    if ((op == "+" || op == "-") && isPtr(l) && width(r)) return l;
+    if (op == "+" && isPtr(r) && width(l)) return r;
+    if (op == "<<" || op == ">>") return width(l) ? promoted(l) : "";
+    bool ln = width(l) || isFloat(l), rn = width(r) || isFloat(r);
+    if (!ln || !rn) return l == r ? l : "";
+    if (l == "double" || r == "double") return "double";
+    if (l == "float" || r == "float") return "float";
+    std::string a = promoted(l), b = promoted(r);
+    if (a == b) return a;
+    auto isUns = [](const std::string& t) { return t == "uint" || t == "uint32" || t == "uint64"; };
+    int wa = width(a), wb = width(b);
+    bool ua = isUns(a), ub = isUns(b);
+    int w; bool u;
+    if (ua == ub) { w = std::max(wa, wb); u = ua; }
+    else {
+        int wu = ua ? wa : wb, ws = ua ? wb : wa;
+        u = wu >= ws; w = u ? wu : ws;
+    }
+    return w == 64 ? (u ? "uint64" : "int64") : (u ? "uint" : "int");
+}
+
 std::string CodeGen::getExprEskiuType(const ExprPtr& expr) const {
     std::string t = getExprEskiuTypeRaw(expr);
     return promotedResultType(expr, expandAlias(t)) == "int" ? "int" : t;
@@ -330,18 +373,28 @@ std::string CodeGen::deriveExprEskiuTypeUncached(const ExprPtr& expr) const {
         }
     }
     if (auto bin = dynamic_cast<BinaryExpr*>(expr.get())) {
-        std::string fn = bin->opFunc.empty() ? resolveOpInTemplate(bin->op, {bin->left, bin->right})
-                                             : bin->opFunc;
+        if (bin->opFunc.empty() && (bin->op == "&&" || bin->op == "||")) return "bool";
+        // Each operand's type is derived once (a deep chain must stay linear).
+        std::string lt, rt, fn = bin->opFunc;
+        if (fn.empty()) {
+            lt = expandAlias(getExprEskiuType(bin->left));
+            rt = expandAlias(getExprEskiuType(bin->right));
+            fn = resolveOpInTemplateTypes(bin->op, {lt, rt});
+        }
         auto it = funcEskiuReturnType.find(fn);
         if (!fn.empty() && it != funcEskiuReturnType.end()) return expandAlias(it->second);
+        if (fn.empty()) return builtinBinaryType(lt, bin->op, rt);
     }
     if (auto unary = dynamic_cast<UnaryExpr*>(expr.get())) {
         if (unary->op == "-" || unary->op == "!" || unary->op == "~") {
-            std::string fn = unary->opFunc.empty()
-                ? resolveOpInTemplate(unary->op == "-" ? "u-" : unary->op, {unary->operand})
-                : unary->opFunc;
+            std::string t, fn = unary->opFunc;
+            if (fn.empty()) {
+                t = expandAlias(getExprEskiuType(unary->operand));
+                fn = resolveOpInTemplateTypes(unary->op == "-" ? "u-" : unary->op, {t});
+            }
             auto it = funcEskiuReturnType.find(fn);
             if (!fn.empty() && it != funcEskiuReturnType.end()) return expandAlias(it->second);
+            if (fn.empty()) return unary->op == "!" ? "bool" : builtinBinaryType(t, "+", t);
         }
         if (unary->op == "&") return "*" + getExprEskiuType(unary->operand);
         if (unary->op == "*") {

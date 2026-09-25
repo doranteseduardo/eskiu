@@ -1,0 +1,39 @@
+// Arithmetic inside a generic body: the type checker skips template bodies, so
+// codegen types `a + b` / `-a` itself. A ternary arm `self.cap * 2` must resolve to
+// int (it used to print "unknown type ''"), and `(a + b) / c` over uint must keep
+// its unsigned division and comparison.
+extern int printf(string fmt, ...);
+
+struct Box<T> { T v; int cap; }
+
+int grow<T>(Box<T>* self) {
+    const int n = self.cap * 2 < 4 ? 4 : self.cap * 2;
+    return n;
+}
+
+T half<T>(T a, T b) {
+    return (a + b) / (T)2;
+}
+
+bool positive<T>(T a, T b) {
+    return (a + b) > (T)0;
+}
+
+T negate_half<T>(T a) {
+    return -a / (T)2;
+}
+
+int main() {
+    let b: Box<int>;
+    b.cap = 1;
+    printf("%d\n", grow<int>(&b));
+    b.cap = 5;
+    printf("%d\n", grow<int>(&b));
+    uint x = (uint)4000000000;
+    uint z = (uint)0;
+    printf("%u\n", half<uint>(x, z));
+    if (positive<uint>(x, z)) printf("positive\n"); else printf("not positive\n");
+    printf("%lld\n", half<int64>((int64)-6, (int64)0));
+    printf("%d\n", negate_half<int>(9));
+    return 0;
+}
