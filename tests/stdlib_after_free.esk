@@ -1,0 +1,55 @@
+// A freed String or Map is empty, not a trap: String_free nulls the buffer and
+// Map_free zeroes the capacity, and String_clear / String_trim / Map_at /
+// Map_get (HashMap too) used to dereference the null buffer or take `% 0`.
+// String_substring clamps a negative start. DateTime_to_epoch computes the
+// hour/minute/second part in 64 bits (an out-of-range hour used to wrap).
+import <mem>;
+import <string>;
+import <map>;
+import <time>;
+extern int printf(string fmt, ...);
+
+int main() {
+    let s: String;  s.init(8);  s.append("  hi  ");
+    s.free();
+    s.clear();
+    s.trim();
+    printf("cleared len=%lld\n", s.len);
+    s.append("again");
+    printf("reused=%s\n", s.cstr());
+    s.free();
+
+    let t: String;  t.from("abcdef");
+    let out: String;  out.init(8);
+    t.substring(&out, -3, 2);
+    printf("neg start=[%s]\n", out.cstr());
+    t.substring(&out, 6, 2);
+    printf("at end=[%s]\n", out.cstr());
+    t.substring(&out, 2, 3);
+    printf("mid=[%s]\n", out.cstr());
+    out.free();  t.free();
+
+    let m: Map<int>;  Map_init<int>(&m, 8);
+    int created = 0;
+    *int slot = Map_at<int>(&m, "a", &created);  slot[0] = 1;
+    Map_free<int>(&m);
+    int v = 0;
+    printf("get after free=%d\n", Map_get<int>(&m, "a", &v));
+    slot = Map_at<int>(&m, "b", &created);  slot[0] = 7;
+    printf("at after free created=%d get=%d v=%d\n", created, Map_get<int>(&m, "b", &v), v);
+    Map_free<int>(&m);
+
+    let hm: HashMap<int, int>;
+    HashMap_init<int, int>(&hm, 8, int_hash, int_eq);
+    HashMap_free<int, int>(&hm);
+    printf("hashmap get after free=%d\n", HashMap_get<int, int>(&hm, 3, &v));
+    *int hs = HashMap_at<int, int>(&hm, 3, &created);  hs[0] = 9;
+    printf("hashmap at after free=%d v=%d\n", HashMap_get<int, int>(&hm, 3, &v), v);
+    HashMap_free<int, int>(&hm);
+
+    let dt: DateTime;
+    dt.year = 1970;  dt.month = 1;  dt.day = 1;
+    dt.hour = 700000;  dt.min = 0;  dt.sec = 0;
+    printf("epoch=%lld\n", DateTime_to_epoch(&dt));
+    return 0;
+}

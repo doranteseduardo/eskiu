@@ -211,6 +211,7 @@ when you add a test.
 | `rvalue_member` | Member access, indexing and method calls work on rvalue aggregates (call results, operator results, ternaries, fields of temporaries), not just on variables. |
 | `self_append` | Appending a String or Bytes to itself must copy from the live buffer, not from the one freed when the append grows it. |
 | `static_local_closure` | A `static` local has static storage: a closure refers to that one cell (like a global) rather than capturing a copy, and an uninitialized static starts at zero. |
+| `stdlib_after_free` | A freed String or Map/HashMap is empty rather than a trap (clear, trim, at, get), String_substring clamps a negative start, and DateTime_to_epoch sums the time of day in 64 bits. |
 | `string_int_edges` | String integer edge cases: INT_MIN renders fully (it used to print "-"), a zero-capacity String_init still has room for its NUL, String_to_int accepts a... |
 | `struct_lit_zero_fill` | Fields a struct literal omits are zero-initialized (C semantics), at -O0 and -O2. |
 | `switch_case_fold` | Case values fold to integer constants: literals, chars, enum members, casts and arithmetic over them. |

@@ -92,10 +92,11 @@ void String_set(String* self, int64 i, char c) {
     self.data[i] = c;
 }
 
-// Reset to the empty string, keeping the allocated buffer.
+// Reset to the empty string, keeping the allocated buffer. Safe on a freed
+// String (no buffer): it stays empty and the next push/append allocates.
 void String_clear(String* self) {
     self.len = 0;
-    self.data[0] = 0;
+    if (self.data != null) { self.data[0] = 0; }
 }
 
 // First index of c, or -1 if absent.
@@ -139,9 +140,11 @@ void String_reverse(String* self) {
 }
 
 // Copy up to `count` characters starting at `start` from self into out.
-// out must already be initialised; it is cleared first.
+// out must already be initialised; it is cleared first. A negative `start`
+// counts from 0 (it is clamped), and one past the end gives an empty result.
 void String_substring(String* self, String* out, int64 start, int64 count) {
     out.clear();
+    if (start < 0) { start = 0; }
     for (int64 i = 0; i < count && start + i < self.len; i++) {
         out.push(self.data[start + i]);
     }
@@ -219,6 +222,7 @@ int String_is_space(char c) { return _string_ws(c); }
 // Remove leading and trailing ASCII whitespace (space, tab, newline, carriage
 // return), in place.
 void String_trim(String* self) {
+    if (self.data == null) { self.len = 0; return; }   // a freed String: nothing to trim
     int64 start = 0;
     while (start < self.len && _string_ws(self.data[start]) == 1) { start++; }
     int64 end = self.len;

@@ -142,7 +142,7 @@ void time_to_utc(int64 t, DateTime* dt) {
 // The epoch-seconds timestamp (UTC) for a DateTime's y/m/d/h/m/s fields.
 int64 DateTime_to_epoch(DateTime* dt) {
     const int64 days = time_days_from_civil(dt.year, dt.month, dt.day);
-    return days * 86400 + dt.hour * 3600 + dt.min * 60 + dt.sec;
+    return days * 86400 + (int64)dt.hour * 3600 + (int64)dt.min * 60 + (int64)dt.sec;
 }
 
 // Append `v` as `width` zero-padded decimal digits to `out` (helper). A
