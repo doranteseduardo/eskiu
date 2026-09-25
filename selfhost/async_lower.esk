@@ -184,17 +184,230 @@ string al_inner_of_future(string ty) {        // "Future<int>*" / "*Future<int>"
     buf[i - start] = 0;
     return (string)buf;
 }
-string al_await_type(*Program prog, *ExprNode awaited) {
-    string callee = "";
-    if (awaited != null && awaited.kind == EK_CALL && awaited.a != null && awaited.a.kind == EK_IDENT) { callee = awaited.a.sval; }
-    if (callee[0] == 0) { return "int"; }
+// `t` with each identifier run equal to a type parameter in `tps` replaced by the
+// matching entry of `args` ("*List<T>" with T=int -> "*List<int>").
+string al_subst(string t, List<TypeParam>* tps, List<string>* args) {
+    if (List_len<TypeParam>(tps) == 0) { return t; }
+    int n = 0; while (t[n] != 0) { n = n + 1; }
+    string out = "";
+    int i = 0;
+    while (i < n) {
+        int c = (int)t[i];
+        if ((c >= 97 && c <= 122) || (c >= 65 && c <= 90) || c == 95) {
+            int s0 = i;
+            while (i < n) {
+                int d = (int)t[i];
+                if ((d >= 97 && d <= 122) || (d >= 65 && d <= 90) || (d >= 48 && d <= 57) || d == 95) { i = i + 1; } else { break; }
+            }
+            string id = al_substr(t, s0, i);
+            int k = 0; int hit = 0 - 1;
+            while (k < List_len<TypeParam>(tps) && k < List_len<string>(args)) {
+                if (str_eq(List_get<TypeParam>(tps, k).name, id) == 1) { hit = k; }
+                k = k + 1;
+            }
+            if (hit >= 0) { out = str_concat(out, List_get<string>(args, hit)); } else { out = str_concat(out, id); }
+        } else {
+            out = str_concat(out, al_substr(t, i, i + 1));
+            i = i + 1;
+        }
+    }
+    return out;
+}
+*DeclNode al_find_fn(*Program prog, string name) {
     int i = 0; int n = List_len<*DeclNode>(&prog.decls);
     while (i < n) {
         *DeclNode d = List_get<*DeclNode>(&prog.decls, i);
-        if (d.kind == DK_FUNCTION && str_eq(d.name, callee) == 1) { return al_inner_of_future(d.ret_type); }
+        if (d.kind == DK_FUNCTION && str_eq(d.name, name) == 1) { return d; }
         i = i + 1;
     }
-    return "int";
+    return null;
+}
+string al_var_type(*DeclNode curfn, string name);
+*DeclNode al_find_struct(*Program prog, string name);
+string al_deref(string t);
+string al_call_rettype(*Program prog, *DeclNode curfn, *ExprNode e, int* is_async);
+
+// The (source-form) type of expression `e` inside `curfn`, as far as this pass can tell
+// without the type checker: literals, locals/params/globals, casts, `&`/`*`, fields, and
+// calls. "" when unknown.
+string al_expr_type(*Program prog, *DeclNode curfn, *ExprNode e) {
+    if (e == null) { return ""; }
+    int k = e.kind;
+    if (k == EK_LITERAL) {
+        if (e.lit_kind == LIT_INT) { return "int"; }
+        if (e.lit_kind == LIT_FLOAT) { return "double"; }
+        if (e.lit_kind == LIT_STRING) { return "string"; }
+        if (e.lit_kind == LIT_CHAR) { return "char"; }
+        if (e.lit_kind == LIT_BOOL) { return "bool"; }
+        return "";
+    }
+    if (k == EK_IDENT) {
+        string t = al_var_type(curfn, e.sval);
+        if (t[0] != 0) { return t; }
+        int i = 0; int n = List_len<*DeclNode>(&prog.decls);
+        while (i < n) {
+            *DeclNode d = List_get<*DeclNode>(&prog.decls, i);
+            if (d.kind == DK_VARDECL && str_eq(d.name, e.sval) == 1) { return d.ret_type; }
+            i = i + 1;
+        }
+        return "";
+    }
+    if (k == EK_CAST) { return e.sval; }
+    if (k == EK_UNARY && str_eq(e.sval, "&") == 1) {
+        string t = al_expr_type(prog, curfn, e.a);
+        if (t[0] == 0) { return ""; }
+        return str_concat("*", t);
+    }
+    if (k == EK_UNARY && str_eq(e.sval, "*") == 1) {
+        string t = al_expr_type(prog, curfn, e.a);
+        if (t[0] == 0) { return ""; }
+        return al_deref(t);
+    }
+    if (k == EK_MEMBER) {
+        string bt = al_expr_type(prog, curfn, e.a);
+        if (bt[0] == 0) { return ""; }
+        string sn = al_deref(bt);
+        List<string> targs; List_init<string>(&targs, 2); ast_targs(sn, &targs);
+        int lt = 0; while (sn[lt] != 0 && (int)sn[lt] != 60) { lt = lt + 1; }
+        *DeclNode sd = al_find_struct(prog, al_substr(sn, 0, lt));
+        if (sd == null) { return ""; }
+        int i = 0;
+        while (i < List_len<Param>(&sd.params)) {
+            Param f = List_get<Param>(&sd.params, i);
+            if (str_eq(f.name, e.sval) == 1) { return al_subst(f.ty, &sd.type_params, &targs); }
+            i = i + 1;
+        }
+        return "";
+    }
+    if (k == EK_CALL || k == EK_TEMPLATECALL) {
+        int isa = 0;
+        string rt = al_call_rettype(prog, curfn, e, &isa);
+        if (rt[0] == 0) { return ""; }
+        if (isa == 1) {
+            if (str_eq(rt, "void") == 1) { rt = "uint8"; }
+            return str_concat("*Future<", str_concat(rt, ">"));
+        }
+        return rt;
+    }
+    return "";
+}
+
+// Bind the type parameters of generic `d` by unifying its parameter types (from index
+// `p0`) against the argument types of `args` (from index `a0`); `pre` holds bindings
+// already known (or "" per parameter).
+void al_infer_targs(*Program prog, *DeclNode curfn, *DeclNode d, List<*ExprNode>* args, int p0, int a0, List<string>* out) {
+    int ti = 0;
+    while (ti < List_len<TypeParam>(&d.type_params)) {
+        string tp = List_get<TypeParam>(&d.type_params, ti).name;
+        if (List_get<string>(out, ti)[0] == 0) {
+            int pi = p0; int ai = a0;
+            while (List_get<string>(out, ti)[0] == 0 && pi < List_len<Param>(&d.params) && ai < List_len<*ExprNode>(args)) {
+                string at = al_expr_type(prog, curfn, List_get<*ExprNode>(args, ai));
+                if (at[0] != 0) {
+                    string b = ast_unify_tparam(List_get<Param>(&d.params, pi).ty, at, tp);
+                    if (b[0] != 0) { List_set<string>(out, ti, b); }
+                }
+                pi = pi + 1; ai = ai + 1;
+            }
+        }
+        ti = ti + 1;
+    }
+}
+
+// The declared return type (type parameters substituted) of the function a call `e`
+// targets: a named function (generic ones infer their type arguments from the call's
+// arguments), an explicit `name<args>(...)`, or a method call `recv.m(...)` (an inline
+// method of the receiver's struct, `S_m`, or a generic free `S_m<T..>`). `*is_async`
+// tells whether that function is `async` (its call then yields `*Future<ret>`). "" when
+// the target is not found.
+string al_call_rettype(*Program prog, *DeclNode curfn, *ExprNode e, int* is_async) {
+    *is_async = 0;
+    if (e.kind == EK_TEMPLATECALL) {
+        string sp = e.sval;
+        int lt = 0; while (sp[lt] != 0 && (int)sp[lt] != 60) { lt = lt + 1; }
+        *DeclNode d = al_find_fn(prog, al_substr(sp, 0, lt));
+        if (d == null) { return ""; }
+        List<string> targs; List_init<string>(&targs, 2); ast_targs(sp, &targs);
+        *is_async = d.is_async;
+        return al_subst(d.ret_type, &d.type_params, &targs);
+    }
+    if (e.kind != EK_CALL || e.a == null) { return ""; }
+    if (e.a.kind == EK_IDENT) {
+        *DeclNode d = al_find_fn(prog, e.a.sval);
+        if (d == null) { return ""; }
+        *is_async = d.is_async;
+        if (List_len<TypeParam>(&d.type_params) == 0) { return d.ret_type; }
+        List<string> targs; List_init<string>(&targs, 2);
+        int ti = 0; while (ti < List_len<TypeParam>(&d.type_params)) { List_push<string>(&targs, ""); ti = ti + 1; }
+        al_infer_targs(prog, curfn, d, &e.kids, 0, 0, &targs);
+        return al_subst(d.ret_type, &d.type_params, &targs);
+    }
+    if (e.a.kind == EK_MEMBER) {
+        string rt = al_expr_type(prog, curfn, e.a.a);
+        if (rt[0] == 0) { return ""; }
+        string sn = al_deref(rt);
+        string m = e.a.sval;
+        int lt = 0; while (sn[lt] != 0 && (int)sn[lt] != 60) { lt = lt + 1; }
+        string base = al_substr(sn, 0, lt);
+        List<string> sargs; List_init<string>(&sargs, 2); ast_targs(sn, &sargs);
+        *DeclNode sd = al_find_struct(prog, base);
+        if (sd != null) {
+            int mi = 0;
+            while (mi < List_len<*DeclNode>(&sd.methods)) {
+                *DeclNode md = List_get<*DeclNode>(&sd.methods, mi);
+                if (str_eq(md.name, m) == 1) { *is_async = md.is_async; return al_subst(md.ret_type, &sd.type_params, &sargs); }
+                mi = mi + 1;
+            }
+        }
+        *DeclNode d = al_find_fn(prog, str_concat(base, str_concat("_", m)));
+        if (d == null) { return ""; }
+        *is_async = d.is_async;
+        if (List_len<TypeParam>(&d.type_params) == 0) { return d.ret_type; }
+        List<string> targs; List_init<string>(&targs, 2);
+        int ti = 0; while (ti < List_len<TypeParam>(&d.type_params)) { List_push<string>(&targs, ""); ti = ti + 1; }
+        if (List_len<Param>(&d.params) > 0) {
+            string selfp = List_get<Param>(&d.params, 0).ty;
+            string recv = sn;
+            if ((int)selfp[0] == 42) { recv = str_concat("*", sn); }
+            ti = 0;
+            while (ti < List_len<TypeParam>(&d.type_params)) {
+                List_set<string>(&targs, ti, ast_unify_tparam(selfp, recv, List_get<TypeParam>(&d.type_params, ti).name));
+                ti = ti + 1;
+            }
+        }
+        al_infer_targs(prog, curfn, d, &e.kids, 1, 0, &targs);
+        return al_subst(d.ret_type, &d.type_params, &targs);
+    }
+    return "";
+}
+
+// The awaited value type of `await E` (source form, so inside a generic async function it
+// is spelled with the type parameters): the inner `T` of E's `*Future<T>` type, where E
+// is a call (an `async` callee yields its declared return type), a future variable, or a
+// future field. "" when it cannot be resolved.
+string al_await_type_or(*Program prog, *DeclNode curfn, *ExprNode awaited) {
+    if (awaited == null) { return ""; }
+    if (awaited.kind == EK_CALL || awaited.kind == EK_TEMPLATECALL) {
+        int isa = 0;
+        string rt = al_call_rettype(prog, curfn, awaited, &isa);
+        if (rt[0] != 0) {
+            if (isa == 1) {
+                if (str_eq(rt, "void") == 1) { return "uint8"; }
+                return rt;
+            }
+            return al_inner_of_future(rt);
+        }
+        return "";
+    }
+    string t = al_expr_type(prog, curfn, awaited);
+    if (t[0] != 0) { return al_inner_of_future(t); }
+    return "";
+}
+// As al_await_type_or, defaulting to "int".
+string al_await_type(*Program prog, *DeclNode curfn, *ExprNode awaited) {
+    string t = al_await_type_or(prog, curfn, awaited);
+    if (t[0] == 0) { return "int"; }
+    return t;
 }
 
 // Declared type of a variable name (a param or a body local) in statement subtree `s`.
@@ -460,12 +673,11 @@ int al_lower_item(*AlCtx c, *StmtNode s, int cur) {
         if (s.expr.kind == EK_AWAIT) {
             int idx = c.awcount; c.awcount = idx + 1;
             string awf = fresh_name(str_concat("__aw", int_to_str(idx)), c.used);
-            // The awaited value's type is exactly the declared type of the let variable
-            // (`let x: T = await E` yields T). Prefer it: al_await_type only resolves a bare
-            // `name(...)` future, so a method call / variable / template-call future would
-            // otherwise fall back to "int" and read the value through a wrong overlay.
-            string Ti = s.type;
-            if (Ti == null || Ti[0] == 0) { Ti = al_await_type(c.prog, s.expr.a); }
+            // The future's value type, as the C++ transform uses it; when it cannot be
+            // resolved, the declared type of the let variable (`let x: T = await E`).
+            string Ti = al_await_type_or(c.prog, c.curfn, s.expr.a);
+            if (Ti[0] == 0) { Ti = s.type; }
+            if (Ti == null || Ti[0] == 0) { Ti = "int"; }
             let af: Param; af.name = awf; af.ty = str_concat("*Future<", str_concat(Ti, ">")); List_push<Param>(&c.fields, af);
             *ExprNode callE = s.expr.a; al_rewrite(callE, &c.vars);
             al_push(c, cur, al_assign(al_fr(awf), callE));
@@ -640,16 +852,16 @@ void al_desugar_items(*AlCtx c, List<*StmtNode>* inp, List<*StmtNode>* out) {
         *StmtNode s = List_get<*StmtNode>(inp, i); i = i + 1;
         if (s.kind == SK_RETURN && s.expr != null && s.expr.kind == EK_AWAIT) {
             string tn = fresh_name(str_concat("__awt", int_to_str(c.tmpn)), c.used); c.tmpn = c.tmpn + 1;
-            string Ti = al_await_type(c.prog, s.expr.a);
+            string Ti = al_await_type(c.prog, c.curfn, s.expr.a);
             List_push<*StmtNode>(out, mk_vardecl(tn, Ti, s.expr, 0));
             List_push<*StmtNode>(out, al_return(mk_ident(tn)));
         } else if (s.kind == SK_EXPR && s.expr != null && s.expr.kind == EK_AWAIT) {
             string tn = fresh_name(str_concat("__awt", int_to_str(c.tmpn)), c.used); c.tmpn = c.tmpn + 1;
-            List_push<*StmtNode>(out, mk_vardecl(tn, al_await_type(c.prog, s.expr.a), s.expr, 0));
+            List_push<*StmtNode>(out, mk_vardecl(tn, al_await_type(c.prog, c.curfn, s.expr.a), s.expr, 0));
         } else if (s.kind == SK_EXPR && s.expr != null && s.expr.kind == EK_BINARY
                    && str_eq(s.expr.sval, "=") == 1 && s.expr.b != null && s.expr.b.kind == EK_AWAIT) {
             string tn = fresh_name(str_concat("__awt", int_to_str(c.tmpn)), c.used); c.tmpn = c.tmpn + 1;
-            List_push<*StmtNode>(out, mk_vardecl(tn, al_await_type(c.prog, s.expr.b.a), s.expr.b, 0));
+            List_push<*StmtNode>(out, mk_vardecl(tn, al_await_type(c.prog, c.curfn, s.expr.b.a), s.expr.b, 0));
             List_push<*StmtNode>(out, al_exprstmt(mk_bin("=", s.expr.a, mk_ident(tn))));
         } else {
             List_push<*StmtNode>(out, al_desugar_stmt(c, s));
