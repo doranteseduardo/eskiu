@@ -88,20 +88,41 @@ int64 fs_size(*void fp) {
 // ── Read entire file ──────────────────────────────────────────────────────
 
 // Reads the entire file into a heap-allocated buffer (caller must free).
-// Sets *out_len to the byte count. Returns null on error.
+// Sets *out_len to the byte count. Returns null on error. Works on streams
+// that cannot seek (a pipe, /dev/stdin): the size is only a first guess and
+// the buffer grows until fread reports end of file.
 *uint8 fs_read_all(string path, *int64 out_len) {
     *void fp = fopen(path, "rb");
     if (fp == null) { return null; }
 
-    fseek(fp, 0, 2);
-    int64 size = ftell(fp);
-    fseek(fp, 0, 0);
+    int64 cap = (int64)0;
+    if (fseek(fp, 0, 2) == 0) {
+        int64 size = ftell(fp);
+        if (size > (int64)0) { cap = size; }
+        fseek(fp, 0, 0);
+    }
+    if (cap < (int64)4096) { cap = (int64)4096; }
 
-    *uint8 buf = alloc<uint8>(size + 1);
+    *uint8 buf = alloc<uint8>(cap + 1);
     if (buf == null) { fclose(fp); return null; }
-
-    int64 n = fread(buf, 1, size, fp);
+    int64 n = (int64)0;
+    int more = 1;
+    while (more != 0) {
+        if (n == cap) {
+            int64 ncap = cap * (int64)2;
+            *uint8 grown = alloc<uint8>(ncap + 1);
+            if (grown == null) { free((*void)buf); fclose(fp); return null; }
+            memcpy((*void)grown, (*void)buf, n);
+            free((*void)buf);
+            buf = grown;
+            cap = ncap;
+        }
+        int64 got = fread(buf + n, 1, cap - n, fp);
+        if (got <= (int64)0) { more = 0; } else { n = n + got; }
+    }
+    int bad = ferror(fp);
     fclose(fp);
+    if (bad != 0) { free((*void)buf); return null; }
 
     buf[n] = 0;      // null-terminate for text use
     *out_len = n;
