@@ -166,6 +166,8 @@ StmtPtr Parser::parseBlockStatement() {
     std::vector<BlockItem> items;
 
     while (!check(TokenType::RBRACE) && !is_at_end()) {
+        // A #pragma in a body updates parser state (pack / link) and emits nothing.
+        if (check(TokenType::PRAGMA)) { Token pt = advance(); applyPragma(pt); continue; }
         // Check if this looks like a declaration
         if (check(TokenType::CONST) ||
             check(TokenType::VOLATILE) ||

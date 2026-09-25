@@ -2566,7 +2566,7 @@ int main() {
 
 Substitution is identifier-aware and leaves string and character literals untouched. Expansion is **recursive**: a macro whose body references other macros is expanded fully (a macro is never re-expanded within its own expansion). The macro table is **shared across files** and follows the text in order, like C's `#include`: an imported file sees the macros defined before its `import` line (not the ones defined after it), its own `#define`s reach the importing file's later lines, and each input of a multi-file compile sees the macros of the inputs before it. A function-like macro invocation may span lines: its argument list continues until the matching `)` (a newline inside it reads as a space).
 
-Unlike the other directives, `#pragma` is not consumed by the preprocessor. It is passed through to the compiler. `#pragma pack` (§8.9) and `#pragma link` are acted upon; any other pragma is ignored.
+Unlike the other directives, `#pragma` is not consumed by the preprocessor. It is passed through to the compiler. `#pragma pack` (§8.9) and `#pragma link` are acted upon; any other pragma is ignored. A pragma may appear at the top level, inside a function body or inside a struct body; a `pack` inside a struct body applies to the structs declared after it (as in C), not to the enclosing one.
 
 `#pragma link("name")` asks the driver to link the executable with `-lname`. The
 name is what follows `-l` (letters, digits, `_ . + -`, not starting with `-`), in

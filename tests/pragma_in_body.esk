@@ -1,0 +1,16 @@
+// #pragma inside a function body or a struct body. As in C, a `pack` inside a
+// struct applies to the structs declared after it, not to the enclosing one.
+extern int printf(string fmt, ...);
+extern double sqrt(double x);
+struct A {
+#pragma pack(push, 1)
+  int8 a; int b;
+}
+struct B { int8 a; int b; }
+#pragma pack(pop)
+struct C { int8 a; int b; }
+int main() {
+#pragma link("m")
+  printf("%d %d %d %d\n", (int)sizeof(A), (int)sizeof(B), (int)sizeof(C), (int)sqrt(49.0));
+  return 0;
+}

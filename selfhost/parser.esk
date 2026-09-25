@@ -254,6 +254,13 @@ int apply_link_pragma(Parser* p, Token t, string text) {
     return 1;
 }
 
+// Consume a #pragma token and apply it (link library or pack state).
+void p_take_pragma(Parser* p) {
+    Token pt = p_adv(p);
+    string ptext = tok_text(p.src, pt);
+    if (apply_link_pragma(p, pt, ptext) == 0) { apply_pragma(p, pt, ptext); }
+}
+
 void p_init(Parser* p, *uint8 src, int len) {
     p.src = src;
     p.pos = 0;
@@ -1759,7 +1766,8 @@ void check_name_not_keyword(Parser* p) {
     b.kind = SK_BLOCK;
     List_init<*StmtNode>(&b.items, 4);
     while (p_at(p) != RBRACE && p_at(p) != EOF_TOKEN) {
-        List_push<*StmtNode>(&b.items, parse_block_item(p));
+        if (p_at(p) == PRAGMA) { p_take_pragma(p); }   // pack / link state, no item
+        else { List_push<*StmtNode>(&b.items, parse_block_item(p)); }
     }
     p_expect(p, RBRACE, "Expected '}'");
     return b;
@@ -1991,6 +1999,7 @@ string i64_to_str(int64 n) {
     p_expect(p, LBRACE, "Expected '{'");
     List_init<Param>(&d.params, 4);
     while (p_at(p) != RBRACE && p_at(p) != EOF_TOKEN) {
+        if (p_at(p) == PRAGMA) { p_take_pragma(p); continue; }
         string mty = parse_type(p);
         check_name_not_keyword(p);         // a field/method name can't be a reserved word (e.g. `in`)
         Token mnm = p_expect_ident(p, "Expected member name");              // member name
@@ -2246,11 +2255,7 @@ void do_import(Parser* p, *Program prog) {
 // file and recursively for each import, so imported decls land in declaration order).
 void parse_into(Parser* p, *Program prog) {
     while (p_at(p) != EOF_TOKEN) {
-        if (p_at(p) == PRAGMA) {                    // #pragma link / pack state
-            Token pt = p_adv(p);
-            string ptext = tok_text(p.src, pt);
-            if (apply_link_pragma(p, pt, ptext) == 0) { apply_pragma(p, pt, ptext); }
-        }
+        if (p_at(p) == PRAGMA) { p_take_pragma(p); }   // #pragma link / pack state
         else if (p_at(p) == IMPORT) { p_adv(p); do_import(p, prog); }
         else {
             *DeclNode d = parse_decl_top(p);

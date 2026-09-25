@@ -412,6 +412,9 @@ DeclPtr Parser::parseIntrinsicDecl() {
 DeclPtr Parser::parseStructDecl() {
     Token snameTok = consume(TokenType::IDENT, "Expected struct name");
     std::string name = snameTok.value;
+    // The packing in effect where the struct starts (C: a #pragma pack inside the
+    // body applies to later structs, not this one).
+    int packAtStart = currentPack;
 
     // Optional type parameters: struct List<T>  or  struct Result<T, E>
     std::vector<std::string> typeParams;
@@ -428,6 +431,7 @@ DeclPtr Parser::parseStructDecl() {
     struct ScopeRestore { std::vector<std::string>& v; size_t n; ~ScopeRestore() { v.resize(n); } } restore{typeParamScope, scopeMark};
 
     while (!check(TokenType::RBRACE) && !is_at_end()) {
+        if (check(TokenType::PRAGMA)) { Token pt = advance(); applyPragma(pt); continue; }
         size_t savePos = current;
         try {
             std::string memberType = parseType();
@@ -460,9 +464,9 @@ DeclPtr Parser::parseStructDecl() {
     decl->methods  = methods;
     decl->typeParams = typeParams;
     decl->constraints = typeConstraints;
-    if (currentPack >= 1) {                       // under #pragma pack(N)
-        decl->packAlign = currentPack;
-        if (currentPack == 1) decl->isPacked = true;
+    if (packAtStart >= 1) {                       // under #pragma pack(N)
+        decl->packAlign = packAtStart;
+        if (packAtStart == 1) decl->isPacked = true;
     }
     return withPos(decl, snameTok);
 }
