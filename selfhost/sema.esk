@@ -1723,104 +1723,134 @@ int sema_cond_true(*ExprNode c) {
     return 0;
 }
 
-int sema_always_returns(*StmtNode s);
+int sema_can_complete(*StmtNode s);
 
-// Does `s` hold a `break` that exits the enclosing loop (not one swallowed by a
-// nested loop or switch)?
-int sema_has_break(*StmtNode s) {
+// Label text of a loop/jump node ("" when unlabeled).
+string sema_lbl(*StmtNode s) {
+    if (s.label == null) { return ""; }
+    return s.label;
+}
+
+// Does `s` hold a `break` (or, with want_cont, a `continue`) that transfers to the loop or
+// switch enclosing it, labeled `label` ("" for none / a switch)? `inner` = inside a nested
+// loop/switch, where an unlabeled jump binds there instead; a labeled jump naming `label`
+// reaches from any depth. Mirrors the C++ jumpsTo.
+int sema_jumps_to(*StmtNode s, string label, int want_cont, int inner) {
     if (s == null) { return 0; }
-    if (s.kind == SK_BREAK) { return 1; }
-    if (s.kind == SK_BLOCK) {
-        int i = 0; int n = List_len<*StmtNode>(&s.items);
-        while (i < n) { if (sema_has_break(List_get<*StmtNode>(&s.items, i)) == 1) { return 1; } i = i + 1; }
+    int k = s.kind;
+    if (k == SK_BREAK || k == SK_CONTINUE) {
+        if ((k == SK_CONTINUE) != (want_cont == 1)) { return 0; }
+        string l = sema_lbl(s);
+        if (l[0] == 0) { if (inner == 0) { return 1; } return 0; }
+        if (label[0] != 0 && sema_streq(l, label) == 1) { return 1; }
         return 0;
     }
-    if (s.kind == SK_IF) {
-        if (sema_has_break(s.s1) == 1) { return 1; }
-        return sema_has_break(s.s2);
-    }
-    // Nested loops and switch capture their own break — do not descend.
-    if (s.kind == SK_WHILE) { return 0; }
-    if (s.kind == SK_DOWHILE) { return 0; }
-    if (s.kind == SK_FOR)   { return 0; }
-    if (s.kind == SK_FORIN) { return 0; }
-    if (s.kind == SK_SWITCH){ return 0; }
-    if (s.kind == SK_MATCH) {                           // match is not a loop
+    if (k == SK_BLOCK) {
         int i = 0; int n = List_len<*StmtNode>(&s.items);
-        while (i < n) { if (sema_has_break(List_get<*StmtNode>(&s.items, i).s1) == 1) { return 1; } i = i + 1; }
+        while (i < n) { if (sema_jumps_to(List_get<*StmtNode>(&s.items, i), label, want_cont, inner) == 1) { return 1; } i = i + 1; }
         return 0;
     }
-    if (s.kind == SK_TRY) {
-        if (sema_has_break(s.s1) == 1) { return 1; }
+    if (k == SK_IF) {
+        if (sema_jumps_to(s.s1, label, want_cont, inner) == 1) { return 1; }
+        return sema_jumps_to(s.s2, label, want_cont, inner);
+    }
+    if (k == SK_WHILE || k == SK_DOWHILE || k == SK_FORIN) { return sema_jumps_to(s.s1, label, want_cont, 1); }
+    if (k == SK_FOR) { return sema_jumps_to(s.s2, label, want_cont, 1); }
+    if (k == SK_SWITCH) {                               // captures an unlabeled break, not a continue
+        int in2 = 1; if (want_cont == 1) { in2 = inner; }
         int i = 0; int n = List_len<*StmtNode>(&s.items);
-        while (i < n) { if (sema_has_break(List_get<*StmtNode>(&s.items, i).s1) == 1) { return 1; } i = i + 1; }
-        return sema_has_break(s.s2);
+        while (i < n) {
+            *StmtNode c = List_get<*StmtNode>(&s.items, i);
+            int j = 0; int m = List_len<*StmtNode>(&c.items);
+            while (j < m) { if (sema_jumps_to(List_get<*StmtNode>(&c.items, j), label, want_cont, in2) == 1) { return 1; } j = j + 1; }
+            i = i + 1;
+        }
+        return 0;
+    }
+    if (k == SK_MATCH) {                                // match is not a jump target
+        int i = 0; int n = List_len<*StmtNode>(&s.items);
+        while (i < n) { if (sema_jumps_to(List_get<*StmtNode>(&s.items, i).s1, label, want_cont, inner) == 1) { return 1; } i = i + 1; }
+        return 0;
+    }
+    if (k == SK_TRY) {
+        if (sema_jumps_to(s.s1, label, want_cont, inner) == 1) { return 1; }
+        int i = 0; int n = List_len<*StmtNode>(&s.items);
+        while (i < n) { if (sema_jumps_to(List_get<*StmtNode>(&s.items, i).s1, label, want_cont, inner) == 1) { return 1; } i = i + 1; }
+        return sema_jumps_to(s.s2, label, want_cont, inner);
     }
     return 0;
 }
 
-// Does executing `s` guarantee control does not fall through (returns, throws,
-// or provably diverges)? Conservative: anything it cannot prove returns 0.
-int sema_always_returns(*StmtNode s) {
-    if (s == null) { return 0; }
-    if (s.kind == SK_RETURN) { return 1; }
-    if (s.kind == SK_THROW)  { return 1; }
-    if (s.kind == SK_BLOCK) {
+// Can executing `s` fall through to the next statement? Conservative: unsure means yes.
+// Mirrors the C++ canCompleteNormally.
+int sema_can_complete(*StmtNode s) {
+    if (s == null) { return 1; }
+    int k = s.kind;
+    if (k == SK_RETURN || k == SK_THROW || k == SK_BREAK || k == SK_CONTINUE) { return 0; }
+    if (k == SK_BLOCK) {
         int i = 0; int n = List_len<*StmtNode>(&s.items);
-        while (i < n) { if (sema_always_returns(List_get<*StmtNode>(&s.items, i)) == 1) { return 1; } i = i + 1; }
+        while (i < n) { if (sema_can_complete(List_get<*StmtNode>(&s.items, i)) == 0) { return 0; } i = i + 1; }
+        return 1;
+    }
+    if (k == SK_IF) {
+        if (s.s2 == null) { return 1; }
+        if (sema_can_complete(s.s1) == 1) { return 1; }
+        return sema_can_complete(s.s2);
+    }
+    if (k == SK_WHILE) {
+        if (sema_cond_true(s.expr) == 0) { return 1; }
+        return sema_jumps_to(s.s1, sema_lbl(s), 0, 0);
+    }
+    if (k == SK_FOR) {                                  // body is s2 (s1 is init)
+        if (sema_cond_true(s.expr) == 0) { return 1; }
+        return sema_jumps_to(s.s2, sema_lbl(s), 0, 0);
+    }
+    if (k == SK_DOWHILE) {                              // body runs at least once
+        if (sema_jumps_to(s.s1, sema_lbl(s), 0, 0) == 1) { return 1; }
+        int reaches = sema_can_complete(s.s1);
+        if (reaches == 0) { reaches = sema_jumps_to(s.s1, sema_lbl(s), 1, 0); }
+        if (reaches == 1 && sema_cond_true(s.expr) == 0) { return 1; }
         return 0;
     }
-    if (s.kind == SK_IF) {
-        if (s.s2 == null) { return 0; }
-        if (sema_always_returns(s.s1) == 0) { return 0; }
-        return sema_always_returns(s.s2);
-    }
-    if (s.kind == SK_WHILE) {
-        if (sema_cond_true(s.expr) == 1 && sema_has_break(s.s1) == 0) { return 1; }
-        return 0;
-    }
-    if (s.kind == SK_DOWHILE) {                         // body runs at least once
-        if (sema_always_returns(s.s1) == 1) { return 1; }
-        if (sema_cond_true(s.expr) == 1 && sema_has_break(s.s1) == 0) { return 1; }
-        return 0;
-    }
-    if (s.kind == SK_FOR) {                             // body is s2 (s1 is init)
-        if (sema_cond_true(s.expr) == 1 && sema_has_break(s.s2) == 0) { return 1; }
-        return 0;
-    }
-    if (s.kind == SK_FORIN) { return 0; }               // may iterate zero times
-    if (s.kind == SK_SWITCH) {
+    if (k == SK_FORIN) { return 1; }                    // may iterate zero times
+    if (k == SK_SWITCH) {                               // cases fall through in order
+        int n = List_len<*StmtNode>(&s.items);
         int has_default = 0;
-        int i = 0; int n = List_len<*StmtNode>(&s.items);
+        int i = 0;
+        while (i < n) { if (List_get<*StmtNode>(&s.items, i).expr == null) { has_default = 1; } i = i + 1; }
+        if (has_default == 0 || n == 0) { return 1; }
+        i = 0;
         while (i < n) {
             *StmtNode c = List_get<*StmtNode>(&s.items, i);
-            if (c.expr == null) { has_default = 1; }
-            int case_ret = 0;
-            int j = 0; int cn = List_len<*StmtNode>(&c.items);
-            while (j < cn) { if (sema_always_returns(List_get<*StmtNode>(&c.items, j)) == 1) { case_ret = 1; } j = j + 1; }
-            if (case_ret == 0) { return 0; }
+            int j = 0; int m = List_len<*StmtNode>(&c.items);
+            while (j < m) { if (sema_jumps_to(List_get<*StmtNode>(&c.items, j), "", 0, 0) == 1) { return 1; } j = j + 1; }
             i = i + 1;
         }
-        return has_default;
+        *StmtNode last = List_get<*StmtNode>(&s.items, n - 1);
+        int j = 0; int m = List_len<*StmtNode>(&last.items);
+        while (j < m) { if (sema_can_complete(List_get<*StmtNode>(&last.items, j)) == 0) { return 0; } j = j + 1; }
+        return 1;
     }
-    if (s.kind == SK_MATCH) {                           // exhaustiveness checked earlier
+    if (k == SK_MATCH) {                                // exhaustiveness checked separately
         int n = List_len<*StmtNode>(&s.items);
-        if (n == 0) { return 0; }
+        if (n == 0) { return 1; }
         int i = 0;
-        while (i < n) {
-            if (sema_always_returns(List_get<*StmtNode>(&s.items, i).s1) == 0) { return 0; }
-            i = i + 1;
-        }
-        return 1;
+        while (i < n) { if (sema_can_complete(List_get<*StmtNode>(&s.items, i).s1) == 1) { return 1; } i = i + 1; }
+        return 0;
     }
-    if (s.kind == SK_TRY) {
-        if (s.s2 != null && sema_always_returns(s.s2) == 1) { return 1; }
-        if (sema_always_returns(s.s1) == 0) { return 0; }
+    if (k == SK_TRY) {
+        if (s.s2 != null && sema_can_complete(s.s2) == 0) { return 0; }
+        if (sema_can_complete(s.s1) == 1) { return 1; }
         int i = 0; int n = List_len<*StmtNode>(&s.items);
-        while (i < n) { if (sema_always_returns(List_get<*StmtNode>(&s.items, i).s1) == 0) { return 0; } i = i + 1; }
-        return 1;
+        while (i < n) { if (sema_can_complete(List_get<*StmtNode>(&s.items, i).s1) == 1) { return 1; } i = i + 1; }
+        return 0;
     }
-    return 0;
+    return 1;
+}
+
+int sema_always_returns(*StmtNode s) {
+    if (sema_can_complete(s) == 1) { return 0; }
+    return 1;
 }
 
 // Check a function/method body: a fresh scope with the params (and `self` for

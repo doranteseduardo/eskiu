@@ -129,9 +129,11 @@ struct TemplateCapturePass {
 
 // --- Definite-return analysis --------------------------------------------
 // A non-void function must return (or throw, or provably diverge) on every
-// path; falling off the end is an error, not an implicit zero return.
+// path; falling off the end is an error, not an implicit zero return. The
+// analysis is "can this statement complete normally?" (Java-style): a function
+// whose body can complete normally is missing a return.
 
-bool stmtAlwaysReturns(Stmt* s);
+bool canCompleteNormally(Stmt* s);
 
 // Is `cond` a literal that is always true? (`while(1)`, `while(true)`, or a
 // `for(;;)` whose condition is null.)
@@ -144,91 +146,111 @@ bool condAlwaysTrue(Expr* cond) {
     return false;
 }
 
-// Does `s` contain a `break` that would exit the *enclosing* loop, i.e. a
-// break not swallowed by a nested loop or switch? Used to tell whether an
-// otherwise-infinite loop can still fall through.
-bool hasBreakAtThisLevel(Stmt* s) {
+// Does `s` contain a `break` (or, with `wantContinue`, a `continue`) that transfers
+// to the loop or switch enclosing `s`, whose label is `label` ("" for none, always
+// "" for a switch)? `inner` is set once we are inside a nested loop/switch, where
+// an unlabeled jump binds to that construct instead; a labeled jump naming `label`
+// reaches us from any depth.
+bool jumpsTo(Stmt* s, const std::string& label, bool wantContinue, bool inner) {
     if (!s) return false;
-    if (dynamic_cast<BreakStmt*>(s)) return true;
+    if (auto* b = dynamic_cast<BreakStmt*>(s)) {
+        if (wantContinue) return false;
+        return b->label.empty() ? !inner : (!label.empty() && b->label == label);
+    }
+    if (auto* c = dynamic_cast<ContinueStmt*>(s)) {
+        if (!wantContinue) return false;
+        return c->label.empty() ? !inner : (!label.empty() && c->label == label);
+    }
     if (auto* b = dynamic_cast<BlockStmt*>(s)) {
         for (auto& it : b->items)
             if (std::holds_alternative<StmtPtr>(it) &&
-                hasBreakAtThisLevel(std::get<StmtPtr>(it).get())) return true;
+                jumpsTo(std::get<StmtPtr>(it).get(), label, wantContinue, inner)) return true;
         return false;
     }
     if (auto* i = dynamic_cast<IfStmt*>(s))
-        return hasBreakAtThisLevel(i->thenBranch.get()) ||
-               hasBreakAtThisLevel(i->elseBranch.get());
-    // Nested loops and switch capture their own `break` — do not descend.
-    if (dynamic_cast<WhileStmt*>(s) || dynamic_cast<ForStmt*>(s) ||
-        dynamic_cast<DoWhileStmt*>(s) ||
-        dynamic_cast<ForInStmt*>(s) || dynamic_cast<SwitchStmt*>(s)) return false;
-    if (auto* m = dynamic_cast<MatchStmt*>(s)) {   // match is not a loop
+        return jumpsTo(i->thenBranch.get(), label, wantContinue, inner) ||
+               jumpsTo(i->elseBranch.get(), label, wantContinue, inner);
+    if (auto* w = dynamic_cast<WhileStmt*>(s))   return jumpsTo(w->body.get(), label, wantContinue, true);
+    if (auto* dw = dynamic_cast<DoWhileStmt*>(s)) return jumpsTo(dw->body.get(), label, wantContinue, true);
+    if (auto* f = dynamic_cast<ForStmt*>(s))     return jumpsTo(f->body.get(), label, wantContinue, true);
+    if (auto* fi = dynamic_cast<ForInStmt*>(s))  return jumpsTo(fi->body.get(), label, wantContinue, true);
+    if (auto* sw = dynamic_cast<SwitchStmt*>(s)) {
+        // A switch captures an unlabeled `break`, but not a `continue`.
+        bool in = wantContinue ? inner : true;
+        for (auto& c : sw->cases)
+            for (auto& st : c.stmts) if (jumpsTo(st.get(), label, wantContinue, in)) return true;
+        return false;
+    }
+    if (auto* m = dynamic_cast<MatchStmt*>(s)) {   // match is not a jump target
         for (auto& arm : m->arms)
-            if (hasBreakAtThisLevel(arm.body.get())) return true;
+            if (jumpsTo(arm.body.get(), label, wantContinue, inner)) return true;
         return false;
     }
     if (auto* t = dynamic_cast<TryStmt*>(s)) {
-        if (hasBreakAtThisLevel(t->body.get())) return true;
+        if (jumpsTo(t->body.get(), label, wantContinue, inner)) return true;
         for (auto& c : t->catches)
-            if (hasBreakAtThisLevel(c.body.get())) return true;
-        return hasBreakAtThisLevel(t->finally.get());
+            if (jumpsTo(c.body.get(), label, wantContinue, inner)) return true;
+        return jumpsTo(t->finally.get(), label, wantContinue, inner);
     }
-    return false;
+    return false;   // a defer body may not jump out of itself (rejected separately)
 }
 
-// Does executing `s` guarantee control does not fall through to the following
-// statement (it returns, throws, or provably diverges)? Conservative: any case
-// it cannot prove returns false, which at worst asks for an explicit return.
-bool stmtAlwaysReturns(Stmt* s) {
-    if (!s) return false;
-    if (dynamic_cast<ReturnStmt*>(s)) return true;
-    if (dynamic_cast<ThrowStmt*>(s))  return true;
+// Can executing `s` fall through to the following statement? Conservative in the
+// safe direction: when unsure it answers "yes", which at worst asks for a return.
+bool canCompleteNormally(Stmt* s) {
+    if (!s) return true;
+    if (dynamic_cast<ReturnStmt*>(s) || dynamic_cast<ThrowStmt*>(s) ||
+        dynamic_cast<BreakStmt*>(s) || dynamic_cast<ContinueStmt*>(s)) return false;
     if (auto* b = dynamic_cast<BlockStmt*>(s)) {
         for (auto& it : b->items)
             if (std::holds_alternative<StmtPtr>(it) &&
-                stmtAlwaysReturns(std::get<StmtPtr>(it).get())) return true;
-        return false;
+                !canCompleteNormally(std::get<StmtPtr>(it).get())) return false;
+        return true;
     }
     if (auto* i = dynamic_cast<IfStmt*>(s))
-        return i->elseBranch && stmtAlwaysReturns(i->thenBranch.get()) &&
-               stmtAlwaysReturns(i->elseBranch.get());
+        return !i->elseBranch || canCompleteNormally(i->thenBranch.get()) ||
+               canCompleteNormally(i->elseBranch.get());
     if (auto* w = dynamic_cast<WhileStmt*>(s))
-        return condAlwaysTrue(w->condition.get()) && !hasBreakAtThisLevel(w->body.get());
-    if (auto* dw = dynamic_cast<DoWhileStmt*>(s)) {
-        // The body runs at least once: if it always returns, so does the loop.
-        if (stmtAlwaysReturns(dw->body.get())) return true;
-        return condAlwaysTrue(dw->condition.get()) && !hasBreakAtThisLevel(dw->body.get());
-    }
+        return !condAlwaysTrue(w->condition.get()) || jumpsTo(w->body.get(), w->label, false, false);
     if (auto* f = dynamic_cast<ForStmt*>(s))
-        return condAlwaysTrue(f->condition.get()) && !hasBreakAtThisLevel(f->body.get());
-    // for-in iterates a possibly-empty collection: never guarantees a return.
-    if (dynamic_cast<ForInStmt*>(s)) return false;
-    if (auto* sw = dynamic_cast<SwitchStmt*>(s)) {
-        bool hasDefault = false;
-        for (auto& c : sw->cases) {
-            if (!c.value) hasDefault = true;
-            bool caseReturns = false;
-            for (auto& st : c.stmts) if (stmtAlwaysReturns(st.get())) { caseReturns = true; break; }
-            if (!caseReturns) return false;
-        }
-        return hasDefault;
+        return !condAlwaysTrue(f->condition.get()) || jumpsTo(f->body.get(), f->label, false, false);
+    if (auto* dw = dynamic_cast<DoWhileStmt*>(s)) {
+        // The body runs at least once; the condition is reached when the body completes
+        // or `continue`s, and the loop exits there unless the condition is always true.
+        if (jumpsTo(dw->body.get(), dw->label, false, false)) return true;
+        bool reachesCond = canCompleteNormally(dw->body.get()) ||
+                           jumpsTo(dw->body.get(), dw->label, true, false);
+        return reachesCond && !condAlwaysTrue(dw->condition.get());
     }
-    // A `match` is verified exhaustive earlier, so it always returns iff every
-    // arm does.
-    if (auto* m = dynamic_cast<MatchStmt*>(s)) {
-        if (m->arms.empty()) return false;
-        for (auto& arm : m->arms) if (!stmtAlwaysReturns(arm.body.get())) return false;
+    // for-in iterates a possibly-empty collection.
+    if (dynamic_cast<ForInStmt*>(s)) return true;
+    if (auto* sw = dynamic_cast<SwitchStmt*>(s)) {
+        // Cases fall through in order, so without a `break` out of it the switch
+        // completes only if there is no default or the last case group completes.
+        bool hasDefault = false;
+        for (auto& c : sw->cases) if (!c.value) hasDefault = true;
+        if (!hasDefault || sw->cases.empty()) return true;
+        for (auto& c : sw->cases)
+            for (auto& st : c.stmts) if (jumpsTo(st.get(), "", false, false)) return true;
+        for (auto& st : sw->cases.back().stmts) if (!canCompleteNormally(st.get())) return false;
         return true;
+    }
+    // A `match` is verified exhaustive separately; it completes if any arm does.
+    if (auto* m = dynamic_cast<MatchStmt*>(s)) {
+        if (m->arms.empty()) return true;
+        for (auto& arm : m->arms) if (canCompleteNormally(arm.body.get())) return true;
+        return false;
     }
     if (auto* t = dynamic_cast<TryStmt*>(s)) {
-        if (t->finally && stmtAlwaysReturns(t->finally.get())) return true;
-        if (!stmtAlwaysReturns(t->body.get())) return false;
-        for (auto& c : t->catches) if (!stmtAlwaysReturns(c.body.get())) return false;
-        return true;
+        if (t->finally && !canCompleteNormally(t->finally.get())) return false;
+        if (canCompleteNormally(t->body.get())) return true;
+        for (auto& c : t->catches) if (canCompleteNormally(c.body.get())) return true;
+        return false;
     }
-    return false;
+    return true;
 }
+
+bool stmtAlwaysReturns(Stmt* s) { return !canCompleteNormally(s); }
 } // namespace
 
 void TypeChecker::visit(FunctionDecl* node) {
