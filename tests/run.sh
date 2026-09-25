@@ -270,6 +270,15 @@ else
     bad "cli/unused-param-position" "$(printf '%s' "$w_out" | grep -m1 warning)"
 fi
 
+# A NUL byte in code is a located lexical error (one in a string literal is kept).
+printf 'int main() {\n    string s = "a\000b";\n    \000 return 0;\n}\n' > "$work/nul.esk"
+nul_out="$("$ESKIUC" --test-typechecker "$work/nul.esk" 2>&1)"
+if [[ "$nul_out" == *"nul.esk:3:5: unexpected byte 0x00"* && "$(printf '%s\n' "$nul_out" | grep -c '^error:')" -eq 1 ]]; then
+    ok "cli/nul-byte"
+else
+    bad "cli/nul-byte" "$(printf '%s' "$nul_out" | grep -m1 error)"
+fi
+
 # __FILE__ is a well-formed string literal even when the path has a quote or a backslash.
 qdir="$work/q\"d\\ir"
 mkdir -p "$qdir"

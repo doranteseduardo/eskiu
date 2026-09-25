@@ -395,8 +395,7 @@ int esk_main(int argc, string* argv) {
         let lperr: int = 0;
         string lpp = pp_run((string)lraw, (int)ln, infile, &lperr);
         *uint8 lsrc = (*uint8)lpp;
-        int llen = 0;
-        while (lsrc[llen] != 0) { llen = llen + 1; }
+        int llen = g_pp_out_len;
         g_lex_file = infile;
         lex_dump(lsrc, llen);
         if (lperr != 0 || g_lex_errs > 0) { return 1; }
@@ -432,8 +431,7 @@ int esk_main(int argc, string* argv) {
         string pp = pp_run((string)raw, (int)flen, f, &pperr);
         if (pperr != 0) { return 1; }       // a directive error (reported by pp_run) aborts the build
         *uint8 src = (*uint8)pp;
-        int plen = 0;
-        while (src[plen] != 0) { plen = plen + 1; }
+        int plen = g_pp_out_len;
         let p: Parser;
         g_lex_file = f;
         p_init(&p, src, plen);

@@ -961,6 +961,10 @@ string pp_file_literal(string path) {
     return (string)String_cstr(&s);
 }
 
+// Byte length of the text the last pp_run returned (it may hold a NUL byte from the
+// source, which the lexer then reports, so do not measure it with strlen).
+int g_pp_out_len;
+
 // Preprocess `src` (length `len`) into a returned NUL-terminated string. `filename`
 // becomes __FILE__ (quoted) and labels diagnostics. Sets `*had_err` to 1 after
 // reporting any directive error (an active #error, a bad #if, an unbalanced
@@ -1178,9 +1182,18 @@ string pp_run(string src, int len, string filename, *int had_err) {
             List_init<string>(&expanding, 4);
             let ctx: PPCtx;
             pp_ctx_init(&ctx);
-            string expanded = pp_expand(ls, &tbl, &expanding, &in_block, &ctx);
+            // A NUL byte in the line is kept (the C++ std::string keeps it, and its
+            // lexer reports it): expand the pieces between NULs.
+            int s0 = 0;
+            while (s0 <= ln) {
+                int e0 = s0;
+                while (e0 < ln && (int)ls[e0] != 0) { e0 = e0 + 1; }
+                string expanded = pp_expand(pp_sub(ls, s0, e0 - s0), &tbl, &expanding, &in_block, &ctx);
+                String_append(&out, expanded);
+                if (e0 < ln) { String_push(&out, (char)0); }
+                s0 = e0 + 1;
+            }
             if (ctx.err[0] != 0) { pp_error(filename, line_no, ctx.err_col, ctx.err, had_err); }
-            String_append(&out, expanded);
         } else {
             // Inactive and directive lines emit blank; one that opens or closes a
             // `/* */` comment emits just the delimiter (mirrors the C++).
@@ -1200,5 +1213,6 @@ string pp_run(string src, int len, string filename, *int had_err) {
         si = si + 1;
     }
 
+    g_pp_out_len = String_len(&out);
     return (string)String_cstr(&out);
 }

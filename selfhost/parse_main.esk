@@ -30,8 +30,7 @@ int parse_main(int argc, string* argv) {
     let pperr: int = 0;
     string pp = pp_run((string)raw, (int)n, argv[1], &pperr);
     *uint8 src = (*uint8)pp;
-    int plen = 0;
-    while (src[plen] != 0) { plen = plen + 1; }
+    int plen = g_pp_out_len;
 
     parser_session_init();
     register_file(argv[1]);
