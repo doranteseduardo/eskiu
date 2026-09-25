@@ -122,8 +122,10 @@ known limitations left from 0.9.1 (R and S).
 - Stdlib modules built around a struct now use `Type_method` names, as the naming
   convention says: `Rng_*` (`<random>`), `Regex_search`/`Regex_free`/`Match_*`
   (`<regex>`), `Heap_*` (`<sysheap>`), `EventLoop_*` (`<eventloop>`), `Executor_*`
-  (`<executor>`), `Chan_*` (`<channel>`), `HpackDecoder_*`/`HpackHuff_*` (`<hpack>`),
-  `H2Conn_*`/`H2Stream_*` (`<http2>`), `DateTime_to_epoch`/`DateTime_format_iso`
+  (`<executor>`), `Chan_*` (`<channel>`), `HpackDecoder_*` and
+  `HpackHuff_build`/`HpackHuff_free` (`<hpack>`; `hpack_huff_code`, `hpack_huff_len`,
+  `hpack_huff_decode`, `hpack_huff_encode` and `hpack_huff_encoded_len` keep their
+  names), `H2Conn_*`/`H2Stream_*` (`<http2>`), `DateTime_to_epoch`/`DateTime_format_iso`
   (`<time>`). Factories keep their names (`el_new`, `executor_new`, `chan_new`,
   `regex_compile`). The old names remain as wrappers and will be removed in a later
   release. `String_is_space` is deprecated in favor of `is_space` from `<ctype>`.
