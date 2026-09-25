@@ -4805,7 +4805,7 @@ void cg_stmt(Codegen* g, *StmtNode st) {
             return;
         }
         string slot = cg_entry_alloca(g, ty);   // hoisted to the entry block, not re-run per loop iteration
-        cg_add_local(g, st.name, slot, ty, cg_apply_sub(g, st.type));
+        // The name is bound after its initializer: `{ int64 x = x + 1; }` reads the outer x.
         if (st.expr != null) {
             if (st.expr.kind == EK_ARRAYLIT) {          // { ... } (nested for T[N][M]) → zero-fill + store
                 cg_array_init(g, slot, st.type, st.expr, 1);
@@ -4821,6 +4821,7 @@ void cg_stmt(Codegen* g, *StmtNode st) {
                 cg_emit(g, ", ptr "); cg_emit(g, slot); cg_emit(g, "\n");
             }
         }
+        cg_add_local(g, st.name, slot, ty, cg_apply_sub(g, st.type));
         return;
     }
     if (st.kind == SK_SWITCH) {

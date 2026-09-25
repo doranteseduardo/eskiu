@@ -295,8 +295,6 @@ void CodeGen::visit(VarDecl* node) {
     }
 
     llvm::AllocaInst* alloca = entryAlloca(declType, nullptr, node->name);
-    if (node->isVolatile) volatileVars.insert(node->name);
-    defineSymbol(node->name, alloca);
     // Resolve type params and mangle template names for varTypeStack,
     // preserving pointer suffixes (e.g. "List<int>*" → "List_int*")
     std::string varType = !typeParamOverride.empty()
@@ -310,8 +308,9 @@ void CodeGen::visit(VarDecl* node) {
         }
         varType = mangleTemplate(varType) + suffix;
     }
-    defineVarType(node->name, varType);
 
+    // The name is bound after its initializer: in `{ int64 x = x + 1; }` the `x`
+    // on the right is the outer one (sema resolves it that way too).
     if (node->initializer) {
         if (auto structInit = dynamic_cast<StructInitExpr*>(node->initializer.get())) {
             // Fill the alloca directly — no temporary needed
@@ -324,6 +323,9 @@ void CodeGen::visit(VarDecl* node) {
             if (val) builder->CreateStore(val, alloca);
         }
     }
+    if (node->isVolatile) volatileVars.insert(node->name);
+    defineSymbol(node->name, alloca);
+    defineVarType(node->name, varType);
 }
 
 bool CodeGen::buildPackedLayout(const std::vector<StructDecl::Field>& fields, unsigned packN,
