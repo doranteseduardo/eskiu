@@ -8,11 +8,11 @@
 // `esk_alloc` over a fixed region — see `kernel/alloc.esk`.)
 //
 //   let h: Heap;
-//   if (heap_init(&h, 1024 * 1024)) {                 // 1 MB straight from the OS
-//       *int xs = (*int)heap_alloc(&h, sizeof(int) * 16);
+//   if (Heap_init(&h, 1024 * 1024)) {                 // 1 MB straight from the OS
+//       *int xs = (*int)Heap_alloc(&h, sizeof(int) * 16);
 //       // ... use xs ...
-//       heap_free(&h, (*void)xs);
-//       heap_destroy(&h);                             // returns the pages to the OS
+//       Heap_free(&h, (*void)xs);
+//       Heap_destroy(&h);                             // returns the pages to the OS
 //   }
 
 import <alloc>;
@@ -66,7 +66,7 @@ struct Heap {
 
 // Map `size` bytes from the OS and arm a FirstFit allocator over them. Returns
 // false if the mapping failed.
-bool heap_init(Heap* self, int64 size) {
+bool Heap_init(Heap* self, int64 size) {
     *uint8 mem = sys_pages(size);
     if (mem == (*uint8)0) { return false; }
     self.base = mem;
@@ -75,8 +75,18 @@ bool heap_init(Heap* self, int64 size) {
     return true;
 }
 
-*void heap_alloc(Heap* self, int64 nbytes) { return FirstFit_alloc(&self.ff, nbytes); }
-void  heap_free(Heap* self, *void p)        { FirstFit_free(&self.ff, p); }   // null is a no-op
+*void Heap_alloc(Heap* self, int64 nbytes) { return FirstFit_alloc(&self.ff, nbytes); }
+void  Heap_free(Heap* self, *void p)        { FirstFit_free(&self.ff, p); }   // null is a no-op
 
 // Return all the heap's pages to the OS. Frees everything at once.
-void heap_destroy(Heap* self) { sys_unpages(self.base, self.size); }
+void Heap_destroy(Heap* self) { sys_unpages(self.base, self.size); }
+
+// ── Deprecated names (kept so 0.9.1 code compiles; removed in a later release) ──
+// deprecated: use Heap_init
+bool heap_init(Heap* self, int64 size) { return Heap_init(self, size); }
+// deprecated: use Heap_alloc
+*void heap_alloc(Heap* self, int64 nbytes) { return Heap_alloc(self, nbytes); }
+// deprecated: use Heap_free
+void heap_free(Heap* self, *void p) { Heap_free(self, p); }
+// deprecated: use Heap_destroy
+void heap_destroy(Heap* self) { Heap_destroy(self); }

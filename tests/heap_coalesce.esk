@@ -1,32 +1,32 @@
 // FirstFit (and the <sysheap> Heap over it) coalesces adjacent free regions:
 // after 64 x 900-byte blocks are freed in any order, a 30000-byte allocation
-// fits again. heap_free(null) is a no-op.
+// fits again. Heap_free(null) is a no-op.
 import <alloc>;
 import <sysheap>;
 extern int printf(string fmt, ...);
 
 int main() {
     let h: Heap;
-    if (heap_init(&h, (int64)65536) == false) { printf("no heap\n"); return 1; }
+    if (Heap_init(&h, (int64)65536) == false) { printf("no heap\n"); return 1; }
     let ptrs: *void[64];
     int i = 0;
-    while (i < 64) { ptrs[i] = heap_alloc(&h, (int64)900); i = i + 1; }
+    while (i < 64) { ptrs[i] = Heap_alloc(&h, (int64)900); i = i + 1; }
     int got = 0;
     i = 0;
     while (i < 64) { if (ptrs[i] != null) { got = got + 1; } i = i + 1; }
     i = 0;
-    while (i < 64) { if (ptrs[i] != null && i % 2 == 0) { heap_free(&h, ptrs[i]); } i = i + 1; }
+    while (i < 64) { if (ptrs[i] != null && i % 2 == 0) { Heap_free(&h, ptrs[i]); } i = i + 1; }
     i = 63;
-    while (i >= 0) { if (ptrs[i] != null && i % 2 == 1) { heap_free(&h, ptrs[i]); } i = i - 1; }
-    heap_free(&h, (*void)0);
-    *void big = heap_alloc(&h, (int64)30000);
+    while (i >= 0) { if (ptrs[i] != null && i % 2 == 1) { Heap_free(&h, ptrs[i]); } i = i - 1; }
+    Heap_free(&h, (*void)0);
+    *void big = Heap_alloc(&h, (int64)30000);
     printf("small blocks=%d, 30000 after free=%d\n", got, big != null);
-    *void whole = heap_alloc(&h, (int64)30000);
+    *void whole = Heap_alloc(&h, (int64)30000);
     printf("second 30000=%d\n", whole != null);
-    heap_free(&h, big);
-    heap_free(&h, whole);
-    *void all = heap_alloc(&h, (int64)(65536 - 16));
+    Heap_free(&h, big);
+    Heap_free(&h, whole);
+    *void all = Heap_alloc(&h, (int64)(65536 - 16));
     printf("whole heap after free=%d\n", all != null);
-    heap_destroy(&h);
+    Heap_destroy(&h);
     return 0;
 }

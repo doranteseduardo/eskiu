@@ -3,6 +3,7 @@
 import <random>;
 import <regex>;
 import <string>;
+import <sysheap>;
 extern int printf(string fmt, ...);
 
 int main() {
@@ -28,5 +29,12 @@ int main() {
     String_free(&g);
     match_free(&m);
     regex_free(&re);
+
+    let h: Heap;
+    bool hok = heap_init(&h, (int64)65536);
+    *void p = heap_alloc(&h, (int64)64);
+    heap_free(&h, p);
+    printf("heap: %d %d\n", hok, p != null);
+    heap_destroy(&h);
     return 0;
 }

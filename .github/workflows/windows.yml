@@ -73,8 +73,8 @@ jobs:
           extern int printf(string fmt, ...);
           int main() {
               let h: Heap;
-              if (heap_init(&h, 65536) == 0) { printf("heap fail\n"); return 1; }
-              *int xs = (*int)heap_alloc(&h, sizeof(int) * 4);
+              if (Heap_init(&h, 65536) == 0) { printf("heap fail\n"); return 1; }
+              *int xs = (*int)Heap_alloc(&h, sizeof(int) * 4);
               xs[0] = 7;
               let m: Mutex;  Mutex_init(&m);  Mutex_lock(&m);  Mutex_unlock(&m);  Mutex_destroy(&m);
               int64 t0 = time_monotonic_ms();
@@ -82,7 +82,7 @@ jobs:
               int elapsed_ok = 0;
               if (time_monotonic_ms() - t0 >= 0) { elapsed_ok = 1; }
               printf("ok %d %d\n", xs[0], elapsed_ok);
-              heap_destroy(&h);
+              Heap_destroy(&h);
               return 0;
           }
           EOF
