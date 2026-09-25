@@ -1,0 +1,4 @@
+// EXPECT-ERROR: invalid #pragma pack alignment '3' (expected 1, 2, 4, 8 or 16)
+#pragma pack(3)
+struct S { int8 a; int32 b; }
+int main() { return 0; }

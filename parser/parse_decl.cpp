@@ -526,19 +526,26 @@ void Parser::applyPragma(const Token& tok) {
         }
         std::string t = trim(cur); if (!t.empty()) args.push_back(t);
     }
-    auto toInt = [](const std::string& s, int def) {
-        try { return std::stoi(s); } catch (...) { return def; }
+    // A pack alignment must be a power of two from 1 to 16, as in C.
+    auto packValue = [&](const std::string& s) {
+        bool digits = !s.empty() && s.size() <= 2 &&
+                      s.find_first_not_of("0123456789") == std::string::npos;
+        int n = digits ? std::stoi(s) : 0;
+        if (n != 1 && n != 2 && n != 4 && n != 8 && n != 16)
+            fail("invalid #pragma pack alignment '" + s + "' (expected 1, 2, 4, 8 or 16)", tok);
+        return n;
     };
 
     if (args.empty()) { currentPack = 0; return; }          // #pragma pack() / pack
     if (args[0] == "push") {
+        int n = args.size() >= 2 ? packValue(args[1]) : currentPack;
         packStack.push_back(currentPack);
-        if (args.size() >= 2) currentPack = toInt(args[1], currentPack);
+        currentPack = n;
         return;
     }
     if (args[0] == "pop") {
         if (!packStack.empty()) { currentPack = packStack.back(); packStack.pop_back(); }
         return;
     }
-    currentPack = toInt(args[0], 0);                        // #pragma pack(N)
+    currentPack = packValue(args[0]);                       // #pragma pack(N)
 }

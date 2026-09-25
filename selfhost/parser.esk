@@ -145,7 +145,8 @@ void parser_session_init() {
 // Interpret a `#pragma pack(...)` directive (text is everything after `#`, e.g.
 // "pragma pack(2)" / "pragma pack(push, 1)" / "pragma pack(pop)" / "pragma pack()").
 // Sets g_cur_pack for subsequent struct declarations; other pragmas are ignored.
-void apply_pragma(string text) {
+// A pack alignment other than 1, 2, 4, 8 or 16 is an error at the pragma token `t`.
+void apply_pragma(Parser* p, Token t, string text) {
     int n = 0; while (text[n] != 0) { n = n + 1; }
     int pk = -1; int i = 0;                          // find "pack"
     while (i + 4 <= n) {
@@ -172,8 +173,10 @@ void apply_pragma(string text) {
     if (List_len<string>(&args) == 0) { g_cur_pack = 0; return; }   // pack() → reset
     string a0 = List_get<string>(&args, 0);
     if (str_eq(a0, "push") == 1) {
+        int nv = g_cur_pack;
+        if (List_len<string>(&args) >= 2) { nv = pack_value(p, t, List_get<string>(&args, 1)); }
         List_push<int>(&g_pack_stack, g_cur_pack);
-        if (List_len<string>(&args) >= 2) { g_cur_pack = str_to_int(List_get<string>(&args, 1)); }
+        g_cur_pack = nv;
         return;
     }
     if (str_eq(a0, "pop") == 1) {
@@ -182,7 +185,23 @@ void apply_pragma(string text) {
         else { g_cur_pack = 0; }
         return;
     }
-    g_cur_pack = str_to_int(a0);                     // pack(N)
+    g_cur_pack = pack_value(p, t, a0);               // pack(N)
+}
+
+// A `#pragma pack` alignment: a power of two from 1 to 16, as in C (mirrors the C++
+// applyPragma); anything else is a located error.
+int pack_value(Parser* p, Token t, string a) {
+    int n = 0;
+    int k = 0;
+    while (a[k] != 0 && k < 3) {
+        if ((int)a[k] < 48 || (int)a[k] > 57) { n = 0; k = 3; }
+        else { n = n * 10 + ((int)a[k] - 48); k = k + 1; }
+    }
+    if (k > 2) { n = 0; }
+    if (n != 1 && n != 2 && n != 4 && n != 8 && n != 16) {
+        p_report(p, t, str_concat(str_concat("invalid #pragma pack alignment '", a), "' (expected 1, 2, 4, 8 or 16)"));
+    }
+    return n;
 }
 
 // Is `c` allowed in a `#pragma link` library name (what follows -l)?
@@ -2196,7 +2215,7 @@ void parse_into(Parser* p, *Program prog) {
         if (p_at(p) == PRAGMA) {                    // #pragma link / pack state
             Token pt = p_adv(p);
             string ptext = tok_text(p.src, pt);
-            if (apply_link_pragma(p, pt, ptext) == 0) { apply_pragma(ptext); }
+            if (apply_link_pragma(p, pt, ptext) == 0) { apply_pragma(p, pt, ptext); }
         }
         else if (p_at(p) == IMPORT) { p_adv(p); do_import(p, prog); }
         else {

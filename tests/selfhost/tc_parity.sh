@@ -68,7 +68,7 @@ HANDLED="undefined_var arg_count undefined_type await_outside_async async_no_awa
          parse_error parse_error_located parse_missing_operand parse_return_no_semi parse_import_no_semi
          parse_catch_colon parse_array_field parse_postdec_literal parse_leading_dot
          import_missing import_missing_std operator_as_name
-         pragma_link_malformed method_arg_type method_arg_count method_free_fn_arg_type iface_call_arg_type generic_inst_method_arg
+         pragma_link_malformed pragma_pack_invalid pragma_pack_push_invalid method_arg_type method_arg_count method_free_fn_arg_type iface_call_arg_type generic_inst_method_arg
          generic_inst_operator generic_inst_nested generic_struct_method_inst extern_fnptr_closure
          range_bound_float range_bound_ptr
          generic_dot_call_arg_type generic_dot_call_arg_count generic_dot_call_const generic_dot_call_in_generic

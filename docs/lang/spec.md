@@ -1649,7 +1649,7 @@ struct WireHeader {     // packed (sizeof == 5)
 #pragma pack(pop)       // subsequent structs use natural alignment again
 ```
 
-`#pragma pack(1)` and `packed struct` are equivalent (fully packed, no padding). `#pragma pack(N)` for `N > 1` caps each field's alignment at `N`: a field whose natural alignment exceeds `N` is aligned to `N` instead, and the struct's total size rounds up to its own alignment (`min(max-field-alignment, N)`). This matches the C `#pragma pack(N)` ABI. For example, under `pack(4)` a `struct { char a; int64 b; int16 c; }` lays out `a@0`, `b@4`, `c@12` with `sizeof == 16`. Packed layout (any `N`) composes with bitfields and is reflected by `sizeof` and by every field access.
+`#pragma pack(1)` and `packed struct` are equivalent (fully packed, no padding). `#pragma pack(N)` for `N > 1` caps each field's alignment at `N`: a field whose natural alignment exceeds `N` is aligned to `N` instead, and the struct's total size rounds up to its own alignment (`min(max-field-alignment, N)`). This matches the C `#pragma pack(N)` ABI. For example, under `pack(4)` a `struct { char a; int64 b; int16 c; }` lays out `a@0`, `b@4`, `c@12` with `sizeof == 16`. `N` must be 1, 2, 4, 8 or 16 (as in C); any other alignment is a compile error at the pragma. Packed layout (any `N`) composes with bitfields and is reflected by `sizeof` and by every field access.
 
 ---
 

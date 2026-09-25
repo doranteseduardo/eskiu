@@ -1,0 +1,5 @@
+// EXPECT-ERROR: invalid #pragma pack alignment '32'
+#pragma pack(push, 32)
+struct S { int8 a; int32 b; }
+#pragma pack(pop)
+int main() { return 0; }

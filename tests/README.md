@@ -477,6 +477,8 @@ when you add a test.
 | `errors/method_arg_type` | rejected with "argument 1 type mismatch" |
 | `errors/method_free_fn_arg_type` | rejected with "argument 1 type mismatch" |
 | `errors/pragma_link_malformed` | rejected with "malformed #pragma link" |
+| `errors/pragma_pack_invalid` | `#pragma pack(3)`: an alignment other than 1, 2, 4, 8 or 16 is rejected |
+| `errors/pragma_pack_push_invalid` | the same check for `#pragma pack(push, N)` |
 | `errors/range_bound_float` | rejected with "range bound must be an integer" |
 | `errors/range_bound_ptr` | rejected with "range bound must be an integer" |
 | `errors/return_no_value` | rejected with "return type mismatch" |
