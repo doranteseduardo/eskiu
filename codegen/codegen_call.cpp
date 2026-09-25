@@ -652,18 +652,47 @@ void CodeGen::visit(AllocWithExpr* node) {
 
     llvm::Type* elemTy = getTypeFromString(node->elemType);
     uint64_t esz = module->getDataLayout().getTypeAllocSize(elemTy);
-    llvm::Value* n64 = builder->CreateIntCast(evaluateExpr(node->count),
-                            llvm::Type::getInt64Ty(*context), false);
-    llvm::Value* total = builder->CreateMul(
-        n64, llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), esz), "allocw.size");
+    llvm::Type* i64 = llvm::Type::getInt64Ty(*context);
+    llvm::Value* n64 = builder->CreateIntCast(evaluateExpr(node->count), i64,
+                            !eskiuUnsigned(getExprEskiuType(node->count)));
+    // n * sizeof(T) as a signed 64-bit size: a count that overflows it, or is negative,
+    // (or a size too wide for a narrower size parameter) yields null instead of a
+    // wrapped, too-small allocation.
+    llvm::Function* smul = llvm::Intrinsic::getOrInsertDeclaration(
+        module.get(), llvm::Intrinsic::smul_with_overflow, {i64});
+    llvm::Value* prod = builder->CreateCall(smul, {n64, llvm::ConstantInt::get(i64, esz)}, "allocw.mul");
+    llvm::Value* total = builder->CreateExtractValue(prod, {0}, "allocw.size");
+    llvm::Value* bad = builder->CreateOr(builder->CreateExtractValue(prod, {1}),
+        builder->CreateICmpSLT(total, llvm::ConstantInt::get(i64, 0)), "allocw.bad");
 
     // Coerce the size to the alloc method's second parameter type.
     llvm::FunctionType* fty = af->getFunctionType();
-    if (fty->getNumParams() >= 2 && fty->getParamType(1) != total->getType())
-        total = builder->CreateIntCast(total, fty->getParamType(1), false);
+    if (fty->getNumParams() >= 2 && fty->getParamType(1) != total->getType()) {
+        llvm::Type* pt = fty->getParamType(1);
+        if (pt->isIntegerTy() && pt->getIntegerBitWidth() < 64) {
+            uint64_t maxv = (uint64_t(1) << (pt->getIntegerBitWidth() - 1)) - 1;
+            bad = builder->CreateOr(bad, builder->CreateICmpSGT(total, llvm::ConstantInt::get(i64, maxv)));
+        }
+        total = builder->CreateIntCast(total, pt, false);
+    }
 
+    llvm::Function* fn = builder->GetInsertBlock()->getParent();
+    llvm::BasicBlock* doCall = llvm::BasicBlock::Create(*context, "allocw.call", fn);
+    llvm::BasicBlock* fail   = llvm::BasicBlock::Create(*context, "allocw.fail", fn);
+    llvm::BasicBlock* done   = llvm::BasicBlock::Create(*context, "allocw.done", fn);
+    builder->CreateCondBr(bad, fail, doCall);
+    builder->SetInsertPoint(doCall);
     // Returns *void; the cast to *T is a no-op under opaque pointers.
-    exprValueStack.push(builder->CreateCall(af, {allocPtr, total}, "allocw.ptr"));
+    llvm::Value* p = builder->CreateCall(af, {allocPtr, total}, "allocw.ptr");
+    llvm::BasicBlock* callEnd = builder->GetInsertBlock();
+    builder->CreateBr(done);
+    builder->SetInsertPoint(fail);
+    builder->CreateBr(done);
+    builder->SetInsertPoint(done);
+    llvm::PHINode* phi = builder->CreatePHI(p->getType(), 2, "allocw.res");
+    phi->addIncoming(p, callEnd);
+    phi->addIncoming(llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(p->getType())), fail);
+    exprValueStack.push(phi);
 }
 
 llvm::Value* CodeGen::makeFunctionPointer(llvm::Function* target) {

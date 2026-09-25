@@ -4038,16 +4038,51 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
         CgFn f = cg_find_fn(g, fname);
         CgVal cnt = cg_expr(g, e.b);
         string n64 = cg_coerce(g, cnt, "i64");
+        // n * sizeof(T) as a signed 64-bit size: a count that overflows it, or is negative,
+        // (or a size too wide for a narrower size parameter) yields null instead of a
+        // wrapped, too-small allocation. Mirrors the C++ visit(AllocWithExpr).
+        cg_ensure_extern(g, "llvm.smul.with.overflow.i64", "declare { i64, i1 } @llvm.smul.with.overflow.i64(i64, i64)\n");
+        string prod = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, prod); cg_emit(g, " = call { i64, i1 } @llvm.smul.with.overflow.i64(i64 "); cg_emit(g, n64);
+        cg_emit(g, ", i64 "); cg_emit(g, cg_itoa(cg_size(g, elemty))); cg_emit(g, ")\n");
         string total = cg_tmp(g);
-        cg_emit(g, "  "); cg_emit(g, total); cg_emit(g, " = mul i64 "); cg_emit(g, n64);
-        cg_emit(g, ", "); cg_emit(g, cg_itoa(cg_size(g, elemty))); cg_emit(g, "\n");
+        cg_emit(g, "  "); cg_emit(g, total); cg_emit(g, " = extractvalue { i64, i1 } "); cg_emit(g, prod); cg_emit(g, ", 0\n");
+        string ovf = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, ovf); cg_emit(g, " = extractvalue { i64, i1 } "); cg_emit(g, prod); cg_emit(g, ", 1\n");
+        string neg = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, neg); cg_emit(g, " = icmp slt i64 "); cg_emit(g, total); cg_emit(g, ", 0\n");
+        string bad = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, bad); cg_emit(g, " = or i1 "); cg_emit(g, ovf); cg_emit(g, ", "); cg_emit(g, neg); cg_emit(g, "\n");
         string p1 = cg_pty(&f, 1); string targ = total; string targty = "i64";
+        if (p1[0] != 0 && cg_streq(p1, "i64") == 0) {
+            int pw = cg_int_w(p1);
+            if (pw > 1 && pw < 64) {
+                string wide = cg_tmp(g);
+                cg_emit(g, "  "); cg_emit(g, wide); cg_emit(g, " = icmp sgt i64 "); cg_emit(g, total);
+                cg_emit(g, ", "); cg_emit(g, cg_i64toa(((int64)1 << (int64)(pw - 1)) - (int64)1)); cg_emit(g, "\n");
+                string bad2 = cg_tmp(g);
+                cg_emit(g, "  "); cg_emit(g, bad2); cg_emit(g, " = or i1 "); cg_emit(g, bad); cg_emit(g, ", "); cg_emit(g, wide); cg_emit(g, "\n");
+                bad = bad2;
+            }
+        }
         if (p1[0] != 0) { let tv: CgVal; tv.op = total; tv.ty = "i64"; tv.ety = "int64"; targ = cg_coerce(g, tv, p1); targty = p1; }
+        string lcall = cg_lbl(g); string lfail = cg_lbl(g); string ldone = cg_lbl(g);
+        cg_emit(g, "  br i1 "); cg_emit(g, bad); cg_emit(g, ", label %"); cg_emit(g, lfail);
+        cg_emit(g, ", label %"); cg_emit(g, lcall); cg_emit(g, "\n");
+        g.terminated = 1;
+        cg_label(g, lcall);
         string r = cg_tmp(g);
         cg_emit(g, "  "); cg_emit(g, r); cg_emit(g, " = call "); cg_emit(g, f.retty);
         cg_emit(g, " @"); cg_emit(g, fname); cg_emit(g, "(ptr "); cg_emit(g, av.op);
         cg_emit(g, ", "); cg_emit(g, targty); cg_emit(g, " "); cg_emit(g, targ); cg_emit(g, ")\n");
-        v.op = r; v.ty = "ptr"; v.ety = cg_cat("*", elemty); return v;
+        cg_br(g, ldone);
+        cg_label(g, lfail);
+        cg_br(g, ldone);
+        cg_label(g, ldone);
+        string res = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, res); cg_emit(g, " = phi ptr [ "); cg_emit(g, r); cg_emit(g, ", %"); cg_emit(g, lcall);
+        cg_emit(g, " ], [ null, %"); cg_emit(g, lfail); cg_emit(g, " ]\n");
+        v.op = res; v.ty = "ptr"; v.ety = cg_cat("*", elemty); return v;
     }
 
     if (e.kind == EK_THREADCREATE) {
