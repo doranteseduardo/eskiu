@@ -28,7 +28,8 @@ void seedPredefinedMacros(std::map<std::string, Macro>& macros, const std::strin
 std::shared_ptr<Program> loadProgram(const std::string& filename, const std::string& triple,
                                      bool freestanding);
 bool endsWith(const std::string& s, const std::string& suffix);
-std::string findCDriver(bool sanitized = false);
+// `ccArgs` receives any extra words of $CC (e.g. "-m64" in CC="clang -m64").
+std::string findCDriver(bool sanitized = false, std::vector<std::string>* ccArgs = nullptr);
 bool linkExecutable(const std::string& obj, const std::string& out,
                     const std::vector<std::string>& libs,
                     const std::vector<std::string>& paths,

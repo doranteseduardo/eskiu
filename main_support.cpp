@@ -317,15 +317,26 @@ bool endsWith(const std::string& s, const std::string& suffix) {
 // compiler was built against — its compiler-rt matches the ASan instrumentation
 // we emit, so the runtime versions agree (Apple's system clang ships a different
 // ASan ABI and would fail to link).
-std::string findCDriver(bool sanitized) {
+std::string findCDriver(bool sanitized, std::vector<std::string>* ccArgs) {
 #ifdef ESKIU_LLVM_BINDIR
     if (sanitized) {
         std::string llvmClang = std::string(ESKIU_LLVM_BINDIR) + "/clang";
         if (llvm::sys::fs::exists(llvmClang)) return llvmClang;
     }
 #endif
-    if (const char* cc = std::getenv("CC")) {
-        if (auto p = llvm::sys::findProgramByName(cc)) return *p;
+    if (const char* cc = std::getenv("CC"); cc && *cc) {
+        // $CC may carry arguments ("clang -m64"): the first word is the program.
+        std::vector<std::string> words;
+        std::istringstream ws(cc);
+        for (std::string w; ws >> w;) words.push_back(w);
+        if (!words.empty()) {
+            if (auto p = llvm::sys::findProgramByName(words[0])) {
+                if (ccArgs) ccArgs->assign(words.begin() + 1, words.end());
+                return *p;
+            }
+            std::cerr << "warning: $CC ('" << cc << "') was not found; "
+                         "falling back to cc/clang/gcc" << std::endl;
+        }
     }
     for (const char* name : {"cc", "clang", "gcc"}) {
         if (auto p = llvm::sys::findProgramByName(name)) return *p;
@@ -340,14 +351,17 @@ bool linkExecutable(const std::string& obj, const std::string& out,
                            const std::vector<std::string>& paths,
                            const std::vector<std::string>& extra,
                            bool sanitized) {
-    std::string driver = findCDriver(sanitized);
+    std::vector<std::string> ccArgs;
+    std::string driver = findCDriver(sanitized, &ccArgs);
     if (driver.empty()) {
         std::cerr << "error: no C linker driver found (looked for $CC, cc, clang, gcc).\n"
                      "       Install a C toolchain, or use -c to emit an object file "
                      "and link it yourself.\n";
         return false;
     }
-    std::vector<std::string> argv = {driver, obj, "-o", out};
+    std::vector<std::string> argv = {driver};
+    argv.insert(argv.end(), ccArgs.begin(), ccArgs.end());
+    argv.insert(argv.end(), {obj, "-o", out});
     for (const auto& p : paths) argv.push_back("-L" + p);
     for (const auto& l : libs)  argv.push_back("-l" + l);
     for (const auto& a : extra) argv.push_back(a);

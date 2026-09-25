@@ -188,6 +188,19 @@ if [[ $code -eq 3 && "$out" == $'[a]\n[b c]' ]]; then ok "run/args"; else bad "r
 "$ESKIUC" run "$args_esk" crash >/dev/null 2>&1; code=$?
 if [[ $code -eq 139 ]]; then ok "run/signal"; else bad "run/signal" "exit $code (expected 139)"; fi
 
+# $CC may carry arguments; a $CC that does not exist warns and falls back.
+if CC="$CC -O0" "$ESKIUC" "$args_esk" -o "$work/cc_args" >/dev/null 2>&1 && [[ -x "$work/cc_args" ]]; then
+    ok "cli/cc-with-args"
+else
+    bad "cli/cc-with-args" "CC with arguments did not link"
+fi
+cc_out="$(CC=no-such-cc-driver "$ESKIUC" "$args_esk" -o "$work/cc_bad" 2>&1)"
+if [[ -x "$work/cc_bad" && "$cc_out" == *"warning: \$CC"* ]]; then
+    ok "cli/cc-missing"
+else
+    bad "cli/cc-missing" "no fallback warning: $cc_out"
+fi
+
 # `--help` documents the subcommands and lists only Eskiu's options (the LLVM
 # backend's internal flags are hidden).
 help_out="$("$ESKIUC" --help 2>&1)"
