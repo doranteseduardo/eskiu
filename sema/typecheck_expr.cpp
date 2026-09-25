@@ -495,6 +495,9 @@ void TypeChecker::visit(CallExpr* node) {
                 for (const auto& sig : ifaceIt->second->methods) {
                     if (sig.name == member->member) {
                         for (auto& arg : node->args) arg->accept(this);
+                        std::vector<std::string> pts;
+                        for (const auto& p : sig.params) pts.push_back(p.first);
+                        checkCallArgs(node, "method '" + member->member + "'", pts);
                         expressionTypes[node] = normalizeType(sig.returnType);
                         return;
                     }
@@ -509,9 +512,7 @@ void TypeChecker::visit(CallExpr* node) {
         std::string fieldTy = getExpressionType(member);
         if (fieldTy.size() > 3 && fieldTy.substr(0, 3) == "fn(") {
             for (auto& arg : node->args) arg->accept(this);
-            size_t rp = fieldTy.find(")->");
-            expressionTypes[node] = (rp != std::string::npos)
-                ? normalizeType(fieldTy.substr(rp + 3)) : "unknown";
+            expressionTypes[node] = checkFnValueCall(node, "'" + member->member + "'", fieldTy);
             return;
         }
         errorAt(node,"undefined method '" + member->member + "' on type '" + baseType + "'");
@@ -527,7 +528,12 @@ void TypeChecker::visit(CallExpr* node) {
         // Record use-site for go-to-definition
         useLocations[{identExpr->line, identExpr->col}] = funcName;
     } else {
-        expressionTypes[node] = "unknown";
+        // Any other callee expression (`mk()(1)`, `(*pf)(x)`): call its fn-typed value.
+        node->callee->accept(this);
+        for (auto& a : node->args) a->accept(this);
+        std::string ct = getExpressionType(node->callee.get());
+        expressionTypes[node] = ty::Type::parse(normalizeType(ct)).isFn()
+            ? checkFnValueCall(node, "the called function value", ct) : "unknown";
         return;
     }
 
@@ -543,11 +549,8 @@ void TypeChecker::visit(CallExpr* node) {
             // watched closure param used here is not counted as escaping.
             { std::string prev = calleeContext; calleeContext = funcName;
               node->callee->accept(this); calleeContext = prev; }
-            // Extract return type from fn(T,...)->R
-            size_t rp = varType.find(")->");
-            std::string retType = (rp != std::string::npos) ? varType.substr(rp + 3) : "unknown";
             for (auto& a : node->args) a->accept(this);
-            expressionTypes[node] = retType;
+            expressionTypes[node] = checkFnValueCall(node, "'" + funcName + "'", varType);
             return;
         }
     }
@@ -631,6 +634,33 @@ void TypeChecker::visit(CallExpr* node) {
     }
 
     expressionTypes[node] = sig.first;
+}
+
+void TypeChecker::checkCallArgs(CallExpr* node, const std::string& what,
+                                const std::vector<std::string>& paramTypes) {
+    bool variadic = !paramTypes.empty() && paramTypes.back() == "...";
+    size_t fixed = variadic ? paramTypes.size() - 1 : paramTypes.size();
+    if (variadic ? node->args.size() < fixed : node->args.size() != fixed) {
+        errorAt(node, what + " expects " + (variadic ? "at least " : "") + std::to_string(fixed) +
+                      " argument(s), got " + std::to_string(node->args.size()));
+        return;
+    }
+    for (size_t i = 0; i < fixed; ++i) {
+        std::string at = getExpressionType(node->args[i].get());
+        std::string e = assignabilityError(paramTypes[i], at, node->args[i].get());
+        if (!e.empty())
+            errorAt(node, "argument " + std::to_string(i + 1) + " type mismatch: expected " +
+                          paramTypes[i] + ", got " + at + " (" + e + ")");
+    }
+}
+
+std::string TypeChecker::checkFnValueCall(CallExpr* node, const std::string& what, const std::string& fnType) {
+    ty::Type ft = ty::Type::parse(normalizeType(fnType));
+    if (!ft.isFn()) return "unknown";
+    std::vector<std::string> pts;
+    for (const auto& p : ft.params) pts.push_back(p.str());
+    checkCallArgs(node, what, pts);
+    return ft.ret ? normalizeType(ft.ret->str()) : "unknown";
 }
 
 void TypeChecker::visit(IndexExpr* node) {

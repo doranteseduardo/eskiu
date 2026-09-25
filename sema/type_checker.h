@@ -188,6 +188,11 @@ private:
     // before checking a loop whose later iterations would observe the assignment.
     void dropAssignedIn(Stmt* s);
     void dropAssignedIn(Expr* e);
+    // Argument count + types of a call against `paramTypes` (a trailing "..." = variadic);
+    // `what` names the callee in diagnostics.
+    void checkCallArgs(class CallExpr* node, const std::string& what, const std::vector<std::string>& paramTypes);
+    // Check a call through a fn-typed value (`fn(T,...)->R`) and return its result type R.
+    std::string checkFnValueCall(class CallExpr* node, const std::string& what, const std::string& fnType);
     // Reject deref/index/member of a nullable `?*T` that hasn't been null-checked.
     void checkNullableDeref(Expr* operand, const char* how);
     // Escape-soundness state for the function currently being checked: the names

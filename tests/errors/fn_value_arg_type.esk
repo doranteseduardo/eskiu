@@ -1,0 +1,2 @@
+// EXPECT-ERROR: argument 1 type mismatch
+int main() { let f: fn(int)->int = int(int x) { return x; }; return f("s"); }
