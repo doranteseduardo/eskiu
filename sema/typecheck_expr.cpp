@@ -572,6 +572,15 @@ void TypeChecker::visit(CallExpr* node) {
         member->base->accept(this);
         // A method call dereferences its receiver: a `?*T` must be null-checked first.
         checkNullableDeref(member->base.get(), "access a member of");
+        // Dot syntax dereferences at most one pointer level.
+        if (std::string rt = getExpressionType(member->base.get());
+            rt != "unknown" && !ty::Type::parse(normalizeType(rt)).isFn() && pointerDepth(rt) > 1) {
+            errorAt(node, "cannot call method '" + member->member + "' through '" + rt +
+                          "': dot syntax dereferences one pointer level (dereference it first)");
+            for (auto& a : node->args) a->accept(this);
+            expressionTypes[node] = "unknown";
+            return;
+        }
         // bare nominal: *Rect and Rect both resolve to Rect_method
         std::string baseType = ty::Type::parse(getExpressionType(member->base.get())).nominalName();
         {
@@ -725,6 +734,15 @@ void TypeChecker::visit(CallExpr* node) {
               node->callee->accept(this); calleeContext = prev; }
             for (auto& a : node->args) a->accept(this);
             expressionTypes[node] = checkFnValueCall(node, "'" + funcName + "'", varType);
+            return;
+        }
+        // A variable that is not a closure (a local may shadow a function of the same
+        // name) cannot be called.
+        if (!varType.empty() && !ty::Type::parse(normalizeType(varType)).isFn()) {
+            for (auto& a : node->args) a->accept(this);
+            errorAt(node->callee.get(), "undefined function '" + funcName + "' ('" + funcName +
+                                        "' is a variable of type '" + varType + "')");
+            expressionTypes[node] = "unknown";
             return;
         }
     }

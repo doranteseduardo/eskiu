@@ -283,6 +283,19 @@ int64 sema_dim_value(Sema* s, string dim) {
     return (int64)-1;
 }
 
+// Pointer levels of a type spelling, outside any `<...>` type arguments ("*Box<*int>" is 1).
+int sema_ptr_depth(string t) {
+    int stars = 0; int i = 0; int nest = 0;
+    while (t[i] != 0) {
+        int ch = (int)t[i];
+        if (ch == 60 || ch == 40) { nest = nest + 1; }
+        else if ((ch == 62 || ch == 41) && nest > 0) { nest = nest - 1; }
+        else if (ch == 42 && nest == 0) { stars = stars + 1; }
+        i = i + 1;
+    }
+    return stars;
+}
+
 int sema_in_list(List<string>* l, string name) {
     int i = 0; int n = List_len<string>(l);
     while (i < n) { if (sema_streq(List_get<string>(l, i), name) == 1) { return 1; } i = i + 1; }
@@ -1309,9 +1322,7 @@ void sema_check_iface_value(Sema* s, string tety, *ExprNode e) {
     string bare = sema_strip_const(src);
     string sn = sema_struct_of_type(bare);
     if (sema_has_star(bare) == 1 && sema_in_list(&s.structs, sn) == 1) {
-        int stars = 0; int i2 = 0;
-        while (bare[i2] != 0) { if ((int)bare[i2] == 42) { stars = stars + 1; } i2 = i2 + 1; }
-        if (stars != 1) {
+        if (sema_ptr_depth(bare) != 1) {
             s.had_error = 1;
             dprintf(2, "error: %s:%d:%d: cannot convert '%s' to interface '%s': only a pointer to a struct (a single '*') converts to an interface\n",
                    s.filename, s.line, s.col, src, tety);
@@ -3427,6 +3438,16 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         sema_check_nullable_deref(s, mem.a, "access a member of");
         string bt = sema_infer_type(s, mem.a);
         string sn = sema_struct_of_type(bt);
+        // Dot syntax dereferences at most one pointer level.
+        if (sema_is_fn_type(bt) == 0) {
+            if (sema_ptr_depth(bt) > 1) {
+                s.had_error = 1;
+                printf("error: %s:%d:%d: cannot call method '%s' through '%s': dot syntax dereferences one pointer level (dereference it first)\n",
+                       s.filename, s.line, s.col, mem.sval, bt);
+                int ai = 0; while (ai < List_len<*ExprNode>(&e.kids)) { sema_expr(s, List_get<*ExprNode>(&e.kids, ai)); ai = ai + 1; }
+                return;
+            }
+        }
         *DeclNode ifc = null;
         if (bt[0] != 0) { ifc = sema_find_iface(s, sn); }
         if (ifc != null) {                                    // interface (vtable) dispatch
@@ -4882,7 +4903,17 @@ void sema_declare_top(Sema* s, List<NameEnt>* tab, string name, string kind, *De
     if (i < 0) { let ne: NameEnt; ne.name = name; ne.kind = kind; ne.d = d; List_push<NameEnt>(tab, ne); return; }
     NameEnt prev = List_get<NameEnt>(tab, i);
     if (sema_streq(kind, "function") == 1 && sema_streq(prev.kind, "function") == 1) {
-        if (List_len<TypeParam>(&prev.d.type_params) > 0 || List_len<TypeParam>(&d.type_params) > 0) { return; }
+        int pg = List_len<TypeParam>(&prev.d.type_params); int dg = List_len<TypeParam>(&d.type_params);
+        if (pg > 0 || dg > 0) {
+            // Two bodies are reported as a redefinition; a generic and a non-generic
+            // function may not share a name (a call would silently pick one).
+            if ((pg == 0) != (dg == 0) && (prev.d.body == null || d.body == null)) {
+                s.had_error = 1;
+                printf("error: %s:%d:%d: conflicting declaration of function '%s' (a generic and a non-generic function cannot share a name)\n",
+                       s.filename, s.line, s.col, sema_fn_display(d));
+            }
+            return;
+        }
         if (sema_streq(sema_sig_of(prev.d), sema_sig_of(d)) == 0) {
             s.had_error = 1;
             dprintf(2, "error: %s:%d:%d: conflicting declaration of function '%s' (%s vs the earlier %s)\n",

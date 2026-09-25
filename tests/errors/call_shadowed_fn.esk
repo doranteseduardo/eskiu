@@ -1,0 +1,4 @@
+// EXPECT-ERROR: undefined function 'f'
+// A local `int f` shadows the function `f`; calling it used to call the function.
+int f() { return 3; }
+int main() { int f = 4; return f(); }

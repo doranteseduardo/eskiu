@@ -1,0 +1,5 @@
+// EXPECT-ERROR: redefinition of function 'f'
+// A generic function may be defined once; a second body used to be silently ignored.
+T f<T>(T x) { return x; }
+T f<T>(T x) { return x; }
+int main() { return f<int>(1); }

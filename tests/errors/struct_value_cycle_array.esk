@@ -1,0 +1,4 @@
+// EXPECT-ERROR: struct 'S' contains itself by value (through field 'kids' of 'S')
+// A fixed array of the struct holds it by value too, so the layout is infinite.
+struct S { int v; S[2] kids; }
+int main() { S s; s.v = 1; return s.v; }

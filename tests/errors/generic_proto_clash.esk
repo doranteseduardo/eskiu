@@ -1,0 +1,5 @@
+// EXPECT-ERROR: conflicting declaration of function 'f'
+// A non-generic prototype cannot name a generic function.
+int f(int x);
+T f<T>(T x) { return x; }
+int main() { return f<int>(1); }

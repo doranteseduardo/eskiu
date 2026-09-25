@@ -399,6 +399,7 @@ bool TypeChecker::isValidAssignment(const std::string& lhsType, const std::strin
 // Pointer levels of a type spelling (`*X` and `X*` are 1, `**X` and `*X*` are 2).
 int TypeChecker::pointerDepth(const std::string& raw) {
     std::string t = tyq::strip(raw);
+    if (!t.empty() && t.front() == '?') t.erase(0, 1);
     int n = 0;
     while (!t.empty() && t.front() == '*') { t.erase(0, 1); ++n; }
     while (!t.empty() && t.back() == '*')  { t.pop_back(); ++n; }

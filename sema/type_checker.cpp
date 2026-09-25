@@ -252,7 +252,17 @@ void TypeChecker::checkTopLevelNames(Program* program) {
             auto* a = static_cast<FunctionDecl*>(prev.decl);
             auto* b = static_cast<FunctionDecl*>(d);
             if (!a->typeParams.empty() || !b->typeParams.empty()) {
-                if (a->body && b->body) return;              // reported as a redefinition
+                // A generic function has one definition, and its name is not shared with a
+                // non-generic one (a call would silently pick the generic).
+                if (a->body && b->body) {
+                    errorAtDecl(d, "redefinition of function '" + fnDisplay(name) + "'");
+                    return;
+                }
+                if (a->typeParams.empty() != b->typeParams.empty()) {
+                    errorAtDecl(d, "conflicting declaration of function '" + fnDisplay(name) +
+                                   "' (a generic and a non-generic function cannot share a name)");
+                    return;
+                }
             } else if (sigOf(a) != sigOf(b)) {
                 errorAtDecl(d, "conflicting declaration of function '" + fnDisplay(name) + "' (" +
                            sigOf(b) + " vs the earlier " + sigOf(a) + ")");
@@ -334,8 +344,11 @@ void TypeChecker::checkValueCycles(Program* program) {
         return static_cast<UnionDecl*>(d)->fields;
     };
     auto byValueStruct = [&](const std::string& ft) -> std::string {
-        ty::Type t = ty::Type::parse(normalizeType(ft));
+        // Peel array dimensions first: `S[2]` holds S by value, but normalizeType only
+        // resolves a bare struct name.
+        ty::Type t = ty::Type::parse(tyq::strip(ft));
         while (t.kind == ty::Type::Kind::Array && t.elem) { ty::Type e = *t.elem; t = e; }
+        t = ty::Type::parse(normalizeType(t.str()));
         if (t.kind != ty::Type::Kind::Struct) return "";
         std::string n = t.nominalName();
         return decls.count(n) ? n : "";
