@@ -4823,7 +4823,8 @@ int cg_has_try_s(*StmtNode s) {
 // Emit a (possibly nested) array-literal initializer into `slot` of type `arrType`.
 // `int[2][3] a = {{1,2,3},{4,5,6}}` recurses one dimension per `{...}` level; a short
 // list zero-fills the rest. `do_zero` clears the whole aggregate once at the top level.
-void cg_array_init(Codegen* g, string slot, string arrType, *ExprNode lit, int do_zero) {
+void cg_array_init(Codegen* g, string slot, string arrType0, *ExprNode lit, int do_zero) {
+    string arrType = cg_dealias(g, arrType0);   // `type A3 = int[3]; A3 a = {...}`
     string ty = cg_lltype(g, arrType);
     string elemStr = cg_array_elem(arrType);
     string elemLl = cg_lltype(g, elemStr);

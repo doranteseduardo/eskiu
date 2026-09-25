@@ -3691,6 +3691,15 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         return;
     }
     if (k == EK_STRUCTINIT) {
+        // A literal through a type alias (`type LI = Box<int>; LI{v: 3}`) names the aliased
+        // struct; the node is rewritten to it so codegen sees the struct itself.
+        int ahops = 0;
+        while (ahops < 32) {
+            *DeclNode ad = sema_find_tdecl(s, e.sval);
+            if (ad == null || ad.kind != DK_TYPEALIAS) { ahops = 32; }
+            else { e.sval = ad.ret_type; }
+            ahops = ahops + 1;
+        }
         string base = sema_base_name(e.sval);
         if (sema_is_type(s, base) == 0) {
             s.had_error = 1;

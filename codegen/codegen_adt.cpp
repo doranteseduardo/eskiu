@@ -122,8 +122,9 @@ std::string CodeGen::resolveStructInitName(const std::string& name) {
 }
 
 void CodeGen::emitArrayInitInto(llvm::Value* dest, ArrayLitExpr* lit, const std::string& arrType) {
-    // Peel the outer (leftmost) dimension: `int[2][3]` → dim 2, element `int[3]`.
-    ty::Type bt = ty::Type::parse(arrType);
+    // Peel the outer (leftmost) dimension: `int[2][3]` → dim 2, element `int[3]`. An
+    // alias (`type A3 = int[3]`) names the array it stands for.
+    ty::Type bt = ty::Type::parse(expandAlias(arrType));
     if (bt.kind != ty::Type::Kind::Array) return;
     std::string elemStr = bt.elem->str();
     uint64_t n = 0;

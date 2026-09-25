@@ -1492,6 +1492,15 @@ void TypeChecker::visit(StructInitExpr* node) {
     // A template literal (Pair<int,float> { ... }) names an instantiation; run it
     // through normalizeType so the concrete struct gets registered, then resolve.
     std::string sname = node->structName;
+    // A literal through a type alias (`type LI = Box<int>; LI{v: 3}`) names the aliased
+    // struct; the node is rewritten to it so codegen sees the struct itself (an alias is
+    // top-level, so the rewrite is the same in every generic instance).
+    for (int hops = 0; hops < 32 && !structs.count(sname); ++hops) {
+        auto al = typeAliases.find(sname);
+        if (al == typeAliases.end()) break;
+        sname = al->second;
+        node->structName = sname;
+    }
     if (sname.find('<') != std::string::npos) {
         std::string norm = normalizeType(sname);
         if (norm.rfind("struct:", 0) == 0) sname = norm.substr(7);

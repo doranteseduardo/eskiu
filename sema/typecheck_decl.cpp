@@ -610,7 +610,14 @@ void TypeChecker::visit(VarDecl* node) {
                         }
                     }
                 };
-            checkArr(node->type, arr);
+            // Through a type alias (`type A3 = int[3]; A3 a = {...}`) the target is the array.
+            std::string arrType = node->type;
+            for (int hops = 0; hops < 32; ++hops) {
+                auto al = typeAliases.find(tyq::strip(arrType));
+                if (al == typeAliases.end()) break;
+                arrType = al->second;
+            }
+            checkArr(arrType, arr);
         } else if (!badRangeBound) {
             std::string initType = getExpressionType(node->initializer.get());
             if (initType != "unknown") {
