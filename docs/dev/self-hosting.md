@@ -57,7 +57,11 @@ promotion-track gates that exercise the whole driver end to end: `cg_bootstrap.s
 3-stage self-host fixpoint), `driver_parity.sh` / `run_parity.sh` / `fmt_parity.sh` (the
 `-o` / `run` / `fmt` CLI paths), and `corpus_parity.sh` (P3: every positive test compiled by
 the Eskiu-built compiler produces the same exit + stdout as C++). The negative-corpus
-verdict + diagnostic parity is part of `tc_parity.sh`.
+verdict + diagnostic parity is part of `tc_parity.sh`. `cabi_parity.sh` compares the C
+signatures the self-host lowers for `extern` aggregates, callback thunks and fn-pointer
+parameters with the C++ ones, per target (AArch64, x86-64 SysV, Windows x64, ARM32).
+Outside these scripts, the C oracle (`tests/fuzz/eskiu_fuzz.py --oracle`) and the negative
+corpus fuzzer (`tests/fuzz/neg_fuzz.py`) run generated programs through both compilers.
 
 ## The bootstrap fixpoint
 
@@ -99,6 +103,7 @@ tests/selfhost/tc_parity.sh              # semantic analysis
 tests/selfhost/cg_parity.sh              # codegen (behavioral)
 tests/selfhost/cg_selfhost.sh            # self-compilation + emit validity
 tests/selfhost/cg_bootstrap.sh           # 3-stage bootstrap fixpoint
+tests/selfhost/cabi_parity.sh            # C ABI lowering per target
 ```
 
 All are wired into CI. The sources live in `selfhost/`; the slice-by-slice development record

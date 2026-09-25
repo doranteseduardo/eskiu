@@ -2104,7 +2104,7 @@ extern *void memset(*void ptr, int value, int64 n);
 
 (For heap allocation, prefer `import <mem>` and `alloc<T>`/`free` over declaring `malloc`/`free` as `extern` yourself; see §11.2.)
 
-A struct or union may be passed to or returned from an `extern` function **by value**. The compiler lowers such a call to the target's C calling convention (register classes, homogeneous float aggregates, hidden return pointer), matching what clang emits for the same C signature, on AArch64, x86-64 System V, Windows x64 and 32-bit ARM. The self-hosted compiler lowers AArch64 and x86-64 System V. See `docs/dev/abi.md` for the per-target rules.
+A struct or union may be passed to or returned from an `extern` function **by value**. The compiler lowers such a call to the target's C calling convention (register classes, homogeneous float aggregates, hidden return pointer), matching what clang emits for the same C signature, on AArch64, x86-64 System V, Windows x64 and 32-bit ARM, in both compilers (the self-hosted one picks the convention from `--target`). See `docs/dev/abi.md` for the per-target rules.
 
 ```eskiu
 struct Vec2 { double x; double y; }
