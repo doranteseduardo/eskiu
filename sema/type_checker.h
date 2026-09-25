@@ -317,6 +317,7 @@ private:
 
     // Type validation
     void validateStructType(const std::string& type, ASTNode* at = nullptr);
+    void checkArrayDim(const std::string& dim, ASTNode* at);
     // A `void` (or array of void) value type: only a function result may be void.
     bool isVoidValueType(const std::string& type);
     std::set<std::string> unknownTypes;   // names already reported as unknown (no cascades)

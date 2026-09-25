@@ -1,0 +1,5 @@
+// EXPECT-ERROR: array size must be positive, got 0
+// C has no zero-length arrays; a size given by a constant is checked too.
+const int N = 0;
+struct S { int[N] v; }
+int main() { return 0; }

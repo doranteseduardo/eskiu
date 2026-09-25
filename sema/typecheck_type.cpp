@@ -1,6 +1,7 @@
 #include "type_checker.h"
 #include <set>
 #include <algorithm>
+#include <cctype>
 
 // Template type-name utilities (mangleTemplate / splitTemplateType / substType)
 // are shared with codegen; see template_utils.h.
@@ -128,6 +129,7 @@ void TypeChecker::validateStructType(const std::string& type, ASTNode* at) {
     while (!baseType.empty() && baseType.back() == ']') {
         ty::Type t = ty::Type::parse(baseType);
         if (t.kind != ty::Type::Kind::Array && t.kind != ty::Type::Kind::Slice) break;
+        if (t.kind == ty::Type::Kind::Array && at) checkArrayDim(t.dim, at);
         baseType = t.elem->str();
     }
     // Strip ALL pointer decorators (*T, T*, **T, etc.)
@@ -186,6 +188,23 @@ void TypeChecker::validateStructType(const std::string& type, ASTNode* at) {
             else errorAtCtx("unknown type '" + baseType + "'");
         }
     }
+}
+
+// A fixed array's dimension (a number, an enum member, or a `const` int) must be
+// positive, as in C: a zero or negative size has no layout.
+void TypeChecker::checkArrayDim(const std::string& dim, ASTNode* at) {
+    long long v = 0;
+    bool known = false;
+    if (!dim.empty() && (std::isdigit((unsigned char)dim[0]) || dim[0] == '-')) {
+        try { v = std::stoll(dim); known = true; } catch (...) {}
+    } else if (auto ec = enumConstants.find(dim); ec != enumConstants.end()) {
+        v = ec->second; known = true;
+    } else if (const Symbol* sym = findSymbol(dim); sym && sym->isConst && sym->constInit) {
+        known = foldConstInt(sym->constInit, v);
+    }
+    if (known && v <= 0)
+        errorAt(at, "array size must be positive, got " + std::to_string(v) +
+                    (std::to_string(v) == dim ? "" : " ('" + dim + "')"));
 }
 
 // Type checking utilities

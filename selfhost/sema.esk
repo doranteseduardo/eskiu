@@ -557,6 +557,37 @@ int sema_known_type(Sema* s, string t) {
 // A declared type spelling (field / parameter / return / variable) must name known types,
 // and a generic instance must supply exactly the template's type-parameter count
 // (mirrors the C++ validateStructType).
+int sema_fold_int(Sema* s, *ExprNode e, int64* out);
+string sema_trim_sub(string s, int a, int b);
+// Each fixed-array dimension `[N]` of `t` (a number, an enum member, or a `const` int)
+// must be positive (mirrors the C++ checkArrayDim).
+void sema_check_dims(Sema* s, string t) {
+    int i = 0;
+    while (t[i] != 0) {
+        if ((int)t[i] == 91 && (int)t[i + 1] != 93) {          // '[' not followed by ']'
+            int st = i + 1; int j = st;
+            while (t[j] != 0 && (int)t[j] != 93) { j = j + 1; }
+            string dim = sema_trim_sub(t, st, j);
+            int64 v = (int64)0; int known = 0;
+            if ((int)dim[0] == 45 || sema_all_digits(dim) == 1) { v = sema_parse_int(dim); known = 1; }
+            else {
+                int64 ev = sema_dim_value(s, dim);
+                if (ev >= (int64)0) { v = ev; known = 1; }
+                int si = sema_sym_index(s, dim);
+                if (known == 0 && si >= 0) {
+                    Sym sy = List_get<Sym>(&s.syms, si);
+                    if (sy.is_const == 1 && sy.init != null && sema_fold_int(s, sy.init, &v) == 1) { known = 1; }
+                }
+            }
+            if (known == 1 && v <= (int64)0) {
+                s.had_error = 1;
+                printf("error: %s:%d:%d: array size must be positive, got %lld\n", s.filename, s.line, s.col, v);
+            }
+            i = j;
+        } else { i = i + 1; }
+    }
+}
+
 void sema_check_decl_type(Sema* s, string t) {
     if (t == null || t[0] == 0 || sema_streq(t, "...") == 1 || sema_is_fn_type(t) == 1) { return; }
     if ((int)t[0] == 63 && sema_known_type(s, t) == 1 && sema_c_ptr(sema_canon(s, t)) == 0) {   // `?` marks a pointer only
@@ -564,6 +595,7 @@ void sema_check_decl_type(Sema* s, string t) {
         dprintf(2, "error: %s:%d:%d: a nullable type must be a pointer ('?*T'), got '%s'\n", s.filename, s.line, s.col, t);
         return;
     }
+    sema_check_dims(s, t);
     if (sema_known_type(s, t) == 0) {
         s.had_error = 1;
         dprintf(2, "error: %s:%d:%d: unknown type '%s'\n", s.filename, s.line, s.col, sema_base_name(sema_struct_of_type(t)));
