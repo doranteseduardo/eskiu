@@ -76,6 +76,13 @@ flagcheck object   ok     -c "$ARGS_ESK" -o "$WORK/f.o"
 flagcheck opt      ok     -O2 "$ARGS_ESK" -o "$WORK/f.o2"
 flagcheck unknown  reject --no-such-flag "$ARGS_ESK" -o "$WORK/f.u"
 flagcheck linklib  ok     -lm "$ARGS_ESK" -o "$WORK/f.lm"
+flagcheck badopt   reject -O9 "$ARGS_ESK" -o "$WORK/f.o9"
+flagcheck dirinput reject "$WORK" -o "$WORK/f.dir"
+cp "$ARGS_ESK" "$WORK/ow.esk"
+flagcheck overwrite reject "$WORK/ow.esk" -o "$WORK/ow.esk"
+total=$((total + 1))
+if cmp -s "$ARGS_ESK" "$WORK/ow.esk"; then echo "ok    flags/input-kept"
+else echo "FAIL  flags/input-kept  (-o over the input replaced it)"; fail=1; fi
 total=$((total + 1))
 if [ -s "$WORK/f.o" ] && ! [ -x "$WORK/f.o" ]; then echo "ok    flags/c-writes-object"
 else echo "FAIL  flags/c-writes-object"; fail=1; fi

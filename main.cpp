@@ -321,6 +321,25 @@ int main(int argc, char** argv) {
         std::cerr << "error: no input file specified" << std::endl;
         return 1;
     }
+    if (OptLevel > 3) {
+        std::cerr << "error: invalid optimization level '-O" << OptLevel
+                  << "' (use -O0, -O1, -O2 or -O3)" << std::endl;
+        return 1;
+    }
+    // Refuse an output path that names one of the inputs: `-o prog.esk` would
+    // silently replace the source with an object file or executable.
+    if (!OutputFilename.empty()) {
+        std::string outCanon = Parser::canonicalPath(std::string(OutputFilename));
+        std::vector<std::string> ins = { std::string(InputFilename) };
+        for (const auto& f : ExtraInputs) ins.push_back(f);
+        for (const auto& f : ins) {
+            if (Parser::canonicalPath(f) == outCanon) {
+                std::cerr << "error: output file '" << std::string(OutputFilename)
+                          << "' would overwrite the input '" << f << "'" << std::endl;
+                return 1;
+            }
+        }
+    }
 
     // Handle --test-lexer
     if (TestLexer) {

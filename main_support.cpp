@@ -5,6 +5,7 @@
 #include <climits>
 #include <set>
 #include <cerrno>
+#include <filesystem>
 #ifndef _WIN32
   #include <unistd.h>
   #include <sys/wait.h>
@@ -75,6 +76,11 @@ std::string resolveStdlibPath() {
 
 // Read file contents into string
 std::string readFile(const std::string& filename) {
+    std::error_code ec;
+    if (std::filesystem::is_directory(filename, ec)) {
+        std::cerr << "error: '" << filename << "' is a directory, not a source file" << std::endl;
+        exit(1);
+    }
     std::ifstream file(filename);
     if (!file.is_open()) {
         std::cerr << "error: could not open file '" << filename << "'" << std::endl;

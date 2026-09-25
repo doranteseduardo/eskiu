@@ -330,6 +330,19 @@ int main(int argc, string* argv) {
         return 1;
     }
     string infile = List_get<string>(&infiles, 0);   // primary file: test modes + diagnostics
+    // Refuse an output path that names an input (`-o prog.esk` would replace the source).
+    if (outfile != null && runmode == 0) {
+        string oc = canonical_path(outfile);
+        int ii = 0;
+        while (ii < List_len<string>(&infiles)) {
+            if (cg_streq(canonical_path(List_get<string>(&infiles, ii)), oc) == 1) {
+                eprint("error: output file '"); eprint(outfile); eprint("' would overwrite the input '");
+                eprint(List_get<string>(&infiles, ii)); eprint("'\n");
+                return 1;
+            }
+            ii = ii + 1;
+        }
+    }
 
     // Every mode preprocesses exactly like a real compile (the C++ test modes share the
     // build's predefined macros): the host OS macro picks the stdlib platform branch
