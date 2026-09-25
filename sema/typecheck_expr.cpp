@@ -571,14 +571,22 @@ void TypeChecker::visit(CallExpr* node) {
                 if (at != "unknown" && !at.empty())
                     unifyTypeParam(fd->params[j].first, at, tps, subs);
             }
-            bool allBound = true;
+            std::string unbound;
             for (const auto& tpName : fd->typeParams)
-                if (!subs.count(tpName)) { allBound = false; break; }
-            if (allBound) {
+                if (!subs.count(tpName)) unbound += (unbound.empty() ? "" : ", ") + tpName;
+            if (unbound.empty()) {
                 checkConstraints(node, fd->constraints, subs);
+                // The inferred instantiation's parameter types must accept every argument.
+                std::vector<std::string> pts;
+                for (const auto& p : fd->params) pts.push_back(substType(p.first, subs));
+                checkCallArgs(node, "function '" + funcName + "'", pts);
                 expressionTypes[node] = normalizeType(substType(fd->returnType, subs));
                 return;
             }
+            errorAt(node, "cannot infer type argument(s) " + unbound + " of generic function '" +
+                          funcName + "' from the call; write them explicitly, e.g. " + funcName + "<...>(...)");
+            expressionTypes[node] = "unknown";
+            return;
         }
         errorAt(node,"undefined function '" + funcName + "'");
         expressionTypes[node] = "unknown";
@@ -1055,11 +1063,21 @@ void TypeChecker::visit(TemplateCallExpr* node) {
     std::map<std::string, std::string> subs;
     for (size_t i = 0; i < tp.size() && i < node->typeArgs.size(); ++i)
         subs[tp[i]] = node->typeArgs[i];
+    if (node->typeArgs.size() != tp.size())
+        errorAt(node, "generic function '" + node->templateName + "' expects " + std::to_string(tp.size()) +
+                      " type argument(s), got " + std::to_string(node->typeArgs.size()));
+    for (const auto& ta : node->typeArgs) validateStructType(normalizeType(ta), node);
+    bool variadic = !fd->params.empty() && fd->params.back().first == "...";
+    size_t fixed = variadic ? fd->params.size() - 1 : fd->params.size();
+    if (variadic ? node->args.size() < fixed : node->args.size() != fixed)
+        errorAt(node, "function '" + node->templateName + "' expects " + (variadic ? "at least " : "") +
+                      std::to_string(fixed) + " argument(s), got " + std::to_string(node->args.size()));
+    for (size_t i = fixed; i < node->args.size(); ++i) node->args[i]->accept(this);
 
     checkConstraints(node, fd->constraints, subs);
 
     // Type-check arguments
-    for (size_t i = 0; i < node->args.size() && i < fd->params.size(); ++i) {
+    for (size_t i = 0; i < node->args.size() && i < fixed; ++i) {
         node->args[i]->accept(this);
         std::string expected = substType(fd->params[i].first, subs);
         std::string got      = getExpressionType(node->args[i].get());

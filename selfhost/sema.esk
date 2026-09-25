@@ -744,6 +744,93 @@ void sema_check_call_args(Sema* s, *ExprNode e, string what, List<string>* pts) 
     }
 }
 
+// A generic function call's argument count must match the declaration. Returns 1 if OK.
+int sema_check_generic_arity(Sema* s, *DeclNode fd, *ExprNode e) {
+    int np = List_len<Param>(&fd.params);
+    int variadic = 0;
+    if (np > 0 && sema_streq(List_get<Param>(&fd.params, np - 1).ty, "...") == 1) { variadic = 1; np = np - 1; }
+    int argc = List_len<*ExprNode>(&e.kids);
+    if ((variadic == 1 && argc < np) || (variadic == 0 && argc != np)) {
+        s.had_error = 1;
+        printf("error: %s:0:0: function '%s' expects %d argument(s), got %d\n", s.filename, fd.name, np, argc);
+        return 0;
+    }
+    return 1;
+}
+
+// Does identifier `name` occur as a whole word in type spelling `t`?
+int sema_type_mentions(string t, string name) {
+    int i = 0;
+    while (t[i] != 0) {
+        int c = (int)t[i];
+        int isid = 0; if ((c >= 97 && c <= 122) || (c >= 65 && c <= 90) || (c >= 48 && c <= 57) || c == 95) { isid = 1; }
+        if (isid == 1) {
+            int st = i;
+            while (t[i] != 0) {
+                int d = (int)t[i];
+                if ((d >= 97 && d <= 122) || (d >= 65 && d <= 90) || (d >= 48 && d <= 57) || d == 95) { i = i + 1; } else { break; }
+            }
+            if (sema_streq(sema_sub_str(t, st, i), name) == 1) { return 1; }
+        } else { i = i + 1; }
+    }
+    return 0;
+}
+
+// The type parameters of `fd` that no parameter type mentions (so a call without
+// explicit type arguments cannot infer them), comma-joined; "" if all are inferable.
+string sema_uninferable_tparam(*DeclNode fd) {
+    string out = "";
+    int t = 0; int tn = List_len<TypeParam>(&fd.type_params);
+    while (t < tn) {
+        string tp = List_get<TypeParam>(&fd.type_params, t).name;
+        int seen = 0;
+        int i = 0; int np = List_len<Param>(&fd.params);
+        while (i < np) { if (sema_type_mentions(List_get<Param>(&fd.params, i).ty, tp) == 1) { seen = 1; } i = i + 1; }
+        if (seen == 0) {
+            if (out[0] != 0) { out = sema_cat(out, ", "); }
+            out = sema_cat(out, tp);
+        }
+        t = t + 1;
+    }
+    return out;
+}
+
+// Index of `name` among `fd`'s type parameters, or -1.
+int sema_tparam_index(*DeclNode fd, string name) {
+    int i = 0; int n = List_len<TypeParam>(&fd.type_params);
+    while (i < n) { if (sema_streq(List_get<TypeParam>(&fd.type_params, i).name, name) == 1) { return i; } i = i + 1; }
+    return -1;
+}
+
+// Inferred generic call: each parameter spelled exactly as a type parameter binds it to
+// the first such argument's type; later arguments for the same parameter must be
+// assignable to that binding. Conservative: unknown argument types are skipped.
+void sema_check_generic_binding(Sema* s, *DeclNode fd, *ExprNode e) {
+    List<string> bound; List_init<string>(&bound, 4);
+    int t = 0; int tn = List_len<TypeParam>(&fd.type_params);
+    while (t < tn) { List_push<string>(&bound, ""); t = t + 1; }
+    int i = 0; int n = List_len<*ExprNode>(&e.kids);
+    int np = List_len<Param>(&fd.params);
+    while (i < n && i < np) {
+        int ti = sema_tparam_index(fd, List_get<Param>(&fd.params, i).ty);
+        if (ti >= 0) {
+            *ExprNode a = List_get<*ExprNode>(&e.kids, i);
+            string b = List_get<string>(&bound, ti);
+            if (b[0] == 0) {
+                string at = sema_infer_type(s, a);
+                if (at[0] != 0 && sema_streq(at, "null") == 0) { List_set<string>(&bound, ti, at); }
+            } else {
+                string perr = sema_assign_err(s, b, a);
+                if (perr[0] != 0) {
+                    s.had_error = 1;
+                    printf("error: %s:0:0: argument %d type mismatch: %s\n", s.filename, i + 1, perr);
+                }
+            }
+        }
+        i = i + 1;
+    }
+}
+
 // A call through a fn-typed value of type `ft`.
 void sema_check_fn_value_call(Sema* s, *ExprNode e, string what, string ft) {
     List<string> pts; List_init<string>(&pts, 4);
@@ -1502,6 +1589,19 @@ void sema_expr(Sema* s, *ExprNode e) {
                 }
             }
         }
+        // An inferred generic call `id(1)`: argument count, and arguments bound to the same
+        // bare type parameter must agree (`pick(1, "s")`).
+        if (e.a != null && e.a.kind == EK_IDENT && sema_local_bound(s, e.a.sval) == 0 && sema_find_fn(s, e.a.sval) < 0) {
+            *DeclNode gfd = sema_find_fndecl(s, e.a.sval);
+            if (gfd != null && List_len<TypeParam>(&gfd.type_params) > 0) {
+                string unb = sema_uninferable_tparam(gfd);
+                if (unb[0] != 0) {
+                    s.had_error = 1;
+                    printf("error: %s:0:0: cannot infer type argument(s) %s of generic function '%s' from the call; write them explicitly, e.g. %s<...>(...)\n",
+                           s.filename, unb, gfd.name, gfd.name);
+                } else if (sema_check_generic_arity(s, gfd, e) == 1) { sema_check_generic_binding(s, gfd, e); }
+            }
+        }
         // A call through a fn-typed value: a fn-pointer variable (local or global, not a
         // declared function), or any other callee expression (`mk()(1)`).
         if (e.a != null && e.a.kind == EK_IDENT && (sema_local_bound(s, e.a.sval) == 1 || sema_find_fn(s, e.a.sval) < 0)) {
@@ -1551,6 +1651,11 @@ void sema_expr(Sema* s, *ExprNode e) {
             sema_parse_targs(e.sval, &targs);
             int tn = List_len<TypeParam>(&fd.type_params);
             int na = List_len<string>(&targs);
+            if (tn > 0 && na != tn) {
+                s.had_error = 1;
+                printf("error: %s:0:0: generic function '%s' expects %d type argument(s), got %d\n", s.filename, fd.name, tn, na);
+            }
+            sema_check_generic_arity(s, fd, e);
             int ti = 0;
             while (ti < tn && ti < na) {
                 TypeParam tp = List_get<TypeParam>(&fd.type_params, ti);
