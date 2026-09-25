@@ -4243,20 +4243,63 @@ CgVal cg_indirect_call(Codegen* g, string cval, string fnty, *ExprNode e) {
 // pointer value {data, vtable} (an interface value is this struct, by value, like a closure).
 // The per-(interface,struct) vtable global is emitted once, holding the struct's
 // implementation of each interface method in declaration order.
+// The function implementing interface method `mi` of `f` for struct `sname`: `S_m`, or for
+// a generic instance (`Box<int>`) its inline method or a generic free `S_m<T..>(S<T..>* self,
+// ...)` instantiated for it (type params bound from the receiver, then the interface's
+// parameter types). Mirrors the C++ boxAsInterface.
+string cg_iface_slot_fn(Codegen* g, CgIface* f, int mi, string sname) {
+    string method = List_get<string>(&f.mnames, mi);
+    if (cg_has_targs(sname) == 0) { return cg_cat(cg_cat(sname, "_"), method); }
+    string gm = cg_ensure_method_inst(g, sname, method);
+    if (gm[0] != 0) { return gm; }
+    string base = cg_gen_base(sname);
+    *DeclNode gd = cg_find_gfn(g, cg_cat(cg_cat(base, "_"), method));
+    if (gd == null || List_len<Param>(&gd.params) == 0) { return cg_cat(cg_cat(cg_mangle(sname), "_"), method); }
+    string selfty = List_get<Param>(&gd.params, 0).ty;
+    List<string> sargs; List_init<string>(&sargs, 2); cg_gen_args(cg_strip_ptr(selfty), &sargs);
+    List<string> rargs; List_init<string>(&rargs, 2); cg_gen_args(sname, &rargs);
+    List<string> ipts = List_get<List<string>>(&f.mparams, mi);
+    String sp; String_init(&sp, 16);
+    String_append(&sp, gd.name); String_append(&sp, "<");
+    int ti = 0; int ntp = List_len<TypeParam>(&gd.type_params);
+    while (ti < ntp) {
+        string tp = List_get<TypeParam>(&gd.type_params, ti).name;
+        string binding = "";
+        int k = 0;
+        while (binding[0] == 0 && k < List_len<string>(&sargs) && k < List_len<string>(&rargs)) {
+            if (cg_streq(List_get<string>(&sargs, k), tp) == 1) { binding = List_get<string>(&rargs, k); }
+            k = k + 1;
+        }
+        int pi = 1; int np = List_len<Param>(&gd.params);
+        while (binding[0] == 0 && pi < np && pi - 1 < List_len<string>(&ipts)) {
+            binding = cg_infer_bind(List_get<Param>(&gd.params, pi).ty, tp, List_get<string>(&ipts, pi - 1));
+            pi = pi + 1;
+        }
+        if (ti > 0) { String_append(&sp, ", "); }
+        String_append(&sp, binding);
+        ti = ti + 1;
+    }
+    String_append(&sp, ">");
+    return cg_ensure_fn_inst(g, (string)String_cstr(&sp));
+}
+
 string cg_box_iface(Codegen* g, string ifaceName, string structName, string dataop) {
     CgIface f = cg_find_iface(g, ifaceName);
-    string vtg = cg_cat("@", cg_cat(ifaceName, cg_cat("_vtable_", structName)));
+    string vtg = cg_cat("@", cg_cat(ifaceName, cg_cat("_vtable_", cg_mangle(structName))));
     string key = cg_cat("vt:", cg_cat(ifaceName, cg_cat("_", structName)));
     if (cg_seen_inst(g, key) == 0) {
         List_push<string>(&g.inst_seen, key);
+        // Resolve every slot first: instantiating one may itself append to g.globals.
+        List<string> slots; List_init<string>(&slots, 4);
+        int mi = 0; int mn = List_len<string>(&f.mnames);
+        while (mi < mn) { List_push<string>(&slots, cg_iface_slot_fn(g, &f, mi, structName)); mi = mi + 1; }
         String_append(&g.globals, vtg); String_append(&g.globals, " = private constant %");
         String_append(&g.globals, ifaceName); String_append(&g.globals, "_vtable { ");
-        int mi = 0; int mn = List_len<string>(&f.mnames);
+        mi = 0;
         while (mi < mn) {
             if (mi > 0) { String_append(&g.globals, ", "); }
             String_append(&g.globals, "ptr @");
-            String_append(&g.globals, structName); String_append(&g.globals, "_");
-            String_append(&g.globals, List_get<string>(&f.mnames, mi));
+            String_append(&g.globals, List_get<string>(&slots, mi));
             mi = mi + 1;
         }
         String_append(&g.globals, " }\n");

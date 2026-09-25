@@ -270,9 +270,26 @@ llvm::Value* CodeGen::boxAsInterface(const std::string& ifaceName,
     llvm::GlobalVariable* vtGlob = module->getGlobalVariable(vtGlobName);
     if (!vtGlob) {
         std::vector<llvm::Constant*> entries;
-        for (const auto& mname : methods) {
+        for (size_t mi = 0; mi < methods.size(); ++mi) {
+            const std::string& mname = methods[mi];
             std::string mangled = structName + "_" + mname;
             llvm::Function* fn = module->getFunction(mangled);
+            // A generic instance's slot is its inline method, or a generic free
+            // `S_m<T..>(S<T..>* self, ...)` instantiated for it (sema's
+            // genericFreeMethodFor binds the same type arguments).
+            if (!fn) fn = instantiateGenericMethod(structName, mname);
+            if (!fn)
+                if (FunctionDecl* gf = genericFreeMethod(structName, mname)) {
+                    std::set<std::string> tps(gf->typeParams.begin(), gf->typeParams.end());
+                    std::map<std::string, std::string> subs;
+                    unifyTypeParam(gf->params[0].first, "*" + structName, tps, subs);
+                    const auto& ipts = ifaceMethodParamEskiuTypes[ifaceName][mi];
+                    for (size_t j = 1; j < gf->params.size() && j - 1 < ipts.size(); ++j)
+                        unifyTypeParam(gf->params[j].first, ipts[j - 1], tps, subs);
+                    std::string gname = gf->name;
+                    for (const auto& tpn : gf->typeParams) gname += "_" + mangleTemplate(subs[tpn]);
+                    fn = instantiateFnTemplate(gf, gname, subs);
+                }
             if (!fn) throw std::runtime_error("Method not found: " + mangled);
             entries.push_back(fn);
         }

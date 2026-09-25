@@ -204,6 +204,9 @@ private:
     // pointer / array / slice structure around it (`Box<int>*[4]` -> `Box_int*[4]`);
     // each instance is instantiated so its fields resolve.
     std::string instanceSpelling(const std::string& t);
+    // Emit (once) the instance `mangledName` of the generic function `fd` under `subs`.
+    llvm::Function* instantiateFnTemplate(FunctionDecl* fd, const std::string& mangledName,
+                                          const std::map<std::string, std::string>& subs);
     // An inline method of a generic struct, for one instance (`Box_int` + `get` ->
     // `Box_int_get(*Box_int self)`): the template method (and its substitutions), or null.
     FunctionDecl* genericMethod(const std::string& instName, const std::string& method,

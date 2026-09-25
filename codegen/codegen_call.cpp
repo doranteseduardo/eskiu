@@ -707,6 +707,32 @@ llvm::Value* CodeGen::makeFunctionPointer(llvm::Function* target) {
     return builder->CreateLoad(fatTy, fatAlloca, "fnptr.fat.val");
 }
 
+llvm::Function* CodeGen::instantiateFnTemplate(FunctionDecl* fd, const std::string& mangledName,
+                                               const std::map<std::string, std::string>& subs) {
+    // Instantiate if not already in module.
+    // Save/restore the insert point — we may be inside another function's body.
+    if (!module->getFunction(mangledName)) {
+        llvm::BasicBlock*          savedBB         = builder->GetInsertBlock();
+        llvm::BasicBlock::iterator savedPoint      = builder->GetInsertPoint();
+        llvm::Function*            savedFunc       = currentFunction;
+        llvm::Value*               savedSretParam  = currentSretParam;
+        // Restore (not clear) the override: this call may be nested inside another
+        // template body whose substitutions must survive the inner instantiation.
+        auto                       savedOverride   = typeParamOverride;
+
+        typeParamOverride = subs;
+        auto inst = std::make_shared<FunctionDecl>(mangledName, fd->returnType, fd->params, fd->body);
+        inst->accept(this);
+        typeParamOverride = savedOverride;
+
+        // Restore caller's context
+        currentFunction  = savedFunc;
+        currentSretParam = savedSretParam;
+        if (savedBB) builder->SetInsertPoint(savedBB, savedPoint);
+    }
+    return module->getFunction(mangledName);
+}
+
 void CodeGen::visit(TemplateCallExpr* node) {
     // Variadic access: va_arg<T>(ap) -> next argument of type T.
     if (node->templateName == "va_arg" && node->args.size() == 1 && node->typeArgs.size() == 1) {
@@ -756,29 +782,7 @@ void CodeGen::visit(TemplateCallExpr* node) {
     std::string mangledName = node->templateName;
     for (const auto& t : node->typeArgs) mangledName += "_" + mangleTemplate(resolveArg(t));
 
-    // Instantiate if not already in module.
-    // Save/restore the insert point — we may be inside another function's body.
-    if (!module->getFunction(mangledName)) {
-        llvm::BasicBlock*          savedBB         = builder->GetInsertBlock();
-        llvm::BasicBlock::iterator savedPoint      = builder->GetInsertPoint();
-        llvm::Function*            savedFunc       = currentFunction;
-        llvm::Value*               savedSretParam  = currentSretParam;
-        // Restore (not clear) the override: this call may be nested inside another
-        // template body whose substitutions must survive the inner instantiation.
-        auto                       savedOverride   = typeParamOverride;
-
-        typeParamOverride = subs;
-        auto inst = std::make_shared<FunctionDecl>(mangledName, fd->returnType, fd->params, fd->body);
-        inst->accept(this);
-        typeParamOverride = savedOverride;
-
-        // Restore caller's context
-        currentFunction  = savedFunc;
-        currentSretParam = savedSretParam;
-        if (savedBB) builder->SetInsertPoint(savedBB, savedPoint);
-    }
-
-    llvm::Function* func = module->getFunction(mangledName);
+    llvm::Function* func = instantiateFnTemplate(fd, mangledName, subs);
     if (!func) throw std::runtime_error("Template instantiation failed: " + mangledName);
 
     std::vector<llvm::Value*> args;

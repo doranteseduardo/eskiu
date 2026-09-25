@@ -203,9 +203,20 @@ std::string TypeChecker::interfaceMismatch(const std::string& structName, Interf
         // `int cmp(int,int)` satisfies `Ord` for int. Gated to scalar primitives to match
         // codegen's dispatch (a struct must satisfy via a real method).
         const std::pair<std::string, std::vector<std::string>>* sig = nullptr;
+        std::pair<std::string, std::vector<std::string>> freeSig;
         auto mit = functionSignatures.find(structName + "_" + method.name);
-        if (mit != functionSignatures.end()) sig = &mit->second;
-        else if (kScalarPrims.count(structName)) {
+        if (mit != functionSignatures.end()) {
+            sig = &mit->second;
+            // An inline method of a generic instance is checked once it is used, and
+            // a vtable slot is a use.
+            if (auto gm = genericMethodInsts.find(mit->first); gm != genericMethodInsts.end())
+                queueInstance(gm->second.fn, gm->second.owner->typeParams, gm->second.subs,
+                              gm->second.owner->name, "." + method.name, mit->first,
+                              "*" + structName, gm->second.owner->sourceFile);
+        } else if (FunctionDecl* gf = genericFreeMethodFor(structName, method, freeSig)) {
+            sig = &freeSig;
+            calledFns.insert(gf->name);
+        } else if (kScalarPrims.count(structName)) {
             auto fit = functionSignatures.find(method.name);
             if (fit != functionSignatures.end() && !fit->second.second.empty() &&
                 ty::Type::parse(fit->second.second[0]).nominalName() == structName)
@@ -232,6 +243,31 @@ std::string TypeChecker::interfaceMismatch(const std::string& structName, Interf
                        params[i + 1] + "', the interface requires '" + method.params[i].first + "'";
     }
     return "";
+}
+
+FunctionDecl* TypeChecker::genericFreeMethodFor(const std::string& instName, const InterfaceDecl::MethodSig& m,
+                                              std::pair<std::string, std::vector<std::string>>& sig) {
+    auto ti = templateInstanceArgs.find(instName);
+    if (ti == templateInstanceArgs.end()) return nullptr;
+    std::string fnName = ti->second.first + "_" + m.name;
+    auto ft = funcTemplateDecls.find(fnName);
+    if (ft == funcTemplateDecls.end() || ft->second->params.empty()) return nullptr;
+    FunctionDecl* fd = ft->second;
+    // A vtable slot passes the receiver by pointer.
+    if (!tyq::isPtr(fd->params[0].first) || fd->params.size() != m.params.size() + 1) return nullptr;
+    std::set<std::string> tps(fd->typeParams.begin(), fd->typeParams.end());
+    std::map<std::string, std::string> subs;
+    unifyTypeParam(fd->params[0].first, "*" + instName, tps, subs);
+    for (size_t j = 1; j < fd->params.size(); ++j)
+        unifyTypeParam(fd->params[j].first, m.params[j - 1].first, tps, subs);
+    for (const auto& tp : fd->typeParams) if (!subs.count(tp)) return nullptr;
+    sig.first = substType(fd->returnType, subs);
+    sig.second.clear();
+    for (const auto& p : fd->params) sig.second.push_back(substType(p.first, subs));
+    std::string mangled = fnName;
+    for (const auto& tpn : fd->typeParams) mangled += "_" + mangleTemplate(subs[tpn]);
+    queueInstance(fd, fd->typeParams, subs, fnName, "", mangled, "", fd->sourceFile);
+    return fd;
 }
 
 // Bounded generics: verify each constrained type parameter's concrete argument

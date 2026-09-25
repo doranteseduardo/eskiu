@@ -331,6 +331,12 @@ private:
     bool dropsConstQual(const std::string& lhs, const std::string& rhs);
     // "" if `structName` structurally satisfies `iface` (names + signatures), else why not.
     std::string interfaceMismatch(const std::string& structName, InterfaceDecl* iface);
+    // A generic free `S_m<T..>(S<T..>* self, ...)` implementing interface method `m` for
+    // the instance `instName` of S: its type arguments are bound from the receiver (then
+    // the interface's parameter types), the instance is queued for checking, and `sig`
+    // receives its concrete (return, [self, params...]) signature. Null when none applies.
+    FunctionDecl* genericFreeMethodFor(const std::string& instName, const InterfaceDecl::MethodSig& m,
+                                       std::pair<std::string, std::vector<std::string>>& sig);
     // Bounded generics: check that each constrained type param's concrete arg
     // (in `subs`) satisfies its interface constraint(s).
     void checkConstraints(ASTNode* node,
