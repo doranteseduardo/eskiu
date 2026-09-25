@@ -4813,6 +4813,30 @@ string cg_throw_typename(Codegen* g, *ExprNode e) {
     return t;
 }
 
+// The name a thrown value's type is matched by (a catch clause strcmp's it): the
+// spelling under the active substitution, dealiased, without the `struct:` tag, a
+// template instance mangled (`Box<int>` -> `Box_int`), and `int32` spelled `int`.
+string cg_ex_typename(Codegen* g, string t) {
+    t = cg_strip_nullable(t);
+    t = cg_apply_sub(g, t);
+    t = cg_dealias(g, t);
+    int n = 0; while (t[n] != 0) { n = n + 1; }
+    *uint8 buf = alloc<uint8>(n + 1);
+    int o = 0; int i = 0; int angle = 0;
+    while (i < n) {
+        if (i + 7 <= n && cg_streq(cg_sub_str(t, i, i + 7), "struct:") == 1) { i = i + 7; continue; }
+        if ((int)t[i] == 60) { angle = 1; }
+        buf[o] = (uint8)t[i]; o = o + 1; i = i + 1;
+    }
+    buf[o] = 0;
+    string r = (string)buf;
+    if (angle == 1) { r = cg_mangle(r); }
+    if (cg_streq(r, "int32") == 1) { return "int"; }
+    if (cg_streq(r, "uint32") == 1) { return "uint"; }
+    if (r[0] == 0) { return "unknown"; }
+    return r;
+}
+
 // Map an LLVM scalar type back to its Eskiu type name, for naming a thrown
 // value whose Eskiu type could not be resolved structurally (e.g. `throw c + 1`,
 // where the binary result carries only its LLVM type). "" if no clean mapping.
@@ -5368,19 +5392,25 @@ void cg_stmt(Codegen* g, *StmtNode st) {
         return;
     }
     if (st.kind == SK_THROW) {
-        // Itanium ABI: allocate a 16-byte EskiuEx { i64 value, ptr type_name }, fill it,
-        // and __cxa_throw it (an invoke inside a try so the landingpad catches it).
+        // Itanium ABI: allocate an EskiuEx { [8 reserved], ptr type_name, payload } with
+        // the thrown value stored by its own type at offset 16 (a double, an int64 or a
+        // whole struct keep their bits), fill it, and __cxa_throw it (an invoke inside a
+        // try so the landingpad catches it).
         g.uses_eh = 1;
         CgVal val = cg_expr(g, st.expr);
         string ex = cg_tmp(g);
-        cg_emit(g, "  "); cg_emit(g, ex); cg_emit(g, " = call ptr @__cxa_allocate_exception(i64 16)\n");
-        string ival = cg_coerce(g, val, "i64");           // value as i64 (ptrtoint / sext)
-        cg_emit(g, "  store i64 "); cg_emit(g, ival); cg_emit(g, ", ptr "); cg_emit(g, ex); cg_emit(g, "\n");
+        int psz = cg_ll_size_of(g, val.ty);
+        cg_emit(g, "  "); cg_emit(g, ex); cg_emit(g, " = call ptr @__cxa_allocate_exception(i64 ");
+        cg_emit(g, cg_itoa(16 + psz)); cg_emit(g, ")\n");
+        string pslot = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, pslot); cg_emit(g, " = getelementptr i8, ptr "); cg_emit(g, ex); cg_emit(g, ", i64 16\n");
+        cg_emit(g, "  store "); cg_emit(g, val.ty); cg_emit(g, " "); cg_emit(g, val.op); cg_emit(g, ", ptr "); cg_emit(g, pslot); cg_emit(g, "\n");
         string tname = cg_throw_typename(g, st.expr);
         if (cg_streq(tname, "unknown") == 1) {            // fall back to the value's LLVM type
             string mapped = cg_llty_eskiu_name(val.ty);
             if (cg_streq(mapped, "") == 0) { tname = mapped; }
         }
+        tname = cg_ex_typename(g, tname);
         string tnameg = cg_string_global(g, tname);
         string tslot = cg_tmp(g);
         cg_emit(g, "  "); cg_emit(g, tslot); cg_emit(g, " = getelementptr i8, ptr "); cg_emit(g, ex); cg_emit(g, ", i64 8\n");
@@ -5423,7 +5453,7 @@ void cg_stmt(Codegen* g, *StmtNode st) {
             *StmtNode c = List_get<*StmtNode>(&st.items, ci);
             string ctype = cg_drop_last_word(c.name);
             string cname = cg_last_word(c.name);
-            string ctg = cg_string_global(g, ctype);
+            string ctg = cg_string_global(g, cg_ex_typename(g, ctype));
             string cmp = cg_tmp(g);
             cg_emit(g, "  "); cg_emit(g, cmp); cg_emit(g, " = call i32 @strcmp(ptr "); cg_emit(g, extype); cg_emit(g, ", ptr "); cg_emit(g, ctg); cg_emit(g, ")\n");
             string m = cg_tmp(g);
@@ -5434,10 +5464,10 @@ void cg_stmt(Codegen* g, *StmtNode st) {
             cg_label(g, hbl);
             int lbase = List_len<CgLocal>(&g.locals);
             string cty = cg_lltype(g, ctype);
-            string iv = cg_tmp(g);
-            cg_emit(g, "  "); cg_emit(g, iv); cg_emit(g, " = load i64, ptr "); cg_emit(g, exdata); cg_emit(g, "\n");
-            let ivv: CgVal; ivv.op = iv; ivv.ty = "i64"; ivv.ety = "";
-            string cv = cg_coerce(g, ivv, cty);            // i64 → catch type (inttoptr / trunc)
+            string cps = cg_tmp(g);                        // the payload, by the catch type
+            cg_emit(g, "  "); cg_emit(g, cps); cg_emit(g, " = getelementptr i8, ptr "); cg_emit(g, exdata); cg_emit(g, ", i64 16\n");
+            string cv = cg_tmp(g);
+            cg_emit(g, "  "); cg_emit(g, cv); cg_emit(g, " = load "); cg_emit(g, cty); cg_emit(g, ", ptr "); cg_emit(g, cps); cg_emit(g, "\n");
             string cslot = cg_entry_alloca(g, cty);
             cg_emit(g, "  store "); cg_emit(g, cty); cg_emit(g, " "); cg_emit(g, cv); cg_emit(g, ", ptr "); cg_emit(g, cslot); cg_emit(g, "\n");
             cg_add_local(g, cname, cslot, cty, ctype);

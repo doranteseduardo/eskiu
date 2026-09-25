@@ -211,33 +211,57 @@ llvm::Value* CodeGen::createMaybeInvoke(
     return inv;
 }
 
+// The name a thrown value's type is matched by (a catch clause strcmp's it): the
+// written spelling with const, aliases and the `struct:` tag removed, a template
+// instance mangled (`Box<int>` -> `Box_int`), and `int32` spelled `int`.
+std::string CodeGen::exceptionTypeName(const std::string& raw) const {
+    std::string t = expandAlias(tyq::strip(raw));
+    if (!t.empty() && t[0] == '?') t = t.substr(1);
+    for (const char* tag : {"struct:", "interface:"}) {
+        size_t p;
+        while ((p = t.find(tag)) != std::string::npos) t.erase(p, std::string(tag).size());
+    }
+    if (t.find('<') != std::string::npos) t = mangleTemplate(t);
+    if (t == "int32") t = "int";
+    if (t == "uint32") t = "uint";
+    return t.empty() ? "unknown" : t;
+}
+
 void CodeGen::visit(ThrowStmt* node) {
     ensureEHDecls(module.get(), *context, ehPersonalityName());
     llvm::Type* ptrTy = llvm::PointerType::get(*context, 0);
     llvm::Type* i64   = llvm::Type::getInt64Ty(*context);
 
-    // EskiuEx: { i64 value, ptr type_name } — 16 bytes
+    // EskiuEx: { [8 bytes reserved], ptr type_name, payload } where the payload is
+    // the thrown value stored by its own type at offset 16 (a double, an int64 or a
+    // whole struct keep their bits; a catch loads the same type back).
+    llvm::Value* val = evaluateExpr(node->value);
+    llvm::Type* payTy = val->getType();
+    uint64_t paySize = module->getDataLayout().getTypeAllocSize(payTy);
     llvm::Function* allocEx = getOrDeclareFunc("__cxa_allocate_exception",
         ptrTy, {i64});
     llvm::Value* exPtr = builder->CreateCall(allocEx,
-        {llvm::ConstantInt::get(i64, 16)}, "ex.alloc");
+        {llvm::ConstantInt::get(i64, 16 + paySize)}, "ex.alloc");
+    auto* paySlot = builder->CreateConstGEP1_64(
+        llvm::Type::getInt8Ty(*context), exPtr, 16, "ex.pay.slot");
+    builder->CreateStore(val, paySlot);
 
-    // Store value as i64
-    llvm::Value* val = evaluateExpr(node->value);
-    llvm::Value* ival;
-    if (val->getType()->isPointerTy())
-        ival = builder->CreatePtrToInt(val, i64);
-    else
-        ival = builder->CreateSExtOrTrunc(val, i64);
-    builder->CreateStore(ival, exPtr);
+    // The static type of the thrown value. The type checker stamps it on the node,
+    // but a generic body is shared by its instances, so there it is derived per
+    // instance from the value's type under the active substitutions.
+    std::string thrownType = node->valueType;
+    if (thrownType.empty() || !typeParamOverride.empty()) {
+        std::string d = getExprEskiuType(node->value);
+        if (!typeParamOverride.empty()) d = substType(d, typeParamOverride);
+        if (!d.empty() && d != "unknown") thrownType = d;
+    }
+    thrownType = exceptionTypeName(thrownType);
 
     // Store type name at offset 8
-    std::string thrownType = node->valueType.empty() ? "unknown" : node->valueType;
     auto* typeStr = builder->CreateGlobalString(thrownType, ".ex.tname");
     auto* typeSlot = builder->CreateConstGEP1_64(
         llvm::Type::getInt8Ty(*context), exPtr, 8, "ex.type.slot");
-    auto* typeSlotPtr = builder->CreateBitCast(typeSlot, ptrTy, "ex.type.ptr");
-    builder->CreateStore(typeStr, typeSlotPtr);
+    builder->CreateStore(typeStr, typeSlot);
 
     // __cxa_throw(ex, _ZTIPv, null)
     // Must be an invoke when inside a try body so the local landingpad fires.
@@ -322,7 +346,7 @@ void CodeGen::visit(TryStmt* node) {
     llvm::Function* strcmpFn  = getOrDeclareFunc("strcmp", i32, {ptrTy, ptrTy});
 
     for (auto& c : node->catches) {
-        auto* cTypeStr  = builder->CreateGlobalString(c.type, ".catch.t");
+        auto* cTypeStr  = builder->CreateGlobalString(exceptionTypeName(c.type), ".catch.t");
         llvm::Value* cmp   = builder->CreateCall(strcmpFn, {exType, cTypeStr}, "tcmp");
         llvm::Value* match = builder->CreateICmpEQ(cmp,
             llvm::ConstantInt::get(i32, 0), "tmatch");
@@ -334,12 +358,12 @@ void CodeGen::visit(TryStmt* node) {
         builder->SetInsertPoint(handlerBB);
         pushScope();
 
-        // Load value (offset 0)
-        llvm::Value* ival = builder->CreateLoad(i64, exData, "ex.ival");
+        // Load the payload (offset 16) by the catch type, which the name match made
+        // the thrown value's own type.
         llvm::Type*  catchTy = getTypeFromString(c.type);
-        llvm::Value* catchVal = catchTy->isPointerTy()
-            ? builder->CreateIntToPtr(ival, catchTy)
-            : builder->CreateTrunc(ival, catchTy);
+        auto* paySlot = builder->CreateConstGEP1_64(
+            llvm::Type::getInt8Ty(*context), exData, 16, "ex.pay");
+        llvm::Value* catchVal = builder->CreateLoad(catchTy, paySlot, "ex.val");
         auto* catchAlloca = entryAlloca(catchTy, nullptr, c.name);
         builder->CreateStore(catchVal, catchAlloca);
         defineSymbol(c.name, catchAlloca);
