@@ -26,13 +26,12 @@ extern int   VirtualFree(*void addr, int64 size, int free_type);
 // Map `length` bytes of fresh zeroed read/write memory from the kernel, or null.
 *uint8 sys_pages(int64 length) {
     // MEM_COMMIT|MEM_RESERVE = 0x1000|0x2000 = 12288; PAGE_READWRITE = 4.
-    *void p = VirtualAlloc((*void)0, length, 12288, 4);
-    if ((int64)p == 0) { return (*uint8)0; }
-    return (*uint8)p;
+    *void p = VirtualAlloc(null, length, 12288, 4);
+    return (*uint8)p;               // null on failure
 }
 
 // MEM_RELEASE = 0x8000 = 32768; the size must be 0 for a full release.
-void sys_unpages(*uint8 p, int64 length) { VirtualFree((*void)p, (int64)0, 32768); }
+void sys_unpages(*uint8 p, int64 length) { VirtualFree((*void)p, 0, 32768); }
 #else
 extern *void mmap(*void addr, int64 length, int prot, int flags, int fd, int64 offset);
 extern int   munmap(*void addr, int64 length);
@@ -40,17 +39,17 @@ extern int   munmap(*void addr, int64 length);
 // PROT_READ|PROT_WRITE = 3 (same on Linux and macOS). The anonymous-private flags
 // differ: macOS MAP_PRIVATE(0x0002)|MAP_ANON(0x1000); Linux uses MAP_ANONYMOUS(0x0020).
 #ifdef __APPLE__
-int _sys_map_flags = 4098;     // 0x1002
+const int _sys_map_flags = 4098;     // 0x1002
 #else
-int _sys_map_flags = 34;       // 0x0022
+const int _sys_map_flags = 34;       // 0x0022
 #endif
 
 // Map `length` bytes of fresh zeroed read/write memory from the kernel, or null.
 // mmap reports failure as MAP_FAILED (== (void*)-1), not null — check both.
 *uint8 sys_pages(int64 length) {
-    *void p = mmap((*void)0, length, 3, _sys_map_flags, -1, (int64)0);
-    int64 pv = (int64)p;
-    if (pv == 0 || pv == -1) { return (*uint8)0; }
+    *void p = mmap(null, length, 3, _sys_map_flags, -1, 0);
+    const int64 pv = (int64)p;
+    if (pv == 0 || pv == -1) { return null; }
     return (*uint8)p;
 }
 
@@ -68,15 +67,15 @@ struct Heap {
 // false if the mapping failed.
 bool Heap_init(Heap* self, int64 size) {
     *uint8 mem = sys_pages(size);
-    if (mem == (*uint8)0) { return false; }
+    if (mem == null) { return false; }
     self.base = mem;
     self.size = size;
-    FirstFit_init(&self.ff, mem, size);
+    self.ff.init(mem, size);
     return true;
 }
 
-*void Heap_alloc(Heap* self, int64 nbytes) { return FirstFit_alloc(&self.ff, nbytes); }
-void  Heap_free(Heap* self, *void p)        { FirstFit_free(&self.ff, p); }   // null is a no-op
+*void Heap_alloc(Heap* self, int64 nbytes) { return self.ff.alloc(nbytes); }
+void  Heap_free(Heap* self, *void p)        { self.ff.free(p); }   // null is a no-op
 
 // Return all the heap's pages to the OS. Frees everything at once.
 void Heap_destroy(Heap* self) { sys_unpages(self.base, self.size); }
