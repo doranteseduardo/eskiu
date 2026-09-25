@@ -1747,13 +1747,14 @@ string cg_strip_nullable(string t) {
     return t;
 }
 
+int cg_arr_open(string t);   // fwd
 string cg_lltype(Codegen* g, string t) {
-    t = cg_strip_nullable(t);             // `?*T` lowers as `*T`
+    t = cg_strip_nullable(t);            // `?*T` lowers as `*T`
     t = cg_apply_sub(g, t);               // T -> concrete during instantiation
     t = cg_dealias(g, t);                 // type alias -> underlying type
     // fn(...)->R first: its parameter / return spellings may hold `<`, `[` or `*`
     // (`fn(Box<int>)->int`), which are not the fn type's own shape.
-    if (cg_is_fnty(t) == 1) { return "%closure"; }         // fn(...)->R → fat pointer {fn,env}
+    if (cg_is_fnty(t) == 1 && cg_arr_open(t) < 0) { return "%closure"; }   // fn(...)->R → fat pointer {fn,env}
     if (cg_is_slice(t) == 1) { return "{ ptr, i64 }"; }   // "T[]" -> fat pointer { data, len }
     if (cg_is_array(t) == 1) {            // "T[N]" -> [N x <T>]
         string cnt = cg_array_count(t);

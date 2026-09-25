@@ -1272,6 +1272,8 @@ string sema_infer_type(Sema* s, *ExprNode e) {
         if (sema_streq(e.sval, "&") == 1) {                 // address-of → pointer, const-tracking
             string bt = sema_infer_type(s, e.a);
             if (bt[0] == 0) { return ""; }
+            // A pointer to a closure is `*fn(...)->R`: a trailing `*` would read as part of R.
+            if (sema_is_fn_type(sema_strip_const(bt)) == 1) { return sema_cat("*", sema_strip_const(bt)); }
             if (sema_is_readonly_lvalue(s, e.a) == 1) { return sema_cat("const ", sema_cat(sema_strip_const(bt), "*")); }
             return sema_cat(bt, "*");
         }
