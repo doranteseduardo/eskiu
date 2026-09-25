@@ -429,7 +429,7 @@ string name = "Eskiu";
 
 Both forms are equivalent. The type annotation is required in both; type inference is not supported.
 
-A variable is visible from its declaration to the end of the enclosing block. A declaration in a nested block may **shadow** an outer variable of the same name; the outer variable is unchanged and visible again after the inner block ends. Declaring the same name twice in one scope is an error, and so are these other duplicates: two parameters with one name, two fields (or a field and a method) with one name in a struct, a repeated enum member, a second `default:` in a `switch`, a global and a function (or a struct and a function) with one name, and a function prototype whose signature differs from its definition. A prototype that matches its definition, and an `extern` declaration next to the variable's definition, are allowed.
+A variable is visible from its declaration to the end of the enclosing block. A declaration in a nested block may **shadow** an outer variable of the same name; the outer variable is unchanged and visible again after the inner block ends. Declaring the same name twice in one scope is an error, and so are these other duplicates: two parameters with one name, a local in a function's outermost block that reuses a parameter's name (the parameters and that block share one scope, as in C), two fields (or a field and a method) with one name in a struct, a repeated enum member, a second `default:` in a `switch`, a global and a function (or a struct and a function) with one name, and a function prototype whose signature differs from its definition. A prototype that matches its definition, and an `extern` declaration next to the variable's definition, are allowed.
 
 ### 4.3 Pointer Variables
 
