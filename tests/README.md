@@ -409,6 +409,38 @@ whole blocks while the finding still reproduces and writes `reduced_<seed>_<inde
 Set `ESKIU_CLANG` to the clang to use, and `ESKIUC_ESK` if the self-hosted compiler is
 not at `build/eskiuc-esk` (it is skipped when missing).
 
+**`neg_fuzz.py`** is the negative corpus. It takes a program from the C-oracle generator
+and injects exactly one error (about sixty kinds: undefined names, members of scalars,
+bad calls and argument types, operators on structs or strings, bad casts, assigning to
+an rvalue or a const, stray `break`/`continue`, duplicate locals and parameters,
+out-of-range literals, division by a literal zero, unknown types, bad struct and array
+literals, duplicate or non-constant `case` labels, non-constant globals and statics,
+missing returns, unchecked `?*T` derefs, and more) at a random point of the program. Both
+compilers must reject it without crashing, with an `error: file:line:col:` diagnostic on
+the line of the injected error. Findings are `neg_<build>-<kind>_<seed>_<index>.esk`
+(ACCEPT, CRASH, HANG, UNLOCATED, LOCATION).
+
+```bash
+python3 tests/fuzz/neg_fuzz.py --programs 300 --seed 1     # the CI gate
+python3 tests/fuzz/neg_fuzz.py --programs 20000 --seed 7   # a long run
+python3 tests/fuzz/neg_fuzz.py --repro 7:123               # print one program
+```
+
+**`stdlib_fuzz.py`** fuzzes the stdlib parsers under AddressSanitizer. Each target in
+`tests/fuzz/stdlib/` (`json`, `base64`, `url`, `regex`, `hpack`, `http`, `multipart`,
+`uuid_time`) is an Eskiu program built with `eskiuc --asan` that reads a batch of inputs
+and runs them through the parser, checking round trips where there is one (base64 and
+url encode/decode, hpack encode/decode, epoch/calendar conversion). The driver mutates a
+seed corpus (hand-written seeds plus string literals from the matching tests) and fails
+on a crash, an ASan report, a broken invariant, a hang or a memory blowup, saving the
+input to `stdlib_<target>_<seed>_<n>.bin`.
+
+```bash
+python3 tests/fuzz/stdlib_fuzz.py --inputs 1500 --seed 1   # the CI gate (a few seconds a target)
+python3 tests/fuzz/stdlib_fuzz.py --seconds 300 --seed 7   # five minutes per target
+python3 tests/fuzz/stdlib_fuzz.py --targets hpack --replay tests/fuzz/findings/x.bin
+```
+
 ## Adding a test
 
 - **Positive, deterministic output:** add `NAME.esk` and `NAME.expected` (the exact
