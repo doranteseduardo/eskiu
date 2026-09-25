@@ -1,0 +1,18 @@
+boundary(multipart/form-data; boundary=abc) -> 1 [abc]
+boundary(multipart/form-data; Boundary=abc) -> 1 [abc]
+boundary(multipart/form-data; BOUNDARY="q q"; charset=x) -> 1 [q q]
+boundary(multipart/form-data; notboundary=zz; boundary=real) -> 1 [real]
+boundary(multipart/form-data; x="a;boundary=fake"; boundary=real) -> 1 [real]
+boundary(multipart/form-data; boundary=) -> 0 []
+boundary(boundary=nomediatype) -> 0 []
+inside content: 1 [has --B inside]
+prefix not a line: 1 [X--B
+Y]
+longer boundary: 1 [one
+--BB
+two]
+preamble: 1 [v]
+second part: 1 [2]
+empty value: 1 []
+spaced boundary: 1 [ok]
+no close: 0

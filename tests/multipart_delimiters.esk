@@ -1,0 +1,49 @@
+// multipart parsing follows RFC 2046 / RFC 9110:
+//  - the boundary is a real Content-Type parameter: its name is matched
+//    case-insensitively and whole (`notboundary=` is not it), and a quoted value
+//    may contain spaces;
+//  - a delimiter is "--boundary" at the start of the body or of a line
+//    (CRLF "--boundary") whose line ends in "--" or CRLF, so "--boundary"
+//    inside content does not cut the part short; a preamble is skipped.
+import <mem>;
+import <string>;
+import <multipart>;
+extern int printf(string fmt, ...);
+
+void bnd(string ct) {
+    let c: String;  c.from(ct);
+    let o: String;  o.init(4);
+    const int r = multipart_boundary(&c, &o);
+    printf("boundary(%s) -> %d [%s]\n", ct, r, o.cstr());
+    c.free();  o.free();
+}
+
+void part(string label, string body, string bd, string name) {
+    let b: String;  b.from(bd);
+    *uint8 p = null;  int64 pl = -1;
+    const int r = multipart_part((*uint8)body, strlen(body), &b, name, &p, &pl);
+    printf("%s: %d", label, r);
+    if (r == 1) { printf(" [%.*s]", (int)pl, (string)p); }
+    printf("\n");
+    b.free();
+}
+
+int main() {
+    bnd("multipart/form-data; boundary=abc");
+    bnd("multipart/form-data; Boundary=abc");
+    bnd("multipart/form-data; BOUNDARY=\"q q\"; charset=x");
+    bnd("multipart/form-data; notboundary=zz; boundary=real");
+    bnd("multipart/form-data; x=\"a;boundary=fake\"; boundary=real");
+    bnd("multipart/form-data; boundary=");
+    bnd("boundary=nomediatype");
+
+    part("inside content", "--B\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\nhas --B inside\r\n--B--\r\n", "B", "a");
+    part("prefix not a line", "--B\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\nX--B\r\nY\r\n--B--\r\n", "B", "a");
+    part("longer boundary", "--B\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\none\r\n--BB\r\ntwo\r\n--B--\r\n", "B", "a");
+    part("preamble", "ignored preamble\r\n--B\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\nv\r\n--B--\r\n", "B", "a");
+    part("second part", "--B\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\n1\r\n--B \t\r\nContent-Disposition: form-data; name=\"b\"\r\n\r\n2\r\n--B--", "B", "b");
+    part("empty value", "--B\r\nContent-Disposition: form-data; name=\"t\"\r\n\r\n\r\n--B--\r\n", "B", "t");
+    part("spaced boundary", "--q q\r\nContent-Disposition: form-data; name=\"s\"\r\n\r\nok\r\n--q q--\r\n", "q q", "s");
+    part("no close", "--B\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\nv", "B", "a");
+    return 0;
+}
