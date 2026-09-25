@@ -33,12 +33,14 @@ List<string> g_imported;       // resolved import paths already parsed (dedup)
 List<string> g_typenames;      // declared type names → enables `(Foo)x` casts
 int g_cur_pack;                // active `#pragma pack(N)` alignment (0 = natural)
 List<int> g_pack_stack;        // saved pack values for `pack(push, N)` / `pack(pop)`
+List<string> g_tparams;        // type params of the generic fn/struct being parsed (`(*T)x`)
 
 void parser_session_init() {
     List_init<string>(&g_imported, 16);
     List_init<string>(&g_typenames, 64);
     g_cur_pack = 0;
     List_init<int>(&g_pack_stack, 8);
+    List_init<string>(&g_tparams, 8);
 }
 
 // Interpret a `#pragma pack(...)` directive (text is everything after `#`, e.g.
@@ -244,6 +246,33 @@ int is_known_type(Parser* p, string name) {
         i = i + 1;
     }
     return 0;
+}
+
+// A declared type name or an in-scope type parameter (mirrors Parser::isTypeName).
+int is_type_name(Parser* p, string name) {
+    if (is_known_type(p, name) == 1) { return 1; }
+    int i = 0;
+    while (i < List_len<string>(&g_tparams)) {
+        if (str_eq(List_get<string>(&g_tparams, i), name) == 1) { return 1; }
+        i = i + 1;
+    }
+    return 0;
+}
+
+// Push a decl's type-param names onto g_tparams; returns the old depth for restoring.
+int push_tparams(List<TypeParam>* tps) {
+    int mark = List_len<string>(&g_tparams);
+    int i = 0;
+    while (i < List_len<TypeParam>(tps)) {
+        List_push<string>(&g_tparams, List_get<TypeParam>(tps, i).name);
+        i = i + 1;
+    }
+    return mark;
+}
+void pop_tparams(int mark) {
+    while (List_len<string>(&g_tparams) > mark) {
+        List_remove<string>(&g_tparams, List_len<string>(&g_tparams) - 1);
+    }
 }
 
 int is_type_kw(int t) {
@@ -702,6 +731,20 @@ string lambda_sig(string ret, *DeclNode d) {
     return e;
 }
 
+// At `(` followed by `*`: does it open a cast (mirrors Parser::starParenIsCast)?
+// `(*T)x` is a cast; `(*p)`, `(*p) - 1`, `(*p)++`, `(*sp).a` dereference.
+int star_paren_is_cast(Parser* p) {
+    int k = 1;
+    while (p_peek_k(p, k).type == STAR) { k = k + 1; }
+    if (p_peek_k(p, k).type != IDENT || p_peek_k(p, k + 1).type != RPAREN) { return 1; }
+    if (is_type_name(p, tok_text(p.src, p_peek_k(p, k))) == 1) { return 1; }
+    int f = p_peek_k(p, k + 2).type;
+    if (f == IDENT || f == INT_LIT || f == FLOAT_LIT || f == STRING_LIT || f == CHAR_LIT
+        || f == TRUE || f == FALSE || f == NULL_KW || f == LPAREN || f == NOT || f == TILDE
+        || f == SIZEOF) { return 1; }
+    return 0;
+}
+
 *ExprNode parse_unary(Parser* p) {
     // await E — prefix, binds like a unary operator.
     if (p_at(p) == AWAIT) {
@@ -745,8 +788,9 @@ string lambda_sig(string ret, *DeclNode d) {
         Token i2 = p_peek2(p);
         int inner = i2.type;
         int is_cast = 0;
-        if (is_type_kw(inner) == 1 || inner == STAR) { is_cast = 1; }
-        else if (inner == IDENT && is_known_type(p, tok_text(p.src, i2)) == 1) { is_cast = 1; }
+        if (is_type_kw(inner) == 1) { is_cast = 1; }
+        else if (inner == STAR) { is_cast = star_paren_is_cast(p); }
+        else if (inner == IDENT && is_type_name(p, tok_text(p.src, i2)) == 1) { is_cast = 1; }
         if (is_cast == 1) {
             // Speculative: `(Type)operand` is a cast, but `(Type { ... })` is a
             // parenthesized struct literal — distinguished by what follows the type. Parse
@@ -1472,7 +1516,11 @@ string parse_operator_token(Parser* p) {
         d.name = ast_op_name(opsym, &ptys);
         d.operator_sym = opsym;
     }
-    if (p_at(p) == LBRACE) { d.body = parse_block(p); }
+    if (p_at(p) == LBRACE) {
+        int mark = push_tparams(&d.type_params);
+        d.body = parse_block(p);
+        pop_tparams(mark);
+    }
     else { d.body = null; p_adv(p); }      // forward declaration: ';' (no body)
     return d;
 }
@@ -1542,6 +1590,7 @@ int str_to_int(string s) {
     d.name = tok_text(p.src, p_adv(p));
     if (g_cur_pack >= 1) { d.pack_align = g_cur_pack; if (g_cur_pack == 1) { d.is_packed = 1; } }
     parse_type_params(p, &d.type_params, 1);   // optional <T, E: Iface>
+    int tmark = push_tparams(&d.type_params);   // in scope for inline methods
     p_adv(p);                              // '{'
     List_init<Param>(&d.params, 4);
     while (p_at(p) != RBRACE && p_at(p) != EOF_TOKEN) {
@@ -1569,6 +1618,7 @@ int str_to_int(string s) {
             List_push<int>(&d.field_bits, bw);
         }
     }
+    pop_tparams(tmark);
     p_adv(p);                              // '}'
     return d;
 }

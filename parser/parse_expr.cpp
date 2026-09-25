@@ -119,6 +119,32 @@ ExprPtr Parser::parseComparison()     { return parseBinaryLevel(&Parser::parseSh
 ExprPtr Parser::parseAddition()       { return parseBinaryLevel(&Parser::parseMultiplication, {TokenType::PLUS, TokenType::MINUS}); }
 ExprPtr Parser::parseMultiplication() { return parseBinaryLevel(&Parser::parseUnary,          {TokenType::STAR, TokenType::SLASH, TokenType::PERCENT}); }
 
+bool Parser::isTypeName(const std::string& name) const {
+    if (sharedTypeNames && sharedTypeNames->count(name)) return true;
+    for (const auto& tp : typeParamScope) if (tp == name) return true;
+    return false;
+}
+
+bool Parser::starParenIsCast() const {
+    size_t k = 1;
+    while (peek_ahead(k).type == TokenType::STAR) k++;
+    // Only `( *... IDENT )` is ambiguous; `(*int)`, `(*Foo<T>)`, `(*fn(...)->R)` are types.
+    if (peek_ahead(k).type != TokenType::IDENT || peek_ahead(k + 1).type != TokenType::RPAREN)
+        return true;
+    if (isTypeName(peek_ahead(k).value)) return true;
+    // An unknown name: a cast only when an operand follows the `)`. A binary operator,
+    // `++`/`--`, `.`, `[`, `=` or a terminator means `(*p)` is a dereference.
+    switch (peek_ahead(k + 2).type) {
+        case TokenType::IDENT: case TokenType::INT_LIT: case TokenType::FLOAT_LIT:
+        case TokenType::STRING_LIT: case TokenType::CHAR_LIT: case TokenType::TRUE:
+        case TokenType::FALSE: case TokenType::NULL_KW: case TokenType::LPAREN:
+        case TokenType::NOT: case TokenType::TILDE: case TokenType::SIZEOF:
+            return true;
+        default:
+            return false;
+    }
+}
+
 ExprPtr Parser::parseUnary() {
     // await E — prefix operator; binds like a unary operator.
     if (check(TokenType::AWAIT)) {
@@ -158,11 +184,12 @@ ExprPtr Parser::parseUnary() {
     // Only trigger on unambiguous type keywords to avoid conflict with (expr).
     if (check(TokenType::LPAREN)) {
         TokenType inner = peek_ahead(1).type;
-        bool isTypeKeyword = isPrimitiveTypeToken(inner) || inner == TokenType::STAR;
+        bool isTypeKeyword = isPrimitiveTypeToken(inner) ||
+                             (inner == TokenType::STAR && starParenIsCast());
         // Also a cast when the inner token names a declared type — a struct,
         // enum, union, or alias — as `(Name)x`, `(Name*)x`, or `(Name<...>)x`.
         if (!isTypeKeyword && inner == TokenType::IDENT &&
-            sharedTypeNames->count(peek_ahead(1).value)) {
+            isTypeName(peek_ahead(1).value)) {
             isTypeKeyword = true;
         }
         if (isTypeKeyword) {

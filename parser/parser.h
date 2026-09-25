@@ -118,6 +118,13 @@ private:
     ExprPtr parseAddition();
     ExprPtr parseMultiplication();
     ExprPtr parseUnary();
+    // At `(`: does a `*`-led parenthesized form open a cast? `(*T)x` is a cast, but
+    // `(*p)`, `(*p) - 1`, `(*p)++` and `(*sp).a` dereference a variable.
+    bool starParenIsCast() const;
+    // Type parameters of the generic function/struct being parsed: `(*T)x` inside
+    // `alloc<T>` names a type even though T is not a declared type name.
+    std::vector<std::string> typeParamScope;
+    bool isTypeName(const std::string& name) const;
     ExprPtr parsePostfix();
     ExprPtr parsePrimary();
 

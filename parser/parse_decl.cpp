@@ -339,7 +339,11 @@ DeclPtr Parser::parseFunctionDecl() {
     // A bare ';' marks a forward declaration (prototype only, no body).
     StmtPtr body = nullptr;
     if (!match(TokenType::SEMICOLON)) {
-        body = parseBlockStatement();
+        size_t scopeMark = typeParamScope.size();
+        typeParamScope.insert(typeParamScope.end(), typeParams.begin(), typeParams.end());
+        try { body = parseBlockStatement(); }
+        catch (...) { typeParamScope.resize(scopeMark); throw; }
+        typeParamScope.resize(scopeMark);
     }
 
     auto decl = std::make_shared<FunctionDecl>(name, returnType, params, body);
@@ -405,6 +409,10 @@ DeclPtr Parser::parseStructDecl() {
 
     std::vector<StructDecl::Field> fields;
     std::vector<DeclPtr> methods;
+    // The struct's type parameters are in scope for its inline methods.
+    size_t scopeMark = typeParamScope.size();
+    typeParamScope.insert(typeParamScope.end(), typeParams.begin(), typeParams.end());
+    struct ScopeRestore { std::vector<std::string>& v; size_t n; ~ScopeRestore() { v.resize(n); } } restore{typeParamScope, scopeMark};
 
     while (!check(TokenType::RBRACE) && !is_at_end()) {
         size_t savePos = current;
