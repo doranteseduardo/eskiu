@@ -76,8 +76,8 @@ void _el_kev(int kq, int fd, int filter, int flag) {
     ev.ident  = (uint64)fd;
     ev.filter = (int16)filter;
     ev.flags  = (uint16)flag;
-    ev.fflags = 0;  ev.data = 0;  ev.udata = (*void)0;
-    kevent(kq, (*void)&ev, 1, (*void)0, 0, (*void)0);
+    ev.fflags = 0;  ev.data = 0;  ev.udata = null;
+    kevent(kq, (*void)&ev, 1, null, 0, null);
 }
 
 // Set fd's interest: mode 0 = none, 1 = readable, 2 = writable. kqueue filters
@@ -96,15 +96,14 @@ struct EvTimespec { int64 tv_sec; int64 tv_nsec; }
 // ready descriptors, return the count (0 on timeout).
 int _el_wait(int kq, *EvNative evs, *int fds, int max, int64 timeout_ms) {
     let ts: EvTimespec;
-    *void tsp = (*void)0;                 // NULL timeout = wait forever
-    if (timeout_ms >= (int64)0) {
-        ts.tv_sec  = timeout_ms / (int64)1000;
-        ts.tv_nsec = (timeout_ms % (int64)1000) * (int64)1000000;
+    *void tsp = null;                     // NULL timeout = wait forever
+    if (timeout_ms >= 0) {
+        ts.tv_sec  = timeout_ms / 1000;
+        ts.tv_nsec = (timeout_ms % 1000) * 1000000;
         tsp = (*void)&ts;
     }
-    int n = kevent(kq, (*void)0, 0, (*void)evs, max, tsp);
-    int i = 0;
-    while (i < n) { fds[i] = (int)evs[i].ident; i = i + 1; }
+    const int n = kevent(kq, null, 0, (*void)evs, max, tsp);
+    for (i in 0..n) { fds[i] = (int)evs[i].ident; }
     return n;
 }
 
@@ -137,8 +136,9 @@ int _el_backend_new() { _el_wsa.n = 0; return 0; }   // state is the global set;
 void _el_backend_free(int backend) { _el_wsa.n = 0; }
 
 int _el_wsa_find(int fd) {
-    int i = 0;
-    while (i < _el_wsa.n) { if (_el_wsa.pfds[i].fd == (int64)fd) { return i; } i = i + 1; }
+    for (i in 0.._el_wsa.n) {
+        if (_el_wsa.pfds[i].fd == (int64)fd) { return i; }
+    }
     return -1;
 }
 
@@ -146,13 +146,12 @@ int _el_wsa_find(int fd) {
 void _el_ctl(int backend, int fd, int mode, int wasActive) {
     int idx = _el_wsa_find(fd);
     if (mode == 0) {                                   // remove: swap with the last entry
-        if (idx >= 0) { _el_wsa.pfds[idx] = _el_wsa.pfds[_el_wsa.n - 1]; _el_wsa.n = _el_wsa.n - 1; }
+        if (idx >= 0) { _el_wsa.pfds[idx] = _el_wsa.pfds[_el_wsa.n - 1]; _el_wsa.n--; }
         return;
     }
-    int16 ev = (int16)_EL_POLLRD;
-    if (mode == 2) { ev = (int16)_EL_POLLWR; }
+    const int16 ev = (int16)(mode == 2 ? _EL_POLLWR : _EL_POLLRD);
     if (idx < 0) {                                     // first registration
-        idx = _el_wsa.n;  _el_wsa.n = _el_wsa.n + 1;
+        idx = _el_wsa.n;  _el_wsa.n++;
         _el_wsa.pfds[idx].fd = (int64)fd;
     }
     _el_wsa.pfds[idx].events  = ev;
@@ -163,10 +162,9 @@ int _el_wait(int backend, *EvNative evs, *int fds, int max, int64 timeout_ms) {
     if (_el_wsa.n == 0) { return 0; }                  // WSAPoll rejects a 0-length set
     int r = WSAPoll((*void)&_el_wsa.pfds[0], _el_wsa.n, (int)timeout_ms);
     if (r <= 0) { return 0; }                          // 0 = timeout, <0 = error
-    int cnt = 0;  int i = 0;
-    while (i < _el_wsa.n && cnt < max) {
-        if (_el_wsa.pfds[i].revents != 0) { fds[cnt] = (int)_el_wsa.pfds[i].fd; cnt = cnt + 1; }
-        i = i + 1;
+    int cnt = 0;
+    for (int i = 0; i < _el_wsa.n && cnt < max; i++) {
+        if (_el_wsa.pfds[i].revents != 0) { fds[cnt] = (int)_el_wsa.pfds[i].fd; cnt++; }
     }
     return cnt;
 }
@@ -192,18 +190,17 @@ void _el_backend_free(int ep) { close(ep); }
 // (EPOLLOUT). epoll keeps one entry per fd, so switching read<->write is a MOD
 // (the fd was already registered) and the first registration is an ADD.
 void _el_ctl(int ep, int fd, int mode, int wasActive) {
-    if (mode == 0) { epoll_ctl(ep, 2, fd, (*void)0); return; }   // EPOLL_CTL_DEL
+    if (mode == 0) { epoll_ctl(ep, 2, fd, null); return; }       // EPOLL_CTL_DEL
     let ev: EvNative;
-    ev.events = 1;  if (mode == 2) { ev.events = 4; }            // EPOLLIN=1, EPOLLOUT=4
+    ev.events = mode == 2 ? 4 : 1;                               // EPOLLOUT=4, EPOLLIN=1
     ev.data   = (uint64)fd;
-    int op = 1;  if (wasActive != 0) { op = 3; }                 // ADD=1, MOD=3 (EPOLL_CTL_MOD)
+    const int op = wasActive != 0 ? 3 : 1;                       // MOD=3 (EPOLL_CTL_MOD), ADD=1
     epoll_ctl(ep, op, fd, (*void)&ev);
 }
 
 int _el_wait(int ep, *EvNative evs, *int fds, int max, int64 timeout_ms) {
-    int n = epoll_wait(ep, (*void)evs, max, (int)timeout_ms);   // -1 = forever
-    int i = 0;
-    while (i < n) { fds[i] = (int)evs[i].data; i = i + 1; }
+    const int n = epoll_wait(ep, (*void)evs, max, (int)timeout_ms);   // -1 = forever
+    for (i in 0..n) { fds[i] = (int)evs[i].data; }
     return n;
 }
 
@@ -219,22 +216,18 @@ EventLoop* el_new(int max_fds) {
     lp.running = 0;
     lp.cap     = max_fds;
     lp.slots   = alloc<EvHandler>(max_fds);
-    int i = 0;
     // alloc zeroes the slot (active/gen/isWrite = 0, on_read = null). A null on_read is
     // never dispatched (the loop guards on `active == 0`), but install a no-op closure so
     // that even a stray dispatch is a safe no-op rather than a null-function-pointer call.
-    while (i < max_fds) {
+    for (i in 0..max_fds) {
         lp.slots[i].on_read = void(EventLoop* e, int fd) {};
-        i = i + 1;
     }
     lp.tcap    = max_fds;
     lp.timers  = alloc<EvTimer>(max_fds);
-    int t = 0;
     // Same as the slots: alloc zeroes the timer (active = 0, on_fire = null); install a
     // no-op so a stray fire is safe rather than a null call.
-    while (t < max_fds) {
-        lp.timers[t].on_fire  = void() {};
-        t = t + 1;
+    for (t in 0..max_fds) {
+        lp.timers[t].on_fire = void() {};
     }
     return lp;
 }
@@ -242,12 +235,10 @@ EventLoop* el_new(int max_fds) {
 // Double the timer table (a full table must not drop a timer: its future would
 // never fire). Existing ids are slot indices and stay valid.
 void _el_grow_timers(EventLoop* lp) {
-    int newcap = lp.tcap * 2;
-    if (newcap < 8) { newcap = 8; }
+    const int newcap = lp.tcap * 2 < 8 ? 8 : lp.tcap * 2;
     EvTimer* nt = alloc<EvTimer>(newcap);
-    int i = 0;
-    while (i < lp.tcap) { nt[i] = lp.timers[i]; i = i + 1; }
-    while (i < newcap) { nt[i].on_fire = void() {}; i = i + 1; }
+    for (i in 0..lp.tcap) { nt[i] = lp.timers[i]; }
+    for (i in lp.tcap..newcap) { nt[i].on_fire = void() {}; }
     free((*void)lp.timers);
     lp.timers = nt;
     lp.tcap   = newcap;
@@ -258,7 +249,7 @@ void _el_grow_timers(EventLoop* lp) {
 // once, then frees `on_fire`.
 int EventLoop_add_timer(EventLoop* lp, int64 deadline, escaping fn()->void on_fire) {
     int t = 0;
-    while (t < lp.tcap && lp.timers[t].active != 0) { t = t + 1; }
+    while (t < lp.tcap && lp.timers[t].active != 0) { t++; }
     if (t == lp.tcap) { _el_grow_timers(lp); }
     lp.timers[t].deadline = deadline;
     lp.timers[t].on_fire  = on_fire;
@@ -283,11 +274,10 @@ void EventLoop_del_timer(EventLoop* lp, int id) {
 void _el_ensure_slots(EventLoop* lp, int fd) {
     if (fd < lp.cap) { return; }
     int newcap = lp.cap * 2;
-    while (newcap <= fd) { newcap = newcap * 2; }
+    while (newcap <= fd) { newcap *= 2; }
     EvHandler* ns = alloc<EvHandler>(newcap);
-    int i = 0;
-    while (i < lp.cap) { ns[i] = lp.slots[i]; i = i + 1; }               // keep existing registrations
-    while (i < newcap) { ns[i].on_read = void(EventLoop* e, int fd) {}; i = i + 1; }   // no-op the rest
+    for (i in 0..lp.cap) { ns[i] = lp.slots[i]; }                            // keep existing registrations
+    for (i in lp.cap..newcap) { ns[i].on_read = void(EventLoop* e, int fd) {}; }   // no-op the rest
     free((*void)lp.slots);
     lp.slots = ns;
     lp.cap   = newcap;
@@ -297,11 +287,11 @@ void _el_ensure_slots(EventLoop* lp, int fd) {
 void EventLoop_add_read(EventLoop* lp, int fd, escaping fn(EventLoop*, int)->void cb) {
     if (fd < 0) { return; }
     _el_ensure_slots(lp, fd);
-    int was = lp.slots[fd].active;
+    const int was = lp.slots[fd].active;
     lp.slots[fd].on_read = cb;
     lp.slots[fd].active  = 1;
     lp.slots[fd].isWrite = 0;
-    lp.slots[fd].gen     = lp.slots[fd].gen + 1;   // new registration identity
+    lp.slots[fd].gen++;                            // new registration identity
     _el_ctl(lp.backend, fd, 1, was);
 }
 
@@ -311,11 +301,11 @@ void EventLoop_add_read(EventLoop* lp, int fd, escaping fn(EventLoop*, int)->voi
 void EventLoop_add_write(EventLoop* lp, int fd, escaping fn(EventLoop*, int)->void cb) {
     if (fd < 0) { return; }
     _el_ensure_slots(lp, fd);
-    int was = lp.slots[fd].active;
+    const int was = lp.slots[fd].active;
     lp.slots[fd].on_read = cb;
     lp.slots[fd].active  = 1;
     lp.slots[fd].isWrite = 1;
-    lp.slots[fd].gen     = lp.slots[fd].gen + 1;
+    lp.slots[fd].gen++;
     _el_ctl(lp.backend, fd, 2, was);
 }
 
@@ -341,32 +331,30 @@ void EventLoop_stop(EventLoop* lp) { lp.running = 0; }
 
 // Run until EventLoop_stop is called: wait for readiness and dispatch callbacks.
 void EventLoop_run(EventLoop* lp) {
-    int max = 64;
+    const int max = 64;
     *EvNative evs = alloc<EvNative>(max);
     *int      fds = alloc<int>(max);
+    defer free((*void)evs);
+    defer free((*void)fds);
     lp.running = 1;
     while (lp.running != 0) {
         // Block only until the nearest timer deadline (forever if none), so the
         // loop wakes in time to fire timers even with no fd activity.
         int64 now = time_monotonic_ms();
-        int64 timeout = (int64)0 - (int64)1;            // -1 = wait forever
-        int t = 0;
-        while (t < lp.tcap) {
+        int64 timeout = -1;                             // -1 = wait forever
+        for (t in 0..lp.tcap) {
             if (lp.timers[t].active != 0) {
                 int64 d = lp.timers[t].deadline - now;
-                if (d < (int64)0) { d = (int64)0; }
-                if (timeout < (int64)0) { timeout = d; }
-                else if (d < timeout) { timeout = d; }
+                if (d < 0) { d = 0; }
+                if (timeout < 0 || d < timeout) { timeout = d; }
             }
-            t = t + 1;
         }
-        int n = _el_wait(lp.backend, evs, fds, max, timeout);
-        int i = 0;
-        while (i < n) {
-            int fd = fds[i];
+        const int n = _el_wait(lp.backend, evs, fds, max, timeout);
+        for (i in 0..n) {
+            const int fd = fds[i];
             if (fd >= 0 && fd < lp.cap && lp.slots[fd].active != 0) {
                 let cb: fn(EventLoop*, int)->void = lp.slots[fd].on_read;
-                int g = lp.slots[fd].gen;
+                const int g = lp.slots[fd].gen;
                 cb(lp, fd);
                 // Free `cb`'s heap env once it is no longer the installed
                 // registration: either it deregistered (active -> 0) or it re-armed
@@ -374,31 +362,26 @@ void EventLoop_run(EventLoop* lp) {
                 // A still-installed persistent callback (same gen, active) is left.
                 if (lp.slots[fd].active == 0 || lp.slots[fd].gen != g) { free_closure(cb); }
             }
-            i = i + 1;
         }
         // Fire expired timers. Deactivate before firing so on_fire (-> resume) can
         // reuse the slot; free the snapshot env afterwards (one-shot, now spent).
+        // The bound is re-read each step: an on_fire that adds a timer may grow the table.
         now = time_monotonic_ms();
-        t = 0;
-        while (t < lp.tcap) {
+        for (int t = 0; t < lp.tcap; t++) {
             if (lp.timers[t].active != 0 && lp.timers[t].deadline <= now) {
                 let fire: fn()->void = lp.timers[t].on_fire;
                 lp.timers[t].active = 0;
                 fire();
                 free_closure(fire);
             }
-            t = t + 1;
         }
     }
-    free((*void)evs);  free((*void)fds);
 }
 
 void EventLoop_free(EventLoop* lp) {
     // Release any still-armed timer envs (e.g. the loop stopped with timers pending).
-    int t = 0;
-    while (t < lp.tcap) {
+    for (t in 0..lp.tcap) {
         if (lp.timers[t].active != 0) { free_closure(lp.timers[t].on_fire); }
-        t = t + 1;
     }
     free((*void)lp.timers);
     free((*void)lp.slots);
