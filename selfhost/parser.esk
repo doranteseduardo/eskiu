@@ -434,7 +434,7 @@ string tok_str_value(*uint8 src, Token t, *int out_len) {
     *uint8 buf = alloc<uint8>(t.len + 1);
     int off = 0;
     int i = t.start + 1;
-    int endp = t.start + t.len - 1;
+    int endp = lx_str_end(src, t.start, t.len);
     while (i < endp) {
         int ch = (int)src[i];
         if (ch == 92 && i + 1 < endp) {

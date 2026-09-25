@@ -552,10 +552,24 @@ Token lx_next(Lexer* lx) {
 // Print a token's value exactly as the C++ lexer stores it: STRING_LIT/CHAR_LIT are
 // decoded (escapes applied, surrounding quotes dropped); everything else is the raw
 // lexeme bytes [start, start+len).
+// End of a string literal's contents in the lexeme src[start, start+len): the index
+// of its closing quote, or start+len for one left unterminated at EOF (read_string's
+// escape-aware scan, so the value keeps every byte up to the end).
+int lx_str_end(*uint8 src, int start, int len) {
+    int i = start + 1;
+    int end = start + len;
+    while (i < end && (int)src[i] != 34) {
+        if ((int)src[i] == 92 && i + 1 < end) { i = i + 1; }
+        i = i + 1;
+    }
+    if (i > end) { return end; }
+    return i;
+}
+
 void lex_emit_value(*uint8 src, int type, int start, int len) {
     if (type == STRING_LIT) {
         int i = start + 1;                  // skip opening "
-        int endp = start + len - 1;         // index of closing "
+        int endp = lx_str_end(src, start, len);   // index of closing " (or the end)
         while (i < endp) {
             int ch = (int)src[i];
             if (ch == 92 && i + 1 < endp) { // '\' with a char after it
