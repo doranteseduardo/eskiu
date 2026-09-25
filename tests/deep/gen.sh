@@ -99,6 +99,17 @@ run_test() { # name expected-output < program
     echo '}'
 } | run_test blocks_10k 5
 
+# 5000 nested-generic declarations, each closed by a lexed `>>` (split in O(1)).
+{
+    echo 'import <list>;'
+    echo 'extern int printf(string fmt, ...);'
+    echo 'int main() {'
+    awk 'BEGIN { for (i = 0; i < 5000; i++) printf "    List<List<int>>* v%d = null;\n", i }'
+    echo '    printf("%d\n", (int)(v4999 == null));'
+    echo '    return 0;'
+    echo '}'
+} | run_test rshift_close_5k 1
+
 # Past the nesting limit: a clean error, not a stack overflow.
 {
     echo '// EXPECT-ERROR: nesting too deep'

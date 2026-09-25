@@ -56,10 +56,17 @@ Token Parser::peek() const {
     if (is_at_end()) {
         return tokens.back();
     }
+    if (splitActive && current == splitPos) {
+        Token t = tokens[current];
+        t.type = TokenType::GT;
+        t.value = ">";
+        return t;
+    }
     return tokens[current];
 }
 
 Token Parser::peek_ahead(int n) const {
+    if (n == 0) return peek();
     size_t pos = current + n;
     if (pos >= tokens.size()) {
         return tokens.back();
@@ -69,6 +76,12 @@ Token Parser::peek_ahead(int n) const {
 
 Token Parser::advance() {
     if (current < tokens.size()) {
+        if (splitActive && current == splitPos) {
+            Token t = peek();
+            splitActive = false;
+            current++;
+            return t;
+        }
         return tokens[current++];
     }
     if (!tokens.empty()) {
@@ -169,29 +182,20 @@ bool Parser::is_at_end() const {
 
 void Parser::consumeTemplateClose(const char* ctx) {
     if (check(TokenType::GT)) { advance(); return; }
-    // A lexed ">>" (right-shift) closes two template levels at once. Split it
-    // permanently into "> >" by rewriting this token to ">" and inserting a
-    // second ">" after it, then consume the first. The split is logged so a
-    // backtracking caller (rewindTo) can restore the original `>>` token.
+    // A lexed ">>" (right-shift) closes two template levels at once. Its first
+    // `>` is consumed by marking the token half-split: until the second `>` is
+    // consumed, peek() presents that token as a lone `>`. The token vector is never
+    // edited, so a split and its undo (rewindTo) are O(1).
     if (check(TokenType::RSHIFT)) {
-        tokens[current].type  = TokenType::GT;
-        tokens[current].value = ">";
-        tokens.insert(tokens.begin() + current + 1, tokens[current]);
-        rshiftSplits.push_back(current);
-        advance();
+        splitActive = true;
+        splitPos = current;
         return;
     }
     consume(TokenType::GT, ctx);   // not a close — emit the standard error
 }
 
 void Parser::rewindTo(size_t pos) {
-    while (!rshiftSplits.empty() && rshiftSplits.back() >= pos) {
-        size_t at = rshiftSplits.back();
-        rshiftSplits.pop_back();
-        tokens.erase(tokens.begin() + at + 1);
-        tokens[at].type  = TokenType::RSHIFT;
-        tokens[at].value = ">>";
-    }
+    if (splitActive && pos <= splitPos) splitActive = false;
     current = pos;
 }
 

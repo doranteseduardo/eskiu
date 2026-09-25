@@ -122,7 +122,7 @@ static int binaryPrecedence(TokenType t) {
 ExprPtr Parser::parseBinary(int minPrec) {
     ExprPtr expr = parseUnary();
     for (;;) {
-        int prec = is_at_end() ? 0 : binaryPrecedence(tokens[current].type);
+        int prec = is_at_end() ? 0 : binaryPrecedence(peek().type);
         if (prec == 0 || prec < minPrec) return expr;
         Token opTok = advance();
         ExprPtr rhs = parseBinary(prec + 1);

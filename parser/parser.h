@@ -94,11 +94,13 @@ private:
         explicit NestGuard(Parser& parser) : p(parser) { p.enterNesting(); }
         ~NestGuard() { --p.nesting; }
     };
-    // Indices where consumeTemplateClose split a `>>` into `> >`, in order. A
-    // speculative parse that backtracks must undo the splits it made, or a later
-    // `x < y >> 1` would see two `>` tokens instead of the shift it really is.
-    std::vector<size_t> rshiftSplits;
-    // Backtrack to a saved position, undoing any `>>` splits made at or after it.
+    // A `>>` whose first `>` consumeTemplateClose has consumed: while splitActive,
+    // the token at splitPos reads as a single `>` (the second half). A speculative
+    // parse that backtracks past it restores the whole `>>`, so a later
+    // `x < y >> 1` still sees the shift it really is.
+    bool splitActive = false;
+    size_t splitPos = 0;
+    // Backtrack to a saved position, undoing a `>>` split made at or after it.
     void rewindTo(size_t pos);
 
     // Helper methods
