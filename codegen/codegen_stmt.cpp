@@ -366,7 +366,7 @@ void CodeGen::visit(MatchStmt* node) {
         llvm::SwitchInst* sw = builder->CreateSwitch(subj, defaultBlock);
         for (size_t i = 0; i < node->arms.size(); ++i)
             if (!node->arms[i].variant.empty())
-                sw->addCase(llvm::cast<llvm::ConstantInt>(llvm::ConstantInt::get(i32, valueOf(node->arms[i].variant))), armBlocks[i]);
+                sw->addCase(llvm::cast<llvm::ConstantInt>(constIntBits(i32, (uint64_t)(int64_t)valueOf(node->arms[i].variant))), armBlocks[i]);
         for (size_t i = 0; i < node->arms.size(); ++i) {
             builder->SetInsertPoint(armBlocks[i]);
             if (node->arms[i].body) node->arms[i].body->accept(this);

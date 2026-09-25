@@ -64,11 +64,11 @@ llvm::Constant* CodeGen::evaluateConstantExpr(const ExprPtr& expr) {
         auto* ci = llvm::dyn_cast<llvm::ConstantInt>(inner);
         auto* cf = llvm::dyn_cast<llvm::ConstantFP>(inner);
         if (unary->op == "-") {
-            if (ci) return llvm::ConstantInt::get(ci->getType(),
-                static_cast<uint64_t>(-(int64_t)ci->getZExtValue()), true);
+            if (ci) return constIntBits(ci->getType(),
+                static_cast<uint64_t>(-ci->getSExtValue()));
             if (cf) return llvm::ConstantFP::get(cf->getType(), -cf->getValueAPF().convertToDouble());
         } else if (unary->op == "~") {
-            if (ci) return llvm::ConstantInt::get(ci->getType(), ~ci->getZExtValue());
+            if (ci) return constIntBits(ci->getType(), ~ci->getZExtValue());
         } else if (unary->op == "!") {
             if (ci) return llvm::ConstantInt::get(llvm::Type::getInt1Ty(*context),
                 ci->getZExtValue() == 0 ? 1 : 0);
@@ -127,7 +127,7 @@ llvm::Constant* CodeGen::evaluateConstantExpr(const ExprPtr& expr) {
         }
         case LiteralExpr::Kind::CHAR: {
             char c = lit->value.empty() ? 0 : lit->value[0];
-            return llvm::ConstantInt::get(llvm::Type::getInt8Ty(*context), c);
+            return constIntBits(llvm::Type::getInt8Ty(*context), (uint8_t)c);
         }
         case LiteralExpr::Kind::STRING: {
             // Build a private string constant and return a pointer to it
@@ -135,7 +135,7 @@ llvm::Constant* CodeGen::evaluateConstantExpr(const ExprPtr& expr) {
                                                    lit->value.size() + 1);
             std::vector<llvm::Constant*> chars;
             for (unsigned char c : lit->value)
-                chars.push_back(llvm::ConstantInt::get(llvm::Type::getInt8Ty(*context), c));
+                chars.push_back(constIntBits(llvm::Type::getInt8Ty(*context), (uint8_t)c));
             chars.push_back(llvm::ConstantInt::get(llvm::Type::getInt8Ty(*context), 0));
             auto* strData = new llvm::GlobalVariable(
                 *module, arrType, true,
@@ -156,7 +156,7 @@ llvm::Constant* CodeGen::evaluateConstantExpr(const ExprPtr& expr) {
 static llvm::Constant* coerceConst(llvm::Constant* c, llvm::Type* ty) {
     if (!c || c->getType() == ty) return c;
     if (c->getType()->isIntegerTy() && ty->isIntegerTy())
-        return llvm::ConstantInt::get(ty, llvm::cast<llvm::ConstantInt>(c)->getZExtValue());
+        return constIntBits(ty, llvm::cast<llvm::ConstantInt>(c)->getZExtValue());
     if (c->getType()->isFloatingPointTy() && ty->isFloatingPointTy())
         return llvm::ConstantFP::get(ty,
             llvm::cast<llvm::ConstantFP>(c)->getValueAPF().convertToDouble());
@@ -164,9 +164,8 @@ static llvm::Constant* coerceConst(llvm::Constant* c, llvm::Type* ty) {
         return llvm::ConstantFP::get(ty,
             (double)llvm::cast<llvm::ConstantInt>(c)->getSExtValue());
     if (c->getType()->isFloatingPointTy() && ty->isIntegerTy())
-        return llvm::ConstantInt::get(ty,
-            (uint64_t)(int64_t)llvm::cast<llvm::ConstantFP>(c)->getValueAPF().convertToDouble(),
-            /*isSigned=*/true);
+        return constIntBits(ty,
+            (uint64_t)(int64_t)llvm::cast<llvm::ConstantFP>(c)->getValueAPF().convertToDouble());
     return nullptr;   // no constant coercion available (e.g. pointer/aggregate mismatch)
 }
 

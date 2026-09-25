@@ -833,7 +833,7 @@ void CodeGen::visit(LiteralExpr* node) {
             }
             llvm::Type* ity = wide ? llvm::Type::getInt64Ty(*context)
                                    : llvm::Type::getInt32Ty(*context);
-            result = llvm::ConstantInt::get(ity, uval, false);
+            result = constIntBits(ity, uval);
             break;
         }
         case LiteralExpr::Kind::FLOAT: {
@@ -857,7 +857,7 @@ void CodeGen::visit(LiteralExpr* node) {
         }
         case LiteralExpr::Kind::CHAR: {
             char val = node->value.empty() ? 0 : node->value[0];
-            result = llvm::ConstantInt::get(llvm::Type::getInt8Ty(*context), val);
+            result = constIntBits(llvm::Type::getInt8Ty(*context), (uint8_t)val);
             break;
         }
     }

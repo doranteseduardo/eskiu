@@ -19,6 +19,16 @@ inline bool hasTerminator(const llvm::BasicBlock* bb) {
     return !bb->empty() && bb->back().isTerminator();
 }
 
+// An integer constant of type `ty` holding the low bits of `v`. LLVM 23 stopped
+// implicitly truncating ConstantInt::get(ty, uint64_t) to the type's width, so a
+// sign-extended or wider value (a negative literal, `~x`, a char >= 0x80) must be
+// masked to the width first; this is the same bit pattern on every LLVM version.
+inline llvm::ConstantInt* constIntBits(llvm::Type* ty, uint64_t v) {
+    unsigned bits = ty->getIntegerBitWidth();
+    if (bits < 64) v &= (uint64_t(1) << bits) - 1;
+    return llvm::ConstantInt::get(llvm::cast<llvm::IntegerType>(ty), v);
+}
+
 class CodeGen : public ASTVisitor {
 public:
     CodeGen();
