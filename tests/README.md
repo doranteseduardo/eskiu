@@ -173,6 +173,7 @@ when you add a test.
 | `c_abi_try` | C-ABI-lowered extern calls inside a `try` body (lowered to `invoke`), with the externs declared before the structs they take by value. (C companion `c_abi_try.c`) |
 | `call_forms` | Generic inference from a struct-literal argument, and calling a returned closure directly (`pick()(3, 4)`). |
 | `chained_assign` | A chained assignment passes on the value converted to the inner target's type. |
+| `chan_free_waiter` | Chan_free detaches a still-parked receiver, so dropping that Chan_recv future afterwards no longer reads the freed channel. |
 | `chan_recv_drop` | A parked Chan_recv dropped by select2 (the timeout pattern) must unpark: the next Chan_send buffers its value instead of completing the freed future. |
 | `compound_assign_once` | `lv op= v` evaluates the lvalue `lv` exactly once (C semantics), even when it has side effects: an index call, a post-increment, or a call returning a pointer. |
 | `defer_unbraced` | A statement body that is not a block (an unbraced if/else/loop body, a switch case, a match arm) is its own scope: a `defer` in it runs when that body ends,... |

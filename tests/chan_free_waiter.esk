@@ -1,0 +1,24 @@
+// Chan_free with a receiver still parked detaches it: the pending Chan_recv
+// future used to keep a cancel hook that read the freed channel, so dropping it
+// after Chan_free was a use after free (the asan gate catches a regression).
+// A buffered value is unaffected.
+import <mem>;
+import <future>;
+import <channel>;
+extern int printf(string fmt, ...);
+
+int main() {
+    Chan<int>* ch = chan_new<int>(2);
+    Future<int>* f = Chan_recv<int>(ch);
+    Chan_free<int>(ch);
+    printf("pending after free: state=%d\n", f.state);
+    future_drop((FutureHdr*)f);
+
+    Chan<int>* c2 = chan_new<int>(2);
+    Chan_send<int>(c2, 5);
+    Future<int>* g = Chan_recv<int>(c2);
+    Chan_free<int>(c2);
+    printf("buffered: state=%d value=%d\n", g.state, g.value);
+    free_future<int>(g);
+    return 0;
+}

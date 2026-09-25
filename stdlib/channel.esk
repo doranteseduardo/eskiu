@@ -78,7 +78,16 @@ Future<T>* Chan_recv<T>(Chan<T>* ch) {
     return f;
 }
 
+// Free the channel. A receiver still parked on it is detached first: its
+// future stays pending (no value will ever arrive) and its cancel hook no longer
+// touches the channel, so dropping that future later is safe.
 void Chan_free<T>(Chan<T>* ch) {
+    if (ch.waiter != null) {
+        Future<T>* w = ch.waiter;
+        ch.waiter = null;
+        free_closure(w.on_drop);
+        w.on_drop = void() {};
+    }
     free((*void)ch.buf);
     free((*void)ch);
 }

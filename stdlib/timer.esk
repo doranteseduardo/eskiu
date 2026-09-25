@@ -11,7 +11,9 @@
 // Ownership mirrors the other leaf futures: the awaiter (or a combinator) owns
 // the future. On normal fire the loop frees the on_fire env and the awaiter frees
 // the future; on cancel, on_drop deregisters the timer (freeing on_fire) and
-// future_drop frees the rest. Leak-free either way.
+// future_drop frees the rest. Leak-free either way. Lifetime: the future points
+// at its loop, so drop (or finish) it before EventLoop_free; dropping it after
+// would deregister the timer from the freed loop.
 
 import <mem>;
 import <future>;

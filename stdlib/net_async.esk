@@ -5,7 +5,9 @@
 // ready; the completion runs on the loop thread, so the awaiter's resume runs
 // there too (no cross-thread marshaling needed for I/O — see <executor> for the
 // cross-thread case). Each future's on_drop deregisters the fd, so cancelling a
-// pending read/accept cleanly releases its loop registration.
+// pending read/accept cleanly releases its loop registration. Lifetime: a
+// pending future points at its loop, so drop (or finish) it before
+// EventLoop_free; its on_drop would otherwise deregister from freed memory.
 //
 //   Future<int>* f = net_read_async(lp, fd, buf, 4096);
 //   // await f  ->  number of bytes read (0 = EOF, <0 = error)
