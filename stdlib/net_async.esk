@@ -48,7 +48,7 @@ const int _NET_NONBLOCK = 2048;  // O_NONBLOCK (0x800)
 // Put `fd` into non-blocking mode (so read/write return EAGAIN instead of
 // blocking the event-loop thread). F_GETFL = 3, F_SETFL = 4.
 void net_set_nonblocking(int fd) {
-    int fl = fcntl(fd, 3, 0);
+    const int fl = fcntl(fd, 3, 0);
     fcntl(fd, 4, fl | _NET_NONBLOCK);
 }
 int64 _net_read(int fd, *void buf, int64 n)  { return read(fd, buf, n); }
@@ -61,15 +61,15 @@ int64 _net_write(int fd, *void buf, int64 n) { return write(fd, buf, n); }
 // Requires `fd` to be non-blocking (see net_set_nonblocking).
 Future<int>* net_write_async(EventLoop* lp, int fd, *uint8 buf, int64 len) {
     Future<int>* f = future_new<int>();
-    *int64 sent = alloc<int64>(1);  *sent = (int64)0;
+    *int64 sent = alloc<int64>(1);   // bytes written so far (alloc zeroes it)
     // on_drop (cancel before completion): release the loop registration and the
     // counter. On completion the callback frees the counter itself.
     f.on_drop = void() { EventLoop_del_free(lp, fd); free((*void)sent); };
     EventLoop_add_write(lp, fd, void(EventLoop* l, int wfd) {
         while (*sent < len) {
-            int64 w = _net_write(wfd, (*void)(buf + *sent), len - *sent);
-            if (w > (int64)0) { *sent = *sent + w; }
-            else if (w < (int64)0 && _net_errno() == _NET_EAGAIN) { return; }  // buffer full: wait
+            const int64 w = _net_write(wfd, (*void)(buf + *sent), len - *sent);
+            if (w > 0) { *sent += w; }
+            else if (w < 0 && _net_errno() == _NET_EAGAIN) { return; }  // buffer full: wait
             else { EventLoop_del(l, wfd); free((*void)sent); future_complete<int>(f, -1); return; }   // hard error / 0
         }
         EventLoop_del(l, wfd);                          // all sent; one-shot
@@ -103,7 +103,7 @@ Future<int>* net_read_async(EventLoop* lp, int fd, *uint8 buf, int64 cap) {
     // and its callback env. future_drop frees the future struct itself.
     f.on_drop = void() { EventLoop_del_free(lp, fd); };
     EventLoop_add_read(lp, fd, void(EventLoop* l, int rfd) {
-        int64 n = _net_read(rfd, (*void)buf, cap);
+        const int64 n = _net_read(rfd, (*void)buf, cap);
         EventLoop_del(l, rfd);                          // one-shot; EventLoop_run frees this env on return
         future_complete<int>(f, (int)n);         // resumes the awaiter (loop thread)
     });
@@ -115,7 +115,7 @@ Future<int>* net_accept_async(EventLoop* lp, int listen_fd) {
     Future<int>* f = future_new<int>();
     f.on_drop = void() { EventLoop_del_free(lp, listen_fd); };
     EventLoop_add_read(lp, listen_fd, void(EventLoop* l, int sfd) {
-        int c = net_accept(sfd);
+        const int c = net_accept(sfd);
         EventLoop_del(l, sfd);
         future_complete<int>(f, c);
     });
