@@ -327,7 +327,7 @@ let items: List<float>;
 
 ### 3.6 Interface Types
 
-Interface types are structural: any struct that provides all required methods satisfies the interface without an explicit declaration. When a struct is passed as an interface, the compiler auto-boxes the value into a fat pointer `{data_ptr, vtable_ptr}`.
+Interface types are structural: any struct that provides all required methods satisfies the interface without an explicit declaration. When a struct is passed as an interface, the compiler auto-boxes the value into a fat pointer `{data_ptr, vtable_ptr}`. Each required method must match the interface's signature (return type and parameter types after the receiver; a type spelled with the interface's own name stands for the implementing type).
 
 ```eskiu
 interface Drawable { void draw(); }
@@ -520,6 +520,8 @@ c = &w;     // error: cannot assign to read-only location 'c'  (binding is const
 ```
 
 Const-correctness is enforced on conversions: adding const (`int*` → `const int*`) is always allowed, but any conversion that would **drop** a const qualifier (in an initializer, assignment, call argument, or return) is a compile error. `const` has no ABI effect; it is stripped before code generation. It applies uniformly to locals, parameters, struct fields and return types.
+
+A method call `x.m()` passes `&x` as `self`, so on a `const` value (or through a `const T*`) it is allowed only when the method declares a read-only receiver, `int P_get(const P* self)`. A method whose `self` is a plain `*P` may write through it and is rejected there.
 
 ### 4.7 Static Locals (`static`)
 
@@ -1498,7 +1500,7 @@ if (c == Red) { /* ... */ }
 
 Members are unscoped. `Red` is used directly, as in C. The enum name may be used anywhere a type is expected (it behaves as `int`).
 
-A classic enum may also be consumed with `match`, which checks the dispatch is exhaustive (every variant covered, or a `_` default), so adding a variant turns every unhandled `match` into a compile error. This is the same guarantee algebraic enums get; `switch` stays available for a non-exhaustive dispatch.
+A classic enum may also be consumed with `match`, which checks the dispatch is exhaustive (every variant covered, or a `_` default), so adding a variant turns every unhandled `match` into a compile error. This is the same guarantee algebraic enums get; `switch` stays available for a non-exhaustive dispatch. Two members may share a value, as in C (`enum E { A = 1, B = 1 }`); since `match` dispatches on the value, one arm covers every member with that value, and two arms for equal values are an error.
 
 ```eskiu
 int dx(Color c) {
