@@ -193,6 +193,7 @@ private:
 
     Token read_number();
     void checkNumberSuffix(const std::string& num, int errLine, int errCol);
+    void checkIntegerRange(const std::string& num, int errLine, int errCol);
     Token read_string();
     Token read_char();
     char readEscape();  // decode one escape (leading '\' already consumed)

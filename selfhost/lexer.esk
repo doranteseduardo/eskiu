@@ -150,6 +150,31 @@ void lx_check_suffix(Lexer* lx, int sp, int sl, int sc) {
                              lx_span(lx.src, sp, end), "'"));
 }
 
+// An integer literal src[sp, pos) (decimal, 0x hex or 0 octal, digits already checked)
+// must fit in 64 bits (mirrors checkIntegerRange).
+void lx_check_int_range(Lexer* lx, int sp, int sl, int sc) {
+    int i = sp;
+    int base = 10;
+    int n = lx.pos - sp;
+    if (n > 2 && (int)lx.src[sp] == 48 && ((int)lx.src[sp + 1] == 120 || (int)lx.src[sp + 1] == 88)) { base = 16; i = sp + 2; }
+    else if (n > 1 && (int)lx.src[sp] == 48) { base = 8; }
+    uint64 v = 0;
+    uint64 umax = (uint64)0 - (uint64)1;
+    while (i < lx.pos) {
+        int c = (int)lx.src[i];
+        int d = 0;
+        if (c >= 48 && c <= 57) { d = c - 48; }
+        else if (c >= 97 && c <= 102) { d = c - 87; }
+        else { d = c - 55; }
+        if (v > (umax - (uint64)d) / (uint64)base) {
+            lx_error(sl, sc, lx_cat3("integer literal '", lx_span(lx.src, sp, lx.pos), "' does not fit in 64 bits"));
+            return;
+        }
+        v = v * (uint64)base + (uint64)d;
+        i = i + 1;
+    }
+}
+
 // Does the lexeme src[start, start+len) equal the NUL-terminated keyword `kw`?
 int lexeme_eq(*uint8 src, int start, int len, string kw) {
     int i = 0;
@@ -280,6 +305,8 @@ Token lx_next(Lexer* lx) {
                 }
                 if (lx.pos - sp == 2) {
                     lx_error(sl, sc, lx_cat3("hexadecimal literal '", lx_span(lx.src, sp, lx.pos), "' has no digits"));
+                } else {
+                    lx_check_int_range(lx, sp, sl, sc);
                 }
                 t.type = INT_LIT; t.start = sp; t.len = lx.pos - sp;
                 t.line = sl; t.col = sc;
@@ -302,7 +329,12 @@ Token lx_next(Lexer* lx) {
                     isfloat = 1;
                     lx_advance(lx);                          // e / E
                     if (lx_at_end(lx) == 0 && (lx_peek(lx) == 43 || lx_peek(lx) == 45)) { lx_advance(lx); }
+                    int digits_at = lx.pos;
                     while (lx_at_end(lx) == 0 && is_digit(lx_peek(lx)) == 1) { lx_advance(lx); }
+                    if (lx.pos == digits_at) {
+                        lx_error(sl, sc, lx_cat3("exponent has no digits in floating-point literal '",
+                                                 lx_span(lx.src, sp, lx.pos), "'"));
+                    }
                 }
             }
         }
@@ -310,6 +342,7 @@ Token lx_next(Lexer* lx) {
         t.start = sp; t.len = lx.pos - sp;
         t.line = sl; t.col = sc;
         // A leading 0 makes an integer octal (C rule): every digit must be 0-7.
+        int octal_bad = 0;
         if (isfloat == 0 && t.len > 1 && (int)lx.src[sp] == 48) {
             int k = sp;
             int bad = 0;
@@ -321,8 +354,10 @@ Token lx_next(Lexer* lx) {
                 uint8[2] bd; bd[0] = (uint8)bad; bd[1] = 0;
                 lx_error(sl, sc, lx_cat3(lx_cat3("invalid digit '", (string)&bd[0], "' in octal literal '"),
                                          lx_span(lx.src, sp, lx.pos), "'"));
+                octal_bad = 1;
             }
         }
+        if (isfloat == 0 && octal_bad == 0) { lx_check_int_range(lx, sp, sl, sc); }
         lx_check_suffix(lx, sp, sl, sc);
         return t;
     }

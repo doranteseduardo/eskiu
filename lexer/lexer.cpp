@@ -160,6 +160,7 @@ Token Lexer::read_number() {
             num += advance();
         }
         if (num.size() == 2) lexError(start_line, start_col, "hexadecimal literal '" + num + "' has no digits");
+        else checkIntegerRange(num, start_line, start_col);
         checkNumberSuffix(num, start_line, start_col);
         return Token(TokenType::INT_LIT, num, start_line, start_col);
     }
@@ -176,17 +177,41 @@ Token Lexer::read_number() {
         isFloat = true;
         num += advance();                                    // e / E
         if (!is_at_end() && (peek() == '+' || peek() == '-')) num += advance();
+        size_t digitsAt = num.size();
         while (!is_at_end() && std::isdigit(peek())) num += advance();
+        if (num.size() == digitsAt)
+            lexError(start_line, start_col, "exponent has no digits in floating-point literal '" + num + "'");
     }
     // A leading 0 makes an integer octal (C rule): every digit must be 0-7.
+    bool badOctal = false;
     if (!isFloat && num.size() > 1 && num[0] == '0') {
         size_t bad = num.find_first_of("89");
-        if (bad != std::string::npos)
+        if (bad != std::string::npos) {
+            badOctal = true;
             lexError(start_line, start_col, std::string("invalid digit '") + num[bad] +
                      "' in octal literal '" + num + "'");
+        }
     }
+    if (!isFloat && !badOctal) checkIntegerRange(num, start_line, start_col);
     checkNumberSuffix(num, start_line, start_col);
     return Token(isFloat ? TokenType::FLOAT_LIT : TokenType::INT_LIT, num, start_line, start_col);
+}
+
+// An integer literal (decimal, 0x hex or 0 octal, digits already checked) must fit
+// in 64 bits; the type checker then checks it against its destination type.
+void Lexer::checkIntegerRange(const std::string& num, int errLine, int errCol) {
+    bool hex = num.size() > 2 && num[0] == '0' && (num[1] == 'x' || num[1] == 'X');
+    unsigned base = hex ? 16 : (num.size() > 1 && num[0] == '0') ? 8 : 10;
+    unsigned long long v = 0;
+    for (size_t i = hex ? 2 : 0; i < num.size(); ++i) {
+        unsigned d = std::isdigit((unsigned char)num[i]) ? num[i] - '0'
+                   : (unsigned)(std::tolower((unsigned char)num[i]) - 'a' + 10);
+        if (v > (~0ULL - d) / base) {
+            lexError(errLine, errCol, "integer literal '" + num + "' does not fit in 64 bits");
+            return;
+        }
+        v = v * base + d;
+    }
 }
 
 // A number must not run straight into an identifier character: `0b101`, `1_000`,
