@@ -15,22 +15,22 @@ void on_client(EventLoop* lp, int fd) {
     int64 n = net_recv(fd, (*void)buf, 256);
     if (n > 0) { net_send(fd, (*void)buf, n); }
     net_close(fd);
-    el_del(lp, fd);
+    EventLoop_del(lp, fd);
     free(buf);
-    el_stop(lp);
+    EventLoop_stop(lp);
 }
 
 // The listen fd became readable: accept and register the client.
 void on_accept(EventLoop* lp, int fd) {
     int c = net_accept(fd);
-    if (c >= 0) { el_add_read(lp, c, on_client); }
+    if (c >= 0) { EventLoop_add_read(lp, c, on_client); }
 }
 
 void run_server() {
     EventLoop* lp = el_new(256);
-    el_add_read(lp, srv_fd, on_accept);
-    el_run(lp);
-    el_free(lp);
+    EventLoop_add_read(lp, srv_fd, on_accept);
+    EventLoop_run(lp);
+    EventLoop_free(lp);
 }
 
 int main() {

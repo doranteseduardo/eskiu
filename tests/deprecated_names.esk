@@ -4,7 +4,13 @@ import <random>;
 import <regex>;
 import <string>;
 import <sysheap>;
+import <eventloop>;
 extern int printf(string fmt, ...);
+extern int pipe(*int fds);
+extern int64 write(int fd, *void buf, int64 n);
+extern int64 read(int fd, *void buf, int64 n);
+
+int g_ticks = 0;
 
 int main() {
     let a: Rng;  rng_seed(&a, (uint64)7);
@@ -36,5 +42,22 @@ int main() {
     heap_free(&h, p);
     printf("heap: %d %d\n", hok, p != null);
     heap_destroy(&h);
+
+    EventLoop* lp = el_new(16);
+    int[2] fds;  pipe(&fds[0]);
+    write(fds[1], (*void)"x", (int64)1);
+    el_add_read(lp, fds[0], void(EventLoop* l, int fd) {
+        uint8[4] b;  read(fd, (*void)&b[0], (int64)4);
+        g_ticks = g_ticks + 1;
+        el_del(l, fd);
+    });
+    int t = el_add_timer(lp, time_monotonic_ms() + (int64)20, void() { g_ticks = g_ticks + 10; el_stop(lp); });
+    el_run(lp);
+    int t2 = el_add_timer(lp, (int64)0, void() {});
+    el_del_timer(lp, t2);
+    el_add_write(lp, fds[1], void(EventLoop* l, int fd) { el_del(l, fd); });
+    el_del_free(lp, fds[1]);
+    printf("eventloop: %d\n", g_ticks);
+    el_free(lp);
     return 0;
 }

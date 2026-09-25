@@ -16,7 +16,7 @@ uint8[8] rb;
 EventLoop* g;
 
 int run(Future<Either<int, int>>* f) {
-    if (future_poll<Either<int, int>>(f, void() { el_stop(g); }) == 0) { el_run(g); }
+    if (future_poll<Either<int, int>>(f, void() { EventLoop_stop(g); }) == 0) { EventLoop_run(g); }
     int r = 0;
     match f.value {
         Left(a)  -> r = a;            // read won: byte count
@@ -37,6 +37,6 @@ int main() {
     printf("%d\n", run(select2v<int, int>(
         net_read_async(g, ready[0], &rb[0], (int64)8), timer_after(g, (int64)1000))));  // 3
 
-    el_free(g);
+    EventLoop_free(g);
     return 0;
 }

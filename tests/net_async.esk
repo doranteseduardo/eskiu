@@ -22,11 +22,11 @@ int main() {
     future_poll<int>(f, void() {
         g_result = f.value;
         free_future<int>(f);
-        el_stop(g_lp);
+        EventLoop_stop(g_lp);
     });
-    el_run(g_lp);
+    EventLoop_run(g_lp);
 
     printf("read %d bytes, first=%c\n", g_result, (char)g_buf[0]);   // 5, 'h'
-    el_free(g_lp);
+    EventLoop_free(g_lp);
     return 0;
 }

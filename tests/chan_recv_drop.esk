@@ -20,11 +20,11 @@ int main() {
     g = el_new(64);
     Chan<int>* ch = chan_new<int>(4);
     Future<int>* b = recv_or_timeout(g, ch);
-    if (future_poll<int>(b, void() { el_stop(g); }) == 0) { el_run(g); }
+    if (future_poll<int>(b, void() { EventLoop_stop(g); }) == 0) { EventLoop_run(g); }
     printf("first=%d\n", b.value);          // -1: timed out; the recv future was dropped
     free_future<int>(b);
     bool ok = chan_send<int>(ch, 99);       // should buffer 99 for the next receiver
     printf("send ok=%d buffered=%d\n", ok, ch.count);
-    el_free(g);
+    EventLoop_free(g);
     return 0;
 }

@@ -18,7 +18,7 @@ void start(int fd, string msg) {
         g_total = g_total + g_f.value;
         free_future<int>(g_f);
         g_left = g_left - 1;
-        if (g_left == 0) { el_stop(g_lp); }
+        if (g_left == 0) { EventLoop_stop(g_lp); }
     });
 }
 
@@ -30,13 +30,13 @@ int main() {
     while (i < 3) {
         g_left = 1;
         start(fds[1], "hello ");
-        el_run(g_lp);
+        EventLoop_run(g_lp);
         i = i + 1;
     }
     uint8[64] buf;
     int64 n = read(fds[0], (*void)&buf[0], (int64)64);
     buf[n] = (uint8)0;
     printf("wrote %d, read %lld [%s]\n", g_total, n, (string)&buf[0]);
-    el_free(g_lp);
+    EventLoop_free(g_lp);
     return 0;
 }

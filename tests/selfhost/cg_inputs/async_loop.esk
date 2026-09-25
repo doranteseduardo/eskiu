@@ -25,9 +25,9 @@ int main() {
     close(fds[1]);
     g_lp = el_new(64);
     Future<int>* f = drain(g_lp, fds[0]);
-    if (future_poll<int>(f, void() { el_stop(g_lp); }) == 0) { el_run(g_lp); }
+    if (future_poll<int>(f, void() { EventLoop_stop(g_lp); }) == 0) { EventLoop_run(g_lp); }
     printf("%d\n", f.value);
     free_future<int>(f);
-    el_free(g_lp);
+    EventLoop_free(g_lp);
     return 0;
 }

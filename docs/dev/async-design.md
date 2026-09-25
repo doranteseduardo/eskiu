@@ -256,7 +256,7 @@ suspend: read value, fall through. Zero extra round-trips when nothing blocks.
 
 | Await source | Completes via | Drops via | New field? |
 |---|---|---|---|
-| Socket readable (leaf) | loop callback reads, §3.2 | `on_drop`=`el_del`+free | no |
+| Socket readable (leaf) | loop callback reads, §3.2 | `on_drop`=`EventLoop_del`+free | no |
 | Another `async` function | resume §3.2 | `on_drop` cascades `awaiting`, frees frame | no |
 | Timer `await sleep(ms)` | loop timeout, §3.2 | `on_drop` cancels timer+free | no |
 | `await thread_join(t)` / worker pool | worker completes on its thread; waker schedules resume on home executor (§3.2) | `on_drop` detach+free | no |
@@ -338,7 +338,7 @@ contract change), a deliberate later feature.
 - `future_drop(f)` is the explicit cancel entry; the transform also inserts it
   implicitly (§7).
 - At the top level a future is driven by hand: `future_poll(f, waker)` installs a
-  waker that calls `el_stop`, `el_run(lp)` runs the loop until then (skip it when
+  waker that calls `EventLoop_stop`, `EventLoop_run(lp)` runs the loop until then (skip it when
   `future_poll` returns 1, the future is already ready), and the caller reads
   `f.value` and releases `f` with `free_future`. There is no `future_block` helper.
 

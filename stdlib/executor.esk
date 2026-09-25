@@ -68,7 +68,7 @@ Executor* executor_new(EventLoop* lp) {
     int[2] fds; pipe(&fds[0]);
     ex.wake_r = fds[0];
     ex.wake_w = fds[1];
-    el_add_read(lp, ex.wake_r, void(EventLoop* l, int fd) { _ex_drain(ex, fd); });
+    EventLoop_add_read(lp, ex.wake_r, void(EventLoop* l, int fd) { _ex_drain(ex, fd); });
     return ex;
 }
 
@@ -89,11 +89,11 @@ void executor_schedule(Executor* ex, escaping fn()->void w) {
 }
 
 // Run until executor_stop: dispatch I/O readiness and scheduled wakers.
-void executor_run(Executor* ex)  { el_run(ex.lp); }
-void executor_stop(Executor* ex) { el_stop(ex.lp); }
+void executor_run(Executor* ex)  { EventLoop_run(ex.lp); }
+void executor_stop(Executor* ex) { EventLoop_stop(ex.lp); }
 
 void executor_free(Executor* ex) {
-    el_del_free(ex.lp, ex.wake_r);   // free the drain-callback env too
+    EventLoop_del_free(ex.lp, ex.wake_r);   // free the drain-callback env too
     close(ex.wake_r);                // the self-pipe
     close(ex.wake_w);
     *RQNode n = ex.head;             // wakers scheduled but never run
@@ -103,6 +103,6 @@ void executor_free(Executor* ex) {
         free((*void)n);
         n = next;
     }
-    el_free(ex.lp);                  // the executor owns its event loop
+    EventLoop_free(ex.lp);                  // the executor owns its event loop
     free((*void)ex);
 }

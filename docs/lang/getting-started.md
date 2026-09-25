@@ -946,7 +946,7 @@ Available modules:
 | `<env>`      | `env_get`, `env_has`, `env_get_or`, `env_get_int` |
 | `<path>`     | `path_join`, `path_basename`, `path_dirname`, `path_extension`, `path_is_absolute` |
 | `<threading>`| `Mutex`, `Cond`, `Sem` over pthread (pairs with `thread_create`/`thread_join`) |
-| `<eventloop>`| readiness reactor over kqueue/epoll: `el_new`/`el_add_read`/`el_run`/`el_stop`/`el_add_timer` |
+| `<eventloop>`| readiness reactor over kqueue/epoll: `el_new`/`EventLoop_add_read`/`EventLoop_run`/`EventLoop_stop`/`EventLoop_add_timer` |
 | `<atomic>`   | atomic `int` cell: `atomic_load`/`atomic_store`/`atomic_swap`/`atomic_cas` |
 | `<future>`   | the `async`/`await` runtime: `Future<T>`, `future_poll`/`complete`/`drop`, `spawn`/`select2`/`join2` |
 | `<executor>` | `Executor`: event loop + thread-safe ready-queue + self-pipe wakeup |

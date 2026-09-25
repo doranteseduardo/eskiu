@@ -17,6 +17,6 @@ int main() {
     Future<int>* f = fetch(lp, fds[0]); // parks (suspended)
     future_drop((FutureHdr*)f);         // cancel: cascade-drop + free frame
     printf("ok\n");
-    el_free(lp);
+    EventLoop_free(lp);
     return 0;
 }

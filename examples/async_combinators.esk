@@ -50,12 +50,12 @@ async int read_both(EventLoop* lp, int fa, int fb) {
 async void background(EventLoop* lp, int fd) {
     int n = await net_read_async(lp, fd, &bb[0], (int64)64);
     g_bg = n;
-    el_stop(lp);
+    EventLoop_stop(lp);
 }
 
 // Drive one int-returning future to completion on the loop and return its value.
 int run(Future<int>* f) {
-    if (future_poll<int>(f, void() { el_stop(g); }) == 0) { el_run(g); }
+    if (future_poll<int>(f, void() { EventLoop_stop(g); }) == 0) { EventLoop_run(g); }
     int v = f.value;  free_future<int>(f);  return v;
 }
 
@@ -79,9 +79,9 @@ int main() {
     // 4) Fire-and-forget a background task with spawn (no handle kept).
     int[2] bg;  pipe(&bg[0]);  write(bg[1], (*void)"ping", (int64)4);
     spawn(background(g, bg[0]));
-    el_run(g);                                                                            // runs until background() stops it
+    EventLoop_run(g);                                                                            // runs until background() stops it
     printf("spawn background:       %d\n", g_bg);                                         // 4
 
-    el_free(g);
+    EventLoop_free(g);
     return 0;
 }

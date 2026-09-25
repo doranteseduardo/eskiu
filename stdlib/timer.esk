@@ -21,9 +21,9 @@ import <time>;
 Future<int>* timer_after(EventLoop* lp, int64 ms) {
     Future<int>* f = future_new<int>();
     int64 deadline = time_monotonic_ms() + ms;
-    int id = el_add_timer(lp, deadline, void() { future_complete<int>(f, 0); });   // the table grows: never -1
+    int id = EventLoop_add_timer(lp, deadline, void() { future_complete<int>(f, 0); });   // the table grows: never -1
     // Cancel path: deregister the timer (frees the on_fire env). The timer never
     // frees the future; future_drop owns that.
-    f.on_drop = void() { el_del_timer(lp, id); };
+    f.on_drop = void() { EventLoop_del_timer(lp, id); };
     return f;
 }

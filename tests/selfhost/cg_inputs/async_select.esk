@@ -26,10 +26,10 @@ int run_race(int aBytes, int bBytes) {
     if (bBytes > 0) { write(pb[1], (*void)"bbb", (int64)bBytes); }
     g_lp = el_new(64);
     Future<int>* f = race(g_lp, pa[0], pb[0]);
-    if (future_poll<int>(f, void() { el_stop(g_lp); }) == 0) { el_run(g_lp); }
+    if (future_poll<int>(f, void() { EventLoop_stop(g_lp); }) == 0) { EventLoop_run(g_lp); }
     int r = f.value;
     free_future<int>(f);
-    el_free(g_lp);
+    EventLoop_free(g_lp);
     return r;
 }
 

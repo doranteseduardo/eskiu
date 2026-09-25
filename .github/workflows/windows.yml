@@ -141,10 +141,10 @@ jobs:
               EventLoop* lp = el_new(64);
               net_set_nonblocking(s);
               Future<int>* f = net_read_async(lp, s, &g_buf[0], (int64)64);
-              future_poll<int>(f, void() { free_future<int>(f); el_stop(lp); });
-              el_run(lp);
+              future_poll<int>(f, void() { free_future<int>(f); EventLoop_stop(lp); });
+              EventLoop_run(lp);
               printf("read %c%c%c\n", (char)g_buf[0], (char)g_buf[1], (char)g_buf[4]);
-              el_free(lp);
+              EventLoop_free(lp);
               net_close(c); net_close(s); net_close(ls);
               return 0;
           }

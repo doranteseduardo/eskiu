@@ -46,8 +46,8 @@ int main() {
     g_lp = el_new(16);
     Chan<int>* done = chan_new<int>(1);
     Future<uint8>* f = http2_serve_conn_async(g_lp, srv, hello, done);
-    future_poll<uint8>(f, void() { el_stop(g_lp); });
-    el_run(g_lp);
+    future_poll<uint8>(f, void() { EventLoop_stop(g_lp); });
+    EventLoop_run(g_lp);
 
     // Read and walk the server's frames; decode the response HEADERS + DATA.
     *uint8 rb = alloc<uint8>(4096);

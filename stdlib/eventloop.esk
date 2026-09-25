@@ -7,12 +7,12 @@
 //
 //   void on_accept(EventLoop* lp, int fd) {
 //       int c = net_accept(fd);
-//       el_add_read(lp, c, on_data);     // register the new connection
+//       EventLoop_add_read(lp, c, on_data);     // register the new connection
 //   }
 //   int main() {
 //       EventLoop* lp = el_new(256);
-//       el_add_read(lp, listen_fd, on_accept);
-//       el_run(lp);                       // blocks, dispatching callbacks
+//       EventLoop_add_read(lp, listen_fd, on_accept);
+//       EventLoop_run(lp);                       // blocks, dispatching callbacks
 //   }
 
 import <mem>;
@@ -23,10 +23,10 @@ import <time>;
 struct EvHandler {
     fn(EventLoop*, int)->void on_read;   // the callback (read- or write-readiness)
     int active;
-    // Bumped on every (re-)registration. el_run uses it to tell whether the
+    // Bumped on every (re-)registration. EventLoop_run uses it to tell whether the
     // callback it just invoked is still the installed one: a one-shot read loop
     // on a single fd re-arms that fd *from inside the callback* (via resume), so
-    // `active` is back to 1 by the time el_run checks — `gen` is not.
+    // `active` is back to 1 by the time EventLoop_run checks — `gen` is not.
     int gen;
     int isWrite;   // 0 = waiting for readable, 1 = waiting for writable
 }
@@ -253,9 +253,9 @@ void _el_grow_timers(EventLoop* lp) {
 }
 
 // Register a one-shot timer firing at monotonic `deadline` (ms). Returns a timer
-// id (slot index); the table grows when every slot is armed. `el_run` fires it
+// id (slot index); the table grows when every slot is armed. `EventLoop_run` fires it
 // once, then frees `on_fire`.
-int el_add_timer(EventLoop* lp, int64 deadline, escaping fn()->void on_fire) {
+int EventLoop_add_timer(EventLoop* lp, int64 deadline, escaping fn()->void on_fire) {
     int t = 0;
     while (t < lp.tcap && lp.timers[t].active != 0) { t = t + 1; }
     if (t == lp.tcap) { _el_grow_timers(lp); }
@@ -267,7 +267,7 @@ int el_add_timer(EventLoop* lp, int64 deadline, escaping fn()->void on_fire) {
 
 // Cancel a pending timer and free its env. Safe to call after it has fired
 // (no-op then). Use from outside the timer's own on_fire.
-void el_del_timer(EventLoop* lp, int id) {
+void EventLoop_del_timer(EventLoop* lp, int id) {
     if (id < 0 || id >= lp.tcap) { return; }
     if (lp.timers[id].active != 0) {
         free_closure(lp.timers[id].on_fire);
@@ -293,7 +293,7 @@ void _el_ensure_slots(EventLoop* lp, int fd) {
 }
 
 // Register `fd` for read-readiness; `cb` fires each time it is readable.
-void el_add_read(EventLoop* lp, int fd, escaping fn(EventLoop*, int)->void cb) {
+void EventLoop_add_read(EventLoop* lp, int fd, escaping fn(EventLoop*, int)->void cb) {
     if (fd < 0) { return; }
     _el_ensure_slots(lp, fd);
     int was = lp.slots[fd].active;
@@ -307,7 +307,7 @@ void el_add_read(EventLoop* lp, int fd, escaping fn(EventLoop*, int)->void cb) {
 // Register `fd` for write-readiness; `cb` fires once it is writable. Used by the
 // async write path and the non-blocking TLS pump. A fd waits for read OR write
 // at a time; this replaces any prior read interest on the fd.
-void el_add_write(EventLoop* lp, int fd, escaping fn(EventLoop*, int)->void cb) {
+void EventLoop_add_write(EventLoop* lp, int fd, escaping fn(EventLoop*, int)->void cb) {
     if (fd < 0) { return; }
     _el_ensure_slots(lp, fd);
     int was = lp.slots[fd].active;
@@ -319,8 +319,8 @@ void el_add_write(EventLoop* lp, int fd, escaping fn(EventLoop*, int)->void cb) 
 }
 
 // Stop watching `fd`. (Does not free the callback env — on the normal path the
-// callback is still running when it calls this; el_run frees the env on return.)
-void el_del(EventLoop* lp, int fd) {
+// callback is still running when it calls this; EventLoop_run frees the env on return.)
+void EventLoop_del(EventLoop* lp, int fd) {
     if (fd < 0 || fd >= lp.cap) { return; }
     lp.slots[fd].active = 0;
     _el_ctl(lp.backend, fd, 0, 1);
@@ -328,18 +328,18 @@ void el_del(EventLoop* lp, int fd) {
 
 // Deregister `fd` and free its callback's heap env. For deregistering from
 // OUTSIDE the callback (e.g. cancelling a pending one-shot whose callback never
-// fired) — never call this from within `fd`'s own callback (use el_del there).
-void el_del_free(EventLoop* lp, int fd) {
+// fired) — never call this from within `fd`'s own callback (use EventLoop_del there).
+void EventLoop_del_free(EventLoop* lp, int fd) {
     if (fd < 0 || fd >= lp.cap) { return; }
     if (lp.slots[fd].active != 0) { free_closure(lp.slots[fd].on_read); }
-    el_del(lp, fd);
+    EventLoop_del(lp, fd);
 }
 
-// Ask the loop to return from el_run after the current batch.
-void el_stop(EventLoop* lp) { lp.running = 0; }
+// Ask the loop to return from EventLoop_run after the current batch.
+void EventLoop_stop(EventLoop* lp) { lp.running = 0; }
 
-// Run until el_stop is called: wait for readiness and dispatch callbacks.
-void el_run(EventLoop* lp) {
+// Run until EventLoop_stop is called: wait for readiness and dispatch callbacks.
+void EventLoop_run(EventLoop* lp) {
     int max = 64;
     *EvNative evs = alloc<EvNative>(max);
     *int      fds = alloc<int>(max);
@@ -392,7 +392,7 @@ void el_run(EventLoop* lp) {
     free((*void)evs);  free((*void)fds);
 }
 
-void el_free(EventLoop* lp) {
+void EventLoop_free(EventLoop* lp) {
     // Release any still-armed timer envs (e.g. the loop stopped with timers pending).
     int t = 0;
     while (t < lp.tcap) {
@@ -404,3 +404,23 @@ void el_free(EventLoop* lp) {
     _el_backend_free(lp.backend);    // close the kqueue / epoll descriptor
     free((*void)lp);
 }
+
+// ── Deprecated names (kept so 0.9.1 code compiles; removed in a later release) ──
+// deprecated: use EventLoop_add_timer
+int el_add_timer(EventLoop* lp, int64 deadline, escaping fn()->void on_fire) { return EventLoop_add_timer(lp, deadline, on_fire); }
+// deprecated: use EventLoop_del_timer
+void el_del_timer(EventLoop* lp, int id) { EventLoop_del_timer(lp, id); }
+// deprecated: use EventLoop_add_read
+void el_add_read(EventLoop* lp, int fd, escaping fn(EventLoop*, int)->void cb) { EventLoop_add_read(lp, fd, cb); }
+// deprecated: use EventLoop_add_write
+void el_add_write(EventLoop* lp, int fd, escaping fn(EventLoop*, int)->void cb) { EventLoop_add_write(lp, fd, cb); }
+// deprecated: use EventLoop_del
+void el_del(EventLoop* lp, int fd) { EventLoop_del(lp, fd); }
+// deprecated: use EventLoop_del_free
+void el_del_free(EventLoop* lp, int fd) { EventLoop_del_free(lp, fd); }
+// deprecated: use EventLoop_stop
+void el_stop(EventLoop* lp) { EventLoop_stop(lp); }
+// deprecated: use EventLoop_run
+void el_run(EventLoop* lp) { EventLoop_run(lp); }
+// deprecated: use EventLoop_free
+void el_free(EventLoop* lp) { EventLoop_free(lp); }

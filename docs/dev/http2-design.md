@@ -99,7 +99,7 @@ the `<http2_server>` request/response glue) over the encrypted stream:
   `http2_tls_serve_async`. A non-blocking SSL pump
   (`tls_accept_async`/`tls_read_async`/`tls_write_all_async`) retries `SSL_*` on
   `WANT_READ`/`WANT_WRITE` and parks on the matching readiness via the reactor's
-  `el_add_read`/`el_add_write`.
+  `EventLoop_add_read`/`EventLoop_add_write`.
 
 Verified end-to-end against `curl --http2`: ALPN negotiates h2 and the request is
 served as `HTTP/2 200`, including multiple concurrent connections on the async

@@ -13,7 +13,7 @@
 //   int fd = net_tcp_listen(8080);
 //   EventLoop* lp = el_new(256);
 //   Future<uint8>* f = http_serve_async(lp, fd, hello, 1000);
-//   future_poll<uint8>(f, void(){ });   // drive: el_run(lp) until it completes
+//   future_poll<uint8>(f, void(){ });   // drive: EventLoop_run(lp) until it completes
 
 import <mem>;
 import <future>;
