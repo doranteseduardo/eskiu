@@ -488,7 +488,10 @@ void CodeGen::visit(SwitchStmt* node) {
     std::vector<llvm::ConstantInt*> caseVals;
     for (auto& c : node->cases) {
         if (!c.value) { caseVals.push_back(nullptr); continue; }
-        llvm::Value* v = evaluateExpr(c.value);
+        // Fold first: a `const int K` (or `K + 1`) is a compile-time case label even
+        // though evaluating it as an expression would load the global.
+        llvm::Value* v = evaluateConstantExpr(c.value);
+        if (!v) v = evaluateExpr(c.value);
         auto* ci = llvm::dyn_cast<llvm::ConstantInt>(v);
         if (!ci) throw std::runtime_error("switch case value must be a constant integer");
         caseVals.push_back(ci);
