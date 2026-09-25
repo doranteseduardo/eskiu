@@ -468,6 +468,7 @@ int main(int argc, string* argv) {
 
     let g: Codegen;
     cg_init(&g);
+    cg_set_target(&g, triple);         // the C ABI (and pointer size) follow --target
     g.safe = safe;                     // --safe → emit runtime bounds checks
     cg_program(&g, prog);
     // -c (or --freestanding) without -o writes <input>.o, like the C++ driver.
