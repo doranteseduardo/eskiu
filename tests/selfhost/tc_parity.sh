@@ -93,8 +93,8 @@ pos=0
 echo "Positive corpus (verdict must match --test-typechecker):"
 for f in tests/*.esk; do
     [ -f "$f" ] || continue
-    "$BIN" --test-typechecker "$f" >/dev/null 2>&1; cref=0; [ $? -ne 0 ] && cref=1
-    ESKIU_ROOT="$(pwd)" "$TCBIN" --test-typechecker "$f" >/dev/null 2>&1; cgot=0; [ $? -ne 0 ] && cgot=1
+    cref=0; "$BIN" --test-typechecker "$f" >/dev/null 2>&1 || cref=1
+    cgot=0; ESKIU_ROOT="$(pwd)" "$TCBIN" --test-typechecker "$f" >/dev/null 2>&1 || cgot=1
     if [ "$cref" -eq "$cgot" ]; then
         pos=$((pos + 1))
     else
