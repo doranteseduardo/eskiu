@@ -1,0 +1,3 @@
+// EXPECT-ERROR: invalid operands for operator
+// Only `+`/`-` do pointer arithmetic; a string times an int is invalid.
+int main() { string s = "ab"; int32 x = (int32)(s * 2); return x; }

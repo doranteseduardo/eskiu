@@ -1,0 +1,4 @@
+// EXPECT-ERROR: undefined function 'g'
+// A global that is not a function cannot be called (the self-hosted back end crashed).
+uint16 g = 3;
+int main() { return g(1); }

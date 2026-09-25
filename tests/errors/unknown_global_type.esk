@@ -1,0 +1,4 @@
+// EXPECT-ERROR: unknown type 'NoType'
+// A global's type must exist.
+NoType g;
+int main() { return 0; }
