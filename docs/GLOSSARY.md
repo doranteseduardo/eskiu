@@ -85,7 +85,7 @@ A parameter qualifier (`escaping fn(int)->void cb`) marking a function-pointer p
 A single thread that watches many file descriptors and dispatches a callback when one becomes ready, via kqueue (macOS) or epoll (Linux). Implemented as `EventLoop` in `<eventloop>`, it is the readiness reactor underpinning async I/O, the HTTP stack, and the timer wheel. See also: executor, Future, async.
 
 **executor**
-A thread that owns an event loop plus a thread-safe ready-queue of wakers (`Executor` in `<executor>`). Completion may occur on any thread; `executor_schedule` enqueues a waker and wakes the loop through a self-pipe so the waker (a coroutine resume) always runs on the executor's own thread. See also: event loop / reactor, coroutine, Future.
+A thread that owns an event loop plus a thread-safe ready-queue of wakers (`Executor` in `<executor>`). Completion may occur on any thread; `Executor_schedule` enqueues a waker and wakes the loop through a self-pipe so the waker (a coroutine resume) always runs on the executor's own thread. See also: event loop / reactor, coroutine, Future.
 
 **expression**
 A syntactic form that evaluates to a value and has a type. Examples: `3 + 4`, `add(5, 2)`, `point.x`, `*ptr`. Expressions form the leaves and internal nodes of most AST subtrees. See also: lvalue, rvalue, statement.

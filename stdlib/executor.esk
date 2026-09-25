@@ -1,15 +1,15 @@
 // executor.esk — the async runtime's executor (see docs/dev/async-design.md §6).
 //
 // An Executor is a thread that owns an <eventloop> plus a ready-queue of wakers.
-// Completion may happen on any thread; `executor_schedule` enqueues a waker and
+// Completion may happen on any thread; `Executor_schedule` enqueues a waker and
 // wakes the loop through a self-pipe, so the waker (a coroutine resume) always
 // runs on the executor's own thread — the thread-affinity guarantee the future
 // UI framework needs (background work completes elsewhere, the continuation runs
 // on the home thread).
 //
 //   Executor* ex = executor_new(el_new(256));
-//   ... leaf futures complete and call executor_schedule(ex, resume) ...
-//   executor_run(ex);     // blocks, dispatching I/O readiness and scheduled wakers
+//   ... leaf futures complete and call Executor_schedule(ex, resume) ...
+//   Executor_run(ex);     // blocks, dispatching I/O readiness and scheduled wakers
 
 import <mem>;
 import <eventloop>;
@@ -74,7 +74,7 @@ Executor* executor_new(EventLoop* lp) {
 
 // Enqueue `w` to run on the executor's thread, and wake the loop. Thread-safe:
 // callable from any thread (e.g. a worker that just completed a future).
-void executor_schedule(Executor* ex, escaping fn()->void w) {
+void Executor_schedule(Executor* ex, escaping fn()->void w) {
     *RQNode n = alloc<RQNode>(1);
     n.waker = w;
     n.next  = (*RQNode)0;
@@ -88,11 +88,11 @@ void executor_schedule(Executor* ex, escaping fn()->void w) {
     write(ex.wake_w, (*void)&one, (int64)1);   // wake the loop thread
 }
 
-// Run until executor_stop: dispatch I/O readiness and scheduled wakers.
-void executor_run(Executor* ex)  { EventLoop_run(ex.lp); }
-void executor_stop(Executor* ex) { EventLoop_stop(ex.lp); }
+// Run until Executor_stop: dispatch I/O readiness and scheduled wakers.
+void Executor_run(Executor* ex)  { EventLoop_run(ex.lp); }
+void Executor_stop(Executor* ex) { EventLoop_stop(ex.lp); }
 
-void executor_free(Executor* ex) {
+void Executor_free(Executor* ex) {
     EventLoop_del_free(ex.lp, ex.wake_r);   // free the drain-callback env too
     close(ex.wake_r);                // the self-pipe
     close(ex.wake_w);
@@ -106,3 +106,13 @@ void executor_free(Executor* ex) {
     EventLoop_free(ex.lp);                  // the executor owns its event loop
     free((*void)ex);
 }
+
+// ── Deprecated names (kept so 0.9.1 code compiles; removed in a later release) ──
+// deprecated: use Executor_schedule
+void executor_schedule(Executor* ex, escaping fn()->void w) { Executor_schedule(ex, w); }
+// deprecated: use Executor_run
+void executor_run(Executor* ex) { Executor_run(ex); }
+// deprecated: use Executor_stop
+void executor_stop(Executor* ex) { Executor_stop(ex); }
+// deprecated: use Executor_free
+void executor_free(Executor* ex) { Executor_free(ex); }

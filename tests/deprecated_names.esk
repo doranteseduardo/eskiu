@@ -5,6 +5,7 @@ import <regex>;
 import <string>;
 import <sysheap>;
 import <eventloop>;
+import <executor>;
 extern int printf(string fmt, ...);
 extern int pipe(*int fds);
 extern int64 write(int fd, *void buf, int64 n);
@@ -59,5 +60,11 @@ int main() {
     el_del_free(lp, fds[1]);
     printf("eventloop: %d\n", g_ticks);
     el_free(lp);
+
+    Executor* ex = executor_new(el_new(16));
+    executor_schedule(ex, void() { g_ticks = g_ticks + 100; executor_stop(ex); });
+    executor_run(ex);
+    printf("executor: %d\n", g_ticks);
+    executor_free(ex);
     return 0;
 }

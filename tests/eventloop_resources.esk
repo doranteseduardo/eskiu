@@ -1,4 +1,4 @@
-// EventLoop_free closes the kqueue/epoll descriptor (and executor_free its self-pipe),
+// EventLoop_free closes the kqueue/epoll descriptor (and Executor_free its self-pipe),
 // so creating and freeing loops does not leak fds; and a full timer table grows
 // instead of dropping a timer (its future used to never fire).
 import <mem>;
@@ -26,7 +26,7 @@ int main() {
     int i = 0;
     while (i < 200) { EventLoop* lp = el_new(8); EventLoop_free(lp); i = i + 1; }
     i = 0;
-    while (i < 100) { Executor* ex = executor_new(el_new(8)); executor_free(ex); i = i + 1; }
+    while (i < 100) { Executor* ex = executor_new(el_new(8)); Executor_free(ex); i = i + 1; }
     int after = dup(0);
     close(after);
     printf("fds leaked: %d\n", after - before);
