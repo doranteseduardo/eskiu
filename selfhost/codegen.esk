@@ -599,14 +599,20 @@ string cg_ensure_struct_inst(Codegen* g, string spelling) {
     return mangled;
 }
 
+// A generic function by name: its definition, not a body-less prototype (`T f<T>(T x);`)
+// that may precede it.
 *DeclNode cg_find_gfn(Codegen* g, string name) {
+    *DeclNode proto = null;
     int i = 0; int n = List_len<*DeclNode>(&g.gfns);
     while (i < n) {
         *DeclNode d = List_get<*DeclNode>(&g.gfns, i);
-        if (cg_streq(d.name, name) == 1) { return d; }
+        if (cg_streq(d.name, name) == 1) {
+            if (d.body != null) { return d; }
+            if (proto == null) { proto = d; }
+        }
         i = i + 1;
     }
-    return null;
+    return proto;
 }
 
 // Build the active T→concrete substitution for a generic decl + its type args, saving

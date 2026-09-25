@@ -43,6 +43,8 @@ void CodeGen::visit(Program* node) {
         if (auto* f = dynamic_cast<FunctionDecl*>(decl.get())) {
             if (f->typeParams.empty())
                 declareFunction(f->name, f->returnType, f->params);
+            else
+                f->accept(this);   // register the template up front: a use may precede it
         } else if (auto* s = dynamic_cast<StructDecl*>(decl.get())) {
             if (!s->typeParams.empty()) continue;
             for (auto& method : s->methods) {
@@ -126,7 +128,9 @@ llvm::Function* CodeGen::declareFunction(
 
 void CodeGen::visit(FunctionDecl* node) {
     if (!node->typeParams.empty()) {
-        funcTemplateDecls[node->name] = node;
+        // A generic prototype (`T f<T>(T x);`) never replaces its definition.
+        FunctionDecl*& slot = funcTemplateDecls[node->name];
+        if (!slot || node->body || !slot->body) slot = node;
         return;
     }
     // A body emitted in the middle of an expression (a template instantiation) has its

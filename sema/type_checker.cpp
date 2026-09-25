@@ -64,7 +64,9 @@ bool TypeChecker::check(Program* program) {
         }
         if (auto funcDecl = dynamic_cast<FunctionDecl*>(decl.get())) {
             if (!funcDecl->typeParams.empty()) {
-                funcTemplateDecls[funcDecl->name] = funcDecl;
+                // A generic prototype (`T f<T>(T x);`) never replaces its definition.
+                FunctionDecl*& slot = funcTemplateDecls[funcDecl->name];
+                if (!slot || funcDecl->body || !slot->body) slot = funcDecl;
                 if (funcDecl->mustUse) mustUseFuncs.insert(funcDecl->name);
                 // Don't register yet — template params are not real types,
                 // the function is registered on instantiation.
