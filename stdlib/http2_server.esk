@@ -102,11 +102,32 @@ void h2_encode_resp_headers(*uint8 block, int* off, HttpResponse* res) {
     }
 }
 
-// Build just the response HEADERS frame (`:status`, `content-length`, then the
-// handler's headers) into `out`; END_HEADERS set, END_STREAM not (a body follows).
-// Returns the frame length.
+// Upper bound on the HPACK block for a response: `:status`, `content-length`,
+// then each handler header, whose literal costs at most its raw bytes plus a
+// representation byte and two 5-byte length prefixes.
+int h2_header_block_bound(HttpResponse* res) {
+    int len = String_len(&res.headers);
+    *char data = String_cstr(&res.headers);
+    int lines = 1;
+    int i = 0;
+    while (i < len) { if (data[i] == (char)10) { lines = lines + 1; } i = i + 1; }
+    return len + 16 * lines + 64;
+}
+
+// Upper bound on the bytes h2_build_headers writes: the block split into
+// MAX_FRAME_SIZE fragments, each with a 9-byte frame header.
+int h2_headers_bufsize(HttpResponse* res) {
+    int bound = h2_header_block_bound(res);
+    return bound + H2_FRAME_HEADER_LEN * (bound / 16384 + 1);
+}
+
+// Build the response header block (`:status`, `content-length`, then the
+// handler's headers) into `out` as a HEADERS frame, followed by CONTINUATION
+// frames when the block exceeds the default MAX_FRAME_SIZE (§6.10); the last
+// fragment carries END_HEADERS, and END_STREAM is never set (a body follows).
+// `out` must hold h2_headers_bufsize(res) bytes. Returns the byte count.
 int h2_build_headers(*uint8 out, int stream_id, HttpResponse* res) {
-    *uint8 block = alloc<uint8>(8192);
+    *uint8 block = alloc<uint8>(h2_header_block_bound(res));
     int off = 0;
 
     let st: String;  String_init(&st, 8);  String_from_int(&st, res.status);
@@ -120,7 +141,20 @@ int h2_build_headers(*uint8 out, int stream_id, HttpResponse* res) {
     String_free(&cl);
 
     h2_encode_resp_headers(block, &off, res);
-    int n = h2_write_headers(out, stream_id, block, off, 0, 1);
+    int first = off;
+    if (first > 16384) { first = 16384; }
+    int whole = 0;
+    if (first == off) { whole = 1; }
+    int n = h2_write_headers(out, stream_id, block, first, 0, whole);
+    int done = first;
+    while (done < off) {
+        int part = off - done;
+        if (part > 16384) { part = 16384; }
+        int last = 0;
+        if (done + part == off) { last = 1; }
+        n = n + h2_write_continuation(out + n, stream_id, block + done, part, last);
+        done = done + part;
+    }
     free((*void)block);
     return n;
 }
@@ -160,7 +194,7 @@ int h2_build_response(*uint8 out, int stream_id, HttpResponse* res) {
 // initial window comes from its SETTINGS.
 async int h2_respond_async(EventLoop* lp, H2Conn* conn, int sid, HttpResponse* res,
                            *uint8 rbuf, int rbufcap) {
-    *uint8 hb = alloc<uint8>(8704);
+    *uint8 hb = alloc<uint8>(h2_headers_bufsize(res));
     int hn = h2_build_headers(hb, sid, res);
     int hw = await net_write_async(lp, conn.fd, hb, (int64)hn);
     free((*void)hb);
@@ -206,12 +240,12 @@ async int h2_respond_async(EventLoop* lp, H2Conn* conn, int sid, HttpResponse* r
     return 0;
 }
 
-// Upper bound on the encoded size of a response: header block + body + a 9-byte
-// frame header per DATA chunk + slack. Callers size their buffer with this.
+// Upper bound on the encoded size of a response: the header frames + body + a
+// 9-byte frame header per DATA chunk + slack. Callers size their buffer with this.
 int h2_response_bufsize(HttpResponse* res) {
     int blen = String_len(&res.body);
     int chunks = blen / 16384 + 2;
-    return 8192 + blen + 9 * chunks + 64;
+    return h2_headers_bufsize(res) + blen + 9 * chunks + 64;
 }
 
 // Encode and send a response on `stream_id` over the connection's socket.

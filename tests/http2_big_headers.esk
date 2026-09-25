@@ -1,0 +1,53 @@
+// Response headers larger than the old fixed 8 KB block are sized from the
+// headers, and a block over MAX_FRAME_SIZE (16384) is split into a HEADERS frame
+// plus CONTINUATION frames (§6.10) that reassemble to the full block.
+import <mem>;
+import <hpack>;
+import <http2>;
+import <http2_server>;
+extern int printf(string fmt, ...);
+extern *void memset(*void d, int c, int64 n);
+
+int main() {
+    let res: HttpResponse;  HttpResponse_init(&res, 200);
+    *char v = alloc<char>(20001);
+    memset((*void)v, 33, (int64)20000);
+    HttpResponse_header(&res, "X-Big", (string)v);
+    HttpResponse_header(&res, "X-Small", "ok");
+    String_append(&res.body, "hi");
+
+    *uint8 out = alloc<uint8>(h2_response_bufsize(&res));
+    int n = h2_build_response(out, 1, &res);
+
+    *uint8 block = alloc<uint8>(n);
+    int blen = 0;
+    int off = 0;
+    int frames = 0;
+    int ended = 0;
+    while (off < n && ended == 0) {
+        let f: H2Frame;
+        h2_read_header(out + off, &f);
+        printf("frame type=%d len=%d end_headers=%d\n", f.type, f.length, (f.flags & H2_FLAG_END_HEADERS) != 0);
+        int k = 0;
+        while (k < f.length) { block[blen + k] = out[off + 9 + k]; k = k + 1; }
+        blen = blen + f.length;
+        if ((f.flags & H2_FLAG_END_HEADERS) != 0) { ended = 1; }
+        off = off + 9 + f.length;
+        frames = frames + 1;
+    }
+    let dec: HpackDecoder;  hpack_decoder_init(&dec, (int64)4096);
+    *HpackHeader hs = alloc<HpackHeader>(8);
+    int c = hpack_decode(&dec, block, blen, hs, 8);
+    printf("headers=%d big=%d small=%.*s\n", c, hs[2].vlen, hs[3].vlen, (string)hs[3].value);
+    let df: H2Frame;
+    h2_read_header(out + off, &df);
+    printf("then type=%d len=%d\n", df.type, df.length);
+
+    hpack_decoder_free(&dec);
+    free((*void)hs);
+    free((*void)block);
+    free((*void)out);
+    free((*void)v);
+    HttpResponse_free(&res);
+    return 0;
+}
