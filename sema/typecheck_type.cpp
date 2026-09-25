@@ -150,6 +150,7 @@ void TypeChecker::validateStructType(const std::string& type, ASTNode* at) {
 
         // Look up struct in registry
         if (structs.find(structName) == structs.end()) {
+            unknownTypes.insert(structName);
             if (at) errorAt(at, "unknown type '" + structName + "'");
             else error(0, 0, "unknown type '" + structName + "'");
         }
@@ -161,6 +162,7 @@ void TypeChecker::validateStructType(const std::string& type, ASTNode* at) {
             enumTypes.find(baseType) == enumTypes.end() &&
             adtEnums.find(baseType) == adtEnums.end() &&     // incl. generic enum instances
             interfaceDecls.find(baseType) == interfaceDecls.end()) {
+            unknownTypes.insert(baseType);
             if (at) errorAt(at, "unknown type '" + baseType + "'");
             else error(0, 0, "unknown type '" + baseType + "'");
         }
@@ -340,6 +342,11 @@ std::string TypeChecker::assignabilityError(const std::string& targetType,
     }
     std::string nt = normalizeType(targetType), ns = normalizeType(srcType);
     if (nt == "unknown" || ns == "unknown") return "";   // an already-reported bad type
+    // A type already reported as unknown (`Nope f(Zip z)`) must not cascade into a
+    // conversion error at every use.
+    if (!unknownTypes.empty() &&
+        (unknownTypes.count(ty::Type::parse(nt).nominalName()) || unknownTypes.count(ty::Type::parse(ns).nominalName())))
+        return "";
     // An integer literal that provably does not fit the target is rejected even though
     // integer-width narrowing is otherwise implicit (its value is statically known).
     if (isIntType(nt)) {
