@@ -201,7 +201,7 @@ async int h2_respond_async(EventLoop* lp, H2Conn* conn, int sid, HttpResponse* r
     if (hw < 0) { return -1; }
 
     let stream: H2Stream;
-    h2_stream_init(&stream, sid, (int)conn.remote.initial_window_size, 65535);
+    H2Stream_init(&stream, sid, (int)conn.remote.initial_window_size, 65535);
     int blen = String_len(&res.body);
     *uint8 body = (*uint8)String_cstr(&res.body);
     *uint8 df = alloc<uint8>(16384 + 9);
@@ -212,7 +212,7 @@ async int h2_respond_async(EventLoop* lp, H2Conn* conn, int sid, HttpResponse* r
         // BOTH the stream and the connection, reading WINDOW_UPDATE frames that
         // replenish them. (A zero-length body skips this and sends one empty
         // END_STREAM frame — empty DATA does not consume the window.)
-        while (blen - sent > 0 && h2_can_send(conn, &stream, 1) == 0) {
+        while (blen - sent > 0 && H2Conn_can_send(conn, &stream, 1) == 0) {
             let wf: H2Frame;
             int wl = await h2_read_frame_async(lp, conn.fd, rbuf, rbufcap, &wf);
             if (wl < 0) { free((*void)df); return -1; }
@@ -298,7 +298,7 @@ async int h2_complete_request_async(EventLoop* lp, H2Conn* conn, int sid, HttpRe
 async void http2_serve_conn_async(EventLoop* lp, int fd,
                                   escaping fn(HttpRequest*, HttpResponse*)->void handler,
                                   Chan<int>* done) {
-    let conn: H2Conn;  h2_conn_init(&conn, fd);
+    let conn: H2Conn;  H2Conn_init(&conn, fd);
     int hs = await h2_server_handshake_async(lp, &conn);
     if (hs == 0) {
         let dec: HpackDecoder;  HpackDecoder_init(&dec, (int64)4096);

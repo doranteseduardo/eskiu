@@ -53,7 +53,7 @@ raw/Huffman per string. Validated against the RFC vectors, §C.1.1 (integer),
 
 The per-stream state machine (`H2Stream`: idle → open → half-closed-local/remote →
 closed, via `h2_stream_on_recv`/`h2_stream_on_send`); credit-based flow control
-(`h2_can_send`/`h2_account_sent`/`h2_account_recv`/`h2_grant_window`) over
+(`H2Conn_can_send`/`h2_account_sent`/`h2_account_recv`/`h2_grant_window`) over
 per-stream and connection windows; and the stream-frame codecs: HEADERS, DATA,
 WINDOW_UPDATE, RST_STREAM (`h2_write_*`). HEADERS+CONTINUATION reassembly to
 END_HEADERS is the async `h2_read_header_block_async`. RESERVED states are omitted

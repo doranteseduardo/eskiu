@@ -8,6 +8,7 @@ import <eventloop>;
 import <executor>;
 import <channel>;
 import <hpack>;
+import <http2>;
 extern int printf(string fmt, ...);
 extern int pipe(*int fds);
 extern int64 write(int fd, *void buf, int64 n);
@@ -81,5 +82,9 @@ int main() {
     printf("hpack: %d %d\n", hd.dyn_cap > 0, hh.nodes > 1);
     hpack_huff_free(&hh);
     hpack_decoder_free(&hd);
+
+    let conn: H2Conn;  h2_conn_init(&conn, -1);
+    let st: H2Stream;  h2_stream_init(&st, 1, 100, 100);
+    printf("http2: %d %d\n", h2_can_send(&conn, &st, 50), h2_can_send(&conn, &st, 500));
     return 0;
 }
