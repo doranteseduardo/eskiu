@@ -11,12 +11,19 @@
 namespace {
 
 ExprPtr ident(const std::string& n) { return std::make_shared<IdentExpr>(n); }
+
+// Names the lowering synthesizes for the async function being lowered: the frame
+// pointer and the frame's bookkeeping fields. Each is chosen (AsyncTransform::run) to
+// be distinct from every name spelled in the function, so a user local, parameter, or
+// field named `__fr` / `st` / `ret` / `awaiting` cannot collide with them.
+struct FrameNames { std::string ptr = "__fr", st = "st", ret = "ret", awaiting = "awaiting"; };
+FrameNames frn;
 ExprPtr intlit(long long v) {
     return std::make_shared<LiteralExpr>(LiteralExpr::Kind::INT, std::to_string(v));
 }
 // fr.<field>
 ExprPtr fr(const std::string& field) {
-    return std::make_shared<MemberExpr>(ident("__fr"), field);
+    return std::make_shared<MemberExpr>(ident(frn.ptr), field);
 }
 ExprPtr binop(ExprPtr l, const std::string& op, ExprPtr r) {
     return std::make_shared<BinaryExpr>(std::move(l), op, std::move(r));
@@ -124,13 +131,13 @@ bool stmtHasLabeledBreak(const StmtPtr& s) {
 // the type checker runs, we populate `captures` ourselves (sema would otherwise).
 ExprPtr resumeWaker(const std::string& resumeName, int state, const std::string& framePtrTy) {
     std::vector<BlockItem> body;
-    body.push_back(assign(fr("st"), intlit(state)));
+    body.push_back(assign(fr(frn.st), intlit(state)));
     body.push_back(exprStmt(std::make_shared<CallExpr>(
-        ident(resumeName), std::vector<ExprPtr>{ ident("__fr") })));
+        ident(resumeName), std::vector<ExprPtr>{ ident(frn.ptr) })));
     auto blk = std::make_shared<BlockStmt>(body);
     auto lam = std::make_shared<LambdaExpr>(
         std::vector<std::pair<std::string,std::string>>{}, "void", blk);
-    lam->captures.push_back({"__fr", framePtrTy});
+    lam->captures.push_back({frn.ptr, framePtrTy});
     return lam;
 }
 
@@ -142,7 +149,7 @@ ExprPtr resumeWaker(const std::string& resumeName, int state, const std::string&
 struct ShadowRenamer {
     std::set<std::string> seen;                              // names declared so far
     std::vector<std::map<std::string, std::string>> scopes;  // name -> current spelling
-    int seq = 0;
+    std::set<std::string>* used = nullptr;                   // every name in the function (renames avoid them)
 
     std::string lookup(const std::string& n) const {
         for (auto it = scopes.rbegin(); it != scopes.rend(); ++it) {
@@ -153,7 +160,7 @@ struct ShadowRenamer {
     }
     std::string declare(const std::string& n) {
         std::string nn = n;
-        if (seen.count(n)) nn = n + "__s" + std::to_string(seq++);
+        if (seen.count(n)) nn = astwalk::freshName(n + "__s", *used);
         seen.insert(n);
         scopes.back()[n] = nn;
         return nn;
@@ -238,14 +245,25 @@ struct ShadowRenamer {
 
 void AsyncTransform::run(Program* program) {
     std::vector<DeclPtr> out;
+    std::set<std::string> topNames;   // top-level declarations (the frame type / resume fn avoid them)
+    for (auto& decl : program->declarations) topNames.insert(decl->name);
 
     for (auto& decl : program->declarations) {
         auto* fn = dynamic_cast<FunctionDecl*>(decl.get());
         if (!fn || !fn->isAsync) { out.push_back(decl); continue; }
 
         const std::string name   = fn->name;
-        const std::string frameT = "__" + name + "_frame";
-        const std::string resumeN = "__" + name + "_resume";
+        // Every synthesized name avoids the names already spelled in the function (and
+        // the program's top-level names, for the frame type and resume function).
+        std::set<std::string> used = topNames;
+        astwalk::collectNames(fn->body.get(), used);
+        for (const auto& p : fn->params) used.insert(p.second);
+        const std::string frameT = astwalk::freshName("__" + name + "_frame", used);
+        const std::string resumeN = astwalk::freshName("__" + name + "_resume", used);
+        frn.ptr = astwalk::freshName("__fr", used);
+        frn.st = astwalk::freshName("st", used);
+        frn.ret = astwalk::freshName("ret", used);
+        frn.awaiting = astwalk::freshName("awaiting", used);
         const std::string T = fn->returnType;                 // declared return type
         const bool isVoid = (T == "void");
         // `async void` uses a 1-byte unit (uint8) as the Future's value type.
@@ -259,6 +277,7 @@ void AsyncTransform::run(Program* program) {
                 "is not supported inside an async function");
         {
             ShadowRenamer sr;
+            sr.used = &used;
             sr.scopes.emplace_back();
             for (const auto& p : fn->params) { sr.seen.insert(p.second); sr.scopes.back()[p.second] = p.second; }
             sr.items(block->items);
@@ -280,14 +299,14 @@ void AsyncTransform::run(Program* program) {
                         auto stmt = std::get<StmtPtr>(it);
                         if (auto* rs = dynamic_cast<ReturnStmt*>(stmt.get())) {
                             if (auto* aw = dynamic_cast<AwaitExpr*>(rs->value.get())) {
-                                std::string tn = "__aw_t" + std::to_string(tmpN++);
+                                std::string tn = astwalk::freshName("__aw_t" + std::to_string(tmpN++), used);
                                 out2.push_back(DeclPtr(std::make_shared<VarDecl>(tn, aw->resolvedType, rs->value)));
                                 out2.push_back(StmtPtr(std::make_shared<ReturnStmt>(ident(tn))));
                                 continue;
                             }
                         } else if (auto* es = dynamic_cast<ExprStmt*>(stmt.get())) {
                             if (auto* aw = dynamic_cast<AwaitExpr*>(es->expr.get())) {
-                                std::string tn = "__aw_t" + std::to_string(tmpN++);
+                                std::string tn = astwalk::freshName("__aw_t" + std::to_string(tmpN++), used);
                                 out2.push_back(DeclPtr(std::make_shared<VarDecl>(tn, aw->resolvedType, es->expr)));
                                 continue;          // discard
                             }
@@ -295,7 +314,7 @@ void AsyncTransform::run(Program* program) {
                             if (auto* b = dynamic_cast<BinaryExpr*>(es->expr.get()))
                                 if (b->op == "=")
                                     if (auto* aw = dynamic_cast<AwaitExpr*>(b->right.get())) {
-                                        std::string tn = "__aw_t" + std::to_string(tmpN++);
+                                        std::string tn = astwalk::freshName("__aw_t" + std::to_string(tmpN++), used);
                                         out2.push_back(DeclPtr(std::make_shared<VarDecl>(tn, aw->resolvedType, b->right)));
                                         out2.push_back(StmtPtr(std::make_shared<ExprStmt>(
                                             binop(b->left, "=", ident(tn)))));
@@ -329,7 +348,7 @@ void AsyncTransform::run(Program* program) {
                 // and element vars are hoisted to frame fields like any other local.
                 if (fi->resolvedElemType.empty())
                     return std::make_shared<ForInStmt>(fi->varName, fi->iterable, desugarStmt(fi->body));
-                std::string idxName = "__forin_i_" + std::to_string(forinSeq++);
+                std::string idxName = astwalk::freshName("__forin_i_" + std::to_string(forinSeq++), used);
                 auto idx = [&]() { return ident(idxName); };
                 ExprPtr lengthExpr, elemExpr;
                 if (fi->isArrayIter) {
@@ -376,11 +395,12 @@ void AsyncTransform::run(Program* program) {
         struct AwaitSite { VarDecl* var; AwaitExpr* expr; };
         std::vector<AwaitSite> awaits;
         std::map<AwaitExpr*, int> awIdx;
+        std::vector<std::string> awNames;   // frame field of each await's future
         std::set<std::string> vars;
         std::vector<StructDecl::Field> fields;
-        fields.push_back({"Future<" + Tret + ">", "ret"});
-        fields.push_back({"int", "st"});
-        fields.push_back({"FutureHdr*", "awaiting"});
+        fields.push_back({"Future<" + Tret + ">", frn.ret});
+        fields.push_back({"int", frn.st});
+        fields.push_back({"FutureHdr*", frn.awaiting});
         for (const auto& p : fn->params) { vars.insert(p.second); fields.push_back({p.first, p.second}); }
 
         std::function<void(const StmtPtr&)> scanS;
@@ -394,7 +414,8 @@ void AsyncTransform::run(Program* program) {
                         if (vd->initializer)
                             if (auto* aw = dynamic_cast<AwaitExpr*>(vd->initializer.get())) {
                                 awIdx[aw] = (int)awaits.size();
-                                fields.push_back({"*Future<" + aw->resolvedType + ">", "__aw" + std::to_string(awaits.size())});
+                                awNames.push_back(astwalk::freshName("__aw" + std::to_string(awaits.size()), used));
+                                fields.push_back({"*Future<" + aw->resolvedType + ">", awNames.back()});
                                 awaits.push_back({vd, aw});
                             }
                     } else scanS(std::get<StmtPtr>(it));
@@ -419,7 +440,7 @@ void AsyncTransform::run(Program* program) {
         // ── State graph ──────────────────────────────────────────────────────
         std::vector<std::vector<BlockItem>> states;
         auto newState = [&]() -> int { states.push_back({}); return (int)states.size() - 1; };
-        auto goTo = [&](int s, int target) { states[s].push_back(assign(fr("st"), intlit(target))); };
+        auto goTo = [&](int s, int target) { states[s].push_back(assign(fr(frn.st), intlit(target))); };
 
         // break/continue inside an await-split loop can't stay literal — they would
         // break/continue the resume function's own `while(true)` dispatch loop. So
@@ -487,14 +508,14 @@ void AsyncTransform::run(Program* program) {
         // Complete the future with `v` (already rewritten), then return. Pending defers
         // run after the value is computed, before the completion is published.
         auto completeInto = [&](std::vector<BlockItem>& st, ExprPtr v) {
-            st.push_back(assign(std::make_shared<MemberExpr>(fr("ret"), "value"), v));
+            st.push_back(assign(std::make_shared<MemberExpr>(fr(frn.ret), "value"), v));
             emitDefers(st, 0);
             ExprPtr swap = std::make_shared<CallExpr>(ident("atomic_swap"),
                 std::vector<ExprPtr>{ std::make_shared<UnaryExpr>("&",
-                    std::make_shared<MemberExpr>(fr("ret"), "state")), intlit(2) });
+                    std::make_shared<MemberExpr>(fr(frn.ret), "state")), intlit(2) });
             std::vector<BlockItem> wk;
             wk.push_back(exprStmt(std::make_shared<CallExpr>(
-                std::make_shared<MemberExpr>(fr("ret"), "waker"), std::vector<ExprPtr>{})));
+                std::make_shared<MemberExpr>(fr(frn.ret), "waker"), std::vector<ExprPtr>{})));
             st.push_back(std::make_shared<IfStmt>(binop(swap, "==", intlit(1)),
                 std::make_shared<BlockStmt>(wk)));
             st.push_back(ret(nullptr));
@@ -577,7 +598,7 @@ void AsyncTransform::run(Program* program) {
                 auto* vd = dynamic_cast<VarDecl*>(std::get<DeclPtr>(it).get());
                 if (!vd || !vd->initializer) return cur;
                 if (auto* aw = dynamic_cast<AwaitExpr*>(vd->initializer.get())) {
-                    int i = awIdx[aw]; std::string awf = "__aw" + std::to_string(i);
+                    int i = awIdx[aw]; std::string awf = awNames[i];
                     const std::string Tp = aw->resolvedType;   // the future's inner type T'
                     ExprPtr callE = aw->operand; rewrite(callE, vars);
                     states[cur].push_back(assign(fr(awf), callE));
@@ -586,13 +607,13 @@ void AsyncTransform::run(Program* program) {
                         std::vector<std::string>{Tp},
                         std::vector<ExprPtr>{ fr(awf), resumeWaker(resumeN, next, "*" + frameT) });
                     std::vector<BlockItem> pk;
-                    pk.push_back(assign(fr("awaiting"), std::make_shared<CastExpr>("*FutureHdr", fr(awf))));
+                    pk.push_back(assign(fr(frn.awaiting), std::make_shared<CastExpr>("*FutureHdr", fr(awf))));
                     pk.push_back(ret(nullptr));
                     states[cur].push_back(std::make_shared<IfStmt>(binop(poll, "==", intlit(0)),
                         std::make_shared<BlockStmt>(pk)));
                     goTo(cur, next);
                     // extract into `next`
-                    states[next].push_back(assign(fr("awaiting"), std::make_shared<CastExpr>("*FutureHdr", intlit(0))));
+                    states[next].push_back(assign(fr(frn.awaiting), std::make_shared<CastExpr>("*FutureHdr", intlit(0))));
                     states[next].push_back(assign(fr(vd->name), std::make_shared<MemberExpr>(fr(awf), "value")));
                     states[next].push_back(exprStmt(std::make_shared<FreeClosureExpr>(
                         std::make_shared<MemberExpr>(fr(awf), "waker"))));
@@ -663,8 +684,8 @@ void AsyncTransform::run(Program* program) {
             if (auto* i = dynamic_cast<IfStmt*>(s.get())) {
                 rewrite(i->condition, vars);
                 int thenE = newState(), elseE = newState(), join = newState();
-                std::vector<BlockItem> tb; tb.push_back(assign(fr("st"), intlit(thenE)));
-                std::vector<BlockItem> eb; eb.push_back(assign(fr("st"), intlit(elseE)));
+                std::vector<BlockItem> tb; tb.push_back(assign(fr(frn.st), intlit(thenE)));
+                std::vector<BlockItem> eb; eb.push_back(assign(fr(frn.st), intlit(elseE)));
                 states[cur].push_back(std::make_shared<IfStmt>(i->condition,
                     std::make_shared<BlockStmt>(tb), std::make_shared<BlockStmt>(eb)));
                 int te = lowerStmt(i->thenBranch, thenE);
@@ -677,8 +698,8 @@ void AsyncTransform::run(Program* program) {
                 rewrite(w->condition, vars);
                 int header = newState(), bodyE = newState(), after = newState();
                 goTo(cur, header);
-                std::vector<BlockItem> tb; tb.push_back(assign(fr("st"), intlit(bodyE)));
-                std::vector<BlockItem> eb; eb.push_back(assign(fr("st"), intlit(after)));
+                std::vector<BlockItem> tb; tb.push_back(assign(fr(frn.st), intlit(bodyE)));
+                std::vector<BlockItem> eb; eb.push_back(assign(fr(frn.st), intlit(after)));
                 states[header].push_back(std::make_shared<IfStmt>(w->condition,
                     std::make_shared<BlockStmt>(tb), std::make_shared<BlockStmt>(eb)));
                 enterLoop(after, header);           // break -> after; continue -> re-test
@@ -693,8 +714,8 @@ void AsyncTransform::run(Program* program) {
                 rewrite(dw->condition, vars);
                 int bodyE = newState(), test = newState(), after = newState();
                 goTo(cur, bodyE);
-                std::vector<BlockItem> tb; tb.push_back(assign(fr("st"), intlit(bodyE)));
-                std::vector<BlockItem> eb; eb.push_back(assign(fr("st"), intlit(after)));
+                std::vector<BlockItem> tb; tb.push_back(assign(fr(frn.st), intlit(bodyE)));
+                std::vector<BlockItem> eb; eb.push_back(assign(fr(frn.st), intlit(after)));
                 states[test].push_back(std::make_shared<IfStmt>(dw->condition,
                     std::make_shared<BlockStmt>(tb), std::make_shared<BlockStmt>(eb)));
                 enterLoop(after, test);             // break -> after; continue -> test
@@ -713,8 +734,8 @@ void AsyncTransform::run(Program* program) {
                 goTo(cur, header);
                 if (f->condition) {
                     rewrite(f->condition, vars);
-                    std::vector<BlockItem> tb; tb.push_back(assign(fr("st"), intlit(bodyE)));
-                    std::vector<BlockItem> eb; eb.push_back(assign(fr("st"), intlit(after)));
+                    std::vector<BlockItem> tb; tb.push_back(assign(fr(frn.st), intlit(bodyE)));
+                    std::vector<BlockItem> eb; eb.push_back(assign(fr(frn.st), intlit(after)));
                     states[header].push_back(std::make_shared<IfStmt>(f->condition,
                         std::make_shared<BlockStmt>(tb), std::make_shared<BlockStmt>(eb)));
                 } else {
@@ -739,11 +760,11 @@ void AsyncTransform::run(Program* program) {
                 int dflt = join;                              // no default -> skip to join
                 for (int k = 0; k < n; ++k) if (!sw->cases[k].value) { dflt = entry[k]; break; }
                 // if (subj==V0) st=entry0; else if (subj==V1) st=entry1; ... else st=dflt
-                StmtPtr chain = assign(fr("st"), intlit(dflt));
+                StmtPtr chain = assign(fr(frn.st), intlit(dflt));
                 for (int k = n - 1; k >= 0; --k) {
                     if (!sw->cases[k].value) continue;        // default is the else
                     ExprPtr cv = sw->cases[k].value; rewrite(cv, vars);
-                    std::vector<BlockItem> tb; tb.push_back(assign(fr("st"), intlit(entry[k])));
+                    std::vector<BlockItem> tb; tb.push_back(assign(fr(frn.st), intlit(entry[k])));
                     chain = std::make_shared<IfStmt>(binop(sw->subject, "==", cv),
                         std::make_shared<BlockStmt>(tb),
                         std::make_shared<BlockStmt>(std::vector<BlockItem>{ chain }));
@@ -844,7 +865,7 @@ void AsyncTransform::run(Program* program) {
         // ── Resume:  while (true) { if(st==0){..} else if(st==1){..} ... else return; }
         StmtPtr chain = ret(nullptr);           // terminal: unknown state -> return
         for (int s = (int)states.size() - 1; s >= 0; --s)
-            chain = std::make_shared<IfStmt>(binop(fr("st"), "==", intlit(s)),
+            chain = std::make_shared<IfStmt>(binop(fr(frn.st), "==", intlit(s)),
                 std::make_shared<BlockStmt>(states[s]), chain);
         std::vector<BlockItem> loopBody; loopBody.push_back(chain);
         std::vector<BlockItem> resumeBody;
@@ -853,20 +874,20 @@ void AsyncTransform::run(Program* program) {
             std::make_shared<BlockStmt>(loopBody)));
         auto resumeFn = std::make_shared<FunctionDecl>(
             resumeN, "void",
-            std::vector<std::pair<std::string,std::string>>{ {"*" + frameT, "__fr"} },
+            std::vector<std::pair<std::string,std::string>>{ {"*" + frameT, frn.ptr} },
             std::make_shared<BlockStmt>(resumeBody));
 
         // ── Constructor:  *Future<T> name(params) { ... } ────────────────────
         std::vector<BlockItem> ctor;
-        ctor.push_back(std::make_shared<VarDecl>("__fr", "*" + frameT,
+        ctor.push_back(std::make_shared<VarDecl>(frn.ptr, "*" + frameT,
             std::make_shared<TemplateCallExpr>("alloc", std::vector<std::string>{frameT},
                 std::vector<ExprPtr>{ intlit(1) })));
-        ctor.push_back(assign(fr("st"), intlit(0)));
-        ctor.push_back(assign(fr("awaiting"), std::make_shared<CastExpr>("*FutureHdr", intlit(0))));
-        ctor.push_back(assign(std::make_shared<MemberExpr>(fr("ret"), "state"), intlit(0)));
+        ctor.push_back(assign(fr(frn.st), intlit(0)));
+        ctor.push_back(assign(fr(frn.awaiting), std::make_shared<CastExpr>("*FutureHdr", intlit(0))));
+        ctor.push_back(assign(std::make_shared<MemberExpr>(fr(frn.ret), "state"), intlit(0)));
         // ret is raw-allocated (not via future_new); init waker to a no-op so
         // free_future/future_drop can free_closure it safely.
-        ctor.push_back(assign(std::make_shared<MemberExpr>(fr("ret"), "waker"),
+        ctor.push_back(assign(std::make_shared<MemberExpr>(fr(frn.ret), "waker"),
             std::make_shared<LambdaExpr>(
                 std::vector<std::pair<std::string,std::string>>{}, "void",
                 std::make_shared<BlockStmt>(std::vector<BlockItem>{}))));
@@ -875,25 +896,25 @@ void AsyncTransform::run(Program* program) {
         {
             std::vector<BlockItem> cascade;
             cascade.push_back(exprStmt(std::make_shared<CallExpr>(
-                ident("future_drop"), std::vector<ExprPtr>{ fr("awaiting") })));
+                ident("future_drop"), std::vector<ExprPtr>{ fr(frn.awaiting) })));
             std::vector<BlockItem> dropBody;
             dropBody.push_back(std::make_shared<IfStmt>(
-                binop(fr("awaiting"), "!=", std::make_shared<CastExpr>("*FutureHdr", intlit(0))),
+                binop(fr(frn.awaiting), "!=", std::make_shared<CastExpr>("*FutureHdr", intlit(0))),
                 std::make_shared<BlockStmt>(cascade)));
             // NOTE: do not free the frame here — future_drop frees it (== free &ret)
             // after this on_drop returns, and frees this closure's env too.
             auto dropLam = std::make_shared<LambdaExpr>(
                 std::vector<std::pair<std::string,std::string>>{}, "void",
                 std::make_shared<BlockStmt>(dropBody));
-            dropLam->captures.push_back({"__fr", "*" + frameT});
-            ctor.push_back(assign(std::make_shared<MemberExpr>(fr("ret"), "on_drop"), dropLam));
+            dropLam->captures.push_back({frn.ptr, "*" + frameT});
+            ctor.push_back(assign(std::make_shared<MemberExpr>(fr(frn.ret), "on_drop"), dropLam));
         }
         for (const auto& p : fn->params)
             ctor.push_back(assign(fr(p.second), ident(p.second)));
         ctor.push_back(exprStmt(std::make_shared<CallExpr>(
-            ident(resumeN), std::vector<ExprPtr>{ ident("__fr") })));
+            ident(resumeN), std::vector<ExprPtr>{ ident(frn.ptr) })));
         ctor.push_back(ret(std::make_shared<UnaryExpr>("&",
-            std::make_shared<MemberExpr>(ident("__fr"), "ret"))));
+            std::make_shared<MemberExpr>(ident(frn.ptr), frn.ret))));
         auto ctorFn = std::make_shared<FunctionDecl>(
             name, "*Future<" + Tret + ">", fn->params, std::make_shared<BlockStmt>(ctor));
         // Preserve the original async fn's per-parameter `escaping` flags. The ctor

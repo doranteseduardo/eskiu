@@ -1248,6 +1248,56 @@ string strip_binding_const(string t) {
     return s;
 }
 
+// ── Name collection (mirrors the C++ astwalk::collectNames / freshName) ──
+// Every name spelled in a subtree: identifiers, declared locals, lambda/arm/catch
+// binders (read from their signature text), and member names. A pass that synthesizes
+// a local (a range bound, the async frame pointer) picks a name outside this set.
+int names_has(List<string>* l, string nm) {
+    int i = 0; while (i < List_len<string>(l)) { if (str_eq(List_get<string>(l, i), nm) == 1) { return 1; } i = i + 1; }
+    return 0;
+}
+void names_add_text(string t, List<string>* out) {
+    if (t == null) { return; }
+    int n = 0; while (t[n] != 0) { n = n + 1; }
+    int i = 0;
+    while (i < n) {
+        int c = (int)t[i];
+        if ((c >= 97 && c <= 122) || (c >= 65 && c <= 90) || (c >= 48 && c <= 57) || c == 95) {
+            int st = i;
+            while (i < n) {
+                int d = (int)t[i];
+                if ((d >= 97 && d <= 122) || (d >= 65 && d <= 90) || (d >= 48 && d <= 57) || d == 95) { i = i + 1; } else { break; }
+            }
+            string id = p_sub(t, st, i);
+            if (names_has(out, id) == 0) { List_push<string>(out, id); }
+        } else { i = i + 1; }
+    }
+}
+void collect_names_s(*StmtNode s, List<string>* out);
+void collect_names_e(*ExprNode e, List<string>* out) {
+    if (e == null) { return; }
+    if (e.kind == EK_IDENT || e.kind == EK_MEMBER || e.kind == EK_SIZEOF || e.kind == EK_LAMBDA) { names_add_text(e.sval, out); }
+    collect_names_e(e.a, out); collect_names_e(e.b, out);
+    int i = 0; while (i < List_len<*ExprNode>(&e.kids)) { collect_names_e(List_get<*ExprNode>(&e.kids, i), out); i = i + 1; }
+    if (e.kind == EK_LAMBDA) { collect_names_s(e.stmt, out); }
+}
+void collect_names_s(*StmtNode s, List<string>* out) {
+    if (s == null) { return; }
+    names_add_text(s.name, out);
+    collect_names_e(s.expr, out); collect_names_e(s.expr2, out);
+    collect_names_s(s.s1, out); collect_names_s(s.s2, out);
+    int i = 0; while (i < List_len<*StmtNode>(&s.items)) { collect_names_s(List_get<*StmtNode>(&s.items, i), out); i = i + 1; }
+}
+// `base` if it is not in `used`, else the first free `base_1`, `base_2`, ...; the chosen
+// name is added to `used`.
+string fresh_name(string base, List<string>* used) {
+    string nm = base;
+    int k = 1;
+    while (names_has(used, nm) == 1) { nm = str_concat(base, str_concat("_", int_to_str(k))); k = k + 1; }
+    List_push<string>(used, nm);
+    return nm;
+}
+
 // `for (x in A..B)` desugars (at parse time, like the C++) into a counted ForStmt:
 //   for (int x = A, __end_x = B; x < __end_x; x = x + 1) body
 // so the bound B is evaluated once, before the first iteration.
