@@ -341,7 +341,7 @@
 <span class="cm">$ eskiuc --version</span></pre>
           <h3>Try it</h3>
           <p>Edit the program below and run it. The server compiles it with LLVM and runs it through the same <code>eskiuc run</code>.</p>
-          <div class="pg">
+          <div class="pg" id="try">
             <div class="pg-grid">
               <div class="pg-panel">
                 <div class="pg-bar"><span>main.esk</span><span>editor</span></div>
@@ -354,7 +354,7 @@
             </div>
             <div class="pg-controls">
               <button id="pg-run" class="pg-run" onclick="runEskiu()"><span id="pg-run-label">▶ Run</span></button>
-              <div class="pg-examples">
+              <div class="pg-examples" id="examples">
                 <button class="pg-ex" onclick="loadExample('hello')">hello</button>
                 <button class="pg-ex" onclick="loadExample('basics')">basics</button>
                 <button class="pg-ex" onclick="loadExample('match')">match</button>

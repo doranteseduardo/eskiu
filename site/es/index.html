@@ -343,7 +343,7 @@
 <span class="cm">$ eskiuc --version</span></pre>
           <h3>Pruébalo</h3>
           <p>Edita el programa de abajo y córrelo. El servidor lo compila con LLVM y lo ejecuta con el mismo <code>eskiuc run</code>.</p>
-          <div class="pg">
+          <div class="pg" id="try">
             <div class="pg-grid">
               <div class="pg-panel">
                 <div class="pg-bar"><span>main.esk</span><span>editor</span></div>
@@ -356,7 +356,7 @@
             </div>
             <div class="pg-controls">
               <button id="pg-run" class="pg-run" onclick="runEskiu()"><span id="pg-run-label">▶ Ejecutar</span></button>
-              <div class="pg-examples">
+              <div class="pg-examples" id="examples">
                 <button class="pg-ex" onclick="loadExample('hello')">hello</button>
                 <button class="pg-ex" onclick="loadExample('basics')">basics</button>
                 <button class="pg-ex" onclick="loadExample('match')">match</button>
