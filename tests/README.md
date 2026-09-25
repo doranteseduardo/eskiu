@@ -179,6 +179,7 @@ when you add a test.
 | `deprecated_names` | The pre-0.9.2 stdlib names (renamed to the Type_method convention) still compile and behave as thin wrappers over the new names. |
 | `dup_struct_decl` | The same struct declared twice (as when two inputs of a multi-file build share a header-style declaration): the duplicate is merged, not emitted a second time. |
 | `env_get_int` | env_get_int returns the fallback for a set but non-numeric (or out-of-range) value, as documented, instead of atoi's 0. |
+| `eventloop_edges` | el_new(0) grows its fd table instead of looping forever, replacing an fd's registration from outside its callback frees the old env, and EventLoop_free frees still-registered fds' envs. |
 | `eventloop_resources` | EventLoop_free closes the kqueue/epoll descriptor (and Executor_free its self-pipe), so creating and freeing loops does not leak fds; and a full timer table... |
 | `expr_types` | Static types of compound expressions: pointer arithmetic keeps the pointee type, numeric binaries promote, and a ternary takes its arms' common type. |
 | `finally_catch_exit` | `finally` runs when a catch handler leaves early (return / break / continue), just as it does on fall-through and on an early exit from the try body. |

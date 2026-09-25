@@ -45,6 +45,7 @@ struct EventLoop {
     int        cap;
     *EvTimer   timers;    // timer slots [0, tcap)
     int        tcap;
+    int        dispatching;   // the fd whose callback EventLoop_run is running, or -1
 }
 
 // ── Platform backend ─────────────────────────────────────────────────────────
@@ -214,6 +215,8 @@ EventLoop* el_new(int max_fds) {
     EventLoop* lp = alloc<EventLoop>(1);
     lp.backend = _el_backend_new();
     lp.running = 0;
+    lp.dispatching = -1;
+    if (max_fds < 1) { max_fds = 1; }              // the tables grow by doubling: never from 0
     lp.cap     = max_fds;
     lp.slots   = alloc<EvHandler>(max_fds);
     // alloc zeroes the slot (active/gen/isWrite = 0, on_read = null). A null on_read is
@@ -273,7 +276,7 @@ void EventLoop_del_timer(EventLoop* lp, int id) {
 // any fd while staying O(fds) overall.
 void _el_ensure_slots(EventLoop* lp, int fd) {
     if (fd < lp.cap) { return; }
-    int newcap = lp.cap * 2;
+    int newcap = lp.cap * 2 < 8 ? 8 : lp.cap * 2;
     while (newcap <= fd) { newcap *= 2; }
     EvHandler* ns = alloc<EvHandler>(newcap);
     for (i in 0..lp.cap) { ns[i] = lp.slots[i]; }                            // keep existing registrations
@@ -283,11 +286,19 @@ void _el_ensure_slots(EventLoop* lp, int fd) {
     lp.cap   = newcap;
 }
 
-// Register `fd` for read-readiness; `cb` fires each time it is readable.
+// Replacing an active registration releases the old callback's env, unless the
+// old callback is the one running right now (EventLoop_run frees it on return).
+void _el_release_old(EventLoop* lp, int fd) {
+    if (lp.slots[fd].active != 0 && lp.dispatching != fd) { free_closure(lp.slots[fd].on_read); }
+}
+
+// Register `fd` for read-readiness; `cb` fires each time it is readable. A
+// registration already on `fd` is replaced (and its callback env freed).
 void EventLoop_add_read(EventLoop* lp, int fd, escaping fn(EventLoop*, int)->void cb) {
     if (fd < 0) { return; }
     _el_ensure_slots(lp, fd);
     const int was = lp.slots[fd].active;
+    _el_release_old(lp, fd);
     lp.slots[fd].on_read = cb;
     lp.slots[fd].active  = 1;
     lp.slots[fd].isWrite = 0;
@@ -302,6 +313,7 @@ void EventLoop_add_write(EventLoop* lp, int fd, escaping fn(EventLoop*, int)->vo
     if (fd < 0) { return; }
     _el_ensure_slots(lp, fd);
     const int was = lp.slots[fd].active;
+    _el_release_old(lp, fd);
     lp.slots[fd].on_read = cb;
     lp.slots[fd].active  = 1;
     lp.slots[fd].isWrite = 1;
@@ -355,7 +367,9 @@ void EventLoop_run(EventLoop* lp) {
             if (fd >= 0 && fd < lp.cap && lp.slots[fd].active != 0) {
                 let cb: fn(EventLoop*, int)->void = lp.slots[fd].on_read;
                 const int g = lp.slots[fd].gen;
+                lp.dispatching = fd;
                 cb(lp, fd);
+                lp.dispatching = -1;
                 // Free `cb`'s heap env once it is no longer the installed
                 // registration: either it deregistered (active -> 0) or it re-armed
                 // the same fd with a *new* closure during its own run (gen bumped).
@@ -378,10 +392,17 @@ void EventLoop_run(EventLoop* lp) {
     }
 }
 
+// Free the loop and every callback env still registered on it (armed timers and
+// watched fds). Lifetime rule: a pending leaf future on this loop (<net_async>,
+// <timer>) points at it, so drop or finish every such future BEFORE freeing the
+// loop; dropping one afterwards would deregister it from freed memory.
 void EventLoop_free(EventLoop* lp) {
     // Release any still-armed timer envs (e.g. the loop stopped with timers pending).
     for (t in 0..lp.tcap) {
         if (lp.timers[t].active != 0) { free_closure(lp.timers[t].on_fire); }
+    }
+    for (f in 0..lp.cap) {
+        if (lp.slots[f].active != 0) { free_closure(lp.slots[f].on_read); }
     }
     free((*void)lp.timers);
     free((*void)lp.slots);
