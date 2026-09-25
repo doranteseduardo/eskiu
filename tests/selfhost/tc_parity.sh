@@ -59,6 +59,7 @@ HANDLED="undefined_var arg_count undefined_type await_outside_async async_no_awa
          pp_include pp_unknown_directive pp_stray_endif pp_stray_else pp_missing_endif
          pp_if_bad_expr pp_stringify pp_if_zero_div
          int_literal_too_large hex_literal_too_large float_exponent_no_digits
+         float_const_cast_range
          unexpected_char empty_char unterminated_comment unterminated_string
          octal_bad_digit octal_bad_digit2 hex_no_digits number_suffix number_underscore
          parse_error parse_error_located parse_missing_operand parse_return_no_semi parse_import_no_semi

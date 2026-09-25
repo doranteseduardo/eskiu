@@ -1,6 +1,8 @@
 #include "type_checker.h"
 #include <algorithm>
 #include <cstdint>
+#include <cmath>
+#include <cstdlib>
 #include <set>
 
 // Template type-name utilities (mangleTemplate / splitTemplateType / substType)
@@ -8,6 +10,21 @@
 #include "../template_utils.h"
 #include "../ast/type_qual.h"
 #include "../ast/ast_walk.h"
+
+// Does the floating value v, truncated toward zero, fit the integer type t (as a C
+// conversion requires)? The bounds are powers of two, exact in a double; for 64 bits no
+// double lies strictly between -2^63-1 and -2^63, so `>=` is exact there.
+static bool floatConstFitsInt(double v, const std::string& t) {
+    int bits = 32;
+    bool uns = t.size() > 4 && t.compare(0, 4, "uint") == 0;
+    if (t == "int8" || t == "uint8" || t == "char") bits = 8;
+    else if (t == "int16" || t == "uint16") bits = 16;
+    else if (t == "int64" || t == "uint64") bits = 64;
+    if (t == "uint") uns = true;
+    if (uns) return v > -1.0 && v < std::ldexp(1.0, bits);
+    double lim = std::ldexp(1.0, bits - 1);
+    return (bits == 64 ? v >= -lim : v > -lim - 1.0) && v < lim;
+}
 
 // ============================================================================
 
@@ -1024,6 +1041,19 @@ void TypeChecker::visit(CastExpr* node) {
                   (isIntType(from) && isPtr(to)) || (isPtr(from) && isIntType(to));
         if (!ok)
             errorAt(node, "cannot cast '" + getExpressionType(node->expr.get()) + "' to '" + node->targetType + "'");
+        // A floating constant cast to an integer type must fit it: the conversion is
+        // undefined in C, and the backends would not agree on a value.
+        const Expr* src = node->expr.get();
+        bool neg = false;
+        if (auto* u = dynamic_cast<const UnaryExpr*>(src); u && u->op == "-") { neg = true; src = u->operand.get(); }
+        auto* lit = dynamic_cast<const LiteralExpr*>(src);
+        if (ok && lit && lit->kind == LiteralExpr::Kind::FLOAT && isIntType(to) && to != "bool") {
+            double v = std::strtod(lit->value.c_str(), nullptr);
+            if (neg) v = -v;
+            if (!floatConstFitsInt(v, to))
+                errorAt(node, "floating constant " + std::string(neg ? "-" : "") + lit->value +
+                              " is out of range for '" + node->targetType + "'");
+        }
     }
     expressionTypes[node] = normalizedType;
 }

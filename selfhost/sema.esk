@@ -132,6 +132,28 @@ int sema_is_float_ty(string t0) {
 
 int sema_is_numeric_ty(string t) { return sema_is_int_ty(t) == 1 || sema_is_float_ty(t) == 1; }
 
+extern double strtod(string s, *string end);
+
+// Does the floating value v, truncated toward zero, fit the integer type t (mirrors
+// floatConstFitsInt)? Powers of two are exact doubles; at 64 bits `>=` is exact.
+int sema_float_fits_int(double v, string t) {
+    int bits = 32;
+    int uns = 0;
+    if (t[0] == 117) { uns = 1; }                                   // 'u'
+    if (sema_streq(t, "int8") == 1 || sema_streq(t, "uint8") == 1 || sema_streq(t, "char") == 1) { bits = 8; }
+    else if (sema_streq(t, "int16") == 1 || sema_streq(t, "uint16") == 1) { bits = 16; }
+    else if (sema_streq(t, "int64") == 1 || sema_streq(t, "uint64") == 1) { bits = 64; }
+    double lim = 1.0;
+    int k = 0;
+    int top = bits - 1;
+    if (uns == 1) { top = bits; }
+    while (k < top) { lim = lim * 2.0; k = k + 1; }
+    if (uns == 1) { if (v > 0.0 - 1.0 && v < lim) { return 1; } return 0; }
+    if (bits == 64) { if (v >= 0.0 - lim && v < lim) { return 1; } return 0; }
+    if (v > 0.0 - lim - 1.0 && v < lim) { return 1; }
+    return 0;
+}
+
 // Array-type helpers (mirror the codegen versions; sema does not import codegen).
 int sema_is_arr_ty(string t) {
     int i = 0; while (t[i] != 0) { if ((int)t[i] == 91) { return 1; } i = i + 1; }   // '['
@@ -3050,6 +3072,22 @@ void sema_expr_k(Sema* s, *ExprNode e) {
             if (bad == 1) {
                 s.had_error = 1;
                 printf("error: %s:%d:%d: cannot cast '%s' to '%s'\n", s.filename, s.line, s.col, cfrom, e.sval);
+            }
+            // A floating constant cast to an integer type must fit it (mirrors the C++).
+            *ExprNode fsrc = e.a;
+            int fneg = 0;
+            if (fsrc != null && fsrc.kind == EK_UNARY && sema_streq(fsrc.sval, "-") == 1) { fneg = 1; fsrc = fsrc.a; }
+            string tt = sema_strip_const(sema_resolve_scalar(s, sema_isub(s, e.sval)));
+            if (bad == 0 && fsrc != null && fsrc.kind == EK_LITERAL && fsrc.lit_kind == LIT_FLOAT
+                && sema_is_int_ty(tt) == 1 && sema_streq(tt, "bool") == 0) {
+                double fv = strtod(fsrc.sval, null);
+                if (fneg == 1) { fv = 0.0 - fv; }
+                if (sema_float_fits_int(fv, tt) == 0) {
+                    s.had_error = 1;
+                    string sign = "";
+                    if (fneg == 1) { sign = "-"; }
+                    printf("error: %s:%d:%d: floating constant %s%s is out of range for '%s'\n", s.filename, s.line, s.col, sign, fsrc.sval, e.sval);
+                }
             }
         }
         // `&p` of a narrowed `?*T` may be written through (storing null): narrowing ends.
