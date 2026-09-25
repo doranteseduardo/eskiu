@@ -5816,6 +5816,16 @@ int sema_check(Sema* s, *Program prog) {
         if (d.kind == DK_VARDECL && d.is_extern == 0 && d.init != null && sema_is_const_init(s, d.init) == 0) {
             sema_error(s, sema_cat(sema_cat("initializer of global '", d.name), "' is not a compile-time constant"));
         }
+        // A global's initializer converts to its type like a local's (mirrors the C++ VarDecl
+        // check, which runs for globals too).
+        if (d.kind == DK_VARDECL && d.is_extern == 0 && d.init != null && d.init.kind != EK_LAMBDA
+            && d.ret_type != null && d.ret_type[0] != 0) {
+            string gerr = sema_assign_err(s, d.ret_type, d.init);
+            if (gerr[0] != 0) {
+                s.had_error = 1;
+                dprintf(2, "error: %s:%d:%d: initializing '%s': %s\n", s.filename, s.line, s.col, d.name, gerr);
+            }
+        }
         if (d.kind == DK_STRUCT || d.kind == DK_UNION) {
             List_init<string>(&s.tparams, 4);
             int ti = 0; int tn = List_len<TypeParam>(&d.type_params);
