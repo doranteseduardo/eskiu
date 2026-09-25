@@ -1,0 +1,2 @@
+// EXPECT-ERROR: 2:25: Expected expression, got SEMICOLON
+int main() { int x = 3 +; return x; }

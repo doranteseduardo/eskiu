@@ -1,0 +1,2 @@
+// EXPECT-ERROR: Expected expression, got DOT
+int main() { float f = .5; return 0; }
