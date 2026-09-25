@@ -3685,10 +3685,12 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
         int dec = 0; if ((int)e.sval[L - 1] == 45) { dec = 1; }   // last char '-'
         int pre = 0; if ((int)e.sval[1] == 114) { pre = 1; }      // "pre..." (index 1 is 'r')
         string nw = cg_tmp(g);
-        if (cg_is_ptr_ty(ety) == 1) {                   // pointer: step one element
-            string elem = cg_strip_ptr(ety);
+        if (cg_is_ptr_ty(ety) == 1 || cg_streq(llty, "ptr") == 1) {   // pointer / string: step one element
+            string ellt = "i8";                         // a string (char pointer) or *void steps a byte
+            if (cg_is_ptr_ty(ety) == 1) { ellt = cg_lltype(g, cg_strip_ptr(ety)); }
+            if (cg_streq(ellt, "void") == 1) { ellt = "i8"; }
             cg_emit(g, "  "); cg_emit(g, nw); cg_emit(g, " = getelementptr ");
-            cg_emit(g, cg_lltype(g, elem)); cg_emit(g, ", ptr "); cg_emit(g, old);
+            cg_emit(g, ellt); cg_emit(g, ", ptr "); cg_emit(g, old);
             cg_emit(g, ", i64 "); if (dec == 1) { cg_emit(g, "-1"); } else { cg_emit(g, "1"); }
             cg_emit(g, "\n");
         } else {

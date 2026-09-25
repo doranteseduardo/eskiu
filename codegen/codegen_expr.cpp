@@ -1,4 +1,5 @@
 #include "codegen.h"
+#include "../sema/type.h"
 #include "../ast/type_qual.h"
 
 // Template type-name utilities (mangleTemplate / splitTemplateType / substType)
@@ -323,18 +324,9 @@ llvm::Value* CodeGen::emitBuiltinBinary(BinaryExpr* node, llvm::Value* left) {
     auto widenForBitwise = widenInts;
     auto widenForArith   = widenInts;
 
-    // Resolve the element type for typed pointer arithmetic.
-    // *int → i32, *uint8 → i8, *void/*char/unknown → i8 (byte arithmetic)
+    // The element type pointer arithmetic steps by (see pointerStrideType).
     auto ptrElemType = [&]() -> llvm::Type* {
-        std::string eskTy = getExprEskiuType(node->left);
-        if (eskTy.empty()) return llvm::Type::getInt8Ty(*context);
-        // Strip leading *
-        if (!eskTy.empty() && eskTy.front() == '*') eskTy = eskTy.substr(1);
-        // Strip trailing *
-        if (!eskTy.empty() && eskTy.back()  == '*') eskTy.pop_back();
-        if (eskTy == "void" || eskTy == "char" || eskTy.empty())
-            return llvm::Type::getInt8Ty(*context);
-        return getTypeFromString(eskTy);
+        return pointerStrideType(getExprEskiuType(node->left));
     };
 
     if (node->op == "+") {
@@ -624,6 +616,19 @@ void CodeGen::visit(UnaryExpr* node) {
     exprValueStack.push(result);
 }
 
+// The element a pointer-typed value steps by in `p + n`, `p - q`, `p++`: the pointee of
+// `*T` / `T*`, a byte for `string` (a char pointer), `*void` and anything else.
+llvm::Type* CodeGen::pointerStrideType(const std::string& eskTy) {
+    llvm::Type* i8 = llvm::Type::getInt8Ty(*context);
+    std::string t = expandAlias(eskTy);
+    if (!t.empty() && t[0] == '?') t = t.substr(1);
+    ty::Type pt = ty::Type::parse(t);
+    if (!pt.isPointer() || !pt.pointee) return i8;
+    std::string pe = pt.pointee->str();
+    if (pe == "void" || pe == "char" || pe.empty()) return i8;
+    return getTypeFromString(pe);
+}
+
 void CodeGen::visit(IncDecExpr* node) {
     // A bitfield has no address: step it with a masked read-modify-write of its storage
     // word (evaluating the base once). Prefix yields the stored, width-wrapped value.
@@ -646,19 +651,15 @@ void CodeGen::visit(IncDecExpr* node) {
     }
     llvm::Value* ptr = evaluateLValue(node->operand);
     std::string ety = getExprEskiuType(node->operand);
-    bool isPtr = !ety.empty() && (ety.front() == '*' || ety.back() == '*');
-    llvm::Type* ty = isPtr ? (llvm::Type*)llvm::PointerType::get(*context, 0)
-                           : getTypeFromString(ety.empty() ? "int" : ety);
+    llvm::Type* ty = getTypeFromString(ety.empty() ? "int" : ety);
+    bool isPtr = ty->isPointerTy();
     llvm::Value* old = builder->CreateLoad(ty, ptr);
     llvm::Value* nw;
     if (isPtr) {
-        // pointer step by one element
-        std::string elemStr = ety.front() == '*' ? ety.substr(1) : ety.substr(0, ety.size() - 1);
-        llvm::Type* elemTy = (elemStr.empty() || elemStr == "void")
-            ? (llvm::Type*)llvm::Type::getInt8Ty(*context) : getTypeFromString(elemStr);
+        // pointer (or string) step by one element
         llvm::Value* step = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context),
                                                    node->decrement ? -1 : 1, true);
-        nw = builder->CreateGEP(elemTy, old, step);
+        nw = builder->CreateGEP(pointerStrideType(ety), old, step);
     } else {
         llvm::Value* one = llvm::ConstantInt::get(ty, 1);
         nw = node->decrement ? builder->CreateSub(old, one) : builder->CreateAdd(old, one);

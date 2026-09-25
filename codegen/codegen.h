@@ -450,6 +450,7 @@ private:
     // an unsigned source never sign-extends (e.g. (int)(uint8)200 stays 200).
     llvm::Value* coerceInt(llvm::Value* val, llvm::Type* ty, bool unsignedSrc);
     llvm::Value* emitTruthy(llvm::Value* val);
+    llvm::Type* pointerStrideType(const std::string& eskTy);
     std::string exceptionTypeName(const std::string& raw) const;
 
     // Integer->float conversion, choosing UIToFP vs SIToFP by source signedness.

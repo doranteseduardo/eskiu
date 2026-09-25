@@ -97,6 +97,7 @@ std::string TypeChecker::inferUnaryExprType(const std::string& op, const std::st
         return "*" + operandType;
     }
     if (op == "*") {
+        if (tyq::strip(operandType) == "string") return "char";   // a string is a char pointer
         if (isPointerType(operandType)) {
             return getPointeeType(operandType);
         }
