@@ -1,0 +1,21 @@
+ok
+  handler: x-admin=0
+  stream 1 status 200
+LF in value
+  stream 3 status 400
+CR in value
+  stream 5 status 400
+leading space
+  stream 7 status 400
+trailing tab
+  stream 9 status 400
+uppercase name
+  stream 11 status 400
+colon in name
+  stream 13 status 400
+space in name
+  stream 15 status 400
+inner space ok
+  handler: x-admin=0
+  stream 17 status 200
+handler calls: 2

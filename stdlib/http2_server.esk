@@ -44,13 +44,40 @@ void h2_str_set_bytes(String* s, *uint8 p, int64 n) {
     for (int64 i = 0; i < n; i++) { s.push((char)p[i]); }
 }
 
+// 1 if a decoded field is well formed (RFC 9113 §8.2.1): the name is non-empty
+// and has no uppercase letter, control byte, space, DEL, non-ASCII byte, or ':'
+// (except the leading ':' of a pseudo-header), and the value has no NUL, CR or
+// LF and does not start or end with a space or tab. A CR or LF in a value would
+// otherwise split into a forged header line in the HttpRequest header block.
+int h2_field_ok(HpackHeader* h) {
+    if (h.nlen <= 0) { return 0; }
+    for (int64 i = 0; i < h.nlen; i++) {
+        const int c = (int)h.name[i];
+        if (c <= 32 || c >= 127 || (c >= 'A' && c <= 'Z')) { return 0; }
+        if (c == ':' && i != 0) { return 0; }
+    }
+    if (h.name[0] == ':' && h.nlen == 1) { return 0; }
+    for (int64 i = 0; i < h.vlen; i++) {
+        const int c = (int)h.value[i];
+        if (c == 0 || c == '\r' || c == '\n') { return 0; }
+    }
+    if (h.vlen > 0) {
+        const int first = (int)h.value[0];
+        const int last = (int)h.value[h.vlen - 1];
+        if (first == ' ' || first == '\t' || last == ' ' || last == '\t') { return 0; }
+    }
+    return 1;
+}
+
 // Populate an HttpRequest from decoded HPACK headers: the :method / :path
 // pseudo-headers map to the request fields; ordinary headers are appended to the
 // header block as "name: value\n" (pseudo-headers — names starting with ':' —
-// are not). The version is reported as HTTP/2.0.
-void h2_fill_request(HttpRequest* req, HpackHeader* hs, int64 n) {
+// are not). The version is reported as HTTP/2.0. Returns 0, or -1 when a field
+// is malformed (h2_field_ok); the request is then left partly filled.
+int h2_fill_request(HttpRequest* req, HpackHeader* hs, int64 n) {
     req.version.from("HTTP/2.0");
     for (int64 i = 0; i < n; i++) {
+        if (h2_field_ok(&hs[i]) == 0) { return -1; }
         if (h2_name_eq(&hs[i], ":method") != 0) {
             h2_str_set_bytes(&req.method, hs[i].value, hs[i].vlen);
         } else if (h2_name_eq(&hs[i], ":path") != 0) {
@@ -62,6 +89,7 @@ void h2_fill_request(HttpRequest* req, HpackHeader* hs, int64 n) {
             req.headers.push('\n');
         }
     }
+    return 0;
 }
 
 // HPACK-encode the handler's response headers (the "Key: Value\r\n" block) into
@@ -206,7 +234,8 @@ void h2_send_response(H2Conn* conn, int stream_id, HttpResponse* res) {
 //     2^31 - 1, bad SETTINGS values, and other protocol violations get the
 //     GOAWAY or RST_STREAM that RFC 9113 prescribes;
 //   - a header list longer than H2_MAX_HEADERS fields is answered with 431,
-//     and one without :method / :path with 400, without calling the handler.
+//     and one without :method / :path, or with a malformed field (a CR, LF or
+//     NUL in a value, an uppercase name), with 400, without calling the handler.
 
 const int H2_MAX_HEADERS   = 64;          // header fields decoded per request
 const int H2_MAX_STREAMS   = 128;         // concurrent streams (advertised)
@@ -433,8 +462,8 @@ void H2Server_headers_done(H2Server* s, int sid, int end_stream) {
     if (nh == -2) {
         sl.bad = 431;                                  // Request Header Fields Too Large
     } else {
-        h2_fill_request(&sl.req, s.harr, nh);
-        if (sl.req.method.len == 0 || sl.req.path.len == 0) { sl.bad = 400; }   // malformed (§8.3.1)
+        const int filled = h2_fill_request(&sl.req, s.harr, nh);
+        if (filled != 0 || sl.req.method.len == 0 || sl.req.path.len == 0) { sl.bad = 400; }   // malformed (§8.2.1, §8.3.1)
     }
     sl.state = end_stream != 0 ? H2S_READY : H2S_RECEIVING;
 }

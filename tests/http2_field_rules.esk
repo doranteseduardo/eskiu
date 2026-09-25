@@ -1,0 +1,75 @@
+// RFC 9113 §8.2.1: a request field value with CR, LF or NUL (or leading or
+// trailing whitespace), or a field name with an uppercase letter or a stray
+// ':', is malformed. The H2Server engine answers 400 without calling the
+// handler. A value "a\nx-admin: 1" used to reach the handler as a forged
+// `x-admin` header line.
+import <http2_server>;
+extern int printf(string fmt, ...);
+
+int calls = 0;
+
+void hello(HttpRequest* req, HttpResponse* res) {
+    calls++;
+    let v: String; String_init(&v, 8);
+    const int got = HttpRequest_header(req, "x-admin", &v);
+    printf("  handler: x-admin=%d\n", got);
+    String_free(&v);
+    HttpResponse_set_body(res, "hi\n");
+}
+
+// Print the :status of each HEADERS frame queued in s.out, then clear it.
+void statuses(H2Server* s, HpackDecoder* d) {
+    let hs: HpackHeader[8];
+    int64 o = 0;
+    while (o + 9 <= s.outlen) {
+        let f: H2Frame; h2_read_header(s.out + o, &f);
+        if (f.type == H2_HEADERS) {
+            const int n = hpack_decode(d, s.out + o + 9, f.length, &hs[0], 8);
+            for (i in 0..n) {
+                if (h2_name_eq(&hs[i], ":status") != 0) {
+                    printf("  stream %d status ", f.stream_id);
+                    for (int64 k = 0; k < hs[i].vlen; k++) { printf("%c", (int)hs[i].value[k]); }
+                    printf("\n");
+                }
+            }
+        }
+        o += 9 + f.length;
+    }
+    s.outlen = 0;
+}
+
+void request(H2Server* s, HpackDecoder* d, *uint8 p, int sid, string tag, string name, string value) {
+    int off = 0;
+    off = hpack_encode_header(p, off, (*uint8)":method", 7, (*uint8)"GET", 3);
+    off = hpack_encode_header(p, off, (*uint8)":path", 5, (*uint8)"/", 1);
+    off = hpack_encode_header(p, off, (*uint8)name, (int)strlen(name), (*uint8)value, (int)strlen(value));
+    let h: H2Frame; h.type = H2_HEADERS; h.flags = 5; h.stream_id = sid; h.length = off;
+    printf("%s\n", tag);
+    H2Server_step(s, &h, p, hello);
+    statuses(s, d);
+}
+
+int main() {
+    *uint8 p = alloc<uint8>(4096);
+    H2Server* s = alloc<H2Server>(1);
+    H2Server_init(s, -1);
+    let d: HpackDecoder; d.init(4096);
+    let h: H2Frame; h.type = H2_SETTINGS; h.flags = 0; h.stream_id = 0; h.length = 0;
+    H2Server_step(s, &h, p, hello);
+    s.outlen = 0;
+    request(s, &d, p, 1, "ok", "x-note", "fine");
+    request(s, &d, p, 3, "LF in value", "x-note", "a\nx-admin: 1");
+    request(s, &d, p, 5, "CR in value", "x-note", "a\rb");
+    request(s, &d, p, 7, "leading space", "x-note", " a");
+    request(s, &d, p, 9, "trailing tab", "x-note", "a\t");
+    request(s, &d, p, 11, "uppercase name", "X-Note", "a");
+    request(s, &d, p, 13, "colon in name", "x:note", "a");
+    request(s, &d, p, 15, "space in name", "x note", "a");
+    request(s, &d, p, 17, "inner space ok", "x-note", "a b");
+    printf("handler calls: %d\n", calls);
+    d.free();
+    H2Server_free(s);
+    free((*void)s);
+    free((*void)p);
+    return 0;
+}
