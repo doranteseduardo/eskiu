@@ -1649,6 +1649,10 @@ void sema_stmt(Sema* s, *StmtNode st) {
         string fname = "";
         if (ex != null && ex.kind == EK_CALL && ex.a != null && ex.a.kind == EK_IDENT) {
             fname = ex.a.sval;
+        } else if (ex != null && ex.kind == EK_CALL && ex.a != null && ex.a.kind == EK_MEMBER) {
+            // Method-call syntax `x.m()` resolves to the free function `Type_m`.
+            string sn = sema_struct_of_type(sema_infer_type(s, ex.a.a));
+            if (sn[0] != 0) { fname = sema_cat(sema_cat(sn, "_"), ex.a.sval); }
         } else if (ex != null && ex.kind == EK_TEMPLATECALL) {
             int j = 0; while (ex.sval[j] != 0 && (int)ex.sval[j] != 60) { j = j + 1; }   // up to '<'
             fname = sema_sub_str(ex.sval, 0, j);

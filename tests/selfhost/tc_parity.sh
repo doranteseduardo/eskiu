@@ -42,7 +42,7 @@ HANDLED="undefined_var arg_count undefined_type await_outside_async async_no_awa
          iface_return_mismatch iface_arity_mismatch arg_type_mismatch
          missing_return_labeled_break missing_return_dowhile_break missing_return_switch_break
          nullable_reassign nullable_shadow nullable_loop_reassign
-         const_method_call const_addr_arg const_struct_addr"
+         const_method_call const_addr_arg const_struct_addr must_use_method"
 HANDLED="$(echo $HANDLED)"   # collapse the multi-line list to single spaces for matching
 
 DRIVER=selfhost/esk_main.esk

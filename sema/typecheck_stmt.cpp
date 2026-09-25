@@ -249,11 +249,17 @@ void TypeChecker::visit(ExprStmt* node) {
         std::string fn;
         if (auto* c = dynamic_cast<CallExpr*>(node->expr.get())) {
             if (auto* id = dynamic_cast<IdentExpr*>(c->callee.get())) fn = id->name;
+            else if (auto* m = dynamic_cast<MemberExpr*>(c->callee.get())) {
+                // Method-call syntax `x.m()` resolves to `Type_m` (see visit(CallExpr)).
+                std::string bt = ty::Type::parse(getExpressionType(m->base.get())).nominalName();
+                if (mustUseFuncs.count(bt + "_" + m->member)) fn = bt + "_" + m->member;
+            }
         } else if (auto* tc = dynamic_cast<TemplateCallExpr*>(node->expr.get())) {
             fn = tc->templateName;
         }
         if (!fn.empty() && mustUseFuncs.count(fn))
-            errorAt(node, "result of '" + fn + "' must be used (it is marked must_use)");
+            errorAt(node->line > 0 ? static_cast<ASTNode*>(node) : node->expr.get(),
+                    "result of '" + fn + "' must be used (it is marked must_use)");
     }
 }
 

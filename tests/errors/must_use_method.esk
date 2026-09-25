@@ -1,0 +1,4 @@
+// EXPECT-ERROR: result of 'C_get' must be used
+struct C { int v; }
+must_use int C_get(*C self) { return self.v; }
+int main() { let c: C = C{v: 1}; c.get(); return 0; }
