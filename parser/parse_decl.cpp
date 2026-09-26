@@ -448,6 +448,7 @@ DeclPtr Parser::parseStructDecl() {
                     Token w = consume(TokenType::INT_LIT,
                         "Expected bit width after ':' in bitfield");
                     bitWidth = (int)std::stoll(w.value, nullptr, 0);
+                    if (bitWidth == 0) bitWidth = -1;   // `: 0`, rejected by the type checker
                 }
                 consume(TokenType::SEMICOLON, "Expected ';' after field");
                 fields.push_back({memberType, memberName, bitWidth});

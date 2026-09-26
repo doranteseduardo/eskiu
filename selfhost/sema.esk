@@ -5901,13 +5901,17 @@ void sema_check_fields(Sema* s, *DeclNode d) {
         }
         int bw = 0;
         if (d.kind == DK_STRUCT && i < List_len<int>(&d.field_bits)) { bw = List_get<int>(&d.field_bits, i); }
+        if (bw < 0) {
+            s.had_error = 1;
+            dprintf(2, "error: %s:%d:%d: bitfield '%s' of '%s' has zero width (only an unnamed bitfield may be zero-width)\n", s.filename, s.line, s.col, f.name, d.name);
+        }
         if (bw > 0) {
             string ft = sema_strip_const(f.ty);
             int hops = 0;                                   // resolve a type alias / classic enum
             while (hops < 16) {
                 *DeclNode ad = sema_find_tdecl(s, ft);
                 if (ad != null && ad.kind == DK_TYPEALIAS) { ft = sema_strip_const(ad.ret_type); }
-                else { if (ad != null && ad.kind == DK_ENUM) { ft = "int"; } hops = 16; }
+                else { if (sema_is_plain_enum_decl(ad) == 1) { ft = "int"; } hops = 16; }   // a sum type is not an integer
                 hops = hops + 1;
             }
             int tb = sema_int_bits(ft);

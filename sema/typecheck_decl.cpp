@@ -893,7 +893,11 @@ void TypeChecker::visit(UnionDecl* node) {
 }
 
 void TypeChecker::checkBitfield(ASTNode* at, const std::string& owner, const StructDecl::Field& f) {
-    if (f.bitWidth <= 0) return;
+    if (f.bitWidth < 0) {
+        errorAt(at, "bitfield '" + f.name + "' of '" + owner + "' has zero width (only an unnamed bitfield may be zero-width)");
+        return;
+    }
+    if (f.bitWidth == 0) return;
     std::string t = normalizeType(f.type);
     static const std::map<std::string, int> widths = {
         {"bool", 1}, {"char", 8}, {"int8", 8}, {"uint8", 8}, {"int16", 16}, {"uint16", 16},

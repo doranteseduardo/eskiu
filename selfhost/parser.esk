@@ -2067,7 +2067,10 @@ string i64_to_str(int64 n) {
             List_push<*DeclNode>(&d.methods, m);
         } else {
             int bw = 0;
-            if (p_at(p) == COLON) { p_adv(p); bw = str_to_int(tok_text(p.src, p_expect_tok(p, INT_LIT, "Expected bit width after ':' in bitfield"))); }   // bitfield ': width'
+            if (p_at(p) == COLON) {                       // bitfield ': width' (`: 0` is -1, rejected by sema)
+                p_adv(p); bw = str_to_int(tok_text(p.src, p_expect_tok(p, INT_LIT, "Expected bit width after ':' in bitfield")));
+                if (bw == 0) { bw = 0 - 1; }
+            }
             p_expect(p, SEMICOLON, "Expected ';' after field");
             let pm: Param;
             pm.ty = mty;

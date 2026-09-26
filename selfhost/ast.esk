@@ -293,7 +293,7 @@ struct DeclNode {
     List<TypeParam> type_params;   // generic <T, U: Iface> on fn/struct/enum (else empty)
     List<*DeclNode> methods;       // struct methods (each a FunctionDecl; else empty)
     List<List<string>> payloads;   // enum ADT payload types per member (parallel to params)
-    List<int> field_bits;          // struct field bitfield widths (parallel to params; 0 = none)
+    List<int> field_bits;          // struct field bitfield widths (parallel to params; 0 = none, -1 = `: 0`)
     int is_async;                  // function declared `async` (1) or not (0)
     int is_mustuse;                  // function declared `must_use` (discarding result is an error)
     int is_const;                  // DK_VARDECL: declared value-const global

@@ -164,7 +164,7 @@ public:
     struct Field {
         std::string type;
         std::string name;
-        int bitWidth = 0;   // >0 for a bitfield (e.g. `uint32 x : 1;`), 0 otherwise
+        int bitWidth = 0;   // >0 for a bitfield (e.g. `uint32 x : 1;`), 0 otherwise, -1 for `: 0`
     };
     std::vector<Field> fields;
     std::vector<DeclPtr> methods;
