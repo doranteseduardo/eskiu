@@ -1,0 +1,17 @@
+extern int printf(string f, ...);
+interface Sh { int area(); }
+struct Sq { int s; int area() { return self.s; } }
+int pick(bool c, Sh a, *Sq q) {
+    Sh b = c ? a : &q[0];
+    Sh d = c ? &q[0] : a;
+    Sh e = c ? a : c ? &q[0] : a;
+    return b.area() * 100 + d.area() * 10 + e.area();
+}
+int main() {
+    Sq q = Sq{s: 3};
+    Sq r = Sq{s: 4};
+    Sh a = &q;
+    Sh k = false ? a : &r;
+    printf("%d %d %d\n", pick(true, a, &r), pick(false, a, &r), k.area());
+    return 0;
+}

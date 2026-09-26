@@ -3023,6 +3023,8 @@ string cg_arm_common(Codegen* g, string tt, string et) {
     if (cg_streq(tt, et) == 1) { return tt; }
     if (tt[0] == 0) { return et; }
     if (et[0] == 0) { return tt; }
+    // A struct-pointer arm meets an interface arm as the interface.
+    if (cg_is_iface(g, cg_dealias(g, et)) == 1 && cg_is_iface(g, cg_dealias(g, tt)) == 0) { return et; }
     if (cg_is_num_ety(g, tt) == 1 && cg_is_num_ety(g, et) == 1) {
         // Two different numeric types: C's usual arithmetic conversions (narrow arms meet as int).
         if (cg_rank_w(g, tt) == 16) { tt = "int"; }
@@ -4372,6 +4374,7 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
             cg_label(g, lthen);
             CgVal tv = cg_expr(g, n.b);
             string top = cg_coerce(g, tv, rty);
+            if (cg_is_iface(g, cg_dealias(g, List_get<string>(&etys, i))) == 1) { top = cg_iface_conv(g, List_get<string>(&etys, i), tv, n.b); }
             cg_emit(g, "  store "); cg_emit(g, rty); cg_emit(g, " "); cg_emit(g, top); cg_emit(g, ", ptr "); cg_emit(g, res); cg_emit(g, "\n");
             cg_br(g, lend);
             cg_label(g, lelse);
@@ -4386,6 +4389,11 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
             string res = List_get<string>(&ress, i);
             string lend = List_get<string>(&lends, i);
             string eop = cg_coerce(g, ev, rty);
+            if (cg_is_iface(g, cg_dealias(g, List_get<string>(&etys, i))) == 1) {
+                *ExprNode ex = List_get<*ExprNode>(&last.kids, 0);
+                if (i < k - 1) { ex = List_get<*ExprNode>(&chain, i + 1); }
+                eop = cg_iface_conv(g, List_get<string>(&etys, i), ev, ex);
+            }
             cg_emit(g, "  store "); cg_emit(g, rty); cg_emit(g, " "); cg_emit(g, eop); cg_emit(g, ", ptr "); cg_emit(g, res); cg_emit(g, "\n");
             cg_br(g, lend);
             cg_label(g, lend);

@@ -3639,6 +3639,9 @@ void sema_expr_k(Sema* s, *ExprNode e) {
             if (sema_streq(tt, et) == 1) { ok = 1; }
             else if (sema_is_numeric_ty(tt) == 1 && sema_is_numeric_ty(et) == 1) { ok = 1; }
             else if (sema_is_ptrish(tt) == 1 && sema_is_ptrish(et) == 1) { ok = 1; }
+            // One arm converts to the other's type (a `*Sq` arm meets an interface arm as
+            // the interface, mirrors the C++ ternary).
+            else if (sema_assign_strict(s, tt, et)[0] == 0 || sema_assign_strict(s, et, tt)[0] == 0) { ok = 1; }
             if (ok == 0) { sema_error(s, "ternary branches have incompatible types"); }
         }
         return;

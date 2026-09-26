@@ -521,16 +521,20 @@ void CodeGen::visit(TernaryExpr* node) {
             if (llvm::Type* rt = getTypeFromString(it->second); isNum(rt)) resTy = rt;
     }
 
-    auto coerce = [&](llvm::Value* v, const std::string& srcEskiu) -> llvm::Value* {
-        return coerceValue(v, resTy, eskiuUnsigned(srcEskiu));
+    // An interface arm and a struct-pointer arm meet as the interface (the pointer is boxed).
+    std::string ifaceTy = !interfaceName(thenTy).empty() ? thenTy
+                        : !interfaceName(elseTy).empty() ? elseTy : "";
+    if (!ifaceTy.empty()) resTy = getTypeFromString(ifaceTy);
+    auto arm = [&](const ExprPtr& e, const std::string& srcEskiu) -> llvm::Value* {
+        if (!ifaceTy.empty()) return evalForType(e, ifaceTy);
+        return coerceValue(evaluateExpr(e), resTy, eskiuUnsigned(srcEskiu));
     };
 
     // A constant condition selects its arm statically (the other is never evaluated),
     // which keeps a constant ternary a constant expression.
     if (auto* cc = llvm::dyn_cast<llvm::ConstantInt>(cond)) {
         bool pickThen = !cc->isZero();
-        exprValueStack.push(pickThen ? coerce(evaluateExpr(node->thenExpr), thenTy)
-                                     : coerce(evaluateExpr(node->elseExpr), elseTy));
+        exprValueStack.push(pickThen ? arm(node->thenExpr, thenTy) : arm(node->elseExpr, elseTy));
         return;
     }
 
@@ -540,12 +544,12 @@ void CodeGen::visit(TernaryExpr* node) {
     builder->CreateCondBr(cond, thenBB, elseBB);
 
     builder->SetInsertPoint(thenBB);
-    llvm::Value* tv = coerce(evaluateExpr(node->thenExpr), thenTy);
+    llvm::Value* tv = arm(node->thenExpr, thenTy);
     llvm::BasicBlock* thenEnd = builder->GetInsertBlock();   // arm may have added blocks
     builder->CreateBr(contBB);
 
     builder->SetInsertPoint(elseBB);
-    llvm::Value* ev = coerce(evaluateExpr(node->elseExpr), elseTy);
+    llvm::Value* ev = arm(node->elseExpr, elseTy);
     llvm::BasicBlock* elseEnd = builder->GetInsertBlock();
     builder->CreateBr(contBB);
 
