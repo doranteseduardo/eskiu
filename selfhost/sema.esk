@@ -3304,6 +3304,18 @@ int sema_binop_verdict(Sema* s, string op, string lt0, string rt0) {
 }
 
 void sema_binary_checks(Sema* s, *ExprNode e, string lt0, string rt0) {
+    // `p - q` counts elements between two pointers into one array: they must point to
+    // the same type (C, mirrors the C++ finishBinary).
+    if (e.a != null && e.b != null && sema_streq(e.sval, "-") == 1) {
+        string pl = sema_strip_nullable(sema_canon(s, lt0));
+        string pr = sema_strip_nullable(sema_canon(s, rt0));
+        if ((int)pl[0] == 42 && (int)pr[0] == 42 && sema_judgeable(s, pl) == 1 && sema_judgeable(s, pr) == 1
+            && sema_streq(pl, pr) == 0) {
+            s.had_error = 1;
+            dprintf(2, "error: %s:%d:%d: pointer subtraction needs pointers to the same type, got '%s' and '%s'\n", s.filename, s.line, s.col, lt0, rt0);
+            return;
+        }
+    }
     int verdict = -1;
     if (e.a != null && e.b != null) { verdict = sema_binop_verdict(s, e.sval, lt0, rt0); }
     if (verdict == 0 && sema_find_binop(s, e.sval, lt0, rt0) == null) {

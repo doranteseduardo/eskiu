@@ -1,0 +1,12 @@
+// `p - q` between pointers to the same type (const, nullable and alias spellings agree).
+extern int printf(string fmt, ...);
+type IP = *int;
+int main() {
+  int[8] a;
+  *int p = &a[6];
+  const int* q = &a[1];
+  ?*int r = &a[0];
+  IP s = &a[3];
+  printf("%lld %lld %lld\n", p - q, p - s, s - r);
+  return 0;
+}

@@ -188,6 +188,24 @@ void TypeChecker::finishBinary(BinaryExpr* node) {
         }
     }
 
+    // `p - q` counts elements between two pointers into one array: they must point to
+    // the same type (C).
+    if (node->op == "-" && isPointerType(leftType) && isPointerType(rightType)) {
+        // One spelling per type: aliases, `?`, const and `*T` vs `T*` do not matter.
+        std::function<std::string(const std::string&)> canon = [&](const std::string& t) -> std::string {
+            std::string n = normalizeType(dealiasOperand(t));
+            if (!n.empty() && n[0] == '?') n = n.substr(1);
+            if (isPointerType(n)) return "*" + canon(getPointeeType(n));
+            return n;
+        };
+        std::string l = canon(leftType), r = canon(rightType);
+        if (l != r) {
+            errorAt(node, "pointer subtraction needs pointers to the same type, got '" + leftType +
+                          "' and '" + rightType + "'");
+            expressionTypes[node] = "int64";
+            return;
+        }
+    }
     std::string resultType = inferBinaryExprType(leftType, node->op, rightType);
     // Stepping a `?*T` does not prove it non-null: `p + n` is still a `?*T`.
     if ((node->op == "+" || node->op == "-") && !leftType.empty() && leftType[0] == '?' &&

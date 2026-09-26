@@ -1,0 +1,2 @@
+// EXPECT-ERROR: pointer subtraction needs pointers to the same type, got '*int' and '*char'
+int main() { int[4] a; char[4] c; *int p = &a[2]; *char q = &c[0]; int64 d = p - q; return (int)d; }
