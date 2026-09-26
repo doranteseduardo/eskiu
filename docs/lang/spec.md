@@ -1667,7 +1667,7 @@ int dx(Color c) {
 
 #### 8.7.1 Algebraic enums (tagged unions)
 
-When one or more variants carry a **payload**, the enum becomes an algebraic data type: a tagged union, not an integer. Each variant is constructed by name (with arguments for its payload), and a value is destructured with `match`:
+When one or more variants carry a **payload**, the enum becomes an algebraic data type: a tagged union, not an integer. Each variant is constructed by name (with arguments for its payload; a payload-free variant is written bare, and `Unit()` is an error), and a value is destructured with `match`:
 
 ```eskiu
 enum Shape {

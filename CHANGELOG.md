@@ -844,6 +844,8 @@ input. What is still open is listed under Known issues.
   uses volatile loads and stores of its storage word, and a volatile variable's
   initializing store is volatile. Test `volatile_bitfield` (IR count checked in `run.sh`
   and `cg_parity.sh`).
+- A nullary variant written with parentheses (`B()`) is an error located at the call,
+  "variant 'B' takes no arguments" (write `B`). Test `errors/variant_nullary_parens`.
 
 ### Known issues
 These are open in 0.9.2 and planned for 0.9.3. None of them miscompiles a valid program
@@ -863,7 +865,6 @@ without a diagnostic, except where the entry says so.
 - There is no spelling for a pointer to a nullable pointer, inline `asm` has no output
   operands, and `null` does not convert to an interface value.
 - A method that mutates a captured value inside a lambda acts on the closure's copy.
-- A nullary variant written with parentheses (`B()`) is accepted.
 - The `<json>` methods named `int` and `bool` cannot be called with dot syntax.
 - Types nested about a thousand levels deep and very long ternary or member chains compile
   slowly.

@@ -764,7 +764,9 @@ void TypeChecker::visit(CallExpr* node) {
             const std::string& enumName = vit->second.first;
             const auto& payload = enumDecls[enumName]->payloads[vit->second.second];
             for (auto& a : node->args) a->accept(this);
-            if (node->args.size() != payload.size())
+            if (payload.empty())                  // a nullary variant is written bare: `B`
+                errorAt(node, "variant '" + cid->name + "' takes no arguments");
+            else if (node->args.size() != payload.size())
                 errorAt(node, "variant '" + cid->name + "' expects " +
                     std::to_string(payload.size()) + " argument(s), got " +
                     std::to_string(node->args.size()));

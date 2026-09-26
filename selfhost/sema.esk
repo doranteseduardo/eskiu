@@ -6177,6 +6177,11 @@ void sema_check_variant_args(Sema* s, *ExprNode e, string v, List<string>* targs
     List<string> pl = List_get<List<string>>(&ed.payloads, vi);
     int want = List_len<string>(&pl);
     int got = List_len<*ExprNode>(&e.kids);
+    if (want == 0 && targs == null && List_len<TypeParam>(&ed.type_params) == 0 && sema_is_plain_enum_decl(ed) == 0) {
+        s.had_error = 1;                   // a nullary variant is written bare: `B`
+        dprintf(2, "error: %s:%d:%d: variant '%s' takes no arguments\n", s.filename, s.line, s.col, v);
+        return;
+    }
     if (want != got) {
         s.had_error = 1;
         dprintf(2, "error: %s:%d:%d: variant '%s' expects %d argument(s), got %d\n", s.filename, s.line, s.col, v, want, got);
