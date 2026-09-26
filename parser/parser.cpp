@@ -201,14 +201,20 @@ void Parser::rewindTo(size_t pos) {
 
 std::string Parser::parseType() {
     std::string type;
+    parseTypeInto(type);
+    return type;
+}
 
+// Append the type at the cursor to `out`. Every prefix (`?`, `const `, leading `*`s)
+// is known before the base type is read, so the spelling is built left to right into
+// one buffer: nested template arguments and fn types cost time linear in their length.
+void Parser::parseTypeInto(std::string& out) {
     // Leading `?` marks a checked nullable pointer `?*T`; re-attached as a `?` prefix.
     bool nullable = match(TokenType::QUESTION);
 
     // Optional leading `const` qualifies the base/pointee: `const int*` is a
-    // pointer to const int. Re-attached as a `const ` prefix after the type is
-    // assembled. (A `const` before a `let`/decl binding is handled by the
-    // declaration parser, not here.)
+    // pointer to const int, spelled with a `const ` prefix. (A `const` before a
+    // `let`/decl binding is handled by the declaration parser, not here.)
     bool baseIsConst = match(TokenType::CONST);
 
     // Handle leading pointers (Rust-style: *i32)
@@ -222,41 +228,43 @@ std::string Parser::parseType() {
     }
 
     Token typeToken = peek();
-    // Function pointer type: fn(T,U,...)->R
+    // Function pointer type: fn(T,U,...)->R (no `?` prefix, no trailing pointers).
     if (match(TokenType::FN)) {
-        type = "fn(";
+        if (baseIsConst) out += "const ";
+        out.append(leading_pointers, '*');
+        out += "fn(";
         consume(TokenType::LPAREN, "Expected '(' in fn type");
         bool first = true;
         while (!check(TokenType::RPAREN) && !is_at_end()) {
-            if (!first) { consume(TokenType::COMMA, "Expected ',' between fn parameter types"); type += ","; }
+            if (!first) { consume(TokenType::COMMA, "Expected ',' between fn parameter types"); out += ","; }
             first = false;
-            type += parseType();
+            parseTypeInto(out);
         }
         consume(TokenType::RPAREN, "Expected ')' in fn type");
-        type += ")->";
+        out += ")->";
         consume(TokenType::ARROW, "Expected '->' in fn type");
-        type += parseType();
-        // No trailing pointer handling needed for fn types — return early
-        for (int lp = 0; lp < leading_pointers; ++lp) type = "*" + type;
-        if (baseIsConst) type = "const " + type;
-        return type;
+        parseTypeInto(out);
+        return;
     }
+    if (nullable) out += "?";
+    if (baseIsConst) out += "const ";
+    out.append(leading_pointers, '*');
     if (isPrimitiveTypeToken(typeToken.type)) {
         advance();
-        type = typeToken.value;
+        out += typeToken.value;
     } else if (check(TokenType::IDENT)) {
-        type = advance().value;
+        out += advance().value;
         // Template instantiation: Name<TypeArg, ...>  e.g. Result<int, string>
         if (match(TokenType::LT)) {
-            type += "<";
+            out += "<";
             bool first = true;
             do {
-                if (!first) type += ",";
+                if (!first) out += ",";
                 first = false;
-                type += parseType();
+                parseTypeInto(out);
             } while (match(TokenType::COMMA));
             consumeTemplateClose("Expected '>' after template arguments");
-            type += ">";
+            out += ">";
         }
     } else {
         fail("Expected type, got " + tokenTypeToString(peek().type));
@@ -265,17 +273,9 @@ std::string Parser::parseType() {
     // Handle trailing pointers (C-style: i32*). A `const` right after a star
     // makes that pointer level const (`int* const`), encoded as `*const`.
     while (match(TokenType::STAR)) {
-        type += "*";
-        if (match(TokenType::CONST)) type += "const";
+        out += "*";
+        if (match(TokenType::CONST)) out += "const";
     }
-
-    // Add leading pointers at the beginning
-    for (int i = 0; i < leading_pointers; i++) {
-        type = "*" + type;
-    }
-
-    // Re-attach the base/pointee const as a leading qualifier.
-    if (baseIsConst) type = "const " + type;
 
     // Handle array syntax [N] — capture the size literal
     while (match(TokenType::LBRACKET)) {
@@ -287,11 +287,8 @@ std::string Parser::parseType() {
         if (!match(TokenType::RBRACKET)) {
             fail("Expected ']'");
         }
-        type += "[" + sizeStr + "]";
+        out += "[" + sizeStr + "]";
     }
-
-    if (nullable) type = "?" + type;   // `?*T` checked nullable pointer
-    return type;
 }
 
 std::vector<std::pair<std::string, std::string>> Parser::parseParameterList(

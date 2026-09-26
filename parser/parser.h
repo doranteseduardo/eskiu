@@ -218,6 +218,7 @@ private:
     ExprPtr parsePrimary();
 
     std::string parseType();
+    void parseTypeInto(std::string& out);
     std::vector<std::pair<std::string, std::string>> parseParameterList(
         std::vector<bool>* escaping = nullptr,
         std::vector<std::pair<int, int>>* positions = nullptr);

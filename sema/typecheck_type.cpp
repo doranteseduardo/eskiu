@@ -195,11 +195,15 @@ void TypeChecker::validateStructType(const std::string& type, ASTNode* at) {
     }
     // Strip fixed-size array suffixes (T[N], T[N][M], ...) — the element type is what
     // matters here; each dimension (a literal, enum, or const) is resolved in codegen.
-    while (!baseType.empty() && baseType.back() == ']') {
+    // Parsed once and walked, so a deep `T[1][1]...` costs time linear in its length.
+    if (!baseType.empty() && baseType.back() == ']') {
         ty::Type t = ty::Type::parse(baseType);
-        if (t.kind != ty::Type::Kind::Array && t.kind != ty::Type::Kind::Slice) break;
-        if (t.kind == ty::Type::Kind::Array && at) checkArrayDim(t.dim, at);
-        baseType = t.elem->str();
+        const ty::Type* cur = &t;
+        while (cur->kind == ty::Type::Kind::Array || cur->kind == ty::Type::Kind::Slice) {
+            if (cur->kind == ty::Type::Kind::Array && at) checkArrayDim(cur->dim, at);
+            cur = cur->elem.get();
+        }
+        if (cur != &t) baseType = cur->str();
     }
     // Strip ALL pointer decorators (*T, T*, **T, etc.)
     bool stripped = true;

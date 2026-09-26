@@ -83,12 +83,199 @@ const std::set<std::string>& intSpellings() {
 }
 
 Type parseCore(const std::string& in, const std::set<std::string>& tps);
+Type parseLegacy(const std::string& s, const std::set<std::string>& tps);
+
+// Linear-time parser over one spelling. `close[i]` is the index of the bracket that
+// closes the `<`, `(` or `[` at i (the `>` of an `->` arrow is not a bracket), so each
+// top-level scan jumps over nested groups instead of re-reading them, and ranges are
+// index pairs into the one string rather than substring copies. On a well-formed
+// spelling it builds exactly the Type the reference grammar (parseLegacy) does; a
+// spelling whose brackets do not nest falls back to parseLegacy.
+struct FastParser {
+    const std::string& s;
+    const std::set<std::string>& tps;
+    std::vector<size_t> close;
+
+    FastParser(const std::string& src, const std::set<std::string>& t) : s(src), tps(t) {}
+
+    bool buildMatches() {
+        close.assign(s.size(), std::string::npos);
+        std::vector<size_t> stack;
+        for (size_t i = 0; i < s.size(); ++i) {
+            char c = s[i];
+            if (c == '<' || c == '(' || c == '[') { stack.push_back(i); continue; }
+            char want = c == '>' ? '<' : c == ')' ? '(' : c == ']' ? '[' : 0;
+            if (!want || (c == '>' && i > 0 && s[i - 1] == '-')) continue;
+            if (stack.empty() || s[stack.back()] != want) return false;
+            close[stack.back()] = i;
+            stack.pop_back();
+        }
+        return stack.empty();
+    }
+
+    void trimRange(size_t& b, size_t& e) const {
+        while (b < e && (s[b] == ' ' || s[b] == '\t')) ++b;
+        while (e > b && (s[e - 1] == ' ' || s[e - 1] == '\t')) --e;
+    }
+    bool startsWith(size_t b, size_t e, const char* lit, size_t n) const {
+        return e - b >= n && s.compare(b, n, lit) == 0;
+    }
+
+    // Type::parse over [b, e): trim, peel leading qualifiers, then the core grammar.
+    Type parse(size_t b, size_t e) {
+        trimRange(b, e);
+        std::string quals;
+        for (;;) {
+            if (startsWith(b, e, "const ", 6))         { quals += "const ";    b += 6; trimRange(b, e); }
+            else if (startsWith(b, e, "volatile ", 9)) { quals += "volatile "; b += 9; trimRange(b, e); }
+            else break;
+        }
+        Type r = core(b, e);
+        r.leadingQuals = quals;
+        return r;
+    }
+
+    // Split [b, e) on top-level commas and parse each piece.
+    void parseList(size_t b, size_t e, std::vector<Type>& out) {
+        size_t start = b;
+        for (size_t i = b; i < e; ++i) {
+            char c = s[i];
+            if ((c == '<' || c == '(' || c == '[') && close[i] != std::string::npos) { i = close[i]; continue; }
+            if (c == ',') { out.push_back(parse(start, i)); start = i + 1; }
+        }
+        out.push_back(parse(start, e));
+    }
+
+    Type core(size_t b, size_t e) {
+        Type r;
+        trimRange(b, e);
+        if (b == e) { r.kind = Type::Kind::Unknown; r.name = ""; return r; }
+
+        if (s[b] == '?') {
+            Type inner = core(b + 1, e);
+            inner.nullable = true;
+            return inner;
+        }
+
+        // An array suffix binds before a pointer or a fn type (see parseCore), and the
+        // leftmost bracket group is the outermost dimension.
+        if (s[e - 1] == ']') {
+            size_t open = std::string::npos;
+            for (size_t i = b; i < e; ++i) {
+                char c = s[i];
+                if ((c == '<' || c == '(') && close[i] != std::string::npos) { i = close[i]; continue; }
+                if (c == '[') { open = i; break; }
+            }
+            if (open != std::string::npos && close[open] != std::string::npos && close[open] < e) {
+                // `T[N][M]...`: when the suffix is a run of bracket groups, build the chain
+                // once, outermost first, over one parse of the base.
+                std::vector<std::pair<size_t, size_t>> dims;
+                size_t i = open;
+                while (i < e && s[i] == '[' && close[i] != std::string::npos && close[i] < e) {
+                    dims.push_back({i, close[i]});
+                    i = close[i] + 1;
+                }
+                if (i != e) {
+                    size_t cl = close[open];
+                    r.dim = s.substr(open + 1, cl - open - 1);
+                    r.kind = r.dim.empty() ? Type::Kind::Slice : Type::Kind::Array;
+                    r.elem = std::make_shared<Type>(
+                        parseLegacy(s.substr(b, open - b) + s.substr(cl + 1, e - cl - 1), tps));
+                    return r;
+                }
+                auto elem = std::make_shared<Type>(parse(b, open));
+                for (size_t k = dims.size(); k-- > 0;) {
+                    Type a;
+                    a.dim = s.substr(dims[k].first + 1, dims[k].second - dims[k].first - 1);
+                    a.kind = a.dim.empty() ? Type::Kind::Slice : Type::Kind::Array;
+                    a.elem = elem;
+                    if (k == 0) return a;
+                    elem = std::make_shared<Type>(std::move(a));
+                }
+            }
+        }
+
+        if (startsWith(b, e, "fn(", 3)) {
+            size_t cl = close[b + 2];
+            if (cl != std::string::npos && cl < e && startsWith(cl + 1, e, "->", 2)) {
+                r.kind = Type::Kind::Fn;
+                size_t pb = b + 3, pe = cl;
+                trimRange(pb, pe);
+                if (pb < pe) parseList(b + 3, cl, r.params);
+                r.ret = std::make_shared<Type>(parse(cl + 3, e));
+                return r;
+            }
+        }
+        if (s[b] == '*') {
+            r.kind = Type::Kind::Pointer;
+            r.ptrLeading = true;
+            r.pointee = std::make_shared<Type>(parse(b + 1, e));
+            return r;
+        }
+        if (e - b > 6 && s.compare(e - 6, 6, "*const") == 0) {
+            r.kind = Type::Kind::Pointer;
+            r.bindingConst = true;
+            r.pointee = std::make_shared<Type>(parse(b, e - 6));
+            return r;
+        }
+        if (s[e - 1] == '*') {
+            r.kind = Type::Kind::Pointer;
+            r.pointee = std::make_shared<Type>(parse(b, e - 1));
+            return r;
+        }
+        size_t lt = std::string::npos;
+        for (size_t i = b; i < e; ++i) {
+            char c = s[i];
+            if ((c == '(' || c == '[') && close[i] != std::string::npos) { i = close[i]; continue; }
+            if (c == '<') { lt = i; break; }
+        }
+        if (lt != std::string::npos && s[e - 1] == '>') {
+            r.kind = Type::Kind::Template;
+            size_t nb = b, ne = lt;
+            trimRange(nb, ne);
+            r.name = s.substr(nb, ne - nb);
+            size_t ib = lt + 1, ie = e - 1;
+            trimRange(ib, ie);
+            if (ib < ie) parseList(lt + 1, e - 1, r.args);
+            return r;
+        }
+        if (startsWith(b, e, "struct:", 7))    { r.kind = Type::Kind::Struct;    r.name = s.substr(b + 7, e - b - 7); return r; }
+        if (startsWith(b, e, "interface:", 10)) { r.kind = Type::Kind::Interface; r.name = s.substr(b + 10, e - b - 10); return r; }
+
+        r.name = s.substr(b, e - b);
+        const std::string& n = r.name;
+        if (intSpellings().count(n))        r.kind = Type::Kind::Int;
+        else if (n == "float" || n == "double") r.kind = Type::Kind::Float;
+        else if (n == "bool")    r.kind = Type::Kind::Bool;
+        else if (n == "char")    r.kind = Type::Kind::Char;
+        else if (n == "string")  r.kind = Type::Kind::String;
+        else if (n == "void")    r.kind = Type::Kind::Void;
+        else if (n == "va_list") r.kind = Type::Kind::VaList;
+        else if (n == "null")    r.kind = Type::Kind::Null;
+        else if (n == "unknown") r.kind = Type::Kind::Unknown;
+        else if (n == "error")   r.kind = Type::Kind::Error;
+        else if (tps.count(n))   r.kind = Type::Kind::Param;
+        else                     r.kind = Type::Kind::Named;
+        return r;
+    }
+};
 
 }  // namespace
 
 Type Type::parse(const std::string& s) { return parse(s, {}); }
 
 Type Type::parse(const std::string& s, const std::set<std::string>& tps) {
+    FastParser fp(s, tps);
+    if (fp.buildMatches()) return fp.parse(0, s.size());
+    return parseLegacy(s, tps);
+}
+
+namespace {
+
+// The reference grammar, used for a spelling whose brackets do not nest (and as the
+// definition FastParser reproduces): quadratic on deep nesting, since each level
+// re-scans and copies its substring.
+Type parseLegacy(const std::string& s, const std::set<std::string>& tps) {
     std::string t = trim(s);
     std::string quals;
     // Peel leading value qualifiers verbatim (const / volatile), preserving order.
@@ -101,8 +288,6 @@ Type Type::parse(const std::string& s, const std::set<std::string>& tps) {
     r.leadingQuals = quals;
     return r;
 }
-
-namespace {
 
 Type parseCore(const std::string& in, const std::set<std::string>& tps) {
     Type r;
@@ -134,7 +319,7 @@ Type parseCore(const std::string& in, const std::set<std::string>& tps) {
             // Empty brackets `T[]` = a slice (fat pointer); `T[N]` = a fixed array.
             r.kind = r.dim.empty() ? Type::Kind::Slice : Type::Kind::Array;
             r.elem = std::make_shared<Type>(
-                Type::parse(s.substr(0, open) + s.substr(close + 1), tps));
+                parseLegacy(s.substr(0, open) + s.substr(close + 1), tps));
             return r;
         }
     }
@@ -149,8 +334,8 @@ Type parseCore(const std::string& in, const std::set<std::string>& tps) {
             r.kind = Type::Kind::Fn;
             std::string inner = s.substr(3, close - 3);
             if (!trim(inner).empty())
-                for (auto& p : splitTop(inner, ',')) r.params.push_back(Type::parse(p, tps));
-            r.ret = std::make_shared<Type>(Type::parse(s.substr(close + 3), tps));
+                for (auto& p : splitTop(inner, ',')) r.params.push_back(parseLegacy(p, tps));
+            r.ret = std::make_shared<Type>(parseLegacy(s.substr(close + 3), tps));
             return r;
         }
     }
@@ -159,20 +344,20 @@ Type parseCore(const std::string& in, const std::set<std::string>& tps) {
     if (s[0] == '*') {
         r.kind = Type::Kind::Pointer;
         r.ptrLeading = true;
-        r.pointee = std::make_shared<Type>(Type::parse(s.substr(1), tps));
+        r.pointee = std::make_shared<Type>(parseLegacy(s.substr(1), tps));
         return r;
     }
     // Trailing binding-const pointer `T*const`.
     if (s.size() > 6 && s.compare(s.size() - 6, 6, "*const") == 0) {
         r.kind = Type::Kind::Pointer;
         r.bindingConst = true;
-        r.pointee = std::make_shared<Type>(Type::parse(s.substr(0, s.size() - 6), tps));
+        r.pointee = std::make_shared<Type>(parseLegacy(s.substr(0, s.size() - 6), tps));
         return r;
     }
     // Trailing-star pointer `T*`.
     if (s.back() == '*') {
         r.kind = Type::Kind::Pointer;
-        r.pointee = std::make_shared<Type>(Type::parse(s.substr(0, s.size() - 1), tps));
+        r.pointee = std::make_shared<Type>(parseLegacy(s.substr(0, s.size() - 1), tps));
         return r;
     }
     // Template application `Name<args>`.
@@ -182,7 +367,7 @@ Type parseCore(const std::string& in, const std::set<std::string>& tps) {
         r.name = trim(s.substr(0, lt));
         std::string inner = s.substr(lt + 1, s.size() - lt - 2);
         if (!trim(inner).empty())
-            for (auto& a : splitTop(inner, ',')) r.args.push_back(Type::parse(a, tps));
+            for (auto& a : splitTop(inner, ',')) r.args.push_back(parseLegacy(a, tps));
         return r;
     }
     // Decorated nominal prefixes.
@@ -208,49 +393,59 @@ Type parseCore(const std::string& in, const std::set<std::string>& tps) {
 
 }  // namespace
 
-std::string Type::str() const {
-    std::string body;
-    switch (kind) {
+namespace {
+// Append the spelling of `t` to `out` (one buffer for the whole type, so rendering is
+// linear in its length however deep it nests).
+void appendStr(const Type& t, std::string& out) {
+    using Kind = Type::Kind;
+    out += t.leadingQuals;
+    if (t.nullable) out += "?";                     // checked nullable pointer `?*T`
+    switch (t.kind) {
         case Kind::Pointer:
-            if (ptrLeading) body = "*" + pointee->str();
-            else            body = pointee->str() + (bindingConst ? "*const" : "*");
+            if (t.ptrLeading) { out += "*"; appendStr(*t.pointee, out); }
+            else { appendStr(*t.pointee, out); out += t.bindingConst ? "*const" : "*"; }
             break;
         case Kind::Array:
         case Kind::Slice: {
-            std::string dims = "[" + dim + "]";
-            const Type* e = elem.get();
+            // `T[N][M]`: the element's own dimensions follow this one (C order), so the
+            // innermost element comes first, then every dimension, outermost first.
+            const Type* e = t.elem.get();
             while ((e->kind == Kind::Array || e->kind == Kind::Slice) &&
-                   e->leadingQuals.empty() && !e->nullable) {
-                dims += "[" + e->dim + "]";
+                   e->leadingQuals.empty() && !e->nullable)
                 e = e->elem.get();
-            }
-            body = e->str() + dims;
+            appendStr(*e, out);
+            for (const Type* d = &t; d != e; d = d->elem.get()) { out += "["; out += d->dim; out += "]"; }
             break;
         }
-        case Kind::Fn: {
-            body = "fn(";
-            for (size_t i = 0; i < params.size(); ++i) {
-                if (i) body += ",";
-                body += params[i].str();
+        case Kind::Fn:
+            out += "fn(";
+            for (size_t i = 0; i < t.params.size(); ++i) {
+                if (i) out += ",";
+                appendStr(t.params[i], out);
             }
-            body += ")->" + ret->str();
+            out += ")->";
+            appendStr(*t.ret, out);
             break;
-        }
-        case Kind::Template: {
-            body = name + "<";
-            for (size_t i = 0; i < args.size(); ++i) {
-                if (i) body += ",";
-                body += args[i].str();
+        case Kind::Template:
+            out += t.name;
+            out += "<";
+            for (size_t i = 0; i < t.args.size(); ++i) {
+                if (i) out += ",";
+                appendStr(t.args[i], out);
             }
-            body += ">";
+            out += ">";
             break;
-        }
-        case Kind::Struct:    body = "struct:" + name; break;
-        case Kind::Interface: body = "interface:" + name; break;
-        default:              body = name; break;   // Int/Float/.../Named/Param/sentinels
+        case Kind::Struct:    out += "struct:"; out += t.name; break;
+        case Kind::Interface: out += "interface:"; out += t.name; break;
+        default:              out += t.name; break;   // Int/Float/.../Named/Param/sentinels
     }
-    if (nullable) body = "?" + body;                 // checked nullable pointer `?*T`
-    return leadingQuals + body;
+}
+}  // namespace
+
+std::string Type::str() const {
+    std::string out;
+    appendStr(*this, out);
+    return out;
 }
 
 Type Type::substitute(const std::map<std::string, std::string>& subs) const {
