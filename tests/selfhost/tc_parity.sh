@@ -99,7 +99,8 @@ HANDLED="undefined_var arg_count undefined_type await_outside_async async_no_awa
          not_void_call
          throw_void
          deref_void_ptr
-         cast_void_call cast_int_to_struct_generic cast_array_literal"
+         cast_void_call cast_int_to_struct_generic cast_array_literal
+         generic_void_param"
 HANDLED="$(echo $HANDLED)"   # collapse the multi-line list to single spaces for matching
 
 DRIVER=selfhost/esk_main.esk

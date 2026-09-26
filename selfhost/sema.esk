@@ -6412,6 +6412,13 @@ void sema_check_fn(Sema* s, *DeclNode f, string self_type) {
         if (pn2 >= 6 && sema_streq(sema_sub_str(pm.ty, 0, 6), "const ") == 1 && sema_has_star(pm.ty) == 0) { pconst = 1; }
         if (pn2 >= 6 && sema_streq(sema_sub_str(pm.ty, pn2 - 6, pn2), "*const") == 1) { pconst = 1; }
         sema_define(s, pm.name, sema_isub(s, pm.ty), pconst);
+        if (s.in_inst == 1) {              // `id<void>`: a type argument may make a parameter void
+            string iperr = sema_void_type_err(s, sema_isub(s, pm.ty));
+            if (iperr[0] != 0) {
+                s.had_error = 1;
+                dprintf(2, "error: %s:%d:%d: parameter '%s' %s\n", s.filename, s.line, s.col, pm.name, iperr);
+            }
+        }
         j = j + 1;
     }
     int prev_pd = s.param_depth;
