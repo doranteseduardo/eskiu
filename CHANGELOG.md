@@ -382,7 +382,7 @@ input. What is still open is listed under Known issues.
   the C++ compiler), finds the stdlib through `$ESKIU_ROOT`, and reports a missing import as
   an error.
 - VS Code server: full-document sync, unsaved buffers resolve relative imports, and the
-  version comes from `package.json` (extension 0.0.26).
+  version comes from `package.json` (extension 0.0.27, which also highlights octal and `\a` `\b` `\?` escapes).
 
 #### Standard library: memory safety
 - `tls_read_frame` / `tls_read_frame_async` check the peer's frame length (heap

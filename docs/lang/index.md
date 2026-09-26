@@ -2,10 +2,11 @@
 
 Eskiu is a statically typed systems language with the power of C and the immediacy of a scripting language: it compiles to native code through LLVM, and `eskiuc run file.esk` runs a source file directly, like Python or Ruby. This is the full language reference. New to Eskiu? Start with the [tutorial](getting-started.md).
 
-**Current version: v0.9.1.** A correctness release: a multi-front bug hunt closed a set of
-latent miscompiles (constant-initializer folding, C signed/unsigned rules, `switch` cleanup,
-pointer bitfield writes, async await typing) and lexer/`--safe` gaps. Full history is in the
-[changelog](../../CHANGELOG.md).
+**Current version: v0.9.2.** A correctness and hardening release: a full-project audit,
+three fuzzers and eight blind audit rounds fixed about 500 latent bugs across both
+compilers, the standard library and the docs (C semantics, the C ABI, generics, `volatile`,
+strict parsers, HTTP hardening). The known issues planned for 0.9.3 and the full history
+are in the [changelog](../../CHANGELOG.md).
 
 ---
 
