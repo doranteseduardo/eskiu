@@ -1,0 +1,56 @@
+// RFC 9110 §8.6: a 1xx or 204 response has no content and must not carry a
+// Content-Length. HttpResponse_render and http_reply used to add
+// "Content-Length: 0" (and the body) to them.
+import <mem>;
+import <string>;
+import <http>;
+extern int printf(string fmt, ...);
+extern int socketpair(int domain, int type, int proto, *int fds);
+extern int64 read(int fd, *void buf, int64 n);
+extern int close(int fd);
+
+void print_crlf(*char buf, int64 n) {
+    for (int64 i = 0; i < n; i++) {
+        if (buf[i] == '\r') { printf("\\r"); } else { printf("%c", (int)buf[i]); }
+    }
+    printf("--\n");
+}
+
+void render(int status) {
+    let res: HttpResponse; res.init(status);
+    res.set_body("ignored");
+    let out: String; out.init(64);
+    res.render(&out);
+    print_crlf(out.data, out.len);
+    out.free();
+    res.free();
+}
+
+void reply(int status) {
+    int[2] sv;  socketpair(1, 1, 0, &sv[0]);
+    let b: String; b.init(8);
+    b.append("body");
+    http_reply(sv[0], status, "text/plain", "", &b);
+    b.free();
+    close(sv[0]);
+    *char buf = alloc<char>(512);
+    int64 total = 0;
+    while (total < 511) {
+        const int64 n = read(sv[1], (*void)(buf + total), 511 - total);
+        if (n <= 0) { break; }
+        total += n;
+    }
+    print_crlf(buf, total);
+    free((*void)buf);
+    close(sv[1]);
+}
+
+int main() {
+    render(204);
+    render(103);
+    render(200);
+    reply(204);
+    reply(100);
+    reply(200);
+    return 0;
+}

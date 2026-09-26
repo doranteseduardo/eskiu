@@ -1,4 +1,4 @@
-HTTP/1.1 204 No Content\r
+HTTP/1.1 200 OK\r
 Content-Type: text/plain\r
 Content-Length: 0\r
 Connection: close\r

@@ -25,7 +25,7 @@ void show(int fd) {
 
 int main() {
     int[2] sv;  socketpair(1, 1, 0, &sv[0]);
-    http_reply(sv[0], 204, "text/plain", "", null);
+    http_reply(sv[0], 200, "text/plain", "", null);
     close(sv[0]);
     show(sv[1]);
     close(sv[1]);

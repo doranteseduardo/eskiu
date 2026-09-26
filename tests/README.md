@@ -221,6 +221,7 @@ when you add a test.
 | `http_async_accept_retry` | The async servers retry a failed accept (EMFILE) after a backoff via net_accept_retry_async instead of spawning a handler on fd -1 that never completes the wait-group. |
 | `http_header_edges` | HTTP/1.1 edge cases: header values lose surrounding whitespace (OWS), an overflowing or malformed Content-Length is a 400 (it used to wrap to 0),... |
 | `http_reply_null_body` | `http_reply` with a null body sends Content-Length: 0 (it used to read body.len through the null pointer). |
+| `http_no_content_length` | RFC 9110 §8.6: `HttpResponse_render` and `http_reply` send no Content-Length and no body for a 1xx or 204 status (they used to add `Content-Length: 0`). |
 | `http_strict` | HTTP/1.1 strictness: a body cut short by the peer is 400, conflicting Content-Length values are 400, a bare CR/LF in the head or an empty method/path is malformed (the servers answer 400 without the handler), and render sends a body past an embedded NUL. |
 | `http_rfc9112` | RFC 9112 framing: a chunked body is decoded (extensions, trailers), TE with CL is 400, a non-chunked coding 501, whitespace before a colon, obs-fold, a missing or repeated Host in HTTP/1.1 and an invalid version 400, HTTP/2.0 505; same rules in `HttpRequest_parse` |
 | `int_promotion` | C integer promotions: operands narrower than `int` (bool, char, int8/16, uint8/16) become `int` before arithmetic, bitwise, shift, and comparison. |

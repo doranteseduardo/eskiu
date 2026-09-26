@@ -437,8 +437,15 @@ void _http_append_int(String* out, int64 v) {
     while (n > 0) { out.push(digits[--n]); }
 }
 
+// 1 if a response with this status has no content and so no Content-Length
+// (RFC 9110 §8.6, §15.2, §15.3.5: 1xx and 204).
+int http_status_no_content(int status) {
+    return (status >= 100 && status < 200) || status == 204 ? 1 : 0;
+}
+
 // Serialize the full HTTP/1.1 response (status line, headers, auto
-// Content-Length, blank line, body) into `out`.
+// Content-Length, blank line, body) into `out`. A 1xx or 204 response gets
+// no Content-Length and no body.
 void HttpResponse_render(HttpResponse* self, String* out) {
     out.append("HTTP/1.1 ");
     _http_append_int(out, self.status);
@@ -446,6 +453,10 @@ void HttpResponse_render(HttpResponse* self, String* out) {
     out.append(http_reason(self.status));
     out.append("\r\n");
     out.append(self.headers.cstr());
+    if (http_status_no_content(self.status) == 1) {
+        out.append("\r\n");
+        return;
+    }
     out.append("Content-Length: ");
     _http_append_int(out, self.body.len);
     out.append("\r\n\r\n");
@@ -745,8 +756,10 @@ int http_recv(int fd, HttpReq* r, int64 max_body) {
 // Send a full HTTP/1.1 response. `extra` is pre-formatted "K: V\r\n" lines (may
 // be empty). `body` is sent verbatim (its String length is honoured, so it may
 // hold bytes a NUL would otherwise cut short). A null `body` sends an empty body.
+// A 1xx or 204 status sends no Content-Length and no body (RFC 9110 §8.6).
 void http_reply(int fd, int status, string ctype, string extra, String* body) {
-    const int64 blen = body == null ? 0 : body.len;
+    const int nocontent = http_status_no_content(status);
+    const int64 blen = body == null || nocontent == 1 ? 0 : body.len;
     let out: String;
     out.init(blen + 256);
     defer out.free();
@@ -758,9 +771,12 @@ void http_reply(int fd, int status, string ctype, string extra, String* body) {
     out.append(ctype);
     out.append("\r\n");
     out.append(extra);
-    out.append("Content-Length: ");
-    _http_append_int(&out, blen);
-    out.append("\r\nConnection: close\r\n\r\n");
+    if (nocontent == 0) {
+        out.append("Content-Length: ");
+        _http_append_int(&out, blen);
+        out.append("\r\n");
+    }
+    out.append("Connection: close\r\n\r\n");
     net_send(fd, out.cstr(), out.len);
     if (blen > 0) { net_send(fd, body.data, blen); }
 }
