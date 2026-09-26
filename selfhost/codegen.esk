@@ -107,6 +107,7 @@ struct Codegen {
     List<CgSub> aliases;     // type aliases (name → underlying type spelling)
     List<string> fnthunks;   // top-level fns used as closure values → emit a __fnptr_<name> thunk
     List<string> topfns;     // non-generic top-level function names (a global initializer may name one)
+    List<CgSub> opcanon;     // operator overloads declared over an alias: dealiased mangled name → fn name
     List<CgBF> bitfields;    // bitfield slots (struct.field → word/offset/width/signed) + pack(N≥2) phys-index slots
     List<CgLambda> lambdas;  // queued lambda bodies, emitted after the main decls
     int lam_seq;             // counter for unique lambda names
@@ -519,8 +520,29 @@ string cg_dealias_d(Codegen* g, string t, int depth) {
             // A pointer to an alias of an array (`*AI`, `type AI = int[3]`) is `int[3]*`: a
             // leading star would bind looser than the array suffix (an array of pointers).
             int rn = 0; while (rep[rn] != 0) { rn = rn + 1; }
+            // An alias of an array or slice given more dimensions (`IS[2]`, `type IS = int[]`):
+            // the new ones are outer, so they go in front of the alias's own brackets (C
+            // order), `int[2][]`.
+            int dimsed = 0;
+            if (rep != id && rn > 0 && (int)rep[rn - 1] == 93 && i < n && (int)t[i] == 91) {
+                int ds = i;
+                while (i < n && (int)t[i] == 91) {
+                    while (i < n && (int)t[i] != 93) { i = i + 1; }
+                    if (i < n) { i = i + 1; }
+                }
+                int rb = 0; int rdep = 0;
+                while (rb < rn && !((int)rep[rb] == 91 && rdep == 0)) {
+                    int rc = (int)rep[rb];
+                    if (rc == 60 || rc == 40) { rdep = rdep + 1; }
+                    else if ((rc == 62 && (rb == 0 || (int)rep[rb - 1] != 45)) || rc == 41) { rdep = rdep - 1; }
+                    rb = rb + 1;
+                }
+                rep = cg_cat(cg_cat(cg_sub_str(rep, 0, rb), cg_sub_str(t, ds, i)), cg_sub_str(rep, rb, rn));
+                rn = 0; while (rep[rn] != 0) { rn = rn + 1; }
+                dimsed = 1;
+            }
             int stars = 0;
-            if (rep != id && rn > 0 && (int)rep[rn - 1] == 93) {
+            if (dimsed == 0 && rep != id && rn > 0 && (int)rep[rn - 1] == 93) {
                 while (s - stars > 0 && (int)t[s - stars - 1] == 42) { stars = stars + 1; }
                 out.len = out.len - (int64)stars;
                 out.data[out.len] = (char)0;
@@ -3020,12 +3042,29 @@ int cg_is_num_ty(Codegen* g, string t) {
     return 0;
 }
 // Is a binary `op` declared for the exact operand types (a, b)? Returns its fn name or "".
+// The overload named by operand types `tys`: declared with those spellings, or (through
+// type aliases, `operator +(VV, VV)` for `type VV = V`) with the same dealiased ones.
+string cg_op_lookup(Codegen* g, string op, List<string>* tys) {
+    string nm = ast_op_name(op, tys);
+    if (nm[0] == 0) { return ""; }
+    if (cg_fn_exists(g, nm) == 1) { return nm; }
+    if (List_len<CgSub>(&g.opcanon) == 0) { return ""; }
+    let dt: List<string>; List_init<string>(&dt, 2);
+    int i = 0;
+    while (i < List_len<string>(tys)) { List_push<string>(&dt, cg_dealias(g, List_get<string>(tys, i))); i = i + 1; }
+    string cn = ast_op_name(op, &dt);
+    int k = 0;
+    while (k < List_len<CgSub>(&g.opcanon)) {
+        CgSub sb = List_get<CgSub>(&g.opcanon, k);
+        if (cg_streq(sb.param, cn) == 1) { return sb.arg; }
+        k = k + 1;
+    }
+    return "";
+}
 string cg_op_try(Codegen* g, string op, string a, string b) {
     let tys: List<string>; List_init<string>(&tys, 2);
     List_push<string>(&tys, a); List_push<string>(&tys, b);
-    string nm = ast_op_name(op, &tys);
-    if (nm[0] != 0 && cg_fn_exists(g, nm) == 1) { return nm; }
-    return "";
+    return cg_op_lookup(g, op, &tys);
 }
 string cg_op_resolve(Codegen* g, string op, string ta, string tb) {
     if (ta[0] == 0 || tb[0] == 0) { return ""; }
@@ -3052,9 +3091,7 @@ string cg_op_resolve1(Codegen* g, string op, string ta) {
     if (ta[0] == 0) { return ""; }
     let tys: List<string>; List_init<string>(&tys, 1);
     List_push<string>(&tys, ta);
-    string nm = ast_op_name(op, &tys);
-    if (nm[0] != 0 && cg_fn_exists(g, nm) == 1) { return nm; }
-    return "";
+    return cg_op_lookup(g, op, &tys);
 }
 // Emit a call to a resolved operator function with 1 or 2 operand exprs (a2 null = unary),
 // reusing the normal EK_CALL lowering (arg coercion + struct-by-value ABI).
@@ -3346,7 +3383,12 @@ string cg_range_bound_type(Codegen* g, *ExprNode e) {
     return cg_dealias(g, cg_strip_lead_const(cg_etype(g, e)));
 }
 
-string cg_etype(Codegen* g, *ExprNode e) {
+string cg_etype_raw(Codegen* g, *ExprNode e);
+// The Eskiu type of an expression, never spelled as a type alias: every shape check
+// (pointer, array, slice, fn value, interface) sees the alias target (mirrors the C++
+// getExprEskiuTypeRaw).
+string cg_etype(Codegen* g, *ExprNode e) { return cg_dealias(g, cg_etype_raw(g, e)); }
+string cg_etype_raw(Codegen* g, *ExprNode e) {
     if (e == null) { return ""; }
     if (e.kind == EK_LITERAL) {
         if (e.lit_kind == LIT_INT) { return cg_lit_arm_etype(g, e); }   // int, int64 or uint64 by value
@@ -7708,6 +7750,16 @@ void cg_program(Codegen* g, *Program prog) {
             }
             f.fixedtypes = fixed;
             List_push<CgFn>(&g.fns, f);
+            if (d.operator_sym != null && d.operator_sym[0] != 0 && List_len<CgSub>(&g.aliases) > 0) {
+                let opt: List<string>; List_init<string>(&opt, 2);
+                int oi = 0;
+                while (oi < np) { List_push<string>(&opt, cg_dealias(g, List_get<Param>(&d.params, oi).ty)); oi = oi + 1; }
+                string ocn = ast_op_name(d.operator_sym, &opt);
+                if (ocn[0] != 0 && cg_streq(ocn, d.name) == 0) {
+                    let osb: CgSub; osb.param = ocn; osb.arg = d.name;
+                    List_push<CgSub>(&g.opcanon, osb);
+                }
+            }
             string lowered = "";
             if (d.kind == DK_EXTERN && cg_prog_defines(prog, d.name) == 0) { lowered = cg_cabi_declare(g, d); }   // by-value aggregates: C ABI
             if (lowered[0] != 0) {

@@ -317,7 +317,7 @@ llvm::Value* CodeGen::boxAsInterface(const std::string& ifaceName,
 }
 
 std::string CodeGen::interfaceName(const std::string& type) const {
-    std::string t = tyq::strip(type);
+    std::string t = expandAlias(type);   // `type Sh = Shape`: Sh is the interface
     if (t.rfind("interface:", 0) == 0) t = t.substr(10);
     return ifaceFatPtrTypes.count(t) ? t : "";
 }

@@ -374,10 +374,11 @@ std::string CodeGen::getExprEskiuTypeRaw(const ExprPtr& expr) const {
             // `const P*` parameter), which has no representation.
             std::string r = tyq::strip(it->second);
             if (!r.empty() && r[0] == '?') r = r.substr(1);
-            // An alias of an array (or a pointer to one) indexes and lays out as the array.
+            // An alias is its target for every shape check (a pointer, array, slice, fn or
+            // interface alias indexes, derefs, calls and boxes as the target does).
             std::string ex = expandAlias(r);
-            if (ex != r && ex.find('[') != std::string::npos) return ex;
-            return r;
+            if (!ex.empty() && ex[0] == '?') ex = ex.substr(1);
+            return ex;
         }
         // A table miss is by design — the resolver doesn't annotate every expr, so
         // the structural derivation below legitimately carries the rest. (Only a

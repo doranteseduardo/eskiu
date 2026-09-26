@@ -69,6 +69,7 @@ struct Sema {
     List<int> lam_esc;      // per enclosing lambda: 1 if it outlives the call (not passed to a non-escaping param)
     int call_epoch;         // bumped by every call (sema_drop_global_narrowings)
     int has_ops;            // any `operator` overload declared (an operator use may be a call)
+    int has_alias;          // any `type X = ...` declared (an expression type may name one)
     List<*ExprNode> tern_ifn;    // `?:` expressions bound for an interface (each arm boxes) ...
     List<string> tern_ift;       // ... and that interface type
     int last_if_then_called;   // the last SK_IF's then-branch made a call
@@ -1331,7 +1332,45 @@ string sema_variant_ctor_type(Sema* s, *DeclNode ed, *ExprNode e) {
 
 // Best-effort string type of an expression ("" = unknown), mirroring the C++
 // getExpressionType for the forms whose type is certain here.
+// A type spelled as a type alias (`PSq` for `type PSq = *Sq`), through every alias hop,
+// const dropped; any other spelling unchanged (mirrors the C++ dealiasOperand). A classic
+// enum keeps its name (a `match` recovers the variant set from it).
+string sema_dealias(Sema* s, string t0) {
+    if (s.has_alias == 0 || t0 == null || t0[0] == 0) { return t0; }
+    string t = sema_strip_const(t0);
+    int hops = 0;
+    while (hops < 32) {
+        int i = 0;
+        while (t[i] != 0 && sema_is_idc((int)t[i]) == 1) { i = i + 1; }
+        if (i == 0 || t[i] != 0 || sema_in_list(&s.tparams, t) == 1) { hops = 32; }
+        else {
+            *DeclNode ad = sema_find_tdecl(s, t);
+            if (ad == null || ad.kind != DK_TYPEALIAS) { hops = 32; }
+            else { t = sema_strip_const(ad.ret_type); }
+        }
+        hops = hops + 1;
+    }
+    if (sema_streq(t, sema_strip_const(t0)) == 1) { return t0; }
+    return t;
+}
+
+string sema_infer_type_raw(Sema* s, *ExprNode e);
+
+// The struct a `self` parameter points to, through aliases (`*VV self`, `type VV = V`).
+string sema_self_struct(Sema* s, string t) {
+    string d = sema_dealias(s, t);
+    int n = sema_slen(d);
+    int a = 0; while (a < n && ((int)d[a] == 42 || (int)d[a] == 32)) { a = a + 1; }
+    int b = n; while (b > a && ((int)d[b - 1] == 42 || (int)d[b - 1] == 32)) { b = b - 1; }
+    return sema_struct_of_type(sema_dealias(s, sema_sub_str(d, a, b)));
+}
+// The type of an expression, never spelled as an alias: every shape check (pointer,
+// array, slice, fn value, interface, struct) sees the alias's target.
 string sema_infer_type(Sema* s, *ExprNode e) {
+    return sema_dealias(s, sema_infer_type_raw(s, e));
+}
+
+string sema_infer_type_raw(Sema* s, *ExprNode e) {
     if (e == null) { return ""; }
     if (e.kind == EK_IDENT) {
         string vt = sema_lookup_type(s, e.sval);
@@ -1513,6 +1552,8 @@ string sema_infer_type(Sema* s, *ExprNode e) {
             return "";
         }
         if (sema_slice_elem(bc)[0] != 0 && sema_arr_bracket(bc) == sema_slen(bc) - 2) { return sema_slice_elem(bc); }
+        // A pointer to an array or slice (`int[]*`, from `*IS`) indexes its pointee.
+        if (sema_slen(bc) > 0 && (int)bc[sema_slen(bc) - 1] == 42) { return sema_sub_str(bc, 0, sema_slen(bc) - 1); }
         if (sema_arr_bracket(bc) > 0) { return sema_arr_elem(bc); }
         if (sema_streq(bc, "string") == 1) { return "char"; }
         if ((int)bc[0] == 42) { return sema_pointee(bt); }
@@ -4376,8 +4417,8 @@ void sema_expr_k(Sema* s, *ExprNode e) {
                     sema_queue_inst(s, imd, sd, &rtargs, sd.name, sema_cat(".", mem.sval));
                 }
             } else if (ffn != null && List_len<TypeParam>(&ffn.type_params) == 0
-                       && (List_len<Param>(&ffn.params) == 0 || sema_has_star(List_get<Param>(&ffn.params, 0).ty) == 0
-                           || sema_streq(sema_struct_of_type(List_get<Param>(&ffn.params, 0).ty), sn) == 0)) {
+                       && (List_len<Param>(&ffn.params) == 0 || sema_has_star(sema_dealias(s, List_get<Param>(&ffn.params, 0).ty)) == 0
+                           || sema_streq(sema_self_struct(s, List_get<Param>(&ffn.params, 0).ty), sn) == 0)) {
                 // Dot syntax passes the receiver's address: the first parameter must be a
                 // pointer to the receiver's type (mirrors the C++ method path).
                 string fp0 = "none";
@@ -5786,6 +5827,7 @@ void sema_register_globals(Sema* s, *Program prog) {
             || d.kind == DK_ENUM || d.kind == DK_TYPEALIAS) {
             List_push<string>(&s.types, d.name);
             List_push<*DeclNode>(&s.tdecls, d);
+            if (d.kind == DK_TYPEALIAS) { s.has_alias = 1; }
         }
         if (d.kind == DK_STRUCT || d.kind == DK_UNION) {
             List_push<string>(&s.structs, d.name);
@@ -6677,7 +6719,7 @@ int sema_check(Sema* s, *Program prog) {
         if (d.kind == DK_FUNCTION && d.operator_sym != null && d.operator_sym[0] != 0) {
             int user = 0; int oi = 0;
             while (oi < List_len<Param>(&d.params)) {
-                string ot = List_get<Param>(&d.params, oi).ty;
+                string ot = sema_dealias(s, List_get<Param>(&d.params, oi).ty);
                 if (sema_has_star(ot) == 0 && sema_is_fn_type(ot) == 0 && sema_is_arr_ty(ot) == 0
                     && sema_is_aggregate(s, ot) == 1) { user = 1; }
                 oi = oi + 1;

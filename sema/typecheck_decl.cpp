@@ -383,7 +383,8 @@ void TypeChecker::visit(FunctionDecl* node) {
     for (size_t pi = 0; pi < node->params.size(); ++pi) {
         const auto& param = node->params[pi];
         std::string pt = normalizeType(param.first);
-        if (pt == "int" && plainEnumDecls.count(param.first)) pt = param.first;   // keep enum name for `match`
+        if (pt == "int" && plainEnumDecls.count(tyq::strip(dealiasOperand(param.first))))
+            pt = tyq::strip(dealiasOperand(param.first));   // keep enum name for `match`
         if (tyq::baseConst(param.first) && tyq::isPtr(param.first)) pt = "const " + pt;
         // The parameter's own position when the parser recorded it (else the function's).
         int pl = node->line, pc = node->col;
@@ -730,8 +731,8 @@ void TypeChecker::visit(VarDecl* node) {
     // A classic (payload-less) enum collapses to `int` in normalizeType, but keep its
     // nominal name on the variable so `match` can recover the variant set. It still behaves
     // as an int everywhere else (every other check runs the type back through normalizeType).
-    if (normalizedType == "int" && plainEnumDecls.count(node->type))
-        normalizedType = node->type;
+    if (normalizedType == "int" && plainEnumDecls.count(tyq::strip(dealiasOperand(node->type))))
+        normalizedType = tyq::strip(dealiasOperand(node->type));
 
     // Validate that struct types exist before use
     validateStructType(normalizedType, node);

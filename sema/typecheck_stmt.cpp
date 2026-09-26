@@ -485,6 +485,8 @@ void TypeChecker::visit(MatchStmt* node) {
     node->subject->accept(this);
     std::string rawSt = getExpressionType(node->subject.get());
     std::string st = normalizeType(rawSt);
+    // An alias of a classic enum (`type C = Col`) names that enum's variant set.
+    if (plainEnumDecls.count(tyq::strip(dealiasOperand(rawSt)))) rawSt = tyq::strip(dealiasOperand(rawSt));
     // A classic (payload-less) enum normalizes to `int`, so keep its declared name for a
     // `match`: that is the only place the variant set (for exhaustiveness) is recoverable.
     if (!enumDecls.count(st) && !templateInstanceArgs.count(st) && plainEnumDecls.count(rawSt))

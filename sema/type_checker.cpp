@@ -486,7 +486,12 @@ std::string TypeChecker::getExpressionType(Expr* expr) {
     if (it != expressionTypes.end()) {
         // A type built from source spellings inside a generic instance (a lambda's
         // `fn(T)->T`) still names the parameter: resolve it like any declared type.
-        return inInstance ? resolveInstType(it->second) : it->second;
+        const std::string& t = inInstance ? resolveInstType(it->second) : it->second;
+        // Never spelled as a type alias: every shape check (pointer, array, slice, fn
+        // value, interface, struct) sees the alias target. A const-qualified spelling is
+        // kept whole (the const checks read it).
+        if (typeAliases.empty() || tyq::baseConst(t)) return t;
+        return dealiasOperand(t);
     }
     return "unknown";
 }

@@ -1,0 +1,76 @@
+extern int printf(string fmt, ...);
+import <mem>;
+// A type alias is its target for every shape check: an alias of an interface boxes and
+// dispatches, of a pointer derefs, of a fn type calls, of a slice indexes and has `.len`,
+// of a classic enum matches exhaustively, and an operator or method over an alias
+// operand is the target's.
+interface Shape { int area(); }
+struct Sq { int s; int area() { return self.s * self.s; } }
+type Sh = Shape;
+type PSq = *Sq;
+int use(Sh s) { Shape t = s; return t.area(); }
+Sh mk(*Sq q) { return q; }
+
+struct Box<T> { T v; T get() { return self.v; } }
+type BI = Box<int>;
+type PB = *Box<int>;
+
+type Cb = fn(int)->int;
+struct Holder { Cb f; }
+Cb adder(int k) { return int(int x) { return x + k; }; }
+
+enum Col { Red, Green = 5, Blue }
+type C = Col;
+string colName(C c) {
+    match c { Red -> return "red"; Green -> return "green"; Blue -> return "blue"; }
+}
+
+struct V { int x; }
+type VV = V;
+VV operator +(VV a, VV b) { return VV{a.x + b.x}; }
+VV operator -(VV a) { return VV{0 - a.x}; }
+int V_thrice(*VV self) { return self.x * 3; }
+
+type IS = int[];
+type Arr = int[4];
+
+int main() {
+    let q: Sq = Sq{4};
+    Sh s = &q;
+    printf("%d %d %d\n", s.area(), use(&q), mk(&q).area());
+    PSq pq = &q;
+    PSq[2] ps; ps[0] = &q; ps[1] = pq;
+    printf("%d %d %d\n", pq.area(), ps[0].s, ps[1].area());
+
+    let b: BI = BI{5};
+    PB pb = &b;
+    printf("%d %d\n", b.get(), pb.get());
+
+    let h: Holder; h.f = int(int x) { return x * 10; };
+    *Holder hp = &h;
+    Cb[2] fs; fs[0] = adder(1); fs[1] = h.f;
+    printf("%d %d %d %d %d\n", h.f(1), hp.f(2), adder(5)(1), fs[0](2), fs[1](3));
+
+    C c = Blue;
+    printf("%s %s\n", colName(c), colName(Red));
+
+    V a = V{1}; VV bb = VV{2};
+    V sum = a + bb; VV neg = -bb;
+    let v: V = V{4};
+    printf("%d %d %d\n", sum.x, neg.x, v.thrice());
+
+    int[5] base = {1, 2, 3, 4, 5};
+    IS[2] sl;
+    sl[0] = base[1..4];
+    sl[1] = base[0..2];
+    printf("%d %d %d\n", sl[0][2], (int)sl[0].len, (int)sl[1].len);
+    let sp: *IS = alloc<IS>(2);
+    sp[1] = base[2..5];
+    IS t = sp[1];
+    printf("%d %d %d\n", t[0], (int)t.len, (int)sp[1].len);
+    free(sp);
+
+    Arr[2] aa; aa[1][3] = 7; aa[0][0] = 1;
+    printf("%d %d %d\n", aa[1][3], aa[0][0], (int)sizeof(aa));
+    return 0;
+}

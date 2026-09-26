@@ -910,7 +910,7 @@ void TypeChecker::visit(CallExpr* node) {
         }
         // Not a method — maybe a struct field holding a fn pointer: o.op(args).
         member->accept(this);
-        std::string fieldTy = getExpressionType(member);
+        std::string fieldTy = dealiasOperand(getExpressionType(member));
         if (fieldTy.size() > 3 && fieldTy.substr(0, 3) == "fn(") {
             for (auto& arg : node->args) arg->accept(this);
             expressionTypes[node] = checkFnValueCall(node, "'" + member->member + "'", fieldTy);
@@ -1227,11 +1227,13 @@ void TypeChecker::visit(IndexExpr* node) {
             errorAt(node, "slice bound must be integer, got " + hiType);
     }
 
-    // Determine the element type of the base (array / slice / pointer / string).
-    ty::Type bt = ty::Type::parse(baseType);
+    // Determine the element type of the base (array / slice / pointer / string), through
+    // an alias of one (`type PA = *Sq[2]`, an element of type `IS` for `type IS = int[]`).
+    std::string shape = dealiasOperand(baseType);
+    ty::Type bt = ty::Type::parse(shape);
     std::string elem;
     bool haveElem = false;
-    if (baseType == "string") { elem = "char"; haveElem = true; }
+    if (shape == "string") { elem = "char"; haveElem = true; }
     else if (bt.kind == ty::Type::Kind::Array || bt.kind == ty::Type::Kind::Slice) {
         elem = bt.elem->str(); haveElem = true;
         // Constant indices and bounds (a literal, an enum member, a `const`, or an
@@ -1275,8 +1277,8 @@ void TypeChecker::visit(IndexExpr* node) {
                                   " is out of bounds for array of size " + dimS);
             }
         }
-    } else if (isPointerType(baseType)) {
-        elem = getPointeeType(baseType); haveElem = true;
+    } else if (isPointerType(shape)) {
+        elem = getPointeeType(shape); haveElem = true;
     }
 
     // Overloaded subscript: `base[i]` on a non-built-in indexable resolves to a user
@@ -1315,6 +1317,9 @@ void TypeChecker::visit(MemberExpr* node) {
     std::string baseType = getExpressionType(node->base.get());
     if (!baseType.empty() && baseType[0] == '?') baseType = baseType.substr(1);   // `?*T` derefs like `*T`
     if (baseType.rfind("const ", 0) == 0) baseType = baseType.substr(6);         // `const *T` derefs like `*T`
+    // Through an alias (`type PSq = *Sq`, `type IS = int[]`) the member is the target's.
+    baseType = dealiasOperand(baseType);
+    if (!baseType.empty() && baseType[0] == '?') baseType = baseType.substr(1);
 
     // Slice `.len` → int64 (the fat pointer's length field).
     if (node->member == "len" && ty::Type::parse(baseType).kind == ty::Type::Kind::Slice) {
