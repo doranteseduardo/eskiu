@@ -100,7 +100,8 @@ std::string rangeVarType(const std::string& a, const std::string& b);
 // Fold an array dimension written as an integer constant expression. The parser keeps the
 // tokens' text (`(uint8)258`, `N*2`): numbers, casts to an integer type (which truncate
 // like C), unary and binary integer operators, `?:`, parentheses, and names, which `name`
-// resolves (a `const` int or an enum member; false when it is not one). False when `dim`
+// resolves (a `const` int or an enum member; false when it is not one; `sizeof(T)` reaches
+// it as that whole text, the phase that knows the layout sizes it). False when `dim`
 // is not such an expression (a division by zero included).
 bool foldDim(const std::string& dim, const std::function<bool(const std::string&, long long&)>& name,
              long long& out);

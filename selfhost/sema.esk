@@ -673,8 +673,54 @@ int sema_known_type(Sema* s, string t) {
 // (mirrors the C++ validateStructType).
 int sema_fold_int(Sema* s, *ExprNode e, int64* out);
 string sema_trim_sub(string s, int a, int b);
+void sema_check_decl_type(Sema* s, string t);
+string sema_resolve_scalar(Sema* s, string t0);
+string sema_isub(Sema* s, string t);
+// `sizeof(t)` for a scalar whose size is the same on every target (0 otherwise).
+int64 sema_fixed_scalar_size(string t) {
+    if (sema_streq(t, "int8") == 1 || sema_streq(t, "uint8") == 1 || sema_streq(t, "char") == 1
+        || sema_streq(t, "bool") == 1) { return (int64)1; }
+    if (sema_streq(t, "int16") == 1 || sema_streq(t, "uint16") == 1) { return (int64)2; }
+    if (sema_streq(t, "int") == 1 || sema_streq(t, "int32") == 1 || sema_streq(t, "uint") == 1
+        || sema_streq(t, "uint32") == 1 || sema_streq(t, "float") == 1) { return (int64)4; }
+    if (sema_streq(t, "int64") == 1 || sema_streq(t, "uint64") == 1 || sema_streq(t, "double") == 1) { return (int64)8; }
+    return (int64)0;
+}
+// Does dimension text `dim` have a `sizeof(T)` whose size is target layout? Its value is
+// then left to codegen.
+int sema_dim_sized_later(string dim) {
+    int n = 0; while (dim[n] != 0) { n = n + 1; }
+    int i = 0;
+    while (i + 7 <= n) {
+        if (sema_streq(sema_sub_str(dim, i, i + 7), "sizeof(") == 1) {
+            int j = i + 7; int depth = 1;
+            while (j < n && depth > 0) {
+                if (dim[j] == '(') { depth = depth + 1; } else if (dim[j] == ')') { depth = depth - 1; }
+                j = j + 1;
+            }
+            if (sema_fixed_scalar_size(sema_trim_sub(dim, i + 7, j - 1)) == (int64)0) { return 1; }
+        }
+        i = i + 1;
+    }
+    return 0;
+}
 // A name in a dimension expression: a classic enum member or an in-scope `const` int.
+// `sizeof(T)`: T must be a sized type; codegen, which knows the layout, folds the size
+// (mirrors the C++ checkArrayDim).
 int sema_dim_name(Sema* s, string nm, int64* out) {
+    if (ast_has_prefix(nm, "sizeof(") == 1) {
+        int nl = 0; while (nm[nl] != 0) { nl = nl + 1; }
+        string t = sema_sub_str(nm, 7, nl - 1);
+        int e0 = s.had_error; s.had_error = 0;
+        sema_check_decl_type(s, t);
+        if (s.had_error == 0 && sema_is_void_value(sema_resolve_scalar(s, sema_isub(s, t))) == 1) {
+            sema_error(s, "sizeof of 'void': a void value has no size");
+        }
+        if (e0 == 1) { s.had_error = 1; }
+        *out = sema_fixed_scalar_size(t);
+        if (*out == (int64)0) { *out = (int64)8; }
+        return 1;
+    }
     int64 ev = sema_dim_value(s, nm);
     if (ev >= (int64)0) { *out = ev; return 1; }
     int si = sema_sym_index(s, nm);
@@ -711,7 +757,7 @@ void sema_check_dims(Sema* s, string t) {
                     known = ast_fold_dim(dim, int(string nm, *int64 out) { return sema_dim_name(s, nm, out); }, &v);
                 }
             }
-            if (known == 1 && v <= (int64)0) {
+            if (known == 1 && v <= (int64)0 && sema_dim_sized_later(dim) == 0) {
                 s.had_error = 1;
                 dprintf(2, "error: %s:%d:%d: array size must be positive, got %lld\n", s.filename, s.line, s.col, v);
             }

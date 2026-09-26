@@ -261,9 +261,19 @@ void TypeChecker::validateStructType(const std::string& type, ASTNode* at) {
 
 // A fixed array's dimension (a number, an enum member, or a `const` int) must be
 // positive, as in C: a zero or negative size has no layout.
+// `sizeof(t)` for a scalar whose size is the same on every target (0 otherwise).
+static long long fixedScalarSize(const std::string& t) {
+    if (t == "int8" || t == "uint8" || t == "char" || t == "bool") return 1;
+    if (t == "int16" || t == "uint16") return 2;
+    if (t == "int" || t == "int32" || t == "uint" || t == "uint32" || t == "float") return 4;
+    if (t == "int64" || t == "uint64" || t == "double") return 8;
+    return 0;
+}
+
 void TypeChecker::checkArrayDim(const std::string& dim, ASTNode* at) {
     long long v = 0;
     bool known = false;
+    bool sizedLater = false;   // a `sizeof` term: codegen knows the value
     if (!dim.empty() && (std::isdigit((unsigned char)dim[0]) || dim[0] == '-') &&
         std::all_of(dim.begin() + 1, dim.end(), [](unsigned char c) { return std::isdigit(c); })) {
         try { v = std::stoll(dim); known = true; } catch (...) {}
@@ -275,11 +285,23 @@ void TypeChecker::checkArrayDim(const std::string& dim, ASTNode* at) {
         // An integer constant expression (`(uint8)258`, `N*2`), folded like a `const`.
         known = ty::foldDim(dim, [&](const std::string& n, long long& r) {
             if (auto ec = enumConstants.find(n); ec != enumConstants.end()) { r = ec->second; return true; }
+            if (n.rfind("sizeof(", 0) == 0) {
+                // `sizeof(T)`: T must be a sized type. A fixed-size scalar folds here; any
+                // other size is target layout, which codegen folds (and checks positive).
+                std::string t = n.substr(7, n.size() - 8);
+                size_t before = errors.size();
+                validateStructType(normalizeType(t), at);
+                if (errors.size() == before && isVoidValueType(t))
+                    errorAt(at, "sizeof of 'void': a void value has no size");
+                r = fixedScalarSize(t);
+                if (r == 0) { r = 8; sizedLater = true; }
+                return true;
+            }
             const Symbol* cs = findSymbol(n);
             return cs && cs->isConst && cs->constInit && foldConstInt(cs->constInit, r);
         }, v);
     }
-    if (known && v <= 0)
+    if (known && v <= 0 && !sizedLater)
         errorAt(at, "array size must be positive, got " + std::to_string(v) +
                     (std::to_string(v) == dim ? "" : " ('" + dim + "')"));
     // No variable-length arrays: the size is fixed at compile time.

@@ -369,7 +369,19 @@ struct DimFolder {
         }
         if (identStart(c)) {
             long long v = 0;
-            if (!name(ident(), v)) ok = false;
+            std::string n = ident();
+            // `sizeof(T)` goes to `name` whole, as the text "sizeof(T)".
+            if (n == "sizeof" && at("(")) {
+                size_t b = i, depth = 0;
+                for (; i < s.size(); ++i) {
+                    if (s[i] == '(') ++depth;
+                    else if (s[i] == ')' && --depth == 0) break;
+                }
+                if (i >= s.size()) { ok = false; return 0; }
+                ++i;
+                n += s.substr(b, i - b);
+            }
+            if (!name(n, v)) ok = false;
             return v;
         }
         ok = false;

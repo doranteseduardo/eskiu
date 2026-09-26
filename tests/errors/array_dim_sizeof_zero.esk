@@ -1,0 +1,6 @@
+// EXPECT-ERROR: array size must be positive, got 0
+// `sizeof` of a fixed-size scalar folds in the type checker.
+int main() {
+    int[sizeof(int) - 4] a;
+    return 0;
+}

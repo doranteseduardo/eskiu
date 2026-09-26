@@ -1980,12 +1980,22 @@ string cg_dim_val(Codegen* g, string cnt) {
     if (rv[0] != 0) { return rv; }
     int64 v = (int64)0;
     int folded = ast_fold_dim(cnt, int(string nm, *int64 out) {
+        if (ast_has_prefix(nm, "sizeof(") == 1) {          // `sizeof(T)`, the type's allocation size
+            int nl = 0; while (nm[nl] != 0) { nl = nl + 1; }
+            *out = (int64)cg_size(g, cg_sub_str(nm, 7, nl - 1));
+            return 1;
+        }
         string ev = cg_enum_val(g, nm);
         if (ev[0] == 0) { return 0; }
         *out = cg_parse_i64(ev);
         return 1;
     }, &v);
     if (folded == 1 && v > (int64)0) { return cg_i64toa(v); }
+    // The type checker leaves a `sizeof` dimension's value to codegen.
+    if (folded == 1 && cg_has_sub(cnt, "sizeof(") == 1) {
+        dprintf(2, "error: array size must be positive, got %lld ('%s')\n", v, cnt);
+        exit(1);
+    }
     return cnt;
 }
 

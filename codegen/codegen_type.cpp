@@ -24,12 +24,22 @@ bool CodeGen::resolveArrayDim(const std::string& dim, uint64_t& out) const {
     if (c != constInts.end())     { out = (uint64_t)c->second; return true; }
     // An integer constant expression (`(uint8)258`, `N*2`), as the type checker folds it.
     long long v = 0;
+    bool sized = false;
     bool folded = ty::foldDim(dim, [&](const std::string& n, long long& r) {
         if (auto en = enumConstants.find(n); en != enumConstants.end()) { r = en->second; return true; }
         if (auto cn = constInts.find(n); cn != constInts.end()) { r = cn->second; return true; }
+        if (n.rfind("sizeof(", 0) == 0) {           // `sizeof(T)`, the type's allocation size
+            llvm::Type* ty = const_cast<CodeGen*>(this)->getTypeFromString(n.substr(7, n.size() - 8));
+            r = (long long)module->getDataLayout().getTypeAllocSize(ty);
+            sized = true;
+            return true;
+        }
         return false;
     }, v);
     if (folded && v > 0) { out = (uint64_t)v; return true; }
+    // The type checker leaves a `sizeof` dimension's value to codegen.
+    if (folded && sized)
+        throw std::runtime_error("array size must be positive, got " + std::to_string(v) + " ('" + dim + "')");
     return false;
 }
 
