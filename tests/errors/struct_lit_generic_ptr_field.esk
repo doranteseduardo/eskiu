@@ -1,0 +1,5 @@
+// EXPECT-ERROR: field 'p': cannot convert
+struct S { int x; }
+struct T { int64 y; }
+struct B<X> { *X p; }
+int main() { S s = S{x: 1}; B<T> b = B<T>{p: &s}; return 0; }

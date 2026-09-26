@@ -1733,6 +1733,16 @@ int sema_is_byte_ptr(string t) {
     return sema_streq(t, "string") == 1 || sema_streq(t, "*char") == 1 || sema_streq(t, "*int8") == 1
         || sema_streq(t, "*uint8") == 1;
 }
+// The array type `t` points at when it is spelled `X[..]*` (a pointer to an array), else "".
+string sema_arr_ptr_pointee(string t) {
+    int n = sema_slen(t);
+    if (n < 2 || (int)t[n - 1] != 42 || (int)t[0] == 42) { return ""; }
+    int b = n; while (b > 0 && (int)t[b - 1] == 42) { b = b - 1; }
+    if (b == 0 || (int)t[b - 1] != 93) { return ""; }
+    if (n - b != 1) { return ""; }
+    return sema_sub_str(t, 0, b);
+}
+
 int sema_ptr_compat(Sema* s, string a0, string b0) {
     string a = sema_strip_const(sema_strip_nullable(sema_canon(s, a0)));
     string b = sema_strip_const(sema_strip_nullable(sema_canon(s, b0)));
@@ -1740,6 +1750,17 @@ int sema_ptr_compat(Sema* s, string a0, string b0) {
     if (sema_streq(a, "*void") == 1 || sema_streq(b, "*void") == 1) { return 1; }
     if (sema_is_byte_ptr(a) == 1 && sema_is_byte_ptr(b) == 1) { return 1; }
     if (sema_streq(a, "string") == 1 || sema_streq(b, "string") == 1) { return 0; }
+    // A pointer to an array (`int[4]*`, the type of `&arr`) points at the array type.
+    string aa = sema_arr_ptr_pointee(a);
+    string ab = sema_arr_ptr_pointee(b);
+    if (aa[0] != 0 || ab[0] != 0) {
+        if (aa[0] == 0 && (int)a[0] == 42) { aa = sema_sub_str(a, 1, sema_slen(a)); }
+        if (ab[0] == 0 && (int)b[0] == 42) { ab = sema_sub_str(b, 1, sema_slen(b)); }
+        if (aa[0] == 0 || ab[0] == 0) { return 1; }
+        if (sema_streq(sema_canon(s, aa), sema_canon(s, ab)) == 1) { return 1; }
+        if (sema_judgeable(s, sema_canon(s, aa)) == 1 && sema_judgeable(s, sema_canon(s, ab)) == 1) { return 0; }
+        return 1;
+    }
     if ((int)a[0] != 42 || (int)b[0] != 42) { return 1; }            // not a leading-star spelling: not judged
     string pa = sema_strip_const(sema_strip_nullable(sema_sub_str(a, 1, sema_slen(a))));
     string pb = sema_strip_const(sema_strip_nullable(sema_sub_str(b, 1, sema_slen(b))));
@@ -1830,6 +1851,13 @@ string sema_assign_err(Sema* s, string ta0, *ExprNode e) {
     if (sema_is_int_ty(t) == 1 && sema_is_float_ty(src) == 1) {
         return sema_cat(sema_cat(sema_cat(sema_cat("cannot assign a floating-point value ('", src), "') to integer type '"), t0),
                         "' without an explicit cast (it drops the fraction)");
+    }
+    // A pointer to an array (`&arr` is `int[4]*`) is not a number, nor a pointer to
+    // anything but that array type (or `*void`).
+    string sap = sema_arr_ptr_pointee(sema_canon(s, src));
+    if (sap[0] != 0) {
+        if (sema_is_numeric_ty(tc) == 1) { return conv; }
+        if ((int)tc[0] == 42 && sema_ptr_compat(s, tc, sema_canon(s, src)) == 0) { return conv; }
     }
     int tnum = sema_is_numeric_ty(t);
     int snum = sema_is_numeric_ty(src);
@@ -2407,6 +2435,11 @@ void sema_check_struct_init(Sema* s, *ExprNode e) {
         }
         if (ft[0] != 0) {
             string cft = sema_subst_tparam(d, &targs, ft);
+            // A field type built from a type parameter (`*X`, `X[2]`) takes the literal's
+            // type arguments too.
+            if (List_len<TypeParam>(&d.type_params) > 0 && List_len<string>(&targs) == List_len<TypeParam>(&d.type_params)) {
+                cft = sema_subst_params(ft, &d.type_params, &targs);
+            }
             if (cft[0] != 0 && sema_mentions_tparam(d, cft) == 0) {
                 sema_report_assign(s, sema_cat(sema_cat("field '", shown), "'"), sema_assign_err(s, cft, v));
             }

@@ -482,6 +482,7 @@ bool TypeChecker::pointeesCompatible(const std::string& lhs, const std::string& 
     std::string ln = int32AsInt(normalizeType(lp)), rn = int32AsInt(normalizeType(rp));
     if (ln == rn) return true;
     auto judged = [&](const std::string& t) {
+        if (enumDecls.count(t)) return true;   // a sum type is a named type of its own
         ty::Type k = ty::Type::parse(t);
         return k.kind != ty::Type::Kind::Param && k.kind != ty::Type::Kind::Named &&
                k.kind != ty::Type::Kind::Unknown && k.kind != ty::Type::Kind::Error && t != "unknown";

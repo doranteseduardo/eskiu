@@ -1,0 +1,4 @@
+// EXPECT-ERROR: cannot convert
+enum Opt { Some(int), None }
+struct S { int x; }
+int main() { Opt v = Some(1); *S ps = &v; return 0; }
