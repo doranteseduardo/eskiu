@@ -31,7 +31,7 @@ fi
 TARGETS="arm64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu
 x86_64-apple-darwin x86_64-pc-windows-msvc x86_64-w64-windows-gnu
 armv7-none-linux-gnueabihf armv6k-none-eabihf armv7-none-linux-gnueabi"
-INPUTS="tests/c_abi_struct.esk tests/c_abi_callback.esk tests/c_abi_try.esk tests/c_abi_fnptr.esk tests/bitfield_c_layout.esk tests/c_abi_union.esk"
+INPUTS="tests/c_abi_struct.esk tests/c_abi_callback.esk tests/c_abi_try.esk tests/c_abi_fnptr.esk tests/bitfield_c_layout.esk tests/c_abi_union.esk tests/c_abi_narrow.esk"
 
 # The lowered signatures in an IR file, one per line, sorted: `NAME<TAB>signature`. The C++
 # names a union's storage type `%U.union` and the self-host `%U`; only the spelling differs.

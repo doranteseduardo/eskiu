@@ -1257,6 +1257,7 @@ string cg_payload_lltype(Codegen* g, CgVariant* v) {
 }
 
 int cg_is_unsigned(string t);   // fwd (defined later); for signedness-aware widening
+string cg_ext_attr(Codegen* g, string t);   // fwd: signext/zeroext of a narrow C int
 int cg_is_fn(Codegen* g, string name);
 string cg_fn_to_closure(Codegen* g, string fnname);   // fwd: decay a top-level fn to a {thunk,null} closure
 string cg_cabi_callback(Codegen* g, string name);     // fwd: a top-level fn as a raw C callback address
@@ -6362,7 +6363,7 @@ void cg_emit_fn(Codegen* g, *DeclNode d, string llname, string self_struct) {
     int base = 0;
     if (self_struct[0] != 0) { base = 1; }
 
-    cg_emit(g, "define "); cg_emit(g, rt); cg_emit(g, " @"); cg_emit(g, llname); cg_emit(g, "(");
+    cg_emit(g, "define"); cg_emit(g, cg_ext_attr(g, d.ret_type)); cg_emit(g, " "); cg_emit(g, rt); cg_emit(g, " @"); cg_emit(g, llname); cg_emit(g, "(");
     if (base == 1) { cg_emit(g, "ptr %p0"); }
     int np = List_len<Param>(&d.params);
     int pi = 0;
@@ -6519,6 +6520,21 @@ int cg_is_unsigned(string t) {
     return cg_streq(t, "uint") == 1 || cg_streq(t, "uint8") == 1 || cg_streq(t, "uint16") == 1
         || cg_streq(t, "uint32") == 1 || cg_streq(t, "uint64") == 1 || cg_streq(t, "bool") == 1
         || cg_streq(t, "char") == 1;
+}
+
+// The C extension attribute (" signext" / " zeroext" / "") of a narrow integer argument
+// or result of Eskiu type `t` (C++ CodeGen::cabiExtAttr). `char` follows the target's C
+// `char`: unsigned on AArch64 (not Darwin) and 32-bit ARM, outside Windows.
+string cg_ext_attr(Codegen* g, string t) {
+    string d = cg_dealias(g, cg_apply_sub(g, t));
+    string lt = cg_lltype(g, d);
+    if (cg_streq(lt, "i1") == 0 && cg_streq(lt, "i8") == 0 && cg_streq(lt, "i16") == 0) { return ""; }
+    if (cg_streq(d, "char") == 1) {
+        if (g.wintgt == 0 && (g.abi == 2 || g.abi >= 5)) { return " zeroext"; }
+        return " signext";
+    }
+    if (cg_is_unsigned(d) == 1) { return " zeroext"; }
+    return " signext";
 }
 
 // The bitfield slot for `sname.fname` (sentinel .fidx == -1 if not registered).
@@ -7204,6 +7220,7 @@ string cg_cabi_declare(Codegen* g, *DeclNode d) {
         else if (a.kind >= 3) { bare = "ptr"; }
         if (String_len(&decl) > 0) { String_append(&decl, ", "); String_append(&fixed, ", "); }
         String_append(&decl, cg_abi_param_decl(a, lty));
+        if (a.kind == 0 && cg_streq(lty, "ptr") == 0) { String_append(&decl, cg_ext_attr(g, cety)); }
         String_append(&fixed, bare);
         i = i + 1;
     }
@@ -7214,7 +7231,9 @@ string cg_cabi_declare(Codegen* g, *DeclNode d) {
     List_push<CgCabi>(&g.cabis, c);
     string params = (string)String_cstr(&decl);
     if (variadic == 1) { params = cg_va(params); }
-    return cg_cat("declare ", cg_cat(c.lowret, cg_cat(" @", cg_cat(d.name, cg_cat("(", cg_cat(params, ")\n"))))));
+    string rattr = "";
+    if (c.ret.kind == 0) { rattr = cg_ext_attr(g, d.ret_type); }
+    return cg_cat("declare", cg_cat(rattr, cg_cat(" ", cg_cat(c.lowret, cg_cat(" @", cg_cat(d.name, cg_cat("(", cg_cat(params, ")\n"))))))));
 }
 
 // Reinterpret value `op` of LLVM type `from` as type `to` through a stack slot big and
@@ -7387,7 +7406,9 @@ void cg_emit_cabi_thunk(Codegen* g, string name) {
     }
     string bodytext = (string)String_cstr(&g.out);
     g.out = saved;
-    cg_emit(g, "define internal "); cg_emit(g, lowret); cg_emit(g, " @__cabi_"); cg_emit(g, name);
+    cg_emit(g, "define internal");
+    if (ra.kind == 0) { cg_emit(g, cg_ext_attr(g, f.rety)); }
+    cg_emit(g, " "); cg_emit(g, lowret); cg_emit(g, " @__cabi_"); cg_emit(g, name);
     cg_emit(g, "("); cg_emit(g, (string)String_cstr(&hdr)); cg_emit(g, ") {\nentry:\n");
     cg_emit(g, (string)String_cstr(&g.entry_buf));
     cg_emit(g, bodytext);
@@ -7764,6 +7785,7 @@ void cg_program(Codegen* g, *Program prog) {
             f.rety = d.ret_type;
             f.variadic = 0;
             string fixed = "";
+            string fixedx = "";     // with signext/zeroext (the extern's declare line)
             int np = List_len<Param>(&d.params);
             int pi = 0;
             int first = 1;
@@ -7779,8 +7801,10 @@ void cg_program(Codegen* g, *Program prog) {
                         && cg_is_fnty(cg_dealias(g, pm.ty)) == 1) { plt = "ptr"; }
                     List_push<string>(&f.ptys, plt);
                     List_push<string>(&f.petys, pm.ty);
-                    if (first == 0) { fixed = cg_cat(fixed, ", "); }
+                    if (first == 0) { fixed = cg_cat(fixed, ", "); fixedx = cg_cat(fixedx, ", "); }
                     fixed = cg_cat(fixed, plt);
+                    fixedx = cg_cat(fixedx, plt);
+                    if (cg_streq(plt, "ptr") == 0) { fixedx = cg_cat(fixedx, cg_ext_attr(g, pm.ty)); }
                     first = 0;
                 }
                 pi = pi + 1;
@@ -7802,13 +7826,15 @@ void cg_program(Codegen* g, *Program prog) {
             if (lowered[0] != 0) {
                 String_append(&g.globals, lowered);
             } else if (d.kind == DK_EXTERN && cg_prog_defines(prog, d.name) == 0) {       // emit a declaration the calls can reference
-                String_append(&g.globals, "declare ");
+                String_append(&g.globals, "declare");
+                String_append(&g.globals, cg_ext_attr(g, d.ret_type));
+                String_append(&g.globals, " ");
                 String_append(&g.globals, f.retty);
                 String_append(&g.globals, " @");
                 String_append(&g.globals, f.name);
                 String_append(&g.globals, "(");
-                if (f.variadic == 1) { String_append(&g.globals, cg_va(fixed)); }
-                else { String_append(&g.globals, fixed); }
+                if (f.variadic == 1) { String_append(&g.globals, cg_va(fixedx)); }
+                else { String_append(&g.globals, fixedx); }
                 String_append(&g.globals, ")\n");
             }
         }

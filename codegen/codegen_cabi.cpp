@@ -1,4 +1,5 @@
 #include "codegen.h"
+#include "../ast/type_qual.h"
 #include "llvm/TargetParser/Triple.h"
 #include <functional>
 #include <set>
@@ -22,6 +23,24 @@ CodeGen::CAbiTarget CodeGen::cabiTarget() const {
         return t.isOSWindows() ? CAbiTarget::Win64 : CAbiTarget::SysV;
     if (t.isARM() || t.isThumb()) return CAbiTarget::ARM32;
     return CAbiTarget::None;
+}
+
+// The C extension attribute of a narrow integer argument or result (clang's signext /
+// zeroext): the caller extends an argument, the callee a result, to 32 bits, and the
+// other side relies on it (AArch64 Darwin, x86-64). `char` follows the target's C
+// `char`, unsigned on AArch64 and 32-bit ARM outside Darwin and Windows.
+llvm::Attribute::AttrKind CodeGen::cabiExtAttr(const std::string& eskiuType, llvm::Type* llty) const {
+    if (!llty->isIntegerTy(1) && !llty->isIntegerTy(8) && !llty->isIntegerTy(16))
+        return llvm::Attribute::None;
+    std::string s = tyq::strip(expandAlias(eskiuType));
+    auto ov = typeParamOverride.find(s);
+    if (ov != typeParamOverride.end()) s = tyq::strip(expandAlias(ov->second));
+    if (s == "char") {
+        llvm::Triple t(module->getTargetTriple());
+        bool uns = !t.isOSWindows() && (t.isARM() || t.isThumb() || (t.isAArch64() && !t.isOSDarwin()));
+        return uns ? llvm::Attribute::ZExt : llvm::Attribute::SExt;
+    }
+    return eskiuUnsigned(s) ? llvm::Attribute::ZExt : llvm::Attribute::SExt;
 }
 
 // Only named struct types are C aggregates here: user structs and unions (and ADT
@@ -380,6 +399,10 @@ llvm::Function* CodeGen::cabiCallbackThunk(llvm::Function* target) {
     llvm::Function* thunk = llvm::Function::Create(sig.lowered, llvm::Function::InternalLinkage,
                                                    tname, module.get());
     addCAbiAttrs(sig, [&](unsigned i, llvm::Attribute a) { thunk->addParamAttr(i, a); });
+    if (sig.ret.kind == CAbiArg::Direct && !lret->isVoidTy() && funcEskiuReturnType.count(name)) {
+        llvm::Attribute::AttrKind ext = cabiExtAttr(funcEskiuReturnType[name], lret);
+        if (ext != llvm::Attribute::None) thunk->addRetAttr(ext);
+    }
 
     llvm::IRBuilderBase::InsertPointGuard guard(*builder);
     builder->SetInsertPoint(llvm::BasicBlock::Create(*context, "entry", thunk));

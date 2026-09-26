@@ -170,6 +170,12 @@ llvm::Function* CodeGen::declareFunction(
         sret ? llvm::Type::getVoidTy(*context) : returnType, paramTypes, isVarArg);
     llvm::Function* func = llvm::Function::Create(
         funcType, llvm::Function::ExternalLinkage, name, module.get());
+    // A narrow integer result is extended by the callee (signext/zeroext), so a C
+    // caller (a callback, or C calling an Eskiu function) reads it the C way.
+    if (!sret) {
+        llvm::Attribute::AttrKind rext = cabiExtAttr(returnTypeStr, returnType);
+        if (rext != llvm::Attribute::None) func->addRetAttr(rext);
+    }
 
     // Set parameter names (skip index 0 for sret functions — that's the hidden ret ptr)
     size_t paramIdx = 0;
@@ -686,14 +692,31 @@ void CodeGen::visit(ExternDecl* node) {
     llvm::FunctionType* funcType = llvm::FunctionType::get(returnType, paramTypes, hasVarargs);
 
     // By-value aggregates: declare the C-ABI-lowered signature (see codegen_cabi.cpp).
+    // Narrow integer params/result carry signext/zeroext, as clang declares them.
+    std::vector<llvm::Attribute::AttrKind> pext;
+    for (size_t i = 0; i < paramTypes.size(); ++i)
+        pext.push_back(fnPtr[i] ? llvm::Attribute::None : cabiExtAttr(node->params[i].first, paramTypes[i]));
+    llvm::Attribute::AttrKind rext = cabiExtAttr(node->returnType, returnType);
     CAbiSig sig;
     if (buildCAbiSig(funcType, sig)) {
-        if (!module->getFunction(node->name)) declareCAbiExtern(node->name, sig);
+        if (!module->getFunction(node->name)) {
+            llvm::Function* fn = declareCAbiExtern(node->name, sig);
+            unsigned idx = sig.ret.kind == CAbiArg::Sret ? 1 : 0;
+            for (size_t i = 0; i < sig.params.size(); ++i) {
+                const CAbiArg& a = sig.params[i];
+                if (a.kind == CAbiArg::Direct && pext[i] != llvm::Attribute::None) fn->addParamAttr(idx, pext[i]);
+                idx += a.kind == CAbiArg::Expand ? llvm::cast<llvm::StructType>(a.ty)->getNumElements() : 1;
+            }
+            if (sig.ret.kind == CAbiArg::Direct && rext != llvm::Attribute::None) fn->addRetAttr(rext);
+        }
         return;
     }
 
     // Create external function declaration
-    llvm::Function::Create(funcType, llvm::Function::ExternalLinkage, node->name, module.get());
+    llvm::Function* fn = llvm::Function::Create(funcType, llvm::Function::ExternalLinkage, node->name, module.get());
+    for (size_t i = 0; i < pext.size(); ++i)
+        if (pext[i] != llvm::Attribute::None) fn->addParamAttr((unsigned)i, pext[i]);
+    if (rext != llvm::Attribute::None) fn->addRetAttr(rext);
 }
 
 void CodeGen::visit(IntrinsicDecl* node) {

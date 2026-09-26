@@ -408,6 +408,7 @@ private:
     // function itself, or a `__cabi_<name>` thunk with the lowered C signature when it
     // takes or returns an aggregate by value.
     llvm::Function* cabiCallbackThunk(llvm::Function* target);
+    llvm::Attribute::AttrKind cabiExtAttr(const std::string& eskiuType, llvm::Type* llty) const;
     // An `extern` parameter of fn type is a C function pointer (a bare `ptr`), per
     // extern: which parameters are. Functions the program defines are never lowered.
     std::map<std::string, std::vector<bool>> externFnPtrParams;
