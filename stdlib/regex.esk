@@ -215,7 +215,8 @@ void re_shorthand(ReComp* c, int id, int kind) {
         re_range(c, id, 'a', 'z');
         re_range(c, id, '_', '_');
     } else if (kind == 's') {
-        re_range(c, id, '\t', '\r');           // \t \n \v \f \r
+        re_range(c, id, '\t', '\n');           // \t \n \f \r and space, as in RE2 (not \v)
+        re_range(c, id, '\f', '\r');
         re_range(c, id, ' ', ' ');
     }
 }
@@ -227,7 +228,7 @@ void re_shorthand_neg(ReComp* c, int id, int kind) {
     for (i in 0..256) {
         const bool digit = i >= '0' && i <= '9';
         const bool word = digit || (i >= 'A' && i <= 'Z') || (i >= 'a' && i <= 'z') || i == '_';
-        const bool space = (i >= '\t' && i <= '\r') || i == ' ';
+        const bool space = i == '\t' || i == '\n' || i == '\f' || i == '\r' || i == ' ';
         in_set[i] = kind == 'd' ? digit : (kind == 'w' ? word : space);
     }
     int i = 0;
