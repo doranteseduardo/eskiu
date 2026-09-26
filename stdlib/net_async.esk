@@ -22,11 +22,9 @@ import <timer>;
 // Windows a socket is not a file descriptor, so read/write/fcntl/errno do not apply: use
 // recv/send, ioctlsocket, and WSAGetLastError. `_net_read`/`_net_write` unify the two so the
 // async bodies below stay platform-agnostic.
+// The errno helpers (_net_errno, _NET_EAGAIN) live in <net>.
 #ifdef _WIN32
-extern int WSAGetLastError();
 extern int ioctlsocket(int fd, int cmd, *int argp);
-int _net_errno() { return WSAGetLastError(); }
-const int _NET_EAGAIN = 10035;   // WSAEWOULDBLOCK
 // FIONBIO = 0x8004667E as a signed 32-bit value (its top bit is set).
 void net_set_nonblocking(int fd) { int one = 1; ioctlsocket(fd, 0 - 2147195266, &one); }
 int64 _net_read(int fd, *void buf, int64 n)  { return recv(fd, buf, n, 0); }
@@ -37,15 +35,9 @@ extern int64 write(int fd, *void buf, int64 n);
 extern int   fcntl(int fd, int cmd, ...);        // variadic in C: arm64 Apple passes `...` on the stack
 
 #ifdef __APPLE__
-extern *int __error();
-int _net_errno() { return *__error(); }
-const int _NET_EAGAIN  = 35;     // EAGAIN == EWOULDBLOCK on macOS
 const int _NET_NONBLOCK = 4;     // O_NONBLOCK
 const int _NET_ENOTSOCK = 38;
 #else
-extern *int __errno_location();
-int _net_errno() { return *__errno_location(); }
-const int _NET_EAGAIN  = 11;     // EAGAIN == EWOULDBLOCK on Linux
 const int _NET_NONBLOCK = 2048;  // O_NONBLOCK (0x800)
 const int _NET_ENOTSOCK = 88;
 #endif
@@ -119,6 +111,73 @@ Future<int>* net_read_async(EventLoop* lp, int fd, *uint8 buf, int64 cap) {
         future_complete<int>(f, (int)n);         // resumes the awaiter (loop thread)
     });
     return f;
+}
+
+// net_read_async with a deadline (an absolute monotonic time, see <net>'s
+// net_deadline; 0 waits forever): the byte count as net_read_async, or
+// NET_TIMED_OUT if nothing arrived by then. The pending read and the timer race
+// through select2, so the loser is dropped (deregistered and freed).
+async int net_read_deadline_async(EventLoop* lp, int fd, *uint8 buf, int64 cap, int64 deadline) {
+    if (deadline == 0) {
+        int n = await net_read_async(lp, fd, buf, cap);
+        return n;
+    }
+    int64 left = deadline - time_monotonic_ms();
+    if (left <= 0) { return NET_TIMED_OUT; }
+    Future<int>* rd = net_read_async(lp, fd, buf, cap);
+    Future<int>* tm = timer_after(lp, left);
+    int w = await select2(rd, tm);
+    if (w == 0) {
+        int n = rd.value;
+        free_future<int>(rd);
+        return n;
+    }
+    free_future<int>(tm);
+    return NET_TIMED_OUT;
+}
+
+// net_write_async with a deadline (0 = none): `len`, -1 on a hard error, or
+// NET_TIMED_OUT if the peer did not take all of it by then (a client that stops
+// reading). What was already written stays written; close the connection.
+async int net_write_deadline_async(EventLoop* lp, int fd, *uint8 buf, int64 len, int64 deadline) {
+    if (deadline == 0) {
+        int n = await net_write_async(lp, fd, buf, len);
+        return n;
+    }
+    int64 left = deadline - time_monotonic_ms();
+    if (left <= 0) { return NET_TIMED_OUT; }
+    Future<int>* wr = net_write_async(lp, fd, buf, len);
+    Future<int>* tm = timer_after(lp, left);
+    int w = await select2(wr, tm);
+    if (w == 0) {
+        int n = wr.value;
+        free_future<int>(wr);
+        return n;
+    }
+    free_future<int>(tm);
+    return NET_TIMED_OUT;
+}
+
+// Wait until `fd` is readable (as net_readable_async) or writable, with a
+// deadline (0 = none): 0 when ready, NET_TIMED_OUT past the deadline. Drives a
+// non-blocking TLS pump that must not wait forever.
+async int net_ready_deadline_async(EventLoop* lp, int fd, int writable, int64 deadline) {
+    if (deadline == 0) {
+        if (writable != 0) { int x = await net_writable_async(lp, fd); return x; }
+        int y = await net_readable_async(lp, fd);
+        return y;
+    }
+    int64 left = deadline - time_monotonic_ms();
+    if (left <= 0) { return NET_TIMED_OUT; }
+    Future<int>* rd = writable != 0 ? net_writable_async(lp, fd) : net_readable_async(lp, fd);
+    Future<int>* tm = timer_after(lp, left);
+    int w = await select2(rd, tm);
+    if (w == 0) {
+        free_future<int>(rd);
+        return 0;
+    }
+    free_future<int>(tm);
+    return NET_TIMED_OUT;
 }
 
 // Complete with an accepted client fd once `listen_fd` has a pending connection.
