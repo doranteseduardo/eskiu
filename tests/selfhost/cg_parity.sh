@@ -71,6 +71,13 @@ if [ "$#" -eq 0 ]; then
     vn="$(ESKIU_ROOT="$(pwd)" "$CGBIN" --test-codegen tests/volatile_access.esk 2>/dev/null | grep -c 'volatile i32')"
     if [ "$vn" = 10 ]; then echo "ok    volatile_access  (IR: 10 volatile accesses)"
     else echo "FAIL  volatile_access  (IR: $vn volatile i32 accesses, expected 10)"; fail=1; fi
+    # An await the async lowering can't place is an error located at that await.
+    total=$((total + 1))
+    aw="$(ESKIU_ROOT="$(pwd)" "$CGBIN" --test-codegen tests/run_cmd/await_in_expr.esk 2>&1 >/dev/null)"
+    case "$aw" in
+        *"await_in_expr.esk:7:10: async function 'worker': 'await' is only supported"*) echo "ok    await_in_expr  (located error)" ;;
+        *) echo "FAIL  await_in_expr  ($aw)"; fail=1 ;;
+    esac
 fi
 
 echo "----"

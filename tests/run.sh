@@ -267,6 +267,14 @@ v_n="$("$ESKIUC" --test-codegen "$here/volatile_access.esk" 2>/dev/null | grep -
 if [[ "$v_n" -eq 10 ]]; then ok "codegen/volatile-access"
 else bad "codegen/volatile-access" "$v_n volatile i32 accesses in the IR, expected 10"; fi
 
+# An await inside a larger expression is an error located at the await.
+aw_out="$("$ESKIUC" "$here/run_cmd/await_in_expr.esk" -o "$work/await_in_expr" 2>&1)"
+if [[ "$aw_out" == *"await_in_expr.esk:7:10: async function 'worker': 'await' is only supported"* ]]; then
+    ok "cli/await-in-expr-located"
+else
+    bad "cli/await-in-expr-located" "$(printf '%s' "$aw_out" | grep -m1 error)"
+fi
+
 # A successful compile prints nothing to stdout (no output-file echo).
 printf 'int main() { return 0; }\n' > "$work/quiet.esk"
 q_out="$("$ESKIUC" "$work/quiet.esk" -o "$work/quiet" 2>/dev/null)"

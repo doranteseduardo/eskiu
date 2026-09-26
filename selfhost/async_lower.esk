@@ -1410,6 +1410,33 @@ int al_expr_has_await(*ExprNode e) {
     return 0;
 }
 
+// The first await in an expression / statement subtree (source order), or null: the
+// position an unsupported await is reported at.
+*ExprNode al_first_await_e(*ExprNode e) {
+    if (e == null) { return null; }
+    if (e.kind == EK_AWAIT) { return e; }
+    List<*ExprNode> ch; List_init<*ExprNode>(&ch, 4); al_children(e, &ch);
+    int i = 0; while (i < List_len<*ExprNode>(&ch)) { *ExprNode a = al_first_await_e(List_get<*ExprNode>(&ch, i)); if (a != null) { return a; } i = i + 1; }
+    return null;
+}
+*ExprNode al_first_await_s(*StmtNode s) {
+    if (s == null) { return null; }
+    // The supported forms (`let x = await E`, `return await E`, `await E;`, `x = await E`)
+    // are skipped: the reported await is one the lowering can't place.
+    *ExprNode top = s.expr;
+    if (top != null && (s.kind == SK_VARDECL || s.kind == SK_RETURN || s.kind == SK_EXPR)) {
+        if (top.kind == EK_AWAIT) { top = top.a; }
+        else if (s.kind == SK_EXPR && top.kind == EK_BINARY && str_eq(top.sval, "=") == 1
+                 && top.b != null && top.b.kind == EK_AWAIT) { top = top.b.a; }
+    }
+    *ExprNode a = al_first_await_e(top); if (a != null) { return a; }
+    a = al_first_await_e(s.expr2); if (a != null) { return a; }
+    a = al_first_await_s(s.s1); if (a != null) { return a; }
+    a = al_first_await_s(s.s2); if (a != null) { return a; }
+    int i = 0; while (i < List_len<*StmtNode>(&s.items)) { a = al_first_await_s(List_get<*StmtNode>(&s.items, i)); if (a != null) { return a; } i = i + 1; }
+    return null;
+}
+
 // Does a statement subtree contain an await anywhere (recursing control flow)?
 int al_stmt_has_await_deep(*StmtNode s) {
     if (s == null) { return 0; }
@@ -1518,7 +1545,13 @@ void async_lower(*Program prog) {
         // `await` reaching codegen crashes or silently miscompiles.
         if (d.kind == DK_FUNCTION && d.is_async == 1 && d.body != null
             && al_can_lower(d.body) == 0 && al_stmt_has_await_deep(d.body) == 1) {
-            dprintf(2, "error: async function '%s': 'await' is only supported as the whole initializer of a 'let', a 'return', or an assignment — not in a condition or a larger expression\n", d.name);
+            *ExprNode fa = al_first_await_s(d.body);
+            string ff = d.file; if (ff == null) { ff = ""; }
+            if (fa != null) {
+                dprintf(2, "error: %s:%d:%d: async function '%s': 'await' is only supported as the whole initializer of a 'let', a 'return', or an assignment (not in a condition or a larger expression)\n", ff, fa.line, fa.col, d.name);
+            } else {
+                dprintf(2, "error: async function '%s': await is not supported inside this statement (supported: if/else, while, do/while, for, for-in, switch)\n", d.name);
+            }
             exit(1);
         }
         if (d.kind == DK_FUNCTION && d.is_async == 1 && d.body != null && al_can_lower(d.body) == 1) {

@@ -590,6 +590,16 @@ void AsyncTransform::run(Program* program) {
             }
         };
         scanB(items);
+        if (awaits.empty()) {
+            // Every await is in a place the lowering can't split (`r += await f()`).
+            std::vector<AwaitExpr*> aws;
+            collectAwaits(fn->body.get(), aws);
+            if (!aws.empty())
+                throw std::runtime_error(fn->sourceFile + ":" + std::to_string(aws.front()->line) + ":" +
+                    std::to_string(aws.front()->col) + ": async function '" + name + "': 'await' is "
+                    "only supported as the whole initializer of a 'let', a 'return', or an assignment "
+                    "(not in a condition or a larger expression)");
+        }
         if (awaits.empty())
             throw std::runtime_error("async function '" + name + "': expected at least one `await`");
 
