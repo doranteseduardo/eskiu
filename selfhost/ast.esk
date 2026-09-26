@@ -270,6 +270,7 @@ struct StmtNode {
     int is_err;            // SK_DEFER: errdefer (runs only on the error path) vs plain defer
     int is_range;          // SK_VARDECL: a `for (i in A..B)` desugar decl; sema retypes it to the bounds' common integer type
     string resolved_elem;  // SK_FORIN: element type stamped by sema (mirrors C++ resolvedElemType); "" = fall back to structural resolution at lowering
+    string resolved_iter;  // SK_FORIN: the iterable's type stamped by sema (the async lowering holds a non-place iterable in a local)
     string label;          // loop's own label (SK_FOR/WHILE/DOWHILE/FORIN) or target label (SK_BREAK/CONTINUE); null/"" = unlabeled
     int line;              // source position for diagnostics (0 = unknown)
     int col;
@@ -881,4 +882,25 @@ void print_program(*Program p) {
         print_decl(List_get<*DeclNode>(&p.decls, i), 1);
         i = i + 1;
     }
+}
+
+// Does `e` name the same place however often it is evaluated? A variable, and a field or
+// constant-index element of one (no call, assignment, operator overload or variable
+// index), like astwalk::isStablePlace. `for (x in E)` over anything else evaluates E once.
+int ast_stable_place(*ExprNode e) {
+    if (e == null) { return 0; }
+    if (e.kind == EK_IDENT) { return 1; }
+    if (e.kind == EK_MEMBER) { return ast_stable_place(e.a); }
+    if (e.kind == EK_INDEX) {
+        if (e.op_fn != null && e.op_fn[0] != 0) { return 0; }
+        if (e.b == null || e.b.kind != EK_LITERAL) { return 0; }
+        int i = 0;
+        while (i < List_len<*ExprNode>(&e.kids)) { if (List_get<*ExprNode>(&e.kids, i).kind != EK_LITERAL) { return 0; } i = i + 1; }
+        return ast_stable_place(e.a);
+    }
+    if (e.kind == EK_UNARY) {
+        if (e.op_fn != null && e.op_fn[0] != 0) { return 0; }
+        if (ast_streq(e.sval, "&") == 1) { return ast_stable_place(e.a); }
+    }
+    return 0;
 }

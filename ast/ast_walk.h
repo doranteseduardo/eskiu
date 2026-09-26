@@ -174,6 +174,20 @@ inline bool referencesName(Expr* e, const std::string& name) {
     return found;
 }
 
+// Whether `e` names the same place however often it is evaluated: a variable, and a
+// field or constant-index element of one (no call, assignment, operator overload or
+// variable index). `for (x in E)` over anything else evaluates E once into a local.
+inline bool isStablePlace(Expr* e) {
+    if (dynamic_cast<IdentExpr*>(e)) return true;
+    if (auto* m = dynamic_cast<MemberExpr*>(e)) return isStablePlace(m->base.get());
+    if (auto* ix = dynamic_cast<IndexExpr*>(e))
+        return ix->opFunc.empty() && isStablePlace(ix->base.get())
+            && dynamic_cast<LiteralExpr*>(ix->index.get())
+            && (!ix->highIndex || dynamic_cast<LiteralExpr*>(ix->highIndex.get()));
+    if (auto* u = dynamic_cast<UnaryExpr*>(e)) return u->opFunc.empty() && u->op == "&" && isStablePlace(u->operand.get());
+    return false;
+}
+
 // Whether a subtree contains a `throw` or a `try` (lambda bodies included). A program
 // with neither never unwinds through Eskiu frames, so codegen emits no cleanup pads.
 inline bool containsEH(Stmt* s);

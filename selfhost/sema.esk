@@ -4855,7 +4855,7 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
         string itt = sema_infer_type(s, st.expr);
         string elem = "";
         if (sema_is_arr_ty(itt) == 1) { elem = sema_arr_elem(itt); }
-        if (s.in_inst == 0) { st.resolved_elem = elem; }
+        if (s.in_inst == 0) { st.resolved_elem = elem; st.resolved_iter = itt; }
         // Anything but an array, a slice or a List-like struct (`data` + `size` fields)
         // cannot be iterated (mirrors the C++ visit(ForInStmt)).
         string itc = sema_canon(s, itt);

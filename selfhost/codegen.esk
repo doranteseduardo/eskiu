@@ -397,6 +397,21 @@ List<CgSub> cg_copy_sub(List<CgSub>* src) {
 *ExprNode cgb_member(*ExprNode base, string field) { *ExprNode e = alloc<ExprNode>(1); e.kind = EK_MEMBER; e.a = base; e.sval = field; return e; }
 *ExprNode cgb_index(*ExprNode base, *ExprNode idx) { *ExprNode e = alloc<ExprNode>(1); e.kind = EK_INDEX; e.a = base; e.b = idx; return e; }
 *StmtNode cgb_vardecl(string nm, string ty, *ExprNode init) { *StmtNode s = alloc<StmtNode>(1); s.kind = SK_VARDECL; s.name = nm; s.type = ty; s.expr = init; s.is_const = 0; s.is_static = 0; return s; }
+
+// Does `e` have an address (a list-like iterable is then held by a pointer to it)?
+int cg_addressable(Codegen* g, *ExprNode e) {
+    if (e == null) { return 0; }
+    if (e.kind == EK_IDENT) { return 1; }
+    int builtin = 1; if (e.op_fn != null && e.op_fn[0] != 0) { builtin = 0; }
+    if (e.kind == EK_UNARY) { if (builtin == 1 && cg_streq(e.sval, "*") == 1) { return 1; } return 0; }
+    if (e.kind == EK_INDEX) { if (builtin == 1 && List_len<*ExprNode>(&e.kids) == 0) { return 1; } return 0; }
+    if (e.kind == EK_MEMBER) {
+        string bt = cg_etype(g, e.a);
+        if ((int)bt[0] == 42) { return 1; }
+        return cg_addressable(g, e.a);
+    }
+    return 0;
+}
 *StmtNode cgb_for(*StmtNode init, *ExprNode cond, *ExprNode step, *StmtNode body) { *StmtNode s = alloc<StmtNode>(1); s.kind = SK_FOR; s.s1 = init; s.expr = cond; s.expr2 = step; s.s2 = body; return s; }
 *StmtNode cgb_block2(*StmtNode a, *StmtNode b) {
     *StmtNode s = alloc<StmtNode>(1); s.kind = SK_BLOCK;
@@ -5540,18 +5555,32 @@ void cg_stmt(Codegen* g, *StmtNode st) {
         string fi = cg_cat("__fi", cg_itoa(g.lam_seq)); g.lam_seq = g.lam_seq + 1;
         *ExprNode lengthE = cgb_lit(LIT_INT, "0");
         *ExprNode elemE = cgb_lit(LIT_INT, "0");
+        // The iterable is evaluated once. Anything but a stable place (a call, a variable
+        // index) is held in a local: a list-like value that has an address by a pointer to
+        // it, anything else (an array, a slice, a pointer, a returned value) by value.
+        *ExprNode itE = st.expr;
+        if (ast_stable_place(st.expr) == 0) {
+            string itv = cg_cat(fi, "_v");
+            if (cg_is_slice(itty) == 0 && cg_is_array(itty) == 0 && (int)itty[0] != 42 && cg_addressable(g, st.expr) == 1) {
+                *ExprNode addr = alloc<ExprNode>(1); addr.kind = EK_UNARY; addr.sval = "&"; addr.a = st.expr;
+                cg_stmt(g, cgb_vardecl(itv, cg_cat("*", itty), addr));
+            } else {
+                cg_stmt(g, cgb_vardecl(itv, itty, st.expr));
+            }
+            itE = cgb_ident(itv);
+        }
         // A slice `T[]` also matches cg_is_array (both spell "T[...]"), so test slice first.
         if (cg_is_slice(itty) == 1) {
-            lengthE = cgb_member(st.expr, "len");
-            elemE = cgb_index(st.expr, cgb_ident(fi));
+            lengthE = cgb_member(itE, "len");
+            elemE = cgb_index(itE, cgb_ident(fi));
         } else if (cg_is_array(itty) == 1) {
             string cnt = cg_array_count(itty);
             if (cg_all_digits(cnt) == 0) { string rv = cg_enum_val(g, cnt); if (rv[0] != 0) { cnt = rv; } }
             lengthE = cgb_lit(LIT_INT, cnt);
-            elemE = cgb_index(st.expr, cgb_ident(fi));
+            elemE = cgb_index(itE, cgb_ident(fi));
         } else {
-            lengthE = cgb_member(st.expr, "size");
-            elemE = cgb_index(cgb_member(st.expr, "data"), cgb_ident(fi));
+            lengthE = cgb_member(itE, "size");
+            elemE = cgb_index(cgb_member(itE, "data"), cgb_ident(fi));
         }
         string elemTy = st.resolved_elem;                 // sema-stamped element type (R1)
         if (elemTy[0] == 0) { elemTy = cg_etype(g, elemE); }   // fall back structurally (e.g. the no-sema path)

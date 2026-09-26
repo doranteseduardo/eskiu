@@ -105,7 +105,9 @@ void TypeChecker::visit(ForInStmt* node) {
         elemType = normalizeType(itT.elem->str());
         if (!inInstance) { node->isArrayIter = true; node->arrayDim = itT.dim; }
     } else {
-        std::string s = ty::Type::parse(itType).nominalName();
+        ty::Type base = ty::Type::parse(normalizeType(itType));
+        while (base.isPointer() && base.pointee) { ty::Type p = *base.pointee; base = p; }
+        std::string s = base.isTemplate() ? mangleTemplate(base.str()) : base.nominalName();
         auto it = structs.find(s);
         if (it != structs.end()) {                           // List-like struct
             bool hasSize = false; std::string dataType;
@@ -121,7 +123,7 @@ void TypeChecker::visit(ForInStmt* node) {
         }
     }
 
-    if (!inInstance) node->resolvedElemType = elemType;
+    if (!inInstance) { node->resolvedElemType = elemType; node->resolvedIterType = itType; }
     dropAssignedIn(node->body.get()); markAddrTakenIn(node->body.get());   // later iterations see assignments in the body
     pushScope();
     if (elemType.empty()) {

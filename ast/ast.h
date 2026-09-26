@@ -320,6 +320,7 @@ public:
     // with `data`/`size`), and the array dimension `N` (literal / const / enum
     // name) when it is an array.
     std::string resolvedElemType;
+    std::string resolvedIterType;   // the iterable's type (the async lowering holds a non-place iterable in a local)
     bool        isArrayIter = false;
     std::string arrayDim;
     std::string label;   // labeled-loop name ("" = unlabeled)

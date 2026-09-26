@@ -921,6 +921,13 @@ void al_desugar_items(*AlCtx c, List<*StmtNode>* inp, List<*StmtNode>* out) {
         string itname = ""; if (s.expr != null && s.expr.kind == EK_IDENT) { itname = s.expr.sval; }
         string ty = al_var_type(c.curfn, itname);
         string fi = fresh_name(str_concat("__fi", int_to_str(c.tmpn)), c.used); c.tmpn = c.tmpn + 1;
+        List<*StmtNode> initb; List_init<*StmtNode>(&initb, 2);
+        if (itname[0] == 0 && s.resolved_iter != null && s.resolved_iter[0] != 0) {
+            // Any other iterable (a call) is evaluated once, into a local the loop reads.
+            itname = fresh_name(str_concat(fi, "_v"), c.used);
+            ty = s.resolved_iter;
+            List_push<*StmtNode>(&initb, mk_vardecl(itname, ty, s.expr, 0));
+        }
         string elemTy = "int"; *ExprNode lengthE = al_int(0); *ExprNode elemE = al_int(0);
         int br = 0; int tn2 = 0; while (ty[tn2] != 0) { if ((int)ty[tn2] == 91) { br = tn2; } tn2 = tn2 + 1; }   // '['
         if (br > 0) {                                  // array "T[N]"
@@ -943,7 +950,6 @@ void al_desugar_items(*AlCtx c, List<*StmtNode>* inp, List<*StmtNode>* out) {
             lengthE = al_member(mk_ident(itname), "size");
             elemE = al_index(al_member(mk_ident(itname), "data"), mk_ident(fi));
         }
-        List<*StmtNode> initb; List_init<*StmtNode>(&initb, 1);
         List_push<*StmtNode>(&initb, mk_vardecl(fi, "int", al_int(0), 0));
         *ExprNode cond = mk_bin("<", mk_ident(fi), lengthE);
         *ExprNode step = mk_bin("=", mk_ident(fi), mk_bin("+", mk_ident(fi), al_int(1)));

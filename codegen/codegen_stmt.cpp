@@ -1,5 +1,6 @@
 #include "codegen.h"
 #include "../ast/type_qual.h"
+#include "../ast/ast_walk.h"
 
 // Template type-name utilities (mangleTemplate / splitTemplateType / substType)
 // are shared with the type checker; see template_utils.h.
@@ -316,6 +317,25 @@ void CodeGen::visit(ForInStmt* node) {
     ExprPtr lengthExpr, elemExpr;
     ExprPtr iterable = node->iterable;
     std::shared_ptr<VarDecl> listPtrDecl;
+    // The iterable is evaluated once. Anything but a stable place (a call, a variable
+    // index) is held in a local: a list-like value that has an address by a pointer to
+    // it, anything else (an array, a slice, a pointer, a returned value) by value.
+    if (!astwalk::isStablePlace(node->iterable.get())) {
+        std::function<bool(Expr*)> addressable = [&](Expr* e) -> bool {
+            if (dynamic_cast<IdentExpr*>(e)) return true;
+            if (auto* u = dynamic_cast<UnaryExpr*>(e)) return u->op == "*" && u->opFunc.empty();
+            if (auto* ix = dynamic_cast<IndexExpr*>(e)) return ix->opFunc.empty() && !ix->highIndex;
+            if (auto* m = dynamic_cast<MemberExpr*>(e))
+                return ty::Type::parse(getExprEskiuType(m->base)).isPointer() || addressable(m->base.get());
+            return false;
+        };
+        ty::Type k = ty::Type::parse(itType);
+        bool byRef = k.kind != ty::Type::Kind::Array && k.kind != ty::Type::Kind::Slice && !k.isPointer()
+                     && addressable(node->iterable.get());
+        ExprPtr init = byRef ? ExprPtr(std::make_shared<UnaryExpr>("&", node->iterable)) : node->iterable;
+        listPtrDecl = std::make_shared<VarDecl>(idxName + "_v", byRef ? "*" + itType : itType, init);
+        iterable = std::make_shared<IdentExpr>(idxName + "_v");
+    }
 
     ty::Type itT = ty::Type::parse(itType);
     if (itT.kind == ty::Type::Kind::Array) {
@@ -324,12 +344,12 @@ void CodeGen::visit(ForInStmt* node) {
         uint64_t len = 0;
         resolveArrayDim(itT.dim, len);
         lengthExpr = intLit(std::to_string(len));
-        elemExpr   = std::make_shared<IndexExpr>(node->iterable, idx());
+        elemExpr   = std::make_shared<IndexExpr>(iterable, idx());
     } else if (itT.kind == ty::Type::Kind::Slice) {
         // Slice T[] — length is the fat pointer's `.len` field.
         elemType   = itT.elem->str();
-        lengthExpr = std::make_shared<MemberExpr>(node->iterable, "len");
-        elemExpr   = std::make_shared<IndexExpr>(node->iterable, idx());
+        lengthExpr = std::make_shared<MemberExpr>(iterable, "len");
+        elemExpr   = std::make_shared<IndexExpr>(iterable, idx());
     } else {
         // List-like struct: needs `data` (pointer) and `size` (int) fields.
         // Strip the pointer/struct: decoration to the bare registry key (the resolved
@@ -339,7 +359,7 @@ void CodeGen::visit(ForInStmt* node) {
         while (base.isPointer() && base.pointee) { ty::Type p = *base.pointee; base = p; }
         std::string s = base.isTemplate() ? mangleTemplate(base.str()) : base.nominalName();
         // A pointer iterable (`&li`) is evaluated once into a local the loop reads.
-        if (itT.isPointer()) {
+        if (itT.isPointer() && !listPtrDecl) {
             listPtrDecl = std::make_shared<VarDecl>(idxName + "_p", itType, node->iterable);
             iterable = std::make_shared<IdentExpr>(idxName + "_p");
         }

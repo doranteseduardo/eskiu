@@ -490,20 +490,28 @@ void AsyncTransform::run(Program* program) {
                 std::string idxName = astwalk::freshName("__forin_i_" + std::to_string(forinSeq++), used);
                 auto idx = [&]() { return ident(idxName); };
                 ExprPtr lengthExpr, elemExpr;
+                // The iterable is evaluated once (a call is held in a local).
+                std::vector<BlockItem> initItems;
+                ExprPtr iterable = fi->iterable;
+                if (!astwalk::isStablePlace(iterable.get()) && !fi->resolvedIterType.empty()) {
+                    std::string itName = astwalk::freshName(idxName + "_v", used);
+                    initItems.push_back(DeclPtr(std::make_shared<VarDecl>(itName, fi->resolvedIterType, iterable)));
+                    iterable = ident(itName);
+                }
                 if (fi->isArrayIter) {
                     bool numeric = !fi->arrayDim.empty();
                     for (char c : fi->arrayDim) if (c < '0' || c > '9') numeric = false;
                     lengthExpr = numeric ? intlit(std::stoll(fi->arrayDim))
-                               : fi->arrayDim.empty() ? ExprPtr(std::make_shared<MemberExpr>(fi->iterable, "len"))   // a slice
+                               : fi->arrayDim.empty() ? ExprPtr(std::make_shared<MemberExpr>(iterable, "len"))   // a slice
                                : ident(fi->arrayDim);
-                    elemExpr   = std::make_shared<IndexExpr>(fi->iterable, idx());
+                    elemExpr   = std::make_shared<IndexExpr>(iterable, idx());
                 } else {
-                    lengthExpr = std::make_shared<MemberExpr>(fi->iterable, "size");
+                    lengthExpr = std::make_shared<MemberExpr>(iterable, "size");
                     elemExpr   = std::make_shared<IndexExpr>(
-                        std::make_shared<MemberExpr>(fi->iterable, "data"), idx());
+                        std::make_shared<MemberExpr>(iterable, "data"), idx());
                 }
-                StmtPtr init = std::make_shared<BlockStmt>(std::vector<BlockItem>{
-                    DeclPtr(std::make_shared<VarDecl>(idxName, "int", intlit(0))) });
+                initItems.push_back(DeclPtr(std::make_shared<VarDecl>(idxName, "int", intlit(0))));
+                StmtPtr init = std::make_shared<BlockStmt>(initItems);
                 ExprPtr cond = binop(idx(), "<", lengthExpr);
                 ExprPtr step = binop(idx(), "=", binop(idx(), "+", intlit(1)));
                 std::vector<BlockItem> bodyItems;
