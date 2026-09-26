@@ -1404,6 +1404,7 @@ string sema_infer_type(Sema* s, *ExprNode e) {
         if (List_len<*ExprNode>(&e.kids) > 0) {           // a[lo..hi] → a slice of the elements
             if (sema_arr_bracket(bc) > 0 && sema_slice_elem(bc)[0] == 0) { return sema_cat(sema_arr_elem(bc), "[]"); }
             if (sema_slice_elem(bc)[0] != 0) { return bc; }
+            if (sema_streq(bc, "string") == 1) { return "char[]"; }   // a string slices to its chars
             return "";
         }
         if (sema_slice_elem(bc)[0] != 0 && sema_arr_bracket(bc) == sema_slen(bc) - 2) { return sema_slice_elem(bc); }

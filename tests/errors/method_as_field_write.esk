@@ -1,0 +1,3 @@
+// EXPECT-ERROR: struct 'P' has no member 'sum'
+struct P { int x; int y; int sum() { return self.x + self.y; } }
+int main() { P p = P{1, 2}; p.sum = 3; return p.x; }

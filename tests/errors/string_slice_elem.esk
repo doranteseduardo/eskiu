@@ -1,0 +1,2 @@
+// EXPECT-ERROR: cannot convert 'char[]' to 'int[]'
+int main() { string s = "abcdef"; int[] t = s[1..3]; return (int)t.len; }
