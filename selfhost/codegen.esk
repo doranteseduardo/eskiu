@@ -2142,6 +2142,71 @@ void cg_img_bytes(CgImg* im, int off, uint64 v, int nb) {
 
 // Write the scalar constant `t` of LLVM type `llty` at `off`; a value with no byte form
 // marks its bytes opaque.
+// End of the constant value starting at `p` in `t`: its next top-level ',' or the
+// bracket closing the enclosing aggregate (string literals skipped).
+int cg_ll_val_end(string t, int p) {
+    int depth = 0; int inq = 0;
+    while (t[p] != 0) {
+        int c = (int)t[p];
+        if (inq == 1) { if (c == 34) { inq = 0; } }
+        else if (c == 34) { inq = 1; }
+        else if (c == 123 || c == 91 || c == 40) { depth = depth + 1; }
+        else if (c == 125 || c == 93 || c == 41) { if (depth == 0) { return p; } depth = depth - 1; }
+        else if (c == 44 && depth == 0) { return p; }
+        p = p + 1;
+    }
+    return p;
+}
+
+void cg_img_put(Codegen* g, CgImg* im, int off, string llty, string t);   // fwd
+void cg_ll_elem_offs(Codegen* g, string body, List<string>* tys, List<int>* offs);   // fwd
+
+// Write an aggregate constant `t` of LLVM type `llty` (a struct `{ … }` / `<{ … }>` or an
+// array `[N x T]`) into the image member by member, so a union holding a struct or an
+// array member folds like one holding a scalar. 0 when `t` is not in that form.
+int cg_img_put_agg(Codegen* g, CgImg* im, int off, string llty, string t) {
+    string body = llty;
+    if ((int)llty[0] == 37) {                                   // %name → its body
+        body = cg_tydef_body(g, cg_sub_str(llty, 1, cg_strlen(llty)));
+        if (body[0] == 0) { return 0; }
+    }
+    int b0 = (int)body[0];
+    if (b0 != 123 && b0 != 60 && b0 != 91) { return 0; }
+    List<string> tys; List_init<string>(&tys, 8);
+    List<int> offs; List_init<int>(&offs, 8);
+    if (b0 == 91) {
+        int q = 1; cg_ll_ws(body, &q);
+        int cnt = cg_ll_num(body, &q); cg_ll_ws(body, &q); cg_ll_kw(body, &q, "x"); cg_ll_ws(body, &q);
+        string et = cg_sub_str(body, q, cg_strlen(body) - 1);
+        int esz = cg_ll_size_of(g, et);
+        int k = 0;
+        while (k < cnt) { List_push<string>(&tys, et); List_push<int>(&offs, k * esz); k = k + 1; }
+    } else { cg_ll_elem_offs(g, body, &tys, &offs); }
+    int p = 0; cg_ll_ws(t, &p);
+    if ((int)t[p] == 60) { p = p + 1; cg_ll_ws(t, &p); }     // `<{` packed
+    if (b0 == 91 && (int)t[p] != 91) { return 0; }             // e.g. a `c"..."` byte string
+    if (b0 != 91 && (int)t[p] != 123) { return 0; }
+    p = p + 1;
+    int i = 0;
+    while (i < List_len<string>(&tys)) {
+        cg_ll_ws(t, &p);
+        if ((int)t[p] == 125 || (int)t[p] == 93 || t[p] == 0) { return 1; }
+        int al = 1; cg_ll_layout(g, t, &p, &al);                // the element's type
+        cg_ll_ws(t, &p);
+        int e = cg_ll_val_end(t, p);
+        string v = cg_trim(cg_sub_str(t, p, e));
+        string et = List_get<string>(&tys, i);
+        int eoff = off + List_get<int>(&offs, i);
+        let dl: CgLeaf; dl.off = eoff; dl.ty = et;
+        List_push<CgLeaf>(&im.dir, dl); List_push<string>(&im.dtx, v);
+        cg_img_put(g, im, eoff, et, v);
+        p = e;
+        if ((int)t[p] == 44) { p = p + 1; }
+        i = i + 1;
+    }
+    return 1;
+}
+
 void cg_img_put(Codegen* g, CgImg* im, int off, string llty, string t) {
     int sz = cg_ll_size_of(g, llty);
     int w = cg_int_w(llty);
@@ -2149,6 +2214,7 @@ void cg_img_put(Codegen* g, CgImg* im, int off, string llty, string t) {
     if (cg_streq(llty, "double") == 1) { cg_img_bytes(im, off, cg_img_fbits(t, 0), 8); return; }
     if (cg_streq(llty, "float") == 1) { cg_img_bytes(im, off, cg_img_fbits(t, 1), 4); return; }
     if (cg_streq(t, "zeroinitializer") == 1 || cg_streq(t, "null") == 1) { return; }
+    if (cg_img_put_agg(g, im, off, llty, t) == 1) { return; }
     int i = 0;
     while (i < sz && off + i < im.n) { im.op[off + i] = (uint8)1; i = i + 1; }
 }
