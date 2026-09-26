@@ -190,24 +190,31 @@ CodeGen::CAbiArg CodeGen::classifyCAbi(llvm::Type* ty, bool isReturn, CAbiTarget
             for (const auto& l : leaves) if (l.first == off) return l.second;
             return nullptr;
         };
+        // The bytes of eightbyte `o` that hold data: the furthest end of a leaf in it. A
+        // union contributes every member, so its widest member decides (clang lowers a
+        // union through its largest member).
+        auto extentAt = [&](uint64_t o) -> uint64_t {
+            uint64_t end = 0;
+            for (const auto& l : leaves)
+                if (l.first >= o && l.first < o + 8)
+                    end = std::max<uint64_t>(end, l.first + DL.getTypeAllocSize(l.second) - o);
+            return end;
+        };
         auto ebType = [&](unsigned eb) -> llvm::Type* {
             uint64_t o = eb * 8;
             if (cls[eb] == Sse) {
+                bool dbl = false;
+                for (const auto& l : leaves) if (l.first == o && l.second->isDoubleTy()) dbl = true;
                 llvm::Type* t0 = leafAt(o);
-                if (!t0 || t0->isDoubleTy()) return llvm::Type::getDoubleTy(ctx);
+                if (!t0 || dbl) return llvm::Type::getDoubleTy(ctx);
                 llvm::Type* t1 = (size - o > 4) ? leafAt(o + 4) : nullptr;
                 if (t1 && t1->isFloatTy()) return llvm::FixedVectorType::get(t0, 2);
                 return t0;
             }
             llvm::Type* t0 = leafAt(o);
             if (t0 && (t0->isPointerTy() || t0->isIntegerTy(64))) return t0;
-            if (t0 && t0->isIntegerTy()) {
-                unsigned w = std::max(8u, t0->getIntegerBitWidth());
-                bool clean = true;
-                for (const auto& l : leaves)
-                    if (l.first >= o + w / 8 && l.first < o + 8) clean = false;
-                if (clean && w <= 32) return llvm::IntegerType::get(ctx, w);
-            }
+            uint64_t ext = extentAt(o);
+            if (ext == 1 || ext == 2 || ext == 4) return llvm::IntegerType::get(ctx, (unsigned)ext * 8);
             return llvm::IntegerType::get(ctx, (unsigned)std::min<uint64_t>(size - o, 8) * 8);
         };
         unsigned needInt = 0, needSSE = 0;

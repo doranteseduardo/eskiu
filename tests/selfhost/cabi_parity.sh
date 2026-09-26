@@ -31,12 +31,13 @@ fi
 TARGETS="arm64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu
 x86_64-apple-darwin x86_64-pc-windows-msvc x86_64-w64-windows-gnu
 armv7-none-linux-gnueabihf armv6k-none-eabihf armv7-none-linux-gnueabi"
-INPUTS="tests/c_abi_struct.esk tests/c_abi_callback.esk tests/c_abi_try.esk tests/c_abi_fnptr.esk tests/bitfield_c_layout.esk"
+INPUTS="tests/c_abi_struct.esk tests/c_abi_callback.esk tests/c_abi_try.esk tests/c_abi_fnptr.esk tests/bitfield_c_layout.esk tests/c_abi_union.esk"
 
-# The lowered signatures in an IR file, one per line, sorted: `NAME<TAB>signature`.
+# The lowered signatures in an IR file, one per line, sorted: `NAME<TAB>signature`. The C++
+# names a union's storage type `%U.union` and the self-host `%U`; only the spelling differs.
 sigs() {
     grep -E '^(declare .*@|define internal .*@__cabi_)' "$1" \
-        | sed -E 's/ %[A-Za-z0-9_.]+([,)])/\1/g; s/ *\{$//; s/^define internal /define /' \
+        | sed -E 's/ %[A-Za-z0-9_.]+([,)])/\1/g; s/ *\{$//; s/^define internal /define /; s/(%[A-Za-z0-9_]+)\.union/\1/g' \
         | sed -E "s/^([a-z]+ [^@]*@)([A-Za-z0-9_.]+)(\\(.*)$/\\2$TAB\\1\\2\\3/" \
         | sort
 }

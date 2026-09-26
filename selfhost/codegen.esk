@@ -6973,23 +6973,25 @@ string cg_abi_leaf_at(List<CgLeaf>* lv, int off) {
 string cg_abi_eb_type(Codegen* g, List<CgLeaf>* lv, int size, int eb, int sse) {
     int o = eb * 8;
     string t0 = cg_abi_leaf_at(lv, o);
+    // A union contributes every member, so its widest member decides (clang lowers a
+    // union through its largest member): a double at the offset, and the data extent.
+    int dbl = 0; int ext = 0; int i = 0;
+    while (i < List_len<CgLeaf>(lv)) {
+        CgLeaf l = List_get<CgLeaf>(lv, i);
+        if (l.off == o && cg_streq(l.ty, "double") == 1) { dbl = 1; }
+        if (l.off >= o && l.off < o + 8) {
+            int le = l.off + cg_ll_size_of(g, l.ty) - o;
+            if (le > ext) { ext = le; }
+        }
+        i = i + 1;
+    }
     if (sse == 1) {
-        if (t0[0] == 0 || cg_streq(t0, "double") == 1) { return "double"; }
+        if (t0[0] == 0 || dbl == 1) { return "double"; }
         if (size - o > 4 && cg_streq(cg_abi_leaf_at(lv, o + 4), "float") == 1) { return "<2 x float>"; }
         return t0;
     }
     if (cg_streq(t0, "ptr") == 1 || cg_streq(t0, "i64") == 1) { return t0; }
-    int w = cg_int_w(t0);
-    if (w > 0) {
-        if (w < 8) { w = 8; }
-        int clean = 1; int i = 0;
-        while (i < List_len<CgLeaf>(lv)) {
-            CgLeaf l = List_get<CgLeaf>(lv, i);
-            if (l.off >= o + w / 8 && l.off < o + 8) { clean = 0; }
-            i = i + 1;
-        }
-        if (clean == 1 && w <= 32) { return cg_cat("i", cg_itoa(w)); }
-    }
+    if (ext == 1 || ext == 2 || ext == 4) { return cg_cat("i", cg_itoa(ext * 8)); }
     int rem = size - o; if (rem > 8) { rem = 8; }
     return cg_cat("i", cg_itoa(rem * 8));
 }

@@ -1,0 +1,38 @@
+extern int printf(string fmt, ...);
+// Unions passed and returned by value across an `extern` follow the target C ABI: on
+// x86-64 SysV an eightbyte holding a union is as wide as its widest member
+// (`union { int; double; }` is an i64, `union { char; int; }` an i32, `union { float;
+// double; }` a double), also inside a struct. Companion C: c_abi_union.c.
+union ID { int i; double d; }
+union CI { char c; int i; }
+union FD { float f; double d; }
+union IFD { int i; float f; double d; }
+struct Mix { float a; IFD u; }
+struct Pair { CI x; FD y; }
+
+extern double id_get(ID u);
+extern ID id_mk(double d);
+extern int ci_get(CI u);
+extern CI ci_mk(int i);
+extern double fd_get(FD u);
+extern FD fd_mk(double d);
+extern double mix_get(Mix m);
+extern Mix mix_mk(float a, double d);
+extern double pair_get(Pair p);
+extern Pair pair_mk(int i, double d);
+
+int main() {
+    let a: ID; a.d = 2.5;
+    printf("%.2f %.2f\n", id_get(a), id_mk(7.25).d);
+    let b: CI; b.i = 70000;
+    printf("%d %d\n", ci_get(b), ci_mk(123456).i);
+    let c: FD; c.d = 1.125;
+    printf("%.3f %.3f\n", fd_get(c), fd_mk(9.5).d);
+    let m: Mix; m.a = 1.5; m.u.d = 4.25;
+    Mix r = mix_mk(2.5, 8.75);
+    printf("%.2f %.2f %.2f\n", mix_get(m), (double)r.a, r.u.d);
+    let p: Pair; p.x.i = 300000; p.y.d = 0.5;
+    Pair q = pair_mk(77777, 3.5);
+    printf("%.2f %d %.2f\n", pair_get(p), q.x.i, q.y.d);
+    return 0;
+}
