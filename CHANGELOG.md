@@ -396,6 +396,31 @@ more and a third about 60, fixed the same way.
   RST_STREAM on an idle stream, a short GOAWAY and a stream that depends on itself, and
   `http_reply` accepts a `null` body.
 
+#### Fourth audit round
+- Async: dropping a `select2`, `join2`, `select2v` or `join2v` future before it resolves
+  drops its inputs (their producers are cancelled and their wakers unhooked). A later
+  completion of an input used to write into the freed combinator, for example when an
+  outer timeout cancelled a task that was awaiting a `select2`.
+- Sockets: a send to a peer that has closed returns an error (`EPIPE`) instead of raising
+  `SIGPIPE` and killing the process. `net_send` passes `MSG_NOSIGNAL` (Linux, macOS),
+  macOS sockets from `net_accept`/`net_tcp_connect`/`net_tcp_listen` get `SO_NOSIGPIPE`,
+  the async write path sends through `net_send`, and a TLS connection on Linux sets
+  `SIGPIPE` to ignored (OpenSSL writes with `write()`).
+- HTTP/1.1 (`http_recv`, `HttpRequest_parse`) follows RFC 9112 framing: a chunked body is
+  decoded (it was left unread), `Transfer-Encoding` with `Content-Length` is 400, a coding
+  other than `chunked` is 501, and whitespace before a header colon, an obsolete line
+  fold, a missing or repeated `Host` in HTTP/1.1 and a request line without a valid
+  `HTTP/x.y` version are 400 (HTTP/2.0 on the HTTP/1 path is 505). A method must be a
+  token.
+- `multipart_part` finds the part by the `name` parameter of its `Content-Disposition`
+  header only (a `name=` in `Content-Type` matched before), and parameter and header names
+  are case-insensitive.
+- `url_query_get` decodes each key before comparing it, so `a%20b=1` and `a+b=1` match the
+  key `a b`.
+- Regex: an invalid bracket range (`[z-a]`, `[a-\d]`, `[\d-z]`) is a compile error as in
+  RE2, and `\D` `\W` `\S` inside a bracket class are the complemented shorthands (they
+  were read as the letters).
+
 ## [0.9.1] - 2026-09-09
 ### Fixed
 A correctness campaign (a multi-front bug hunt) closed a set of latent miscompiles and

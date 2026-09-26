@@ -329,7 +329,10 @@ leak: the transform inserts `future_drop` on scope-exit paths where a `Future` l
 was created and not consumed.
 
 **Cascade.** Dropping a suspended coroutine drops `frame.awaiting` first, recursively,
-then frees the frame: a whole await-chain torn down by dropping its head.
+then frees the frame: a whole await-chain torn down by dropping its head. The
+combinators take part: an unresolved `select2`/`join2` (and `select2v`/`join2v`) has an
+`on_drop` that drops both inputs (a finished `join2` input is just freed), so a
+cancelled awaiter never leaves an input whose completion would wake freed memory.
 
 **Accepted v1 semantic:** dropping a *suspended* coroutine frees its frame **without
 resuming it**, so statements after the suspend point, including `finally` past an

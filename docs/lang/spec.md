@@ -1049,7 +1049,8 @@ from a leaf primitive (`<net_async>`) or from calling another async function.
 (`<future>`, `<executor>`, `<net_async>`); the generic combinators `spawn<T>` (detach
 a fire-and-forget task), `select2<A,B>` (first-of-two) and `join2<A,B>` (all-of-two)
 take typed futures with no cast at the call site, `<timer>` `timer_after(lp, ms)` is a
-leaf future for deadlines (so `select2(read, timer_after(...))` is a real timeout), and
+leaf future for deadlines (so `select2(read, timer_after(...))` is a real timeout; dropping
+a combinator before it resolves drops its inputs with it), and
 `<http_async>` is a non-blocking HTTP server built on the accept loop. See
 `docs/dev/async-design.md` for the runtime contract and the lowering design.
 
@@ -2220,14 +2221,14 @@ Eskiu ships a set of standard library files in the `stdlib/` directory. Import a
 | `stdlib/random.esk`   | `Rng`, a seedable xoshiro256\*\* generator (not cryptographic): `Rng_seed`, `Rng_next` (raw 64-bit), `Rng_below` (unbiased `[0, n)`), `Rng_range` (`[lo, hi)`), `Rng_bool`, `Rng_double` (`[0.0, 1.0)`), `Rng_fill` (random bytes) |
 | `stdlib/regex.esk`    | A Thompson-NFA regex engine run as a Pike VM (linear time, no catastrophic backtracking): `regex_compile(pattern) -> Regex` (check `.ok` / `.err`), `Regex_search(&re, text, &m)` for the leftmost match with capture groups, `Match_group`, `Match_free`, `Regex_free`, and the one-shot `regex_match(pattern, text)`. Literals, `.`, classes `[a-z]`/`[^...]`, `\d \w \s` (and negations), `* + ? {m} {m,} {m,n}` (lazy with `?`), `|`, groups, `^` / `$` |
 | `stdlib/sort.esk`     | Generic in-place heapsort `sort<T>(a, n, cmp)` and binary search `bsearch<T>(a, n, key, cmp)` (index or `-1`) over a `*T` array; `cmp` is `fn(*T, *T)->int` (negative / zero / positive) |
-| `stdlib/url.esk`      | RFC 3986 percent-encoding: `url_encode`, `url_decode` (and `url_decode_range`), plus `url_query_get(query, key, &out)` for `a=1&b=2` query strings (`+` decodes to a space) |
+| `stdlib/url.esk`      | RFC 3986 percent-encoding: `url_encode`, `url_decode` (and `url_decode_range`), plus `url_query_get(query, key, &out)` for `a=1&b=2` query strings (keys and values are decoded, `+` to a space) |
 | `stdlib/uuid.esk`     | `uuid_v4(&rng, &out)`: an RFC 4122 version-4 UUID string (`xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx`) drawn from a `<random>` `Rng` |
 | `stdlib/env.esk`      | `env_get`, `env_has`, `env_get_or`, `env_get_int` (process environment; CLI args come from `main`'s `argc`/`argv`) |
 | `stdlib/base64.esk`   | `base64_encode` / `base64_decode` over byte buffers (decoding rejects bad padding and truncated input), plus `base64_encoded_len` / `base64_decoded_len` and the `base64_value` / `base64_digit` primitives |
 | `stdlib/bytes.esk`    | `Bytes`, a growable, binary-safe byte buffer (`*uint8` + length; embedded NULs survive, unlike `String`): `Bytes_init`/`_free`/`_push`/`_append`/`_append_raw`/`_slice` (non-owning view)/`_eq`/`_from_str`/`_cstr`, plus `Bytes_from_base64`/`Bytes_to_base64` |
 | `stdlib/path.esk`     | Unix path manipulation: `path_join`, `path_basename`, `path_dirname`, `path_extension`, `path_is_absolute` |
-| `stdlib/http.esk`     | HTTP/1.1: `HttpRequest` + `HttpRequest_parse`/`_header`, `HttpResponse` + `HttpResponse_header`/`_set_body`/`_render`, and a threaded worker pool `http_serve(port, nworkers, handler)` where `handler` is `fn(HttpRequest*, HttpResponse*)->void`. Plus a binary-safe full-body reader `HttpReq` + `http_recv` (loops until the Content-Length body arrives, into a `*uint8` body), `HttpReq_header`, `http_reply`, `http_reply_error`: for uploads a single-recv String body would corrupt binary bytes |
-| `stdlib/multipart.esk`| Extract a named part from a `multipart/form-data` body over raw bytes: `multipart_boundary(ct, out)` and `multipart_part(body, len, boundary, name, *out_ptr, *out_len)` (returns a slice into the body) |
+| `stdlib/http.esk`     | HTTP/1.1: `HttpRequest` + `HttpRequest_parse`/`_header`, `HttpResponse` + `HttpResponse_header`/`_set_body`/`_render`, and a threaded worker pool `http_serve(port, nworkers, handler)` where `handler` is `fn(HttpRequest*, HttpResponse*)->void`. Plus a binary-safe full-body reader `HttpReq` + `http_recv` (loops until the Content-Length body arrives, or decodes a chunked body, into a `*uint8` body; RFC 9112 framing: `Transfer-Encoding` with `Content-Length`, a missing `Host` in HTTP/1.1, whitespace before a header colon, an obsolete line fold or a bad version is 400, a coding other than `chunked` 501), `HttpReq_header`, `http_reply`, `http_reply_error`: for uploads a single-recv String body would corrupt binary bytes |
+| `stdlib/multipart.esk`| Extract a named part from a `multipart/form-data` body over raw bytes: `multipart_boundary(ct, out)` and `multipart_part(body, len, boundary, name, *out_ptr, *out_len)` (the part whose `Content-Disposition` `name` parameter is `name`; returns a slice into the body) |
 | `stdlib/map.esk`      | `Map<V>`, a string-keyed hash map (open addressing, linear probing, grows at 0.75 load): `Map_init`, `Map_at` (get-or-insert → `*V` slot, sets `*created`), `Map_get`, `Map_free`. Plus `HashMap<K,V>`, keyed on any value type via `hash`/`eq` function pointers passed to `HashMap_init` (built-in `int_hash`/`int_eq`); same `_at`/`_get`/`_free` shape |
 | `stdlib/threading.esk`| Synchronization over pthread: `Mutex` (`_init`/`_lock`/`_unlock`/`_destroy`), `Cond` (`_init`/`_wait`/`_signal`/`_broadcast`/`_destroy`), `Sem` (`_init`/`_wait`/`_post`/`_destroy`). Pairs with the `thread_create`/`thread_join` built-ins |
 | `stdlib/eventloop.esk`| Readiness reactor over kqueue (macOS) / epoll (Linux): `EventLoop`, `el_new`, `EventLoop_add_read`, `EventLoop_add_write`, `EventLoop_del`, `EventLoop_run`, `EventLoop_stop`, `EventLoop_free`, plus a timer wheel (`EventLoop_add_timer`/`EventLoop_del_timer`). Callback is `fn(EventLoop*, int)->void` |
@@ -2358,7 +2359,7 @@ int main() {
 | `net_tcp_listen(port) -> int` | Create a socket, set `SO_REUSEADDR`, bind to `0.0.0.0:port`, listen. Returns the fd or `-1` |
 | `net_accept(fd) -> int` | Accept the next connection; returns the connection fd or `-1` |
 | `net_tcp_connect(host, port) -> int` | Connect to a dotted-quad host (e.g. `"127.0.0.1"`); returns fd or `-1` |
-| `net_send(fd, buf, n)` / `net_recv(fd, buf, n)` | Send / receive raw bytes (`int64` count) |
+| `net_send(fd, buf, n)` / `net_recv(fd, buf, n)` | Send / receive raw bytes (`int64` count). A send to a closed peer returns `-1` (`EPIPE`); it never raises `SIGPIPE` |
 | `net_send_str(fd, s)` | Send a C string (length via `strlen`) |
 | `net_close(fd)` | Close a socket |
 
