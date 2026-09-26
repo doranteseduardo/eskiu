@@ -1472,6 +1472,7 @@ string sema_infer_type(Sema* s, *ExprNode e) {
         return sema_infer_type(s, e.a);
     }
     if (e.kind == EK_ALLOCWITH) { return sema_cat("*", e.sval); }
+    if (e.kind == EK_THREADCREATE) { return "*void"; }    // the thread handle
     return "";
 }
 
