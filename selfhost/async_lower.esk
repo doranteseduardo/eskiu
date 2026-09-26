@@ -435,11 +435,11 @@ string al_find_vartype(*StmtNode s, string name) {
     if (s == null) { return ""; }
     if (s.kind == SK_VARDECL && str_eq(s.name, name) == 1) { return s.type; }
     if (s.kind == SK_IF || s.kind == SK_WHILE || s.kind == SK_FOR || s.kind == SK_FORIN
-        || s.kind == SK_DOWHILE || s.kind == SK_DEFER) {
+        || s.kind == SK_DOWHILE || s.kind == SK_DEFER || s.kind == SK_ARM || s.kind == SK_CATCH || s.kind == SK_TRY) {
         string t = al_find_vartype(s.s1, name); if (t[0] != 0) { return t; }
     }
-    if (s.kind == SK_IF || s.kind == SK_FOR) { string t = al_find_vartype(s.s2, name); if (t[0] != 0) { return t; } }
-    if (s.kind == SK_BLOCK || s.kind == SK_SWITCH || s.kind == SK_CASE) {
+    if (s.kind == SK_IF || s.kind == SK_FOR || s.kind == SK_TRY) { string t = al_find_vartype(s.s2, name); if (t[0] != 0) { return t; } }
+    if (s.kind == SK_BLOCK || s.kind == SK_SWITCH || s.kind == SK_CASE || s.kind == SK_MATCH || s.kind == SK_TRY) {
         int i = 0; while (i < List_len<*StmtNode>(&s.items)) { string t = al_find_vartype(List_get<*StmtNode>(&s.items, i), name); if (t[0] != 0) { return t; } i = i + 1; }
     }
     return "";
@@ -995,9 +995,9 @@ void al_scan_locals(*AlCtx c, *StmtNode s) {
         return;
     }
     if (s.kind == SK_IF || s.kind == SK_WHILE || s.kind == SK_FOR || s.kind == SK_DOWHILE
-        || s.kind == SK_DEFER) { al_scan_locals(c, s.s1); }
-    if (s.kind == SK_IF || s.kind == SK_FOR) { al_scan_locals(c, s.s2); }
-    if (s.kind == SK_BLOCK || s.kind == SK_SWITCH || s.kind == SK_CASE) {
+        || s.kind == SK_DEFER || s.kind == SK_ARM || s.kind == SK_CATCH || s.kind == SK_TRY) { al_scan_locals(c, s.s1); }
+    if (s.kind == SK_IF || s.kind == SK_FOR || s.kind == SK_TRY) { al_scan_locals(c, s.s2); }
+    if (s.kind == SK_BLOCK || s.kind == SK_SWITCH || s.kind == SK_CASE || s.kind == SK_MATCH || s.kind == SK_TRY) {
         int i = 0; while (i < List_len<*StmtNode>(&s.items)) { al_scan_locals(c, List_get<*StmtNode>(&s.items, i)); i = i + 1; }
     }
 }

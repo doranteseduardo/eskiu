@@ -1,0 +1,42 @@
+// An async function whose match arms and try/catch/finally bodies declare locals: the
+// lowering hoists them to frame fields like the locals of if/switch bodies.
+import <future>;
+extern int printf(string fmt, ...);
+
+enum Ev { Data(int), Stop }
+
+Future<T>* rdy<T>(T v) { Future<T>* f = future_new<T>(); future_complete<T>(f, v); return f; }
+int may(int x) { if (x > 1) { throw x; } return x; }
+
+async int on_ev(Ev e) {
+    int k = await rdy<int>(1);
+    int out = 0;
+    match e {
+        Data(m) -> { int sc = m * 2; out = sc + k; }
+        Stop -> { int sc = -1; out = sc; }
+    }
+    return out;
+}
+
+async int guarded(int e) {
+    int k = await rdy<int>(1);
+    int out = 0;
+    try { int t = may(e); out = t + k; }
+    catch (int c) { int d = c * 10; out = d; }
+    finally { int z = 1; out += z; }
+    return out;
+}
+
+int main() {
+    Future<int>* a = on_ev(Data(20));
+    future_poll<int>(a, void() {});
+    Future<int>* b = on_ev(Stop);
+    future_poll<int>(b, void() {});
+    Future<int>* c = guarded(1);
+    future_poll<int>(c, void() {});
+    Future<int>* d = guarded(5);
+    future_poll<int>(d, void() {});
+    printf("%d %d %d %d\n", a.value, b.value, c.value, d.value);
+    free_future<int>(a); free_future<int>(b); free_future<int>(c); free_future<int>(d);
+    return 0;
+}

@@ -581,6 +581,13 @@ void AsyncTransform::run(Program* program) {
             else if (auto* fi = dynamic_cast<ForInStmt*>(s.get())) scanS(fi->body);
             else if (auto* sw = dynamic_cast<SwitchStmt*>(s.get()))
                 for (auto& c : sw->cases) for (auto& st : c.stmts) scanS(st);
+            else if (auto* m = dynamic_cast<MatchStmt*>(s.get()))
+                for (auto& arm : m->arms) scanS(arm.body);
+            else if (auto* t = dynamic_cast<TryStmt*>(s.get())) {
+                scanS(t->body);
+                for (auto& c : t->catches) scanS(c.body);
+                scanS(t->finally);
+            }
         };
         scanB(items);
         if (awaits.empty())
