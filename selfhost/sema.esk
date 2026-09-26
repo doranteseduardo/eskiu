@@ -1573,6 +1573,35 @@ string sema_infer_type(Sema* s, *ExprNode e) {
     return sema_dealias(s, sema_infer_type_raw(s, e));
 }
 
+// The type of member `field` of a value of type `mbt` (`s.f` → the field's declared
+// type, `sl.len` → int64), or "" when unknown.
+string sema_member_type(Sema* s, string mbt, string field) {
+    if (mbt[0] != 0 && sema_is_fn_type(mbt) == 0) {
+        if (sema_slice_elem(mbt)[0] != 0 && sema_has_star(mbt) == 0 && sema_streq(field, "len") == 1) { return "int64"; }
+        *DeclNode msd = sema_find_struct(s, sema_struct_of_type(mbt));
+        List<string> mtargs; List_init<string>(&mtargs, 2);
+        if (msd != null) { sema_parse_targs(sema_strip_ptr_sp(sema_strip_const(mbt)), &mtargs); }
+        // A generic struct's field resolves only through an instance (`Box<int>`).
+        if (msd != null && (List_len<TypeParam>(&msd.type_params) == 0
+            || List_len<string>(&mtargs) == List_len<TypeParam>(&msd.type_params))) {
+            int mi = 0; int mn = List_len<Param>(&msd.params);
+            while (mi < mn) {
+                Param mf = List_get<Param>(&msd.params, mi);
+                if (sema_streq(mf.name, field) == 1) {
+                    // A bitfield whose values all fit an int reads as `int` (C promotion).
+                    if (mi < List_len<int>(&msd.field_bits) && List_get<int>(&msd.field_bits, mi) > 0
+                        && sema_streq(ast_bf_read_type(sema_canon(s, sema_strip_const(mf.ty)), List_get<int>(&msd.field_bits, mi)), "int") == 1) {
+                        return "int";
+                    }
+                    return sema_subst_params(mf.ty, &msd.type_params, &mtargs);
+                }
+                mi = mi + 1;
+            }
+        }
+    }
+    return "";
+}
+
 string sema_infer_type_raw(Sema* s, *ExprNode e) {
     if (e == null) { return ""; }
     if (e.kind == EK_IDENT) {
@@ -1717,33 +1746,7 @@ string sema_infer_type_raw(Sema* s, *ExprNode e) {
         List_free<*ExprNode>(&spine);
         return t;
     }
-    if (e.kind == EK_MEMBER) {                           // s.f → the field's declared type
-        string mbt = sema_infer_type(s, e.a);
-        if (mbt[0] != 0 && sema_is_fn_type(mbt) == 0) {
-            if (sema_slice_elem(mbt)[0] != 0 && sema_has_star(mbt) == 0 && sema_streq(e.sval, "len") == 1) { return "int64"; }
-            *DeclNode msd = sema_find_struct(s, sema_struct_of_type(mbt));
-            List<string> mtargs; List_init<string>(&mtargs, 2);
-            if (msd != null) { sema_parse_targs(sema_strip_ptr_sp(sema_strip_const(mbt)), &mtargs); }
-            // A generic struct's field resolves only through an instance (`Box<int>`).
-            if (msd != null && (List_len<TypeParam>(&msd.type_params) == 0
-                || List_len<string>(&mtargs) == List_len<TypeParam>(&msd.type_params))) {
-                int mi = 0; int mn = List_len<Param>(&msd.params);
-                while (mi < mn) {
-                    Param mf = List_get<Param>(&msd.params, mi);
-                    if (sema_streq(mf.name, e.sval) == 1) {
-                        // A bitfield whose values all fit an int reads as `int` (C promotion).
-                        if (mi < List_len<int>(&msd.field_bits) && List_get<int>(&msd.field_bits, mi) > 0
-                            && sema_streq(ast_bf_read_type(sema_canon(s, sema_strip_const(mf.ty)), List_get<int>(&msd.field_bits, mi)), "int") == 1) {
-                            return "int";
-                        }
-                        return sema_subst_params(mf.ty, &msd.type_params, &mtargs);
-                    }
-                    mi = mi + 1;
-                }
-            }
-        }
-        return "";
-    }
+    if (e.kind == EK_MEMBER) { return sema_member_type(s, sema_infer_type(s, e.a), e.sval); }
     if (e.kind == EK_INDEX) {
         string bt = sema_infer_type(s, e.a);
         if (bt[0] == 0) { return ""; }
@@ -4400,27 +4403,60 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         return;
     }
     if (k == EK_MEMBER) {
-        sema_expr(s, e.a);                 // walk base (catches undefined vars in it)
-        sema_check_nullable_deref(s, e.a, "access a member of");
-        string bt = sema_infer_type(s, e.a);
-        // Only a struct or union (or a pointer to one) has members; a slice has `len`.
-        string mbc = sema_canon(s, bt);
-        if ((int)mbc[0] == 42) { mbc = sema_sub_str(mbc, 1, sema_slen(mbc)); }
-        if (sema_judgeable(s, mbc) == 1 && sema_is_struct(s, sema_base_name(mbc)) == 0
-            && (sema_slice_elem(mbc)[0] == 0 || sema_streq(e.sval, "len") == 0)) {
-            s.had_error = 1;
-            dprintf(2, "error: %s:%d:%d: cannot access member '%s' on non-struct type '%s'\n", s.filename, s.line, s.col, e.sval, bt);
+        // A chain `a.b.c...` is walked once, innermost member first, carrying the type of
+        // each base forward: re-walking and re-inferring every base from scratch costs
+        // time quadratic in the chain's length.
+        List<*ExprNode> chain; List_init<*ExprNode>(&chain, 4);
+        *ExprNode base = e;
+        while (base != null && base.kind == EK_MEMBER) { List_push<*ExprNode>(&chain, base); base = base.a; }
+        // Each member reports at its own position, else at its nearest positioned
+        // enclosing member's (as the recursive walk would).
+        int pl = s.line; int pc = s.col;
+        List<int> lines; List_init<int>(&lines, 4);
+        List<int> cols; List_init<int>(&cols, 4);
+        int ln = pl; int cl = pc;
+        int cj = 0;
+        while (cj < List_len<*ExprNode>(&chain)) {
+            *ExprNode mj = List_get<*ExprNode>(&chain, cj);
+            if (cj > 0 && mj.line > 0) { ln = mj.line; cl = mj.col; }
+            List_push<int>(&lines, ln); List_push<int>(&cols, cl);
+            cj = cj + 1;
         }
-        int btn = 0; while (bt[btn] != 0) { btn = btn + 1; }
-        // An array/slice base (`Box<int>[]`) is not its element struct (`s.len`).
-        if (bt[0] != 0 && (int)bt[btn - 1] != 93) {   // base type known → validate the member
-            string sn = sema_struct_of_type(bt);
-            if (sema_is_struct(s, sn) == 1 && (sema_has_member(s, sema_cat(sema_cat(sn, "."), e.sval)) == 0
-                                               || sema_field_type(s, sn, e.sval) == null)) {
-                s.had_error = 1;                   // (a method is only called, never a value)
-                dprintf(2, "error: %s:%d:%d: struct '%s' has no member '%s'\n", s.filename, s.line, s.col, sn, e.sval);
+        s.line = ln; s.col = cl;
+        sema_expr(s, base);                // walk base (catches undefined vars in it)
+        string bt = sema_infer_type(s, base);
+        int ci = List_len<*ExprNode>(&chain) - 1;
+        while (ci >= 0) {
+            *ExprNode m = List_get<*ExprNode>(&chain, ci);
+            s.line = List_get<int>(&lines, ci); s.col = List_get<int>(&cols, ci);
+            if (bt[0] == 63) {             // a `?…` nullable pointer base (sema_check_nullable_deref)
+                s.had_error = 1;
+                dprintf(2, "error: %s:%d:%d: cannot %s a possibly-null pointer of type '%s'; check it first (e.g. `if (x != null)`)\n",
+                       s.filename, s.line, s.col, "access a member of", bt);
             }
+            // Only a struct or union (or a pointer to one) has members; a slice has `len`.
+            string mbc = sema_canon(s, bt);
+            if ((int)mbc[0] == 42) { mbc = sema_sub_str(mbc, 1, sema_slen(mbc)); }
+            if (sema_judgeable(s, mbc) == 1 && sema_is_struct(s, sema_base_name(mbc)) == 0
+                && (sema_slice_elem(mbc)[0] == 0 || sema_streq(m.sval, "len") == 0)) {
+                s.had_error = 1;
+                dprintf(2, "error: %s:%d:%d: cannot access member '%s' on non-struct type '%s'\n", s.filename, s.line, s.col, m.sval, bt);
+            }
+            int btn = 0; while (bt[btn] != 0) { btn = btn + 1; }
+            // An array/slice base (`Box<int>[]`) is not its element struct (`s.len`).
+            if (bt[0] != 0 && (int)bt[btn - 1] != 93) {   // base type known → validate the member
+                string sn = sema_struct_of_type(bt);
+                if (sema_is_struct(s, sn) == 1 && (sema_has_member(s, sema_cat(sema_cat(sn, "."), m.sval)) == 0
+                                                   || sema_field_type(s, sn, m.sval) == null)) {
+                    s.had_error = 1;               // (a method is only called, never a value)
+                    dprintf(2, "error: %s:%d:%d: struct '%s' has no member '%s'\n", s.filename, s.line, s.col, sn, m.sval);
+                }
+            }
+            bt = sema_dealias(s, sema_member_type(s, bt, m.sval));
+            ci = ci - 1;
         }
+        s.line = pl; s.col = pc;
+        List_free<*ExprNode>(&chain); List_free<int>(&lines); List_free<int>(&cols);
         return;
     }
     if (k == EK_QUESTION) {            // `expr?` propagates an Err into the enclosing function
