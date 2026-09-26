@@ -1,0 +1,21 @@
+// h2_fill_request set the version with String_from on the already allocated
+// HttpRequest version String, leaking 16 bytes per HTTP/2 request. It now
+// clears and appends. Checked with `leaks --atExit` (macOS) or LeakSanitizer
+// under --asan on Linux; the output only shows the requests still fill.
+import <http2_server>;
+extern int printf(string fmt, ...);
+
+int main() {
+    HpackHeader[3] hs;
+    hs[0].name = (*uint8)":method"; hs[0].nlen = 7; hs[0].value = (*uint8)"GET"; hs[0].vlen = 3;
+    hs[1].name = (*uint8)":scheme"; hs[1].nlen = 7; hs[1].value = (*uint8)"http"; hs[1].vlen = 4;
+    hs[2].name = (*uint8)":path"; hs[2].nlen = 5; hs[2].value = (*uint8)"/"; hs[2].vlen = 1;
+    int bad = 0;
+    for (i in 0..1000) {
+        let r: HttpRequest;  r.init();
+        if (h2_fill_request(&r, &hs[0], 3) != 0 || r.version.eq_cstr("HTTP/2.0") == 0) { bad++; }
+        r.free();
+    }
+    printf("filled 1000 requests, bad=%d\n", bad);
+    return 0;
+}

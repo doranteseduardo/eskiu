@@ -99,7 +99,8 @@ int h2_is_conn_field(*uint8 name, int64 n) {
 // instead needs :authority and has neither :scheme nor :path). The request is
 // then left partly filled.
 int h2_fill_request(HttpRequest* req, HpackHeader* hs, int64 n) {
-    req.version.from("HTTP/2.0");
+    req.version.clear();
+    req.version.append("HTTP/2.0");      // clear + append: the String is already allocated
     int regular = 0;
     int nmethod = 0;  int nscheme = 0;  int npath = 0;  int nauth = 0;
     for (int64 i = 0; i < n; i++) {
