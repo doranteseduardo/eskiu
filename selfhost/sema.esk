@@ -67,6 +67,7 @@ struct Sema {
     List<int> lam_bounds;   // scope depth just outside each enclosing lambda (innermost last)
     List<int> lam_esc;      // per enclosing lambda: 1 if it outlives the call (not passed to a non-escaping param)
     int call_epoch;         // bumped by every call (sema_drop_global_narrowings)
+    int has_ops;            // any `operator` overload declared (an operator use may be a call)
     int last_if_then_called;   // the last SK_IF's then-branch made a call
     int last_if_else_called;   // ... its else path did
     int lam_arg_nonesc;     // the lambda about to be checked is an argument to a non-escaping param
@@ -353,6 +354,7 @@ void sema_init(Sema* s, string filename) {
     List_init<string>(&s.late_globals, 4);
     List_init<string>(&s.escaped, 4);
     List_init<string>(&s.narrowed, 4);
+    s.has_ops = 0;
     List_init<string>(&s.loop_lbls, 4);
     List_init<int>(&s.lam_bounds, 4);
     List_init<int>(&s.lam_esc, 4);
@@ -2776,10 +2778,15 @@ void sema_parse_targs(string sval, List<string>* out) {
 // Narrowing key of the innermost binding of `name` ("name@depth"), so a shadowing
 // declaration is a different variable; "" when unbound.
 string sema_nkey(Sema* s, string name) {
-    int d = sema_sym_depth(s, name);
-    if (d < 0) { return ""; }
+    int si = sema_sym_index(s, name);
+    if (si < 0) { return ""; }
+    Sym sy = List_get<Sym>(&s.syms, si);
+    int d = sy.depth;
     uint8[24] buf;
-    sprintf((string)&buf[0], "@%d", d);
+    // A `static` local is one cell shared by every call and closure, like a global: its
+    // key ends in "@0" (mirrors the C++ narrowKey).
+    if (d > 0 && sy.is_static == 1) { sprintf((string)&buf[0], "@%d@0", d); }
+    else { sprintf((string)&buf[0], "@%d", d); }
     return sema_cat(name, (string)&buf[0]);
 }
 
@@ -2894,19 +2901,48 @@ void sema_drop_global_keys(List<string>* keys) {
 
 // Does evaluating `e` make a call? (A lambda body is not evaluated there; mirrors the C++
 // exprHasCall.)
-int sema_has_call(*ExprNode e) {
+int sema_is_op_call(Sema* s, *ExprNode e);
+int sema_has_call(Sema* s, *ExprNode e) {
     if (e == null || e.kind == EK_LAMBDA) { return 0; }
     if (e.kind == EK_CALL || e.kind == EK_TEMPLATECALL || e.kind == EK_AWAIT) { return 1; }
+    if (sema_is_op_call(s, e) == 1) { return 1; }
     if (e.kind == EK_BINARY || e.kind == EK_INDEX || e.kind == EK_TERNARY) {
-        if (sema_has_call(e.a) == 1 || sema_has_call(e.b) == 1) { return 1; }
+        if (sema_has_call(s, e.a) == 1 || sema_has_call(s, e.b) == 1) { return 1; }
     } else if (e.kind == EK_UNARY || e.kind == EK_MEMBER || e.kind == EK_CAST
                || e.kind == EK_QUESTION || e.kind == EK_INCDEC) {
-        if (sema_has_call(e.a) == 1) { return 1; }
+        if (sema_has_call(s, e.a) == 1) { return 1; }
     }
     if (e.kind == EK_STRUCTINIT || e.kind == EK_ARRAYLIT || e.kind == EK_INDEX || e.kind == EK_TERNARY) {
         int i = 0; int n = List_len<*ExprNode>(&e.kids);
-        while (i < n) { if (sema_has_call(List_get<*ExprNode>(&e.kids, i)) == 1) { return 1; } i = i + 1; }
+        while (i < n) { if (sema_has_call(s, List_get<*ExprNode>(&e.kids, i)) == 1) { return 1; } i = i + 1; }
     }
+    return 0;
+}
+
+// Does `e` (a binary, unary or subscript node) resolve to a user operator overload? Then
+// evaluating it is a call (mirrors the C++ operatorCallNodes).
+int sema_is_op_call(Sema* s, *ExprNode e) {
+    if (s.has_ops == 0 || e == null || e.a == null) { return 0; }
+    string op = "";
+    if (e.kind == EK_BINARY && e.b != null) {
+        op = e.sval;
+        if (sema_streq(op, "&&") == 1 || sema_streq(op, "||") == 1 || sema_streq(op, "=") == 1) { return 0; }
+        int n = 0; while (op[n] != 0) { n = n + 1; }
+        if (n >= 2 && (int)op[n - 1] == 61 && sema_is_cmp_op(op) == 0) { op = sema_sub_str(op, 0, n - 1); }   // `a += b`
+    } else if (e.kind == EK_UNARY && (sema_streq(e.sval, "-") == 1 || sema_streq(e.sval, "!") == 1 || sema_streq(e.sval, "~") == 1)) {
+        op = e.sval;
+        if (sema_streq(op, "-") == 1) { op = "u-"; }
+    } else if (e.kind == EK_INDEX && e.b != null && List_len<*ExprNode>(&e.kids) == 0) {
+        op = "[]";
+    } else {
+        return 0;
+    }
+    List<string> tys; List_init<string>(&tys, 2);
+    List_push<string>(&tys, sema_infer_type(s, e.a));
+    if (e.kind != EK_UNARY) { List_push<string>(&tys, sema_infer_type(s, e.b)); }
+    *DeclNode d = sema_find_op(s, op, &tys);
+    List_free<string>(&tys);
+    if (d != null) { return 1; }
     return 0;
 }
 
@@ -2947,7 +2983,7 @@ void sema_cond_narrow(Sema* s, *ExprNode c, int when_true, List<string>* out) {
     }
     // A call may assign any global: a global proven non-null by an earlier operand is
     // not proven after this one runs.
-    if (sema_has_call(c) == 1) { sema_drop_global_keys(out); }
+    if (sema_has_call(s, c) == 1) { sema_drop_global_keys(out); }
     sema_cond_narrow_leaf(s, c, when_true, out);
     int i = List_len<*ExprNode>(&rights) - 1;
     while (i >= 0) {
@@ -3297,7 +3333,7 @@ void sema_expr(Sema* s, *ExprNode e) {
     if (e.line > 0) { s.line = e.line; s.col = e.col; }
     sema_expr_k(s, e);
     // The callee may assign any global: a global's narrowing ends after the call.
-    if (e.kind == EK_CALL || e.kind == EK_TEMPLATECALL || e.kind == EK_AWAIT) { sema_drop_global_narrowings(s); }
+    if (e.kind == EK_CALL || e.kind == EK_TEMPLATECALL || e.kind == EK_AWAIT || sema_is_op_call(s, e) == 1) { sema_drop_global_narrowings(s); }
     s.line = pl; s.col = pc;
 }
 
@@ -4485,6 +4521,8 @@ void sema_check_lambda(Sema* s, *ExprNode e) {
     List_init<string>(&s.narrowed, 4);
     int ni = 0;
     while (ni < List_len<string>(&saved_narrowed)) { List_push<string>(&s.narrowed, List_get<string>(&saved_narrowed, ni)); ni = ni + 1; }
+    // The body runs later, when a global (or `static` local) may have been nulled.
+    sema_drop_global_keys(&s.narrowed);
     s.cur_ret = sema_isub(s, sema_lambda_ret(e.sval));
     if (s.lam_ret != null && s.lam_ret[0] != 0) { s.cur_ret = s.lam_ret; }
     s.lam_ret = "";
@@ -5428,6 +5466,7 @@ void sema_register_globals(Sema* s, *Program prog) {
         if (d.kind == DK_FUNCTION || d.kind == DK_EXTERN || d.kind == DK_INTRINSIC) {
             sema_register_fn(s, d);
             List_push<*DeclNode>(&s.fndecls, d);
+            if (d.operator_sym != null) { s.has_ops = 1; }
         }
         if (d.kind == DK_INTERFACE) { List_push<*DeclNode>(&s.ifaces, d); }
         if (d.kind == DK_STRUCT || d.kind == DK_UNION || d.kind == DK_INTERFACE

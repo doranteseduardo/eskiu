@@ -1,0 +1,11 @@
+// EXPECT-ERROR: cannot access a member of a possibly-null pointer
+// A user operator is a call: it may assign the global, so the narrowing ends there.
+struct S { int v; }
+?*S gp = null;
+S operator +(S a, S b) { gp = null; return a; }
+int main() {
+    S s = S{v: 7};
+    gp = &s;
+    if (gp != null) { S t = s + s; return gp.v; }
+    return 0;
+}

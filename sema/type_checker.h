@@ -253,7 +253,9 @@ private:
     // A call (or an await) may run code that assigns any global: its narrowing ends.
     void dropGlobalNarrowings();
     static void dropGlobalKeys(std::vector<std::string>& keys);
-    static bool exprHasCall(Expr* e);
+    bool exprHasCall(Expr* e) const;
+    // Binary/unary/index nodes that resolved to a user `operator` (a call, for narrowing).
+    std::set<const Expr*> operatorCallNodes;
     // Bumped by every call (dropGlobalNarrowings); visit(IfStmt) records whether its
     // then/else paths made a call, for the early-exit guard after it.
     int callEpoch = 0;

@@ -1,0 +1,10 @@
+// EXPECT-ERROR: cannot access a member of a possibly-null pointer
+// A closure refers to a `static` local's cell (not a copy): calling it may clear it.
+struct S { int v; }
+S G = S{v: 3};
+int main() {
+    static ?*S p = &G;
+    fn()->void clr = void() { p = null; };
+    if (p != null) { clr(); return p.v; }
+    return -1;
+}

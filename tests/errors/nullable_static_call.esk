@@ -1,0 +1,11 @@
+// EXPECT-ERROR: cannot access a member of a possibly-null pointer
+// A `static` local is one cell shared by every call: like a global, a call ends its narrowing.
+struct S { int v; }
+S G = S{v: 3};
+int f(bool clear) {
+    static ?*S p = &G;
+    if (clear) { p = null; return 0; }
+    if (p != null) { f(true); return p.v; }
+    return -1;
+}
+int main() { return f(false); }

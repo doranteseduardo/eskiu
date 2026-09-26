@@ -231,6 +231,8 @@ void TypeChecker::finishBinary(BinaryExpr* node) {
         std::string ret, opFn = resolveOperator(node->op, {leftType, rightType}, ret);
         if (!opFn.empty()) {
             if (!inInstance) node->opFunc = opFn;
+            operatorCallNodes.insert(node);
+            dropGlobalNarrowings();        // the operator is a call: it may assign any global
             calledFns.insert(opFn);        // -Wall: an operator use references it
             expressionTypes[node] = ret;   // the operator's declared return type
         } else {
@@ -342,7 +344,12 @@ void TypeChecker::visit(TernaryExpr* node) {
 
 std::string TypeChecker::narrowKey(const std::string& name) const {
     int si = scopeOf(name);
-    return si < 0 ? "" : name + "@" + std::to_string(si);
+    if (si < 0) return "";
+    // A `static` local is one cell shared by every call and closure, like a global: its
+    // key ends in "@0" so a call ends its narrowing and a lambda body never sees it.
+    auto it = scopes[si].find(name);
+    bool isStatic = si > 0 && it != scopes[si].end() && it->second.isStatic;
+    return name + "@" + std::to_string(si) + (isStatic ? "@0" : "");
 }
 
 void TypeChecker::condNarrowings(Expr* cond, bool whenTrue, std::vector<std::string>& keys) {
@@ -466,9 +473,10 @@ void TypeChecker::dropGlobalKeys(std::vector<std::string>& keys) {
 }
 
 // Whether evaluating `e` makes a call (a lambda body is not evaluated there).
-bool TypeChecker::exprHasCall(Expr* e) {
+bool TypeChecker::exprHasCall(Expr* e) const {
     if (!e || dynamic_cast<LambdaExpr*>(e)) return false;
     if (dynamic_cast<CallExpr*>(e) || dynamic_cast<TemplateCallExpr*>(e) || dynamic_cast<AwaitExpr*>(e)) return true;
+    if (operatorCallNodes.count(e)) return true;
     bool found = false;
     astwalk::forEachChildExprFlat(e, [&](ExprPtr& c) { if (!found) found = exprHasCall(c.get()); });
     return found;
@@ -584,6 +592,8 @@ void TypeChecker::visit(UnaryExpr* node) {
             opFn = resolveOperator(lookupOp, {operandType}, ret);
         if (!opFn.empty()) {
             if (!inInstance) node->opFunc = opFn;
+            operatorCallNodes.insert(node);
+            dropGlobalNarrowings();
             calledFns.insert(opFn);
             expressionTypes[node] = ret;
         } else {
@@ -1201,7 +1211,14 @@ void TypeChecker::visit(IndexExpr* node) {
     // `operator [](Base, Index)` (read/rvalue form; a slice `base[lo..hi]` is not overloaded).
     if (!haveElem && !node->highIndex) {
         std::string ret, opFn = resolveOperator("[]", {baseType, indexType}, ret);
-        if (!opFn.empty()) { if (!inInstance) node->opFunc = opFn; calledFns.insert(opFn); expressionTypes[node] = ret; return; }
+        if (!opFn.empty()) {
+            if (!inInstance) node->opFunc = opFn;
+            operatorCallNodes.insert(node);
+            dropGlobalNarrowings();
+            calledFns.insert(opFn);
+            expressionTypes[node] = ret;
+            return;
+        }
     }
 
     if (!haveElem) {
@@ -1486,6 +1503,12 @@ void TypeChecker::visit(LambdaExpr* node) {
     // Captures are by value: an assignment to a captured name inside the body changes the
     // lambda's copy, so it must not end a narrowing of the enclosing variable.
     std::set<std::string> savedNarrowed = narrowedNonNull;
+    // The body runs later, when a global (or `static` local) may have been nulled.
+    for (auto it = narrowedNonNull.begin(); it != narrowedNonNull.end();) {
+        size_t at = it->rfind('@');
+        if (at != std::string::npos && it->compare(at, std::string::npos, "@0") == 0) it = narrowedNonNull.erase(it);
+        else ++it;
+    }
     for (const auto& p : node->params) {
         if (scopes.back().count(p.second)) errorAt(node, "duplicate parameter '" + p.second + "' in lambda");
         defineSymbol(p.second, normalizeType(p.first), node->line, node->col, /*isParam=*/true);
