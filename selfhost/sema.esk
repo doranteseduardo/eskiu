@@ -3893,6 +3893,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
             int icls = sema_cast_class(s, ibt);
             int bad = 0;
             if (icls == 1) { bad = 1; }
+            if (sema_streq(ibt, "null") == 1) { bad = 1; }   // `null[0]` points at nothing
             if (icls == 3 && sema_is_arr_ty(ibt) == 0 && sema_is_fn_type(ibt) == 0) {
                 // a struct value: only through a user `operator []`
                 List<string> oty; List_init<string>(&oty, 2);

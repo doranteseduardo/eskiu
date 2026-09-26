@@ -1140,7 +1140,7 @@ void TypeChecker::visit(IndexExpr* node) {
         // value with no `operator []` (other spellings, e.g. an array of fn values, are
         // left to the element resolution in codegen).
         std::string nb = normalizeType(tyq::strip(baseType));
-        if (isNumericType(nb) || nb.rfind("struct:", 0) == 0 || adtEnums.count(nb))
+        if (isNumericType(nb) || nb.rfind("struct:", 0) == 0 || adtEnums.count(nb) || nb == "null")
             errorAt(node, "cannot index into a value of type '" + ty::Type::parse(baseType).nominalName() + "'");
         expressionTypes[node] = "unknown";
         return;
