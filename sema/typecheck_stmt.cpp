@@ -386,6 +386,8 @@ void TypeChecker::visit(ThreadJoinStmt* node) {
 void TypeChecker::visit(ThrowStmt* node) {
     if (node->value) {
         node->value->accept(this);
+        if (isVoidValueType(getExpressionType(node->value.get())))
+            errorAt(node, "cannot throw a 'void' value");
         if (!inInstance) node->valueType = getExpressionType(node->value.get());
     }
 }

@@ -5155,7 +5155,13 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
         }
         return;
     }
-    if (k == SK_THROW) { sema_expr(s, st.expr); return; }
+    if (k == SK_THROW) {
+        sema_expr(s, st.expr);
+        if (st.expr != null && sema_is_void_value(sema_infer_type(s, st.expr)) == 1) {
+            sema_error(s, "cannot throw a 'void' value");
+        }
+        return;
+    }
     if (k == SK_THREADJOIN) {
         sema_expr(s, st.expr);
         sema_drop_global_narrowings(s);   // the joined thread may have assigned any global
