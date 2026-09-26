@@ -1,0 +1,54 @@
+// A Host value must be uri-host [ ":" port ] (RFC 9110 §7.2): whitespace
+// inside it, a list of two hosts, a bad port or an unclosed IP-literal is 400
+// in http_recv and HttpRequest_parse alike. They used to be accepted.
+import <http>;
+import <string>;
+extern int printf(string fmt, ...);
+extern int64 strlen(string s);
+extern int socketpair(int d, int t, int p, *int sv);
+extern int64 write(int fd, *void b, int64 n);
+extern int close(int fd);
+
+void t(string host) {
+    let raw: String;  raw.init(64);
+    raw.append("GET / HTTP/1.1\r\nHost: ");
+    raw.append(host);
+    raw.append("\r\n\r\n");
+    int[2] sv;
+    socketpair(1, 1, 0, &sv[0]);
+    write(sv[0], (*void)raw.cstr(), raw.len);
+    close(sv[0]);
+    let r: HttpReq;  HttpReq_init(&r);
+    const int st = http_recv(sv[1], &r, 1000);
+    HttpReq_free(&r);
+    close(sv[1]);
+    let q: HttpRequest;  q.init();
+    const int pst = q.parse((*uint8)raw.cstr(), (int)raw.len) == 1 ? 0 : 400;
+    q.free();
+    printf("[%s] recv=%d parse=%d\n", host, st, pst);
+    raw.free();
+}
+
+int main() {
+    t("example.com");
+    t("example.com:8080");
+    t("127.0.0.1:80");
+    t("[::1]:443");
+    t("[v1.fe]");
+    t("xn--bcher-kva.example");
+    t("a%20b");
+    t("a%2");
+    t("a%zz");
+    t("");
+    t("a b");
+    t("a, b");
+    t("a,b");
+    t("a:b");
+    t("a:80:81");
+    t("[::1");
+    t("[]");
+    t("a/b");
+    t("a@b");
+    t("\"a\"");
+    return 0;
+}

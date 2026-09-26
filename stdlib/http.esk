@@ -157,6 +157,50 @@ int _http_transfer_encoding(String* headers) {
     return 1;
 }
 
+// 1 if `c` may appear in a reg-name or IP-literal of a Host (RFC 3986 §3.2.2:
+// unreserved, sub-delims, and the '%' of a pct-encoded byte). A ',' is not
+// accepted: in a Host it only comes from two values joined into a list.
+int _http_host_char(uint8 c) {
+    if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) { return 1; }
+    switch (c) {
+        case '-': case '.': case '_': case '~': case '%':
+        case '!': case '$': case '&': case '\'': case '(': case ')': case '*': case '+': case ';': case '=':
+            return 1;
+    }
+    return 0;
+}
+
+// 1 if the request's Host value is uri-host [ ":" port ] (RFC 9110 §7.2): a
+// reg-name or IPv4 address, or an IP-literal in brackets, then an optional
+// port of digits. An empty Host is allowed (§7.2: a target without an
+// authority). Whitespace, a list ("a, b") or any other byte is rejected.
+int _http_host_valid(String* headers) {
+    let v: String;  v.init(32);
+    defer v.free();
+    if (_http_header_lookup(headers, "host", &v) == 0) { return 0; }
+    const int64 n = v.len;
+    int64 i = 0;
+    if (n > 0 && v.data[0] == '[') {
+        i = 1;
+        while (i < n && v.data[i] != ']' && (_http_host_char((uint8)v.data[i]) == 1 || v.data[i] == ':')) { i++; }
+        if (i >= n || v.data[i] != ']' || i == 1) { return 0; }
+        i++;
+    } else {
+        while (i < n && _http_host_char((uint8)v.data[i]) == 1) {
+            if (v.data[i] == '%') {           // pct-encoded: '%' HEXDIG HEXDIG
+                if (i + 2 >= n || _http_hex_digit((uint8)v.data[i + 1]) < 0 || _http_hex_digit((uint8)v.data[i + 2]) < 0) { return 0; }
+                i += 2;
+            }
+            i++;
+        }
+    }
+    if (i < n && v.data[i] == ':') {
+        i++;
+        while (i < n && v.data[i] >= '0' && v.data[i] <= '9') { i++; }
+    }
+    return i == n ? 1 : 0;
+}
+
 // Checks shared by both request parsers once the head is split into lines:
 // the version (1.x, else 505), field-line syntax, a single Host (required in
 // HTTP/1.1, RFC 9112 §3.2), and the framing headers. Returns 0 if the request
@@ -167,6 +211,7 @@ int _http_check_head(String* headers, int version) {
     if (_http_headers_valid(headers) == 0) { return 400; }
     const int hosts = _http_header_count(headers, "host");
     if (hosts > 1 || (hosts == 0 && version >= 11)) { return 400; }
+    if (hosts == 1 && _http_host_valid(headers) == 0) { return 400; }
     const int te = _http_transfer_encoding(headers);
     if (te == 0) { return 0; }
     // Transfer-Encoding with Content-Length is a smuggling vector (§6.3), and an
