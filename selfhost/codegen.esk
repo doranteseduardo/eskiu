@@ -152,6 +152,7 @@ struct Codegen {
     int msbf;                // 1: MS bitfield layout (Windows targets), else SysV/AAPCS
     int wintgt;              // 1: a Windows target (mingw SEH exception personality)
     List<CgCabi> cabis;      // externs declared with a C-ABI-lowered signature
+    List<string> vols;       // names of `volatile` variables (C++ volatileVars)
 }
 
 int cg_streq(string a, string b) {
@@ -297,6 +298,7 @@ void cg_init(Codegen* g) {
     List_init<CgSub>(&g.tydefs, 16);
     List_init<*DeclNode>(&g.tydecls, 16);
     List_init<CgCabi>(&g.cabis, 4);
+    List_init<string>(&g.vols, 4);
     // The host C ABI, fixed when this compiler was built (the build compiler predefines
     // the architecture macro); cg_set_target switches it for a --target triple.
     g.abi = 0;
@@ -3821,6 +3823,23 @@ CgVal cg_c_va_list(Codegen* g, *ExprNode ax) {
     return v;
 }
 
+// "volatile " for an access through a `volatile` variable: the variable itself, or a
+// place reached from it by `*`, `[]` or `.` (C++ CodeGen::volatileRooted); else "".
+string cg_vol(Codegen* g, *ExprNode e) {
+    if (List_len<string>(&g.vols) == 0) { return ""; }
+    while (e != null) {
+        if (e.kind == EK_IDENT) {
+            int i = 0; int n = List_len<string>(&g.vols);
+            while (i < n) { if (cg_streq(List_get<string>(&g.vols, i), e.sval) == 1) { return "volatile "; } i = i + 1; }
+            return "";
+        }
+        if (e.kind == EK_UNARY && cg_streq(e.sval, "*") == 1) { e = e.a; }
+        else if (e.kind == EK_INDEX || e.kind == EK_MEMBER) { e = e.a; }
+        else { return ""; }
+    }
+    return "";
+}
+
 CgVal cg_call_arg(Codegen* g, CgFn* f, int i, *ExprNode ax) {
     cg_hint_iface(g, ax, cg_pety(f, i));
     if (cg_streq(cg_pty(f, i), "ptr") == 1 && cg_streq(cg_dealias(g, cg_pety(f, i)), "va_list") == 1) {
@@ -4171,7 +4190,7 @@ CgVal cg_expr_i(Codegen* g, *ExprNode e) {
         CgLocal l = cg_find_local(g, e.sval);
         if (l.slot[0] != 0) {
             string t = cg_tmp(g);
-            cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = load "); cg_emit(g, l.ty);
+            cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = load "); cg_emit(g, cg_vol(g, e)); cg_emit(g, l.ty);
             cg_emit(g, ", ptr "); cg_emit(g, l.slot); cg_emit(g, "\n");
             v.op = t; v.ty = l.ty; v.ety = l.ety; return v;
         }
@@ -4180,7 +4199,7 @@ CgVal cg_expr_i(Codegen* g, *ExprNode e) {
         CgLocal gv = cg_find_global(g, e.sval);        // a global variable?
         if (gv.slot[0] != 0) {
             string t = cg_tmp(g);
-            cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = load "); cg_emit(g, gv.ty);
+            cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = load "); cg_emit(g, cg_vol(g, e)); cg_emit(g, gv.ty);
             cg_emit(g, ", ptr "); cg_emit(g, gv.slot); cg_emit(g, "\n");
             v.op = t; v.ty = gv.ty; v.ety = gv.ety; return v;
         }
@@ -4216,7 +4235,8 @@ CgVal cg_expr_i(Codegen* g, *ExprNode e) {
         string ety = lv.ety;
         string llty = cg_lltype(g, ety);
         string old = cg_tmp(g);
-        cg_emit(g, "  "); cg_emit(g, old); cg_emit(g, " = load "); cg_emit(g, llty);
+        string ivol = cg_vol(g, e.a);
+        cg_emit(g, "  "); cg_emit(g, old); cg_emit(g, " = load "); cg_emit(g, ivol); cg_emit(g, llty);
         cg_emit(g, ", ptr "); cg_emit(g, lv.op); cg_emit(g, "\n");
         int L = cg_strlen(e.sval);
         int dec = 0; if ((int)e.sval[L - 1] == 45) { dec = 1; }   // last char '-'
@@ -4235,7 +4255,7 @@ CgVal cg_expr_i(Codegen* g, *ExprNode e) {
             if (dec == 1) { cg_emit(g, "sub "); } else { cg_emit(g, "add "); }
             cg_emit(g, llty); cg_emit(g, " "); cg_emit(g, old); cg_emit(g, ", 1\n");
         }
-        cg_emit(g, "  store "); cg_emit(g, llty); cg_emit(g, " "); cg_emit(g, nw);
+        cg_emit(g, "  store "); cg_emit(g, ivol); cg_emit(g, llty); cg_emit(g, " "); cg_emit(g, nw);
         cg_emit(g, ", ptr "); cg_emit(g, lv.op); cg_emit(g, "\n");
         if (pre == 1) { v.op = nw; } else { v.op = old; }
         v.ty = llty; v.ety = ety; return v;
@@ -4283,7 +4303,7 @@ CgVal cg_expr_i(Codegen* g, *ExprNode e) {
         CgVal lv = cg_lval(g, e);
         string llty = cg_lltype(g, lv.ety);
         string t = cg_tmp(g);
-        cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = load "); cg_emit(g, llty);
+        cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = load "); cg_emit(g, cg_vol(g, e)); cg_emit(g, llty);
         cg_emit(g, ", ptr "); cg_emit(g, lv.op); cg_emit(g, "\n");
         v.op = t; v.ty = llty; v.ety = lv.ety; return v;
     }
@@ -4298,7 +4318,7 @@ CgVal cg_expr_i(Codegen* g, *ExprNode e) {
             string ety = cg_deref_ty(cg_etype(g, e.a));
             string llty = cg_lltype(g, ety);
             string t = cg_tmp(g);
-            cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = load "); cg_emit(g, llty);
+            cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = load "); cg_emit(g, cg_vol(g, e)); cg_emit(g, llty);
             cg_emit(g, ", ptr "); cg_emit(g, p.op); cg_emit(g, "\n");
             v.op = t; v.ty = llty; v.ety = ety; return v;
         }
@@ -4324,6 +4344,7 @@ CgVal cg_expr_i(Codegen* g, *ExprNode e) {
                 string ctmp = cg_cat("__cmpd", cg_itoa(g.lam_seq)); g.lam_seq = g.lam_seq + 1;
                 string cslot = cg_entry_alloca(g, "ptr");
                 int clmark = List_len<CgLocal>(&g.locals);
+                if (cg_vol(g, e.a)[0] != 0) { List_push<string>(&g.vols, ctmp); }
                 *ExprNode cder = alloc<ExprNode>(1); cder.kind = EK_UNARY; cder.sval = "*"; cder.a = cgb_ident(ctmp);
                 *ExprNode ctarget = cder;
                 if (is_bf == 1) {
@@ -4369,7 +4390,7 @@ CgVal cg_expr_i(Codegen* g, *ExprNode e) {
                 CgLocal l = cg_find_local(g, e.a.sval);
                 string rop = cg_coerce(g, rhs, l.ty);   // coerce RHS to the variable's type
                 if (cg_is_iface(g, l.ety) == 1) { rop = cg_iface_conv(g, l.ety, rhs, e.b); }
-                cg_emit(g, "  store "); cg_emit(g, l.ty); cg_emit(g, " "); cg_emit(g, rop);
+                cg_emit(g, "  store "); cg_emit(g, cg_vol(g, e.a)); cg_emit(g, l.ty); cg_emit(g, " "); cg_emit(g, rop);
                 cg_emit(g, ", ptr "); cg_emit(g, l.slot); cg_emit(g, "\n");
                 // The assignment's value is the stored (converted) one: `l = s = 200` with
                 // an int8 `s` gives `l` -56, not 200.
@@ -4381,7 +4402,7 @@ CgVal cg_expr_i(Codegen* g, *ExprNode e) {
             string lty = cg_lltype(g, lv.ety);
             string rop = cg_coerce(g, rhs, lty);        // coerce RHS to the field/element type
             if (cg_is_iface(g, cg_dealias(g, lv.ety)) == 1) { rop = cg_iface_conv(g, lv.ety, rhs, e.b); }
-            cg_emit(g, "  store "); cg_emit(g, lty); cg_emit(g, " "); cg_emit(g, rop);
+            cg_emit(g, "  store "); cg_emit(g, cg_vol(g, e.a)); cg_emit(g, lty); cg_emit(g, " "); cg_emit(g, rop);
             cg_emit(g, ", ptr "); cg_emit(g, lv.op); cg_emit(g, "\n");
             v.op = rop; v.ty = lty; v.ety = lv.ety; return v;
         }
@@ -5998,6 +6019,7 @@ void cg_stmt(Codegen* g, *StmtNode st) {
             String_append(&g.globals, sinit);
             String_append(&g.globals, "\n");
             cg_add_local(g, st.name, gname, ty, cg_apply_sub(g, st.type));
+            if (st.is_vol == 1) { List_push<string>(&g.vols, st.name); }
             return;
         }
         string slot = cg_entry_alloca(g, ty);   // hoisted to the entry block, not re-run per loop iteration
@@ -6019,6 +6041,7 @@ void cg_stmt(Codegen* g, *StmtNode st) {
             }
         }
         cg_add_local(g, st.name, slot, ty, cg_apply_sub(g, st.type));
+        if (st.is_vol == 1) { List_push<string>(&g.vols, st.name); }
         return;
     }
     if (st.kind == SK_SWITCH) {
@@ -7782,6 +7805,7 @@ void cg_program(Codegen* g, *Program prog) {
             int dupn = cg_count_global(g, d.name);
             if (dupn > 0) { gsym = cg_cat(gsym, cg_cat(".", cg_itoa(dupn))); }
             cg_add_global(g, d.name, gsym, llty, d.ret_type);
+            if (d.is_vol == 1) { List_push<string>(&g.vols, d.name); }
             g.lam_expret = cg_lam_ret_of(d.ret_type);  // thread fn-type return into a lambda init
             // Compute the initializer FIRST: a string literal folds via cg_string_global,
             // which appends its constant to g.globals — that must land before this line, not

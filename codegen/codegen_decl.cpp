@@ -352,7 +352,8 @@ void CodeGen::visit(VarDecl* node) {
                 llvm::GlobalValue::ExternalLinkage, init, node->name);
         }
 
-        if (constVal) constValueOf[gv] = constVal;
+        if (constVal && !node->isVolatile) constValueOf[gv] = constVal;
+        if (node->isVolatile) volatileVars.insert(node->name);
         defineSymbol(node->name, gv);
         defineVarType(node->name, node->type);
         return;

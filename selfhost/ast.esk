@@ -280,6 +280,7 @@ struct StmtNode {
     string type;           // var-decl type
     int is_const;          // SK_VARDECL: declared value-const (read-only binding)
     int is_static;         // SK_VARDECL: `static` local (one instance, persists across calls)
+    int is_vol;            // SK_VARDECL: `volatile` (its loads/stores, and those through it, are volatile)
     int is_err;            // SK_DEFER: errdefer (runs only on the error path) vs plain defer
     int is_range;          // SK_VARDECL: a `for (i in A..B)` desugar decl; sema retypes it to the bounds' common integer type
     string resolved_elem;  // SK_FORIN: element type stamped by sema (mirrors C++ resolvedElemType); "" = fall back to structural resolution at lowering
@@ -311,6 +312,7 @@ struct DeclNode {
     int is_mustuse;                  // function declared `must_use` (discarding result is an error)
     int is_const;                  // DK_VARDECL: declared value-const global
     int is_extern;                 // DK_VARDECL: `extern <type> <name>;` (C global, external linkage, no init)
+    int is_vol;                    // DK_VARDECL: `volatile` global
     List<int> param_escaping;      // per-param `escaping` flag (parallel to params)
     int is_packed;                 // struct: `packed` qualifier / `#pragma pack(1)` (align 1)
     int pack_align;                // struct: `#pragma pack(N)` alignment cap (0 = natural)

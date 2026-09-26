@@ -64,6 +64,15 @@ for f in "${files[@]}"; do
     fi
 done
 
+# Accesses through a `volatile` variable are volatile in the emitted IR (10 in the test's
+# main, as the C++ back-end emits them; tests/run.sh checks the C++ side).
+if [ "$#" -eq 0 ]; then
+    total=$((total + 1))
+    vn="$(ESKIU_ROOT="$(pwd)" "$CGBIN" --test-codegen tests/volatile_access.esk 2>/dev/null | grep -c 'volatile i32')"
+    if [ "$vn" = 10 ]; then echo "ok    volatile_access  (IR: 10 volatile accesses)"
+    else echo "FAIL  volatile_access  (IR: $vn volatile i32 accesses, expected 10)"; fail=1; fi
+fi
+
 echo "----"
 if [ "$fail" -eq 0 ]; then echo "cg parity: $total/$total programs match"; else echo "cg parity: MISMATCH"; fi
 exit "$fail"

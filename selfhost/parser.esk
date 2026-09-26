@@ -1604,8 +1604,9 @@ void check_name_not_keyword(Parser* p) {
     int save = p.pos;
     int is_const = 0;
     int is_static = 0;
+    int is_vol = 0;
     while (p_at(p) == VOLATILE || p_at(p) == STATIC) {
-        if (p_at(p) == STATIC) { is_static = 1; }
+        if (p_at(p) == STATIC) { is_static = 1; } else { is_vol = 1; }
         p_adv(p);
     }
     if (p_at(p) == CONST) {                          // const-let binding (const before let)
@@ -1614,7 +1615,7 @@ void check_name_not_keyword(Parser* p) {
         if (p_peek_k(p, k).type == LET) { is_const = 1; p_adv(p); }
     }
     while (p_at(p) == VOLATILE || p_at(p) == STATIC) {
-        if (p_at(p) == STATIC) { is_static = 1; }
+        if (p_at(p) == STATIC) { is_static = 1; } else { is_vol = 1; }
         p_adv(p);
     }
     if (p_at(p) == LET) {
@@ -1632,7 +1633,7 @@ void check_name_not_keyword(Parser* p) {
         if (p_at(p) != SEMICOLON) { p_fail(p, "Expected ';' after variable declaration"); return null; }
         p_adv(p);
         *StmtNode d = mk_vardecl(nm, ty, init, is_const);
-        d.is_static = is_static;
+        d.is_static = is_static; d.is_vol = is_vol;
         return d;
     }
     // typed: Type name [= expr] ;
@@ -1652,13 +1653,13 @@ void check_name_not_keyword(Parser* p) {
         if (p_at(p) != SEMICOLON) { p_fail(p, "Expected ';'"); return null; }
         p_adv(p);
         *StmtNode d = mk_vardecl(nm, ty, init, is_const);
-        d.is_static = is_static;
+        d.is_static = is_static; d.is_vol = is_vol;
         return d;
     }
     if (p_at(p) == SEMICOLON) {
         p_adv(p);
         *StmtNode d = mk_vardecl(nm, ty, null, is_const);
-        d.is_static = is_static;
+        d.is_static = is_static; d.is_vol = is_vol;
         return d;
     }
     p.pos = save;
@@ -2277,13 +2278,14 @@ string i64_to_str(int64 n) {
 *DeclNode parse_decl_fallback(Parser* p) {
     int save = p.pos;
     int is_const = 0;
-    if (p_at(p) == VOLATILE) { p_adv(p); }
+    int is_vol = 0;
+    if (p_at(p) == VOLATILE) { is_vol = 1; p_adv(p); }
     if (p_at(p) == CONST) {
         int k = 1;
         if (p_peek_k(p, 1).type == VOLATILE) { k = 2; }
         if (p_peek_k(p, k).type == LET) { is_const = 1; p_adv(p); }
     }
-    if (p_at(p) == VOLATILE) { p_adv(p); }
+    if (p_at(p) == VOLATILE) { is_vol = 1; p_adv(p); }
     if (p_at(p) == LET) {
         p_adv(p);
         check_name_not_keyword(p);
@@ -2295,7 +2297,7 @@ string i64_to_str(int64 n) {
         *ExprNode init = null;
         if (p_at(p) == EQ) { p_adv(p); init = parse_expr(p); }
         p_expect(p, SEMICOLON, "Expected ';'");
-        return mk_decl_var(nm, ty, init, is_const);
+        *DeclNode dv = mk_decl_var(nm, ty, init, is_const); dv.is_vol = is_vol; return dv;
     }
     string raw = parse_type(p);
     if (is_value_const(raw) == 1) { is_const = 1; }
@@ -2317,7 +2319,7 @@ string i64_to_str(int64 n) {
     *ExprNode init = null;
     if (p_at(p) == EQ) { p_adv(p); init = parse_expr(p); }
     p_expect(p, SEMICOLON, "Expected ';'");
-    return mk_decl_var(tok_text(p.src, nm), ty, init, is_const);
+    *DeclNode dv2 = mk_decl_var(tok_text(p.src, nm), ty, init, is_const); dv2.is_vol = is_vol; return dv2;
 }
 
 // Top-level declaration dispatch (mirrors parseDeclaration). A declared type name

@@ -262,6 +262,11 @@ else
     bad "cli/link-pragma-applied" "a missing #pragma link library did not fail only the link"
 fi
 
+# Every access through a `volatile` variable is a volatile load/store (10 in the test).
+v_n="$("$ESKIUC" --test-codegen "$here/volatile_access.esk" 2>/dev/null | grep -c 'volatile i32')"
+if [[ "$v_n" -eq 10 ]]; then ok "codegen/volatile-access"
+else bad "codegen/volatile-access" "$v_n volatile i32 accesses in the IR, expected 10"; fi
+
 # A successful compile prints nothing to stdout (no output-file echo).
 printf 'int main() { return 0; }\n' > "$work/quiet.esk"
 q_out="$("$ESKIUC" "$work/quiet.esk" -o "$work/quiet" 2>/dev/null)"

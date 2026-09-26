@@ -233,6 +233,8 @@ private:
 
     // Volatile variable tracking — names of variables declared volatile
     std::set<std::string> volatileVars;
+    bool volatileRooted(const Expr* e) const;
+    llvm::LoadInst* volLoad(llvm::LoadInst* ld, const Expr* root) const;
 
     // Variable type tracking for MemberExpr/IndexExpr resolution
     std::vector<std::map<std::string, std::string>> varTypeStack;

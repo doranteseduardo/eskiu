@@ -22,6 +22,31 @@ static bool isPureExpr(const ExprPtr& e) {
     return false;
 }
 
+// An access through a `volatile` variable: the variable itself, or a place reached from
+// it by `*`, `[]` or `.` (`*reg`, `reg[i]`, `dev.ctrl`). Its loads and stores are volatile.
+bool CodeGen::volatileRooted(const Expr* e) const {
+    while (e) {
+        if (auto* id = dynamic_cast<const IdentExpr*>(e)) return volatileVars.count(id->name) > 0;
+        if (auto* u = dynamic_cast<const UnaryExpr*>(e)) {
+            if (u->op != "*" || !u->opFunc.empty()) return false;
+            e = u->operand.get();
+        } else if (auto* ix = dynamic_cast<const IndexExpr*>(e)) {
+            if (!ix->opFunc.empty()) return false;
+            e = ix->base.get();
+        } else if (auto* m = dynamic_cast<const MemberExpr*>(e)) {
+            e = m->base.get();
+        } else {
+            return false;
+        }
+    }
+    return false;
+}
+
+llvm::LoadInst* CodeGen::volLoad(llvm::LoadInst* ld, const Expr* root) const {
+    if (volatileRooted(root)) ld->setVolatile(true);
+    return ld;
+}
+
 void CodeGen::emitCompoundAssign(BinaryExpr* node, BinaryExpr* rhsOp) {
     // `lv op= v` (parsed as `lv = lv op v` sharing the lvalue node) where evaluating `lv`
     // has side effects (`a[f()] += 1`, `a[i++] += 1`): compute the lvalue's address ONCE,
@@ -30,6 +55,7 @@ void CodeGen::emitCompoundAssign(BinaryExpr* node, BinaryExpr* rhsOp) {
     std::string tmp = "__cmpd." + std::to_string(compoundSeq++);
     llvm::AllocaInst* slot = entryAlloca(llvm::PointerType::get(*context, 0), nullptr, tmp);
     defineSymbol(tmp, slot);
+    if (volatileRooted(node->left.get())) volatileVars.insert(tmp);
     ExprPtr target;
     auto* mem = dynamic_cast<MemberExpr*>(node->left.get());
     if (mem && structLayout.count(structBaseTypeOf(mem->base))) {
@@ -204,10 +230,7 @@ void CodeGen::emitAssignment(BinaryExpr* node) {
     }
     if (elemType)
         rhs = coerceValue(rhs, elemType, eskiuUnsigned(getExprEskiuType(node->right)));
-    bool storeVol = false;
-    if (auto* ident = llvm::dyn_cast<llvm::AllocaInst>(lhs)) {
-        storeVol = volatileVars.count(ident->getName().str()) > 0;
-    }
+    bool storeVol = volatileRooted(node->left.get());
     auto* si = builder->CreateStore(rhs, lhs);
     si->setVolatile(storeVol);
     exprValueStack.push(rhs);
@@ -630,7 +653,7 @@ void CodeGen::visit(UnaryExpr* node) {
             if (!elemStr.empty() && elemStr != "void")
                 elemType = getTypeFromString(elemStr);
         }
-        result = builder->CreateLoad(elemType, val);
+        result = volLoad(builder->CreateLoad(elemType, val), node);
     } else {
         throw std::runtime_error("Unknown unary operator: " + node->op);
     }
@@ -679,7 +702,7 @@ void CodeGen::visit(IncDecExpr* node) {
     std::string ety = getExprEskiuType(node->operand);
     llvm::Type* ty = getTypeFromString(ety.empty() ? "int" : ety);
     bool isPtr = ty->isPointerTy();
-    llvm::Value* old = builder->CreateLoad(ty, ptr);
+    llvm::Value* old = volLoad(builder->CreateLoad(ty, ptr), node->operand.get());
     llvm::Value* nw;
     if (isPtr) {
         // pointer (or string) step by one element
@@ -690,7 +713,7 @@ void CodeGen::visit(IncDecExpr* node) {
         llvm::Value* one = llvm::ConstantInt::get(ty, 1);
         nw = node->decrement ? builder->CreateSub(old, one) : builder->CreateAdd(old, one);
     }
-    builder->CreateStore(nw, ptr);
+    builder->CreateStore(nw, ptr)->setVolatile(volatileRooted(node->operand.get()));
     exprValueStack.push(node->prefix ? nw : old);
 }
 
@@ -823,19 +846,19 @@ void CodeGen::visit(IndexExpr* node) {
     // Slice element: s[i] → load from the fat pointer's data at i.
     if (bt.kind == ty::Type::Kind::Slice) {
         llvm::Type* elemType = getTypeFromString(bt.elem->str());
-        exprValueStack.push(builder->CreateLoad(elemType, indexElemAddr(node->base, idx)));
+        exprValueStack.push(volLoad(builder->CreateLoad(elemType, indexElemAddr(node->base, idx)), node));
         return;
     }
     // String: string[i] → char.
     if (baseType == "string") {
-        exprValueStack.push(builder->CreateLoad(
-            llvm::Type::getInt8Ty(*context), indexElemAddr(node->base, idx)));
+        exprValueStack.push(volLoad(builder->CreateLoad(
+            llvm::Type::getInt8Ty(*context), indexElemAddr(node->base, idx)), node));
         return;
     }
     // Fixed-size array: T[N] (for T[N][M], indexing peels the outer dimension → T[M]).
     if (bt.kind == ty::Type::Kind::Array) {
         llvm::Type* elemType = getTypeFromString(bt.elem->str());
-        exprValueStack.push(builder->CreateLoad(elemType, indexElemAddr(node->base, idx)));
+        exprValueStack.push(volLoad(builder->CreateLoad(elemType, indexElemAddr(node->base, idx)), node));
         return;
     }
     // Pointer: *T or T*.
@@ -843,8 +866,8 @@ void CodeGen::visit(IndexExpr* node) {
         std::string elemStr = (!baseType.empty() && baseType.front() == '*')
             ? baseType.substr(1)
             : baseType.substr(0, baseType.size() - 1);
-        exprValueStack.push(builder->CreateLoad(
-            getTypeFromString(elemStr), indexElemAddr(node->base, idx)));
+        exprValueStack.push(volLoad(builder->CreateLoad(
+            getTypeFromString(elemStr), indexElemAddr(node->base, idx)), node));
         return;
     }
 
@@ -911,7 +934,7 @@ void CodeGen::visit(MemberExpr* node) {
         llvm::Value* basePtr = baseAddr();
         llvm::Value* gep = layoutFieldAddr(baseType, basePtr, slot, node->member);
         if (!slot.isBitfield) {
-            exprValueStack.push(builder->CreateLoad(slot.storageType, gep, node->member));
+            exprValueStack.push(volLoad(builder->CreateLoad(slot.storageType, gep, node->member), node));
             return;
         }
         exprValueStack.push(bitfieldReadValue(loadBitfieldFrom(gep, slot), baseType, node->member));
@@ -935,7 +958,7 @@ void CodeGen::visit(MemberExpr* node) {
             } else {
                 ptr = builder->CreateStructGEP(structTypes[baseType], basePtr, i, node->member);
             }
-            exprValueStack.push(builder->CreateLoad(fieldTy, ptr, node->member));
+            exprValueStack.push(volLoad(builder->CreateLoad(fieldTy, ptr, node->member), node));
             return;
         }
     }
