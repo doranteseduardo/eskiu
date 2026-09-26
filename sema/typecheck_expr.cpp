@@ -602,6 +602,16 @@ void TypeChecker::visit(UnaryExpr* node) {
         }
 
     if (node->op == "*") checkNullableDeref(node->operand.get(), "dereference");
+    // A `*void` points at no type: there is nothing to read or write through it.
+    if (node->op == "*" && operandType != "unknown") {
+        std::string pt = normalizeType(tyq::strip(operandType));
+        if (!pt.empty() && pt[0] == '?') pt = pt.substr(1);
+        if (isPointerType(pt) && isVoidValueType(getPointeeType(pt))) {
+            errorAt(node, "cannot dereference '" + operandType + "': it points to 'void' (cast it to a typed pointer first)");
+            expressionTypes[node] = "unknown";
+            return;
+        }
+    }
 
     if (operandType == "unknown") {
         expressionTypes[node] = "unknown";

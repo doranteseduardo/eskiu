@@ -4034,6 +4034,12 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         || k == EK_FREECLOSURE || k == EK_THREADCREATE) {
         if (k == EK_UNARY && sema_streq(e.sval, "*") == 1) {
             sema_check_nullable_deref(s, e.a, "dereference");
+            // A `*void` points at no type: there is nothing to read or write through it.
+            string dt = sema_infer_type(s, e.a);
+            if (dt[0] != 0 && sema_streq(sema_strip_nullable(sema_canon(s, dt)), "*void") == 1) {
+                s.had_error = 1;
+                dprintf(2, "error: %s:%d:%d: cannot dereference '%s': it points to 'void' (cast it to a typed pointer first)\n", s.filename, s.line, s.col, dt);
+            }
         }
         if (k == EK_UNARY && e.a != null && sema_streq(e.sval, "&") == 0) {
             // The built-in operand rules (mirrors the C++ inferUnaryExprType): `-`/`+` take a
