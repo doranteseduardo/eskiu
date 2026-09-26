@@ -12,6 +12,7 @@
 
 import <io>;
 import <string>;
+import <list>;
 
 // Update the `{` nesting from tb[from, tlen) (code state), skipping strings, chars and
 // comments; a `/*` without its `*/` leaves *in_block set (mirrors the C++ scanNesting).
@@ -61,6 +62,39 @@ int fmt_rtrim(*uint8 b, int s, int e) {
     return te;
 }
 
+// 1 when the directive line b[0, n) leaves a `/*` comment open (literals and `//`
+// skipped, as the preprocessor strips a directive's comments; mirrors the C++).
+int fmt_dir_opens(*uint8 b, int n) {
+    int i = 0;
+    while (i < n) {
+        int c = (int)b[i];
+        if (c == 34 || c == 39) {
+            i = i + 1;
+            while (i < n && (int)b[i] != c) { if (b[i] == 92 && i + 1 < n) { i = i + 1; } i = i + 1; }
+            i = i + 1;
+            continue;
+        }
+        if (c == 47 && i + 1 < n && b[i + 1] == 47) { return 0; }
+        if (c == 47 && i + 1 < n && b[i + 1] == 42) {
+            int e = i + 2;
+            while (e + 1 < n && !(b[e] == 42 && b[e + 1] == 47)) { e = e + 1; }
+            if (e + 1 >= n) { return 1; }
+            i = e + 2;
+            continue;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+// 1 when the C strings `a` and `b` are equal.
+int fmt_eq(string a, string b) {
+    int i = 0;
+    while (a[i] != 0 && a[i] == b[i]) { i = i + 1; }
+    if (a[i] == b[i]) { return 1; }
+    return 0;
+}
+
 // Append the line ending: CRLF when `crlf` is set, else LF.
 void fmt_eol(String* out, int crlf) {
     if (crlf == 1) { String_push(out, (char)13); }
@@ -80,6 +114,14 @@ String format_source(*uint8 src, int n) {
     int prevCont = 0;      // the previous line ends with `\`: this one continues it
     int ppCont = 0;        // the continued line is a preprocessor line (no nesting)
     int pendingBlank = 0;  // blank lines buffered (dropped only at the end of the file)
+    // The preprocessor's view (mirrors the C++): a `#` line outside a block comment is a
+    // directive even inside a multi-line string, each branch of a conditional and the
+    // code after `#endif` start from the string state at the `#if`, and a directive that
+    // leaves a `/*` open opens a comment for the following lines.
+    List<int> condStr; List_init<int>(&condStr, 4);
+    let ppLine: String;    // the directive's logical line (continuations joined)
+    String_init(&ppLine, 64);
+    int firstLine = 1;
     int crlf = 0;
     int fnl = 0;
     while (fnl < n && src[fnl] != 10) { fnl = fnl + 1; }
@@ -105,8 +147,15 @@ String format_source(*uint8 src, int n) {
         int rlen = (int)String_len(&raw);
         *uint8 rb = (*uint8)String_cstr(&raw);
         int cont = prevCont;
+        int shebang = 0;
+        if (firstLine == 1 && rlen >= 2 && rb[0] == 35 && rb[1] == 33) { shebang = 1; }
+        firstLine = 0;
         prevCont = 0;
         if (rlen > 0 && rb[rlen - 1] == 92) { prevCont = 1; }
+        int h0 = 0;
+        while (h0 < rlen && (rb[h0] == 32 || rb[h0] == 9)) { h0 = h0 + 1; }
+        int directive = 0;
+        if (inBlock == 0 && cont == 0 && h0 < rlen && rb[h0] == 35) { directive = 1; }
 
         if (inBlock == 1) {         // verbatim until the comment closes
             int a = 0;
@@ -124,7 +173,7 @@ String format_source(*uint8 src, int n) {
             continue;
         }
 
-        if (inStr == 1) {           // inside a multi-line string: bytes verbatim
+        if (inStr == 1 && directive == 0) {   // inside a multi-line string: bytes verbatim
             fmt_scan(rb, rlen, 0, &depth, &inBlock, &inStr);
             int ve = rlen;
             if (inStr == 0) { ve = fmt_rtrim(rb, 0, rlen); }
@@ -139,6 +188,11 @@ String format_source(*uint8 src, int n) {
             while (a < rlen) { String_push(&out, (char)rb[a]); a = a + 1; }
             fmt_eol(&out, crlf);
             if (ppCont == 0) { fmt_scan(rb, rlen, 0, &depth, &inBlock, &inStr); }
+            else {
+                int a2 = 0; int ae = rlen; if (prevCont == 1) { ae = rlen - 1; }
+                while (a2 < ae) { String_push(&ppLine, (char)rb[a2]); a2 = a2 + 1; }
+                if (prevCont == 0) { inBlock = fmt_dir_opens((*uint8)String_cstr(&ppLine), (int)String_len(&ppLine)); }
+            }
             continue;
         }
 
@@ -157,10 +211,27 @@ String format_source(*uint8 src, int n) {
         ppCont = 0;
         if (tb[0] == 35) { ppCont = 1; }
         if (tb[0] == 35) {          // '#' preprocessor line: column 0, no nesting change
+            int full = tlen;
             tlen = fmt_rtrim(tb, 0, tlen);
             int a = 0;
             while (a < tlen) { String_push(&out, (char)tb[a]); a = a + 1; }
             fmt_eol(&out, crlf);
+            int k2 = 1;
+            while (k2 < full && (tb[k2] == 32 || tb[k2] == 9)) { k2 = k2 + 1; }
+            int ks = k2;
+            while (k2 < full && ((tb[k2] >= 97 && tb[k2] <= 122) || (tb[k2] >= 65 && tb[k2] <= 90)
+                                 || (tb[k2] >= 48 && tb[k2] <= 57) || tb[k2] == 95)) { k2 = k2 + 1; }
+            String kws; String_init(&kws, 8);
+            int q = ks; while (q < k2) { String_push(&kws, (char)tb[q]); q = q + 1; }
+            string kw = (string)String_cstr(&kws);
+            int nc = List_len<int>(&condStr);
+            if (fmt_eq(kw, "if") == 1 || fmt_eq(kw, "ifdef") == 1 || fmt_eq(kw, "ifndef") == 1) { List_push<int>(&condStr, inStr); }
+            else if ((fmt_eq(kw, "elif") == 1 || fmt_eq(kw, "else") == 1) && nc > 0) { inStr = List_get<int>(&condStr, nc - 1); }
+            else if (fmt_eq(kw, "endif") == 1 && nc > 0) { inStr = List_get<int>(&condStr, nc - 1); List_remove<int>(&condStr, nc - 1); }
+            if (prevCont == 1) {
+                String_clear(&ppLine);
+                int a3 = 0; while (a3 < full - 1) { String_push(&ppLine, (char)tb[a3]); a3 = a3 + 1; }
+            } else if (shebang == 0) { inBlock = fmt_dir_opens(tb, full); }
             continue;
         }
 

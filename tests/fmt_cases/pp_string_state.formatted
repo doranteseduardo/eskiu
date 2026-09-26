@@ -1,0 +1,21 @@
+// fmt follows the preprocessor: a stray quote in a skipped branch or inside a comment
+// opened on a directive line does not open a string, so the later multi-line strings
+// keep their bytes.
+extern int printf(string fmt, ...);
+#define K 1 /* a
+  don"t */
+int main() {
+    string s = "a{
+   b}";
+    printf("%s|\n", s);
+#if 0
+    x "q
+#else
+    int z = 0;
+#endif
+    string t = "  {x
+  y";
+    printf("%s| %d %d\n", t, K, z);
+    char c = '"'; printf("%c\n", c);
+    return 0;
+}

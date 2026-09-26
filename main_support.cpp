@@ -141,6 +141,31 @@ std::string formatSource(const std::string& src) {
     bool inStr = false;       // a string literal continues onto the next line
     bool prevCont = false;    // the previous line ends with `\`: this one continues it
     bool ppCont = false;      // the continued line is a preprocessor line (no nesting)
+    // The preprocessor's view, which decides what the lexer sees: a `#` line outside a
+    // block comment is a directive even inside a multi-line string, only one branch of a
+    // conditional reaches the lexer (so each branch, and the code after `#endif`, starts
+    // from the string state at the `#if`), and a directive that leaves a `/*` open opens
+    // a comment for the following lines.
+    std::vector<bool> condStr;
+    std::string ppLine;       // the directive's logical line (continuations joined)
+    bool firstLine = true;
+    auto directiveOpensComment = [](const std::string& l) {
+        size_t n = l.size();
+        for (size_t i = 0; i < n; ++i) {
+            char c = l[i];
+            if (c == '"' || c == '\'') {
+                for (++i; i < n && l[i] != c; ++i) if (l[i] == '\\' && i + 1 < n) ++i;
+                continue;
+            }
+            if (c == '/' && i + 1 < n && l[i + 1] == '/') return false;
+            if (c == '/' && i + 1 < n && l[i + 1] == '*') {
+                size_t e = l.find("*/", i + 2);
+                if (e == std::string::npos) return true;
+                i = e + 1;
+            }
+        }
+        return false;
+    };
 
     // Update nesting from t[from..] (code state), skipping strings/chars/comments.
     // Strings are checked first, so a `/*` or `}` inside a literal is ignored. A
@@ -175,7 +200,11 @@ std::string formatSource(const std::string& src) {
 
     for (const std::string& raw : lines) {
         bool cont = prevCont;
+        bool shebang = firstLine && raw.compare(0, 2, "#!") == 0;
+        firstLine = false;
         prevCont = !raw.empty() && raw.back() == '\\';
+        size_t h0 = raw.find_first_not_of(" \t");
+        bool directive = !inBlock && !cont && h0 != std::string::npos && raw[h0] == '#';
         if (inBlock) {                       // verbatim until the comment closes
             out += raw; out += eol;
             for (size_t i = 0; i + 1 < raw.size(); ++i)
@@ -186,7 +215,7 @@ std::string formatSource(const std::string& src) {
                 }
             continue;
         }
-        if (inStr) {                         // inside a multi-line string: bytes verbatim
+        if (inStr && !directive) {           // inside a multi-line string: bytes verbatim
             std::string t = raw;
             scanNesting(t, 0);
             if (!inStr) t = rtrim(t);
@@ -196,6 +225,8 @@ std::string formatSource(const std::string& src) {
         if (cont) {                          // a continuation line: bytes verbatim
             out += raw; out += eol;
             if (!ppCont) scanNesting(raw, 0);
+            else if (prevCont) ppLine += raw.substr(0, raw.size() - 1);
+            else inBlock = directiveOpensComment(ppLine + raw);
             continue;
         }
         size_t a = raw.find_first_not_of(" \t");
@@ -206,7 +237,18 @@ std::string formatSource(const std::string& src) {
 
         ppCont = t[0] == '#';
         if (t[0] == '#') {                   // preprocessor line: column 0, no nesting change
-            out += rtrim(t); out += eol; continue;
+            out += rtrim(t); out += eol;
+            size_t k = 1;
+            while (k < t.size() && (t[k] == ' ' || t[k] == '\t')) k++;
+            size_t ks = k;
+            while (k < t.size() && (std::isalnum((unsigned char)t[k]) || t[k] == '_')) k++;
+            std::string kw = t.substr(ks, k - ks);
+            if (kw == "if" || kw == "ifdef" || kw == "ifndef") condStr.push_back(inStr);
+            else if ((kw == "elif" || kw == "else") && !condStr.empty()) inStr = condStr.back();
+            else if (kw == "endif" && !condStr.empty()) { inStr = condStr.back(); condStr.pop_back(); }
+            if (prevCont) ppLine = t.substr(0, t.size() - 1);
+            else if (!shebang) inBlock = directiveOpensComment(t);
+            continue;
         }
 
         // This line's indent dedents for each leading `}`.

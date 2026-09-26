@@ -689,6 +689,12 @@ more and a third about 60, fixed the same way.
   `List<int>` compiled. Tests `errors/generic_ptr_arg_mismatch`,
   `errors/generic_struct_param_arg`, `generic_infer_common`,
   `errors/generic_deduce_conflict`.
+- `fmt` follows the preprocessor's view of strings and comments, in both drivers: a
+  stray `"` in a skipped `#if 0` branch or inside a `/* */` opened on a `#define` line
+  made it think a string was open and reindent a later multi-line string, changing the
+  program. Each branch of a conditional starts from the string state at its `#if`, a `#`
+  line is a directive even inside a multi-line string, and a directive that leaves a
+  comment open opens it for the following lines. Test `fmt_cases/pp_string_state`.
 
 ## [0.9.1] - 2026-09-09
 ### Fixed
