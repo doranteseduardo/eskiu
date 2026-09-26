@@ -15,8 +15,19 @@
 // "Result<int,string>" -> "Result_int_string"
 inline std::string mangleTemplate(const std::string& type) {
     std::string out;
-    for (char c : type) {
-        if (c == '<' || c == '>' || c == ',') out += '_';
+    int depth = 0;
+    for (size_t i = 0; i < type.size(); ++i) {
+        char c = type[i];
+        if (c == '<') ++depth;
+        else if (c == '>' && depth) --depth;
+        // An array / slice type argument (`Box<int[3]>`, `Box<int[]>`) mangles to an
+        // identifier (`Box_int_A3`, `Box_int_S`), not a bracketed array spelling.
+        if (depth > 0 && c == '[') {
+            if (i + 1 < type.size() && type[i + 1] == ']') { out += "_S"; ++i; }
+            else out += "_A";
+        }
+        else if (depth > 0 && c == ']') {}
+        else if (c == '<' || c == '>' || c == ',') out += '_';
         else if (c != ' ')                   out += c;
     }
     while (!out.empty() && out.back() == '_') out.pop_back();
