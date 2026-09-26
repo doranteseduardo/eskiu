@@ -20,7 +20,7 @@ extern int64 read(int fd, *void buf, int64 n);
 extern int64 write(int fd, *void buf, int64 n);
 extern int   close(int fd);
 #ifndef _WIN32
-extern int   fcntl(int fd, int cmd, int arg);
+extern int   fcntl(int fd, int cmd, ...);        // variadic in C: arm64 Apple passes `...` on the stack
 #endif
 
 // A queued waker. Wakers are escaping closures (they outlive the call that

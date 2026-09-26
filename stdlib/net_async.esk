@@ -34,7 +34,7 @@ int64 _net_write(int fd, *void buf, int64 n) { return send(fd, buf, n, 0); }
 #else
 extern int64 read(int fd, *void buf, int64 n);
 extern int64 write(int fd, *void buf, int64 n);
-extern int   fcntl(int fd, int cmd, int arg);
+extern int   fcntl(int fd, int cmd, ...);        // variadic in C: arm64 Apple passes `...` on the stack
 
 #ifdef __APPLE__
 extern *int __error();
