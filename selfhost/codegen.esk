@@ -1931,6 +1931,14 @@ string cg_array_elem(string t) {
     return (string)buf;
 }
 
+// The return type a lambda initializing a `t` value takes: a fn type's return, through
+// any array dimensions (`fn(int)->int[2]` holds fns returning int), else "".
+string cg_lam_ret_of(string t) {
+    while (cg_is_array(t) == 1) { t = cg_array_elem(t); }
+    if (cg_is_fnty(t) == 1) { return cg_fnty_ret(t); }
+    return "";
+}
+
 // "int[4]" -> count "4".
 string cg_array_count(string t) {
     int open = cg_arr_open(t);
@@ -5653,7 +5661,7 @@ void cg_stmt(Codegen* g, *StmtNode st) {
             // ordinary load/store on the local read/write the persistent cell.
             string gname = cg_cat("@.static.", cg_itoa(g.strcount));
             g.strcount = g.strcount + 1;
-            if (cg_is_fnty(st.type) == 1) { g.lam_expret = cg_fnty_ret(st.type); }  // thread fn-type return into a lambda init
+            g.lam_expret = cg_lam_ret_of(st.type);  // thread fn-type return into a lambda init
             // Compute the initializer first (a string literal appends its constant to
             // g.globals; that must not land mid-line — see the module-global path).
             string sinit = cg_global_init_ty(g, st.expr, st.type);
@@ -5675,7 +5683,7 @@ void cg_stmt(Codegen* g, *StmtNode st) {
             } else if (st.expr.kind == EK_STRUCTINIT) { // P { f: v, ... } → store fields via GEP
                 cg_struct_init(g, slot, st.type, st.expr);
             } else {
-                if (cg_is_fnty(st.type) == 1) { g.lam_expret = cg_fnty_ret(st.type); }   // thread fn-type return into a lambda init
+                g.lam_expret = cg_lam_ret_of(st.type);   // thread fn-type return into a lambda init
                 CgVal init = cg_expr(g, st.expr);
                 g.lam_expret = "";
                 string iop = cg_coerce(g, init, ty);    // widen/truncate/null-coerce to the declared type
@@ -7409,7 +7417,7 @@ void cg_program(Codegen* g, *Program prog) {
             int dupn = cg_count_global(g, d.name);
             if (dupn > 0) { gsym = cg_cat(gsym, cg_cat(".", cg_itoa(dupn))); }
             cg_add_global(g, d.name, gsym, llty, d.ret_type);
-            if (cg_is_fnty(d.ret_type) == 1) { g.lam_expret = cg_fnty_ret(d.ret_type); }  // thread fn-type return into a lambda init
+            g.lam_expret = cg_lam_ret_of(d.ret_type);  // thread fn-type return into a lambda init
             // Compute the initializer FIRST: a string literal folds via cg_string_global,
             // which appends its constant to g.globals — that must land before this line, not
             // in the middle of it.
