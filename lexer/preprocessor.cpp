@@ -646,7 +646,8 @@ void preprocess(const std::string& src,
         return stack.empty() ? true : (stack.back().parentActive && stack.back().branchActive);
     };
 
-    std::istringstream in(src);
+    // A leading UTF-8 byte order mark is not part of the program.
+    std::istringstream in(src.compare(0, 3, "\xEF\xBB\xBF") == 0 ? src.substr(3) : src);
     std::ostringstream out;
     std::string line; bool first = true;
     int curLine = 0;

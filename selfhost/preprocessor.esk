@@ -1080,6 +1080,8 @@ string pp_run(string src, int len, string filename, *int had_err) {
     String_init(&out, len + 16);
     int first = 1;
     int i = 0;
+    // A leading UTF-8 byte order mark is not part of the program.
+    if (len >= 3 && (int)(uint8)src[0] == 239 && (int)(uint8)src[1] == 187 && (int)(uint8)src[2] == 191) { i = 3; }
     int cur_line = 0;
     int in_block = 0;                                // a /* */ comment is open at line start
 
