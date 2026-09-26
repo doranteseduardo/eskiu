@@ -814,14 +814,22 @@ input. What is still open is listed under Known issues.
 - A struct literal accepts a trailing comma (`P{ x: 5, y: 6, }`), like an array
   literal. Test `struct_lit_trailing_comma`.
 
+#### Final additions
+- The stdlib HTTP servers (`http_serve`, `http_serve_async`, `http2_serve_async`, the
+  TLS servers) disconnect a client that sends nothing, trickles its bytes or stops
+  reading: a request head (or the HTTP/2 preface and SETTINGS) must arrive within
+  `HTTP_HEADER_TIMEOUT_MS` (10 s), a body within `HTTP_BODY_TIMEOUT_MS` (60 s), an idle
+  HTTP/2 connection gets GOAWAY after `HTTP_IDLE_TIMEOUT_MS` (60 s), an answer must be
+  taken within `HTTP_WRITE_TIMEOUT_MS` (30 s), and the async servers hold at most
+  `HTTP_MAX_OPEN_CONNS` (1024) connections. A cut HTTP/1.1 request is answered 408.
+  `HttpLimits` and the `*_with` server variants change them; `<net>` gains
+  `net_set_timeouts` and `<net_async>` deadline reads and writes. Tests `http_timeouts`,
+  `http2_timeouts`, `http2_tls_timeouts`.
+
 ### Known issues
 These are open in 0.9.2 and planned for 0.9.3. None of them miscompiles a valid program
 without a diagnostic, except where the entry says so.
 
-- **The stdlib HTTP servers have no read or idle timeouts.** A client that opens a
-  connection and sends nothing (or one byte at a time) keeps a worker (`http_serve`) or a
-  file descriptor (the async and HTTP/2 servers) until it disconnects. Run them behind a
-  reverse proxy (nginx, Caddy) when they face untrusted clients.
 - A local read that is uninitialized on only some paths is accepted, as in C (the check
   only catches a read with no assignment on any path).
 - The C++ compiler does not treat a type alias inside a composite type as its target, so

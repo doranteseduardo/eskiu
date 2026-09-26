@@ -67,5 +67,7 @@ conversion between unrelated pointer types, writing a captured variable inside a
 "Changed" lists every such rule. Old stdlib names renamed to the `Type_method` convention
 still work and are marked deprecated.
 
-The stdlib HTTP servers do not have read or idle timeouts yet. Put them behind a reverse
-proxy when they face untrusted clients.
+The stdlib HTTP servers now time out clients that send nothing, trickle their bytes or
+stop reading (a 10 s request head, 60 s body and HTTP/2 idle, 30 s write), and the async
+servers hold at most 1024 connections at once. Pass an `HttpLimits` to the `*_with`
+variants to change these limits.
