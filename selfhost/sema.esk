@@ -4085,14 +4085,21 @@ void sema_expr_k(Sema* s, *ExprNode e) {
             // Scalars convert (numbers, pointers, integer<->pointer); an aggregate casts only
             // to its own type; float<->pointer has no meaning. Unknown sides are not judged.
             string cfrom = sema_infer_type(s, e.a);
+            string cto = sema_isub(s, e.sval);   // the target in a generic instance (`(T)0`, T = S)
             int fc = sema_cast_class(s, cfrom);
-            int tc = sema_cast_class(s, e.sval);
+            int tc = sema_cast_class(s, cto);
             int fn_name = 0;
             if (e.a != null && e.a.kind == EK_IDENT && sema_local_bound(s, e.a.sval) == 0 && sema_find_fndecl(s, e.a.sval) != null) { fn_name = 1; }
             int bad = 0;
-            if (fc != 0 && tc != 0 && sema_streq(sema_strip_const(cfrom), sema_strip_const(e.sval)) == 0 && fn_name == 0) {
+            if (fc != 0 && tc != 0 && sema_streq(sema_strip_const(cfrom), sema_strip_const(cto)) == 0 && fn_name == 0) {
                 if (fc == 3 || tc == 3) { bad = 1; }
-                if ((fc == 2 && tc == 1 && sema_is_float_ty(e.sval) == 1) || (fc == 1 && tc == 2 && sema_is_float_ty(cfrom) == 1)) { bad = 1; }
+                if ((fc == 2 && tc == 1 && sema_is_float_ty(cto) == 1) || (fc == 1 && tc == 2 && sema_is_float_ty(cfrom) == 1)) { bad = 1; }
+            }
+            // A void value converts to nothing but `void`, and a `{...}` literal is only an
+            // initializer (mirrors the C++ visit(CastExpr)).
+            if (sema_is_void_value(cto) == 0) {
+                if (cfrom[0] != 0 && sema_is_void_value(cfrom) == 1) { bad = 1; }
+                if (e.a != null && e.a.kind == EK_ARRAYLIT) { bad = 1; cfrom = "array-literal"; }
             }
             if (bad == 1) {
                 s.had_error = 1;

@@ -1,0 +1,5 @@
+// EXPECT-ERROR: cannot cast 'int' to 'T'
+// A generic cast is checked per instance: `(T)0` with T = S casts an int to a struct.
+T zero<T>() { return (T)0; }
+struct S { int a; }
+int main() { S s = zero<S>(); return s.a; }

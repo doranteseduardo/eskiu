@@ -1,0 +1,8 @@
+// EXPECT-ERROR: cannot cast 'void' to 'int'
+// A void value converts to nothing but `void`.
+void v() { }
+int main() {
+    int x = 0;
+    x = (int)v();
+    return x;
+}
