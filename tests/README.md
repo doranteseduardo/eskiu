@@ -396,6 +396,7 @@ when you add a test.
 | `c_abi_union` | unions by value across `extern` (+ `.c`): x86-64 SysV eightbytes as wide as the widest member |
 | `http_chunk_size_max` | `http_chunked_step` with a chunk size near `INT64_MAX` under a limit that allows it waits for more input (the `size + 2` room check overflowed and the decoder spun) |
 | `http_response_header_inject` | `HttpResponse_header` refuses (returns 0) a non-token name or a value with CR/LF (it forged a second header line), a handler's Content-Length is not sent next to the automatic one (a 304 keeps it), and the HTTP/2 encoder drops a hand-written line with a bad name or an LF |
+| `http_conn_feed_incremental` | `HttpConnBuf_feed` parses the head once and decodes a chunked body as it arrives (it reparsed the whole request on every read: quadratic CPU for small reads); a chunk-size or trailer line over `HTTP_CHUNK_LINE_MAX` is 400 |
 
 ### `smoke` tests (compile + link + exit 0)
 

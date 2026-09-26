@@ -234,15 +234,35 @@ struct HttpChunkOut {
     int64  cap;
 }
 
+// Longest chunk-size line (with its extensions) or trailer line the chunked
+// decoder waits for; a longer one is malformed. It bounds the bytes rescanned
+// each time more input arrives.
+const int HTTP_CHUNK_LINE_MAX = 8192;
+
+// 0 (wait for more input) while the unfinished line starting at `from` in
+// b[..n) is within HTTP_CHUNK_LINE_MAX, else -1.
+int _http_chunk_wait(int64 from, int64 n) {
+    return n - from > HTTP_CHUNK_LINE_MAX ? -1 : 0;
+}
+
 // Decode the complete chunks of a chunked body (RFC 9112 §7.1) in b[*pos..n),
 // appending their data to `out` (at most `max` bytes in total). *pos advances
 // past each complete chunk, so a caller that receives more input calls again
 // with the same state. Returns 1 once the last chunk and the trailer section
 // (discarded) are consumed, with *pos just past the body; 0 if more input is
-// needed; -1 if the body is malformed; -2 if it exceeds `max`.
+// needed; -1 if the body is malformed (also a chunk-size or trailer line
+// longer than HTTP_CHUNK_LINE_MAX); -2 if it exceeds `max`.
 int http_chunked_step(*uint8 b, int64 n, *int64 pos, HttpChunkOut* out, int64 max) {
+    return _http_chunked_run(b, n, pos, out, max, null);
+}
+
+// http_chunked_step, plus: with a non-null `trailer` (start it at 0), *pos
+// also advances past the last chunk and each complete trailer line, and
+// *trailer becomes 1 in the trailer section, so a caller that feeds more
+// input never rescans what was consumed.
+int _http_chunked_run(*uint8 b, int64 n, *int64 pos, HttpChunkOut* out, int64 max, *int trailer) {
     int64 p = *pos;
-    while (true) {
+    while (trailer == null || *trailer == 0) {
         int64 size = 0;
         int64 q = p;
         while (q < n && _http_hex_digit(b[q]) >= 0) {
@@ -251,20 +271,24 @@ int http_chunked_step(*uint8 b, int64 n, *int64 pos, HttpChunkOut* out, int64 ma
             size = size * 16 + d;
             q++;
         }
-        if (q >= n) { return 0; }
+        if (q >= n) { return _http_chunk_wait(p, n); }
         if (q == p) { return -1; }
         // chunk-ext: BWS ";" ... up to the line end (extensions are ignored).
         int64 e = q;
         while (e < n && (b[e] == ' ' || b[e] == '\t')) { e++; }
-        if (e >= n) { return 0; }
+        if (e >= n) { return _http_chunk_wait(p, n); }
         if (b[e] == ';') {
             while (e < n && _http_is_crlf_byte(b[e]) == 0) { e++; }
             q = e;
         }
-        if (q + 1 >= n) { return 0; }
+        if (q + 1 >= n) { return _http_chunk_wait(p, n); }
         if (b[q] != '\r' || b[q + 1] != '\n') { return -1; }
         q += 2;
-        if (size == 0) { p = q; break; }
+        if (size == 0) {
+            p = q;
+            if (trailer != null) { *trailer = 1;  *pos = p; }
+            break;
+        }
         if (size > max - out.len) { return -2; }
         if (n - q - 2 < size) {                  // not size + 2: it overflows near INT64_MAX
             if (n - q > size && b[q + size] != '\r') { return -1; }
@@ -295,12 +319,13 @@ int http_chunked_step(*uint8 b, int64 n, *int64 pos, HttpChunkOut* out, int64 ma
         }
         int64 q = p;
         while (q < n && _http_is_tchar(b[q]) == 1) { q++; }
-        if (q >= n) { return 0; }
+        if (q >= n) { return _http_chunk_wait(p, n); }
         if (q == p || b[q] != ':') { return -1; }
         while (q < n && _http_is_crlf_byte(b[q]) == 0) { q++; }
-        if (q + 1 >= n) { return 0; }
+        if (q + 1 >= n) { return _http_chunk_wait(p, n); }
         if (b[q] != '\r' || b[q + 1] != '\n') { return -1; }
         p = q + 2;
+        if (trailer != null) { *pos = p; }
     }
     return -1;
 }
@@ -323,6 +348,24 @@ int _http_body_framing(String* headers, int version, int64 max_body, *int64 clen
     return 0;
 }
 
+void _http_request_clear(HttpRequest* self) {
+    self.method.clear();
+    self.path.clear();
+    self.version.clear();
+    self.headers.clear();
+    self.body.clear();
+}
+
+// Parse the head buf[0..hend) (`hend` just past the blank line) into the
+// cleared `self`: the body framing of _http_body_framing (0 with the
+// Content-Length in *clen, 1 for chunked), or 400 for a malformed head.
+int _http_request_head(HttpRequest* self, *uint8 buf, int hend, int64 max_body, *int64 clen) {
+    *clen = 0;
+    int version = 0;
+    if (_http_parse_head_into(&self.method, &self.path, &self.version, &self.headers, buf, hend, &version) == 0) { return 400; }
+    return _http_body_framing(&self.headers, version, max_body, clen);
+}
+
 // Parse the request in buf[0..len) into self (its fields are cleared first).
 // *need is set to the total byte count the request needs once its head and
 // Content-Length are known (else 0), so a reader can wait for that much
@@ -332,17 +375,11 @@ int _http_body_framing(String* headers, int version, int64 max_body, *int64 clen
 // the end of the request are ignored.
 int _http_request_parse(HttpRequest* self, *uint8 buf, int len, int64 max_body, *int64 need) {
     *need = 0;
-    self.method.clear();
-    self.path.clear();
-    self.version.clear();
-    self.headers.clear();
-    self.body.clear();
+    _http_request_clear(self);
     const int hend = http_idx_header_end(buf, len);
     if (hend < 0) { return -1; }
-    int version = 0;
-    if (_http_parse_head_into(&self.method, &self.path, &self.version, &self.headers, buf, hend, &version) == 0) { return 400; }
     int64 clen = 0;
-    const int framing = _http_body_framing(&self.headers, version, max_body, &clen);
+    const int framing = _http_request_head(self, buf, hend, max_body, &clen);
     if (framing > 1) { return framing; }
     if (framing == 1) {
         let out: HttpChunkOut;
@@ -614,6 +651,12 @@ struct HttpConnBuf {
     int    len;
     int    cap;
     int64  need;     // bytes the request needs in total, once known (else 0)
+    int    hend;     // just past the head's blank line, once found (else 0)
+    int    scan;     // bytes already searched for the blank line
+    int    chunked;  // 1 if the body is chunked
+    int    trailer;  // chunked decoder state (see _http_chunked_run)
+    int64  bpos;     // chunked: raw bytes consumed so far
+    HttpChunkOut out;   // chunked: the body decoded so far
 }
 
 void HttpConnBuf_init(HttpConnBuf* self) {
@@ -621,10 +664,17 @@ void HttpConnBuf_init(HttpConnBuf* self) {
     self.data = alloc<uint8>(self.cap);
     self.len = 0;
     self.need = 0;
+    self.hend = 0;
+    self.scan = 0;
+    self.chunked = 0;
+    self.trailer = 0;
+    self.bpos = 0;
+    self.out.data = null;  self.out.len = 0;  self.out.cap = 0;
 }
 
 void HttpConnBuf_free(HttpConnBuf* self) {
     if (self.data != null) { free(self.data); self.data = null; }
+    if (self.out.data != null) { free(self.out.data); self.out.data = null; }
 }
 
 // After more bytes were added to b.len: -1 if the request is still incomplete
@@ -632,13 +682,38 @@ void HttpConnBuf_free(HttpConnBuf* self) {
 // bytes), 0 when `req` holds the complete request, or the status to answer
 // (400, 413, 501, 505, as HttpRequest_parse_status; 400 also for a head
 // longer than HTTP_SERVE_MAX_HEAD). A request split over any number of reads
-// is parsed once its bytes are all in.
+// is parsed once its bytes are all in. The work is incremental: the head is
+// searched and parsed once, and a chunked body is decoded as it arrives, so
+// each call only looks at the new bytes (a request fed in small pieces used
+// to be reparsed from the start every time, quadratic in its size).
 int HttpConnBuf_feed(HttpConnBuf* b, HttpRequest* req) {
-    int st = -1;
-    if ((int64)b.len >= b.need) {
-        st = _http_request_parse(req, b.data, b.len, HTTP_SERVE_MAX_BODY, &b.need);
-        if (st != -1) { return st; }
-        if (b.need == 0 && b.len > HTTP_SERVE_MAX_HEAD && http_idx_header_end(b.data, b.len) < 0) { return 400; }
+    if (b.hend == 0) {
+        const int h = _http_idx_header_end_from(b.data, b.scan > 3 ? b.scan - 3 : 0, b.len);
+        b.scan = b.len;
+        if (h < 0) {
+            if (b.len > HTTP_SERVE_MAX_HEAD) { return 400; }
+        } else {
+            b.hend = h;
+            _http_request_clear(req);
+            int64 clen = 0;
+            const int framing = _http_request_head(req, b.data, h, HTTP_SERVE_MAX_BODY, &clen);
+            if (framing > 1) { return framing; }
+            if (framing == 1) { b.chunked = 1;  b.bpos = h; }
+            else { b.need = (int64)h + clen; }
+        }
+    }
+    if (b.hend > 0) {
+        if (b.chunked == 1) {
+            const int st = _http_chunked_run(b.data, b.len, &b.bpos, &b.out, HTTP_SERVE_MAX_BODY, &b.trailer);
+            if (st == 1) {
+                for (i in 0..b.out.len) { req.body.push((char)b.out.data[i]); }
+                return 0;
+            }
+            if (st < 0) { return st == -2 ? 413 : 400; }
+        } else if ((int64)b.len >= b.need) {
+            for (int64 i = b.hend; i < b.need; i++) { req.body.push((char)b.data[i]); }
+            return 0;
+        }
     }
     if (b.len < b.cap) { return -1; }
     // A chunked body takes more raw bytes than it decodes to: allow for its framing.
@@ -751,7 +826,12 @@ Bytes HttpReq_body(HttpReq* self) {
 
 // Index just past the "\r\n\r\n" header terminator in b[0..n), or -1.
 int http_idx_header_end(*uint8 b, int n) {
-    for (int i = 0; i + 3 < n; i++) {
+    return _http_idx_header_end_from(b, 0, n);
+}
+
+// http_idx_header_end for a terminator starting at `from` or later.
+int _http_idx_header_end_from(*uint8 b, int from, int n) {
+    for (int i = from; i + 3 < n; i++) {
         if (b[i] == '\r' && b[i + 1] == '\n' && b[i + 2] == '\r' && b[i + 3] == '\n') { return i + 4; }
     }
     return -1;

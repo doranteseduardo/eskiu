@@ -1,0 +1,92 @@
+// HttpConnBuf_feed is incremental: the head is searched and parsed once and a
+// chunked body is decoded as it arrives. It reparsed the whole request on
+// every read, so a chunked request fed in small pieces cost time quadratic in
+// its size (1.8 MB of 1-byte chunks in 200-byte reads took seconds). A
+// chunk-size or trailer line longer than HTTP_CHUNK_LINE_MAX is malformed,
+// which bounds the bytes rescanned per read.
+import <http>;
+import <string>;
+import <mem>;
+extern int printf(string fmt, ...);
+extern int64 clock();
+
+// Feed raw[0..len) in pieces of `seg` bytes; print the status and the body.
+int feed(String* raw, int seg, bool show) {
+    let b: HttpConnBuf;  b.init();
+    let req: HttpRequest;  req.init();
+    int64 off = 0;
+    int st = -1;
+    while (st == -1 && off < raw.len) {
+        int64 k = raw.len - off;
+        if (k > seg) { k = seg; }
+        if (k > (int64)(b.cap - b.len)) { k = (int64)(b.cap - b.len); }
+        memcpy(b.data + b.len, raw.data + off, k);
+        b.len += (int)k;
+        off += k;
+        st = b.feed(&req);
+    }
+    printf("st=%d body=%d", st, (int)req.body.len);
+    if (show && st == 0) { printf(" path=%s body=%s", req.path.cstr(), req.body.cstr()); }
+    printf("\n");
+    req.free();
+    b.free();
+    return st;
+}
+
+int main() {
+    let raw: String;  raw.init(1 << 22);
+    raw.append("POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n");
+    for (int i = 0; i < 300000; i++) { raw.append("1\r\nx\r\n"); }
+    raw.append("0\r\n\r\n");
+    const int64 t0 = clock();
+    feed(&raw, 200, false);
+    const int64 ms = (clock() - t0) / 1000;
+    printf("bounded cpu: %s\n", ms < 2000 ? "yes" : "no");
+
+    // Byte by byte: a head, a chunk with an extension, trailers.
+    raw.clear();
+    raw.append("POST /t HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n");
+    raw.append("5;name=v\r\nhello\r\n6\r\n world\r\n0\r\nX-T: 1\r\nY-T: 2\r\n\r\n");
+    feed(&raw, 1, true);
+    // Content-Length, byte by byte.
+    raw.clear();
+    raw.append("POST /c HTTP/1.1\r\nHost: a\r\nContent-Length: 4\r\n\r\nabcd");
+    feed(&raw, 1, true);
+    // Malformed after the head: a bad chunk line, a bad trailer.
+    raw.clear();
+    raw.append("POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabcX\r\n");
+    feed(&raw, 7, false);
+    raw.clear();
+    raw.append("POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n0\r\nbad trailer\r\n\r\n");
+    feed(&raw, 3, false);
+
+    // A chunk-size line (leading zeros, an extension) and a trailer line longer
+    // than HTTP_CHUNK_LINE_MAX: 400, found before the whole line arrives.
+    raw.clear();
+    raw.append("POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n");
+    for (i in 0..20000) { raw.push('0'); }
+    raw.append("1\r\nx\r\n0\r\n\r\n");
+    feed(&raw, 100, false);
+    raw.clear();
+    raw.append("POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n1;");
+    for (i in 0..20000) { raw.push('e'); }
+    raw.append("\r\nx\r\n0\r\n\r\n");
+    feed(&raw, 100, false);
+    raw.clear();
+    raw.append("POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n0\r\nX: ");
+    for (i in 0..20000) { raw.push('v'); }
+    raw.append("\r\n\r\n");
+    feed(&raw, 100, false);
+
+    // The same limit in http_chunked_step; a line just under it is fine.
+    raw.clear();
+    raw.append("1;");
+    for (i in 0..8000) { raw.push('e'); }
+    raw.append("\r\nx\r\n0\r\n\r\n");
+    let out: HttpChunkOut;  out.data = null;  out.len = 0;  out.cap = 0;
+    int64 pos = 0;
+    printf("step %d len %lld\n", http_chunked_step((*uint8)raw.data, raw.len, &pos, &out, 100), out.len);
+    if (out.data != null) { free(out.data); }
+    raw.free();
+    return 0;
+}
