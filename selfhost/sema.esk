@@ -1442,7 +1442,7 @@ string sema_infer_type(Sema* s, *ExprNode e) {
         return "";
     }
     if (e.kind == EK_AWAIT) { return sema_future_inner(s, sema_infer_type(s, e.a)); }
-    if (e.kind == EK_LAMBDA) { return sema_lambda_fn_type(e.sval); }
+    if (e.kind == EK_LAMBDA) { return sema_isub(s, sema_lambda_fn_type(e.sval)); }
     if (e.kind == EK_INCDEC) { return sema_infer_type(s, e.a); }
     if (e.kind == EK_ALLOCWITH) { return sema_cat("*", e.sval); }
     return "";
@@ -4754,7 +4754,7 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
                 if (List_len<string>(&dps) != List_len<string>(&lps)) { same = 0; }
                 int pi = 0;
                 while (same == 1 && pi < List_len<string>(&dps)) {
-                    if (sema_streq(sema_canon(s, List_get<string>(&dps, pi)), sema_canon(s, List_get<string>(&lps, pi))) == 0) { same = 0; }
+                    if (sema_streq(sema_canon(s, List_get<string>(&dps, pi)), sema_canon(s, sema_isub(s, List_get<string>(&lps, pi)))) == 0) { same = 0; }
                     pi = pi + 1;
                 }
                 if (same == 0) {
