@@ -108,7 +108,16 @@ inline void collectNames(Stmt* s, std::set<std::string>& out) {
     else if (auto* w = dynamic_cast<WhileStmt*>(s))     { E(w->condition); S(w->body); }
     else if (auto* dw = dynamic_cast<DoWhileStmt*>(s))  { S(dw->body); E(dw->condition); }
     else if (auto* r = dynamic_cast<ReturnStmt*>(s))    { E(r->value); }
-    else if (auto* sw = dynamic_cast<SwitchStmt*>(s))   { E(sw->subject); for (auto& c : sw->cases) { E(c.value); for (auto& st : c.stmts) S(st); } }
+    else if (auto* sw = dynamic_cast<SwitchStmt*>(s)) {
+        E(sw->subject);
+        for (auto& c : sw->cases) {
+            E(c.value);
+            for (auto& it : c.stmts) {
+                if (std::holds_alternative<StmtPtr>(it)) { S(std::get<StmtPtr>(it)); continue; }
+                if (auto* vd = dynamic_cast<VarDecl*>(std::get<DeclPtr>(it).get())) { out.insert(vd->name); E(vd->initializer); }
+            }
+        }
+    }
     else if (auto* m = dynamic_cast<MatchStmt*>(s))     { E(m->subject); for (auto& a : m->arms) { for (auto& bn : a.bindings) out.insert(bn); S(a.body); } }
     else if (auto* th = dynamic_cast<ThrowStmt*>(s))    { E(th->value); }
     else if (auto* t = dynamic_cast<TryStmt*>(s))       { S(t->body); for (auto& c : t->catches) { out.insert(c.name); S(c.body); } S(t->finally); }
@@ -150,7 +159,14 @@ inline void collectAddressTaken(Stmt* s, std::set<std::string>& out) {
     else if (auto* w = dynamic_cast<WhileStmt*>(s))     { E(w->condition); S(w->body); }
     else if (auto* dw = dynamic_cast<DoWhileStmt*>(s))  { S(dw->body); E(dw->condition); }
     else if (auto* r = dynamic_cast<ReturnStmt*>(s))    { E(r->value); }
-    else if (auto* sw = dynamic_cast<SwitchStmt*>(s))   { E(sw->subject); for (auto& c : sw->cases) for (auto& st : c.stmts) S(st); }
+    else if (auto* sw = dynamic_cast<SwitchStmt*>(s)) {
+        E(sw->subject);
+        for (auto& c : sw->cases)
+            for (auto& it : c.stmts) {
+                if (std::holds_alternative<StmtPtr>(it)) { S(std::get<StmtPtr>(it)); continue; }
+                if (auto* vd = dynamic_cast<VarDecl*>(std::get<DeclPtr>(it).get())) E(vd->initializer);
+            }
+    }
     else if (auto* m = dynamic_cast<MatchStmt*>(s))     { E(m->subject); for (auto& a : m->arms) S(a.body); }
     else if (auto* th = dynamic_cast<ThrowStmt*>(s))    { E(th->value); }
     else if (auto* t = dynamic_cast<TryStmt*>(s))       { S(t->body); for (auto& c : t->catches) S(c.body); S(t->finally); }
@@ -218,7 +234,11 @@ inline bool containsEH(Stmt* s) {
     if (auto* r = dynamic_cast<ReturnStmt*>(s)) return E(r->value);
     if (auto* sw = dynamic_cast<SwitchStmt*>(s)) {
         if (E(sw->subject)) return true;
-        for (auto& c : sw->cases) for (auto& st : c.stmts) if (S(st)) return true;
+        for (auto& c : sw->cases)
+            for (auto& it : c.stmts) {
+                if (std::holds_alternative<StmtPtr>(it)) { if (S(std::get<StmtPtr>(it))) return true; continue; }
+                if (auto* vd = dynamic_cast<VarDecl*>(std::get<DeclPtr>(it).get()); vd && E(vd->initializer)) return true;
+            }
         return false;
     }
     if (auto* m = dynamic_cast<MatchStmt*>(s)) {

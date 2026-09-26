@@ -825,6 +825,10 @@ input. What is still open is listed under Known issues.
   `HttpLimits` and the `*_with` server variants change them; `<net>` gains
   `net_set_timeouts` and `<net_async>` deadline reads and writes. Tests `http_timeouts`,
   `http2_timeouts`, `http2_tls_timeouts`.
+- A declaration may follow `case N:` or `default:` directly, without braces. The switch
+  body is one scope, as in C: the variable is visible in the later cases, and two cases
+  may not declare one name. Tests `case_decl`, `async_case_decl`,
+  `errors/case_decl_redefined`, `errors/case_decl_out_of_scope`.
 
 ### Known issues
 These are open in 0.9.2 and planned for 0.9.3. None of them miscompiles a valid program
@@ -839,7 +843,6 @@ without a diagnostic, except where the entry says so.
   not folded by the type checker, so the constant-expression checks do not see it.
 - A bitfield write, and the initializing store, through a `volatile` variable are not
   volatile accesses.
-- A declaration directly after `case N:` needs braces (`case 1: { int y = 2; ... }`).
 - A `T[]` parameter does not infer `T` from a slice argument, and a generic variant infers
   its type arguments only from its payload (`Opt<int64> a = Some(5)` needs
   `Some<int64>(5)`); write the type arguments.

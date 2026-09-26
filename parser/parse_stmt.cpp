@@ -161,6 +161,42 @@ StmtPtr Parser::parseStatement() {
     return parseExpressionStatement();
 }
 
+// A block item: a local declaration, or else a statement.
+BlockItem Parser::parseBlockItem() {
+    // Check if this looks like a declaration
+    if (check(TokenType::CONST) ||
+        check(TokenType::VOLATILE) ||
+        check(TokenType::STATIC) ||
+        check(TokenType::QUESTION) ||   // `?*T q = ...` nullable-pointer local
+        check(TokenType::FN) ||         // `fn(int)->int f = ...` (fn only names a type)
+        check(TokenType::LET) ||
+        check(TokenType::STAR) || check(TokenType::IDENT) ||
+        isPrimitiveTypeToken(peek().type)) {
+
+        size_t savePos = current;
+        try {
+            DeclPtr decl = parseDeclaration();
+            if (decl) {
+                if (auto* vd = dynamic_cast<VarDecl*>(decl.get())) localVars.push_back(vd->name);
+                return decl;
+            }
+        } catch (const NestingError&) {
+            throw;
+        } catch (...) {
+            // Only an identifier or a leading '*' is ambiguous (it can also
+            // begin an expression statement); fall back for those. A leading
+            // type keyword / const / volatile / let is unambiguously a
+            // declaration, so its error is real: surface it instead of
+            // masking it with a misleading expression-parse error (keeps the
+            // "expected a name, found keyword 'fn'" diagnostic for `int fn;`).
+            TokenType startTok = tokens[savePos].type;
+            if (startTok != TokenType::IDENT && startTok != TokenType::STAR) throw;
+            rewindTo(savePos);
+        }
+    }
+    return parseStatement();
+}
+
 StmtPtr Parser::parseBlockStatement() {
     Token lbTok = consume(TokenType::LBRACE, "Expected '{'");
     std::vector<BlockItem> items;
@@ -169,42 +205,7 @@ StmtPtr Parser::parseBlockStatement() {
     while (!check(TokenType::RBRACE) && !is_at_end()) {
         // A #pragma in a body updates parser state (pack / link) and emits nothing.
         if (check(TokenType::PRAGMA)) { Token pt = advance(); applyPragma(pt); continue; }
-        // Check if this looks like a declaration
-        if (check(TokenType::CONST) ||
-            check(TokenType::VOLATILE) ||
-            check(TokenType::STATIC) ||
-            check(TokenType::QUESTION) ||   // `?*T q = ...` nullable-pointer local
-            check(TokenType::FN) ||         // `fn(int)->int f = ...` (fn only names a type)
-            check(TokenType::LET) ||
-            check(TokenType::STAR) || check(TokenType::IDENT) ||
-            isPrimitiveTypeToken(peek().type)) {
-
-            size_t savePos = current;
-            try {
-                DeclPtr decl = parseDeclaration();
-                if (decl) {
-                    if (auto* vd = dynamic_cast<VarDecl*>(decl.get())) localVars.push_back(vd->name);
-                    items.push_back(decl);
-                    continue;
-                }
-            } catch (const NestingError&) {
-                throw;
-            } catch (...) {
-                // Only an identifier or a leading '*' is ambiguous (it can also
-                // begin an expression statement); fall back for those. A leading
-                // type keyword / const / volatile / let is unambiguously a
-                // declaration, so its error is real — surface it instead of
-                // masking it with a misleading expression-parse error (keeps the
-                // "expected a name, found keyword 'fn'" diagnostic for `int fn;`).
-                TokenType startTok = tokens[savePos].type;
-                if (startTok != TokenType::IDENT && startTok != TokenType::STAR) throw;
-                rewindTo(savePos);
-            }
-        }
-
-        // Otherwise parse as statement
-        StmtPtr stmt = parseStatement();
-        items.push_back(stmt);
+        items.push_back(parseBlockItem());
     }
 
     consume(TokenType::RBRACE, "Expected '}'");
@@ -448,6 +449,7 @@ StmtPtr Parser::parseSwitchStatement() {
     consume(TokenType::LBRACE, "Expected '{'");
 
     std::vector<SwitchStmt::Case> cases;
+    LocalScope scope(*this);           // a case's declaration reaches the end of the switch
     while (!check(TokenType::RBRACE) && !is_at_end()) {
         SwitchStmt::Case c;
         if (match(TokenType::CASE)) {
@@ -462,7 +464,7 @@ StmtPtr Parser::parseSwitchStatement() {
         // Collect statements until the next case/default/}
         while (!check(TokenType::CASE) && !check(TokenType::DEFAULT) &&
                !check(TokenType::RBRACE) && !is_at_end()) {
-            c.stmts.push_back(parseStatement());
+            c.stmts.push_back(parseBlockItem());
         }
         cases.push_back(std::move(c));
     }

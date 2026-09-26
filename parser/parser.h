@@ -156,6 +156,7 @@ private:
 
     StmtPtr parseStatement();
     StmtPtr parseBlockStatement();
+    BlockItem parseBlockItem();
     StmtPtr parseIfStatement();
     StmtPtr parseForStatement();
     StmtPtr parseWhileStatement();

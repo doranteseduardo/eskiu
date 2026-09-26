@@ -5881,23 +5881,21 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
                 }
             }
         }
-        if (k == SK_SWITCH) { s.sw_depth = s.sw_depth + 1; }
+        if (k == SK_SWITCH) { s.sw_depth = s.sw_depth + 1; sema_push(s); }   // one scope (C)
         string saved_mty = s.match_ty;
         if (k == SK_MATCH) { s.match_ty = sema_infer_type(s, st.expr); }
         int i = 0;
         int n = List_len<*StmtNode>(&st.items);
         while (i < n) { sema_stmt(s, List_get<*StmtNode>(&st.items, i)); i = i + 1; }
         s.match_ty = saved_mty;
-        if (k == SK_SWITCH) { s.sw_depth = s.sw_depth - 1; }
+        if (k == SK_SWITCH) { sema_pop(s); s.sw_depth = s.sw_depth - 1; }
         return;
     }
     if (k == SK_CASE) {
         sema_expr(s, st.expr);             // case value (null for default)
-        sema_push(s);
-        int i = 0;
-        int n = List_len<*StmtNode>(&st.items);
+        int i = 0;                         // in the switch's scope: a declaration here is
+        int n = List_len<*StmtNode>(&st.items);   // visible in the cases after it
         while (i < n) { sema_stmt(s, List_get<*StmtNode>(&st.items, i)); i = i + 1; }
-        sema_pop(s);
         return;
     }
     if (k == SK_TRY) {

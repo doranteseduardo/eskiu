@@ -482,7 +482,11 @@ void TypeChecker::visit(DeferStmt* node) {
             check(fi->body.get(), loopDepth + 1);
         } else if (auto* sw = dynamic_cast<SwitchStmt*>(s)) {
             checkExpr(sw->subject.get());
-            for (auto& c : sw->cases) for (auto& st : c.stmts) check(st.get(), loopDepth + 1);
+            for (auto& c : sw->cases)
+                for (auto& it : c.stmts) {
+                    if (auto* st = std::get_if<StmtPtr>(&it)) check(st->get(), loopDepth + 1);
+                    else if (auto* vd = dynamic_cast<VarDecl*>(std::get<DeclPtr>(it).get())) checkExpr(vd->initializer.get());
+                }
         } else if (auto* m = dynamic_cast<MatchStmt*>(s)) {
             checkExpr(m->subject.get());
             for (auto& a : m->arms) check(a.body.get(), loopDepth);
@@ -619,6 +623,8 @@ void TypeChecker::visit(SwitchStmt* node) {
     std::set<long long> seenCases;   // detect duplicate case values (else codegen
                                      // emits a switch the IR verifier rejects)
     bool seenDefault = false;
+    pushScope();                       // the switch body is one scope (C): a case's
+                                       // declaration is visible in the cases after it
     for (auto& c : node->cases) {
         if (!c.value) {
             if (seenDefault) errorAt(node, "multiple 'default' labels in one switch");
@@ -656,9 +662,13 @@ void TypeChecker::visit(SwitchStmt* node) {
             }
         }
         ++switchDepth;
-        for (auto& s : c.stmts) s->accept(this);
+        for (auto& it : c.stmts) {
+            if (auto* st = std::get_if<StmtPtr>(&it)) (*st)->accept(this);
+            else std::get<DeclPtr>(it)->accept(this);
+        }
         --switchDepth;
     }
+    popScope();
 }
 
 bool TypeChecker::isLvalueExpr(Expr* e) {

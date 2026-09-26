@@ -384,7 +384,9 @@ class SwitchStmt : public Stmt {
 public:
     struct Case {
         ExprPtr value;               // nullptr = default
-        std::vector<StmtPtr> stmts;
+        // A declaration may appear directly after the label (C): its scope is the rest
+        // of the switch body, so the whole switch is one scope.
+        std::vector<BlockItem> stmts;
     };
     ExprPtr subject;
     std::vector<Case> cases;

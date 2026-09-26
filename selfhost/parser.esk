@@ -1697,6 +1697,7 @@ void check_name_not_keyword(Parser* p) {
     p_expect(p, RPAREN, "Expected ')'");
     p_expect(p, LBRACE, "Expected '{'");
     List_init<*StmtNode>(&s.items, 4);
+    int mark = local_mark();               // a case's declaration reaches the end of the switch
     while (p_at(p) != RBRACE && p_at(p) != EOF_TOKEN) {
         *StmtNode c = ast_new_stmt();
         c.kind = SK_CASE;
@@ -1706,10 +1707,11 @@ void check_name_not_keyword(Parser* p) {
         else { break; }
         List_init<*StmtNode>(&c.items, 4);
         while (p_at(p) != CASE && p_at(p) != DEFAULT && p_at(p) != RBRACE && p_at(p) != EOF_TOKEN) {
-            List_push<*StmtNode>(&c.items, parse_stmt(p));
+            List_push<*StmtNode>(&c.items, parse_block_item(p));
         }
         List_push<*StmtNode>(&s.items, c);
     }
+    local_pop(mark);
     p_expect(p, RBRACE, "Expected '}'");
     return s;
 }

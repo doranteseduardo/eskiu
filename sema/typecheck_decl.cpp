@@ -87,7 +87,19 @@ struct TemplateCapturePass {
         if (auto* es = dynamic_cast<ExprStmt*>(s)) { walkExpr(es->expr.get()); return; }
         if (auto* sw = dynamic_cast<SwitchStmt*>(s)) {
             walkExpr(sw->subject.get());
-            for (auto& c : sw->cases) { walkExpr(c.value.get()); for (auto& st : c.stmts) walkStmt(st.get()); }
+            scopes.push_back({});                  // the switch body is one scope
+            for (auto& c : sw->cases) {
+                walkExpr(c.value.get());
+                for (auto& it : c.stmts) {
+                    if (std::holds_alternative<DeclPtr>(it)) {
+                        if (auto* vd = dynamic_cast<VarDecl*>(std::get<DeclPtr>(it).get())) {
+                            if (vd->initializer) walkExpr(vd->initializer.get());
+                            define(vd->name, vd->type);
+                        }
+                    } else walkStmt(std::get<StmtPtr>(it).get());
+                }
+            }
+            scopes.pop_back();
             return;
         }
         if (auto* th = dynamic_cast<ThrowStmt*>(s)) { walkExpr(th->value.get()); return; }
@@ -180,7 +192,9 @@ bool jumpsTo(Stmt* s, const std::string& label, bool wantContinue, bool inner) {
         // A switch captures an unlabeled `break`, but not a `continue`.
         bool in = wantContinue ? inner : true;
         for (auto& c : sw->cases)
-            for (auto& st : c.stmts) if (jumpsTo(st.get(), label, wantContinue, in)) return true;
+            for (auto& it : c.stmts)
+                if (std::holds_alternative<StmtPtr>(it) &&
+                    jumpsTo(std::get<StmtPtr>(it).get(), label, wantContinue, in)) return true;
         return false;
     }
     if (auto* m = dynamic_cast<MatchStmt*>(s)) {   // match is not a jump target
@@ -233,8 +247,12 @@ bool canCompleteNormally(Stmt* s) {
         for (auto& c : sw->cases) if (!c.value) hasDefault = true;
         if (!hasDefault || sw->cases.empty()) return true;
         for (auto& c : sw->cases)
-            for (auto& st : c.stmts) if (jumpsTo(st.get(), "", false, false)) return true;
-        for (auto& st : sw->cases.back().stmts) if (!canCompleteNormally(st.get())) return false;
+            for (auto& it : c.stmts)
+                if (std::holds_alternative<StmtPtr>(it) &&
+                    jumpsTo(std::get<StmtPtr>(it).get(), "", false, false)) return true;
+        for (auto& it : sw->cases.back().stmts)
+            if (std::holds_alternative<StmtPtr>(it) &&
+                !canCompleteNormally(std::get<StmtPtr>(it).get())) return false;
         return true;
     }
     // A `match` is verified exhaustive separately; it completes if any arm does.

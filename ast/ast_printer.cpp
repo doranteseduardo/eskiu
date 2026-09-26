@@ -455,7 +455,10 @@ void ASTPrinter::visit(SwitchStmt* node) {
             println("Default:");
             indentLevel++;
         }
-        for (auto& s : c.stmts) s->accept(this);
+        for (auto& it : c.stmts) {
+            if (std::holds_alternative<DeclPtr>(it)) std::get<DeclPtr>(it)->accept(this);
+            else std::get<StmtPtr>(it)->accept(this);
+        }
         indentLevel--;
     }
     indentLevel--;

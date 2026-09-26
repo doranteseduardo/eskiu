@@ -665,26 +665,30 @@ void CodeGen::visit(SwitchStmt* node) {
     size_t prevBreakCleanupDepth = breakCleanupDepth;
     breakCleanupDepth = cleanupScopes.size();
 
+    // The switch body is one variable scope (C): a declaration in a case is visible in
+    // the cases after it (its storage is an entry-block alloca, so a jump past the
+    // initialization still names valid storage).
+    pushScope();
     for (size_t i = 0; i < node->cases.size(); ++i) {
         builder->SetInsertPoint(caseBlocks[i]);
-        // Each case's statements are a scope: a `defer` there runs when the case body
-        // is left (by `break`, or by falling through into the next case).
-        pushScope();
+        // Each case's statements are a cleanup scope: a `defer` there runs when the case
+        // body is left (by `break`, or by falling through into the next case).
         cleanupScopes.emplace_back();
-        for (auto& stmt : node->cases[i].stmts) {
-            stmt->accept(this);
+        for (auto& item : node->cases[i].stmts) {
+            if (auto* st = std::get_if<StmtPtr>(&item)) (*st)->accept(this);
+            else std::get<DeclPtr>(item)->accept(this);
             if (hasTerminator(builder->GetInsertBlock())) break;
         }
         if (!blockTerminated())
             runCleanupsToDepth(cleanupScopes.size() - 1, /*errorPath=*/false);
         popCleanupFrame();
-        popScope();
         if (!hasTerminator(builder->GetInsertBlock())) {
             llvm::BasicBlock* next = (i + 1 < caseBlocks.size()) ? caseBlocks[i+1] : endBlock;
             builder->CreateBr(next);
         }
     }
 
+    popScope();
     breakTarget = prevBreak;
     breakCleanupDepth = prevBreakCleanupDepth;
     builder->SetInsertPoint(endBlock);

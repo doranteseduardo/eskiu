@@ -593,7 +593,11 @@ void TypeChecker::dropAssignedIn(Stmt* s) {
     } else if (auto* fi = dynamic_cast<ForInStmt*>(s)) { dropAssignedIn(fi->iterable.get()); dropAssignedIn(fi->body.get()); }
     else if (auto* sw = dynamic_cast<SwitchStmt*>(s)) {
         dropAssignedIn(sw->subject.get());
-        for (auto& c : sw->cases) for (auto& st : c.stmts) dropAssignedIn(st.get());
+        for (auto& c : sw->cases)
+            for (auto& it : c.stmts) {
+                if (auto* st = std::get_if<StmtPtr>(&it)) dropAssignedIn(st->get());
+                else if (auto* vd = dynamic_cast<VarDecl*>(std::get<DeclPtr>(it).get())) dropAssignedIn(vd->initializer.get());
+            }
     } else if (auto* m = dynamic_cast<MatchStmt*>(s)) {
         dropAssignedIn(m->subject.get());
         for (auto& arm : m->arms) dropAssignedIn(arm.body.get());

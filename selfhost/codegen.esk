@@ -6115,6 +6115,7 @@ void cg_stmt(Codegen* g, *StmtNode st) {
         g.terminated = 1;
         List_push<string>(&g.loop_end, l_end);
         List_push<int>(&g.loop_cldepth, List_len<*StmtNode>(&g.cleanups));            // break → end
+        int clmark = List_len<CgLocal>(&g.locals);        // the switch body is one scope (C)
         i = 0;
         while (i < nc) {
             cg_label(g, List_get<string>(&labels, i));
@@ -6122,7 +6123,6 @@ void cg_stmt(Codegen* g, *StmtNode st) {
             // Each case's statements are a scope: a `defer` there runs when the case body
             // is left (by `break`, or by falling through into the next case).
             int cmark = List_len<*StmtNode>(&g.cleanups);
-            int clmark = List_len<CgLocal>(&g.locals);
             int bi = 0; int bn = List_len<*StmtNode>(&c.items);
             while (bi < bn) {
                 if (g.terminated == 1) { bi = bn; }
@@ -6130,11 +6130,11 @@ void cg_stmt(Codegen* g, *StmtNode st) {
             }
             if (g.terminated == 0) { cg_run_cleanups(g, cmark, 0); }
             cg_cleanups_trunc(g, cmark);
-            cg_locals_trunc(g, clmark);
             if (i + 1 < nc) { cg_br(g, List_get<string>(&labels, i + 1)); }   // fall through
             else { cg_br(g, l_end); }
             i = i + 1;
         }
+        cg_locals_trunc(g, clmark);
         List_remove<string>(&g.loop_end, List_len<string>(&g.loop_end) - 1);
         List_remove<int>(&g.loop_cldepth, List_len<int>(&g.loop_cldepth) - 1);
         cg_label(g, l_end);

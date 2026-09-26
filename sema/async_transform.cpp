@@ -85,7 +85,13 @@ bool stmtHasAwait(const StmtPtr& s) {
         return hasAwait(fi->iterable) || stmtHasAwait(fi->body);
     if (auto* sw = dynamic_cast<SwitchStmt*>(s.get())) {
         if (hasAwait(sw->subject)) return true;
-        for (auto& c : sw->cases) for (auto& st : c.stmts) if (stmtHasAwait(st)) return true;
+        for (auto& c : sw->cases)
+            for (auto& it : c.stmts) {
+                if (std::holds_alternative<DeclPtr>(it)) {
+                    if (auto* vd = dynamic_cast<VarDecl*>(std::get<DeclPtr>(it).get()))
+                        if (vd->initializer && hasAwait(vd->initializer)) return true;
+                } else if (stmtHasAwait(std::get<StmtPtr>(it))) return true;
+            }
         return false;
     }
     if (auto* m = dynamic_cast<MatchStmt*>(s.get())) {
@@ -122,7 +128,9 @@ bool stmtHasLabeledBreak(const StmtPtr& s) {
     if (auto* f = dynamic_cast<ForStmt*>(s.get()))      return stmtHasLabeledBreak(f->body);
     if (auto* fi = dynamic_cast<ForInStmt*>(s.get()))   return stmtHasLabeledBreak(fi->body);
     if (auto* sw = dynamic_cast<SwitchStmt*>(s.get())) {
-        for (auto& c : sw->cases) for (auto& st : c.stmts) if (stmtHasLabeledBreak(st)) return true;
+        for (auto& c : sw->cases)
+            for (auto& it : c.stmts)
+                if (std::holds_alternative<StmtPtr>(it) && stmtHasLabeledBreak(std::get<StmtPtr>(it))) return true;
         return false;
     }
     if (auto* m = dynamic_cast<MatchStmt*>(s.get())) {
@@ -155,7 +163,16 @@ void collectAwaits(Stmt* s, std::vector<AwaitExpr*>& out) {
     else if (auto* w = dynamic_cast<WhileStmt*>(s))     { E(w->condition); S(w->body); }
     else if (auto* dw = dynamic_cast<DoWhileStmt*>(s))  { S(dw->body); E(dw->condition); }
     else if (auto* r = dynamic_cast<ReturnStmt*>(s))    { E(r->value); }
-    else if (auto* sw = dynamic_cast<SwitchStmt*>(s))   { E(sw->subject); for (auto& c : sw->cases) { E(c.value); for (auto& st : c.stmts) S(st); } }
+    else if (auto* sw = dynamic_cast<SwitchStmt*>(s)) {
+        E(sw->subject);
+        for (auto& c : sw->cases) {
+            E(c.value);
+            for (auto& it : c.stmts) {
+                if (std::holds_alternative<StmtPtr>(it)) { S(std::get<StmtPtr>(it)); continue; }
+                if (auto* vd = dynamic_cast<VarDecl*>(std::get<DeclPtr>(it).get())) E(vd->initializer);
+            }
+        }
+    }
     else if (auto* m = dynamic_cast<MatchStmt*>(s))     { E(m->subject); for (auto& a : m->arms) S(a.body); }
     else if (auto* th = dynamic_cast<ThrowStmt*>(s))    { E(th->value); }
     else if (auto* t = dynamic_cast<TryStmt*>(s))       { S(t->body); for (auto& c : t->catches) S(c.body); S(t->finally); }
@@ -181,7 +198,10 @@ AwaitExpr* firstAwaitInMatch(Stmt* s) {
     else if (auto* fi = dynamic_cast<ForInStmt*>(s))    { S(fi->body); }
     else if (auto* w = dynamic_cast<WhileStmt*>(s))     { S(w->body); }
     else if (auto* dw = dynamic_cast<DoWhileStmt*>(s))  { S(dw->body); }
-    else if (auto* sw = dynamic_cast<SwitchStmt*>(s))   { for (auto& c : sw->cases) for (auto& st : c.stmts) S(st); }
+    else if (auto* sw = dynamic_cast<SwitchStmt*>(s)) {
+        for (auto& c : sw->cases)
+            for (auto& it : c.stmts) if (std::holds_alternative<StmtPtr>(it)) S(std::get<StmtPtr>(it));
+    }
     else if (auto* t = dynamic_cast<TryStmt*>(s))       { S(t->body); for (auto& c : t->catches) S(c.body); S(t->finally); }
     else if (auto* d = dynamic_cast<DeferStmt*>(s))     { S(d->body); }
     return r;
@@ -343,7 +363,7 @@ struct ShadowRenamer {
         } else if (auto* sw = dynamic_cast<SwitchStmt*>(s.get())) {
             expr(sw->subject);
             scopes.emplace_back();
-            for (auto& c : sw->cases) { expr(c.value); for (auto& st : c.stmts) stmt(st); }
+            for (auto& c : sw->cases) { expr(c.value); items(c.stmts); }
             scopes.pop_back();
         } else if (auto* m = dynamic_cast<MatchStmt*>(s.get())) {
             expr(m->subject);
@@ -556,9 +576,7 @@ void AsyncTransform::run(Program* program) {
                 auto out = std::make_shared<SwitchStmt>(sw->subject, std::vector<SwitchStmt::Case>{});
                 for (auto& c : sw->cases) {
                     SwitchStmt::Case nc; nc.value = c.value;
-                    std::vector<BlockItem> bi;
-                    for (auto& st : c.stmts) bi.push_back(BlockItem(st));
-                    nc.stmts.push_back(std::make_shared<BlockStmt>(desugarItems(bi)));
+                    nc.stmts.push_back(StmtPtr(std::make_shared<BlockStmt>(desugarItems(c.stmts))));
                     out->cases.push_back(nc);
                 }
                 return out;
@@ -608,7 +626,7 @@ void AsyncTransform::run(Program* program) {
             else if (auto* f = dynamic_cast<ForStmt*>(s.get())) { scanS(f->init); scanS(f->body); }
             else if (auto* fi = dynamic_cast<ForInStmt*>(s.get())) scanS(fi->body);
             else if (auto* sw = dynamic_cast<SwitchStmt*>(s.get()))
-                for (auto& c : sw->cases) for (auto& st : c.stmts) scanS(st);
+                for (auto& c : sw->cases) scanB(c.stmts);
             else if (auto* m = dynamic_cast<MatchStmt*>(s.get()))
                 for (auto& arm : m->arms) scanS(arm.body);
             else if (auto* t = dynamic_cast<TryStmt*>(s.get())) {
@@ -788,7 +806,12 @@ void AsyncTransform::run(Program* program) {
                 auto out2 = std::make_shared<SwitchStmt>(sw->subject, std::vector<SwitchStmt::Case>{});
                 for (auto& c : sw->cases) {
                     SwitchStmt::Case nc; nc.value = c.value;
-                    for (auto& st : c.stmts) nc.stmts.push_back(rewritePlain(st));
+                    for (auto& it : c.stmts) {
+                        if (std::holds_alternative<DeclPtr>(it)) {
+                            auto* vd = dynamic_cast<VarDecl*>(std::get<DeclPtr>(it).get());
+                            if (vd && vd->initializer) nc.stmts.push_back(initField(vd));
+                        } else nc.stmts.push_back(rewritePlain(std::get<StmtPtr>(it)));
+                    }
                     out2->cases.push_back(nc);
                 }
                 return out2;
@@ -990,9 +1013,7 @@ void AsyncTransform::run(Program* program) {
                 brkTargets.push_back(join);                   // break -> switch end
                 brkDeferDepth.push_back(deferFrames.size());
                 for (int k = 0; k < n; ++k) {
-                    std::vector<BlockItem> body;
-                    for (auto& st : sw->cases[k].stmts) body.push_back(BlockItem(st));
-                    int e = lowerSeq(body, entry[k]);
+                    int e = lowerSeq(sw->cases[k].stmts, entry[k]);
                     if (e != -1) goTo(e, (k + 1 < n) ? entry[k + 1] : join);  // fall through
                 }
                 brkTargets.pop_back(); brkDeferDepth.pop_back();
@@ -1055,7 +1076,8 @@ void AsyncTransform::run(Program* program) {
                 lambdaCaps(sw->subject, caps);
                 for (auto& c : sw->cases) {
                     lambdaCaps(c.value, caps);
-                    for (auto& st : c.stmts) st = wrapCaps(st);
+                    for (auto& it : c.stmts)
+                        if (std::holds_alternative<StmtPtr>(it)) it = BlockItem(wrapCaps(std::get<StmtPtr>(it)));
                 }
             } else if (auto* m = dynamic_cast<MatchStmt*>(s.get())) {
                 lambdaCaps(m->subject, caps);

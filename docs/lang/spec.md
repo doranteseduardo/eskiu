@@ -1361,6 +1361,8 @@ switch (x) {
 
 `switch` dispatches on an integer value. `break` exits the enclosing switch. If `break` is omitted, control falls through to the next case. The type checker validates that each `case` value is compatible with the type of the `switch` subject expression.
 
+A declaration may follow a `case` or `default` label directly, without braces. As in C, the whole switch body is one scope: the variable is visible from its declaration to the end of the switch, including the cases after it, and two cases may not declare the same name. A jump to a later case skips the initialization, so the variable is uninitialized there until assigned (this is not diagnosed).
+
 ### 7.5 return
 
 Returns a value from the current function. A `void` function uses `return;` with no operand, or `return f();` with a `void` call.

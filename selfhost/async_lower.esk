@@ -716,7 +716,13 @@ int al_loop_escapes(*StmtNode s) {
             *StmtNode cs = List_get<*StmtNode>(&s.items, k); k = k + 1;
             al_rewrite(cs.expr, &c.vars);
             List<*StmtNode> nb; List_init<*StmtNode>(&nb, 4);
-            int j = 0; while (j < List_len<*StmtNode>(&cs.items)) { List_push<*StmtNode>(&nb, al_rewrite_plain(c, List_get<*StmtNode>(&cs.items, j))); j = j + 1; }
+            int j = 0;
+            while (j < List_len<*StmtNode>(&cs.items)) {
+                *StmtNode ci = List_get<*StmtNode>(&cs.items, j); j = j + 1;
+                if (ci.kind == SK_VARDECL) {           // a case's declaration (C scoping)
+                    if (ci.expr != null) { List_push<*StmtNode>(&nb, al_init_field(c, ci)); }
+                } else { List_push<*StmtNode>(&nb, al_rewrite_plain(c, ci)); }
+            }
             List_push<*StmtNode>(&ncases, al_case(cs.expr, &nb));
         }
         return al_switch(s.expr, &ncases);
@@ -1244,6 +1250,17 @@ void al_ren_stmt(AlRen* r, *StmtNode s) {
         return;
     }
     if (s.kind == SK_BLOCK) { al_ren_items(r, &s.items); al_ren_pop(r, mark); return; }
+    if (s.kind == SK_SWITCH) {                           // the switch body is one scope (C)
+        al_ren_expr(r, s.expr);
+        int k = 0;
+        while (k < List_len<*StmtNode>(&s.items)) {
+            *StmtNode cs = List_get<*StmtNode>(&s.items, k); k = k + 1;
+            al_ren_expr(r, cs.expr);
+            al_ren_items(r, &cs.items);
+        }
+        al_ren_pop(r, mark);
+        return;
+    }
     al_ren_expr(r, s.expr); al_ren_expr(r, s.expr2);
     al_ren_scoped(r, s.s1); al_ren_scoped(r, s.s2);
     al_ren_items(r, &s.items);

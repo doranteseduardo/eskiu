@@ -201,8 +201,8 @@ throw-stmt    = 'throw' expr ';'
 expr-stmt     = expr ';'
 
 switch-stmt   = 'switch' '(' expr ')' '{' (switch-case | default-case)* '}'   // any order, `default` may repeat
-switch-case   = 'case' expr ':' statement*
-default-case  = 'default' ':' statement*
+switch-case   = 'case' expr ':' ( declaration | statement )*   // the switch body is one scope
+default-case  = 'default' ':' ( declaration | statement )*
 
 match-stmt    = 'match' expr '{' match-arm+ '}'
 match-arm     = IDENT ( '(' IDENT (',' IDENT)* ')' )? '->' statement   // variant + payload bindings
