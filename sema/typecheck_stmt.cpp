@@ -255,16 +255,32 @@ void TypeChecker::visit(ReturnStmt* node) {
         // and are fine, so they are not flagged.
         // A field or element of a local value (`&p.a`, `&arr[1]`) and a slice of a local
         // array dangle the same way; a `static` local lives on.
-        if (auto* u = dynamic_cast<UnaryExpr*>(node->value.get()); u && u->op == "&") {
-            std::string root = localStorageRoot(u->operand.get());
-            if (!root.empty())
-                errorAt(node, "returning the address of local '" + root + "' (dangling pointer)");
-        }
-        if (auto* ix = dynamic_cast<IndexExpr*>(node->value.get());
-            ix && ix->highIndex && ty::Type::parse(getExpressionType(ix->base.get())).kind == ty::Type::Kind::Array) {
-            std::string root = localStorageRoot(ix->base.get());
-            if (!root.empty())
-                errorAt(node, "returning a slice of local array '" + root + "' (dangling)");
+        // The value may reach the return through a pointer cast or either `?:` arm.
+        std::vector<Expr*> leaves{node->value.get()};
+        while (!leaves.empty()) {
+            Expr* v = leaves.back();
+            leaves.pop_back();
+            if (auto* c = dynamic_cast<CastExpr*>(v)) {
+                std::string ct = normalizeType(c->targetType);
+                if (!ct.empty() && ct[0] == '?') ct = ct.substr(1);
+                if (isPointerType(ct)) { leaves.push_back(c->expr.get()); continue; }
+            }
+            if (auto* t = dynamic_cast<TernaryExpr*>(v)) {
+                leaves.push_back(t->elseExpr.get());
+                leaves.push_back(t->thenExpr.get());
+                continue;
+            }
+            if (auto* u = dynamic_cast<UnaryExpr*>(v); u && u->op == "&") {
+                std::string root = localStorageRoot(u->operand.get());
+                if (!root.empty())
+                    errorAt(node, "returning the address of local '" + root + "' (dangling pointer)");
+            }
+            if (auto* ix = dynamic_cast<IndexExpr*>(v);
+                ix && ix->highIndex && ty::Type::parse(getExpressionType(ix->base.get())).kind == ty::Type::Kind::Array) {
+                std::string root = localStorageRoot(ix->base.get());
+                if (!root.empty())
+                    errorAt(node, "returning a slice of local array '" + root + "' (dangling)");
+            }
         }
         std::string valueType = getExpressionType(node->value.get());
         // A returned integer literal that fits the return type stays valid; other

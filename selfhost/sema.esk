@@ -5460,21 +5460,39 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
         // Returning the address of a local or parameter, of a field or element of one, or a
         // slice of a local array yields a dangling pointer (its frame is gone). A `static`
         // local lives on, and a field or element reached through a pointer is elsewhere.
-        if (st.expr != null && st.expr.kind == EK_UNARY && sema_streq(st.expr.sval, "&") == 1) {
-            string root = sema_local_root(s, st.expr.a);
-            if (root[0] != 0) {
-                s.had_error = 1;
-                dprintf(2, "error: %s:%d:%d: returning the address of local '%s' (dangling pointer)\n", s.filename, s.line, s.col, root);
+        // The value may reach the return through a pointer cast or either `?:` arm.
+        List<*ExprNode> leaves; List_init<*ExprNode>(&leaves, 4);
+        if (st.expr != null) { List_push<*ExprNode>(&leaves, st.expr); }
+        while (List_len<*ExprNode>(&leaves) > 0) {
+            *ExprNode rv = List_get<*ExprNode>(&leaves, List_len<*ExprNode>(&leaves) - 1);
+            List_remove<*ExprNode>(&leaves, List_len<*ExprNode>(&leaves) - 1);
+            if (rv == null) { continue; }
+            if (rv.kind == EK_CAST && sema_is_ptrish(sema_resolve_scalar(s, sema_isub(s, rv.sval))) == 1) {
+                List_push<*ExprNode>(&leaves, rv.a);
+                continue;
+            }
+            if (rv.kind == EK_TERNARY) {
+                List_push<*ExprNode>(&leaves, List_get<*ExprNode>(&rv.kids, 0));
+                List_push<*ExprNode>(&leaves, rv.b);
+                continue;
+            }
+            if (rv.kind == EK_UNARY && sema_streq(rv.sval, "&") == 1) {
+                string root = sema_local_root(s, rv.a);
+                if (root[0] != 0) {
+                    s.had_error = 1;
+                    dprintf(2, "error: %s:%d:%d: returning the address of local '%s' (dangling pointer)\n", s.filename, s.line, s.col, root);
+                }
+            }
+            if (rv.kind == EK_INDEX && List_len<*ExprNode>(&rv.kids) > 0
+                && sema_is_arr_ty(sema_infer_type(s, rv.a)) == 1) {
+                string root = sema_local_root(s, rv.a);
+                if (root[0] != 0) {
+                    s.had_error = 1;
+                    dprintf(2, "error: %s:%d:%d: returning a slice of local array '%s' (dangling)\n", s.filename, s.line, s.col, root);
+                }
             }
         }
-        if (st.expr != null && st.expr.kind == EK_INDEX && List_len<*ExprNode>(&st.expr.kids) > 0
-            && sema_is_arr_ty(sema_infer_type(s, st.expr.a)) == 1) {
-            string root = sema_local_root(s, st.expr.a);
-            if (root[0] != 0) {
-                s.had_error = 1;
-                dprintf(2, "error: %s:%d:%d: returning a slice of local array '%s' (dangling)\n", s.filename, s.line, s.col, root);
-            }
-        }
+        List_free<*ExprNode>(&leaves);
         return;
     }
     if (k == SK_THROW) {
