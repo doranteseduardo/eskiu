@@ -1,0 +1,36 @@
+// RFC 9110 §5.5: a NUL in a field value (or in the request target) is
+// rejected. HttpRequest_parse and http_parse_head used to accept it, and a
+// header lookup then stopped at the NUL ("ab" for "ab\0cd").
+import <http>;
+extern int printf(string fmt, ...);
+
+void build(String* s, string line, string head, string tail) {
+    s.clear();
+    s.append(line);
+    s.append(head);
+    s.push((char)0);
+    s.append(tail);
+}
+
+void check(string tag, String* s) {
+    let r: HttpRequest; r.init();
+    const int a = r.parse((*uint8)s.data, (int)s.len);
+    r.free();
+    let q: HttpReq; HttpReq_init(&q);
+    const int b = http_parse_head(&q, (*uint8)s.data, (int)s.len);
+    q.free();
+    printf("%s: parse=%d head=%d\n", tag, a, b);
+}
+
+int main() {
+    let s: String; s.init(64);
+    build(&s, "GET / HTTP/1.1\r\n", "Host: a\r\nX-A: ab", "cd\r\n\r\n");
+    check("nul in value", &s);
+    build(&s, "", "GET /a", "b HTTP/1.1\r\nHost: a\r\n\r\n");
+    check("nul in path", &s);
+    s.clear();
+    s.append("GET / HTTP/1.1\r\nHost: a\r\nX-A: abcd\r\n\r\n");
+    check("clean", &s);
+    s.free();
+    return 0;
+}

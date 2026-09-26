@@ -75,7 +75,8 @@ int _http_parse_version(*uint8 b, int from, int to) {
 
 // 1 if every line of a "Key: Value\n" block is a field line: a token name
 // directly followed by ':'. Whitespace before the colon (RFC 9112 §5.1) and a
-// line starting with SP/HTAB, an obsolete line fold (§5.2), are rejected.
+// line starting with SP/HTAB, an obsolete line fold (§5.2), are rejected, and
+// so is a NUL in a field value (RFC 9110 §5.5: a lookup would stop at it).
 int _http_headers_valid(String* headers) {
     const int64 n = headers.len;
     int64 i = 0;
@@ -83,7 +84,10 @@ int _http_headers_valid(String* headers) {
         int64 j = i;
         while (j < n && _http_is_tchar((uint8)headers.data[j]) == 1) { j++; }
         if (j == i || j >= n || headers.data[j] != ':') { return 0; }
-        while (i < n && headers.data[i] != '\n') { i++; }
+        while (i < n && headers.data[i] != '\n') {
+            if (headers.data[i] == 0) { return 0; }
+            i++;
+        }
         i++;
     }
     return 1;
@@ -271,7 +275,7 @@ int HttpRequest_parse(HttpRequest* self, *uint8 buf, int len) {
     for (; pos < len && _http_is_tchar(buf[pos]) == 1; pos++) { self.method.push((char)buf[pos]); }
     if (pos >= len || buf[pos] != ' ' || self.method.len == 0) { return 0; }
     pos++;
-    for (; pos < len && buf[pos] != ' ' && _http_is_crlf_byte(buf[pos]) == 0; pos++) { self.path.push((char)buf[pos]); }
+    for (; pos < len && buf[pos] != ' ' && buf[pos] != 0 && _http_is_crlf_byte(buf[pos]) == 0; pos++) { self.path.push((char)buf[pos]); }
     if (pos >= len || buf[pos] != ' ' || self.path.len == 0) { return 0; }
     pos++;
     const int vstart = pos;
@@ -578,7 +582,7 @@ int _http_parse_head_v(HttpReq* r, *uint8 buf, int hend, *int version) {
     for (; pos < hend && _http_is_tchar(buf[pos]) == 1; pos++) { r.method.push((char)buf[pos]); }
     if (pos >= hend || buf[pos] != ' ' || r.method.len == 0) { return 0; }
     pos++;
-    for (; pos < hend && buf[pos] != ' ' && _http_is_crlf_byte(buf[pos]) == 0; pos++) { r.path.push((char)buf[pos]); }
+    for (; pos < hend && buf[pos] != ' ' && buf[pos] != 0 && _http_is_crlf_byte(buf[pos]) == 0; pos++) { r.path.push((char)buf[pos]); }
     if (pos >= hend || buf[pos] != ' ' || r.path.len == 0) { return 0; }
     pos++;
     const int vstart = pos;
