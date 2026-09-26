@@ -759,6 +759,27 @@ more and a third about 60, fixed the same way.
 - The self-host driver accepts `-O 2` (a separate value), like `eskiuc`.
 - A leading UTF-8 byte order mark is skipped instead of rejected, in both compilers.
   Test `utf8_bom`.
+- The HTTP/2 engine bounds a request's decoded header list: over
+  `H2_MAX_HEADER_LIST` (64 KiB, as `SETTINGS_MAX_HEADER_LIST_SIZE` counts it, now
+  advertised) or past what `s.max_buffered` leaves is 431, without keeping the
+  fields, and open streams' header lists count toward `max_buffered`. Only the field
+  count was limited, so a large dynamic-table entry referenced many times turned
+  13 KB of HPACK into 34 MB. Test `http2_header_list_limit`.
+- HTTP/2 requests follow the HTTP/1.1 Host rules: an invalid host or `:authority` is
+  400, two host fields or a host that differs from `:authority` is a stream error,
+  and without a host field the handler sees `:authority` as Host (it was dropped,
+  and any host fields with any value were accepted). Test `http2_host_rules`.
+- `http_recv` reads a chunked trailer section incrementally: it rescanned it from the
+  last chunk on every read and kept it all (quadratic CPU). A trailer section over
+  `HTTP_CHUNK_TRAILER_MAX` (64 KiB) is 400 there and in the servers. Test
+  `http_recv_trailers`.
+- `HTTP_CHUNK_LINE_MAX` also holds for a complete chunk-size or trailer line, so the
+  verdict no longer depends on how the request was split into reads (a 9000-byte
+  chunk extension was accepted in one read). Test `http_chunk_line_split`.
+- `HttpConnBuf_feed` drops chunked input it has decoded, so a body in tiny chunks
+  (6 raw bytes per body byte) is no longer 413 below `HTTP_SERVE_MAX_BODY` and the
+  buffer stays small. Test `http_chunk_tiny_chunks`.
+- The spec's `#define` continuation example declares `printf`.
 
 ## [0.9.1] - 2026-09-09
 ### Fixed

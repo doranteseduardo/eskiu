@@ -87,14 +87,20 @@ thin loops around it, so they share one implementation of:
 - connection errors with GOAWAY and stream errors with RST_STREAM as RFC 9113
   prescribes: window overflow past 2^31 - 1 (FLOW_CONTROL_ERROR), invalid SETTINGS
   values (`h2_settings_error`), frames on idle streams, bad frame sizes;
-- requests with more than `H2_MAX_HEADERS` (64) fields get 431 and requests
-  with a malformed field (a CR, LF or NUL in a value, an uppercase name) get 400,
+- requests with more than `H2_MAX_HEADERS` (64) fields, a decoded header list
+  over `H2_MAX_HEADER_LIST` (64 KiB, name + value + 32 per field, advertised as
+  SETTINGS_MAX_HEADER_LIST_SIZE) or past what `s.max_buffered` leaves (open
+  streams' header lists count toward it) get 431 without their fields being
+  kept, and requests with a bad host or `:authority` (the HTTP/1.1 Host rules)
+  or with a malformed field (a CR, LF or NUL in a value, an uppercase name) get 400,
   without calling the handler;
 - a malformed request (RFC 9113 §8.1.1, §8.2.2, §8.3) is a stream error, reset
   with PROTOCOL_ERROR before the handler runs: an unknown, response, repeated or
   late pseudo-header, a missing `:method`/`:scheme`/`:path` (CONNECT needs
   `:authority` and has neither `:scheme` nor `:path`), a connection-specific
-  field, `te` other than `trailers`, a content-length the DATA frames do not add
+  field, `te` other than `trailers`, two host fields or a host that differs
+  from `:authority` (without a host field the handler sees `:authority` as
+  Host), a content-length the DATA frames do not add
   up to, a pseudo-header in trailers. The block is still decoded (HPACK stays in
   sync), and frames the peer had in flight on a stream we reset are ignored;
 - responses carry no connection-specific fields and one content-length (none for
