@@ -63,6 +63,14 @@ struct Sema {
     List<string> escaped;   // watched params seen used beyond a direct call
     string callee_ctx;      // name being called right now (a watched param here is OK)
     List<int> lam_bounds;   // scope depth just outside each enclosing lambda (innermost last)
+    List<int> lam_esc;      // per enclosing lambda: 1 if it outlives the call (not passed to a non-escaping param)
+    int lam_arg_nonesc;     // the lambda about to be checked is an argument to a non-escaping param
+    string lam_local;       // the local the lambda about to be checked initializes ("" if none)
+    List<string> lam_local_of;   // per enclosing lambda: the local it initializes
+    List<string> wlocals;        // locals initialized by a lambda
+    List<string> wlocals_esc;    // those used beyond a direct call
+    List<string> cap_param;      // a watched param captured by a lambda bound to a local ...
+    List<string> cap_local;      // ... and that local: the param escapes if the local does
     List<string> narrowed;  // `?*T` vars proven non-null in the current branch (`if (x != null)`)
     List<string> loop_lbls; // enclosing loop labels ("" for unlabeled), for labeled break/continue
     int sw_depth;           // enclosing switches (a bare `break` may exit one)
@@ -341,6 +349,9 @@ void sema_init(Sema* s, string filename) {
     List_init<string>(&s.narrowed, 4);
     List_init<string>(&s.loop_lbls, 4);
     List_init<int>(&s.lam_bounds, 4);
+    List_init<int>(&s.lam_esc, 4);
+    List_init<string>(&s.lam_local_of, 4);
+    s.lam_local = "";
     s.callee_ctx = "";
     s.sw_depth = 0;
     s.param_depth = 0 - 1;
@@ -3373,8 +3384,13 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         }
         // Escape soundness: a non-escaping closure param used anywhere but as the
         // immediate callee of a call escapes.
-        if (sema_in_list(&s.watched, e.sval) == 1 && sema_streq(e.sval, s.callee_ctx) == 0) {
+        if (sema_in_list(&s.watched, e.sval) == 1
+            && (sema_streq(e.sval, s.callee_ctx) == 0 || sema_captured_by_escaping(s, e.sval) == 1)) {
             if (sema_in_list(&s.escaped, e.sval) == 0) { List_push<string>(&s.escaped, e.sval); }
+        }
+        if (sema_in_list(&s.wlocals, e.sval) == 1 && sema_streq(e.sval, s.callee_ctx) == 0
+            && sema_in_list(&s.wlocals_esc, e.sval) == 0) {
+            List_push<string>(&s.wlocals_esc, e.sval);
         }
         return;
     }
@@ -4035,6 +4051,11 @@ void sema_expr_k(Sema* s, *ExprNode e) {
                 if (i < List_len<int>(&cfd.param_escaping)) { pesc = List_get<int>(&cfd.param_escaping, i); }
                 if (pesc == 0) { fwd = 1; }
             }
+            if (ka != null && ka.kind == EK_LAMBDA && cfd != null && i < List_len<Param>(&cfd.params)) {
+                int lesc = 0;
+                if (i < List_len<int>(&cfd.param_escaping)) { lesc = List_get<int>(&cfd.param_escaping, i); }
+                if (lesc == 0 && s.in_inst == 0) { s.lam_arg_nonesc = 1; }
+            }
             if (fwd == 1) {
                 string pk = s.callee_ctx;
                 s.callee_ctx = ka.sval;
@@ -4150,6 +4171,25 @@ void sema_expr_k(Sema* s, *ExprNode e) {
     }
 }
 
+// Is `name` (an outer variable) captured by an enclosing lambda that outlives the call?
+int sema_captured_by_escaping(Sema* s, string name) {
+    int si = sema_sym_index(s, name);
+    if (si < 0) { return 0; }
+    int sd = List_get<Sym>(&s.syms, si).depth;
+    int j = 0;
+    while (j < List_len<int>(&s.lam_bounds)) {
+        if (sd <= List_get<int>(&s.lam_bounds, j) && List_get<int>(&s.lam_esc, j) == 1) {
+            // A lambda bound to a local escapes only if that local is used beyond a call.
+            string lo = List_get<string>(&s.lam_local_of, j);
+            if (lo[0] == 0) { return 1; }
+            List_push<string>(&s.cap_param, name);
+            List_push<string>(&s.cap_local, lo);
+        }
+        j = j + 1;
+    }
+    return 0;
+}
+
 void sema_check_lambda(Sema* s, *ExprNode e) {
     List<string> ptys; List_init<string>(&ptys, 4);
     List<string> pnames; List_init<string>(&pnames, 4);
@@ -4169,6 +4209,10 @@ void sema_check_lambda(Sema* s, *ExprNode e) {
     s.lam_ret = "";
     s.in_async = 0; s.sw_depth = 0;
     List_push<int>(&s.lam_bounds, s.depth);
+    if (s.lam_arg_nonesc == 1) { List_push<int>(&s.lam_esc, 0); } else { List_push<int>(&s.lam_esc, 1); }
+    s.lam_arg_nonesc = 0;
+    List_push<string>(&s.lam_local_of, s.lam_local);
+    s.lam_local = "";
     sema_push(s);
     List<string> seen; List_init<string>(&seen, 4);
     int i = 0;
@@ -4187,6 +4231,8 @@ void sema_check_lambda(Sema* s, *ExprNode e) {
     sema_stmt(s, e.stmt);
     sema_pop(s);
     List_remove<int>(&s.lam_bounds, List_len<int>(&s.lam_bounds) - 1);
+    List_remove<int>(&s.lam_esc, List_len<int>(&s.lam_esc) - 1);
+    List_remove<string>(&s.lam_local_of, List_len<string>(&s.lam_local_of) - 1);
     s.cur_ret = saved_ret; s.in_async = saved_async; s.await_seen = saved_seen;
     s.sw_depth = saved_sw; s.param_depth = saved_pd;
     s.loop_lbls = saved_lbls;
@@ -4421,8 +4467,15 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
         // A lambda initializing a `fn(...)->R` returns R: its body is checked against R
         // (mirrors the C++ reconciliation of the lambda's return type).
         if (st.expr != null && st.expr.kind == EK_LAMBDA && sema_is_fn_type(vty) == 1) { s.lam_ret = sema_fn_ret(vty); }
+        int lam_bound = 0;                 // a lambda bound to a local that is only called does not escape
+        if (st.expr != null && st.expr.kind == EK_LAMBDA && st.is_static == 0 && s.in_inst == 0) {
+            lam_bound = 1;
+            s.lam_local = st.name;
+        }
         sema_expr(s, st.expr);             // initializer (can't reference itself)
         s.lam_ret = "";
+        s.lam_local = "";
+        if (lam_bound == 1) { List_push<string>(&s.wlocals, st.name); }
         // A `for (i in A..B)` bound decl takes its bound's integer type (promoted to at
         // least `int`); SK_FOR then widens both decls to their common type.
         int bad_range = 0;
@@ -5705,6 +5758,10 @@ void sema_check_fn(Sema* s, *DeclNode f, string self_type) {
     // generic instance: as in the C++ checker, it is enforced on non-generic functions.)
     List_init<string>(&s.watched, 4);
     List_init<string>(&s.escaped, 4);
+    List_init<string>(&s.wlocals, 4);
+    List_init<string>(&s.wlocals_esc, 4);
+    List_init<string>(&s.cap_param, 4);
+    List_init<string>(&s.cap_local, 4);
     List_init<string>(&s.narrowed, 4);
     List_init<string>(&s.loop_lbls, 4);
     s.callee_ctx = "";
@@ -5748,6 +5805,14 @@ void sema_check_fn(Sema* s, *DeclNode f, string self_type) {
     if (f.is_async == 1 && s.await_seen == 0) {
         s.had_error = 1;
         dprintf(2, "error: %s:%d:%d: async function '%s' has no `await`\n", s.filename, s.line, s.col, f.name);
+    }
+    int ci = 0;
+    while (ci < List_len<string>(&s.cap_param)) {
+        if (sema_in_list(&s.wlocals_esc, List_get<string>(&s.cap_local, ci)) == 1
+            && sema_in_list(&s.escaped, List_get<string>(&s.cap_param, ci)) == 0) {
+            List_push<string>(&s.escaped, List_get<string>(&s.cap_param, ci));
+        }
+        ci = ci + 1;
     }
     int wi = 0;
     int wn = List_len<string>(&s.watched);

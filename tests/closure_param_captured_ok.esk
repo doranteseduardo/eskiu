@@ -1,0 +1,11 @@
+extern int printf(string fmt, ...);
+int twice(fn()->int g) { return g() + g(); }
+int wrap(fn()->int f) { return twice(int() { return f() * 10; }); }
+fn()->int keep(escaping fn()->int f) { return int() { return f() + 1; }; }
+int main() {
+    int k = 4;
+    printf("%d\n", wrap(int() { return k; }));
+    fn()->int h = keep(int() { return k; });
+    printf("%d\n", h());
+    return 0;
+}

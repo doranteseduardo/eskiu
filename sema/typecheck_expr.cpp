@@ -1275,6 +1275,8 @@ void TypeChecker::visit(IdentExpr* node) {
     // as the immediate callee of a call escapes (see visit(FunctionDecl)).
     if (nonEscapingFnParams.count(node->name) && node->name != calleeContext)
         escapedFnParams.insert(node->name);
+    if (lambdaLocals.count(node->name) && node->name != calleeContext)
+        escapedLambdaLocals.insert(node->name);
 
     std::string type = lookupSymbol(node->name);
     if (type.empty() && enumConstants.count(node->name)) {
@@ -1415,8 +1417,10 @@ void TypeChecker::visit(LambdaExpr* node) {
     if (!inInstance) {
         node->captures.clear();
         for (const auto& [name, type] : captureStack.back()) {
-            if (!paramNames.count(name))
+            if (!paramNames.count(name)) {
                 node->captures.push_back({name, type});
+                if (nonEscapingFnParams.count(name)) watchedCaptures.push_back({node, name});
+            }
         }
     }
     captureStack.pop_back();

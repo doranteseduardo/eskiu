@@ -1,0 +1,6 @@
+// EXPECT-ERROR: closure parameter 'f' escapes (used beyond a direct call); mark it `escaping`
+fn()->int keep(fn()->int f) {
+    fn()->int w = int() { return f(); };
+    return w;
+}
+int main() { return keep(int() { return 1; })(); }

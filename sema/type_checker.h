@@ -277,6 +277,11 @@ private:
     // currently in callee position (a call of the param does NOT make it escape).
     std::set<std::string> nonEscapingFnParams;
     std::set<std::string> escapedFnParams;
+    // (lambda, watched closure param it captures): an escaping lambda escapes the param.
+    std::vector<std::pair<LambdaExpr*, std::string>> watchedCaptures;
+    // Lambdas bound to a local (`let w = lambda`) and the locals used beyond a call.
+    std::map<LambdaExpr*, std::string> lambdaLocal;
+    std::set<std::string> lambdaLocals, escapedLambdaLocals;
     std::string calleeContext;
     // True while checking the body of an `async fn` — gates `await`.
     bool inAsyncFn = false;

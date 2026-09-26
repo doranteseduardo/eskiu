@@ -398,8 +398,15 @@ void TypeChecker::visit(FunctionDecl* node) {
     // — so it must be marked `escaping`. Track such params and verify after the body.
     std::set<std::string> prevWatch = nonEscapingFnParams;
     std::set<std::string> prevEscaped = escapedFnParams;
+    auto prevCaptures = std::move(watchedCaptures);
+    auto prevLambdaLocal = std::move(lambdaLocal);
+    auto prevLambdaLocals = std::move(lambdaLocals), prevEscapedLocals = std::move(escapedLambdaLocals);
     nonEscapingFnParams.clear();
     escapedFnParams.clear();
+    watchedCaptures.clear();
+    lambdaLocal.clear();
+    lambdaLocals.clear();
+    escapedLambdaLocals.clear();
     for (size_t i = 0; i < node->params.size(); ++i) {
         const std::string& pty = node->params[i].first;
         bool isFn = pty.size() > 3 && pty.substr(0, 3) == "fn(";
@@ -436,6 +443,15 @@ void TypeChecker::visit(FunctionDecl* node) {
     // Escape soundness is enforced on non-generic functions only (as before per-instance
     // checking existed): it counts passing a closure param down to another call as an
     // escape, which generic helpers such as sort<T> rely on.
+    // A closure param captured by a lambda that outlives the call (any lambda not passed
+    // straight to a non-`escaping` param, nor bound to a local that is only called)
+    // escapes with it.
+    for (const auto& [lam, name] : watchedCaptures) {
+        if (!lam->escapes) continue;
+        auto bound = lambdaLocal.find(lam);
+        if (bound != lambdaLocal.end() && !escapedLambdaLocals.count(bound->second)) continue;
+        escapedFnParams.insert(name);
+    }
     for (size_t i = 0; i < node->params.size() && !inInstance; ++i) {
         if (escapedFnParams.count(node->params[i].second)) {
             errorAt(node, "closure parameter '" + node->params[i].second +
@@ -444,6 +460,10 @@ void TypeChecker::visit(FunctionDecl* node) {
     }
     nonEscapingFnParams = prevWatch;
     escapedFnParams = prevEscaped;
+    watchedCaptures = std::move(prevCaptures);
+    lambdaLocal = std::move(prevLambdaLocal);
+    lambdaLocals = std::move(prevLambdaLocals);
+    escapedLambdaLocals = std::move(prevEscapedLocals);
 
     popScope();
     currentFunctionReturnType = "";
@@ -603,6 +623,12 @@ void TypeChecker::visit(VarDecl* node) {
                 lam->returnType = dt.ret->str();
         }
         node->initializer->accept(this);
+        // A lambda bound to a local that is only ever called does not outlive the call.
+        if (auto* lam = dynamic_cast<LambdaExpr*>(node->initializer.get());
+            lam && scopes.size() > 1 && !node->isStatic && !inInstance) {
+            lambdaLocal[lam] = node->name;
+            lambdaLocals.insert(node->name);
+        }
         // A `for (i in A..B)` bound decl takes its bound's integer type (promoted to at
         // least `int`); visit(ForStmt) then widens both decls to their common type.
         bool badRangeBound = false;

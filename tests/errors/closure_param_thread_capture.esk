@@ -1,0 +1,3 @@
+// EXPECT-ERROR: closure parameter 'f' escapes (used beyond a direct call); mark it `escaping`
+void keep(fn()->int f) { thread_create(void() { f(); }); }
+int main() { return 0; }
