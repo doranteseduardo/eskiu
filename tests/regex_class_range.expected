@@ -1,6 +1,7 @@
 [z-a]: error invalid character class range
 [a-\d]: error invalid character class range
-[\d-z]: error invalid character class range
+^[\d-z]+$ on "5-z": 1
+[\d-z] on "m": 0
 [a-\W]: error invalid character class range
 [a-z] on "m": 1
 [a-a] on "a": 1

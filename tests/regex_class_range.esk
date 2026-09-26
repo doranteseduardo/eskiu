@@ -1,5 +1,6 @@
 // Invalid bracket-class ranges are compile errors, as in RE2: an end below its
-// start ([z-a]) and a class shorthand as either end ([a-\d], [\d-z]). Valid
+// start ([z-a]) and a class shorthand as the end ([a-\d]). A '-' after a
+// shorthand is a literal ([\d-z] is digits, '-' and 'z', as in RE2). Valid
 // ranges, a trailing '-', a one-byte range and \D \W \S inside a class work.
 import <regex>;
 extern int printf(string fmt, ...);
@@ -14,7 +15,8 @@ void show(string p, string s) {
 int main() {
     show("[z-a]", "m");
     show("[a-\\d]", "a");
-    show("[\\d-z]", "5");
+    show("^[\\d-z]+$", "5-z");
+    show("[\\d-z]", "m");
     show("[a-\\W]", "a");
     show("[a-z]", "m");
     show("[a-a]", "a");

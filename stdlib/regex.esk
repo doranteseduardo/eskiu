@@ -14,11 +14,17 @@
 //   Match_free(&m);
 //   Regex_free(&re);
 //
-// Supported syntax: literals, `.` (any byte but newline), character classes
-// `[a-z]` / `[^...]`, the shorthands `\d \w \s` (and `\D \W \S` outside a class),
-// the escapes `\n \t \r \f \v \0`, quantifiers `* + ? {m} {m,} {m,n}` (counts up to
-// 1000, as in RE2; append `?` for the lazy form), alternation `|`, capturing
-// groups `( )`, and the anchors `^` (start of text) and `$` (end of text).
+// Supported syntax (RE2 semantics over bytes): literals, `.` (any byte but
+// newline), character classes `[a-z]` / `[^...]`, the shorthands `\d \w \s \D
+// \W \S` (also inside a class), the escapes `\a \f \t \n \r \v`, octal `\0`,
+// `\012`, `\101` and hex `\x41`, `\x{41}` (values up to 0xFF, each one byte), a
+// backslash before any ASCII punctuation (`\.`, `\-`) for that character,
+// quantifiers `* + ? {m} {m,} {m,n}` (counts up to 1000, as in RE2; append `?`
+// for the lazy form), alternation `|`, capturing groups `( )`, the anchors `^`
+// and `\A` (start of text), `$` and `\z` (end of text), and the ASCII word
+// boundaries `\b` and `\B`. Any other escape of a letter or digit is an error.
+// In a class, a `-` right after a shorthand is a literal (`[\d-z]` is digits,
+// '-' and 'z'), as in RE2.
 //
 // The matcher is a Thompson NFA run as a Pike VM: it explores all paths in
 // lockstep, so matching is linear in the input length with no catastrophic
@@ -46,6 +52,7 @@ import <string>;
 #define OP_SAVE  7
 #define OP_BOL   8
 #define OP_EOL   9
+#define OP_WORDB 10     // a = 0: \b, a = 1: \B
 
 // ---- AST node kinds -------------------------------------------------------
 #define N_EMPTY  0
@@ -58,6 +65,7 @@ import <string>;
 #define N_REPEAT 7
 #define N_BOL    8
 #define N_EOL    9
+#define N_WORDB  10     // ch = 0: \b, ch = 1: \B
 
 struct Inst {
     int op;
@@ -236,18 +244,67 @@ int re_is_shorthand(int e) {
     return (e == 'd' || e == 'w' || e == 's' || e == 'D' || e == 'W' || e == 'S') ? 1 : 0;
 }
 
-// Decode a backslash escape to its literal byte (\n, \t, ...); default is the
-// character itself (so \. is '.', \\ is '\').
-int re_escape_char(int e) {
+int re_hex_digit(int ch) {
+    if (ch >= '0' && ch <= '9') { return ch - '0'; }
+    if (ch >= 'a' && ch <= 'f') { return ch - 'a' + 10; }
+    if (ch >= 'A' && ch <= 'F') { return ch - 'A' + 10; }
+    return -1;
+}
+
+int re_bad_escape(ReComp* c) {
+    if (c.err == null) { c.err = "invalid escape sequence"; }
+    return -1;
+}
+
+// Decode the escape whose letter `e` was just consumed to its byte, reading
+// any further digits: \a \f \t \n \r \v, octal (\0 plus up to two octal
+// digits, or \1-\7 followed by one or two more), hex \xHH or \x{H...}, and
+// ASCII punctuation as itself (\. is '.', \\ is '\'). Anything else (another
+// letter or digit, a byte above 0x7F, a value above 0xFF) is an error, as in
+// RE2: -1 with c.err set.
+int re_escape_char(ReComp* c, int e) {
     switch (e) {
-        case 'n': return '\n';
-        case 't': return '\t';
-        case 'r': return '\r';
+        case 'a': return 7;
         case 'f': return '\f';
+        case 't': return '\t';
+        case 'n': return '\n';
+        case 'r': return '\r';
         case 'v': return '\v';
-        case '0': return 0;
-        default:  return e;
+        default: break;
     }
+    if (e >= '0' && e <= '7') {
+        // \1-\7 alone would be a backreference, which RE2 does not have.
+        if (e != '0' && (re_peek(c) < '0' || re_peek(c) > '7')) { return re_bad_escape(c); }
+        int v = e - '0';
+        for (int k = 0; k < 2 && re_peek(c) >= '0' && re_peek(c) <= '7'; k++) {
+            v = v * 8 + (re_peek(c) - '0');
+            c.pos++;
+        }
+        return v > 255 ? re_bad_escape(c) : v;
+    }
+    if (e == 'x') {
+        if (re_peek(c) == '{') {
+            c.pos++;
+            int v = 0;
+            int nd = 0;
+            while (re_hex_digit(re_peek(c)) >= 0) {
+                if (v <= 255) { v = v * 16 + re_hex_digit(re_peek(c)); }
+                c.pos++;
+                nd++;
+            }
+            if (nd == 0 || re_peek(c) != '}' || v > 255) { return re_bad_escape(c); }
+            c.pos++;
+            return v;
+        }
+        const int h1 = re_hex_digit(re_peek(c));
+        const int h2 = re_hex_digit(re_peek_at(c, 1));
+        if (h1 < 0 || h2 < 0) { return re_bad_escape(c); }
+        c.pos += 2;
+        return h1 * 16 + h2;
+    }
+    const bool alnum = (e >= '0' && e <= '9') || (e >= 'a' && e <= 'z') || (e >= 'A' && e <= 'Z');
+    if (e < 0 || e >= 128 || alnum) { return re_bad_escape(c); }
+    return e;
 }
 
 // [ ... ] returns a N_CLASS node.
@@ -271,16 +328,15 @@ Node* re_parse_class(ReComp* c) {
             const int e = re_peek(c);
             c.pos++;
             if (re_is_shorthand(e) == 1) {
-                // A shorthand cannot bound a range: [\d-z] is an error (RE2).
-                if (re_peek(c) == '-' && re_peek_at(c, 1) != ']' && re_peek_at(c, 1) != -1) {
-                    if (c.err == null) { c.err = "invalid character class range"; }
-                    return re_node(c, N_CLASS);
-                }
+                // A '-' after a shorthand does not make a range: it is read as
+                // the next member, so [\d-z] is digits, '-' and 'z' (RE2).
                 if (e == 'd' || e == 'w' || e == 's') { re_shorthand(c, id, e); }
                 else { re_shorthand_neg(c, id, e + 32); }
                 continue;
             }
-            lo = re_escape_char(e);
+            if (e == -1) { continue; }             // reported as unterminated
+            lo = re_escape_char(c, e);
+            if (lo < 0) { return re_node(c, N_CLASS); }
         } else {
             lo = re_peek(c);
             c.pos++;
@@ -297,7 +353,8 @@ Node* re_parse_class(ReComp* c) {
                     if (c.err == null) { c.err = "invalid character class range"; }
                     return re_node(c, N_CLASS);
                 }
-                hi = re_escape_char(e2);
+                hi = re_escape_char(c, e2);
+                if (hi < 0) { return re_node(c, N_CLASS); }
             } else {
                 hi = re_peek(c);
                 c.pos++;
@@ -318,7 +375,8 @@ Node* re_parse_class(ReComp* c) {
     return n;
 }
 
-// A backslash escape as an atom: \d \w \s \D \W \S become classes, the rest a literal.
+// A backslash escape as an atom: \d \w \s \D \W \S become classes, \A \z anchors,
+// \b \B word-boundary assertions, the rest (re_escape_char) a literal.
 Node* re_parse_escape(ReComp* c) {
     c.pos++;   // consume '\'
     const int e = re_peek(c);
@@ -336,8 +394,17 @@ Node* re_parse_escape(ReComp* c) {
         n.cls = id;
         return n;
     }
+    if (e == 'A') { return re_node(c, N_BOL); }
+    if (e == 'z') { return re_node(c, N_EOL); }
+    if (e == 'b' || e == 'B') {
+        Node* n = re_node(c, N_WORDB);
+        n.ch = e == 'B' ? 1 : 0;
+        return n;
+    }
+    const int ch = re_escape_char(c, e);
+    if (ch < 0) { return re_node(c, N_EMPTY); }
     Node* n = re_node(c, N_LIT);
-    n.ch = re_escape_char(e);
+    n.ch = ch;
     return n;
 }
 
@@ -599,6 +666,7 @@ void re_compile_node(ReComp* c, Node* n) {
         case N_CLASS:  re_emit(c, OP_CLASS, n.cls, 0); break;
         case N_BOL:    re_emit(c, OP_BOL, 0, 0); break;
         case N_EOL:    re_emit(c, OP_EOL, 0, 0); break;
+        case N_WORDB:  re_emit(c, OP_WORDB, n.ch, 0); break;
         case N_CONCAT: re_compile_node(c, n.left); re_compile_node(c, n.right); break;
         case N_GROUP:
             re_emit(c, OP_SAVE, 2 * n.grp, 0);
@@ -678,6 +746,11 @@ void Regex_free(Regex* re) {
 
 // =========================== matching (Pike VM) ============================
 
+// An ASCII word byte (\w): the side test of \b and \B.
+bool re_is_word(int ch) {
+    return (ch >= '0' && ch <= '9') || (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || ch == '_';
+}
+
 int re_in_class(Regex* re, int id, int ch) {
     const ClassInfo ci = re.classes[id];
     bool found = false;
@@ -721,6 +794,11 @@ void re_addthread(Vm* vm, int which, int gen, int pc, *int caps, int sp) {
         case OP_EOL:
             if (sp == vm.len) { re_addthread(vm, which, gen, pc + 1, caps, sp); }
             break;
+        case OP_WORDB: {
+            const bool before = sp > 0 && re_is_word((int)((uint8)vm.text[sp - 1]));
+            const bool after = sp < vm.len && re_is_word((int)((uint8)vm.text[sp]));
+            if ((before != after) != (ins.a == 1)) { re_addthread(vm, which, gen, pc + 1, caps, sp); }
+        } break;
         default:
             // CHAR / ANY / CLASS / MATCH: a thread that consumes (or accepts)
             if (which == 0) {
