@@ -1121,6 +1121,9 @@ string sema_int_promote(string t) {
                         else if (sema_is_numeric_ty(pc) == 0 || sema_is_numeric_ty(ac) == 0
                                  || (sema_is_int_ty(pc) == 1 && sema_is_float_ty(ac) == 1)) {
                             if (sema_c_ptr(pc) == 0 || (sema_c_ptr(ac) == 0 && sema_streq(ac, "null") == 0)) { ok = 0; }
+                            // pointers convert only through `*void` (or from null), as in C++
+                            else if (sema_streq(ac, "null") == 0 && sema_streq(pc, "*void") == 0 && sema_streq(ac, "*void") == 0
+                                     && sema_streq(pc, "string") == 0 && sema_streq(ac, "string") == 0) { ok = 0; }
                         }
                     }
                     k = k + 1;
@@ -3695,7 +3698,7 @@ void sema_binary_checks(Sema* s, *ExprNode e, string lt0, string rt0) {
         // A struct value has no built-in arithmetic/bitwise operator (only a user
         // overload), and a pointer or string has no `*` `/` `%`.
         if ((arith == 1 || bitop == 1 || sema_streq(e.sval, "-") == 1)
-            && (sema_is_struct(s, olt) == 1 || sema_is_struct(s, ort) == 1) && sema_any_op(s, e.sval) == 0) { bad = 1; }
+            && (sema_is_struct(s, olt) == 1 || sema_is_struct(s, ort) == 1) && sema_find_binop(s, e.sval, olt, ort) == null) { bad = 1; }
         if ((bitop == 1 || sema_streq(e.sval, "*") == 1 || sema_streq(e.sval, "/") == 1 || sema_streq(e.sval, "%") == 1)
             && olt[0] != 0 && ort[0] != 0 && sema_any_op(s, e.sval) == 0
             && ((sema_is_ptrish(olt) == 1 && sema_is_arr_ty(olt) == 0) || (sema_is_ptrish(ort) == 1 && sema_is_arr_ty(ort) == 0))) { bad = 1; }

@@ -701,6 +701,10 @@ more and a third about 60, fixed the same way.
   compilers (C++ failed in codegen without a location, the self-host accepted
   `&mp().x`). Tests `errors/slice_temporary_array`, `errors/addr_of_rvalue_member`,
   `errors/assign_rvalue_element`.
+- The self-host rejects a binary operator on a struct operand when no overload accepts
+  the operand types (a pointer argument converts only through `*void`), as C++ does:
+  `v + &g.a` for `operator +(V, *int64)` compiled to invalid IR. Test
+  `errors/operator_ptr_arg_mismatch`.
 
 ## [0.9.1] - 2026-09-09
 ### Fixed
