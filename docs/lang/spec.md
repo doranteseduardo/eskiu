@@ -2434,6 +2434,12 @@ accepted connection to a worker (see §6.5 for passing a function as a value).
 Complete programs are in `examples/http_server.esk` and
 `examples/tcp_echo_server.esk`.
 
+The HTTP servers (`http_serve`, `http_serve_async`, `http2_serve_async` and the TLS
+servers) bound request heads, bodies and header lists, but in 0.9.2 they have no read or
+idle timeout: a client that connects and then sends nothing holds a worker or a file
+descriptor until it disconnects. Run them behind a reverse proxy (nginx, Caddy) when they
+face untrusted clients.
+
 ---
 
 ## 15. Inline Assembly

@@ -1,9 +1,10 @@
-# Eskiu 0.9.1
+# Eskiu 0.9.2
 
-A correctness release. A multi-front bug hunt turned up a set of latent miscompiles and
-type-rule gaps that only bit specific patterns; all are now fixed, lockstep across the C++
-and self-hosted compilers. No language or standard-library changes, so recompiling picks up
-the fixes.
+A correctness and hardening release. A full-project audit, three fuzzers and eight blind
+audit rounds on frozen trees found and fixed about 500 latent bugs across both compilers,
+the standard library and the docs, each with a regression test and lockstep in the C++ and
+self-hosted compilers. The type checker is stricter, so some programs that compiled before
+are now rejected with a located error; see "Upgrade" below.
 
 ---
 
@@ -23,7 +24,7 @@ tar -xzf eskiuc-linux-x86_64.tar.gz -C /usr/local   # or eskiuc-linux-arm64.tar.
 eskiuc --version
 ```
 
-Or build from source (LLVM 17+ and CMake 3.20+):
+Or build from source (LLVM 21 or newer, LLVM 22 recommended, and CMake 3.20+):
 
 ```bash
 git clone https://github.com/doranteseduardo/eskiu
@@ -32,30 +33,39 @@ cd eskiu && cmake -S . -B build && cmake --build build
 
 ---
 
-## Fixed
+## Highlights
 
-- **Global and `static`-local constant initializers.** A 64-bit literal was truncated to 32
-  bits, a `struct` global came out zeroed, and a `const`/`enum`/`sizeof`/`~`/`!` value folded
-  to `0`; a `string` global was `null` and a hex literal produced invalid IR in the
-  self-host. All of these now fold correctly. `static` locals also accept those constant
-  forms (not just a bare literal), and an over-full global array literal is rejected.
-- **Signed/unsigned integer semantics now follow C.** `float`→unsigned casts use `fptoui` (a
-  value above the signed max no longer saturates); a right shift's kind follows the value
-  shifted, not the count's signedness; and a mixed-rank signed/unsigned op is unsigned only
-  when the unsigned operand's rank is at least the signed one's.
-- **`switch` `break` no longer runs enclosing `defer`s twice**, and a **bitfield write
-  through a `*Struct`** now reaches the pointee instead of the pointer's own slot.
-- **Scientific-notation float literals** (`3.4e38`, `1e6`, `2.5e-3`) now lex and compile.
-- **`--safe` slice construction** bounds-checks `0 <= lo <= hi <= len`: a valid empty
-  end-slice no longer traps, and an out-of-range upper bound is caught.
-- **Async (self-host):** awaiting a future from a method call, a variable, or a template call
-  resolves to the right value type; and an `await` in a condition or larger expression is a
-  clean compile error instead of a crash or silent miscompile.
+- **C semantics.** Integer promotions and the usual arithmetic conversions, `bool` as
+  `!= 0`, element-counting `ptr - ptr`, constant-only global initializers, and constant
+  folding with C's truncation rules.
+- **C ABI.** Structs and unions by value across `extern` on AArch64, x86-64 SysV, Windows
+  x64 and 32-bit ARM, callbacks through thunks, narrow integers sign- or zero-extended like
+  clang, `va_list` passed to C the target's way, and bitfields in the target's C layout.
+- **Language.** Interface values, `const` receivers, flow-sensitive `?*T` narrowing,
+  inline methods and dot-calls on generic structs, generic async functions, `(void)expr`,
+  `#if`/`#elif`, `#pragma link` with implied libraries (no more `-lm`, `-lc++` or
+  `-lpthread`), octal string escapes, and `volatile` on every access.
+- **Standard library.** Strict JSON, base64 and HTTP parsing; HTTP/1.1 framing per
+  RFC 9112 (chunked bodies, Host rules, requests split across reads); HTTP/2 with body and
+  header-list limits, malformed-request resets and Host checks; regex with RE2 semantics
+  (escapes, POSIX classes, empty loops); and fixes for use-after-free, overflow and
+  per-request leaks.
+- **Tooling.** Three fuzzers with CI gates, `fmt` that never changes program behavior, and
+  the self-hosted compiler matching the C++ one on invalid programs.
 
-See the full log in [CHANGELOG.md](CHANGELOG.md).
+See the full list in [CHANGELOG.md](CHANGELOG.md), including the known issues planned for
+0.9.3.
 
 ---
 
 ## Upgrade
 
-Drop-in. No breaking changes; recompiling picks up the fixes.
+Recompile. Programs that relied on something the checker now rejects get a located error
+that names the rule, for example a non-constant global initializer, an implicit
+conversion between unrelated pointer types, writing a captured variable inside a lambda,
+`return` inside `finally`, or a conflicting generic deduction. The CHANGELOG section
+"Changed" lists every such rule. Old stdlib names renamed to the `Type_method` convention
+still work and are marked deprecated.
+
+The stdlib HTTP servers do not have read or idle timeouts yet. Put them behind a reverse
+proxy when they face untrusted clients.

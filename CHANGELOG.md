@@ -8,14 +8,16 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
-## [0.9.2] - 2026-09-25
+## [0.9.2] - 2026-09-26
 A full-project audit (codegen, type checker, self-host parity, stdlib, front end, driver
 and docs) found about a hundred latent bugs that the existing corpus did not reach. All
 are fixed lockstep in the C++ and self-hosted compilers unless noted, each with a
 regression test. A second pass added three fuzzers (a C oracle, a negative corpus and an
 ASan fuzzer for the stdlib parsers), which found about twenty more, and resolved the two
-known limitations left from 0.9.1 (R and S). A second blind audit round found about 165
-more and a third about 60, fixed the same way.
+known limitations left from 0.9.1 (R and S). Seven more blind audit rounds followed, each
+on a frozen tree and each fixed the same way, for about 500 fixes in total. The last
+rounds concentrated on the C ABI, generics, `volatile` and the HTTP servers under hostile
+input. What is still open is listed under Known issues.
 
 ### Added
 - **`#pragma link("name")`** links the executable with `-lname`. The driver also adds
@@ -811,6 +813,45 @@ more and a third about 60, fixed the same way.
   message in both compilers. Test `run_cmd/await_in_match` (`run.sh`, `cg_parity.sh`).
 - A struct literal accepts a trailing comma (`P{ x: 5, y: 6, }`), like an array
   literal. Test `struct_lit_trailing_comma`.
+
+### Known issues
+These are open in 0.9.2 and planned for 0.9.3. None of them miscompiles a valid program
+without a diagnostic, except where the entry says so.
+
+- **The stdlib HTTP servers have no read or idle timeouts.** A client that opens a
+  connection and sends nothing (or one byte at a time) keeps a worker (`http_serve`) or a
+  file descriptor (the async and HTTP/2 servers) until it disconnects. Run them behind a
+  reverse proxy (nginx, Caddy) when they face untrusted clients.
+- A local read that is uninitialized on only some paths is accepted, as in C (the check
+  only catches a read with no assignment on any path).
+- The C++ compiler does not treat a type alias inside a composite type as its target, so
+  `Box<F>` and `Box<int>` (with `type F = int`) are different types there and a valid
+  assignment between them is rejected. Spell the target type.
+- `sizeof(*p)` is parsed as a type; use `sizeof(T)`. `sizeof` of a struct or a pointer is
+  not folded by the type checker, so the constant-expression checks do not see it.
+- A bitfield write, and the initializing store, through a `volatile` variable are not
+  volatile accesses.
+- A declaration directly after `case N:` needs braces (`case 1: { int y = 2; ... }`).
+- A `T[]` parameter does not infer `T` from a slice argument, and a generic variant infers
+  its type arguments only from its payload (`Opt<int64> a = Some(5)` needs
+  `Some<int64>(5)`); write the type arguments.
+- Enum member values must be integer literals.
+- A function-like macro whose name is followed by a newline before `(` is not expanded,
+  and a `#undef` line inside a multi-line string literal is read as a directive.
+- `await` is rejected inside `try`, a `match` arm, a `switch` subject, a range bound and a
+  compound assignment; bind the awaited value to a local first.
+- There is no spelling for a pointer to a nullable pointer, inline `asm` has no output
+  operands, and `null` does not convert to an interface value.
+- A method that mutates a captured value inside a lambda acts on the closure's copy.
+- A nullary variant written with parentheses (`B()`) is accepted.
+- The `<json>` methods named `int` and `bool` cannot be called with dot syntax.
+- Types nested about a thousand levels deep and very long ternary or member chains compile
+  slowly.
+- The C ABI lowering of `extern` struct and union arguments is not implemented for 32-bit
+  x86 (not a supported C ABI target).
+- Regex does not support `\Q..\E`, `(?:...)`, `(?i)`, `\p{...}` or code points above one
+  byte.
+- A few diagnostics report a different column in the two compilers.
 
 ## [0.9.1] - 2026-09-09
 ### Fixed
