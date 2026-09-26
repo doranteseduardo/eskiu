@@ -1,0 +1,18 @@
+// A dot-call through a pointer to a type alias (`IL*`, `type IL = List<int>`) reaches
+// the target type's methods, generic free functions included.
+import <list>;
+extern int printf(string fmt, ...);
+
+struct V { int x; int twice() { return self.x * 2; } }
+type IL = List<int>;
+type AV = V;
+
+int n(IL* l) { return l.len(); }
+int t(AV* v) { return v.twice(); }
+
+int main() {
+    let l: IL; l.init(2); l.push(3); l.push(4);
+    V v = V { x: 21 };
+    printf("%d %d %d\n", n(&l), l.len(), t(&v));
+    return 0;
+}

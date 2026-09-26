@@ -4421,6 +4421,12 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         sema_expr(s, mem.a);
         sema_check_nullable_deref(s, mem.a, "access a member of");
         string bt = sema_infer_type(s, mem.a);
+        // A pointer to an alias (`IL*`, `type IL = List<int>`) calls the target's methods.
+        if (s.has_alias == 1 && sema_ptr_depth(bt) == 1 && sema_pointee_const(bt) == 0) {
+            string bpe = sema_pointee(bt);
+            string bpd = sema_dealias(s, bpe);
+            if (bpe[0] != 0 && sema_streq(bpd, bpe) == 0) { bt = sema_cat("*", bpd); }
+        }
         string sn = sema_struct_of_type(bt);
         // Dot syntax dereferences at most one pointer level.
         if (sema_is_fn_type(bt) == 0) {
