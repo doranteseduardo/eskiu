@@ -255,7 +255,10 @@ static int testCodegen(const std::string& filename) {
         AsyncTransform().run(program.get());
         // Single resolver: re-resolve the post-transform AST; codegen consumes it.
         TypeChecker postTc; postTc.sourceFile = filename;
-        postTc.check(program.get());
+        if (!postTc.check(program.get())) {
+            std::cerr << "error: internal: the async lowering produced a program that does not type-check" << std::endl;
+            return 1;
+        }
         // Codegen
         CodeGen codegen;
         codegen.resolvedExprTypes = &postTc.expressionTypeMap();
@@ -480,7 +483,10 @@ static int compilerMain(int argc, char** argv) {
         AsyncTransform().run(program.get());
         // Single resolver: re-resolve the post-transform AST; codegen consumes it.
         TypeChecker postTc; postTc.sourceFile = std::string(InputFilename);
-        postTc.check(program.get());
+        if (!postTc.check(program.get())) {
+            std::cerr << "error: internal: the async lowering produced a program that does not type-check" << std::endl;
+            return 1;
+        }
         CodeGen codegen;
         codegen.resolvedExprTypes = &postTc.expressionTypeMap();
         codegen.semaInstanceArgs = &postTc.instanceArgsMap();

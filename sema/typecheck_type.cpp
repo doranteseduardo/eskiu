@@ -784,6 +784,13 @@ std::string TypeChecker::normalizeType(const std::string& rawType) {
     if (type.find("struct:") == 0 || type.find("interface:") == 0) {
         return type;
     }
+    // A template argument may arrive already resolved (`Future<struct:V>`, from a type
+    // the checker produced): it names the same instance as the source spelling.
+    if (type.find('<') != std::string::npos) {
+        for (const char* tag : {"struct:", "interface:"})
+            for (size_t p; (p = type.find(tag)) != std::string::npos; )
+                type.erase(p, std::string(tag).size());
+    }
     // Generic algebraic enum instance: Option<int> → the value type "Option_int".
     if (type.find('<') != std::string::npos) {
         auto [gname, gargs] = splitTemplateType(type);
