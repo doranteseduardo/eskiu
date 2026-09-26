@@ -99,6 +99,17 @@ run_test() { # name expected-output < program
     echo '}'
 } | run_test blocks_10k 5
 
+# 5000 ternaries nested in their then-arms (each `?` finds its `:` in constant time).
+{
+    echo 'extern int printf(string fmt, ...);'
+    echo 'int main() {'
+    echo '    int a = 1;'
+    printf '    int x = '; rep 'a == 1 ? ' 5000; printf '7'; rep ' : 0' 5000; echo ';'
+    echo '    printf("%d\n", x);'
+    echo '    return 0;'
+    echo '}'
+} | run_test ternary_then_5k 7
+
 # A 50000-link member chain (each base typed once, not once per level).
 {
     echo 'extern int printf(string fmt, ...);'

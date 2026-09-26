@@ -30,6 +30,8 @@ struct Parser {
     int failed;            // a speculative parse hit a syntax error (see p_fail)
     int nest;              // current expression/statement nesting (see p_nest_enter)
     int tdepth;            // current type nesting (see p_type_level)
+    List<int> tca;         // ternary_colon_ahead's answer per start index (built once)
+    int tca_done;
 }
 
 // Session state shared across every file parsed in one run (mirrors the C++ parser's
@@ -277,6 +279,7 @@ void p_init(Parser* p, *uint8 src, int len) {
     p.failed = 0;
     p.nest = 0;
     p.tdepth = 0;
+    p.tca_done = 0;
     List_init<Token>(&p.toks, 256);
     let lx: Lexer;
     lx.src = src; lx.len = len; lx.pos = 0; lx.line = 1; lx.col = 1;
@@ -1291,22 +1294,51 @@ int bin_prec(int t) {
 
 // True if the `?` at the current position opens a ternary (a matching `:` follows at
 // the same bracket nesting before a terminator) rather than postfix propagation.
-int ternary_colon_ahead(Parser* p) {
-    int depth = 0;
-    int i = p.pos + 1;
+// The answer for every start position is computed once, right to left (a group is
+// skipped by jumping to its closing bracket), so nested ternaries cost linear time
+// rather than a rescan per `?` (mirrors Parser::ternaryColonAhead).
+int tca_open(int t) { if (t == LPAREN || t == LBRACKET || t == LBRACE) { return 1; } return 0; }
+int tca_close(int t) { if (t == RPAREN || t == RBRACKET || t == RBRACE) { return 1; } return 0; }
+void tca_build(Parser* p) {
     int n = List_len<Token>(&p.toks);
+    List<int> closer; List_init<int>(&closer, n + 1);
+    List<int> open; List_init<int>(&open, 16);
+    int i = 0;
     while (i < n) {
+        List_push<int>(&closer, n);
         int t = List_get<Token>(&p.toks, i).type;
-        if (t == LPAREN || t == LBRACKET || t == LBRACE) { depth = depth + 1; }
-        else if (t == RPAREN || t == RBRACKET || t == RBRACE) {
-            if (depth == 0) { return 0; }
-            depth = depth - 1;
-        } else if (depth == 0) {
-            if (t == COLON) { return 1; }
-            if (t == SEMICOLON || t == COMMA || t == EOF_TOKEN) { return 0; }
+        if (tca_open(t) == 1) { List_push<int>(&open, i); }
+        else if (tca_close(t) == 1 && List_len<int>(&open) > 0) {
+            int o = List_get<int>(&open, List_len<int>(&open) - 1);
+            List_remove<int>(&open, List_len<int>(&open) - 1);
+            List_set<int>(&closer, o, i);
         }
         i = i + 1;
     }
+    List_init<int>(&p.tca, n + 1);
+    i = 0;
+    while (i <= n) { List_push<int>(&p.tca, 0); i = i + 1; }
+    i = n - 1;
+    while (i >= 0) {
+        int t = List_get<Token>(&p.toks, i).type;
+        int r = 0;
+        if (tca_open(t) == 1) {
+            int c = List_get<int>(&closer, i);
+            if (c < n) { r = List_get<int>(&p.tca, c + 1); }
+        }
+        else if (tca_close(t) == 1) { r = 0; }        // closed the enclosing group before any ':'
+        else if (t == COLON) { r = 1; }
+        else if (t == SEMICOLON || t == COMMA || t == EOF_TOKEN) { r = 0; }
+        else { r = List_get<int>(&p.tca, i + 1); }
+        List_set<int>(&p.tca, i, r);
+        i = i - 1;
+    }
+    List_free<int>(&closer); List_free<int>(&open);
+    p.tca_done = 1;
+}
+int ternary_colon_ahead(Parser* p) {
+    if (p.tca_done == 0) { tca_build(p); }
+    if (p.pos + 1 < List_len<int>(&p.tca)) { return List_get<int>(&p.tca, p.pos + 1); }
     return 0;
 }
 

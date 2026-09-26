@@ -39,22 +39,35 @@ ExprPtr Parser::parseExpression() {
 // bracket nesting before a statement/argument terminator — rather than the postfix
 // Result-propagation operator (`expr?`). Propagation `?` is never followed by a
 // same-level `:`, so the colon reliably signals a ternary.
+//
+// The answer for every start position is computed once, right to left (a group is
+// skipped by jumping to its closing bracket), so nested ternaries cost linear time
+// rather than a rescan per `?`.
 bool Parser::ternaryColonAhead() const {
-    int depth = 0;
-    for (size_t i = current + 1; i < tokens.size(); ++i) {
-        TokenType t = tokens[i].type;
-        if (t == TokenType::LPAREN || t == TokenType::LBRACKET || t == TokenType::LBRACE)
-            depth++;
-        else if (t == TokenType::RPAREN || t == TokenType::RBRACKET || t == TokenType::RBRACE) {
-            if (depth == 0) return false;   // closed the enclosing group before any ':'
-            depth--;
-        } else if (depth == 0) {
-            if (t == TokenType::COLON) return true;
-            if (t == TokenType::SEMICOLON || t == TokenType::COMMA ||
-                t == TokenType::EOF_TOKEN) return false;
+    if (colonAhead.empty()) {
+        size_t n = tokens.size();
+        auto isOpen = [](TokenType t) {
+            return t == TokenType::LPAREN || t == TokenType::LBRACKET || t == TokenType::LBRACE;
+        };
+        auto isClose = [](TokenType t) {
+            return t == TokenType::RPAREN || t == TokenType::RBRACKET || t == TokenType::RBRACE;
+        };
+        std::vector<size_t> closer(n, n), open;
+        for (size_t i = 0; i < n; ++i) {
+            if (isOpen(tokens[i].type)) open.push_back(i);
+            else if (isClose(tokens[i].type) && !open.empty()) { closer[open.back()] = i; open.pop_back(); }
+        }
+        colonAhead.assign(n + 1, 0);
+        for (size_t i = n; i-- > 0;) {
+            TokenType t = tokens[i].type;
+            if (isOpen(t)) colonAhead[i] = closer[i] < n ? colonAhead[closer[i] + 1] : 0;
+            else if (isClose(t)) colonAhead[i] = 0;   // closed the enclosing group before any ':'
+            else if (t == TokenType::COLON) colonAhead[i] = 1;
+            else if (t == TokenType::SEMICOLON || t == TokenType::COMMA || t == TokenType::EOF_TOKEN) colonAhead[i] = 0;
+            else colonAhead[i] = colonAhead[i + 1];
         }
     }
-    return false;
+    return current + 1 < colonAhead.size() && colonAhead[current + 1];
 }
 
 ExprPtr Parser::parseTernary() {

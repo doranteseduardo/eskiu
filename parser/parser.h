@@ -202,6 +202,7 @@ private:
     ExprPtr parseAssignment();
     ExprPtr parseTernary();
     bool ternaryColonAhead() const;   // disambiguate `cond ? a : b` from postfix `expr?`
+    mutable std::vector<char> colonAhead;   // ternaryColonAhead's answer per start index
     // Binary operators by precedence climbing: parse a unary operand, then fold every
     // operator binding at least `minPrec` (same-precedence operators in a loop, so a
     // long `a + b + c ...` chain costs no recursion; a tighter operator on the right

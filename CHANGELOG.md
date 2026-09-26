@@ -854,6 +854,11 @@ input. What is still open is listed under Known issues.
   "variant 'B' takes no arguments" (write `B`). Test `errors/variant_nullary_parens`.
 - A function-like macro whose name is followed by a newline (and blanks or comments)
   before its `(` is expanded, as in C. Test `macro_call_newline`.
+- Deep types, member chains and nested ternaries compile in linear time: type spellings
+  are parsed and rendered in one pass (C++ `ty::Type`, parser), a member chain is typed
+  once (self-host sema and codegen; C++ codegen's volatile-root walk is memoized), and a
+  ternary finds its `:` from a table built once (both parsers). `tests/deep/gen.sh`
+  gains `member_chain_50k` and `ternary_then_5k`.
 
 ### Known issues
 These are open in 0.9.2 and planned for 0.9.3. None of them miscompiles a valid program
@@ -873,8 +878,8 @@ without a diagnostic, except where the entry says so.
   operands, and `null` does not convert to an interface value.
 - A method that mutates a captured value inside a lambda acts on the closure's copy.
 - The `<json>` methods named `int` and `bool` cannot be called with dot syntax.
-- Types nested about a thousand levels deep and very long ternary or member chains compile
-  slowly.
+- The self-hosted compiler type-checks deeply nested `?:` expressions in time quadratic
+  in their depth (5000 levels take about ten seconds; the C++ compiler is linear).
 - The C ABI lowering of `extern` struct and union arguments is not implemented for 32-bit
   x86 (not a supported C ABI target).
 - Regex does not support `\Q..\E`, `(?:...)`, `(?i)`, `\p{...}` or code points above one
