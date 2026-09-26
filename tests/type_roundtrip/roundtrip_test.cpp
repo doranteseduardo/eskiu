@@ -55,6 +55,7 @@ int main() {
         "fn(int)->fn(string)->bool", "fn(int)->*Future<int>",
         // arrays — literal + symbolic dims, with pointers/structs
         "int[10]", "int[MAX]", "struct:Point[8]", "*int[4]", "int[N]",
+        "int[2][3]", "T[2][2][3]", "int[3][]", "*int[2][5]",
     };
 
     for (const auto& s : corpus) check(s);
@@ -82,6 +83,7 @@ int main() {
             {"*T", {{"T","int"}}, "*int"},
             {"T*", {{"T","int"}}, "int*"},
             {"T[8]", {{"T","int"}}, "int[8]"},          // dim untouched
+            {"T[2][3]", {{"T","int"}}, "int[2][3]"},    // C order kept
             {"List<T>", {{"T","int"}}, "List<int>"},
             {"fn(*T)->T", {{"T","int"}}, "fn(*int)->int"},
             {"Map<K,V>", {{"K","string"},{"V","bool"}}, "Map<string,bool>"},

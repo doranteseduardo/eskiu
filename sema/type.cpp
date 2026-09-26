@@ -216,11 +216,17 @@ std::string Type::str() const {
             else            body = pointee->str() + (bindingConst ? "*const" : "*");
             break;
         case Kind::Array:
-            body = elem->str() + "[" + dim + "]";
+        case Kind::Slice: {
+            std::string dims = "[" + dim + "]";
+            const Type* e = elem.get();
+            while ((e->kind == Kind::Array || e->kind == Kind::Slice) &&
+                   e->leadingQuals.empty() && !e->nullable) {
+                dims += "[" + e->dim + "]";
+                e = e->elem.get();
+            }
+            body = e->str() + dims;
             break;
-        case Kind::Slice:
-            body = elem->str() + "[]";
-            break;
+        }
         case Kind::Fn: {
             body = "fn(";
             for (size_t i = 0; i < params.size(); ++i) {
