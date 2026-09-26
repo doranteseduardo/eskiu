@@ -1,0 +1,14 @@
+// EXPECT-ERROR: cannot access a member of a possibly-null pointer
+// The joined thread may have assigned the global.
+struct N { int v; }
+?*N g = null;
+void clear() { g = null; }
+int main() {
+    N n; n.v = 4;
+    g = &n;
+    if (g != null) {
+        thread_join(thread_create(clear));
+        return g.v;
+    }
+    return 0;
+}

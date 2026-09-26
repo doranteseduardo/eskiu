@@ -2939,7 +2939,8 @@ void sema_drop_global_keys(List<string>* keys) {
 int sema_is_op_call(Sema* s, *ExprNode e);
 int sema_has_call(Sema* s, *ExprNode e) {
     if (e == null || e.kind == EK_LAMBDA) { return 0; }
-    if (e.kind == EK_CALL || e.kind == EK_TEMPLATECALL || e.kind == EK_AWAIT) { return 1; }
+    if (e.kind == EK_CALL || e.kind == EK_TEMPLATECALL || e.kind == EK_AWAIT
+        || e.kind == EK_ALLOCWITH || e.kind == EK_THREADCREATE) { return 1; }
     if (sema_is_op_call(s, e) == 1) { return 1; }
     if (e.kind == EK_BINARY || e.kind == EK_INDEX || e.kind == EK_TERNARY) {
         if (sema_has_call(s, e.a) == 1 || sema_has_call(s, e.b) == 1) { return 1; }
@@ -3386,7 +3387,10 @@ void sema_expr(Sema* s, *ExprNode e) {
     if (e.line > 0) { s.line = e.line; s.col = e.col; }
     sema_expr_k(s, e);
     // The callee may assign any global: a global's narrowing ends after the call.
-    if (e.kind == EK_CALL || e.kind == EK_TEMPLATECALL || e.kind == EK_AWAIT || sema_is_op_call(s, e) == 1) { sema_drop_global_narrowings(s); }
+    // alloc_with calls the allocator's method and thread_create starts code that may run
+    // at once, so they end it too.
+    if (e.kind == EK_CALL || e.kind == EK_TEMPLATECALL || e.kind == EK_AWAIT || e.kind == EK_ALLOCWITH
+        || e.kind == EK_THREADCREATE || sema_is_op_call(s, e) == 1) { sema_drop_global_narrowings(s); }
     s.line = pl; s.col = pc;
 }
 
@@ -5042,6 +5046,7 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
     if (k == SK_THROW) { sema_expr(s, st.expr); return; }
     if (k == SK_THREADJOIN) {
         sema_expr(s, st.expr);
+        sema_drop_global_narrowings(s);   // the joined thread may have assigned any global
         string jt = sema_infer_type(s, st.expr);
         if (jt[0] != 0 && sema_streq(sema_strip_nullable(sema_canon(s, jt)), "*void") == 0) {
             s.had_error = 1;

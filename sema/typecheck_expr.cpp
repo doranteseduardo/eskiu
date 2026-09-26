@@ -497,7 +497,8 @@ void TypeChecker::dropGlobalKeys(std::vector<std::string>& keys) {
 // Whether evaluating `e` makes a call (a lambda body is not evaluated there).
 bool TypeChecker::exprHasCall(Expr* e) const {
     if (!e || dynamic_cast<LambdaExpr*>(e)) return false;
-    if (dynamic_cast<CallExpr*>(e) || dynamic_cast<TemplateCallExpr*>(e) || dynamic_cast<AwaitExpr*>(e)) return true;
+    if (dynamic_cast<CallExpr*>(e) || dynamic_cast<TemplateCallExpr*>(e) || dynamic_cast<AwaitExpr*>(e) ||
+        dynamic_cast<AllocWithExpr*>(e) || dynamic_cast<ThreadCreateExpr*>(e)) return true;
     if (operatorCallNodes.count(e)) return true;
     bool found = false;
     astwalk::forEachChildExprFlat(e, [&](ExprPtr& c) { if (!found) found = exprHasCall(c.get()); });
@@ -1647,6 +1648,8 @@ void TypeChecker::visit(FreeClosureExpr* node) {
 }
 
 void TypeChecker::visit(ThreadCreateExpr* node) {
+    // The thread may run at once and assign any global: a global's narrowing ends here.
+    struct GlobalNarrowDrop { TypeChecker* t; ~GlobalNarrowDrop() { t->dropGlobalNarrowings(); } } dropAfter{this};
     node->worker->accept(this);
     std::string t = getExpressionType(node->worker.get());
     if (t != "unknown") {
@@ -1760,6 +1763,8 @@ void TypeChecker::visit(TemplateCallExpr* node) {
 }
 
 void TypeChecker::visit(AllocWithExpr* node) {
+    // A call to the allocator's alloc method, which may assign any global.
+    struct GlobalNarrowDrop { TypeChecker* t; ~GlobalNarrowDrop() { t->dropGlobalNarrowings(); } } dropAfter{this};
     node->allocator->accept(this);
     node->count->accept(this);
     std::string countType = getExpressionType(node->count.get());

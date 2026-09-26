@@ -371,6 +371,7 @@ void TypeChecker::visit(AsmStmt* node) {
 
 void TypeChecker::visit(ThreadJoinStmt* node) {
     node->tid->accept(this);
+    dropGlobalNarrowings();   // the joined thread may have assigned any global
     std::string t = getExpressionType(node->tid.get());
     std::string n = normalizeType(t);
     if (!n.empty() && n[0] == '?') n = n.substr(1);

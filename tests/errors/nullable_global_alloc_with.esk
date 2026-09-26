@@ -1,0 +1,16 @@
+// EXPECT-ERROR: cannot access a member of a possibly-null pointer
+// alloc_with calls the allocator's alloc method, which may assign the global.
+struct N { int v; }
+?*N g = null;
+struct A { int x; }
+*void A_alloc(*A self, int64 n) { g = null; return null; }
+int main() {
+    N n; n.v = 4;
+    A a; a.x = 0;
+    g = &n;
+    if (g != null) {
+        *int p = alloc_with(&a, int, 1);
+        return g.v;
+    }
+    return 0;
+}

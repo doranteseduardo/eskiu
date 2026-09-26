@@ -1,0 +1,15 @@
+// EXPECT-ERROR: cannot access a member of a possibly-null pointer
+// A started thread may assign the global at once.
+struct N { int v; }
+?*N g = null;
+int main() {
+    N n; n.v = 4;
+    g = &n;
+    if (g != null) {
+        *void t = thread_create(void() { g = null; });
+        int r = g.v;
+        thread_join(t);
+        return r;
+    }
+    return 0;
+}
