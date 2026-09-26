@@ -861,6 +861,12 @@ as `double` (read it with `va_arg<double>`), and integer types narrower than `in
 arrive as `int`. There is no automatic count of the arguments: pass it explicitly
 (as `n` above) or use a sentinel.
 
+`va_start` is only allowed in a function with a `...` parameter. Each of the three
+builtins takes exactly one `va_list` operand (a `va_list` may also be passed to another
+function, which then reads it with `va_arg`). `T` in `va_arg<T>` must be a scalar: an
+integer, a floating-point type or a pointer; a struct, union, sum type or array is a
+compile error.
+
 ### 6.4 Extern Declarations
 
 `extern` declares a C function or global variable available to Eskiu code. See §13 for details.
@@ -916,7 +922,7 @@ Under the hood, `fn(T)->R` is a two-word fat pointer `{fn_ptr, env_ptr}`. When a
 **Escape analysis and closure lifetime.** Where the environment lives depends on whether the closure *escapes* its creating function:
 
 - A **non-escaping** closure (one that is only called, or passed to a parameter that is not marked `escaping`) has its environment allocated on the **stack**. This costs nothing and needs no cleanup (the common `map`/`filter`/callback-invoked-in-place case).
-- An **escaping** closure (one that is returned, stored into a struct field / global / through a pointer, or passed to an `escaping` parameter) has its environment allocated on the **heap**, so it remains valid after the creating function returns. Release it with `free_closure(f)` (a no-op for non-capturing closures, whose env is null).
+- An **escaping** closure (one that is returned, stored into a struct field / global / through a pointer, or passed to an `escaping` parameter) has its environment allocated on the **heap**, so it remains valid after the creating function returns. Release it with `free_closure(f)` (a no-op for non-capturing closures, whose env is null; `f` must be a closure value).
 
 A parameter that retains the closure beyond the call (stores it, returns it, hands it to another `escaping` parameter) must be declared `escaping`:
 
@@ -994,7 +1000,7 @@ thread_create(fn()->void worker) -> *void
 thread_join(*void handle) -> void
 ```
 
-`thread_create` accepts any `fn()->void` value, including a closure, and returns an opaque `*void` thread handle. `thread_join` blocks the calling thread until the spawned thread completes.
+`thread_create` accepts any `fn()->void` value, including a closure, and returns an opaque `*void` thread handle. `thread_join` blocks the calling thread until the spawned thread completes. Any other worker type, or a `thread_join` operand that is not a `*void` handle, is a compile error.
 
 ```eskiu
 extern int printf(string fmt, ...);
@@ -1102,7 +1108,7 @@ try {
 
 #### finally
 
-The `finally` block executes unconditionally after the `try` body and any `catch` clause, regardless of whether an exception was raised. It also runs when the body or a `catch` handler leaves early with `return`, `break`, `continue` or `?`.
+The `finally` block executes unconditionally after the `try` body and any `catch` clause, regardless of whether an exception was raised. It also runs when the body or a `catch` handler leaves early with `return`, `break`, `continue` or `?`, and when a `catch` handler throws (directly or from a call); the new exception then propagates after the `finally` body.
 
 ```eskiu
 try {
@@ -1237,6 +1243,12 @@ Four kinds of iterable are supported:
 The form desugars to an index-counted loop: for an array the bound is its
 compile-time length; for a slice the bound is its `.len`; for a List-like value
 the bound is its `size` field, and each element is read through `data[i]`.
+
+The iterable is evaluated once, before the first iteration. A variable, or a field or
+constant-index element of one, is read in place, so the loop sees writes the body makes
+to it. Anything else (a call, an index by a variable) is held in a temporary: a
+List-like value that has an address by a pointer to it, an array, slice or pointer by
+value (an array is then copied).
 
 ### 7.3 while
 
@@ -1426,7 +1438,7 @@ struct Rect {
 
 Field types may be any primitive type, pointer type, another struct type, or a fixed-size array type.
 
-An integer field may declare a **bit width** with `: N`, making it a bitfield. Bitfields are laid out like C on the target: on SysV/AAPCS targets a bitfield takes the next free bits unless it would cross a boundary of an aligned storage unit of its declared type (so `uint8 a : 4; uint32 w : 12;` is 4 bytes), and in a `packed` struct bitfields pack back to back; on Windows targets consecutive bitfields share a storage word only while the declared type size stays the same. Reads mask and shift out the field (signed fields sign-extend), and writes (including compound assignment and `++`/`--`, which wrap within the field's width) are read-modify-write. You cannot take the address of a bitfield.
+An integer field may declare a **bit width** with `: N`, making it a bitfield. Bitfields are laid out like C on the target: on SysV/AAPCS targets a bitfield takes the next free bits unless it would cross a boundary of an aligned storage unit of its declared type (so `uint8 a : 4; uint32 w : 12;` is 4 bytes), and in a `packed` struct bitfields pack back to back; on Windows targets consecutive bitfields share a storage word only while the declared type size stays the same. Reads mask and shift out the field (signed fields sign-extend), and writes (including compound assignment and `++`/`--`, which wrap within the field's width) are read-modify-write. You cannot take the address of a bitfield. A `bool` bitfield uses a one-byte storage unit, as in C. An enum bitfield reads back unsigned when the enum has no negative member (SysV/AAPCS, as clang and GCC do; the Windows layout keeps it signed); a sum type is not a bitfield type. A named bitfield may not have zero width (`int x : 0` is an error; C allows zero width only for an unnamed bitfield, which Eskiu does not have).
 
 ```eskiu
 struct Flags {
@@ -1986,6 +1998,10 @@ Pointer arithmetic is typed: `p + n` on a `*T` pointer advances by `n * sizeof(T
 *int  p2 = pi + 1;        // 4 bytes forward, next int element
 ```
 
+`p - q` between two pointers counts the elements between them (an `int64`). Both must
+point to the same type, as in C (`const`, `?` and aliases aside); `*int - *char` is a
+compile error.
+
 The subscript operator `ptr[i]` reads or writes the `i`-th element and is exactly equivalent to `*(ptr + i)` (typed by the pointee). It is the idiomatic way to index allocated buffers and array fields:
 
 ```eskiu
@@ -2024,7 +2040,7 @@ void  esk_free(*void ptr)  { buddy_free(ptr); }
 
 Freestanding mode does not remove any other language features. The standard library modules (`stdlib/result.esk`, etc.) remain available but must not import libc functions that are absent from the target.
 
-**Custom allocators (`alloc_with`).** `alloc_with(&allocator, T, n)` is the explicit-allocator form of `alloc`: instead of going to `malloc`/`esk_alloc`, it calls `<Type>_alloc(&allocator, n * sizeof(T))` and returns a `*T`. Any struct that exposes a method `*void <Type>_alloc(<Type>* self, int64 nbytes)` is a valid allocator, so allocation strategy is a plain value, not a global. When `n * sizeof(T)` does not fit a signed 64-bit size (or the allocator's narrower size parameter), or `n` is negative, `alloc_with` yields `null` without calling the allocator.
+**Custom allocators (`alloc_with`).** `alloc_with(&allocator, T, n)` is the explicit-allocator form of `alloc`: instead of going to `malloc`/`esk_alloc`, it calls `<Type>_alloc(&allocator, n * sizeof(T))` and returns a `*T`. Any struct that exposes a method `*void <Type>_alloc(<Type>* self, int64 nbytes)` is a valid allocator, so allocation strategy is a plain value, not a global. When `n * sizeof(T)` does not fit a signed 64-bit size (or the allocator's narrower size parameter), or `n` is negative, `alloc_with` yields `null` without calling the allocator. `n` must be an integer, and the allocator's type must have the `alloc` method (a free `<Type>_alloc` or an inline `alloc`); otherwise it is a compile error.
 
 ```eskiu
 import <alloc>;

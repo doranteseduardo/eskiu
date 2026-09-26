@@ -179,6 +179,15 @@ more and a third about 60, fixed the same way.
 - `?` needs an integer or `bool` `ok` field; a union literal names one member; an inline
   method can't declare a parameter named `self`, and an operator overload must have the
   operator's arity.
+- `va_start` needs a variadic function (`...`), and `va_start`, `va_arg` and `va_end`
+  take one `va_list`; `va_arg` of a struct, union, sum type or array is an error.
+  `thread_create` takes a `fn()->void`, `thread_join` its `*void` handle, and
+  `free_closure` a closure. `alloc_with` needs an integer count and an allocator type
+  with an `alloc` method (it was a codegen error without a location).
+- A sum type is not a bitfield type, and a named bitfield may not have zero width
+  (`int x : 0`), as in C. `p - q` needs pointers to the same type.
+- An enum bitfield whose enum has no negative member reads back unsigned, as in clang
+  and GCC (MS layout keeps it signed): `Col col : 2` holding `B = 2` read back as -2.
 
 ### Deprecated
 - Stdlib modules built around a struct now use `Type_method` names, as the naming
@@ -404,6 +413,24 @@ more and a third about 60, fixed the same way.
   repeat count above 1000 is an error, HTTP/2 rejects CR, LF and NUL in header fields,
   RST_STREAM on an idle stream, a short GOAWAY and a stream that depends on itself, and
   `http_reply` accepts a `null` body.
+#### Fourth audit round
+- A `finally` runs when a `catch` handler throws (directly or from a call); the new
+  exception then propagates.
+- A `bool` bitfield at a nonzero bit offset reads back what was stored (it used an `i1`
+  storage unit, so it read false or trapped at `-O2`).
+- `for (x in E)` evaluates `E` once: a call, or an index by a variable, was evaluated
+  again for every iteration (synchronous and async loops). The C++ checker accepts a
+  pointer to a generic list returned by a call as the iterable.
+- The C++ checker accepts arithmetic, comparisons, `++`/`--` and unary operators on a
+  value typed by an alias through a field, element, return value or pointee
+  (`type u8 = uint8; s.a + 1`).
+- Awaiting a future of a struct or a generic instance no longer prints a spurious
+  `0:0: cannot convert` error, and an error in the lowered async code now fails the
+  build instead of being ignored.
+- Self-host: rejects `free_closure` of a non-closure, a sum type as a bitfield type,
+  reading or assigning an inline method as if it were a field (`p.sum`), a string slice
+  into a non-`char` slice, and `alloc_with` with a non-integer count or an allocator
+  without `alloc` (each emitted invalid IR or garbage before).
 
 #### Fourth audit round
 - Async: dropping a `select2`, `join2`, `select2v` or `join2v` future before it resolves

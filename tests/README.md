@@ -342,6 +342,15 @@ when you add a test.
 | `url` | `<url>` percent-encoding and query parsing |
 | `url_query_keys` | `url_query_get` decodes each key (`+` as space, %XX) before comparing it with the wanted key |
 | `uuid` | `<uuid>` RFC 4122 v4 from a fixed seed |
+| `finally_catch_throw` | `finally` runs when a `catch` handler throws (directly, from a call, nested) |
+| `bitfield_bool` | `bool` bitfields at nonzero bit offsets, set, cleared and brace-initialized |
+| `bitfield_enum_c` | `bool` and enum bitfields agree with the C layout and signedness (C companion) |
+| `for_in_once` | `for (x in E)` evaluates a call, a variable-index element or a pointer-returning call once (sync and async) |
+| `alias_operands` | operators on alias-typed fields, elements, returns and pointees |
+| `thread_handles` | `thread_create` of a lambda, a function and a closure value; `thread_join` of a field or `?*void` |
+| `async_await_struct` | awaiting futures of a struct, a generic instance and a `join2v` pair |
+| `alloc_with_method` | `alloc_with` over an inline `alloc` method, through a pointer, with an alias count; a string slices to `char[]` |
+| `ptr_sub_same` | `p - q` across `const`, `?` and alias spellings of the same pointer type |
 
 ### `smoke` tests (compile + link + exit 0)
 
@@ -581,6 +590,22 @@ when you add a test.
 | `errors/trait_unsatisfied` | `int` with no `cmp` free function used for a `<T: Ord>` param ("does not satisfy constraint") |
 | `errors/unexpected_char` | a stray `@` in an expression, located ("unexpected character '@'") |
 | `errors/uninitialized` | reading a local before it is assigned ("uninitialized") |
+| `errors/va_start_not_variadic` | `va_start` in a function without `...` |
+| `errors/va_start_not_va_list` | `va_start` on an `int8` local ("needs a 'va_list'") |
+| `errors/va_arg_not_va_list` | `va_arg<int>(5)` ("needs a 'va_list'") |
+| `errors/va_arg_struct` | `va_arg<P>` of a struct ("cannot read a 'P'") |
+| `errors/thread_create_int` | `thread_create(5)` |
+| `errors/thread_create_wrong_fn` | `thread_create` of a `fn(int)->int` |
+| `errors/thread_join_int` | `thread_join(5)` ("expects a thread handle") |
+| `errors/free_closure_int` | `free_closure(5)` |
+| `errors/bitfield_adt_enum` | a sum type as a bitfield type |
+| `errors/bitfield_zero_width` | a named zero-width bitfield `int x : 0` |
+| `errors/method_as_field_write` | assigning an inline method as a field (`p.sum = 3`) |
+| `errors/method_as_field_read` | reading an inline method as a field (`int s = p.sum`) |
+| `errors/string_slice_elem` | a string slice into an `int[]` ("cannot convert 'char[]'") |
+| `errors/alloc_with_count_string` | `alloc_with` with a string count |
+| `errors/alloc_with_no_alloc` | `alloc_with` on an `int` allocator ("has no alloc method") |
+| `errors/ptr_sub_mismatch` | `*int - *char` ("pointer subtraction needs pointers to the same type") |
 
 ### `lint` tests (-Wall)
 
