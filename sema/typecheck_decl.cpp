@@ -661,8 +661,19 @@ void TypeChecker::visit(VarDecl* node) {
             // Recursively check a (possibly nested) array literal against a
             // (possibly multi-dimensional) array type: `int[2][3]` expects two rows,
             // each itself a `{...}` of up to three ints. A short list zero-fills.
+            // Through a type alias (`type A3 = int[3]; A3 a = {...}`) the target is the array,
+            // at any level (`A3[2] m = {{..}, {..}}`).
+            auto dealiasArr = [&](std::string t) {
+                for (int hops = 0; hops < 32; ++hops) {
+                    auto al = typeAliases.find(tyq::strip(t));
+                    if (al == typeAliases.end()) break;
+                    t = al->second;
+                }
+                return t;
+            };
             std::function<void(const std::string&, ArrayLitExpr*)> checkArr =
-                [&](const std::string& arrT, ArrayLitExpr* a) {
+                [&](const std::string& arrT0, ArrayLitExpr* a) {
+                    std::string arrT = dealiasArr(arrT0);
                     ty::Type at = ty::Type::parse(arrT);
                     if (at.kind != ty::Type::Kind::Array) {
                         errorAt(node, "an array literal '{...}' can only initialize an array type, not '" +
@@ -676,7 +687,7 @@ void TypeChecker::visit(VarDecl* node) {
                     if (dimNum && a->elements.size() > (size_t)std::stoull(dim))
                         errorAt(node, "array literal has " + std::to_string(a->elements.size()) +
                                       " elements but '" + arrT + "' holds " + dim);
-                    bool elemIsArray = (at.elem->kind == ty::Type::Kind::Array);
+                    bool elemIsArray = ty::Type::parse(dealiasArr(elemT)).kind == ty::Type::Kind::Array;
                     for (auto& el : a->elements) {
                         if (elemIsArray) {
                             if (auto* sub = dynamic_cast<ArrayLitExpr*>(el.get()))
@@ -691,14 +702,7 @@ void TypeChecker::visit(VarDecl* node) {
                         }
                     }
                 };
-            // Through a type alias (`type A3 = int[3]; A3 a = {...}`) the target is the array.
-            std::string arrType = node->type;
-            for (int hops = 0; hops < 32; ++hops) {
-                auto al = typeAliases.find(tyq::strip(arrType));
-                if (al == typeAliases.end()) break;
-                arrType = al->second;
-            }
-            checkArr(arrType, arr);
+            checkArr(node->type, arr);
         } else if (!badRangeBound) {
             std::string initType = getExpressionType(node->initializer.get());
             if (initType != "unknown") {

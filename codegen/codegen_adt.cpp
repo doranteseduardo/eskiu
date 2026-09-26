@@ -132,7 +132,7 @@ void CodeGen::emitArrayInitInto(llvm::Value* dest, ArrayLitExpr* lit, const std:
     llvm::Type* elemTy = getTypeFromString(elemStr);
     llvm::Type* arrTy = llvm::ArrayType::get(elemTy, n);
     llvm::Type* i32 = llvm::Type::getInt32Ty(*context);
-    bool elemIsArray = (bt.elem->kind == ty::Type::Kind::Array);
+    bool elemIsArray = ty::Type::parse(expandAlias(elemStr)).kind == ty::Type::Kind::Array;   // `A3[2]`
 
     for (uint64_t i = 0; i < n; ++i) {
         llvm::Value* slot = builder->CreateGEP(arrTy, dest,

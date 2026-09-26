@@ -1,0 +1,13 @@
+// A nested brace initializer whose rows are an array alias: `A[2] m = {{1,2},{3,4}}`.
+extern int printf(string fmt, ...);
+type A = int[2];
+type M = A[2];
+type Arr = int[3];
+type Mat = Arr[2];
+M g = {{1, 2}, {3, 4}};
+int main() {
+    A[2] m = {{1, 2}, {3, 4}};
+    Mat k = {{1, 2, 3}, {4, 5}};
+    printf("%d %d %d %d\n", m[1][1], g[1][0], k[1][2], k[0][2]);
+    return 0;
+}
