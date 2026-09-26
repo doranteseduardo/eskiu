@@ -221,9 +221,10 @@ struct PPCtx {
     int top_col;
     int depth;
     int open_call;   // an unterminated call at the top level (its args continue on the next line)
+    int trailing_fn; // a function-like macro name ends the top-level text: its `(` may start a later line
 }
 
-void pp_ctx_init(PPCtx* c) { c.err = ""; c.err_col = 0; c.top_col = 0; c.depth = 0; c.open_call = 0; }
+void pp_ctx_init(PPCtx* c) { c.err = ""; c.err_col = 0; c.top_col = 0; c.depth = 0; c.open_call = 0; c.trailing_fn = 0; }
 
 void pp_ctx_fail(PPCtx* c, string msg) {
     if (c.err[0] == 0) { c.err = msg; c.err_col = c.top_col; }
@@ -243,6 +244,43 @@ int pp_skip_blank(string s, int p, int n) {
         return p;
     }
     return p;
+}
+
+// Like pp_skip_blank, but also across newlines and `//` comments (mirrors ppSkipBlankNL).
+int pp_skip_blank_nl(string s, int p, int n) {
+    while (p < n) {
+        p = pp_skip_blank(s, p, n);
+        if (p < n && (int)s[p] == 10) { p = p + 1; continue; }
+        if (p + 1 < n && (int)s[p] == 47 && (int)s[p + 1] == 47) {
+            while (p < n && (int)s[p] != 10) { p = p + 1; }
+            if (p >= n) { return n; }
+            p = p + 1; continue;
+        }
+        return p;
+    }
+    return p;
+}
+
+// Does the next source line with code, from src[i] (past blank and comment-only lines),
+// begin with `(`? Reads ahead without consuming (mirrors ppNextCodeIsParen).
+int pp_next_code_is_paren(string src, int i, int len) {
+    int lines = 0;
+    while (i < len && lines < 1000) {
+        int e = i;
+        while (e < len && (int)src[e] != 10) { e = e + 1; }
+        int le = e;
+        if (le > i && (int)src[le - 1] == 13) { le = le - 1; }
+        int p = pp_skip_blank(src, i, le);
+        int cmt = 0;
+        if (p + 1 < le && (int)src[p] == 47 && (int)src[p + 1] == 47) { cmt = 1; }
+        if (p < le && cmt == 0) {
+            if ((int)src[p] == 40) { return 1; }
+            return 0;
+        }
+        i = e + 1;
+        lines = lines + 1;
+    }
+    return 0;
 }
 
 string pp_itoa(int v) {
@@ -307,7 +345,8 @@ string pp_expand(string input, List<PPMacro>* tbl, List<string>* expanding, *int
                     List_remove<string>(expanding, List_len<string>(expanding) - 1);
                     expanded = 1;
                 } else {
-                    int k = pp_skip_blank(text, j, n);
+                    int k = pp_skip_blank_nl(text, j, n);
+                    if (k >= n && ctx.depth == 0) { ctx.trailing_fn = 1; }
                     if (k < n && (int)text[k] == 40) {         // function-like call: '('
                         // Split at top-level commas; string/char literals are copied whole
                         // and a comment counts as a space.
@@ -1288,7 +1327,9 @@ string pp_run(string src, int len, string filename, *int had_err) {
                 string expanded = pp_expand(pp_sub(ls, s0, e0 - s0), tblp, &expanding, &in_block, &ctx);
                 // A macro call whose arguments continue on the next lines: join them
                 // (newline kept) and expand again (mirrors the C++).
-                if (ctx.open_call == 1 && s0 == 0 && e0 == ln && joins < 1000 && i < len) {
+                int join = ctx.open_call;
+                if (join == 0 && ctx.trailing_fn == 1 && s0 == 0 && e0 == ln) { join = pp_next_code_is_paren((string)src, i, len); }
+                if (join == 1 && s0 == 0 && e0 == ln && joins < 1000 && i < len) {
                     in_block = blk_start;
                     String_push(&line, (char)10);
                     while (i < len && (int)src[i] != 10) { String_push(&line, (char)src[i]); i = i + 1; }

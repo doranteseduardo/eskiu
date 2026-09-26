@@ -71,6 +71,9 @@ struct PPExpandCtx {
     size_t topCol = 0;
     int depth = 0;
     bool openCall = false;
+    // A function-like macro name ends the top-level text (only blanks or a comment
+    // after it): its `(` may start a following line, as in C.
+    bool trailingFnName = false;
 };
 
 static bool ppIdentStart(char c) { return std::isalpha((unsigned char)c) || c == '_'; }
@@ -85,6 +88,23 @@ static size_t ppSkipBlank(const std::string& s, size_t p) {
             size_t e = s.find("*/", p + 2);
             if (e == std::string::npos) return p;
             p = e + 2; continue;
+        }
+        break;
+    }
+    return p;
+}
+
+// Like ppSkipBlank, but also across newlines and `//` comments (a function-like
+// macro's `(` may follow its name on a later line, as in C).
+static size_t ppSkipBlankNL(const std::string& s, size_t p) {
+    size_t n = s.size();
+    while (p < n) {
+        p = ppSkipBlank(s, p);
+        if (p < n && s[p] == '\n') { p++; continue; }
+        if (p + 1 < n && s[p] == '/' && s[p + 1] == '/') {
+            size_t e = s.find('\n', p);
+            if (e == std::string::npos) return n;
+            p = e + 1; continue;
         }
         break;
     }
@@ -147,7 +167,8 @@ static std::string ppExpand(const std::string& input,
                     expanding.erase(id);
                     expanded = true;
                 } else {
-                    size_t k = ppSkipBlank(text, j);
+                    size_t k = ppSkipBlankNL(text, j);
+                    if (k >= n && ctx && ctx->depth == 0) ctx->trailingFnName = true;
                     if (k < n && text[k] == '(') {           // function-like call
                         // Split the arguments at top-level commas. String and char
                         // literals are copied whole, so a ',' or ')' inside one does
@@ -622,6 +643,24 @@ static std::string ppFileLiteral(const std::string& path) {
 
 static const int kMaxMacroJoin = 1000;
 
+// Does the next line with code (past blank and comment-only lines) begin with `(`?
+// Reads ahead without consuming.
+static bool ppNextCodeIsParen(std::istringstream& in) {
+    std::streampos pos = in.tellg();
+    bool res = false;
+    std::string l;
+    for (int k = 0; k < kMaxMacroJoin && std::getline(in, l); ++k) {
+        if (!l.empty() && l.back() == '\r') l.pop_back();
+        size_t p = ppSkipBlank(l, 0);
+        if (p >= l.size() || l.compare(p, 2, "//") == 0) continue;
+        res = l[p] == '(';
+        break;
+    }
+    in.clear();
+    in.seekg(pos);
+    return res;
+}
+
 void preprocess(const std::string& src,
                        std::map<std::string, Macro>& defines,
                        std::string& result,
@@ -798,7 +837,8 @@ void preprocess(const std::string& src,
                 ctx = PPExpandCtx();
                 expanded = ppExpand(line, defines, expanding, &blk, &ctx);
                 std::string cont;
-                if (ctx.openCall && joins < kMaxMacroJoin && std::getline(in, cont)) {
+                bool join = ctx.openCall || (ctx.trailingFnName && ppNextCodeIsParen(in));
+                if (join && joins < kMaxMacroJoin && std::getline(in, cont)) {
                     stripCR(cont);
                     line += "\n" + cont;
                     extra++;

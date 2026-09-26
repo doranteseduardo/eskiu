@@ -846,6 +846,8 @@ input. What is still open is listed under Known issues.
   and `cg_parity.sh`).
 - A nullary variant written with parentheses (`B()`) is an error located at the call,
   "variant 'B' takes no arguments" (write `B`). Test `errors/variant_nullary_parens`.
+- A function-like macro whose name is followed by a newline (and blanks or comments)
+  before its `(` is expanded, as in C. Test `macro_call_newline`.
 
 ### Known issues
 These are open in 0.9.2 and planned for 0.9.3. None of them miscompiles a valid program
@@ -858,8 +860,7 @@ without a diagnostic, except where the entry says so.
   assignment between them is rejected. Spell the target type.
 - A generic variant infers its type arguments only from its payload
   (`Opt<int64> a = Some(5)` needs `Some<int64>(5)`); write the type arguments.
-- A function-like macro whose name is followed by a newline before `(` is not expanded,
-  and a `#undef` line inside a multi-line string literal is read as a directive.
+- A `#undef` line inside a multi-line string literal is read as a directive.
 - `await` is rejected inside `try`, a `match` arm, a `switch` subject, a range bound and a
   compound assignment; bind the awaited value to a local first.
 - There is no spelling for a pointer to a nullable pointer, inline `asm` has no output
