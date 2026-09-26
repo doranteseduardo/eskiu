@@ -700,6 +700,7 @@ string cg_ensure_fn_inst(Codegen* g, string spelling) {
     List_init<string>(&f.petys, np);
     while (pi < np) {
         Param pm = List_get<Param>(&gd.params, pi);
+        if (cg_streq(pm.ty, "...") == 1) { f.variadic = 1; pi = pi + 1; continue; }   // generic variadic
         string plt = cg_lltype(g, pm.ty);
         List_push<string>(&f.ptys, plt);
         List_push<string>(&f.petys, cg_apply_sub(g, pm.ty));
@@ -4958,12 +4959,17 @@ CgVal cg_call_mangled(Codegen* g, string mangled, *ExprNode e) {
         // An interface parameter (`Sh y`, or `T x` with T = Sh) boxes a struct pointer.
         if (pety[0] != 0 && cg_is_iface(g, cg_dealias(g, pety)) == 1) { aop = cg_iface_conv(g, pety, a, ax); aty = "%iface_fat"; }
         else if (pty[0] != 0) { aop = cg_coerce(g, a, pty); aty = pty; }
+        else if (f.variadic == 1 && cg_streq(a.ty, "float") == 1) { aop = cg_coerce(g, a, "double"); aty = "double"; }   // vararg promotion
+        else if (f.variadic == 1 && cg_int_w(a.ty) > 0 && cg_int_w(a.ty) < 32) { aop = cg_coerce(g, a, "i32"); aty = "i32"; }
         if (args[0] != 0) { args = cg_cat(args, ", "); }
         args = cg_cat(args, cg_cat(aty, cg_cat(" ", aop)));
         i = i + 1;
     }
     int isvoid = cg_streq(f.retty, "void");
-    string t = cg_emit_callish(g, f.retty, cg_cat("@", mangled), args, isvoid);
+    // A variadic callee needs the explicit function type: `call i32 (i32, ...) @f_int`.
+    string callty = f.retty;
+    if (f.variadic == 1) { callty = cg_cat(f.retty, cg_cat(" (", cg_cat(cg_va(f.fixedtypes), ")"))); }
+    string t = cg_emit_callish(g, callty, cg_cat("@", mangled), args, isvoid);
     if (isvoid == 1) { v.op = ""; v.ty = "void"; return v; }
     v.op = t; v.ty = f.retty; v.ety = f.rety; return v;
 }

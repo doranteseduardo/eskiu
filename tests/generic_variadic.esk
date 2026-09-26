@@ -1,0 +1,15 @@
+extern int printf(string f, ...);
+T va<T>(int n, ...) { va_list ap; va_start(ap); T t = va_arg<T>(ap); va_end(ap); return t; }
+T sum<T>(int n, ...) {
+    va_list ap; va_start(ap);
+    T t = (T)0;
+    for (int i = 0; i < n; i++) { t = t + va_arg<T>(ap); }
+    va_end(ap);
+    return t;
+}
+int main() {
+    printf("%d\n", va<int>(1, 7));
+    printf("%.2f\n", va<double>(1, 0.25));
+    printf("%lld %.1f\n", sum<int64>(3, (int64)1, (int64)2, (int64)3), sum<double>(2, 1.5, 2.0));
+    return 0;
+}
