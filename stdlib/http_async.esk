@@ -27,10 +27,12 @@ import <string>;
 // One connection, read until its request is complete (a request split over
 // several segments is waited for; a bad one is answered 400 / 413 / 501 / 505
 // without calling the handler), answered, then a completion signal on `done`.
+// The socket is non-blocking and the answer goes out through net_write_async.
 // Detached via `spawn`, so many run concurrently over the one event loop.
 async void http_conn_async(EventLoop* lp, int c,
                            escaping fn(HttpRequest*, HttpResponse*)->void handler,
                            Chan<int>* done) {
+    net_set_nonblocking(c);                     // never block the loop thread
     let b: HttpConnBuf;  b.init();
     let req: HttpRequest;  req.init();
     int st = -1;
@@ -42,7 +44,14 @@ async void http_conn_async(EventLoop* lp, int c,
             st = b.feed(&req);
         }
     }
-    if (st != -2) { _http_conn_answer(c, &req, st, handler); }
+    if (st != -2) {
+        // Written as the socket drains: a client that does not read a large
+        // answer parks only this connection, not the loop.
+        let out: String;  out.init(256);
+        _http_conn_render(&req, st, handler, &out);
+        int w = await net_write_async(lp, c, (*uint8)out.data, out.len);
+        out.free();
+    }
     req.free();
     net_close(c);
     b.free();

@@ -727,19 +727,25 @@ int HttpConnBuf_feed(HttpConnBuf* b, HttpRequest* req) {
     return -1;
 }
 
-// Answer a request read by a server: `st` is HttpConnBuf_feed's result, 0 to
-// call `handler` (a HEAD request gets no body), else the error status sent
-// without calling it.
-void _http_conn_answer(int c, HttpRequest* req, int st, fn(HttpRequest*, HttpResponse*)->void handler) {
+// The answer to a request read by a server, rendered into `out`: `st` is
+// HttpConnBuf_feed's result, 0 to call `handler` (a HEAD request gets no
+// body), else the error status answered without calling it.
+void _http_conn_render(HttpRequest* req, int st, fn(HttpRequest*, HttpResponse*)->void handler, String* out) {
     let res: HttpResponse;  res.init(200);
     if (st == 0) { handler(req, &res); }
     else { res.status = st; }                   // malformed: the handler never sees it
+    if (st == 0 && req.method.eq_cstr("HEAD") == 1) { res.render_head(out); }
+    else { res.render(out); }
+    res.free();
+}
+
+// Answer a request read by a server over the blocking socket `c` (see
+// _http_conn_render).
+void _http_conn_answer(int c, HttpRequest* req, int st, fn(HttpRequest*, HttpResponse*)->void handler) {
     let out: String;  out.init(256);
-    if (st == 0 && req.method.eq_cstr("HEAD") == 1) { res.render_head(&out); }
-    else { res.render(&out); }
+    _http_conn_render(req, st, handler, &out);
     net_send(c, out.cstr(), out.len);
     out.free();
-    res.free();
 }
 
 // A handler reads the request and fills the response.

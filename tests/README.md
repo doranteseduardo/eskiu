@@ -397,6 +397,7 @@ when you add a test.
 | `http_chunk_size_max` | `http_chunked_step` with a chunk size near `INT64_MAX` under a limit that allows it waits for more input (the `size + 2` room check overflowed and the decoder spun) |
 | `http_response_header_inject` | `HttpResponse_header` refuses (returns 0) a non-token name or a value with CR/LF (it forged a second header line), a handler's Content-Length is not sent next to the automatic one (a 304 keeps it), and the HTTP/2 encoder drops a hand-written line with a bad name or an LF |
 | `http_conn_feed_incremental` | `HttpConnBuf_feed` parses the head once and decodes a chunked body as it arrives (it reparsed the whole request on every read: quadratic CPU for small reads); a chunk-size or trailer line over `HTTP_CHUNK_LINE_MAX` is 400 |
+| `http_async_slow_reader` | `http_serve_async` writes answers through `net_write_async` on a non-blocking socket, so a client that never reads an 8 MB answer no longer stalls the loop and the other client (`net_set_nonblocking` was also a no-op on arm64 macOS: `fcntl` is variadic) |
 
 ### `smoke` tests (compile + link + exit 0)
 

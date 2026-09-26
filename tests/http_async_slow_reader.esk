@@ -1,0 +1,77 @@
+// http_serve_async writes each answer without blocking the event loop: the
+// connection socket is non-blocking and the answer goes out through
+// net_write_async. It was sent with a blocking net_send, so a client that asks
+// for a large body and never reads it stalled the loop and every other client.
+// (net_set_nonblocking was also a no-op on arm64 macOS: fcntl is variadic.)
+import <http_async>;
+import <future>;
+import <eventloop>;
+import <net>;
+import <atomic>;
+extern int    printf(string fmt, ...);
+extern int    usleep(uint32 usec);
+extern int64  recv(int fd, *void buf, int64 n, int flags);
+extern void   exit(int c);
+
+EventLoop* g_lp;
+int g_big = 0;        // the large answer is being written
+int g_served = 0;     // the second client got its answer
+int g_done = 0;       // the server finished
+
+void big(HttpRequest* req, HttpResponse* res) {
+    if (req.path.eq_cstr("/big") == 1) {
+        for (i in 0..(8 << 20) / 64) { HttpResponse_body_append(res, "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"); }
+        atomic_store(&g_big, 1);
+    } else {
+        HttpResponse_set_body(res, "small\n");
+    }
+}
+
+void lazy() {         // asks for 8 MB, reads none of it, closes once the other client is served
+    const int c = net_tcp_connect("127.0.0.1", (uint16)18251);
+    net_send_str(c, "GET /big HTTP/1.1\r\nHost: x\r\n\r\n");
+    while (atomic_load(&g_served) == 0) { usleep(1000); }
+    net_close(c);
+}
+
+void good() {
+    while (atomic_load(&g_big) == 0) { usleep(1000); }
+    const int c = net_tcp_connect("127.0.0.1", (uint16)18251);
+    net_send_str(c, "GET / HTTP/1.1\r\nHost: x\r\n\r\n");
+    uint8[1024] resp;
+    int64 got = 0;
+    while (true) {
+        const int64 n = recv(c, (*void)&resp[(int)got], 1023 - got, 0);
+        if (n <= 0) { break; }
+        got += n;
+    }
+    printf("second client got %lld bytes\n", got);
+    net_close(c);
+    atomic_store(&g_served, 1);
+}
+
+void watchdog() {
+    for (i in 0..10000) {
+        if (atomic_load(&g_done) != 0) { return; }
+        usleep(1000);
+    }
+    printf("stalled: the event loop is blocked\n");
+    exit(3);
+}
+
+int main() {
+    const int fd = net_tcp_listen((uint16)18251);
+    g_lp = el_new(256);
+    Future<uint8>* f = http_serve_async(g_lp, fd, big, 2);
+    let t0: *void = thread_create(lazy);
+    let t1: *void = thread_create(good);
+    let t2: *void = thread_create(watchdog);
+    if (future_poll<uint8>(f, void() { EventLoop_stop(g_lp); }) == 0) { EventLoop_run(g_lp); }
+    atomic_store(&g_done, 1);
+    thread_join(t0);
+    thread_join(t1);
+    thread_join(t2);
+    printf("served both\n");
+    net_close(fd);
+    return 0;
+}
