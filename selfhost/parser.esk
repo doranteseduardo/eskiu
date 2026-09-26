@@ -828,6 +828,7 @@ int is_compound(int t) {
             }
             List_push<*ExprNode>(&e.kids, parse_expr(p));
             if (p_at(p) == COMMA) { p_adv(p); } else { break; }
+            if (p_at(p) == RBRACE) { break; }                  // a trailing comma
         }
     }
     p_expect(p, RBRACE, "Expected '}'");

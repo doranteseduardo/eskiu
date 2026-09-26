@@ -22,7 +22,7 @@ ExprPtr Parser::parseStructInit(const std::string& structName) {
                 // Positional
                 inits.push_back({"", parseExpression()});
             }
-        } while (match(TokenType::COMMA));
+        } while (match(TokenType::COMMA) && !check(TokenType::RBRACE));   // trailing comma ok
     }
 
     consume(TokenType::RBRACE, "Expected '}'");
