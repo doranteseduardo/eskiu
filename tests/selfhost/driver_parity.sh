@@ -134,6 +134,18 @@ for order in "main lib" "lib main"; do
     else echo "FAIL  multi-file/extern ($mfa $mfb)  (cpp exit=$c, self exit=$s, want 42)"; fail=1; fi
 done
 
+# Separate compilation: a prototype defined in another object file is declared, so the
+# object each driver writes for main.esk links with lib.esk's.
+total=$((total + 1))
+c=0; s=0
+"$BIN" -c tests/separate/lib.esk -o "$WORK/sep_lib.o" >/dev/null 2>&1 || c=1
+"$BIN" -c tests/separate/main.esk -o "$WORK/sep_cpp.o" >/dev/null 2>&1 || c=1
+ESKIU_ROOT="$ROOT" "$ESKMAIN" -c tests/separate/main.esk -o "$WORK/sep_self.o" >/dev/null 2>&1 || s=1
+"$CLANG" "$WORK/sep_cpp.o" "$WORK/sep_lib.o" -o "$WORK/sep_cpp" >/dev/null 2>&1 && "$WORK/sep_cpp" || c=$?
+"$CLANG" "$WORK/sep_self.o" "$WORK/sep_lib.o" -o "$WORK/sep_self" >/dev/null 2>&1 && "$WORK/sep_self" || s=$?
+if [ "$c" = 42 ] && [ "$s" = 42 ]; then echo "ok    separate/prototype"
+else echo "FAIL  separate/prototype  (cpp exit=$c, self exit=$s, want 42)"; fail=1; fi
+
 # Implied libraries: both drivers must pass the linker the same -l flags (#pragma link,
 # the C++ exception runtime, pthread, per target; explicit -l not repeated; none under
 # --no-default-libs). A wrapper standing in for $CC / $CLANG records them; a cross
