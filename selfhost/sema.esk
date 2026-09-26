@@ -4071,7 +4071,11 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         if (sema_streq(e.sval, "=") == 1 && e.a != null) {
             string alt = sema_infer_type(s, e.a);
             if (e.a.kind == EK_IDENT) { alt = sema_lookup_type(s, e.a.sval); }   // declared type, even if narrowed
-            if (alt[0] != 0) {
+            if (e.b != null && e.b.kind == EK_ARRAYLIT) {
+                // A `{...}` literal is only an initializer (mirrors the C++ assignability).
+                s.had_error = 1;
+                dprintf(2, "error: %s:%d:%d: assignment: cannot convert 'array-literal' to '%s'\n", s.filename, s.line, s.col, alt);
+            } else if (alt[0] != 0) {
                 string aerr = sema_assign_err(s, alt, e.b);
                 if (aerr[0] != 0) {
                     s.had_error = 1;
