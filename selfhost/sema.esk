@@ -4354,6 +4354,8 @@ void sema_expr_k(Sema* s, *ExprNode e) {
                 if (fc == 3 || tc == 3) { bad = 1; }
                 if ((fc == 2 && tc == 1 && sema_is_float_ty(cto) == 1) || (fc == 1 && tc == 2 && sema_is_float_ty(cfrom) == 1)) { bad = 1; }
             }
+            // A top-level function name casts only to a pointer (its raw C address).
+            if (fn_name == 1 && tc != 0 && tc != 2 && sema_streq(sema_strip_const(cfrom), sema_strip_const(cto)) == 0) { bad = 1; }
             // A void value converts to nothing but `void`, and a `{...}` literal is only an
             // initializer (mirrors the C++ visit(CastExpr)).
             if (sema_is_void_value(cto) == 0) {

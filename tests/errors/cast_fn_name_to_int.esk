@@ -1,0 +1,4 @@
+// EXPECT-ERROR: cannot cast 'fn()->void' to 'int64'
+// A function name casts only to a pointer (its C address), not to an integer.
+void f() {}
+int main() { int64 a = (int64)f; return (int)a; }
