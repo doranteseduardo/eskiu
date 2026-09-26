@@ -251,6 +251,14 @@ more and a third about 60, fixed the same way.
   checked; the others emitted poison. Both compilers; tests `errors/const_*`,
   `errors/float_cast_*`, `errors/index_oob_sizeof`, `const_fold_checked`.
 
+- **String and char escapes follow C.** An octal escape `\NNN` (one to three digits)
+  is the byte it denotes (`"\101"` is `A`, `"\012"` a newline; `"\012"` was NUL then
+  `12`), `\a`, `\b` and `\?` are recognized, and any other escape (`\q`), an octal
+  escape above `\377` and a `\x` with no hex digit are lexer errors located at the
+  backslash (an unknown escape used to be the character itself). Both compilers and
+  the `#if` evaluator; tests `escape_octal`, `errors/escape_unknown`,
+  `errors/escape_octal_range`, `errors/escape_hex_empty`.
+
 ### Deprecated
 - Stdlib modules built around a struct now use `Type_method` names, as the naming
   convention says: `Rng_*` (`<random>`), `Regex_search`/`Regex_free`/`Match_*`
@@ -780,6 +788,29 @@ more and a third about 60, fixed the same way.
   (6 raw bytes per body byte) is no longer 413 below `HTTP_SERVE_MAX_BODY` and the
   buffer stays small. Test `http_chunk_tiny_chunks`.
 - The spec's `#define` continuation example declares `printf`.
+- A multidimensional array type in generic code keeps C order: `T[2][3]` in a generic
+  function or struct was re-spelled `int[3][2]` on substitution, so a non-square local
+  crashed C++ codegen, a field was laid out with swapped dimensions (writes out of
+  bounds) and an in-range constant index was rejected. Test `generic_multidim`.
+- A generic struct instance keeps its bitfields and packing: `struct G<T> { T v;
+  uint8 f : 3; }` had full-width fields in both compilers, and the self-host ignored
+  `packed` / `#pragma pack` on a generic struct. The instance is laid out like the plain
+  struct of its concrete field types. Test `generic_struct_layout` (+ `.c`).
+- The self-host's `sizeof(x)` of an async function's local or parameter, and of an
+  enclosing local used only by `sizeof` inside a lambda, is the variable's size (it was
+  4). Test `sizeof_var_frame`.
+- A dot-call through a leading-star pointer to an alias (`*Counter pc; pc.bump(1)`,
+  `type Counter = Cnt`) resolves the aliased struct's methods in C++, as the
+  trailing-star form did. Test `alias_ptr_dotcall`.
+- An array or slice type argument (`Box<int[3]>`, `Box<int[]>`) instantiates a generic
+  struct in C++ ("unknown type 'Box_int'"). Test `generic_array_targ`.
+- The self-host accepts returning a slice of a slice parameter (`return s[1..s.len];`)
+  and the address of an element of a slice parameter or slice field (`&s[1]`,
+  `&p.sl[2]`); they were rejected as dangling. Test `slice_return_nonlocal`.
+- An `await` inside a `match` arm is an error located at the await with an accurate
+  message in both compilers. Test `run_cmd/await_in_match` (`run.sh`, `cg_parity.sh`).
+- A struct literal accepts a trailing comma (`P{ x: 5, y: 6, }`), like an array
+  literal. Test `struct_lit_trailing_comma`.
 
 ## [0.9.1] - 2026-09-09
 ### Fixed
