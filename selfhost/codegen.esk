@@ -1197,7 +1197,7 @@ int cg_is_genum(Codegen* g, string name) {
 // { i32, [N x i64] }` (N sized by BYTES across variants, type params substituted) and
 // register its concrete variants (ename = mangled). Mirrors cg_ensure_struct_inst.
 string cg_ensure_enum_inst(Codegen* g, string spelling) {
-    spelling = cg_apply_sub(g, spelling);
+    spelling = cg_dealias(g, cg_apply_sub(g, spelling));   // an alias type arg names its target (Opt<F> = Opt<int>)
     string mangled = cg_mangle(spelling);
     if (cg_seen_inst(g, mangled) == 1) { return mangled; }
     string base = cg_gen_base(spelling);
