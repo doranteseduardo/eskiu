@@ -1,0 +1,16 @@
+// Type sizes follow the target's data layout: 4-byte pointers on 32-bit ARM and x86,
+// and the i386 SysV ABI aligns int64 and double to 4 (Windows to 8).
+// tests/selfhost/cabi_parity.sh compares these globals across targets in both compilers.
+extern int printf(string fmt, ...);
+struct P { *void p; int64 x; }
+struct D { char c; double d; }
+struct F { int8 a; fn()->void f; int64[2] w; }
+int sz_ptr = (int)sizeof(*void);
+int sz_p = (int)sizeof(P);
+int sz_d = (int)sizeof(D);
+int sz_f = (int)sizeof(F);
+int sz_slice = (int)sizeof(int[]);
+int main() {
+    printf("%d %d %d %d %d\n", sz_ptr, sz_p, sz_d, sz_f, sz_slice);
+    return 0;
+}

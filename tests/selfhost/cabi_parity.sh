@@ -70,6 +70,19 @@ for src in $INPUTS; do
         fi
     done
 done
+# Type sizes follow each target's data layout (pointer width, i64/double alignment): the
+# `@sz_*` globals of tests/target_sizes.esk fold to the same values in both compilers.
+for t in $TARGETS i686-pc-linux-gnu i686-pc-windows-msvc; do
+    n=$((n + 1))
+    name="target_sizes@$t"
+    ESKIU_ROOT="$(pwd)" "$BIN" tests/target_sizes.esk --test-codegen --target "$t" 2>&1 | grep '^@sz_' >"$WORK/cpp.sz"
+    ESKIU_ROOT="$(pwd)" "$ESKMAIN" tests/target_sizes.esk --test-codegen --target "$t" 2>&1 | grep '^@sz_' >"$WORK/esk.sz"
+    if [ ! -s "$WORK/cpp.sz" ] || ! cmp -s "$WORK/cpp.sz" "$WORK/esk.sz"; then
+        echo "FAIL  $name"; diff "$WORK/cpp.sz" "$WORK/esk.sz" | head -8 | sed 's/^/  /'; fail=1
+    else
+        echo "ok    $name  ($(tr '\n' ' ' <"$WORK/cpp.sz" | sed -E 's/@sz_([a-z]+) = global i32 /\1=/g'))"
+    fi
+done
 echo "----"
 if [ "$fail" = 0 ]; then echo "cabi parity: $n program/target pairs match"; else echo "cabi parity: FAILED"; fi
 exit "$fail"

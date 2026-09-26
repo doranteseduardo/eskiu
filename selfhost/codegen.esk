@@ -145,7 +145,8 @@ struct Codegen {
     List<*DeclNode> tydecls; // non-generic struct/union/ADT decls whose type line is emitted on demand
     int abi;                 // target C ABI: 0 none, 1 AArch64 Darwin, 2 AArch64 AAPCS64, 3 x86-64 SysV,
                              // 4 Windows x64, 5 32-bit ARM AAPCS (soft-float), 6 ARM AAPCS-VFP (hard-float)
-    int ptrsz;               // pointer size in bytes (4 on 32-bit ARM)
+    int ptrsz;               // pointer size in bytes (4 on 32-bit ARM and x86)
+    int i64al;               // ABI alignment of i64 and double (4 on 32-bit x86 SysV, else 8)
     int msbf;                // 1: MS bitfield layout (Windows targets), else SysV/AAPCS
     int wintgt;              // 1: a Windows target (mingw SEH exception personality)
     List<CgCabi> cabis;      // externs declared with a C-ABI-lowered signature
@@ -316,6 +317,7 @@ void cg_init(Codegen* g) {
 #ifdef __arm__
     g.ptrsz = 4;
 #endif
+    g.i64al = 8;
     g.msbf = 0;
     g.wintgt = 0;
 #ifdef _WIN32
@@ -354,7 +356,7 @@ int cg_has_prefix(string s, string pre) {
 // layout. "" keeps the build host's.
 void cg_set_target(Codegen* g, string triple) {
     if (triple[0] == 0) { return; }
-    g.abi = 0; g.ptrsz = 8; g.msbf = 0;
+    g.abi = 0; g.ptrsz = 8; g.i64al = 8; g.msbf = 0;
     int apple = cg_has_sub(triple, "apple") | cg_has_sub(triple, "darwin") | cg_has_sub(triple, "macos") | cg_has_sub(triple, "ios");
     int win = cg_has_sub(triple, "windows") | cg_has_sub(triple, "win32") | cg_has_sub(triple, "mingw");
     g.msbf = win;
@@ -363,6 +365,12 @@ void cg_set_target(Codegen* g, string triple) {
         g.abi = 2; if (apple == 1) { g.abi = 1; }
     } else if (cg_has_prefix(triple, "x86_64") == 1 || cg_has_prefix(triple, "amd64") == 1) {
         g.abi = 3; if (win == 1) { g.abi = 4; }
+    } else if (cg_has_prefix(triple, "i386") == 1 || cg_has_prefix(triple, "i486") == 1
+               || cg_has_prefix(triple, "i586") == 1 || cg_has_prefix(triple, "i686") == 1) {
+        // 32-bit x86: 4-byte pointers; the SysV i386 ABI aligns i64 and double to 4
+        // (LLVM's `f64:32:64`, no `i64:64`), Windows to 8. No C-ABI lowering (as C++).
+        g.ptrsz = 4;
+        if (win == 0) { g.i64al = 4; }
     } else if (cg_has_prefix(triple, "arm") == 1 || cg_has_prefix(triple, "thumb") == 1) {
         g.abi = 5; g.ptrsz = 4;
         int n = 0; while (triple[n] != 0) { n = n + 1; }
@@ -1058,10 +1066,11 @@ int cg_ll_layout(Codegen* g, string s, int* pos, int* al) {
         int b = 1;
         while (b * 8 < w) { b = b * 2; }
         al[0] = b;
+        if (b == 8 && g.i64al < 8) { al[0] = g.i64al; }
         return b;
     }
     if (cg_ll_kw(s, pos, "ptr") == 1) { al[0] = g.ptrsz; return g.ptrsz; }
-    if (cg_ll_kw(s, pos, "double") == 1) { al[0] = 8; return 8; }
+    if (cg_ll_kw(s, pos, "double") == 1) { al[0] = g.i64al; return 8; }
     if (cg_ll_kw(s, pos, "float") == 1) { al[0] = 4; return 4; }
     if (cg_ll_kw(s, pos, "void") == 1) { return 0; }
     if (s[pos[0]] != 0) { pos[0] = pos[0] + 1; }                                    // unknown: skip
