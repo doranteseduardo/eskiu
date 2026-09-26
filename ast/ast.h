@@ -24,7 +24,8 @@ inline std::string eskiuOpWord(const std::string& op) {
     if (op == "!")  return "lnot";  if (op == "~")  return "bnot";
     return "";
 }
-// Make a type spelling safe to embed in a symbol name (`*V3`->`p_V3`, `List<int>`->`List_int`).
+// Make a type spelling safe to embed in a symbol name (`*V3`->`p_V3`, `List<int>`->`List_int`,
+// `V[]`->`V_A_`, so an array or slice never mangles like its element type).
 // A `struct:`/`union:`/`enum:`/`interface:` prefix (how sema spells a nominal expr type) is
 // stripped first, so a decl's written param type `V3` and a call operand's `struct:V3` mangle
 // identically.
@@ -38,6 +39,8 @@ inline std::string eskiuTyMangle(const std::string& tin) {
     for (char c : t) {
         if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_') r += c;
         else if (c == '*') r += "p_";
+        else if (c == '[') r += "_A";
+        else if (c == ']') r += "_";
         // '<', '>', ' ', ',' etc. are dropped
     }
     return r;

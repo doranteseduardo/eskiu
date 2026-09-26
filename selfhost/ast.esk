@@ -97,7 +97,8 @@ int ast_has_prefix(string s, string pfx) {
     return 1;
 }
 // Type spelling → symbol-safe fragment: a `struct:`/`union:`/`enum:`/`interface:` prefix
-// (how sema spells a nominal type) is dropped, `*`->`p_`, other non-ident chars dropped.
+// (how sema spells a nominal type) is dropped, `*`->`p_`, `[`->`_A`, `]`->`_`, other
+// non-ident chars dropped.
 string ast_ty_mangle(string tin) {
     string t = tin;
     if (ast_has_prefix(t, "struct:") == 1)    { t = (string)((*uint8)t + 7); }
@@ -110,6 +111,8 @@ string ast_ty_mangle(string tin) {
         int c = (int)t[i];
         if ((c >= 97 && c <= 122) || (c >= 65 && c <= 90) || (c >= 48 && c <= 57) || c == 95) { String_push(&out, (char)c); }
         else if (c == 42) { String_append(&out, "p_"); }
+        else if (c == 91) { String_append(&out, "_A"); }
+        else if (c == 93) { String_push(&out, '_'); }
         i = i + 1;
     }
     return (string)String_cstr(&out);

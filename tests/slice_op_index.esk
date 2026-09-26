@@ -1,0 +1,14 @@
+extern int printf(string f, ...);
+struct V { int x; int y; }
+int operator [](V a, int i) { if (i == 0) { return a.x; } return a.y; }
+int main() {
+    V[3] vs = { V{x:1,y:2}, V{x:3,y:4}, V{x:5,y:6} };
+    V[] s = vs[1..3];
+    int tot = 0;
+    for (v in s) { tot = tot + v.y; }
+    V e = s[1];
+    V[2] arr = { V{x:7,y:8}, V{x:9,y:10} };
+    V f = arr[0];
+    printf("%d %d %d %d %d\n", tot, e.y, s[0][1], f[0], arr[1][1]);
+    return 0;
+}
