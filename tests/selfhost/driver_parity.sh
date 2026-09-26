@@ -110,6 +110,16 @@ else echo "FAIL  flags/input-kept  (-o over the input replaced it)"; fail=1; fi
 total=$((total + 1))
 if [ -s "$WORK/f.o" ] && ! [ -x "$WORK/f.o" ]; then echo "ok    flags/c-writes-object"
 else echo "FAIL  flags/c-writes-object"; fail=1; fi
+# No -o: both drivers write the object <input>.o and print nothing on stdout.
+for who in cpp self; do
+    total=$((total + 1))
+    mkdir -p "$WORK/noo_$who"; cp "$ARGS_ESK" "$WORK/noo_$who/a.esk"
+    if [ "$who" = cpp ]; then out="$("$BIN" "$WORK/noo_$who/a.esk" 2>/dev/null)"; rc=$?
+    else out="$(ESKIU_ROOT="$ROOT" "$ESKMAIN" "$WORK/noo_$who/a.esk" 2>/dev/null)"; rc=$?; fi
+    if [ "$rc" = 0 ] && [ -z "$out" ] && [ -s "$WORK/noo_$who/a.esk.o" ] && ! [ -x "$WORK/noo_$who/a.esk.o" ]; then
+        echo "ok    flags/no-o-object ($who)"
+    else echo "FAIL  flags/no-o-object ($who)  (rc=$rc, stdout bytes=${#out})"; fail=1; fi
+done
 
 # Multi-file: an `extern` variable in one input names the definition in another (either
 # input order), in both drivers.

@@ -19,7 +19,8 @@ with drivers `lex_main`, `pp_main`, `parse_main`, `tc_main`, `cg_main`, and the 
 `selfhost/PROMOTION_PLAN.md`) `esk_main` has grown into the full user-facing CLI: it
 dispatches every `--test-*` debug mode plus `--version`, takes multiple input files, and
 with `-o` assembles the IR and invokes `clang` to link a native binary (threading
-`--asan`/`--ubsan` into the link). It also owns the two subcommands: `run script.esk
+`--asan`/`--ubsan` into the link). Without `-o` it writes the object `FILE.o`, like the C++
+driver; `--test-codegen` prints the IR on stdout (the bootstrap pipes it to clang). It also owns the two subcommands: `run script.esk
 [args...]` compiles to a temp exe, execs it forwarding argv, and propagates the exit code;
 `fmt [--check] file …` reindents in place via `fmt.esk`. It starts clang and the `run`
 program with `fork`/`execvp` (no shell, so any argument is passed through unchanged),

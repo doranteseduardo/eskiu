@@ -2,11 +2,12 @@
 //
 //   preprocess (pp_run) → parse (parse_program) → type-check (sema_check) → codegen
 //
-// Emits LLVM IR text for FILE to stdout (pipe to clang to get a native binary), exactly
-// like cg_main, but with the semantic-analysis pass wired in: if type checking fails the
-// driver reports the failure and exits non-zero WITHOUT emitting IR (a real compiler
-// rejects ill-typed input rather than miscompiling it). On success only the `.ll` reaches
-// stdout, so the output stays pipe-clean.
+// Like the C++ eskiuc: `-o prog` links an executable (through clang), a `.o` output, -c or
+// --freestanding stops at the object, and no -o writes FILE.o. `--test-codegen` emits the
+// LLVM IR text to stdout instead (pipe it to clang), exactly like cg_main but with the
+// semantic-analysis pass wired in: if type checking fails the driver reports the failure
+// and exits non-zero WITHOUT emitting IR (a real compiler rejects ill-typed input rather
+// than miscompiling it). On success only the `.ll` reaches stdout, so it stays pipe-clean.
 //
 // This is the front of the self-hosting bootstrap: `esk_main` compiled by itself compiles
 // the whole compiler. See tests/selfhost/cg_bootstrap.sh.
@@ -501,12 +502,12 @@ int esk_main(int argc, string* argv) {
     cg_set_target(&g, triple);         // the C ABI (and pointer size) follow --target
     g.safe = safe;                     // --safe → emit runtime bounds checks
     cg_program(&g, prog);
-    // -c (or --freestanding) without -o writes <input>.o, like the C++ driver.
-    if (outfile == null && (compile_only == 1 || freestanding == 1) && runmode == 0) {
+    // No -o writes the object <input>.o, like the C++ driver (it links only with -o).
+    if (outfile == null && runmode == 0 && cg_streq(mode, "--test-codegen") == 0) {
         outfile = cg_cat(infile, ".o");
     }
-    if (outfile == null || cg_streq(mode, "--test-codegen") == 1) {
-        // No -o (or --test-codegen): emit the .ll to stdout (the bootstrap harness pipes it to clang).
+    if (cg_streq(mode, "--test-codegen") == 1) {
+        // --test-codegen: emit the .ll to stdout (the bootstrap harness pipes it to clang).
         printf("%s", (string)String_cstr(&g.globals));   // declares + string constants
         printf("\n");
         printf("%s", (string)String_cstr(&g.out));        // function definitions

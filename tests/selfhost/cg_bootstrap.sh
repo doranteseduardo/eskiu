@@ -38,7 +38,7 @@ if ! "$BIN" "$DRIVER" -o "$WORK/cc0" >/dev/null 2>"$WORK/log"; then
 fi
 
 # stage2: cc0 compiles the compiler → cc1.
-if ! "$WORK/cc0" "$DRIVER" > "$WORK/ir1.ll" 2>"$WORK/log"; then
+if ! "$WORK/cc0" --test-codegen "$DRIVER" > "$WORK/ir1.ll" 2>"$WORK/log"; then
     echo "cg_bootstrap: stage2 — cc0 could not compile $DRIVER"; cat "$WORK/log"; exit 1
 fi
 if ! "$CLANG" "$WORK/ir1.ll" -o "$WORK/cc1" 2>"$WORK/log"; then
@@ -46,7 +46,7 @@ if ! "$CLANG" "$WORK/ir1.ll" -o "$WORK/cc1" 2>"$WORK/log"; then
 fi
 
 # stage3: cc1 (the self-built compiler) compiles the compiler → cc2.
-if ! "$WORK/cc1" "$DRIVER" > "$WORK/ir2.ll" 2>"$WORK/log"; then
+if ! "$WORK/cc1" --test-codegen "$DRIVER" > "$WORK/ir2.ll" 2>"$WORK/log"; then
     echo "cg_bootstrap: stage3 — cc1 (self-built) could not compile $DRIVER"; cat "$WORK/log"; exit 1
 fi
 if ! "$CLANG" "$WORK/ir2.ll" -o "$WORK/cc2" 2>"$WORK/log"; then
@@ -65,8 +65,8 @@ fi
 # Fixpoint 2: cc1 and cc2 emit byte-identical IR for a sample program — the two
 # self-built generations are the same compiler, not just self-consistent on one input.
 printf 'int add(int a, int b) { return a + b; }\nint main() { return add(40, 2); }\n' > "$WORK/sample.esk"
-"$WORK/cc1" "$WORK/sample.esk" > "$WORK/s1.ll" 2>/dev/null
-"$WORK/cc2" "$WORK/sample.esk" > "$WORK/s2.ll" 2>/dev/null
+"$WORK/cc1" --test-codegen "$WORK/sample.esk" > "$WORK/s1.ll" 2>/dev/null
+"$WORK/cc2" --test-codegen "$WORK/sample.esk" > "$WORK/s2.ll" 2>/dev/null
 if diff -q "$WORK/s1.ll" "$WORK/s2.ll" >/dev/null 2>&1 && [ -s "$WORK/s1.ll" ]; then
     echo "ok    cc1 and cc2 emit identical IR for a sample program"
 else
