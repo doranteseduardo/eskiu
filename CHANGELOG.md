@@ -452,9 +452,9 @@ more and a third about 60, fixed the same way.
   are case-insensitive.
 - `url_query_get` decodes each key before comparing it, so `a%20b=1` and `a+b=1` match the
   key `a b`.
-- Regex: an invalid bracket range (`[z-a]`, `[a-\d]`, `[\d-z]`) is a compile error as in
-  RE2, and `\D` `\W` `\S` inside a bracket class are the complemented shorthands (they
-  were read as the letters).
+- Regex: an invalid bracket range (`[z-a]`, `[a-\d]`) is a compile error as in RE2, and
+  `\D` `\W` `\S` inside a bracket class are the complemented shorthands (they were read
+  as the letters).
 - A cast in a constant expression truncates and sign-extends as in C, so `case (int8)259:`
   and `case 3:` are duplicate labels and `a[(int8)257]` is `a[1]`.
 - `fmt` keeps a line after a `\` continuation byte for byte (it re-indented it, changing a
@@ -470,6 +470,30 @@ more and a third about 60, fixed the same way.
   without arguments, `sizeof` of a function, variant or later global, `++` on an enum, a
   by-value cycle through a type alias, an array size naming a later `const`, and an
   uninitialized read in a generic instance, as the C++ compiler does.
+
+#### Fifth audit round
+- `List_free` sets `data` to null, so a push after it regrows the list and a second free
+  (also through `String_split_free`) is a no-op; it was a use after free and a double free.
+- HTTP/2: a malformed request (RFC 9113 §8.1.1, §8.2.2, §8.3) is reset with
+  RST_STREAM PROTOCOL_ERROR and the handler is not called; it was answered 200. That
+  covers an unknown or response pseudo-header, a repeated one or one after a regular
+  field, a missing `:method`, `:scheme` or `:path` (CONNECT: `:authority` and no
+  `:scheme`/`:path`), `connection`, `keep-alive`, `proxy-connection`,
+  `transfer-encoding` and `upgrade`, `te` other than `trailers`, a content-length the
+  DATA frames do not add up to, and a pseudo-header in trailers. Frames the peer had in
+  flight on a stream the server reset are ignored instead of drawing a second
+  RST_STREAM or a GOAWAY.
+- HTTP/2 responses drop the handler's connection-specific fields and its
+  `content-length` (it was sent next to the real one).
+- A 1xx or 204 response has no Content-Length (RFC 9110 §8.6) in `HttpResponse_render`,
+  `http_reply` and HTTP/2, and no body.
+- HTTP/1: a NUL in a header value or the request target makes `HttpRequest_parse` and
+  `http_parse_head` fail (RFC 9110 §5.5); a header lookup stopped at it.
+- Regex: escapes follow RE2. `\b` `\B` (ASCII word boundaries), `\A` `\z`, `\xHH`,
+  `\x{HH}`, octal (`\0`, `\012`, `\101`) and `\a` are supported, and any other escaped
+  letter or digit (`\q`, `\1`, `\Z`, `[\b]`) is a compile error; they all matched the
+  literal letter. In a class, a `-` after a shorthand is a literal (`[\d-z]` is digits,
+  `-` and `z`, as in RE2); the fourth round made it an error, wrongly citing RE2.
 
 ## [0.9.1] - 2026-09-09
 ### Fixed
