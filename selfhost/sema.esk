@@ -5204,9 +5204,16 @@ void sema_check_variant_args(Sema* s, *ExprNode e, string v, List<string>* targs
     while (i < want) {
         string ft = sema_subst_params(List_get<string>(&pl, i), &ed.type_params, &subs);
         string at = sema_infer_type(s, List_get<*ExprNode>(&e.kids, i));
+        *ExprNode av = List_get<*ExprNode>(&e.kids, i);
+        string fc = sema_canon(s, ft);
         if (sema_assign_strict(s, ft, at)[0] != 0) {
             s.had_error = 1;
             dprintf(2, "error: %s:%d:%d: variant '%s' argument %d type mismatch\n", s.filename, s.line, s.col, v, i + 1);
+        } else if (sema_is_int_ty(fc) == 1 && av != null && av.kind == EK_LITERAL && av.lit_kind == LIT_INT
+                   && sema_int_lit_fits(fc, av.sval) == 0) {
+            s.had_error = 1;                   // a literal must fit the payload, as for a function argument
+            dprintf(2, "error: %s:%d:%d: variant '%s' argument %d: integer literal %s is out of range for '%s'\n",
+                    s.filename, s.line, s.col, v, i + 1, av.sval, ft);
         }
         i = i + 1;
     }

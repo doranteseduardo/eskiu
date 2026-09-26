@@ -393,6 +393,7 @@ private:
     // If `e` is an integer literal, whether its value fits `targetType`'s range
     // (so a narrowing assignment from a literal that fits is still allowed).
     bool intLiteralFits(const std::string& targetType, Expr* e);
+    void checkVariantLiteral(ASTNode* node, const std::string& variant, size_t i, const std::string& payloadType);
     // Central assignability check for init / `=` / return / call-argument sites.
     // Returns "" when `srcExpr` (of type `srcType`) may be assigned to `targetType`,
     // else a diagnostic message. A narrowing numeric conversion is rejected unless

@@ -626,6 +626,7 @@ void TypeChecker::visit(CallExpr* node) {
                     if (at != "unknown" && !isValidAssignment(payload[i], at))
                         errorAt(node, "variant '" + cid->name + "' argument " +
                             std::to_string(i + 1) + " type mismatch");
+                    else checkVariantLiteral(node, cid->name, i, payload[i]);
                 }
             expressionTypes[node] = enumName;
             return;
@@ -1056,6 +1057,20 @@ std::string TypeChecker::checkFnValueCall(CallExpr* node, const std::string& wha
     for (const auto& p : ft.params) pts.push_back(p.str());
     checkCallArgs(node, what, pts);
     return ft.ret ? normalizeType(ft.ret->str()) : "unknown";
+}
+
+// An integer literal argument of a variant constructor must fit its payload type, as for
+// a function argument (`A(300)` for `A(int8)`).
+void TypeChecker::checkVariantLiteral(ASTNode* node, const std::string& variant, size_t i,
+                                      const std::string& payloadType) {
+    Expr* arg = nullptr;
+    if (auto* c = dynamic_cast<CallExpr*>(node)) arg = c->args[i].get();
+    else if (auto* t = dynamic_cast<TemplateCallExpr*>(node)) arg = t->args[i].get();
+    auto* lit = dynamic_cast<LiteralExpr*>(arg);
+    std::string pt = normalizeType(payloadType);
+    if (lit && lit->kind == LiteralExpr::Kind::INT && isIntType(pt) && !intLiteralFits(pt, lit))
+        errorAt(node, "variant '" + variant + "' argument " + std::to_string(i + 1) + ": integer literal " +
+                      lit->value + " is out of range for '" + payloadType + "'");
 }
 
 void TypeChecker::visit(IndexExpr* node) {
@@ -1549,6 +1564,7 @@ void TypeChecker::visit(TemplateCallExpr* node) {
                 if (at != "unknown" && !isValidAssignment(want, at))
                     errorAt(node, "variant '" + node->templateName + "' argument " +
                         std::to_string(i + 1) + " type mismatch");
+                else checkVariantLiteral(node, node->templateName, i, want);
             }
         // Build the instance type name (Option<int>) and normalize -> Option_int.
         std::string inst = gv->second.first + "<";

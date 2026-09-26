@@ -87,7 +87,7 @@ HANDLED="undefined_var arg_count undefined_type await_outside_async async_no_awa
          nullable_global_call_in_cond nullable_global_call_ternary nullable_global_call_guard nullable_global_call_branch
          match_on_enum_pointer match_on_struct cast_sum_to_int cast_int_to_sum struct_lit_of_enum struct_lit_of_sum call_enum_member method_as_value call_nonfn_field variadic_fn_to_int call_array_var variant_missing_args sizeof_function sizeof_variant sizeof_enum_member incdec_enum enum_cycle_alias struct_cycle_alias array_dim_later_const sizeof_later_global
          ptr_conv_sum_struct ptr_conv_sum_int ptr_conv_struct_sum ptr_conv_array_struct ptr_conv_slice_struct struct_lit_generic_ptr_field generic_uninit_read
-         index_null index_null_assign deref_null"
+         index_null index_null_assign deref_null variant_ctor_literal_range variant_ctor_literal_range_generic"
 HANDLED="$(echo $HANDLED)"   # collapse the multi-line list to single spaces for matching
 
 DRIVER=selfhost/esk_main.esk
