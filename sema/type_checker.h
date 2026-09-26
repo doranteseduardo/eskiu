@@ -306,6 +306,8 @@ private:
     void checkVariadicArg(Expr* call, Expr* arg, size_t i);
     // `try` statements enclosing the current point (an `await` can't be inside one).
     int tryDepth = 0;
+    // `finally` blocks enclosing the current point (a `return` may not leave one).
+    int finallyDepth = 0;
     // Whether the function being checked has a variadic parameter (`...`): only there
     // can `va_start` begin reading the variadic arguments.
     bool inVariadicFn = false;

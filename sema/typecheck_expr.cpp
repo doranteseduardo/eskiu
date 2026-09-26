@@ -1568,9 +1568,10 @@ void TypeChecker::visit(LambdaExpr* node) {
     // A lambda is its own (non-async) function: an `await` in its body does not belong to
     // an enclosing async function.
     bool savedAsync = inAsyncFn, savedAwait = awaitSeenInFn, savedVariadic = inVariadicFn;
-    int savedTry = tryDepth;
+    int savedTry = tryDepth, savedFinally = finallyDepth;
     inAsyncFn = false;
     tryDepth = 0;
+    finallyDepth = 0;
     inVariadicFn = false;
     // Captures are by value: an assignment to a captured name inside the body changes the
     // lambda's copy, so it must not end a narrowing of the enclosing variable.
@@ -1600,6 +1601,7 @@ void TypeChecker::visit(LambdaExpr* node) {
     switchDepth = savedSwitch;
     inAsyncFn = savedAsync;
     tryDepth = savedTry;
+    finallyDepth = savedFinally;
     inVariadicFn = savedVariadic;
     awaitSeenInFn = savedAwait;
     narrowedNonNull = savedNarrowed;

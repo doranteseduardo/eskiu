@@ -1,0 +1,18 @@
+extern int printf(string fmt, ...);
+// break/continue inside a finally keep working, and a lambda inside a finally is its
+// own function (its return is fine); only a `return` out of the finally is rejected.
+int f(int n) {
+    int acc = 0;
+    for (i in 0..n) {
+        try {
+            acc = acc + i;
+        } finally {
+            if (i == 1) { continue; }
+            if (i == 3) { break; }
+            fn(int)->int dbl = int(int x) { return x * 2; };
+            acc = acc + dbl(i);
+        }
+    }
+    return acc;
+}
+int main() { printf("%d\n", f(10)); return 0; }

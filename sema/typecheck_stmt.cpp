@@ -245,6 +245,7 @@ void TypeChecker::visit(ForStmt* node) {
 }
 
 void TypeChecker::visit(ReturnStmt* node) {
+    if (finallyDepth > 0) errorAt(node, "'return' is not allowed inside a finally block");
     if (node->value) {
         hintIfaceTarget(node->value.get(), currentFunctionReturnType);
         node->value->accept(this);
@@ -401,7 +402,13 @@ void TypeChecker::visit(TryStmt* node) {
         if (c.body) c.body->accept(this);
         popScope();
     }
-    if (node->finally) node->finally->accept(this);
+    // A `finally` runs on every exit, including an exception unwinding through it, so a
+    // `return` there would silently discard the pending exit (the Java/C# footgun).
+    if (node->finally) {
+        ++finallyDepth;
+        node->finally->accept(this);
+        --finallyDepth;
+    }
 }
 
 void TypeChecker::visit(DeferStmt* node) {

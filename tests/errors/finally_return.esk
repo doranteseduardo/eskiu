@@ -1,0 +1,6 @@
+// EXPECT-ERROR: 'return' is not allowed inside a finally block
+// A finally runs on every exit, so a return there would discard the pending one.
+int f() {
+    try { return 1; } finally { return 2; }
+}
+int main() { return f(); }

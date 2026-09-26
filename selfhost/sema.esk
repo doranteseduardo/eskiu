@@ -56,6 +56,7 @@ struct Sema {
     int had_error;
     int in_async;           // currently inside an `async` function body?
     int try_depth;          // `try` statements enclosing the current point (no await inside one)
+    int fin_depth;          // `finally` blocks enclosing the current point (no `return` inside one)
     int in_variadic;        // the function being checked has a variadic parameter (`...`)?
     int await_seen;         // has an `await` appeared in the current function?
     string cur_ret;         // current function's return type (for `?` propagation)
@@ -4778,6 +4779,7 @@ void sema_check_lambda(Sema* s, *ExprNode e) {
     sema_lambda_sig(e.sval, &ptys, &pnames);
     string saved_ret = s.cur_ret; int saved_async = s.in_async; int saved_seen = s.await_seen;
     int saved_try = s.try_depth; s.try_depth = 0;
+    int saved_fin = s.fin_depth; s.fin_depth = 0;
     int saved_sw = s.sw_depth; int saved_pd = s.param_depth; int saved_var = s.in_variadic;
     s.in_variadic = 0;
     List<string> saved_lbls = s.loop_lbls;
@@ -4821,6 +4823,7 @@ void sema_check_lambda(Sema* s, *ExprNode e) {
     List_remove<string>(&s.lam_local_of, List_len<string>(&s.lam_local_of) - 1);
     s.cur_ret = saved_ret; s.in_async = saved_async; s.await_seen = saved_seen;
     s.try_depth = saved_try;
+    s.fin_depth = saved_fin;
     s.sw_depth = saved_sw; s.param_depth = saved_pd; s.in_variadic = saved_var;
     s.loop_lbls = saved_lbls;
     s.narrowed = saved_narrowed;
@@ -5175,6 +5178,10 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
         return;
     }
     if (k == SK_RETURN) {
+        if (s.fin_depth > 0) {
+            s.had_error = 1;
+            dprintf(2, "error: %s:%d:%d: 'return' is not allowed inside a finally block\n", s.filename, s.line, s.col);
+        }
         sema_hint_iface(s, st.expr, s.cur_ret);
         sema_expr(s, st.expr);
         if (st.expr != null && sema_streq(s.cur_ret, "void") == 1) {
@@ -5608,7 +5615,9 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
         sema_stmt(s, st.s1);               // body
         int ci = 0;
         while (ci < List_len<*StmtNode>(&st.items)) { sema_stmt(s, List_get<*StmtNode>(&st.items, ci)); ci = ci + 1; }
+        s.fin_depth = s.fin_depth + 1;     // a `return` may not leave a finally block
         sema_stmt(s, st.s2);               // finally
+        s.fin_depth = s.fin_depth - 1;
         s.try_depth = s.try_depth - 1;
         return;
     }
