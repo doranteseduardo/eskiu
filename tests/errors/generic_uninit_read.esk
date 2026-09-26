@@ -1,0 +1,3 @@
+// EXPECT-ERROR: use of uninitialized variable 'x'
+T mk<T>() { T x; return x; }
+int main() { return mk<int>(); }
