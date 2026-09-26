@@ -1,0 +1,71 @@
+// Response header injection: HttpResponse_header refuses (returns 0, adds
+// nothing) a name that is not a token or a value with a CR or LF, which used
+// to split into a forged header line ("Location: /x\r\nSet-Cookie: ..."). A
+// Content-Length set by the handler is not sent next to the automatic one
+// (two lengths), but a 304 keeps it. The HTTP/2 encoder drops a hand-written
+// line with a bad name or an LF in its value.
+import <http2_server>;
+extern int printf(string fmt, ...);
+
+void show(HttpResponse* res, bool head) {
+    let o: String;  o.init(64);
+    if (head) { res.render_head(&o); } else { res.render(&o); }
+    for (i in 0..o.len) {
+        const char c = o.data[i];
+        if (c == '\r') { printf("\\r"); }
+        else if (c == '\n') { printf("\\n\n"); }
+        else { printf("%c", c); }
+    }
+    printf("|\n");
+    o.free();
+}
+
+int main() {
+    let res: HttpResponse;  res.init(302);
+    printf("crlf %d\n", HttpResponse_header(&res, "Location", "/x\r\nSet-Cookie: session=attacker"));
+    printf("lf %d\n", HttpResponse_header(&res, "Location", "/x\nSet-Cookie: a"));
+    printf("cr %d\n", HttpResponse_header(&res, "Location", "/x\rb"));
+    printf("name-space %d\n", HttpResponse_header(&res, "Bad Name", "v"));
+    printf("name-colon %d\n", HttpResponse_header(&res, "A:B", "v"));
+    printf("name-crlf %d\n", HttpResponse_header(&res, "X\r\nY", "v"));
+    printf("name-empty %d\n", HttpResponse_header(&res, "", "v"));
+    printf("ok %d\n", HttpResponse_header(&res, "Location", "/x?a=b c\td"));
+    printf("empty-value %d\n", HttpResponse_header(&res, "X-Empty", ""));
+    show(&res, false);
+    res.free();
+
+    let r2: HttpResponse;  r2.init(200);
+    HttpResponse_header(&r2, "content-LENGTH", "99");
+    HttpResponse_header(&r2, "X-Content-Length-Note", "kept");
+    HttpResponse_set_body(&r2, "hi\n");
+    show(&r2, false);
+    show(&r2, true);
+    r2.free();
+
+    let r3: HttpResponse;  r3.init(304);
+    HttpResponse_header(&r3, "Content-Length", "1234");
+    show(&r3, false);
+    r3.free();
+
+    // HTTP/2: a hand-written block with an LF in a value and a bad name.
+    let r4: HttpResponse;  r4.init(200);
+    r4.headers.append("x-a: b\nset-cookie: forged\r\nbad name: v\r\nx-ok: yes\r\n");
+    *uint8 out = alloc<uint8>(h2_headers_bufsize(&r4));
+    const int n = h2_build_headers(out, 1, &r4);
+    let d: HpackDecoder;  d.init(4096);
+    let hs: HpackHeader[16];
+    let f: H2Frame;  h2_read_header(out, &f);
+    const int nh = hpack_decode(&d, out + 9, f.length, &hs[0], 16);
+    printf("h2 frame bytes %d fields %d\n", n, nh);
+    for (i in 0..nh) {
+        printf("  ");
+        for (int64 k = 0; k < hs[i].nlen; k++) { printf("%c", (int)hs[i].name[k]); }
+        printf(": ");
+        for (int64 k = 0; k < hs[i].vlen; k++) { printf("%c", (int)hs[i].value[k]); }
+        printf("\n");
+    }
+    d.free();
+    free((*void)out);
+    r4.free();
+    return 0;
+}

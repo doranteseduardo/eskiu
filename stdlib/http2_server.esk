@@ -155,8 +155,10 @@ int h2_fill_request(HttpRequest* req, HpackHeader* hs, int64 n) {
 
 // HPACK-encode the handler's response headers (the "Key: Value\r\n" block) into
 // `block` at *off, lowercasing each key (HTTP/2 requires lowercase names). A
-// connection-specific field (§8.2.2) is dropped, and so is a content-length:
-// h2_build_headers sends the real one.
+// connection-specific field (§8.2.2) is dropped, and so is a content-length
+// (h2_build_headers sends the real one) and a line whose name is not a token
+// or whose value holds an LF or NUL (RFC 9113 §8.2.1; HttpResponse_header
+// refuses those, so only a block written by hand has them).
 void h2_encode_resp_headers(*uint8 block, int* off, HttpResponse* res) {
     *char data = res.headers.cstr();
     const int len = res.headers.len();
@@ -180,7 +182,14 @@ void h2_encode_resp_headers(*uint8 block, int* off, HttpResponse* res) {
                 if (c >= 'A' && c <= 'Z') { c += 32; }              // to lowercase
                 key[j] = (uint8)c;
             }
-            const int skip = h2_is_conn_field(key, klen) != 0 ||
+            int bad = 0;
+            for (j in 0..klen) {
+                if (_http_is_tchar(key[j]) == 0) { bad = 1; }
+            }
+            for (j in vs..ve) {
+                if (data[j] == '\n' || data[j] == 0) { bad = 1; }
+            }
+            const int skip = bad != 0 || h2_is_conn_field(key, klen) != 0 ||
                              (klen == 14 && memcmp((*void)key, (*void)"content-length", 14) == 0);
             if (skip == 0) { *off = hpack_encode_header(block, *off, key, klen, (*uint8)(data + vs), ve - vs); }
             free((*void)key);

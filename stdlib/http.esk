@@ -452,11 +452,30 @@ void HttpResponse_free(HttpResponse* self) {
     self.body.free();
 }
 
-void HttpResponse_header(HttpResponse* self, string key, string val) {
+// 1 if `key` is a field name (one or more tchar) and `val` a field value with
+// no CR or LF, so the pair is one header line when written out.
+int http_field_ok(string key, string val) {
+    if (key[0] == 0) { return 0; }
+    for (int i = 0; key[i] != 0; i++) {
+        if (_http_is_tchar((uint8)key[i]) == 0) { return 0; }
+    }
+    for (int i = 0; val[i] != 0; i++) {
+        if (_http_is_crlf_byte((uint8)val[i]) == 1) { return 0; }
+    }
+    return 1;
+}
+
+// Add the header `key: val`. Returns 1, or 0 (and adds nothing) when `key` is
+// not a token or `val` holds a CR or LF: such a pair would split into a
+// second, injected header line (http_field_ok). A Content-Length set here is
+// not sent when the response gets the automatic one.
+int HttpResponse_header(HttpResponse* self, string key, string val) {
+    if (http_field_ok(key, val) == 0) { return 0; }
     self.headers.append(key);
     self.headers.append(": ");
     self.headers.append(val);
     self.headers.append("\r\n");
+    return 1;
 }
 
 void HttpResponse_set_body(HttpResponse* self, string s) {
@@ -540,14 +559,36 @@ void HttpResponse_render_head(HttpResponse* self, String* out) {
     _http_render(self, out, true);
 }
 
+// 1 if the header line s[from..to) is named `name` (case-insensitive).
+int _http_line_named(String* s, int64 from, int64 to, string name) {
+    int64 j = 0;
+    for (; name[j] != 0; j++) {
+        if (from + j >= to || http_lc(s.data[from + j]) != http_lc(name[j])) { return 0; }
+    }
+    return from + j < to && s.data[from + j] == ':' ? 1 : 0;
+}
+
 void _http_render(HttpResponse* self, String* out, bool head) {
     out.append("HTTP/1.1 ");
     _http_append_int(out, self.status);
     out.push(' ');
     out.append(http_reason(self.status));
     out.append("\r\n");
-    out.append(self.headers.cstr());
-    if (http_status_no_content(self.status) == 1) {
+    const int nocontent = http_status_no_content(self.status);
+    // The handler's lines, less a Content-Length when the automatic one is sent
+    // (two would be a conflicting length, RFC 9112 §6.3).
+    const int64 n = self.headers.len;
+    int64 i = 0;
+    while (i < n) {
+        int64 e = i;
+        while (e < n && self.headers.data[e] != '\n') { e++; }
+        if (e < n) { e++; }
+        if (nocontent == 1 || _http_line_named(&self.headers, i, e, "content-length") == 0) {
+            for (k in i..e) { out.push(self.headers.data[k]); }
+        }
+        i = e;
+    }
+    if (nocontent == 1) {
         out.append("\r\n");
         return;
     }
