@@ -422,9 +422,15 @@ void TypeChecker::checkValueCycles(Program* program) {
     // have no finite layout either. A cycle of plain structs is reported above.
     auto baseOf = [](const std::string& sp) { return sp.substr(0, sp.find('<')); };
     // The struct spelling a field of type `ft` holds by value ("" if none).
+    // An alias is resolved (`type RA = W<RB>` holds a `W<RB>`), then arrays peeled again.
     auto valueCore = [&](const std::string& ft) -> std::string {
         ty::Type t = ty::Type::parse(tyq::strip(ft));
-        while ((t.kind == ty::Type::Kind::Array) && t.elem) { ty::Type e = *t.elem; t = e; }
+        for (int hops = 0; hops < 32; ++hops) {
+            while ((t.kind == ty::Type::Kind::Array) && t.elem) { ty::Type e = *t.elem; t = e; }
+            auto al = t.kind == ty::Type::Kind::Named ? typeAliases.find(t.name) : typeAliases.end();
+            if (al == typeAliases.end()) break;
+            t = ty::Type::parse(tyq::strip(al->second));
+        }
         if (t.kind != ty::Type::Kind::Template && t.kind != ty::Type::Kind::Named) return "";
         return all.count(t.name) ? t.str() : "";
     };

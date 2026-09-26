@@ -929,7 +929,10 @@ void sema_cycle_dfs(Sema* s, *DeclNode d, List<string>* onstack, List<string>* d
 
 // The struct spelling a field of type `ft` holds by value, through generic instances too
 // ("" for a pointer, slice, fn, or non-struct); array suffixes are peeled. Spaces dropped.
-string sema_value_core(Sema* s, string ft) {
+string sema_value_core_n(Sema* s, string ft, int hops);
+string sema_value_core(Sema* s, string ft) { return sema_value_core_n(s, ft, 0); }
+// An alias is resolved (`type RA = W<RB>` holds a `W<RB>`), then arrays peeled again.
+string sema_value_core_n(Sema* s, string ft, int hops) {
     string t = sema_nospace(sema_strip_nullable(sema_strip_const(ft)));
     if ((int)t[0] == 42 || (int)t[0] == 63 || sema_is_fn_type(t) == 1) { return ""; }
     int depth = 0; int n = 0;
@@ -945,6 +948,7 @@ string sema_value_core(Sema* s, string ft) {
     int m = 0; while (core[m] != 0) { m = m + 1; }
     if (m == 0 || (int)core[m - 1] == 42) { return ""; }         // trailing-star pointer
     *DeclNode d = sema_find_tdecl(s, sema_base_name(core));
+    if (d != null && d.kind == DK_TYPEALIAS && hops < 32) { return sema_value_core_n(s, d.ret_type, hops + 1); }
     if (sema_is_value_aggr(d) == 0) { return ""; }
     return core;
 }
