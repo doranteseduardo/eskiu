@@ -254,6 +254,11 @@ private:
     void dropGlobalNarrowings();
     static void dropGlobalKeys(std::vector<std::string>& keys);
     bool exprHasCall(Expr* e) const;
+    // A `?:` whose value goes to an interface (a declaration, assignment, return or
+    // argument): each arm boxes into the interface on its own, so the arms may be pointers
+    // to different conforming structs. Keyed by the ternary; the value is the interface.
+    std::map<const Expr*, std::string> ifaceTargetHint;
+    void hintIfaceTarget(Expr* e, const std::string& target);
     // Binary/unary/index nodes that resolved to a user `operator` (a call, for narrowing).
     std::set<const Expr*> operatorCallNodes;
     // Bumped by every call (dropGlobalNarrowings); visit(IfStmt) records whether its

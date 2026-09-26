@@ -143,6 +143,7 @@ void TypeChecker::visit(BinaryExpr* node) {
             b->right->accept(this);
             undoNarrowings(inserted);
         } else {
+            if (b->op == "=") hintIfaceTarget(b->right.get(), getExpressionType(b->left.get()));
             b->right->accept(this);
         }
         finishBinary(b);
@@ -298,7 +299,20 @@ static std::string literalArmType(Expr* e, const std::string& t) {
     }
 }
 
+void TypeChecker::hintIfaceTarget(Expr* e, const std::string& target) {
+    auto* t = dynamic_cast<TernaryExpr*>(e);
+    if (!t || target.empty() || target == "unknown") return;
+    std::string n = normalizeType(tyq::strip(target));
+    if (n.rfind("interface:", 0) == 0 || interfaceDecls.count(n)) ifaceTargetHint[e] = target;
+}
+
 void TypeChecker::visit(TernaryExpr* node) {
+    auto hint = ifaceTargetHint.find(node);
+    std::string ifaceTarget = hint == ifaceTargetHint.end() ? "" : hint->second;
+    if (!ifaceTarget.empty()) {                     // nested `?:` arms box the same way
+        hintIfaceTarget(node->thenExpr.get(), ifaceTarget);
+        hintIfaceTarget(node->elseExpr.get(), ifaceTarget);
+    }
     node->condition->accept(this);
     {
         std::vector<std::string> keys;
@@ -324,6 +338,14 @@ void TypeChecker::visit(TernaryExpr* node) {
     // numerics promote to the wider (C-style), and otherwise the arms must be mutually
     // assignable (else it is a type error).
     std::string result = tt;
+    // Bound for an interface: each arm that converts to it is boxed there, so two pointers
+    // to different conforming structs meet as the interface.
+    if (!ifaceTarget.empty() && tt != "unknown" && et != "unknown" && tt != et &&
+        assignabilityError(ifaceTarget, tt, node->thenExpr.get()).empty() &&
+        assignabilityError(ifaceTarget, et, node->elseExpr.get()).empty()) {
+        expressionTypes[node] = normalizeType(tyq::strip(ifaceTarget));
+        return;
+    }
     if (tt == "unknown")       result = et;
     else if (et == "unknown")  result = tt;
     else if (tt == et)         result = tt;
@@ -649,6 +671,13 @@ void TypeChecker::checkVaListArg(ASTNode* at, const std::string& what, const std
 void TypeChecker::visit(CallExpr* node) {
     // The callee may assign any global: a global's narrowing ends after the call.
     struct GlobalNarrowDrop { TypeChecker* t; ~GlobalNarrowDrop() { t->dropGlobalNarrowings(); } } dropAfter{this};
+    // A `?:` argument to an interface parameter of a named function boxes arm by arm.
+    if (auto* cid = dynamic_cast<IdentExpr*>(node->callee.get()); cid && lookupSymbol(cid->name).empty()) {
+        auto sig = functionSignatures.find(cid->name);
+        if (sig != functionSignatures.end())
+            for (size_t i = 0; i < node->args.size() && i < sig->second.second.size(); ++i)
+                hintIfaceTarget(node->args[i].get(), sig->second.second[i]);
+    }
     // Variadic access builtins: va_start(ap) / va_end(ap) — void.
     if (auto* bid = dynamic_cast<IdentExpr*>(node->callee.get())) {
         if ((bid->name == "va_start" || bid->name == "va_end") && lookupSymbol(bid->name).empty()) {

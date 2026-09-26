@@ -68,6 +68,8 @@ struct Sema {
     List<int> lam_esc;      // per enclosing lambda: 1 if it outlives the call (not passed to a non-escaping param)
     int call_epoch;         // bumped by every call (sema_drop_global_narrowings)
     int has_ops;            // any `operator` overload declared (an operator use may be a call)
+    List<*ExprNode> tern_ifn;    // `?:` expressions bound for an interface (each arm boxes) ...
+    List<string> tern_ift;       // ... and that interface type
     int last_if_then_called;   // the last SK_IF's then-branch made a call
     int last_if_else_called;   // ... its else path did
     int lam_arg_nonesc;     // the lambda about to be checked is an argument to a non-escaping param
@@ -356,6 +358,8 @@ void sema_init(Sema* s, string filename) {
     List_init<string>(&s.escaped, 4);
     List_init<string>(&s.narrowed, 4);
     s.has_ops = 0;
+    List_init<*ExprNode>(&s.tern_ifn, 4);
+    List_init<string>(&s.tern_ift, 4);
     List_init<string>(&s.loop_lbls, 4);
     List_init<int>(&s.lam_bounds, 4);
     List_init<int>(&s.lam_esc, 4);
@@ -2934,6 +2938,24 @@ int sema_has_call(Sema* s, *ExprNode e) {
     return 0;
 }
 
+// A `?:` whose value goes to an interface (a declaration, assignment, return or argument):
+// each arm boxes into the interface on its own, so the arms may point at different
+// conforming structs (mirrors the C++ ifaceTargetHint).
+void sema_hint_iface(Sema* s, *ExprNode x, string t) {
+    if (x == null || x.kind != EK_TERNARY || t == null || t[0] == 0) { return; }
+    if (sema_find_iface(s, sema_strip_const(sema_strip_nullable(sema_canon(s, t)))) == null) { return; }
+    List_push<*ExprNode>(&s.tern_ifn, x);
+    List_push<string>(&s.tern_ift, t);
+}
+string sema_hint_of(Sema* s, *ExprNode x) {
+    int i = List_len<*ExprNode>(&s.tern_ifn) - 1;
+    while (i >= 0) {
+        if (List_get<*ExprNode>(&s.tern_ifn, i) == x) { return List_get<string>(&s.tern_ift, i); }
+        i = i - 1;
+    }
+    return "";
+}
+
 // Does `e` (a binary, unary or subscript node) resolve to a user operator overload? Then
 // evaluating it is a call (mirrors the C++ operatorCallNodes).
 int sema_is_op_call(Sema* s, *ExprNode e) {
@@ -3689,6 +3711,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         }
         if (sema_is_assign(e.sval) == 1) { sema_check_captured_write(s, e.a); }
         sema_expr(s, e.a);
+        if (sema_streq(e.sval, "=") == 1) { sema_hint_iface(s, e.b, sema_infer_type(s, e.a)); }
         sema_expr(s, e.b);
         // `p = ...` ends p's narrowing unless it stores an address `&x` or steps the pointer
         // itself (`p = p + k`, `p += k`).
@@ -3734,6 +3757,8 @@ void sema_expr_k(Sema* s, *ExprNode e) {
     if (k == EK_TERNARY) {                             // cond ? then : else
         sema_expr(s, e.a);
         *ExprNode elseE = List_get<*ExprNode>(&e.kids, 0);
+        string ihint = sema_hint_of(s, e);
+        if (ihint[0] != 0) { sema_hint_iface(s, e.b, ihint); sema_hint_iface(s, elseE, ihint); }   // nested arms too
         List<string> tkeys; List_init<string>(&tkeys, 2);
         List<string> tins; List_init<string>(&tins, 2);
         sema_cond_narrow(s, e.a, 1, &tkeys);
@@ -3760,7 +3785,10 @@ void sema_expr_k(Sema* s, *ExprNode e) {
             int ok = 0;
             if (sema_streq(tt, et) == 1) { ok = 1; }
             else if (sema_is_numeric_ty(tt) == 1 && sema_is_numeric_ty(et) == 1) { ok = 1; }
-            else if (sema_is_ptrish(tt) == 1 && sema_is_ptrish(et) == 1) { ok = 1; }
+            else if (sema_is_ptrish(tt) == 1 && sema_is_ptrish(et) == 1
+                     && (sema_streq(tt, "null") == 1 || sema_streq(et, "null") == 1 || sema_ptr_compat(s, tt, et) == 1)) { ok = 1; }
+            // Bound for an interface: each arm that converts to it is boxed there.
+            else if (ihint[0] != 0 && sema_assign_strict(s, ihint, tt)[0] == 0 && sema_assign_strict(s, ihint, et)[0] == 0) { ok = 1; }
             // One arm converts to the other's type (a `*Sq` arm meets an interface arm as
             // the interface, mirrors the C++ ternary).
             else if (sema_assign_strict(s, tt, et)[0] == 0 || sema_assign_strict(s, et, tt)[0] == 0) { ok = 1; }
@@ -4395,6 +4423,15 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         if (cfd != null && cfd.kind != DK_FUNCTION) { cfd = null; }
         int i = 0;
         int n = List_len<*ExprNode>(&e.kids);
+        // A `?:` argument to an interface parameter of a named function boxes arm by arm.
+        if (e.a != null && e.a.kind == EK_IDENT && sema_local_bound(s, e.a.sval) == 0) {
+            *DeclNode hfd = sema_find_fndecl(s, e.a.sval);
+            int hi = 0;
+            while (hfd != null && hi < n && hi < List_len<Param>(&hfd.params)) {
+                sema_hint_iface(s, List_get<*ExprNode>(&e.kids, hi), List_get<Param>(&hfd.params, hi).ty);
+                hi = hi + 1;
+            }
+        }
         while (i < n) {
             *ExprNode ka = List_get<*ExprNode>(&e.kids, i);
             int fwd = 0;
@@ -4849,6 +4886,7 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
             lam_bound = 1;
             s.lam_local = st.name;
         }
+        sema_hint_iface(s, st.expr, st.type);
         sema_expr(s, st.expr);             // initializer (can't reference itself)
         s.lam_ret = "";
         s.lam_local = "";
@@ -4934,6 +4972,7 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
         return;
     }
     if (k == SK_RETURN) {
+        sema_hint_iface(s, st.expr, s.cur_ret);
         sema_expr(s, st.expr);
         if (st.expr != null && sema_streq(s.cur_ret, "void") == 1) {
             string rvt = sema_infer_type(s, st.expr);

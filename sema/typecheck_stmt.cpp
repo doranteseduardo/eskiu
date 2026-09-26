@@ -242,6 +242,7 @@ void TypeChecker::visit(ForStmt* node) {
 
 void TypeChecker::visit(ReturnStmt* node) {
     if (node->value) {
+        hintIfaceTarget(node->value.get(), currentFunctionReturnType);
         node->value->accept(this);
         // Returning the address of a local or parameter yields a dangling pointer
         // (its stack frame is gone on return). Flag the clear case `return &x` where

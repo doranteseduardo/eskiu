@@ -524,6 +524,12 @@ void CodeGen::visit(TernaryExpr* node) {
     // An interface arm and a struct-pointer arm meet as the interface (the pointer is boxed).
     std::string ifaceTy = !interfaceName(thenTy).empty() ? thenTy
                         : !interfaceName(elseTy).empty() ? elseTy : "";
+    // Typed as an interface by its target (`I i = c ? &a : &b`): each arm is boxed with
+    // its own struct's vtable.
+    if (ifaceTy.empty() && resolvedExprTypes) {
+        auto it = resolvedExprTypes->find(node);
+        if (it != resolvedExprTypes->end() && !interfaceName(it->second).empty()) ifaceTy = it->second;
+    }
     if (!ifaceTy.empty()) resTy = getTypeFromString(ifaceTy);
     const bool isVoid = resTy->isVoidTy();          // `c ? f() : g()` with void arms: a statement
     auto arm = [&](const ExprPtr& e, const std::string& srcEskiu) -> llvm::Value* {

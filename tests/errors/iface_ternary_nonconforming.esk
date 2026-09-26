@@ -1,0 +1,6 @@
+// EXPECT-ERROR: ternary branches have incompatible types
+// Bound for an interface, every arm must still satisfy it.
+interface I { int m(); }
+struct A { int v; int m() { return self.v; } }
+struct B { int w; }
+int main() { A a; B b; bool c = true; I i = c ? &a : &b; return 0; }

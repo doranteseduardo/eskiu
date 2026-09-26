@@ -110,6 +110,8 @@ struct Codegen {
     List<CgLambda> lambdas;  // queued lambda bodies, emitted after the main decls
     int lam_seq;             // counter for unique lambda names
     string lam_expret;       // return type expected from a lambda's assignment context ("" = none)
+    *ExprNode tern_node;     // a `?:` bound for an interface: each arm boxes into tern_iface
+    string tern_iface;
     int uses_eh;             // program uses try/throw → declare the Itanium EH runtime
     int uses_threads;        // program calls thread_create → the driver links pthread
     int uses_heap_env;       // a closure heap-allocated its env → ensure malloc is declared
@@ -273,6 +275,7 @@ void cg_init(Codegen* g) {
     List_init<CgLambda>(&g.lambdas, 8);
     g.lam_seq = 0;
     g.lam_expret = "";
+    g.tern_node = null; g.tern_iface = "";
     g.uses_eh = 0;
     g.uses_threads = 0;
     g.uses_heap_env = 0;
@@ -3667,7 +3670,16 @@ string cg_slice_elem_addr(Codegen* g, *ExprNode base, string idx_op, string hi_o
 
 // Evaluate argument `ax` for parameter `i` of `f`. A C function pointer parameter (an
 // extern's fn-typed one, declared `ptr`) takes a top-level function's C address.
+// A `?:` whose value goes to interface `tety` boxes each arm with its own struct's vtable
+// (mirrors the C++ ifaceTargetHint), so the arms may point at different conforming structs.
+void cg_hint_iface(Codegen* g, *ExprNode x, string tety) {
+    if (x != null && x.kind == EK_TERNARY && tety != null && tety[0] != 0 && cg_is_iface(g, cg_dealias(g, tety)) == 1) {
+        g.tern_node = x; g.tern_iface = tety;
+    }
+}
+
 CgVal cg_call_arg(Codegen* g, CgFn* f, int i, *ExprNode ax) {
+    cg_hint_iface(g, ax, cg_pety(f, i));
     if (cg_streq(cg_pty(f, i), "ptr") == 1 && cg_is_fnty(cg_dealias(g, cg_pety(f, i))) == 1
         && ax.kind == EK_IDENT && cg_find_local(g, ax.sval).slot[0] == 0
         && cg_find_global(g, ax.sval).slot[0] == 0 && cg_is_fn(g, ax.sval) == 1) {
@@ -4198,6 +4210,7 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
             // Evaluation order (mirrors CodeGen::emitAssignment): the target's address
             // first, then the right-hand side, then the store.
             if (e.a != null && e.a.kind == EK_IDENT && cg_find_local(g, e.a.sval).slot[0] != 0) {
+                cg_hint_iface(g, e.b, cg_find_local(g, e.a.sval).ety);
                 CgVal rhs = cg_expr(g, e.b);
                 CgLocal l = cg_find_local(g, e.a.sval);
                 string rop = cg_coerce(g, rhs, l.ty);   // coerce RHS to the variable's type
@@ -4209,6 +4222,7 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
                 v.op = rop; v.ty = l.ty; v.ety = l.ety; return v;
             }
             CgVal lv = cg_lval(g, e.a);                 // member / deref / index lvalue
+            cg_hint_iface(g, e.b, lv.ety);
             CgVal rhs = cg_expr(g, e.b);
             string lty = cg_lltype(g, lv.ety);
             string rop = cg_coerce(g, rhs, lty);        // coerce RHS to the field/element type
@@ -4476,6 +4490,11 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
         List<string> etys; List_init<string>(&etys, 4);
         cg_ternary_etys(g, e, &chain, &etys);
         int k = List_len<*ExprNode>(&chain);
+        string forced = "";                             // bound for an interface: box every arm
+        if (g.tern_node == e) {
+            forced = g.tern_iface; g.tern_node = null;
+            int fi = 0; while (fi < k) { List_set<string>(&etys, fi, forced); fi = fi + 1; }
+        }
         List<string> rtys; List_init<string>(&rtys, k);
         List<string> ress; List_init<string>(&ress, k);
         List<string> lends; List_init<string>(&lends, k);
@@ -4493,6 +4512,7 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
             cg_emit(g, ", label %"); cg_emit(g, lelse); cg_emit(g, "\n");
             g.terminated = 1;
             cg_label(g, lthen);
+            if (forced[0] != 0) { cg_hint_iface(g, n.b, forced); }
             CgVal tv = cg_expr(g, n.b);
             if (res[0] != 0) {
                 string top = cg_coerce(g, tv, rty);
@@ -5807,6 +5827,7 @@ void cg_stmt(Codegen* g, *StmtNode st) {
                 cg_struct_init(g, slot, st.type, st.expr);
             } else {
                 g.lam_expret = cg_lam_ret_of(st.type);   // thread fn-type return into a lambda init
+                cg_hint_iface(g, st.expr, st.type);
                 CgVal init = cg_expr(g, st.expr);
                 g.lam_expret = "";
                 string iop = cg_coerce(g, init, ty);    // widen/truncate/null-coerce to the declared type
@@ -6135,6 +6156,7 @@ void cg_stmt(Codegen* g, *StmtNode st) {
     }
     if (st.kind == SK_RETURN) {
         if (st.expr != null) {
+            cg_hint_iface(g, st.expr, g.cur_rety);
             CgVal r = cg_expr(g, st.expr);
             string rop = cg_coerce(g, r, g.cur_ret);     // widen/convert to the return type (bool→int, etc.)
             if (cg_is_iface(g, cg_dealias(g, g.cur_rety)) == 1) { rop = cg_iface_conv(g, g.cur_rety, r, st.expr); }
