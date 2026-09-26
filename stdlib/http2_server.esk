@@ -87,6 +87,19 @@ int h2_is_conn_field(*uint8 name, int64 n) {
     return 0;
 }
 
+// 1 if a decoded trailer section is well formed: every field passes
+// h2_field_ok (no uppercase name, no CR, LF or NUL in a value), and none is a
+// pseudo-header (§8.1), a connection-specific field or a `te` (§8.2.2), so a
+// trailer is held to the rules of a header section.
+int h2_trailers_ok(HpackHeader* hs, int64 n) {
+    for (int64 i = 0; i < n; i++) {
+        HpackHeader* h = &hs[i];
+        if (h2_field_ok(h) == 0 || h.name[0] == ':') { return 0; }
+        if (h2_is_conn_field(h.name, h.nlen) != 0 || h2_name_eq(h, "te") != 0) { return 0; }
+    }
+    return 1;
+}
+
 // Populate an HttpRequest from decoded HPACK headers: the :method / :path
 // pseudo-headers map to the request fields; ordinary headers are appended to the
 // header block as "name: value\n" (pseudo-headers — names starting with ':' —
@@ -296,8 +309,9 @@ void h2_send_response(H2Conn* conn, int stream_id, HttpResponse* res) {
 //     name) with 400, without calling the handler;
 //   - a malformed request (RFC 9113 §8.1.1, §8.2.2, §8.3: bad or missing
 //     pseudo-headers, a connection-specific field, a content-length that the
-//     DATA frames do not add up to, a pseudo-header in trailers) is a stream
-//     error: RST_STREAM PROTOCOL_ERROR, and the handler is not called;
+//     DATA frames do not add up to, a trailer that breaks the header-field
+//     rules or is a pseudo-header) is a stream error: RST_STREAM
+//     PROTOCOL_ERROR, and the handler is not called;
 //   - a HEAD response carries its content-length but no body, and a 1xx,
 //     204 or 304 response neither.
 
@@ -550,11 +564,9 @@ void H2Server_headers_done(H2Server* s, int sid, int end_stream) {
             H2Server_slot_release(&s.slots[at]);
             return;
         }
-        for (i in 0..nh) {
-            if (s.harr[i].nlen > 0 && s.harr[i].name[0] == ':') {   // no pseudo-header in trailers (§8.1)
-                H2Server_malformed(s, &s.slots[at]);
-                return;
-            }
+        if (nh < 0 || h2_trailers_ok(s.harr, nh) == 0) {
+            H2Server_malformed(s, &s.slots[at]);
+            return;
         }
         H2Server_end_request(s, &s.slots[at]);
         return;

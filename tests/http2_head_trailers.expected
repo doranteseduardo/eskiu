@@ -1,0 +1,22 @@
+HEAD
+  stream 1 :status: 200
+  stream 1 content-length: 3
+  stream 1 DATA len 0 flags 1
+GET 304
+  stream 3 :status: 304
+  stream 3 DATA len 0 flags 1
+trailer: uppercase name
+  stream 5 rst 1
+trailer: connection field
+  stream 7 rst 1
+trailer: te
+  stream 9 rst 1
+trailer: pseudo-header
+  stream 11 rst 1
+trailer: CR in value
+  stream 13 rst 1
+trailer: well formed
+  stream 15 :status: 200
+  stream 15 content-length: 3
+  stream 15 DATA len 3 flags 1
+calls=3

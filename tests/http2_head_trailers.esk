@@ -1,0 +1,114 @@
+// HTTP/2 responses without content and request trailers. A HEAD response
+// carries the content-length of the body a GET would get but no body, and a
+// 304 has neither (RFC 9110 §9.3.2, §15.4.5); both used to send the body as
+// DATA. A trailer section is held to the header-field rules (RFC 9113 §8.1,
+// §8.2): an uppercase name, a connection-specific field, `te`, a CR in a value
+// or a pseudo-header resets the stream (PROTOCOL_ERROR) without calling the
+// handler; a well-formed trailer is accepted.
+import <http2_server>;
+extern int printf(string fmt, ...);
+
+int calls = 0;
+
+void hello(HttpRequest* req, HttpResponse* res) {
+    calls++;
+    let v: String; String_init(&v, 8);
+    if (HttpRequest_header(req, "x-note", &v) != 0) { printf("  handler: x-note=%s\n", String_cstr(&v)); }
+    String_free(&v);
+    if (req.path.eq_cstr("/304") == 1) { res.status = 304; }
+    HttpResponse_set_body(res, "hi\n");
+}
+
+// Print the HEADERS :status and RST_STREAM codes queued in s.out, then clear it.
+void dump(H2Server* s, HpackDecoder* d) {
+    let hs: HpackHeader[8];
+    int64 o = 0;
+    while (o + 9 <= s.outlen) {
+        let f: H2Frame; h2_read_header(s.out + o, &f);
+        if (f.type == H2_HEADERS) {
+            const int n = hpack_decode(d, s.out + o + 9, f.length, &hs[0], 8);
+            for (i in 0..n) {
+                printf("  stream %d ", f.stream_id);
+                for (int64 k = 0; k < hs[i].nlen; k++) { printf("%c", (int)hs[i].name[k]); }
+                printf(": ");
+                for (int64 k = 0; k < hs[i].vlen; k++) { printf("%c", (int)hs[i].value[k]); }
+                printf("\n");
+            }
+        }
+        if (f.type == H2_DATA) { printf("  stream %d DATA len %d flags %d\n", f.stream_id, f.length, f.flags); }
+        if (f.type == H2_RST_STREAM) { printf("  stream %d rst %lld\n", f.stream_id, h2_get_u32(s.out + o + 9, 0)); }
+        if (f.type == H2_GOAWAY) { printf("  goaway %lld\n", h2_get_u32(s.out + o + 9, 4)); }
+        o += 9 + f.length;
+    }
+    s.outlen = 0;
+}
+
+// Encode the fields of `spec` ("name value|name value|...") into p. A name
+// starting with '+' is a literal with incremental indexing (§6.2.1, it joins
+// the dynamic table); "#N" is a reference to table entry N.
+int block(*uint8 p, string spec) {
+    int off = 0;
+    int i = 0;
+    while (spec[i] != 0) {
+        int ns = i;
+        while (spec[i] != 0 && spec[i] != ' ' && spec[i] != '|') { i++; }
+        const int ne = i;
+        if (spec[i] == ' ') { i++; }
+        const int vs = i;
+        while (spec[i] != 0 && spec[i] != '|') { i++; }
+        const int ve = i;
+        if (spec[i] == '|') { i++; }
+        if (spec[ns] == '#') {
+            int idx = 0;
+            for (k in ns + 1..ne) { idx = idx * 10 + ((int)spec[k] - '0'); }
+            p[off++] = (uint8)(128 | idx);
+        } else if (spec[ns] == '+') {
+            ns++;
+            p[off++] = 64;
+            off = hpack_encode_str(p, off, (*uint8)(spec + ns), ne - ns);
+            off = hpack_encode_str(p, off, (*uint8)(spec + vs), ve - vs);
+        } else {
+            off = hpack_encode_header(p, off, (*uint8)(spec + ns), ne - ns, (*uint8)(spec + vs), ve - vs);
+        }
+    }
+    return off;
+}
+
+void feed(H2Server* s, int type, int flags, int sid, *uint8 p, int len) {
+    let h: H2Frame; h.type = type; h.flags = flags; h.stream_id = sid; h.length = len;
+    H2Server_step(s, &h, p, hello);
+}
+void request(H2Server* s, HpackDecoder* d, *uint8 p, int sid, string tag, string spec) {
+    printf("%s\n", tag);
+    const int n = block(p, spec);
+    feed(s, H2_HEADERS, 5, sid, p, n);
+    dump(s, d);
+}
+// A POST whose HEADERS leave the stream open, then a trailer HEADERS block.
+void trailer(H2Server* s, HpackDecoder* d, *uint8 p, int sid, string tag, string spec) {
+    printf("trailer: %s\n", tag);
+    int n = block(p, ":method POST|:scheme http|:path /");
+    feed(s, H2_HEADERS, 4, sid, p, n);
+    n = block(p, spec);
+    feed(s, H2_HEADERS, 5, sid, p, n);
+    dump(s, d);
+}
+
+int main() {
+    *uint8 p = alloc<uint8>(4096);
+    H2Server* s = alloc<H2Server>(1);
+    H2Server_init(s, -1);
+    let d: HpackDecoder; d.init(4096);
+    feed(s, H2_SETTINGS, 0, 0, p, 0);
+    s.outlen = 0;
+    request(s, &d, p, 1, "HEAD", ":method HEAD|:scheme http|:path /");
+    request(s, &d, p, 3, "GET 304", ":method GET|:scheme http|:path /304");
+    trailer(s, &d, p, 5, "uppercase name", "X-Bad v");
+    trailer(s, &d, p, 7, "connection field", "connection close");
+    trailer(s, &d, p, 9, "te", "te trailers");
+    trailer(s, &d, p, 11, "pseudo-header", ":path /x");
+    trailer(s, &d, p, 13, "CR in value", "x-sum a\rb");
+    trailer(s, &d, p, 15, "well formed", "x-sum abc");
+    printf("calls=%d\n", calls);
+    return 0;
+}
