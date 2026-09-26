@@ -182,6 +182,12 @@ int sema_is_arr_ty(string t) {
     int i = 0; while (t[i] != 0) { if ((int)t[i] == 91) { return 1; } i = i + 1; }   // '['
     return 0;
 }
+// A fixed array `T[N]` (its outer dimension, the first bracket, is not a slice `[]`):
+// its elements are in the value's own storage, unlike a slice's.
+int sema_is_fixed_arr_ty(string t) {
+    int i = 0; while (t[i] != 0) { if ((int)t[i] == 91) { return (int)t[i + 1] != 93; } i = i + 1; }
+    return 0;
+}
 int sema_all_digits(string v) {
     if (v[0] == 0) { return 0; }
     int i = 0; while (v[i] != 0) { int c = (int)v[i]; if (c < 48 || c > 57) { return 0; } i = i + 1; }
@@ -5238,7 +5244,7 @@ string sema_local_root(Sema* s, *ExprNode e) {
             if (sema_has_star(sema_infer_type(s, e.a)) == 1) { return ""; }
             e = e.a;
         } else if (e.kind == EK_INDEX && List_len<*ExprNode>(&e.kids) == 0) {
-            if (sema_is_arr_ty(sema_infer_type(s, e.a)) == 0) { return ""; }
+            if (sema_is_fixed_arr_ty(sema_infer_type(s, e.a)) == 0) { return ""; }
             e = e.a;
         } else { return ""; }
     }
@@ -5494,7 +5500,7 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
                 }
             }
             if (rv.kind == EK_INDEX && List_len<*ExprNode>(&rv.kids) > 0
-                && sema_is_arr_ty(sema_infer_type(s, rv.a)) == 1) {
+                && sema_is_fixed_arr_ty(sema_infer_type(s, rv.a)) == 1) {
                 string root = sema_local_root(s, rv.a);
                 if (root[0] != 0) {
                     s.had_error = 1;
