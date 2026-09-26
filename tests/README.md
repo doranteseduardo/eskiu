@@ -387,6 +387,12 @@ when you add a test.
 | `target_sizes` | type sizes per target (pointer width, i386 `int64`/`double` alignment), compared by `cabi_parity.sh` |
 | `forin_array_alias_deref` | `for (x in *p)` with `p: *A4`, and over a field of array-alias type |
 | `closure_address_ok` | addresses a lambda may take: its locals, through a captured pointer, a slice of a captured slice |
+| `finally_control` | `break`/`continue` inside a `finally`, and a lambda with a `return` written there |
+| `global_fn_value` | a function name as a global, `static`, array-element and struct-field initializer (a constant closure) |
+| `alias_shapes` | aliases of an interface, a pointer, a generic instance, a fn type, a classic enum, a struct (operators, `*VV self`), a slice (`IS[2]`, `*IS`) and an array, used as their targets |
+| `iface_payload_lambda` | a struct pointer boxed into an interface as a variant payload (generic or not) and as a lambda's return value |
+| `index_result_member` | a member of an overloaded `[]` result (`w[2].v`), `.len` of an element of an array of slices |
+| `c_abi_union` | unions by value across `extern` (+ `.c`): x86-64 SysV eightbytes as wide as the widest member |
 
 ### `smoke` tests (compile + link + exit 0)
 
@@ -679,6 +685,9 @@ when you add a test.
 | `errors/generic_void_param` | `id<void>(v())` makes a parameter `void` |
 | `errors/closure_captured_address` | `*(&n) = 5` of a captured `n` in a lambda |
 | `errors/closure_captured_slice` | a slice of a captured array in a lambda |
+| `errors/finally_return` | a `return` inside a `finally` block |
+| `errors/finally_question` | a `?` inside a `finally` block (it would swallow the exception being unwound) |
+| `errors/match_alias_nonexhaustive` | a `match` on an alias of a classic enum missing a member |
 | `errors/async_await_in_try` | `await` inside a `try` in an `async` function |
 | `errors/void_logical_operand` | a `void` call as an operand of `&&` |
 | `errors/void_compare` | comparing two `void` calls |

@@ -167,7 +167,7 @@ converts to and from it, so it links against C compiled by clang/gcc:
 | Target | Aggregate argument | Aggregate result |
 |---|---|---|
 | AArch64 (AAPCS64, Darwin + Linux) | HFA of 1-4 `float`/`double` → `[N x fp]` in FP registers (with `alignstack(8)` off Darwin); ≤ 8 bytes → `i64`; ≤ 16 → `[2 x i64]`; larger → pointer to a caller-made copy | HFA → `{ fp, ... }`; ≤ 8 bytes → `iN`; ≤ 16 → `[2 x i64]`; larger → `sret` (x8) |
-| x86-64 System V (Linux, macOS) | each eightbyte classified INTEGER/SSE → one or two register values (`i64`, `i32`, `double`, `<2 x float>`, `ptr`, ...); > 16 bytes, a misaligned field, or no free registers left → `byval` | the same classes as a `{ lo, hi }` pair or one value; > 16 bytes → `sret` |
+| x86-64 System V (Linux, macOS) | each eightbyte classified INTEGER/SSE → one or two register values (`i64`, `i32`, `double`, `<2 x float>`, `ptr`, ...), as wide as the data in it (a union's widest member decides: `union { int; double; }` is `i64`, `union { float; double; }` is `double`); > 16 bytes, a misaligned field, or no free registers left → `byval` | the same classes as a `{ lo, hi }` pair or one value; > 16 bytes → `sret` |
 | Windows x64 | size 1/2/4/8 → `iN`; otherwise pointer to a caller-made copy | size 1/2/4/8 → `iN`; otherwise `sret` |
 | 32-bit ARM (AAPCS) | hard-float HFA → `{ fp, ... }`; ≤ 64 bytes → `[N x i32]` (`[N x i64]` if 8-aligned); larger → `byval` | hard-float HFA → `{ fp, ... }`; ≤ 4 bytes → `i32`; otherwise `sret` |
 

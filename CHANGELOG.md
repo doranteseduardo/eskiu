@@ -218,6 +218,10 @@ more and a third about 60, fixed the same way.
   `uint8` and `uint16` as `int` (it read the wrong bytes).
 - Without `-o`, `eskiuc-esk` writes the object `FILE.o` like `eskiuc` (it printed the
   IR); `--test-codegen` prints the IR.
+- A `return` or a `?` inside a `finally` block is an error, in both compilers: it would
+  discard the pending exit, including an exception being unwound (C++ hung compiling it,
+  the self-host crashed). `break` and `continue` inside a `finally` keep working, and a
+  lambda written there is its own function.
 
 - `!` of a void value (`!v()`, also through a method or interface call), `throw v()` of a
   void call and dereferencing a `*void` (`*p`, `*p = v()`) are type errors in both
@@ -615,6 +619,33 @@ more and a third about 60, fixed the same way.
   (`((S){1}).a`) and, in a generic instance, of an int to a struct type argument
   (`(T)0` with T = S), and a type argument that makes a parameter `void`
   (`id<void>(v())`), as C++ does.
+- x86-64 SysV C ABI: an eightbyte holding a union is as wide as its widest member, as in
+  clang. `union { int; double; }` passed or returned by value is an `i64` (it was an
+  `i32`, losing the high half), `union { char; int; }` an `i32`, `union { float; double; }`
+  a `double`, and `struct { float; union { int; float; double; } }` is `{ float, i64 }`.
+  Both compilers; test `c_abi_union` (+ `.c`), also in `cabi_parity.sh`.
+- A type alias is its target for every shape check, in both compilers: the expression
+  types the type checkers and codegens reason about never name an alias (C++
+  `getExpressionType` and `getExprEskiuType`, self-host `sema_infer_type` and `cg_etype`).
+  An alias of an interface boxes (`type Sh = Shape; Sh s = &q;` was a bus error in C++, an
+  `Sh` parameter a codegen error) and dispatches (`s.area()`, `mk().area()`); an alias of
+  a pointer derefs (`PSq[2] ps; ps[0].s`) and dot-calls (`pq.area()`, also on generic
+  instances `BI`/`PB`); a field or return typed by an alias of a fn type calls
+  (`s.f(1)`, `getf(5)(1)`; invalid IR or a crash in the self-host); a `match` on an alias
+  of a classic enum is accepted and checked for exhaustiveness (C++ rejected it, the
+  self-host accepted a missing arm); an operator over alias operands (`operator +(VV,
+  VV)`) and a `*VV self` receiver resolve in the self-host; `.len` of an element of `IS[2]`
+  (`type IS = int[]`) works, and `IS[2]` / `*IS` keep the slice as their element in the
+  self-host (they collapsed to `int[2]` / `int*`). Test `alias_shapes`.
+- A struct pointer boxes into an interface as a variant payload (`Som<Shape>(&a)`,
+  `W(&b)` for `enum Wr { W(Shape) }`; C++ segfaulted, the self-host emitted invalid IR)
+  and as a lambda's return value (`Shape() { return &g; }`, a C++ verifier error). Test
+  `iface_payload_lambda`.
+- A member of an overloaded `[]` result (`w[2].v`) is read from the call's value (a C++
+  codegen error, invalid IR in the self-host). Test `index_result_member`.
+- A global (or `static`) initialized with a function name (`Op g = add;`, also in an
+  array or struct literal) is a constant closure, as in C; both compilers rejected it as
+  not a compile-time constant. Test `global_fn_value`.
 
 ## [0.9.1] - 2026-09-09
 ### Fixed

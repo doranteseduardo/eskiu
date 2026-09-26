@@ -574,7 +574,7 @@ next();   // 3
 
 A `static` local's initializer must be a **compile-time constant**; a runtime expression is rejected. An uninitialised `static` local is zero-initialised. Two `static` locals in different functions never alias, even if they share a name. `static` on a global is rejected, since a global already has static storage. A closure that uses a `static` local refers to that one cell, like a global, rather than capturing a copy.
 
-The same constant rule applies to a **global** variable's initializer, as in C: it may be a literal, an enum member, a top-level `const`, `sizeof`, the address of a global (`&g`), a non-capturing lambda, any unary, binary, ternary or cast expression over those (`int C = 3 + 1;`, `double q = 1.0 / 4.0;`), or an array or struct literal built from them. A call or a read of a non-`const` variable is a compile error ("initializer of global 'X' is not a compile-time constant"), since no code runs before `main` to compute it.
+The same constant rule applies to a **global** variable's initializer, as in C: it may be a literal, an enum member, a top-level `const`, `sizeof`, the address of a global (`&g`), a non-capturing lambda, any unary, binary, ternary or cast expression over those (`int C = 3 + 1;`, `double q = 1.0 / 4.0;`), or an array or struct literal built from them. A top-level function name is a constant too (`Op g = add;`, as in C): it decays to a closure with no environment. A call or a read of a non-`const` variable is a compile error ("initializer of global 'X' is not a compile-time constant"), since no code runs before `main` to compute it.
 
 ---
 
@@ -1127,6 +1127,8 @@ try {
 #### finally
 
 The `finally` block executes unconditionally after the `try` body and any `catch` clause, regardless of whether an exception was raised. It also runs when the body or a `catch` handler leaves early with `return`, `break`, `continue` or `?`, and when a `catch` handler throws (directly or from a call); the new exception then propagates after the `finally` body.
+
+A `finally` block may not leave the function: a `return` or a `?` inside it is a compile error, since it would discard the pending exit (a return value, or an exception being unwound). A `break` or `continue` inside it is allowed, and a lambda written there is its own function.
 
 ```eskiu
 try {
@@ -1682,7 +1684,7 @@ condition of an `if`; wrap it in parens if you need one.)
 
 ### 8.8 Type Aliases
 
-`type Name = ExistingType;` introduces a name for an existing type. The alias is fully interchangeable with its underlying type. It resolves before type checking and code generation. Aliases work for any type, including pointers and templates.
+`type Name = ExistingType;` introduces a name for an existing type. The alias is fully interchangeable with its underlying type. It resolves before type checking and code generation. Aliases work for any type, including pointers, arrays, slices, fn types, interfaces, enums and templates: a value of an alias type derefs, indexes, calls, boxes, matches and dispatches methods and operators exactly as a value of the target type. An alias of an array or slice given more dimensions keeps them outer (`type IS = int[]; IS[2]` is two slices).
 
 ```eskiu
 type u8      = uint8;
