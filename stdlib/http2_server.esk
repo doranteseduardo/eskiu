@@ -313,8 +313,10 @@ void h2_send_response(H2Conn* conn, int stream_id, HttpResponse* res) {
 //   - WINDOW_UPDATE credits only the stream it names, and window overflow past
 //     2^31 - 1, bad SETTINGS values, and other protocol violations get the
 //     GOAWAY or RST_STREAM that RFC 9113 prescribes;
-//   - a header list longer than H2_MAX_HEADERS fields is answered with 431,
-//     and one with a malformed field (a CR, LF or NUL in a value, an uppercase
+//   - a header list longer than H2_MAX_HEADERS fields or H2_MAX_HEADER_LIST
+//     bytes (as SETTINGS_MAX_HEADER_LIST_SIZE counts them; the limit is
+//     advertised in our SETTINGS), or past what s.max_buffered leaves, is
+//     answered with 431 without keeping its fields, and one with a malformed field (a CR, LF or NUL in a value, an uppercase
 //     name) with 400, without calling the handler;
 //   - a malformed request (RFC 9113 §8.1.1, §8.2.2, §8.3: bad or missing
 //     pseudo-headers, a connection-specific field, a content-length that the
@@ -324,14 +326,15 @@ void h2_send_response(H2Conn* conn, int stream_id, HttpResponse* res) {
 //   - a HEAD response carries its content-length but no body, and a 1xx,
 //     204 or 304 response neither;
 //   - a request body is buffered up to s.max_body bytes (default
-//     HTTP_SERVE_MAX_BODY, 1 MB, as HTTP/1.1), and the bodies of all the
-//     streams of a connection up to s.max_buffered (default H2_MAX_BUFFERED,
+//     HTTP_SERVE_MAX_BODY, 1 MB, as HTTP/1.1), and the bodies and decoded
+//     header lists of all the open streams of a connection up to s.max_buffered (default H2_MAX_BUFFERED,
 //     4 MB); both may be changed after H2Server_init. A request past either
 //     (or whose content-length is past max_body) is answered 413 at once,
 //     without the handler, and its stream is then reset with NO_ERROR
 //     (§8.1), so the peer stops sending it and no credit is given back.
 
 const int H2_MAX_HEADERS   = 64;          // header fields decoded per request
+const int H2_MAX_HEADER_LIST = 65536;     // decoded header list per request (SETTINGS_MAX_HEADER_LIST_SIZE)
 const int H2_MAX_STREAMS   = 128;         // concurrent streams (advertised)
 const int H2_MAX_BLOCK     = 262144;      // largest header block buffered (HEADERS + CONTINUATION)
 const int H2_RECV_WINDOW   = 65535;       // our receive window (the protocol default)
@@ -406,6 +409,7 @@ void H2Server_init(H2Server* s, int fd) {
     H2Conn_init(&s.conn, fd);
     s.conn.local.enable_push = 0;                     // a server MUST NOT set ENABLE_PUSH=1 (§6.5.2)
     s.conn.local.max_concurrent_streams = H2_MAX_STREAMS;
+    s.conn.local.max_header_list_size = H2_MAX_HEADER_LIST;
     s.dec.init(4096);
     s.harr = alloc<HpackHeader>(H2_MAX_HEADERS);
     s.slots = alloc<H2Slot>(H2_MAX_STREAMS);          // zeroed: every slot free
@@ -558,12 +562,21 @@ void H2Server_too_large(H2Slot* sl) {
     sl.state = H2S_READY;
 }
 
-// Request body bytes buffered by the connection's streams.
+// Request bytes buffered by the connection's streams: the bodies and the
+// decoded header blocks of the requests still arriving.
 int64 H2Server_buffered(H2Server* s) {
     int64 total = 0;
     for (i in 0..H2_MAX_STREAMS) {
-        if (s.slots[i].state == H2S_RECEIVING) { total += s.slots[i].req.body.len; }
+        if (s.slots[i].state == H2S_RECEIVING) { total += s.slots[i].req.body.len + s.slots[i].req.headers.len; }
     }
+    return total;
+}
+
+// The size of a decoded header list as SETTINGS_MAX_HEADER_LIST_SIZE counts
+// it (RFC 9113 §6.5.2): each field's name and value plus 32 bytes.
+int64 h2_header_list_size(HpackHeader* hs, int64 n) {
+    int64 total = 0;
+    for (int64 i = 0; i < n; i++) { total += (int64)hs[i].nlen + (int64)hs[i].vlen + 32; }
     return total;
 }
 
@@ -638,8 +651,13 @@ void H2Server_headers_done(H2Server* s, int sid, int end_stream) {
     sl.early = 0;
     sl.req.init();
     sl.state = H2S_RECEIVING;
-    if (nh == -2) {
-        sl.bad = 431;                                  // Request Header Fields Too Large
+    // Request Header Fields Too Large: more than H2_MAX_HEADERS fields, a list
+    // past H2_MAX_HEADER_LIST, or one the connection's buffer has no room
+    // for. The fields are not kept (a few bytes of HPACK can decode to a
+    // large list: a dynamic-table entry referenced many times).
+    const int64 hl = nh < 0 ? 0 : h2_header_list_size(s.harr, nh);
+    if (nh == -2 || hl > H2_MAX_HEADER_LIST || H2Server_buffered(s) + hl > s.max_buffered) {
+        sl.bad = 431;
     } else {
         int filled = h2_fill_request(&sl.req, s.harr, nh);
         if (filled == 0) {

@@ -410,6 +410,7 @@ when you add a test.
 | `http_chunk_line_split` | `HTTP_CHUNK_LINE_MAX` also holds for a complete chunk-size or trailer line: a 9000-byte chunk extension is 400 in one read, in small reads and in `HttpRequest_parse_status` (only an unfinished line was checked, so the verdict depended on the segmentation) |
 | `http_recv_trailers` | `http_recv` drops the chunked trailer lines it has read (it rescanned the whole trailer section from the last chunk on every read: quadratic CPU); a trailer section over `HTTP_CHUNK_TRAILER_MAX` is 400 |
 | `http_chunk_tiny_chunks` | `HttpConnBuf_feed` drops decoded chunked input, so a 1 MiB body in 1-byte chunks is accepted (the raw-byte limit made it 413) and 1-byte chunks with long extensions keep the buffer small; a trailer section over `HTTP_CHUNK_TRAILER_MAX` is 400 |
+| `http2_header_list_limit` | The HTTP/2 engine answers 431 to a decoded header list over `H2_MAX_HEADER_LIST` (advertised as `SETTINGS_MAX_HEADER_LIST_SIZE`) or past what `s.max_buffered` leaves, without keeping its fields (only the field count was limited: a large dynamic-table entry referenced many times turned 13 KB of HPACK into 34 MB) |
 
 ### `smoke` tests (compile + link + exit 0)
 

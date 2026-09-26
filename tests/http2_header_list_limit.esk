@@ -1,0 +1,95 @@
+// The HTTP/2 engine bounds the decoded header list of a request: at most
+// H2_MAX_HEADER_LIST bytes (as SETTINGS_MAX_HEADER_LIST_SIZE counts them,
+// advertised in our SETTINGS), and the header lists of the open streams count
+// toward s.max_buffered with their bodies. A request past either is answered
+// 431 without its fields being kept. Only the field count was limited, so one
+// 4000-byte dynamic-table entry referenced 61 times per stream turned 13 KB of
+// HPACK into 34 MB of decoded headers over 128 streams.
+import <http2_server>;
+extern int printf(string fmt, ...);
+
+int calls = 0;
+
+void handler(HttpRequest* req, HttpResponse* res) {
+    calls++;
+    HttpResponse_set_body(res, "ok\n");
+}
+
+void dump(H2Server* s, HpackDecoder* d) {
+    let hs: HpackHeader[8];
+    int64 o = 0;
+    while (o + 9 <= s.outlen) {
+        let f: H2Frame;  h2_read_header(s.out + o, &f);
+        if (f.type == H2_HEADERS) {
+            const int n = hpack_decode(d, s.out + o + 9, f.length, &hs[0], 8);
+            for (i in 0..n) {
+                if (h2_name_eq(&hs[i], ":status") != 0) {
+                    printf("  stream %d status %.*s\n", f.stream_id, hs[i].vlen, hs[i].value);
+                }
+            }
+        }
+        if (f.type == H2_RST_STREAM) { printf("  stream %d rst %lld\n", f.stream_id, h2_get_u32(s.out + o + 9, 0)); }
+        if (f.type == H2_GOAWAY) { printf("  goaway %lld\n", h2_get_u32(s.out + o + 9, 4)); }
+        o += 9 + f.length;
+    }
+    s.outlen = 0;
+}
+
+void feed(H2Server* s, int type, int flags, int sid, *uint8 p, int len) {
+    let h: H2Frame;  h.type = type;  h.flags = flags;  h.stream_id = sid;  h.length = len;
+    H2Server_step(s, &h, p, handler);
+}
+
+// GET / (static-table entries) and then `refs` references to dynamic entry 62.
+int get_refs(*uint8 p, int refs) {
+    int off = 0;
+    p[off++] = (uint8)0x82;  p[off++] = (uint8)0x86;  p[off++] = (uint8)0x84;
+    for (i in 0..refs) { p[off++] = (uint8)0xBE; }
+    return off;
+}
+
+int main() {
+    H2Server* s = alloc<H2Server>(1);
+    H2Server_init(s, -1);
+    let d: HpackDecoder;  d.init(4096);
+    *uint8 p = alloc<uint8>(16384);
+    // Our SETTINGS advertise the limit.
+    let f: H2Frame;  h2_read_header(s.out, &f);
+    for (int o = 0; o + 6 <= f.length; o += 6) {
+        const int id = ((int)s.out[9 + o] << 8) | (int)s.out[10 + o];
+        if (id == H2_SETTINGS_MAX_HEADER_LIST_SIZE) { printf("advertised max header list %lld\n", h2_get_u32(s.out, 11 + o)); }
+    }
+    feed(s, H2_SETTINGS, 0, 0, p, 0);
+    s.outlen = 0;
+
+    // Stream 1 inserts a 4000-byte field `x` into the dynamic table: fine.
+    int off = get_refs(p, 0);
+    p[off++] = (uint8)0x40;  p[off++] = (uint8)1;  p[off++] = 'x';
+    p[off++] = (uint8)0x7f;  p[off++] = (uint8)0xA1;  p[off++] = (uint8)0x1E;   // length 127 + 3873 = 4000
+    for (i in 0..4000) { p[off++] = 'v'; }
+    feed(s, H2_HEADERS, 5, 1, p, off);
+    printf("one reference:\n");
+    dump(s, &d);
+    // Stream 3 references it 61 times: a 246 KB list, 431.
+    feed(s, H2_HEADERS, 5, 3, p, get_refs(p, 61));
+    printf("61 references:\n");
+    dump(s, &d);
+
+    // 15 references (60 KB each, under the per-request limit) on streams that
+    // stay open: the connection keeps what s.max_buffered allows, the rest 431.
+    for (int k = 0; k < 120; k++) { feed(s, H2_HEADERS, 4, 5 + 2 * k, p, get_refs(p, 15)); }
+    int open = 0;  int refused = 0;  int64 held = 0;
+    for (i in 0..H2_MAX_STREAMS) {
+        if (s.slots[i].state != H2S_RECEIVING) { continue; }
+        open++;
+        if (s.slots[i].bad == 431) { refused++; }
+        held += s.slots[i].req.headers.len;
+    }
+    printf("open %d, 431 %d, header bytes bounded: %s\n", open, refused, held <= s.max_buffered ? "yes" : "no");
+    printf("handler calls %d\n", calls);
+    H2Server_free(s);
+    free((*void)s);
+    d.free();
+    free((*void)p);
+    return 0;
+}
